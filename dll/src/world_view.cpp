@@ -1218,6 +1218,7 @@ void WorldView::UpdateCamera() {
             viewActive_ = false;
             camera_.SetOrientation(0.0f, classicPitch_);
             camera_.SetFovY(classicFov_);
+            camera_.SetRoll(0.0f);
         }
         g_viewActive = false;
         SetHiddenObjects(nullptr, nullptr);
