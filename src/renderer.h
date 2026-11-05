@@ -192,7 +192,6 @@ private:
     DWORD cullMode_ = D3DCULL_CCW;
     size_t warmCursor_ = 0;   // next tile texture to upload ahead of use (WarmTileTextures)
     int hdTiles_ = 0;
-    int sealTile_ = -1;   // diagnostic: the seal batch's tile slot
     int hdDdsTiles_ = 0;
     int hdFailed_ = 0;
     bool hdFailLogged_ = false;

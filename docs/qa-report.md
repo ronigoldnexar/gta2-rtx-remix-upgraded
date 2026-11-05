@@ -71,12 +71,19 @@ person, Downtown plaza and carriageway: `present` 0.0 ms, `wait` 29-30 ms in
 `qa_drv_nosky`, `qa_drv_nofog`, `qa_long`. The CPU side stays small (game 2-4 ms, world
 0.8 ms, sprites 1-2 ms), so the time is the software rasteriser's. It is the same with the
 3D car models off, with the sky off and with the fog pushed out, so none of those is the cause.
-The recording `deliverables/gta2_linux_driving.mp4` (build of 18:56) drove at the cap
-(`present` 0.2 ms), so the cost came in with the later changes; the bisect runs on the
-19:44 commit (`qa_drv_a89`: CPU-bound in the sprite stage instead, 150 ms, a different problem
-of that older code) and the 20:09 commit (`qa_drv_67e`, result in `out/qa_drv_67e/gta2dx9.log`
-if it finished after this report) narrow it. On a real GPU these numbers do not apply; the
-user's own machine should be measured before concluding anything about real-time play.
+The recording `deliverables/gta2_linux_driving.mp4` (build of 18:56, before the car-body
+work) drove at the cap (`present` 0.2 ms). The bisect runs of the same driving scenario on the
+19:44 commit (`qa_drv_a89`) and the 20:09 commit (`qa_drv_67e`) are also slow, there as CPU
+time in the live-geometry pass (`sprites` 130-157 ms per frame; the hitch split names the
+per-sprite `loop` and `cars` stages, i.e. `RaiseCarBody`/`car_bodies.cpp` building and
+measuring car artwork while traffic streams past), and in the current build the same cost has
+moved to `present` (buffer uploads deferred by the driver). So the regression came in with
+the car-body pipeline between 18:56 and 19:44 and is independent of the `car_models3d`
+switch (the sprite-built fallback path pays it too). Owner: the cars stream
+(`dll/src/car_bodies.cpp`, `RaiseCarBody`). Suggested check: how many car bodies are built or
+measured per frame while driving (`Measured` reads the artwork back with `LockRect`, a
+pipeline stall on this driver), and whether the cache key changes every frame for moving
+traffic. On a real GPU the readback is cheaper, but the per-frame rebuilds would still cost.
 
 ### Also noticed
 

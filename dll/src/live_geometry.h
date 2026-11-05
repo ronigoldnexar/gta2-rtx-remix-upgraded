@@ -71,9 +71,6 @@ enum GhostSwitch {
     kGhostSwitchCount
 };
 void SetGhostSwitch(int which, bool on);
-// Temporary diagnostic: bit mask from the GTA2DX9_SKIP environment variable (1 whole live draw,
-// 2 sprite quads, 4 cars, 8 props, 16 map objects, 32 pedestrians, 64 skids/domes/rest).
-int DebugSkipMask();
 
 // The chase and first-person views (see view_modes.h).
 //

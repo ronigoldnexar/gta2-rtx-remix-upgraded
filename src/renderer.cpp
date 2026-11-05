@@ -457,7 +457,6 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     // slots past the end for the seal under the world and the riverbed, which
     // have no tile of their own - see SealTileIndex and RiverbedTileIndex.
     const int sealTile = SealTileIndex(style);
-    sealTile_ = sealTile;
     const int riverbedTile = RiverbedTileIndex(style);
     textures_.assign(static_cast<size_t>(riverbedTile) + 1, nullptr);
     warmCursor_ = 0;
@@ -799,9 +798,7 @@ bool Renderer::BeginFrame() {
     // and everything else is meant to be the colour the screen was cleared to.
     // Vid_ClearScreen(ctx, 0,0,0,0,0, 640,480) is the game saying so; the video
     // proxy no longer forwards it, so this is the only clear left.
-    static int voidTestClear = -1;
-    if (voidTestClear < 0) { char buf[16] = {}; voidTestClear = GetEnvironmentVariableA("GTA2DX9_VOIDTEST", buf, sizeof buf) ? atoi(buf) : 0; }
-    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, (voidTestClear & 32) ? D3DCOLOR_XRGB(255, 0, 255) : D3DCOLOR_XRGB(0, 0, 0), 1.0f,
+    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f,
                    0);
     return SUCCEEDED(device_->BeginScene());
 }
@@ -818,22 +815,10 @@ void Renderer::DrawWorld(const Camera& camera) {
     if (!device_ || !vertexBuffer_) return;
 
     ApplyFixedFunctionState();
-    // Temporary diagnostic switches (GTA2DX9_VOIDTEST env): 1 cull none, 2 z always,
-    // 4 no fog/sun, 8 near plane 0.3, 16 wireframe.
-    static int voidTest = -1;
-    if (voidTest < 0) { char buf[16] = {}; voidTest = GetEnvironmentVariableA("GTA2DX9_VOIDTEST", buf, sizeof buf) ? atoi(buf) : 0; }
     SetMatrix(device_, D3DTS_WORLD, Identity());
     SetMatrix(device_, D3DTS_VIEW, camera.ViewMatrix());
-    if (voidTest & 8) {
-        SetMatrix(device_, D3DTS_PROJECTION,
-                  PerspectiveFovLH(camera.FovY(), static_cast<float>(width_) / static_cast<float>(height_), 0.3f, 2000.0f));
-    } else {
-        SetMatrix(device_, D3DTS_PROJECTION,
-                  camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)));
-    }
-    if (voidTest & 1) device_->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-    if (voidTest & 2) device_->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
-    if (voidTest & 16) device_->SetRenderState(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
+    SetMatrix(device_, D3DTS_PROJECTION,
+              camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)));
 
     device_->SetFVF(kWorldFvf);
     device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex));
@@ -841,7 +826,7 @@ void Renderer::DrawWorld(const Camera& camera) {
 
     // The street views' atmosphere. Fog stays on for the live geometry that
     // follows (EndWorldShading turns it off); the sun light is this pass only.
-    if (shading_.fog && !(voidTest & 4)) {
+    if (shading_.fog) {
         const auto bits = [](float v) { DWORD d; memcpy(&d, &v, sizeof d); return d; };
         device_->SetRenderState(D3DRS_FOGENABLE, TRUE);
         device_->SetRenderState(D3DRS_FOGCOLOR, D3DCOLOR_XRGB(static_cast<int>(shading_.fogColour.x * 255.0f + 0.5f),
@@ -855,7 +840,7 @@ void Renderer::DrawWorld(const Camera& camera) {
     } else {
         device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
     }
-    if (shading_.sun && !(voidTest & 4)) {
+    if (shading_.sun) {
         D3DLIGHT9 sun = {};
         sun.Type = D3DLIGHT_DIRECTIONAL;
         sun.Diffuse.r = shading_.sunColour.x;
@@ -894,7 +879,6 @@ void Renderer::DrawWorld(const Camera& camera) {
     device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
 
     for (const TileBatch& batch : batches_) {
-        if ((voidTest & 64) && batch.tile == sealTile_) continue;
         if (batch.needsAlphaTest != alphaTestEnabled) {
             alphaTestEnabled = batch.needsAlphaTest;
             const bool blending = g_alphaMode == AlphaMode::Blend;
@@ -917,8 +901,6 @@ void Renderer::DrawWorld(const Camera& camera) {
         stats_.triangles += static_cast<int>(batch.indexCount / 3);
     }
     if (doubleSided) device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
-    if (voidTest & 2) device_->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
-    if (voidTest & 16) device_->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
     if (shading_.sun) {
         device_->LightEnable(0, FALSE);
         device_->SetRenderState(D3DRS_LIGHTING, FALSE);
@@ -966,9 +948,6 @@ int Renderer::WarmTileTextures(int perFrame) {
 void Renderer::DrawSky(const Camera& camera, const SkySettings& settings, const SkyColours& colours, float blend,
                        double seconds) {
     if (!device_ || !vertexBuffer_ || blend <= 0.0f) return;
-    static int voidTestSky = -1;
-    if (voidTestSky < 0) { char buf[16] = {}; voidTestSky = GetEnvironmentVariableA("GTA2DX9_VOIDTEST", buf, sizeof buf) ? atoi(buf) : 0; }
-    if (voidTestSky & 32) return;
     sky_.Draw(device_, camera, static_cast<float>(width_) / static_cast<float>(height_), settings, colours, blend,
               seconds);
     stats_.drawCalls += 3;

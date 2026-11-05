@@ -1,7 +1,9 @@
 #include "world_mesh.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <utility>
 
 namespace gta2 {
@@ -203,6 +205,21 @@ public:
         static const std::array<Uv, 4> kUv = {{{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f},
                                               {0.0f, 1.0f}}};
         AddPlainQuad(SealTileIndex(style_), corners, normal, kUv);
+    }
+
+    // One cell of ground where the map stores no block: the top of a column's
+    // implicit solid base (see AddImplicitFloors), textured like a neighbour.
+    void AddFloorQuad(int tile, const std::array<Vec3, 4>& corners) {
+        static const std::array<Uv, 4> kUv = {{{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f},
+                                              {0.0f, 1.0f}}};
+        AddPlainQuad(tile, corners, {0.0f, 1.0f, 0.0f}, kUv);
+    }
+
+    // One level of the side of that base, where a neighbour's base is lower.
+    void AddSideQuad(int tile, const std::array<Vec3, 4>& corners, Vec3 normal) {
+        static const std::array<Uv, 4> kUv = {{{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f},
+                                              {0.0f, 1.0f}}};
+        AddPlainQuad(tile, corners, normal, kUv);
     }
 
     // One cell of riverbed, face up. Its coordinates come from the world, one
@@ -1051,6 +1068,104 @@ void AddRiverbed(MeshBuilder* builder, const Map& map, const Style& style, float
 }
 }  // namespace
 
+namespace {
+// The ground under arches, gates, arcades and porches.
+//
+// A column's `offset` blocks are not stored in the map: GTA2 only ever looked
+// down on the city, and whatever lies under a column's first stored block is
+// never seen from above, so the engine keeps it as implicit solid ground (the
+// player walks through the Avalon gate at street level, over a column whose
+// first stored block is the air under the arch). From a street-level camera
+// that ground is in plain view, and without a quad for it the seal showed
+// through: a fog- or sky-coloured hole in the pavement beside every gateway.
+// So where a column's first stored block has no lid of its own, its base is
+// closed with a flat quad at the offset height, textured with the lid a
+// neighbouring column shows at that same height (the pavement runs on under
+// the arch), nearest first; and where a neighbouring column's base is lower,
+// the exposed side of the base gets the wall tile the column shows on that
+// side higher up. Every such column in the shipped maps has a lid higher up,
+// so the top-down view is unchanged: the roof still hides all of it.
+int NeighbourLidTile(const Map& map, int x, int y, int level) {
+    // A flat lid at exactly this height, nearest first; failing that (a step
+    // inside a porch, say) the lowest flat lid of the nearest column at any
+    // height, so a step is at least paved like the ground beside it.
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int radius = 1; radius <= 3; ++radius) {
+            for (int dy = -radius; dy <= radius; ++dy) {
+                for (int dx = -radius; dx <= radius; ++dx) {
+                    if ((std::max)(std::abs(dx), std::abs(dy)) != radius) continue;
+                    const int cx = x + dx, cy = y + dy;
+                    if (cx < 0 || cy < 0 || cx >= kMapWidth || cy >= kMapHeight) continue;
+                    const Column& column = map.ColumnAt(cx, cy);
+                    for (size_t i = 0; i < column.blocks.size(); ++i) {
+                        if (pass == 0 && column.offset + static_cast<int>(i) != level - 1) continue;
+                        const uint32_t index = column.blocks[i];
+                        if (index >= map.BlockCount()) continue;
+                        const Block& block = map.BlockAt(index);
+                        if (!block.lid || block.SlopeType() != 0 || block.lid.IsFlat()) continue;
+                        return block.lid.Tile();
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+// The side of a column's implicit base, where a neighbouring column's base is
+// lower: the first face the column shows on that side higher up (the parapet
+// wall continues down), else the floor tile.
+int ImplicitSideTile(const Map& map, const Column& column, int side, int floorTile) {
+    for (uint32_t index : column.blocks) {
+        if (index >= map.BlockCount()) continue;
+        const Block& block = map.BlockAt(index);
+        const Face& face = side == 0 ? block.left : side == 1 ? block.right : side == 2 ? block.top : block.bottom;
+        if (face) return face.Tile();
+    }
+    return floorTile;
+}
+
+void AddImplicitFloors(MeshBuilder* builder, const Map& map) {
+    static const int kSideDx[4] = {-1, 1, 0, 0};   // left, right, top (north), bottom (south)
+    static const int kSideDy[4] = {0, 0, -1, 1};
+    for (int y = 0; y < kMapHeight; ++y) {
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            if (column.offset == 0 || column.blocks.empty()) continue;
+            const uint32_t first = column.blocks[0];
+            if (first >= map.BlockCount()) continue;
+            const int floorTile = NeighbourLidTile(map, x, y, column.offset);
+            const float h = static_cast<float>(column.offset);
+            const float xWest = static_cast<float>(x), xEast = xWest + 1.0f;
+            const float zSouth = static_cast<float>(kMapHeight - y - 1), zNorth = zSouth + 1.0f;
+            if (!map.BlockAt(first).lid && floorTile != 0) {
+                builder->AddFloorQuad(floorTile, {{{xWest, h, zNorth}, {xEast, h, zNorth}, {xEast, h, zSouth}, {xWest, h, zSouth}}});
+            }
+            for (int side = 0; side < 4; ++side) {
+                const int nx = x + kSideDx[side], ny = y + kSideDy[side];
+                if (nx < 0 || ny < 0 || nx >= kMapWidth || ny >= kMapHeight) continue;
+                const int low = map.ColumnAt(nx, ny).offset;
+                if (low >= column.offset) continue;
+                const int tile = ImplicitSideTile(map, column, side, floorTile);
+                if (tile == 0) continue;
+                for (int level = low; level < column.offset; ++level) {
+                    const float y0 = static_cast<float>(level), y1 = y0 + 1.0f;
+                    std::array<Vec3, 4> corners;
+                    Vec3 normal;
+                    switch (side) {
+                        case 0: corners = {{{xWest, y1, zNorth}, {xWest, y1, zSouth}, {xWest, y0, zSouth}, {xWest, y0, zNorth}}}; normal = {-1.0f, 0.0f, 0.0f}; break;
+                        case 1: corners = {{{xEast, y1, zSouth}, {xEast, y1, zNorth}, {xEast, y0, zNorth}, {xEast, y0, zSouth}}}; normal = {1.0f, 0.0f, 0.0f}; break;
+                        case 2: corners = {{{xEast, y1, zNorth}, {xWest, y1, zNorth}, {xWest, y0, zNorth}, {xEast, y0, zNorth}}}; normal = {0.0f, 0.0f, 1.0f}; break;
+                        default: corners = {{{xWest, y1, zSouth}, {xEast, y1, zSouth}, {xEast, y0, zSouth}, {xWest, y0, zSouth}}}; normal = {0.0f, 0.0f, -1.0f}; break;
+                    }
+                    builder->AddSideQuad(tile, corners, normal);
+                }
+            }
+        }
+    }
+}
+}  // namespace
+
 void SetRiverbedDepth(float blocks) {
     // Above the seal, which is kSealDepth below level 0 - a sea-level bed any
     // deeper would sit under it.
@@ -1087,6 +1202,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
             }
         }
     }
+    AddImplicitFloors(&builder, map);
     if (g_riverbedDepth > 0.0f) AddRiverbed(&builder, map, style, g_riverbedDepth);
     if (g_seal) {
         // One quad, face up, below everything and reaching well past the map on

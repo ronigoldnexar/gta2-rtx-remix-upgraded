@@ -1726,7 +1726,7 @@ void WorldView::RenderFrame() {
         QueryPerformanceCounter(&stamp[2]);
         // Sprites and the captured block shapes are real world geometry, so they
         // are depth tested against the static mesh rather than painted over it.
-        if (!(DebugSkipMask() & 1)) live_.Draw(renderer_.Device(), camera_, renderer_.Width(), renderer_.Height());
+        live_.Draw(renderer_.Device(), camera_, renderer_.Width(), renderer_.Height());
         renderer_.EndWorldShading();
         QueryPerformanceCounter(&stamp[3]);
         // The 2D stream goes into a layer that is kept between frames, because

@@ -273,11 +273,6 @@ gta2::Mat4 FitModel(const Model& model, const LiveGeometry::Vertex* local, int c
     return out;
 }
 }  // namespace
-int DebugSkipMask() {
-    static int mask = -1;
-    if (mask < 0) { char buf[16] = {}; mask = GetEnvironmentVariableA("GTA2DX9_SKIP", buf, sizeof buf) ? atoi(buf) : 0; }
-    return mask;
-}
 void SetGhostSwitch(int which, bool on) {
     if (which >= 0 && which < kGhostSwitchCount) g_ghostSwitch[which] = on;
 }
@@ -1257,19 +1252,6 @@ void NoteSkidStrip(const LiveGeometry::SpriteType& s, IDirect3DTexture9* source,
                 ++it;
             }
         }
-    }
-    if ((g_skidGhosts.size() % 50) == 0) {
-        float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
-        for (int c = 0; c < s.corners && c < 4; ++c) {
-            const float(*m)[4] = s.objectToWorld.m;
-            const float w[3] = {s.local[c].x * m[0][0] + s.local[c].y * m[1][0] + s.local[c].z * m[2][0] + m[3][0],
-                                s.local[c].x * m[0][1] + s.local[c].y * m[1][1] + s.local[c].z * m[2][1] + m[3][1],
-                                s.local[c].x * m[0][2] + s.local[c].y * m[1][2] + s.local[c].z * m[2][2] + m[3][2]};
-            for (int k = 0; k < 3; ++k) { lo[k] = (std::min)(lo[k], w[k]); hi[k] = (std::max)(hi[k], w[k]); }
-        }
-        Log("skid ghost #%d: at %.2f %.2f %.2f corners x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f ped=%d",
-            static_cast<int>(g_skidGhosts.size()), s.objectToWorld.m[3][0], s.objectToWorld.m[3][1], s.objectToWorld.m[3][2],
-            lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], s.pedestrian ? 1 : 0);
     }
     SkidGhost ghost;
     ghost.sprite = s;
@@ -6842,22 +6824,6 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
     }
 
-    if ((g_carFrame & 127) == 0 && (!skidBatches.empty() || !skids.empty())) {
-        float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
-        size_t quads = 0;
-        for (const SkidBatchDraw& b : skidBatches) {
-            quads += b.idx.size() / 6;
-            for (const Vertex& v : b.verts) {
-                lo[0] = (std::min)(lo[0], v.x); hi[0] = (std::max)(hi[0], v.x);
-                lo[1] = (std::min)(lo[1], v.y); hi[1] = (std::max)(hi[1], v.y);
-                lo[2] = (std::min)(lo[2], v.z); hi[2] = (std::max)(hi[2], v.z);
-            }
-        }
-        Log("skid diag: ghosts=%d batches=%d quads=%d live=%d bounds x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f eye %.2f %.2f %.2f",
-            static_cast<int>(g_skidGhosts.size()), static_cast<int>(skidBatches.size()), static_cast<int>(quads),
-            static_cast<int>(skids.size()), lo[0], hi[0], lo[1], hi[1], lo[2], hi[2],
-            lastEye_.x, lastEye_.y, lastEye_.z);
-    }
     stageTimer.Mark();   // 2: remembered skid strips
     // Two triangles from four corners, the same two every time. Indexed rather
     // than a six-vertex list so the index buffer is part of the topological hash
@@ -7107,18 +7073,18 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         plain.swap(rest);
     }
 
-    if (!(DebugSkipMask() & 2)) issue(plain);
+    issue(plain);
     stageTimer.Mark();   // 3: the game's own quads issued
-    if (g_groundModels && !(DebugSkipMask() & 4)) {
+    if (g_groundModels) {
         DrawCarModels(device);
         CarBodiesDraw(device, carBodies_, g_carFrame, camera.Position());
     }
     stageTimer.Mark();   // 4: cars
-    if (g_groundModels && !(DebugSkipMask() & 8)) DrawProps(device, camera.Position());
+    if (g_groundModels) DrawProps(device, camera.Position());
     stageTimer.Mark();   // 5: props
-    if (g_groundModels && !(DebugSkipMask() & 16)) MapObjectsDraw(device, sprites_);
+    if (g_groundModels) MapObjectsDraw(device, sprites_);
     stageTimer.Mark();   // 6: map objects
-    if (g_pedFigures && !(DebugSkipMask() & 32)) DrawPedFigures(device);
+    if (g_pedFigures) DrawPedFigures(device);
     stageTimer.Mark();   // 7: pedestrians
     // Textures the models will need, created and uploaded a few per frame
     // ahead of their first appearance (see ModelsWarmTextures).
@@ -7131,7 +7097,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     }
 
     // Soft skid marks, translucent, over the road and under everything standing on it.
-    if ((!skids.empty() || !skidBatches.empty()) && !(DebugSkipMask() & 64)) {
+    if (!skids.empty() || !skidBatches.empty()) {
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
         device->SetRenderState(D3DRS_ALPHAREF, 1u);
         device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
@@ -7179,12 +7145,12 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                                                         : static_cast<DWORD>(gta2::GetAlphaRef()));
     }
     // Tyre smoke: spawned above, aged and drawn here.
-    if (!(DebugSkipMask() & 128)) DrawTyreSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    DrawTyreSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     stageTimer.Mark();   // 8: lamps, skids, smoke (closed by the destructor otherwise)
 
     // The domes of the cars just drawn: each the car's own artwork over a rounded
     // grid, so one car is one 81-vertex mesh. Same alpha test as the sprites.
-    if (!shells_.empty() && !(DebugSkipMask() & 256)) {
+    if (!shells_.empty()) {
         static std::vector<uint16_t> domeIndices;
         if (domeIndices.empty()) {
             constexpr int n = kDomeSegments;
@@ -7302,7 +7268,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     }
 
     // Tyres: four dark boxes per car, the front pair turned. See SetCarWheels.
-    if (g_carWheels && !shells_.empty() && !(DebugSkipMask() & 256)) {
+    if (g_carWheels && !shells_.empty()) {
         if (IDirect3DTexture9* rubber = TyreTexture(device)) {
             static std::vector<uint16_t> tyreIndices;
             if (tyreIndices.empty()) {
@@ -7330,7 +7296,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
     }
 
-    if (!effects.empty() && !(DebugSkipMask() & 512)) {
+    if (!effects.empty()) {
         // Additive, which is what this artwork was drawn for: it fades to black
         // on its way out, and black adds nothing. The rim disappears because it
         // stops being painted at all rather than because anything was cut out of
@@ -7383,15 +7349,13 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             }
         }
     }
-    if (!(DebugSkipMask() & 512)) {
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
-    }
     effectQuads_ = static_cast<int>(effects.size());
     g_effectBatches = effectQuads_;
 
-    if (!boarders.empty() && width > 0 && height > 0 && !(DebugSkipMask() & 1024)) {
+    if (!boarders.empty() && width > 0 && height > 0) {
         // How bright the unlit layer is: full by day, dimmed to g_boardingUiNight as the sun
         // goes below the horizon.
         float elevation = 30.0f, rotation = 0.0f;
