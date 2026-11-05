@@ -87,7 +87,7 @@ without Remix.
 
 ## Checking a build without the game
 
-`make check` builds `linux/loadcheck.exe` and runs it under Wine from `stage/`:
+`make check` builds `linux/loadcheck.exe` and `linux/sehcheck.exe` and runs them under Wine. The second proves the GCC stand-in for `__try` catches a real fault and re-arms. The first, run from `stage/`,
 it loads both DLLs the way `gta2.exe` does (`LoadLibrary`, then `GetProcAddress`
 for every name the game resolves), checks that the plugin block covers
 `+0x485E0`, and exits non-zero if anything is missing. The GitHub Actions

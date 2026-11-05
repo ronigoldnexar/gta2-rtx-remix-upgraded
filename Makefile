@@ -66,8 +66,13 @@ linux/build/loadcheck.exe: linux/loadcheck.cpp dll/src/gbh_exports.h
 	@mkdir -p linux/build
 	$(CXX) -std=c++17 -O1 -Idll/src -o $@ $< -static
 
-check: stage linux/build/loadcheck.exe
+linux/build/sehcheck.exe: linux/sehcheck.cpp dll/src/compat.cpp dll/src/compat.h
+	@mkdir -p linux/build
+	$(CXX) -std=c++17 -O2 -Idll/src -o $@ linux/sehcheck.cpp dll/src/compat.cpp -static
+
+check: stage linux/build/loadcheck.exe linux/build/sehcheck.exe
 	cd stage && $(WINE) ../linux/build/loadcheck.exe
+	$(WINE) linux/build/sehcheck.exe
 
 clean:
 	rm -rf dll/build vid/build stage linux/build
