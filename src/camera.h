@@ -23,6 +23,8 @@ public:
     const Vec3& Position() const { return position_; }
     void SetPosition(const Vec3& p) { position_ = p; }
     void SetOrientation(float yaw, float pitch) { yaw_ = yaw; pitch_ = pitch; }
+    float Yaw() const { return yaw_; }
+    float Pitch() const { return pitch_; }
     float FovY() const { return fovY_; }
     void SetFovY(float fov) { fovY_ = fov; }
     // Roll about the view direction, radians, positive leaning right. Only the

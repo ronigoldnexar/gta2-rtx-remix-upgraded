@@ -1,0 +1,271 @@
+{
+ "models": [
+  {
+   "name": "truck-green",
+   "glb": "Starter-Kit-Racing/models/vehicle-truck-green.glb",
+   "scale": 0.5
+  },
+  {
+   "name": "truck-red",
+   "glb": "Starter-Kit-Racing/models/vehicle-truck-red.glb",
+   "scale": 0.5
+  },
+  {
+   "name": "truck-yellow",
+   "glb": "Starter-Kit-Racing/models/vehicle-truck-yellow.glb",
+   "scale": 0.5
+  },
+  {
+   "name": "truck-purple",
+   "glb": "Starter-Kit-Racing/models/vehicle-truck-purple.glb",
+   "scale": 0.5
+  },
+  {
+   "name": "motorcycle",
+   "glb": "Starter-Kit-Racing/models/vehicle-motorcycle.glb",
+   "scale": 0.5
+  },
+  {
+   "name": "character",
+   "glb": "Starter-Kit-3D-Platformer/models/character.glb",
+   "scale": 0.5
+  },
+  {
+   "name": "street_lamp",
+   "glb": "polyhaven/street_lamp_01/street_lamp_01_1k.gltf",
+   "scale": 0.5,
+   "texture_max": 512
+  },
+  {
+   "name": "fire_hydrant",
+   "glb": "polyhaven/fire_hydrant/fire_hydrant_1k.gltf",
+   "scale": 0.5,
+   "texture_max": 512,
+   "nodes_exclude": [
+    "_aged"
+   ]
+  },
+  {
+   "name": "trash_can",
+   "glb": "polyhaven/metal_trash_can/metal_trash_can_1k.gltf",
+   "scale": 0.5,
+   "texture_max": 512,
+   "nodes_exclude": [
+    "_rust"
+   ]
+  },
+  {
+   "name": "bench",
+   "glb": "polyhaven/painted_wooden_bench/painted_wooden_bench_1k.gltf",
+   "scale": 0.5,
+   "texture_max": 512
+  },
+  {
+   "name": "shrub",
+   "glb": "polyhaven/shrub_01/shrub_01_1k.gltf",
+   "scale": 0.5,
+   "texture_max": 512,
+   "max_vertices": 12000
+  },
+  {
+   "name": "human_male",
+   "glb": "humans/rocketbox/Male_Adult_01/Male_Adult_01.glb",
+   "scale": 0.5,
+   "texture_max": 1024,
+   "material_textures": {
+    "m002_body": "humans/rocketbox/Male_Adult_01/m002_body_color.tga",
+    "m002_head": "humans/rocketbox/Male_Adult_01/m002_head_color.tga",
+    "m002_opacity": "humans/rocketbox/Male_Adult_01/m002_opacity_color.tga"
+   },
+   "animations_from": [
+    {
+     "glb": "humans/rocketbox/anim/walk_neutral.glb",
+     "name": "walk",
+     "strip_root": "Bip01"
+    },
+    {
+     "glb": "humans/rocketbox/anim/idle_breathe.glb",
+     "name": "idle",
+     "strip_root": "Bip01"
+    }
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  }
+ ],
+ "cars": {
+  "default": [
+   "truck-green",
+   "truck-red",
+   "truck-yellow",
+   "truck-purple"
+  ]
+ },
+ "pedestrian": "human_male",
+ "props": {
+  "lamp": "street_lamp",
+  "hydrant": "fire_hydrant",
+  "bin": "trash_can",
+  "bench": "bench",
+  "shrub": "shrub"
+ },
+ "imported": [
+  {
+   "name": "truck-green",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 1890,
+   "animations": [],
+   "textures": [
+    "truck-green_0.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "truck-red",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 1664,
+   "animations": [],
+   "textures": [
+    "truck-red_0.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "truck-yellow",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 1681,
+   "animations": [],
+   "textures": [
+    "truck-yellow_0.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "truck-purple",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 1392,
+   "animations": [],
+   "textures": [
+    "truck-purple_0.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "motorcycle",
+   "nodes": 5,
+   "meshes": 4,
+   "vertices": 1786,
+   "animations": [],
+   "textures": [
+    "motorcycle_0.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "character",
+   "nodes": 8,
+   "meshes": 6,
+   "vertices": 1038,
+   "animations": [
+    "static",
+    "idle",
+    "walk",
+    "jump"
+   ],
+   "textures": [
+    "character_0.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "street_lamp",
+   "nodes": 8,
+   "meshes": 8,
+   "vertices": 22522,
+   "animations": [],
+   "textures": [
+    "street_lamp_1.tga",
+    "street_lamp_3.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "fire_hydrant",
+   "nodes": 15,
+   "meshes": 20,
+   "vertices": 55710,
+   "animations": [],
+   "textures": [
+    "fire_hydrant_1.tga",
+    "fire_hydrant_4.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "trash_can",
+   "nodes": 8,
+   "meshes": 8,
+   "vertices": 9282,
+   "animations": [],
+   "textures": [
+    "trash_can_1.tga",
+    "trash_can_4.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "bench",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 677,
+   "animations": [],
+   "textures": [
+    "bench_1.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "shrub",
+   "nodes": 27,
+   "meshes": 27,
+   "vertices": 106961,
+   "animations": [],
+   "textures": [
+    "shrub_1.tga"
+   ],
+   "skins": 0,
+   "forward": ""
+  },
+  {
+   "name": "human_male",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 4697,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_male_m002_body.tga",
+    "human_male_m002_head.tga",
+    "human_male_m002_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z"
+  }
+ ]
+}

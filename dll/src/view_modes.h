@@ -49,7 +49,7 @@ struct ViewModeSettings {
     float tpHeight = 1.25f;         // above it
     float tpLookAhead = 1.2f;       // the point looked at, blocks ahead of the target...
     float tpLookHeight = 0.35f;     // ...and above it
-    float tpFootScale = 0.65f;      // distance and height are scaled by this on foot
+    float tpFootScale = 0.85f;      // distance and height are scaled by this on foot
     float tpFov = 50.0f;            // vertical, degrees
     float tpFollow = 0.25f;         // seconds the camera takes to swing round behind a turn
     float tpReturnDelay = 1.5f;     // seconds after the last mouse input before the orbit returns
@@ -101,6 +101,20 @@ struct ViewModeSettings {
     // (legs and arms swinging with their speed), in place of the top-down sprite.
     // Off leaves the sprites as billboards facing the camera.
     bool groundPedFigures = true;
+    // Imported 3D models (gta2dx9_models\ beside the game, see
+    // tools/import_assets.py) in place of the cars' domes and the pedestrian
+    // figures, in the ground views. Off keeps the domes and the box figures.
+    bool groundModels = true;
+
+    // The move between views. Rather than a cut, the camera travels from where
+    // it is to where the new view wants it - position along an arc that rises
+    // over the city, heading by the shortest turn, pitch, roll and field of
+    // view each eased - over this many seconds (0 cuts). The arc's height is a
+    // fraction of the distance travelled, so a drop from the sky to the street
+    // stays clear of the rooftops on the way, and any point of the path that
+    // would still be inside a building is lifted out of it.
+    float transitionSeconds = 1.4f;
+    float transitionArc = 0.25f;
 
     // For recording a demonstration: this many seconds after a level comes up
     // the view switches by itself to `demoSwitchTo`, as if the key had been

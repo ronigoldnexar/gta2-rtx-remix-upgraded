@@ -68,37 +68,49 @@ GTA2 9.6 with this mod runs under Wine 9 and Wine 10 (both in Docker, on Xvfb, M
 rendering): the opening, the front end, the levels, all three camera views, recorded. See
 `linux/docker/`. `video.py` plays the game by itself from the renderer's log.
 
-## RTX Remix under Wine: the bridge runs, its path tracer does not finish a frame on a CPU driver
+## RTX Remix under Wine: what was found, what is blocked, how to run it on a real GPU
 
-RTX Remix is a Windows runtime. For a 32-bit game it is a bridge: the
-`d3d9.dll` beside the game is a 32-bit client that forwards every call to a
-64-bit server process (`NvRemixBridge.exe`), which does the path tracing in
-Vulkan. People have run that bridge under Proton and Wine with NVIDIA's
-proprietary driver, and the pieces are all ordinary Windows programs, but it has
-not been tried with this mod and nothing in this repository can promise it
-works. If you want to try:
+RTX Remix is a Windows runtime. For a 32-bit game it is a bridge: the `d3d9.dll`
+beside the game is a 32-bit client that forwards every call to a 64-bit server
+process (`NvRemixBridge.exe`), which renders in Vulkan and presents into the
+game's window. Three things stood between it and a frame on this machine, two of
+them solved:
 
-1. Use a **64-bit** prefix with WoW64 (the bridge needs both halves), not the
-   32-bit one `install.sh` makes: `WINEARCH=win64 linux/install.sh ...`.
-2. Unzip the Remix Plus release the README names next to `gta2.exe`, as on
-   Windows, so that its `d3d9.dll` and `.trex\` folder are in the game folder.
-3. NVIDIA's driver, with Vulkan ray tracing (an RTX GPU), and
-   `PROTON_ENABLE_NVAPI=1` or `WINE_HIDE_NVIDIA_GPU=0` depending on the Wine
-   build, so the runtime sees an NVIDIA GPU.
-4. Watch `rtx-remix/logs/` and `gta2dx9.log`: the renderer logs whether it got
-   a Remix API and the bridge logs whether it reached the server.
+1. **Wine refuses the server a surface on the game's window**, because the window
+   belongs to the other process. `linux/docker/foreign-window-vulkan.patch`
+   (one hunk in `winex11.drv`, built by `Dockerfile.wine10-patched`) parents the
+   client window to the owner's published X window instead. Verified: the
+   server creates its device and swap chain on the game's window.
+2. **`vkCreateDeferredOperationKHR` fails on Mesa's lavapipe**, and the runtime
+   treats that as fatal (`[Check failed] ... dxvk_raytracing.cpp:326`, an `int3`
+   in `.trex/d3d9.dll` at image offset `0x3f65db`). `rtx.pipeline.useDeferredOperations = False`
+   does not avoid the call; patching that one byte to `nop` (see
+   `linux/docker/run_game.sh`, `d3d9_trex_patched.dll`) lets it carry on to
+   building the ray tracing pipelines. Verified by the server log.
+3. **lavapipe's JIT-compiled Remix shaders crash** the server's worker threads
+   (kernel log: `NvRemixBridge.e: segfault at 2f0 ip <anonymous> ...` and
+   `ip 0000000000000000`, i.e. null dereferences and null calls inside generated
+   code) about a minute and a half after device creation, with ray queries and
+   with ray tracing pipelines, with one bounce and no denoiser, on Mesa 25.0,
+   25.2 and git main (Nov 2026). This is a limitation of the CPU driver, and the
+   point where this repository stops: **no path-traced frame was produced on
+   this machine**, whose eight B200s expose no Vulkan at all.
 
-If the bridge fails, the renderer carries on without it, as it does on Windows
-without Remix.
+The Remix option set used for the attempts is `linux/docker/rtx.conf.extra`
+(appended to the mod's `rtx.conf`), and `bridge.conf.extra` turns the bridge's
+timeouts off so a slow first frame is not mistaken for a hang.
 
-What was found here: Wine refuses the bridge server a Vulkan surface on the game's
-window because the window belongs to the other (32-bit) process;
-`linux/docker/foreign-window-vulkan.patch` fixes that in `winex11.drv`, and with it
-the server creates its device and swap chain and starts the path tracer. On Mesa's
-lavapipe (the only Vulkan this machine had) the server then dies silently while
-compiling its ray tracing shaders, on Mesa 25.0 and 25.2, with ray queries and with
-ray tracing pipelines. With a real Vulkan GPU driver (NVIDIA's proprietary driver,
-RADV) that step is the one to watch.
+### On a machine with a ray tracing GPU (untested here)
+
+`linux/docker/Dockerfile.remix-gpu` builds on the patched Wine runtime, adds the
+NVIDIA Vulkan ICD and expects the driver's libraries from the container toolkit;
+`linux/docker/run_remix_gpu.sh` runs the game with Remix, presenting to the
+host's own display. Requirements: Linux with Docker and the NVIDIA container
+toolkit, an RTX 20xx or newer with a driver that exposes Vulkan ray tracing
+(535+), or an RDNA2+ AMD card with RADV (`--amd`). Everything that was verified
+on the CPU driver (bridge, surface, device, pipeline building) applies; what a
+real driver changes is only step 3 above. The first run compiles shaders for a
+few minutes.
 
 ## Checking a build without the game
 

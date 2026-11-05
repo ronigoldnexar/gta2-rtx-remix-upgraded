@@ -41,6 +41,7 @@
 #include "cache_warmup.h"
 #include "world_view.h"
 #include "view_modes.h"
+#include "model_store.h"
 #include "compat.h"
 
 using gta2dx9::Log;
@@ -337,6 +338,20 @@ void LoadConfig() {
     // few hundred per session, and it is the only way to find a sprite whose
     // black rim was missed.
     gta2dx9::SetTextureDumping(GetPrivateProfileIntA("renderer", "dump_textures", 1, ini) != 0);
+
+    // High-resolution tiles from gta2dx9_textures_hd\ beside the game (see
+    // tools/upscale_textures.py), and the dump they are made from: dump_tiles=1
+    // writes every tile the world uses to gta2dx9_tiles\ at level load.
+    {
+        char dir[MAX_PATH];
+        PathBesideGame("gta2dx9_textures_hd", dir, sizeof(dir));
+        gta2::SetHdTextureDir(dir);
+        gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 128, ini));
+        if (GetPrivateProfileIntA("renderer", "dump_tiles", 0, ini) != 0) {
+            PathBesideGame("gta2dx9_tiles", dir, sizeof(dir));
+            gta2::SetTileDumpDir(dir);
+        }
+    }
 
     // Our own frame cap, because GTA2's is a checkbox: its pacer waits on a
     // hardcoded 33 ms step and the two registry values only turn that waiting on
@@ -793,6 +808,9 @@ __declspec(dllexport) void __stdcall gbh_InitDLL(void* system) {
         PathBesideGame("gta2dx9_settings.ini", path, sizeof(path));
         gta2dx9::SettingsInit(path);
         gta2dx9::SettingsLoadAll();
+        // The imported 3D models for the ground views. See model_store.h.
+        PathBesideGame("gta2dx9_models", path, sizeof(path));
+        gta2dx9::ModelsLoad(path);
     }
 }
 

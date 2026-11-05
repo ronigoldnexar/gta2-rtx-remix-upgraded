@@ -38,6 +38,23 @@ AlphaMode GetAlphaMode();
 void SetAlphaRef(int ref);   // 1..254, the alpha-test cutoff
 int  GetAlphaRef();
 
+// High-resolution tile artwork. With a folder set, a tile whose
+// `<folder>\tile_NNNN.tga` exists (32-bit uncompressed TGA, any size) is
+// uploaded at that size instead of the game's 64x64; tools/upscale_textures.py
+// makes those on a GPU from a dump. A dump folder set makes UploadWorld write
+// every tile it uses there as tile_NNNN.tga, once per world. Empty disables.
+void SetHdTextureDir(const char* dir);
+void SetTileDumpDir(const char* dir);
+// Tile numbers are per style file (wil.sty, bil.sty, ste.sty), so both folders
+// hold one subfolder per style, named by this: the style file's name without
+// its extension. Set before UploadWorld.
+void SetTileStyleName(const char* name);
+// The largest size a high-resolution tile is uploaded at; larger files are
+// box-filtered down to it on load. 800 tiles at 256x256 cost the game's 32-bit
+// process half a gigabyte of textures, which it does not have; 128 is 2x the
+// game's own and a quarter of that.
+void SetHdTileMaxSize(int size);
+
 class Renderer {
 public:
     ~Renderer();
@@ -61,6 +78,8 @@ public:
     int TileTextureCount() const { return static_cast<int>(textures_.size()); }
 
     bool HasWorld() const { return vertexBuffer_ != nullptr; }
+    // How many tiles of the current world came from the high-resolution folder.
+    int HdTileCount() const { return hdTiles_; }
 
     // Drop the level's geometry without touching the device, the window or the
     // tile textures. The game frees its map when it returns to the menu, and
@@ -136,6 +155,7 @@ private:
     int deviceAttempts_ = 0;  // Initialize is retried until the device takes
     bool wireframe_ = false;
     DWORD cullMode_ = D3DCULL_CCW;
+    int hdTiles_ = 0;
     RenderStats stats_;
 };
 

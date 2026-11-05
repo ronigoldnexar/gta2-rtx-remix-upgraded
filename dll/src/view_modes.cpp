@@ -107,14 +107,33 @@ float g_nearPedNowDist = 1e9f;
 const void* g_nearPed = nullptr;
 float g_nearPedDist = 1e9f;
 
+// A pedestrian by his links alone, standing within a few tiles of the game's
+// camera: what a scan falls back to when no candidate passes the full
+// signature, which the player's new body fails for a while after an arrest
+// or a death.
+bool PedLinkedNearCamera(uintptr_t ped) {
+    if (!PedStillLinked(ped)) return false;
+    uintptr_t physics = 0, sprite = 0;
+    if (!ReadAt(ped + game::kPedPhysics, &physics) || !ReadAt(physics + game::kPhysicsSprite, &sprite) || !Plausible(sprite)) {
+        return false;
+    }
+    int32_t fx = 0, fy = 0;
+    if (!ReadAt(sprite + game::kPlaceX, &fx) || !ReadAt(sprite + game::kPlaceY, &fy)) return false;
+    float camX = 0.0f, camY = 0.0f;
+    if (!game::CameraPosition(&camX, &camY)) return false;
+    return std::hypot(fx * game::kFixedScale - camX, fy * game::kFixedScale - camY) < 4.0f;
+}
+
 uintptr_t ScanForPed(uintptr_t base, uintptr_t bytes, uintptr_t* offsetOut) {
-    for (uintptr_t offset = 0; offset < bytes; offset += sizeof(uintptr_t)) {
-        uintptr_t candidate = 0;
-        if (!ReadAt(base + offset, &candidate)) continue;
-        if (candidate == base) continue;
-        if (PedSignature(candidate)) {
-            *offsetOut = offset;
-            return candidate;
+    for (int pass = 0; pass < 2; ++pass) {
+        for (uintptr_t offset = 0; offset < bytes; offset += sizeof(uintptr_t)) {
+            uintptr_t candidate = 0;
+            if (!ReadAt(base + offset, &candidate)) continue;
+            if (candidate == base) continue;
+            if (pass == 0 ? PedSignature(candidate) : PedLinkedNearCamera(candidate)) {
+                *offsetOut = offset;
+                return candidate;
+            }
         }
     }
     return 0;
@@ -320,6 +339,7 @@ bool LocatePlayer(PlayerState* out) {
             Log("view: the remembered player slot (%s +0x%02X) no longer holds a pedestrian; looking again",
                 g_slot == Slot::Camera ? "camera" : "player object", static_cast<unsigned>(g_slotOffset));
         }
+        if (g_slot != Slot::None) g_scanCooldown = 0;   // he was there a moment ago: look now
     }
     if (!ped && --g_scanCooldown <= 0) {
         g_scanCooldown = kScanEveryFrames;
@@ -752,7 +772,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // than that the camera is inside his own figure.
         const gta2::Vec3 span = desired - pivot;
         const float spanLength = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
-        reach = (std::max)(reach, spanLength > 1e-3f ? (std::min)(1.0f, 1.1f / spanLength) : 1.0f);
+        reach = (std::max)(reach, spanLength > 1e-3f ? (std::min)(1.0f, 1.4f / spanLength) : 1.0f);
         desired = pivot + (desired - pivot) * reach;
     }
     // And never under the floor it is over.

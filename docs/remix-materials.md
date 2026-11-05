@@ -1,0 +1,124 @@
+# RTX Remix materials for the world tiles (Linux build)
+
+This note records what NVIDIA offers for turning GTA2's 64x64 tiles into PBR
+materials, why none of it runs on this Linux/B200 machine, and what
+`tools/remix_materials.py` produces instead: a complete Remix material layer,
+`package/rtx-remix/mods/gta2hd`, built from the same inputs the Toolkit would
+use and in the formats the runtime reads directly. It has **not** been rendered
+under Remix: the runtime needs an RTX GPU with a Vulkan ray-tracing driver, and
+this machine's B200s expose no Vulkan graphics, and the CPU Vulkan driver
+(lavapipe) crashes inside the runtime's ray-tracing pipeline creation (the
+Remix stream's report has the details). Everything else below is verified on disk.
+
+## 1. What NVIDIA provides, and where it runs
+
+| Piece | What it does | Where it runs | Source |
+|---|---|---|---|
+| RTX Remix Runtime (dxvk-remix + bridge) | Replaces the game's D3D9 renderer with a path tracer; swaps textures and materials by hash at draw time | Windows 10/11, "any RTX GPU", RTX 4070 recommended; runs under Wine/Proton with the bridge (this project's `gta2-wine` image), but the path tracer needs hardware Vulkan ray tracing | [Requirements](https://docs.omniverse.nvidia.com/kit/docs/rtx_remix/latest/docs/introduction/intro-requirements.html) |
+| RTX Remix Toolkit | Omniverse Kit application: capture import, material editing, asset ingestion, packaging | Windows only (Omniverse Kit app; the requirements page lists Windows 10/11 and no Linux build) | same page |
+| **AI Texture Tools** | Upscaling, PBR map generation (normal, roughness, metallic), style transfer, mesh processing | Inside the Toolkit, executed by **ComfyUI** through the "RTX Remix Node Pack"; ComfyUI needs an NVIDIA GPU with 8 GB VRAM or more (12 GB recommended) and may run on a separate machine, "e.g. a dedicated GPU server"; template workflows download models from Hugging Face on first run | [Using AI Tools](https://docs.omniverse.nvidia.com/kit/docs/rtx_remix/latest/docs/howto/learning-aitools.html) |
+| Ingestion (GUI and `lightspeed.app.trex.ingestcraft.cli.bat`) | Converts PNG/JPG/DDS/EXR/... into the runtime's `.rtex.dds` files with full mip chains and writes the USD material layer | Part of the Toolkit install, so Windows | [Ingesting Assets](https://docs.omniverse.nvidia.com/kit/docs/rtx_remix/latest/docs/howto/learning-ingestion.html) |
+| Material replacement | A USD layer that overrides `/RootNode/Looks/mat_<hash>/Shader` with an `AperturePBR_Opacity` or `AperturePBR_Translucent` MDL and texture inputs; hashes come from rendering the textures in a test level and capturing | Edited in the Toolkit or by hand in `.usda` | [Materials](https://docs.omniverse.nvidia.com/kit/docs/rtx_remix/latest/docs/howto/learning-materials.html) |
+
+Conclusion for this machine: the only NVIDIA piece that could run here is
+ComfyUI as the AI Texture Tools' remote backend (the Toolkit would still sit on a
+Windows PC with an RTX card and talk to it). Nothing in the Toolkit runs on
+Linux, and nothing in the AI Texture Tools runs without it. So the mod below is
+built by a Linux script that does the same job: the hash, the maps, the DDS
+files and the USD layer. On an RTX Windows (or Proton) machine the output drops
+straight into `rtx-remix/mods/` with no ingestion step, because the files are
+already in the runtime's formats.
+
+## 2. The format, as used by the shipped mod and this one
+
+* **Hash.** The runtime identifies a texture by XXH3-64 of the texel bytes it
+  receives from the game. Our renderer uploads each world tile as a 64x64
+  A8R8G8B8 texture, so the hash is `xxh3_64(ARGB little-endian texels, rows
+  top-down)`, printed as 16 upper-case hex digits. `gta2dx9.ini: dump_tiles=1`
+  writes those exact texels to `gta2dx9_tiles/tile_NNNN.tga`, which is the input
+  of the script. Check: tile 608 (water) hashes to `A8B83A83052A85C0`, the hash
+  the repo's existing water material targets; all 891 distinct tiles of the
+  downtown dump hash to 891 distinct materials (two tiles are pixel-identical).
+* **Layer.** `mod.usda`: `over "RootNode" { over "Looks" { over "mat_<HASH>" {
+  over "Shader" { ... } } } }`, one prim per hash, `AperturePBR_Opacity.mdl`,
+  `inputs:diffuse_texture` (sRGB), `inputs:normalmap_texture` (raw),
+  `inputs:reflectionroughness_texture` (raw), metallic constant 0. Same shape as
+  the mod's `gta2rtx` layer and `tools/make_water_mod.py`.
+* **Textures.** `textures/<HASH>.a.rtex.dds` albedo, BC3 (DXT5) with the game's
+  own cutout alpha; `<HASH>.n.rtex.dds` normal, BC5U storing the normal as
+  **unsigned octahedral** in R/G, the encoding the runtime decodes (the Toolkit
+  converts tangent-space normals to it on ingestion); `<HASH>.r.rtex.dds`
+  roughness, BC4U. All with full mip chains down to 1x1. 256x256 each (ESRGAN x4
+  of the 64x64 originals); `--size 512` works but only upsamples further.
+  BC7 for albedo would be marginally better; there is no BC7 encoder here and
+  BC3 is what the runtime's own DirectX 9 games ship.
+
+## 3. How the maps are made (`tools/remix_materials.py`)
+
+1. Albedo: the Real-ESRGAN x4 tile from `assets/textures_hd/<district>/`
+   (`tools/upscale_textures.py`), optionally replaced per tile by the Stable
+   Diffusion ControlNet-tile refinement (`--sd upscale/sd/out_chain`). The
+   cutout alpha is resampled nearest from the 64x64 original so sprite edges
+   stay exactly the game's.
+2. Normal: height field = band-passed luminance of the albedo (fine detail
+   minus large-scale shading, so a brick course becomes a ridge and a painted
+   stripe does not become a step), Sobel slopes, DirectX tangent space,
+   then octahedral-encoded per mip (normals renormalised before encoding).
+3. Roughness: 0.2..0.98 from local contrast (busier = rougher) and brightness
+   (bright, flat = smoother). A heuristic, not a measurement; it is what the
+   AI Texture Tools would otherwise guess from the same single image.
+4. `mod.usda` is regenerated from every `*.a.rtex.dds` in `textures/`, so
+   several districts can be merged into one mod by running once per district
+   with the same output folder (each district needs its own tile dump).
+5. `--exclude <other mod.usd[a]>` skips hashes another layer already
+   overrides (the water material, the lamp emissives); `--validate-only`
+   re-hashes the dump and checks every prim, texture reference and brace.
+
+Pure numpy/Pillow/xxhash; 892 tiles take about 45 s on one CPU core.
+
+```
+python3 tools/remix_materials.py <dump>/gta2dx9_tiles package/rtx-remix/mods/gta2hd \
+    --hd assets/textures_hd/bil [--sd <sd tiles>] [--exclude <other>/mod.usda]
+python3 tools/remix_materials.py <dump>/gta2dx9_tiles package/rtx-remix/mods/gta2hd --validate-only
+```
+
+## 4. What was built and checked
+
+* `package/rtx-remix/mods/gta2hd`: 891 materials, 2673 DDS files, 196 MB
+  (downtown district, `bil`; the residential `wil` HD set exists but no tile
+  dump of that district was captured, so it has no hashes yet).
+* Validator: 891 prims, all unique, all 2673 referenced files present, all
+  891 hashes present in the dump, braces balanced.
+* Every DDS decodes with Pillow (independent decoder): 9 mips each, albedo
+  PSNR 35 dB against the ESRGAN source with the alpha bit-exact, octahedral
+  normal round-trip error 0.007 mean / 0.05 max, roughness in range.
+* Contact sheet of originals, albedo, normal and roughness for eight tiles:
+  `upscale/pbr/gta2hd_contact_sheet.png` (outside the repo).
+
+## 5. Not verified, and what it takes
+
+* A Remix frame with these materials. Needs a machine with an RTX GPU
+  (Windows, or Linux with Proton plus the bridge the way this project's
+  `gta2-wine` image runs it) and the NVIDIA driver's Vulkan ray-tracing
+  extensions. Install: copy `package/rtx-remix/mods/gta2hd` next to
+  `mods/gta2rtx`, start the game through the bridge, open the Remix menu
+  (Alt+X) and confirm the materials are listed as replaced. If a tile shows
+  unreplaced, its upload bytes differ from the dump (e.g. a different
+  `gta2dx9.ini` texture filter); re-dump on that machine and rerun.
+* Whether the runtime applies a normal `encoding` flag by file naming
+  (Toolkit output uses `_OTH_` in file names) or purely by format; the
+  water layer in this repo relies on BC5U octahedral by format, this one too.
+* Fidelity: the albedo is an upscale of the 1999 art, not photographed PBR. The
+  AI Texture Tools would produce the same class of result from the same input;
+  a true "AAA" look needs new materials (the Poly Haven CC0 sets already in
+  `assets/`) assigned per tile class, which the layer format supports: replace
+  the three textures for a hash with any 2K set.
+
+## 6. No per-view switch under Remix
+
+Remix replaces materials per texture hash at draw time; it does not know which
+camera mode the renderer is in. This layer therefore applies in the top-down
+view as well, at higher resolution but the same art, which keeps the GTA2 look
+from above. A different look per view would need the renderer to upload
+different tile texels per mode (then the hashes differ and two layers can
+target them); that is a renderer change, not a Remix one, and is not done.

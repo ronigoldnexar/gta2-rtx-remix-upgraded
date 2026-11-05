@@ -35,9 +35,14 @@ SLOT_OBJ := dll/build/obj/plugin_slot.o
 
 all: stage
 
+# -MMD: a header change rebuilds every object that includes it. Without this a
+# class that gains a member is laid out one way in the object that was rebuilt
+# and another in the objects that were not, and the DLL corrupts its own
+# globals at run time.
 dll/build/obj/%.o: %.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -MMD -MP -c -o $@ $<
+-include $(DLL_OBJ:.o=.d)
 
 $(SLOT_OBJ): dll/src/plugin_slot.S
 	@mkdir -p $(dir $@)
@@ -58,6 +63,9 @@ stage: dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll
 	cp vid/build/gta2dx9_vid.dll stage/Dmavideo.dll
 	cp vid/build/gta2dx9_vid.dll stage/DMAGlide.dll
 	cp package/gta2dx9.ini package/install.reg package/uninstall.reg stage/
+	rm -rf stage/gta2dx9_models && cp -r assets/models stage/gta2dx9_models
+	# High-resolution tiles, when they have been generated (tools/upscale_textures.py; not in git, 400 MB).
+	rm -rf stage/gta2dx9_textures_hd; if [ -d assets/textures_hd ]; then cp -r assets/textures_hd stage/gta2dx9_textures_hd; fi
 	@echo "Staged in stage/: unzip-equivalent of the release, see linux/README.md"
 
 # Loads both DLLs under Wine and resolves every export GTA2 asks for. See

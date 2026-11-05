@@ -60,6 +60,25 @@ needs **Spawn offscreen** on, which it is by default) and traffic further away t
 yet. And the player is found by recognising his structure in `gta2.exe`'s memory rather than by an address:
 if `gta2dx9.log` says `view: waiting for the player`, the classic view stays up and the Camera tab says why.
 
+### The asset pipeline
+
+The ground views can draw real 3D models in place of the game's sprites. `tools/import_assets.py`
+turns glTF files (`.glb`, or `.gltf` with its `.bin` and textures) into the renderer's own flat
+model format plus TGA textures, from a manifest that says which model stands in for what:
+
+- **cars**: a list of models cycled by the game's car sprite number (or one model per sprite);
+- **pedestrian**: one node-animated character, whose `walk` and `idle` animations are played by
+  the pedestrian's own pace;
+- **props**: `lamp` (stood on every one of the map's own lamps), `shrub` (on grass cells),
+  `bin`, `bench`, `hydrant` (on pavement cells against buildings), placed by a hash of the cell,
+  so every district gets them without anyone placing a thing.
+
+The shipped set in `assets/models` is Kenney's vehicles and character (MIT, from the Starter
+Kits on GitHub) and Poly Haven's street lamp, hydrant, bin, bench and shrub (CC0, 1k textures).
+Any glTF model with a base-colour texture per material works; drop a better one into the manifest
+and re-run the importer. The models are drawn through the same Direct3D 9 path as the world, so
+RTX Remix path traces them with everything else. The flat top-down view never uses them.
+
 ### Recording the switch
 
 `tools\record_demo.ps1` records a video of the game starting in the classic view and switching to first

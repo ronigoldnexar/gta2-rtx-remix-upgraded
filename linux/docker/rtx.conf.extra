@@ -1,0 +1,19 @@
+# Lighter settings for a CPU Vulkan driver (Mesa lavapipe): the simplest
+# indirect integrator, no DLSS upscaling, no Reflex, one bounce.
+rtx.integrateIndirectMode = 0
+rtx.upscalerType = 0
+rtx.isReflexEnabled = False
+rtx.pathMaxBounces = 1
+rtx.pathMinBounces = 0
+rtx.denoiseDirectAndIndirectLightingSeparately = False
+rtx.shader.enableAsyncCompilation = False
+rtx.faultNotice.enable = False
+rtx.gpuStallTimeoutSeconds = 100000
+rtx.gpuStallWarnSeconds = 100000
+rtx.raytraceModePreset = 0
+rtx.renderPassGBufferRaytraceMode = 2
+rtx.renderPassIntegrateDirectRaytraceMode = 1
+rtx.renderPassIntegrateIndirectRaytraceMode = 2
+# lavapipe: vkCreateDeferredOperationKHR fails, and the ray tracing pipeline
+# builder treats that as fatal (dxvk_raytracing.cpp:326). Build them directly.
+rtx.pipeline.useDeferredOperations = False

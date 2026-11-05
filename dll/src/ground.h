@@ -41,6 +41,7 @@ public:
     void Reset(const gta2::Map* map, const gta2::SlopeInfo* resolvedSlopes);
     void Clear() { map_ = nullptr; }
     bool Ready() const { return map_ && !map_->Empty(); }
+    const gta2::Map* MapData() const { return map_; }
 
     // Height of the highest lid surface at or below `ceiling` under a point.
     // False when the column has nothing under that ceiling - open water, a hole,

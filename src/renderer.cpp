@@ -100,6 +100,61 @@ uint32_t SandTexel(int x, int y) {
 }
 }  // namespace
 
+std::string g_hdTextureDir;
+std::string g_tileDumpDir;
+std::string g_tileStyle = "style";
+int g_hdTileMax = 128;
+void SetHdTileMaxSize(int size) { g_hdTileMax = size < 64 ? 64 : (size > 1024 ? 1024 : size); }
+void SetHdTextureDir(const char* dir) { g_hdTextureDir = dir ? dir : ""; }
+void SetTileDumpDir(const char* dir) { g_tileDumpDir = dir ? dir : ""; }
+void SetTileStyleName(const char* name) { g_tileStyle = name && *name ? name : "style"; }
+
+namespace {
+// 32-bit uncompressed TGA, either row order. Pixels come out top-down ARGB.
+bool ReadTga(const std::string& path, std::vector<uint32_t>* pixels, int* width, int* height) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    uint8_t header[18];
+    if (fread(header, 1, 18, f) != 18 || header[2] != 2 || header[16] != 32) { fclose(f); return false; }
+    const int w = header[12] | (header[13] << 8), h = header[14] | (header[15] << 8);
+    if (w <= 0 || h <= 0 || w > 4096 || h > 4096) { fclose(f); return false; }
+    fseek(f, header[0], SEEK_CUR);
+    std::vector<uint32_t> rows(static_cast<size_t>(w) * h);
+    const bool ok = fread(rows.data(), 4, rows.size(), f) == rows.size();
+    fclose(f);
+    if (!ok) return false;
+    const bool topDown = (header[17] & 0x20) != 0;
+    pixels->resize(rows.size());
+    for (int y = 0; y < h; ++y) {
+        const int src = topDown ? y : (h - 1 - y);
+        memcpy(&(*pixels)[static_cast<size_t>(y) * w], &rows[static_cast<size_t>(src) * w], static_cast<size_t>(w) * 4);
+    }
+    *width = w;
+    *height = h;
+    return true;
+}
+
+void WriteTga(const std::string& path, const uint32_t* pixels, int w, int h) {
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) return;
+    uint8_t header[18] = {};
+    header[2] = 2;
+    header[12] = static_cast<uint8_t>(w); header[13] = static_cast<uint8_t>(w >> 8);
+    header[14] = static_cast<uint8_t>(h); header[15] = static_cast<uint8_t>(h >> 8);
+    header[16] = 32;
+    header[17] = 0x28;   // 8 alpha bits, top-down
+    fwrite(header, 1, 18, f);
+    fwrite(pixels, 4, static_cast<size_t>(w) * h, f);
+    fclose(f);
+}
+
+char g_hdName[64];
+const char* TileFileName(int tile) {
+    snprintf(g_hdName, sizeof(g_hdName), "tile_%04d.tga", tile);
+    return g_hdName;
+}
+}  // namespace
+
 void SetAlphaMode(AlphaMode mode) { g_alphaMode = mode; }
 AlphaMode GetAlphaMode() { return g_alphaMode; }
 void SetAlphaRef(int ref) { g_alphaRef = static_cast<DWORD>(ref < 1 ? 1 : (ref > 254 ? 254 : ref)); }
@@ -300,8 +355,63 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     const int sealTile = SealTileIndex(style);
     const int riverbedTile = RiverbedTileIndex(style);
     textures_.assign(static_cast<size_t>(riverbedTile) + 1, nullptr);
+    hdTiles_ = 0;
+    const std::string hdDir = g_hdTextureDir.empty() ? "" : g_hdTextureDir + "\\" + g_tileStyle;
+    const std::string dumpDir = g_tileDumpDir.empty() ? "" : g_tileDumpDir + "\\" + g_tileStyle;
+    if (!dumpDir.empty()) {
+        CreateDirectoryA(g_tileDumpDir.c_str(), nullptr);
+        CreateDirectoryA(dumpDir.c_str(), nullptr);
+    }
+    std::vector<uint32_t> hd;
     for (const TileBatch& batch : batches_) {
         if (textures_[batch.tile]) continue;
+
+        // High-resolution artwork for this tile, if the folder has it.
+        if (!hdDir.empty() && batch.tile != sealTile && batch.tile != riverbedTile) {
+            int w = 0, h = 0;
+            if (ReadTga(hdDir + "\\" + TileFileName(batch.tile), &hd, &w, &h)) {
+                // Down to the cap by halving (a box filter), alpha included.
+                while ((w > g_hdTileMax || h > g_hdTileMax) && (w % 2) == 0 && (h % 2) == 0) {
+                    std::vector<uint32_t> half(static_cast<size_t>(w / 2) * (h / 2));
+                    for (int y = 0; y < h / 2; ++y) {
+                        for (int x = 0; x < w / 2; ++x) {
+                            uint32_t acc[4] = {0, 0, 0, 0};
+                            for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx) {
+                                const uint32_t p = hd[static_cast<size_t>(y * 2 + dy) * w + (x * 2 + dx)];
+                                acc[0] += (p >> 24) & 0xFF; acc[1] += (p >> 16) & 0xFF; acc[2] += (p >> 8) & 0xFF; acc[3] += p & 0xFF;
+                            }
+                            half[static_cast<size_t>(y) * (w / 2) + x] = ((acc[0] / 4) << 24) | ((acc[1] / 4) << 16) | ((acc[2] / 4) << 8) | (acc[3] / 4);
+                        }
+                    }
+                    hd.swap(half);
+                    w /= 2; h /= 2;
+                }
+                // Default pool through a system-memory staging copy that is
+                // released at once: the managed pool would keep a second copy of
+                // every tile in the game's 32-bit address space.
+                IDirect3DTexture9* texture = nullptr;
+                IDirect3DTexture9* staging = nullptr;
+                if (SUCCEEDED(device_->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &texture, nullptr)) &&
+                    SUCCEEDED(device_->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &staging, nullptr))) {
+                    D3DLOCKED_RECT rect;
+                    if (SUCCEEDED(staging->LockRect(0, &rect, nullptr, 0))) {
+                        for (int y = 0; y < h; ++y) {
+                            memcpy(static_cast<uint8_t*>(rect.pBits) + y * rect.Pitch, &hd[static_cast<size_t>(y) * w],
+                                   static_cast<size_t>(w) * 4);
+                        }
+                        staging->UnlockRect(0);
+                        if (SUCCEEDED(device_->UpdateTexture(staging, texture))) {
+                            staging->Release();
+                            textures_[batch.tile] = texture;
+                            ++hdTiles_;
+                            continue;
+                        }
+                    }
+                }
+                if (staging) staging->Release();
+                if (texture) texture->Release();
+            }
+        }
 
         IDirect3DTexture9* texture = nullptr;
         if (FAILED(device_->CreateTexture(kTileSize, kTileSize, 1, 0, D3DFMT_A8R8G8B8,
@@ -331,6 +441,10 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
             for (int y = 0; y < kTileSize; ++y) {
                 memcpy(static_cast<uint8_t*>(rect.pBits) + y * rect.Pitch,
                        &tile.pixels[static_cast<size_t>(y) * kTileSize], kTileSize * 4);
+            }
+            // The dump the upscaler works from: the tile as the game shows it.
+            if (!dumpDir.empty()) {
+                WriteTga(dumpDir + "\\" + TileFileName(batch.tile), tile.pixels.data(), kTileSize, kTileSize);
             }
         }
         texture->UnlockRect(0);

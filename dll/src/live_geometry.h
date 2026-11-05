@@ -86,6 +86,9 @@ bool UprightPeds();
 // closest thing to a person the game's own data allows.
 void SetPedFigures(bool on);
 bool PedFigures();
+// ... and imported models in place of both. See model_store.h.
+void SetGroundModels(bool on);
+bool GroundModels();
 
 // How high above the ground a pedestrian is held while he climbs into or out of a car, as a
 // fraction of the car's roof height. The car's body hides whatever of him is higher than its
@@ -513,6 +516,16 @@ private:
 
     // The walking figures, one per pedestrian sprite on his feet. See SetPedFigures.
     void DrawPedFigures(IDirect3DDevice9* device);
+    // A car drawn as an imported model this frame, in place of its dome.
+    struct CarModelUse {
+        const struct Model* model;
+        gta2::Mat4 placement;
+        uintptr_t object;
+    };
+    std::vector<CarModelUse> carModels_;
+    void DrawCarModels(IDirect3DDevice9* device);
+    // Street furniture and plants placed by rule from the map, around the camera.
+    void DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye);
     struct PedTrack {
         float x = 0.0f, z = 0.0f;
         float speed = 0.0f;     // blocks a second, eased

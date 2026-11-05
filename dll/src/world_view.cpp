@@ -1,5 +1,7 @@
 #include "world_view.h"
 
+#include "model_store.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -1066,6 +1068,17 @@ bool WorldView::EnsureWorldLoaded() {
     // lifted onto these floors.
     {
         const std::vector<uint16_t> mapLights = FileLightPositions(mapPath);
+        {
+            // For the lamp posts of the ground views: the same lamps, in the
+            // renderer's frame, a fraction below the lamp (which is the bulb).
+            std::vector<gta2::Vec3> lamps;
+            lamps.reserve(mapLights.size() / 3);
+            for (size_t i = 0; i + 2 < mapLights.size(); i += 3) {
+                lamps.push_back({mapLights[i] / 128.0f, mapLights[i + 2] / 128.0f,
+                                 static_cast<float>(gta2::kMapHeight) - mapLights[i + 1] / 128.0f});
+            }
+            SetMapLamps(lamps);
+        }
         LightsSetMapLights(mapLights);
         Log("map lamps: %u in %s", static_cast<unsigned>(mapLights.size() / 3), mapPath.c_str());
     }
@@ -1091,6 +1104,17 @@ bool WorldView::EnsureWorldLoaded() {
 
     gta2::WorldMesh mesh;
     gta2::BuildWorldMesh(map_, style, slopes.data(), cuts, &mesh);
+    {
+        // Tile numbers are per style, so the high-resolution folder and the dump
+        // are kept per style: wil, bil, ste.
+        std::string leaf = stylePath;
+        const size_t slash = leaf.find_last_of("\\/");
+        if (slash != std::string::npos) leaf = leaf.substr(slash + 1);
+        const size_t dot = leaf.find_last_of('.');
+        if (dot != std::string::npos) leaf = leaf.substr(0, dot);
+        for (char& c : leaf) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        gta2::SetTileStyleName(leaf.c_str());
+    }
     if (!renderer_.UploadWorld(mesh, style, &error)) {
         Log("world upload failed: %s", error.c_str());
         loadedMapObject_ = mapObject;
@@ -1101,6 +1125,7 @@ bool WorldView::EnsureWorldLoaded() {
         Log("WARNING: view rotation is %u, not the 0xFF the tile orientation assumes",
             game::ViewRotation());
     }
+    Log("tile artwork: %d tile(s) from gta2dx9_textures_hd", renderer_.HdTileCount());
     Log("world loaded: %s, %zu blocks, %zu triangles, %zu batches, floor %s", stylePath.c_str(),
         map_.BlockCount(), mesh.indices.size() / 3, mesh.batches.size(),
         gta2::WorldSeal() ? "sealed" : "OPEN (the sky shows through any gap)");
@@ -1220,6 +1245,14 @@ void WorldView::UpdateCamera() {
         }
         g_viewStatus = viewSolver_.Status();
         ViewModePushRemixOptions(placed);
+        // A view that cannot find the player this frame - he is being arrested,
+        // has just died, the game is between two bodies - holds its last camera
+        // for a couple of seconds rather than cutting to the sky and back.
+        if (wantView && !placed && viewActive_ && viewLostFrames_ < 60) {
+            ++viewLostFrames_;
+            return;
+        }
+        if (placed) viewLostFrames_ = 0;
         if (placed) {
             if (!viewActive_) {
                 // Cars as bodies with height, for a camera that is not above them.
@@ -1249,6 +1282,8 @@ void WorldView::UpdateCamera() {
                              hide && player.inVehicle ? player.vehicleSprite : nullptr);
             SetUprightPeds(ViewModes().uprightPeds);
             SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
+            SetGroundModels(ViewModes().groundModels && ModelsAvailable());
+            ApplyTransition(viewDt, mode);
             return;
         }
         if (viewActive_) {
@@ -1264,6 +1299,7 @@ void WorldView::UpdateCamera() {
         SetHiddenObjects(nullptr, nullptr);
         SetUprightPeds(false);
         SetPedFigures(false);
+        SetGroundModels(false);
     }
 
     const float k = g_cameraSmoothing;
@@ -1344,8 +1380,15 @@ void WorldView::UpdateCamera() {
         camZoom_ = 0.0f;
     }
 
+    // The top-down view states its orientation every frame: a move between views
+    // leaves the camera turned part way, and framing along that would make the
+    // move's destination drift with it.
+    camera_.SetOrientation(0.0f, classicPitch_);
+    camera_.SetFovY(classicFov_);
+    camera_.SetRoll(0.0f);
     const float distance = (shown * 0.5f) / std::tan(camera_.FovY() * 0.5f);
     camera_.FrameTarget(target, distance);
+    ApplyTransition(viewTime_ > 0.0 ? dt : 0.0f, ViewMode::Classic);
 
     // Tell the HUD how the two cameras differ. See HudCameraMap.
     HudCameraMap map;
@@ -1357,6 +1400,76 @@ void WorldView::UpdateCamera() {
     map.rawTiles = visibleTiles_;
     map.viewTiles = shown;
     SetHudCameraMap(map);
+}
+
+// The move between views.
+//
+// Every frame the view in force has set camera_ to where it wants the camera;
+// this is called last with that. When the view has just changed, the camera as
+// it was last shown becomes the start of a move, and for transitionSeconds the
+// camera is placed between that start and whatever the new view asks for this
+// frame - so the destination can go on moving (a car driving off) and the
+// camera still arrives on it. The path bows upward by transitionArc of its
+// length, and any point of it inside a building is lifted clear; the heading
+// turns the short way round, pitch, roll and field of view are eased. Changing
+// view again mid-move starts the next move from wherever the camera is.
+void WorldView::ApplyTransition(float dt, ViewMode mode) {
+    const ViewModeSettings& vm = ViewModes();
+    CameraPose target;
+    target.position = camera_.Position();
+    target.yaw = camera_.Yaw();
+    target.pitch = camera_.Pitch();
+    target.roll = camera_.Roll();
+    target.fov = camera_.FovY();
+
+    if (mode != lastViewMode_) {
+        if (lastPoseValid_ && vm.transitionSeconds > 0.01f) {
+            transitionFrom_ = lastPose_;
+            transitionT_ = 0.0f;
+            transitionToClassic_ = mode == ViewMode::Classic;
+            Log("view: moving the camera to %s over %.1f s", ViewModeName(mode), vm.transitionSeconds);
+        }
+        lastViewMode_ = mode;
+    }
+
+    CameraPose shown = target;
+    if (transitionT_ < 1.0f) {
+        if (dt > 0.25f) dt = 1.0f / 30.0f;
+        transitionT_ = (std::min)(1.0f, transitionT_ + dt / (std::max)(vm.transitionSeconds, 0.05f));
+        // Smoothstep: the camera starts and arrives gently.
+        const float t = transitionT_;
+        const float e = t * t * (3.0f - 2.0f * t);
+        const gta2::Vec3& a = transitionFrom_.position;
+        const gta2::Vec3& b = target.position;
+        gta2::Vec3 p = a + (b - a) * e;
+        const gta2::Vec3 span = b - a;
+        const float length = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
+        // The arc: a sine bump along the way, scaled by the distance.
+        p.y += std::sin(e * 3.14159265f) * length * vm.transitionArc;
+        // Out of any building the path crosses - by a storey at most, so a short
+        // move past a wall never becomes a flight over the city.
+        for (int lift = 0; lift < 6 && Blocked(p.x, p.y, p.z); ++lift) p.y += 0.25f;
+        // The short way round for the heading.
+        float dyaw = target.yaw - transitionFrom_.yaw;
+        while (dyaw > 3.14159265f) dyaw -= 6.2831853f;
+        while (dyaw < -3.14159265f) dyaw += 6.2831853f;
+        shown.position = p;
+        shown.yaw = transitionFrom_.yaw + dyaw * e;
+        shown.pitch = transitionFrom_.pitch + (target.pitch - transitionFrom_.pitch) * e;
+        shown.roll = transitionFrom_.roll + (target.roll - transitionFrom_.roll) * e;
+        shown.fov = transitionFrom_.fov + (target.fov - transitionFrom_.fov) * e;
+        camera_.SetPosition(shown.position);
+        camera_.SetOrientation(shown.yaw, shown.pitch);
+        camera_.SetRoll(shown.roll);
+        camera_.SetFovY(shown.fov);
+        // The HUD's world-anchored parts only line up with the classic camera
+        // once it is there; while the camera travels, nothing of the player's
+        // own body is hidden either, since the eye is not yet in his head.
+        if (transitionToClassic_) SetHudCameraMap(HudCameraMap{});
+        if (mode == ViewMode::FirstPerson && t < 0.8f) SetHiddenObjects(nullptr, nullptr);
+    }
+    lastPose_ = shown;
+    lastPoseValid_ = true;
 }
 
 // The game's zoom has to come from the camera struct, not from the visible tile

@@ -20,6 +20,7 @@
 #include "gibs.h"
 #include "light_bench.h"
 #include "world_view.h"
+#include "model_store.h"
 
 #include <cmath>
 #include <d3d9.h>
@@ -525,6 +526,12 @@ void DrawCamera() {
          "as his own picture facing the camera.");
     ImGui::SameLine();
     changed |= ImGui::Checkbox("as walking figures", &vm.groundPedFigures);
+    changed |= ImGui::Checkbox("Imported 3D models for cars and people", &vm.groundModels);
+    Help("Models from gta2dx9_models beside the game (tools/import_assets.py turns glTF files into them; "
+         "the shipped set is Kenney's MIT-licensed vehicles and character) stand in for the cars' domes and "
+         "the box figures while a ground view is up. The flat top-down view never uses them.");
+    ImGui::SameLine();
+    ImGui::TextColored(ModelsAvailable() ? kGood : kDim, "%s", ModelsAvailable() ? "models loaded" : "no models folder");
     Help("Small three-dimensional people - head, body, arms and legs that swing with their pace - in "
          "place of the top-down sprite. GTA2 has no side-on artwork, so this is the nearest thing to a "
          "person its data allows from the ground.");
@@ -541,6 +548,16 @@ void DrawCamera() {
     Help("The game creates, draws and removes cars and people inside the window its own camera "
          "frames. A chase camera sees past that window, so it is widened by this much while one is "
          "up. Needs Spawn offscreen (Sprites tab) on. Bigger is more traffic to simulate.");
+
+    ImGui::SeparatorText("Switching views");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Travel time", &vm.transitionSeconds, 0.0f, 4.0f, vm.transitionSeconds <= 0.0f ? "cut" : "%.2f s");
+    Help("The camera travels from one view to the next - from the sky down to the street and back - "
+         "rather than cutting. 0 cuts.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Arc height", &vm.transitionArc, 0.0f, 1.0f, "%.2f of the distance");
+    Help("How far the path bows upward on the way, as a fraction of the distance travelled, to clear "
+         "the rooftops. Any point still inside a building is lifted out of it regardless.");
 
     ImGui::SeparatorText("Motion");
     ImGui::SetNextItemWidth(S(240.0f));

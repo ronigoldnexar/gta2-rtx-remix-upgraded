@@ -1,0 +1,21 @@
+# GTA2 RTX Upgraded with RTX Remix on a Linux machine that has a ray-tracing
+# GPU. Untested here: this machine's B200s expose no Vulkan at all, so every
+# Remix run in this repository was on Mesa's CPU driver. Builds on the patched
+# Wine 10 runtime (Dockerfile.runtime-ubuntu2510 on top of
+# Dockerfile.wine10-patched): the patch is what lets the Remix bridge server
+# present into the game's window.
+#
+# NVIDIA: run with  --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all  and the
+# container toolkit mounts the driver's libraries; the ICD file below points
+# the Vulkan loader at them. Needs a driver with Vulkan ray tracing (any RTX
+# card, driver 535 or newer).
+# AMD: run with  --device /dev/dri  ; RADV (mesa-vulkan-drivers, already in the
+# image) does ray tracing on RDNA2 and newer.
+#
+# Present to the host's own display (-e DISPLAY -v /tmp/.X11-unix), not Xvfb:
+# a hardware Vulkan driver needs a real X server to present to.
+FROM gta2-wine2510
+RUN mkdir -p /usr/share/vulkan/icd.d && printf '%s\n' \
+    '{ "file_format_version": "1.0.0", "ICD": { "library_path": "libGLX_nvidia.so.0", "api_version": "1.3.0" } }' \
+    > /usr/share/vulkan/icd.d/nvidia_icd.json
+ENV NVIDIA_DRIVER_CAPABILITIES=all

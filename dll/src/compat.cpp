@@ -1,5 +1,6 @@
 #include "compat.h"
 #include "log.h"
+#include <cstdio>
 
 #ifndef _MSC_VER
 
@@ -59,6 +60,31 @@ LONG CALLBACK Handler(EXCEPTION_POINTERS* info) {
                 static_cast<unsigned>(at - reinterpret_cast<uintptr_t>(module)), static_cast<unsigned>(base),
                 static_cast<unsigned>(info->ExceptionRecord->NumberParameters > 1
                                           ? info->ExceptionRecord->ExceptionInformation[1] : 0));
+            // Where it came from: the registers, and every word on the stack
+            // that points into this DLL (offsets for nm --numeric-sort).
+            const CONTEXT* c = info->ContextRecord;
+            Log("FAULT: eax %08X ebx %08X ecx %08X edx %08X esi %08X edi %08X ebp %08X esp %08X", c->Eax, c->Ebx,
+                c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp, c->Esp);
+            if (base) {
+                const IMAGE_DOS_HEADER* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+                const IMAGE_NT_HEADERS* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+                const uintptr_t end = base + nt->OptionalHeader.SizeOfImage;
+                MEMORY_BASIC_INFORMATION mbi;
+                uintptr_t top = c->Esp + 0x10000;
+                if (VirtualQuery(reinterpret_cast<void*>(c->Esp), &mbi, sizeof(mbi)))
+                    top = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+                char line[640];
+                int n = snprintf(line, sizeof(line), "FAULT: stack words inside gta2dx9.dll:");
+                int count = 0;
+                for (uintptr_t p = c->Esp & ~static_cast<uintptr_t>(3); p + 4 <= top && count < 40; p += 4) {
+                    const uintptr_t v = *reinterpret_cast<const uintptr_t*>(p);
+                    if (v < base || v >= end) continue;
+                    n += snprintf(line + n, sizeof(line) - n, " +0x%X", static_cast<unsigned>(v - base));
+                    ++count;
+                    if (n > 580) break;
+                }
+                Log("%s", line);
+            }
         }
         return EXCEPTION_CONTINUE_SEARCH;
     }

@@ -216,6 +216,19 @@ private:
     // configured when one of the others is switched off.
     ViewCameraSolver viewSolver_;
     bool viewActive_ = false;
+    // The move between views. See ApplyTransition.
+    struct CameraPose {
+        gta2::Vec3 position;
+        float yaw = 0.0f, pitch = 0.0f, roll = 0.0f, fov = 0.0f;
+    };
+    CameraPose lastPose_;          // what was shown last frame, blended
+    bool lastPoseValid_ = false;
+    CameraPose transitionFrom_;    // where the camera was when the view changed
+    float transitionT_ = 1.0f;     // 0..1, 1 when no move is in progress
+    ViewMode lastViewMode_ = ViewMode::Classic;
+    bool transitionToClassic_ = false;
+    int viewLostFrames_ = 0;       // frames a ground view has gone without the player
+    void ApplyTransition(float dt, ViewMode mode);
     double viewTime_ = 0.0;
     float classicPitch_ = -1.5708f;
     float classicFov_ = 0.6981f;

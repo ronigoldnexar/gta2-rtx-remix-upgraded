@@ -24,3 +24,10 @@ dll/src/*-1.h
 # Linux build
 stage/
 linux/build/
+
+# Generated high-resolution tile sets (hundreds of MB): regenerate with tools/upscale_textures.py
+assets/textures_hd/
+tools/__pycache__/
+
+# Generated Remix material textures (~190 MB of DDS): regenerate with tools/remix_materials.py; shipped as a release asset
+package/rtx-remix/mods/gta2hd/textures/

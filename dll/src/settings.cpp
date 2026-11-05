@@ -148,6 +148,9 @@ void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCo
     f[nf++] = {"camera", "GroundCarShoulder", &vm.groundCarShoulder};
     b[nb++] = {"camera", "GroundCarWheels", &vm.groundCarWheels};
     b[nb++] = {"camera", "GroundPedFigures", &vm.groundPedFigures};
+    b[nb++] = {"camera", "GroundModels", &vm.groundModels};
+    f[nf++] = {"camera", "TransitionSeconds", &vm.transitionSeconds};
+    f[nf++] = {"camera", "TransitionArc", &vm.transitionArc};
 
     EffectSpriteSettings& fx = EffectSprites();
     f[nf++] = {"effectsprites", "EdgeLuma", &fx.edgeLuma};
