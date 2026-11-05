@@ -16,7 +16,36 @@ std::vector<Model> g_models;
 std::map<std::string, size_t> g_byName;
 std::vector<std::string> g_carDefault;    // cycled by sprite number
 std::map<int, std::string> g_carBySprite;
+std::map<int, std::string> g_carByModel;   // by the game's vehicle model number
+float g_paintTint[3] = {1.0f, 1.0f, 1.0f};
+bool g_paintTintOn = false;
+
+// A JSON object of "number": "name" pairs, as the cars maps are written.
+std::map<int, std::string> NumberMap(const std::string& text, const char* key) {
+    std::map<int, std::string> out;
+    const std::string quoted = std::string("\"") + key + "\"";
+    const size_t at = text.find(quoted);
+    if (at == std::string::npos) return out;
+    const size_t open = text.find('{', at);
+    const size_t close = text.find('}', open);
+    if (open == std::string::npos || close == std::string::npos) return out;
+    const std::string block = text.substr(open + 1, close - open - 1);
+    size_t pos = 0;
+    while (true) {
+        const size_t q1 = block.find('"', pos);
+        if (q1 == std::string::npos) break;
+        const size_t q2 = block.find('"', q1 + 1);
+        const size_t q3 = block.find('"', q2 + 1);
+        const size_t q4 = block.find('"', q3 + 1);
+        if (q2 == std::string::npos || q3 == std::string::npos || q4 == std::string::npos) break;
+        const std::string number = block.substr(q1 + 1, q2 - q1 - 1), name = block.substr(q3 + 1, q4 - q3 - 1);
+        if (!number.empty() && isdigit(static_cast<unsigned char>(number[0]))) out[atoi(number.c_str())] = name;
+        pos = q4 + 1;
+    }
+    return out;
+}
 std::string g_pedestrian;
+std::vector<std::string> g_pedestrians;  // the "pedestrians" list, g_pedestrian when there is none
 std::map<std::string, std::string> g_props;
 std::vector<gta2::Vec3> g_mapLamps;
 std::string g_folder;
@@ -399,14 +428,44 @@ void ModelsLoad(const char* folder) {
         const std::string forward = Field(entry, "forward");
         auto it = g_byName.find(name);
         if (it != g_byName.end() && (forward == "+z" || forward == "-z")) g_models[it->second].forward = forward == "+z" ? 1.0f : -1.0f;
+        const std::string stride = Field(entry, "stride");
+        if (it != g_byName.end() && !stride.empty()) g_models[it->second].stride = static_cast<float>(atof(stride.c_str()));
+        // "paint_rgb": [r, g, b]
+        const size_t paint = entry.find("\"paint_rgb\"");
+        if (it != g_byName.end() && paint != std::string::npos) {
+            const size_t open = entry.find('[', paint);
+            if (open != std::string::npos) {
+                float rgb[3] = {235.0f, 235.0f, 235.0f};
+                if (sscanf(entry.c_str() + open, "[%f,%f,%f", &rgb[0], &rgb[1], &rgb[2]) == 3 ||
+                    sscanf(entry.c_str() + open, "[ %f , %f , %f", &rgb[0], &rgb[1], &rgb[2]) == 3) {
+                    for (int k = 0; k < 3; ++k) g_models[it->second].paintRgb[k] = (std::max)(8.0f, (std::min)(255.0f, rgb[k]));
+                }
+            }
+        }
         rep += 6;
     }
     const size_t cars = text.find("\"cars\"");
     if (cars != std::string::npos) {
         const std::string block = text.substr(cars, text.find('}', cars) - cars + 1);
         g_carDefault = Strings(Field(block, "default"));
+        // "cars": {"by_model": {"12": "taxi", ...}, "by_sprite": {"45": "taxi", ...}}
+        const std::string rest = text.substr(cars);
+        g_carByModel = NumberMap(rest, "by_model");
+        g_carBySprite = NumberMap(rest, "by_sprite");
+        for (auto it = g_carByModel.begin(); it != g_carByModel.end();) {
+            if (!g_byName.count(it->second)) { Log("models: cars.by_model %d names '%s', which is not loaded", it->first, it->second.c_str()); it = g_carByModel.erase(it); }
+            else ++it;
+        }
+        for (auto it = g_carBySprite.begin(); it != g_carBySprite.end();) {
+            if (!g_byName.count(it->second)) { Log("models: cars.by_sprite %d names '%s', which is not loaded", it->first, it->second.c_str()); it = g_carBySprite.erase(it); }
+            else ++it;
+        }
+        Log("models: cars mapped for %zu model numbers and %zu sprites", g_carByModel.size(), g_carBySprite.size());
     }
     g_pedestrian = Field(text, "pedestrian");
+    for (const std::string& name : Strings(Field(text, "pedestrians")))
+        if (g_byName.count(name)) g_pedestrians.push_back(name);
+    if (g_pedestrians.empty() && g_byName.count(g_pedestrian)) g_pedestrians.push_back(g_pedestrian);
     const size_t props = text.find("\"props\"");
     if (props != std::string::npos) {
         const std::string block = text.substr(props, text.find('}', props) - props + 1);
@@ -415,18 +474,34 @@ void ModelsLoad(const char* folder) {
             if (!name.empty()) g_props[role] = name;
         }
     }
-    Log("models: %zu loaded, %zu car models, pedestrian '%s'", g_models.size(), g_carDefault.size(), g_pedestrian.c_str());
+    Log("models: %zu loaded, %zu car models, pedestrian '%s' (%zu pedestrian models)", g_models.size(),
+        g_carDefault.size(), g_pedestrian.c_str(), g_pedestrians.size());
 }
 
 bool ModelsAvailable() { return !g_models.empty(); }
 
 const Model* ModelForCar(int sprite) {
-    if (g_carDefault.empty()) return nullptr;
+    // Only a model the manifest names for this very sprite: anything else is
+    // built from the game's own artwork (car_bodies.cpp), which keeps every
+    // car the car it is. The manifest's default list is no longer used.
     auto by = g_carBySprite.find(sprite);
-    const std::string& name = by != g_carBySprite.end() ? by->second
-                                                          : g_carDefault[static_cast<size_t>(sprite < 0 ? 0 : sprite) % g_carDefault.size()];
-    auto it = g_byName.find(name);
+    if (by == g_carBySprite.end()) return nullptr;
+    auto it = g_byName.find(by->second);
     return it == g_byName.end() ? nullptr : &g_models[it->second];
+}
+
+const Model* ModelForVehicle(int modelNumber, int sprite) {
+    auto by = g_carByModel.find(modelNumber);
+    if (by != g_carByModel.end()) {
+        auto it = g_byName.find(by->second);
+        if (it != g_byName.end()) return &g_models[it->second];
+    }
+    return ModelForCar(sprite);
+}
+
+void ModelSetPaintTint(const float* rgb) {
+    g_paintTintOn = rgb != nullptr;
+    if (rgb) for (int i = 0; i < 3; ++i) g_paintTint[i] = (std::max)(0.0f, (std::min)(2.0f, rgb[i]));
 }
 
 const Model* ModelForProp(const char* role) {
@@ -442,6 +517,17 @@ const std::vector<gta2::Vec3>& MapLamps() { return g_mapLamps; }
 const Model* ModelForPedestrian() {
     auto it = g_byName.find(g_pedestrian);
     return it == g_byName.end() ? nullptr : &g_models[it->second];
+}
+
+const Model* ModelForPedestrian(uint32_t seed) {
+    if (g_pedestrians.empty()) return nullptr;
+    // Scramble the seed so near-by values (addresses, indices) spread out.
+    seed ^= seed >> 16;
+    seed *= 0x7feb352dU;
+    seed ^= seed >> 15;
+    seed *= 0x846ca68bU;
+    seed ^= seed >> 16;
+    return &g_models[g_byName[g_pedestrians[seed % g_pedestrians.size()]]];
 }
 
 void ModelsBeginFrame() { g_drawn = 0; }
@@ -556,6 +642,24 @@ void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& p
             bound = texture;
             first = false;
         }
+        // A car's paint: the second stage multiplies the painted meshes by the tint.
+        if (g_paintTintOn) {
+            const bool paint = mesh.texture.find("_paint") != std::string::npos;
+            if (paint) {
+                // The factor is half the tint and the stage doubles it, so a repaint
+                // brighter than the model's own paint still gets there.
+                const DWORD t = 0xFF000000u | (static_cast<DWORD>(g_paintTint[0] * 127.5f) << 16) |
+                                (static_cast<DWORD>(g_paintTint[1] * 127.5f) << 8) | static_cast<DWORD>(g_paintTint[2] * 127.5f);
+                device->SetRenderState(D3DRS_TEXTUREFACTOR, t);
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
+                device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+                device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+                device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+                device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            } else {
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            }
+        }
         const bool skinned = mesh.skin >= 0 && model.skinned && g_posed.meshes.size() > static_cast<size_t>(mi) &&
                              g_posed.meshes[mi].size() == mesh.vertices.size();
         const gta2::Mat4 world = skinned ? placement : Multiply(worlds[i], placement);
@@ -580,6 +684,7 @@ void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& p
         device->SetStreamSource(0, nullptr, 0, 0);
         device->SetIndices(nullptr);
     }
+    if (g_paintTintOn) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     ++g_drawn;
 }
 

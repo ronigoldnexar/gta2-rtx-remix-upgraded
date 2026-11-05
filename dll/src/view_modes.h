@@ -33,6 +33,17 @@ enum class ViewMode : int { Classic = 0, ThirdPerson = 1, FirstPerson = 2 };
 constexpr int kViewModeCount = 3;
 
 struct ViewModeSettings {
+    // Log every press and release of the game's control keys (a developer
+    // aid for scripted sessions): [devtools] log_keys=1.
+    bool logKeys = false;
+    // A developer aid for scripted sessions: this key moves the player to the
+    // driver's door of the nearest parked car ([devtools] warp_key=F9; 0 off).
+    int devWarpKey = 0;
+    // And this one brings the nearest parked car to a given spot on the map,
+    // heading east, with the player at its driver's door: [devtools]
+    // scene_key=F10, scene_xy=164.5,149.5 (the Downtown start's carriageway).
+    int devSceneKey = 0;
+    float devSceneX = 0.0f, devSceneY = 0.0f;
     // ViewMode, as an int so the settings table can carry it.
     int mode = 0;
     // The virtual-key code that cycles the modes. 'V' is free in GTA2's own
@@ -167,7 +178,28 @@ void NotePedNearCamera(const void* ped, float distanceTiles);
 // The car nearest a point in the game's frame (x east, y south), for the log
 // and for scripted play: false when there is none within `within` tiles.
 bool NearestVehicle(float x, float y, float within, bool parkedOnly, float* vx, float* vy, float* distance,
-                    bool* driven);
+                    bool* driven, const void** vehicle = nullptr);
+
+// The driving-seat side of a car, for a script walking up to its door: the
+// car's heading as a unit vector, and its pointer, for the log. False when
+// `vehicle` is not a car the finder returned.
+bool VehicleFacing(const void* vehicle, float* dirX, float* dirY);
+
+// What the player's pedestrian structure says he is doing: the game's own
+// state words, for reading a session back. Zero when unreadable.
+struct PedWords {
+    int32_t state = 0, sub = 0, pending = 0;
+    uintptr_t vehicle = 0;
+};
+PedWords ReadPedWords(const void* ped);
+
+// Moves the player's pedestrian to the driver's door of the nearest parked
+// car within `within` tiles, writing the game's own position words (a
+// developer aid for scripted sessions; see ViewModeSettings::devWarpKey).
+bool WarpPlayerToParkedCar(float within);
+// Moves the nearest parked car to (x, y) heading east and the player to its
+// driver's door (the same developer aid, for a drive on a real road).
+bool WarpSceneToRoad(float x, float y);
 
 // Polls the toggle key and, in a chase or first-person view, the mouse. The
 // mouse is only taken while a level is up, the F4 menu is closed and the game is

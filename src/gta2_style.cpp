@@ -62,6 +62,7 @@ bool Style::Load(const std::string& path, std::string* error) {
     tilePalettes_ = 0;
     size_t delxOff = 0, delxSize = 0;
     memset(spriteBases_, 0, sizeof(spriteBases_));
+    cars_.clear();
     size_t offset = 6;
     while (offset + 8 <= data.size()) {
         char tag[5] = {};
@@ -97,6 +98,32 @@ bool Style::Load(const std::string& path, std::string* error) {
             delxSize = size;
         } else if (!strcmp(tag, "DELS")) {
             deltaStore_.assign(data.begin() + body, data.begin() + body + size);
+        } else if (!strcmp(tag, "CARI")) {
+            // Per model: model, sprite flag (1: art of its own, 0: the previous model's), width,
+            // height, remap count, passengers, wreck, rating, then the wheel and window offsets
+            // as signed bytes, two flag bytes, the remaps, and the doors (two signed bytes each).
+            int sprite = -1;
+            for (size_t at = body; at + 14 <= body + size;) {
+                const uint8_t* r = &data[at];
+                const int remaps = r[4];
+                if (at + 14 + remaps + 1 > body + size) break;
+                const int doors = data[at + 14 + remaps];
+                if (r[1]) ++sprite;
+                CarInfo info;
+                info.model = r[0];
+                info.sprite = sprite < 0 ? 0 : sprite;
+                info.width = r[2];
+                info.height = r[3];
+                info.passengers = r[5];
+                info.wreck = r[6] != 0;
+                info.frontWheel = static_cast<int8_t>(r[8]);
+                info.rearWheel = static_cast<int8_t>(r[9]);
+                info.frontWindow = static_cast<int8_t>(r[10]);
+                info.rearWindow = static_cast<int8_t>(r[11]);
+                info.doors = doors;
+                cars_.push_back(info);
+                at += 14 + remaps + 1 + 2 * static_cast<size_t>(doors);
+            }
         } else if (!strcmp(tag, "SPEC")) {
             // See IsWaterTile: the third zero-terminated list.
             constexpr int kWaterList = 2;

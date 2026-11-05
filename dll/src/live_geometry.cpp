@@ -197,12 +197,14 @@ void SetSpriteSmooth(bool on) { g_spriteSmooth = on; }
 namespace { bool g_ghostSwitch[kGhostSwitchCount] = {}; }
 namespace {
 const void* g_hiddenObjects[2] = {nullptr, nullptr};
+const void* g_playerObject = nullptr;
 bool g_uprightPeds = false;
 }
 void SetHiddenObjects(const void* first, const void* second) {
     g_hiddenObjects[0] = first;
     g_hiddenObjects[1] = second;
 }
+void SetPlayerObject(const void* object) { g_playerObject = object; }
 void SetUprightPeds(bool on) { g_uprightPeds = on; }
 bool UprightPeds() { return g_uprightPeds; }
 namespace { bool g_pedFigures = false; }
@@ -367,6 +369,8 @@ float g_carDomeShoulder = 0.7f;
 }  // namespace
 
 void SetCarBodies(bool on) { g_carBodies = on; }
+namespace { bool g_carModels3d = false; }
+void SetCarModels3d(bool on) { g_carModels3d = on; }
 bool CarBodies() { return g_carBodies; }
 void SetCarBodyHeight(float blocks) { g_carBodyHeight = (std::max)(0.0f, (std::min)(blocks, 0.6f)); }
 float CarBodyHeight() { return g_carBodyHeight; }
@@ -4028,20 +4032,18 @@ void LiveGeometry::DrawCarModels(IDirect3DDevice9* device) {
 
 // Street furniture and plants, placed by rule rather than by hand so every
 // district gets them: a lamp post at each of the map's own lamps; on the
-// topmost surface of street-level columns, a shrub on one grass cell in four,
-// and on pavement cells against a building a bin, a bench or a hydrant now
-// and then. Which cell gets what is a hash of the cell, so it never changes
+// pavement cells of street-level columns against a building a bin, a bench
+// or a hydrant now and then. Which cell gets what is a hash of the cell, so it never changes
 // between frames or sessions. Drawn within a radius of the camera, nearest
 // first, up to a budget, since the models are dense.
 void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     if (!ground_ || !ground_->Ready()) return;
     const gta2::Map* map = ground_->MapData();
     const Model* lamp = ModelForProp("lamp");
-    const Model* shrub = ModelForProp("shrub");
     const Model* bin = ModelForProp("bin");
     const Model* bench = ModelForProp("bench");
     const Model* hydrant = ModelForProp("hydrant");
-    if (!lamp && !shrub && !bin && !bench && !hydrant) return;
+    if (!lamp && !bin && !bench && !hydrant) return;
 
     struct Placed { const Model* model; float x, y, z, yaw, scale; float d2; };
     std::vector<Placed> placed;
@@ -4087,12 +4089,11 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             const Model* model = nullptr;
             float scale = 1.0f;
             float ox = 0.0f, oz = 0.0f;
-            if (ground == 3 && shrub && (h % 4) == 0) {
-                model = shrub;
-                scale = 0.9f / (std::max)(shrub->Height(), 0.1f) * (0.7f + static_cast<float>((h >> 4) & 7) / 14.0f);
-                ox = (static_cast<float>((h >> 12) & 15) / 15.0f - 0.5f) * 0.6f;
-                oz = (static_cast<float>((h >> 16) & 15) / 15.0f - 0.5f) * 0.6f;
-            } else if (ground == 2) {
+            // No plants on "field" cells: GTA2 uses that lid type for roofs,
+            // plazas and bare ground as much as for grass, so a shrub rule put
+            // bushes on rooftops and against walls (and the dense shrub model
+            // was the main memory pressure in the ground views).
+            if (ground == 2) {
                 // Against a building: a neighbour whose column stands higher.
                 int wallDx = 0, wallDz = 0;
                 for (int k = 0; k < 4 && !wallDx && !wallDz; ++k) {
@@ -4105,7 +4106,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 if (!wallDx && !wallDz) continue;
                 const uint32_t pick = h % 23;
                 if (pick == 0 && bin) { model = bin; scale = 0.45f / (std::max)(bin->Height(), 0.1f); }
-                else if (pick == 1 && bench && (h & 64)) { model = bench; scale = 0.75f / (std::max)(bench->Length(), 0.1f); }
+                else if (pick == 1 && bench && (h & 64)) { model = bench; scale = 0.75f / (std::max)((std::max)(bench->Length(), bench->Width()), 0.1f); }
                 else if (pick == 2 && hydrant) { model = hydrant; scale = 0.4f / (std::max)(hydrant->Height(), 0.1f); }
                 if (!model) continue;
                 ox = wallDx * 0.34f;
@@ -4140,6 +4141,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
 
 void LiveGeometry::BeginFrame() {
     carModels_.clear();
+    carBodies_.clear();
     if (g_carHd && g_carMaterial && !g_hdPrepStarted) StartHdPrepare();
     sprites_.clear();
     shells_.clear();
@@ -5110,16 +5112,41 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
     }
     if (g_carBodyHeight < 1e-4f) return;
 
-    if (g_groundModels) {
+    if (g_groundModels && g_carModels3d) {
         const int sprite = static_cast<int>(*reinterpret_cast<const uint16_t*>(object + game::kSpriteObjectNumber));
+        // A hand-picked model when the manifest names one for this sprite; otherwise
+        // a body built from the sprite itself, so the car stays the car the game drew.
         if (const Model* model = ModelForCar(sprite)) {
             carModels_.push_back({model, FitModel(*model, body->local, body->corners, body->objectToWorld, 0.0f),
                                   reinterpret_cast<uintptr_t>(object)});
             body->hidden = true;
             return;
         }
+        // Far cars keep the dome: see kCarBodyLodBlocks.
+        const float ddx = body->objectToWorld.m[3][0] - lastEye_.x, ddy = body->objectToWorld.m[3][1] - lastEye_.y,
+                    ddz = body->objectToWorld.m[3][2] - lastEye_.z;
+        const bool distant = ddx * ddx + ddy * ddy + ddz * ddz > kCarBodyLodBlocks * kCarBodyLodBlocks;
+        if (distant) goto dome;
+        CarBodyUse use;
+        use.texture = body->texture;
+        use.sprite = sprite;
+        // The vehicle the sprite belongs to, and its model number.
+        {
+            const uint8_t* car = *reinterpret_cast<const uint8_t* const*>(object + game::kSpriteObjectOwner);
+            if (game::PlausiblePointer(car)) {
+                const int32_t number = *reinterpret_cast<const int32_t*>(car + game::kVehicleModel);
+                if (number >= 0 && number < 256) use.model = number;
+            }
+        }
+        use.object = reinterpret_cast<uintptr_t>(object);
+        static_assert(sizeof(CarBodyVertex) == sizeof(Vertex), "car body vertices share the world layout");
+        memcpy(use.local, body->local, sizeof(use.local));
+        use.objectToWorld = body->objectToWorld;
+        carBodies_.push_back(use);
+        body->hidden = true;
+        return;
     }
-
+dome:
     const float above = body->objectToWorld.m[1][1] >= 0.0f ? 1.0f : -1.0f;
     const float peak = g_carBodyHeight * above;
     // Clear of the flat body underneath, so the two never fight for the pixel.
@@ -5686,14 +5713,24 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
 
         if (g_groundModels) {
-            if (const Model* model = ModelForPedestrian()) {
+            // Which of the people he is: fixed by his object, so he keeps his look.
+            const Model* model = (sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject)
+                                     ? ModelForPedestrian()   // the protagonist: always the manifest's default
+                                     : nullptr;
+            if (!model) model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4));
+            if (model) {
                 // The character, walking at his pace, where the figure would stand.
                 gta2::Mat4 placed = m;
                 placed.m[3][1] = cy - 0.01f;
-                // Facing: rebuild the rows from his heading, upright.
-                placed.m[0][0] = fz;  placed.m[0][1] = 0.0f; placed.m[0][2] = -fx;
+                // Facing: rebuild the rows from his heading, upright. A walker's
+                // heading is the way he moves; a standing figure's comes from the
+                // artwork, whose top edge is the back of his head, so it points
+                // the other way (checked against the chase camera, which sits
+                // behind the game's own heading).
+                const float hx = track.speed > 0.6f ? fx : -fx, hz = track.speed > 0.6f ? fz : -fz;
+                placed.m[0][0] = hz;  placed.m[0][1] = 0.0f; placed.m[0][2] = -hx;
                 placed.m[1][0] = 0.0f; placed.m[1][1] = 1.0f; placed.m[1][2] = 0.0f;
-                placed.m[2][0] = fx;  placed.m[2][1] = 0.0f; placed.m[2][2] = fz;
+                placed.m[2][0] = hx;  placed.m[2][1] = 0.0f; placed.m[2][2] = hz;
                 const float scale = 0.85f / (std::max)(model->Height(), 0.01f);
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * model->forward;
@@ -5704,10 +5741,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     for (int k = 0; k < 4; ++k) acc += fit.m[r][k] * placed.m[k][c];
                     world.m[r][c] = acc;
                 }
-                const bool walking = track.speed > 0.5f;
+                // He walks only while he moves (the same threshold as his heading
+                // from motion, so a walker never faces away from where he goes).
+                const bool walking = track.speed > 0.6f;
                 const ModelAnimation* anim = model->Animation(walking ? "walk" : "idle");
-                // Time from the walk phase so the stride matches the ground covered.
-                const float time = walking ? track.phase / 6.2832f * (anim ? anim->length : 1.0f)
+                // Time from the walk phase, which advances one turn per 0.7 blocks
+                // of ground: rescaled to the ground the animation's own stride
+                // covers, so the feet neither slide nor overreach.
+                const float cycle = model->stride > 0.0f ? model->stride * scale : 0.7f;
+                const float time = walking ? track.phase / 6.2832f * 0.7f / cycle * (anim ? anim->length : 1.0f)
                                            : static_cast<float>(g_carFrame % 3000) / 30.0f;
                 device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
@@ -5775,6 +5817,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     DrawStageTimer stageTimer;
     ++g_carFrame;
     g_carMaterialsThisFrame = 0;
+    lastEye_ = camera.Position();
 
     // The texture table filled up (see kMaxFrames): empty it before anything of this frame
     // holds a texture, and forget what was keyed on the old textures' addresses - a new
@@ -5782,6 +5825,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     // again from what they are made of, so the cars do not have to be made anew.
     if (TextureCacheTakeFlushRequest()) {
         ReleaseDeviceTextures();
+        CarBodiesReleaseDevice();   // keyed on those textures' addresses
         g_carMaterials.clear();
         g_warmArt.clear();
         Log("texture cache: emptied (it was full), the cars' artwork is built again");
@@ -6883,6 +6927,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     issue(plain);
     if (g_groundModels) {
         DrawCarModels(device);
+        CarBodiesDraw(device, carBodies_, g_carFrame);
         DrawProps(device, camera.Position());
     }
     if (g_pedFigures) DrawPedFigures(device);

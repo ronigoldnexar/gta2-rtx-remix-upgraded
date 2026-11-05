@@ -24,8 +24,23 @@ game's objects to models.
     import_assets.py <manifest.json> <out dir>
 
 The manifest lists {"name": ..., "glb": ..., "scale": ...} entries; each glb's
-texture is taken from its own images. Kenney's starter kits (MIT) are the first
-source; any glb with one texture and node-animated (non-skinned) rigs works.
+texture is taken from its own images (a material with only a colour factor
+gets a 4x4 texture of that colour). Any glb with textures and node-animated
+or skinned rigs works.
+
+Cars. The manifest's "cars" object maps the game's vehicles to models:
+
+    "cars": {"by_model": {"0": "romero", "12": "cop_car"},   # the vehicle's model number (CARI order)
+             "by_sprite": {"45": "taxi"}}                     # or its car sprite number
+
+The renderer reads each vehicle's model number from the game and looks it up
+here; a vehicle neither map names is built from its own sprite at run time
+(dll/src/car_bodies.cpp). A car model's painted parts should use a material
+named "paint" (or listed in the entry's "paint_materials"): its texture is
+written with "_paint" in the name and multiplied by the car's own colour in
+the game, so keep the paint light and neutral (near white) in the model.
+Models face +z with x across; "forward": "-z" in the entry says otherwise.
+Keep a car under 12000 vertices and its textures at 1024 or less.
 """
 import json, os, struct, sys
 
@@ -121,10 +136,26 @@ def import_model(entry, src_dir, out_dir):
             write_tga(im, out, int(entry.get("texture_max", 1024)))
         return tag
     overrides = entry.get("material_textures", {})
+    # A car's paint: materials named here (or whose name says "paint"/"body")
+    # get "_paint" in their texture's name, which the renderer multiplies by
+    # the car's own colour. Keep such a texture light and neutral.
+    paint_names = [n.lower() for n in entry.get("paint_materials", [])]
+    def is_paint(mat):
+        n = (mat.get("name") or "").lower()
+        return n in paint_names or (not paint_names and ("paint" in n or n in ("body", "carpaint", "car_paint")))
+    def solid_tga(mi, mat):
+        """a material with only a base colour factor: a 4x4 texture of that colour"""
+        f = mat.get("pbrMetallicRoughness", {}).get("baseColorFactor", [1, 1, 1, 1])
+        rgba = tuple(max(0, min(255, int(round(c * 255)))) for c in f[:4]) + (255,) * (4 - len(f[:4]))
+        tag = f"{name}_m{mi}{'_paint' if is_paint(mat) else ''}.tga"
+        out = os.path.join(out_dir, tag)
+        if not os.path.exists(out):
+            write_tga(Image.new("RGBA", (4, 4), rgba), out)
+        return tag
     for mi, mat in enumerate(g.get("materials", [])):
         pbr = mat.get("pbrMetallicRoughness", {})
         if mat.get("name") in overrides:
-            tag = f"{name}_{mat['name']}.tga"
+            tag = f"{name}_{mat['name']}{'_paint' if is_paint(mat) else ''}.tga"
             out = os.path.join(out_dir, tag)
             if not os.path.exists(out):
                 write_tga(Image.open(os.path.join(src_dir, overrides[mat["name"]])), out, int(entry.get("texture_max", 1024)))
@@ -132,7 +163,18 @@ def import_model(entry, src_dir, out_dir):
         elif "baseColorTexture" in pbr:
             tex = g["textures"][pbr["baseColorTexture"]["index"]]
             if "source" in tex:
-                tex_by_material[mi] = image_tga(tex["source"])
+                tag = image_tga(tex["source"])
+                if is_paint(mat):
+                    # the same picture under a name that marks it as paint
+                    paint_tag = tag[:-4] + "_paint.tga"
+                    paint_out = os.path.join(out_dir, paint_tag)
+                    if not os.path.exists(paint_out):
+                        import shutil
+                        shutil.copyfile(os.path.join(out_dir, tag), paint_out)
+                    tag = paint_tag
+                tex_by_material[mi] = tag
+        elif "baseColorFactor" in pbr:
+            tex_by_material[mi] = solid_tga(mi, mat)
     texture_name = tex_by_material.get(0, "")
 
     # Nodes whose names match an exclude pattern (variants such as "_aged",
@@ -205,6 +247,7 @@ def import_model(entry, src_dir, out_dir):
     for i, n in enumerate(nodes):
         for c in n.get("children", []): parent[c] = i
     anims = []
+    stride = [0.0]   # the ground a stripped walk covers per cycle, model units
     def read_anims(gg, bb, node_map, strip_root, rename=None):
         out = []
         for a in gg.get("animations", []):
@@ -224,6 +267,8 @@ def import_model(entry, src_dir, out_dir):
                 # (x, z of the root held at the first key), the game moves him.
                 if strip_root and path == 0 and gg["nodes"][ch["target"]["node"]].get("name") == strip_root:
                     x0, y0, z0 = values[0]
+                    x1, _, z1 = values[-1]
+                    stride[0] = max(stride[0], ((x1 - x0) ** 2 + (z1 - z0) ** 2) ** 0.5)
                     values = [(x0, v[1], z0) for v in values]
                 channels.append((target, path, times, values))
             out.append((rename or a.get("name", f"anim{len(out)}"), channels))
@@ -237,7 +282,10 @@ def import_model(entry, src_dir, out_dir):
     scale = float(entry.get("scale", 1.0))
     # Our nodes: the glTF nodes, then one extra child per additional primitive
     # of a node's mesh (the first primitive stays on the node itself).
+    # The extra nodes go after all the glTF ones, so every index the file uses
+    # (parents, skin joints, animation targets) stays a glTF node index.
     out_nodes = []
+    extras = []
     for i, n in enumerate(nodes):
         t = n.get("translation", [0, 0, 0]); r = n.get("rotation", [0, 0, 0, 1]); sc = n.get("scale", [1, 1, 1])
         if "matrix" in n:
@@ -245,7 +293,8 @@ def import_model(entry, src_dir, out_dir):
         group = mesh_groups[n["mesh"]] if "mesh" in n and n["mesh"] < len(mesh_groups) and node_wanted(n) else []
         out_nodes.append((n.get("name", f"node{i}"), parent[i], t, r, sc, group[0] if group else -1))
         for extra in group[1:]:
-            out_nodes.append((n.get("name", f"node{i}") + "+", i, [0, 0, 0], [0, 0, 0, 1], [1, 1, 1], extra))
+            extras.append((n.get("name", f"node{i}") + "+", i, [0, 0, 0], [0, 0, 0, 1], [1, 1, 1], extra))
+    out_nodes += extras
     with open(os.path.join(out_dir, f"{name}.mesh"), "wb") as f:
         f.write(b"GMSH" + struct.pack("<IIIII", 2, len(out_nodes), len(meshes), len(anims), len(skins)))
         for nname, par, t, r, sc, mesh_index in out_nodes:
@@ -289,7 +338,7 @@ def import_model(entry, src_dir, out_dir):
                 f.write(struct.pack("<16f", *mm))
     return dict(name=name, nodes=len(out_nodes), meshes=len(meshes), vertices=sum(len(v) for v, _, _ in meshes),
                 animations=[a for a, _ in anims], textures=sorted(set(t for _, _, t in meshes)), skins=len(skins),
-                forward=entry.get("forward", ""))
+                forward=entry.get("forward", ""), stride=round(stride[0] * scale, 4))
 
 if __name__ == "__main__":
     manifest = json.load(open(sys.argv[1]))
@@ -300,5 +349,9 @@ if __name__ == "__main__":
     for entry in manifest["models"]:
         report.append(import_model(entry, src_dir, out_dir))
         print(report[-1])
-    json.dump({"models": manifest["models"], "cars": manifest.get("cars", {}), "pedestrian": manifest.get("pedestrian", ""),
+    # The models list goes out without the import-only lists (the renderer's
+    # manifest reader takes every "name" in it for a model file).
+    models_out = [{k: v for k, v in e.items() if k != "animations_from"} for e in manifest["models"]]
+    json.dump({"models": models_out, "cars": manifest.get("cars", {}), "pedestrian": manifest.get("pedestrian", ""),
+               "pedestrians": manifest.get("pedestrians", []),
                "props": manifest.get("props", {}), "imported": report}, open(os.path.join(out_dir, "manifest.json"), "w"), indent=1)

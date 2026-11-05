@@ -27,6 +27,7 @@
 
 #include "../../src/camera.h"
 #include "../../src/math3d.h"
+#include "car_bodies.h"
 #include "ground.h"
 
 namespace gta2dx9 {
@@ -76,6 +77,9 @@ void SetGhostSwitch(int which, bool on);
 // Up to two game objects whose sprites are not drawn at all this frame: the
 // player's own pedestrian and his car, from his own eyes. Null clears one.
 void SetHiddenObjects(const void* first, const void* second);
+// The player's own pedestrian sprite object (null when not located), so he
+// keeps one look rather than one hashed from his address.
+void SetPlayerObject(const void* object);
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);
@@ -251,6 +255,9 @@ constexpr bool kDefaultCarBodies = true;
 constexpr float kDefaultCarBodyHeight = 0.10f;
 constexpr float kDefaultCarBodyInset = 0.12f;
 void SetCarBodies(bool on);
+// Cars in the ground views as 3D bodies (hand-made models or bodies built from
+// their sprites; car_bodies.h) instead of their sprite domes. [renderer] car_models3d.
+void SetCarModels3d(bool on);
 bool CarBodies();
 void SetCarBodyHeight(float blocks);
 float CarBodyHeight();
@@ -524,6 +531,9 @@ private:
     };
     std::vector<CarModelUse> carModels_;
     void DrawCarModels(IDirect3DDevice9* device);
+    // Cars built from their own sprites this frame, in place of their domes. See car_bodies.h.
+    std::vector<CarBodyUse> carBodies_;
+    gta2::Vec3 lastEye_{0.0f, 0.0f, 0.0f};   // where the camera was last frame, for the cars' distance
     // Street furniture and plants placed by rule from the map, around the camera.
     void DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye);
     struct PedTrack {

@@ -83,6 +83,13 @@ struct Model {
     // +1 when the model faces +z, -1 when -z (the importer works it out from
     // the wheels, the manifest can say).
     float forward = 1.0f;
+    // A car model's own paint colour (0-255), as its "_paint" textures are painted:
+    // the game's paint divides by it to make the tint ("paint_rgb" in the manifest).
+    // Near-white by default, for models whose paint is left neutral.
+    float paintRgb[3] = {235.0f, 235.0f, 235.0f};
+    // The ground the walk animation covers per cycle, in model units (its
+    // root motion was stripped on import); 0 when unknown.
+    float stride = 0.0f;
     const ModelAnimation* Animation(const char* name) const;
 };
 
@@ -92,7 +99,17 @@ void ModelsLoad(const char* folder);
 bool ModelsAvailable();
 // The model for a car sprite number, or null; the pedestrian model, or null.
 const Model* ModelForCar(int sprite);
+// The model for a vehicle by its game model number (the manifest's
+// cars.by_model map), falling back to its sprite (cars.by_sprite); null when
+// neither names one - the car is then built from its sprite (car_bodies.h).
+const Model* ModelForVehicle(int modelNumber, int sprite);
+// Meshes whose texture name contains "_paint" are multiplied by this factor
+// (0..2 per channel) in ModelDraw until it is cleared with null: a car's repaint.
+void ModelSetPaintTint(const float* rgb);
 const Model* ModelForPedestrian();
+// One of the pedestrian models, chosen by a seed (the same seed always gives
+// the same model, so a pedestrian keeps his look); null when there are none.
+const Model* ModelForPedestrian(uint32_t seed);
 // Street furniture by role: "lamp", "hydrant", "bin", "bench", "shrub"; null
 // when the manifest names none.
 const Model* ModelForProp(const char* role);

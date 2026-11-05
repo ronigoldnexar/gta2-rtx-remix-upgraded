@@ -1,5 +1,6 @@
 #include "renderer.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -152,6 +153,91 @@ char g_hdName[64];
 const char* TileFileName(int tile) {
     snprintf(g_hdName, sizeof(g_hdName), "tile_%04d.tga", tile);
     return g_hdName;
+}
+const char* TileDdsFileName(int tile) {
+    snprintf(g_hdName, sizeof(g_hdName), "tile_%04d.dds", tile);
+    return g_hdName;
+}
+
+// A block-compressed DDS (DXT1 or DXT5, full mip chain) as tools/pack_textures_dds.py
+// writes it: 128-byte header, then the levels top down, each one tightly packed
+// rows of 4x4 blocks (8 bytes a block for DXT1, 16 for DXT5).
+struct DdsImage {
+    int width = 0, height = 0, mips = 0;
+    D3DFORMAT format = D3DFMT_UNKNOWN;
+    int blockBytes = 0;
+    std::vector<uint8_t> data;   // the levels, back to back
+    size_t LevelBytes(int level) const {
+        const int w = std::max(1, width >> level), h = std::max(1, height >> level);
+        return static_cast<size_t>((w + 3) / 4) * ((h + 3) / 4) * blockBytes;
+    }
+};
+
+bool ReadDds(const std::string& path, DdsImage* out) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    uint8_t header[128];
+    if (fread(header, 1, 128, f) != 128 || memcmp(header, "DDS ", 4) != 0) { fclose(f); return false; }
+    auto u32 = [&](int at) { return static_cast<uint32_t>(header[at]) | (header[at + 1] << 8) | (header[at + 2] << 16) | (static_cast<uint32_t>(header[at + 3]) << 24); };
+    const uint32_t flags = u32(8);
+    out->height = static_cast<int>(u32(12));
+    out->width = static_cast<int>(u32(16));
+    out->mips = (flags & 0x20000) ? static_cast<int>(u32(28)) : 1;
+    if (out->mips < 1) out->mips = 1;
+    const uint32_t pfFlags = u32(80);
+    const uint32_t fourcc = u32(84);
+    if (!(pfFlags & 0x4)) { fclose(f); return false; }                 // DDPF_FOURCC only
+    if (fourcc == 0x31545844u) { out->format = D3DFMT_DXT1; out->blockBytes = 8; }        // "DXT1"
+    else if (fourcc == 0x35545844u) { out->format = D3DFMT_DXT5; out->blockBytes = 16; }  // "DXT5"
+    else { fclose(f); return false; }
+    if (out->width <= 0 || out->height <= 0 || out->width > 4096 || out->height > 4096) { fclose(f); return false; }
+    size_t total = 0;
+    for (int i = 0; i < out->mips; ++i) total += out->LevelBytes(i);
+    out->data.resize(total);
+    const bool ok = fread(out->data.data(), 1, total, f) == total;
+    fclose(f);
+    return ok;
+}
+
+// Creates a default-pool compressed texture from the DDS, through a
+// system-memory staging copy that is released at once. Levels above the size
+// cap are skipped, so hd_tile_max keeps working for DDS sets. Returns nullptr
+// if the device will not take the format, in which case the caller falls back.
+IDirect3DTexture9* CreateDdsTexture(IDirect3DDevice9* device, const DdsImage& dds, int maxSize) {
+    int first = 0;
+    size_t offset = 0;
+    while (first < dds.mips - 1 && (std::max(1, dds.width >> first) > maxSize || std::max(1, dds.height >> first) > maxSize)) {
+        offset += dds.LevelBytes(first);
+        ++first;
+    }
+    const int w = std::max(1, dds.width >> first), h = std::max(1, dds.height >> first);
+    const int levels = dds.mips - first;
+    IDirect3DTexture9* texture = nullptr;
+    IDirect3DTexture9* staging = nullptr;
+    if (FAILED(device->CreateTexture(w, h, levels, 0, dds.format, D3DPOOL_DEFAULT, &texture, nullptr)) ||
+        FAILED(device->CreateTexture(w, h, levels, 0, dds.format, D3DPOOL_SYSTEMMEM, &staging, nullptr))) {
+        if (staging) staging->Release();
+        if (texture) texture->Release();
+        return nullptr;
+    }
+    bool ok = true;
+    for (int level = 0; level < levels && ok; ++level) {
+        const int lw = std::max(1, w >> level), lh = std::max(1, h >> level);
+        const int blocksX = (lw + 3) / 4, blocksY = (lh + 3) / 4;
+        const size_t rowBytes = static_cast<size_t>(blocksX) * dds.blockBytes;
+        D3DLOCKED_RECT rect;
+        if (FAILED(staging->LockRect(level, &rect, nullptr, 0))) { ok = false; break; }
+        const uint8_t* src = dds.data.data() + offset;
+        for (int y = 0; y < blocksY; ++y) {
+            memcpy(static_cast<uint8_t*>(rect.pBits) + static_cast<size_t>(y) * rect.Pitch, src + y * rowBytes, rowBytes);
+        }
+        staging->UnlockRect(level);
+        offset += dds.LevelBytes(first + level);
+    }
+    if (ok) ok = SUCCEEDED(device->UpdateTexture(staging, texture));
+    staging->Release();
+    if (!ok) { texture->Release(); return nullptr; }
+    return texture;
 }
 }  // namespace
 
@@ -356,6 +442,8 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     const int riverbedTile = RiverbedTileIndex(style);
     textures_.assign(static_cast<size_t>(riverbedTile) + 1, nullptr);
     hdTiles_ = 0;
+    hdDdsTiles_ = 0;
+    hdFailed_ = 0;
     const std::string hdDir = g_hdTextureDir.empty() ? "" : g_hdTextureDir + "\\" + g_tileStyle;
     const std::string dumpDir = g_tileDumpDir.empty() ? "" : g_tileDumpDir + "\\" + g_tileStyle;
     if (!dumpDir.empty()) {
@@ -366,9 +454,21 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     for (const TileBatch& batch : batches_) {
         if (textures_[batch.tile]) continue;
 
-        // High-resolution artwork for this tile, if the folder has it.
+        // High-resolution artwork for this tile, if the folder has it: a
+        // block-compressed DDS with mips first (tools/pack_textures_dds.py), then
+        // the older uncompressed TGA.
         if (!hdDir.empty() && batch.tile != sealTile && batch.tile != riverbedTile) {
             int w = 0, h = 0;
+            DdsImage dds;
+            if (ReadDds(hdDir + "\\" + TileDdsFileName(batch.tile), &dds)) {
+                if (IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax)) {
+                    textures_[batch.tile] = texture;
+                    ++hdTiles_;
+                    ++hdDdsTiles_;
+                    continue;
+                }
+                ++hdFailed_;
+            }
             if (ReadTga(hdDir + "\\" + TileFileName(batch.tile), &hd, &w, &h)) {
                 // Down to the cap by halving (a box filter), alpha included.
                 while ((w > g_hdTileMax || h > g_hdTileMax) && (w % 2) == 0 && (h % 2) == 0) {
@@ -410,6 +510,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
                 }
                 if (staging) staging->Release();
                 if (texture) texture->Release();
+                ++hdFailed_;
             }
         }
 
@@ -418,6 +519,10 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
                                           D3DPOOL_MANAGED, &texture, nullptr))) {
             *error = "CreateTexture failed";
             return false;
+        }
+        if (hdFailed_ == 1 && !hdDir.empty() && !hdFailLogged_) {
+            hdFailLogged_ = true;
+            Trace("hd tiles: a file in %s could not be uploaded (out of texture memory, or the device refuses the format); its tile uses the game's artwork", hdDir.c_str());
         }
         D3DLOCKED_RECT rect;
         texture->LockRect(0, &rect, nullptr, 0);
@@ -449,6 +554,10 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         }
         texture->UnlockRect(0);
         textures_[batch.tile] = texture;
+    }
+    if (hdTiles_ > 0 || hdFailed_ > 0) {
+        Trace("hd tiles: %d loaded (%d block-compressed DDS with mips, cap %d px), %d failed, of %zu tile textures",
+              hdTiles_, hdDdsTiles_, g_hdTileMax, hdFailed_, textures_.size());
     }
     return true;
 }
@@ -521,8 +630,20 @@ void Renderer::ApplyFixedFunctionState() {
 
     device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
-    device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    // The game's own 64 px tiles are magnified with point sampling, which is
+    // their look. High-resolution artwork is filtered: trilinear over its mip
+    // chain with 8x anisotropy, so a pavement seen edge-on in first person stays
+    // sharp instead of smearing into the horizon.
+    if (hdTiles_ > 0) {
+        device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_ANISOTROPIC);
+        device_->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+        device_->SetSamplerState(0, D3DSAMP_MAXANISOTROPY, 8);
+    } else {
+        device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        device_->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    }
 }
 
 void Renderer::MarkDrawsAsScreenUi() {

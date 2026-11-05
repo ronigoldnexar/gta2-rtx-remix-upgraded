@@ -26,6 +26,20 @@ struct SpriteIndices {
 // The sprite bases, in the order SPRB lists them.
 enum class SpriteBase { Car, Ped, CodeObj, MapObj, User, Font };
 
+// One car model's measurements from the CARI chunk, in the car sprite's own
+// pixels. Offsets are from the sprite's centre along its length, positive
+// toward the nose (the sprites are drawn nose-down, so toward larger y).
+struct CarInfo {
+    int model = 0;
+    int sprite = 0;          // within the car base; models without art of their own share the previous one's
+    int width = 0, height = 0;   // of the car itself, not its sprite's canvas
+    int passengers = 0;
+    bool wreck = false;
+    int frontWheel = 0, rearWheel = 0;
+    int frontWindow = 0, rearWindow = 0;   // where the windscreen starts and the rear window ends
+    int doors = 0;
+};
+
 // Palette entry 0 is the transparency key for every tile.
 struct Tile {
     std::vector<uint32_t> pixels;  // kTilePixels, A8R8G8B8
@@ -60,6 +74,14 @@ public:
     // How many sprites a base holds.
     int SpriteCount(SpriteBase base) const { return spriteBases_[static_cast<int>(base)]; }
 
+    // Every car model the style describes (CARI), in file order.
+    const std::vector<CarInfo>& CarInfos() const { return cars_; }
+    // The first model drawn with a car sprite, or null.
+    const CarInfo* CarInfoForSprite(int sprite) const {
+        for (const CarInfo& c : cars_) if (c.sprite == sprite) return &c;
+        return nullptr;
+    }
+
     // Where one of a sprite's deltas sits, as the centre of the pixels it
     // changes, in the sprite's own pixels (0,0 top left). Deltas are the pieces
     // the game patches onto a car as it runs - dents, doors, and its lamps - from
@@ -87,6 +109,7 @@ private:
 
     std::vector<Tile> tiles_;
     std::vector<uint8_t> waterTiles_;   // by tile number, from SPEC
+    std::vector<CarInfo> cars_;         // from CARI
 
     struct SpriteEntry {
         uint32_t offset;   // into spriteGraphics_, which is 256-wide pages

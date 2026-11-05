@@ -13,7 +13,14 @@ G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 cp -r /game/. "$G"/; mkdir -p "$G/player"
 cp -r /release/. "$G"/            # upstream v1.1: HD cars, voices, Remix mods, ini files
 cp /stage/*.dll /stage/gta2dx9.ini "$G"/; rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/   # this build: DLLs, ini, models
-[ -f /work/gta2dx9.ini.extra ] && cat /work/gta2dx9.ini.extra >> "$G/gta2dx9.ini"
+rm -rf "$G/gta2dx9_textures_hd"; [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/   # HD tiles (DDS/TGA), when generated
+[ "${LAA:-1}" = 1 ] && sh /work/laa.sh "$G/gta2.exe"   # 4 GB address space for the copy in the prefix (HD tiles)
+[ -f "${INI_EXTRA:-/work/gta2dx9.ini.extra}" ] && cat "${INI_EXTRA:-/work/gta2dx9.ini.extra}" >> "$G/gta2dx9.ini"   # INI_EXTRA: a run's own [camera]/[renderer] additions
+# SWAP_LEVEL=ste makes "level 1" load another district (its map, style and script
+# are copied over Downtown's in the prefix copy only); DUMP_TILES=1 turns on the
+# renderer's tile dump for the run. Both are for building the HD tile sets.
+if [ -n "$SWAP_LEVEL" ]; then for e in gmp sty; do cp "$G/data/$SWAP_LEVEL.$e" "$G/data/wil.$e"; done; cp "$G/data/$SWAP_LEVEL."[sS][cC][rR] "$G/data/wil.SCR"; [ -d "$G/data/$SWAP_LEVEL" ] && rm -rf "$G/data/wil" && cp -r "$G/data/$SWAP_LEVEL" "$G/data/wil"; echo "level 1 is now $SWAP_LEVEL"; fi
+[ "${DUMP_TILES:-0}" = 1 ] && sed -i 's/^dump_tiles=0/dump_tiles=1/' "$G/gta2dx9.ini"
 [ -f "${SETTINGS_EXTRA:-/nonexistent}" ] && cat "$SETTINGS_EXTRA" >> "$G/gta2dx9_settings.ini"   # e.g. a [camera] section for a benchmark
 if [ "$REMIX" = 1 ]; then cp -r /remix/. "$G"/; cp /release/.trex/bridge.conf "$G/.trex/" 2>/dev/null; [ -f /work/bridge.conf.extra ] && cat /work/bridge.conf.extra >> "$G/.trex/bridge.conf"; [ -f /work/rtx.conf.extra ] && cat /work/rtx.conf.extra >> "$G/rtx.conf"; [ -f /work/d3d9_trex_patched.dll ] && cp /work/d3d9_trex_patched.dll "$G/.trex/d3d9.dll"; fi
 if [ "$REMIX" = 0 ]; then rm -f "$G/d3d9.dll"; fi

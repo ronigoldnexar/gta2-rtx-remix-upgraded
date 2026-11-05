@@ -1,5 +1,6 @@
 #include "world_view.h"
 
+#include "car_bodies.h"
 #include "model_store.h"
 
 #include <algorithm>
@@ -838,6 +839,7 @@ void WorldView::Shutdown() {
     // Before the frames go: the report is the only record of what this session
     // actually built and drew.
     WriteTextureReport();
+    CarBodiesReleaseDevice();
     ReleaseDeviceTextures();
     renderer_.Shutdown();
     if (ours) DestroyWindow(ours);
@@ -906,6 +908,7 @@ bool WorldView::EnsureWorldLoaded() {
         loadedMapObject_ = mapObject;
         return false;
     }
+    CarBodiesSetInfo(style.CarInfos());
 
     // The district's name salts the per-light override keys, so a lamp standing
     // in the same spot in two districts does not share one entry.
@@ -1226,12 +1229,33 @@ void WorldView::UpdateCamera() {
         if (worldUploaded_ && player.valid && (frameCount_ % 15) == 0) {
             float vx = 0.0f, vy = 0.0f, vd = 0.0f, px = 0.0f, py = 0.0f, pd = 0.0f;
             bool driven = false, parkedDriven = false;
-            const bool car = NearestVehicle(player.x, player.y, 40.0f, false, &vx, &vy, &vd, &driven);
-            const bool parked = NearestVehicle(player.x, player.y, 60.0f, true, &px, &py, &pd, &parkedDriven);
-            Log("view: player x=%.2f y=%.2f z=%.2f face=%.3f,%.3f %s | car %s x=%.2f y=%.2f d=%.2f%s | parked %s x=%.2f y=%.2f d=%.2f",
+            const void* carPtr = nullptr;
+            const void* parkedPtr = nullptr;
+            const bool car = NearestVehicle(player.x, player.y, 40.0f, false, &vx, &vy, &vd, &driven, &carPtr);
+            const bool parked =
+                NearestVehicle(player.x, player.y, 60.0f, true, &px, &py, &pd, &parkedDriven, &parkedPtr);
+            // The car's heading and the player's state words, for a script
+            // walking up to a door and for reading back what Enter did.
+            float chx = 0.0f, chy = 0.0f, phx = 0.0f, phy = 0.0f;
+            if (car) VehicleFacing(carPtr, &chx, &chy);
+            if (parked) VehicleFacing(parkedPtr, &phx, &phy);
+            const PedWords words = ReadPedWords(player.ped);
+            Log("view: player x=%.2f y=%.2f z=%.2f face=%.3f,%.3f %s | car %s x=%.2f y=%.2f d=%.2f%s | parked %s x=%.2f y=%.2f d=%.2f"
+                " | carhead=%.3f,%.3f parkedhead=%.3f,%.3f ped state=%d sub=%d pend=%d veh=%08X"
+                " | me=%08X phys=%08X sprite=%08X cardrv=%08X src=%s",
                 player.x, player.y, player.z, player.dirX, player.dirY,
                 player.inVehicle ? "driving" : "on foot", car ? "nearest" : "none", vx, vy, vd,
-                driven ? " (driven)" : "", parked ? "nearest" : "none", px, py, pd);
+                driven ? " (driven)" : "", parked ? "nearest" : "none", px, py, pd,
+                chx, chy, phx, phy, words.state, words.sub, words.pending, static_cast<unsigned>(words.vehicle),
+                static_cast<unsigned>(reinterpret_cast<uintptr_t>(player.ped)),
+                static_cast<unsigned>(player.ped ? *reinterpret_cast<const uintptr_t*>(
+                                                       static_cast<const uint8_t*>(player.ped) + game::kPedPhysics)
+                                                 : 0),
+                static_cast<unsigned>(reinterpret_cast<uintptr_t>(player.pedSprite)),
+                static_cast<unsigned>(carPtr ? *reinterpret_cast<const uintptr_t*>(
+                                                   static_cast<const uint8_t*>(carPtr) + game::kVehicleDriver)
+                                             : 0),
+                player.source);
         }
         ViewQueries queries;
         queries.context = this;
@@ -1280,6 +1304,7 @@ void WorldView::UpdateCamera() {
             const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody;
             SetHiddenObjects(hide ? player.pedSprite : nullptr,
                              hide && player.inVehicle ? player.vehicleSprite : nullptr);
+            SetPlayerObject(player.pedSprite);
             SetUprightPeds(ViewModes().uprightPeds);
             SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
             SetGroundModels(ViewModes().groundModels && ModelsAvailable());
@@ -1297,6 +1322,7 @@ void WorldView::UpdateCamera() {
         }
         g_viewActive = false;
         SetHiddenObjects(nullptr, nullptr);
+        SetPlayerObject(nullptr);
         SetUprightPeds(false);
         SetPedFigures(false);
         SetGroundModels(false);

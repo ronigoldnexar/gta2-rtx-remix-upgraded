@@ -107,6 +107,25 @@ float g_nearPedNowDist = 1e9f;
 const void* g_nearPed = nullptr;
 float g_nearPedDist = 1e9f;
 
+// The ped the slots last held: once he gets into a car the camera's slot
+// turns to the car and his sprite goes, but a vehicle's driver word still
+// names him, which is how he is followed at the wheel.
+uintptr_t g_lastPlayerPed = 0;
+
+// The vehicle whose driver word is `ped`, or 0.
+uintptr_t VehicleDrivenBy(uintptr_t ped) {
+    if (!ped) return 0;
+    int guard = 0;
+    for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024;
+         v = game::NextInList(v, game::kVehicleNext), ++guard) {
+        uintptr_t driver = 0;
+        if (ReadAt(reinterpret_cast<uintptr_t>(v) + game::kVehicleDriver, &driver) && driver == ped) {
+            return reinterpret_cast<uintptr_t>(v);
+        }
+    }
+    return 0;
+}
+
 // A pedestrian by his links alone, standing within a few tiles of the game's
 // camera: what a scan falls back to when no candidate passes the full
 // signature, which the player's new body fails for a while after an arrest
@@ -217,7 +236,7 @@ uintptr_t DrivenCarAtCamera(float camX, float camY) {
 }  // namespace
 
 bool NearestVehicle(float x, float y, float within, bool parkedOnly, float* vx, float* vy, float* distance,
-                    bool* driven) {
+                    bool* driven, const void** vehicle) {
     bool found = false;
     float best = within;
     int guard = 0;
@@ -238,9 +257,97 @@ bool NearestVehicle(float x, float y, float within, bool parkedOnly, float* vx, 
             *vy = cy;
             *distance = d;
             *driven = hasDriver;
+            if (vehicle) *vehicle = v;
         }
     }
     return found;
+}
+
+bool VehicleFacing(const void* vehicle, float* dirX, float* dirY) {
+    if (!vehicle || !Plausible(reinterpret_cast<uintptr_t>(vehicle))) return false;
+    return game::ReadFacing(reinterpret_cast<const uint8_t*>(vehicle), game::kVehiclePlacementPtr, dirX, dirY);
+}
+
+template <typename T>
+bool WriteAt(uintptr_t address, const T& value) {
+    if (address < 0x10000 || address >= 0x7FFE0000) return false;
+    SIZE_T put = 0;
+    return WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<LPVOID>(address), &value, sizeof(T), &put) &&
+           put == sizeof(T);
+}
+
+bool WarpPlayerToParkedCar(float within) {
+    PlayerState player;
+    if (!LocatePlayer(&player) || !player.valid || player.inVehicle || !player.ped) return false;
+    float cx = 0.0f, cy = 0.0f, d = 0.0f;
+    bool driven = false;
+    const void* car = nullptr;
+    if (!NearestVehicle(player.x, player.y, within, true, &cx, &cy, &d, &driven, &car)) return false;
+    float hx = 0.0f, hy = 1.0f;
+    VehicleFacing(car, &hx, &hy);
+    // The driver's door is on the car's left: facing (hx, hy) with y south,
+    // left is (hy, -hx).
+    const float tx = cx + 0.55f * hy;
+    const float ty = cy - 0.55f * hx;
+    const uintptr_t ped = reinterpret_cast<uintptr_t>(player.ped);
+    uintptr_t physics = 0;
+    if (!ReadAt(ped + game::kPedPhysics, &physics) || !Plausible(physics)) return false;
+    uintptr_t place = 0;
+    if (!ReadAt(physics + game::kPhysicsSprite, &place) || !Plausible(place)) return false;
+    const int32_t fx = static_cast<int32_t>(tx * (1 << 14));
+    const int32_t fy = static_cast<int32_t>(ty * (1 << 14));
+    bool ok = WriteAt(place + game::kPlaceX, fx) && WriteAt(place + game::kPlaceY, fy);
+    ok = WriteAt(ped + game::kPedX, fx) && WriteAt(ped + game::kPedY, fy) && ok;
+    Log("devtools: warped the player from %.2f,%.2f to %.2f,%.2f, the driver's door of the parked car at %.2f,%.2f "
+        "heading %.2f,%.2f (%s)",
+        player.x, player.y, tx, ty, cx, cy, hx, hy, ok ? "written" : "write failed");
+    return ok;
+}
+
+bool WarpSceneToRoad(float x, float y) {
+    PlayerState player;
+    if (!LocatePlayer(&player) || !player.valid || player.inVehicle || !player.ped) return false;
+    float cx = 0.0f, cy = 0.0f, d = 0.0f;
+    bool driven = false;
+    const void* car = nullptr;
+    if (!NearestVehicle(player.x, player.y, 250.0f, true, &cx, &cy, &d, &driven, &car)) return false;
+    const uint8_t* carBytes = static_cast<const uint8_t*>(car);
+    const uint8_t* place = game::Placement(carBytes, game::kVehiclePlacementPtr);
+    if (!place) return false;
+    const uintptr_t placeAt = reinterpret_cast<uintptr_t>(place);
+    // East: sin = 1, cos = 0 - a quarter of the game's 0x5A0 turn.
+    const uint16_t east = static_cast<uint16_t>(game::kAngleFullTurn / 4);
+    bool ok = WriteAt(placeAt + game::kPlaceX, static_cast<int32_t>(x * (1 << 14))) &&
+              WriteAt(placeAt + game::kPlaceY, static_cast<int32_t>(y * (1 << 14))) &&
+              WriteAt(placeAt + game::kPlaceHeading, east);
+    // The driver's door: the left of a car facing east is its north side.
+    const float tx = x, ty = y - 0.55f;
+    const uintptr_t ped = reinterpret_cast<uintptr_t>(player.ped);
+    uintptr_t physics = 0, pedPlace = 0;
+    if (ReadAt(ped + game::kPedPhysics, &physics) && Plausible(physics) &&
+        ReadAt(physics + game::kPhysicsSprite, &pedPlace) && Plausible(pedPlace)) {
+        const int32_t fx = static_cast<int32_t>(tx * (1 << 14));
+        const int32_t fy = static_cast<int32_t>(ty * (1 << 14));
+        ok = WriteAt(pedPlace + game::kPlaceX, fx) && WriteAt(pedPlace + game::kPlaceY, fy) &&
+             WriteAt(ped + game::kPedX, fx) && WriteAt(ped + game::kPedY, fy) && ok;
+    } else {
+        ok = false;
+    }
+    Log("devtools: moved the parked car at %.2f,%.2f (%.2f tiles off) to %.2f,%.2f heading east and the player from "
+        "%.2f,%.2f to its door at %.2f,%.2f (%s)",
+        cx, cy, d, x, y, player.x, player.y, tx, ty, ok ? "written" : "write failed");
+    return ok;
+}
+
+PedWords ReadPedWords(const void* ped) {
+    PedWords w;
+    const uintptr_t p = reinterpret_cast<uintptr_t>(ped);
+    if (!Plausible(p)) return w;
+    ReadAt(p + game::kPedState, &w.state);
+    ReadAt(p + game::kPedSubState, &w.sub);
+    ReadAt(p + game::kPedStatePending, &w.pending);
+    ReadAt(p + game::kPedVehicle, &w.vehicle);
+    return w;
 }
 
 ViewModeSettings& ViewModes() { return g_settings; }
@@ -327,6 +434,7 @@ bool LocatePlayer(PlayerState* out) {
     if (!game::MapObject() || !camera) {
         g_slot = Slot::None;
         g_slotLogged = false;
+        g_lastPlayerPed = 0;
         return false;
     }
 
@@ -340,6 +448,15 @@ bool LocatePlayer(PlayerState* out) {
                 g_slot == Slot::Camera ? "camera" : "player object", static_cast<unsigned>(g_slotOffset));
         }
         if (g_slot != Slot::None) g_scanCooldown = 0;   // he was there a moment ago: look now
+    }
+    // The slot lost him as he got into a car: the car names him as its driver.
+    // His physics object and sprite are recycled by the game while he sits in
+    // it, so neither is read then.
+    bool atTheWheel = false;
+    if (!ped && g_lastPlayerPed && VehicleDrivenBy(g_lastPlayerPed)) {
+        ped = g_lastPlayerPed;
+        atTheWheel = true;
+        out->source = "driver of a car";
     }
     if (!ped && --g_scanCooldown <= 0) {
         g_scanCooldown = kScanEveryFrames;
@@ -355,7 +472,6 @@ bool LocatePlayer(PlayerState* out) {
         }
     }
 
-    // Neither place held him: the camera itself says where he is.
     if (!ped) {
         float camX = 0.0f, camY = 0.0f;
         game::CameraPosition(&camX, &camY);
@@ -371,13 +487,14 @@ bool LocatePlayer(PlayerState* out) {
         }
     }
     if (!ped) return false;
+    if (!atTheWheel && PedSignature(ped)) g_lastPlayerPed = ped;
 
     const uint8_t* pedBytes = reinterpret_cast<const uint8_t*>(ped);
     uintptr_t physics = 0;
-    if (!ReadAt(ped + game::kPedPhysics, &physics) || !Plausible(physics)) return false;
+    if (!atTheWheel && (!ReadAt(ped + game::kPedPhysics, &physics) || !Plausible(physics))) return false;
     const uint8_t* physicsBytes = reinterpret_cast<const uint8_t*>(physics);
     uintptr_t sprite = 0;
-    ReadAt(physics + game::kPhysicsSprite, &sprite);
+    if (physics) ReadAt(physics + game::kPhysicsSprite, &sprite);
 
     out->ped = pedBytes;
     out->pedSprite = reinterpret_cast<const void*>(sprite);
@@ -386,8 +503,8 @@ bool LocatePlayer(PlayerState* out) {
     // placement block the game moves him by. The ped's own copy of the position
     // is the fallback.
     float x = 0.0f, y = 0.0f, z = 0.0f;
-    bool placed = game::ReadPlacement(physicsBytes, game::kPhysicsSprite, &x, &y, &z);
-    if (!placed) {
+    bool placed = physics && game::ReadPlacement(physicsBytes, game::kPhysicsSprite, &x, &y, &z);
+    if (!placed && !atTheWheel) {
         int32_t fx = 0, fy = 0, fz = 0;
         if (!ReadAt(ped + game::kPedX, &fx) || !ReadAt(ped + game::kPedY, &fy) ||
             !ReadAt(ped + game::kPedZ, &fz)) {
@@ -398,11 +515,17 @@ bool LocatePlayer(PlayerState* out) {
         z = fz * game::kFixedScale;
     }
     float dirX = 0.0f, dirY = 0.0f;
-    out->facingKnown = game::ReadFacing(physicsBytes, game::kPhysicsSprite, &dirX, &dirY);
+    out->facingKnown = physics && game::ReadFacing(physicsBytes, game::kPhysicsSprite, &dirX, &dirY);
 
-    // In a car, the car is the thing to follow.
+    // In a car, the car is the thing to follow. The ped's own vehicle word at
+    // +0x16C stays empty at the wheel (measured: it reads zero while a car he
+    // got into drives off with him), so the car is found from the other end:
+    // the vehicle whose driver word is this ped. His sprite placement is
+    // recycled by the game once he is inside, so it must not be read then.
     uintptr_t vehicle = 0;
-    if (ReadAt(ped + game::kPedVehicle, &vehicle) && Plausible(vehicle)) {
+    if (!(ReadAt(ped + game::kPedVehicle, &vehicle) && Plausible(vehicle))) vehicle = 0;
+    if (!vehicle) vehicle = VehicleDrivenBy(ped);
+    if (vehicle) {
         float vx = 0.0f, vy = 0.0f, vz = 0.0f;
         const uint8_t* vehicleBytes = reinterpret_cast<const uint8_t*>(vehicle);
         if (game::ReadPlacement(vehicleBytes, game::kVehiclePlacementPtr, &vx, &vy, &vz)) {
@@ -469,6 +592,32 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     DWORD pid = 0;
     if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
     const bool ours = pid == GetCurrentProcessId();
+
+    // The game's own control keys, as this process sees them, for reading a
+    // scripted session back: one line per press and release.
+    if (g_settings.devWarpKey > 0 && g_settings.devWarpKey < 256 && worldLoaded &&
+        (GetAsyncKeyState(g_settings.devWarpKey) & 0x0001) != 0) {
+        WarpPlayerToParkedCar(80.0f);
+    }
+    if (g_settings.devSceneKey > 0 && g_settings.devSceneKey < 256 && worldLoaded &&
+        (GetAsyncKeyState(g_settings.devSceneKey) & 0x0001) != 0) {
+        WarpSceneToRoad(g_settings.devSceneX, g_settings.devSceneY);
+    }
+    if (g_settings.logKeys) {
+        static const struct { int vk; const char* name; } kWatched[] = {
+            {VK_RETURN, "Return"}, {VK_CONTROL, "Ctrl"}, {VK_SPACE, "Space"}, {VK_TAB, "Tab"},
+            {VK_MENU, "Alt"}, {VK_SHIFT, "Shift"}, {VK_UP, "Up"}, {VK_DOWN, "Down"},
+            {VK_LEFT, "Left"}, {VK_RIGHT, "Right"}, {'F', "F"}, {'E', "E"},
+        };
+        static bool wasDown[sizeof(kWatched) / sizeof(kWatched[0])] = {};
+        for (size_t i = 0; i < sizeof(kWatched) / sizeof(kWatched[0]); ++i) {
+            const bool down = (GetAsyncKeyState(kWatched[i].vk) & 0x8000) != 0;
+            if (down != wasDown[i]) {
+                Log("key: %s %s (foreground %s)", kWatched[i].name, down ? "down" : "up", ours ? "ours" : "other");
+                wasDown[i] = down;
+            }
+        }
+    }
 
     // Polled, like F4: GTA2 reads its keyboard through DirectInput, so there is
     // no message to take it from. Alt is excluded so Alt+key chords stay the

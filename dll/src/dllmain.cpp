@@ -180,6 +180,25 @@ void LoadConfig() {
         vm.demoSwitchSeconds =
             static_cast<float>(GetPrivateProfileIntA("camera", "demo_switch_seconds", 0, ini));
         vm.demoSwitchTo = GetPrivateProfileIntA("camera", "demo_switch_to", 2, ini);
+        vm.logKeys = GetPrivateProfileIntA("devtools", "log_keys", 0, ini) != 0;
+        {
+            char warpKey[32] = {};
+            GetPrivateProfileStringA("devtools", "warp_key", "", warpKey, sizeof(warpKey), ini);
+            vm.devWarpKey = 0;
+            if (warpKey[0] == 'F' || warpKey[0] == 'f') vm.devWarpKey = VK_F1 + atoi(warpKey + 1) - 1;
+            else if (warpKey[0]) vm.devWarpKey = atoi(warpKey);
+            char sceneKey[32] = {}, sceneXy[64] = {};
+            GetPrivateProfileStringA("devtools", "scene_key", "", sceneKey, sizeof(sceneKey), ini);
+            GetPrivateProfileStringA("devtools", "scene_xy", "164.5,149.5", sceneXy, sizeof(sceneXy), ini);
+            vm.devSceneKey = 0;
+            if (sceneKey[0] == 'F' || sceneKey[0] == 'f') vm.devSceneKey = VK_F1 + atoi(sceneKey + 1) - 1;
+            else if (sceneKey[0]) vm.devSceneKey = atoi(sceneKey);
+            float sx = 0.0f, sy = 0.0f;
+            if (sscanf(sceneXy, "%f,%f", &sx, &sy) == 2) {
+                vm.devSceneX = sx;
+                vm.devSceneY = sy;
+            }
+        }   // its own section: an appended [camera] would be the ini's second
     }
 
     // What we render at, which is nothing to do with what GTA2 thinks its screen
@@ -244,6 +263,8 @@ void LoadConfig() {
 
     // Cars as lifted bodies with a sloping skirt, so a glossy material has
     // something to reflect. Height and inset in hundredths of a block.
+    // 3D cars in the ground views (car_bodies.h): off until the models are verified.
+    gta2dx9::SetCarModels3d(GetPrivateProfileIntA("renderer", "car_models3d", 0, ini) != 0);
     gta2dx9::SetCarBodies(GetPrivateProfileIntA("renderer", "car_bodies",
                                                 gta2dx9::kDefaultCarBodies ? 1 : 0, ini) != 0);
     gta2dx9::SetCarBodyHeight(
@@ -346,7 +367,7 @@ void LoadConfig() {
         char dir[MAX_PATH];
         PathBesideGame("gta2dx9_textures_hd", dir, sizeof(dir));
         gta2::SetHdTextureDir(dir);
-        gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 128, ini));
+        gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
         if (GetPrivateProfileIntA("renderer", "dump_tiles", 0, ini) != 0) {
             PathBesideGame("gta2dx9_tiles", dir, sizeof(dir));
             gta2::SetTileDumpDir(dir);

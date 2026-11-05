@@ -1,31 +1,6 @@
 {
  "models": [
   {
-   "name": "truck-green",
-   "glb": "Starter-Kit-Racing/models/vehicle-truck-green.glb",
-   "scale": 0.5
-  },
-  {
-   "name": "truck-red",
-   "glb": "Starter-Kit-Racing/models/vehicle-truck-red.glb",
-   "scale": 0.5
-  },
-  {
-   "name": "truck-yellow",
-   "glb": "Starter-Kit-Racing/models/vehicle-truck-yellow.glb",
-   "scale": 0.5
-  },
-  {
-   "name": "truck-purple",
-   "glb": "Starter-Kit-Racing/models/vehicle-truck-purple.glb",
-   "scale": 0.5
-  },
-  {
-   "name": "motorcycle",
-   "glb": "Starter-Kit-Racing/models/vehicle-motorcycle.glb",
-   "scale": 0.5
-  },
-  {
    "name": "character",
    "glb": "Starter-Kit-3D-Platformer/models/character.glb",
    "scale": 0.5
@@ -61,115 +36,146 @@
    "texture_max": 512
   },
   {
-   "name": "shrub",
-   "glb": "polyhaven/shrub_01/shrub_01_1k.gltf",
-   "scale": 0.5,
-   "texture_max": 512,
-   "max_vertices": 12000
-  },
-  {
-   "name": "human_male",
+   "name": "human_male_01",
    "glb": "humans/rocketbox/Male_Adult_01/Male_Adult_01.glb",
    "scale": 0.5,
-   "texture_max": 1024,
+   "texture_max": 512,
    "material_textures": {
     "m002_body": "humans/rocketbox/Male_Adult_01/m002_body_color.tga",
     "m002_head": "humans/rocketbox/Male_Adult_01/m002_head_color.tga",
     "m002_opacity": "humans/rocketbox/Male_Adult_01/m002_opacity_color.tga"
    },
-   "animations_from": [
-    {
-     "glb": "humans/rocketbox/anim/walk_neutral.glb",
-     "name": "walk",
-     "strip_root": "Bip01"
-    },
-    {
-     "glb": "humans/rocketbox/anim/idle_breathe.glb",
-     "name": "idle",
-     "strip_root": "Bip01"
-    }
-   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_male_04",
+   "glb": "humans/rocketbox/Male_Adult_04/Male_Adult_04.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m006_body": "humans/rocketbox/Male_Adult_04/m006_body_color.tga",
+    "m006_head": "humans/rocketbox/Male_Adult_04/m006_head_color.tga",
+    "m006_opacity": "humans/rocketbox/Male_Adult_04/m006_opacity_color.tga"
+   },
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_male_07",
+   "glb": "humans/rocketbox/Male_Adult_07/Male_Adult_07.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m013_body": "humans/rocketbox/Male_Adult_07/m013_body_color.tga",
+    "m013_head": "humans/rocketbox/Male_Adult_07/m013_head_color.tga",
+    "m013_opacity": "humans/rocketbox/Male_Adult_07/m013_opacity_color.tga"
+   },
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_male_10",
+   "glb": "humans/rocketbox/Male_Adult_10/Male_Adult_10.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m024_body": "humans/rocketbox/Male_Adult_10/m024_body_color.tga",
+    "m024_head": "humans/rocketbox/Male_Adult_10/m024_head_color.tga",
+    "m024_opacity": "humans/rocketbox/Male_Adult_10/m024_opacity_color.tga"
+   },
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_male_13",
+   "glb": "humans/rocketbox/Male_Adult_13/Male_Adult_13.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m010_body": "humans/rocketbox/Male_Adult_13/m010_body_color.tga",
+    "m010_head": "humans/rocketbox/Male_Adult_13/m010_head_color.tga"
+   },
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_female_01",
+   "glb": "humans/rocketbox/Female_Adult_01/Female_Adult_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f001_body": "humans/rocketbox/Female_Adult_01/f001_body_color.tga",
+    "f001_head": "humans/rocketbox/Female_Adult_01/f001_head_color.tga",
+    "f001_opacity": "humans/rocketbox/Female_Adult_01/f001_opacity_color.tga"
+   },
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_female_03",
+   "glb": "humans/rocketbox/Female_Adult_03/Female_Adult_03.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f003_body": "humans/rocketbox/Female_Adult_03/f003_body_color.tga",
+    "f003_head": "humans/rocketbox/Female_Adult_03/f003_head_color.tga",
+    "f003_opacity": "humans/rocketbox/Female_Adult_03/f003_opacity_color.tga"
+   },
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_female_05",
+   "glb": "humans/rocketbox/Female_Adult_05/Female_Adult_05.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f005_body": "humans/rocketbox/Female_Adult_05/f005_body_color.tga",
+    "f005_head": "humans/rocketbox/Female_Adult_05/f005_head_color.tga",
+    "f005_opacity": "humans/rocketbox/Female_Adult_05/f005_opacity_color.tga"
+   },
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_female_08",
+   "glb": "humans/rocketbox/Female_Adult_08/Female_Adult_08.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f008_body": "humans/rocketbox/Female_Adult_08/f008_body_color.tga",
+    "f008_head": "humans/rocketbox/Female_Adult_08/f008_head_color.tga",
+    "f008_opacity": "humans/rocketbox/Female_Adult_08/f008_opacity_color.tga"
+   },
    "forward": "+z",
    "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   }
  ],
  "cars": {
-  "default": [
-   "truck-green",
-   "truck-red",
-   "truck-yellow",
-   "truck-purple"
-  ]
+  "by_model": {},
+  "by_sprite": {},
+  "_comment": "by_model: the vehicle's model number (CARI order) -> model name; by_sprite: car sprite number -> model name. Vehicles named by neither are built from their own sprite at run time (dll/src/car_bodies.cpp)."
  },
- "pedestrian": "human_male",
+ "pedestrian": "human_male_01",
+ "pedestrians": [
+  "human_male_01",
+  "human_male_04",
+  "human_male_07",
+  "human_male_10",
+  "human_male_13",
+  "human_female_01",
+  "human_female_03",
+  "human_female_05",
+  "human_female_08"
+ ],
  "props": {
   "lamp": "street_lamp",
   "hydrant": "fire_hydrant",
   "bin": "trash_can",
-  "bench": "bench",
-  "shrub": "shrub"
+  "bench": "bench"
  },
  "imported": [
-  {
-   "name": "truck-green",
-   "nodes": 6,
-   "meshes": 6,
-   "vertices": 1890,
-   "animations": [],
-   "textures": [
-    "truck-green_0.tga"
-   ],
-   "skins": 0,
-   "forward": ""
-  },
-  {
-   "name": "truck-red",
-   "nodes": 6,
-   "meshes": 6,
-   "vertices": 1664,
-   "animations": [],
-   "textures": [
-    "truck-red_0.tga"
-   ],
-   "skins": 0,
-   "forward": ""
-  },
-  {
-   "name": "truck-yellow",
-   "nodes": 6,
-   "meshes": 6,
-   "vertices": 1681,
-   "animations": [],
-   "textures": [
-    "truck-yellow_0.tga"
-   ],
-   "skins": 0,
-   "forward": ""
-  },
-  {
-   "name": "truck-purple",
-   "nodes": 6,
-   "meshes": 6,
-   "vertices": 1392,
-   "animations": [],
-   "textures": [
-    "truck-purple_0.tga"
-   ],
-   "skins": 0,
-   "forward": ""
-  },
-  {
-   "name": "motorcycle",
-   "nodes": 5,
-   "meshes": 4,
-   "vertices": 1786,
-   "animations": [],
-   "textures": [
-    "motorcycle_0.tga"
-   ],
-   "skins": 0,
-   "forward": ""
-  },
   {
    "name": "character",
    "nodes": 8,
@@ -185,7 +191,8 @@
     "character_0.tga"
    ],
    "skins": 0,
-   "forward": ""
+   "forward": "",
+   "stride": 0.0
   },
   {
    "name": "street_lamp",
@@ -198,7 +205,8 @@
     "street_lamp_3.tga"
    ],
    "skins": 0,
-   "forward": ""
+   "forward": "",
+   "stride": 0.0
   },
   {
    "name": "fire_hydrant",
@@ -211,7 +219,8 @@
     "fire_hydrant_4.tga"
    ],
    "skins": 0,
-   "forward": ""
+   "forward": "",
+   "stride": 0.0
   },
   {
    "name": "trash_can",
@@ -224,7 +233,8 @@
     "trash_can_4.tga"
    ],
    "skins": 0,
-   "forward": ""
+   "forward": "",
+   "stride": 0.0
   },
   {
    "name": "bench",
@@ -236,22 +246,11 @@
     "bench_1.tga"
    ],
    "skins": 0,
-   "forward": ""
+   "forward": "",
+   "stride": 0.0
   },
   {
-   "name": "shrub",
-   "nodes": 27,
-   "meshes": 27,
-   "vertices": 106961,
-   "animations": [],
-   "textures": [
-    "shrub_1.tga"
-   ],
-   "skins": 0,
-   "forward": ""
-  },
-  {
-   "name": "human_male",
+   "name": "human_male_01",
    "nodes": 86,
    "meshes": 3,
    "vertices": 4697,
@@ -260,12 +259,156 @@
     "idle"
    ],
    "textures": [
-    "human_male_m002_body.tga",
-    "human_male_m002_head.tga",
-    "human_male_m002_opacity.tga"
+    "human_male_01_m002_body.tga",
+    "human_male_01_m002_head.tga",
+    "human_male_01_m002_opacity.tga"
    ],
    "skins": 1,
-   "forward": "+z"
+   "forward": "+z",
+   "stride": 0.7816
+  },
+  {
+   "name": "human_male_04",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 5448,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_male_04_m006_body.tga",
+    "human_male_04_m006_head.tga",
+    "human_male_04_m006_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816
+  },
+  {
+   "name": "human_male_07",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 4645,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_male_07_m013_body.tga",
+    "human_male_07_m013_head.tga",
+    "human_male_07_m013_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816
+  },
+  {
+   "name": "human_male_10",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 4115,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_male_10_m024_body.tga",
+    "human_male_10_m024_head.tga",
+    "human_male_10_m024_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816
+  },
+  {
+   "name": "human_male_13",
+   "nodes": 85,
+   "meshes": 2,
+   "vertices": 3949,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_male_13_m010_body.tga",
+    "human_male_13_m010_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816
+  },
+  {
+   "name": "human_female_01",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 5438,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_female_01_f001_body.tga",
+    "human_female_01_f001_head.tga",
+    "human_female_01_f001_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816
+  },
+  {
+   "name": "human_female_03",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 6123,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_female_03_f003_body.tga",
+    "human_female_03_f003_head.tga",
+    "human_female_03_f003_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816
+  },
+  {
+   "name": "human_female_05",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 5571,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_female_05_f005_body.tga",
+    "human_female_05_f005_head.tga",
+    "human_female_05_f005_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816
+  },
+  {
+   "name": "human_female_08",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 5284,
+   "animations": [
+    "walk",
+    "idle"
+   ],
+   "textures": [
+    "human_female_08_f008_body.tga",
+    "human_female_08_f008_head.tga",
+    "human_female_08_f008_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816
   }
  ]
 }

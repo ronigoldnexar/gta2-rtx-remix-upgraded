@@ -62,6 +62,16 @@ animated water are Remix replacement assets and are not applied by Direct3D 9.
 So on Wine without Remix the picture is the mod's geometry and camera work with
 the game's own artwork and fixed-function lighting.
 
+## High-resolution tiles (512 px, block-compressed)
+
+`gta2dx9_textures_hd/<style>/tile_NNNN.dds` beside the game replaces the 64 px tile
+artwork with 512 px mipmapped DXT textures made with Real-ESRGAN and Stable Diffusion
+(docs/hd-textures.md has the pipeline and the memory figures). `make stage` and
+`linux/install.sh` ship the folder when `assets/textures_hd/` exists; the set for the
+first two districts is the release asset `textures_hd_dds.zip`. The installer also marks
+the installed copy of `gta2.exe` large-address-aware (`linux/laa.sh`, 4 GB of address
+space for the textures and the 3D models; the original file is never changed).
+
 ## What was verified on a Linux machine with no Windows and no display GPU
 
 GTA2 9.6 with this mod runs under Wine 9 and Wine 10 (both in Docker, on Xvfb, Mesa software

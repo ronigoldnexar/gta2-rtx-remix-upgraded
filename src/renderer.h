@@ -80,6 +80,8 @@ public:
     bool HasWorld() const { return vertexBuffer_ != nullptr; }
     // How many tiles of the current world came from the high-resolution folder.
     int HdTileCount() const { return hdTiles_; }
+    int HdDdsTileCount() const { return hdDdsTiles_; }   // of those, block-compressed with mips
+    int HdFailedCount() const { return hdFailed_; }      // HD files found but not loadable (memory, format)
 
     // Drop the level's geometry without touching the device, the window or the
     // tile textures. The game frees its map when it returns to the menu, and
@@ -156,6 +158,9 @@ private:
     bool wireframe_ = false;
     DWORD cullMode_ = D3DCULL_CCW;
     int hdTiles_ = 0;
+    int hdDdsTiles_ = 0;
+    int hdFailed_ = 0;
+    bool hdFailLogged_ = false;
     RenderStats stats_;
 };
 

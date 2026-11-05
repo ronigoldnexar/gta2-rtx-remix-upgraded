@@ -2,31 +2,6 @@
  "_comment": "Models from Kenney's starter kits (MIT licence, github.com/KenneyNL). Units: Kenney's are metres; a GTA2 block is about 2 m, so scale 0.5 puts them in blocks.",
  "models": [
   {
-   "name": "truck-green",
-   "glb": "Starter-Kit-Racing/models/vehicle-truck-green.glb",
-   "scale": 0.5
-  },
-  {
-   "name": "truck-red",
-   "glb": "Starter-Kit-Racing/models/vehicle-truck-red.glb",
-   "scale": 0.5
-  },
-  {
-   "name": "truck-yellow",
-   "glb": "Starter-Kit-Racing/models/vehicle-truck-yellow.glb",
-   "scale": 0.5
-  },
-  {
-   "name": "truck-purple",
-   "glb": "Starter-Kit-Racing/models/vehicle-truck-purple.glb",
-   "scale": 0.5
-  },
-  {
-   "name": "motorcycle",
-   "glb": "Starter-Kit-Racing/models/vehicle-motorcycle.glb",
-   "scale": 0.5
-  },
-  {
    "name": "character",
    "glb": "Starter-Kit-3D-Platformer/models/character.glb",
    "scale": 0.5
@@ -60,30 +35,19 @@
    "glb": "polyhaven/painted_wooden_bench/painted_wooden_bench_1k.gltf",
    "scale": 0.5,
    "texture_max": 512
-  },
-  {
-   "name": "shrub",
-   "glb": "polyhaven/shrub_01/shrub_01_1k.gltf",
-   "scale": 0.5,
-   "texture_max": 512,
-   "max_vertices": 12000
   }
  ],
  "cars": {
-  "default": [
-   "truck-green",
-   "truck-red",
-   "truck-yellow",
-   "truck-purple"
-  ]
+  "by_model": {},
+  "by_sprite": {},
+  "_comment": "by_model: the vehicle's model number (CARI order) -> model name; by_sprite: car sprite number -> model name. Vehicles named by neither are built from their own sprite at run time (dll/src/car_bodies.cpp). See tools/import_assets.py."
  },
  "pedestrian": "character",
  "props": {
   "lamp": "street_lamp",
   "hydrant": "fire_hydrant",
   "bin": "trash_can",
-  "bench": "bench",
-  "shrub": "shrub"
+  "bench": "bench"
  },
  "_comment2": "Street props and plants from Poly Haven (CC0), 1k textures downscaled to 512."
 }

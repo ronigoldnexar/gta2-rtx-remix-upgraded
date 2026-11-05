@@ -77,6 +77,11 @@ for f in gta2dx9.dll d3ddll.dll gta2dx9_vid.dll Dmavideo.dll DMAGlide.dll gta2dx
     [ -f "$FILES/$f" ] && cp "$FILES/$f" "$DEST/$f"
 done
 # A player's own edits to gta2dx9.ini live in gta2dx9_settings.ini, which this never touches.
+echo "== 3D models and high-resolution tiles"
+rm -rf "$DEST/gta2dx9_models"; [ -d "$FILES/gta2dx9_models" ] && cp -r "$FILES/gta2dx9_models" "$DEST/"
+rm -rf "$DEST/gta2dx9_textures_hd"; [ -d "$FILES/gta2dx9_textures_hd" ] && cp -r "$FILES/gta2dx9_textures_hd" "$DEST/"
+echo "== Marking the installed gta2.exe large-address-aware (4 GB for the HD tiles; the original is untouched)"
+sh "$HERE/linux/laa.sh" "$DEST/gta2.exe" || true
 
 echo "== Registry: rendername, videoname, lighting, frame cap"
 wine regedit /S "$(winepath -w "$DEST/install.reg" 2>/dev/null || echo "C:\\Games\\GTA2\\install.reg")" >/dev/null 2>&1 || \

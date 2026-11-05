@@ -9,6 +9,8 @@ LOG = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.log"
 OUT = "/out"
 LINE = re.compile(r"view: player x=([-\d.]+) y=([-\d.]+) z=([-\d.]+) face=([-\d.]+),([-\d.]+) (on foot|driving) \| car (nearest|none) x=([-\d.]+) y=([-\d.]+) d=([-\d.]+)( \(driven\))? \| parked (nearest|none) x=([-\d.]+) y=([-\d.]+) d=([-\d.]+)")
 
+EXTRA = re.compile(r" \| carhead=([-\d.]+),([-\d.]+) parkedhead=([-\d.]+),([-\d.]+) ped state=(-?\d+) sub=(-?\d+) pend=(-?\d+) veh=([0-9A-F]+)")
+
 def xdo(*args): subprocess.run(["xdotool", *args], check=False)
 def tap(key, t=0.25): xdo("keydown", key); time.sleep(t); xdo("keyup", key)
 def hold(key, t): xdo("keydown", key); time.sleep(t); xdo("keyup", key)
@@ -25,9 +27,15 @@ def state():
     for m in LINE.finditer(tail): pass
     if not m: return None
     g = m.groups()
-    return dict(x=float(g[0]), y=float(g[1]), z=float(g[2]), fx=float(g[3]), fy=float(g[4]), driving=g[5] == "driving",
+    s = dict(x=float(g[0]), y=float(g[1]), z=float(g[2]), fx=float(g[3]), fy=float(g[4]), driving=g[5] == "driving",
                 car=g[6] == "nearest", cx=float(g[7]), cy=float(g[8]), cd=float(g[9]), driven=bool(g[10]),
-                parked=g[11] == "nearest", px=float(g[12]), py=float(g[13]), pd=float(g[14]))
+                parked=g[11] == "nearest", px=float(g[12]), py=float(g[13]), pd=float(g[14]),
+                chx=0.0, chy=0.0, phx=0.0, phy=0.0, state=-1, sub=-1, pend=-1, veh="")
+    e = EXTRA.match(tail, m.end())
+    if e:
+        s.update(chx=float(e.group(1)), chy=float(e.group(2)), phx=float(e.group(3)), phy=float(e.group(4)),
+                 state=int(e.group(5)), sub=int(e.group(6)), pend=int(e.group(7)), veh=e.group(8))
+    return s
 
 def wait_state(timeout=30):
     t0 = time.time()
