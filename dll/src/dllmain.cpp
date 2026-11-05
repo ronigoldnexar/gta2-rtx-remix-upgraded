@@ -1308,7 +1308,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         g_self = module;
         DisableThreadLibraryCalls(module);
         gta2dx9::OpenLog();
-        Log("gta2dx9.dll attached to pid %lu", GetCurrentProcessId());
+        Log("gta2dx9.dll attached to pid %lu, loaded at %p", GetCurrentProcessId(), static_cast<void*>(module));
         CheckOriginalBlitStores(module);
         // Before any plugin can look for the original renderer's device.
         gta2dx9::PluginD3D6Init(module);

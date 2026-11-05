@@ -1,4 +1,5 @@
 #include "compat.h"
+#include "log.h"
 
 #ifndef _MSC_VER
 
@@ -36,9 +37,31 @@ bool g_installed = false;
 // and the GTA2_EXCEPT block runs. A fault inside a region that has already
 // fired falls through to whatever would have caught it without us, as it
 // would on MSVC.
+// For a fault nobody guards against: where it was, relative to this DLL, once.
+HMODULE g_self = nullptr;
+LONG g_faultsLogged = 0;
+
 LONG CALLBACK Handler(EXCEPTION_POINTERS* info) {
     Frame* frame = t_top;
-    if (!frame || frame->fired) return EXCEPTION_CONTINUE_SEARCH;
+    if (!frame || frame->fired) {
+        const DWORD code = info->ExceptionRecord->ExceptionCode;
+        if ((code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_ILLEGAL_INSTRUCTION) &&
+            InterlockedIncrement(&g_faultsLogged) <= 3) {
+            const uintptr_t at = reinterpret_cast<uintptr_t>(info->ExceptionRecord->ExceptionAddress);
+            const uintptr_t base = reinterpret_cast<uintptr_t>(g_self);
+            HMODULE module = nullptr;
+            GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCSTR>(at), &module);
+            char name[MAX_PATH] = "?";
+            if (module) GetModuleFileNameA(module, name, MAX_PATH);
+            Log("FAULT: code %08lX at %08X (%s+0x%X; gta2dx9.dll is at %08X), reading %08X", code,
+                static_cast<unsigned>(at), name,
+                static_cast<unsigned>(at - reinterpret_cast<uintptr_t>(module)), static_cast<unsigned>(base),
+                static_cast<unsigned>(info->ExceptionRecord->NumberParameters > 1
+                                          ? info->ExceptionRecord->ExceptionInformation[1] : 0));
+        }
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
     const DWORD code = info->ExceptionRecord->ExceptionCode;
     if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_IN_PAGE_ERROR &&
         code != EXCEPTION_DATATYPE_MISALIGNMENT && code != EXCEPTION_ILLEGAL_INSTRUCTION &&
@@ -63,6 +86,8 @@ Frame*& Top() { return t_top; }
 void Install() {
     if (g_installed) return;
     g_installed = true;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCSTR>(&Install), &g_self);
     AddVectoredExceptionHandler(1, Handler);
 }
 

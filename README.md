@@ -45,9 +45,10 @@ Press **V** in game to cycle three views:
   car are left out of the picture.
 
 The city is already real 3D geometry under RTX Remix, so the two new views are the same path traced
-world from a different place. Cars keep their domes, doors, lamps and tyres; pedestrians, which GTA2 draws
-from above and lays flat on the road, are stood up as figures facing the camera (a paper doll, but a
-visible one; it can be switched off).
+world from a different place. From the ground, cars are given real height and squarer bodies, with their
+tyres drawn, and pedestrians - which GTA2 only ever drew from above - become small three-dimensional
+figures whose arms and legs swing with their pace. Both come back to the top-down numbers when the
+classic view does, and both can be switched off on the Camera tab.
 
 Everything about the views - the key, distances, heights, fields of view, mouse sensitivity, and how far
 beyond its own window the game is asked to populate the streets - is on the **Camera** tab of the F4

@@ -89,6 +89,19 @@ struct ViewModeSettings {
     // there and back off in the classic view, 2 keeps it on everywhere.
     int motionBlur = 1;
 
+    // Cars seen from the ground. From above a car is a flat picture with a low
+    // dome, which is right for the top-down view and a card seen edge-on from a
+    // chase camera. While a chase or first-person view is up the dome is made
+    // car-height and boxier, and the tyres are drawn, and the top-down numbers
+    // come back when it is switched off. Blocks and an exponent (lower is boxier).
+    float groundCarHeight = 0.42f;
+    float groundCarShoulder = 0.35f;
+    bool groundCarWheels = true;
+    // Pedestrians seen from the ground: small three-dimensional figures that walk
+    // (legs and arms swinging with their speed), in place of the top-down sprite.
+    // Off leaves the sprites as billboards facing the camera.
+    bool groundPedFigures = true;
+
     // For recording a demonstration: this many seconds after a level comes up
     // the view switches by itself to `demoSwitchTo`, as if the key had been
     // pressed. 0 (the default) never does. From gta2dx9.ini only, not saved.
@@ -136,6 +149,11 @@ bool LocatePlayer(PlayerState* out);
 // The sprite pass's contribution to the fallback above: the pedestrian on foot
 // it drew nearest the game's camera centre this frame.
 void NotePedNearCamera(const void* ped, float distanceTiles);
+
+// The car nearest a point in the game's frame (x east, y south), for the log
+// and for scripted play: false when there is none within `within` tiles.
+bool NearestVehicle(float x, float y, float within, bool parkedOnly, float* vx, float* vy, float* distance,
+                    bool* driven);
 
 // Polls the toggle key and, in a chase or first-person view, the mouse. The
 // mouse is only taken while a level is up, the F4 menu is closed and the game is

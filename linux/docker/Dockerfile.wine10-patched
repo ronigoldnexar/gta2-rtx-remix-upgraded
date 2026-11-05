@@ -1,0 +1,30 @@
+# Wine 10.0 built from source with one patch (foreign-window-vulkan.patch) and
+# the new WoW64 mode, so 32-bit GTA2 runs without 32-bit host libraries, on
+# Ubuntu 25.04 whose Mesa lavapipe has the Vulkan ray tracing extensions.
+FROM ubuntu:25.04 AS build
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      gcc g++ make flex bison pkg-config git patch ca-certificates gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 \
+      libx11-dev libxext-dev libxrender-dev libxi-dev libxcursor-dev libxrandr-dev libxfixes-dev libxinerama-dev \
+      libxcomposite-dev libxxf86vm-dev libxkbregistry-dev libxkbcommon-dev libfreetype-dev libfontconfig-dev \
+      libgl-dev libegl-dev libosmesa6-dev libvulkan-dev libgnutls28-dev libdbus-1-dev libasound2-dev libpulse-dev \
+      libusb-1.0-0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libsdl2-dev libunwind-dev libkrb5-dev \
+      libcups2-dev libudev-dev libwayland-dev wayland-protocols libpcap-dev libv4l-dev libxslt1-dev libxml2-dev \
+      libgphoto2-dev libsane-dev libcapi20-dev libodbc2 unixodbc-dev && \
+    rm -rf /var/lib/apt/lists/*
+COPY wine-10.0 /src/wine
+COPY foreign-window-vulkan.patch /src/
+RUN cd /src/wine && patch -p1 < /src/foreign-window-vulkan.patch
+RUN mkdir /build && cd /build && /src/wine/configure --prefix=/opt/wine --enable-archs=i386,x86_64 --without-oss --disable-tests >/tmp/configure.log 2>&1 || (tail -40 /tmp/configure.log; exit 1)
+RUN cd /build && make -j"$(nproc)" >/tmp/make.log 2>&1 || (tail -60 /tmp/make.log; exit 1)
+RUN cd /build && make install >/dev/null 2>&1
+
+FROM ubuntu:25.04
+# The distro's own wine64 brings every runtime library Wine needs; our build in
+# /opt/wine then shadows it on the PATH.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      wine64 xvfb x11-utils x11-apps x11-xserver-utils xdotool ffmpeg mesa-utils imagemagick \
+      mesa-vulkan-drivers libvulkan1 vulkan-tools libgl1-mesa-dri libgl1 libegl1 libosmesa6 \
+      ca-certificates curl unzip python3 python3-pil procps fonts-dejavu-core winbind && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=build /opt/wine /opt/wine
+ENV PATH=/opt/wine/bin:$PATH WINEDEBUG=-all

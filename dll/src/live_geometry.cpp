@@ -204,6 +204,9 @@ void SetHiddenObjects(const void* first, const void* second) {
 }
 void SetUprightPeds(bool on) { g_uprightPeds = on; }
 bool UprightPeds() { return g_uprightPeds; }
+namespace { bool g_pedFigures = false; }
+void SetPedFigures(bool on) { g_pedFigures = on; }
+bool PedFigures() { return g_pedFigures; }
 void SetGhostSwitch(int which, bool on) {
     if (which >= 0 && which < kGhostSwitchCount) g_ghostSwitch[which] = on;
 }
@@ -5344,6 +5347,202 @@ static gta2::Mat4 UprightPedMatrix(const LiveGeometry::Vertex* local, int corner
     return m;
 }
 
+// ---------------------------------------------------------------------------
+// Pedestrians as figures. See SetPedFigures.
+//
+// A figure is six boxes in its own space - x to its right, y up, z the way it
+// faces, feet at y = 0 - built fresh each frame with the limbs swung by the
+// walk cycle, and placed with a world matrix made from the sprite's position
+// and heading. Sizes are in blocks: a GTA2 block is about two metres, so the
+// figure is 0.85 of one, a little under human height.
+// ---------------------------------------------------------------------------
+namespace {
+
+struct FigVertex {
+    float x, y, z, nx, ny, nz;
+    DWORD color;
+};
+constexpr DWORD kFigFvf = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE;
+
+// A box hanging from a pivot: its top face is `drop` below the pivot (0 for a
+// box centred on it), swung by `swing` radians about the pivot's x axis.
+void AddBox(std::vector<FigVertex>* out, float px, float py, float pz, float sx, float sy, float sz,
+            float drop, float swing, DWORD color) {
+    const float c = std::cos(swing), s = std::sin(swing);
+    auto place = [&](float x, float y, float z, float nx, float ny, float nz) {
+        // Local box space: y runs down from the pivot.
+        const float ly = -drop - y, lz = z;
+        const float ry = ly * c - lz * s, rz = ly * s + lz * c;
+        const float rny = ny * c - nz * s, rnz = ny * s + nz * c;
+        return FigVertex{px + x, py + ry, pz + rz, nx, rny, rnz, color};
+    };
+    const float hx = sx * 0.5f, hz = sz * 0.5f;
+    // Faces as two triangles each; (x, y, z) with y from 0 (top) to sy (bottom).
+    struct Face { float nx, ny, nz; float v[4][3]; };
+    const Face faces[6] = {
+        {0, 0, -1, {{-hx, 0, -hz}, {hx, 0, -hz}, {hx, sy, -hz}, {-hx, sy, -hz}}},    // back
+        {0, 0, 1, {{hx, 0, hz}, {-hx, 0, hz}, {-hx, sy, hz}, {hx, sy, hz}}},          // front
+        {-1, 0, 0, {{-hx, 0, hz}, {-hx, 0, -hz}, {-hx, sy, -hz}, {-hx, sy, hz}}},    // left
+        {1, 0, 0, {{hx, 0, -hz}, {hx, 0, hz}, {hx, sy, hz}, {hx, sy, -hz}}},          // right
+        {0, 1, 0, {{-hx, 0, hz}, {hx, 0, hz}, {hx, 0, -hz}, {-hx, 0, -hz}}},          // top
+        {0, -1, 0, {{-hx, sy, -hz}, {hx, sy, -hz}, {hx, sy, hz}, {-hx, sy, hz}}},    // bottom
+    };
+    for (const Face& f : faces) {
+        const int order[6] = {0, 1, 2, 0, 2, 3};
+        for (int i : order) {
+            out->push_back(place(f.v[i][0], f.v[i][1], f.v[i][2], f.nx, f.ny, f.nz));
+        }
+    }
+}
+
+// Clothes from a hash of the object, so a pedestrian keeps his colours from
+// frame to frame and no two neighbours match.
+void FigureColours(uintptr_t object, DWORD* skin, DWORD* hair, DWORD* shirt, DWORD* trousers) {
+    const uint32_t h = static_cast<uint32_t>(object >> 4) * 2654435761u;
+    static const DWORD skins[] = {0xFFE0B090, 0xFFC89070, 0xFF8A5A3A, 0xFFF0C8A8, 0xFF6A4028};
+    static const DWORD hairs[] = {0xFF201810, 0xFF503820, 0xFF907040, 0xFFC0A060, 0xFF303030, 0xFF804020};
+    static const DWORD shirts[] = {0xFF2040A0, 0xFFA03030, 0xFF308040, 0xFFE0E0E0, 0xFF303030, 0xFFC0A020,
+                                   0xFF7030A0, 0xFF20A0A0, 0xFFF08020, 0xFF604020, 0xFF9090A0, 0xFF206030};
+    static const DWORD legs[] = {0xFF202840, 0xFF303030, 0xFF605040, 0xFF3A3A5A, 0xFF806040, 0xFF202020};
+    *skin = skins[h % 5];
+    *hair = hairs[(h >> 8) % 6];
+    *shirt = shirts[(h >> 16) % 12];
+    *trousers = legs[(h >> 24) % 6];
+}
+
+}  // namespace
+
+void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
+    std::vector<FigVertex> verts;
+    verts.reserve(36 * 6);
+
+    // States for untextured, vertex-coloured geometry; put back afterwards.
+    DWORD colorOp = 0, colorArg1 = 0, alphaOp = 0, alphaArg1 = 0, alphaTest = 0, alphaBlend = 0;
+    device->GetTextureStageState(0, D3DTSS_COLOROP, &colorOp);
+    device->GetTextureStageState(0, D3DTSS_COLORARG1, &colorArg1);
+    device->GetTextureStageState(0, D3DTSS_ALPHAOP, &alphaOp);
+    device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &alphaArg1);
+    device->GetRenderState(D3DRS_ALPHATESTENABLE, &alphaTest);
+    device->GetRenderState(D3DRS_ALPHABLENDENABLE, &alphaBlend);
+    device->SetTexture(0, nullptr);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    device->SetFVF(kFigFvf);
+
+    constexpr float kPi = 3.14159265f;
+    int drawn = 0;
+    for (const Sprite& sprite : sprites_) {
+        if (!sprite.pedestrian || sprite.ghost || sprite.climbing || sprite.boardUi || sprite.corpse ||
+            sprite.corners != 4 || sprite.hidden) {
+            continue;
+        }
+        const gta2::Mat4& m = sprite.objectToWorld;
+        const float cx = m.m[3][0], cy = m.m[3][1], cz = m.m[3][2];
+
+        // Which way the artwork's top points is which way he faces: the sprite's
+        // own z axis, signed by where the top of the picture lies along it.
+        float minZ = 1e9f, maxZ = -1e9f, topV = 1e9f;
+        int top = 0;
+        for (int i = 0; i < 4; ++i) {
+            minZ = (std::min)(minZ, sprite.local[i].z);
+            maxZ = (std::max)(maxZ, sprite.local[i].z);
+            if (sprite.local[i].v < topV) {
+                topV = sprite.local[i].v;
+                top = i;
+            }
+        }
+        const float zTop = sprite.local[top].z >= (minZ + maxZ) * 0.5f ? 1.0f : -1.0f;
+        float fx = m.m[2][0] * zTop, fz = m.m[2][2] * zTop;
+        const float flen = std::sqrt(fx * fx + fz * fz);
+        if (flen > 1e-4f) {
+            fx /= flen;
+            fz /= flen;
+        } else {
+            fx = 0.0f;
+            fz = 1.0f;
+        }
+
+        // His pace, from where he was last frame. The game moves once a frame.
+        PedTrack& track = pedTracks_[sprite.object];
+        if (track.frame != 0 && g_carFrame - track.frame < 10) {
+            const float dx = cx - track.x, dz = cz - track.z;
+            const float dist = std::sqrt(dx * dx + dz * dz);
+            const float speed = dist * 30.0f;
+            track.speed += (speed - track.speed) * 0.3f;
+            track.phase += dist / 0.7f * 2.0f * kPi;   // one cycle per two strides of 0.35
+            if (track.phase > 1e4f) track.phase -= 1e4f;
+            if (dist > 0.01f) {
+                track.faceX = dx / dist;
+                track.faceZ = dz / dist;
+            }
+        } else {
+            track.speed = 0.0f;
+            track.faceX = fx;
+            track.faceZ = fz;
+        }
+        track.x = cx;
+        track.z = cz;
+        track.frame = g_carFrame;
+        // A moving pedestrian faces the way he moves, which the artwork agrees
+        // with but reads more cleanly off the motion.
+        if (track.speed > 0.6f) {
+            fx = track.faceX;
+            fz = track.faceZ;
+        }
+
+        DWORD skin, hair, shirt, trousers;
+        FigureColours(sprite.object, &skin, &hair, &shirt, &trousers);
+        const float pace = (std::min)(track.speed / 3.0f, 1.0f);
+        const float swing = 0.55f * pace * std::sin(track.phase);
+        const float bob = 0.012f * pace * std::fabs(std::sin(track.phase));
+
+        verts.clear();
+        // Legs: hang from the hips at 0.42, 0.40 long.
+        AddBox(&verts, -0.055f, 0.42f + bob, 0.0f, 0.085f, 0.40f, 0.095f, 0.0f, swing, trousers);
+        AddBox(&verts, 0.055f, 0.42f + bob, 0.0f, 0.085f, 0.40f, 0.095f, 0.0f, -swing, trousers);
+        // Body: shoulders at 0.72.
+        AddBox(&verts, 0.0f, 0.72f + bob, 0.0f, 0.25f, 0.31f, 0.13f, 0.0f, 0.0f, shirt);
+        // Arms: from the shoulders, opposite to the legs.
+        AddBox(&verts, -0.155f, 0.71f + bob, 0.0f, 0.065f, 0.30f, 0.075f, 0.0f, -swing * 0.8f, shirt);
+        AddBox(&verts, 0.155f, 0.71f + bob, 0.0f, 0.065f, 0.30f, 0.075f, 0.0f, swing * 0.8f, shirt);
+        // Head, with hair on top.
+        AddBox(&verts, 0.0f, 0.855f + bob, 0.0f, 0.13f, 0.135f, 0.13f, 0.0f, 0.0f, skin);
+        AddBox(&verts, 0.0f, 0.875f + bob, -0.005f, 0.14f, 0.05f, 0.14f, 0.0f, 0.0f, hair);
+
+        // Stood where the sprite lay, turned to face his way. Rows are the object
+        // axes: right, up, forward.
+        D3DMATRIX world;
+        memset(&world, 0, sizeof(world));
+        world._11 = fz;  world._12 = 0.0f; world._13 = -fx;
+        world._21 = 0.0f; world._22 = 1.0f; world._23 = 0.0f;
+        world._31 = fx;  world._32 = 0.0f; world._33 = fz;
+        world._41 = cx;  world._42 = cy - 0.01f; world._43 = cz; world._44 = 1.0f;
+        device->SetTransform(D3DTS_WORLD, &world);
+        device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(),
+                                sizeof(FigVertex));
+        ++drawn;
+    }
+    // Tracks of pedestrians gone for a while are dropped.
+    if (pedTracks_.size() > 512) {
+        for (auto it = pedTracks_.begin(); it != pedTracks_.end();) {
+            it = (g_carFrame - it->second.frame > 300) ? pedTracks_.erase(it) : std::next(it);
+        }
+    }
+
+    device->SetFVF(kWorldFvf);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, colorOp);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, colorArg1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg1);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTest);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, alphaBlend);
+    (void)drawn;
+}
+
 void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, int width,
                         int height) {
     if (!device) return;
@@ -6221,8 +6420,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         bool tinted = false;
         for (const Drawable& d : list) {
             D3DMATRIX world;
-            if (g_uprightPeds && d.sprite->pedestrian && !d.sprite->climbing && !d.sprite->boardUi &&
-                !d.sprite->corpse && d.sprite->corners == 4) {
+            const bool onFeet = d.sprite->pedestrian && !d.sprite->climbing && !d.sprite->boardUi &&
+                                !d.sprite->corpse && d.sprite->corners == 4;
+            if (g_pedFigures && onFeet) continue;   // drawn as a figure instead, see DrawPedFigures
+            if (g_uprightPeds && onFeet) {
                 // A chase or first-person camera: stood up facing it. See UprightPedMatrix.
                 const gta2::Mat4 upright =
                     UprightPedMatrix(d.sprite->local, d.sprite->corners, d.sprite->objectToWorld, camera.Position());
@@ -6453,6 +6654,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     }
 
     issue(plain);
+    if (g_pedFigures) DrawPedFigures(device);
 
     // Soft skid marks, translucent, over the road and under everything standing on it.
     if (!skids.empty() || !skidBatches.empty()) {

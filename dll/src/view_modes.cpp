@@ -63,6 +63,18 @@ bool Plausible(uintptr_t address) {
     return game::PlausiblePointer(reinterpret_cast<const void*>(address));
 }
 
+// Whether `ped` still leads to its physics object and back: the one link that
+// holds whatever he is doing - on foot, at the wheel, knocked down. The full
+// signature below needs his sprite to be a pedestrian's, which it is not while
+// he sits in a car, so a pedestrian once found is kept by this test alone.
+bool PedStillLinked(uintptr_t ped) {
+    if (!Plausible(ped)) return false;
+    uintptr_t physics = 0;
+    if (!ReadAt(ped + game::kPedPhysics, &physics) || !Plausible(physics)) return false;
+    uintptr_t back = 0;
+    return ReadAt(physics + game::kPhysicsPed, &back) && back == ped;
+}
+
 // Whether `ped` is a pedestrian structure, by the three cross-links described
 // in the header.
 bool PedSignature(uintptr_t ped) {
@@ -112,12 +124,12 @@ uintptr_t RememberedPed() {
     uintptr_t playerObject = 0;
     switch (g_slot) {
         case Slot::PlayerObjectIsPed:
-            if (ReadAt(kPlayerObjectPtr, &playerObject) && PedSignature(playerObject)) return playerObject;
+            if (ReadAt(kPlayerObjectPtr, &playerObject) && PedStillLinked(playerObject)) return playerObject;
             return 0;
         case Slot::PlayerObject: {
             uintptr_t ped = 0;
             if (ReadAt(kPlayerObjectPtr, &playerObject) && Plausible(playerObject) &&
-                ReadAt(playerObject + g_slotOffset, &ped) && PedSignature(ped)) {
+                ReadAt(playerObject + g_slotOffset, &ped) && PedStillLinked(ped)) {
                 return ped;
             }
             return 0;
@@ -126,7 +138,7 @@ uintptr_t RememberedPed() {
             const uint8_t* camera = game::CameraStruct();
             uintptr_t ped = 0;
             if (camera && ReadAt(reinterpret_cast<uintptr_t>(camera) + g_slotOffset, &ped) &&
-                PedSignature(ped)) {
+                PedStillLinked(ped)) {
                 return ped;
             }
             return 0;
@@ -184,6 +196,33 @@ uintptr_t DrivenCarAtCamera(float camX, float camY) {
 }
 
 }  // namespace
+
+bool NearestVehicle(float x, float y, float within, bool parkedOnly, float* vx, float* vy, float* distance,
+                    bool* driven) {
+    bool found = false;
+    float best = within;
+    int guard = 0;
+    for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024;
+         v = game::NextInList(v, game::kVehicleNext), ++guard) {
+        const bool hasDriver = game::VehicleHasDriver(v);
+        if (parkedOnly && hasDriver) continue;
+        float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+        if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &cx, &cy, &cz)) continue;
+        const float d = std::hypot(cx - x, cy - y);
+        // The game keeps a car of the player's own beside him (his last, or his
+        // next); a parked car under his feet is that, not one to walk to.
+        if (parkedOnly && d < 0.55f) continue;
+        if (d < best) {
+            best = d;
+            found = true;
+            *vx = cx;
+            *vy = cy;
+            *distance = d;
+            *driven = hasDriver;
+        }
+    }
+    return found;
+}
 
 ViewModeSettings& ViewModes() { return g_settings; }
 ViewLook& LookOffsets() { return g_look; }
@@ -275,7 +314,14 @@ bool LocatePlayer(PlayerState* out) {
     uintptr_t ped = RememberedPed();
     if (ped) {
         out->source = g_slot == Slot::Camera ? "camera" : "player object";
-    } else if (--g_scanCooldown <= 0) {
+    } else {
+        static int lost = 0;
+        if (g_slot != Slot::None && lost++ < 20) {
+            Log("view: the remembered player slot (%s +0x%02X) no longer holds a pedestrian; looking again",
+                g_slot == Slot::Camera ? "camera" : "player object", static_cast<unsigned>(g_slotOffset));
+        }
+    }
+    if (!ped && --g_scanCooldown <= 0) {
         g_scanCooldown = kScanEveryFrames;
         ped = ScanForPlayer();
         if (ped) {
@@ -298,7 +344,7 @@ bool LocatePlayer(PlayerState* out) {
             out->source = "pedestrian at the camera";
         } else if (uintptr_t car = DrivenCarAtCamera(camX, camY)) {
             uintptr_t driver = 0;
-            if (ReadAt(car + game::kVehicleDriver, &driver) && PedSignature(driver)) {
+            if (ReadAt(car + game::kVehicleDriver, &driver) && PedStillLinked(driver)) {
                 ped = driver;
                 out->source = "driven car at the camera";
             }
@@ -409,8 +455,12 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     // system's.
     const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
     const int key = g_settings.toggleKey;
-    const bool keyDown = key > 0 && key < 256 && (GetAsyncKeyState(key) & 0x8000) != 0 && !altDown;
-    if (keyDown && !keyWasDown && ours && !menuVisible) CycleViewMode();
+    // Bit 15 is "down now"; bit 0 is "pressed since the last call", which is what
+    // catches a tap shorter than one frame - a frame can be a long time here.
+    const SHORT state = key > 0 && key < 256 ? GetAsyncKeyState(key) : 0;
+    const bool keyDown = (state & 0x8000) != 0 && !altDown;
+    const bool tapped = (state & 0x0001) != 0 && !altDown;
+    if ((tapped || (keyDown && !keyWasDown)) && ours && !menuVisible) CycleViewMode();
     keyWasDown = keyDown;
 
     const bool want = worldLoaded && ours && !menuVisible && g_settings.mouseLook &&
@@ -698,7 +748,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 break;
             }
         }
-        reach = (std::max)(reach, 0.12f);
+        // Never closer than a stride from him, whatever is in the way: nearer
+        // than that the camera is inside his own figure.
+        const gta2::Vec3 span = desired - pivot;
+        const float spanLength = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
+        reach = (std::max)(reach, spanLength > 1e-3f ? (std::min)(1.0f, 1.1f / spanLength) : 1.0f);
         desired = pivot + (desired - pivot) * reach;
     }
     // And never under the floor it is over.

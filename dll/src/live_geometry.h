@@ -80,6 +80,12 @@ void SetHiddenObjects(const void* first, const void* second);
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);
 bool UprightPeds();
+// ... and, instead of a billboard, a small three-dimensional figure that walks:
+// head, body, arms and legs, the limbs swinging with the pedestrian's speed.
+// GTA2 has no side-on artwork for people, so from the ground this is the
+// closest thing to a person the game's own data allows.
+void SetPedFigures(bool on);
+bool PedFigures();
 
 // How high above the ground a pedestrian is held while he climbs into or out of a car, as a
 // fraction of the car's roof height. The car's body hides whatever of him is higher than its
@@ -504,6 +510,17 @@ private:
 
     // The lamps of the car drawn last, as quads of their own on its body.
     void AddCarLamps(const Sprite& body);
+
+    // The walking figures, one per pedestrian sprite on his feet. See SetPedFigures.
+    void DrawPedFigures(IDirect3DDevice9* device);
+    struct PedTrack {
+        float x = 0.0f, z = 0.0f;
+        float speed = 0.0f;     // blocks a second, eased
+        float phase = 0.0f;     // walk cycle, radians
+        float faceX = 0.0f, faceZ = 1.0f;
+        unsigned frame = 0;
+    };
+    std::map<uintptr_t, PedTrack> pedTracks_;
 
     // One car's dome: the car's own sprite, drawn a second time as a grid that
     // swells from nothing at its edges to a rounded top, so that the body has

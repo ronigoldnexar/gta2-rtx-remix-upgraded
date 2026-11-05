@@ -1,0 +1,28 @@
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 32c3800..423f244 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -2037,10 +2037,22 @@ Window create_client_window( HWND hwnd, const XVisualInfo *visual, Colormap colo
+     {
+         /* explicitly create data for HWND_MESSAGE windows since they can be used for OpenGL */
+         HWND parent = NtUserGetAncestor( hwnd, GA_PARENT );
+-        if (parent == NtUserGetDesktopWindow() || NtUserGetAncestor( parent, GA_PARENT )) return 0;
++        Window foreign = 0;
++        /* A top-level window of another process, such as a game whose Direct3D
++         * is served by a renderer in a separate process (the RTX Remix bridge):
++         * the owner publishes its X window as a property, so parent the client
++         * window to that. */
++        if (parent == NtUserGetDesktopWindow())
++            foreign = (Window)NtUserGetProp( hwnd, whole_window_prop );
++        if (!foreign && (parent == NtUserGetDesktopWindow() || NtUserGetAncestor( parent, GA_PARENT ))) return 0;
+         if (!(data = alloc_win_data( thread_init_display(), hwnd ))) return 0;
+         NtUserGetClientRect( hwnd, &data->rects.client, NtUserGetWinMonitorDpi( hwnd, MDT_RAW_DPI ) );
+         data->rects.window = data->rects.visible = data->rects.client;
++        if (foreign)
++        {
++            data->whole_window = foreign;
++            TRACE( "hwnd %p belongs to another process, using its X window %lx\n", hwnd, foreign );
++        }
+     }
+ 
+     detach_client_window( data, data->client_window );

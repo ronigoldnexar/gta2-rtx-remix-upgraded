@@ -81,6 +81,10 @@ bool g_spawnOffscreenActive = false;
 // solver reported. See view_modes.h.
 PlayerState g_viewPlayer;
 const char* g_viewStatus = "classic";
+// The top-down view's car numbers, kept while a ground view has its own.
+float g_classicCarHeight = kDefaultCarBodyHeight;
+float g_classicCarShoulder = 0.7f;
+bool g_classicCarWheels = kDefaultCarWheels;
 bool g_viewActive = false;
 float g_viewYaw = 0.0f, g_viewPitch = 0.0f;
 
@@ -692,7 +696,11 @@ bool WorldView::Blocked(float x, float y, float z) const {
     const uint32_t index = column.blocks[static_cast<size_t>(i)];
     if (index >= map_.BlockCount()) return false;
     const gta2::Block& block = map_.BlockAt(index);
-    return block.lid || block.left || block.right || block.top || block.bottom;
+    // A lid, or a solid wall, is a building. A face flagged flat is a fence, a
+    // pole, a sign: see-through, and no reason to pull the camera in.
+    if (block.lid) return true;
+    auto solid = [](const gta2::Face& f) { return f && !f.IsFlat(); };
+    return solid(block.left) || solid(block.right) || solid(block.top) || solid(block.bottom);
 }
 
 void WorldView::Configure(float pitchDegrees, float fovDegrees, bool useGameTiles,
@@ -1185,16 +1193,44 @@ void WorldView::UpdateCamera() {
         const ViewMode mode = CurrentViewMode();
         const bool wantView = mode != ViewMode::Classic && worldUploaded_;
         PlayerState player;
-        if (wantView) LocatePlayer(&player);
+        if (worldUploaded_) LocatePlayer(&player);
         g_viewPlayer = player;
+        // Where he is, twice a second, in the game's own frame: for reading a
+        // session back, and for driving the game from a script (the test
+        // harness steers by this line).
+        if (worldUploaded_ && player.valid && (frameCount_ % 15) == 0) {
+            float vx = 0.0f, vy = 0.0f, vd = 0.0f, px = 0.0f, py = 0.0f, pd = 0.0f;
+            bool driven = false, parkedDriven = false;
+            const bool car = NearestVehicle(player.x, player.y, 40.0f, false, &vx, &vy, &vd, &driven);
+            const bool parked = NearestVehicle(player.x, player.y, 60.0f, true, &px, &py, &pd, &parkedDriven);
+            Log("view: player x=%.2f y=%.2f z=%.2f face=%.3f,%.3f %s | car %s x=%.2f y=%.2f d=%.2f%s | parked %s x=%.2f y=%.2f d=%.2f",
+                player.x, player.y, player.z, player.dirX, player.dirY,
+                player.inVehicle ? "driving" : "on foot", car ? "nearest" : "none", vx, vy, vd,
+                driven ? " (driven)" : "", parked ? "nearest" : "none", px, py, pd);
+        }
         ViewQueries queries;
         queries.context = this;
         queries.floorAt = &WorldView::FloorThunk;
         queries.blocked = &WorldView::BlockedThunk;
         const bool placed = wantView && viewSolver_.Update(player, queries, viewDt, &camera_);
+        if (viewSolver_.Status() != g_viewStatus) {
+            // Every change of what the solver is doing, for reading a session back.
+            Log("view: %s (player %s, source %s)", viewSolver_.Status(), player.valid ? "found" : "not found",
+                player.source);
+        }
         g_viewStatus = viewSolver_.Status();
         ViewModePushRemixOptions(placed);
         if (placed) {
+            if (!viewActive_) {
+                // Cars as bodies with height, for a camera that is not above them.
+                // The top-down numbers come back when the view does.
+                g_classicCarHeight = CarBodyHeight();
+                g_classicCarShoulder = CarDomeShoulder();
+                g_classicCarWheels = CarWheels();
+                SetCarBodyHeight(ViewModes().groundCarHeight);
+                SetCarDomeShoulder(ViewModes().groundCarShoulder);
+                if (ViewModes().groundCarWheels) SetCarWheels(true, kDefaultCarWheelMaxAngle);
+            }
             g_viewActive = true;
             viewActive_ = true;
             g_viewYaw = viewSolver_.yawDegrees;
@@ -1212,6 +1248,7 @@ void WorldView::UpdateCamera() {
             SetHiddenObjects(hide ? player.pedSprite : nullptr,
                              hide && player.inVehicle ? player.vehicleSprite : nullptr);
             SetUprightPeds(ViewModes().uprightPeds);
+            SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
             return;
         }
         if (viewActive_) {
@@ -1219,10 +1256,14 @@ void WorldView::UpdateCamera() {
             camera_.SetOrientation(0.0f, classicPitch_);
             camera_.SetFovY(classicFov_);
             camera_.SetRoll(0.0f);
+            SetCarBodyHeight(g_classicCarHeight);
+            SetCarDomeShoulder(g_classicCarShoulder);
+            SetCarWheels(g_classicCarWheels, kDefaultCarWheelMaxAngle);
         }
         g_viewActive = false;
         SetHiddenObjects(nullptr, nullptr);
         SetUprightPeds(false);
+        SetPedFigures(false);
     }
 
     const float k = g_cameraSmoothing;

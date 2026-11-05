@@ -521,7 +521,21 @@ void DrawCamera() {
     ImGui::SeparatorText("Both views");
     changed |= ImGui::Checkbox("Stand pedestrians up", &vm.uprightPeds);
     Help("GTA2 draws people from above and lies them flat on the road, which from a low camera is a "
-         "line. On, each one on his feet is stood up as a figure facing the camera.");
+         "line. On, each one on his feet is stood up: as a walking figure, or with the box below off, "
+         "as his own picture facing the camera.");
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("as walking figures", &vm.groundPedFigures);
+    Help("Small three-dimensional people - head, body, arms and legs that swing with their pace - in "
+         "place of the top-down sprite. GTA2 has no side-on artwork, so this is the nearest thing to a "
+         "person its data allows from the ground.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Car height from the ground", &vm.groundCarHeight, 0.1f, 0.6f, "%.2f blocks");
+    Help("While a chase or first-person view is up, cars stand this high (a real car is about 0.7 of a "
+         "block); the top-down view keeps its own low dome.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Car body squareness", &vm.groundCarShoulder, 0.15f, 1.0f, "%.2f");
+    Help("Lower is boxier: steeper sides and a flatter roof.");
+    changed |= ImGui::Checkbox("Tyres in ground views", &vm.groundCarWheels);
     ImGui::SetNextItemWidth(S(240.0f));
     changed |= ImGui::SliderFloat("Game's view, scaled", &vm.gameViewScale, 1.0f, 4.0f, "%.2fx");
     Help("The game creates, draws and removes cars and people inside the window its own camera "
