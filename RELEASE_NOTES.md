@@ -36,6 +36,10 @@ link to downloads of the game.
   under `[camera]` in `gta2dx9.ini` set the view a level starts in and the key.
 - While a chase or first-person view is up, the window the game populates with cars and pedestrians is
   widened (Camera tab, *Game's view, scaled*), since those views see past the window GTA2's own camera frames.
+- **Linux.** The source now builds with GCC (MinGW-w64) as well as Visual C++: `make` on Linux produces both
+  DLLs, `make check` loads them under Wine and resolves every export, and `linux/install.sh` / `linux/run.sh`
+  set up and start the game in a Wine prefix (optionally with DXVK). See `linux/README.md`, including what RTX
+  Remix does and does not do under Wine.
 - The two DLLs are built on GitHub Actions with the MSVC x86 toolset on every push (`.github/workflows/build.yml`),
   and the build's `gta2dx9-x86` artifact is exactly the set of files a player drops into the GTA2 folder.
 

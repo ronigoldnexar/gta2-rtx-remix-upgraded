@@ -20,3 +20,7 @@ pending_lights/
 dll/src_backup_before_lights/
 dll/src/*-1.cpp
 dll/src/*-1.h
+
+# Linux build
+stage/
+linux/build/

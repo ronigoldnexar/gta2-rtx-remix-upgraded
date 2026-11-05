@@ -48,6 +48,8 @@
 
 #include "gibs.h"
 
+#include "compat.h"
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -148,12 +150,13 @@ void EndParticle(uint8_t* p) {
 // rather than a guess at which pointers are still good, because nothing here
 // can tell.
 bool ReadGameDword(const uint8_t* at, uint32_t* out) {
-    __try {
+    GTA2_TRY {
         *out = *reinterpret_cast<const volatile uint32_t*>(at);
         return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } GTA2_EXCEPT {
         return false;
     }
+    return false;
 }
 
 // Ends every limb, in the air or on the ground, that came off this ped.
@@ -293,7 +296,8 @@ void ThrowGibs(const uint8_t* ped) {
 
 // Called with the pedestrian the game is about to finish off, before its handler
 // runs. File scope and __stdcall so the thunk below can call it by name.
-static void __stdcall GibsOnPedDeath(uint8_t* ped) {
+static void __stdcall GibsOnPedDeath(uint8_t* ped) ASM_NAME("_GibsOnPedDeath@4");
+ASM_USED static void __stdcall GibsOnPedDeath(uint8_t* ped) {
     if (!g_gibs || !game::PlausiblePointer(ped)) return;
     const int32_t cause = *reinterpret_cast<const int32_t*>(ped + game::kPedDamageCause);
     const bool byCar = cause == game::kDamageCarHit || cause == game::kDamageRunOver;
@@ -302,15 +306,16 @@ static void __stdcall GibsOnPedDeath(uint8_t* ped) {
     ThrowGibs(ped);
 }
 
-static uintptr_t s_deathResume = game::kPedDeathHandler + game::kPedDeathStolenBytes;
-static uintptr_t s_drawResume = game::kObjectDrawBegin + game::kObjectDrawStolenBytes;
-static const void* volatile* s_drawing = &g_drawing;
+ASM_USED static uintptr_t s_deathResume ASM_NAME("_s_deathResume") = game::kPedDeathHandler + game::kPedDeathStolenBytes;
+ASM_USED static uintptr_t s_drawResume ASM_NAME("_s_drawResume") = game::kObjectDrawBegin + game::kObjectDrawStolenBytes;
+ASM_USED static const void* volatile* s_drawing ASM_NAME("_s_drawing") = &g_drawing;
 
 // Takes the place of the death handler's first three instructions. The game's
 // registers and flags are kept around our call, then those instructions run as
 // they would have - push esi / mov esi, ecx / test byte ptr [esi+0x21F], 1 - and
 // the handler carries on from its conditional jump, which reads the flags the
 // test just set.
+#ifdef _MSC_VER
 static __declspec(naked) void PedDeathThunk() {
     __asm {
         pushad
@@ -325,9 +330,29 @@ static __declspec(naked) void PedDeathThunk() {
         jmp dword ptr [s_deathResume]
     }
 }
+#else
+extern "C" void PedDeathThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_PedDeathThunk:\n"
+    "    pushad\n"
+    "    pushfd\n"
+    "    push ecx\n"
+    "    call _GibsOnPedDeath@4\n"
+    "    popfd\n"
+    "    popad\n"
+    "    push esi\n"
+    "    mov esi, ecx\n"
+    "    test byte ptr [esi + 0x21F], 1\n"
+    "    jmp dword ptr [_s_deathResume]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 // The object draw's first instruction, sub esp, 0xA4, with a note of the object
 // it was entered for. Nothing else is touched.
+#ifdef _MSC_VER
 static __declspec(naked) void ObjectDrawThunk() {
     __asm {
         push eax
@@ -338,6 +363,21 @@ static __declspec(naked) void ObjectDrawThunk() {
         jmp dword ptr [s_drawResume]
     }
 }
+#else
+extern "C" void ObjectDrawThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_ObjectDrawThunk:\n"
+    "    push eax\n"
+    "    mov eax, dword ptr [_s_drawing]\n"
+    "    mov dword ptr [eax], ecx\n"
+    "    pop eax\n"
+    "    sub esp, 0xA4\n"
+    "    jmp dword ptr [_s_drawResume]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 namespace {
 
@@ -377,10 +417,12 @@ void GibsInstall() {
     static const uint8_t kDraw[game::kObjectDrawStolenBytes] = {0x81, 0xEC, 0xA4, 0x00, 0x00, 0x00};
     // The draw hook first: a death hook without it would throw limbs over a body
     // that stays.
-    if (!Patch(game::kObjectDrawBegin, kDraw, sizeof(kDraw), &ObjectDrawThunk, "the object draw")) {
+    if (!Patch(game::kObjectDrawBegin, kDraw, sizeof(kDraw), reinterpret_cast<const void*>(&ObjectDrawThunk),
+               "the object draw")) {
         return;
     }
-    Patch(game::kPedDeathHandler, kDeath, sizeof(kDeath), &PedDeathThunk, "the death handler");
+    Patch(game::kPedDeathHandler, kDeath, sizeof(kDeath), reinterpret_cast<const void*>(&PedDeathThunk),
+          "the death handler");
     FlushInstructionCache(GetCurrentProcess(), nullptr, 0);
     Log("gibs: hooked (%s)", g_gibs ? "on" : "off");
 }

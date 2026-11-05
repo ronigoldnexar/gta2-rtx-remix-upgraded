@@ -45,6 +45,8 @@
 
 #include "hud_pass.h"
 
+#include "compat.h"
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -55,10 +57,10 @@
 #include "log.h"
 
 // File scope and plain C types, so the inline assembly below can name them.
-static volatile uint8_t s_inHud = 0;
-static volatile uint8_t s_part = 0xFF;
-static uintptr_t s_hudDraw = game::kHudDraw;
-static uintptr_t s_hudReturn = 0;
+ASM_USED static volatile uint8_t s_inHud ASM_NAME("_s_inHud") = 0;
+ASM_USED static volatile uint8_t s_part ASM_NAME("_s_part") = 0xFF;
+ASM_USED static uintptr_t s_hudDraw ASM_NAME("_s_hudDraw") = game::kHudDraw;
+ASM_USED static uintptr_t s_hudReturn ASM_NAME("_s_hudReturn") = 0;
 
 // Called in place of the HUD draw, with the game's this pointer still in ecx and
 // its arguments still on the stack: take our own return address off, call the
@@ -66,6 +68,7 @@ static uintptr_t s_hudReturn = 0;
 // the arguments - the callee's `ret n` or the caller - finds them where it
 // expects. The HUD is drawn once a frame and never recursively, so one saved
 // return address is enough.
+#ifdef _MSC_VER
 static __declspec(naked) void HudDrawThunk() {
     __asm {
         mov byte ptr [s_inHud], 1
@@ -78,6 +81,23 @@ static __declspec(naked) void HudDrawThunk() {
         ret
     }
 }
+#else
+extern "C" void HudDrawThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_HudDrawThunk:\n"
+    "    mov byte ptr [_s_inHud], 1\n"
+    "    mov byte ptr [_s_part], 0xFF\n"
+    "    pop dword ptr [_s_hudReturn]\n"
+    "    call dword ptr [_s_hudDraw]\n"
+    "    mov byte ptr [_s_inHud], 0\n"
+    "    mov byte ptr [_s_part], 0xFF\n"
+    "    push dword ptr [_s_hudReturn]\n"
+    "    ret\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 // The stage-end arrow.
 //
@@ -98,9 +118,10 @@ static __declspec(naked) void HudDrawThunk() {
 //
 // The two calls in the arrows part go to a thunk that returns at once for that slot while
 // the switch is on, and otherwise jumps to the game's own routine.
-static volatile uint8_t s_hideStageArrow = 0;
-static uintptr_t s_arrowDraw = 0x004C82C0;
+ASM_USED static volatile uint8_t s_hideStageArrow ASM_NAME("_s_hideStageArrow") = 0;
+ASM_USED static uintptr_t s_arrowDraw ASM_NAME("_s_arrowDraw") = 0x004C82C0;
 
+#ifdef _MSC_VER
 static __declspec(naked) void ArrowDrawThunk() {
     __asm {
         cmp byte ptr [s_hideStageArrow], 0
@@ -114,6 +135,23 @@ static __declspec(naked) void ArrowDrawThunk() {
         jmp dword ptr [s_arrowDraw]
     }
 }
+#else
+extern "C" void ArrowDrawThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_ArrowDrawThunk:\n"
+    "    cmp byte ptr [_s_hideStageArrow], 0\n"
+    "    je 1f\n"
+    "    cmp dword ptr [ecx + 0x20], 5\n"
+    "    jne 1f\n"
+    "    cmp dword ptr [ecx + 0x40], 1\n"
+    "    jne 1f\n"
+    "    ret\n"
+    "1:  jmp dword ptr [_s_arrowDraw]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 // The stage-end message.
 //
@@ -128,10 +166,11 @@ static __declspec(naked) void ArrowDrawThunk() {
 // pushed, callee cleans) to move the thread on. With the switch on, for those three keys the
 // thunk skips the printing and does only that last step. The "you don't have enough" messages
 // (2911, 3753) are other keys and stay.
-static uintptr_t s_msgHandler = 0x004792B0;
-static uintptr_t s_msgAdvance = 0x00476E50;
-static uintptr_t s_scriptCommandVar = 0x006644CC;   // address of the pointer to the running command
+ASM_USED static uintptr_t s_msgHandler ASM_NAME("_s_msgHandler") = 0x004792B0;
+ASM_USED static uintptr_t s_msgAdvance ASM_NAME("_s_msgAdvance") = 0x00476E50;
+ASM_USED static uintptr_t s_scriptCommandVar ASM_NAME("_s_scriptCommandVar") = 0x006644CC;   // address of the pointer to the running command
 
+#ifdef _MSC_VER
 static __declspec(naked) void StageMessageThunk() {
     __asm {
         cmp byte ptr [s_hideStageArrow], 0
@@ -154,6 +193,31 @@ static __declspec(naked) void StageMessageThunk() {
         ret
     }
 }
+#else
+extern "C" void StageMessageThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_StageMessageThunk:\n"
+    "    cmp byte ptr [_s_hideStageArrow], 0\n"
+    "    je 1f\n"
+    "    mov eax, dword ptr [_s_scriptCommandVar]\n"
+    "    mov eax, dword ptr [eax]\n"
+    "    movzx eax, word ptr [eax + 8]\n"
+    "    cmp eax, 1989\n"
+    "    je 2f\n"
+    "    cmp eax, 2910\n"
+    "    je 2f\n"
+    "    cmp eax, 3752\n"
+    "    je 2f\n"
+    "1:  jmp dword ptr [_s_msgHandler]\n"
+    "2:  mov eax, dword ptr [_s_scriptCommandVar]\n"
+    "    push dword ptr [eax]\n"
+    "    call dword ptr [_s_msgAdvance]\n"
+    "    ret\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 namespace {
 

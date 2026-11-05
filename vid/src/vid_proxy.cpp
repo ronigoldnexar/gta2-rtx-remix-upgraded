@@ -149,6 +149,13 @@
 
 #include <cstdarg>
 #include <intrin.h>
+#ifndef _MSC_VER
+// MinGW's intrin.h declares _ReturnAddress but ships no body for it.
+#ifdef _ReturnAddress
+#undef _ReturnAddress
+#endif
+#define _ReturnAddress() __builtin_return_address(0)
+#endif
 #include <cstdio>
 
 namespace {

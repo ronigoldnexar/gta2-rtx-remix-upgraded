@@ -83,6 +83,13 @@ It needs [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) on the PATH. The switch i
 - Everything from the original project: lights from the game's own events, dynamic time of day
   (Remix Plus only), emissive maps, animated water, full 16:9, and 60 fps with frame generation
 
+## Linux
+
+No Windows needed, for building or for playing. `make` builds both DLLs with the MinGW-w64 cross compiler
+and `make check` loads them under Wine; `linux/install.sh` sets up a Wine prefix with the game, the
+upstream release and this build, and `linux/run.sh` starts it. Everything, including what RTX Remix
+does and does not do under Wine, is in [linux/README.md](linux/README.md).
+
 ## Where to get GTA2
 
 GTA2 was officially free for a while: Rockstar gave it away as part of its **Rockstar Classics** series, together with the first

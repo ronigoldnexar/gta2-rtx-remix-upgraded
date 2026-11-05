@@ -35,3 +35,31 @@ jobs:
           name: gta2dx9-x86
           path: stage/
           if-no-files-found: error
+
+  mingw-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the MinGW-w64 cross compiler and 32-bit Wine
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-mingw-w64-i686 make wine wine32:i386 xvfb
+
+      - name: Build both DLLs on Linux (make)
+        run: make -j"$(nproc)" stage
+
+      - name: Load them under Wine and resolve every export (make check)
+        run: |
+          export WINEPREFIX="$RUNNER_TEMP/wineprefix" WINEARCH=win32 WINEDEBUG=-all
+          wineboot -i || true
+          make check WINE="xvfb-run -a wine"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gta2dx9-x86-linux-built
+          path: |
+            stage/
+            !stage/loadcheck.exe
+          if-no-files-found: error

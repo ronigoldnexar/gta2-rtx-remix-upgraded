@@ -1,5 +1,7 @@
 #include "synthetic_lights.h"
 
+#include "compat.h"
+
 #include "game_access.h"
 #include "log.h"
 #include "remix_lights.h"
@@ -1213,12 +1215,13 @@ int  g_probeWaitFrames = 0;
 bool ReadDword(const uint8_t* base, int offset, uint32_t* out) {
     // The tail of the window runs off the end of a smaller structure, and there
     // is no length to check it against. Lean on the page fault.
-    __try {
+    GTA2_TRY {
         *out = *reinterpret_cast<const uint32_t*>(base + offset);
         return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } GTA2_EXCEPT {
         return false;
     }
+    return false;
 }
 
 struct Snapshot {

@@ -1,5 +1,7 @@
 #include "voice_over.h"
 
+#include "compat.h"
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmsystem.h>
@@ -23,7 +25,7 @@ constexpr uintptr_t kTextLookup = 0x004C2120;
 const uint8_t kExpected[9] = {0x8B, 0x41, 0x04,        // mov eax, [ecx+4]
                               0x8B, 0x09,              // mov ecx, [ecx]
                               0x8B, 0x54, 0x24, 0x04}; // mov edx, [esp+4]
-uintptr_t s_resume = kTextLookup + 9;
+ASM_USED uintptr_t s_resume ASM_NAME("_s_resume") = kTextLookup + 9;
 
 struct Clip {
     char key[9];
@@ -117,18 +119,15 @@ void LoadClips(int volumePercent) {
 }
 
 // Called from the thunk below with the key the game is looking up.
-void __cdecl VoiceKeySeen(const char* key) {
+void __cdecl VoiceKeySeen(const char* key) ASM_NAME("_VoiceKeySeen");
+ASM_USED void __cdecl VoiceKeySeen(const char* key) {
     if (!g_enabled || g_clips.empty() || !key) return;
     char k[9] = {};
-#ifdef _MSC_VER
-    __try {
+    GTA2_TRY {
         memcpy(k, key, 8);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } GTA2_EXCEPT {
         return;
     }
-#else
-    memcpy(k, key, 8);
-#endif
     if (k[0] < '0' || k[0] > '9') return;  // the lines are all numbered
     for (Clip& c : g_clips) {
         if (strcmp(c.key, k) != 0) continue;
@@ -143,6 +142,7 @@ void __cdecl VoiceKeySeen(const char* key) {
     }
 }
 
+#ifdef _MSC_VER
 static __declspec(naked) void LookupThunk() {
     __asm {
         pushfd
@@ -159,6 +159,27 @@ static __declspec(naked) void LookupThunk() {
         jmp dword ptr [s_resume]
     }
 }
+#else
+extern "C" void LookupThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_LookupThunk:\n"
+    "pushfd\n"
+    "pushad\n"
+    "mov eax, dword ptr [esp + 40]\n"
+    "push eax\n"
+    "call _VoiceKeySeen\n"
+    "add esp, 4\n"
+    "popad\n"
+    "popfd\n"
+    "mov eax, dword ptr [ecx + 4]\n"
+    "mov ecx, dword ptr [ecx]\n"
+    "mov edx, dword ptr [esp + 4]\n"
+    "jmp dword ptr [_s_resume]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 // ---- Engine volume ---------------------------------------------------------------------
 //
@@ -175,8 +196,8 @@ static __declspec(naked) void LookupThunk() {
 // sample number, so the guess can be checked and tightened.
 constexpr int kSoundSlots = 64;
 float g_enginePercent = 70.0f;               // the menu's slider; 100 is the game's own level
-volatile int32_t s_engineScale = 90;         // the same, in 1/128ths, for the stubs
-uint8_t s_slotEngine[kSoundSlots] = {};      // 1: this slot's sound is an engine
+ASM_USED volatile int32_t s_engineScale ASM_NAME("_s_engineScale") = 90;         // the same, in 1/128ths, for the stubs
+ASM_USED uint8_t s_slotEngine[kSoundSlots] ASM_NAME("_s_slotEngine") = {};      // 1: this slot's sound is an engine
 uint8_t s_slotChanges[kSoundSlots] = {};     // how many times its pitch has changed
 int32_t s_slotRate[kSoundSlots] = {};        // the pitch it was last given
 int32_t s_slotSound[kSoundSlots] = {};       // the sample it is playing
@@ -184,14 +205,15 @@ bool g_engineLogged[512] = {};
 bool g_engineHooked = false;
 int g_engineSlotsSeen = 0;
 
-uintptr_t s_origVol3D = 0x004B62B0;    // set volume (3D sample)
-uintptr_t s_origVol2D = 0x004B6110;    // set volume (2D sample)
-uintptr_t s_origRate3D = 0x004B6320;   // set pitch (3D sample)
-uintptr_t s_origRate2D = 0x004B6150;   // set pitch (2D sample)
-uintptr_t s_origStart3D = 0x004B6220;  // set up a 3D sample: (slot, sample number, pitch)
-uintptr_t s_origStart2D = 0x004B60C0;  // point a 2D sample at its data: (slot, sample number)
+ASM_USED uintptr_t s_origVol3D ASM_NAME("_s_origVol3D") = 0x004B62B0;    // set volume (3D sample)
+ASM_USED uintptr_t s_origVol2D ASM_NAME("_s_origVol2D") = 0x004B6110;    // set volume (2D sample)
+ASM_USED uintptr_t s_origRate3D ASM_NAME("_s_origRate3D") = 0x004B6320;   // set pitch (3D sample)
+ASM_USED uintptr_t s_origRate2D ASM_NAME("_s_origRate2D") = 0x004B6150;   // set pitch (2D sample)
+ASM_USED uintptr_t s_origStart3D ASM_NAME("_s_origStart3D") = 0x004B6220;  // set up a 3D sample: (slot, sample number, pitch)
+ASM_USED uintptr_t s_origStart2D ASM_NAME("_s_origStart2D") = 0x004B60C0;  // point a 2D sample at its data: (slot, sample number)
 
-void __cdecl EngineNoteSound(int slot, int sound) {
+void __cdecl EngineNoteSound(int slot, int sound) ASM_NAME("_EngineNoteSound");
+ASM_USED void __cdecl EngineNoteSound(int slot, int sound) {
     if (slot < 0 || slot >= kSoundSlots) return;
     s_slotEngine[slot] = 0;
     s_slotChanges[slot] = 0;
@@ -199,7 +221,8 @@ void __cdecl EngineNoteSound(int slot, int sound) {
     s_slotSound[slot] = sound;
 }
 
-void __cdecl EngineNoteRate(int slot, int rate) {
+void __cdecl EngineNoteRate(int slot, int rate) ASM_NAME("_EngineNoteRate");
+ASM_USED void __cdecl EngineNoteRate(int slot, int rate) {
     if (slot < 0 || slot >= kSoundSlots) return;
     float percent = g_enginePercent;
     if (percent < 0.0f) percent = 0.0f;
@@ -218,6 +241,7 @@ void __cdecl EngineNoteRate(int slot, int rate) {
     }
 }
 
+#ifdef _MSC_VER
 static __declspec(naked) void SoundStart3DThunk() {
     __asm {
         pushfd
@@ -233,7 +257,28 @@ static __declspec(naked) void SoundStart3DThunk() {
         jmp dword ptr [s_origStart3D]
     }
 }
+#else
+extern "C" void SoundStart3DThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_SoundStart3DThunk:\n"
+    "pushfd\n"
+    "pushad\n"
+    "mov eax, dword ptr [esp + 44]\n"
+    "push eax\n"
+    "mov eax, dword ptr [esp + 44]\n"
+    "push eax\n"
+    "call _EngineNoteSound\n"
+    "add esp, 8\n"
+    "popad\n"
+    "popfd\n"
+    "jmp dword ptr [_s_origStart3D]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
+#ifdef _MSC_VER
 static __declspec(naked) void SoundStart2DThunk() {
     __asm {
         pushfd
@@ -249,7 +294,28 @@ static __declspec(naked) void SoundStart2DThunk() {
         jmp dword ptr [s_origStart2D]
     }
 }
+#else
+extern "C" void SoundStart2DThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_SoundStart2DThunk:\n"
+    "pushfd\n"
+    "pushad\n"
+    "mov eax, dword ptr [esp + 44]\n"
+    "push eax\n"
+    "mov eax, dword ptr [esp + 44]\n"
+    "push eax\n"
+    "call _EngineNoteSound\n"
+    "add esp, 8\n"
+    "popad\n"
+    "popfd\n"
+    "jmp dword ptr [_s_origStart2D]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
+#ifdef _MSC_VER
 static __declspec(naked) void Rate3DThunk() {
     __asm {
         pushfd
@@ -265,7 +331,28 @@ static __declspec(naked) void Rate3DThunk() {
         jmp dword ptr [s_origRate3D]
     }
 }
+#else
+extern "C" void Rate3DThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_Rate3DThunk:\n"
+    "pushfd\n"
+    "pushad\n"
+    "mov eax, dword ptr [esp + 44]\n"
+    "push eax\n"
+    "mov eax, dword ptr [esp + 44]\n"
+    "push eax\n"
+    "call _EngineNoteRate\n"
+    "add esp, 8\n"
+    "popad\n"
+    "popfd\n"
+    "jmp dword ptr [_s_origRate3D]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
+#ifdef _MSC_VER
 static __declspec(naked) void Rate2DThunk() {
     __asm {
         pushfd
@@ -281,8 +368,29 @@ static __declspec(naked) void Rate2DThunk() {
         jmp dword ptr [s_origRate2D]
     }
 }
+#else
+extern "C" void Rate2DThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_Rate2DThunk:\n"
+    "pushfd\n"
+    "pushad\n"
+    "mov eax, dword ptr [esp + 44]\n"
+    "push eax\n"
+    "mov eax, dword ptr [esp + 44]\n"
+    "push eax\n"
+    "call _EngineNoteRate\n"
+    "add esp, 8\n"
+    "popad\n"
+    "popfd\n"
+    "jmp dword ptr [_s_origRate2D]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 // The volume is the second argument, 0-127. eax and edx are free at a call; ecx (this) is not touched.
+#ifdef _MSC_VER
 static __declspec(naked) void Volume3DThunk() {
     __asm {
         mov eax, dword ptr [esp + 4]
@@ -302,7 +410,30 @@ static __declspec(naked) void Volume3DThunk() {
         jmp dword ptr [s_origVol3D]
     }
 }
+#else
+extern "C" void Volume3DThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_Volume3DThunk:\n"
+    "mov eax, dword ptr [esp + 4]\n"
+    "cmp eax, 64\n"
+    "jae 2f\n"
+    "cmp byte ptr [_s_slotEngine + eax], 0\n"
+    "je 2f\n"
+    "mov edx, dword ptr [esp + 8]\n"
+    "imul edx, dword ptr [_s_engineScale]\n"
+    "sar edx, 7\n"
+    "cmp edx, 127\n"
+    "jle 1f\n"
+    "mov edx, 127\n"
+    "1:  mov dword ptr [esp + 8], edx\n"
+    "2:  jmp dword ptr [_s_origVol3D]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
+#ifdef _MSC_VER
 static __declspec(naked) void Volume2DThunk() {
     __asm {
         mov eax, dword ptr [esp + 4]
@@ -322,6 +453,28 @@ static __declspec(naked) void Volume2DThunk() {
         jmp dword ptr [s_origVol2D]
     }
 }
+#else
+extern "C" void Volume2DThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_Volume2DThunk:\n"
+    "mov eax, dword ptr [esp + 4]\n"
+    "cmp eax, 64\n"
+    "jae 2f\n"
+    "cmp byte ptr [_s_slotEngine + eax], 0\n"
+    "je 2f\n"
+    "mov edx, dword ptr [esp + 8]\n"
+    "imul edx, dword ptr [_s_engineScale]\n"
+    "sar edx, 7\n"
+    "cmp edx, 127\n"
+    "jle 1f\n"
+    "mov edx, 127\n"
+    "1:  mov dword ptr [esp + 8], edx\n"
+    "2:  jmp dword ptr [_s_origVol2D]\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 // ---- Radio reception -------------------------------------------------------------------
 //
@@ -332,11 +485,12 @@ static __declspec(naked) void Volume2DThunk() {
 // That store (mov [esi+54FCh], edx at 4B24E3, six bytes) is replaced by a call to a stub that
 // stores 1 instead when the reception effect is off. Which source is playing and how loud it is
 // are left to the game.
-bool g_radioReception = false;                 // the menu's switch; off = always the stereo file
+ASM_USED bool g_radioReception ASM_NAME("_g_radioReception") = false;                 // the menu's switch; off = always the stereo file
 bool g_radioHooked = false;
 constexpr uintptr_t kRadioStore = 0x004B24E3;
 const uint8_t kRadioStoreBytes[6] = {0x89, 0x96, 0xFC, 0x54, 0x00, 0x00};
 
+#ifdef _MSC_VER
 static __declspec(naked) void RadioVariantThunk() {
     __asm {
         cmp byte ptr [g_radioReception], 0
@@ -347,6 +501,20 @@ static __declspec(naked) void RadioVariantThunk() {
         ret
     }
 }
+#else
+extern "C" void RadioVariantThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_RadioVariantThunk:\n"
+    "cmp byte ptr [_g_radioReception], 0\n"
+    "jne 1f\n"
+    "mov edx, 1\n"
+    "1:  mov dword ptr [esi + 0x54FC], edx\n"
+    "ret\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 // The per-frame downgrade (4B2B6B): in the stereo state, when the signal for the stereo file falls under
 // 0x5A, the game does three things in a row:
@@ -364,6 +532,7 @@ constexpr uintptr_t kRadioDowngrade = 0x004B2B6B;
 const uint8_t kRadioDowngradeBytes[10] = {0xC7, 0x86, 0xFC, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // Reached by a jump, not a call: no return address on the stack. al holds the volume.
+#ifdef _MSC_VER
 static __declspec(naked) void RadioDowngradeThunk() {
     __asm {
         cmp byte ptr [g_radioReception], 0
@@ -377,6 +546,23 @@ static __declspec(naked) void RadioDowngradeThunk() {
         ret
     }
 }
+#else
+extern "C" void RadioDowngradeThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_RadioDowngradeThunk:\n"
+    "cmp byte ptr [_g_radioReception], 0\n"
+    "jne 1f\n"
+    "mov byte ptr [esi + 0x54F6], al\n"
+    "push 0x004B2B93\n"
+    "ret\n"
+    "1:  mov dword ptr [esi + 0x54FC], 0\n"
+    "push 0x004B2B75\n"
+    "ret\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 
 }  // namespace
 

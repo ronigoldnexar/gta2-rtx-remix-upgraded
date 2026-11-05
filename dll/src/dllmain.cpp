@@ -41,6 +41,7 @@
 #include "cache_warmup.h"
 #include "world_view.h"
 #include "view_modes.h"
+#include "compat.h"
 
 using gta2dx9::Log;
 
@@ -522,12 +523,12 @@ bool LooksLikeReturnAddress(const uint8_t* p) {
     if (!(mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE |
                          PAGE_EXECUTE_WRITECOPY))) return false;
     // A return address follows a call: E8 rel32 five bytes back, or FF /2 two to seven back.
-    __try {
+    GTA2_TRY {
         if (p[-5] == 0xE8) return true;
         if (p[-2] == 0xFF && (p[-1] & 0x38) == 0x10) return true;
         if (p[-3] == 0xFF && (p[-2] & 0x38) == 0x10) return true;
         if (p[-6] == 0xFF && (p[-5] & 0x38) == 0x10) return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } GTA2_EXCEPT {
     }
     return false;
 }
@@ -1229,6 +1230,7 @@ PASSTHROUGH_2(gbh_Convert16BitGraphic, int, int)
 // Kept referenced so the linker cannot drop it, and counted at attach: if the
 // compiler ever emits the same two stores in real code ahead of this, a plugin
 // would patch that instead, and the log says so.
+#ifdef _MSC_VER
 extern "C" __declspec(naked) void OriginalBlitStores() {
     __asm {
         mov dword ptr [esp + 0x28], edi
@@ -1236,6 +1238,19 @@ extern "C" __declspec(naked) void OriginalBlitStores() {
         ret
     }
 }
+#else
+extern "C" void OriginalBlitStores();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    ".globl _OriginalBlitStores\n"
+    "_OriginalBlitStores:\n"
+    "    mov dword ptr [esp + 0x28], edi\n"
+    "    mov dword ptr [esp + 0x2C], esi\n"
+    "    ret\n"
+    ".att_syntax prefix\n"
+    );
+#endif
 extern "C" void (*volatile g_originalBlitStores)() = OriginalBlitStores;
 
 namespace {
@@ -1288,6 +1303,8 @@ void PluginDraw(PluginPrimitive type, const PluginVertex* vertices, int count, i
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
+        // The GCC build's stand-in for __try; nothing on MSVC. See compat.h.
+        gta2dx9::SehCompatInstall();
         g_self = module;
         DisableThreadLibraryCalls(module);
         gta2dx9::OpenLog();

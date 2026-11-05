@@ -1,5 +1,7 @@
 #include "game_save.h"
 
+#include "compat.h"
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -50,15 +52,11 @@ int ReadMoney() {
     void* keeper = ScoreKeeper();
     if (!keeper) return -1;
     int money = -1;
-#ifdef _MSC_VER
-    __try {
+    GTA2_TRY {
         money = reinterpret_cast<MoneyFn>(kGetMoney)(keeper);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } GTA2_EXCEPT {
         money = -1;
     }
-#else
-    money = reinterpret_cast<MoneyFn>(kGetMoney)(keeper);
-#endif
     return money;
 }
 
@@ -103,15 +101,11 @@ bool SaveGameNow() {
     }
     const char* name = reinterpret_cast<const char*>(kProfileObject + 0x300);
     bool ok = true;
-#ifdef _MSC_VER
-    __try {
+    GTA2_TRY {
         reinterpret_cast<SaveFn>(kSaveFunction)(reinterpret_cast<void*>(manager), name);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } GTA2_EXCEPT {
         ok = false;
     }
-#else
-    reinterpret_cast<SaveFn>(kSaveFunction)(reinterpret_cast<void*>(manager), name);
-#endif
     if (!ok) {
         g_status = "the game refused the save";
         Log("game save: the save function faulted");
@@ -120,14 +114,12 @@ bool SaveGameNow() {
     if (g_settings.message) {
         uintptr_t ui = 0;
         if (Read(kMessageUi, &ui) && ui > 0x10000) {
-#ifdef _MSC_VER
-            __try {
+            GTA2_TRY {
                 memcpy(reinterpret_cast<void*>(kMessageBuffer), "svdone", 7);
                 reinterpret_cast<ShowFn>(kShowMessage)(reinterpret_cast<void*>(ui + 0xE4), 1,
                                                        reinterpret_cast<const char*>(kMessageBuffer));
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            } GTA2_EXCEPT {
             }
-#endif
         }
     }
     g_lastSaveTick = GetTickCount();
