@@ -513,6 +513,9 @@ private:
         // The game object this quad belongs to (0: unknown); only used to follow one thing from frame
         // to frame in the flicker diagnostic.
         uintptr_t object = 0;
+        // A map object (cone, bin, phone box...) drawn as this model instead of
+        // its flat sprite in the street-level views. See map_objects.h.
+        const struct Model* objectModel = nullptr;
     };
 public:
     using SpriteType = Sprite;   // for the skid memory in live_geometry.cpp

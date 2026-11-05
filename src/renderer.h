@@ -14,6 +14,7 @@
 
 #include "camera.h"
 #include "gta2_style.h"
+#include "sky.h"
 #include "world_mesh.h"
 
 namespace gta2 {
@@ -21,6 +22,21 @@ namespace gta2 {
 struct RenderStats {
     int drawCalls = 0;
     int triangles = 0;
+};
+
+// How the world is shaded in the street-level views (see sky.h): distance fog
+// in the horizon's colour, and a directional sun with an ambient term applied
+// through fixed-function lighting over the mesh's face normals. Everything off
+// is the classic view: unlit texture, no fog, as it always was.
+struct WorldShading {
+    bool fog = false;
+    Vec3 fogColour;
+    float fogStart = 30.0f;
+    float fogEnd = 140.0f;
+    bool sun = false;
+    Vec3 sunDir{0.0f, 1.0f, 0.0f};   // toward the sun
+    Vec3 sunColour;                   // the sun's contribution on a face squarely facing it
+    Vec3 ambient{1.0f, 1.0f, 1.0f};   // the rest
 };
 
 // Optional trace sink for device bring-up. The in-process DLL points it at
@@ -67,6 +83,17 @@ public:
     bool BeginFrame();
     void DrawWorld(const Camera& camera);
     void EndFrame();
+
+    // The sky dome, sun and clouds, drawn around the camera over the cleared
+    // frame and before the world, weighted by blend (0 draws nothing).
+    void DrawSky(const Camera& camera, const SkySettings& settings, const SkyColours& colours, float blend,
+                 double seconds);
+    // The fog and sun for DrawWorld and for the live geometry drawn after it,
+    // which inherits the fog state; EndWorldShading turns both off again before
+    // the screen-space passes.
+    void SetWorldShading(const WorldShading& shading) { shading_ = shading; }
+    const WorldShading& Shading() const { return shading_; }
+    void EndWorldShading();
 
     // GTA2 animates a tile - ceiling fans, screens, water - by changing the
     // artwork behind its number while the map itself stays put, so the world
@@ -162,6 +189,8 @@ private:
     int hdFailed_ = 0;
     bool hdFailLogged_ = false;
     RenderStats stats_;
+    WorldShading shading_;
+    Sky sky_;
 };
 
 }  // namespace gta2

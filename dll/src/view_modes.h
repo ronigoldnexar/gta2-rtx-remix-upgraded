@@ -74,6 +74,13 @@ struct ViewModeSettings {
     float fpEyeCar = 0.52f;         // ... at the wheel (just over 1 m)
     float fpForwardFoot = 0.12f;    // the eye sits this far ahead of the object's centre
     float fpForwardCar = 0.30f;
+    // At the wheel of a car drawn as a 3D body (CarBodiesCabin): the eye sits in
+    // the cabin instead - this far up between the hood line and the roof, this far
+    // behind the windscreen's base, and this far from the middle (positive: the
+    // left seat; as a fraction of half the car's width).
+    float fpEyeCabin = 0.62f;
+    float fpBehindScreen = 0.12f;
+    float fpSeatCar = 0.45f;
     float fpFov = 68.0f;
     bool fpHideOwnBody = true;      // the player's own sprite, and his car, are not drawn
     float fpReturnDelay = 2.0f;     // free look swings back to straight ahead after this

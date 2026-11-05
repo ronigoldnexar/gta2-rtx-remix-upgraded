@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "../../src/gta2_map.h"
+#include "car_bodies.h"
 #include "game_access.h"
 #include "log.h"
 #include "remix_api.h"
@@ -818,9 +819,20 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     }
 
     if (mode == ViewMode::FirstPerson) {
-        const float eyeHeight = inVehicle ? s.fpEyeCar : s.fpEyeFoot;
-        const float ahead = inVehicle ? s.fpForwardCar : s.fpForwardFoot;
-        gta2::Vec3 eye{px + hx * ahead, baseY + eyeHeight, pz + hz * ahead};
+        float eyeHeight = inVehicle ? s.fpEyeCar : s.fpEyeFoot;
+        float ahead = inVehicle ? s.fpForwardCar : s.fpForwardFoot;
+        float seat = 0.0f;
+        if (inVehicle) {
+            // In the cabin of the car's 3D body, when it has one: the driver's head.
+            float deck, roof, screen, halfWidth;
+            if (CarBodiesCabin(player.vehicleSprite, &deck, &roof, &screen, &halfWidth)) {
+                eyeHeight = deck + (roof - deck) * s.fpEyeCabin;
+                ahead = screen - s.fpBehindScreen;
+                seat = halfWidth * s.fpSeatCar;
+            }
+        }
+        // Sideways is the heading turned a quarter: (-hz, hx) is the car's left.
+        gta2::Vec3 eye{px + hx * ahead - hz * seat, baseY + eyeHeight, pz + hz * ahead + hx * seat};
         float yaw = WrapAngle(headingYaw + look.yaw);
         float pitch = look.pitch;
         float roll = 0.0f;

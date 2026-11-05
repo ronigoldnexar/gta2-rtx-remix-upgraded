@@ -130,6 +130,9 @@ void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCo
     f[nf++] = {"camera", "FirstEyeCar", &vm.fpEyeCar};
     f[nf++] = {"camera", "FirstForwardFoot", &vm.fpForwardFoot};
     f[nf++] = {"camera", "FirstForwardCar", &vm.fpForwardCar};
+    f[nf++] = {"camera", "FirstEyeCabin", &vm.fpEyeCabin};
+    f[nf++] = {"camera", "FirstBehindScreen", &vm.fpBehindScreen};
+    f[nf++] = {"camera", "FirstSeatCar", &vm.fpSeatCar};
     f[nf++] = {"camera", "FirstFov", &vm.fpFov};
     b[nb++] = {"camera", "FirstHideOwnBody", &vm.fpHideOwnBody};
     f[nf++] = {"camera", "FirstReturnDelay", &vm.fpReturnDelay};

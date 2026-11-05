@@ -31,3 +31,6 @@ tools/__pycache__/
 
 # Generated Remix material textures (~190 MB of DDS): regenerate with tools/remix_materials.py; shipped as a release asset
 package/rtx-remix/mods/gta2hd/textures/
+
+# Generated car models (~280 MB of TGA): regenerate with tools/make_car_manifest.py + tools/import_assets.py; shipped as a release asset
+assets/models/0[0-9][0-9]_*

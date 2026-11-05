@@ -142,7 +142,8 @@ def import_model(entry, src_dir, out_dir):
     paint_names = [n.lower() for n in entry.get("paint_materials", [])]
     def is_paint(mat):
         n = (mat.get("name") or "").lower()
-        return n in paint_names or (not paint_names and ("paint" in n or n in ("body", "carpaint", "car_paint")))
+        if paint_names: return n in paint_names
+        return n in ("paint", "body", "carpaint", "car_paint") or n.startswith("paint_")
     def solid_tga(mi, mat):
         """a material with only a base colour factor: a 4x4 texture of that colour"""
         f = mat.get("pbrMetallicRoughness", {}).get("baseColorFactor", [1, 1, 1, 1])
@@ -354,4 +355,6 @@ if __name__ == "__main__":
     models_out = [{k: v for k, v in e.items() if k != "animations_from"} for e in manifest["models"]]
     json.dump({"models": models_out, "cars": manifest.get("cars", {}), "pedestrian": manifest.get("pedestrian", ""),
                "pedestrians": manifest.get("pedestrians", []),
-               "props": manifest.get("props", {}), "imported": report}, open(os.path.join(out_dir, "manifest.json"), "w"), indent=1)
+               "props": manifest.get("props", {}), "objects": manifest.get("objects", {}),
+               "objects_yaw": manifest.get("objects_yaw", {}), "imported": report},
+              open(os.path.join(out_dir, "manifest.json"), "w"), indent=1)

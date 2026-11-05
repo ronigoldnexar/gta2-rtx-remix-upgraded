@@ -58,3 +58,40 @@ sprite. The classic top-down view never uses any of this.
 
 Limits: keep a car under 12000 vertices (the importer splits larger meshes) and its textures
 at 512 (set per entry with `texture_max`); the game is a 32-bit process.
+
+## Map objects: the game's own objects as models
+
+GTA2's scripts place objects from the style file's OBJI table (24 models, 90 sprite frames:
+benches, tyres, cones, crates, a football, oil drums, sandbags, sawhorse barriers, the yellow
+bonus crates...). The street-level views draw them as models whose top-down look is the sprite
+itself; the classic view keeps the sprites. `tools/gen_objects.py` makes them from
+`assets-src/objects/` (every object sprite exported from the style with
+`assets-src/cars/parse_sty.py`, plus Real-ESRGAN x4 copies) and writes `assets-src/objects/models/`,
+a status file, a contact sheet and the manifest's `objects` map
+(`"<sprite base>:<frame>": model`; map objects are sprite base 5). Frames that are flat things
+on the ground (litter, newspapers, oil, splintered wood, hubcaps) are left as the game's sprites.
+
+| model | frames | body | source |
+|---|---|---|---|
+| obj_bench | 0-7 | park bench, tinted to the sprite's green | Poly Haven `painted_wooden_bench` (CC0) |
+| obj_tyre | 8-17 | tyre lying flat | Poly Haven `old_tyre` (CC0) |
+| obj_girder | 21 | riveted steel plate | procedural, sprite on top |
+| obj_planter | 24-27 | clay planter, bush and flowers | Poly Haven `planter_pot_clay` (CC0) + procedural foliage |
+| obj_cone, obj_cone_lying | 28, 29-31 | traffic cone, standing / knocked over | procedural |
+| obj_crate | 32-33 | pine crate, plank sides with nails | procedural, sprite on top |
+| obj_football | 38-42 | football | procedural |
+| obj_box | 43-47 | cardboard box | procedural, sprite on top |
+| obj_extinguisher | 48-54 | fire extinguisher on its side | procedural |
+| obj_drum, obj_drum_lying | 67, 68-70 | steel oil drum, upright / on its side | Poly Haven `barrel_03` (CC0) |
+| obj_sandbag | 71-75 | sack, tinted to the sprite | Poly Haven `cement_bag` (CC0) |
+| obj_barrier | 76-83 | road-works sawhorse, striped | procedural |
+| obj_crate_yellow | 88 | yellow hazard crate with black straps | procedural, sprite on top |
+
+Poly Haven models are CC0 (`assets-src/polyhaven/LICENSE.txt`), fetched 1k with
+`assets-src/polyhaven/fetch_polyhaven.py`, scaled to blocks (2 m = 1 block), reoriented with the
+long axis along +Z and the origin at the footprint centre on the ground; where the sprite's paint
+differs from the model's, the texture is multiplied toward the sprite's dominant colour
+(`MATCH` in the generator). At run time (`dll/src/map_objects.cpp`) a sprite whose base and
+frame are in `objects` is not drawn as a quad; the model is scaled so its long axis spans the
+quad's longer edge, turned to the quad, and stood on the quad's plane. Every new object sprite
+seen (base, frame, size) is logged once as `object sprite: ...`, which is how the map is extended.

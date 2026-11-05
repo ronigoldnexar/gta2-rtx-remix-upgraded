@@ -227,8 +227,13 @@ private:
     float transitionT_ = 1.0f;     // 0..1, 1 when no move is in progress
     ViewMode lastViewMode_ = ViewMode::Classic;
     bool transitionToClassic_ = false;
+    bool transitionFromClassic_ = false;
+    // How much of the street views' sky, fog and sun is shown: 0 in the classic
+    // view, 1 in the others, eased through a move between them. See sky.h.
+    float skyBlend_ = 0.0f;
     int viewLostFrames_ = 0;       // frames a ground view has gone without the player
     void ApplyTransition(float dt, ViewMode mode);
+    void DrawSkyAndShading();
     double viewTime_ = 0.0;
     float classicPitch_ = -1.5708f;
     float classicFov_ = 0.6981f;

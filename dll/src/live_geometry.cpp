@@ -25,6 +25,7 @@
 #include "time_of_day.h"
 #include "view_modes.h"
 #include "model_store.h"
+#include "map_objects.h"
 
 namespace gta2dx9 {
 namespace {
@@ -4450,9 +4451,16 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
 
     // The player's own sprite, and his car's, from his own eyes: every quad
     // the game draws for them, the lamp quad included. See SetHiddenObjects.
+    // ... except his car when the cars are 3D bodies: its flat sprite goes, its
+    // body is drawn round him (the eye sits in the cabin; see CarBodiesCabin).
+    bool ownCar = false;
     if (g_hiddenObjects[0] || g_hiddenObjects[1]) {
         const void* object = GameObjectBeingDrawn();
-        if (object && (object == g_hiddenObjects[0] || object == g_hiddenObjects[1])) return;
+        if (object && object == g_hiddenObjects[0]) return;
+        if (object && object == g_hiddenObjects[1]) {
+            if (!(g_groundModels && g_carModels3d) || lamps) return;
+            ownCar = true;
+        }
     }
 
     Vertex out[4];
@@ -4847,6 +4855,17 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
         }
     }
     if (g_carBodies && !decal && corners == 4) RaiseCarBody(&placed);
+    // The own car only ever as its body: if it did not become one, nothing.
+    if (ownCar && !placed.hidden) return;
+    // The game's objects - cones, bins, phone boxes - as models in the street-level views.
+    if (!decal && !lying && corners == 4 && !placed.pedestrian && !placed.hidden && !placed.plain &&
+        !placed.lamp && !placed.corpse) {
+        const Model* model = MapObjectModel(GameObjectBeingDrawn(), placed.local, corners);
+        if (model && g_groundModels) {
+            placed.objectModel = model;
+            placed.hidden = true;   // the flat sprite goes; the model stands in for it
+        }
+    }
     // Small flat artwork that is neither a car nor a pedestrian: see SetSpriteSmooth.
     if (g_spriteSmooth && !decal && !lying && corners == 4) {
         const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn());
@@ -5139,6 +5158,7 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
             }
         }
         use.object = reinterpret_cast<uintptr_t>(object);
+        use.own = object == g_hiddenObjects[1];
         static_assert(sizeof(CarBodyVertex) == sizeof(Vertex), "car body vertices share the world layout");
         memcpy(use.local, body->local, sizeof(use.local));
         use.objectToWorld = body->objectToWorld;
@@ -6927,8 +6947,9 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     issue(plain);
     if (g_groundModels) {
         DrawCarModels(device);
-        CarBodiesDraw(device, carBodies_, g_carFrame);
+        CarBodiesDraw(device, carBodies_, g_carFrame, camera.Position());
         DrawProps(device, camera.Position());
+        MapObjectsDraw(device, sprites_);
     }
     if (g_pedFigures) DrawPedFigures(device);
 

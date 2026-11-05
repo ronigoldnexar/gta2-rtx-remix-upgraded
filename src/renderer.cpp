@@ -274,6 +274,7 @@ void Renderer::Shutdown() {
 }
 
 void Renderer::ReleaseResources() {
+    sky_.Release();
     // An animated tile's slot points at a frame owned by tileFrames_, so those
     // must not be released twice. Everything else in textures_ is owned here.
     for (IDirect3DTexture9* texture : textures_) {
@@ -804,6 +805,51 @@ void Renderer::DrawWorld(const Camera& camera) {
     device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex));
     device_->SetIndices(indexBuffer_);
 
+    // The street views' atmosphere. Fog stays on for the live geometry that
+    // follows (EndWorldShading turns it off); the sun light is this pass only.
+    if (shading_.fog) {
+        const auto bits = [](float v) { DWORD d; memcpy(&d, &v, sizeof d); return d; };
+        device_->SetRenderState(D3DRS_FOGENABLE, TRUE);
+        device_->SetRenderState(D3DRS_FOGCOLOR, D3DCOLOR_XRGB(static_cast<int>(shading_.fogColour.x * 255.0f + 0.5f),
+                                                              static_cast<int>(shading_.fogColour.y * 255.0f + 0.5f),
+                                                              static_cast<int>(shading_.fogColour.z * 255.0f + 0.5f)));
+        device_->SetRenderState(D3DRS_FOGVERTEXMODE, D3DFOG_NONE);
+        device_->SetRenderState(D3DRS_FOGTABLEMODE, D3DFOG_LINEAR);
+        device_->SetRenderState(D3DRS_FOGSTART, bits(shading_.fogStart));
+        device_->SetRenderState(D3DRS_FOGEND, bits(shading_.fogEnd));
+        device_->SetRenderState(D3DRS_RANGEFOGENABLE, FALSE);
+    } else {
+        device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    }
+    if (shading_.sun) {
+        D3DLIGHT9 sun = {};
+        sun.Type = D3DLIGHT_DIRECTIONAL;
+        sun.Diffuse.r = shading_.sunColour.x;
+        sun.Diffuse.g = shading_.sunColour.y;
+        sun.Diffuse.b = shading_.sunColour.z;
+        sun.Diffuse.a = 1.0f;
+        sun.Direction.x = -shading_.sunDir.x;
+        sun.Direction.y = -shading_.sunDir.y;
+        sun.Direction.z = -shading_.sunDir.z;
+        D3DMATERIAL9 material = {};
+        material.Diffuse.r = material.Diffuse.g = material.Diffuse.b = material.Diffuse.a = 1.0f;
+        material.Ambient = material.Diffuse;
+        device_->SetMaterial(&material);
+        device_->SetLight(0, &sun);
+        device_->LightEnable(0, TRUE);
+        device_->SetRenderState(D3DRS_LIGHTING, TRUE);
+        device_->SetRenderState(D3DRS_COLORVERTEX, FALSE);
+        device_->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, D3DMCS_MATERIAL);
+        device_->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
+        device_->SetRenderState(D3DRS_NORMALIZENORMALS, FALSE);
+        device_->SetRenderState(D3DRS_AMBIENT, D3DCOLOR_XRGB(static_cast<int>(shading_.ambient.x * 255.0f + 0.5f),
+                                                             static_cast<int>(shading_.ambient.y * 255.0f + 0.5f),
+                                                             static_cast<int>(shading_.ambient.z * 255.0f + 0.5f)));
+        device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    }
+
     bool alphaTestEnabled = false;
     bool doubleSided = false;   // see TileBatch::doubleSided
     device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
@@ -836,6 +882,26 @@ void Renderer::DrawWorld(const Camera& camera) {
         stats_.triangles += static_cast<int>(batch.indexCount / 3);
     }
     if (doubleSided) device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
+    if (shading_.sun) {
+        device_->LightEnable(0, FALSE);
+        device_->SetRenderState(D3DRS_LIGHTING, FALSE);
+        device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    }
+}
+
+void Renderer::DrawSky(const Camera& camera, const SkySettings& settings, const SkyColours& colours, float blend,
+                       double seconds) {
+    if (!device_ || !vertexBuffer_ || blend <= 0.0f) return;
+    sky_.Draw(device_, camera, static_cast<float>(width_) / static_cast<float>(height_), settings, colours, blend,
+              seconds);
+    stats_.drawCalls += 3;
+}
+
+void Renderer::EndWorldShading() {
+    if (!device_) return;
+    device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    device_->LightEnable(0, FALSE);
+    device_->SetRenderState(D3DRS_LIGHTING, FALSE);
 }
 
 }  // namespace gta2

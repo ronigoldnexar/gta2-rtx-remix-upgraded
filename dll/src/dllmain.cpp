@@ -40,6 +40,7 @@
 #include "voice_over.h"
 #include "cache_warmup.h"
 #include "world_view.h"
+#include "../../src/sky.h"
 #include "view_modes.h"
 #include "model_store.h"
 #include "compat.h"
@@ -406,6 +407,25 @@ void LoadConfig() {
     tod.lightsOnHour =
         static_cast<float>(lightsOn / 100) + static_cast<float>(lightsOn % 100) / 60.0f;
     gta2dx9::TimeOfDayReset();
+
+    // The sky of the street-level views. See sky.h and the [sky] section.
+    {
+        gta2::SkySettings& sky = gta2::SkyConfig();
+        sky.enabled = GetPrivateProfileIntA("sky", "enabled", 1, ini) != 0;
+        sky.followClock = GetPrivateProfileIntA("sky", "follow_clock", 0, ini) != 0;
+        sky.sunElevationDeg = GetPrivateProfileIntA("sky", "sun_elevation_tenths", 240, ini) / 10.0f;
+        sky.sunAzimuthDeg = GetPrivateProfileIntA("sky", "sun_azimuth_tenths", 2350, ini) / 10.0f;
+        sky.fogStart = static_cast<float>(GetPrivateProfileIntA("sky", "fog_start_blocks", 30, ini));
+        sky.fogEnd = static_cast<float>(GetPrivateProfileIntA("sky", "fog_end_blocks", 140, ini));
+        if (sky.fogEnd < sky.fogStart + 5.0f) sky.fogEnd = sky.fogStart + 5.0f;
+        sky.cloudCover = GetPrivateProfileIntA("sky", "cloud_cover_percent", 45, ini) / 100.0f;
+        sky.ambient = GetPrivateProfileIntA("sky", "ambient_percent", 80, ini) / 100.0f;
+        sky.sunLight = GetPrivateProfileIntA("sky", "sun_light_percent", 40, ini) / 100.0f;
+        gta2dx9::Log("sky: %s, sun %s at elevation %.0f azimuth %.0f, fog %.0f..%.0f blocks, clouds %.0f%%, ambient %.0f%% sun %.0f%%",
+                     sky.enabled ? "on in the street views" : "off", sky.followClock ? "from the clock" : "fixed",
+                     sky.sunElevationDeg, sky.sunAzimuthDeg, sky.fogStart, sky.fogEnd, sky.cloudCover * 100.0f,
+                     sky.ambient * 100.0f, sky.sunLight * 100.0f);
+    }
 
     // The effective sprite numbers, not the compiled-in ones. gta2dx9.ini's
     // template used to carry a stale copy of the ride height and quietly override

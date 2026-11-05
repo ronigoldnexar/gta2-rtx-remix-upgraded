@@ -126,6 +126,7 @@ struct Built {
     float wheelX = 0.0f;              // half track
     float wheelY = 0.0f;              // axle height
     float wheelbase = 0.3f;
+    float deckY = 0.0f, roofY = 0.0f;   // the hood line and the roof, blocks
     uint32_t used = 0;
     bool ok = false;
 };
@@ -150,6 +151,12 @@ struct Steer {
     uint32_t frame = 0;
 };
 std::map<uintptr_t, Steer> g_steer;
+
+struct Cabin {
+    float deck, roof, windscreen, halfWidth;
+    uint32_t frame;
+};
+std::map<uintptr_t, Cabin> g_cabins;
 
 float WrapAngle(float a) {
     while (a > kPi) a -= 2.0f * kPi;
@@ -653,6 +660,8 @@ void BuildMesh(const Measure& m, const Atlas& atlas, float scale, Built* b) {
                                                            static_cast<uint16_t>(centre + 2 + s)});
         }
     }
+    b->deckY = hHood;
+    b->roofY = hRoof;
     b->wheelZ[0] = (m.wheelFront - cy) * scale;
     b->wheelZ[1] = (m.wheelRear - cy) * scale;
     b->wheelX = (std::max)(halfWidthAt(b->wheelZ[0]), halfWidthAt(b->wheelZ[1])) * 0.96f - 0.5f * ww;
@@ -858,6 +867,16 @@ void CarBodiesSetInfo(const std::vector<gta2::CarInfo>& infos) {
         static_cast<unsigned>(g_info.size()));
 }
 
+bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth) {
+    const auto it = g_cabins.find(reinterpret_cast<uintptr_t>(object));
+    if (it == g_cabins.end()) return false;
+    *deck = it->second.deck;
+    *roof = it->second.roof;
+    *windscreen = it->second.windscreen;
+    *halfWidth = it->second.halfWidth;
+    return true;
+}
+
 int CarBodiesBuilt() { return g_built; }
 int CarBodiesDrawn() { return g_drawn; }
 
@@ -870,7 +889,17 @@ void CarBodiesReleaseDevice() {
     g_device = nullptr;
 }
 
-void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame) {
+// Whether a point of the world lies inside the car's box (car space, a little margin).
+bool Inside(const gta2::Mat4& carToWorld, const gta2::Vec3& p, float halfW, float halfL, float height) {
+    // Invert the rigid part: rows are the car's axes in the world.
+    const float dx = p.x - carToWorld.m[3][0], dy = p.y - carToWorld.m[3][1], dz = p.z - carToWorld.m[3][2];
+    const float x = dx * carToWorld.m[0][0] + dy * carToWorld.m[0][1] + dz * carToWorld.m[0][2];
+    const float y = dx * carToWorld.m[1][0] + dy * carToWorld.m[1][1] + dz * carToWorld.m[1][2];
+    const float z = dx * carToWorld.m[2][0] + dy * carToWorld.m[2][1] + dz * carToWorld.m[2][2];
+    return std::fabs(x) < halfW + 0.15f && std::fabs(z) < halfL + 0.15f && y > -0.2f && y < height + 0.15f;
+}
+
+void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame, const gta2::Vec3& eye) {
     g_built = 0;
     g_drawn = 0;
     if (cars.empty()) return;
@@ -926,6 +955,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         if (!b) continue;
         const gta2::Mat4 carToWorld = Mul(CarToLocal(use), use.objectToWorld);
         D3DMATRIX wm;
+        // The camera inside this car (standing at a parked car's door in the chase
+        // view): the body would fill the screen with its underside. Not the own car.
+        if (!use.own && Inside(carToWorld, eye, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.4f * b->bodyWidth)) continue;
 
         // A hand-made model for this vehicle: placed on the sprite's footprint,
         // its painted parts in the car's own colour.
@@ -946,6 +978,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             fit.m[3][3] = 1.0f;
             // The car's paint over the model's own: what its painted textures are multiplied by.
             const float tint[3] = {b->paint.r / model->paintRgb[0], b->paint.g / model->paintRgb[1], b->paint.b / model->paintRgb[2]};
+            {
+                const float roof = model->Height() * sy;
+                const float cy = 0.5f * b->measure.h;
+                g_cabins[use.object] = {0.62f * roof, roof, (b->measure.cabinFront - cy) * b->scale, 0.5f * b->bodyWidth, frame};
+            }
             ModelSetPaintTint(tint);
             ModelDraw(device, *model, Mul(fit, carToWorld), nullptr, 0.0f);
             ModelSetPaintTint(nullptr);
@@ -975,6 +1012,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                                            static_cast<UINT>(b->indices.size() / 3), b->indices.data(), D3DFMT_INDEX16,
                                            b->verts.data(), sizeof(CarBodyVertex));
         }
+        g_cabins[use.object] = {b->deckY, b->roofY, (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale,
+                                0.5f * b->bodyWidth, frame};
         const float steer = SteerFor(use, carToWorld, b->wheelbase, frame);
         for (int w = 0; w < 4; ++w) {
             const bool front = w < 2;
@@ -1003,6 +1042,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             device->SetIndices(nullptr);
         }
         ++g_drawn;
+    }
+    if (g_cabins.size() > 128) {
+        for (auto it = g_cabins.begin(); it != g_cabins.end();) {
+            it = (frame - it->second.frame > 600) ? g_cabins.erase(it) : std::next(it);
+        }
     }
     device->LightEnable(0, FALSE);
     device->SetRenderState(D3DRS_LIGHTING, FALSE);

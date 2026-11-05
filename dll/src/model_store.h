@@ -113,6 +113,9 @@ const Model* ModelForPedestrian(uint32_t seed);
 // Street furniture by role: "lamp", "hydrant", "bin", "bench", "shrub"; null
 // when the manifest names none.
 const Model* ModelForProp(const char* role);
+// A model by its manifest name, or null; and the folder the manifest was read from.
+const Model* ModelByName(const char* name);
+const char* ModelsFolder();
 // The map's own lamp positions, renderer frame (x east, y up, z north), set
 // when a level loads; the lamp posts stand on them.
 void SetMapLamps(const std::vector<gta2::Vec3>& lamps);

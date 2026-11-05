@@ -122,7 +122,7 @@ def fit(mesh, car, log):
     mesh.vertices -= np.array([(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2])
 
 
-def paint_from_above(mesh, tex, sprite, car, log, min_ny=0.3, full_ny=0.75):
+def paint_from_above(mesh, tex, sprite, car, log, paint_rgb=(190, 160, 120), min_ny=0.3, full_ny=0.75):
     """Project the sprite onto the upward-facing surfaces, in texture space."""
     import torch
     import nvdiffrast.torch as dr
@@ -176,8 +176,12 @@ def paint_from_above(mesh, tex, sprite, car, log, min_ny=0.3, full_ny=0.75):
     sel = wgt > 0.9
     if sel.sum() > 100:
         concept_paint = base[sel].median(dim=0).values
-        sprite_paint = col[sel].median(dim=0).values
+        # Target: the catalog's paint colour for this remap (the sprite's own top-down shading
+        # would make it too dark); keep the shift mostly a brightness change so chrome and
+        # glass are not tinted.
+        sprite_paint = torch.tensor(np.array(paint_rgb, np.float32) / 255, device='cuda')
         ratio = (sprite_paint / concept_paint.clamp(min=0.05)).clamp(0.5, 2.0)
+        ratio = ratio.mean() + (ratio - ratio.mean()).clamp(-0.2, 0.2)
         base = (base * ratio).clamp(0, 1)
         log(f"paint match ratio {ratio.cpu().numpy().round(2).tolist()}")
     out = base * (1 - wgt[..., None]) + col * wgt[..., None]
@@ -233,7 +237,7 @@ def main():
     mesh = decimate(mesh, a.faces)
     mesh.fix_normals()
     if not a.no_paint:
-        tex = paint_from_above(mesh, tex, Image.open(sprite_path), car, log)
+        tex = paint_from_above(mesh, tex, Image.open(sprite_path), car, log, paint_rgb=car['remaps'][0]['paint_rgb'])
     mat = trimesh.visual.material.PBRMaterial(baseColorTexture=tex, metallicFactor=a.metallic, roughnessFactor=a.roughness,
                                               name=f"car_{a.model:03d}")
     mesh.visual = trimesh.visual.TextureVisuals(uv=np.asarray(mesh.visual.uv), material=mat)

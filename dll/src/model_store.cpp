@@ -511,6 +511,12 @@ const Model* ModelForProp(const char* role) {
     return m == g_byName.end() ? nullptr : &g_models[m->second];
 }
 
+const Model* ModelByName(const char* name) {
+    auto m = g_byName.find(name ? name : "");
+    return m == g_byName.end() ? nullptr : &g_models[m->second];
+}
+const char* ModelsFolder() { return g_folder.c_str(); }
+
 void SetMapLamps(const std::vector<gta2::Vec3>& lamps) { g_mapLamps = lamps; }
 const std::vector<gta2::Vec3>& MapLamps() { return g_mapLamps; }
 

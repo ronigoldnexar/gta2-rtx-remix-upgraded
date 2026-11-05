@@ -1,0 +1,93 @@
+# Realistic 3D cars from the GTA2 sprites (image-to-3D pipeline)
+
+Every GTA2 vehicle gets a textured 3D model that reads as the retro-futuristic
+1940s-60s car its top-down sprite shows, with the sprite itself painted onto the
+roof, hood and trunk so the car seen from above is still the game's own art.
+
+Pipeline (one car ≈ 100 s on one B200, 4 workers on 2 GPUs in practice):
+
+1. **Catalog** (`assets-src/cars/catalog.json`, from the CATALOG stream): per
+   model number the body size in sprite pixels (64 px = 1 block), wheel and window
+   rows, doors, remaps with paint colour and a design brief (`design.evokes`,
+   `design.silhouette`), plus `sprites_x4/` (Real-ESRGAN x4 sprites).
+2. **Concept image** (`gen3d/gen_concept.py`): Stable Diffusion XL base 1.0
+   (fp16 VAE fix), 1024², prompt = view + plain light grey background + colour +
+   the brief, trimmed to CLIP's 77 tokens. The 3/4 front view feeds step 3; a
+   top view is kept for comparison. Colour: the livery for taxis/police/fire/
+   ambulance, else the first colour word of the brief, else the nearest named
+   colour to the sprite's default paint (`remaps[0].paint_rgb`).
+3. **Image-to-3D** (`gen3d/run_trellis.py`): Microsoft TRELLIS
+   (`microsoft/TRELLIS-image-large`), 12+12 sampler steps, `formats=
+   ['gaussian','mesh']`, then `postprocessing_utils.to_glb` with the simplify
+   ratio chosen for an 8 000-face budget and a 1024² baked texture.
+4. **Fit to the sprite** (`tools/make_car_model.py`): upright (the painted roof
+   is brighter than the underside), long axis to z by PCA, nose to +z by matching
+   the cabin position with the sprite's window rows, footprint scaled to
+   `body_px/64` blocks (height scaled by the geometric mean), wheels on y=0, the
+   x4 sprite projected onto every upward-facing texel in UV space (nvdiffrast
+   rasterises the mesh in texture space, weights by the normal's y from 0.3 to
+   0.75), the remaining texels brightness-matched to the sprite's paint, PBR
+   material metallic 0.55 / roughness 0.38. Output: `<nnn>_<name>.glb` + `.json`
+   (log, size, `forward: "+z"`).
+5. **Proof** (`gen3d/car_pipeline.py`): `proof/<nnn>.png` = sprite | concept |
+   3/4 | top | side | front, rendered with `gen3d/render_glb.py` (nvdiffrast,
+   no display needed), `status.json` with per-car timings and errors.
+
+Run:
+
+    cd ~/gta2-linux/gen3d
+    for w in 0 1 2 3; do CUDA_VISIBLE_DEVICES=$((w%2)) venv/bin/python car_pipeline.py \
+        --catalog ../assets-src/cars/catalog.json --out ../assets-src/cars/models3d --all --worker $w/4 & done
+    # one car, different seed:
+    venv/bin/python car_pipeline.py --catalog ../assets-src/cars/catalog.json --out ../assets-src/cars/models3d --models 10 --seed 7 --redo
+
+Wrecks, trains and trailers are skipped (`cls` wreck/train/trailer) as are
+models that share another model's sprite; the integration maps those to the
+base model.
+
+## Environment (B200, host torch 2.9.1+cu129, Python 3.12)
+
+    python3 -m venv gen3d/venv --system-site-packages
+    gen3d/venv/bin/pip install diffusers transformers accelerate safetensors imageio imageio-ffmpeg easydict \
+        rembg onnxruntime opencv-python-headless scipy ninja xatlas pyvista pymeshfix igraph tqdm
+    gen3d/venv/bin/pip install --no-deps torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu129  # the host's is broken
+    gen3d/venv/bin/pip install "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
+    gen3d/venv/bin/pip install --no-deps xformers==0.0.33.post1      # 0.0.35 does not import against torch 2.9.1
+    gen3d/venv/bin/pip install spconv-cu126                          # runs on sm_100
+    TORCH_CUDA_ARCH_LIST=10.0 gen3d/venv/bin/pip install --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git
+    git clone --recursive https://github.com/autonomousvision/mip-splatting gen3d/ext/mip-splatting
+    TORCH_CUDA_ARCH_LIST=10.0 gen3d/venv/bin/pip install --no-build-isolation gen3d/ext/mip-splatting/submodules/diff-gaussian-rasterization/
+    git clone --recurse-submodules https://github.com/microsoft/TRELLIS gen3d/TRELLIS
+
+Patches to TRELLIS (two lines each, in `gen3d/TRELLIS`): the text pipeline
+import is wrapped in try/except (open3d needs libEGL, absent here); the kaolin
+`check_tensor` import in flexicubes falls back to a no-op. `run_trellis.py`
+wraps `xformers.ops.memory_efficient_attention` to run fp32 calls in fp16,
+because xformers has no fp32 kernel for sm_100. Environment variables:
+`ATTN_BACKEND=xformers`, `SPCONV_ALGO=native`. pymeshlab and open3d do not load
+on this host (no libOpenGL/libEGL), so decimation is done by TRELLIS's own
+simplification.
+
+## Licences
+
+- Microsoft TRELLIS code and `TRELLIS-image-large` weights: MIT.
+- DINOv2 (TRELLIS image encoder): Apache-2.0.
+- Stable Diffusion XL base 1.0: CreativeML Open RAIL++-M (commercial use allowed,
+  use restrictions apply to outputs). `madebyollin/sdxl-vae-fp16-fix`: MIT.
+- nvdiffrast: NVIDIA Source Code License (non-commercial research use for the
+  tool itself; it only renders/bakes here, nothing of it ships).
+- diff-gaussian-rasterization (mip-splatting fork): Inria/MPII Gaussian
+  Splatting licence, non-commercial research; used only for texture baking.
+- spconv: Apache-2.0. xformers: BSD-3. utils3d: MIT. rembg: MIT (u2net weights).
+- The GTA2 sprites remain Rockstar's: the generated models embed the game's
+  own artwork on their roofs, so they are derived assets of the user's game copy
+  and are not for redistribution (same rule as the HD tiles).
+
+## Known limits
+
+- One concept image per car (seed 1): the quality is good for sedans, coupes
+  and trucks; odd shapes (hot dog van, tank, Isetta limousine) may need another
+  seed or a hand-picked concept — check `proof/` and rerun with `--seed`.
+- The nose test relies on the sprite's window rows; for symmetric bodies with a
+  centred cabin the generated orientation is kept as is.
+- Heights come from the concept, not the game; the integration can clamp them.

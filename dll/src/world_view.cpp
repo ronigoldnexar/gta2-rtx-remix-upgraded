@@ -1453,12 +1453,14 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             transitionFrom_ = lastPose_;
             transitionT_ = 0.0f;
             transitionToClassic_ = mode == ViewMode::Classic;
+            transitionFromClassic_ = lastViewMode_ == ViewMode::Classic;
             Log("view: moving the camera to %s over %.1f s", ViewModeName(mode), vm.transitionSeconds);
         }
         lastViewMode_ = mode;
     }
 
     CameraPose shown = target;
+    skyBlend_ = mode == ViewMode::Classic ? 0.0f : 1.0f;
     if (transitionT_ < 1.0f) {
         if (dt > 0.25f) dt = 1.0f / 30.0f;
         transitionT_ = (std::min)(1.0f, transitionT_ + dt / (std::max)(vm.transitionSeconds, 0.05f));
@@ -1484,6 +1486,9 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         shown.pitch = transitionFrom_.pitch + (target.pitch - transitionFrom_.pitch) * e;
         shown.roll = transitionFrom_.roll + (target.roll - transitionFrom_.roll) * e;
         shown.fov = transitionFrom_.fov + (target.fov - transitionFrom_.fov) * e;
+        // The sky comes up as the eye comes down, and goes as it rises.
+        if (transitionToClassic_) skyBlend_ = 1.0f - e;
+        else if (transitionFromClassic_) skyBlend_ = e;
         camera_.SetPosition(shown.position);
         camera_.SetOrientation(shown.yaw, shown.pitch);
         camera_.SetRoll(shown.roll);
@@ -1581,6 +1586,47 @@ void WorldView::CheckDrawnShape(int corners) {
     ++shapeChecks_;
 }
 
+// The sky dome and the world shading of the street views, weighted by the
+// transition's blend. The sun stands where the ini says, or follows the
+// day/night clock when asked to. Under a Remix runtime with an atmosphere of
+// its own the dome is left out: that sky is the real one.
+void WorldView::DrawSkyAndShading() {
+    const gta2::SkySettings& sky = gta2::SkyConfig();
+    const float blend = (sky.enabled && worldUploaded_ && !RemixApiHasAtmosphere()) ? skyBlend_ : 0.0f;
+    if (blend <= 0.0f) {
+        renderer_.SetWorldShading(gta2::WorldShading{});
+        return;
+    }
+    float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
+    if (sky.followClock) TimeOfDayAngles(&elevation, &azimuth);
+    const gta2::SkyColours colours = gta2::ComputeSkyColours(elevation, azimuth);
+
+    gta2::WorldShading shading;
+    shading.fog = true;
+    shading.fogColour = colours.fog;
+    // The fog eases in with the sky: from far away and faint to its real reach.
+    shading.fogStart = sky.fogStart + (600.0f - sky.fogStart) * (1.0f - blend);
+    shading.fogEnd = sky.fogEnd + (2000.0f - sky.fogEnd) * (1.0f - blend);
+    shading.sun = sky.sunLight > 0.001f || sky.ambient < 0.999f;
+    shading.sunDir = colours.sunDir;
+    // At night the sun is below the horizon and contributes nothing; the
+    // ambient falls with the daylight, but never below a readable level since
+    // nothing else in the raster picture gets darker at night.
+    const float dayLight = 0.35f + 0.65f * colours.day;
+    const float ambient = 1.0f + (sky.ambient * dayLight - 1.0f) * blend;
+    shading.ambient = gta2::Vec3{ambient, ambient, ambient};
+    shading.ambient = gta2::Vec3{shading.ambient.x * colours.ambient.x, shading.ambient.y * colours.ambient.y,
+                                 shading.ambient.z * colours.ambient.z};
+    shading.sunColour = colours.sunColour * (sky.sunLight * blend * colours.day);
+    renderer_.SetWorldShading(shading);
+
+    LARGE_INTEGER counter, frequency;
+    QueryPerformanceCounter(&counter);
+    QueryPerformanceFrequency(&frequency);
+    const double seconds = static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
+    renderer_.DrawSky(camera_, sky, colours, blend, seconds);
+}
+
 void WorldView::RenderFrame() {
     if (!EnsureDevice()) return;
 
@@ -1670,11 +1716,15 @@ void WorldView::RenderFrame() {
     stamp[1] = lightTimer[1];
 
     if (renderer_.BeginFrame()) {
+        // The street views' sky, and the fog and sun that go with it; nothing
+        // in the classic view.
+        DrawSkyAndShading();
         renderer_.DrawWorld(camera_);
         QueryPerformanceCounter(&stamp[2]);
         // Sprites and the captured block shapes are real world geometry, so they
         // are depth tested against the static mesh rather than painted over it.
         live_.Draw(renderer_.Device(), camera_, renderer_.Width(), renderer_.Height());
+        renderer_.EndWorldShading();
         QueryPerformanceCounter(&stamp[3]);
         // The 2D stream goes into a layer that is kept between frames, because
         // GTA2's menu only redraws what changed and clears the screen just when

@@ -43,6 +43,7 @@ struct CarBodyUse {
     const void* texture = nullptr;   // the sprite's TextureRecord
     int sprite = -1;                 // within the car base
     int model = -1;                  // the game's vehicle model number, -1 when unknown
+    bool own = false;                // the player's own car, seen from inside in first person
     uintptr_t object = 0;            // the game object, for steering memory
     CarBodyVertex local[4];          // the body quad in its own space
     gta2::Mat4 objectToWorld;
@@ -51,8 +52,15 @@ struct CarBodyUse {
 // Draws every car listed, building what it has not seen. `frame` is a frame
 // counter for the caches. Leaves the device's lighting and texture stage
 // states as it found them (off, modulate).
-void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame);
+// `eye` is the camera, in the world: a car the eye is inside of is left out
+// (the chase camera beside a parked car), except the player's own.
+void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame, const gta2::Vec3& eye);
 void CarBodiesReleaseDevice();
+// The cabin of a car drawn recently, by its sprite object, in blocks above the
+// road and along the car: where the deck (hood/sill line) and the roof are,
+// where the windscreen's base is ahead of the car's centre, and half the
+// width. For the first-person eye at the wheel. False when the car is unknown.
+bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth);
 // Bodies built and drawn in the last call, for the overlay.
 int CarBodiesBuilt();
 int CarBodiesDrawn();
