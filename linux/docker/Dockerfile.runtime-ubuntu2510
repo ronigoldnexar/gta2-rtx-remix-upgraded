@@ -1,0 +1,9 @@
+# The same patched Wine 10.0 build on Ubuntu 25.10, for its newer Mesa (lavapipe 25.2).
+FROM ubuntu:25.10
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      wine64 xvfb x11-utils x11-apps x11-xserver-utils xdotool ffmpeg mesa-utils imagemagick \
+      mesa-vulkan-drivers libvulkan1 vulkan-tools libgl1-mesa-dri libgl1 libegl1 libosmesa6 \
+      ca-certificates curl unzip python3 python3-pil procps fonts-dejavu-core winbind && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=gta2-wine /opt/wine /opt/wine
+ENV PATH=/opt/wine/bin:$PATH WINEDEBUG=-all

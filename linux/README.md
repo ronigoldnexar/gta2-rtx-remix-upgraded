@@ -62,7 +62,13 @@ animated water are Remix replacement assets and are not applied by Direct3D 9.
 So on Wine without Remix the picture is the mod's geometry and camera work with
 the game's own artwork and fixed-function lighting.
 
-## RTX Remix under Wine: experimental, not verified here
+## What was verified on a Linux machine with no Windows and no display GPU
+
+GTA2 9.6 with this mod runs under Wine 9 and Wine 10 (both in Docker, on Xvfb, Mesa software
+rendering): the opening, the front end, the levels, all three camera views, recorded. See
+`linux/docker/`. `video.py` plays the game by itself from the renderer's log.
+
+## RTX Remix under Wine: the bridge runs, its path tracer does not finish a frame on a CPU driver
 
 RTX Remix is a Windows runtime. For a 32-bit game it is a bridge: the
 `d3d9.dll` beside the game is a 32-bit client that forwards every call to a
@@ -84,6 +90,15 @@ works. If you want to try:
 
 If the bridge fails, the renderer carries on without it, as it does on Windows
 without Remix.
+
+What was found here: Wine refuses the bridge server a Vulkan surface on the game's
+window because the window belongs to the other (32-bit) process;
+`linux/docker/foreign-window-vulkan.patch` fixes that in `winex11.drv`, and with it
+the server creates its device and swap chain and starts the path tracer. On Mesa's
+lavapipe (the only Vulkan this machine had) the server then dies silently while
+compiling its ray tracing shaders, on Mesa 25.0 and 25.2, with ray queries and with
+ray tracing pipelines. With a real Vulkan GPU driver (NVIDIA's proprietary driver,
+RADV) that step is the one to watch.
 
 ## Checking a build without the game
 
