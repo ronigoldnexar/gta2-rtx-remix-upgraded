@@ -70,6 +70,10 @@ void SetTileStyleName(const char* name);
 // process half a gigabyte of textures, which it does not have; 128 is 2x the
 // game's own and a quarter of that.
 void SetHdTileMaxSize(int size);
+// Anisotropic filtering level for the HD tiles: 0 picks 8 on a GPU and 1 (plain
+// trilinear) when the Direct3D adapter is a software renderer, where 8x costs
+// most of the frame.
+void SetAnisotropy(int level);
 
 class Renderer {
 public:
@@ -103,6 +107,8 @@ public:
     }
     void UpdateTileTexture(int tile, const uint32_t* pixels);
     int TileTextureCount() const { return static_cast<int>(textures_.size()); }
+    // Uploads up to perFrame not-yet-drawn tile textures (no visible draw); returns how many remain.
+    int WarmTileTextures(int perFrame);
 
     bool HasWorld() const { return vertexBuffer_ != nullptr; }
     // How many tiles of the current world came from the high-resolution folder.
@@ -184,7 +190,9 @@ private:
     int deviceAttempts_ = 0;  // Initialize is retried until the device takes
     bool wireframe_ = false;
     DWORD cullMode_ = D3DCULL_CCW;
+    size_t warmCursor_ = 0;   // next tile texture to upload ahead of use (WarmTileTextures)
     int hdTiles_ = 0;
+    int sealTile_ = -1;   // diagnostic: the seal batch's tile slot
     int hdDdsTiles_ = 0;
     int hdFailed_ = 0;
     bool hdFailLogged_ = false;

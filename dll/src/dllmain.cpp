@@ -194,10 +194,11 @@ void LoadConfig() {
             vm.devSceneKey = 0;
             if (sceneKey[0] == 'F' || sceneKey[0] == 'f') vm.devSceneKey = VK_F1 + atoi(sceneKey + 1) - 1;
             else if (sceneKey[0]) vm.devSceneKey = atoi(sceneKey);
-            float sx = 0.0f, sy = 0.0f;
-            if (sscanf(sceneXy, "%f,%f", &sx, &sy) == 2) {
+            float sx = 0.0f, sy = 0.0f, sz = -1.0f;
+            if (sscanf(sceneXy, "%f,%f,%f", &sx, &sy, &sz) >= 2) {
                 vm.devSceneX = sx;
                 vm.devSceneY = sy;
+                vm.devSceneZ = sz;   // optional third number: the map level
             }
         }   // its own section: an appended [camera] would be the ini's second
     }
@@ -369,6 +370,7 @@ void LoadConfig() {
         PathBesideGame("gta2dx9_textures_hd", dir, sizeof(dir));
         gta2::SetHdTextureDir(dir);
         gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
+        gta2::SetAnisotropy(GetPrivateProfileIntA("renderer", "anisotropy", 0, ini));
         if (GetPrivateProfileIntA("renderer", "dump_tiles", 0, ini) != 0) {
             PathBesideGame("gta2dx9_tiles", dir, sizeof(dir));
             gta2::SetTileDumpDir(dir);

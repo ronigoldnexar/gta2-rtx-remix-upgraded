@@ -66,7 +66,7 @@ def face_brightness(mesh, tex, mask_faces):
     return float(t[y, x].mean())
 
 
-def orient(mesh, tex, car, log):
+def orient(mesh, tex, car, log, nose='auto'):
     """Upright (+y), long axis along z, nose toward +z."""
     v = mesh.vertices - mesh.vertices.mean(0)
     mesh.vertices = v
@@ -86,7 +86,9 @@ def orient(mesh, tex, car, log):
     ang = math.atan2(ax[0], ax[1])      # rotate so the axis becomes +z
     mesh.apply_transform(rot_y(ang))
     # 3. Nose: compare where the cabin sits along the length with the sprite's window rows.
-    #    Sprite: top of the sprite is the front; rows grow toward the rear.
+    #    The catalog's window rows are cy - offset (offset positive toward the nose), so
+    #    cy - mean(rows) is the cabin's offset toward the nose in sprite pixels, whichever
+    #    end the sprite draws the nose at.
     wf, wr = car['windows_px']['front_y'], car['windows_px']['rear_y']
     sprite_len = car['body_px'][1]
     cabin_sprite = (sprite_len / 2.0 - (wf + wr) / 2.0) / sprite_len   # >0: cabin forward of centre
@@ -102,9 +104,14 @@ def orient(mesh, tex, car, log):
     cab = np.where(h > vy.min() + 0.85 * (top - vy.min()))[0]
     cabin_mesh = ((cab.mean() + 0.5) / bins - 0.5) if len(cab) else 0.0   # >0: cabin toward +z
     log(f"cabin offset sprite={cabin_sprite:+.3f} mesh={cabin_mesh:+.3f}")
-    if abs(cabin_sprite) > 0.03 and abs(cabin_mesh) > 0.02 and (cabin_sprite > 0) != (cabin_mesh > 0):
+    flip = abs(cabin_sprite) > 0.03 and abs(cabin_mesh) > 0.02 and (cabin_sprite > 0) != (cabin_mesh > 0)
+    if nose == 'flip':
+        flip = True
+    elif nose == 'keep':
+        flip = False
+    if flip:
         mesh.apply_transform(rot_y(math.pi))
-        log("turned nose to +z")
+        log("turned nose to +z" + ("" if nose == 'auto' else f" ({nose})"))
     mesh.vertices -= mesh.vertices.mean(0)
 
 
@@ -162,9 +169,11 @@ def paint_from_above(mesh, tex, sprite, car, log, paint_rgb=(190, 160, 120), min
         rgb[fill] = acc[fill] / cnt[fill][:, None]; known |= fill
     sprite_t = torch.tensor(rgb, device='cuda')
     alpha_t = torch.tensor(np.where(a > 0.5, 1.0, 0.0).astype(np.float32), device='cuda')
-    # World x (right) -> sprite column; world z (nose +z) -> sprite row from the top.
+    # World x (right) -> sprite column; world z (nose +z) -> sprite row. GTA2 draws its car
+    # sprites nose-down (the front is the bottom of the sprite: cab-forward trucks, the
+    # pickup's bed and the tow truck's boom all sit at the top), so +z grows the row.
     u = cx + p[..., 0] / body_w * (car['body_px'][0] * scale)
-    vrow = cy - p[..., 2] / body_l * (car['body_px'][1] * scale)
+    vrow = cy + p[..., 2] / body_l * (car['body_px'][1] * scale)
     ui = u.clamp(0, sw - 1).long(); vi = vrow.clamp(0, sh - 1).long()
     col = sprite_t[vi, ui]
     cover = alpha_t[vi, ui]
@@ -220,6 +229,7 @@ def main():
     ap.add_argument('--catalog', required=True); ap.add_argument('--model', type=int, required=True)
     ap.add_argument('--sprite', default=None); ap.add_argument('--faces', type=int, default=8000)
     ap.add_argument('--render', default=None); ap.add_argument('--no-paint', action='store_true')
+    ap.add_argument('--nose', default='auto', choices=['auto', 'keep', 'flip'], help='override the nose test')
     ap.add_argument('--metallic', type=float, default=0.55); ap.add_argument('--roughness', type=float, default=0.38)
     a = ap.parse_args()
     cat = json.load(open(a.catalog))
@@ -232,7 +242,7 @@ def main():
     mesh = load_single(a.src)
     tex = texture_of(mesh)
     log(f"{a.src}: {len(mesh.vertices)} verts {len(mesh.faces)} faces, texture {tex.size if tex else None}")
-    orient(mesh, tex, car, log)
+    orient(mesh, tex, car, log, a.nose)
     fit(mesh, car, log)
     mesh = decimate(mesh, a.faces)
     mesh.fix_normals()

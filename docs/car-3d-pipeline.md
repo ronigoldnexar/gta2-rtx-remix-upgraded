@@ -22,7 +22,12 @@ Pipeline (one car ≈ 100 s on one B200, 4 workers on 2 GPUs in practice):
    ratio chosen for an 8 000-face budget and a 1024² baked texture.
 4. **Fit to the sprite** (`tools/make_car_model.py`): upright (the painted roof
    is brighter than the underside), long axis to z by PCA, nose to +z by matching
-   the cabin position with the sprite's window rows, footprint scaled to
+   the cabin position with the sprite's window rows (`--nose keep|flip` overrides
+   it; model 63's sleeper cab needs `flip`). GTA2 draws its car sprites
+   **nose-down** (the front is the bottom row: cab-forward trucks, the pickup bed
+   and tow boom at the top prove it), so +z maps to growing sprite rows; the
+   catalog's `windows_px`/`wheels_px` rows are `centre - offset` and therefore
+   mirrored, but `centre - mean(rows)` is still the true forward offset, footprint scaled to
    `body_px/64` blocks (height scaled by the geometric mean), wheels on y=0, the
    x4 sprite projected onto every upward-facing texel in UV space (nvdiffrast
    rasterises the mesh in texture space, weights by the normal's y from 0.3 to
@@ -82,6 +87,16 @@ simplification.
 - The GTA2 sprites remain Rockstar's: the generated models embed the game's
   own artwork on their roofs, so they are derived assets of the user's game copy
   and are not for redistribution (same rule as the HD tiles).
+
+## Results (5 Nov 2026)
+
+60 of 60 generated models succeeded (`assets-src/cars/models3d/status.json`;
+wrecks, trains, trailers and shared-sprite dummies skipped). Mean 88 s per car
+on one B200 with 4 workers on 2 GPUs (concept 5 s, TRELLIS 77 s, fit 6 s);
+meshes 3 000-8 000 faces, one 1024² texture each, 60 GLBs = 85 MB. Models 17,
+21, 58, 63, 64 were regenerated with seed 3 after a visual check (first
+attempts kept in `models3d/rejected/`). Contact sheet of every car:
+`out/cars3d_contact_sheet.png`; the three-car proof `out/cars3d_proof.png`.
 
 ## Known limits
 

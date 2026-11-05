@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace gta2 {
@@ -106,6 +107,9 @@ std::string g_tileDumpDir;
 std::string g_tileStyle = "style";
 int g_hdTileMax = 128;
 void SetHdTileMaxSize(int size) { g_hdTileMax = size < 64 ? 64 : (size > 1024 ? 1024 : size); }
+int g_anisotropy = 0;   // 0: 8 on a GPU, 1 on a software renderer; else the level asked for
+void SetAnisotropy(int level) { g_anisotropy = level < 0 ? 0 : (level > 16 ? 16 : level); }
+bool g_softwareGl = false;
 void SetHdTextureDir(const char* dir) { g_hdTextureDir = dir ? dir : ""; }
 void SetTileDumpDir(const char* dir) { g_tileDumpDir = dir ? dir : ""; }
 void SetTileStyleName(const char* name) { g_tileStyle = name && *name ? name : "style"; }
@@ -391,6 +395,19 @@ bool Renderer::Initialize(HWND window, int width, int height, std::string* error
         hr = d3d_->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, window,
                                 D3DCREATE_SOFTWARE_VERTEXPROCESSING, &pp, &device_);
     }
+    if (SUCCEEDED(hr)) {
+        // A software GL renderer behind wined3d (llvmpipe, softpipe, swrast):
+        // anisotropic filtering costs it up to 8 texture reads a pixel over the
+        // whole world, which a GPU does for nothing.
+        D3DADAPTER_IDENTIFIER9 id = {};
+        if (SUCCEEDED(d3d_->GetAdapterIdentifier(D3DADAPTER_DEFAULT, 0, &id))) {
+            std::string desc = std::string(id.Description) + " " + id.Driver;
+            for (char& c : desc) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+            g_softwareGl = desc.find("llvmpipe") != std::string::npos || desc.find("softpipe") != std::string::npos ||
+                           desc.find("swrast") != std::string::npos || desc.find("software") != std::string::npos;
+            Trace("adapter: %s (%s)%s", id.Description, id.Driver, g_softwareGl ? ", software renderer" : "");
+        }
+    }
     if (FAILED(hr)) {
         // Not necessarily fatal. RTX Remix hands the interface back before the
         // 64-bit runtime behind it can serve a device, and turns everything down
@@ -440,8 +457,10 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     // slots past the end for the seal under the world and the riverbed, which
     // have no tile of their own - see SealTileIndex and RiverbedTileIndex.
     const int sealTile = SealTileIndex(style);
+    sealTile_ = sealTile;
     const int riverbedTile = RiverbedTileIndex(style);
     textures_.assign(static_cast<size_t>(riverbedTile) + 1, nullptr);
+    warmCursor_ = 0;
     hdTiles_ = 0;
     hdDdsTiles_ = 0;
     hdFailed_ = 0;
@@ -636,10 +655,11 @@ void Renderer::ApplyFixedFunctionState() {
     // chain with 8x anisotropy, so a pavement seen edge-on in first person stays
     // sharp instead of smearing into the horizon.
     if (hdTiles_ > 0) {
+        const int aniso = g_anisotropy > 0 ? g_anisotropy : (g_softwareGl ? 1 : 8);
         device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-        device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_ANISOTROPIC);
+        device_->SetSamplerState(0, D3DSAMP_MINFILTER, aniso > 1 ? D3DTEXF_ANISOTROPIC : D3DTEXF_LINEAR);
         device_->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
-        device_->SetSamplerState(0, D3DSAMP_MAXANISOTROPY, 8);
+        device_->SetSamplerState(0, D3DSAMP_MAXANISOTROPY, static_cast<DWORD>(aniso > 1 ? aniso : 1));
     } else {
         device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
         device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
@@ -779,7 +799,9 @@ bool Renderer::BeginFrame() {
     // and everything else is meant to be the colour the screen was cleared to.
     // Vid_ClearScreen(ctx, 0,0,0,0,0, 640,480) is the game saying so; the video
     // proxy no longer forwards it, so this is the only clear left.
-    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f,
+    static int voidTestClear = -1;
+    if (voidTestClear < 0) { char buf[16] = {}; voidTestClear = GetEnvironmentVariableA("GTA2DX9_VOIDTEST", buf, sizeof buf) ? atoi(buf) : 0; }
+    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, (voidTestClear & 32) ? D3DCOLOR_XRGB(255, 0, 255) : D3DCOLOR_XRGB(0, 0, 0), 1.0f,
                    0);
     return SUCCEEDED(device_->BeginScene());
 }
@@ -796,10 +818,22 @@ void Renderer::DrawWorld(const Camera& camera) {
     if (!device_ || !vertexBuffer_) return;
 
     ApplyFixedFunctionState();
+    // Temporary diagnostic switches (GTA2DX9_VOIDTEST env): 1 cull none, 2 z always,
+    // 4 no fog/sun, 8 near plane 0.3, 16 wireframe.
+    static int voidTest = -1;
+    if (voidTest < 0) { char buf[16] = {}; voidTest = GetEnvironmentVariableA("GTA2DX9_VOIDTEST", buf, sizeof buf) ? atoi(buf) : 0; }
     SetMatrix(device_, D3DTS_WORLD, Identity());
     SetMatrix(device_, D3DTS_VIEW, camera.ViewMatrix());
-    SetMatrix(device_, D3DTS_PROJECTION,
-              camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)));
+    if (voidTest & 8) {
+        SetMatrix(device_, D3DTS_PROJECTION,
+                  PerspectiveFovLH(camera.FovY(), static_cast<float>(width_) / static_cast<float>(height_), 0.3f, 2000.0f));
+    } else {
+        SetMatrix(device_, D3DTS_PROJECTION,
+                  camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)));
+    }
+    if (voidTest & 1) device_->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    if (voidTest & 2) device_->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
+    if (voidTest & 16) device_->SetRenderState(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
 
     device_->SetFVF(kWorldFvf);
     device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex));
@@ -807,7 +841,7 @@ void Renderer::DrawWorld(const Camera& camera) {
 
     // The street views' atmosphere. Fog stays on for the live geometry that
     // follows (EndWorldShading turns it off); the sun light is this pass only.
-    if (shading_.fog) {
+    if (shading_.fog && !(voidTest & 4)) {
         const auto bits = [](float v) { DWORD d; memcpy(&d, &v, sizeof d); return d; };
         device_->SetRenderState(D3DRS_FOGENABLE, TRUE);
         device_->SetRenderState(D3DRS_FOGCOLOR, D3DCOLOR_XRGB(static_cast<int>(shading_.fogColour.x * 255.0f + 0.5f),
@@ -821,7 +855,7 @@ void Renderer::DrawWorld(const Camera& camera) {
     } else {
         device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
     }
-    if (shading_.sun) {
+    if (shading_.sun && !(voidTest & 4)) {
         D3DLIGHT9 sun = {};
         sun.Type = D3DLIGHT_DIRECTIONAL;
         sun.Diffuse.r = shading_.sunColour.x;
@@ -860,6 +894,7 @@ void Renderer::DrawWorld(const Camera& camera) {
     device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
 
     for (const TileBatch& batch : batches_) {
+        if ((voidTest & 64) && batch.tile == sealTile_) continue;
         if (batch.needsAlphaTest != alphaTestEnabled) {
             alphaTestEnabled = batch.needsAlphaTest;
             const bool blending = g_alphaMode == AlphaMode::Blend;
@@ -882,6 +917,8 @@ void Renderer::DrawWorld(const Camera& camera) {
         stats_.triangles += static_cast<int>(batch.indexCount / 3);
     }
     if (doubleSided) device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
+    if (voidTest & 2) device_->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+    if (voidTest & 16) device_->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
     if (shading_.sun) {
         device_->LightEnable(0, FALSE);
         device_->SetRenderState(D3DRS_LIGHTING, FALSE);
@@ -889,9 +926,49 @@ void Renderer::DrawWorld(const Camera& camera) {
     }
 }
 
+// Managed textures reach the GL driver the first time they are drawn with,
+// which in play is a 20-100 ms hitch per tile texture (the "ui"/"present"
+// spikes of the first minute). This binds up to `perFrame` of them in a draw
+// that writes no pixels, so the uploads happen a few per frame in the first
+// seconds after a level loads instead. Returns what is still to do.
+int Renderer::WarmTileTextures(int perFrame) {
+    if (!device_ || warmCursor_ >= textures_.size()) return 0;
+    struct V { float x, y, z, rhw, u, v; };
+    const V quad[4] = {{0.0f, 0.0f, 0.5f, 1.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.5f, 1.0f, 1.0f, 0.0f},
+                       {0.0f, 2.0f, 0.5f, 1.0f, 0.0f, 1.0f}, {2.0f, 2.0f, 0.5f, 1.0f, 1.0f, 1.0f}};
+    DWORD colorWrite = 0xF, zWrite = TRUE, zEnable = TRUE, fvf = 0;
+    device_->GetRenderState(D3DRS_COLORWRITEENABLE, &colorWrite);
+    device_->GetRenderState(D3DRS_ZWRITEENABLE, &zWrite);
+    device_->GetRenderState(D3DRS_ZENABLE, &zEnable);
+    device_->GetFVF(&fvf);
+    device_->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device_->SetRenderState(D3DRS_ZENABLE, FALSE);
+    device_->SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1);
+    int done = 0;
+    while (warmCursor_ < textures_.size() && done < perFrame) {
+        if (IDirect3DTexture9* t = textures_[warmCursor_]) {
+            device_->SetTexture(0, t);
+            device_->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(V));
+            ++done;
+        }
+        ++warmCursor_;
+    }
+    device_->SetTexture(0, nullptr);
+    device_->SetFVF(fvf);
+    device_->SetRenderState(D3DRS_COLORWRITEENABLE, colorWrite);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, zWrite);
+    device_->SetRenderState(D3DRS_ZENABLE, zEnable);
+    if (warmCursor_ >= textures_.size()) Trace("tile textures: all %zu uploaded ahead of use", textures_.size());
+    return static_cast<int>(textures_.size() - warmCursor_);
+}
+
 void Renderer::DrawSky(const Camera& camera, const SkySettings& settings, const SkyColours& colours, float blend,
                        double seconds) {
     if (!device_ || !vertexBuffer_ || blend <= 0.0f) return;
+    static int voidTestSky = -1;
+    if (voidTestSky < 0) { char buf[16] = {}; voidTestSky = GetEnvironmentVariableA("GTA2DX9_VOIDTEST", buf, sizeof buf) ? atoi(buf) : 0; }
+    if (voidTestSky & 32) return;
     sky_.Draw(device_, camera, static_cast<float>(width_) / static_cast<float>(height_), settings, colours, blend,
               seconds);
     stats_.drawCalls += 3;

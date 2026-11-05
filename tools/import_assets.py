@@ -119,21 +119,24 @@ def import_model(entry, src_dir, out_dir):
     import io
     src_glb = os.path.join(src_dir, entry["glb"])
     tex_by_material = {}
-    def image_tga(img_index):
+    images_by_tag = {}
+    def load_image(img_index):
         img = g["images"][img_index]
+        if "uri" in img and not img["uri"].startswith("data:"):
+            return Image.open(os.path.join(os.path.dirname(src_glb), img["uri"]))
+        if "uri" in img:
+            import base64
+            return Image.open(io.BytesIO(base64.b64decode(img["uri"].split(",", 1)[1])))
+        bv = g["bufferViews"][img["bufferView"]]
+        off = bv.get("byteOffset", 0)
+        return Image.open(io.BytesIO(binary[off: off + bv["byteLength"]]))
+    def image_tga(img_index):
         tag = f"{name}_{img_index}.tga"
         out = os.path.join(out_dir, tag)
+        if tag not in images_by_tag:
+            images_by_tag[tag] = load_image(img_index)
         if not os.path.exists(out):
-            if "uri" in img and not img["uri"].startswith("data:"):
-                im = Image.open(os.path.join(os.path.dirname(src_glb), img["uri"]))
-            elif "uri" in img:
-                import base64
-                im = Image.open(io.BytesIO(base64.b64decode(img["uri"].split(",", 1)[1])))
-            else:
-                bv = g["bufferViews"][img["bufferView"]]
-                off = bv.get("byteOffset", 0)
-                im = Image.open(io.BytesIO(binary[off: off + bv["byteLength"]]))
-            write_tga(im, out, int(entry.get("texture_max", 1024)))
+            write_tga(images_by_tag[tag], out, int(entry.get("texture_max", 1024)))
         return tag
     overrides = entry.get("material_textures", {})
     # A car's paint: materials named here (or whose name says "paint"/"body")
@@ -177,6 +180,70 @@ def import_model(entry, src_dir, out_dir):
         elif "baseColorFactor" in pbr:
             tex_by_material[mi] = solid_tga(mi, mat)
     texture_name = tex_by_material.get(0, "")
+
+    # A baked texture (one picture for the whole car, as image-to-3D makes
+    # them) with "paint_split": the texels within a colour distance of the
+    # entry's paint_rgb are the paint. They go to a second copy of the texture
+    # named _paint (the rest transparent), the original keeps the rest (the
+    # paint transparent), and every primitive that uses it is written twice,
+    # once with each; alpha-tested, the two draws make the car again, and the
+    # renderer's paint tint touches only the _paint half. paint_rgb (the default
+    # sprite's paint) is what the game's live paint is measured against.
+    split_tags = {}
+    if entry.get("paint_split") and entry.get("paint_rgb"):
+        ref = [float(c) for c in entry["paint_rgb"]]
+        ref_l = max(1.0, sum(ref) / 3)
+        ref_c = [c / ref_l for c in ref]
+        ref_sat = max(ref) - min(ref)
+        tol = float(entry.get("paint_tolerance", 0.24))
+        import numpy as np
+        for tag, im in list(images_by_tag.items()):
+            im = im.convert("RGBA")
+            tmax = int(entry.get("texture_max", 1024))
+            if max(im.size) > tmax:
+                f = tmax / max(im.size)
+                im = im.resize((max(1, int(im.size[0] * f)), max(1, int(im.size[1] * f))))
+            a = np.asarray(im).astype(np.float32)
+            rgb = a[..., :3]
+            l = rgb.mean(axis=2)
+            # Hue and saturation, which shading leaves alone: the paint is every
+            # texel of the paint's hue when the paint has one, else every light
+            # neutral texel (a white or grey car; its chrome comes along).
+            mx = rgb.max(axis=2); mn = rgb.min(axis=2)
+            sat = (mx - mn) / np.maximum(mx, 1.0)
+            r_, g__, b_ = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+            delta = np.maximum(mx - mn, 1e-6)
+            hue = np.where(mx == r_, (g__ - b_) / delta % 6, np.where(mx == g__, (b_ - r_) / delta + 2, (r_ - g__) / delta + 4)) * 60.0
+            rm, rn = max(ref), min(ref)
+            ref_s = (rm - rn) / max(rm, 1.0)
+            rd = max(rm - rn, 1e-6)
+            ref_h = ((ref[1] - ref[2]) / rd % 6 if rm == ref[0] else ((ref[2] - ref[0]) / rd + 2 if rm == ref[1] else (ref[0] - ref[1]) / rd + 4)) * 60.0
+            hue_tol = float(entry.get("paint_hue_tolerance", 28.0))
+            if ref_s >= 0.22:
+                dh = np.abs((hue - ref_h + 180.0) % 360.0 - 180.0)
+                mask = (sat >= 0.22) & (dh < hue_tol) & (mx > 45)
+            else:
+                mask = (sat < 0.20) & (mx > 110)
+            n = int(mask.sum())
+            if n < 0.02 * mask.size:
+                print(f"  paint_split: {tag}: only {n} texels near {entry['paint_rgb']}, not split")
+                continue
+            # paint_rgb stays the default sprite's paint, measured the way the renderer
+            # measures the live one: the tint is then live / default, which is 1 for a
+            # car in its default paint whatever the texture's own shade, and shifts a
+            # repaint's hue by the same ratio the game applied to the sprite. The
+            # texture's own paint is only reported.
+            lit = l[mask]
+            keep = lit >= np.median(lit)
+            top = rgb[mask][keep]
+            texture_paint = [round(float(v), 1) for v in top.mean(axis=0)]
+            paint = a.copy(); paint[..., 3] = np.where(mask, 255, 0)
+            rest = a.copy(); rest[..., 3] = np.where(mask, 0, 255)
+            paint_tag = tag[:-4] + "_paint.tga"
+            write_tga(Image.fromarray(paint.astype(np.uint8), "RGBA"), os.path.join(out_dir, paint_tag), tmax)
+            write_tga(Image.fromarray(rest.astype(np.uint8), "RGBA"), os.path.join(out_dir, tag), tmax)
+            split_tags[tag] = paint_tag
+            print(f"  paint_split: {tag}: {n} of {mask.size} texels are paint; texture paint {texture_paint}, reference {entry['paint_rgb']}")
 
     # Nodes whose names match an exclude pattern (variants such as "_aged",
     # "_rust") are dropped; a node named by "nodes_only" keeps only those.
@@ -231,6 +298,9 @@ def import_model(entry, src_dir, out_dir):
             for pv, pi in (split(verts, idx) if len(verts) > max_vertices else [(verts, idx)]):
                 group.append(len(meshes))
                 meshes.append((pv, pi, tex))
+                if tex in split_tags:
+                    group.append(len(meshes))
+                    meshes.append((pv, pi, split_tags[tex]))
         mesh_groups.append(group)
     # Which skin a mesh uses comes from the node that carries it.
     mesh_skin = {}
@@ -249,10 +319,12 @@ def import_model(entry, src_dir, out_dir):
         for c in n.get("children", []): parent[c] = i
     anims = []
     stride = [0.0]   # the ground a stripped walk covers per cycle, model units
+    strides = {}     # the same per animation name (walk, run, ...), model units
     def read_anims(gg, bb, node_map, strip_root, rename=None):
         out = []
         for a in gg.get("animations", []):
             channels = []
+            aname = rename or a.get("name", f"anim{len(out)}")
             for ch in a["channels"]:
                 sm = a["samplers"][ch["sampler"]]
                 times = [t[0] for t in accessor(gg, bb, sm["input"])]
@@ -269,10 +341,12 @@ def import_model(entry, src_dir, out_dir):
                 if strip_root and path == 0 and gg["nodes"][ch["target"]["node"]].get("name") == strip_root:
                     x0, y0, z0 = values[0]
                     x1, _, z1 = values[-1]
-                    stride[0] = max(stride[0], ((x1 - x0) ** 2 + (z1 - z0) ** 2) ** 0.5)
+                    covered = ((x1 - x0) ** 2 + (z1 - z0) ** 2) ** 0.5
+                    stride[0] = max(stride[0], covered)
+                    strides[aname] = max(strides.get(aname, 0.0), covered)
                     values = [(x0, v[1], z0) for v in values]
                 channels.append((target, path, times, values))
-            out.append((rename or a.get("name", f"anim{len(out)}"), channels))
+            out.append((aname, channels))
         return out
     anims += read_anims(g, binary, None, entry.get("strip_root"))
     by_name = {n.get("name"): i for i, n in enumerate(nodes)}
@@ -339,7 +413,11 @@ def import_model(entry, src_dir, out_dir):
                 f.write(struct.pack("<16f", *mm))
     return dict(name=name, nodes=len(out_nodes), meshes=len(meshes), vertices=sum(len(v) for v, _, _ in meshes),
                 animations=[a for a, _ in anims], textures=sorted(set(t for _, _, t in meshes)), skins=len(skins),
-                forward=entry.get("forward", ""), stride=round(stride[0] * scale, 4))
+                forward=entry.get("forward", ""),
+                # stride: the walk's own ground per cycle (the largest of all clips when there is no walk);
+                # run_stride: the run's, 0 without a run clip.
+                stride=round(strides.get("walk", stride[0]) * scale, 4),
+                run_stride=round(strides.get("run", 0.0) * scale, 4))
 
 if __name__ == "__main__":
     manifest = json.load(open(sys.argv[1]))

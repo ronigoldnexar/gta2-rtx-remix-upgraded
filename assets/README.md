@@ -40,13 +40,19 @@ is drawn from, chosen by a hash of his game object so he keeps his look.
 GTA2 draws 83 vehicle models (the style file's CARI chunk; `assets-src/cars/catalog.json`
 lists them with their sprites, wheel and window rows and the paint of every remap). Each
 vehicle gets a 3D model of its own under `NNN_name` (`000_romero`, `056_taxi`, ...), generated
-by the car pipeline in `assets-src/cars/` (parametric period bodies with the game's own sprite
-on the roof, `models_proc/`, or image-to-3D reconstructions, `models3d/`); the Nexar fork
-generated these from the game's artwork, no third-party car models are redistributed.
-`tools/make_car_manifest.py` writes their entries and the `cars.by_model` map, then
-`tools/import_assets.py` converts them.
+by the car pipeline in `assets-src/cars/`: image-to-3D reconstructions of period-correct
+designs (`models3d/`, one baked texture each) first, and parametric period bodies with the
+game's own sprite on the roof (`models_proc/`) for the models the first set lacks; the Nexar
+fork generated these from the game's artwork, no third-party car models are redistributed.
+`tools/make_car_manifest.py` writes their entries and the `cars.by_model` map (the AI set as
+`paint_split` entries, the parametric set with `paint_materials`), then
+`tools/import_assets.py` converts them. For a `paint_split` model the importer finds the
+paint in the baked texture by hue and saturation against the car's default sprite paint,
+writes it as a second `_paint` texture (alpha-masked) and emits the mesh twice, so only the
+paint is recoloured in the game; `paint_rgb` stays the default sprite's paint, which makes
+the live tint 1 for an unpainted car and the game's own remap ratio otherwise.
 
-At run time (`dll/src/car_bodies.cpp`, on when `[renderer] car_models3d=1`) the renderer reads
+At run time (`dll/src/car_bodies.cpp`, `[renderer] car_models3d`, on by default) the renderer reads
 each vehicle's model number from the game, looks it up in `cars.by_model` (`by_sprite` as a
 fallback), scales the model to the sprite's footprint and stands it on the road with the
 vehicle's own heading; meshes whose texture is marked `_paint` are multiplied by the ratio of
@@ -54,7 +60,10 @@ the car's live paint (measured from the sprite the game is drawing, remap includ
 model's own `paint_rgb`, so every repaint in traffic keeps its colour. A vehicle no model
 names is built from its sprite instead: the outline extruded into a body, the windows and
 wheels where CARI says, the sprite itself on the roof. Beyond 20 blocks a car keeps its flat
-sprite. The classic top-down view never uses any of this.
+sprite. In first person at the wheel the player's own car is drawn too, clipped just below
+the driver's eye (the models are solid hulls), so the hood and cowl frame the road. The
+classic top-down view never uses any of this. Memory: the log line `car models: N textures,
+X MB` every 900 frames reports the managed-pool use (about 1 MB per car texture at 512).
 
 Limits: keep a car under 12000 vertices (the importer splits larger meshes) and its textures
 at 512 (set per entry with `texture_max`); the game is a 32-bit process.

@@ -44,6 +44,7 @@ struct ViewModeSettings {
     // scene_key=F10, scene_xy=164.5,149.5 (the Downtown start's carriageway).
     int devSceneKey = 0;
     float devSceneX = 0.0f, devSceneY = 0.0f;
+    float devSceneZ = -1.0f;   // map level for the scene warp; < 0 leaves the level alone
     // ViewMode, as an int so the settings table can carry it.
     int mode = 0;
     // The virtual-key code that cycles the modes. 'V' is free in GTA2's own
@@ -60,7 +61,7 @@ struct ViewModeSettings {
     float tpHeight = 1.25f;         // above it
     float tpLookAhead = 1.2f;       // the point looked at, blocks ahead of the target...
     float tpLookHeight = 0.35f;     // ...and above it
-    float tpFootScale = 0.85f;      // distance and height are scaled by this on foot
+    float tpFootScale = 0.62f;      // distance and height are scaled by this on foot (0.46-block people)
     float tpFov = 50.0f;            // vertical, degrees
     float tpFollow = 0.25f;         // seconds the camera takes to swing round behind a turn
     float tpReturnDelay = 1.5f;     // seconds after the last mouse input before the orbit returns
@@ -70,8 +71,8 @@ struct ViewModeSettings {
     float tpLean = 1.0f;            // roll into turns, 1 is a few degrees at speed
 
     // First person.
-    float fpEyeFoot = 0.78f;        // eye height above the floor on foot (1.55 m)
-    float fpEyeCar = 0.52f;         // ... at the wheel (just over 1 m)
+    float fpEyeFoot = 0.43f;        // eye height above the floor on foot: 0.93 of the 0.46-block adult (live_geometry.cpp kPedHeight)
+    float fpEyeCar = 0.30f;         // ... at the wheel of a car without a 3D body (the sprite dome is 0.42 tall)
     float fpForwardFoot = 0.12f;    // the eye sits this far ahead of the object's centre
     float fpForwardCar = 0.30f;
     // At the wheel of a car drawn as a 3D body (CarBodiesCabin): the eye sits in
@@ -206,7 +207,7 @@ PedWords ReadPedWords(const void* ped);
 bool WarpPlayerToParkedCar(float within);
 // Moves the nearest parked car to (x, y) heading east and the player to its
 // driver's door (the same developer aid, for a drive on a real road).
-bool WarpSceneToRoad(float x, float y);
+bool WarpSceneToRoad(float x, float y, float z = -1.0f);
 
 // Polls the toggle key and, in a chase or first-person view, the mouse. The
 // mouse is only taken while a level is up, the F4 menu is closed and the game is

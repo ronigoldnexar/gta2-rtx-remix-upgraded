@@ -90,6 +90,8 @@ struct Model {
     // The ground the walk animation covers per cycle, in model units (its
     // root motion was stripped on import); 0 when unknown.
     float stride = 0.0f;
+    // The same for the run cycle ("run_stride"); 0 when the model has no run clip.
+    float runStride = 0.0f;
     const ModelAnimation* Animation(const char* name) const;
 };
 
@@ -106,6 +108,8 @@ const Model* ModelForVehicle(int modelNumber, int sprite);
 // Meshes whose texture name contains "_paint" are multiplied by this factor
 // (0..2 per channel) in ModelDraw until it is cleared with null: a car's repaint.
 void ModelSetPaintTint(const float* rgb);
+// Bytes of model textures created so far (managed pool), and how many.
+size_t ModelsTextureBytes(int* count);
 const Model* ModelForPedestrian();
 // One of the pedestrian models, chosen by a seed (the same seed always gives
 // the same model, so a pedestrian keeps his look); null when there are none.
@@ -126,8 +130,23 @@ const std::vector<gta2::Vec3>& MapLamps();
 // rest pose). Textures are created on first use and kept.
 void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
                const ModelAnimation* animation, float time);
+// The same, blended: `animation` at `time` weighted (1 - weight) with `second`
+// at `secondTime` weighted `weight` (0..1; the plain pose at 0, `second` alone
+// at 1). Posed skinned meshes are cached by (model, both clips, both times,
+// weight), so callers that want cache hits should quantise the times.
+void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
+                    const ModelAnimation* animation, float time, const ModelAnimation* second,
+                    float secondTime, float weight);
 void ModelsReleaseDevice();
 int ModelsDrawnThisFrame();
+// This frame's ModelDraw costs: {posing ms, buffer fill ms, whole ms, draws, skinned draws, unused}.
+const double* ModelDrawStats();
+// Creates and uploads up to `perFrame` of the models' textures that have not
+// been used yet (no visible draw), so a model's first appearance costs nothing
+// extra. Returns how many are still to do; call every frame until it is 0.
+int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame);
+// Binds a texture in a draw that writes no pixels, for the driver to upload it.
+void WarmTexture(IDirect3DDevice9* device, IDirect3DTexture9* texture);
 void ModelsBeginFrame();
 
 }  // namespace gta2dx9

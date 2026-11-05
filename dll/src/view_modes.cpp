@@ -305,16 +305,40 @@ bool WarpPlayerToParkedCar(float within) {
     return ok;
 }
 
-bool WarpSceneToRoad(float x, float y) {
+bool WarpSceneToRoad(float x, float y, float z) {
     PlayerState player;
-    if (!LocatePlayer(&player) || !player.valid || player.inVehicle || !player.ped) return false;
+    if (!LocatePlayer(&player) || !player.valid || player.inVehicle || !player.ped) {
+        Log("devtools: scene warp ignored (player not located on foot)");
+        return false;
+    }
     float cx = 0.0f, cy = 0.0f, d = 0.0f;
     bool driven = false;
     const void* car = nullptr;
-    if (!NearestVehicle(player.x, player.y, 250.0f, true, &cx, &cy, &d, &driven, &car)) return false;
-    const uint8_t* carBytes = static_cast<const uint8_t*>(car);
-    const uint8_t* place = game::Placement(carBytes, game::kVehiclePlacementPtr);
-    if (!place) return false;
+    const uint8_t* place = nullptr;
+    if (NearestVehicle(player.x, player.y, 250.0f, true, &cx, &cy, &d, &driven, &car)) {
+        place = game::Placement(static_cast<const uint8_t*>(car), game::kVehiclePlacementPtr);
+    }
+    if (!place) {
+        // No parked car to bring: move the player alone (objects and views can still be checked there).
+        const float tx = x, ty = y - 0.55f;
+        const uintptr_t ped = reinterpret_cast<uintptr_t>(player.ped);
+        uintptr_t physics = 0, pedPlace = 0;
+        bool ok = false;
+        if (ReadAt(ped + game::kPedPhysics, &physics) && Plausible(physics) &&
+            ReadAt(physics + game::kPhysicsSprite, &pedPlace) && Plausible(pedPlace)) {
+            const int32_t fx = static_cast<int32_t>(tx * (1 << 14));
+            const int32_t fy = static_cast<int32_t>(ty * (1 << 14));
+            ok = WriteAt(pedPlace + game::kPlaceX, fx) && WriteAt(pedPlace + game::kPlaceY, fy) &&
+                 WriteAt(ped + game::kPedX, fx) && WriteAt(ped + game::kPedY, fy);
+            if (z >= 0.0f) {
+                const int32_t fz = static_cast<int32_t>(z * (1 << 14));
+                ok = WriteAt(pedPlace + game::kPlaceZ, fz) && WriteAt(ped + game::kPedZ, fz) && ok;
+            }
+        }
+        Log("devtools: no parked car within reach; moved the player alone from %.2f,%.2f to %.2f,%.2f (%s)",
+            player.x, player.y, tx, ty, ok ? "written" : "write failed");
+        return ok;
+    }
     const uintptr_t placeAt = reinterpret_cast<uintptr_t>(place);
     // East: sin = 1, cos = 0 - a quarter of the game's 0x5A0 turn.
     const uint16_t east = static_cast<uint16_t>(game::kAngleFullTurn / 4);
@@ -331,6 +355,11 @@ bool WarpSceneToRoad(float x, float y) {
         const int32_t fy = static_cast<int32_t>(ty * (1 << 14));
         ok = WriteAt(pedPlace + game::kPlaceX, fx) && WriteAt(pedPlace + game::kPlaceY, fy) &&
              WriteAt(ped + game::kPedX, fx) && WriteAt(ped + game::kPedY, fy) && ok;
+        if (z >= 0.0f) {
+            const int32_t fz = static_cast<int32_t>(z * (1 << 14));
+            ok = WriteAt(pedPlace + game::kPlaceZ, fz) && WriteAt(ped + game::kPedZ, fz) &&
+                 WriteAt(placeAt + game::kPlaceZ, fz) && ok;
+        }
     } else {
         ok = false;
     }
@@ -602,7 +631,7 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     }
     if (g_settings.devSceneKey > 0 && g_settings.devSceneKey < 256 && worldLoaded &&
         (GetAsyncKeyState(g_settings.devSceneKey) & 0x0001) != 0) {
-        WarpSceneToRoad(g_settings.devSceneX, g_settings.devSceneY);
+        WarpSceneToRoad(g_settings.devSceneX, g_settings.devSceneY, g_settings.devSceneZ);
     }
     if (g_settings.logKeys) {
         static const struct { int vk; const char* name; } kWatched[] = {
@@ -873,6 +902,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         camera->SetOrientation(yaw, pitch);
         camera->SetRoll(roll);
         camera->SetFovY((std::min)(fov, 140.0f) * kDegToRad);
+        {
+            // Once a second: where the eye is against the floor under him, for the log.
+            static float logClock = 0.0f;
+            logClock += dt;
+            if (logClock > 1.0f) {
+                logClock = 0.0f;
+                float under = 0.0f;
+                const bool hasUnder = q.floorAt && q.floorAt(q.context, eye.x, eye.z, eye.y + 0.75f, &under);
+                Log("view: fp eye %.2f,%.2f,%.2f  player y=%.2f floor=%.2f  lid under the eye=%s%.2f",
+                    eye.x, eye.y, eye.z, py, floorY_, hasUnder ? "" : "none ", under);
+            }
+        }
         eyeX_ = eye.x;
         eyeY_ = eye.y;
         eyeZ_ = eye.z;
@@ -929,12 +970,21 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 break;
             }
         }
-        // Never closer than a stride from him, whatever is in the way: nearer
-        // than that the camera is inside his own figure.
+        // Never closer than a stride from a car, whatever is in the way: nearer
+        // than that the camera is inside its own body. On foot the figure is
+        // small (under half a block), so the camera may come in to half a block;
+        // and when a wall holds it that close it rises instead, so the view is
+        // down over his head rather than into the stonework behind him.
         const gta2::Vec3 span = desired - pivot;
         const float spanLength = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
-        reach = (std::max)(reach, spanLength > 1e-3f ? (std::min)(1.0f, 1.4f / spanLength) : 1.0f);
+        const float minPull = inVehicle ? 1.4f : 0.5f;
+        const float minReach = spanLength > 1e-3f ? (std::min)(1.0f, minPull / spanLength) : 1.0f;
+        reach = (std::max)(reach, minReach);
         desired = pivot + (desired - pivot) * reach;
+        if (!inVehicle && reach < 0.6f) {
+            const float rise = (0.6f - reach) * 1.2f;
+            if (!q.blocked(q.context, desired.x, desired.y + rise, desired.z)) desired.y += rise;
+        }
     }
     // And never under the floor it is over.
     if (q.floorAt) {

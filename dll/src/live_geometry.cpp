@@ -199,6 +199,8 @@ namespace { bool g_ghostSwitch[kGhostSwitchCount] = {}; }
 namespace {
 const void* g_hiddenObjects[2] = {nullptr, nullptr};
 const void* g_playerObject = nullptr;
+gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
+gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
 bool g_uprightPeds = false;
 }
 void SetHiddenObjects(const void* first, const void* second) {
@@ -206,6 +208,10 @@ void SetHiddenObjects(const void* first, const void* second) {
     g_hiddenObjects[1] = second;
 }
 void SetPlayerObject(const void* object) { g_playerObject = object; }
+bool BehindView(float x, float y, float z, float margin) {
+    const float dx = x - g_viewEye.x, dy = y - g_viewEye.y, dz = z - g_viewEye.z;
+    return dx * g_viewForward.x + dy * g_viewForward.y + dz * g_viewForward.z < -margin;
+}
 void SetUprightPeds(bool on) { g_uprightPeds = on; }
 bool UprightPeds() { return g_uprightPeds; }
 namespace { bool g_pedFigures = false; }
@@ -267,6 +273,11 @@ gta2::Mat4 FitModel(const Model& model, const LiveGeometry::Vertex* local, int c
     return out;
 }
 }  // namespace
+int DebugSkipMask() {
+    static int mask = -1;
+    if (mask < 0) { char buf[16] = {}; mask = GetEnvironmentVariableA("GTA2DX9_SKIP", buf, sizeof buf) ? atoi(buf) : 0; }
+    return mask;
+}
 void SetGhostSwitch(int which, bool on) {
     if (which >= 0 && which < kGhostSwitchCount) g_ghostSwitch[which] = on;
 }
@@ -1246,6 +1257,19 @@ void NoteSkidStrip(const LiveGeometry::SpriteType& s, IDirect3DTexture9* source,
                 ++it;
             }
         }
+    }
+    if ((g_skidGhosts.size() % 50) == 0) {
+        float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+        for (int c = 0; c < s.corners && c < 4; ++c) {
+            const float(*m)[4] = s.objectToWorld.m;
+            const float w[3] = {s.local[c].x * m[0][0] + s.local[c].y * m[1][0] + s.local[c].z * m[2][0] + m[3][0],
+                                s.local[c].x * m[0][1] + s.local[c].y * m[1][1] + s.local[c].z * m[2][1] + m[3][1],
+                                s.local[c].x * m[0][2] + s.local[c].y * m[1][2] + s.local[c].z * m[2][2] + m[3][2]};
+            for (int k = 0; k < 3; ++k) { lo[k] = (std::min)(lo[k], w[k]); hi[k] = (std::max)(hi[k], w[k]); }
+        }
+        Log("skid ghost #%d: at %.2f %.2f %.2f corners x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f ped=%d",
+            static_cast<int>(g_skidGhosts.size()), s.objectToWorld.m[3][0], s.objectToWorld.m[3][1], s.objectToWorld.m[3][2],
+            lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], s.pedestrian ? 1 : 0);
     }
     SkidGhost ghost;
     ghost.sprite = s;
@@ -4119,6 +4143,10 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             placed.push_back({model, px + ox, floor, pz + oz, yaw, scale, d2});
         }
     }
+    // Nothing behind the camera (a prop is at most about a block across).
+    placed.erase(std::remove_if(placed.begin(), placed.end(),
+                                [](const Placed& p) { return BehindView(p.x, p.y, p.z, 1.5f); }),
+                 placed.end());
     if (placed.empty()) return;
     std::sort(placed.begin(), placed.end(), [](const Placed& a, const Placed& b) { return a.d2 < b.d2; });
     if (placed.size() > static_cast<size_t>(kBudget)) placed.resize(kBudget);
@@ -4860,7 +4888,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     // The game's objects - cones, bins, phone boxes - as models in the street-level views.
     if (!decal && !lying && corners == 4 && !placed.pedestrian && !placed.hidden && !placed.plain &&
         !placed.lamp && !placed.corpse) {
-        const Model* model = MapObjectModel(GameObjectBeingDrawn(), placed.local, corners);
+        const Model* model = MapObjectModel(GameObjectBeingDrawn(), placed.local, corners, placed.objectToWorld);
         if (model && g_groundModels) {
             placed.objectModel = model;
             placed.hidden = true;   // the flat sprite goes; the model stands in for it
@@ -5513,7 +5541,10 @@ void LiveGeometry::AddCarLamps(const Sprite& body) {
 
 namespace {
 // Where Draw's time goes, a stage at a time, for the frame-time log in world_view.cpp.
-double g_drawStageMs[5] = {};
+// Slots: 0 setup, 1 loop, 2 skidmemory, 3 issue (the game's quads), 4 car
+// models + bodies, 5 props, 6 map objects, 7 pedestrian figures, 8 the rest
+// (skids, domes, lamps).
+double g_drawStageMs[kDrawStages] = {};
 struct DrawStageTimer {
     LARGE_INTEGER last;
     int n = 0;
@@ -5528,11 +5559,11 @@ struct DrawStageTimer {
     void Mark() {
         LARGE_INTEGER now;
         QueryPerformanceCounter(&now);
-        if (n < 5) g_drawStageMs[n] = static_cast<double>(now.QuadPart - last.QuadPart) * toMs;
+        if (n < kDrawStages) g_drawStageMs[n] = static_cast<double>(now.QuadPart - last.QuadPart) * toMs;
         last = now;
         ++n;
     }
-    ~DrawStageTimer() { if (n < 5) Mark(); }
+    ~DrawStageTimer() { if (n < kDrawStages) Mark(); }
 };
 }  // namespace
 
@@ -5591,10 +5622,15 @@ static gta2::Mat4 UprightPedMatrix(const LiveGeometry::Vertex* local, int corner
 // A figure is six boxes in its own space - x to its right, y up, z the way it
 // faces, feet at y = 0 - built fresh each frame with the limbs swung by the
 // walk cycle, and placed with a world matrix made from the sprite's position
-// and heading. Sizes are in blocks: a GTA2 block is about two metres, so the
-// figure is 0.85 of one, a little under human height.
+// and heading. Sizes are in blocks. A GTA2 car sprite is one block long, so a
+// block is a car's length, about 4.8 m, and the 3D cars' roofs come out at
+// 0.35-0.37 blocks (car_bodies.cpp fits them to the sprite footprint); an adult
+// stands about 1.2 times a sedan's roof, hence kPedHeight. The eye height in
+// view_modes.h (fpEyeFoot) follows from the same figure.
 // ---------------------------------------------------------------------------
 namespace {
+
+constexpr float kPedHeight = 0.46f;   // a standing adult, in blocks (see above)
 
 struct FigVertex {
     float x, y, z, nx, ny, nz;
@@ -5706,10 +5742,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
 
         // His pace, from where he was last frame. The game moves once a frame.
         PedTrack& track = pedTracks_[sprite.object];
-        if (track.frame != 0 && g_carFrame - track.frame < 10) {
+        const unsigned frames = track.frame != 0 && g_carFrame > track.frame ? g_carFrame - track.frame : 1;
+        const float dt = (std::min)(static_cast<float>(frames), 6.0f) / 30.0f;
+        if (track.frame != 0 && frames < 10) {
             const float dx = cx - track.x, dz = cz - track.z;
             const float dist = std::sqrt(dx * dx + dz * dz);
-            const float speed = dist * 30.0f;
+            const float speed = dist / dt;
             track.speed += (speed - track.speed) * 0.3f;
             track.phase += dist / 0.7f * 2.0f * kPi;   // one cycle per two strides of 0.35
             if (track.phase > 1e4f) track.phase -= 1e4f;
@@ -5727,10 +5765,78 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         track.frame = g_carFrame;
         // A moving pedestrian faces the way he moves, which the artwork agrees
         // with but reads more cleanly off the motion.
-        if (track.speed > 0.6f) {
+        const bool gameMoving = track.speed > 0.6f;
+        if (gameMoving) {
             fx = track.faceX;
             fz = track.faceZ;
         }
+
+        // The drawn figure follows the game's position through a critically
+        // damped spring (a few centimetres behind at walking pace, never more
+        // than about a tenth of a block), snapped when the game teleports him
+        // (respawn, getting out of a car) or when he is new.
+        {
+            const float ex = track.dx - cx, ez = track.dz - cz;
+            const bool snap = !track.placed || frames >= 10 || ex * ex + ez * ez > 0.8f * 0.8f;
+            if (snap) {
+                track.placed = true;
+                track.dx = cx; track.dz = cz;
+                track.vx = track.vz = 0.0f;
+                track.drawnSpeed = 0.0f;
+                const float hx0 = gameMoving ? fx : -fx, hz0 = gameMoving ? fz : -fz;
+                track.heading = std::atan2(hx0, hz0);
+                track.turnRate = 0.0f;
+                track.walkWeight = gameMoving ? 1.0f : 0.0f;
+                track.runWeight = 0.0f;
+                const uint32_t h = static_cast<uint32_t>(sprite.object >> 4) * 2246822519u;
+                track.cycle = static_cast<float>(h & 1023) / 1024.0f;          // his own phase of the cycle
+                track.idleVariant = static_cast<int>((h >> 10) % 3);
+                track.idleOffset = static_cast<float>((h >> 12) & 4095) / 64.0f;   // up to 64 s into the clip
+                track.idleRate = 0.9f + static_cast<float>((h >> 24) & 255) / 255.0f * 0.2f;
+            } else {
+                constexpr float kOmega = 18.0f;   // rad/s: lag = speed / omega, 8 cm at 1.5 blocks/s
+                const float ax = -2.0f * kOmega * track.vx - kOmega * kOmega * ex;
+                const float az = -2.0f * kOmega * track.vz - kOmega * kOmega * ez;
+                track.vx += ax * dt;
+                track.vz += az * dt;
+                const float px = track.dx, pz = track.dz;
+                track.dx += track.vx * dt;
+                track.dz += track.vz * dt;
+                // Never further behind than a tenth of a block: pulled along.
+                const float lx = track.dx - cx, lz = track.dz - cz;
+                const float lag = std::sqrt(lx * lx + lz * lz);
+                if (lag > 0.1f) { track.dx = cx + lx / lag * 0.1f; track.dz = cz + lz / lag * 0.1f; }
+                const float mx = track.dx - px, mz = track.dz - pz;
+                const float moved = std::sqrt(mx * mx + mz * mz);
+                track.drawnSpeed += (moved / dt - track.drawnSpeed) * (std::min)(1.0f, dt / 0.12f);
+            }
+        }
+        const bool moving = track.drawnSpeed > 0.45f;
+        // Heading: toward the game's, at a human turning rate (540 deg/s on
+        // foot, quicker at a run), eased so a turn starts and ends softly; the
+        // standing figure's heading comes from the artwork, whose top edge is
+        // the back of his head, so it points the other way (checked against the
+        // chase camera, which sits behind the game's own heading).
+        {
+            const float tx = gameMoving ? fx : -fx, tz = gameMoving ? fz : -fz;
+            const float target = std::atan2(tx, tz);
+            float diff = target - track.heading;
+            while (diff > kPi) diff -= 2.0f * kPi;
+            while (diff < -kPi) diff += 2.0f * kPi;
+            const float rate = (track.runWeight > 0.5f ? 14.0f : 9.4f) * dt;   // radians this frame
+            float step = diff * (std::min)(1.0f, dt / 0.07f);
+            if (step > rate) step = rate;
+            if (step < -rate) step = -rate;
+            track.heading += step;
+            while (track.heading > kPi) track.heading -= 2.0f * kPi;
+            while (track.heading < -kPi) track.heading += 2.0f * kPi;
+            track.turnRate += (step / dt - track.turnRate) * (std::min)(1.0f, dt / 0.15f);
+        }
+        const float hx = std::sin(track.heading), hz = std::cos(track.heading);
+        // Where the figure stands: the drawn position, at the sprite's height.
+        const float gx = track.dx, gz = track.dz;
+        fx = hx;
+        fz = hz;
 
         if (g_groundModels) {
             // Which of the people he is: fixed by his object, so he keeps his look.
@@ -5738,20 +5844,29 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                      ? ModelForPedestrian()   // the protagonist: always the manifest's default
                                      : nullptr;
             if (!model) model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4));
+            // Behind the camera he is not drawn at all (his track above still
+            // follows him, so he comes back without a jump). Beyond eight
+            // blocks his poses are quantised twice as coarsely, so distant
+            // people share cached poses and cost no skinning of their own.
+            if (model && BehindView(gx, cy, gz, 0.6f)) continue;
+            const float eyeDx = gx - g_viewEye.x, eyeDz = gz - g_viewEye.z;
+            const bool farAway = eyeDx * eyeDx + eyeDz * eyeDz > 64.0f;
+            const float cycleSteps = farAway ? 12.0f : 24.0f, idleSteps = farAway ? 5.0f : 10.0f;
             if (model) {
-                // The character, walking at his pace, where the figure would stand.
+                // The character, at his pace, where the figure would stand, facing
+                // his drawn heading, upright, leaning a little into a turn.
+                const float scale = kPedHeight / (std::max)(model->Height(), 0.01f);
+                const float paceFactor = (std::min)(track.drawnSpeed / 1.5f, 1.0f);
+                float roll = -track.turnRate * paceFactor * 0.03f;
+                if (roll > 0.1f) roll = 0.1f;
+                if (roll < -0.1f) roll = -0.1f;
+                const float cr = std::cos(roll), sr = std::sin(roll);
+                // Rows: right, up, forward; right and up turned about forward by the roll.
                 gta2::Mat4 placed = m;
-                placed.m[3][1] = cy - 0.01f;
-                // Facing: rebuild the rows from his heading, upright. A walker's
-                // heading is the way he moves; a standing figure's comes from the
-                // artwork, whose top edge is the back of his head, so it points
-                // the other way (checked against the chase camera, which sits
-                // behind the game's own heading).
-                const float hx = track.speed > 0.6f ? fx : -fx, hz = track.speed > 0.6f ? fz : -fz;
-                placed.m[0][0] = hz;  placed.m[0][1] = 0.0f; placed.m[0][2] = -hx;
-                placed.m[1][0] = 0.0f; placed.m[1][1] = 1.0f; placed.m[1][2] = 0.0f;
-                placed.m[2][0] = hx;  placed.m[2][1] = 0.0f; placed.m[2][2] = hz;
-                const float scale = 0.85f / (std::max)(model->Height(), 0.01f);
+                placed.m[0][0] = hz * cr;  placed.m[0][1] = sr;  placed.m[0][2] = -hx * cr;
+                placed.m[1][0] = -hz * sr; placed.m[1][1] = cr;  placed.m[1][2] = hx * sr;
+                placed.m[2][0] = hx;       placed.m[2][1] = 0.0f; placed.m[2][2] = hz;
+                placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f; placed.m[3][2] = gz;
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
@@ -5761,20 +5876,46 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     for (int k = 0; k < 4; ++k) acc += fit.m[r][k] * placed.m[k][c];
                     world.m[r][c] = acc;
                 }
-                // He walks only while he moves (the same threshold as his heading
-                // from motion, so a walker never faces away from where he goes).
-                const bool walking = track.speed > 0.6f;
-                const ModelAnimation* anim = model->Animation(walking ? "walk" : "idle");
-                // Time from the walk phase, which advances one turn per 0.7 blocks
-                // of ground: rescaled to the ground the animation's own stride
-                // covers, so the feet neither slide nor overreach.
-                const float cycle = model->stride > 0.0f ? model->stride * scale : 0.7f;
-                const float time = walking ? track.phase / 6.2832f * 0.7f / cycle * (anim ? anim->length : 1.0f)
-                                           : static_cast<float>(g_carFrame % 3000) / 30.0f;
+                // The clips: walk and run from the ground he covers, so the feet
+                // do not slide; idle, one of three, at his own offset and pace;
+                // walk and idle cross-faded over 0.2 s, walk and run over 0.25 s.
+                const ModelAnimation* walk = model->Animation("walk");
+                const ModelAnimation* run = model->Animation("run");
+                static const char* const kIdles[3] = {"idle", "idle2", "idle3"};
+                const ModelAnimation* idle = model->Animation(kIdles[track.idleVariant]);
+                if (!idle) idle = model->Animation("idle");
+                track.walkWeight += ((moving ? 1.0f : 0.0f) - track.walkWeight) * (std::min)(1.0f, dt / 0.2f);
+                const float runTarget = run && model->runStride > 0.0f
+                                            ? (std::min)(1.0f, (std::max)(0.0f, (track.drawnSpeed - 1.3f) / 0.5f))
+                                            : 0.0f;
+                track.runWeight += (runTarget - track.runWeight) * (std::min)(1.0f, dt / 0.25f);
+                const float walkCycle = model->stride > 0.0f ? model->stride * scale : 0.7f;
+                const float runCycle = model->runStride > 0.0f ? model->runStride * scale : walkCycle * 1.4f;
+                const float cycleLen = walkCycle + (runCycle - walkCycle) * track.runWeight;
+                // Advance by the ground covered, capped at 2.6 cycles a second (the
+                // game's people cover ground fast for their size: the player walks
+                // at 1.9 blocks a second, four body heights; beyond the cap the
+                // feet slide a little rather than the legs blurring).
+                const float covered = (std::min)(track.drawnSpeed * dt, 2.6f * cycleLen * dt);
+                if (moving) track.cycle = std::fmod(track.cycle + covered / cycleLen, 1.0f);
+                const float u = std::floor(track.cycle * cycleSteps) / cycleSteps;   // quantised: shared poses
+                const float walkTime = walk ? u * walk->length : 0.0f;
+                const float runTime = run ? u * run->length : 0.0f;
+                const float idleTime = idle ? std::floor((static_cast<float>(g_carFrame) / 30.0f * track.idleRate +
+                                                          track.idleOffset) * idleSteps) / idleSteps
+                                            : 0.0f;
+                const float walkW = std::floor(track.walkWeight * 8.0f + 0.5f) / 8.0f;
+                const float runW = std::floor(track.runWeight * 8.0f + 0.5f) / 8.0f;
                 device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
                 device->SetFVF(kWorldFvf);
-                ModelDraw(device, *model, world, anim, time);
+                if (walkW < 0.999f) {
+                    ModelDrawBlend(device, *model, world, idle, idleTime, walk, walkTime, walkW);
+                } else if (runW > 0.001f) {
+                    ModelDrawBlend(device, *model, world, walk, walkTime, run, runTime, runW);
+                } else {
+                    ModelDraw(device, *model, world, walk, walkTime);
+                }
                 device->SetFVF(kFigFvf);
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
                 device->SetTexture(0, nullptr);
@@ -5808,7 +5949,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         world._11 = fz;  world._12 = 0.0f; world._13 = -fx;
         world._21 = 0.0f; world._22 = 1.0f; world._23 = 0.0f;
         world._31 = fx;  world._32 = 0.0f; world._33 = fz;
-        world._41 = cx;  world._42 = cy - 0.01f; world._43 = cz; world._44 = 1.0f;
+        world._41 = gx;  world._42 = cy - 0.01f; world._43 = gz; world._44 = 1.0f;
         device->SetTransform(D3DTS_WORLD, &world);
         device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(),
                                 sizeof(FigVertex));
@@ -5835,6 +5976,12 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         int height) {
     if (!device) return;
     DrawStageTimer stageTimer;
+    ModelsBeginFrame();
+    g_viewEye = camera.Position();
+    {
+        const float cp = std::cos(camera.Pitch());
+        g_viewForward = {std::sin(camera.Yaw()) * cp, std::sin(camera.Pitch()), std::cos(camera.Yaw()) * cp};
+    }
     ++g_carFrame;
     g_carMaterialsThisFrame = 0;
     lastEye_ = camera.Position();
@@ -6695,6 +6842,22 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
     }
 
+    if ((g_carFrame & 127) == 0 && (!skidBatches.empty() || !skids.empty())) {
+        float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+        size_t quads = 0;
+        for (const SkidBatchDraw& b : skidBatches) {
+            quads += b.idx.size() / 6;
+            for (const Vertex& v : b.verts) {
+                lo[0] = (std::min)(lo[0], v.x); hi[0] = (std::max)(hi[0], v.x);
+                lo[1] = (std::min)(lo[1], v.y); hi[1] = (std::max)(hi[1], v.y);
+                lo[2] = (std::min)(lo[2], v.z); hi[2] = (std::max)(hi[2], v.z);
+            }
+        }
+        Log("skid diag: ghosts=%d batches=%d quads=%d live=%d bounds x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f eye %.2f %.2f %.2f",
+            static_cast<int>(g_skidGhosts.size()), static_cast<int>(skidBatches.size()), static_cast<int>(quads),
+            static_cast<int>(skids.size()), lo[0], hi[0], lo[1], hi[1], lo[2], hi[2],
+            lastEye_.x, lastEye_.y, lastEye_.z);
+    }
     stageTimer.Mark();   // 2: remembered skid strips
     // Two triangles from four corners, the same two every time. Indexed rather
     // than a six-vertex list so the index buffer is part of the topological hash
@@ -6944,17 +7107,31 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         plain.swap(rest);
     }
 
-    issue(plain);
-    if (g_groundModels) {
+    if (!(DebugSkipMask() & 2)) issue(plain);
+    stageTimer.Mark();   // 3: the game's own quads issued
+    if (g_groundModels && !(DebugSkipMask() & 4)) {
         DrawCarModels(device);
         CarBodiesDraw(device, carBodies_, g_carFrame, camera.Position());
-        DrawProps(device, camera.Position());
-        MapObjectsDraw(device, sprites_);
     }
-    if (g_pedFigures) DrawPedFigures(device);
+    stageTimer.Mark();   // 4: cars
+    if (g_groundModels && !(DebugSkipMask() & 8)) DrawProps(device, camera.Position());
+    stageTimer.Mark();   // 5: props
+    if (g_groundModels && !(DebugSkipMask() & 16)) MapObjectsDraw(device, sprites_);
+    stageTimer.Mark();   // 6: map objects
+    if (g_pedFigures && !(DebugSkipMask() & 32)) DrawPedFigures(device);
+    stageTimer.Mark();   // 7: pedestrians
+    // Textures the models will need, created and uploaded a few per frame
+    // ahead of their first appearance (see ModelsWarmTextures).
+    if (ModelsAvailable()) {
+        static int left = 1;
+        if (left > 0) {
+            left = ModelsWarmTextures(device, 2);
+            if (left == 0) Log("models: every texture created and uploaded ahead of use");
+        }
+    }
 
     // Soft skid marks, translucent, over the road and under everything standing on it.
-    if (!skids.empty() || !skidBatches.empty()) {
+    if ((!skids.empty() || !skidBatches.empty()) && !(DebugSkipMask() & 64)) {
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
         device->SetRenderState(D3DRS_ALPHAREF, 1u);
         device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
@@ -7002,12 +7179,12 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                                                         : static_cast<DWORD>(gta2::GetAlphaRef()));
     }
     // Tyre smoke: spawned above, aged and drawn here.
-    DrawTyreSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
-    stageTimer.Mark();   // 3: lamps, sprites, skids, smoke (4, the rest, is closed by the destructor)
+    if (!(DebugSkipMask() & 128)) DrawTyreSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    stageTimer.Mark();   // 8: lamps, skids, smoke (closed by the destructor otherwise)
 
     // The domes of the cars just drawn: each the car's own artwork over a rounded
     // grid, so one car is one 81-vertex mesh. Same alpha test as the sprites.
-    if (!shells_.empty()) {
+    if (!shells_.empty() && !(DebugSkipMask() & 256)) {
         static std::vector<uint16_t> domeIndices;
         if (domeIndices.empty()) {
             constexpr int n = kDomeSegments;
@@ -7125,7 +7302,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     }
 
     // Tyres: four dark boxes per car, the front pair turned. See SetCarWheels.
-    if (g_carWheels && !shells_.empty()) {
+    if (g_carWheels && !shells_.empty() && !(DebugSkipMask() & 256)) {
         if (IDirect3DTexture9* rubber = TyreTexture(device)) {
             static std::vector<uint16_t> tyreIndices;
             if (tyreIndices.empty()) {
@@ -7153,7 +7330,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
     }
 
-    if (!effects.empty()) {
+    if (!effects.empty() && !(DebugSkipMask() & 512)) {
         // Additive, which is what this artwork was drawn for: it fades to black
         // on its way out, and black adds nothing. The rim disappears because it
         // stops being painted at all rather than because anything was cut out of
@@ -7206,13 +7383,15 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             }
         }
     }
+    if (!(DebugSkipMask() & 512)) {
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    }
     effectQuads_ = static_cast<int>(effects.size());
     g_effectBatches = effectQuads_;
 
-    if (!boarders.empty() && width > 0 && height > 0) {
+    if (!boarders.empty() && width > 0 && height > 0 && !(DebugSkipMask() & 1024)) {
         // How bright the unlit layer is: full by day, dimmed to g_boardingUiNight as the sun
         // goes below the horizon.
         float elevation = 30.0f, rotation = 0.0f;

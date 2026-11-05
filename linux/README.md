@@ -78,6 +78,36 @@ GTA2 9.6 with this mod runs under Wine 9 and Wine 10 (both in Docker, on Xvfb, M
 rendering): the opening, the front end, the levels, all three camera views, recorded. See
 `linux/docker/`. `video.py` plays the game by itself from the renderer's log.
 
+## Rendering on a headless NVIDIA GPU (no display, no Vulkan needed)
+
+Without a display GPU, wined3d draws through Mesa's llvmpipe and the street-level views cost
+about 100 ms a frame at 1280x720 (8-10 fps). The same frame on an NVIDIA GPU is free: the
+renderer's own stages are 1-4 ms and `present` reads 0.0 ms, so the game sits on its 30 fps cap.
+This works on a compute-only machine (the B200s here expose no Vulkan at all) because NVIDIA's
+OpenGL can run on a headless EGL device, and VirtualGL redirects the X11 GL calls of a 32-bit
+Wine process onto it:
+
+```
+cd linux/docker && docker build -f Dockerfile.gpu-gl -t gta2-gpugl .   # game image + NVIDIA GL (amd64 + i386) + VirtualGL 3.1.5
+docker run --rm --gpus '"device=0"' -e NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility \
+    -v $PWD/gamerun:/work -v $PWD/game:/game:ro -v $PWD/upstream-release/files:/release:ro \
+    -v $PWD/repo/stage:/stage:ro -v $PWD/remix-runtime/x86:/remix:ro -v $PWD/out/gpu:/out -w /work \
+    gta2-gpugl bash /work/run_game_gpu.sh win32 250 0 /work/keys_demo_fp2.sh
+```
+
+`run_game_gpu.sh` is `run_game.sh` with the llvmpipe override removed, `vglrun -d egl0 wine
+gta2.exe` (env `VGL_DISPLAY` picks another EGL device; `eglinfo -e` lists them), and an `FPS`
+env for the capture rate (30 for smooth clips). Requirements: the NVIDIA container toolkit
+(`docker info` lists the `nvidia` runtime), and the 32-bit NVIDIA GL libraries at **exactly the
+host driver version** (the Dockerfile fetches Ubuntu's `libnvidia-gl-580-server` 580.178.04 for
+i386 and amd64; set `NV_VER`/`NV_POOL` for another driver). Wine 9's 32-bit `gta2.exe` uses
+32-bit GL, so the i386 package and VirtualGL's `virtualgl32` are both needed. The adapter the
+game sees is still wined3d's faked "GeForce GTX 470"; the proof is `GL_RENDERER NVIDIA
+B200/PCIe/SSE2` from an EGL test inside the image and `present 0.0 ms` in `gta2dx9.log`.
+
+RTX Remix is a different matter: it needs Vulkan with ray tracing, which these GPUs do not
+expose; see below.
+
 ## RTX Remix under Wine: what was found, what is blocked, how to run it on a real GPU
 
 RTX Remix is a Windows runtime. For a 32-bit game it is a bridge: the `d3d9.dll`

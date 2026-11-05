@@ -59,7 +59,7 @@ def measure_paint(png, cabin_rows=None):
 def main():
     src = sys.argv[1]
     models_dir = "models_proc"
-    override_dir = ""   # e.g. models3d, once that set is checked in the game
+    override_dir = "models3d"   # the image-to-3D set first; "" to ship the parametric set alone
     manifest_name = "manifest.json"
     args = sys.argv[2:]
     while args:
@@ -107,14 +107,13 @@ def main():
             rows = (h - car["windows_px"]["rear_y"], h - car["windows_px"]["front_y"])
             cabin = (min(rows), max(rows))
         paint = measure_paint(os.path.join(src, "cars", default["file"]), cabin) if default else [200, 200, 200]
-        entries.append({
-            "name": stem,
-            "glb": f"cars/{used_dir}/{stem}.glb",
-            "scale": 1.0,
-            "paint_materials": ["top", "side", "front", "rear"],
-            "paint_rgb": paint,
-            "texture_max": 512,
-        })
+        entry = {"name": stem, "glb": f"cars/{used_dir}/{stem}.glb", "scale": 1.0, "paint_rgb": paint, "texture_max": 512}
+        if used_dir == override_dir:
+            # one baked texture: the importer splits the paint out of it by colour
+            entry["paint_split"] = True
+        else:
+            entry["paint_materials"] = ["top", "side", "front", "rear"]
+        entries.append(entry)
         by_model[str(number)] = stem
     manifest["models"] = kept + entries
     cars["by_model"] = by_model

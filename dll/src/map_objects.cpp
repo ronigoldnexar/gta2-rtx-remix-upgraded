@@ -10,6 +10,7 @@
 
 #include "game_access.h"
 #include "log.h"
+#include "live_geometry.h"
 #include "model_store.h"
 
 namespace gta2dx9 {
@@ -72,7 +73,8 @@ void LoadOnce() {
 }
 }  // namespace
 
-const Model* MapObjectModel(const void* spriteObject, const LiveGeometry::Vertex* local, int corners) {
+const Model* MapObjectModel(const void* spriteObject, const LiveGeometry::Vertex* local, int corners,
+                            const gta2::Mat4& objectToWorld) {
     if (!spriteObject || corners != 4 || !ModelsAvailable()) return nullptr;
     const uint8_t* object = static_cast<const uint8_t*>(spriteObject);
     const int32_t base = *reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase);
@@ -88,8 +90,9 @@ const Model* MapObjectModel(const void* spriteObject, const LiveGeometry::Vertex
         const float ey = std::sqrt((local[3].x - local[0].x) * (local[3].x - local[0].x) +
                                    (local[3].y - local[0].y) * (local[3].y - local[0].y) +
                                    (local[3].z - local[0].z) * (local[3].z - local[0].z));
-        Log("object sprite: base %d number %d, quad %.2f x %.2f tiles%s", base, number, ex, ey,
-            g_byKey.count(key) ? " (model)" : "");
+        // Renderer frame: x east, y up, z north; the game's map y runs the other way.
+        Log("object sprite: base %d number %d, quad %.2f x %.2f tiles, at x=%.1f y=%.1f (map) height %.2f%s", base, number, ex, ey,
+            objectToWorld.m[3][0], 255.0f - objectToWorld.m[3][2], objectToWorld.m[3][1], g_byKey.count(key) ? " (model)" : "");
     }
     auto it = g_byKey.find(key);
     return it == g_byKey.end() ? nullptr : it->second;
@@ -121,6 +124,14 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         const float cx = 0.25f * (s.local[0].x + s.local[1].x + s.local[2].x + s.local[3].x);
         const float cz = 0.25f * (s.local[0].z + s.local[1].z + s.local[2].z + s.local[3].z);
         const float cy = 0.25f * (s.local[0].y + s.local[1].y + s.local[2].y + s.local[3].y);
+        {
+            // World position of the quad's centre; nothing drawn behind the camera.
+            const gta2::Mat4& w = s.objectToWorld;
+            const float wx = cx * w.m[0][0] + cy * w.m[1][0] + cz * w.m[2][0] + w.m[3][0];
+            const float wy = cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1];
+            const float wz = cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2];
+            if (BehindView(wx, wy, wz, 1.5f)) continue;
+        }
         fit.m[3][0] = cx; fit.m[3][1] = cy - model.boundsMin.y * scale; fit.m[3][2] = cz; fit.m[3][3] = 1.0f;
         gta2::Mat4 out;
         for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {

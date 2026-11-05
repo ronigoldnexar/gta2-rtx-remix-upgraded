@@ -1,0 +1,34 @@
+# The game image plus NVIDIA OpenGL for both bitnesses and VirtualGL, so Wine's
+# D3D9 (wined3d, OpenGL) renders on a headless NVIDIA GPU instead of llvmpipe.
+#
+#   docker build -f Dockerfile.gpu-gl -t gta2-gpugl .
+#   docker run --gpus '"device=7"' -e NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility ...
+#
+# The 32-bit NVIDIA GL libraries must match the host's kernel driver exactly;
+# the version below is 580.178.04 (Ubuntu 24.04 "-server" packages). Change
+# NV_VER/NV_POCKET for another host. The 64-bit libraries are injected by the
+# NVIDIA container runtime at run time; the amd64 package is installed too so the
+# image also works when the runtime does not inject them.
+FROM gta2-remixbox
+ARG NV_VER=580.178.04-0ubuntu0.24.04.1
+ARG NV_POOL=http://archive.ubuntu.com/ubuntu/pool/restricted/n/nvidia-graphics-drivers-580-server
+ARG VGL_VER=3.1.5
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        curl ca-certificates libegl1 libgl1 libglx0 libglvnd0 libgbm1 libdrm2 libxcb-dri3-0 libxcb-present0 \
+        libegl1:i386 libgl1:i386 libglx0:i386 libglvnd0:i386 libgbm1:i386 libdrm2:i386 \
+        libx11-xcb1:i386 libxcb-dri3-0:i386 libxcb-present0:i386 libxext6:i386 \
+        libxtst6 libxv1 libglu1-mesa libxtst6:i386 libxv1:i386 libglu1-mesa:i386 \
+        mesa-utils mesa-utils-extra gcc libc6-dev libegl1-mesa-dev libgl-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /tmp/nv
+RUN curl -sSL -o common.deb $NV_POOL/libnvidia-common-580-server_${NV_VER}_all.deb \
+    && curl -sSL -o gl64.deb $NV_POOL/libnvidia-gl-580-server_${NV_VER}_amd64.deb \
+    && curl -sSL -o gl32.deb $NV_POOL/libnvidia-gl-580-server_${NV_VER}_i386.deb \
+    && curl -sSL -o vgl.deb https://github.com/VirtualGL/virtualgl/releases/download/${VGL_VER}/virtualgl_${VGL_VER}_amd64.deb \
+    && curl -sSL -o vgl32.deb https://github.com/VirtualGL/virtualgl/releases/download/${VGL_VER}/virtualgl32_${VGL_VER}_amd64.deb \
+    && dpkg -i --force-depends common.deb gl64.deb gl32.deb vgl.deb vgl32.deb \
+    && rm -rf /tmp/nv
+# glvnd must find the NVIDIA EGL vendor for 32-bit clients too.
+RUN mkdir -p /usr/share/glvnd/egl_vendor.d && printf '{\n "file_format_version" : "1.0.0",\n "ICD" : { "library_path" : "libEGL_nvidia.so.0" }\n}\n' > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+ENV PATH=/opt/VirtualGL/bin:$PATH
+WORKDIR /work

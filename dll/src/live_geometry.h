@@ -71,6 +71,9 @@ enum GhostSwitch {
     kGhostSwitchCount
 };
 void SetGhostSwitch(int which, bool on);
+// Temporary diagnostic: bit mask from the GTA2DX9_SKIP environment variable (1 whole live draw,
+// 2 sprite quads, 4 cars, 8 props, 16 map objects, 32 pedestrians, 64 skids/domes/rest).
+int DebugSkipMask();
 
 // The chase and first-person views (see view_modes.h).
 //
@@ -80,6 +83,10 @@ void SetHiddenObjects(const void* first, const void* second);
 // The player's own pedestrian sprite object (null when not located), so he
 // keeps one look rather than one hashed from his address.
 void SetPlayerObject(const void* object);
+// True when a point lies more than `margin` behind the camera's plane this
+// frame (set at the top of LiveGeometry::Draw): what the ground views need not
+// draw at all.
+bool BehindView(float x, float y, float z, float margin);
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);
@@ -540,11 +547,25 @@ private:
     // Street furniture and plants placed by rule from the map, around the camera.
     void DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye);
     struct PedTrack {
-        float x = 0.0f, z = 0.0f;
-        float speed = 0.0f;     // blocks a second, eased
-        float phase = 0.0f;     // walk cycle, radians
-        float faceX = 0.0f, faceZ = 1.0f;
+        float x = 0.0f, z = 0.0f;   // where the game had him last frame
+        float speed = 0.0f;     // blocks a second, eased, from the game's positions
+        float phase = 0.0f;     // walk cycle, radians (the box figures)
+        float faceX = 0.0f, faceZ = 1.0f;   // the way the game moves him
         unsigned frame = 0;
+        // The drawn figure: the game moves people in jumps and turns them on the
+        // spot, so what is drawn follows a little behind, turns at a human rate
+        // and plays its cycles from the ground it actually covers.
+        bool placed = false;
+        float dx = 0.0f, dz = 0.0f;         // drawn position
+        float vx = 0.0f, vz = 0.0f;         // its velocity (critically damped spring)
+        float drawnSpeed = 0.0f;            // blocks a second, from the drawn motion
+        float heading = 0.0f;               // drawn heading, radians, atan2(x, z)
+        float turnRate = 0.0f;              // radians a second, eased (for the lean)
+        float cycle = 0.0f;                 // walk/run cycle position, 0..1
+        float walkWeight = 0.0f;            // 0 idle .. 1 walking, eased
+        float runWeight = 0.0f;             // 0 walking .. 1 running, eased
+        int idleVariant = 0;                // which idle clip he has
+        float idleOffset = 0.0f, idleRate = 1.0f;
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
 
@@ -702,6 +723,7 @@ const LiveGeometry::Conform& SpriteConformCounts();
 
 // Milliseconds the last LiveGeometry::Draw spent in each of five stages: setup, the sprite
 // loop, remembered skid strips, issuing sprites and smoke, and the cars' domes. For the log.
+constexpr int kDrawStages = 9;   // see g_drawStageMs in live_geometry.cpp
 const double* LiveDrawStageMs();
 
 }  // namespace gta2dx9

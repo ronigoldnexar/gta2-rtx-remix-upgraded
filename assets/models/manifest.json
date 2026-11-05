@@ -261,1244 +261,944 @@
   },
   {
    "name": "000_romero",
-   "glb": "cars/models_proc/000_romero.glb",
+   "glb": "cars/models3d/000_romero.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     160.4,
     124.6,
     99.5
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "001_wellard",
-   "glb": "cars/models_proc/001_wellard.glb",
+   "glb": "cars/models3d/001_wellard.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     138.2,
     104.7,
     87.9
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "002_aniston_bd4",
-   "glb": "cars/models_proc/002_aniston_bd4.glb",
+   "glb": "cars/models3d/002_aniston_bd4.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     157.1,
     120.8,
     98.8
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "003_pacifier",
-   "glb": "cars/models_proc/003_pacifier.glb",
+   "glb": "cars/models3d/003_pacifier.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     58.8,
     69.2,
     38.9
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "004_g4_bank_van",
-   "glb": "cars/models_proc/004_g4_bank_van.glb",
+   "glb": "cars/models3d/004_g4_bank_van.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     64.2,
     81.6,
     122.1
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "005_beamer",
-   "glb": "cars/models_proc/005_beamer.glb",
+   "glb": "cars/models3d/005_beamer.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     152.8,
     114.9,
     92.0
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "006_box_car",
    "glb": "cars/models_proc/006_box_car.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     151.6,
     134.4,
     116.4
    ],
-   "texture_max": 512
-  },
-  {
-   "name": "007_box_truck",
-   "glb": "cars/models_proc/007_box_truck.glb",
-   "scale": 1.0,
+   "texture_max": 512,
    "paint_materials": [
     "top",
     "side",
     "front",
     "rear"
-   ],
+   ]
+  },
+  {
+   "name": "007_box_truck",
+   "glb": "cars/models3d/007_box_truck.glb",
+   "scale": 1.0,
    "paint_rgb": [
     84.3,
     65.0,
     57.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "008_bug",
-   "glb": "cars/models_proc/008_bug.glb",
+   "glb": "cars/models3d/008_bug.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     144.6,
     110.6,
     98.7
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "010_bulwark",
-   "glb": "cars/models_proc/010_bulwark.glb",
+   "glb": "cars/models3d/010_bulwark.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     175.5,
     140.5,
     113.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "011_bus",
-   "glb": "cars/models_proc/011_bus.glb",
+   "glb": "cars/models3d/011_bus.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     146.2,
     128.3,
     140.0
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "012_cop_car",
-   "glb": "cars/models_proc/012_cop_car.glb",
+   "glb": "cars/models3d/012_cop_car.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     145.9,
     166.1,
     198.3
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "013_minx",
-   "glb": "cars/models_proc/013_minx.glb",
+   "glb": "cars/models3d/013_minx.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     163.7,
     127.2,
     101.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "014_eddy",
-   "glb": "cars/models_proc/014_eddy.glb",
+   "glb": "cars/models3d/014_eddy.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     100.3,
     113.2,
     22.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "084_special_agent_car",
    "glb": "cars/models_proc/084_special_agent_car.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     100.3,
     113.2,
     22.6
    ],
-   "texture_max": 512
-  },
-  {
-   "name": "016_panto",
-   "glb": "cars/models_proc/016_panto.glb",
-   "scale": 1.0,
+   "texture_max": 512,
    "paint_materials": [
     "top",
     "side",
     "front",
     "rear"
-   ],
+   ]
+  },
+  {
+   "name": "016_panto",
+   "glb": "cars/models3d/016_panto.glb",
+   "scale": 1.0,
    "paint_rgb": [
     170.2,
     137.6,
     115.8
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "017_fire_truck",
-   "glb": "cars/models_proc/017_fire_truck.glb",
+   "glb": "cars/models3d/017_fire_truck.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     118.8,
     67.2,
     61.0
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "018_shark",
-   "glb": "cars/models_proc/018_shark.glb",
+   "glb": "cars/models3d/018_shark.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     138.7,
     106.4,
     92.0
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "019_gt_a1",
-   "glb": "cars/models_proc/019_gt_a1.glb",
+   "glb": "cars/models3d/019_gt_a1.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     183.7,
     156.9,
     144.7
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "021_garbage_truck",
-   "glb": "cars/models_proc/021_garbage_truck.glb",
+   "glb": "cars/models3d/021_garbage_truck.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     127.0,
     99.3,
     82.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "022_armed_land_roamer",
-   "glb": "cars/models_proc/022_armed_land_roamer.glb",
+   "glb": "cars/models3d/022_armed_land_roamer.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     73.5,
     85.1,
     43.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "023_hot_dog_van",
-   "glb": "cars/models_proc/023_hot_dog_van.glb",
+   "glb": "cars/models3d/023_hot_dog_van.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     122.0,
     78.6,
     45.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "024_hot_dog_dummy_1",
    "glb": "cars/models_proc/024_hot_dog_dummy_1.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     122.0,
     78.6,
     45.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
   },
   {
    "name": "025_hot_dog_dummy_2",
    "glb": "cars/models_proc/025_hot_dog_dummy_2.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     122.0,
     78.6,
     45.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
   },
   {
    "name": "026_hot_dog_dummy_3",
    "glb": "cars/models_proc/026_hot_dog_dummy_3.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     161.4,
     102.8,
     38.3
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
   },
   {
    "name": "085_hot_dog_dummy_4",
    "glb": "cars/models_proc/085_hot_dog_dummy_4.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     150.6,
     93.8,
     40.9
    ],
-   "texture_max": 512
-  },
-  {
-   "name": "027_ice_cream_van",
-   "glb": "cars/models_proc/027_ice_cream_van.glb",
-   "scale": 1.0,
+   "texture_max": 512,
    "paint_materials": [
     "top",
     "side",
     "front",
     "rear"
-   ],
+   ]
+  },
+  {
+   "name": "027_ice_cream_van",
+   "glb": "cars/models3d/027_ice_cream_van.glb",
+   "scale": 1.0,
    "paint_rgb": [
     119.0,
     100.6,
     80.1
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "028_dementia_limousine",
-   "glb": "cars/models_proc/028_dementia_limousine.glb",
+   "glb": "cars/models3d/028_dementia_limousine.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     149.0,
     113.7,
     103.5
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "029_dementia",
-   "glb": "cars/models_proc/029_dementia.glb",
+   "glb": "cars/models3d/029_dementia.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     163.1,
     131.4,
     112.1
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "030_land_roamer",
-   "glb": "cars/models_proc/030_land_roamer.glb",
+   "glb": "cars/models3d/030_land_roamer.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     73.5,
     85.1,
     43.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "031_jefferson",
-   "glb": "cars/models_proc/031_jefferson.glb",
+   "glb": "cars/models3d/031_jefferson.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     126.3,
     94.2,
     79.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "086_karma_bus",
-   "glb": "cars/models_proc/086_karma_bus.glb",
+   "glb": "cars/models3d/086_karma_bus.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     184.4,
     131.8,
     46.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "032_stretch_limousine",
-   "glb": "cars/models_proc/032_stretch_limousine.glb",
+   "glb": "cars/models3d/032_stretch_limousine.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     180.1,
     142.9,
     117.0
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "033_sports_limousine",
-   "glb": "cars/models_proc/033_sports_limousine.glb",
+   "glb": "cars/models3d/033_sports_limousine.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     164.9,
     124.5,
     101.9
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "034_medicar",
-   "glb": "cars/models_proc/034_medicar.glb",
+   "glb": "cars/models3d/034_medicar.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     168.9,
     153.2,
     132.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "035_benson",
-   "glb": "cars/models_proc/035_benson.glb",
+   "glb": "cars/models3d/035_benson.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     157.9,
     119.4,
     94.3
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "036_schmidt",
-   "glb": "cars/models_proc/036_schmidt.glb",
+   "glb": "cars/models3d/036_schmidt.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     125.5,
     95.8,
     82.3
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "037_miara",
-   "glb": "cars/models_proc/037_miara.glb",
+   "glb": "cars/models3d/037_miara.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     153.5,
     113.1,
     90.1
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "038_big_bug",
-   "glb": "cars/models_proc/038_big_bug.glb",
+   "glb": "cars/models3d/038_big_bug.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     147.0,
     110.1,
     97.7
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "039_morton",
-   "glb": "cars/models_proc/039_morton.glb",
+   "glb": "cars/models3d/039_morton.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     131.3,
     95.9,
     78.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "040_maurice",
-   "glb": "cars/models_proc/040_maurice.glb",
+   "glb": "cars/models3d/040_maurice.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     139.6,
     105.2,
     89.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "041_pickup",
-   "glb": "cars/models_proc/041_pickup.glb",
+   "glb": "cars/models3d/041_pickup.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     101.0,
     76.9,
     64.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "042_a_type",
-   "glb": "cars/models_proc/042_a_type.glb",
+   "glb": "cars/models3d/042_a_type.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     168.1,
     129.0,
     115.5
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "044_arachnid",
-   "glb": "cars/models_proc/044_arachnid.glb",
+   "glb": "cars/models3d/044_arachnid.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     154.7,
     117.6,
     92.5
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "045_spritzer",
-   "glb": "cars/models_proc/045_spritzer.glb",
+   "glb": "cars/models3d/045_spritzer.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     151.9,
     115.9,
     92.5
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "046_stinger",
-   "glb": "cars/models_proc/046_stinger.glb",
+   "glb": "cars/models3d/046_stinger.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     158.7,
     115.1,
     93.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "047_meteor",
-   "glb": "cars/models_proc/047_meteor.glb",
+   "glb": "cars/models3d/047_meteor.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     160.1,
     124.2,
     99.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "048_meteor",
-   "glb": "cars/models_proc/048_meteor.glb",
+   "glb": "cars/models3d/048_meteor.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     156.3,
     131.6,
     128.7
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "049_hachura",
-   "glb": "cars/models_proc/049_hachura.glb",
+   "glb": "cars/models3d/049_hachura.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     158.3,
     131.1,
     124.7
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "050_b_type",
-   "glb": "cars/models_proc/050_b_type.glb",
+   "glb": "cars/models3d/050_b_type.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     153.0,
     122.9,
     114.8
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "051_taxi_xpress",
-   "glb": "cars/models_proc/051_taxi_xpress.glb",
+   "glb": "cars/models3d/051_taxi_xpress.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     194.0,
     147.4,
     69.7
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "052_swat_van",
-   "glb": "cars/models_proc/052_swat_van.glb",
+   "glb": "cars/models3d/052_swat_van.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     119.1,
     132.7,
     155.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "053_michelli_roadster",
-   "glb": "cars/models_proc/053_michelli_roadster.glb",
+   "glb": "cars/models3d/053_michelli_roadster.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     157.2,
     119.7,
     104.7
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "054_tank",
-   "glb": "cars/models_proc/054_tank.glb",
+   "glb": "cars/models3d/054_tank.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     58.1,
     69.6,
     33.3
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "055_tanker",
    "glb": "cars/models_proc/055_tanker.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     171.3,
     155.9,
     146.2
    ],
-   "texture_max": 512
-  },
-  {
-   "name": "056_taxi",
-   "glb": "cars/models_proc/056_taxi.glb",
-   "scale": 1.0,
+   "texture_max": 512,
    "paint_materials": [
     "top",
     "side",
     "front",
     "rear"
-   ],
+   ]
+  },
+  {
+   "name": "056_taxi",
+   "glb": "cars/models3d/056_taxi.glb",
+   "scale": 1.0,
    "paint_rgb": [
     190.9,
     135.0,
     55.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "057_t_rex",
-   "glb": "cars/models_proc/057_t_rex.glb",
+   "glb": "cars/models3d/057_t_rex.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     151.0,
     113.0,
     87.3
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "058_tow_truck",
-   "glb": "cars/models_proc/058_tow_truck.glb",
+   "glb": "cars/models3d/058_tow_truck.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     120.6,
     82.2,
     34.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "059_train",
    "glb": "cars/models_proc/059_train.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     142.2,
     126.5,
     111.9
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
   },
   {
    "name": "060_train_cab",
    "glb": "cars/models_proc/060_train_cab.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     127.4,
     108.0,
     89.9
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
   },
   {
    "name": "061_train_fb",
    "glb": "cars/models_proc/061_train_fb.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     99.0,
     67.6,
     55.5
    ],
-   "texture_max": 512
-  },
-  {
-   "name": "062_trance_am",
-   "glb": "cars/models_proc/062_trance_am.glb",
-   "scale": 1.0,
+   "texture_max": 512,
    "paint_materials": [
     "top",
     "side",
     "front",
     "rear"
-   ],
+   ]
+  },
+  {
+   "name": "062_trance_am",
+   "glb": "cars/models3d/062_trance_am.glb",
+   "scale": 1.0,
    "paint_rgb": [
     159.2,
     123.1,
     104.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "063_truck_cab",
-   "glb": "cars/models_proc/063_truck_cab.glb",
+   "glb": "cars/models3d/063_truck_cab.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     85.6,
     66.9,
     59.5
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "064_truck_cab_sx",
-   "glb": "cars/models_proc/064_truck_cab_sx.glb",
+   "glb": "cars/models3d/064_truck_cab_sx.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     104.3,
     79.9,
     69.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "065_container",
    "glb": "cars/models_proc/065_container.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     147.1,
     111.6,
     86.9
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
   },
   {
    "name": "066_transporter",
    "glb": "cars/models_proc/066_transporter.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     119.3,
     93.9,
     82.3
    ],
-   "texture_max": 512
-  },
-  {
-   "name": "067_tv_van",
-   "glb": "cars/models_proc/067_tv_van.glb",
-   "scale": 1.0,
+   "texture_max": 512,
    "paint_materials": [
     "top",
     "side",
     "front",
     "rear"
-   ],
+   ]
+  },
+  {
+   "name": "067_tv_van",
+   "glb": "cars/models3d/067_tv_van.glb",
+   "scale": 1.0,
    "paint_rgb": [
     137.9,
     107.2,
     94.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "068_van",
    "glb": "cars/models_proc/068_van.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     137.9,
     107.2,
     94.2
    ],
-   "texture_max": 512
-  },
-  {
-   "name": "069_u_jerk_truck",
-   "glb": "cars/models_proc/069_u_jerk_truck.glb",
-   "scale": 1.0,
+   "texture_max": 512,
    "paint_materials": [
     "top",
     "side",
     "front",
     "rear"
-   ],
+   ]
+  },
+  {
+   "name": "069_u_jerk_truck",
+   "glb": "cars/models3d/069_u_jerk_truck.glb",
+   "scale": 1.0,
    "paint_rgb": [
     103.3,
     83.8,
     73.4
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "070_z_type",
-   "glb": "cars/models_proc/070_z_type.glb",
+   "glb": "cars/models3d/070_z_type.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     159.8,
     122.1,
     108.8
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "071_rumbler",
-   "glb": "cars/models_proc/071_rumbler.glb",
+   "glb": "cars/models3d/071_rumbler.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     166.0,
     137.9,
     137.6
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "082_jagular_xk",
-   "glb": "cars/models_proc/082_jagular_xk.glb",
+   "glb": "cars/models3d/082_jagular_xk.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     139.5,
     101.7,
     80.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   },
   {
    "name": "083_furore_gt",
-   "glb": "cars/models_proc/083_furore_gt.glb",
+   "glb": "cars/models3d/083_furore_gt.glb",
    "scale": 1.0,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ],
    "paint_rgb": [
     163.6,
     134.4,
     129.2
    ],
-   "texture_max": 512
+   "texture_max": 512,
+   "paint_split": true
   }
  ],
  "cars": {
@@ -1746,7 +1446,10 @@
    "vertices": 4697,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_male_01_m002_body.tga",
@@ -1755,7 +1458,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "human_male_04",
@@ -1764,7 +1468,10 @@
    "vertices": 5448,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_male_04_m006_body.tga",
@@ -1773,7 +1480,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "human_male_07",
@@ -1782,7 +1490,10 @@
    "vertices": 4645,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_male_07_m013_body.tga",
@@ -1791,7 +1502,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "human_male_10",
@@ -1800,7 +1512,10 @@
    "vertices": 4115,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_male_10_m024_body.tga",
@@ -1809,7 +1524,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "human_male_13",
@@ -1818,7 +1534,10 @@
    "vertices": 3949,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_male_13_m010_body.tga",
@@ -1826,7 +1545,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "human_female_01",
@@ -1835,7 +1555,10 @@
    "vertices": 5438,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_female_01_f001_body.tga",
@@ -1844,7 +1567,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "human_female_03",
@@ -1853,7 +1577,10 @@
    "vertices": 6123,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_female_03_f003_body.tga",
@@ -1862,7 +1589,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "human_female_05",
@@ -1871,7 +1599,10 @@
    "vertices": 5571,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_female_05_f005_body.tga",
@@ -1880,7 +1611,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "human_female_08",
@@ -1889,7 +1621,10 @@
    "vertices": 5284,
    "animations": [
     "walk",
-    "idle"
+    "idle",
+    "run",
+    "idle2",
+    "idle3"
    ],
    "textures": [
     "human_female_08_f008_body.tga",
@@ -1898,7 +1633,8 @@
    ],
    "skins": 1,
    "forward": "+z",
-   "stride": 0.7816
+   "stride": 0.7816,
+   "run_stride": 1.0165
   },
   {
    "name": "obj_bench",
@@ -2107,22 +1843,13 @@
   },
   {
    "name": "000_romero",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 5770,
    "animations": [],
    "textures": [
-    "000_romero_0_paint.tga",
-    "000_romero_10.tga",
-    "000_romero_1_paint.tga",
-    "000_romero_2_paint.tga",
-    "000_romero_3_paint.tga",
-    "000_romero_4.tga",
-    "000_romero_5.tga",
-    "000_romero_6.tga",
-    "000_romero_7.tga",
-    "000_romero_8.tga",
-    "000_romero_9.tga"
+    "000_romero_0.tga",
+    "000_romero_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2130,22 +1857,13 @@
   },
   {
    "name": "001_wellard",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6826,
    "animations": [],
    "textures": [
-    "001_wellard_0_paint.tga",
-    "001_wellard_10.tga",
-    "001_wellard_1_paint.tga",
-    "001_wellard_2_paint.tga",
-    "001_wellard_3_paint.tga",
-    "001_wellard_4.tga",
-    "001_wellard_5.tga",
-    "001_wellard_6.tga",
-    "001_wellard_7.tga",
-    "001_wellard_8.tga",
-    "001_wellard_9.tga"
+    "001_wellard_0.tga",
+    "001_wellard_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2153,22 +1871,13 @@
   },
   {
    "name": "002_aniston_bd4",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7076,
    "animations": [],
    "textures": [
-    "002_aniston_bd4_0_paint.tga",
-    "002_aniston_bd4_10.tga",
-    "002_aniston_bd4_1_paint.tga",
-    "002_aniston_bd4_2_paint.tga",
-    "002_aniston_bd4_3_paint.tga",
-    "002_aniston_bd4_4.tga",
-    "002_aniston_bd4_5.tga",
-    "002_aniston_bd4_6.tga",
-    "002_aniston_bd4_7.tga",
-    "002_aniston_bd4_8.tga",
-    "002_aniston_bd4_9.tga"
+    "002_aniston_bd4_0.tga",
+    "002_aniston_bd4_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2176,22 +1885,13 @@
   },
   {
    "name": "003_pacifier",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 13336,
    "animations": [],
    "textures": [
-    "003_pacifier_0_paint.tga",
-    "003_pacifier_10.tga",
-    "003_pacifier_1_paint.tga",
-    "003_pacifier_2_paint.tga",
-    "003_pacifier_3_paint.tga",
-    "003_pacifier_4.tga",
-    "003_pacifier_5.tga",
-    "003_pacifier_6.tga",
-    "003_pacifier_7.tga",
-    "003_pacifier_8.tga",
-    "003_pacifier_9.tga"
+    "003_pacifier_0.tga",
+    "003_pacifier_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2199,22 +1899,13 @@
   },
   {
    "name": "004_g4_bank_van",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 8770,
    "animations": [],
    "textures": [
-    "004_g4_bank_van_0_paint.tga",
-    "004_g4_bank_van_10.tga",
-    "004_g4_bank_van_1_paint.tga",
-    "004_g4_bank_van_2_paint.tga",
-    "004_g4_bank_van_3_paint.tga",
-    "004_g4_bank_van_4.tga",
-    "004_g4_bank_van_5.tga",
-    "004_g4_bank_van_6.tga",
-    "004_g4_bank_van_7.tga",
-    "004_g4_bank_van_8.tga",
-    "004_g4_bank_van_9.tga"
+    "004_g4_bank_van_0.tga",
+    "004_g4_bank_van_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2222,22 +1913,13 @@
   },
   {
    "name": "005_beamer",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6986,
    "animations": [],
    "textures": [
-    "005_beamer_0_paint.tga",
-    "005_beamer_10.tga",
-    "005_beamer_1_paint.tga",
-    "005_beamer_2_paint.tga",
-    "005_beamer_3_paint.tga",
-    "005_beamer_4.tga",
-    "005_beamer_5.tga",
-    "005_beamer_6.tga",
-    "005_beamer_7.tga",
-    "005_beamer_8.tga",
-    "005_beamer_9.tga"
+    "005_beamer_0.tga",
+    "005_beamer_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2268,22 +1950,13 @@
   },
   {
    "name": "007_box_truck",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 14340,
    "animations": [],
    "textures": [
-    "007_box_truck_0_paint.tga",
-    "007_box_truck_10.tga",
-    "007_box_truck_1_paint.tga",
-    "007_box_truck_2_paint.tga",
-    "007_box_truck_3_paint.tga",
-    "007_box_truck_4.tga",
-    "007_box_truck_5.tga",
-    "007_box_truck_6.tga",
-    "007_box_truck_7.tga",
-    "007_box_truck_8.tga",
-    "007_box_truck_9.tga"
+    "007_box_truck_0.tga",
+    "007_box_truck_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2291,22 +1964,13 @@
   },
   {
    "name": "008_bug",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 8448,
    "animations": [],
    "textures": [
-    "008_bug_0_paint.tga",
-    "008_bug_10.tga",
-    "008_bug_1_paint.tga",
-    "008_bug_2_paint.tga",
-    "008_bug_3_paint.tga",
-    "008_bug_4.tga",
-    "008_bug_5.tga",
-    "008_bug_6.tga",
-    "008_bug_7.tga",
-    "008_bug_8.tga",
-    "008_bug_9.tga"
+    "008_bug_0.tga",
+    "008_bug_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2314,22 +1978,13 @@
   },
   {
    "name": "010_bulwark",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7654,
    "animations": [],
    "textures": [
-    "010_bulwark_0_paint.tga",
-    "010_bulwark_10.tga",
-    "010_bulwark_1_paint.tga",
-    "010_bulwark_2_paint.tga",
-    "010_bulwark_3_paint.tga",
-    "010_bulwark_4.tga",
-    "010_bulwark_5.tga",
-    "010_bulwark_6.tga",
-    "010_bulwark_7.tga",
-    "010_bulwark_8.tga",
-    "010_bulwark_9.tga"
+    "010_bulwark_0.tga",
+    "010_bulwark_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2337,22 +1992,13 @@
   },
   {
    "name": "011_bus",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7692,
    "animations": [],
    "textures": [
-    "011_bus_0_paint.tga",
-    "011_bus_10.tga",
-    "011_bus_1_paint.tga",
-    "011_bus_2_paint.tga",
-    "011_bus_3_paint.tga",
-    "011_bus_4.tga",
-    "011_bus_5.tga",
-    "011_bus_6.tga",
-    "011_bus_7.tga",
-    "011_bus_8.tga",
-    "011_bus_9.tga"
+    "011_bus_0.tga",
+    "011_bus_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2360,24 +2006,13 @@
   },
   {
    "name": "012_cop_car",
-   "nodes": 17,
-   "meshes": 13,
-   "vertices": 9186,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7754,
    "animations": [],
    "textures": [
-    "012_cop_car_0_paint.tga",
-    "012_cop_car_10.tga",
-    "012_cop_car_11.tga",
-    "012_cop_car_12.tga",
-    "012_cop_car_1_paint.tga",
-    "012_cop_car_2_paint.tga",
-    "012_cop_car_3_paint.tga",
-    "012_cop_car_4.tga",
-    "012_cop_car_5.tga",
-    "012_cop_car_6.tga",
-    "012_cop_car_7.tga",
-    "012_cop_car_8.tga",
-    "012_cop_car_9.tga"
+    "012_cop_car_0.tga",
+    "012_cop_car_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2385,22 +2020,13 @@
   },
   {
    "name": "013_minx",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7242,
    "animations": [],
    "textures": [
-    "013_minx_0_paint.tga",
-    "013_minx_10.tga",
-    "013_minx_1_paint.tga",
-    "013_minx_2_paint.tga",
-    "013_minx_3_paint.tga",
-    "013_minx_4.tga",
-    "013_minx_5.tga",
-    "013_minx_6.tga",
-    "013_minx_7.tga",
-    "013_minx_8.tga",
-    "013_minx_9.tga"
+    "013_minx_0.tga",
+    "013_minx_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2408,22 +2034,13 @@
   },
   {
    "name": "014_eddy",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 8294,
    "animations": [],
    "textures": [
-    "014_eddy_0_paint.tga",
-    "014_eddy_10.tga",
-    "014_eddy_1_paint.tga",
-    "014_eddy_2_paint.tga",
-    "014_eddy_3_paint.tga",
-    "014_eddy_4.tga",
-    "014_eddy_5.tga",
-    "014_eddy_6.tga",
-    "014_eddy_7.tga",
-    "014_eddy_8.tga",
-    "014_eddy_9.tga"
+    "014_eddy_0.tga",
+    "014_eddy_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2456,22 +2073,13 @@
   },
   {
    "name": "016_panto",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6432,
    "animations": [],
    "textures": [
-    "016_panto_0_paint.tga",
-    "016_panto_10.tga",
-    "016_panto_1_paint.tga",
-    "016_panto_2_paint.tga",
-    "016_panto_3_paint.tga",
-    "016_panto_4.tga",
-    "016_panto_5.tga",
-    "016_panto_6.tga",
-    "016_panto_7.tga",
-    "016_panto_8.tga",
-    "016_panto_9.tga"
+    "016_panto_0.tga",
+    "016_panto_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2479,22 +2087,13 @@
   },
   {
    "name": "017_fire_truck",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7254,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 17086,
    "animations": [],
    "textures": [
-    "017_fire_truck_0_paint.tga",
-    "017_fire_truck_10.tga",
-    "017_fire_truck_1_paint.tga",
-    "017_fire_truck_2_paint.tga",
-    "017_fire_truck_3_paint.tga",
-    "017_fire_truck_4.tga",
-    "017_fire_truck_5.tga",
-    "017_fire_truck_6.tga",
-    "017_fire_truck_7.tga",
-    "017_fire_truck_8.tga",
-    "017_fire_truck_9.tga"
+    "017_fire_truck_0.tga",
+    "017_fire_truck_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2502,22 +2101,13 @@
   },
   {
    "name": "018_shark",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 8288,
    "animations": [],
    "textures": [
-    "018_shark_0_paint.tga",
-    "018_shark_10.tga",
-    "018_shark_1_paint.tga",
-    "018_shark_2_paint.tga",
-    "018_shark_3_paint.tga",
-    "018_shark_4.tga",
-    "018_shark_5.tga",
-    "018_shark_6.tga",
-    "018_shark_7.tga",
-    "018_shark_8.tga",
-    "018_shark_9.tga"
+    "018_shark_0.tga",
+    "018_shark_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2525,22 +2115,13 @@
   },
   {
    "name": "019_gt_a1",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6270,
    "animations": [],
    "textures": [
-    "019_gt_a1_0_paint.tga",
-    "019_gt_a1_10.tga",
-    "019_gt_a1_1_paint.tga",
-    "019_gt_a1_2_paint.tga",
-    "019_gt_a1_3_paint.tga",
-    "019_gt_a1_4.tga",
-    "019_gt_a1_5.tga",
-    "019_gt_a1_6.tga",
-    "019_gt_a1_7.tga",
-    "019_gt_a1_8.tga",
-    "019_gt_a1_9.tga"
+    "019_gt_a1_0.tga",
+    "019_gt_a1_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2548,22 +2129,13 @@
   },
   {
    "name": "021_garbage_truck",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 12572,
    "animations": [],
    "textures": [
-    "021_garbage_truck_0_paint.tga",
-    "021_garbage_truck_10.tga",
-    "021_garbage_truck_1_paint.tga",
-    "021_garbage_truck_2_paint.tga",
-    "021_garbage_truck_3_paint.tga",
-    "021_garbage_truck_4.tga",
-    "021_garbage_truck_5.tga",
-    "021_garbage_truck_6.tga",
-    "021_garbage_truck_7.tga",
-    "021_garbage_truck_8.tga",
-    "021_garbage_truck_9.tga"
+    "021_garbage_truck_0.tga",
+    "021_garbage_truck_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2571,24 +2143,13 @@
   },
   {
    "name": "022_armed_land_roamer",
-   "nodes": 17,
-   "meshes": 13,
-   "vertices": 9846,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 14662,
    "animations": [],
    "textures": [
-    "022_armed_land_roamer_0_paint.tga",
-    "022_armed_land_roamer_10.tga",
-    "022_armed_land_roamer_11.tga",
-    "022_armed_land_roamer_12.tga",
-    "022_armed_land_roamer_1_paint.tga",
-    "022_armed_land_roamer_2_paint.tga",
-    "022_armed_land_roamer_3_paint.tga",
-    "022_armed_land_roamer_4.tga",
-    "022_armed_land_roamer_5.tga",
-    "022_armed_land_roamer_6.tga",
-    "022_armed_land_roamer_7.tga",
-    "022_armed_land_roamer_8.tga",
-    "022_armed_land_roamer_9.tga"
+    "022_armed_land_roamer_0.tga",
+    "022_armed_land_roamer_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2596,23 +2157,13 @@
   },
   {
    "name": "023_hot_dog_van",
-   "nodes": 16,
-   "meshes": 12,
-   "vertices": 7110,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 12974,
    "animations": [],
    "textures": [
-    "023_hot_dog_van_0_paint.tga",
-    "023_hot_dog_van_10.tga",
-    "023_hot_dog_van_11.tga",
-    "023_hot_dog_van_1_paint.tga",
-    "023_hot_dog_van_2_paint.tga",
-    "023_hot_dog_van_3_paint.tga",
-    "023_hot_dog_van_4.tga",
-    "023_hot_dog_van_5.tga",
-    "023_hot_dog_van_6.tga",
-    "023_hot_dog_van_7.tga",
-    "023_hot_dog_van_8.tga",
-    "023_hot_dog_van_9.tga"
+    "023_hot_dog_van_0.tga",
+    "023_hot_dog_van_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2716,22 +2267,13 @@
   },
   {
    "name": "027_ice_cream_van",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 13978,
    "animations": [],
    "textures": [
-    "027_ice_cream_van_0_paint.tga",
-    "027_ice_cream_van_10.tga",
-    "027_ice_cream_van_1_paint.tga",
-    "027_ice_cream_van_2_paint.tga",
-    "027_ice_cream_van_3_paint.tga",
-    "027_ice_cream_van_4.tga",
-    "027_ice_cream_van_5.tga",
-    "027_ice_cream_van_6.tga",
-    "027_ice_cream_van_7.tga",
-    "027_ice_cream_van_8.tga",
-    "027_ice_cream_van_9.tga"
+    "027_ice_cream_van_0.tga",
+    "027_ice_cream_van_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2739,22 +2281,13 @@
   },
   {
    "name": "028_dementia_limousine",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 12884,
    "animations": [],
    "textures": [
-    "028_dementia_limousine_0_paint.tga",
-    "028_dementia_limousine_10.tga",
-    "028_dementia_limousine_1_paint.tga",
-    "028_dementia_limousine_2_paint.tga",
-    "028_dementia_limousine_3_paint.tga",
-    "028_dementia_limousine_4.tga",
-    "028_dementia_limousine_5.tga",
-    "028_dementia_limousine_6.tga",
-    "028_dementia_limousine_7.tga",
-    "028_dementia_limousine_8.tga",
-    "028_dementia_limousine_9.tga"
+    "028_dementia_limousine_0.tga",
+    "028_dementia_limousine_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2762,22 +2295,13 @@
   },
   {
    "name": "029_dementia",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 12596,
    "animations": [],
    "textures": [
-    "029_dementia_0_paint.tga",
-    "029_dementia_10.tga",
-    "029_dementia_1_paint.tga",
-    "029_dementia_2_paint.tga",
-    "029_dementia_3_paint.tga",
-    "029_dementia_4.tga",
-    "029_dementia_5.tga",
-    "029_dementia_6.tga",
-    "029_dementia_7.tga",
-    "029_dementia_8.tga",
-    "029_dementia_9.tga"
+    "029_dementia_0.tga",
+    "029_dementia_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2785,22 +2309,13 @@
   },
   {
    "name": "030_land_roamer",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 13014,
    "animations": [],
    "textures": [
-    "030_land_roamer_0_paint.tga",
-    "030_land_roamer_10.tga",
-    "030_land_roamer_1_paint.tga",
-    "030_land_roamer_2_paint.tga",
-    "030_land_roamer_3_paint.tga",
-    "030_land_roamer_4.tga",
-    "030_land_roamer_5.tga",
-    "030_land_roamer_6.tga",
-    "030_land_roamer_7.tga",
-    "030_land_roamer_8.tga",
-    "030_land_roamer_9.tga"
+    "030_land_roamer_0.tga",
+    "030_land_roamer_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2808,22 +2323,13 @@
   },
   {
    "name": "031_jefferson",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 14032,
    "animations": [],
    "textures": [
-    "031_jefferson_0_paint.tga",
-    "031_jefferson_10.tga",
-    "031_jefferson_1_paint.tga",
-    "031_jefferson_2_paint.tga",
-    "031_jefferson_3_paint.tga",
-    "031_jefferson_4.tga",
-    "031_jefferson_5.tga",
-    "031_jefferson_6.tga",
-    "031_jefferson_7.tga",
-    "031_jefferson_8.tga",
-    "031_jefferson_9.tga"
+    "031_jefferson_0.tga",
+    "031_jefferson_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2831,23 +2337,13 @@
   },
   {
    "name": "086_karma_bus",
-   "nodes": 16,
-   "meshes": 12,
-   "vertices": 7110,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7414,
    "animations": [],
    "textures": [
-    "086_karma_bus_0_paint.tga",
-    "086_karma_bus_10.tga",
-    "086_karma_bus_11.tga",
-    "086_karma_bus_1_paint.tga",
-    "086_karma_bus_2_paint.tga",
-    "086_karma_bus_3_paint.tga",
-    "086_karma_bus_4.tga",
-    "086_karma_bus_5.tga",
-    "086_karma_bus_6.tga",
-    "086_karma_bus_7.tga",
-    "086_karma_bus_8.tga",
-    "086_karma_bus_9.tga"
+    "086_karma_bus_0.tga",
+    "086_karma_bus_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2855,22 +2351,13 @@
   },
   {
    "name": "032_stretch_limousine",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7614,
    "animations": [],
    "textures": [
-    "032_stretch_limousine_0_paint.tga",
-    "032_stretch_limousine_10.tga",
-    "032_stretch_limousine_1_paint.tga",
-    "032_stretch_limousine_2_paint.tga",
-    "032_stretch_limousine_3_paint.tga",
-    "032_stretch_limousine_4.tga",
-    "032_stretch_limousine_5.tga",
-    "032_stretch_limousine_6.tga",
-    "032_stretch_limousine_7.tga",
-    "032_stretch_limousine_8.tga",
-    "032_stretch_limousine_9.tga"
+    "032_stretch_limousine_0.tga",
+    "032_stretch_limousine_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2878,22 +2365,13 @@
   },
   {
    "name": "033_sports_limousine",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6934,
    "animations": [],
    "textures": [
-    "033_sports_limousine_0_paint.tga",
-    "033_sports_limousine_10.tga",
-    "033_sports_limousine_1_paint.tga",
-    "033_sports_limousine_2_paint.tga",
-    "033_sports_limousine_3_paint.tga",
-    "033_sports_limousine_4.tga",
-    "033_sports_limousine_5.tga",
-    "033_sports_limousine_6.tga",
-    "033_sports_limousine_7.tga",
-    "033_sports_limousine_8.tga",
-    "033_sports_limousine_9.tga"
+    "033_sports_limousine_0.tga",
+    "033_sports_limousine_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2901,24 +2379,13 @@
   },
   {
    "name": "034_medicar",
-   "nodes": 17,
-   "meshes": 13,
-   "vertices": 7578,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 14480,
    "animations": [],
    "textures": [
-    "034_medicar_0_paint.tga",
-    "034_medicar_10.tga",
-    "034_medicar_11.tga",
-    "034_medicar_12.tga",
-    "034_medicar_1_paint.tga",
-    "034_medicar_2_paint.tga",
-    "034_medicar_3_paint.tga",
-    "034_medicar_4.tga",
-    "034_medicar_5.tga",
-    "034_medicar_6.tga",
-    "034_medicar_7.tga",
-    "034_medicar_8.tga",
-    "034_medicar_9.tga"
+    "034_medicar_0.tga",
+    "034_medicar_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2926,22 +2393,13 @@
   },
   {
    "name": "035_benson",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6872,
    "animations": [],
    "textures": [
-    "035_benson_0_paint.tga",
-    "035_benson_10.tga",
-    "035_benson_1_paint.tga",
-    "035_benson_2_paint.tga",
-    "035_benson_3_paint.tga",
-    "035_benson_4.tga",
-    "035_benson_5.tga",
-    "035_benson_6.tga",
-    "035_benson_7.tga",
-    "035_benson_8.tga",
-    "035_benson_9.tga"
+    "035_benson_0.tga",
+    "035_benson_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2949,22 +2407,13 @@
   },
   {
    "name": "036_schmidt",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 13464,
    "animations": [],
    "textures": [
-    "036_schmidt_0_paint.tga",
-    "036_schmidt_10.tga",
-    "036_schmidt_1_paint.tga",
-    "036_schmidt_2_paint.tga",
-    "036_schmidt_3_paint.tga",
-    "036_schmidt_4.tga",
-    "036_schmidt_5.tga",
-    "036_schmidt_6.tga",
-    "036_schmidt_7.tga",
-    "036_schmidt_8.tga",
-    "036_schmidt_9.tga"
+    "036_schmidt_0.tga",
+    "036_schmidt_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2972,22 +2421,13 @@
   },
   {
    "name": "037_miara",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6036,
    "animations": [],
    "textures": [
-    "037_miara_0_paint.tga",
-    "037_miara_10.tga",
-    "037_miara_1_paint.tga",
-    "037_miara_2_paint.tga",
-    "037_miara_3_paint.tga",
-    "037_miara_4.tga",
-    "037_miara_5.tga",
-    "037_miara_6.tga",
-    "037_miara_7.tga",
-    "037_miara_8.tga",
-    "037_miara_9.tga"
+    "037_miara_0.tga",
+    "037_miara_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -2995,22 +2435,13 @@
   },
   {
    "name": "038_big_bug",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 8270,
    "animations": [],
    "textures": [
-    "038_big_bug_0_paint.tga",
-    "038_big_bug_10.tga",
-    "038_big_bug_1_paint.tga",
-    "038_big_bug_2_paint.tga",
-    "038_big_bug_3_paint.tga",
-    "038_big_bug_4.tga",
-    "038_big_bug_5.tga",
-    "038_big_bug_6.tga",
-    "038_big_bug_7.tga",
-    "038_big_bug_8.tga",
-    "038_big_bug_9.tga"
+    "038_big_bug_0.tga",
+    "038_big_bug_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3018,22 +2449,13 @@
   },
   {
    "name": "039_morton",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 13980,
    "animations": [],
    "textures": [
-    "039_morton_0_paint.tga",
-    "039_morton_10.tga",
-    "039_morton_1_paint.tga",
-    "039_morton_2_paint.tga",
-    "039_morton_3_paint.tga",
-    "039_morton_4.tga",
-    "039_morton_5.tga",
-    "039_morton_6.tga",
-    "039_morton_7.tga",
-    "039_morton_8.tga",
-    "039_morton_9.tga"
+    "039_morton_0.tga",
+    "039_morton_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3041,22 +2463,13 @@
   },
   {
    "name": "040_maurice",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 12308,
    "animations": [],
    "textures": [
-    "040_maurice_0_paint.tga",
-    "040_maurice_10.tga",
-    "040_maurice_1_paint.tga",
-    "040_maurice_2_paint.tga",
-    "040_maurice_3_paint.tga",
-    "040_maurice_4.tga",
-    "040_maurice_5.tga",
-    "040_maurice_6.tga",
-    "040_maurice_7.tga",
-    "040_maurice_8.tga",
-    "040_maurice_9.tga"
+    "040_maurice_0.tga",
+    "040_maurice_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3064,22 +2477,13 @@
   },
   {
    "name": "041_pickup",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 13980,
    "animations": [],
    "textures": [
-    "041_pickup_0_paint.tga",
-    "041_pickup_10.tga",
-    "041_pickup_1_paint.tga",
-    "041_pickup_2_paint.tga",
-    "041_pickup_3_paint.tga",
-    "041_pickup_4.tga",
-    "041_pickup_5.tga",
-    "041_pickup_6.tga",
-    "041_pickup_7.tga",
-    "041_pickup_8.tga",
-    "041_pickup_9.tga"
+    "041_pickup_0.tga",
+    "041_pickup_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3087,22 +2491,13 @@
   },
   {
    "name": "042_a_type",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 11148,
    "animations": [],
    "textures": [
-    "042_a_type_0_paint.tga",
-    "042_a_type_10.tga",
-    "042_a_type_1_paint.tga",
-    "042_a_type_2_paint.tga",
-    "042_a_type_3_paint.tga",
-    "042_a_type_4.tga",
-    "042_a_type_5.tga",
-    "042_a_type_6.tga",
-    "042_a_type_7.tga",
-    "042_a_type_8.tga",
-    "042_a_type_9.tga"
+    "042_a_type_0.tga",
+    "042_a_type_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3110,22 +2505,13 @@
   },
   {
    "name": "044_arachnid",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 12630,
    "animations": [],
    "textures": [
-    "044_arachnid_0_paint.tga",
-    "044_arachnid_10.tga",
-    "044_arachnid_1_paint.tga",
-    "044_arachnid_2_paint.tga",
-    "044_arachnid_3_paint.tga",
-    "044_arachnid_4.tga",
-    "044_arachnid_5.tga",
-    "044_arachnid_6.tga",
-    "044_arachnid_7.tga",
-    "044_arachnid_8.tga",
-    "044_arachnid_9.tga"
+    "044_arachnid_0.tga",
+    "044_arachnid_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3133,22 +2519,13 @@
   },
   {
    "name": "045_spritzer",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 15056,
    "animations": [],
    "textures": [
-    "045_spritzer_0_paint.tga",
-    "045_spritzer_10.tga",
-    "045_spritzer_1_paint.tga",
-    "045_spritzer_2_paint.tga",
-    "045_spritzer_3_paint.tga",
-    "045_spritzer_4.tga",
-    "045_spritzer_5.tga",
-    "045_spritzer_6.tga",
-    "045_spritzer_7.tga",
-    "045_spritzer_8.tga",
-    "045_spritzer_9.tga"
+    "045_spritzer_0.tga",
+    "045_spritzer_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3156,22 +2533,13 @@
   },
   {
    "name": "046_stinger",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6700,
    "animations": [],
    "textures": [
-    "046_stinger_0_paint.tga",
-    "046_stinger_10.tga",
-    "046_stinger_1_paint.tga",
-    "046_stinger_2_paint.tga",
-    "046_stinger_3_paint.tga",
-    "046_stinger_4.tga",
-    "046_stinger_5.tga",
-    "046_stinger_6.tga",
-    "046_stinger_7.tga",
-    "046_stinger_8.tga",
-    "046_stinger_9.tga"
+    "046_stinger_0.tga",
+    "046_stinger_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3179,22 +2547,13 @@
   },
   {
    "name": "047_meteor",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 5162,
    "animations": [],
    "textures": [
-    "047_meteor_0_paint.tga",
-    "047_meteor_10.tga",
-    "047_meteor_1_paint.tga",
-    "047_meteor_2_paint.tga",
-    "047_meteor_3_paint.tga",
-    "047_meteor_4.tga",
-    "047_meteor_5.tga",
-    "047_meteor_6.tga",
-    "047_meteor_7.tga",
-    "047_meteor_8.tga",
-    "047_meteor_9.tga"
+    "047_meteor_0.tga",
+    "047_meteor_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3202,22 +2561,13 @@
   },
   {
    "name": "048_meteor",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6128,
    "animations": [],
    "textures": [
-    "048_meteor_0_paint.tga",
-    "048_meteor_10.tga",
-    "048_meteor_1_paint.tga",
-    "048_meteor_2_paint.tga",
-    "048_meteor_3_paint.tga",
-    "048_meteor_4.tga",
-    "048_meteor_5.tga",
-    "048_meteor_6.tga",
-    "048_meteor_7.tga",
-    "048_meteor_8.tga",
-    "048_meteor_9.tga"
+    "048_meteor_0.tga",
+    "048_meteor_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3225,22 +2575,13 @@
   },
   {
    "name": "049_hachura",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6076,
    "animations": [],
    "textures": [
-    "049_hachura_0_paint.tga",
-    "049_hachura_10.tga",
-    "049_hachura_1_paint.tga",
-    "049_hachura_2_paint.tga",
-    "049_hachura_3_paint.tga",
-    "049_hachura_4.tga",
-    "049_hachura_5.tga",
-    "049_hachura_6.tga",
-    "049_hachura_7.tga",
-    "049_hachura_8.tga",
-    "049_hachura_9.tga"
+    "049_hachura_0.tga",
+    "049_hachura_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3248,22 +2589,13 @@
   },
   {
    "name": "050_b_type",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 12598,
    "animations": [],
    "textures": [
-    "050_b_type_0_paint.tga",
-    "050_b_type_10.tga",
-    "050_b_type_1_paint.tga",
-    "050_b_type_2_paint.tga",
-    "050_b_type_3_paint.tga",
-    "050_b_type_4.tga",
-    "050_b_type_5.tga",
-    "050_b_type_6.tga",
-    "050_b_type_7.tga",
-    "050_b_type_8.tga",
-    "050_b_type_9.tga"
+    "050_b_type_0.tga",
+    "050_b_type_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3271,23 +2603,13 @@
   },
   {
    "name": "051_taxi_xpress",
-   "nodes": 16,
-   "meshes": 12,
-   "vertices": 8718,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7216,
    "animations": [],
    "textures": [
-    "051_taxi_xpress_0_paint.tga",
-    "051_taxi_xpress_10.tga",
-    "051_taxi_xpress_11.tga",
-    "051_taxi_xpress_1_paint.tga",
-    "051_taxi_xpress_2_paint.tga",
-    "051_taxi_xpress_3_paint.tga",
-    "051_taxi_xpress_4.tga",
-    "051_taxi_xpress_5.tga",
-    "051_taxi_xpress_6.tga",
-    "051_taxi_xpress_7.tga",
-    "051_taxi_xpress_8.tga",
-    "051_taxi_xpress_9.tga"
+    "051_taxi_xpress_0.tga",
+    "051_taxi_xpress_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3295,24 +2617,13 @@
   },
   {
    "name": "052_swat_van",
-   "nodes": 17,
-   "meshes": 13,
-   "vertices": 7578,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 9488,
    "animations": [],
    "textures": [
-    "052_swat_van_0_paint.tga",
-    "052_swat_van_10.tga",
-    "052_swat_van_11.tga",
-    "052_swat_van_12.tga",
-    "052_swat_van_1_paint.tga",
-    "052_swat_van_2_paint.tga",
-    "052_swat_van_3_paint.tga",
-    "052_swat_van_4.tga",
-    "052_swat_van_5.tga",
-    "052_swat_van_6.tga",
-    "052_swat_van_7.tga",
-    "052_swat_van_8.tga",
-    "052_swat_van_9.tga"
+    "052_swat_van_0.tga",
+    "052_swat_van_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3320,22 +2631,13 @@
   },
   {
    "name": "053_michelli_roadster",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 13136,
    "animations": [],
    "textures": [
-    "053_michelli_roadster_0_paint.tga",
-    "053_michelli_roadster_10.tga",
-    "053_michelli_roadster_1_paint.tga",
-    "053_michelli_roadster_2_paint.tga",
-    "053_michelli_roadster_3_paint.tga",
-    "053_michelli_roadster_4.tga",
-    "053_michelli_roadster_5.tga",
-    "053_michelli_roadster_6.tga",
-    "053_michelli_roadster_7.tga",
-    "053_michelli_roadster_8.tga",
-    "053_michelli_roadster_9.tga"
+    "053_michelli_roadster_0.tga",
+    "053_michelli_roadster_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3343,15 +2645,13 @@
   },
   {
    "name": "054_tank",
-   "nodes": 4,
-   "meshes": 4,
-   "vertices": 2766,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 12198,
    "animations": [],
    "textures": [
-    "054_tank_0_paint.tga",
-    "054_tank_1_paint.tga",
-    "054_tank_2.tga",
-    "054_tank_3.tga"
+    "054_tank_0.tga",
+    "054_tank_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3382,23 +2682,13 @@
   },
   {
    "name": "056_taxi",
-   "nodes": 16,
-   "meshes": 12,
-   "vertices": 8718,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6946,
    "animations": [],
    "textures": [
-    "056_taxi_0_paint.tga",
-    "056_taxi_10.tga",
-    "056_taxi_11.tga",
-    "056_taxi_1_paint.tga",
-    "056_taxi_2_paint.tga",
-    "056_taxi_3_paint.tga",
-    "056_taxi_4.tga",
-    "056_taxi_5.tga",
-    "056_taxi_6.tga",
-    "056_taxi_7.tga",
-    "056_taxi_8.tga",
-    "056_taxi_9.tga"
+    "056_taxi_0.tga",
+    "056_taxi_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3406,22 +2696,13 @@
   },
   {
    "name": "057_t_rex",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6800,
    "animations": [],
    "textures": [
-    "057_t_rex_0_paint.tga",
-    "057_t_rex_10.tga",
-    "057_t_rex_1_paint.tga",
-    "057_t_rex_2_paint.tga",
-    "057_t_rex_3_paint.tga",
-    "057_t_rex_4.tga",
-    "057_t_rex_5.tga",
-    "057_t_rex_6.tga",
-    "057_t_rex_7.tga",
-    "057_t_rex_8.tga",
-    "057_t_rex_9.tga"
+    "057_t_rex_0.tga",
+    "057_t_rex_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3429,22 +2710,13 @@
   },
   {
    "name": "058_tow_truck",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 13336,
    "animations": [],
    "textures": [
-    "058_tow_truck_0_paint.tga",
-    "058_tow_truck_10.tga",
-    "058_tow_truck_1_paint.tga",
-    "058_tow_truck_2_paint.tga",
-    "058_tow_truck_3_paint.tga",
-    "058_tow_truck_4.tga",
-    "058_tow_truck_5.tga",
-    "058_tow_truck_6.tga",
-    "058_tow_truck_7.tga",
-    "058_tow_truck_8.tga",
-    "058_tow_truck_9.tga"
+    "058_tow_truck_0.tga",
+    "058_tow_truck_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3521,22 +2793,13 @@
   },
   {
    "name": "062_trance_am",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6540,
    "animations": [],
    "textures": [
-    "062_trance_am_0_paint.tga",
-    "062_trance_am_10.tga",
-    "062_trance_am_1_paint.tga",
-    "062_trance_am_2_paint.tga",
-    "062_trance_am_3_paint.tga",
-    "062_trance_am_4.tga",
-    "062_trance_am_5.tga",
-    "062_trance_am_6.tga",
-    "062_trance_am_7.tga",
-    "062_trance_am_8.tga",
-    "062_trance_am_9.tga"
+    "062_trance_am_0.tga",
+    "062_trance_am_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3544,22 +2807,13 @@
   },
   {
    "name": "063_truck_cab",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 15694,
    "animations": [],
    "textures": [
-    "063_truck_cab_0_paint.tga",
-    "063_truck_cab_10.tga",
-    "063_truck_cab_1_paint.tga",
-    "063_truck_cab_2_paint.tga",
-    "063_truck_cab_3_paint.tga",
-    "063_truck_cab_4.tga",
-    "063_truck_cab_5.tga",
-    "063_truck_cab_6.tga",
-    "063_truck_cab_7.tga",
-    "063_truck_cab_8.tga",
-    "063_truck_cab_9.tga"
+    "063_truck_cab_0.tga",
+    "063_truck_cab_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3567,22 +2821,13 @@
   },
   {
    "name": "064_truck_cab_sx",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 9118,
    "animations": [],
    "textures": [
-    "064_truck_cab_sx_0_paint.tga",
-    "064_truck_cab_sx_10.tga",
-    "064_truck_cab_sx_1_paint.tga",
-    "064_truck_cab_sx_2_paint.tga",
-    "064_truck_cab_sx_3_paint.tga",
-    "064_truck_cab_sx_4.tga",
-    "064_truck_cab_sx_5.tga",
-    "064_truck_cab_sx_6.tga",
-    "064_truck_cab_sx_7.tga",
-    "064_truck_cab_sx_8.tga",
-    "064_truck_cab_sx_9.tga"
+    "064_truck_cab_sx_0.tga",
+    "064_truck_cab_sx_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3632,22 +2877,13 @@
   },
   {
    "name": "067_tv_van",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 7860,
    "animations": [],
    "textures": [
-    "067_tv_van_0_paint.tga",
-    "067_tv_van_10.tga",
-    "067_tv_van_1_paint.tga",
-    "067_tv_van_2_paint.tga",
-    "067_tv_van_3_paint.tga",
-    "067_tv_van_4.tga",
-    "067_tv_van_5.tga",
-    "067_tv_van_6.tga",
-    "067_tv_van_7.tga",
-    "067_tv_van_8.tga",
-    "067_tv_van_9.tga"
+    "067_tv_van_0.tga",
+    "067_tv_van_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3678,22 +2914,13 @@
   },
   {
    "name": "069_u_jerk_truck",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 11994,
    "animations": [],
    "textures": [
-    "069_u_jerk_truck_0_paint.tga",
-    "069_u_jerk_truck_10.tga",
-    "069_u_jerk_truck_1_paint.tga",
-    "069_u_jerk_truck_2_paint.tga",
-    "069_u_jerk_truck_3_paint.tga",
-    "069_u_jerk_truck_4.tga",
-    "069_u_jerk_truck_5.tga",
-    "069_u_jerk_truck_6.tga",
-    "069_u_jerk_truck_7.tga",
-    "069_u_jerk_truck_8.tga",
-    "069_u_jerk_truck_9.tga"
+    "069_u_jerk_truck_0.tga",
+    "069_u_jerk_truck_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3701,22 +2928,13 @@
   },
   {
    "name": "070_z_type",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8682,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 8670,
    "animations": [],
    "textures": [
-    "070_z_type_0_paint.tga",
-    "070_z_type_10.tga",
-    "070_z_type_1_paint.tga",
-    "070_z_type_2_paint.tga",
-    "070_z_type_3_paint.tga",
-    "070_z_type_4.tga",
-    "070_z_type_5.tga",
-    "070_z_type_6.tga",
-    "070_z_type_7.tga",
-    "070_z_type_8.tga",
-    "070_z_type_9.tga"
+    "070_z_type_0.tga",
+    "070_z_type_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3724,22 +2942,13 @@
   },
   {
    "name": "071_rumbler",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 9176,
    "animations": [],
    "textures": [
-    "071_rumbler_0_paint.tga",
-    "071_rumbler_10.tga",
-    "071_rumbler_1_paint.tga",
-    "071_rumbler_2_paint.tga",
-    "071_rumbler_3_paint.tga",
-    "071_rumbler_4.tga",
-    "071_rumbler_5.tga",
-    "071_rumbler_6.tga",
-    "071_rumbler_7.tga",
-    "071_rumbler_8.tga",
-    "071_rumbler_9.tga"
+    "071_rumbler_0.tga",
+    "071_rumbler_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3747,22 +2956,13 @@
   },
   {
    "name": "082_jagular_xk",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 14372,
    "animations": [],
    "textures": [
-    "082_jagular_xk_0_paint.tga",
-    "082_jagular_xk_10.tga",
-    "082_jagular_xk_1_paint.tga",
-    "082_jagular_xk_2_paint.tga",
-    "082_jagular_xk_3_paint.tga",
-    "082_jagular_xk_4.tga",
-    "082_jagular_xk_5.tga",
-    "082_jagular_xk_6.tga",
-    "082_jagular_xk_7.tga",
-    "082_jagular_xk_8.tga",
-    "082_jagular_xk_9.tga"
+    "082_jagular_xk_0.tga",
+    "082_jagular_xk_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -3770,22 +2970,13 @@
   },
   {
    "name": "083_furore_gt",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 8898,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 6616,
    "animations": [],
    "textures": [
-    "083_furore_gt_0_paint.tga",
-    "083_furore_gt_10.tga",
-    "083_furore_gt_1_paint.tga",
-    "083_furore_gt_2_paint.tga",
-    "083_furore_gt_3_paint.tga",
-    "083_furore_gt_4.tga",
-    "083_furore_gt_5.tga",
-    "083_furore_gt_6.tga",
-    "083_furore_gt_7.tga",
-    "083_furore_gt_8.tga",
-    "083_furore_gt_9.tga"
+    "083_furore_gt_0.tga",
+    "083_furore_gt_0_paint.tga"
    ],
    "skins": 0,
    "forward": "",

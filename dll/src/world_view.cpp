@@ -41,6 +41,7 @@ struct FrameTimer {
     double sum[kStages] = {};
     int frames = 0;
     int hitchLogged = 0;
+    int hitchLoggedOurs = 0;
 };
 FrameTimer g_frameTimer;
 double QpcMs(LARGE_INTEGER a, LARGE_INTEGER b) {
@@ -840,6 +841,7 @@ void WorldView::Shutdown() {
     // actually built and drew.
     WriteTextureReport();
     CarBodiesReleaseDevice();
+    ModelsReleaseDevice();   // its default-pool skin buffers must go before the device
     ReleaseDeviceTextures();
     renderer_.Shutdown();
     if (ours) DestroyWindow(ours);
@@ -1720,10 +1722,11 @@ void WorldView::RenderFrame() {
         // in the classic view.
         DrawSkyAndShading();
         renderer_.DrawWorld(camera_);
+        renderer_.WarmTileTextures(6);   // nothing once every tile has been drawn with
         QueryPerformanceCounter(&stamp[2]);
         // Sprites and the captured block shapes are real world geometry, so they
         // are depth tested against the static mesh rather than painted over it.
-        live_.Draw(renderer_.Device(), camera_, renderer_.Width(), renderer_.Height());
+        if (!(DebugSkipMask() & 1)) live_.Draw(renderer_.Device(), camera_, renderer_.Width(), renderer_.Height());
         renderer_.EndWorldShading();
         QueryPerformanceCounter(&stamp[3]);
         // The 2D stream goes into a layer that is kept between frames, because
@@ -1828,15 +1831,23 @@ void WorldView::RenderFrame() {
             t.sum[i] += ms[i];
         }
         ++t.frames;
-        if ((work > kHitchMs || ms[0] > kHitchMs || whole > 50.0 || ms[3] > 12.0) && t.hitchLogged < 400) {
-            ++t.hitchLogged;
+        // Two budgets: a slow present (the driver, the host) is common and
+        // would use up the log; an expensive sprites stage is ours to explain.
+        const bool ours = ms[3] > 12.0;
+        if ((work > kHitchMs || ms[0] > kHitchMs || whole > 50.0 || ours) &&
+            (ours ? t.hitchLoggedOurs < 300 : t.hitchLogged < 400)) {
+            if (ours) ++t.hitchLoggedOurs; else ++t.hitchLogged;
             Log("hitch @%d: frame %.1f ms | game %.1f lights %.1f world %.1f sprites %.1f ui %.1f "
                 "lightsdraw %.1f present %.1f wait %.1f",
                 frameCount_, whole, ms[0], ms[1], ms[2], ms[3], ms[4], ms[5], ms[6], ms[7]);
             if (ms[3] > 12.0) {
                 const double* d = LiveDrawStageMs();
-                Log("hitch @%d: sprites stage was setup %.1f loop %.1f skidmemory %.1f issue %.1f domes %.1f",
-                    frameCount_, d[0], d[1], d[2], d[3], d[4]);
+                Log("hitch @%d: sprites stage was setup %.1f loop %.1f skidmemory %.1f issue %.1f cars %.1f props %.1f "
+                    "objects %.1f peds %.1f rest %.1f",
+                    frameCount_, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8]);
+                const double* m = ModelDrawStats();
+                Log("hitch @%d: models: %.0f draws (%.0f skinned) %.1f ms, of which posing %.1f, buffer fills %.1f",
+                    frameCount_, m[3], m[4], m[2], m[0], m[1]);
             }
         }
         if (t.frames >= 256) {

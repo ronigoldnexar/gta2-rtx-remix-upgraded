@@ -1,6 +1,8 @@
 // See car_bodies.h.
 #include "car_bodies.h"
 
+#include "live_geometry.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -911,7 +913,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     // some ambient, and a modest specular lobe for the paint.
     D3DLIGHT9 sun = {};
     sun.Type = D3DLIGHT_DIRECTIONAL;
-    sun.Diffuse = {0.80f, 0.78f, 0.75f, 1.0f};
+    sun.Diffuse = {0.78f, 0.78f, 0.78f, 1.0f};   // neutral: the paint tint must not pick up a cast
     sun.Specular = {0.55f, 0.55f, 0.55f, 1.0f};
     const float dx = 0.38f, dy = -0.78f, dz = 0.50f;
     const float dl = std::sqrt(dx * dx + dy * dy + dz * dz);
@@ -954,10 +956,36 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         Built* b = Measured(device, use, art, frame);
         if (!b) continue;
         const gta2::Mat4 carToWorld = Mul(CarToLocal(use), use.objectToWorld);
+        // A car behind the camera costs its whole transform and clip on the
+        // software driver for nothing on screen; the margin covers a bus.
+        if (!use.own && BehindView(carToWorld.m[3][0], carToWorld.m[3][1], carToWorld.m[3][2], 2.5f)) continue;
         D3DMATRIX wm;
         // The camera inside this car (standing at a parked car's door in the chase
-        // view): the body would fill the screen with its underside. Not the own car.
-        if (!use.own && Inside(carToWorld, eye, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.4f * b->bodyWidth)) continue;
+        // view): the body would fill the screen with its underside. Not the own car:
+        // from the driver's seat the models are solid hulls with painted windows, so
+        // everything above a hand's breadth below the eye is clipped away and what
+        // is left - hood, fenders, the cowl - is the view over a dashboard.
+        const bool inside = Inside(carToWorld, eye, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.4f * b->bodyWidth);
+        if (inside && !use.own) continue;
+        bool clipped = false;
+        if (inside && use.own) {
+            const float ux = carToWorld.m[1][0], uy = carToWorld.m[1][1], uz = carToWorld.m[1][2];
+            const float ul = std::sqrt(ux * ux + uy * uy + uz * uz);
+            if (ul > 1e-6f) {
+                const float nx = -ux / ul, ny = -uy / ul, nz = -uz / ul;   // keep what lies below
+                const float margin = 0.035f;
+                const float px_ = eye.x + ux / ul * -margin, py_ = eye.y + uy / ul * -margin, pz_ = eye.z + uz / ul * -margin;
+                // Fixed-function clip planes are given in world space when no vertex shader is bound.
+                const float plane[4] = {nx, ny, nz, -(nx * px_ + ny * py_ + nz * pz_)};
+                device->SetClipPlane(0, plane);
+                device->SetRenderState(D3DRS_CLIPPLANEENABLE, 1u);
+                clipped = true;
+            }
+        }
+        struct ClipOff {
+            IDirect3DDevice9* device; bool on;
+            ~ClipOff() { if (on) device->SetRenderState(D3DRS_CLIPPLANEENABLE, 0u); }
+        } clipOff{device, clipped};
 
         // A hand-made model for this vehicle: placed on the sprite's footprint,
         // its painted parts in the car's own colour.
@@ -984,7 +1012,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 g_cabins[use.object] = {0.62f * roof, roof, (b->measure.cabinFront - cy) * b->scale, 0.5f * b->bodyWidth, frame};
             }
             ModelSetPaintTint(tint);
+            // A baked texture split into paint and the rest (import_assets.py's
+            // paint_split) is two alpha-tested draws of the same mesh.
+            device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+            device->SetRenderState(D3DRS_ALPHAREF, 128u);
+            device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
             ModelDraw(device, *model, Mul(fit, carToWorld), nullptr, 0.0f);
+            device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
             ModelSetPaintTint(nullptr);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
             ++g_drawn;
@@ -1042,6 +1076,15 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             device->SetIndices(nullptr);
         }
         ++g_drawn;
+    }
+    // The texture budget, now and then: the game is a 32-bit process.
+    if (frame % 900 == 0) {
+        int count = 0;
+        const size_t modelBytes = ModelsTextureBytes(&count);
+        size_t atlasBytes = 0;
+        for (const auto& e : g_cache) if (e.second.atlas) atlasBytes += e.second.measure.w * kAtlasScale * static_cast<size_t>(e.second.measure.h * kAtlasScale + kBandRows + kBlockRows) * 4;
+        Log("car models: %d textures, %.1f MB in the managed pool; %u sprite-built atlases, %.1f MB; %d cars drawn this frame",
+            count, modelBytes / 1048576.0, static_cast<unsigned>(g_cache.size()), atlasBytes / 1048576.0, g_drawn);
     }
     if (g_cabins.size() > 128) {
         for (auto it = g_cabins.begin(); it != g_cabins.end();) {

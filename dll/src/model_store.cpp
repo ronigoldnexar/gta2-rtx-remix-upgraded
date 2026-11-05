@@ -53,6 +53,7 @@ bool g_loaded = false;
 int g_drawn = 0;
 
 std::map<std::string, IDirect3DTexture9*> g_textures;
+size_t g_textureBytes = 0;
 
 bool ReadAll(const std::string& path, std::vector<uint8_t>* out) {
     FILE* f = fopen(path.c_str(), "rb");
@@ -191,7 +192,44 @@ gta2::Mat4 Compose(const gta2::Vec3& t, const float* q, const gta2::Vec3& s) {
     return m;
 }
 
-void NodeWorlds(const Model& model, const ModelAnimation* animation, float time, std::vector<gta2::Mat4>* out) {
+// One clip's pose at `time`, written over the rest pose already in t/q/s.
+void SampleClip(const Model& model, const ModelAnimation* animation, float time, std::vector<gta2::Vec3>* t,
+                std::vector<std::array<float, 4>>* q, std::vector<gta2::Vec3>* s) {
+    const size_t n = model.nodes.size();
+    if (!animation || animation->length <= 0.0f) return;
+    const float at = std::fmod(time, animation->length);
+    for (const ModelChannel& c : animation->channels) {
+        if (c.node < 0 || c.node >= static_cast<int>(n) || c.times.empty()) continue;
+        const int per = c.path == 1 ? 4 : 3;
+        // The keys either side of `at`, and where between them it falls.
+        size_t k = 0;
+        while (k + 1 < c.times.size() && c.times[k + 1] <= at) ++k;
+        const size_t k2 = (std::min)(k + 1, c.times.size() - 1);
+        const float span = c.times[k2] - c.times[k];
+        const float f = span > 1e-6f ? (at - c.times[k]) / span : 0.0f;
+        const float* a = &c.values[k * per];
+        const float* b = &c.values[k2 * per];
+        if (c.path == 1) {
+            // Normalised linear blend of the quaternions, the short way.
+            float dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+            const float sign = dot < 0.0f ? -1.0f : 1.0f;
+            float r[4];
+            for (int i = 0; i < 4; ++i) r[i] = a[i] * (1 - f) + b[i] * sign * f;
+            const float len = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]);
+            if (len > 1e-6f) for (float& v : r) v /= len;
+            memcpy((*q)[c.node].data(), r, sizeof(r));
+        } else {
+            gta2::Vec3 v{a[0] * (1 - f) + b[0] * f, a[1] * (1 - f) + b[1] * f, a[2] * (1 - f) + b[2] * f};
+            (c.path == 0 ? (*t)[c.node] : (*s)[c.node]) = v;
+        }
+    }
+}
+
+// The node world matrices of a pose: `animation` at `time`, blended toward
+// `second` at `secondTime` by `weight` (nlerp on the rotations, lerp on the
+// rest), then composed down the parent chain.
+void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float time, const ModelAnimation* second,
+                     float secondTime, float weight, std::vector<gta2::Mat4>* out) {
     const size_t n = model.nodes.size();
     std::vector<gta2::Vec3> t(n), s(n);
     std::vector<std::array<float, 4>> q(n);
@@ -200,31 +238,27 @@ void NodeWorlds(const Model& model, const ModelAnimation* animation, float time,
         s[i] = model.nodes[i].scale;
         memcpy(q[i].data(), model.nodes[i].rotation, sizeof(float) * 4);
     }
-    if (animation && animation->length > 0.0f) {
-        const float at = std::fmod(time, animation->length);
-        for (const ModelChannel& c : animation->channels) {
-            if (c.node < 0 || c.node >= static_cast<int>(n) || c.times.empty()) continue;
-            const int per = c.path == 1 ? 4 : 3;
-            // The keys either side of `at`, and where between them it falls.
-            size_t k = 0;
-            while (k + 1 < c.times.size() && c.times[k + 1] <= at) ++k;
-            const size_t k2 = (std::min)(k + 1, c.times.size() - 1);
-            const float span = c.times[k2] - c.times[k];
-            const float f = span > 1e-6f ? (at - c.times[k]) / span : 0.0f;
-            const float* a = &c.values[k * per];
-            const float* b = &c.values[k2 * per];
-            if (c.path == 1) {
-                // Normalised linear blend of the quaternions, the short way.
-                float dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-                const float sign = dot < 0.0f ? -1.0f : 1.0f;
+    const bool blend = second && second->length > 0.0f && weight > 1e-3f;
+    if (blend && weight >= 0.999f) {
+        SampleClip(model, second, secondTime, &t, &q, &s);
+    } else {
+        SampleClip(model, animation, time, &t, &q, &s);
+        if (blend) {
+            std::vector<gta2::Vec3> t2(t), s2(s);
+            std::vector<std::array<float, 4>> q2(q);
+            SampleClip(model, second, secondTime, &t2, &q2, &s2);
+            const float w = weight, v = 1.0f - weight;
+            for (size_t i = 0; i < n; ++i) {
+                t[i] = {t[i].x * v + t2[i].x * w, t[i].y * v + t2[i].y * w, t[i].z * v + t2[i].z * w};
+                s[i] = {s[i].x * v + s2[i].x * w, s[i].y * v + s2[i].y * w, s[i].z * v + s2[i].z * w};
+                const float* a = q[i].data();
+                const float* b = q2[i].data();
+                const float sign = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) < 0.0f ? -1.0f : 1.0f;
                 float r[4];
-                for (int i = 0; i < 4; ++i) r[i] = a[i] * (1 - f) + b[i] * sign * f;
+                for (int k = 0; k < 4; ++k) r[k] = a[k] * v + b[k] * sign * w;
                 const float len = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]);
-                if (len > 1e-6f) for (float& v : r) v /= len;
-                memcpy(q[c.node].data(), r, sizeof(r));
-            } else {
-                gta2::Vec3 v{a[0] * (1 - f) + b[0] * f, a[1] * (1 - f) + b[1] * f, a[2] * (1 - f) + b[2] * f};
-                (c.path == 0 ? t[c.node] : s[c.node]) = v;
+                if (len > 1e-6f) for (float& x : r) x /= len;
+                memcpy(q[i].data(), r, sizeof(r));
             }
         }
     }
@@ -242,6 +276,10 @@ void NodeWorlds(const Model& model, const ModelAnimation* animation, float time,
             done[i] = true;
         }
     }
+}
+
+void NodeWorlds(const Model& model, const ModelAnimation* animation, float time, std::vector<gta2::Mat4>* out) {
+    NodeWorldsBlend(model, animation, time, nullptr, 0.0f, 0.0f, out);
 }
 
 // The matrices a skin's joints apply this pose: inverse bind, then the joint's
@@ -359,6 +397,7 @@ IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file)
         const bool topDown = (tga[17] & 0x20) != 0;
         if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 &&
             SUCCEEDED(device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) {
+            g_textureBytes += static_cast<size_t>(w) * h * 4;
             D3DLOCKED_RECT lr;
             if (SUCCEEDED(texture->LockRect(0, &lr, nullptr, 0))) {
                 for (int y = 0; y < h; ++y) {
@@ -430,6 +469,8 @@ void ModelsLoad(const char* folder) {
         if (it != g_byName.end() && (forward == "+z" || forward == "-z")) g_models[it->second].forward = forward == "+z" ? 1.0f : -1.0f;
         const std::string stride = Field(entry, "stride");
         if (it != g_byName.end() && !stride.empty()) g_models[it->second].stride = static_cast<float>(atof(stride.c_str()));
+        const std::string runStride = Field(entry, "run_stride");
+        if (it != g_byName.end() && !runStride.empty()) g_models[it->second].runStride = static_cast<float>(atof(runStride.c_str()));
         // "paint_rgb": [r, g, b]
         const size_t paint = entry.find("\"paint_rgb\"");
         if (it != g_byName.end() && paint != std::string::npos) {
@@ -499,6 +540,11 @@ const Model* ModelForVehicle(int modelNumber, int sprite) {
     return ModelForCar(sprite);
 }
 
+size_t ModelsTextureBytes(int* count) {
+    if (count) *count = static_cast<int>(g_textures.size());
+    return g_textureBytes;
+}
+
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
     if (rgb) for (int i = 0; i < 3; ++i) g_paintTint[i] = (std::max)(0.0f, (std::min)(2.0f, rgb[i]));
@@ -536,19 +582,74 @@ const Model* ModelForPedestrian(uint32_t seed) {
     return &g_models[g_byName[g_pedestrians[seed % g_pedestrians.size()]]];
 }
 
-void ModelsBeginFrame() { g_drawn = 0; }
+// Where ModelDraw's time goes this frame: node worlds + posing (skinning),
+// buffer fills (a skinned mesh's pose written to its managed buffer), the whole
+// of ModelDraw; then counts of draws and skinned draws.
+double g_modelStats[6] = {};
+LARGE_INTEGER g_modelFreq = {};
+double ModelMs(const LARGE_INTEGER& a, const LARGE_INTEGER& b) {
+    if (!g_modelFreq.QuadPart) QueryPerformanceFrequency(&g_modelFreq);
+    return 1000.0 * static_cast<double>(b.QuadPart - a.QuadPart) / static_cast<double>(g_modelFreq.QuadPart);
+}
+void ModelsBeginFrame() { g_drawn = 0; for (double& v : g_modelStats) v = 0.0; }
+
+size_t g_warmCursor = 0;
+std::vector<std::string> g_warmList;
+
+// Binds `texture` in a two-triangle draw with colour and depth writes off: no
+// pixel changes, but wined3d loads the texture into GL for it, which is the
+// 20-100 ms a first use would otherwise cost in the middle of play.
+void WarmTexture(IDirect3DDevice9* device, IDirect3DTexture9* texture) {
+    if (!device || !texture) return;
+    struct V { float x, y, z, rhw, u, v; };
+    const V quad[4] = {{0.0f, 0.0f, 0.5f, 1.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.5f, 1.0f, 1.0f, 0.0f},
+                       {0.0f, 2.0f, 0.5f, 1.0f, 0.0f, 1.0f}, {2.0f, 2.0f, 0.5f, 1.0f, 1.0f, 1.0f}};
+    DWORD colorWrite = 0xF, zWrite = TRUE, zEnable = TRUE, fvf = 0;
+    device->GetRenderState(D3DRS_COLORWRITEENABLE, &colorWrite);
+    device->GetRenderState(D3DRS_ZWRITEENABLE, &zWrite);
+    device->GetRenderState(D3DRS_ZENABLE, &zEnable);
+    device->GetFVF(&fvf);
+    device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device->SetRenderState(D3DRS_ZENABLE, FALSE);
+    device->SetTexture(0, texture);
+    device->SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1);
+    device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(V));
+    device->SetTexture(0, nullptr);
+    device->SetFVF(fvf);
+    device->SetRenderState(D3DRS_COLORWRITEENABLE, colorWrite);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, zWrite);
+    device->SetRenderState(D3DRS_ZENABLE, zEnable);
+}
+
 int ModelsDrawnThisFrame() { return g_drawn; }
+const double* ModelDrawStats() { return g_modelStats; }
 
 // The posed vertices of each skinned mesh, kept from one draw to the next: many
 // pedestrians share a model, and two at the same point of the same animation
-// cost one skinning, not two.
-struct PosedCache {
+// cost one skinning, not two. Several poses are kept (walk cycles quantised by
+// the caller land on the same keys), the least recently used dropped first.
+struct PoseKey {
     const Model* model = nullptr;
     const ModelAnimation* animation = nullptr;
-    float time = -1.0f;
+    const ModelAnimation* second = nullptr;
+    float time = -1.0f, secondTime = -1.0f, weight = 0.0f;
+    bool operator==(const PoseKey& o) const {
+        return model == o.model && animation == o.animation && second == o.second && std::fabs(time - o.time) < 1e-4f &&
+               std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f;
+    }
+};
+struct PosedCache {
+    PoseKey key;
+    uint64_t id = 0;   // unique per cached pose: what the vertex buffers remember holding
+    unsigned used = 0;
     std::vector<std::vector<ModelVertex>> meshes;
 };
-PosedCache g_posed;
+constexpr size_t kPoseCacheMax = 160;   // ~5k vertices x 32 bytes x 160 = 26 MB at most
+std::vector<PosedCache> g_poses;
+uint64_t g_poseNext = 1;
+unsigned g_poseClock = 0;
+const PosedCache* g_posedNow = nullptr;   // the pose the draw in progress uses
 
 // The vertex and index buffers of one mesh. Meshes used to be drawn straight
 // from memory (DrawIndexedPrimitiveUP), which has wined3d copy every vertex
@@ -558,24 +659,72 @@ PosedCache g_posed;
 struct MeshBuffers {
     IDirect3DVertexBuffer9* vb = nullptr;
     IDirect3DIndexBuffer9* ib = nullptr;
-    const ModelAnimation* animation = nullptr;  // the pose held by vb, skinned meshes only
-    float time = -1.0f;
+    uint64_t pose = 0;    // the cached pose held by vb, skinned meshes only
     bool failed = false;  // creation failed once: draw from memory instead
 };
 std::map<const ModelMesh*, MeshBuffers> g_buffers;
 
-bool FillVertices(IDirect3DVertexBuffer9* vb, const ModelVertex* verts, size_t count) {
+bool FillVertices(IDirect3DVertexBuffer9* vb, const ModelVertex* verts, size_t count, DWORD flags = 0) {
     void* data = nullptr;
-    if (FAILED(vb->Lock(0, static_cast<UINT>(count * sizeof(ModelVertex)), &data, 0)) || !data) return false;
+    if (FAILED(vb->Lock(0, static_cast<UINT>(count * sizeof(ModelVertex)), &data, flags)) || !data) return false;
     memcpy(data, verts, count * sizeof(ModelVertex));
     vb->Unlock();
     return true;
 }
 
+// A skinned mesh's posed vertices, one vertex buffer per cached pose. Rewriting
+// a managed buffer that was drawn from this frame makes wined3d wait for the
+// GL stream to drain and upload the whole buffer again, which cost 25 ms per
+// pedestrian on the software driver (203 ms a frame for eight people). These
+// are dynamic buffers in the default pool, written once with DISCARD when the
+// pose is first seen and kept while the pose stays in the cache; the oldest go
+// when there are too many. Released with the device (ModelsReleaseDevice).
+struct SkinBuffer {
+    IDirect3DVertexBuffer9* vb = nullptr;
+    unsigned used = 0;
+};
+struct SkinKey {
+    const ModelMesh* mesh;
+    uint64_t pose;
+    bool operator<(const SkinKey& o) const { return mesh != o.mesh ? mesh < o.mesh : pose < o.pose; }
+};
+std::map<SkinKey, SkinBuffer> g_skinBuffers;
+unsigned g_skinClock = 0;
+constexpr size_t kSkinBuffersMax = 96;
+
+IDirect3DVertexBuffer9* SkinBufferFor(IDirect3DDevice9* device, const ModelMesh& mesh, const ModelVertex* verts,
+                                      uint64_t pose) {
+    ++g_skinClock;
+    const SkinKey key{&mesh, pose};
+    auto it = g_skinBuffers.find(key);
+    if (it != g_skinBuffers.end()) {
+        it->second.used = g_skinClock;
+        return it->second.vb;
+    }
+    if (g_skinBuffers.size() >= kSkinBuffersMax) {
+        auto oldest = g_skinBuffers.begin();
+        for (auto i = g_skinBuffers.begin(); i != g_skinBuffers.end(); ++i) if (i->second.used < oldest->second.used) oldest = i;
+        if (oldest->second.vb) oldest->second.vb->Release();
+        g_skinBuffers.erase(oldest);
+    }
+    IDirect3DVertexBuffer9* vb = nullptr;
+    const UINT vbytes = static_cast<UINT>(mesh.vertices.size() * sizeof(ModelVertex));
+    if (FAILED(device->CreateVertexBuffer(vbytes, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &vb, nullptr)) ||
+        !vb) {
+        return nullptr;
+    }
+    if (!FillVertices(vb, verts, mesh.vertices.size(), D3DLOCK_DISCARD)) {
+        vb->Release();
+        return nullptr;
+    }
+    g_skinBuffers[key] = {vb, g_skinClock};
+    return vb;
+}
+
 // The buffers of a mesh, created and filled on first use; null when the device
 // would not give them (the caller then draws from memory).
 MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool skinned, const ModelVertex* verts,
-                        const ModelAnimation* animation, float time) {
+                        uint64_t pose) {
     MeshBuffers& b = g_buffers[&mesh];
     if (b.failed) return nullptr;
     if (!b.vb) {
@@ -604,36 +753,75 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
             b.failed = true;
             return nullptr;
         }
-        b.animation = animation;
-        b.time = time;
-    } else if (skinned && (b.animation != animation || std::fabs(b.time - time) > 1e-4f)) {
+        b.pose = pose;
+    } else if (skinned && b.pose != pose) {
+        // The managed buffer keeps the first pose it was given; later poses come
+        // from SkinBufferFor (see there), so this rewrite is never reached.
         if (!FillVertices(b.vb, verts, mesh.vertices.size())) return nullptr;
-        b.animation = animation;
-        b.time = time;
+        b.pose = pose;
     }
     return &b;
 }
 
-void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
-               const ModelAnimation* animation, float time) {
-    std::vector<gta2::Mat4> worlds;
-    NodeWorlds(model, animation, time, &worlds);
-    // The joint matrices per skin, and the posed meshes (cached by pose).
-    const bool cached = model.skinned && g_posed.model == &model && g_posed.animation == animation &&
-                        std::fabs(g_posed.time - time) < 1e-4f && g_posed.meshes.size() == model.meshes.size();
-    if (model.skinned && !cached) {
-        std::vector<std::vector<gta2::Mat4>> joints(model.skins.size());
-        for (size_t s = 0; s < model.skins.size(); ++s) SkinMatrices(model, model.skins[s], worlds, &joints[s]);
-        g_posed.model = &model;
-        g_posed.animation = animation;
-        g_posed.time = time;
-        g_posed.meshes.resize(model.meshes.size());
-        for (size_t mi = 0; mi < model.meshes.size(); ++mi) {
-            const ModelMesh& mesh = model.meshes[mi];
-            if (mesh.skin >= 0) SkinMesh(mesh, joints[mesh.skin], &g_posed.meshes[mi]);
-            else g_posed.meshes[mi].clear();
+// The cached pose for a key, skinned now if it was not there.
+const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vector<gta2::Mat4>& worlds) {
+    ++g_poseClock;
+    for (PosedCache& p : g_poses) {
+        if (p.key == key) {
+            p.used = g_poseClock;
+            return p;
         }
     }
+    if (g_poses.size() >= kPoseCacheMax) {
+        size_t oldest = 0;
+        for (size_t i = 1; i < g_poses.size(); ++i) if (g_poses[i].used < g_poses[oldest].used) oldest = i;
+        g_poses.erase(g_poses.begin() + static_cast<ptrdiff_t>(oldest));
+    }
+    g_poses.emplace_back();
+    PosedCache& p = g_poses.back();
+    p.key = key;
+    p.id = g_poseNext++;
+    p.used = g_poseClock;
+    std::vector<std::vector<gta2::Mat4>> joints(model.skins.size());
+    for (size_t sk = 0; sk < model.skins.size(); ++sk) SkinMatrices(model, model.skins[sk], worlds, &joints[sk]);
+    p.meshes.resize(model.meshes.size());
+    for (size_t mi = 0; mi < model.meshes.size(); ++mi) {
+        const ModelMesh& mesh = model.meshes[mi];
+        if (mesh.skin >= 0) SkinMesh(mesh, joints[mesh.skin], &p.meshes[mi]);
+        else p.meshes[mi].clear();
+    }
+    return p;
+}
+
+void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
+               const ModelAnimation* animation, float time) {
+    ModelDrawBlend(device, model, placement, animation, time, nullptr, 0.0f, 0.0f);
+}
+
+void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
+                    const ModelAnimation* animation, float time, const ModelAnimation* second,
+                    float secondTime, float weight) {
+    if (!second || weight <= 1e-3f) { second = nullptr; secondTime = 0.0f; weight = 0.0f; }
+    LARGE_INTEGER t0, t1, t2;
+    QueryPerformanceCounter(&t0);
+    std::vector<gta2::Mat4> worlds;
+    NodeWorldsBlend(model, animation, time, second, secondTime, weight, &worlds);
+    // The posed meshes, from the cache when this pose was skinned before.
+    const PosedCache* posed = nullptr;
+    if (model.skinned) {
+        PoseKey key;
+        key.model = &model;
+        key.animation = animation;
+        key.second = second;
+        key.time = time;
+        key.secondTime = secondTime;
+        key.weight = weight;
+        posed = &PoseFor(model, key, worlds);
+    }
+    QueryPerformanceCounter(&t1);
+    g_modelStats[0] += ModelMs(t0, t1);
+    g_modelStats[3] += 1.0;
+    if (model.skinned) g_modelStats[4] += 1.0;
     IDirect3DTexture9* bound = nullptr;
     bool first = true;
     bool streams = false;
@@ -666,15 +854,23 @@ void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& p
                 device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
             }
         }
-        const bool skinned = mesh.skin >= 0 && model.skinned && g_posed.meshes.size() > static_cast<size_t>(mi) &&
-                             g_posed.meshes[mi].size() == mesh.vertices.size();
+        const bool skinned = mesh.skin >= 0 && posed && posed->meshes.size() > static_cast<size_t>(mi) &&
+                             posed->meshes[mi].size() == mesh.vertices.size();
         const gta2::Mat4 world = skinned ? placement : Multiply(worlds[i], placement);
         D3DMATRIX m;
         memcpy(&m, world.m, sizeof(m));
         device->SetTransform(D3DTS_WORLD, &m);
-        const ModelVertex* verts = skinned ? g_posed.meshes[mi].data() : mesh.vertices.data();
-        if (MeshBuffers* b = BuffersFor(device, mesh, skinned, verts, animation, time)) {
-            device->SetStreamSource(0, b->vb, 0, sizeof(ModelVertex));
+        const ModelVertex* verts = skinned ? posed->meshes[mi].data() : mesh.vertices.data();
+        QueryPerformanceCounter(&t1);
+        // Rigid: the mesh's own managed buffers. Skinned: the index buffer from
+        // those, the vertices from the per-pose dynamic buffer.
+        MeshBuffers* b = BuffersFor(device, mesh, false, mesh.vertices.data(), 0);
+        IDirect3DVertexBuffer9* vb = b ? b->vb : nullptr;
+        if (b && skinned) vb = SkinBufferFor(device, mesh, verts, posed->id);
+        QueryPerformanceCounter(&t2);
+        g_modelStats[1] += ModelMs(t1, t2);
+        if (b && vb) {
+            device->SetStreamSource(0, vb, 0, sizeof(ModelVertex));
             device->SetIndices(b->ib);
             device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(mesh.vertices.size()), 0,
                                          static_cast<UINT>(mesh.indices.size() / 3));
@@ -691,12 +887,84 @@ void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& p
         device->SetIndices(nullptr);
     }
     if (g_paintTintOn) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    QueryPerformanceCounter(&t2);
+    g_modelStats[2] += ModelMs(t0, t2);
     ++g_drawn;
+}
+
+// A model's vertex and index buffers, created, filled and drawn once with
+// colour and depth writes off: the managed buffers reach the GL driver now
+// (their first real draw cost 550 ms for the props at the first view switch).
+void WarmModelBuffers(IDirect3DDevice9* device, const Model& model) {
+    DWORD colorWrite = 0xF, zWrite = TRUE, zEnable = TRUE, fvf = 0;
+    device->GetRenderState(D3DRS_COLORWRITEENABLE, &colorWrite);
+    device->GetRenderState(D3DRS_ZWRITEENABLE, &zWrite);
+    device->GetRenderState(D3DRS_ZENABLE, &zEnable);
+    device->GetFVF(&fvf);
+    device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device->SetRenderState(D3DRS_ZENABLE, FALSE);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);   // ModelVertex, as the callers set it
+    device->SetTexture(0, nullptr);
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    device->SetTransform(D3DTS_WORLD, &identity);
+    bool streams = false;
+    for (const ModelMesh& mesh : model.meshes) {
+        if (mesh.indices.size() < 3) continue;
+        if (MeshBuffers* b = BuffersFor(device, mesh, false, mesh.vertices.data(), 0)) {
+            device->SetStreamSource(0, b->vb, 0, sizeof(ModelVertex));
+            device->SetIndices(b->ib);
+            device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(mesh.vertices.size()), 0,
+                                         static_cast<UINT>(mesh.indices.size() / 3));
+            streams = true;
+        }
+    }
+    if (streams) {
+        device->SetStreamSource(0, nullptr, 0, 0);
+        device->SetIndices(nullptr);
+    }
+    device->SetFVF(fvf);
+    device->SetRenderState(D3DRS_COLORWRITEENABLE, colorWrite);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, zWrite);
+    device->SetRenderState(D3DRS_ZENABLE, zEnable);
+}
+
+size_t g_warmModelCursor = 0;
+
+int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame) {
+    if (!device || !g_loaded) return 0;
+    if (g_warmList.empty()) {
+        for (const Model& m : g_models) {
+            for (const ModelMesh& mesh : m.meshes) {
+                if (!mesh.texture.empty() && std::find(g_warmList.begin(), g_warmList.end(), mesh.texture) == g_warmList.end()) {
+                    g_warmList.push_back(mesh.texture);
+                }
+            }
+        }
+    }
+    int done = 0;
+    while (g_warmCursor < g_warmList.size() && done < perFrame) {
+        WarmTexture(device, TextureFor(device, g_warmList[g_warmCursor]));
+        ++g_warmCursor;
+        ++done;
+    }
+    // Then the meshes, one model a frame.
+    if (done == 0 && g_warmModelCursor < g_models.size()) {
+        WarmModelBuffers(device, g_models[g_warmModelCursor]);
+        ++g_warmModelCursor;
+        ++done;
+    }
+    return static_cast<int>(g_warmList.size() - g_warmCursor) + static_cast<int>(g_models.size() - g_warmModelCursor);
 }
 
 void ModelsReleaseDevice() {
     for (auto& t : g_textures) if (t.second) t.second->Release();
     g_textures.clear();
+    for (auto& b : g_skinBuffers) if (b.second.vb) b.second.vb->Release();
+    g_skinBuffers.clear();
+    g_warmCursor = 0;
+    g_warmModelCursor = 0;
     for (auto& b : g_buffers) {
         if (b.second.vb) b.second.vb->Release();
         if (b.second.ib) b.second.ib->Release();
