@@ -1,0 +1,37 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  msvc-x86:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the renderer (dll\build.bat)
+        shell: cmd
+        run: dll\build.bat
+
+      - name: Build the video device shim (vid\build.bat)
+        shell: cmd
+        run: vid\build.bat
+
+      - name: Stage the files a player drops into the GTA2 folder
+        shell: cmd
+        run: |
+          mkdir stage
+          copy /y dll\build\gta2dx9.dll stage\gta2dx9.dll
+          copy /y dll\build\gta2dx9.dll stage\d3ddll.dll
+          copy /y vid\build\gta2dx9_vid.dll stage\gta2dx9_vid.dll
+          copy /y vid\build\gta2dx9_vid.dll stage\Dmavideo.dll
+          copy /y vid\build\gta2dx9_vid.dll stage\DMAGlide.dll
+          copy /y package\gta2dx9.ini stage\gta2dx9.ini
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gta2dx9-x86
+          path: stage/
+          if-no-files-found: error
