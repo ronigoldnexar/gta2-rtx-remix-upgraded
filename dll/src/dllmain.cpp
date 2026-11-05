@@ -19,6 +19,8 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cctype>
+#include <cstdlib>
 #include <cstring>
 
 #include "debug_overlay.h"
@@ -38,6 +40,7 @@
 #include "voice_over.h"
 #include "cache_warmup.h"
 #include "world_view.h"
+#include "view_modes.h"
 
 using gta2dx9::Log;
 
@@ -144,6 +147,34 @@ void LoadConfig() {
     const int ownWindow = GetPrivateProfileIntA("renderer", "own_window", 1, ini);
     g_world.Configure(pitch / 10.0f, fov / 10.0f, gameTiles,
                       static_cast<gta2dx9::PresentWindow>(ownWindow));
+
+    // The view to start in and the key that cycles them. gta2dx9_settings.ini,
+    // read after this, overrides both when the menu has saved them.
+    {
+        gta2dx9::ViewModeSettings& vm = gta2dx9::ViewModes();
+        char modeName[32] = {};
+        GetPrivateProfileStringA("camera", "mode", "classic", modeName, sizeof(modeName), ini);
+        if (_stricmp(modeName, "third") == 0 || _stricmp(modeName, "1") == 0) {
+            vm.mode = 1;
+        } else if (_stricmp(modeName, "first") == 0 || _stricmp(modeName, "2") == 0) {
+            vm.mode = 2;
+        } else {
+            vm.mode = 0;
+        }
+        char keyName[32] = {};
+        GetPrivateProfileStringA("camera", "toggle_key", "V", keyName, sizeof(keyName), ini);
+        if (strlen(keyName) == 1) {
+            vm.toggleKey = toupper(static_cast<unsigned char>(keyName[0]));
+        } else if ((keyName[0] == 'F' || keyName[0] == 'f') && isdigit(static_cast<unsigned char>(keyName[1]))) {
+            const int n = atoi(keyName + 1);
+            if (n >= 1 && n <= 24) vm.toggleKey = VK_F1 + n - 1;
+        } else if (strncmp(keyName, "0x", 2) == 0 || strncmp(keyName, "0X", 2) == 0) {
+            vm.toggleKey = static_cast<int>(strtol(keyName, nullptr, 16));
+        } else if (isdigit(static_cast<unsigned char>(keyName[0]))) {
+            vm.toggleKey = atoi(keyName);
+        }
+        if (vm.toggleKey <= 0 || vm.toggleKey >= 256) vm.toggleKey = 'V';
+    }
 
     // What we render at, which is nothing to do with what GTA2 thinks its screen
     // is. Its own resolution only lays the HUD out, and the overlay pass scales

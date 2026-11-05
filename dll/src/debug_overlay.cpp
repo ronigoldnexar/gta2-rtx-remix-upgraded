@@ -388,6 +388,144 @@ bool DrawGate(DaylightGate& gate, const char* what) {
 
 bool ApplyRemixOption(const char* key, const char* value);   // defined below
 
+// ---- Camera: the chase and first-person views ------------------------------------------
+//
+// See view_modes.h. Everything here is a field of ViewModeSettings, which the
+// settings table saves with the rest.
+void DrawCamera() {
+    ViewModeSettings& vm = ViewModes();
+    bool changed = false;
+
+    ImGui::SeparatorText("View");
+    int mode = vm.mode;
+    changed |= ImGui::RadioButton("Classic (top down)", &mode, 0);
+    ImGui::SameLine();
+    changed |= ImGui::RadioButton("Third person", &mode, 1);
+    ImGui::SameLine();
+    changed |= ImGui::RadioButton("First person", &mode, 2);
+    if (mode != vm.mode) SetViewMode(static_cast<ViewMode>(mode));
+    Help("Classic is GTA2's own view from above. Third person is a chase camera behind you, on foot or "
+         "at the wheel, with mouse orbit that swings back behind you. First person is from your eyes, "
+         "or the driving seat, with mouse look. The key below cycles the three in game.");
+
+    // The key that cycles the views: the handful that GTA2's own default
+    // controls leave free, plus the mouse's spare buttons.
+    struct Key { int vk; };
+    static const Key keys[] = {{'V'}, {'C'}, {'B'}, {'N'}, {'M'}, {'Q'}, {'E'}, {'R'},
+                               {VK_HOME}, {VK_INSERT}, {VK_CAPITAL}, {VK_OEM_3},
+                               {VK_F6}, {VK_F7}, {VK_F8}, {VK_F9},
+                               {VK_NUMPAD0}, {VK_NUMPAD5}, {VK_MBUTTON}, {VK_XBUTTON1}, {VK_XBUTTON2}};
+    ImGui::SetNextItemWidth(S(160.0f));
+    if (ImGui::BeginCombo("Cycle views with", KeyName(vm.toggleKey))) {
+        for (const Key& k : keys) {
+            const bool selected = vm.toggleKey == k.vk;
+            if (ImGui::Selectable(KeyName(k.vk), selected)) {
+                vm.toggleKey = k.vk;
+                changed = true;
+            }
+            if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    Help("Pressed in game, with the menu closed. Any other key can be set as toggle_key under "
+         "[camera] in gta2dx9.ini.");
+
+    ImGui::SeparatorText("Status");
+    const PlayerState& player = ViewPlayer();
+    if (vm.mode == 0) {
+        ImGui::TextColored(kDim, "Classic view; the player is not looked for.");
+    } else if (player.valid) {
+        ImGui::TextColored(kGood, "Player found (%s): %s at x %.1f  y %.1f  level %.2f", player.source,
+                           player.inVehicle ? "in a car" : "on foot", player.x, player.y, player.z);
+        float yaw = 0.0f, pitch = 0.0f;
+        ViewCameraAngles(&yaw, &pitch);
+        ImGui::Text("%s  --  camera yaw %.0f, pitch %.0f", ViewCameraStatus(), yaw, pitch);
+    } else {
+        ImGui::TextColored(kWarn, "%s", ViewCameraStatus());
+        Help("The player is recognised by the shape of his own structure in gta2.exe, looked for in "
+             "the player object and the camera, and failing both taken as whoever the game's camera is "
+             "centred on. Until he is found the classic view is shown.");
+    }
+    if (!SpawnOffscreenActive() && vm.mode != 0 && vm.gameViewScale > 1.0f) {
+        ImGui::TextColored(kWarn, "Spawn offscreen is off: cars and people will only appear near you.");
+    }
+
+    ImGui::SeparatorText("Mouse");
+    changed |= ImGui::Checkbox("Mouse look", &vm.mouseLook);
+    Help("Orbit in third person, look around in first person. The mouse is taken only while a level "
+         "is up and this menu is closed; GTA2 itself never uses it in game.");
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("Invert Y", &vm.invertY);
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Sensitivity", &vm.mouseSensitivity, 0.2f, 4.0f, "%.2fx");
+
+    ImGui::SeparatorText("Third person");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Distance behind", &vm.tpDistance, 1.0f, 8.0f, "%.2f blocks");
+    Help("A GTA2 block is about 2 m; a car is about one block long.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Height above", &vm.tpHeight, 0.2f, 4.0f, "%.2f blocks");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Look ahead", &vm.tpLookAhead, 0.0f, 3.0f, "%.2f blocks");
+    Help("The point the camera looks at sits this far ahead of you, which keeps the road in the "
+         "frame rather than your roof.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Look height", &vm.tpLookHeight, 0.0f, 1.5f, "%.2f blocks");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("On foot, scale by", &vm.tpFootScale, 0.3f, 1.0f, "%.2f");
+    Help("Distance and height are smaller on foot, where a car-sized view is too far away.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Field of view##tp", &vm.tpFov, 25.0f, 100.0f, "%.0f deg");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Swing round in", &vm.tpFollow, 0.0f, 1.0f, "%.2f s");
+    Help("How long the camera takes to swing round behind you after a turn. 0 is rigid.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Orbit returns after##tp", &vm.tpReturnDelay, 0.0f, 10.0f,
+                                  vm.tpReturnDelay <= 0.0f ? "never" : "%.1f s");
+    changed |= ImGui::Checkbox("Pull in front of walls", &vm.tpCollide);
+    Help("The camera stops short of the first solid block between you and where it wants to be, "
+         "rather than showing the inside of a building.");
+
+    ImGui::SeparatorText("First person");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Eye height on foot", &vm.fpEyeFoot, 0.3f, 1.2f, "%.2f blocks");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Eye height in a car", &vm.fpEyeCar, 0.2f, 1.0f, "%.2f blocks");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Eye forward on foot", &vm.fpForwardFoot, 0.0f, 0.6f, "%.2f blocks");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Eye forward in a car", &vm.fpForwardCar, 0.0f, 1.0f, "%.2f blocks");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Field of view##fp", &vm.fpFov, 40.0f, 110.0f, "%.0f deg");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Look returns after##fp", &vm.fpReturnDelay, 0.0f, 10.0f,
+                                  vm.fpReturnDelay <= 0.0f ? "never" : "%.1f s");
+    changed |= ImGui::Checkbox("Hide my own body and car", &vm.fpHideOwnBody);
+    Help("From your own eyes your sprite would be a picture of your head in front of the camera, "
+         "and your car's roof a lid over it. Off draws both anyway.");
+
+    ImGui::SeparatorText("Both views");
+    changed |= ImGui::Checkbox("Stand pedestrians up", &vm.uprightPeds);
+    Help("GTA2 draws people from above and lies them flat on the road, which from a low camera is a "
+         "line. On, each one on his feet is stood up as a figure facing the camera.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Game's view, scaled", &vm.gameViewScale, 1.0f, 4.0f, "%.2fx");
+    Help("The game creates, draws and removes cars and people inside the window its own camera "
+         "frames. A chase camera sees past that window, so it is widened by this much while one is "
+         "up. Needs Spawn offscreen (Sprites tab) on. Bigger is more traffic to simulate.");
+
+    if (ImGui::Button("Reset camera defaults")) {
+        const int keepMode = vm.mode;
+        const int keepKey = vm.toggleKey;
+        vm = ViewModeSettings{};
+        vm.mode = keepMode;
+        vm.toggleKey = keepKey;
+        changed = true;
+    }
+
+    if (changed) SettingsMarkDirty();
+}
+
 void DrawGeneral() {
     ImGui::SeparatorText("Status");
 
@@ -2742,6 +2880,10 @@ void DebugMenuRender() {
         if (ImGui::BeginTabBar("tabs")) {
             if (ImGui::BeginTabItem("General")) {
                 DrawGeneral();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Camera")) {
+                DrawCamera();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Lighting")) {

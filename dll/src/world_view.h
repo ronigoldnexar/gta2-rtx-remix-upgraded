@@ -17,6 +17,7 @@
 #include "ground.h"
 #include "live_geometry.h"
 #include "overlay.h"
+#include "view_modes.h"
 
 namespace gta2dx9 {
 
@@ -36,6 +37,14 @@ float CameraSmoothing();
 bool SpawnOffscreen();
 // Whether the patches are in force right now, for the menu to show.
 bool SpawnOffscreenActive();
+
+// The chase and first-person views, for the menu: the player as last found,
+// what the camera solver is doing, and whether one of those views is up.
+// See view_modes.h.
+const PlayerState& ViewPlayer();
+const char* ViewCameraStatus();
+bool ViewCameraActive();
+void ViewCameraAngles(float* yawDegrees, float* pitchDegrees);
 
 // Whether pedestrians leave blood pools, which GTA2 has but keeps behind a debug
 // flag. See game::kDoBloodFlag. Off hands the flag back to whatever the game had.
@@ -140,6 +149,17 @@ private:
     void DumpCameraStruct() const;
     float GroundHeightAt(float tileX, float tileY) const;
 
+    // What the chase camera asks of the map: the floor under a point and
+    // whether a point is inside a solid block. Renderer coordinates.
+    bool FloorAt(float x, float z, float ceiling, float* y) const;
+    bool Blocked(float x, float y, float z) const;
+    static bool FloorThunk(void* context, float x, float z, float ceiling, float* y) {
+        return static_cast<const WorldView*>(context)->FloorAt(x, z, ceiling, y);
+    }
+    static bool BlockedThunk(void* context, float x, float y, float z) {
+        return static_cast<const WorldView*>(context)->Blocked(x, y, z);
+    }
+
     // Widen GTA2's own view rectangle to the frame's aspect. See the .cpp.
     void MatchGameViewToFrame();
     // Keep GTA2's blood flag set while the blood setting is on.
@@ -189,6 +209,15 @@ private:
     double camTime_ = 0.0;
     float camZoom_ = 0.0f;                   // the smoothed visible height in tiles
     float visibleTiles_ = 0.0f;
+
+    // The chase and first-person views. See view_modes.h. The classic pitch and
+    // field of view are kept so the top-down view comes back exactly as
+    // configured when one of the others is switched off.
+    ViewCameraSolver viewSolver_;
+    bool viewActive_ = false;
+    double viewTime_ = 0.0;
+    float classicPitch_ = -1.5708f;
+    float classicFov_ = 0.6981f;
     bool useGameTiles_ = true;
     int tileChecks_ = 0;
     int shapeChecks_ = 0;

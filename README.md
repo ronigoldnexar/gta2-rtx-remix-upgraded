@@ -34,8 +34,34 @@ RTX-capable GPU with a current NVIDIA driver, and Windows 10 or 11, 64-bit.
 **Something wrong?** Check `gta2dx9.log` next to `gta2.exe`, and the troubleshooting list in `gta2dx9_README.txt`
 inside the zip.
 
+## Third person and first person
+
+Press **V** in game to cycle three views:
+
+- **Classic** - GTA2's own view from above, exactly as before.
+- **Third person** - a chase camera behind you, on foot or at the wheel. The mouse orbits round you and
+  swings back behind you on its own; the camera stops short of walls instead of going through them.
+- **First person** - from your own eyes, or the driving seat, with mouse look. Your own sprite and your
+  car are left out of the picture.
+
+The city is already real 3D geometry under RTX Remix, so the two new views are the same path traced
+world from a different place. Cars keep their domes, doors, lamps and tyres; pedestrians, which GTA2 draws
+from above and lays flat on the road, are stood up as figures facing the camera (a paper doll, but a
+visible one; it can be switched off).
+
+Everything about the views - the key, distances, heights, fields of view, mouse sensitivity, and how far
+beyond its own window the game is asked to populate the streets - is on the **Camera** tab of the F4
+menu, and `mode=` / `toggle_key=` under `[camera]` in `gta2dx9.ini` set the view to start in and the key.
+
+Two things to know. GTA2 only creates, draws and removes cars and pedestrians inside the window its own
+top-down camera frames; a chase camera sees past that window, so it is widened (×1.8 out of the box,
+needs **Spawn offscreen** on, which it is by default) and traffic further away than that does not exist
+yet. And the player is found by recognising his structure in `gta2.exe`'s memory rather than by an address:
+if `gta2dx9.log` says `view: waiting for the player`, the classic view stays up and the Camera tab says why.
+
 ## What you get
 
+- Third person and first person views, cycled with one key (see above)
 - Hand-made HD cars with full PBR maps and real glass
 - Doors and dents drawn on the HD cars, wheels, roof domes and gang roof logos
 - Taxi, police and emergency lights; blood puddles on the road

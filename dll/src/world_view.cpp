@@ -77,6 +77,13 @@ float g_cameraSmoothing = kDefaultCameraSmoothing;
 bool g_spawnOffscreen = kDefaultSpawnOffscreen;
 bool g_spawnOffscreenActive = false;
 
+// For the menu: the player as the view last found him, and what the camera
+// solver reported. See view_modes.h.
+PlayerState g_viewPlayer;
+const char* g_viewStatus = "classic";
+bool g_viewActive = false;
+float g_viewYaw = 0.0f, g_viewPitch = 0.0f;
+
 // One patched run of bytes and what was there before it.
 struct BytePatch {
     uintptr_t at = 0;
@@ -641,14 +648,57 @@ void WorldView::MatchGameViewToFrame() {
             static_cast<float>(renderer_.Width()) / static_cast<float>(renderer_.Height());
         widen = (std::max)(1.0f, aspect / game::kViewAspectRatioStock);
     }
-    g_viewHalfScale = static_cast<int32_t>(game::kViewHalfScaleStock * widen + 0.5f);
+    // A chase or first-person camera sees well beyond the window the game's own
+    // camera frames, and the game only creates, draws and removes cars and
+    // pedestrians inside that window. So while one of those views is up the
+    // window is scaled up as a whole - width and height alike, which is the
+    // half-width scale alone since the aspect multiplies it into the height.
+    float scale = 1.0f;
+    if (g_viewActive && CurrentViewMode() != ViewMode::Classic) {
+        scale = (std::min)((std::max)(ViewModes().gameViewScale, 1.0f), 4.0f);
+    }
+    g_viewHalfScale = static_cast<int32_t>(game::kViewHalfScaleStock * widen * scale + 0.5f);
     g_viewAspect = static_cast<int32_t>(game::kViewAspectStock / widen + 0.5f);
+}
+
+const PlayerState& ViewPlayer() { return g_viewPlayer; }
+const char* ViewCameraStatus() { return g_viewStatus; }
+bool ViewCameraActive() { return g_viewActive; }
+void ViewCameraAngles(float* yawDegrees, float* pitchDegrees) {
+    *yawDegrees = g_viewYaw;
+    *pitchDegrees = g_viewPitch;
+}
+
+bool WorldView::FloorAt(float x, float z, float ceiling, float* y) const {
+    return ground_.Ready() && ground_.SurfaceAt(x, z, ceiling, y);
+}
+
+// Whether a point is inside a block that has any face at all. Map rows run
+// north to south, so the row is the mirror the mesh builder uses; a block at
+// level L fills L to L+1. The all-empty blocks a column uses as air are not
+// solid; a block with only a lid - a road - is.
+bool WorldView::Blocked(float x, float y, float z) const {
+    if (map_.Empty()) return false;
+    const float mapY = static_cast<float>(gta2::kMapHeight) - z;
+    const int bx = static_cast<int>(std::floor(x));
+    const int by = static_cast<int>(std::floor(mapY));
+    if (bx < 0 || bx >= gta2::kMapWidth || by < 0 || by >= gta2::kMapHeight) return false;
+    const int level = static_cast<int>(std::floor(y));
+    const gta2::Column& column = map_.ColumnAt(bx, by);
+    const int i = level - static_cast<int>(column.offset);
+    if (i < 0 || i >= static_cast<int>(column.blocks.size())) return false;
+    const uint32_t index = column.blocks[static_cast<size_t>(i)];
+    if (index >= map_.BlockCount()) return false;
+    const gta2::Block& block = map_.BlockAt(index);
+    return block.lid || block.left || block.right || block.top || block.bottom;
 }
 
 void WorldView::Configure(float pitchDegrees, float fovDegrees, bool useGameTiles,
                           PresentWindow present) {
     camera_.SetOrientation(0.0f, pitchDegrees * kDegreesToRadians);
     camera_.SetFovY(fovDegrees * kDegreesToRadians);
+    classicPitch_ = pitchDegrees * kDegreesToRadians;
+    classicFov_ = fovDegrees * kDegreesToRadians;
     useGameTiles_ = useGameTiles;
     present_ = present;
     Log("camera pitch %.1f deg, fov %.1f deg; tile artwork from %s", pitchDegrees, fovDegrees,
@@ -1123,6 +1173,53 @@ void WorldView::UpdateCamera() {
     const float dt = camSettled_ ? static_cast<float>(now - camTime_) : 0.0f;
     camTime_ = now;
 
+    // A chase or first-person view, when one is up: the camera is placed from
+    // where the player is rather than from where the game's camera is. See
+    // view_modes.h. The classic filter below restarts from the game's camera
+    // when the view comes back to it.
+    {
+        const float viewDt = viewTime_ > 0.0 ? static_cast<float>(now - viewTime_) : 0.0f;
+        viewTime_ = now;
+        const ViewMode mode = CurrentViewMode();
+        const bool wantView = mode != ViewMode::Classic && worldUploaded_;
+        PlayerState player;
+        if (wantView) LocatePlayer(&player);
+        g_viewPlayer = player;
+        ViewQueries queries;
+        queries.context = this;
+        queries.floorAt = &WorldView::FloorThunk;
+        queries.blocked = &WorldView::BlockedThunk;
+        const bool placed = wantView && viewSolver_.Update(player, queries, viewDt, &camera_);
+        g_viewStatus = viewSolver_.Status();
+        if (placed) {
+            g_viewActive = true;
+            viewActive_ = true;
+            g_viewYaw = viewSolver_.yawDegrees;
+            g_viewPitch = viewSolver_.pitchDegrees;
+            camSettled_ = false;
+            heightSettled_ = false;
+            // The HUD's world-anchored parts were laid out against the game's
+            // top-down camera and have no place in this view; left where the
+            // game put them.
+            SetHudCameraMap(HudCameraMap{});
+            // From his own eyes he is not in the picture, nor is the car he is
+            // in; behind him, both are.
+            const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody;
+            SetHiddenObjects(hide ? player.pedSprite : nullptr,
+                             hide && player.inVehicle ? player.vehicleSprite : nullptr);
+            SetUprightPeds(ViewModes().uprightPeds);
+            return;
+        }
+        if (viewActive_) {
+            viewActive_ = false;
+            camera_.SetOrientation(0.0f, classicPitch_);
+            camera_.SetFovY(classicFov_);
+        }
+        g_viewActive = false;
+        SetHiddenObjects(nullptr, nullptr);
+        SetUprightPeds(false);
+    }
+
     const float k = g_cameraSmoothing;
     if (k < 0.01f) {
         camSettled_ = false;
@@ -1330,6 +1427,8 @@ void WorldView::RenderFrame() {
 
     EnsureWorldLoaded();
     RefreshAnimatedTiles();
+    // The view's own key and, in a chase or first-person view, the mouse.
+    ViewModePollInput(window_, DebugMenuVisible(), worldUploaded_);
     UpdateCamera();
 
     // The game's own screen size is what its HUD coordinates are expressed in,

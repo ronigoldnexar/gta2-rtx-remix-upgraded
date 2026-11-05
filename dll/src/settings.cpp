@@ -10,6 +10,7 @@
 #include "synthetic_lights.h"
 #include "texture_store.h"
 #include "time_of_day.h"
+#include "view_modes.h"
 #include "voice_over.h"
 #include "gibs.h"
 #include "world_view.h"
@@ -53,9 +54,9 @@ struct IntField {
 // pointers once at startup would break the moment one of them reallocated.
 void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCount,
             IntField** ints, int* intCount) {
-    static FloatField f[96];
-    static BoolField b[48];
-    static IntField i[32];
+    static FloatField f[160];
+    static BoolField b[80];
+    static IntField i[48];
     int nf = 0, nb = 0, ni = 0;
 
     RemixLightSettings& ls = LightsSettings();
@@ -108,6 +109,32 @@ void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCo
 
     // The menu's own scale. 0 means follow the display.
     f[nf++] = {"ui", "Scale", &DebugMenuUiScale()};
+
+    // The chase and first-person views. See view_modes.h.
+    ViewModeSettings& vm = ViewModes();
+    i[ni++] = {"camera", "Mode", &vm.mode};
+    i[ni++] = {"camera", "ToggleKey", &vm.toggleKey};
+    b[nb++] = {"camera", "MouseLook", &vm.mouseLook};
+    f[nf++] = {"camera", "MouseSensitivity", &vm.mouseSensitivity};
+    b[nb++] = {"camera", "InvertY", &vm.invertY};
+    f[nf++] = {"camera", "ThirdDistance", &vm.tpDistance};
+    f[nf++] = {"camera", "ThirdHeight", &vm.tpHeight};
+    f[nf++] = {"camera", "ThirdLookAhead", &vm.tpLookAhead};
+    f[nf++] = {"camera", "ThirdLookHeight", &vm.tpLookHeight};
+    f[nf++] = {"camera", "ThirdFootScale", &vm.tpFootScale};
+    f[nf++] = {"camera", "ThirdFov", &vm.tpFov};
+    f[nf++] = {"camera", "ThirdFollow", &vm.tpFollow};
+    f[nf++] = {"camera", "ThirdReturnDelay", &vm.tpReturnDelay};
+    b[nb++] = {"camera", "ThirdCollide", &vm.tpCollide};
+    f[nf++] = {"camera", "FirstEyeFoot", &vm.fpEyeFoot};
+    f[nf++] = {"camera", "FirstEyeCar", &vm.fpEyeCar};
+    f[nf++] = {"camera", "FirstForwardFoot", &vm.fpForwardFoot};
+    f[nf++] = {"camera", "FirstForwardCar", &vm.fpForwardCar};
+    f[nf++] = {"camera", "FirstFov", &vm.fpFov};
+    b[nb++] = {"camera", "FirstHideOwnBody", &vm.fpHideOwnBody};
+    f[nf++] = {"camera", "FirstReturnDelay", &vm.fpReturnDelay};
+    b[nb++] = {"camera", "UprightPeds", &vm.uprightPeds};
+    f[nf++] = {"camera", "GameViewScale", &vm.gameViewScale};
 
     EffectSpriteSettings& fx = EffectSprites();
     f[nf++] = {"effectsprites", "EdgeLuma", &fx.edgeLuma};

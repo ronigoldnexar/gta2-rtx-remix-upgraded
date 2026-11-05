@@ -26,7 +26,20 @@ So today there is no official place to get it. The game is still easy to find on
 already own (the original CD, or an old Rockstar or Steam purchase). This project ships no game files and does not host or
 link to downloads of the game.
 
-## What's new in 1.2
+## What's new in 1.3
+
+- **Third person and first person views.** Press **V** in game to cycle GTA2's own top-down view, a chase
+  camera behind you (on foot or at the wheel, mouse orbit, stops short of walls) and a view from your own
+  eyes or the driving seat (mouse look, your own body and car left out of the picture). Pedestrians are
+  stood up as figures facing the camera so they can be seen from a low angle. The key, distances, heights,
+  fields of view and mouse settings are on the new **Camera** tab of the F4 menu; `mode=` and `toggle_key=`
+  under `[camera]` in `gta2dx9.ini` set the view a level starts in and the key.
+- While a chase or first-person view is up, the window the game populates with cars and pedestrians is
+  widened (Camera tab, *Game's view, scaled*), since those views see past the window GTA2's own camera frames.
+- The two DLLs are built on GitHub Actions with the MSVC x86 toolset on every push (`.github/workflows/build.yml`),
+  and the build's `gta2dx9-x86` artifact is exactly the set of files a player drops into the GTA2 folder.
+
+## What was new in 1.2
 
 - **Smoother on a fresh install:** the first time a car model or a new paint colour appears, the mod used to stop the game for a
   moment to build its HD glass maps, door pictures and dents. That work now runs in the background, so new cars and doors no

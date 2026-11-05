@@ -71,6 +71,16 @@ enum GhostSwitch {
 };
 void SetGhostSwitch(int which, bool on);
 
+// The chase and first-person views (see view_modes.h).
+//
+// Up to two game objects whose sprites are not drawn at all this frame: the
+// player's own pedestrian and his car, from his own eyes. Null clears one.
+void SetHiddenObjects(const void* first, const void* second);
+// Pedestrians on their feet are stood up as billboards facing the camera, for
+// a camera that is not above them. Off draws them flat on the road as always.
+void SetUprightPeds(bool on);
+bool UprightPeds();
+
 // How high above the ground a pedestrian is held while he climbs into or out of a car, as a
 // fraction of the car's roof height. The car's body hides whatever of him is higher than its
 // own surface there, so low he goes under the car's edge and is gone; around the height of the

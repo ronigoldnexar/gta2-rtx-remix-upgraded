@@ -23,6 +23,7 @@
 #include "remix_api.h"
 #include "texture_store.h"
 #include "time_of_day.h"
+#include "view_modes.h"
 
 namespace gta2dx9 {
 namespace {
@@ -193,6 +194,16 @@ float SpriteLift() { return g_spriteLift; }
 void SetSpriteConform(bool on) { g_spriteConform = on; }
 void SetSpriteSmooth(bool on) { g_spriteSmooth = on; }
 namespace { bool g_ghostSwitch[kGhostSwitchCount] = {}; }
+namespace {
+const void* g_hiddenObjects[2] = {nullptr, nullptr};
+bool g_uprightPeds = false;
+}
+void SetHiddenObjects(const void* first, const void* second) {
+    g_hiddenObjects[0] = first;
+    g_hiddenObjects[1] = second;
+}
+void SetUprightPeds(bool on) { g_uprightPeds = on; }
+bool UprightPeds() { return g_uprightPeds; }
 void SetGhostSwitch(int which, bool on) {
     if (which >= 0 && which < kGhostSwitchCount) g_ghostSwitch[which] = on;
 }
@@ -4251,6 +4262,13 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     // See gibs.cpp.
     if (GibsHideCurrentSprite()) return;
 
+    // The player's own sprite, and his car's, from his own eyes: every quad
+    // the game draws for them, the lamp quad included. See SetHiddenObjects.
+    if (g_hiddenObjects[0] || g_hiddenObjects[1]) {
+        const void* object = GameObjectBeingDrawn();
+        if (object && (object == g_hiddenObjects[0] || object == g_hiddenObjects[1])) return;
+    }
+
     Vertex out[4];
     if (!ReadCorners(vertices, corners, texture, game::kSpriteVertexArray, out)) return;
 
@@ -4619,6 +4637,8 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                     if (game::CameraPosition(&camX, &camY)) {
                         const float dx = *reinterpret_cast<const int32_t*>(ped + game::kPedX) * game::kFixedScale - camX;
                         const float dy = *reinterpret_cast<const int32_t*>(ped + game::kPedY) * game::kFixedScale - camY;
+                        // The chase view's last resort for finding the player: see LocatePlayer.
+                        if (!placed.inVehicleNow) NotePedNearCamera(ped, std::sqrt(dx * dx + dy * dy));
                         if (dx * dx + dy * dy < 0.25f) {
                             // [0] on foot, [1] with a vehicle of his own: climbing in or out.
                             static bool seenFrame[2][1024] = {};
@@ -5276,6 +5296,53 @@ struct DrawStageTimer {
 }  // namespace
 
 const double* LiveDrawStageMs() { return g_drawStageMs; }
+
+// A pedestrian stood on his feet as a billboard, for a camera that is not above
+// him. GTA2 draws its pedestrians from above and lays them flat on the road,
+// which from a chase camera is a line; this takes the quad as placed - the
+// same object-space shape Remix hashes, so nothing about the mesh changes -
+// and turns its frame so the quad is vertical, square to the camera, and
+// standing on the point where it lay, with the artwork's top uppermost. Only
+// the matrix differs, which is the thing Remix expects to change.
+static gta2::Mat4 UprightPedMatrix(const LiveGeometry::Vertex* local, int corners,
+                                   const gta2::Mat4& placed, const gta2::Vec3& eye) {
+    float minZ = 1e9f, maxZ = -1e9f, topV = 1e9f;
+    int top = 0;
+    for (int i = 0; i < corners; ++i) {
+        minZ = (std::min)(minZ, local[i].z);
+        maxZ = (std::max)(maxZ, local[i].z);
+        if (local[i].v < topV) {
+            topV = local[i].v;
+            top = i;
+        }
+    }
+    // Which way along the quad's own z the artwork's top lies.
+    const float zTop = local[top].z >= (minZ + maxZ) * 0.5f ? 1.0f : -1.0f;
+    const float cx = placed.m[3][0], cy = placed.m[3][1], cz = placed.m[3][2];
+    float vx = eye.x - cx, vz = eye.z - cz;
+    const float len = std::sqrt(vx * vx + vz * vz);
+    if (len < 1e-4f) {
+        vx = 0.0f;
+        vz = 1.0f;
+    } else {
+        vx /= len;
+        vz /= len;
+    }
+    // Rows are the object axes in the world: x stays horizontal and square to
+    // the camera, the normal (y) faces the camera, z becomes up - signed so the
+    // top of the artwork is up and the frame stays a rotation, not a mirror.
+    gta2::Mat4 m;
+    m.m[0][0] = -vz * zTop; m.m[0][1] = 0.0f; m.m[0][2] = vx * zTop;
+    m.m[1][0] = vx;         m.m[1][1] = 0.0f; m.m[1][2] = vz;
+    m.m[2][0] = 0.0f;       m.m[2][1] = zTop; m.m[2][2] = 0.0f;
+    // The corner that becomes the bottom edge stands on the ground the quad lay on.
+    const float bottomZ = zTop > 0.0f ? minZ : maxZ;
+    m.m[3][0] = cx;
+    m.m[3][1] = cy - zTop * bottomZ;
+    m.m[3][2] = cz;
+    m.m[3][3] = 1.0f;
+    return m;
+}
 
 void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, int width,
                         int height) {
@@ -6154,7 +6221,15 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         bool tinted = false;
         for (const Drawable& d : list) {
             D3DMATRIX world;
-            memcpy(&world, d.sprite->objectToWorld.m, sizeof(world));
+            if (g_uprightPeds && d.sprite->pedestrian && !d.sprite->climbing && !d.sprite->boardUi &&
+                !d.sprite->corpse && d.sprite->corners == 4) {
+                // A chase or first-person camera: stood up facing it. See UprightPedMatrix.
+                const gta2::Mat4 upright =
+                    UprightPedMatrix(d.sprite->local, d.sprite->corners, d.sprite->objectToWorld, camera.Position());
+                memcpy(&world, upright.m, sizeof(world));
+            } else {
+                memcpy(&world, d.sprite->objectToWorld.m, sizeof(world));
+            }
             device->SetTransform(D3DTS_WORLD, &world);
             if (d.color) {
                 if (!tinted) {
