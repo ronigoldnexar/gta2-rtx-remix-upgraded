@@ -59,6 +59,19 @@ needs **Spawn offscreen** on, which it is by default) and traffic further away t
 yet. And the player is found by recognising his structure in `gta2.exe`'s memory rather than by an address:
 if `gta2dx9.log` says `view: waiting for the player`, the classic view stays up and the Camera tab says why.
 
+### Recording the switch
+
+`tools\record_demo.ps1` records a video of the game starting in the classic view and switching to first
+person (or third person) by itself a few seconds into a level, using ffmpeg's desktop duplication, which is
+what sees the path traced picture (a plain screen grab of a Remix window is black):
+
+```
+powershell -ExecutionPolicy Bypass -File tools\record_demo.ps1 -GameDir "C:\Games\GTA2"
+```
+
+It needs [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) on the PATH. The switch itself is
+`demo_switch_seconds=` under `[camera]` in `gta2dx9.ini`, which the script sets and puts back.
+
 ## What you get
 
 - Third person and first person views, cycled with one key (see above)

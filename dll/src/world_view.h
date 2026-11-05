@@ -45,6 +45,7 @@ const PlayerState& ViewPlayer();
 const char* ViewCameraStatus();
 bool ViewCameraActive();
 void ViewCameraAngles(float* yawDegrees, float* pitchDegrees);
+float ViewPlayerSpeed();
 
 // Whether pedestrians leave blood pools, which GTA2 has but keeps behind a debug
 // flag. See game::kDoBloodFlag. Off hands the flag back to whatever the game had.

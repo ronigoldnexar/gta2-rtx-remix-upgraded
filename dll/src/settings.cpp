@@ -135,6 +135,15 @@ void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCo
     f[nf++] = {"camera", "FirstReturnDelay", &vm.fpReturnDelay};
     b[nb++] = {"camera", "UprightPeds", &vm.uprightPeds};
     f[nf++] = {"camera", "GameViewScale", &vm.gameViewScale};
+    f[nf++] = {"camera", "ThirdShoulder", &vm.tpShoulder};
+    f[nf++] = {"camera", "ThirdPullBack", &vm.tpPullBack};
+    f[nf++] = {"camera", "ThirdLean", &vm.tpLean};
+    f[nf++] = {"camera", "FirstHeadBob", &vm.fpHeadBob};
+    f[nf++] = {"camera", "FirstLean", &vm.fpLean};
+    f[nf++] = {"camera", "ReferenceSpeed", &vm.referenceSpeed};
+    f[nf++] = {"camera", "SpeedFov", &vm.speedFov};
+    f[nf++] = {"camera", "ImpactShake", &vm.impactShake};
+    i[ni++] = {"camera", "MotionBlur", &vm.motionBlur};
 
     EffectSpriteSettings& fx = EffectSprites();
     f[nf++] = {"effectsprites", "EdgeLuma", &fx.edgeLuma};

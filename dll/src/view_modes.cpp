@@ -8,6 +8,7 @@
 #include "../../src/gta2_map.h"
 #include "game_access.h"
 #include "log.h"
+#include "remix_api.h"
 
 namespace gta2dx9 {
 namespace {
@@ -381,6 +382,23 @@ bool LocatePlayer(PlayerState* out) {
 void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     static bool keyWasDown = false;
     static bool captured = false;
+    static double levelUpSince = 0.0;
+    static bool demoDone = false;
+
+    // The scripted switch for a recording. See demoSwitchSeconds.
+    if (!worldLoaded) {
+        levelUpSince = 0.0;
+        demoDone = false;
+    } else if (g_settings.demoSwitchSeconds > 0.0f && !demoDone) {
+        const double now = Now();
+        if (levelUpSince == 0.0) levelUpSince = now;
+        if (now - levelUpSince >= g_settings.demoSwitchSeconds) {
+            demoDone = true;
+            const int to = g_settings.demoSwitchTo;
+            SetViewMode(static_cast<ViewMode>(to < 0 || to >= kViewModeCount ? 2 : to));
+            Log("view: demo switch after %.0f s", g_settings.demoSwitchSeconds);
+        }
+    }
 
     DWORD pid = 0;
     if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
@@ -435,6 +453,13 @@ void ViewCameraSolver::Reset() {
     settled_ = false;
     floorSettled_ = false;
     status_ = "classic";
+    velX_ = velZ_ = 0.0f;
+    speedFrac_ = 0.0f;
+    yawRate_ = 0.0f;
+    roll_ = 0.0f;
+    shake_ = 0.0f;
+    forwardAccel_ = 0.0f;
+    speed = 0.0f;
 }
 
 bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& queries, float dt,
@@ -446,11 +471,13 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
     }
     if (mode == ViewMode::Classic) {
         status_ = "classic";
+        camera->SetRoll(0.0f);
         return false;
     }
     if (!player.valid) {
         status_ = "waiting for the player to be found";
         settled_ = false;
+        camera->SetRoll(0.0f);
         return false;
     }
 
@@ -467,6 +494,17 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
     return true;
 }
 
+namespace {
+
+// A cheap, smooth, non-repeating wobble for the impact shake: three sines at
+// incommensurate frequencies.
+float Wobble(double t, float f) {
+    return 0.5f * static_cast<float>(std::sin(t * f * 6.2832) + 0.6 * std::sin(t * f * 9.17 + 1.3) +
+                                     0.3 * std::sin(t * f * 15.31 + 2.1));
+}
+
+}  // namespace
+
 void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, float dt,
                              gta2::Camera* camera, float px, float py, float pz,
                              float headingYaw, bool inVehicle) {
@@ -478,24 +516,55 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const bool jumped = settled_ && std::hypot(px - lastX_, pz - lastZ_) > 4.0f;
     if (!settled_ || jumped) {
         followYaw_ = headingYaw;
+        lastYaw_ = headingYaw;
         floorSettled_ = false;
         settled_ = true;
         g_look = ViewLook{};
         eyeX_ = px;
         eyeY_ = py + 1.0f;
         eyeZ_ = pz;
+        velX_ = velZ_ = 0.0f;
+        speedFrac_ = 0.0f;
+        yawRate_ = 0.0f;
+        roll_ = 0.0f;
+        shake_ = 0.0f;
+        forwardAccel_ = 0.0f;
+        lastX_ = px;
+        lastZ_ = pz;
     }
+
+    // --- Motion ----------------------------------------------------------
+    // Velocity from the position difference, lightly eased; the acceleration
+    // from the velocity difference, which is what a crash shows up in.
+    const float rawVX = (px - lastX_) / dt, rawVZ = (pz - lastZ_) / dt;
     lastX_ = px;
     lastZ_ = pz;
+    const float prevVX = velX_, prevVZ = velZ_;
+    const float velEase = 1.0f - std::exp(-dt / 0.06f);
+    velX_ += (rawVX - velX_) * velEase;
+    velZ_ += (rawVZ - velZ_) * velEase;
+    speed = std::hypot(velX_, velZ_);
+    const float reference = (std::max)(s.referenceSpeed, 1.0f);
+    const float targetFrac = (std::min)(speed / reference, 1.0f);
+    speedFrac_ += (targetFrac - speedFrac_) * (1.0f - std::exp(-dt / 0.35f));
+    const float hx = std::sin(headingYaw), hz = std::cos(headingYaw);
+    // Acceleration along the heading: braking is negative.
+    const float accelX = (velX_ - prevVX) / dt, accelZ = (velZ_ - prevVZ) / dt;
+    const float forwardAccel = accelX * hx + accelZ * hz;
+    forwardAccel_ += (forwardAccel - forwardAccel_) * (1.0f - std::exp(-dt / 0.12f));
+    // A hard stop - the raw velocity dropping by more than a car's worth in a
+    // frame or two - kicks the camera.
+    const float rawDrop = std::hypot(rawVX - prevVX, rawVZ - prevVZ);
+    if (s.impactShake > 0.0f && rawDrop > 3.0f && speed < reference) {
+        shake_ = (std::min)(shake_ + (rawDrop - 3.0f) / 8.0f * s.impactShake, 1.5f);
+    }
+    shake_ *= std::exp(-dt / 0.22f);
+    shakeClock_ += dt;
 
     // The floor under him: the lid at or below his own level. His own level is a
     // per-block step on ramps and kerbs, so the floor is eased.
     float floor = py;
-    if (q.floorAt && q.floorAt(q.context, px, pz, py + 0.75f, &floor)) {
-        // keep it
-    } else {
-        floor = py;
-    }
+    if (!(q.floorAt && q.floorAt(q.context, px, pz, py + 0.75f, &floor))) floor = py;
     if (!floorSettled_) {
         floorY_ = floor;
         floorSettled_ = true;
@@ -514,47 +583,106 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         look.pitch -= look.pitch * k;
     }
 
+    // Where the chase camera wants to look from: behind the heading, but when a
+    // car is sliding - velocity and heading disagree - part way round towards
+    // where it is actually going, so a drift is seen as one. Reversing keeps
+    // the camera behind the nose, as every driving game does.
+    float chaseYaw = headingYaw;
+    if (inVehicle && speed > 1.5f) {
+        const float vx = velX_ / speed, vz = velZ_ / speed;
+        const float along = vx * hx + vz * hz;
+        if (along > 0.2f) {
+            const float velocityYaw = std::atan2(vx, vz);
+            const float weight = (std::min)((speed - 1.5f) / 4.0f, 1.0f) * 0.6f;
+            chaseYaw = WrapAngle(headingYaw + WrapAngle(velocityYaw - headingYaw) * weight);
+        }
+    }
+
     if (mode == ViewMode::FirstPerson) {
         const float eyeHeight = inVehicle ? s.fpEyeCar : s.fpEyeFoot;
         const float ahead = inVehicle ? s.fpForwardCar : s.fpForwardFoot;
-        const float fx = std::sin(headingYaw), fz = std::cos(headingYaw);
-        const gta2::Vec3 eye{px + fx * ahead, baseY + eyeHeight, pz + fz * ahead};
-        const float yaw = WrapAngle(headingYaw + look.yaw);
-        const float pitch = (std::min)((std::max)(look.pitch, -80.0f * kDegToRad), 80.0f * kDegToRad);
+        gta2::Vec3 eye{px + hx * ahead, baseY + eyeHeight, pz + hz * ahead};
+        float yaw = WrapAngle(headingYaw + look.yaw);
+        float pitch = look.pitch;
+        float roll = 0.0f;
+
+        if (!inVehicle && s.fpHeadBob > 0.0f) {
+            // A walking bob: one cycle per stride, about 0.35 of a block, that
+            // grows with pace and dies away standing still.
+            const float pace = (std::min)(speed / 3.0f, 1.0f);
+            bobPhase_ += speed * dt / 0.35f;
+            if (bobPhase_ > 1e4f) bobPhase_ -= 1e4f;
+            const float amp = 0.022f * pace * s.fpHeadBob;
+            eye.y += std::sin(bobPhase_ * 2.0f * kPi) * amp;
+            const float sway = std::cos(bobPhase_ * kPi) * amp * 0.6f;
+            eye.x += -hz * sway;   // sideways is the heading turned a quarter
+            eye.z += hx * sway;
+            roll += std::cos(bobPhase_ * kPi) * 0.6f * kDegToRad * pace * s.fpHeadBob;
+        }
+        if (inVehicle && s.fpLean > 0.0f) {
+            // The nose dips under braking and lifts under power; the head leans
+            // into a turn.
+            pitch += (std::max)((std::min)(forwardAccel_ / 25.0f, 1.0f), -1.0f) * 2.5f * kDegToRad * s.fpLean;
+            const float yawRate = WrapAngle(headingYaw - lastYaw_) / dt;
+            yawRate_ += (yawRate - yawRate_) * (1.0f - std::exp(-dt / 0.15f));
+            roll += (std::max)((std::min)(yawRate_ * speedFrac_ * 0.5f, 1.0f), -1.0f) * 3.0f * kDegToRad * s.fpLean;
+        }
+        lastYaw_ = headingYaw;
+
+        // The kick of an impact, and the stretch of speed.
+        if (shake_ > 0.001f) {
+            yaw += Wobble(shakeClock_, 7.0f) * 2.5f * kDegToRad * shake_;
+            pitch += Wobble(shakeClock_ + 3.1, 9.0f) * 2.0f * kDegToRad * shake_;
+            roll += Wobble(shakeClock_ + 7.7, 5.0f) * 2.0f * kDegToRad * shake_;
+        }
+        pitch = (std::min)((std::max)(pitch, -80.0f * kDegToRad), 80.0f * kDegToRad);
+        const float fov = (std::min)((std::max)(s.fpFov, 30.0f), 120.0f) + s.speedFov * speedFrac_;
+
         camera->SetPosition(eye);
         camera->SetOrientation(yaw, pitch);
-        camera->SetFovY((std::min)((std::max)(s.fpFov, 30.0f), 120.0f) * kDegToRad);
+        camera->SetRoll(roll);
+        camera->SetFovY((std::min)(fov, 140.0f) * kDegToRad);
         eyeX_ = eye.x;
         eyeY_ = eye.y;
         eyeZ_ = eye.z;
+        roll_ = roll;
         yawDegrees = yaw / kDegToRad;
         pitchDegrees = pitch / kDegToRad;
         status_ = inVehicle ? "first person, at the wheel" : "first person, on foot";
         return;
     }
 
-    // Third person. The camera's own yaw eases round behind the player, so a
-    // turn swings the view over a few tenths of a second rather than snapping.
-    const float tau = (std::max)(s.tpFollow, 0.01f);
-    followYaw_ = WrapAngle(followYaw_ + WrapAngle(headingYaw - followYaw_) * (1.0f - std::exp(-dt / tau)));
+    // --- Third person -----------------------------------------------------
+    // The camera's own yaw eases round behind the player, so a turn swings the
+    // view over a few tenths of a second rather than snapping; quicker at speed,
+    // where a camera that dawdles loses the road.
+    const float tau = (std::max)(s.tpFollow, 0.01f) * (1.0f - 0.45f * speedFrac_);
+    followYaw_ = WrapAngle(followYaw_ + WrapAngle(chaseYaw - followYaw_) * (1.0f - std::exp(-dt / tau)));
+    const float rawYawRate = WrapAngle(followYaw_ - lastYaw_) / dt;
+    lastYaw_ = followYaw_;
+    yawRate_ += (rawYawRate - yawRate_) * (1.0f - std::exp(-dt / 0.12f));
     const float yaw = WrapAngle(followYaw_ + look.yaw);
     const float orbitPitch = (std::min)((std::max)(look.pitch, -20.0f * kDegToRad), 70.0f * kDegToRad);
 
     const float scale = inVehicle ? 1.0f : (std::max)(s.tpFootScale, 0.2f);
-    const float distance = (std::max)(s.tpDistance, 0.5f) * scale;
-    const float height = s.tpHeight * scale;
-    const float lookAhead = s.tpLookAhead * scale;
+    const float distance = ((std::max)(s.tpDistance, 0.5f) + s.tpPullBack * speedFrac_) * scale;
+    const float height = (s.tpHeight + 0.25f * s.tpPullBack * speedFrac_) * scale;
+    const float lookAhead = (s.tpLookAhead + 0.8f * speedFrac_) * scale;
     const float lookHeight = s.tpLookHeight * scale;
+    // Over the shoulder on foot: the camera, and what it looks at, sit a little
+    // to the right of him, so he is not a figure in the dead centre.
+    const float shoulder = inVehicle ? 0.0f : s.tpShoulder * scale;
+    const float sx = std::cos(followYaw_), sz = -std::sin(followYaw_);   // right of the chase yaw
 
     // The point looked at is a little ahead of him along his heading, which is
     // what keeps the road ahead in the frame rather than his roof.
-    const float hx = std::sin(followYaw_), hz = std::cos(followYaw_);
-    const gta2::Vec3 lookAt{px + hx * lookAhead, baseY + lookHeight, pz + hz * lookAhead};
+    const gta2::Vec3 lookAt{px + hx * lookAhead + sx * shoulder, baseY + lookHeight,
+                            pz + hz * lookAhead + sz * shoulder};
 
     // Where the camera wants to be: behind, above, swung by the mouse orbit.
     const float cp = std::cos(orbitPitch), sp = std::sin(orbitPitch);
-    gta2::Vec3 desired{px - std::sin(yaw) * distance * cp, baseY + height + distance * sp,
-                       pz - std::cos(yaw) * distance * cp};
+    gta2::Vec3 desired{px - std::sin(yaw) * distance * cp + sx * shoulder, baseY + height + distance * sp,
+                       pz - std::cos(yaw) * distance * cp + sz * shoulder};
 
     // Not through a wall: walk from just above his head out to where the camera
     // wants to be and stop short of the first solid block.
@@ -581,25 +709,84 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
     }
 
-    // Eased into place. Short, so the car never gets away from it; a collision
-    // pull-in is quick too, since a camera inside a wall is worse than a jolt.
-    const float ease = 1.0f - std::exp(-dt / 0.07f);
+    // The camera moves with him first, so that at a steady speed it never
+    // trails, and is then eased onto where it wants to be: a swing or a pull-in
+    // is spread over a few frames, straight-line motion is not.
+    eyeX_ += velX_ * dt;
+    eyeZ_ += velZ_ * dt;
+    const float ease = 1.0f - std::exp(-dt / 0.09f);
     eyeX_ += (desired.x - eyeX_) * ease;
     eyeY_ += (desired.y - eyeY_) * ease;
     eyeZ_ += (desired.z - eyeZ_) * ease;
+    // But never further than a block from where it should be - a cut, a wall -
+    // which is where easing would show as the camera arriving late.
+    {
+        const float dx = desired.x - eyeX_, dy = desired.y - eyeY_, dz = desired.z - eyeZ_;
+        const float away = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (away > 1.0f) {
+            const float pull = (away - 1.0f) / away;
+            eyeX_ += dx * pull;
+            eyeY_ += dy * pull;
+            eyeZ_ += dz * pull;
+        }
+    }
 
-    const gta2::Vec3 eye{eyeX_, eyeY_, eyeZ_};
+    gta2::Vec3 eye{eyeX_, eyeY_, eyeZ_};
+    if (shake_ > 0.001f) {
+        eye.x += Wobble(shakeClock_, 11.0f) * 0.04f * shake_;
+        eye.y += Wobble(shakeClock_ + 2.3, 13.0f) * 0.03f * shake_;
+    }
     const gta2::Vec3 dir = lookAt - eye;
     const float flat = std::hypot(dir.x, dir.z);
-    const float camYaw = flat > 1e-5f ? std::atan2(dir.x, dir.z) : yaw;
-    const float camPitch = std::atan2(dir.y, (std::max)(flat, 1e-5f));
+    float camYaw = flat > 1e-5f ? std::atan2(dir.x, dir.z) : yaw;
+    float camPitch = std::atan2(dir.y, (std::max)(flat, 1e-5f));
+    // Lean into the turn: a few degrees of roll with the rate of turn, at speed.
+    float roll = (std::max)((std::min)(-yawRate_ * speedFrac_ * 0.35f, 1.0f), -1.0f) * 3.5f * kDegToRad * s.tpLean;
+    if (shake_ > 0.001f) {
+        camYaw += Wobble(shakeClock_ + 1.1, 8.0f) * 1.5f * kDegToRad * shake_;
+        camPitch += Wobble(shakeClock_ + 4.2, 10.0f) * 1.2f * kDegToRad * shake_;
+        roll += Wobble(shakeClock_ + 6.5, 6.0f) * 1.5f * kDegToRad * shake_;
+    }
+    roll_ += (roll - roll_) * (1.0f - std::exp(-dt / 0.15f));
+    const float fov = (std::min)((std::max)(s.tpFov, 20.0f), 110.0f) + s.speedFov * speedFrac_;
+
     camera->SetPosition(eye);
     camera->SetOrientation(camYaw, camPitch);
-    camera->SetFovY((std::min)((std::max)(s.tpFov, 20.0f), 110.0f) * kDegToRad);
+    camera->SetRoll(roll_);
+    camera->SetFovY((std::min)(fov, 130.0f) * kDegToRad);
     yawDegrees = camYaw / kDegToRad;
     pitchDegrees = camPitch / kDegToRad;
     status_ = inVehicle ? "third person, following the car" : "third person, following on foot";
     (void)player;
+}
+
+// ---------------------------------------------------------------------------
+// RTX Remix options that go with the views
+// ---------------------------------------------------------------------------
+
+void ViewModePushRemixOptions(bool viewActive) {
+    static int lastPushed = -1;   // -1 nothing yet, else 0 off / 1 on
+    static bool lastAvailable = false;
+    const bool available = RemixApiAvailable();
+    if (!available) {
+        lastAvailable = false;
+        return;
+    }
+    if (!lastAvailable) {
+        lastAvailable = true;
+        lastPushed = -1;   // a fresh runtime has its own default; say it again
+    }
+    int want = -1;
+    switch (g_settings.motionBlur) {
+        case 1: want = viewActive ? 1 : 0; break;
+        case 2: want = 1; break;
+        default: want = -1; break;
+    }
+    if (want < 0 || want == lastPushed) return;
+    if (RemixSetConfig("rtx.enableMotionBlur", want ? "True" : "False")) {
+        lastPushed = want;
+        Log("view: Remix motion blur %s", want ? "on" : "off");
+    }
 }
 
 }  // namespace gta2dx9

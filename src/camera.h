@@ -25,6 +25,10 @@ public:
     void SetOrientation(float yaw, float pitch) { yaw_ = yaw; pitch_ = pitch; }
     float FovY() const { return fovY_; }
     void SetFovY(float fov) { fovY_ = fov; }
+    // Roll about the view direction, radians, positive leaning right. Only the
+    // chase and first-person views use it; the top-down view keeps it at 0.
+    void SetRoll(float roll) { roll_ = roll; }
+    float Roll() const { return roll_; }
 
 private:
     Vec3 Forward() const;
@@ -35,6 +39,7 @@ private:
     // towards GTA2's near-top-down look while staying a true perspective
     // frustum, which is what keeps Remix path tracing the world.
     float pitch_ = -1.30f;
+    float roll_ = 0.0f;
     float fovY_ = 0.6981f;              // 40 degrees
     float nearZ_ = 0.05f;
     float farZ_ = 2000.0f;

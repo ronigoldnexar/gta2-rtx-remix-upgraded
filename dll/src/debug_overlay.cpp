@@ -439,7 +439,8 @@ void DrawCamera() {
                            player.inVehicle ? "in a car" : "on foot", player.x, player.y, player.z);
         float yaw = 0.0f, pitch = 0.0f;
         ViewCameraAngles(&yaw, &pitch);
-        ImGui::Text("%s  --  camera yaw %.0f, pitch %.0f", ViewCameraStatus(), yaw, pitch);
+        ImGui::Text("%s  --  camera yaw %.0f, pitch %.0f, speed %.1f blocks/s", ViewCameraStatus(), yaw,
+                    pitch, ViewPlayerSpeed());
     } else {
         ImGui::TextColored(kWarn, "%s", ViewCameraStatus());
         Help("The player is recognised by the shape of his own structure in gta2.exe, looked for in "
@@ -485,6 +486,14 @@ void DrawCamera() {
     changed |= ImGui::Checkbox("Pull in front of walls", &vm.tpCollide);
     Help("The camera stops short of the first solid block between you and where it wants to be, "
          "rather than showing the inside of a building.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Over the shoulder", &vm.tpShoulder, 0.0f, 0.6f, "%.2f blocks");
+    Help("On foot the camera sits this far to your right, so you are not a figure in the dead centre.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Pull back at speed", &vm.tpPullBack, 0.0f, 3.0f, "%.2f blocks");
+    Help("The camera drops back and rises a little as you speed up, and comes in again as you slow.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Lean into turns##tp", &vm.tpLean, 0.0f, 2.0f, "%.2f");
 
     ImGui::SeparatorText("First person");
     ImGui::SetNextItemWidth(S(240.0f));
@@ -503,6 +512,11 @@ void DrawCamera() {
     changed |= ImGui::Checkbox("Hide my own body and car", &vm.fpHideOwnBody);
     Help("From your own eyes your sprite would be a picture of your head in front of the camera, "
          "and your car's roof a lid over it. Off draws both anyway.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Head bob on foot", &vm.fpHeadBob, 0.0f, 2.0f, "%.2f");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Lean and dip in a car", &vm.fpLean, 0.0f, 2.0f, "%.2f");
+    Help("The view dips under braking, lifts under power and leans into turns, as a head does.");
 
     ImGui::SeparatorText("Both views");
     changed |= ImGui::Checkbox("Stand pedestrians up", &vm.uprightPeds);
@@ -513,6 +527,24 @@ void DrawCamera() {
     Help("The game creates, draws and removes cars and people inside the window its own camera "
          "frames. A chase camera sees past that window, so it is widened by this much while one is "
          "up. Needs Spawn offscreen (Sprites tab) on. Bigger is more traffic to simulate.");
+
+    ImGui::SeparatorText("Motion");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Full speed is", &vm.referenceSpeed, 2.0f, 20.0f, "%.1f blocks/s");
+    Help("The speed at which the pull-back, the field of view stretch and the lean reach full "
+         "strength. The status line above shows your speed now; a car flat out is a good value.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Field of view at speed", &vm.speedFov, 0.0f, 30.0f, "+%.0f deg");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Impact shake", &vm.impactShake, 0.0f, 3.0f, "%.2f");
+    Help("A kick to the camera when you stop hard - a wall, another car.");
+    {
+        const char* choices[] = {"Leave Remix's own setting", "On in these views, off in classic", "On everywhere"};
+        ImGui::SetNextItemWidth(S(300.0f));
+        if (ImGui::Combo("Motion blur (RTX Remix)", &vm.motionBlur, choices, 3)) changed = true;
+        Help("RTX Remix's per-object motion blur, pushed through its API. It reads motion from the "
+             "same transforms that drive frame generation, so cars and the city streak the way they move.");
+    }
 
     if (ImGui::Button("Reset camera defaults")) {
         const int keepMode = vm.mode;

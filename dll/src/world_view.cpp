@@ -668,6 +668,8 @@ void ViewCameraAngles(float* yawDegrees, float* pitchDegrees) {
     *yawDegrees = g_viewYaw;
     *pitchDegrees = g_viewPitch;
 }
+float g_viewSpeed = 0.0f;
+float ViewPlayerSpeed() { return g_viewSpeed; }
 
 bool WorldView::FloorAt(float x, float z, float ceiling, float* y) const {
     return ground_.Ready() && ground_.SurfaceAt(x, z, ceiling, y);
@@ -1191,11 +1193,13 @@ void WorldView::UpdateCamera() {
         queries.blocked = &WorldView::BlockedThunk;
         const bool placed = wantView && viewSolver_.Update(player, queries, viewDt, &camera_);
         g_viewStatus = viewSolver_.Status();
+        ViewModePushRemixOptions(placed);
         if (placed) {
             g_viewActive = true;
             viewActive_ = true;
             g_viewYaw = viewSolver_.yawDegrees;
             g_viewPitch = viewSolver_.pitchDegrees;
+            g_viewSpeed = viewSolver_.speed;
             camSettled_ = false;
             heightSettled_ = false;
             // The HUD's world-anchored parts were laid out against the game's

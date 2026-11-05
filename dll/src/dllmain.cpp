@@ -174,6 +174,10 @@ void LoadConfig() {
             vm.toggleKey = atoi(keyName);
         }
         if (vm.toggleKey <= 0 || vm.toggleKey >= 256) vm.toggleKey = 'V';
+        // For a recording: switch by itself this many seconds into a level.
+        vm.demoSwitchSeconds =
+            static_cast<float>(GetPrivateProfileIntA("camera", "demo_switch_seconds", 0, ini));
+        vm.demoSwitchTo = GetPrivateProfileIntA("camera", "demo_switch_to", 2, ini);
     }
 
     // What we render at, which is nothing to do with what GTA2 thinks its screen

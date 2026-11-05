@@ -54,6 +54,9 @@ struct ViewModeSettings {
     float tpFollow = 0.25f;         // seconds the camera takes to swing round behind a turn
     float tpReturnDelay = 1.5f;     // seconds after the last mouse input before the orbit returns
     bool tpCollide = true;          // pulled in front of walls rather than through them
+    float tpShoulder = 0.22f;       // on foot, the camera sits this far to the right (over the shoulder)
+    float tpPullBack = 1.0f;        // extra blocks of distance at full speed
+    float tpLean = 1.0f;            // roll into turns, 1 is a few degrees at speed
 
     // First person.
     float fpEyeFoot = 0.78f;        // eye height above the floor on foot (1.55 m)
@@ -63,6 +66,8 @@ struct ViewModeSettings {
     float fpFov = 68.0f;
     bool fpHideOwnBody = true;      // the player's own sprite, and his car, are not drawn
     float fpReturnDelay = 2.0f;     // free look swings back to straight ahead after this
+    float fpHeadBob = 1.0f;         // walking bob on foot; 0 is none
+    float fpLean = 1.0f;            // in a car: nose dip under braking, lean into turns
 
     // Both.
     // Pedestrians are drawn from above and lie flat on the road, which from a low
@@ -74,6 +79,21 @@ struct ViewModeSettings {
     // frames; a chase camera sees well beyond that window, so it is widened by
     // this factor while a chase or first-person view is up. 1 leaves it alone.
     float gameViewScale = 1.8f;
+    // Motion. Speeds are in blocks a second; a GTA2 car flat out does roughly
+    // the reference speed, and the effects below reach full strength there.
+    float referenceSpeed = 8.0f;
+    float speedFov = 12.0f;         // extra degrees of field of view at full speed
+    float impactShake = 1.0f;       // the camera's kick on a hard stop; 0 is none
+    // RTX Remix's own motion blur, pushed through its API while a chase or
+    // first-person view is up: 0 leaves Remix's setting alone, 1 turns it on
+    // there and back off in the classic view, 2 keeps it on everywhere.
+    int motionBlur = 1;
+
+    // For recording a demonstration: this many seconds after a level comes up
+    // the view switches by itself to `demoSwitchTo`, as if the key had been
+    // pressed. 0 (the default) never does. From gta2dx9.ini only, not saved.
+    float demoSwitchSeconds = 0.0f;
+    int demoSwitchTo = 2;
 };
 
 ViewModeSettings& ViewModes();
@@ -145,6 +165,7 @@ public:
 
     // Where the camera is, for the menu.
     float yawDegrees = 0.0f, pitchDegrees = 0.0f;
+    float speed = 0.0f;   // the player's, blocks a second
 
 private:
     void Solve(const PlayerState& player, const ViewQueries& queries, float dt,
@@ -157,9 +178,25 @@ private:
     bool floorSettled_ = false;
     float eyeX_ = 0.0f, eyeY_ = 0.0f, eyeZ_ = 0.0f;   // eased third-person eye
     float lastX_ = 0.0f, lastZ_ = 0.0f;
+    // Motion, estimated from where the player was last frame: the game keeps a
+    // velocity for cars but not one this renderer reads, and the difference of
+    // positions is exact for a simulation that moves once a frame anyway.
+    float velX_ = 0.0f, velZ_ = 0.0f;       // smoothed, blocks a second
+    float speedFrac_ = 0.0f;                // speed over the reference speed, eased, 0..1
+    float lastYaw_ = 0.0f;                  // the chase yaw last frame, for its rate
+    float yawRate_ = 0.0f;                  // eased, radians a second
+    float roll_ = 0.0f;                     // eased camera roll
+    float shake_ = 0.0f;                    // impact energy, decaying
+    double shakeClock_ = 0.0;
+    float bobPhase_ = 0.0f;                 // walking cycle, turns
+    float forwardAccel_ = 0.0f;             // eased, blocks a second squared
     const char* status_ = "classic";
     ViewMode lastMode_ = ViewMode::Classic;
 };
+
+// Pushes the motion blur choice to RTX Remix when it changes. Cheap to call
+// every frame: it only crosses the bridge when the answer is different.
+void ViewModePushRemixOptions(bool viewActive);
 
 // The mouse look offsets the input poll accumulated, in radians, and when the
 // mouse last moved (seconds, performance counter) so the camera can swing back.

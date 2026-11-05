@@ -33,7 +33,14 @@ Mat4 Camera::ViewMatrix() const {
     const Vec3 forward = Forward();
     // Looking straight down makes a +Y up vector degenerate, which is exactly
     // the case GTA2's near-top-down view sits in; fall back to north-up there.
-    const Vec3 up = std::abs(forward.y) > 0.999f ? Vec3{0.0f, 0.0f, 1.0f} : Vec3{0.0f, 1.0f, 0.0f};
+    Vec3 up = std::abs(forward.y) > 0.999f ? Vec3{0.0f, 0.0f, 1.0f} : Vec3{0.0f, 1.0f, 0.0f};
+    if (roll_ != 0.0f) {
+        // Lean the up vector about the view direction. The exact up is rebuilt
+        // first so the roll is about the line of sight and nothing else.
+        const Vec3 right = Normalize(Cross(up, forward));
+        const Vec3 trueUp = Cross(forward, right);
+        up = trueUp * std::cos(roll_) + right * std::sin(roll_);
+    }
     return LookAtLH(position_, position_ + forward, up);
 }
 
