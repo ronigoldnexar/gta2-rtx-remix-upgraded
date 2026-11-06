@@ -1,3 +1,62 @@
+# QA report, second pass (6 Nov 2026, build 72642c6 + the two camera changes below)
+
+Run by script on the NVIDIA L4 through VirtualGL (image `gta2-gpugl`, `gamerun/run_game_gpu.sh`),
+4 CPUs per container, two containers at a time on an 8-CPU host shared with other streams'
+runs. Runner: `gamerun/qa_run.sh <name> <seconds> [keys]` (now GPU, slot-locked; `QA_DISTRICT`,
+`QA_SED`, `QA_ENV`). Scenarios: `gamerun/qa_*.py` on `qa_lib.py`. Each run leaves
+`out/qa_<name>/` with labelled `qa_*.png`, `keys.log` (`CHECK` line) and `gta2dx9.log`.
+Summary sheet: `out/qa2_sheet.png`; detail sheets `out/qa2_*_sheet.png`.
+
+Counts: `fault` = `FAULT` lines, `waiting` = locator gave up, `lost` = locator re-scan
+(20 per car entry is the expected recycle), `hitch` = frames the renderer flagged as slow
+(capped at 1600 lines per run).
+
+## Scenarios
+
+| # | scenario | run | result |
+|---|---|---|---|
+| a | wall pushing, slide, 360 turn, back off, third and first | `qa_wall` | fault 0, waiting 0, lost 0; chase camera pulls in and rises at the wall (pass-one fix holds), first person shows the wall texture at a hand's distance, no camera inside geometry |
+| b | back and forth with V mid-move; 30 V presses in 10 s | `qa_backforth` | fault 0, waiting 0, lost 0; every switch landed in the renderer's reported view |
+| c | 150 s brawl, third then first then third, 248 punches | `qa_fight` | fault 0; the punch clip plays on the player, NPCs react; police never came (fists do not raise the wanted level) |
+| d | take a car, crash into traffic and the kerb in chase and seat views, exit, look round, re-enter, drive in all views | `qa_crash` | fault 0, waiting 0, 99 driving lines; a uniformed police officer walked past after the crash (typed peds) |
+| f | 9-12 laps of walk (third, first) + F10 car + drive (third, first, classic) + exit, 540 s per district | `qa_soak_wil`, `qa_soak_bil`, `qa_soak_ste` | fault 0, waiting 0 in all three; HD tiles 818/892/842 loaded, 0 failed; managed texture pool **344.8 MB flat from the first summary to the last** (pre-warm loads everything at level start; no growth); frame summaries at the end: wil game 4.8 ms avg / wait 27 (at the cap), bil game 11.2 / sprites 7.6 / wait 12.5, ste game 9.0 / sprites 5.8 / wait 16.5 |
+| g | rapid V (31 presses) | in `qa_backforth` | as pass one, clean |
+| h | first person inside a tall vehicle | `qa_tall`, `qa_tallcam` | Truck Cab (63) from the seat: road ahead visible, only a mirror corner in frame; sedan (13): hood in frame; bus (8) and taxi (56) in chase after the fix below |
+| i | classic view unchanged | `qa_classic` vs `qa_classic_off` (sky, car models, water, window glow off) | spawn frames: mean abs difference 0.29/255, 0.4 % of pixels differ (moving pedestrians only); the walked frame differs only because the walk endpoint differs between runs. Classic draws no models, props, sky or glow (gated by the ground-view flag) |
+| j | mission start by script | `qa_mission` (`mission_play.py wil wil_tra`) | fault 0; the tutorial phone is answered, `view: mission` fields read, the mission car named; the runner then left the car and walked for 5 min toward a far target (runner logic, not the renderer) |
+| k | ini keys | `grep GetPrivateProfile` vs `package/gta2dx9.ini` | all 48 documented keys are parsed; 46 parsed keys are undocumented (upstream `car_*`, `skids`, `save`, `voice`, and our `remix.di_*`, `renderer.hud_world_follow`, `renderer.backend`) |
+| e | death and arrest | `qa_death2`, `qa_death2b`, `qa_death2c` | **not achieved**: the weapon pickup east of the spawn (map 166.5,139.5) is behind a wall of the plaza (the walker stops at x=163.8); warping onto it with the devtools scene key dropped the player under the map (state 8, see Open 3); fists never raise the wanted level and traffic brakes for the player. Respawn in the new views remains untested |
+
+## Fixed in this pass (uncommitted)
+
+1. **Chase camera inside a lamp post.** The kerb-railing fix (pass one) covered flat map panels only; a rule-placed lamp post could still end up a few centimetres from the camera and draw a black bar down the frame (`out/qa_death2/qa_d2_05_loop016_third.png`). `WorldView::PanelDistance` (`dll/src/world_view.cpp`) now also reports the distance to the nearest map lamp (post radius 0.06) within 1.5 blocks and 3.5 blocks below the lamp, so the existing outward march clears it. Verified only indirectly: none of the 60 later third-person frames show a post bar (scan in the transcript); no frame of the exact earlier situation was reproduced.
+2. **Chase camera behind a tall vehicle.** Behind a Truck Cab / bus the body's back filled the frame (`out/qa_soak_wil/qa_soak_wil_09_third_drive.png`, `qa_soak_wil_08_third_drive.png`). `ViewCameraSolver::Solve` (`dll/src/view_modes.cpp`) scales the chase distance and height by the car body's roof height from `CarBodiesCabin` (sedan roof ≈ 0.35 blocks: unchanged; a 0.9-block cab: ×1.7, capped ×1.8). Verified: `out/qa2_tallcam_sheet.png`, bus (model 8) and taxi (56) in chase, road and traffic visible.
+3. `gamerun/qa_run.sh` moved to the GPU image and the slot helper; new scenarios `qa_death2.py`, `qa_soak.py`, `qa_tall.py`, `qa_tallcam.py`, `qa_classic.py` (+ `keys_qa_*.sh`, mirrored in `linux/docker/`).
+
+## Open
+
+1. **First-person exit into a prop.** Leaving the Truck Cab beside the pavement put the eye inside a rule-placed trash can (`out/qa_crash/qa_crash_09_first_out.png`). Props placed within ~0.6 block of a car door should be skipped, or the first-person eye nudged off a prop (DrawProps / car exit; props owner).
+2. **Death/arrest unprovoked.** Needs a reachable weapon: either the pickup route (the cell is reachable from the terrace side, not from the plaza) or a mission that hands a gun; then shoot a cop. Also the "WASTED"/"BUSTED" respawn in third/first person is unverified.
+3. **Devtools scene warp under the map.** `scene_key` with `scene_xy=166.5,139.5` (Downtown terrace spot) and the default `164.5,149.5` in Residential/Industrial put the player in mid-air/under the world (state 8 sub 19, sky-coloured ground, the city seen from below: `out/qa_death2c/qa_d2_05_loop008_third.png`, `out/qa_soak_bil/qa_soak_bil_03_first_drive.png`). The warp must resolve the floor lid at the target (`FloorAt`) and refuse spots with none; the soaks' car laps in bil/ste therefore never got a car (the walk laps are clean: `out/qa2_soak_lap1.png`).
+4. **Pedestrian posing is the largest of our costs in slow frames.** Downtown soak hitch breakdown (ms summed over 700 flagged frames): game 28578, sprites 6669 (peds 3184, loop 867, props 866, rest 691, cars 375), present 2122, world 1134. On the 4-CPU container the game's own step dominates; our share is pedestrians. A distance LOD would halve it (perf owner).
+5. **One-time first ground-view frame** of 1.1-1.8 s in every district (frame ~650-665: model/texture builds on the first switch), plus 4-9 frames over 100 ms per 10-minute run. Pre-warming the ground-view passes once at level load would remove the first one.
+6. **Mission runner** leaves the mission car and walks (MISSIONS stream); the renderer side (phone answer, `view: mission` line, 0 faults) is fine.
+7. **Fists never provoke police**, so the brawl path cannot reach the arrest animation (`handsup` stays unverified, as the PED-ANIM agent noted).
+8. Undocumented ini keys (list above) should be documented or removed.
+
+## Verified list
+
+- 17 runs, 0 FAULT lines in all; 0 `waiting for the player` in all; locator re-scan only at car entry.
+- Views: every V switch landed as reported, in all three districts (soaks), on foot and driving, during crashes, exits and re-entries, and under rapid presses.
+- Chase camera: wall, railing (pass one), lamp post and tall-vehicle cases; first person at the wheel of a Truck Cab, bus, taxi, sedans.
+- Memory: 344.8 MB managed textures, flat over 10 minutes in each district, LAA on, no out-of-memory.
+- Classic view pixel-identical with the ground-view features on and off.
+- Typed pedestrians (police uniform seen), punch clip, wrecks (forced), 3D pickups/phone (seen in third and first person), trees, water, animated HD tiles, map-hole fixes: no regressions seen in any run; the two map-hole spots were not revisited here.
+
+---
+
+# History: first pass (5 Nov 2026)
+
 # QA report: edge cases in the three views (5 Nov 2026, evening build)
 
 Everything below was run by script under Wine 9 in the `gta2-remixbox` container on this
