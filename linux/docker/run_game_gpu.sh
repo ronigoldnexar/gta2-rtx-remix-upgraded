@@ -8,7 +8,7 @@ export WINEPREFIX=/tmp/wp WINEARCH=$ARCH WINEDEBUG=${WINEDEBUG:--all}
 export VGL_DISPLAY=${VGL_DISPLAY:-egl0} VGL_VERBOSE=${VGL_VERBOSE:-1}
 export VK_ICD_FILENAMES=${ICD_JSON:-$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | tr "\n" ":")}
 W=${SCREEN_W:-1280}; H=${SCREEN_H:-720}
-if [ "${HOST_DISPLAY:-0}" = 1 ]; then export DISPLAY=${DISPLAY:-:0}; else export DISPLAY=:99; Xvfb :99 -screen 0 ${W}x${H}x24 +extension GLX +render -noreset >/tmp/xvfb.log 2>&1 & fi
+if [ "${HOST_DISPLAY:-0}" = 1 ]; then export DISPLAY=${DISPLAY:-:0}; else export DISPLAY=:99; __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json Xvfb :99 -screen 0 ${W}x${H}x24 +extension GLX +render -noreset >/tmp/xvfb.log 2>&1 & fi   # Xvfb's own GLX must stay on Mesa: with the NVIDIA EGL vendor (and the runtime's libnvidia-egl-gbm) it segfaults; vglrun below still goes to the GPU
 sleep 2; if [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1); else wineboot -i >/dev/null 2>&1; fi
 G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 cp -r /game/. "$G"/; mkdir -p "$G/player"
