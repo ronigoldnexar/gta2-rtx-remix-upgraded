@@ -1524,7 +1524,9 @@ void WorldView::UpdateCamera() {
         // A view that cannot find the player this frame - he is being arrested,
         // has just died, the game is between two bodies - holds its last camera
         // for a couple of seconds rather than cutting to the sky and back.
-        if (wantView && !placed && viewActive_ && viewLostFrames_ < 60) {
+        // Five seconds covers the game's WASTED / BUSTED sequence, which ends with
+        // the new body at the hospital or police station being found again.
+        if (wantView && !placed && viewActive_ && viewLostFrames_ < 150) {
             ++viewLostFrames_;
             return;
         }

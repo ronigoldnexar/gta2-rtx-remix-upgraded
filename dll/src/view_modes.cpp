@@ -758,6 +758,15 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     }
     if (g_settings.devSceneKey > 0 && g_settings.devSceneKey < 256 && worldLoaded &&
         (GetAsyncKeyState(g_settings.devSceneKey) & 0x0001) != 0) {
+        if (g_settings.devIniPath[0]) {
+            // Re-read the spot each press: a scenario script may edit the ini between warps.
+            char sceneXy[64] = {};
+            GetPrivateProfileStringA("devtools", "scene_xy", "", sceneXy, sizeof(sceneXy), g_settings.devIniPath);
+            float sx = 0.0f, sy = 0.0f, sz = -1.0f;
+            if (sscanf(sceneXy, "%f,%f,%f", &sx, &sy, &sz) >= 2) {
+                g_settings.devSceneX = sx; g_settings.devSceneY = sy; g_settings.devSceneZ = sz;
+            }
+        }
         WarpSceneToRoad(g_settings.devSceneX, g_settings.devSceneY, g_settings.devSceneZ);
     }
     if (g_settings.logKeys) {

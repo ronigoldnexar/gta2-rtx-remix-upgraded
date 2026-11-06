@@ -45,6 +45,9 @@ struct ViewModeSettings {
     int devSceneKey = 0;
     float devSceneX = 0.0f, devSceneY = 0.0f;
     float devSceneZ = -1.0f;   // map level for the scene warp; < 0 leaves the level alone
+    // The ini the scene spot was read from: re-read on every press, so a test
+    // script can retarget the warp mid-run by editing [devtools] scene_xy.
+    char devIniPath[260] = {};
     // ViewMode, as an int so the settings table can carry it.
     int mode = 0;
     // The virtual-key code that cycles the modes. 'V' is free in GTA2's own

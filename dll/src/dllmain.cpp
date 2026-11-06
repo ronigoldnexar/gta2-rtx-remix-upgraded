@@ -194,6 +194,7 @@ void LoadConfig() {
             char sceneKey[32] = {}, sceneXy[64] = {};
             GetPrivateProfileStringA("devtools", "scene_key", "", sceneKey, sizeof(sceneKey), ini);
             GetPrivateProfileStringA("devtools", "scene_xy", "164.5,149.5", sceneXy, sizeof(sceneXy), ini);
+            strncpy(vm.devIniPath, ini, sizeof(vm.devIniPath) - 1);
             vm.devSceneKey = 0;
             if (sceneKey[0] == 'F' || sceneKey[0] == 'f') vm.devSceneKey = VK_F1 + atoi(sceneKey + 1) - 1;
             else if (sceneKey[0]) vm.devSceneKey = atoi(sceneKey);
