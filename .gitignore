@@ -37,3 +37,6 @@ assets/models/0[0-9][0-9]_*
 
 # Imported Rocketbox avatars (MIT, ~280 MB of mesh+TGA for 41 people): regenerate with tools/import_assets.py; shipped as a release asset
 assets/models/human_*
+
+# Every Remix material layer's textures (the 64 px keyed layer too)
+package/rtx-remix/mods/*/textures/

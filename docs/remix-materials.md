@@ -1,5 +1,35 @@
 # RTX Remix materials for the world tiles (Linux build)
 
+**6 Nov 2026, verified on an NVIDIA L4:** the layer applies under RTX Remix with the
+HD tiles installed. What the runtime hashes for a block-compressed tile was settled by a
+probe run (`tools/remix_hash_probe.py`): it paints a flat magenta material under
+XXH3-64 of the **top mip's block bytes** and cyan under the hash of the whole mip chain;
+the game came up magenta everywhere (`out/remix_probe1`, frames in
+`out/remix_materials_sheet.png`). So for an HD tile (`assets/textures_hd/<style>/tile_NNNN.dds`,
+DXT1/DXT5, 512 px, 10 mips, uploaded by `src/renderer.cpp CreateDdsTexture` through a
+system-memory staging texture and `UpdateTexture`) the material name is
+`mat_<xxh3_64(level 0 blocks)>`; the mip chain, the DDS header and the staging/default
+pool do not enter. For the 64 px tiles and every model texture (single-level A8R8G8B8,
+`dll/src/model_store.cpp TextureFor`) it is `xxh3_64(BGRA texels, rows top-down)` as before.
+
+The shipped layer is now `package/rtx-remix/mods/gta2hd` built in the DDS-keyed mode:
+
+    python3 tools/remix_materials.py - package/rtx-remix/mods/gta2hd \
+        --dds-tiles assets/textures_hd/wil assets/textures_hd/bil assets/textures_hd/ste \
+        --size 256 --exclude <upstream mod .usda files>
+    python3 tools/remix_model_materials.py assets/models package/rtx-remix/mods/gta2hd
+
+2 649 tile materials (the DDS itself is the albedo, no re-encode; 256 px octahedral BC5
+normal and BC4 roughness from its pixels) plus 314 car-paint materials
+(`<car>_N_paint.tga` as BC3 albedo, metallic 0.6, roughness 0.3, so paint reads as glossy
+metal; the renderer's per-car tint is a texture factor, which Remix keeps). 973 MB on
+disk; shipped as the release archive `remix_mod_gta2hd.zip`, not in git. The older 64 px
+keyed layer only applies when the HD tiles are absent (`NO_HD=1`).
+
+Not tuned by measurement: the roughness heuristic (below), the paint constants, and the
+runtime's exposure (see `docs/remix-gpu-l4.md`).
+
+
 This note records what NVIDIA offers for turning GTA2's 64x64 tiles into PBR
 materials, why none of it runs on this Linux/B200 machine, and what
 `tools/remix_materials.py` produces instead: a complete Remix material layer,

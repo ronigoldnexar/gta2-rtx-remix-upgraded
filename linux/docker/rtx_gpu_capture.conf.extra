@@ -1,0 +1,23 @@
+# Remix on an NVIDIA GPU under Wine: no DLSS frame generation or Reflex (both
+# need the Windows NGX/NvAPI path Wine lacks), no upscaler for the first runs,
+# a screenshot key the key script can press, play while shaders compile.
+rtx.dlfg.enable = False
+rtx.isReflexEnabled = False
+rtx.upscalerType = 0
+rtx.resolutionScale = 1.0
+rtx.faultNotice.enable = False
+rtx.screenshot.hotkey = F12
+rtx.shader.blockUntilPrewarmed = False
+rtx.gpuStallTimeoutSeconds = 600
+# Under Wine without a compositing window manager the runtime's "new GUI input"
+# overlay (a transparent layered window on Windows) is an opaque black window
+# that is raised over the picture on every key event: whole seconds of black
+# frames while a key is held. The old input path has no such window.
+# rtx.useNewGuiInputMethod = False  -- NOT usable: the old input path crashes the
+# game (binkw32/page faults a few seconds in). A compositing window manager
+# (COMPOSITOR=1 in run_game_remix_gpu.sh) makes the overlay transparent instead.
+# Hash probe runs: Ctrl+Shift+Q writes a USD capture straight away (no menu);
+# the capture's mat_<hash> prims are the runtime's own texture hashes.
+rtx.captureShowMenuOnHotkey = False
+rtx.captureInstances = True
+rtx.logLegacyHashReplacementMatches = True

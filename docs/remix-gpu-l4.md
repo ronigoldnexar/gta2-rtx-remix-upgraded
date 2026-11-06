@@ -132,3 +132,22 @@ first person on the same plaza). Cut with `gamerun/remix_sheet.py`.
 - Single-frame `ffmpeg x11grab` captures of the Remix window come out black; the continuous
   recording works, so frames are cut from `game.mp4`.
 - Not yet done: the three views under Remix, the gta2hd material mod check, the recording.
+
+## Material layer with the HD tiles: hash found, layer applied (6 Nov, evening)
+
+The runtime hashes the **top mip's block bytes** of an uploaded DXT texture
+(`tools/remix_hash_probe.py`, run `out/remix_probe1`: a magenta flat material under that
+hash and a cyan one under the whole-chain hash; everything came up magenta). A USD
+capture (Ctrl+Shift+Q) is refused while a replacement layer is loaded, so the colour probe
+is the verification. `package/rtx-remix/mods/gta2hd` was rebuilt keyed by that hash from
+the 512 px DDS sets of all three districts, with normal/roughness maps and glossy
+car-paint materials (`docs/remix-materials.md`). Run with `MODS_HD=1` (and
+`MODS_HD_SRC=<folder>` to try another layer); `out/remix_materials_sheet.png` shows the
+same three views as legacy flat material, with the layer, and with the magenta probe.
+Sheet columns: `out/remix_legacy1` (no layer), `out/remix_pbr2` (layer; the same key
+script with `LEVEL_WAIT=60`, because the runtime takes about 26 s longer on the "GET READY"
+screen while it reads the layer's 8 261 textures), `out/remix_probe1` (probe). Frame cost
+with the layer is unchanged (renderer stages and present within noise of the no-layer run);
+`[RTX Opacity Micromap] Out of memory budget` appears once per run with and without it.
+Exposure was left at the runtime's auto-exposure defaults: the 14:00 plaza frames are neither
+clipped nor flat in either run, so no `rtx.conf` tone change was made (untuned, by eye only).

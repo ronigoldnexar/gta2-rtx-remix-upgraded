@@ -214,6 +214,49 @@ def write_roughness(path, r):
     data = [bc4(np.clip(np.rint(m), 0, 255).astype(np.uint8)) for m in mips(r.astype(np.float32))]
     dds(path, (data, r.shape[:2]), b"BC4U", 8)
 
+# ------------------------------------------------------- DDS tile sets --
+def dds_levels(path):
+    """The mip levels (block bytes, top down) of a DXT1/DXT5 DDS as tools/pack_textures_dds.py writes it."""
+    b = open(path, "rb").read()
+    if b[:4] != b"DDS ": return None
+    flags, h, w = struct.unpack_from("<III", b, 8)
+    nmips = struct.unpack_from("<I", b, 28)[0] if flags & 0x20000 else 1
+    bpb = {b"DXT1": 8, b"DXT5": 16}.get(b[84:88])
+    if bpb is None: return None
+    levels, off = [], 128
+    for i in range(max(1, nmips)):
+        n = ((max(1, w >> i) + 3) // 4) * ((max(1, h >> i) + 3) // 4) * bpb
+        levels.append(b[off:off + n]); off += n
+    return levels
+
+def dds_hash(path, scheme="mip0"):
+    """The hash Remix gives an HD tile: XXH3-64 of the top mip's block bytes (verified in game,
+    see docs/remix-materials.md), or of the whole chain with scheme="all"."""
+    levels = dds_levels(path)
+    if levels is None: return None
+    return "%016X" % xxhash.xxh3_64_intdigest(levels[0] if scheme == "mip0" else b"".join(levels))
+
+def dds_tiles(a, tex_dir, taken):
+    """--dds-tiles: one material per HD DDS tile, keyed by the hash of what the game uploads.
+    The DDS itself becomes the albedo (no re-encode); normal and roughness come from its pixels."""
+    import shutil
+    made = skipped = 0; t0 = time.time()
+    for d in a.dds_tiles:
+        for f in sorted(os.listdir(d)):
+            if not f.endswith(".dds"): continue
+            path = os.path.join(d, f)
+            h = dds_hash(path, a.dds_hash)
+            if h is None or h in taken: skipped += 1; continue
+            if not a.force and os.path.exists(os.path.join(tex_dir, f"{h}.r.rtex.dds")): skipped += 1; continue
+            taken.add(h)
+            shutil.copyfile(path, os.path.join(tex_dir, f"{h}.a.rtex.dds"))
+            rgba = np.asarray(Image.open(path).convert("RGBA"))
+            if rgba.shape[0] != a.size: rgba = resize(rgba, a.size)
+            write_normal(os.path.join(tex_dir, f"{h}.n.rtex.dds"), normal_map(rgba[..., :3]))
+            write_roughness(os.path.join(tex_dir, f"{h}.r.rtex.dds"), roughness_map(rgba[..., :3]))
+            made += 1
+    return made, skipped, time.time() - t0
+
 # ------------------------------------------------------------------ USDA --
 MATERIAL = '''        over "mat_{h}"
         {{
@@ -271,6 +314,8 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--exclude", nargs="*", default=[], help="other mod layers (.usd/.usda) whose materials must not be overridden here")
     ap.add_argument("--validate-only", action="store_true", help="only check an existing mod against the dump")
+    ap.add_argument("--dds-tiles", nargs="*", default=[], help="HD DDS tile folders (assets/textures_hd/<style>): materials keyed by the uploaded block data; the dump argument is then unused (pass -)")
+    ap.add_argument("--dds-hash", choices=["mip0", "all"], default="mip0", help="which bytes of a DDS Remix hashes (mip0, verified)")
     a = ap.parse_args()
     if a.validate_only:
         dump_hashes = {remix_hash(read_tga(os.path.join(a.dump, f))) for f in os.listdir(a.dump) if f.endswith(".tga")}
@@ -284,6 +329,13 @@ def main():
     taken = set()
     for layer in a.exclude:   # byte scan works for both usda text and usdc binaries (tokens are stored as strings)
         taken |= {m.decode() for m in re.findall(rb"mat_([0-9A-F]{16})", open(layer, "rb").read())}
+    if a.dds_tiles:
+        made, skipped, dt = dds_tiles(a, tex_dir, taken)
+        hashes = write_usda(a.mod)
+        prims, refs, problems, size = validate(a.mod)
+        print(f"{made} DDS-keyed materials written, {skipped} skipped, {len(hashes)} materials in the layer, "
+              f"{size / 1e6:.1f} MB, {dt:.0f} s; validation: {'ok' if not problems else problems[:5]}")
+        return
     tiles = sorted(f for f in os.listdir(a.dump) if re.match(r"tile_\d{4}\.tga$", f))
     if a.limit: tiles = tiles[:a.limit]
     t0 = time.time(); made = skipped = fallback = 0
