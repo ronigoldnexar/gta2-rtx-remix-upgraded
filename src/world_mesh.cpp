@@ -1171,6 +1171,68 @@ void AddImplicitFloors(MeshBuilder* builder, const Map& map) {
         }
     }
 }
+
+// The second kind of face the top-down renderer never needed: surfaces under
+// something else. (a) A road or pavement that runs under a bridge or an
+// overhang is stored as a block with a ground type and road arrows but no lid,
+// because from above the deck hides it; the game walks and drives on its top
+// all the same. (b) The underside of that deck, and of every overhang whose
+// column stores an empty block beneath it, has no face either (GTA2 blocks
+// have no bottom). From the street both are in plain view and showed the sky
+// through the world. The road gets a lid at its top, textured like the lid a
+// neighbouring column shows at that height; the deck gets an underside at its
+// base, textured with a side face of the deck block, else its lid. All of it is
+// hidden from above by the deck itself, so the classic view is unchanged.
+int DeckUndersideTile(const Block& block) {
+    for (const Face* face : {&block.left, &block.right, &block.top, &block.bottom}) {
+        if (*face && !face->IsFlat()) return face->Tile();
+    }
+    return block.lid.Tile();
+}
+
+void AddHiddenSurfaces(MeshBuilder* builder, const Map& map) {
+    for (int y = 0; y < kMapHeight; ++y) {
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            const float xWest = static_cast<float>(x), xEast = xWest + 1.0f;
+            const float zSouth = static_cast<float>(kMapHeight - y - 1), zNorth = zSouth + 1.0f;
+            for (size_t i = 0; i < column.blocks.size(); ++i) {
+                const uint32_t index = column.blocks[i];
+                if (index >= map.BlockCount()) continue;
+                const Block& block = map.BlockAt(index);
+                const int level = column.offset + static_cast<int>(i);
+                const Block* above = nullptr;
+                if (i + 1 < column.blocks.size() && column.blocks[i + 1] < map.BlockCount()) above = &map.BlockAt(column.blocks[i + 1]);
+                const Block* below = nullptr;
+                if (i > 0 && column.blocks[i - 1] < map.BlockCount()) below = &map.BlockAt(column.blocks[i - 1]);
+
+                // (a) a lidless road or pavement with something built over it,
+                // and nothing lidded directly under it that could be the real
+                // surface instead.
+                const bool groundBlock = !block.lid && block.SlopeType() == 0 && (block.GroundType() != 0 || block.arrows != 0);
+                const bool covered = above && (above->lid || above->left || above->right || above->top || above->bottom);
+                const bool belowIsSurface = below && (below->lid || below->SlopeType() != 0);
+                if (groundBlock && covered && !belowIsSurface) {
+                    const int tile = NeighbourLidTile(map, x, y, level + 1);
+                    if (tile != 0) {
+                        const float h = static_cast<float>(level + 1);
+                        builder->AddFloorQuad(tile, {{{xWest, h, zNorth}, {xEast, h, zNorth}, {xEast, h, zSouth}, {xWest, h, zSouth}}});
+                    }
+                }
+
+                // (b) the underside of a deck: a lidded block over a stored,
+                // empty block (air with no faces and no slope).
+                if (block.lid && !block.lid.IsFlat() && block.SlopeType() == 0 && below) {
+                    const bool emptyBelow = !below->lid && !below->left && !below->right && !below->top && !below->bottom && below->SlopeType() == 0;
+                    if (emptyBelow) {
+                        const float h = static_cast<float>(level);
+                        builder->AddSideQuad(DeckUndersideTile(block), {{{xWest, h, zSouth}, {xEast, h, zSouth}, {xEast, h, zNorth}, {xWest, h, zNorth}}}, {0.0f, -1.0f, 0.0f});
+                    }
+                }
+            }
+        }
+    }
+}
 }  // namespace
 
 void SetRiverbedDepth(float blocks) {
@@ -1210,6 +1272,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
         }
     }
     AddImplicitFloors(&builder, map);
+    AddHiddenSurfaces(&builder, map);
     if (g_riverbedDepth > 0.0f) AddRiverbed(&builder, map, style, g_riverbedDepth);
     if (g_seal) {
         // One quad, face up, below everything and reaching well past the map on

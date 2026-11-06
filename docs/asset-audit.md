@@ -90,3 +90,28 @@ Recommended order for the fill agents:
 5. **Pickups, phones, traffic lights, helicopter**: small but constant in play.
 6. Street furniture by rule, Industrial docks, rooftop detail, window interiors.
 
+
+## 8. Map holes (surfaces the top-down renderer never needed)
+
+`tools/map_holes.py <game/data>` walks the three maps for cells where a street-level camera can look at a surface the map stores no face for. Two classes are real and both are now built by `src/world_mesh.cpp`:
+
+- **lidless_ground**: a block with a ground type or road arrows but no lid, with something built over it (a road or pavement under a bridge or overhang: the deck hid it from above). Closed with a lid at the block's top, textured like the lid a neighbouring column shows at that height (`AddHiddenSurfaces`, case a). The first class of hole, `offset > 0` columns with no base, is `AddImplicitFloors` (commit 892688d).
+- **deck_underside**: a lidded block over a stored empty block (GTA2 blocks have no bottom face). Closed with a downward-facing quad at the deck's base, textured with one of the deck's side faces, else its lid (case b).
+- **slope_base** (a column whose first stored block is a slope) and **lidless_top** (nothing in a stack faces upward) are counted for completeness; the former are ramp foots that the ramp itself covers, the latter does not occur.
+
+Counts per district (the examples are the cells with the most lidded neighbours at the same level, i.e. the most exposed):
+
+| district | class | cells | examples (x,y,level) |
+|---|---|---|---|
+| wil | lidless_ground | 1702 | (158,5,1), (228,16,0), (132,40,5), (132,46,5) |
+| wil | deck_underside | 4584 | (36,1,5), (37,1,5), (38,1,5), (39,1,5) |
+| wil | slope_base | 14 | (172,4,4), (80,8,4), (233,240,1), (193,243,1) |
+| wil | lidless_top | 0 |  |
+| bil | lidless_ground | 4377 | (253,2,1), (133,20,1), (169,23,1), (173,27,1) |
+| bil | deck_underside | 7249 | (239,3,1), (240,3,1), (241,3,1), (242,3,1) |
+| bil | slope_base | 257 | (214,75,4), (211,78,4), (208,81,4), (201,29,6) |
+| bil | lidless_top | 0 |  |
+| ste | lidless_ground | 6442 | (160,8,4), (216,22,3), (14,32,1), (230,32,3) |
+| ste | deck_underside | 9111 | (75,1,6), (76,1,6), (30,3,3), (56,3,1) |
+| ste | slope_base | 31 | (84,20,1), (90,20,1), (98,25,1), (106,31,1) |
+| ste | lidless_top | 0 |  |
