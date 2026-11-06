@@ -34,7 +34,35 @@ into a 512 px, mipmapped, block-compressed texture that the game loads in real t
 5. `make stage` ships the folder as `gta2dx9_textures_hd/`; the Linux installer and the
    container runner copy it beside the game.
 
-The ready-made set for all three districts (wil, bil, ste; 2 552 tiles, 550 MB, 234 MB zipped) is a release asset,
+### Completing the set from the style file (animated tiles)
+
+The in-game dump only sees what the game uploads, and for an animated tile
+(water, fans, neon, screens, traffic lights: the map's `ANIM` groups) that is one
+frame of several. `tools/dump_style_tiles.py <game/data> <style> <out> --missing
+<hd dir>` writes, straight from the style file's `TILE` pages, every tile the map
+uses or animates that has no DDS yet (byte-identical to the game's own dump, checked
+on tiles 1, 100, 300 and 608), so the pipeline above can be run on those alone. The
+100 tiles that were missing across the three districts were all animation frames;
+they are packed from the Real-ESRGAN upscale only, not the SD rendering, so the
+frames of one animation stay consistent and the water does not flicker. The sets are
+now complete: Downtown 846, Residential 930, Industrial 876 DDS.
+
+The renderer plays those animations in high resolution: the frame the game uploads
+for an animated tile is recognised by its content hash as "tile N of the style"
+(`tileByContent_`, built at level load) and tile N's DDS is shown in its place
+(`UpdateTileTexture`), instead of the 64 px frame texture that used to replace the
+HD base tile as soon as the animation started.
+
+### Water
+
+In the street views the water tiles (the animated group at tile 608, the same in
+every district) are drawn with two layers of tileable noise drifting across each
+other (texture stages 1 and 2, signed-added, texture matrices scrolled by the sky's
+clock) and then pulled a quarter of the way toward the sky's horizon colour: ripples
+and a reflection tint for the cost of two texture stages. `[renderer] water_effect=0`
+turns it off; the classic view never uses it.
+
+The ready-made set for all three districts (wil, bil, ste; 2 652 tiles, 570 MB, about 245 MB zipped) is a release asset,
 `textures_hd_dds.zip`; unzip it into `gta2dx9_textures_hd/` beside `gta2.exe`.
 
 ## Memory, and why DDS

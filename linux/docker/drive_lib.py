@@ -90,22 +90,32 @@ def calibrate_turn():
         left_sign, rate = -1, 1.5          # the sign every measured run has given
         return
     left_sign = 1 if turn > 0 else -1      # the sign is reliable even when the magnitude is not
-    rate = min(2.5, max(0.8, abs(turn) / 0.4))
+    rate = min(8.0, max(0.8, abs(turn) / 0.4))   # peds turn about 6 rad/s; measured, not clamped low
     say(f"Left turns {turn:+.2f} rad in 0.4 s")
 
 def goto(tx, ty, tol=0.6, limit=40):
+    """walk to (tx,ty). A standing ped's logged facing comes from his sprite
+    and can be a half turn off; the facing of a moving ped comes from his
+    motion and is right, so every turn is preceded by a short step."""
+    still = 0; last = None
     for _ in range(limit):
         s = wait_state()
         if not s or s["driving"]: return s
         d = math.hypot(tx - s["x"], ty - s["y"])
         if d < tol: return s
+        # not moving at all across three tries: blocked; let the caller unstick
+        here = (round(s["x"], 1), round(s["y"], 1))
+        still = still + 1 if here == last else 0; last = here
+        if still >= 3: return s
         a = angle_to(s, tx, ty)
         if abs(a) > 0.3:
+            # turn in short pieces and re-read: the facing is logged twice a
+            # second and the turn is fast, so a long hold overshoots
             key = "Left" if (a > 0) == (left_sign > 0) else "Right"
-            hold(key, min(abs(a) / rate, 0.6))
+            hold(key, min(abs(a) / rate, 0.3)); time.sleep(0.35)
         else:
-            # walking speed is about 1.5 blocks a second; go most of the way in one hold
-            hold("Up", min(2.5, max(0.25, (d - 0.3) / 1.6)))
+            # walking speed is about 1.9 blocks a second; go most of the way in one hold
+            hold("Up", min(2.5, max(0.25, (d - 0.3) / 1.9)))
     return wait_state()
 
 def straighten(path):

@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -112,6 +113,8 @@ void SetAnisotropy(int level) { g_anisotropy = level < 0 ? 0 : (level > 16 ? 16 
 bool g_softwareGl = false;
 void SetHdTextureDir(const char* dir) { g_hdTextureDir = dir ? dir : ""; }
 void SetTileDumpDir(const char* dir) { g_tileDumpDir = dir ? dir : ""; }
+bool g_waterEffect = true;
+void SetWaterEffect(bool on) { g_waterEffect = on; }
 void SetTileStyleName(const char* name) { g_tileStyle = name && *name ? name : "style"; }
 
 namespace {
@@ -203,6 +206,78 @@ bool ReadDds(const std::string& path, DdsImage* out) {
     return ok;
 }
 
+uint64_t TileContentHash(const uint32_t* pixels) {
+    uint64_t key = 0xCBF29CE484222325ULL;
+    for (size_t i = 0; i < static_cast<size_t>(kTileSize) * kTileSize; ++i) {
+        key ^= pixels[i];
+        key *= 0x100000001B3ULL;
+    }
+    return key;
+}
+
+// GTA2's water is one animated tile group - tile 608 and the frames after it
+// in every district's style - drawn as a flat animated texture. The street
+// views give those faces ripples and a sky tint; the classic view does not.
+bool IsWaterTileIndex(int tile) { return tile >= 608 && tile <= 619; }
+
+// Tileable value noise for the water: a few octaves summed, wrapped, grey,
+// with a mip chain so distant water does not shimmer.
+IDirect3DTexture9* MakeWaterNoise(IDirect3DDevice9* device) {
+    const int n = 128;
+    std::vector<float> v(static_cast<size_t>(n) * n, 0.0f);
+    uint32_t seed = 0x9E3779B9u;
+    auto rnd = [&]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return static_cast<float>(seed & 0xFFFF) / 65535.0f; };
+    for (int octave = 0; octave < 4; ++octave) {
+        const int cells = 4 << octave;             // 4, 8, 16, 32 lattice points across
+        const float amp = 1.0f / static_cast<float>(1 << octave);
+        std::vector<float> lattice(static_cast<size_t>(cells) * cells);
+        for (float& l : lattice) l = rnd();
+        for (int y = 0; y < n; ++y) {
+            for (int x = 0; x < n; ++x) {
+                const float fx = static_cast<float>(x) * cells / n, fy = static_cast<float>(y) * cells / n;
+                const int x0 = static_cast<int>(fx) % cells, y0 = static_cast<int>(fy) % cells;
+                const int x1 = (x0 + 1) % cells, y1 = (y0 + 1) % cells;
+                float tx = fx - std::floor(fx), ty = fy - std::floor(fy);
+                tx = tx * tx * (3.0f - 2.0f * tx); ty = ty * ty * (3.0f - 2.0f * ty);
+                const float a = lattice[static_cast<size_t>(y0) * cells + x0], b = lattice[static_cast<size_t>(y0) * cells + x1];
+                const float c = lattice[static_cast<size_t>(y1) * cells + x0], d = lattice[static_cast<size_t>(y1) * cells + x1];
+                v[static_cast<size_t>(y) * n + x] += amp * ((a + (b - a) * tx) * (1.0f - ty) + (c + (d - c) * tx) * ty);
+            }
+        }
+    }
+    float lo = 1e9f, hi = -1e9f;
+    for (float f : v) { lo = std::min(lo, f); hi = std::max(hi, f); }
+    std::vector<uint32_t> level(static_cast<size_t>(n) * n);
+    for (size_t i = 0; i < level.size(); ++i) {
+        // Kept to a gentle range about mid-grey: the stages add it signed, so
+        // this is the ripple's contrast (about +-20 % of the water's colour).
+        const int g = static_cast<int>((0.30f + 0.40f * (v[i] - lo) / std::max(hi - lo, 1e-6f)) * 255.0f + 0.5f);
+        level[i] = 0xFF000000u | (g << 16) | (g << 8) | g;
+    }
+    IDirect3DTexture9* texture = nullptr;
+    if (FAILED(device->CreateTexture(n, n, 0, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) return nullptr;
+    int w = n;
+    for (DWORD mip = 0; mip < texture->GetLevelCount(); ++mip) {
+        D3DLOCKED_RECT rect;
+        if (FAILED(texture->LockRect(mip, &rect, nullptr, 0))) break;
+        for (int y = 0; y < w; ++y) memcpy(static_cast<uint8_t*>(rect.pBits) + static_cast<size_t>(y) * rect.Pitch, &level[static_cast<size_t>(y) * w], static_cast<size_t>(w) * 4);
+        texture->UnlockRect(mip);
+        if (w == 1) break;
+        std::vector<uint32_t> half(static_cast<size_t>(w / 2) * (w / 2));
+        for (int y = 0; y < w / 2; ++y) {
+            for (int x = 0; x < w / 2; ++x) {
+                int g = 0;
+                for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx) g += level[static_cast<size_t>(y * 2 + dy) * w + (x * 2 + dx)] & 0xFF;
+                g /= 4;
+                half[static_cast<size_t>(y) * (w / 2) + x] = 0xFF000000u | (g << 16) | (g << 8) | g;
+            }
+        }
+        level.swap(half);
+        w /= 2;
+    }
+    return texture;
+}
+
 // Creates a default-pool compressed texture from the DDS, through a
 // system-memory staging copy that is released at once. Levels above the size
 // cap are skipped, so hd_tile_max keeps working for DDS sets. Returns nullptr
@@ -279,6 +354,7 @@ void Renderer::Shutdown() {
 
 void Renderer::ReleaseResources() {
     sky_.Release();
+    if (waterNoise_) { waterNoise_->Release(); waterNoise_ = nullptr; }
     // An animated tile's slot points at a frame owned by tileFrames_, so those
     // must not be released twice. Everything else in textures_ is owned here.
     for (IDirect3DTexture9* texture : textures_) {
@@ -465,6 +541,17 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     hdFailed_ = 0;
     const std::string hdDir = g_hdTextureDir.empty() ? "" : g_hdTextureDir + "\\" + g_tileStyle;
     const std::string dumpDir = g_tileDumpDir.empty() ? "" : g_tileDumpDir + "\\" + g_tileStyle;
+    hdDir_ = hdDir;
+    tileByContent_.clear();
+    for (int i = 0; i < style.TileCount(); ++i) {
+        const Tile& t = style.GetTile(i);
+        if (t.pixels.size() == static_cast<size_t>(kTileSize) * kTileSize) tileByContent_.emplace(TileContentHash(t.pixels.data()), i);
+    }
+    waterTile_.assign(textures_.size(), 0);
+    for (int i = 0; i < style.TileCount() && i < static_cast<int>(waterTile_.size()); ++i) {
+        if (IsWaterTileIndex(i)) waterTile_[i] = 1;
+    }
+    if (!waterNoise_) waterNoise_ = MakeWaterNoise(device_);
     if (!dumpDir.empty()) {
         CreateDirectoryA(g_tileDumpDir.c_str(), nullptr);
         CreateDirectoryA(dumpDir.c_str(), nullptr);
@@ -478,15 +565,11 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         // the older uncompressed TGA.
         if (!hdDir.empty() && batch.tile != sealTile && batch.tile != riverbedTile) {
             int w = 0, h = 0;
-            DdsImage dds;
-            if (ReadDds(hdDir + "\\" + TileDdsFileName(batch.tile), &dds)) {
-                if (IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax)) {
-                    textures_[batch.tile] = texture;
-                    ++hdTiles_;
-                    ++hdDdsTiles_;
-                    continue;
-                }
-                ++hdFailed_;
+            if (IDirect3DTexture9* texture = LoadHdTileTexture(batch.tile)) {
+                textures_[batch.tile] = texture;
+                ++hdTiles_;
+                ++hdDdsTiles_;
+                continue;
             }
             if (ReadTga(hdDir + "\\" + TileFileName(batch.tile), &hd, &w, &h)) {
                 // Down to the cap by halving (a box filter), alpha included.
@@ -581,6 +664,15 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     return true;
 }
 
+IDirect3DTexture9* Renderer::LoadHdTileTexture(int tile) {
+    if (hdDir_.empty()) return nullptr;
+    DdsImage dds;
+    if (!ReadDds(hdDir_ + "\\" + TileDdsFileName(tile), &dds)) return nullptr;
+    IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax);
+    if (!texture) ++hdFailed_;
+    return texture;
+}
+
 void Renderer::UpdateTileTexture(int tile, const uint32_t* pixels) {
     if (!HasTileTexture(tile) || !pixels) return;
 
@@ -594,16 +686,26 @@ void Renderer::UpdateTileTexture(int tile, const uint32_t* pixels) {
     // it instead. A frame that comes round again resolves to the same object and
     // therefore the same hash, so the cost is bounded by how much distinct
     // artwork exists rather than by how long the game runs.
-    uint64_t key = 0xCBF29CE484222325ULL;
-    for (size_t i = 0; i < static_cast<size_t>(kTileSize) * kTileSize; ++i) {
-        key ^= pixels[i];
-        key *= 0x100000001B3ULL;
-    }
+    const uint64_t key = TileContentHash(pixels);
 
     const auto existing = tileFrames_.find(key);
     if (existing != tileFrames_.end()) {
         textures_[tile] = existing->second;
         return;
+    }
+
+    // The frame is a tile of the style (the ANIM table lists frames by tile
+    // number), so when that tile has high-resolution artwork the animation
+    // plays in high resolution too: water, neon, screens. The texture the slot
+    // held is kept under its own content so it is found again when the
+    // animation comes back round, and is released with the frames.
+    const auto known = tileByContent_.find(key);
+    if (known != tileByContent_.end()) {
+        if (IDirect3DTexture9* hd = LoadHdTileTexture(known->second)) {
+            tileFrames_[key] = hd;
+            textures_[tile] = hd;
+            return;
+        }
     }
 
     IDirect3DTexture9* frame = nullptr;
@@ -895,8 +997,54 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetRenderState(D3DRS_CULLMODE, doubleSided ? D3DCULL_NONE : cullMode_);
         }
         device_->SetTexture(0, textures_[batch.tile]);
+        const bool water = g_waterEffect && (shading_.sun || shading_.fog) && waterNoise_ && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile];
+        if (water) {
+            // Two layers of noise drifting across each other, signed-added so the
+            // surface sparkles and darkens with the ripples, then pulled a
+            // quarter of the way to the sky's horizon colour: the cheapest
+            // reflection there is, and enough for water to read as water.
+            const float t = static_cast<float>(waterClock_);
+            D3DMATRIX m1 = {}, m2 = {};
+            m1._11 = 3.0f; m1._22 = 3.0f; m1._33 = 1.0f; m1._44 = 1.0f; m1._31 = t * 0.021f; m1._32 = t * 0.013f;
+            m2._11 = 5.0f; m2._22 = 5.0f; m2._33 = 1.0f; m2._44 = 1.0f; m2._31 = -t * 0.034f; m2._32 = t * 0.019f;
+            for (DWORD stage = 1; stage <= 2; ++stage) {
+                device_->SetTexture(stage, waterNoise_);
+                device_->SetTextureStageState(stage, D3DTSS_TEXCOORDINDEX, 0);
+                device_->SetTextureStageState(stage, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
+                device_->SetTransform(static_cast<D3DTRANSFORMSTATETYPE>(D3DTS_TEXTURE0 + stage), stage == 1 ? &m1 : &m2);
+                device_->SetTextureStageState(stage, D3DTSS_COLOROP, D3DTOP_ADDSIGNED);
+                device_->SetTextureStageState(stage, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+                device_->SetTextureStageState(stage, D3DTSS_COLORARG2, D3DTA_CURRENT);
+                device_->SetTextureStageState(stage, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+                device_->SetTextureStageState(stage, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+                device_->SetSamplerState(stage, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+                device_->SetSamplerState(stage, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+                device_->SetSamplerState(stage, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+                device_->SetSamplerState(stage, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+                device_->SetSamplerState(stage, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+            }
+            const Vec3 sky = shading_.fog ? shading_.fogColour : Vec3{0.6f, 0.7f, 0.85f};
+            device_->SetRenderState(D3DRS_TEXTUREFACTOR,
+                                    D3DCOLOR_RGBA(static_cast<int>(std::min(1.0f, sky.x) * 255.0f + 0.5f),
+                                                  static_cast<int>(std::min(1.0f, sky.y) * 255.0f + 0.5f),
+                                                  static_cast<int>(std::min(1.0f, sky.z) * 255.0f + 0.5f), 64));
+            device_->SetTextureStageState(3, D3DTSS_COLOROP, D3DTOP_BLENDFACTORALPHA);
+            device_->SetTextureStageState(3, D3DTSS_COLORARG1, D3DTA_TFACTOR);
+            device_->SetTextureStageState(3, D3DTSS_COLORARG2, D3DTA_CURRENT);
+            device_->SetTextureStageState(3, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+            device_->SetTextureStageState(3, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+            device_->SetTextureStageState(4, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        }
         device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
                                       batch.indexStart, batch.indexCount / 3);
+        if (water) {
+            for (DWORD stage = 1; stage <= 3; ++stage) {
+                device_->SetTextureStageState(stage, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                device_->SetTextureStageState(stage, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+                device_->SetTextureStageState(stage, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+                device_->SetTexture(stage, nullptr);
+            }
+        }
         stats_.drawCalls++;
         stats_.triangles += static_cast<int>(batch.indexCount / 3);
     }

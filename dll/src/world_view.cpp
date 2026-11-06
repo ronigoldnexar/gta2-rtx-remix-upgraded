@@ -17,6 +17,8 @@
 #include "debug_overlay.h"
 #include "frame_limiter.h"
 #include "game_access.h"
+#include "compat.h"
+#include "game_save.h"
 #include "light_bench.h"
 #include "log.h"
 #include "remix_api.h"
@@ -707,6 +709,38 @@ bool WorldView::Blocked(float x, float y, float z) const {
     return solid(block.left) || solid(block.right) || solid(block.top) || solid(block.bottom);
 }
 
+// A flat face is a zero-thickness panel on the block's edge: left on the west
+// plane x = bx, right on the east plane, top on the north plane, bottom on the
+// south (the mesh builder's corners). A camera inside such a block but a few
+// centimetres from the panel sees nothing but its texels, so the chase camera
+// asks how close it is.
+bool WorldView::PanelDistance(float x, float y, float z, float* distance) const {
+    if (map_.Empty()) return false;
+    const float mapY = static_cast<float>(gta2::kMapHeight) - z;
+    const int bx = static_cast<int>(std::floor(x));
+    const int by = static_cast<int>(std::floor(mapY));
+    if (bx < 0 || bx >= gta2::kMapWidth || by < 0 || by >= gta2::kMapHeight) return false;
+    const int level = static_cast<int>(std::floor(y));
+    const gta2::Column& column = map_.ColumnAt(bx, by);
+    const int i = level - static_cast<int>(column.offset);
+    if (i < 0 || i >= static_cast<int>(column.blocks.size())) return false;
+    const uint32_t index = column.blocks[static_cast<size_t>(i)];
+    if (index >= map_.BlockCount()) return false;
+    const gta2::Block& block = map_.BlockAt(index);
+    const float zSouth = static_cast<float>(gta2::kMapHeight - by - 1);
+    float best = 1e9f;
+    bool any = false;
+    auto consider = [&](const gta2::Face& f, float d) {
+        if (f && f.IsFlat()) { best = (std::min)(best, std::fabs(d)); any = true; }
+    };
+    consider(block.left, x - static_cast<float>(bx));
+    consider(block.right, static_cast<float>(bx + 1) - x);
+    consider(block.top, (zSouth + 1.0f) - z);
+    consider(block.bottom, z - zSouth);
+    if (any && distance) *distance = best;
+    return any;
+}
+
 void WorldView::Configure(float pitchDegrees, float fovDegrees, bool useGameTiles,
                           PresentWindow present) {
     camera_.SetOrientation(0.0f, pitchDegrees * kDegreesToRadians);
@@ -911,6 +945,38 @@ bool WorldView::EnsureWorldLoaded() {
         return false;
     }
     CarBodiesSetInfo(style.CarInfos());
+    {
+        // Which tiles are grass, for the park trees of the street views: a
+        // green-dominant tile with little blue (the water tiles are a teal
+        // whose blue is close to their green, so this leaves them out).
+        std::vector<uint8_t> grass(static_cast<size_t>(style.TileCount()), 0);
+        int grassTiles = 0;
+        for (int i = 0; i < style.TileCount(); ++i) {
+            const gta2::Tile& tile = style.GetTile(i);
+            if (tile.pixels.size() != static_cast<size_t>(gta2::kTileSize) * gta2::kTileSize) continue;
+            uint64_t r = 0, g = 0, b = 0, n = 0;
+            for (uint32_t px : tile.pixels) {
+                if ((px >> 24) == 0) continue;
+                r += (px >> 16) & 0xFF; g += (px >> 8) & 0xFF; b += px & 0xFF; ++n;
+            }
+            if (n < static_cast<uint64_t>(gta2::kTileSize) * gta2::kTileSize / 2) continue;
+            r /= n; g /= n; b /= n;
+            // The water group (608..619, a teal) just clears the blue test; it is never grass.
+            if (i >= 608 && i <= 619) continue;
+            if (g > r + 4 && g > b + 28 && g < 140) { grass[static_cast<size_t>(i)] = 1; ++grassTiles; }
+        }
+        SetGrassTiles(grass);
+        std::string which;
+        for (int i = 0; i < style.TileCount() && which.size() < 200; ++i) if (grass[static_cast<size_t>(i)]) { which += std::to_string(i); which += ' '; }
+        Log("park trees: %d grass tiles in the style: %s", grassTiles, which.c_str());
+    }
+    {
+        // The physical palette of each pedestrian remap: a ped's texture palette
+        // then names his type (police, gang, medic...) for the 3D people.
+        std::vector<int> byRemap;
+        for (int r = 0; r < style.PedRemapCount(); ++r) byRemap.push_back(style.PedRemapPalette(r));
+        PedRemapsSetPalettes(byRemap);
+    }
 
     // The district's name salts the per-light override keys, so a lamp standing
     // in the same spot in two districts does not share one entry.
@@ -1244,7 +1310,7 @@ void WorldView::UpdateCamera() {
             const PedWords words = ReadPedWords(player.ped);
             Log("view: player x=%.2f y=%.2f z=%.2f face=%.3f,%.3f %s | car %s x=%.2f y=%.2f d=%.2f%s | parked %s x=%.2f y=%.2f d=%.2f"
                 " | carhead=%.3f,%.3f parkedhead=%.3f,%.3f ped state=%d sub=%d pend=%d veh=%08X"
-                " | me=%08X phys=%08X sprite=%08X cardrv=%08X src=%s",
+                " | me=%08X phys=%08X sprite=%08X cardrv=%08X src=%s carmodel=%d",
                 player.x, player.y, player.z, player.dirX, player.dirY,
                 player.inVehicle ? "driving" : "on foot", car ? "nearest" : "none", vx, vy, vd,
                 driven ? " (driven)" : "", parked ? "nearest" : "none", px, py, pd,
@@ -1257,12 +1323,51 @@ void WorldView::UpdateCamera() {
                 static_cast<unsigned>(carPtr ? *reinterpret_cast<const uintptr_t*>(
                                                    static_cast<const uint8_t*>(carPtr) + game::kVehicleDriver)
                                              : 0),
-                player.source);
+                player.source,
+                car ? *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(carPtr) + 0x84) : -1);
+        }
+        // The mission state, twice a second, for a script playing the game:
+        // money and the score keeper's multiplier/lives/death reason (the save
+        // slot object at [[0x5EB4FC]+0x38]), the police manager's wanted level
+        // ([0x66B7A0]+0x654), the ped's health word (+0x216), the driven car's
+        // damage byte (+0x74) and model (+0x84), the key of the message the
+        // game last showed (the buffer DISPLAY_MESSAGE fills at 0x5E9808) and
+        // the frame counter (0x5E8108). Offsets from the GTAMP memory thread
+        // and the save module; every read is guarded, -1 means unreadable.
+        if (worldUploaded_ && player.valid && (frameCount_ % 15) == 7) {
+            int money = GameSaveMoney();
+            int mult = -1, lives = -1, death = -1, wanted = -1, health = -1, carDamage = -1, carModel = -1, frame = -1;
+            char msg[20] = "";
+            GTA2_TRY {
+                const uintptr_t playerObj = *reinterpret_cast<const uintptr_t*>(0x005EB4FC);
+                const uintptr_t keeper = playerObj > 0x10000 ? *reinterpret_cast<const uintptr_t*>(playerObj + 0x38) : 0;
+                if (keeper > 0x10000) {
+                    mult = *reinterpret_cast<const int32_t*>(keeper + 0x6BC);
+                    lives = *reinterpret_cast<const int32_t*>(keeper + 0x684);
+                    death = *reinterpret_cast<const int32_t*>(keeper + 0x44);
+                }
+                const uintptr_t police = *reinterpret_cast<const uintptr_t*>(0x0066B7A0);
+                if (police > 0x10000) wanted = *reinterpret_cast<const int32_t*>(police + 0x654);
+                if (player.ped) health = *reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(player.ped) + 0x216);
+                if (player.inVehicle && player.vehicle) {
+                    carDamage = *reinterpret_cast<const uint8_t*>(static_cast<const uint8_t*>(player.vehicle) + 0x74);
+                    carModel = *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(player.vehicle) + 0x84);
+                }
+                const char* buf = reinterpret_cast<const char*>(0x005E9808);
+                int n = 0;
+                for (; n < 19 && buf[n] >= 0x20 && buf[n] < 0x7F; ++n) msg[n] = buf[n];
+                msg[n] = '\0';
+                frame = *reinterpret_cast<const int32_t*>(0x005E8108);
+            } GTA2_EXCEPT {
+            }
+            Log("view: mission money=%d mult=%d lives=%d death=%d wanted=%d health=%d cardmg=%d carmodel=%d msg=%s frame=%d",
+                money, mult, lives, death, wanted, health, carDamage, carModel, msg, frame);
         }
         ViewQueries queries;
         queries.context = this;
         queries.floorAt = &WorldView::FloorThunk;
         queries.blocked = &WorldView::BlockedThunk;
+        queries.panelDistance = &WorldView::PanelThunk;
         const bool placed = wantView && viewSolver_.Update(player, queries, viewDt, &camera_);
         if (viewSolver_.Status() != g_viewStatus) {
             // Every change of what the solver is doing, for reading a session back.
@@ -1626,6 +1731,7 @@ void WorldView::DrawSkyAndShading() {
     QueryPerformanceCounter(&counter);
     QueryPerformanceFrequency(&frequency);
     const double seconds = static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
+    renderer_.SetWaterClock(seconds);
     renderer_.DrawSky(camera_, sky, colours, blend, seconds);
 }
 
@@ -1848,6 +1954,9 @@ void WorldView::RenderFrame() {
                 const double* m = ModelDrawStats();
                 Log("hitch @%d: models: %.0f draws (%.0f skinned) %.1f ms, of which posing %.1f, buffer fills %.1f",
                     frameCount_, m[3], m[4], m[2], m[0], m[1]);
+                const double* c = CarBodiesStats();
+                Log("hitch @%d: car bodies: measured %.0f (%.1f ms) built %.0f (%.1f ms) model draws %.0f (%.1f ms) sprite bodies %.0f (%.1f ms)",
+                    frameCount_, c[4], c[0], c[5], c[1], c[6], c[2], c[7], c[3]);
             }
         }
         if (t.frames >= 256) {

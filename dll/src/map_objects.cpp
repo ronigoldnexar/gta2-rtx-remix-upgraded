@@ -1,5 +1,7 @@
 #include "map_objects.h"
 
+#include <windows.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -15,8 +17,19 @@
 
 namespace gta2dx9 {
 namespace {
+double NowSeconds() {
+    static LARGE_INTEGER frequency = {};
+    if (!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return static_cast<double>(now.QuadPart) / static_cast<double>(frequency.QuadPart);
+}
+}  // namespace
+namespace {
 bool g_loaded = false;
 std::map<uint32_t, const Model*> g_byKey;   // (base << 16 | number) -> model
+std::map<uint32_t, int> g_animByKey;        // 1 spin + float (pickups), 2 rotor
+std::map<const Model*, int> g_animByModel;
 std::map<uint32_t, float> g_yawByKey;       // extra yaw, degrees, from the manifest ("objects_yaw")
 std::set<uint32_t> g_logged;
 
@@ -69,6 +82,13 @@ void LoadOnce() {
         else Log("objects: manifest names model %s, which is not loaded", name.c_str());
     });
     readMap("objects_yaw", [&](uint32_t key, const std::string& v) { g_yawByKey[key] = static_cast<float>(atof(v.c_str())); });
+    // "objects_anim": {"4:26": "spin"}: a pickup turns slowly about its axis and
+    // floats a hand above the ground, the way the game's own frames suggest.
+    readMap("objects_anim", [&](uint32_t key, const std::string& v) { g_animByKey[key] = v == "spin" ? 1 : v == "rotor" ? 2 : 0; });
+    for (const auto& kv : g_animByKey) {
+        auto it = g_byKey.find(kv.first);
+        if (it != g_byKey.end()) g_animByModel[it->second] = kv.second;
+    }
     Log("objects: %d sprite(s) mapped to models", mapped);
 }
 }  // namespace
@@ -133,6 +153,23 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             if (BehindView(wx, wy, wz, 1.5f)) continue;
         }
         fit.m[3][0] = cx; fit.m[3][1] = cy - model.boundsMin.y * scale; fit.m[3][2] = cz; fit.m[3][3] = 1.0f;
+        // A pickup turns about its axis and floats, each on its own phase.
+        auto anim = g_animByModel.find(&model);
+        if (anim != g_animByModel.end() && anim->second == 1) {
+            const double now = NowSeconds();
+            const float phase = static_cast<float>((reinterpret_cast<uintptr_t>(s.object) >> 4) & 63) * 0.1f;
+            const float ang = static_cast<float>(std::fmod(now * 1.3 + phase, 6.283185));
+            const float ca = std::cos(ang), sa = std::sin(ang);
+            gta2::Mat4 spun;
+            for (int c = 0; c < 4; ++c) {
+                spun.m[0][c] = ca * fit.m[0][c] + sa * fit.m[2][c];
+                spun.m[1][c] = fit.m[1][c];
+                spun.m[2][c] = -sa * fit.m[0][c] + ca * fit.m[2][c];
+                spun.m[3][c] = fit.m[3][c];
+            }
+            spun.m[3][1] += 0.025f * std::sin(static_cast<float>(now) * 2.2f + phase);
+            fit = spun;
+        }
         gta2::Mat4 out;
         for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
             float acc = 0.0f;

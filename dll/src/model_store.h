@@ -87,6 +87,9 @@ struct Model {
     // the game's paint divides by it to make the tint ("paint_rgb" in the manifest).
     // Near-white by default, for models whose paint is left neutral.
     float paintRgb[3] = {235.0f, 235.0f, 235.0f};
+    // Whether any mesh uses a "_paint" texture (a split body/paint texture that
+    // needs alpha testing to look whole, tinted or not).
+    bool splitPaint = false;
     // The ground the walk animation covers per cycle, in model units (its
     // root motion was stripped on import); 0 when unknown.
     float stride = 0.0f;
@@ -114,6 +117,22 @@ const Model* ModelForPedestrian();
 // One of the pedestrian models, chosen by a seed (the same seed always gives
 // the same model, so a pedestrian keeps his look); null when there are none.
 const Model* ModelForPedestrian(uint32_t seed);
+// The same, within the pedestrian type the game's remap palette gives him
+// (the manifest's "ped_types": police, army, fireman, medic, the gangs, the
+// civilian outfits); remap -1 or an unlisted remap falls back to the plain list.
+const Model* ModelForPedestrian(uint32_t seed, int remap);
+// The style's physical palette for each ped remap (index = remap), set when a
+// level loads, so a ped sprite's texture palette gives its remap back.
+void PedRemapsSetPalettes(const std::vector<int>& physicalByRemap);
+int PedRemapForPalette(int physicalPalette);   // -1 when unknown
+// Developer aid ([devtools] ped_remap_override): -1 off, 0..52 every pedestrian
+// as that remap, -2 the typed remaps dealt out by seed. Applied by PedRemapEffective.
+void PedRemapOverride(int mode);
+int PedRemapEffective(int remap, uint32_t seed);
+// Whether a pedestrian of this remap is drawn with his clothing tinted to the
+// remap's own colour, and the tint for this model (the remap colour over the
+// model's measured clothing colour, "paint_rgb"); false when not tinted.
+bool PedRemapTint(int remap, const Model& model, float rgb[3]);
 // Street furniture by role: "lamp", "hydrant", "bin", "bench", "shrub"; null
 // when the manifest names none.
 const Model* ModelForProp(const char* role);

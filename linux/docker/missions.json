@@ -1,0 +1,6881 @@
+{
+ "wil": {
+  "start": [
+   159.5,
+   139.5,
+   2.0
+  ],
+  "phones": {
+   "obj68": {
+    "x": 44.5,
+    "y": 150.5,
+    "z": 255.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE"
+   },
+   "obj69": {
+    "x": 46.5,
+    "y": 150.5,
+    "z": 255.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE"
+   },
+   "obj70": {
+    "x": 83.5,
+    "y": 185.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj71": {
+    "x": 86.5,
+    "y": 185.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj72": {
+    "x": 97.5,
+    "y": 245.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "RED_PHONE"
+   },
+   "obj73": {
+    "x": 75.5,
+    "y": 40.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj74": {
+    "x": 75.5,
+    "y": 41.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj75": {
+    "x": 10.5,
+    "y": 46.5,
+    "z": 255.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj76": {
+    "x": 11.5,
+    "y": 46.5,
+    "z": 255.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj77": {
+    "x": 58.5,
+    "y": 20.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "RED_PHONE"
+   },
+   "obj78": {
+    "x": 208.5,
+    "y": 57.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj79": {
+    "x": 208.5,
+    "y": 59.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj80": {
+    "x": 207.5,
+    "y": 8.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj81": {
+    "x": 209.5,
+    "y": 8.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj82": {
+    "x": 181.5,
+    "y": 94.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "RED_PHONE"
+   },
+   "obj83": {
+    "x": 188.5,
+    "y": 37.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE"
+   },
+   "obj84": {
+    "x": 31.0,
+    "y": 157.0,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE"
+   },
+   "obj85": {
+    "x": 38.5,
+    "y": 38.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE"
+   },
+   "obj86": {
+    "x": 158.5,
+    "y": 138.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE"
+   }
+  },
+  "missions": [
+   {
+    "phone": "obj68",
+    "x": 44.5,
+    "y": 150.5,
+    "z": 255.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE",
+    "function": "function3",
+    "gang": "yakuzagang",
+    "easy": true,
+    "done_text": "Fool! You have already finished this Yakuza job!",
+    "mission": "wil_ye1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "1975",
+      "text": "GET ZITZAKI!"
+     },
+     {
+      "car": "MIURA",
+      "at": [
+       74.5,
+       163.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1631",
+      "text": "Kosai! Johnny Zoo here. The Zaibatsu have discovered our experiments with Doctor ZitZaki. He needs help - and fast. Collect the marked car parked at City University."
+     },
+     {
+      "arrow": "(arrow1, m_1_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_CAR(p1, m_1_auto1) ) )",
+      "numbers": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1636",
+      "text": "Doctor ZitZaki is waiting in the District Hospital. Don't keep him waiting."
+     },
+     {
+      "arrow": [
+       50.5,
+       178.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 50.50, 178.50, 2.00, 3.00, 3.00) ) )",
+      "numbers": [
+       1.0,
+       50.5,
+       178.5,
+       2.0,
+       3.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief": "1638",
+      "text": "Doctor ZitZaki is wary of strangers, Kosai. Sound the horn so he knows it is safe."
+     },
+     {
+      "wait": "( ( NOT ( IS_CHAR_PRESSING_HORN(p1) ) )",
+      "numbers": [
+       1.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       47.5,
+       178.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_1_chr1) ) )",
+      "numbers": [
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_1_chr1) ) )",
+      "numbers": [
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1639",
+      "text": "Good. Bring Doctor ZitZaki directly to the new J-Lab."
+     },
+     {
+      "arrow": [
+       44.5,
+       203.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CAR_IN_BLOCK(m_1_auto1, 44.50, 203.50, 2.00, 3.00, 0.80) ) )",
+      "numbers": [
+       1.0,
+       1.0,
+       44.5,
+       203.5,
+       2.0,
+       3.0,
+       0.8
+      ]
+     },
+     {
+      "park": "(m_1_auto1, door11)"
+     },
+     {
+      "wait": "( NOT ( HAS_PARK_FINISHED() ) )",
+      "numbers": []
+     },
+     {
+      "display_brief": "1634",
+      "text": "Doctor ZitZaki is safe and Yakuza drug production can continue. Here is $20,000 for a job well done. Perhaps we can work together again, Kosai."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 20000
+     }
+    ],
+    "title": "GET ZITZAKI!"
+   },
+   {
+    "phone": "obj69",
+    "x": 46.5,
+    "y": 150.5,
+    "z": 255.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE",
+    "function": "function4",
+    "gang": "yakuzagang",
+    "easy": true,
+    "done_text": "Fool! You have already finished this Yakuza job!",
+    "mission": "wil_ye2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "1976",
+      "text": "BANK ROBBERY!"
+     },
+     {
+      "car": "GRAHAM",
+      "at": [
+       52.5,
+       150.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1650",
+      "text": "Ah, Kosai! Johnny Zoo here. I am having money illegally transferred to my bank account and I need you to help my inside man, Hiroshi. Take the vehicle and firepower provided."
+     },
+     {
+      "arrow": "(arrow1, m_20_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_CAR(p1, m_20_auto1) ) )",
+      "numbers": [
+       1.0,
+       20.0,
+       1.0
+      ]
+     },
+     {
+      "weapon": "(p1, MACHINE_GUN, 10)"
+     },
+     {
+      "display_brief_now": "1651",
+      "text": "Hiroshi will have moved the money into my account by the time you reach the City Bank to pick him up."
+     },
+     {
+      "arrow": [
+       194.5,
+       177.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 194.50, 177.50, 2.00, 3.00, 2.00) ) )",
+      "numbers": [
+       1.0,
+       194.5,
+       177.5,
+       2.0,
+       3.0,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       185.5,
+       174.5,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       185.5,
+       175.5,
+       3.0
+      ]
+     },
+     {
+      "display_brief": "1665",
+      "text": "Hiroshi will not come out until the two City Bank Guards are out of the way. What are you waiting for, Kosai?"
+     },
+     {
+      "arrow": "(arrow1, m_20_chr1)"
+     },
+     {
+      "arrow": "(arrow2, m_20_chr2)"
+     },
+     {
+      "wait": "( NOT ( m_20_count7 = 2 ) )",
+      "numbers": [
+       20.0,
+       7.0,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       183.5,
+       175.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_20_chr3, MACHINE_GUN)"
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_20_chr3) ) )",
+      "numbers": [
+       20.0,
+       3.0
+      ]
+     },
+     {
+      "reward": 5000
+     },
+     {
+      "display_brief": "1655",
+      "text": "SHIT! Someone tipped off the Cops, Kosai! Your Cop Wanted Level has risen. Here's $5,000 so you can respray the car to throw the Cops off your trail."
+     },
+     {
+      "arrow": [
+       86.5,
+       160.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( CHECK_HEADS_GREATER(p1, 0) )",
+      "numbers": [
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "1661",
+      "text": "Nice respray, Kosai. Now get your ass to the Safehouse to collect your reward."
+     },
+     {
+      "reward": 5000
+     },
+     {
+      "display_brief_now": "1662",
+      "text": "Bribing Cops is a smart way to reduce your Cop Wanted Level, Kosai. Now go to the Safehouse to collect your reward."
+     },
+     {
+      "display_brief_now": "1010",
+      "text": "Excellent, Kosai! Now bring the car back to the Safehouse."
+     },
+     {
+      "arrow": [
+       76.5,
+       200.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CAR_IN_BLOCK(m_20_auto1, 76.50, 200.50, 2.00, 3.00, 1.00) ) )",
+      "numbers": [
+       20.0,
+       1.0,
+       76.5,
+       200.5,
+       2.0,
+       3.0,
+       1.0
+      ]
+     },
+     {
+      "park": "(m_20_auto1, door12)"
+     },
+     {
+      "wait": "( NOT ( HAS_PARK_FINISHED() ) )",
+      "numbers": []
+     },
+     {
+      "display_brief": "1652",
+      "text": "Thank you for your efforts, Kosai. It is with gratitude I give you $20,000."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 20000
+     }
+    ],
+    "title": "BANK ROBBERY!"
+   },
+   {
+    "phone": "obj70",
+    "x": 83.5,
+    "y": 185.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE",
+    "function": "function5",
+    "gang": "yakuzagang",
+    "easy": false,
+    "done_text": "Fool! You have already finished this Yakuza job!",
+    "mission": "wil_ym1",
+    "followup": "wil_ym3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "1977",
+      "text": "HAPPY GAS SMASH!"
+     },
+     {
+      "display_brief": "1281",
+      "text": "Hi, Kosai, it's Johnny Zoo. The Loonies still owe me money for merchandise. Get some wheels, get to the City University and GET MY DOLLARS!"
+     },
+     {
+      "arrow": [
+       41.5,
+       91.5,
+       2.0
+      ]
+     },
+     {
+      "car": "ISETTA",
+      "at": [
+       40.5,
+       93.5,
+       2.0
+      ]
+     },
+     {
+      "car": "VAN",
+      "at": [
+       42.5,
+       93.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       43.5,
+       93.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_11_chr1, MOLOTOV)"
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_11_chr1) ) )",
+      "numbers": [
+       11.0,
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 41.50, 91.50, 2.00, 3.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       41.5,
+       91.5,
+       2.0,
+       3.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1283",
+      "text": "Sound your horn, Kosai, the Loonies are expecting you."
+     },
+     {
+      "wait": "( ( NOT ( IS_CHAR_PRESSING_HORN(p1) ) )",
+      "numbers": [
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_11_chr2) ) )",
+      "numbers": [
+       11.0,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_11_chr1) ) )",
+      "numbers": [
+       11.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1286",
+      "text": "Kill the crazies, Kosai!"
+     },
+     {
+      "arrow": "(arrow1, m_11_chr1)"
+     },
+     {
+      "wait": "( CHECK_NUMBER_ALIVE_IN_GROUP(m_11_chr1, 1) )",
+      "numbers": [
+       11.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( HAS_CHARACTER_DIED(m_11_chr1) ) )",
+      "numbers": [
+       11.0,
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_MODEL(p1, ICECREAM) ) )",
+      "numbers": [
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1291",
+      "text": "You need more dollars to rig the Van. Might I humbly suggest a killing spree?"
+     },
+     {
+      "wait": "( NOT ( CHECK_SCORE_GREATER(p1, 4999) ) )",
+      "numbers": [
+       1.0,
+       4999.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_11_auto3)"
+     },
+     {
+      "display_brief_now": "1293",
+      "text": "Good, you have enough dollars to arm the Ice-Cream Van. Get to it!"
+     },
+     {
+      "arrow": [
+       84.5,
+       160.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( HAS_CAR_GOT_WEAPON(m_11_auto3, CAR_BOMB) ) )",
+      "numbers": [
+       11.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief_now": "1298",
+      "text": "Drive the Ice-Cream Van to the Loony Asylum. Once you get inside destroy their Happy Gas tanks."
+     },
+     {
+      "arrow": [
+       59.5,
+       9.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CAR_IN_BLOCK(m_11_auto3, 59.50, 9.50, 2.00) ) )",
+      "numbers": [
+       11.0,
+       3.0,
+       59.5,
+       9.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1302",
+      "text": "Arm the Ice-Cream Van bomb then escape the Asylum - fast."
+     },
+     {
+      "wait": "( NOT ( IS_CAR_WRECKED(m_11_auto3) ) )",
+      "numbers": [
+       11.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief_now": "1304",
+      "text": "Clearly you are too weak to complete even the simplest of tasks, Kosai. A pity."
+     },
+     {
+      "display_message": "1125",
+      "text": "JOB FAILED!"
+     }
+    ],
+    "title": "HAPPY GAS SMASH!"
+   },
+   {
+    "phone": "obj71",
+    "x": 86.5,
+    "y": 185.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE",
+    "function": "function6",
+    "gang": "yakuzagang",
+    "easy": false,
+    "done_text": "Fool! You have already finished this Yakuza job!",
+    "mission": "wil_ym2",
+    "followup": "wil_ym3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "1978",
+      "text": "GET GAMA REI!"
+     },
+     {
+      "display_brief": "1371",
+      "text": "Hi, Kosai, it's Johnny Zoo. Gama Rei has to leave the City Hospital - fast. He's in plastic surgery so you need a Medicar."
+     },
+     {
+      "wait": "( m_9_count1 = 0 )",
+      "numbers": [
+       9.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "1374",
+      "text": "Have patience, Kosai. Gama Rei only just got his new face."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       92.5,
+       83.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_9_chr1) ) )",
+      "numbers": [
+       9.0,
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_9_chr1) ) )",
+      "numbers": [
+       9.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1377",
+      "text": "Gama Rei must be taken to the Safehouse before the Loonies dispatch Assassins. Move it!"
+     },
+     {
+      "arrow": [
+       35.5,
+       187.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1378",
+      "text": "Gama Rei has stolen Loony secrets so they want him bad. Watch his ass, Kosai."
+     },
+     {
+      "car": "ISETTA",
+      "at": [
+       81.5,
+       109.5,
+       2.0
+      ]
+     },
+     {
+      "car": "ISETTA",
+      "at": [
+       112.5,
+       75.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_9_chr2, MACHINE_GUN)"
+     },
+     {
+      "weapon": "(m_9_chr3, PISTOL)"
+     },
+     {
+      "wait": "( NOT ( IS_CAR_IN_BLOCK(m_9_auto1, 35.50, 187.50, 2.00, 4.00, 2.00) ) )",
+      "numbers": [
+       9.0,
+       1.0,
+       35.5,
+       187.5,
+       2.0,
+       4.0,
+       2.0
+      ]
+     },
+     {
+      "park": "(m_9_auto1, door7)"
+     },
+     {
+      "wait": "( NOT ( HAS_PARK_FINISHED() ) )",
+      "numbers": []
+     },
+     {
+      "display_brief_now": "1381",
+      "text": "Gama Rei is important to us, Kosai. We are most pleased by your performance. Here - have $40,000."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "GET GAMA REI!"
+   },
+   {
+    "phone": "obj72",
+    "x": 97.5,
+    "y": 245.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "RED_PHONE",
+    "function": "function7",
+    "gang": "yakuzagang",
+    "easy": false,
+    "done_text": "Fool! You have already finished this Yakuza job!",
+    "mission": "wil_yh1",
+    "followup": "wil_yh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "1980",
+      "text": "SWAT VAN SWIPE!"
+     },
+     {
+      "display_brief": "1341",
+      "text": "Hi, Kosai, it's Johnny Zoo. The authorities have impounded my favorite car and I want you to steal me a SWAT Van as compensation."
+     },
+     {
+      "wait": "( m_23_count1 = 0 )",
+      "numbers": [
+       23.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "1350",
+      "text": "You steal well, Kosai. The Yakuza will have many jobs for someone with your talents. For now, $60,000 should see you right."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 60000
+     }
+    ],
+    "title": "SWAT VAN SWIPE!"
+   },
+   {
+    "phone": "obj78",
+    "x": 208.5,
+    "y": 57.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function8",
+    "gang": "zaibatsugang",
+    "easy": true,
+    "done_text": "You are in error. This Zaibatsu job has already been completed.",
+    "mission": "wil_ze1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "1982",
+      "text": "COP CAR CRUSH!"
+     },
+     {
+      "display_brief": "1681",
+      "text": "Hey, Gecko, it's Trey Welsh. An informer is selling Zaibatsu secrets to the Cops. There's a Cop Car parked down at the Cop Station in Zarelli. Steal it."
+     },
+     {
+      "car": "COPCAR",
+      "at": [
+       206.5,
+       38.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_12_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_CAR(p1, m_12_auto1) ) )",
+      "numbers": [
+       1.0,
+       12.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1685",
+      "text": "Good work, Gecko. Get your ass over to the Train Station in Avalon and meet Shady, the soon-to-be-dead snitch."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       97.5,
+       89.5,
+       3.0
+      ]
+     },
+     {
+      "arrow": [
+       94.5,
+       95.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 94.50, 95.50, 2.00, 2.00, 2.00) ) )",
+      "numbers": [
+       1.0,
+       94.5,
+       95.5,
+       2.0,
+       2.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1690",
+      "text": "Use the horn, Gecko. He doesn't know it's you."
+     },
+     {
+      "wait": "( ( ( NOT ( IS_CHAR_PRESSING_HORN(p1) ) )",
+      "numbers": [
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_12_chr1) ) )",
+      "numbers": [
+       12.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1694",
+      "text": "Take Shady to the Zaibatsu Car Crusher in North-East Zarelli."
+     },
+     {
+      "arrow": [
+       171.5,
+       11.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 171.50, 11.50, 2.00, 24.00, 8.00) ) )",
+      "numbers": [
+       1.0,
+       171.5,
+       11.5,
+       2.0,
+       24.0,
+       8.0
+      ]
+     },
+     {
+      "display_brief": "1697",
+      "text": "Get out of the Cop Car, Gecko, and let the crane take over."
+     },
+     {
+      "wait": "( NOT ( IS_CAR_CRUSHED(m_12_auto1) ) )",
+      "numbers": [
+       12.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1689",
+      "text": "Keeping the Zaibatsu Way secure is a full-time job, Gecko. Here's $20,000 for a job well done."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 20000
+     }
+    ],
+    "title": "COP CAR CRUSH!"
+   },
+   {
+    "phone": "obj79",
+    "x": 208.5,
+    "y": 59.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function9",
+    "gang": "zaibatsugang",
+    "easy": true,
+    "done_text": "You are in error. This Zaibatsu job has already been completed.",
+    "mission": "wil_ze2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "1983",
+      "text": "WHEELER-DEALING!"
+     },
+     {
+      "display_brief": "1161",
+      "text": "Hey, Gecko! Trey Welsh here. The Yakuza are flooding the streets with cheap merchandise. I need you to supply my dealers - FAST. Collect the new shipment and get moving!"
+     },
+     {
+      "arrow": "(arrow1, m_22_obj1)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 242.50, 39.50, 2.00, 0.50, 0.50) ) )",
+      "numbers": [
+       1.0,
+       242.5,
+       39.5,
+       2.0,
+       0.5,
+       0.5
+      ]
+     },
+     {
+      "display_brief": "1162",
+      "text": "Move swiftly, Gecko, and watch the clock! You only have THREE minutes to get this shit on the street!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       226.5,
+       82.5,
+       255.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_22_chr1)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ON_FOOT(p1, m_22_chr1, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       22.0,
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1165",
+      "text": "Faster, Gecko! Three to go and people need blow."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       245.5,
+       132.5,
+       255.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_22_chr2)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ON_FOOT(p1, m_22_chr2, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       22.0,
+       2.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1167",
+      "text": "Tick tock goes the clock, two deals to go on this block."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       214.5,
+       211.5,
+       255.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_22_chr3)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ON_FOOT(p1, m_22_chr3, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       22.0,
+       3.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1169",
+      "text": "Three down, one to go. Come on, Gecko - move it!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       164.5,
+       125.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_22_chr4)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ON_FOOT(p1, m_22_chr4, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       22.0,
+       4.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1171",
+      "text": "You drive like the wind, Gecko. I think we can make further use of your services. In the meantime take $20,000 for your trouble."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 20000
+     }
+    ],
+    "title": "WHEELER-DEALING!"
+   },
+   {
+    "phone": "obj80",
+    "x": 207.5,
+    "y": 8.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE",
+    "function": "function10",
+    "gang": "zaibatsugang",
+    "easy": false,
+    "done_text": "You are in error. This Zaibatsu job has already been completed.",
+    "mission": "wil_zm1",
+    "followup": "wil_zm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "1984",
+      "text": "LICK THOSE LOONIES!"
+     },
+     {
+      "display_brief": "1221",
+      "text": "Trey Welsh here. The Loonies have slipped narcotics in the water supply and hit my drugs business. Revenge will be simple. First, you need a special Loony Dementia."
+     },
+     {
+      "car": "ISETTA",
+      "at": [
+       16.5,
+       32.5,
+       255.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       18.5,
+       36.5,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       18.5,
+       33.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr1, PISTOL)"
+     },
+     {
+      "weapon": "(m_4_chr2, PISTOL)"
+     },
+     {
+      "arrow": "(arrow1, m_4_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_CAR(p1, m_4_auto1) ) )",
+      "numbers": [
+       1.0,
+       4.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1224",
+      "text": "You need $5,000 to get the car rigged - so start working!"
+     },
+     {
+      "wait": "( NOT ( CHECK_SCORE_GREATER(p1, 4999) ) )",
+      "numbers": [
+       1.0,
+       4999.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_4_auto1)"
+     },
+     {
+      "display_brief_now": "1225",
+      "text": "OK, Gecko, here's the plan... Take the Dementia to the Bomb Shop and rig it with explosives. Then return the rigged Dementia to the Loony Garage and blow the Loons to the Moon."
+     },
+     {
+      "arrow": [
+       22.5,
+       60.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( NOT ( HAS_CAR_GOT_WEAPON(m_4_auto1, CAR_BOMB) ) )",
+      "numbers": [
+       4.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1227",
+      "text": "The party's over in Crazy Town, Gecko. Dump the rigged Dementia in the Loony Garage and set the explosives."
+     },
+     {
+      "arrow": [
+       16.5,
+       30.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CAR_IN_BLOCK(m_4_auto1, 16.50, 30.50, 3.00, 3.00, 2.00) ) )",
+      "numbers": [
+       4.0,
+       1.0,
+       16.5,
+       30.5,
+       3.0,
+       3.0,
+       2.0
+      ]
+     },
+     {
+      "park": "(m_4_auto1, door5)"
+     },
+     {
+      "wait": "( NOT ( HAS_PARK_FINISHED() ) )",
+      "numbers": []
+     },
+     {
+      "car": "VAN",
+      "at": [
+       72.5,
+       83.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1241",
+      "text": "Shit, Gecko, a group of crack Loonies are on their way. You need reinforcements - and fast. Take the Van and meet the Z-Men at North-West Zarelli."
+     },
+     {
+      "arrow": "(arrow1, m_4_auto2)"
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_CAR(p1, m_4_auto2) ) )",
+      "numbers": [
+       1.0,
+       4.0,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(p1, MACHINE_GUN, 40)"
+     },
+     {
+      "display_brief": "1246",
+      "text": "Now go pick up the Z-Men."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       97.5,
+       30.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr4, MACHINE_GUN)"
+     },
+     {
+      "arrow": "(arrow1, m_4_chr4)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 97.50, 30.50, 2.00, 3.00, 3.00) ) )",
+      "numbers": [
+       1.0,
+       97.5,
+       30.5,
+       2.0,
+       3.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief": "1247",
+      "text": "The Z-Men will get in the Van when you blast the horn."
+     },
+     {
+      "wait": "( ( NOT ( IS_CHAR_PRESSING_HORN(p1) ) )",
+      "numbers": [
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_4_chr4) ) )",
+      "numbers": [
+       4.0,
+       4.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       16.5,
+       33.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr3, MACHINE_GUN)"
+     },
+     {
+      "display_brief": "1249",
+      "text": "Excellent, Gecko, you got the Z-Men. Now head for the Loony Garage and nail that band of crazies!"
+     },
+     {
+      "arrow": "(arrow1, m_4_chr3)"
+     },
+     {
+      "wait": "( CHECK_NUMBER_ALIVE_IN_GROUP(m_4_chr3, 1) )",
+      "numbers": [
+       4.0,
+       3.0,
+       1.0
+      ]
+     },
+     {
+      "wait": "( NOT ( HAS_CHARACTER_DIED(m_4_chr3) ) )",
+      "numbers": [
+       4.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief": "1006",
+      "text": "I like your style, Gecko! Such professionalism in the face of adversity deserves to receive $40,000."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "LICK THOSE LOONIES!"
+   },
+   {
+    "phone": "obj81",
+    "x": 209.5,
+    "y": 8.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE",
+    "function": "function11",
+    "gang": "zaibatsugang",
+    "easy": false,
+    "done_text": "You are in error. This Zaibatsu job has already been completed.",
+    "mission": "wil_zm2",
+    "followup": "wil_zm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "1985",
+      "text": "YUTES MUST DIE!"
+     },
+     {
+      "display_brief": "1251",
+      "text": "Trey Welsh here. The small-time Yute gang is getting cocky, crushing our new Zaibatsu cars for scrap. I want answers. There's a snitch called Lefty by the Casino. Find out what he knows."
+     },
+     {
+      "arrow": [
+       69.5,
+       219.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 69.00, 219.00, 2.00, 4.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       69.0,
+       219.0,
+       2.0,
+       4.0,
+       1.0
+      ]
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       59.5,
+       219.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1255",
+      "text": "That's Lefty! Beat the son-of-a-bitch until he tells us where his Boss is hiding. But don't kill him until he talks, Gecko!"
+     },
+     {
+      "arrow": "(arrow1, m_10_chr1)"
+     },
+     {
+      "wait": "( NOT ( CHECK_CHAR_BEEN_PUNCHED_BY(m_10_chr1, p1) ) )",
+      "numbers": [
+       10.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1262",
+      "text": "Settle down, tough guy! The bloke you need is relaxing at the Easy Rider Whore House."
+     },
+     {
+      "display_brief": "1258",
+      "text": "Steal a Yute Car from the South Docks, Gecko - and don't take no shit."
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       245.5,
+       237.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       239.5,
+       237.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_10_chr6, PISTOL)"
+     },
+     {
+      "weapon": "(m_10_chr7, PISTOL)"
+     },
+     {
+      "car": "GRAHAM",
+      "at": [
+       243.5,
+       236.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_10_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_CAR(p1, m_10_auto1) ) )",
+      "numbers": [
+       1.0,
+       10.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1277",
+      "text": "Was that fun? Now move it to the Easy Rider Whore House!"
+     },
+     {
+      "arrow": [
+       133.5,
+       223.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 133.50, 223.50, 2.00, 2.00, 2.00) ) )",
+      "numbers": [
+       1.0,
+       133.5,
+       223.5,
+       2.0,
+       2.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1264",
+      "text": "Sound the horn, Gecko. The dumb Yute will think his driver has come to collect him."
+     },
+     {
+      "wait": "( ( NOT ( IS_CHAR_PRESSING_HORN(p1) ) )",
+      "numbers": [
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1261",
+      "text": "It seems someone bigger is behind the car crushing, Gecko. Bring the Yute Boss to Zaibatsu HQ and we will use electrode therapy to find out what he knows."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       136.5,
+       223.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_10_chr5) ) )",
+      "numbers": [
+       10.0,
+       5.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_10_chr5) ) )",
+      "numbers": [
+       10.0,
+       5.0
+      ]
+     },
+     {
+      "display_brief": "1266",
+      "text": "Good work, Gecko - you got the Yute Boss! Now bring him and the Yute Car to Zaibatsu headquarters. And make sure they both stay in one piece."
+     },
+     {
+      "arrow": [
+       233.5,
+       114.5,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       231.5,
+       116.5,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       232.5,
+       116.5,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       233.5,
+       116.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 233.50, 114.50, 3.00, 2.00, 2.00) ) )",
+      "numbers": [
+       1.0,
+       233.5,
+       114.5,
+       3.0,
+       2.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1267",
+      "text": "Stay in the car, Gecko, while our friend gets out to talk."
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_10_chr5) ) )",
+      "numbers": [
+       10.0,
+       5.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_10_chr5) ) )",
+      "numbers": [
+       10.0,
+       5.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CHAR_OBJECTIVE_PASSED(m_10_chr5) ) )",
+      "numbers": [
+       10.0,
+       5.0
+      ]
+     },
+     {
+      "display_brief": "1270",
+      "text": "We got what we wanted. Take our friend to the South Docks and show him how his Car Crusher works first-hand."
+     },
+     {
+      "arrow": [
+       246.5,
+       238.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 246.50, 238.50, 2.00, 10.00, 4.00) ) )",
+      "numbers": [
+       1.0,
+       246.5,
+       238.5,
+       2.0,
+       10.0,
+       4.0
+      ]
+     },
+     {
+      "display_brief": "1274",
+      "text": "Get out of the car and let the crane do the work, Gecko. But don't go anywhere. Watch and learn how Zaibatsu recycle their waste."
+     },
+     {
+      "wait": "( NOT ( IS_CAR_CRUSHED(m_10_auto1) ) )",
+      "numbers": [
+       10.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1007",
+      "text": "Erradicating these childish threats is a constant problem, Gecko. But now you are richer by $40,000."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "YUTES MUST DIE!"
+   },
+   {
+    "phone": "obj82",
+    "x": 181.5,
+    "y": 94.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "RED_PHONE",
+    "function": "function12",
+    "gang": "zaibatsugang",
+    "easy": false,
+    "done_text": "You are in error. This Zaibatsu job has already been completed.",
+    "mission": "wil_zh1",
+    "followup": "wil_zh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "1987",
+      "text": "ARMORED CAR CLASH!"
+     },
+     {
+      "display_brief": "1701",
+      "text": "Hey, Gecko! Our Latin Biologist Doctor Cubana is being tortured for information in one of two Yakuza cars circling the city. Destroy the cars, before he squeals."
+     },
+     {
+      "arrow": "(arrow1, m_13_auto1)"
+     },
+     {
+      "arrow": "(arrow2, m_13_auto2)"
+     },
+     {
+      "wait": "( NOT ( m_13_count1 = 2 ) )",
+      "numbers": [
+       13.0,
+       1.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1702",
+      "text": "People can always be replaced but secrets cannot. Excellent work, Gecko - well worth $60,000."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 60000
+     }
+    ],
+    "title": "ARMORED CAR CLASH!"
+   },
+   {
+    "phone": "obj73",
+    "x": 75.5,
+    "y": 40.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function13",
+    "gang": "looniegang",
+    "easy": true,
+    "done_text": "You already did this job, fruitcake!",
+    "mission": "wil_le1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "1954",
+      "text": "RADIO ZA-ZA!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       157.5,
+       9.5,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       154.5,
+       10.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr1, MOLOTOV)"
+     },
+     {
+      "weapon": "(m_14_chr2, MOLOTOV)"
+     },
+     {
+      "display_brief": "1772",
+      "text": "Hey, Jumbo, it's Elmo. A new Zaibatsu drug mixed with Futuro FM's music is sending people CRAZY. This is bad for our Loony reputation. Get some explosives and stop this madness NOW."
+     },
+     {
+      "arrow": [
+       154.5,
+       17.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 154.50, 17.50, 2.00, 3.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       154.5,
+       17.5,
+       2.0,
+       3.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1778",
+      "text": "The Zaibatsu are expecting you, Jumbo, so avoid the main gates. Find a back door and dump the explosives by the generator."
+     },
+     {
+      "arrow": [
+       163.5,
+       13.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 163.50, 13.50, 3.00, 0.40, 0.40) ) )",
+      "numbers": [
+       1.0,
+       163.5,
+       13.5,
+       3.0,
+       0.4,
+       0.4
+      ]
+     },
+     {
+      "display_brief": "1775",
+      "text": "Cool, you got the explosives. It's a RIOT at Futuro FM, pay them a visit Jumbo and crisp the DJ."
+     },
+     {
+      "arrow": [
+       159.5,
+       5.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 159.50, 5.50, 2.00, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       159.5,
+       5.5,
+       2.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1779",
+      "text": "Shift ass, Jumbo. You got FIVE seconds till she blows!"
+     },
+     {
+      "wait": "( NOT ( m_14_count5 = 0 ) )",
+      "numbers": [
+       14.0,
+       5.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "1780",
+      "text": "Drug-induced madness was a cheap corporate cash-in but you saw through it, Jumbo. Here's $20,000. Let's get wasted!"
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 20000
+     }
+    ],
+    "title": "RADIO ZA-ZA!"
+   },
+   {
+    "phone": "obj74",
+    "x": 75.5,
+    "y": 41.5,
+    "z": 255.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function14",
+    "gang": "looniegang",
+    "easy": true,
+    "done_text": "You already did this job, fruitcake!",
+    "mission": "wil_le2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "1955",
+      "text": "PIZZA CAKE!"
+     },
+     {
+      "display_brief": "1531",
+      "text": "Jumbo! It's me, Elmo. Pizza Cake restaurants keep screwing up my favorite food. Go to the City University, pick up some explosives and teach them a new recipe."
+     },
+     {
+      "arrow": "(arrow1, m_15_obj1)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 28.50, 106.50, 3.00, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       28.5,
+       106.5,
+       3.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1533",
+      "text": "Okay, Jumbo, deliver the explosives by hand to Pizza Cake. And don't forget to run away..."
+     },
+     {
+      "arrow": [
+       13.5,
+       105.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 13.50, 105.50, 3.00, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       13.5,
+       105.5,
+       3.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1536",
+      "text": "You got FIVE seconds before the dynamite blows. RUN!"
+     },
+     {
+      "wait": "( NOT ( m_15_count1 = 0 ) )",
+      "numbers": [
+       15.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "1538",
+      "text": "So much for those shitty explosives. Wait! A Pizza Cake Delivery Truck is on its way. Destroy that instead."
+     },
+     {
+      "car": "VAN",
+      "at": [
+       125.5,
+       149.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       125.5,
+       148.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_15_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_CAR_WRECKED(m_15_auto1) ) )",
+      "numbers": [
+       15.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1535",
+      "text": "You follow bad plans well, Jumbo. Have a deep-fried Pizza Cake and $20,000 to celebrate."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 20000
+     }
+    ],
+    "title": "PIZZA CAKE!"
+   },
+   {
+    "phone": "obj75",
+    "x": 10.5,
+    "y": 46.5,
+    "z": 255.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE",
+    "function": "function15",
+    "gang": "looniegang",
+    "easy": false,
+    "done_text": "You already did this job, fruitcake!",
+    "mission": "wil_lm1",
+    "followup": "wil_lm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "1970",
+      "text": "WHO'S MAD?"
+     },
+     {
+      "display_brief": "1463",
+      "text": "Hey, Jumbo! You should meet Cosmo Trouble, Downtown. He's got a bonkers mad job for you!"
+     },
+     {
+      "arrow": [
+       128.5,
+       195.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 128.50, 195.50, 2.00, 2.00, 2.00) ) )",
+      "numbers": [
+       1.0,
+       128.5,
+       195.5,
+       2.0,
+       2.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1464",
+      "text": "Jumbo, it's me, Elmo. That call was a hoax. Your ass has been set up by my bonkers mad brother who's sent three serious hitmen after you. You'd better kill them - quick!"
+     },
+     {
+      "car": "VTYPE",
+      "at": [
+       149.5,
+       192.5,
+       2.0
+      ]
+     },
+     {
+      "car": "VTYPE",
+      "at": [
+       168.5,
+       212.5,
+       2.0
+      ]
+     },
+     {
+      "car": "VTYPE",
+      "at": [
+       126.5,
+       213.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_16_chr1, MACHINE_GUN)"
+     },
+     {
+      "weapon": "(m_16_chr2, MACHINE_GUN)"
+     },
+     {
+      "weapon": "(m_16_chr3, PISTOL)"
+     },
+     {
+      "wait": "( NOT ( m_16_count1 = 3 ) )",
+      "numbers": [
+       16.0,
+       1.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief_now": "1467",
+      "text": "Maybe you ain't so crazy, Jumbo, 'cos those hitmen are all history. Here's $40,000."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "WHO'S MAD?"
+   },
+   {
+    "phone": "obj76",
+    "x": 11.5,
+    "y": 46.5,
+    "z": 255.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE",
+    "function": "function16",
+    "gang": "looniegang",
+    "easy": false,
+    "done_text": "You already did this job, fruitcake!",
+    "mission": "wil_lm2",
+    "followup": "wil_lm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "1971",
+      "text": "DESTROY J-LAB!"
+     },
+     {
+      "display_brief": "1500",
+      "text": "Yo, Jumbo, it's Elmo. New Yakuza drugs are making the insane sane - which is bad news for us Loonies. Pick up explosives from the University and use them to wreak havoc at J-Lab."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       44.5,
+       197.5,
+       4.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       41.5,
+       195.5,
+       4.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       46.5,
+       201.5,
+       4.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       33.5,
+       196.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       30.5,
+       197.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       32.5,
+       196.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_18_obj2)"
+     },
+     {
+      "weapon": "(m_18_chr1, PISTOL)"
+     },
+     {
+      "weapon": "(m_18_chr2, PISTOL)"
+     },
+     {
+      "weapon": "(m_18_chr3, PISTOL)"
+     },
+     {
+      "weapon": "(m_18_chr4, PISTOL)"
+     },
+     {
+      "weapon": "(m_18_chr5, PISTOL)"
+     },
+     {
+      "weapon": "(m_18_chr6, PISTOL)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 30.50, 121.50, 3.00, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       30.5,
+       121.5,
+       3.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "arrow": [
+       44.5,
+       208.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( m_18_count14 = 1 ) )",
+      "numbers": [
+       18.0,
+       14.0,
+       1.0
+      ]
+     },
+     {
+      "arrow": [
+       44.5,
+       198.5,
+       6.0
+      ]
+     },
+     {
+      "display_brief_now": "1507",
+      "text": "Climb the stairs and watch the fun, Jumbo. J-Lab is about to close permanently!"
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 44.50, 198.50, 6.00, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       44.5,
+       198.5,
+       6.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1508",
+      "text": "Oh yes, baby, watch it blow! Flaming narcotics are my favorite firework."
+     },
+     {
+      "display_brief_now": "1509",
+      "text": "The J-Lab is history and the Loonies are safe in insanity. You are one real cool cat, Jumbo. Maybe we do business some other day. For now, here's $40,000."
+     },
+     {
+      "display_message": "1124",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "DESTROY J-LAB!"
+   },
+   {
+    "phone": "obj77",
+    "x": 58.5,
+    "y": 20.5,
+    "z": 255.0,
+    "rot": 270,
+    "kind": "RED_PHONE",
+    "function": "function17",
+    "gang": "looniegang",
+    "easy": false,
+    "done_text": "You already did this job, fruitcake!",
+    "mission": "wil_lh1",
+    "followup": "wil_lh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "1973",
+      "text": "TAXI DRIVERS MUST DIE!"
+     },
+     {
+      "car": "TAXI",
+      "at": [
+       132.5,
+       55.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "1741",
+      "text": "Hey, Jumbo, it's Elmo. The Taxis in this city won't give me a ride. I have chosen three of them for special attention. Go get the first Taxi."
+     },
+     {
+      "arrow": "(arrow1, m_5_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_CAR(p1, m_5_auto1) ) )",
+      "numbers": [
+       1.0,
+       5.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1748",
+      "text": "Do your worst, Jumbo. Taxi Drivers must DIE!"
+     },
+     {
+      "arrow": "(arrow1, m_5_chr1)"
+     },
+     {
+      "wait": "( NOT ( HAS_CHARACTER_DIED(m_5_chr1) ) )",
+      "numbers": [
+       5.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1749",
+      "text": "Now take the Taxi to the South Docks Car Crusher and get it crushed."
+     },
+     {
+      "arrow": [
+       246.5,
+       238.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_BY_CAR(p1, 246.50, 238.50, 2.00, 10.00, 4.00) ) )",
+      "numbers": [
+       1.0,
+       246.5,
+       238.5,
+       2.0,
+       10.0,
+       4.0
+      ]
+     },
+     {
+      "display_brief": "1754",
+      "text": "Get out of the Taxi and enjoy the Crusher Magic, Jumbo."
+     },
+     {
+      "wait": "( NOT ( IS_CAR_CRUSHED(m_5_auto1) ) )",
+      "numbers": [
+       5.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "1755",
+      "text": "Uh-oh, wrong Car Crusher, Jumbo. You made me look like a fool and that's hard to do!"
+     },
+     {
+      "display_message": "1125",
+      "text": "JOB FAILED!"
+     }
+    ],
+    "title": "TAXI DRIVERS MUST DIE!"
+   },
+   {
+    "phone": "obj86",
+    "x": 158.5,
+    "y": 138.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE",
+    "function": "function18",
+    "mission": "wil_tra",
+    "gang": "none",
+    "plan": [
+     {
+      "car": "MESSER",
+      "at": [
+       156.5,
+       142.5,
+       2.0
+      ]
+     },
+     {
+      "display_message": "1952",
+      "text": "TUTORIAL!"
+     },
+     {
+      "display_brief": "1600",
+      "text": "Hey there, stranger! Welcome to the Downtown District. Stick around if you wanna learn what's going down..."
+     },
+     {
+      "display_brief": "1601",
+      "text": "Apart from neutral areas like this one, the city is carved up between three feuding gangs - the Zaibatsu in grey, the Loonies in green, and the Yakuza in blue."
+     },
+     {
+      "wait": "( NOT ( count7 = 1 ) )",
+      "numbers": [
+       7.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1608",
+      "text": "You need transportation and a weapon to get started in this city - and I'm giving you both. There's the car... and there's a pistol inside."
+     },
+     {
+      "arrow": "(arrow1, m_2_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_CHARACTER_IN_ANY_CAR(p1) ) )",
+      "numbers": [
+       1.0
+      ]
+     },
+     {
+      "weapon": "(p1, PISTOL, 10)"
+     },
+     {
+      "display_brief": "1613",
+      "text": "You wanna see where the gangs operate? Follow the big pink marker to the Zaibatsu zone and look out for the men in grey suits. Some of them drive distinct Z-Type cars."
+     },
+     {
+      "arrow": [
+       188.5,
+       37.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 188.50, 37.50, 2.00, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       188.5,
+       37.5,
+       2.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "1614",
+      "text": "The next stop is Loony Land, home to the guys in bright green nightdresses. Their cars are obvious from the smiling faces on top."
+     },
+     {
+      "arrow": [
+       38.5,
+       38.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 38.50, 38.50, 2.00, 0.50, 0.50) ) )",
+      "numbers": [
+       1.0,
+       38.5,
+       38.5,
+       2.0,
+       0.5,
+       0.5
+      ]
+     },
+     {
+      "display_brief": "1615",
+      "text": "Now let's visit the Yakuza territory. These fellas dress sharp in the latest blue collection from Milan - and they don't mess around. So be cool."
+     },
+     {
+      "arrow": [
+       31.0,
+       157.0,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 31.00, 157.00, 2.00, 0.50, 0.50) ) )",
+      "numbers": [
+       1.0,
+       31.0,
+       157.0,
+       2.0,
+       0.5,
+       0.5
+      ]
+     },
+     {
+      "display_brief": "1616",
+      "text": "Now you can see how the city's sliced follow the big pink marker back to me. I got a little somethin' for ya..."
+     },
+     {
+      "arrow": [
+       159.5,
+       139.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 159.50, 139.50, 2.00, 0.50, 0.50) ) )",
+      "numbers": [
+       1.0,
+       159.5,
+       139.5,
+       2.0,
+       0.5,
+       0.5
+      ]
+     },
+     {
+      "display_brief_now": "1617",
+      "text": "I don't know much but I taught you all I know. Here's my S-Uzi Machine Gun - plus a Special Token for your trouble."
+     },
+     {
+      "reward": 20000
+     }
+    ],
+    "title": "TUTORIAL!"
+   },
+   {
+    "phone": "obj83",
+    "x": 188.5,
+    "y": 37.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE",
+    "function": "function19",
+    "mission": null,
+    "briefs": [
+     "The grey markers will always point to the nearest Zaibatsu phones where jobs may be found for those with sufficient respect.",
+     "Tell your friends! The Zaibatsu Corporation is interested in offering contract work to anyone prepared to keep the Loony population to a minimum."
+    ]
+   },
+   {
+    "phone": "obj84",
+    "x": 31.0,
+    "y": 157.0,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE",
+    "function": "function20",
+    "mission": null,
+    "briefs": [
+     "The blue markers always point to the nearest Yakuza phone where jobs are made available for anyone with enough respect.",
+     "You want Yakuza respect you better start killing Zaibatsu. Simple. The reasons - you will learn!"
+    ]
+   },
+   {
+    "phone": "obj85",
+    "x": 38.5,
+    "y": 38.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE",
+    "function": "function21",
+    "mission": null,
+    "briefs": [
+     "Whoop-whoop! The green markers always point to the nearest Loony phones where jobs may be found - just so long as you have the respect.",
+     "Hoo-hoo! We Loonies respect people who like killing Yakuza poops."
+    ]
+   }
+  ]
+ },
+ "bil": {
+  "start": [
+   44.5,
+   102.0,
+   2.0
+  ],
+  "phones": {
+   "obj1": {
+    "x": 249.5,
+    "y": 199.5,
+    "z": 5.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj2": {
+    "x": 249.5,
+    "y": 201.5,
+    "z": 5.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj3": {
+    "x": 233.5,
+    "y": 132.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj4": {
+    "x": 235.5,
+    "y": 132.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj5": {
+    "x": 216.5,
+    "y": 219.5,
+    "z": 4.0,
+    "rot": 0,
+    "kind": "RED_PHONE"
+   },
+   "obj6": {
+    "x": 187.5,
+    "y": 76.5,
+    "z": 6.0,
+    "rot": 0,
+    "kind": "GREEN_PHONE"
+   },
+   "obj7": {
+    "x": 189.5,
+    "y": 76.5,
+    "z": 6.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj8": {
+    "x": 204.5,
+    "y": 10.5,
+    "z": 5.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj9": {
+    "x": 204.5,
+    "y": 13.5,
+    "z": 5.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj10": {
+    "x": 144.5,
+    "y": 33.5,
+    "z": 6.0,
+    "rot": 180,
+    "kind": "RED_PHONE"
+   },
+   "obj11": {
+    "x": 44.5,
+    "y": 163.5,
+    "z": 3.0,
+    "rot": 270,
+    "kind": "GREEN_PHONE"
+   },
+   "obj12": {
+    "x": 45.5,
+    "y": 161.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE"
+   },
+   "obj13": {
+    "x": 6.5,
+    "y": 183.5,
+    "z": 4.0,
+    "rot": 180,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj14": {
+    "x": 9.5,
+    "y": 183.5,
+    "z": 4.0,
+    "rot": 0,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj15": {
+    "x": 27.0,
+    "y": 249.0,
+    "z": 4.0,
+    "rot": 270,
+    "kind": "RED_PHONE"
+   },
+   "obj16": {
+    "x": 64.0,
+    "y": 189.5,
+    "z": 2.0,
+    "rot": 270,
+    "kind": "PHONE"
+   },
+   "obj17": {
+    "x": 202.5,
+    "y": 34.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE"
+   },
+   "obj18": {
+    "x": 234.5,
+    "y": 193.5,
+    "z": 2.0,
+    "rot": 270,
+    "kind": "PHONE"
+   }
+  },
+  "missions": [
+   {
+    "phone": "obj1",
+    "x": 249.5,
+    "y": 199.5,
+    "z": 5.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function1",
+    "gang": "krisgang",
+    "easy": true,
+    "done_text": "This job was most peacefully completed.",
+    "mission": "bil_ke1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "3840",
+      "text": "DECONSTRUCTION YARD!"
+     },
+     {
+      "display_brief": "3160",
+      "text": "Grasshopper - it's Sunbeam. The Zaibatsu are building Shopping Malls on Holy Krishna land. Pay a visit to their Construction Yard and end the destruction."
+     },
+     {
+      "arrow": [
+       69.0,
+       234.0,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 69.00, 234.00, 2.00, 2.00, 2.00) ) )",
+      "numbers": [
+       1.0,
+       69.0,
+       234.0,
+       2.0,
+       2.0,
+       2.0
+      ]
+     },
+     {
+      "char": "STAND_STILL_BLOKE",
+      "at": [
+       210.0,
+       81.5,
+       6.0
+      ]
+     },
+     {
+      "weapon": "(m_10_chr2, MOLOTOV)"
+     },
+     {
+      "arrow": "(arrow1, m_10_chr2)"
+     },
+     {
+      "display_brief": "3162",
+      "text": "They locked the Construction Yard Gateway, Grasshopper, and now only Leo The Locksmith can open it. You should find him doing a job on the Water Towers."
+     },
+     {
+      "wait": "( m_10_count1 = 0 )",
+      "numbers": [
+       10.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "weapon": "(m_10_chr2, PISTOL)"
+     },
+     {
+      "display_brief": "3166",
+      "text": "Okay, shorty, show me the Gateway."
+     },
+     {
+      "display_brief": "3181",
+      "text": "You destroyed the Generator, shorty! Okay, show me this Gateway."
+     },
+     {
+      "arrow": [
+       67.0,
+       234.0,
+       2.0
+      ]
+     },
+     {
+      "car": "BOXTRUCK",
+      "at": [
+       113.5,
+       225.0,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       103.5,
+       229.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       112.5,
+       221.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       108.5,
+       235.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       112.5,
+       237.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       108.0,
+       241.0,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       113.5,
+       227.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       111.0,
+       241.0,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_10_chr1, PISTOL)"
+     },
+     {
+      "weapon": "(m_10_chr3, PISTOL)"
+     },
+     {
+      "weapon": "(m_10_chr4, PISTOL)"
+     },
+     {
+      "weapon": "(m_10_chr5, PISTOL)"
+     },
+     {
+      "weapon": "(m_10_chr6, PISTOL)"
+     },
+     {
+      "weapon": "(m_10_chr7, PISTOL)"
+     },
+     {
+      "weapon": "(m_10_chr8, PISTOL)"
+     },
+     {
+      "wait": "( m_10_count23 = 0 )",
+      "numbers": [
+       10.0,
+       23.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "3168",
+      "text": "Stand back, shorty, while I open this Gateway."
+     },
+     {
+      "wait": "( m_10_count17 = 0 )",
+      "numbers": [
+       10.0,
+       17.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "3170",
+      "text": "Get into the Construction Yard and kill the Zaibatsu Construction Manager."
+     },
+     {
+      "arrow": "(arrow1, m_10_chr1)"
+     },
+     {
+      "wait": "( m_10_count10 = 0 )",
+      "numbers": [
+       10.0,
+       10.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3180",
+      "text": "Well done, Grasshopper, you halted construction! Your reward is $40,000. Join us in song - we have temples to build!"
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "DECONSTRUCTION YARD!"
+   },
+   {
+    "phone": "obj2",
+    "x": 249.5,
+    "y": 201.5,
+    "z": 5.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function2",
+    "gang": "krisgang",
+    "easy": true,
+    "done_text": "This job was most peacefully completed.",
+    "mission": "bil_ke2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "3841",
+      "text": "COP CAR SCRAP!"
+     },
+     {
+      "display_brief": "3480",
+      "text": "Ah, Grasshopper, it's Sunbeam. The Krishna program of automotive clearance has been halted by the Cops. Steal me a Cop Car so we can resume our work!"
+     },
+     {
+      "wait": "( m_6_count1 < 3 )",
+      "numbers": [
+       6.0,
+       1.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief": "3488",
+      "text": "Joy to you, Grasshopper! Here's $40,000. We will enjoy a full-on naked Krishna festival in your honor. Keep in touch."
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "COP CAR SCRAP!"
+   },
+   {
+    "phone": "obj3",
+    "x": 233.5,
+    "y": 132.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE",
+    "function": "function3",
+    "gang": "krisgang",
+    "easy": false,
+    "done_text": "This job was most peacefully completed.",
+    "mission": "bil_km1",
+    "followup": "bil_km3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_brief": "3241",
+      "text": "KILL INTRUDERS ON SIGHT!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       165.5,
+       41.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       169.5,
+       45.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       179.5,
+       44.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_9_chr7, PISTOL)"
+     },
+     {
+      "weapon": "(m_9_chr8, DUAL_PISTOL)"
+     },
+     {
+      "weapon": "(m_9_chr9, SHOTGUN)"
+     }
+    ],
+    "title": "bil_km1"
+   },
+   {
+    "phone": "obj4",
+    "x": 235.5,
+    "y": 132.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE",
+    "function": "function4",
+    "gang": "krisgang",
+    "easy": false,
+    "done_text": "This job was most peacefully completed.",
+    "mission": "bil_km2",
+    "followup": "bil_km3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "3843",
+      "text": "SUNBEAM CONTRACT!"
+     },
+     {
+      "display_brief": "3148",
+      "text": "Ah, Grasshopper! Sunbeam here. I have a very fun job for you. Go meet some loyal Krishna converts and I will tell you more."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       224.0,
+       186.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_5_chr4, PISTOL)"
+     },
+     {
+      "arrow": "(arrow1, m_5_chr4)"
+     },
+     {
+      "wait": "( m_5_count35 = 0 )",
+      "numbers": [
+       5.0,
+       35.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3120",
+      "text": "The Russian Kovski have put out a contract on the Grand Master. Seek out and destroy the Russian Assassins!"
+     },
+     {
+      "arrow": [
+       202.5,
+       34.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( m_5_count5 = 0 )",
+      "numbers": [
+       5.0,
+       5.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3141",
+      "text": "With the Grand Master safe we have many nubile young converts awaiting your attention, Grasshopper. In the meantime, have $60,000."
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 60000
+     }
+    ],
+    "title": "SUNBEAM CONTRACT!"
+   },
+   {
+    "phone": "obj5",
+    "x": 216.5,
+    "y": 219.5,
+    "z": 4.0,
+    "rot": 0,
+    "kind": "RED_PHONE",
+    "function": "function5",
+    "gang": "krisgang",
+    "easy": false,
+    "done_text": "This job was most peacefully completed.",
+    "mission": "bil_kh1",
+    "followup": "bil_kh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "3845",
+      "text": "ROOFTOP RESCUE!"
+     },
+     {
+      "display_brief": "3280",
+      "text": "Ah, Grasshopper - Sunbeam here. My Faithful Krishna are captive at the Zaibatsu Power Plant. Free them and Krishna will smile upon you."
+     },
+     {
+      "arrow": [
+       104.0,
+       200.0,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       108.5,
+       193.0,
+       5.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       104.0,
+       197.5,
+       5.0
+      ]
+     },
+     {
+      "weapon": "(m_3_chr1, SHOTGUN)"
+     },
+     {
+      "weapon": "(m_3_chr3, SHOTGUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       107.0,
+       194.5,
+       5.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       101.0,
+       194.5,
+       5.0
+      ]
+     },
+     {
+      "weapon": "(m_3_chr2, PISTOL)"
+     },
+     {
+      "weapon": "(m_3_chr4, PISTOL)"
+     },
+     {
+      "wait": "( m_3_count1 = 0 )",
+      "numbers": [
+       3.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "car": "LIMO",
+      "at": [
+       81.5,
+       176.5,
+       2.0
+      ]
+     },
+     {
+      "car": "LIMO",
+      "at": [
+       81.5,
+       174.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       104.0,
+       199.0,
+       3.0
+      ]
+     },
+     {
+      "arrow": [
+       104.0,
+       200.0,
+       3.0
+      ]
+     },
+     {
+      "wait": "( m_3_count1 = 1 )",
+      "numbers": [
+       3.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "3287",
+      "text": "Follow us, Grasshopper! We know where to find transportation."
+     },
+     {
+      "arrow": "(arrow1, m_3_chr11)"
+     },
+     {
+      "car": "VAN",
+      "at": [
+       80.65,
+       187.5,
+       2.0
+      ]
+     },
+     {
+      "car": "VAN",
+      "at": [
+       81.95,
+       187.5,
+       2.0
+      ]
+     },
+     {
+      "car": "VAN",
+      "at": [
+       83.3,
+       187.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       80.5,
+       185.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_3_chr5, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       81.5,
+       185.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_3_chr6, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       82.5,
+       185.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_3_chr7, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       83.5,
+       185.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_3_chr8, MACHINE_GUN)"
+     },
+     {
+      "wait": "( m_3_count21 = 0 )",
+      "numbers": [
+       3.0,
+       21.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3289",
+      "text": "Now that we have found transport, Grasshopper, you must lead us to the Safehouse. Use the other Limousine - we will follow."
+     },
+     {
+      "display_brief": "3290",
+      "text": "It seems that our path is blocked by danger, Grasshopper. Only you can clear a way!"
+     },
+     {
+      "wait": "( m_3_count24 = 0 )",
+      "numbers": [
+       3.0,
+       24.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3293",
+      "text": "It would be foolish to try to leave while the way is still blocked, Grasshopper."
+     },
+     {
+      "display_brief": "3288",
+      "text": "My Faithful Krishna are dead, Grasshopper! You must leave. I must meditate."
+     },
+     {
+      "display_message": "3730",
+      "text": "JOB FAILED!"
+     }
+    ],
+    "title": "ROOFTOP RESCUE!"
+   },
+   {
+    "phone": "obj11",
+    "x": 44.5,
+    "y": 163.5,
+    "z": 3.0,
+    "rot": 270,
+    "kind": "GREEN_PHONE",
+    "function": "function6",
+    "gang": "zaibgang",
+    "easy": true,
+    "done_text": "Idiot! This Zaibatsu job has already been completed!",
+    "mission": "bil_ze1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "3851",
+      "text": "IT WAS AN ACCIDENT!"
+     },
+     {
+      "display_brief": "4060",
+      "text": "Hey, Gecko, it's Uno Carb. I need you to neutralize THREE Key Operatives from rival outfits. First you need to collect a Special Package..."
+     },
+     {
+      "arrow": "(arrow1, m_13_obj2)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       134.5,
+       228.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_13_chr4, PISTOL)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       131.5,
+       232.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_13_chr5, PISTOL)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 133.00, 230.50, 2.00, 0.50, 0.50) ) )",
+      "numbers": [
+       1.0,
+       133.0,
+       230.5,
+       2.0,
+       0.5,
+       0.5
+      ]
+     },
+     {
+      "display_brief": "4064",
+      "text": "Excellent, Gecko, you have the Special Package. Be VERY careful - it is highly unstable."
+     },
+     {
+      "display_brief": "4065",
+      "text": "Deliver the Special Package to Bilovski, the crazed Russian weapons pervert."
+     },
+     {
+      "char": "STAND_STILL_BLOKE",
+      "at": [
+       142.5,
+       48.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_13_chr1, PISTOL)"
+     },
+     {
+      "arrow": "(arrow1, m_13_chr1)"
+     },
+     {
+      "wait": "( m_13_count2 = 0 )",
+      "numbers": [
+       13.0,
+       2.0,
+       0.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       11.0,
+       126.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "4071",
+      "text": "Success, Gecko! You need a Hot Dog Van to execute the second part of this job."
+     },
+     {
+      "wait": "( m_13_count11 = 0 )",
+      "numbers": [
+       13.0,
+       11.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "4079",
+      "text": "The target will be waiting for your Hot Dog Van, Gecko. Note that these hot dogs are poisoned..."
+     },
+     {
+      "char": "DRONE",
+      "at": [
+       223.5,
+       177.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_13_chr2)"
+     },
+     {
+      "wait": "( m_13_count15 = 0 )",
+      "numbers": [
+       13.0,
+       15.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "4088",
+      "text": "Very clean, Gecko. Now we have a Russian to dispose of... Meet your Z-Contact on the roof."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       64.0,
+       194.0,
+       5.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_13_chr6)"
+     },
+     {
+      "car": "LIMO",
+      "at": [
+       65.5,
+       194.0,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ON_FOOT(p1, m_13_chr6, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       13.0,
+       6.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "4092",
+      "text": "I rigged a Kovski Limousine to be remote-controlled. Drive it into the Russian area."
+     },
+     {
+      "display_brief": "4093",
+      "text": "The Kovski are looking for this Limousine - it was stolen only a few hours ago!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       228.5,
+       19.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_13_chr3, PISTOL)"
+     },
+     {
+      "arrow": "(arrow1, m_13_chr3)"
+     },
+     {
+      "car": "BUICK",
+      "at": [
+       227.5,
+       19.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( NOT ( IS_CAR_IN_BLOCK(m_13_auto1, 228.00, 19.50, 2.00, 4.00, 4.00) ) )",
+      "numbers": [
+       13.0,
+       1.0,
+       228.0,
+       19.5,
+       2.0,
+       4.0,
+       4.0
+      ]
+     },
+     {
+      "wait": "( NOT ( m_13_count22 = 2 ) )",
+      "numbers": [
+       13.0,
+       22.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "4097",
+      "text": "The trap is set, Gecko. Lead the Russian Limousine into the Krishna quarter."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       184.5,
+       173.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_13_chr7, MACHINE_GUN)"
+     },
+     {
+      "arrow": "(arrow1, m_13_chr7)"
+     },
+     {
+      "wait": "( m_13_count25 = 0 )",
+      "numbers": [
+       13.0,
+       25.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "4099",
+      "text": "Don't move the Limousine, Gecko. Instead watch a perfectly executed Zaibatsu trap..."
+     },
+     {
+      "wait": "( m_13_count21 = 0 )",
+      "numbers": [
+       13.0,
+       21.0,
+       0.0
+      ]
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "IT WAS AN ACCIDENT!"
+   },
+   {
+    "phone": "obj12",
+    "x": 45.5,
+    "y": 161.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE",
+    "function": "function7",
+    "gang": "zaibgang",
+    "easy": true,
+    "done_text": "Idiot! This Zaibatsu job has already been completed!",
+    "mission": "bil_ze2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "3848",
+      "text": "GRAND THEFT AUTO!"
+     },
+     {
+      "display_brief": "3880",
+      "text": "Hey, Gecko, it's me, Uno Carb. If you fancy causing some trouble, try stealing the Jefferson down at Krishna Krushers."
+     },
+     {
+      "car": "JEFFREY",
+      "at": [
+       240.5,
+       134.5,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       239.7,
+       134.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_16_chr1, PISTOL)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       239.9,
+       135.4,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_16_chr2, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       241.2,
+       135.2,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_16_chr3, PISTOL)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       241.6,
+       134.4,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_16_chr4, SHOTGUN)"
+     },
+     {
+      "arrow": "(arrow1, m_16_auto1)"
+     },
+     {
+      "wait": "( m_16_count1 = 0 )",
+      "numbers": [
+       16.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "car": "BUICK",
+      "at": [
+       215.5,
+       51.5,
+       3.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_16_auto2)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       167.5,
+       59.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_16_chr5, MACHINE_GUN)"
+     },
+     {
+      "wait": "( m_16_count4 = 0 )",
+      "numbers": [
+       16.0,
+       4.0,
+       0.0
+      ]
+     },
+     {
+      "car": "WBTWIN",
+      "at": [
+       53.5,
+       21.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": [
+       49.5,
+       16.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 49.50, 16.50, 3.00, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       49.5,
+       16.5,
+       3.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "3891",
+      "text": "The car is on the island near the Docks, Gecko. The only available access is via these rooftops."
+     },
+     {
+      "arrow": "(arrow1, m_16_auto3)"
+     },
+     {
+      "wait": "( m_16_count9 = 0 )",
+      "numbers": [
+       16.0,
+       9.0,
+       0.0
+      ]
+     },
+     {
+      "car": "COPCAR",
+      "at": [
+       40.5,
+       65.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( m_16_count16 = 0 )",
+      "numbers": [
+       16.0,
+       16.0,
+       0.0
+      ]
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "GRAND THEFT AUTO!"
+   },
+   {
+    "phone": "obj13",
+    "x": 6.5,
+    "y": 183.5,
+    "z": 4.0,
+    "rot": 180,
+    "kind": "YELLOW_PHONE",
+    "function": "function8",
+    "gang": "zaibgang",
+    "easy": false,
+    "done_text": "Idiot! This Zaibatsu job has already been completed!",
+    "mission": "bil_zm1",
+    "followup": "bil_zm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "3849",
+      "text": "PAYBACK!"
+     },
+     {
+      "display_brief": "3760",
+      "text": "Hey, Gecko, it's Uno Carb. I'm selling LEGAL drugs on the black market for twice the price. If you want in on the deal, go meet Ziggy Pole."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       167.5,
+       68.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr1, MACHINE_GUN)"
+     },
+     {
+      "arrow": "(arrow1, m_4_chr1)"
+     },
+     {
+      "wait": "( m_4_count26 = 0 )",
+      "numbers": [
+       4.0,
+       26.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "3768",
+      "text": "Bah. Tell Uno the Kovski want better play-drugs - like the new Mitsi."
+     },
+     {
+      "display_brief": "3769",
+      "text": "The next guy is fast moving up the Zaibatsu ranks. He should pose no problems, Gecko!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       91.5,
+       159.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr2, MACHINE_GUN)"
+     },
+     {
+      "arrow": "(arrow1, m_4_chr2)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ON_FOOT(p1, m_4_chr2, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       4.0,
+       2.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "3763",
+      "text": "Hi, you must be Gecko. Want a Mitsi? No? Well you'd better get this cash back to Uno."
+     },
+     {
+      "display_brief_now": "3772",
+      "text": "Keep moving, Gecko. A high-ranking Kovski is the next dealer and he might prove difficult."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       188.2,
+       100.8,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr3, MACHINE_GUN)"
+     },
+     {
+      "arrow": "(arrow1, m_4_chr3)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ON_FOOT(p1, m_4_chr3, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       4.0,
+       3.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "3766",
+      "text": "I have no money for Zaibatsu punks! Tell Uno Carb to go screw himself!"
+     },
+     {
+      "display_brief": "3770",
+      "text": "Kill the Kovski cash-dodger and his pathetic little gang, Gecko."
+     },
+     {
+      "arrow": "(arrow1, m_4_chr3)"
+     },
+     {
+      "wait": "( NOT ( HAS_CHARACTER_DIED(m_4_chr3) ) )",
+      "numbers": [
+       4.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief": "3773",
+      "text": "The last dealer's a real loose cannon - so be cool, Gecko."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       63.5,
+       128.5,
+       4.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr4, MACHINE_GUN)"
+     },
+     {
+      "arrow": "(arrow1, m_4_chr4)"
+     },
+     {
+      "char": "DRONE",
+      "at": [
+       63.2,
+       128.2,
+       4.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr9, MACHINE_GUN)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ON_FOOT(p1, m_4_chr4, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       4.0,
+       4.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "3765",
+      "text": "Look, man, I'm being tailed. I can't talk. My mute handler will pass you the green."
+     },
+     {
+      "arrow": "(arrow1, m_4_chr9)"
+     },
+     {
+      "wait": "( m_4_count6 = 0 )",
+      "numbers": [
+       4.0,
+       6.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "3776",
+      "text": "Excellent, Gecko, you got the money. Now zoom down to the Brown-Eye Sewage Works and steal a Kovski Truck by way of payment."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       239.5,
+       17.5,
+       4.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr5, MOLOTOV)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       239.5,
+       21.5,
+       4.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr6, MOLOTOV)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       242.5,
+       12.5,
+       5.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr7, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       244.5,
+       20.5,
+       5.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr8, SHOTGUN)"
+     },
+     {
+      "car": "BOXTRUCK",
+      "at": [
+       241.5,
+       11.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "3777",
+      "text": "The Kovski Truck contains contraband reactor fuel that we could utilize. Steal the Truck to teach the Russians a lesson."
+     },
+     {
+      "arrow": [
+       234.0,
+       20.0,
+       2.0
+      ]
+     },
+     {
+      "wait": "( m_4_count17 = 0 )",
+      "numbers": [
+       4.0,
+       17.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3784",
+      "text": "The front door is secure. Find a way in around the back and then destroy the old Soviet Generators on the inside to open the entrance."
+     },
+     {
+      "arrow": "(arrow1, m_4_obj7)"
+     },
+     {
+      "wait": "( m_4_count8 = 0 )",
+      "numbers": [
+       4.0,
+       8.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3675",
+      "text": "Congratulations, Gecko! You have succeeded in completing ALL the Zaibatsu jobs!"
+     },
+     {
+      "display_message": "3674",
+      "text": "ALL ZAIBATSU JOBS DONE!"
+     }
+    ],
+    "title": "PAYBACK!"
+   },
+   {
+    "phone": "obj14",
+    "x": 9.5,
+    "y": 183.5,
+    "z": 4.0,
+    "rot": 0,
+    "kind": "YELLOW_PHONE",
+    "function": "function9",
+    "gang": "zaibgang",
+    "easy": false,
+    "done_text": "Idiot! This Zaibatsu job has already been completed!",
+    "mission": "bil_zm2",
+    "followup": "bil_zm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "3850",
+      "text": "LOCK-OUT!"
+     },
+     {
+      "display_brief": "3920",
+      "text": "Gecko - it's Uno Carb. The Russians have taken a Truck full of Zaibatsu AI Brain Units. Steal the whole lot back from the Tedium Docks."
+     },
+     {
+      "car": "BOXTRUCK",
+      "at": [
+       30.5,
+       37.0,
+       3.0
+      ]
+     },
+     {
+      "arrow": [
+       27.0,
+       37.0,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       33.5,
+       49.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_15_chr2, PISTOL)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       33.5,
+       35.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_15_chr3, PISTOL)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       41.5,
+       47.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_15_chr4, SHOTGUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       26.5,
+       53.5,
+       4.0
+      ]
+     },
+     {
+      "weapon": "(m_15_chr5, MOLOTOV)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       29.5,
+       41.5,
+       5.0
+      ]
+     },
+     {
+      "weapon": "(m_15_chr6, MOLOTOV)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 27.00, 37.00, 3.00, 2.00, 2.00) ) )",
+      "numbers": [
+       1.0,
+       27.0,
+       37.0,
+       3.0,
+       2.0,
+       2.0
+      ]
+     },
+     {
+      "arrow": [
+       34.0,
+       58.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "3922",
+      "text": "As expected the entrance is locked, Gecko. Try the back door!"
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ANY_MEANS(p1, 34.00, 58.00, 2.00, 2.00, 2.00) ) )",
+      "numbers": [
+       1.0,
+       34.0,
+       58.0,
+       2.0,
+       2.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "3923",
+      "text": "My intelligence was poor - the back door is also locked. I will program Satchmo The Safecracker to meet you. Get moving!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       64.0,
+       149.0,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_15_chr1)"
+     },
+     {
+      "wait": "( NOT ( LOCATE_ANOTHER_CHARACTER_ANY_MEANS(p1, m_15_chr1, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       15.0,
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "3925",
+      "text": "Show me the lock, Z-Man, and let my fingers do their magic."
+     },
+     {
+      "arrow": [
+       34.0,
+       58.0,
+       2.0
+      ]
+     },
+     {
+      "wait": "( m_15_count28 = 0 )",
+      "numbers": [
+       15.0,
+       28.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "3926",
+      "text": "I hear a clock! Stand back in case the door's booby-trapped."
+     },
+     {
+      "arrow": "(arrow1, m_15_chr1)"
+     },
+     {
+      "wait": "( m_15_count8 = 0 )",
+      "numbers": [
+       15.0,
+       8.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "3929",
+      "text": "Satchmo was getting old anyway. Now steal a Kovski Bulwark and try to enter using Zaibatsu stealth!"
+     },
+     {
+      "wait": "( m_15_count13 = 0 )",
+      "numbers": [
+       15.0,
+       13.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3934",
+      "text": "Excellent, you are inside, Gecko. Now steal back my AI Brain Unit Truck."
+     },
+     {
+      "arrow": "(arrow1, m_15_auto1)"
+     },
+     {
+      "wait": "( m_15_count14 = 0 )",
+      "numbers": [
+       15.0,
+       14.0,
+       0.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       23.5,
+       75.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_15_chr7, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       23.5,
+       76.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_15_chr8, MACHINE_GUN)"
+     },
+     {
+      "wait": "( m_15_count25 = 0 )",
+      "numbers": [
+       15.0,
+       25.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3675",
+      "text": "Congratulations, Gecko! You have succeeded in completing ALL the Zaibatsu jobs!"
+     },
+     {
+      "display_message": "3674",
+      "text": "ALL ZAIBATSU JOBS DONE!"
+     }
+    ],
+    "title": "LOCK-OUT!"
+   },
+   {
+    "phone": "obj15",
+    "x": 27.0,
+    "y": 249.0,
+    "z": 4.0,
+    "rot": 270,
+    "kind": "RED_PHONE",
+    "function": "function10",
+    "gang": "zaibgang",
+    "easy": false,
+    "done_text": "Idiot! This Zaibatsu job has already been completed!",
+    "mission": "bil_zh1",
+    "followup": "bil_zh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "3852",
+      "text": "I'D LIKE A TANK PLEASE, BOB!"
+     },
+     {
+      "display_brief": "4000",
+      "text": "Gecko - it's Uno Carb. The City Security Services are getting too big for their boots so we need to show them the Zaibatsu still mean business. Bring me a SWAT Van."
+     },
+     {
+      "wait": "( m_18_count1 = 0 )",
+      "numbers": [
+       18.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "4003",
+      "text": "Next we need a Special Agent Car. Go, Gecko - GO!"
+     },
+     {
+      "wait": "( m_18_count3 = 0 )",
+      "numbers": [
+       18.0,
+       3.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "4006",
+      "text": "Excellent. Gecko, you are the only Operative I know with the balls to steal a Tank. What are you waiting for?"
+     },
+     {
+      "wait": "( m_18_count5 = 0 )",
+      "numbers": [
+       18.0,
+       5.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "4009",
+      "text": "That little demonstration of power has wiped the smug smiles from the faces of the Security Forces. Here's $80,000 for a job well done."
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 80000
+     }
+    ],
+    "title": "I'D LIKE A TANK PLEASE, BOB!"
+   },
+   {
+    "phone": "obj6",
+    "x": 187.5,
+    "y": 76.5,
+    "z": 6.0,
+    "rot": 0,
+    "kind": "GREEN_PHONE",
+    "function": "function11",
+    "gang": "russgang",
+    "easy": true,
+    "done_text": "This contract has already been fulfilled!",
+    "mission": "bil_re1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "3854",
+      "text": "HOT DOG HOMICIDE!"
+     },
+     {
+      "display_brief": "3400",
+      "text": "Comrade! Jerkov here! A leading meat processing plant will make special hot dogs to feed my troops if I supply the meat. Steal a Bus and pick up people from Bus Stops."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       183.5,
+       22.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr7, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       182.5,
+       22.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr8, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       182.5,
+       23.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr9, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       182.5,
+       24.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr10, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       182.5,
+       25.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr11, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       182.5,
+       26.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr12, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       183.5,
+       26.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr13, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       184.5,
+       26.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr14, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       185.5,
+       26.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_14_chr15, MACHINE_GUN)"
+     },
+     {
+      "wait": "( m_14_count4 = 0 )",
+      "numbers": [
+       14.0,
+       4.0,
+       0.0
+      ]
+     },
+     {
+      "arrow": [
+       185.5,
+       24.5,
+       4.0
+      ]
+     },
+     {
+      "display_brief_now": "3404",
+      "text": "Good work, Comrade! Supervise the mincing from the top of The Cage."
+     },
+     {
+      "wait": "( NOT ( LOCATE_CHARACTER_ON_FOOT(p1, 185.50, 24.50, 4.00, 1.00, 1.00) ) )",
+      "numbers": [
+       1.0,
+       185.5,
+       24.5,
+       4.0,
+       1.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "3407",
+      "text": "Stay on The Cage, Comrade. We need to make sure the passengers are processed."
+     },
+     {
+      "char": "DRONE",
+      "at": [
+       186.5,
+       28.0,
+       2.0
+      ]
+     },
+     {
+      "char": "DRONE",
+      "at": [
+       187.5,
+       28.0,
+       2.0
+      ]
+     },
+     {
+      "char": "DRONE",
+      "at": [
+       186.5,
+       29.5,
+       2.0
+      ]
+     },
+     {
+      "char": "DRONE",
+      "at": [
+       187.5,
+       29.5,
+       2.0
+      ]
+     },
+     {
+      "char": "DRONE",
+      "at": [
+       186.5,
+       29.0,
+       2.0
+      ]
+     },
+     {
+      "char": "DRONE",
+      "at": [
+       187.5,
+       29.0,
+       2.0
+      ]
+     },
+     {
+      "wait": "( ( LOCATE_CHARACTER_ON_FOOT(p1, 185.50, 24.50, 4.00, 7.00, 5.00) )",
+      "numbers": [
+       1.0,
+       185.5,
+       24.5,
+       4.0,
+       7.0,
+       5.0
+      ]
+     },
+     {
+      "display_brief": "3414",
+      "text": "Why did you leave, Comrade? We could not contain the crazed passengers and now we cannot make enough hot dogs to feed my troops. This job is over."
+     },
+     {
+      "display_message": "3730",
+      "text": "JOB FAILED!"
+     }
+    ],
+    "title": "HOT DOG HOMICIDE!"
+   },
+   {
+    "phone": "obj7",
+    "x": 189.5,
+    "y": 76.5,
+    "z": 6.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function12",
+    "gang": "russgang",
+    "easy": true,
+    "done_text": "This contract has already been fulfilled!",
+    "mission": "bil_re2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "3855",
+      "text": "MMM, RUSSIAN SAILORS!"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       95.5,
+       171.5,
+       2.0
+      ]
+     },
+     {
+      "car": "VTYPE",
+      "at": [
+       48.0,
+       73.0,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_17_auto1)"
+     },
+     {
+      "display_brief": "3520",
+      "text": "Hey, Comrade, it's Jerkov! Zaibatsu Dealers are cutting in on our drug trade. Collect the Z-Type we have parked and help us redress the balance."
+     },
+     {
+      "wait": "( m_17_count1 = 0 )",
+      "numbers": [
+       17.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3537",
+      "text": "At last we are doing great street business - thanks to you, Comrade. We will work together again I am sure. For now, here is $40,000."
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 40000
+     }
+    ],
+    "title": "MMM, RUSSIAN SAILORS!"
+   },
+   {
+    "phone": "obj8",
+    "x": 204.5,
+    "y": 10.5,
+    "z": 5.0,
+    "rot": 270,
+    "kind": "YELLOW_PHONE",
+    "function": "function13",
+    "gang": "russgang",
+    "easy": false,
+    "done_text": "This contract has already been fulfilled!",
+    "mission": "bil_rm1",
+    "followup": "bil_rm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "3856",
+      "text": "OFFICER DOWN!"
+     },
+     {
+      "display_brief": "3560",
+      "text": "Jerkov here, Comrade. Police protection is a big earner - and I want a slice of that pie. You have FIVE minutes to destroy TWO Cop Cars and disrupt the marketplace."
+     },
+     {
+      "wait": "( m_22_count1 < 2 )",
+      "numbers": [
+       22.0,
+       1.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief_now": "3565",
+      "text": "Health insurance just went up thanks to you, Comrade. Now I want to start getting serious... Destroy a SWAT Van!"
+     },
+     {
+      "wait": "( ( m_22_count5 < 1 )",
+      "numbers": [
+       22.0,
+       5.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "3569",
+      "text": "You make this look easy, Comrade! Finally, we also intend to compete with the Government - so that means you need to destroy TWO Special Agent Cars!"
+     },
+     {
+      "wait": "( ( m_22_count9 < 2 )",
+      "numbers": [
+       22.0,
+       9.0,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "3573",
+      "text": "The City's Emergency Services are troubled thanks to you, Comrade. Take this $60,000 with our gratitude and drink to continued Kovski success!"
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "reward": 60000
+     }
+    ],
+    "title": "OFFICER DOWN!"
+   },
+   {
+    "phone": "obj9",
+    "x": 204.5,
+    "y": 13.5,
+    "z": 5.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE",
+    "function": "function14",
+    "gang": "russgang",
+    "easy": false,
+    "done_text": "This contract has already been fulfilled!",
+    "mission": "bil_rm2",
+    "followup": "bil_rm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "3857",
+      "text": "KARMA ASSASSINS!"
+     },
+     {
+      "display_brief": "3600",
+      "text": "Hey, Comrade - it's Jerkov. The Karma Assassins are coming and all my good Kovski are drunk. You must protect me!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       214.5,
+       111.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr1, PISTOL)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       213.5,
+       129.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr2, SHOTGUN)"
+     },
+     {
+      "wait": "( m_12_count1 < 8 )",
+      "numbers": [
+       12.0,
+       1.0,
+       8.0
+      ]
+     },
+     {
+      "display_brief": "3609",
+      "text": "Outstanding, Comrade! You helped the Karma Assassins to meet their maker!"
+     },
+     {
+      "wait": "( LOCATE_CHARACTER_ANY_MEANS(p1, 210.50, 142.00, 2.00, 11.00, 12.00) )",
+      "numbers": [
+       1.0,
+       210.5,
+       142.0,
+       2.0,
+       11.0,
+       12.0
+      ]
+     },
+     {
+      "reward": 5000
+     },
+     {
+      "display_brief": "3610",
+      "text": "Top Karma Assassin Nova Bright lies in wait in an Armored Bus. Eradicate him, Comrade!"
+     },
+     {
+      "car": "KRSNABUS",
+      "at": [
+       210.5,
+       142.0,
+       2.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       211.5,
+       141.0,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr3, MOLOTOV)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       209.5,
+       140.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr4, MOLOTOV)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       209.5,
+       142.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr5, MOLOTOV)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       211.5,
+       143.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr6, MOLOTOV)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       211.5,
+       142.0,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_12_auto1)"
+     },
+     {
+      "wait": "( m_12_count21 = 0 )",
+      "numbers": [
+       12.0,
+       21.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "3673",
+      "text": "Fantastic, Comrade! You have completed ALL the Russian jobs!"
+     },
+     {
+      "display_message": "3672",
+      "text": "ALL RUSSIAN JOBS DONE!"
+     }
+    ],
+    "title": "KARMA ASSASSINS!"
+   },
+   {
+    "phone": "obj10",
+    "x": 144.5,
+    "y": 33.5,
+    "z": 6.0,
+    "rot": 180,
+    "kind": "RED_PHONE",
+    "function": "function15",
+    "gang": "russgang",
+    "easy": false,
+    "done_text": "This contract has already been fulfilled!",
+    "mission": "bil_rh1",
+    "followup": "bil_rh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "3859",
+      "text": "VEDIC MASSACRE!"
+     },
+     {
+      "display_brief": "3453",
+      "text": "Hey, Comrade, it's Jerkov. Krishna free love is bankrupting my bitch action. Find Ivan and his mercenary friends to spill some free blood."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       65.5,
+       45.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_11_chr1, PISTOL)"
+     },
+     {
+      "arrow": "(arrow1, m_11_chr1)"
+     },
+     {
+      "wait": "( m_11_count13 = 0 )",
+      "numbers": [
+       11.0,
+       13.0,
+       0.0
+      ]
+     },
+     {
+      "wait": "( m_11_count13 = 1 )",
+      "numbers": [
+       11.0,
+       13.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "3673",
+      "text": "Fantastic, Comrade! You have completed ALL the Russian jobs!"
+     },
+     {
+      "display_message": "3672",
+      "text": "ALL RUSSIAN JOBS DONE!"
+     }
+    ],
+    "title": "VEDIC MASSACRE!"
+   },
+   {
+    "phone": "obj16",
+    "x": 64.0,
+    "y": 189.5,
+    "z": 2.0,
+    "rot": 270,
+    "kind": "PHONE",
+    "function": "function37",
+    "mission": null,
+    "briefs": [
+     "Welcome to the Zaibatsu!",
+     "The Zaibatsu hate the Krishna. Kill the Krishna to earn our respect!"
+    ]
+   },
+   {
+    "phone": "obj17",
+    "x": 202.5,
+    "y": 34.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE",
+    "function": "function38",
+    "mission": null,
+    "briefs": [
+     "Welcome, Comrade, to the Russian Mafia!",
+     "The Russian Mafia hate the Capitalist Zaibatsu! Kill the Zaibatsu and we will respect you."
+    ]
+   },
+   {
+    "phone": "obj18",
+    "x": 234.5,
+    "y": 193.5,
+    "z": 2.0,
+    "rot": 270,
+    "kind": "PHONE",
+    "function": "function39",
+    "mission": "bil_end",
+    "gang": "none",
+    "plan": [
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       17.5,
+       159.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_1_chr3, ROCKET_LAUNCHER)"
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       206.5,
+       192.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_1_chr1, FLAME_THROWER)"
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       144.5,
+       77.0,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_1_chr2, MACHINE_GUN)"
+     },
+     {
+      "display_message": "3861",
+      "text": "FINAL JOB!"
+     },
+     {
+      "display_brief": "3680",
+      "text": "Congratulations, kid! Your activities have seriously upset the Russian, Krishna AND Zaibatsu Bosses and now they ALL want you wiped off the face of the city!"
+     },
+     {
+      "display_brief": "3681",
+      "text": "The three Bosses are on a personal crusade to nail your ass to the floor. You ain't got no choice but to kill them or be killed."
+     },
+     {
+      "wait": "( NOT ( m_1_count1 = 3 ) )",
+      "numbers": [
+       1.0,
+       1.0,
+       3.0
+      ]
+     },
+     {
+      "display_message": "3100",
+      "text": "JOB COMPLETE!"
+     },
+     {
+      "display_brief": "3682",
+      "text": "OUTSTANDING! You wasted all three Bosses! Shit, that's gotta be some kinda achievement!"
+     },
+     {
+      "reward": 5000000
+     }
+    ],
+    "title": "FINAL JOB!"
+   }
+  ]
+ },
+ "ste": {
+  "start": [
+   113.5,
+   124.7,
+   255.0
+  ],
+  "phones": {
+   "obj1": {
+    "x": 234.5,
+    "y": 202.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE"
+   },
+   "obj2": {
+    "x": 235.5,
+    "y": 202.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE"
+   },
+   "obj3": {
+    "x": 206.5,
+    "y": 227.5,
+    "z": 2.0,
+    "rot": 0,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj4": {
+    "x": 206.5,
+    "y": 228.5,
+    "z": 2.0,
+    "rot": 0,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj5": {
+    "x": 222.5,
+    "y": 221.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "RED_PHONE"
+   },
+   "obj6": {
+    "x": 18.5,
+    "y": 68.5,
+    "z": 2.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj7": {
+    "x": 18.5,
+    "y": 67.5,
+    "z": 2.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj8": {
+    "x": 84.5,
+    "y": 30.5,
+    "z": 4.0,
+    "rot": 180,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj9": {
+    "x": 84.5,
+    "y": 29.5,
+    "z": 4.0,
+    "rot": 180,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj10": {
+    "x": 4.5,
+    "y": 5.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "RED_PHONE"
+   },
+   "obj11": {
+    "x": 166.5,
+    "y": 19.5,
+    "z": 3.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj12": {
+    "x": 166.5,
+    "y": 16.5,
+    "z": 3.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE"
+   },
+   "obj13": {
+    "x": 224.5,
+    "y": 34.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj14": {
+    "x": 225.5,
+    "y": 34.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE"
+   },
+   "obj15": {
+    "x": 208.5,
+    "y": 25.5,
+    "z": 4.0,
+    "rot": 0,
+    "kind": "RED_PHONE"
+   },
+   "obj16": {
+    "x": 199.0,
+    "y": 25.5,
+    "z": 3.0,
+    "rot": 0,
+    "kind": "PHONE"
+   },
+   "obj17": {
+    "x": 47.5,
+    "y": 49.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE"
+   },
+   "obj18": {
+    "x": 211.5,
+    "y": 219.5,
+    "z": 2.0,
+    "rot": 270,
+    "kind": "PHONE"
+   }
+  },
+  "missions": [
+   {
+    "phone": "obj1",
+    "x": 234.5,
+    "y": 202.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE",
+    "function": "function1",
+    "gang": "sciegang",
+    "easy": true,
+    "done_text": "You already took this job and finished it!",
+    "mission": "ste_se1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "2957",
+      "text": "SINK OR SWIM!"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       193.5,
+       110.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "2272",
+      "text": "Hello, THC-303, it's Dr LaBrat. Zaibatsu Operatives have secret SRS data and I want it back. Steal a Taxi and keep it in one piece - too much destruction will alert the Cops."
+     },
+     {
+      "wait": "( m_21_count1 = 0 )",
+      "numbers": [
+       21.0,
+       1.0,
+       0.0
+      ]
+     }
+    ],
+    "title": "SINK OR SWIM!"
+   },
+   {
+    "phone": "obj2",
+    "x": 235.5,
+    "y": 202.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "GREEN_PHONE",
+    "function": "function2",
+    "gang": "sciegang",
+    "easy": true,
+    "done_text": "You already took this job and finished it!",
+    "mission": "ste_se2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "2958",
+      "text": "FAKE TRUCE!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       16.5,
+       71.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_6_chr2, MACHINE_GUN)"
+     },
+     {
+      "display_brief": "2300",
+      "text": "Ah, THC-303. Dr LaBrat here. The Zaibatsu and Rednecks want a peace meeting so I'm taking the opportunity to perform an experiment. Collect the old Factory Bus and I will unravel my plan."
+     },
+     {
+      "car": "BUS",
+      "at": [
+       227.5,
+       214.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_6_auto1)"
+     },
+     {
+      "wait": "( m_6_count14 = 0 )",
+      "numbers": [
+       6.0,
+       14.0,
+       0.0
+      ]
+     }
+    ],
+    "title": "FAKE TRUCE!"
+   },
+   {
+    "phone": "obj3",
+    "x": 206.5,
+    "y": 227.5,
+    "z": 2.0,
+    "rot": 0,
+    "kind": "YELLOW_PHONE",
+    "function": "function3",
+    "gang": "sciegang",
+    "easy": false,
+    "done_text": "You already took this job and finished it!",
+    "mission": "ste_sm1",
+    "followup": "ste_sm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "2959",
+      "text": "LABRAT'S PLAN!"
+     },
+     {
+      "display_brief": "2351",
+      "text": "Ah, THC-303! Dr LaBrat here. SRS research suggests the Zaibatsu population is on the rise. Please visit The Village and reduce their number to a more acceptable statistical median."
+     },
+     {
+      "arrow": [
+       224.5,
+       20.5,
+       3.0
+      ]
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       202.5,
+       232.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_3_chr4, MACHINE_GUN)"
+     },
+     {
+      "wait": "( m_3_count1 = 0 )",
+      "numbers": [
+       3.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2365",
+      "text": "Wonderful work, THC-303 - worthy of $50,000."
+     },
+     {
+      "reward": 50000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "LABRAT'S PLAN!"
+   },
+   {
+    "phone": "obj4",
+    "x": 206.5,
+    "y": 228.5,
+    "z": 2.0,
+    "rot": 0,
+    "kind": "YELLOW_PHONE",
+    "function": "function4",
+    "gang": "sciegang",
+    "easy": false,
+    "done_text": "You already took this job and finished it!",
+    "mission": "ste_sm2",
+    "followup": "ste_sm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "2460",
+      "text": "GRAN'PA WE LOVE YOU!"
+     },
+     {
+      "display_brief": "2391",
+      "text": "Hello, THC-303, it's Dr LaBrat. The Professor wants to experiment on a Redneck and has chosen the one they call Gran'pa. First you need to win their confidence..."
+     },
+     {
+      "display_brief": "2392",
+      "text": "Head over to the Opry Car Park and meet with Gran'pa's grandson Dirk. You need his Pickup to kidnap Gran'pa."
+     },
+     {
+      "car": "PICKUP",
+      "at": [
+       66.5,
+       28.3,
+       2.0
+      ]
+     },
+     {
+      "car": "FIAT",
+      "at": [
+       68.5,
+       28.5,
+       2.0
+      ]
+     },
+     {
+      "car": "ZCX5",
+      "at": [
+       68.5,
+       29.5,
+       2.0
+      ]
+     },
+     {
+      "car": "STRIPETB",
+      "at": [
+       68.5,
+       30.5,
+       2.0
+      ]
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       66.9,
+       29.4,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_18_chr2, SHOTGUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       66.4,
+       29.6,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_18_chr4, SHOTGUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       66.7,
+       29.1,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_18_chr5, SHOTGUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       66.1,
+       29.2,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_18_chr6, SHOTGUN)"
+     },
+     {
+      "arrow": "(arrow1, m_18_auto1)"
+     },
+     {
+      "wait": "( NOT ( IS_ITEM_ONSCREEN(m_18_auto1) ) )",
+      "numbers": [
+       18.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief": "2394",
+      "text": "Hey there, City Boy! You here to race? Anyone who beats mah record fer huntin' down and killin' THREE escaped Loonies wins mah Pickup."
+     },
+     {
+      "display_brief": "2395",
+      "text": "Take your pick from these fine automobiles and the clock will start to tick!"
+     },
+     {
+      "display_brief": "2396",
+      "text": "Drive fast, City Boy, and you might just get mah Pickup. Don't bother tryin' to get out of that car - the doors are locked shut! Hoo-hah!"
+     },
+     {
+      "arrow": "(arrow1, m_18_auto2)"
+     },
+     {
+      "arrow": "(arrow3, m_18_auto3)"
+     },
+     {
+      "arrow": "(arrow4, m_18_auto4)"
+     },
+     {
+      "wait": "( m_18_count4 = 0 )",
+      "numbers": [
+       18.0,
+       4.0,
+       0.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_18_auto1)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       12.5,
+       42.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( m_18_count12 = 0 )",
+      "numbers": [
+       18.0,
+       12.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2409",
+      "text": "Fantastic, THC-303. Bring Gran'pa to the Research Center - in one piece. Do not let the Rednecks catch you."
+     },
+     {
+      "arrow": [
+       236.0,
+       192.0,
+       2.0
+      ]
+     },
+     {
+      "wait": "( m_18_count18 = 0 )",
+      "numbers": [
+       18.0,
+       18.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2408",
+      "text": "Smooth, THC-303. You are a cool operator. Please accept $50,000 with our thanks for all your hard work."
+     },
+     {
+      "reward": 50000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "GRAN'PA WE LOVE YOU!"
+   },
+   {
+    "phone": "obj5",
+    "x": 222.5,
+    "y": 221.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "RED_PHONE",
+    "function": "function5",
+    "gang": "sciegang",
+    "easy": false,
+    "done_text": "You already took this job and finished it!",
+    "mission": "ste_sh1",
+    "followup": "ste_sh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "2462",
+      "text": "TAXI TRAITOR TEST!"
+     },
+     {
+      "car": "STYPECAB",
+      "at": [
+       217.5,
+       245.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "2471",
+      "text": "Hello, THC-303, it's Dr LaBrat. Our prototype remote-control Taxi needs a good operator - like you. If you perform well further work will be made available."
+     },
+     {
+      "arrow": "(arrow1, m_22_obj1)"
+     },
+     {
+      "wait": "( m_22_count1 = 0 )",
+      "numbers": [
+       22.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2486",
+      "text": "Think you can handle test-driving the remote-control Taxi around town? Well that's the job."
+     },
+     {
+      "car": "STYPECAB",
+      "at": [
+       214.0,
+       228.5,
+       2.0
+      ]
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       107.5,
+       231.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief": "2487",
+      "text": "We need you to pick up THREE suspected SRS Traitors, THC-303. Off you go - get the first one."
+     },
+     {
+      "arrow": "(arrow1, m_22_chr1)"
+     },
+     {
+      "wait": "( m_22_count17 = 0 )",
+      "numbers": [
+       22.0,
+       17.0,
+       0.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_22_chr2)"
+     },
+     {
+      "wait": "( m_22_count24 = 0 )",
+      "numbers": [
+       22.0,
+       24.0,
+       0.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_22_chr3)"
+     },
+     {
+      "wait": "( m_22_count19 = 0 )",
+      "numbers": [
+       22.0,
+       19.0,
+       0.0
+      ]
+     },
+     {
+      "reward": 70000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     },
+     {
+      "display_brief": "2493",
+      "text": "It's a pleasure to watch you work, THC-303. You deserve this $70,000."
+     }
+    ],
+    "title": "TAXI TRAITOR TEST!"
+   },
+   {
+    "phone": "obj11",
+    "x": 166.5,
+    "y": 19.5,
+    "z": 3.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function6",
+    "gang": "zaibgang",
+    "easy": true,
+    "done_text": "DEAD BRIEF",
+    "mission": "ste_ze1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "char": "GUARD",
+      "at": [
+       24.5,
+       45.5,
+       4.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr1, MOLOTOV)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       24.5,
+       40.5,
+       4.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr2, MOLOTOV)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       21.5,
+       46.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr3, MACHINE_GUN)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       21.5,
+       38.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr4, MACHINE_GUN)"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       175.5,
+       227.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_4_chr5, PISTOL)"
+     },
+     {
+      "display_message": "2464",
+      "text": "SCIENCE FRICTION!"
+     },
+     {
+      "display_brief": "2551",
+      "text": "Gecko! Red Valdez here. I need you to bomb the SRS Clone Test Center so it looks like a Redneck attack. Montana's Pickup is loaded with lethal explosives. Steal it."
+     },
+     {
+      "car": "PICKUP",
+      "at": [
+       24.0,
+       41.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_4_auto1)"
+     },
+     {
+      "wait": "( m_4_count3 = 0 )",
+      "numbers": [
+       4.0,
+       3.0,
+       0.0
+      ]
+     },
+     {
+      "wait": "( m_4_count3 = 1 )",
+      "numbers": [
+       4.0,
+       3.0,
+       1.0
+      ]
+     },
+     {
+      "reward": 30000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     },
+     {
+      "display_brief": "2560",
+      "text": "Holy shit, Gecko! What a BANG! What a BLAST! Have $30,000 for a job well done."
+     }
+    ],
+    "title": "SCIENCE FRICTION!"
+   },
+   {
+    "phone": "obj12",
+    "x": 166.5,
+    "y": 16.5,
+    "z": 3.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function7",
+    "gang": "zaibgang",
+    "easy": true,
+    "done_text": "DEAD BRIEF",
+    "mission": "ste_ze2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "2465",
+      "text": "FIRE TRUCK FUN!"
+     },
+     {
+      "display_brief": "2591",
+      "text": "Gecko! Red Valdez here. A new SRS Flamethrower is being transported across the city in an SRS Security Van - and I want it."
+     },
+     {
+      "display_brief": "2592",
+      "text": "The Security Van has a new locking mechanism which can't be opened by conventional methods. The driver might be persuaded to get out by the Cops..."
+     },
+     {
+      "display_brief": "2593",
+      "text": "OK, Gecko, here's the deal - steal a Cop Car."
+     },
+     {
+      "car": "VAN",
+      "at": [
+       137.5,
+       197.5,
+       2.0
+      ]
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       137.5,
+       198.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_7_chr1, MACHINE_GUN)"
+     },
+     {
+      "wait": "( m_7_count1 = 0 )",
+      "numbers": [
+       7.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2601",
+      "text": "Fantastic, Gecko. This particular Flamethrower will only operate in conjunction with a Fire Truck. So what are you waiting for? Go get a Fire Truck!"
+     },
+     {
+      "wait": "( m_7_count8 = 0 )",
+      "numbers": [
+       7.0,
+       8.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2608",
+      "text": "Now the new Fire Truck is ready let's put it to the test! Head for Mobile RV and barbecue at least 30 Rednecks!"
+     },
+     {
+      "arrow": [
+       44.0,
+       46.0,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_7_auto3, CAR_FLAMETHROWER)"
+     },
+     {
+      "wait": "( m_7_count12 = 0 )",
+      "numbers": [
+       7.0,
+       12.0,
+       0.0
+      ]
+     },
+     {
+      "wait": "( m_7_count26 = 0 )",
+      "numbers": [
+       7.0,
+       26.0,
+       0.0
+      ]
+     },
+     {
+      "reward": 30000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "FIRE TRUCK FUN!"
+   },
+   {
+    "phone": "obj13",
+    "x": 224.5,
+    "y": 34.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE",
+    "function": "function8",
+    "gang": "zaibgang",
+    "easy": false,
+    "done_text": "DEAD BRIEF",
+    "mission": "ste_zm1",
+    "followup": "ste_zm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "2466",
+      "text": "OPERATION Z!"
+     },
+     {
+      "display_brief": "2641",
+      "text": "Gecko - it's Red Valdez. The Rednecks and Scientists are moving new contraband around this city and I want it ALL. I want you to bring me FOUR loaded vehicles."
+     },
+     {
+      "display_brief": "2642",
+      "text": "There's a Pickup full of pills at the Redneck Bowling Alley. Go get it, Gecko."
+     },
+     {
+      "car": "PICKUP",
+      "at": [
+       6.0,
+       108.5,
+       2.0
+      ]
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       7.1,
+       107.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr1, MACHINE_GUN)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       7.7,
+       107.8,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr2, MACHINE_GUN)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       7.5,
+       108.2,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr3, MACHINE_GUN)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       7.5,
+       108.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_12_chr4, MACHINE_GUN)"
+     },
+     {
+      "arrow": "(arrow1, m_12_auto1)"
+     },
+     {
+      "wait": "( m_12_count1 = 0 )",
+      "numbers": [
+       12.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "car": "STRATOSB",
+      "at": [
+       12.0,
+       173.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_12_auto2)"
+     },
+     {
+      "weapon": "(m_12_chr5, MACHINE_GUN)"
+     },
+     {
+      "wait": "( m_12_count4 = 0 )",
+      "numbers": [
+       12.0,
+       4.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2652",
+      "text": "The guards are wasted on Beany Liquor, Gecko, but Disgracelands is still tough to breach."
+     },
+     {
+      "car": "LIMO",
+      "at": [
+       56.0,
+       70.5,
+       2.0
+      ]
+     },
+     {
+      "car": "PICKUP",
+      "at": [
+       55.0,
+       71.5,
+       2.0
+      ]
+     },
+     {
+      "car": "FIAT",
+      "at": [
+       53.0,
+       71.5,
+       2.0
+      ]
+     },
+     {
+      "car": "PICKUP",
+      "at": [
+       50.0,
+       71.5,
+       2.0
+      ]
+     },
+     {
+      "car": "PICKUP",
+      "at": [
+       52.0,
+       71.5,
+       2.0
+      ]
+     },
+     {
+      "car": "EDSEL",
+      "at": [
+       51.0,
+       71.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_12_auto3)"
+     },
+     {
+      "wait": "( m_12_count9 = 0 )",
+      "numbers": [
+       12.0,
+       9.0,
+       0.0
+      ]
+     },
+     {
+      "car": "TRUKTRNS",
+      "at": [
+       86.0,
+       224.5,
+       2.0
+      ]
+     },
+     {
+      "car": "COPCAR",
+      "at": [
+       88.0,
+       224.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( m_12_count16 = 0 )",
+      "numbers": [
+       12.0,
+       16.0,
+       0.0
+      ]
+     },
+     {
+      "reward": 50000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "OPERATION Z!"
+   },
+   {
+    "phone": "obj14",
+    "x": 225.5,
+    "y": 34.5,
+    "z": 3.0,
+    "rot": 90,
+    "kind": "YELLOW_PHONE",
+    "function": "function9",
+    "gang": "zaibgang",
+    "easy": false,
+    "done_text": "DEAD BRIEF",
+    "mission": "ste_zm2",
+    "followup": "ste_zm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "2467",
+      "text": "VALDEZ ALERT!"
+     },
+     {
+      "weapon": "(p1, MOLOTOV, 10)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       217.5,
+       33.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_19_chr1, MACHINE_GUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       245.5,
+       215.5,
+       255.0
+      ]
+     },
+     {
+      "weapon": "(m_19_chr2, MACHINE_GUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       240.5,
+       229.5,
+       255.0
+      ]
+     },
+     {
+      "weapon": "(m_19_chr3, MACHINE_GUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       246.5,
+       233.5,
+       255.0
+      ]
+     },
+     {
+      "weapon": "(m_19_chr4, MACHINE_GUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       245.5,
+       246.5,
+       255.0
+      ]
+     },
+     {
+      "weapon": "(m_19_chr5, MACHINE_GUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       238.5,
+       221.5,
+       255.0
+      ]
+     },
+     {
+      "weapon": "(m_19_chr6, MACHINE_GUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       233.5,
+       215.5,
+       255.0
+      ]
+     },
+     {
+      "weapon": "(m_19_chr7, MACHINE_GUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       246.5,
+       228.5,
+       255.0
+      ]
+     },
+     {
+      "weapon": "(m_19_chr8, MACHINE_GUN)"
+     },
+     {
+      "display_brief": "2850",
+      "text": "Gecko - Red Valdez here. I want you to infiltrate the SRS Research Center and destroy their Cold Fusion Generators. Some Z-Men will join you shortly."
+     },
+     {
+      "display_brief": "2856",
+      "text": "Access to the Research Center appears impossible but we have found a way - over a line of rooftop ramps and then on to and along the old Railway Track."
+     },
+     {
+      "weapon": "(p1, ROCKET_LAUNCHER)"
+     },
+     {
+      "arrow": [
+       247.5,
+       209.5,
+       4.0
+      ]
+     },
+     {
+      "wait": "( m_19_count10 = 0 )",
+      "numbers": [
+       19.0,
+       10.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2871",
+      "text": "There are Anti-Blast Suit Dispensers on the walkways leading to each Generator, Gecko. You can't miss them. But beware the SRS Guards - they won't be so forgiving."
+     },
+     {
+      "arrow": "(arrow1, m_19_obj1)"
+     },
+     {
+      "arrow": "(arrow3, m_19_obj2)"
+     },
+     {
+      "wait": "( m_19_count11 = 0 )",
+      "numbers": [
+       19.0,
+       11.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2875",
+      "text": "Well done, Gecko. Cold Fusion will remain a laboratory myth. Have $50,000. Stay in touch!"
+     },
+     {
+      "reward": 50000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "VALDEZ ALERT!"
+   },
+   {
+    "phone": "obj15",
+    "x": 208.5,
+    "y": 25.5,
+    "z": 4.0,
+    "rot": 0,
+    "kind": "RED_PHONE",
+    "function": "function10",
+    "gang": "zaibgang",
+    "easy": false,
+    "done_text": "DEAD BRIEF",
+    "mission": "ste_zh1",
+    "followup": "ste_zh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "2469",
+      "text": "MURDER IN THE MALL!"
+     },
+     {
+      "display_brief": "2940",
+      "text": "Ah, Gecko! Red Valdez here. I'm curious to see how well you handle extreme situations. Some Z-Men will join you shortly. Your destination is The Mall."
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       207.5,
+       18.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_11_chr4, MACHINE_GUN)"
+     },
+     {
+      "arrow": [
+       160.5,
+       171.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( m_11_count1 = 0 )",
+      "numbers": [
+       11.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief": "2947",
+      "text": "Commendable combat skills, Gecko! Here's $70,000 in recognition of your ruthlessness."
+     },
+     {
+      "reward": 70000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "MURDER IN THE MALL!"
+   },
+   {
+    "phone": "obj6",
+    "x": 18.5,
+    "y": 68.5,
+    "z": 2.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function11",
+    "gang": "redngang",
+    "easy": true,
+    "done_text": "Shit-head! You already done this job!",
+    "mission": "ste_re1",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "2671",
+      "text": "BLOW JOB!"
+     },
+     {
+      "display_brief": "2001",
+      "text": "Hey, Rooster, it's Billy Bob Bean. Montana has wired some new explosives to the ass of a Pickup and I want you to collect it."
+     },
+     {
+      "car": "PICKUP",
+      "at": [
+       24.0,
+       41.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_9_auto1)"
+     },
+     {
+      "wait": "( m_9_count3 = 0 )",
+      "numbers": [
+       9.0,
+       3.0,
+       0.0
+      ]
+     },
+     {
+      "wait": "( m_9_count3 = 1 )",
+      "numbers": [
+       9.0,
+       3.0,
+       1.0
+      ]
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       48.5,
+       19.5,
+       2.0
+      ]
+     },
+     {
+      "display_brief_now": "2012",
+      "text": "This is makin' progress, Rooster. Montana has another Pickup rigged to do some damage. Go 'n' get it."
+     },
+     {
+      "car": "PICKUP",
+      "at": [
+       24.0,
+       44.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_9_auto1)"
+     },
+     {
+      "wait": "( m_9_count3 = 0 )",
+      "numbers": [
+       9.0,
+       3.0,
+       0.0
+      ]
+     },
+     {
+      "wait": "( m_9_count3 = 1 )",
+      "numbers": [
+       9.0,
+       3.0,
+       1.0
+      ]
+     },
+     {
+      "display_brief_now": "2021",
+      "text": "Yee-ha! Them Zaibatsu don't know what hit 'em! Here's $30,000. Keep this up and you could end up one of the Good Ol' Boys. An' there's always plenty work for them, Rooster."
+     },
+     {
+      "reward": 30000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "BLOW JOB!"
+   },
+   {
+    "phone": "obj7",
+    "x": 18.5,
+    "y": 67.5,
+    "z": 2.0,
+    "rot": 180,
+    "kind": "GREEN_PHONE",
+    "function": "function12",
+    "gang": "redngang",
+    "easy": true,
+    "done_text": "Shit-head! You already done this job!",
+    "mission": "ste_re2",
+    "followup": null,
+    "respect_needed": 0,
+    "plan": [
+     {
+      "display_message": "2672",
+      "text": "DOUBLE-CROSS CRUSH!"
+     },
+     {
+      "display_brief_now": "2022",
+      "text": "Hey, Rooster! Billy Bob Bean here. I'm real pissed with the Zaibatsu and SRS troublin' us so I want you to make 'em trouble each other. Go steal a Zaibatsu Z-Type."
+     },
+     {
+      "wait": "( m_16_count2 = 0 )",
+      "numbers": [
+       16.0,
+       2.0,
+       0.0
+      ]
+     },
+     {
+      "wait": "( m_16_count5 = 0 )",
+      "numbers": [
+       16.0,
+       5.0,
+       0.0
+      ]
+     },
+     {
+      "reward": 30000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "DOUBLE-CROSS CRUSH!"
+   },
+   {
+    "phone": "obj8",
+    "x": 84.5,
+    "y": 30.5,
+    "z": 4.0,
+    "rot": 180,
+    "kind": "YELLOW_PHONE",
+    "function": "function13",
+    "gang": "redngang",
+    "easy": false,
+    "done_text": "Shit-head! You already done this job!",
+    "mission": "ste_rm1",
+    "followup": "ste_rm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "2673",
+      "text": "GREATEST HITS!"
+     },
+     {
+      "display_brief": "2051",
+      "text": "Hey, Rooster, it's Billy Bob Bean. I fancy killin' myself some Zaibatsu Hitmen but they found out and I'm a little slow on the draw. Can you start assassinatin' 'em fer me?"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       70.5,
+       28.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_20_chr8, PISTOL)"
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       63.5,
+       193.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_20_chr1, PISTOL)"
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       216.5,
+       164.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_20_chr2, SHOTGUN)"
+     },
+     {
+      "wait": "( m_20_count1 < 8 )",
+      "numbers": [
+       20.0,
+       1.0,
+       8.0
+      ]
+     },
+     {
+      "display_brief": "2060",
+      "text": "I think that's it, Rooster! Shit, are you the Number One Assassin Assassinator!"
+     },
+     {
+      "display_brief": "2061",
+      "text": "Hey! Zaibatsu Mercenary Flambo Cortez is in town! He's at the Grand Central Train Station Car Park and guarded well - but I KNOW you can handle him and his pussies."
+     },
+     {
+      "car": "LIMO",
+      "at": [
+       128.0,
+       126.5,
+       2.0
+      ]
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       128.5,
+       125.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_20_chr3, MACHINE_GUN)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       129.5,
+       125.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_20_chr4, MACHINE_GUN)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       128.5,
+       127.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_20_chr5, MACHINE_GUN)"
+     },
+     {
+      "char": "GUARD",
+      "at": [
+       129.5,
+       127.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_20_chr6, MACHINE_GUN)"
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       128.5,
+       129.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_20_auto1)"
+     },
+     {
+      "wait": "( m_20_count23 = 0 )",
+      "numbers": [
+       20.0,
+       23.0,
+       0.0
+      ]
+     }
+    ],
+    "title": "GREATEST HITS!"
+   },
+   {
+    "phone": "obj9",
+    "x": 84.5,
+    "y": 29.5,
+    "z": 4.0,
+    "rot": 180,
+    "kind": "YELLOW_PHONE",
+    "function": "function14",
+    "gang": "redngang",
+    "easy": false,
+    "done_text": "Shit-head! You already done this job!",
+    "mission": "ste_rm2",
+    "followup": "ste_rm3",
+    "respect_needed": 2,
+    "plan": [
+     {
+      "display_message": "2674",
+      "text": "BENSON BURNER!"
+     },
+     {
+      "display_brief": "2101",
+      "text": "Hey, Rooster! Billy Bob Bean here. The Cop Chief is expecting a shiny new Benson but he's been givin' me shit so I want to surprise him. So steal me a Benson!"
+     },
+     {
+      "car": "MERC",
+      "at": [
+       165.5,
+       95.5,
+       2.0
+      ]
+     },
+     {
+      "car": "TRUKTRNS",
+      "at": [
+       11.5,
+       30.5,
+       2.0
+      ]
+     },
+     {
+      "arrow": "(arrow1, m_10_auto1)"
+     },
+     {
+      "wait": "( m_10_count5 = 0 )",
+      "numbers": [
+       10.0,
+       5.0,
+       0.0
+      ]
+     },
+     {
+      "display_brief_now": "2118",
+      "text": "Deliver this Benson safe, Rooster, and I might just give you a shot at ma' Mary-Joe Bean."
+     },
+     {
+      "arrow": [
+       234.5,
+       151.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( m_10_count16 = 0 )",
+      "numbers": [
+       10.0,
+       16.0,
+       0.0
+      ]
+     },
+     {
+      "char": "DUMMY",
+      "at": [
+       229.5,
+       157.5,
+       3.0
+      ]
+     },
+     {
+      "display_brief_now": "2129",
+      "text": "Let's see Montana's fireworks roast this Pig! Squeal, little piggy!"
+     },
+     {
+      "wait": "( m_10_count8 = 0 )",
+      "numbers": [
+       10.0,
+       8.0,
+       0.0
+      ]
+     },
+     {
+      "reward": 50000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     },
+     {
+      "wait": "( IS_ITEM_ONSCREEN(m_10_auto1) )",
+      "numbers": [
+       10.0,
+       1.0
+      ]
+     }
+    ],
+    "title": "BENSON BURNER!"
+   },
+   {
+    "phone": "obj10",
+    "x": 4.5,
+    "y": 5.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "RED_PHONE",
+    "function": "function15",
+    "gang": "redngang",
+    "easy": false,
+    "done_text": "Shit-head! You already done this job!",
+    "mission": "ste_rh1",
+    "followup": "ste_rh2",
+    "respect_needed": 4,
+    "plan": [
+     {
+      "display_message": "2955",
+      "text": "GANG CAR BANG!"
+     },
+     {
+      "weapon": "(p1, ROCKET_LAUNCHER, 10)"
+     },
+     {
+      "display_brief_now": "2160",
+      "text": "Rooster! Billy Bob here! Me an' the boys are lookin' fer fun down SRS way. You bein' a Good Ol' Boy an' all you wanna join in the fun? First to destroy five Meteors is The King!"
+     },
+     {
+      "char": "CRIMINAL",
+      "at": [
+       11.5,
+       2.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_17_chr1, MACHINE_GUN)"
+     },
+     {
+      "arrow": [
+       227.5,
+       217.5,
+       2.0
+      ]
+     },
+     {
+      "wait": "( m_17_count1 = 0 )",
+      "numbers": [
+       17.0,
+       1.0,
+       0.0
+      ]
+     },
+     {
+      "arrow": [
+       199.0,
+       25.5,
+       3.0
+      ]
+     },
+     {
+      "wait": "( m_17_count3 = 0 )",
+      "numbers": [
+       17.0,
+       3.0,
+       0.0
+      ]
+     },
+     {
+      "reward": 70000
+     },
+     {
+      "display_message": "2999",
+      "text": "Mission Complete!"
+     }
+    ],
+    "title": "GANG CAR BANG!"
+   },
+   {
+    "phone": "obj16",
+    "x": 199.0,
+    "y": 25.5,
+    "z": 3.0,
+    "rot": 0,
+    "kind": "PHONE",
+    "function": "function17",
+    "mission": null,
+    "briefs": [
+     "You are talking to the Zaibatsu. You can probably see some of us now - the cool-looking characters dressed in grey.",
+     "You want our respect? Try disposing of filthy Rednecks!"
+    ]
+   },
+   {
+    "phone": "obj17",
+    "x": 47.5,
+    "y": 49.5,
+    "z": 2.0,
+    "rot": 90,
+    "kind": "PHONE",
+    "function": "function18",
+    "mission": null,
+    "briefs": [
+     "This here's the Rednecks, boy! You might be lookin' at some of us now - the fine-lookin' folk with gorgeous red hair.",
+     "You want our respect? You waste some of them smart-ass Scientists!"
+    ]
+   },
+   {
+    "phone": "obj18",
+    "x": 211.5,
+    "y": 219.5,
+    "z": 2.0,
+    "rot": 270,
+    "kind": "PHONE",
+    "function": "function19",
+    "mission": "ste_end",
+    "gang": "none",
+    "plan": [
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       221.5,
+       45.5,
+       3.0
+      ]
+     },
+     {
+      "weapon": "(m_13_chr3, ROCKET_LAUNCHER)"
+     },
+     {
+      "char": "CRIMINAL_TYPE1",
+      "at": [
+       26.5,
+       133.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_13_chr1, MOLOTOV)"
+     },
+     {
+      "car": "STRATOSB",
+      "at": [
+       188.5,
+       235.5,
+       2.0
+      ]
+     },
+     {
+      "weapon": "(m_13_chr2, FLAME_THROWER)"
+     },
+     {
+      "display_brief": "6000",
+      "text": "Nice work, kiddo! Now the Redneck, SRS AND Zaibatsu Bosses are ALL out for your ass!"
+     },
+     {
+      "wait": "( NOT ( m_13_count1 = 3 ) )",
+      "numbers": [
+       13.0,
+       1.0,
+       3.0
+      ]
+     },
+     {
+      "display_brief": "6009",
+      "text": "Incredible! You beat all three of them! You'd better move your sorry ass out to the city's Industrial District before things get any worse."
+     },
+     {
+      "reward": 3000000
+     }
+    ],
+    "title": "ste_end"
+   }
+  ]
+ }
+}

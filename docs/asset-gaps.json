@@ -281,16 +281,6 @@
  },
  {
   "category": "tile",
-  "district": "wil",
-  "id": 1023,
-  "name": "tile 1023",
-  "sprite": null,
-  "street_faces": 433,
-  "priority": "high",
-  "method": "dump_tiles=1 with the level loaded, then tools/pack_textures_dds.py (ESRGAN+SD)"
- },
- {
-  "category": "tile",
   "district": "bil",
   "id": 313,
   "name": "animated tile frame 313",
@@ -671,16 +661,6 @@
  },
  {
   "category": "tile",
-  "district": "bil",
-  "id": 1023,
-  "name": "tile 1023",
-  "sprite": null,
-  "street_faces": 1304,
-  "priority": "high",
-  "method": "dump_tiles=1 with the level loaded, then tools/pack_textures_dds.py (ESRGAN+SD)"
- },
- {
-  "category": "tile",
   "district": "ste",
   "id": 3,
   "name": "animated tile frame 3",
@@ -1018,16 +998,6 @@
   "street_faces": 0,
   "priority": "high",
   "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
- },
- {
-  "category": "tile",
-  "district": "ste",
-  "id": 1023,
-  "name": "tile 1023",
-  "sprite": null,
-  "street_faces": 1641,
-  "priority": "high",
-  "method": "dump_tiles=1 with the level loaded, then tools/pack_textures_dds.py (ESRGAN+SD)"
  },
  {
   "category": "car",

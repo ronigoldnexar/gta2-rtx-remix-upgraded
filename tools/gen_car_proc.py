@@ -454,7 +454,7 @@ def half_profile(hw, y_roof, y_belt, P, fin, greenhouse):
     return pts
 
 
-def build_body(rec, rgba, P, cls, family, flags, parts):
+def build_body(rec, rgba, P, cls, family, flags, parts, deform=None):
     half, (y0, y1, x0, x1, cx) = footprint(rgba, rec["width"])
     h_img, w_img = rgba.shape[:2]
     L = (y1 - y0) / BLOCK_PX
@@ -534,6 +534,8 @@ def build_body(rec, rgba, P, cls, family, flags, parts):
     NP = len(sections[0])
     verts = np.array([p[:3] for s in sections for p in s], np.float32)
     kinds = np.array([p[3] for s in sections for p in s], np.int32)
+    if deform is not None:
+        verts = deform(verts, kinds, dict(z_tail=z_tail, z_nose=z_nose, z_fw=z_fw, z_rw=z_rw, L=L, W=W, xo=xo, g=P["g"], roof=roof_h, belt=belt_h))
 
     def vid(i, j):
         return i * NP + (j % NP)
@@ -589,7 +591,7 @@ def build_body(rec, rgba, P, cls, family, flags, parts):
     return m
 
 
-def add_wheels(rec, m, P, parts, cls, whitewall):
+def add_wheels(rec, m, P, parts, cls, whitewall, keep=None, askew=False):
     r = P["r"]
     heavy = cls in ("truck", "bus", "train", "trailer")
     tw = (0.26 if heavy else 0.19) * M
@@ -600,12 +602,23 @@ def add_wheels(rec, m, P, parts, cls, whitewall):
     zf = min(zf, m["z_nose"] - r - 0.005)
     zr = max(zr, m["z_tail"] + r + 0.005)
     cap = parts["hubcap_ww"] if whitewall else parts["hubcap"]
+    if askew:
+        cap = parts["tyre"]      # a burnt wheel: no shiny hubcap left
     wheels = []
     pairs = [("fl", -xw, zf), ("fr", xw, zf), ("rl", -xw, zr), ("rr", xw, zr)]
     if cls in ("trailer", "train") and m["L"] > 1.3:
         pairs += [("rl2", -xw, zr + 2.2 * r), ("rr2", xw, zr + 2.2 * r)]
+    rng = np.random.default_rng(rec["model"])
     for name, x, z in pairs:
-        cylinder(parts["tyre"], (m["xo"] + x, r, z), (1, 0, 0), r, tw, segs=18, cap_part=cap, cap_inset=-0.004)
+        if keep is not None and name not in keep:
+            continue
+        axis = (1, 0, 0)
+        if askew:
+            # A wheel knocked off its hub: tilted, pushed in, sitting a little low.
+            axis = (1.0, float(rng.uniform(-0.35, 0.35)), float(rng.uniform(-0.25, 0.25)))
+            x *= float(rng.uniform(0.82, 0.98))
+            z += float(rng.uniform(-0.03, 0.03))
+        cylinder(parts["tyre"], (m["xo"] + x, r, z), axis, r, tw, segs=18, cap_part=cap, cap_inset=-0.004)
         wheels.append(dict(name="wheel_" + name, x=round(m["xo"] + x, 4), y=round(r, 4), z=round(z, 4), radius=round(r, 4)))
     return wheels
 
@@ -766,6 +779,90 @@ def build_tank(rec, rgba, parts):
 # ----------------------------------------------------------------------------
 def tone(c, k):
     return tuple(int(np.clip(float(v) * k, 0, 255)) for v in c)
+
+
+def charred_texture(tones, size=(1024, 384), seed=3):
+    """Burnt-out bodywork: soot-black with scorched brown and rust patches, bare
+    metal scratches and no paint left. `tones` are the wreck sprite's own
+    colours, so the sides match the top-down art."""
+    w, h = size
+    rng = np.random.default_rng(seed)
+    base = np.array(tones["dark"], np.float32)
+    rust = np.array(tones["rust"], np.float32)
+    bare = np.array([120, 118, 112], np.float32)
+    # Low-frequency blotches from a few octaves of smoothed noise.
+    def noise(scale):
+        n = rng.random((h // scale + 2, w // scale + 2)).astype(np.float32)
+        return np.array(Image.fromarray((n * 255).astype(np.uint8)).resize((w, h), Image.BILINEAR)).astype(np.float32) / 255.0
+    n1, n2, n3 = noise(64), noise(16), noise(4)
+    soot = np.clip(0.55 * n1 + 0.3 * n2 + 0.15 * n3, 0, 1)
+    img = base[None, None, :] * (0.6 + 0.8 * soot[..., None])
+    rust_mask = np.clip((n1 - 0.55) * 4.0, 0, 1) * (0.5 + 0.5 * n2)
+    img = img * (1 - rust_mask[..., None]) + rust[None, None, :] * rust_mask[..., None]
+    bare_mask = np.clip((n3 - 0.82) * 6.0, 0, 1) * np.clip((n2 - 0.4) * 2, 0, 1)
+    img = img * (1 - bare_mask[..., None]) + bare[None, None, :] * bare_mask[..., None]
+    # Heat discolouration bands near the top.
+    rows = np.linspace(1.0, 0.0, h)[:, None, None]
+    img = img * (0.75 + 0.5 * rows)
+    return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
+
+
+def wreck_tones(rgba):
+    """The dark and the rust tone of a wreck sprite."""
+    a = rgba[..., 3] > 0
+    px = rgba[a][:, :3].astype(np.float32)
+    if len(px) == 0:
+        return dict(dark=(32, 28, 26), rust=(96, 54, 30))
+    lum = px.mean(axis=1)
+    dark = px[lum <= np.percentile(lum, 40)].mean(axis=0)
+    warm = px[(px[:, 0] > px[:, 2] + 12)]
+    rust = warm.mean(axis=0) if len(warm) > 10 else dark * 1.6 + np.array([40, 10, 0])
+    return dict(dark=tuple(int(v) for v in np.clip(dark, 14, 90)), rust=tuple(int(v) for v in np.clip(rust, 40, 160)))
+
+
+def sstep(a, b, x):
+    """smoothstep for arrays (b may be less than a: the ramp then goes down)."""
+    t = np.clip((x - a) / ((b - a) if abs(b - a) > 1e-6 else 1e-6), 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
+def wreck_deform(seed):
+    """Crushes a lofted body: roof caved in, panels dented, a slight twist,
+    the whole car sitting lower on its springs. Returns the deform hook for
+    build_body."""
+    rng = np.random.default_rng(seed)
+    def deform(verts, kinds, m):
+        v = verts.copy()
+        x, y, z = v[:, 0] - m["xo"], v[:, 1], v[:, 2]
+        g = m["g"]
+        hw = max(m["W"] / 2, 0.05)
+        # Roof: caved in over the cabin, more at the centre than the sides.
+        cabin = sstep(m["z_rw"] - 0.05, m["z_rw"] + 0.05, z) * sstep(m["z_fw"] + 0.05, m["z_fw"] - 0.05, z)
+        centre = np.clip(1 - np.abs(x) / hw, 0, 1)
+        cave = (0.38 + 0.22 * rng.random()) * cabin * (0.3 + 0.7 * centre ** 1.5)
+        above = np.clip((y - g - 0.02) / max(m["roof"] - g, 0.05), 0, 1)
+        y = y - cave * (y - g) * above
+        # Everything sags: springs gone.
+        y = g + (y - g) * 0.86
+        # Dents: low-frequency ripple along the length and height on the side panels.
+        side = (kinds == 1).astype(np.float32)
+        ripple = (np.sin(z * 37.0 + rng.random() * 6) * np.sin(y * 29.0 + rng.random() * 6) * 0.6 + np.sin(z * 91.0) * 0.4)
+        dent = 0.04 * ripple * side * np.sign(x + 1e-6)
+        x = x - dent * (np.abs(x) > hw * 0.5)
+        # A crumpled end: one end pushed in and down.
+        front_hit = rng.random() < 0.5
+        t = sstep(m["z_nose"] - 0.25 * m["L"], m["z_nose"], z) if front_hit else sstep(m["z_tail"] + 0.25 * m["L"], m["z_tail"], z)
+        z = z - (0.06 * m["L"]) * t * (1 if front_hit else -1)
+        y = y - 0.05 * t * (y - g)
+        x = x * (1 - 0.12 * t)
+        # Twist about the length.
+        ang = 0.06 * (z - (m["z_tail"] + m["z_nose"]) / 2) / max(m["L"], 0.1) * 2
+        ca, sa = np.cos(ang), np.sin(ang)
+        x, y = x * ca - (y - g) * sa, g + x * sa + (y - g) * ca
+        y = np.maximum(y, g + 0.004 * (kinds > 0))
+        v[:, 0], v[:, 1], v[:, 2] = x + m["xo"], y, z
+        return v
+    return deform
 
 
 def make_top_texture(hx4, paint):
@@ -954,6 +1051,13 @@ def generate(rec, rgba, hx4, variant, out_dir, render=True, paint_hint=None):
     elif family == "tank":
         m, wheels = build_tank(rec, rgba, parts)
         glass = np.array([44, 54, 72], np.float32)
+    elif rec.get("wreck"):
+        # A burnt-out wreck: the sedan loft crushed, two or three wheels askew, no trim.
+        m = build_body(rec, rgba, P, cls, family, flags, parts, deform=wreck_deform(rec["model"]))
+        rng = np.random.default_rng(rec["model"] * 7 + 1)
+        keep = [n for n in ("fl", "fr", "rl", "rr") if rng.random() < 0.7] or ["rl"]
+        wheels = add_wheels(rec, m, P, parts, cls, False, keep=keep, askew=True)
+        glass = np.array([30, 30, 30], np.float32)
     else:
         m = build_body(rec, rgba, P, cls, family, flags, parts)
         y0, y1 = m["rows"][0], m["rows"][1]
@@ -961,11 +1065,19 @@ def generate(rec, rgba, hx4, variant, out_dir, render=True, paint_hint=None):
         glass = sprite_glass_colour(rgba, rows)
         wheels = add_wheels(rec, m, P, parts, cls, whitewall)
         add_trim(rec, m, P, parts, cls, flags, rgba)
+    if rec.get("wreck"):
+        tones = wreck_tones(rgba)
+        charred = charred_texture(tones, seed=rec["model"])
+        paint = np.array(tones["dark"], np.float32)
+        side_tex, front_tex, rear_tex = charred, charred.resize((512, 384)), charred.transpose(Image.FLIP_LEFT_RIGHT).resize((512, 384))
+    else:
+        side_tex = make_side_texture(rec, m, P, cls, paint, glass, wheels)
+        front_tex, rear_tex = make_front_texture(m, paint, glass), make_rear_texture(m, paint, glass)
     textures = {
         "top": make_top_texture(hx4, paint),
-        "side": make_side_texture(rec, m, P, cls, paint, glass, wheels),
-        "front": make_front_texture(m, paint, glass),
-        "rear": make_rear_texture(m, paint, glass),
+        "side": side_tex,
+        "front": front_tex,
+        "rear": rear_tex,
         "under": flat((28, 26, 24)), "chrome": flat((225, 228, 232)), "grille": make_grille_texture(), "lamp": make_lamp_texture(),
         "tail": flat((200, 20, 20)), "tyre": make_tyre_texture(), "hubcap": make_hubcap_texture(), "hubcap_ww": make_hubcap_texture(True),
         "blue": flat((40, 80, 240)), "red": flat((240, 40, 30)), "taxi": flat((250, 210, 40)), "seat": flat((40, 30, 25)),
@@ -984,6 +1096,8 @@ def generate(rec, rgba, hx4, variant, out_dir, render=True, paint_hint=None):
         uv = np.array(part.uv, np.float32)
         uv[:, 1] = 1.0 - uv[:, 1]
         met, rough = MATERIALS[key]
+        if rec.get("wreck"):
+            met, rough = (0.3, 0.92) if key in ("top", "side", "front", "rear") else (met, max(rough, 0.8))
         mat = trimesh.visual.material.PBRMaterial(name=key, baseColorTexture=textures[key], metallicFactor=met, roughnessFactor=rough,
                                                   emissiveFactor=EMISSIVE.get(key))
         mesh = trimesh.Trimesh(vertices=v, faces=f, vertex_normals=n, process=False)

@@ -80,6 +80,9 @@ void SetHiddenObjects(const void* first, const void* second);
 // The player's own pedestrian sprite object (null when not located), so he
 // keeps one look rather than one hashed from his address.
 void SetPlayerObject(const void* object);
+// Per style tile: 1 when the tile is grass, for the park trees of the street
+// views (set at level load from the style's artwork).
+void SetGrassTiles(const std::vector<uint8_t>& grass);
 // True when a point lies more than `margin` behind the camera's plane this
 // frame (set at the top of LiveGeometry::Draw): what the ground views need not
 // draw at all.
@@ -507,6 +510,10 @@ private:
         bool climbing = false;
         // A pedestrian lying on the road, dead or knocked down. Hidden under a car; see Draw.
         bool corpse = false;
+        // The pedestrian's animation frame (the style sprite number within the ped
+        // base) and the game's state words, for the figure's own clips. See DrawPedFigures.
+        unsigned pedFrame = 0;
+        int32_t pedState = -1, pedSub = 0, pedPending = 0;
         // Drawn through the screen-space layer, over everything, while he boards a car.
         bool boardUi = false;
         // Not drawn: a pedestrian over his car as he gets in or out. See Draw.
@@ -563,6 +570,15 @@ private:
         float runWeight = 0.0f;             // 0 walking .. 1 running, eased
         int idleVariant = 0;                // which idle clip he has
         float idleOffset = 0.0f, idleRate = 1.0f;
+        // The game's other states, as one action clip layered over the walk/idle:
+        // 0 none, 1 punch, 2 aim, 3 hands up, 4 fall (held lying), 5 getting into a
+        // car, 6 getting out, 7 a stagger. See PedActionFor in DrawPedFigures.
+        int action = 0;
+        float actionTime = 0.0f;            // seconds into the clip
+        float actionWeight = 0.0f;          // 0 locomotion .. 1 the action, eased
+        bool actionReverse = false;         // getting up: the fall played backwards
+        unsigned lastPedFrame = 0;          // his sprite frame last time, to see a cycle restart
+        int lastLoggedAction = 0;           // for the GTA2DX9_LOG_PED_FRAMES log
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
 

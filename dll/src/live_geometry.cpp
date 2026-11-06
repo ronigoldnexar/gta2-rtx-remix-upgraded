@@ -199,6 +199,12 @@ namespace { bool g_ghostSwitch[kGhostSwitchCount] = {}; }
 namespace {
 const void* g_hiddenObjects[2] = {nullptr, nullptr};
 const void* g_playerObject = nullptr;
+bool g_logPedFrames = false;
+// Frame ranges (within one body's 158) of the punch, the aim and the hands up;
+// see PedActionFor. Filled in from the probe runs; -1 disables a range.
+int g_pedPunchFrames[2] = {115, 130};   // the swing 115-122, the recovery 123-130 (probe run)
+int g_pedAimFrames[2] = {36, 47};      // arm out, from the frame sheet (not yet seen in a run)
+int g_pedHandsUpFrames[2] = {-1, -1};   // GTA2DX9_LOG_PED_FRAMES=1: the player's frame/state changes, for the clip tables
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
 gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
 bool g_uprightPeds = false;
@@ -207,7 +213,16 @@ void SetHiddenObjects(const void* first, const void* second) {
     g_hiddenObjects[0] = first;
     g_hiddenObjects[1] = second;
 }
-void SetPlayerObject(const void* object) { g_playerObject = object; }
+std::vector<uint8_t> g_grassTiles;
+int g_treeStatGrass = 0, g_treeStatPlaced = 0, g_treeStatFrames = 0;
+void SetGrassTiles(const std::vector<uint8_t>& grass) { g_grassTiles = grass; }
+bool IsGrassTile(int tile) { return tile >= 0 && tile < static_cast<int>(g_grassTiles.size()) && g_grassTiles[static_cast<size_t>(tile)] != 0; }
+
+void SetPlayerObject(const void* object) {
+    g_playerObject = object;
+    static bool checked = false;
+    if (!checked) { checked = true; char buf[8] = {}; g_logPedFrames = GetEnvironmentVariableA("GTA2DX9_LOG_PED_FRAMES", buf, sizeof buf) && buf[0] == '1'; }
+}
 bool BehindView(float x, float y, float z, float margin) {
     const float dx = x - g_viewEye.x, dy = y - g_viewEye.y, dz = z - g_viewEye.z;
     return dx * g_viewForward.x + dy * g_viewForward.y + dz * g_viewForward.z < -margin;
@@ -4050,7 +4065,9 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     const Model* bin = ModelForProp("bin");
     const Model* bench = ModelForProp("bench");
     const Model* hydrant = ModelForProp("hydrant");
-    if (!lamp && !bin && !bench && !hydrant) return;
+    const Model* trees[3] = {ModelForProp("tree1"), ModelForProp("tree2"), ModelForProp("tree3")};
+    const bool anyTree = trees[0] || trees[1] || trees[2];
+    if (!lamp && !bin && !bench && !hydrant && !anyTree) return;
 
     struct Placed { const Model* model; float x, y, z, yaw, scale; float d2; };
     std::vector<Placed> placed;
@@ -4096,11 +4113,37 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             const Model* model = nullptr;
             float scale = 1.0f;
             float ox = 0.0f, oz = 0.0f;
-            // No plants on "field" cells: GTA2 uses that lid type for roofs,
-            // plazas and bare ground as much as for grass, so a shrub rule put
-            // bushes on rooftops and against walls (and the dense shrub model
-            // was the main memory pressure in the ground views).
-            if (ground == 2) {
+            // Trees in the parks: the lid is a grass tile, and so are the four
+            // cells around it at the same height, which keeps them to lawns and
+            // off the odd grass-topped roof or verge; one cell in four gets one.
+            // ("Field" alone is no guide: GTA2 uses that lid type for roofs,
+            // plazas and bare ground as much as for grass.)
+            if (anyTree && IsGrassTile(top.lid.Tile())) ++g_treeStatGrass;
+            if (anyTree && IsGrassTile(top.lid.Tile()) && (h % 4) == 0) {
+                bool lawn = true;
+                for (int k = 0; k < 4 && lawn; ++k) {
+                    const int nx = cx + (k == 0) - (k == 1), nz = cz + (k == 2) - (k == 3);
+                    const int nMapY = gta2::kMapHeight - 1 - nz;
+                    if (nx < 0 || nx >= gta2::kMapWidth || nMapY < 0 || nMapY >= gta2::kMapHeight) { lawn = false; break; }
+                    const gta2::Column& nc = map->ColumnAt(nx, nMapY);
+                    if (nc.blocks.empty() || nc.blocks.back() >= map->BlockCount()) { lawn = false; break; }
+                    const gta2::Block& nb = map->BlockAt(nc.blocks.back());
+                    if (nc.offset + static_cast<int>(nc.blocks.size()) != topLevel || !IsGrassTile(nb.lid.Tile())) lawn = false;
+                }
+                if (lawn) {
+                    const Model* tree = trees[(h >> 5) % 3];
+                    if (!tree) tree = trees[0] ? trees[0] : (trees[1] ? trees[1] : trees[2]);
+                    if (tree) {
+                        ++g_treeStatPlaced;
+                        model = tree;
+                        const float height = 2.0f + static_cast<float>((h >> 9) & 7) / 7.0f * 1.2f;   // 2.0 .. 3.2 blocks
+                        scale = height / (std::max)(tree->Height(), 0.1f);
+                        ox = (static_cast<float>((h >> 12) & 15) / 15.0f - 0.5f) * 0.5f;
+                        oz = (static_cast<float>((h >> 16) & 15) / 15.0f - 0.5f) * 0.5f;
+                    }
+                }
+            }
+            if (!model && ground == 2) {
                 // Against a building: a neighbour whose column stands higher.
                 int wallDx = 0, wallDz = 0;
                 for (int k = 0; k < 4 && !wallDx && !wallDz; ++k) {
@@ -4124,6 +4167,10 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             ground_->SurfaceAt(px + ox, pz + oz, topLevel + 0.5f, &floor);
             placed.push_back({model, px + ox, floor, pz + oz, yaw, scale, d2});
         }
+    }
+    if (anyTree && (++g_treeStatFrames % 300) == 0) {
+        Log("park trees: in the last 300 frames %d grass cells seen, %d trees placed (eye level %d)", g_treeStatGrass, g_treeStatPlaced, eyeLevel);
+        g_treeStatGrass = g_treeStatPlaced = 0;
     }
     // Nothing behind the camera (a prop is at most about a block across).
     placed.erase(std::remove_if(placed.begin(), placed.end(),
@@ -4812,9 +4859,68 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     placed.object = reinterpret_cast<uintptr_t>(GameObjectBeingDrawn());
     // A pedestrian lying on the road, dead or knocked down: see the car loop in Draw.
     placed.corpse = GameObjectIsCorpse();
+    if (g_logPedFrames) {
+        // Which sprite base and number does the game draw a dead or knocked-down
+        // pedestrian's body with? (It leaves the ped base after a few frames.)
+        if (const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn())) {
+            const int32_t base = *reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase);
+            const uint8_t* physics = *reinterpret_cast<const uint8_t* const*>(object + game::kSpriteObjectOwner);
+            const uint8_t* ped = game::PlausiblePointer(physics)
+                                     ? *reinterpret_cast<const uint8_t* const*>(physics + game::kPhysicsPed)
+                                     : nullptr;
+            if (base == game::kSpriteBasePed && (lying || !game::PlausiblePointer(ped))) {
+                // A ped-base sprite that is not a pedestrian on his feet with a ped behind it.
+                static std::map<uintptr_t, int> seen2;
+                const unsigned num = *reinterpret_cast<const uint16_t*>(object + game::kSpriteObjectNumber);
+                const int key = static_cast<int>(num) * 4 + (lying ? 2 : 0) + (game::PlausiblePointer(ped) ? 1 : 0);
+                if (seen2[reinterpret_cast<uintptr_t>(object)] != key) {
+                    seen2[reinterpret_cast<uintptr_t>(object)] = key;
+                    Log("ped anim: ped-base sprite %p number %u (%u) lying %d scale %.2f corners %d ped %p corpse %d",
+                        static_cast<const void*>(object), num, num % 158u, lying ? 1 : 0, scale, corners,
+                        static_cast<const void*>(ped), placed.corpse ? 1 : 0);
+                }
+            }
+            if (base != game::kSpriteBasePed && game::PlausiblePointer(ped)) {
+                const int32_t st = *reinterpret_cast<const int32_t*>(ped + game::kPedState);
+                const int32_t sub = *reinterpret_cast<const int32_t*>(ped + game::kPedSubState);
+                if (st == 9 || st == 8) {
+                    static std::map<uintptr_t, int> seen;
+                    const unsigned num = *reinterpret_cast<const uint16_t*>(object + game::kSpriteObjectNumber);
+                    const int key = base * 100000 + static_cast<int>(num);
+                    if (seen[reinterpret_cast<uintptr_t>(object)] != key) {
+                        seen[reinterpret_cast<uintptr_t>(object)] = key;
+                        Log("ped anim: body object %p base %d number %u state %d sub 0x%x scale %.2f corners %d",
+                            static_cast<const void*>(object), base, num, st, sub, scale, corners);
+                    }
+                }
+            }
+        }
+    }
     if (const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn())) {
         placed.pedestrian = !lying && *reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase) ==
                                          game::kSpriteBasePed;
+        if (*reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase) == game::kSpriteBasePed) {
+            // His frame and state words, on his feet or on the ground, for the figure's clips.
+            placed.pedFrame = *reinterpret_cast<const uint16_t*>(object + game::kSpriteObjectNumber);
+            const uint8_t* physics = *reinterpret_cast<const uint8_t* const*>(object + game::kSpriteObjectOwner);
+            const uint8_t* ped = game::PlausiblePointer(physics)
+                                     ? *reinterpret_cast<const uint8_t* const*>(physics + game::kPhysicsPed)
+                                     : nullptr;
+            if (game::PlausiblePointer(ped)) {
+                placed.pedState = *reinterpret_cast<const int32_t*>(ped + game::kPedState);
+                placed.pedSub = *reinterpret_cast<const int32_t*>(ped + game::kPedSubState);
+                placed.pedPending = *reinterpret_cast<const int32_t*>(ped + game::kPedStatePending);
+                if (g_logPedFrames && reinterpret_cast<const void*>(object) == g_playerObject) {
+                    static unsigned lastFrame = 9999; static int32_t lastState = -2, lastSub = -2;
+                    if (placed.pedFrame != lastFrame || placed.pedState != lastState || placed.pedSub != lastSub) {
+                        lastFrame = placed.pedFrame; lastState = placed.pedState; lastSub = placed.pedSub;
+                        Log("ped anim: player frame %u (%u) state %d sub 0x%x pending %d%s", placed.pedFrame,
+                            placed.pedFrame % 158u, placed.pedState, placed.pedSub, placed.pedPending,
+                            placed.corpse ? " corpse" : "");
+                    }
+                }
+            }
+        }
         if (placed.pedestrian) {
             // Frames 182-193 of a pedestrian are the climb into a car, 24-35 the climb out of one (read off the
             // player's own log: the game gives him no vehicle until the very end of it, so the
@@ -5599,6 +5705,25 @@ static gta2::Mat4 UprightPedMatrix(const LiveGeometry::Vertex* local, int corner
 }
 
 // ---------------------------------------------------------------------------
+// Which action clip the game's own animation frame and state words call for.
+// Frames are the style sprite number within the ped base, modulo the 158 frames
+// of one body (three bodies share the layout). Ranges from the frame sheet and
+// from logging the player's frames per state (assets-src/humans/ped_states.json).
+namespace {
+int PedActionFor(bool corpse, unsigned pedFrame, int32_t pedState, int32_t pedSub) {
+    if (corpse) return 4;   // dead, or knocked down: lying
+    const unsigned f = pedFrame % 158u;
+    if (f >= 24 && f <= 35) return pedState == 4 ? 6 : 5;   // the climb (state 3: in, 4: out)
+    if (f >= 16 && f <= 23 && pedState == 3) return 5;    // reaching for the door
+    if (pedState == 8 && (pedSub == 0x11 || pedSub == 0x13)) return 7;   // thrown, falling (before the frame ranges: a thrown ped passes through them)
+    if (f >= static_cast<unsigned>(g_pedPunchFrames[0]) && f <= static_cast<unsigned>(g_pedPunchFrames[1])) return 1;
+    // The aim only while attacking with something other than fists (state 7, sub 0xe = fists).
+    if (pedState == 7 && pedSub != 0xe && f >= static_cast<unsigned>(g_pedAimFrames[0]) && f <= static_cast<unsigned>(g_pedAimFrames[1])) return 2;
+    if (g_pedHandsUpFrames[0] >= 0 && f >= static_cast<unsigned>(g_pedHandsUpFrames[0]) && f <= static_cast<unsigned>(g_pedHandsUpFrames[1])) return 3;
+    return 0;
+}
+}
+
 // Pedestrians as figures. See SetPedFigures.
 //
 // A figure is six boxes in its own space - x to its right, y up, z the way it
@@ -5691,9 +5816,26 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
 
     constexpr float kPi = 3.14159265f;
     int drawn = 0;
+    if (g_logPedFrames) {
+        // Corpses in this frame's list and how each is flagged, when it changes.
+        static std::string last;
+        std::string now;
+        for (const Sprite& sprite : sprites_) {
+            if (!sprite.corpse) continue;
+            char buf[96];
+            snprintf(buf, sizeof buf, " %p[c%d g%d h%d b%d p%d f%u s%d]", reinterpret_cast<const void*>(sprite.object),
+                     sprite.corners, sprite.ghost ? 1 : 0, sprite.hidden ? 1 : 0, sprite.boardUi ? 1 : 0,
+                     sprite.pedestrian ? 1 : 0, sprite.pedFrame % 158u, sprite.pedState);
+            now += buf;
+        }
+        if (now != last) { last = now; Log("ped anim: corpses:%s", now.empty() ? " none" : now.c_str()); }
+    }
     for (const Sprite& sprite : sprites_) {
-        if (!sprite.pedestrian || sprite.ghost || sprite.climbing || sprite.boardUi || sprite.corpse ||
-            sprite.corners != 4 || sprite.hidden) {
+        // On his feet, or - with the models, which have clips for it - on the
+        // ground (dead, knocked down) or climbing into or out of a car.
+        const bool withModel = g_groundModels;
+        if (!(sprite.pedestrian || (sprite.corpse && withModel)) || sprite.ghost || sprite.boardUi ||
+            sprite.corners != 4 || sprite.hidden || (sprite.climbing && !withModel)) {
             continue;
         }
         const gta2::Mat4& m = sprite.objectToWorld;
@@ -5794,12 +5936,28 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
         }
         const bool moving = track.drawnSpeed > 0.45f;
+        // What the game has him doing, from his animation frame and state words.
+        const int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
+        if (wantAction == 4 && track.action != 4) {
+            track.action = 4; track.actionTime = 0.0f; track.actionReverse = false;
+        } else if (wantAction != 4 && track.action == 4 && !track.actionReverse) {
+            // Up again (knocked down, not dead): the fall, backwards, from where it is.
+            track.actionReverse = true;
+            track.actionTime = (std::min)(track.actionTime, 0.7f);
+        } else if (wantAction != 0 && wantAction != 4 && track.action != wantAction && track.action != 4) {
+            track.action = wantAction; track.actionTime = 0.0f; track.actionReverse = false;
+        }
+        if (g_logPedFrames && track.action != track.lastLoggedAction) {
+            track.lastLoggedAction = track.action;
+            Log("ped anim: object %p action %d (frame %u state %d sub 0x%x%s)", reinterpret_cast<const void*>(sprite.object),
+                track.action, sprite.pedFrame % 158u, sprite.pedState, sprite.pedSub, sprite.corpse ? " corpse" : "");
+        }
         // Heading: toward the game's, at a human turning rate (540 deg/s on
         // foot, quicker at a run), eased so a turn starts and ends softly; the
         // standing figure's heading comes from the artwork, whose top edge is
         // the back of his head, so it points the other way (checked against the
         // chase camera, which sits behind the game's own heading).
-        {
+        if (track.action != 4) {
             const float tx = gameMoving ? fx : -fx, tz = gameMoving ? fz : -fz;
             const float target = std::atan2(tx, tz);
             float diff = target - track.heading;
@@ -5825,7 +5983,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             const Model* model = (sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject)
                                      ? ModelForPedestrian()   // the protagonist: always the manifest's default
                                      : nullptr;
-            if (!model) model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4));
+            // His type (police, gang, medic, a civilian outfit) is the remap the
+            // game drew his sprite with: the texture's palette gives it back.
+            int remap = -1;
+            if (!model) {
+                const TextureRecord* rec = static_cast<const TextureRecord*>(sprite.texture);
+                remap = PedRemapEffective(rec ? PedRemapForPalette(rec->palette) : -1, static_cast<uint32_t>(sprite.object >> 4));
+                model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4), remap);
+            }
             // Behind the camera he is not drawn at all (his track above still
             // follows him, so he comes back without a jump). Beyond eight
             // blocks his poses are quantised twice as coarsely, so distant
@@ -5888,15 +6053,83 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                             : 0.0f;
                 const float walkW = std::floor(track.walkWeight * 8.0f + 0.5f) / 8.0f;
                 const float runW = std::floor(track.runWeight * 8.0f + 0.5f) / 8.0f;
+                // The action layer: its clip advances in real time (one-shots hold
+                // their last pose, the fall holds lying; a knock-down plays back out),
+                // and is faded in over the walk or idle, then out again when it is over.
+                static const char* const kActionClips[8] = {nullptr, "punch", "aim", "handsup", "fall", "getin", "getout", "hit"};
+                const ModelAnimation* actionClip = track.action ? model->Animation(kActionClips[track.action]) : nullptr;
+                float actionT = 0.0f;
+                if (actionClip) {
+                    const float len = actionClip->length;
+                    const bool oneShot = track.action == 1 || track.action == 5 || track.action == 6 || track.action == 7;
+                    if (track.actionReverse) {
+                        track.actionTime -= dt * 1.4f;
+                        if (track.actionTime <= 0.0f) { track.action = 0; track.actionReverse = false; actionClip = nullptr; }
+                    } else {
+                        track.actionTime += dt;
+                        if (track.action == 1 && wantAction == 1 && sprite.pedFrame < track.lastPedFrame &&
+                            track.actionTime > 0.25f) {
+                            track.actionTime = 0.0f;   // the game started the swing again
+                        }
+                        if (oneShot && track.actionTime >= len && wantAction != track.action) track.action = 0;
+                        if (!oneShot && track.action != 4 && wantAction != track.action && wantAction != 4) track.action = 0;
+                        if (!track.action) actionClip = nullptr;
+                    }
+                    actionT = (std::min)((std::max)(track.actionTime, 0.0f), len - 0.001f);
+                    actionT = std::floor(actionT * 30.0f) / 30.0f;
+                }
+                track.lastPedFrame = sprite.pedFrame;
+                static unsigned lyingLogs = 0;
+                if (g_logPedFrames && track.action == 4 && lyingLogs < 400 && (++lyingLogs % 5) == 0) {
+                    Log("ped anim: lying %p at %.2f,%.2f,%.2f t=%.2f w=%.2f clip %s len %.2f corpse %d frame %u",
+                        reinterpret_cast<const void*>(sprite.object), gx, cy, gz, track.actionTime, track.actionWeight,
+                        actionClip ? "yes" : "NO", actionClip ? actionClip->length : 0.0f, sprite.corpse ? 1 : 0,
+                        sprite.pedFrame % 158u);
+                }
+                const float wantWeight = actionClip ? 1.0f : 0.0f;
+                track.actionWeight += (wantWeight - track.actionWeight) * (std::min)(1.0f, dt / (track.action == 4 ? 0.1f : 0.15f));
+                const float actW = actionClip ? std::floor(track.actionWeight * 8.0f + 0.5f) / 8.0f : 0.0f;
                 device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
                 device->SetFVF(kWorldFvf);
-                if (walkW < 0.999f) {
+                // A gang member's colours: his clothing (the "_paint" half of a
+                // split body texture) multiplied by the remap's colour over the
+                // avatar's own; the two halves are alpha-tested back together.
+                float tint[3];
+                const bool tinted = PedRemapTint(remap, *model, tint);
+                if (tinted) ModelSetPaintTint(tint);
+                if (tinted || model->splitPaint) {
+                    // The test must read the texture's alpha, which is where the
+                    // split lives; the pass's own alpha stage may be set to the
+                    // vertex colour.
+                    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+                    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+                    device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+                    device->SetRenderState(D3DRS_ALPHAREF, 128u);
+                    device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
+                }
+                if (actionClip && actW > 0.999f) {
+                    ModelDraw(device, *model, world, actionClip, actionT);
+                } else if (actionClip && actW > 0.001f) {
+                    // Over whichever locomotion clip carries the figure right now.
+                    const ModelAnimation* base = walkW < 0.5f ? idle : (runW > 0.5f ? run : walk);
+                    const float baseT = walkW < 0.5f ? idleTime : (runW > 0.5f ? runTime : walkTime);
+                    ModelDrawBlend(device, *model, world, base, baseT, actionClip, actionT, actW);
+                } else if (walkW < 0.999f) {
                     ModelDrawBlend(device, *model, world, idle, idleTime, walk, walkTime, walkW);
                 } else if (runW > 0.001f) {
                     ModelDrawBlend(device, *model, world, walk, walkTime, run, runTime, runW);
                 } else {
                     ModelDraw(device, *model, world, walk, walkTime);
+                }
+                if (tinted) {
+                    ModelSetPaintTint(nullptr);
+                    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                }
+                if (tinted || model->splitPaint) {
+                    device->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTest);
+                    device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
+                    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg1);
                 }
                 device->SetFVF(kFigFvf);
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
@@ -5905,6 +6138,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 continue;
             }
         }
+        if (sprite.corpse || sprite.climbing) continue;   // the box figure has no clips for those
         DWORD skin, hair, shirt, trousers;
         FigureColours(sprite.object, &skin, &hair, &shirt, &trousers);
         const float pace = (std::min)(track.speed / 3.0f, 1.0f);
@@ -6843,6 +7077,9 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             const bool onFeet = d.sprite->pedestrian && !d.sprite->climbing && !d.sprite->boardUi &&
                                 !d.sprite->corpse && d.sprite->corners == 4;
             if (g_pedFigures && onFeet) continue;   // drawn as a figure instead, see DrawPedFigures
+            // With the models, the lying and the climbing frames are figures too.
+            if (g_pedFigures && g_groundModels && !d.sprite->boardUi && d.sprite->corners == 4 &&
+                (d.sprite->corpse || (d.sprite->pedestrian && d.sprite->climbing))) continue;
             if (g_uprightPeds && onFeet) {
                 // A chase or first-person camera: stood up facing it. See UprightPedMatrix.
                 const gta2::Mat4 upright =

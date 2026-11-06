@@ -36,122 +36,6 @@
    "texture_max": 512
   },
   {
-   "name": "human_male_01",
-   "glb": "humans/rocketbox/Male_Adult_01/Male_Adult_01.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "m002_body": "humans/rocketbox/Male_Adult_01/m002_body_color.tga",
-    "m002_head": "humans/rocketbox/Male_Adult_01/m002_head_color.tga",
-    "m002_opacity": "humans/rocketbox/Male_Adult_01/m002_opacity_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
-   "name": "human_male_04",
-   "glb": "humans/rocketbox/Male_Adult_04/Male_Adult_04.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "m006_body": "humans/rocketbox/Male_Adult_04/m006_body_color.tga",
-    "m006_head": "humans/rocketbox/Male_Adult_04/m006_head_color.tga",
-    "m006_opacity": "humans/rocketbox/Male_Adult_04/m006_opacity_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
-   "name": "human_male_07",
-   "glb": "humans/rocketbox/Male_Adult_07/Male_Adult_07.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "m013_body": "humans/rocketbox/Male_Adult_07/m013_body_color.tga",
-    "m013_head": "humans/rocketbox/Male_Adult_07/m013_head_color.tga",
-    "m013_opacity": "humans/rocketbox/Male_Adult_07/m013_opacity_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
-   "name": "human_male_10",
-   "glb": "humans/rocketbox/Male_Adult_10/Male_Adult_10.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "m024_body": "humans/rocketbox/Male_Adult_10/m024_body_color.tga",
-    "m024_head": "humans/rocketbox/Male_Adult_10/m024_head_color.tga",
-    "m024_opacity": "humans/rocketbox/Male_Adult_10/m024_opacity_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
-   "name": "human_male_13",
-   "glb": "humans/rocketbox/Male_Adult_13/Male_Adult_13.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "m010_body": "humans/rocketbox/Male_Adult_13/m010_body_color.tga",
-    "m010_head": "humans/rocketbox/Male_Adult_13/m010_head_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
-   "name": "human_female_01",
-   "glb": "humans/rocketbox/Female_Adult_01/Female_Adult_01.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "f001_body": "humans/rocketbox/Female_Adult_01/f001_body_color.tga",
-    "f001_head": "humans/rocketbox/Female_Adult_01/f001_head_color.tga",
-    "f001_opacity": "humans/rocketbox/Female_Adult_01/f001_opacity_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
-   "name": "human_female_03",
-   "glb": "humans/rocketbox/Female_Adult_03/Female_Adult_03.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "f003_body": "humans/rocketbox/Female_Adult_03/f003_body_color.tga",
-    "f003_head": "humans/rocketbox/Female_Adult_03/f003_head_color.tga",
-    "f003_opacity": "humans/rocketbox/Female_Adult_03/f003_opacity_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
-   "name": "human_female_05",
-   "glb": "humans/rocketbox/Female_Adult_05/Female_Adult_05.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "f005_body": "humans/rocketbox/Female_Adult_05/f005_body_color.tga",
-    "f005_head": "humans/rocketbox/Female_Adult_05/f005_head_color.tga",
-    "f005_opacity": "humans/rocketbox/Female_Adult_05/f005_opacity_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
-   "name": "human_female_08",
-   "glb": "humans/rocketbox/Female_Adult_08/Female_Adult_08.glb",
-   "scale": 0.5,
-   "texture_max": 512,
-   "material_textures": {
-    "f008_body": "humans/rocketbox/Female_Adult_08/f008_body_color.tga",
-    "f008_head": "humans/rocketbox/Female_Adult_08/f008_head_color.tga",
-    "f008_opacity": "humans/rocketbox/Female_Adult_08/f008_opacity_color.tga"
-   },
-   "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
-  },
-  {
    "name": "obj_bench",
    "glb": "objects/models/obj_bench.glb",
    "scale": 1.0,
@@ -258,6 +142,27 @@
    "scale": 1.0,
    "texture_max": 512,
    "forward": "+z"
+  },
+  {
+   "name": "tree_01",
+   "glb": "trees/tree_01.glb",
+   "scale": 1.0,
+   "texture_max": 512,
+   "_licence": "procedural (tools/gen_trees.py), no third-party content"
+  },
+  {
+   "name": "tree_02",
+   "glb": "trees/tree_02.glb",
+   "scale": 1.0,
+   "texture_max": 512,
+   "_licence": "procedural (tools/gen_trees.py), no third-party content"
+  },
+  {
+   "name": "tree_03",
+   "glb": "trees/tree_03.glb",
+   "scale": 1.0,
+   "texture_max": 512,
+   "_licence": "procedural (tools/gen_trees.py), no third-party content"
   },
   {
    "name": "000_romero",
@@ -1177,6 +1082,176 @@
    "paint_split": true
   },
   {
+   "name": "072_wreck_0",
+   "glb": "cars/models_proc/072_wreck_0.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    48.7,
+    37.8,
+    27.9
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "073_wreck_1",
+   "glb": "cars/models_proc/073_wreck_1.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    44.2,
+    36.9,
+    34.2
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "074_wreck_2",
+   "glb": "cars/models_proc/074_wreck_2.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    47.4,
+    38.8,
+    34.9
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "075_wreck_3",
+   "glb": "cars/models_proc/075_wreck_3.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    44.7,
+    36.5,
+    31.1
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "076_wreck_4",
+   "glb": "cars/models_proc/076_wreck_4.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    42.0,
+    33.9,
+    23.4
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "077_wreck_5",
+   "glb": "cars/models_proc/077_wreck_5.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    42.4,
+    34.8,
+    25.0
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "078_wreck_6",
+   "glb": "cars/models_proc/078_wreck_6.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    52.8,
+    44.0,
+    42.3
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "079_wreck_7",
+   "glb": "cars/models_proc/079_wreck_7.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    44.2,
+    35.3,
+    23.2
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "080_wreck_8",
+   "glb": "cars/models_proc/080_wreck_8.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    44.0,
+    35.7,
+    23.6
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
+   "name": "081_wreck_9",
+   "glb": "cars/models_proc/081_wreck_9.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    43.5,
+    32.7,
+    21.8
+   ],
+   "texture_max": 512,
+   "paint_materials": [
+    "top",
+    "side",
+    "front",
+    "rear"
+   ]
+  },
+  {
    "name": "082_jagular_xk",
    "glb": "cars/models3d/082_jagular_xk.glb",
    "scale": 1.0,
@@ -1199,6 +1274,1023 @@
    ],
    "texture_max": 512,
    "paint_split": true
+  },
+  {
+   "name": "pickup_pistol",
+   "glb": "objects/code_models/pickup_pistol.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_dual_pistol",
+   "glb": "objects/code_models/pickup_dual_pistol.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_machine_gun",
+   "glb": "objects/code_models/pickup_machine_gun.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_rocket_launcher",
+   "glb": "objects/code_models/pickup_rocket_launcher.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_shotgun",
+   "glb": "objects/code_models/pickup_shotgun.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_flamethrower",
+   "glb": "objects/code_models/pickup_flamethrower.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_electro_gun",
+   "glb": "objects/code_models/pickup_electro_gun.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_blue",
+   "glb": "objects/code_models/token_blue.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_orange",
+   "glb": "objects/code_models/token_orange.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_dollar",
+   "glb": "objects/code_models/token_dollar.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_purple",
+   "glb": "objects/code_models/token_purple.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_green_x",
+   "glb": "objects/code_models/token_green_x.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_red_x",
+   "glb": "objects/code_models/token_red_x.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_cyan",
+   "glb": "objects/code_models/token_cyan.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_hand",
+   "glb": "objects/code_models/token_hand.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_yellow",
+   "glb": "objects/code_models/token_yellow.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_navy",
+   "glb": "objects/code_models/token_navy.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_bronze",
+   "glb": "objects/code_models/token_bronze.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_gold",
+   "glb": "objects/code_models/token_gold.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_skull",
+   "glb": "objects/code_models/token_skull.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_phone",
+   "glb": "objects/code_models/code_phone.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "light_red",
+   "glb": "objects/code_models/light_red.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "light_green",
+   "glb": "objects/code_models/light_green.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "light_amber",
+   "glb": "objects/code_models/light_amber.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_helicopter",
+   "glb": "objects/code_models/code_helicopter.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "human_business_female_01",
+   "glb": "humans/rocketbox/Business_Female_01/Business_Female_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f014_body": "humans/rocketbox/Business_Female_01/f014_body_color.tga",
+    "f014_head": "humans/rocketbox/Business_Female_01/f014_head_color.tga",
+    "f014_opacity": "humans/rocketbox/Business_Female_01/f014_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f014_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    54.9,
+    54.7,
+    60.3
+   ]
+  },
+  {
+   "name": "human_business_male_01",
+   "glb": "humans/rocketbox/Business_Male_01/Business_Male_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m005_body": "humans/rocketbox/Business_Male_01/m005_body_color.tga",
+    "m005_head": "humans/rocketbox/Business_Male_01/m005_head_color.tga",
+    "m005_opacity": "humans/rocketbox/Business_Male_01/m005_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m005_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    36.5,
+    34.3,
+    29.8
+   ]
+  },
+  {
+   "name": "human_business_male_02",
+   "glb": "humans/rocketbox/Business_Male_02/Business_Male_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m008_body": "humans/rocketbox/Business_Male_02/m008_body_color.tga",
+    "m008_head": "humans/rocketbox/Business_Male_02/m008_head_color.tga",
+    "m008_opacity": "humans/rocketbox/Business_Male_02/m008_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m008_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    55.3,
+    55.5,
+    62.5
+   ]
+  },
+  {
+   "name": "human_business_male_03",
+   "glb": "humans/rocketbox/Business_Male_03/Business_Male_03.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m020_body": "humans/rocketbox/Business_Male_03/m020_body_color.tga",
+    "m020_head": "humans/rocketbox/Business_Male_03/m020_head_color.tga",
+    "m020_opacity": "humans/rocketbox/Business_Male_03/m020_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m020_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    47.0,
+    48.2,
+    44.9
+   ]
+  },
+  {
+   "name": "human_construction_male_01",
+   "glb": "humans/rocketbox/Construction_Male_01/Construction_Male_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m111_body": "humans/rocketbox/Construction_Male_01/m111_body_color.tga",
+    "m111_head": "humans/rocketbox/Construction_Male_01/m111_head_color.tga",
+    "m111_helmet": "humans/rocketbox/Construction_Male_01/m111_helmet_color.tga",
+    "m111_opacity": "humans/rocketbox/Construction_Male_01/m111_opacity_color.tga",
+    "m111_tools": "humans/rocketbox/Construction_Male_01/m111_tools_color.tga"
+   },
+   "tint_clothing": [
+    "m111_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    107.9,
+    126.1,
+    134.2
+   ]
+  },
+  {
+   "name": "human_construction_male_02",
+   "glb": "humans/rocketbox/Construction_Male_02/Construction_Male_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m101_body": "humans/rocketbox/Construction_Male_02/m101_body_color.tga",
+    "m101_head": "humans/rocketbox/Construction_Male_02/m101_head_color.tga",
+    "m101_helmet": "humans/rocketbox/Construction_Male_02/m101_helmet_color.tga"
+   },
+   "tint_clothing": [
+    "m101_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    27.4,
+    73.8,
+    110.7
+   ]
+  },
+  {
+   "name": "human_female_01",
+   "glb": "humans/rocketbox/Female_Adult_01/Female_Adult_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f001_body": "humans/rocketbox/Female_Adult_01/f001_body_color.tga",
+    "f001_head": "humans/rocketbox/Female_Adult_01/f001_head_color.tga",
+    "f001_opacity": "humans/rocketbox/Female_Adult_01/f001_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f001_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    58.5,
+    74.9,
+    84.9
+   ]
+  },
+  {
+   "name": "human_female_adult_02",
+   "glb": "humans/rocketbox/Female_Adult_02/Female_Adult_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f002_body": "humans/rocketbox/Female_Adult_02/f002_body_color.tga",
+    "f002_head": "humans/rocketbox/Female_Adult_02/f002_head_color.tga",
+    "f002_opacity": "humans/rocketbox/Female_Adult_02/f002_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f002_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    180.4,
+    182.2,
+    173.4
+   ]
+  },
+  {
+   "name": "human_female_03",
+   "glb": "humans/rocketbox/Female_Adult_03/Female_Adult_03.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f003_body": "humans/rocketbox/Female_Adult_03/f003_body_color.tga",
+    "f003_head": "humans/rocketbox/Female_Adult_03/f003_head_color.tga",
+    "f003_opacity": "humans/rocketbox/Female_Adult_03/f003_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f003_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    95.3,
+    47.9,
+    92.4
+   ]
+  },
+  {
+   "name": "human_female_05",
+   "glb": "humans/rocketbox/Female_Adult_05/Female_Adult_05.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f005_body": "humans/rocketbox/Female_Adult_05/f005_body_color.tga",
+    "f005_head": "humans/rocketbox/Female_Adult_05/f005_head_color.tga",
+    "f005_opacity": "humans/rocketbox/Female_Adult_05/f005_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f005_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    83.8,
+    102.8,
+    113.1
+   ]
+  },
+  {
+   "name": "human_female_adult_06",
+   "glb": "humans/rocketbox/Female_Adult_06/Female_Adult_06.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f202_body": "humans/rocketbox/Female_Adult_06/f202_body_color.tga",
+    "f202_head": "humans/rocketbox/Female_Adult_06/f202_head_color.tga",
+    "f202_opacity": "humans/rocketbox/Female_Adult_06/f202_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f202_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    55.4,
+    47.0,
+    28.6
+   ]
+  },
+  {
+   "name": "human_female_08",
+   "glb": "humans/rocketbox/Female_Adult_08/Female_Adult_08.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f008_body": "humans/rocketbox/Female_Adult_08/f008_body_color.tga",
+    "f008_head": "humans/rocketbox/Female_Adult_08/f008_head_color.tga",
+    "f008_opacity": "humans/rocketbox/Female_Adult_08/f008_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f008_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    106.7,
+    110.5,
+    109.9
+   ]
+  },
+  {
+   "name": "human_female_adult_10",
+   "glb": "humans/rocketbox/Female_Adult_10/Female_Adult_10.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f201_body": "humans/rocketbox/Female_Adult_10/f201_body_color.tga",
+    "f201_head": "humans/rocketbox/Female_Adult_10/f201_head_color.tga",
+    "f201_opacity": "humans/rocketbox/Female_Adult_10/f201_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f201_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    27.8,
+    27.1,
+    26.1
+   ]
+  },
+  {
+   "name": "human_female_adult_13",
+   "glb": "humans/rocketbox/Female_Adult_13/Female_Adult_13.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f019_body": "humans/rocketbox/Female_Adult_13/f019_body_color.tga",
+    "f019_head": "humans/rocketbox/Female_Adult_13/f019_head_color.tga",
+    "f019_opacity": "humans/rocketbox/Female_Adult_13/f019_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f019_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    67.0,
+    71.7,
+    75.5
+   ]
+  },
+  {
+   "name": "human_fire_female_01",
+   "glb": "humans/rocketbox/Fire_Female_01/Fire_Female_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m131_body": "humans/rocketbox/Fire_Female_01/m131_body_color.tga",
+    "m131_flashlight": "humans/rocketbox/Fire_Female_01/m131_flashlight_color.tga",
+    "m131_head": "humans/rocketbox/Fire_Female_01/m131_head_color.tga",
+    "m131_helmet": "humans/rocketbox/Fire_Female_01/m131_helmet_color.tga",
+    "m131_mask": "humans/rocketbox/Fire_Female_01/m131_mask_color.tga",
+    "m131_opacity": "humans/rocketbox/Fire_Female_01/m131_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m131_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    85.7,
+    83.7,
+    60.8
+   ]
+  },
+  {
+   "name": "human_fire_male_01",
+   "glb": "humans/rocketbox/Fire_Male_01/Fire_Male_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m138_body": "humans/rocketbox/Fire_Male_01/m138_body_color.tga",
+    "m138_head": "humans/rocketbox/Fire_Male_01/m138_head_color.tga",
+    "m138_helmet": "humans/rocketbox/Fire_Male_01/m138_helmet_color.tga"
+   },
+   "tint_clothing": [
+    "m138_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    73.5,
+    75.1,
+    74.8
+   ]
+  },
+  {
+   "name": "human_fire_male_02",
+   "glb": "humans/rocketbox/Fire_Male_02/Fire_Male_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m132_body": "humans/rocketbox/Fire_Male_02/m132_body_color.tga",
+    "m132_head": "humans/rocketbox/Fire_Male_02/m132_head_color.tga",
+    "m132_helmet": "humans/rocketbox/Fire_Male_02/m132_helmet_color.tga",
+    "m132_opacity": "humans/rocketbox/Fire_Male_02/m132_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m132_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    136.8,
+    119.5,
+    71.9
+   ]
+  },
+  {
+   "name": "human_male_01",
+   "glb": "humans/rocketbox/Male_Adult_01/Male_Adult_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m002_body": "humans/rocketbox/Male_Adult_01/m002_body_color.tga",
+    "m002_head": "humans/rocketbox/Male_Adult_01/m002_head_color.tga",
+    "m002_opacity": "humans/rocketbox/Male_Adult_01/m002_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m002_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    198.4,
+    190.5,
+    182.1
+   ]
+  },
+  {
+   "name": "human_male_adult_02",
+   "glb": "humans/rocketbox/Male_Adult_02/Male_Adult_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m003_body": "humans/rocketbox/Male_Adult_02/m003_body_color.tga",
+    "m003_head": "humans/rocketbox/Male_Adult_02/m003_head_color.tga",
+    "m003_opacity": "humans/rocketbox/Male_Adult_02/m003_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m003_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    44.7,
+    38.6,
+    31.7
+   ]
+  },
+  {
+   "name": "human_male_04",
+   "glb": "humans/rocketbox/Male_Adult_04/Male_Adult_04.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m006_body": "humans/rocketbox/Male_Adult_04/m006_body_color.tga",
+    "m006_head": "humans/rocketbox/Male_Adult_04/m006_head_color.tga",
+    "m006_opacity": "humans/rocketbox/Male_Adult_04/m006_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m006_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    69.5,
+    72.7,
+    67.5
+   ]
+  },
+  {
+   "name": "human_male_adult_05",
+   "glb": "humans/rocketbox/Male_Adult_05/Male_Adult_05.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m009_body": "humans/rocketbox/Male_Adult_05/m009_body_color.tga",
+    "m009_head": "humans/rocketbox/Male_Adult_05/m009_head_color.tga",
+    "m009_opacity": "humans/rocketbox/Male_Adult_05/m009_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m009_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    64.6,
+    55.9,
+    40.8
+   ]
+  },
+  {
+   "name": "human_male_07",
+   "glb": "humans/rocketbox/Male_Adult_07/Male_Adult_07.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m013_body": "humans/rocketbox/Male_Adult_07/m013_body_color.tga",
+    "m013_head": "humans/rocketbox/Male_Adult_07/m013_head_color.tga",
+    "m013_opacity": "humans/rocketbox/Male_Adult_07/m013_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m013_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    58.4,
+    62.6,
+    61.4
+   ]
+  },
+  {
+   "name": "human_male_adult_08",
+   "glb": "humans/rocketbox/Male_Adult_08/Male_Adult_08.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m014_body": "humans/rocketbox/Male_Adult_08/m014_body_color.tga",
+    "m014_head": "humans/rocketbox/Male_Adult_08/m014_head_color.tga",
+    "m014_opacity": "humans/rocketbox/Male_Adult_08/m014_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m014_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    132.6,
+    155.1,
+    176.3
+   ]
+  },
+  {
+   "name": "human_male_10",
+   "glb": "humans/rocketbox/Male_Adult_10/Male_Adult_10.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m024_body": "humans/rocketbox/Male_Adult_10/m024_body_color.tga",
+    "m024_head": "humans/rocketbox/Male_Adult_10/m024_head_color.tga",
+    "m024_opacity": "humans/rocketbox/Male_Adult_10/m024_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m024_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    96.2,
+    49.6,
+    47.5
+   ]
+  },
+  {
+   "name": "human_male_adult_11",
+   "glb": "humans/rocketbox/Male_Adult_11/Male_Adult_11.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m001_body": "humans/rocketbox/Male_Adult_11/m001_body_color.tga",
+    "m001_head": "humans/rocketbox/Male_Adult_11/m001_head_color.tga"
+   },
+   "tint_clothing": [
+    "m001_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    68.5,
+    78.4,
+    81.0
+   ]
+  },
+  {
+   "name": "human_male_13",
+   "glb": "humans/rocketbox/Male_Adult_13/Male_Adult_13.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m010_body": "humans/rocketbox/Male_Adult_13/m010_body_color.tga",
+    "m010_head": "humans/rocketbox/Male_Adult_13/m010_head_color.tga"
+   },
+   "tint_clothing": [
+    "m010_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    89.1,
+    91.3,
+    91.8
+   ]
+  },
+  {
+   "name": "human_male_adult_16",
+   "glb": "humans/rocketbox/Male_Adult_16/Male_Adult_16.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m019_body": "humans/rocketbox/Male_Adult_16/m019_body_color.tga",
+    "m019_head": "humans/rocketbox/Male_Adult_16/m019_head_color.tga"
+   },
+   "tint_clothing": [
+    "m019_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    92.0,
+    108.9,
+    125.4
+   ]
+  },
+  {
+   "name": "human_medical_female_01",
+   "glb": "humans/rocketbox/Medical_Female_01/Medical_Female_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f152_body": "humans/rocketbox/Medical_Female_01/f152_body_color.tga",
+    "f152_head": "humans/rocketbox/Medical_Female_01/f152_head_color.tga",
+    "f152_opacity": "humans/rocketbox/Medical_Female_01/f152_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "f152_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    212.9,
+    208.9,
+    203.8
+   ]
+  },
+  {
+   "name": "human_medical_female_02",
+   "glb": "humans/rocketbox/Medical_Female_02/Medical_Female_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f153_body": "humans/rocketbox/Medical_Female_02/f153_body_color.tga",
+    "f153_head": "humans/rocketbox/Medical_Female_02/f153_head_color.tga",
+    "f153_opacity": "humans/rocketbox/Medical_Female_02/f153_opacity_color.tga",
+    "f153_stetoskop": "humans/rocketbox/Medical_Female_02/f153_stetoskop_color.tga"
+   },
+   "tint_clothing": [
+    "f153_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    188.8,
+    190.8,
+    195.0
+   ]
+  },
+  {
+   "name": "human_medical_male_01",
+   "glb": "humans/rocketbox/Medical_Male_01/Medical_Male_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m152_body": "humans/rocketbox/Medical_Male_01/m152_body_color.tga",
+    "m152_head": "humans/rocketbox/Medical_Male_01/m152_head_color.tga",
+    "m152_opacity": "humans/rocketbox/Medical_Male_01/m152_opacity_color.tga"
+   },
+   "tint_clothing": [
+    "m152_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    199.1,
+    198.5,
+    193.1
+   ]
+  },
+  {
+   "name": "human_medical_male_02",
+   "glb": "humans/rocketbox/Medical_Male_02/Medical_Male_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m154_head": "humans/rocketbox/Medical_Male_02/m154_head_color.tga",
+    "m154_opacity": "humans/rocketbox/Medical_Male_02/m154_opacity_color.tga"
+   },
+   "tint_clothing": [],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_military_female_01",
+   "glb": "humans/rocketbox/Military_Female_01/Military_Female_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "sf003_head": "humans/rocketbox/Military_Female_01/sf003_head_color.tga"
+   },
+   "tint_clothing": [],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_military_male_01",
+   "glb": "humans/rocketbox/Military_Male_01/Military_Male_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "sm002_combat_knife": "humans/rocketbox/Military_Male_01/sm002_combat_knife_color.tga",
+    "sm002_head": "humans/rocketbox/Military_Male_01/sm002_head_color.tga"
+   },
+   "tint_clothing": [],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_military_male_02",
+   "glb": "humans/rocketbox/Military_Male_02/Military_Male_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {},
+   "tint_clothing": [],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+  },
+  {
+   "name": "human_police_female_01",
+   "glb": "humans/rocketbox/Police_Female_01/Police_Female_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m157_body": "humans/rocketbox/Police_Female_01/m157_body_color.tga",
+    "m157_equipment": "humans/rocketbox/Police_Female_01/m157_equipment_color.tga",
+    "m157_head": "humans/rocketbox/Police_Female_01/m157_head_color.tga",
+    "m157_helmet": "humans/rocketbox/Police_Female_01/m157_helmet_color.tga",
+    "m157_machinegun": "humans/rocketbox/Police_Female_01/m157_machinegun_color.tga",
+    "m157_opacity": "humans/rocketbox/Police_Female_01/m157_opacity_color.tga",
+    "m157_pistol": "humans/rocketbox/Police_Female_01/m157_pistol_color.tga",
+    "m157_shotgun": "humans/rocketbox/Police_Female_01/m157_shotgun_color.tga"
+   },
+   "tint_clothing": [
+    "m157_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    41.1,
+    41.5,
+    40.9
+   ]
+  },
+  {
+   "name": "human_police_male_01",
+   "glb": "humans/rocketbox/Police_Male_01/Police_Male_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m220_body": "humans/rocketbox/Police_Male_01/m220_body_color.tga",
+    "m220_equipment": "humans/rocketbox/Police_Male_01/m220_equipment_color.tga",
+    "m220_head": "humans/rocketbox/Police_Male_01/m220_head_color.tga",
+    "m220_pistol": "humans/rocketbox/Police_Male_01/m220_pistol_color.tga"
+   },
+   "tint_clothing": [
+    "m220_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    70.0,
+    91.6,
+    112.9
+   ]
+  },
+  {
+   "name": "human_police_male_02",
+   "glb": "humans/rocketbox/Police_Male_02/Police_Male_02.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m158_body": "humans/rocketbox/Police_Male_02/m158_body_color.tga",
+    "m158_equipment": "humans/rocketbox/Police_Male_02/m158_equipment_color.tga",
+    "m158_head": "humans/rocketbox/Police_Male_02/m158_head_color.tga",
+    "m158_helmet": "humans/rocketbox/Police_Male_02/m158_helmet_color.tga",
+    "m158_opacity": "humans/rocketbox/Police_Male_02/m158_opacity_color.tga",
+    "m158_pistol": "humans/rocketbox/Police_Male_02/m158_pistol_color.tga"
+   },
+   "tint_clothing": [
+    "m158_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    37.0,
+    38.0,
+    36.3
+   ]
+  },
+  {
+   "name": "human_police_male_03",
+   "glb": "humans/rocketbox/Police_Male_03/Police_Male_03.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m156_body": "humans/rocketbox/Police_Male_03/m156_body_color.tga",
+    "m156_equipment": "humans/rocketbox/Police_Male_03/m156_equipment_color.tga",
+    "m156_head": "humans/rocketbox/Police_Male_03/m156_head_color.tga",
+    "m156_pistol": "humans/rocketbox/Police_Male_03/m156_pistol_color.tga",
+    "m172_body": "humans/rocketbox/Police_Male_03/m172_body_color.tga",
+    "m172_equipment": "humans/rocketbox/Police_Male_03/m172_equipment_color.tga",
+    "m172_head": "humans/rocketbox/Police_Male_03/m172_head_color.tga",
+    "m172_pistol": "humans/rocketbox/Police_Male_03/m172_pistol_color.tga"
+   },
+   "tint_clothing": [
+    "m156_body",
+    "m172_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    43.9,
+    44.0,
+    46.2
+   ]
+  },
+  {
+   "name": "human_security_male_01",
+   "glb": "humans/rocketbox/Security_Male_01/Security_Male_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m171_body": "humans/rocketbox/Security_Male_01/m171_body_color.tga",
+    "m171_equipment": "humans/rocketbox/Security_Male_01/m171_equipment_color.tga",
+    "m171_head": "humans/rocketbox/Security_Male_01/m171_head_color.tga"
+   },
+   "tint_clothing": [
+    "m171_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    60.3,
+    60.3,
+    63.7
+   ]
+  },
+  {
+   "name": "human_sports_female_01",
+   "glb": "humans/rocketbox/Sports_Female_01/Sports_Female_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "f021_body": "humans/rocketbox/Sports_Female_01/f021_body_color.tga",
+    "f021_head": "humans/rocketbox/Sports_Female_01/f021_head_color.tga"
+   },
+   "tint_clothing": [
+    "f021_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    48.0,
+    10.2,
+    26.1
+   ]
+  },
+  {
+   "name": "human_sports_male_01",
+   "glb": "humans/rocketbox/Sports_Male_01/Sports_Male_01.glb",
+   "scale": 0.5,
+   "texture_max": 512,
+   "material_textures": {
+    "m021_body": "humans/rocketbox/Sports_Male_01/m021_body_color.tga",
+    "m021_head": "humans/rocketbox/Sports_Male_01/m021_head_color.tga"
+   },
+   "tint_clothing": [
+    "m021_body"
+   ],
+   "forward": "+z",
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    10.1,
+    11.1,
+    12.8
+   ]
   }
  ],
  "cars": {
@@ -1274,6 +2366,16 @@
    "69": "069_u_jerk_truck",
    "70": "070_z_type",
    "71": "071_rumbler",
+   "72": "072_wreck_0",
+   "73": "073_wreck_1",
+   "74": "074_wreck_2",
+   "75": "075_wreck_3",
+   "76": "076_wreck_4",
+   "77": "077_wreck_5",
+   "78": "078_wreck_6",
+   "79": "079_wreck_7",
+   "80": "080_wreck_8",
+   "81": "081_wreck_9",
    "82": "082_jagular_xk",
    "83": "083_furore_gt"
   },
@@ -1282,21 +2384,33 @@
  },
  "pedestrian": "human_male_01",
  "pedestrians": [
-  "human_male_01",
-  "human_male_04",
-  "human_male_07",
-  "human_male_10",
-  "human_male_13",
   "human_female_01",
+  "human_female_adult_02",
   "human_female_03",
   "human_female_05",
-  "human_female_08"
+  "human_female_adult_06",
+  "human_female_08",
+  "human_female_adult_10",
+  "human_female_adult_13",
+  "human_male_01",
+  "human_male_adult_02",
+  "human_male_04",
+  "human_male_adult_05",
+  "human_male_07",
+  "human_male_adult_08",
+  "human_male_10",
+  "human_male_adult_11",
+  "human_male_13",
+  "human_male_adult_16"
  ],
  "props": {
   "lamp": "street_lamp",
   "hydrant": "fire_hydrant",
   "bin": "trash_can",
-  "bench": "bench"
+  "bench": "bench",
+  "tree1": "tree_01",
+  "tree2": "tree_02",
+  "tree3": "tree_03"
  },
  "objects": {
   "5:0": "obj_bench",
@@ -1362,9 +2476,1217 @@
   "5:81": "obj_barrier",
   "5:82": "obj_barrier",
   "5:83": "obj_barrier",
-  "5:88": "obj_crate_yellow"
+  "5:88": "obj_crate_yellow",
+  "4:18": "pickup_pistol",
+  "4:19": "pickup_pistol",
+  "4:20": "pickup_pistol",
+  "4:21": "pickup_pistol",
+  "4:22": "pickup_pistol",
+  "4:23": "pickup_pistol",
+  "4:24": "pickup_pistol",
+  "4:25": "pickup_pistol",
+  "4:26": "pickup_dual_pistol",
+  "4:27": "pickup_dual_pistol",
+  "4:28": "pickup_dual_pistol",
+  "4:29": "pickup_dual_pistol",
+  "4:30": "pickup_dual_pistol",
+  "4:31": "pickup_dual_pistol",
+  "4:32": "pickup_dual_pistol",
+  "4:33": "pickup_dual_pistol",
+  "4:34": "pickup_machine_gun",
+  "4:35": "pickup_machine_gun",
+  "4:36": "pickup_machine_gun",
+  "4:37": "pickup_machine_gun",
+  "4:38": "pickup_machine_gun",
+  "4:39": "pickup_machine_gun",
+  "4:40": "pickup_machine_gun",
+  "4:41": "pickup_machine_gun",
+  "4:42": "pickup_rocket_launcher",
+  "4:43": "pickup_rocket_launcher",
+  "4:44": "pickup_rocket_launcher",
+  "4:45": "pickup_rocket_launcher",
+  "4:46": "pickup_rocket_launcher",
+  "4:47": "pickup_rocket_launcher",
+  "4:48": "pickup_rocket_launcher",
+  "4:49": "pickup_rocket_launcher",
+  "4:66": "pickup_shotgun",
+  "4:67": "pickup_shotgun",
+  "4:68": "pickup_shotgun",
+  "4:69": "pickup_shotgun",
+  "4:70": "pickup_shotgun",
+  "4:71": "pickup_shotgun",
+  "4:72": "pickup_shotgun",
+  "4:73": "pickup_shotgun",
+  "4:82": "pickup_flamethrower",
+  "4:83": "pickup_flamethrower",
+  "4:84": "pickup_flamethrower",
+  "4:85": "pickup_flamethrower",
+  "4:86": "pickup_flamethrower",
+  "4:87": "pickup_flamethrower",
+  "4:88": "pickup_flamethrower",
+  "4:89": "pickup_flamethrower",
+  "4:90": "pickup_electro_gun",
+  "4:91": "pickup_electro_gun",
+  "4:92": "pickup_electro_gun",
+  "4:93": "pickup_electro_gun",
+  "4:94": "pickup_electro_gun",
+  "4:95": "pickup_electro_gun",
+  "4:96": "pickup_electro_gun",
+  "4:97": "pickup_electro_gun",
+  "4:151": "token_blue",
+  "4:152": "token_blue",
+  "4:153": "token_blue",
+  "4:154": "token_blue",
+  "4:155": "token_blue",
+  "4:156": "token_blue",
+  "4:157": "token_blue",
+  "4:158": "token_blue",
+  "4:159": "token_orange",
+  "4:160": "token_orange",
+  "4:161": "token_orange",
+  "4:162": "token_orange",
+  "4:163": "token_orange",
+  "4:164": "token_orange",
+  "4:165": "token_orange",
+  "4:166": "token_orange",
+  "4:167": "token_dollar",
+  "4:168": "token_dollar",
+  "4:169": "token_dollar",
+  "4:170": "token_dollar",
+  "4:171": "token_dollar",
+  "4:172": "token_dollar",
+  "4:173": "token_dollar",
+  "4:174": "token_dollar",
+  "4:175": "token_purple",
+  "4:176": "token_purple",
+  "4:177": "token_purple",
+  "4:178": "token_purple",
+  "4:179": "token_purple",
+  "4:180": "token_purple",
+  "4:181": "token_purple",
+  "4:182": "token_purple",
+  "4:183": "token_green_x",
+  "4:184": "token_green_x",
+  "4:185": "token_green_x",
+  "4:186": "token_green_x",
+  "4:187": "token_green_x",
+  "4:188": "token_green_x",
+  "4:189": "token_green_x",
+  "4:190": "token_green_x",
+  "4:191": "token_red_x",
+  "4:192": "token_red_x",
+  "4:193": "token_red_x",
+  "4:194": "token_red_x",
+  "4:195": "token_red_x",
+  "4:196": "token_red_x",
+  "4:197": "token_red_x",
+  "4:198": "token_red_x",
+  "4:199": "token_cyan",
+  "4:200": "token_cyan",
+  "4:201": "token_cyan",
+  "4:202": "token_cyan",
+  "4:203": "token_cyan",
+  "4:204": "token_cyan",
+  "4:205": "token_cyan",
+  "4:206": "token_cyan",
+  "4:207": "token_hand",
+  "4:208": "token_hand",
+  "4:209": "token_hand",
+  "4:210": "token_hand",
+  "4:211": "token_hand",
+  "4:212": "token_hand",
+  "4:213": "token_hand",
+  "4:214": "token_hand",
+  "4:215": "token_yellow",
+  "4:216": "token_yellow",
+  "4:217": "token_yellow",
+  "4:218": "token_yellow",
+  "4:219": "token_yellow",
+  "4:220": "token_yellow",
+  "4:221": "token_yellow",
+  "4:222": "token_yellow",
+  "4:223": "token_navy",
+  "4:224": "token_navy",
+  "4:225": "token_navy",
+  "4:226": "token_navy",
+  "4:227": "token_navy",
+  "4:228": "token_navy",
+  "4:229": "token_navy",
+  "4:230": "token_navy",
+  "4:231": "token_bronze",
+  "4:232": "token_bronze",
+  "4:233": "token_bronze",
+  "4:234": "token_bronze",
+  "4:235": "token_bronze",
+  "4:236": "token_bronze",
+  "4:237": "token_bronze",
+  "4:238": "token_bronze",
+  "4:239": "token_gold",
+  "4:240": "token_gold",
+  "4:241": "token_gold",
+  "4:242": "token_gold",
+  "4:243": "token_gold",
+  "4:244": "token_gold",
+  "4:245": "token_gold",
+  "4:246": "token_gold",
+  "4:286": "token_skull",
+  "4:287": "token_skull",
+  "4:288": "token_skull",
+  "4:289": "token_skull",
+  "4:290": "token_skull",
+  "4:291": "token_skull",
+  "4:292": "token_skull",
+  "4:293": "token_skull",
+  "4:510": "code_phone",
+  "4:511": "code_phone",
+  "4:512": "code_phone",
+  "4:549": "light_red",
+  "4:550": "light_green",
+  "4:551": "light_amber",
+  "4:0": "code_helicopter"
  },
  "objects_yaw": {},
+ "objects_anim": {
+  "4:18": "spin",
+  "4:19": "spin",
+  "4:20": "spin",
+  "4:21": "spin",
+  "4:22": "spin",
+  "4:23": "spin",
+  "4:24": "spin",
+  "4:25": "spin",
+  "4:26": "spin",
+  "4:27": "spin",
+  "4:28": "spin",
+  "4:29": "spin",
+  "4:30": "spin",
+  "4:31": "spin",
+  "4:32": "spin",
+  "4:33": "spin",
+  "4:34": "spin",
+  "4:35": "spin",
+  "4:36": "spin",
+  "4:37": "spin",
+  "4:38": "spin",
+  "4:39": "spin",
+  "4:40": "spin",
+  "4:41": "spin",
+  "4:42": "spin",
+  "4:43": "spin",
+  "4:44": "spin",
+  "4:45": "spin",
+  "4:46": "spin",
+  "4:47": "spin",
+  "4:48": "spin",
+  "4:49": "spin",
+  "4:66": "spin",
+  "4:67": "spin",
+  "4:68": "spin",
+  "4:69": "spin",
+  "4:70": "spin",
+  "4:71": "spin",
+  "4:72": "spin",
+  "4:73": "spin",
+  "4:82": "spin",
+  "4:83": "spin",
+  "4:84": "spin",
+  "4:85": "spin",
+  "4:86": "spin",
+  "4:87": "spin",
+  "4:88": "spin",
+  "4:89": "spin",
+  "4:90": "spin",
+  "4:91": "spin",
+  "4:92": "spin",
+  "4:93": "spin",
+  "4:94": "spin",
+  "4:95": "spin",
+  "4:96": "spin",
+  "4:97": "spin",
+  "4:151": "spin",
+  "4:152": "spin",
+  "4:153": "spin",
+  "4:154": "spin",
+  "4:155": "spin",
+  "4:156": "spin",
+  "4:157": "spin",
+  "4:158": "spin",
+  "4:159": "spin",
+  "4:160": "spin",
+  "4:161": "spin",
+  "4:162": "spin",
+  "4:163": "spin",
+  "4:164": "spin",
+  "4:165": "spin",
+  "4:166": "spin",
+  "4:167": "spin",
+  "4:168": "spin",
+  "4:169": "spin",
+  "4:170": "spin",
+  "4:171": "spin",
+  "4:172": "spin",
+  "4:173": "spin",
+  "4:174": "spin",
+  "4:175": "spin",
+  "4:176": "spin",
+  "4:177": "spin",
+  "4:178": "spin",
+  "4:179": "spin",
+  "4:180": "spin",
+  "4:181": "spin",
+  "4:182": "spin",
+  "4:183": "spin",
+  "4:184": "spin",
+  "4:185": "spin",
+  "4:186": "spin",
+  "4:187": "spin",
+  "4:188": "spin",
+  "4:189": "spin",
+  "4:190": "spin",
+  "4:191": "spin",
+  "4:192": "spin",
+  "4:193": "spin",
+  "4:194": "spin",
+  "4:195": "spin",
+  "4:196": "spin",
+  "4:197": "spin",
+  "4:198": "spin",
+  "4:199": "spin",
+  "4:200": "spin",
+  "4:201": "spin",
+  "4:202": "spin",
+  "4:203": "spin",
+  "4:204": "spin",
+  "4:205": "spin",
+  "4:206": "spin",
+  "4:207": "spin",
+  "4:208": "spin",
+  "4:209": "spin",
+  "4:210": "spin",
+  "4:211": "spin",
+  "4:212": "spin",
+  "4:213": "spin",
+  "4:214": "spin",
+  "4:215": "spin",
+  "4:216": "spin",
+  "4:217": "spin",
+  "4:218": "spin",
+  "4:219": "spin",
+  "4:220": "spin",
+  "4:221": "spin",
+  "4:222": "spin",
+  "4:223": "spin",
+  "4:224": "spin",
+  "4:225": "spin",
+  "4:226": "spin",
+  "4:227": "spin",
+  "4:228": "spin",
+  "4:229": "spin",
+  "4:230": "spin",
+  "4:231": "spin",
+  "4:232": "spin",
+  "4:233": "spin",
+  "4:234": "spin",
+  "4:235": "spin",
+  "4:236": "spin",
+  "4:237": "spin",
+  "4:238": "spin",
+  "4:239": "spin",
+  "4:240": "spin",
+  "4:241": "spin",
+  "4:242": "spin",
+  "4:243": "spin",
+  "4:244": "spin",
+  "4:245": "spin",
+  "4:246": "spin",
+  "4:286": "spin",
+  "4:287": "spin",
+  "4:288": "spin",
+  "4:289": "spin",
+  "4:290": "spin",
+  "4:291": "spin",
+  "4:292": "spin",
+  "4:293": "spin",
+  "4:0": "rotor"
+ },
+ "ped_types": [
+  {
+   "name": "police",
+   "remaps": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "models": [
+    "human_police_male_01",
+    "human_police_male_02",
+    "human_police_male_03",
+    "human_police_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "army",
+   "remaps": [
+    4
+   ],
+   "models": [
+    "human_military_male_01",
+    "human_military_male_02",
+    "human_military_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "redneck",
+   "remaps": [
+    5,
+    6
+   ],
+   "models": [
+    "human_construction_male_01",
+    "human_construction_male_02"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "scientist",
+   "remaps": [
+    7
+   ],
+   "models": [
+    "human_medical_male_01",
+    "human_medical_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "zaibatsu",
+   "remaps": [
+    8
+   ],
+   "models": [
+    "human_business_male_01",
+    "human_business_male_02",
+    "human_business_male_03",
+    "human_business_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "krishna",
+   "remaps": [
+    9
+   ],
+   "models": [
+    "human_male_adult_02",
+    "human_female_adult_06",
+    "human_male_adult_11"
+   ],
+   "tint": 1
+  },
+  {
+   "name": "russian",
+   "remaps": [
+    10
+   ],
+   "models": [
+    "human_security_male_01",
+    "human_male_adult_02",
+    "human_male_adult_05"
+   ],
+   "tint": 1
+  },
+  {
+   "name": "loony",
+   "remaps": [
+    11
+   ],
+   "models": [
+    "human_male_adult_08",
+    "human_male_adult_11",
+    "human_female_adult_02"
+   ],
+   "tint": 1
+  },
+  {
+   "name": "elvis",
+   "remaps": [
+    12
+   ],
+   "models": [
+    "human_male_adult_16"
+   ],
+   "tint": 1
+  },
+  {
+   "name": "yakuza",
+   "remaps": [
+    13
+   ],
+   "models": [
+    "human_business_male_02",
+    "human_business_male_03",
+    "human_security_male_01"
+   ],
+   "tint": 1
+  },
+  {
+   "name": "fireman",
+   "remaps": [
+    14
+   ],
+   "models": [
+    "human_fire_male_01",
+    "human_fire_male_02",
+    "human_fire_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "medic",
+   "remaps": [
+    16
+   ],
+   "models": [
+    "human_medical_male_02",
+    "human_medical_female_02"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "mugger",
+   "remaps": [
+    17
+   ],
+   "models": [
+    "human_male_adult_05",
+    "human_male_adult_02"
+   ],
+   "tint": 1
+  },
+  {
+   "name": "prisoner",
+   "remaps": [
+    22
+   ],
+   "models": [
+    "human_male_adult_11",
+    "human_male_adult_05"
+   ],
+   "tint": 1
+  },
+  {
+   "name": "civilian_15",
+   "remaps": [
+    15
+   ],
+   "models": [
+    "human_female_05",
+    "human_male_13",
+    "human_male_adult_11",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_18",
+   "remaps": [
+    18
+   ],
+   "models": [
+    "human_female_05",
+    "human_female_01",
+    "human_male_adult_16",
+    "human_male_adult_11"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_19",
+   "remaps": [
+    19
+   ],
+   "models": [
+    "human_male_adult_08",
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_16"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_20",
+   "remaps": [
+    20
+   ],
+   "models": [
+    "human_male_01",
+    "human_female_adult_02",
+    "human_male_adult_08",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_21",
+   "remaps": [
+    21
+   ],
+   "models": [
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_08",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_23",
+   "remaps": [
+    23
+   ],
+   "models": [
+    "human_male_13",
+    "human_male_adult_11",
+    "human_female_05",
+    "human_female_adult_13"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_24",
+   "remaps": [
+    24
+   ],
+   "models": [
+    "human_male_13",
+    "human_male_adult_11",
+    "human_male_04",
+    "human_female_05"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_26",
+   "remaps": [
+    26
+   ],
+   "models": [
+    "human_male_01",
+    "human_female_adult_02",
+    "human_male_adult_08",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_27",
+   "remaps": [
+    27
+   ],
+   "models": [
+    "human_male_adult_16",
+    "human_female_05",
+    "human_female_08",
+    "human_male_adult_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_28",
+   "remaps": [
+    28
+   ],
+   "models": [
+    "human_male_01",
+    "human_female_adult_02",
+    "human_male_adult_08",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_29",
+   "remaps": [
+    29
+   ],
+   "models": [
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_08",
+    "human_male_adult_16"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_30",
+   "remaps": [
+    30
+   ],
+   "models": [
+    "human_female_08",
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_31",
+   "remaps": [
+    31
+   ],
+   "models": [
+    "human_female_08",
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_32",
+   "remaps": [
+    32
+   ],
+   "models": [
+    "human_male_adult_16",
+    "human_female_05",
+    "human_female_08",
+    "human_male_13"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_33",
+   "remaps": [
+    33
+   ],
+   "models": [
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_08",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_34",
+   "remaps": [
+    34
+   ],
+   "models": [
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_08",
+    "human_male_adult_16"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_35",
+   "remaps": [
+    35
+   ],
+   "models": [
+    "human_male_10",
+    "human_female_03",
+    "human_male_adult_05",
+    "human_male_04"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_36",
+   "remaps": [
+    36
+   ],
+   "models": [
+    "human_male_07",
+    "human_male_04",
+    "human_female_adult_13",
+    "human_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_37",
+   "remaps": [
+    37
+   ],
+   "models": [
+    "human_male_13",
+    "human_male_10",
+    "human_female_08",
+    "human_male_04"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_38",
+   "remaps": [
+    38
+   ],
+   "models": [
+    "human_male_13",
+    "human_male_10",
+    "human_female_08",
+    "human_male_04"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_39",
+   "remaps": [
+    39
+   ],
+   "models": [
+    "human_female_03",
+    "human_female_adult_13",
+    "human_male_adult_11",
+    "human_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_40",
+   "remaps": [
+    40
+   ],
+   "models": [
+    "human_female_03",
+    "human_female_adult_13",
+    "human_male_adult_11",
+    "human_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_41",
+   "remaps": [
+    41
+   ],
+   "models": [
+    "human_male_10",
+    "human_female_03",
+    "human_male_adult_05",
+    "human_male_04"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_42",
+   "remaps": [
+    42
+   ],
+   "models": [
+    "human_male_10",
+    "human_female_03",
+    "human_male_adult_05",
+    "human_male_04"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_43",
+   "remaps": [
+    43
+   ],
+   "models": [
+    "human_female_08",
+    "human_female_03",
+    "human_male_13",
+    "human_male_10"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_44",
+   "remaps": [
+    44
+   ],
+   "models": [
+    "human_male_adult_08",
+    "human_female_adult_02",
+    "human_male_adult_16",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_45",
+   "remaps": [
+    45
+   ],
+   "models": [
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_08",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_46",
+   "remaps": [
+    46
+   ],
+   "models": [
+    "human_male_07",
+    "human_male_04",
+    "human_female_adult_13",
+    "human_female_01"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_47",
+   "remaps": [
+    47
+   ],
+   "models": [
+    "human_male_01",
+    "human_female_adult_02",
+    "human_male_adult_08",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_48",
+   "remaps": [
+    48
+   ],
+   "models": [
+    "human_male_adult_08",
+    "human_female_adult_02",
+    "human_male_adult_16",
+    "human_female_08"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_49",
+   "remaps": [
+    49
+   ],
+   "models": [
+    "human_female_adult_02",
+    "human_male_01",
+    "human_male_adult_08",
+    "human_male_adult_16"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_50",
+   "remaps": [
+    50
+   ],
+   "models": [
+    "human_male_adult_16",
+    "human_female_08",
+    "human_female_05",
+    "human_female_03"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_51",
+   "remaps": [
+    51
+   ],
+   "models": [
+    "human_female_08",
+    "human_male_adult_16",
+    "human_female_05",
+    "human_male_13"
+   ],
+   "tint": 0
+  },
+  {
+   "name": "civilian_52",
+   "remaps": [
+    52
+   ],
+   "models": [
+    "human_male_01",
+    "human_female_adult_02",
+    "human_male_adult_08",
+    "human_female_08"
+   ],
+   "tint": 0
+  }
+ ],
+ "ped_remap_colours": [
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   205,
+   110,
+   30
+  ],
+  [
+   135,
+   25,
+   25
+  ],
+  [
+   45,
+   135,
+   60
+  ],
+  [
+   205,
+   185,
+   225
+  ],
+  [
+   35,
+   55,
+   135
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   171,
+   10,
+   10
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   45,
+   80,
+   60
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ],
+  [
+   0,
+   0,
+   0
+  ]
+ ],
  "imported": [
   {
    "name": "character",
@@ -1382,7 +3704,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "street_lamp",
@@ -1396,7 +3719,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "fire_hydrant",
@@ -1410,7 +3734,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "trash_can",
@@ -1424,7 +3749,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "bench",
@@ -1437,204 +3763,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
-  },
-  {
-   "name": "human_male_01",
-   "nodes": 86,
-   "meshes": 3,
-   "vertices": 4697,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_male_01_m002_body.tga",
-    "human_male_01_m002_head.tga",
-    "human_male_01_m002_opacity.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
-  },
-  {
-   "name": "human_male_04",
-   "nodes": 86,
-   "meshes": 3,
-   "vertices": 5448,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_male_04_m006_body.tga",
-    "human_male_04_m006_head.tga",
-    "human_male_04_m006_opacity.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
-  },
-  {
-   "name": "human_male_07",
-   "nodes": 86,
-   "meshes": 3,
-   "vertices": 4645,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_male_07_m013_body.tga",
-    "human_male_07_m013_head.tga",
-    "human_male_07_m013_opacity.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
-  },
-  {
-   "name": "human_male_10",
-   "nodes": 86,
-   "meshes": 3,
-   "vertices": 4115,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_male_10_m024_body.tga",
-    "human_male_10_m024_head.tga",
-    "human_male_10_m024_opacity.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
-  },
-  {
-   "name": "human_male_13",
-   "nodes": 85,
-   "meshes": 2,
-   "vertices": 3949,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_male_13_m010_body.tga",
-    "human_male_13_m010_head.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
-  },
-  {
-   "name": "human_female_01",
-   "nodes": 86,
-   "meshes": 3,
-   "vertices": 5438,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_female_01_f001_body.tga",
-    "human_female_01_f001_head.tga",
-    "human_female_01_f001_opacity.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
-  },
-  {
-   "name": "human_female_03",
-   "nodes": 86,
-   "meshes": 3,
-   "vertices": 6123,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_female_03_f003_body.tga",
-    "human_female_03_f003_head.tga",
-    "human_female_03_f003_opacity.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
-  },
-  {
-   "name": "human_female_05",
-   "nodes": 86,
-   "meshes": 3,
-   "vertices": 5571,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_female_05_f005_body.tga",
-    "human_female_05_f005_head.tga",
-    "human_female_05_f005_opacity.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
-  },
-  {
-   "name": "human_female_08",
-   "nodes": 86,
-   "meshes": 3,
-   "vertices": 5284,
-   "animations": [
-    "walk",
-    "idle",
-    "run",
-    "idle2",
-    "idle3"
-   ],
-   "textures": [
-    "human_female_08_f008_body.tga",
-    "human_female_08_f008_head.tga",
-    "human_female_08_f008_opacity.tga"
-   ],
-   "skins": 1,
-   "forward": "+z",
-   "stride": 0.7816,
-   "run_stride": 1.0165
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_bench",
@@ -1647,7 +3777,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_tyre",
@@ -1660,7 +3791,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_girder",
@@ -1674,7 +3806,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_planter",
@@ -1689,7 +3822,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_cone",
@@ -1703,7 +3837,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_cone_lying",
@@ -1717,7 +3852,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_crate",
@@ -1731,7 +3867,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_football",
@@ -1744,7 +3881,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_box",
@@ -1758,7 +3896,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_extinguisher",
@@ -1772,7 +3911,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_drum",
@@ -1785,7 +3925,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_drum_lying",
@@ -1798,7 +3939,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_sandbag",
@@ -1811,7 +3953,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_barrier",
@@ -1825,7 +3968,8 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "obj_crate_yellow",
@@ -1839,7 +3983,53 @@
    ],
    "skins": 0,
    "forward": "+z",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "tree_01",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 94,
+   "animations": [],
+   "textures": [
+    "tree_01_0.tga",
+    "tree_01_1.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "tree_02",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 94,
+   "animations": [],
+   "textures": [
+    "tree_02_0.tga",
+    "tree_02_1.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "tree_03",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 94,
+   "animations": [],
+   "textures": [
+    "tree_03_0.tga",
+    "tree_03_1.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "000_romero",
@@ -1853,7 +4043,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "001_wellard",
@@ -1867,7 +4058,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "002_aniston_bd4",
@@ -1881,7 +4073,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "003_pacifier",
@@ -1895,7 +4088,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "004_g4_bank_van",
@@ -1909,7 +4103,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "005_beamer",
@@ -1923,7 +4118,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "006_box_car",
@@ -1946,7 +4142,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "007_box_truck",
@@ -1960,7 +4157,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "008_bug",
@@ -1974,7 +4172,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "010_bulwark",
@@ -1988,7 +4187,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "011_bus",
@@ -2002,7 +4202,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "012_cop_car",
@@ -2016,7 +4217,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "013_minx",
@@ -2030,7 +4232,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "014_eddy",
@@ -2044,7 +4247,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "084_special_agent_car",
@@ -2069,7 +4273,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "016_panto",
@@ -2083,7 +4288,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "017_fire_truck",
@@ -2097,7 +4303,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "018_shark",
@@ -2111,7 +4318,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "019_gt_a1",
@@ -2125,7 +4333,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "021_garbage_truck",
@@ -2139,7 +4348,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "022_armed_land_roamer",
@@ -2153,7 +4363,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "023_hot_dog_van",
@@ -2167,7 +4378,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "024_hot_dog_dummy_1",
@@ -2191,7 +4403,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "025_hot_dog_dummy_2",
@@ -2215,7 +4428,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "026_hot_dog_dummy_3",
@@ -2239,7 +4453,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "085_hot_dog_dummy_4",
@@ -2263,7 +4478,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "027_ice_cream_van",
@@ -2277,7 +4493,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "028_dementia_limousine",
@@ -2291,7 +4508,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "029_dementia",
@@ -2305,7 +4523,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "030_land_roamer",
@@ -2319,7 +4538,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "031_jefferson",
@@ -2333,7 +4553,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "086_karma_bus",
@@ -2347,7 +4568,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "032_stretch_limousine",
@@ -2361,7 +4583,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "033_sports_limousine",
@@ -2375,7 +4598,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "034_medicar",
@@ -2389,7 +4613,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "035_benson",
@@ -2403,7 +4628,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "036_schmidt",
@@ -2417,7 +4643,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "037_miara",
@@ -2431,7 +4658,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "038_big_bug",
@@ -2445,7 +4673,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "039_morton",
@@ -2459,7 +4688,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "040_maurice",
@@ -2473,7 +4703,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "041_pickup",
@@ -2487,7 +4718,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "042_a_type",
@@ -2501,7 +4733,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "044_arachnid",
@@ -2515,7 +4748,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "045_spritzer",
@@ -2529,7 +4763,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "046_stinger",
@@ -2543,7 +4778,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "047_meteor",
@@ -2557,7 +4793,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "048_meteor",
@@ -2571,7 +4808,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "049_hachura",
@@ -2585,7 +4823,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "050_b_type",
@@ -2599,7 +4838,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "051_taxi_xpress",
@@ -2613,7 +4853,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "052_swat_van",
@@ -2627,7 +4868,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "053_michelli_roadster",
@@ -2641,7 +4883,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "054_tank",
@@ -2655,7 +4898,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "055_tanker",
@@ -2678,7 +4922,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "056_taxi",
@@ -2692,7 +4937,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "057_t_rex",
@@ -2706,7 +4952,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "058_tow_truck",
@@ -2720,7 +4967,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "059_train",
@@ -2743,7 +4991,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "060_train_cab",
@@ -2766,7 +5015,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "061_train_fb",
@@ -2789,7 +5039,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "062_trance_am",
@@ -2803,7 +5054,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "063_truck_cab",
@@ -2817,7 +5069,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "064_truck_cab_sx",
@@ -2831,7 +5084,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "065_container",
@@ -2852,7 +5106,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "066_transporter",
@@ -2873,7 +5128,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "067_tv_van",
@@ -2887,7 +5143,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "068_van",
@@ -2910,7 +5167,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "069_u_jerk_truck",
@@ -2924,7 +5182,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "070_z_type",
@@ -2938,7 +5197,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "071_rumbler",
@@ -2952,7 +5212,198 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "072_wreck_0",
+   "nodes": 7,
+   "meshes": 6,
+   "vertices": 4638,
+   "animations": [],
+   "textures": [
+    "072_wreck_0_0_paint.tga",
+    "072_wreck_0_1_paint.tga",
+    "072_wreck_0_2_paint.tga",
+    "072_wreck_0_3_paint.tga",
+    "072_wreck_0_4.tga",
+    "072_wreck_0_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "073_wreck_1",
+   "nodes": 9,
+   "meshes": 6,
+   "vertices": 5070,
+   "animations": [],
+   "textures": [
+    "073_wreck_1_0_paint.tga",
+    "073_wreck_1_1_paint.tga",
+    "073_wreck_1_2_paint.tga",
+    "073_wreck_1_3_paint.tga",
+    "073_wreck_1_4.tga",
+    "073_wreck_1_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "074_wreck_2",
+   "nodes": 10,
+   "meshes": 6,
+   "vertices": 5286,
+   "animations": [],
+   "textures": [
+    "074_wreck_2_0_paint.tga",
+    "074_wreck_2_1_paint.tga",
+    "074_wreck_2_2_paint.tga",
+    "074_wreck_2_3_paint.tga",
+    "074_wreck_2_4.tga",
+    "074_wreck_2_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "075_wreck_3",
+   "nodes": 9,
+   "meshes": 6,
+   "vertices": 5070,
+   "animations": [],
+   "textures": [
+    "075_wreck_3_0_paint.tga",
+    "075_wreck_3_1_paint.tga",
+    "075_wreck_3_2_paint.tga",
+    "075_wreck_3_3_paint.tga",
+    "075_wreck_3_4.tga",
+    "075_wreck_3_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "076_wreck_4",
+   "nodes": 9,
+   "meshes": 6,
+   "vertices": 5070,
+   "animations": [],
+   "textures": [
+    "076_wreck_4_0_paint.tga",
+    "076_wreck_4_1_paint.tga",
+    "076_wreck_4_2_paint.tga",
+    "076_wreck_4_3_paint.tga",
+    "076_wreck_4_4.tga",
+    "076_wreck_4_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "077_wreck_5",
+   "nodes": 9,
+   "meshes": 6,
+   "vertices": 5070,
+   "animations": [],
+   "textures": [
+    "077_wreck_5_0_paint.tga",
+    "077_wreck_5_1_paint.tga",
+    "077_wreck_5_2_paint.tga",
+    "077_wreck_5_3_paint.tga",
+    "077_wreck_5_4.tga",
+    "077_wreck_5_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "078_wreck_6",
+   "nodes": 9,
+   "meshes": 6,
+   "vertices": 5070,
+   "animations": [],
+   "textures": [
+    "078_wreck_6_0_paint.tga",
+    "078_wreck_6_1_paint.tga",
+    "078_wreck_6_2_paint.tga",
+    "078_wreck_6_3_paint.tga",
+    "078_wreck_6_4.tga",
+    "078_wreck_6_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "079_wreck_7",
+   "nodes": 8,
+   "meshes": 6,
+   "vertices": 4854,
+   "animations": [],
+   "textures": [
+    "079_wreck_7_0_paint.tga",
+    "079_wreck_7_1_paint.tga",
+    "079_wreck_7_2_paint.tga",
+    "079_wreck_7_3_paint.tga",
+    "079_wreck_7_4.tga",
+    "079_wreck_7_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "080_wreck_8",
+   "nodes": 9,
+   "meshes": 6,
+   "vertices": 5070,
+   "animations": [],
+   "textures": [
+    "080_wreck_8_0_paint.tga",
+    "080_wreck_8_1_paint.tga",
+    "080_wreck_8_2_paint.tga",
+    "080_wreck_8_3_paint.tga",
+    "080_wreck_8_4.tga",
+    "080_wreck_8_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "081_wreck_9",
+   "nodes": 8,
+   "meshes": 6,
+   "vertices": 4854,
+   "animations": [],
+   "textures": [
+    "081_wreck_9_0_paint.tga",
+    "081_wreck_9_1_paint.tga",
+    "081_wreck_9_2_paint.tga",
+    "081_wreck_9_3_paint.tga",
+    "081_wreck_9_4.tga",
+    "081_wreck_9_5.tga"
+   ],
+   "skins": 0,
+   "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "082_jagular_xk",
@@ -2966,7 +5417,8 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
   },
   {
    "name": "083_furore_gt",
@@ -2980,7 +5432,1646 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_pistol",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 368,
+   "animations": [],
+   "textures": [
+    "pickup_pistol_0.tga",
+    "pickup_pistol_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_dual_pistol",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 572,
+   "animations": [],
+   "textures": [
+    "pickup_dual_pistol_0.tga",
+    "pickup_dual_pistol_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_machine_gun",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 960,
+   "animations": [],
+   "textures": [
+    "pickup_machine_gun_0.tga",
+    "pickup_machine_gun_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_rocket_launcher",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 652,
+   "animations": [],
+   "textures": [
+    "pickup_rocket_launcher_0.tga",
+    "pickup_rocket_launcher_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_shotgun",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 696,
+   "animations": [],
+   "textures": [
+    "pickup_shotgun_0.tga",
+    "pickup_shotgun_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_flamethrower",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 492,
+   "animations": [],
+   "textures": [
+    "pickup_flamethrower_0.tga",
+    "pickup_flamethrower_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_electro_gun",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 648,
+   "animations": [],
+   "textures": [
+    "pickup_electro_gun_0.tga",
+    "pickup_electro_gun_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_blue",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_blue_0.tga",
+    "token_blue_1.tga",
+    "token_blue_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_orange",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_orange_0.tga",
+    "token_orange_1.tga",
+    "token_orange_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_dollar",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_dollar_0.tga",
+    "token_dollar_1.tga",
+    "token_dollar_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_purple",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_purple_0.tga",
+    "token_purple_1.tga",
+    "token_purple_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_green_x",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_green_x_0.tga",
+    "token_green_x_1.tga",
+    "token_green_x_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_red_x",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_red_x_0.tga",
+    "token_red_x_1.tga",
+    "token_red_x_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_cyan",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_cyan_0.tga",
+    "token_cyan_1.tga",
+    "token_cyan_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_hand",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_hand_0.tga",
+    "token_hand_1.tga",
+    "token_hand_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_yellow",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_yellow_0.tga",
+    "token_yellow_1.tga",
+    "token_yellow_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_navy",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_navy_0.tga",
+    "token_navy_1.tga",
+    "token_navy_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_bronze",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_bronze_0.tga",
+    "token_bronze_1.tga",
+    "token_bronze_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_gold",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_gold_0.tga",
+    "token_gold_1.tga",
+    "token_gold_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_skull",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 404,
+   "animations": [],
+   "textures": [
+    "token_skull_0.tga",
+    "token_skull_1.tga",
+    "token_skull_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 244,
+   "animations": [],
+   "textures": [
+    "code_phone_0.tga",
+    "code_phone_1.tga",
+    "code_phone_2.tga",
+    "code_phone_3.tga",
+    "code_phone_4.tga",
+    "code_phone_5.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "light_red",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "light_red_0.tga",
+    "light_red_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "light_green",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "light_green_0.tga",
+    "light_green_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "light_amber",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "light_amber_0.tga",
+    "light_amber_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_helicopter",
+   "nodes": 8,
+   "meshes": 8,
+   "vertices": 766,
+   "animations": [],
+   "textures": [
+    "code_helicopter_0_paint.tga",
+    "code_helicopter_1.tga",
+    "code_helicopter_2.tga",
+    "code_helicopter_3.tga",
+    "code_helicopter_4.tga",
+    "code_helicopter_5.tga",
+    "code_helicopter_6.tga",
+    "code_helicopter_7.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "human_business_female_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 9671,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_business_female_01_f014_body.tga",
+    "human_business_female_01_f014_body_paint.tga",
+    "human_business_female_01_f014_head.tga",
+    "human_business_female_01_f014_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_business_male_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7343,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_business_male_01_m005_body.tga",
+    "human_business_male_01_m005_body_paint.tga",
+    "human_business_male_01_m005_head.tga",
+    "human_business_male_01_m005_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_business_male_02",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7363,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_business_male_02_m008_body.tga",
+    "human_business_male_02_m008_body_paint.tga",
+    "human_business_male_02_m008_head.tga",
+    "human_business_male_02_m008_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_business_male_03",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7698,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_business_male_03_m020_body.tga",
+    "human_business_male_03_m020_body_paint.tga",
+    "human_business_male_03_m020_head.tga",
+    "human_business_male_03_m020_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_construction_male_01",
+   "nodes": 89,
+   "meshes": 6,
+   "vertices": 9840,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_construction_male_01_m111_body.tga",
+    "human_construction_male_01_m111_body_paint.tga",
+    "human_construction_male_01_m111_head.tga",
+    "human_construction_male_01_m111_helmet.tga",
+    "human_construction_male_01_m111_opacity.tga",
+    "human_construction_male_01_m111_tools.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_construction_male_02",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7759,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_construction_male_02_m101_body.tga",
+    "human_construction_male_02_m101_body_paint.tga",
+    "human_construction_male_02_m101_head.tga",
+    "human_construction_male_02_m101_helmet.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_female_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 8400,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_female_01_f001_body.tga",
+    "human_female_01_f001_body_paint.tga",
+    "human_female_01_f001_head.tga",
+    "human_female_01_f001_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_female_adult_02",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 8773,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_female_adult_02_f002_body.tga",
+    "human_female_adult_02_f002_body_paint.tga",
+    "human_female_adult_02_f002_head.tga",
+    "human_female_adult_02_f002_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_female_03",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 9691,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_female_03_f003_body.tga",
+    "human_female_03_f003_body_paint.tga",
+    "human_female_03_f003_head.tga",
+    "human_female_03_f003_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_female_05",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 8750,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_female_05_f005_body.tga",
+    "human_female_05_f005_body_paint.tga",
+    "human_female_05_f005_head.tga",
+    "human_female_05_f005_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_female_adult_06",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 6669,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_female_adult_06_f202_body.tga",
+    "human_female_adult_06_f202_body_paint.tga",
+    "human_female_adult_06_f202_head.tga",
+    "human_female_adult_06_f202_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_female_08",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 8005,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_female_08_f008_body.tga",
+    "human_female_08_f008_body_paint.tga",
+    "human_female_08_f008_head.tga",
+    "human_female_08_f008_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_female_adult_10",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7154,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_female_adult_10_f201_body.tga",
+    "human_female_adult_10_f201_body_paint.tga",
+    "human_female_adult_10_f201_head.tga",
+    "human_female_adult_10_f201_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_female_adult_13",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 8790,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_female_adult_13_f019_body.tga",
+    "human_female_adult_13_f019_body_paint.tga",
+    "human_female_adult_13_f019_head.tga",
+    "human_female_adult_13_f019_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_fire_female_01",
+   "nodes": 90,
+   "meshes": 7,
+   "vertices": 14094,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_fire_female_01_m131_body.tga",
+    "human_fire_female_01_m131_body_paint.tga",
+    "human_fire_female_01_m131_flashlight.tga",
+    "human_fire_female_01_m131_head.tga",
+    "human_fire_female_01_m131_helmet.tga",
+    "human_fire_female_01_m131_mask.tga",
+    "human_fire_female_01_m131_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_fire_male_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 8088,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_fire_male_01_m138_body.tga",
+    "human_fire_male_01_m138_body_paint.tga",
+    "human_fire_male_01_m138_head.tga",
+    "human_fire_male_01_m138_helmet.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_fire_male_02",
+   "nodes": 88,
+   "meshes": 5,
+   "vertices": 8183,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_fire_male_02_m132_body.tga",
+    "human_fire_male_02_m132_body_paint.tga",
+    "human_fire_male_02_m132_head.tga",
+    "human_fire_male_02_m132_helmet.tga",
+    "human_fire_male_02_m132_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7299,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_01_m002_body.tga",
+    "human_male_01_m002_body_paint.tga",
+    "human_male_01_m002_head.tga",
+    "human_male_01_m002_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_adult_02",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 6627,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_adult_02_m003_body.tga",
+    "human_male_adult_02_m003_body_paint.tga",
+    "human_male_adult_02_m003_head.tga",
+    "human_male_adult_02_m003_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_04",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 8583,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_04_m006_body.tga",
+    "human_male_04_m006_body_paint.tga",
+    "human_male_04_m006_head.tga",
+    "human_male_04_m006_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_adult_05",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7726,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_adult_05_m009_body.tga",
+    "human_male_adult_05_m009_body_paint.tga",
+    "human_male_adult_05_m009_head.tga",
+    "human_male_adult_05_m009_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_07",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7400,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_07_m013_body.tga",
+    "human_male_07_m013_body_paint.tga",
+    "human_male_07_m013_head.tga",
+    "human_male_07_m013_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_adult_08",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7047,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_adult_08_m014_body.tga",
+    "human_male_adult_08_m014_body_paint.tga",
+    "human_male_adult_08_m014_head.tga",
+    "human_male_adult_08_m014_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_10",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 6317,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_10_m024_body.tga",
+    "human_male_10_m024_body_paint.tga",
+    "human_male_10_m024_head.tga",
+    "human_male_10_m024_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_adult_11",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 6359,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_adult_11_m001_body.tga",
+    "human_male_adult_11_m001_body_paint.tga",
+    "human_male_adult_11_m001_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_13",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 6241,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_13_m010_body.tga",
+    "human_male_13_m010_body_paint.tga",
+    "human_male_13_m010_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_male_adult_16",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 6776,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_male_adult_16_m019_body.tga",
+    "human_male_adult_16_m019_body_paint.tga",
+    "human_male_adult_16_m019_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_medical_female_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 8054,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_medical_female_01_f152_body.tga",
+    "human_medical_female_01_f152_body_paint.tga",
+    "human_medical_female_01_f152_head.tga",
+    "human_medical_female_01_f152_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_medical_female_02",
+   "nodes": 88,
+   "meshes": 5,
+   "vertices": 9013,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_medical_female_02_f153_body.tga",
+    "human_medical_female_02_f153_body_paint.tga",
+    "human_medical_female_02_f153_head.tga",
+    "human_medical_female_02_f153_opacity.tga",
+    "human_medical_female_02_f153_stetoskop.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_medical_male_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 7591,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_medical_male_01_m152_body.tga",
+    "human_medical_male_01_m152_body_paint.tga",
+    "human_medical_male_01_m152_head.tga",
+    "human_medical_male_01_m152_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_medical_male_02",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 4635,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_medical_male_02_1.tga",
+    "human_medical_male_02_m154_head.tga",
+    "human_medical_male_02_m154_opacity.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_military_female_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 9571,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_military_female_01_1.tga",
+    "human_military_female_01_3.tga",
+    "human_military_female_01_5.tga",
+    "human_military_female_01_sf003_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_military_male_01",
+   "nodes": 88,
+   "meshes": 5,
+   "vertices": 12406,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_military_male_01_1.tga",
+    "human_military_male_01_5.tga",
+    "human_military_male_01_7.tga",
+    "human_military_male_01_sm002_combat_knife.tga",
+    "human_military_male_01_sm002_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_military_male_02",
+   "nodes": 85,
+   "meshes": 2,
+   "vertices": 5172,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_military_male_02_1.tga",
+    "human_military_male_02_3.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_police_female_01",
+   "nodes": 92,
+   "meshes": 9,
+   "vertices": 16071,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_police_female_01_m157_body.tga",
+    "human_police_female_01_m157_body_paint.tga",
+    "human_police_female_01_m157_equipment.tga",
+    "human_police_female_01_m157_head.tga",
+    "human_police_female_01_m157_helmet.tga",
+    "human_police_female_01_m157_machinegun.tga",
+    "human_police_female_01_m157_opacity.tga",
+    "human_police_female_01_m157_pistol.tga",
+    "human_police_female_01_m157_shotgun.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_police_male_01",
+   "nodes": 88,
+   "meshes": 5,
+   "vertices": 8370,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_police_male_01_m220_body.tga",
+    "human_police_male_01_m220_body_paint.tga",
+    "human_police_male_01_m220_equipment.tga",
+    "human_police_male_01_m220_head.tga",
+    "human_police_male_01_m220_pistol.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_police_male_02",
+   "nodes": 90,
+   "meshes": 7,
+   "vertices": 12735,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_police_male_02_m158_body.tga",
+    "human_police_male_02_m158_body_paint.tga",
+    "human_police_male_02_m158_equipment.tga",
+    "human_police_male_02_m158_head.tga",
+    "human_police_male_02_m158_helmet.tga",
+    "human_police_male_02_m158_opacity.tga",
+    "human_police_male_02_m158_pistol.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_police_male_03",
+   "nodes": 88,
+   "meshes": 5,
+   "vertices": 12284,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_police_male_03_5.tga",
+    "human_police_male_03_m172_body.tga",
+    "human_police_male_03_m172_body_paint.tga",
+    "human_police_male_03_m172_head.tga",
+    "human_police_male_03_m172_pistol.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_security_male_01",
+   "nodes": 87,
+   "meshes": 4,
+   "vertices": 9245,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_security_male_01_m171_body.tga",
+    "human_security_male_01_m171_body_paint.tga",
+    "human_security_male_01_m171_equipment.tga",
+    "human_security_male_01_m171_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_sports_female_01",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 8256,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_sports_female_01_f021_body.tga",
+    "human_sports_female_01_f021_body_paint.tga",
+    "human_sports_female_01_f021_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
+  },
+  {
+   "name": "human_sports_male_01",
+   "nodes": 86,
+   "meshes": 3,
+   "vertices": 6707,
+   "animations": [
+    "walk",
+    "idle",
+    "run",
+    "idle2",
+    "idle3",
+    "getin",
+    "getout",
+    "punch",
+    "aim",
+    "handsup",
+    "fall",
+    "hit"
+   ],
+   "textures": [
+    "human_sports_male_01_m021_body.tga",
+    "human_sports_male_01_m021_body_paint.tga",
+    "human_sports_male_01_m021_head.tga"
+   ],
+   "skins": 1,
+   "forward": "+z",
+   "stride": 0.7816,
+   "run_stride": 1.0165
   }
  ]
 }

@@ -245,6 +245,47 @@ def import_model(entry, src_dir, out_dir):
             split_tags[tag] = paint_tag
             print(f"  paint_split: {tag}: {n} of {mask.size} texels are paint; texture paint {texture_paint}, reference {entry['paint_rgb']}")
 
+    # A person's clothing ("tint_clothing": the names of the materials whose
+    # textures hold the clothes, typically the Rocketbox body texture): the
+    # texels that are not skin go to a "_paint" copy, the skin stays in the
+    # original, and the renderer tints the paint half with a pedestrian type's
+    # colour (a gang's, a uniform's). The clothing's own mean colour is written
+    # back as paint_rgb, so the tint is the remap colour over it.
+    for mat_name in entry.get("tint_clothing", []):
+        for mi, mat in enumerate(g.get("materials", [])):
+            if mat.get("name") != mat_name or mi not in tex_by_material: continue
+            tag = tex_by_material[mi]
+            if tag.endswith("_paint.tga"): continue
+            src = os.path.join(src_dir, overrides[mat_name]) if mat_name in overrides else os.path.join(out_dir, tag)
+            im = Image.open(src).convert("RGBA")
+            tmax = int(entry.get("texture_max", 1024))
+            if max(im.size) > tmax:
+                f = tmax / max(im.size)
+                im = im.resize((max(1, int(im.size[0] * f)), max(1, int(im.size[1] * f))))
+            import numpy as np
+            a = np.asarray(im).astype(np.float32)
+            r_, g__, b_ = a[..., 0], a[..., 1], a[..., 2]
+            mx = a[..., :3].max(axis=2); mn = a[..., :3].min(axis=2)
+            # Skin: the classic RGB rule (reddish, not grey, not dark), widened a
+            # little for shadowed skin; everything else on the body is clothing.
+            skin = (r_ > 80) & (g__ > 35) & (b_ > 15) & ((mx - mn) > 12) & (np.abs(r_ - g__) > 12) & (r_ > g__) & (r_ > b_) & (r_ - b_ > 25)
+            clothing = ~skin & (a[..., 3] > 0)
+            n = int(clothing.sum())
+            if n < 0.05 * clothing.size:
+                print(f"  tint_clothing: {tag}: only {n} clothing texels, not split")
+                continue
+            l = a[..., :3].mean(axis=2)
+            lit = l[clothing]
+            top = a[..., :3][clothing][lit >= np.median(lit)]
+            entry["paint_rgb"] = [round(float(v), 1) for v in top.mean(axis=0)]
+            paint = a.copy(); paint[..., 3] = np.where(clothing, 255, 0)
+            rest = a.copy(); rest[..., 3] = np.where(clothing, 0, 255)
+            paint_tag = tag[:-4] + "_paint.tga"
+            write_tga(Image.fromarray(paint.astype(np.uint8), "RGBA"), os.path.join(out_dir, paint_tag), tmax)
+            write_tga(Image.fromarray(rest.astype(np.uint8), "RGBA"), os.path.join(out_dir, tag), tmax)
+            split_tags[tag] = paint_tag
+            print(f"  tint_clothing: {tag}: {n} of {clothing.size} texels are clothing; clothing colour {entry['paint_rgb']}")
+
     # Nodes whose names match an exclude pattern (variants such as "_aged",
     # "_rust") are dropped; a node named by "nodes_only" keeps only those.
     exclude = entry.get("nodes_exclude", [])
@@ -354,6 +395,34 @@ def import_model(entry, src_dir, out_dir):
         gg, bb = load_glb(os.path.join(src_dir, extra["glb"]))
         anims += read_anims(gg, bb, by_name, extra.get("strip_root", entry.get("strip_root")), extra.get("name"))
 
+    # Every Biped-skeleton avatar gets the shared action clips (tools/gen_ped_clips.py
+    # output and the Rocketbox crouch clips for the car climb) unless the entry names
+    # its own, so a regenerated manifest keeps them.
+    extra_from = list(entry.get("animations_from", []))
+    extra_json = list(entry.get("animations_json", []))
+    if "Bip01" in by_name and g.get("skins") and not extra_json:
+        have = {a for a, _ in anims}
+        for clip, glb in (("getin", "humans/rocketbox/anim/m_crouch_in.glb"), ("getout", "humans/rocketbox/anim/m_crouch_out.glb")):
+            if clip not in have and os.path.exists(os.path.join(src_dir, glb)):
+                gg, bb = load_glb(os.path.join(src_dir, glb))
+                anims += read_anims(gg, bb, by_name, "Bip01", clip)
+        if os.path.exists(os.path.join(src_dir, "humans/clips/ped_clips.json")):
+            extra_json.append({"file": "humans/clips/ped_clips.json"})
+    # Clips authored as JSON by tools/gen_ped_clips.py: {"clips": [{"name", "channels":
+    # {joint name: {"rotation": {"times", "values"}, "translation": {...}}}]}, matched by joint name.
+    for extra in extra_json:
+        clips = json.load(open(os.path.join(src_dir, extra["file"])))["clips"]
+        for clip in clips:
+            if extra.get("only") and clip["name"] not in extra["only"]: continue
+            channels = []
+            for joint, paths in clip["channels"].items():
+                if joint not in by_name: continue
+                for pname, path in (("translation", 0), ("rotation", 1), ("scale", 2)):
+                    if pname in paths:
+                        channels.append((by_name[joint], path, list(paths[pname]["times"]),
+                                         [tuple(v) for v in paths[pname]["values"]]))
+            anims.append((clip["name"], channels))
+
     scale = float(entry.get("scale", 1.0))
     # Our nodes: the glTF nodes, then one extra child per additional primitive
     # of a node's mesh (the first primitive stays on the node itself).
@@ -424,15 +493,30 @@ if __name__ == "__main__":
     out_dir = sys.argv[2]
     os.makedirs(out_dir, exist_ok=True)
     src_dir = os.path.dirname(os.path.abspath(sys.argv[1]))
+    # --only a,b,c: import just those models and keep the others' report entries
+    # from the existing manifest in out_dir (a partial re-import).
+    only = None
+    if len(sys.argv) > 4 and sys.argv[3] == "--only":
+        only = set(sys.argv[4].split(","))
+    previous = {}
+    if only:
+        try:
+            previous = {e["name"]: e for e in json.load(open(os.path.join(out_dir, "manifest.json"))).get("imported", [])}
+        except (OSError, ValueError):
+            previous = {}
     report = []
     for entry in manifest["models"]:
+        if only and entry["name"] not in only and entry["name"] in previous:
+            report.append(previous[entry["name"]]); continue
         report.append(import_model(entry, src_dir, out_dir))
         print(report[-1])
     # The models list goes out without the import-only lists (the renderer's
     # manifest reader takes every "name" in it for a model file).
-    models_out = [{k: v for k, v in e.items() if k != "animations_from"} for e in manifest["models"]]
+    models_out = [{k: v for k, v in e.items() if k not in ("animations_from", "animations_json")} for e in manifest["models"]]
     json.dump({"models": models_out, "cars": manifest.get("cars", {}), "pedestrian": manifest.get("pedestrian", ""),
                "pedestrians": manifest.get("pedestrians", []),
                "props": manifest.get("props", {}), "objects": manifest.get("objects", {}),
-               "objects_yaw": manifest.get("objects_yaw", {}), "imported": report},
+               "objects_yaw": manifest.get("objects_yaw", {}), "objects_anim": manifest.get("objects_anim", {}),
+               "ped_types": manifest.get("ped_types", []), "ped_remap_colours": manifest.get("ped_remap_colours", []),
+               "imported": report},
               open(os.path.join(out_dir, "manifest.json"), "w"), indent=1)

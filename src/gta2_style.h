@@ -76,6 +76,12 @@ public:
 
     // Every car model the style describes (CARI), in file order.
     const std::vector<CarInfo>& CarInfos() const { return cars_; }
+    // The physical palette the style's PALX gives a pedestrian remap (0-based
+    // among the PALB ped_remap entries), or -1. The game registers each sprite
+    // texture with that physical number, so a ped's remap can be recovered
+    // from the texture it was drawn with.
+    int PedRemapPalette(int remap) const;
+    int PedRemapCount() const { return paletteBases_[3]; }
     // The first model drawn with a car sprite, or null.
     const CarInfo* CarInfoForSprite(int sprite) const {
         for (const CarInfo& c : cars_) if (c.sprite == sprite) return &c;
@@ -133,6 +139,7 @@ private:
     std::vector<uint8_t> palettes_;
     std::vector<uint16_t> paletteIndex_;
     uint16_t tilePalettes_ = 0;
+    uint16_t paletteBases_[8] = {0, 0, 0, 0, 0, 0, 0, 0};   // PALB: tile, sprite, car_remap, ped_remap, ...
 
     // The delta's pixels, as sprite-relative positions and palette indices.
     struct DeltaPixel {

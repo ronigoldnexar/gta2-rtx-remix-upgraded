@@ -46,6 +46,17 @@ std::map<int, std::string> NumberMap(const std::string& text, const char* key) {
 }
 std::string g_pedestrian;
 std::vector<std::string> g_pedestrians;  // the "pedestrians" list, g_pedestrian when there is none
+// Pedestrian types from the manifest: which remaps, which models, tinted or not.
+struct PedType {
+    std::string name;
+    std::vector<int> remaps;
+    std::vector<std::string> models;
+    bool tint = false;
+};
+std::vector<PedType> g_pedTypes;
+int g_pedTypeByRemap[64];                 // index into g_pedTypes, -1 none
+float g_pedRemapColour[64][3];            // the remap's clothing colour (0-255), 0 when unknown
+std::map<int, int> g_pedRemapByPalette;   // physical palette -> remap, from the loaded style
 std::map<std::string, std::string> g_props;
 std::vector<gta2::Vec3> g_mapLamps;
 std::string g_folder;
@@ -450,6 +461,7 @@ void ModelsLoad(const char* folder) {
             continue;
         }
         ComputeBounds(&model);
+        for (const ModelMesh& mesh : model.meshes) if (mesh.texture.find("_paint") != std::string::npos) model.splitPaint = true;
         g_byName[name] = g_models.size();
         g_models.push_back(std::move(model));
         const Model& m = g_models.back();
@@ -507,12 +519,86 @@ void ModelsLoad(const char* folder) {
     for (const std::string& name : Strings(Field(text, "pedestrians")))
         if (g_byName.count(name)) g_pedestrians.push_back(name);
     if (g_pedestrians.empty() && g_byName.count(g_pedestrian)) g_pedestrians.push_back(g_pedestrian);
+    // "ped_types": [{"name": "police", "remaps": [0, 1, 2, 3], "models": ["..."], "tint": 0}, ...]
+    for (int i = 0; i < 64; ++i) { g_pedTypeByRemap[i] = -1; g_pedRemapColour[i][0] = g_pedRemapColour[i][1] = g_pedRemapColour[i][2] = 0.0f; }
+    g_pedTypes.clear();
+    {
+        const size_t key = text.find("\"ped_types\"");
+        size_t at = key == std::string::npos ? std::string::npos : text.find('[', key);
+        while (at != std::string::npos) {
+            const size_t open = text.find('{', at);
+            const size_t closeList = text.find(']', at);
+            if (open == std::string::npos || (closeList != std::string::npos && closeList < open)) break;
+            const size_t close = text.find('}', open);
+            if (close == std::string::npos) break;
+            const std::string entry = text.substr(open, close - open + 1);
+            PedType type;
+            type.name = Field(entry, "name");
+            type.tint = Field(entry, "tint") == "1" || Field(entry, "tint") == "true";
+            for (const std::string& name : Strings(Field(entry, "models")))
+                if (g_byName.count(name)) type.models.push_back(name);
+                else Log("models: ped type '%s' names '%s', which is not loaded", type.name.c_str(), name.c_str());
+            const std::string remaps = Field(entry, "remaps");
+            for (size_t i = 0; i < remaps.size();) {
+                if (remaps[i] < '0' || remaps[i] > '9') { ++i; continue; }
+                const int r = atoi(remaps.c_str() + i);
+                while (i < remaps.size() && remaps[i] >= '0' && remaps[i] <= '9') ++i;
+                if (r >= 0 && r < 64) { type.remaps.push_back(r); if (!type.models.empty()) g_pedTypeByRemap[r] = static_cast<int>(g_pedTypes.size()); }
+            }
+            g_pedTypes.push_back(type);
+            at = close + 1;
+            const size_t next = text.find_first_not_of(" \t\r\n,", at);
+            if (next == std::string::npos || text[next] == ']') break;
+        }
+    }
+    // "ped_remap_colours": [[r, g, b], ...] by remap: the sprite's clothing colour.
+    {
+        const size_t key = text.find("\"ped_remap_colours\"");
+        if (key != std::string::npos) {
+            size_t at = text.find('[', key);
+            int remap = 0;
+            while (at != std::string::npos && remap < 64) {
+                const size_t open = text.find('[', at + 1);
+                if (open == std::string::npos) break;
+                const size_t close = text.find(']', open);
+                if (close == std::string::npos) break;
+                const std::string triple = text.substr(open + 1, close - open - 1);
+                float v[3] = {0, 0, 0};
+                if (sscanf(triple.c_str(), "%f , %f , %f", &v[0], &v[1], &v[2]) == 3 || sscanf(triple.c_str(), "%f,%f,%f", &v[0], &v[1], &v[2]) == 3)
+                    for (int k = 0; k < 3; ++k) g_pedRemapColour[remap][k] = v[k];
+                ++remap;
+                at = close;
+                const size_t next = text.find_first_not_of(" \t\r\n,", at + 1);
+                if (next == std::string::npos || text[next] == ']') break;
+            }
+        }
+    }
+    if (!g_pedTypes.empty()) {
+        int mapped = 0;
+        for (int i = 0; i < 64; ++i) if (g_pedTypeByRemap[i] >= 0) ++mapped;
+        Log("models: %zu pedestrian types cover %d remaps", g_pedTypes.size(), mapped);
+    }
     const size_t props = text.find("\"props\"");
     if (props != std::string::npos) {
         const std::string block = text.substr(props, text.find('}', props) - props + 1);
-        for (const char* role : {"lamp", "hydrant", "bin", "bench", "shrub"}) {
-            const std::string name = Field(block, role);
-            if (!name.empty()) g_props[role] = name;
+        // Every "role": "model" pair in the block, whatever the role is called,
+        // so a new prop (the park trees' tree1..tree3, say) needs no change here.
+        size_t at = block.find('{');
+        while (at != std::string::npos) {
+            const size_t q1 = block.find('"', at + 1);
+            if (q1 == std::string::npos) break;
+            const size_t q2 = block.find('"', q1 + 1);
+            if (q2 == std::string::npos) break;
+            const std::string role = block.substr(q1 + 1, q2 - q1 - 1);
+            const size_t colon = block.find(':', q2);
+            if (colon == std::string::npos) break;
+            const size_t v1 = block.find('"', colon);
+            if (v1 == std::string::npos) break;
+            const size_t v2 = block.find('"', v1 + 1);
+            if (v2 == std::string::npos) break;
+            const std::string name = block.substr(v1 + 1, v2 - v1 - 1);
+            if (!role.empty() && !name.empty()) g_props[role] = name;
+            at = block.find(',', v2);
         }
     }
     Log("models: %zu loaded, %zu car models, pedestrian '%s' (%zu pedestrian models)", g_models.size(),
@@ -569,6 +655,62 @@ const std::vector<gta2::Vec3>& MapLamps() { return g_mapLamps; }
 const Model* ModelForPedestrian() {
     auto it = g_byName.find(g_pedestrian);
     return it == g_byName.end() ? nullptr : &g_models[it->second];
+}
+
+static uint32_t ScrambleSeed(uint32_t seed) {
+    seed ^= seed >> 16;
+    seed *= 0x7feb352dU;
+    seed ^= seed >> 15;
+    seed *= 0x846ca68bU;
+    seed ^= seed >> 16;
+    return seed;
+}
+
+const Model* ModelForPedestrian(uint32_t seed, int remap) {
+    static bool seen[65] = {};
+    const int slot = remap >= 0 && remap < 64 ? remap : 64;
+    if (remap >= 0 && remap < 64 && g_pedTypeByRemap[remap] >= 0) {
+        const PedType& type = g_pedTypes[g_pedTypeByRemap[remap]];
+        if (!type.models.empty()) {
+            const Model* model = &g_models[g_byName[type.models[ScrambleSeed(seed) % type.models.size()]]];
+            if (!seen[slot]) { seen[slot] = true; Log("models: pedestrian remap %d -> type '%s' (first: %s%s)", remap, type.name.c_str(), model->name.c_str(), type.tint ? ", tinted" : ""); }
+            return model;
+        }
+    }
+    if (!seen[slot]) { seen[slot] = true; Log("models: pedestrian remap %d -> no type, plain list", remap); }
+    return ModelForPedestrian(seed);
+}
+
+void PedRemapsSetPalettes(const std::vector<int>& physicalByRemap) {
+    g_pedRemapByPalette.clear();
+    for (size_t r = 0; r < physicalByRemap.size(); ++r)
+        if (physicalByRemap[r] >= 0 && !g_pedRemapByPalette.count(physicalByRemap[r])) g_pedRemapByPalette[physicalByRemap[r]] = static_cast<int>(r);
+    Log("models: %zu pedestrian remap palettes known", g_pedRemapByPalette.size());
+}
+
+int g_pedRemapOverride = -1;
+void PedRemapOverride(int mode) { g_pedRemapOverride = mode; }
+int PedRemapEffective(int remap, uint32_t seed) {
+    if (g_pedRemapOverride >= 0 && g_pedRemapOverride < 64) return g_pedRemapOverride;
+    if (g_pedRemapOverride == -2) {
+        static const int kTyped[] = {0, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 22, 27, 52};
+        return kTyped[ScrambleSeed(seed) % (sizeof(kTyped) / sizeof(kTyped[0]))];
+    }
+    return remap;
+}
+
+int PedRemapForPalette(int physicalPalette) {
+    const auto it = g_pedRemapByPalette.find(physicalPalette);
+    return it == g_pedRemapByPalette.end() ? -1 : it->second;
+}
+
+bool PedRemapTint(int remap, const Model& model, float rgb[3]) {
+    if (remap < 0 || remap >= 64 || g_pedTypeByRemap[remap] < 0) return false;
+    if (!g_pedTypes[g_pedTypeByRemap[remap]].tint) return false;
+    const float* c = g_pedRemapColour[remap];
+    if (c[0] + c[1] + c[2] < 1.0f) return false;
+    for (int k = 0; k < 3; ++k) rgb[k] = (std::max)(0.0f, (std::min)(2.0f, c[k] / (std::max)(8.0f, model.paintRgb[k])));
+    return true;
 }
 
 const Model* ModelForPedestrian(uint32_t seed) {

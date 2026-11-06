@@ -85,6 +85,7 @@ bool Style::Load(const std::string& path, std::string* error) {
             }
         } else if (!strcmp(tag, "PALB") && size >= 2) {
             tilePalettes_ = ReadU16(&data[body]);
+            for (int i = 0; i < 8; ++i) paletteBases_[i] = (static_cast<size_t>(i) * 2 + 2 <= size) ? ReadU16(&data[body + i * 2]) : 0;
         } else if (!strcmp(tag, "SPRG")) {
             spriteGraphics_.assign(data.begin() + body, data.begin() + body + size);
         } else if (!strcmp(tag, "SPRX")) {
@@ -378,6 +379,12 @@ void Style::DecodeTiles(const uint8_t* data, size_t tileOffset, size_t tileSize,
             BleedTransparentEdges(tile.pixels.data(), kTileSize, kTileSize);
         }
     }
+}
+
+int Style::PedRemapPalette(int remap) const {
+    if (remap < 0 || remap >= paletteBases_[3]) return -1;
+    const size_t slot = static_cast<size_t>(paletteBases_[0]) + paletteBases_[1] + paletteBases_[2] + static_cast<size_t>(remap);
+    return slot < paletteIndex_.size() ? paletteIndex_[slot] : -1;
 }
 
 }  // namespace gta2

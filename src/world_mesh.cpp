@@ -244,6 +244,11 @@ public:
         static const int kForward[4] = {0, 1, 2, 3};
         static const int kReverse[4] = {0, 3, 2, 1};
         const int* order = reversed ? kReverse : kForward;
+        // A face can name a tile the style does not have (1023 is the map's
+        // "no face", and Face's bool test only excludes 0); the implicit
+        // floors read neighbours' faces raw, so guard the slot here rather
+        // than corrupt the heap. (Residential crashed on exactly this.)
+        if (slot < 0 || static_cast<size_t>(slot) >= perTile_[0].size()) return;
         std::vector<Vertex>& out = perTile_[0][static_cast<size_t>(slot)];
         for (int i = 0; i < 4; ++i) {
             const int corner = order[i];

@@ -993,6 +993,39 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             desired.y = under + 0.25f;
         }
     }
+    // Nor a few centimetres from a fence. Railings, grilles and signs are flat
+    // panels the camera may look through, so they do not stop it; but a camera
+    // that comes to rest inside a railing's block within a hand of the panel
+    // sees nothing but its texels (the whole frame goes to black bars and
+    // holes). Then it goes on through to the far side, and if that is solid,
+    // stops short of the panel instead.
+    if (q.panelDistance) {
+        constexpr float kClear = 0.35f;
+        float d = 0.0f;
+        if (q.panelDistance(q.context, desired.x, desired.y, desired.z, &d) && d < kClear) {
+            const gta2::Vec3 pivot{px, baseY + 0.6f, pz};
+            gta2::Vec3 dir = desired - pivot;
+            const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+            if (len > 1e-3f) {
+                dir = dir * (1.0f / len);
+                bool placed = false;
+                for (int step = 1; step <= 12 && !placed; ++step) {
+                    const gta2::Vec3 p = desired + dir * (0.1f * step);
+                    if (q.blocked && q.blocked(q.context, p.x, p.y, p.z)) break;
+                    float pd = 0.0f;
+                    if (!q.panelDistance(q.context, p.x, p.y, p.z, &pd) || pd >= kClear) {
+                        desired = p;
+                        placed = true;
+                    }
+                }
+                if (!placed) {
+                    // Back toward him, to a hand's breadth before the panel.
+                    const float back = (std::min)(len - 0.5f, kClear + d);
+                    if (back > 0.0f) desired = desired - dir * back;
+                }
+            }
+        }
+    }
 
     // The camera moves with him first, so that at a steady speed it never
     // trails, and is then eased onto where it wants to be: a swing or a pull-in

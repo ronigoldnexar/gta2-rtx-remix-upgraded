@@ -112,7 +112,7 @@ for sty, name in DISTRICTS:
             b = blocks[bi]; level = offset + i
             for face in b[:5]:
                 t = face & 0x3FF
-                if t == 0: continue
+                if t == 0 or t == 1023: continue   # 1023 = no face
                 use[t] += 1
                 if i <= 4: street[t] += 1
     hd = {int(f[5:9]) for f in os.listdir(os.path.join(REPO, 'assets', 'textures_hd', sty)) if f.endswith('.dds')}
@@ -188,8 +188,8 @@ md.append('**Gap: ped type is ignored.** The game distinguishes police, SWAT, ar
           'ground views. The renderer already knows the sprite palette (`pal N` in its texture keys), so the fix is a '
           'palette-to-type table and per-type avatar sets (uniforms, gang colours) with the remap colour applied to '
           'the clothing material.\n')
-ped_cells = [(sprite_image(st, 'ped', 0, r), f'remap {r}') for r in range(nrem)]
-sheet(os.path.join(OUT, 'audit_ped_types.png'), ped_cells, cols=14, cell=64)
+ped_cells = [(sprite_image(st, 'ped', 0, r).resize((16*6, 18*6), Image.NEAREST), f'remap {r}') for r in range(nrem)]
+sheet(os.path.join(OUT, 'audit_ped_types.png'), ped_cells, cols=14, cell=110)
 for r in range(nrem):
     gaps.append(dict(category='ped_type', id=r, name=f'ped remap palette {r}', sprite=f'out/audit_ped_types.png#{r}',
                      priority='high' if r < 12 else 'medium', method='palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs'))

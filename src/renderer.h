@@ -65,6 +65,9 @@ void SetTileDumpDir(const char* dir);
 // hold one subfolder per style, named by this: the style file's name without
 // its extension. Set before UploadWorld.
 void SetTileStyleName(const char* name);
+// The street views' water surface effect (ripples and a sky tint on the water
+// tiles); on by default, off leaves the water the flat animated tile.
+void SetWaterEffect(bool on);
 // The largest size a high-resolution tile is uploaded at; larger files are
 // box-filtered down to it on load. 800 tiles at 256x256 cost the game's 32-bit
 // process half a gigabyte of textures, which it does not have; 128 is 2x the
@@ -106,6 +109,9 @@ public:
         return tile >= 0 && tile < static_cast<int>(textures_.size()) && textures_[tile] != nullptr;
     }
     void UpdateTileTexture(int tile, const uint32_t* pixels);
+    // The clock the street-level water effect scrolls by (seconds); any
+    // monotonic clock, the sky's is used.
+    void SetWaterClock(double seconds) { waterClock_ = seconds; }
     int TileTextureCount() const { return static_cast<int>(textures_.size()); }
     // Uploads up to perFrame not-yet-drawn tile textures (no visible draw); returns how many remain.
     int WarmTileTextures(int perFrame);
@@ -183,6 +189,15 @@ private:
     // different one of these rather than rewriting the pixels of the one it has,
     // which is what gives each frame its own Remix hash. See UpdateTileTexture.
     std::map<uint64_t, IDirect3DTexture9*> tileFrames_;
+    // Every tile of the style by the same content hash, so a frame the game
+    // uploads for an animated tile can be recognised as "tile N of the style"
+    // and shown with tile N's high-resolution artwork (UpdateTileTexture).
+    std::map<uint64_t, int> tileByContent_;
+    std::string hdDir_;                // the style's HD folder, "" when none
+    std::vector<uint8_t> waterTile_;   // per tile: 1 when it is the water surface
+    IDirect3DTexture9* waterNoise_ = nullptr;   // tileable noise for the water's ripples
+    double waterClock_ = 0.0;
+    IDirect3DTexture9* LoadHdTileTexture(int tile);
     std::vector<TileBatch> batches_;
 
     int width_ = 0;

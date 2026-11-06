@@ -15,6 +15,16 @@
 # Present to the host's own display (-e DISPLAY -v /tmp/.X11-unix), not Xvfb:
 # a hardware Vulkan driver needs a real X server to present to.
 FROM gta2-wine2510
+# The NVIDIA user-mode GL/Vulkan driver installed into the image (the container
+# runtime on some hosts injects only the compute libraries): the version must
+# match the host kernel driver exactly. Change NV_VER for another host.
+ARG NV_VER=580.178.04-0ubuntu0.24.04.1
+ARG NV_POOL=http://archive.ubuntu.com/ubuntu/pool/restricted/n/nvidia-graphics-drivers-580-server
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates libegl1 libgl1 libglx0 libglvnd0 libgbm1 libdrm2 libxcb-dri3-0 libxcb-present0 && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/nv && cd /tmp/nv \
+    && curl -sSL -o common.deb $NV_POOL/libnvidia-common-580-server_${NV_VER}_all.deb \
+    && curl -sSL -o gl64.deb $NV_POOL/libnvidia-gl-580-server_${NV_VER}_amd64.deb \
+    && dpkg -i --force-depends common.deb gl64.deb && rm -rf /tmp/nv
 RUN mkdir -p /usr/share/vulkan/icd.d && printf '%s\n' \
     '{ "file_format_version": "1.0.0", "ICD": { "library_path": "libGLX_nvidia.so.0", "api_version": "1.3.0" } }' \
     > /usr/share/vulkan/icd.d/nvidia_icd.json

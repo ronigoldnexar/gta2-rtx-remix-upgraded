@@ -154,11 +154,17 @@ private:
     // whether a point is inside a solid block. Renderer coordinates.
     bool FloorAt(float x, float z, float ceiling, float* y) const;
     bool Blocked(float x, float y, float z) const;
+    // The distance from a point to the nearest flat panel (fence, railing,
+    // grille) of the block it is in; false when the block has none.
+    bool PanelDistance(float x, float y, float z, float* distance) const;
     static bool FloorThunk(void* context, float x, float z, float ceiling, float* y) {
         return static_cast<const WorldView*>(context)->FloorAt(x, z, ceiling, y);
     }
     static bool BlockedThunk(void* context, float x, float y, float z) {
         return static_cast<const WorldView*>(context)->Blocked(x, y, z);
+    }
+    static bool PanelThunk(void* context, float x, float y, float z, float* distance) {
+        return static_cast<const WorldView*>(context)->PanelDistance(x, y, z, distance);
     }
 
     // Widen GTA2's own view rectangle to the frame's aspect. See the .cpp.

@@ -42,6 +42,7 @@
 #include "world_view.h"
 #include "../../src/sky.h"
 #include "view_modes.h"
+#include "car_bodies.h"
 #include "model_store.h"
 #include "compat.h"
 
@@ -182,6 +183,8 @@ void LoadConfig() {
             static_cast<float>(GetPrivateProfileIntA("camera", "demo_switch_seconds", 0, ini));
         vm.demoSwitchTo = GetPrivateProfileIntA("camera", "demo_switch_to", 2, ini);
         vm.logKeys = GetPrivateProfileIntA("devtools", "log_keys", 0, ini) != 0;
+        gta2dx9::CarBodiesSetWreckTest(GetPrivateProfileIntA("devtools", "wreck_models", 0, ini) != 0);
+        gta2dx9::PedRemapOverride(GetPrivateProfileIntA("devtools", "ped_remap_override", -1, ini));
         {
             char warpKey[32] = {};
             GetPrivateProfileStringA("devtools", "warp_key", "", warpKey, sizeof(warpKey), ini);
@@ -370,6 +373,7 @@ void LoadConfig() {
         PathBesideGame("gta2dx9_textures_hd", dir, sizeof(dir));
         gta2::SetHdTextureDir(dir);
         gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
+        gta2::SetWaterEffect(GetPrivateProfileIntA("renderer", "water_effect", 1, ini) != 0);
         gta2::SetAnisotropy(GetPrivateProfileIntA("renderer", "anisotropy", 0, ini));
         if (GetPrivateProfileIntA("renderer", "dump_tiles", 0, ini) != 0) {
             PathBesideGame("gta2dx9_tiles", dir, sizeof(dir));

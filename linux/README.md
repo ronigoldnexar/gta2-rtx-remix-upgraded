@@ -111,8 +111,8 @@ i386 and amd64; set `NV_VER`/`NV_POOL` for another driver). Wine 9's 32-bit `gta
 game sees is still wined3d's faked "GeForce GTX 470"; the proof is `GL_RENDERER NVIDIA
 B200/PCIe/SSE2` from an EGL test inside the image and `present 0.0 ms` in `gta2dx9.log`.
 
-RTX Remix is a different matter: it needs Vulkan with ray tracing, which these GPUs do not
-expose; see below.
+RTX Remix is a different matter: it needs Vulkan with ray tracing, which the B200s do not
+expose but an L4 (or any RTX card) does; see below.
 
 ## RTX Remix under Wine: what was found, what is blocked, how to run it on a real GPU
 
@@ -139,24 +139,49 @@ them solved:
    code) about a minute and a half after device creation, with ray queries and
    with ray tracing pipelines, with one bounce and no denoiser, on Mesa 25.0,
    25.2 and git main (Nov 2026). This is a limitation of the CPU driver, and the
-   point where this repository stops: **no path-traced frame was produced on
-   this machine**, whose eight B200s expose no Vulkan at all.
+   point where the CPU driver stops. On a ray-tracing GPU this step simply works
+   (next section).
 
 The Remix option set used for the attempts is `linux/docker/rtx.conf.extra`
 (appended to the mod's `rtx.conf`), and `bridge.conf.extra` turns the bridge's
 timeouts off so a slow first frame is not mistaken for a hang.
 
-### On a machine with a ray tracing GPU (untested here)
+### On a machine with a ray tracing GPU: verified on an NVIDIA L4 (6 Nov 2026)
 
-`linux/docker/Dockerfile.remix-gpu` builds on the patched Wine runtime, adds the
-NVIDIA Vulkan ICD and expects the driver's libraries from the container toolkit;
-`linux/docker/run_remix_gpu.sh` runs the game with Remix, presenting to the
-host's own display. Requirements: Linux with Docker and the NVIDIA container
-toolkit, an RTX 20xx or newer with a driver that exposes Vulkan ray tracing
-(535+), or an RDNA2+ AMD card with RADV (`--amd`). Everything that was verified
-on the CPU driver (bridge, surface, device, pipeline building) applies; what a
-real driver changes is only step 3 above. The first run compiles shaders for a
-few minutes.
+With a GPU that exposes Vulkan ray tracing the chain above produces path-traced
+frames. Verified on a GCE host with one NVIDIA L4 (Ada, driver 580.178.04):
+`vulkaninfo` in the container lists `VK_KHR_ray_tracing_pipeline`, `VK_KHR_ray_query`,
+`VK_KHR_acceleration_structure` and `VK_KHR_deferred_host_operations`; the Remix
+server creates its device on the L4, reports Opacity Micromap and Shader Execution
+Reordering support, picks its ray-query modes, compiles its shaders (about three
+minutes the first time) and renders the front end and the game world through the
+bridge in all three views. The NVIDIA B200s of the earlier machine were the one
+GPU family this cannot work on: a device with `VK_KHR_ray_query` cannot be created
+there at all (`vkCreateDevice` returns -7; the ray-query test in
+`out/remix_l4/rayquery_l4_test.txt` returns 0 on the L4).
+
+How to run it (`linux/docker/Dockerfile.remix-gpu`, image `gta2-remix-gpu`):
+
+- The image installs the matching `libnvidia-gl-580-server` package itself,
+  because the container runtime on some hosts injects only the compute
+  libraries; change `NV_VER` to the host's driver version.
+- The Vulkan ICD is `/usr/share/vulkan/icd.d/nvidia_icd.json` (`ICD_JSON` to
+  override). Xvfb must keep its own GLX on Mesa:
+  `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json Xvfb ...`,
+  otherwise the NVIDIA EGL vendor segfaults it. `gamerun/run_game_remix_gpu.sh`
+  does both; `gamerun/remix_l4.sh <name> <seconds> [keys] [-e ...]` is the
+  host-side launcher used here.
+- Remix's welcome dialog takes imgui focus and swallows the game's keys; it is
+  dismissed by keyboard (its own navigation) or pre-dismissed by seeding
+  `AppData/Local/NVIDIA/RTXRemix/user_settings/<hash>.conf` with
+  `neverShowFirstUseGuide = True` (`gamerun/remix_user_settings/`).
+- Single-frame `ffmpeg x11grab` captures of the Remix window come out black;
+  the continuous recording is fine, so stills are cut from `game.mp4`.
+- The game's clock starts at 02:00, so Remix's atmospheric sky is night unless
+  `[timeofday] start_hhmm` is changed (the showcase runs use 1600, paused).
+- No DLSS or frame generation under Wine (NGX is not available), and the Neural
+  Radiance Cache SDK fails to initialise; Remix falls back to its sampled
+  indirect lighting. At 1280x720 the present stage costs about 20-30 ms on the L4.
 
 ## Checking a build without the game
 
