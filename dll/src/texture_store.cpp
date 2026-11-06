@@ -723,6 +723,26 @@ void RebuildDeviceTextures() {
     Log("textures: dropped for a rebuild (effect classification changed)");
 }
 
+bool SpriteImageFor(const void* handle, std::vector<uint32_t>* out, int* width, int* height) {
+    const TextureRecord* record = static_cast<const TextureRecord*>(handle);
+    if (!record || !record->pixels || !record->width || !record->height) return false;
+    const uint32_t* palette = PaletteColours(record->palette);
+    if (!palette) return false;
+    *width = record->width;
+    *height = record->height;
+    out->assign(static_cast<size_t>(record->width) * record->height, 0u);
+    const uint8_t* indices = static_cast<const uint8_t*>(record->pixels);
+    for (int y = 0; y < record->height; ++y) {
+        const uint8_t* row = indices + static_cast<size_t>(y) * kPageStride;
+        uint32_t* dst = out->data() + static_cast<size_t>(y) * record->width;
+        for (int x = 0; x < record->width; ++x) {
+            const uint8_t index = row[x];
+            dst[x] = index ? (palette[index] | 0xFF000000u) : 0u;
+        }
+    }
+    return true;
+}
+
 bool ResolveTileImage(int tileNumber, uint32_t* out) {
     const TextureRecord* record = static_cast<const TextureRecord*>(game::TextureForTile(tileNumber));
     if (!record || !record->pixels) return false;

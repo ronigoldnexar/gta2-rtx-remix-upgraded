@@ -10,6 +10,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <vector>
 #include <d3d9.h>
 
 namespace gta2dx9 {
@@ -148,6 +149,10 @@ IDirect3DTexture9* DeviceTextureFor(IDirect3DDevice9* device, const void* record
 // car itself - its tyres - needs this rather than the quad's edges.
 bool SpriteOpaqueBounds(const void* record, int* x0, int* x1, int* y0, int* y1, int* width,
                         int* height);
+// The artwork as ARGB, decoded on the CPU from the game's own palette indices
+// (no device texture, no readback): what a measurement wants. False when the
+// record has no pixels or its palette is not registered yet.
+bool SpriteImageFor(const void* record, std::vector<uint32_t>* out, int* width, int* height);
 void ForgetDeviceTexture(const void* record);
 void ReleaseDeviceTextures();
 // True once, when the frame table filled up and wants emptying: the caller releases the

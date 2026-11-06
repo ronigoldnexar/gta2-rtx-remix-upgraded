@@ -25,6 +25,16 @@ constexpr size_t kCacheMax = 96;
 
 std::map<int, gta2::CarInfo> g_info;
 int g_built = 0, g_drawn = 0;
+bool g_wreckTest = false;   // [devtools] wreck_models=1: every car drawn as a wreck, to check the models
+// Where the cars stage's time went in the last call: measuring artwork, building
+// bodies, drawing models, drawing sprite-built bodies (ms), and the counts.
+double g_carStats[8] = {};
+LARGE_INTEGER g_carFreq = {};
+double CarNowMs() {
+    if (!g_carFreq.QuadPart) QueryPerformanceFrequency(&g_carFreq);
+    LARGE_INTEGER t; QueryPerformanceCounter(&t);
+    return 1000.0 * static_cast<double>(t.QuadPart) / static_cast<double>(g_carFreq.QuadPart);
+}
 
 struct Rgb { float r, g, b; };
 
@@ -707,7 +717,16 @@ Built* Measured(IDirect3DDevice9* device, const CarBodyUse& use, IDirect3DTextur
     Built& b = g_cache[key];
     b.used = frame;
     int w = 0, h = 0;
-    if (!ReadArt(art, &b.px, &w, &h) || !MeasureSprite(b.px, w, h, use.sprite, &b.measure)) {
+    const double t0 = CarNowMs();
+    // The game's own palette indices decoded on the CPU: a device readback of a
+    // texture the driver has just uploaded stalls the whole pipeline on a GPU
+    // (hundreds of milliseconds at a car's door animation, which is a new
+    // texture every frame); the readback is kept only as the fallback.
+    const bool decoded = SpriteImageFor(use.texture, &b.px, &w, &h) && w >= 4 && h >= 4 && w <= 256 && h <= 256;
+    const bool ok = (decoded || ReadArt(art, &b.px, &w, &h)) && MeasureSprite(b.px, w, h, use.sprite, &b.measure);
+    g_carStats[0] += CarNowMs() - t0;
+    g_carStats[4] += 1;
+    if (!ok) {
         static int logged = 0;
         if (logged++ < 10) Log("car body: sprite %d has no usable artwork (%dx%d)", use.sprite, w, h);
         b.px.clear();
@@ -880,6 +899,7 @@ bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscr
 }
 
 int CarBodiesBuilt() { return g_built; }
+const double* CarBodiesStats() { return g_carStats; }
 int CarBodiesDrawn() { return g_drawn; }
 
 void CarBodiesReleaseDevice() {
@@ -904,6 +924,7 @@ bool Inside(const gta2::Mat4& carToWorld, const gta2::Vec3& p, float halfW, floa
 void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame, const gta2::Vec3& eye) {
     g_built = 0;
     g_drawn = 0;
+    for (double& v : g_carStats) v = 0.0;
     if (cars.empty()) return;
     if (g_device != device) {
         CarBodiesReleaseDevice();
@@ -989,7 +1010,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
 
         // A hand-made model for this vehicle: placed on the sprite's footprint,
         // its painted parts in the car's own colour.
-        if (const Model* model = ModelForVehicle(use.model, use.sprite)) {
+        // A burnt-out car keeps its model number but the game swaps its sprite for
+        // one of the ten wreck sprites (65..74): those are CARI models 72..81.
+        const int modelNumber = (use.sprite >= 65 && use.sprite <= 74) ? 72 + (use.sprite - 65) : g_wreckTest ? 72 + (use.sprite % 10) : use.model;
+        if (const Model* model = ModelForVehicle(modelNumber, use.sprite)) {
             const float modelLen = (std::max)(model->Length(), 0.01f), modelWid = (std::max)(model->Width(), 0.01f);
             const bool sideways = modelWid > modelLen * 1.3f;   // modelled along x rather than z
             const float along = sideways ? modelWid : modelLen, across = sideways ? modelLen : modelWid;
@@ -1017,7 +1041,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
             device->SetRenderState(D3DRS_ALPHAREF, 128u);
             device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
+            const double tm = CarNowMs();
             ModelDraw(device, *model, Mul(fit, carToWorld), nullptr, 0.0f);
+            g_carStats[2] += CarNowMs() - tm;
+            g_carStats[6] += 1;
             device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
             ModelSetPaintTint(nullptr);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
@@ -1029,7 +1056,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // each; a street of new cars is spread over frames.
         if (!b->meshBuilt && builtThisFrame >= 3) continue;
         if (!b->meshBuilt) ++builtThisFrame;
-        if (!BodyMesh(device, use, b)) continue;
+        const double tb = CarNowMs();
+        const bool fresh = !b->meshBuilt;
+        const bool built = BodyMesh(device, use, b);
+        if (fresh) { g_carStats[1] += CarNowMs() - tb; g_carStats[5] += 1; }
+        if (!built) continue;
+        const double td = CarNowMs();
         const bool buffered = Buffers(device, b);
         memcpy(&wm, carToWorld.m, sizeof(wm));
         device->SetTexture(0, b->atlas);
@@ -1075,6 +1107,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             device->SetStreamSource(0, nullptr, 0, 0);
             device->SetIndices(nullptr);
         }
+        g_carStats[3] += CarNowMs() - td;
+        g_carStats[7] += 1;
         ++g_drawn;
     }
     // The texture budget, now and then: the game is a 32-bit process.
@@ -1100,5 +1134,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
     device->SetTexture(0, nullptr);
 }
+
+void CarBodiesSetWreckTest(bool on) { g_wreckTest = on; }
 
 }  // namespace gta2dx9

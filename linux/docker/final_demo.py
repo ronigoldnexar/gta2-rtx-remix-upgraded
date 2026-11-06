@@ -93,12 +93,22 @@ s = D.goto(EAST - 1.5, KERB_Y, tol=0.35, limit=8)
 mark("fp_done")
 
 # ---------------------------------------------------------------- into a car
+# Low cars whose hood frames the road from the driver's seat (catalog classes
+# sedan, coupe, sports, muscle, taxi, police, compact); vans, trucks and buses
+# fill the first-person frame with their cab, so they are let go while there
+# is time to wait for another.
+LOW_CARS = {0, 5, 10, 14, 18, 35, 42, 49, 50, 70, 1, 13, 57, 2, 19, 31, 37, 39, 44, 45, 46, 47, 48, 53, 82, 83,
+            62, 71, 51, 56, 12, 52, 84, 8, 16, 40}
+PICKY_UNTIL = [0.0]   # wall-clock until which only LOW_CARS are taken
+
 def stopped_car(samples=3, gap=0.5, within=2.4):
     """a car that has not moved over the samples, close by; None otherwise"""
     pts = []
     for _ in range(samples):
         s = D.wait_state()
         if not s["car"] or s["cd"] > within: return None
+        if time.time() < PICKY_UNTIL[0] and s.get("cmodel", -1) >= 0 and s["cmodel"] not in LOW_CARS:
+            say(f"letting a model {s['cmodel']} go (not a low car)"); return None
         pts.append((s["cx"], s["cy"])); time.sleep(gap)
     if max(math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]) for p in pts) > 0.3: return None
     return D.wait_state()
@@ -145,7 +155,8 @@ def wake():
     return D.wait_state()
 
 t0 = time.time(); tries = 0
-while time.time() - t0 < 55 and not got:
+PICKY_UNTIL[0] = t0 + 75
+while time.time() - t0 < 110 and not got:
     s = D.wait_state()
     if not alive_and_here(s): continue
     c = stopped_car()

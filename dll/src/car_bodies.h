@@ -62,7 +62,12 @@ void CarBodiesReleaseDevice();
 // width. For the first-person eye at the wheel. False when the car is unknown.
 bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth);
 // Bodies built and drawn in the last call, for the overlay.
+// Developer aid: draw every car as one of the wreck models ([devtools] wreck_models=1).
+void CarBodiesSetWreckTest(bool on);
 int CarBodiesBuilt();
 int CarBodiesDrawn();
+// The last call's time, ms: [0] measuring artwork, [1] building sprite bodies,
+// [2] drawing models, [3] drawing sprite bodies; [4..7] the matching counts.
+const double* CarBodiesStats();
 
 }  // namespace gta2dx9

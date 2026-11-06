@@ -9,6 +9,7 @@ LOG = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.log"
 OUT = "/out"
 LINE = re.compile(r"view: player x=([-\d.]+) y=([-\d.]+) z=([-\d.]+) face=([-\d.]+),([-\d.]+) (on foot|driving) \| car (nearest|none) x=([-\d.]+) y=([-\d.]+) d=([-\d.]+)( \(driven\))? \| parked (nearest|none) x=([-\d.]+) y=([-\d.]+) d=([-\d.]+)")
 
+CARMODEL = re.compile(r"carmodel=(-?\d+)")
 EXTRA = re.compile(r" \| carhead=([-\d.]+),([-\d.]+) parkedhead=([-\d.]+),([-\d.]+) ped state=(-?\d+) sub=(-?\d+) pend=(-?\d+) veh=([0-9A-F]+)")
 
 def xdo(*args): subprocess.run(["xdotool", *args], check=False)
@@ -33,6 +34,8 @@ def state():
                 chx=0.0, chy=0.0, phx=0.0, phy=0.0, state=-1, sub=-1, pend=-1, veh="")
     e = EXTRA.match(tail, m.end())
     if e:
+        cm = CARMODEL.search(tail, e.end(), min(len(tail), e.end() + 400))
+        s["cmodel"] = int(cm.group(1)) if cm else -1
         s.update(chx=float(e.group(1)), chy=float(e.group(2)), phx=float(e.group(3)), phy=float(e.group(4)),
                  state=int(e.group(5)), sub=int(e.group(6)), pend=int(e.group(7)), veh=e.group(8))
     return s

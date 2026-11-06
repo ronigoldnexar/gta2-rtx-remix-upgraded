@@ -154,3 +154,40 @@ measurements were taken with it does not.
   is being chased separately.
 - A software renderer cannot be detected under wined3d (faked adapter name); `anisotropy=1`
   has to be set by hand there.
+
+## L4 GPU host (6 Nov 2026)
+
+Host: one NVIDIA L4 (driver 580.178.04), 8 CPUs, 31 GB; the game in the `gta2-gpugl` image
+through VirtualGL (`gamerun/run_game_gpu.sh`, `--cpus=4`, two game slots at a time), 1280x720,
+30 fps capture. Script: `gamerun/cars_drive.py` (devtools scene warp, Return, then 14 s in the
+chase view and 26 s from the driver's seat with weaving). Per-stage numbers are the renderer's
+own 256-frame summaries (avg/worst ms); the hitch lines now also carry a
+`car bodies: measured N (ms) built N (ms) model draws N (ms) sprite bodies N (ms)` breakdown
+(`CarBodiesStats()` in `car_bodies.cpp`).
+
+**Finding.** The cars stage is not where driving time goes on this host: 0.1-0.4 ms a frame
+in the chase and driver views with 8 model draws per frame. What the old QA runs on llvmpipe
+saw as "cars 277-369 ms" came from one thing, and it is fixed: `Measured()` read each car's
+artwork back from the *device* texture (`LockRect` on the texture the sprite pass had just
+uploaded). On a GPU that readback drains the whole pipeline, and a car's door animation is a
+new texture every frame, so the frames at the moment of getting in cost 277 and 369 ms
+(`out/dp_gpu2`, frames 3311-3312). Now the measurement decodes the game's own palette indices
+on the CPU (`SpriteImageFor()` in `texture_store.cpp`, the same decode the texture builder
+does), with the device readback left only as the fallback.
+
+| run | view | game | world | sprites | ui | present | wait | car bodies: measure max / model draws |
+|---|---|---|---|---|---|---|---|---|
+| dp_gpu2 (device readback) | chase, driving | 14.6/190 | 3.6/11 | 9.2/111 | 1.3/19 | 2.1/47 | 9.0/133 | 369 ms at car entry / 0.1 ms |
+| dp_gpu2 | first person at the wheel | 13.2/79 | 3.6/15 | 7.0/33 | 1.3/120 | 1.4/101 | 10.7/27 | |
+| dp_gpu3 (CPU decode) | chase, driving | 16.4/78 | 3.2/14 | 7.0/29 | 0.9/9 | 0.6/24 | 8.5/25 | 2.0 ms / 0.1 ms |
+| dp_gpu3 | first person at the wheel | 16.9/87 | 3.1/9 | 7.7/71 | 0.7/8 | 1.4/42 | 7.1/25 | 2.0 ms / 0.1 ms |
+
+(`game` is GTA2's own step; this host's cores are slower than the B200 box's, and 4 of them are
+given to the container, so it sits at 15-19 ms with worst cases of 80-140 ms when the game
+builds artwork. That column is the game, not the renderer.)
+
+**What remains while driving, in order of size** (hitch lines of `out/dp_gpu3`): the game's own
+step (above); `present` spikes of 100-475 ms a few times a minute (the GPU/VirtualGL path, not
+our draw: they come with `game` spikes and texture builds); the pedestrian posing at 10-19 ms
+in frames with 7-8 skinned people in view (the 4-CPU container; the posing budget beyond 8
+blocks applies); props at 2-7 ms. None of these is in the car code.
