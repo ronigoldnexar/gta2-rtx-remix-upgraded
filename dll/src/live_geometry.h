@@ -83,6 +83,11 @@ void SetPlayerObject(const void* object);
 // Per style tile: 1 when the tile is grass, for the park trees of the street
 // views (set at level load from the style's artwork).
 void SetGrassTiles(const std::vector<uint8_t>& grass);
+// The map's own elevated rail cells (x, map y, lid level, 1 = runs along x) and
+// its bus-stop zone cells (x, map y), found at level load for the street views'
+// track girders and shelters. See world_view.cpp.
+struct EnvCell { int x, y, level, alongX; };
+void SetEnvCells(const std::vector<EnvCell>& rail, const std::vector<EnvCell>& busStops);
 // True when a point lies more than `margin` behind the camera's plane this
 // frame (set at the top of LiveGeometry::Draw): what the ground views need not
 // draw at all.

@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+"""Street furniture, dock and rooftop models for the street views, procedural,
+in GTA2's retro-modern palette (dark teal steel, mustard yellow, rust, chrome).
+Nothing third-party. Same conventions as gen_objects.py: units in blocks
+(one block = 64 px = 2 m), origin at the footprint centre on the ground, +y up,
+the long axis along +z, PBR materials, alpha cutouts where a plate is not a box.
+
+    gen_env2.py <out glb dir> [--sheet out.png]
+
+Models: sign_stop, sign_oneway, bus_shelter, parking_meter, mailbox,
+container_1..4, crane, roof_ac, roof_vent, water_tower, rail (one block of
+elevated track: rails, sleepers and the side girders that stand on the lid).
+"""
+import json, math, os, sys
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+import trimesh
+from trimesh.visual.material import PBRMaterial
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gen_objects as G  # noqa: E402  (Part, box_part, cylinder_part, scene_with, render)
+
+TEAL = (38, 84, 86)        # GTA2's dark teal steel
+TEAL_LIGHT = (62, 118, 118)
+MUSTARD = (214, 168, 44)
+RUST = (118, 62, 38)
+CHROME = (190, 196, 200)
+DARK = (34, 36, 40)
+POST = (120, 124, 128)
+
+
+def font(size):
+    try:
+        return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def noisy(rgb, size=64, amount=10, seed=1):
+    rng = np.random.default_rng(seed)
+    base = np.array(rgb, np.float32)[None, None, :] + rng.uniform(-amount, amount, (size, size, 1))
+    a = np.full((size, size, 1), 255, np.float32)
+    return Image.fromarray(np.clip(np.concatenate([base, a], 2), 0, 255).astype(np.uint8), "RGBA")
+
+
+def mat(img, metal=0.0, rough=0.7, name="m"):
+    return PBRMaterial(baseColorTexture=img, metallicFactor=metal, roughnessFactor=rough, name=name)
+
+
+def rot_y(points, deg, cx=0.0, cz=0.0):
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    out = []
+    for x, y, z in points:
+        x -= cx; z -= cz
+        out.append((cx + c * x + s * z, y, cz - s * x + c * z))
+    return out
+
+
+def tilted_box(part, x0, x1, y0, y1, z0, z1, pitch_deg, pivot):
+    """A box rotated about the x axis through `pivot` (y, z): used for a crane boom."""
+    c, s = math.cos(math.radians(pitch_deg)), math.sin(math.radians(pitch_deg))
+    py, pz = pivot
+
+    def R(p):
+        x, y, z = p
+        y -= py; z -= pz
+        return (x, py + c * y - s * z, pz + s * y + c * z)
+    faces = [
+        [(x0, y1, z1), (x1, y1, z1), (x1, y1, z0), (x0, y1, z0)],
+        [(x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1)],
+        [(x1, y0, z0), (x1, y1, z0), (x1, y1, z1), (x1, y0, z1)],
+        [(x0, y0, z1), (x0, y1, z1), (x0, y1, z0), (x0, y0, z0)],
+        [(x1, y0, z1), (x1, y1, z1), (x0, y1, z1), (x0, y0, z1)],
+        [(x0, y0, z0), (x0, y1, z0), (x1, y1, z0), (x1, y0, z0)],
+    ]
+    for f in faces:
+        part.quad(*[R(p) for p in f])
+
+
+def plate(part, w, h, y_centre, z, thick=0.012, u_flip=False):
+    """A vertical plate facing -z (the viewer on the pavement), textured on both faces."""
+    x0, x1 = -w / 2, w / 2
+    y0, y1 = y_centre - h / 2, y_centre + h / 2
+    part.quad((x0, y0, z), (x0, y1, z), (x1, y1, z), (x1, y0, z), (1, 1), (1, 0), (0, 0), (0, 1))                 # front (-z), read from -z
+    part.quad((x1, y0, z + thick), (x1, y1, z + thick), (x0, y1, z + thick), (x0, y0, z + thick), (0, 1), (0, 0), (1, 0), (1, 1))  # back
+
+
+def post(part, r, y0, y1, x=0.0, z=0.0, segments=10):
+    ring = [(x + r * math.cos(2 * math.pi * s / segments), z + r * math.sin(2 * math.pi * s / segments)) for s in range(segments + 1)]
+    for s in range(segments):
+        (ax, az), (bx, bz) = ring[s], ring[s + 1]
+        part.quad((ax, y0, az), (ax, y1, az), (bx, y1, bz), (bx, y0, bz), (0, 1), (0, 0), (0.3, 0), (0.3, 1))
+    # cap
+    for s in range(segments):
+        (ax, az), (bx, bz) = ring[s], ring[s + 1]
+        b = len(part.v)
+        part.v += [np.array((x, y1, z), np.float32), np.array((bx, y1, bz), np.float32), np.array((ax, y1, az), np.float32)]
+        part.n += [np.array((0, 1, 0), np.float32)] * 3
+        part.uv += [(0.5, 0.5)] * 3
+        part.f += [[b, b + 1, b + 2]]
+
+
+# --- textures -----------------------------------------------------------------
+
+def stop_face(size=256):
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = size / 2; r = size * 0.48
+    oct_pts = [(c + r * math.cos(math.radians(22.5 + 45 * i)), c + r * math.sin(math.radians(22.5 + 45 * i))) for i in range(8)]
+    d.polygon(oct_pts, fill=(196, 30, 36, 255), outline=(240, 240, 240, 255), width=max(2, size // 40))
+    f = font(size // 4)
+    tw = d.textlength("STOP", font=f)
+    d.text((c - tw / 2, c - size * 0.15), "STOP", font=f, fill=(245, 245, 245, 255))
+    return im
+
+
+def oneway_face(size=(256, 96)):
+    im = Image.new("RGBA", size, (24, 24, 28, 255))
+    d = ImageDraw.Draw(im)
+    w, h = size
+    d.rectangle((3, 3, w - 4, h - 4), outline=(235, 235, 235, 255), width=3)
+    # arrow
+    d.polygon([(w * 0.12, h * 0.5), (w * 0.62, h * 0.12), (w * 0.62, h * 0.36), (w * 0.92, h * 0.36), (w * 0.92, h * 0.64), (w * 0.62, h * 0.64), (w * 0.62, h * 0.88)], fill=(240, 240, 240, 255))
+    f = font(h // 3)
+    d.text((w * 0.16, h * 0.62), "ONE WAY", font=f, fill=(240, 240, 240, 255))
+    return im
+
+
+def bus_face(size=(192, 96)):
+    im = Image.new("RGBA", size, MUSTARD + (255,))
+    d = ImageDraw.Draw(im)
+    d.rectangle((3, 3, size[0] - 4, size[1] - 4), outline=DARK + (255,), width=4)
+    f = font(size[1] // 2)
+    tw = d.textlength("BUS", font=f)
+    d.text((size[0] / 2 - tw / 2, size[1] * 0.18), "BUS", font=f, fill=DARK + (255,))
+    return im
+
+
+def meter_face(size=128):
+    im = Image.new("RGBA", (size, size), (150, 152, 156, 255))
+    d = ImageDraw.Draw(im)
+    d.rectangle((size * 0.2, size * 0.15, size * 0.8, size * 0.55), fill=(30, 32, 36, 255), outline=(90, 90, 90, 255), width=2)
+    d.rectangle((size * 0.26, size * 0.22, size * 0.74, size * 0.48), fill=(196, 40, 40, 255))
+    f = font(size // 9)
+    d.text((size * 0.3, size * 0.27), "EXPIRED", font=f, fill=(250, 240, 220, 255))
+    d.ellipse((size * 0.42, size * 0.65, size * 0.58, size * 0.81), fill=(60, 60, 64, 255))
+    return im
+
+
+def mail_face(size=(192, 256)):
+    im = noisy((36, 78, 150), size=256, amount=8).resize(size)
+    d = ImageDraw.Draw(im)
+    f = font(size[0] // 4)
+    tw = d.textlength("MAIL", font=f)
+    d.text((size[0] / 2 - tw / 2, size[1] * 0.42), "MAIL", font=f, fill=(240, 240, 245, 255))
+    d.rectangle((size[0] * 0.2, size[1] * 0.2, size[0] * 0.8, size[1] * 0.3), fill=(22, 50, 100, 255))
+    return im
+
+
+def corrugated(rgb, size=256, seed=3):
+    rng = np.random.default_rng(seed)
+    x = np.arange(size)
+    stripe = (0.86 + 0.14 * np.cos(x * 2 * math.pi / 16.0))[None, :, None]
+    base = np.array(rgb, np.float32)[None, None, :] * stripe
+    rust = rng.uniform(0, 1, (size, size, 1)) ** 6 * 70
+    base = base * (1 - rust / 120) + np.array(RUST, np.float32)[None, None, :] * (rust / 120)
+    base += rng.uniform(-6, 6, (size, size, 1))
+    a = np.full((size, size, 1), 255, np.float32)
+    im = Image.fromarray(np.clip(np.concatenate([base, a], 2), 0, 255).astype(np.uint8), "RGBA")
+    d = ImageDraw.Draw(im)
+    d.line((0, size * 0.5, size, size * 0.5), fill=tuple(max(0, c - 40) for c in rgb) + (255,), width=3)   # a weld line
+    return im
+
+
+def container_door(rgb, size=256):
+    im = corrugated(rgb, size, seed=5)
+    d = ImageDraw.Draw(im)
+    for x in (size * 0.22, size * 0.42, size * 0.58, size * 0.78):
+        d.rectangle((x - 4, 8, x + 4, size - 8), fill=tuple(max(0, c - 50) for c in rgb) + (255,))
+        d.rectangle((x - 2, 8, x + 2, size - 8), fill=CHROME + (255,))
+    d.line((0, size * 0.5 - 1, size, size * 0.5 - 1), fill=DARK + (255,), width=4)
+    return im
+
+
+def grille(size=128):
+    im = Image.new("RGBA", (size, size), (96, 100, 104, 255))
+    d = ImageDraw.Draw(im)
+    d.ellipse((size * 0.1, size * 0.1, size * 0.9, size * 0.9), fill=(40, 42, 46, 255), outline=(70, 72, 76, 255), width=3)
+    for i in range(6):
+        a = math.radians(i * 60)
+        d.line((size / 2, size / 2, size / 2 + size * 0.38 * math.cos(a), size / 2 + size * 0.38 * math.sin(a)), fill=(130, 132, 136, 255), width=5)
+    d.ellipse((size * 0.44, size * 0.44, size * 0.56, size * 0.56), fill=(120, 120, 124, 255))
+    return im
+
+
+def lattice(size=128, rgb=TEAL):
+    """Cross-braced girder face: steel diagonals on a cutout, for crane legs and rail sides."""
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    col = tuple(rgb) + (255,)
+    t = max(4, size // 14)
+    d.rectangle((0, 0, size, t), fill=col); d.rectangle((0, size - t, size, size), fill=col)
+    d.rectangle((0, 0, t, size), fill=col); d.rectangle((size - t, 0, size, size), fill=col)
+    d.line((0, 0, size, size), fill=col, width=t); d.line((0, size, size, 0), fill=col, width=t)
+    return im
+
+
+def wood(size=128, seed=7):
+    rng = np.random.default_rng(seed)
+    y = np.arange(size)[:, None]
+    base = np.array((112, 78, 50), np.float32)[None, None, :] * (0.85 + 0.15 * np.sin(y * 0.9)[:, :, None]) + rng.uniform(-10, 10, (size, size, 1))
+    a = np.full((size, size, 1), 255, np.float32)
+    return Image.fromarray(np.clip(np.concatenate([base, a], 2), 0, 255).astype(np.uint8), "RGBA")
+
+
+# --- builders -----------------------------------------------------------------
+
+def build_sign_stop():
+    p_post, p_plate = G.Part(), G.Part()
+    post(p_post, 0.013, 0.0, 1.08)
+    plate(p_plate, 0.3, 0.3, 0.92, -0.013)
+    return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
+                         ("plate", p_plate.mesh(mat(stop_face(), 0.1, 0.5, "plate")))])
+
+
+def build_sign_oneway():
+    p_post, p_plate = G.Part(), G.Part()
+    post(p_post, 0.013, 0.0, 1.0)
+    plate(p_plate, 0.4, 0.15, 0.9, -0.013)
+    return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
+                         ("plate", p_plate.mesh(mat(oneway_face(), 0.1, 0.5, "plate")))])
+
+
+def build_bus_shelter():
+    frame, glass, roof, bench, sign = G.Part(), G.Part(), G.Part(), G.Part(), G.Part()
+    # Posts at the four corners, back wall along +x side (the shelter faces -x: the road).
+    for z in (-0.42, 0.42):
+        for x in (-0.18, 0.18):
+            G.box_part(frame, x - 0.015, x + 0.015, 0.0, 0.9, z - 0.015, z + 0.015)
+    G.box_part(roof, -0.24, 0.24, 0.9, 0.93, -0.48, 0.48)                     # roof slab
+    G.box_part(frame, -0.24, 0.24, 0.93, 0.96, -0.48, 0.48)                   # roof edge trim
+    G.box_part(glass, 0.17, 0.18, 0.06, 0.88, -0.4, 0.4)                      # back glass
+    G.box_part(glass, -0.17, 0.17, 0.06, 0.88, 0.4, 0.41)                     # one end glass
+    G.box_part(bench, -0.06, 0.14, 0.22, 0.25, -0.36, 0.36)                   # seat
+    for z in (-0.32, 0.32):
+        G.box_part(bench, -0.03, 0.11, 0.0, 0.22, z - 0.015, z + 0.015)
+    post(sign, 0.01, 0.0, 1.05, x=-0.22, z=-0.52)
+    plate_sign = G.Part()
+    plate(plate_sign, 0.26, 0.13, 0.97, -0.53 - 0.01)
+    # the sign plate faces -z here; the shelter's road side is -x, so turn the plate about its post
+    plate_sign.v = [np.array(q, np.float32) for q in rot_y([tuple(v) for v in plate_sign.v], 90, cx=-0.28, cz=-0.62)]
+    plate_sign.n = [np.array(q, np.float32) for q in rot_y([tuple(n) for n in plate_sign.n], 90)]
+    return G.scene_with([("frame", frame.mesh(mat(noisy(TEAL, amount=8), 0.6, 0.5, "frame"))),
+                         ("roof", roof.mesh(mat(noisy(MUSTARD, amount=8), 0.2, 0.6, "roof"))),
+                         ("glass", glass.mesh(mat(noisy((150, 180, 190), amount=4), 0.1, 0.15, "glass"))),
+                         ("bench", bench.mesh(mat(wood(), 0.0, 0.8, "bench"))),
+                         ("signpost", sign.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
+                         ("sign", plate_sign.mesh(mat(bus_face(), 0.1, 0.5, "sign")))])
+
+
+def build_parking_meter():
+    p, head, face = G.Part(), G.Part(), G.Part()
+    post(p, 0.012, 0.0, 0.5)
+    G.box_part(head, -0.035, 0.035, 0.5, 0.64, -0.025, 0.025)
+    plate(face, 0.06, 0.12, 0.58, -0.026, thick=0.0)
+    return G.scene_with([("post", p.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
+                         ("head", head.mesh(mat(noisy((150, 152, 156), amount=6), 0.7, 0.4, "head"))),
+                         ("face", face.mesh(mat(meter_face(), 0.3, 0.5, "face")))])
+
+
+def build_mailbox():
+    body, legs, front = G.Part(), G.Part(), G.Part()
+    G.box_part(body, -0.08, 0.08, 0.17, 0.4, -0.07, 0.07)
+    # rounded top: a half cylinder along z
+    seg = 8
+    for s in range(seg):
+        a0, a1 = math.pi * s / seg, math.pi * (s + 1) / seg
+        x0, y0 = -0.08 * math.cos(a0), 0.4 + 0.08 * math.sin(a0)
+        x1, y1 = -0.08 * math.cos(a1), 0.4 + 0.08 * math.sin(a1)
+        body.quad((x0, y0, 0.07), (x1, y1, 0.07), (x1, y1, -0.07), (x0, y0, -0.07), (0, 0), (0, 1), (1, 1), (1, 0))
+    for x in (-0.05, 0.05):
+        for z in (-0.04, 0.04):
+            G.box_part(legs, x - 0.01, x + 0.01, 0.0, 0.17, z - 0.01, z + 0.01)
+    plate(front, 0.15, 0.22, 0.3, -0.075, thick=0.0)
+    return G.scene_with([("body", body.mesh(mat(noisy((36, 78, 150), amount=8), 0.5, 0.45, "body"))),
+                         ("legs", legs.mesh(mat(noisy(DARK, amount=4), 0.7, 0.5, "legs"))),
+                         ("front", front.mesh(mat(mail_face(), 0.4, 0.45, "front")))])
+
+
+def build_container(rgb, seed):
+    body, doors = G.Part(), G.Part()
+    L, W, H = 1.9, 0.46, 0.5
+    G.box_part(body, -W / 2, W / 2, 0.0, H, -L / 2, L / 2 - 0.02)
+    plate(doors, W, H, H / 2, L / 2 - 0.005, thick=0.02)
+    # the plate faces -z; the doors are at +z: flip it round
+    doors.v = [np.array(q, np.float32) for q in rot_y([tuple(v) for v in doors.v], 180)]
+    doors.n = [np.array(q, np.float32) for q in rot_y([tuple(n) for n in doors.n], 180)]
+    return G.scene_with([("body", body.mesh(mat(corrugated(rgb, seed=seed), 0.6, 0.55, "body"))),
+                         ("doors", doors.mesh(mat(container_door(rgb), 0.6, 0.55, "doors")))])
+
+
+def build_crane():
+    legs, deck, cab, boom, cable, hook = G.Part(), G.Part(), G.Part(), G.Part(), G.Part(), G.Part()
+    # Gantry: four lattice legs, a deck, a cab, a boom pitched up over +z, a cable and hook.
+    for x in (-0.45, 0.45):
+        for z in (-0.35, 0.35):
+            G.box_part(legs, x - 0.05, x + 0.05, 0.0, 1.8, z - 0.05, z + 0.05)
+    G.box_part(deck, -0.55, 0.55, 1.8, 1.92, -0.45, 0.45)
+    G.box_part(cab, -0.18, 0.18, 1.92, 2.3, -0.2, 0.2)
+    G.box_part(cab, -0.2, 0.2, 2.3, 2.34, -0.22, 0.22)
+    tilted_box(boom, -0.07, 0.07, 2.1, 2.24, 0.0, 3.2, -28.0, (2.17, 0.0))     # boom: 3.2 blocks, 28 degrees up
+    # a counterweight at the back
+    G.box_part(boom, -0.16, 0.16, 1.95, 2.25, -0.55, -0.25)
+    # tip of the boom, after the pitch
+    c, s = math.cos(math.radians(-28.0)), math.sin(math.radians(-28.0))
+    tip_y = 2.17 + s * 0.0 - 0.0; tip_z = 0.0
+    yb, zb = 0.0, 3.1
+    tip_y = 2.17 + c * yb - s * zb; tip_z = 0.0 + s * yb + c * zb
+    G.box_part(cable, -0.008, 0.008, tip_y - 1.3, tip_y, tip_z - 0.008, tip_z + 0.008)
+    G.box_part(hook, -0.05, 0.05, tip_y - 1.42, tip_y - 1.3, tip_z - 0.05, tip_z + 0.05)
+    return G.scene_with([("legs", legs.mesh(mat(lattice(rgb=MUSTARD), 0.6, 0.55, "legs"))),
+                         ("deck", deck.mesh(mat(noisy(TEAL, amount=8), 0.6, 0.5, "deck"))),
+                         ("cab", cab.mesh(mat(noisy(MUSTARD, amount=10), 0.3, 0.55, "cab"))),
+                         ("boom", boom.mesh(mat(lattice(rgb=MUSTARD), 0.6, 0.55, "boom"))),
+                         ("cable", cable.mesh(mat(noisy(DARK, amount=4), 0.8, 0.4, "cable"))),
+                         ("hook", hook.mesh(mat(noisy(CHROME, amount=8), 0.9, 0.3, "hook")))])
+
+
+def build_roof_ac():
+    body, top = G.Part(), G.Part()
+    G.box_part(body, -0.16, 0.16, 0.0, 0.2, -0.16, 0.16)
+    G.box_part(body, -0.05, 0.05, 0.2, 0.26, -0.16, -0.1)   # a pipe stub
+    # grille on top as a thin plate
+    top.quad((-0.14, 0.201, 0.14), (0.14, 0.201, 0.14), (0.14, 0.201, -0.14), (-0.14, 0.201, -0.14), (0, 1), (1, 1), (1, 0), (0, 0))
+    return G.scene_with([("body", body.mesh(mat(noisy((150, 152, 156), amount=8), 0.6, 0.5, "body"))),
+                         ("grille", top.mesh(mat(grille(), 0.5, 0.5, "grille")))])
+
+
+def build_roof_vent():
+    p = G.Part()
+    G.cylinder_part(p, lambda t: 0.06, 0.0, 0.26, segments=12, rings=1, cap=False)
+    G.cylinder_part(p, lambda t: 0.1 * (1 - t) + 0.02 * t, 0.26, 0.36, segments=12, rings=1, cap=True)
+    return G.scene_with([("vent", p.mesh(mat(noisy((132, 136, 140), amount=8), 0.8, 0.4, "vent")))])
+
+
+def build_water_tower():
+    legs, tank, roof = G.Part(), G.Part(), G.Part()
+    for x in (-0.2, 0.2):
+        for z in (-0.2, 0.2):
+            G.box_part(legs, x - 0.02, x + 0.02, 0.0, 0.6, z - 0.02, z + 0.02)
+    G.box_part(legs, -0.22, 0.22, 0.3, 0.33, -0.22, 0.22)   # brace ring
+    G.cylinder_part(tank, lambda t: 0.28, 0.6, 1.1, segments=16, rings=1, cap=False)
+    G.cylinder_part(tank, lambda t: 0.28, 0.58, 0.6, segments=16, rings=1, cap=True)   # bottom lip
+    G.cylinder_part(roof, lambda t: 0.3 * (1 - t) + 0.02 * t, 1.1, 1.32, segments=16, rings=1, cap=True)
+    return G.scene_with([("legs", legs.mesh(mat(noisy(DARK, amount=6), 0.6, 0.5, "legs"))),
+                         ("tank", tank.mesh(mat(wood(seed=11), 0.0, 0.85, "tank"))),
+                         ("roof", roof.mesh(mat(noisy(RUST, amount=10), 0.4, 0.7, "roof")))])
+
+
+def build_rail():
+    rails, sleepers, girders = G.Part(), G.Part(), G.Part()
+    for x in (-0.13, 0.13):
+        G.box_part(rails, x - 0.015, x + 0.015, 0.03, 0.06, -0.5, 0.5)
+    for i in range(6):
+        z = -0.5 + (i + 0.5) / 6
+        G.box_part(sleepers, -0.22, 0.22, 0.0, 0.03, z - 0.035, z + 0.035)
+    for x in (-0.44, 0.44):
+        G.box_part(girders, x - 0.03, x + 0.03, 0.0, 0.22, -0.5, 0.5)
+        G.box_part(girders, x - 0.04, x + 0.04, 0.22, 0.25, -0.5, 0.5)   # top flange
+    return G.scene_with([("rails", rails.mesh(mat(noisy(CHROME, amount=10), 0.9, 0.35, "rails"))),
+                         ("sleepers", sleepers.mesh(mat(wood(seed=5), 0.0, 0.9, "sleepers"))),
+                         ("girders", girders.mesh(mat(noisy(TEAL, amount=8), 0.6, 0.5, "girders")))])
+
+
+SPEC = {
+    "sign_stop": build_sign_stop,
+    "sign_oneway": build_sign_oneway,
+    "bus_shelter": build_bus_shelter,
+    "parking_meter": build_parking_meter,
+    "mailbox": build_mailbox,
+    "container_1": lambda: build_container((150, 48, 36), 1),
+    "container_2": lambda: build_container((40, 84, 140), 2),
+    "container_3": lambda: build_container((60, 110, 70), 3),
+    "container_4": lambda: build_container((150, 150, 140), 4),
+    "crane": build_crane,
+    "roof_ac": build_roof_ac,
+    "roof_vent": build_roof_vent,
+    "water_tower": build_water_tower,
+    "rail": build_rail,
+}
+
+
+def main():
+    out_dir = sys.argv[1]
+    sheet_path = sys.argv[sys.argv.index("--sheet") + 1] if "--sheet" in sys.argv else None
+    os.makedirs(out_dir, exist_ok=True)
+    manifest_models, status, cells = [], {}, []
+    for name, build in SPEC.items():
+        scene = build()
+        tris = sum(len(g.faces) for g in scene.geometry.values())
+        b = scene.bounds
+        scene.export(os.path.join(out_dir, name + ".glb"))
+        manifest_models.append(dict(name=name, glb=f"env2/{name}.glb", scale=1.0, texture_max=512, forward="+z",
+                                    _licence="procedural (tools/gen_env2.py), no third-party content"))
+        status[name] = dict(triangles=int(tris), size_blocks=[round(float(b[1][i] - b[0][i]), 3) for i in range(3)])
+        if sheet_path:
+            cell = Image.new("RGBA", (480, 176), (30, 30, 30, 255))
+            cell.paste(G.render(scene, "top"), (0, 0)); cell.paste(G.render(scene, "3q"), (160, 0))
+            ImageDraw.Draw(cell).text((4, 162), f"{name}  {tris} tris  {status[name]['size_blocks']} blocks", fill=(255, 255, 0, 255))
+            cells.append(cell)
+        print(name, tris, "tris", status[name]["size_blocks"])
+    json.dump(status, open(os.path.join(out_dir, "status.json"), "w"), indent=1)
+    json.dump(dict(models=manifest_models), open(os.path.join(out_dir, "manifest_fragment.json"), "w"), indent=1)
+    if sheet_path and cells:
+        cols = 3; rows = (len(cells) + cols - 1) // cols
+        sheet = Image.new("RGBA", (cols * 480, rows * 176), (30, 30, 30, 255))
+        for i, c in enumerate(cells):
+            sheet.paste(c, ((i % cols) * 480, (i // cols) * 176))
+        sheet.save(sheet_path)
+
+
+if __name__ == "__main__":
+    main()

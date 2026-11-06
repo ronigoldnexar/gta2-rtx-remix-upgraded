@@ -216,6 +216,10 @@ void SetHiddenObjects(const void* first, const void* second) {
 std::vector<uint8_t> g_grassTiles;
 int g_treeStatGrass = 0, g_treeStatPlaced = 0, g_treeStatFrames = 0;
 void SetGrassTiles(const std::vector<uint8_t>& grass) { g_grassTiles = grass; }
+std::vector<EnvCell> g_railCells, g_busStops;
+void SetEnvCells(const std::vector<EnvCell>& rail, const std::vector<EnvCell>& busStops) { g_railCells = rail; g_busStops = busStops; }
+// GTA2's water is one animated tile group, 608 and the frames after it, in every style.
+bool IsWaterTile(int tile) { return tile >= 608 && tile <= 619; }
 bool IsGrassTile(int tile) { return tile >= 0 && tile < static_cast<int>(g_grassTiles.size()) && g_grassTiles[static_cast<size_t>(tile)] != 0; }
 
 void SetPlayerObject(const void* object) {
@@ -4067,12 +4071,41 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     const Model* hydrant = ModelForProp("hydrant");
     const Model* trees[3] = {ModelForProp("tree1"), ModelForProp("tree2"), ModelForProp("tree3")};
     const bool anyTree = trees[0] || trees[1] || trees[2];
-    if (!lamp && !bin && !bench && !hydrant && !anyTree) return;
+    // Street furniture, docks and rooftops (tools/gen_env2.py): placed by rule
+    // like the rest, see the cell loop below and the two loops after it.
+    const Model* signStop = ModelForProp("sign_stop");
+    const Model* signOneWay = ModelForProp("sign_oneway");
+    const Model* busShelter = ModelForProp("bus_shelter");
+    const Model* meter = ModelForProp("parking_meter");
+    const Model* mailbox = ModelForProp("mailbox");
+    const Model* containers[4] = {ModelForProp("container1"), ModelForProp("container2"), ModelForProp("container3"), ModelForProp("container4")};
+    const Model* crane = ModelForProp("crane");
+    const Model* roofAc = ModelForProp("roof_ac");
+    const Model* roofVent = ModelForProp("roof_vent");
+    const Model* waterTower = ModelForProp("water_tower");
+    const Model* rail = ModelForProp("rail");
+    const bool anyEnv = signStop || signOneWay || busShelter || meter || mailbox || containers[0] || crane || roofAc || roofVent || waterTower || rail;
+    if (!lamp && !bin && !bench && !hydrant && !anyTree && !anyEnv) return;
 
     struct Placed { const Model* model; float x, y, z, yaw, scale; float d2; };
     std::vector<Placed> placed;
     constexpr float kRadius = 26.0f;
-    constexpr int kBudget = 70;
+    constexpr int kBudget = 130;
+    // A column's lid tile, ground type and level, or false off the map / in a hole.
+    auto lidOf = [&](int cx, int cz, int* tile, int* ground, int* level) {
+        const int my = gta2::kMapHeight - 1 - cz;
+        if (cx < 0 || cx >= gta2::kMapWidth || my < 0 || my >= gta2::kMapHeight) return false;
+        const gta2::Column& c = map->ColumnAt(cx, my);
+        if (c.blocks.empty() || c.blocks.back() >= map->BlockCount()) return false;
+        const gta2::Block& b = map->BlockAt(c.blocks.back());
+        *tile = b.lid.Tile();
+        *ground = b.GroundType();
+        *level = c.offset + static_cast<int>(c.blocks.size());
+        return true;
+    };
+    auto isRoad = [&](int cx, int cz, int level) { int t, g, l; return lidOf(cx, cz, &t, &g, &l) && g == 1 && l == level; };
+    auto isWater = [&](int cx, int cz, int level) { int t, g, l; return lidOf(cx, cz, &t, &g, &l) && IsWaterTile(t) && l <= level; };
+    int cranes = 0;
 
     // The lamps.
     if (lamp) {
@@ -4143,6 +4176,79 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                     }
                 }
             }
+            if (!model && anyEnv && ground != 1 && !IsWaterTile(top.lid.Tile())) {
+                // The kerb side: a road neighbour at this level. A junction is a
+                // road cell with three or more road neighbours. (Pavement only.)
+                int roadDx = 0, roadDz = 0;
+                for (int k = 0; k < 4 && !roadDx && !roadDz && ground == 2; ++k) {
+                    const int nx = cx + (k == 0) - (k == 1), nz = cz + (k == 2) - (k == 3);
+                    if (isRoad(nx, nz, topLevel)) { roadDx = nx - cx; roadDz = nz - cz; }
+                }
+                // Water beside the cell: a quay (the map types quays as plain
+                // lids, not pavement). Containers along it, now and then a
+                // crane whose boom reaches over the water.
+                int waterDx = 0, waterDz = 0;
+                for (int k = 0; k < 4 && !waterDx && !waterDz; ++k) {
+                    const int nx = cx + (k == 0) - (k == 1), nz = cz + (k == 2) - (k == 3);
+                    if (isWater(nx, nz, topLevel)) { waterDx = nx - cx; waterDz = nz - cz; }
+                }
+                if (roadDx || roadDz) {
+                    const int rx = cx + roadDx, rz = cz + roadDz;
+                    int roadNeighbours = 0;
+                    for (int k = 0; k < 4; ++k) roadNeighbours += isRoad(rx + (k == 0) - (k == 1), rz + (k == 2) - (k == 3), topLevel) ? 1 : 0;
+                    const float faceRoad = std::atan2(static_cast<float>(-roadDx), static_cast<float>(-roadDz));   // the plate (-z) toward the road
+                    // One stop sign per junction corner at most: the pavement cell
+                    // diagonal to the junction's corner, picked by a hash of the
+                    // junction cell so the four approaches do not all get one.
+                    if (roadNeighbours >= 3 && signStop && ((static_cast<uint32_t>(rx) * 2246822519u ^ static_cast<uint32_t>(rz) * 3266489917u) % 4) == 0 && (h % 3) == 0) {
+                        model = signStop; scale = 1.0f;
+                        ox = roadDx * 0.38f; oz = roadDz * 0.38f;
+                        placed.push_back({model, px + ox, 0.0f, pz + oz, faceRoad, scale, d2});   // y filled below
+                        model = nullptr;
+                        float floor = static_cast<float>(topLevel);
+                        ground_->SurfaceAt(px + ox, pz + oz, topLevel + 0.5f, &floor);
+                        placed.back().y = floor;
+                        continue;
+                    }
+                    if (roadNeighbours == 2 && signOneWay && (h % 41) == 0) {
+                        float floor = static_cast<float>(topLevel);
+                        ground_->SurfaceAt(px + roadDx * 0.38f, pz + roadDz * 0.38f, topLevel + 0.5f, &floor);
+                        placed.push_back({signOneWay, px + roadDx * 0.38f, floor, pz + roadDz * 0.38f, faceRoad, 1.0f, d2});
+                        continue;
+                    }
+                    if (meter && (h % 11) == 0) {
+                        float floor = static_cast<float>(topLevel);
+                        ground_->SurfaceAt(px + roadDx * 0.36f, pz + roadDz * 0.36f, topLevel + 0.5f, &floor);
+                        placed.push_back({meter, px + roadDx * 0.36f, floor, pz + roadDz * 0.36f, faceRoad, 1.0f, d2});
+                        continue;
+                    }
+                }
+                if ((waterDx || waterDz) && containers[0]) {
+                    const float alongEdge = waterDx ? 0.0f : 1.5708f;   // the long axis parallel to the quay
+                    if (crane && cranes < 2 && (h % 29) == 0) {
+                        // Needs a run of quay: the two cells along the edge must be quay too.
+                        const int ex = waterDx ? 0 : 1, ez = waterDx ? 1 : 0;
+                        int t1, g1, l1, t2, g2, l2;
+                        const bool run = lidOf(cx + ex, cz + ez, &t1, &g1, &l1) && l1 == topLevel && isWater(cx + ex + waterDx, cz + ez + waterDz, topLevel)
+                                      && lidOf(cx - ex, cz - ez, &t2, &g2, &l2) && l2 == topLevel && isWater(cx - ex + waterDx, cz - ez + waterDz, topLevel);
+                        if (run) {
+                            ++cranes;
+                            float floor = static_cast<float>(topLevel);
+                            ground_->SurfaceAt(px - waterDx * 0.3f, pz - waterDz * 0.3f, topLevel + 0.5f, &floor);
+                            placed.push_back({crane, px - waterDx * 0.3f, floor, pz - waterDz * 0.3f, std::atan2(static_cast<float>(waterDx), static_cast<float>(waterDz)), 1.0f, d2});
+                            continue;
+                        }
+                    }
+                    if ((h % 5) == 0) {
+                        const Model* box = containers[(h >> 3) & 3];
+                        if (!box) box = containers[0];
+                        float floor = static_cast<float>(topLevel);
+                        ground_->SurfaceAt(px - waterDx * 0.1f, pz - waterDz * 0.1f, topLevel + 0.5f, &floor);
+                        placed.push_back({box, px - waterDx * 0.1f, floor, pz - waterDz * 0.1f, alongEdge, 1.0f, d2});
+                        continue;
+                    }
+                }
+            }
             if (!model && ground == 2) {
                 // Against a building: a neighbour whose column stands higher.
                 int wallDx = 0, wallDz = 0;
@@ -4158,6 +4264,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 if (pick == 0 && bin) { model = bin; scale = 0.45f / (std::max)(bin->Height(), 0.1f); }
                 else if (pick == 1 && bench && (h & 64)) { model = bench; scale = 0.75f / (std::max)((std::max)(bench->Length(), bench->Width()), 0.1f); }
                 else if (pick == 2 && hydrant) { model = hydrant; scale = 0.4f / (std::max)(hydrant->Height(), 0.1f); }
+                else if (pick == 3 && mailbox && (h & 128)) { model = mailbox; scale = 1.0f; }
                 if (!model) continue;
                 ox = wallDx * 0.34f;
                 oz = wallDz * 0.34f;
@@ -4167,6 +4274,80 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             ground_->SurfaceAt(px + ox, pz + oz, topLevel + 0.5f, &floor);
             placed.push_back({model, px + ox, floor, pz + oz, yaw, scale, d2});
         }
+    }
+    // Bus shelters: on the pavement cell beside each bus-stop zone cell, open side to it.
+    if (busShelter) {
+        for (const EnvCell& stop : g_busStops) {
+            const int sz = gta2::kMapHeight - 1 - stop.y;
+            const float dx = stop.x + 0.5f - eye.x, dz = sz + 0.5f - eye.z;
+            if (dx * dx + dz * dz > kRadius * kRadius) continue;
+            int t0, g0, l0;
+            if (!lidOf(stop.x, sz, &t0, &g0, &l0)) continue;
+            for (int k = 0; k < 4; ++k) {
+                const int nx = stop.x + (k == 0) - (k == 1), nz = sz + (k == 2) - (k == 3);
+                int t, g, l;
+                if (!lidOf(nx, nz, &t, &g, &l) || g != 2 || l != l0) continue;
+                // Open side (-x in the model) toward the stop cell; the model's
+                // -x turns onto (toRoadX, toRoadZ) with yaw = atan2(-toRoadZ, -toRoadX)
+                // in the drawer's rotation (x' = c x - s z, z' = s x + c z).
+                const int toRoadX = stop.x - nx, toRoadZ = sz - nz;
+                const float yaw = std::atan2(static_cast<float>(toRoadZ), static_cast<float>(toRoadX)) + 3.14159f;
+                float floor = static_cast<float>(l);
+                ground_->SurfaceAt(nx + 0.5f - toRoadX * 0.2f, nz + 0.5f - toRoadZ * 0.2f, l + 0.5f, &floor);
+                placed.push_back({busShelter, nx + 0.5f - toRoadX * 0.2f, floor, nz + 0.5f - toRoadZ * 0.2f, yaw, 1.0f, dx * dx + dz * dz});
+                break;
+            }
+        }
+    }
+    // The elevated track: girders and rails on every straight rail cell.
+    if (rail) {
+        constexpr float kRailRadius = 40.0f;
+        for (const EnvCell& cell : g_railCells) {
+            if (cell.alongX == 2) continue;
+            const int rz = gta2::kMapHeight - 1 - cell.y;
+            const float px = cell.x + 0.5f, pz = rz + 0.5f;
+            const float dx = px - eye.x, dz = pz - eye.z;
+            const float d2 = dx * dx + dz * dz;
+            if (d2 > kRailRadius * kRailRadius) continue;
+            placed.push_back({rail, px, static_cast<float>(cell.level), pz, cell.alongX ? 1.5708f : 0.0f, 1.0f, d2});
+        }
+    }
+    // Rooftops above the street: a unit, a vent or a water tower on flat roofs
+    // whose four neighbours are at the same height (so never on an edge).
+    if (roofAc || roofVent || waterTower) {
+        constexpr float kRoofRadius = 30.0f;
+        const int rx0 = static_cast<int>(std::floor(eye.x - kRoofRadius)), rx1 = static_cast<int>(std::floor(eye.x + kRoofRadius));
+        const int rz0 = static_cast<int>(std::floor(eye.z - kRoofRadius)), rz1 = static_cast<int>(std::floor(eye.z + kRoofRadius));
+        for (int cz = rz0; cz <= rz1; ++cz) {
+            for (int cx = rx0; cx <= rx1; ++cx) {
+                const uint32_t h = (static_cast<uint32_t>(cx) * 2654435761u) ^ (static_cast<uint32_t>(cz) * 40503u);
+                const uint32_t pick = h % 211;
+                const Model* model = pick == 0 && waterTower ? waterTower : (pick < 12 && roofAc ? roofAc : (pick < 20 && roofVent ? roofVent : nullptr));
+                if (!model) continue;
+                int t, g, l;
+                if (!lidOf(cx, cz, &t, &g, &l)) continue;
+                if (l <= eyeLevel + 2 || l > eyeLevel + 9 || IsGrassTile(t) || IsWaterTile(t)) continue;
+                bool flat = true;
+                for (int k = 0; k < 4 && flat; ++k) {
+                    int nt, ng, nl;
+                    if (!lidOf(cx + (k == 0) - (k == 1), cz + (k == 2) - (k == 3), &nt, &ng, &nl) || nl != l) flat = false;
+                }
+                if (!flat) continue;
+                const float px = cx + 0.5f + (static_cast<float>((h >> 12) & 15) / 15.0f - 0.5f) * 0.4f;
+                const float pz = cz + 0.5f + (static_cast<float>((h >> 16) & 15) / 15.0f - 0.5f) * 0.4f;
+                const float dx = px - eye.x, dz = pz - eye.z;
+                const float d2 = dx * dx + dz * dz;
+                if (d2 > kRoofRadius * kRoofRadius) continue;
+                placed.push_back({model, px, static_cast<float>(l), pz, static_cast<float>((h >> 20) & 3) * 1.5708f, 1.0f, d2});
+            }
+        }
+    }
+    if (anyEnv && (g_treeStatFrames % 300) == 299) {
+        int counts[16] = {};
+        const Model* kinds[16] = {signStop, signOneWay, busShelter, meter, mailbox, containers[0], containers[1], containers[2], containers[3], crane, roofAc, roofVent, waterTower, rail, nullptr, nullptr};
+        for (const Placed& p : placed) for (int k = 0; k < 14; ++k) if (kinds[k] && p.model == kinds[k]) ++counts[k];
+        Log("environment props in range: stop %d oneway %d shelter %d meter %d mailbox %d containers %d crane %d ac %d vent %d tower %d rail %d",
+            counts[0], counts[1], counts[2], counts[3], counts[4], counts[5] + counts[6] + counts[7] + counts[8], counts[9], counts[10], counts[11], counts[12], counts[13]);
     }
     if (anyTree && (++g_treeStatFrames % 300) == 0) {
         Log("park trees: in the last 300 frames %d grass cells seen, %d trees placed (eye level %d)", g_treeStatGrass, g_treeStatPlaced, eyeLevel);

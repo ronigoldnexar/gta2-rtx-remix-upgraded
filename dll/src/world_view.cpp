@@ -1153,6 +1153,78 @@ bool WorldView::EnsureWorldLoaded() {
         LightsSetMapLights(mapLights);
         Log("map lamps: %u in %s", static_cast<unsigned>(mapLights.size() / 3), mapPath.c_str());
     }
+    {
+        // The map's zones, for the street views' environment rules: the bus
+        // stops (zone type 7, named bus...) get a shelter; the "trak" zones seed
+        // a flood fill along the elevated track's lid tiles, which gives every
+        // rail cell its girders. ZONE records: type, x, y, w, h, name length,
+        // name.
+        const std::vector<uint8_t> zone = FileChunk(mapPath, "ZONE");
+        std::vector<EnvCell> busStops, rail;
+        std::vector<std::pair<int, int>> seeds;
+        for (size_t p = 0; p + 6 <= zone.size();) {
+            const int type = zone[p], zx = zone[p + 1], zy = zone[p + 2], zw = zone[p + 3], zh = zone[p + 4], nl = zone[p + 5];
+            if (p + 6 + nl > zone.size()) break;
+            std::string name(reinterpret_cast<const char*>(&zone[p + 6]), nl);
+            for (char& c : name) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+            p += 6 + nl;
+            if (type == 7 && name.find("bus") != std::string::npos) busStops.push_back({zx, zy, 0, 0});
+            if (name.compare(0, 4, "trak") == 0) for (int yy = zy; yy < zy + zh; ++yy) for (int xx = zx; xx < zx + zw; ++xx) seeds.push_back({xx, yy});
+        }
+        auto lidOf = [&](int x, int y, int* tile, int* level) {
+            if (x < 0 || x >= gta2::kMapWidth || y < 0 || y >= gta2::kMapHeight) return false;
+            const gta2::Column& column = map_.ColumnAt(x, y);
+            if (column.blocks.empty() || column.blocks.back() >= map_.BlockCount()) return false;
+            const gta2::Block& block = map_.BlockAt(column.blocks.back());
+            *tile = block.lid.Tile();
+            *level = column.offset + static_cast<int>(column.blocks.size());
+            return true;
+        };
+        // The track tiles sit in one band of the style sheet (540..600 in all
+        // three districts); the fill stays on that band and within a level.
+        std::vector<uint8_t> seen(static_cast<size_t>(gta2::kMapWidth) * gta2::kMapHeight, 0);
+        std::vector<std::pair<int, int>> queue = seeds;
+        while (!queue.empty()) {
+            const auto [x, y] = queue.back();
+            queue.pop_back();
+            if (x < 0 || x >= gta2::kMapWidth || y < 0 || y >= gta2::kMapHeight) continue;
+            uint8_t& mark = seen[static_cast<size_t>(y) * gta2::kMapWidth + x];
+            if (mark) continue;
+            mark = 1;
+            int tile, level;
+            if (!lidOf(x, y, &tile, &level) || tile < 540 || tile > 600) continue;
+            int nt, nlvl;
+            // Only the track itself gets girders and rails, not the platforms,
+            // their hazard stripes or the signs that share the band: the track
+            // tiles per style, read off the style sheets (Downtown has no rail).
+            auto isTrack = [&](int tile) {
+                if (stylePath.find("ste") != std::string::npos) return tile == 572;
+                if (stylePath.find("bil") != std::string::npos) return tile == 553 || tile == 562 || tile == 563 || tile == 565;
+                return false;
+            };
+            if (isTrack(tile)) {
+                // The track runs the way its tiles run furthest; the ribbon is two
+                // cells wide, so a straight piece reads at once. Equal runs are a
+                // curve or a crossing: left as the flat tile.
+                auto run = [&](int dx, int dy) {
+                    int n = 0;
+                    for (int k = 1; k <= 5; ++k) {
+                        if (!lidOf(x + dx * k, y + dy * k, &nt, &nlvl) || !isTrack(nt) || nlvl != level) break;
+                        ++n;
+                    }
+                    return n;
+                };
+                const int runX = run(1, 0) + run(-1, 0), runY = run(0, 1) + run(0, -1);
+                rail.push_back({x, y, level, runX > runY ? 1 : (runY > runX ? 0 : 2)});
+            }
+            for (const auto [dx, dy] : {std::pair<int, int>{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                if (lidOf(x + dx, y + dy, &nt, &nlvl) && nt >= 540 && nt <= 600 && std::abs(nlvl - level) <= 1) queue.push_back({x + dx, y + dy});
+            }
+        }
+        SetEnvCells(rail, busStops);
+        Log("environment: %u rail cells from %u track zone cells, %u bus stops", static_cast<unsigned>(rail.size()),
+            static_cast<unsigned>(seeds.size()), static_cast<unsigned>(busStops.size()));
+    }
 
     // Where a partial or corner block is cut, likewise straight from the game
     // rather than assumed. The two outer constants are a sanity check: they must
