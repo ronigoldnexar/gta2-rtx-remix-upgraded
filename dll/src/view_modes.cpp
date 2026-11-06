@@ -1,6 +1,7 @@
 #include "view_modes.h"
 
 #include <algorithm>
+#include <vector>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -277,6 +278,88 @@ bool WriteAt(uintptr_t address, const T& value) {
            put == sizeof(T);
 }
 
+ViewQueries g_devQueries;
+void ViewModeSetQueries(const ViewQueries& queries) { g_devQueries = queries; }
+
+// After a warp the game streams the map around the player's new place; until
+// it has, there is nothing under him and he sinks through the lid he was put
+// on (seen on every warp of fifty blocks or more). So the position is held for
+// a moment, written again every frame from the key poll.
+struct WarpHold {
+    bool active = false;
+    int32_t fx = 0, fy = 0, fz = 0;
+    double until = 0.0;
+};
+WarpHold g_warpHold;
+
+void StartWarpHold(float x, float y, float z, double seconds) {
+    g_warpHold.active = true;
+    g_warpHold.fx = static_cast<int32_t>(x * (1 << 14));
+    g_warpHold.fy = static_cast<int32_t>(y * (1 << 14));
+    g_warpHold.fz = static_cast<int32_t>(z * (1 << 14));
+    g_warpHold.until = Now() + seconds;
+}
+
+void ServiceWarpHold() {
+    if (!g_warpHold.active) return;
+    if (Now() > g_warpHold.until) { g_warpHold.active = false; return; }
+    PlayerState player;
+    if (!LocatePlayer(&player) || !player.valid || player.inVehicle || !player.ped) return;
+    const uintptr_t ped = reinterpret_cast<uintptr_t>(player.ped);
+    uintptr_t physics = 0, place = 0;
+    if (!ReadAt(ped + game::kPedPhysics, &physics) || !Plausible(physics)) return;
+    if (!ReadAt(physics + game::kPhysicsSprite, &place) || !Plausible(place)) return;
+    WriteAt(place + game::kPlaceX, g_warpHold.fx); WriteAt(place + game::kPlaceY, g_warpHold.fy); WriteAt(place + game::kPlaceZ, g_warpHold.fz);
+    WriteAt(ped + game::kPedX, g_warpHold.fx); WriteAt(ped + game::kPedY, g_warpHold.fy); WriteAt(ped + game::kPedZ, g_warpHold.fz);
+}
+
+// Where a developer warp may put the player: the surface under the asked-for
+// point at the reference level, else the nearest road (then pavement) cell
+// within six blocks, else nowhere. Game coordinates in and out (x east, y
+// south, z the level); the queries speak the renderer's (z north = kMapHeight - y).
+bool ResolveWarpFloor(float x, float y, float refLevel, float* outX, float* outY, float* outZ, const char** how) {
+    *outX = x; *outY = y; *outZ = refLevel; *how = "as asked (no floor query)";
+    if (!g_devQueries.groundAt) return true;
+    auto ground = [&](float gx, float gy, float ceiling, float* level, int* type) {
+        return g_devQueries.groundAt(g_devQueries.context, gx, static_cast<float>(gta2::kMapHeight) - gy, ceiling, level, type);
+    };
+    float level = 0.0f;
+    int type = 0;
+    if (ground(x, y, refLevel + 0.95f, &level, &type) && type >= 1 && type <= 3) {
+        *outZ = level; *how = "the floor under the point"; return true;
+    }
+    // Spiral out over the cells, nearest first: a road at the reference level,
+    // then a road at any level, then pavement at the reference level.
+    struct Cell { int dx, dy; };
+    std::vector<Cell> cells;
+    for (int dy = -6; dy <= 6; ++dy) for (int dx = -6; dx <= 6; ++dx) if (dx * dx + dy * dy <= 36) cells.push_back({dx, dy});
+    std::sort(cells.begin(), cells.end(), [](const Cell& a, const Cell& b) { return a.dx * a.dx + a.dy * a.dy < b.dx * b.dx + b.dy * b.dy; });
+    const float cx0 = std::floor(x) + 0.5f, cy0 = std::floor(y) + 0.5f;
+    struct Pass { float ceiling; int want; const char* name; };
+    const Pass passes[3] = {{refLevel + 0.95f, 1, "the nearest road cell at the level"},
+                            {8.0f, 1, "the nearest road cell at any level"},
+                            {refLevel + 0.95f, 2, "the nearest pavement cell at the level"}};
+    for (const Pass& pass : passes) {
+        for (const Cell& c : cells) {
+            const float gx = cx0 + c.dx, gy = cy0 + c.dy;
+            if (ground(gx, gy, pass.ceiling, &level, &type) && type == pass.want) {
+                *outX = gx; *outY = gy; *outZ = level; *how = pass.name; return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Whether the game point (gx, gy) has a walkable surface at `level`
+// (within half a block of it): the queries speak the renderer's z.
+bool WarpFloorMatches(float gx, float gy, float level) {
+    if (!g_devQueries.groundAt) return true;
+    float y = 0.0f;
+    int type = 0;
+    return g_devQueries.groundAt(g_devQueries.context, gx, static_cast<float>(gta2::kMapHeight) - gy, level + 0.95f, &y, &type) &&
+           std::fabs(y - level) < 0.5f && type >= 1 && type <= 3;
+}
+
 bool WarpPlayerToParkedCar(float within) {
     PlayerState player;
     if (!LocatePlayer(&player) || !player.valid || player.inVehicle || !player.ped) return false;
@@ -287,9 +370,19 @@ bool WarpPlayerToParkedCar(float within) {
     float hx = 0.0f, hy = 1.0f;
     VehicleFacing(car, &hx, &hy);
     // The driver's door is on the car's left: facing (hx, hy) with y south,
-    // left is (hy, -hx).
-    const float tx = cx + 0.55f * hy;
-    const float ty = cy - 0.55f * hx;
+    // left is (hy, -hx). A car parked against a wall has its left door in the
+    // building: then the other side, where there is a floor to stand on.
+    float cz0 = player.z;
+    {
+        float px = 0.0f, py = 0.0f, pz = 0.0f;
+        if (game::ReadPlacement(static_cast<const uint8_t*>(car), game::kVehiclePlacementPtr, &px, &py, &pz)) cz0 = pz;
+    }
+    float tx = cx + 0.55f * hy;
+    float ty = cy - 0.55f * hx;
+    if (!WarpFloorMatches(tx, ty, cz0) && WarpFloorMatches(cx - 0.55f * hy, cy + 0.55f * hx, cz0)) {
+        tx = cx - 0.55f * hy;
+        ty = cy + 0.55f * hx;
+    }
     const uintptr_t ped = reinterpret_cast<uintptr_t>(player.ped);
     uintptr_t physics = 0;
     if (!ReadAt(ped + game::kPedPhysics, &physics) || !Plausible(physics)) return false;
@@ -299,9 +392,18 @@ bool WarpPlayerToParkedCar(float within) {
     const int32_t fy = static_cast<int32_t>(ty * (1 << 14));
     bool ok = WriteAt(place + game::kPlaceX, fx) && WriteAt(place + game::kPlaceY, fy);
     ok = WriteAt(ped + game::kPedX, fx) && WriteAt(ped + game::kPedY, fy) && ok;
-    Log("devtools: warped the player from %.2f,%.2f to %.2f,%.2f, the driver's door of the parked car at %.2f,%.2f "
+    // The car's own level, so the door is not reached from under the road.
+    float cz = player.z;
+    {
+        float px = 0.0f, py = 0.0f, pz = 0.0f;
+        if (game::ReadPlacement(static_cast<const uint8_t*>(car), game::kVehiclePlacementPtr, &px, &py, &pz)) cz = pz;
+    }
+    const int32_t fz = static_cast<int32_t>(cz * (1 << 14));
+    ok = WriteAt(place + game::kPlaceZ, fz) && WriteAt(ped + game::kPedZ, fz) && ok;
+    if (ok) StartWarpHold(tx, ty, cz, 1.5);
+    Log("devtools: warped the player from %.2f,%.2f,%.2f to %.2f,%.2f,%.2f, the driver's door of the parked car at %.2f,%.2f "
         "heading %.2f,%.2f (%s)",
-        player.x, player.y, tx, ty, cx, cy, hx, hy, ok ? "written" : "write failed");
+        player.x, player.y, player.z, tx, ty, cz, cx, cy, hx, hy, ok ? "written" : "write failed");
     return ok;
 }
 
@@ -310,6 +412,20 @@ bool WarpSceneToRoad(float x, float y, float z) {
     if (!LocatePlayer(&player) || !player.valid || player.inVehicle || !player.ped) {
         Log("devtools: scene warp ignored (player not located on foot)");
         return false;
+    }
+    // The spot must have a floor: a point over nothing (the default spot in
+    // another district, a terrace that is really a roof) used to leave him in
+    // the air or under the map, and the chase view looking up at the city.
+    {
+        float rx = x, ry = y, rz = z;
+        const char* how = "";
+        if (!ResolveWarpFloor(x, y, z >= 0.0f ? z : player.z, &rx, &ry, &rz, &how)) {
+            Log("devtools: scene warp refused: no road or pavement within six blocks of %.2f,%.2f at level %.0f",
+                x, y, z >= 0.0f ? z : player.z);
+            return false;
+        }
+        if (rx != x || ry != y || rz != z) Log("devtools: scene %.2f,%.2f,%.1f resolved to %.2f,%.2f,%.2f (%s)", x, y, z, rx, ry, rz, how);
+        x = rx; y = ry; z = rz;
     }
     float cx = 0.0f, cy = 0.0f, d = 0.0f;
     bool driven = false;
@@ -320,7 +436,7 @@ bool WarpSceneToRoad(float x, float y, float z) {
     }
     if (!place) {
         // No parked car to bring: move the player alone (objects and views can still be checked there).
-        const float tx = x, ty = y - 0.55f;
+        const float tx = x, ty = y;
         const uintptr_t ped = reinterpret_cast<uintptr_t>(player.ped);
         uintptr_t physics = 0, pedPlace = 0;
         bool ok = false;
@@ -335,6 +451,7 @@ bool WarpSceneToRoad(float x, float y, float z) {
                 ok = WriteAt(pedPlace + game::kPlaceZ, fz) && WriteAt(ped + game::kPedZ, fz) && ok;
             }
         }
+        if (ok) StartWarpHold(tx, ty, z >= 0.0f ? z : player.z, 1.5);
         Log("devtools: no parked car within reach; moved the player alone from %.2f,%.2f to %.2f,%.2f (%s)",
             player.x, player.y, tx, ty, ok ? "written" : "write failed");
         return ok;
@@ -342,11 +459,19 @@ bool WarpSceneToRoad(float x, float y, float z) {
     const uintptr_t placeAt = reinterpret_cast<uintptr_t>(place);
     // East: sin = 1, cos = 0 - a quarter of the game's 0x5A0 turn.
     const uint16_t east = static_cast<uint16_t>(game::kAngleFullTurn / 4);
-    bool ok = WriteAt(placeAt + game::kPlaceX, static_cast<int32_t>(x * (1 << 14))) &&
-              WriteAt(placeAt + game::kPlaceY, static_cast<int32_t>(y * (1 << 14))) &&
+    // The player stands on the resolved point itself; the car goes beside him,
+    // south (so he is at its left, driver's, door) when that cell has the same
+    // floor, else north. The old layout put him 0.55 north of the point, which
+    // in another district was the next cell: a building he fell through.
+    const float tx = x, ty = y;
+    float carX = x, carY = y + 0.55f;
+    if (!WarpFloorMatches(carX, carY, z)) {
+        if (WarpFloorMatches(x, y - 0.55f, z)) carY = y - 0.55f;
+        else carX = x + 1.0f;   // ahead of him on the same road
+    }
+    bool ok = WriteAt(placeAt + game::kPlaceX, static_cast<int32_t>(carX * (1 << 14))) &&
+              WriteAt(placeAt + game::kPlaceY, static_cast<int32_t>(carY * (1 << 14))) &&
               WriteAt(placeAt + game::kPlaceHeading, east);
-    // The driver's door: the left of a car facing east is its north side.
-    const float tx = x, ty = y - 0.55f;
     const uintptr_t ped = reinterpret_cast<uintptr_t>(player.ped);
     uintptr_t physics = 0, pedPlace = 0;
     if (ReadAt(ped + game::kPedPhysics, &physics) && Plausible(physics) &&
@@ -363,9 +488,10 @@ bool WarpSceneToRoad(float x, float y, float z) {
     } else {
         ok = false;
     }
+    if (ok) StartWarpHold(tx, ty, z >= 0.0f ? z : player.z, 1.5);
     Log("devtools: moved the parked car at %.2f,%.2f (%.2f tiles off) to %.2f,%.2f heading east and the player from "
-        "%.2f,%.2f to its door at %.2f,%.2f (%s)",
-        cx, cy, d, x, y, player.x, player.y, tx, ty, ok ? "written" : "write failed");
+        "%.2f,%.2f to its door at %.2f,%.2f level %.2f (%s)",
+        cx, cy, d, carX, carY, player.x, player.y, tx, ty, z, ok ? "written" : "write failed");
     return ok;
 }
 
@@ -622,6 +748,7 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     DWORD pid = 0;
     if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
     const bool ours = pid == GetCurrentProcessId();
+    if (worldLoaded) ServiceWarpHold();
 
     // The game's own control keys, as this process sees them, for reading a
     // scripted session back: one line per press and release.
@@ -862,6 +989,16 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         // Sideways is the heading turned a quarter: (-hz, hx) is the car's left.
         gta2::Vec3 eye{px + hx * ahead - hz * seat, baseY + eyeHeight, pz + hz * ahead + hx * seat};
+        // Out of a bin or a parking meter the game let him stand in (on leaving
+        // a car at the kerb): a small step sideways, never through a wall.
+        if (!inVehicle && q.propPush) {
+            float ox = eye.x, oz = eye.z;
+            if (q.propPush(q.context, eye.x, eye.y, eye.z, &ox, &oz) &&
+                !(q.blocked && q.blocked(q.context, ox, eye.y, oz))) {
+                eye.x = ox;
+                eye.z = oz;
+            }
+        }
         float yaw = WrapAngle(headingYaw + look.yaw);
         float pitch = look.pitch;
         float roll = 0.0f;

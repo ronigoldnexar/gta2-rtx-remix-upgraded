@@ -226,7 +226,17 @@ struct ViewQueries {
     // The distance from a point to the nearest flat panel (fence, railing) of
     // the block it is in; false when there is none.
     bool (*panelDistance)(void* context, float x, float y, float z, float* distance) = nullptr;
+    // The highest surface at or below `ceiling` under a point, with its ground
+    // type (1 road, 2 pavement, 3 field, 0 other); false when there is none.
+    bool (*groundAt)(void* context, float x, float z, float ceiling, float* y, int* type) = nullptr;
+    // A point inside a street prop's footprint (bin, bench, meter...) moved to
+    // just outside it; false when it is clear.
+    bool (*propPush)(void* context, float x, float y, float z, float* outX, float* outZ) = nullptr;
 };
+
+// The queries, kept for the developer warps (which run from the key poll, not
+// the solver). Set by the world view every frame it has a level.
+void ViewModeSetQueries(const ViewQueries& queries);
 
 class ViewCameraSolver {
 public:

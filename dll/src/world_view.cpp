@@ -749,8 +749,66 @@ bool WorldView::PanelDistance(float x, float y, float z, float* distance) const 
         best = (std::min)(best, (std::max)(d, 0.0f));
         any = true;
     }
+    // The street furniture placed by rule (bins, benches, meters, signs): the
+    // same clearance, from the footprints DrawProps kept.
+    for (const PropFootprint& p : live_.PlacedProps()) {
+        if (std::fabs(p.x - x) > 1.5f || std::fabs(p.z - z) > 1.5f) continue;
+        if (y < p.y - 0.2f || y > p.y + p.height + 0.2f) continue;
+        const float dx = p.x - x, dz = p.z - z;
+        const float d = std::sqrt(dx * dx + dz * dz) - p.radius;
+        best = (std::min)(best, (std::max)(d, 0.0f));
+        any = true;
+    }
     if (any && distance) *distance = best;
     return any;
+}
+
+bool WorldView::PropPush(float x, float y, float z, float* outX, float* outZ) const {
+    const PropFootprint* inside = nullptr;
+    float deepest = 0.0f;
+    for (const PropFootprint& p : live_.PlacedProps()) {
+        if (y < p.y - 0.2f || y > p.y + p.height + 0.2f) continue;
+        const float dx = x - p.x, dz = z - p.z;
+        const float depth = p.radius - std::sqrt(dx * dx + dz * dz);
+        if (depth > deepest) { deepest = depth; inside = &p; }
+    }
+    if (!inside) return false;
+    float dx = x - inside->x, dz = z - inside->z;
+    float len = std::sqrt(dx * dx + dz * dz);
+    if (len < 1e-3f) { dx = 1.0f; dz = 0.0f; len = 1.0f; }
+    const float want = inside->radius + 0.08f;
+    *outX = inside->x + dx / len * want;
+    *outZ = inside->z + dz / len * want;
+    return true;
+}
+
+// The surface under a point, as the game and the camera see it (the ground
+// sampler: a real lid, slopes followed), with the lid's ground type. A block
+// without a lid is nothing to stand on even when its type bits say "road":
+// the game drops a pedestrian through it, which is what the first scene warps
+// to another district did.
+bool WorldView::GroundAt(float x, float z, float ceiling, float* y, int* type) const {
+    if (map_.Empty()) return false;
+    float surface = 0.0f;
+    if (!FloorAt(x, z, ceiling, &surface)) return false;
+    const float mapY = static_cast<float>(gta2::kMapHeight) - z;
+    const int bx = static_cast<int>(std::floor(x));
+    const int by = static_cast<int>(std::floor(mapY));
+    if (bx < 0 || bx >= gta2::kMapWidth || by < 0 || by >= gta2::kMapHeight) return false;
+    const gta2::Column& column = map_.ColumnAt(bx, by);
+    // The lidded block whose top is that surface (a slope's lid is its block's top too).
+    int found = 0;
+    for (size_t i = 0; i < column.blocks.size(); ++i) {
+        const uint32_t index = column.blocks[i];
+        if (index >= map_.BlockCount()) continue;
+        const gta2::Block& block = map_.BlockAt(index);
+        if (!block.lid) continue;
+        const float top = static_cast<float>(column.offset + static_cast<int>(i) + 1);
+        if (std::fabs(top - std::ceil(surface - 1e-3f)) < 0.5f) { found = block.GroundType(); break; }
+    }
+    if (y) *y = surface;
+    if (type) *type = found;
+    return true;
 }
 
 void WorldView::Configure(float pitchDegrees, float fovDegrees, bool useGameTiles,
@@ -1452,6 +1510,9 @@ void WorldView::UpdateCamera() {
         queries.floorAt = &WorldView::FloorThunk;
         queries.blocked = &WorldView::BlockedThunk;
         queries.panelDistance = &WorldView::PanelThunk;
+        queries.groundAt = &WorldView::GroundThunk;
+        queries.propPush = &WorldView::PropThunk;
+        ViewModeSetQueries(queries);
         const bool placed = wantView && viewSolver_.Update(player, queries, viewDt, &camera_);
         if (viewSolver_.Status() != g_viewStatus) {
             // Every change of what the solver is doing, for reading a session back.
@@ -1496,6 +1557,7 @@ void WorldView::UpdateCamera() {
             SetHiddenObjects(hide ? player.pedSprite : nullptr,
                              hide && player.inVehicle ? player.vehicleSprite : nullptr);
             SetPlayerObject(player.pedSprite);
+            SetPlayerPosition(player.x, player.z, static_cast<float>(gta2::kMapHeight) - player.y, player.valid);
             SetUprightPeds(ViewModes().uprightPeds);
             SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
             SetGroundModels(ViewModes().groundModels && ModelsAvailable());
@@ -1514,6 +1576,7 @@ void WorldView::UpdateCamera() {
         g_viewActive = false;
         SetHiddenObjects(nullptr, nullptr);
         SetPlayerObject(nullptr);
+        SetPlayerPosition(0.0f, 0.0f, 0.0f, false);
         SetUprightPeds(false);
         SetPedFigures(false);
         SetGroundModels(false);

@@ -80,6 +80,11 @@ void SetHiddenObjects(const void* first, const void* second);
 // The player's own pedestrian sprite object (null when not located), so he
 // keeps one look rather than one hashed from his address.
 void SetPlayerObject(const void* object);
+// Where the player stands this frame (renderer coordinates), for keeping the
+// rule-placed street furniture out from under his feet; valid=false clears it.
+void SetPlayerPosition(float x, float y, float z, bool valid);
+// A street prop's footprint on the ground, for the camera's clearance queries.
+struct PropFootprint { float x, y, z, radius, height; };
 // Per style tile: 1 when the tile is grass, for the park trees of the street
 // views (set at level load from the style's artwork).
 void SetGrassTiles(const std::vector<uint8_t>& grass);
@@ -549,6 +554,10 @@ private:
         uintptr_t object;
     };
     std::vector<CarModelUse> carModels_;
+    std::vector<PropFootprint> propFootprints_;   // the props drawn last frame, see DrawProps
+public:
+    const std::vector<PropFootprint>& PlacedProps() const { return propFootprints_; }
+private:
     void DrawCarModels(IDirect3DDevice9* device);
     // Cars built from their own sprites this frame, in place of their domes. See car_bodies.h.
     std::vector<CarBodyUse> carBodies_;
@@ -584,6 +593,13 @@ private:
         bool actionReverse = false;         // getting up: the fall played backwards
         unsigned lastPedFrame = 0;          // his sprite frame last time, to see a cycle restart
         int lastLoggedAction = 0;           // for the GTA2DX9_LOG_PED_FRAMES log
+        // Level of detail: his rank by distance from the eye last frame (the
+        // nearest eight are posed every frame), and the pose values held for
+        // the frames in between when he is further off.
+        float eyeD2 = 1e9f;
+        int rank = 0;
+        unsigned lodFrame = 0;
+        float lodU = 0.0f, lodIdleT = 0.0f, lodWalkW = 0.0f, lodRunW = 0.0f, lodActT = 0.0f, lodActW = 0.0f;
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
 

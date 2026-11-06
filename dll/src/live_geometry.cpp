@@ -222,6 +222,11 @@ void SetEnvCells(const std::vector<EnvCell>& rail, const std::vector<EnvCell>& b
 bool IsWaterTile(int tile) { return tile >= 608 && tile <= 619; }
 bool IsGrassTile(int tile) { return tile >= 0 && tile < static_cast<int>(g_grassTiles.size()) && g_grassTiles[static_cast<size_t>(tile)] != 0; }
 
+float g_playerPosX = 0.0f, g_playerPosY = 0.0f, g_playerPosZ = 0.0f;
+bool g_playerPosValid = false;
+void SetPlayerPosition(float x, float y, float z, bool valid) {
+    g_playerPosX = x; g_playerPosY = y; g_playerPosZ = z; g_playerPosValid = valid;
+}
 void SetPlayerObject(const void* object) {
     g_playerObject = object;
     static bool checked = false;
@@ -4357,9 +4362,37 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     placed.erase(std::remove_if(placed.begin(), placed.end(),
                                 [](const Placed& p) { return BehindView(p.x, p.y, p.z, 1.5f); }),
                  placed.end());
-    if (placed.empty()) return;
+    // Nothing under the player's feet, and nothing beside a car's doors: the
+    // game puts him on the pavement when he leaves a car, and a bin or a meter
+    // placed by rule exactly there would hold his eye. The map's own lamps and
+    // the park trees stay where they are (a lamp has its light above it).
+    {
+        std::vector<std::pair<float, float>> doors;
+        for (const CarBodyUse& use : carBodies_) doors.push_back({use.objectToWorld.m[3][0], use.objectToWorld.m[3][2]});
+        for (const CarModelUse& use : carModels_) doors.push_back({use.placement.m[3][0], use.placement.m[3][2]});
+        placed.erase(std::remove_if(placed.begin(), placed.end(), [&](const Placed& p) {
+                         if (p.model == lamp || p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) return false;
+                         if (g_playerPosValid && std::fabs(p.y - g_playerPosY) < 1.5f) {
+                             const float dx = p.x - g_playerPosX, dz = p.z - g_playerPosZ;
+                             if (dx * dx + dz * dz < 0.6f * 0.6f) return true;
+                         }
+                         for (const auto& d : doors) {
+                             const float dx = p.x - d.first, dz = p.z - d.second;
+                             if (dx * dx + dz * dz < 1.1f * 1.1f) return true;
+                         }
+                         return false;
+                     }),
+                     placed.end());
+    }
+    if (placed.empty()) { propFootprints_.clear(); return; }
     std::sort(placed.begin(), placed.end(), [](const Placed& a, const Placed& b) { return a.d2 < b.d2; });
     if (placed.size() > static_cast<size_t>(kBudget)) placed.resize(kBudget);
+    propFootprints_.clear();
+    for (const Placed& p : placed) {
+        if (p.model == lamp || p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) continue;
+        const float r = (std::min)(0.6f, (std::max)(0.12f, 0.5f * p.scale * (std::max)(p.model->Length(), p.model->Width())));
+        propFootprints_.push_back({p.x, p.y, p.z, r, (std::max)(0.3f, p.model->Height() * p.scale)});
+    }
 
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
@@ -6178,8 +6211,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // people share cached poses and cost no skinning of their own.
             if (model && BehindView(gx, cy, gz, 0.6f)) continue;
             const float eyeDx = gx - g_viewEye.x, eyeDz = gz - g_viewEye.z;
-            const bool farAway = eyeDx * eyeDx + eyeDz * eyeDz > 64.0f;
+            const float eyeD2 = eyeDx * eyeDx + eyeDz * eyeDz;
+            const bool farAway = eyeD2 > 64.0f;
             const float cycleSteps = farAway ? 12.0f : 24.0f, idleSteps = farAway ? 5.0f : 10.0f;
+            // Level of detail: the nearest eight within ten blocks are posed every
+            // frame; the rest hold their pose for three frames at a time (the
+            // cache answers the two in between); beyond eighteen blocks a figure
+            // is the idle key, one pose shared by everyone that far off.
+            track.eyeD2 = eyeD2;
+            const int lod = eyeD2 > 18.0f * 18.0f ? 2 : (eyeD2 > 10.0f * 10.0f || track.rank >= 8) ? 1 : 0;
             if (model) {
                 // The character, at his pace, where the figure would stand, facing
                 // his drawn heading, upright, leaning a little into a turn.
@@ -6226,14 +6266,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // feet slide a little rather than the legs blurring).
                 const float covered = (std::min)(track.drawnSpeed * dt, 2.6f * cycleLen * dt);
                 if (moving) track.cycle = std::fmod(track.cycle + covered / cycleLen, 1.0f);
-                const float u = std::floor(track.cycle * cycleSteps) / cycleSteps;   // quantised: shared poses
-                const float walkTime = walk ? u * walk->length : 0.0f;
-                const float runTime = run ? u * run->length : 0.0f;
-                const float idleTime = idle ? std::floor((static_cast<float>(g_carFrame) / 30.0f * track.idleRate +
-                                                          track.idleOffset) * idleSteps) / idleSteps
-                                            : 0.0f;
-                const float walkW = std::floor(track.walkWeight * 8.0f + 0.5f) / 8.0f;
-                const float runW = std::floor(track.runWeight * 8.0f + 0.5f) / 8.0f;
+                float u = std::floor(track.cycle * cycleSteps) / cycleSteps;   // quantised: shared poses
+                float idleTime = idle ? std::floor((static_cast<float>(g_carFrame) / 30.0f * track.idleRate +
+                                                    track.idleOffset) * idleSteps) / idleSteps
+                                      : 0.0f;
+                float walkW = std::floor(track.walkWeight * 8.0f + 0.5f) / 8.0f;
+                float runW = std::floor(track.runWeight * 8.0f + 0.5f) / 8.0f;
                 // The action layer: its clip advances in real time (one-shots hold
                 // their last pose, the fall holds lying; a knock-down plays back out),
                 // and is faded in over the walk or idle, then out again when it is over.
@@ -6269,7 +6307,26 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 const float wantWeight = actionClip ? 1.0f : 0.0f;
                 track.actionWeight += (wantWeight - track.actionWeight) * (std::min)(1.0f, dt / (track.action == 4 ? 0.1f : 0.15f));
-                const float actW = actionClip ? std::floor(track.actionWeight * 8.0f + 0.5f) / 8.0f : 0.0f;
+                float actW = actionClip ? std::floor(track.actionWeight * 8.0f + 0.5f) / 8.0f : 0.0f;
+                if (lod == 2) {
+                    // The idle key; a body lying on the ground stays lying.
+                    u = 0.0f; idleTime = 0.0f; walkW = 0.0f; runW = 0.0f;
+                    if (track.action == 4 && actionClip) { actW = 1.0f; actionT = (std::max)(0.0f, actionClip->length - 0.001f); }
+                    else { actW = 0.0f; actionClip = nullptr; }
+                } else if (lod == 1) {
+                    const bool refresh = track.lodFrame == 0 || ((g_carFrame + static_cast<uint32_t>(sprite.object >> 4)) % 3u) == 0 ||
+                                         g_carFrame - track.lodFrame > 3;
+                    if (refresh) {
+                        track.lodFrame = g_carFrame;
+                        track.lodU = u; track.lodIdleT = idleTime; track.lodWalkW = walkW; track.lodRunW = runW;
+                        track.lodActT = actionT; track.lodActW = actW;
+                    } else {
+                        u = track.lodU; idleTime = track.lodIdleT; walkW = track.lodWalkW; runW = track.lodRunW;
+                        actionT = track.lodActT; actW = actionClip ? track.lodActW : 0.0f;
+                    }
+                }
+                const float walkTime = walk ? u * walk->length : 0.0f;
+                const float runTime = run ? u * run->length : 0.0f;
                 device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
                 device->SetFVF(kWorldFvf);
@@ -6351,6 +6408,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(),
                                 sizeof(FigVertex));
         ++drawn;
+    }
+    // Ranks by distance for the next frame's level of detail: the nearest
+    // eight people seen this frame are posed in full.
+    {
+        std::vector<std::pair<float, PedTrack*>> seen;
+        for (auto& entry : pedTracks_) if (entry.second.frame == g_carFrame) seen.push_back({entry.second.eyeD2, &entry.second});
+        std::sort(seen.begin(), seen.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        for (size_t i = 0; i < seen.size(); ++i) seen[i].second->rank = static_cast<int>(i);
     }
     // Tracks of pedestrians gone for a while are dropped.
     if (pedTracks_.size() > 512) {

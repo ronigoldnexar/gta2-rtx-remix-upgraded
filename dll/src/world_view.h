@@ -166,6 +166,16 @@ private:
     static bool PanelThunk(void* context, float x, float y, float z, float* distance) {
         return static_cast<const WorldView*>(context)->PanelDistance(x, y, z, distance);
     }
+    // The highest surface at or below `ceiling` in a column with its ground type.
+    bool GroundAt(float x, float z, float ceiling, float* y, int* type) const;
+    static bool GroundThunk(void* context, float x, float z, float ceiling, float* y, int* type) {
+        return static_cast<const WorldView*>(context)->GroundAt(x, z, ceiling, y, type);
+    }
+    // A point inside a street prop's footprint moved just outside it.
+    bool PropPush(float x, float y, float z, float* outX, float* outZ) const;
+    static bool PropThunk(void* context, float x, float y, float z, float* outX, float* outZ) {
+        return static_cast<const WorldView*>(context)->PropPush(x, y, z, outX, outZ);
+    }
 
     // Widen GTA2's own view rectangle to the frame's aspect. See the .cpp.
     void MatchGameViewToFrame();
