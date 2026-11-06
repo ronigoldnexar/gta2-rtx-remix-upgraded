@@ -154,3 +154,23 @@ blocks tall by a hash of the cell. Grass is any style tile that is green-dominan
 blue (`SetGrassTiles`, computed at level load in world_view.cpp; the water tiles are excluded).
 Regenerate: `gen3d/venv/bin/python tools/gen_trees.py ../assets-src/trees` then import with the
 manifest. Note the `props` block is now read generically, so any new role works.
+
+## Street furniture, docks, rooftops (tools/gen_env2.py)
+
+Procedural, no third-party content: `sign_stop`, `sign_oneway`, `bus_shelter`, `parking_meter`,
+`mailbox`, `container_1..4`, `crane`, `roof_ac`, `roof_vent`, `water_tower`, `rail` (one block of
+elevated track with its side girders). GTA2's palette (dark teal steel, mustard, rust, chrome).
+Placed by rule in `DrawProps` (dll/src/live_geometry.cpp): stop signs on one corner of a
+junction, one-way signs and parking meters along the kerb, mailboxes against buildings,
+shelters beside the map's bus-stop zones, containers and cranes along quays (a lid with
+water beside it), rail on the track tiles reached from the "trak" zones (style tiles 572 in
+Industrial, 553/562/563/565 in Residential; Downtown has no elevated rail), roof units and
+water towers on flat roofs above the street. Regenerate:
+
+    python3 tools/gen_env2.py ../assets-src/env2 --sheet out/env2_models_sheet.png
+    python3 tools/import_assets.py ../assets-src/manifest.json assets/models --only sign_stop,sign_oneway,bus_shelter,parking_meter,mailbox,container_1,container_2,container_3,container_4,crane,roof_ac,roof_vent,water_tower,rail
+
+Window glow (`[renderer] window_glow`, src/renderer.cpp `MakeWindowGlow`): wall tiles whose
+dark, cool-toned panes cover a twelfth to two thirds of the tile get a warm room-light
+texture added over them in the street views when the sun is low (nothing at noon, never in
+the classic view); some panes stay dark. Found from the tile pixels at level load, no files.

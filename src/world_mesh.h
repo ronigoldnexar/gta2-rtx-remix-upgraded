@@ -32,6 +32,9 @@ struct TileBatch {
     uint32_t vertexStart = 0;
     uint32_t vertexCount = 0;
     bool needsAlphaTest = false;
+    // Any of its faces is a lid (normal up): a tile seen on roofs or roads is
+    // never a window, whatever its pixels look like.
+    bool lidFaces = false;
     // Drawn without culling. GTA2's own renderer culls nothing
     // (d3ddll.dll!0x00E01A97 sets D3DRENDERSTATE_CULLMODE to D3DCULL_NONE), so
     // a lone fence or grille shows from both sides; a solid wall is one side of

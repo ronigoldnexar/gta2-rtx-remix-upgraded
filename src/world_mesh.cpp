@@ -420,6 +420,8 @@ private:
         batch.needsAlphaTest =
             keyed && tile < style_.TileCount() && style_.GetTile(tile).hasTransparency;
         batch.doubleSided = keyed;
+        for (const Vertex& v : quads) if (v.ny > 0.5f) { batch.lidFaces = true; break; }
+        if (!batch.lidFaces) for (const Vertex& v : tris) if (v.ny > 0.5f) { batch.lidFaces = true; break; }
 
         out->vertices.insert(out->vertices.end(), quads.begin(), quads.end());
         // Corners arrive clockwise seen from outside, which is front-facing

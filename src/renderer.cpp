@@ -115,6 +115,89 @@ void SetHdTextureDir(const char* dir) { g_hdTextureDir = dir ? dir : ""; }
 void SetTileDumpDir(const char* dir) { g_tileDumpDir = dir ? dir : ""; }
 bool g_waterEffect = true;
 void SetWaterEffect(bool on) { g_waterEffect = on; }
+bool g_windowGlow = true;
+void SetWindowGlow(bool on) { g_windowGlow = on; }
+
+// The glass of a wall tile, found from its pixels: dark, cool-toned texels in
+// runs at least six wide (a pane, not a mortar line), and a tile counts as a
+// window when they cover a twelfth to two thirds of it. The glow texture is
+// warm room light through those texels, with a few panes dark, so the wall
+// reads as lit from inside when the sun is low. Null for everything else.
+IDirect3DTexture9* MakeWindowGlow(IDirect3DDevice9* device, const uint32_t* pixels, int tileIndex) {
+    constexpr int n = kTileSize;
+    std::vector<uint8_t> glass(static_cast<size_t>(n) * n, 0);
+    int count = 0;
+    for (int y = 0; y < n; ++y) {
+        int run = 0;
+        for (int x = 0; x <= n; ++x) {
+            bool g = false;
+            if (x < n) {
+                const uint32_t px = pixels[static_cast<size_t>(y) * n + x];
+                const int r = (px >> 16) & 0xFF, gg = (px >> 8) & 0xFF, b = px & 0xFF;
+                const int lum = (r * 2 + gg * 3 + b) / 6;
+                g = (px >> 24) != 0 && lum < 96 && b >= r - 4 && b >= gg - 12;
+            }
+            if (g) { ++run; continue; }
+            if (run >= 6) for (int k = x - run; k < x; ++k) { glass[static_cast<size_t>(y) * n + k] = 1; ++count; }
+            run = 0;
+        }
+    }
+    // Vertical runs too: a pane is at least four rows tall.
+    std::vector<uint8_t> keep(static_cast<size_t>(n) * n, 0);
+    int kept = 0;
+    for (int x = 0; x < n; ++x) {
+        int run = 0;
+        for (int y = 0; y <= n; ++y) {
+            const bool g = y < n && glass[static_cast<size_t>(y) * n + x];
+            if (g) { ++run; continue; }
+            if (run >= 4) for (int k = y - run; k < y; ++k) { keep[static_cast<size_t>(k) * n + x] = 1; ++kept; }
+            run = 0;
+        }
+    }
+    if (kept < n * n / 12 || kept > n * n * 2 / 3) return nullptr;
+    std::vector<uint32_t> level(static_cast<size_t>(n) * n, 0xFF000000u);
+    uint32_t seed = 0x9E3779B9u ^ static_cast<uint32_t>(tileIndex * 2654435761u);
+    auto rnd = [&]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return static_cast<float>(seed & 0xFFFF) / 65535.0f; };
+    // A pane is a 16x16 cell of the tile; some are dark, some warm, some cool.
+    float cell[16];
+    for (float& c : cell) { const float r = rnd(); c = r < 0.3f ? 0.0f : (r < 0.8f ? 0.55f + 0.45f * rnd() : 0.35f); }
+    for (int y = 0; y < n; ++y) {
+        for (int x = 0; x < n; ++x) {
+            if (!keep[static_cast<size_t>(y) * n + x]) continue;
+            const float c = cell[(y / 16) * 4 + x / 16];
+            // A soft falloff toward the pane's edges: curtains and depth.
+            const float ex = std::min(x % 16, 15 - x % 16) / 7.5f, ey = std::min(y % 16, 15 - y % 16) / 7.5f;
+            const float f = c * std::min(1.0f, 0.35f + 0.65f * std::min(ex, ey));
+            const int r = static_cast<int>(255.0f * f * 1.0f), g = static_cast<int>(255.0f * f * 0.78f), b = static_cast<int>(255.0f * f * 0.45f);
+            level[static_cast<size_t>(y) * n + x] = 0xFF000000u | (r << 16) | (g << 8) | b;
+        }
+    }
+    IDirect3DTexture9* texture = nullptr;
+    if (FAILED(device->CreateTexture(n, n, 0, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) return nullptr;
+    // Mips by box filter, so the glow fades cleanly with distance.
+    std::vector<uint32_t> cur = level;
+    int w = n;
+    for (DWORD mip = 0; mip < texture->GetLevelCount(); ++mip) {
+        D3DLOCKED_RECT rect;
+        if (FAILED(texture->LockRect(mip, &rect, nullptr, 0))) break;
+        for (int y = 0; y < w; ++y) memcpy(static_cast<uint8_t*>(rect.pBits) + static_cast<size_t>(y) * rect.Pitch, &cur[static_cast<size_t>(y) * w], static_cast<size_t>(w) * 4);
+        texture->UnlockRect(mip);
+        if (w == 1) break;
+        const int h = w / 2;
+        std::vector<uint32_t> next(static_cast<size_t>(h) * h);
+        for (int y = 0; y < h; ++y) for (int x = 0; x < h; ++x) {
+            int acc[3] = {0, 0, 0};
+            for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx) {
+                const uint32_t px = cur[static_cast<size_t>(y * 2 + dy) * w + x * 2 + dx];
+                acc[0] += (px >> 16) & 0xFF; acc[1] += (px >> 8) & 0xFF; acc[2] += px & 0xFF;
+            }
+            next[static_cast<size_t>(y) * h + x] = 0xFF000000u | ((acc[0] / 4) << 16) | ((acc[1] / 4) << 8) | (acc[2] / 4);
+        }
+        cur.swap(next);
+        w = h;
+    }
+    return texture;
+}
 void SetTileStyleName(const char* name) { g_tileStyle = name && *name ? name : "style"; }
 
 namespace {
@@ -355,6 +438,8 @@ void Renderer::Shutdown() {
 void Renderer::ReleaseResources() {
     sky_.Release();
     if (waterNoise_) { waterNoise_->Release(); waterNoise_ = nullptr; }
+    for (IDirect3DTexture9* t : windowGlow_) if (t) t->Release();
+    windowGlow_.clear();
     // An animated tile's slot points at a frame owned by tileFrames_, so those
     // must not be released twice. Everything else in textures_ is owned here.
     for (IDirect3DTexture9* texture : textures_) {
@@ -550,6 +635,25 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     waterTile_.assign(textures_.size(), 0);
     for (int i = 0; i < style.TileCount() && i < static_cast<int>(waterTile_.size()); ++i) {
         if (IsWaterTileIndex(i)) waterTile_[i] = 1;
+    }
+    for (IDirect3DTexture9* t : windowGlow_) if (t) t->Release();
+    windowGlow_.assign(textures_.size(), nullptr);
+    {
+        // Only tiles the map uses on walls (never as lids) can be windows.
+        std::vector<uint8_t> wallOnly(textures_.size(), 0), lidUse(textures_.size(), 0);
+        for (const TileBatch& b : batches_) {
+            if (b.tile < 0 || b.tile >= static_cast<int>(textures_.size())) continue;
+            if (b.lidFaces) lidUse[static_cast<size_t>(b.tile)] = 1; else wallOnly[static_cast<size_t>(b.tile)] = 1;
+        }
+        int windows = 0;
+        for (int i = 0; i < style.TileCount() && i < static_cast<int>(windowGlow_.size()); ++i) {
+            if (!wallOnly[static_cast<size_t>(i)] || lidUse[static_cast<size_t>(i)] || IsWaterTileIndex(i)) continue;
+            const Tile& t = style.GetTile(i);
+            if (t.pixels.size() != static_cast<size_t>(kTileSize) * kTileSize) continue;
+            windowGlow_[static_cast<size_t>(i)] = MakeWindowGlow(device_, t.pixels.data(), i);
+            if (windowGlow_[static_cast<size_t>(i)]) ++windows;
+        }
+        Trace("windows: %d wall tiles glow from inside when the sun is low", windows);
     }
     if (!waterNoise_) waterNoise_ = MakeWaterNoise(device_);
     if (!dumpDir.empty()) {
@@ -1035,8 +1139,33 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetTextureStageState(3, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
             device_->SetTextureStageState(4, D3DTSS_COLOROP, D3DTOP_DISABLE);
         }
+        // Lit windows: the room glow added on top, scaled by how low the sun
+        // is (nothing at noon, full at dusk and night), in the street views only.
+        const float glowAmount = g_windowGlow && shading_.sun && !water ? std::min(1.0f, std::max(0.0f, (0.55f - shading_.sunDir.y) / 0.45f)) : 0.0f;
+        IDirect3DTexture9* glow = glowAmount > 0.02f && batch.tile < static_cast<int>(windowGlow_.size()) ? windowGlow_[static_cast<size_t>(batch.tile)] : nullptr;
+        if (glow) {
+            const int a = static_cast<int>(glowAmount * 255.0f + 0.5f);
+            device_->SetTexture(1, glow);
+            device_->SetTextureStageState(1, D3DTSS_TEXCOORDINDEX, 0);
+            device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MULTIPLYADD);   // current + glow * factor
+            device_->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+            device_->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+            device_->SetTextureStageState(1, D3DTSS_COLORARG0, D3DTA_CURRENT);
+            device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+            device_->SetTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+            device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_RGBA(a, a, a, 255));
+            device_->SetSamplerState(1, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+            device_->SetSamplerState(1, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            device_->SetSamplerState(1, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+            device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        }
         device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
                                       batch.indexStart, batch.indexCount / 3);
+        if (glow) {
+            device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+            device_->SetTexture(1, nullptr);
+        }
         if (water) {
             for (DWORD stage = 1; stage <= 3; ++stage) {
                 device_->SetTextureStageState(stage, D3DTSS_COLOROP, D3DTOP_DISABLE);

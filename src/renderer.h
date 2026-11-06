@@ -68,6 +68,7 @@ void SetTileStyleName(const char* name);
 // The street views' water surface effect (ripples and a sky tint on the water
 // tiles); on by default, off leaves the water the flat animated tile.
 void SetWaterEffect(bool on);
+void SetWindowGlow(bool on);
 // The largest size a high-resolution tile is uploaded at; larger files are
 // box-filtered down to it on load. 800 tiles at 256x256 cost the game's 32-bit
 // process half a gigabyte of textures, which it does not have; 128 is 2x the
@@ -195,6 +196,10 @@ private:
     std::map<uint64_t, int> tileByContent_;
     std::string hdDir_;                // the style's HD folder, "" when none
     std::vector<uint8_t> waterTile_;   // per tile: 1 when it is the water surface
+    // Window tiles of the street views: a glow texture per tile (the room's
+    // light behind the glass, black elsewhere), added over the wall when the
+    // sun is low. Null for tiles without windows. See MakeWindowGlow.
+    std::vector<IDirect3DTexture9*> windowGlow_;
     IDirect3DTexture9* waterNoise_ = nullptr;   // tileable noise for the water's ripples
     double waterClock_ = 0.0;
     IDirect3DTexture9* LoadHdTileTexture(int tile);
