@@ -191,3 +191,28 @@ step (above); `present` spikes of 100-475 ms a few times a minute (the GPU/Virtu
 our draw: they come with `game` spikes and texture builds); the pedestrian posing at 10-19 ms
 in frames with 7-8 skinned people in view (the 4-CPU container; the posing budget beyond 8
 blocks applies); props at 2-7 ms. None of these is in the car code.
+
+## Pedestrian level of detail (POLISH-3, 6 Nov evening, L4 host)
+
+QA pass two found the pedestrian posing the largest of our own costs in slow frames
+(`peds` summed over the Downtown soak's flagged frames: 3184 ms, versus 375 for the cars).
+`DrawPedFigures` now ranks the people seen each frame by distance from the eye (`PedTrack::rank`,
+from the previous frame) and poses them in three tiers: the nearest eight within ten blocks every
+frame as before; the rest hold their quantised pose values (`lodU`, `lodIdleT`, weights, action
+time) for three frames at a time, so the pose cache answers the two frames in between; beyond
+eighteen blocks a figure is the idle key with no blending, one cached pose shared by everyone that
+far off (a body lying on the ground keeps its lying key). The drawn position, heading and the
+motion smoothing are untouched, only how often a new skin is computed.
+
+Same scenario (`gamerun/qa_soak.py`, 540 s of walking, F10 car, driving and leaving it, all
+views, Downtown), same 4-CPU GPU container, both on a host shared with other streams' runs:
+
+| run | frame summaries | frames flagged slow | peds ms in flagged frames: n / sum / mean / max | sprites stage avg (mean / max of summaries) | sprites worst (mean / max) | game avg | wait avg |
+|---|---|---|---|---|---|---|---|
+| `qa_soak_wil` (before, QA2) | 76 | 1600 | 300 / 3184 / 10.6 / 64.9 | 4.0 / 13.0 ms | 28.0 / 194 ms | 8.8 ms | 19.0 ms |
+| `qa_p3soak_wil` (after) | 70 | 100 | 22 / 151 / 6.8 / 16.1 | 2.4 / 5.1 ms | 10.2 / 78 ms | 6.5 ms | 23.9 ms |
+
+Read with the usual caveat (host load differs between the two runs; the `game` column is GTA2's own
+step), the sprites stage averages fell by about 40 % and its worst cases by about two thirds, and
+the frames our side flagged as slow went from 1600 to 100 over the same nine minutes, with the
+posing no longer the top item in them. 0 faults, 8 laps.

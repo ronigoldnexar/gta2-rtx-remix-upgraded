@@ -9,6 +9,18 @@ export VGL_DISPLAY=${VGL_DISPLAY:-egl0} VGL_VERBOSE=${VGL_VERBOSE:-1}
 export VK_ICD_FILENAMES=${ICD_JSON:-$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | tr "\n" ":")}
 W=${SCREEN_W:-1280}; H=${SCREEN_H:-720}
 if [ "${HOST_DISPLAY:-0}" = 1 ]; then export DISPLAY=${DISPLAY:-:0}; else export DISPLAY=:99; __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json Xvfb :99 -screen 0 ${W}x${H}x24 +extension GLX +render -noreset >/tmp/xvfb.log 2>&1 & fi   # Xvfb's own GLX must stay on Mesa: with the NVIDIA EGL vendor (and the runtime's libnvidia-egl-gbm) it segfaults; vglrun below still goes to the GPU
+# Audio: the container has no sound card, so Wine's DirectSound finds no endpoint
+# and the game's Miles Sound System (mss32.dll) opens no digital driver; the game
+# then keeps using the dead driver handle and sometimes page-faults in
+# AIL_allocate_sample_handle (mss32+0x12353) seconds into a level. A PulseAudio
+# null sink gives DirectSound a real, clocked (silent) endpoint, so Miles opens
+# normally. (An ALSA "null" pcm is not enough: it has no clock, and the intro movie
+# freezes on it.) GTA2_AUDIO=none skips this.
+if [ "${GTA2_AUDIO:-pulse}" = pulse ] && command -v pulseaudio >/dev/null 2>&1; then
+  export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/xdg-runtime}; mkdir -p "$XDG_RUNTIME_DIR"
+  pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit \
+    --load="module-null-sink sink_name=null sink_properties=device.description=null" >/tmp/pulse.log 2>&1 || true
+fi
 sleep 2; if [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1); else wineboot -i >/dev/null 2>&1; fi
 G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 cp -r /game/. "$G"/; mkdir -p "$G/player"

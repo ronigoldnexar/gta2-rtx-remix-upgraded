@@ -18,7 +18,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         libegl1:i386 libgl1:i386 libglx0:i386 libglvnd0:i386 libgbm1:i386 libdrm2:i386 \
         libx11-xcb1:i386 libxcb-dri3-0:i386 libxcb-present0:i386 libxext6:i386 \
         libxtst6 libxv1 libglu1-mesa libxtst6:i386 libxv1:i386 libglu1-mesa:i386 \
-        mesa-utils mesa-utils-extra gcc libc6-dev libegl1-mesa-dev libgl-dev \
+        mesa-utils mesa-utils-extra gcc libc6-dev libegl1-mesa-dev libgl-dev pulseaudio pulseaudio-utils \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /tmp/nv
 RUN curl -sSL -o common.deb $NV_POOL/libnvidia-common-580-server_${NV_VER}_all.deb \

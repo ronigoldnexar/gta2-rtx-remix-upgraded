@@ -44,6 +44,14 @@ own installer. Generated assets that embed the game's artwork stay out of git.
 
 ### Open
 
+- **Fixed 6 Nov, evening: the intermittent `mss32.dll+0x12353` crash.** Cause: no audio
+  endpoint in the container, so `DirectSoundCreate` failed, Miles opened no digital driver and
+  the game later used the dead handle in `AIL_allocate_sample_handle`. Fix: a PulseAudio null sink
+  started by `run_game*.sh` (images carry `pulseaudio`); see `linux/README.md`, "Sound on a
+  machine with no sound card". If a run ever shows that fault again, check `/tmp/pulse.log` in
+  the container and that `game.stdout` (with `WINEDEBUG=+mmdevapi`) selects the `pulse` driver.
+  An ALSA null pcm is not a substitute (no clock: the intro movie freezes).
+
 1. **RTX Remix path tracing has never run.** On the first host (B200) Vulkan
    had no ray query (device creation returned -7). Mesa lavapipe got the Remix
    server to its first frame and died in its JIT. The second host has an L4

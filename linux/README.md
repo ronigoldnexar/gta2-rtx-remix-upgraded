@@ -49,6 +49,26 @@ into the prefix. Your own game folder is never written to. `run.sh` starts the
 game in a Wine virtual desktop (`GTA2_DESKTOP=2560x1440 linux/run.sh` to change
 it, `GTA2_DESKTOP= linux/run.sh` for none); `--log` tails `gta2dx9.log`.
 
+**Sound on a machine with no sound card** (containers, headless servers): give Wine a
+clocked null audio endpoint before starting the game, or it can crash seconds into a
+level:
+
+```
+sudo apt install pulseaudio
+export XDG_RUNTIME_DIR=/tmp/xdg-runtime; mkdir -p $XDG_RUNTIME_DIR
+pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit --load="module-null-sink sink_name=null"
+```
+
+Without any audio endpoint Wine's `DirectSoundCreate` fails, the game's Miles Sound
+System (`mss32.dll`) opens no digital driver, and the game goes on using the dead
+driver handle; `AIL_allocate_sample_handle` then reads through it and page-faults
+(`mss32.dll+0x12353`, intermittent: one run in seventy on a plain host, most Remix
+runs). With the null sink Wine picks `winepulse`, DirectSound initialises, Miles
+creates its buffers and the audio path is the normal one. An ALSA `pcm.!default
+{ type null }` is not a substitute: that device has no clock and the intro movie
+freezes on it. The Docker images carry PulseAudio and the run scripts start the
+sink themselves (`GTA2_AUDIO=none` to skip).
+
 Press **V** in a level to cycle the classic, third-person and first-person views,
 **F4** for the settings panel. `tools/record_demo.sh` records the switch with ffmpeg.
 

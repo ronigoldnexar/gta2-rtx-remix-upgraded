@@ -1,0 +1,8 @@
+FROM gta2-remix-gpu2
+# PulseAudio null sink: a clocked silent audio endpoint for Wine (see linux/README.md,
+# "Sound on a machine with no sound card"). apt cannot resolve on this image (the NVIDIA
+# GL packages were force-installed), so the dependency closure is fetched and unpacked by hand.
+RUN apt-get update && cd /tmp && mkdir pa && cd pa \
+    && apt-get download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances pulseaudio pulseaudio-utils | grep "^\w" | sort -u) 2>&1 | tail -1 \
+    && dpkg -i --force-depends --skip-same-version *.deb > /tmp/pa.log 2>&1 || true; \
+    cd / && rm -rf /tmp/pa /var/lib/apt/lists/*; pulseaudio --version

@@ -25,6 +25,18 @@ sleep 2
 # opaque, and it is raised over the picture on every key event (black frames
 # while a key is held). With a compositor _NET_WM_WINDOW_OPACITY makes it clear.
 if [ "${COMPOSITOR:-1}" = 1 ] && command -v xcompmgr >/dev/null; then xcompmgr -n >/tmp/xcompmgr.log 2>&1 & echo "== compositor: xcompmgr"; sleep 1; fi
+# Audio: the container has no sound card, so Wine's DirectSound finds no endpoint
+# and the game's Miles Sound System (mss32.dll) opens no digital driver; the game
+# then keeps using the dead driver handle and sometimes page-faults in
+# AIL_allocate_sample_handle (mss32+0x12353) seconds into a level. A PulseAudio
+# null sink gives DirectSound a real, clocked (silent) endpoint, so Miles opens
+# normally. (An ALSA "null" pcm is not enough: it has no clock, and the intro movie
+# freezes on it.) GTA2_AUDIO=none skips this.
+if [ "${GTA2_AUDIO:-pulse}" = pulse ] && command -v pulseaudio >/dev/null 2>&1; then
+  export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/xdg-runtime}; mkdir -p "$XDG_RUNTIME_DIR"
+  pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit \
+    --load="module-null-sink sink_name=null sink_properties=device.description=null" >/tmp/pulse.log 2>&1 || true
+fi
 if [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1); else wineboot -i >/dev/null 2>&1; fi
 G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 cp -r /game/. "$G"/; mkdir -p "$G/player"
