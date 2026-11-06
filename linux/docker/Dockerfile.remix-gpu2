@@ -1,0 +1,3 @@
+FROM gta2-remix-gpu
+RUN apt-get update && cd /tmp && apt-get download xcompmgr libxcomposite1 libxdamage1 libxfixes3 libxrender1 2>&1 | tail -1 \
+    && dpkg -i --force-depends *.deb && rm -f /tmp/*.deb && rm -rf /var/lib/apt/lists/* && ldd /usr/bin/xcompmgr | grep "not found" || true

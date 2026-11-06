@@ -737,6 +737,18 @@ bool WorldView::PanelDistance(float x, float y, float z, float* distance) const 
     consider(block.right, static_cast<float>(bx + 1) - x);
     consider(block.top, (zSouth + 1.0f) - z);
     consider(block.bottom, z - zSouth);
+    // A lamp post is drawn at every one of the map's lamps (DrawProps), and the
+    // chase camera resting inside its post sees a black bar across the frame
+    // just as it did inside a railing; the post counts as a panel too. Only the
+    // lamps of this block and its neighbours can be near.
+    for (const gta2::Vec3& at : MapLamps()) {
+        if (std::fabs(at.x - x) > 1.5f || std::fabs(at.z - z) > 1.5f) continue;
+        if (at.y - y > 3.5f || y - at.y > 1.0f) continue;   // the post stands below the lamp
+        const float dx = at.x - x, dz = at.z - z;
+        const float d = std::sqrt(dx * dx + dz * dz) - 0.06f;   // the post's own radius
+        best = (std::min)(best, (std::max)(d, 0.0f));
+        any = true;
+    }
     if (any && distance) *distance = best;
     return any;
 }

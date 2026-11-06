@@ -44,6 +44,60 @@
   Clip: `deliverables/gta2_linux_rtx_remix_path_traced.mp4` (116 s, cut from the recording);
   sheet: `deliverables/rtx_remix_path_traced_sheet.png` (classic vs first person).
 
+## The black stretches: cause and fix (REMIX-POLISH, 6 Nov evening)
+
+**Cause: not the renderer, not the camera, not the capture.** Three scripted runs with
+per-segment black-frame counts (`gamerun/blackframes.py`, 2 fps samples of the recording)
+showed the blanking follows *keyboard input*, in every view: idle segments 0 %, a harmless
+key (Scroll Lock) tapped once a second 73-85 %, the same key held 95-100 %, Up held 92-96 %,
+idle again 8-30 % (the decay). The classic view blanked just as much as the street views;
+earlier runs only showed it in the ground views because those were the segments with keys
+held (`out/remix_diag2`, `out/remix_diag3`). `xev` on the present window during a key hold
+shows a `ConfigureNotify`/`VisibilityFullyObscured` pair every 2.6 s: another top-level
+window is raised over it. That window is the runtime's **"new GUI input" overlay**
+(`RemixGuiInputSink`, `rtx.useNewGuiInputMethod = True` by default): a `WS_EX_LAYERED`
+popup with alpha 0 that the runtime re-raises (`show()`) on every window message it sees,
+which with the bridge's DirectInput forwarding is every key event. On Windows the layered
+window is invisible; on Xvfb without a compositing manager Wine can only map it as an
+opaque black window.
+
+**Fix: a compositor on the Xvfb screen.** `gamerun/run_game_remix_gpu.sh` now starts
+`xcompmgr -n` before Wine (`COMPOSITOR=1`, the default when it is installed; image
+`gta2-remix-gpu2`, `linux/docker/Dockerfile.remix-gpu2`); with compositing the layered
+window really is transparent. Result (`out/remix_comp1`, same key-hold script): **0 black
+frames in every segment**, front end included. `rtx.useNewGuiInputMethod = False` also
+removes the window but crashes the game a few seconds in (binkw32/page fault, two runs),
+so it is not used.
+
+| run | third person | first person | notes |
+|---|---|---|---|
+| remix_l4_7 (before) | 62 % black | 53 % | the first clip |
+| remix_l4_8 (before, models off) | 44 % | 48 % | |
+| remix_mat_on (before) | 70 % | 66 % | |
+| remix_comp1 (compositor) | 0 % (keys held) | 0 % | all segments 0 % |
+| remix_clip5 (compositor, the clip) | 0 % | 0 % | 92 s clip, 0 FAULT |
+
+Two script fixes came out of the same runs: the key scripts now press Return until the
+log shows Downtown loaded (`remix_keys_lib.sh: to_level`; the attract demo plays
+Residential first, so "player found" alone is not the signal), and a Remix run is only
+valid when the game did not hit the intermittent `mss32.dll+0x12353` fault a few seconds
+after start (2 of 5 runs with `NO_HD=1`; retry).
+
+**Material mod and the HD tiles.** The runtime hashes what the game uploads. With the HD
+DDS tiles installed the renderer uploads 512 px block-compressed textures, so the
+`gta2hd` layer (keyed by the 64 px tile hashes) cannot match and the walls are the DDS
+albedo with the legacy flat material. With `NO_HD=1` the game uploads the 64 px tiles and
+the layer supplies 256 px albedo + normal + roughness instead. The layer was rebuilt for all
+three districts straight from the style files (`gamerun/build_remix_mod.sh`:
+`tools/dump_style_tiles.py --all` → the current 512 px DDS as albedo → `remix_materials.py`;
+2 590 materials, 560 MB, `package/rtx-remix/mods/gta2hd_new`, not committed).
+
+**Deliverables (run `out/remix_clip5`, image `gta2-remix-gpu2`, `keys_remix_clip.sh`, 14:00 game
+clock):** `deliverables/gta2_linux_rtx_remix_path_traced.mp4` (92 s, 1280x720: classic →
+third person → first person on foot → classic, sun shadows, Rocketbox pedestrians, 0 black
+frames in the level, 0 faults) and `deliverables/rtx_remix_path_traced_sheet.png` (classic vs
+first person on the same plaza). Cut with `gamerun/remix_sheet.py`.
+
 ## Open
 - **Black stretches of 1-7 s in the ground views** (run 7: about half of the third/first-person
   segment, none in classic). They coincide with the renderer's sprite stage at 49 ms average

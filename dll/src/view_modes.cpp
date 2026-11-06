@@ -937,8 +937,17 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const float orbitPitch = (std::min)((std::max)(look.pitch, -20.0f * kDegToRad), 70.0f * kDegToRad);
 
     const float scale = inVehicle ? 1.0f : (std::max)(s.tpFootScale, 0.2f);
-    const float distance = ((std::max)(s.tpDistance, 0.5f) + s.tpPullBack * speedFrac_) * scale;
-    const float height = (s.tpHeight + 0.25f * s.tpPullBack * speedFrac_) * scale;
+    // A tall vehicle (truck cab, bus, van) fills the frame from the sedan
+    // distance: the chase pulls back and rises with the body's roof, which the
+    // car bodies know (a sedan roof is about 0.35 blocks, a truck cab 0.9).
+    float tall = 1.0f;
+    if (inVehicle) {
+        float deck, roof, screen, halfWidth;
+        if (CarBodiesCabin(player.vehicleSprite, &deck, &roof, &screen, &halfWidth) && roof > 0.45f)
+            tall = (std::min)(1.0f + (roof - 0.45f) * 1.6f, 1.8f);
+    }
+    const float distance = ((std::max)(s.tpDistance, 0.5f) + s.tpPullBack * speedFrac_) * scale * tall;
+    const float height = (s.tpHeight + 0.25f * s.tpPullBack * speedFrac_) * scale * tall;
     const float lookAhead = (s.tpLookAhead + 0.8f * speedFrac_) * scale;
     const float lookHeight = s.tpLookHeight * scale;
     // Over the shoulder on foot: the camera, and what it looks at, sit a little
