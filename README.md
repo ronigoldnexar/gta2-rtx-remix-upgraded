@@ -126,7 +126,8 @@ It needs [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) on the PATH. The switch i
 No Windows needed, for building or for playing. `make` builds both DLLs with the MinGW-w64 cross compiler
 and `make check` loads them under Wine; `linux/install.sh` sets up a Wine prefix with the game, the
 upstream release and this build, and `linux/run.sh` starts it. Everything, including what RTX Remix
-does and does not do under Wine, is in [linux/README.md](linux/README.md).
+does and does not do under Wine, is in [linux/README.md](linux/README.md). Containers for headless
+runs (CPU, NVIDIA GPU, Remix) and the scripted-play tooling are under `linux/docker/`.
 
 ## Where to get GTA2
 
@@ -172,6 +173,10 @@ package.bat
 Builds `dll\build\gta2dx9.dll` and `vid\build\gta2dx9_vid.dll` and assembles the release files in `release\`.
 The two DLLs can also be built alone with `dll\build.bat` and `vid\build.bat`. The RTX Remix API headers in
 `dll\deps\bridge_api` must match the Remix runtime the game uses (see `dll\deps\README.md`).
+
+On Linux, `make -j8 stage` (mingw-w64) builds both DLLs and `make check` loads them under Wine.
+To continue the work on another machine, Windows or Linux, start with [docs/HANDOVER.md](docs/HANDOVER.md)
+(state, architecture, asset pipeline, conventions, open issues) and [AGENTS.md](AGENTS.md).
 
 ```
 dll/        gta2dx9.dll, the renderer

@@ -1,0 +1,1904 @@
+[
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 153,
+  "name": "animated tile frame 153",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 154,
+  "name": "animated tile frame 154",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 155,
+  "name": "animated tile frame 155",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 156,
+  "name": "animated tile frame 156",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 157,
+  "name": "animated tile frame 157",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 158,
+  "name": "animated tile frame 158",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 159,
+  "name": "animated tile frame 159",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 609,
+  "name": "animated tile frame 609",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 610,
+  "name": "animated tile frame 610",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 611,
+  "name": "animated tile frame 611",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 612,
+  "name": "animated tile frame 612",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 614,
+  "name": "animated tile frame 614",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 615,
+  "name": "animated tile frame 615",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 616,
+  "name": "animated tile frame 616",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 617,
+  "name": "animated tile frame 617",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 618,
+  "name": "animated tile frame 618",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 619,
+  "name": "animated tile frame 619",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 728,
+  "name": "animated tile frame 728",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 729,
+  "name": "animated tile frame 729",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 730,
+  "name": "animated tile frame 730",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 746,
+  "name": "animated tile frame 746",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 747,
+  "name": "animated tile frame 747",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 748,
+  "name": "animated tile frame 748",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 752,
+  "name": "animated tile frame 752",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 754,
+  "name": "animated tile frame 754",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 760,
+  "name": "animated tile frame 760",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 763,
+  "name": "animated tile frame 763",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 767,
+  "name": "animated tile frame 767",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "wil",
+  "id": 1023,
+  "name": "tile 1023",
+  "sprite": null,
+  "street_faces": 433,
+  "priority": "high",
+  "method": "dump_tiles=1 with the level loaded, then tools/pack_textures_dds.py (ESRGAN+SD)"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 313,
+  "name": "animated tile frame 313",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 317,
+  "name": "animated tile frame 317",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 318,
+  "name": "animated tile frame 318",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 322,
+  "name": "animated tile frame 322",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 323,
+  "name": "animated tile frame 323",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 325,
+  "name": "animated tile frame 325",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 326,
+  "name": "animated tile frame 326",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 328,
+  "name": "animated tile frame 328",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 334,
+  "name": "animated tile frame 334",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 335,
+  "name": "animated tile frame 335",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 386,
+  "name": "animated tile frame 386",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 387,
+  "name": "animated tile frame 387",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 390,
+  "name": "animated tile frame 390",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 392,
+  "name": "animated tile frame 392",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 396,
+  "name": "animated tile frame 396",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 397,
+  "name": "animated tile frame 397",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 398,
+  "name": "animated tile frame 398",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 399,
+  "name": "animated tile frame 399",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 408,
+  "name": "animated tile frame 408",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 412,
+  "name": "animated tile frame 412",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 609,
+  "name": "animated tile frame 609",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 610,
+  "name": "animated tile frame 610",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 611,
+  "name": "animated tile frame 611",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 612,
+  "name": "animated tile frame 612",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 613,
+  "name": "animated tile frame 613",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 614,
+  "name": "animated tile frame 614",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 615,
+  "name": "animated tile frame 615",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 616,
+  "name": "animated tile frame 616",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 617,
+  "name": "animated tile frame 617",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 618,
+  "name": "animated tile frame 618",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 619,
+  "name": "animated tile frame 619",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 650,
+  "name": "animated tile frame 650",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 651,
+  "name": "animated tile frame 651",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 653,
+  "name": "animated tile frame 653",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 654,
+  "name": "animated tile frame 654",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 655,
+  "name": "animated tile frame 655",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 656,
+  "name": "animated tile frame 656",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 917,
+  "name": "animated tile frame 917",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "bil",
+  "id": 1023,
+  "name": "tile 1023",
+  "sprite": null,
+  "street_faces": 1304,
+  "priority": "high",
+  "method": "dump_tiles=1 with the level loaded, then tools/pack_textures_dds.py (ESRGAN+SD)"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 3,
+  "name": "animated tile frame 3",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 4,
+  "name": "animated tile frame 4",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 7,
+  "name": "animated tile frame 7",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 8,
+  "name": "animated tile frame 8",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 21,
+  "name": "animated tile frame 21",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 22,
+  "name": "animated tile frame 22",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 26,
+  "name": "animated tile frame 26",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 27,
+  "name": "animated tile frame 27",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 28,
+  "name": "animated tile frame 28",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 100,
+  "name": "animated tile frame 100",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 101,
+  "name": "animated tile frame 101",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 120,
+  "name": "animated tile frame 120",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 121,
+  "name": "animated tile frame 121",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 122,
+  "name": "animated tile frame 122",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 597,
+  "name": "animated tile frame 597",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 598,
+  "name": "animated tile frame 598",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 599,
+  "name": "animated tile frame 599",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 600,
+  "name": "animated tile frame 600",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 601,
+  "name": "animated tile frame 601",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 602,
+  "name": "animated tile frame 602",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 603,
+  "name": "animated tile frame 603",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 609,
+  "name": "animated tile frame 609",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 610,
+  "name": "animated tile frame 610",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 611,
+  "name": "animated tile frame 611",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 612,
+  "name": "animated tile frame 612",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 613,
+  "name": "animated tile frame 613",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 614,
+  "name": "animated tile frame 614",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 615,
+  "name": "animated tile frame 615",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 616,
+  "name": "animated tile frame 616",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 617,
+  "name": "animated tile frame 617",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 618,
+  "name": "animated tile frame 618",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 619,
+  "name": "animated tile frame 619",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 636,
+  "name": "animated tile frame 636",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 638,
+  "name": "animated tile frame 638",
+  "sprite": null,
+  "street_faces": 0,
+  "priority": "high",
+  "method": "dump the TILE chunk directly (tools/audit_assets.py tile_image) and pack: animated water/neon alternate HD and 64 px frames otherwise"
+ },
+ {
+  "category": "tile",
+  "district": "ste",
+  "id": 1023,
+  "name": "tile 1023",
+  "sprite": null,
+  "street_faces": 1641,
+  "priority": "high",
+  "method": "dump_tiles=1 with the level loaded, then tools/pack_textures_dds.py (ESRGAN+SD)"
+ },
+ {
+  "category": "car",
+  "id": 72,
+  "name": "Wreck 0",
+  "sprite": "assets-src/cars/sprites/072_wreck_0_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 73,
+  "name": "Wreck 1",
+  "sprite": "assets-src/cars/sprites/073_wreck_1_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 74,
+  "name": "Wreck 2",
+  "sprite": "assets-src/cars/sprites/074_wreck_2_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 75,
+  "name": "Wreck 3",
+  "sprite": "assets-src/cars/sprites/075_wreck_3_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 76,
+  "name": "Wreck 4",
+  "sprite": "assets-src/cars/sprites/076_wreck_4_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 77,
+  "name": "Wreck 5",
+  "sprite": "assets-src/cars/sprites/077_wreck_5_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 78,
+  "name": "Wreck 6",
+  "sprite": "assets-src/cars/sprites/078_wreck_6_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 79,
+  "name": "Wreck 7",
+  "sprite": "assets-src/cars/sprites/079_wreck_7_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 80,
+  "name": "Wreck 8",
+  "sprite": "assets-src/cars/sprites/080_wreck_8_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "car",
+  "id": 81,
+  "name": "Wreck 9",
+  "sprite": "assets-src/cars/sprites/081_wreck_9_default.png",
+  "priority": "medium",
+  "method": "wreck: derive from the intact model (crumpled, burnt paint) in tools/make_car_model.py; others: gen3d/car_pipeline.py"
+ },
+ {
+  "category": "ped_type",
+  "id": 0,
+  "name": "ped remap palette 0",
+  "sprite": "out/audit_ped_types.png#0",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 1,
+  "name": "ped remap palette 1",
+  "sprite": "out/audit_ped_types.png#1",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 2,
+  "name": "ped remap palette 2",
+  "sprite": "out/audit_ped_types.png#2",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 3,
+  "name": "ped remap palette 3",
+  "sprite": "out/audit_ped_types.png#3",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 4,
+  "name": "ped remap palette 4",
+  "sprite": "out/audit_ped_types.png#4",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 5,
+  "name": "ped remap palette 5",
+  "sprite": "out/audit_ped_types.png#5",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 6,
+  "name": "ped remap palette 6",
+  "sprite": "out/audit_ped_types.png#6",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 7,
+  "name": "ped remap palette 7",
+  "sprite": "out/audit_ped_types.png#7",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 8,
+  "name": "ped remap palette 8",
+  "sprite": "out/audit_ped_types.png#8",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 9,
+  "name": "ped remap palette 9",
+  "sprite": "out/audit_ped_types.png#9",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 10,
+  "name": "ped remap palette 10",
+  "sprite": "out/audit_ped_types.png#10",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 11,
+  "name": "ped remap palette 11",
+  "sprite": "out/audit_ped_types.png#11",
+  "priority": "high",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 12,
+  "name": "ped remap palette 12",
+  "sprite": "out/audit_ped_types.png#12",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 13,
+  "name": "ped remap palette 13",
+  "sprite": "out/audit_ped_types.png#13",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 14,
+  "name": "ped remap palette 14",
+  "sprite": "out/audit_ped_types.png#14",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 15,
+  "name": "ped remap palette 15",
+  "sprite": "out/audit_ped_types.png#15",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 16,
+  "name": "ped remap palette 16",
+  "sprite": "out/audit_ped_types.png#16",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 17,
+  "name": "ped remap palette 17",
+  "sprite": "out/audit_ped_types.png#17",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 18,
+  "name": "ped remap palette 18",
+  "sprite": "out/audit_ped_types.png#18",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 19,
+  "name": "ped remap palette 19",
+  "sprite": "out/audit_ped_types.png#19",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 20,
+  "name": "ped remap palette 20",
+  "sprite": "out/audit_ped_types.png#20",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 21,
+  "name": "ped remap palette 21",
+  "sprite": "out/audit_ped_types.png#21",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 22,
+  "name": "ped remap palette 22",
+  "sprite": "out/audit_ped_types.png#22",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 23,
+  "name": "ped remap palette 23",
+  "sprite": "out/audit_ped_types.png#23",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 24,
+  "name": "ped remap palette 24",
+  "sprite": "out/audit_ped_types.png#24",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 25,
+  "name": "ped remap palette 25",
+  "sprite": "out/audit_ped_types.png#25",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 26,
+  "name": "ped remap palette 26",
+  "sprite": "out/audit_ped_types.png#26",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 27,
+  "name": "ped remap palette 27",
+  "sprite": "out/audit_ped_types.png#27",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 28,
+  "name": "ped remap palette 28",
+  "sprite": "out/audit_ped_types.png#28",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 29,
+  "name": "ped remap palette 29",
+  "sprite": "out/audit_ped_types.png#29",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 30,
+  "name": "ped remap palette 30",
+  "sprite": "out/audit_ped_types.png#30",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 31,
+  "name": "ped remap palette 31",
+  "sprite": "out/audit_ped_types.png#31",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 32,
+  "name": "ped remap palette 32",
+  "sprite": "out/audit_ped_types.png#32",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 33,
+  "name": "ped remap palette 33",
+  "sprite": "out/audit_ped_types.png#33",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 34,
+  "name": "ped remap palette 34",
+  "sprite": "out/audit_ped_types.png#34",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 35,
+  "name": "ped remap palette 35",
+  "sprite": "out/audit_ped_types.png#35",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 36,
+  "name": "ped remap palette 36",
+  "sprite": "out/audit_ped_types.png#36",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 37,
+  "name": "ped remap palette 37",
+  "sprite": "out/audit_ped_types.png#37",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 38,
+  "name": "ped remap palette 38",
+  "sprite": "out/audit_ped_types.png#38",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 39,
+  "name": "ped remap palette 39",
+  "sprite": "out/audit_ped_types.png#39",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 40,
+  "name": "ped remap palette 40",
+  "sprite": "out/audit_ped_types.png#40",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 41,
+  "name": "ped remap palette 41",
+  "sprite": "out/audit_ped_types.png#41",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 42,
+  "name": "ped remap palette 42",
+  "sprite": "out/audit_ped_types.png#42",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 43,
+  "name": "ped remap palette 43",
+  "sprite": "out/audit_ped_types.png#43",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 44,
+  "name": "ped remap palette 44",
+  "sprite": "out/audit_ped_types.png#44",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 45,
+  "name": "ped remap palette 45",
+  "sprite": "out/audit_ped_types.png#45",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 46,
+  "name": "ped remap palette 46",
+  "sprite": "out/audit_ped_types.png#46",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 47,
+  "name": "ped remap palette 47",
+  "sprite": "out/audit_ped_types.png#47",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 48,
+  "name": "ped remap palette 48",
+  "sprite": "out/audit_ped_types.png#48",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 49,
+  "name": "ped remap palette 49",
+  "sprite": "out/audit_ped_types.png#49",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 50,
+  "name": "ped remap palette 50",
+  "sprite": "out/audit_ped_types.png#50",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 51,
+  "name": "ped remap palette 51",
+  "sprite": "out/audit_ped_types.png#51",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_type",
+  "id": 52,
+  "name": "ped remap palette 52",
+  "sprite": "out/audit_ped_types.png#52",
+  "priority": "medium",
+  "method": "palette->type table; Rocketbox uniform variants (police/medic/fire/army) + tinted clothing for gangs"
+ },
+ {
+  "category": "ped_anim",
+  "id": "dead/lying",
+  "name": "pedestrian animation: dead/lying",
+  "sprite": null,
+  "priority": "medium",
+  "method": "merge Rocketbox clips (death, swim, punch, aim) by joint name in tools/import_assets.py; drive from the ped state bytes the log already reads"
+ },
+ {
+  "category": "ped_anim",
+  "id": "swimming",
+  "name": "pedestrian animation: swimming",
+  "sprite": null,
+  "priority": "medium",
+  "method": "merge Rocketbox clips (death, swim, punch, aim) by joint name in tools/import_assets.py; drive from the ped state bytes the log already reads"
+ },
+ {
+  "category": "ped_anim",
+  "id": "burning",
+  "name": "pedestrian animation: burning",
+  "sprite": null,
+  "priority": "medium",
+  "method": "merge Rocketbox clips (death, swim, punch, aim) by joint name in tools/import_assets.py; drive from the ped state bytes the log already reads"
+ },
+ {
+  "category": "ped_anim",
+  "id": "car entry/exit",
+  "name": "pedestrian animation: car entry/exit",
+  "sprite": null,
+  "priority": "medium",
+  "method": "merge Rocketbox clips (death, swim, punch, aim) by joint name in tools/import_assets.py; drive from the ped state bytes the log already reads"
+ },
+ {
+  "category": "ped_anim",
+  "id": "punch",
+  "name": "pedestrian animation: punch",
+  "sprite": null,
+  "priority": "medium",
+  "method": "merge Rocketbox clips (death, swim, punch, aim) by joint name in tools/import_assets.py; drive from the ped state bytes the log already reads"
+ },
+ {
+  "category": "ped_anim",
+  "id": "shoot",
+  "name": "pedestrian animation: shoot",
+  "sprite": null,
+  "priority": "medium",
+  "method": "merge Rocketbox clips (death, swim, punch, aim) by joint name in tools/import_assets.py; drive from the ped state bytes the log already reads"
+ },
+ {
+  "category": "ped_anim",
+  "id": "arrested",
+  "name": "pedestrian animation: arrested",
+  "sprite": null,
+  "priority": "medium",
+  "method": "merge Rocketbox clips (death, swim, punch, aim) by joint name in tools/import_assets.py; drive from the ped state bytes the log already reads"
+ },
+ {
+  "category": "map_object",
+  "id": 18,
+  "name": "map object frame 18",
+  "sprite": "assets-src/objects/sprites_all/map_obj_018.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 19,
+  "name": "map object frame 19",
+  "sprite": "assets-src/objects/sprites_all/map_obj_019.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 20,
+  "name": "map object frame 20",
+  "sprite": "assets-src/objects/sprites_all/map_obj_020.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 22,
+  "name": "map object frame 22",
+  "sprite": "assets-src/objects/sprites_all/map_obj_022.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 23,
+  "name": "map object frame 23",
+  "sprite": "assets-src/objects/sprites_all/map_obj_023.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 34,
+  "name": "map object frame 34",
+  "sprite": "assets-src/objects/sprites_all/map_obj_034.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 35,
+  "name": "map object frame 35",
+  "sprite": "assets-src/objects/sprites_all/map_obj_035.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 36,
+  "name": "map object frame 36",
+  "sprite": "assets-src/objects/sprites_all/map_obj_036.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 37,
+  "name": "map object frame 37",
+  "sprite": "assets-src/objects/sprites_all/map_obj_037.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 55,
+  "name": "map object frame 55",
+  "sprite": "assets-src/objects/sprites_all/map_obj_055.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 56,
+  "name": "map object frame 56",
+  "sprite": "assets-src/objects/sprites_all/map_obj_056.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 57,
+  "name": "map object frame 57",
+  "sprite": "assets-src/objects/sprites_all/map_obj_057.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 58,
+  "name": "map object frame 58",
+  "sprite": "assets-src/objects/sprites_all/map_obj_058.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 59,
+  "name": "map object frame 59",
+  "sprite": "assets-src/objects/sprites_all/map_obj_059.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 60,
+  "name": "map object frame 60",
+  "sprite": "assets-src/objects/sprites_all/map_obj_060.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 61,
+  "name": "map object frame 61",
+  "sprite": "assets-src/objects/sprites_all/map_obj_061.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 62,
+  "name": "map object frame 62",
+  "sprite": "assets-src/objects/sprites_all/map_obj_062.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 63,
+  "name": "map object frame 63",
+  "sprite": "assets-src/objects/sprites_all/map_obj_063.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 64,
+  "name": "map object frame 64",
+  "sprite": "assets-src/objects/sprites_all/map_obj_064.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 65,
+  "name": "map object frame 65",
+  "sprite": "assets-src/objects/sprites_all/map_obj_065.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 66,
+  "name": "map object frame 66",
+  "sprite": "assets-src/objects/sprites_all/map_obj_066.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 84,
+  "name": "map object frame 84",
+  "sprite": "assets-src/objects/sprites_all/map_obj_084.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 85,
+  "name": "map object frame 85",
+  "sprite": "assets-src/objects/sprites_all/map_obj_085.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 86,
+  "name": "map object frame 86",
+  "sprite": "assets-src/objects/sprites_all/map_obj_086.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 87,
+  "name": "map object frame 87",
+  "sprite": "assets-src/objects/sprites_all/map_obj_087.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "map_object",
+  "id": 89,
+  "name": "map object frame 89",
+  "sprite": "assets-src/objects/sprites_all/map_obj_089.png",
+  "priority": "low",
+  "method": "decal-style flat quad with the x4 sprite (litter/oil), or tools/gen_objects.py procedural"
+ },
+ {
+  "category": "code_object",
+  "id": "weapon pickups (rotating)",
+  "name": "weapon pickups (rotating)",
+  "sprite": "out/audit_code_objects.png",
+  "priority": "medium",
+  "method": "small 3D props: pistol, uzi, shotgun, rocket, flamethrower, grenade, armour, health, invulnerability (procedural or Poly Haven)"
+ },
+ {
+  "category": "code_object",
+  "id": "phone boxes",
+  "name": "phone boxes",
+  "sprite": "out/audit_code_objects.png",
+  "priority": "medium",
+  "method": "Poly Haven phone booth, placed at the sprite"
+ },
+ {
+  "category": "code_object",
+  "id": "traffic lights / signals",
+  "name": "traffic lights / signals",
+  "sprite": "out/audit_code_objects.png",
+  "priority": "medium",
+  "method": "procedural pole with emissive lamps; the game animates the state"
+ },
+ {
+  "category": "code_object",
+  "id": "explosion / fire / smoke",
+  "name": "explosion / fire / smoke",
+  "sprite": "out/audit_code_objects.png",
+  "priority": "medium",
+  "method": "billboard particle set with emissive (already partly rebuilt); keep"
+ },
+ {
+  "category": "code_object",
+  "id": "helicopter",
+  "name": "helicopter",
+  "sprite": "out/audit_code_objects.png",
+  "priority": "medium",
+  "method": "image-to-3D from the sprite (gen3d) with rotor animation"
+ },
+ {
+  "category": "environment",
+  "id": "trees and shrubs in parks",
+  "name": "trees and shrubs in parks",
+  "sprite": null,
+  "priority": "high",
+  "method": "Poly Haven trees, placed on grass tiles inside park zones (ZONE names) only"
+ },
+ {
+  "category": "environment",
+  "id": "traffic signs, bus stops, parking meters, mailboxes",
+  "name": "traffic signs, bus stops, parking meters, mailboxes",
+  "sprite": null,
+  "priority": "medium",
+  "method": "Poly Haven / procedural, placed by tile rule on pavement cells by the carriageway"
+ },
+ {
+  "category": "environment",
+  "id": "water surface",
+  "name": "water surface",
+  "sprite": null,
+  "priority": "high",
+  "method": "animated water tiles -> reflective plane with normal map and Remix translucency (tools/make_water_mod.py exists for Remix)"
+ },
+ {
+  "category": "environment",
+  "id": "Industrial docks, cranes, containers",
+  "name": "Industrial docks, cranes, containers",
+  "sprite": null,
+  "priority": "medium",
+  "method": "zone-rule props: cranes/containers on dock tiles (image-to-3D from the tiles)"
+ },
+ {
+  "category": "environment",
+  "id": "rooftop detail (vents, water towers, aircon)",
+  "name": "rooftop detail (vents, water towers, aircon)",
+  "sprite": null,
+  "priority": "low",
+  "method": "tile-rule props on roof lids far from street level; only matters in BEV and chase from height"
+ },
+ {
+  "category": "environment",
+  "id": "window interiors / parallax",
+  "name": "window interiors / parallax",
+  "sprite": null,
+  "priority": "medium",
+  "method": "Remix: emissive windows at night, interior cubemap material on window tiles"
+ },
+ {
+  "category": "environment",
+  "id": "weather",
+  "name": "weather",
+  "sprite": null,
+  "priority": "low",
+  "method": "GTA2 has none; rain/wet roads as a Remix effect only"
+ },
+ {
+  "category": "environment",
+  "id": "time of day",
+  "name": "time of day",
+  "sprite": null,
+  "priority": "medium",
+  "method": "sky follows a fixed sun; wire [sky] follow_clock to Remix Plus time of day"
+ }
+]

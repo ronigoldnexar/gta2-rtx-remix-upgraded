@@ -1,0 +1,7 @@
+[renderer]
+car_models3d=1
+[devtools]
+log_keys=1
+warp_key=F9
+scene_key=F10
+scene_xy=164.5,149.5

@@ -80,6 +80,12 @@ rendering): the opening, the front end, the levels, all three camera views, reco
 
 ## Rendering on a headless NVIDIA GPU (no display, no Vulkan needed)
 
+Verified on a B200 (5 Nov 2026) and on an L4 (6 Nov 2026, driver 580.178.04). On the L4 host the
+container runtime also injects `libnvidia-egl-gbm`, which makes Xvfb's own software GLX segfault
+when glvnd picks the NVIDIA EGL vendor; `run_game_gpu.sh` therefore starts Xvfb with
+`__EGL_VENDOR_LIBRARY_FILENAMES` pinned to Mesa's vendor file, and VirtualGL still renders on the GPU.
+For continuing the work elsewhere see `docs/HANDOVER.md`.
+
 Without a display GPU, wined3d draws through Mesa's llvmpipe and the street-level views cost
 about 100 ms a frame at 1280x720 (8-10 fps). The same frame on an NVIDIA GPU is free: the
 renderer's own stages are 1-4 ms and `present` reads 0.0 ms, so the game sits on its 30 fps cap.

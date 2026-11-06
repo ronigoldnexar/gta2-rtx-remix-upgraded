@@ -77,9 +77,17 @@ def calibrate_turn():
     s = wait_state()
     f0 = (s["fx"], s["fy"]); hold("Left", 0.4); time.sleep(0.7); s1 = wait_state()
     turn = math.atan2(f0[0] * s1["fy"] - f0[1] * s1["fx"], f0[0] * s1["fx"] + f0[1] * s1["fy"])
-    left_sign = 1 if turn > 0 else -1
-    rate = abs(turn) / 0.4
-    if rate < 0.2: rate = 1.5
+    if abs(turn) > 1.6:
+        # the facing flipped between the samples (the standing heading comes
+        # from the sprite, the walking one from motion): measure again, slower
+        time.sleep(0.8); s0 = wait_state(); f0 = (s0["fx"], s0["fy"]); hold("Left", 0.4); time.sleep(0.9); s1 = wait_state()
+        turn = math.atan2(f0[0] * s1["fy"] - f0[1] * s1["fx"], f0[0] * s1["fx"] + f0[1] * s1["fy"])
+    if abs(turn) < 0.08:
+        say(f"turn calibration unreliable ({turn:+.2f} rad); using the defaults")
+        left_sign, rate = -1, 1.5          # the sign every measured run has given
+        return
+    left_sign = 1 if turn > 0 else -1      # the sign is reliable even when the magnitude is not
+    rate = min(2.5, max(0.8, abs(turn) / 0.4))
     say(f"Left turns {turn:+.2f} rad in 0.4 s")
 
 def goto(tx, ty, tol=0.6, limit=40):
