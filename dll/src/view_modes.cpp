@@ -636,7 +636,16 @@ IDirectInput8A* g_ourDi = nullptr;
 IDirectInputDevice8A* g_ourKeyboard = nullptr;
 long g_diStateCalls = 0, g_diDataCalls = 0;
 bool g_injSeen[4] = {};   // what the game has been told through buffered data so far
-DWORD g_injSeq = 0x40000000;
+// One sequence counter for everything the game reads: DirectInput numbers its
+// events, and the game keeps the highest number it has seen and drops anything
+// at or below it. An injected event stamped from a private counter (it used
+// to start at 0x40000000) therefore made the game ignore every real key after
+// it: fire, Enter, Tab. Now every event passing through here, real or ours, is
+// renumbered from a counter that first catches up with the real stream, so the
+// order the game sees is strictly increasing and the real stream never falls
+// below what we handed out.
+DWORD g_navSeq = 0;
+DWORD g_navLastStamp = 0;
 
 int NavIndexOfDik(DWORD ofs) {
     for (int i = 0; i < 4; ++i) if (ofs == kNavDik[i]) return i;
@@ -671,12 +680,15 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
     for (DWORD r = 0; r < n; ++r) {
         DIDEVICEOBJECTDATA_DX3* e = reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + r * cbObj);
         const int i = NavIndexOfDik(e->dwOfs);
+        if (e->dwSequence > g_navSeq) g_navSeq = e->dwSequence;   // catch up with the real stream
+        g_navLastStamp = e->dwTimeStamp;
         if (i >= 0) {
             g_phys[i] = (e->dwData & 0x80) != 0;
             ++g_diReads;
             if (g_navActive) continue;        // the arrow is ours: the game does not see it
         }
         if (w != r) memmove(base + w * cbObj, e, cbObj);
+        if (!(flags & DIGDD_PEEK)) reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + w * cbObj)->dwSequence = ++g_navSeq;
         ++w;
     }
     if (g_navActive && !(flags & DIGDD_PEEK)) {
@@ -686,8 +698,8 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
             memset(e, 0, cbObj);
             e->dwOfs = kNavDik[i];
             e->dwData = g_inj[i] ? 0x80 : 0;
-            e->dwTimeStamp = GetTickCount();
-            e->dwSequence = g_injSeq++;
+            e->dwTimeStamp = g_navLastStamp ? g_navLastStamp : GetTickCount();
+            e->dwSequence = ++g_navSeq;
             g_injSeen[i] = g_inj[i];
             ++w;
         }
