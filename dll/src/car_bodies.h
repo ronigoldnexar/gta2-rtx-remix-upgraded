@@ -45,6 +45,11 @@ struct CarBodyUse {
     int model = -1;                  // the game's vehicle model number, -1 when unknown
     bool own = false;                // the player's own car, seen from inside in first person
     uintptr_t object = 0;            // the game object, for steering memory
+    int damage = 0;                  // the vehicle's damage byte (+0x74), 0 when unknown
+    // A pedestrian is getting in or out of this car (ped state 3/4) and stands
+    // here: the door on his side swings open while he does.
+    bool doorPed = false;
+    float doorPedX = 0.0f, doorPedZ = 0.0f;
     CarBodyVertex local[4];          // the body quad in its own space
     gta2::Mat4 objectToWorld;
 };

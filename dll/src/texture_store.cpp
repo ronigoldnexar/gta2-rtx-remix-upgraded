@@ -371,6 +371,11 @@ int GangLogoFor(const void* handle) {
     return v.id;
 }
 
+bool TextureIsEffect(const void* handle) {
+    const auto it = g_deviceTextures.find(handle);
+    return it != g_deviceTextures.end() && it->second.effect;
+}
+
 IDirect3DTexture9* DeviceTextureFor(IDirect3DDevice9* device, const void* handle, bool* effect,
                                     bool mayBeEffect) {
     if (effect) *effect = false;

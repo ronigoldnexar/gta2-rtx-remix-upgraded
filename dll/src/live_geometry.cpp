@@ -6138,6 +6138,9 @@ void ShotSpawn(float x, float y, float z, float vx, float vy, float vz, float li
                float r, float g, float b, float a, uint8_t kind) {
     if (!g_uprightPeds) return;   // the street-level views only: the top-down view keeps the game's own art
     if (g_shotParticles.size() >= 1200) g_shotParticles.erase(g_shotParticles.begin());
+    static int logged = 0;
+    if (logged < 40) { ++logged; Log("shot fx: kind %d size %.3f..%.3f life %.2f at %.2f,%.2f,%.2f v %.2f,%.2f,%.2f", kind, s0, s1, life, x, y, z, vx, vy, vz); }
+    s0 = (std::min)(s0, 0.6f); s1 = (std::min)(s1, 0.6f);
     g_shotParticles.push_back({x, y, z, vx, vy, vz, life, 0.0f, s0, s1, r, g, b, a, kind});
 }
 // A soft round spot: white, alpha falling off to the edge.
@@ -6155,7 +6158,8 @@ IDirect3DTexture9* ShotGlowTexture(IDirect3DDevice9* device) {
             const float r = (std::min)(1.0f, std::sqrt(dx * dx + dy * dy) * 2.0f);
             const float a = (1.0f - r) * (1.0f - r);
             const uint32_t av = static_cast<uint32_t>(a * 255.0f + 0.5f);
-            out[x] = (av << 24) | 0x00FFFFFFu;
+            // The falloff in the colour too: the added pass ignores the alpha.
+            out[x] = (av << 24) | (av << 16) | (av << 8) | av;
         }
     }
     made->UnlockRect(0);
@@ -6168,7 +6172,7 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
     if (weapon <= 0 || weapon >= kWpnCount) return;
     const WeaponInfo& wi = kWeapons[weapon];
     if (wi.flashSize > 0.0f) {
-        const float fs = wi.flashSize * (0.85f + 0.3f * ShotRand());
+        const float fs = wi.flashSize * (0.85f + 0.3f * ShotRand()) * (firstPerson ? 0.55f : 1.0f);
         ShotSpawn(pos[0] + dir[0] * fs * 0.3f, pos[1] + dir[1] * fs * 0.3f, pos[2] + dir[2] * fs * 0.3f, 0, 0, 0,
                   0.07f, fs, fs * 1.3f, wi.r, wi.g, wi.b, 1.0f, 4);
         // A smaller, whiter core.
@@ -6372,7 +6376,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     float right[3] = {f.z, 0.0f, -f.x};
     const float rl = (std::max)(1e-4f, std::sqrt(right[0] * right[0] + right[2] * right[2]));
     right[0] /= rl; right[2] /= rl;
-    float up[3] = {-right[2] * f.y, right[2] * f.x - right[0] * f.z, right[0] * f.y};
+    // up = cross(forward, right): the eye's up, as the particles use it.
+    float up[3] = {f.y * right[2], f.z * right[0] - f.x * right[2], -f.y * right[0]};
     const float shotT = g_fpShotFrame ? static_cast<float>(g_carFrame - g_fpShotFrame) / 30.0f : 10.0f;
     const float kick = (std::max)(0.0f, 1.0f - shotT / 0.12f);
     const bool thrown = wi.action == 13;
@@ -6390,6 +6395,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     wr[0] /= wrl; wr[2] /= wrl;
     float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
     const float k = (wi.length * (wi.twoHanded ? 1.0f : 1.15f)) / (std::max)(0.01f, model->Length());
+    static int logged = 0;
+    if (logged < 12) { ++logged; Log("view model: %s at %.2f,%.2f,%.2f dir %.2f,%.2f,%.2f up %.2f,%.2f,%.2f k %.3f kick %.2f", wi.name, pos[0], pos[1], pos[2], dir[0], dir[1], dir[2], up[0], up[1], up[2], k, kick); }
     gta2::Mat4 place;
     for (int c = 0; c < 3; ++c) { place.m[0][c] = wr[c] * k; place.m[1][c] = wu[c] * k; place.m[2][c] = dir[c] * k; place.m[3][c] = pos[c]; }
     place.m[3][3] = 1.0f;
@@ -6638,8 +6645,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (ownPed && g_playerWeapon > 0 && g_playerWeapon < kWpnCount) track.weapon = g_playerWeapon;
             else if (wantAction == 2 && (track.weapon == kWpnNone || kWeapons[track.weapon].twoHanded)) track.weapon = kWpnPistol;
             else if (wantAction == 8 && (track.weapon == kWpnNone || !kWeapons[track.weapon].twoHanded)) track.weapon = kWpnMg;
-            // Shooting: a flash or a bullet appearing beside him while he attacks.
+            // Shooting: a flash or a bullet appearing beside him while he attacks
+            // (state 7; frame 139 is the firing frame measured on the player).
             const unsigned f = sprite.pedFrame % 158u;
+            if (sprite.pedState == 7 && f == 139 && wantAction == 0) wantAction = 2;
             if (sprite.pedState == 7 || wantAction == 2 || wantAction == 8) {
                 for (FxFresh& fx : g_fxFreshLast) {
                     if (fx.claimed) continue;
@@ -6654,9 +6663,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     const float dx = fx.x - cx, dz = fx.z - cz;
                     if (dx * dx + dz * dz < 1.0f) { track.shotFrame = g_carFrame; break; }
                 }
-                if (wantAction == 0 && sprite.pedState == 7 && f >= 53 && f <= 60 && track.shotFrame && g_carFrame - track.shotFrame < 45) wantAction = 2;
+                // Attacking on frames the sheet does not name (the thrown and the
+                // heavy weapons' own) with a shot just seen: the stance all the same.
+                if (wantAction == 0 && sprite.pedState == 7 && track.shotFrame && g_carFrame - track.shotFrame < 45) wantAction = 2;
             }
             if (shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
+            if (shotNow && track.weapon == kWpnNone) track.weapon = kWpnPistol;   // shooting with nothing named: a pistol
             // The stance the weapon calls for; a thrown weapon's throw, one shot, on the throw itself.
             if ((wantAction == 2 || wantAction == 8) && track.weapon > 0) {
                 const int stance = kWeapons[track.weapon].action;
@@ -6994,6 +7006,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             placed = true;
                         }
                         if (placed) {
+                            static int logged = 0;
+                            if (logged < 24) {
+                                ++logged;
+                                Log("weapon in hand: %s action %d rows (%.3f %.3f %.3f) (%.3f %.3f %.3f) (%.3f %.3f %.3f) at %.2f,%.2f,%.2f hand %.2f,%.2f,%.2f figure %.2f,%.2f,%.2f len %.3f",
+                                    wi.name, track.action, place.m[0][0], place.m[0][1], place.m[0][2], place.m[1][0], place.m[1][1], place.m[1][2],
+                                    place.m[2][0], place.m[2][1], place.m[2][2], place.m[3][0], place.m[3][1], place.m[3][2],
+                                    handWorld.m[3][0], handWorld.m[3][1], handWorld.m[3][2], gx, cy, gz, weapon->Length());
+                            }
                             device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                             device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
                             ModelDraw(device, *weapon, place, nullptr, 0.0f);
@@ -8083,7 +8103,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     }
                     if (fresh) g_fxFreshNow.push_back({c[0], c[1], c[2], size, sp.object, false});
                     // A rocket (the big, slow flyer) leaves a smoke trail.
-                    if (flying && size > 0.085f) ShotFxSmoke(c[0], c[1] + 0.30f, c[2]);
+                    if (flying && size > 0.16f) ShotFxSmoke(c[0], c[1] + 0.30f, c[2]);   // a bullet is 0.125
                     fxSeen[sp.object] = {c[0], c[1], c[2], g_carFrame, size, flying};
                     if (fxSeen.size() > 4096) fxSeen.clear();
                     if (flying) {

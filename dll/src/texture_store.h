@@ -143,6 +143,10 @@ int ClassifiedFrames();
 // is built, and kept from then on, as ordinary artwork.
 IDirect3DTexture9* DeviceTextureFor(IDirect3DDevice9* device, const void* record,
                                     bool* effect = nullptr, bool mayBeEffect = true);
+// Whether the store has classified this sprite texture as an effect (a glow:
+// fire, blast, flash). Only what an earlier DeviceTextureFor call decided;
+// false for a texture never drawn.
+bool TextureIsEffect(const void* record);
 // The box the artwork covers: the opaque texels of the game's own picture, in texels
 // (x1, y1 one past the last). False if the record has no pixels yet. Cars are drawn as a
 // nearly square picture with the car in the middle, so anything that has to sit on the

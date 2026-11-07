@@ -80,6 +80,21 @@ void SetHiddenObjects(const void* first, const void* second);
 // The player's own pedestrian sprite object (null when not located), so he
 // keeps one look rather than one hashed from his address.
 void SetPlayerObject(const void* object);
+// The weapon the player holds, as the game numbers them (see PedWeapon in
+// live_geometry.cpp: 1 pistol .. 10 flamethrower), -1 when not known. Read
+// off the player's ped by world_view each frame; drives the figure's stance,
+// the model in its hand and the first-person view model.
+void SetPlayerWeapon(int weapon, int ammo);
+int PlayerWeapon();
+const char* WeaponName(int weapon);
+// Submits the muzzle-flash lights of the last frame's shots to the invented
+// light list; call after SyntheticLightsUpdate and before LightsReconcile.
+void ShotLightsSubmit();
+// Flame sprites the last frame showed (world x, y, z and the car shell they sit on),
+// so the player log line can say whether his car is burning.
+struct FireSpotPublic { float x, y, z; const void* car; };
+extern std::vector<FireSpotPublic> g_fireSpotsLast;
+int FireSpotsNear(float x, float z, float radius, const void* carShell);
 // Where the player stands this frame (renderer coordinates), for keeping the
 // rule-placed street furniture out from under his feet; valid=false clears it.
 void SetPlayerPosition(float x, float y, float z, bool valid);
@@ -556,6 +571,8 @@ private:
         uintptr_t object;
     };
     std::vector<CarModelUse> carModels_;
+    std::vector<std::pair<uintptr_t, float>> carSeenPrev_, carSeenNow_;   // (object, distance from the eye)   // car objects with a body last frame / this frame, for the pop log
+    int carPops_ = 0, carPopsNear_ = 0; float carPopDist_ = 0.0f;
     std::vector<PropFootprint> propFootprints_;   // the props drawn last frame, see DrawProps
 public:
     const std::vector<PropFootprint>& PlacedProps() const { return propFootprints_; }
@@ -591,6 +608,14 @@ private:
         // car, 6 getting out, 7 a stagger. See PedActionFor in DrawPedFigures.
         int action = 0;
         uint32_t shotFrame = 0;   // the last frame a flash or bullet was seen beside him
+        // Shooting: the weapon he holds (a PedWeapon, 0 unknown; the player's from
+        // the game, a stranger's from his frames and the effects beside him), the
+        // frame of his last shot (the recoil kick and muzzle glow run from it) and
+        // the torso twist (radians) of an aim carried off the line of his walk.
+        int weapon = 0;
+        uint32_t muzzleFrame = 0;
+        float twist = 0.0f;
+        float muzzleX = 0.0f, muzzleY = 0.0f, muzzleZ = 0.0f;   // where his muzzle was last drawn
         float actionTime = 0.0f;            // seconds into the clip
         float actionWeight = 0.0f;          // 0 locomotion .. 1 the action, eased
         bool actionReverse = false;         // getting up: the fall played backwards

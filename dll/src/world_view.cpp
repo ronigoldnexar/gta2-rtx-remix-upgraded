@@ -29,6 +29,7 @@
 #include "time_of_day.h"
 
 namespace gta2dx9 {
+namespace { int g_playerAmmoLogged = 0; }
 namespace {
 
 // Where each frame's time goes, so a stutter can be pinned on a stage. A frame over
@@ -1485,7 +1486,7 @@ void WorldView::UpdateCamera() {
             const PedWords words = ReadPedWords(player.ped);
             Log("view: player x=%.2f y=%.2f z=%.2f face=%.3f,%.3f %s | car %s x=%.2f y=%.2f d=%.2f%s | parked %s x=%.2f y=%.2f d=%.2f"
                 " | carhead=%.3f,%.3f parkedhead=%.3f,%.3f ped state=%d sub=%d pend=%d veh=%08X"
-                " | me=%08X phys=%08X sprite=%08X cardrv=%08X src=%s carmodel=%d",
+                " | me=%08X phys=%08X sprite=%08X cardrv=%08X src=%s carmodel=%d fire=%d",
                 player.x, player.y, player.z, player.dirX, player.dirY,
                 player.inVehicle ? "driving" : "on foot", car ? "nearest" : "none", vx, vy, vd,
                 driven ? " (driven)" : "", parked ? "nearest" : "none", px, py, pd,
@@ -1499,7 +1500,8 @@ void WorldView::UpdateCamera() {
                                                    static_cast<const uint8_t*>(carPtr) + game::kVehicleDriver)
                                              : 0),
                 player.source,
-                car ? *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(carPtr) + 0x84) : -1);
+                car ? *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(carPtr) + 0x84) : -1,
+                FireSpotsNear(player.x, player.y, 1.6f, player.inVehicle ? player.vehicleSprite : nullptr));
         }
         // The mission state, twice a second, for a script playing the game:
         // money and the score keeper's multiplier/lives/death reason (the save
@@ -1509,6 +1511,35 @@ void WorldView::UpdateCamera() {
         // game last showed (the buffer DISPLAY_MESSAGE fills at 0x5E9808) and
         // the frame counter (0x5E8108). Offsets from the GTAMP memory thread
         // and the save module; every read is guarded, -1 means unreadable.
+        // The weapon in the player's hand: a word of his ped, at kPlayerWeaponOffset
+        // (GTA2DX9_WEAPON_OFFSET=0x... overrides it, to try a candidate from the
+        // ped-words probe without a rebuild; its ammunition the word after). The
+        // figures and the first-person view model take it from SetPlayerWeapon.
+        if (worldUploaded_ && player.valid && player.ped) {
+            static int offset = -2, ammoOffset = -1, mapMode = 0;
+            if (offset == -2) {
+                offset = game::kPlayerWeaponOffset;
+                char buf[32] = {};
+                if (GetEnvironmentVariableA("GTA2DX9_WEAPON_OFFSET", buf, sizeof buf) && buf[0]) offset = static_cast<int>(strtoul(buf, nullptr, 0));
+                char buf2[32] = {};
+                if (GetEnvironmentVariableA("GTA2DX9_AMMO_OFFSET", buf2, sizeof buf2) && buf2[0]) ammoOffset = static_cast<int>(strtoul(buf2, nullptr, 0));
+                else if (game::kPlayerAmmoOffset >= 0) ammoOffset = game::kPlayerAmmoOffset;
+                char buf3[8] = {};
+                if (GetEnvironmentVariableA("GTA2DX9_WEAPON_RAW", buf3, sizeof buf3) && buf3[0] == '1') mapMode = 1;
+            }
+            int weapon = -1, ammo = 0;
+            if (offset >= 0) {
+                GTA2_TRY {
+                    const int raw = *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(player.ped) + offset);
+                    weapon = mapMode ? raw : game::PedWeaponFromGame(raw);
+                    if (ammoOffset >= 0) ammo = *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(player.ped) + ammoOffset);
+                } GTA2_EXCEPT { weapon = -1; }
+            }
+            SetPlayerWeapon(weapon, ammo);
+            g_playerAmmoLogged = ammo;
+        } else if (!player.valid) {
+            SetPlayerWeapon(-1, 0);
+        }
         if (worldUploaded_ && player.valid && (frameCount_ % 15) == 7) {
             int money = GameSaveMoney();
             int mult = -1, lives = -1, death = -1, wanted = -1, health = -1, carDamage = -1, carModel = -1, frame = -1;
@@ -1535,8 +1566,39 @@ void WorldView::UpdateCamera() {
                 frame = *reinterpret_cast<const int32_t*>(0x005E8108);
             } GTA2_EXCEPT {
             }
-            Log("view: mission money=%d mult=%d lives=%d death=%d wanted=%d health=%d cardmg=%d carmodel=%d msg=%s frame=%d",
-                money, mult, lives, death, wanted, health, carDamage, carModel, msg, frame);
+            Log("view: mission money=%d mult=%d lives=%d death=%d wanted=%d health=%d cardmg=%d carmodel=%d msg=%s frame=%d weapon=%s(%d) ammo=%d",
+                money, mult, lives, death, wanted, health, carDamage, carModel, msg, frame, WeaponName(PlayerWeapon()), PlayerWeapon(),
+                g_playerAmmoLogged);
+            // GTA2DX9_LOG_PED_WORDS=1: every 32-bit word of the player's ped that
+            // changed since the last look, bar the ones known to move every frame
+            // (position, state, timers), to find the fields nobody has mapped yet
+            // (the weapon in hand, its ammunition). A probe, off by default.
+            {
+                static int probe = -1;
+                if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_PED_WORDS", buf, sizeof buf) && buf[0] == '1'; }
+                if (probe && player.ped) {
+                    static std::vector<uint32_t> last;
+                    static const void* lastPed = nullptr;
+                    constexpr size_t kWords = 0x800 / 4;
+                    uint32_t now[kWords] = {};
+                    bool ok = true;
+                    GTA2_TRY { memcpy(now, player.ped, sizeof(now)); } GTA2_EXCEPT { ok = false; }
+                    if (ok) {
+                        if (lastPed != player.ped || last.size() != kWords) { last.assign(now, now + kWords); lastPed = player.ped; Log("ped words: new ped %p", player.ped); }
+                        std::string line;
+                        for (size_t i = 0; i < kWords; ++i) {
+                            const size_t off = i * 4;
+                            if ((off >= 0x1A0 && off < 0x1C0) || (off >= 0x270 && off < 0x2A0) || off == 0x210 || off == 0x214 || off == 0x218 || off == 0x21C) continue;
+                            if (now[i] != last[i]) {
+                                char b[64]; snprintf(b, sizeof b, " +0x%03X:%08X->%08X", static_cast<unsigned>(off), last[i], now[i]);
+                                line += b;
+                            }
+                            last[i] = now[i];
+                        }
+                        if (!line.empty()) Log("ped words:%s", line.c_str());
+                    }
+                }
+            }
             // The script's objective arrows: the arrow manager at [0x672F40]+0x1F18
             // holds seventeen slots of 0x7C bytes (hud_pass.cpp). A slot in use has
             // its type at +0x20 (1..3 the gang phone markers, 4 the information
@@ -2025,6 +2087,7 @@ void WorldView::RenderFrame() {
     LARGE_INTEGER stamp[kStages + 1] = {};
     QueryPerformanceCounter(&stamp[0]);
     SyntheticLightsUpdate();
+    ShotLightsSubmit();   // the figures' muzzle flashes (live_geometry), lit by Remix
     // The light benchmark's own lights, when one is running. See light_bench.h.
     LightBenchSubmit();
     // The street views see far past the game's own top-down window, and the
