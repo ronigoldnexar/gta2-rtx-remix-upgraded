@@ -203,6 +203,17 @@ keys on), `LAA=0`, `SWAP_LEVEL=ste|bil` (another district as level 1),
 `DUMP_TILES=1`, `LP_NUM_THREADS`. The last argument is a keys script run
 inside the container with `DISPLAY=:99` (xdotool).
 
+
+### Play it interactively (browser)
+
+`linux/docker/play.sh plain|remix [port]` runs the game in a `gta2-play` container on the
+GPU and serves the display with x11vnc + noVNC; open `http://localhost:6080/` (tunnel from
+another machine with `ssh -L 6080:localhost:6080 <host>`). `play.sh stop` ends it. Built with
+`docker build --build-arg BASE=gta2-gpugl -t gta2-play -f linux/docker/Dockerfile.play linux/docker`
+(and `BASE=gta2-remix-gpu3 -t gta2-play-remix`). Details in `linux/README.md`, "Play it in a
+browser". Verified on the L4 host: a VNC client's keystrokes reach the game (V switches the view
+in `gta2dx9.log`), the level renders in all three views (`out/play_interface_sheet.png`).
+
 ## 7. Scripted play
 
 - `drive_lib.py`: `start()` (window, intro, menu, level), `wait_state()` parses the

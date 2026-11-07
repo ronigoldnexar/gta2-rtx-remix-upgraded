@@ -1,0 +1,24 @@
+# Browser play layer: x11vnc + noVNC (websockify) + xdotool on top of a game image,
+# so the running game can be played from a browser tab instead of a keys script.
+#   docker build --build-arg BASE=gta2-gpugl       -t gta2-play       -f Dockerfile.play .
+#   docker build --build-arg BASE=gta2-remix-gpu3  -t gta2-play-remix -f Dockerfile.play .
+# The NVIDIA GL packages in the base images were installed with --force-depends
+# (their kernel/compute/wayland dependencies come from the container runtime),
+# and the Remix base lacks systemd too, so apt will not install anything there.
+# The dependency closure of the four packages is therefore downloaded and put in
+# with dpkg --force-depends, like the Remix image's own recipe. The driver
+# libraries are checked afterwards (the build fails if they went away).
+ARG BASE=gta2-gpugl
+FROM ${BASE}
+RUN set -e; apt-get update -qq; cd /tmp; mkdir -p debs; cd debs; \
+    want="x11vnc novnc websockify xdotool python3-numpy python3-websockify libvncserver1 libvncclient1 libxdamage1 libxfixes3 libxtst6 libxinerama1 libxrandr2 libjpeg8 libjpeg-turbo8 liblzo2-2 libpng16-16t64 libgnutls30t64 libsasl2-2 libgcrypt20 libavahi-client3 libavahi-common3 libavahi-common-data libdbus-1-3 libxdo3 libxkbcommon0 liblz4-1 libgmp10 libnettle8t64 libhogweed6t64 libidn2-0 libp11-kit0 libtasn1-6 libunistring5 libffi8 libgpg-error0"; \
+    for p in $want; do dpkg -s "$p" >/dev/null 2>&1 && continue; apt-get download "$p" >/dev/null 2>&1 || echo "no deb for $p"; done; \
+    ls *.deb >/dev/null 2>&1 && dpkg -i --force-depends --force-confnew *.deb >/dev/null 2>&1 || true; \
+    ls *.deb >/dev/null 2>&1 && dpkg -i --force-depends --force-confnew *.deb >/dev/null; \
+    cd /; rm -rf /tmp/debs /var/lib/apt/lists/*; \
+    test -x /usr/bin/x11vnc && test -x /usr/bin/websockify && test -x /usr/bin/xdotool && test -e /usr/share/novnc/vnc.html; \
+    x11vnc -version | head -1; websockify --help >/dev/null; \
+    test -e /usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0; \
+    { ! dpkg --print-foreign-architectures | grep -q i386 || test -e /usr/lib/i386-linux-gnu/libGLX_nvidia.so.0; }
+COPY play_index.html /usr/share/novnc/index.html
+EXPOSE 6080

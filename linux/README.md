@@ -203,6 +203,31 @@ How to run it (`linux/docker/Dockerfile.remix-gpu`, image `gta2-remix-gpu`):
   Radiance Cache SDK fails to initialise; Remix falls back to its sampled
   indirect lighting. At 1280x720 the present stage costs about 20-30 ms on the L4.
 
+## Play it in a browser
+
+For a person at a keyboard rather than a keys script: `linux/docker/play.sh` starts the
+game in a container on the machine's NVIDIA GPU and serves its display to a browser
+tab through x11vnc and noVNC (image `gta2-play`, built from `Dockerfile.play` on top of
+`gta2-gpugl`; `gta2-play-remix` on top of the Remix image for path tracing).
+
+    linux/docker/play.sh plain          # the mod's own D3D9 picture on the GPU, port 6080
+    linux/docker/play.sh remix          # RTX Remix path tracing (about 3 min of shader warm-up first)
+    linux/docker/play.sh plain 6090     # another port
+    linux/docker/play.sh status | stop
+
+Then open `http://localhost:6080/`. From another machine, tunnel first:
+`ssh -L 6080:localhost:6080 <host>`. The landing page lists the keys (arrows, Ctrl
+fire, Enter enter/leave a car, Tab weapon, **V** cycles classic / third person /
+first person, mouse look in the ground views, F4 the mod panel, Esc pause) and a
+Play button that opens noVNC with auto-connect. The game appears after ~40 s
+(plain); press Enter through the front end to start. Options: `PLAY_PASSWORD=...`
+(VNC password, also put into the Play link), `PLAY_DEVTOOLS=1` (F9/F11 warps),
+`SWAP_LEVEL=bil|ste`, `GPU=<index>`, `CPUS=<n>`. The container keeps running until
+`play.sh stop`; the renderer log is mirrored to `out/play-<port>/gta2dx9.log`.
+Limits: noVNC carries no audio; the picture is JPEG-compressed, so it is for
+trying the game, not for recording. On your own Linux box with a GPU, the native
+route is `linux/install.sh` + `linux/run.sh` (no container).
+
 ## Checking a build without the game
 
 `make check` builds `linux/loadcheck.exe` and `linux/sehcheck.exe` and runs them under Wine. The second proves the GCC stand-in for `__try` catches a real fault and re-arms. The first, run from `stage/`,

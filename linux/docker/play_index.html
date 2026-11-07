@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTA2 3D: play in the browser</title>
+<style>
+  :root { --bg:#14161a; --fg:#e8e6e0; --dim:#9a978f; --card:#1e2127; --line:#2c3038; --accent:#f0b429; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  .wrap { max-width:960px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:26px; margin:0 0 4px; } h1 span { color:var(--accent); }
+  p.lead { color:var(--dim); margin:0 0 20px; }
+  .play { display:inline-block; background:var(--accent); color:#111; font-weight:700; padding:12px 22px; border-radius:8px; text-decoration:none; font-size:17px; }
+  .play:hover { filter:brightness(1.08); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px,1fr)); gap:14px; margin-top:22px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h2 { font-size:15px; margin:0 0 8px; color:var(--accent); text-transform:uppercase; letter-spacing:.04em; }
+  table { border-collapse:collapse; width:100%; } td { padding:3px 0; vertical-align:top; } td:first-child { width:46%; }
+  kbd { background:#0d0f12; border:1px solid #3a3f49; border-bottom-width:2px; border-radius:5px; padding:1px 7px; font:13px ui-monospace, monospace; }
+  .note { color:var(--dim); font-size:13px; margin-top:16px; }
+  .mode { font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>GTA2 <span>3D</span> &middot; play in the browser</h1>
+  <p class="lead">The modded game is running on this machine's GPU. Click Play, wait for the intro, then use the keys below. Mode: <span class="mode" id="mode">plain renderer</span>.</p>
+  <a class="play" id="playlink" href="vnc.html?autoconnect=true&resize=scale&reconnect=true&show_dot=true">&#9654; Play</a>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Start a game</h2>
+      <table>
+        <tr><td>Skip the intro / front end</td><td><kbd>Enter</kbd> a few times (Play &rarr; new game &rarr; area)</td></tr>
+        <tr><td>Pause / back</td><td><kbd>Esc</kbd></td></tr>
+        <tr><td>Mod settings panel</td><td><kbd>F4</kbd> (Camera tab: views, distances, mouse)</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Views</h2>
+      <table>
+        <tr><td>Cycle classic &rarr; third person &rarr; first person</td><td><kbd>V</kbd></td></tr>
+        <tr><td>Look around (third / first person)</td><td>mouse</td></tr>
+        <tr><td>Classic top-down is always one press away</td><td><kbd>V</kbd> until it returns</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>On foot</h2>
+      <table>
+        <tr><td>Walk / turn</td><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd></td></tr>
+        <tr><td>Fire / punch</td><td><kbd>Ctrl</kbd></td></tr>
+        <tr><td>Next weapon</td><td><kbd>Tab</kbd></td></tr>
+        <tr><td>Enter a car (stand at its door)</td><td><kbd>Enter</kbd></td></tr>
+        <tr><td>Answer a phone</td><td>stand on it</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Driving</h2>
+      <table>
+        <tr><td>Accelerate / brake &amp; reverse</td><td><kbd>&uarr;</kbd> / <kbd>&darr;</kbd></td></tr>
+        <tr><td>Steer</td><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd></td></tr>
+        <tr><td>Handbrake</td><td><kbd>Space</kbd></td></tr>
+        <tr><td>Horn</td><td><kbd>Shift</kbd></td></tr>
+        <tr><td>Leave the car</td><td><kbd>Enter</kbd></td></tr>
+      </table>
+    </div>
+    <div class="card" id="devtools" style="display:none">
+      <h2>Developer keys (PLAY_DEVTOOLS=1)</h2>
+      <table>
+        <tr><td>Warp to the nearest parked car's door</td><td><kbd>F9</kbd></td></tr>
+        <tr><td>Warp to the scene point (scene_xy in gta2dx9.ini)</td><td><kbd>F11</kbd></td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Modes</h2>
+      <table>
+        <tr><td>plain</td><td>the mod's own Direct3D 9 picture on the GPU (3D cars, people, HD tiles, sky)</td></tr>
+        <tr><td>remix</td><td>the same, path traced by RTX Remix (lamps, neon, sun shadows; ~3 min of shader warm-up on first start)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <p class="note">The browser gets the picture and sends your keys and mouse; there is no sound over this connection (noVNC carries no audio). If the view feels sluggish, lower the quality slider in the noVNC side panel. Click inside the game first so keys go to it; the mouse is captured only in the ground views.</p>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  if (q.get('mode')) document.getElementById('mode').textContent = q.get('mode') === 'remix' ? 'RTX Remix path tracing' : 'plain renderer';
+  if (q.get('devtools') === '1') document.getElementById('devtools').style.display = '';
+  fetch('play_mode.json', {cache:'no-store'}).then(r => r.ok ? r.json() : null).then(j => {
+    if (!j) return;
+    document.getElementById('mode').textContent = j.mode === 'remix' ? 'RTX Remix path tracing' : 'plain renderer';
+    if (j.devtools) document.getElementById('devtools').style.display = '';
+    if (j.password) document.getElementById('playlink').href += '&password=' + encodeURIComponent(j.password);
+  }).catch(() => {});
+</script>
+</body>
+</html>
