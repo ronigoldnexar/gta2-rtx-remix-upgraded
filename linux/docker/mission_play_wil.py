@@ -26,6 +26,7 @@ if not s: sys.exit(1)
 D.calibrate_turn()
 world = M.World("wil")
 M.mark("level")
+M.arrows_baseline()
 set_view("third")
 FP = {"until": 0.0, "walk_until": 0.0}
 
@@ -50,7 +51,22 @@ def answer(entry):
     """walk onto the phone and watch the message buffer closely: the job's title
     (19xx) flashes for a few seconds; the gang's refusals are 10xx"""
     before = M.mission_state(); m0 = before["msg"] if before else ""
-    s = walk(entry["x"], entry["y"], None, tol=0.35, budget=360, fp_secs=10)
+    s = D.wait_state()
+    if s and not s["driving"] and math.hypot(entry["x"] - s["x"], entry["y"] - s["y"]) > 40:
+        M.mark(f"a long way to the phone ({math.hypot(entry['x'] - s['x'], entry['y'] - s['y']):.0f} blocks): by car")
+        s = M.any_car2(world, budget=100)
+    if s and s["driving"]:
+        FP["until"] = 0.0
+        s = M.drive3(world, entry["x"], entry["y"], tol=4.0, budget=360, view_switch=view_switch, slow=False)
+        s = M.leave_car(); set_view("third"); M.mark("out of the car near the phone")
+    s = walk(entry["x"], entry["y"], None, tol=0.35, budget=240, fp_secs=10)
+    if s and math.hypot(entry["x"] - s["x"], entry["y"] - s["y"]) > 1.2 and os.environ.get("WARP_OK", "1") == "1":
+        lvl = M.top_level(world, entry["x"], entry["y"])
+        say(f"phone at {entry['x']},{entry['y']} not reachable on foot (terrace level {lvl}); developer warp")
+        set_view("classic")
+        s = M.scene_warp(entry["x"], entry["y"], lvl, "phone on a terrace the walker cannot climb")
+        set_view("third")
+        s = M.walk3(world, entry["x"], entry["y"], None, tol=0.35, budget=60)
     t0 = time.time(); seen = []
     while time.time() - t0 < 24:
         ms = M.mission_state()
@@ -136,14 +152,34 @@ def run_plan(entry):
                 say("in car:", bool(s and s["driving"]))
                 if not (s and s["driving"]): return "stuck: could not enter the car"
                 FP["until"] = 0.0; M.shot(f"{entry['mission']}_incar")
+                # stay at the wheel until the script notices (its arrow leaves the car)
+                t1 = time.time()
+                while time.time() - t1 < 100:
+                    o = M.objective()
+                    if o is None or math.hypot(o[0] - car_at[0], o[1] - car_at[1]) > 3.0: break
+                    time.sleep(0.5)
+                say(f"in car: the objective moved on after {time.time()-t1:.0f}s: {M.objective()}")
         elif "LOCATE_CHARACTER_ON_FOOT" in cond:
-            x, y, z = nums[1], nums[2], nums[3]
+            x, y, z, w, h = nums[1], nums[2], nums[3], nums[4], nums[5]
             tl = None if z >= 200 else max(0, int(round(z)) - 1)
             M.mark(f"on foot to {x},{y}")
             if s["driving"]: s = M.leave_car(); M.mark("out of the car, walking")
-            msg0 = (M.mission_state() or {}).get("msg")
-            s = walk(x, y, tl, tol=0.45, budget=420)
-            settle(x, y, msg0, money0=money0); M.shot(f"{entry['mission']}_at_{int(x)}_{int(y)}")
+            from_x, from_y = s["x"], s["y"]
+            key0 = M.objective_key()
+            s = walk(x, y, tl, tol=max(0.3, min(w, h) * 0.4), budget=420)
+            ok = M.settle_box(x, y, w, h, money0=money0, secs=45, nudge=nudge_to, key0=key0)
+            if not ok:
+                s = M.walk3(world, x, y, tl, tol=0.3, budget=60)
+                ok = M.settle_box(x, y, w, h, money0=money0, secs=40, nudge=nudge_to, key0=key0)
+            M.shot(f"{entry['mission']}_at_{int(x)}_{int(y)}")
+            idx = plan.index(step)
+            nxt = next((p for p in plan[idx + 1:] if "wait" in p), None)
+            if ok and nxt and "count" in nxt["wait"]:
+                # a countdown follows (the dynamite): run back the way he came
+                M.mark("countdown: running clear")
+                ex, ey = M.escape_point(world, x, y, tl if tl is not None else 1)
+                M.cruise_to(ex, ey, tol=0.8, secs=9)
+                s = D.wait_state()
         elif "LOCATE_ANOTHER_CHARACTER_ON_FOOT" in cond:
             # the character was created at the plan's last 'char' position
             at = step.get("at")
@@ -151,9 +187,20 @@ def run_plan(entry):
                 idx = plan.index(step); at = next((p["at"] for p in reversed(plan[:idx]) if "char" in p), None)
             if not at: say("plan: no character position"); continue
             x, y = at[0], at[1]
+            o = M.objective()
+            if o and o[3] != 1 and math.hypot(o[0] - x, o[1] - y) < 12: x, y = o[0], o[1]   # the arrow follows him
             M.mark(f"to the character at {x},{y}")
+            far = math.hypot(x - s["x"], y - s["y"])
+            if far > 30:
+                if not s["driving"]: s = M.any_car2(world, budget=60)
+                if s["driving"]:
+                    s = M.drive3(world, x, y, tol=3.0, budget=240, view_switch=view_switch, slow=True)
             if s["driving"]: s = M.leave_car()
-            s = walk(x, y, None, tol=0.8, budget=420)
+            o = M.objective()
+            if o and o[3] != 1 and math.hypot(o[0] - x, o[1] - y) < 12: x, y = o[0], o[1]
+            key0 = M.objective_key()
+            s = walk(x, y, None, tol=0.7, budget=300, fp_secs=0)
+            if M.wait_objective_change(key0, 3.0, money0): M.shot(f"{entry['mission']}_char_{int(x)}_{int(y)}"); continue
             # he may have wandered: circle a little
             for k in range(4):
                 o, ms = M.outcome(money0)
@@ -176,16 +223,23 @@ def run_plan(entry):
                 s = M.drive3(world, x, y, tol=tol, budget=300, view_switch=view_switch, slow=True)
             time.sleep(1.5); M.shot(f"{entry['mission']}_car_{int(x)}_{int(y)}")
         elif "LOCATE_CHARACTER_ANY_MEANS" in cond:
-            x, y = nums[1], nums[2]
+            x, y, z, w, h = nums[1], nums[2], nums[3], nums[4], nums[5]
+            tl = None if z >= 200 else max(0, int(round(z)) - 1)
             M.mark(f"any means to {x},{y}")
+            key0 = M.objective_key()
+            far = math.hypot(x - s["x"], y - s["y"])
+            if not s["driving"] and far > 60 and entry.get("mission") != "wil_tra":
+                s = M.any_car2(world, budget=90)
             if s["driving"]:
-                s = M.drive3(world, x, y, tol=2.0, budget=240, view_switch=view_switch, slow=True)
-                if math.hypot(x - s["x"], y - s["y"]) > 1.0:
-                    s = M.leave_car(); s = walk(x, y, None, tol=0.45, budget=200, fp_secs=0)
+                s = M.drive3(world, x, y, tol=max(1.5, min(w, h) * 0.4), budget=300, view_switch=view_switch, slow=True)
+                if not M.inside_box(s, x, y, w, h):
+                    s = M.leave_car(); s = walk(x, y, tl, tol=0.3, budget=200, fp_secs=0)
             else:
-                msg0 = (M.mission_state() or {}).get("msg")
-                s = walk(x, y, None, tol=0.45, budget=360)
-                settle(x, y, msg0, money0=money0)
+                s = walk(x, y, tl, tol=max(0.3, min(w, h) * 0.4), budget=420)
+            ok = M.settle_box(x, y, w, h, money0=money0, secs=45, nudge=nudge_to, key0=key0)
+            if not ok:
+                s = M.walk3(world, x, y, tl, tol=0.3, budget=60)
+                M.settle_box(x, y, w, h, money0=money0, secs=40, nudge=nudge_to, key0=key0)
         elif "IS_CHAR_PRESSING_HORN" in cond:
             M.mark("horn")
             msg0 = (M.mission_state() or {}).get("msg")
@@ -211,14 +265,30 @@ def run_plan(entry):
         elif "HAS_PARK_FINISHED" in cond:
             say("plan: parking"); time.sleep(12)
         elif "IS_CAR_CRUSHED" in cond:
-            say("plan: waiting for the crusher"); time.sleep(25)
+            # the crane lifts a car from its pickup point (wil.mis: crusher2 at
+            # 176.5,9.5 is crane1's FIRST point); park there, get out, step clear
+            pad = (176.5, 9.5) if last_target and math.hypot(last_target[0] - 171.5, last_target[1] - 11.5) < 15 else (244.5, 243.5)
+            M.mark(f"to the crusher pad {pad}")
+            if not s["driving"] and car_at: s = M.enter_car3(world, car_at[0], car_at[1], budget=90)
+            s = M.drive3(world, pad[0], pad[1], tol=0.7, budget=120, slow=True)
+            s = M.leave_car(); M.mark("out of the car at the crusher")
+            s = M.walk3(world, pad[0] - 4.0, pad[1] + 2.0, None, tol=0.8, budget=40)
+            t1 = time.time()
+            while time.time() - t1 < 90:
+                o, ms = M.outcome(money0)
+                if o != "running": break
+                time.sleep(2)
+            M.shot(f"{entry['mission']}_crusher")
         elif "IS_CAR_WRECKED" in cond:
-            say("plan: ram the car until it wrecks")
-            if car_at and not s["driving"]:
-                s = M.enter_car3(world, car_at[0], car_at[1], budget=120)
-            time.sleep(10)
+            M.mark("ram the marked car until it wrecks")
+            FP["until"] = 0.0
+            r = M.ram_target(world, money0, secs=420, view_switch=view_switch)
+            say("ram:", r)
         elif "count" in cond:
-            say("plan: briefs on screen, waiting"); time.sleep(45)
+            say("plan: briefs on screen, waiting for the mission arrow")
+            t1 = time.time()
+            while time.time() - t1 < 120 and M.objective() is None: time.sleep(0.5)
+            say(f"plan: arrow after {time.time()-t1:.0f}s: {M.objective()}")
         elif "CHECK_HEADS" in cond:
             say("plan: a fight is expected; waiting"); time.sleep(30)
         else:
@@ -235,6 +305,7 @@ for name in wanted:
     if not entry: say("no such mission", name); continue
     M.mark(f"mission {name}: {entry.get('title','')}")
     t_m = time.time()
+    M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
     ok, ms = answer(entry)
     say("answered:", ok, ms); M.shot(f"{name}_phone")
     if not ok:
@@ -249,8 +320,21 @@ for name in wanted:
     elif title_key in ("1097", "1096", "1103", "1098", "1102", "1104"):
         say("the gang refused the job (message", title_key, ")")
         results[name] = f"refused ({title_key})"; M.mark(f"mission {name}: refused {title_key}"); continue
+    # step off the phone pair first: standing on the neighbour re-answers it
+    # and the game holds him for every answer; from here on every route keeps
+    # off every phone cell
+    ax, ay = M.step_off_phone(world, entry)
+    M.set_avoid_phones(world, keep=None)
+    M.cruise_to(ax, ay, tol=0.5, secs=12)
+    s = D.wait_state()
+    if s and s["z"] > 3.5 and os.environ.get("WARP_OK", "1") == "1":
+        cell = M.street_cell_near(world, entry["x"], entry["y"])
+        if cell:
+            say(f"on a terrace (z {s['z']:.1f}) with no way down for the walker; developer warp to the street at {cell[0]},{cell[1]}")
+            set_view("classic"); M.scene_warp(cell[0], cell[1], cell[2], "down from the phone terrace"); set_view("third")
     r = run_plan(entry)
     results[name] = f"{r} ({time.time()-t_m:.0f}s)"
+    if r == "complete": M.DONE_PHONES.add((entry["x"], entry["y"]))
     M.mark(f"mission {name}: {results[name]}"); M.shot(f"{name}_end")
     time.sleep(4)
     if r == "dead":

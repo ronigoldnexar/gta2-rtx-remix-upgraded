@@ -37,11 +37,15 @@ relative to the in-game order; see the tour-fixes commit).
 
 ## Result (7 Nov 2026, build 350a3d8 + the two switches above)
 
-| district | points | landed | frames scored | holes | black | faults | deaths | notes |
-|---|---|---|---|---|---|---|---|---|
-| Downtown (wil) | 183 | 177 + retries | 1 062 | 0 | 0 | 1 run | 2 | one warp crash (below) |
-| Industrial (bil) | 188 | see district report | 1 026+ | 0 | 0 | 0 | 1 | first pass sent to parked cars (fixed) |
-| Residential (ste) | 145 | 145 | 870 | 0 | 0 | 2 runs | 4 | two warp crashes (below) |
+| district | planned | landed after retries | frames scored | holes | black | warp crashes | warp deaths (first pass) |
+|---|---|---|---|---|---|---|---|
+| Downtown (wil) | 183 | 177 of 178 reached (5 unreachable: no floor within six blocks) | 1 062 | 0 | 0 | 1 run | 2 |
+| Industrial (bil) | 188 | 188 of 188 | 1 128 | 0 | 0 | 0 | 1 |
+| Residential (ste) | 145 | 145 of 145 | 870 | 0 | 0 | 2 runs | 4 |
+
+First-pass landing was 135/113/61 (the F10 key loss, the car redirect and the
+warp deaths); the retries with the F11 key and the no-car warp landed every
+remaining point in Industrial and Residential and all but one in Downtown.
 
 Across roughly 3 000 scored frames from about 500 viewpoints no frame showed a
 hole in the world or a black frame; the two map-hole classes fixed earlier

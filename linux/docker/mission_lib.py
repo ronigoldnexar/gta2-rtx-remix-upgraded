@@ -308,13 +308,55 @@ def node_kind(world, x, y, level):
     if not b: return None
     g = _gtype(b); s = _slope(b)
     if 1 <= s <= 44:
+        if (x, y) in AVOID: return None
         return ("slope", g if g in (1, 2, 3) else 2)
     if not _lid(b) or g not in (1, 2, 3): return None
     above = _blk(world, x, y, level + 1)
-    if above and _lid(above): return None            # a full block on top
+    if above and _lid(above) and (_gtype(above) != 0 or any((above[i] & 1023) for i in range(4))):
+        return None                                  # a solid block on top (an air-typed bare lid is a canopy)
+    if (x, y) in AVOID: return None
     return ("flat", g)
 
 COST = {1: 3.0, 2: 1.0, 3: 1.4}
+AVOID = set()      # cells the router must not step on (the other phones: standing on one answers it)
+
+DONE_PHONES = set()   # (x,y) of phones whose job is complete: the game sets them dead, harmless to cross
+
+def set_avoid_phones(world, keep=None):
+    """every live phone cell of the district except the one at keep=(x,y)"""
+    AVOID.clear()
+    for p in world.db["phones"].values():
+        if keep and abs(p["x"] - keep[0]) < 0.6 and abs(p["y"] - keep[1]) < 0.6: continue
+        if any(abs(p["x"] - dx) < 0.6 and abs(p["y"] - dy) < 0.6 for dx, dy in DONE_PHONES): continue
+        AVOID.add((int(p["x"]), int(p["y"])))
+    say(f"router: avoiding {len(AVOID)} phone cells")
+
+def step_off_phone(world, entry, dist=1.8):
+    """a spot beside the answered phone that is flat at the phone's level and not
+    another phone: away from the neighbour phone first, then sideways"""
+    nb = [p for k, p in world.db["phones"].items() if 0.1 < math.hypot(p["x"] - entry["x"], p["y"] - entry["y"]) < 2.6]
+    cands = []
+    if nb:
+        dx, dy = entry["x"] - nb[0]["x"], entry["y"] - nb[0]["y"]; n = math.hypot(dx, dy) or 1.0
+        cands.append((dx / n, dy / n)); cands.append((-dy / n, dx / n)); cands.append((dy / n, -dx / n))
+    cands += [(1, 0), (-1, 0), (0, 1), (0, -1), (0.71, 0.71), (-0.71, 0.71), (0.71, -0.71), (-0.71, -0.71)]
+    lvl = top_level(world, entry["x"], entry["y"]) - 1
+    others = [(p["x"], p["y"]) for p in world.db["phones"].values() if math.hypot(p["x"] - entry["x"], p["y"] - entry["y"]) > 0.1]
+    best = None
+    for ux, uy in cands:
+        for d in (1.3, dist, dist + 1.0):
+            x, y = entry["x"] + ux * d, entry["y"] + uy * d
+            k = node_kind(world, int(x), int(y), lvl)
+            if not k or k[0] != "flat": continue
+            clear = min([math.hypot(x - ox, y - oy) for ox, oy in others] or [9.0])
+            # the straight step must not cross another phone's cell
+            crosses = any(abs(ox - (entry["x"] + ux * t)) < 0.6 and abs(oy - (entry["y"] + uy * t)) < 0.6
+                          for ox, oy in others for t in (0.5, 1.0, 1.5, 2.0, 2.5) if t <= d)
+            if crosses or clear < 1.0: continue
+            score = clear - 0.1 * d
+            if best is None or score > best[0]: best = (score, (x, y))
+        if best and best[0] > 1.5: break
+    return best[1] if best else (entry["x"] + 2.2, entry["y"])
 
 def slope_high_dir(t):
     """unit step toward the high end of a slope block of type t (GTA2: up/down/
@@ -325,6 +367,20 @@ def slope_high_dir(t):
     if 5 <= t <= 6 or 25 <= t <= 32 or t == 43: return (-1, 0)
     if 7 <= t <= 8 or 33 <= t <= 40 or t == 44: return (1, 0)
     return None
+
+FACE_OF = {(-1, 0): 0, (1, 0): 1, (0, -1): 2, (0, 1): 3}      # GMP face order: left, right, top, bottom
+
+def wall_between(world, x, y, L, dx, dy):
+    """a side face (fence, railing, wall) between the flat cell (x,y,L) and its
+    neighbour in direction (dx,dy): the block the body stands in is the one
+    above the lid, at L+1, in either cell"""
+    # a face blocks only with its wall bit (bit 10) set: a fence panel carries the
+    # tile on both sides but the wall bit on one
+    here = _blk(world, x, y, L + 1)
+    if here and (here[FACE_OF[(dx, dy)]] & 0x400): return True
+    there = _blk(world, x + dx, y + dy, L + 1)
+    if there and (there[FACE_OF[(-dx, -dy)]] & 0x400): return True
+    return False
 
 def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
     """Dijkstra over (x,y,level). tl None = any level with something to stand
@@ -365,6 +421,7 @@ def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
         here_dir = slope_high_dir(_slope(_blk(world, x, y, L))) if here_slope else None
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             nx, ny = x + dx, y + dy
+            if not here_slope and wall_between(world, x, y, L, dx, dy): continue
             moves = []   # (level, allowed kinds)
             if here_slope:
                 if here_dir is None: continue
@@ -439,6 +496,14 @@ def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
     while s and time.time() - t0 < budget:
         if math.hypot(tx - s["x"], ty - s["y"]) < tol and (tl is None or ped_level(s) == tl): return s
         path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), tl, kinds)
+        if AVOID and (len(path) < 2 or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2):
+            # the phones can sit in a one-block walkway (the Zaibatsu rim): when
+            # keeping off them leaves no route, cross them (a live phone only
+            # holds him for a message)
+            saved = set(AVOID); AVOID.clear()
+            path2 = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), tl, kinds)
+            AVOID.update(saved)
+            if len(path2) > len(path): say("walk3: no route off the phones; crossing them"); path = path2
         legs = straighten3(path)[1:] if len(path) > 1 else []
         say(f"walk3: {len(path)} cells, {len(legs)} legs from {s['x']:.1f},{s['y']:.1f} L{ped_level(s)} to {tx},{ty}" + (f" L{tl}" if tl is not None else ""))
         if not legs:
@@ -507,7 +572,7 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False):
                 xdo("keydown", steer); xdo("keydown", "Up"); time.sleep(0.35); xdo("keyup", "Up"); xdo("keyup", steer)
             else:
                 want_slow = slow or d < 3.0 or nextd < 4.0 or (final and d < 6)
-                if v > (4.5 if want_slow else 9.0):
+                if v > (3.8 if want_slow else 6.5):
                     if up: xdo("keyup", "Up"); up = False
                     hold("Down", 0.25)
                 elif not up: xdo("keydown", "Up"); up = True
@@ -515,6 +580,13 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False):
                     xdo("keydown", steer); time.sleep(min(abs(a) * 0.45, 0.3)); xdo("keyup", steer)
             time.sleep(0.2)
             s2 = D.wait_state()
+            if s2 and s2.get("fire", 0) > 0:
+                say(f"drive3: the car is burning ({s2['fire']} flames); out")
+                mark("the car is on fire: out and clear")
+                if up: xdo("keyup", "Up"); up = False
+                s2 = flee_fire(world, s2)
+                if not (s2 and s2["driving"]): return s2
+                xdo("keydown", "Up"); up = True; legs = legs_from(s2); i = 0; s = s2; continue
             if s2 and v < 0.4 and math.hypot(s2["x"] - s["x"], s2["y"] - s["y"]) < 0.08 and abs(a) <= 2.2:
                 stall += 1
                 if stall >= 4:
@@ -523,7 +595,15 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False):
                     if up: xdo("keyup", "Up"); up = False
                     xdo("keydown", "Down"); xdo("keydown", "Left" if stalls % 2 else "Right"); time.sleep(1.4)
                     xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right"); time.sleep(0.3)
-                    s2 = D.wait_state(); legs = legs_from(s2); i = 0
+                    s2 = D.wait_state()
+                    if stalls % 3 == 0:
+                        # three wall hits: the car may be burning (every death at the
+                        # wheel so far followed a run of stalls); step clear, let it
+                        # cool or blow, then take it back or another one
+                        s2 = bail_out(world, s2)
+                        if not (s2 and s2["driving"]): return s2
+                        xdo("keydown", "Up"); up = True
+                    legs = legs_from(s2); i = 0
             else:
                 stall = 0
             s = s2
@@ -531,6 +611,37 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False):
         xdo("keyup", "Up"); xdo("keyup", "Left"); xdo("keyup", "Right")
     hold("Down", 0.9)
     return D.wait_state()
+
+def flee_fire(world, s):
+    """the car is burning: leave it, run 7 blocks clear, wait out the blast,
+    then another car"""
+    cx, cy = s["x"], s["y"]; hx, hy = heading(s)
+    xdo("keyup", "Up"); leave_car(); time.sleep(0.4)
+    s = D.wait_state()
+    ux, uy = (-hx, -hy)
+    # run perpendicular if the way back is where the burning car stands
+    cruise_to(s["x"] + ux * 7.0, s["y"] + uy * 7.0, tol=1.2, secs=7)
+    time.sleep(8.0)
+    s = D.wait_state()
+    if s["parked"] and s["pd"] < 12 and math.hypot(s["px"] - cx, s["py"] - cy) > 2.5:
+        s = enter_car3(world, s["px"], s["py"], budget=40)
+        if s and s["driving"]: return s
+    return any_car2(world, budget=90)
+
+def bail_out(world, s):
+    """leave the car, get 5 blocks clear for 7 s (an explosion), then re-enter
+    it if it still stands, else any car"""
+    cx, cy = s["x"], s["y"]; hx, hy = heading(s)
+    say("drive3: bailing out of the car for a moment")
+    mark("bail out: three wall hits, stepping clear")
+    xdo("keyup", "Up"); leave_car(); time.sleep(0.5)
+    cruise_to(cx - hx * 5.0, cy - hy * 5.0, tol=1.0, secs=6)
+    time.sleep(2.0)
+    s = D.wait_state()
+    if s["parked"] and s["pd"] < 9:
+        s = enter_car3(world, s["px"], s["py"], budget=40)
+        if s and s["driving"]: return s
+    return any_car2(world, budget=90)
 
 def enter_car3(world, cx, cy, budget=120):
     """walk to the car's cell and get in; tries each side; True when driving"""
@@ -549,3 +660,258 @@ def enter_car3(world, cx, cy, budget=120):
         ang = tries * 1.57
         cruise_to(cx + 1.0 * math.cos(ang), cy + 1.0 * math.sin(ang), tol=0.45, secs=8)
     return s
+
+
+# ================================================================ v3 (7 Nov, playthrough part 2)
+# The game's objective arrows, read from the renderer's `view: arrows` line
+# (slot:type:kind:x,y,z:obj for every slot with a target; positions are the
+# arrow manager's 18.14 words). The base script keeps twelve gang/info-phone
+# markers from level start; a mission's own arrow is any slot that differs
+# from that baseline. That is the one reliable progress signal: a LOCATE box
+# is passed when the mission arrow moves on (or goes), whatever the pager says.
+ARROWS = re.compile(r"view: arrows((?: \d+:-?\d+:-?\d+:-?[\d.]+,-?[\d.]+,-?[\d.]+:[0-9A-F]{8}(?::[0-9A-F]{8},[0-9A-F]{8},[0-9A-F]{8})?)*)")
+ARROW = re.compile(r" (\d+):(-?\d+):(-?\d+):(-?[\d.]+),(-?[\d.]+),(-?[\d.]+):([0-9A-F]{8})(?::([0-9A-F]{8}),([0-9A-F]{8}),([0-9A-F]{8}))?")
+BASELINE = {}
+
+def arrows():
+    """{slot: (type, kind, x, y, z, obj)} from the last arrows line, or {}"""
+    try:
+        with open(D.LOG, "rb") as f:
+            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 40000)); tail = f.read().decode("latin-1")
+    except OSError:
+        return {}
+    m = None
+    for m in ARROWS.finditer(tail): pass
+    if not m: return {}
+    out = {}
+    for a in ARROW.finditer(m.group(1)):
+        out[int(a.group(1))] = (int(a.group(2)), int(a.group(3)), float(a.group(4)), float(a.group(5)), float(a.group(6)), a.group(7), a.group(8) or '', a.group(9) or '', a.group(10) or '')
+    return out
+
+def arrows_baseline():
+    """remember the markers the base script keeps; call once at level start"""
+    BASELINE.clear(); BASELINE.update(arrows()); say(f"arrows: baseline {len(BASELINE)} slots")
+
+def mission_arrows():
+    """the slots that differ from the baseline: the current objective's arrow(s)"""
+    return {k: v for k, v in arrows().items() if BASELINE.get(k) != v}
+
+def objective():
+    """(x, y, z, kind, obj) of the mission arrow, or None when no mission arrow is up"""
+    ma = mission_arrows()
+    if not ma: return None
+    k = max(ma)                       # the newest slot
+    t, kind, x, y, z, obj = ma[k][:6]
+    return (x, y, z, kind, obj)
+
+def objective_key():
+    o = objective()
+    ma = mission_arrows()
+    return None if o is None else (round(o[0], 1), round(o[1], 1), o[3], o[4], tuple(ma[max(ma)][6:]))
+
+def wait_objective_change(key0, secs, money0=None):
+    """True as soon as the mission arrow differs from key0 (moved on, or gone),
+    or the money/outcome changes"""
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        if objective_key() != key0: return True
+        ms = mission_state()
+        if ms and (ms["msg"] in ("1124", "1125") or (money0 is not None and ms["money"] >= money0 + 5000)): return True
+        time.sleep(0.3)
+    return False
+
+def inside_box(s, x, y, w, h):
+    return abs(s["x"] - x) <= w / 2 - 0.04 and abs(s["y"] - y) <= h / 2 - 0.04
+
+def settle_box(x, y, w, h, money0=None, secs=40, nudge=None, key0=None):
+    """stand inside the LOCATE box (centre x,y, size w x h) until the mission
+    arrow moves on from key0 (the arrow before the walk; the walk itself may
+    have crossed the box); nudge is the caller's precise stepper (nudge_to)"""
+    if key0 is None: key0 = objective_key()
+    if objective_key() != key0:
+        say(f"box {x},{y} ({w}x{h}): passed on the way"); return True
+    t0 = time.time(); k = 0
+    r = max(0.05, min(w, h) / 2 - 0.1)
+    pts = [(0, 0), (r * 0.5, 0), (-r * 0.5, 0), (0, r * 0.5), (0, -r * 0.5), (r, r), (-r, -r), (r, -r), (-r, r)]
+    while time.time() - t0 < secs:
+        off = pts[k % len(pts)]; k += 1
+        if nudge: nudge(x + off[0], y + off[1], tol=max(0.06, r * 0.4), tries=10)
+        s = D.wait_state()
+        inside = s and inside_box(s, x, y, w, h)
+        if wait_objective_change(key0, 2.5 if inside else 0.6, money0):
+            say(f"box {x},{y} ({w}x{h}): passed after {time.time()-t0:.0f}s"); return True
+    say(f"box {x},{y} ({w}x{h}): not passed in {secs}s (last {s['x']:.2f},{s['y']:.2f} z {s['z']:.2f})")
+    return False
+
+def any_car(world, budget=150, within=14.0):
+    """get into some car: the nearest parked car the renderer reports, else wait
+    at the kerb for one that stops beside him (natural entry)"""
+    t0 = time.time()
+    while time.time() - t0 < budget:
+        s = D.wait_state()
+        if s["driving"]: return s
+        if s["parked"] and s["pd"] < within:
+            say(f"any_car: parked car at {s['px']:.1f},{s['py']:.1f} d={s['pd']:.1f}")
+            s = enter_car3(world, s["px"], s["py"], budget=60)
+            if s and s["driving"]: return s
+        elif s["car"] and s["cd"] < 2.4:
+            pts = []
+            for _ in range(3):
+                s = D.wait_state(); pts.append((s["cx"], s["cy"])); time.sleep(0.4)
+            if max(math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]) for p in pts) < 0.3:
+                say(f"any_car: a car stopped beside him at {s['cx']:.1f},{s['cy']:.1f}")
+                hold("Up", 0.2); tap("Return", 0.3); time.sleep(3.0)
+                s = D.wait_state()
+                if s["driving"]: return s
+        time.sleep(0.6)
+    return D.wait_state()
+
+
+# ---------------------------------------------------------------- v3: kerb finding, warps, ramming
+INI = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.ini"
+
+def nearest_kerb(world, s, radius=40):
+    """the nearest pavement cell beside a road at street level"""
+    sx, sy = int(s["x"]), int(s["y"]); best = None
+    for r in range(1, radius):
+        for dx in range(-r, r + 1):
+            for dy in (-r, r):
+                for (cx, cy) in ((sx + dx, sy + dy), (sx + dy, sy + dx)):
+                    for lvl in (1, 2):
+                        if walkable(world.blocks, world.columns, cx, cy, lvl, (2,)):
+                            for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                                if walkable(world.blocks, world.columns, nx, ny, lvl, (1,)):
+                                    return (cx + 0.5, cy + 0.5, lvl)
+    return None
+
+def any_car2(world, budget=150):
+    """a car by any honest means: a parked one nearby, else the nearest kerb
+    and the first car that stops beside him"""
+    s = D.wait_state()
+    if s["driving"]: return s
+    if s["parked"] and s["pd"] < 14:
+        s = enter_car3(world, s["px"], s["py"], budget=60)
+        if s and s["driving"]: return s
+    k = nearest_kerb(world, s)
+    if k:
+        say(f"any_car2: to the kerb at {k[0]:.1f},{k[1]:.1f}")
+        s = walk3(world, k[0], k[1], None, tol=0.5, budget=90)
+    return any_car(world, budget=budget, within=14.0)
+
+def devtools_lines():
+    try:
+        with open(D.LOG, "rb") as f:
+            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 60000)); tail = f.read().decode("latin-1")
+    except OSError:
+        return []
+    return [l for l in tail.splitlines() if "devtools:" in l]
+
+def scene_warp(x, y, level, why):
+    """the developer scene warp (F10, [devtools] scene_xy re-read per press);
+    only when the honest route failed, and always marked"""
+    for _ in range(3):
+        s = D.wait_state()
+        if not s["driving"]: break
+        tap("Return", 0.3); time.sleep(2.0)
+    try:
+        t = open(INI, encoding="latin-1").read()
+        t = re.sub(r"(?m)^scene_xy=.*$", f"scene_xy={x},{y},{level}", t)
+        open(INI, "w", encoding="latin-1").write(t)
+    except OSError as e:
+        say("scene_warp: ini", e); return D.wait_state()
+    s = D.wait_state()
+    for attempt in range(4):
+        n0 = len(devtools_lines())
+        tap("F10", 0.3); time.sleep(2.5)
+        new = devtools_lines()[n0:]
+        s = D.wait_state()
+        if new and "ignored" not in new[-1] and "refused" not in new[-1]: break
+        say(f"warp attempt {attempt+1}: {new[-1].split('devtools:')[-1] if new else 'no devtools line'}")
+        time.sleep(1.0)
+    # the scene brings a car and pins him until Return; step out of it if the game put him in
+    time.sleep(1.5); s = D.wait_state()
+    if s["driving"]: tap("Return", 0.3); time.sleep(2.0); s = D.wait_state()
+    mark(f"WARP to {x},{y},{level} ({why}) -> at {s['x']:.1f},{s['y']:.1f} z={s['z']:.2f}")
+    return s
+
+def top_level(world, x, y):
+    """the level of the highest lid in the column (for a warp's level)"""
+    best = None
+    for lvl in range(0, 8):
+        b = _blk(world, int(x), int(y), lvl)
+        if b and _lid(b): best = lvl + 1
+    return best or 2
+
+def ram_target(world, money0, secs=240, view_switch=None):
+    """wreck the car the mission arrow follows: drive at it at speed, back off,
+    repeat until the outcome changes"""
+    t0 = time.time(); hits = 0
+    while time.time() - t0 < secs:
+        o, ms = outcome(money0)
+        if o != "running": return o
+        tgt = objective()
+        s = D.wait_state()
+        if not s["driving"]:
+            s = any_car2(world, budget=90)
+            if not s["driving"]: continue
+        if not tgt: time.sleep(1); continue
+        d = math.hypot(tgt[0] - s["x"], tgt[1] - s["y"])
+        if d > 6:
+            # the car moves: aim a few seconds ahead of it, in short legs
+            time.sleep(1.0); t2 = objective() or tgt
+            vx, vy = (t2[0] - tgt[0]), (t2[1] - tgt[1])
+            lead = min(3.0, d / 6.0)
+            s = drive3(world, t2[0] + vx * lead, t2[1] + vy * lead, tol=3.0, budget=14, view_switch=view_switch, slow=False)
+            continue
+        # line up and charge
+        hx, hy = heading(s); dx, dy = tgt[0] - s["x"], tgt[1] - s["y"]
+        a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+        if abs(a) > 0.35:
+            xdo("keydown", "Down"); xdo("keydown", "Left" if a > 0 else "Right"); time.sleep(0.7)
+            xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right")
+            continue
+        # charge: Up held and re-aimed until the impact, then keep pushing into it
+        xdo("keydown", "Up"); t1 = time.time(); last_d = d
+        while time.time() - t1 < 4.0:
+            s = D.wait_state(); tgt = objective()
+            if not s["driving"] or not tgt: break
+            if s.get("fire", 0) > 0: break
+            hx, hy = heading(s); dx, dy = tgt[0] - s["x"], tgt[1] - s["y"]
+            d = math.hypot(dx, dy); a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+            if abs(a) > 0.12:
+                key = "Right" if a > 0 else "Left"; xdo("keydown", key); time.sleep(min(abs(a) * 0.4, 0.25)); xdo("keyup", key)
+            if d < 1.3: time.sleep(1.2); break          # on it: push
+            if abs(a) > 1.2: break                        # it got past us
+            time.sleep(0.15)
+        xdo("keyup", "Up")
+        hits += 1; say(f"ram: charge {hits} ended at d={d:.1f}")
+        hold("Down", 0.7); time.sleep(0.2)
+    return outcome(money0)[0]
+
+
+def street_cell_near(world, x, y, radius=14):
+    """the nearest road cell at street level (1 or 2) to a point"""
+    cx0, cy0 = int(x), int(y); best = None
+    for r in range(1, radius):
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                if max(abs(dx), abs(dy)) != r: continue
+                for lvl in (1, 2):
+                    if walkable(world.blocks, world.columns, cx0 + dx, cy0 + dy, lvl, (1,)):
+                        return (cx0 + dx + 0.5, cy0 + dy + 0.5, lvl)
+    return None
+
+
+def escape_point(world, x, y, level, dist=7):
+    """a point `dist` blocks from (x,y) with open walkable ground all the way
+    (for running clear of a timed charge): the first of eight directions"""
+    best = None
+    for k in range(8):
+        a = k * math.pi / 4; dx, dy = math.cos(a), math.sin(a); ok = 0
+        for d in range(1, dist + 1):
+            cx, cy = int(x + dx * d), int(y + dy * d)
+            if not any(walkable(world.blocks, world.columns, cx, cy, lv, (1, 2, 3)) for lv in (level, level + 1, level - 1) if lv >= 0): break
+            ok = d
+        if ok >= dist: return (x + dx * dist, y + dy * dist)
+        if best is None or ok > best[0]: best = (ok, (x + dx * ok, y + dy * ok))
+    return best[1] if best else (x, y - dist)
