@@ -204,7 +204,11 @@ bool g_logPedFrames = false;
 // see PedActionFor. Filled in from the probe runs; -1 disables a range.
 int g_pedPunchFrames[2] = {115, 130};   // the swing 115-122, the recovery 123-130 (probe run)
 int g_pedAimFrames[2] = {36, 47};      // arm out, from the frame sheet (not yet seen in a run)
-int g_pedHandsUpFrames[2] = {-1, -1};   // GTA2DX9_LOG_PED_FRAMES=1: the player's frame/state changes, for the clip tables
+int g_pedHandsUpFrames[2] = {-1, -1};
+   // GTA2DX9_LOG_PED_FRAMES=1: the player's frame/state changes, for the clip tables
+bool g_pedWeapons = true;   // the pickup models in the hand of a figure that aims
+bool g_fxUpright = true;    // effect artwork faced to a street-level camera; bullets as streaks
+int g_carLamps = 1;         // [renderer] car_lamps: 0 none, 1 when dark + brake lamps, 2 always
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
 gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
 bool g_uprightPeds = false;
@@ -237,6 +241,7 @@ bool BehindView(float x, float y, float z, float margin) {
     return dx * g_viewForward.x + dy * g_viewForward.y + dz * g_viewForward.z < -margin;
 }
 void SetUprightPeds(bool on) { g_uprightPeds = on; }
+void SetCarLamps(int mode) { g_carLamps = mode; }
 bool UprightPeds() { return g_uprightPeds; }
 namespace { bool g_pedFigures = false; }
 void SetPedFigures(bool on) { g_pedFigures = on; }
@@ -4233,10 +4238,12 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 // nothing built stands within a block, and no road runs beside it.
                 // (Azeri Heights' cobbled quay promenade runs between the river and
                 // a road, with a container dropped in the middle of it otherwise.)
-                bool dockYard = (waterDx || waterDz) && ground == 0;
+                // Yards are plain lids only: a pavement or road cell beside the
+                // water is a promenade, and a field cell is a beach or a lawn.
+                bool dockYard = (waterDx || waterDz) && ground == 0 && !IsGrassTile(top.lid.Tile());
                 for (int k = 1; k <= 2 && dockYard; ++k) {
                     int t, g, l;
-                    if (!lidOf(cx - waterDx * k, cz - waterDz * k, &t, &g, &l) || l != topLevel || g != 0 || IsWaterTile(t)) dockYard = false;
+                    if (!lidOf(cx - waterDx * k, cz - waterDz * k, &t, &g, &l) || l != topLevel || g != 0 || IsWaterTile(t) || IsGrassTile(t)) dockYard = false;
                 }
                 for (int dz = -1; dz <= 1 && dockYard; ++dz) {
                     for (int dx = -1; dx <= 1 && dockYard; ++dx) {
@@ -5953,6 +5960,11 @@ int PedActionFor(bool corpse, unsigned pedFrame, int32_t pedState, int32_t pedSu
     if (f >= static_cast<unsigned>(g_pedPunchFrames[0]) && f <= static_cast<unsigned>(g_pedPunchFrames[1])) return 1;
     // The aim only while attacking with something other than fists (state 7, sub 0xe = fists).
     if (pedState == 7 && pedSub != 0xe && f >= static_cast<unsigned>(g_pedAimFrames[0]) && f <= static_cast<unsigned>(g_pedAimFrames[1])) return 2;
+    // The two-handed stance: the heavy-weapon frames (48-52 on the sheet), in the
+    // attack state or carried while standing.
+    if (f >= 48 && f <= 52 && (pedState == 7 || pedState == 0)) return 8;
+    // In the water (state 8 sub 0x14), or the sinking frames.
+    if ((pedState == 8 && pedSub == 0x14) || (f >= 131 && f <= 135)) return 9;
     if (g_pedHandsUpFrames[0] >= 0 && f >= static_cast<unsigned>(g_pedHandsUpFrames[0]) && f <= static_cast<unsigned>(g_pedHandsUpFrames[1])) return 3;
     return 0;
 }
@@ -6264,6 +6276,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     for (int k = 0; k < 4; ++k) acc += fit.m[r][k] * placed.m[k][c];
                     world.m[r][c] = acc;
                 }
+                // A swimmer lies in the water to his shoulders: the prone clip puts
+                // him at the surface, the figure is sunk the rest of the way.
+                if (track.action == 9) world.m[3][1] -= 0.14f * (std::min)(1.0f, track.actionWeight);
                 // The clips: walk and run from the ground he covers, so the feet
                 // do not slide; idle, one of three, at his own offset and pace;
                 // walk and idle cross-faded over 0.2 s, walk and run over 0.25 s.
@@ -6295,7 +6310,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // The action layer: its clip advances in real time (one-shots hold
                 // their last pose, the fall holds lying; a knock-down plays back out),
                 // and is faded in over the walk or idle, then out again when it is over.
-                static const char* const kActionClips[8] = {nullptr, "punch", "aim", "handsup", "fall", "getin", "getout", "hit"};
+                static const char* const kActionClips[10] = {nullptr, "punch", "aim", "handsup", "fall", "getin", "getout", "hit", "aim_heavy", "swim"};
                 const ModelAnimation* actionClip = track.action ? model->Animation(kActionClips[track.action]) : nullptr;
                 float actionT = 0.0f;
                 if (actionClip) {
@@ -6383,6 +6398,49 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                }
+                // The weapon in his right hand while he aims: the pickup's own model
+                // (a pistol for the one-handed frames, the machine gun for the
+                // two-handed stance), held at the hand joint of the pose just drawn.
+                if ((track.action == 2 || track.action == 8) && actW > 0.3f && g_pedWeapons) {
+                    const Model* weapon = ModelByName(track.action == 8 ? "pickup_machine_gun" : "pickup_pistol");
+                    const ModelAnimation* base = nullptr; float baseT = 0.0f;
+                    const ModelAnimation* over = nullptr; float overT = 0.0f; float overW = 0.0f;
+                    if (actionClip && actW > 0.999f) { base = actionClip; baseT = actionT; }
+                    else if (actionClip) {
+                        base = walkW < 0.5f ? idle : (runW > 0.5f ? run : walk);
+                        baseT = walkW < 0.5f ? idleTime : (runW > 0.5f ? runTime : walkTime);
+                        over = actionClip; overT = actionT; overW = actW;
+                    } else { base = walk; baseT = walkTime; }
+                    gta2::Mat4 hand;
+                    if (weapon && ModelNodeWorld(*model, "Bip01 R Hand", base, baseT, over, overT, overW, &hand)) {
+                        auto mul = [](const gta2::Mat4& a, const gta2::Mat4& b) {
+                            gta2::Mat4 o;
+                            for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
+                                float acc = 0.0f;
+                                for (int k = 0; k < 4; ++k) acc += a.m[r][k] * b.m[k][c];
+                                o.m[r][c] = acc;
+                            }
+                            return o;
+                        };
+                        const gta2::Mat4 handWorld = mul(hand, world);
+                        // How long a model unit is in the world at the hand.
+                        const float sx = handWorld.m[0][0], sy = handWorld.m[0][1], sz = handWorld.m[0][2];
+                        const float unit = (std::max)(1e-4f, std::sqrt(sx * sx + sy * sy + sz * sz));
+                        const float wantLen = track.action == 8 ? 0.17f : 0.065f;   // blocks: a rifle, a pistol
+                        const float k = wantLen / (unit * (std::max)(0.01f, weapon->Length()));
+                        // The weapon's barrel (+z) runs along the hand's fingers (+x), its
+                        // top (+y) along the back of the hand (+z); the grip sits a little
+                        // behind and below the hand so the muzzle leads.
+                        gta2::Mat4 inHand;
+                        inHand.m[0][1] = k; inHand.m[1][2] = k; inHand.m[2][0] = k;
+                        inHand.m[3][0] = 0.30f * weapon->Length() * k;      // along the fingers
+                        inHand.m[3][2] = -0.45f * weapon->Height() * k;     // down from the back of the hand
+                        inHand.m[3][3] = 1.0f;
+                        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+                        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+                        ModelDraw(device, *weapon, mul(inHand, handWorld), nullptr, 0.0f);
+                    }
                 }
                 if (tinted || model->splitPaint) {
                     device->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTest);
@@ -7336,10 +7394,111 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     // world matrix genuinely changes every time and cannot be.
     IDirect3DTexture9* bound = nullptr;
     bool linear = false;
-    auto issue = [&](const std::vector<Drawable>& list) {
+    // Effect artwork stood up for a street-level camera. GTA2 lays its explosions,
+    // flames, muzzle flashes and bullets flat on the road like everything else,
+    // which from eye height is a sliver; here each is turned to face the camera:
+    // the big ones (fire, blasts) standing on the spot they lay, the small ones
+    // (a muzzle flash, a bullet, a spark) centred at about gun height. A small
+    // one that moved since last frame is a bullet in flight and is drawn as a
+    // streak along its path instead of a dot.
+    struct FxSeen { float x, y, z; uint32_t frame; };
+    static std::map<uintptr_t, FxSeen> fxSeen;
+    const bool fxUpright = g_uprightPeds && g_fxUpright;
+    const gta2::Vec3 fxEye = camera.Position();
+    auto issue = [&](const std::vector<Drawable>& list, bool fx = false) {
         bool tinted = false;
         for (const Drawable& d : list) {
             D3DMATRIX world;
+            if (fx && fxUpright && d.sprite->corners == 4 && !d.blood && !d.sprite->pedestrian) {
+                const Sprite& sp = *d.sprite;
+                float c[3] = {0, 0, 0}, w0[3], w1[3], w3[3];
+                auto toW = [&](const Vertex& v, float* o) {
+                    const float (*m)[4] = sp.objectToWorld.m;
+                    for (int j = 0; j < 3; ++j) o[j] = v.x * m[0][j] + v.y * m[1][j] + v.z * m[2][j] + m[3][j];
+                };
+                toW(sp.local[0], w0); toW(sp.local[1], w1); toW(sp.local[3], w3);
+                for (int i = 0; i < 4; ++i) { float w[3]; toW(sp.local[i], w); for (int j = 0; j < 3; ++j) c[j] += 0.25f * w[j]; }
+                auto dist = [](const float* a, const float* b) {
+                    return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+                };
+                const float size = (std::max)(dist(w0, w1), dist(w0, w3));
+                const bool small = size < 0.22f;
+                if (small && sp.object) {
+                    // In flight? Where this object was drawn last frame.
+                    auto seen = fxSeen.find(sp.object);
+                    float px = c[0], py = c[1], pz = c[2];
+                    bool flying = false;
+                    if (seen != fxSeen.end() && g_carFrame - seen->second.frame <= 2) {
+                        const float dx = c[0] - seen->second.x, dz = c[2] - seen->second.z;
+                        const float moved = std::sqrt(dx * dx + dz * dz);
+                        if (moved > 0.06f && moved < 2.5f) { flying = true; px = seen->second.x; py = seen->second.y; pz = seen->second.z; }
+                    }
+                    fxSeen[sp.object] = {c[0], c[1], c[2], g_carFrame};
+                    if (fxSeen.size() > 4096) fxSeen.clear();
+                    if (flying) {
+                        // A streak from where it was to where it is, a hand wide, facing the eye.
+                        const float gun = 0.30f;
+                        float ax = c[0] - px, ay = 0.0f, az = c[2] - pz;
+                        const float al = std::sqrt(ax * ax + az * az);
+                        ax /= al; az /= al;
+                        float ex = fxEye.x - c[0], ez = fxEye.z - c[2];
+                        const float el = (std::max)(1e-4f, std::sqrt(ex * ex + ez * ez));
+                        ex /= el; ez /= el;
+                        // Perpendicular to the path and to the line of sight.
+                        float nx = ay * ez - az * 0.0f, ny = az * ex - ax * ez, nz = ax * 0.0f - ay * ex;
+                        const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+                        if (nl < 1e-4f) { nx = 0.0f; ny = 1.0f; nz = 0.0f; } else { nx /= nl; ny /= nl; nz /= nl; }
+                        const float hw = 0.018f;
+                        Vertex q[4];
+                        const float y0 = py + gun, y1 = c[1] + gun;
+                        q[0] = {px + nx * hw, y0 + ny * hw, pz + nz * hw, 0, 1, 0, 0.0f, 0.0f};
+                        q[1] = {c[0] + nx * hw, y1 + ny * hw, c[2] + nz * hw, 0, 1, 0, 1.0f, 0.0f};
+                        q[2] = {c[0] - nx * hw, y1 - ny * hw, c[2] - nz * hw, 0, 1, 0, 1.0f, 1.0f};
+                        q[3] = {px - nx * hw, y0 - ny * hw, pz - nz * hw, 0, 1, 0, 0.0f, 1.0f};
+                        gta2::Mat4 id;
+                        memcpy(&world, id.m, sizeof(world));
+                        device->SetTransform(D3DTS_WORLD, &world);
+                        if (d.texture != bound) { device->SetTexture(0, d.texture); bound = d.texture; }
+                        device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 4, 2, kQuadIndices, D3DFMT_INDEX16, q, sizeof(Vertex));
+                        ++drops_.drawn;
+                        continue;
+                    }
+                }
+                gta2::Mat4 up = UprightPedMatrix(sp.local, sp.corners, sp.objectToWorld, fxEye);
+                if (small) {
+                    // Centred at gun height rather than stood on the road.
+                    float minZ = 1e9f, maxZ = -1e9f;
+                    for (int i = 0; i < 4; ++i) { minZ = (std::min)(minZ, sp.local[i].z); maxZ = (std::max)(maxZ, sp.local[i].z); }
+                    up.m[3][1] = c[1] + 0.30f - 0.5f * (maxZ - minZ) * std::fabs(up.m[2][1]);
+                    up.m[3][0] = c[0]; up.m[3][2] = c[2];
+                }
+                memcpy(&world, up.m, sizeof(world));
+                device->SetTransform(D3DTS_WORLD, &world);
+                if (d.color) {
+                    if (!tinted) {
+                        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+                        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+                        device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+                        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+                        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+                        device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+                        tinted = true;
+                    }
+                    device->SetRenderState(D3DRS_TEXTUREFACTOR, d.color);
+                } else if (tinted) {
+                    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+                    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+                    tinted = false;
+                }
+                if (d.enlarged != linear) {
+                    device->SetSamplerState(0, D3DSAMP_MAGFILTER, d.enlarged ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+                    linear = d.enlarged;
+                }
+                if (d.texture != bound) { device->SetTexture(0, d.texture); bound = d.texture; }
+                device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 4, 2, kQuadIndices, D3DFMT_INDEX16, d.sprite->local, sizeof(Vertex));
+                ++drops_.drawn;
+                continue;
+            }
             const bool onFeet = d.sprite->pedestrian && !d.sprite->climbing && !d.sprite->boardUi &&
                                 !d.sprite->corpse && d.sprite->corners == 4;
             if (g_pedFigures && onFeet) continue;   // drawn as a figure instead, see DrawPedFigures
@@ -7580,6 +7739,11 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     stageTimer.Mark();   // 3: the game's own quads issued
     if (g_groundModels) {
         DrawCarModels(device);
+        {
+            // Dark when the sky's sun is down: the lamps follow the picture, not the clock.
+            const gta2::SkySettings& sky = gta2::SkyConfig();
+            CarBodiesSetLamps(g_carLamps, sky.sunElevationDeg < 6.0f);
+        }
         CarBodiesDraw(device, carBodies_, g_carFrame, camera.Position());
     }
     stageTimer.Mark();   // 4: cars
@@ -7815,7 +7979,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         // Still depth *tested*, so a fire behind a wall stays behind it, but not
         // depth written: a glow must not stop what is drawn after it.
         device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-        issue(effects);
+        issue(effects, true);
         device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
         device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
         device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);

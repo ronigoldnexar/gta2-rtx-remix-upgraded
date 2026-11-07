@@ -120,30 +120,59 @@ Fixed (uncommitted):
    western docks and the respawn's Return put him into a parked car, so every later frame
    was from inside it), a wait for the driving state before the drive controller.
 
-Open (evidence paths):
+Second pass (7 Nov, TOUR-FIXES; evidence `out/tour_fixes_sheet.png`):
 
-1. **Pay-phone model lies on its side.** The code-object phone (base 4 frames 510-512,
-   `code_phone`) is drawn as a wide blue slab with the sprite face on its end; the player
-   stands on it when answering (`out/tour_ste/t_10_phone_answered.png`,
-   `out/tour_bil_phone_take2/t_21_phone_answered.png`; also QA2's mission panel). The quad
-   is 0.50 x 0.47 tiles, so the fit in `map_objects.cpp` is right; the GLB's up axis or
-   `forward` from `tools/gen_code_objects.py` is not. Owner: code objects.
-2. **Plain grey block faces at Industrial (216,22) z4.** A building-sized cube with
-   untextured light-grey sides next to the glass-roofed hall
-   (`out/tour_ste/t_13_hole_216_22_third_b.png`): looks like the implicit base walls or
-   hidden surfaces (`world_mesh.cpp`) textured with a plain lid tile on all four sides.
-   Owner: world mesh.
-3. **Chain-link fence tiles are blocky at 512 px.** The cutout alpha of the fence HD tiles
-   is a 64 px mask scaled up (`out/tour_bil_take1/t_12_park_first_a.png`). Owner: HD tiles
-   (a sharper alpha from the ESRGAN output, or a cutout pass).
-4. **Scene warp car not enterable at the Residential spawn road**: the car was placed at
-   44.5,109.05 and the player at its door, three Returns did nothing
-   (`out/tour_bil/t_05_car_arrives.png`; devtools line 23:59:10). Not seen in Industrial.
-5. Rule-placed containers stand on the docks' pedestrian quay at Azeri Heights (one in
-   the middle of the walkway, `out/tour_bil/t_10_river_third_a.png`): plausible for a dock,
-   but the rule should prefer the dock side of the quay. Owner: props.
-6. The Industrial station look spot (119.5,122.5) faces the station wall in all four
-   first-person frames; the tour should look from the open side (script, not renderer).
+1. **Pay-phone model: fixed.** The hooded "slab on a post" is now an upright kiosk
+   (`tools/gen_code_objects.py build_phone`: four steel posts, blue steel panels to waist
+   height, glass above, the sprite as the roof, the phone unit on the back wall; 0.5 blocks
+   tall, a head over a person). The fit in `map_objects.cpp` was right all along (the quad is
+   0.50 x 0.47 and the model's long axis is scaled onto it); the previous model itself was a
+   wide flat hood. Verified at the Downtown spawn phone in third person
+   (`out/qa_tf_wil/qa_tf_wil_phone_third_a.png`, zoom `out/tf_booth_zoom.png`); the phone's
+   footprint is registered for the first-person eye push-out (`MapObjectFootprints`). Traffic
+   lights and the helicopter were left as they were (their fit is the same transform).
+2. **Plain grey faces at Industrial (216,22) z4: not a defect.** The map stores that cell as a
+   one-block tower with tile 501 on all four sides and lid 581; tile 501 is a plain light-grey
+   concrete tile in the game's own art (`out/tf_tiles_501.png`: 501, 581, 589, 587 from the
+   style file). The mesh draws exactly what the game stores; no hidden-surface or implicit
+   wall is involved (the column below it has no faces, and no neighbour is lower). Closed.
+3. **Chain-link and railing cutouts: fixed.** `tools/pack_textures_dds.py soft_alpha` upscales
+   the 1-bit mask bicubically and steepens it to a ~1.5 px edge; the 736 cutout tiles of the
+   three districts were re-packed. Verified in first person at the Residential park fence
+   (`out/qa_tf_bil/qa_tf_bil_fence_first_1.png`, `..._closer.png`: smooth diamonds) and at the
+   Downtown kerb railing (`out/tf_railing_zoom.png`: clean bars, no 8 px steps).
+4. **Scene-warp car at the Residential spawn road: see below.** The first cause found: the
+   nearest parked car there is the script's XK120 parked on a terrace one level up
+   (45.5,92.5,3); moved onto the road it kept the game's idea of its level and Return did
+   nothing. `WarpSceneToRoad` now picks the nearest driverless car on the scene's own level
+   whose model is an ordinary traffic car (`NearestParkedTrafficCar`, no wrecks, trains,
+   trailers, tank, specials). That was not enough: a level-2 traffic car brought 22 tiles to the same
+   road could not be entered either (`out/qa_tf_bil3`), while F9 (the player warped to a
+   parked car where it stands) entered the terrace XK120 at the first Return (`out/qa_tf_bil2`,
+   `qa_tf_bil3`). A car moved by writing its placement keeps its old place in the game's own
+   bookkeeping. So the scene warp no longer moves cars: it takes the player to the driver's
+   door of the nearest parked traffic car that stands on a road around the scene
+   (`NearestParkedTrafficCarOnRoad`, within 40 blocks, any level), logged as
+   `devtools: scene ...: the player goes to the parked car at ...`. Verified: scene 44.5,110.5
+   put him at the XK120 (16 tiles off), Return entered it at once, drove in third and first
+   person (`out/qa_tf_bil4`, sheet row 4). Scripts should expect the player to be moved to a
+   car near the scene rather than at it. Also found: F10 is shared with the probe feature and
+   a press can be swallowed; the QA runs use `scene_key=F11` (`QA_SED`).
+5. **Containers on the pedestrian quay: fixed by rule.** `DrawProps` places containers and
+   cranes only on dock yards: the cell and the two cells behind it are plain or field lids
+   (never pavement, road or grass), nothing stands within a block and no road runs beside
+   (the Azeri Heights promenade is pavement between the river and a road, so it gets none).
+   Verified at the Azeri Heights promenade (80.5,20.5): `containers 0` in the
+   props log and clear quay frames (`out/qa_tf_bil4`, sheet row 5; before: `out/tour_bil`).
+   No cell that satisfies the yard rule was visited in these runs, so containers and cranes
+   appearing on a true yard is unverified in game; offline the rule qualifies 2 plain-lid
+   waterside cells in wil, 12 in bil and 29 in ste.
+6. The Industrial station look spot: script only; not changed here.
+
+Note on names: the game's own welcome text says file `bil` is the **Industrial** district
+("home to the Russian Mafia, the Krishna and the Zaibatsu") and file `ste` is **Residential**
+("the Rednecks, the Scientists, the Zaibatsu"; the Mobile RV Park). This document's section
+titles have them the other way round; the file names are what the scripts use.
 
 Not a defect, noted: the "park" in Residential is the Krishna commune yard (grass with the
 crate blocks) and an east lawn; there is no park zone. Industrial's west lawn lies under the

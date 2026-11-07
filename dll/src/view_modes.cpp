@@ -360,6 +360,66 @@ bool WarpFloorMatches(float gx, float gy, float level) {
            std::fabs(y - level) < 0.5f && type >= 1 && type <= 3;
 }
 
+// The nearest driverless car on the given level whose model is an ordinary
+// traffic car (no wreck, train, trailer, tank or special), for the scene warp.
+bool NearestParkedTrafficCar(float x, float y, float within, float level, float* vx, float* vy, float* distance,
+                             const void** vehicle) {
+    bool found = false;
+    float best = within;
+    int guard = 0;
+    for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024;
+         v = game::NextInList(v, game::kVehicleNext), ++guard) {
+        if (game::VehicleHasDriver(v)) continue;
+        int32_t model = -1;
+        if (!ReadAt(reinterpret_cast<uintptr_t>(v) + game::kVehicleModel, &model)) continue;
+        if (model < 0 || model > 86 || model == 3 || model == 6 || model == 22 || model == 54 || model == 55 ||
+            (model >= 59 && model <= 61) || model == 65 || model == 66 || (model >= 72 && model <= 81)) continue;
+        float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+        if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &cx, &cy, &cz)) continue;
+        if (std::fabs(cz - level) > 0.5f) continue;
+        const float d = std::hypot(cx - x, cy - y);
+        if (d < 0.55f || d >= best) continue;
+        best = d;
+        found = true;
+        *vx = cx; *vy = cy; *distance = d;
+        if (vehicle) *vehicle = v;
+    }
+    return found;
+}
+
+namespace {
+bool WarpPlayerToCarDoor(const PlayerState& player, const void* car, float cx, float cy);
+}
+
+// As above, any level, but the car must stand on a road cell (so a drive can
+// start from it), nearest to the given point.
+bool NearestParkedTrafficCarOnRoad(float x, float y, float within, float* vx, float* vy, float* distance,
+                                   const void** vehicle) {
+    bool found = false;
+    float best = within;
+    int guard = 0;
+    for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024;
+         v = game::NextInList(v, game::kVehicleNext), ++guard) {
+        if (game::VehicleHasDriver(v)) continue;
+        int32_t model = -1;
+        if (!ReadAt(reinterpret_cast<uintptr_t>(v) + game::kVehicleModel, &model)) continue;
+        if (model < 0 || model > 86 || model == 3 || model == 6 || model == 22 || model == 54 || model == 55 ||
+            (model >= 59 && model <= 61) || model == 65 || model == 66 || (model >= 72 && model <= 81)) continue;
+        float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+        if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &cx, &cy, &cz)) continue;
+        const float d = std::hypot(cx - x, cy - y);
+        if (d >= best) continue;
+        int arrows = 0;
+        if (g_devQueries.roadArrows) arrows = g_devQueries.roadArrows(g_devQueries.context, cx, static_cast<float>(gta2::kMapHeight) - cy, cz + 0.95f);
+        if (!arrows) continue;
+        best = d;
+        found = true;
+        *vx = cx; *vy = cy; *distance = d;
+        if (vehicle) *vehicle = v;
+    }
+    return found;
+}
+
 bool WarpPlayerToParkedCar(float within) {
     PlayerState player;
     if (!LocatePlayer(&player) || !player.valid || player.inVehicle || !player.ped) return false;
@@ -367,6 +427,11 @@ bool WarpPlayerToParkedCar(float within) {
     bool driven = false;
     const void* car = nullptr;
     if (!NearestVehicle(player.x, player.y, within, true, &cx, &cy, &d, &driven, &car)) return false;
+    return WarpPlayerToCarDoor(player, car, cx, cy);
+}
+
+namespace {
+bool WarpPlayerToCarDoor(const PlayerState& player, const void* car, float cx, float cy) {
     float hx = 0.0f, hy = 1.0f;
     VehicleFacing(car, &hx, &hy);
     // The driver's door is on the car's left: facing (hx, hy) with y south,
@@ -406,6 +471,7 @@ bool WarpPlayerToParkedCar(float within) {
         player.x, player.y, player.z, tx, ty, cz, cx, cy, hx, hy, ok ? "written" : "write failed");
     return ok;
 }
+}  // namespace
 
 bool WarpSceneToRoad(float x, float y, float z) {
     PlayerState player;
@@ -428,12 +494,20 @@ bool WarpSceneToRoad(float x, float y, float z) {
         x = rx; y = ry; z = rz;
     }
     float cx = 0.0f, cy = 0.0f, d = 0.0f;
-    bool driven = false;
     const void* car = nullptr;
-    const uint8_t* place = nullptr;
-    if (NearestVehicle(player.x, player.y, 250.0f, true, &cx, &cy, &d, &driven, &car)) {
-        place = game::Placement(static_cast<const uint8_t*>(car), game::kVehiclePlacementPtr);
+    // A car that is moved by writing its placement keeps its old place in the
+    // game's own bookkeeping (Residential: a car brought 10 or 22 tiles to the
+    // spawn road could not be entered however it was placed, while the same
+    // cars were entered at once where they stood), so no car is moved any
+    // more: the player goes to the driver's door of the nearest parked
+    // traffic car around the scene that stands on a road, at the car's level.
+    if (NearestParkedTrafficCarOnRoad(x, y, 40.0f, &cx, &cy, &d, &car)) {
+        const bool ok = WarpPlayerToCarDoor(player, car, cx, cy);
+        Log("devtools: scene %.2f,%.2f: the player goes to the parked car at %.2f,%.2f (%.1f tiles from the scene) instead of the car coming%s",
+            x, y, cx, cy, d, ok ? "" : " (write failed)");
+        return ok;
     }
+    const uint8_t* place = nullptr;
     if (!place) {
         // No parked car to bring: move the player alone (objects and views can still be checked there).
         const float tx = x, ty = y;

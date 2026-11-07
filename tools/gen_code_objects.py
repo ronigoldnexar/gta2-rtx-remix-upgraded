@@ -177,31 +177,49 @@ def build_heart(im):
 
 
 def build_phone(im):
-    """A GTA2 pay phone: a steel post, a blue hooded box with the handset
-    cradle, the sprite as the hood's top. Footprint 32x30 px."""
+    """A GTA2 pay phone as an upright kiosk, half a block square: four steel
+    posts, a blue steel back and side panels to waist height with glass above,
+    the sprite as the roof, and the phone unit on the back wall, open to the
+    front (+z, the sprite's down-the-page side). 0.5 blocks tall: a person is
+    0.46, so it stands a head over him, like a real booth."""
     big = x4(im)
     blue = (40, 90, 200)
-    post = Part()
-    cylinder_part(post, lambda t: 0.022, 0.0, 0.30, segments=12, rings=1)
-    post_m = post.mesh(mat(flat((110, 112, 118)), 0.9, 0.35, name="post"))
-    # The hood: a rounded blue shell 0.44 x 0.40, 0.20 tall; the sprite is its roof,
-    # the sides are plain painted steel with a pale band.
+    W, D, H = 0.22, 0.20, 0.50   # half width, half depth, height
+    steel = mat(flat((120, 124, 130)), 0.9, 0.35, name="steel")
+    posts = Part()
+    for x in (-W, W):
+        for z in (-D, D):
+            box_part(posts, x - 0.015, x + 0.015, 0.0, H, z - 0.015, z + 0.015)
+    posts_m = posts.mesh(steel)
+    # roof: the sprite, with a thin fascia under it
     roof = Part()
-    roof.quad((-0.22, 0.36, 0.20), (0.22, 0.36, 0.20), (0.22, 0.36, -0.20), (-0.22, 0.36, -0.20), (0, 1), (1, 1), (1, 0), (0, 0))
+    roof.quad((-W, H, D), (W, H, D), (W, H, -D), (-W, H, -D), (0, 1), (1, 1), (1, 0), (0, 0))
     roof_m = roof.mesh(mat(top_tex(big, blue), 0.5, 0.45, name="roof"))
-    hood = Part()
-    box_part(hood, -0.22, 0.22, 0.16, 0.355, -0.20, 0.20)
+    fascia = Part(); box_part(fascia, -W, W, H - 0.03, H, -D, D)
+    fascia_m = fascia.mesh(mat(flat(blue), 0.5, 0.45, name="fascia"))
+    # lower panels: blue steel with a pale band; back and both sides
+    panels = Part()
+    box_part(panels, -W, W, 0.02, 0.22, -D, -D + 0.012)            # back
+    box_part(panels, -W, -W + 0.012, 0.02, 0.22, -D, D)            # left side
+    box_part(panels, W - 0.012, W, 0.02, 0.22, -D, D)              # right side
     side_tex = Image.new("RGB", (64, 32), blue)
     ImageDraw.Draw(side_tex).rectangle([0, 10, 64, 14], fill=(190, 200, 215))
-    hood_m = hood.mesh(mat(side_tex, 0.5, 0.45, name="hood"))
-    # inner panel and handset
-    panel = Part(); box_part(panel, -0.12, 0.12, 0.18, 0.33, 0.08, 0.14)
-    panel_m = panel.mesh(mat(flat((70, 72, 78)), 0.8, 0.3, name="panel"))
-    hs = Part(); box_part(hs, -0.09, -0.03, 0.19, 0.31, 0.02, 0.08)
+    panels_m = panels.mesh(mat(side_tex, 0.5, 0.45, name="panel"))
+    # glass above the panels on the same three sides
+    glass = Part()
+    box_part(glass, -W, W, 0.22, H - 0.03, -D, -D + 0.006)
+    box_part(glass, -W, -W + 0.006, 0.22, H - 0.03, -D, D)
+    box_part(glass, W - 0.006, W, 0.22, H - 0.03, -D, D)
+    glass_m = glass.mesh(mat(flat((150, 190, 215)), 0.1, 0.1, name="glass"))
+    # the phone unit on the back wall: a dark box with a keypad face, the handset beside it
+    unit = Part(); box_part(unit, -0.08, 0.08, 0.24, 0.40, -D + 0.012, -D + 0.06)
+    unit_m = unit.mesh(mat(flat((70, 72, 78)), 0.8, 0.3, name="unit"))
+    hs = Part(); box_part(hs, -0.07, -0.04, 0.27, 0.39, -D + 0.06, -D + 0.085)
     hs_m = hs.mesh(mat(flat((28, 28, 32)), 0.1, 0.6, name="handset"))
-    base = Part(); cylinder_part(base, lambda t: 0.08 - 0.05 * t, 0.0, 0.03, segments=12, rings=1)
-    base_m = base.mesh(mat(flat((90, 90, 95)), 0.8, 0.5, name="base"))
-    return scene_with([("post", post_m), ("hood", hood_m), ("roof", roof_m), ("panel", panel_m), ("handset", hs_m), ("base", base_m)])
+    floor = Part(); box_part(floor, -W, W, 0.0, 0.02, -D, D)
+    floor_m = floor.mesh(mat(flat((90, 90, 95)), 0.8, 0.5, name="floor"))
+    return scene_with([("posts", posts_m), ("roof", roof_m), ("fascia", fascia_m), ("panels", panels_m),
+                       ("glass", glass_m), ("unit", unit_m), ("handset", hs_m), ("floor", floor_m)])
 
 
 def build_light(colour):
