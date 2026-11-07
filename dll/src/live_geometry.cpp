@@ -234,6 +234,10 @@ struct PedSpot { float x, y, z; };
 std::vector<PedSpot> g_pedSpots;        // where the figures stood this frame (blood on a hit)
 int g_playerWeapon = -1, g_playerAmmo = 0;   // from the game, see SetPlayerWeapon
 int g_playerWeaponSeen = 0;             // the last weapon the player's own figure was drawn with
+// The weapon in every drawn pedestrian's hands as the game numbers it (PedWeapon;
+// 0 bare hands), by his sprite object, read with his state words (game::PedWeaponOf)
+// and used when his figure picks its stance and model. Overwritten each frame.
+std::unordered_map<uintptr_t, int> g_pedWeaponByObject;
 uint32_t g_fpShotFrame = 0;             // the player's last shot seen from the first-person eye
 int g_carLamps = 1;         // [renderer] car_lamps: 0 none, 1 when dark + brake lamps, 2 always
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
@@ -5216,6 +5220,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                 placed.pedState = *reinterpret_cast<const int32_t*>(ped + game::kPedState);
                 placed.pedSub = *reinterpret_cast<const int32_t*>(ped + game::kPedSubState);
                 placed.pedPending = *reinterpret_cast<const int32_t*>(ped + game::kPedStatePending);
+                g_pedWeaponByObject[reinterpret_cast<uintptr_t>(object)] = game::PedWeaponOf(ped);
                 if ((placed.pedState == 3 || placed.pedState == 4) && g_doorPedsNow.size() < 32) {
                     // The ped's vehicle word is only set once he is inside, so the car
                     // he is boarding is matched by position when the cars are collected.
@@ -6078,8 +6083,9 @@ struct FigVertex {
 constexpr DWORD kFigFvf = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE;
 
 // ---------------------------------------------------------------------------
-// Shooting. The weapons, numbered as the game numbers them in the player's
-// ped (see SetPlayerWeapon; the order of the HUD's weapon cycle), each with
+// Shooting. The weapons in the renderer's own order (the game's weapon type,
+// read off the ped's weapon object, maps to it through game::PedWeaponFromGame;
+// see SetPlayerWeapon and g_pedWeaponByObject), each with
 // its stance clip, its model (assets-src/weapons, tools/gen_weapons.py: the
 // grip at the origin, the barrel along +z), its length in blocks, and its
 // muzzle flash (size in blocks, colour, the light it throws).
@@ -6364,11 +6370,12 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             if (g_carFrame - g_fpShotFrame >= 2) g_fpShotFrame = g_carFrame;
         }
     }
-    int weapon = g_playerWeapon > 0 && g_playerWeapon < kWpnCount ? g_playerWeapon : g_playerWeaponSeen;
-    if (weapon <= 0 && g_fpShotFrame && g_carFrame - g_fpShotFrame < 90) weapon = kWpnPistol;
+    // The game's word (0: bare hands, nothing drawn); without it, the weapon the
+    // figure was last drawn with, shown only around a shot.
+    int weapon = g_playerWeapon >= 0 && g_playerWeapon < kWpnCount ? g_playerWeapon : g_playerWeaponSeen;
+    if (g_playerWeapon < 0 && weapon <= 0 && g_fpShotFrame && g_carFrame - g_fpShotFrame < 90) weapon = kWpnPistol;
     if (weapon <= 0 || weapon >= kWpnCount) return;
-    // Without the game's word on the weapon, shown only around a shot.
-    if (g_playerWeapon <= 0 && (!g_fpShotFrame || g_carFrame - g_fpShotFrame > 150)) return;
+    if (g_playerWeapon < 0 && (!g_fpShotFrame || g_carFrame - g_fpShotFrame > 150)) return;
     const WeaponInfo& wi = kWeapons[weapon];
     const Model* model = ModelByName(wi.model);
     if (!model) return;
@@ -6642,7 +6649,16 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // The weapon: the player's from the game; a stranger's from his frames
             // (the one-handed stance: a pistol, the two-handed: a machine gun),
             // refined by what leaves his gun (a big flash: a shotgun; a rocket).
-            if (ownPed && g_playerWeapon > 0 && g_playerWeapon < kWpnCount) track.weapon = g_playerWeapon;
+            // The game's word first (the player's through SetPlayerWeapon, anyone's
+            // through g_pedWeaponByObject: the weapon object his ped holds); the
+            // frames and the flash only tell weapons apart while the game is unread.
+            int gameWeapon = -1;
+            if (ownPed && g_playerWeapon >= 0 && g_playerWeapon < kWpnCount) gameWeapon = g_playerWeapon;
+            else if (sprite.object) {
+                const auto it = g_pedWeaponByObject.find(sprite.object);
+                if (it != g_pedWeaponByObject.end() && it->second >= 0 && it->second < kWpnCount) gameWeapon = it->second;
+            }
+            if (gameWeapon >= 0) track.weapon = gameWeapon;
             else if (wantAction == 2 && (track.weapon == kWpnNone || kWeapons[track.weapon].twoHanded)) track.weapon = kWpnPistol;
             else if (wantAction == 8 && (track.weapon == kWpnNone || !kWeapons[track.weapon].twoHanded)) track.weapon = kWpnMg;
             // Shooting: a flash or a bullet appearing beside him while he attacks
@@ -6656,7 +6672,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     if (dx * dx + dz * dz < 0.64f && std::fabs(fx.y - cy) < 0.8f) {
                         fx.claimed = true;
                         shotNow = true;
-                        if (!(ownPed && g_playerWeapon > 0) && fx.size > 0.15f && fx.size < 0.3f && track.weapon == kWpnMg) track.weapon = kWpnShotgun;
+                        if (gameWeapon < 0 && fx.size > 0.15f && fx.size < 0.3f && track.weapon == kWpnMg) track.weapon = kWpnShotgun;
                     }
                 }
                 for (const FxSpot& fx : g_fxSpotsLast) {
@@ -6668,7 +6684,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (wantAction == 0 && sprite.pedState == 7 && track.shotFrame && g_carFrame - track.shotFrame < 45) wantAction = 2;
             }
             if (shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
-            if (shotNow && track.weapon == kWpnNone) track.weapon = kWpnPistol;   // shooting with nothing named: a pistol
+            if (shotNow && track.weapon == kWpnNone && gameWeapon < 0) track.weapon = kWpnPistol;   // shooting with nothing named: a pistol
             // The stance the weapon calls for; a thrown weapon's throw, one shot, on the throw itself.
             if ((wantAction == 2 || wantAction == 8) && track.weapon > 0) {
                 const int stance = kWeapons[track.weapon].action;

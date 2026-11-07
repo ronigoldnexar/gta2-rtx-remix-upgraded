@@ -392,16 +392,57 @@ constexpr uintptr_t kPhysicsSprite = 0x80;
 // FUN_00433270, which parks it at +0x280 instead while the ped is in state 8 -
 // knocked down, which is what a blast leaves them - so the game's own "is this
 // ped dead" tests read both, and so does anything here.
-// The weapon the player holds and its ammunition, words of his ped. -1: not
-// found yet (the GTA2DX9_LOG_PED_WORDS probe in world_view.cpp finds them; the
-// GTA2DX9_WEAPON_OFFSET / GTA2DX9_AMMO_OFFSET variables try a candidate).
-constexpr int kPlayerWeaponOffset = -1;
-constexpr int kPlayerAmmoOffset = -1;
-// The game's weapon number to the renderer's PedWeapon (live_geometry.cpp:
+// A ped's weapons (read off gta2.exe v9.6, 7 Nov: FUN_00434D70, FUN_004A4870,
+// FUN_004A5260, FUN_0041CC90): +0x15C is his inventory object; +0x170 is the
+// weapon object in his hands, null with none (FUN_00434D70 refreshes it from
+// the inventory each time he draws). The inventory keeps 28 weapon-object
+// pointers at +0x718, one per weapon type, and the int16 at +0x788 is the
+// selected type, -1 for none (FUN_004A4870: selected < 0 ? null : slots[selected]).
+// A weapon object: int16 ammo at +0, int16 reload timer at +2, and its type
+// at +0x1C, the index of its slot (what FUN_0041CC90 returns and the game's
+// aim code compares against 0, 1, 6, 9, 0xA, 0x12). The numbering, verified
+// on the pickups (a COLLECT_nn pickup fills slot nn; a kill frenzy sets its
+// slot's ammo to -1) against the HUD icon at every Z stop (runs
+// out/weapon_offset_wil2, _ste2 of 7 Nov; gamerun/weapon_probe2.py):
+// 0 pistol, 1 machine gun, 2 rocket launcher, 3 electro gun, 4 molotov,
+// 5 grenade, 6 shotgun, 7 electro baton (unverified), 8 flamethrower,
+// 9 silenced machine gun, 10 dual pistols (unverified; the GTAMP memory
+// thread's inventory table, same order). On foot the cycle covers slots
+// 0..14, in a car 0..27 (the vehicle weapons), skipping empty ones.
+inline bool PlausiblePointer(const void* p);
+constexpr uintptr_t kPedWeaponInventory = 0x15C;
+constexpr uintptr_t kPedCurrentWeapon = 0x170;
+constexpr uintptr_t kInventorySlots = 0x718;
+constexpr int kInventorySlotCount = 28;
+constexpr uintptr_t kInventorySelected = 0x788;
+constexpr uintptr_t kWeaponAmmo = 0x0;
+constexpr uintptr_t kWeaponType = 0x1C;
+// The game's weapon type to the renderer's PedWeapon (live_geometry.cpp:
 // 1 pistol, 2 dual pistols, 3 silenced machine gun, 4 machine gun, 5 rocket
-// launcher, 6 electro gun, 7 molotov, 8 grenade, 9 shotgun, 10 flamethrower).
-// Identity until the probe says otherwise; 0 for fists and anything unknown.
-inline int PedWeaponFromGame(int raw) { return raw >= 1 && raw <= 10 ? raw : 0; }
+// launcher, 6 electro gun, 7 molotov, 8 grenade, 9 shotgun, 10 flamethrower);
+// 0 for bare hands, the electro baton (no model yet) and anything unknown.
+inline int PedWeaponFromGame(int raw) {
+    static const int kMap[11] = {1, 4, 5, 6, 7, 8, 9, 0, 10, 3, 2};
+    return raw >= 0 && raw < 11 ? kMap[raw] : 0;
+}
+// The weapon in a ped's hands as the game numbers it (-1: no weapon object, or
+// the ped unreadable) and its ammunition. Pointer-checked, not exception-guarded:
+// the caller wraps it in GTA2_TRY where the ped may be stale.
+inline int PedWeaponRaw(const uint8_t* ped, int* ammo = nullptr) {
+    if (!PlausiblePointer(ped)) return -1;
+    const uint8_t* weapon = *reinterpret_cast<const uint8_t* const*>(ped + kPedCurrentWeapon);
+    if (!PlausiblePointer(weapon)) return -1;
+    if (ammo) *ammo = *reinterpret_cast<const int16_t*>(weapon + kWeaponAmmo);
+    return *reinterpret_cast<const int32_t*>(weapon + kWeaponType);
+}
+// The same as the renderer's PedWeapon: 0 bare hands (no weapon object), -1 unreadable.
+inline int PedWeaponOf(const uint8_t* ped, int* ammo = nullptr) {
+    if (!PlausiblePointer(ped)) return -1;
+    const uint8_t* weapon = *reinterpret_cast<const uint8_t* const*>(ped + kPedCurrentWeapon);
+    if (!weapon) { if (ammo) *ammo = 0; return 0; }
+    const int raw = PedWeaponRaw(ped, ammo);
+    return raw < 0 ? -1 : PedWeaponFromGame(raw);
+}
 constexpr uintptr_t kPedState = 0x278;
 constexpr uintptr_t kPedStatePending = 0x280;
 constexpr int32_t kPedStateDead = 9;

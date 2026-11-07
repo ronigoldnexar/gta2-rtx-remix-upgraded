@@ -1511,30 +1511,15 @@ void WorldView::UpdateCamera() {
         // game last showed (the buffer DISPLAY_MESSAGE fills at 0x5E9808) and
         // the frame counter (0x5E8108). Offsets from the GTAMP memory thread
         // and the save module; every read is guarded, -1 means unreadable.
-        // The weapon in the player's hand: a word of his ped, at kPlayerWeaponOffset
-        // (GTA2DX9_WEAPON_OFFSET=0x... overrides it, to try a candidate from the
-        // ped-words probe without a rebuild; its ammunition the word after). The
-        // figures and the first-person view model take it from SetPlayerWeapon.
+        // The weapon in the player's hand: the weapon object his ped points at
+        // (game::PedWeaponOf: +0x170, its type at +0x1C, its ammunition at +0),
+        // 0 with bare hands, -1 while unreadable. The figures and the first-person
+        // view model take it from SetPlayerWeapon.
         if (worldUploaded_ && player.valid && player.ped) {
-            static int offset = -2, ammoOffset = -1, mapMode = 0;
-            if (offset == -2) {
-                offset = game::kPlayerWeaponOffset;
-                char buf[32] = {};
-                if (GetEnvironmentVariableA("GTA2DX9_WEAPON_OFFSET", buf, sizeof buf) && buf[0]) offset = static_cast<int>(strtoul(buf, nullptr, 0));
-                char buf2[32] = {};
-                if (GetEnvironmentVariableA("GTA2DX9_AMMO_OFFSET", buf2, sizeof buf2) && buf2[0]) ammoOffset = static_cast<int>(strtoul(buf2, nullptr, 0));
-                else if (game::kPlayerAmmoOffset >= 0) ammoOffset = game::kPlayerAmmoOffset;
-                char buf3[8] = {};
-                if (GetEnvironmentVariableA("GTA2DX9_WEAPON_RAW", buf3, sizeof buf3) && buf3[0] == '1') mapMode = 1;
-            }
             int weapon = -1, ammo = 0;
-            if (offset >= 0) {
-                GTA2_TRY {
-                    const int raw = *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(player.ped) + offset);
-                    weapon = mapMode ? raw : game::PedWeaponFromGame(raw);
-                    if (ammoOffset >= 0) ammo = *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(player.ped) + ammoOffset);
-                } GTA2_EXCEPT { weapon = -1; }
-            }
+            GTA2_TRY {
+                weapon = game::PedWeaponOf(static_cast<const uint8_t*>(player.ped), &ammo);
+            } GTA2_EXCEPT { weapon = -1; ammo = 0; }
             SetPlayerWeapon(weapon, ammo);
             g_playerAmmoLogged = ammo;
         } else if (!player.valid) {
@@ -1577,6 +1562,35 @@ void WorldView::UpdateCamera() {
                 static int probe = -1;
                 if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_PED_WORDS", buf, sizeof buf) && buf[0] == '1'; }
                 if (probe && player.ped) {
+                    // The weapon objects as the game keeps them: the inventory's
+                    // selected slot, the weapon in hand (type, ammo), the ped's +0x254,
+                    // and every slot of the inventory that holds a weapon (type/ammo).
+                    GTA2_TRY {
+                        const uint8_t* ped = static_cast<const uint8_t*>(player.ped);
+                        const uint8_t* inv = *reinterpret_cast<const uint8_t* const*>(ped + game::kPedWeaponInventory);
+                        const uint8_t* cur = *reinterpret_cast<const uint8_t* const*>(ped + game::kPedCurrentWeapon);
+                        const int32_t p254 = *reinterpret_cast<const int32_t*>(ped + 0x254);
+                        int sel = -2, curType = -1, curAmmo = -1;
+                        std::string slots;
+                        if (game::PlausiblePointer(inv)) {
+                            sel = *reinterpret_cast<const int16_t*>(inv + game::kInventorySelected);
+                            for (int i = 0; i < game::kInventorySlotCount; ++i) {
+                                const uint8_t* w = *reinterpret_cast<const uint8_t* const*>(inv + game::kInventorySlots + i * 4);
+                                if (!game::PlausiblePointer(w)) continue;
+                                char b[48]; snprintf(b, sizeof b, " %d:t%d/a%d", i, *reinterpret_cast<const int32_t*>(w + game::kWeaponType),
+                                                     *reinterpret_cast<const int16_t*>(w + game::kWeaponAmmo));
+                                slots += b;
+                            }
+                        }
+                        if (game::PlausiblePointer(cur)) {
+                            curType = *reinterpret_cast<const int32_t*>(cur + game::kWeaponType);
+                            curAmmo = *reinterpret_cast<const int16_t*>(cur + game::kWeaponAmmo);
+                        }
+                        Log("weapon probe: inv %p sel %d cur %p type %d ammo %d p254 %d slots%s", static_cast<const void*>(inv), sel,
+                            static_cast<const void*>(cur), curType, curAmmo, p254, slots.c_str());
+                    } GTA2_EXCEPT {
+                        Log("weapon probe: unreadable");
+                    }
                     static std::vector<uint32_t> last;
                     static const void* lastPed = nullptr;
                     constexpr size_t kWords = 0x800 / 4;
