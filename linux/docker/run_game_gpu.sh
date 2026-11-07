@@ -32,7 +32,7 @@ rm -rf "$G/gta2dx9_textures_hd"; [ -d /stage/gta2dx9_textures_hd ] && cp -r /sta
 # SWAP_LEVEL=ste makes "level 1" load another district (its map, style and script
 # are copied over Downtown's in the prefix copy only); DUMP_TILES=1 turns on the
 # renderer's tile dump for the run. Both are for building the HD tile sets.
-if [ -n "$SWAP_LEVEL" ]; then for e in gmp sty; do cp "$G/data/$SWAP_LEVEL.$e" "$G/data/wil.$e"; done; cp "$G/data/$SWAP_LEVEL."[sS][cC][rR] "$G/data/wil.SCR"; [ -d "$G/data/$SWAP_LEVEL" ] && rm -rf "$G/data/wil" && cp -r "$G/data/$SWAP_LEVEL" "$G/data/wil"; echo "level 1 is now $SWAP_LEVEL"; fi
+if [ -n "$SWAP_LEVEL" ] && [ "$SWAP_LEVEL" != wil ]; then for e in gmp sty; do cp "$G/data/$SWAP_LEVEL.$e" "$G/data/wil.$e"; done; cp "$G/data/$SWAP_LEVEL."[sS][cC][rR] "$G/data/wil.SCR"; [ -d "$G/data/$SWAP_LEVEL" ] && rm -rf "$G/data/wil" && cp -r "$G/data/$SWAP_LEVEL" "$G/data/wil"; echo "level 1 is now $SWAP_LEVEL"; fi
 [ -n "$INI_SED" ] && sed -i "$INI_SED" "$G/gta2dx9.ini"   # INI_SED: a sed script over the ini, for turning a documented key off in one run
 [ "${DUMP_TILES:-0}" = 1 ] && sed -i 's/^dump_tiles=0/dump_tiles=1/' "$G/gta2dx9.ini"
 [ -f "${SETTINGS_EXTRA:-/nonexistent}" ] && cat "$SETTINGS_EXTRA" >> "$G/gta2dx9_settings.ini"   # e.g. a [camera] section for a benchmark

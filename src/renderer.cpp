@@ -1004,8 +1004,14 @@ bool Renderer::BeginFrame() {
     // and everything else is meant to be the colour the screen was cleared to.
     // Vid_ClearScreen(ctx, 0,0,0,0,0, 640,480) is the game saying so; the video
     // proxy no longer forwards it, so this is the only clear left.
-    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f,
-                   0);
+    // GTA2DX9_CLEAR_MAGENTA=1 (the city sweep's diagnostic): clear to magenta
+    // instead, so that anything the frame leaves undrawn is unmistakable in a
+    // screenshot (with the sky off, a magenta patch below the horizon in a
+    // street view is a hole in the world).
+    static int magenta = -1;
+    if (magenta < 0) { char buf[8] = {}; magenta = GetEnvironmentVariableA("GTA2DX9_CLEAR_MAGENTA", buf, sizeof buf) && buf[0] == '1'; }
+    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+                   magenta ? D3DCOLOR_XRGB(255, 0, 255) : D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
     return SUCCEEDED(device_->BeginScene());
 }
 
