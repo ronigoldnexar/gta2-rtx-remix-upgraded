@@ -460,6 +460,35 @@ void DrawCamera() {
     changed |= ImGui::Checkbox("Invert Y", &vm.invertY);
     ImGui::SetNextItemWidth(S(240.0f));
     changed |= ImGui::SliderFloat("Sensitivity", &vm.mouseSensitivity, 0.2f, 4.0f, "%.2fx");
+    Help("1 is a quarter turn across the window's width.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Largest step a frame", &vm.mouseMaxStep, 5.0f, 100.0f, "%.0f counts");
+    Help("A remote pointer (VNC, remote desktop) arrives as positions, not motion; a frame's look is "
+         "clamped to this, and a jump eight times it is ignored as the pointer being parked.");
+
+    ImGui::SeparatorText("Controls on foot");
+    changed |= ImGui::Checkbox("Camera-relative keys", &vm.navMap);
+    Help("The arrows mean 'walk that way as the camera sees it', as a modern game plays; the "
+         "pedestrian is steered there through the game's own turn keys. Off: the game's keys as they are.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("First-person key turn", &vm.fpTurnKeyRate, 30.0f, 240.0f, "%.0f deg/s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Orbit drifts behind in", &vm.tpOrbitTau, 0.3f, 4.0f, "%.1f s");
+    Help("Third person on foot: the camera does not follow where you face, only where you walk, this slowly.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Chase damping in a car", &vm.tpChaseTau, 0.1f, 2.0f, "%.2f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Turn dead band", &vm.navDeadband, 2.0f, 30.0f, "%.0f deg");
+
+    ImGui::SeparatorText("Turning");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Turn rate on foot", &vm.turnRateFoot, 60.0f, 720.0f, "%.0f deg/s");
+    Help("The fastest the camera turns. GTA2 spins you about-face in a few frames; the camera "
+         "follows on a damped spring no faster than this, so the world does not whirl. 720 is rigid.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Turn rate in a car", &vm.turnRateCar, 60.0f, 720.0f, "%.0f deg/s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("First-person ease", &vm.fpSmooth, 0.02f, 0.5f, "%.2f s");
 
     ImGui::SeparatorText("Third person");
     ImGui::SetNextItemWidth(S(240.0f));

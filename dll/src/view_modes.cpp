@@ -1,5 +1,8 @@
 #include "view_modes.h"
 
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
+
 #include <algorithm>
 #include <vector>
 #include <cmath>
@@ -593,6 +596,227 @@ PedWords ReadPedWords(const void* ped) {
     return w;
 }
 
+// ---------------------------------------------------------------------------
+// Camera-relative controls: the game reads its keyboard through DirectInput's
+// GetDeviceState (a 256-byte array indexed by DIK code), so that is where the
+// arrows are taken from it and ours are put in. The device's vtable is shared
+// by every device the DLL creates, so a keyboard device of our own gives us
+// the table to patch; the hook tells a keyboard read by its 256-byte size.
+// Nothing is injected into the system: the game sees the array it asked for.
+// ---------------------------------------------------------------------------
+namespace {
+const BYTE kNavDik[4] = {DIK_UP, DIK_DOWN, DIK_LEFT, DIK_RIGHT};
+// GUID_SysKeyboard and IID_IDirectInput8A, spelled out so no DirectInput import library is needed.
+const GUID kSysKeyboard = {0x6F1D2B61, 0xD5A0, 0x11CF, {0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
+const GUID kIidDirectInput8A = {0xBF798030, 0x483A, 0x4DA2, {0xAA, 0x99, 0x5D, 0x64, 0xED, 0x36, 0x97, 0x00}};
+bool g_hookTried = false;
+bool g_diHooked = false;
+bool g_navActive = false;      // the physical arrows are the controller's while this is set
+bool g_phys[4] = {};           // physical Up, Down, Left, Right as the game last read them
+bool g_inj[4] = {};            // what the game is told is held down
+float g_navCamYaw = 0.0f;      // the camera's yaw last frame (renderer frame)
+float g_fpViewYaw = 0.0f;      // first person: the view heading the pedestrian follows
+float g_navHeading = 0.0f;     // the player's heading last frame
+bool g_navHeadingKnown = false;
+bool g_navInVehicle = true;
+double g_navLastPoll = 0.0;
+double g_navLogClock = 0.0;
+float g_navLastHeading = 0.0f;   // for the measured turn rate
+bool g_navHaveLast = false;
+float g_navRate = 0.0f;          // radians a second, eased
+int g_navPulse = 0, g_navCool = 0;
+int g_navLogEveryFrame = -1;
+long g_diReads = 0;
+
+typedef HRESULT(WINAPI* GetDeviceStateFn)(IDirectInputDevice8A*, DWORD, LPVOID);
+typedef HRESULT(WINAPI* GetDeviceDataFn)(IDirectInputDevice8A*, DWORD, LPDIDEVICEOBJECTDATA, LPDWORD, DWORD);
+GetDeviceStateFn g_realGetDeviceState = nullptr;
+GetDeviceDataFn g_realGetDeviceData = nullptr;
+IDirectInput8A* g_ourDi = nullptr;
+IDirectInputDevice8A* g_ourKeyboard = nullptr;
+long g_diStateCalls = 0, g_diDataCalls = 0;
+bool g_injSeen[4] = {};   // what the game has been told through buffered data so far
+DWORD g_injSeq = 0x40000000;
+
+int NavIndexOfDik(DWORD ofs) {
+    for (int i = 0; i < 4; ++i) if (ofs == kNavDik[i]) return i;
+    return -1;
+}
+
+HRESULT WINAPI NavGetDeviceState(IDirectInputDevice8A* self, DWORD cbData, LPVOID data) {
+    const HRESULT hr = g_realGetDeviceState(self, cbData, data);
+    if (self != g_ourKeyboard) ++g_diStateCalls;
+    if (cbData == 256 && data && self != g_ourKeyboard) {
+        ++g_diReads;
+        BYTE* keys = static_cast<BYTE*>(data);
+        for (int i = 0; i < 4; ++i) g_phys[i] = SUCCEEDED(hr) && (keys[kNavDik[i]] & 0x80) != 0;
+        if (g_navActive) {
+            for (int i = 0; i < 4; ++i) keys[kNavDik[i]] = g_inj[i] ? 0x80 : 0;
+        }
+    }
+    return hr;
+}
+
+// Buffered reads: the arrows' events are taken out of the game's buffer and
+// the controller's put in (the buffer the game passed has room for what it
+// asked for; a peek is left alone).
+HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEVICEOBJECTDATA dod, LPDWORD inOut, DWORD flags) {
+    const DWORD capacity = inOut ? *inOut : 0;
+    const HRESULT hr = g_realGetDeviceData(self, cbObj, dod, inOut, flags);
+    if (self == g_ourKeyboard || !inOut || !dod || cbObj < sizeof(DIDEVICEOBJECTDATA_DX3)) return hr;
+    ++g_diDataCalls;
+    if (FAILED(hr) && hr != DI_BUFFEROVERFLOW) return hr;
+    BYTE* base = reinterpret_cast<BYTE*>(dod);
+    DWORD n = *inOut, w = 0;
+    for (DWORD r = 0; r < n; ++r) {
+        DIDEVICEOBJECTDATA_DX3* e = reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + r * cbObj);
+        const int i = NavIndexOfDik(e->dwOfs);
+        if (i >= 0) {
+            g_phys[i] = (e->dwData & 0x80) != 0;
+            ++g_diReads;
+            if (g_navActive) continue;        // the arrow is ours: the game does not see it
+        }
+        if (w != r) memmove(base + w * cbObj, e, cbObj);
+        ++w;
+    }
+    if (g_navActive && !(flags & DIGDD_PEEK)) {
+        for (int i = 0; i < 4 && w < capacity; ++i) {
+            if (g_injSeen[i] == g_inj[i]) continue;
+            DIDEVICEOBJECTDATA_DX3* e = reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + w * cbObj);
+            memset(e, 0, cbObj);
+            e->dwOfs = kNavDik[i];
+            e->dwData = g_inj[i] ? 0x80 : 0;
+            e->dwTimeStamp = GetTickCount();
+            e->dwSequence = g_injSeq++;
+            g_injSeen[i] = g_inj[i];
+            ++w;
+        }
+    }
+    *inOut = w;
+    return hr;
+}
+
+void InjectKey(int i, bool down) { g_inj[i] = down; }
+void ReleaseInjected() { for (int i = 0; i < 4; ++i) g_inj[i] = false; }   // the buffered path sends the releases on the next read
+
+void InstallNavHook(bool) {
+    if (g_hookTried) return;
+    g_hookTried = true;
+    // The game imports DirectInput8Create from dinput8.dll (not dinput.dll:
+    // under Wine each is its own module with its own vtables).
+    HMODULE dinput = GetModuleHandleA("dinput8.dll");
+    if (!dinput) dinput = LoadLibraryA("dinput8.dll");
+    typedef HRESULT(WINAPI* CreateFn)(HINSTANCE, DWORD, REFIID, LPVOID*, IUnknown*);
+    CreateFn create = dinput ? reinterpret_cast<CreateFn>(GetProcAddress(dinput, "DirectInput8Create")) : nullptr;
+    if (!create) {
+        Log("nav: dinput8.dll has no DirectInput8Create; the arrows stay the game's");
+        return;
+    }
+    HMODULE self = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCWSTR>(&NavGetDeviceState), &self);
+    if (FAILED(create(self, DIRECTINPUT_VERSION, kIidDirectInput8A, reinterpret_cast<LPVOID*>(&g_ourDi), nullptr)) || !g_ourDi ||
+        FAILED(g_ourDi->CreateDevice(kSysKeyboard, &g_ourKeyboard, nullptr)) || !g_ourKeyboard) {
+        Log("nav: could not create a DirectInput keyboard device; the arrows stay the game's");
+        return;
+    }
+    // The vtable: slot 9 is GetDeviceState.
+    void** vtable = *reinterpret_cast<void***>(g_ourKeyboard);
+    DWORD old = 0;
+    if (!VirtualProtect(&vtable[9], sizeof(void*), PAGE_EXECUTE_READWRITE, &old)) {
+        Log("nav: the DirectInput vtable is not writable (%lu); the arrows stay the game's", GetLastError());
+        return;
+    }
+    g_realGetDeviceState = reinterpret_cast<GetDeviceStateFn>(vtable[9]);
+    vtable[9] = reinterpret_cast<void*>(&NavGetDeviceState);
+    VirtualProtect(&vtable[9], sizeof(void*), old, &old);
+    if (VirtualProtect(&vtable[10], sizeof(void*), PAGE_EXECUTE_READWRITE, &old)) {
+        g_realGetDeviceData = reinterpret_cast<GetDeviceDataFn>(vtable[10]);
+        vtable[10] = reinterpret_cast<void*>(&NavGetDeviceData);
+        VirtualProtect(&vtable[10], sizeof(void*), old, &old);
+    }
+    g_diHooked = true;
+    Log("nav: camera-relative controls: DirectInput8 GetDeviceState/GetDeviceData hooked (vtable %p)", static_cast<void*>(vtable));
+}
+
+// The controller, once a frame: which of the game's keys to hold so the
+// pedestrian walks where the player means, as the camera sees it.
+void SteerPlayer(ViewMode mode, float dt) {
+    const ViewModeSettings& s = g_settings;
+    const bool up = g_phys[0], down = g_phys[1], left = g_phys[2], right = g_phys[3];
+    float desired = g_navHeading;
+    bool wantMove = false, reverse = false, keepAligned = false;
+    if (mode == ViewMode::ThirdPerson) {
+        const float fx = std::sin(g_navCamYaw), fz = std::cos(g_navCamYaw);
+        const float rx = std::cos(g_navCamYaw), rz = -std::sin(g_navCamYaw);
+        const float f = (up ? 1.0f : 0.0f) - (down ? 1.0f : 0.0f);
+        const float r = (right ? 1.0f : 0.0f) - (left ? 1.0f : 0.0f);
+        const float vx = fx * f + rx * r, vz = fz * f + rz * r;
+        if (std::fabs(vx) + std::fabs(vz) > 1e-3f) {
+            desired = std::atan2(vx, vz);
+            wantMove = true;
+        }
+    } else {
+        // First person: Left and Right turn the view; the pedestrian follows it.
+        const float turn = ((right ? 1.0f : 0.0f) - (left ? 1.0f : 0.0f)) * s.fpTurnKeyRate * kDegToRad * (std::min)(dt, 1.0f / 30.0f);
+        g_fpViewYaw = WrapAngle(g_fpViewYaw + turn);
+        desired = g_fpViewYaw;
+        wantMove = up;
+        reverse = down && !up;
+        keepAligned = true;
+    }
+    const float sign = static_cast<float>(s.navTurnSign < 0 ? -1 : 1);
+    const float e = WrapAngle(desired - g_navHeading) * sign;
+    // The game turns him at 300-350 degrees a second and our press reaches it
+    // a few frames late, so a press held until the error is zero overshoots by
+    // half a turn. The controller measures his turn rate, predicts where he
+    // will be when a release takes effect, and steers on that: a hold while
+    // far off, single-frame pulses with a pause to look when close.
+    const float rate = g_navHaveLast ? WrapAngle(g_navHeading - g_navLastHeading) / dt : 0.0f;
+    g_navLastHeading = g_navHeading;
+    g_navHaveLast = true;
+    g_navRate += (rate - g_navRate) * 0.5f;
+    const float latency = (std::max)(s.navLatency, 0.0f);
+    const float ePred = WrapAngle(desired - (g_navHeading + g_navRate * latency)) * sign;
+    const float band = s.navDeadband * kDegToRad;
+    const bool turning = wantMove || keepAligned;
+    bool pressR = false, pressL = false;
+    if (!turning) {
+        g_navPulse = 0;
+        g_navCool = 0;
+    } else if (g_navCool > 0) {
+        --g_navCool;
+    } else if (std::fabs(ePred) > band) {
+        // Held while well off (he winds up to full rate in five frames and the
+        // prediction lets go in time); near the target a single frame on and
+        // two off, about five degrees a pulse.
+        const bool farOff = std::fabs(ePred) > 20.0f * kDegToRad;
+        pressR = ePred > 0.0f;
+        pressL = !pressR;
+        if (!farOff) g_navCool = 2;
+    }
+    InjectKey(3, pressR);
+    InjectKey(2, pressL);
+    // Walk once roughly facing the way: he arcs round while still turning,
+    // which is how a modern character handles a change of direction.
+    InjectKey(0, wantMove && std::fabs(e) < 100.0f * kDegToRad);
+    InjectKey(1, reverse);
+    const double now = Now();
+    if (g_navLogEveryFrame < 0) {
+        char buf[8] = {};
+        g_navLogEveryFrame = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", buf, sizeof buf) && atoi(buf) ? 1 : 0;
+    }
+    if (g_navLogEveryFrame ? (turning || g_inj[0] || g_inj[2] || g_inj[3]) : now - g_navLogClock > 0.5) {
+        g_navLogClock = now;
+        if (wantMove || keepAligned || g_inj[0] || g_inj[2] || g_inj[3])
+            Log("nav: %s keys U%d D%d L%d R%d -> heading %.0f rate %.0f wanted %.0f err %.0f pred %.0f : game U%d D%d L%d R%d (reads %ld, state %ld data %ld)",
+                mode == ViewMode::ThirdPerson ? "third" : "first", up, down, left, right,
+                g_navHeading / kDegToRad, g_navRate / kDegToRad, desired / kDegToRad, e / kDegToRad, ePred / kDegToRad,
+                g_inj[0], g_inj[1], g_inj[2], g_inj[3], g_diReads, g_diStateCalls, g_diDataCalls);
+    }
+}
+}  // namespace
+
 ViewModeSettings& ViewModes() { return g_settings; }
 ViewLook& LookOffsets() { return g_look; }
 
@@ -839,12 +1063,21 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
 
     // The game's own control keys, as this process sees them, for reading a
     // scripted session back: one line per press and release.
-    if (g_settings.devWarpKey > 0 && g_settings.devWarpKey < 256 && worldLoaded &&
-        (GetAsyncKeyState(g_settings.devWarpKey) & 0x0001) != 0) {
+    // Edges on the held state: the "pressed since last call" bit is consumed
+    // by whichever poll of the key runs first in a frame (the progress probe
+    // reads F9 too), so a press could be lost.
+    static bool warpHeld = false, sceneHeld = false;
+    const bool warpDown = g_settings.devWarpKey > 0 && g_settings.devWarpKey < 256 && ours &&
+                          (GetAsyncKeyState(g_settings.devWarpKey) & 0x8000) != 0;
+    const bool sceneDown = g_settings.devSceneKey > 0 && g_settings.devSceneKey < 256 && ours &&
+                           (GetAsyncKeyState(g_settings.devSceneKey) & 0x8000) != 0;
+    const bool warpPressed = warpDown && !warpHeld, scenePressed = sceneDown && !sceneHeld;
+    warpHeld = warpDown;
+    sceneHeld = sceneDown;
+    if (warpPressed && worldLoaded) {
         WarpPlayerToParkedCar(80.0f);
     }
-    if (g_settings.devSceneKey > 0 && g_settings.devSceneKey < 256 && worldLoaded &&
-        (GetAsyncKeyState(g_settings.devSceneKey) & 0x0001) != 0) {
+    if (scenePressed && worldLoaded) {
         if (g_settings.devIniPath[0]) {
             // Re-read the spot each press: a scenario script may edit the ini between warps.
             char sceneXy[64] = {};
@@ -885,6 +1118,22 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     if ((tapped || (keyDown && !keyWasDown)) && ours && !menuVisible) CycleViewMode();
     keyWasDown = keyDown;
 
+    // Camera-relative controls on foot in the street views.
+    {
+        const double now = Now();
+        float dt = g_navLastPoll > 0.0 ? static_cast<float>(now - g_navLastPoll) : 1.0f / 30.0f;
+        g_navLastPoll = now;
+        if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 30.0f;
+        const ViewMode mode = CurrentViewMode();
+        const bool active = g_settings.navMap && worldLoaded && ours && !menuVisible &&
+                            mode != ViewMode::Classic && g_navHeadingKnown && !g_navInVehicle;
+        if (active) InstallNavHook(false);
+        const bool nowActive = active && g_diHooked;
+        if (g_navActive && !nowActive) ReleaseInjected();
+        g_navActive = nowActive;
+        if (g_navActive) SteerPlayer(mode, dt);
+    }
+
     const bool want = worldLoaded && ours && !menuVisible && g_settings.mouseLook &&
                       CurrentViewMode() != ViewMode::Classic && presentWindow != nullptr;
     if (!want) {
@@ -906,11 +1155,21 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
         SetCursorPos(centre.x, centre.y);
         return;
     }
-    const int dx = cursor.x - centre.x;
-    const int dy = cursor.y - centre.y;
+    int dx = cursor.x - centre.x;
+    int dy = cursor.y - centre.y;
     if (dx == 0 && dy == 0) return;
     SetCursorPos(centre.x, centre.y);
-    const float perCount = 0.12f * kDegToRad * (std::max)(0.05f, g_settings.mouseSensitivity);
+    // A remote pointer (VNC, a remote desktop) is placed, not moved: when the
+    // warp did not reach the client, the next report is the whole way back from
+    // wherever its pointer sits. That is not a look; a hand never moves the
+    // mouse a quarter of the screen in a frame.
+    const int maxStep = (std::max)(1, static_cast<int>(g_settings.mouseMaxStep));
+    if (std::abs(dx) > maxStep * 8 || std::abs(dy) > maxStep * 8) return;
+    dx = (std::max)(-maxStep, (std::min)(maxStep, dx));
+    dy = (std::max)(-maxStep, (std::min)(maxStep, dy));
+    // Sensitivity 1: a quarter turn across the window's width.
+    const float width = static_cast<float>((std::max)(static_cast<LONG>(320), rect.right - rect.left));
+    const float perCount = (90.0f / width) * kDegToRad * (std::max)(0.05f, g_settings.mouseSensitivity);
     g_look.yaw = WrapAngle(g_look.yaw + static_cast<float>(dx) * perCount);
     g_look.pitch += static_cast<float>(g_settings.invertY ? dy : -dy) * perCount;
     g_look.pitch = (std::min)((std::max)(g_look.pitch, -85.0f * kDegToRad), 85.0f * kDegToRad);
@@ -921,6 +1180,21 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
 // The camera itself
 // ---------------------------------------------------------------------------
 
+// Every frame's camera yaw against the game's heading, when GTA2DX9_LOG_CAMERA=1
+// is in the environment: for measuring the turn rate from a test session.
+static void LogCameraFrame(const char* view, float camYaw, float headingYaw, float dt) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", buf, sizeof buf) && atoi(buf) ? 1 : 0;
+    }
+    if (!enabled) return;
+    static float lastCam = 0.0f;
+    const float rate = WrapAngle(camYaw - lastCam) / (std::max)(dt, 1e-3f) / kDegToRad;
+    lastCam = camYaw;
+    Log("cam: %s yaw=%.1f heading=%.1f rate=%.0f dt=%.3f", view, camYaw / kDegToRad, headingYaw / kDegToRad, rate, dt);
+}
+
 void ViewCameraSolver::Reset() {
     settled_ = false;
     floorSettled_ = false;
@@ -928,10 +1202,33 @@ void ViewCameraSolver::Reset() {
     velX_ = velZ_ = 0.0f;
     speedFrac_ = 0.0f;
     yawRate_ = 0.0f;
+    followYawVel_ = 0.0f;
+    fpYawVel_ = 0.0f;
     roll_ = 0.0f;
     shake_ = 0.0f;
     forwardAccel_ = 0.0f;
     speed = 0.0f;
+}
+
+// A critically damped spring on an angle: `yaw` chases `target` with velocity
+// `vel`, never faster than `maxRate` (radians a second). The spring settles in
+// about 4 / omega seconds without overshoot; the cap is what keeps a spin from
+// becoming a whirl.
+static void SpringTurn(float* yaw, float* vel, float target, float omega, float maxRate, float dt) {
+    const float error = WrapAngle(target - *yaw);
+    const float accel = omega * omega * error - 2.0f * omega * *vel;
+    *vel += accel * dt;
+    if (maxRate > 0.0f) *vel = (std::max)(-maxRate, (std::min)(maxRate, *vel));
+    // Never past the target within a step: the clamp above can leave the
+    // velocity pointing through it on a tiny error. And never more in one
+    // frame than the rate allows at 30 fps: a long frame (a hitch) turns the
+    // picture no further than a short one would have.
+    float step = *vel * (std::min)(dt, 1.0f / 30.0f);
+    if ((error > 0.0f && step > error) || (error < 0.0f && step < error)) {
+        step = error;
+        *vel = 0.0f;
+    }
+    *yaw = WrapAngle(*yaw + step);
 }
 
 bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& queries, float dt,
@@ -944,12 +1241,14 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
     if (mode == ViewMode::Classic) {
         status_ = "classic";
         camera->SetRoll(0.0f);
+        g_navHeadingKnown = false;
         return false;
     }
     if (!player.valid) {
         status_ = "waiting for the player to be found";
         settled_ = false;
         camera->SetRoll(0.0f);
+        g_navHeadingKnown = false;
         return false;
     }
 
@@ -988,6 +1287,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const bool jumped = settled_ && std::hypot(px - lastX_, pz - lastZ_) > 4.0f;
     if (!settled_ || jumped) {
         followYaw_ = headingYaw;
+        followYawVel_ = 0.0f;
+        fpYaw_ = headingYaw;
+        fpYawVel_ = 0.0f;
+        g_fpViewYaw = headingYaw;
         lastYaw_ = headingYaw;
         floorSettled_ = false;
         settled_ = true;
@@ -1095,7 +1398,32 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 eye.z = oz;
             }
         }
-        float yaw = WrapAngle(headingYaw + look.yaw);
+        // The view heading lags the game's: a rate cap and a short ease, so an
+        // about-face is a half-second sweep rather than a two-frame whirl. At
+        // the wheel it also leans a little toward where the car is going.
+        if (!inVehicle && g_navActive) {
+            // The view is its own: the keys turn it (in the poll) and the mouse
+            // adds to it; the pedestrian is steered to follow it, so what the
+            // game does with his heading never swings the picture.
+            g_fpViewYaw = WrapAngle(g_fpViewYaw + look.yaw);
+            look.yaw = 0.0f;
+            fpYaw_ = g_fpViewYaw;
+            fpYawVel_ = 0.0f;
+        } else {
+            float target = headingYaw;
+            if (inVehicle && speed > 1.5f) {
+                const float vx = velX_ / speed, vz = velZ_ / speed;
+                if (vx * hx + vz * hz > 0.2f) {
+                    const float weight = (std::min)((speed - 1.5f) / 4.0f, 1.0f) * 0.25f;
+                    target = WrapAngle(headingYaw + WrapAngle(std::atan2(vx, vz) - headingYaw) * weight);
+                }
+            }
+            const float rate = (inVehicle ? s.turnRateCar : s.fpFollowRate) * kDegToRad;
+            const float omega = 2.0f / (std::max)(inVehicle ? s.fpSmooth * 1.5f : s.fpSmooth, 0.02f);
+            SpringTurn(&fpYaw_, &fpYawVel_, target, omega, rate > 0.0f ? rate : 0.0f, dt);
+            g_fpViewYaw = fpYaw_;
+        }
+        float yaw = WrapAngle(fpYaw_ + look.yaw);
         float pitch = look.pitch;
         float roll = 0.0f;
 
@@ -1116,11 +1444,12 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // The nose dips under braking and lifts under power; the head leans
             // into a turn.
             pitch += (std::max)((std::min)(forwardAccel_ / 25.0f, 1.0f), -1.0f) * 2.5f * kDegToRad * s.fpLean;
-            const float yawRate = WrapAngle(headingYaw - lastYaw_) / dt;
-            yawRate_ += (yawRate - yawRate_) * (1.0f - std::exp(-dt / 0.15f));
+            yawRate_ += (fpYawVel_ - yawRate_) * (1.0f - std::exp(-dt / 0.15f));
             roll += (std::max)((std::min)(yawRate_ * speedFrac_ * 0.5f, 1.0f), -1.0f) * 3.0f * kDegToRad * s.fpLean;
         }
-        lastYaw_ = headingYaw;
+        lastYaw_ = fpYaw_;
+        followYaw_ = fpYaw_;   // so a switch to the chase view starts from where the eyes look
+        followYawVel_ = fpYawVel_;
 
         // The kick of an impact, and the stretch of speed.
         if (shake_ > 0.001f) {
@@ -1135,6 +1464,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         camera->SetOrientation(yaw, pitch);
         camera->SetRoll(roll);
         camera->SetFovY((std::min)(fov, 140.0f) * kDegToRad);
+        LogCameraFrame("first", yaw, headingYaw, dt);
         {
             // Once a second: where the eye is against the floor under him, for the log.
             static float logClock = 0.0f;
@@ -1153,7 +1483,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         roll_ = roll;
         yawDegrees = yaw / kDegToRad;
         pitchDegrees = pitch / kDegToRad;
-        status_ = inVehicle ? "first person, at the wheel" : "first person, on foot";
+        g_navCamYaw = fpYaw_;
+        g_navHeading = headingYaw;
+        g_navInVehicle = inVehicle;
+        g_navHeadingKnown = player.facingKnown;
+        status_ = inVehicle ? "first person, at the wheel" : (g_navActive ? "first person, on foot (keys turn the view)" : "first person, on foot");
         return;
     }
 
@@ -1161,12 +1495,33 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // The camera's own yaw eases round behind the player, so a turn swings the
     // view over a few tenths of a second rather than snapping; quicker at speed,
     // where a camera that dawdles loses the road.
-    const float tau = (std::max)(s.tpFollow, 0.01f) * (1.0f - 0.45f * speedFrac_);
-    followYaw_ = WrapAngle(followYaw_ + WrapAngle(chaseYaw - followYaw_) * (1.0f - std::exp(-dt / tau)));
-    const float rawYawRate = WrapAngle(followYaw_ - lastYaw_) / dt;
+    // A critically damped spring, quicker at speed, and never faster than the
+    // turn rate: the player turns on the spot in the game, the camera swings
+    // round behind him over a few tenths of a second.
+    float orbitYaw;
+    if (!inVehicle) {
+        // An orbit camera: the mouse turns it directly, the player turns inside
+        // the frame, and only the direction he walks in draws it slowly round
+        // behind him. It never spins with his heading.
+        followYaw_ = WrapAngle(followYaw_ + look.yaw);
+        look.yaw = 0.0f;
+        float target = followYaw_;
+        if (speed > 0.6f) target = std::atan2(velX_, velZ_);
+        const float rate = s.turnRateFoot * kDegToRad;
+        SpringTurn(&followYaw_, &followYawVel_, target, 2.0f / (std::max)(s.tpOrbitTau, 0.1f), rate > 0.0f ? rate : 0.0f, dt);
+        orbitYaw = followYaw_;
+    } else {
+        // The chase camera: heavily damped, aligned with where the car is going.
+        const float rate = s.turnRateCar * kDegToRad;
+        SpringTurn(&followYaw_, &followYawVel_, chaseYaw, 2.0f / (std::max)(s.tpChaseTau, 0.1f), rate > 0.0f ? rate : 0.0f, dt);
+        orbitYaw = WrapAngle(followYaw_ + look.yaw);
+    }
     lastYaw_ = followYaw_;
-    yawRate_ += (rawYawRate - yawRate_) * (1.0f - std::exp(-dt / 0.12f));
-    const float yaw = WrapAngle(followYaw_ + look.yaw);
+    fpYaw_ = followYaw_;   // a switch to first person starts from the camera's heading
+    fpYawVel_ = followYawVel_;
+    g_fpViewYaw = followYaw_;
+    yawRate_ += (followYawVel_ - yawRate_) * (1.0f - std::exp(-dt / 0.12f));
+    const float yaw = orbitYaw;
     const float orbitPitch = (std::min)((std::max)(look.pitch, -20.0f * kDegToRad), 70.0f * kDegToRad);
 
     const float scale = inVehicle ? 1.0f : (std::max)(s.tpFootScale, 0.2f);
@@ -1190,8 +1545,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
 
     // The point looked at is a little ahead of him along his heading, which is
     // what keeps the road ahead in the frame rather than his roof.
-    const gta2::Vec3 lookAt{px + hx * lookAhead + sx * shoulder, baseY + lookHeight,
-                            pz + hz * lookAhead + sz * shoulder};
+    // On foot the point looked at is ahead along the camera, not his heading:
+    // an orbit camera frames the street it looks down, whichever way he faces.
+    const float ax = inVehicle ? hx : std::sin(yaw), az = inVehicle ? hz : std::cos(yaw);
+    const gta2::Vec3 lookAt{px + ax * lookAhead + sx * shoulder, baseY + lookHeight,
+                            pz + az * lookAhead + sz * shoulder};
 
     // Where the camera wants to be: behind, above, swung by the mouse orbit.
     const float cp = std::cos(orbitPitch), sp = std::sin(orbitPitch);
@@ -1314,9 +1672,15 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     camera->SetOrientation(camYaw, camPitch);
     camera->SetRoll(roll_);
     camera->SetFovY((std::min)(fov, 130.0f) * kDegToRad);
+    LogCameraFrame("third", camYaw, headingYaw, dt);
     yawDegrees = camYaw / kDegToRad;
     pitchDegrees = camPitch / kDegToRad;
-    status_ = inVehicle ? "third person, following the car" : "third person, following on foot";
+    g_navCamYaw = camYaw;
+    g_navHeading = headingYaw;
+    g_navInVehicle = inVehicle;
+    g_navHeadingKnown = player.facingKnown;
+    status_ = inVehicle ? "third person, following the car"
+                        : (g_navActive ? "third person, orbit (the keys walk as the camera sees)" : "third person, following on foot");
     (void)player;
 }
 

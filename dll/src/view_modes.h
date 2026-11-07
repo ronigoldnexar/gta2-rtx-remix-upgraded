@@ -55,8 +55,47 @@ struct ViewModeSettings {
     int toggleKey = 'V';
 
     bool mouseLook = true;
-    float mouseSensitivity = 1.0f;   // 1 is 0.12 degrees per count
+    float mouseSensitivity = 1.0f;   // 1 is a quarter turn (90 degrees) across the window's width
     bool invertY = false;
+    // A VNC or remote-desktop pointer arrives as absolute positions, so the
+    // warp-to-centre scheme sees jumps; a frame's motion is clamped to this many
+    // counts each way, and a jump too big to be a hand (eight times it) is taken
+    // as the pointer being parked and ignored.
+    float mouseMaxStep = 25.0f;
+
+    // How fast the camera may turn, degrees a second. GTA2's pedestrian spins
+    // about-face in a few frames; a camera that follows that 1:1 whirls the
+    // whole world, so the chase camera and the first-person view turn at a
+    // bounded rate on a critically damped spring, the way a modern game's do.
+    // The game's own turning is untouched; only the picture lags it.
+    float turnRateFoot = 120.0f;    // the orbit camera on foot
+    float turnRateCar = 240.0f;     // the chase camera and the driver's view
+    float fpFollowRate = 150.0f;    // first person on foot when the view follows the heading
+    // First person: the view heading eases onto the game's over this long
+    // (seconds), on top of the rate cap.
+    float fpSmooth = 0.12f;
+
+    // Camera-relative controls on foot, as a modern game plays. The arrow keys
+    // mean "walk that way as the camera sees it": Up toward where the camera
+    // looks, Left and Right to its sides, Down back toward it. The pedestrian
+    // is steered onto that heading through the game's own turn keys, which the
+    // renderer presses and releases for him (a keyboard hook takes the physical
+    // arrows, keybd_event gives the game ours), so the game's movement, speeds
+    // and collisions stay exactly its own. In first person Left and Right turn
+    // the view at fpTurnKeyRate and the pedestrian follows the view. In a car
+    // the game's own driving keys are untouched.
+    bool navMap = true;
+    float navDeadband = 8.0f;       // degrees of heading error before a turn key is pressed
+    float navLatency = 0.10f;       // seconds from our key press to the game's heading moving; the
+                                    // controller releases that far ahead of the target
+    int navTurnSign = 1;            // -1 if the turn keys come out mirrored
+    float fpTurnKeyRate = 90.0f;    // degrees a second, first person Left/Right
+    // The third-person camera on foot is an orbit camera: it does not follow the
+    // player's heading, he turns inside the frame; it only drifts round behind
+    // the direction he walks in, over this long (seconds), never faster than
+    // turnRateFoot. In a car the chase camera's yaw is damped over tpChaseTau.
+    float tpOrbitTau = 1.5f;
+    float tpChaseTau = 0.6f;
 
     // Third person. Distances in blocks: a GTA2 block is about 2 m, a car about
     // one block long.
@@ -65,13 +104,13 @@ struct ViewModeSettings {
     float tpLookAhead = 1.2f;       // the point looked at, blocks ahead of the target...
     float tpLookHeight = 0.35f;     // ...and above it
     float tpFootScale = 0.62f;      // distance and height are scaled by this on foot (0.46-block people)
-    float tpFov = 50.0f;            // vertical, degrees
+    float tpFov = 60.0f;            // vertical, degrees
     float tpFollow = 0.25f;         // seconds the camera takes to swing round behind a turn
     float tpReturnDelay = 1.5f;     // seconds after the last mouse input before the orbit returns
     bool tpCollide = true;          // pulled in front of walls rather than through them
     float tpShoulder = 0.22f;       // on foot, the camera sits this far to the right (over the shoulder)
     float tpPullBack = 1.0f;        // extra blocks of distance at full speed
-    float tpLean = 1.0f;            // roll into turns, 1 is a few degrees at speed
+    float tpLean = 0.0f;            // roll into turns, 1 is a few degrees at speed; off by default
 
     // First person.
     float fpEyeFoot = 0.43f;        // eye height above the floor on foot: 0.93 of the 0.46-block adult (live_geometry.cpp kPedHeight)
@@ -85,11 +124,11 @@ struct ViewModeSettings {
     float fpEyeCabin = 0.62f;
     float fpBehindScreen = 0.12f;
     float fpSeatCar = 0.45f;
-    float fpFov = 68.0f;
+    float fpFov = 70.0f;
     bool fpHideOwnBody = true;      // the player's own sprite, and his car, are not drawn
     float fpReturnDelay = 2.0f;     // free look swings back to straight ahead after this
-    float fpHeadBob = 1.0f;         // walking bob on foot; 0 is none
-    float fpLean = 1.0f;            // in a car: nose dip under braking, lean into turns
+    float fpHeadBob = 0.5f;         // walking bob on foot; 0 is none
+    float fpLean = 0.0f;            // in a car: nose dip under braking, lean into turns; off by default
 
     // Both.
     // Pedestrians are drawn from above and lie flat on the road, which from a low
@@ -100,16 +139,16 @@ struct ViewModeSettings {
     // draws and removes cars and pedestrians inside the window its own camera
     // frames; a chase camera sees well beyond that window, so it is widened by
     // this factor while a chase or first-person view is up. 1 leaves it alone.
-    float gameViewScale = 1.8f;
+    float gameViewScale = 2.6f;      // 2.6 and square: traffic exists 15 blocks out in every direction (was 1.8, 6 blocks ahead on the short axis)
     // Motion. Speeds are in blocks a second; a GTA2 car flat out does roughly
     // the reference speed, and the effects below reach full strength there.
     float referenceSpeed = 8.0f;
-    float speedFov = 12.0f;         // extra degrees of field of view at full speed
-    float impactShake = 1.0f;       // the camera's kick on a hard stop; 0 is none
+    float speedFov = 4.0f;          // extra degrees of field of view at full speed (subtle)
+    float impactShake = 0.0f;       // the camera's kick on a hard stop; 0 is none (default off)
     // RTX Remix's own motion blur, pushed through its API while a chase or
     // first-person view is up: 0 leaves Remix's setting alone, 1 turns it on
     // there and back off in the classic view, 2 keeps it on everywhere.
-    int motionBlur = 1;
+    int motionBlur = 0;
 
     // Cars seen from the ground. From above a car is a flat picture with a low
     // dome, which is right for the top-down view and a card seen edge-on from a
@@ -265,6 +304,9 @@ private:
 
     bool settled_ = false;
     float followYaw_ = 0.0f;      // the yaw the chase camera sits at
+    float followYawVel_ = 0.0f;   // its angular velocity, radians a second (the spring)
+    float fpYaw_ = 0.0f;          // first person: the eased, rate-capped view heading
+    float fpYawVel_ = 0.0f;
     float floorY_ = 0.0f;         // eased floor height under the player
     bool floorSettled_ = false;
     float eyeX_ = 0.0f, eyeY_ = 0.0f, eyeZ_ = 0.0f;   // eased third-person eye

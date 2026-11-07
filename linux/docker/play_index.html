@@ -41,7 +41,8 @@
       <h2>Views</h2>
       <table>
         <tr><td>Cycle classic &rarr; third person &rarr; first person</td><td><kbd>V</kbd></td></tr>
-        <tr><td>Look around (third / first person)</td><td>mouse</td></tr>
+        <tr><td>Walk, in third person</td><td>arrows: as the camera sees it (Up toward where it looks, Left/Right to its sides); the camera drifts round behind the way you walk</td></tr>
+        <tr><td>Look and walk, in first person</td><td>Left/Right turn the view (90&deg;/s), Up/Down walk; mouse look only with PLAY_MOUSE=1</td></tr>
         <tr><td>Classic top-down is always one press away</td><td><kbd>V</kbd> until it returns</td></tr>
       </table>
     </div>
@@ -81,7 +82,7 @@
     </div>
   </div>
 
-  <p class="note">The browser gets the picture and sends your keys and mouse; there is no sound over this connection (noVNC carries no audio). If the view feels sluggish, lower the quality slider in the noVNC side panel. Click inside the game first so keys go to it; the mouse is captured only in the ground views.</p>
+  <p class="note">The browser gets the picture and sends your keys and mouse; there is no sound over this connection (noVNC carries no audio). If the view feels sluggish, lower the quality slider in the noVNC side panel. Click inside the game first so keys go to it. Mouse look is off over this connection by default (a remote pointer jumps); start with PLAY_MOUSE=1 to use it.</p>
 </div>
 <script>
   const q = new URLSearchParams(location.search);
