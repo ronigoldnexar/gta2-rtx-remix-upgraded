@@ -36,7 +36,7 @@ void CarBodiesSetInfo(const std::vector<gta2::CarInfo>& infos);
 
 // Beyond this many blocks from the eye a car keeps its flat sprite and dome:
 // the body would be a few pixels, and every body is a draw of its own.
-constexpr float kCarBodyLodBlocks = 20.0f;
+constexpr float kCarBodyLodBlocks = 60.0f;   // beyond the game's own window, so the dome never swaps in at a visible distance
 
 // One car to stand in for its flat sprite this frame.
 struct CarBodyUse {
@@ -67,6 +67,9 @@ bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscr
 // Bodies built and drawn in the last call, for the overlay.
 // Developer aid: draw every car as one of the wreck models ([devtools] wreck_models=1).
 void CarBodiesSetWreckTest(bool on);
+// Developer aid: the ini whose [devtools] force_car_model=N (every traffic car drawn as
+// model N, -1 off) is re-read once a second, so a script can step through the models.
+void CarBodiesSetDevIni(const char* ini);
 int CarBodiesBuilt();
 int CarBodiesDrawn();
 // The last call's time, ms: [0] measuring artwork, [1] building sprite bodies,

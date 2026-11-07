@@ -25,8 +25,9 @@ fi
 
 # The VNC server and the web side, up before the game so the page is reachable while Wine boots.
 PW=(); [ -n "${PLAY_PASSWORD:-}" ] && { x11vnc -storepasswd "$PLAY_PASSWORD" /tmp/vncpass >/dev/null 2>&1; PW=(-rfbauth /tmp/vncpass); } || PW=(-nopw)
-x11vnc -display :99 -shared -forever -noxdamage -defer 10 -wait 10 -cursor arrow -xkb "${PW[@]}" -rfbport 5900 -quiet -bg -o /tmp/x11vnc.log
+x11vnc -display :99 -shared -forever -noxdamage -defer 15 -wait 15 -nocursorshape -cursor arrow -xkb -threads "${PW[@]}" -rfbport 5900 -quiet -bg -o /tmp/x11vnc.log
 printf '{"mode":"%s","devtools":%s,"password":"%s"}\n' "$MODE" "$([ "${PLAY_DEVTOOLS:-0}" = 1 ] && echo true || echo false)" "${PLAY_PASSWORD:-}" > /usr/share/novnc/play_mode.json
+[ -f /work/play_index.html ] && cp /work/play_index.html /usr/share/novnc/index.html   # the landing page from the work folder, so edits need no image rebuild
 websockify --web /usr/share/novnc "$PLAY_PORT" localhost:5900 >/tmp/websockify.log 2>&1 &
 echo "== browser: http://localhost:$PLAY_PORT/  (vnc on :5900 inside the container)"
 
@@ -38,6 +39,8 @@ cp /stage/*.dll /stage/gta2dx9.ini "$G"/; rm -rf "$G/gta2dx9_models"; cp -r /sta
 rm -rf "$G/gta2dx9_textures_hd"; [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/
 [ "${LAA:-1}" = 1 ] && sh /work/laa.sh "$G/gta2.exe"
 if [ "${PLAY_DEVTOOLS:-0}" = 1 ]; then sed -i 's/^warp_key=.*/warp_key=F9/; s/^scene_key=.*/scene_key=F11/' "$G/gta2dx9.ini"; fi
+# Mouse look is off for a browser session unless asked for: a VNC client's pointer is absolute, so the warp-to-centre look scheme jumps.
+sed -i "s/^mouse_look=.*/mouse_look=${PLAY_MOUSE:-0}/" "$G/gta2dx9.ini"
 [ -n "${INI_SED:-}" ] && sed -i "$INI_SED" "$G/gta2dx9.ini"
 [ -n "${SETTINGS_SED:-}" ] && [ -f "$G/gta2dx9_settings.ini" ] && sed -i "$SETTINGS_SED" "$G/gta2dx9_settings.ini"
 if [ "$REMIX" = 1 ]; then
@@ -61,4 +64,4 @@ else ( vglrun -d "$VGL_DISPLAY" wine gta2.exe > /tmp/game.stdout 2>&1; echo "gta
 for i in $(seq 1 90); do sleep 2; WIN=$(xwininfo -root -tree 2>/dev/null | grep '"GTA2"' | grep "648x514\|640x480\|1280x720\|1024x768" | head -1 | awk '{print $1}'); [ -n "$WIN" ] && break; done
 [ -n "$WIN" ] && { xdotool windowactivate "$WIN" 2>/dev/null; xdotool windowfocus --sync "$WIN" 2>/dev/null; echo "== game window $WIN focused"; }
 # Keep serving until the container is stopped; the log is mirrored to /out for the host.
-while true; do sleep 15; [ -d /out ] && cp "$G/gta2dx9.log" /out/ 2>/dev/null; if ! pgrep -f gta2.exe >/dev/null; then echo "== game exited, restarting"; cd "$G"; if [ "$REMIX" = 1 ]; then ( wine gta2.exe >> /tmp/game.stdout 2>&1 ) & else ( vglrun -d "$VGL_DISPLAY" wine gta2.exe >> /tmp/game.stdout 2>&1 ) & fi; sleep 20; fi; done
+while true; do sleep 15; [ -d /out ] && cp "$G/gta2dx9.log" /out/ 2>/dev/null; if ! pgrep -f gta2.exe >/dev/null; then echo "== game exited, restarting"; cd "$G"; if [ "$REMIX" = 1 ]; then ( wine gta2.exe >> /tmp/game.stdout 2>&1 ) & else ( vglrun -d "$VGL_DISPLAY" wine gta2.exe >> /tmp/game.stdout 2>&1 ) & fi; for i in $(seq 1 45); do sleep 2; WIN=$(xwininfo -root -tree 2>/dev/null | grep '"GTA2"' | grep "648x514\|640x480\|1280x720\|1024x768" | head -1 | awk '{print $1}'); [ -n "$WIN" ] && break; done; [ -n "$WIN" ] && { xdotool windowfocus --sync "$WIN" 2>/dev/null; echo "== game window $WIN focused again"; }; fi; done

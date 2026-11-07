@@ -216,3 +216,45 @@ Read with the usual caveat (host load differs between the two runs; the `game` c
 step), the sprites stage averages fell by about 40 % and its worst cases by about two thirds, and
 the frames our side flagged as slow went from 1600 to 100 over the same nine minutes, with the
 posing no longer the top item in them. 0 faults, 8 laps.
+
+## Playing through the browser (7 Nov 2026, PLAY-PERF)
+
+Measured in the play container itself (`gamerun/play.sh plain`, image `gta2-play` on
+`gta2-gpugl`, the L4 through VirtualGL, 6 CPUs), driving a car through VNC with
+`vncdotool` while the display was captured at 30 fps inside the container and the
+renderer's key log timed each key press (`[devtools] log_keys=1`).
+
+| | before (04d747f) | after |
+|---|---|---|
+| GL renderer inside the play image | NVIDIA L4 (vglrun) | same |
+| display frames identical to the previous (30 fps capture, 60 s of driving) | 0.3 %, one stall of 3 frames | 0.1 %, no stall |
+| frame rate a local VNC client could pull | 21.0 fps | 22.1-24.9 fps |
+| key press to the game (median / max) | 29 / 41 ms | 25 / 32 ms |
+| game's spawn window in the street views | 21.6 x 12.2 tiles (x1.8, 16:9): traffic created 6 blocks ahead on the short axis | 31 x 42 tiles (x2.6, square) |
+| cars first seen (renderer pop log, 900-frame windows) | at the window edge, 6-10 blocks | mean 21-25 blocks; 1-2 of 35 inside 12 blocks (the own car and respawns) |
+| renderer stages while driving, avg ms | game 7.5-8, world 1.9, sprites 2.6-3.4, wait 20 | game 4.8-5.2, world 1.9, sprites 5.0-8.2, wait 17.6-20 (the 30 fps cap holds) |
+
+What was wrong and what changed:
+
+- **Pop-in** was the game's own spawn window. GTA2 creates, draws and removes cars and
+  people inside the rectangle its top-down camera frames; the street views scaled it by
+  1.8 but kept its 16:9 shape, so looking along the short axis traffic came into being
+  six blocks ahead, in clear air. The window is now square and 2.6x in the street views
+  (`gameViewScale`, `world_view.cpp`), so objects exist 15 blocks out in every direction
+  and first appear 20-25 blocks away, small and already in the haze (fog now starts at 18
+  blocks, `[sky] fog_start_blocks`). The car-body LOD switch at 20 blocks
+  (`kCarBodyLodBlocks`) is gone (60, beyond the window), and props reach 36 blocks
+  (budget 180). A `car pops:` log line every 900 frames counts new bodies and their
+  first-seen distance.
+- **Lag and stutter** were not in the container: cadence, latency and frame rate are
+  clean locally, and the GPU path is confirmed in the play image. A remote player's feel
+  is set by the link (full 1280x720 JPEG frames over the internet). `x11vnc` now runs
+  `-threads -defer 15 -wait 15 -nocursorshape`; the landing page offers a
+  low-bandwidth Play link (noVNC quality 3, compression 6) next to the default one
+  (quality 5, compression 3); `PLAY_RES=low` runs the game at 960x540; the container's
+  CPU limit defaults to 7.
+- Costs: the wider window means more live cars and people to draw (sprites stage up
+  from ~3 to ~6 ms, worst frames 27-34 ms, 126 of 355 hitch lines were pedestrian
+  posing); the cap still holds on average. A remote link that cannot carry 25 fps will
+  still feel laggy; that is the next lever (lower resolution or H.264 streaming), not the
+  renderer.
