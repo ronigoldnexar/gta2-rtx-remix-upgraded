@@ -11,9 +11,13 @@ idle clip's first frame, arms down), and resolved root-down into local joint
 rotations, so the same file poses every avatar that shares the skeleton. The
 importer (tools/import_assets.py, "animations_json") merges them by joint name.
 
-Clips: punch (0.5 s, one shot), aim (held), handsup (held, the arrest), fall
-(0.7 s into lying on the back, held at its end: dead or knocked down), hit
-(0.5 s stagger), getin/getout come from Rocketbox's crouch clips instead.
+Clips: punch (0.5 s, one shot), the shooting stances aim (pistol, two-handed
+grip), aim_dual, aim_heavy (rifle), aim_launcher (rocket launcher on the
+shoulder), aim_flame (hip fire) - each with its recoil kick as the first 0.12 s,
+restarted by the renderer on every shot - throw (0.62 s underarm lob, one shot),
+handsup (held, the arrest), fall (0.7 s into lying on the back, held at its end:
+dead or knocked down), hit (0.5 s stagger); getin/getout come from Rocketbox's
+crouch clips instead.
 """
 import json, math, os, struct, sys
 
@@ -195,9 +199,32 @@ def main():
         (0.40, dict(guard, **{R: [(RIGHT, 35), (UP, 15)], RF: [(RIGHT, 70)], SP: [(UP, 10)]}), (0, 0, 0)),
         (0.50, dict(guard, **{R: [(RIGHT, 30), (UP, 15)], RF: [(RIGHT, 80)], SP: [(UP, 15)]}), (0, 0, 0)),
     ]))
-    # Aim: both arms straight forward, the head on the target.
-    aim = {R: [(RIGHT, 90), (UP, 20)], RF: [(RIGHT, 0)], L: [(RIGHT, 85), (UP, -25)], LF: [(RIGHT, 10)]}
-    clips.append(clip_keys(sk, "aim", [(0.0, aim, (0, 0, 0)), (1.0, aim, (0, 0, 0))], loop=True))
+    # The shooting stances. Each aim clip starts with its recoil: key 0 is the
+    # kick (the weapon back and up, the shoulders back), key 0.12 s the settle
+    # into the stance, which is then held (the renderer clamps a non-looping clip
+    # at its last key). The renderer restarts the clip from 0 on every shot the
+    # game fires (a flash appearing beside the figure), so the kick plays per shot.
+    def stance(name, hold, kick, settle=0.12, sway=None):
+        keys = [(0.0, kick, (0, 0, 0)), (settle, hold, (0, 0, 0)), (0.6, hold, (0, 0, 0))]
+        if sway:
+            keys = [(0.0, kick, (0, 0, 0)), (settle, hold, (0, 0, 0)), (0.6, sway, (0, 0, 0)), (1.2, hold, (0, 0, 0))]
+        return clip_keys(sk, name, keys, loop=False)
+    def merged(a, b):
+        d = {k: list(v) for k, v in a.items()}
+        for k, v in b.items():
+            d[k] = d.get(k, []) + list(v)
+        return d
+    # Pistol: a two-handed isosceles grip, both arms out, the left hand cupped
+    # under the right, the shoulders a little bladed, the head down the sights.
+    aim = {R: [(RIGHT, 88), (UP, 18)], RF: [(RIGHT, 4)], L: [(RIGHT, 84), (UP, -26)], LF: [(RIGHT, 12)],
+           SP: [(UP, -8)], HEAD: [(UP, 4), (RIGHT, 4)]}
+    aim_kick = merged(aim, {R: [(RIGHT, 9)], L: [(RIGHT, 8)], RF: [(RIGHT, 6)], SP: [(RIGHT, -4)], HEAD: [(RIGHT, -3)]})
+    clips.append(stance("aim", aim, aim_kick))
+    # Dual pistols: both arms straight out and a little spread, each its own gun.
+    dual = {R: [(RIGHT, 88), (UP, -10)], RF: [(RIGHT, 2)], L: [(RIGHT, 88), (UP, 10)], LF: [(RIGHT, 2)],
+            HEAD: [(RIGHT, 4)]}
+    dual_kick = merged(dual, {R: [(RIGHT, 10)], L: [(RIGHT, 10)], SP: [(RIGHT, -4)]})
+    clips.append(stance("aim_dual", dual, dual_kick))
     # Hands up: the arrest.
     up = {R: [(RIGHT, 150), (UP, 0)], RF: [(RIGHT, -20)], L: [(RIGHT, 150)], LF: [(RIGHT, -20)]}
     clips.append(clip_keys(sk, "handsup", [(0.0, up, (0, 0, 0)), (1.0, up, (0, 0, 0))], loop=True))
@@ -213,12 +240,40 @@ def main():
         (0.70, {ROOT: [(RIGHT, 90)], RT: [(RIGHT, 0), (UP, 8)], LT: [(RIGHT, 0), (UP, -8)],
                 R: [(RIGHT, 20), (UP, 70)], L: [(RIGHT, 20), (UP, -70)], HEAD: [(RIGHT, -10)]}, (lying_root[0], lying_root[1], 0.0)),
     ]))   # held at its last key by the renderer (one pose, one cached buffer)
-    # Heavy weapon (machine gun, shotgun, rocket launcher, flamethrower): the
-    # right arm straight out, the left bent across the body under the fore-end,
-    # the shoulders turned a little into the stance.
-    heavy = {R: [(RIGHT, 82), (UP, 12)], RF: [(RIGHT, 0)], L: [(RIGHT, 70), (UP, -42)], LF: [(RIGHT, 60)],
-             SP: [(UP, -12)], HEAD: [(UP, 10)]}
-    clips.append(clip_keys(sk, "aim_heavy", [(0.0, heavy, (0, 0, 0)), (1.0, heavy, (0, 0, 0))], loop=True))
+    # Rifle (machine gun, silenced machine gun, shotgun): the stock in the right
+    # shoulder, the right hand at the pistol grip by the chest, the left arm out
+    # on the fore-end, the body bladed with the left shoulder leading, the cheek
+    # on the stock. The renderer lays the weapon along the line from the right
+    # hand to the left, so the two hands are what place it.
+    heavy = {R: [(RIGHT, 48), (UP, 28)], RF: [(RIGHT, 78)], L: [(RIGHT, 78), (UP, -34)], LF: [(RIGHT, 22)],
+             SP: [(UP, -22)], SP2: [(UP, -6)], HEAD: [(UP, 14), (RIGHT, 6)]}
+    heavy_kick = merged(heavy, {RF: [(RIGHT, 8)], L: [(RIGHT, 5)], SP: [(RIGHT, -5)], SP2: [(RIGHT, -3)], HEAD: [(RIGHT, -4)]})
+    clips.append(stance("aim_heavy", heavy, heavy_kick, settle=0.14))
+    # Rocket launcher: the tube on the right shoulder, the right hand up at the
+    # grip beside the cheek, the left arm out under the front of the tube, the
+    # head tilted to it. Its kick is the shoulder check: the torso jolts right
+    # and back as the rocket leaves.
+    launcher = {R: [(RIGHT, 42), (UP, 22)], RF: [(RIGHT, 98)], L: [(RIGHT, 92), (UP, -36)], LF: [(RIGHT, 24)],
+                SP: [(UP, -16)], HEAD: [(UP, 10), (RIGHT, -6)]}
+    launcher_kick = merged(launcher, {SP: [(UP, -12), (RIGHT, -7)], SP2: [(RIGHT, -4)], HEAD: [(RIGHT, -6)], R: [(RIGHT, -6)]})
+    clips.append(stance("aim_launcher", launcher, launcher_kick, settle=0.16))
+    # Flamethrower: fired from the hip, the right hand at the grip by the waist,
+    # the left out on the front grip, a slight crouch and lean into the stream;
+    # held, with a slow sway.
+    flame = {R: [(RIGHT, 22), (UP, 12)], RF: [(RIGHT, 72)], L: [(RIGHT, 64), (UP, -26)], LF: [(RIGHT, 18)],
+             SP: [(RIGHT, 8), (UP, -6)], HEAD: [(RIGHT, 2)], RT: [(RIGHT, -8)], LT: [(RIGHT, -8)], RC: [(RIGHT, 12)], LC: [(RIGHT, 12)]}
+    flame_sway = merged(flame, {SP: [(UP, 5)], L: [(UP, 3)]})
+    clips.append(stance("aim_flame", flame, flame, settle=0.1, sway=flame_sway))
+    # Throw (grenade, molotov): an underarm lob, one shot. The right arm swings
+    # back with the shoulders turned away, then through and up past the hip
+    # with the shoulders following; the left arm out for balance.
+    clips.append(clip_keys(sk, "throw", [
+        (0.00, {R: [(RIGHT, 10)], RF: [(RIGHT, 20)], L: [(RIGHT, 20), (UP, -10)], SP: [(UP, 8)]}, (0, 0, 0)),
+        (0.18, {R: [(RIGHT, -48), (UP, 8)], RF: [(RIGHT, 12)], L: [(RIGHT, 45), (UP, -14)], SP: [(UP, 24), (RIGHT, 4)], HEAD: [(UP, -14)]}, (0, -0.01, 0)),
+        (0.30, {R: [(RIGHT, 50)], RF: [(RIGHT, 4)], L: [(RIGHT, 35), (UP, -10)], SP: [(UP, -10), (RIGHT, 6)]}, (0, -0.01, 0)),
+        (0.40, {R: [(RIGHT, 95), (UP, 10)], RF: [(RIGHT, 0)], L: [(RIGHT, 25)], SP: [(UP, -22), (RIGHT, 8)], SP2: [(UP, -6)]}, (0, 0, 0)),
+        (0.62, {R: [(RIGHT, 40), (UP, 8)], RF: [(RIGHT, 30)], L: [(RIGHT, 20)], SP: [(UP, -6)]}, (0, 0, 0)),
+    ]))
     # Swim: prone at the surface (the renderer sinks the figure to its shoulders),
     # a front crawl: the arms alternate reaching past the head and pulling back
     # along the body, the legs kick in opposition.
@@ -260,9 +315,9 @@ def main():
         lr = [tuple(last.get(nm, sk.base_r[i])) for i, nm in enumerate(sk.names)]
         rt = {sk.index[ROOT]: tuple(c["channels"][ROOT]["translation"]["values"][-1])}
         wp = posed_positions(lr, rt)
-        print("  %-8s end: head %s  r.hand %s  r.toe %s" % (c["name"],
+        print("  %-12s end: head %s  r.hand %s  l.hand %s  r.toe %s" % (c["name"],
               [round(v, 2) for v in wp[sk.index[HEAD]]], [round(v, 2) for v in wp[sk.index["Bip01 R Hand"]]],
-              [round(v, 2) for v in wp[sk.index["Bip01 R Toe0"]]]))
+              [round(v, 2) for v in wp[sk.index["Bip01 L Hand"]]], [round(v, 2) for v in wp[sk.index["Bip01 R Toe0"]]]))
     with open(out, "w") as f:
         json.dump({"skeleton": "Bip01", "clips": clips}, f)
     print("wrote", out, [(c["name"], len(c["channels"])) for c in clips])

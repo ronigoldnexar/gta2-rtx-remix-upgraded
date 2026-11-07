@@ -246,6 +246,7 @@ void SampleClip(const Model& model, const ModelAnimation* animation, float time,
 // The node world matrices of a pose: `animation` at `time`, blended toward
 // `second` at `secondTime` by `weight` (nlerp on the rotations, lerp on the
 // rest), then composed down the parent chain.
+static float g_torsoTwist = 0.0f;   // see ModelSetTorsoTwist
 void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float time, const ModelAnimation* second,
                      float secondTime, float weight, std::vector<gta2::Mat4>* out) {
     const size_t n = model.nodes.size();
@@ -291,6 +292,20 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
             if (p >= 0 && p < static_cast<int>(n) && !done[p] && pass == 0) continue;
             const gta2::Mat4 local = Compose(t[i], q[i].data(), s[i]);
             (*out)[i] = (p >= 0 && p < static_cast<int>(n)) ? Multiply(local, (*out)[p]) : local;
+            if (g_torsoTwist != 0.0f && model.nodes[i].name[0] == 'B' && strcmp(model.nodes[i].name, "Bip01 Spine1") == 0) {
+                // Turned about the model's vertical through the joint; the
+                // children (chest, arms, head) compose from it and turn with it.
+                gta2::Mat4& M = (*out)[i];
+                const float c = std::cos(g_torsoTwist), sn = std::sin(g_torsoTwist);
+                const float px = M.m[3][0], pz = M.m[3][2];
+                for (int r = 0; r < 4; ++r) {
+                    const float x = M.m[r][0], z = M.m[r][2];
+                    M.m[r][0] = x * c - z * sn;
+                    M.m[r][2] = x * sn + z * c;
+                }
+                M.m[3][0] += px - (px * c - pz * sn);
+                M.m[3][2] += pz - (px * sn + pz * c);
+            }
             done[i] = true;
         }
     }
@@ -647,6 +662,12 @@ size_t ModelsTextureBytes(int* count) {
     return g_textureBytes;
 }
 
+// The torso twist for the next poses: radians about the model's up axis at
+// "Bip01 Spine1", so a figure's upper body can face one way (the aim) while
+// its legs walk another. Part of the pose cache key (quantised by the caller).
+void ModelSetTorsoTwist(float radians) { g_torsoTwist = radians; }
+float ModelTorsoTwist() { return g_torsoTwist; }
+
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
     if (rgb) for (int i = 0; i < 3; ++i) g_paintTint[i] = (std::max)(0.0f, (std::min)(2.0f, rgb[i]));
@@ -791,10 +812,11 @@ struct PoseKey {
     const Model* model = nullptr;
     const ModelAnimation* animation = nullptr;
     const ModelAnimation* second = nullptr;
-    float time = -1.0f, secondTime = -1.0f, weight = 0.0f;
+    float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f;
     bool operator==(const PoseKey& o) const {
         return model == o.model && animation == o.animation && second == o.second && std::fabs(time - o.time) < 1e-4f &&
-               std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f;
+               std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f &&
+               std::fabs(twist - o.twist) < 1e-3f;
     }
 };
 struct PosedCache {
@@ -974,6 +996,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.time = time;
         key.secondTime = secondTime;
         key.weight = weight;
+        key.twist = g_torsoTwist;
         posed = &PoseFor(model, key, worlds);
     }
     QueryPerformanceCounter(&t1);

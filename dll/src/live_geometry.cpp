@@ -6394,7 +6394,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     const float wrl = (std::max)(1e-4f, std::sqrt(wr[0] * wr[0] + wr[2] * wr[2]));
     wr[0] /= wrl; wr[2] /= wrl;
     float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
-    const float k = (wi.length * (wi.twoHanded ? 1.0f : 1.15f)) / (std::max)(0.01f, model->Length());
+    const float k = (wi.length * (wi.twoHanded ? 1.2f : 1.4f)) / (std::max)(0.01f, model->Length());
     static int logged = 0;
     if (logged < 12) { ++logged; Log("view model: %s at %.2f,%.2f,%.2f dir %.2f,%.2f,%.2f up %.2f,%.2f,%.2f k %.3f kick %.2f", wi.name, pos[0], pos[1], pos[2], dir[0], dir[1], dir[2], up[0], up[1], up[2], k, kick); }
     gta2::Mat4 place;
@@ -6857,6 +6857,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         reinterpret_cast<const void*>(sprite.object), gx, cy, gz, track.actionTime, track.actionWeight,
                         actionClip ? "yes" : "NO", actionClip ? actionClip->length : 0.0f, sprite.corpse ? 1 : 0,
                         sprite.pedFrame % 158u);
+                }
+                if (g_logPedFrames && ownPed && (g_carFrame % 15u) == 0) {
+                    Log("player figure: action %d want %d t %.2f w %.2f clip %s weapon %d lod %d twist %.2f speed %.2f walkW %.2f frame %u state %d",
+                        track.action, wantAction, track.actionTime, track.actionWeight, actionClip ? actionClip->name.c_str() : "-", track.weapon, lod,
+                        track.twist, track.drawnSpeed, track.walkWeight, sprite.pedFrame % 158u, sprite.pedState);
                 }
                 const float wantWeight = actionClip ? 1.0f : 0.0f;
                 track.actionWeight += (wantWeight - track.actionWeight) * (std::min)(1.0f, dt / (track.action == 4 ? 0.1f : 0.15f));

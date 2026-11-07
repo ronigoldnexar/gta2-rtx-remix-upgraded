@@ -1,4 +1,5 @@
 #include "synthetic_lights.h"
+#include "live_geometry.h"
 
 #include "compat.h"
 
@@ -416,6 +417,9 @@ void SubmitPoint(int category, const float* world, float extraIntensity, uintptr
     RemixLightDesc d;
     d.pos[0] = world[0];
     d.pos[1] = world[1] + c.heightOffset;
+    // From a street-level camera the figures hold their guns at chest height:
+    // a flash or a bullet lit on the road would light the shooter's feet.
+    if ((category == kSynthMuzzle || category == kSynthBullet) && UprightPeds()) d.pos[1] += 0.25f;
     d.pos[2] = world[2];
     d.rgb[0] = c.rgb[0];
     d.rgb[1] = c.rgb[1];

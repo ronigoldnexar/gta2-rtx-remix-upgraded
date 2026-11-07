@@ -119,6 +119,11 @@ const Model* ModelForVehicle(int modelNumber, int sprite);
 // Meshes whose texture name contains "_paint" are multiplied by this factor
 // (0..2 per channel) in ModelDraw until it is cleared with null: a car's repaint.
 void ModelSetPaintTint(const float* rgb);
+// A twist of the upper body about the model's up axis at "Bip01 Spine1",
+// radians, applied to every pose drawn until it is set back to 0: the aim
+// turned off the walk. Quantise it (it keys the pose cache).
+void ModelSetTorsoTwist(float radians);
+float ModelTorsoTwist();
 // Bytes of model textures created so far (managed pool), and how many.
 size_t ModelsTextureBytes(int* count);
 const Model* ModelForPedestrian();

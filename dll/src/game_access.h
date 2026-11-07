@@ -392,6 +392,16 @@ constexpr uintptr_t kPhysicsSprite = 0x80;
 // FUN_00433270, which parks it at +0x280 instead while the ped is in state 8 -
 // knocked down, which is what a blast leaves them - so the game's own "is this
 // ped dead" tests read both, and so does anything here.
+// The weapon the player holds and its ammunition, words of his ped. -1: not
+// found yet (the GTA2DX9_LOG_PED_WORDS probe in world_view.cpp finds them; the
+// GTA2DX9_WEAPON_OFFSET / GTA2DX9_AMMO_OFFSET variables try a candidate).
+constexpr int kPlayerWeaponOffset = -1;
+constexpr int kPlayerAmmoOffset = -1;
+// The game's weapon number to the renderer's PedWeapon (live_geometry.cpp:
+// 1 pistol, 2 dual pistols, 3 silenced machine gun, 4 machine gun, 5 rocket
+// launcher, 6 electro gun, 7 molotov, 8 grenade, 9 shotgun, 10 flamethrower).
+// Identity until the probe says otherwise; 0 for fists and anything unknown.
+inline int PedWeaponFromGame(int raw) { return raw >= 1 && raw <= 10 ? raw : 0; }
 constexpr uintptr_t kPedState = 0x278;
 constexpr uintptr_t kPedStatePending = 0x280;
 constexpr int32_t kPedStateDead = 9;
