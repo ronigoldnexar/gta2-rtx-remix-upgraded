@@ -62,3 +62,7 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
 - A run's read-only data is bind-mounted, not copied (`gamerun/game_mounts.sh`);
   the prefix comes prebaked from the `*-fast` image. Details and numbers:
   `docs/throughput.md`.
+
+- Mission and other long scripted sessions that need no real-time video: run the game faster with
+  `GTA2_SPEED=2` (or 3) and `FPS=0` on `gamerun/grun.sh`; the runners' timing scales automatically
+  (see docs/throughput.md "Fast sessions"). Recordings for people stay at `GTA2_SPEED=1`.

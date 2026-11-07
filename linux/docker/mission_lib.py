@@ -25,9 +25,20 @@ MISSION = re.compile(r"view: mission money=(-?\d+) mult=(-?\d+) lives=(-?\d+) de
 GAME_DIR = "/tmp/wp/drive_c/Games/GTA2"
 MARKS = "/out/marks.txt"
 
+_FRAME0 = [None]
+def frames_rendered():
+    """Frames the renderer has drawn so far: its per-256-frame summaries (the
+    'frame=' field of the mission line is not a counter)."""
+    try:
+        with open(D.LOG, "rb") as f: return 256 * f.read().count(b"frame times, avg/worst ms over 256 frames")
+    except OSError:
+        return 0
 def mark(what):
-    with open(MARKS, "a") as f: f.write(f"{time.time():.3f} {what}\n")
-    say("MARK", what)
+    fr = frames_rendered()
+    if _FRAME0[0] is None: _FRAME0[0] = fr
+    gt = f" game={D.game_seconds(fr - _FRAME0[0]):.0f}s"   # game seconds since the first mark (1 frame = 1/30 game-second)
+    with open(MARKS, "a") as f: f.write(f"{time.time():.3f} {what}{gt}\n")
+    say("MARK", what + gt)
 
 def mission_state():
     """The last 'view: mission' line, or None."""
@@ -175,7 +186,8 @@ def enter_car_at(world, cx, cy, budget=90):
     return s
 
 def speed_of(s0, s1, dt):
-    return math.hypot(s1["x"] - s0["x"], s1["y"] - s0["y"]) / max(dt, 0.1)
+    """Blocks per game second: wall time is divided by the game speed."""
+    return math.hypot(s1["x"] - s0["x"], s1["y"] - s0["y"]) / max(dt * D.SPEED, 0.1)
 
 def car_legs(world, s, tx, ty):
     """cell centres to drive through: straight runs merged, every corner kept"""
@@ -251,6 +263,9 @@ def leave_car():
 
 # ---------------------------------------------------------------- phones and outcome
 
+def arm_lives():
+    ms = mission_state(); LIVES0[0] = ms["lives"] if ms else None
+
 def answer_phone(world, phone, budget=300):
     """walk onto the phone; the mission starts when the game shows its title message"""
     before = mission_state()
@@ -266,12 +281,20 @@ def answer_phone(world, phone, budget=300):
         s = D.goto(phone["x"] - 0.2, phone["y"], tol=0.25, limit=3); time.sleep(1.0)
     return False, mission_state()
 
+# the game's own "JOB COMPLETE!" / "JOB FAILED!" message keys per district
+# (Downtown 1124/1125, Industrial file bil 3100/3730, Residential file ste 2999/2998)
+COMPLETE_KEYS = {"1124", "3100", "2999"}
+FAILED_KEYS = {"1125", "3730", "2998"}
+
+LIVES0 = [None]   # lives when the current job started (a death costs one; JOB FAILED follows)
 def outcome(money0):
     ms = mission_state()
     if not ms: return "unknown", ms
-    if ms["msg"] == "1124" or ms["money"] >= money0 + 10000: return "complete", ms
-    if ms["msg"] == "1125": return "failed", ms
+    if ms["msg"] in COMPLETE_KEYS or ms["money"] >= money0 + 10000: return "complete", ms
+    if ms["msg"] in FAILED_KEYS: return "failed", ms
     if ms["health"] == 0 or ms["death"] != 0: return "dead", ms
+    if LIVES0[0] is not None and ms["lives"] < LIVES0[0]:
+        LIVES0[0] = ms["lives"]; return "dead", ms      # a life gone: he died; the job has failed with him
     return "running", ms
 
 def wait_outcome(money0, seconds, poll=1.0):
@@ -318,6 +341,11 @@ def node_kind(world, x, y, level):
     return ("flat", g)
 
 COST = {1: 3.0, 2: 1.0, 3: 1.4}
+CAR_COST = {1: 1.0, 2: 8.0, 3: 6.0}   # a car: roads cheap, a lot or a pavement only to get on or off them
+# GMP arrows byte, in the face order left, right, up, down: bit 0 left (x-1), 1 right (x+1),
+# 2 up (y-1), 3 down (y+1); bits 4-7 the red set (checked on the Downtown carriageway:
+# rows 149-151 carry bit 0 and run west, rows 153-154 bit 1 and run east)
+ARROW_BIT = {(-1, 0): 0x11, (1, 0): 0x22, (0, -1): 0x44, (0, 1): 0x88}
 AVOID = set()      # cells the router must not step on (the other phones: standing on one answers it)
 
 DONE_PHONES = set()   # (x,y) of phones whose job is complete: the game sets them dead, harmless to cross
@@ -382,7 +410,7 @@ def wall_between(world, x, y, L, dx, dy):
     if there and (there[FACE_OF[(-dx, -dy)]] & 0x400): return True
     return False
 
-def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
+def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000, cost=None):
     """Dijkstra over (x,y,level). tl None = any level with something to stand
     on at (tx,ty). A slope block stored at level L joins level L-1 (its low
     end) to level L (its high end) along its own axis only; a flat cell at L
@@ -425,8 +453,11 @@ def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
             moves = []   # (level, allowed kinds)
             if here_slope:
                 if here_dir is None: continue
-                if (dx, dy) == here_dir: moves = [(L, ("flat", "slope"))]            # uphill: the top, or the next piece
-                elif (dx, dy) == (-here_dir[0], -here_dir[1]): moves = [(L - 1, ("flat",)), (L, ("slope",))]   # downhill
+                # uphill: the top, the next piece of the same flight, or the low
+                # piece of the next flight one level up (GTA2 stacks 26-degree
+                # pairs: the Industrial Russian phone's stair is five such pairs)
+                if (dx, dy) == here_dir: moves = [(L, ("flat", "slope")), (L + 1, ("slope",))]
+                elif (dx, dy) == (-here_dir[0], -here_dir[1]): moves = [(L - 1, ("flat", "slope")), (L, ("slope",))]   # downhill
                 else: continue                                                        # sideways off a slope: a wall
             else:
                 moves = [(L, ("flat",)), (L + 1, ("slope",)), (L, ("slope",))]
@@ -441,7 +472,13 @@ def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
                         if nl == L and sd != (-dx, -dy): continue            # entering at the high end, going downhill
                     elif sd != here_dir: continue
                 elif nk[1] not in kinds: continue
-                c = d + (COST.get(nk[1], 2.0) if nk[0] == "flat" else 1.0)
+                c = d + ((cost or COST).get(nk[1], 2.0) if nk[0] == "flat" else 1.0)
+                if (kinds == (1,) or cost is CAR_COST) and nk[0] == "flat" and nk[1] == 1:
+                    # keep to the lanes: a road cell whose arrows exclude the way we enter it
+                    # is the oncoming lane (head-on traffic wrecks a fragile mission car)
+                    ab = _blk(world, nx, ny, nl)
+                    ab = ab[5] if ab else 0
+                    if ab & 0xFF and not (ab & ARROW_BIT.get((dx, dy), 0)): c += 2.5
                 m = (nx, ny, nl)
                 if c < dist.get(m, 1e18):
                     dist[m] = c; prev[m] = n; heapq.heappush(pq, (c, m))
@@ -457,6 +494,45 @@ def straighten3(path):
         if (b[0] - a[0], b[1] - a[1], b[2] - a[2]) != (c[0] - b[0], c[1] - b[1], c[2] - b[2]) or b[2] != a[2]:
             out.append(b)
     out.append(path[-1])
+    return out
+
+def line_clear(world, p, q, L, kinds=(1, 2), half_width=0.42):
+    """True when a car can drive straight from p to q at level L: every sample
+    along the line (and 0.42 block either side of it) is on a cell of `kinds`
+    with a lid and nothing built on it, and no wall face is crossed"""
+    (px, py), (qx, qy) = p, q
+    dx, dy = qx - px, qy - py; n = math.hypot(dx, dy)
+    if n < 1e-6: return True
+    ux, uy = dx / n, dy / n; lx, ly = -uy, ux
+    steps = max(2, int(n / 0.2) + 1); prev = {}
+    for k in range(steps + 1):
+        t = n * k / steps
+        for side in (0.0, half_width, -half_width):
+            x = px + ux * t + lx * side; y = py + uy * t + ly * side
+            cx, cy = int(math.floor(x)), int(math.floor(y))
+            k2 = node_kind(world, cx, cy, L)
+            if not (k2 and k2[0] == "flat" and k2[1] in kinds):
+                k2 = node_kind(world, cx, cy, L + 1)
+                if not (k2 and k2[0] == "flat" and k2[1] in kinds): return False
+            last = prev.get(side)
+            if last and last != (cx, cy):
+                sx, sy = cx - last[0], cy - last[1]
+                if abs(sx) + abs(sy) == 1 and wall_between(world, last[0], last[1], L, sx, sy): return False
+            prev[side] = (cx, cy)
+    return True
+
+def straighten_los(world, path, kinds=(1, 2), half_width=0.42):
+    """waypoints from a cell path: keep a cell only when the straight run to the
+    next kept cell stays on drivable ground; the path's own level is used"""
+    if len(path) < 3: return path
+    out = [path[0]]; i = 0
+    while i < len(path) - 1:
+        j = len(path) - 1
+        while j > i + 1:
+            a, b = path[i], path[j]
+            if a[2] == b[2] and line_clear(world, (a[0] + 0.5, a[1] + 0.5), (b[0] + 0.5, b[1] + 0.5), a[2], kinds, half_width): break
+            j -= 1
+        out.append(path[j]); i = j
     return out
 
 def ped_level(s):
@@ -489,10 +565,23 @@ def cruise_to(tx, ty, tol=0.6, secs=30, stop=True):
         if stop: xdo("keyup", "Up")
     return D.wait_state(), False
 
+VIEW_HOOK = [None]   # the session's set_view: the walker needs the classic view (direct keys)
+
 def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
     """route (multi-level, pavements preferred) and cruise leg by leg; re-routes
-    after a missed leg; returns the state"""
-    t0 = time.time(); s = D.wait_state(); reroutes = 0
+    after a missed leg; returns the state. Walks in the classic view: the 3D
+    orbit camera remaps the keys (Up walks where the camera looks, Left/Right
+    turn a wanted heading through a lagging controller), so the heading-pulse
+    steering that is calibrated in the classic view barely turns him there
+    (pt4_wil11: 0.45 s Right pulses turned him 0.5 rad in three seconds and
+    he walked away from the kerb). The 3D view comes back when the walk ends."""
+    if VIEW_HOOK[0]: VIEW_HOOK[0]("classic")
+    try: return _walk3(world, tx, ty, tl, tol, budget, kinds)
+    finally:
+        if VIEW_HOOK[0]: VIEW_HOOK[0]("third")
+
+def _walk3(world, tx, ty, tl, tol, budget, kinds):
+    t0 = time.time(); s = D.wait_state(); reroutes = 0; pinned = None; pins = 0
     while s and time.time() - t0 < budget:
         if math.hypot(tx - s["x"], ty - s["y"]) < tol and (tl is None or ped_level(s) == tl): return s
         path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), tl, kinds)
@@ -504,7 +593,16 @@ def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
             path2 = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), tl, kinds)
             AVOID.update(saved)
             if len(path2) > len(path): say("walk3: no route off the phones; crossing them"); path = path2
-        legs = straighten3(path)[1:] if len(path) > 1 else []
+        # waypoints that never clip a wall or a railing (line of sight on walkable
+        # ground, a body's half width), and no leg longer than 6 blocks so a
+        # drift gets corrected before it meets a lamp post
+        legs = []
+        if len(path) > 1:
+            pts = straighten_los(world, path, kinds, half_width=0.3)
+            for a, b in zip(pts, pts[1:]):
+                n = max(1, int(math.ceil(math.hypot(b[0] - a[0], b[1] - a[1]) / 6.0)))
+                for k in range(1, n + 1):
+                    legs.append((a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, b[2]))
         say(f"walk3: {len(path)} cells, {len(legs)} legs from {s['x']:.1f},{s['y']:.1f} L{ped_level(s)} to {tx},{ty}" + (f" L{tl}" if tl is not None else ""))
         if not legs:
             s, ok = cruise_to(tx, ty, tol=tol, secs=12); 
@@ -516,7 +614,7 @@ def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
         xdo("keydown", "Up")
         for i, (cx, cy, cl) in enumerate(legs):
             last = i == len(legs) - 1
-            gx, gy = (tx, ty) if last else (cx + 0.5, cy + 0.5)
+            gx, gy = (tx, ty) if last else (cx + 0.5, cy + 0.5)   # cells → centres (interpolated legs carry fractions)
             s, ok = cruise_to(gx, gy, tol=(tol if last else 0.75), secs=max(8, 3 + 1.2 * 2), stop=False)
             # a long leg: allow the time its length needs
             if not ok and s:
@@ -532,84 +630,167 @@ def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
         say(f"walk3: re-routing ({reroutes})")
         if reroutes >= 12: break
         s = D.wait_state()
+        # pinned: two re-routes from the same spot (a body wedged in a wall corner,
+        # pt4_wil10 at 81.9,25.2) - a reported developer warp a few cells down the path
+        if s and pinned and math.hypot(s["x"] - pinned[0], s["y"] - pinned[1]) < 0.4:
+            pins += 1
+            if pins >= 2 and os.environ.get("WARP_OK", "1") == "1" and len(path) > 4:
+                ahead = next((n for n in path[3:] if node_kind(world, *n) and node_kind(world, *n)[0] == "flat"), None)
+                if ahead:
+                    say(f"walk3: pinned at {s['x']:.1f},{s['y']:.1f} for {pins} re-routes; developer warp {ahead[0]}.5,{ahead[1]}.5 (reported)")
+                    s = scene_warp(ahead[0] + 0.5, ahead[1] + 0.5, ahead[2], "pinned walker, a few cells down the path")
+                    pins = 0
+        else: pins = 0
+        pinned = (s["x"], s["y"]) if s else None
     return s
 
+SLOW_CAP = 3.0
+
 def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False):
-    """drive by road waypoints with Up held: steer from the samples, brake for
-    corners, back out when stalled, re-route after a stall"""
+    """wall-aware driving. Road-only route with lane preference, waypoints that
+    never cut a corner (line of sight on drivable ground), a speed target that
+    falls to a crawl before every turn and at the goal, Up never held while
+    the heading error is over 40 degrees, a straight reverse when the car is
+    pinned against something for a second, and a re-route after it."""
     t0 = time.time(); s = D.wait_state(); last = (s, time.time())
+    vcap = SLOW_CAP if slow else 5.5   # SLOW_CAP: a script can lower it for a fragile mission car
     def legs_from(s):
-        path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), None, kinds=(1,))
+        L = ped_level(s)
+        path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, kinds=(1,), cost=CAR_COST)
         if not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2:
-            path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), None)
-        cells = straighten3(path)[1:] if len(path) > 1 else []
+            # off the road (a lot, a ramp): roads plus the ground the car stands on,
+            # before the anything-goes route that walks a car across pavements
+            here = node_kind(world, int(s["x"]), int(s["y"]), L) or node_kind(world, int(s["x"]), int(s["y"]), L + 1)
+            if here and here[1] != 1:
+                path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, kinds=(1, here[1]), cost=CAR_COST)
+        if not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2:
+            path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, cost=CAR_COST)
+        # the straight legs may only cross what the route itself stands on: a road-only
+        # route gives road-only legs (pt4_wil7's cop car was wrecked against a wall after
+        # a leg cut across a pavement); a lot or a field on the route admits those kinds
+        onpath = {node_kind(world, *n)[1] for n in path if node_kind(world, *n)}
+        kinds = tuple(k for k in (1, 2, 3) if k == 1 or k in onpath)
+        cells = straighten_los(world, path, kinds, half_width=0.45)[1:] if len(path) > 1 else []
         lg = [(cx + 0.5, cy + 0.5) for cx, cy, _ in cells]
-        lg.append((tx, ty)); return lg
-    legs = legs_from(s); i = 0; stall = 0; stalls = 0
-    say(f"drive3: {len(legs)} legs to {tx:.1f},{ty:.1f}")
-    xdo("keydown", "Up"); up = True
+        if lg and math.hypot(lg[-1][0] - tx, lg[-1][1] - ty) > 0.6: lg.append((tx, ty))
+        elif not lg: lg = [(tx, ty)]
+        # the turn at each waypoint, for the braking lookahead
+        turns = []
+        for k in range(len(lg)):
+            p0 = (s["x"], s["y"]) if k == 0 else lg[k - 1]
+            if k + 1 < len(lg):
+                v1 = (lg[k][0] - p0[0], lg[k][1] - p0[1]); v2 = (lg[k + 1][0] - lg[k][0], lg[k + 1][1] - lg[k][1])
+                n1, n2 = math.hypot(*v1), math.hypot(*v2)
+                turns.append(math.acos(max(-1.0, min(1.0, (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2)))) if n1 > 1e-6 and n2 > 1e-6 else 0.0)
+            else: turns.append(math.pi)          # the goal: stop there
+        return lg, turns
+    legs, turns = legs_from(s); i = 0; stall_t = None; stalls = 0; up = False; wedge_at = None
+    say(f"drive3: {len(legs)} legs to {tx:.1f},{ty:.1f} (cap {vcap})")
+    def keyup_all():
+        xdo("keyup", "Up"); xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right")
     try:
         while s and s["driving"] and time.time() - t0 < budget and i < len(legs):
             gx, gy = legs[i]; final = i == len(legs) - 1
             d = math.hypot(gx - s["x"], gy - s["y"])
-            if d < (tol if final else 1.8): i += 1; continue
-            if not final and i + 1 < len(legs):
+            if d < (tol if final else 1.4): i += 1; continue
+            if not final:
+                # passed it: the next waypoint is already nearer along the way
                 nx, ny = legs[i + 1]
-                if math.hypot(nx - s["x"], ny - s["y"]) < d - 0.5: i += 1; continue
+                if math.hypot(nx - s["x"], ny - s["y"]) < math.hypot(nx - gx, ny - gy) - 0.3: i += 1; continue
             hx, hy = heading(s); dx, dy = gx - s["x"], gy - s["y"]
             a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
-            now = time.time(); v = speed_of(last[0], s, now - last[1]); last = (s, now)
+            now = time.time(); v = speed_of(last[0], s, now - last[1]) if now - last[1] > 0.05 else 0.0; last = (s, now)
             if view_switch: view_switch(s)
+            # distance along the path to the next real turn (or the goal)
+            cd = d; k = i
+            while k < len(legs) - 1 and turns[k] < 0.6:
+                cd += math.hypot(legs[k + 1][0] - legs[k][0], legs[k + 1][1] - legs[k][1]); k += 1
+            vt = vcap
+            if cd < 4.0: vt = min(vt, 1.0 + cd * 0.55)
+            if final and d < 3.0: vt = min(vt, 1.2)
             steer = "Right" if a > 0 else "Left"
-            nextd = math.hypot(legs[i + 1][0] - gx, legs[i + 1][1] - gy) if i + 1 < len(legs) else 99
-            if abs(a) > 2.2:
+            if abs(a) > 1.9 or (abs(a) > 0.9 and d < 2.2):
+                # the waypoint is behind, or close and well off the nose (a parking lot,
+                # a lot exit): a three-point turn. Reversing with the wheel the other way
+                # swings the nose toward the target; then the forward branches take over.
                 if up: xdo("keyup", "Up"); up = False
-                xdo("keydown", "Down"); xdo("keydown", "Left" if a > 0 else "Right"); time.sleep(0.9)
-                xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right")
-            elif abs(a) > 0.8:
+                if v > 1.0: hold("Down", 0.3); time.sleep(0.2)
+                rkey = "Left" if a > 0 else "Right"
+                xdo("keydown", rkey); xdo("keydown", "Down"); time.sleep(0.9); xdo("keyup", "Down"); xdo("keyup", rkey); time.sleep(0.15)
+            elif abs(a) > 0.70:
+                # a real turn: no throttle held; creep and steer in pulses, brake first when fast
                 if up: xdo("keyup", "Up"); up = False
-                if v > 3.0: hold("Down", 0.35)
-                xdo("keydown", steer); xdo("keydown", "Up"); time.sleep(0.35); xdo("keyup", "Up"); xdo("keyup", steer)
-            else:
-                want_slow = slow or d < 3.0 or nextd < 4.0 or (final and d < 6)
-                if v > (3.8 if want_slow else 6.5):
+                if v > 1.5: hold("Down", 0.3)
+                xdo("keydown", steer); xdo("keydown", "Up"); time.sleep(0.22); xdo("keyup", "Up"); time.sleep(0.12); xdo("keyup", steer)
+            elif abs(a) > 0.22:
+                if v > vt + 0.8:
                     if up: xdo("keyup", "Up"); up = False
-                    hold("Down", 0.25)
-                elif not up: xdo("keydown", "Up"); up = True
-                if abs(a) > 0.08:
-                    xdo("keydown", steer); time.sleep(min(abs(a) * 0.45, 0.3)); xdo("keyup", steer)
-            time.sleep(0.2)
+                    hold("Down", 0.2)
+                xdo("keydown", steer)
+                if v < vt: xdo("keydown", "Up"); up = True
+                time.sleep(min(0.3, 0.12 + abs(a) * 0.3)); xdo("keyup", steer)
+            else:
+                if v > vt + 0.8:
+                    if up: xdo("keyup", "Up"); up = False
+                    hold("Down", min(0.4, 0.12 + (v - vt) * 0.08))
+                elif v < vt and not up: xdo("keydown", "Up"); up = True
+                elif v >= vt and up: xdo("keyup", "Up"); up = False
+                if abs(a) > 0.06:
+                    xdo("keydown", steer); time.sleep(min(0.22, abs(a) * 0.5)); xdo("keyup", steer)
+            time.sleep(0.12)
             s2 = D.wait_state()
-            if s2 and s2.get("fire", 0) > 0:
-                say(f"drive3: the car is burning ({s2['fire']} flames); out")
-                mark("the car is on fire: out and clear")
-                if up: xdo("keyup", "Up"); up = False
+            if not s2: break
+            if s2.get("fire", 0) > 0:
+                say(f"drive3: the car is burning ({s2['fire']} flames); out"); mark("the car is on fire: out and clear")
+                keyup_all(); up = False
                 s2 = flee_fire(world, s2)
                 if not (s2 and s2["driving"]): return s2
-                xdo("keydown", "Up"); up = True; legs = legs_from(s2); i = 0; s = s2; continue
-            if s2 and v < 0.4 and math.hypot(s2["x"] - s["x"], s2["y"] - s["y"]) < 0.08 and abs(a) <= 2.2:
-                stall += 1
-                if stall >= 4:
-                    stalls += 1; stall = 0
-                    say(f"drive3: stalled at {s2['x']:.1f},{s2['y']:.1f}; backing out ({stalls})")
-                    if up: xdo("keyup", "Up"); up = False
-                    xdo("keydown", "Down"); xdo("keydown", "Left" if stalls % 2 else "Right"); time.sleep(1.4)
-                    xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right"); time.sleep(0.3)
+                legs, turns = legs_from(s2); i = 0; s = s2; continue
+            moved = math.hypot(s2["x"] - s["x"], s2["y"] - s["y"])
+            wanted_motion = (up or abs(a) > 0.22)
+            if wanted_motion and moved < 0.05:
+                stall_t = stall_t or time.time()
+                if time.time() - stall_t > 1.0:
+                    stalls += 1; stall_t = None
+                    keyup_all(); up = False
+                    # stopped with the throttle on: traffic ahead (the usual case on a
+                    # carriageway) or a wall. Wait a moment for traffic, then back off and
+                    # pull out round it on the side with road, then re-route.
+                    say(f"drive3: stopped with throttle at {s2['x']:.1f},{s2['y']:.1f} (stall {stalls}); waiting, then pulling out")
+                    time.sleep(2.0); s3 = D.wait_state()
+                    if s3 and math.hypot(s3["x"] - s2["x"], s3["y"] - s2["y"]) > 0.4:
+                        s = s3; continue                      # the queue moved
+                    # wedged in a traffic queue (two stalls within half a block): a borrowed
+                    # car is abandoned for one past the jam; a mission car keeps trying
+                    if stalls >= 2 and wedge_at is not None and math.hypot(s2["x"] - wedge_at[0], s2["y"] - wedge_at[1]) < 0.5:
+                        if not slow:
+                            say("drive3: wedged in traffic; out, past the jam on foot, another car"); mark("wedged in traffic: leaving the jam on foot")
+                            hx2, hy2 = heading(s2); leave_car(); time.sleep(0.4)
+                            cruise_to(s2["x"] + hx2 * 6.0, s2["y"] + hy2 * 6.0, tol=1.2, secs=8)
+                            s2 = any_car2(world, budget=90)
+                            if not (s2 and s2["driving"]): return s2
+                            legs, turns = legs_from(s2); i = 0; s = s2; wedge_at = None; continue
+                        hold("Down", 1.4); time.sleep(0.2)
+                    wedge_at = (s2["x"], s2["y"])
+                    hold("Down", 0.7); time.sleep(0.15)
+                    hx2, hy2 = heading(s2)
+                    lx, ly = -hy2, hx2                        # the car's left
+                    def roadside(sign):
+                        cx, cy = int(s2["x"] + lx * sign * 1.5 + hx2 * 1.5), int(s2["y"] + ly * sign * 1.5 + hy2 * 1.5)
+                        return walkable(world.blocks, world.columns, cx, cy, ped_level(s2), (1,))
+                    side = "Left" if roadside(1) or not roadside(-1) else "Right"
+                    xdo("keydown", side); xdo("keydown", "Up"); time.sleep(0.9); xdo("keyup", side); time.sleep(0.5); xdo("keyup", "Up")
                     s2 = D.wait_state()
-                    if stalls % 3 == 0:
-                        # three wall hits: the car may be burning (every death at the
-                        # wheel so far followed a run of stalls); step clear, let it
-                        # cool or blow, then take it back or another one
+                    if stalls % 6 == 0 and not slow:
                         s2 = bail_out(world, s2)
                         if not (s2 and s2["driving"]): return s2
-                        xdo("keydown", "Up"); up = True
-                    legs = legs_from(s2); i = 0
+                    legs, turns = legs_from(s2); i = 0
             else:
-                stall = 0
+                stall_t = None
             s = s2
     finally:
-        xdo("keyup", "Up"); xdo("keyup", "Left"); xdo("keyup", "Right")
-    hold("Down", 0.9)
+        keyup_all()
+    hold("Down", 0.8)
     return D.wait_state()
 
 def flee_fire(world, s):
@@ -692,9 +873,18 @@ def arrows_baseline():
     """remember the markers the base script keeps; call once at level start"""
     BASELINE.clear(); BASELINE.update(arrows()); say(f"arrows: baseline {len(BASELINE)} slots")
 
+START = [None]   # (x, y) at level start: the tutorial's gifts (hint 1608, a car and a gun) get an arrow near it
+
 def mission_arrows():
-    """the slots that differ from the baseline: the current objective's arrow(s)"""
-    return {k: v for k, v in arrows().items() if BASELINE.get(k) != v}
+    """the slots that differ from the baseline: the current objective's arrow(s).
+    An arrow within 8 blocks of the level start is the tutorial's (pt4_wil12 took
+    the 1608 gift arrow at 156.5,142.5 for a job), never a mission's"""
+    out = {}
+    for k, v in arrows().items():
+        if BASELINE.get(k) == v: continue
+        if START[0] and math.hypot(v[2] - START[0][0], v[3] - START[0][1]) < 8.0: continue
+        out[k] = v
+    return out
 
 def objective():
     """(x, y, z, kind, obj) of the mission arrow, or None when no mission arrow is up"""
@@ -716,7 +906,7 @@ def wait_objective_change(key0, secs, money0=None):
     while time.time() - t0 < secs:
         if objective_key() != key0: return True
         ms = mission_state()
-        if ms and (ms["msg"] in ("1124", "1125") or (money0 is not None and ms["money"] >= money0 + 5000)): return True
+        if ms and (ms["msg"] in COMPLETE_KEYS or ms["msg"] in FAILED_KEYS or (money0 is not None and ms["money"] >= money0 + 5000)): return True
         time.sleep(0.3)
     return False
 
@@ -769,6 +959,7 @@ def any_car(world, budget=150, within=14.0):
 
 # ---------------------------------------------------------------- v3: kerb finding, warps, ramming
 INI = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.ini"
+SCENE_KEY = ["F11"]   # the [devtools] scene key the run enabled (F10 is eaten every other press under Wine)
 
 def nearest_kerb(world, s, radius=40):
     """the nearest pavement cell beside a road at street level"""
@@ -815,6 +1006,9 @@ def scene_warp(x, y, level, why):
         tap("Return", 0.3); time.sleep(2.0)
     try:
         t = open(INI, encoding="latin-1").read()
+        km = re.search(r"(?m)^scene_key=(\S+)", t)
+        if km: SCENE_KEY[0] = km.group(1)
+        else: say("scene_warp: no scene_key in the ini (run with INI_SED enabling [devtools]); the warp will be refused")
         t = re.sub(r"(?m)^scene_xy=.*$", f"scene_xy={x},{y},{level}", t)
         open(INI, "w", encoding="latin-1").write(t)
     except OSError as e:
@@ -822,7 +1016,7 @@ def scene_warp(x, y, level, why):
     s = D.wait_state()
     for attempt in range(4):
         n0 = len(devtools_lines())
-        tap("F10", 0.3); time.sleep(2.5)
+        tap(SCENE_KEY[0], 0.3); time.sleep(2.5)
         new = devtools_lines()[n0:]
         s = D.wait_state()
         if new and "ignored" not in new[-1] and "refused" not in new[-1]: break
@@ -885,6 +1079,10 @@ def ram_target(world, money0, secs=240, view_switch=None):
             time.sleep(0.15)
         xdo("keyup", "Up")
         hits += 1; say(f"ram: charge {hits} ended at d={d:.1f}")
+        s = D.wait_state()
+        if s["driving"] and s.get("fire", 0) > 0:
+            say("ram: my car burns; out"); mark("the car burns: out and clear")
+            s = flee_fire(world, s); continue
         hold("Down", 0.7); time.sleep(0.2)
     return outcome(money0)[0]
 
@@ -901,6 +1099,25 @@ def street_cell_near(world, x, y, radius=14):
                         return (cx0 + dx + 0.5, cy0 + dy + 0.5, lvl)
     return None
 
+
+def escape_route(world, s, dist=9):
+    """waypoints for running clear of a blast: the nearest ring cell 7-10 blocks
+    away that the router can actually reach from here in at most 1.6x the
+    straight distance (walls, railings and drops respected), as line-of-sight
+    legs; [] when nothing is reachable"""
+    L = ped_level(s); sx, sy = int(s["x"]), int(s["y"]); best = None
+    for r in (dist, dist - 2, dist + 1):
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                if max(abs(dx), abs(dy)) != r: continue
+                if not any(walkable(world.blocks, world.columns, sx + dx, sy + dy, lv, (1, 2, 3)) for lv in (L, L + 1, max(1, L - 1))): continue
+                path = route3(world, sx, sy, L, sx + dx, sy + dy, None, limit=6000)
+                if not path or (path[-1][0], path[-1][1]) != (sx + dx, sy + dy): continue
+                if len(path) > r * 1.6 + 2: continue
+                if best is None or len(path) < len(best): best = path
+        if best: break
+    if not best: return []
+    return [(cx + 0.5, cy + 0.5) for cx, cy, _ in straighten_los(world, best, (1, 2, 3))[1:]]
 
 def escape_point(world, x, y, level, dist=7):
     """a point `dist` blocks from (x,y) with open walkable ground all the way

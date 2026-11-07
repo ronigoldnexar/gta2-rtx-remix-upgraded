@@ -5,6 +5,16 @@ the car, gets in, drives, and cycles the views on the way. Keys go through
 xdotool to the focused game window."""
 import math, os, re, subprocess, sys, time
 
+# Game speed. GTA2 steps its simulation once per rendered frame, so a run with
+# fps_cap=60 plays twice as fast (GTA2_SPEED=2, set by gamerun/grun.sh). Every
+# sleep and key hold in the runners is written in game seconds; here they are
+# scaled to wall time, for every module that imports this one.
+SPEED = float(os.environ.get("GTA2_SPEED", "1") or 1)
+_real_sleep = time.sleep
+def gsleep(seconds): _real_sleep(seconds / SPEED)
+if SPEED != 1.0: time.sleep = gsleep
+def game_seconds(frame): return frame / 30.0   # the renderer's frame counter in GTA2 seconds
+
 LOG = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.log"
 OUT = "/out"
 LINE = re.compile(r"view: player x=([-\d.]+) y=([-\d.]+) z=([-\d.]+) face=([-\d.]+),([-\d.]+) (on foot|driving) \| car (nearest|none) x=([-\d.]+) y=([-\d.]+) d=([-\d.]+)( \(driven\))? \| parked (nearest|none) x=([-\d.]+) y=([-\d.]+) d=([-\d.]+)")
@@ -74,6 +84,10 @@ def start():
         if win: break
     say("game window", win)
     xdo("windowfocus", "--sync", win)
+    # already in the level (a keys script ran to_level.sh first): nothing to press
+    try:
+        if "view: classic (player found" in open(LOG, "rb").read().decode("latin-1"): say("start: already in the level"); return
+    except OSError: pass
     time.sleep(20)
     for i in range(5):
         tap("Return"); time.sleep(6)
