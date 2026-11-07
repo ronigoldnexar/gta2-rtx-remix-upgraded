@@ -14,6 +14,7 @@ import qa_lib as Q
 
 say, tap, hold, xdo = D.say, D.tap, D.hold, D.xdo
 INI = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.ini"
+SCENE_KEY = os.environ.get("SCENE_KEY", "F10")   # the devtools scene key the run's ini names (F10 is eaten every other press by the menu-key handling under Wine; the sweep uses F11)
 T0 = time.time()
 WARPS = []
 
@@ -59,7 +60,7 @@ def warp(x, y, level=None, why=""):
     s = s0
     for attempt in range(4):
         n0 = len(devtools_lines())
-        tap("F10", 0.3); time.sleep(2.5)
+        tap(SCENE_KEY, 0.3); time.sleep(2.5)
         new = devtools_lines()[n0:]
         s = D.wait_state()
         if new and "ignored" not in new[-1]:

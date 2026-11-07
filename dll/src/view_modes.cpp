@@ -501,7 +501,11 @@ bool WarpSceneToRoad(float x, float y, float z) {
     // cars were entered at once where they stood), so no car is moved any
     // more: the player goes to the driver's door of the nearest parked
     // traffic car around the scene that stands on a road, at the car's level.
-    if (NearestParkedTrafficCarOnRoad(x, y, 40.0f, &cx, &cy, &d, &car)) {
+    // GTA2DX9_SCENE_NO_CAR=1 (the city sweep): the scene point itself is what
+    // is wanted, never a car; the player is moved alone, as below.
+    static int noCar = -1;
+    if (noCar < 0) { char buf[8] = {}; noCar = GetEnvironmentVariableA("GTA2DX9_SCENE_NO_CAR", buf, sizeof buf) && buf[0] == '1'; }
+    if (!noCar && NearestParkedTrafficCarOnRoad(x, y, 40.0f, &cx, &cy, &d, &car)) {
         const bool ok = WarpPlayerToCarDoor(player, car, cx, cy);
         Log("devtools: scene %.2f,%.2f: the player goes to the parked car at %.2f,%.2f (%.1f tiles from the scene) instead of the car coming%s",
             x, y, cx, cy, d, ok ? "" : " (write failed)");
