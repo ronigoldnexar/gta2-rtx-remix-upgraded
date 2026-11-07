@@ -49,3 +49,16 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
 - No third-party models/textures without an MIT/CC0-class licence noted in `assets/README.md`.
 - Do not claim RTX Remix works without real path-traced frames (see HANDOVER section 2).
 - Do not `make clean` or rebuild `stage/` while another agent's run uses it without the lock.
+
+## Running the game: use the queue and the fast path
+
+- Queue every game run: `gamerun/runq.sh run -n <name> -- <docker run …>` (or the
+  `gamerun/grun.sh <name> <secs> <keys>` wrapper); never poll the slot files
+  yourself. `gamerun/runq.sh status` shows busy slots and waiting tickets.
+  `GTA2_SLOTS` (default 4) is the number of concurrent scripted runs the host
+  holds at the 30 fps cap (measured in `docs/throughput.md`).
+- Keys scripts: get into the level with `bash /work/to_level.sh` (log-driven,
+  about 15 s) instead of fixed sleeps; `gamerun/keys_views2_fast.sh` shows it.
+- A run's read-only data is bind-mounted, not copied (`gamerun/game_mounts.sh`);
+  the prefix comes prebaked from the `*-fast` image. Details and numbers:
+  `docs/throughput.md`.

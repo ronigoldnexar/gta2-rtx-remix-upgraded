@@ -37,11 +37,11 @@ if [ "${GTA2_AUDIO:-pulse}" = pulse ] && command -v pulseaudio >/dev/null 2>&1; 
   pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit \
     --load="module-null-sink sink_name=null sink_properties=device.description=null" >/tmp/pulse.log 2>&1 || true
 fi
-if [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1); else wineboot -i >/dev/null 2>&1; fi
+if [ "$ARCH" = win32 ] && [ -d /opt/wp ] && [ ! -d /tmp/wp/drive_c/windows ]; then cp -a /opt/wp/. /tmp/wp/ && echo "== prefix from /opt/wp"; elif [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1); else wineboot -i >/dev/null 2>&1; fi   # a *-fast image carries a ready prefix (Dockerfile.fast)
 G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
-cp -r /game/. "$G"/; mkdir -p "$G/player"
-cp -r /release/. "$G"/            # upstream v1.1: HD cars, voices, Remix mods, ini files
-cp /stage/*.dll /stage/gta2dx9.ini "$G"/; rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/   # this build: DLLs, ini, models
+if mountpoint -q "$G/data" 2>/dev/null; then (cd /game && for f in *; do [ "$f" = data ] || cp -r "$f" "$G"/; done); else cp -r /game/. "$G"/; fi; mkdir -p "$G/player"   # data/ may be a read-only bind mount (game_mounts.sh)
+(cd /release && for f in * .[!.]*; do [ -e "$f" ] || continue; mountpoint -q "$G/$f" 2>/dev/null && continue; cp -r "$f" "$G"/; done)   # upstream v1.1: HD cars, voices, Remix mods, ini files (mounted folders are skipped)
+cp /stage/*.dll /stage/gta2dx9.ini "$G"/; mountpoint -q "$G/gta2dx9_models" 2>/dev/null || { rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/; }   # this build: DLLs, ini, models
 rm -rf "$G/gta2dx9_textures_hd"; [ "${NO_HD:-0}" = 0 ] && [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/   # HD tiles (DDS/TGA), when generated; NO_HD=1 leaves them out
 [ "${NO_MODELS:-0}" = 1 ] && rm -rf "$G/gta2dx9_models"
 [ "${NO_CARHD:-0}" = 1 ] && rm -rf "$G/gta2dx9_hd"   # NO_CARHD=1: the upstream HD car maps (402 MB) stay out of the 32-bit process   # NO_MODELS=1: no 3D cars/people/props (32-bit address space under the bridge)
@@ -51,6 +51,7 @@ rm -rf "$G/gta2dx9_textures_hd"; [ "${NO_HD:-0}" = 0 ] && [ -d /stage/gta2dx9_te
 # are copied over Downtown's in the prefix copy only); DUMP_TILES=1 turns on the
 # renderer's tile dump for the run. Both are for building the HD tile sets.
 if [ -n "$SWAP_LEVEL" ]; then for e in gmp sty; do cp "$G/data/$SWAP_LEVEL.$e" "$G/data/wil.$e"; done; cp "$G/data/$SWAP_LEVEL."[sS][cC][rR] "$G/data/wil.SCR"; [ -d "$G/data/$SWAP_LEVEL" ] && rm -rf "$G/data/wil" && cp -r "$G/data/$SWAP_LEVEL" "$G/data/wil"; echo "level 1 is now $SWAP_LEVEL"; fi
+[ "${GTA2_INTRO:-1}" = 0 ] && sed -i "s/^intro=1/intro=0/" "$G/gta2dx9.ini"   # GTA2_INTRO=0: skip the intro movie (saves ~25 s per run)
 [ -n "$INI_SED" ] && sed -i "$INI_SED" "$G/gta2dx9.ini"   # INI_SED: a sed script over the ini, for turning a documented key off in one run
 [ "${DUMP_TILES:-0}" = 1 ] && sed -i 's/^dump_tiles=0/dump_tiles=1/' "$G/gta2dx9.ini"
 [ -f "${SETTINGS_EXTRA:-/nonexistent}" ] && cat "$SETTINGS_EXTRA" >> "$G/gta2dx9_settings.ini"; [ -n "${SETTINGS_SED:-}" ] && sed -i "$SETTINGS_SED" "$G/gta2dx9_settings.ini" && grep -n "StartHour\|Paused" "$G/gta2dx9_settings.ini" | head -3   # e.g. a [camera] section for a benchmark

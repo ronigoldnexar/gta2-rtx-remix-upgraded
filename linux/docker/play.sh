@@ -8,7 +8,7 @@
 #      SWAP_LEVEL=bil|ste (start in another district's map), INI_SED / SETTINGS_SED as in the run scripts.
 set -u
 cd "$(dirname "$0")/.."
-MODE=${1:-plain}; PORT=${2:-6080}; NAME=gta2-play-$PORT
+MODE=${1:-plain}; PORT=${2:-6080}; NAME=${NAME:-gta2-play-$PORT}
 DOCKER="sudo -n docker"; $DOCKER version >/dev/null 2>&1 || DOCKER=docker
 case "$MODE" in
   stop)   $DOCKER rm -f $($DOCKER ps -q --filter name=gta2-play-) 2>/dev/null; echo "stopped"; exit 0 ;;
