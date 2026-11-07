@@ -106,3 +106,53 @@ attempts kept in `models3d/rejected/`). Contact sheet of every car:
 - The nose test relies on the sprite's window rows; for symmetric bodies with a
   centred cabin the generated orientation is kept as is.
 - Heights come from the concept, not the game; the integration can clamp them.
+
+## Nose check and the all-models sheet (7 Nov 2026, CAR-FIDELITY pass)
+
+The user saw "some vehicles moving backward" in play. Two checks now cover the
+whole chain from sprite placement to model geometry:
+
+1. **Placement vs travel, in the running game.** With `GTA2DX9_LOG_CAR_NOSES=1`
+   the renderer logs every drawn car body every 15 frames (`car nose: obj=…
+   model=N f=±1 x z nx nz`: the placement's nose direction in the world and the
+   model's own `forward` sign). `tools/check_car_noses.py <gta2dx9.log>` pairs
+   consecutive samples of one car into a velocity and compares it with the drawn
+   nose; a model is flagged when most of its moving samples travel tail-first
+   (cars do reverse out of jams, so single samples do not count). Watching the
+   Downtown carriageway for 5.5 minutes from the kerb (`gamerun/car_noses.py`,
+   run `out/noses_wil`, 9 335 samples) gave 19 traffic models, all 100 % nose-first:
+   the placement convention (sprite nose = larger row = car +z) holds. Sheet:
+   `out/car_noses_sheet.png`.
+2. **The model's own nose.** A placement-correct car still drives backwards if the
+   GLB's grille sits at -z. The decisive view is the generator's post-fit proof
+   render (`assets-src/cars/models3d/proof/NNN_name.png`, panel "3D front" = the
+   camera at +z): all 60 image-to-3D models were tiled and read
+   (`out/proof_fronts_{1,2,3}.png`). One is wrong: **069 U-Jerk Truck** has the
+   pickup bed at +z (`out/proof_zoom.png`, middle row). It is also the third most
+   frequent car in Downtown traffic, which matches the report. Fixed at the source
+   for now by `"forward": "-z"` on its entry in `assets-src/manifest.json` and
+   `assets/models/manifest.json` (the runtime reads `forward` from the manifest's
+   `imported` list) and `69: 'flip'` in `gen3d/car_pipeline.py`'s `NOSE_OVERRIDE`,
+   so a refit (`--fit-only`) re-projects the roof sprite the right way round; until
+   that refit (nvdiffrast is built for the B200 and does not run on this L4) the
+   roof art of the truck is end-for-end, which only a rooftop camera would notice.
+3. **Every model in the game, from the chase camera and from eye height.**
+   `[devtools] force_car_model=N` (new, re-read once a second) draws every traffic
+   car as model N; `gamerun/car_models_sheet.py` warps the player into the
+   Downtown carriageway where the traffic queues up behind him nose-first, steps
+   through the model numbers and takes a chase and a first-person frame of the
+   stopped car for each (`gamerun/car_models_sheet_make2.py` tiles them). Sheet:
+   `out/car_models_ingame_sheet.png` (68 models; the queue faces the camera, so
+   every correct model shows its grille).
+
+Also in this pass (`dll/src/car_bodies.cpp`):
+- The fit of a model to the sprite's footprint scaled length and width
+  independently; a model whose proportions differ from the sprite's was stretched
+  one way. The aspect change is now capped at 15 % (the rest overhangs or falls
+  short of the footprint). The 60 image-to-3D models were already within the cap
+  (measured from their `size_blocks` against the CARI body size), so this is a
+  guard for the parametric set.
+- The driver's-seat hood copy dropped every triangle that crossed the cut planes,
+  leaving a stair-stepped edge on curved bonnets. The triangles are now clipped
+  against both planes (Sutherland-Hodgman per triangle, new vertices appended),
+  so the edge is the plane itself.

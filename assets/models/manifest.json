@@ -1055,7 +1055,8 @@
     73.4
    ],
    "texture_max": 512,
-   "paint_split": true
+   "paint_split": true,
+   "forward": "-z"
   },
   {
    "name": "070_z_type",
@@ -5307,7 +5308,7 @@
     "069_u_jerk_truck_0_paint.tga"
    ],
    "skins": 0,
-   "forward": "",
+   "forward": "-z",
    "stride": 0.0,
    "run_stride": 0.0
   },

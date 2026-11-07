@@ -186,6 +186,9 @@ void LoadConfig() {
         vm.mouseLook = GetPrivateProfileIntA("camera", "mouse_look", 1, ini) != 0;
         vm.turnRateFoot = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_foot", 180, ini));
         vm.turnRateCar = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_car", 240, ini));
+        vm.navMap = GetPrivateProfileIntA("camera", "nav_map", 1, ini) != 0;
+        vm.navTurnSign = GetPrivateProfileIntA("camera", "nav_turn_sign", 1, ini) < 0 ? -1 : 1;
+        vm.fpTurnKeyRate = static_cast<float>(GetPrivateProfileIntA("camera", "first_turn_key_rate", 90, ini));
         vm.logKeys = GetPrivateProfileIntA("devtools", "log_keys", 0, ini) != 0;
         gta2dx9::CarBodiesSetWreckTest(GetPrivateProfileIntA("devtools", "wreck_models", 0, ini) != 0);
         gta2dx9::CarBodiesSetDevIni(ini);
