@@ -16,11 +16,13 @@
 #include "../../src/gta2_map.h"
 #include "../../src/renderer.h"
 #include "cache_warmup.h"
+#include "compat.h"
 #include "game_access.h"
 #include "gibs.h"
 #include "log.h"
 #include "overlay.h"
 #include "remix_api.h"
+#include "remix_lights.h"
 #include "texture_store.h"
 #include "time_of_day.h"
 #include "view_modes.h"
@@ -200,6 +202,12 @@ namespace {
 const void* g_hiddenObjects[2] = {nullptr, nullptr};
 const void* g_playerObject = nullptr;
 bool g_logPedFrames = false;
+// Pedestrians getting into or out of a car (ped state 3/4) seen last frame,
+// with the vehicle they are boarding: the car's door swings for them. Last
+// frame's list is read when the cars are collected, because a frame's
+// pedestrians may be drawn after its cars.
+struct DoorPed { uintptr_t vehicle; float x, z; int state; };
+std::vector<DoorPed> g_doorPeds, g_doorPedsNow;
 // Frame ranges (within one body's 158) of the punch, the aim and the hands up;
 // see PedActionFor. Filled in from the probe runs; -1 disables a range.
 int g_pedPunchFrames[2] = {115, 130};   // the swing 115-122, the recovery 123-130 (probe run)
@@ -214,6 +222,19 @@ bool g_fxUpright = true;    // effect artwork faced to a street-level camera; bu
 // fists). Read by DrawPedFigures, written by the sprite pass.
 struct FxSpot { float x, y, z; };
 std::vector<FxSpot> g_fxSpotsLast, g_fxSpotsNow;
+// Fresh effect sprites: the small ones first seen in a frame (a muzzle flash,
+// a bullet leaving the gun, an impact flash on a wall), with their size. The
+// figures claim the ones beside a shooter as his shot (the recoil kick, the
+// muzzle glow, a shell); what is left and does not fly is an impact.
+struct FxFresh { float x, y, z, size; uintptr_t object; bool claimed; };
+std::vector<FxFresh> g_fxFreshLast, g_fxFreshNow;
+struct FxSeen { float x, y, z; uint32_t frame; float size; bool flying; };
+std::map<uintptr_t, FxSeen> g_fxSeen;   // every small effect sprite's last position
+struct PedSpot { float x, y, z; };
+std::vector<PedSpot> g_pedSpots;        // where the figures stood this frame (blood on a hit)
+int g_playerWeapon = -1, g_playerAmmo = 0;   // from the game, see SetPlayerWeapon
+int g_playerWeaponSeen = 0;             // the last weapon the player's own figure was drawn with
+uint32_t g_fpShotFrame = 0;             // the player's last shot seen from the first-person eye
 int g_carLamps = 1;         // [renderer] car_lamps: 0 none, 1 when dark + brake lamps, 2 always
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
 gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
@@ -234,6 +255,15 @@ bool IsGrassTile(int tile) { return tile >= 0 && tile < static_cast<int>(g_grass
 
 float g_playerPosX = 0.0f, g_playerPosY = 0.0f, g_playerPosZ = 0.0f;
 bool g_playerPosValid = false;
+std::vector<FireSpotPublic> g_fireSpotsLast;
+int FireSpotsNear(float x, float z, float radius, const void* carShell) {
+    int n = 0;
+    for (const FireSpotPublic& f : g_fireSpotsLast) {
+        const float dx = f.x - x, dz = f.z - z;
+        if ((carShell && f.car == carShell) || dx * dx + dz * dz <= radius * radius) ++n;
+    }
+    return n;
+}
 void SetPlayerPosition(float x, float y, float z, bool valid) {
     g_playerPosX = x; g_playerPosY = y; g_playerPosZ = z; g_playerPosValid = valid;
 }
@@ -247,6 +277,8 @@ bool BehindView(float x, float y, float z, float margin) {
     return dx * g_viewForward.x + dy * g_viewForward.y + dz * g_viewForward.z < -margin;
 }
 void SetUprightPeds(bool on) { g_uprightPeds = on; }
+void SetPlayerWeapon(int weapon, int ammo) { g_playerWeapon = weapon; g_playerAmmo = ammo; }
+int PlayerWeapon() { return g_playerWeapon; }
 void SetCarLamps(int mode) { g_carLamps = mode; }
 bool UprightPeds() { return g_uprightPeds; }
 namespace { bool g_pedFigures = false; }
@@ -4460,6 +4492,8 @@ void LiveGeometry::BeginFrame() {
     }
     carModels_.clear();
     carBodies_.clear();
+    g_doorPeds.swap(g_doorPedsNow);
+    g_doorPedsNow.clear();
     if (g_carHd && g_carMaterial && !g_hdPrepStarted) StartHdPrepare();
     sprites_.clear();
     shells_.clear();
@@ -4773,6 +4807,17 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     bool ownCar = false;
     if (g_hiddenObjects[0] || g_hiddenObjects[1]) {
         const void* object = GameObjectBeingDrawn();
+        if (object && (object == g_hiddenObjects[0] || object == g_hiddenObjects[1]) && corners == 4 &&
+            TextureIsEffect(texture)) {
+            // A flame over the player's own car (its sprites are not drawn from his
+            // seat): still counted, so the log can say his car is burning.
+            Vertex fx[4];
+            if (ReadCorners(vertices, corners, texture, game::kSpriteVertexArray, fx)) {
+                float cx = 0, cy = 0, cz = 0;
+                for (int i = 0; i < 4; ++i) { cx += fx[i].x * 0.25f; cy += fx[i].y * 0.25f; cz += fx[i].z * 0.25f; }
+                g_fireSpotsLast.push_back({cx, cy, cz, object});
+            }
+        }
         if (object && object == g_hiddenObjects[0]) return;
         if (object && object == g_hiddenObjects[1]) {
             if (!(g_groundModels && g_carModels3d) || lamps) return;
@@ -5171,6 +5216,13 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                 placed.pedState = *reinterpret_cast<const int32_t*>(ped + game::kPedState);
                 placed.pedSub = *reinterpret_cast<const int32_t*>(ped + game::kPedSubState);
                 placed.pedPending = *reinterpret_cast<const int32_t*>(ped + game::kPedStatePending);
+                if ((placed.pedState == 3 || placed.pedState == 4) && g_doorPedsNow.size() < 32) {
+                    // The ped's vehicle word is only set once he is inside, so the car
+                    // he is boarding is matched by position when the cars are collected.
+                    const uint8_t* vehicle = *reinterpret_cast<const uint8_t* const*>(ped + game::kPedVehicle);
+                    g_doorPedsNow.push_back({game::PlausiblePointer(vehicle) ? reinterpret_cast<uintptr_t>(vehicle) : 0,
+                                             placed.objectToWorld.m[3][0], placed.objectToWorld.m[3][2], placed.pedState});
+                }
                 if (g_logPedFrames && reinterpret_cast<const void*>(object) == g_playerObject) {
                     static unsigned lastFrame = 9999; static int32_t lastState = -2, lastSub = -2;
                     if (placed.pedFrame != lastFrame || placed.pedState != lastState || placed.pedSub != lastSub) {
@@ -5536,6 +5588,16 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
             if (game::PlausiblePointer(car)) {
                 const int32_t number = *reinterpret_cast<const int32_t*>(car + game::kVehicleModel);
                 if (number >= 0 && number < 256) use.model = number;
+                use.damage = *reinterpret_cast<const uint8_t*>(car + 0x74);
+                float best = 1.6f * 1.6f;   // a boarding ped stands within a car's half length plus a door
+                for (const DoorPed& dp : g_doorPeds) {
+                    const float ddx = dp.x - body->objectToWorld.m[3][0], ddz = dp.z - body->objectToWorld.m[3][2];
+                    const float d2 = ddx * ddx + ddz * ddz;
+                    const bool match = dp.vehicle ? dp.vehicle == reinterpret_cast<uintptr_t>(car) : d2 < best;
+                    if (!match) continue;
+                    best = d2; use.doorPed = true; use.doorPedX = dp.x; use.doorPedZ = dp.z;
+                    if (dp.vehicle) break;
+                }
             }
         }
         use.object = reinterpret_cast<uintptr_t>(object);
@@ -5978,7 +6040,7 @@ namespace {
 int PedActionFor(bool corpse, unsigned pedFrame, int32_t pedState, int32_t pedSub) {
     if (corpse) return 4;   // dead, or knocked down: lying
     const unsigned f = pedFrame % 158u;
-    if (f >= 24 && f <= 35) return pedState == 4 ? 6 : 5;   // the climb (state 3: in, 4: out)
+    if (f >= 24 && f <= 35 && (pedState == 3 || pedState == 4)) return pedState == 4 ? 6 : 5;   // the climb (state 3: in, 4: out); the same frames pass in state 0 just after an exit
     if (f >= 16 && f <= 23 && pedState == 3) return 5;    // reaching for the door
     if (pedState == 8 && (pedSub == 0x11 || pedSub == 0x13)) return 7;   // thrown, falling (before the frame ranges: a thrown ped passes through them)
     if (f >= static_cast<unsigned>(g_pedPunchFrames[0]) && f <= static_cast<unsigned>(g_pedPunchFrames[1])) return 1;
@@ -6014,6 +6076,365 @@ struct FigVertex {
     DWORD color;
 };
 constexpr DWORD kFigFvf = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE;
+
+// ---------------------------------------------------------------------------
+// Shooting. The weapons, numbered as the game numbers them in the player's
+// ped (see SetPlayerWeapon; the order of the HUD's weapon cycle), each with
+// its stance clip, its model (assets-src/weapons, tools/gen_weapons.py: the
+// grip at the origin, the barrel along +z), its length in blocks, and its
+// muzzle flash (size in blocks, colour, the light it throws).
+// ---------------------------------------------------------------------------
+enum PedWeapon { kWpnNone = 0, kWpnPistol, kWpnDual, kWpnSilencedMg, kWpnMg, kWpnRocket, kWpnElectro,
+                 kWpnMolotov, kWpnGrenade, kWpnShotgun, kWpnFlame, kWpnCount };
+struct WeaponInfo {
+    const char* name;
+    const char* model;
+    int action;         // the stance clip: 2 aim, 10 aim_dual, 8 aim_heavy, 11 aim_launcher, 12 aim_flame, 13 throw
+    bool twoHanded;     // laid along the line from the right hand to the left
+    float length;       // blocks
+    float flashSize;    // blocks; 0: no flash of its own
+    float r, g, b;      // the flash's colour
+    float light;        // the Remix light's intensity, 0..1
+    bool shells;        // ejects a case
+    float kick;         // the first-person view model's kick back, blocks
+};
+const WeaponInfo kWeapons[kWpnCount] = {
+    {"none", nullptr, 0, false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, 0.0f},
+    {"pistol", "weapon_pistol", 2, false, 0.065f, 0.10f, 1.0f, 0.85f, 0.55f, 0.6f, true, 0.020f},
+    {"dual_pistol", "weapon_pistol", 10, false, 0.065f, 0.10f, 1.0f, 0.85f, 0.55f, 0.6f, true, 0.020f},
+    {"silenced_mg", "weapon_silenced_mg", 8, true, 0.17f, 0.045f, 0.9f, 0.8f, 0.6f, 0.15f, true, 0.010f},
+    {"machine_gun", "weapon_machine_gun", 8, true, 0.17f, 0.13f, 1.0f, 0.8f, 0.45f, 0.8f, true, 0.014f},
+    {"rocket_launcher", "weapon_rocket_launcher", 11, true, 0.26f, 0.28f, 1.0f, 0.7f, 0.4f, 1.0f, false, 0.040f},
+    {"electro_gun", "weapon_electro_gun", 8, true, 0.16f, 0.12f, 0.6f, 0.85f, 1.0f, 0.7f, false, 0.0f},
+    {"molotov", "weapon_molotov", 13, false, 0.05f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, 0.0f},
+    {"grenade", "weapon_grenade", 13, false, 0.03f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, 0.0f},
+    {"shotgun", "weapon_shotgun", 8, true, 0.20f, 0.20f, 1.0f, 0.8f, 0.45f, 1.0f, true, 0.035f},
+    {"flamethrower", "weapon_flamethrower", 12, true, 0.19f, 0.16f, 1.0f, 0.6f, 0.2f, 0.5f, false, 0.0f},
+};
+bool IsAimAction(int action) { return action == 2 || action == 8 || action == 10 || action == 11 || action == 12; }
+
+// The particles the shots leave: a muzzle glow, sparks, a brass case, blood,
+// the smoke behind a rocket, the arc of the electro gun. Camera-facing quads,
+// all in one buffer a frame, added (sparks, glows) or blended (the rest).
+struct ShotParticle {
+    float x, y, z, vx, vy, vz;
+    float life, age, size0, size1;
+    float r, g, b, a;
+    uint8_t kind;   // 0 spark, 1 shell, 2 blood, 3 smoke, 4 glow, 5 arc
+};
+std::vector<ShotParticle> g_shotParticles;
+// The muzzle lights, held for the frame they were seen on and the next: the
+// world pass submits them when the frame's invented lights are listed
+// (ShotLightsSubmit, before LightsReconcile).
+struct ShotLight { RemixLightDesc desc; uint32_t frame; };
+std::vector<ShotLight> g_shotLights;
+IDirect3DTexture9* g_shotGlowTexture = nullptr;
+float ShotRand() {
+    static uint32_t st = 0x9E3779B9u;
+    st ^= st << 13; st ^= st >> 17; st ^= st << 5;
+    return static_cast<float>(st & 0xFFFFFFu) / 16777216.0f;
+}
+void ShotSpawn(float x, float y, float z, float vx, float vy, float vz, float life, float s0, float s1,
+               float r, float g, float b, float a, uint8_t kind) {
+    if (!g_uprightPeds) return;   // the street-level views only: the top-down view keeps the game's own art
+    if (g_shotParticles.size() >= 1200) g_shotParticles.erase(g_shotParticles.begin());
+    g_shotParticles.push_back({x, y, z, vx, vy, vz, life, 0.0f, s0, s1, r, g, b, a, kind});
+}
+// A soft round spot: white, alpha falling off to the edge.
+IDirect3DTexture9* ShotGlowTexture(IDirect3DDevice9* device) {
+    if (g_shotGlowTexture) return g_shotGlowTexture;
+    constexpr int N = 32;
+    IDirect3DTexture9* made = nullptr;
+    if (FAILED(device->CreateTexture(N, N, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &made, nullptr))) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (FAILED(made->LockRect(0, &lr, nullptr, 0))) { made->Release(); return nullptr; }
+    for (int y = 0; y < N; ++y) {
+        uint32_t* out = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+        for (int x = 0; x < N; ++x) {
+            const float dx = (x + 0.5f) / N - 0.5f, dy = (y + 0.5f) / N - 0.5f;
+            const float r = (std::min)(1.0f, std::sqrt(dx * dx + dy * dy) * 2.0f);
+            const float a = (1.0f - r) * (1.0f - r);
+            const uint32_t av = static_cast<uint32_t>(a * 255.0f + 0.5f);
+            out[x] = (av << 24) | 0x00FFFFFFu;
+        }
+    }
+    made->UnlockRect(0);
+    g_shotGlowTexture = made;
+    return made;
+}
+// What leaves the muzzle on a shot: the flash as a glow with a Remix light in
+// it, sparks ahead, a case out of the right side, the electro gun's arc.
+void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* right, const float* up, bool firstPerson) {
+    if (weapon <= 0 || weapon >= kWpnCount) return;
+    const WeaponInfo& wi = kWeapons[weapon];
+    if (wi.flashSize > 0.0f) {
+        const float fs = wi.flashSize * (0.85f + 0.3f * ShotRand());
+        ShotSpawn(pos[0] + dir[0] * fs * 0.3f, pos[1] + dir[1] * fs * 0.3f, pos[2] + dir[2] * fs * 0.3f, 0, 0, 0,
+                  0.07f, fs, fs * 1.3f, wi.r, wi.g, wi.b, 1.0f, 4);
+        // A smaller, whiter core.
+        ShotSpawn(pos[0] + dir[0] * fs * 0.15f, pos[1] + dir[1] * fs * 0.15f, pos[2] + dir[2] * fs * 0.15f, 0, 0, 0,
+                  0.05f, fs * 0.45f, fs * 0.5f, 1.0f, 1.0f, 0.9f, 1.0f, 4);
+        const int sparks = weapon == kWpnShotgun ? 8 : (weapon == kWpnFlame ? 0 : 3);
+        for (int i = 0; i < sparks; ++i) {
+            const float sp = 2.5f + 2.0f * ShotRand();
+            const float sx = (ShotRand() - 0.5f) * 1.2f, sy = (ShotRand() - 0.5f) * 1.2f;
+            ShotSpawn(pos[0], pos[1], pos[2], (dir[0] + right[0] * sx + up[0] * sy) * sp, (dir[1] + right[1] * sx + up[1] * sy) * sp,
+                      (dir[2] + right[2] * sx + up[2] * sy) * sp, 0.12f + 0.08f * ShotRand(), 0.012f, 0.004f,
+                      1.0f, 0.85f, 0.5f, 1.0f, 0);
+        }
+        RemixLightDesc d;
+        d.pos[0] = pos[0] + dir[0] * 0.05f; d.pos[1] = pos[1] + dir[1] * 0.05f + 0.02f; d.pos[2] = pos[2] + dir[2] * 0.05f;
+        d.rgb[0] = wi.r; d.rgb[1] = wi.g; d.rgb[2] = wi.b;
+        d.intensity = wi.light;
+        d.radius = 2.5f;
+        d.emitterRadius = 0.03f;
+        g_shotLights.push_back({d, g_carFrame});
+    }
+    if (wi.shells) {
+        // Out of the ejection port, up and to the right, tumbling down.
+        const float back = firstPerson ? 0.10f : 0.5f * wi.length;
+        const float ex = pos[0] - dir[0] * back + right[0] * 0.015f, ey = pos[1] - dir[1] * back + right[1] * 0.015f + 0.01f,
+                    ez = pos[2] - dir[2] * back + right[2] * 0.015f;
+        const float vr = 0.45f + 0.3f * ShotRand(), vu = 0.6f + 0.3f * ShotRand(), vb = -0.1f + 0.2f * ShotRand();
+        ShotSpawn(ex, ey, ez, right[0] * vr + up[0] * vu + dir[0] * vb, right[1] * vr + up[1] * vu + dir[1] * vb,
+                  right[2] * vr + up[2] * vu + dir[2] * vb, 0.7f, 0.009f, 0.009f, 0.85f, 0.7f, 0.3f, 1.0f, 1);
+    }
+    if (weapon == kWpnElectro) {
+        // The arc: a jagged line of short-lived sparks a block and a half out.
+        float px = pos[0], py = pos[1], pz = pos[2];
+        for (int i = 0; i < 14; ++i) {
+            const float jx = (ShotRand() - 0.5f) * 0.08f, jy = (ShotRand() - 0.5f) * 0.08f;
+            px += dir[0] * 0.11f + right[0] * jx + up[0] * jy;
+            py += dir[1] * 0.11f + right[1] * jx + up[1] * jy;
+            pz += dir[2] * 0.11f + right[2] * jx + up[2] * jy;
+            ShotSpawn(px, py, pz, 0, 0, 0, 0.06f, 0.035f, 0.02f, 0.65f, 0.9f, 1.0f, 1.0f, 5);
+        }
+    }
+}
+void ShotFxSparks(float x, float y, float z) {
+    for (int i = 0; i < 7; ++i) {
+        const float a = ShotRand() * 6.2831853f, e = ShotRand() * 1.4f, sp = 0.8f + 1.4f * ShotRand();
+        ShotSpawn(x, y, z, std::cos(a) * std::cos(e) * sp, std::sin(e) * sp, std::sin(a) * std::cos(e) * sp,
+                  0.18f + 0.15f * ShotRand(), 0.014f, 0.004f, 1.0f, 0.8f, 0.45f, 1.0f, 0);
+    }
+    ShotSpawn(x, y, z, 0, 0, 0, 0.06f, 0.07f, 0.09f, 1.0f, 0.75f, 0.4f, 0.8f, 4);
+}
+void ShotFxBlood(float x, float y, float z) {
+    for (int i = 0; i < 6; ++i) {
+        const float a = ShotRand() * 6.2831853f, sp = 0.15f + 0.35f * ShotRand();
+        ShotSpawn(x + (ShotRand() - 0.5f) * 0.04f, y + (ShotRand() - 0.5f) * 0.06f, z + (ShotRand() - 0.5f) * 0.04f,
+                  std::cos(a) * sp, 0.1f + 0.3f * ShotRand(), std::sin(a) * sp, 0.3f + 0.2f * ShotRand(),
+                  0.02f, 0.06f, 0.45f, 0.03f, 0.03f, 0.85f, 2);
+    }
+}
+void ShotFxSmoke(float x, float y, float z) {
+    ShotSpawn(x + (ShotRand() - 0.5f) * 0.03f, y, z + (ShotRand() - 0.5f) * 0.03f, (ShotRand() - 0.5f) * 0.08f, 0.08f,
+              (ShotRand() - 0.5f) * 0.08f, 0.8f + 0.4f * ShotRand(), 0.05f, 0.26f, 0.7f, 0.7f, 0.72f, 0.45f, 3);
+}
+// Ages and draws the particles. After the figures and the game's effects.
+void ShotFxDraw(IDirect3DDevice9* device, float dt) {
+    for (size_t i = 0; i < g_shotParticles.size();) {
+        ShotParticle& sp = g_shotParticles[i];
+        sp.age += dt;
+        if (sp.age >= sp.life) { sp = g_shotParticles.back(); g_shotParticles.pop_back(); continue; }
+        if (sp.kind == 0 || sp.kind == 1 || sp.kind == 2) sp.vy -= (sp.kind == 2 ? 1.2f : 2.8f) * dt;   // gravity
+        sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.z += sp.vz * dt;
+        ++i;
+    }
+    if (g_shotParticles.empty()) return;
+    IDirect3DTexture9* texture = ShotGlowTexture(device);
+    if (!texture) return;
+    // Camera-facing: the eye's right and up.
+    const gta2::Vec3 f = g_viewForward;
+    float rx = f.z, rz = -f.x;
+    const float rl = (std::max)(1e-4f, std::sqrt(rx * rx + rz * rz));
+    rx /= rl; rz /= rl;
+    // up = cross(right, forward) with right = (rx, 0, rz).
+    const float Ux = -rz * f.y, Uy = rz * f.x - rx * f.z, Uz = rx * f.y;
+    struct PV { float x, y, z; DWORD color; float u, v; };
+    static const uint16_t quad[6] = {0, 1, 2, 0, 2, 3};
+    std::vector<PV> add, blend;
+    std::vector<uint16_t> addIdx, blendIdx;
+    for (const ShotParticle& sp : g_shotParticles) {
+        const float t = sp.age / sp.life;
+        const float size = sp.size0 + (sp.size1 - sp.size0) * t;
+        float alpha = sp.a;
+        if (sp.kind == 0 || sp.kind == 5) alpha *= 1.0f - t;
+        else if (sp.kind == 4) alpha *= 1.0f - t * t;
+        else if (sp.kind == 2) alpha *= 1.0f - t;
+        else if (sp.kind == 3) alpha *= (t < 0.1f ? t / 0.1f : 1.0f) * (1.0f - t) * (1.0f - t);
+        const bool additive = sp.kind == 0 || sp.kind == 4 || sp.kind == 5;
+        const float lv = additive ? alpha : 1.0f;
+        const DWORD c = D3DCOLOR_COLORVALUE(sp.r * lv, sp.g * lv, sp.b * lv, additive ? 1.0f : alpha);
+        std::vector<PV>& v = additive ? add : blend;
+        std::vector<uint16_t>& ix = additive ? addIdx : blendIdx;
+        if (v.size() > 60000) continue;
+        const uint16_t base = static_cast<uint16_t>(v.size());
+        float ax = rx * size, ay = 0.0f, az = rz * size, bx = Ux * size, by = Uy * size, bz = Uz * size;
+        if (sp.kind == 0 || sp.kind == 1) {
+            // A spark or a case: stretched along its motion.
+            const float vl = std::sqrt(sp.vx * sp.vx + sp.vy * sp.vy + sp.vz * sp.vz);
+            if (vl > 0.05f) {
+                const float st = sp.kind == 0 ? (std::min)(6.0f, 1.0f + vl * 2.0f) : 1.8f;
+                bx = sp.vx / vl * size * st; by = sp.vy / vl * size * st; bz = sp.vz / vl * size * st;
+                // Perpendicular to the motion and the line of sight.
+                ax = by * f.z - bz * f.y; ay = bz * f.x - bx * f.z; az = bx * f.y - by * f.x;
+                const float al = (std::max)(1e-4f, std::sqrt(ax * ax + ay * ay + az * az));
+                ax = ax / al * size; ay = ay / al * size; az = az / al * size;
+            }
+        }
+        v.push_back({sp.x - ax - bx, sp.y - ay - by, sp.z - az - bz, c, 0.0f, 1.0f});
+        v.push_back({sp.x - ax + bx, sp.y - ay + by, sp.z - az + bz, c, 0.0f, 0.0f});
+        v.push_back({sp.x + ax + bx, sp.y + ay + by, sp.z + az + bz, c, 1.0f, 0.0f});
+        v.push_back({sp.x + ax - bx, sp.y + ay - by, sp.z + az - bz, c, 1.0f, 1.0f});
+        for (uint16_t q : quad) ix.push_back(static_cast<uint16_t>(base + q));
+    }
+    if (add.empty() && blend.empty()) return;
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    device->SetTransform(D3DTS_WORLD, &identity);
+    device->SetTexture(0, texture);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    if (!blend.empty()) {
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(blend.size()), static_cast<UINT>(blendIdx.size() / 3),
+                                       blendIdx.data(), D3DFMT_INDEX16, blend.data(), sizeof(PV));
+    }
+    if (!add.empty()) {
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+        device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(add.size()), static_cast<UINT>(addIdx.size() / 3),
+                                       addIdx.data(), D3DFMT_INDEX16, add.data(), sizeof(PV));
+    }
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetTexture(0, nullptr);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+}
+// The fresh effects nobody claimed as his shot and that did not fly off as a
+// bullet: impacts. Sparks on a wall; blood when it is beside a figure.
+void ShotFxImpacts() {
+    for (const FxFresh& fx : g_fxFreshLast) {
+        if (fx.claimed) continue;
+        auto seen = g_fxSeen.find(fx.object);
+        if (seen != g_fxSeen.end() && seen->second.flying) continue;
+        if (fx.size > 0.16f) continue;   // an explosion, a flame: the game's own art
+        bool onPed = false;
+        for (const PedSpot& p : g_pedSpots) {
+            const float dx = p.x - fx.x, dz = p.z - fx.z;
+            if (dx * dx + dz * dz < 0.09f) { onPed = true; break; }
+        }
+        if (onPed) ShotFxBlood(fx.x, fx.y + 0.28f, fx.z);
+        else ShotFxSparks(fx.x, fx.y + 0.30f, fx.z);
+    }
+}
+// First person: the player's weapon as a view model, lower right of the eye,
+// with the same kick on a shot (the shot: a fresh flash or bullet just ahead
+// of the eye, since the player's own sprite is not seen in this view). Drawn
+// over everything (no depth test), after the figures.
+void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
+    if (CurrentViewMode() != ViewMode::FirstPerson || !g_playerObject || g_hiddenObjects[0] != g_playerObject || !g_pedWeapons) return;
+    const gta2::Vec3 eye = camera.Position();
+    const gta2::Vec3 f = g_viewForward;
+    for (FxFresh& fx : g_fxFreshLast) {
+        if (fx.claimed) continue;
+        const float dx = fx.x - eye.x, dy = fx.y - eye.y, dz = fx.z - eye.z;
+        if (dx * dx + dz * dz < 1.44f && std::fabs(dy) < 0.8f && dx * f.x + dz * f.z > 0.0f) {
+            fx.claimed = true;
+            if (g_carFrame - g_fpShotFrame >= 2) g_fpShotFrame = g_carFrame;
+        }
+    }
+    int weapon = g_playerWeapon > 0 && g_playerWeapon < kWpnCount ? g_playerWeapon : g_playerWeaponSeen;
+    if (weapon <= 0 && g_fpShotFrame && g_carFrame - g_fpShotFrame < 90) weapon = kWpnPistol;
+    if (weapon <= 0 || weapon >= kWpnCount) return;
+    // Without the game's word on the weapon, shown only around a shot.
+    if (g_playerWeapon <= 0 && (!g_fpShotFrame || g_carFrame - g_fpShotFrame > 150)) return;
+    const WeaponInfo& wi = kWeapons[weapon];
+    const Model* model = ModelByName(wi.model);
+    if (!model) return;
+    // The eye's frame.
+    float right[3] = {f.z, 0.0f, -f.x};
+    const float rl = (std::max)(1e-4f, std::sqrt(right[0] * right[0] + right[2] * right[2]));
+    right[0] /= rl; right[2] /= rl;
+    float up[3] = {-right[2] * f.y, right[2] * f.x - right[0] * f.z, right[0] * f.y};
+    const float shotT = g_fpShotFrame ? static_cast<float>(g_carFrame - g_fpShotFrame) / 30.0f : 10.0f;
+    const float kick = (std::max)(0.0f, 1.0f - shotT / 0.12f);
+    const bool thrown = wi.action == 13;
+    const float ahead = (wi.twoHanded ? 0.20f : 0.24f) - wi.kick * kick;
+    const float side = wi.twoHanded ? 0.055f : 0.095f, down = (wi.twoHanded ? 0.075f : 0.085f) + (thrown ? 0.02f : 0.0f);
+    float pos[3];
+    for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * side - up[c] * down;
+    // The barrel along the view, tipped up by the kick, and a little inward.
+    float dir[3];
+    for (int c = 0; c < 3; ++c) dir[c] = (&f.x)[c] + up[c] * 0.10f * kick - right[c] * (wi.twoHanded ? 0.06f : 0.10f);
+    const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
+    for (float& v : dir) v /= dl;
+    float wr[3] = {dir[2], 0.0f, -dir[0]};
+    const float wrl = (std::max)(1e-4f, std::sqrt(wr[0] * wr[0] + wr[2] * wr[2]));
+    wr[0] /= wrl; wr[2] /= wrl;
+    float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
+    const float k = (wi.length * (wi.twoHanded ? 1.0f : 1.15f)) / (std::max)(0.01f, model->Length());
+    gta2::Mat4 place;
+    for (int c = 0; c < 3; ++c) { place.m[0][c] = wr[c] * k; place.m[1][c] = wu[c] * k; place.m[2][c] = dir[c] * k; place.m[3][c] = pos[c]; }
+    place.m[3][3] = 1.0f;
+    DWORD zEnable = TRUE, colorOp = 0, colorArg1 = 0, alphaTest = 0;
+    device->GetRenderState(D3DRS_ZENABLE, &zEnable);
+    device->GetRenderState(D3DRS_ALPHATESTENABLE, &alphaTest);
+    device->GetTextureStageState(0, D3DTSS_COLOROP, &colorOp);
+    device->GetTextureStageState(0, D3DTSS_COLORARG1, &colorArg1);
+    device->SetRenderState(D3DRS_ZENABLE, FALSE);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetFVF(kWorldFvf);
+    ModelDraw(device, *model, place, nullptr, 0.0f);
+    if (weapon == kWpnDual) {
+        gta2::Mat4 other = place;
+        for (int c = 0; c < 3; ++c) other.m[3][c] = pos[c] - right[c] * 2.0f * side;
+        ModelDraw(device, *model, other, nullptr, 0.0f);
+    }
+    device->SetRenderState(D3DRS_ZENABLE, zEnable);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTest);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, colorOp);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, colorArg1);
+    device->SetTexture(0, nullptr);
+    if (g_fpShotFrame == g_carFrame && !thrown) {
+        float muzzle[3];
+        for (int c = 0; c < 3; ++c) muzzle[c] = pos[c] + dir[c] * model->boundsMax.z * k;
+        ShotFxMuzzle(weapon, muzzle, dir, wr, wu, true);
+    }
+}
+
+// Bullets that stopped beside a figure: blood where they ended. Called at the
+// start of a frame, before the effects are seen again.
+void ShotFxBulletEnds() {
+    for (auto it = g_fxSeen.begin(); it != g_fxSeen.end();) {
+        const uint32_t age = g_carFrame - it->second.frame;
+        if (age == 2 && it->second.flying) {
+            for (const PedSpot& p : g_pedSpots) {
+                const float dx = p.x - it->second.x, dz = p.z - it->second.z;
+                if (dx * dx + dz * dz < 0.12f) { ShotFxBlood(it->second.x, it->second.y + 0.28f, it->second.z); break; }
+            }
+        }
+        it = age > 120 ? g_fxSeen.erase(it) : std::next(it);
+    }
+}
 
 // A box hanging from a pivot: its top face is `drop` below the pivot (0 for a
 // box centred on it), swung by `swing` radians about the pivot's x axis.
@@ -6208,16 +6629,40 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         const bool moving = track.drawnSpeed > 0.45f;
         // What the game has him doing, from his animation frame and state words.
         int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
+        const bool ownPed = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+        bool shotNow = false;
         {
-            // Shooting: the attack state with a flash or a bullet beside him.
+            // The weapon: the player's from the game; a stranger's from his frames
+            // (the one-handed stance: a pistol, the two-handed: a machine gun),
+            // refined by what leaves his gun (a big flash: a shotgun; a rocket).
+            if (ownPed && g_playerWeapon > 0 && g_playerWeapon < kWpnCount) track.weapon = g_playerWeapon;
+            else if (wantAction == 2 && (track.weapon == kWpnNone || kWeapons[track.weapon].twoHanded)) track.weapon = kWpnPistol;
+            else if (wantAction == 8 && (track.weapon == kWpnNone || !kWeapons[track.weapon].twoHanded)) track.weapon = kWpnMg;
+            // Shooting: a flash or a bullet appearing beside him while he attacks.
             const unsigned f = sprite.pedFrame % 158u;
-            if (sprite.pedState == 7 && f >= 53 && f <= 60) {
+            if (sprite.pedState == 7 || wantAction == 2 || wantAction == 8) {
+                for (FxFresh& fx : g_fxFreshLast) {
+                    if (fx.claimed) continue;
+                    const float dx = fx.x - cx, dz = fx.z - cz;
+                    if (dx * dx + dz * dz < 0.64f && std::fabs(fx.y - cy) < 0.8f) {
+                        fx.claimed = true;
+                        shotNow = true;
+                        if (!(ownPed && g_playerWeapon > 0) && fx.size > 0.15f && fx.size < 0.3f && track.weapon == kWpnMg) track.weapon = kWpnShotgun;
+                    }
+                }
                 for (const FxSpot& fx : g_fxSpotsLast) {
                     const float dx = fx.x - cx, dz = fx.z - cz;
                     if (dx * dx + dz * dz < 1.0f) { track.shotFrame = g_carFrame; break; }
                 }
-                if (wantAction == 0 && track.shotFrame && g_carFrame - track.shotFrame < 45) wantAction = 2;
+                if (wantAction == 0 && sprite.pedState == 7 && f >= 53 && f <= 60 && track.shotFrame && g_carFrame - track.shotFrame < 45) wantAction = 2;
             }
+            if (shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
+            // The stance the weapon calls for; a thrown weapon's throw, one shot, on the throw itself.
+            if ((wantAction == 2 || wantAction == 8) && track.weapon > 0) {
+                const int stance = kWeapons[track.weapon].action;
+                wantAction = stance == 13 ? (shotNow ? 13 : 0) : stance;
+            }
+            if (ownPed && track.weapon > 0) g_playerWeaponSeen = track.weapon;
         }
         if (wantAction == 4 && track.action != 4) {
             track.action = 4; track.actionTime = 0.0f; track.actionReverse = false;
@@ -6244,16 +6689,37 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             float diff = target - track.heading;
             while (diff > kPi) diff -= 2.0f * kPi;
             while (diff < -kPi) diff += 2.0f * kPi;
-            const float rate = (track.runWeight > 0.5f ? 14.0f : 9.4f) * dt;   // radians this frame
-            float step = diff * (std::min)(1.0f, dt / 0.07f);
+            float cap = (track.runWeight > 0.5f ? 14.0f : 9.4f), ease = 0.07f;
+            // The player's own figure in the chase view turns under the camera's
+            // rule (a lower cap, a longer ease), so it never snaps in the frame.
+            const bool own = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+            const bool smoothed = own && ViewPlayerDrawnTurn(&cap, &ease);
+            const float rate = cap * dt;   // radians this frame
+            float step = diff * (std::min)(1.0f, dt / ease);
             if (step > rate) step = rate;
             if (step < -rate) step = -rate;
             track.heading += step;
             while (track.heading > kPi) track.heading -= 2.0f * kPi;
             while (track.heading < -kPi) track.heading += 2.0f * kPi;
             track.turnRate += (step / dt - track.turnRate) * (std::min)(1.0f, dt / 0.15f);
+            if (smoothed) ViewLogPlayerDrawnYaw(track.heading, step / (std::max)(dt, 1e-3f), dt);
         }
-        const float hx = std::sin(track.heading), hz = std::cos(track.heading);
+        // An aim carried off the line of his walk: the legs face the way he
+        // moves (within 100 degrees of the aim), the torso is twisted onto the
+        // aim; both eased so neither snaps when he stops or turns.
+        {
+            float twistTarget = 0.0f;
+            if (IsAimAction(track.action) && track.drawnSpeed > 0.35f) {
+                const float motion = std::atan2(track.vx, track.vz);
+                float d = track.heading - motion;
+                while (d > kPi) d -= 2.0f * kPi;
+                while (d < -kPi) d += 2.0f * kPi;
+                if (std::fabs(d) < 1.75f) twistTarget = (std::max)(-1.0f, (std::min)(1.0f, d));
+            }
+            track.twist += (twistTarget - track.twist) * (std::min)(1.0f, dt / 0.12f);
+        }
+        const float legHeading = track.heading - track.twist;
+        const float hx = std::sin(legHeading), hz = std::cos(legHeading);
         // Where the figure stands: the drawn position, at the sprite's height.
         const float gx = track.dx, gz = track.dz;
         fx = hx;
@@ -6276,6 +6742,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // follows him, so he comes back without a jump). Beyond eight
             // blocks his poses are quantised twice as coarsely, so distant
             // people share cached poses and cost no skinning of their own.
+            if (!sprite.corpse) g_pedSpots.push_back({gx, cy, gz});
             if (model && BehindView(gx, cy, gz, 0.6f)) continue;
             const float eyeDx = gx - g_viewEye.x, eyeDz = gz - g_viewEye.z;
             const float eyeD2 = eyeDx * eyeDx + eyeDz * eyeDz;
@@ -6345,12 +6812,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // The action layer: its clip advances in real time (one-shots hold
                 // their last pose, the fall holds lying; a knock-down plays back out),
                 // and is faded in over the walk or idle, then out again when it is over.
-                static const char* const kActionClips[10] = {nullptr, "punch", "aim", "handsup", "fall", "getin", "getout", "hit", "aim_heavy", "swim"};
+                static const char* const kActionClips[14] = {nullptr, "punch", "aim", "handsup", "fall", "getin", "getout", "hit", "aim_heavy", "swim",
+                                                             "aim_dual", "aim_launcher", "aim_flame", "throw"};
                 const ModelAnimation* actionClip = track.action ? model->Animation(kActionClips[track.action]) : nullptr;
                 float actionT = 0.0f;
                 if (actionClip) {
                     const float len = actionClip->length;
-                    const bool oneShot = track.action == 1 || track.action == 5 || track.action == 6 || track.action == 7;
+                    const bool oneShot = track.action == 1 || track.action == 5 || track.action == 6 || track.action == 7 || track.action == 13;
                     if (track.actionReverse) {
                         track.actionTime -= dt * 1.4f;
                         if (track.actionTime <= 0.0f) { track.action = 0; track.actionReverse = false; actionClip = nullptr; }
@@ -6360,6 +6828,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             track.actionTime > 0.25f) {
                             track.actionTime = 0.0f;   // the game started the swing again
                         }
+                        // The recoil: each shot restarts the stance clip from its kick.
+                        if (shotNow && IsAimAction(track.action) && track.actionTime > 0.05f) track.actionTime = 0.0f;
+                        if (track.action == 13 && track.actionTime >= len) track.action = 0;   // the throw is over
                         if (oneShot && track.actionTime >= len && wantAction != track.action) track.action = 0;
                         if (!oneShot && track.action != 4 && wantAction != track.action && wantAction != 4) track.action = 0;
                         if (!track.action) actionClip = nullptr;
@@ -6416,6 +6887,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     device->SetRenderState(D3DRS_ALPHAREF, 128u);
                     device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
                 }
+                // The torso twist of an aim off the walk (see legHeading above),
+                // in 3 degree steps so the pose cache can share it; not for the
+                // far figures, which hold coarser poses.
+                const float twistQ = lod == 0 ? std::floor(track.twist / 0.0524f + 0.5f) * 0.0524f : 0.0f;
+                ModelSetTorsoTwist(twistQ);
                 if (actionClip && actW > 0.999f) {
                     ModelDraw(device, *model, world, actionClip, actionT);
                 } else if (actionClip && actW > 0.001f) {
@@ -6434,11 +6910,19 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     ModelSetPaintTint(nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
                 }
-                // The weapon in his right hand while he aims: the pickup's own model
-                // (a pistol for the one-handed frames, the machine gun for the
-                // two-handed stance), held at the hand joint of the pose just drawn.
-                if ((track.action == 2 || track.action == 8) && actW > 0.3f && g_pedWeapons) {
-                    const Model* weapon = ModelByName(track.action == 8 ? "pickup_machine_gun" : "pickup_pistol");
+                // The weapon in his hands while he aims or throws: its own model
+                // (assets-src/weapons) held at the hand joints of the pose just
+                // drawn. A pistol sits in the right hand's frame (the barrel along
+                // the fingers); a two-handed weapon is laid along the line from
+                // the right hand (the grip) to the left (the fore-end), so the
+                // stance clips place it by their hands. The muzzle flash, light,
+                // sparks and case come off its muzzle on the frame of a shot.
+                const bool stance = IsAimAction(track.action) || track.action == 13;
+                if (stance && actW > 0.3f && g_pedWeapons && track.weapon > 0 && track.weapon < kWpnCount &&
+                    !(track.action == 13 && track.actionTime > 0.34f)) {
+                    const WeaponInfo& wi = kWeapons[track.weapon];
+                    const Model* weapon = ModelByName(wi.model);
+                    if (!weapon) weapon = ModelByName(wi.twoHanded ? "pickup_machine_gun" : "pickup_pistol");
                     const ModelAnimation* base = nullptr; float baseT = 0.0f;
                     const ModelAnimation* over = nullptr; float overT = 0.0f; float overW = 0.0f;
                     if (actionClip && actW > 0.999f) { base = actionClip; baseT = actionT; }
@@ -6447,8 +6931,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         baseT = walkW < 0.5f ? idleTime : (runW > 0.5f ? runTime : walkTime);
                         over = actionClip; overT = actionT; overW = actW;
                     } else { base = walk; baseT = walkTime; }
-                    gta2::Mat4 hand;
-                    if (weapon && ModelNodeWorld(*model, "Bip01 R Hand", base, baseT, over, overT, overW, &hand)) {
+                    gta2::Mat4 hand, handL;
+                    const bool haveR = weapon && ModelNodeWorld(*model, "Bip01 R Hand", base, baseT, over, overT, overW, &hand);
+                    const bool haveL = haveR && (wi.twoHanded || track.action == 10) &&
+                                       ModelNodeWorld(*model, "Bip01 L Hand", base, baseT, over, overT, overW, &handL);
+                    if (haveR) {
                         auto mul = [](const gta2::Mat4& a, const gta2::Mat4& b) {
                             gta2::Mat4 o;
                             for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
@@ -6459,24 +6946,85 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             return o;
                         };
                         const gta2::Mat4 handWorld = mul(hand, world);
-                        // How long a model unit is in the world at the hand.
-                        const float sx = handWorld.m[0][0], sy = handWorld.m[0][1], sz = handWorld.m[0][2];
-                        const float unit = (std::max)(1e-4f, std::sqrt(sx * sx + sy * sy + sz * sz));
-                        const float wantLen = track.action == 8 ? 0.17f : 0.065f;   // blocks: a rifle, a pistol
-                        const float k = wantLen / (unit * (std::max)(0.01f, weapon->Length()));
-                        // The weapon's barrel (+z) runs along the hand's fingers (+x), its
-                        // top (+y) along the back of the hand (+z); the grip sits a little
-                        // behind and below the hand so the muzzle leads.
-                        gta2::Mat4 inHand;
-                        inHand.m[0][1] = k; inHand.m[1][2] = k; inHand.m[2][0] = k;
-                        inHand.m[3][0] = 0.30f * weapon->Length() * k;      // along the fingers
-                        inHand.m[3][2] = -0.45f * weapon->Height() * k;     // down from the back of the hand
-                        inHand.m[3][3] = 1.0f;
-                        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-                        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-                        ModelDraw(device, *weapon, mul(inHand, handWorld), nullptr, 0.0f);
+                        const float k = wi.length / (std::max)(0.01f, weapon->Length());
+                        gta2::Mat4 place;
+                        float dir[3], right[3], up[3];
+                        bool placed = false;
+                        if (wi.twoHanded && haveL) {
+                            const gta2::Mat4 handLWorld = mul(handL, world);
+                            dir[0] = handLWorld.m[3][0] - handWorld.m[3][0];
+                            dir[1] = handLWorld.m[3][1] - handWorld.m[3][1];
+                            dir[2] = handLWorld.m[3][2] - handWorld.m[3][2];
+                            float dl = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+                            if (dl < 0.02f) { dir[0] = std::sin(track.heading); dir[1] = 0.0f; dir[2] = std::cos(track.heading); dl = 1.0f; }
+                            dir[0] /= dl; dir[1] /= dl; dir[2] /= dl;
+                            right[0] = dir[2]; right[1] = 0.0f; right[2] = -dir[0];
+                            const float rl = (std::max)(1e-4f, std::sqrt(right[0] * right[0] + right[2] * right[2]));
+                            right[0] /= rl; right[2] /= rl;
+                            up[0] = dir[1] * right[2] - dir[2] * right[1];
+                            up[1] = dir[2] * right[0] - dir[0] * right[2];
+                            up[2] = dir[0] * right[1] - dir[1] * right[0];
+                            for (int c = 0; c < 3; ++c) { place.m[0][c] = right[c] * k; place.m[1][c] = up[c] * k; place.m[2][c] = dir[c] * k; }
+                            // The grip in the palm: a little below the hand joint, the
+                            // launcher's tube up on the shoulder.
+                            const float lift = track.weapon == kWpnRocket ? 0.02f : -0.012f;
+                            for (int c = 0; c < 3; ++c) place.m[3][c] = handWorld.m[3][c] + up[c] * lift;
+                            place.m[3][3] = 1.0f;
+                            placed = true;
+                        } else {
+                            // How long a model unit is in the world at the hand.
+                            const float sx = handWorld.m[0][0], sy = handWorld.m[0][1], sz = handWorld.m[0][2];
+                            const float unit = (std::max)(1e-4f, std::sqrt(sx * sx + sy * sy + sz * sz));
+                            const float kh = wi.length / (unit * (std::max)(0.01f, weapon->Length()));
+                            // The weapon's barrel (+z) runs along the hand's fingers (+x), its
+                            // top (+y) along the back of the hand (+z); the grip sits a little
+                            // behind and below the hand so the muzzle leads.
+                            gta2::Mat4 inHand;
+                            inHand.m[0][1] = kh; inHand.m[1][2] = kh; inHand.m[2][0] = kh;
+                            inHand.m[3][0] = 0.30f * weapon->Length() * kh;      // along the fingers
+                            inHand.m[3][2] = -0.45f * weapon->Height() * kh;     // down from the back of the hand
+                            inHand.m[3][3] = 1.0f;
+                            place = mul(inHand, handWorld);
+                            for (int c = 0; c < 3; ++c) { dir[c] = place.m[2][c]; right[c] = place.m[0][c]; up[c] = place.m[1][c]; }
+                            auto norm = [](float* v) {
+                                const float l = (std::max)(1e-5f, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+                                v[0] /= l; v[1] /= l; v[2] /= l;
+                            };
+                            norm(dir); norm(right); norm(up);
+                            placed = true;
+                        }
+                        if (placed) {
+                            device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+                            device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+                            ModelDraw(device, *weapon, place, nullptr, 0.0f);
+                            if (track.action == 10 && haveL) {
+                                // The second pistol, in the left hand: the mirror of the right's hold.
+                                const gta2::Mat4 handLWorld = mul(handL, world);
+                                const float sx = handLWorld.m[0][0], sy = handLWorld.m[0][1], sz = handLWorld.m[0][2];
+                                const float unit = (std::max)(1e-4f, std::sqrt(sx * sx + sy * sy + sz * sz));
+                                const float kh = wi.length / (unit * (std::max)(0.01f, weapon->Length()));
+                                gta2::Mat4 inHand;
+                                inHand.m[0][1] = -kh; inHand.m[1][2] = -kh; inHand.m[2][0] = kh;
+                                inHand.m[3][0] = 0.30f * weapon->Length() * kh;
+                                inHand.m[3][2] = 0.45f * weapon->Height() * kh;
+                                inHand.m[3][3] = 1.0f;
+                                ModelDraw(device, *weapon, mul(inHand, handLWorld), nullptr, 0.0f);
+                            }
+                            // The muzzle: the model's front, along its barrel.
+                            const float ahead = weapon->boundsMax.z * k;
+                            float muzzle[3];
+                            for (int c = 0; c < 3; ++c) muzzle[c] = place.m[3][c] + dir[c] * ahead;
+                            if (!wi.twoHanded) {   // the placement's own scale is in its rows
+                                for (int c = 0; c < 3; ++c) muzzle[c] = place.m[3][c] + place.m[2][c] * weapon->boundsMax.z;
+                            }
+                            track.muzzleX = muzzle[0]; track.muzzleY = muzzle[1]; track.muzzleZ = muzzle[2];
+                            if (track.action != 13 && track.muzzleFrame == g_carFrame && !(ownPed && g_hiddenObjects[0] == g_playerObject)) {
+                                ShotFxMuzzle(track.weapon, muzzle, dir, right, up, false);
+                            }
+                        }
                     }
                 }
+                ModelSetTorsoTwist(0.0f);
                 if (tinted || model->splitPaint) {
                     device->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTest);
                     device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
@@ -6583,6 +7131,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     // left where he lies, under the wheels.
     struct Roof { const CarShell* shell; float midX, midZ, halfX, halfZ, apexY; };
     std::vector<Roof> roofs;
+    g_fireSpotsLast.clear();
     if (!shells_.empty()) {
         roofs.reserve(shells_.size());
         for (const CarShell& shell : shells_) {
@@ -6822,11 +7371,21 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     plain.reserve(sprites_.size());
     g_fxSpotsLast.swap(g_fxSpotsNow);
     g_fxSpotsNow.clear();
+    g_fxFreshLast.swap(g_fxFreshNow);
+    g_fxFreshNow.clear();
+    ShotFxBulletEnds();
+    g_pedSpots.clear();
     // Burning cars: effect sprites over a car are lifted clear of its roof, and the
     // small ones enlarged and layered. These are the altered copies the Drawables point to.
     std::deque<Sprite> fxSprites;
     struct FireSpot { float x, y, z, size; const void* car; };
     std::vector<FireSpot> fireSpots;
+    struct FireSpotsKeeper {       // publishes this frame's flame positions when the pass ends
+        std::vector<FireSpot>& spots;
+        ~FireSpotsKeeper() {
+            for (const FireSpot& f : spots) g_fireSpotsLast.push_back({f.x, f.y, f.z, f.car});
+        }
+    } fireSpotsKeeper{fireSpots};
     const double fxTime = SkidNowSeconds();
     // Flicker diagnostic: follows each pedestrian from frame to frame and logs, a few times only,
     // one that changes how it is drawn again and again (the flags below, smoothed or not) or that
@@ -6934,6 +7493,20 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         // Recorded so the texture report can tell a fireball from a road tile
         // that happens to have a hole in it. See texture_store.h.
         NoteSpriteTexture(sprite.texture);
+        if (effect && sprite.corners == 4 && !sprite.pedestrian && !sprite.corpse) {
+            // Published for the player log line (fire=N): is his car burning?
+            const float (*fm)[4] = sprite.objectToWorld.m;
+            float cx = 0, cy = 0, cz = 0, ex = 0, ez = 0;
+            for (int i = 0; i < 4; ++i) { cx += sprite.local[i].x * 0.25f; cy += sprite.local[i].y * 0.25f; cz += sprite.local[i].z * 0.25f; }
+            for (int i = 0; i < 4; ++i) {
+                ex = (std::max)(ex, std::fabs(sprite.local[i].x - cx)); ez = (std::max)(ez, std::fabs(sprite.local[i].z - cz));
+            }
+            const float wx = cx * fm[0][0] + cy * fm[1][0] + cz * fm[2][0] + fm[3][0];
+            const float wy = cx * fm[0][1] + cy * fm[1][1] + cz * fm[2][1] + fm[3][1];
+            const float wz = cx * fm[0][2] + cy * fm[1][2] + cz * fm[2][2] + fm[3][2];
+            const float size = 2.0f * (std::max)(ex, ez);
+            if (size <= g_fire.maxSize) g_fireSpotsLast.push_back({wx, wy, wz, sprite.object ? reinterpret_cast<const void*>(sprite.object) : nullptr});
+        }
         // Rubber skid strips: drawn soft and translucent, and where one first appears
         // beside a car there is a tyre, so a puff of smoke.
         if ((g_skid.soft || g_skid.smoke) && sprite.corners == 4 && !effect &&
@@ -7455,8 +8028,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     // (a muzzle flash, a bullet, a spark) centred at about gun height. A small
     // one that moved since last frame is a bullet in flight and is drawn as a
     // streak along its path instead of a dot.
-    struct FxSeen { float x, y, z; uint32_t frame; };
-    static std::map<uintptr_t, FxSeen> fxSeen;
+    std::map<uintptr_t, FxSeen>& fxSeen = g_fxSeen;
     const bool fxUpright = g_uprightPeds && g_fxUpright;
     const gta2::Vec3 fxEye = camera.Position();
     auto issue = [&](const std::vector<Drawable>& list, bool fx = false) {
@@ -7478,17 +8050,41 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 const float size = (std::max)(dist(w0, w1), dist(w0, w3));
                 const bool small = size < 0.22f;
                 if (small) g_fxSpotsNow.push_back({c[0], c[1], c[2]});
+                {
+                    // GTA2DX9_LOG_FX=1: which code-object sprites the effects are (base,
+                    // number, size), once per number: the muzzle flashes, bullets,
+                    // sparks and shells of each weapon. A probe, off by default.
+                    static int probe = -1;
+                    if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_FX", buf, sizeof buf) && buf[0] == '1'; }
+                    if (probe && sp.object) {
+                        static std::set<int> seen;
+                        const uint8_t* obj = reinterpret_cast<const uint8_t*>(sp.object);
+                        int base = -1; unsigned num = 0;
+                        GTA2_TRY {
+                            base = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase);
+                            num = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber);
+                        } GTA2_EXCEPT { base = -2; }
+                        const int key = base * 100000 + static_cast<int>(num);
+                        if (seen.size() < 400 && seen.insert(key).second)
+                            Log("fx sprite: base %d number %u size %.3f at %.1f,%.1f,%.1f%s", base, num, size, c[0], c[1], c[2], small ? " small" : "");
+                    }
+                }
                 if (small && sp.object) {
                     // In flight? Where this object was drawn last frame.
                     auto seen = fxSeen.find(sp.object);
                     float px = c[0], py = c[1], pz = c[2];
                     bool flying = false;
-                    if (seen != fxSeen.end() && g_carFrame - seen->second.frame <= 2) {
+                    const bool fresh = seen == fxSeen.end() || g_carFrame - seen->second.frame > 2;
+                    if (!fresh) {
                         const float dx = c[0] - seen->second.x, dz = c[2] - seen->second.z;
                         const float moved = std::sqrt(dx * dx + dz * dz);
                         if (moved > 0.06f && moved < 2.5f) { flying = true; px = seen->second.x; py = seen->second.y; pz = seen->second.z; }
+                        else if (seen->second.flying && moved > 0.02f) flying = true;
                     }
-                    fxSeen[sp.object] = {c[0], c[1], c[2], g_carFrame};
+                    if (fresh) g_fxFreshNow.push_back({c[0], c[1], c[2], size, sp.object, false});
+                    // A rocket (the big, slow flyer) leaves a smoke trail.
+                    if (flying && size > 0.085f) ShotFxSmoke(c[0], c[1] + 0.30f, c[2]);
+                    fxSeen[sp.object] = {c[0], c[1], c[2], g_carFrame, size, flying};
                     if (fxSeen.size() > 4096) fxSeen.clear();
                     if (flying) {
                         // A streak from where it was to where it is, a hand wide, facing the eye.
@@ -7810,6 +8406,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     if (g_groundModels) MapObjectsDraw(device, sprites_);
     stageTimer.Mark();   // 6: map objects
     if (g_pedFigures) DrawPedFigures(device);
+    if (g_pedFigures && g_groundModels && ModelsAvailable()) DrawViewModel(device, camera);
     stageTimer.Mark();   // 7: pedestrians
     // Textures the models will need, created and uploaded a few per frame
     // ahead of their first appearance (see ModelsWarmTextures).
@@ -8077,6 +8674,13 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    if (g_pedFigures && fxUpright) {
+        ShotFxImpacts();
+        ShotFxDraw(device, g_puffDt);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blending ? TRUE : FALSE);
+        device->SetRenderState(D3DRS_ALPHAREF, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    }
     effectQuads_ = static_cast<int>(effects.size());
     g_effectBatches = effectQuads_;
 
@@ -8191,4 +8795,17 @@ void LiveGeometry::ReleaseResources() {
     g_shapes.clear();
 }
 
+}  // namespace gta2dx9
+
+namespace gta2dx9 {
+void ShotLightsSubmit() {
+    for (size_t i = 0; i < g_shotLights.size();) {
+        if (g_carFrame - g_shotLights[i].frame > 1) { g_shotLights[i] = g_shotLights.back(); g_shotLights.pop_back(); continue; }
+        LightsSubmitExtra(g_shotLights[i].desc);
+        ++i;
+    }
+}
+const char* WeaponName(int weapon) {
+    return weapon > 0 && weapon < kWpnCount ? kWeapons[weapon].name : (weapon == 0 ? "none" : "?");
+}
 }  // namespace gta2dx9
