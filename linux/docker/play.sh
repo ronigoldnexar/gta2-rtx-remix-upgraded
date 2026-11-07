@@ -24,11 +24,12 @@ else WORK=$PWD/linux/docker; STAGE=${STAGE:-$PWD/stage}; PKG=$PWD/package; REL=$
 $DOCKER rm -f "$NAME" >/dev/null 2>&1
 mkdir -p out/play-$PORT
 $DOCKER run -d --name "$NAME" --gpus "\"device=${GPU:-0}\"" -e NVIDIA_DRIVER_CAPABILITIES=all --cpus=${CPUS:-6} \
-  -p "127.0.0.1:$PORT:$PORT" -e PLAY_PORT=$PORT -e PLAY_PASSWORD="${PLAY_PASSWORD:-}" -e PLAY_DEVTOOLS="${PLAY_DEVTOOLS:-0}" \
+  -p "${PLAY_BIND:-127.0.0.1}:$PORT:$PORT" -e PLAY_PORT=$PORT -e PLAY_PASSWORD="${PLAY_PASSWORD:-}" -e PLAY_DEVTOOLS="${PLAY_DEVTOOLS:-0}" \
   -e SWAP_LEVEL="${SWAP_LEVEL:-}" -e INI_SED="${INI_SED:-}" -e SETTINGS_SED="${SETTINGS_SED:-}" -e MODS_HD="${MODS_HD:-1}" \
   -v "$WORK:/work" -v "$PWD/game:/game:ro" -v "$REL:/release:ro" -v "$STAGE:/stage:ro" -v "$RMX:/remix:ro" -v "$PKG:/package:ro" -v "$PWD/out/play-$PORT:/out" \
   -w /work "$IMAGE" bash /work/play_game.sh "$MODE" >/dev/null || { echo "docker run failed"; exit 1; }
 echo "started $NAME ($MODE) on http://localhost:$PORT/"
 echo "  from another machine:  ssh -L $PORT:localhost:$PORT $(hostname)   then open http://localhost:$PORT/"
+[ "${PLAY_BIND:-127.0.0.1}" = 0.0.0.0 ] && echo "  bound on all interfaces: reachable at http://<this host's address>:$PORT/ from any address your firewall allows"
 echo "  the game appears after ~40 s (plain) or ~4 min (remix: shader warm-up); the page's Play button connects."
 echo "  stop:  $0 stop      log: $DOCKER logs -f $NAME"
