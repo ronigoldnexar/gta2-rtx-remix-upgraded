@@ -6,20 +6,24 @@ from PIL import Image, ImageDraw, ImageFont
 
 before, after, out, rates = sys.argv[1:5]
 phases = [("third_foot", {"BEFORE": "third person on foot: Left tapped 0.5 s (turns the player, camera follows 1:1)",
-                          "AFTER": "third person on foot: Left held 2 s (walk to the camera's left; the orbit drifts round)"}),
-          ("first_foot", {"BEFORE": "first person on foot: Left tapped 0.5 s", "AFTER": "first person on foot: Left held 1 s (turns the view at 90 deg/s; the pedestrian follows)"}),
-          ("third_car", {"BEFORE": "third person at the wheel: Left+Up 1 s", "AFTER": "third person at the wheel: Left+Up 1 s (chase camera, 0.6 s damping)"}),
-          ("first_car", {"BEFORE": "first person at the wheel: Right+Up 1 s", "AFTER": "first person at the wheel: Right+Up 1 s (fixed to the car, 120 ms ease)"})]
+                          "AFTER": "third person on foot: Left held 2 s (walk to the camera's left; the camera holds its yaw)"}),
+          ("third_recentre", {"AFTER": "third person on foot: Up held 5 s (walk away; the slow re-centre starts after 2 s)"}),
+          ("first_foot", {"BEFORE": "first person on foot: Left tapped 0.5 s", "AFTER": "first person on foot: Left held 2 s (the view winds up 25 to 70 deg/s; the pedestrian follows)"}),
+          ("third_car", {"BEFORE": "third person at the wheel: Left+Up 1 s", "AFTER": "third person at the wheel: Left+Up 2 s (chase camera, cap 90 deg/s, 0.8 s damping)"}),
+          ("first_car", {"BEFORE": "first person at the wheel: Right+Up 1 s", "AFTER": "first person at the wheel: Right+Up 2 s (fixed to the car, 120 ms ease)"}),
+          ("browser", {"AFTER": "what the browser sees (headless Chromium on the noVNC page, keys through noVNC): third person, Left 2 s, Up 2 s, Right 2 s; one tile a second"})]
 W, H, N = 256, 144, 10   # tile size, tiles per strip (1 s at 10 fps from 1.2 s in)
 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 15)
 rows = []
 for key, title in phases:
     for label, d in (("BEFORE", before), ("AFTER", after)):
+        if label not in title: continue
         src = os.path.join(d, f"{label.lower()}_{key}.mp4")
         tiles = []
         if os.path.exists(src):
             tmp = tempfile.mkdtemp()
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "1.2", "-t", "1.0", "-i", src, "-vf", f"fps=10,scale={W}:{H}", os.path.join(tmp, "f%02d.png")])
+            ss, t, fps = ("0", "12", "1") if key == "browser" else ("1.2", "1.0", "10")
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", ss, "-t", t, "-i", src, "-vf", f"fps={fps},scale={W}:{H}", os.path.join(tmp, "f%02d.png")])
             tiles = [Image.open(os.path.join(tmp, f)) for f in sorted(os.listdir(tmp))][:N]
         rows.append((f"{label}: {title[label]}", tiles))
 text = open(rates).read().splitlines() if os.path.exists(rates) else []

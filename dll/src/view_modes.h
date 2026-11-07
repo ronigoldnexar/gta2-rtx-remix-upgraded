@@ -55,7 +55,7 @@ struct ViewModeSettings {
     int toggleKey = 'V';
 
     bool mouseLook = true;
-    float mouseSensitivity = 1.0f;   // 1 is a quarter turn (90 degrees) across the window's width
+    float mouseSensitivity = 0.5f;   // 1 is a quarter turn (90 degrees) across the window's width
     bool invertY = false;
     // A VNC or remote-desktop pointer arrives as absolute positions, so the
     // warp-to-centre scheme sees jumps; a frame's motion is clamped to this many
@@ -68,12 +68,21 @@ struct ViewModeSettings {
     // whole world, so the chase camera and the first-person view turn at a
     // bounded rate on a critically damped spring, the way a modern game's do.
     // The game's own turning is untouched; only the picture lags it.
-    float turnRateFoot = 120.0f;    // the orbit camera on foot
-    float turnRateCar = 240.0f;     // the chase camera and the driver's view
+    // Every rate below is scaled by turnSpeed, a percentage (100 = as set;
+    // 50 halves all turning: camera, keyboard look, mouse, the drawn figure).
+    float turnSpeed = 100.0f;
+    float turnRateFoot = 120.0f;    // the orbit camera on foot (mouse orbit and the re-centre)
+    float turnRateCar = 90.0f;      // the chase camera at the wheel
+    float fpCarRate = 240.0f;       // first person at the wheel: fixed to the car, this is only a safety cap
     float fpFollowRate = 150.0f;    // first person on foot when the view follows the heading
     // First person: the view heading eases onto the game's over this long
     // (seconds), on top of the rate cap.
     float fpSmooth = 0.12f;
+    // Third person on foot: the player's drawn figure turns no faster than
+    // this (degrees a second) and eases over pedDrawnEase seconds, so the model
+    // never snaps although the game's heading does; the game logic is untouched.
+    float pedDrawnTurnRate = 240.0f;
+    float pedDrawnEase = 0.12f;
 
     // Camera-relative controls on foot, as a modern game plays. The arrow keys
     // mean "walk that way as the camera sees it": Up toward where the camera
@@ -89,13 +98,27 @@ struct ViewModeSettings {
     float navLatency = 0.10f;       // seconds from our key press to the game's heading moving; the
                                     // controller releases that far ahead of the target
     int navTurnSign = 1;            // -1 if the turn keys come out mirrored
-    float fpTurnKeyRate = 90.0f;    // degrees a second, first person Left/Right
+    // First person Left/Right: the view turns at fpTurnKeyStart degrees a
+    // second the moment a key goes down and ramps to fpTurnKeyRate over
+    // fpTurnKeyRamp seconds; on release the turn decays over fpTurnKeyDecay.
+    float fpTurnKeyRate = 70.0f;
+    float fpTurnKeyStart = 25.0f;
+    float fpTurnKeyRamp = 0.8f;
+    float fpTurnKeyDecay = 0.15f;
     // The third-person camera on foot is an orbit camera: it does not follow the
-    // player's heading, he turns inside the frame; it only drifts round behind
-    // the direction he walks in, over this long (seconds), never faster than
-    // turnRateFoot. In a car the chase camera's yaw is damped over tpChaseTau.
+    // player's heading, he turns inside the frame. By default it holds its yaw
+    // while he walks (he walks toward, away or across the frame) and only an
+    // explicit look input orbits it; a slow re-centre behind him (tpRecentreTau
+    // seconds, no faster than tpRecentreRate) starts only once he has walked
+    // straight away from the camera for tpRecentreDelay seconds. tpOrbitFollow
+    // instead drifts it round behind whichever way he walks, over tpOrbitTau.
+    // In a car the chase camera's yaw is damped over tpChaseTau.
+    bool tpOrbitFollow = false;
     float tpOrbitTau = 1.5f;
-    float tpChaseTau = 0.6f;
+    float tpRecentreDelay = 2.0f;
+    float tpRecentreTau = 4.0f;
+    float tpRecentreRate = 30.0f;
+    float tpChaseTau = 0.8f;
 
     // Third person. Distances in blocks: a GTA2 block is about 2 m, a car about
     // one block long.
@@ -209,6 +232,15 @@ struct PlayerState {
     const char* source = "";          // how he was found, for the menu
 };
 
+// The global turning scale (turnSpeed / 100).
+float ViewTurnSpeedScale();
+// Third person on foot: true when the player's drawn figure should turn under
+// the smoothed rule, with the cap (radians a second) and the ease (seconds).
+bool ViewPlayerDrawnTurn(float* capRadPerSec, float* easeSec);
+// The sprite pass reports the player's drawn heading each frame (radians, the
+// rate in radians a second) for the camera log.
+void ViewLogPlayerDrawnYaw(float heading, float rate, float dt);
+
 // Finds the player this frame. False in the menus, or until he is found.
 //
 // The ped is recognised by his own structure rather than by an address someone
@@ -303,8 +335,11 @@ private:
                bool inVehicle);
 
     bool settled_ = false;
+    bool finalYawKnown_ = false;  // third person: the orientation actually set last frame
+    float finalYaw_ = 0.0f;
     float followYaw_ = 0.0f;      // the yaw the chase camera sits at
     float followYawVel_ = 0.0f;   // its angular velocity, radians a second (the spring)
+    float awayTime_ = 0.0f;       // third person on foot: seconds walked straight away from the camera
     float fpYaw_ = 0.0f;          // first person: the eased, rate-capped view heading
     float fpYawVel_ = 0.0f;
     float floorY_ = 0.0f;         // eased floor height under the player

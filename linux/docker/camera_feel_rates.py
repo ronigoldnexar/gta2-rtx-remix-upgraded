@@ -17,11 +17,15 @@ day = None
 def tsec(h, m, s):
     return int(h) * 3600 + int(m) * 60 + float(s)
 
-cam, face = [], []
+cam, face, ped = [], [], []
 for l in open(log, errors="replace"):
     m = re.match(r'\[(\d+):(\d+):([\d.]+)\] cam: (\w+) yaw=([-\d.]+) heading=([-\d.]+) rate=([-\d]+) dt=([\d.]+)', l)
     if m:
         cam.append((tsec(*m.groups()[:3]), m.group(4), float(m.group(5)), float(m.group(6)), float(m.group(7)), float(m.group(8))))
+        continue
+    m = re.match(r'\[(\d+):(\d+):([\d.]+)\] ped: yaw=([-\d.]+) rate=([-\d]+) dt=([\d.]+)', l)
+    if m:
+        ped.append((tsec(*m.groups()[:3]), float(m.group(4)), float(m.group(5))))
         continue
     m = re.search(r'\[(\d+):(\d+):([\d.]+)\].*view: player x=.*face=([-\d.]+),([-\d.]+)', l)
     if m:
@@ -49,6 +53,14 @@ for name, (t0, dur) in M.items():
         steps = [abs(wrap(q[2] - p[2])) for p, q in zip(seg, seg[1:])]
         big = sum(1 for d in steps if d > 4.0)
         line += f"; camera: {len(seg)} frames, peak {peak:.0f} deg/s, mean while turning {mean:.0f} deg/s, turn {camturn:.0f} deg over {last - first:.2f} s, largest step {max(steps) if steps else 0:.1f} deg, frames over 4 deg: {big}"
+        bins = [0, 0.5, 1, 2, 3, 4, 1e9]
+        hist = [sum(1 for d in steps if lo <= d < hi) for lo, hi in zip(bins, bins[1:])]
+        line += "; step histogram (deg: <0.5, 0.5-1, 1-2, 2-3, 3-4, >4): " + "/".join(str(h) for h in hist)
+        line += f"; mean over the window {camturn / max(dur, 1e-3):.0f} deg/s"
+    pseg = [q for q in ped if a <= q[0] <= b]
+    if pseg:
+        psteps = [abs(wrap(q[1] - p[1])) for p, q in zip(pseg, pseg[1:])]
+        line += f"; drawn figure: peak {max(abs(q[2]) for q in pseg):.0f} deg/s, largest step {max(psteps) if psteps else 0:.1f} deg, frames over 8 deg: {sum(1 for d in psteps if d > 8)}"
     else:
         rates = [abs(wrap(q[1] - p[1])) / (q[0] - p[0]) for p, q in zip(fs, fs[1:]) if q[0] > p[0]]
         line += f"; no per-frame camera log; heading peak over sample intervals {max(rates) if rates else 0:.0f} deg/s"

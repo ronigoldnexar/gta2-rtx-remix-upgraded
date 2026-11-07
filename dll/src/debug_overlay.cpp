@@ -466,29 +466,51 @@ void DrawCamera() {
     Help("A remote pointer (VNC, remote desktop) arrives as positions, not motion; a frame's look is "
          "clamped to this, and a jump eight times it is ignored as the pointer being parked.");
 
+    ImGui::SeparatorText("Turning");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Turn speed", &vm.turnSpeed, 25.0f, 200.0f, "%.0f %%");
+    Help("Scales every turn below at once: camera, keyboard look, mouse, the figure. 50 halves them; "
+         "the ini key is turn_speed.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Turn rate on foot", &vm.turnRateFoot, 30.0f, 720.0f, "%.0f deg/s");
+    Help("The fastest the third-person camera turns on foot (mouse orbit, the re-centre).");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Chase turn rate in a car", &vm.turnRateCar, 30.0f, 720.0f, "%.0f deg/s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Chase damping in a car", &vm.tpChaseTau, 0.1f, 2.0f, "%.2f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("First-person ease", &vm.fpSmooth, 0.02f, 0.5f, "%.2f s");
+    Help("First person: the view eases onto the car (or the heading, when the keys are the game's) over this long.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Figure turn rate", &vm.pedDrawnTurnRate, 60.0f, 720.0f, "%.0f deg/s");
+    Help("Third person on foot: your drawn figure turns no faster than this, eased, although the game "
+         "snaps the heading underneath; the game's own movement is unchanged.");
+
     ImGui::SeparatorText("Controls on foot");
     changed |= ImGui::Checkbox("Camera-relative keys", &vm.navMap);
     Help("The arrows mean 'walk that way as the camera sees it', as a modern game plays; the "
          "pedestrian is steered there through the game's own turn keys. Off: the game's keys as they are.");
     ImGui::SetNextItemWidth(S(240.0f));
-    changed |= ImGui::SliderFloat("First-person key turn", &vm.fpTurnKeyRate, 30.0f, 240.0f, "%.0f deg/s");
+    changed |= ImGui::SliderFloat("First-person key turn", &vm.fpTurnKeyRate, 20.0f, 240.0f, "%.0f deg/s");
+    Help("The full rate Left/Right turn the view at; it starts at the rate below and winds up over the ramp.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Key turn starts at", &vm.fpTurnKeyStart, 5.0f, 120.0f, "%.0f deg/s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Key turn ramp", &vm.fpTurnKeyRamp, 0.0f, 2.0f, "%.2f s");
+    changed |= ImGui::Checkbox("Orbit follows the walk", &vm.tpOrbitFollow);
+    Help("Third person on foot. Off (default): the camera holds its yaw while you walk; only the mouse "
+         "orbits it, and it re-centres slowly behind you after you have walked straight away from it for "
+         "a while. On: it drifts round behind whichever way you walk.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Re-centre after", &vm.tpRecentreDelay, 0.5f, 6.0f, "%.1f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Re-centre over", &vm.tpRecentreTau, 1.0f, 8.0f, "%.1f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Re-centre rate", &vm.tpRecentreRate, 5.0f, 120.0f, "%.0f deg/s");
     ImGui::SetNextItemWidth(S(240.0f));
     changed |= ImGui::SliderFloat("Orbit drifts behind in", &vm.tpOrbitTau, 0.3f, 4.0f, "%.1f s");
-    Help("Third person on foot: the camera does not follow where you face, only where you walk, this slowly.");
-    ImGui::SetNextItemWidth(S(240.0f));
-    changed |= ImGui::SliderFloat("Chase damping in a car", &vm.tpChaseTau, 0.1f, 2.0f, "%.2f s");
     ImGui::SetNextItemWidth(S(240.0f));
     changed |= ImGui::SliderFloat("Turn dead band", &vm.navDeadband, 2.0f, 30.0f, "%.0f deg");
-
-    ImGui::SeparatorText("Turning");
-    ImGui::SetNextItemWidth(S(240.0f));
-    changed |= ImGui::SliderFloat("Turn rate on foot", &vm.turnRateFoot, 60.0f, 720.0f, "%.0f deg/s");
-    Help("The fastest the camera turns. GTA2 spins you about-face in a few frames; the camera "
-         "follows on a damped spring no faster than this, so the world does not whirl. 720 is rigid.");
-    ImGui::SetNextItemWidth(S(240.0f));
-    changed |= ImGui::SliderFloat("Turn rate in a car", &vm.turnRateCar, 60.0f, 720.0f, "%.0f deg/s");
-    ImGui::SetNextItemWidth(S(240.0f));
-    changed |= ImGui::SliderFloat("First-person ease", &vm.fpSmooth, 0.02f, 0.5f, "%.2f s");
 
     ImGui::SeparatorText("Third person");
     ImGui::SetNextItemWidth(S(240.0f));

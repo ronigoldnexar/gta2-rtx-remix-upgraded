@@ -8,14 +8,31 @@ them, and the game's own movement is untouched: it still moves the pedestrian
 and the cars, with its own speeds and collisions; only what is asked of it, and
 what the camera does with the result, changed.
 
-## Third person on foot: an orbit camera
+## One knob: `turn_speed`
 
-- The camera does not follow where the player faces. He turns inside the frame.
-- It drifts round behind the direction he *walks* in, on a critically damped
-  spring with a time constant of 1.5 s (`ThirdOrbitTau`), never faster than
-  `turn_rate_foot` (120 degrees a second), and only while he moves.
-- The mouse orbits the camera itself (no snap back); the point looked at lies
-  ahead along the camera, so the street it looks down stays framed.
+Every rate below (the camera, the keyboard look, the mouse, the drawn figure)
+is scaled by `turn_speed`, a percentage in `[camera]` of gta2dx9.ini and on
+the F4 Camera tab. 100 is the console-style default; 50 halves them all.
+
+## Third person on foot: a held orbit camera
+
+- The camera does not follow where the player faces, and by default it does
+  not turn while he walks either: he walks toward, away from or across the
+  frame and the picture stays put. Only an explicit look input (the mouse)
+  orbits it.
+- A slow re-centre: once he has walked straight away from the camera (within
+  30 degrees of its yaw) for `ThirdRecentreDelay` (2 s), the yaw eases round
+  behind him on a critically damped spring with a 4 s time constant
+  (`ThirdRecentreTau`), never faster than `ThirdRecentreRate` (30 degrees a
+  second). Stopping or walking any other way cancels it.
+- `orbit_follow=1` is the earlier behaviour: the camera drifts round behind
+  whichever way he walks over `ThirdOrbitTau` (1.5 s), capped at
+  `turn_rate_foot` (120 degrees a second).
+- The drawn figure: the game snaps the player's heading in a few frames, so
+  his model in the chase view turns under its own rule, no faster than
+  `PedTurnRate` (240 degrees a second) with a 120 ms ease (`PedTurnEase`).
+  The game's heading, movement and collisions are untouched; only the drawn
+  yaw lags.
 - Position: the eye moves with him and eases onto its spot (a spring over
   90 ms), with the wall, railing and prop clearances as before.
 
@@ -50,20 +67,23 @@ other way round; `nav_map=0` gives the arrows back to the game unchanged.
 
 ## First person
 
-- On foot the view heading belongs to the player: Left and Right turn it at
-  `first_turn_key_rate` (90 degrees a second), the mouse adds to it (sensitivity
-  1 = a quarter turn across the window), and the pedestrian is steered to
-  follow the view by the same controller. What the game does with his heading
-  (a bump, a stumble) never swings the picture; the controller brings him back.
+- On foot the view heading belongs to the player. Left and Right turn it on
+  an acceleration ramp: 25 degrees a second the moment the key goes down
+  (`FirstTurnKeyStart`), winding up to `first_turn_key_rate` (70) over 0.8 s
+  (`FirstTurnKeyRamp`); on release the turn dies away over 0.15 s
+  (`FirstTurnKeyDecay`). The mouse adds to it (sensitivity 0.5: an eighth of a
+  turn across the window), and the pedestrian is steered to follow the view
+  by the controller. What the game does with his heading (a bump, a stumble)
+  never swings the picture; the controller brings him back.
 - In a car the view is fixed to the car with a 120 ms ease (`FirstSmooth`) and
-  a gentle lean toward where the car is going; the cap is `turn_rate_car`.
+  a gentle lean toward where the car is going.
 - Head bob is half what it was, lean and dip off, impact shake off, field of
   view 70 (60 in third person), the stretch at speed 4 degrees.
 
 ## Driving
 
-- The chase camera's yaw is damped over `ThirdChaseTau` (0.6 s), aligned with
-  the velocity when the car slides, capped at `turn_rate_car` (240 degrees a
+- The chase camera's yaw is damped over `ThirdChaseTau` (0.8 s), aligned with
+  the velocity when the car slides, capped at `turn_rate_car` (90 degrees a
   second); the chase distance scales with the car's roof height.
 
 ## Mouse over a remote session
@@ -74,6 +94,12 @@ a jump eight times that is ignored as the pointer being parked. The browser
 play container sets `mouse_look=0` (keys only) unless `PLAY_MOUSE=1`.
 
 ## Measuring it
+
+`gamerun/novnc_capture.py <url> <out.mp4> <keys>` records what the browser
+player sees: a headless Chromium (Playwright, in `~/.cache/pw-venv`) opens
+the play page, the keys go through noVNC's own keyboard path, and the page is
+recorded from the client side. `camera_feel_test.py` runs it as one of its
+phases when the venv exists.
 
 `gamerun/camera_feel_test.py <container> <vnc> <label>` drives a play
 container through a real VNC connection (held keys: the game reads its

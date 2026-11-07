@@ -8,7 +8,7 @@ parked car (devtools F9 warp, Return) the same two turns while moving. Each turn
 is captured at 30 fps from the container's Xvfb into /out/<label>_<phase>.mp4,
 and the renderer log is copied out afterwards for the per-frame camera yaw.
 """
-import subprocess, sys, time
+import os, subprocess, sys, time
 from vncdotool import api
 
 CONTAINER, VNC, LABEL = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -62,10 +62,24 @@ time.sleep(4)
 tap("v"); time.sleep(2.5)                     # third person
 
 # 3. on foot
-capture(f"{LABEL}_third_foot", 7); time.sleep(1.5); hold("left", 2.0); time.sleep(4.0)   # camera-relative: walk to the camera's left; the orbit drifts round
+capture(f"{LABEL}_third_foot", 7); time.sleep(1.5); hold("left", 2.0); time.sleep(4.0)   # camera-relative: walk to the camera's left; the camera holds its yaw
+capture(f"{LABEL}_third_recentre", 8); time.sleep(1.0); hold("up", 5.0); time.sleep(2.5)  # walk straight away: the slow re-centre after 2 s
 tap("v"); time.sleep(2.5)                     # first person
-capture(f"{LABEL}_first_foot", 6); time.sleep(1.5); hold("left", 1.0); time.sleep(3.5)   # first person: the view turns 90 deg at 90 deg/s, the pedestrian follows
+capture(f"{LABEL}_first_foot", 7); time.sleep(1.5); hold("left", 2.0); time.sleep(4.0)   # first person: the view winds up 25->70 deg/s, the pedestrian follows
 tap("v"); time.sleep(2.0)                     # classic
+
+# 3b. what the browser player sees: a headless Chromium on the play page, keys
+# through noVNC, 10 s recorded from the client side (third person: left, up, right).
+PW = os.environ.get("PW", os.path.expanduser("~/.cache/pw-venv"))
+if os.path.exists(f"{PW}/bin/python"):
+    say("browser capture")
+    MARKS[f"{LABEL}_browser"] = [time.time(), 14]
+    r = subprocess.run([f"{PW}/bin/python", os.path.join(os.path.dirname(os.path.abspath(__file__)), "novnc_capture.py"),
+                        f"http://127.0.0.1:{PORT}", f"/home/roni_goldshmidt/gta2-linux/out/play-{PORT}/{LABEL}_browser.mp4",
+                        "v,wait:2.5,down:ArrowLeft,wait:2,up:ArrowLeft,wait:1,down:ArrowUp,wait:2,up:ArrowUp,wait:1,down:ArrowRight,wait:2,up:ArrowRight,wait:1,v,wait:0.5,v,wait:1"],
+                       capture_output=True, text=True)
+    say("browser capture:", (r.stdout + r.stderr).strip().splitlines()[-1] if (r.stdout + r.stderr).strip() else "no output")
+    time.sleep(2)
 
 # 4. a car: F9 warps to the nearest parked car's door; Return gets in
 tap("f9"); time.sleep(2.0); tap("return"); time.sleep(4.0)
@@ -74,10 +88,10 @@ say("driving:", drv)
 if drv:
     tap("v"); time.sleep(2.0)                 # third person
     hold("up", 1.5)
-    capture(f"{LABEL}_third_car", 6); time.sleep(1.0); hold("left", 1.0, also="up"); hold("up", 1.0); time.sleep(3.0)
+    capture(f"{LABEL}_third_car", 7); time.sleep(1.0); hold("left", 2.0, also="up"); hold("up", 1.0); time.sleep(3.0)
     tap("v"); time.sleep(2.0)                 # first person at the wheel
     hold("up", 1.0)
-    capture(f"{LABEL}_first_car", 6); time.sleep(1.0); hold("right", 1.0, also="up"); hold("up", 1.0); time.sleep(3.0)
+    capture(f"{LABEL}_first_car", 7); time.sleep(1.0); hold("right", 2.0, also="up"); hold("up", 1.0); time.sleep(3.0)
     tap("v"); time.sleep(1.0)
 time.sleep(2)
 dx("bash", "-c", f"cp /tmp/wp/drive_c/Games/GTA2/gta2dx9.log /out/{LABEL}_gta2dx9.log")
