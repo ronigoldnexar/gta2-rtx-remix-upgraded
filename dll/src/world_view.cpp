@@ -1033,7 +1033,10 @@ bool WorldView::EnsureWorldLoaded() {
             r /= n; g /= n; b /= n;
             // The water group (608..619, a teal) just clears the blue test; it is never grass.
             if (i >= 608 && i <= 619) continue;
-            if (g > r + 4 && g > b + 28 && g < 140) { grass[static_cast<size_t>(i)] = 1; ++grassTiles; }
+            // Green over red, or the yellow-green of a sun-dried lawn (Residential's
+            // lawns alternate tile 202, 86/87/45, with the greener 216, 78/89/42:
+            // the four-neighbour lawn test placed no trees there at all).
+            if (g + 2 >= r && r < 112 && g > b + 28 && g < 140) { grass[static_cast<size_t>(i)] = 1; ++grassTiles; }
         }
         SetGrassTiles(grass);
         std::string which;
