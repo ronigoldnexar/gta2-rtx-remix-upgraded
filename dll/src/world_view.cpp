@@ -1,6 +1,7 @@
 #include "world_view.h"
 
 #include "car_bodies.h"
+#include "map_objects.h"
 #include "model_store.h"
 
 #include <algorithm>
@@ -766,11 +767,13 @@ bool WorldView::PanelDistance(float x, float y, float z, float* distance) const 
 bool WorldView::PropPush(float x, float y, float z, float* outX, float* outZ) const {
     const PropFootprint* inside = nullptr;
     float deepest = 0.0f;
-    for (const PropFootprint& p : live_.PlacedProps()) {
-        if (y < p.y - 0.2f || y > p.y + p.height + 0.2f) continue;
-        const float dx = x - p.x, dz = z - p.z;
-        const float depth = p.radius - std::sqrt(dx * dx + dz * dz);
-        if (depth > deepest) { deepest = depth; inside = &p; }
+    for (const std::vector<PropFootprint>* list : {&live_.PlacedProps(), &MapObjectFootprints()}) {
+        for (const PropFootprint& p : *list) {
+            if (y < p.y - 0.2f || y > p.y + p.height + 0.2f) continue;
+            const float dx = x - p.x, dz = z - p.z;
+            const float depth = p.radius - std::sqrt(dx * dx + dz * dz);
+            if (depth > deepest) { deepest = depth; inside = &p; }
+        }
     }
     if (!inside) return false;
     float dx = x - inside->x, dz = z - inside->z;
@@ -809,6 +812,26 @@ bool WorldView::GroundAt(float x, float z, float ceiling, float* y, int* type) c
     if (y) *y = surface;
     if (type) *type = found;
     return true;
+}
+
+int WorldView::RoadArrowsAt(float x, float z, float ceiling) const {
+    if (map_.Empty()) return 0;
+    float surface = 0.0f;
+    if (!FloorAt(x, z, ceiling, &surface)) return 0;
+    const float mapY = static_cast<float>(gta2::kMapHeight) - z;
+    const int bx = static_cast<int>(std::floor(x));
+    const int by = static_cast<int>(std::floor(mapY));
+    if (bx < 0 || bx >= gta2::kMapWidth || by < 0 || by >= gta2::kMapHeight) return 0;
+    const gta2::Column& column = map_.ColumnAt(bx, by);
+    for (size_t i = 0; i < column.blocks.size(); ++i) {
+        const uint32_t index = column.blocks[i];
+        if (index >= map_.BlockCount()) continue;
+        const gta2::Block& block = map_.BlockAt(index);
+        if (!block.lid) continue;
+        const float top = static_cast<float>(column.offset + static_cast<int>(i) + 1);
+        if (std::fabs(top - std::ceil(surface - 1e-3f)) < 0.5f) return block.arrows;
+    }
+    return 0;
 }
 
 void WorldView::Configure(float pitchDegrees, float fovDegrees, bool useGameTiles,
@@ -1515,6 +1538,7 @@ void WorldView::UpdateCamera() {
         queries.panelDistance = &WorldView::PanelThunk;
         queries.groundAt = &WorldView::GroundThunk;
         queries.propPush = &WorldView::PropThunk;
+        queries.roadArrows = &WorldView::ArrowsThunk;
         ViewModeSetQueries(queries);
         const bool placed = wantView && viewSolver_.Update(player, queries, viewDt, &camera_);
         if (viewSolver_.Status() != g_viewStatus) {

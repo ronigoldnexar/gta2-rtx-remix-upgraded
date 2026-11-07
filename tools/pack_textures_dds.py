@@ -85,6 +85,19 @@ def encode_level(im, fmt):
     return buf.getvalue()[128:]
 
 
+def soft_alpha(alpha64, size, k=4.0):
+    """The cutout at the target size. GTA2's alpha is one bit at 64 px; scaled
+    up nearest it is a staircase (a chain-link fence became 8 px steps in first
+    person). A bicubic upscale of the mask, steepened back to a near-hard edge
+    about 1.5 px wide, follows the shape instead: the diamonds and bars come
+    out as smooth curves. The alpha test (and DXT5's 8-bit alpha) keep the
+    cutout crisp; the mips are box-filtered from it."""
+    import numpy as np
+    arr = np.asarray(alpha64.resize((size, size), Image.BICUBIC)).astype(np.float32)
+    arr = np.clip((arr - 128.0) * k + 128.0, 0.0, 255.0)
+    return Image.fromarray(arr.astype(np.uint8))
+
+
 def pack_tile(args):
     name, orig_dir, esr_dir, sd_dir, out_dir, size, min_ssim, slack, min_detail = args
     orig = read_tga(os.path.join(orig_dir, name))
@@ -111,7 +124,7 @@ def pack_tile(args):
         if f_sd >= min_ssim and f_sd >= f_esr - slack and d_sd >= min_detail * d_esr:
             choice = "sd"
     rgb = cands[choice]
-    alpha = alpha64.resize((size, size), Image.NEAREST)
+    alpha = soft_alpha(alpha64, size)
     fmt = "DXT5" if has_alpha else "DXT1"
     fourcc = b"DXT1" if fmt == "DXT1" else b"DXT5"
     levels = []

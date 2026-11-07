@@ -168,6 +168,12 @@ private:
     }
     // The highest surface at or below `ceiling` in a column with its ground type.
     bool GroundAt(float x, float z, float ceiling, float* y, int* type) const;
+    // The road arrows of the surface under a point (the GMP block's arrow bits:
+    // 1 north, 2 south, 4 west, 8 east, the red set shifted up four); 0 when none.
+    int RoadArrowsAt(float x, float z, float ceiling) const;
+    static int ArrowsThunk(void* context, float x, float z, float ceiling) {
+        return static_cast<const WorldView*>(context)->RoadArrowsAt(x, z, ceiling);
+    }
     static bool GroundThunk(void* context, float x, float z, float ceiling, float* y, int* type) {
         return static_cast<const WorldView*>(context)->GroundAt(x, z, ceiling, y, type);
     }

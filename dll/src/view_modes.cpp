@@ -457,21 +457,30 @@ bool WarpSceneToRoad(float x, float y, float z) {
         return ok;
     }
     const uintptr_t placeAt = reinterpret_cast<uintptr_t>(place);
-    // East: sin = 1, cos = 0 - a quarter of the game's 0x5A0 turn.
-    const uint16_t east = static_cast<uint16_t>(game::kAngleFullTurn / 4);
-    // The player stands on the resolved point itself; the car goes beside him,
-    // south (so he is at its left, driver's, door) when that cell has the same
-    // floor, else north. The old layout put him 0.55 north of the point, which
-    // in another district was the next cell: a building he fell through.
-    const float tx = x, ty = y;
-    float carX = x, carY = y + 0.55f;
-    if (!WarpFloorMatches(carX, carY, z)) {
-        if (WarpFloorMatches(x, y - 0.55f, z)) carY = y - 0.55f;
-        else carX = x + 1.0f;   // ahead of him on the same road
+    // The car goes on the resolved point, along the road: a car set crosswise
+    // on a one-lane road (Residential's spawn road runs north-south) had its
+    // ends in the kerbs and the game would not let him in. The road's arrows
+    // give the direction; heading 0 is north and a quarter turn (0x5A0 / 4)
+    // east, clockwise. The player stands at the driver's door, the car's left
+    // (facing (hx, hy) with y south, left is (hy, -hx)), or at the right one
+    // when only that side has a floor.
+    int arrows = 0;
+    if (g_devQueries.roadArrows) arrows = g_devQueries.roadArrows(g_devQueries.context, x, static_cast<float>(gta2::kMapHeight) - y, z + 0.95f);
+    const int dir = (arrows & 0x0f) ? (arrows & 0x0f) : ((arrows >> 4) & 0x0f);
+    float hx = 1.0f, hy = 0.0f;   // east unless the road says otherwise
+    uint16_t heading = static_cast<uint16_t>(game::kAngleFullTurn / 4);
+    if (dir & 1) { hx = 0.0f; hy = -1.0f; heading = 0; }
+    else if (dir & 2) { hx = 0.0f; hy = 1.0f; heading = static_cast<uint16_t>(game::kAngleFullTurn / 2); }
+    else if (dir & 4) { hx = -1.0f; hy = 0.0f; heading = static_cast<uint16_t>(game::kAngleFullTurn * 3 / 4); }
+    const float carX = x, carY = y;
+    float tx = carX + 0.55f * hy, ty = carY - 0.55f * hx;
+    if (!WarpFloorMatches(tx, ty, z) && WarpFloorMatches(carX - 0.55f * hy, carY + 0.55f * hx, z)) {
+        tx = carX - 0.55f * hy;
+        ty = carY + 0.55f * hx;
     }
     bool ok = WriteAt(placeAt + game::kPlaceX, static_cast<int32_t>(carX * (1 << 14))) &&
               WriteAt(placeAt + game::kPlaceY, static_cast<int32_t>(carY * (1 << 14))) &&
-              WriteAt(placeAt + game::kPlaceHeading, east);
+              WriteAt(placeAt + game::kPlaceHeading, heading);
     const uintptr_t ped = reinterpret_cast<uintptr_t>(player.ped);
     uintptr_t physics = 0, pedPlace = 0;
     if (ReadAt(ped + game::kPedPhysics, &physics) && Plausible(physics) &&
@@ -489,9 +498,9 @@ bool WarpSceneToRoad(float x, float y, float z) {
         ok = false;
     }
     if (ok) StartWarpHold(tx, ty, z >= 0.0f ? z : player.z, 1.5);
-    Log("devtools: moved the parked car at %.2f,%.2f (%.2f tiles off) to %.2f,%.2f heading east and the player from "
+    Log("devtools: moved the parked car at %.2f,%.2f (%.2f tiles off) to %.2f,%.2f heading %.0f,%.0f (road arrows %d) and the player from "
         "%.2f,%.2f to its door at %.2f,%.2f level %.2f (%s)",
-        cx, cy, d, carX, carY, player.x, player.y, tx, ty, z, ok ? "written" : "write failed");
+        cx, cy, d, carX, carY, hx, hy, arrows, player.x, player.y, tx, ty, z, ok ? "written" : "write failed");
     return ok;
 }
 

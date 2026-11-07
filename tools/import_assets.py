@@ -130,12 +130,19 @@ def import_model(entry, src_dir, out_dir):
         bv = g["bufferViews"][img["bufferView"]]
         off = bv.get("byteOffset", 0)
         return Image.open(io.BytesIO(binary[off: off + bv["byteLength"]]))
+    glb_mtime = os.path.getmtime(src_glb)
+    def stale(out):
+        # A texture written by an earlier import of this model is reused only
+        # while the glb is older than it: a regenerated model whose images
+        # come in another order (the pay phone, after gen_code_objects.py
+        # changed) was otherwise drawn with the old pictures on the new meshes.
+        return not os.path.exists(out) or os.path.getmtime(out) < glb_mtime
     def image_tga(img_index):
         tag = f"{name}_{img_index}.tga"
         out = os.path.join(out_dir, tag)
         if tag not in images_by_tag:
             images_by_tag[tag] = load_image(img_index)
-        if not os.path.exists(out):
+        if stale(out):
             write_tga(images_by_tag[tag], out, int(entry.get("texture_max", 1024)))
         return tag
     overrides = entry.get("material_textures", {})
@@ -153,7 +160,7 @@ def import_model(entry, src_dir, out_dir):
         rgba = tuple(max(0, min(255, int(round(c * 255)))) for c in f[:4]) + (255,) * (4 - len(f[:4]))
         tag = f"{name}_m{mi}{'_paint' if is_paint(mat) else ''}.tga"
         out = os.path.join(out_dir, tag)
-        if not os.path.exists(out):
+        if stale(out):
             write_tga(Image.new("RGBA", (4, 4), rgba), out)
         return tag
     for mi, mat in enumerate(g.get("materials", [])):
@@ -161,7 +168,7 @@ def import_model(entry, src_dir, out_dir):
         if mat.get("name") in overrides:
             tag = f"{name}_{mat['name']}{'_paint' if is_paint(mat) else ''}.tga"
             out = os.path.join(out_dir, tag)
-            if not os.path.exists(out):
+            if stale(out):
                 write_tga(Image.open(os.path.join(src_dir, overrides[mat["name"]])), out, int(entry.get("texture_max", 1024)))
             tex_by_material[mi] = tag
         elif "baseColorTexture" in pbr:

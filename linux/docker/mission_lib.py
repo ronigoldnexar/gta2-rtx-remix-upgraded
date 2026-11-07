@@ -285,3 +285,267 @@ def wait_outcome(money0, seconds, poll=1.0):
 def shot(name):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-video_size", "1280x720", "-i", ":99",
                     "-frames:v", "1", f"/out/m_{name}.png"])
+
+
+# ================================================================ v2 (6 Nov, playthrough)
+# A multi-level router that knows slopes (stairs and ramps join one lid level
+# to the next), prefers pavements to roads, and a walker that keeps Up held
+# and steers from the half-second samples instead of stop-turn-step.
+import heapq
+
+def _blk(world, x, y, level):
+    if not (0 <= x < gmp.W and 0 <= y < gmp.H): return None
+    return gmp.block_at(world.blocks, world.columns, x, y, level)
+
+def _lid(b): return b[4] & 1023 if b else 0
+def _slope(b): return (b[6] >> 2) if b else 0
+def _gtype(b): return (b[6] & 3) if b else 0
+
+def node_kind(world, x, y, level):
+    """what a ped can stand on at (x,y,level): ('flat', ground) for a lid with
+    nothing solid on top, ('slope', ground) for a slope block, else None"""
+    b = _blk(world, x, y, level)
+    if not b: return None
+    g = _gtype(b); s = _slope(b)
+    if 1 <= s <= 44:
+        return ("slope", g if g in (1, 2, 3) else 2)
+    if not _lid(b) or g not in (1, 2, 3): return None
+    above = _blk(world, x, y, level + 1)
+    if above and _lid(above): return None            # a full block on top
+    return ("flat", g)
+
+COST = {1: 3.0, 2: 1.0, 3: 1.4}
+
+def slope_high_dir(t):
+    """unit step toward the high end of a slope block of type t (GTA2: up/down/
+    left/right name the uphill direction on screen; verified on the Yakuza phone
+    dais, types 3-4 rise toward the south)"""
+    if 1 <= t <= 2 or 9 <= t <= 16 or t == 41: return (0, -1)
+    if 3 <= t <= 4 or 17 <= t <= 24 or t == 42: return (0, 1)
+    if 5 <= t <= 6 or 25 <= t <= 32 or t == 43: return (-1, 0)
+    if 7 <= t <= 8 or 33 <= t <= 40 or t == 44: return (1, 0)
+    return None
+
+def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
+    """Dijkstra over (x,y,level). tl None = any level with something to stand
+    on at (tx,ty). A slope block stored at level L joins level L-1 (its low
+    end) to level L (its high end) along its own axis only; a flat cell at L
+    enters a slope at L+1 uphill or a slope at L downhill. Returns
+    [(x,y,level), ...] or []."""
+    start = None
+    for cand in ((sx, sy, sl), (sx, sy, sl + 1)):
+        if node_kind(world, *cand): start = cand; break
+    if start is None:
+        best = None
+        for r in range(1, 4):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    for L in (sl, sl + 1):
+                        k = node_kind(world, sx + dx, sy + dy, L)
+                        if k and k[0] == "flat":
+                            if best is None or abs(dx) + abs(dy) < abs(best[0] - sx) + abs(best[1] - sy):
+                                best = (sx + dx, sy + dy, L)
+            if best: break
+        if not best: return []
+        start = best
+    def is_goal(n):
+        return n[0] == tx and n[1] == ty and (tl is None or n[2] == tl)
+    dist = {start: 0.0}; prev = {start: None}
+    pq = [(0.0, start)]; seen = 0; best = (abs(tx - sx) + abs(ty - sy), start)
+    while pq and seen < limit:
+        d, n = heapq.heappop(pq); seen += 1
+        if d > dist.get(n, 1e18): continue
+        h = abs(tx - n[0]) + abs(ty - n[1])
+        if h < best[0]: best = (h, n)
+        if is_goal(n): best = (0, n); break
+        x, y, L = n
+        kind = node_kind(world, x, y, L)
+        if not kind: continue
+        here_slope = kind[0] == "slope"
+        here_dir = slope_high_dir(_slope(_blk(world, x, y, L))) if here_slope else None
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            moves = []   # (level, allowed kinds)
+            if here_slope:
+                if here_dir is None: continue
+                if (dx, dy) == here_dir: moves = [(L, ("flat", "slope"))]            # uphill: the top, or the next piece
+                elif (dx, dy) == (-here_dir[0], -here_dir[1]): moves = [(L - 1, ("flat",)), (L, ("slope",))]   # downhill
+                else: continue                                                        # sideways off a slope: a wall
+            else:
+                moves = [(L, ("flat",)), (L + 1, ("slope",)), (L, ("slope",))]
+            for nl, allowed in moves:
+                nk = node_kind(world, nx, ny, nl)
+                if not nk or nk[0] not in allowed: continue
+                if nk[0] == "slope":
+                    sd = slope_high_dir(_slope(_blk(world, nx, ny, nl)))
+                    if sd is None: continue
+                    if not here_slope:
+                        if nl == L + 1 and sd != (dx, dy): continue          # entering at the low end, going uphill
+                        if nl == L and sd != (-dx, -dy): continue            # entering at the high end, going downhill
+                    elif sd != here_dir: continue
+                elif nk[1] not in kinds: continue
+                c = d + (COST.get(nk[1], 2.0) if nk[0] == "flat" else 1.0)
+                m = (nx, ny, nl)
+                if c < dist.get(m, 1e18):
+                    dist[m] = c; prev[m] = n; heapq.heappush(pq, (c, m))
+    n = best[1]; path = []
+    while n: path.append(n); n = prev[n]
+    return path[::-1]
+
+def straighten3(path):
+    if len(path) < 3: return path
+    out = [path[0]]
+    for i in range(1, len(path) - 1):
+        a, b, c = path[i - 1], path[i], path[i + 1]
+        if (b[0] - a[0], b[1] - a[1], b[2] - a[2]) != (c[0] - b[0], c[1] - b[1], c[2] - b[2]) or b[2] != a[2]:
+            out.append(b)
+    out.append(path[-1])
+    return out
+
+def ped_level(s):
+    return max(0, int(round(s["z"])) - 1)
+
+def cruise_to(tx, ty, tol=0.6, secs=30, stop=True):
+    """walk with Up held, steering from the samples; returns (state, reached)"""
+    t0 = time.time(); best = 1e9; last_gain = time.time(); n = 0
+    xdo("keydown", "Up")
+    try:
+        while time.time() - t0 < secs:
+            s = D.wait_state()
+            if not s: break
+            if s["driving"]: return s, False
+            d = math.hypot(tx - s["x"], ty - s["y"])
+            if d < tol: return s, True
+            if d < best - 0.12: best = d; last_gain = time.time()
+            if time.time() - last_gain > 3.0:
+                n += 1; say(f"cruise: stuck {d:.1f} from {tx:.1f},{ty:.1f}; unsticking {n}")
+                xdo("keyup", "Up"); hold("Down", 0.6); hold("Right" if n % 2 else "Left", 0.4); hold("Up", 0.5)
+                xdo("keydown", "Up"); last_gain = time.time(); best = 1e9
+                if n >= 4: return s, False
+                continue
+            a = D.angle_to(s, tx, ty)
+            if abs(a) > 0.12:
+                key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
+                xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.35)); xdo("keyup", key)
+            time.sleep(0.15)
+    finally:
+        if stop: xdo("keyup", "Up")
+    return D.wait_state(), False
+
+def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
+    """route (multi-level, pavements preferred) and cruise leg by leg; re-routes
+    after a missed leg; returns the state"""
+    t0 = time.time(); s = D.wait_state(); reroutes = 0
+    while s and time.time() - t0 < budget:
+        if math.hypot(tx - s["x"], ty - s["y"]) < tol and (tl is None or ped_level(s) == tl): return s
+        path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), tl, kinds)
+        legs = straighten3(path)[1:] if len(path) > 1 else []
+        say(f"walk3: {len(path)} cells, {len(legs)} legs from {s['x']:.1f},{s['y']:.1f} L{ped_level(s)} to {tx},{ty}" + (f" L{tl}" if tl is not None else ""))
+        if not legs:
+            s, ok = cruise_to(tx, ty, tol=tol, secs=12); 
+            if ok: return s
+            reroutes += 1
+            if reroutes > 3: return s
+            continue
+        missed = False
+        xdo("keydown", "Up")
+        for i, (cx, cy, cl) in enumerate(legs):
+            last = i == len(legs) - 1
+            gx, gy = (tx, ty) if last else (cx + 0.5, cy + 0.5)
+            s, ok = cruise_to(gx, gy, tol=(tol if last else 0.75), secs=max(8, 3 + 1.2 * 2), stop=False)
+            # a long leg: allow the time its length needs
+            if not ok and s:
+                dd = math.hypot(gx - s["x"], gy - s["y"])
+                if dd > 1.6:
+                    s, ok = cruise_to(gx, gy, tol=(tol if last else 0.75), secs=min(60, 4 + dd / 1.5), stop=False)
+            if not ok:
+                missed = True; break
+            if time.time() - t0 > budget: break
+        xdo("keyup", "Up")
+        if not missed: return D.wait_state()
+        reroutes += 1
+        say(f"walk3: re-routing ({reroutes})")
+        if reroutes >= 12: break
+        s = D.wait_state()
+    return s
+
+def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False):
+    """drive by road waypoints with Up held: steer from the samples, brake for
+    corners, back out when stalled, re-route after a stall"""
+    t0 = time.time(); s = D.wait_state(); last = (s, time.time())
+    def legs_from(s):
+        path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), None, kinds=(1,))
+        if not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2:
+            path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), None)
+        cells = straighten3(path)[1:] if len(path) > 1 else []
+        lg = [(cx + 0.5, cy + 0.5) for cx, cy, _ in cells]
+        lg.append((tx, ty)); return lg
+    legs = legs_from(s); i = 0; stall = 0; stalls = 0
+    say(f"drive3: {len(legs)} legs to {tx:.1f},{ty:.1f}")
+    xdo("keydown", "Up"); up = True
+    try:
+        while s and s["driving"] and time.time() - t0 < budget and i < len(legs):
+            gx, gy = legs[i]; final = i == len(legs) - 1
+            d = math.hypot(gx - s["x"], gy - s["y"])
+            if d < (tol if final else 1.8): i += 1; continue
+            if not final and i + 1 < len(legs):
+                nx, ny = legs[i + 1]
+                if math.hypot(nx - s["x"], ny - s["y"]) < d - 0.5: i += 1; continue
+            hx, hy = heading(s); dx, dy = gx - s["x"], gy - s["y"]
+            a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+            now = time.time(); v = speed_of(last[0], s, now - last[1]); last = (s, now)
+            if view_switch: view_switch(s)
+            steer = "Right" if a > 0 else "Left"
+            nextd = math.hypot(legs[i + 1][0] - gx, legs[i + 1][1] - gy) if i + 1 < len(legs) else 99
+            if abs(a) > 2.2:
+                if up: xdo("keyup", "Up"); up = False
+                xdo("keydown", "Down"); xdo("keydown", "Left" if a > 0 else "Right"); time.sleep(0.9)
+                xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right")
+            elif abs(a) > 0.8:
+                if up: xdo("keyup", "Up"); up = False
+                if v > 3.0: hold("Down", 0.35)
+                xdo("keydown", steer); xdo("keydown", "Up"); time.sleep(0.35); xdo("keyup", "Up"); xdo("keyup", steer)
+            else:
+                want_slow = slow or d < 3.0 or nextd < 4.0 or (final and d < 6)
+                if v > (4.5 if want_slow else 9.0):
+                    if up: xdo("keyup", "Up"); up = False
+                    hold("Down", 0.25)
+                elif not up: xdo("keydown", "Up"); up = True
+                if abs(a) > 0.08:
+                    xdo("keydown", steer); time.sleep(min(abs(a) * 0.45, 0.3)); xdo("keyup", steer)
+            time.sleep(0.2)
+            s2 = D.wait_state()
+            if s2 and v < 0.4 and math.hypot(s2["x"] - s["x"], s2["y"] - s["y"]) < 0.08 and abs(a) <= 2.2:
+                stall += 1
+                if stall >= 4:
+                    stalls += 1; stall = 0
+                    say(f"drive3: stalled at {s2['x']:.1f},{s2['y']:.1f}; backing out ({stalls})")
+                    if up: xdo("keyup", "Up"); up = False
+                    xdo("keydown", "Down"); xdo("keydown", "Left" if stalls % 2 else "Right"); time.sleep(1.4)
+                    xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right"); time.sleep(0.3)
+                    s2 = D.wait_state(); legs = legs_from(s2); i = 0
+            else:
+                stall = 0
+            s = s2
+    finally:
+        xdo("keyup", "Up"); xdo("keyup", "Left"); xdo("keyup", "Right")
+    hold("Down", 0.9)
+    return D.wait_state()
+
+def enter_car3(world, cx, cy, budget=120):
+    """walk to the car's cell and get in; tries each side; True when driving"""
+    t0 = time.time()
+    s = walk3(world, cx, cy, tol=1.5, budget=budget)
+    tries = 0
+    while s and time.time() - t0 < budget:
+        if s["driving"]: return s
+        d = math.hypot(cx - s["x"], cy - s["y"])
+        if d > 1.6:
+            s, _ = cruise_to(cx, cy, tol=1.3, secs=8)
+        hold("Up", 0.25); time.sleep(0.3)
+        tap("Return", 0.3); time.sleep(2.8)
+        s = D.wait_state(); tries += 1
+        if s["driving"]: return s
+        ang = tries * 1.57
+        cruise_to(cx + 1.0 * math.cos(ang), cy + 1.0 * math.sin(ang), tol=0.45, secs=8)
+    return s

@@ -235,6 +235,9 @@ struct ViewQueries {
     // A point inside a street prop's footprint (bin, bench, meter...) moved to
     // just outside it; false when it is clear.
     bool (*propPush)(void* context, float x, float y, float z, float* outX, float* outZ) = nullptr;
+    // The road arrows of the surface under a point (GMP bits: 1 north, 2 south,
+    // 4 west, 8 east, red set << 4); 0 when none.
+    int (*roadArrows)(void* context, float x, float z, float ceiling) = nullptr;
 };
 
 // The queries, kept for the developer warps (which run from the key poll, not

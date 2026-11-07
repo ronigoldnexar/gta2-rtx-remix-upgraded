@@ -6,6 +6,7 @@
 #include <cstring>
 #include <array>
 #include <map>
+#include <set>
 
 #include "log.h"
 
@@ -967,6 +968,17 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
     IDirect3DTexture9* bound = nullptr;
     bool first = true;
     bool streams = false;
+    {
+        // Once per model: the placement it is first drawn with, so a model that
+        // comes out the wrong size or way up can be traced to its matrix.
+        static std::set<const Model*> logged;
+        if (logged.size() < 96 && logged.insert(&model).second) {
+            const gta2::Mat4& w = placement;
+            Log("model draw: %s rows (%.3f %.3f %.3f) (%.3f %.3f %.3f) (%.3f %.3f %.3f) at %.2f,%.2f,%.2f nodes %zu bounds %.2f..%.2f y",
+                model.name.c_str(), w.m[0][0], w.m[0][1], w.m[0][2], w.m[1][0], w.m[1][1], w.m[1][2], w.m[2][0], w.m[2][1], w.m[2][2],
+                w.m[3][0], w.m[3][1], w.m[3][2], model.nodes.size(), model.boundsMin.y, model.boundsMax.y);
+        }
+    }
     for (size_t i = 0; i < model.nodes.size(); ++i) {
         const int mi = model.nodes[i].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;

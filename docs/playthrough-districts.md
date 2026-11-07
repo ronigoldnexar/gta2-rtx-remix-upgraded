@@ -97,7 +97,7 @@ runner.
 
 | district | mission | answered | progress | result |
 |---|---|---|---|---|
-| bil | IT WAS AN ACCIDENT! | yes (take 2, 3 of `tour_bil_phone`) | take 2: car entered on the street below, but the drive ended at once (the locator re-scans after an entry and reported "on foot"; `tour_lib.drive` now waits for the driving state); he walked 55 blocks toward the package in 120 s | running when the run ended |
+| bil | IT WAS AN ACCIDENT! | yes (takes 2 and 3 of `tour_bil_phone`) | take 3 (`out/tour_bil_phone_bil`, clip `deliverables/gta2_linux_tour_residential_mission.mp4`, 219 s): phone answered on the terrace, brief, a car on the street below entered (model 44), 30 s of driving east (62 `driving` lines, first person at the wheel), stalled against a wall at 97,172, out, walked on to 144,219 (the package is at 133,230.5) | **JOB FAILED**: the game ended it with text 4217 "That's the job over for you, Gecko. Perhaps you need to work on your technique" at about 270 s, before the package was reached (take 2 ended "running": the drive controller started before the locator reported him driving; fixed in `tour_lib.drive`) |
 | ste | DOUBLE-CROSS CRUSH! | yes | no navigable objective in the plan | running after 45 s |
 
 The tours were coverage tours; neither mission was completed.

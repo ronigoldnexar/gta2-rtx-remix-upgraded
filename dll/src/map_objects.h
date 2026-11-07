@@ -18,4 +18,7 @@ const Model* MapObjectModel(const void* spriteObject, const LiveGeometry::Vertex
                             const gta2::Mat4& objectToWorld);
 // Draws the objects collected this frame (the sprites whose objectModel is set).
 void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::SpriteType>& sprites);
+// The footprints of the standing objects drawn last frame (phone boxes, traffic
+// lights: not the floating pickups), for the first-person eye's push-out.
+const std::vector<PropFootprint>& MapObjectFootprints();
 }  // namespace gta2dx9

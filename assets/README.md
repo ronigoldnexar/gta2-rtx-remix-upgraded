@@ -174,3 +174,12 @@ Window glow (`[renderer] window_glow`, src/renderer.cpp `MakeWindowGlow`): wall 
 dark, cool-toned panes cover a twelfth to two thirds of the tile get a warm room-light
 texture added over them in the street views when the sun is low (nothing at noon, never in
 the classic view); some panes stay dark. Found from the tile pixels at level load, no files.
+
+## Regenerated models and their textures
+
+`tools/import_assets.py` writes a model's textures beside its mesh and used to keep an
+existing TGA for ever. A model regenerated with its materials in another order (the pay
+phone after `gen_code_objects.py` changed; the three re-made cars) was then drawn with
+the old pictures on the new meshes: the phone came out as a blue slab with the sprite on
+its end. A texture is now rewritten whenever the glb is newer than it; 99 models were
+re-imported that way on 7 Nov.

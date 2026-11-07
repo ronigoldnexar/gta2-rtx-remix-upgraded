@@ -65,6 +65,15 @@ turns it off; the classic view never uses it.
 The ready-made set for all three districts (wil, bil, ste; 2 652 tiles, 570 MB, about 245 MB zipped) is a release asset,
 `textures_hd_dds.zip`; unzip it into `gta2dx9_textures_hd/` beside `gta2.exe`.
 
+## Cutouts
+
+GTA2's alpha is one bit at 64 px. Scaled up nearest, a chain-link fence or a railing
+is a staircase of 8 px steps in first person. The packer (`soft_alpha`) upscales the
+mask bicubically and steepens it back to a near-hard edge about 1.5 px wide, so the
+diamonds and bars come out as smooth curves; the alpha test keeps the cutout crisp and
+the mips are box-filtered from it. Only the 736 cutout tiles of the three districts are
+DXT5, the rest DXT1; re-packing just the cutouts is what `out/tf_dds` was built from.
+
 ## Memory, and why DDS
 
 GTA2 is a 32-bit process with a 2 GB address space, and Wine's Direct3D keeps a copy

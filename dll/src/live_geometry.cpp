@@ -4228,7 +4228,27 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                         continue;
                     }
                 }
-                if ((waterDx || waterDz) && containers[0]) {
+                // A dock yard, not a waterside walkway: the cell and the two cells
+                // behind it (away from the water) are plain lids at this height,
+                // nothing built stands within a block, and no road runs beside it.
+                // (Azeri Heights' cobbled quay promenade runs between the river and
+                // a road, with a container dropped in the middle of it otherwise.)
+                bool dockYard = (waterDx || waterDz) && ground == 0;
+                for (int k = 1; k <= 2 && dockYard; ++k) {
+                    int t, g, l;
+                    if (!lidOf(cx - waterDx * k, cz - waterDz * k, &t, &g, &l) || l != topLevel || g != 0 || IsWaterTile(t)) dockYard = false;
+                }
+                for (int dz = -1; dz <= 1 && dockYard; ++dz) {
+                    for (int dx = -1; dx <= 1 && dockYard; ++dx) {
+                        if (!dx && !dz) continue;
+                        const int nx = cx + dx, nz = cz + dz, nMapY = gta2::kMapHeight - 1 - nz;
+                        if (nx < 0 || nx >= gta2::kMapWidth || nMapY < 0 || nMapY >= gta2::kMapHeight) continue;
+                        const gta2::Column& nc = map->ColumnAt(nx, nMapY);
+                        if (nc.offset + static_cast<int>(nc.blocks.size()) > topLevel) dockYard = false;   // something built beside it
+                        else if (isRoad(nx, nz, topLevel)) dockYard = false;
+                    }
+                }
+                if (dockYard && containers[0]) {
                     const float alongEdge = waterDx ? 0.0f : 1.5708f;   // the long axis parallel to the quay
                     if (crane && cranes < 2 && (h % 29) == 0) {
                         // Needs a run of quay: the two cells along the edge must be quay too.

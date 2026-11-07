@@ -118,7 +118,11 @@ const Model* MapObjectModel(const void* spriteObject, const LiveGeometry::Vertex
     return it == g_byKey.end() ? nullptr : it->second;
 }
 
+std::vector<PropFootprint> g_objectFootprints;
+const std::vector<PropFootprint>& MapObjectFootprints() { return g_objectFootprints; }
+
 void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::SpriteType>& sprites) {
+    g_objectFootprints.clear();
     for (const LiveGeometry::SpriteType& s : sprites) {
         if (!s.objectModel) continue;
         const Model& model = *s.objectModel;
@@ -153,6 +157,30 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             if (BehindView(wx, wy, wz, 1.5f)) continue;
         }
         fit.m[3][0] = cx; fit.m[3][1] = cy - model.boundsMin.y * scale; fit.m[3][2] = cz; fit.m[3][3] = 1.0f;
+        {
+            // A standing object (a pickup floats and is walked through): its
+            // footprint, so a first-person eye inside a phone box is pushed out.
+            auto anim = g_animByModel.find(&model);
+            if (anim == g_animByModel.end() || anim->second != 1) {
+                const gta2::Mat4& w = s.objectToWorld;
+                const float wx = cx * w.m[0][0] + cy * w.m[1][0] + cz * w.m[2][0] + w.m[3][0];
+                const float wy = cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1];
+                const float wz = cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2];
+                g_objectFootprints.push_back({wx, wy, wz, (std::min)(0.6f, (std::max)(0.12f, 0.5f * longer)), (std::max)(0.3f, model.Height() * scale)});
+            }
+        }
+        {
+            // Once per model: the quad and its placement, so a model that comes
+            // out lying or oversized can be traced to its transform.
+            static std::set<const Model*> g_fitLogged;
+            if (g_fitLogged.size() < 64 && g_fitLogged.insert(&model).second) {
+                const gta2::Mat4& w = s.objectToWorld;
+                Log("object fit: %s quad %.2fx%.2f scale %.2f local0 %.2f,%.2f,%.2f local1 %.2f,%.2f,%.2f local3 %.2f,%.2f,%.2f | place rows (%.2f %.2f %.2f) (%.2f %.2f %.2f) (%.2f %.2f %.2f) at %.1f,%.1f,%.1f",
+                    model.name.c_str(), ex, ey, scale, s.local[0].x, s.local[0].y, s.local[0].z, s.local[1].x, s.local[1].y, s.local[1].z,
+                    s.local[3].x, s.local[3].y, s.local[3].z, w.m[0][0], w.m[0][1], w.m[0][2], w.m[1][0], w.m[1][1], w.m[1][2],
+                    w.m[2][0], w.m[2][1], w.m[2][2], w.m[3][0], w.m[3][1], w.m[3][2]);
+            }
+        }
         // A pickup turns about its axis and floats, each on its own phase.
         auto anim = g_animByModel.find(&model);
         if (anim != g_animByModel.end() && anim->second == 1) {
