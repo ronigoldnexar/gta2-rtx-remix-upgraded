@@ -10,6 +10,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +24,10 @@ namespace {
 RemixLightSettings g_settings;
 const GroundSampler* g_ground = nullptr;
 std::unordered_set<uint64_t> g_mapLights;   // MapLightKey of every lamp in the map file
+std::unordered_set<uint64_t> g_listedMapKeys;   // the map lamps the game listed in its last list
+struct MapLampRecord { float pos[3]; float rgb[3]; float intensity; float radius; uint64_t key; };
+std::vector<MapLampRecord> g_mapLampRecords;   // every steady lamp of the map file, decoded like the game's
+int g_farLampsLastFrame = 0;
 bool g_reliftPending = false;
 
 uint64_t MapLightKey(uint32_t x, uint32_t y, uint32_t z) {
@@ -32,7 +37,7 @@ uint64_t MapLightKey(uint32_t x, uint32_t y, uint32_t z) {
 // Whether a light stands exactly where the map file puts one of its lamps. The
 // game's positions are the file's 1/128 units converted exactly, so a map lamp
 // matches to the bit and nothing else lands on one by chance.
-bool IsMapLight(const float* pos) {
+bool MapLightKeyOf(const float* pos, uint64_t* key) {
     // Back from the mesh axes to the game's: x east, y south, z up.
     const float game[3] = {pos[0], static_cast<float>(gta2::kMapHeight) - pos[2], pos[1]};
     uint32_t units[3];
@@ -41,7 +46,13 @@ bool IsMapLight(const float* pos) {
         if (u < 0.0f || u > 65535.0f || u != std::floor(u)) return false;
         units[i] = static_cast<uint32_t>(u);
     }
-    return g_mapLights.count(MapLightKey(units[0], units[1], units[2])) != 0;
+    *key = MapLightKey(units[0], units[1], units[2]);
+    return true;
+}
+
+bool IsMapLight(const float* pos) {
+    uint64_t key = 0;
+    return MapLightKeyOf(pos, &key) && g_mapLights.count(key) != 0;
 }
 
 // Half the map's lights are inside the ground.
@@ -399,6 +410,7 @@ RemixLightSettings& LightsSettings() { return g_settings; }
 
 void LightsBeginCollect() {
     g_pending.clear();
+    g_listedMapKeys.clear();
     g_collecting = true;
     ++g_collects;
 }
@@ -451,8 +463,83 @@ void LightsAddRaw(const void* descriptor) {
     d.pos[1] = z;
     d.pos[2] = static_cast<float>(gta2::kMapHeight) - y;
 
+    uint64_t key = 0;
+    if (MapLightKeyOf(d.pos, &key)) g_listedMapKeys.insert(key);
     g_pending.push_back(d);
 }
+
+void LightsSetMapLightRecords(const std::vector<uint8_t>& lght) {
+    g_mapLampRecords.clear();
+    int blinking = 0;
+    for (size_t i = 0; i + 16 <= lght.size(); i += 16) {
+        uint32_t argb = 0;
+        uint16_t v[4];
+        memcpy(&argb, &lght[i], 4);
+        memcpy(v, &lght[i + 4], sizeof(v));   // x, y, z, radius at 128 to a tile
+        const uint8_t intensity = lght[i + 12], onTime = lght[i + 14], offTime = lght[i + 15];
+        if (onTime || offTime) { ++blinking; continue; }
+        MapLampRecord r;
+        // The same frame the game's descriptors land in (LightsAddRaw).
+        r.pos[0] = v[0] / 128.0f;
+        r.pos[1] = v[2] / 128.0f;
+        r.pos[2] = static_cast<float>(gta2::kMapHeight) - v[1] / 128.0f;
+        r.rgb[0] = static_cast<float>((argb >> 16) & 0xFFu) / 255.0f;
+        r.rgb[1] = static_cast<float>((argb >> 8) & 0xFFu) / 255.0f;
+        r.rgb[2] = static_cast<float>(argb & 0xFFu) / 255.0f;
+        r.intensity = intensity / 255.0f;
+        // The game packs the reach as radius*32 in a byte and the renderer reads
+        // 255 as 8 tiles (see LightsAddRaw); the file's own value, in tiles.
+        r.radius = v[3] / 128.0f;
+        if (r.radius <= 0.0f || r.radius > 8.0f) r.radius = 8.0f;
+        r.key = MapLightKey(v[0], v[1], v[2]);
+        if (r.intensity <= 0.0f) continue;
+        g_mapLampRecords.push_back(r);
+    }
+    Log("remix lights: %u steady map lamps decoded for the street views (%d blinking left to the game)",
+        static_cast<unsigned>(g_mapLampRecords.size()), blinking);
+}
+
+void LightsSubmitMapLampsNear(const float* eye, float radius, int cap) {
+    g_farLampsLastFrame = 0;
+    if (!g_settings.enabled || !g_settings.injectStatic || g_mapLampRecords.empty() || cap <= 0) {
+        static bool said = false;
+        if (!said) { said = true; Log("remix lights: far lamps off (enabled %d injectStatic %d records %u)", g_settings.enabled ? 1 : 0, g_settings.injectStatic ? 1 : 0, static_cast<unsigned>(g_mapLampRecords.size())); }
+        return;
+    }
+    struct NearLamp { float d2; const MapLampRecord* r; };
+    std::vector<NearLamp> found;
+    const float r2 = radius * radius;
+    for (const MapLampRecord& r : g_mapLampRecords) {
+        if (g_listedMapKeys.count(r.key)) continue;   // the game has this one this frame
+        const float dx = r.pos[0] - eye[0], dy = r.pos[1] - eye[1], dz = r.pos[2] - eye[2];
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 > r2) continue;
+        found.push_back({d2, &r});
+    }
+    if (found.size() > static_cast<size_t>(cap)) {
+        std::nth_element(found.begin(), found.begin() + cap, found.end(),
+                         [](const NearLamp& a, const NearLamp& b) { return a.d2 < b.d2; });
+        found.resize(cap);
+    }
+    for (const NearLamp& n : found) {
+        RemixLightDesc d;
+        memcpy(d.pos, n.r->pos, sizeof(d.pos));
+        memcpy(d.rgb, n.r->rgb, sizeof(d.rgb));
+        d.intensity = n.r->intensity;
+        d.radius = n.r->radius;
+        d.source = kLightSourceGame;   // matched by position like the game's own, lifted and gated the same
+        g_extra.push_back(d);
+    }
+    g_farLampsLastFrame = static_cast<int>(found.size());
+    static uint32_t logged = 0;
+    if ((g_frame & 255u) == 0 && g_frame != logged) {
+        logged = g_frame;
+        Log("remix lights: far lamps %d within %.0f tiles of eye %.1f,%.1f,%.1f (game listed %u map lamps)",
+            g_farLampsLastFrame, radius, eye[0], eye[1], eye[2], static_cast<unsigned>(g_listedMapKeys.size()));
+    }
+}
+
+int LightsFarLampsLastFrame() { return g_farLampsLastFrame; }
 
 void LightsSetAmbient(float ambient) { g_ambient = ambient; }
 

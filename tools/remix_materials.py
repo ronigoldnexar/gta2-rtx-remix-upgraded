@@ -276,16 +276,31 @@ MATERIAL = '''        over "mat_{h}"
                 )
                 custom float inputs:metallic_constant = 0
                 custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 0
+                custom bool inputs:use_legacy_alpha_state = 0{emissive}
                 token outputs:out
             }}
         }}
 '''
+# Neon and lit signs (tools/remix_emissive.py writes the mask): the strokes glow.
+EMISSIVE = '''
+                custom asset inputs:emissive_mask_texture = @./textures/{h}.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = {intensity}'''
+EMISSIVE_INTENSITY = 30
 
 def write_usda(mod_dir):
+    # Tile materials only: an albedo with its normal map. A paint texture of the
+    # 3D car models has an albedo alone and its own prim (remix_model_materials.py).
+    tex0 = os.path.join(mod_dir, "textures")
     hashes = sorted({re.match(r"([0-9A-F]{16})\.a\.rtex\.dds$", f).group(1)
-                     for f in os.listdir(os.path.join(mod_dir, "textures")) if re.match(r"[0-9A-F]{16}\.a\.rtex\.dds$", f)})
-    body = "\n".join(MATERIAL.format(h=h, mdl=MDL) for h in hashes)
+                     for f in os.listdir(tex0) if re.match(r"[0-9A-F]{16}\.a\.rtex\.dds$", f)
+                     and os.path.exists(os.path.join(tex0, f[:16] + ".n.rtex.dds"))})
+    tex = os.path.join(mod_dir, "textures")
+    body = "\n".join(MATERIAL.format(h=h, mdl=MDL, emissive=(EMISSIVE.format(h=h, intensity=EMISSIVE_INTENSITY)
+                                                          if os.path.exists(os.path.join(tex, f"{h}.e.rtex.dds")) else ""))
+                     for h in hashes)
     text = ('#usda 1.0\n(\n    upAxis = "Y"\n)\n\nover "RootNode"\n{\n    over "Looks"\n    {\n' + body + "    }\n}\n")
     open(os.path.join(mod_dir, "mod.usda"), "w", encoding="utf-8", newline="\n").write(text)
     return hashes

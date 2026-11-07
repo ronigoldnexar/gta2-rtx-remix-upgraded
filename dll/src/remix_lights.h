@@ -250,6 +250,20 @@ void LightsSetGround(const GroundSampler* ground);
 // redefines every light so each is lifted from the floors it now has.
 void LightsSetMapLights(const std::vector<uint16_t>& xyz);
 
+// The map's lamps with their colour, reach and intensity, straight from the
+// LGHT chunk (16 bytes each), for the street views. GTA2 lists a lamp only while
+// it is inside the top-down window it draws, so from the ground a street was lit
+// for a dozen blocks and dark beyond. Blinking lamps (an on/off time) are left to
+// the game, which lists them when they are on.
+void LightsSetMapLightRecords(const std::vector<uint8_t>& lght);
+
+// Submits the map's lamps within `radius` tiles of `eye` (renderer world
+// space) that the game did not list this frame, nearest first up to `cap`, as
+// this frame's extra lights. Call after LightsBeginExtra and before
+// LightsReconcile; the classic view needs none of it.
+void LightsSubmitMapLampsNear(const float* eye, float radius, int cap);
+int LightsFarLampsLastFrame();
+
 // gbh_SetAmbient, in the game's own 0..1 scale.
 void LightsSetAmbient(float ambient);
 

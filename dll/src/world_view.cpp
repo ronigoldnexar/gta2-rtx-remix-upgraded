@@ -93,6 +93,9 @@ float g_classicCarHeight = kDefaultCarBodyHeight;
 float g_classicCarShoulder = 0.7f;
 bool g_classicCarWheels = kDefaultCarWheels;
 bool g_viewActive = false;
+// How far from the eye the street views add the map's own lamps, in tiles, and how many at most.
+constexpr float kFarLampRadius = 36.0f;
+constexpr int kFarLampCap = 120;
 float g_viewYaw = 0.0f, g_viewPitch = 0.0f;
 
 // One patched run of bytes and what was there before it.
@@ -1247,6 +1250,7 @@ bool WorldView::EnsureWorldLoaded() {
             SetMapLamps(lamps);
         }
         LightsSetMapLights(mapLights);
+        LightsSetMapLightRecords(FileChunk(mapPath, "LGHT"));
         Log("map lamps: %u in %s", static_cast<unsigned>(mapLights.size() / 3), mapPath.c_str());
     }
     {
@@ -1530,6 +1534,38 @@ void WorldView::UpdateCamera() {
             }
             Log("view: mission money=%d mult=%d lives=%d death=%d wanted=%d health=%d cardmg=%d carmodel=%d msg=%s frame=%d",
                 money, mult, lives, death, wanted, health, carDamage, carModel, msg, frame);
+            // The script's objective arrows: the arrow manager at [0x672F40]+0x1F18
+            // holds seventeen slots of 0x7C bytes (hud_pass.cpp). A slot in use has
+            // its type at +0x20 (1..3 the gang phone markers, 4 the information
+            // phones; a mission's own arrow is whatever the script allocates), the
+            // target kind at +0x40 and the target position at +0x44/+0x48/+0x4C as
+            // 18.14 fixed point (16384 = one block), as the probe of 7 Nov showed.
+            // One line, every half second: slot:type:kind:x,y,z for every slot
+            // with a target, so a script can tell which objective is current.
+            GTA2_TRY {
+                const uintptr_t mgrBase = *reinterpret_cast<const uintptr_t*>(0x00672F40);
+                if (mgrBase > 0x10000) {
+                    const uint8_t* arrows = reinterpret_cast<const uint8_t*>(mgrBase + 0x1F18);
+                    char line[900]; int len = 0;
+                    for (int i = 0; i < 17 && len < 800; ++i) {
+                        const uint8_t* slot = arrows + i * 0x7C;
+                        const int32_t type = *reinterpret_cast<const int32_t*>(slot + 0x20);
+                        const int32_t kind = *reinterpret_cast<const int32_t*>(slot + 0x40);
+                        const int32_t fx = *reinterpret_cast<const int32_t*>(slot + 0x44);
+                        const int32_t fy = *reinterpret_cast<const int32_t*>(slot + 0x48);
+                        const int32_t fz = *reinterpret_cast<const int32_t*>(slot + 0x4C);
+                        const uint32_t obj = *reinterpret_cast<const uint32_t*>(slot + 0x5C);
+                        const uint32_t d0 = *reinterpret_cast<const uint32_t*>(slot + 0x30);
+                        const uint32_t d1 = *reinterpret_cast<const uint32_t*>(slot + 0x34);
+                        const uint32_t d2 = *reinterpret_cast<const uint32_t*>(slot + 0x38);
+                        if (type == 0 && kind == 0 && fx == 0 && fy == 0) continue;
+                        len += snprintf(line + len, sizeof(line) - len, " %d:%d:%d:%.2f,%.2f,%.2f:%08X:%08X,%08X,%08X", i, type, kind,
+                                        fx / 16384.0, fy / 16384.0, fz / 16384.0, obj, d0, d1, d2);
+                    }
+                    Log("view: arrows%s", line);
+                }
+            } GTA2_EXCEPT {
+            }
         }
         ViewQueries queries;
         queries.context = this;
@@ -1988,6 +2024,16 @@ void WorldView::RenderFrame() {
     SyntheticLightsUpdate();
     // The light benchmark's own lights, when one is running. See light_bench.h.
     LightBenchSubmit();
+    // The street views see far past the game's own top-down window, and the
+    // game lists only the lamps inside that window: from the ground the road
+    // was lit for a dozen blocks and dark beyond. The map's steady lamps within
+    // reach of the eye fill the rest, nearest first, up to a budget that keeps
+    // the direct-light sampling honest (see RemixSetLightSampling).
+    if (g_viewActive && CurrentViewMode() != ViewMode::Classic) {
+        const gta2::Vec3& eye = camera_.Position();
+        const float e[3] = {eye.x, eye.y, eye.z};
+        LightsSubmitMapLampsNear(e, kFarLampRadius, kFarLampCap);
+    }
 
     // The game lists this frame's lights during its own world pass, which runs
     // between gbh_BeginScene and the gbh_EndScene that brought us here - so by

@@ -151,3 +151,94 @@ with the layer is unchanged (renderer stages and present within noise of the no-
 `[RTX Opacity Micromap] Out of memory budget` appears once per run with and without it.
 Exposure was left at the runtime's auto-exposure defaults: the 14:00 plaza frames are neither
 clipped nor flat in either run, so no `rtx.conf` tone change was made (untuned, by eye only).
+
+## The showcase: lights, night, presets (7 Nov, REMIX-SHOWCASE)
+
+What the renderer already gave Remix (upstream work, all of it active under the bridge on
+the L4): the map's own lamps as sphere lights with the file's colour and reach, classified
+street / neon / white / traffic / vehicle and gated by daylight (`dll/src/remix_lights.cpp`);
+headlights, brake lights, sirens, muzzle flashes, fire and explosions as synthetic lights read
+off the game's particle and vehicle lists (`synthetic_lights.cpp`); the sun and sky through
+Remix Plus's atmosphere, driven every frame from the `[timeofday]` clock with the real solar
+geometry (`time_of_day.cpp`: `rtx.atmosphere.sunElevation/sunRotation`, clouds on or off from
+`ClearSky`). The renderer's own sky dome is left out whenever the runtime has an atmosphere.
+
+**Added for the street views.** GTA2 lists a lamp only while it is inside the top-down window
+it draws, so from the ground a street was lit for a dozen blocks and dark beyond. The map's
+steady lamps (LGHT, blinkers left to the game) are now decoded at level load
+(`LightsSetMapLightRecords`) and, in the third- and first-person views, the ones within 36
+tiles of the eye that the game did not list this frame are submitted as extra lights, nearest
+first up to 120 (`LightsSubmitMapLampsNear`, called from `WorldView::RenderFrame` before the
+reconcile). They go through the same position matching, buried-lamp lift and daylight gate as
+the game's own. Verified in the log of a plain GPU run (`out/farlamp2`: "far lamps 120 within
+36 tiles of eye 159.5,2.4,116.4 (game listed 24 map lamps)"); the Remix night frames are below.
+
+**Emissive signs.** `tools/remix_emissive.py` adds an emissive mask to the material layer for
+the neon and lit-sign tiles (a curated list per style in the script, chosen from
+`out/neon_candidates_<style>.png`: HOTEL, MOTEL, JESUS SAVES, BAR, DINER, OPEN, GIRLS, the gang
+roundels and the rest: 80 tiles, 64 of them with a material in the current layer), from the
+upscaled tile's bright saturated strokes; `remix_materials.write_usda` writes
+`enable_emission` + `emissive_intensity` (30) for a material with a mask. The layer was
+rebuilt against the current HD tiles first (736 tiles had been regenerated after the previous
+build, so their materials no longer matched: `gamerun/build_remix_mod.sh` → `remix_emissive.py`
+→ `remix_model_materials.py`, in that order; `write_usda` now leaves the car-paint prims to the
+model tool).
+
+**Presets.** `gamerun/rtx_showcase.conf.extra` (`RTX_EXTRA=/work/rtx_showcase.conf.extra`):
+moderate bloom (0.6, threshold 0.6), aerial perspective with local-light glow, a light height
+fog (visibility 8 km, near fade 40 m), the real night sky (stars and moon), matte defaults for
+untagged materials (roughness 0.75, metallic 0.05). Day and night are the clock:
+`SETTINGS_SED='s/^Paused=.*/Paused=1/; s/^StartHour=.*/StartHour=21.5/'` for a fixed night,
+`Paused=0` with `StartHour=16.8` for a take that runs from late afternoon into the night (one
+game minute per second), `ClearSky=0` for Remix Plus's volumetric clouds.
+
+**Runs.**
+- `out/remix_night1` (21:30, paused, clear, layer on, 0 faults): classic, third and first
+  person at the spawn plaza lit by the JESUS SAVES neon and the lamp posts, stars overhead,
+  people lit by the neon (`out/remix_night1_views.png`, `out/remix_night1_strip.png`). This
+  run still had the stale layer and the first far-lamp build; it verifies the night look and
+  the game's own lights under path tracing.
+- `out/remix_master1` (16:48 start, clock running, clouds): the take died at the switch to
+  third person: a `FAULT` in `map_objects.cpp`'s once-per-model "object fit" log
+  (`msvcrt` reading 0x6A6: `model.name` through a dangling `Model&`, the model store's vector
+  having grown), then the Wine crash dialog. The dusk classic frames before it show the low
+  sun's long shadows and the cars' headlights on the carriageway
+  (`out/remix_master1_views.png`). The showcase runs use a private build with that log
+  disabled (`STAGE=` in `remix_l4.sh`); the fix belongs to the map-objects owner.
+- `out/remix_master2` (private build, devtools keys on, 16:48 start, clock running, clouds,
+  layer with the emissive signs, 0 faults): the whole take through Remix in one piece:
+  classic at dusk with the low sun's shadows, third person, first person along the carriageway,
+  a car that stopped at the kerb entered the natural way (model 69, 68 `driving` lines), the
+  chase view, the driver's seat, classic while driving, out of the car, third person on foot,
+  the tutorial phone, with the night falling across it: by the drive the lamps are lit along
+  the whole street (184-189 lights submitted a frame, of which 97-101 are the far lamps:
+  "far lamps 101 within 36 tiles of eye ... (game listed 35 map lamps)"), the cars show their
+  headlights, the MOTEL and other signs glow, stars overhead.
+  `deliverables/gta2_linux_rtx_remix_master_demo.mp4` (450 s, from the level start),
+  `deliverables/rtx_remix_day_night_sheet.png` (classic / third / first person, early and late
+  in the take), strips `out/remix_master2_strip.png`, `out/remix_master2_views.png`.
+
+**Open after this pass.**
+- From the driver's seat the own car's hull shows as a bright cut surface at the bottom of the
+  frame (`out/remix_master2_views.png`, top right): Remix does not honour the D3D9 user clip
+  planes `car_bodies.cpp` uses to show only the hood, so under Remix the whole body is path
+  traced from inside. The fix is the car-bodies owner's: clip the own car's triangles on the
+  CPU (drop those above the eye plane) when `RemixApiAvailable()`, or skip the own body under
+  Remix.
+- The night is lifted by the auto-exposure to an overcast-evening brightness
+  (`rtx.autoExposure.halo.maxEv` 4 by default); `maxEv` 2-2.5 or a negative
+  `compensationNightStops` would keep it darker and let the lamps read as pools. Not tried
+  (each check is a 15-minute run on the shared GPU).
+- Not seen in a frame: police light bars flashing (no police car passed), fire/explosion lights
+  (no crash), the car-paint prims' gloss at night, the volumetric clouds against the sun (the
+  take starts after sunset; `ClearSky=0` was on).
+- The `object fit` log fault above is in the shared tree (`map_objects.cpp`, committed as work in
+  progress); until it is fixed, Remix takes use `STAGE=/tmp/remix_tree/stage`, a copy of the
+  tree with that log disabled, built by this pass.
+
+**How to run it again.** `STAGE=<stage dir> gamerun/remix_l4.sh <name> 840 /work/keys_remix_master.sh
+-e MODS_HD=1 -e LEVEL_WAIT=45 -e RTX_EXTRA=/work/rtx_showcase.conf.extra
+-e INI_SED='s/^warp_key=.*/warp_key=F9/; s/^scene_key=.*/scene_key=F10/'
+-e SETTINGS_SED='s/^Paused=.*/Paused=0/; s/^StartHour=.*/StartHour=16.8/; s/^ClearSky=.*/ClearSky=0/'`,
+then `gamerun/remix_daynight_sheet.py out/<name> 840 <sheet.png> <clip.mp4>`. A fixed night:
+`keys_remix_night.sh` with `Paused=1`, `StartHour=21.5`.

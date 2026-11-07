@@ -49,7 +49,9 @@ def look(key, secs, pause):
     hold(key, secs); time.sleep(pause)
 
 # ---------------------------------------------------------------- opening, classic
-D.start()
+# Under RTX Remix the key script brings the game to the level itself (shader
+# prewarm, the attract demo's Residential first) and sets SKIP_START.
+if not os.environ.get("SKIP_START"): D.start()
 s = D.wait_state(40)
 if not s: sys.exit(1)
 mark("level")

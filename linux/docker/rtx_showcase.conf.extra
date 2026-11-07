@@ -1,0 +1,28 @@
+# The showcase look on an NVIDIA GPU (appended to rtx.conf by run_game_remix_gpu.sh
+# with RTX_EXTRA=/work/rtx_showcase.conf.extra). Everything the plain GPU extra
+# sets, plus the atmosphere and post settings for the street views.
+rtx.dlfg.enable = False
+rtx.isReflexEnabled = False
+rtx.upscalerType = 0
+rtx.resolutionScale = 1.0
+rtx.faultNotice.enable = False
+rtx.screenshot.hotkey = F12
+rtx.shader.blockUntilPrewarmed = False
+rtx.gpuStallTimeoutSeconds = 600
+# Bloom: present but moderate, so neon and headlights glow without washing out.
+rtx.bloom.enable = True
+rtx.bloom.burnIntensity = 0.6
+rtx.bloom.luminanceThreshold = 0.6
+# Air: haze between the camera and the city, with the lamps and headlights
+# glowing in it; a light height fog so the street fades with distance at night.
+rtx.atmosphere.aerialPerspective = True
+rtx.atmosphere.aerialPerspectiveLocalLights = True
+rtx.atmosphere.fogVisibilityMeters = 8000
+rtx.atmosphere.fogNearFadeMeters = 40
+rtx.atmosphere.fogAnisotropy = 0.4
+# The night sky: the real stars and moon for the clock's date and latitude.
+rtx.atmosphere.nightSkyStars = True
+rtx.atmosphere.realMoonEnabled = True
+# Untagged materials (people, props, the game's own sprites): matte.
+rtx.legacyMaterial.roughnessConstant = 0.75
+rtx.legacyMaterial.metallicConstant = 0.05
