@@ -116,6 +116,10 @@ void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCo
     i[ni++] = {"camera", "ToggleKey", &vm.toggleKey};
     b[nb++] = {"camera", "MouseLook", &vm.mouseLook};
     f[nf++] = {"camera", "MouseSensitivity", &vm.mouseSensitivity};
+    f[nf++] = {"camera", "MouseMaxStep", &vm.mouseMaxStep};
+    f[nf++] = {"camera", "TurnRateFoot", &vm.turnRateFoot};
+    f[nf++] = {"camera", "TurnRateCar", &vm.turnRateCar};
+    f[nf++] = {"camera", "FirstSmooth", &vm.fpSmooth};
     b[nb++] = {"camera", "InvertY", &vm.invertY};
     f[nf++] = {"camera", "ThirdDistance", &vm.tpDistance};
     f[nf++] = {"camera", "ThirdHeight", &vm.tpHeight};

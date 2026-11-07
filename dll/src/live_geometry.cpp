@@ -4105,8 +4105,8 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
 
     struct Placed { const Model* model; float x, y, z, yaw, scale; float d2; };
     std::vector<Placed> placed;
-    constexpr float kRadius = 26.0f;
-    constexpr int kBudget = 130;
+    constexpr float kRadius = 40.0f;
+    constexpr int kBudget = 220;
     // A column's lid tile, ground type and level, or false off the map / in a hole.
     auto lidOf = [&](int cx, int cz, int* tile, int* ground, int* level) {
         const int my = gta2::kMapHeight - 1 - cz;
@@ -4445,6 +4445,24 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
 }
 
 void LiveGeometry::BeginFrame() {
+    // Pop log: a car body seen this frame that was not seen last frame is a
+    // car that came into existence or into the game's window.
+    for (uintptr_t o : carSeenNow_) {
+        if (std::find(carSeenPrev_.begin(), carSeenPrev_.end(), o) == carSeenPrev_.end()) {
+            float d = 0.0f;
+            for (const CarModelUse& use : carModels_) if (use.object == o) {
+                const float dx = use.placement.m[3][0] - lastEye_.x, dz = use.placement.m[3][2] - lastEye_.z;
+                d = std::sqrt(dx * dx + dz * dz);
+            }
+            ++carPops_; carPopDist_ += d; if (d < 12.0f) ++carPopsNear_;
+        }
+    }
+    carSeenPrev_.swap(carSeenNow_); carSeenNow_.clear();
+    if ((g_carFrame % 900) == 899) {
+        Log("car pops: %d new bodies in 900 frames, %d within 12 blocks, mean first-seen distance %.1f blocks",
+            carPops_, carPopsNear_, carPops_ ? carPopDist_ / carPops_ : 0.0f);
+        carPops_ = carPopsNear_ = 0; carPopDist_ = 0.0f;
+    }
     carModels_.clear();
     carBodies_.clear();
     if (g_carHd && g_carMaterial && !g_hdPrepStarted) StartHdPrepare();
@@ -5499,6 +5517,7 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
         const int sprite = static_cast<int>(*reinterpret_cast<const uint16_t*>(object + game::kSpriteObjectNumber));
         // A hand-picked model when the manifest names one for this sprite; otherwise
         // a body built from the sprite itself, so the car stays the car the game drew.
+        carSeenNow_.push_back(reinterpret_cast<uintptr_t>(object));
         if (const Model* model = ModelForCar(sprite)) {
             carModels_.push_back({model, FitModel(*model, body->local, body->corners, body->objectToWorld, 0.0f),
                                   reinterpret_cast<uintptr_t>(object)});

@@ -28,6 +28,9 @@ constexpr size_t kCacheMax = 96;
 std::map<int, gta2::CarInfo> g_info;
 int g_built = 0, g_drawn = 0;
 bool g_wreckTest = false;   // [devtools] wreck_models=1: every car drawn as a wreck, to check the models
+int g_forceModel = -1;      // [devtools] force_car_model=N: every traffic car drawn as model N (re-read once a second)
+char g_devIni[260] = {};
+int g_logNoses = -1;        // GTA2DX9_LOG_CAR_NOSES=1: a line per drawn car every 15 frames, for tools/check_car_noses.py
 // Where the cars stage's time went in the last call: measuring artwork, building
 // bodies, drawing models, drawing sprite-built bodies (ms), and the counts.
 double g_carStats[8] = {};
@@ -744,28 +747,74 @@ const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut,
         dst.texture = src.texture;
         dst.skin = -1;
         const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        // A vertex with its signed distances inside the two cuts: below the eye
+        // plane (yCut - y) and ahead of the windscreen plane (z - zCut); the mesh
+        // is clipped against both, so the hood's edge is the plane itself rather
+        // than a stair of dropped triangles.
+        struct CV { ModelVertex v; float dy, dz; };
+        auto lerpV = [](const ModelVertex& a, const ModelVertex& b, float t) {
+            ModelVertex o;
+            o.x = a.x + (b.x - a.x) * t; o.y = a.y + (b.y - a.y) * t; o.z = a.z + (b.z - a.z) * t;
+            o.nx = a.nx + (b.nx - a.nx) * t; o.ny = a.ny + (b.ny - a.ny) * t; o.nz = a.nz + (b.nz - a.nz) * t;
+            o.u = a.u + (b.u - a.u) * t; o.v = a.v + (b.v - a.v) * t;
+            return o;
+        };
+        // Sutherland-Hodgman against one plane: keep where d >= 0.
+        auto clipPoly = [&](std::vector<CV>& poly, int which) {
+            std::vector<CV> out;
+            const size_t n = poly.size();
+            for (size_t i = 0; i < n; ++i) {
+                const CV& a = poly[i];
+                const CV& b = poly[(i + 1) % n];
+                const float da = which == 0 ? a.dy : a.dz, db = which == 0 ? b.dy : b.dz;
+                if (da >= 0.0f) out.push_back(a);
+                if ((da >= 0.0f) != (db >= 0.0f)) {
+                    const float t = da / (da - db);
+                    CV c;
+                    c.v = lerpV(a.v, b.v, t);
+                    c.dy = a.dy + (b.dy - a.dy) * t;
+                    c.dz = a.dz + (b.dz - a.dz) * t;
+                    out.push_back(c);
+                }
+            }
+            poly.swap(out);
+        };
         for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
             ++all;
-            float cy = 0.0f, cz = 0.0f;
             gta2::Vec3 q[3];
+            std::vector<CV> poly(3);
             for (int c = 0; c < 3; ++c) {
                 const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
                 q[c] = PointBy(toCar, v.x, v.y, v.z);
-                cy += q[c].y; cz += q[c].z;
+                poly[static_cast<size_t>(c)] = {v, yCut - q[c].y, q[c].z - zCut};
             }
-            cy /= 3.0f; cz /= 3.0f;
             // Only faces that lie flat enough to be the hood's top (or its underside,
             // hidden behind it): the engine bay's inner walls and the fenders' sides
             // are what the eye would otherwise see from inside the hull.
             const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
             const float nl = std::sqrt(gta2::Dot(nrm, nrm));
             const bool flat = nl > 1e-9f && std::fabs(nrm.y) / nl > 0.35f;
-            if (flat && cy < yCut && cz > zCut) {
+            if (!flat) continue;
+            const bool allIn = poly[0].dy >= 0 && poly[1].dy >= 0 && poly[2].dy >= 0 && poly[0].dz >= 0 && poly[1].dz >= 0 && poly[2].dz >= 0;
+            if (allIn) {
                 dst.indices.push_back(src.indices[t]);
                 dst.indices.push_back(src.indices[t + 1]);
                 dst.indices.push_back(src.indices[t + 2]);
                 ++kept;
+                continue;
             }
+            clipPoly(poly, 0);
+            if (poly.size() >= 3) clipPoly(poly, 1);
+            if (poly.size() < 3) continue;
+            // The clipped polygon as a fan of new vertices.
+            const uint32_t base = static_cast<uint32_t>(dst.vertices.size());
+            for (const CV& c : poly) dst.vertices.push_back(c.v);
+            for (size_t i = 1; i + 1 < poly.size(); ++i) {
+                dst.indices.push_back(base);
+                dst.indices.push_back(base + static_cast<uint32_t>(i));
+                dst.indices.push_back(base + static_cast<uint32_t>(i + 1));
+            }
+            ++kept;
         }
     }
     const Model* stored = ModelRegisterDerived(std::move(hood));
@@ -1177,6 +1226,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
 
     int builtThisFrame = 0;
+    if (g_devIni[0] && frame % 60 == 0) g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
+    if (g_logNoses < 0) { char v[8] = {}; g_logNoses = GetEnvironmentVariableA("GTA2DX9_LOG_CAR_NOSES", v, sizeof v) ? atoi(v) : 0; }
     for (const CarBodyUse& use : cars) {
         bool effect = false;
         IDirect3DTexture9* art = DeviceTextureFor(device, use.texture, &effect, true);
@@ -1184,6 +1235,15 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         Built* b = Measured(device, use, art, frame);
         if (!b) continue;
         const gta2::Mat4 carToWorld = Mul(CarToLocal(use), use.objectToWorld);
+        if (g_logNoses && frame % 15 == 0) {
+            // The placement's nose (+z of the car frame) in the world, before any
+            // model's own `forward`; the checker pairs consecutive samples of one
+            // object into a velocity and compares it with this direction.
+            const Model* lm = (use.sprite >= 65 && use.sprite <= 74) ? nullptr : ModelForVehicle(g_forceModel >= 0 && !use.own ? g_forceModel : use.model, use.sprite);
+            Log("car nose: obj=%08x sprite=%d model=%d f=%+d x=%.3f z=%.3f nx=%.3f nz=%.3f own=%d frame=%u",
+                static_cast<unsigned>(use.object), use.sprite, use.model, lm ? (lm->forward < 0 ? -1 : 1) : 0,
+                carToWorld.m[3][0], carToWorld.m[3][2], carToWorld.m[2][0], carToWorld.m[2][2], use.own ? 1 : 0, frame);
+        }
         // A car behind the camera costs its whole transform and clip on the
         // software driver for nothing on screen; the margin covers a bus.
         if (!use.own && BehindView(carToWorld.m[3][0], carToWorld.m[3][1], carToWorld.m[3][2], 2.5f)) continue;
@@ -1232,12 +1292,25 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // its painted parts in the car's own colour.
         // A burnt-out car keeps its model number but the game swaps its sprite for
         // one of the ten wreck sprites (65..74): those are CARI models 72..81.
-        const int modelNumber = (use.sprite >= 65 && use.sprite <= 74) ? 72 + (use.sprite - 65) : g_wreckTest ? 72 + (use.sprite % 10) : use.model;
+        const int modelNumber = (use.sprite >= 65 && use.sprite <= 74) ? 72 + (use.sprite - 65)
+                                : g_wreckTest ? 72 + (use.sprite % 10)
+                                : (g_forceModel >= 0 && !use.own) ? g_forceModel : use.model;
         if (const Model* model = ModelForVehicle(modelNumber, use.sprite)) {
             const float modelLen = (std::max)(model->Length(), 0.01f), modelWid = (std::max)(model->Width(), 0.01f);
             const bool sideways = modelWid > modelLen * 1.3f;   // modelled along x rather than z
             const float along = sideways ? modelWid : modelLen, across = sideways ? modelLen : modelWid;
-            const float sz = b->bodyLength / along, sx = b->bodyWidth / across;
+            float sz = b->bodyLength / along, sx = b->bodyWidth / across;
+            {
+                // The footprint is the sprite's; a model with different proportions
+                // would be stretched one way. Keep its shape: the aspect may change
+                // by 15 % at most, the rest overhangs or falls short of the sprite.
+                constexpr float kMaxAspect = 1.15f;
+                const float s = std::sqrt(sx * sz);
+                float r = sx / sz;
+                r = (std::max)(1.0f / kMaxAspect, (std::min)(kMaxAspect, r));
+                sx = s * std::sqrt(r);
+                sz = s / std::sqrt(r);
+            }
             const float sy = std::sqrt(sx * sz);
             gta2::Mat4 fit;
             const float f = model->forward;
@@ -1363,5 +1436,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
 }
 
 void CarBodiesSetWreckTest(bool on) { g_wreckTest = on; }
+void CarBodiesSetDevIni(const char* ini) {
+    if (!ini) { g_devIni[0] = 0; return; }
+    strncpy(g_devIni, ini, sizeof(g_devIni) - 1);
+    g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
+}
 
 }  // namespace gta2dx9

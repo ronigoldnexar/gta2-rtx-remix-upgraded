@@ -182,8 +182,13 @@ void LoadConfig() {
         vm.demoSwitchSeconds =
             static_cast<float>(GetPrivateProfileIntA("camera", "demo_switch_seconds", 0, ini));
         vm.demoSwitchTo = GetPrivateProfileIntA("camera", "demo_switch_to", 2, ini);
+        // The feel of the street views; the F4 menu's saved settings override these.
+        vm.mouseLook = GetPrivateProfileIntA("camera", "mouse_look", 1, ini) != 0;
+        vm.turnRateFoot = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_foot", 180, ini));
+        vm.turnRateCar = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_car", 240, ini));
         vm.logKeys = GetPrivateProfileIntA("devtools", "log_keys", 0, ini) != 0;
         gta2dx9::CarBodiesSetWreckTest(GetPrivateProfileIntA("devtools", "wreck_models", 0, ini) != 0);
+        gta2dx9::CarBodiesSetDevIni(ini);
         gta2dx9::PedRemapOverride(GetPrivateProfileIntA("devtools", "ped_remap_override", -1, ini));
         {
             char warpKey[32] = {};
@@ -424,8 +429,8 @@ void LoadConfig() {
         sky.followClock = GetPrivateProfileIntA("sky", "follow_clock", 0, ini) != 0;
         sky.sunElevationDeg = GetPrivateProfileIntA("sky", "sun_elevation_tenths", 240, ini) / 10.0f;
         sky.sunAzimuthDeg = GetPrivateProfileIntA("sky", "sun_azimuth_tenths", 2350, ini) / 10.0f;
-        sky.fogStart = static_cast<float>(GetPrivateProfileIntA("sky", "fog_start_blocks", 30, ini));
-        sky.fogEnd = static_cast<float>(GetPrivateProfileIntA("sky", "fog_end_blocks", 140, ini));
+        sky.fogStart = static_cast<float>(GetPrivateProfileIntA("sky", "fog_start_blocks", 18, ini));
+        sky.fogEnd = static_cast<float>(GetPrivateProfileIntA("sky", "fog_end_blocks", 130, ini));
         if (sky.fogEnd < sky.fogStart + 5.0f) sky.fogEnd = sky.fogStart + 5.0f;
         sky.cloudCover = GetPrivateProfileIntA("sky", "cloud_cover_percent", 45, ini) / 100.0f;
         sky.ambient = GetPrivateProfileIntA("sky", "ambient_percent", 80, ini) / 100.0f;

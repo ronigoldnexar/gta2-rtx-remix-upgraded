@@ -556,6 +556,8 @@ private:
         uintptr_t object;
     };
     std::vector<CarModelUse> carModels_;
+    std::vector<uintptr_t> carSeenPrev_, carSeenNow_;   // car objects with a body last frame / this frame, for the pop log
+    int carPops_ = 0, carPopsNear_ = 0; float carPopDist_ = 0.0f;
     std::vector<PropFootprint> propFootprints_;   // the props drawn last frame, see DrawProps
 public:
     const std::vector<PropFootprint>& PlacedProps() const { return propFootprints_; }

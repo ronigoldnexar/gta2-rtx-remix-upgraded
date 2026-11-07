@@ -906,11 +906,21 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
         SetCursorPos(centre.x, centre.y);
         return;
     }
-    const int dx = cursor.x - centre.x;
-    const int dy = cursor.y - centre.y;
+    int dx = cursor.x - centre.x;
+    int dy = cursor.y - centre.y;
     if (dx == 0 && dy == 0) return;
     SetCursorPos(centre.x, centre.y);
-    const float perCount = 0.12f * kDegToRad * (std::max)(0.05f, g_settings.mouseSensitivity);
+    // A remote pointer (VNC, a remote desktop) is placed, not moved: when the
+    // warp did not reach the client, the next report is the whole way back from
+    // wherever its pointer sits. That is not a look; a hand never moves the
+    // mouse a quarter of the screen in a frame.
+    const int maxStep = (std::max)(1, static_cast<int>(g_settings.mouseMaxStep));
+    if (std::abs(dx) > maxStep * 8 || std::abs(dy) > maxStep * 8) return;
+    dx = (std::max)(-maxStep, (std::min)(maxStep, dx));
+    dy = (std::max)(-maxStep, (std::min)(maxStep, dy));
+    // Sensitivity 1: a quarter turn across the window's width.
+    const float width = static_cast<float>((std::max)(static_cast<LONG>(320), rect.right - rect.left));
+    const float perCount = (90.0f / width) * kDegToRad * (std::max)(0.05f, g_settings.mouseSensitivity);
     g_look.yaw = WrapAngle(g_look.yaw + static_cast<float>(dx) * perCount);
     g_look.pitch += static_cast<float>(g_settings.invertY ? dy : -dy) * perCount;
     g_look.pitch = (std::min)((std::max)(g_look.pitch, -85.0f * kDegToRad), 85.0f * kDegToRad);
@@ -921,6 +931,21 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
 // The camera itself
 // ---------------------------------------------------------------------------
 
+// Every frame's camera yaw against the game's heading, when GTA2DX9_LOG_CAMERA=1
+// is in the environment: for measuring the turn rate from a test session.
+static void LogCameraFrame(const char* view, float camYaw, float headingYaw, float dt) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", buf, sizeof buf) && atoi(buf) ? 1 : 0;
+    }
+    if (!enabled) return;
+    static float lastCam = 0.0f;
+    const float rate = WrapAngle(camYaw - lastCam) / (std::max)(dt, 1e-3f) / kDegToRad;
+    lastCam = camYaw;
+    Log("cam: %s yaw=%.1f heading=%.1f rate=%.0f dt=%.3f", view, camYaw / kDegToRad, headingYaw / kDegToRad, rate, dt);
+}
+
 void ViewCameraSolver::Reset() {
     settled_ = false;
     floorSettled_ = false;
@@ -928,10 +953,31 @@ void ViewCameraSolver::Reset() {
     velX_ = velZ_ = 0.0f;
     speedFrac_ = 0.0f;
     yawRate_ = 0.0f;
+    followYawVel_ = 0.0f;
+    fpYawVel_ = 0.0f;
     roll_ = 0.0f;
     shake_ = 0.0f;
     forwardAccel_ = 0.0f;
     speed = 0.0f;
+}
+
+// A critically damped spring on an angle: `yaw` chases `target` with velocity
+// `vel`, never faster than `maxRate` (radians a second). The spring settles in
+// about 4 / omega seconds without overshoot; the cap is what keeps a spin from
+// becoming a whirl.
+static void SpringTurn(float* yaw, float* vel, float target, float omega, float maxRate, float dt) {
+    const float error = WrapAngle(target - *yaw);
+    const float accel = omega * omega * error - 2.0f * omega * *vel;
+    *vel += accel * dt;
+    if (maxRate > 0.0f) *vel = (std::max)(-maxRate, (std::min)(maxRate, *vel));
+    // Never past the target within a step: the clamp above can leave the
+    // velocity pointing through it on a tiny error.
+    float step = *vel * dt;
+    if ((error > 0.0f && step > error) || (error < 0.0f && step < error)) {
+        step = error;
+        *vel = 0.0f;
+    }
+    *yaw = WrapAngle(*yaw + step);
 }
 
 bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& queries, float dt,
@@ -988,6 +1034,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const bool jumped = settled_ && std::hypot(px - lastX_, pz - lastZ_) > 4.0f;
     if (!settled_ || jumped) {
         followYaw_ = headingYaw;
+        followYawVel_ = 0.0f;
+        fpYaw_ = headingYaw;
+        fpYawVel_ = 0.0f;
         lastYaw_ = headingYaw;
         floorSettled_ = false;
         settled_ = true;
@@ -1095,7 +1144,23 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 eye.z = oz;
             }
         }
-        float yaw = WrapAngle(headingYaw + look.yaw);
+        // The view heading lags the game's: a rate cap and a short ease, so an
+        // about-face is a half-second sweep rather than a two-frame whirl. At
+        // the wheel it also leans a little toward where the car is going.
+        {
+            float target = headingYaw;
+            if (inVehicle && speed > 1.5f) {
+                const float vx = velX_ / speed, vz = velZ_ / speed;
+                if (vx * hx + vz * hz > 0.2f) {
+                    const float weight = (std::min)((speed - 1.5f) / 4.0f, 1.0f) * 0.25f;
+                    target = WrapAngle(headingYaw + WrapAngle(std::atan2(vx, vz) - headingYaw) * weight);
+                }
+            }
+            const float rate = (inVehicle ? s.turnRateCar : s.turnRateFoot) * kDegToRad;
+            const float omega = 2.0f / (std::max)(s.fpSmooth, 0.02f);
+            SpringTurn(&fpYaw_, &fpYawVel_, target, omega, rate > 0.0f ? rate : 0.0f, dt);
+        }
+        float yaw = WrapAngle(fpYaw_ + look.yaw);
         float pitch = look.pitch;
         float roll = 0.0f;
 
@@ -1116,11 +1181,12 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // The nose dips under braking and lifts under power; the head leans
             // into a turn.
             pitch += (std::max)((std::min)(forwardAccel_ / 25.0f, 1.0f), -1.0f) * 2.5f * kDegToRad * s.fpLean;
-            const float yawRate = WrapAngle(headingYaw - lastYaw_) / dt;
-            yawRate_ += (yawRate - yawRate_) * (1.0f - std::exp(-dt / 0.15f));
+            yawRate_ += (fpYawVel_ - yawRate_) * (1.0f - std::exp(-dt / 0.15f));
             roll += (std::max)((std::min)(yawRate_ * speedFrac_ * 0.5f, 1.0f), -1.0f) * 3.0f * kDegToRad * s.fpLean;
         }
-        lastYaw_ = headingYaw;
+        lastYaw_ = fpYaw_;
+        followYaw_ = fpYaw_;   // so a switch to the chase view starts from where the eyes look
+        followYawVel_ = fpYawVel_;
 
         // The kick of an impact, and the stretch of speed.
         if (shake_ > 0.001f) {
@@ -1135,6 +1201,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         camera->SetOrientation(yaw, pitch);
         camera->SetRoll(roll);
         camera->SetFovY((std::min)(fov, 140.0f) * kDegToRad);
+        LogCameraFrame("first", yaw, headingYaw, dt);
         {
             // Once a second: where the eye is against the floor under him, for the log.
             static float logClock = 0.0f;
@@ -1161,11 +1228,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // The camera's own yaw eases round behind the player, so a turn swings the
     // view over a few tenths of a second rather than snapping; quicker at speed,
     // where a camera that dawdles loses the road.
-    const float tau = (std::max)(s.tpFollow, 0.01f) * (1.0f - 0.45f * speedFrac_);
-    followYaw_ = WrapAngle(followYaw_ + WrapAngle(chaseYaw - followYaw_) * (1.0f - std::exp(-dt / tau)));
-    const float rawYawRate = WrapAngle(followYaw_ - lastYaw_) / dt;
+    // A critically damped spring, quicker at speed, and never faster than the
+    // turn rate: the player turns on the spot in the game, the camera swings
+    // round behind him over a few tenths of a second.
+    {
+        const float tau = (std::max)(s.tpFollow, 0.05f) * (1.0f - 0.45f * speedFrac_);
+        const float rate = (inVehicle ? s.turnRateCar : s.turnRateFoot) * kDegToRad;
+        SpringTurn(&followYaw_, &followYawVel_, chaseYaw, 2.0f / tau, rate > 0.0f ? rate : 0.0f, dt);
+    }
     lastYaw_ = followYaw_;
-    yawRate_ += (rawYawRate - yawRate_) * (1.0f - std::exp(-dt / 0.12f));
+    fpYaw_ = followYaw_;   // a switch to first person starts from the camera's heading
+    fpYawVel_ = followYawVel_;
+    yawRate_ += (followYawVel_ - yawRate_) * (1.0f - std::exp(-dt / 0.12f));
     const float yaw = WrapAngle(followYaw_ + look.yaw);
     const float orbitPitch = (std::min)((std::max)(look.pitch, -20.0f * kDegToRad), 70.0f * kDegToRad);
 
@@ -1314,6 +1388,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     camera->SetOrientation(camYaw, camPitch);
     camera->SetRoll(roll_);
     camera->SetFovY((std::min)(fov, 130.0f) * kDegToRad);
+    LogCameraFrame("third", camYaw, headingYaw, dt);
     yawDegrees = camYaw / kDegToRad;
     pitchDegrees = camPitch / kDegToRad;
     status_ = inVehicle ? "third person, following the car" : "third person, following on foot";
