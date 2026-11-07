@@ -102,6 +102,74 @@ runner.
 
 The tours were coverage tours; neither mission was completed.
 
+## Missions (7 Nov 2026, evening: `gamerun/mission_play_districts.py` on the v3 runner)
+
+District files: `bil` is Industrial, `ste` is Residential. Runs on the fast path
+(`gamerun/grun.sh`, `GTA2_FAST=0 SWAP_LEVEL=<file>`, 2400 s, devtools F9/F10 enabled, every
+developer warp marked in `marks.txt`). Neither mission reached JOB COMPLETE; the table says
+exactly where each attempt stopped and what was changed after it.
+
+| run | district / job | reached | stopped because | change made after |
+|---|---|---|---|---|
+| `pd3_ste1` | Residential, BLOW JOB! (Rednecks green phone 18.5,68.5) | car to within 37 blocks of the phone; walker stuck on the way (10 re-routes) | the fallback warp landed on the phone cell itself and a warped-onto phone never rings ("phone not answered") | warp to a street cell beside the phone, walk the last stretch, step off and back on |
+| `pd3_ste2` (earlier agent) | same | phone answered, Pickup entered, driven into the 3x1 block (game message 2005 "in the block") | the parking pulses pushed the Pickup back out (2004) and the fragile rigged car failed the job (2998) within a second | hold still once the game reports the block (`parked_msgs`); stage-2 messages mapped (2016 in, 2017 out) |
+| `pd3_ste3` | same | phone approached from the west | a fence blocks the western approach at (14.5,64.5): 9 re-routes, 4 blocks short | south approach waypoint (18.5,100) for that phone, the route that worked in `pd3_ste2` |
+| `pd3_ste4` | same | **phone answered on foot via the south approach**, Pickup entered (door warp after two honest tries), drive at the 2.0 crawl | the driver left the route and stopped 92 blocks from the block with damage 247/255; the stage loop then mis-read the car arrow as "stage 2" | re-drive to the block when the leg ends far from it; stage 2 only when the arrow moves away from the abandoned car or message 2012 shows; fifth attempt `pd3_ste5` |
+| `pd3_ste5` | same | drive to the phone, south approach waypoint reached (with two reported pinned-walker warps from the shared walker) | after the waypoint the walker drifted east of the fenced plaza (stuck at 22.5,67 then pushed south by its unsticking moves) and never stepped on the phone; "phone not answered" | a second waypoint (18.5,78) keeps the walker on the x=18.5 street; sixth attempt `pd3_ste6` |
+| `pd3_ste6` | same | both approach waypoints, phone answered (message 2001) | the walk to the Pickup never got near it: three reported pinned-walker warps around 130.5,103.5 (the walker's reported position after the street warp was 132.9,105 while the phone at 18.5,68.5 rang: a position read-back anomaly left open), "pickup 1 not entered" | none: the shared walker/warp library was changing under this stream (new `game=` mark field, pinned-walker warps from the Downtown stream); stopped here |
+| `pd3_bil1` | Industrial, MMM, RUSSIAN SAILORS! (Russian green phone 189.5,76.5, level 6 rooftop) | drive bailed out 250 blocks from the phone, walker started a 255-cell walk | pre-fix script (warp onto the phone) | a second driving leg after a bail-out (`any_car2` again) |
+| `pd3_bil2` | same | rooftop phone answered (street warp + step back on); on foot on the roof | the walker cannot get down from level 6 (stuck at L4/L5 for 5 min); the Z-Type (48,73) reached at the very end, two door tries, budget out | warp down to the street after a rooftop phone; door warp after two tries; enter budget 360 s |
+| `pd3_bil3` | same | phone, Z-Type reached by car in 6 min and entered (door warp) | the Z-Type caught fire after wall hits at the 3.0 cap on the first dealer leg ("the car is on fire: out and clear") | crawl cap 2.0 for the Z-Type (`M.SLOW_CAP`) |
+| `pd3_bil4` | same | phone answered, Z-Type entered (door warp), first dealer leg at the 2.0 crawl, 3 wall stalls | the Z-Type was wrecked with the player inside 8 min into the leg (message 4223 "What a disaster! Clearly you have no staying power, Comrade!", one life lost); renderer log: 0 faults | wait for the arrow to leave the car before reading the dealer target (the script read "dealer 1 at 48,73", the car's own cell, and drove in circles); fifth attempt `pd3_bil5` |
+| `pd3_bil5` | same | phone answered after the rooftop street warp; no traffic car found for 4 min so the 150-block trip to the Z-Type went on foot | a door try near the walk's end put the player into a passing traffic car 90 blocks from the Z-Type; `enter_parked` took any "driving" state as success, so the script "drove to the dealers" in the wrong car while the arrow stayed on the parked Z-Type | `enter_parked` now accepts only a car at the mission car's cell; a hijacked car is driven to the mission car instead; sixth attempt `pd3_bil6` |
+| `pd3_bil6` | same | phone answered (street warp), Z-Type trip by car, "wedged in traffic: leaving the jam on foot" | the walker's warps landed off target (130.5,124.5 reported at 139.1,143.9 level 4; 113.5,192.5 at 91.4,173.8) and the Z-Type was never reached; renderer log 0 faults | stopped here (same library churn) |
+
+### What the runner can do in these districts (verified)
+
+- Reach a far phone by car and on foot, including the Rednecks' fenced phone from the south
+  and the Russians' rooftop phone (the latter only with the logged street warp beside it, then
+  stepping onto it: a warp onto the phone cell never rings it).
+- Read the mission's start from the title message or the arrow (`view: arrows`), enter the
+  scripted mission car, drive it to the scripted block and get the game's "in the block"
+  message (BLOW JOB, run `pd3_ste2`), and detect the outcome from the message field.
+- Everything is recorded in the street views: third person on foot, first person for a stretch
+  of every walk and every drive.
+
+### Status after six attempts per district
+
+Not completed in either district. Each attempt removed one failure mode and exposed the next:
+phone cell warps, fenced approaches, fragile mission cars, parking pulses, stage detection,
+the arrow's entry lag, a passing car accepted as the mission car, and finally the shared
+walker's warp landings. The last two runs (`pd3_ste6`, `pd3_bil6`) ran on a shared
+`mission_lib.py` that the Downtown stream was editing at the same time (the `game=` mark
+field and the pinned-walker warps are theirs), so their failures are not attributable to this
+runner alone. Next step for whoever continues: re-run `pd3_ste6`/`pd3_bil6` once the shared
+library is stable, and treat the two remaining blockers below first.
+
+### Why neither job completed (root causes, with evidence)
+
+1. **Fragile mission cars + the driver's wall hits.** The rigged Pickup and the Z-Type are
+   wrecked by the same collisions an ordinary traffic car survives. Even at the 2.0 crawl the
+   driver (`mission_lib.drive3`) stalls against walls on these districts' narrower roads
+   (`pd3_ste4`: damage 247 of 255 on arrival; `pd3_bil3`: fire). The Downtown stream is
+   working on a wall-aware driver in the same library; these jobs should be re-run on it.
+2. **Parking by pulses.** Nudging into a 3x1 block pushed the car out again; fixed by holding
+   still on the game's own "in the block" message, not re-verified end to end.
+3. **Stage detection by arrow kind.** After a failed park the arrow still points at the car,
+   which the script took as the next stage's car; needs the message numbers as the stage
+   signal (2012 announces stage 2).
+4. **Rooftop phones.** Both gang phones chosen sit on raised blocks the walker cannot climb
+   (ste: fenced plaza; bil: level 6); the honest route exists (stairs) but the router's slope
+   handling did not find it here. The warps used are marked in every run.
+
+### Files
+
+`gamerun/mission_play_districts.py` (+ `keys_mission_districts.sh`, `districts_missions_sheet.py`),
+`gamerun/mission_lib.py` (`SLOW_CAP`), mirrored in `linux/docker/`; sheet
+`out/playthrough_districts_missions_sheet.png` (copy in `deliverables/`); clips
+`deliverables/gta2_linux_playthrough_residential.mp4` and `..._industrial.mp4` (the furthest
+attempts, cut from the level start); runs `out/pd3_ste1..4`, `out/pd3_bil1..4`.
+
 ## Defects found
 
 Fixed (uncommitted):
