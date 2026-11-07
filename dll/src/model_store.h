@@ -102,6 +102,14 @@ struct Model {
 // does nothing after the first time. `folder` is beside the game.
 void ModelsLoad(const char* folder);
 bool ModelsAvailable();
+// True for every Model* the store has handed out (they never move or die); a
+// pointer that fails this came from stale or uninitialised memory and must not be used.
+bool ModelIsKnown(const Model* model);
+// Adds a model derived from another (a hood-only copy of a car body, say) to the
+// store, so it is drawn and cached like the rest; returns its stable address.
+const Model* ModelRegisterDerived(Model&& model);
+// The world matrix of every node in the rest pose.
+void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out);
 // The model for a car sprite number, or null; the pedestrian model, or null.
 const Model* ModelForCar(int sprite);
 // The model for a vehicle by its game model number (the manifest's

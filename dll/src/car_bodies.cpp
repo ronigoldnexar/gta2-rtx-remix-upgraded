@@ -7,9 +7,11 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <tuple>
 
 #include "log.h"
 #include "model_store.h"
+#include "remix_api.h"
 #include "texture_store.h"
 
 namespace gta2dx9 {
@@ -695,6 +697,83 @@ float PixelScale(const CarBodyUse& use, int h) {
 // The car's measurements (paint, footprint) from its artwork: what both a
 // hand-made model and a body built here need. The body mesh itself is built
 // only when it is going to be drawn (BodyMesh).
+
+// From the driver's seat the model is a solid hull: on the plain D3D9 path two
+// user clip planes cut it just below the eye and at the windscreen. RTX Remix
+// ignores user clip planes (the hull then shows as a bright cut surface across
+// the view), so under Remix the same cut is made on the CPU: a copy of the model
+// keeping only the triangles whose centre, in the car's own frame after the fit,
+// lies below `yCut` and ahead of `zCut` (the hood, the fenders, the cowl). Each
+// (model, cuts) pair is built once and registered with the store.
+struct HoodKey {
+    const Model* model; int yq, zq;
+    bool operator<(const HoodKey& o) const { return std::tie(model, yq, zq) < std::tie(o.model, o.yq, o.zq); }
+};
+std::map<HoodKey, const Model*> g_hoods;
+
+gta2::Mat4 Mul(const gta2::Mat4& a, const gta2::Mat4& b);   // defined below
+inline gta2::Vec3 PointBy(const gta2::Mat4& m, float x, float y, float z) {
+    return {x * m.m[0][0] + y * m.m[1][0] + z * m.m[2][0] + m.m[3][0],
+            x * m.m[0][1] + y * m.m[1][1] + z * m.m[2][1] + m.m[3][1],
+            x * m.m[0][2] + y * m.m[1][2] + z * m.m[2][2] + m.m[3][2]};
+}
+
+const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut) {
+    // 0.04-block steps: the eye bobs and leans a little, the cache stays small.
+    const HoodKey key{&model, static_cast<int>(std::floor(yCut * 25.0f)), static_cast<int>(std::floor(zCut * 25.0f))};
+    auto it = g_hoods.find(key);
+    if (it != g_hoods.end()) return it->second;
+    if (g_hoods.size() > 96) g_hoods.clear();   // the store keeps the models; only the lookup is dropped
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    Model hood;
+    hood.name = model.name + "#hood";
+    hood.nodes = model.nodes;
+    hood.forward = model.forward;
+    hood.boundsMin = model.boundsMin; hood.boundsMax = model.boundsMax;
+    for (int k = 0; k < 3; ++k) hood.paintRgb[k] = model.paintRgb[k];
+    hood.splitPaint = model.splitPaint;
+    hood.meshes.resize(model.meshes.size());
+    size_t kept = 0, all = 0;
+    for (size_t n = 0; n < model.nodes.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& src = model.meshes[static_cast<size_t>(mi)];
+        ModelMesh& dst = hood.meshes[static_cast<size_t>(mi)];
+        dst.vertices = src.vertices;
+        dst.texture = src.texture;
+        dst.skin = -1;
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
+            ++all;
+            float cy = 0.0f, cz = 0.0f;
+            gta2::Vec3 q[3];
+            for (int c = 0; c < 3; ++c) {
+                const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                q[c] = PointBy(toCar, v.x, v.y, v.z);
+                cy += q[c].y; cz += q[c].z;
+            }
+            cy /= 3.0f; cz /= 3.0f;
+            // Only faces that lie flat enough to be the hood's top (or its underside,
+            // hidden behind it): the engine bay's inner walls and the fenders' sides
+            // are what the eye would otherwise see from inside the hull.
+            const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
+            const float nl = std::sqrt(gta2::Dot(nrm, nrm));
+            const bool flat = nl > 1e-9f && std::fabs(nrm.y) / nl > 0.35f;
+            if (flat && cy < yCut && cz > zCut) {
+                dst.indices.push_back(src.indices[t]);
+                dst.indices.push_back(src.indices[t + 1]);
+                dst.indices.push_back(src.indices[t + 2]);
+                ++kept;
+            }
+        }
+    }
+    const Model* stored = ModelRegisterDerived(std::move(hood));
+    g_hoods[key] = stored;
+    Log("car bodies: hood copy of %s for the driver's seat: %zu of %zu triangles (y < %.2f, z > %.2f)", model.name.c_str(), kept, all, yCut, zCut);
+    return stored;
+}
+
 Built* Measured(IDirect3DDevice9* device, const CarBodyUse& use, IDirect3DTexture9* art, uint32_t frame) {
     (void)device;
     const Key key{use.sprite, art};
@@ -1117,7 +1196,20 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         const bool inside = Inside(carToWorld, eye, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.4f * b->bodyWidth);
         if (inside && !use.own) continue;
         bool clipped = false;
-        if (inside && use.own) {
+        // The hood-only copy is drawn on both paths (Remix ignores user clip planes;
+        // on plain D3D9 the plane below still trims the copy's edge exactly).
+        const bool cpuCut = inside && use.own;
+        float eyeLocalY = 0.0f, eyeLocalZ = 0.0f;
+        if (cpuCut) {
+            // The eye in the car's own frame: along its up and forward axes.
+            const float ux = carToWorld.m[1][0], uy = carToWorld.m[1][1], uz = carToWorld.m[1][2];
+            const float fx = carToWorld.m[2][0], fy = carToWorld.m[2][1], fz = carToWorld.m[2][2];
+            const float dx = eye.x - carToWorld.m[3][0], dy = eye.y - carToWorld.m[3][1], dz = eye.z - carToWorld.m[3][2];
+            const float ul = ux * ux + uy * uy + uz * uz, fl = fx * fx + fy * fy + fz * fz;
+            eyeLocalY = ul > 1e-8f ? (dx * ux + dy * uy + dz * uz) / ul : 0.0f;
+            eyeLocalZ = fl > 1e-8f ? (dx * fx + dy * fy + dz * fz) / fl : 0.0f;
+        }
+        if (inside && use.own && !RemixApiAvailable()) {
             const float ux = carToWorld.m[1][0], uy = carToWorld.m[1][1], uz = carToWorld.m[1][2];
             const float ul = std::sqrt(ux * ux + uy * uy + uz * uz);
             if (ul > 1e-6f) {
@@ -1170,7 +1262,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             device->SetRenderState(D3DRS_ALPHAREF, 128u);
             device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
             const double tm = CarNowMs();
-            ModelDraw(device, *model, Mul(fit, carToWorld), nullptr, 0.0f);
+            // Under Remix the own car is its hood-only copy (see HoodModelFor); the
+            // same cuts the clip planes make elsewhere: a hand below the eye, a hand
+            // ahead of it.
+            const Model* drawn = model;
+            if (cpuCut) drawn = HoodModelFor(*model, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f);
+            ModelDraw(device, *drawn, Mul(fit, carToWorld), nullptr, 0.0f);
             g_carStats[2] += CarNowMs() - tm;
             g_carStats[6] += 1;
             device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);

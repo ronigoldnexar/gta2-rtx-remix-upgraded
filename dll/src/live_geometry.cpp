@@ -4790,6 +4790,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
             Sprite placed = sprites_[lastSprite_];
             placed.hidden = false;
             placed.texture = texture;
+            placed.objectModel = nullptr;   // the model stands in for the first quad only
             // The quad's own up can face the ground, depending on how the game
             // wound it; "above" is whichever way its frame's up points in the
             // world.

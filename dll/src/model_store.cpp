@@ -5,7 +5,9 @@
 #include <cstdio>
 #include <cstring>
 #include <array>
+#include <deque>
 #include <map>
+#include <unordered_set>
 #include <set>
 
 #include "log.h"
@@ -13,7 +15,11 @@
 namespace gta2dx9 {
 namespace {
 
-std::vector<Model> g_models;
+// A deque, not a vector: every Model* handed out (sprites keep one across a
+// frame, car bodies and map objects key caches by it) must stay valid for the
+// process's life, and a deque never moves its elements when it grows.
+std::deque<Model> g_models;
+std::unordered_set<const Model*> g_known;   // every address the store ever handed out
 std::map<std::string, size_t> g_byName;
 std::vector<std::string> g_carDefault;    // cycled by sprite number
 std::map<int, std::string> g_carBySprite;
@@ -466,6 +472,7 @@ void ModelsLoad(const char* folder) {
         g_byName[name] = g_models.size();
         g_models.push_back(std::move(model));
         const Model& m = g_models.back();
+        g_known.insert(&m);
         Log("models: %s: %zu nodes, %zu meshes, %zu animations, %.2f x %.2f x %.2f blocks, faces %s",
             m.name.c_str(), m.nodes.size(), m.meshes.size(), m.animations.size(), m.Width(), m.Height(), m.Length(),
             m.forward > 0 ? "+z" : "-z");
@@ -607,6 +614,14 @@ void ModelsLoad(const char* folder) {
 }
 
 bool ModelsAvailable() { return !g_models.empty(); }
+bool ModelIsKnown(const Model* model) { return model && g_known.count(model) != 0; }
+void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out) { NodeWorlds(model, nullptr, 0.0f, out); }
+const Model* ModelRegisterDerived(Model&& model) {
+    g_models.push_back(std::move(model));
+    const Model& m = g_models.back();
+    g_known.insert(&m);
+    return &m;
+}
 
 const Model* ModelForCar(int sprite) {
     // Only a model the manifest names for this very sprite: anything else is
@@ -1137,6 +1152,9 @@ const ModelAnimation* ModelSpinAnimation(const Model& model, const char* nodeSub
     // The models are owned by the store; a synthetic clip is as much part of
     // the model as an imported one, so it is added in place.
     Model& m = const_cast<Model&>(model);
+    // Clips are held by pointer (map_objects keeps the main rotor's while it asks
+    // for the tail's): the vector must not move when a second one is added.
+    if (m.animations.capacity() < m.animations.size() + 1) m.animations.reserve(m.animations.size() + 8);
     ModelAnimation anim;
     anim.name = animName;
     anim.length = (std::max)(period, 0.02f);

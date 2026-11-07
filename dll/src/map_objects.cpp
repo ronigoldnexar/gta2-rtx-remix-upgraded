@@ -125,6 +125,13 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
     g_objectFootprints.clear();
     for (const LiveGeometry::SpriteType& s : sprites) {
         if (!s.objectModel) continue;
+        if (!ModelIsKnown(s.objectModel)) {
+            // Not an address the store ever gave out: a sprite whose field was never
+            // set (a copy of stale memory). Drawing through it read garbage once.
+            static int badLogged = 0;
+            if (badLogged < 8) { ++badLogged; Log("object model: sprite %p carries an unknown model pointer %p, skipped", s.object ? reinterpret_cast<const void*>(s.object) : nullptr, static_cast<const void*>(s.objectModel)); }
+            continue;
+        }
         const Model& model = *s.objectModel;
         // Fit: the model's footprint length onto the quad's longer edge, standing
         // on the quad's plane, turned to follow the quad's first edge.
@@ -208,8 +215,9 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         // the main one about its mast, the tail one about its hub.
         const ModelAnimation* spin = nullptr;
         if (anim != g_animByModel.end() && anim->second == 2) {
-            spin = ModelSpinAnimation(model, "rotor", 1, 0.14f);
-            if (const ModelAnimation* tail = ModelSpinAnimation(model, "tailrotor", 0, 0.09f)) {
+            const ModelAnimation* tail = ModelSpinAnimation(model, "tailrotor", 0, 0.09f);
+            spin = ModelSpinAnimation(model, "rotor", 1, 0.14f);   // fetched last: the store keeps it stable
+            if (tail) {
                 // One clip carries both: the tail rotor's channel is appended to the
                 // main one on first use.
                 if (spin && spin != tail) {
