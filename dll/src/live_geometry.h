@@ -100,6 +100,8 @@ bool BehindView(float x, float y, float z, float margin);
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);
+// Lamps on the 3D car bodies: 0 none, 1 when dark (plus brake lamps), 2 always.
+void SetCarLamps(int mode);
 bool UprightPeds();
 // ... and, instead of a billboard, a small three-dimensional figure that walks:
 // head, body, arms and legs, the limbs swinging with the pedestrian's speed.
@@ -588,6 +590,7 @@ private:
         // 0 none, 1 punch, 2 aim, 3 hands up, 4 fall (held lying), 5 getting into a
         // car, 6 getting out, 7 a stagger. See PedActionFor in DrawPedFigures.
         int action = 0;
+        uint32_t shotFrame = 0;   // the last frame a flash or bullet was seen beside him
         float actionTime = 0.0f;            // seconds into the clip
         float actionWeight = 0.0f;          // 0 locomotion .. 1 the action, eased
         bool actionReverse = false;         // getting up: the fall played backwards

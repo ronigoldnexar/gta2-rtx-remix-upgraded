@@ -208,6 +208,12 @@ int g_pedHandsUpFrames[2] = {-1, -1};
    // GTA2DX9_LOG_PED_FRAMES=1: the player's frame/state changes, for the clip tables
 bool g_pedWeapons = true;   // the pickup models in the hand of a figure that aims
 bool g_fxUpright = true;    // effect artwork faced to a street-level camera; bullets as streaks
+// Where small effect artwork (a muzzle flash, a bullet, a spark) was drawn last
+// frame: a figure standing in the attack state next to one is shooting, which
+// the game's own frames do not say (the gun stance shares frames 53-60 with the
+// fists). Read by DrawPedFigures, written by the sprite pass.
+struct FxSpot { float x, y, z; };
+std::vector<FxSpot> g_fxSpotsLast, g_fxSpotsNow;
 int g_carLamps = 1;         // [renderer] car_lamps: 0 none, 1 when dark + brake lamps, 2 always
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
 gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
@@ -6183,7 +6189,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         const bool moving = track.drawnSpeed > 0.45f;
         // What the game has him doing, from his animation frame and state words.
-        const int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
+        int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
+        {
+            // Shooting: the attack state with a flash or a bullet beside him.
+            const unsigned f = sprite.pedFrame % 158u;
+            if (sprite.pedState == 7 && f >= 53 && f <= 60) {
+                for (const FxSpot& fx : g_fxSpotsLast) {
+                    const float dx = fx.x - cx, dz = fx.z - cz;
+                    if (dx * dx + dz * dz < 1.0f) { track.shotFrame = g_carFrame; break; }
+                }
+                if (wantAction == 0 && track.shotFrame && g_carFrame - track.shotFrame < 45) wantAction = 2;
+            }
+        }
         if (wantAction == 4 && track.action != 4) {
             track.action = 4; track.actionTime = 0.0f; track.actionReverse = false;
         } else if (wantAction != 4 && track.action == 4 && !track.actionReverse) {
@@ -6785,6 +6802,8 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     stageTimer.Mark();   // 0: setup
     std::vector<Drawable> plain, effects, skids, boarders;
     plain.reserve(sprites_.size());
+    g_fxSpotsLast.swap(g_fxSpotsNow);
+    g_fxSpotsNow.clear();
     // Burning cars: effect sprites over a car are lifted clear of its roof, and the
     // small ones enlarged and layered. These are the altered copies the Drawables point to.
     std::deque<Sprite> fxSprites;
@@ -7244,6 +7263,23 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
         const bool bloodDecal = !effect && g_bloodGloss && sprite.corners == 4 && !sprite.pedestrian &&
                                 !sprite.corpse && IsGroundDecal(sprite.texture);
+        if (sprite.corners == 4 && !sprite.pedestrian && !sprite.corpse && !sprite.lamp && !bloodDecal) {
+            // Tiny artwork (a bullet, a spark, a muzzle flash, whichever list it
+            // lands in): remembered for the figures, see g_fxSpotsNow.
+            const float (*m)[4] = sprite.objectToWorld.m;
+            auto wp = [&](const Vertex& v, float* o) {
+                for (int j = 0; j < 3; ++j) o[j] = v.x * m[0][j] + v.y * m[1][j] + v.z * m[2][j] + m[3][j];
+            };
+            float w0[3], w1[3], w3[3];
+            wp(sprite.local[0], w0); wp(sprite.local[1], w1); wp(sprite.local[3], w3);
+            auto d2 = [](const float* a, const float* b) {
+                return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]);
+            };
+            if ((std::max)(d2(w0, w1), d2(w0, w3)) < 0.16f * 0.16f) {
+                g_fxSpotsNow.push_back({0.5f * (w0[0] + w3[0]) + 0.5f * (w1[0] - w0[0]), 0.5f * (w0[1] + w3[1]),
+                                        0.5f * (w0[2] + w3[2]) + 0.5f * (w1[2] - w0[2])});
+            }
+        }
         (effect ? effects : plain).push_back({&sprite, texture, enlarged, 0, bloodDecal});
     }
 
@@ -7423,6 +7459,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 };
                 const float size = (std::max)(dist(w0, w1), dist(w0, w3));
                 const bool small = size < 0.22f;
+                if (small) g_fxSpotsNow.push_back({c[0], c[1], c[2]});
                 if (small && sp.object) {
                     // In flight? Where this object was drawn last frame.
                     auto seen = fxSeen.find(sp.object);
@@ -7441,6 +7478,9 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         float ax = c[0] - px, ay = 0.0f, az = c[2] - pz;
                         const float al = std::sqrt(ax * ax + az * az);
                         ax /= al; az /= al;
+                        // No longer than half a block: a bullet crosses a block a frame
+                        // and a full-length streak read as a flame.
+                        if (al > 0.5f) { px = c[0] - ax * 0.5f; pz = c[2] - az * 0.5f; py = c[1]; }
                         float ex = fxEye.x - c[0], ez = fxEye.z - c[2];
                         const float el = (std::max)(1e-4f, std::sqrt(ex * ex + ez * ez));
                         ex /= el; ez /= el;

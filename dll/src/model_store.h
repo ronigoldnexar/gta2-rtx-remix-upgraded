@@ -156,6 +156,15 @@ void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& p
 void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
                     const ModelAnimation* animation, float time, const ModelAnimation* second,
                     float secondTime, float weight);
+// The posed world matrix (model space, row vectors) of the node called `name`
+// under the same blend ModelDrawBlend would use, for attaching things to a
+// joint (a weapon in a hand). False when the model has no such node.
+bool ModelNodeWorld(const Model& model, const char* name, const ModelAnimation* animation, float time,
+                    const ModelAnimation* second, float secondTime, float weight, gta2::Mat4* out);
+// A synthetic looping animation that spins every node whose name contains
+// `nodeSubstring` about `axis` (0 x, 1 y, 2 z) once per `period` seconds, kept
+// with the model (made once, returned again after). Null when no node matches.
+const ModelAnimation* ModelSpinAnimation(const Model& model, const char* nodeSubstring, int axis, float period);
 void ModelsReleaseDevice();
 int ModelsDrawnThisFrame();
 // This frame's ModelDraw costs: {posing ms, buffer fill ms, whole ms, draws, skinned draws, unused}.

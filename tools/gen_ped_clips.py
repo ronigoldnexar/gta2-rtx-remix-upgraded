@@ -213,6 +213,30 @@ def main():
         (0.70, {ROOT: [(RIGHT, 90)], RT: [(RIGHT, 0), (UP, 8)], LT: [(RIGHT, 0), (UP, -8)],
                 R: [(RIGHT, 20), (UP, 70)], L: [(RIGHT, 20), (UP, -70)], HEAD: [(RIGHT, -10)]}, (lying_root[0], lying_root[1], 0.0)),
     ]))   # held at its last key by the renderer (one pose, one cached buffer)
+    # Heavy weapon (machine gun, shotgun, rocket launcher, flamethrower): the
+    # right arm straight out, the left bent across the body under the fore-end,
+    # the shoulders turned a little into the stance.
+    heavy = {R: [(RIGHT, 82), (UP, 12)], RF: [(RIGHT, 0)], L: [(RIGHT, 70), (UP, -42)], LF: [(RIGHT, 60)],
+             SP: [(UP, -12)], HEAD: [(UP, 10)]}
+    clips.append(clip_keys(sk, "aim_heavy", [(0.0, heavy, (0, 0, 0)), (1.0, heavy, (0, 0, 0))], loop=True))
+    # Swim: prone at the surface (the renderer sinks the figure to its shoulders),
+    # a front crawl: the arms alternate reaching past the head and pulling back
+    # along the body, the legs kick in opposition.
+    prone = {ROOT: [(RIGHT, -90)], HEAD: [(RIGHT, -35)]}
+    swim_root = (0, -root_y + 0.16, 0)
+    def crawl(ra, la, rk):
+        d = dict(prone)
+        d[R] = [(RIGHT, ra)]; d[RF] = [(RIGHT, 10)]
+        d[L] = [(RIGHT, la)]; d[LF] = [(RIGHT, 10)]
+        d[RT] = [(RIGHT, rk)]; d[LT] = [(RIGHT, -rk)]
+        return d
+    clips.append(clip_keys(sk, "swim", [
+        (0.00, crawl(165, 25, 14), swim_root),
+        (0.50, crawl(95, 95, -14), swim_root),
+        (1.00, crawl(25, 165, 14), swim_root),
+        (1.50, crawl(95, 95, -14), swim_root),
+        (2.00, crawl(165, 25, 14), swim_root),
+    ], loop=True))
     # Hit: a stagger back and recover.
     clips.append(clip_keys(sk, "hit", [
         (0.00, {}, (0, 0, 0)),

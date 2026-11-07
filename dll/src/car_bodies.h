@@ -55,6 +55,9 @@ struct CarBodyUse {
 // `eye` is the camera, in the world: a car the eye is inside of is left out
 // (the chase camera beside a parked car), except the player's own.
 void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame, const gta2::Vec3& eye);
+// Lamps on the bodies: 0 none, 1 headlamps/tail lamps when it is dark (the
+// sky's sun is low) plus brake lamps when a car slows, 2 always lit.
+void CarBodiesSetLamps(int mode, bool dark);
 void CarBodiesReleaseDevice();
 // The cabin of a car drawn recently, by its sprite object, in blocks above the
 // road and along the car: where the deck (hood/sill line) and the roof are,

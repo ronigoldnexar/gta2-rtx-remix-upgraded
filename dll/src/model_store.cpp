@@ -1112,6 +1112,62 @@ int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame) {
     return static_cast<int>(g_warmList.size() - g_warmCursor) + static_cast<int>(g_models.size() - g_warmModelCursor);
 }
 
+bool ModelNodeWorld(const Model& model, const char* name, const ModelAnimation* animation, float time,
+                    const ModelAnimation* second, float secondTime, float weight, gta2::Mat4* out) {
+    int index = -1;
+    for (size_t i = 0; i < model.nodes.size(); ++i) {
+        if (strcmp(model.nodes[i].name, name) == 0) { index = static_cast<int>(i); break; }
+    }
+    if (index < 0) return false;
+    if (!second || weight <= 1e-3f) { second = nullptr; secondTime = 0.0f; weight = 0.0f; }
+    std::vector<gta2::Mat4> worlds;
+    NodeWorldsBlend(model, animation, time, second, secondTime, weight, &worlds);
+    *out = worlds[static_cast<size_t>(index)];
+    return true;
+}
+
+const ModelAnimation* ModelSpinAnimation(const Model& model, const char* nodeSubstring, int axis, float period) {
+    std::string animName = std::string("spin:") + nodeSubstring;
+    if (const ModelAnimation* have = model.Animation(animName.c_str())) return have;
+    std::vector<int> nodes;
+    for (size_t i = 0; i < model.nodes.size(); ++i) {
+        if (strstr(model.nodes[i].name, nodeSubstring)) nodes.push_back(static_cast<int>(i));
+    }
+    if (nodes.empty()) return nullptr;
+    // The models are owned by the store; a synthetic clip is as much part of
+    // the model as an imported one, so it is added in place.
+    Model& m = const_cast<Model&>(model);
+    ModelAnimation anim;
+    anim.name = animName;
+    anim.length = (std::max)(period, 0.02f);
+    for (int n : nodes) {
+        ModelChannel ch;
+        ch.node = n;
+        ch.path = 1;
+        // Eight keys round the circle, composed over the node's own rotation,
+        // so the slerp between neighbours stays well inside a quarter turn.
+        const float* base = model.nodes[static_cast<size_t>(n)].rotation;
+        for (int k = 0; k <= 8; ++k) {
+            const float a = 6.2831853f * static_cast<float>(k) / 8.0f;
+            float spin[4] = {0, 0, 0, std::cos(0.5f * a)};
+            spin[axis] = std::sin(0.5f * a);
+            // q = base * spin (row-vector order: the spin is applied first, in
+            // the node's own frame, then the node's rest rotation).
+            const float bx = base[0], by = base[1], bz = base[2], bw = base[3];
+            const float sx = spin[0], sy = spin[1], sz = spin[2], sw = spin[3];
+            const float q[4] = {bw * sx + bx * sw + by * sz - bz * sy,
+                                bw * sy - bx * sz + by * sw + bz * sx,
+                                bw * sz + bx * sy - by * sx + bz * sw,
+                                bw * sw - bx * sx - by * sy - bz * sz};
+            ch.times.push_back(anim.length * static_cast<float>(k) / 8.0f);
+            for (float v : q) ch.values.push_back(v);
+        }
+        anim.channels.push_back(ch);
+    }
+    m.animations.push_back(anim);
+    return &m.animations.back();
+}
+
 void ModelsReleaseDevice() {
     for (auto& t : g_textures) if (t.second) t.second->Release();
     g_textures.clear();

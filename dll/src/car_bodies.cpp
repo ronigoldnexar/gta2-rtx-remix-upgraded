@@ -902,12 +902,140 @@ int CarBodiesBuilt() { return g_built; }
 const double* CarBodiesStats() { return g_carStats; }
 int CarBodiesDrawn() { return g_drawn; }
 
+// ---------------------------------------------------------------------------
+// Lamps. Headlamps and tail lamps as additive glows at the body's ends when it
+// is dark, and brake lamps (brighter, larger red) while the car is losing
+// speed, by day too. A radial glow texture, made once.
+int g_lampMode = 1;
+bool g_lampDark = false;
+IDirect3DTexture9* g_glow = nullptr;
+struct Motion { float x, z, speed; uint32_t frame; float brake; };
+std::map<uintptr_t, Motion> g_motion;
+
+IDirect3DTexture9* GlowTexture(IDirect3DDevice9* device) {
+    if (g_glow) return g_glow;
+    const int n = 32;
+    if (FAILED(device->CreateTexture(n, n, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &g_glow, nullptr))) { g_glow = nullptr; return nullptr; }
+    D3DLOCKED_RECT lr;
+    if (SUCCEEDED(g_glow->LockRect(0, &lr, nullptr, 0))) {
+        for (int y = 0; y < n; ++y) {
+            uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+            for (int x = 0; x < n; ++x) {
+                const float dx = (x + 0.5f) / n - 0.5f, dy = (y + 0.5f) / n - 0.5f;
+                const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
+                const float a = (std::max)(0.0f, 1.0f - r);
+                const int v = static_cast<int>(a * a * 255.0f + 0.5f);
+                row[x] = (static_cast<uint32_t>(v) << 24) | (static_cast<uint32_t>(v) << 16) | (static_cast<uint32_t>(v) << 8) | static_cast<uint32_t>(v);
+            }
+        }
+        g_glow->UnlockRect(0);
+    }
+    return g_glow;
+}
+
+struct LampVertex { float x, y, z; DWORD color; float u, v; };
+constexpr DWORD kLampFvf = D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1;
+
+// `carToWorld`: the body's frame (x across, y up, z along, nose +z); `length`,
+// `width`, `roof` in blocks. Leaves the states it changes as it found them.
+void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length,
+               float width, float roof, uint32_t frame, bool wreck) {
+    if (g_lampMode == 0 || wreck) return;
+    // How fast, and is it slowing: the body's position frame to frame.
+    Motion& mo = g_motion[use.object];
+    const float x = carToWorld.m[3][0], z = carToWorld.m[3][2];
+    if (mo.frame && frame > mo.frame && frame - mo.frame < 10) {
+        const float dt = static_cast<float>(frame - mo.frame) / 30.0f;
+        const float speed = std::sqrt((x - mo.x) * (x - mo.x) + (z - mo.z) * (z - mo.z)) / dt;
+        const float decel = (mo.speed - speed) / dt;   // blocks/s^2
+        const float want = (mo.speed > 0.6f && decel > 1.5f) ? 1.0f : 0.0f;
+        mo.brake += (want - mo.brake) * (std::min)(1.0f, dt / (want > mo.brake ? 0.05f : 0.35f));
+        mo.speed = speed;
+    } else {
+        mo.speed = 0.0f; mo.brake = 0.0f;
+    }
+    mo.x = x; mo.z = z; mo.frame = frame;
+    if (g_motion.size() > 2048) { const Motion keep = mo; g_motion.clear(); g_motion[use.object] = keep; }
+    const bool lit = g_lampMode == 2 || g_lampDark;
+    if (!lit && mo.brake < 0.05f) return;
+    IDirect3DTexture9* glow = GlowTexture(device);
+    if (!glow) return;
+    const float hx = 0.34f * width, hy = (std::max)(0.05f, 0.30f * roof), nose = 0.5f * length + 0.006f;
+    struct Lamp { float x, y, z; float size; DWORD color; };
+    Lamp lamps[4]; int n = 0;
+    if (lit) {
+        lamps[n++] = {-hx, hy, nose, 0.11f, 0xFFFFF0C8u};
+        lamps[n++] = {hx, hy, nose, 0.11f, 0xFFFFF0C8u};
+    }
+    {
+        const float b = mo.brake;
+        const int r = static_cast<int>((lit ? 150.0f : 0.0f) + b * 105.0f), g = static_cast<int>(lit ? 30.0f : 0.0f);
+        if (r > 0) {
+            const DWORD col = D3DCOLOR_ARGB(255, r, g, g / 2);
+            const float sz = 0.07f + 0.05f * b;
+            lamps[n++] = {-hx, hy, -nose, sz, col};
+            lamps[n++] = {hx, hy, -nose, sz, col};
+        }
+    }
+    if (!n) return;
+    // Camera-facing quads: the car's axes give "across" and "up" of the body; a
+    // lamp glow is round, so its own quad is spanned by the car's x and y.
+    LampVertex v[16];
+    int count = 0;
+    for (int i = 0; i < n; ++i) {
+        const Lamp& l = lamps[i];
+        const float ax[3] = {carToWorld.m[0][0], carToWorld.m[0][1], carToWorld.m[0][2]};
+        const float ay[3] = {carToWorld.m[1][0], carToWorld.m[1][1], carToWorld.m[1][2]};
+        const float az[3] = {carToWorld.m[2][0], carToWorld.m[2][1], carToWorld.m[2][2]};
+        float c[3];
+        for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + l.x * ax[j] + l.y * ay[j] + l.z * az[j];
+        const float s = l.size;
+        const float corners[4][2] = {{-s, -s}, {s, -s}, {s, s}, {-s, s}};
+        const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+        for (int k = 0; k < 4; ++k) {
+            LampVertex& o = v[count++];
+            o.x = c[0] + corners[k][0] * ax[0] + corners[k][1] * ay[0];
+            o.y = c[1] + corners[k][0] * ax[1] + corners[k][1] * ay[1];
+            o.z = c[2] + corners[k][0] * ax[2] + corners[k][1] * ay[2];
+            o.color = l.color; o.u = uv[k][0]; o.v = uv[k][1];
+        }
+    }
+    static const uint16_t idx[24] = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11, 12, 13, 14, 12, 14, 15};
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    device->SetTransform(D3DTS_WORLD, &identity);
+    device->SetRenderState(D3DRS_LIGHTING, FALSE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetTexture(0, glow);
+    device->SetFVF(kLampFvf);
+    device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(count), static_cast<UINT>(n * 2), idx,
+                                   D3DFMT_INDEX16, v, sizeof(LampVertex));
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device->SetRenderState(D3DRS_LIGHTING, TRUE);
+}
+
+void CarBodiesSetLamps(int mode, bool dark) { g_lampMode = mode; g_lampDark = dark; }
+
 void CarBodiesReleaseDevice() {
     for (auto& e : g_cache) {
         if (e.second.atlas) e.second.atlas->Release();
         ReleaseBuffers(&e.second);
     }
     g_cache.clear();
+    if (g_glow) { g_glow->Release(); g_glow = nullptr; }
     g_device = nullptr;
 }
 
@@ -1048,6 +1176,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
             ModelSetPaintTint(nullptr);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+            DrawLamps(device, use, carToWorld, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber >= 72);
             ++g_drawn;
             continue;
         }
@@ -1107,6 +1236,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             device->SetStreamSource(0, nullptr, 0, 0);
             device->SetIndices(nullptr);
         }
+        DrawLamps(device, use, carToWorld, b->bodyLength, b->bodyWidth, b->roofY, frame, use.sprite >= 65 && use.sprite <= 74);
         g_carStats[3] += CarNowMs() - td;
         g_carStats[7] += 1;
         ++g_drawn;

@@ -204,7 +204,34 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             for (int k = 0; k < 4; ++k) acc += fit.m[r][k] * s.objectToWorld.m[k][c];
             out.m[r][c] = acc;
         }
-        ModelDraw(device, model, out, nullptr, 0.0f);
+        // The helicopter's rotors turn: a synthetic spin clip on the rotor nodes,
+        // the main one about its mast, the tail one about its hub.
+        const ModelAnimation* spin = nullptr;
+        if (anim != g_animByModel.end() && anim->second == 2) {
+            spin = ModelSpinAnimation(model, "rotor", 1, 0.14f);
+            if (const ModelAnimation* tail = ModelSpinAnimation(model, "tailrotor", 0, 0.09f)) {
+                // One clip carries both: the tail rotor's channel is appended to the
+                // main one on first use.
+                if (spin && spin != tail) {
+                    Model& m = const_cast<Model&>(model);
+                    for (ModelAnimation& a : m.animations) {
+                        if (a.name == spin->name && a.channels.size() == 1 && tail->channels.size() == 1) {
+                            // The tail rotor is also a "rotor" node, so it already spins about
+                            // the mast axis in `spin`; replace that channel with the hub spin.
+                            for (ModelChannel& ch : a.channels) {
+                                if (ch.node == tail->channels[0].node) ch = tail->channels[0];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (spin) {
+            const float t = static_cast<float>(std::fmod(NowSeconds(), static_cast<double>(spin->length)));
+            ModelDraw(device, model, out, spin, t);
+        } else {
+            ModelDraw(device, model, out, nullptr, 0.0f);
+        }
     }
 }
 }  // namespace gta2dx9
