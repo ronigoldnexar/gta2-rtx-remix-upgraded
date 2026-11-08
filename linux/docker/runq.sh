@@ -4,8 +4,8 @@
 #   runq.sh run [-p PRIO] [-n NAME] -- <command...>   (lower PRIO runs first; default 5)
 #   runq.sh status                                   (waiting tickets and busy slots)
 #   runq.sh wait                                     (block until the queue is empty)
-# GTA2_SLOTS (default 4) is the number of concurrent scripted game runs; see docs/throughput.md.
-Q=/tmp/gta2-runq; mkdir -p "$Q"; N=${GTA2_SLOTS:-4}
+# GTA2_SLOTS (default 6; 4 when the player is online and CPUs 5-7 are reserved) is the number of concurrent scripted game runs; see docs/throughput.md.
+Q=/tmp/gta2-runq; mkdir -p "$Q"; N=${GTA2_SLOTS:-6}
 case "${1:-}" in
 status)
   echo "slots ($N):"; for i in $(seq 1 "$N"); do if flock -n "/tmp/gta2-game-slot-$i.lock" true 2>/dev/null; then echo "  $i free"; else echo "  $i busy: $(cat /tmp/gta2-game-slot-$i.who 2>/dev/null)"; fi; done
