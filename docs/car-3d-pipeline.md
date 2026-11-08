@@ -243,8 +243,8 @@ The pass, all scripts in `gen3d/` (outside git) plus the tools here:
    after a respawn and runs go in chunks of 5-10 models. Before frames: a stage copy with the
    v1 models (`stage_cq4_v1`). `tools/car_ingame_sheet.py` -> `out/car_ingame_sheet_v2.png`.
 
-Results (8 Nov 2026, L4): 60 generated models regenerated (149 concept images kept of
-~400 tried, 120 + 49 TRELLIS candidates, ~45 s each). Same scorer for both: 35 of 60
+Results (8 Nov 2026, L4): 60 generated models regenerated (90 concept images kept of
+~260 tried, 120 + 49 TRELLIS candidates, ~45 s each). Same scorer for both: 35 of 60
 beat v1; 33 integrated (0 1 8 10 11 12 14 16 18 30 32 33 34 36 37 42 44 46 47 48 49 51 53
 54 56 58 62 63 67 69 71 83 86), mean total 0.859 -> 0.894 and lighting 0.59 -> 0.70 over
 those; 005 and 019 scored higher but were rejected on sight (dark smudges on the flank,
