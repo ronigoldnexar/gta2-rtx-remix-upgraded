@@ -340,6 +340,9 @@ WHEELER-DEALING (`GTA2_SPEED=1`, its clock is game time and the driver reacts in
 | pt7_ze2h | same | failed | dealer 3 at about 150 s; the U-turn at dealer 3 (the car arrives heading south, leg 4 goes north) set the car alight |
 | pt7_ze2i | same | failed (clock, 8 s short) | dealers at 43, 68, 119 s; dealer 4 reached with the clock at 0:08 (`shot_420`), and he walked into the side of his own truck, which stood between him and the dealer on the pavement (fixed: round the car's nose when the dealer is beside it) |
 | pt7_ze2j-l | same | failed (clock, 10-25 s short) | the round-the-nose step stuck on a ramp at dealer 2 (now only for a dealer beside the car); the dealer-3 stop round the corner put the car between him and the dealer (now just past him on the same carriageway, leg 4 turning round the median's end); pt7_ze2l: dealers at 43, 77, 128 s, a wall at the last corner (166,117) cost 15 s and the clock ran out a block from dealer 4 |
+| pt7_ze2m | same | failed (clock, 2-3 s short) | dealers at 25-36, 68-79 and 119-130 s (the clock starts when the game takes the briefcase, up to 11 s after the runner stands in the box); the last corner (166.9,117.5) stalled the car again and he reached the walk to dealer 4 as the clock ran out |
+| pt7_ze2n | same | failed (clock, about 5 s short) | the last stop moved before that corner (167.5,115.8, then the pavement on foot): no stall, the car there at about 177 s, six seconds of walking left for three seconds of clock |
+| pt7_ze2o/p/q | same | failed / stopped | 30-40 s lost on the dealer-2 or dealer-3 leg (stalls, a slow car): dealer 3 at 145-170 s |
 
 ### Status after part 6
 
@@ -347,9 +350,11 @@ WHEELER-DEALING (`GTA2_SPEED=1`, its clock is game time and the driver reacts in
   person with the game's own keys (96 rounds), frame `out/pt7_le2e/m_wil_le2_wrecked.png`.
 - **RADIO ZA-ZA: JOB COMPLETE** in the same session right after it (the Loonies offer it after a
   completed Loonies job), frame `out/pt7_le2e/m_wil_le1_end.png`.
-- **WHEELER-DEALING: not completed.** Twelve sessions; the pace is there (dealers 1-3 in 119-128 s
-  of the 180, against dealer 1 at 77 s in pt6_ze2c) and two sessions reached the last dealer
-  with seconds on the clock, but every session lost 10-25 s to one stall, one wall at a corner or
-  one walk blocked by the car itself. What is left is luck and the last corner (166,117) of
-  leg 4; the runner's choices for the four stops are in `mission_play_wil.py` (`WD_BACK`,
-  `WD_TURN_AVOID`, the dealer-3 and dealer-4 stops).
+- **WHEELER-DEALING: not completed.** Seventeen sessions; the pace is there (dealers 1-3 in
+  119-130 s of the 180, against dealer 1 at 77 s in pt6_ze2c) and four sessions reached the last
+  dealer with 0-8 seconds on the clock (pt7_ze2d, ze2i, ze2m, ze2n), but each lost the last few
+  seconds to one stall, one wall or one walk blocked by the car itself. The runner's choices for
+  the four stops are in `mission_play_wil.py` (`WD_BACK`, `WD_TURN_AVOID`, the dealer-3 and
+  dealer-4 stops); what would buy the missing seconds is a faster car taken before the briefcase
+  (the borrowed car is whatever stands at the kerb, a truck in pt7_ze2i) or a walk to the
+  briefcase box that does not wait for the game's reaction.

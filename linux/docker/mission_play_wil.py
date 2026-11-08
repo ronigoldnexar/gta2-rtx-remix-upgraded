@@ -364,8 +364,11 @@ def run_plan(entry):
                         for c in WD_TURN_AVOID: M.CAR_AVOID.add(c)
                         # the fourth dealer stands off the road (164.5,125.5): the route's end
                         # (168,125) left a walk the walker got stuck on (pt7_ze2d, 8 s short)
-                        cell = M.street_cell_walk_nearest(world, x, y, radius=6)
-                        if cell: sp = (cell[0], cell[1])
+                        # and the drive round the last corner into column 168 overshot onto the
+                        # stairs at 164-166,117 in three sessions (pt7_ze2d/l/m: a stall, 10-15 s,
+                        # the clock ran out 2-10 s short). Stop on row 115/116 before that corner
+                        # and walk the pavement (column 167) down to him: about six seconds
+                        sp = (167.5, 115.8)
                     if sp: s = M.drive3(world, sp[0], sp[1], tol=1.2, budget=240, view_switch=view_switch, slow=not timed)
                     else: s = M.drive3(world, x, y, tol=(4.5 if timed else 7.0), budget=240, view_switch=view_switch, slow=not timed)
             if s["driving"]:
