@@ -172,8 +172,8 @@
    "forward": "+z"
   },
   {
-   "name": "pickup_dual_pistol",
-   "glb": "objects/code_models/pickup_dual_pistol.glb",
+   "name": "pickup_pistol__lit",
+   "glb": "objects/code_models/pickup_pistol__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -186,6 +186,13 @@
    "forward": "+z"
   },
   {
+   "name": "pickup_machine_gun__lit",
+   "glb": "objects/code_models/pickup_machine_gun__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "pickup_rocket_launcher",
    "glb": "objects/code_models/pickup_rocket_launcher.glb",
    "scale": 1.0,
@@ -193,15 +200,8 @@
    "forward": "+z"
   },
   {
-   "name": "pickup_shotgun",
-   "glb": "objects/code_models/pickup_shotgun.glb",
-   "scale": 1.0,
-   "texture_max": 256,
-   "forward": "+z"
-  },
-  {
-   "name": "pickup_flamethrower",
-   "glb": "objects/code_models/pickup_flamethrower.glb",
+   "name": "pickup_rocket_launcher__lit",
+   "glb": "objects/code_models/pickup_rocket_launcher__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -214,8 +214,120 @@
    "forward": "+z"
   },
   {
+   "name": "pickup_electro_gun__lit",
+   "glb": "objects/code_models/pickup_electro_gun__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_molotov",
+   "glb": "objects/code_models/pickup_molotov.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_molotov__lit",
+   "glb": "objects/code_models/pickup_molotov__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_grenade",
+   "glb": "objects/code_models/pickup_grenade.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_grenade__lit",
+   "glb": "objects/code_models/pickup_grenade__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_shotgun",
+   "glb": "objects/code_models/pickup_shotgun.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_shotgun__lit",
+   "glb": "objects/code_models/pickup_shotgun__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_electro_baton",
+   "glb": "objects/code_models/pickup_electro_baton.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_electro_baton__lit",
+   "glb": "objects/code_models/pickup_electro_baton__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_flamethrower",
+   "glb": "objects/code_models/pickup_flamethrower.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_flamethrower__lit",
+   "glb": "objects/code_models/pickup_flamethrower__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_silenced_mg",
+   "glb": "objects/code_models/pickup_silenced_mg.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_silenced_mg__lit",
+   "glb": "objects/code_models/pickup_silenced_mg__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_dual_pistol",
+   "glb": "objects/code_models/pickup_dual_pistol.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_dual_pistol__lit",
+   "glb": "objects/code_models/pickup_dual_pistol__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "token_blue",
    "glb": "objects/code_models/token_blue.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_blue__lit",
+   "glb": "objects/code_models/token_blue__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -228,8 +340,22 @@
    "forward": "+z"
   },
   {
+   "name": "token_orange__lit",
+   "glb": "objects/code_models/token_orange__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "token_dollar",
    "glb": "objects/code_models/token_dollar.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_dollar__lit",
+   "glb": "objects/code_models/token_dollar__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -242,8 +368,22 @@
    "forward": "+z"
   },
   {
+   "name": "token_purple__lit",
+   "glb": "objects/code_models/token_purple__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "token_green_x",
    "glb": "objects/code_models/token_green_x.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_green_x__lit",
+   "glb": "objects/code_models/token_green_x__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -256,8 +396,22 @@
    "forward": "+z"
   },
   {
+   "name": "token_red_x__lit",
+   "glb": "objects/code_models/token_red_x__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "token_cyan",
    "glb": "objects/code_models/token_cyan.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_cyan__lit",
+   "glb": "objects/code_models/token_cyan__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -270,8 +424,22 @@
    "forward": "+z"
   },
   {
+   "name": "token_hand__lit",
+   "glb": "objects/code_models/token_hand__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "token_yellow",
    "glb": "objects/code_models/token_yellow.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_yellow__lit",
+   "glb": "objects/code_models/token_yellow__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -284,8 +452,22 @@
    "forward": "+z"
   },
   {
+   "name": "token_navy__lit",
+   "glb": "objects/code_models/token_navy__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "token_bronze",
    "glb": "objects/code_models/token_bronze.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_bronze__lit",
+   "glb": "objects/code_models/token_bronze__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -298,8 +480,78 @@
    "forward": "+z"
   },
   {
+   "name": "token_gold__lit",
+   "glb": "objects/code_models/token_gold__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "token_skull",
    "glb": "objects/code_models/token_skull.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_skull__lit",
+   "glb": "objects/code_models/token_skull__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_briefcase",
+   "glb": "objects/code_models/token_briefcase.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "token_briefcase__lit",
+   "glb": "objects/code_models/token_briefcase__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_item_118",
+   "glb": "objects/code_models/pickup_item_118.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_item_118__lit",
+   "glb": "objects/code_models/pickup_item_118__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_item_126",
+   "glb": "objects/code_models/pickup_item_126.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_item_126__lit",
+   "glb": "objects/code_models/pickup_item_126__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_item_134",
+   "glb": "objects/code_models/pickup_item_134.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "pickup_item_134__lit",
+   "glb": "objects/code_models/pickup_item_134__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -312,8 +564,71 @@
    "forward": "+z"
   },
   {
+   "name": "code_phone__lit",
+   "glb": "objects/code_models/code_phone__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_phone__glass",
+   "glb": "objects/code_models/code_phone__glass.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_phone_ring1",
+   "glb": "objects/code_models/code_phone_ring1.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_phone_ring1__lit",
+   "glb": "objects/code_models/code_phone_ring1__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_phone_ring1__glass",
+   "glb": "objects/code_models/code_phone_ring1__glass.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_phone_ring2",
+   "glb": "objects/code_models/code_phone_ring2.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_phone_ring2__lit",
+   "glb": "objects/code_models/code_phone_ring2__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "code_phone_ring2__glass",
+   "glb": "objects/code_models/code_phone_ring2__glass.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "light_red",
    "glb": "objects/code_models/light_red.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "light_red__lit",
+   "glb": "objects/code_models/light_red__lit.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -326,8 +641,29 @@
    "forward": "+z"
   },
   {
+   "name": "light_green__lit",
+   "glb": "objects/code_models/light_green__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
    "name": "light_amber",
    "glb": "objects/code_models/light_amber.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "light_amber__lit",
+   "glb": "objects/code_models/light_amber__lit.glb",
+   "scale": 1.0,
+   "texture_max": 256,
+   "forward": "+z"
+  },
+  {
+   "name": "light_mount",
+   "glb": "objects/code_models/light_mount.glb",
    "scale": 1.0,
    "texture_max": 256,
    "forward": "+z"
@@ -353,12 +689,7 @@
     "f014_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    54.9,
-    54.7,
-    60.3
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_business_male_01",
@@ -374,12 +705,7 @@
     "m005_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    36.5,
-    34.3,
-    29.8
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_business_male_02",
@@ -395,12 +721,7 @@
     "m008_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    55.3,
-    55.5,
-    62.5
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_business_male_03",
@@ -416,12 +737,7 @@
     "m020_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    47.0,
-    48.2,
-    44.9
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_construction_male_01",
@@ -439,12 +755,7 @@
     "m111_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    107.9,
-    126.1,
-    134.2
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_construction_male_02",
@@ -460,12 +771,7 @@
     "m101_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    27.4,
-    73.8,
-    110.7
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_female_01",
@@ -481,12 +787,7 @@
     "f001_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    58.5,
-    74.9,
-    84.9
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_female_adult_02",
@@ -502,12 +803,7 @@
     "f002_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    180.4,
-    182.2,
-    173.4
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_female_03",
@@ -523,12 +819,7 @@
     "f003_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    95.3,
-    47.9,
-    92.4
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_female_05",
@@ -544,12 +835,7 @@
     "f005_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    83.8,
-    102.8,
-    113.1
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_female_adult_06",
@@ -565,12 +851,7 @@
     "f202_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    55.4,
-    47.0,
-    28.6
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_female_08",
@@ -586,12 +867,7 @@
     "f008_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    106.7,
-    110.5,
-    109.9
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_female_adult_10",
@@ -607,12 +883,7 @@
     "f201_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    27.8,
-    27.1,
-    26.1
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_female_adult_13",
@@ -628,12 +899,7 @@
     "f019_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    67.0,
-    71.7,
-    75.5
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_fire_female_01",
@@ -652,12 +918,7 @@
     "m131_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    85.7,
-    83.7,
-    60.8
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_fire_male_01",
@@ -673,12 +934,7 @@
     "m138_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    73.5,
-    75.1,
-    74.8
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_fire_male_02",
@@ -695,12 +951,7 @@
     "m132_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    136.8,
-    119.5,
-    71.9
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_01",
@@ -716,12 +967,7 @@
     "m002_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    198.4,
-    190.5,
-    182.1
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_adult_02",
@@ -737,12 +983,7 @@
     "m003_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    44.7,
-    38.6,
-    31.7
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_04",
@@ -758,12 +999,7 @@
     "m006_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    69.5,
-    72.7,
-    67.5
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_adult_05",
@@ -779,12 +1015,7 @@
     "m009_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    64.6,
-    55.9,
-    40.8
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_07",
@@ -800,12 +1031,7 @@
     "m013_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    58.4,
-    62.6,
-    61.4
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_adult_08",
@@ -821,12 +1047,7 @@
     "m014_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    132.6,
-    155.1,
-    176.3
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_10",
@@ -842,12 +1063,7 @@
     "m024_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    96.2,
-    49.6,
-    47.5
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_adult_11",
@@ -862,12 +1078,7 @@
     "m001_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    68.5,
-    78.4,
-    81.0
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_13",
@@ -882,12 +1093,7 @@
     "m010_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    89.1,
-    91.3,
-    91.8
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_male_adult_16",
@@ -902,12 +1108,7 @@
     "m019_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    92.0,
-    108.9,
-    125.4
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_medical_female_01",
@@ -923,12 +1124,7 @@
     "f152_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    212.9,
-    208.9,
-    203.8
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_medical_female_02",
@@ -945,12 +1141,7 @@
     "f153_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    188.8,
-    190.8,
-    195.0
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_medical_male_01",
@@ -966,12 +1157,7 @@
     "m152_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    199.1,
-    198.5,
-    193.1
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_medical_male_02",
@@ -987,12 +1173,7 @@
     "m154_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    59.6,
-    93.3,
-    178.1
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_military_female_01",
@@ -1009,12 +1190,7 @@
     "sf003_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    103.1,
-    113.2,
-    71.5
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_military_male_01",
@@ -1032,12 +1208,7 @@
     "sm002_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    102.7,
-    112.3,
-    71.5
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_military_male_02",
@@ -1052,12 +1223,7 @@
     "sm024_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    89.0,
-    97.8,
-    61.8
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_police_female_01",
@@ -1078,12 +1244,7 @@
     "m157_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    41.1,
-    41.5,
-    40.9
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_police_male_01",
@@ -1100,12 +1261,7 @@
     "m220_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    70.0,
-    91.6,
-    112.9
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_police_male_02",
@@ -1124,12 +1280,7 @@
     "m158_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    37.0,
-    38.0,
-    36.3
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_police_male_03",
@@ -1152,12 +1303,7 @@
     "m172_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    43.9,
-    44.0,
-    46.2
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_security_male_01",
@@ -1173,12 +1319,7 @@
     "m171_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    60.3,
-    60.3,
-    63.7
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_sports_female_01",
@@ -1193,12 +1334,7 @@
     "f021_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    48.0,
-    10.2,
-    26.1
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "human_sports_male_01",
@@ -1213,12 +1349,7 @@
     "m021_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
-   "paint_rgb": [
-    10.1,
-    11.1,
-    12.8
-   ]
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
   },
   {
    "name": "sign_stop",
@@ -2731,30 +2862,46 @@
   "4:23": "pickup_pistol",
   "4:24": "pickup_pistol",
   "4:25": "pickup_pistol",
-  "4:26": "pickup_dual_pistol",
-  "4:27": "pickup_dual_pistol",
-  "4:28": "pickup_dual_pistol",
-  "4:29": "pickup_dual_pistol",
-  "4:30": "pickup_dual_pistol",
-  "4:31": "pickup_dual_pistol",
-  "4:32": "pickup_dual_pistol",
-  "4:33": "pickup_dual_pistol",
-  "4:34": "pickup_machine_gun",
-  "4:35": "pickup_machine_gun",
-  "4:36": "pickup_machine_gun",
-  "4:37": "pickup_machine_gun",
-  "4:38": "pickup_machine_gun",
-  "4:39": "pickup_machine_gun",
-  "4:40": "pickup_machine_gun",
-  "4:41": "pickup_machine_gun",
-  "4:42": "pickup_rocket_launcher",
-  "4:43": "pickup_rocket_launcher",
-  "4:44": "pickup_rocket_launcher",
-  "4:45": "pickup_rocket_launcher",
-  "4:46": "pickup_rocket_launcher",
-  "4:47": "pickup_rocket_launcher",
-  "4:48": "pickup_rocket_launcher",
-  "4:49": "pickup_rocket_launcher",
+  "4:26": "pickup_machine_gun",
+  "4:27": "pickup_machine_gun",
+  "4:28": "pickup_machine_gun",
+  "4:29": "pickup_machine_gun",
+  "4:30": "pickup_machine_gun",
+  "4:31": "pickup_machine_gun",
+  "4:32": "pickup_machine_gun",
+  "4:33": "pickup_machine_gun",
+  "4:34": "pickup_rocket_launcher",
+  "4:35": "pickup_rocket_launcher",
+  "4:36": "pickup_rocket_launcher",
+  "4:37": "pickup_rocket_launcher",
+  "4:38": "pickup_rocket_launcher",
+  "4:39": "pickup_rocket_launcher",
+  "4:40": "pickup_rocket_launcher",
+  "4:41": "pickup_rocket_launcher",
+  "4:42": "pickup_electro_gun",
+  "4:43": "pickup_electro_gun",
+  "4:44": "pickup_electro_gun",
+  "4:45": "pickup_electro_gun",
+  "4:46": "pickup_electro_gun",
+  "4:47": "pickup_electro_gun",
+  "4:48": "pickup_electro_gun",
+  "4:49": "pickup_electro_gun",
+  "4:50": "pickup_molotov",
+  "4:51": "pickup_molotov",
+  "4:52": "pickup_molotov",
+  "4:53": "pickup_molotov",
+  "4:54": "pickup_molotov",
+  "4:55": "pickup_molotov",
+  "4:56": "pickup_molotov",
+  "4:57": "pickup_molotov",
+  "4:58": "pickup_grenade",
+  "4:59": "pickup_grenade",
+  "4:60": "pickup_grenade",
+  "4:61": "pickup_grenade",
+  "4:62": "pickup_grenade",
+  "4:63": "pickup_grenade",
+  "4:64": "pickup_grenade",
+  "4:65": "pickup_grenade",
   "4:66": "pickup_shotgun",
   "4:67": "pickup_shotgun",
   "4:68": "pickup_shotgun",
@@ -2763,6 +2910,14 @@
   "4:71": "pickup_shotgun",
   "4:72": "pickup_shotgun",
   "4:73": "pickup_shotgun",
+  "4:74": "pickup_electro_baton",
+  "4:75": "pickup_electro_baton",
+  "4:76": "pickup_electro_baton",
+  "4:77": "pickup_electro_baton",
+  "4:78": "pickup_electro_baton",
+  "4:79": "pickup_electro_baton",
+  "4:80": "pickup_electro_baton",
+  "4:81": "pickup_electro_baton",
   "4:82": "pickup_flamethrower",
   "4:83": "pickup_flamethrower",
   "4:84": "pickup_flamethrower",
@@ -2771,14 +2926,22 @@
   "4:87": "pickup_flamethrower",
   "4:88": "pickup_flamethrower",
   "4:89": "pickup_flamethrower",
-  "4:90": "pickup_electro_gun",
-  "4:91": "pickup_electro_gun",
-  "4:92": "pickup_electro_gun",
-  "4:93": "pickup_electro_gun",
-  "4:94": "pickup_electro_gun",
-  "4:95": "pickup_electro_gun",
-  "4:96": "pickup_electro_gun",
-  "4:97": "pickup_electro_gun",
+  "4:90": "pickup_silenced_mg",
+  "4:91": "pickup_silenced_mg",
+  "4:92": "pickup_silenced_mg",
+  "4:93": "pickup_silenced_mg",
+  "4:94": "pickup_silenced_mg",
+  "4:95": "pickup_silenced_mg",
+  "4:96": "pickup_silenced_mg",
+  "4:97": "pickup_silenced_mg",
+  "4:98": "pickup_dual_pistol",
+  "4:99": "pickup_dual_pistol",
+  "4:100": "pickup_dual_pistol",
+  "4:101": "pickup_dual_pistol",
+  "4:102": "pickup_dual_pistol",
+  "4:103": "pickup_dual_pistol",
+  "4:104": "pickup_dual_pistol",
+  "4:105": "pickup_dual_pistol",
   "4:151": "token_blue",
   "4:152": "token_blue",
   "4:153": "token_blue",
@@ -2883,12 +3046,42 @@
   "4:291": "token_skull",
   "4:292": "token_skull",
   "4:293": "token_skull",
+  "4:10": "token_briefcase",
+  "4:11": "token_briefcase",
+  "4:12": "token_briefcase",
+  "4:13": "token_briefcase",
+  "4:14": "token_briefcase",
+  "4:118": "pickup_item_118",
+  "4:119": "pickup_item_118",
+  "4:120": "pickup_item_118",
+  "4:121": "pickup_item_118",
+  "4:122": "pickup_item_118",
+  "4:123": "pickup_item_118",
+  "4:124": "pickup_item_118",
+  "4:125": "pickup_item_118",
+  "4:126": "pickup_item_126",
+  "4:127": "pickup_item_126",
+  "4:128": "pickup_item_126",
+  "4:129": "pickup_item_126",
+  "4:130": "pickup_item_126",
+  "4:131": "pickup_item_126",
+  "4:132": "pickup_item_126",
+  "4:133": "pickup_item_126",
+  "4:134": "pickup_item_134",
+  "4:135": "pickup_item_134",
+  "4:136": "pickup_item_134",
+  "4:137": "pickup_item_134",
+  "4:138": "pickup_item_134",
+  "4:139": "pickup_item_134",
+  "4:140": "pickup_item_134",
+  "4:141": "pickup_item_134",
   "4:510": "code_phone",
-  "4:511": "code_phone",
-  "4:512": "code_phone",
+  "4:511": "code_phone_ring1",
+  "4:512": "code_phone_ring2",
   "4:549": "light_red",
   "4:550": "light_green",
   "4:551": "light_amber",
+  "4:548": "light_mount",
   "4:0": "code_helicopter"
  },
  "objects_yaw": {},
@@ -2925,6 +3118,22 @@
   "4:47": "spin",
   "4:48": "spin",
   "4:49": "spin",
+  "4:50": "spin",
+  "4:51": "spin",
+  "4:52": "spin",
+  "4:53": "spin",
+  "4:54": "spin",
+  "4:55": "spin",
+  "4:56": "spin",
+  "4:57": "spin",
+  "4:58": "spin",
+  "4:59": "spin",
+  "4:60": "spin",
+  "4:61": "spin",
+  "4:62": "spin",
+  "4:63": "spin",
+  "4:64": "spin",
+  "4:65": "spin",
   "4:66": "spin",
   "4:67": "spin",
   "4:68": "spin",
@@ -2933,6 +3142,14 @@
   "4:71": "spin",
   "4:72": "spin",
   "4:73": "spin",
+  "4:74": "spin",
+  "4:75": "spin",
+  "4:76": "spin",
+  "4:77": "spin",
+  "4:78": "spin",
+  "4:79": "spin",
+  "4:80": "spin",
+  "4:81": "spin",
   "4:82": "spin",
   "4:83": "spin",
   "4:84": "spin",
@@ -2949,6 +3166,14 @@
   "4:95": "spin",
   "4:96": "spin",
   "4:97": "spin",
+  "4:98": "spin",
+  "4:99": "spin",
+  "4:100": "spin",
+  "4:101": "spin",
+  "4:102": "spin",
+  "4:103": "spin",
+  "4:104": "spin",
+  "4:105": "spin",
   "4:151": "spin",
   "4:152": "spin",
   "4:153": "spin",
@@ -3053,6 +3278,35 @@
   "4:291": "spin",
   "4:292": "spin",
   "4:293": "spin",
+  "4:10": "spin",
+  "4:11": "spin",
+  "4:12": "spin",
+  "4:13": "spin",
+  "4:14": "spin",
+  "4:118": "spin",
+  "4:119": "spin",
+  "4:120": "spin",
+  "4:121": "spin",
+  "4:122": "spin",
+  "4:123": "spin",
+  "4:124": "spin",
+  "4:125": "spin",
+  "4:126": "spin",
+  "4:127": "spin",
+  "4:128": "spin",
+  "4:129": "spin",
+  "4:130": "spin",
+  "4:131": "spin",
+  "4:132": "spin",
+  "4:133": "spin",
+  "4:134": "spin",
+  "4:135": "spin",
+  "4:136": "spin",
+  "4:137": "spin",
+  "4:138": "spin",
+  "4:139": "spin",
+  "4:140": "spin",
+  "4:141": "spin",
   "4:0": "rotor"
  },
  "ped_types": [
@@ -4103,13 +4357,14 @@
   },
   {
    "name": "obj_crate",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 24,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 312,
    "animations": [],
    "textures": [
     "obj_crate_0.tga",
-    "obj_crate_1.tga"
+    "obj_crate_1.tga",
+    "obj_crate_2.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4279,13 +4534,14 @@
   },
   {
    "name": "pickup_pistol",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 368,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 228,
    "animations": [],
    "textures": [
     "pickup_pistol_0.tga",
-    "pickup_pistol_1.tga"
+    "pickup_pistol_1.tga",
+    "pickup_pistol_2.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4293,14 +4549,13 @@
    "run_stride": 0.0
   },
   {
-   "name": "pickup_dual_pistol",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 572,
+   "name": "pickup_pistol__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
    "animations": [],
    "textures": [
-    "pickup_dual_pistol_0.tga",
-    "pickup_dual_pistol_1.tga"
+    "pickup_pistol__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4309,13 +4564,28 @@
   },
   {
    "name": "pickup_machine_gun",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 960,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 848,
    "animations": [],
    "textures": [
     "pickup_machine_gun_0.tga",
-    "pickup_machine_gun_1.tga"
+    "pickup_machine_gun_1.tga",
+    "pickup_machine_gun_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_machine_gun__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_machine_gun__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4324,13 +4594,116 @@
   },
   {
    "name": "pickup_rocket_launcher",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 652,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 432,
    "animations": [],
    "textures": [
     "pickup_rocket_launcher_0.tga",
-    "pickup_rocket_launcher_1.tga"
+    "pickup_rocket_launcher_1.tga",
+    "pickup_rocket_launcher_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_rocket_launcher__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_rocket_launcher__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_electro_gun",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 468,
+   "animations": [],
+   "textures": [
+    "pickup_electro_gun_0.tga",
+    "pickup_electro_gun_1.tga",
+    "pickup_electro_gun_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_electro_gun__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_electro_gun__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_molotov",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 900,
+   "animations": [],
+   "textures": [
+    "pickup_molotov_0.tga",
+    "pickup_molotov_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_molotov__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_molotov__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_grenade",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 972,
+   "animations": [],
+   "textures": [
+    "pickup_grenade_0.tga",
+    "pickup_grenade_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_grenade__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_grenade__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4341,7 +4714,7 @@
    "name": "pickup_shotgun",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 696,
+   "vertices": 264,
    "animations": [],
    "textures": [
     "pickup_shotgun_0.tga",
@@ -4353,14 +4726,13 @@
    "run_stride": 0.0
   },
   {
-   "name": "pickup_flamethrower",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 492,
+   "name": "pickup_shotgun__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
    "animations": [],
    "textures": [
-    "pickup_flamethrower_0.tga",
-    "pickup_flamethrower_1.tga"
+    "pickup_shotgun__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4368,14 +4740,118 @@
    "run_stride": 0.0
   },
   {
-   "name": "pickup_electro_gun",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 648,
+   "name": "pickup_electro_baton",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 468,
    "animations": [],
    "textures": [
-    "pickup_electro_gun_0.tga",
-    "pickup_electro_gun_1.tga"
+    "pickup_electro_baton_0.tga",
+    "pickup_electro_baton_1.tga",
+    "pickup_electro_baton_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_electro_baton__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_electro_baton__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_flamethrower",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 384,
+   "animations": [],
+   "textures": [
+    "pickup_flamethrower_0.tga",
+    "pickup_flamethrower_1.tga",
+    "pickup_flamethrower_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_flamethrower__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_flamethrower__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_silenced_mg",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 240,
+   "animations": [],
+   "textures": [
+    "pickup_silenced_mg_0.tga",
+    "pickup_silenced_mg_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_silenced_mg__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_silenced_mg__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_dual_pistol",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 456,
+   "animations": [],
+   "textures": [
+    "pickup_dual_pistol_0.tga",
+    "pickup_dual_pistol_1.tga",
+    "pickup_dual_pistol_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_dual_pistol__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_dual_pistol__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4384,14 +4860,27 @@
   },
   {
    "name": "token_blue",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_blue_0.tga",
-    "token_blue_1.tga",
-    "token_blue_2.tga"
+    "token_blue_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_blue__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_blue__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4400,14 +4889,27 @@
   },
   {
    "name": "token_orange",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_orange_0.tga",
-    "token_orange_1.tga",
-    "token_orange_2.tga"
+    "token_orange_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_orange__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_orange__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4416,14 +4918,27 @@
   },
   {
    "name": "token_dollar",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_dollar_0.tga",
-    "token_dollar_1.tga",
-    "token_dollar_2.tga"
+    "token_dollar_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_dollar__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_dollar__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4432,14 +4947,27 @@
   },
   {
    "name": "token_purple",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_purple_0.tga",
-    "token_purple_1.tga",
-    "token_purple_2.tga"
+    "token_purple_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_purple__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_purple__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4448,14 +4976,27 @@
   },
   {
    "name": "token_green_x",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_green_x_0.tga",
-    "token_green_x_1.tga",
-    "token_green_x_2.tga"
+    "token_green_x_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_green_x__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_green_x__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4464,14 +5005,27 @@
   },
   {
    "name": "token_red_x",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_red_x_0.tga",
-    "token_red_x_1.tga",
-    "token_red_x_2.tga"
+    "token_red_x_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_red_x__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_red_x__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4480,14 +5034,27 @@
   },
   {
    "name": "token_cyan",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_cyan_0.tga",
-    "token_cyan_1.tga",
-    "token_cyan_2.tga"
+    "token_cyan_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_cyan__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_cyan__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4496,14 +5063,27 @@
   },
   {
    "name": "token_hand",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_hand_0.tga",
-    "token_hand_1.tga",
-    "token_hand_2.tga"
+    "token_hand_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_hand__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_hand__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4512,14 +5092,27 @@
   },
   {
    "name": "token_yellow",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_yellow_0.tga",
-    "token_yellow_1.tga",
-    "token_yellow_2.tga"
+    "token_yellow_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_yellow__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_yellow__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4528,14 +5121,27 @@
   },
   {
    "name": "token_navy",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_navy_0.tga",
-    "token_navy_1.tga",
-    "token_navy_2.tga"
+    "token_navy_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_navy__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_navy__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4544,14 +5150,27 @@
   },
   {
    "name": "token_bronze",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_bronze_0.tga",
-    "token_bronze_1.tga",
-    "token_bronze_2.tga"
+    "token_bronze_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_bronze__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_bronze__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4560,14 +5179,27 @@
   },
   {
    "name": "token_gold",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_gold_0.tga",
-    "token_gold_1.tga",
-    "token_gold_2.tga"
+    "token_gold_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_gold__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_gold__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4576,14 +5208,140 @@
   },
   {
    "name": "token_skull",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 404,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
    "animations": [],
    "textures": [
     "token_skull_0.tga",
-    "token_skull_1.tga",
-    "token_skull_2.tga"
+    "token_skull_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_skull__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_skull__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_briefcase",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 308,
+   "animations": [],
+   "textures": [
+    "token_briefcase_0.tga",
+    "token_briefcase_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "token_briefcase__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "token_briefcase__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_item_118",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 312,
+   "animations": [],
+   "textures": [
+    "pickup_item_118_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_item_118__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_item_118__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_item_126",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 356,
+   "animations": [],
+   "textures": [
+    "pickup_item_126_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_item_126__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_item_126__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_item_134",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 476,
+   "animations": [],
+   "textures": [
+    "pickup_item_134_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "pickup_item_134__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "pickup_item_134__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4592,9 +5350,9 @@
   },
   {
    "name": "code_phone",
-   "nodes": 8,
-   "meshes": 8,
-   "vertices": 340,
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 484,
    "animations": [],
    "textures": [
     "code_phone_0.tga",
@@ -4602,9 +5360,135 @@
     "code_phone_2.tga",
     "code_phone_3.tga",
     "code_phone_4.tga",
-    "code_phone_5.tga",
-    "code_phone_6.tga",
-    "code_phone_7.tga"
+    "code_phone_5.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone__lit",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 92,
+   "animations": [],
+   "textures": [
+    "code_phone__lit_0.tga",
+    "code_phone__lit_1.tga",
+    "code_phone__lit_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone__glass",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "code_phone__glass_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone_ring1",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 484,
+   "animations": [],
+   "textures": [
+    "code_phone_ring1_0.tga",
+    "code_phone_ring1_1.tga",
+    "code_phone_ring1_2.tga",
+    "code_phone_ring1_3.tga",
+    "code_phone_ring1_4.tga",
+    "code_phone_ring1_5.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone_ring1__lit",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 92,
+   "animations": [],
+   "textures": [
+    "code_phone_ring1__lit_0.tga",
+    "code_phone_ring1__lit_1.tga",
+    "code_phone_ring1__lit_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone_ring1__glass",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "code_phone_ring1__glass_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone_ring2",
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 484,
+   "animations": [],
+   "textures": [
+    "code_phone_ring2_0.tga",
+    "code_phone_ring2_1.tga",
+    "code_phone_ring2_2.tga",
+    "code_phone_ring2_3.tga",
+    "code_phone_ring2_4.tga",
+    "code_phone_ring2_5.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone_ring2__lit",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 92,
+   "animations": [],
+   "textures": [
+    "code_phone_ring2__lit_0.tga",
+    "code_phone_ring2__lit_1.tga",
+    "code_phone_ring2__lit_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "code_phone_ring2__glass",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 96,
+   "animations": [],
+   "textures": [
+    "code_phone_ring2__glass_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4613,13 +5497,28 @@
   },
   {
    "name": "light_red",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 96,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 288,
    "animations": [],
    "textures": [
     "light_red_0.tga",
-    "light_red_1.tga"
+    "light_red_1.tga",
+    "light_red_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "light_red__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 72,
+   "animations": [],
+   "textures": [
+    "light_red__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4628,13 +5527,28 @@
   },
   {
    "name": "light_green",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 96,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 288,
    "animations": [],
    "textures": [
     "light_green_0.tga",
-    "light_green_1.tga"
+    "light_green_1.tga",
+    "light_green_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "light_green__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 72,
+   "animations": [],
+   "textures": [
+    "light_green__lit_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -4643,13 +5557,43 @@
   },
   {
    "name": "light_amber",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 96,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 288,
    "animations": [],
    "textures": [
     "light_amber_0.tga",
-    "light_amber_1.tga"
+    "light_amber_1.tga",
+    "light_amber_2.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "light_amber__lit",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 72,
+   "animations": [],
+   "textures": [
+    "light_amber__lit_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "light_mount",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 72,
+   "animations": [],
+   "textures": [
+    "light_mount_0.tga",
+    "light_mount_1.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6751,14 +7695,15 @@
   },
   {
    "name": "parking_meter",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 102,
+   "nodes": 4,
+   "meshes": 4,
+   "vertices": 322,
    "animations": [],
    "textures": [
     "parking_meter_0.tga",
     "parking_meter_1.tga",
-    "parking_meter_2.tga"
+    "parking_meter_2.tga",
+    "parking_meter_3.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6783,13 +7728,14 @@
   },
   {
    "name": "container_1",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 32,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 320,
    "animations": [],
    "textures": [
     "container_1_0_paint.tga",
-    "container_1_1.tga"
+    "container_1_1.tga",
+    "container_1_2.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6798,13 +7744,14 @@
   },
   {
    "name": "container_2",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 32,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 320,
    "animations": [],
    "textures": [
     "container_2_0_paint.tga",
-    "container_2_1.tga"
+    "container_2_1.tga",
+    "container_2_2.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6813,13 +7760,14 @@
   },
   {
    "name": "container_3",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 32,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 320,
    "animations": [],
    "textures": [
     "container_3_0_paint.tga",
-    "container_3_1.tga"
+    "container_3_1.tga",
+    "container_3_2.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6828,13 +7776,14 @@
   },
   {
    "name": "container_4",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 32,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 320,
    "animations": [],
    "textures": [
     "container_4_0_paint.tga",
-    "container_4_1.tga"
+    "container_4_1.tga",
+    "container_4_2.tga"
    ],
    "skins": 0,
    "forward": "+z",

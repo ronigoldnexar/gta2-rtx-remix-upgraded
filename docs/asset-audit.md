@@ -115,3 +115,70 @@ Counts per district (the examples are the cells with the most lidded neighbours 
 | ste | deck_underside | 9111 | (75,1,6), (76,1,6), (30,3,3), (56,3,1) |
 | ste | slope_base | 31 | (84,20,1), (90,20,1), (98,25,1), (106,31,1) |
 | ste | lidless_top | 0 |  |
+
+
+## 9. Street props pass (PROPS-2, 8 Nov 2026)
+
+Goal: nothing in the street views should look like a placeholder. Sheet:
+`out/props_booths_sheet.png` (model before/after per object kind, the booth in
+three districts, by day and at night, the pickups and two street scenes). All
+models are procedural (`tools/gen_code_objects.py`, `tools/gen_env2.py`,
+`tools/gen_objects.py`), ours, and go in the models archive, not git; only
+`assets/models/manifest.json` is committed.
+
+### Renderer: companion models (`dll/src/map_objects.cpp`)
+
+A map/code-object model `<name>` may have two companions in the manifest, drawn
+with the same placement after all objects:
+
+- `<name>__lit`: drawn unlit (texture only), so a traffic-light lens, the booth's
+  PHONE sign and handset, and the pickups' ground rings glow at night and stay
+  bright by day;
+- `<name>__glass`: drawn translucent (alpha blend, no depth writes) after every
+  opaque model, so the phone and a person show through the booth's panes.
+
+Spinning pickups (`objects_anim: spin`) are now drawn at scale 1 (authored in
+blocks) and keep their authored float: fitted to each frame's sprite extent they
+grew and shrank by up to 20 % as the game cycled the eight turning frames.
+
+### What changed
+
+| object | before | after | triangles (main + lit + glass) |
+|---|---|---|---|
+| Phone booth, code object 4:510-512, every district | a blue box with a lighter blue top (opaque glass, the sprite as roof) | blue steel booth on a concrete plinth: corner posts, kick panels and rails, glass on three sides, open on the sprite's open side, a chrome pay phone with keypad, coin slot and directory shelf on a steel spine, a roof with a lit PHONE sign box; 4:511/512 (ringing) light the handset dim/bright red | 242 + 46 + 48 |
+| Traffic-light head, 4:549-551 | a black bar with a red slab | housing with a cap, three hooded lenses on both faces, the active one lit (red/amber/green by frame) | 144 + 36 |
+| Traffic-light mount, 4:548 | flat sprite | dark steel junction box with a teal band and bracket under the head | 36 |
+| Weapon pickups, 4:18-105 (11 kinds) | green pixel extrusions of the sprite, three of them mislabelled (4:26 was "dual pistol", 4:34 "machine gun", 4:42 "rocket launcher"); molotov 4:50, grenade 4:58, electro baton 4:74, silenced MG 4:90 and dual pistol 4:98 were flat sprites | the hand-held weapon models (`tools/gen_weapons.py`) at pickup size (0.28-0.48 blocks), lightened, standing on their side over an unlit green ring; game weapon order: pistol, machine gun, rocket launcher, electro gun, molotov (three bottles), grenade (three), shotgun, electro baton, flamethrower, silenced MG, dual pistol | 108-468 + 48 |
+| Power-up tokens 4:151-293, briefcase 4:10-14 | coin with the ring in the lit mesh | coin unchanged, ring now unlit (glows); the briefcase disc is new | 140 + 48 |
+| Mission items 4:118, 4:126, 4:134 | flat sprites | thick pixel solids with an unlit ring | 156-238 + 48 |
+| Parking meter (rule prop) | grey box on a pole | 1950s meter: flange, collar, chrome head with a rounded top, dial window with the EXPIRED flag on both faces | 138 |
+| Shipping containers 1-4 (docks) | a textured box | corner posts and top/bottom rails standing proud of the corrugated sides | 160 |
+| Crate, map object 5:32-33 | a textured box | battens along the twelve edges | 156 |
+
+### Audited and left as they are
+
+Lamp post, hydrant, bin, bench (Poly Haven scans: detailed, though the hydrant is
+86k and the bin 14k triangles: candidates for a decimation pass, not
+placeholders); stop / one-way signs and the bus shelter (plates on posts, fine at
+street distance); mailbox; crane, roof AC units, vents, water towers, the
+elevated rail; trees 1-3 (crossed leaf cards with alpha, read as trees in the
+street views); the other OBJI models (bench, tyre, planter, cones, football, box,
+extinguisher, drums, sandbags, barrier, yellow crate); the helicopter. The girder
+plate 5:21 is still a 12-triangle slab (it is a flat steel plate in the sprite).
+
+Prop budget: the replaced models together add about 600 triangles per booth in
+view and fewer per pickup than the pixel extrusions had (108-468 against
+184-480); the parking meter and containers grow by 92 and 144 triangles each.
+
+### Verified and not
+
+Seen in the running game (GPU build, scripted runs `out/props2_wil4`, `props2_wiln5`
+(night: `sun_elevation_tenths=-60`), `props2_ste6`, `props2_bil6`, script
+`gamerun/props_check.py`, 0 FAULT lines): the booth in Downtown, Residential and
+Industrial in third and first person, from inside (keypad, lit handset, glass),
+with the mission arrow beside it, and lit at night; traffic-light heads on their
+mounts by day and night; the machine-gun and rocket pickups as 3D weapons over
+their rings, the ring glowing at night. Not framed in a run: the other weapon
+pickups, tokens and mission items (model renders only), the new parking meter,
+containers and crate (rule props/OBJI, model renders only). Not measured: frame
+time with the new props (the counts above are small next to the PERF-2 budget).

@@ -253,7 +253,23 @@ def build_box(name, nat, x4):
     sides.v, sides.n, sides.uv, sides.f = top.v[4:], top.n[4:], top.uv[4:], [[i - 4 for i in tri] for tri in top.f[2:]]
     mt = PBRMaterial(name="top", baseColorTexture=top_texture(x4, fill), metallicFactor=cfg["metal"], roughnessFactor=cfg["rough"])
     ms = PBRMaterial(name="side", baseColorTexture=side_img, metallicFactor=cfg["metal"], roughnessFactor=cfg["rough"])
-    return scene_with([("top", top_only.mesh(mt)), ("side", sides.mesh(ms))])
+    parts = [("top", top_only.mesh(mt)), ("side", sides.mesh(ms))]
+    if cfg["side"] == "planks":
+        # a shipping crate's frame: battens along the twelve edges, standing proud of the boards
+        b = Part()
+        e, o = 0.018, 0.006
+        x0, x1, z0, z1 = -W / 2 - o, W / 2 + o, -L / 2 - o, L / 2 + o
+        for x in (x0, x1 - e):
+            for z in (z0, z1 - e):
+                box_part(b, x, x + e, 0.0, H + o, z, z + e)
+        for y in (0.0, H + o - e):
+            for x in (x0, x1 - e):
+                box_part(b, x, x + e, y, y + e, z0, z1)
+            for z in (z0, z1 - e):
+                box_part(b, x0, x1, y, y + e, z, z + e)
+        dark = tuple(max(0, int(c * 0.72)) for c in fill)
+        parts.append(("frame", b.mesh(PBRMaterial(name="frame", baseColorTexture=planks_texture(dark), metallicFactor=0.0, roughnessFactor=0.85))))
+    return scene_with(parts)
 
 
 def cone_texture():
