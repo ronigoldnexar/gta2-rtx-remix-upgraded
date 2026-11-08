@@ -663,6 +663,16 @@ private:
         uint32_t waterFrame = 0;            // the frame he went into the water (the drowning sinks him)
         int32_t lastAmmo = -1, lastReload = -1;   // his weapon's words last frame (a shot: see Sprite::pedAmmo)
         uintptr_t lastWeaponObject = 0;
+        // QB-29 reloading (kReloads in live_geometry.cpp): the shots since the last
+        // reload, the frame of the last, the frame a reload began (0 none), the clip
+        // time last frame (its drop/insert events fire as it is crossed), and the
+        // long gun's line in the right hand's frame, taken while both hands hold it,
+        // which keeps it in the right hand while the left fetches a magazine.
+        int magShots = 0;
+        uint32_t magLastShot = 0, reloadStart = 0;
+        float reloadPrevT = -1.0f;
+        float gripLocal[3] = {0.0f, 0.0f, 1.0f};
+        bool gripValid = false;
         // Level of detail: his rank by distance from the eye last frame (the
         // nearest eight are posed every frame), and the pose values held for
         // the frames in between when he is further off.
