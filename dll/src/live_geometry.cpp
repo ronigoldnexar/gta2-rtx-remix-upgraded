@@ -29,6 +29,7 @@
 #include "view_modes.h"
 #include "model_store.h"
 #include "map_objects.h"
+#include "explosion_fx.h"
 
 namespace gta2dx9 {
 namespace {
@@ -4027,6 +4028,7 @@ void FireEffectsLoad(const char* iniPath) {
     f.tint[2] = pct("fire_tint_b", 18);
     f.flicker = pct("fire_flicker_percent", 20);
     f.flickerHz = static_cast<float>(num("fire_flicker_hz", 13));
+    ExplosionFxLoad(iniPath);
     g_charredLuma = static_cast<float>(num("car_charred_luma", 30));
     {
         // Signed: GetPrivateProfileInt returns an unsigned number, and a negative default such as
@@ -8674,7 +8676,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             roofSpriteDone:
             continue;
         }
-        if (effect && g_fire.scorch && !sprite.pedestrian && sprite.corners == 4) {
+        // QB-19: a blast's own sprite is dimmed under the volumetric fireball (explosion_fx.cpp).
+        uint32_t blastDim = 0;
+        const bool blastFx = ExplosionFx().enabled && g_uprightPeds && g_fxUpright;
+        if (effect && (g_fire.scorch || blastFx) && !sprite.pedestrian && sprite.corners == 4) {
             // A big effect sprite is a blast: it leaves a burnt mark on the ground.
             const float (*sm)[4] = sprite.objectToWorld.m;
             auto toW = [&](const Vertex& v, float* out) {
@@ -8701,7 +8706,14 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         ground = car.objectToWorld.m[3][1];
                     }
                 }
-                NoteScorch(bx, ground + 0.02f, bz, blast * 1.35f);
+                if (g_fire.scorch) NoteScorch(bx, ground + 0.02f, bz, blast * 1.35f);
+                if (blastFx) {
+                    ExplosionFxNote(bx, ground, bz, blast);
+                    if (ExplosionFx().spriteBright < 0.999f) {
+                        const int c = static_cast<int>((std::max)(0.0f, ExplosionFx().spriteBright) * 255.0f + 0.5f);
+                        blastDim = static_cast<uint32_t>(D3DCOLOR_ARGB(255, c, c, c));
+                    }
+                }
             }
         }
         if (effect && g_fire.onTop && sprite.corners == 4 && !roofs.empty()) {
@@ -8769,6 +8781,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         const int c = static_cast<int>((std::max)(0.0f, g_fire.spriteBright) * 255.0f + 0.5f);
                         dim = static_cast<uint32_t>(D3DCOLOR_ARGB(255, c, c, c));
                     }
+                    if (!flame && blastDim) dim = blastDim;
                     effects.push_back({&base, texture, enlarged, dim});
                 }
                 if (flame) {
@@ -8815,7 +8828,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                                         0.5f * (w0[2] + w3[2]) + 0.5f * (w1[2] - w0[2])});
             }
         }
-        (effect ? effects : plain).push_back({&sprite, texture, enlarged, 0, bloodDecal});
+        (effect ? effects : plain).push_back({&sprite, texture, enlarged, effect ? blastDim : 0u, bloodDecal});
     }
 
     stageTimer.Mark();   // 1: the sprite loop
@@ -9621,6 +9634,13 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    if (fxUpright) {
+        // QB-19: fireball, flash, shock ring, sparks and the smoke column of every blast.
+        ExplosionFxDraw(device, g_viewForward, kWorldFvf);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blending ? TRUE : FALSE);
+        device->SetRenderState(D3DRS_ALPHAREF, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    }
     if (g_pedFigures && fxUpright) {
         ShotFxImpacts();
         ShotFxDraw(device, g_puffDt);
