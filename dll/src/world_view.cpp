@@ -16,6 +16,7 @@
 #include "../../src/gta2_style.h"
 #include "../../src/world_mesh.h"
 #include "debug_overlay.h"
+#include "hud3d.h"
 #include "frame_limiter.h"
 #include "frame_log.h"
 #include "game_access.h"
@@ -2607,6 +2608,7 @@ void WorldView::RenderFrame() {
             renderer_.MarkDrawsAsScreenUi();
             overlay_.Flush(renderer_.Device(), renderer_.Width(), renderer_.Height());
         }
+        Hud3dRender(renderer_.Device(), renderer_.Width(), renderer_.Height(), map_, worldUploaded_);   // MODERN HUD (hud3d.cpp)
         // ImGui issues ordinary D3D9 draws, so it belongs inside the scene.
         DebugMenuRender();
         // Remix clears its per-frame light list every frame, so a light is in the

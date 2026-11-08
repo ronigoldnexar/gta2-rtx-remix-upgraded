@@ -47,6 +47,8 @@ struct VisualsSettings {
     float lightIntensity = 1.0f;
     float sunBoost = 1.5f;    // the world's sun light, times this, while the post is on
     float ambientScale = 0.84f;   // and its ambient
+    int hdr = 1;              // FP16 scene target (0: 8-bit)
+    int debug = 0;            // 1: final shows the raw scene target
 };
 VisualsSettings& VisualsConfig();
 
@@ -181,6 +183,7 @@ private:
     IDirect3DStateBlock9* stateBlock_ = nullptr;
     int shadowSize_ = 2048;
     D3DFORMAT hdrFormat_ = D3DFMT_A16B16G16R16F;
+    int hdrWanted_ = -1;
 
     // Shaders.
     IDirect3DVertexShader9* vsShadowWorld_ = nullptr;

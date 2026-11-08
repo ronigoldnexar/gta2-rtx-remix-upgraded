@@ -39,6 +39,8 @@ void ReadSettings(bool first) {
     v.tonemap = ReadInt("tonemap", 1) != 0;
     v.lights = ReadInt("lights", 1) != 0;
     v.hemisphere = ReadInt("hemisphere", 1) != 0;
+    v.hdr = ReadInt("hdr", 1);
+    v.debug = ReadInt("debug", 0);
     char q[32] = "";
     GetPrivateProfileStringA("visuals", "quality", "medium", q, sizeof q, g_ini);
     for (char* c = q; *c; ++c) *c = static_cast<char>(tolower(static_cast<unsigned char>(*c)));
@@ -92,9 +94,9 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         // The game's radius is a reach in tiles that Remix turns into brightness; here it
         // is a distance with a soft end, a little wider so a lamp makes a pool.
         float r = d.radius * 1.35f;
-        r = r < 1.5f ? 1.5f : (r > 9.0f ? 9.0f : r);
+        r = r < 1.5f ? 1.5f : (r > 6.0f ? 6.0f : r);
         l.radius = r;
-        l.intensity = 0.55f + 0.95f * d.intensity;
+        l.intensity = 0.25f + 0.45f * d.intensity;
         l.spot = d.spot && d.coneAngleDeg > 1.0f;
         l.coneDeg = d.coneAngleDeg;
         if (l.spot) l.radius = r < 6.0f ? 6.0f : r;   // headlamp beams reach down the road

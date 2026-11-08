@@ -102,6 +102,9 @@ The host has 8 CPUs and one L4. Load 60+ came from 20 agents each running a game
 - GPU generation (SDXL, TRELLIS, Remix mod builds): one process at a time, `flock /tmp/gta2-gen.lock`, `taskset -c 0-4`, `nice -n 10`.
 - Heavy host-side work (ffmpeg, PIL batches, pandas): `nice -n 15`, never in parallel with your own game run.
 - The coordinator keeps at most 8 agents concurrent: at most 4 that need game runs, 2 that use the GPU, the rest offline.
+- The shared `repo/stage` is built ONLY by `linux/docker/restage.sh`, which builds a detached worktree of committed HEAD
+  (never the working tree, which holds other agents' partial edits: an unfinished lighting pass reached the play page once).
+  Test your own build from a private stage copy. Commit before you want it on the play page.
 - `cpu_governor.sh` (cron) pauses the newest scripted containers when the load passes 20 and resumes them under 10;
   a paused run is not a failure, wait for it.
 - Never start a second play container (Remix play on 8082 costs 4 CPUs) unless the owner asks.

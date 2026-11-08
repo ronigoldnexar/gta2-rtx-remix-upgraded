@@ -399,6 +399,15 @@ private:
     float deathMix_ = 0.0f;
     bool lastDeathCam_ = false;
     float lastPitch_ = 0.0f;
+    // The car he last drove, and its body's half length, half width and height (from
+    // CarBodiesExtent while at the wheel): on foot beside it the first-person eye is
+    // kept clear of it (QA3: the Truck Cab's exhaust stack drew a dark bar a hand
+    // from the eye after leaving it).
+    const void* exitCar_ = nullptr;
+    float exitCarHalfLength_ = 0.0f, exitCarHalfWidth_ = 0.0f, exitCarHeight_ = 0.0f;
+    // Third person on foot: frames solved and frames with his head inside the
+    // picture and not behind a wall, for the log (view: framing).
+    int framingFrames_ = 0, framingHeadIn_ = 0, framingHeadSeen_ = 0;
     bool lastPitchKnown_ = false;
     // First person: the eye's own glide over a discontinuity (offset added to the
     // seat or head position, decaying), and the raw and shown eyes last frame.

@@ -6,6 +6,7 @@
 
 #include "log.h"
 #include "hud_pass.h"
+#include "hud3d.h"
 #include "live_geometry.h"
 #include "texture_store.h"
 
@@ -128,6 +129,9 @@ Overlay::Style Overlay::StyleFor(unsigned flags) {
 void Overlay::PushTriangleFan(const Vertex* corners, int count, const void* texture, int image,
                               const Style& style) {
     if (count < 3) return;
+    // MODERN HUD (hud3d.cpp, docs/hud.md): in the street views, the parts of the game's HUD the
+    // modern layer redraws are dropped here. The one hook in the 2D path; the classic view never takes it.
+    if (Hud3dSwallow(HudPassActive(), HudPassPart(), texture, corners, count)) return;
     Draw draw;
     draw.texture = texture;
     draw.image = image;

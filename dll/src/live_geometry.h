@@ -688,6 +688,8 @@ private:
         uint32_t carStateFrame = 0;
         int32_t carState = -1;
         bool grabLeft = false;              // running beside a moving car: it is on his left
+        float carSpeed = 0.0f;              // that car's own pace, blocks a second, eased: moving or parked
+        uint32_t carSeenFrame = 0;
         // The clip an action ended on and where, faded out over the locomotion
         // instead of dropped in one frame (ends of punches, exits, hits).
         const void* fadeClip = nullptr;

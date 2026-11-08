@@ -63,7 +63,7 @@ struct Config {
     bool minimap = true;    // [hud] minimap
     int toggleKey = 0;      // [hud] toggle_key, 0 none
     float scale = 1.0f;     // [hud] scale_pct / 100
-    bool test = false;      // GTA2DX9_HUD_TEST=1: F6 low health, F8 a 75 s timer
+    bool test = false;      // GTA2DX9_HUD_TEST=1: [hud] modern/test_health/test_clock re-read live
 };
 Config g_cfg;
 
@@ -95,7 +95,7 @@ void LoadConfig() {
     g_cfg.test = GetEnvironmentVariableA("GTA2DX9_HUD_TEST", buf, sizeof buf) && buf[0] == '1';
     Log("hud3d: modern HUD %s in the street views (minimap %d, scale %.2f, toggle key 0x%02X%s)",
         g_cfg.modern ? "on" : "off", g_cfg.minimap ? 1 : 0, g_cfg.scale, g_cfg.toggleKey,
-        g_cfg.test ? ", test keys F6/F8" : "");
+        g_cfg.test ? ", test switches read from the ini" : "");
 }
 
 // ---- What the game's own HUD drew this frame ---------------------------------------------
@@ -205,7 +205,7 @@ void LoadGxt() {
 }
 
 // A run of a brief's words: highlighted (between '#' marks) or not.
-struct Word { std::string text; bool highlight; };
+struct Word { std::string text; bool highlight; bool glue; };   // glue: no space before it
 
 // The brief's words in UTF-8, without the leading speaker mark; empty when unknown.
 bool BriefWords(const std::string& key, std::vector<Word>* out) {
@@ -215,19 +215,24 @@ bool BriefWords(const std::string& key, std::vector<Word>* out) {
     const std::u16string& s = it->second;
     size_t i = 0;
     while (i < s.size() && (s[i] < 0x20 || s[i] > 0xFF)) ++i;   // the speaker glyph
-    bool highlight = false;
+    bool highlight = false, glue = false;
     std::string word;
-    auto flush = [&]() { if (!word.empty()) out->push_back({word, highlight}); word.clear(); };
+    auto flush = [&](bool nextGlued) {
+        if (!word.empty()) out->push_back({word, highlight, glue});
+        word.clear();
+        glue = nextGlued;
+    };
     for (; i < s.size(); ++i) {
         const char16_t c = s[i];
-        if (c == '#') { flush(); highlight = !highlight; continue; }
-        if (c == ' ' || c == '\n' || c == '\r') { flush(); continue; }
+        // a colour mark inside a word ("#Mafia#,") keeps the pieces together
+        if (c == '#') { const bool inWord = !word.empty(); flush(inWord); if (!inWord && !out->empty() && i > 0 && s[i - 1] != ' ') glue = true; highlight = !highlight; continue; }
+        if (c == ' ' || c == '\n' || c == '\r') { flush(false); continue; }
         if (c < 0x20) continue;
         if (c < 0x80) word.push_back(static_cast<char>(c));
         else if (c < 0x800) { word.push_back(static_cast<char>(0xC0 | (c >> 6))); word.push_back(static_cast<char>(0x80 | (c & 0x3F))); }
         else { word.push_back(static_cast<char>(0xE0 | (c >> 12))); word.push_back(static_cast<char>(0x80 | ((c >> 6) & 0x3F))); word.push_back(static_cast<char>(0x80 | (c & 0x3F))); }
     }
-    flush();
+    flush(false);
     return !out->empty();
 }
 
@@ -509,7 +514,7 @@ double g_costSum = 0, g_costWorst = 0;
 int g_costFrames = 0;
 LARGE_INTEGER g_lastStamp = {};
 uint32_t g_lastLog = 0;
-bool g_toggleDown = false, g_f6Down = false, g_f8Down = false;
+bool g_toggleDown = false;
 
 bool KeyEdge(int vk, bool* down) {
     const bool now = vk > 0 && (GetAsyncKeyState(vk) & 0x8000) != 0;
@@ -557,7 +562,7 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
             snprintf(g, sizeof g, "+%s", Thousands(an.gainAmount).c_str());
             const ImVec2 gs = Measure(g_fonts.heavy, g_fonts.heavyPx, g);
             const float t = an.gain / 2.0f;
-            Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(right - gs.x, y + sz.y - 4 * u + (1 - t) * -14 * u - gs.y * 0.0f + 46 * u),
+            Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(right - sz.x - gs.x - 14 * u, y + (sz.y - gs.y) * 0.5f - (1 - t) * 16 * u),
                  kYellow, g, A * (std::min)(1.0f, t * 2.0f));
             an.gain -= dt;
         }
@@ -829,7 +834,8 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
             int line = 0;
             for (const Word& wd : an.brief) {
                 const float ww = Measure(g_fonts.text, g_fonts.textPx, wd.text.c_str()).x;
-                if (x > 0 && x + ww > textW) { x = 0; ++line; }
+                if (wd.glue && x > 0) x -= space;
+                if (x > 0 && x + ww > textW && !wd.glue) { x = 0; ++line; }
                 placed.push_back({&wd, x, static_cast<float>(line)});
                 x += ww + space;
             }
@@ -866,7 +872,11 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
     g_partSeen[part] = g_frame;
     const Corner* k = static_cast<const Corner*>(corners);
     if (k && texture) {
-        if (part == 1) Note(&g_weaponIcon, texture, k, count);
+        if (part == 1) {
+            float minX = k[0].x, maxX = k[0].x;
+            for (int i = 1; i < count; ++i) { minX = (std::min)(minX, k[i].x); maxX = (std::max)(maxX, k[i].x); }
+            if (maxX - minX >= 24.0f) Note(&g_weaponIcon, texture, k, count);   // not a digit of the score (12x22)
+        }
         else if (part == 10) Note(&g_portrait, texture, k, count);
     }
     if (!g_active) return false;
@@ -897,14 +907,29 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     }
     const bool street = worldLoaded && ViewCameraActive() && CurrentViewMode() != ViewMode::Classic;
     Values v = street && g_cfg.modern ? ReadValues() : Values{};
-    const bool want = street && g_cfg.modern && v.valid;
+    // The pause and stats screen (part 16) is the game's alone: the modern HUD steps aside.
+    const bool paused = g_partSeen[16] + 2 >= g_frame;
+    const bool want = street && g_cfg.modern && v.valid && !paused;
 
+    // GTA2DX9_HUD_TEST=1: the [hud] keys modern, test_health and test_clock are re-read once a
+    // second, so a script switches and pokes by editing the ini (no key the game might take).
+    bool pokeHealth = false, pokeClock = false;
+    static int lastModern = -1, lastHealth = -1, lastClock = 0;
+    if (g_cfg.test && (g_frame % 30) == 0 && ViewModes().devIniPath[0]) {
+        const char* ini = ViewModes().devIniPath;
+        const int modern = GetPrivateProfileIntA("hud", "modern", 1, ini);
+        if (modern != lastModern) { if (lastModern >= 0) { g_cfg.modern = modern != 0; Log("hud3d: ini: %s HUD", g_cfg.modern ? "modern" : "classic"); } lastModern = modern; }
+        const int health = GetPrivateProfileIntA("hud", "test_health", -1, ini);
+        if (health != lastHealth) { pokeHealth = health >= 0; lastHealth = health; }
+        const int clock = GetPrivateProfileIntA("hud", "test_clock", 0, ini);
+        if (clock != lastClock) { pokeClock = clock > lastClock; lastClock = clock; }
+    }
     if (g_cfg.test && want) {
-        if (KeyEdge(VK_F6, &g_f6Down)) {
-            GTA2_TRY { *reinterpret_cast<int16_t*>(static_cast<uint8_t*>(const_cast<void*>(ViewPlayer().ped)) + 0x216) = 15; } GTA2_EXCEPT {}
-            Log("hud3d: test: player health set to 15");
+        if (pokeHealth) {
+            GTA2_TRY { *reinterpret_cast<int16_t*>(static_cast<uint8_t*>(const_cast<void*>(ViewPlayer().ped)) + 0x216) = static_cast<int16_t>(lastHealth); } GTA2_EXCEPT {}
+            Log("hud3d: test: player health set to %d", lastHealth);
         }
-        if (KeyEdge(VK_F8, &g_f8Down)) {
+        if (pokeClock) {
             int slot = -1;
             GTA2_TRY {
                 const uintptr_t hud = *reinterpret_cast<const uintptr_t*>(kHudObject);
@@ -920,8 +945,11 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     // The brief is ours only when its text is known.
     if (want) {
         LoadGxt();
-        std::vector<Word> words;
-        g_briefResolved = !v.messageKey.empty() && g_gxt.count(v.messageKey) != 0;
+        // Briefs have numeric keys (3230, 1619...); the buffer also holds the pause screen's
+        // and the zone names' keys ("ganga7"), which are not a talking head's words.
+        bool numeric = !v.messageKey.empty();
+        for (char c : v.messageKey) numeric = numeric && c >= '0' && c <= '9';
+        g_briefResolved = numeric && g_gxt.count(v.messageKey) != 0;
     } else {
         g_briefResolved = false;
     }
@@ -940,8 +968,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     if (an.fade > 0.01f && v.valid && device && width > 0 && height > 0 && EnsureContext(device, height)) {
         ImGuiContext* previous = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(g_ctx);
-        const int fontHeight = static_cast<int>(height * g_cfg.scale);
-        if (g_fontHeight != height || fontHeight <= 0) BuildFonts(height);
+        if (g_fontHeight != height) BuildFonts(height);
         if (g_cfg.minimap) BuildMap(device, map);
         ImGuiIO& io = ImGui::GetIO();
         io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));

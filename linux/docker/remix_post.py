@@ -115,9 +115,6 @@ if "explore" in parts:
           "agx_punchy": {"rtx.tonemap.tonemapOperator": "4", "rtx.tonemap.agx.look": "2", "rtx.tonemap.agx.saturation": "1.15",
                          "rtx.tonemap.colorGradingEnabled": "False"},
           "gt7": {"rtx.tonemap.tonemapOperator": "7", "rtx.tonemap.colorGradingEnabled": "False"},
-          "hable": {"rtx.tonemap.tonemapOperator": "3", "rtx.tonemap.colorGradingEnabled": "False"},
-          "lottes": {"rtx.tonemap.tonemapOperator": "5", "rtx.tonemap.lottes.contrast": "1.35", "rtx.tonemap.colorGradingEnabled": "False"},
-          "aces": {"rtx.tonemap.tonemapOperator": "2", "rtx.tonemap.colorGradingEnabled": "False"},
           "psycho17_grade": {"rtx.tonemap.tonemapOperator": "6", "rtx.tonemap.colorGradingEnabled": "True",
                              "rtx.tonemap.contrast": "1.08", "rtx.tonemap.saturation": "1.15"}}
     for tod in ("noon", "night"):
@@ -131,7 +128,6 @@ if "explore" in parts:
                        ("fog60_far", {"rtx.volumetrics.transmittanceMeasurementDistanceMeters": "60", "rtx.volumetrics.froxelMaxDistanceMeters": "80"}),
                        ("bloom_wide", {"rtx.bloom.steps": "8", "rtx.bloom.burnIntensity": "0.8", "rtx.bloom.luminanceThreshold": "0.7"})]:
         push(state(PLAY, TOD["night"], over), f"x {name}"); mark(f"x_night_{name}")
-        view("third"); time.sleep(2.0); mark(f"x_night_{name}_third"); view("first")
 
 if "ab" in parts:
     for sp in spots:
@@ -140,8 +136,6 @@ if "ab" in parts:
             hour(HOURS[tod])
             push(BEF, "before"); mark(f"ab_{sp}_{tod}_before")
             push(AFT[tod], f"after {tod}"); mark(f"ab_{sp}_{tod}_after")
-            if tod in ("noon", "night"):   # the runtime's own tonemapper with a grade, for the choice
-                push(state(PLAY, TOD[tod], ALT), f"alt {tod}"); mark(f"ab_{sp}_{tod}_alt")
 
 if "motion" in parts:
     goto("plaza"); hour(HOURS["night"])
@@ -156,10 +150,8 @@ if "aa" in parts:
     mark("aa_none"); time.sleep(8); mark("aa_none_t")
     for name, conf_ in [("taau_full", "rtx.upscalerType=3|rtx.taauPreset=4|rtx.resolutionScale=1.0"),
                         ("taau_full_sharp", "rtx.sharpening.sharpness=0.2"),
-                        ("gp_ultra", "rtx.graphicsPreset=0"),
-                        ("gp_medium", "rtx.graphicsPreset=2"),
                         ("gp_high", "rtx.graphicsPreset=1")]:
-        ini_set("remix_config", conf_); time.sleep(8); mark(f"aa_{name}"); time.sleep(12); mark(f"aa_{name}_t")
+        ini_set("remix_config", conf_); time.sleep(8); mark(f"aa_{name}"); time.sleep(11); mark(f"aa_{name}_t")
         view("third"); time.sleep(2); mark(f"aa_{name}_third"); view("first")
     # the play preset as it would start (High, TAA-U, sharpening), every hour, at the street
     for tod in tods:

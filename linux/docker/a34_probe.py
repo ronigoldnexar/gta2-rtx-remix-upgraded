@@ -173,7 +173,7 @@ def moving_item():
         if s["driving"]:
             tap("Return", 0.3); time.sleep(2.5); continue
         cs = [c for c in M.cars() if c["driver"] not in ("-", "P") and abs(c["v"]) > 0.01 and abs(c["z"] - s["z"]) < 0.6]
-        near = [c for c in cs if math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < 1.8]
+        near = [c for c in cs if math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < float(os.environ.get("A34_NEAR", "2.2"))]
         if not near:
             time.sleep(0.1); continue
         c = min(near, key=lambda c: math.hypot(c["x"] - s["x"], c["y"] - s["y"]))

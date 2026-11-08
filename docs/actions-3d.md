@@ -7,10 +7,10 @@ it was not reached in a run. The classic top-down view is untouched by all of it
 
 | action | the game's signal | drawn as | status |
 |---|---|---|---|
-| walk, run, idle | ped position per frame, frames 0-15 | Rocketbox clips, stride-matched, smoothed heading | verified (earlier passes) |
-| punch | frames 115-130, state 7 sub 0xe | `punch` clip, one-shot, re-triggered per swing | verified (earlier passes) |
+| walk, run, idle | the drawn figure's own ground covered per frame (not the game's frames) | Rocketbox walk/run + generated `sprint`, blended by pace, cycle advanced by signed distance, settle on stop, `turn_step` on the spot (ACTIONS-3D-4) | verified (ACTIONS-3D-4 section) |
+| punch | frames 115-130, state 7 sub 0xe | `punch` (right cross) / `punch2` (left jab) combo, upper-body layer; the victim's `hit_head` + stagger on the game's health drop (ACTIONS-3D-4) | verified (ACTIONS-3D-4 section) |
 | knocked down, get up, dead | corpse flag, state 8/9 | `fall` held lying, played back out on recovery | verified (earlier passes) |
-| get in / out of a car | frames 16-35, state 3/4 | Rocketbox crouch in/out | verified for NPCs; the player's own climb untested |
+| get in / out of a car | state 3 (sub 4 walk / reach, sub 6 climb frames 24-35), state 4 sub 7 | `enter_car` / `exit_car` (0.7 s) upper-body layers over legs stepping the game's motion; `grab_door_r/_l` running beside a moving car (ACTIONS-3D-4) | verified for the player (ACTIONS-3D-4 section) |
 | aim / fire, one-handed | frames 36-47 in state 7 (not fists) | `aim` clip + the pistol pickup model in the right hand | mechanism; see the run notes below |
 | aim / fire, two-handed | frames 48-52, state 7 or 0 | new `aim_heavy` clip + the machine-gun pickup model in the hand | mechanism; see the run notes below |
 | muzzle flash, sparks | base-4 effect sprites the game lays flat | stood up to face the camera, centred at gun height (0.30 block) | see the run notes below |

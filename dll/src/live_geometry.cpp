@@ -6872,6 +6872,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         if (sprite.pedState == 3 || sprite.pedState == 4) {
             if (track.carState != sprite.pedState) { track.carState = sprite.pedState; track.carStateFrame = g_carFrame; track.carKnown = false; }
             {   // every frame: the car may be moving (boarding a car on the move)
+                const bool had = track.carKnown && track.carSeenFrame && g_carFrame - track.carSeenFrame < 4;
+                const float oldX = track.carX, oldZ = track.carZ;
                 float best = 1.3f * 1.3f;
                 for (const CarBodyUse& use : carBodies_) {
                     float lx = 0.0f, ly = 0.0f, lz = 0.0f;
@@ -6882,9 +6884,17 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     const float ddx = carX - cx, ddz = carZ - cz;
                     if (ddx * ddx + ddz * ddz < best) { best = ddx * ddx + ddz * ddz; track.carX = carX; track.carZ = carZ; track.carKnown = true; }
                 }
+                if (track.carKnown) {
+                    // The car's own pace: a parked car's boarding is a walk to the door,
+                    // a moving car's is a run beside it.
+                    const float span = had ? static_cast<float>(g_carFrame - track.carSeenFrame) / 30.0f : 0.0f;
+                    const float moved = had ? std::sqrt((track.carX - oldX) * (track.carX - oldX) + (track.carZ - oldZ) * (track.carZ - oldZ)) : 0.0f;
+                    if (span > 0.0f && moved < 0.5f) track.carSpeed += (moved / span - track.carSpeed) * (std::min)(1.0f, span / 0.15f);
+                    track.carSeenFrame = g_carFrame;
+                }
             }
         } else if (track.action != 6) {
-            track.carState = -1; track.carKnown = false;
+            track.carState = -1; track.carKnown = false; track.carSpeed = 0.0f; track.carSeenFrame = 0;
         }
         // Taking a punch: a blow another figure landed on him (PendingHit) starts the
         // hit layer and a stagger of his drawn figure along the blow: 7 cm back over
@@ -7076,9 +7086,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // motion) with a hand on the door (grab_door_r / _l, by which side the car is on);
         // the climb's frames then pull him in (enter_car from its duck).
         if (sprite.pedState == 3 && (sprite.pedFrame % 158u) < 24u && (wantAction == 0 || wantAction == 5) &&
+            track.carKnown && (track.carSpeed > 0.3f || track.action == 23) &&
             (track.legSpeed > 0.6f || (track.action == 23 && track.legSpeed > 0.35f))) {
             wantAction = 23;
-            if (track.carKnown) {
+            if (track.action != 23) {   // which hand: chosen once, as he takes hold
                 const float rx = std::cos(track.heading), rz = -std::sin(track.heading);   // his right
                 track.grabLeft = (track.carX - cx) * rx + (track.carZ - cz) * rz < 0.0f;
             }

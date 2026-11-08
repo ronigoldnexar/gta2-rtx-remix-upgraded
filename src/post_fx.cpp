@@ -176,7 +176,9 @@ void PostFx::ClearCasters() {
 }
 
 bool PostFx::EnsureTargets() {
+    if (sceneTex_ && hdrWanted_ != g_visuals.hdr) ReleaseTargets();
     if (sceneTex_) return true;
+    hdrWanted_ = g_visuals.hdr;
     if (!ok_) return false;
     IDirect3D9* d3d = nullptr;
     device_->GetDirect3D(&d3d);
@@ -200,7 +202,7 @@ bool PostFx::EnsureTargets() {
         RendererTrace("visuals: no INTZ depth texture on this device; the plain renderer's post passes stay off");
         return false;
     }
-    hdrFormat_ = fp16 ? D3DFMT_A16B16G16R16F : D3DFMT_A8R8G8B8;
+    hdrFormat_ = fp16 && g_visuals.hdr ? D3DFMT_A16B16G16R16F : D3DFMT_A8R8G8B8;
     const int w = width_, h = height_;
     const int qw = std::max(1, w / 4), qh = std::max(1, h / 4), ew = std::max(1, w / 8), eh = std::max(1, h / 8);
     bool good = true;
@@ -787,6 +789,30 @@ void PostFx::Resolve() {
         DrawQuad(w, h);
     }
 
+    // debug=4 (8-bit targets, hdr=0): read back the scene and the composite now and then and
+    // log their mean chroma, to see where colour goes.
+    if (cfg.debug == 4 && hdrFormat_ == D3DFMT_A8R8G8B8 && (frames_ % 30u) == 0u) {
+        auto chroma = [&](IDirect3DSurface9* src) -> double {
+            IDirect3DSurface9* sys = nullptr;
+            double sum = 0.0; int n = 0;
+            if (SUCCEEDED(device_->CreateOffscreenPlainSurface(w, h, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &sys, nullptr)) &&
+                SUCCEEDED(device_->GetRenderTargetData(src, sys))) {
+                D3DLOCKED_RECT r;
+                if (SUCCEEDED(sys->LockRect(&r, nullptr, D3DLOCK_READONLY))) {
+                    for (int y = 0; y < h; y += 16) for (int x = 0; x < w; x += 16) {
+                        const DWORD p = static_cast<const DWORD*>(static_cast<const void*>(static_cast<const uint8_t*>(r.pBits) + y * r.Pitch))[x];
+                        const int R = (p >> 16) & 255, G = (p >> 8) & 255, B = p & 255;
+                        sum += std::max(R, std::max(G, B)) - std::min(R, std::min(G, B)); ++n;
+                    }
+                    sys->UnlockRect();
+                }
+            }
+            SafeRelease(sys);
+            return n ? sum / n : -1.0;
+        };
+        RendererTrace("visuals dbg: chroma scene %.1f composite %.1f", chroma(sceneSurf_), chroma(litSurf_));
+    }
+
     // Night lights, added in one draw of a quad each.
     if (cfg.lights && night > 0.02f && g_lightProvider) {
         lights_.clear();
@@ -901,7 +927,7 @@ void PostFx::Resolve() {
         sampler(2, sceneTex_, false);
         sampler(3, bloom2 ? static_cast<IDirect3DBaseTexture9*>(bloomTex_[3]) : blackTex_, true);
         const float exposure = cfg.exposure * (1.0f + 0.12f * night);
-        const float fin[8] = {exposure, bloom ? cfg.bloomStrength : 0.0f, cfg.saturation, frame_.blend,
+        const float fin[8] = {exposure, bloom ? cfg.bloomStrength : 0.0f, cfg.saturation, cfg.debug == 1 ? 0.0f : frame_.blend,
                               0.78f, 0.10f, cfg.tonemap ? 1.0f : 0.0f, bloom2 ? cfg.bloomStrength * 0.6f : 0.0f};
         device_->SetPixelShaderConstantF(0, fin, 2);
         DrawQuad(static_cast<int>(bd.Width), static_cast<int>(bd.Height));
@@ -918,6 +944,8 @@ void PostFx::Resolve() {
     device_->SetRenderTarget(0, savedTarget_);
     device_->SetDepthStencilSurface(savedDepth_);
     stateBlock_->Apply();
+    device_->SetPixelShader(nullptr);
+    device_->SetVertexShader(nullptr);
     SafeRelease(savedTarget_);
     SafeRelease(savedDepth_);
     ClearCasters();
