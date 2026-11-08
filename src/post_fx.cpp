@@ -22,6 +22,7 @@ constexpr D3DFORMAT kIntz = static_cast<D3DFORMAT>(MAKEFOURCC('I', 'N', 'T', 'Z'
 constexpr int kChunk = 16;             // blocks per side of a shadow chunk
 constexpr int kMaxCasters = 900;
 constexpr int kCellPx = 64;            // the game's tile size
+constexpr int kShadowVertexFloats = 7;  // the world's shadow vertex: x y z u v cellx celly
 
 // --- Matrices (row vectors, m[row][col], as math3d.h) ------------------------
 Mat4 Mul(const Mat4& a, const Mat4& b) {
@@ -157,6 +158,7 @@ void PostFx::ReleaseWorld() {
     SafeRelease(alphaAtlas_);
     chunks_.clear();
     worldVertexCount_ = 0;
+    worldIndexCount_ = 0;
 }
 
 void PostFx::Release() {
@@ -263,8 +265,8 @@ bool PostFx::EnsureTargets() {
                                        {0, 48, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 2},
                                        D3DDECL_END()};
     const D3DVERTEXELEMENT9 world[] = {{0, 0, D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-                                       {0, 24, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
-                                       {1, 0, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1},
+                                       {0, 12, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
+                                       {0, 20, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1},
                                        D3DDECL_END()};
     if (good && FAILED(device_->CreateVertexDeclaration(quad, &quadDecl_))) good = false;
     if (good && FAILED(device_->CreateVertexDeclaration(light, &lightDecl_))) good = false;
@@ -327,14 +329,19 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
             alphaAtlas_->UnlockRect(0);
         }
     }
-    // Per-vertex cell.
-    std::vector<float> cells(mesh.vertices.size() * 2, 0.0f);
+    // The shadow copy of the vertices: position, uv, atlas cell (cell 0 = solid).
+    std::vector<float> cells(mesh.vertices.size() * kShadowVertexFloats, 0.0f);
+    for (size_t v = 0; v < mesh.vertices.size(); ++v) {
+        const Vertex& src = mesh.vertices[v];
+        float* d = &cells[v * kShadowVertexFloats];
+        d[0] = src.x; d[1] = src.y; d[2] = src.z; d[3] = src.u; d[4] = src.v;
+    }
     for (const TileBatch& b : mesh.batches) {
         if (!b.needsAlphaTest || b.tile < 0 || b.tile >= static_cast<int>(cellOf.size()) || cellOf[static_cast<size_t>(b.tile)] < 0) continue;
         const int c = cellOf[static_cast<size_t>(b.tile)];
         for (uint32_t v = b.vertexStart; v < b.vertexStart + b.vertexCount && v < mesh.vertices.size(); ++v) {
-            cells[v * 2] = static_cast<float>(c % side);
-            cells[v * 2 + 1] = static_cast<float>(c / side);
+            cells[v * kShadowVertexFloats + 5] = static_cast<float>(c % side);
+            cells[v * kShadowVertexFloats + 6] = static_cast<float>(c / side);
         }
     }
     // Triangles by map chunk (of the centroid), row by row.
@@ -398,8 +405,9 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
         ReleaseWorld();
         return;
     }
-    RendererTrace("visuals: world shadow copy: %zu triangles in %dx%d chunks, %zu cutout tiles in a %d px alpha atlas, %.0f ms",
-                  triCount, chunksX_, chunksZ_, cutoutTiles.size(), atlasPx, NowMs() - t0);
+    worldIndexCount_ = static_cast<UINT>(sorted.size());
+    RendererTrace("visuals: world shadow copy: %u vertices, %zu triangles in %dx%d chunks, %zu cutout tiles in a %d px alpha atlas, %.0f ms",
+                  worldVertexCount_, triCount, chunksX_, chunksZ_, cutoutTiles.size(), atlasPx, NowMs() - t0);
 }
 
 // --- A frame ---------------------------------------------------------------
@@ -620,14 +628,23 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
 
         // The world: runs of consecutive chunks whose box reaches the cascade.
         if (shadowIb_ && cellVb_ && worldVb_) {
-            device_->SetVertexDeclaration(shadowWorldDecl_);
-            device_->SetVertexShader(vsShadowWorld_);
-            device_->SetPixelShader(g_visuals.debug == 8 ? psShadowSolid_ : psShadowWorld_);
+            const int dbg = g_visuals.debug & 15;
+            if (dbg == 9 || dbg == 11) {   // the renderer's own buffer through the model path (no cutouts)
+                device_->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+                device_->SetVertexShader(vsShadowModel_);
+                const Mat4 ident = Identity();
+                device_->SetVertexShaderConstantF(4, &ident.m[0][0], 4);
+                device_->SetPixelShader(psShadowSolid_);
+                device_->SetStreamSource(0, worldVb_, 0, sizeof(Vertex));
+            } else {
+                device_->SetVertexDeclaration(shadowWorldDecl_);
+                device_->SetVertexShader(vsShadowWorld_);
+                device_->SetPixelShader(dbg == 8 || dbg == 10 ? psShadowSolid_ : psShadowWorld_);
+                device_->SetStreamSource(0, cellVb_, 0, kShadowVertexFloats * sizeof(float));
+            }
             const float psc[4] = {atlasCell_, 0.5f, 0.0f, 0.0f};
             device_->SetPixelShaderConstantF(0, psc, 1);
             device_->SetTexture(0, alphaAtlas_);
-            device_->SetStreamSource(0, worldVb_, 0, sizeof(Vertex));
-            device_->SetStreamSource(1, cellVb_, 0, 8);
             device_->SetIndices(shadowIb_);
             uint32_t runStart = 0, runCount = 0;
             auto flush = [&]() {
@@ -637,6 +654,10 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
                 }
                 runCount = 0;
             };
+            if (dbg == 10 || dbg == 11) {   // debug: the whole world in one draw, no chunk culling
+                device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, worldVertexCount_, 0, worldIndexCount_ / 3);
+                ++stats_.worldDraws;
+            } else
             for (const Chunk& ch : chunks_) {
                 bool hit = false;
                 if (ch.count) {
@@ -654,7 +675,6 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
                 else flush();
             }
             flush();
-            device_->SetStreamSource(1, nullptr, 0, 0);
         }
 
         // The recorded models.
@@ -715,15 +735,18 @@ void PostFx::Resolve() {
     Timestamp(1);
     const double t1 = NowMs();
     // debug=7: write the shadow atlas once to GTA2DX9_VISUALS_LOG's folder as atlas.pgm (depth 0..1 as grey).
+    // debug with bit 16 (16, 24, 25, ...): the same, once per value, as atlas_<debug>.pgm.
     static int dumped = 0;
-    if (cfg.debug == 7 && shadows && !dumped) {
-        dumped = 1;
+    const bool dumpNow = shadows && ((cfg.debug == 7 && dumped != 7) || ((cfg.debug & 16) && dumped != cfg.debug));
+    if (!(cfg.debug & 16) && cfg.debug != 7) dumped = 0;
+    if (dumpNow) {
+        dumped = cfg.debug;
         IDirect3DSurface9* sys = nullptr;
         D3DSURFACE_DESC sd = {};
         shadowSurf_->GetDesc(&sd);
         char path[MAX_PATH] = {};
-        if (GetEnvironmentVariableA("GTA2DX9_VISUALS_LOG", path, sizeof path) && strrchr(path, '\\')) strcpy(strrchr(path, '\\') + 1, "atlas.pgm");
-        else strcpy(path, "atlas.pgm");
+        if (GetEnvironmentVariableA("GTA2DX9_VISUALS_LOG", path, sizeof path) && strrchr(path, '\\')) sprintf(strrchr(path, '\\') + 1, "atlas_%d.pgm", cfg.debug);
+        else sprintf(path, "atlas_%d.pgm", cfg.debug);
         if (SUCCEEDED(device_->CreateOffscreenPlainSurface(shadowSize_, shadowSize_, sd.Format, D3DPOOL_SYSTEMMEM, &sys, nullptr)) &&
             SUCCEEDED(device_->GetRenderTargetData(shadowSurf_, sys))) {
             D3DLOCKED_RECT r;

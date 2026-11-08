@@ -209,12 +209,17 @@ private:
     IDirect3DVertexDeclaration9* shadowWorldDecl_ = nullptr;
 
     // The world's shadow geometry.
-    IDirect3DVertexBuffer9* worldVb_ = nullptr;    // the renderer's (AddRef'd)
-    IDirect3DVertexBuffer9* cellVb_ = nullptr;     // per vertex: atlas cell (FLOAT2)
+    IDirect3DVertexBuffer9* worldVb_ = nullptr;    // the renderer's (AddRef'd; debug=9 draws the shadows from it)
+    // The shadow pass's own copy, one stream: position, uv, atlas cell (7 floats). The first
+    // version read the renderer's buffer on stream 0 and the cell on stream 1; under Wine 9
+    // those draws rasterised nothing (atlas dumps out/vp2_dbg2: casters only, even with the
+    // solid shader), so the world never cast a shadow.
+    IDirect3DVertexBuffer9* cellVb_ = nullptr;
     IDirect3DIndexBuffer9* shadowIb_ = nullptr;
     IDirect3DTexture9* alphaAtlas_ = nullptr;
     float atlasCell_ = 1.0f;
     UINT worldVertexCount_ = 0;
+    UINT worldIndexCount_ = 0;
     std::vector<Chunk> chunks_;
     int chunksX_ = 0, chunksZ_ = 0;
 
