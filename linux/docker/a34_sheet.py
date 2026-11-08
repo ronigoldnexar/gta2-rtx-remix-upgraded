@@ -54,7 +54,7 @@ dr = ImageDraw.Draw(img)
 y = 4
 for label, note, tiles, th in rows:
     dr.text((6, y + 4), label, fill=(255, 255, 255) if "after" in label else (200, 160, 160), font=bold)
-    if note: dr.text((340, y + 6), note, fill=(190, 190, 190), font=font)
+    if note: dr.text((400, y + 6), note, fill=(190, 190, 190), font=font)
     y += 26
     for k, t in enumerate(tiles):
         img.paste(t, (4 + k * (TW + 4), y))

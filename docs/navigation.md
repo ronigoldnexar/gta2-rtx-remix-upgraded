@@ -264,3 +264,54 @@ only the on-foot eye was seen); a bus at the wheel (no bus stands parked in Down
 scene-model warp found only truck cabs, model 63, framed in `cp2_mdl1`); the on-foot death
 camera and the first-person down eye (three stars with health 3 brought no police within
 50 s, `cp2_new11` `bust_*`); the tank and train cab at the wheel.
+
+## Camera and props, walls, getting in (CAMERA-PROPS, 8 Nov 2026)
+
+QA3 findings 2-4 and QUALITY-BAR rows 2 and 7. Code: `dll/src/view_modes.cpp/.h`; in
+`dll/src/map_objects.cpp/.h` one read-only accessor, `MapObjectObstacles()`: the footprint of
+every standing game object drawn this frame, including those outside the picture (the existing
+`MapObjectFootprints()` lists only those inside it, so an object behind the chase camera, where it
+was about to go, was missing). Probe: `gamerun/camprops.py` (`keys_camprops.sh`, items in
+`CPR_ITEMS`: `car booth shop lamp mouse`), run as `GTA2_DIRECT_KEYS=1 STAGE=<stage> FPS=0
+INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 420
+keys_camprops.sh -e GTA2DX9_LOG_CAMERA=1 -e GTA2DX9_SCENE_NO_CAR=1`; sheet
+`gamerun/cpr_sheet.py <before run> <after run> <png>`, `out/camera_props_sheet.png` (local).
+
+- **Phone boxes and the game's objects** (QA3 2: the camera inside the tutorial phone box). The
+  chase camera keeps 0.15 block clear of every game object standing at his level, as an upright
+  cylinder round its footprint widened to the box's corners (x1.42). Over a low one (phone box,
+  bin, cone, crate) it rises to 0.3 above the roof at the same spot; a tall one, or one with no
+  room above, it stands in front of, toward him; when he stands at it, round its side. Applied to
+  the wanted spot and again to the eased eye. Hanging objects (a traffic light's head over the
+  road) are left out, so a car never hops over one. Lamp posts and the rule-placed furniture were
+  already in `PanelDistance`. Not covered: the park trees (placed inside `DrawProps`, no accessor).
+- **His own cell is not a wall** (QA3 4, QUALITY-BAR row 2 "stares at paving", "wall after leaving
+  a car"). GTA2 often puts a shop front's solid face on the pavement block in front of it, and
+  `Blocked()` calls that block solid, so with his back to the shop every ray from him was blocked
+  at once; the pivot was then moved up to 0.9 block *in front of him* and the camera looked down at
+  the paving ahead (before: all four headings at the QA3 exit spot, map 118.24,156.84, framed paving
+  and no player). On foot the march now ignores his own cell. Pulled in within a block of his head
+  by a wall the arc cannot clear, the camera cranes straight up over him (as high as is open, up to
+  1.2 blocks); with no room above it swings round him (30, 60, 90, 120 degrees either way) to the
+  nearest side that is open 1.2 blocks out. Close in (under 1.1 block), the point looked at comes
+  back from ahead of him toward his chest (up to 80 %), so the frame holds him and not the wall.
+- **First person by a post or a car** (QA3 3). The "lamp post" bar of `qa_crash_10` is the Truck
+  Cab's exhaust stack: the frame before it (`qa_crash_09`) shows the stack beside the eye, and the
+  probe found no lamp within 1.5 blocks of that spot (`view: fp eye ... post 99`). The eye is kept
+  0.3 block outside the box of the car he last drove (its body's extent remembered from the wheel;
+  a sedan's box for any other car) and 0.3 block from a lamp post's axis, 0.1 clear of a game
+  object's box: a continuous sideways slide, never into a wall. The once-a-second `view: fp eye`
+  line now ends with the distance to the nearest post.
+- **Getting in** (QUALITY-BAR row 7). Getting into a car loses the player for up to a second while
+  the locator re-scans (`lost` 20 per entry); after 0.3 s the "lost" camera used to crane up and
+  back 3 blocks, and the chase rig then started from there: the hard cut to a high, far camera. On
+  foot and on his feet the lost camera now holds for 1.5 s (killed, or in a car that blew up, it
+  still cranes after 0.3 s). Otherwise the entry was already one glide (eye ease 0.44 s, lag up to
+  6 blocks, the chase yaw at its 90 degrees a second cap).
+- **The mouse and the soft follow** (CAMERA-FEEL-3). A mouse movement now also stops whatever swing
+  the follow had under way (before, it ran on for up to 0.2 s against the hand); the follow waits
+  `ThirdReturnDelay` (1.5 s) after the last movement, then starts again from rest.
+- **Measuring the framing.** With `GTA2DX9_LOG_CAMERA=1` the chase camera on foot counts, every
+  frame, whether his head (0.42 above the floor) projects inside the 16:9 picture and whether the
+  line to it is clear of walls (his own cell excepted): `view: framing third on foot frames= head_in=
+  head_seen=` every 300 frames, and a `view: framing miss` line (eye, head) for one miss in five.

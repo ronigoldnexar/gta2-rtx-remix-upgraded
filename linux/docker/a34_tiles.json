@@ -1,0 +1,207 @@
+{
+ "width": 150,
+ "rows": [
+  {
+   "label": "exit car (third person)",
+   "before": [
+    "a34_before",
+    "exit_third",
+    12,
+    2,
+    12,
+    [
+     460,
+     180,
+     300,
+     300
+    ]
+   ],
+   "after": [
+    "a34_after6",
+    "exit_third",
+    10,
+    2,
+    12,
+    [
+     460,
+     180,
+     300,
+     300
+    ]
+   ],
+   "before_note": "crouched (Rocketbox crouch_out, 4.5 s) while the game slides him out sideways",
+   "after_note": "exit_car 0.7 s: stands up, faces out, legs step the 0.3-block slide, then idle"
+  },
+  {
+   "label": "enter parked car",
+   "before": [
+    "a34_before",
+    "enter_third",
+    6,
+    2,
+    12,
+    [
+     440,
+     170,
+     320,
+     320
+    ]
+   ],
+   "after": [
+    "a34_after6",
+    "enter_third",
+    6,
+    2,
+    12,
+    [
+     440,
+     170,
+     320,
+     320
+    ]
+   ],
+   "before_note": "standing pose carried back and into the car",
+   "after_note": "reach and pull the door (held while backed off), steps back, ducks in"
+  },
+  {
+   "label": "board a moving car",
+   "before": [
+    "a34_before2",
+    "moving_3",
+    0,
+    4,
+    12,
+    [
+     380,
+     160,
+     400,
+     400
+    ]
+   ],
+   "after": [
+    "a34_after8",
+    "moving_1",
+    0,
+    4,
+    12,
+    [
+     430,
+     170,
+     400,
+     400
+    ]
+   ],
+   "before_note": "a standing figure translated along with the truck",
+   "after_note": "runs beside it (legs at the car's pace), hand on the door, pulled in (grey: another agent's WIP grading)"
+  },
+  {
+   "label": "punch combo, knock-down",
+   "before": [
+    "a34_before",
+    "punch_0",
+    0,
+    4,
+    12,
+    [
+     390,
+     150,
+     400,
+     400
+    ]
+   ],
+   "after": [
+    "a34_after3",
+    "punch_0",
+    2,
+    2,
+    12,
+    [
+     400,
+     380,
+     340,
+     340
+    ]
+   ],
+   "after_note": "wind-up, torso-led cross, guard hand at the chin; the target goes down (game: state 8 sub 0x16)"
+  },
+  {
+   "label": "taking a punch (forced showcase)",
+   "after": [
+    "a34_after6",
+    "hitshow_side",
+    0,
+    3,
+    12,
+    [
+     400,
+     240,
+     320,
+     400
+    ]
+   ],
+   "after_note": "hit_head: head snaps back and away, hands up (forced on the player; in play it fires on the game's health drop)"
+  },
+  {
+   "label": "walk / run / sprint, stop",
+   "before": [
+    "a34_before",
+    "walk_0",
+    14,
+    4,
+    12,
+    [
+     380,
+     240,
+     440,
+     400
+    ]
+   ],
+   "after": [
+    "a34_after7",
+    "walk_0",
+    14,
+    4,
+    12,
+    [
+     380,
+     260,
+     440,
+     400
+    ]
+   ],
+   "before_note": "walk cycle capped at 2.6/s at 1.9 blocks/s: feet slide",
+   "after_note": "sprint stride, cadence from the ground covered, settles on stop"
+  },
+  {
+   "label": "turn on the spot",
+   "before": [
+    "a34_before",
+    "turn",
+    4,
+    4,
+    12,
+    [
+     420,
+     360,
+     280,
+     360
+    ]
+   ],
+   "after": [
+    "a34_after7",
+    "turn_2",
+    4,
+    4,
+    12,
+    [
+     440,
+     360,
+     280,
+     360
+    ]
+   ],
+   "before_note": "pivots on planted feet",
+   "after_note": "turn_step: the feet step, arms stay down"
+  }
+ ]
+}

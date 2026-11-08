@@ -550,3 +550,112 @@ game second from the car's own last positions (frame-count based), `hp`/`fire` a
 `carfire` in the mission line (32000 - damage; 0, 1 burning, 2 burning hard), `driver` `P`
 for the player, `-` empty, else `type/gang` of the ped at `+0x54`; `mark` `a<slot>` for a
 kind-3 arrow on it.
+
+## ACTIONS-3D-4 (8 Nov 2026): feet that do not slide, fists with weight
+
+Reported in play: "the punching animations don't look realistic, and occasionally, for instance when
+exiting a vehicle, the character appears to slide across the ground."
+
+**Why the figure slid.** The walk cycle only advanced when the drawn figure was faster than 0.45
+blocks a second, and then at most 2.6 cycles a second; below the threshold, or above the cap, the
+game moved the figure and its feet did not follow. Getting out of a car is exactly that case: the
+game slides the ped out of the door sideways at 0.15-0.6 blocks a second for 0.8 s (state 4 sub 7,
+sprite frames 36 down to 28, then 28-31, measured with the new `GTA2DX9_LOG_FIGURES=1` trace,
+`out/a34_before`), while the figure played Rocketbox's 4.5 s "crouch out" on the spot and kept
+crouching for two seconds after. Getting in was the mirror (state 3 sub 6, frames 24-35: the game
+backs him 0.15 off the door, then moves him 0.3 into the seat). The game's player runs at 1.9
+blocks a second, four body heights; the run clip covers 0.52 blocks a cycle, so the cap cost a third
+of the stride. And the walk and run clips were blended at the same phase although the run puts the
+other foot forward (the walk's phase 0 is the run's 0.5): a walk/run blend cancelled the legs.
+
+**Locomotion now (`DrawPedFigures`, `live_geometry.cpp`).**
+- The legs are driven by the drawn figure's own displacement each frame (spring-followed position
+  plus any stagger or arrest offset), projected on the legs' heading and signed: pushed back, he
+  steps back. No cap. Idle below 0.04 blocks/s, moving above 0.08 (hysteresis).
+- Walk, run and a new `sprint` blend by that pace (run from 0.6 to 0.9 blocks/s, sprint 1.2 to 1.7).
+  `sprint` is the run with the legs' swing widened 1.45x about its mean (arms 1.1x, a little out from
+  the hips); its stride is the run's x1.405 (measured from the feet's reach by the generator,
+  `kSprintStrideOverRun`), so at 1.9 blocks/s the legs cycle 2.5 times a second instead of 3.6.
+  The run and sprint are played half a cycle on from the walk so blends agree.
+- Stopping settles: the cycle runs on (or back) to the nearest phase where the feet pass each other,
+  in 0.2 s, while the idle fades in.
+- Turning on the spot steps the feet: `turn_step`, a legs-only layer over the idle (thighs and
+  below), one cycle per 100 degrees turned, finishing to feet-together when the turn stops.
+- The action is a third clip over the locomotion pair (`ModelSetOverlay`, `model_store.cpp`; part of
+  the pose cache key), so every upper-body action has walking legs under it and an action that ends
+  fades out from where it stopped instead of popping (`fadeClip`).
+- Fixed in the model store: a blend at full weight sampled the second clip over the bind pose, so a
+  clip without channels for some joints left them in the T/A pose (seen as the arms flung out while
+  turning in the first build of this pass).
+
+**Cars.** New upper-body clips `enter_car` (reach for the handle, pull the door, duck under the roof
+with a hand on the roof edge, fold in; its reach and pull are held while the game backs him off the
+door, frames 24-31, the duck runs once it moves him in, 32-35) and `exit_car` (from the duck, a hand on
+the frame and one on the door, standing up over 0.7 s - inside the game's 0.8 s exit - then done: no
+crouch is held after, and if the game keeps him there he stands in the idle beside the door). While
+getting in the figure faces the car, while getting out it faces away from it (the car's middle is
+followed every frame); the legs step whatever the game moves him meanwhile.
+
+**Boarding a moving car.** The game carries the ped along with the car in state 3 (sub 4, sprite
+frames 8-23) until the climb (sub 6, frames 24-35). The car's own pace is measured from its body
+frame to frame; while it moves (over 0.3 blocks/s) and he covers ground faster than a walk, he
+runs beside it: heading along his motion, legs cycling at the pace the game moves him (walk, run
+or sprint by speed), with `grab_door_r` / `grab_door_l` over the run (the near hand on the door
+handle at waist height, the torso leaning to the car, the head turned to it; the far arm keeps the
+run's swing; the hand is chosen once, by which side the car is on). The climb then starts
+`enter_car` at its duck (0.65 s), the pull-in. A parked car's boarding is the walk to the door
+and the reach as before.
+
+**Fists.** `punch` (right cross, 0.8 s: the wind-up turns the shoulders and the right fist back, the
+strike leads with the torso turning 50 degrees and leaning in, the arm straightens last, a
+follow-through, back to the guard) and `punch2` (left jab), alternated on every repeat of the game's
+swing (sprite frames 115-122, 0.1 s each, repeated while the key is held; a swing within 1.2 s of the
+last continues the combo), the other fist guarding the chin throughout; upper-body layers, so the
+legs walk or stand under them. A swing restarts only when the game's frame goes back to 115-116
+after 0.5 s of it (the first build restarted on the jumps between the swing and recovery frames the
+game makes while he walks with the key held, cutting punches off at 0.4 s). The blow lands when the
+game says so: a figure whose health word (ped+0x216) drops while a figure within 0.7 block is
+mid-swing takes `hit_head` / `hit_head2` (the head snaps back and away from the fist, the chest
+recoils, the hands come up, 0.55 s; which way by the puncher's hand) and a 7 cm stagger along the
+blow over 0.15 s, back over 0.6 s, which his legs step; if the game knocks him down (state 8 sub
+0x16) the lying clip takes over as before. (A first build hit whoever stood ahead at the strike key;
+most of the player's swings miss in the game, so that made people flinch at misses.) GTA2 has no kick: no kick frame range is in the ped sheet (`assets-src/humans/ped_states.json`)
+and none was seen in the runs, so none was made.
+
+**Arms through the torso.** `tools/gen_ped_clips.py` now checks every clip at its keys and halfway
+between them (elbows, mid-forearms and hands against an elliptic cylinder from the pelvis to the neck,
+13 x 10 cm plus a 3.5 cm limb radius) and prints offenders. It found eight existing clips with a limb
+inside the body: `fall` (both arms folded across the chest when lying: now out to the sides),
+`aim_heavy`, `aim_launcher`, `carry_launcher`, `carry_heavy` (right elbow in the chest: now out at the
+side), `throw` (both forearms through the hip and chest on the swing), `runover` (arms swept through
+the body mid-air) and the derived sprint. Left after the fixes: `punch`, `punch2`, `hit_head2` touch
+by 2 % (an elbow against the ribs in the guard), which is contact, not passing through.
+
+Files: `dll/src/live_geometry.cpp/.h`, `dll/src/model_store.cpp/.h`, `tools/gen_ped_clips.py`,
+`assets-src/humans/clips/ped_clips.json` (outside the repo), the 41 avatars re-imported
+(`assets/models/manifest.json` committed; the avatars are not in git: ship a fresh people archive),
+`linux/docker/a34_probe.py` + `keys_a34_probe.sh` (bursts at 15 fps per item), `a34_sheet.py`,
+`a34_tiles.json`, mirrored in `gamerun/`. Probe:
+`STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/; s/^nav_map=.*/nav_map=0/' gamerun/grun.sh <run> 330 keys_a34_probe.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_PED_FRAMES=1 -e GTA2DX9_LOG_FIGURES=1`.
+Sheet `out/actions_3d_4_sheet.png`, clip `out/actions_3d_4.mp4` (local, not in git).
+
+### Status (ACTIONS-3D-4)
+
+Runs `out/a34_before` / `a34_before2` (the build before this pass, with only the trace added) and
+`a34_after1..8` (this pass's builds), private stages, L4 GPU, 15 fps bursts. Sheet
+`out/actions_3d_4_sheet.png`, clip `out/actions_3d_4.mp4` (25 s).
+
+| item | status | evidence |
+|---|---|---|
+| getting out of a parked car (third person) | verified: stands up from the duck in 0.7 s while the game slides him out, faces out, legs step the 0.3-block slide (trace: cycle advances with the drawn motion), then idle beside the door; no crouch held (before: Rocketbox crouch_out, 2 s of crouch after the state ended) | a34_after6 `exit_third`, a34_after1 trace frames 568-607 |
+| getting out (first person) | not judged: from the eye the own figure is hidden; nothing to see in the bursts | a34_after6 `exit_first` |
+| getting into a parked car | verified: the reach and the door pull, stepping back as the door opens, then in | a34_after6 `enter_third` |
+| boarding a moving car | verified: runs beside it (legs at the pace the game carries him, heading along the motion), near hand on the door, `enter_car` duck as the climb starts; seen on a carjack of a car still rolling. Before: an upright figure carried along | a34_after8 `moving_1` (grey picture: another agent's work-in-progress grading in the shared tree at build time, not this pass), a34_after7 `moving_1`; before a34_before2 `moving_3` |
+| feet on the ground, walk/run/sprint | verified: no cadence cap, run and sprint blended by pace, run half a cycle on from the walk; sprint at 1.87 blocks/s (trace `sw=1.00 leg=1.87`) | a34_after7 `walk_0`, a34_after1 trace frames 1816-1870 |
+| stopping | verified: cycle settles to the feet-passing phase in 0.2 s while the idle fades in | a34_after1 trace frames 1878-1918, a34_after7 `walk_0` |
+| turning on the spot | verified: turn_step at full weight while the heading turns 3 rad/s, arms down (the first build left the arms in the bind pose: fixed in the model store) | a34_after7 `turn_2`, a34_after1 trace frames 1950-1990 |
+| punch combo | verified: cross/jab alternate on every repeat of the game's swing (log `fig: punch ... cross/jab`), guard hand at the chin, torso-led strike; the target knocked down by the game falls with the lying clip | a34_after3 `punch_0` |
+| taking a punch | log + showcase: `fig: hit ... health 50 -> 20` on an NPC fist fight (a34_after3, a34_after5); the clip seen on the forced player. Most of the player's punches knock the target down (lying clip) or miss, so a non-knock-down hit was not caught in a burst | a34_after6 `hitshow_side` |
+| kick | none: GTA2 has no kick frames | ped_states.json |
+| arms through the torso | checked in the generator for every clip; 8 fixed, 3 at 2 % contact | `gen_ped_clips.py` output |
+| NPC peds | same code path; NPC walkers seen stepping in the bursts; NPC boarding a moving car not singled out | bursts |

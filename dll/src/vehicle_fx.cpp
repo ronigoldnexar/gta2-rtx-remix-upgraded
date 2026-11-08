@@ -688,7 +688,11 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     if (frame % 300 == 0) {
         for (auto it = g_cars.begin(); it != g_cars.end();) it = (frame - it->second.frame > 600) ? g_cars.erase(it) : std::next(it);
     }
+    const bool hadTextures = g_puffTex != nullptr;
     EnsureTextures(device);
+    double mark[8] = {};
+    int nm = 0;
+    mark[nm++] = NowMs();
 
     // Simulate.
     for (size_t i = 0; i < g_particles.size();) {
@@ -740,6 +744,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         ++i;
     }
 
+    mark[nm++] = NowMs();
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
 
@@ -794,6 +799,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         g_index.insert(g_index.end(), t, t + 6);
     }
     Flush(device, g_stripTex);
+    mark[nm++] = NowMs();
 
     // Head-lamp pools on the road (plain renderer: under Remix the lamps are lights).
     device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
@@ -824,6 +830,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         Flush(device, g_coneTex);
     }
     g_cones.clear();
+    mark[nm++] = NowMs();
 
     // Sparks: short additive streaks along their flight.
     const gta2::Vec3 worldUp{0.0f, 1.0f, 0.0f};
@@ -841,6 +848,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     }
     Flush(device, g_glowTex);
     device->SetRenderState(D3DRS_FOGCOLOR, fogColour);
+    mark[nm++] = NowMs();
 
     // Smoke and exhaust: soft puffs that grow, pale and thin out.
     device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
@@ -862,6 +870,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         Quad(c, a, b, Colour(grey, grey, grey * 1.02f, alpha));
     }
     Flush(device, g_puffTex);
+    mark[nm++] = NowMs();
 
     // Debris: tumbling shards of panel, trim and glass.
     device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
@@ -885,6 +894,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     }
     Flush(device, g_shardTex);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    mark[nm++] = NowMs();
 
     device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
@@ -895,6 +905,15 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     device->SetTexture(0, nullptr);
 
     g_lastMs = g_updateMs + (NowMs() - t0);
+    static int slowLogged = 0;
+    if (g_lastMs > 8.0 && slowLogged < 40) {
+        // Where a slow effects pass went: the car updates, textures, simulation, parts,
+        // skid marks, lamp pools, sparks, smoke, debris (ms).
+        ++slowLogged;
+        Log("vehicle feel: slow frame %.1f ms: updates %.1f, textures %.1f%s, sim %.1f, parts+skids %.1f, pools %.1f, sparks %.1f, smoke %.1f, debris %.1f",
+            g_lastMs, g_updateMs, mark[0] - t0, hadTextures ? "" : " (made)", mark[1] - mark[0], mark[2] - mark[1], mark[3] - mark[2],
+            mark[4] - mark[3], mark[5] - mark[4], mark[6] - mark[5]);
+    }
     g_updateMs = 0.0;
     g_sumMs += g_lastMs; ++g_sumFrames;
     g_worstMs = (std::max)(g_worstMs, g_lastMs);

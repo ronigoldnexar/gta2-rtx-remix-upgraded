@@ -23,5 +23,6 @@ OUT=src/shaders/visuals_gen.h
   echo "#include <windows.h>"
   for e in $ENTRIES; do n=${e%%:*}; tail -n +2 "$WORK/$n.h"; done
 } > "$OUT"
+python3 tools/fix_swizzles.py "$OUT"
 python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$WORK"
 echo "wrote $OUT ($(grep -c 'static const DWORD' $OUT) shaders)"

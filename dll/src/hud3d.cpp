@@ -215,6 +215,11 @@ bool BriefWords(const std::string& key, std::vector<Word>* out) {
     const std::u16string& s = it->second;
     size_t i = 0;
     while (i < s.size() && (s[i] < 0x20 || s[i] > 0xFF)) ++i;   // the speaker glyph
+    // Most briefs are wrapped whole in one pair of marks ("#By the way, a #Church# like...#"):
+    // the outer pair is the box's own colour, the inner pairs are the words to pick out.
+    size_t end = s.size();
+    while (end > i && (s[end - 1] == ' ' || s[end - 1] == '\n')) --end;
+    if (end - i >= 2 && s[i] == '#' && s[end - 1] == '#') { ++i; --end; }
     bool highlight = false, glue = false;
     std::string word;
     auto flush = [&](bool nextGlued) {
@@ -222,7 +227,7 @@ bool BriefWords(const std::string& key, std::vector<Word>* out) {
         word.clear();
         glue = nextGlued;
     };
-    for (; i < s.size(); ++i) {
+    for (; i < end; ++i) {
         const char16_t c = s[i];
         // a colour mark inside a word ("#Mafia#,") keeps the pieces together
         if (c == '#') { const bool inWord = !word.empty(); flush(inWord); if (!inWord && !out->empty() && i > 0 && s[i - 1] != ' ') glue = true; highlight = !highlight; continue; }

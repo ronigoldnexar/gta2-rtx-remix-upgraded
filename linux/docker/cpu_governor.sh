@@ -5,7 +5,7 @@
 # 2. Overload watchdog: when the 1-minute load passes LOAD_HIGH, hold the run queue (/tmp/gta2-load-hold,
 #    honoured by runq.sh) and pause the newest scripted game containers until the load is under LOAD_LOW;
 #    then unpause them oldest-first and release the hold. The play containers are never paused.
-IDLE_MIN=${IDLE_MIN:-5}; LOAD_HIGH=${LOAD_HIGH:-20}; LOAD_LOW=${LOAD_LOW:-10}
+IDLE_MIN=${IDLE_MIN:-5}; LOAD_HIGH=${LOAD_HIGH:-22}; LOAD_LOW=${LOAD_LOW:-15}
 STAMP=/tmp/gta2-play-last-client; HOLD=/tmp/gta2-load-hold; D="sudo -n docker"
 # --- 1. player's cores
 if $D ps --format '{{.Names}}' | grep -qx gta2-play-8090; then
