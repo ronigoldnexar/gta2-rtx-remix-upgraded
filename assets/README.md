@@ -183,3 +183,11 @@ phone after `gen_code_objects.py` changed; the three re-made cars) was then draw
 the old pictures on the new meshes: the phone came out as a blue slab with the sprite on
 its end. A texture is now rewritten whenever the glb is newer than it; 99 models were
 re-imported that way on 7 Nov.
+
+## Fonts (modern HUD)
+
+`assets/fonts/BarlowCondensed-{ExtraBoldItalic,BoldItalic,SemiBold}-hud.ttf`: Barlow
+Condensed by Jeremy Tribby (github.com/jpt/barlow, fetched from github.com/google/fonts),
+SIL Open Font License 1.1 (`assets/fonts/OFL-BarlowCondensed.txt`; no Reserved Font Name),
+subset to Latin-1 with fontTools. Embedded in the DLL by `tools/gen_hud_font.py`
+(`dll/src/hud3d_font.inc`); see `docs/hud.md`.
