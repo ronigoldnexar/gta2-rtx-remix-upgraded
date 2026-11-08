@@ -16,7 +16,7 @@ against the source tree afterwards. Layout (paths inside the zip):
   gta2dx9_models_people.zip    assets/models/human_*   (41 Rocketbox avatars, MIT, re-imported)
   gta2dx9_models_cars.zip      assets/models/0NN_*     (the generated car models)
   textures_hd_dds.zip          assets/textures_hd/{wil,bil,ste}/*.dds
-  remix_mod_gta2hd.zip         gta2hd/{mod.usda, textures/*.dds}, store-only (what
+  remix_mod_gta2hd.zip         gta2hd/{mod.usda, mod_wet.usda, pbr.json, textures/*.dds}, store-only (what
                                linux/docker/build_remix_mod.sh ZIP=1 writes)
 
 Unpack the asset archives at the repository root (`make stage` then copies
@@ -47,7 +47,7 @@ def entries(name):
         return "textures_hd_dds.zip", out, zipfile.ZIP_DEFLATED
     if name == "remix":
         base = "package/rtx-remix/mods/gta2hd"
-        out = [("gta2hd/mod.usda", f"{base}/mod.usda")]
+        out = [(f"gta2hd/{f}", f"{base}/{f}") for f in ("mod.usda", "mod_wet.usda", "pbr.json") if os.path.isfile(f"{base}/{f}")]
         out += [(f"gta2hd/textures/{f}", f"{base}/textures/{f}") for f in os.listdir(f"{base}/textures")]
         return "remix_mod_gta2hd.zip", out, zipfile.ZIP_STORED
     raise SystemExit(f"unknown archive {name}")
