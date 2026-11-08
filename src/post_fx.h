@@ -209,12 +209,16 @@ private:
     IDirect3DVertexDeclaration9* shadowWorldDecl_ = nullptr;
 
     // The world's shadow geometry.
-    IDirect3DVertexBuffer9* worldVb_ = nullptr;    // the renderer's (AddRef'd)
-    IDirect3DVertexBuffer9* cellVb_ = nullptr;     // per vertex: atlas cell (FLOAT2)
+    IDirect3DVertexBuffer9* worldVb_ = nullptr;    // the renderer's (AddRef'd; debug=9 draws the shadows from it)
+    // The shadow pass's own copy (FVF XYZ|TEX1): position and the uv already moved into the
+    // alpha atlas. The first version read the cell as a second interpolated texcoord; under
+    // Wine 9 every triangle through that shader was clipped, so the world cast no shadow.
+    IDirect3DVertexBuffer9* cellVb_ = nullptr;
     IDirect3DIndexBuffer9* shadowIb_ = nullptr;
     IDirect3DTexture9* alphaAtlas_ = nullptr;
     float atlasCell_ = 1.0f;
     UINT worldVertexCount_ = 0;
+    UINT worldIndexCount_ = 0;
     std::vector<Chunk> chunks_;
     int chunksX_ = 0, chunksZ_ = 0;
 
