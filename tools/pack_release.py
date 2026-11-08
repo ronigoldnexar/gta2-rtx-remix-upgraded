@@ -12,7 +12,7 @@ against the source tree afterwards. Layout (paths inside the zip):
   gta2dx9-x86-linux-built.zip  gta2dx9-linux-built/{gta2dx9.dll, d3ddll.dll, gta2dx9_vid.dll,
                                Dmavideo.dll, DMAGlide.dll, gta2dx9.ini, install.reg, uninstall.reg}
                                from stage/, plus gta2dx9-linux-built/linux/... (the committed linux/
-                               tree at HEAD, `git ls-files linux`)
+                               tree at HEAD, read from git, so local edits never ship)
   gta2dx9_models_people.zip    assets/models/human_*   (41 Rocketbox avatars, MIT, re-imported)
   gta2dx9_models_cars.zip      assets/models/0NN_*     (the generated car models)
   textures_hd_dds.zip          assets/textures_hd/{wil,bil,ste}/*.dds
@@ -33,8 +33,8 @@ def entries(name):
     """(path in the zip, path on disk) pairs for one archive"""
     if name == "linux":
         out = [(f"gta2dx9-linux-built/{f}", os.path.join("stage", f)) for f in STAGE_FILES]
-        files = subprocess.run(["git", "ls-files", "linux"], capture_output=True, text=True, check=True).stdout.split()
-        out += [(f"gta2dx9-linux-built/{f}", f) for f in files if os.path.isfile(f)]
+        files = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD", "linux"], capture_output=True, text=True, check=True).stdout.split()
+        out += [(f"gta2dx9-linux-built/{f}", "git:" + f) for f in files]   # as committed at HEAD, not the working tree
         return "gta2dx9-x86-linux-built.zip", out, zipfile.ZIP_DEFLATED
     if name in ("people", "cars"):
         pat = re.compile(r"^human_" if name == "people" else r"^\d{3}_")
@@ -56,13 +56,20 @@ def entries(name):
 def pack(outdir, name):
     zname, items, method = entries(name)
     items = sorted(items)
-    missing = [d for _, d in items if not os.path.isfile(d)]
+    missing = [d for _, d in items if not d.startswith("git:") and not os.path.isfile(d)]
     if missing or not items:
         raise SystemExit(f"{zname}: {len(missing)} missing source files, e.g. {missing[:3]}" if missing else f"{zname}: nothing to pack")
     path = os.path.join(outdir, zname); tmp = path + ".part"
     with zipfile.ZipFile(tmp, "w", method, compresslevel=9 if method == zipfile.ZIP_DEFLATED else None) as z:
         for arc, disk in items:
-            z.write(disk, arc)
+            if disk.startswith("git:"):
+                data = subprocess.run(["git", "show", "HEAD:" + disk[4:]], capture_output=True, check=True).stdout
+                mode = subprocess.run(["git", "ls-tree", "HEAD", disk[4:]], capture_output=True, text=True).stdout.split()[0]
+                zi = zipfile.ZipInfo(arc, (2026, 1, 1, 0, 0, 0))
+                zi.external_attr = (0o100755 if mode == "100755" else 0o100644) << 16
+                z.writestr(zi, data, compress_type=method)
+            else:
+                z.write(disk, arc)
     os.replace(tmp, path)
     with zipfile.ZipFile(path) as z:
         bad = z.testzip(); names = z.namelist()
