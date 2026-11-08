@@ -1639,7 +1639,10 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
         // QB-17/18: the beats watch the game's big message every frame of a street view.
         const float bx = player.x, bz = static_cast<float>(gta2::kMapHeight) - player.y;
         const float byaw = player.facingKnown ? std::atan2(player.dirX, -player.dirY) : followYaw_;
-        BeatsUpdate(player, mode != ViewMode::Classic, bx, player.z, bz, byaw, dt);
+        // Its height is the floor the solver measured under him (a stair or a raised plaza
+        // stands above the game's own z).
+        const float by = floorSettled_ && std::hypot(bx - lastX_, bz - lastZ_) < 1.5f ? floorY_ : player.z;
+        BeatsUpdate(player, mode != ViewMode::Classic, bx, by, bz, byaw, dt);
     }
     if (mode != lastMode_) {
         Reset();

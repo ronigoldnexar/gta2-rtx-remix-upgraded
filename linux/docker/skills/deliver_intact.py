@@ -78,11 +78,54 @@ def _box_inside(s, box, margin=0.15):
     return abs(s["x"] - x) < max(0.2, w / 2 - margin) and abs(s["y"] - y) < max(0.2, h / 2 - margin)
 
 
-def approach_point(world, s, box, back=4):
-    """a point on the car route `back` cells before the box (the side the road enters it from):
-    a narrow garage strip is approached straight from its open side. Falls back to the side of
-    the box facing the car."""
+def label_xy(p):
+    return f"{p[0]:.1f},{p[1]:.1f}"
+
+
+def open_side(world, box, level=None, reach=3):
+    """the side of the box a car can come in from, read off the map: for each side, the cells
+    1..reach out from the box's edge across its width, scored road 3, lot/field 1, pavement 0.5,
+    a wall or nothing stops that lane. Returns (approach point 2.6 out from the edge on the box's
+    centre line, (dx, dy) of the side, score), or None. dl_zz1: the hospital box (3 x 1, a
+    forecourt entered from the road at its east end) was approached from the route's last cells
+    north of it and the car turned into the kerb posts for two minutes."""
     x, y, w, h = box
+    L = level if level is not None else 1
+    best = None
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        # one lane per cell across the side: from the box's edge cell outward, stopping at a wall
+        # face, a cell with no ground or a building
+        if dx:
+            edge = int(math.floor(x + dx * (w / 2 - 0.5)))
+            lanes = [(edge, int(math.floor(y - h / 2 + 0.5 + j))) for j in range(max(1, int(round(h))))]
+        else:
+            edge = int(math.floor(y + dy * (h / 2 - 0.5)))
+            lanes = [(int(math.floor(x - w / 2 + 0.5 + j)), edge) for j in range(max(1, int(round(w))))]
+        score = 0.0
+        for cx, cy in lanes:
+            for k in range(1, reach + 1):
+                px, py = cx + dx * (k - 1), cy + dy * (k - 1)
+                if M.wall_between(world, px, py, L, dx, dy): break
+                kind = M.node_kind(world, px + dx, py + dy, L)
+                if not kind: break
+                score += {1: 3.0, 3: 1.0, 2: 0.5}.get(kind[1], 0.0)
+        if best is None or score > best[2]:
+            ax, ay = (x + dx * (w / 2 + 2.6), y) if dx else (x, y + dy * (h / 2 + 2.6))
+            best = ((ax, ay), (dx, dy), score)
+    return best if best and best[2] > 0 else None
+
+
+def approach_point(world, s, box, back=4):
+    """where to stand before the creep: the box's open side (open_side), else a point on the
+    car route `back` cells before the box, else the side of the box facing the car."""
+    x, y, w, h = box
+    try:
+        side = open_side(world, box, M.ped_level(s))
+    except Exception as e:
+        say(f"deliver: open_side failed ({e})"); side = None
+    if side:
+        say(f"deliver: approach {label_xy(side[0])} from side {side[1]} (score {side[2]:.1f})")
+        return side[0]
     try:
         path = M.car_route(world, s, x, y)
     except Exception as e:                      # the router is shared and frozen; never let it end the job
@@ -204,7 +247,7 @@ def deliver(world, box, car=None, approach=None, done=None, check=None, view_swi
             hp = car_hp()
             cap = _care_cap(hp)
             if cap: M.SMOOTH_SLOW_CAP = cap; M.CARE_HP = 32001; M.CARE_CAP = cap
-            else: M.SMOOTH_SLOW_CAP, M.CARE_HP, M.CARE_CAP = saved
+            else: M.CARE_HP, M.CARE_CAP, M.SMOOTH_SLOW_CAP = saved
             # a burning or badly hurt car: a respray when one is near enough to reach in its life
             ms = M.mission_state() or {}
             burning = ms.get("carfire", -1) > 0 or (0 <= hp < 16000)

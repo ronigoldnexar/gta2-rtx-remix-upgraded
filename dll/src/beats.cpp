@@ -44,6 +44,13 @@ Config g_cfg;
 BeatState g_beat;
 BeatStingHook g_hook = nullptr;
 float g_respawnAt = -1.0f;   // the beat's time when the game put him back; < 0 not yet
+int g_farFrames = 0;         // consecutive frames he has been found far from the beat's spot
+// Where he was last frame, when found: on the message's own frame the locator can report
+// the new body the game has already placed at the hospital or the station (seen in
+// qb17_beats3: "WASTED start at 50.50,2.00,77.50 yaw 180", the body at 134.2,153.4), so a
+// beat is anchored on the frame before.
+struct Seen { bool valid = false; float x = 0, y = 0, z = 0, yaw = 0; bool inVehicle = false; };
+Seen g_prev;
 
 // The keys' texts, letters only, upper case, from data\e.gxt.
 struct KeySet { BeatKind kind; const char* keys[4]; };
@@ -219,18 +226,27 @@ void BeatsUpdate(const PlayerState& player, bool street, float px, float py, flo
             b.serial = ++serial;
             g_respawnAt = -1.0f;
             b.titleText = words;
-            b.inVehicle = player.valid && player.inVehicle;
-            if (player.valid) {
-                b.x = px; b.y = py; b.z = pz; b.yaw = yaw;
+            g_farFrames = 0;
+            if (g_prev.valid) {
+                b.x = g_prev.x; b.y = g_prev.y; b.z = g_prev.z; b.yaw = g_prev.yaw; b.inVehicle = g_prev.inVehicle;
+            } else if (player.valid) {
+                b.x = px; b.y = py; b.z = pz; b.yaw = yaw; b.inVehicle = player.inVehicle;
             } else {
-                // Lost already (a car that blew up under him): where the camera last had him.
-                const AimState& a = ViewAim();
-                b.x = a.x; b.y = a.y; b.z = a.z; b.yaw = a.headingYaw;
+                // Lost already (a car that blew up under him): where he was last seen.
+                b.x = g_prev.x; b.y = g_prev.y; b.z = g_prev.z; b.yaw = g_prev.yaw; b.inVehicle = g_prev.inVehicle;
             }
             Log("beat: %s start \"%s\" at %.2f,%.2f,%.2f yaw %.0f%s%s", BeatName(kind), words.c_str(), b.x, b.y, b.z,
                 b.yaw * 57.29578f, b.inVehicle ? ", in a car" : "", player.valid ? "" : ", player not found");
             Sting(kind, words.c_str());
         }
+    }
+    // Last frame's place for the next beat's anchor: only a place that did not jump.
+    {
+        const bool jump = g_prev.valid && player.valid && std::hypot(px - g_prev.x, pz - g_prev.z) > 3.0f;
+        // A jump leaves no anchor for one frame; the frame after, the new place counts.
+        if (player.valid && !jump) g_prev = Seen{true, px, py, pz, yaw, player.inVehicle};
+        else if (player.valid) g_prev = Seen{false, px, py, pz, yaw, player.inVehicle};
+        else g_prev.valid = false;   // (the last place is kept for a lost start)
     }
     if (b.kind == BeatKind::None) return;
     if (!street) {   // back to the classic view: the beat ends at once
@@ -259,7 +275,15 @@ void BeatsUpdate(const PlayerState& player, bool street, float px, float py, flo
     // a fade to black from fadeAfter; found again far away (hospital, station) or lost for
     // good: fade in from black over 0.7 s, back on the chase camera.
     const float moved = player.valid ? std::hypot(px - b.x, pz - b.z) : 0.0f;
-    const bool respawned = player.valid && moved > 4.0f && t > 1.0f;
+    // The body may slide or be thrown a little after the message: followed while close.
+    if (player.valid && moved < 2.5f && g_respawnAt < 0.0f) {
+        const float k = 1.0f - std::exp(-dt / 0.3f);
+        b.x += (px - b.x) * k; b.y += (py - b.y) * k; b.z += (pz - b.z) * k;
+    }
+    // Put back: found far away for a third of a second running (one far frame is the
+    // locator glancing at the new body before the game uses it).
+    g_farFrames = player.valid && moved > 6.0f ? g_farFrames + 1 : 0;
+    const bool respawned = g_farFrames >= 10 && t > 1.0f;
     if (g_respawnAt < 0.0f && (respawned || t > g_cfg.maxSecs)) {
         g_respawnAt = t;
         Log("beat: %s: %s after %.1f s (moved %.1f blocks)", BeatName(b.kind), respawned ? "respawned" : "no respawn seen",

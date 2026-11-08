@@ -697,3 +697,64 @@ gun a notional magazine and plays a reload when it is spent and he stops firing:
 - **Assets:** the 41 avatars re-imported with the three clips (`tools/import_assets.py ../assets-src/manifest.json
   <dir> --only human_...`; only the `.mesh` files change, the textures are byte-identical). The clips JSON
   was regenerated from `Male_Adult_01` + `idle_breathe` (that pair reproduces the previous file byte for byte).
+
+### Status (QB-29)
+
+Runs `qb29_r3`..`qb29_r9` (private stage: this build + the re-imported avatars, L4, the host at load
+15-35, so clips ran slow in wall time); probe `gamerun/qb29_reload.py` (collect pistol, MG, launcher;
+burst, let go, 8 fps frames for 7 s, then first person).
+
+| item | status | evidence |
+|---|---|---|
+| MG reload, third person | verified: log `starts` 9 frames after the last of 53 shots, `magazine out at t=0.37`, `in at t=0.97`; frames: the left hand leaves the gun, drops, goes to the chest pouch, back under the gun, carry again. Seen from behind (the chase camera swings behind a shooter), the gun half hidden by the body | qb29_r8 `r_machine_gun_reload_third_06..30`, qb29_r9 |
+| MG reload, first person | verified: the view model drops low and left, muzzle up, rolled, back to the carry; mag out 0.38 s, in 0.95 s | qb29_r8 `r_machine_gun_reload_fp_04..28` |
+| launcher reload, third person | verified: tube down off the shoulder and back; `rocket in at t=0.87`; a shot during the reload cuts it off (log) | qb29_r5 `r_rocket_launcher_reload_third`, qb29_r9 log |
+| launcher, first person | log only (`first person magazine in at t=0.87`) | qb29_r5, r9 |
+| pistol reload | log only (six aimed shots, `starts`, out 0.30, in 0.80); the frame burst came too late | qb29_r9 |
+| falling magazine, held magazine | spawned (log times), not singled out in a frame (a small dark particle) | - |
+| clicks | `reload: click 0/1/2` logged at the events; not heard (no audio capture in the runs) | logs |
+| NPCs (police 990 rounds) | same code path (their cooldown restarts count as shots); not filmed | - |
+
+## CROWD (8 Nov 2026): people's own clothes and builds, heads that follow the player, glances
+
+Street views only (third and first person); the classic view is untouched. `[crowd]` in
+`package/gta2dx9.ini` (`variety`, `look_at`, `look_range`), `GTA2DX9_CROWD=0` turns all of it
+off for a run.
+
+- **Clothes** (`CrowdLookFor`, `live_geometry.cpp`): a civilian (no remap, remap 15 or 18-52
+  except 22: the manifest's `civilian_*` types) three times in four gets an everyday clothing
+  colour from a palette of 20 (navy, charcoal, beige, olive, burgundy, denim, mustard, teal...):
+  the avatar's `_paint` half multiplied 85% of the way toward it (the existing paint-tint stage,
+  so it costs no pose and no texture). With 4 avatars per civilian remap, 20 colours plus the
+  avatar's own and the builds below, one avatar is now ~80 different-looking people. Uniforms
+  (police, army, medics, firemen, suits) and gang colours are unchanged; the player is unchanged.
+- **Builds**: height x0.94-1.06 and width x0.95-1.05 per person (the placement's fit matrix), for
+  everyone but the player. Fixed by the ped's object, like the avatar choice.
+- **Look-at**: a person with no action clip on, the player within `look_range` blocks (default
+  5; doubled for 3 s after the player fires) and within 110 degrees of the way he faces, turns
+  his head to the player: `ModelSetHeadTurn` (`model_store.cpp`) turns `Bip01 Neck` 40% and
+  `Bip01 Head` 60% about the model's vertical, clamped to 70 degrees (50 walking), eased over
+  0.25 s at up to 230 deg/s. One passer-by in four does not look (unless the player is shooting).
+- **Glances** (idle behaviour): otherwise a standing person glances left or right every 3-8 s
+  for 1-2.5 s (up to 70 degrees), a walker every 5-12 s (up to 35). Over the existing three idle
+  clips (`idle`, `idle2`, `idle3`, picked per person).
+- **Cost**: the head turn is part of the pose-cache key, quantised to 6 degrees for the nearest
+  figures (LOD 0), 12 for LOD 1, none beyond 18 blocks.
+- **Log**: every 300 drawn frames, `crowd: N figures drawn, N in clothes of their own, ...` and
+  `crowd: last 300 frames: N figure-frames within look_range, N passed over, N with the player
+  behind them, N looking`.
+
+Verified (plain renderer, L4 host, private stage, `gamerun/crowd_probe.py` via
+`keys_crowd_probe.sh`: warp to the Downtown pavement at 165.5,140.5, first then third person):
+run `crowd_r5` logged 6-10 of 7-12 drawn figures in clothes of their own, and 144-407
+figure-frames looking at the player per 300 frames while people were within 5 blocks; frames
+show passers-by in varied clothes and a walker's head turned toward the player; no faults. Run
+`crowd_r6_off` (`GTA2DX9_CROWD=0`) logged `variety 0, look_at 0` and 0 of each. Frame times
+unchanged in kind (the one 59 s frame in `crowd_r5` is the governor's pause of the container,
+23:11-23:12).
+
+Not done (rows 23/39): no children or elderly avatars and no carried props (bags, phones,
+umbrellas) — they need new Rocketbox imports, which stay out of git; no stop/settle clip and no
+fidget clips (new clips in `tools/gen_ped_clips.py` mean re-importing the avatars). Untested:
+the look-at under RTX Remix (Remix down on this host), and the gunfire range doubling (the
+probe did not fire).

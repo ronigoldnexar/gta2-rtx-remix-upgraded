@@ -235,6 +235,8 @@ float g_crowdLookRange = 5.0f;
 float g_crowdPlayerX = 0.0f, g_crowdPlayerZ = 0.0f;
 uint32_t g_crowdPlayerFrame = 0, g_crowdPlayerShot = 0;
 int g_crowdCount[4] = {};   // this frame: drawn, own clothes, looking at the player, glancing
+float g_crowdNearD2 = 1e9f, g_crowdNearRel = 0.0f;   // this frame: the nearest other figure to the player (log)
+int g_crowdWin[4] = {};   // over the log's ten seconds: figure-frames in range, passed over (one in four), behind him, looking
 uint32_t CrowdHash(uint32_t x) {
     x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
     return x;
@@ -6964,10 +6966,16 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     // CROWD: last frame's counts, every ten seconds of drawing.
     {
         static uint32_t frames = 0;
-        if (g_crowdCount[0] && ++frames % 300 == 0)
-            Log("crowd: %d figures drawn, %d in clothes of their own, %d looking at the player, %d glancing", g_crowdCount[0],
-                g_crowdCount[1], g_crowdCount[2], g_crowdCount[3]);
+        if (g_crowdCount[0] && ++frames % 300 == 0) {
+            Log("crowd: %d figures drawn, %d in clothes of their own, %d looking at the player, %d glancing; nearest %.1f blocks at %.0f deg (player seen %d frames ago)",
+                g_crowdCount[0], g_crowdCount[1], g_crowdCount[2], g_crowdCount[3], std::sqrt(g_crowdNearD2), g_crowdNearRel * 57.3f,
+                g_crowdPlayerFrame ? static_cast<int>(g_carFrame - g_crowdPlayerFrame) : -1);
+            Log("crowd: last 300 frames: %d figure-frames within look_range, %d passed over, %d with the player behind them, %d looking",
+                g_crowdWin[0], g_crowdWin[1], g_crowdWin[2], g_crowdWin[3]);
+            for (int& c : g_crowdWin) c = 0;
+        }
         for (int& c : g_crowdCount) c = 0;
+        g_crowdNearD2 = 1e9f;
     }
     int drawn = 0;
     if (g_logPedFrames) {
@@ -7156,10 +7164,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 track.jacking = false;
             }
             // QB-14: boarding a car with a driver at the wheel is a jack (the game uses the
-            // same states as for an empty car). Decided before the climb gets far: the
-            // nearest car drawn within 1.3 blocks, by its driver word.
-            if (sprite.pedState == 3 && !track.jacking && (sprite.pedFrame % 158u) < 28u) {
-                float best = 1.3f * 1.3f;
+            // same states as for an empty car). Decided at the door, before the climb gets
+            // far (reach and early climb frames 16-27): the nearest car drawn within a block,
+            // by its driver word (further off, a ped walking past to another car's door).
+            if (sprite.pedState == 3 && !track.jacking && (sprite.pedFrame % 158u) >= 16u && (sprite.pedFrame % 158u) < 28u) {
+                float best = 1.0f * 1.0f;
                 bool driver = false, found = false;
                 for (const std::vector<CarSeat>* list : {&g_carSeats, &g_carSeatsNow}) {
                     for (const CarSeat& s : *list) {
@@ -7642,6 +7651,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     const bool gunfire = g_crowdPlayerShot && g_carFrame - g_crowdPlayerShot < 90;
                     const float range = g_crowdLookRange * (gunfire ? 2.0f : 1.0f);
                     const float d2 = px * px + pz * pz;
+                    if (d2 < g_crowdNearD2) {
+                        g_crowdNearD2 = d2;
+                        float rl = std::atan2(px, pz) - track.heading;
+                        while (rl > kPi) rl -= 2.0f * kPi;
+                        while (rl < -kPi) rl += 2.0f * kPi;
+                        g_crowdNearRel = rl;
+                    }
+                    if (d2 < range * range && d2 > 0.04f) { ++g_crowdWin[0]; if (!gunfire && (CrowdHash(seed) & 3) == 0) ++g_crowdWin[1]; }
                     if (d2 < range * range && d2 > 0.04f && (gunfire || (CrowdHash(seed) & 3) != 0)) {
                         float rel = std::atan2(px, pz) - track.heading;
                         while (rel > kPi) rel -= 2.0f * kPi;
@@ -7650,6 +7667,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             const float lim = walking ? 0.87f : 1.22f;
                             headTarget = (std::max)(-lim, (std::min)(lim, rel));
                             track.lookingAtPlayer = true;
+                            ++g_crowdWin[3];
+                        } else {
+                            ++g_crowdWin[2];
                         }
                     }
                 }

@@ -180,6 +180,53 @@ Also in this pass (`dll/src/car_bodies.cpp`):
   against both planes (Sutherland-Hodgman per triangle, new vertices appended),
   so the edge is the plane itself.
 
+## The driver's seat: eye over the bonnet, a dashboard over the cut (8 Nov 2026, QB-5)
+
+Quality-bar row 5: in first person the own car's bonnet broke up into black spikes filling
+the lower half of the view, or into yellow/pale ribbons across it. Reproduced on the plain
+renderer with a first-person knock scenario (`gamerun/qa_qb5.py`, 30 fps clips of each
+knock): the Schmidt (model 36) and the Aniston BD4 (model 2) showed it **at damage 0**, so
+neither the dents nor the knocks caused it; the knocks only made it jump.
+A sweep of all 72 models from the seat (`gamerun/qa_qb5sweep.py` with the new
+`[devtools] force_own_car_model`) showed the same shards on about a dozen generated models.
+
+Causes (`dll/src/car_bodies.cpp`):
+1. The hood copy (`HoodModelFor`) is the hull cut a hand under the eye and just ahead of it.
+   From the seat the eye looks down through that open cut face into the hull. What shows
+   there is the inside of the wings and the underbody, plus the faces of a generated mesh
+   that the facing test lets through (vertex normals on these meshes are noisy): the black shards.
+2. On cars whose bonnet stands higher than the generic cabin deck (0.62 of the roof, from
+   the sprite), the eye sat below the bonnet top. The horizontal cut at eye height then sliced
+   the lumpy bonnet top into islands and strips (the pale/yellow ribbons, the gold wings of the BD4).
+3. The eye does not ride the body springs (`vehicle_fx`). A knock's full pitch and heave
+   (up to 0.10 rad and 0.05 block) lifted the bonnet through the cut for a moment.
+
+Fixes:
+- **Dashboard** (`DrawDash`): a panel across the cut, from the floor to the top of what the
+  copy keeps in the first 0.08 block ahead of the cut, and a shelf at that height back
+  toward the eye. Its width is that of the kept geometry. It is drawn untextured and lit
+  (it darkens at night with the body), in a darker shade of the body paint with a floor of
+  0.10, so a dark car does not show a black hole. The top stays 0.008 under the clip plane.
+- **Eye over the bonnet** (`BonnetTopFor`): the 99th percentile of the model's vertex
+  heights ahead of the windscreen. The own car's cabin deck is kept at least 0.03 over it
+  (and the roof 0.08 over the deck), so the eye (`view_modes`: deck + 0.62 (roof - deck))
+  looks over the bonnet and the cut never runs through it. Only the player's car, only
+  whole models.
+- **Springs from the seat**: the hood copy gets a third of the body's spring pose (the
+  matrix lerped toward the identity), so the jolt still shows and the bonnet stays under the cut.
+- `[devtools] force_own_car_model=N` draws the player's car as CARI model N (0..71),
+  fitted to the footprint of the car driven, for checks from the seat.
+
+Verified on the plain renderer (Remix untested: GPU 0's DXVK fence failure). Runs
+`out/qa_qb5base2` (before: Schmidt shards), `out/qa_qb5fix` (before the dashboard: BD4
+shards and gold ribbons), `out/qa_qb5sw1` / `out/qa_qb5sw2` (72-model sweeps before/after
+the dashboard), `out/qa_qb5fix2` (G4 bank van with 4 real knocks, forced damage 6000 to 26000,
+forced BD4 and Schmidt with knocks), `out/qa_qb5sw3` (the worst 11 models at damage 26000
+and 0). After the fix no frame shows the shards or ribbons. Small dark bits of real
+inner-wing faces can still show past the dash on some generated models (model 46).
+With a forced model on a long footprint (the Schmidt on the van) the eye can sit high
+enough that the short bonnet falls out of view. That case comes only from the devtools key.
+
 ## Clean albedo pass (8 Nov 2026, CAR-QUALITY-4)
 
 The user saw the cars as "completely worn out" and the police car with "lighting
