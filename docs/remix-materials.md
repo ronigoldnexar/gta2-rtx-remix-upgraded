@@ -194,6 +194,87 @@ is seen, the flash sprite not caught in a frame); the explosion and fire after t
 clear-coat reflections are visible on the roofs by day but were not compared with the
 REMIX-POLISH constants; Industrial and Residential were not rerun.
 
+## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
+
+Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every
+tile had its albedo, a 256 px normal from a band-passed Sobel of that albedo (one noisy
+relief, mortar and grain alike) and a roughness from local contrast alone; no metallic,
+no height, no emission beyond the curated signs. This pass gives every HD tile of the
+three districts the full map set, from `tools/remix_pbr.py` (new; numpy only):
+
+| map | file | size / format | what it is |
+|---|---|---|---|
+| albedo | `<hash>.a.rtex.dds` | the game's own 512 px DXT1/DXT5, copied | unchanged (the hash is its top mip) |
+| normal | `.n.rtex.dds` | 512 px BC5 octahedral, 10 mips (was 256 px) | slope of a two-band height: *structure* (difference of Gaussians at ~1/40 of the tile, normalised by local contrast, through tanh: brick faces become plateaus, mortar and panel seams grooves) x a strong weight plus *grain* (the fine texture inside a face) x a weak one. Saturated paint (signs, road markings) gets a quarter of the structure relief. |
+| roughness | `.r.rtex.dds` | 256 px BC4 | a class per texel (asphalt 0.86, stone/concrete 0.78, brick 0.84, wood 0.70, vegetation 0.92, painted/sign 0.42, smooth plaster 0.55, metal 0.38, bright metal edges 0.20, near-black 0.60), plus local grain (busier = rougher) and grime (darker than its surroundings = rougher) |
+| metallic | `.m.rtex.dds` | 256 px BC4, only where there is metal | neutral texels in strongly oriented, finely periodic patches (corrugated sheet, gratings, girders, pipes, rails; a patch, not a lone edge, and at least 4 % of the tile) 0.45, their bright thin highlights 0.75 |
+| height | `.h.rtex.dds` + `displace_in` | 256 px BC4 with a **max** mip chain (what the runtime's quadtree POM reads) | the structure band (1 = surface, 0 = deepest) on relief tiles: no sign paint, at least 60 % surface, enough structure; `displace_in` 0.006 + 0.012 x the tile's structure amplitude (pbr.json) |
+| wet roughness | `.w.rtex.dds` | 256 px BC4, ground-like tiles only | half the roughness, puddles (0.025) in the low areas of a tile-seeded noise field and in the joints: referenced only by the rain variant `mod_wet.usda` |
+| emission | `.e.rtex.dds` | unchanged | the curated neon and lit signs (`remix_emissive.py`) |
+
+**Night windows are not generated.** `analyse(windows=True)` finds dark, smooth, framed
+rectangles and lights about half of them; on a random sample of 180 tiles every tile it
+lit was a false positive (blue-grey wall panels, roof plates, a cornice shadow), and a
+glowing wall at night is worse than a dark window, so it is off and documented as such.
+Lit windows would need a curated list like the signs'.
+
+Wiring: `remix_materials.py --dds-tiles ... --pbr full` (the default; `--pbr basic` is the
+older two maps) runs the tiles in a process pool (`--jobs`), writes `pbr.json` (per hash:
+displace_in, wet, class shares) beside `mod.usda`; `write_usda` adds `metallic_texture`,
+`height_texture` + `displace_in` and the emission to a prim when the file exists, so the
+sign pass keeps them; `--wet-layer` writes `mod_wet.usda` from the finished layer (cars
+included). Alpha: the prims keep `use_legacy_alpha_state = 1` (REMIX-POLISH's cutout fix),
+and a cut-out texel's luminance is filled from its visible neighbours before the bands
+are taken, so a fence's edge is not a cliff in the normal map.
+
+Regenerating (from `~/gta2-linux`, ~15 min of CPU at JOBS=3 on an idle machine; under the
+usual load of game runs it took far longer, see below):
+
+    MOD=gamerun/remix_vis/gta2hd JOBS=3 bash repo/linux/docker/build_remix_mod.sh   # a private copy
+    bash repo/linux/docker/build_remix_mod.sh                                         # the package layer
+    ZIP=1 bash repo/linux/docker/build_remix_mod.sh                                   # + the release zip
+    python3 repo/tools/remix_pbr.py preview <out.png> <tile.dds> ...                 # maps of some tiles
+
+The car and prop materials are REMIX-CARPROPS-PBR's (`remix_model_materials.py`), the
+post stack and presets REMIX-POST's (`package/rtx.conf`, `rtx_showcase.conf.extra`).
+
+**Built (8 Nov, 17:26; all 2 649 tile prims of wil/bil/ste, every one with the new maps):**
+2 649 normals (512 px BC5, 1 047 MB), 2 649 roughness (256 px BC4), 1 674 height maps
+with `displace_in` 0.006-0.018 (63 % of the tiles: brick, block, cobble, panel and relief
+facades; signs and flat paint left out), 500 tiles with a metallic map (630 metallic maps
+in all with the car pass), 864 wet roughness maps (ground-like tiles), 64 sign emission
+maps (unchanged); the car/prop pass (REMIX-CARPROPS-PBR's tool as of 17:26) added 552
+model prims. 3 201 prims, 11 830 texture references, none missing, in both `mod.usda`
+and `mod_wet.usda`; every map decodes with Pillow at its size. Bytes on disk by map:
+albedo 713 MB, normal 1 047, roughness 170, height 73, metallic 44, wet 38, emission 28:
+**2.0 GB** (was 1.1 GB; the 512 px normals are most of the growth; `SIZE=256` halves
+the normals to 262 MB if the size matters more than the close-up relief).
+`deliverables/remix_mod_gta2hd.zip` (`tools/pack_release.py <out> remix`, store-only,
+now with `mod_wet.usda` and `pbr.json`): **2 123 427 523 bytes** (was 1 084 585 827).
+The previous layer is kept outside the repo (`~/gta2-linux/trash_vis/gta2hd_before_visuals`)
+for a rollback. Map sheet (offline, raking-light preview of old vs new normal, roughness,
+wet roughness, metallic, height for eight tiles of the three districts):
+`out/visuals_remix_maps_sheet.png` (`remix_pbr.py preview`).
+
+**Not verified under Remix.** The take for it is ready (`linux/docker/vremix_run.sh <name>
+[layer folder]` → `remix_vis_take.py`: the spawn plaza and two warp spots, first person
+round and chase view, 14:00 and 22:00, the same headings in every run, so the old and
+new layers compare frame for frame), but on 8 Nov from 16:24 to 18:45 no Remix session on
+the L4 got past the front end, for this stream or REMIX-POST: the runtime either could not
+create its Vulkan instance (`VK_ERROR_INITIALIZATION_FAILED`, runs `vis_base`, `vis_base2`,
+REMIX-POST's) or failed with "DxvkCommandList: Failed to create fence" while compiling
+shaders (`vis_base` retry, `vis_new` with this layer); the kernel log has NVIDIA
+`NV_ERR_NO_MEMORY` allocation failures at 15:25 and 17:40 from the host overload. The
+failures came before the level and before the layer's textures are read, with the old
+layer as well as the new one, so they say nothing about the maps. Still to check on a
+working session: that the height maps parallax-displace without swimming or edge
+artifacts at tile seams (the tiles wrap, but the neighbouring tile does not continue the
+relief), the `displace_in` scale (taken as the Toolkit's "depth / UV width" ratio; not
+measured), the cost of 1 674 POM materials on the L4, that the metallic patches read as
+metal and not as shiny stone, and the rain layer (`MODS_HD_SRC` at a folder whose
+`mod.usda` is `mod_wet.usda`).
+
+
 This note records what NVIDIA offers for turning GTA2's 64x64 tiles into PBR
 materials, why none of it runs on this Linux/B200 machine, and what
 `tools/remix_materials.py` produces instead: a complete Remix material layer,
