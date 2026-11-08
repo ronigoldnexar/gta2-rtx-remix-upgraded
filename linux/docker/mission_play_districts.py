@@ -26,6 +26,7 @@ def set_view(name):
     while VIEW[0] != name:
         tap("v", 0.3); time.sleep(1.7)
         VIEW[0] = order[(order.index(VIEW[0]) + 1) % 3]
+    M.CUR_VIEW[0] = name
     M.mark(f"view {name}")
 
 D.start()
@@ -53,16 +54,20 @@ def money():
 def msg():
     return (M.mission_state() or {}).get("msg", "")
 
-def walk(tx, ty, tl=None, tol=0.5, budget=300, fp_secs=12):
-    """a walk with a first-person stretch at its start"""
-    if fp_secs:
-        set_view("first")
-        s = M.walk3(world, tx, ty, tl, tol=tol, budget=fp_secs)
-        if s and math.hypot(tx - s["x"], ty - s["y"]) < tol: set_view("third"); return s
-        set_view("third")
+# The walker steers with heading pulses calibrated in the classic view; the 3D
+# views remap the keys (Up walks where the camera looks, Left/Right turn a wanted
+# heading through a lagging controller), so walk3 takes the classic view for the
+# walk and gives the 3D view back after it, as the Downtown runner does since
+# pt4_wil15. Without the hook (pt5_bil1) the walker walked in the chase view:
+# 20 minutes of re-routes at the Industrial spawn and on the way to the Z-Type.
+M.VIEW_HOOK[0] = set_view
+
+def walk(tx, ty, tl=None, tol=0.5, budget=300, fp_secs=0):
+    """a walk (classic view while walking; first person is at the wheel)"""
     return M.walk3(world, tx, ty, tl, tol=tol, budget=budget)
 
 def nudge_to(x, y, tol=0.1, tries=30):
+    M.ensure_view("classic")
     for _ in range(tries):
         s = D.wait_state()
         if not s or s["driving"]: return s
@@ -131,7 +136,16 @@ def answer(entry):
         for i, (wx, wy) in enumerate(ap):
             M.mark(f"approach waypoint {wx},{wy} for the phone")
             s = walk(wx, wy, None, tol=1.5, budget=240 if i == 0 else 120, fp_secs=10 if i == 0 else 0)
-    s = walk(entry["x"], entry["y"], tl, tol=0.35, budget=300, fp_secs=0 if ap else 10)
+    if ap:
+        # stop a block and a half short on the approach side and step on with nudges: the
+        # Rednecks' two phones are neighbours (68.5 / 67.5) and pt6_ste3's walk overshot
+        # onto DOUBLE-CROSS CRUSH! (2803) instead of BLOW JOB
+        wx, wy = ap[-1]; dn = math.hypot(wx - entry["x"], wy - entry["y"]) or 1.0
+        s = walk(entry["x"] + (wx - entry["x"]) / dn * 1.5, entry["y"] + (wy - entry["y"]) / dn * 1.5, tl, tol=0.4, budget=200)
+        nudge_to(entry["x"], entry["y"], tol=0.12, tries=16)
+        s = D.wait_state()
+    else:
+        s = walk(entry["x"], entry["y"], tl, tol=0.35, budget=300, fp_secs=10)
     if s and math.hypot(entry["x"] - s["x"], entry["y"] - s["y"]) > 1.2:
         s = M.walk3(world, entry["x"], entry["y"], tl, tol=0.35, budget=120)
     if s and math.hypot(entry["x"] - s["x"], entry["y"] - s["y"]) > 1.2 and os.environ.get("WARP_OK", "1") == "1":
@@ -169,6 +183,7 @@ def answer(entry):
 # ---------------------------------------------------------------- the mission car
 
 def face_point(x, y, tries=6):
+    M.ensure_view("classic")
     for _ in range(tries):
         s = D.wait_state()
         if not s: return s
@@ -283,9 +298,13 @@ def park_in_block(x, y, w, h, money0, budget=300, parked_msgs=()):
     say(f"park_in_block {x},{y}: {'reacted' if ok else 'no reaction'} at {s['x']:.2f},{s['y']:.2f}" if s else "park_in_block: no state")
     return ok, s
 
-def arm_and_run(money0, armed_msgs, run_level=1):
+def arm_and_run(money0, armed_msgs, run_level=1, blast_at=None):
     """the car bomb: fire arms it (the game says get out), leave, run clear"""
     M.mark("arming the explosives")
+    # the classic view now, while the car stands in the block: the escape's first
+    # cruise_to would switch views after Enter (two V presses), and pt6_ste4 lost
+    # those seconds of the fuse
+    M.ensure_view("classic")
     m0 = msg(); armed = False
     for k in range(8):
         if k == 3: tap("Tab", 0.3); time.sleep(0.5)        # the weapon slot, in case the bomb is not selected
@@ -293,10 +312,21 @@ def arm_and_run(money0, armed_msgs, run_level=1):
         if msg() in armed_msgs or (msg() != m0 and M.objective() is None): armed = True; break
     say(f"arm: {'armed' if armed else 'no reaction'} (msg {msg()})")
     s = D.wait_state(); cx, cy = s["x"], s["y"]
-    M.leave_car(); M.mark("out of the car, running clear")
+    # out at once (leave_car's 2 s wait is most of the fuse) and run a routed path
+    # ten blocks away from the blast centre (the bomb, and the script's EXPLODEs
+    # along the target); pt6_ste1 ran 7 blocks in a fixed direction and died
+    tap("Return", 0.3); time.sleep(0.8); M.mark("out of the car, running clear")
     s = D.wait_state()
-    ex, ey = M.escape_point(world, cx, cy, run_level, dist=7)
-    M.cruise_to(ex, ey, tol=1.0, secs=10)
+    blast = blast_at or (cx, cy)
+    legs = M.escape_route(world, s, dist=10, away=blast) or M.escape_route(world, s, dist=8)
+    if not legs:
+        ex, ey = M.escape_point(world, cx, cy, run_level, dist=7); legs = [(ex, ey)]
+    say("escape legs:", [(round(a, 1), round(b, 1)) for a, b in legs])
+    t_e = time.time()
+    for k, (ex, ey) in enumerate(legs[:5]):
+        if time.time() - t_e > 9: break
+        M.cruise_to(ex, ey, tol=0.8, secs=max(2.0, 9 - (time.time() - t_e)), stop=(k == len(legs[:5]) - 1))
+    xdo("keyup", "Up")
     time.sleep(6.0)
     return armed
 
@@ -326,7 +356,7 @@ def play_ste_re1(entry):
         out, ms = M.outcome(money0)
         if out != "running": return out
         cs = D.wait_state(); left_at = (cs["x"], cs["y"])
-        arm_and_run(money0, ("2006", "2018"))
+        arm_and_run(money0, ("2006", "2018"), blast_at=(49.0, 19.3) if stage == 0 else (x, y))
         M.shot(f"{entry['mission']}_blast{stage+1}")
         t0 = time.time()
         while time.time() - t0 < 90:
@@ -355,18 +385,27 @@ def play_bil_re2(entry):
     o = wait_arrow(30, kinds=(3, 4))
     car_at = (o[0], o[1]) if o else (48.0, 73.0)
     s = D.wait_state()
-    if s["z"] > 3.2 and os.environ.get("WARP_OK", "1") == "1":
+    if s["z"] > 3.2 and os.environ.get("WARP_OK", "1") == "1" and not (s.get("parked") and s["pd"] < 8):
+        # only when no car stands by: the rooftop is a car park (pt6_bil4 drove up to
+        # two blocks from the phone), and the warp down from z=6 killed him four seconds
+        # later (a fall, as far as the game knows: 4223, JOB FAILED)
         near = M.street_cell_near(world, s["x"], s["y"], radius=12)
         if near:
             say(f"the phone's terrace is at z={s['z']:.1f}; developer warp down to the street at {near[0]},{near[1]}")
             set_view("classic"); s = M.scene_warp(near[0], near[1], near[2], "down from the rooftop phone"); set_view("third")
-    if math.hypot(car_at[0] - s["x"], car_at[1] - s["y"]) > 40:
-        M.mark(f"the Z-Type is {math.hypot(car_at[0] - s['x'], car_at[1] - s['y']):.0f} blocks away: by car")
-        s = M.any_car2(world, budget=120)
+    tries = 0
+    while s and math.hypot(car_at[0] - s["x"], car_at[1] - s["y"]) > 40 and tries < 4:
+        # by car, again after a drive that ended far off (pt6_bil3: the borrowed car
+        # was lost 140 blocks out and the runner set off on a 417-cell walk)
+        tries += 1
+        M.mark(f"the Z-Type is {math.hypot(car_at[0] - s['x'], car_at[1] - s['y']):.0f} blocks away: by car (leg {tries})")
+        s = D.wait_state()
+        if not s["driving"]: s = M.any_car2(world, budget=120)
         if s and s["driving"]:
             FP["until"] = 0.0
             s = M.drive3(world, car_at[0], car_at[1], tol=5.0, budget=420, view_switch=view_switch, slow=False)
-            s = M.leave_car()
+            if s and s["driving"]: s = M.leave_car()
+        s = D.wait_state()
     o = M.objective()
     if o and o[3] in (3, 4): car_at = (o[0], o[1])
     s = enter_parked(car_at[0], car_at[1], budget=360, why="the Z-Type")
@@ -391,7 +430,9 @@ def play_bil_re2(entry):
         if o is None:
             time.sleep(2.0); continue
         x, y, z, kind = o[0], o[1], o[2], o[3]
-        if kind in (3, 4) and stage < 4:
+        if kind in (2, 3, 4) and stage < 4:
+            # the dealer's arrow is a character arrow (kind 2; pt6_bil1 waited 3 min
+            # in the Z-Type on it while only kinds 3/4 were taken for dealers)
             M.mark(f"dealer {stage+1}: by car to {x:.1f},{y:.1f}")
             key0 = M.objective_key(); m0 = msg()
             s = M.drive3(world, x, y, tol=2.0, budget=360, view_switch=view_switch, slow=True)
@@ -402,8 +443,14 @@ def play_bil_re2(entry):
             t0 = time.time(); boarded = False
             while time.time() - t0 < 100:
                 cur = msg()
-                if cur in ("3527", "3529", "3531", "3533"): boarded = True
+                if cur in ("3527", "3529", "3531", "3533", "3528", "3530", "3532"): boarded = True
                 if M.objective_key() != key0 and boarded: break
+                o3 = M.objective()
+                if o3 and math.hypot(o3[0] - x, o3[1] - y) > 8.0:
+                    # the arrow is on the next dealer (or the crane box): this one is aboard.
+                    # pt6_bil2 missed the 1-second "aboard" brief (3527, then 3528) and sat
+                    # 100 s at each dealer in traffic
+                    boarded = True; break
                 if M.objective_key() != key0 or cur == "3526":
                     M.horn(2); time.sleep(2.5)
                 else:
@@ -416,6 +463,8 @@ def play_bil_re2(entry):
             say(f"dealer {stage+1}: {'boarded' if boarded else 'not confirmed'} after {time.time()-t0:.0f}s")
             stage += 1
             continue
+        if kind not in (1, 2, 3, 4):
+            say(f"arrow of kind {kind} at {x:.1f},{y:.1f}: not handled"); time.sleep(2.0); continue
         if kind == 1 or stage >= 4:
             M.mark(f"to the crane box at {x:.1f},{y:.1f}")
             s = M.drive3(world, x, y, tol=2.0, budget=420, view_switch=view_switch, slow=True)

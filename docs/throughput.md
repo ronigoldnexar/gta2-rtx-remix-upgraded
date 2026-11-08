@@ -80,6 +80,9 @@ can therefore run the game faster:
   renderer's frame counter (`frame / 30`).
 - `FPS=0` records no video (screenshots every `SHOTS_EVERY` s, default 5);
   `RES=low` renders at 960x540. Both cut the capture's CPU share.
+- A keys script that has finished touches `/out/.keys_done` (`keys_mission_wil.sh`,
+  `keys_mission_districts.sh` do); `run_game_gpu.sh` then ends the run at its next
+  screenshot (the recorder stopped, the log copied) instead of holding the slot to `SECS`.
 
 Measured (TUTORIAL + GET ZITZAKI, `keys_mission_wil.sh`, same build, same host load):
 

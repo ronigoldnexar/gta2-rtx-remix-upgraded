@@ -54,6 +54,9 @@ for i in $(seq 1 $((SECS / EV))); do
   sleep "$EV"
   ffmpeg -y -loglevel error -f x11grab -video_size ${W}x${H} -i :99 -frames:v 1 /out/shot_$(printf %03d $((i*EV))).png
   [ $((i % 6)) = 0 ] && { echo "t=$((i*5))s"; xwininfo -root -tree | grep -v "has no name\|Default IME" | grep "(" | head -6; }
+  # a keys script that has finished its work touches /out/.keys_done: end the run
+  # now (the recording is closed properly) instead of holding the slot to SECS
+  if [ -f /out/.keys_done ]; then echo "keys script done at t=$((i*EV))s: ending the run"; kill -TERM $REC 2>/dev/null; break; fi
 done
 wait $REC 2>/dev/null
 cp "$G/gta2dx9.log" /out/ 2>/dev/null; cp -r "$G/rtx-remix/logs" /out/remix-logs 2>/dev/null

@@ -180,3 +180,96 @@ delivery and the countdown escape all pass) and stops at the ramming. **Untested
 WHEELER-DEALING with the classic-view walker (only tried in pt4_wil4 with the old
 walker, which could not reach the first dealer in 180 s), and every chain after
 these three jobs. Nothing was committed.
+
+## Part 5 (8 Nov 2026): the van falls to a machine gun; WHEELER-DEALING is a driving-pace problem
+
+Sessions `pt5_*` (the previous agent, 7 Nov late evening) and `pt6_*` (this pass), all on the
+fast path (`gamerun/grun.sh`, `FPS=0`, devtools F9/F11 for the reported warps), PIZZA CAKE at
+`GTA2_SPEED=2`, WHEELER-DEALING at `GTA2_SPEED=1` (its 180 s clock is game time and the
+controller reacts in wall time).
+
+### What the logs showed
+
+- **`cardmg` is not the car's damage.** `vehicle+0x74` counts up by 15 every sample and wraps at
+  256 (pt5_le2g: 87, 102, 117, 29, 253, 146 ... on one car within two seconds). Nothing in the
+  `view: mission` line says how close a car is to burning, and the renderer's flame detector
+  (`fire=` on the player line) stayed 0 on cars that were visibly on fire (pt5_ze2d shot_300,
+  pt6_bil2 shot_985). The runners cannot see a burning car coming.
+- **Ramming kills the player.** PIZZA CAKE completed once by ramming (pt5_le2e: the second
+  car that burned beside the van at 2.3 blocks took the van with it), but the same tactic
+  killed the player at the wheel in pt5_le2g, pt6_le2b (a head-on contact, then JOB FAILED,
+  lives 5 -> 4) and burned car after car on the way. The van drives a fixed circuit of about
+  400 blocks (59.5 x 55.6 .. 168.5 x 149.5) at 3-4 blocks/s and outruns a chase.
+- **GTA2 has no drive-by**, but the player already carries a machine gun by the van step in
+  most runs: every Downtown gang phone has a machine-gun generator beside it (`wil.mis`
+  `GENERATOR ... COLLECT_01 1800 1800 30`; the Loonies' at 76.5,39.5 is two blocks from the
+  PIZZA CAKE phone). The renderer's `view: mission` line gives `weapon=machine_gun(4) ammo=300`.
+- **Walking in the chase view was still happening.** `walk3` handed the 3D view back after
+  every walk, so the steps that followed it (`enter_car3`'s door approaches, `settle_box`'s
+  nudges, `step_off_phone`) steered with classic-view pulses in the chase view: pt6_ze2a lost
+  69 s of WHEELER-DEALING's 180 at its first car, wandering ten blocks off.
+
+### Runner changes (`gamerun/mission_lib.py`, `mission_play_wil.py`, mirrored in `linux/docker/`)
+
+- `mission_state()` parses `weapon`, `wid`, `ammo`; `gun_ready()`; `fetch_gun()` walks (or
+  drives) to the nearest machine-gun pickups in turn when the van step starts unarmed.
+- **`shoot_target()`** replaces ramming for `IS_CAR_WRECKED` (ramming stays as the fallback
+  when there is no ammunition): the arrow track gives the van's circuit; the runner waits on the
+  pavement beside the circuit point nearest to it, walks at the van with the trigger held when
+  it comes within 12 blocks (the aim is the walking heading: a moving ped's logged facing is
+  true, a standing one's can be half a turn off), holds the line of fire across its lane within
+  four blocks, steps aside when it comes straight on, fires after it while it is within eight,
+  and walks up to it whenever it stands (traffic lights, jams). After two seconds of fire on a
+  standing van the burst finishes in the third-person view, so the wreck is recorded in 3D.
+- **`ensure_view()`**: every on-foot move (`walk3`, `cruise_to`, the nudges) takes the classic
+  view, every `drive3` takes the chase view itself; a walk-then-drive costs one V press.
+- Timed jobs (WHEELER-DEALING): the car is left on the road cell with the shortest *walk* to the
+  briefcase (`street_cell_walk_nearest`: 7 cells from the south road instead of 32 round the
+  block wall from the north road), cap 6.5, lane penalty 0.8 instead of 2.5, corner speed
+  1.8 + 0.8 x distance, short V waits (0.7 s), dealers approached four road cells short.
+- PIZZA CAKE's two boxes are walked (the car hop between them killed the player in pt6_le2c).
+- `run_game_gpu.sh` ends a run when the keys script touches `/out/.keys_done` (both mission
+  keys scripts do), so a finished session frees its slot instead of holding it to `SECS`.
+
+### Runs
+
+| session | job | outcome | what happened |
+|---|---|---|---|
+| pt5_le2a-d, pt5_le2g (previous agent) | PIZZA CAKE | failed / timed out | the van outran the chase (50-130 blocks behind for minutes); with the ambush and run-up the player died at the wheel at a head-on contact (pt5_le2g, lives 5 -> 4, JOB FAILED) |
+| pt5_le2e (previous agent) | PIZZA CAKE | **JOB COMPLETE** (1124) | by ramming: the first car burned after nine pushes, the second burned beside the van at 2.3 blocks and its blast wrecked the van |
+| pt5_ze2a-d (previous agent) | WHEELER-DEALING | failed | dealer 1 served with 120 s left at best (pt5_ze2d); on the way to dealer 2 the borrowed car burned (shot_300: flames, `fire=0` in the log) and exploded with him inside (lives 5 -> 4, respawn 100 blocks away) |
+| **pt6_le2a** | PIZZA CAKE | **JOB COMPLETE** (1124, +$20,000, multiplier 2, 666 s from the phone) | phone, explosives, delivery, countdown escape (health 68); no gun after the walk, so `fetch_gun` drove to the pickup at 11.5,47.5 (machine gun, 600 rounds); the van stood at 58.6,83.4: out of the car eight blocks off, walked at it firing, 110 rounds, wrecked. JOB COMPLETE frame `out/pt6_le2a/m_wil_le2_wrecked.png` (classic, on foot), the chase view two seconds later `m_wil_le2_wrecked_third.png` |
+| pt6_le2b | PIZZA CAKE, RADIO ZA-ZA | failed; refused (1104) | the gun pickup at 11.5,47.5 gave nothing that time, the ramming fallback ran, the player died at a contact (lives 5 -> 4); the Loonies then refused RADIO ZA-ZA (1104) after the failed job |
+| pt6_le2c | PIZZA CAKE | failed | the borrowed car's hop between the two boxes stalled twice and he died in it (the hop is now walked) |
+| pt6_le2d | PIZZA CAKE | refused (1103) | the walker missed the phone, the reported warp put him on the phone pair and the neighbour (RADIO ZA-ZA) answered first; a carjack in front of a cop led to an arrest on the way (fixed: pull away at once when wanted) |
+| pt6_le2e | PIZZA CAKE | failed | explosives, delivery and countdown passed (machine gun, 300 rounds, in hand); on the drive to the waiting spot the borrowed car caught fire and burned for 20 s while the runner drove on (`fire=0`), exploded with him inside |
+| pt6_ze2a | WHEELER-DEALING | failed (clock) | the first car entry after the briefcase took 69 s: `enter_car3`'s approaches ran in the chase view (fixed: `ensure_view`) |
+| pt6_ze2b | WHEELER-DEALING | failed (clock) | car left on the road north of the briefcase: 32 cells of walking each way round the block wall; dealer 1 at 116 s |
+| pt6_ze2c | WHEELER-DEALING | failed (clock) | briefcase from the south road (7 cells); dealer 1 served at 77 s (12 s walk to the car, 61 s for the 85-block drive at 1.3-1.6 blocks/s, a three-point turn at the ramp foot 238-243 x 47-59 took 37 s); 103 s left for 380 road cells to dealers 2-4: stopped |
+| pt6_le2f | PIZZA CAKE | failed | out of the car at the waiting spot as the van came; it stopped 2.5 blocks off and the runner finished the burst in the chase view: 290 rounds without a wreck (the 3D view turns him; the burst is classic-only again), then the ramming fallback; stopped by hand |
+| pt6_le2h | PIZZA CAKE | failed | explosives, delivery and countdown passed unarmed; `fetch_gun` tried three machine-gun generators (11.5,47.5, 41.5,48.5, 90.5,87.5) and found nothing at any, so the ramming fallback ran and the player died at the wheel (lives 5 -> 4) |
+| pt6_le2g | PIZZA CAKE | failed | the walker was pinned at 49.1,100.2 on the way to the explosives (the new scene warp refused: "no road or pavement within six blocks") and he died there (lives 5 -> 4) |
+
+### Status after part 5
+
+- **PIZZA CAKE: JOB COMPLETE**, recorded in pt6_le2a (`out/pt6_le2a/m_wil_le2_wrecked.png`, the
+  JOB COMPLETE banner over the burning van, classic view while shooting on foot;
+  `m_wil_le2_wrecked_third.png`, the chase view two seconds later with the payoff brief) and
+  earlier in pt5_le2e by ramming. The gun is the tactic that works: one success in the two
+  sessions that reached the van armed with the final aim (le2a), against deaths in every
+  ramming session. The generators are not reliable either: pt6_le2a found the machine gun at
+  11.5,47.5, pt6_le2h found nothing there or at two more (the one beside the Loonies phone,
+  76.5,39.5, armed le2e and le2f on their way in). What still loses the job is not the van: a borrowed car that burns unseen
+  (le2e), a pinned walker (le2g), a carjack that ends in an arrest (le2d).
+- **WHEELER-DEALING: not completed.** With the briefcase approached from the right road and the
+  walks in the classic view, dealer 1 is served 77 s into the 180 s clock (pt6_ze2c). The
+  remaining legs are 71 + 112 + 199 road cells (route3, car costs); the driver averages
+  1.3-1.6 blocks/s on Downtown's grid (every corner is crawled, a U-turn at a ramp foot costs
+  half a minute), so the job needs about twice the driving pace, or a route plan with fewer
+  corners, before it can pass.
+- **The chain after PIZZA CAKE** (RADIO ZA-ZA, the other Loonies phone at 75.5,40.5) was queued
+  behind PIZZA CAKE in every session; it is only offered after a completed Loonies job (1104
+  after a failure, pt6_le2b), and no session with the final code completed PIZZA CAKE first.
+- **Open, with evidence**: no burning-car signal (`cardmg` is a counter, `fire=` misses most
+  car fires); the carjack at a kerb sometimes ends in an arrest or the owner pulling him out; the
+  developer scene warp now refuses spots away from a road, so a pinned walker stays pinned.

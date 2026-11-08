@@ -13,11 +13,14 @@ say, tap, hold, xdo = D.say, D.tap, D.hold, D.xdo
 wanted = sys.argv[1:] or os.environ.get("MISSIONS", "wil_ze1 wil_le2 wil_ze2").split()
 VIEW = ["classic"]
 
+VIEW_SLEEP = [1.7]   # after a V press; a timed job uses a short wait (WHEELER-DEALING lost
+                     # about 5 s of its 180 at every walk to the classic view and back)
 def set_view(name):
     order = ["classic", "third", "first"]
     while VIEW[0] != name:
-        tap("v", 0.3); time.sleep(1.7)
+        tap("v", 0.3); time.sleep(VIEW_SLEEP[0])
         VIEW[0] = order[(order.index(VIEW[0]) + 1) % 3]
+    M.CUR_VIEW[0] = name
     M.mark(f"view {name}")
 
 D.start()
@@ -128,6 +131,7 @@ def mission_from_arrow(o):
 
 def nudge_to(x, y, tol=0.1, tries=30):
     """small aimed steps onto a point (the LOCATE boxes can be half a block)"""
+    M.ensure_view("classic")
     for _ in range(tries):
         s = D.wait_state()
         if not s or s["driving"]: return s
@@ -178,8 +182,20 @@ def creep_in(x, y, msg0, money0, secs=50):
         if k % 6 == 0: hold("Down", 0.8); time.sleep(0.3)      # back off and try again
     return D.wait_state()
 
+def short_of(s, x, y, back=7):
+    """the road cell `back` cells before (x,y) on the car route from here"""
+    L = M.ped_level(s)
+    path = M.route3(world, int(s["x"]), int(s["y"]), L, int(x), int(y), None, kinds=(1,), cost=M.CAR_COST)
+    if path and len(path) > back + 2 and abs(path[-1][0] - int(x)) + abs(path[-1][1] - int(y)) <= 2:
+        cx, cy, _ = path[-back - 1]; return (cx + 0.5, cy + 0.5)
+    return None
+
+TIMED = {"wil_ze2"}   # jobs on a DISPLAY_TIMER (WHEELER-DEALING: 180 s for four dealers): full driving speed
+
 def run_plan(entry):
-    plan = entry["plan"]; car_at = None; last_target = None
+    plan = entry["plan"]; car_at = None; last_target = None; left_car = None
+    timed = entry.get("mission") in TIMED
+    if timed: M.FAST_CAP = 6.5; VIEW_SLEEP[0] = 0.7; M.LANE_COST = 0.8; M.CORNER_V = (1.8, 0.8)
     money0 = (M.mission_state() or {}).get("money", 0)
     for step in plan:
         if "car" in step:
@@ -214,9 +230,19 @@ def run_plan(entry):
             far = math.hypot(x - s["x"], y - s["y"])
             if not s["driving"] and far > 25 and s.get("parked") and s["pd"] < 14:
                 s = M.enter_car3(world, s["px"], s["py"], budget=40)
-            if s["driving"] and far > 25:
-                s = M.drive3(world, x, y, tol=3.0, budget=200, view_switch=view_switch, slow=True)
-            if s["driving"]: s = M.leave_car(); M.mark("out of the car, walking")
+            if timed and not s["driving"] and far > 12:
+                # the timer starts on this box (WHEELER-DEALING's pickup): arrive by
+                # car and keep it at the kerb, so the dealer legs start at the wheel
+                s = M.any_car2(world, budget=90)
+            if s["driving"] and (far > 25 or timed):
+                cell = M.street_cell_walk_nearest(world, x, y, radius=8, tl=tl) if timed else None
+                if cell:
+                    # the timer starts in the box: leave the car on the road beside it, not
+                    # in the lot (pt6_ze2a spent 40 of its 180 s wobbling out of the lot)
+                    s = M.drive3(world, cell[0], cell[1], tol=1.2, budget=200, view_switch=view_switch, slow=False)
+                else:
+                    s = M.drive3(world, x, y, tol=3.0, budget=200, view_switch=view_switch, slow=not timed)
+            if s["driving"]: left_car = (s["x"], s["y"]); s = M.leave_car(); M.mark("out of the car, walking")
             from_x, from_y = s["x"], s["y"]
             t_a = time.time()
             while time.time() - t_a < 4.0:
@@ -225,7 +251,9 @@ def run_plan(entry):
                 time.sleep(0.3)
             key0 = M.objective_key()
             far = math.hypot(x - s["x"], y - s["y"])
-            if not s["driving"] and 8 < far <= 25 and s.get("parked") and s["pd"] < 6:
+            if timed and not s["driving"] and 8 < far <= 25 and s.get("parked") and s["pd"] < 6:
+                # (timed jobs only: pt6_le2c died in the PIZZA CAKE hop between the two
+                # boxes, a 23-leg road detour for a 15-block walk, in a borrowed car)
                 # a short hop by the car that brought him, to the road cell nearest the box
                 cell = M.street_cell_near(world, x, y, radius=6)
                 if cell:
@@ -263,11 +291,20 @@ def run_plan(entry):
             if o and o[3] != 1 and math.hypot(o[0] - x, o[1] - y) < 12: x, y = o[0], o[1]   # the arrow follows him
             M.mark(f"to the character at {x},{y}")
             far = math.hypot(x - s["x"], y - s["y"])
-            if far > 30:
+            if far > 18:
+                if not s["driving"] and left_car and math.hypot(left_car[0] - s["x"], left_car[1] - s["y"]) < 30:
+                    # the car he stepped out of at the last dealer (WHEELER-DEALING's
+                    # 180 s timer leaves no time for a kerb wait)
+                    s = M.enter_car3(world, left_car[0], left_car[1], budget=45)
                 if not s["driving"]: s = M.any_car2(world, budget=60)
                 if s["driving"]:
-                    s = M.drive3(world, x, y, tol=3.0, budget=240, view_switch=view_switch, slow=True)
-            if s["driving"]: s = M.leave_car()
+                    # stop seven road cells short of him and walk: the dealer stands on
+                    # the road and the job fails when he is run over (pt5_ze2b after 60 s;
+                    # pt5_ze2c coasted onto dealer 2 with a plain tolerance of 6)
+                    sp = short_of(s, x, y, back=(4 if timed else 7))
+                    if sp: s = M.drive3(world, sp[0], sp[1], tol=1.2, budget=240, view_switch=view_switch, slow=not timed)
+                    else: s = M.drive3(world, x, y, tol=(4.5 if timed else 7.0), budget=240, view_switch=view_switch, slow=not timed)
+            if s["driving"]: left_car = (s["x"], s["y"]); s = M.leave_car()
             o = M.objective()
             if o and o[3] != 1 and math.hypot(o[0] - x, o[1] - y) < 12: x, y = o[0], o[1]
             key0 = M.objective_key()
@@ -362,10 +399,23 @@ def run_plan(entry):
                 M.shot(f"{entry['mission']}_crusher{k}")
                 if o != "running": break
         elif "IS_CAR_WRECKED" in cond:
-            M.mark("ram the marked car until it wrecks")
+            # the gun first (pt4/pt5: ramming burned our own cars before the van, and
+            # the player died at the wheel in pt5_le2g); ramming is the fallback
             FP["until"] = 0.0
-            r = M.ram_target(world, money0, secs=420, view_switch=view_switch)
-            say("ram:", r)
+            r = "no gun"
+            for k in range(3):
+                # out of rounds (pt6_le2f) or unarmed: the next pickup, then on shooting
+                if not M.gun_ready(): M.fetch_gun(world, budget=300)
+                if not M.gun_ready(): break
+                M.mark("shoot the marked car until it wrecks")
+                r = M.shoot_target(world, money0, secs=720, view_switch=view_switch)
+                say("shoot:", r)
+                if r != "no gun": break
+            if r == "no gun":
+                M.mark("ram the marked car until it wrecks")
+                r = M.ram_target(world, money0, secs=600, view_switch=view_switch)
+                say("ram:", r)
+            M.shot(f"{entry['mission']}_wrecked"); set_view("third"); M.shot(f"{entry['mission']}_wrecked_third")
         elif "count" in cond:
             say("plan: briefs on screen, waiting for the mission arrow")
             t1 = time.time()
