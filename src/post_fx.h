@@ -48,6 +48,7 @@ struct VisualsSettings {
     float sunBoost = 1.5f;    // the world's sun light, times this, while the post is on
     float ambientScale = 0.84f;   // and its ambient
     int hdr = 1;              // FP16 scene target (0: 8-bit)
+    bool shadowStagger = true;   // far cascades refreshed on alternate frames
     int debug = 0;            // 1: final shows the raw scene target
 };
 VisualsSettings& VisualsConfig();
@@ -86,7 +87,7 @@ struct PostFrame {
 struct PostStats {
     double cpuShadowMs = 0.0, cpuPostMs = 0.0;   // this frame
     double gpuShadowMs = -1.0, gpuPostMs = -1.0; // a few frames late; -1 unknown
-    int casters = 0, casterDraws = 0, worldDraws = 0, lights = 0, cascades = 0;
+    int casters = 0, casterDraws = 0, worldDraws = 0, lights = 0, cascades = 0, cascadesReused = 0;
 };
 
 class PostFx {
@@ -145,6 +146,11 @@ private:
         Vec3 centre;
         Mat4 lightView;
         int qx = 0, qy = 0;
+        // What the map in this cell was drawn with (the staggered refresh keeps it a frame).
+        bool valid = false;
+        uint32_t renderedFrame = 0;
+        Vec3 sunDir;
+        float renderedRadius = 0.0f;
     };
 
     bool EnsureTargets();

@@ -40,6 +40,7 @@ void ReadSettings(bool first) {
     v.lights = ReadInt("lights", 1) != 0;
     v.hemisphere = ReadInt("hemisphere", 1) != 0;
     v.hdr = ReadInt("hdr", 1);
+    v.shadowStagger = ReadInt("shadow_stagger", 1) != 0;
     v.debug = ReadInt("debug", 0);
     char q[32] = "";
     GetPrivateProfileStringA("visuals", "quality", "medium", q, sizeof q, g_ini);
@@ -99,7 +100,9 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         l.intensity = 0.12f + 0.25f * d.intensity;
         l.spot = d.spot && d.coneAngleDeg > 1.0f;
         l.coneDeg = d.coneAngleDeg;
-        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity *= 0.6f; }   // headlamp beams reach down the road, softer
+        // Headlamp beams reach down the road, softer: at x0.6 a beam read as a blown yellow-white
+        // bar on the asphalt at night (out/vp2_look, tier_night_high).
+        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity *= 0.3f; }
         out->push_back(l);
     }
 }

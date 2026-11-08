@@ -591,7 +591,6 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
 
     device_->SetDepthStencilSurface(shadowDepth_);
     SetTarget(shadowSurf_, shadowSize_, shadowSize_);
-    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xFFFFFFFFu, 1.0f, 0);
     device_->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
     device_->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
     device_->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
@@ -642,8 +641,22 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
         ortho.m[1][1] = 1.0f / r;
         ortho.m[2][2] = 1.0f / range;
         ortho.m[3][3] = 1.0f;
-        cs.lightView = view;
-        cs.lightVP = Mul(view, ortho);
+        // Staggered refresh: the near cascade every frame, the far ones on alternate frames
+        // (medium: cascade 1 on even frames; high: 1 on even, 2 on odd). A skipped cascade keeps
+        // its map and the light matrix it was drawn with; the lookup below goes through that
+        // matrix, so static shadows stay exact and only moving casters lag one frame, at 14+
+        // blocks. Refreshed anyway after a gap, a sun move or a new map scale.
+        const bool fresh = !cs.valid || frames_ - cs.renderedFrame > 2u || Dot(cs.sunDir, sunDir) < 0.99999f ||
+                           cs.renderedRadius != r;
+        const bool refresh = k == 0 || !g_visuals.shadowStagger || fresh || (frames_ & 1u) == static_cast<uint32_t>((k - 1) & 1);
+        if (refresh) {
+            cs.lightView = view;
+            cs.lightVP = Mul(view, ortho);
+            cs.valid = true;
+            cs.renderedFrame = frames_;
+            cs.sunDir = sunDir;
+            cs.renderedRadius = r;
+        }
         cs.qx = k % 2;
         cs.qy = k / 2;
         const float s = 0.5f;   // a cell's share of the atlas
@@ -660,6 +673,8 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
         D3DVIEWPORT9 vp = {static_cast<DWORD>(cs.qx * cell), static_cast<DWORD>(cs.qy * cell), static_cast<DWORD>(cell),
                            static_cast<DWORD>(cell), 0.0f, 1.0f};
         device_->SetViewport(&vp);
+        if (!refresh) { ++stats_.cascadesReused; continue; }
+        device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xFFFFFFFFu, 1.0f, 0);   // this cell only (the viewport)
         device_->SetVertexShaderConstantF(0, &cs.lightVP.m[0][0], 4);
 
         // The world: runs of consecutive chunks whose box reaches the cascade; the solid set
@@ -725,29 +740,59 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
         }
 
         // The recorded models.
+        // Only the state that changes from one caster to the next is set: under Wine each
+        // call is a command for wined3d's thread, and 500+ replays a frame made the shadow
+        // pass cost more on the CPU side than on the GPU.
         device_->SetVertexShader(vsShadowModel_);
+        IDirect3DVertexDeclaration9* lastDecl = nullptr;
+        DWORD lastFvf = 0;
+        IDirect3DVertexBuffer9* lastVb = nullptr;
+        UINT lastOffset = 0, lastStride = 0;
+        IDirect3DIndexBuffer9* lastIb = nullptr;
+        IDirect3DPixelShader9* lastPs = nullptr;
+        IDirect3DBaseTexture9* lastTex = nullptr;
+        float lastRef = -1.0f;
+        const D3DMATRIX* lastWorld = nullptr;
+        bool wrap = false;
         for (const Caster& m : casters_) {
             if (!m.anywhere) {
                 const Vec3 p = XformPoint(view, m.centre);
                 const float margin = 3.0f;
                 if (p.x < -r - margin || p.x > r + margin || p.y < -r - margin || p.y > r + margin || p.z < -margin || p.z > range) continue;
             }
-            if (m.decl) device_->SetVertexDeclaration(m.decl);
-            else device_->SetFVF(m.fvf);
-            device_->SetStreamSource(0, m.vb, m.offset, m.stride);
-            device_->SetVertexShaderConstantF(4, &m.world._11, 4);
+            if (m.decl) {
+                if (m.decl != lastDecl) { device_->SetVertexDeclaration(m.decl); lastDecl = m.decl; lastFvf = 0; }
+            } else if (m.fvf != lastFvf || lastDecl) {
+                device_->SetFVF(m.fvf); lastFvf = m.fvf; lastDecl = nullptr;
+            }
+            if (m.vb != lastVb || m.offset != lastOffset || m.stride != lastStride) {
+                device_->SetStreamSource(0, m.vb, m.offset, m.stride);
+                lastVb = m.vb; lastOffset = m.offset; lastStride = m.stride;
+            }
+            if (!lastWorld || memcmp(lastWorld, &m.world, sizeof m.world) != 0) {
+                device_->SetVertexShaderConstantF(4, &m.world._11, 4);
+                lastWorld = &m.world;
+            }
             if (m.tex && m.alphaRef > 0.0f) {
-                device_->SetPixelShader(psShadowCutout_);
-                const float psc[4] = {0.0f, std::max(m.alphaRef, 0.05f), 0.0f, 0.0f};
-                device_->SetPixelShaderConstantF(0, psc, 1);
-                device_->SetTexture(0, m.tex);
-                device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
-                device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
-            } else {
+                if (lastPs != psShadowCutout_) { device_->SetPixelShader(psShadowCutout_); lastPs = psShadowCutout_; }
+                const float ref = std::max(m.alphaRef, 0.05f);
+                if (ref != lastRef) {
+                    const float psc[4] = {0.0f, ref, 0.0f, 0.0f};
+                    device_->SetPixelShaderConstantF(0, psc, 1);
+                    lastRef = ref;
+                }
+                if (m.tex != lastTex) { device_->SetTexture(0, m.tex); lastTex = m.tex; }
+                if (!wrap) {
+                    device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+                    device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+                    wrap = true;
+                }
+            } else if (lastPs != psShadowSolid_) {
                 device_->SetPixelShader(psShadowSolid_);
+                lastPs = psShadowSolid_;
             }
             if (m.indexed) {
-                device_->SetIndices(m.ib);
+                if (m.ib != lastIb) { device_->SetIndices(m.ib); lastIb = m.ib; }
                 device_->DrawIndexedPrimitive(m.type, m.base, m.minIdx, m.numVerts, m.start, m.prims);
             } else {
                 device_->DrawPrimitive(m.type, m.start, m.prims);
@@ -770,6 +815,7 @@ void PostFx::Resolve() {
     stats_.worldDraws = 0;
     stats_.lights = 0;
     stats_.cascades = 0;
+    stats_.cascadesReused = 0;
     ReadTimestamps();
     stateBlock_->Capture();
     if (tsOk_) tsDisjoint_[tsFrame_ & 3]->Issue(D3DISSUE_BEGIN);
@@ -1102,9 +1148,9 @@ void PostFx::Resolve() {
             std::sort(v.begin(), v.end());
             return v[std::min(v.size() - 1, static_cast<size_t>(p * static_cast<float>(v.size())))];
         };
-        RendererTrace("visuals: quality %d, cpu ms p50 %.2f p99 %.2f, gpu ms p50 %.2f p99 %.2f, casters %d (%d draws), world runs %d, lights %d, cascades %d",
+        RendererTrace("visuals: quality %d, cpu ms p50 %.2f p99 %.2f, gpu ms p50 %.2f p99 %.2f, casters %d (%d draws), world runs %d, lights %d, cascades %d (%d kept from the last frame)",
                       q, pct(histCpu_, 0.5f), pct(histCpu_, 0.99f), pct(histGpu_, 0.5f), pct(histGpu_, 0.99f), stats_.casters,
-                      stats_.casterDraws, stats_.worldDraws, stats_.lights, stats_.cascades);
+                      stats_.casterDraws, stats_.worldDraws, stats_.lights, stats_.cascades, stats_.cascadesReused);
         histCpu_.clear();
         histGpu_.clear();
         if (logState == 1) fflush(log);
