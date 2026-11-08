@@ -16,6 +16,10 @@ MISSION = re.compile(r"\[([\d:.]+)\] view: mission .*?lives=(\d+) death=-?\d+ wa
 PLAYER = re.compile(r"\[([\d:.]+)\] view: player x=([\d.]+) y=([\d.]+)")
 
 
+# streets where earlier runs of each district logged a parked car (pt6_bil1, pt9_ste5)
+STREET = {"bil": (48.5, 76.5), "ste": (104.5, 108.5), "wil": (164.5, 149.5)}
+
+
 def last_mission():
     m = None
     for m in MISSION.finditer(Q.log_text(60000)): pass
@@ -50,9 +54,16 @@ def one_death(rnd, view):
     # (a loaded host can run the game at a few frames a second: every wait is on the log)
     for attempt in range(4):
         n0 = Q.log_text().count("devtools: warped the player")
-        tap("F9", 0.4); t0 = time.time()
+        tap("F9", 1.0); t0 = time.time()
         while time.time() - t0 < 15 and Q.log_text().count("devtools: warped the player") == n0: time.sleep(0.3)
-        time.sleep(1.5); tap("Return", 0.4)
+        if Q.log_text().count("devtools: warped the player") == n0:
+            # F9 found no parked car within 80 blocks (silent) or the press was missed: go to a
+            # street where earlier runs of this district had a parked car, then F9 again
+            fx, fy = STREET.get(os.environ.get("SWAP_LEVEL", "wil"), (164.5, 149.5))
+            T.warp(fx, fy, 2, why="street with parked cars"); time.sleep(3.0)
+            Q.set_view(view, settle=0.5)
+            continue
+        time.sleep(1.5); tap("Return", 0.6)
         t0 = time.time()
         while time.time() - t0 < 25 and not (D.state() or {}).get("driving"): time.sleep(0.3)
         st = D.state() or {}

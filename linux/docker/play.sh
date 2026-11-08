@@ -24,6 +24,8 @@ esac
 if [ -d gamerun ] && [ -d game ]; then WORK=$PWD/gamerun; STAGE=${STAGE:-$PWD/repo/stage}; PKG=$PWD/repo/package; REL=$PWD/upstream-release/files; RMX=$PWD/remix-runtime/x86
 else WORK=$PWD/linux/docker; STAGE=${STAGE:-$PWD/stage}; PKG=$PWD/package; REL=${RELEASE_FILES:-$PWD/../upstream-release/files}; RMX=${REMIX_RUNTIME:-$PWD/../remix-runtime/x86}; fi
 [ -d "$STAGE/gta2dx9_models" ] || { echo "no staged build at $STAGE (run: make stage)"; exit 1; }
+# Gate: refuse a stage that fails the inventory check (PLAY_FORCE=1 overrides, for diagnosis only).
+[ "${PLAY_FORCE:-0}" = 1 ] || python3 "$WORK/stage_check.py" "$STAGE" "$(dirname "$STAGE")" || { echo "play.sh: refusing to start on an unhealthy stage"; exit 1; }
 $DOCKER rm -f "$NAME" >/dev/null 2>&1
 mkdir -p out/play-$PORT
 # The NVIDIA driver's GL shader cache, kept on the host: wined3d builds a GL shader for each new

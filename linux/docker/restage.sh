@@ -1,36 +1,37 @@
 #!/usr/bin/env bash
-# Rebuild the shared stage from COMMITTED code only (a detached worktree of HEAD), so other agents' partial
-# working-tree edits never reach the play page, then copy the DLLs in by atomic rename (running games keep
-# their mapped copy) and refresh the models folder only when no game run holds a slot.
-# Usage: restage.sh              -> DLLs from HEAD by atomic rename, models swapped by directory rename (no slot wait)
-#        restage.sh --dll-only    -> DLLs only
-#        restage.sh --wait-slots  -> old behaviour: wait for all four game slots before touching the models
+# Rebuild the shared stage safely. Nothing reaches repo/stage (and so the play page) unless a complete
+# candidate stage passes stage_check.py (inventory against the manifest) and stage_smoke.sh (a scripted
+# 3D run: no model/texture read errors, no faults, late frames in colour).
+#   DLLs      : built in a detached worktree of committed HEAD (never the working tree with others' partial edits)
+#   models    : this repo's assets/models (the avatar/car art is not in git; it ships as archives)
+#   HD tiles  : this repo's assets/textures_hd
+# Usage: restage.sh [--no-smoke]      (--no-smoke skips the game run; the inventory check always runs)
 set -e
 cd "$(dirname "$0")/../.."
-W=/tmp/gta2-restage-worktree; W_LOG=/tmp/gta2-restage-build.log
+R=$PWD; W=/tmp/gta2-restage-worktree; W_LOG=/tmp/gta2-restage-build.log; C=$R/stage_candidate
 git worktree remove --force "$W" 2>/dev/null || true
 git worktree add -f --detach "$W" HEAD >/dev/null
 ( cd "$W" && flock /tmp/gta2-build.lock nice -n 10 make -j4 dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll > "$W_LOG" 2>&1 ) || { tail -20 "$W_LOG"; exit 1; }
-for f in dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll; do
-  b=$(basename "$f"); cp "$W/$f" "stage/.$b.new" && mv -f "stage/.$b.new" "stage/$b"
-done
-echo "staged DLLs from $(git -C "$W" rev-parse --short HEAD) at $(date +%H:%M)"
-if [ "${1:-}" != "--dll-only" ]; then
-  # Models: build in the worktree, copy beside the live folder, then swap by rename. Running games keep
-  # the files they already opened; no slot wait needed. (--wait-slots keeps the old behaviour.)
-  if [ "${1:-}" = "--wait-slots" ]; then
-    WAIT=${RESTAGE_WAIT:-1800}
-    exec 5>/tmp/gta2-game-slot-1.lock; flock -w "$WAIT" 5
-    exec 6>/tmp/gta2-game-slot-2.lock; flock -w "$WAIT" 6
-    exec 7>/tmp/gta2-game-slot-3.lock; flock -w "$WAIT" 7
-    exec 8>/tmp/gta2-game-slot-4.lock; flock -w "$WAIT" 8
-  fi
-  # The model art (avatars, cars) is not in git, so the models folder comes from THIS repo's assets/models
-  # (tracked code-object models + the untracked art that ships as archives), never from the worktree.
-  rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage/.gta2dx9_models.new /home/roni_goldshmidt/gta2-linux/repo/stage/.gta2dx9_models.old
-  cp -al assets/models stage/.gta2dx9_models.new 2>/dev/null || cp -a assets/models stage/.gta2dx9_models.new
-  mv stage/gta2dx9_models stage/.gta2dx9_models.old && mv stage/.gta2dx9_models.new stage/gta2dx9_models
-  rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage/.gta2dx9_models.old
-  echo "models swapped from assets/models at $(date +%H:%M) ($(ls stage/gta2dx9_models | wc -l) entries)"
-fi
+rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage_candidate; mkdir -p "$C"
+cp "$W/dll/build/gta2dx9.dll" "$C/gta2dx9.dll"; cp "$W/dll/build/gta2dx9.dll" "$C/d3ddll.dll"
+cp "$W/vid/build/gta2dx9_vid.dll" "$C/gta2dx9_vid.dll"; cp "$W/vid/build/gta2dx9_vid.dll" "$C/Dmavideo.dll"; cp "$W/vid/build/gta2dx9_vid.dll" "$C/DMAGlide.dll"
+for f in gta2dx9.ini install.reg uninstall.reg; do [ -f "stage/$f" ] && cp "stage/$f" "$C/$f" || cp "$W/package/$f" "$C/$f" 2>/dev/null || true; done
+cp -al assets/models "$C/gta2dx9_models" 2>/dev/null || cp -a assets/models "$C/gta2dx9_models"
+[ -d assets/textures_hd ] && { cp -al assets/textures_hd "$C/gta2dx9_textures_hd" 2>/dev/null || cp -a assets/textures_hd "$C/gta2dx9_textures_hd"; }
 git worktree remove --force "$W" 2>/dev/null || true
+python3 ../gamerun/stage_check.py "$C" "$R" || { echo "restage refused: candidate failed the inventory check"; exit 1; }
+if [ "${1:-}" != "--no-smoke" ]; then
+  ../gamerun/stage_smoke.sh "$C" "${SMOKE_SECONDS:-150}" || { echo "restage refused: candidate failed the smoke run"; exit 1; }
+fi
+# swap in: DLLs by atomic rename, folders by directory rename (running games keep their mapped/open files)
+for f in gta2dx9.dll d3ddll.dll gta2dx9_vid.dll Dmavideo.dll DMAGlide.dll gta2dx9.ini install.reg uninstall.reg; do
+  [ -f "$C/$f" ] && { cp "$C/$f" "stage/.$f.new" && mv -f "stage/.$f.new" "stage/$f"; }
+done
+for d in gta2dx9_models gta2dx9_textures_hd; do
+  [ -d "$C/$d" ] || continue
+  rm -rf "/home/roni_goldshmidt/gta2-linux/repo/stage/.$d.old"
+  [ -d "stage/$d" ] && mv "stage/$d" "stage/.$d.old"; mv "$C/$d" "stage/$d"; rm -rf "/home/roni_goldshmidt/gta2-linux/repo/stage/.$d.old"
+done
+rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage_candidate
+python3 ../gamerun/stage_check.py stage "$R"
+echo "staged from $(git rev-parse --short HEAD) at $(date +%H:%M)"

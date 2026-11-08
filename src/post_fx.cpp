@@ -134,6 +134,9 @@ void PostFx::ReleaseTargets() {
     for (int i = 0; i < 4; ++i) { SafeRelease(bloomSurf_[i]); SafeRelease(bloomTex_[i]); }
     SafeRelease(shadowSurf_); SafeRelease(shadowTex_); SafeRelease(shadowDepth_);
     SafeRelease(blackTex_);
+    SafeRelease(whiteTex_);
+    SafeRelease(maskSurf_); SafeRelease(maskTex_);
+    SafeRelease(psShadowmask_);
     SafeRelease(stateBlock_);
     SafeRelease(vsShadowWorld_); SafeRelease(vsShadowModel_); SafeRelease(vsQuad_); SafeRelease(vsLight_);
     SafeRelease(psShadowWorld_); SafeRelease(psShadowSolid_); SafeRelease(psShadowCutout_);
@@ -213,6 +216,7 @@ bool PostFx::EnsureTargets() {
     };
     rt(w, h, hdrFormat_, &sceneTex_, &sceneSurf_);
     rt(w, h, hdrFormat_, &litTex_, &litSurf_);
+    rt(w, h, D3DFMT_A8R8G8B8, &maskTex_, &maskSurf_);
     rt(w / 2, h / 2, D3DFMT_A8R8G8B8, &aoTex_, &aoSurf_);
     rt(w / 2, h / 2, D3DFMT_A8R8G8B8, &aoBlurTex_, &aoBlurSurf_);
     rt(qw, qh, hdrFormat_, &bloomTex_[0], &bloomSurf_[0]);
@@ -224,10 +228,14 @@ bool PostFx::EnsureTargets() {
                  FAILED(depthTex_->GetSurfaceLevel(0, &depthSurf_)))) good = false;
     if (good && FAILED(device_->CreateDepthStencilSurface(shadowSize_, shadowSize_, D3DFMT_D24X8, D3DMULTISAMPLE_NONE, 0, TRUE,
                                                           &shadowDepth_, nullptr))) good = false;
-    if (good && SUCCEEDED(device_->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &blackTex_, nullptr))) {
-        D3DLOCKED_RECT r;
-        if (SUCCEEDED(blackTex_->LockRect(0, &r, nullptr, 0))) { *static_cast<DWORD*>(r.pBits) = 0xFF000000u; blackTex_->UnlockRect(0); }
-    }
+    auto solid = [&](IDirect3DTexture9** t, DWORD colour) {
+        if (good && SUCCEEDED(device_->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, t, nullptr))) {
+            D3DLOCKED_RECT r;
+            if (SUCCEEDED((*t)->LockRect(0, &r, nullptr, 0))) { *static_cast<DWORD*>(r.pBits) = colour; (*t)->UnlockRect(0); }
+        }
+    };
+    solid(&blackTex_, 0xFF000000u);
+    solid(&whiteTex_, 0xFFFFFFFFu);
     auto vs = [&](const DWORD* code, IDirect3DVertexShader9** out) { if (good && FAILED(device_->CreateVertexShader(code, out))) good = false; };
     auto ps = [&](const DWORD* code, IDirect3DPixelShader9** out) { if (good && FAILED(device_->CreatePixelShader(code, out))) good = false; };
     vs(k_vs_shadow_world, &vsShadowWorld_);
@@ -237,6 +245,7 @@ bool PostFx::EnsureTargets() {
     ps(k_ps_shadow_world, &psShadowWorld_);
     ps(k_ps_shadow_solid, &psShadowSolid_);
     ps(k_ps_shadow_cutout, &psShadowCutout_);
+    ps(k_ps_shadowmask, &psShadowmask_);
     ps(k_ps_composite, &psComposite_);
     ps(k_ps_ssao8, &psSsao8_);
     ps(k_ps_ssao12, &psSsao12_);
@@ -755,37 +764,51 @@ void PostFx::Resolve() {
         DrawQuad(hw, hh);
     }
 
-    // Composite: shadows, AO, hemisphere.
+    // Sun shadow mask: one draw per cascade, each clipped to its own slice of depth.
+    if (shadows) {
+        SetTarget(maskSurf_, w, h);
+        device_->Clear(0, nullptr, D3DCLEAR_TARGET, 0xFFFFFFFFu, 1.0f, 0);
+        device_->SetPixelShader(psShadowmask_);
+        sampler(1, depthTex_, false);
+        sampler(2, shadowTex_, false);
+        const Vec3 sunV = Normalize(XformDir(view_, frame_.sunDir));
+        static const float kSplits[3][3] = {{30.0f, 1e6f, 1e6f}, {14.0f, 56.0f, 1e6f}, {9.0f, 28.0f, 85.0f}};
+        float nearZ = 0.0f;
+        for (int k = 0; k < cascades; ++k) {
+            const float farZ = kSplits[q][k];
+            const bool last = k == cascades - 1;
+            const Mat4& m = cascades_[k].viewToAtlas;
+            float c[9][4] = {};
+            c[0][0] = sunV.x; c[0][1] = sunV.y; c[0][2] = sunV.z;
+            c[1][0] = nearZ; c[1][1] = farZ; c[1][2] = last ? farZ * 0.8f : 1e9f; c[1][3] = last ? 1.0f / (farZ * 0.2f) : 0.0f;
+            for (int col = 0; col < 3; ++col)
+                for (int row = 0; row < 4; ++row) c[2 + col][row] = m.m[row][col];
+            c[5][0] = 1.0f / shadowSize_; c[5][1] = static_cast<float>(shadowSize_);
+            c[5][2] = 0.00015f;   // depth bias, in the map's 0..1 range (~0.01-0.03 blocks)
+            c[5][3] = cascades_[k].texelWorld * 1.6f;   // normal offset
+            c[6][0] = frame_.ambientLevel; c[6][1] = frame_.sunLevel; c[6][2] = cfg.shadowStrength; c[6][3] = q >= 1 ? 1.0f : 0.0f;
+            device_->SetPixelShaderConstantF(2, &c[0][0], 7);
+            DrawQuad(w, h);
+            nearZ = farZ;
+        }
+    }
+
+    // Composite: the shadow mask, AO, hemisphere.
     {
         SetTarget(litSurf_, w, h);
         device_->SetPixelShader(psComposite_);
         sampler(4, sceneTex_, false);
         sampler(1, depthTex_, false);
-        sampler(2, shadows ? static_cast<IDirect3DBaseTexture9*>(shadowTex_) : blackTex_, false);
-        sampler(3, ssao ? aoBlurTex_ : blackTex_, true);
-        const Vec3 sunV = Normalize(XformDir(view_, frame_.sunDir));
+        sampler(2, shadows ? static_cast<IDirect3DBaseTexture9*>(maskTex_) : whiteTex_, false);
+        sampler(3, ssao ? aoBlurTex_ : whiteTex_, true);
         const Vec3 upV = Normalize(XformDir(view_, Vec3{0.0f, 1.0f, 0.0f}));
-        float c[23][4] = {};
-        memcpy(c[0], proj, sizeof proj);
-        memcpy(c[1], screen, sizeof screen);
-        c[2][0] = sunV.x; c[2][1] = sunV.y; c[2][2] = sunV.z; c[2][3] = shadows ? 1.0f : 0.0f;
-        static const float kSplits[3][3] = {{30.0f, 1e6f, 1e6f}, {14.0f, 56.0f, 1e6f}, {9.0f, 28.0f, 85.0f}};
-        c[3][0] = kSplits[q][0]; c[3][1] = kSplits[q][1]; c[3][2] = kSplits[q][2]; c[3][3] = static_cast<float>(cascades);
-        c[4][0] = frame_.fogStart; c[4][1] = 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart);
-        c[4][2] = ssao ? cfg.aoStrength : 0.0f; c[4][3] = frame_.blend;
-        c[5][0] = frame_.skyTint.x; c[5][1] = frame_.skyTint.y; c[5][2] = frame_.skyTint.z; c[5][3] = cfg.hemisphere ? 0.30f : 0.0f;
-        c[6][0] = frame_.groundTint.x; c[6][1] = frame_.groundTint.y; c[6][2] = frame_.groundTint.z;
-        c[7][0] = upV.x; c[7][1] = upV.y; c[7][2] = upV.z;
-        for (int k = 0; k < 3; ++k) {
-            const Mat4& m = k < cascades ? cascades_[k].viewToAtlas : Identity();
-            memcpy(c[8 + k * 4], &m.m[0][0], sizeof(float) * 16);
-        }
-        c[20][0] = 1.0f / shadowSize_; c[20][1] = static_cast<float>(shadowSize_);
-        c[20][2] = 0.00015f;   // depth bias, in the map's 0..1 range (~0.01-0.03 blocks)
-        c[20][3] = q >= 1 ? 16.0f : 4.0f;
-        for (int k = 0; k < 3; ++k) c[21][k] = k < cascades ? cascades_[k].texelWorld * 1.6f : 0.0f;
-        c[22][0] = frame_.ambientLevel; c[22][1] = frame_.sunLevel; c[22][2] = cfg.shadowStrength;
-        device_->SetPixelShaderConstantF(0, &c[0][0], 23);
+        float c[4][4] = {};
+        c[0][0] = frame_.fogStart; c[0][1] = 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart);
+        c[0][2] = ssao ? cfg.aoStrength : 0.0f; c[0][3] = frame_.blend;
+        c[1][0] = frame_.skyTint.x; c[1][1] = frame_.skyTint.y; c[1][2] = frame_.skyTint.z; c[1][3] = cfg.hemisphere ? 0.30f : 0.0f;
+        c[2][0] = frame_.groundTint.x; c[2][1] = frame_.groundTint.y; c[2][2] = frame_.groundTint.z;
+        c[3][0] = upV.x; c[3][1] = upV.y; c[3][2] = upV.z;
+        device_->SetPixelShaderConstantF(2, &c[0][0], 4);
         DrawQuad(w, h);
     }
 

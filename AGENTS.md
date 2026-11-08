@@ -96,7 +96,8 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
 
 The host has 8 CPUs and one L4. Load 60+ came from 20 agents each running a game, a build and analysis at once.
 - Game runs: only through `gamerun/slot.sh` (4 slots at 1.5 CPUs; runq refuses to start a run while the 1-minute
-  load is above 12 or while `/tmp/gta2-load-hold` exists). One run at a time per agent. Short runs (set the run
+  load is above 12, while MemAvailable is under 6 GB, or while `/tmp/gta2-load-hold` exists; each game session
+  takes ~2.2 GB RAM, a Remix run ~2 GB, SDXL ~8 GB, TRELLIS ~6 GB on a 31 GB host). One run at a time per agent. Short runs (set the run
   length to what the check needs, never a default 10 minutes).
 - Builds: `flock /tmp/gta2-build.lock nice -n 10 make -j4` (never -j8 while other agents work).
 - GPU generation (SDXL, TRELLIS, Remix mod builds): one process at a time, `flock /tmp/gta2-gen.lock`, `taskset -c 0-4`, `nice -n 10`.
@@ -105,6 +106,11 @@ The host has 8 CPUs and one L4. Load 60+ came from 20 agents each running a game
 - The shared `repo/stage` is built ONLY by `linux/docker/restage.sh`, which builds a detached worktree of committed HEAD
   (never the working tree, which holds other agents' partial edits: an unfinished lighting pass reached the play page once).
   Test your own build from a private stage copy. Commit before you want it on the play page.
+- Play-page gate (after the untextured-figures incident, 8 Nov): `restage.sh` builds a complete candidate stage
+  (DLLs from committed HEAD, models from assets/models, HD tiles from assets/textures_hd), runs
+  `stage_check.py` (inventory against the manifest) and `stage_smoke.sh` (a scripted 3D run: no model/texture
+  read errors, no faults, late frames in colour) and swaps only if both pass; `play.sh` refuses an unhealthy stage.
+  Never copy anything into repo/stage by hand.
 - `cpu_governor.sh` (cron) pauses the newest scripted containers when the load passes 20 and resumes them under 10;
   a paused run is not a failure, wait for it.
 - Never start a second play container (Remix play on 8082 costs 4 CPUs) unless the owner asks.

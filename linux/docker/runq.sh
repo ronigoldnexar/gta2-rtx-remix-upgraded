@@ -32,7 +32,10 @@ while true; do
   for t in "$Q"/*; do [ -f "$t" ] || continue; p=$(head -1 "$t"); kill -0 "$p" 2>/dev/null || rm -f "$t"; done   # drop tickets of dead callers
   head=$(ls "$Q" 2>/dev/null | sort | head -1)
   if [ "$Q/$head" = "$T" ]; then
-    while [ -e /tmp/gta2-load-hold ] || awk -v m="${GTA2_LOAD_MAX:-12}" '{exit !($1 > m)}' /proc/loadavg; do sleep 15; done
+    # start a run only when the host has headroom: 1-minute load under GTA2_LOAD_MAX, MemAvailable over GTA2_MEM_MIN_GB,
+    # and no hold flag from cpu_governor.sh (set when the host is overloaded)
+    while [ -e /tmp/gta2-load-hold ] || awk -v m="${GTA2_LOAD_MAX:-12}" '{exit !($1 > m)}' /proc/loadavg \
+          || awk -v g="${GTA2_MEM_MIN_GB:-6}" '/MemAvailable/ {exit !($2 < g*1048576)}' /proc/meminfo; do sleep 15; done
     for i in $(seq 1 "$N"); do
       exec {fd}>"/tmp/gta2-game-slot-$i.lock"
       if flock -n "$fd"; then rm -f "$T"; echo "$NAME pid $$ since $(date +%H:%M:%S)" > "/tmp/gta2-game-slot-$i.who"; "$@"; rc=$?; rm -f "/tmp/gta2-game-slot-$i.who"; flock -u "$fd"; exit $rc; fi

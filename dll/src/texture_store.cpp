@@ -602,7 +602,10 @@ DWORD WINAPI CarArtThread(void*) {
             continue;
         }
         if (!job) {
-            WaitForSingleObject(g_artWake, 200);
+            // Polled rather than woken: SetEvent is a wineserver round trip, and on a
+            // busy host one cost the render thread 10-27 ms (p4_ax1_wil, the shells'
+            // "car setup slow" lines). 2 ms of latency is nothing next to a frame.
+            Sleep(2);
             continue;
         }
         auto* done = new CarArtDone;
@@ -656,7 +659,6 @@ void CarArtPush(CarArtJob* job, bool urgent) {
     if (urgent) g_artUrgent.push_back(job);
     else g_artIdle.push_back(job);
     LeaveCriticalSection(&g_artLock);
-    SetEvent(g_artWake);
 }
 
 ArtSettings CurrentArtSettings() {
@@ -1135,7 +1137,12 @@ IDirect3DTexture9* DeviceTextureFor(IDirect3DDevice9* device, const void* handle
     // a stand-in until it is uploaded.
     if (mayBeEffect) {
         bool standInEffect = false;
-        if (IDirect3DTexture9* stand = DeferCarArt(device, record, key, cached, &standInEffect)) {
+        const double t0 = ArtNowMs();
+        IDirect3DTexture9* stand = DeferCarArt(device, record, key, cached, &standInEffect);
+        const double ms = ArtNowMs() - t0;
+        static int slowDefers = 0;
+        if (ms > 4.0 && slowDefers++ < 40) Log("car art: asking the worker took %.1f ms", ms);
+        if (stand) {
             if (effect) *effect = standInEffect;
             return stand;
         }

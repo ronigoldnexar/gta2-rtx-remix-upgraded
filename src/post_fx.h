@@ -178,6 +178,8 @@ private:
     IDirect3DTexture9* shadowTex_ = nullptr; IDirect3DSurface9* shadowSurf_ = nullptr;
     IDirect3DSurface9* shadowDepth_ = nullptr;
     IDirect3DTexture9* blackTex_ = nullptr;
+    IDirect3DTexture9* whiteTex_ = nullptr;
+    IDirect3DTexture9* maskTex_ = nullptr;  IDirect3DSurface9* maskSurf_ = nullptr;
     IDirect3DSurface9* savedTarget_ = nullptr;
     IDirect3DSurface9* savedDepth_ = nullptr;
     IDirect3DStateBlock9* stateBlock_ = nullptr;
@@ -193,6 +195,7 @@ private:
     IDirect3DPixelShader9* psShadowWorld_ = nullptr;
     IDirect3DPixelShader9* psShadowSolid_ = nullptr;
     IDirect3DPixelShader9* psShadowCutout_ = nullptr;
+    IDirect3DPixelShader9* psShadowmask_ = nullptr;
     IDirect3DPixelShader9* psComposite_ = nullptr;
     IDirect3DPixelShader9* psSsao8_ = nullptr;
     IDirect3DPixelShader9* psSsao12_ = nullptr;

@@ -22,13 +22,14 @@ done
 echo "$want" > /tmp/gta2-game-cpuset
 # --- 2. overload watchdog
 load=$(awk '{print int($1)}' /proc/loadavg)
-if [ "$load" -ge "$LOAD_HIGH" ]; then
+memavail=$(awk '/MemAvailable/ {print int($2/1048576)}' /proc/meminfo)
+if [ "$load" -ge "$LOAD_HIGH" ] || [ "$memavail" -le "${MEM_LOW_GB:-3}" ]; then
   touch "$HOLD"
   # pause the newest running scripted containers, two per minute, until the load drops
   for c in $($D ps --filter status=running --format '{{.CreatedAt}}\t{{.Names}}' | grep -v 'gta2-play-' | sort -r | awk -F'\t' '{print $2}' | head -2); do
-    $D pause "$c" >/dev/null 2>&1 && echo "$(date +%T) paused $c (load $load)" >> /tmp/gta2-governor.log
+    $D pause "$c" >/dev/null 2>&1 && echo "$(date +%T) paused $c (load $load, mem avail ${memavail}G)" >> /tmp/gta2-governor.log
   done
-elif [ "$load" -le "$LOAD_LOW" ]; then
+elif [ "$load" -le "$LOAD_LOW" ] && [ "$memavail" -ge "${MEM_OK_GB:-8}" ]; then
   for c in $($D ps --filter status=paused --format '{{.CreatedAt}}\t{{.Names}}' | sort | awk -F'\t' '{print $2}' | head -2); do
     $D unpause "$c" >/dev/null 2>&1 && echo "$(date +%T) unpaused $c (load $load)" >> /tmp/gta2-governor.log
   done

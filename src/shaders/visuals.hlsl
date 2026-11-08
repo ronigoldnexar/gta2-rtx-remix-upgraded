@@ -90,17 +90,18 @@ float3 ViewNormal(float2 uv, float3 p) {
     return normalize(cross(ex, ey));
 }
 
-// --- Composite: shadows, ambient occlusion and the sky's hemisphere over the frame.
-float4 cSunView    : register(c2);   // xyz: toward the sun, view space; w: shadow strength 0..1
-float4 cSplits     : register(c3);   // far distance of cascades 0,1,2; w: cascade count
-float4 cFog        : register(c4);   // fog start, 1/(end-start), AO strength, effect blend
-float4 cSkyTint    : register(c5);   // hemisphere colour from above; w: hemisphere amount
-float4 cGroundTint : register(c6);   // ...from below
-float4 cUpView     : register(c7);   // world up in view space
-row_major float4x4 cCascade[3] : register(c8);   // view -> atlas (uv in xy, depth in z)
-float4 cShadowTex  : register(c20);  // atlas texel size, atlas size, depth bias, PCF taps (4 or 16)
-float4 cOffsets    : register(c21);  // normal offset (view units) per cascade; w: unused
-float4 cSunAmb     : register(c22);  // ambient level, sun level (fixed-function light), shadow strength
+// --- Sun shadow mask, one draw per cascade (each clips to its own depth range), into
+// a full-resolution 8-bit target: R = what is left of the light (1 lit .. 0 black).
+// Kept apart from the composite and small: this compiler copies every uniform into a
+// temporary register, and a shader past r31 does not link under Wine's GLSL (the frame
+// then went grey: the previous program, the AO blur, was drawn instead).
+float4 cSunView    : register(c2);   // xyz: toward the sun, view space
+float4 cSlice      : register(c3);   // this cascade's near and far view depth, fade start, 1/fade length
+float4 cCascX      : register(c4);   // view -> atlas: columns for x, y, z
+float4 cCascY      : register(c5);
+float4 cCascZ      : register(c6);
+float4 cShadowTex  : register(c7);   // atlas texel size, atlas size, depth bias, normal offset (view units)
+float4 cSunAmb     : register(c8);   // ambient level, sun level (fixed-function light), shadow strength, PCF 16 (1) or 4 (0)
 
 float ShadowTap(float2 uv, float z) { return step(z, tex2D(sShadow, uv).r); }
 
@@ -117,10 +118,8 @@ float Pcf16(float3 c) {
     float4 r1 = float4(ShadowTap(o + float2(-s, 0), c.z), ShadowTap(o, c.z), ShadowTap(o + float2(s, 0), c.z), ShadowTap(o + float2(2 * s, 0), c.z));
     float4 r2 = float4(ShadowTap(o + float2(-s, s), c.z), ShadowTap(o + float2(0, s), c.z), ShadowTap(o + float2(s, s), c.z), ShadowTap(o + float2(2 * s, s), c.z));
     float4 r3 = float4(ShadowTap(o + float2(-s, 2 * s), c.z), ShadowTap(o + float2(0, 2 * s), c.z), ShadowTap(o + float2(s, 2 * s), c.z), ShadowTap(o + float2(2 * s, 2 * s), c.z));
-    float sum = dot(r0, wx) * wy.x + dot(r1, wx) * wy.y + dot(r2, wx) * wy.z + dot(r3, wx) * wy.w;
-    return sum / 9.0;
+    return (dot(r0, wx) * wy.x + dot(r1, wx) * wy.y + dot(r2, wx) * wy.z + dot(r3, wx) * wy.w) / 9.0;
 }
-// Bilinear PCF only (the low tier).
 float Pcf4(float3 c) {
     float2 t = c.xy * cShadowTex.y - 0.5;
     float2 b = floor(t);
@@ -131,24 +130,31 @@ float Pcf4(float3 c) {
     return lerp(lerp(a, bb, f.x), lerp(cc, d, f.x), f.y);
 }
 
-float SunVisibility(float3 p, float3 n) {
-    // Floats only: this compiler's shader model 3 path has no integer or boolean arithmetic.
-    float in1 = step(cSplits.x, p.z), in2 = step(cSplits.y, p.z);
-    float k = in1 + in2;                                   // cascade 0, 1 or 2
-    float off = lerp(lerp(cOffsets.x, cOffsets.y, in1), cOffsets.z, in2);
-    float far = lerp(lerp(cSplits.x, cSplits.y, in1), cSplits.z, in2);
-    float3 q0 = mul(float4(p + n * off, 1.0), cCascade[0]).xyz;
-    float3 q1 = mul(float4(p + n * off, 1.0), cCascade[1]).xyz;
-    float3 q2 = mul(float4(p + n * off, 1.0), cCascade[2]).xyz;
-    float3 q = lerp(lerp(q0, q1, in1), q2, in2);
-    q.z -= cShadowTex.z;
-    float v = cShadowTex.w > 8 ? Pcf16(q) : Pcf4(q);
-    // Beyond the last cascade: lit. The last one fades out over its final fifth.
-    float beyond = step(cSplits.w - 0.5, k);
-    float last = step(cSplits.w - 1.5, k);
-    v = lerp(v, 1.0, last * saturate((p.z - far * 0.8) / (far * 0.2)));
-    return lerp(v, 1.0, beyond);
+float4 ps_shadowmask(QuadOut i) : COLOR0 {
+    float d = DepthAt(i.uv);
+    float3 p = ViewPos(i.uv, d);
+    clip(p.z - cSlice.x);
+    clip(cSlice.y - p.z);
+    clip(0.999999 - d);
+    float3 n = ViewNormal(i.uv, p);
+    float ndl = dot(n, cSunView.xyz);
+    float4 v4 = float4(p + n * cShadowTex.w, 1.0);
+    float3 q = float3(dot(v4, cCascX), dot(v4, cCascY), dot(v4, cCascZ) - cShadowTex.z);
+    float vis = cSunAmb.w > 0.5 ? Pcf16(q) : Pcf4(q);
+    vis = lerp(vis, 1.0, saturate((p.z - cSlice.z) * cSlice.w));
+    // What the sun added to this face in the fixed-function light, taken away where it is
+    // shadowed; a face turned away is already at ambient and is not darkened twice.
+    float sunPart = cSunAmb.y * saturate(ndl);
+    float dark = saturate(cSunAmb.z * sunPart / max(cSunAmb.x + sunPart, 1e-3));
+    float shade = 1.0 - dark * saturate(ndl * 5.0) * (1.0 - vis);
+    return float4(shade, shade, shade, 1);
 }
+
+// --- Composite: the shadow mask, ambient occlusion and the sky's hemisphere over the frame.
+float4 cFog        : register(c2);   // fog start, 1/(end-start), AO strength, effect blend
+float4 cSkyTint    : register(c3);   // hemisphere colour from above; w: hemisphere amount
+float4 cGroundTint : register(c4);   // ...from below
+float4 cUpView     : register(c5);   // world up in view space
 
 float4 ps_composite(QuadOut i) : COLOR0 {
     float4 scene = tex2D(sScene, i.uv);
@@ -156,21 +162,10 @@ float4 ps_composite(QuadOut i) : COLOR0 {
     if (d >= 0.999999) return scene;   // the sky
     float3 p = ViewPos(i.uv, d);
     float3 n = ViewNormal(i.uv, p);
-    float ndl = dot(n, cSunView.xyz);
-    float shade = 1.0;
-    // Sun shadow: only where the face turns toward the sun; a face turned away is
-    // already at ambient in the fixed-function light and must not darken twice.
-    float facing = saturate(ndl * 5.0);
-    float vis = cSunView.w > 0.0 ? SunVisibility(p, n) : 1.0;
-    // What the sun added to this face in the fixed-function light, taken away where it is shadowed.
-    float sunPart = cSunAmb.y * saturate(ndl);
-    float dark = saturate(cSunAmb.z * sunPart / max(cSunAmb.x + sunPart, 1e-3));
-    shade *= 1.0 - dark * facing * (1.0 - vis);
-    // Hemisphere: a touch of the sky's colour on faces looking up, of the ground's on faces looking down.
     float up = dot(n, cUpView.xyz) * 0.5 + 0.5;
-    float3 hemi = lerp(cGroundTint.rgb, cSkyTint.rgb, up);
-    float3 tint = lerp(float3(1, 1, 1), hemi, cSkyTint.w);
-    float ao = cFog.z > 0.0 ? lerp(1.0, tex2D(sAo, i.uv).r, cFog.z) : 1.0;
+    float3 tint = lerp(float3(1, 1, 1), lerp(cGroundTint.rgb, cSkyTint.rgb, up), cSkyTint.w);
+    float ao = lerp(1.0, tex2D(sAo, i.uv).r, cFog.z);
+    float shade = tex2D(sShadow, i.uv).r;
     float3 m = shade * ao * tint;
     // Fogged distance keeps the fog's colour: the modulation fades out with it.
     float fog = saturate((p.z - cFog.x) * cFog.y);
