@@ -115,16 +115,25 @@ def wait_arrow_gone(secs):
 # waypoint and never got onto the phone; the second keeps the walker on x=18.5.
 APPROACH = {(18.5, 68.5): ((18.5, 100.0), (18.5, 78.0)), (18.5, 67.5): ((18.5, 100.0), (18.5, 78.0))}
 
+RUNNING_KEYS = {"3103"}   # e.gxt: the Russians' "you are working a Russian contract"
 def answer(entry):
     """get to the phone (by car when far, on foot up its stairs), stand on it,
     and read which job started from the game's title message or its arrow"""
     m0 = msg()
-    s = D.wait_state()
+    s = D.wait_state() or D.wait_state(60)
+    if not s: return False, ""     # no position line (pt8_bil21 crashed here after a failed job)
     tl = None if entry["z"] >= 200 else max(1, int(round(entry["z"])) - 1)
     far = math.hypot(entry["x"] - s["x"], entry["y"] - s["y"])
-    if s and not s["driving"] and far > 40:
+    walk_all = os.environ.get("PHONE_WALK", "1" if DISTRICT == "bil" else "0") == "1"
+    if s and not s["driving"] and far > 40 and not walk_all:
         M.mark(f"a long way to the phone ({far:.0f} blocks): by car")
         s = M.any_car2(world, budget=120)
+    elif walk_all and far > 40:
+        # PLAYTHROUGH-8: Industrial's 150 blocks from the start to the Russians' rooftop phone
+        # cost two to four burning borrowed cars and 8-15 minutes a session (pt8_bil5-16);
+        # the walker goes the whole way in about four
+        M.mark(f"a long way to the phone ({far:.0f} blocks): walking")
+        s = M.walk3(world, entry["x"], entry["y"], None, tol=3.0, budget=600)
     legs = 0
     while s and s["driving"] and legs < 3:
         legs += 1
@@ -179,6 +188,11 @@ def answer(entry):
             if k not in seen: seen.append(k)
             if k in TITLES:
                 say(f"phone: title {k} ({TITLES[k].get('title')})"); return True, k
+            if k in RUNNING_KEYS:
+                # PLAYTHROUGH-8: "You are working a Russian contract, Comrade" (3103, e.gxt): the
+                # job this phone started on the first step is running and its title was missed
+                # (pt8_bil12/18 took it for "not answered" and the session ended)
+                say(f"phone: {k}, a job of this gang is already running: this one"); return True, k
         if M.mission_arrows():
             say(f"phone: a mission arrow is up (messages {seen})"); return True, (seen[-1] if seen else "")
         if time.time() - t0 > 6:
@@ -479,6 +493,21 @@ def dealer_stop(x, y, s, lo=0.9, hi=1.1):
             if best is None or c < best[0]: best = (c, px, py)
     return (best[1], best[2]) if best else None
 
+def not_over(money0, secs=15):
+    """PLAYTHROUGH-8: BUSTED is not the end of RUSSIAN SAILORS: the police pulled him out of the
+    Z-Type (pt8_bil10, pt8_bil19: wanted level 1 from the dealer-1 leg, the car at a standstill),
+    the death/arrest word went up for a moment and the runner returned "dead"; the game said
+    "Stop wasting time, Comrade! Get back in the Z-Type NOW!" (3525) and the job ran on. True
+    when, after the respawn, the job is still running"""
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        time.sleep(1.0); ms = M.mission_state() or {}
+        if ms.get("msg") in M.FAILED_KEYS: return False
+        if ms.get("msg") == "3525" or (ms.get("death", 0) == 0 and ms.get("health", 0) > 0 and M.mission_arrows()):
+            say(f"busted or down, but the job runs on (msg {ms.get('msg')}): back to the Z-Type")
+            M.LIVES0[0] = ms.get("lives", M.LIVES0[0]); return True
+    return False
+
 def play_bil_re2(entry):
     """MMM, RUSSIAN SAILORS! (Russians): the Z-Type at (48,73); four dealers
     to collect by car (horn beside each), then the car into the crane box at
@@ -490,6 +519,9 @@ def play_bil_re2(entry):
     # 158-165, a two-wide level-2 deck between): the Z-Type stalled at its south end
     # (55-57,157) eight times in pt8_bil13 and pt8_bil14, 10000 carhp each time. Off the route
     M.CAR_AVOID.update({(xx, yy) for xx in range(54, 58) for yy in range(141, 166)})
+    # and the car-shop strip at 58-70 x 88-92 (bomb, mines, oil, gun and respray drive-ins on
+    # the dealer-1 road): pt8_bil22's Z-Type lost 7000 in one hit at 70.9,91.6 there
+    M.CAR_AVOID.update({(xx, yy) for xx in range(58, 71) for yy in range(88, 93)})
     dealers = [(95.5, 171.5), (46.0, 187.0), (13.5, 233.5), (85.0, 147.0)]
     o = wait_arrow(30, kinds=(3, 4))
     car_at = (o[0], o[1]) if o else (48.0, 73.0)
@@ -563,6 +595,7 @@ def play_bil_re2(entry):
     t_all = time.time()
     while time.time() - t_all < 1500:
         out, ms = M.outcome(money0)
+        if out == "dead" and not_over(money0): out = "running"
         if out != "running": return out
         s = D.wait_state()
         if not s["driving"]:
@@ -619,6 +652,7 @@ def play_bil_re2(entry):
                         if sp2: s = M.drive3(world, sp2[0], sp2[1], tol=0.6, budget=60, slow=True, precious=True)
                     M.horn(1); time.sleep(2.0)
                 out, ms = M.outcome(money0)
+                if out == "dead" and not_over(money0): out = "running"; break
                 if out != "running": return out
             say(f"dealer {stage+1}: {'boarded' if boarded else 'not confirmed'} after {time.time()-t0:.0f}s")
             o4 = M.objective()

@@ -474,3 +474,29 @@ Part 7.
 | pt8_ste3 | DOUBLE-CROSS CRUSH (fresh game) | **phone answered** (title 2803), frame `out/pt8_ste3/m_ste_re2_phone.png` (first person; the brief on screen is BLOW JOB's, the neighbouring phone at 18.5,68.5 answered as well) | no runner: the job wants a Zaibatsu Z-Type stolen from traffic, then seven Scientists run over in their zone (227.5,217.5) and eight Zaibatsu with a Stratos-B (199,25.5) under a bonus count; the renderer's mission line gives no pedestrian positions, so there is nothing to aim the car at |
 | pt8_respray2 | respray probe | a borrowed car (carhp 25464, $20) driven into Industrial's numeric car shop at 64.5,90.5 (`bil.mis` shop12, `CAR_SHOP 0`; the BANK ROBBERY respray in Downtown is the same kind, `CAR_SHOP 9`) and held there 12 game seconds | no repair: carhp and money unchanged (`out/pt8_respray2/m_in_shop.png`, first person inside the shop); a respray costs money the player does not have this early, so it is no way to save the Z-Type here |
 | pt8_bil13/14 | RUSSIAN SAILORS | walked to the Z-Type, backed out, dealers 1-3 (bil14) | the dealer-1 road's flyover (columns 54-57, a two-wide level-2 deck between ramps at rows 141-148 and 158-165): eight stalls at its south end (55-57,157) in both sessions, -10000 carhp, the Z-Type alight before dealer 2 (fixed: the flyover is off the Z-Type's route, the route runs down columns 66-68) |
+| pt8_bil15/16 | same | | both waited minutes at kerbs for a car to the phone; stopped (fixed: Industrial's phone is walked to, `PHONE_WALK`, about four minutes for 147 blocks) |
+| pt8_bil17/18 | same | walked to the rooftop phone | the phone said 3103, which e.gxt reads as "You are working a Russian contract, Comrade. Return when it is finished.": the first step had started the job and its title was missed; the runner called it "not answered" and moved on (fixed: 3103 means this job runs) |
+| pt8_bil19 | same | phone by walking (2 min), Z-Type by walking, out of the alley, **dealer 1 aboard** | wanted level 1 on the way; on the dealer-2 leg the police pulled him out of the Z-Type at a standstill: **BUSTED** (`out/pt8_bil19/shot_625.png`), the game said "Get back in the Z-Type NOW!" (3525) and the job ran on, but the runner read the arrest word as a death and gave up (fixed: `not_over`, a bust or a respawn with the job still running goes back to the Z-Type) |
+| pt8_bil20 | same | phone, Z-Type, out of the alley, dealers 1-2 | stalls on the turns south of the alley (48-50,84-87) and on the western detour round the flyover; alight at 16927 before dealer 3 |
+| pt8_bil21 | same | phone (3103, now taken as the running job) | the walk from the rooftop to the Z-Type did not get there in its budget; then a crash in the phone approach for HOT DOG HOMICIDE (no position line; guarded) |
+| pt8_bil22 | same | phone, Z-Type, out of the alley | one hit of 7000 at 70.9,91.6 on the dealer-1 road, in the car-shop strip (bomb, mines, oil, gun and respray drive-ins at 58-70 x 88-92); alight before dealer 1 (fixed: the strip is off the Z-Type's route) |
+
+### Status (PLAYTHROUGH-8)
+
+- **RUSSIAN SAILORS: not completed.** Furthest this pass: all four dealers aboard again
+  (pt8_bil11), with the car alight at the start of the dealer-4 leg. The runner now protects the
+  Z-Type from what the logs showed wrecking it: pressing (back off toward the route after 450 lost
+  on the spot), its alley (backed out north), the passenger box (stops inside it, never on the
+  dealer), the flyover and the car-shop strip on the dealer-1 road (off the route), walls and
+  drops beside the lanes (`EDGE_COST`), a bust (the job runs on). What still burns it: traffic
+  and the police on legs of 100-360 blocks at 2 blocks/s (the dealer-4 leg goes round a
+  358-block loop because a raised embankment cuts the direct road at rows 158-166), and a
+  respray is not to be had without money. The start (spawn, rooftop phone, Z-Type) is now walked:
+  about 2-4 minutes to the phone and 3-5 to the Z-Type at `GTA2_SPEED=2`.
+- **HOT DOG HOMICIDE** (Industrial's next Russian job, `bil_re1`): the phone answers 3104 "Respect
+  the Russian Mafia!" after a failed RUSSIAN SAILORS (pt8_bil5); it has no runner (a bus to steal
+  from traffic and fill at bus stops, then a stand on The Cage).
+- **DOUBLE-CROSS CRUSH** (Residential's next Redneck job, `ste_re2`): phone answered in a fresh game
+  (pt8_ste3); no runner (pedestrians to run over by gang, which the mission line does not give).
+- **BLOW JOB**: stage 1 now parks and arms on the line-up (pt8_ste2); stage 2 lost to a pinned
+  Pickup on the way to the barricade; completed once in pt7_ste5.

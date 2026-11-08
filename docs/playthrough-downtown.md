@@ -433,3 +433,10 @@ having lost 15 s at the first dealer the same way.
   (next: BANK ROBBERY, `wil_ye2`, which needs the two bank guards shot; the plan runner has no
   step for "kill the characters the arrows point at" yet).
 - RADIO ZA-ZA failed this time (a carjack and a death on the road), completed in part 6.
+- For the next Yakuza job the plan runner got two generic steps (`mission_play_wil.py`, untested
+  in game so far): a kill counter while the arrows point at characters walks at the nearest marked
+  one with the trigger held until his arrow goes (`M.shoot_chars`: BANK ROBBERY's two bank
+  guards), and a wait the runner has no step for while a point arrow is up goes to the arrow
+  (`M.follow_arrow`: BANK ROBBERY's respray shop); a passenger step re-enters the marked car first
+  when the player is on foot. The respray itself costs money (`playthrough-districts.md`,
+  pt8_respray2: no repair with $20); BANK ROBBERY pays $5,000 for it first.
