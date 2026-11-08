@@ -17,6 +17,8 @@ ground views. Branch `camera-modes` of ronigoldnexar/gta2-rtx-remix-upgraded.
 ```
 # Linux build (mingw-w64)                 # Windows build
 flock /tmp/gta2-build.lock make -j8 stage  dll\build.bat ; vid\build.bat
+# while game runs may be active: linux/docker/restage.sh (waits for the build lock
+# and all four game slots; a make stage mid-run leaves that run with white figures)
 make check                                 package.bat
 
 # Run in a container (layout in docs/HANDOVER.md section 6)
