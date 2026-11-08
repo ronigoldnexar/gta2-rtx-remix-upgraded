@@ -631,6 +631,33 @@ Not changed: other sprites (pedestrians' animation frames, objects, HUD) are sti
 render thread; with Remix the car artwork is now a dynamic texture (Remix's hash of it is not
 tested here).
 
-Still open: a second pair (`p4_bx2_wil` lost its stage to a cleanup, `p4_ax3_wil` stopped by the
-host move); pedestrians' and objects' new sprite frames are still built on the render thread and
-would take the same worker (recognition by the ped remap palettes).
+**Second series (8 Nov, 8x L4 host, PERF-4-2).** Both DLLs built from the same HEAD `7cc5131`:
+after = HEAD, before = HEAD with `texture_store.*` from `76569af^` and the `CarArtPrecache` hook
+line removed. Same `perf4_run.sh` drive, `CPUS=1.5`, but `CPUSET=40-47`: the default `0-4` is where
+every other agent's container lands on the new host too, and the first before run there
+(`p42_b1_wil`, discarded) ran at p50 797 ms with `present` at 186 ms on average. Runs alternated
+before/after, one at a time, while the host load rose from 0.4 to 18:
+
+| run | build | car artwork costs >= 4 ms | of them in a frame over 33 ms | worst | frame cost p50 / p99 ms | frames over 33 ms |
+|---|---|---|---|---|---|---|
+| `p42_b2_wil` | before | 0 | 0 | - | 8.2 / 78.8 | 238 of 2757 |
+| `p42_a1_wil` | PERF-4 | 0 | 0 | - | 12.0 / 86.4 | 488 of 2739 |
+| `p42_b3_wil` | before | 0 | 0 | - | 14.8 / 97.1 | 619 of 2769 |
+| `p42_b4_wil` | before | **3** | **3** | 50.5 ms | 20.0 / 98.8 | 710 of 2374 |
+| `p42_a3_wil` | PERF-4 | 0 | 0 | - | 21.8 / 102.9 | 931 of 2744 |
+
+`p42_a2_wil` never started (black screen, no DLL log: a hang before the DLL loaded, not the change).
+In `p42_b2_wil` the driver lost its car and warped, and every run took its own route, so the
+frame-cost columns follow the route and the rising load, not the build. On a quiet host the old
+render-thread path rarely passes the log thresholds (8 ms car bodies, 4 ms shells): 0 in two of
+three before runs. Once the host is loaded it does: 3 fetches of 37-51 ms (`p42_b4_wil`), each in a
+frame over 33 ms. Across both series the before runs had 8, 0, 0 and 3 such costs; the after runs
+had 0, 0 and 0. The precache was the same in both after runs: 656 frames in 4.6-4.7 s, uploads at
+0.04 ms on average, and one upload of 19.6-19.7 ms, the session's first dynamic texture, at level
+load. Patched frames during the drive were made on the worker in 0.2 ms and uploaded in 0.01-0.03
+ms, 0-34 ms after they were asked for (1-2 draws with a stand-in). Third-person frames of the after
+runs show the cars in their paint (`out/p42_a3_wil/shot_085.png`).
+
+Still open: pedestrians' and objects' new sprite frames are still built on the render thread and
+would take the same worker (recognition by the ped remap palettes); Remix's handling of the dynamic
+car textures is untested.
