@@ -13,10 +13,10 @@ the host load column says how busy it was.
 | `grun.sh <name> <secs> <keys> [docker -e …]` | the fast scripted run: queued, prebaked prefix, bind-mounted data, intro skipped, GPU render; output in `out/<name>` | `CPUS=2`, `FPS=15`, `GTA2_INTRO=0`, `IMAGE=gta2-gpugl-fast` |
 | `runq.sh run [-p PRIO] [-n NAME] -- <cmd>` | FIFO with priorities over the slots (lower runs first); `runq.sh status`, `runq.sh wait` | `GTA2_SLOTS=4` |
 | `slot.sh <cmd>` | kept for old callers; now `runq.sh run -p 5` | |
-| `game_mounts.sh` | prints `-v` flags binding `game/data`, `gta2dx9_hd`, `gta2dx9_voice`, `gta2dx9_models`, `gta2dx9_textures_hd` read-only into the prefix path; the run scripts skip the copy of any mounted folder (`mountpoint -q`); not used with `SWAP_LEVEL` | used by `grun.sh`, `qa_run.sh`, `tour_run.sh`, `sweep_run.sh`, `remix_l4.sh` (`GTA2_FAST=0` turns it off) |
+| `game_mounts.sh` | prints `-v` flags binding `game/data`, `gta2dx9_hd`, `gta2dx9_voice`, `gta2dx9_models`, `gta2dx9_textures_hd` read-only into the prefix path; the run scripts skip the copy of any mounted folder (`mountpoint -q`); not used with `SWAP_LEVEL` | used by `grun.sh`, `qa_run.sh`, `tour_run.sh`, `sweep_run.sh`, `remix_l4.sh` (`GTA2_FAST=0` turns it off); callers must pass `SWAP_LEVEL` to it, see "Level swap" below |
 | `Dockerfile.fast` | a layer with a ready 32-bit prefix at `/opt/wp`; the run scripts copy it instead of `wineboot` | image `gta2-gpugl-fast` |
 | `GTA2_INTRO=0` | the run scripts set `intro=0` in the ini (the mod's own intro skip) | `grun.sh` only; the other runners keep the intro unless asked, because their fixed-sleep keys scripts were timed with it |
-| `to_level.sh` | inside a run: waits for the window, then taps Return every 1.5 s until the renderer logs `view: classic (player found`; replaces `sleep 10 … sleep 15 … 5 × Return` in keys scripts (`keys_views2_fast.sh` is the example) | |
+| `to_level.sh` | inside a run: waits for the window, then taps Return every 1.5 s until the renderer logs `view: classic (player found`; with `SWAP_LEVEL` set it also says whether the swapped district is the one in play; replaces `sleep 10 … sleep 15 … 5 × Return` in keys scripts (`keys_views2_fast.sh` is the example) | |
 | `tools/run_stats.py out/<run>…` | time to the level, frame-stage averages after it, worst wait, hitch frames, faults | |
 | `play.sh` | `PLAY_CPUSET=5-7` pins the player's container to its own CPUs so scripted runs never starve it (opt-in; takes effect at the next `play.sh` start) | unpinned |
 
@@ -48,6 +48,47 @@ Four copies at once, `--cpus=2` each, no cpuset, while the player's container an
 | 4 (13.3) | 10.5-11.6 | 2.0 | 5.3-5.9 | 0.7-1.2 | 20.4-21.3 | 28.5-31.4 | 354-367 | 0 | 9/9 all |
 
 Every copy at every N held the 30 fps cap with ≥ 20 ms of idle per frame; the game step rose from 8.5 to 11.6 ms and the level took 12-17 s instead of 10 s at N = 4. Wall time per copy stayed 170-181 s. So `GTA2_SLOTS=4` at `CPUS=2` is the default (a fifth copy was not tried: 4 × 2 = 8 CPUs is the host). When the player is online, pin the play container (`PLAY_CPUSET=5-7` at its next start) so the scripted runs cannot take its cores; the measurements above were taken with the player's container unpinned and running.
+
+## Level swap (`SWAP_LEVEL=bil|ste`): the Industrial and Residential runs
+
+A run plays Industrial or Residential by copying that district's map, style, main script and
+mission scripts over Downtown's (`wil.gmp`, `wil.sty`, `wil.SCR`, `data/wil/`) in the
+container's prefix, so "level 1" is the other district. Since 8 Nov this is
+`swap_level.sh <game dir> <district>`, called by `run_game_gpu.sh`, `run_game.sh` and
+`run_game_remix_gpu.sh`. It checks the copies against the district's files and stops the run
+(`LEVEL SWAP FAILED`, exit 3) instead of starting the game on the wrong map; `to_level.sh` also
+prints `to_level: district bil in play`, or `LEVEL SWAP NOT IN EFFECT`.
+
+**QA3's "a death in a swapped district ends the run" was this harness, not the game or the
+renderer.** `qa_run.sh`, `sweep_run.sh` and `tour_run.sh` passed `SWAP_LEVEL` to docker but
+not to `game_mounts.sh`, so `game/data` was bind-mounted read-only, every swap copy failed
+(`cp: ... Read-only file system` in the run log), and the old one-line swap printed
+`level 1 is now bil` anyway. **All 14 QA3 Industrial/Residential sweep runs (`sweep_{bil,ste}_q3*`)
+played Downtown** (`map wil.gmp` in each log, the player starting at Downtown's 159.5,139.5).
+The Industrial or Residential coordinates were then warped to on Downtown's map, which put the
+player into water and off the map edge (for example 191.5,247.5 at z=1 in
+`sweep_bil_q3_0`), so he died again and again: the R.I.P. screen, a game camera parked over the water while
+no respawn came (`sweep_bil_q3_0`), and in `sweep_bil_q3_1` the `gta2.exe+0x3ED37` fault 75 s
+after a death at the map's south edge (72.4,244.3) with no respawn. The renderer's locator was
+right to report no player. Those runs' results describe Downtown, not
+the two districts. Runs through `grun.sh` and `perf*_run.sh` pass `SWAP_LEVEL` and were not
+affected: the `pt6`..`pt9`, `pd3`, `p2_a3` and `tour_*` logs show `map bil.gmp`/`ste.gmp`
+and a respawn after each death.
+
+Fix: the three callers now give `SWAP_LEVEL` to `game_mounts.sh` (it binds `data/` only when
+`SWAP_LEVEL` is empty or `wil`), and the swap checks its own result.
+
+Proof (`qa_swapdeath.py`, `QA_DISTRICT=bil|ste gamerun/qa_run.sh sd_<d> 360 swapdeath`): in each
+district a death in third person and another in first person (the nearest parked car blown up
+with him at the wheel), the WASTED screen, the respawn, the player found again by the renderer
+and a short walk. Runs `out/qa_sd_bil`, `out/qa_sd_ste` (8 Nov,
+private stage copy, `GTA2_DIRECT_KEYS=1`): `to_level: district bil|ste in play`; Industrial
+starts at its own 44.5,102.0, Residential at 113.4,124.8 (no longer Downtown's 159.5,139.5).
+Industrial: lives 5 -> 4 (respawn at the hospital, 44.5,191.8, third person) and 4 -> 3
+(166.5,220.8, first person); Residential: 5 -> 4 (51.5,214.9, third) and 4 -> 3 (138.5,96.9,
+first). Each time the renderer drew "over where the player was" through the WASTED screen and
+found him again within a second of the respawn (`player found, source pedestrian at the
+camera`); `waiting for the player` 0, FAULT 0 in both runs, and he walked on after each respawn. Sheet `out/qa_swap_sheet.png`.
 
 ## Remix
 
