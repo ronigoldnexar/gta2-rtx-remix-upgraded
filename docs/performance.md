@@ -602,6 +602,35 @@ Now (`texture_store.cpp`, "PERF-4"):
   times), each asked-for frame (first 60: worker ms, upload ms, wait, stand-in draws), uploads over
   3 ms and asks over 4 ms.
 
+**Measured** with `gamerun/perf4_run.sh` (`perf4_drive.py`: the PERF-3 Downtown drive, 100 s,
+dents and doors forced every 5 s and `force_car_model` stepped every 7 s; `CPUS=1.5`, the slot
+size under the new host-capacity rules; the host at load 12-17), one before/after pair built
+from the same HEAD (before = HEAD, after = HEAD + this change), `perf4_analyze.py`. "Car
+artwork costs" are the log's own timings of a car's artwork on the render thread (`sprite
+artwork of a car took`, the shells' `car setup slow ... artwork`, and the new `car art:` ask and
+upload lines), mapped to frames through the `view: cars frame=N` lines:
+
+| run | build | car artwork costs >= 4 ms | of them in a frame over 33 ms | worst | frame cost p50 / p99 ms | frames over 33 ms |
+|---|---|---|---|---|---|---|
+| `p4_bx1_wil` | before | 8 | 5 | 120.9 ms | 19.4 / 134.5 | 733 of 2582 |
+| `p4_ax2_wil` | PERF-4 | **0** | **0** | 0.06 ms upload | 19.3 / 167.3 | 807 of 2199 |
+
+Every car artwork spike is gone; the frame cost percentiles did not move with it, because on
+this host at 1.5 CPUs a third of all frames are over 33 ms from contention (GTA2's own step,
+`ui` and `spr_issue` stalls of 40-80 ms with no texture made), which swamps the 5 frames the
+artwork accounted for; the p99 difference is the load, not the change (PERF-3's runs varied as
+much between identical builds). The coarser "frames over 33 ms with a texture made in an artwork
+stage" count (17 before, 26 after) is mostly pedestrians' animation frames, which this change
+does not touch. In the after run 640 of 656 precached frames were never asked for again and 16
+patched frames were made on the worker (12 drawn once with a stand-in, 4 twice); the one slow
+upload (72 ms) was the very first dynamic texture of the session, at level load in the classic
+view. An earlier after run (`p4_ax1_wil`, before the worker was made to poll) still had three
+10-27 ms asks, all `SetEvent`. `out/perf4_sheet.png`: the pair.
+
 Not changed: other sprites (pedestrians' animation frames, objects, HUD) are still built on the
 render thread; with Remix the car artwork is now a dynamic texture (Remix's hash of it is not
 tested here).
+
+Still open: a second pair (`p4_bx2_wil` lost its stage to a cleanup, `p4_ax3_wil` stopped by the
+host move); pedestrians' and objects' new sprite frames are still built on the render thread and
+would take the same worker (recognition by the ped remap palettes).
