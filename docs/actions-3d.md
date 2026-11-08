@@ -24,7 +24,7 @@ it was not reached in a run. The classic top-down view is untouched by all of it
 | helicopter rotors | object animation `rotor` (base 4 frame 0) | a synthetic spin clip on the `rotor_5` node (mast, 7 rev/s) and `tailrotor_7` (hub) | mechanism: no helicopter appeared in the runs |
 | car doors opening | a pedestrian in state 3 (getting in) or 4 (getting out) next to the car, matched by the ped's vehicle word or by distance; `[devtools] force_car_door` for checks | the body is split once per (model, side, door rows from CARI) into a hull without the door panel and the panel itself, which swings 60° about its front edge at 2.5/s and shuts at 1.7/s; the inside of the panel is lit like the outside; not on wrecks nor on the own car from the seat (`car_bodies.cpp` DoorSplitFor, DoorState) | verified: the split is built and the door opened at every entry and exit of three runs (`out/dd1..dd4`); frames in `out/doors_dents_sheet.png` |
 | car damage, dents | the vehicle damage byte (+0x74: 0 fresh, rising with every knock, the car burns past about 200), in four steps of 64; `[devtools] force_car_damage` for checks | a dented copy per (model, step): three octaves of value noise over the car's frame press the shell in along normals smoothed across every seam (both paint-split halves move together), at most 2 % of the body length at the top step, normals rebuilt from the moved faces; the paint dulls 6 % a step; the smoke and fire over a badly damaged car are the game's own sprites, stood upright (`car_bodies.cpp` DentedModelFor) | verified at forced steps 0 / 96 / 160 / 255 from the chase camera and the driver's seat (`out/dd3`, `out/dd_steps_sheet.png`): no tearing, no light through the shell, a fresh car unchanged; the first version (per-vertex normals) tore the hull and showed white through it (`out/pd3_ste4/shot_1685.png`, build of 18:01), replaced |
-| trains, buses, tank, bank van | ordinary vehicles | their models (bus and bank van seen driving in QA2 / the master demo) | bus and army tanks verified in play (POLICE-3D); trains still not caught in a frame |
+| trains, buses, tank, bank van | ordinary vehicles | their models (bus and bank van seen driving in QA2 / the master demo) | bus and army tanks verified in play (POLICE-3D); trains verified at the elevated station (ACTIONS-3D-3) |
 | horn, phone pose, pickup flash, score popups | HUD / sound | left to the game | n/a |
 
 ### Shooting pass (7 Nov 2026 evening, SHOOT-ANIM)
@@ -253,7 +253,7 @@ forced, its game trigger not reached; "untested" = neither.
 | throw (molotov) | ammo drop | throw | verified | a3w2 `w03_molotov_fire_side_01` |
 | pistol, dual, electro gun stances | same | aim, aim_dual, aim_heavy | showcase | a3s2 `s_aim_*` |
 | aiming while walking (legs walk under the aim) | stance + motion | upper layer + torso twist | showcase (aim_mg_walk) | a3s2 |
-| NPC gunfire: stance, muzzle, tracers | his weapon object's words / a shot beside him | as the player | police: not done (they arrest rather than shoot at 2-4 stars; POLICE-3D); army: tank cannon shots in frame, soldiers' rifle carry in frame, their own shots log only | pol_army1 `tank10_04`, pol_army2 `tank10_09`; `ped anim: object ... action 2/8/16` |
+| NPC gunfire: stance, muzzle, tracers | his weapon object's words / a shot beside him | as the player | police (4 stars, beside a cop car with the MG): pistol aim stance in frame, the player shot dead, 9 `npc shot` lines (reload timer restarts, ammo 990 never drops); FBI (5 stars): 16 shots logged (silenced MG, shotgun), the agents framed getting out of their car, not mid-shot; soldiers (6 stars): rifle aim stance in frame in third and first person; the NPC muzzle glow and streaks not singled out in a frame | a33_pol4 `shot_200`, a33_pol5 `qa_f_006`, a33_types1 `army1_t_12`, a33_types2 `army0_f_05` (ACTIONS-3D-3) |
 | burning (on his feet) | game flames on him 3 frames | burn layer | verified (player, set alight by his own rocket blast); NPC burning in the log | a3m3 `m_blown1_00`; `action 19` for NPC 30dbc240 |
 | falling from a height | state 8 sub 0x13 | fall_air | verified | a3f1 `f_fall1_00`, log frames 81-96 |
 | dead / knocked down: shot | cause 0 | fall, fall_front | verified (landing face down after the fall: a3f1 `f_fall1_02`); both clips in the showcase | 281 `lying clip 0/1` log lines over the runs |
@@ -264,11 +264,11 @@ forced, its game trigger not reached; "untested" = neither.
 | drowning | state 8 sub 0x14 | drown, sunk | showcase only; the player has no sprite in the water (game), not reached for NPCs | a3d1, a3s2 `s_drown_front` |
 | wanted level | the player ped's cop points, int16 ped+0x20A (stars at 600/1600/3000/5000/8000/12000) | `[devtools] force_wanted=N` holds it (QA, off by default) | verified in play: police in 10-50 s at 2-4 stars beside a cop car, army with tanks in 26-30 s at 6 | pol_arrest3..7, pol_fight2/3, pol_army1/2; `wanted:` log lines |
 | arrest: hands up, cuffed, led to the car | knock-down to state 8 sub 0x16 while wanted (or the cop points cleared while he lives) | lying clip backwards, handsup, cuffed over the walk towards the nearest cop car (up to 1.5 blocks, drawn offset) | verified in play | pol_arrest3 `a_037`-`a_045`, pol_arrest6 `a_045`-`a_048`, pol_arrest7 log |
-| trains | ordinary vehicles, models 59-61 | car models | log only: six POLICE-3D tries (beside the street-level line: drowned in the harbour twice; under the elevated line facing it in first person: the line in frame, the train never passed while the frames ran) | pol_veh2..6 |
+| trains | ordinary vehicles, models 59-61 | car models | verified: cab and carriages on the elevated track at track height, wheels on the rails, cab leading (+y), stopping at and leaving the station at 99.5,97.7 (ACTIONS-3D-3) | a33_train1 `tr_t_005`, `tr_f_032`; a33_train2 `tr_t_002`, `tr_f_010` |
 | bus | model 11 | car model | verified in play: driving past the arrest | pol_arrest6 `a_046`-`a_048`, vehicle log m11 at 174.6,143->126 |
 | tank turret | the game's turret sprite heading over the hull | model split at 56 % of the roof, turned to it (`TurretSplitFor`) | verified in play for the army tanks (turret off the hull's line, aimed his way); the exact barrel bearing judged by eye only | pol_rescue1 `r17_01_05/10`, pol_veh3; `turret turned N deg` |
-| fire-truck water cannon (the "ladder") | its sprite (0.44 x 0.19 tiles) over the truck | the roof gear behind the cab turned the same way | log only: sprite found and the split drawn while a fire truck drove to the carnage, not framed | pol_rescue1 `turret: model 17` |
-| siren beacons (cop car, SWAT van, ambulance, fire truck) | delta mask bits 15..18 (vehicle+0x08) | two flashing roof glows by model (`DrawBeacons`); `[devtools] force_sirens=1` | cop car verified in play; fire truck log only (`beacons on model 17`); ambulance not framed (it drove to the carnage, pol_rescue1, not caught) | pol_arrest3 `a_037` crop |
+| fire-truck water cannon (the "ladder") | its sprite (0.44 x 0.19 tiles) over the truck | the roof gear behind the cab turned the same way | truck and roof gear verified from the chase camera with the player at the wheel; the water jet (the game's spray sprite, stood up) seen in first person and classic; the gear's turn not judged | a33_fire2 `ft_cannon_04_01`, `ft_cannon_08_01`, `ft_cannon_09_01` |
+| siren beacons (cop car, SWAT van, ambulance, fire truck) | delta mask bits 15..18 (vehicle+0x08) | two flashing roof glows by model (`DrawBeacons`); `[devtools] force_sirens=1` | cop car verified in play; fire truck verified (the siren switched on with Tab at the wheel, delta mask 0x00810040, glows over the truck in the chase view); ambulance: beacons logged on a driven ambulance (12 lines, a33_resc1) but not framed in three tries | pol_arrest3 `a_037` crop; a33_fire2 `ft_cannon_04_01`, `ft_end_t_00` |
 | first-person view model per weapon | game weapon | weapon models | verified earlier (WEAPON-OFFSET pass) | out/weapon_offset_sheet.png |
 
 ## Police and special vehicles (8 Nov 2026, POLICE-3D)
@@ -376,7 +376,7 @@ default, so players never hit it.
 ### Not mine, seen on the way
 
 Army soldiers (6 stars) are drawn as flat bright-yellow figures in the street views (`pol_army2`
-`tank10_09`, `pol_army1` `tank10_03`): the army ped type's model or tint (people subsystem).
+`tank10_09`, `pol_army1` `tank10_03`). Fixed in ACTIONS-3D-3 (below).
 
 ### Scripts
 
@@ -385,3 +385,68 @@ Army soldiers (6 stars) are drawn as flat bright-yellow figures in the street vi
 train bus army rescue"`), `pol_sheet.py` (the sheet), mirrored in `gamerun/`. Run with
 `STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/; s/^nav_map=.*/nav_map=0/' gamerun/grun.sh <run> 260 keys_pol_probe.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_PED_FRAMES=1 -e GTA2DX9_LOG_VEHICLES=1 -e POL_MODE=arrest -e POL_STARS=2 -e POL_COPCAR=1 -e POL_HOLD=600`.
 Sheet: `out/police_3d_sheet.png` (local, not in git).
+
+## ACTIONS-3D-3 (8 Nov 2026): soldiers, every ped type, police gunfire, trains, fire truck
+
+Runs `out/a33_*` (L4 GPU build, private stage `stage_a33`), probe `linux/docker/a33_probe.py`
+(`keys_a33_probe.sh`; `A33_ITEMS="types army gunfire train firetruck ambulance"`), police runs with
+`pol_probe.py` (`POL_MODE=fight POL_COPCAR=1 POL_STARS=4|5`), rescue with `pol_vehicles.py`
+(`POL_VEH=rescue`). Sheet `out/actions_3d_3_sheet.png` from `linux/docker/a33_sheet.py out linux/docker/a33_tiles.json`.
+Run with `STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/; s/^nav_map=.*/nav_map=0/' gamerun/grun.sh <run> 330 keys_a33_probe.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_PED_FRAMES=1 -e GTA2DX9_LOG_VEHICLES=1 -e GTA2DX9_PED_REMAP_FILE=a33_remap.txt -e A33_ITEMS=...`
+(the train with `GTA2_SPEED=3 CPUS=4`).
+
+**Why the soldiers were flat yellow.** Not the ped type, the remap or a sprite path: the army remap (4)
+maps to the three Rocketbox military avatars, and the 3D figure was drawn. Their body, helmet and
+equipment textures were never fetched: Rocketbox ships the military colour maps only as
+`*_color_acu.tga` (and medic 02's body as `m154_body_color_blue.tga`), and both fetch scripts kept only
+names ending in `_color.tga`. With no texture the importer gives a material its 1x1 fallback
+(`00 FF FF 7F` BGRA: yellow), so every soldier was a yellow silhouette with his rifle. The same gap
+left `human_medical_male_02`'s body and `human_police_male_03`'s kit (its FBX material is spelt
+`m172_equpiment`) yellow. Fixed in the asset pipeline: `tools/fetch_rocketbox_pro.sh` takes any
+`*_color*.tga`; `tools/make_ped_manifest.py` maps `<mat>_color[_variant].tga` to the material (plain,
+then `_od`, then any variant) and gives a misspelt material the nearest texture name;
+`tools/army_olive.py` (new) writes olive-drab copies (`*_color_od.tga`) of the grey ACU camo, so
+GTA2's army reads green (skin and coloured patches kept). The five avatars were re-imported
+(`tools/import_assets.py ../assets-src/manifest.json assets/models --only human_military_male_01,human_military_male_02,human_military_female_01,human_medical_male_02,human_police_male_03`);
+the avatars are not in git, so ship a fresh people archive. No placeholder texture is left on any human model.
+
+**Peds without a remap palette.** SWAT and FBI (DMA's EMERG_GRAPHIC) and the Zaibatsu gang graphic are
+drawn from their own sprite sets, not a remap of the common body, so `PedRemapForPalette` returned -1 and
+they got random civilian avatars (`a33_pol4 shot_200`: SWAT firing pistols in plain clothes). Now a figure
+with no remap palette takes its type from its sprite body (frame / 158): body 2 or later -> the police
+avatars, body 1 -> the suits (`live_geometry.cpp`, logged once per body as `models: pedestrian without a
+remap palette on body N`). Built and staged, **not yet seen in a run** (no SWAT came in `a33_pol4b`); which
+body SWAT/FBI really use is the log line's to confirm.
+
+**Showcase switch.** `GTA2DX9_PED_REMAP_FILE=<file>` (re-read every 15 frames, `-1` off) sets
+`ped_remap_override` while the game runs; with an override on, the player's own figure is drawn as that
+type too, so the sheet shows each type on a figure the camera follows.
+
+**The driven car in the chase view.** A car whose box holds the camera was skipped (meant for the camera
+beside a parked car) unless it was the "own" car, which is only set in first person. A long vehicle at the
+wheel (fire truck, bus) could vanish from the chase view (`a33_fire1`: no truck in any chase frame). The
+car the located player ped is in (`ped+kPedVehicle`) is now never skipped (`CarBodyUse::driven`). In
+`a33_fire2` the truck is in the chase frames; that this guard is what changed it is not isolated.
+
+**NPC shots logged:** `GTA2DX9_LOG_PED_FRAMES=1` adds `npc shot: object weapon (game|flash) ammo reload` (up to 80).
+Police and FBI weapons never lose ammunition (990); a shot shows as the reload timer restarting.
+
+### Status (ACTIONS-3D-3)
+
+| item | status | evidence |
+|---|---|---|
+| army soldiers: green uniform, helmet, rifle | verified in third and first person (game-driven, 6 stars); classic is the game's sprite, untouched | a33_types1 `army1_t_07`, `army1_t_12`; a33_types2 `army0_f_05`, `army0_tx_13` |
+| every remap type as a textured 3D figure (police 0/1, army 4, redneck 5, scientist 7, zaibatsu 8, krishna 9, russian 10, loony 11, elvis 12, yakuza 13, fireman 14, medic 16, mugger 17, prisoner 22, civilians 15/27/52) | verified as a showcase (forced remap, player and crowd), no flat figure left | a33_types2 `type_*_side` |
+| game's own types in play | verified: army, police (remap 0), FBI as suits, civilians, zaibatsu, mugger, elvis (log) | a33_types1/2, a33_gun1, a33_pol4/5 logs |
+| hulk (23, 24), naked dummy (26) | no type in the manifest: plain civilians | sheet |
+| prostitutes | GTA2 has no such ped type in DMA's remap table; none drawn | ped_types.json |
+| SWAT / FBI / Zaibatsu-graphic peds (no remap palette) | mapping built, unverified in a run | log line to check |
+| police gunfire at 4 stars | verified: officers with pistols in the aim stance, player shot dead; 9 game shots logged | a33_pol4 `shot_200` |
+| FBI gunfire at 5 stars | log (16 shots: silenced MG, shotgun); agents framed beside their car, not mid-shot | a33_pol5 `qa_f_006` |
+| NPC muzzle glow / streaks in a frame | not singled out in a frame (the shots fell between the probe's frames or behind the camera) | - |
+| driving away at 4-5 stars | the van stuck in a dead end (a33_gun2); at 5 stars FBI dragged him out and busted him (a33_gun1); no shots at the car | a33_gun1/2 |
+| trains | verified: cab and carriages at track height, moving forward, stopping at the station | a33_train1/2 |
+| fire truck: in, drive, beacons, water cannon | verified (siren by Tab; beacons over the cab and roof; jet in first person and classic) | a33_fire2 |
+| fire truck first person | open: the eye sits behind the roof gear (the cabin placement for model 17) | a33_fire2 `ft_drive_06` |
+| chase camera on a long vehicle | the camera trails far behind the truck for the first seconds (camera file, not changed) | a33_fire2 `ft_drive_03` |
+| ambulance | not framed: beacons logged on a driven one (a33_resc1, 12 lines), it had left before each warp; none came in a33_fire2 / a33_amb1 | a33_resc1 log |

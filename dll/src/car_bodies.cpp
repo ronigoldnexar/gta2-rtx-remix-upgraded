@@ -1654,7 +1654,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // everything above a hand's breadth below the eye is clipped away and what
         // is left - hood, fenders, the cowl - is the view over a dashboard.
         const bool inside = Inside(carToWorld, eye, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.4f * b->bodyWidth);
-        if (inside && !use.own) continue;
+        // Nor the car he drives: a chase camera at the sedan distance sits inside a
+        // fire truck or a bus (run a33_fire1: the truck vanished from the chase view).
+        if (inside && !use.own && !use.driven) continue;
         bool clipped = false;
         // The hood-only copy is drawn on both paths (Remix ignores user clip planes;
         // on plain D3D9 the plane below still trims the copy's edge exactly).

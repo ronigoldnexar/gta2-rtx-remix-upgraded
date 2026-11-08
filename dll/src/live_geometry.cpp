@@ -5620,6 +5620,8 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
                 const int32_t number = *reinterpret_cast<const int32_t*>(car + game::kVehicleModel);
                 if (number >= 0 && number < 256) use.model = number;
                 use.damage = *reinterpret_cast<const uint8_t*>(car + 0x74);
+                if (const uint8_t* me = static_cast<const uint8_t*>(LocatedPlayerPed()))
+                    use.driven = game::PlausiblePointer(me) && *reinterpret_cast<const uint8_t* const*>(me + game::kPedVehicle) == car;
                 float best = 1.6f * 1.6f;   // a boarding ped stands within a car's half length plus a door
                 for (const DoorPed& dp : g_doorPeds) {
                     const float ddx = dp.x - body->objectToWorld.m[3][0], ddz = dp.z - body->objectToWorld.m[3][2];
@@ -6820,6 +6822,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const bool attacking = gameShot || shotNow || f == 139;
                 if (gameShot && !shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
                 if (g_logPedFrames && gameShot && ownPed) Log("player shot: ammo %d -> %d reload %d -> %d", track.lastAmmo, sprite.pedAmmo, track.lastReload, sprite.pedReload);
+                if (g_logPedFrames && (gameShot || shotNow) && !ownPed) {
+                    static int npcShots = 0;
+                    if (npcShots < 80) {
+                        ++npcShots;
+                        Log("npc shot: object %p weapon %d (%s) ammo %d -> %d reload %d -> %d flash %d at %.2f,%.2f,%.2f",
+                            reinterpret_cast<const void*>(sprite.object), track.weapon, gameShot ? "game" : "flash",
+                            track.lastAmmo, sprite.pedAmmo, track.lastReload, sprite.pedReload, shotNow ? 1 : 0, cx, cy, cz);
+                    }
+                }
                 if (attacking) track.aimUntil = g_carFrame + 30;
                 const bool carrying = ownPed || (track.aimUntil && g_carFrame < track.aimUntil + 90);
                 if (track.weapon == kWpnMolotov || track.weapon == kWpnGrenade) {
@@ -6966,8 +6977,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
 
         if (g_groundModels) {
             // Which of the people he is: fixed by his object, so he keeps his look.
-            const Model* model = (sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject)
-                                     ? ModelForPedestrian()   // the protagonist: always the manifest's default
+            // (the protagonist: always the manifest's default, unless a developer remap
+            // override is on: then he is drawn as that type too, the showcase's subject)
+            const Model* model = (sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject &&
+                                  PedRemapEffective(-1, 0) < 0)
+                                     ? ModelForPedestrian()
                                      : nullptr;
             // His type (police, gang, medic, a civilian outfit) is the remap the
             // game drew his sprite with: the texture's palette gives it back.
@@ -6975,6 +6989,21 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (!model) {
                 const TextureRecord* rec = static_cast<const TextureRecord*>(sprite.texture);
                 remap = PedRemapEffective(rec ? PedRemapForPalette(rec->palette) : -1, static_cast<uint32_t>(sprite.object >> 4));
+                // No remap palette: the peds the game draws from their own sprite sets
+                // rather than a remap of the common body (DMA: EMERG_GRAPHIC = SWAT, FBI;
+                // GANG_GRAPHIC = Zaibatsu). The body is the frame's block of 158; they drew
+                // as random civilians before (a33_pol4: SWAT shooting in plain clothes).
+                if (remap < 0) {
+                    const unsigned body = sprite.pedFrame / 158u;
+                    static bool logged[8] = {};
+                    if (body < 8 && !logged[body]) {
+                        logged[body] = true;
+                        Log("models: pedestrian without a remap palette on body %u (frame %u, palette %d) -> %s", body, sprite.pedFrame,
+                            rec ? rec->palette : -1, body >= 2 ? "police type (SWAT/FBI)" : body == 1 ? "zaibatsu type" : "plain list");
+                    }
+                    if (body >= 2) remap = 0;        // the police avatars: dark uniform and kit
+                    else if (body == 1) remap = 8;   // the suits
+                }
                 model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4), remap);
             }
             // Behind the camera he is not drawn at all (his track above still
@@ -7376,6 +7405,21 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
 //                             a script can warp to a train or the tank.
 namespace {
 void ActionProbes() {
+    // GTA2DX9_PED_REMAP_FILE=<file>: the remap number in the file (re-read every 15
+    // frames; -1 off) is drawn for every pedestrian ([devtools] ped_remap_override,
+    // switchable while the game runs): one 3D figure type after another for a sheet.
+    {
+        static int checked = 0, current = -100;
+        static char path[MAX_PATH] = {};
+        static uint32_t lastRead = 0;
+        if (!checked) { checked = 1; if (!GetEnvironmentVariableA("GTA2DX9_PED_REMAP_FILE", path, sizeof path)) path[0] = 0; }
+        if (path[0] && (g_carFrame - lastRead >= 15 || lastRead == 0)) {
+            lastRead = g_carFrame;
+            int r = -1;
+            if (FILE* f = fopen(path, "r")) { if (fscanf(f, "%d", &r) < 1) r = -1; fclose(f); }
+            if (r != current) { current = r; PedRemapOverride(r); Log("devtools: pedestrians drawn as remap %d (GTA2DX9_PED_REMAP_FILE)", r); }
+        }
+    }
     static int forceWanted = -2, logVehicles = -1;
     if (forceWanted == -2) {
         char buf[16] = {};

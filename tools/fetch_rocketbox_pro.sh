@@ -10,7 +10,7 @@ API=https://api.github.com/repos/microsoft/Microsoft-Rocketbox/contents/Assets/A
 for name in "$@"; do
   mkdir -p "$name"; cd "$name"
   [ -f "$name.fbx" ] || curl -sfL -o "$name.fbx" "$RAW/$name/Export/$name.fbx"
-  for tex in $(curl -sf "$API/$name/Textures" | python3 -c "import json,sys; print(' '.join(x['name'] for x in json.load(sys.stdin) if x['name'].endswith('_color.tga')))"); do
+  for tex in $(curl -sf "$API/$name/Textures" | python3 -c "import json,sys; print(' '.join(x['name'] for x in json.load(sys.stdin) if '_color' in x['name'] and x['name'].endswith('.tga')))"); do
     [ -f "$tex" ] || curl -sfL -o "$tex" "$RAW/$name/Textures/$tex"
   done
   [ -f "$name.glb" ] || ../../tools/FBX2glTF-linux-x64 -i "$name.fbx" -o "$name" --binary > /dev/null 2>&1 || true
