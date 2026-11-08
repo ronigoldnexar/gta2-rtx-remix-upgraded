@@ -70,7 +70,7 @@ float3 ViewPos(float2 uv, float d) {
     return float3((uv.x * 2.0 - 1.0) * z * cProj.z, (1.0 - uv.y * 2.0) * z * cProj.w, z);
 }
 
-sampler2D sScene  : register(s0);
+sampler2D sScene  : register(s4);
 sampler2D sDepth  : register(s1);
 sampler2D sShadow : register(s2);
 sampler2D sAo     : register(s3);
@@ -222,7 +222,7 @@ float4 ps_ssao12(QuadOut i, float2 vpos : VPOS) : COLOR0 { float a = SsaoAt(i.uv
 
 // Depth-aware 3x3 blur of the half-resolution AO (s0 AO, s1 depth).
 float4 cBlur : register(c2);   // texel of the AO target (xy)
-sampler2D sAoIn : register(s0);
+sampler2D sAoIn : register(s4);
 void BlurTap(float2 uv, float zc, inout float sum, inout float wsum) {
     float z = LinearZ(DepthAt(uv));
     float w = saturate(1.0 / (1e-3 + abs(z - zc) / max(zc, 0.1) * 40.0));
@@ -280,7 +280,7 @@ float4 ps_light(LightOut i, float2 vpos : VPOS) : COLOR0 {
 
 // --- Bloom: a soft-knee bright pass at half resolution, a separable Gaussian.
 float4 cBright : register(c0);   // threshold, knee, source texel x, source texel y
-sampler2D sSrc : register(s0);
+sampler2D sSrc : register(s4);
 float4 ps_bright(QuadOut i) : COLOR0 {
     float2 h = cBright.zw;
     float3 c = tex2D(sSrc, i.uv + float2(-h.x, -h.y)).rgb + tex2D(sSrc, i.uv + float2(h.x, -h.y)).rgb +
@@ -305,7 +305,7 @@ float4 ps_blur(QuadOut i) : COLOR0 {
 // by the view transition's weight.
 float4 cFinal  : register(c0);   // exposure, bloom strength, saturation, effect blend
 float4 cCurve  : register(c1);   // shoulder start, toe strength, tonemap on (1/0), bloom2 strength
-sampler2D sLit    : register(s0);
+sampler2D sLit    : register(s4);
 sampler2D sBloom  : register(s1);
 sampler2D sRaw    : register(s2);
 sampler2D sBloom2 : register(s3);

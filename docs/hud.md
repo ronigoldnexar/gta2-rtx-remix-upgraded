@@ -20,7 +20,7 @@ the game's own weapon icon and the speaker's own portrait.
 | `scale_pct` | 100 | size, 50..200 (sized for the window's height) |
 | `toggle_key` | (none) | a key that switches modern/classic while playing, e.g. `F7` |
 
-The classic view never shows the modern HUD; switching views fades it in and out (0.12 s).
+The classic view never shows the modern HUD; switching views fades it in and out (about a third of a second); the pause screen hides it.
 
 ## What it shows and where each value comes from
 
@@ -72,12 +72,16 @@ Font: **Barlow Condensed** by Jeremy Tribby, SIL Open Font License 1.1
 
 ## Developer aids
 
-- `GTA2DX9_HUD_TEST=1`: F6 sets the player's health to 15, F8 starts a 75 s clock through the
-  game's own call (`0x4C9310`, HUD counters, "add a clock").
+- `GTA2DX9_HUD_TEST=1`: the `[hud]` keys `modern`, `test_health` and `test_clock` are re-read
+  from the ini once a second, so a script switches the HUD and pokes the game by editing the
+  file (no key the game might take): `test_health=N` sets the player's health to N,
+  raising `test_clock` starts a 75 s clock through the game's own call (`0x4C9310`, HUD
+  counters, "add a clock"). Test-only; never in the shipped ini.
 - `hud3d:` log lines: the values every two seconds (`money= shown= mult= lives= health=
   wanted= weapon= ammo= car= timer= counter= msg= brief= portrait= icon= arrows= parts=`),
   and the cost every 300 frames.
-- `gamerun/hud_sheet_run.py` (`keys_hud_sheet.sh`): the comparison run in Industrial.
+- `linux/docker/hud_sheet_run.py` (`keys_hud_sheet.sh`, `hud_test.ini.extra`): the comparison run in
+  Downtown; `hud_sheet.py <run> <png>` builds the sheet.
 
 ## Measured
 

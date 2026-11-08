@@ -18,7 +18,9 @@
 #include "remix_api.h"
 #include "synthetic_lights.h"
 #include "texture_store.h"
+#include "time_of_day.h"
 #include "vehicle_fx.h"
+#include "../../src/sky.h"
 
 namespace gta2dx9 {
 namespace {
@@ -2251,7 +2253,18 @@ void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Ma
     device->SetRenderState(D3DRS_LIGHTING, TRUE);
 }
 
-void CarBodiesSetLamps(int mode, bool dark) { g_lampMode = mode; g_lampDark = dark; }
+void CarBodiesSetLamps(int mode, bool dark) {
+    g_lampMode = mode;
+    g_lampDark = dark;
+    // The caller judges dark by the sky's fixed sun; with [sky] follow_clock=1 the sun
+    // is the clock's, so a night street had unlit cars. The clock's sun decides then.
+    const gta2::SkySettings& sky = gta2::SkyConfig();
+    if (sky.followClock) {
+        float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
+        TimeOfDayAngles(&elevation, &azimuth);
+        g_lampDark = elevation < 6.0f;
+    }
+}
 
 void CarBodiesReleaseDevice() {
     for (auto& e : g_cache) {

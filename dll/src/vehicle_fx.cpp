@@ -297,8 +297,11 @@ float Hash2(int x, int y) {
     return static_cast<float>((h ^ (h >> 16)) & 0xFFFFu) / 65535.0f;
 }
 
-void EnsureTextures(IDirect3DDevice9* device) {
+// One texture a frame (a managed texture's first upload costs tens of ms under wined3d;
+// five at once made a 150 ms frame). Until all are made the effects wait.
+bool EnsureTextures(IDirect3DDevice9* device) {
     if (g_device != device) { VehicleFxReleaseDevice(); g_device = device; }
+    if (g_puffTex && g_glowTex && g_stripTex && g_coneTex && g_shardTex) return true;
     if (!g_puffTex) {
         // A soft puff with a little lumpiness, so overlapping puffs do not read as discs.
         g_puffTex = MakeTexture(device, 64, 64, [](float u, float v) {
@@ -311,7 +314,7 @@ void EnsureTextures(IDirect3DDevice9* device) {
             return Argb(a, 1.0f, 1.0f, 1.0f);
         });
     }
-    if (!g_glowTex) {
+    else if (!g_glowTex) {
         g_glowTex = MakeTexture(device, 32, 32, [](float u, float v) {
             const float dx = u - 0.5f, dy = v - 0.5f;
             const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
@@ -320,7 +323,7 @@ void EnsureTextures(IDirect3DDevice9* device) {
             return Argb(k, k, k, k);
         });
     }
-    if (!g_stripTex) {
+    else if (!g_stripTex) {
         // Across a skid mark (u): soft shoulders and a grainy rubber middle.
         g_stripTex = MakeTexture(device, 16, 64, [](float u, float v) {
             const float edge = Smooth(Clamp((0.5f - std::fabs(u - 0.5f)) * 5.0f, 0.0f, 1.0f));
@@ -328,7 +331,7 @@ void EnsureTextures(IDirect3DDevice9* device) {
             return Argb(edge * grain, 1.0f, 1.0f, 1.0f);
         });
     }
-    if (!g_coneTex) {
+    else if (!g_coneTex) {
         // A head-lamp pool, u across, v along (0 at the bumper): brightest a little
         // ahead of the car, falling off with distance, soft at the sides.
         g_coneTex = MakeTexture(device, 64, 64, [](float u, float v) {
@@ -341,7 +344,7 @@ void EnsureTextures(IDirect3DDevice9* device) {
             return Argb(k, k, k, k);
         });
     }
-    if (!g_shardTex) {
+    else if (!g_shardTex) {
         // A jagged shard: a seven-sided polygon with uneven corners, hard-edged.
         g_shardTex = MakeTexture(device, 32, 32, [](float u, float v) {
             const float dx = u - 0.5f, dy = v - 0.5f;
@@ -353,6 +356,7 @@ void EnsureTextures(IDirect3DDevice9* device) {
             return Argb(a, shade, shade, shade);
         });
     }
+    return false;
 }
 
 struct FxVertex { float x, y, z; DWORD color; float u, v; };
@@ -382,11 +386,64 @@ void Quad(const gta2::Vec3& c, const gta2::Vec3& a, const gta2::Vec3& b, DWORD c
     g_index.insert(g_index.end(), t, t + 6);
 }
 
+// Every effect is quads, so they draw from one dynamic vertex buffer (written with
+// DISCARD / NOOVERWRITE, as PERF-3 found wined3d wants) and a fixed index buffer of the
+// quad pattern; UP draws of a few thousand vertices stalled a frame now and then.
+constexpr UINT kVbQuads = 4096;
+IDirect3DVertexBuffer9* g_vb = nullptr;
+IDirect3DIndexBuffer9* g_ib = nullptr;
+UINT g_vbUsed = kVbQuads;   // quads written since the last DISCARD
+bool g_vbFailed = false;
+bool Buffers(IDirect3DDevice9* device) {
+    if (g_vb && g_ib) return true;
+    if (g_vbFailed) return false;
+    if (FAILED(device->CreateVertexBuffer(kVbQuads * 4 * sizeof(FxVertex), D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, kFxFvf, D3DPOOL_DEFAULT, &g_vb, nullptr)) ||
+        FAILED(device->CreateIndexBuffer(kVbQuads * 6 * sizeof(uint16_t), D3DUSAGE_WRITEONLY, D3DFMT_INDEX16, D3DPOOL_MANAGED, &g_ib, nullptr))) {
+        if (g_vb) { g_vb->Release(); g_vb = nullptr; }
+        if (g_ib) { g_ib->Release(); g_ib = nullptr; }
+        g_vbFailed = true;
+        Log("vehicle feel: no dynamic buffers; drawing from memory");
+        return false;
+    }
+    void* p = nullptr;
+    if (SUCCEEDED(g_ib->Lock(0, 0, &p, 0))) {
+        uint16_t* idx = static_cast<uint16_t*>(p);
+        for (UINT q = 0; q < kVbQuads; ++q) {
+            const uint16_t b = static_cast<uint16_t>(q * 4);
+            const uint16_t t[6] = {b, static_cast<uint16_t>(b + 1), static_cast<uint16_t>(b + 2), b, static_cast<uint16_t>(b + 2), static_cast<uint16_t>(b + 3)};
+            memcpy(idx + q * 6, t, sizeof t);
+        }
+        g_ib->Unlock();
+    }
+    g_vbUsed = kVbQuads;
+    return true;
+}
+
 void Flush(IDirect3DDevice9* device, IDirect3DTexture9* tex) {
     if (!g_index.empty() && tex) {
         device->SetTexture(0, tex);
-        device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(g_verts.size()), static_cast<UINT>(g_index.size() / 3),
-                                       g_index.data(), D3DFMT_INDEX16, g_verts.data(), sizeof(FxVertex));
+        const UINT quads = static_cast<UINT>(g_verts.size() / 4);
+        bool drawn = false;
+        if (Buffers(device) && quads <= kVbQuads) {
+            const bool discard = g_vbUsed + quads > kVbQuads;
+            const UINT first = discard ? 0 : g_vbUsed;
+            void* p = nullptr;
+            if (SUCCEEDED(g_vb->Lock(first * 4 * sizeof(FxVertex), quads * 4 * sizeof(FxVertex), &p, discard ? D3DLOCK_DISCARD : D3DLOCK_NOOVERWRITE))) {
+                memcpy(p, g_verts.data(), quads * 4 * sizeof(FxVertex));
+                g_vb->Unlock();
+                g_vbUsed = first + quads;
+                device->SetStreamSource(0, g_vb, 0, sizeof(FxVertex));
+                device->SetIndices(g_ib);
+                device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, static_cast<INT>(first * 4), 0, quads * 4, 0, quads * 2);
+                device->SetStreamSource(0, nullptr, 0, 0);
+                device->SetIndices(nullptr);
+                drawn = true;
+            }
+        }
+        if (!drawn) {
+            device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(g_verts.size()), static_cast<UINT>(g_index.size() / 3),
+                                           g_index.data(), D3DFMT_INDEX16, g_verts.data(), sizeof(FxVertex));
+        }
     }
     g_verts.clear();
     g_index.clear();
@@ -688,8 +745,8 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     if (frame % 300 == 0) {
         for (auto it = g_cars.begin(); it != g_cars.end();) it = (frame - it->second.frame > 600) ? g_cars.erase(it) : std::next(it);
     }
-    const bool hadTextures = g_puffTex != nullptr;
-    EnsureTextures(device);
+    const bool hadTextures = g_shardTex != nullptr;
+    if (!EnsureTextures(device)) g_cones.clear();
     double mark[8] = {};
     int nm = 0;
     mark[nm++] = NowMs();
@@ -928,6 +985,9 @@ void VehicleFxReleaseDevice() {
     for (IDirect3DTexture9** t : {&g_puffTex, &g_glowTex, &g_stripTex, &g_coneTex, &g_shardTex}) {
         if (*t) { (*t)->Release(); *t = nullptr; }
     }
+    if (g_vb) { g_vb->Release(); g_vb = nullptr; }
+    if (g_ib) { g_ib->Release(); g_ib = nullptr; }
+    g_vbFailed = false;
     g_device = nullptr;
 }
 

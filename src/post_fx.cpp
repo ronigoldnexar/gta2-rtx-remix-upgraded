@@ -751,7 +751,7 @@ void PostFx::Resolve() {
         device_->SetPixelShader(psAoBlur_);
         const float blur[4] = {1.0f / hw, 1.0f / hh, 0.0f, 0.0f};
         device_->SetPixelShaderConstantF(2, blur, 1);
-        sampler(0, aoTex_, false);
+        sampler(4, aoTex_, false);
         DrawQuad(hw, hh);
     }
 
@@ -759,7 +759,7 @@ void PostFx::Resolve() {
     {
         SetTarget(litSurf_, w, h);
         device_->SetPixelShader(psComposite_);
-        sampler(0, sceneTex_, false);
+        sampler(4, sceneTex_, false);
         sampler(1, depthTex_, false);
         sampler(2, shadows ? static_cast<IDirect3DBaseTexture9*>(shadowTex_) : blackTex_, false);
         sampler(3, ssao ? aoBlurTex_ : blackTex_, true);
@@ -896,14 +896,14 @@ void PostFx::Resolve() {
         const float thr = cfg.bloomThreshold * (hdrFormat_ == D3DFMT_A8R8G8B8 ? 0.9f : 1.0f);
         const float br[4] = {thr, 0.25f, 1.0f / w, 1.0f / h};
         device_->SetPixelShaderConstantF(0, br, 1);
-        sampler(0, litTex_, true);
+        sampler(4, litTex_, true);
         DrawQuad(qw, qh);
         device_->SetPixelShader(psBlur_);
         auto blurPass = [&](IDirect3DTexture9* src, IDirect3DSurface9* dst, int tw, int th, float dx, float dy) {
             SetTarget(dst, tw, th);
             const float d[4] = {dx, dy, 0.0f, 0.0f};
             device_->SetPixelShaderConstantF(0, d, 1);
-            sampler(0, src, true);
+            sampler(4, src, true);
             DrawQuad(tw, th);
         };
         blurPass(bloomTex_[0], bloomSurf_[1], qw, qh, 1.0f / qw, 0.0f);
@@ -922,7 +922,7 @@ void PostFx::Resolve() {
         savedTarget_->GetDesc(&bd);
         SetTarget(savedTarget_, static_cast<int>(bd.Width), static_cast<int>(bd.Height));
         device_->SetPixelShader(psFinal_);
-        sampler(0, litTex_, false);
+        sampler(4, litTex_, false);
         sampler(1, bloom ? static_cast<IDirect3DBaseTexture9*>(bloomTex_[0]) : blackTex_, true);
         sampler(2, sceneTex_, false);
         sampler(3, bloom2 ? static_cast<IDirect3DBaseTexture9*>(bloomTex_[3]) : blackTex_, true);
@@ -940,7 +940,7 @@ void PostFx::Resolve() {
         ++tsFrame_;
     }
 
-    for (DWORD s = 0; s < 4; ++s) device_->SetTexture(s, nullptr);
+    for (DWORD s = 0; s < 5; ++s) device_->SetTexture(s, nullptr);
     device_->SetRenderTarget(0, savedTarget_);
     device_->SetDepthStencilSurface(savedDepth_);
     stateBlock_->Apply();

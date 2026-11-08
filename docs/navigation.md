@@ -315,3 +315,26 @@ keys_camprops.sh -e GTA2DX9_LOG_CAMERA=1 -e GTA2DX9_SCENE_NO_CAR=1`; sheet
   frame, whether his head (0.42 above the floor) projects inside the 16:9 picture and whether the
   line to it is clear of walls (his own cell excepted): `view: framing third on foot frames= head_in=
   head_seen=` every 300 frames, and a `view: framing miss` line (eye, head) for one miss in five.
+
+Measured (runs `cpr_before2`, DLL before these changes, and `cpr_after4`, 8 Nov 2026, on a
+loaded host, `GTA2_DIRECT_KEYS=1`; sheet `out/camera_props_sheet.png`, local):
+- Phone box, standing 0.8 / 1.4 block south of it facing away and 0.9 east of it facing away:
+  before, the camera stood in or on the box (its roof filled the frame, no player in three of
+  four); after, he is framed over the box's roof in all four.
+- QA3 shop front (map 118.24,156.84), facing away from the wall, along it both ways and into it:
+  before, all four framed paving or the glass with no player; after, all four frame him.
+- Framing counter (after): his head inside the picture in 1800 of 1800 third-person on-foot
+  frames of the probe, and not behind a wall in 1800 (the QUALITY-BAR target is 99.5 %). The
+  count does not test cars or people as occluders, and the run is one district's few spots.
+- Getting in (F9 to a parked van, Return, 4 s logged): no cut in either run (largest eye step
+  0.16 / 0.22 block per frame, largest yaw step 3.0 degrees per frame, the 90 degrees a second
+  cap at 30 fps); no `cam: lost` frame in either, so the lost-camera crane that made the QA cut
+  was not reproduced here and its fix is untested in play.
+- Mouse with the soft follow, walking: a 3 s mouse sweep turned the camera 27 degrees right and,
+  later, 29 degrees left with the hand alone (monotonic, no pull back while the mouse moved); after
+  each sweep the yaw held for 1.5 s, then eased back behind him with no overshoot. Standing, a
+  sweep is held (by design: standing with no key the follow holds). No fight.
+- First person beside the van he had just left (`cpr_after3` `car_fp_*`): the eye kept 0.3 block
+  outside its box, so its side fills the frame when he faces it but no part of it sits a hand from
+  the eye. Not reproduced: the QA3 Truck Cab stack itself, and a lamp post (none within 1.5 blocks
+  of the QA3 spot). The park trees are not covered (no accessor).

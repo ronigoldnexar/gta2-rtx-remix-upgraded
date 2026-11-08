@@ -13,5 +13,5 @@ mkdir -p "out/$NAME"; find "out/$NAME" -mindepth 1 -delete
 IMAGE=${IMAGE:-gta2-play} CPUS=${CPUS:-3} CPUSET=${CPUSET:-0-4} FPS=${FPS:-15} STAGE=$ST INI_SED="$SED" \
   SWAP_LEVEL=$([ "$DIST" = wil ] || echo "$DIST") GTA2_FAST=${GTA2_FAST:-1} \
   gamerun/grun.sh "$NAME" "${SECS:-230}" "${KEYS:-keys_perf2_drive.sh}" -e 'GTA2DX9_FRAME_LOG=Z:\out\frames.tsv' \
-  -e 'GTA2DX9_VISUALS_LOG=Z:\out\visuals.tsv' -e GTA2DX9_STATE_EVERY=5 -e DRIVE_SECS=${DRIVE_SECS:-95} \
+  -e 'GTA2DX9_VISUALS_LOG=Z:\out\visuals.tsv' ${WINEDEBUG:+-e WINEDEBUG=$WINEDEBUG} -e GTA2DX9_STATE_EVERY=5 -e DRIVE_SECS=${DRIVE_SECS:-95} \
   -v $PWD/gamerun/nv_cache_gl:/nvcache -e __GL_SHADER_DISK_CACHE=1 -e __GL_SHADER_DISK_CACHE_PATH=/nvcache -e __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1 -e ROUTE_SEED=${ROUTE_SEED:-7}
