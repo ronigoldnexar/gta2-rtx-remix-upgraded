@@ -9,6 +9,7 @@
 #include <map>
 #include <tuple>
 
+#include "compat.h"
 #include "log.h"
 #include "model_store.h"
 #include "remix_api.h"
@@ -1021,6 +1022,83 @@ DoorSplit DoorSplitFor(const Model& model, const gta2::Mat4& fit, int side, floa
     return split;
 }
 
+// Turrets (POLICE-3D). The tank's gun turret and the fire truck's roof gear
+// (the water cannon on its ladder deck) are part of each model's one sealed
+// mesh, and the game aims them on their own: the turret is a sprite object of
+// its own over the hull, with a heading of its own (CarBodiesSetTurret). The
+// model is split once into the hull and the part above a height cut (`cut` of
+// the roof; for the fire truck only behind `zMax` along the body), and that part
+// is turned about the vertical through its own middle by the turret's heading
+// against the hull's.
+struct TurretKey {
+    const Model* model; int cut, zMax;
+    bool operator<(const TurretKey& o) const { return std::tie(model, cut, zMax) < std::tie(o.model, o.cut, o.zMax); }
+};
+struct TurretSplit { const Model* hull; const Model* turret; float pivotX, pivotZ; };
+std::map<TurretKey, TurretSplit> g_turretSplits;
+struct TurretAim { float dirX = 0.0f, dirZ = 1.0f; uint32_t frame = 0; };
+std::map<uintptr_t, TurretAim> g_turretAims;   // by the car's sprite object
+int g_turretLogged = 0;
+
+TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof, float cut, float zMax) {
+    const TurretKey key{&model, static_cast<int>(cut * 100.0f), static_cast<int>(std::floor(zMax * 50.0f))};
+    auto it = g_turretSplits.find(key);
+    if (it != g_turretSplits.end()) return it->second;
+    if (g_turretSplits.size() > 16) g_turretSplits.clear();
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    Model hull, top;
+    for (Model* m : {&hull, &top}) {
+        m->nodes = model.nodes; m->forward = model.forward;
+        m->boundsMin = model.boundsMin; m->boundsMax = model.boundsMax;
+        for (int k = 0; k < 3; ++k) m->paintRgb[k] = model.paintRgb[k];
+        m->splitPaint = model.splitPaint;
+        m->meshes.resize(model.meshes.size());
+    }
+    hull.name = model.name + "#hull"; top.name = model.name + "#turret";
+    size_t topTris = 0;
+    double ax = 0.0, az = 0.0, aw = 0.0;
+    for (size_t n = 0; n < model.nodes.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& src = model.meshes[static_cast<size_t>(mi)];
+        ModelMesh& dh = hull.meshes[static_cast<size_t>(mi)];
+        ModelMesh& dt = top.meshes[static_cast<size_t>(mi)];
+        dh.vertices = src.vertices; dh.texture = src.texture; dh.skin = -1;
+        dt.vertices = src.vertices; dt.texture = src.texture; dt.skin = -1;
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
+            gta2::Vec3 q[3];
+            float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                q[c] = PointBy(toCar, v.x, v.y, v.z);
+                cx += q[c].x; cy += q[c].y; cz += q[c].z;
+            }
+            cx /= 3.0f; cy /= 3.0f; cz /= 3.0f;
+            const bool isTop = cy > cut * roof && cz < zMax;
+            ModelMesh& dst = isTop ? dt : dh;
+            dst.indices.push_back(src.indices[t]); dst.indices.push_back(src.indices[t + 1]); dst.indices.push_back(src.indices[t + 2]);
+            if (isTop) {
+                ++topTris;
+                const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
+                const double area = std::sqrt(gta2::Dot(nrm, nrm));
+                ax += area * cx; az += area * cz; aw += area;
+            }
+        }
+    }
+    TurretSplit split{nullptr, nullptr, 0.0f, 0.0f};
+    if (topTris >= 8 && aw > 0.0) {
+        split.pivotX = static_cast<float>(ax / aw); split.pivotZ = static_cast<float>(az / aw);
+        split.hull = ModelRegisterDerived(std::move(hull));
+        split.turret = ModelRegisterDerived(std::move(top));
+    }
+    g_turretSplits[key] = split;
+    Log("car bodies: turret split of %s above %.2f of the roof (z < %.2f): %zu triangles, pivot %.3f,%.3f", model.name.c_str(), cut, zMax, topTris,
+        split.pivotX, split.pivotZ);
+    return split;
+}
+
 // How far each car's door stands open (0 shut, 1 fully), by sprite object.
 struct DoorState { float open = 0.0f; int side = 1; uint32_t frame = 0; };
 std::map<uintptr_t, DoorState> g_doors;
@@ -1358,6 +1436,120 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
     device->SetRenderState(D3DRS_LIGHTING, TRUE);
 }
 
+// Emergency lights on the 3D bodies (POLICE-3D). The game lights a siren car's
+// roof lamps as sprite deltas 15..18 (the car's delta mask, vehicle +0x08) while
+// its siren runs; a 3D model hides the sprite, so those lamps were lost in the
+// street views. A car of a siren model (cop car 12, ambulance 34, fire truck 17,
+// SWAT van 52) with any of those bits set gets two
+// beacons on its roof that flash in turn, the colours by model; with the siren
+// off the bar is dark. Drawn day and night, whatever car_lamps says.
+// `[devtools] force_sirens=1` lights them on every siren model for checks.
+int g_forceSirens = 0;
+int g_beaconLogged = 0;
+void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length, float width,
+                 float roof, uint32_t frame, int modelNumber) {
+    DWORD colA = 0, colB = 0;
+    float along = 0.0f;
+    switch (modelNumber) {
+        case 12: case 52: colA = 0xFFFF2010u; colB = 0xFF1040FFu; along = -0.05f; break;   // police: red, blue
+        case 34: colA = 0xFFFF2010u; colB = 0xFFFFF4E0u; along = 0.30f; break;                     // ambulance: red, white, over the cab
+        case 17: colA = 0xFFFF2010u; colB = 0xFFFF7010u; along = 0.36f; break;                     // fire truck: red, amber, over the cab
+        default: return;
+    }
+    uint32_t mask = 0;
+    {
+        const uint8_t* object = reinterpret_cast<const uint8_t*>(use.object);
+        const uint8_t* car = object ? *reinterpret_cast<const uint8_t* const*>(object + 0x08) : nullptr;   // sprite owner -> vehicle
+        if (car && reinterpret_cast<uintptr_t>(car) > 0x10000) mask = *reinterpret_cast<const uint32_t*>(car + 0x08);
+    }
+    const uint32_t sirenBits = (0xFu << 15) | (0xFu << (15 + 17));   // deltas 15..18 and their mirrored copies
+    const bool on = (mask & sirenBits) != 0 || g_forceSirens != 0;
+    if (!on) return;
+    IDirect3DTexture9* glow = GlowTexture(device);
+    if (!glow) return;
+    if (g_beaconLogged < 12) {
+        ++g_beaconLogged;
+        Log("car bodies: beacons on model %d object %p (delta mask %08x%s)", modelNumber, reinterpret_cast<const void*>(use.object), mask,
+            g_forceSirens ? ", forced" : "");
+    }
+    // The game's own lamps alternate; where it holds them all lit the flash is ours: 2.5 Hz.
+    const bool phase = ((frame / 6u) & 1u) != 0;
+    const bool litA = (mask & ((1u << 15) | (1u << 17))) ? true : phase;
+    const bool litB = (mask & ((1u << 16) | (1u << 18))) ? true : !phase;
+    const bool aOn = ((mask & sirenBits) == sirenBits || g_forceSirens) ? phase : litA;
+    const bool bOn = ((mask & sirenBits) == sirenBits || g_forceSirens) ? !phase : litB;
+    struct Beacon { float x; DWORD color; float size; };
+    Beacon beacons[4]; int n = 0;
+    const float hx = 0.22f * width, y = roof + 0.02f, z = along * length;
+    // A lit beacon is a bright core and a wide soft halo.
+    if (aOn) { beacons[n++] = {-hx, colA, 0.07f}; beacons[n++] = {-hx, (colA & 0x00FFFFFFu) | 0xFF000000u, 0.18f}; }
+    if (bOn) { beacons[n++] = {hx, colB, 0.07f}; beacons[n++] = {hx, (colB & 0x00FFFFFFu) | 0xFF000000u, 0.18f}; }
+    if (!n) return;
+    LampVertex v[32];
+    int count = 0;
+    const float ax[3] = {carToWorld.m[0][0], carToWorld.m[0][1], carToWorld.m[0][2]};
+    const float ay[3] = {carToWorld.m[1][0], carToWorld.m[1][1], carToWorld.m[1][2]};
+    const float az[3] = {carToWorld.m[2][0], carToWorld.m[2][1], carToWorld.m[2][2]};
+    // Billboards facing the eye would need the camera here; the glows are spanned
+    // by the car's across and along axes (seen from above) and by across and up
+    // (seen from the street): two crossed quads per beacon.
+    for (int i = 0; i < n; ++i) {
+        const Beacon& bc = beacons[i];
+        const float s = bc.size;
+        DWORD col = bc.color;
+        if (s > 0.1f) {   // the halo dimmer than the core
+            const int r = static_cast<int>(((col >> 16) & 0xFF) * 0.45f), g = static_cast<int>(((col >> 8) & 0xFF) * 0.45f),
+                      b = static_cast<int>((col & 0xFF) * 0.45f);
+            col = D3DCOLOR_ARGB(255, r, g, b);
+        }
+        float c[3];
+        for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + bc.x * ax[j] + y * ay[j] + z * az[j];
+        const float corners[4][2] = {{-s, -s}, {s, -s}, {s, s}, {-s, s}};
+        const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+        const float* second[2] = {ay, az};
+        for (int q = 0; q < 2 && count + 4 <= 32; ++q) {
+            const float* b2 = second[q];
+            for (int k = 0; k < 4; ++k) {
+                LampVertex& o = v[count++];
+                o.x = c[0] + corners[k][0] * ax[0] + corners[k][1] * b2[0];
+                o.y = c[1] + corners[k][0] * ax[1] + corners[k][1] * b2[1];
+                o.z = c[2] + corners[k][0] * ax[2] + corners[k][1] * b2[2];
+                o.color = col; o.u = uv[k][0]; o.v = uv[k][1];
+            }
+        }
+    }
+    uint16_t idx[48];
+    for (int q = 0; q < count / 4; ++q) {
+        const uint16_t b0 = static_cast<uint16_t>(q * 4);
+        const uint16_t t[6] = {b0, static_cast<uint16_t>(b0 + 1), static_cast<uint16_t>(b0 + 2), b0, static_cast<uint16_t>(b0 + 2), static_cast<uint16_t>(b0 + 3)};
+        memcpy(idx + q * 6, t, sizeof t);
+    }
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    device->SetTransform(D3DTS_WORLD, &identity);
+    device->SetRenderState(D3DRS_LIGHTING, FALSE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetTexture(0, glow);
+    device->SetFVF(kLampFvf);
+    device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(count), static_cast<UINT>(count / 2), idx,
+                                   D3DFMT_INDEX16, v, sizeof(LampVertex));
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device->SetRenderState(D3DRS_LIGHTING, TRUE);
+}
+
 void CarBodiesSetLamps(int mode, bool dark) { g_lampMode = mode; g_lampDark = dark; }
 
 void CarBodiesReleaseDevice() {
@@ -1433,6 +1625,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
         g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
+        g_forceSirens = GetPrivateProfileIntA("devtools", "force_sirens", 0, g_devIni);
     }
     if (g_logNoses < 0) { char v[8] = {}; g_logNoses = GetEnvironmentVariableA("GTA2DX9_LOG_CAR_NOSES", v, sizeof v) ? atoi(v) : 0; }
     for (const CarBodyUse& use : cars) {
@@ -1588,6 +1781,35 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 hinge.m[0][0] = cs; hinge.m[0][2] = -sn; hinge.m[1][1] = 1.0f; hinge.m[2][0] = sn; hinge.m[2][2] = cs;
                 hinge.m[3][0] = hx - (hx * cs + hz * sn); hinge.m[3][2] = hz - (-hx * sn + hz * cs); hinge.m[3][3] = 1.0f;
                 ModelDraw(device, *split.door, Mul(Mul(fit, hinge), carToWorld), nullptr, 0.0f);
+            } else if ((modelNumber == 54 || modelNumber == 17) && !cpuCut) {
+                // The turret turned to the game's aim (see TurretSplitFor); without an
+                // aim seen in the last second it stays straight ahead.
+                const float roofY = model->Height() * sy;
+                const TurretSplit split = modelNumber == 54 ? TurretSplitFor(*worn, fit, roofY, 0.56f, 99.0f)
+                                                            : TurretSplitFor(*worn, fit, roofY, 0.80f, 0.05f * b->bodyLength);
+                auto aim = g_turretAims.find(use.object);
+                float yaw = 0.0f;
+                if (aim != g_turretAims.end() && frame - aim->second.frame < 30) {
+                    // The aim in the car's own frame: across (x) and along (z), from its world axes.
+                    const float ax = carToWorld.m[0][0], az = carToWorld.m[0][2], fx = carToWorld.m[2][0], fz = carToWorld.m[2][2];
+                    const float across = aim->second.dirX * ax + aim->second.dirZ * az, along = aim->second.dirX * fx + aim->second.dirZ * fz;
+                    if (across * across + along * along > 1e-8f) yaw = std::atan2(across, along);
+                }
+                if (split.turret) {
+                    ModelDraw(device, *split.hull, Mul(fit, carToWorld), nullptr, 0.0f);
+                    const float cs = std::cos(yaw), sn = std::sin(yaw);
+                    const float px = split.pivotX, pz = split.pivotZ;
+                    gta2::Mat4 turn;
+                    turn.m[0][0] = cs; turn.m[0][2] = -sn; turn.m[1][1] = 1.0f; turn.m[2][0] = sn; turn.m[2][2] = cs;
+                    turn.m[3][0] = px - (px * cs + pz * sn); turn.m[3][2] = pz - (-px * sn + pz * cs); turn.m[3][3] = 1.0f;
+                    ModelDraw(device, *split.turret, Mul(Mul(fit, turn), carToWorld), nullptr, 0.0f);
+                    if (g_turretLogged < 30 && (frame % 30u) == 0 && std::fabs(yaw) > 0.05f) {
+                        ++g_turretLogged;
+                        Log("car bodies: model %d turret turned %.0f deg (object %p)", modelNumber, yaw * 180.0f / kPi, reinterpret_cast<const void*>(use.object));
+                    }
+                } else {
+                    ModelDraw(device, *drawn, Mul(fit, carToWorld), nullptr, 0.0f);
+                }
             } else {
                 ModelDraw(device, *drawn, Mul(fit, carToWorld), nullptr, 0.0f);
             }
@@ -1597,6 +1819,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             ModelSetPaintTint(nullptr);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
             DrawLamps(device, use, carToWorld, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber >= 72);
+            if (modelNumber < 72) {
+                GTA2_TRY {
+                    DrawBeacons(device, use, carToWorld, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber);
+                } GTA2_EXCEPT {
+                }
+            }
             ++g_drawn;
             continue;
         }
@@ -1695,6 +1923,14 @@ void CarBodiesSetDevIni(const char* ini) {
     g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
     g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
     g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
+}
+const char* CarBodiesDevIni() { return g_devIni; }
+void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame) {
+    TurretAim& a = g_turretAims[carObject];
+    a.dirX = dirX; a.dirZ = dirZ; a.frame = frame;
+    if (g_turretAims.size() > 64) {
+        for (auto it = g_turretAims.begin(); it != g_turretAims.end();) it = (frame - it->second.frame > 300) ? g_turretAims.erase(it) : std::next(it);
+    }
 }
 
 }  // namespace gta2dx9

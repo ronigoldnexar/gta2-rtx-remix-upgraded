@@ -443,6 +443,26 @@ inline int PedWeaponOf(const uint8_t* ped, int* ammo = nullptr) {
     const int raw = PedWeaponRaw(ped, ammo);
     return raw < 0 ? -1 : PedWeaponFromGame(raw);
 }
+// The wanted level is the ped's cop points, int16 at +0x20A (read off gta2.exe
+// v9.6, 8 Nov): FUN_00434C00 turns them into stars at 600 / 1600 / 3000 / 5000 /
+// 8000 / 12000 (1..6), FUN_004353D0 adds to them (clamped to 0..12000; crimes
+// seen by the police call it), FUN_00434CD0 sets a star level outright (the
+// mission script's and the cheat's path) and the death/arrest code clears them
+// (0x00441394). The police manager ([0x66B7A0]) keeps up to four pursued peds
+// at +0x464 (stride 0x7C, the ped at +0), asks each one's stars every frame and
+// sets their unit's response level (+4 of the entry) from them; its +0x654 is
+// the highest response level this frame, rebuilt from zero each frame
+// (0x004AEF88), which is why writing +0x654 never stuck.
+constexpr uintptr_t kPedCopPoints = 0x20A;
+constexpr int16_t kCopPointsForStars[7] = {0, 600, 1600, 3000, 5000, 8000, 12000};
+constexpr uintptr_t kPoliceManagerPtr = 0x0066B7A0;
+constexpr uintptr_t kPoliceResponseLevel = 0x654;
+inline int PedWantedStars(const uint8_t* ped) {
+    const int16_t points = *reinterpret_cast<const int16_t*>(ped + kPedCopPoints);
+    int stars = 0;
+    for (int i = 1; i < 7; ++i) if (points >= kCopPointsForStars[i]) stars = i;
+    return stars;
+}
 constexpr uintptr_t kPedState = 0x278;
 constexpr uintptr_t kPedStatePending = 0x280;
 constexpr int32_t kPedStateDead = 9;

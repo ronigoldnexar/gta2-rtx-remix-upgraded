@@ -915,6 +915,11 @@ void NotePedNearCamera(const void* ped, float distanceTiles) {
     }
 }
 
+// The player's ped as LocatePlayer last found it (on foot, or the one still at the wheel
+// of the car he drove off in); null in the menus. For the devtools that write his ped
+// (live_geometry.cpp force_wanted) in any view, the classic one included.
+const void* LocatedPlayerPed() { return reinterpret_cast<const void*>(g_lastPlayerPed); }
+
 bool LocatePlayer(PlayerState* out) {
     *out = PlayerState{};
 

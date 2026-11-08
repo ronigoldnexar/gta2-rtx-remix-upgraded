@@ -17,14 +17,14 @@ it was not reached in a run. The classic top-down view is untouched by all of it
 | bullets in flight | small effect sprites that moved since last frame | a streak from the previous to the current position, a hand wide, facing the eye | see the run notes below |
 | fire, explosions, smoke | base-4 effect sprites | the existing flame stacks; every large effect quad now stands up facing the camera on the spot it lay | mechanism (no explosion in this pass's runs; earlier respawn runs had flat ones) |
 | swimming | state 8 sub 0x14, frames 131-135 | new `swim` clip (front crawl, prone), figure sunk 0.14 block | mechanism (no water reached) |
-| hands up / arrested | frames unknown (`g_pedHandsUpFrames` -1) | `handsup` clip exists, disabled until the frames are measured | open: no arrest provoked by any script yet |
+| hands up / arrested | busted: punched down to state 8 sub 0x16 (frame 72) while wanted (POLICE-3D) | `handsup`, then `cuffed` walking to the police car | verified in play (pol_arrest3, pol_arrest6; see the POLICE-3D section) |
 | burning | corpse/fall + the game's fire sprites | fall clip, fire sprites now upright | mechanism |
 | headlamps, tail lamps | `[renderer] car_lamps`: dark = the sky's sun below 6 deg; 2 = always | additive radial glows at the body's ends (3D models and sprite-built bodies alike), none on wrecks | see the run notes below |
 | brake lamps | the body's own speed frame to frame: a car losing > 1.5 blocks/s^2 | the tail glows flare red and grow while braking, day or night | see the run notes below |
 | helicopter rotors | object animation `rotor` (base 4 frame 0) | a synthetic spin clip on the `rotor_5` node (mast, 7 rev/s) and `tailrotor_7` (hub) | mechanism: no helicopter appeared in the runs |
 | car doors opening | a pedestrian in state 3 (getting in) or 4 (getting out) next to the car, matched by the ped's vehicle word or by distance; `[devtools] force_car_door` for checks | the body is split once per (model, side, door rows from CARI) into a hull without the door panel and the panel itself, which swings 60° about its front edge at 2.5/s and shuts at 1.7/s; the inside of the panel is lit like the outside; not on wrecks nor on the own car from the seat (`car_bodies.cpp` DoorSplitFor, DoorState) | verified: the split is built and the door opened at every entry and exit of three runs (`out/dd1..dd4`); frames in `out/doors_dents_sheet.png` |
 | car damage, dents | the vehicle damage byte (+0x74: 0 fresh, rising with every knock, the car burns past about 200), in four steps of 64; `[devtools] force_car_damage` for checks | a dented copy per (model, step): three octaves of value noise over the car's frame press the shell in along normals smoothed across every seam (both paint-split halves move together), at most 2 % of the body length at the top step, normals rebuilt from the moved faces; the paint dulls 6 % a step; the smoke and fire over a badly damaged car are the game's own sprites, stood upright (`car_bodies.cpp` DentedModelFor) | verified at forced steps 0 / 96 / 160 / 255 from the chase camera and the driver's seat (`out/dd3`, `out/dd_steps_sheet.png`): no tearing, no light through the shell, a fresh car unchanged; the first version (per-vertex normals) tore the hull and showed white through it (`out/pd3_ste4/shot_1685.png`, build of 18:01), replaced |
-| trains, buses, tank, bank van | ordinary vehicles | their models (bus and bank van seen driving in QA2 / the master demo) | trains and tank not seen in a frame |
+| trains, buses, tank, bank van | ordinary vehicles | their models (bus and bank van seen driving in QA2 / the master demo) | bus and army tanks verified in play (POLICE-3D); trains still not caught in a frame |
 | horn, phone pose, pickup flash, score popups | HUD / sound | left to the game | n/a |
 
 ### Shooting pass (7 Nov 2026 evening, SHOOT-ANIM)
@@ -201,7 +201,7 @@ second) on the player's figure, the showcase used for the clip frames;
 `GTA2DX9_LOG_VEHICLES=1` lists the live trains, tank, fire truck, ambulance, buses, SWAT van and
 cop cars with position, heading and driver every two seconds; `GTA2DX9_LOG_POLICE=1` logs the
 changed words of the police manager ([0x66B7A0]) and the player object ([0x5EB4FC]);
-`GTA2DX9_FORCE_WANTED=N` and `GTA2DX9_POKE="police:0x4D4=0x300,player:0x64=3"` hold words there.
+`GTA2DX9_POKE="police:0x4D4=0x300,player:0x64=3"` holds words there; `GTA2DX9_FORCE_WANTED=N` now holds the player's cop points (ped+0x20A, see the POLICE-3D section), not the manager's +0x654.
 
 Scripts (`linux/docker`, mirrored in `gamerun`): `a3_lib.py` (shared), `a3_weapons.py` (the six
 Downtown pickups, carry/fire/after frames per Z stop from the side), `a3_showcase.py` (every clip
@@ -215,7 +215,7 @@ Sheet: `out/actions_3d_sheet.png` (local, not in git).
 
 What the runs showed about the game:
 
-- Police: the wanted level could not be raised on demand. Rockets into the kerb traffic gave
+- Police (superseded by the POLICE-3D section: the level is the ped's cop points, +0x654 is an output): the wanted level could not be raised on demand. Rockets into the kerb traffic gave
   wanted 1 once in three tries (a3m1, a3q2; never above 1); the machine gun into the plaza crowd
   never did. When it rose, the police manager's +0x468 went 0 -> 1, +0x4D4 0 -> 0x100 and +0x654
   (the level the mission line logs) 0 -> 1, and the player object's +0x64 0 -> 1 and +0x60 gained
@@ -253,7 +253,7 @@ forced, its game trigger not reached; "untested" = neither.
 | throw (molotov) | ammo drop | throw | verified | a3w2 `w03_molotov_fire_side_01` |
 | pistol, dual, electro gun stances | same | aim, aim_dual, aim_heavy | showcase | a3s2 `s_aim_*` |
 | aiming while walking (legs walk under the aim) | stance + motion | upper layer + torso twist | showcase (aim_mg_walk) | a3s2 |
-| NPC gunfire: stance, muzzle, tracers | his weapon object's words / a shot beside him | as the player | log only: NPCs took the aim stance on a shot beside them (a3c3 x3, a3p1 x3, a3s2, a3v1) but none was in frame; police never came (see above) | `ped anim: object ... action 2/8` |
+| NPC gunfire: stance, muzzle, tracers | his weapon object's words / a shot beside him | as the player | police: not done (they arrest rather than shoot at 2-4 stars; POLICE-3D); army: tank cannon shots in frame, soldiers' rifle carry in frame, their own shots log only | pol_army1 `tank10_04`, pol_army2 `tank10_09`; `ped anim: object ... action 2/8/16` |
 | burning (on his feet) | game flames on him 3 frames | burn layer | verified (player, set alight by his own rocket blast); NPC burning in the log | a3m3 `m_blown1_00`; `action 19` for NPC 30dbc240 |
 | falling from a height | state 8 sub 0x13 | fall_air | verified | a3f1 `f_fall1_00`, log frames 81-96 |
 | dead / knocked down: shot | cause 0 | fall, fall_front | verified (landing face down after the fall: a3f1 `f_fall1_02`); both clips in the showcase | 281 `lying clip 0/1` log lines over the runs |
@@ -262,8 +262,126 @@ forced, its game trigger not reached; "untested" = neither.
 | burnt | fire before death, cause 11 | burnt | log (3 bodies) + showcase | a3m3 log, a3s2 `s_dead_burnt_getup` |
 | getting up from a knock-down | leaving state 8 | the lying clip backwards | showcase | a3s2 `*_getup` |
 | drowning | state 8 sub 0x14 | drown, sunk | showcase only; the player has no sprite in the water (game), not reached for NPCs | a3d1, a3s2 `s_drown_front` |
-| arrest: hands up, cuffed, led to the car | unknown (no arrest provoked) | handsup, cuffed | showcase only; not wired | a3s2 |
-| trains | ordinary vehicles, models 59-61 | car models | log only (drawn with their models at the game's level) | a3t2 `model draw: 060_train_cab` / `059_train` |
-| bus | model 11 | car model | not seen in these runs (seen driving in earlier QA) | |
-| tank turret, fire-truck ladder, ambulance lights | | | untested, not implemented (car_bodies.cpp) | |
+| wanted level | the player ped's cop points, int16 ped+0x20A (stars at 600/1600/3000/5000/8000/12000) | `[devtools] force_wanted=N` holds it (QA, off by default) | verified in play: police in 10-50 s at 2-4 stars beside a cop car, army with tanks in 26-30 s at 6 | pol_arrest3..7, pol_fight2/3, pol_army1/2; `wanted:` log lines |
+| arrest: hands up, cuffed, led to the car | knock-down to state 8 sub 0x16 while wanted (or the cop points cleared while he lives) | lying clip backwards, handsup, cuffed over the walk towards the nearest cop car (up to 1.5 blocks, drawn offset) | verified in play | pol_arrest3 `a_037`-`a_045`, pol_arrest6 `a_045`-`a_048`, pol_arrest7 log |
+| trains | ordinary vehicles, models 59-61 | car models | log only: six POLICE-3D tries (beside the street-level line: drowned in the harbour twice; under the elevated line facing it in first person: the line in frame, the train never passed while the frames ran) | pol_veh2..6 |
+| bus | model 11 | car model | verified in play: driving past the arrest | pol_arrest6 `a_046`-`a_048`, vehicle log m11 at 174.6,143->126 |
+| tank turret | the game's turret sprite heading over the hull | model split at 56 % of the roof, turned to it (`TurretSplitFor`) | verified in play for the army tanks (turret off the hull's line, aimed his way); the exact barrel bearing judged by eye only | pol_rescue1 `r17_01_05/10`, pol_veh3; `turret turned N deg` |
+| fire-truck water cannon (the "ladder") | its sprite (0.44 x 0.19 tiles) over the truck | the roof gear behind the cab turned the same way | log only: sprite found and the split drawn while a fire truck drove to the carnage, not framed | pol_rescue1 `turret: model 17` |
+| siren beacons (cop car, SWAT van, ambulance, fire truck) | delta mask bits 15..18 (vehicle+0x08) | two flashing roof glows by model (`DrawBeacons`); `[devtools] force_sirens=1` | cop car verified in play; fire truck log only (`beacons on model 17`); ambulance not framed (it drove to the carnage, pol_rescue1, not caught) | pol_arrest3 `a_037` crop |
 | first-person view model per weapon | game weapon | weapon models | verified earlier (WEAPON-OFFSET pass) | out/weapon_offset_sheet.png |
+
+## Police and special vehicles (8 Nov 2026, POLICE-3D)
+
+### The wanted level: the game's own field
+
+- **The field is the player ped's cop points, int16 at `ped+0x20A`** (`game::kPedCopPoints`), read off
+  gta2.exe v9.6: `FUN_00434C00` turns them into stars at 600 / 1600 / 3000 / 5000 / 8000 / 12000 (1..6),
+  `FUN_004353D0` adds to them for a crime (clamped to 0..12000), `FUN_00434CD0` sets a star level
+  outright (the mission script's and the cheat's path), and the death/arrest code clears them
+  (`0x00441394`). Unwatched points decay: released after 25 s at 1 star they were back to 0 in 16 s
+  (`pol_arrest1`).
+- **Why writing the mission line's `wanted` never stuck:** that value is the police manager's
+  `[0x66B7A0]+0x654`, the highest *response* level of this frame. The manager keeps up to four
+  pursued peds at `+0x464` (stride 0x7C, the ped at +0), asks each one's stars every frame
+  (`FUN_004AA030`) and rebuilds `+0x654` from zero each frame (`0x004AEF88`). It is an output.
+- **QA switch:** `[devtools] force_wanted=N` (1..6, `-1` default off, re-read once a second;
+  `GTA2DX9_FORCE_WANTED=N` does the same from the environment) keeps the player's cop points at least
+  at N stars' threshold. The police manager then picks him up exactly as after a crime: the mission
+  line's wanted level follows within two seconds, police cars and officers come, and at 6 stars the
+  army with tanks (first tank listed 26 s after the switch in `pol_army1`, 30 s in `pol_army2`).
+  Holding pauses for ten seconds after a bust. The renderer logs `wanted: player cop points P = S
+  stars (police response R)` on every change. The player's ped is taken from his own sprite object
+  as the camera's locator last found it (`LocatedPlayerPed()` in `view_modes.h`, valid in every view
+  and at the wheel), else from his own sprite object (owner +0x08 -> physics +0x7C -> ped, checked
+  back through ped+0x168) or the driven car's driver word.
+- **Reliable probe:** `linux/docker/pol_probe.py` (`keys_pol_probe.sh`) with `POL_COPCAR=1` sets the
+  level and stands the player three blocks ahead of the nearest driven cop car (from the
+  `GTA2DX9_LOG_VEHICLES=1` line). At 2-4 stars the police reached and arrested him in 10-50 s in five
+  runs out of five (`pol_fight2`, `pol_fight3`, `pol_arrest3..6`). In the walled plaza (159.5,139.5)
+  nobody came in 2.5 minutes at 1 or 3 stars, and at 1 star even beside a cop car no officer
+  arrested him (`pol_arrest2`): officers on foot come from 2 stars on.
+
+### The arrest
+
+- **What the game does** (log `GTA2DX9_LOG_PED_FRAMES=1`, runs `pol_fight2`, `pol_arrest3..6`): GTA2
+  has no hands-up or cuffing animation. Officers punch the wanted player (health 100 -> 90 -> 50 ->
+  20, ped state 7 sub 0xE as for any fist fight), the last punch puts him down in **state 8, sub-state
+  0x16, frame 72** (damage cause 10, the same as any punch knock-down), the game shows BUSTED and
+  takes his weapons, and 2.5-6 s later he is moved to the police station (`state 0`, walking out of
+  the door). His cop points are cleared either at the knock-down or at the move to the station
+  (both orders were seen); at the bust the game may put a new player ped in his place, lying in the
+  same state.
+- **Wired** (`live_geometry.cpp`, `g_bustFrame`, `ArrestWalk`): a knock-down to state 8 sub 0x16 while
+  his cop points are at least one star (or the points cleared while he lives) starts the arrest.
+  For up to twelve seconds, while the game keeps him in that state, his figure gets up from the
+  knock-down (the lying clip played back), raises his hands (`handsup`, to 1.3 s after the bust),
+  then is cuffed (`cuffed`, hands behind the back, head down, over the walk) and walks towards the
+  nearest police car (model 12 within three blocks, chosen once) at 0.6 blocks/s until he is within
+  0.75 of it or 1.5 blocks from where he lies; his drawn position is offset from the game's for
+  that walk only. The game's move to the station ends it. Logged as `wanted: busted: ...` and
+  `arrest: busted N s ago, figure at ..., police car at ...`.
+- **Seen in play:** `pol_arrest3` frames `a_037` (the officer at him), `a_039`-`a_041` (BUSTED, hands
+  up), `a_042`-`a_045` (cuffed, walking, the cop car's door open beside him); `pol_arrest6`
+  `a_045`-`a_048` (hands up among three officers, BUSTED).
+
+### Police and NPC gunfire
+
+Not reached for the police. At 2, 3 and 4 stars the officers arrest instead of shooting: they run
+up and punch, armed player or not (`pol_fight2`, `pol_fight3`: busted with the machine gun in hand
+within 10 s of reaching the cop cars; the bust takes the weapons, so `pol_fight4` could not keep
+shooting at them). With the player at the wheel of a parked car at 3 stars for 150 s no police
+came at all (`pol_car4`; `pol_car1..3` held no level because the ped lookup missed a player who got
+in a car in the classic view, fixed by the locator accessor below). At 6 stars the army fights:
+tanks fire their cannon at him (frames `pol_army1` `tank10_04`, `pol_veh3` `tank03_04`: the shot's
+streak and flame) and soldiers walk up with rifles in the two-handed carry (`action 8/16` in the log;
+one framed, `pol_army2` `tank10_09`), but no soldier's own shot was claimed by the renderer's
+shooter detection in these runs, so the NPC stance-with-muzzle-flash path is still log-only from the
+earlier passes. Next try: 4-5 stars with the player driving away through traffic (the game's police
+fire at a fleeing car), which needs a drivable start, not the plaza car `pol_car*` got.
+
+### Special vehicles
+
+- **Tank** (model 54). The parked tanks the vehicle log lists (226.5,238.5 and 3.5,164.5) stand
+  behind garage doors (the warp to 226.5,240.1 lands in a closed courtyard facing a shuttered
+  door, `pol_veh1`); the fire truck at 5.5,26.5 is the Downtown "FIRE TRUCK" kill frenzy (entering it
+  starts "knock down 20 people in 60 seconds"). The way to tanks in the street is the game's own:
+  wanted level 6 brings the army, jeeps and tanks driving and firing at the player (`pol_army1`,
+  `pol_army2`, `pol_veh3`, `pol_rescue1`).
+- **Turret follows the aim** (`car_bodies.cpp` `TurretSplitFor`, `CarBodiesSetTurret`; the sprite pass in
+  `live_geometry.cpp`): the turret is a sprite of the game's own (1.44 x 0.50 tiles for the tank,
+  0.44 x 0.19 for the fire truck's water cannon) laid over the hull with its own heading. The sprite
+  pass finds it over a model-54/17 car (centre within 0.6 block, 0.2-2.4 tiles), hands its direction
+  to the car bodies and does not draw the flat sprite; the model is split once into the hull and the
+  part above 56 % of the roof height (fire truck: above 80 % and behind 5 % of the length ahead of
+  the middle), which is turned about its own middle by the aim against the hull's nose. The turret
+  artwork's top edge is the back of the turret: every tank driving straight read exactly 180 deg off
+  its hull until the direction was reversed. Logged as `turret: model ...` and `car bodies: model 54
+  turret turned N deg`.
+- **Emergency lights** (`car_bodies.cpp` `DrawBeacons`): a 3D model hides the sprite, so the roof
+  lamps the game lights as deltas 15..18 (the car's delta mask at vehicle+0x08) while the siren runs
+  were lost in the street views. A cop car (12), SWAT van (52), ambulance (34) or fire truck (17)
+  with any of those bits set now gets two roof beacons (a core and a halo, two crossed quads each)
+  that flash in turn: red/blue (police), red/white over the cab (ambulance), red/amber over the cab
+  (fire truck). `[devtools] force_sirens=1` lights them on every such model.
+- **Trains, bus, fire truck, ambulance:** see the table.
+
+### Fix on the way
+
+`GTA2DX9_LOG_PED_FRAMES=1` crashed the game (`FAULT C0000005 ... reading 00220278` in `AddSprite`) when a
+sprite of another base had an owner whose +0x7C word looked like a pointer (the fire truck's water
+spray read 0x00220000, `pol_veh1`): the probe's read of that "ped" state is now guarded. Off by
+default, so players never hit it.
+
+### Not mine, seen on the way
+
+Army soldiers (6 stars) are drawn as flat bright-yellow figures in the street views (`pol_army2`
+`tank10_09`, `pol_army1` `tank10_03`): the army ped type's model or tint (people subsystem).
+
+### Scripts
+
+`linux/docker/pol_probe.py` (`keys_pol_probe.sh`; `POL_MODE=arrest|fight|car`, `POL_STARS`, `POL_COPCAR`,
+`POL_HOLD`, `POL_SECS`, `POL_REWARP`), `pol_vehicles.py` (`keys_pol_vehicles.sh`; `POL_VEH="tank firetruck
+train bus army rescue"`), `pol_sheet.py` (the sheet), mirrored in `gamerun/`. Run with
+`STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/; s/^nav_map=.*/nav_map=0/' gamerun/grun.sh <run> 260 keys_pol_probe.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_PED_FRAMES=1 -e GTA2DX9_LOG_VEHICLES=1 -e POL_MODE=arrest -e POL_STARS=2 -e POL_COPCAR=1 -e POL_HOLD=600`.
+Sheet: `out/police_3d_sheet.png` (local, not in git).

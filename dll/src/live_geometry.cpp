@@ -16,6 +16,7 @@
 #include "../../src/gta2_map.h"
 #include "../../src/renderer.h"
 #include "cache_warmup.h"
+#include "car_bodies.h"
 #include "compat.h"
 #include "game_access.h"
 #include "gibs.h"
@@ -1673,6 +1674,19 @@ struct CarMaterial {
     float tint[3] = {1.0f, 1.0f, 1.0f};   // what takes the game's default paint to this car's
 };
 uint32_t g_carFrame = 0;
+// The arrest (POLICE-3D). GTA2 has no hands-up animation: an officer punches the
+// wanted player down (state 8, sub-state 0x16, frame 72 lying) and the game busts
+// him there - his cop points (ped+0x20A) are cleared and his weapons taken while
+// he still has health - then about 2.5 s later he is back at the police station.
+// ActionProbes notes that moment (g_bustFrame); the player's figure then gets up,
+// raises his hands, is cuffed and walks with his hands behind his back towards the
+// nearest police car until the game moves him (see DrawPedFigures).
+uint32_t g_bustFrame = 0;
+struct ArrestWalk { float ox = 0.0f, oz = 0.0f, carX = 0.0f, carZ = 0.0f; bool car = false; uint32_t frame = 0; };
+ArrestWalk g_arrestWalk;
+constexpr uint32_t kBustFrames = 360;      // how long after the bust the figure may act it out (the game moves him after 2.5-6 s)
+constexpr float kBustUpSecs = 0.7f;        // getting up (the knock-down played back)
+constexpr float kBustHandsSecs = 1.3f;     // hands up until then, cuffed after
 // New car materials built this frame. Each is a recolour of the hand-made artwork, a file
 // written, and a trip over the bridge, so a street of new cars at once was one long frame.
 int g_carMaterialsThisFrame = 0;
@@ -5169,9 +5183,12 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     placed.object = reinterpret_cast<uintptr_t>(GameObjectBeingDrawn());
     // A pedestrian lying on the road, dead or knocked down: see the car loop in Draw.
     placed.corpse = GameObjectIsCorpse();
-    if (g_logPedFrames) {
+    if (g_logPedFrames) GTA2_TRY {
         // Which sprite base and number does the game draw a dead or knocked-down
         // pedestrian's body with? (It leaves the ped base after a few frames.)
+        // Guarded: a sprite of another base has no ped behind its owner, and the
+        // word read as one can be any address (a fire truck's water spray read
+        // 0x00220000 and took the game down, POLICE-3D run pol_veh1).
         if (const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn())) {
             const int32_t base = *reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase);
             const uint8_t* physics = *reinterpret_cast<const uint8_t* const*>(object + game::kSpriteObjectOwner);
@@ -5204,7 +5221,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                     }
                 }
             }
-        }
+        }    } GTA2_EXCEPT {
     }
     if (const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn())) {
         placed.pedestrian = !lying && *reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase) ==
@@ -6695,6 +6712,50 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 track.drawnSpeed += (moved / dt - track.drawnSpeed) * (std::min)(1.0f, dt / 0.12f);
             }
         }
+        // Busted: the player's figure acts out the arrest (see g_bustFrame); after
+        // the hands up he walks cuffed towards the nearest police car, his drawn
+        // position offset from the game's (which stays where he lies) by up to a
+        // block and a half.
+        const bool playerSprite = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+        const bool arrested = playerSprite && g_bustFrame && g_carFrame - g_bustFrame < kBustFrames && sprite.pedState == 8 && sprite.pedSub == 0x16;
+        const float bustSecs = arrested ? static_cast<float>(g_carFrame - g_bustFrame) / 30.0f : 0.0f;
+        if (!playerSprite) {
+            // nothing: the walk belongs to the player's figure alone
+        } else if (!arrested) {
+            g_arrestWalk.ox = g_arrestWalk.oz = 0.0f; g_arrestWalk.car = false;
+        } else {
+            if (!g_arrestWalk.car && (g_carFrame - g_bustFrame) % 6u == 0) {
+                // The police car he is led to: the nearest cop car (model 12) within three
+                // blocks of where he lies, chosen once.
+                float best = 9.0f;
+                for (const CarBodyUse& use : carBodies_) {
+                    if (use.model != 12) continue;
+                    // The body quad's middle in the world (the quad need not be centred on its origin).
+                    float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+                    for (int i = 0; i < 4; ++i) { lx += 0.25f * use.local[i].x; ly += 0.25f * use.local[i].y; lz += 0.25f * use.local[i].z; }
+                    const float (*cm)[4] = use.objectToWorld.m;
+                    const float carX = lx * cm[0][0] + ly * cm[1][0] + lz * cm[2][0] + cm[3][0];
+                    const float carZ = lx * cm[0][2] + ly * cm[1][2] + lz * cm[2][2] + cm[3][2];
+                    const float ddx = carX - track.dx, ddz = carZ - track.dz;
+                    if (ddx * ddx + ddz * ddz < best) { best = ddx * ddx + ddz * ddz; g_arrestWalk.carX = carX; g_arrestWalk.carZ = carZ; g_arrestWalk.car = true; }
+                }
+                if (g_logPedFrames) {
+                    Log("arrest: busted %.1f s ago, figure at %.2f,%.2f, police car %s %.2f,%.2f", bustSecs, track.dx, track.dz,
+                        g_arrestWalk.car ? "at" : "none within three blocks", g_arrestWalk.carX, g_arrestWalk.carZ);
+                }
+            }
+            g_arrestWalk.frame = g_carFrame;
+            if (bustSecs > kBustHandsSecs && g_arrestWalk.car) {
+                const float wx = g_arrestWalk.carX - (track.dx + g_arrestWalk.ox), wz = g_arrestWalk.carZ - (track.dz + g_arrestWalk.oz);
+                const float wd = std::sqrt(wx * wx + wz * wz);
+                const float led = std::sqrt(g_arrestWalk.ox * g_arrestWalk.ox + g_arrestWalk.oz * g_arrestWalk.oz);
+                if (wd > 0.75f && led < 1.5f) {
+                    const float step = 0.6f * dt;
+                    g_arrestWalk.ox += wx / wd * step; g_arrestWalk.oz += wz / wd * step;
+                    track.drawnSpeed = 0.6f;   // the walk under the cuffed layer
+                }
+            }
+        }
         const bool moving = track.drawnSpeed > 0.45f;
         // What the game has him doing, from his animation frame and state words.
         int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
@@ -6821,6 +6882,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // A showcase for checking the clips on the player's own figure, off by
         // default: GTA2DX9_FORCE_ACTION_FILE names a file (re-read twice a second)
         // holding "action [lying clip] [weapon]"; -1 or no file lets the game drive.
+        if (arrested && bustSecs > 0.0f) {
+            // Up from the knock-down (the state machine plays the fall backwards),
+            // then the hands up, then cuffed. No weapon: the game has taken them.
+            wantAction = bustSecs < kBustHandsSecs ? 3 : 21;
+            track.weapon = kWpnNone;
+        }
         if (ownPed) {
             int fa = -1, fl = 0, fw = -1;
             ForcedAction(&fa, &fl, &fw);
@@ -6853,7 +6920,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // chase camera, which sits behind the game's own heading).
         if (track.action != 4) {
             const float tx = gameMoving ? fx : -fx, tz = gameMoving ? fz : -fz;
-            const float target = std::atan2(tx, tz);
+            float target = std::atan2(tx, tz);
+            if (arrested && g_arrestWalk.car && bustSecs > kBustHandsSecs) {
+                // Led away: facing the police car.
+                target = std::atan2(g_arrestWalk.carX - (track.dx + g_arrestWalk.ox), g_arrestWalk.carZ - (track.dz + g_arrestWalk.oz));
+            }
             float diff = target - track.heading;
             while (diff > kPi) diff -= 2.0f * kPi;
             while (diff < -kPi) diff += 2.0f * kPi;
@@ -6889,7 +6960,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         const float legHeading = track.heading - track.twist;
         const float hx = std::sin(legHeading), hz = std::cos(legHeading);
         // Where the figure stands: the drawn position, at the sprite's height.
-        const float gx = track.dx, gz = track.dz;
+        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f), gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f);
         fx = hx;
         fz = hz;
 
@@ -7295,10 +7366,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
 }
 
 // Probes for the action checks, off by default (environment, read once):
-//   GTA2DX9_FORCE_WANTED=N    keeps the police manager's wanted word
-//                             ([0x66B7A0]+0x654, what the mission line logs) at
-//                             least N, so a script gets the police on the player
-//                             (police fire, arrests) without a massacre first;
+//   GTA2DX9_FORCE_WANTED=N    keeps the player's wanted level at least N stars
+//                             (his cop points, ped+0x20A; same as [devtools]
+//                             force_wanted), so a script gets the police on the
+//                             player (police fire, arrests) without a massacre first;
 //   GTA2DX9_LOG_VEHICLES=1    every two seconds, each live vehicle of the special
 //                             models (bus, fire truck, ambulance, tank, trains,
 //                             cop cars) with its position, heading and driver, so
@@ -7310,7 +7381,7 @@ void ActionProbes() {
         char buf[16] = {};
         forceWanted = GetEnvironmentVariableA("GTA2DX9_FORCE_WANTED", buf, sizeof buf) ? atoi(buf) : -1;
         logVehicles = GetEnvironmentVariableA("GTA2DX9_LOG_VEHICLES", buf, sizeof buf) && buf[0] == '1' ? 1 : 0;
-        if (forceWanted >= 0) Log("devtools: wanted held at least %d (GTA2DX9_FORCE_WANTED)", forceWanted);
+        if (forceWanted >= 0) Log("devtools: wanted held at least %d stars (GTA2DX9_FORCE_WANTED, ped+0x20A)", forceWanted);
     }
     // GTA2DX9_POKE="police:0x4D4=0x300,player:0x64=3": words held at a value every
     // frame in the police manager or the player object, for finding which of the
@@ -7342,14 +7413,95 @@ void ActionProbes() {
         } GTA2_EXCEPT {
         }
     }
-    if (forceWanted > 0 && g_carFrame > 300) {
+    // The wanted level for QA: [devtools] force_wanted=N (0..6 stars, -1 off,
+    // re-read once a second; GTA2DX9_FORCE_WANTED=N does the same from the
+    // environment) keeps the player's cop points (ped+0x20A, game::kPedCopPoints)
+    // at least at N stars' threshold. That is the field the game itself raises
+    // for a crime, so the police manager picks him up as it would after one:
+    // cars dispatched, officers on foot, gunfire from 2-3 stars, an arrest at 1.
+    // His ped comes from his sprite object (owner +0x08 = physics, +0x7C = ped);
+    // the last one found is kept while he is in a car.
+    static int iniWanted = -1;
+    if (CarBodiesDevIni()[0] && (g_carFrame % 30u) == 0) {
+        const int v = GetPrivateProfileIntA("devtools", "force_wanted", -1, CarBodiesDevIni());
+        if (v != iniWanted) Log("devtools: force_wanted %d", v);
+        iniWanted = v;
+    }
+    const int wantStars = (std::max)(forceWanted, iniWanted);
+    static const uint8_t* wantedPed = nullptr;
+    static int lastStars = -1;
+    if (g_carFrame > 60 && (g_carFrame % 2u) == 0) {
         GTA2_TRY {
-            const uintptr_t police = *reinterpret_cast<const uintptr_t*>(0x0066B7A0);
-            if (police > 0x10000) {
-                int32_t* wanted = reinterpret_cast<int32_t*>(police + 0x654);
-                if (*wanted < forceWanted) *wanted = forceWanted;
+            // On foot his own sprite object; at the wheel his car's when first person hides
+            // it (the second hidden object); otherwise the ped last seen on foot is kept.
+            const void* own = g_playerObject ? g_playerObject : g_hiddenObjects[1];
+            if (const void* located = LocatedPlayerPed()) {
+                // The camera's locator has him in every view (and at the wheel).
+                if (game::PlausiblePointer(located)) wantedPed = static_cast<const uint8_t*>(located);
+            } else if (own) {
+                const uint8_t* obj = static_cast<const uint8_t*>(own);
+                const int32_t objBase = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase);
+                if (objBase == game::kSpriteBasePed) {
+                    const uint8_t* phys = *reinterpret_cast<const uint8_t* const*>(obj + game::kSpriteObjectOwner);
+                    if (game::PlausiblePointer(phys)) {
+                        const uint8_t* ped = *reinterpret_cast<const uint8_t* const*>(phys + game::kPhysicsPed);
+                        if (game::PlausiblePointer(ped) &&
+                            *reinterpret_cast<const uint8_t* const*>(ped + game::kPedPhysics) == phys) wantedPed = ped;
+                    }
+                } else if (objBase == game::kSpriteBaseCar) {
+                    // At the wheel: the car's driver (vehicle +0x54) is he.
+                    const uint8_t* car = *reinterpret_cast<const uint8_t* const*>(obj + game::kSpriteObjectOwner);
+                    if (game::PlausiblePointer(car)) {
+                        const uint8_t* ped = *reinterpret_cast<const uint8_t* const*>(car + game::kVehicleDriver);
+                        if (game::PlausiblePointer(ped)) wantedPed = ped;
+                    }
+                }
+            }
+            // The bust (see g_bustFrame): his cop points cleared while he lives,
+            // knocked down - on the same ped, or on the new player ped the game
+            // puts in his place, lying in state 8 sub 0x16.
+            // Two signals, whichever comes first: he is punched down (state 8 sub 0x16)
+            // while wanted - an officer's knock-down is the arrest, and the game clears
+            // the points either at once or as it moves him, 2.5 s later (runs pol_arrest3,
+            // pol_arrest4) - or the points are cleared while he lives.
+            static const uint8_t* lastPed = nullptr;
+            static int16_t lastPoints = 0;
+            static bool lastDown = false;
+            if (wantedPed) {
+                const int16_t now = *reinterpret_cast<const int16_t*>(wantedPed + game::kPedCopPoints);
+                const int32_t st = *reinterpret_cast<const int32_t*>(wantedPed + game::kPedState);
+                const int32_t sub = *reinterpret_cast<const int32_t*>(wantedPed + game::kPedSubState);
+                const uint16_t health = *reinterpret_cast<const uint16_t*>(wantedPed + 0x216);
+                const bool down = st == game::kPedStateInterrupted && sub == 0x16;
+                const bool recent = g_bustFrame && g_carFrame - g_bustFrame < 300;
+                if (down && !lastDown && (now >= game::kCopPointsForStars[1] || lastPoints >= game::kCopPointsForStars[1]) && !recent) {
+                    g_bustFrame = g_carFrame;
+                    Log("wanted: busted: punched down while wanted (cop points %d, health %u)", (std::max)(now, lastPoints), health);
+                } else if (lastPoints >= game::kCopPointsForStars[1] && now == 0 && health > 0 && st != game::kPedStateDead &&
+                           (wantedPed == lastPed || down)) {
+                    if (!recent) g_bustFrame = g_carFrame;
+                    Log("wanted: busted: cop points %d -> 0, health %u, state %d sub 0x%x%s%s", lastPoints, health, st, sub,
+                        wantedPed == lastPed ? "" : ", a new player ped", recent ? " (the arrest already under way)" : "");
+                }
+                lastPed = wantedPed; lastPoints = now; lastDown = down;
+            }
+            if (wantedPed) {
+                int16_t* points = reinterpret_cast<int16_t*>(const_cast<uint8_t*>(wantedPed) + game::kPedCopPoints);
+                // Not straight after a bust: the game has just cleared them.
+                if (wantStars > 0 && wantStars <= 6 && *points < game::kCopPointsForStars[wantStars] && g_carFrame - g_bustFrame > 300) {
+                    *points = game::kCopPointsForStars[wantStars];
+                    lastPoints = *points;
+                }
+                const int stars = game::PedWantedStars(wantedPed);
+                if (stars != lastStars) {
+                    const uintptr_t police = *reinterpret_cast<const uintptr_t*>(game::kPoliceManagerPtr);
+                    Log("wanted: player cop points %d = %d stars (police response %d)", *points, stars,
+                        police > 0x10000 ? *reinterpret_cast<const int32_t*>(police + game::kPoliceResponseLevel) : -1);
+                    lastStars = stars;
+                }
             }
         } GTA2_EXCEPT {
+            wantedPed = nullptr;
         }
     }
     // GTA2DX9_LOG_POLICE=1: the police manager's words that changed, twice a
@@ -7400,6 +7552,24 @@ void ActionProbes() {
                 snprintf(buf, sizeof buf, " [m%d %.2f,%.2f,%.2f f%.2f,%.2f d%d %p]", model, x, y, z, fx, fy,
                          game::VehicleHasDriver(v) ? 1 : 0, static_cast<const void*>(v));
                 line += buf;
+                // The tank's turret and the fire truck's water cannon: which of the
+                // vehicle's words points at a placement block standing on the vehicle
+                // (a sprite object of its own), with that block's heading against the
+                // hull's - to find the field the turret's aim is read from.
+                if ((model == 54 || model == 17) && game::VehicleHasDriver(v)) {
+                    const uint16_t hullHeading = *reinterpret_cast<const uint16_t*>(game::Placement(v, game::kVehiclePlacementPtr) + game::kPlaceHeading);
+                    for (uint32_t off = 0; off < 0x200; off += 4) {
+                        const uint8_t* p = *reinterpret_cast<const uint8_t* const*>(v + off);
+                        if (!game::PlausiblePointer(p) || off == game::kVehiclePlacementPtr) continue;
+                        const float px = *reinterpret_cast<const int32_t*>(p + game::kPlaceX) * game::kFixedScale;
+                        const float py = *reinterpret_cast<const int32_t*>(p + game::kPlaceY) * game::kFixedScale;
+                        if (std::fabs(px - x) > 1.5f || std::fabs(py - y) > 1.5f) continue;
+                        snprintf(buf, sizeof buf, " (+%03X: %.2f,%.2f h%u hull %u base %d)", off, px, py,
+                                 *reinterpret_cast<const uint16_t*>(p + game::kPlaceHeading), hullHeading,
+                                 *reinterpret_cast<const int32_t*>(p + game::kSpriteObjectBase));
+                        line += buf;
+                    }
+                }
                 if (line.size() > 1600) break;
             }
             Log("vehicles:%s", line.empty() ? " none of the special models" : line.c_str());
@@ -7808,6 +7978,45 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         // Recorded so the texture report can tell a fireball from a road tile
         // that happens to have a hole in it. See texture_store.h.
         NoteSpriteTexture(sprite.texture);
+        // A tank's turret and a fire truck's water cannon are sprites of their own,
+        // laid over the hull at its flat level with a heading of their own: the aim.
+        // Over a 3D model (POLICE-3D) the model's own turret is turned to that
+        // heading (CarBodiesSetTurret) and the flat sprite, which would lie inside
+        // the hull, is not drawn.
+        if (g_groundModels && !carBodies_.empty() && !sprite.pedestrian && !sprite.corpse && sprite.corners == 4 && !effect) {
+            float lfx = 0.0f, lfz = 0.0f, slen = 0.0f, swid = 0.0f;
+            SpriteFrame(sprite.local, sprite.corners, &lfx, &lfz, &slen, &swid);
+            const float (*sm)[4] = sprite.objectToWorld.m;
+            float cx = 0, cy = 0, cz = 0;
+            for (int i = 0; i < 4; ++i) { cx += sprite.local[i].x * 0.25f; cy += sprite.local[i].y * 0.25f; cz += sprite.local[i].z * 0.25f; }
+            const float wx = cx * sm[0][0] + cy * sm[1][0] + cz * sm[2][0] + sm[3][0];
+            const float wz = cx * sm[0][2] + cy * sm[1][2] + cz * sm[2][2] + sm[3][2];
+            const float size = (std::max)(slen, swid);
+            bool turret = false;
+            if (size > 0.2f && size < 2.4f) {
+                for (const CarBodyUse& use : carBodies_) {
+                    if ((use.model != 54 && use.model != 17) || use.object == sprite.object) continue;
+                    const float ddx = wx - use.objectToWorld.m[3][0], ddz = wz - use.objectToWorld.m[3][2];
+                    if (ddx * ddx + ddz * ddz > 0.6f * 0.6f) continue;
+                    // The turret artwork's top edge is the back of the turret (the barrel runs to
+                    // the bottom of the sprite): every tank driving straight read exactly 180 deg
+                    // off its hull (run pol_army2), so the barrel is the other way.
+                    const float dirX = -(lfx * sm[0][0] + lfz * sm[2][0]), dirZ = -(lfx * sm[0][2] + lfz * sm[2][2]);
+                    const float dl = std::sqrt(dirX * dirX + dirZ * dirZ);
+                    if (dl < 1e-6f) continue;
+                    CarBodiesSetTurret(use.object, dirX / dl, dirZ / dl, g_carFrame);
+                    static std::set<uintptr_t> turretLogged;
+                    if (turretLogged.size() < 24 && turretLogged.insert(use.object).second) {
+                        Log("turret: model %d object %p: sprite %p %.2f x %.2f tiles, %.2f from the hull's middle, aim %.2f,%.2f",
+                            use.model, reinterpret_cast<const void*>(use.object), sprite.texture, slen, swid,
+                            std::sqrt(ddx * ddx + ddz * ddz), dirX / dl, dirZ / dl);
+                    }
+                    turret = true;
+                    break;
+                }
+            }
+            if (turret) continue;
+        }
         if (effect && sprite.corners == 4 && !sprite.pedestrian && !sprite.corpse) {
             // Published for the player log line (fire=N): is his car burning?
             const float (*fm)[4] = sprite.objectToWorld.m;

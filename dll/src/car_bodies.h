@@ -75,6 +75,12 @@ void CarBodiesSetWreckTest(bool on);
 // Developer aid: the ini whose [devtools] force_car_model=N (every traffic car drawn as
 // model N, -1 off) is re-read once a second, so a script can step through the models.
 void CarBodiesSetDevIni(const char* ini);
+// That ini's path ("" when devtools are off), for other [devtools] keys re-read while the game runs.
+const char* CarBodiesDevIni();
+// The tank's turret / the fire truck's roof gear points along (dirX, dirZ) in the
+// world (renderer frame, the ground plane), seen this frame for the car whose
+// sprite object is `carObject`: the game's own turret sprite. Held for a second.
+void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame);
 int CarBodiesBuilt();
 int CarBodiesDrawn();
 // The last call's time, ms: [0] measuring artwork, [1] building sprite bodies,
