@@ -332,22 +332,28 @@ void EnsureBinding() {
     // siren is the point of a police car - so no daylight gate.
     SyntheticCategorySettings& siren = g_settings.category[kSynthSiren];
     siren.gate.enabled = false;
-    // Intensity is the light's power at a 0.15 bulb (see SirenBrightness), so the beams are
-    // as strong as the headlights' rather than a fiftieth of them. Long reach, a narrow
-    // cone and a shallow pitch are what make them reach down the street and across the
-    // walls instead of being a glow at the car.
-    siren.intensity = 43.1f;
-    siren.radius = 12.0f;
-    siren.bulbSize = 0.029f;
+    // Sane radiance (LIGHTBAR, 8 Nov 2026). The beams used to be a 0.029 bulb at the power of
+    // a headlight: about 90 000 radiance after remix_lights' scale, so any reflection of the
+    // bulb clipped every channel and read white. Now each lamp is a 0.06 bulb glowing at
+    // about 60 (a street lamp's power, next to the car, so it washes the roof and the road
+    // under the car in its colour) and a rotating spot of about 270 from a 0.07 bulb (twice
+    // that power, in a 22 degree cone). Radiance here is Intensity (or Glow) x remix_lights'
+    // RadianceScale (20) x Reach (or GlowRadius) / 3; no bulb-size compensation any more.
+    siren.intensity = 10.0f;
+    siren.radius = 4.0f;
+    siren.bulbSize = 0.07f;
     siren.heightOffset = 0.55f;
-    siren.coneAngleDeg = 18.7f;
-    siren.pitchDegrees = 14.0f;
+    siren.coneAngleDeg = 22.0f;
+    siren.pitchDegrees = 12.0f;
     siren.spinHz = 0.88f;
     siren.sirenBeams = 1;
-    siren.flashHz = 1.63f;
-    siren.glowScale = 0.08f;
-    siren.glowBulb = 0.02f;
-    siren.glowRadius = 6.0f;
+    // 0: a lamp is lit when the game lights it (the sprite's delta bits 15..18, which the
+    // 3D body's beacons follow too), so the colours alternate with the game's siren.
+    siren.flashHz = 0.0f;
+    siren.glowScale = 3.0f;
+    siren.glowBulb = 0.06f;
+    siren.glowRadius = 3.0f;
+    siren.blueBoost = 1.5f;
     siren.coneSoftness = 0.54f;
     siren.pitchSweepDeg = 8.0f;
     siren.pitchSweepHz = 0.52f;
@@ -730,12 +736,116 @@ std::map<int, SirenGeometry> g_sirenGeo;        // by car sprite
 std::map<uintptr_t, unsigned> g_sirenSeen;      // car -> tick a siren lamp was last lit
 std::map<uintptr_t, std::array<unsigned, 2>> g_sirenLit;   // car -> tick each colour was last lit
 
-// Radiance is per area, so a small bulb is far dimmer than a big one for the same
-// intensity. This makes Intensity mean the light's power at the 0.15 reference bulb
-// whatever bulb is chosen.
-float SirenBrightness(float bulb) {
-    const float b = bulb > 0.01f ? bulb : 0.15f;
-    return (0.15f / b) * (0.15f / b);
+// Beacons queued by car_bodies.cpp's DrawBeacons during the last draw (see
+// SyntheticQueueBeacon), and the cars they belong to.
+struct QueuedBeacon { uintptr_t vehicle; int slot; float pos[3]; int colour; bool lit; };
+std::vector<QueuedBeacon> g_beaconQueue;
+std::map<std::pair<uintptr_t, int>, unsigned> g_beaconLitTick;   // (car, slot) -> tick last lit
+std::set<uintptr_t> g_beaconCars;   // cars whose beacons came from car_bodies.cpp last frame
+
+double NowSeconds();
+
+// One lamp of a light bar: a small sphere of its colour round the bulb (lights the car's
+// roof and the road beside and under it) and the rotating spots from it. `level` 0..1 is
+// how lit the lamp is, `slot` tells a car's lamps apart, `k` is 0 for the first colour
+// and 1 for the second (the second's beams turn ColourPhase of a turn behind).
+void EmitBeacon(const SyntheticCategorySettings& c, uintptr_t key, int slot, int k, const float* pos,
+                const float* rgb, float boost, float level) {
+    if (level <= kGateFloor) return;
+    const float daylight = DaylightGateFactor(c.gate);
+    if (daylight <= kGateFloor) return;
+    constexpr float kTau = 6.28318530718f;
+    constexpr float kPi = 3.14159265359f;
+    const uint64_t id = MixPointer(key, 0x51E0);
+    const float phase = static_cast<float>(id & 0xFFFF) / 65535.0f * kTau;   // cars never in step
+    const double t = NowSeconds();
+    const float spin = std::max(0.05f, c.spinHz);
+    const float turn = phase + (c.sirenReverse ? -1.0f : 1.0f) * kTau * spin *
+                                   static_cast<float>(std::fmod(t, 1.0 / spin));
+    // The beams can nod: the pitch swings about its setting, which sweeps the pool in and
+    // out along the road as well as round it.
+    float pitchDeg = c.pitchDegrees;
+    if (c.pitchSweepDeg > 0.01f) {
+        pitchDeg += c.pitchSweepDeg * std::sin(kTau * c.pitchSweepHz * static_cast<float>(std::fmod(t, 1.0 / std::max(0.05f, c.pitchSweepHz))) + phase);
+    }
+    pitchDeg = std::max(1.0f, std::min(80.0f, pitchDeg));
+    const float pitch = pitchDeg * kPi / 180.0f;
+    const float horizontal = std::cos(pitch);
+    const int beams = std::max(0, std::min(6, c.sirenBeams));
+    // Chopping the beams: on for a fraction of each cycle.
+    float strobe = 1.0f;
+    if (c.beamStrobeHz > 0.01f) {
+        const float s = static_cast<float>(std::fmod(t * c.beamStrobeHz, 1.0));
+        strobe = s < std::max(0.02f, std::min(0.98f, c.beamStrobeDuty)) ? 1.0f : 0.0f;
+    }
+
+    // Rotating spotlights. With N per colour, the colours alternate round the circle.
+    for (int j = 0; j < beams && strobe > 0.0f; ++j) {
+        if (!Room(kSynthSiren)) break;
+        const float a = turn + (k ? c.colourPhase * (kTau / beams) : 0.0f) + j * (kTau / beams);
+        RemixLightDesc d;
+        for (int m = 0; m < 3; ++m) d.pos[m] = pos[m];
+        d.pos[1] += c.bulbSize + 0.01f;   // the sphere clear of the roof it sits on
+        for (int m = 0; m < 3; ++m) d.rgb[m] = rgb[m];
+        d.intensity = c.intensity * boost * level * daylight * strobe;
+        d.radius = c.radius;
+        d.emitterRadius = c.bulbSize;
+        d.spot = true;
+        d.dir[0] = std::cos(a) * horizontal;
+        d.dir[1] = -std::sin(pitch);
+        d.dir[2] = -std::sin(a) * horizontal;
+        d.coneAngleDeg = c.coneAngleDeg;
+        d.coneSoftness = c.coneSoftness;
+        d.source = kLightSourceSiren;
+        d.explicitId = MixPointer(key, 0x51F0 + static_cast<uint64_t>(slot) * 8 + j);
+        LightsSubmitExtra(d);
+        ++g_stats.emitted[kSynthSiren];
+        ++g_stats.totalEmitted[kSynthSiren];
+    }
+    // The glow round the bulb: the car's own roof and what is right beside and under it.
+    if (Room(kSynthSiren)) {
+        RemixLightDesc d;
+        for (int m = 0; m < 3; ++m) d.pos[m] = pos[m];
+        d.pos[1] += c.glowBulb + 0.01f;
+        for (int m = 0; m < 3; ++m) d.rgb[m] = rgb[m];
+        d.intensity = c.glowScale * boost * level * daylight;
+        d.radius = c.glowRadius;
+        d.emitterRadius = c.glowBulb;
+        d.source = kLightSourceSiren;
+        d.explicitId = MixPointer(key, 0x51E3 + static_cast<uint64_t>(slot));
+        LightsSubmitExtra(d);
+        ++g_stats.emitted[kSynthSiren];
+        ++g_stats.totalEmitted[kSynthSiren];
+    }
+}
+
+const float* SirenRgb(const SyntheticCategorySettings& c, int colour) {
+    switch (colour) {
+        case kSirenBlue: return c.sirenBlue;
+        case kSirenWhite: return c.sirenWhite;
+        case kSirenAmber: return c.sirenAmber;
+        default: return c.sirenRed;
+    }
+}
+
+// The beacons car_bodies.cpp drew last frame, as lights. A lamp the game takes dark
+// fades over 120 ms rather than snapping off.
+void SubmitQueuedBeacons(unsigned now) {
+    const SyntheticCategorySettings& c = g_settings.category[kSynthSiren];
+    std::vector<QueuedBeacon> queue;
+    queue.swap(g_beaconQueue);
+    if (!c.enabled) return;
+    std::set<uintptr_t> cars;
+    for (const QueuedBeacon& b : queue) {
+        unsigned& tick = g_beaconLitTick[{b.vehicle, b.slot}];
+        if (b.lit) tick = now ? now : 1;
+        const unsigned since = tick ? now - tick : 100000u;
+        const float level = b.lit ? 1.0f : std::max(0.0f, 1.0f - static_cast<float>(since) / 120.0f);
+        if (cars.insert(b.vehicle).second) ++g_stats.sirenCarsLit;
+        EmitBeacon(c, b.vehicle, b.slot, b.slot & 1, b.pos, SirenRgb(c, b.colour),
+                   b.colour == kSirenBlue ? c.blueBoost : 1.0f, level);
+    }
+    if (g_beaconLitTick.size() > 512) g_beaconLitTick.clear();
 }
 
 // 0 red, 1 blue. A lit lamp's colour is the average of its pixels in the car's palette, and a
@@ -819,6 +929,8 @@ void SubmitSirens(const uint8_t* entry, float gx, float gy, float gz, unsigned n
     const SyntheticCategorySettings& c = g_settings.category[kSynthSiren];
     if (!c.enabled) return;
     const int sprite = game::VehicleCarSprite(entry);
+    // Its 3D body drew beacons last frame: those are its lights (SubmitQueuedBeacons).
+    if (g_beaconCars.count(reinterpret_cast<uintptr_t>(entry))) return;
     const SirenGeometry& geo0 = SirenGeometryFor(sprite);
     // The test mode takes any car with roof lamps, whatever their colour, so a car whose
     // lamps were not read as red or blue can still be used to see the beams.
@@ -874,39 +986,10 @@ void SubmitSirens(const uint8_t* entry, float gx, float gy, float gz, unsigned n
     if (age > kHoldMs) return;
     const float fade = age + kFadeMs > kHoldMs ? static_cast<float>(kHoldMs - age) / kFadeMs : 1.0f;
 
-    const float daylight = DaylightGateFactor(c.gate);
-    if (daylight <= kGateFloor) return;
     float fx, fy;
     if (!game::ReadFacing(entry, game::kVehiclePlacementPtr, &fx, &fy)) return;
     const float rx = fy, ry = -fx;
     ++g_stats.sirenCarsLit;
-
-    constexpr float kTau = 6.28318530718f;
-    constexpr float kPi = 3.14159265359f;
-    const uint64_t id = MixPointer(key, 0x51E0);
-    const float phase = static_cast<float>(id & 0xFFFF) / 65535.0f * kTau;   // cars never in step
-    const double t = NowSeconds();
-    const float spin = std::max(0.05f, c.spinHz);
-    const float turn = phase + (c.sirenReverse ? -1.0f : 1.0f) * kTau * spin *
-                                   static_cast<float>(std::fmod(t, 1.0 / spin));
-    // The beams can nod: the pitch swings about its setting, which sweeps the pool in and
-    // out along the road as well as round it.
-    float pitchDeg = c.pitchDegrees;
-    if (c.pitchSweepDeg > 0.01f) {
-        pitchDeg += c.pitchSweepDeg * std::sin(kTau * c.pitchSweepHz * static_cast<float>(std::fmod(t, 1.0 / std::max(0.05f, c.pitchSweepHz))) + phase);
-    }
-    pitchDeg = std::max(1.0f, std::min(80.0f, pitchDeg));
-    const float pitch = pitchDeg * kPi / 180.0f;
-    const float horizontal = std::cos(pitch);
-    const int beams = std::max(0, std::min(6, c.sirenBeams));
-    const float* colour[2] = {c.sirenRed, c.sirenBlue};
-
-    // Chopping the beams: on for a fraction of each cycle.
-    float strobe = 1.0f;
-    if (c.beamStrobeHz > 0.01f) {
-        const float s = static_cast<float>(std::fmod(t * c.beamStrobeHz, 1.0));
-        strobe = s < std::max(0.02f, std::min(0.98f, c.beamStrobeDuty)) ? 1.0f : 0.0f;
-    }
 
     // The middle of the light bar, whichever colours the car has.
     float midAlong = 0.0f, midSide = 0.0f;
@@ -920,75 +1003,32 @@ void SubmitSirens(const uint8_t* entry, float gx, float gy, float gz, unsigned n
     midAlong /= static_cast<float>(midCount ? midCount : 1);
     midSide /= static_cast<float>(midCount ? midCount : 1);
 
+    const double t = NowSeconds();
     for (int k = 0; k < 2; ++k) {
         if (!geo.count[k]) continue;
         const float lampAlong = geo.along[k], lampSide = geo.side[k];
-        const float px = gx + fx * lampAlong + rx * lampSide;
-        const float py = gy + fy * lampAlong + ry * lampSide;
         const float blend = std::max(0.0f, std::min(1.0f, c.beaconBlend));
         const float bx = gx + fx * (lampAlong + (midAlong - lampAlong) * blend + c.beaconAlong) +
                          rx * (lampSide + (midSide - lampSide) * blend);
         const float by = gy + fy * (lampAlong + (midAlong - lampAlong) * blend + c.beaconAlong) +
                          ry * (lampSide + (midSide - lampSide) * blend);
-
-        // Rotating spotlights. With N per colour, the colours alternate round the circle,
-        // the blue a fraction ColourPhase of the way between two reds: one each is the
-        // classic back-to-back pair, two each is a cross.
-        for (int j = 0; j < beams; ++j) {
-            if (!Room(kSynthSiren)) break;
-            const float a = turn + (k ? c.colourPhase * (kTau / beams) : 0.0f) + j * (kTau / beams);
-            RemixLightDesc d;
-            ToWorld(bx, by, gz, d.pos);
-            d.pos[1] += c.heightOffset;
-            for (int m = 0; m < 3; ++m) d.rgb[m] = colour[k][m];
-            d.intensity = c.intensity * (k ? c.blueBoost : 1.0f) * SirenBrightness(c.bulbSize) *
-                          daylight * fade * strobe;
-            d.radius = c.radius;
-            d.emitterRadius = c.bulbSize;
-            d.spot = true;
-            d.dir[0] = std::cos(a) * horizontal;
-            d.dir[1] = -std::sin(pitch);
-            d.dir[2] = -std::sin(a) * horizontal;
-            d.coneAngleDeg = c.coneAngleDeg;
-            d.coneSoftness = c.coneSoftness;
-            d.source = kLightSourceSiren;
-            d.explicitId = MixPointer(key, 0x51F0 + static_cast<uint64_t>(k) * 8 + j);
-            LightsSubmitExtra(d);
-            ++g_stats.emitted[kSynthSiren];
-            ++g_stats.totalEmitted[kSynthSiren];
-        }
-
-        // The glow round the beacon: lights the car's own roof and what is right beside
-        // it, and flashes. By default it follows the car's own lamps, so the colour that
-        // is lit on the sprite is the colour washing the road; with a Flash rate set it
-        // is a double flash at that rate instead, red and blue half a cycle apart.
+        // By default a colour is lit while the game has its lamp lit on the sprite (and
+        // fades over 120 ms after), so the colours alternate as the game's do. With a
+        // Flash rate set it is a double flash at that rate instead, half a cycle apart.
         float flash;
         if (c.flashHz > 0.01f) {
             const float s = static_cast<float>(std::fmod(t * c.flashHz + k * 0.5, 1.0));
-            flash = (s < 0.10f || (s > 0.20f && s < 0.30f)) ? 1.0f : 0.06f;
+            flash = (s < 0.10f || (s > 0.20f && s < 0.30f)) ? 1.0f : 0.0f;
         } else if (litColour[k]) {
             flash = 1.0f;
         } else {
             const unsigned since = litTick[k] ? now - litTick[k] : 100000u;
-            flash = std::max(0.06f, 1.0f - static_cast<float>(since) / 160.0f);
+            flash = std::max(0.0f, 1.0f - static_cast<float>(since) / 120.0f);
         }
-        if (Room(kSynthSiren)) {
-            RemixLightDesc d;
-            ToWorld(px, py, gz, d.pos);
-            d.pos[1] += c.heightOffset;
-            for (int m = 0; m < 3; ++m) d.rgb[m] = colour[k][m];
-            // Independent of the beams' intensity, which is large: this is the wash round
-            // the car, not the beam.
-            d.intensity = 6.0f * c.glowScale * SirenBrightness(c.glowBulb)
-                          * flash * daylight * fade;
-            d.radius = c.glowRadius;
-            d.emitterRadius = c.glowBulb;
-            d.source = kLightSourceSiren;
-            d.explicitId = MixPointer(key, 0x51E3 + k);
-            LightsSubmitExtra(d);
-            ++g_stats.emitted[kSynthSiren];
-            ++g_stats.totalEmitted[kSynthSiren];
-        }
+        float pos[3];
+        ToWorld(bx, by, gz, pos);
+        pos[1] += c.heightOffset;
+        EmitBeacon(c, key, k, k, pos, k ? c.sirenBlue : c.sirenRed, k ? c.blueBoost : 1.0f, flash * fade);
     }
 }
 
@@ -1483,8 +1523,40 @@ void SyntheticBindType(int particleType, int category) {
     g_dirty = true;
 }
 
+void SyntheticQueueBeacon(uintptr_t vehicle, int slot, const float* worldPos, int colour, bool lit) {
+    if (g_beaconQueue.size() >= 256) return;
+    QueuedBeacon b;
+    b.vehicle = vehicle;
+    b.slot = slot;
+    for (int m = 0; m < 3; ++m) b.pos[m] = worldPos[m];
+    b.colour = colour;
+    b.lit = lit;
+    g_beaconQueue.push_back(b);
+}
+
+const float* SyntheticSirenColour(int colour) { return SirenRgb(g_settings.category[kSynthSiren], colour); }
+
 void SyntheticLightsUpdate() {
     EnsureBinding();
+    // GTA2DX9_EFFECTS_LIVE=1: the effects ini is re-read when it changes (checked once a
+    // second), so a scripted take can try several settings in one session.
+    static const bool live = getenv("GTA2DX9_EFFECTS_LIVE") && atoi(getenv("GTA2DX9_EFFECTS_LIVE")) != 0;
+    if (live) {
+        static DWORD lastCheck = 0;
+        static FILETIME lastWrite = {};
+        const DWORD tick = GetTickCount();
+        if (tick - lastCheck > 1000) {
+            lastCheck = tick;
+            WIN32_FILE_ATTRIBUTE_DATA a;
+            if (GetFileAttributesExA(g_path, GetFileExInfoStandard, &a)) {
+                if ((lastWrite.dwLowDateTime || lastWrite.dwHighDateTime)
+                    && CompareFileTime(&a.ftLastWriteTime, &lastWrite) != 0) {
+                    SyntheticLightsLoad(nullptr);
+                }
+                lastWrite = a.ftLastWriteTime;
+            }
+        }
+    }
     LightsBeginExtra();
     for (int i = 0; i < kSynthCategoryCount; ++i) {
         g_stats.emitted[i] = 0;
@@ -1492,6 +1564,7 @@ void SyntheticLightsUpdate() {
     }
 
     if (!g_settings.enabled) {
+        g_beaconQueue.clear();
         g_stats.particlesWalked = 0;
         g_stats.vehiclesWalked = 0;
         g_stats.vehiclesDriven = 0;
@@ -1500,13 +1573,19 @@ void SyntheticLightsUpdate() {
     // Nothing to walk in the menus, and the pool pointers hold whatever the last
     // level left in them.
     if (!game::MapObject()) {
+        g_beaconQueue.clear();
         g_stats.particleListFound = false;
         g_stats.vehicleListFound = false;
         return;
     }
 
     WalkParticles();
+    // The cars whose 3D bodies drew beacons last frame take those as their siren lights
+    // and are skipped by the sprite-based ones in WalkVehicles.
+    g_beaconCars.clear();
+    for (const QueuedBeacon& b : g_beaconQueue) g_beaconCars.insert(b.vehicle);
     WalkVehicles();
+    SubmitQueuedBeacons(GetTickCount());
 
     // Once, a few seconds into a level, so an ordinary run leaves the evidence
     // in the log without anyone having to think to ask for it. By now there is
@@ -1699,6 +1778,8 @@ void SyntheticLightsLoad(const char* path) {
         else if (_stricmp(key, "BeaconAlong") == 0) c.beaconAlong = static_cast<float>(atof(value));
         else if (_stricmp(key, "Red") == 0) sscanf(value, "%f %f %f", &c.sirenRed[0], &c.sirenRed[1], &c.sirenRed[2]);
         else if (_stricmp(key, "Blue") == 0) sscanf(value, "%f %f %f", &c.sirenBlue[0], &c.sirenBlue[1], &c.sirenBlue[2]);
+        else if (_stricmp(key, "White") == 0) sscanf(value, "%f %f %f", &c.sirenWhite[0], &c.sirenWhite[1], &c.sirenWhite[2]);
+        else if (_stricmp(key, "Amber") == 0) sscanf(value, "%f %f %f", &c.sirenAmber[0], &c.sirenAmber[1], &c.sirenAmber[2]);
         else if (_stricmp(key, "Daylight") == 0) {
             // Daylight=<on> <sun elevation it is out by> <elevation it is fully on by>
             int on = 0;
@@ -1780,6 +1861,8 @@ void SyntheticLightsSave() {
             fprintf(f, "BeaconAlong=%.3f\n", c.beaconAlong);
             fprintf(f, "Red=%.4f %.4f %.4f\n", c.sirenRed[0], c.sirenRed[1], c.sirenRed[2]);
             fprintf(f, "Blue=%.4f %.4f %.4f\n", c.sirenBlue[0], c.sirenBlue[1], c.sirenBlue[2]);
+            fprintf(f, "White=%.4f %.4f %.4f\n", c.sirenWhite[0], c.sirenWhite[1], c.sirenWhite[2]);
+            fprintf(f, "Amber=%.4f %.4f %.4f\n", c.sirenAmber[0], c.sirenAmber[1], c.sirenAmber[2]);
         }
         if (i == kSynthHeadlight) {
             fprintf(f, "ConeAngle=%.2f\n", c.coneAngleDeg);

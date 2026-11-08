@@ -22,7 +22,7 @@ for key, title in phases:
         tiles = []
         if os.path.exists(src):
             tmp = tempfile.mkdtemp()
-            ss, t, fps = ("0", "12", "1") if key == "browser" else ("1.2", "1.0", "10")
+            ss, t, fps = ("1", "10", "1") if key == "browser" else ("1.2", "1.0", "10")
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", ss, "-t", t, "-i", src, "-vf", f"fps={fps},scale={W}:{H}", os.path.join(tmp, "f%02d.png")])
             tiles = [Image.open(os.path.join(tmp, f)) for f in sorted(os.listdir(tmp))][:N]
         rows.append((f"{label}: {title[label]}", tiles))

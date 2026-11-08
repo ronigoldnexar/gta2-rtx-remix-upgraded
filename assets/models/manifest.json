@@ -13,21 +13,15 @@
   },
   {
    "name": "fire_hydrant",
-   "glb": "polyhaven/fire_hydrant/fire_hydrant_1k.gltf",
-   "scale": 0.5,
-   "texture_max": 512,
-   "nodes_exclude": [
-    "_aged"
-   ]
+   "glb": "objects/models/fire_hydrant.glb",
+   "scale": 1.0,
+   "texture_max": 512
   },
   {
    "name": "trash_can",
-   "glb": "polyhaven/metal_trash_can/metal_trash_can_1k.gltf",
-   "scale": 0.5,
-   "texture_max": 512,
-   "nodes_exclude": [
-    "_rust"
-   ]
+   "glb": "objects/models/trash_can.glb",
+   "scale": 1.0,
+   "texture_max": 512
   },
   {
    "name": "bench",
@@ -4429,13 +4423,12 @@
   },
   {
    "name": "fire_hydrant",
-   "nodes": 15,
-   "meshes": 20,
-   "vertices": 55710,
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 3552,
    "animations": [],
    "textures": [
-    "fire_hydrant_1.tga",
-    "fire_hydrant_4.tga"
+    "fire_hydrant_0.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -4444,13 +4437,12 @@
   },
   {
    "name": "trash_can",
-   "nodes": 8,
-   "meshes": 8,
-   "vertices": 9282,
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 2268,
    "animations": [],
    "textures": [
-    "trash_can_1.tga",
-    "trash_can_4.tga"
+    "trash_can_0.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -4501,13 +4493,14 @@
   },
   {
    "name": "obj_girder",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 24,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 864,
    "animations": [],
    "textures": [
     "obj_girder_0.tga",
-    "obj_girder_1.tga"
+    "obj_girder_1.tga",
+    "obj_girder_2.tga"
    ],
    "skins": 0,
    "forward": "+z",

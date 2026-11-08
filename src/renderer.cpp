@@ -40,6 +40,10 @@ void Trace(const char* format, ...) {
 // machine with no Remix at all both keep working.
 const char* const kD3D9Modules[] = {"d3d9_remix.dll", "d3d9.dll"};
 
+// Whether the Direct3D that answered is RTX Remix: the renamed bridge client, or a
+// d3d9.dll that carries the Remix API (remix_api.cpp looks for the same export).
+bool g_remixD3D9 = false;
+
 IDirect3D9* CreateD3D9() {
     for (const char* name : kD3D9Modules) {
         const HMODULE module = LoadLibraryA(name);
@@ -48,7 +52,8 @@ IDirect3D9* CreateD3D9() {
         const auto create = reinterpret_cast<CreateFn>(GetProcAddress(module, "Direct3DCreate9"));
         if (!create) continue;
         if (IDirect3D9* d3d = create(D3D_SDK_VERSION)) {
-            Trace("Direct3D from %s", name);
+            g_remixD3D9 = strcmp(name, "d3d9_remix.dll") == 0 || GetProcAddress(module, "remixapi_InitializeLibrary") != nullptr;
+            Trace("Direct3D from %s%s", name, g_remixD3D9 ? " (RTX Remix)" : "");
             return d3d;
         }
     }
@@ -102,6 +107,16 @@ uint32_t SandTexel(int x, int y) {
     return 0xFF000000u | (channel(150.0f) << 16) | (channel(136.0f) << 8) | channel(104.0f);
 }
 }  // namespace
+
+void RendererTrace(const char* format, ...) {
+    if (!g_trace) return;
+    char line[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+    g_trace(line);
+}
 
 std::string g_hdTextureDir;
 std::string g_tileDumpDir;
@@ -423,6 +438,7 @@ void SetRendererTrace(void (*sink)(const char*)) { g_trace = sink; }
 Renderer::~Renderer() { Shutdown(); }
 
 void Renderer::Shutdown() {
+    post_.Release();
     ReleaseResources();
     batches_.clear();
     if (device_) {
@@ -436,6 +452,7 @@ void Renderer::Shutdown() {
 }
 
 void Renderer::ReleaseResources() {
+    post_.ReleaseWorld();
     sky_.Release();
     if (waterNoise_) { waterNoise_->Release(); waterNoise_ = nullptr; }
     for (IDirect3DTexture9* t : windowGlow_) if (t) t->Release();
@@ -480,6 +497,7 @@ void Renderer::ReleaseResources() {
 // textures all outlive a level, and tearing them down here would mean rebuilding
 // the device every time someone backs out to the menu.
 void Renderer::ReleaseWorld() {
+    post_.ReleaseWorld();
     batches_.clear();
     if (savedTarget_) {
         savedTarget_->Release();
@@ -581,6 +599,9 @@ bool Renderer::Initialize(HWND window, int width, int height, std::string* error
         return false;
     }
     Trace("device created on attempt %d", deviceAttempts_);
+    remixDevice_ = g_remixD3D9;
+    post_.Init(device_, width_, height_, remixDevice_);
+    SetSkyRemix(remixDevice_);
     return true;
 }
 
@@ -765,6 +786,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         Trace("hd tiles: %d loaded (%d block-compressed DDS with mips, cap %d px), %d failed, of %zu tile textures",
               hdTiles_, hdDdsTiles_, g_hdTileMax, hdFailed_, textures_.size());
     }
+    post_.BuildWorld(mesh, style, vertexBuffer_);
     return true;
 }
 
@@ -1031,6 +1053,10 @@ void Renderer::DrawWorld(const Camera& camera) {
     SetMatrix(device_, D3DTS_VIEW, camera.ViewMatrix());
     SetMatrix(device_, D3DTS_PROJECTION,
               camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)));
+    if (post_.Active()) {
+        const float aspect = static_cast<float>(width_) / static_cast<float>(height_);
+        post_.SetCamera(camera.ViewMatrix(), camera.ProjectionMatrix(aspect), camera.Position(), camera.FovY(), aspect);
+    }
 
     device_->SetFVF(kWorldFvf);
     device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex));
@@ -1189,6 +1215,9 @@ void Renderer::DrawWorld(const Camera& camera) {
         device_->SetRenderState(D3DRS_LIGHTING, FALSE);
         device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     }
+    // From here to EndWorldShading the cars, people and props are drawn; their draws
+    // are kept for the sun's shadow maps.
+    post_.StartRecording();
 }
 
 // Managed textures reach the GL driver the first time they are drawn with,
@@ -1232,13 +1261,47 @@ int Renderer::WarmTileTextures(int perFrame) {
 void Renderer::DrawSky(const Camera& camera, const SkySettings& settings, const SkyColours& colours, float blend,
                        double seconds) {
     if (!device_ || !vertexBuffer_ || blend <= 0.0f) return;
+    sky_.SetHdr(post_.Active());
     sky_.Draw(device_, camera, static_cast<float>(width_) / static_cast<float>(height_), settings, colours, blend,
               seconds);
+    if (post_.Active()) post_.SetSky(colours.zenith, colours.horizon, colours.day);
     stats_.drawCalls += 3;
+}
+
+// The street views' light, and with [visuals] on the post's targets for the frame.
+void Renderer::SetWorldShading(const WorldShading& shading) {
+    shading_ = shading;
+    VisualsPoll();
+    if (!shading.fog || !device_ || !vertexBuffer_ || !post_.Available() || !VisualsConfig().enabled) return;
+    const SkySettings& sky = SkyConfig();
+    // The transition's weight, from how far the fog has eased in (world_view.cpp,
+    // DrawSkyAndShading: start = configured + (600 - configured) * (1 - blend)).
+    float blend = 1.0f - (shading.fogStart - sky.fogStart) / std::max(1.0f, 600.0f - sky.fogStart);
+    blend = std::min(1.0f, std::max(0.0f, blend));
+    const VisualsSettings& v = VisualsConfig();
+    // A harder sun and a softer ambient: with shadows to take the sun away again,
+    // the faces that see it can carry more of the light.
+    if (shading.sun) {
+        shading_.ambient = shading.ambient * (1.0f + (v.ambientScale - 1.0f) * blend);
+        shading_.sunColour = shading.sunColour * (1.0f + (v.sunBoost - 1.0f) * blend);
+    }
+    PostFrame f;
+    f.sunDir = shading_.sunDir;
+    f.sunLevel = shading_.sun ? (shading_.sunColour.x + shading_.sunColour.y + shading_.sunColour.z) / 3.0f : 0.0f;
+    f.ambientLevel = shading_.sun ? (shading_.ambient.x + shading_.ambient.y + shading_.ambient.z) / 3.0f : 1.0f;
+    f.fogColour = shading_.fogColour;
+    f.fogStart = shading_.fogStart;
+    f.fogEnd = shading_.fogEnd;
+    f.blend = blend;
+    const float el = std::asin(std::max(-1.0f, std::min(1.0f, shading_.sunDir.y))) * 57.29578f;
+    const float t = std::min(1.0f, std::max(0.0f, (el + 8.0f) / 20.0f));
+    f.day = t * t * (3.0f - 2.0f * t);
+    if (!post_.BeginScene(f)) shading_ = shading;
 }
 
 void Renderer::EndWorldShading() {
     if (!device_) return;
+    if (post_.Active()) post_.Resolve();
     device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
     device_->LightEnable(0, FALSE);
     device_->SetRenderState(D3DRS_LIGHTING, FALSE);

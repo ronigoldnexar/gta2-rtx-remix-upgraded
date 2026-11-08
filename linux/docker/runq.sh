@@ -34,7 +34,7 @@ while true; do
   if [ "$Q/$head" = "$T" ]; then
     # start a run only when the host has headroom: 1-minute load under GTA2_LOAD_MAX, MemAvailable over GTA2_MEM_MIN_GB,
     # and no hold flag from cpu_governor.sh (set when the host is overloaded)
-    while [ -e /tmp/gta2-load-hold ] || awk -v m="${GTA2_LOAD_MAX:-12}" '{exit !($1 > m)}' /proc/loadavg \
+    while [ -e /tmp/gta2-load-hold ] || [ -e /tmp/gta2-manual-hold ] || awk -v m="${GTA2_LOAD_MAX:-12}" '{exit !($1 > m)}' /proc/loadavg \
           || awk -v g="${GTA2_MEM_MIN_GB:-6}" '/MemAvailable/ {exit !($2 < g*1048576)}' /proc/meminfo; do sleep 15; done
     for i in $(seq 1 "$N"); do
       exec {fd}>"/tmp/gta2-game-slot-$i.lock"

@@ -1,4 +1,5 @@
 # Browser play layer: x11vnc + noVNC (websockify) + xdotool on top of a game image,
+# plus the game's sound (play_audio.py: parec + libopus, both already in the base images),
 # so the running game can be played from a browser tab instead of a keys script.
 #   docker build --build-arg BASE=gta2-gpugl       -t gta2-play       -f Dockerfile.play .
 #   docker build --build-arg BASE=gta2-remix-gpu3  -t gta2-play-remix -f Dockerfile.play .
@@ -21,4 +22,6 @@ RUN set -e; apt-get update -qq; cd /tmp; mkdir -p debs; cd debs; \
     test -e /usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0; \
     { ! dpkg --print-foreign-architectures | grep -q i386 || test -e /usr/lib/i386-linux-gnu/libGLX_nvidia.so.0; }
 COPY play_index.html /usr/share/novnc/index.html
+# The audio server/router (play_game.sh prefers /work/play_audio.py from the mounted work folder).
+COPY play_audio.py /opt/play/play_audio.py
 EXPOSE 6080

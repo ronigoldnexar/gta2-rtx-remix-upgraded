@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Inside the container: the game for a person, not a keys script. Same prefix
 # setup as run_game_gpu.sh / run_game_remix_gpu.sh, then the display is served to
-# a browser: Xvfb -> x11vnc -> websockify/noVNC on $PLAY_PORT (6080). Runs until
+# a browser: Xvfb -> x11vnc -> websockify/noVNC on $PLAY_PORT (6080), and the game's
+# sound (PulseAudio null sink -> play_audio.py -> Opus over a websocket on the same port). Runs until
 # the container is stopped.   play_game.sh <plain|remix>
 MODE=${1:-plain}
 export PLAY_PORT=${PLAY_PORT:-6080}
@@ -22,6 +23,14 @@ if command -v pulseaudio >/dev/null 2>&1; then
   export XDG_RUNTIME_DIR=/tmp/xdg-runtime; mkdir -p "$XDG_RUNTIME_DIR"
   pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit --load="module-null-sink sink_name=null sink_properties=device.description=null" >/tmp/pulse.log 2>&1 || true
 fi
+# Game audio for the page: the null sink's monitor, Opus-encoded, on the page's own port (websocket path /audio,
+# see play_audio.py). From the work folder like the landing page, else the copy baked into the image. PLAY_AUDIO=0 turns it off.
+AUDIO_PY=/work/play_audio.py; [ -f "$AUDIO_PY" ] || AUDIO_PY=/opt/play/play_audio.py
+AUDIO=false
+if [ "${PLAY_AUDIO:-1}" = 1 ] && [ -f "$AUDIO_PY" ] && command -v parec >/dev/null 2>&1 && pactl info >/dev/null 2>&1; then
+  python3 "$AUDIO_PY" serve >/tmp/play_audio.log 2>&1 &
+  AUDIO=true
+fi
 
 # The VNC server and the web side, up before the game so the page is reachable while Wine boots.
 PW=(); [ -n "${PLAY_PASSWORD:-}" ] && { x11vnc -storepasswd "$PLAY_PASSWORD" /tmp/vncpass >/dev/null 2>&1; PW=(-rfbauth /tmp/vncpass); } || PW=(-nopw)
@@ -29,9 +38,11 @@ PW=(); [ -n "${PLAY_PASSWORD:-}" ] && { x11vnc -storepasswd "$PLAY_PASSWORD" /tm
 # PLAY_VNC_NICE: its CPU niceness (the game keeps priority over the encoder on the container's CPUs).
 X11VNC_TUNE=${PLAY_X11VNC:--noxdamage -defer 15 -wait 15 -threads}
 nice -n "${PLAY_VNC_NICE:-0}" x11vnc -display :99 -shared -forever $X11VNC_TUNE -nocursorshape -cursor arrow -xkb "${PW[@]}" -rfbport 5900 -quiet -bg -o /tmp/x11vnc.log
-printf '{"mode":"%s","devtools":%s,"password":"%s"}\n' "$MODE" "$([ "${PLAY_DEVTOOLS:-0}" = 1 ] && echo true || echo false)" "${PLAY_PASSWORD:-}" > /usr/share/novnc/play_mode.json
+printf '{"mode":"%s","devtools":%s,"password":"%s","audio":%s}\n' "$MODE" "$([ "${PLAY_DEVTOOLS:-0}" = 1 ] && echo true || echo false)" "${PLAY_PASSWORD:-}" "$AUDIO" > /usr/share/novnc/play_mode.json
 [ -f /work/play_index.html ] && cp /work/play_index.html /usr/share/novnc/index.html   # the landing page from the work folder, so edits need no image rebuild
-websockify --web /usr/share/novnc "$PLAY_PORT" localhost:5900 >/tmp/websockify.log 2>&1 &
+# websockify with a path router (play_audio.py web): /audio and /audio-pcm go to the audio server, everything else to VNC.
+if [ "$AUDIO" = true ]; then python3 "$AUDIO_PY" web "$PLAY_PORT" >/tmp/websockify.log 2>&1 &
+else websockify --web /usr/share/novnc "$PLAY_PORT" localhost:5900 >/tmp/websockify.log 2>&1 & fi
 echo "== browser: http://localhost:$PLAY_PORT/  (vnc on :5900 inside the container)"
 
 if [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1); else wineboot -i >/dev/null 2>&1; fi

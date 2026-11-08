@@ -1,8 +1,11 @@
 #include "sky.h"
 
+#include "post_fx.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 namespace gta2 {
 namespace {
@@ -21,6 +24,8 @@ constexpr int kGlowSize = 64;
 constexpr DWORD kSkyFvf = D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1;
 
 SkySettings g_settings;
+bool g_skyRemix = false;
+constexpr int kStarSize = 512;
 
 float Clamp01(float v) { return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v; }
 float Smooth(float a, float b, float x) {
@@ -68,6 +73,37 @@ float Fbm(float u, float v) {   // u, v in 0..1, tileable
 }  // namespace
 
 SkySettings& SkyConfig() { return g_settings; }
+void SetSkyRemix(bool remix) { g_skyRemix = remix; }
+
+namespace {
+// The [visuals] palette: the same structure as the plain one below, with a deeper,
+// more saturated day, a golden hour with an orange horizon, a violet dusk and a navy
+// night; GTA2's colours are loud, and a washed-out sky made them look pasted on.
+SkyColours RichSkyColours(float el, const Vec3& sunDir) {
+    SkyColours out;
+    out.sunDir = sunDir;
+    const float day = Smooth(-8.0f, 12.0f, el);
+    const float golden = std::exp(-((el - 7.0f) * (el - 7.0f)) / (2.0f * 7.0f * 7.0f)) * (1.0f - Smooth(16.0f, 30.0f, el));
+    const float dusk = std::exp(-((el + 1.0f) * (el + 1.0f)) / (2.0f * 4.0f * 4.0f));
+    out.day = day;
+    const Vec3 zenithDay{0.16f, 0.40f, 0.86f}, zenithGolden{0.28f, 0.40f, 0.76f}, zenithDusk{0.22f, 0.19f, 0.46f};
+    const Vec3 zenithNight{0.012f, 0.018f, 0.055f};
+    const Vec3 horizonDay{0.66f, 0.81f, 0.96f}, horizonGolden{1.0f, 0.70f, 0.38f}, horizonDusk{0.96f, 0.46f, 0.36f};
+    const Vec3 horizonNight{0.05f, 0.065f, 0.13f};
+    Vec3 z = Lerp(zenithDay, zenithGolden, golden);
+    Vec3 h = Lerp(horizonDay, horizonGolden, golden);
+    z = Lerp(z, zenithDusk, dusk * 0.85f);
+    h = Lerp(h, horizonDusk, dusk * 0.85f);
+    const float lit = Smooth(-14.0f, 2.0f, el);   // twilight lingers past sunset
+    out.zenith = Lerp(zenithNight, z, lit);
+    out.horizon = Lerp(horizonNight, h, lit);
+    const float warm = Smooth(0.0f, 28.0f, el);
+    out.sunColour = Lerp(Vec3{1.0f, 0.52f, 0.20f}, Vec3{1.0f, 0.96f, 0.88f}, warm) * Smooth(-3.0f, 2.0f, el);
+    out.fog = out.horizon * 0.97f;
+    out.ambient = Lerp(Vec3{0.80f, 0.86f, 1.0f}, Lerp(Vec3{0.97f, 0.98f, 1.0f}, Vec3{1.0f, 0.90f, 0.80f}, std::max(golden, dusk) * 0.6f), day);
+    return out;
+}
+}  // namespace
 
 // A small analytic sky: a day look, a warm dusk band as the sun nears the
 // horizon, and a dark blue night, mixed by the sun's elevation. Colours are
@@ -78,6 +114,7 @@ SkyColours ComputeSkyColours(float sunElevationDeg, float sunAzimuthDeg) {
     const float el = sunElevationDeg * kPi / 180.0f;
     const float az = sunAzimuthDeg * kPi / 180.0f;
     out.sunDir = Normalize(Vec3{std::sin(az) * std::cos(el), std::sin(el), std::cos(az) * std::cos(el)});
+    if (!g_skyRemix && VisualsConfig().enabled) return RichSkyColours(sunElevationDeg, out.sunDir);
 
     const float day = Smooth(-8.0f, 12.0f, sunElevationDeg);
     const float low = std::exp(-((sunElevationDeg - 2.0f) * (sunElevationDeg - 2.0f)) / (2.0f * 9.0f * 9.0f));
@@ -101,8 +138,10 @@ Sky::~Sky() { Release(); }
 void Sky::Release() {
     if (clouds_) clouds_->Release();
     if (glow_) glow_->Release();
+    if (stars_) stars_->Release();
     clouds_ = nullptr;
     glow_ = nullptr;
+    stars_ = nullptr;
     device_ = nullptr;
 }
 
@@ -190,6 +229,34 @@ bool Sky::Ensure(IDirect3DDevice9* device) {
             glow_->UnlockRect(0);
         }
     }
+    if (!stars_) {
+        // Stars: some 2600 points of fixed pseudo-random position, size and tint on black,
+        // added over the night dome. Built with the clouds (warm-up), never in a frame.
+        if (FAILED(device->CreateTexture(kStarSize, kStarSize, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &stars_, nullptr))) {
+            stars_ = nullptr;
+            return true;
+        }
+        D3DLOCKED_RECT rect;
+        if (SUCCEEDED(stars_->LockRect(0, &rect, nullptr, 0))) {
+            for (int y = 0; y < kStarSize; ++y) memset(static_cast<uint8_t*>(rect.pBits) + y * rect.Pitch, 0, kStarSize * 4);
+            uint32_t seed = 0x2545F491u;
+            auto rnd = [&]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return static_cast<float>(seed & 0xFFFFFF) / 16777215.0f; };
+            for (int i = 0; i < 2600; ++i) {
+                const int x = static_cast<int>(rnd() * kStarSize) % kStarSize, y = static_cast<int>(rnd() * kStarSize) % kStarSize;
+                const float b = std::pow(rnd(), 3.0f) * 0.85f + 0.15f;
+                const float t = rnd();
+                const float r = b * (t < 0.2f ? 0.80f : 1.0f), g = b * 0.92f, bl = b * (t > 0.8f ? 0.78f : 1.0f);
+                const bool big = b > 0.7f;
+                for (int dy = 0; dy <= (big ? 1 : 0); ++dy) for (int dx = 0; dx <= (big ? 1 : 0); ++dx) {
+                    const float k = (dx || dy) ? 0.45f : 1.0f;
+                    DWORD* px = reinterpret_cast<DWORD*>(static_cast<uint8_t*>(rect.pBits) + ((y + dy) % kStarSize) * rect.Pitch) + (x + dx) % kStarSize;
+                    *px = 0xFF000000u | (static_cast<DWORD>(Clamp01(r * k) * 255.0f) << 16) | (static_cast<DWORD>(Clamp01(g * k) * 255.0f) << 8) |
+                          static_cast<DWORD>(Clamp01(bl * k) * 255.0f);
+                }
+            }
+            stars_->UnlockRect(0);
+        }
+    }
     return true;
 }
 
@@ -262,6 +329,39 @@ void Sky::Draw(IDirect3DDevice9* device, const Camera& camera, float aspect, con
                                    static_cast<UINT>(domeIndices_.size() / 3), domeIndices_.data(), D3DFMT_INDEX16,
                                    domeScratch_.data(), sizeof(DomeVertex));
 
+    // --- Stars ------------------------------------------------------------------
+    // Added over the night dome ([visuals] only), fading in after sunset and toward the
+    // horizon's haze; the clouds are drawn over them.
+    const float starAmount = (!g_skyRemix && VisualsConfig().enabled && stars_) ? 1.0f - Smooth(-10.0f, -1.0f, sunEl * 57.29578f) : 0.0f;
+    if (starAmount > 0.01f) {
+        for (size_t i = 0; i < domeDirs_.size(); ++i) {
+            const Vec3& d = domeDirs_[i];
+            DomeVertex& v = domeScratch_[i];
+            const float denom = std::max(d.y, 0.02f) + 0.35f;
+            v.u = d.x / denom * 1.6f;
+            v.v = d.z / denom * 1.6f;
+            v.colour = ToColour(Vec3{1.0f, 1.0f, 1.0f} * (starAmount * blend * Smooth(0.04f, 0.35f, domeElevation_[i])), 1.0f);
+        }
+        device->SetTexture(0, stars_);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+        device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+        device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(domeScratch_.size()),
+                                       static_cast<UINT>(domeIndices_.size() / 3), domeIndices_.data(), D3DFMT_INDEX16,
+                                       domeScratch_.data(), sizeof(DomeVertex));
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    }
+
     // --- The sun -------------------------------------------------------------
     // Two additive billboards on the glow texture: the disc, and a wide halo.
     if (colours.sunColour.x + colours.sunColour.y + colours.sunColour.z > 0.01f && sun.y > -0.05f) {
@@ -298,6 +398,12 @@ void Sky::Draw(IDirect3DDevice9* device, const Camera& camera, float aspect, con
         quad(13.0f, colours.sunColour * (0.16f + 0.12f * lowSun) * blend);
         quad(2.2f, colours.sunColour * 1.0f * blend);
         quad(1.1f, Vec3{1.0f, 1.0f, 1.0f} * 0.8f * blend);
+        // On the FP16 target a disc that is brighter than white, so the bloom catches it.
+        if (hdr_) {
+            quad(0.9f, Vec3{1.0f, 1.0f, 1.0f} * blend);
+            quad(0.9f, colours.sunColour * blend);
+            quad(0.75f, Vec3{1.0f, 1.0f, 1.0f} * blend);
+        }
         device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
         device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
     }

@@ -224,8 +224,12 @@ Play button that opens noVNC with auto-connect. The game appears after ~40 s
 (VNC password, also put into the Play link), `PLAY_DEVTOOLS=1` (F9/F11 warps),
 `SWAP_LEVEL=bil|ste`, `GPU=<index>`, `CPUS=<n>`. The container keeps running until
 `play.sh stop`; the renderer log is mirrored to `out/play-<port>/gta2dx9.log`.
-Limits: noVNC carries no audio; the picture is JPEG-compressed, so it is for
-trying the game, not for recording. On your own Linux box with a GPU, the native
+Sound: the game's audio plays in the page too. Play starts it (the click is what
+browsers require); the bar at the top right mutes it and sets the volume, and shows
+the codec and the sound's delay. It is Opus over a websocket on the same port
+(`play_audio.py`, see `docs/HANDOVER.md`, "Play it interactively"); `PLAY_AUDIO=0`
+turns it off. Limits: the picture is JPEG-compressed, so it is for trying the game,
+not for recording. On your own Linux box with a GPU, the native
 route is `linux/install.sh` + `linux/run.sh` (no container).
 
 ## Checking a build without the game
