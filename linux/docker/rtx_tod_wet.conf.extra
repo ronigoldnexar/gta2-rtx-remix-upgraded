@@ -1,0 +1,16 @@
+# NOT YET SEEN IN A FRAME: starting values; check with remix_post.py (docs/remix-materials.md).
+# Weather overlay: wet street at night (game clock 22:30). Global roughness down so the
+# paving and the road mirror the neon and the lamps, rain falling, denser air.
+# Global: walls and cars get glossier too (a road-only wet layer needs the tile
+# materials, VISUALS-REMIX's maps).
+rtx.atmosphere.aerosolDensity = 1.6
+rtx.atmosphere.sunsetSaturation = 1.0
+rtx.atmosphere.sunShadowSoftnessDeg = 0.4
+rtx.atmosphere.nightSkyBrightness = 0.008
+rtx.volumetrics.transmittanceMeasurementDistanceMeters = 140
+rtx.volumetrics.transmittanceColor = 0.91, 0.92, 0.95
+rtx.volumetrics.anisotropy = 0.55
+rtx.volumetrics.fogSunVisibilityGain = 1
+rtx.opaqueMaterial.roughnessScale = 0.45
+rtx.opaqueMaterial.roughnessBias = -0.05
+rtx.weather.precipitation.intensity = 0.5

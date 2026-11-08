@@ -1,0 +1,16 @@
+# NOT YET SEEN IN A FRAME: starting values; check with remix_post.py (docs/remix-materials.md).
+# Time-of-day overlay: noon (game clock 12:30, sun ~50 deg). Append after
+# rtx_play.conf.extra or rtx_showcase.conf.extra. Every rtx_tod_* file sets the same
+# keys, so pushing one live (devtools remix_config) fully replaces another.
+# Clear air (less aerosol haze: the day was washed out), slightly soft sun shadows.
+rtx.atmosphere.aerosolDensity = 0.7
+rtx.atmosphere.sunsetSaturation = 1.0
+rtx.atmosphere.sunShadowSoftnessDeg = 0.4
+rtx.atmosphere.nightSkyBrightness = 0.008
+rtx.volumetrics.transmittanceMeasurementDistanceMeters = 2000
+rtx.volumetrics.transmittanceColor = 0.995, 0.995, 0.995
+rtx.volumetrics.anisotropy = 0.3
+rtx.volumetrics.fogSunVisibilityGain = 1
+rtx.opaqueMaterial.roughnessScale = 1
+rtx.opaqueMaterial.roughnessBias = 0
+rtx.weather.precipitation.intensity = 0
