@@ -681,7 +681,42 @@ def play_bil_re2(entry):
             return o
     return "timeout"
 
-PLAYS = {"ste_re1": play_ste_re1, "bil_re2": play_bil_re2}
+def play_ste_re2(entry):
+    """DOUBLE-CROSS CRUSH! (Rednecks, ste_re2.mis): a Zaibatsu Z-Type (model 70) stolen, the
+    Scientists' zone (arrow 227.5,217.5): 50 Scientists (remap 7) run over with it under the
+    game's BY_VEHICLE bonus count (brief 2026 starts it, 2028 passes it, 2037 fails it); then a
+    Stratos-B (model 48) to the Zaibatsu zone (199,25.5) and 50 Zaibatsu (remap 8) the same way
+    (2033 / 2035); 2999 Mission Complete. The targets come from the renderer's 'view: peds'
+    line (PLAYTHROUGH-9)."""
+    money0 = money()
+    stages = [dict(model=(70,), remaps=(7,), zone=(227.5, 217.5), done=("2028",), name="Scientists",
+                   search=[(199.0, 25.5), (180.5, 40.5), (215.5, 60.5), (160.5, 20.5)]),
+              dict(model=(48,), remaps=(8,), zone=(199.0, 25.5), done=("2035", "2999"), name="Zaibatsu",
+                   search=[(199.0, 25.5), (180.5, 40.5), (215.5, 60.5), (227.5, 217.5)])]
+    fail = ("2037", "2998", "2025", "2032")
+    for k, st in enumerate(stages):
+        for attempt in range(6):
+            M.mark(f"stage {k+1}: a model {st['model']} for the {st['name']}")
+            s = M.steal_model(world, st["model"], st["search"], budget=900, view_switch=view_switch)
+            if not (s and s["driving"] and s.get("cmodel") in st["model"]):
+                return "no car"
+            M.shot(f"{entry['mission']}_car{k+1}")
+            M.mark(f"stage {k+1}: to the {st['name']} zone {st['zone']}")
+            s = M.drive3(world, st["zone"][0], st["zone"][1], tol=6.0, budget=600, view_switch=view_switch)
+            r, kills = M.run_over(world, st["remaps"], st["done"], fail, st["zone"], money0, secs=1500, view_switch=view_switch)
+            M.mark(f"stage {k+1}: run_over {r}, {kills} counted"); M.shot(f"{entry['mission']}_stage{k+1}_{r}")
+            if r == "done": break
+            if r == "failed": return "failed"
+            out, ms = M.outcome(money0)
+            if out not in ("running",): return out
+            # on foot or a burning car: another car of the model (the bonus keeps its count)
+        else:
+            return "gave up"
+    o, ms = M.wait_outcome(money0, 30)
+    M.shot(f"{entry['mission']}_end")
+    return o
+
+PLAYS = {"ste_re1": play_ste_re1, "bil_re2": play_bil_re2, "ste_re2": play_ste_re2}
 
 results = {}
 for name in wanted:

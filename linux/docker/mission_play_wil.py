@@ -50,6 +50,7 @@ def walk(tx, ty, tl=None, tol=0.5, budget=300, fp_secs=12):
     return M.walk3(world, tx, ty, tl, tol=tol, budget=budget)
 
 TITLES = {m["plan"][0].get("display_message"): m for m in []}
+KILL_BRIEFS = {"1665"}   # briefs that ask for the marked characters dead
 def answer(entry):
     """walk onto the phone and watch the message buffer closely: the job's title
     (19xx) flashes for a few seconds; the gang's refusals are 10xx"""
@@ -175,16 +176,19 @@ def settle(x, y, msg0, secs=25, money0=None):
         nudge_to(x + off[0], y + off[1], tol=0.08, tries=10); time.sleep(1.2)
     return False
 
-def creep_in(x, y, msg0, money0, secs=50):
+def creep_in(x, y, msg0, money0, secs=50, w=2.4, h=0.7, until_inside=False):
     """nose the car into a narrow block (a garage door) with short pulses,
-    straightening toward it; stops when the game reacts or the car is inside"""
+    straightening toward it; stops when the game reacts or the car is inside
+    (until_inside: return as soon as it is inside the w x h box)"""
     t0 = time.time(); k = 0
     while time.time() - t0 < secs:
         s = D.wait_state()
         if not s or not s["driving"]: return s
         ms = M.mission_state()
         if ms and (ms["msg"] != msg0 or ms["money"] >= money0 + 5000): return s
-        if abs(s["y"] - y) < 0.35 and abs(s["x"] - x) < 1.2: time.sleep(2); continue
+        if abs(s["y"] - y) < max(0.2, h / 2 - 0.15) and abs(s["x"] - x) < max(0.3, w / 2 - 0.3):
+            if until_inside: hold("space", 0.3); return s
+            time.sleep(2); continue
         hx, hy = M.heading(s); dx, dy = x - s["x"], y - s["y"]
         a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
         if abs(a) > 0.5 and math.hypot(dx, dy) > 0.8:
@@ -227,7 +231,16 @@ TIMED = {"wil_ze2"}
 GUN_FIRST = {"wil_le2"}   # jobs that end with a car to wreck: armed before the phone   # jobs on a DISPLAY_TIMER (WHEELER-DEALING: 180 s for four dealers): full driving speed
 
 def run_plan(entry):
-    plan = entry["plan"]; car_at = None; last_target = None; left_car = None
+    plan = entry["plan"]; car_at = None; last_target = None; left_car = None; last_box = [None]
+    def back_to_box(s):
+        """PLAYTHROUGH-9: back into the last LOCATE box, the box's own size (GET ZITZAKI's
+        horn box at the hospital is 3 x 1: a stop within a block of its centre was outside it,
+        and the doctor never came, pt9_wil1/2)"""
+        s = M.drive3(world, last_target[0], last_target[1], tol=1.0, budget=45, slow=True, precious=True)
+        if last_box[0] and s and s["driving"]:
+            bx, by, bw, bh = last_box[0]
+            s = creep_in(bx, by, (M.mission_state() or {}).get("msg"), money0, secs=25, w=bw, h=bh, until_inside=True)
+        return s
     timed = entry.get("mission") in TIMED
     if timed:
         # PLAYTHROUGH-7: twice the pace of pt6_ze2c (1.3-1.6 blocks/s): no speed cap on the
@@ -238,7 +251,20 @@ def run_plan(entry):
         M.CORNER_V = (float(os.environ.get("RACE_TURN_V", "2.6")), float(os.environ.get("RACE_BRAKE_K", "1.2")))
         M.RACE[0] = True; M.RACE_TURN_V = M.CORNER_V[0]; M.LEAVE_WAIT[0] = 1.0
     money0 = (M.mission_state() or {}).get("money", 0)
+    def kill_if_asked():
+        """PLAYTHROUGH-9: a brief that asks for the marked characters dead (BANK ROBBERY's 1665,
+        "Hiroshi will not come out until the two City Bank Guards are out of the way") with
+        character arrows up: shoot them now, whatever step the plan has reached (the game shows
+        1665 a minute after the bank box, after 1658/1659; pt9_wil5's plan was already past the
+        counter step and drove to the safehouse)"""
+        ms_ = M.mission_state() or {}
+        if ms_.get("msg") in KILL_BRIEFS and M.char_arrows():
+            M.mark(f"brief {ms_.get('msg')}: shoot the {len(M.char_arrows())} marked characters")
+            r_ = M.shoot_chars(world, money0, secs=300); say("shoot_chars:", r_)
+            return True
+        return False
     for step in plan:
+        kill_if_asked()
         if "car" in step:
             car_at = step["at"]; say("plan: mission car", step["car"], "at", car_at); continue
         if "wait" not in step: continue
@@ -445,7 +471,7 @@ def run_plan(entry):
             M.mark(f"by car to {x},{y}")
             if not s["driving"] and car_at:
                 s = M.enter_car3(world, car_at[0], car_at[1], budget=120)
-            tol = max(0.5, min(w, h) * 0.45); last_target = (x, y)
+            tol = max(0.5, min(w, h) * 0.45); last_target = (x, y); last_box[0] = (x, y, w, h)
             msg0 = (M.mission_state() or {}).get("msg")
             if h < 1.5:
                 # a narrow strip (a garage door): approach from the open side, then creep in
@@ -476,9 +502,9 @@ def run_plan(entry):
             M.mark("horn")
             msg0 = (M.mission_state() or {}).get("msg")
             for k in range(8):
-                if last_target and s and math.hypot(last_target[0] - s["x"], last_target[1] - s["y"]) > 1.3:
+                if last_target and s and (math.hypot(last_target[0] - s["x"], last_target[1] - s["y"]) > 1.3 or (last_box[0] and not M.inside_box(s, *last_box[0]))):
                     say("horn: back to the spot first")
-                    s = M.drive3(world, last_target[0], last_target[1], tol=1.0, budget=45, slow=True, precious=True)
+                    s = back_to_box(s)
                 M.horn(2); time.sleep(2.0)
                 ms = M.mission_state(); s = D.wait_state()
                 if ms and ms["msg"] not in (msg0, "1648"): break
@@ -492,11 +518,12 @@ def run_plan(entry):
             t0 = time.time(); m_start = (M.mission_state() or {}).get("msg")
             while time.time() - t0 < 60:
                 time.sleep(2); o, ms = M.outcome(money0)
+                if kill_if_asked(): t0 = time.time()
                 if o != "running": return o
                 cur = M.mission_state()
                 if cur and cur["msg"] in ("1648", "7007"):
                     say("objective: told to go back; re-approaching and horning")
-                    if last_target: s = M.drive3(world, last_target[0], last_target[1], tol=1.0, budget=45, slow=True, precious=True)
+                    if last_target: s = back_to_box(s)
                     M.horn(2); time.sleep(2)
                 elif cur and cur["msg"] != m_start: break
         elif "HAS_PARK_FINISHED" in cond:
@@ -548,7 +575,13 @@ def run_plan(entry):
             say("plan: briefs on screen, waiting for the mission arrow")
             t1 = time.time()
             while time.time() - t1 < 120 and M.objective() is None: time.sleep(0.5)
-            say(f"plan: arrow after {time.time()-t1:.0f}s: {M.objective()}")
+            # PLAYTHROUGH-9: the arrow up first may still be the last step's (BANK ROBBERY: the
+            # car's arrow at the bank, then the two guards' arrows three seconds later with brief
+            # 1665; pt9_wil3 took the car arrow, moved on and drove to the safehouse with the
+            # guards standing): wait a little for character or point arrows
+            t2 = time.time()
+            while time.time() - t2 < 20 and not M.char_arrows() and not (M.objective() and M.objective()[3] == 1): time.sleep(0.5)
+            say(f"plan: arrow after {time.time()-t1:.0f}s: {M.objective()} (character arrows {len(M.char_arrows())})")
             if M.char_arrows():
                 # PLAYTHROUGH-8: a kill counter with the arrows on characters: shoot them
                 M.mark(f"shoot the {len(M.char_arrows())} marked characters")
@@ -556,6 +589,7 @@ def run_plan(entry):
             elif M.objective() and M.objective()[3] == 1:
                 M.follow_arrow(world, money0, view_switch=view_switch)
         elif "CHECK_HEADS" in cond:
+            kill_if_asked()
             say("plan: a fight is expected; following the arrow")
             if not M.follow_arrow(world, money0, view_switch=view_switch): time.sleep(30)
         else:

@@ -504,3 +504,91 @@ Part 7.
   (pt8_ste3); no runner (pedestrians to run over by gang, which the mission line does not give).
 - **BLOW JOB**: stage 1 now parks and arms on the line-up (pt8_ste2); stage 2 lost to a pinned
   Pickup on the way to the barricade; completed once in pt7_ste5.
+
+## Missions, 8 Nov 2026 (PLAYTHROUGH-9, `pt9_bil*`, `pt9_ste*`): the smooth driver on the Z-Type
+
+Same runner (`gamerun/mission_play_districts.py`, `mission_lib.py`, mirrored in `linux/docker/`),
+`GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1`, `FPS=0`, `GTA2DX9_STATE_EVERY=5`, devtools F9/F11, private
+stage `stage_pt9` (the renderer with the new `view: peds` / `view: cars` lines). The engineering
+of this pass (the ped and car lines, the smooth driver and its wall-hit bench, the router under
+Industrial's pipe bridges) is described in `playthrough-downtown.md` Part 8; every car below is
+driven by `drive3_smooth`.
+
+### What the RUSSIAN SAILORS runs showed, and what changed
+
+Each session found one more way to lose the Z-Type, and each was fixed for the next (the fixes
+are the driver's, listed in Part 8):
+
+| session | reached | lost because | fixed by |
+|---|---|---|---|
+| pt9_bil1 | phone, Z-Type | backed out of its alley facing south, it crept back into the alley turning toward the route and scraped its east wall ten times (x=48.7: the path ran on the cell centres, 48.5); then a police car rammed it 20 blocks along the road; alight before dealer 1 | lane points off walls (`lane_points`), a reverse turn when the cell ahead of the nose is not drivable (`blocked_ahead`) |
+| pt9_bil2 | **dealers 1, 2 and 3 aboard** (carhp 25000 at dealer 2) | came off the Power Cores ramp at 3.3 blocks/s with a target of 1.3 and hit the deck's walls six times (-7000); alight leaving dealer 3 | `RAMP_CAP` 1.6, firmer braking |
+| pt9_bil3 | dealer 1 | 37 blocks blind with the throttle held while the first-person stretch switched back to the chase view; then slid 1.5 blocks past the dealer-2 stop at 2 blocks/s and ran the dealer over (3730, JOB FAILED) | views change only from a stop; a walk over a precise stop's last blocks; stop for a marked character ahead |
+| pt9_bil4 | dealer 1 | circled the dealer-2 stop with three-point turns and reversed into the dealer (knocked down, 3730) | arrival beside a marked character; no reversing within 2.5 of him |
+| pt9_bil5 | dealer 1 (alight) | a jam on column 131: stopped in the queue, every back-off reversed into the car behind (-12000) | `car_behind`; a stall only counts with the throttle on |
+| pt9_bil6 | phone, Z-Type | nose-on to a gridlocked queue at 77.5,53.7 for two minutes, the same re-route every 4 s | gridlock escape (the band ahead off the route, back away); traffic ahead ignored while turning away from it |
+| pt9_bil7 | dealer 1 | the arrival rule (a marked character within 2.6) stopped the car 2.2 from the dealer-2 stop, outside his 1.5 passenger box: "not coming" for minutes | arrival only within 1.3 of him on each axis |
+| pt9_bil8 | (alight before dealer 1) | 3.2 blocks/s against a cap of 2.0: the speed estimate (wall time x 2) was low on a loaded host, the throttle held through a steering pulse | the renderer's frame-based speed, throttle pulses near a slow cap |
+| pt9_bil9 | dealers 1 and 2 aboard | 45 blocks straight up column 18 at full throttle during one re-route (the router takes 1-2 s for 250 cells) | keys up before every re-route |
+| pt9_bil10 | phone, Z-Type | 4.9 blocks/s against 1.0: four log reads per control step made it 0.3-0.5 s long | one shared log read per step (`D.log_tail`) |
+| pt9_bil11/12 | phone | the two door tries at the Z-Type failed and the reported F9 warp put him in a passing car (bil11 a police car, which then had no arrow to follow: the runner waited for one) | not fixed (see Status) |
+| pt9_bil13 | **dealers 1 and 2 aboard** | carhp 17600 at the Power Cores approach from traffic on the dealer-1 and dealer-2 legs (pile-ups at junctions, cars ramming a car standing in a queue); alight at dealer 3 | sandwiched in a queue: off the throttle instead of pushing |
+| pt9_bil14 | phone, Z-Type (28200 at dealer 1) | 2.4 from the dealer-1 stop with the dealer in front of the car, the no-reversing rule kept it there for minutes ("not coming") | no reversing only with the marked character behind the car |
+| pt9_bil15 | (walker) | every developer warp read "no devtools line": the warp counted devtools lines in the last 60 KB of the log, which the new peds/cars lines made two seconds long | the warp reads the lines after the log offset it noted before the key |
+| pt9_bil16 | **dealers 1 and 2 aboard** (carhp 20100 leaving dealer 2) | traffic hits on the dealer-1 leg (28000 at dealer 1) and the Power Cores approach; alight before dealer 3 | |
+
+(The runner's "boarded after 0s" lines after a car is left burning are not boardings: the stage
+counter moves on when the arrow goes from the dealer; only "after 3s" lines with the 35xx brief
+are. Counted that way, the best sessions got dealers 1-3 (pt9_bil2) and 1-2 (bil9, bil13, bil16).)
+
+The `view: peds` line is what the dealer fixes stand on: the dealer is the ped the kind-2 arrow
+marks (`797:civ/zaibatsu:8:3:46.00,187.00,2.00:7:14:100:-:a12` at dealer 2, pt9_bil4).
+
+### The other Residential and Industrial jobs
+
+- **BLOW JOB** (pt9_ste1, pt9_ste5). pt9_ste1: the first smooth-driver version circled the
+  line-up point for 80 s (tol 0.9; fixed: within 2 blocks for 6 game seconds is arrival, the creep
+  places the car), the Pickup then stood at 48.09,20.67 in the 3 x 1 trailer block with the game
+  saying 2004 "get back and park"; the runner did not fire, the arrow went back to the Pickup (2008)
+  and the runner took it for stage 2's: it drove the stage-1 Pickup to the barricade block
+  (110.1,77.6), pressed against the barricade, backed off and put the block's cells on the avoid
+  list, and the re-route drove off across the district until the Pickup burned, 2998 (fixed:
+  pressing or stalling within 2.5 of the goal is arrival). pt9_ste5: **stage 1 complete** (parked by
+  the line-up 2005, armed 2006, blown in the block, 2012 stage 2), then the second Pickup (a `CREATE_GANG_CAR` at 24.0,44.5) was not at its spawn
+  when the runner came for it (the Rednecks in the area drove Pickups off; the arrow on it was not
+  a kind-3 arrow, so `tcar` gave nothing), the F9 warp took a passing car, and that car took a 6400
+  hit at 35.6,32.6 and burned.
+- **DOUBLE-CROSS CRUSH** (`ste_re2`) now has a runner (`play_ste_re2`, `M.steal_model`, `M.run_over`):
+  the script (`ste_re2.mis`) wants a Z-Type (model 70) stolen, then the Scientists' zone (arrow
+  227.5,217.5) and `START_BONUS_CHECK(sciegang, 65535, 50, 0, CHAR, NOT_EXCLUSIVE, BY_VEHICLE, VTYPE,
+  sciegang, 7)`: 50 peds of remap 7 run over with that model (the on-screen counter is 50 minus the
+  count), then a Stratos-B (model 48) and 50 Zaibatsu (remap 8) in theirs. `steal_model` finds the
+  model in `view: cars` and walks to it (Return beside an occupied car pulls the driver out);
+  `run_over` drives at the nearest live ped of the remap on foot at the car's level with a clear line
+  to him (`view: peds`), counts the ones that go down, and tours road points round the zone centre
+  when none is in reach.
+
+### Status (PLAYTHROUGH-9)
+
+- **RUSSIAN SAILORS: not completed** in 16 sessions. Furthest: dealers 1-3 aboard (pt9_bil2);
+  dealers 1-2 in bil9, bil13, bil16 with the final driver. The driver no longer scrapes walls on
+  its own (0 wall hits per 100 blocks on the Downtown bench) and the route is shorter (under the
+  pipe bridges: about 1030 blocks for the whole job), but the Z-Type still loses 4000-8000 carhp per
+  leg to traffic: other cars hitting it while it waits in a queue or at a junction pile-up, and
+  being pushed. At the 2.0-2.6 cap the legs take 2-4 minutes each, and the car is alight before
+  dealer 3 or 4. What would finish it: routes that avoid the queues (a cost for cells where the
+  cars line showed standing traffic), or a respray, which needs money this early.
+- **BLOW JOB: stage 1 complete again** (pt9_ste5: line-up, park, arm, blast in the block, 2012);
+  stage 2 not reached the barricade: the second Pickup was gone from its spawn when the runner
+  came for it (a Redneck gang car, driven off), and the borrowed car burned. Completed once
+  (pt7_ste5).
+- **DOUBLE-CROSS CRUSH: runner written, not completed.** Phone answered (2803) in pt9_ste2/3/4/6;
+  `view: cars` finds Z-Types (model 70, driven by `gang/zaibatsu`) every few minutes round the
+  Zaibatsu zone, but the jack never happened: the Z-Types drive on before the walk reaches them, and
+  the borrowed cars touring the zone took 2000-5000 a hit standing there (gang gunfire or blasts)
+  and burned. The run-over stage (50 Scientists, then 50 Zaibatsu) was not reached.
+- **HOT DOG HOMICIDE**: not attempted (needs RUSSIAN SAILORS first or its refusal).
+- Runner fixes of this pass besides the driver: `steal_model` walks to a model within 14 blocks
+  and walks toward its search points when on foot; `drive_watch` is one watched drive (`until=`)
+  instead of 12-cell sub-goals (which sent the lane-aware router round blocks: 118 blocks for 12 in
+  pt9_ste3); the developer warp's devtools check reads from a log offset.

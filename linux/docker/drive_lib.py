@@ -29,12 +29,28 @@ def hold(key, t): xdo("keydown", key); time.sleep(t); xdo("keyup", key)
 def shot(name): subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-video_size", "1280x720", "-i", ":99", "-frames:v", "1", f"{OUT}/drv_{name}.png"])
 def say(*a): print(time.strftime("%H:%M:%S"), *a, flush=True)
 
+_TAIL = [0.0, ""]
+def log_tail(max_age=0.03):
+    """the last 120 KB of the renderer's log, read at most once per `max_age` wall seconds
+    (PLAYTHROUGH-9: the smooth driver reads the player, mission, peds and cars lines every
+    step; four separate reads made a control step 0.3-0.5 s long)"""
+    now = time.time()
+    if now - _TAIL[0] > max_age:
+        try:
+            with open(LOG, "rb") as f:
+                f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 120000)); _TAIL[1] = f.read().decode("latin-1")
+        except OSError:
+            _TAIL[1] = ""
+        _TAIL[0] = now
+    return _TAIL[1]
+
 def state():
-    try:
-        with open(LOG, "rb") as f:
-            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 20000)); tail = f.read().decode("latin-1")
-    except OSError:
-        return None
+    tail = log_tail()
+    if not tail: return None
+    k = tail.rfind("view: player x=")
+    if k < 0: return None
+    k2 = tail.rfind("view: player x=", 0, k)      # the one before too: the last may be half written
+    tail = tail[max(0, (k2 if k2 >= 0 else k) - 10):]
     m = None
     for m in LINE.finditer(tail): pass
     if not m: return None
@@ -144,3 +160,74 @@ def straighten(path):
         if (b[0] - a[0], b[1] - a[1]) != (c[0] - b[0], c[1] - b[1]): out.append(b)
     out.append(path[-1])
     return out
+
+# ---------------------------------------------------------------- the smooth driver (PLAYTHROUGH-9)
+# The wall-aware driver (mission_lib.drive3) aimed at straightened legs: a leg from cell
+# centre to cell centre with 0.45 blocks of clearance, a crawl into every corner and a
+# heading controller that pulsed the wheel toward the next corner. The Industrial legs
+# showed what that costs a fragile car: the legs run along the walls (a straight line
+# between two corners of a road is free to hug one side), the corner is entered with the
+# nose already turned in, and every scrape is a few hundred carhp. Here the car follows
+# the route's own cells (each road cell's centre is its lane centre: GTA2 roads are one
+# cell per lane) with pure pursuit on a path resampled every 0.25 blocks, and its speed
+# comes from the turns ahead: the sharpest heading change within the braking distance
+# sets the speed it may carry into it.
+STEP = 0.25           # resampling step, blocks
+ACCEL_BRAKE = 2.2     # blocks/s^2 the speed profile assumes the car can shed (measured braking ~3)
+
+def dense_path(points, step=STEP):
+    """a polyline (cell centres) resampled every `step` blocks"""
+    out = [points[0]]
+    for (ax, ay), (bx, by) in zip(points, points[1:]):
+        n = max(1, int(math.hypot(bx - ax, by - ay) / step + 0.5))
+        for k in range(1, n + 1): out.append((ax + (bx - ax) * k / n, ay + (by - ay) * k / n))
+    return out
+
+def path_headings(P, span=4):
+    """the path's heading at each sample (over `span` samples ahead)"""
+    h = []
+    for j in range(len(P)):
+        a, b = P[min(j, len(P) - 2)], P[min(len(P) - 1, j + span)]
+        h.append(math.atan2(b[1] - a[1], b[0] - a[0]) if (a != b) else (h[-1] if h else 0.0))
+    return h
+
+def wrap(a):
+    while a > math.pi: a -= 2 * math.pi
+    while a < -math.pi: a += 2 * math.pi
+    return a
+
+def nearest_index(P, j0, x, y, window=48):
+    """the sample nearest (x,y) at or after j0 (searched a few blocks ahead), and its distance"""
+    best, bj = 1e9, j0
+    for j in range(max(0, j0 - 4), min(len(P), j0 + window)):
+        d = (P[j][0] - x) ** 2 + (P[j][1] - y) ** 2
+        if d < best: best, bj = d, j
+    return bj, math.sqrt(best)
+
+def turn_speed(angle, cap):
+    """the speed a car may carry through a heading change of `angle` radians over 2 blocks:
+    a right-angle street corner at 1.3 blocks/s (the GTA2 cars slide wide above ~2), a
+    gentle bend nearly at the cap"""
+    if angle < 0.12: return cap
+    return max(1.1, min(cap, 1.3 + (cap - 1.3) * max(0.0, 1.0 - angle / 1.2) ** 1.5))
+
+def speed_target(P, H, j, cap, end_tol=1.0, look=14.0, final=True):
+    """the profile speed at sample j: every turn ahead within `look` blocks, and the goal
+    (when `final`), limit it by v^2 = v_turn^2 + 2 a s"""
+    vt = cap
+    n = len(P); w = int(2.0 / STEP)
+    for m in range(j, min(n - 1, j + int(look / STEP))):
+        s = (m - j) * STEP
+        ang = abs(wrap(H[min(n - 1, m + w)] - H[m]))
+        if ang < 0.12: continue
+        vt = min(vt, math.sqrt(turn_speed(ang, cap) ** 2 + 2 * ACCEL_BRAKE * max(0.0, s - 0.5)))
+    if final:
+        left = (n - 1 - j) * STEP - end_tol
+        vt = min(vt, max(0.9, math.sqrt(2 * ACCEL_BRAKE * max(0.0, left)) * 0.8))
+    return vt
+
+def lookahead(P, j, v):
+    """the pursuit point: 1.3 blocks ahead at a crawl, up to 3 at speed (the car rounds a
+    corner inside the road's cells instead of cutting it)"""
+    L = min(3.0, 1.3 + 0.32 * max(0.0, v))
+    return P[min(len(P) - 1, j + int(L / STEP))]

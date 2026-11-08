@@ -440,3 +440,128 @@ having lost 15 s at the first dealer the same way.
   (`M.follow_arrow`: BANK ROBBERY's respray shop); a passenger step re-enters the marked car first
   when the player is on foot. The respray itself costs money (`playthrough-districts.md`,
   pt8_respray2: no repair with $20); BANK ROBBERY pays $5,000 for it first.
+
+## Part 8 (8 Nov 2026, PLAYTHROUGH-9): targets from the game's own lists, a smoother driver
+
+Sessions `pt9_*`, `GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1`, `FPS=0`, `GTA2DX9_STATE_EVERY=5`, devtools
+F9/F11, private stage `stage_pt9` (the shared renderer plus this pass's `world_view.cpp`).
+
+### Engineering
+
+**Ped and car log lines.** The renderer now logs `view: peds` and `view: cars` every 10 frames:
+every ped within 24 blocks (from the game's ped pool at `[0x5E5BBC]`, so peds in cars and peds
+behind the camera are there) with his position, gang/remap, occupation, state, health, the car he
+is in and the objective arrow that marks him; every car within 30 blocks with its model,
+position, heading, speed, carhp, fire, driver and arrow. Format and fields in `actions-3d.md`,
+"Ped and car log lines"; parsed by `M.peds()` / `M.cars()`. Verified in play: the RUSSIAN
+SAILORS dealer stands in the line as `797:civ/zaibatsu:8:3:46.00,187.00,2.00:7:14:100:-:a12`
+(arrow slot 12 marks him; pt9_bil4), the Zaibatsu in Downtown carry remap 8, the cops in their
+car show `cop/police:0:24:...:m12`, the mission car shows `a<slot>` in the cars line, and the
+player's own car is `P` with a speed in blocks per game second from the frame count.
+
+**The smooth driver** (`drive_lib.py`: `dense_path`, `speed_target`, `lookahead`;
+`mission_lib.drive3_smooth`, now what `drive3` runs, `DRIVER=classic` for the old one):
+
+- the car follows the route's own cells (a GTA2 road is one cell per lane), resampled every 0.25
+  blocks, with pure pursuit (look-ahead 1.3 blocks at a crawl to 3 at speed) instead of
+  straightened legs from corner to corner; a lane point moves 0.38 off a wall or a drop beside its
+  cell when the other side is open (`lane_points`), one-cell jogs of the lane-aware router are
+  dropped (`unjog`);
+- the speed comes from the turns ahead: the sharpest heading change within the braking distance
+  sets what the car may carry into it (`v^2 = v_turn^2 + 2 a s`, a right angle at 1.3 blocks/s),
+  1.6 on and before a ramp, 1.9 for a fragile car beside a wall, a walk over the last blocks of a
+  precise stop;
+- traffic from `view: cars`: a car in the lane ahead within the braking distance sets the speed
+  (its own plus the gap beyond 1.9 blocks), a crossing car whose path meets ours within 2.5 s
+  stops us short, a parked car (no driver) in the lane is routed round at once, a car standing
+  for 5 s is routed round, and a third time at the same spot is gridlock (the band ahead off the
+  route, back away); no reversing into a car behind (`car_behind`);
+- after a hit (carhp down 250 in a sample) the car is held at 1.6 for 3 s and a fragile car's cap
+  drops 0.3; a car pressed against something with the throttle on (250 lost on the spot) backs
+  off toward the route, and pressing at the goal is arrival;
+- peds from `view: peds`: a carjacker on foot near a slow car (robbed drivers, muggers, car
+  thieves, the police when wanted) keeps it rolling at 2.4 and holds off the view changes; a
+  marked character (a dealer being picked up) in front of the nose stops the car, a car within
+  1.3 of him on each axis has arrived, and it never reverses toward him;
+- the throttle in short pulses near a slow cap; the keys released before a re-route and before a
+  view change (a route of 250 cells takes the router 1-2 s, and with the throttle held the car ran
+  on blind: 45 blocks up column 18 in pt9_bil9); the speed taken from the renderer's frame-based
+  value (wall time times `GTA2_SPEED` overstated the game time on a loaded host); one shared read
+  of the log tail per step (`D.log_tail`: four reads of 60-120 KB made a step 0.3-0.5 s long).
+
+**Wall hits on a fixed route** (`gamerun/drive_bench.py`, `keys_drive_bench.sh`, Downtown: a car
+from the kerb, then the measured route from the level-3 ramp at 246.5,130.5 to the WHEELER-DEALING
+lane stops 215.5,209.3 and 168.5,123.2; every carhp loss of 250 or more is a hit, a car contact
+when another car stood within 2.4 blocks, a wall hit otherwise; `out/<run>/bench.json`, a frame per
+hit):
+
+| run | driver | blocks | wall hits | car contacts | hits per 100 blocks | fire | time (game s, wall x 2) |
+|---|---|---|---|---|---|---|---|
+| pt9_bench_classic1 | drive3 (PLAYTHROUGH-8) | 303.1 | 1 | 8 | 2.97 (walls 0.33) | no | 165 |
+| pt9_bench_classic2 | drive3 (PLAYTHROUGH-8) | 324.6 | 3 | 6 | 2.77 (walls 0.92) | no | 215 |
+| pt9_bench_smooth1 | first smooth version (no traffic) | 308.5 | 3 | 12 | 4.86 | no | 161 |
+| pt9_bench_smooth2 | + traffic ahead | 413.9 | 0 | 3 | 0.72 | no | 350 |
+| **pt9_bench_smooth3** | + crossing traffic | **305.1** | **0** | **0** | **0** | no | 202 |
+| **pt9_bench_smooth4** | final (all of the above) | **312.0** | **0** | **0** | **0** | no | 167 |
+
+The classic driver's hits were the pavement and building fronts at the corners
+(`out/pt9_bench_classic2/m_hit07-09_wall.png`: the pickup up on the pavement against a door) and
+traffic it drove into; the final smooth driver drove both 300-block runs without a scrape, as fast
+or faster. On the missions the same driver still loses carhp to traffic that hits a car standing in
+a queue or a pile-up at a junction (`out/pt9_ste5/shot_095.png`: the Residential junction by the
+spawn) and to gang members' and police cars ramming it; those are not wall hits and the bench does
+not measure them.
+
+**The car router went round Industrial's pipe bridges.** `node_kind` took a lid one level up as a
+solid block over the cell, and Industrial has elevated pipes over its roads (column 75 and column 62:
+a field lid at level 2 with no faces, walls at level 3, the lane arrows running under them). Every
+road under them was a wall to the router: the RUSSIAN SAILORS dealer-4 leg went round a 358-block
+loop (PLAYTHROUGH-8 put it down to the embankment at rows 158-166, which the road at columns 68-71
+passes under). A road cell under a lid with no faces at all is now open: dealer 4 from the Power
+Cores is 252 blocks (387 before), the whole run (alley, four dealers, crane) about 1030.
+
+### Runner changes (Downtown)
+
+- `M.shoot_chars` aims at the marked characters as `view: peds` has them (only while they stand),
+  and a gun in the inventory is selected (X) before any trip to a pickup (`select_gun`: pt9_wil4
+  came out of the car with an empty hand and 990 machine-gun rounds and drove 172 blocks to a
+  pickup in the middle of the guard fight).
+- A counter step waits up to 20 s for character or point arrows after the first arrow (BANK
+  ROBBERY: the car's arrow at the bank comes first, the two guards' arrows three seconds later
+  with brief 1665; pt9_wil3 took the car arrow and drove to the safehouse with the guards alive).
+- The re-approach to a horn box uses the box's own size (`back_to_box`, `creep_in(w, h)`): GET
+  ZITZAKI's hospital box is 3 x 1 (`LOCATE_CHARACTER_BY_CAR(p1, 50.5, 178.5, 2.0, 3.0, 1.0)`), and a
+  stop within a block of its centre was outside it (pt9_wil1/2: "Get back there and sound the
+  horn!" for minutes, the doctor never came).
+
+### Runs (part 8)
+
+Contact sheet of this pass (both district docs): `out/playthrough_9_sheet.png` (bench frames
+classic vs smooth, the RUSSIAN SAILORS dealers, BLOW JOB stage 1, GET ZITZAKI complete, the BANK
+ROBBERY guards, DOUBLE-CROSS CRUSH, RADIO ZA-ZA).
+
+| session | jobs | outcome | what happened |
+|---|---|---|---|
+| pt9_wil1 | RADIO ZA-ZA, PIZZA CAKE, GET ZITZAKI, BANK ROBBERY | RADIO ZA-ZA failed, PIZZA CAKE refused (1104), GET ZITZAKI stopped | RADIO ZA-ZA's script sets `MAKE_ALL_CHARS_MUGGERS (ON)`: every ped is a mugger (occupation 40 in `view: peds`); pulled out 3 s into the drive with one 2.7 off (72.4,49.2), then killed. GET ZITZAKI: the 3 x 1 hospital box, re-approached to within a block of its centre for minutes, the doctor never came |
+| pt9_wil2 | RADIO ZA-ZA, GET ZITZAKI | failed; stopped | pulled out the same way at 72.7,48.3: the first-person view change at the start of the drive takes 3.4 s standing (fixed: no view change with a jacker within 12 blocks); the hospital box again (fixed: `back_to_box`) |
+| **pt9_wil3** | GET ZITZAKI, BANK ROBBERY | **GET ZITZAKI JOB COMPLETE** (501 s, +$20,000); BANK ROBBERY stopped | the Miura into the 3 x 1 box, horn, the doctor aboard (1639), the J-Lab garage: frame `out/pt9_wil3/m_wil_ye1_end.png`. BANK ROBBERY: the counter step took the car's arrow at the bank before the guards' arrows came and drove to the safehouse (fixed: wait for character arrows) |
+| **pt9_wil4** | same | **GET ZITZAKI complete** (671 s); BANK ROBBERY stopped | the guards' two arrows taken (`shoot the 2 marked characters`), but out of the car the hand was empty with 990 rounds in the inventory and the runner drove 172 blocks to a pickup; the shooting step ran out of time (fixed: `select_gun`) |
+| **pt9_wil5** | same | **GET ZITZAKI complete** (524 s); BANK ROBBERY stopped | 1665 came a minute after the bank box (after 1658, 1659), with the plan already past its counter step (fixed: `kill_if_asked` at every step) |
+| **pt9_wil6** | GET ZITZAKI, BANK ROBBERY, RADIO ZA-ZA | **GET ZITZAKI complete** (439 s); BANK ROBBERY failed; RADIO ZA-ZA failed | BANK ROBBERY: brief 1665 caught at the bank, the two guards found in `view: peds` (`1108:crim/police:0:33:185.50,174.50,3.00:...:a12` and `1109:...:a13`, on the bank's level-3 steps) and shot at on foot; the shooting raised wanted level 1 and he was arrested beside the bank (1125, lives unchanged: `HAS_CHAR_BEEN_ARRESTED`). RADIO ZA-ZA: the car took 8800 in one hit at 71.6,35.9 standing near the phone and burned; he died in it (1125) |
+| pt9_wil7 | RADIO ZA-ZA | failed | a jam at 77-81,36 a minute into the drive (two hits, back-off), and a mugger 0.9 blocks off pulled him out at 82.6,34.6 while the car stood |
+
+### Status after part 8
+
+- **GET ZITZAKI: JOB COMPLETE four times** (pt9_wil3/4/5/6) with the smooth driver (439-671 s);
+  frames `out/pt9_wil3/m_wil_ye1_end.png` (and the same name in wil4/5/6).
+- **BANK ROBBERY: not completed.** The runner now gets to the guard fight with the guards in hand
+  (their positions and arrow slots from `view: peds`, brief 1665 caught at any step), but shooting
+  them at the bank raises the wanted level and the police arrest him on the spot (pt9_wil6). What
+  would finish it: shoot from the car or from further off, or leave and come back once the level
+  drops; then the respray ($5,000 paid first) and the safehouse.
+- **RADIO ZA-ZA: not completed** this pass (three failures): with every ped a mugger, a car that
+  stops anywhere is lost; the keep-rolling rule helps only while the lane is open. pt9_wil6's
+  car also took 8800 in one hit at a standstill near the phone (a fire bomb or an explosion, not
+  identified in the log).
+- **The smooth driver** made the fixed 300-block route clean (0 hits in two runs, 2.8-3 hits per
+  100 blocks before) and is now the default (`DRIVER=classic` for the old one).

@@ -1489,6 +1489,268 @@ static bool ReadVehicleCondition(const void* vehicle, int* damage, int* hp, int*
     return ok;
 }
 
+// PLAYTHROUGH-9: the peds and cars round the player, for a script that has to aim at
+// them ("run over the gang members", "shoot the marked characters", "follow that car").
+//
+// The ped pool. Its layout is the one of the GTA2 decompilation (CriminalRETeam/gta2_re,
+// Char_Pool.hpp, Ped.hpp; built for a later exe, so its global addresses are not ours but
+// the structures are: its Car offsets +0x4C next, +0x50 sprite, +0x54 driver, +0x74 damage,
+// +0x84 model are the ones this renderer found by probing 9.6): a PedPool object whose +4
+// is the head of the live peds, chained through the ped's +0x160. Where 9.6 keeps the
+// pointer to that object is not known, so it is looked for once at run time: a word in the
+// exe's writable sections whose object's +4 chain reaches the player's own ped.
+// Ped fields used (Ped.hpp): +0x16C car, +0x17C gang, +0x200 id, +0x216 health,
+// +0x240 occupation, +0x244 remap (byte), +0x278/+0x27C state words.
+namespace {
+constexpr uintptr_t kPedNext = 0x160;
+constexpr uintptr_t kPedGang = 0x17C;
+constexpr uintptr_t kPedId = 0x200;
+constexpr uintptr_t kPedHealth = 0x216;
+constexpr uintptr_t kPedOccupation = 0x240;
+constexpr uintptr_t kPedRemap = 0x244;
+constexpr uintptr_t kCarId = 0x6C;
+uintptr_t g_pedPoolPtr = 0;      // address of the global that holds the PedPool*
+int g_pedPoolTries = 0;
+
+bool ChainReaches(uintptr_t pool, const void* target, int* count) {
+    bool hit = false;
+    int n = 0;
+    GTA2_TRY {
+        const uint8_t* p = *reinterpret_cast<const uint8_t* const*>(pool + 4);
+        for (; game::PlausiblePointer(p) && n < 260; ++n) {
+            if (p == target) hit = true;
+            p = *reinterpret_cast<const uint8_t* const*>(p + kPedNext);
+        }
+    } GTA2_EXCEPT { return false; }
+    *count = n;
+    return hit && n < 260;
+}
+
+void FindPedPool(const void* playerPed) {
+    if (g_pedPoolPtr || g_pedPoolTries > 6 || !game::PlausiblePointer(playerPed)) return;
+    ++g_pedPoolTries;
+    // 9.6: the PedPool* is at 0x5E5BBC (found by the scan below on 8 Nov, PLAYTHROUGH-9: pool
+    // object, free head at +0, live head at +4, Ped[200] from +8 at a stride of 0x294)
+    GTA2_TRY {
+        const uintptr_t d = *reinterpret_cast<const uintptr_t*>(0x005E5BBC);
+        const intptr_t off = reinterpret_cast<intptr_t>(playerPed) - static_cast<intptr_t>(d) - 8;
+        if (game::PlausiblePointer(reinterpret_cast<const void*>(d)) && off >= 0 && off % 0x294 == 0 && off / 0x294 < 200) g_pedPoolPtr = 0x005E5BBC;
+    } GTA2_EXCEPT { }
+    if (g_pedPoolPtr) { Log("view: peds: ped pool at 005E5BBC"); return; }
+    const uint8_t* exe = reinterpret_cast<const uint8_t*>(GetModuleHandleA(nullptr));
+    if (!exe) return;
+    const IMAGE_DOS_HEADER* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(exe);
+    const IMAGE_NT_HEADERS* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(exe + dos->e_lfanew);
+    const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+    int found = 0;
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
+        if (!(sec->Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+        const uintptr_t start = reinterpret_cast<uintptr_t>(exe) + sec->VirtualAddress;
+        const uintptr_t size = (std::max)(static_cast<uintptr_t>(sec->Misc.VirtualSize), static_cast<uintptr_t>(sec->SizeOfRawData));
+        for (uintptr_t a = start; a + 4 <= start + size; a += 4) {
+            const uintptr_t d = *reinterpret_cast<const uintptr_t*>(a);
+            if (!game::PlausiblePointer(reinterpret_cast<const void*>(d)) || (d >= start && d < start + size)) continue;
+            int n = 0;
+            if (!ChainReaches(d, playerPed, &n)) continue;
+            Log("view: peds: pool candidate at %08X -> %08X, %d live peds", static_cast<unsigned>(a), static_cast<unsigned>(d), n);
+            // a pool's peds are an array of 0x294-byte records from +8 (the player's own
+            // ped among them); a chain that merely passes through him is not the pool
+            const intptr_t off = reinterpret_cast<intptr_t>(playerPed) - static_cast<intptr_t>(d) - 8;
+            if (off < 0 || off % 0x294 != 0 || off / 0x294 >= 200) continue;
+            if (!g_pedPoolPtr) g_pedPoolPtr = a;
+            if (++found >= 4) break;
+        }
+    }
+    if (!g_pedPoolPtr) Log("view: peds: no ped pool found (try %d)", g_pedPoolTries);
+}
+
+const char* PedTypeName(const uint8_t* ped, int occupation) {
+    if (ped && game::PlausiblePointer(*reinterpret_cast<const void* const*>(ped + kPedGang))) return "gang";
+    switch (occupation) {
+        case 0: return "player";
+        case 24: case 29: case 37: case 46: return "cop";
+        case 25: case 30: return "swat";
+        case 26: return "fbi";
+        case 27: case 31: case 36: case 39: return "army";
+        case 23: case 38: case 47: return "emerg";
+        case 19: case 35: case 42: case 48: return "gang";
+        case 22: case 44: case 49: return "elvis";
+        case 15: case 40: return "mugger";
+        case 14: case 16: case 17: case 18: case 33: case 34: return "crim";
+        case 28: case 32: return "guard";
+        default: return "civ";
+    }
+}
+// The gang a remap is (docs/actions-3d.md, ACTIONS-3D-3: the remap table's types).
+const char* RemapName(int remap) {
+    switch (remap) {
+        case 0: case 1: return "police";
+        case 4: return "army";
+        case 5: return "redneck";
+        case 7: return "scientist";
+        case 8: return "zaibatsu";
+        case 9: return "krishna";
+        case 10: return "russian";
+        case 11: return "loony";
+        case 12: return "elvis";
+        case 13: return "yakuza";
+        case 14: return "fireman";
+        case 16: return "medic";
+        case 17: return "mugger";
+        case 22: return "prisoner";
+        default: return "civ";
+    }
+}
+
+struct ArrowTarget { int slot, kind; float x, y; uint32_t obj[4]; };
+int ReadArrowTargets(ArrowTarget* out, int max) {
+    int n = 0;
+    GTA2_TRY {
+        const uintptr_t mgrBase = *reinterpret_cast<const uintptr_t*>(0x00672F40);
+        if (mgrBase > 0x10000) {
+            const uint8_t* arrows = reinterpret_cast<const uint8_t*>(mgrBase + 0x1F18);
+            for (int i = 0; i < 17 && n < max; ++i) {
+                const uint8_t* slot = arrows + i * 0x7C;
+                const int32_t kind = *reinterpret_cast<const int32_t*>(slot + 0x40);
+                if (kind != 2 && kind != 3) continue;
+                ArrowTarget& t = out[n++];
+                t.slot = i; t.kind = kind;
+                t.x = *reinterpret_cast<const int32_t*>(slot + 0x44) / 16384.0f;
+                t.y = *reinterpret_cast<const int32_t*>(slot + 0x48) / 16384.0f;
+                t.obj[0] = *reinterpret_cast<const uint32_t*>(slot + 0x30);
+                t.obj[1] = *reinterpret_cast<const uint32_t*>(slot + 0x34);
+                t.obj[2] = *reinterpret_cast<const uint32_t*>(slot + 0x38);
+                t.obj[3] = *reinterpret_cast<const uint32_t*>(slot + 0x5C);
+            }
+        }
+    } GTA2_EXCEPT { }
+    return n;
+}
+// The arrow that marks this object: one whose target words name it (the ped, or its game
+// object), else one of the kind standing within 0.6 blocks of it. -1 when none.
+int ArrowFor(const ArrowTarget* t, int n, int kind, uintptr_t a, uintptr_t b, float x, float y) {
+    for (int i = 0; i < n; ++i) {
+        if (t[i].kind != kind) continue;
+        for (uint32_t o : t[i].obj) if (o && (o == a || o == b)) return t[i].slot;
+    }
+    for (int i = 0; i < n; ++i)
+        if (t[i].kind == kind && std::fabs(t[i].x - x) < 0.6f && std::fabs(t[i].y - y) < 0.6f) return t[i].slot;
+    return -1;
+}
+
+struct CarMemo { float x, y; int frame; float v; };
+std::map<uintptr_t, CarMemo> g_carMemo;
+
+// view: peds / view: cars. Every GTA2DX9_PEDS_EVERY frames (10; 0 off), peds within 24
+// blocks (nearest 28) and cars within 30 (nearest 20), nearest first.
+void LogPedsAndCars(const PlayerState& player, int frameCount) {
+    static int every = -1;
+    if (every < 0) {
+        char buf[8] = {};
+        every = GetEnvironmentVariableA("GTA2DX9_PEDS_EVERY", buf, sizeof buf) ? atoi(buf) : 10;
+        if (every < 0 || every > 600) every = 10;
+    }
+    if (every == 0 || (frameCount % every) != 3 % every || !player.ped) return;
+    FindPedPool(player.ped);
+    // the renderer's own frame count: GTA2 steps once per rendered frame (0x5E8108 is no counter)
+    const int gframe = frameCount;
+    ArrowTarget arrows[17];
+    const int narrows = ReadArrowTargets(arrows, 17);
+    // peds
+    if (g_pedPoolPtr) {
+        struct Row { float d; std::string s; };
+        std::vector<Row> rows;
+        int live = 0;
+        GTA2_TRY {
+            const uintptr_t pool = *reinterpret_cast<const uintptr_t*>(g_pedPoolPtr);
+            const uint8_t* p = game::PlausiblePointer(reinterpret_cast<const void*>(pool))
+                                   ? *reinterpret_cast<const uint8_t* const*>(pool + 4) : nullptr;
+            for (; game::PlausiblePointer(p) && live < 260; p = *reinterpret_cast<const uint8_t* const*>(p + kPedNext), ++live) {
+                if (p == player.ped) continue;
+                const uint8_t* car = *reinterpret_cast<const uint8_t* const*>(p + game::kPedVehicle);
+                float x = 0, y = 0, z = 0;
+                const bool inCar = game::PlausiblePointer(car);
+                if (inCar) {
+                    if (!game::ReadPlacement(car, game::kVehiclePlacementPtr, &x, &y, &z)) continue;
+                } else {
+                    x = *reinterpret_cast<const int32_t*>(p + game::kPedX) * game::kFixedScale;
+                    y = *reinterpret_cast<const int32_t*>(p + game::kPedY) * game::kFixedScale;
+                    z = *reinterpret_cast<const int32_t*>(p + game::kPedZ) * game::kFixedScale;
+                }
+                const float d = std::hypot(x - player.x, y - player.y);
+                if (d > 24.0f) continue;
+                const int occ = *reinterpret_cast<const int32_t*>(p + kPedOccupation);
+                const int remap = *reinterpret_cast<const int8_t*>(p + kPedRemap);
+                const int st = *reinterpret_cast<const int32_t*>(p + game::kPedState);
+                const int sub = *reinterpret_cast<const int32_t*>(p + game::kPedSubState);
+                const int hp = *reinterpret_cast<const int16_t*>(p + kPedHealth);
+                const unsigned id = *reinterpret_cast<const uint32_t*>(p + kPedId);
+                const uintptr_t obj = *reinterpret_cast<const uintptr_t*>(p + game::kPedPhysics);
+                const int mark = ArrowFor(arrows, narrows, 2, reinterpret_cast<uintptr_t>(p), obj, x, y);
+                char car_s[16] = "-";
+                if (inCar) snprintf(car_s, sizeof car_s, "m%d", *reinterpret_cast<const int32_t*>(car + game::kVehicleModel));
+                char mark_s[8] = "-";
+                if (mark >= 0) snprintf(mark_s, sizeof mark_s, "a%d", mark);
+                char b[160];
+                snprintf(b, sizeof b, " %u:%s/%s:%d:%d:%.2f,%.2f,%.2f:%d:%d:%d:%s:%s", id, PedTypeName(p, occ), RemapName(remap), remap, occ,
+                         x, y, z, st, sub, hp, car_s, mark_s);
+                rows.push_back({d, b});
+            }
+        } GTA2_EXCEPT { }
+        std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.d < b.d; });
+        if (rows.size() > 28) rows.resize(28);
+        std::string line;
+        for (const Row& r : rows) line += r.s;
+        Log("view: peds frame=%d live=%d near=%d%s", gframe, live, static_cast<int>(rows.size()), line.c_str());
+    }
+    // cars
+    {
+        struct Row { float d; std::string s; };
+        std::vector<Row> rows;
+        GTA2_TRY {
+            int guard = 0;
+            for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024; v = game::NextInList(v, game::kVehicleNext), ++guard) {
+                float x = 0, y = 0, z = 0;
+                if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &x, &y, &z)) continue;
+                const float d = std::hypot(x - player.x, y - player.y);
+                CarMemo& m = g_carMemo[reinterpret_cast<uintptr_t>(v)];
+                if (gframe > m.frame && m.frame > 0 && gframe - m.frame < 120) {
+                    const float inst = std::hypot(x - m.x, y - m.y) / ((gframe - m.frame) / 30.0f);
+                    m.v += (inst - m.v) * 0.6f;
+                } else if (gframe != m.frame) m.v = 0.0f;
+                if (gframe != m.frame) { m.x = x; m.y = y; m.frame = gframe; }
+                if (d > 30.0f) continue;
+                float hx = 0, hy = 0;
+                game::ReadFacing(v, game::kVehiclePlacementPtr, &hx, &hy);
+                int dmg = 0, hp = -1, fire = 0;
+                if (!ReadVehicleCondition(v, &dmg, &hp, &fire)) { hp = -1; fire = 0; }
+                const uint8_t* drv = *reinterpret_cast<const uint8_t* const*>(v + game::kVehicleDriver);
+                char drv_s[32] = "-";
+                if (drv == player.ped) snprintf(drv_s, sizeof drv_s, "P");
+                else if (game::PlausiblePointer(drv)) {
+                    const int occ = *reinterpret_cast<const int32_t*>(drv + kPedOccupation);
+                    const int remap = *reinterpret_cast<const int8_t*>(drv + kPedRemap);
+                    snprintf(drv_s, sizeof drv_s, "%s/%s", PedTypeName(drv, occ), RemapName(remap));
+                }
+                const int mark = ArrowFor(arrows, narrows, 3, reinterpret_cast<uintptr_t>(v), 0, x, y);
+                char mark_s[8] = "-";
+                if (mark >= 0) snprintf(mark_s, sizeof mark_s, "a%d", mark);
+                char b[160];
+                snprintf(b, sizeof b, " %d:m%d:%.2f,%.2f,%.2f:%.2f,%.2f:%.2f:%d:%d:%s:%s", *reinterpret_cast<const int32_t*>(v + kCarId),
+                         *reinterpret_cast<const int32_t*>(v + game::kVehicleModel), x, y, z, hx, hy, m.v, hp, fire, drv_s, mark_s);
+                rows.push_back({d, b});
+            }
+        } GTA2_EXCEPT { }
+        if (g_carMemo.size() > 2048) g_carMemo.clear();
+        std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.d < b.d; });
+        if (rows.size() > 20) rows.resize(20);
+        std::string line;
+        for (const Row& r : rows) line += r.s;
+        Log("view: cars frame=%d near=%d%s", gframe, static_cast<int>(rows.size()), line.c_str());
+    }
+}
+}  // namespace
+
 void WorldView::UpdateCamera() {
     float tileX = 0.0f, tileY = 0.0f;
     if (!game::CameraPosition(&tileX, &tileY)) return;
@@ -1670,6 +1932,7 @@ void WorldView::UpdateCamera() {
                 }
             }
         }
+        if (worldUploaded_ && player.valid) LogPedsAndCars(player, frameCount_);
         if (worldUploaded_ && player.valid && (frameCount_ % 15) == 7) {
             int money = GameSaveMoney();
             int mult = -1, lives = -1, death = -1, wanted = -1, health = -1, carDamage = -1, carModel = -1, frame = -1;

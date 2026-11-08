@@ -493,3 +493,60 @@ Police and FBI weapons never lose ammunition (990); a shot shows as the reload t
 | fire truck first person | open: the eye sits behind the roof gear (the cabin placement for model 17) | a33_fire2 `ft_drive_06` |
 | chase camera on a long vehicle | the camera trails far behind the truck for the first seconds (camera file, not changed) | a33_fire2 `ft_drive_03` |
 | ambulance | not framed: beacons logged on a driven one (a33_resc1, 12 lines), it had left before each warp; none came in a33_fire2 / a33_amb1 | a33_resc1 log |
+
+## Ped and car log lines (8 Nov 2026, PLAYTHROUGH-9)
+
+Two renderer log lines give a script every pedestrian and car round the player, so a runner
+has targets: "run over N gang members", "shoot the marked characters", "follow that car",
+"is someone about to pull me out of the car". Written by `LogPedsAndCars` in
+`dll/src/world_view.cpp`, every `GTA2DX9_PEDS_EVERY` frames (default 10; 0 turns them off),
+parsed by `mission_lib.peds()` / `mission_lib.cars()` (`gamerun/`, mirrored in `linux/docker/`).
+
+**Where the peds come from.** The game's ped pool, not the drawn sprites (a ped in a car or
+behind the camera is not drawn). In 9.6 the `PedPool*` is at **`0x5E5BBC`**: the pool object
+has the free list at `+0`, the live list at `+4`, and `Ped[200]` from `+8` at a stride of
+`0x294`; a ped's next is `+0x160`. Found at run time on 8 Nov (a scan of the exe's writable
+sections for a word whose object's `+4` chain reaches the player's ped, then checked: the
+player's ped is pool record 0, `id 1`, occupation 0) and kept as a fallback scan
+(`FindPedPool`, logs `view: peds: ped pool at 005E5BBC`). The layout and the field names are
+those of the GTA2 decompilation (`CriminalRETeam/gta2_re`, `Ped.hpp`, `Char_Pool.hpp`), which
+targets a later exe: its global addresses are not ours, but its structures are (its car
+offsets `+0x4C` next, `+0x50` sprite, `+0x54` driver, `+0x74` damage, `+0x84` model are the
+ones this renderer found by probing 9.6). Ped fields used:
+
+| offset | type | field |
+|---|---|---|
+| `+0x160` | ptr | next live ped |
+| `+0x168` | ptr | the ped's game object (null while in a car) |
+| `+0x16C` | ptr | the car he is in |
+| `+0x17C` | ptr | his gang (null: not a gang member) |
+| `+0x1AC/0x1B0/0x1B4` | 16.14 | x, y, z (stale while in a car: the car's position is logged instead) |
+| `+0x200` | u32 | ped id (the player is 1) |
+| `+0x216` | int16 | health (peds 50, the player 100) |
+| `+0x240` | int32 | occupation (`gta2_re` `ped_ocupation_enum`: 0 player, 3 dummy, 4 the traffic's shared driver, 10-13 robbed driver / angry / armed, 14 psycho, 15 mugger, 16 car thief, 17 bank robber, 19 armed gang member, 22 Elvis, 23 paramedic, 24 police, 25 SWAT, 26 FBI, 27 army, 37 roadblock cop, 38 fireman, ...) |
+| `+0x244` | int8 | remap (the palette: 0 police, 4 army, 5 redneck, 7 scientist, 8 zaibatsu, 9 krishna, 10 russian, 11 loony, 12 elvis, 13 yakuza, ...; -1 none; the player 25) |
+| `+0x278/+0x27C` | int32 | state, sub-state (as `view: player`: 9 dead, 8 knocked down with the sub-states of `game_access.h`, 10 in a car) |
+
+**`view: peds frame=F live=N near=K` then one item per ped** within 24 blocks of the player,
+nearest first, at most 28:
+
+    id:type/gang:remap:occupation:x,y,z:state:sub:health:car:mark
+
+`type` is `gang` when the gang pointer is set, else from the occupation (`cop`, `swat`, `fbi`,
+`army`, `emerg`, `elvis`, `mugger`, `crim`, `guard`, `civ`); `gang` names the remap
+(`russian`, `scientist`, `zaibatsu`, ... or `civ`); `car` is `m<model>` while he is in a car
+(the position is then the car's), `-` on foot; `mark` is `a<slot>` when an objective arrow of
+kind 2 (a character) names him (the arrow slot's target words `+0x30/+0x34/+0x38/+0x5C` hold
+the ped or his game object) or stands within 0.6 blocks of him, else `-`. `frame` is the
+renderer's frame count (one game step per frame).
+
+**`view: cars frame=F near=K` then one item per car** within 30 blocks (the vehicle list,
+nearest first, at most 20), the player's own included:
+
+    id:m<model>:x,y,z:hx,hy:v:hp:fire:driver:mark
+
+`hx,hy` the heading (the game's sin/cos of the sprite's angle), `v` the speed in blocks per
+game second from the car's own last positions (frame-count based), `hp`/`fire` as `carhp`/
+`carfire` in the mission line (32000 - damage; 0, 1 burning, 2 burning hard), `driver` `P`
+for the player, `-` empty, else `type/gang` of the ped at `+0x54`; `mark` `a<slot>` for a
+kind-3 arrow on it.
