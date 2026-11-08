@@ -541,6 +541,14 @@ private:
         // base) and the game's state words, for the figure's own clips. See DrawPedFigures.
         unsigned pedFrame = 0;
         int32_t pedState = -1, pedSub = 0, pedPending = 0;
+        // What last hurt him (game::kPedDamageCause: 1 car, 3 run over, 4 explosion, ...),
+        // for the death pose; 0 unknown.
+        int32_t pedCause = 0;
+        // The weapon in his hands: its ammunition and reload timer (the weapon
+        // object's +0 and +2), -1 with none. A drop in the one or a restart of the
+        // other is a shot, whatever the frames say (state 7 is also just standing armed).
+        int32_t pedAmmo = -1, pedReload = -1;
+        uintptr_t pedWeaponObject = 0;
         // Drawn through the screen-space layer, over everything, while he boards a car.
         bool boardUi = false;
         // Not drawn: a pedestrian over his car as he gets in or out. See Draw.
@@ -621,6 +629,15 @@ private:
         bool actionReverse = false;         // getting up: the fall played backwards
         unsigned lastPedFrame = 0;          // his sprite frame last time, to see a cycle restart
         int lastLoggedAction = 0;           // for the GTA2DX9_LOG_PED_FRAMES log
+        // Actions beyond the stances (see PedActionFor and DrawPedFigures):
+        int lieClip = 0;                    // which lying clip action 4 plays: 0 fall, 1 fall_front, 2 runover, 3 blown, 4 burnt
+        uint32_t aimUntil = 0;              // the stance is held to this frame after the last attack or shot
+        int32_t lastState = -1;             // his state word last frame (the throw on the attack's rising edge)
+        int burnFrames = 0;                 // consecutive frames with the game's fire on him
+        uint32_t burnSeen = 0;              // the last frame he burned (a death soon after it is burnt)
+        uint32_t waterFrame = 0;            // the frame he went into the water (the drowning sinks him)
+        int32_t lastAmmo = -1, lastReload = -1;   // his weapon's words last frame (a shot: see Sprite::pedAmmo)
+        uintptr_t lastWeaponObject = 0;
         // Level of detail: his rank by distance from the eye last frame (the
         // nearest eight are posed every frame), and the pose values held for
         // the frames in between when he is further off.

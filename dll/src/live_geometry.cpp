@@ -5220,6 +5220,15 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                 placed.pedState = *reinterpret_cast<const int32_t*>(ped + game::kPedState);
                 placed.pedSub = *reinterpret_cast<const int32_t*>(ped + game::kPedSubState);
                 placed.pedPending = *reinterpret_cast<const int32_t*>(ped + game::kPedStatePending);
+                placed.pedCause = *reinterpret_cast<const int32_t*>(ped + game::kPedDamageCause);
+                {
+                    const uint8_t* wobj = *reinterpret_cast<const uint8_t* const*>(ped + game::kPedCurrentWeapon);
+                    if (game::PlausiblePointer(wobj)) {
+                        placed.pedAmmo = *reinterpret_cast<const int16_t*>(wobj + game::kWeaponAmmo);
+                        placed.pedReload = *reinterpret_cast<const int16_t*>(wobj + 2);
+                        placed.pedWeaponObject = reinterpret_cast<uintptr_t>(wobj);
+                    }
+                }
                 g_pedWeaponByObject[reinterpret_cast<uintptr_t>(object)] = game::PedWeaponOf(ped);
                 if ((placed.pedState == 3 || placed.pedState == 4) && g_doorPedsNow.size() < 32) {
                     // The ped's vehicle word is only set once he is inside, so the car
@@ -6037,6 +6046,28 @@ static gta2::Mat4 UprightPedMatrix(const LiveGeometry::Vertex* local, int corner
 }
 
 // ---------------------------------------------------------------------------
+// GTA2DX9_FORCE_ACTION_FILE (see DrawPedFigures): the forced action, lying clip
+// and weapon, read from the file every 15 frames.
+void ForcedAction(int* action, int* lie, int* weapon) {
+    static int checked = 0;
+    static char path[MAX_PATH] = {};
+    static int a = -1, l = 0, w = -1;
+    static uint32_t lastRead = 0;
+    if (!checked) { checked = 1; if (!GetEnvironmentVariableA("GTA2DX9_FORCE_ACTION_FILE", path, sizeof path)) path[0] = 0; }
+    if (!path[0]) { *action = -1; return; }
+    if (g_carFrame - lastRead >= 15 || lastRead == 0) {
+        lastRead = g_carFrame;
+        int na = -1, nl = 0, nw = -1;
+        if (FILE* f = fopen(path, "r")) {
+            if (fscanf(f, "%d %d %d", &na, &nl, &nw) < 1) na = -1;
+            fclose(f);
+        }
+        if (na != a || nl != l || nw != w) Log("devtools: forced action %d lying %d weapon %d", na, nl, nw);
+        a = na; l = nl; w = nw;
+    }
+    *action = a; *lie = l; *weapon = w;
+}
+
 // Which action clip the game's own animation frame and state words call for.
 // Frames are the style sprite number within the ped base, modulo the 158 frames
 // of one body (three bodies share the layout). Ranges from the frame sheet and
@@ -6047,7 +6078,8 @@ int PedActionFor(bool corpse, unsigned pedFrame, int32_t pedState, int32_t pedSu
     const unsigned f = pedFrame % 158u;
     if (f >= 24 && f <= 35 && (pedState == 3 || pedState == 4)) return pedState == 4 ? 6 : 5;   // the climb (state 3: in, 4: out); the same frames pass in state 0 just after an exit
     if (f >= 16 && f <= 23 && pedState == 3) return 5;    // reaching for the door
-    if (pedState == 8 && (pedSub == 0x11 || pedSub == 0x13)) return 7;   // thrown, falling (before the frame ranges: a thrown ped passes through them)
+    if (pedState == 8 && pedSub == 0x13) return 20;   // falling from a height: arms and legs flailing (fall_air)
+    if (pedState == 8 && pedSub == 0x11) return 7;    // thrown (before the frame ranges: a thrown ped passes through them)
     if (f >= static_cast<unsigned>(g_pedPunchFrames[0]) && f <= static_cast<unsigned>(g_pedPunchFrames[1])) return 1;
     // The aim only while attacking with something other than fists (state 7, sub 0xe = fists).
     if (pedState == 7 && pedSub != 0xe && f >= static_cast<unsigned>(g_pedAimFrames[0]) && f <= static_cast<unsigned>(g_pedAimFrames[1])) return 2;
@@ -6117,7 +6149,30 @@ const WeaponInfo kWeapons[kWpnCount] = {
     {"shotgun", "weapon_shotgun", 8, true, 0.20f, 0.20f, 1.0f, 0.8f, 0.45f, 1.0f, true, 0.035f},
     {"flamethrower", "weapon_flamethrower", 12, true, 0.19f, 0.16f, 1.0f, 0.6f, 0.2f, 0.5f, false, 0.0f},
 };
+// A weapon model's largest extent: its length for the guns, its height for a
+// bottle or a grenade (modelled upright), which scaling by the length alone
+// blew up to three times their size.
+float WeaponSpan(const Model& m) { return (std::max)(m.Length(), (std::max)(m.Height(), m.Width())); }
 bool IsAimAction(int action) { return action == 2 || action == 8 || action == 10 || action == 11 || action == 12; }
+// Carrying, not firing: the weapon in the hands at low ready (clips carry*,
+// tools/gen_ped_clips.py): 14 one-handed (pistol, grenade, molotov), 15 dual
+// pistols, 16 long guns, 17 the launcher on the shoulder, 18 the flamethrower.
+bool IsCarryAction(int action) { return action >= 14 && action <= 18; }
+int CarryFor(int weapon) {
+    switch (weapon) {
+        case kWpnDual: return 15;
+        case kWpnSilencedMg: case kWpnMg: case kWpnShotgun: case kWpnElectro: return 16;
+        case kWpnRocket: return 17;
+        case kWpnFlame: return 18;
+        default: return 14;
+    }
+}
+// Clips written as upper-body layers (only Bip01 Spine1 and up): drawn blended
+// at just under full weight over the walk, run or idle so the legs keep moving
+// (model_store.cpp: a joint the second clip leaves alone keeps the first's).
+bool IsUpperLayer(int action) {
+    return action == 2 || action == 3 || (action >= 8 && action <= 18 && action != 9) || action == 19 || action == 21;
+}
 
 // The particles the shots leave: a muzzle glow, sparks, a brass case, blood,
 // the smoke behind a rocket, the arc of the electro gun. Camera-facing quads,
@@ -6401,7 +6456,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     const float wrl = (std::max)(1e-4f, std::sqrt(wr[0] * wr[0] + wr[2] * wr[2]));
     wr[0] /= wrl; wr[2] /= wrl;
     float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
-    const float k = (wi.length * (wi.twoHanded ? 1.2f : 1.4f)) / (std::max)(0.01f, model->Length());
+    const float k = (wi.length * (wi.twoHanded ? 1.2f : 1.4f)) / (std::max)(0.01f, WeaponSpan(*model));
     static int logged = 0;
     if (logged < 12) { ++logged; Log("view model: %s at %.2f,%.2f,%.2f dir %.2f,%.2f,%.2f up %.2f,%.2f,%.2f k %.3f kick %.2f", wi.name, pos[0], pos[1], pos[2], dir[0], dir[1], dir[2], up[0], up[1], up[2], k, kick); }
     gta2::Mat4 place;
@@ -6661,11 +6716,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (gameWeapon >= 0) track.weapon = gameWeapon;
             else if (wantAction == 2 && (track.weapon == kWpnNone || kWeapons[track.weapon].twoHanded)) track.weapon = kWpnPistol;
             else if (wantAction == 8 && (track.weapon == kWpnNone || !kWeapons[track.weapon].twoHanded)) track.weapon = kWpnMg;
+            // The game has put a weapon in his hands (its weapon object, see
+            // game::PedWeaponOf): the stance and the carry follow it, not the frames.
+            const bool armed = gameWeapon > 0 && !sprite.corpse;
             // Shooting: a flash or a bullet appearing beside him while he attacks
             // (state 7; frame 139 is the firing frame measured on the player).
             const unsigned f = sprite.pedFrame % 158u;
             if (sprite.pedState == 7 && f == 139 && wantAction == 0) wantAction = 2;
-            if (sprite.pedState == 7 || wantAction == 2 || wantAction == 8) {
+            if (sprite.pedState == 7 || wantAction == 2 || wantAction == 8 || (armed && g_carFrame < track.aimUntil)) {
                 for (FxFresh& fx : g_fxFreshLast) {
                     if (fx.claimed) continue;
                     const float dx = fx.x - cx, dz = fx.z - cz;
@@ -6685,12 +6743,94 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
             if (shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
             if (shotNow && track.weapon == kWpnNone && gameWeapon < 0) track.weapon = kWpnPistol;   // shooting with nothing named: a pistol
-            // The stance the weapon calls for; a thrown weapon's throw, one shot, on the throw itself.
-            if ((wantAction == 2 || wantAction == 8) && track.weapon > 0) {
+            if (armed && (wantAction == 0 || wantAction == 2 || wantAction == 8)) {
+                // Armed, by the game's word. Attacking (the attack state, a shot
+                // beside him, the aim frames) raises the weapon's own stance, held a
+                // second past the last of them so a burst does not drop the gun
+                // between shots; otherwise the weapon is carried at low ready: the
+                // player always, anyone else for three seconds after he fired (a
+                // gang member or a cop walking his beat does not wave a gun about).
+                // The game's own shot: his weapon's ammunition dropped, or its reload
+                // timer restarted (a kill frenzy's ammunition never drops). Not the
+                // attack state: he stands in state 7 whenever he is armed and still.
+                const bool sameGun = sprite.pedWeaponObject && sprite.pedWeaponObject == track.lastWeaponObject;
+                const bool gameShot = sameGun && ((sprite.pedAmmo >= 0 && track.lastAmmo >= 0 && sprite.pedAmmo < track.lastAmmo) ||
+                                                  (sprite.pedReload > track.lastReload && track.lastReload >= 0));
+                const bool attacking = gameShot || shotNow || f == 139;
+                if (gameShot && !shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
+                if (g_logPedFrames && gameShot && ownPed) Log("player shot: ammo %d -> %d reload %d -> %d", track.lastAmmo, sprite.pedAmmo, track.lastReload, sprite.pedReload);
+                if (attacking) track.aimUntil = g_carFrame + 30;
+                const bool carrying = ownPed || (track.aimUntil && g_carFrame < track.aimUntil + 90);
+                if (track.weapon == kWpnMolotov || track.weapon == kWpnGrenade) {
+                    // A throw per press: the attack state's rising edge, or the thrown thing seen.
+                    const bool press = gameShot || shotNow;
+                    if (track.action == 13 || press) wantAction = 13;
+                    else wantAction = carrying ? CarryFor(track.weapon) : 0;
+                } else if (g_carFrame < track.aimUntil) {
+                    wantAction = kWeapons[track.weapon].action;
+                } else {
+                    wantAction = carrying ? CarryFor(track.weapon) : 0;
+                }
+            } else if ((wantAction == 2 || wantAction == 8) && track.weapon > 0) {
+                // The game's weapon unread: the stance the inferred weapon calls for;
+                // a thrown weapon's throw, one shot, on the throw itself.
                 const int stance = kWeapons[track.weapon].action;
                 wantAction = stance == 13 ? (shotNow ? 13 : 0) : stance;
             }
             if (ownPed && track.weapon > 0) g_playerWeaponSeen = track.weapon;
+            track.lastAmmo = sprite.pedAmmo; track.lastReload = sprite.pedReload; track.lastWeaponObject = sprite.pedWeaponObject;
+        }
+        // On fire: the game's flames on him (they travel with a burning person)
+        // three frames running. He runs flailing (the burn layer over his run);
+        // dying in it, he curls up (lying clip "burnt").
+        const bool ownFlames = track.weapon == kWpnFlame && track.aimUntil && g_carFrame < track.aimUntil + 30;
+        if (!ownFlames && FireSpotsNear(cx, cz, 0.18f, nullptr) > 0) {
+            if (++track.burnFrames >= 3) track.burnSeen = g_carFrame;
+        } else {
+            track.burnFrames = 0;
+        }
+        if (!sprite.corpse && track.burnSeen && g_carFrame - track.burnSeen < 12 &&
+            (wantAction == 0 || IsCarryAction(wantAction) || IsAimAction(wantAction) || wantAction == 7)) {
+            wantAction = 19;
+        }
+        // In the water (state 8 sub 0x14): the drowning clip, sinking as it runs.
+        if (wantAction == 9) {
+            if (!track.waterFrame) track.waterFrame = g_carFrame;
+        } else if (!sprite.corpse) {
+            track.waterFrame = 0;
+        }
+        // Down: which way he falls follows what put him there (the game's damage
+        // cause word, the fire): burnt, blown off his feet by an explosion, run
+        // over or struck by a car (cause 1/3, or the car knock-down sub-states
+        // 0x18-0x1A), else onto his back or his front by his own seed.
+        if (wantAction == 4 && track.action != 4) {
+            const int32_t cause = sprite.pedCause;
+            const bool carHit = cause == game::kDamageCarHit || cause == game::kDamageRunOver ||
+                                (sprite.pedState == 8 && sprite.pedSub >= 0x18 && sprite.pedSub <= 0x1A);
+            // Cause 11 came with the game's flames on the body in the probe runs (a3m3).
+            if ((track.burnSeen && g_carFrame - track.burnSeen < 90) || cause == 11) track.lieClip = 4;
+            else if (cause == game::kDamageExplosion) track.lieClip = 3;
+            else if (carHit) track.lieClip = 2;
+            else track.lieClip = ((static_cast<uint32_t>(sprite.object >> 4) * 2654435761u) >> 20) % 3 == 0 ? 1 : 0;
+            if (g_logPedFrames) {
+                Log("ped anim: down %p cause %d state %d sub 0x%x -> lying clip %d", reinterpret_cast<const void*>(sprite.object),
+                    cause, sprite.pedState, sprite.pedSub, track.lieClip);
+            }
+        }
+        track.lastState = sprite.pedState;
+        // A showcase for checking the clips on the player's own figure, off by
+        // default: GTA2DX9_FORCE_ACTION_FILE names a file (re-read twice a second)
+        // holding "action [lying clip] [weapon]"; -1 or no file lets the game drive.
+        if (ownPed) {
+            int fa = -1, fl = 0, fw = -1;
+            ForcedAction(&fa, &fl, &fw);
+            if (fa >= 0) {
+                if (fa == 4 && track.action != 4) track.lieClip = fl;
+                if (fa == 9 && !track.waterFrame) track.waterFrame = g_carFrame;
+                if (fw >= 0 && fw < kWpnCount) track.weapon = fw;
+                if (fa != track.action && fa != 4 && track.action == 4) track.action = 0;   // straight up again
+                wantAction = fa;
+            }
         }
         if (wantAction == 4 && track.action != 4) {
             track.action = 4; track.actionTime = 0.0f; track.actionReverse = false;
@@ -6808,7 +6948,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 // A swimmer lies in the water to his shoulders: the prone clip puts
                 // him at the surface, the figure is sunk the rest of the way.
-                if (track.action == 9) world.m[3][1] -= 0.14f * (std::min)(1.0f, track.actionWeight);
+                if (track.action == 9 || (track.action == 4 && track.waterFrame)) {
+                    // Drowning: in to the chest at once, then under over three seconds
+                    // (and a body in the water stays under).
+                    const float inWater = track.waterFrame ? static_cast<float>(g_carFrame - track.waterFrame) / 30.0f : 0.0f;
+                    const float sink = 0.16f + 0.30f * (std::min)(1.0f, inWater / 3.0f);
+                    world.m[3][1] -= sink * (std::min)(1.0f, track.actionWeight);
+                }
                 // The clips: walk and run from the ground he covers, so the feet
                 // do not slide; idle, one of three, at his own offset and pace;
                 // walk and idle cross-faded over 0.2 s, walk and run over 0.25 s.
@@ -6840,9 +6986,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // The action layer: its clip advances in real time (one-shots hold
                 // their last pose, the fall holds lying; a knock-down plays back out),
                 // and is faded in over the walk or idle, then out again when it is over.
-                static const char* const kActionClips[14] = {nullptr, "punch", "aim", "handsup", "fall", "getin", "getout", "hit", "aim_heavy", "swim",
-                                                             "aim_dual", "aim_launcher", "aim_flame", "throw"};
-                const ModelAnimation* actionClip = track.action ? model->Animation(kActionClips[track.action]) : nullptr;
+                static const char* const kActionClips[22] = {nullptr, "punch", "aim", "handsup", "fall", "getin", "getout", "hit", "aim_heavy", "drown",
+                                                             "aim_dual", "aim_launcher", "aim_flame", "throw",
+                                                             "carry", "carry_dual", "carry_heavy", "carry_launcher", "carry_flame",
+                                                             "burn", "fall_air", "cuffed"};
+                static const char* const kLyingClips[5] = {"fall", "fall_front", "runover", "blown", "burnt"};
+                const char* clipName = track.action > 0 && track.action < 22 ? kActionClips[track.action] : nullptr;
+                if (track.action == 4 && track.lieClip > 0 && track.lieClip < 5) clipName = kLyingClips[track.lieClip];
+                const ModelAnimation* actionClip = clipName ? model->Animation(clipName) : nullptr;
+                // Avatars imported before a clip existed fall back to the nearest older one.
+                if (!actionClip && track.action == 4) actionClip = model->Animation("fall");
+                if (!actionClip && track.action == 9) actionClip = model->Animation("swim");
+                if (!actionClip && track.action == 20) actionClip = model->Animation("hit");
                 float actionT = 0.0f;
                 if (actionClip) {
                     const float len = actionClip->length;
@@ -6882,6 +7037,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const float wantWeight = actionClip ? 1.0f : 0.0f;
                 track.actionWeight += (wantWeight - track.actionWeight) * (std::min)(1.0f, dt / (track.action == 4 ? 0.1f : 0.15f));
                 float actW = actionClip ? std::floor(track.actionWeight * 8.0f + 0.5f) / 8.0f : 0.0f;
+                // An upper-body layer is never drawn alone (it has no legs): just
+                // under full weight over the walk, run or idle.
+                if (IsUpperLayer(track.action) && actW > 0.99f) actW = 0.99f;
                 if (lod == 2) {
                     // The idle key; a body lying on the ground stays lying.
                     u = 0.0f; idleTime = 0.0f; walkW = 0.0f; runW = 0.0f;
@@ -6950,7 +7108,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // the right hand (the grip) to the left (the fore-end), so the
                 // stance clips place it by their hands. The muzzle flash, light,
                 // sparks and case come off its muzzle on the frame of a shot.
-                const bool stance = IsAimAction(track.action) || track.action == 13;
+                const bool stance = IsAimAction(track.action) || track.action == 13 || IsCarryAction(track.action);
                 if (stance && actW > 0.3f && g_pedWeapons && track.weapon > 0 && track.weapon < kWpnCount &&
                     !(track.action == 13 && track.actionTime > 0.34f)) {
                     const WeaponInfo& wi = kWeapons[track.weapon];
@@ -6966,7 +7124,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     } else { base = walk; baseT = walkTime; }
                     gta2::Mat4 hand, handL;
                     const bool haveR = weapon && ModelNodeWorld(*model, "Bip01 R Hand", base, baseT, over, overT, overW, &hand);
-                    const bool haveL = haveR && (wi.twoHanded || track.action == 10) &&
+                    const bool haveL = haveR && (wi.twoHanded || track.action == 10 || track.action == 15) &&
                                        ModelNodeWorld(*model, "Bip01 L Hand", base, baseT, over, overT, overW, &handL);
                     if (haveR) {
                         auto mul = [](const gta2::Mat4& a, const gta2::Mat4& b) {
@@ -6979,7 +7137,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             return o;
                         };
                         const gta2::Mat4 handWorld = mul(hand, world);
-                        const float k = wi.length / (std::max)(0.01f, weapon->Length());
+                        const float k = wi.length / (std::max)(0.01f, WeaponSpan(*weapon));
                         gta2::Mat4 place;
                         float dir[3], right[3], up[3];
                         bool placed = false;
@@ -7008,7 +7166,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             // How long a model unit is in the world at the hand.
                             const float sx = handWorld.m[0][0], sy = handWorld.m[0][1], sz = handWorld.m[0][2];
                             const float unit = (std::max)(1e-4f, std::sqrt(sx * sx + sy * sy + sz * sz));
-                            const float kh = wi.length / (unit * (std::max)(0.01f, weapon->Length()));
+                            const float kh = wi.length / (unit * (std::max)(0.01f, WeaponSpan(*weapon)));
                             // The weapon's barrel (+z) runs along the hand's fingers (+x), its
                             // top (+y) along the back of the hand (+z); the grip sits a little
                             // behind and below the hand so the muzzle leads.
@@ -7038,12 +7196,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                             device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
                             ModelDraw(device, *weapon, place, nullptr, 0.0f);
-                            if (track.action == 10 && haveL) {
+                            if ((track.action == 10 || track.action == 15) && haveL) {
                                 // The second pistol, in the left hand: the mirror of the right's hold.
                                 const gta2::Mat4 handLWorld = mul(handL, world);
                                 const float sx = handLWorld.m[0][0], sy = handLWorld.m[0][1], sz = handLWorld.m[0][2];
                                 const float unit = (std::max)(1e-4f, std::sqrt(sx * sx + sy * sy + sz * sz));
-                                const float kh = wi.length / (unit * (std::max)(0.01f, weapon->Length()));
+                                const float kh = wi.length / (unit * (std::max)(0.01f, WeaponSpan(*weapon)));
                                 gta2::Mat4 inHand;
                                 inHand.m[0][1] = -kh; inHand.m[1][2] = -kh; inHand.m[2][0] = kh;
                                 inHand.m[3][0] = 0.30f * weapon->Length() * kh;
@@ -7136,6 +7294,121 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     (void)drawn;
 }
 
+// Probes for the action checks, off by default (environment, read once):
+//   GTA2DX9_FORCE_WANTED=N    keeps the police manager's wanted word
+//                             ([0x66B7A0]+0x654, what the mission line logs) at
+//                             least N, so a script gets the police on the player
+//                             (police fire, arrests) without a massacre first;
+//   GTA2DX9_LOG_VEHICLES=1    every two seconds, each live vehicle of the special
+//                             models (bus, fire truck, ambulance, tank, trains,
+//                             cop cars) with its position, heading and driver, so
+//                             a script can warp to a train or the tank.
+namespace {
+void ActionProbes() {
+    static int forceWanted = -2, logVehicles = -1;
+    if (forceWanted == -2) {
+        char buf[16] = {};
+        forceWanted = GetEnvironmentVariableA("GTA2DX9_FORCE_WANTED", buf, sizeof buf) ? atoi(buf) : -1;
+        logVehicles = GetEnvironmentVariableA("GTA2DX9_LOG_VEHICLES", buf, sizeof buf) && buf[0] == '1' ? 1 : 0;
+        if (forceWanted >= 0) Log("devtools: wanted held at least %d (GTA2DX9_FORCE_WANTED)", forceWanted);
+    }
+    // GTA2DX9_POKE="police:0x4D4=0x300,player:0x64=3": words held at a value every
+    // frame in the police manager or the player object, for finding which of the
+    // words that change with the wanted level drives the police (a probe).
+    static int pokes = -1;
+    static struct { int region; uint32_t offset; int32_t value; } poke[8];
+    if (pokes < 0) {
+        pokes = 0;
+        char buf[256] = {};
+        if (GetEnvironmentVariableA("GTA2DX9_POKE", buf, sizeof buf)) {
+            for (char* tok = strtok(buf, ","); tok && pokes < 8; tok = strtok(nullptr, ",")) {
+                char region[16] = {}; unsigned off = 0; int val = 0;
+                if (sscanf(tok, "%15[a-z]:%x=%i", region, &off, &val) == 3) {
+                    poke[pokes].region = strcmp(region, "player") == 0 ? 1 : 0;
+                    poke[pokes].offset = off; poke[pokes].value = val;
+                    Log("devtools: poke %s+0x%X = %d", poke[pokes].region ? "player" : "police", off, val);
+                    ++pokes;
+                }
+            }
+        }
+    }
+    if (pokes > 0 && g_carFrame > 300) {
+        GTA2_TRY {
+            const uintptr_t bases[2] = {*reinterpret_cast<const uintptr_t*>(0x0066B7A0), *reinterpret_cast<const uintptr_t*>(0x005EB4FC)};
+            for (int i = 0; i < pokes; ++i) {
+                const uintptr_t b = bases[poke[i].region];
+                if (b > 0x10000 && poke[i].offset < 0x800) *reinterpret_cast<int32_t*>(b + poke[i].offset) = poke[i].value;
+            }
+        } GTA2_EXCEPT {
+        }
+    }
+    if (forceWanted > 0 && g_carFrame > 300) {
+        GTA2_TRY {
+            const uintptr_t police = *reinterpret_cast<const uintptr_t*>(0x0066B7A0);
+            if (police > 0x10000) {
+                int32_t* wanted = reinterpret_cast<int32_t*>(police + 0x654);
+                if (*wanted < forceWanted) *wanted = forceWanted;
+            }
+        } GTA2_EXCEPT {
+        }
+    }
+    // GTA2DX9_LOG_POLICE=1: the police manager's words that changed, twice a
+    // second, beside the wanted level at +0x654, to find what the level is made from.
+    static int logPolice = -1;
+    if (logPolice < 0) { char buf[8] = {}; logPolice = GetEnvironmentVariableA("GTA2DX9_LOG_POLICE", buf, sizeof buf) && buf[0] == '1' ? 1 : 0; }
+    if (logPolice == 1 && (g_carFrame % 15u) == 0) {
+        // Two regions: the police manager [0x66B7A0] and the player object [0x5EB4FC].
+        static uint32_t prev[2][0x800 / 4] = {};
+        static bool have[2] = {};
+        static int lines = 0;
+        GTA2_TRY {
+            const uintptr_t police = *reinterpret_cast<const uintptr_t*>(0x0066B7A0);
+            const uintptr_t player = *reinterpret_cast<const uintptr_t*>(0x005EB4FC);
+            const uintptr_t bases[2] = {police, player};
+            for (int r = 0; r < 2 && lines < 600; ++r) {
+                if (bases[r] <= 0x10000) continue;
+                const uint32_t* w = reinterpret_cast<const uint32_t*>(bases[r]);
+                std::string line;
+                int changed = 0;
+                for (int i = 0; i < 0x800 / 4; ++i) {
+                    if (have[r] && w[i] != prev[r][i] && changed < 40) {
+                        char buf[40]; snprintf(buf, sizeof buf, " +%03X:%X>%X", i * 4, prev[r][i], w[i]); line += buf; ++changed;
+                    }
+                    prev[r][i] = w[i];
+                }
+                have[r] = true;
+                if (changed) {
+                    ++lines;
+                    Log("%s words: wanted %d%s", r ? "player" : "police", police > 0x10000 ? *reinterpret_cast<const int32_t*>(police + 0x654) : -1, line.c_str());
+                }
+            }
+        } GTA2_EXCEPT {
+        }
+    }
+    if (logVehicles == 1 && (g_carFrame % 60u) == 0) {
+        GTA2_TRY {
+            std::string line;
+            int guard = 0;
+            for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024; v = game::NextInList(v, game::kVehicleNext), ++guard) {
+                const int32_t model = *reinterpret_cast<const int32_t*>(v + game::kVehicleModel);
+                if (!(model == 11 || model == 12 || model == 17 || model == 34 || model == 52 || model == 54 ||
+                      (model >= 59 && model <= 61) || model == 86)) continue;
+                float x = 0, y = 0, z = 0, fx = 0, fy = 0;
+                if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &x, &y, &z)) continue;
+                game::ReadFacing(v, game::kVehiclePlacementPtr, &fx, &fy);
+                char buf[96];
+                snprintf(buf, sizeof buf, " [m%d %.2f,%.2f,%.2f f%.2f,%.2f d%d %p]", model, x, y, z, fx, fy,
+                         game::VehicleHasDriver(v) ? 1 : 0, static_cast<const void*>(v));
+                line += buf;
+                if (line.size() > 1600) break;
+            }
+            Log("vehicles:%s", line.empty() ? " none of the special models" : line.c_str());
+        } GTA2_EXCEPT {
+        }
+    }
+}
+}
+
 void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, int width,
                         int height) {
     if (!device) return;
@@ -7149,6 +7422,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     ++g_carFrame;
     g_carMaterialsThisFrame = 0;
     lastEye_ = camera.Position();
+    ActionProbes();
 
     // The texture table filled up (see kMaxFrames): empty it before anything of this frame
     // holds a texture, and forget what was keyed on the old textures' addresses - a new

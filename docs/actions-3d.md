@@ -143,3 +143,127 @@ The game's weapon word is now read, so the "weapon type not readable" rows above
 - `game_access.h`: `PedWeaponOf`, `PedWeaponFromGame`, `PedWeaponRaw`. Player and NPC figures both read it; frame/flash inference only when the game is unreadable. The first-person view model follows it (nothing with bare hands). `GTA2DX9_LOG_PED_WORDS=1` logs a `weapon probe:` line. The `GTA2DX9_WEAPON_OFFSET/AMMO_OFFSET/WEAPON_RAW` overrides are gone.
 - Verified: `out/weapon_offset_sheet.png` (runs weapon_offset_wil2/ste2, `linux/docker/weapon_probe2.py`): mission-line weapon matched the HUD icon at all 13 weapon stops; nine distinct first-person models. Scene warps need the INI_SED that sets `scene_key=F10`.
 - Still open: third-person frames show the hip carry rather than the aim stance because the stance keys off firing frames (shooting side).
+
+## Actions pass (8 Nov 2026, ACTIONS-3D)
+
+The stance now keys off the weapon the game puts in the hands (`PedWeaponOf`), and the
+states the earlier passes left as "mechanism" got clips of their own. All new clips are
+in `tools/gen_ped_clips.py` (regenerate `assets-src/humans/clips/ped_clips.json`, then
+re-import the 41 avatars: `tools/import_assets.py ../assets-src/manifest.json assets/models --only human_...`;
+the avatars are not in git, ship a fresh people archive). Code: `dll/src/live_geometry.cpp/.h`
+(`PedActionFor`, the weapon block and the action layer of `DrawPedFigures`, `ActionProbes`).
+
+How it works now:
+
+- **Upper-body layers.** The aim, carry, throw, hands-up, cuffed and burn clips have channels
+  only for `Bip01 Spine1` and below it (chest, neck, head, arms). The renderer draws them at
+  just under full weight over the walk, run or idle; a joint the second clip has no channel
+  for keeps the first clip's value (`model_store.cpp` `SampleClip` writes over a copy of the
+  first pose), so the legs keep walking under an aim or a carry. Before, an aim froze the legs
+  in the idle pose.
+- **Armed, by the game's word.** With a weapon object in the hands: a shot is the weapon
+  object's ammunition (+0) dropping or its reload timer (+2) restarting (a kill frenzy's
+  ammunition never drops), or a flash/bullet beside him, or the firing frame 139. A shot
+  raises the weapon's stance (`aim`, `aim_dual`, `aim_heavy`, `aim_launcher`, `aim_flame`)
+  and holds it a second past the last shot; a grenade or molotov plays `throw` once per shot.
+  Otherwise the weapon is carried at low ready: `carry` (pistol, grenade, molotov in the right
+  hand), `carry_dual`, `carry_heavy` (machine gun, silenced MG, shotgun, electro gun: across the
+  body, muzzle ahead and down), `carry_launcher` (tube on the shoulder), `carry_flame` (at the
+  hip). The player always carries what he has selected; anyone else carries for three seconds
+  after he fired (a gang member walking his beat does not wave a gun). The weapon model is
+  drawn in the hands in every carry, as in the stances. Measured on the way: the attack state
+  word (7, sub 0xe) is not a shot: an armed or bare-handed player standing still sits in it on
+  frames 53-56, which is why the first build of this pass raised the aim whenever he stood.
+- **Burning.** The game's flames on a figure (a fire spot within 0.18 block, three frames
+  running, not his own flamethrower's) switch on `burn`, both arms beating about the head as a
+  layer over his run. Dying soon after, he gets the `burnt` lying clip.
+- **Falling from a height** (state 8 sub 0x13, measured on the player off the roof at 160,141:
+  frames 81-96) plays `fall_air` (arms windmilling, legs cycling), then the lying clip.
+- **Water** (state 8 sub 0x14 or frames 131-135) plays `drown` (upright, head back, arms reaching
+  and slapping, legs treading), sunk to the chest at once and under over three seconds; a body
+  in the water stays under.
+- **Lying clips by cause.** `game::kPedDamageCause` (ped+0x290) and the knock-down sub-state pick
+  the clip when he goes down: fire seen on him in the last three seconds or cause 11 -> `burnt`
+  (onto the knees, over onto the side, curled); cause 4 (explosion) -> `blown` (thrown up and
+  back, landing spread-eagled); cause 1/3 or sub-state 0x18-0x1A (struck or run over by a car)
+  -> `runover` (knocked up and over, landing face down sprawled); otherwise `fall` (onto the
+  back) or `fall_front` (onto the face) by his own seed. A knock-down plays the same clip
+  backwards to get up. Logged as `ped anim: down <obj> cause C state S sub X -> lying clip N`.
+- **Arrest.** `handsup` (now a layer) and the new `cuffed` (hands behind the back, head down,
+  over the walk) exist; neither is wired to a game signal, because no run produced an arrest
+  (see below), so the frames and states of the busted player are still unknown.
+- **Weapon size.** Weapons are scaled by their largest extent: the molotov and grenade
+  models stand upright, and scaling them by their length made them three times too big.
+
+Probes (environment, off by default; `ActionProbes`, `ForcedAction` in `live_geometry.cpp`):
+`GTA2DX9_FORCE_ACTION_FILE=<file>` plays "action lying weapon" from the file (re-read twice a
+second) on the player's figure, the showcase used for the clip frames;
+`GTA2DX9_LOG_VEHICLES=1` lists the live trains, tank, fire truck, ambulance, buses, SWAT van and
+cop cars with position, heading and driver every two seconds; `GTA2DX9_LOG_POLICE=1` logs the
+changed words of the police manager ([0x66B7A0]) and the player object ([0x5EB4FC]);
+`GTA2DX9_FORCE_WANTED=N` and `GTA2DX9_POKE="police:0x4D4=0x300,player:0x64=3"` hold words there.
+
+Scripts (`linux/docker`, mirrored in `gamerun`): `a3_lib.py` (shared), `a3_weapons.py` (the six
+Downtown pickups, carry/fire/after frames per Z stop from the side), `a3_showcase.py` (every clip
+forced on the player, back/side/front; `A3_ITEMS` picks), `a3_mayhem.py` (flamethrower and rockets
+into crowds, roof, pool), `a3_falls.py`, `a3_water.py`, `a3_wanted.py`, `a3_cops.py`, `a3_cops2.py`,
+`a3_police.py`, `a3_arrest.py` (the police attempts), `a3_vehicles.py`, `a3_train.py`,
+`a3_tile.py` (contact strips), `a3_sheet.py` (the sheet). Run with
+`STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> <secs> keys_a3_<name>.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_PED_FRAMES=1`
+(add `s/^nav_map=.*/nav_map=0/` for the scripts that steer with `drive_lib.goto`, which assumes tank controls).
+Sheet: `out/actions_3d_sheet.png` (local, not in git).
+
+What the runs showed about the game:
+
+- Police: the wanted level could not be raised on demand. Rockets into the kerb traffic gave
+  wanted 1 once in three tries (a3m1, a3q2; never above 1); the machine gun into the plaza crowd
+  never did. When it rose, the police manager's +0x468 went 0 -> 1, +0x4D4 0 -> 0x100 and +0x654
+  (the level the mission line logs) 0 -> 1, and the player object's +0x64 0 -> 1 and +0x60 gained
+  0x20000. Holding +0x654 (with or without +0x468/+0x4D4, or the player's +0x60/+0x64) makes the
+  manager dispatch (its unit list at +0x664.. fills) but the game puts the level back to 0 every
+  frame and no policeman came; in the one natural wanted-1 run (a3q2) no officer reached the
+  player in three minutes either. So no police gunfire and no arrest were seen.
+- Drowning: the developer warp into the water by the tank (225.0,241.5) leaves the player at z 0;
+  the game shows WASTED at once and draws no ped sprite while he is in the water (no frame or
+  state words logged), then respawns him. With no sprite there is no figure to animate, so
+  `drown` is only reachable for a ped the game keeps drawing in state 8 sub 0x14; none was seen.
+- Trains run at level 1 (in the cuttings and tunnels) as well as level 3 (the elevated line); the
+  renderer draws the cab and its carriages with their models (`model draw: 060_train_cab`,
+  `059_train` at the game's height) but no frame caught one: the warp ahead of a train lands the
+  player at a street spot the devtools pick, and the train had not reached it while the frames ran.
+  The tank (model 54) and fire truck (17) the vehicle log lists stand parked at 226.5,238.5 /
+  3.5,164.5 and 5.5,26.5; frames from beside those spots show no vehicle, so they are not where
+  the log puts them in view, or are hidden by the game until used. A bus (model 11) was listed
+  driving at 174.5,119.0. Turret aim, the fire-truck ladder and ambulance lights belong to
+  `car_bodies.cpp` (the cars agent's file) and are not done here.
+
+### Status (8 Nov 2026)
+
+"Verified" = seen in a frame of these runs; "log" = the trigger seen in the renderer's log but the
+figure not caught in a frame; "showcase" = the clip seen on the player's figure in the game when
+forced, its game trigger not reached; "untested" = neither.
+
+| action | trigger | clip(s) | status | evidence |
+|---|---|---|---|---|
+| carry, game weapon, not firing (player) | weapon object in hand, no shot | carry / carry_heavy / carry_flame / carry_launcher | verified for silenced MG, flamethrower, molotov, rocket launcher | a3w2 `w01_*_carry_walk_side`, `w02_*`, `w03_*`; a3m3 (launcher, `player figure: action 17`) |
+| carry, pistol / dual pistols / shotgun / electro gun | same | carry, carry_dual, carry_heavy | carry_heavy showcase (shotgun, MG: a3s2, a3s3); the one-handed `carry` is the molotov one verified in play, the pistol model in it was not framed; carry_dual not framed (the camera lost the figure in both showcase tries) | a3s2/a3s3 `s_carry_*` |
+| rifle stance on a shot (MG, silenced MG) | ammo drop / reload restart | aim_heavy + kick | verified | a3w2 `w01_silenced_mg_fire_side_*` (rifle at the shoulder, cases), back to the carry 1 s after (`settled_side`) |
+| flamethrower stance | same | aim_flame | verified | a3w2 `w02_flamethrower_fire_side_00` |
+| launcher stance | same | aim_launcher | verified (log + frame) | a3m3 `m_rocket0_00`, `player figure: action 11` |
+| throw (molotov) | ammo drop | throw | verified | a3w2 `w03_molotov_fire_side_01` |
+| pistol, dual, electro gun stances | same | aim, aim_dual, aim_heavy | showcase | a3s2 `s_aim_*` |
+| aiming while walking (legs walk under the aim) | stance + motion | upper layer + torso twist | showcase (aim_mg_walk) | a3s2 |
+| NPC gunfire: stance, muzzle, tracers | his weapon object's words / a shot beside him | as the player | log only: NPCs took the aim stance on a shot beside them (a3c3 x3, a3p1 x3, a3s2, a3v1) but none was in frame; police never came (see above) | `ped anim: object ... action 2/8` |
+| burning (on his feet) | game flames on him 3 frames | burn layer | verified (player, set alight by his own rocket blast); NPC burning in the log | a3m3 `m_blown1_00`; `action 19` for NPC 30dbc240 |
+| falling from a height | state 8 sub 0x13 | fall_air | verified | a3f1 `f_fall1_00`, log frames 81-96 |
+| dead / knocked down: shot | cause 0 | fall, fall_front | verified (landing face down after the fall: a3f1 `f_fall1_02`); both clips in the showcase | 281 `lying clip 0/1` log lines over the runs |
+| run over / struck by a car | cause 1/3, sub 0x18-0x1A | runover | log (17 bodies) + showcase | a3m1/a3m3 log, a3s2 `s_dead_runover_getup` |
+| blown up | cause 4 | blown | log (15 bodies) + showcase | a3m1/a3m3 log, a3s2 `s_dead_blown_side` |
+| burnt | fire before death, cause 11 | burnt | log (3 bodies) + showcase | a3m3 log, a3s2 `s_dead_burnt_getup` |
+| getting up from a knock-down | leaving state 8 | the lying clip backwards | showcase | a3s2 `*_getup` |
+| drowning | state 8 sub 0x14 | drown, sunk | showcase only; the player has no sprite in the water (game), not reached for NPCs | a3d1, a3s2 `s_drown_front` |
+| arrest: hands up, cuffed, led to the car | unknown (no arrest provoked) | handsup, cuffed | showcase only; not wired | a3s2 |
+| trains | ordinary vehicles, models 59-61 | car models | log only (drawn with their models at the game's level) | a3t2 `model draw: 060_train_cab` / `059_train` |
+| bus | model 11 | car model | not seen in these runs (seen driving in earlier QA) | |
+| tank turret, fire-truck ladder, ambulance lights | | | untested, not implemented (car_bodies.cpp) | |
+| first-person view model per weapon | game weapon | weapon models | verified earlier (WEAPON-OFFSET pass) | out/weapon_offset_sheet.png |
