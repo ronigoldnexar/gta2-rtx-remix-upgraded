@@ -40,6 +40,7 @@ void ReadSettings(bool first) {
     v.lights = ReadInt("lights", 1) != 0;
     v.hemisphere = ReadInt("hemisphere", 1) != 0;
     v.hdr = ReadInt("hdr", 1);
+    v.shadowStagger = ReadInt("shadow_stagger", 1) != 0;
     v.debug = ReadInt("debug", 0);
     char q[32] = "";
     GetPrivateProfileStringA("visuals", "quality", "medium", q, sizeof q, g_ini);

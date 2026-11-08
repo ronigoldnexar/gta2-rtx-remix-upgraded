@@ -383,6 +383,19 @@ during the sweep. Then pick the variant that reads best, set it as the default i
 `synthetic_lights.cpp`, and build `out/lightbar_sheet.png` against REMIX-3's `remix3_i`
 night frames (before, night) and a before-day take on `stage_remix3`.
 
+**LIGHTBAR-2 (8 Nov 2026, 8x L4 host): criterion 5 verified, criteria 1-4 blocked on Remix.**
+* Remix take `lightbar2_a` (private stage of `7cc5131`, the command above) died at the front end with
+  "DxvkCommandList: Failed to create fence", the same host-wide failure REMIX-VERIFY is bisecting
+  (it hits every Remix run on GPU 0 at the moment). No Remix frame, so criteria 1-4 are still untested.
+* Plain-renderer take `lightbar2_plain` (same stage, `gamerun/grun.sh` with `keys_lightbar_plain.sh`,
+  which runs `lightbar_take.py` without Remix; `SyntheticLightsUpdate` runs either way). `force_sirens`
+  lit the beacons on every cop car in view (`car bodies: beacons on model 12 ... forced`). The
+  synthetic totals over 17 s went `siren 36030 -> 44362 -> 47688`, with 9, 11 and 6 cars getting
+  queued beacons in the sampled frames. `cars with roof lamps lit 0` means the sprite path
+  (`SubmitSirens`) added nothing, so no light was doubled. No `FAULT`. Without Remix the queued lights
+  are dropped every frame (`LightsReconcile` clears `g_extra`), so nothing piles up.
+* Still to do once Remix runs again: rerun the acceptance command above as it is.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every

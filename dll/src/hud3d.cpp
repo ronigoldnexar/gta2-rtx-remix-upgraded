@@ -540,11 +540,248 @@ std::string Thousands(long long v) {
     return (v < 0 ? "-$" : "$") + s;
 }
 
+
+// ---- QB-6: the reticle, the target and the hit markers ------------------------------------
+//
+// GTA2 has no aim: a bullet leaves the gun along the way the pedestrian faces. So the reticle
+// marks that line. The target is the first person standing on it (within a corridor that
+// widens a little with range, and not behind a wall) up to the weapon's reach; with one the
+// reticle sits on his chest, turns red and brackets him; with none it sits where the line
+// meets a wall or runs out. A shot opens the reticle for a moment. A hit is the game's own
+// word: a person's health word drops (or he goes down) within a second of the player's
+// shot while he is near the line of fire; it flashes an X on the reticle, white, or red and
+// larger for a kill, and the hit is counted against whether he was the one highlighted when
+// the shot left the gun (docs/quality-bar.md FEEL-13: >= 90 %).
+
+struct AimHud {
+    bool show = false;
+    float fade = 0.0f;
+    bool target = false;
+    uintptr_t targetObject = 0;
+    float tx = 0, ty = 0, tz = 0;            // the target's sprite origin
+    bool reticleKnown = false;
+    float rx = 0, ry = 0;                     // the reticle, pixels, eased
+    float bracketHalf = 0;                    // the target's projected half height, pixels
+    float spread = 0;                         // 1 just after a shot, decaying
+    uint32_t lastShots = 0;
+    uintptr_t targetAtShot = 0;
+    double shotTime = -10.0;
+    double clock = 0.0;
+    float hitT = 0;                           // the X's remaining time, seconds
+    bool hitKill = false;
+    struct Pop { float x, y, z, t; bool kill; };
+    std::vector<Pop> pops;                    // marks on the people hit
+    struct Seen { int health; bool corpse; };
+    std::unordered_map<uintptr_t, Seen> seen;
+    int shots = 0, hits = 0, hitsHighlighted = 0, kills = 0, shotsWithTarget = 0;
+    int framesArmed = 0, framesShown = 0;
+    double lastLog = 0.0;
+    int hitLogs = 0;
+};
+AimHud g_aimHud;
+
+float WeaponReach(int weapon) {
+    switch (weapon) {
+        case 6: case 10: return 3.0f;    // electro gun, flamethrower
+        case 7: case 8: return 6.0f;     // molotov, grenade (thrown)
+        case 9: return 6.0f;             // shotgun
+        case 5: return 12.0f;            // rocket launcher
+        default: return 10.0f;           // the pistols and machine guns
+    }
+}
+
+void UpdateAimHud(bool street, float W, float H, float dt) {
+    AimHud& h = g_aimHud;
+    h.clock += dt;
+    const AimState& a = ViewAim();
+    const bool fresh = LiveAimPedsFrame() == LiveDrawFrame();
+    const std::vector<AimPed>& peds = LiveAimPeds();
+    h.show = street && a.valid && a.armed && !ViewPlayer().inVehicle;
+    h.fade += ((h.show ? 1.0f : 0.0f) - h.fade) * (1.0f - std::exp(-dt / 0.08f));
+    const float hx = std::sin(a.headingYaw), hz = std::cos(a.headingYaw);
+    const float ox = a.x, oy = a.y + 0.30f, oz = a.z;
+    const float reach = WeaponReach(a.weapon);
+
+    // The target: the nearest person along the line of fire.
+    h.target = false;
+    if (h.show && fresh) {
+        float best = 1e9f;
+        for (const AimPed& p : peds) {
+            if (p.corpse || p.health == 0) continue;
+            const float rx = p.x - ox, rz = p.z - oz;
+            const float along = rx * hx + rz * hz;
+            if (along < 0.25f || along > reach) continue;
+            const float perp = std::fabs(rx * hz - rz * hx);
+            if (perp > 0.22f + 0.035f * along) continue;
+            if (std::fabs(p.y - a.y) > 1.2f) continue;
+            if (along >= best) continue;
+            if (ViewLineBlocked(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
+            best = along;
+            h.target = true;
+            h.targetObject = p.object;
+            h.tx = p.x; h.ty = p.y; h.tz = p.z;
+        }
+    }
+    if (!h.target) h.targetObject = 0;
+
+    // A shot: what was highlighted as it left the gun.
+    if (a.shots != h.lastShots) {
+        if (h.show && a.shots > h.lastShots) {
+            const int n = static_cast<int>(a.shots - h.lastShots);
+            h.shots += n;
+            if (h.target) h.shotsWithTarget += n;
+            h.targetAtShot = h.targetObject;
+            h.shotTime = h.clock;
+            h.spread = 1.0f;
+        }
+        h.lastShots = a.shots;
+    }
+    h.spread = (std::max)(0.0f, h.spread - dt / 0.25f);
+
+    // Hits, from the people's health words.
+    if (fresh) {
+        std::unordered_map<uintptr_t, AimHud::Seen> now;
+        now.reserve(peds.size());
+        for (const AimPed& p : peds) {
+            now[p.object] = {p.health, p.corpse};
+            const auto it = h.seen.find(p.object);
+            if (it == h.seen.end()) continue;
+            const AimHud::Seen& was = it->second;
+            const bool dropped = was.health > 0 && p.health >= 0 && p.health < was.health;
+            const bool fell = !was.corpse && p.corpse;
+            if (!(dropped || fell) || h.clock - h.shotTime > 1.0) continue;
+            const float rx = p.x - ox, rz = p.z - oz;
+            const float along = rx * hx + rz * hz;
+            const float perp = std::fabs(rx * hz - rz * hx);
+            if (along < -0.3f || along > reach + 1.5f || perp > 0.9f + 0.05f * (std::max)(0.0f, along)) continue;
+            const bool kill = p.corpse || p.health <= 0;
+            const bool highlighted = h.targetAtShot && p.object == h.targetAtShot;
+            ++h.hits;
+            h.hitsHighlighted += highlighted ? 1 : 0;
+            h.kills += kill ? 1 : 0;
+            h.hitT = kill ? 0.45f : 0.25f;
+            h.hitKill = kill;
+            h.pops.push_back({p.x, p.y, p.z, kill ? 0.9f : 0.6f, kill});
+            if (h.hitLogs < 200) {
+                ++h.hitLogs;
+                Log("aim: hit %04x health %d -> %d%s %.2f s after the shot, %.1f along %.2f off the line, highlighted %d",
+                    static_cast<unsigned>((p.object >> 2) & 0xFFFF), was.health, p.health, kill ? " (down)" : "",
+                    h.clock - h.shotTime, along, perp, highlighted ? 1 : 0);
+            }
+        }
+        h.seen.swap(now);
+    }
+    h.hitT = (std::max)(0.0f, h.hitT - dt);
+    for (AimHud::Pop& p : h.pops) p.t -= dt;
+    h.pops.erase(std::remove_if(h.pops.begin(), h.pops.end(), [](const AimHud::Pop& p) { return p.t <= 0.0f; }), h.pops.end());
+
+    // Where the reticle goes: the target's chest, or where the line meets a wall or ends.
+    if (h.show) {
+        float wx, wy, wz;
+        if (h.target) {
+            wx = h.tx; wy = h.ty + 0.28f; wz = h.tz;
+        } else {
+            float lo = 0.0f, hi = (std::min)(reach, 8.0f);
+            if (ViewLineBlocked(ox, oy, oz, ox + hx * hi, oy, oz + hz * hi)) {
+                for (int i = 0; i < 6; ++i) {
+                    const float mid = 0.5f * (lo + hi);
+                    if (ViewLineBlocked(ox, oy, oz, ox + hx * mid, oy, oz + hz * mid)) hi = mid; else lo = mid;
+                }
+                hi = (std::max)(lo, 0.6f);
+            }
+            wx = ox + hx * hi; wy = oy; wz = oz + hz * hi;
+        }
+        float sx, sy;
+        if (LiveWorldToScreen(wx, wy, wz, &sx, &sy) && sx > -0.2f && sx < 1.2f && sy > -0.2f && sy < 1.2f) {
+            sx *= W; sy *= H;
+            if (!h.reticleKnown || std::hypot(sx - h.rx, sy - h.ry) > 0.4f * H) { h.rx = sx; h.ry = sy; }
+            else {
+                const float k = 1.0f - std::exp(-dt / 0.045f);
+                h.rx += (sx - h.rx) * k; h.ry += (sy - h.ry) * k;
+            }
+            h.reticleKnown = true;
+        }
+        h.bracketHalf = 0.0f;
+        float ax, ay, bx, by;
+        if (h.target && LiveWorldToScreen(h.tx, h.ty, h.tz, &ax, &ay) && LiveWorldToScreen(h.tx, h.ty + 0.5f, h.tz, &bx, &by))
+            h.bracketHalf = (std::min)(0.25f * H, (std::max)(10.0f, 0.5f * std::fabs(ay - by) * H));
+        ++h.framesArmed;
+        h.framesShown += h.reticleKnown ? 1 : 0;
+    } else {
+        h.reticleKnown = false;
+    }
+
+    if (h.shots > 0 && h.clock - h.lastLog >= 10.0) {
+        h.lastLog = h.clock;
+        Log("aim: shots=%d with_target=%d hits=%d on_highlighted=%d (%.0f%%) kills=%d reticle_frames=%d/%d mix=%.2f",
+            h.shots, h.shotsWithTarget, h.hits, h.hitsHighlighted, h.hits ? 100.0 * h.hitsHighlighted / h.hits : 0.0,
+            h.kills, h.framesShown, h.framesArmed, a.aimMix);
+    }
+}
+
+void Line2(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col, float w) {
+    dl->AddLine(a, b, Fade(kShadow, (float)(col >> IM_COL32_A_SHIFT & 0xFF) / 255.0f * 0.7f), w + 2.0f * g_u);
+    dl->AddLine(a, b, col, w);
+}
+
+void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
+    const AimHud& h = g_aimHud;
+    const float A = alpha * h.fade;
+    const float u = g_u;
+    // The marks on the people hit, in the world: a small red cross rising off a kill.
+    for (const AimHud::Pop& p : h.pops) {
+        float sx, sy;
+        if (!LiveWorldToScreen(p.x, p.y + 0.55f + (p.kill ? 0.25f : 0.1f) * (1.0f - p.t), p.z, &sx, &sy)) continue;
+        const ImVec2 c(sx * W, sy * H);
+        const float r = (p.kill ? 7.0f : 5.0f) * u;
+        const ImU32 col = Fade(p.kill ? kRed : kWhite, alpha * (std::min)(1.0f, p.t * 3.0f));
+        Line2(dl, ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, 2.5f * u);
+        Line2(dl, ImVec2(c.x - r, c.y + r), ImVec2(c.x + r, c.y - r), col, 2.5f * u);
+    }
+    if (A < 0.02f || !h.reticleKnown) return;
+    const ImVec2 c(h.rx, h.ry);
+    const ImU32 col = Fade(h.target ? kRed : kWhite, A);
+    // Four ticks round a dot, opened by a shot.
+    const float gap = (6.0f + 9.0f * h.spread) * u, len = 7.0f * u, w = 2.0f * u;
+    Line2(dl, ImVec2(c.x - gap - len, c.y), ImVec2(c.x - gap, c.y), col, w);
+    Line2(dl, ImVec2(c.x + gap, c.y), ImVec2(c.x + gap + len, c.y), col, w);
+    Line2(dl, ImVec2(c.x, c.y - gap - len), ImVec2(c.x, c.y - gap), col, w);
+    Line2(dl, ImVec2(c.x, c.y + gap), ImVec2(c.x, c.y + gap + len), col, w);
+    dl->AddCircleFilled(c, 2.6f * u, Fade(kShadow, A * 0.8f));
+    dl->AddCircleFilled(c, 1.6f * u, col);
+    // The target bracketed.
+    if (h.target && h.bracketHalf > 0.0f) {
+        float sx, sy;
+        if (LiveWorldToScreen(h.tx, h.ty + 0.25f, h.tz, &sx, &sy)) {
+            const ImVec2 m(sx * W, sy * H);
+            const float bh = h.bracketHalf * 1.15f, bw = h.bracketHalf * 0.75f, k = (std::max)(5.0f * u, bw * 0.4f);
+            const ImU32 bc = Fade(kRed, A * 0.9f);
+            for (int sxn = -1; sxn <= 1; sxn += 2)
+                for (int syn = -1; syn <= 1; syn += 2) {
+                    const ImVec2 corner(m.x + sxn * bw, m.y + syn * bh);
+                    Line2(dl, corner, ImVec2(corner.x - sxn * k, corner.y), bc, 2.0f * u);
+                    Line2(dl, corner, ImVec2(corner.x, corner.y - syn * k), bc, 2.0f * u);
+                }
+        }
+    }
+    // The hit marker: an X round the reticle.
+    if (h.hitT > 0.0f) {
+        const float t = h.hitT / (h.hitKill ? 0.45f : 0.25f);
+        const float r0 = (h.hitKill ? 8.0f : 6.0f) * u, r1 = r0 + (h.hitKill ? 12.0f : 8.0f) * u;
+        const ImU32 hc = Fade(h.hitKill ? kRed : kWhite, alpha * (std::min)(1.0f, t * 2.0f));
+        const float wv = (h.hitKill ? 3.0f : 2.5f) * u;
+        for (int sxn = -1; sxn <= 1; sxn += 2)
+            for (int syn = -1; syn <= 1; syn += 2)
+                Line2(dl, ImVec2(c.x + sxn * r0 * 0.7071f, c.y + syn * r0 * 0.7071f), ImVec2(c.x + sxn * r1 * 0.7071f, c.y + syn * r1 * 0.7071f), hc, wv);
+    }
+}
+
 void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, float H, float dt) {
     Anim& an = g_anim;
     const float A = an.fade;
     const float u = g_u;
     const float margin = 28.0f * u;
+    DrawAimLayer(dl, A, W, H);   // QB-6
 
     // Money, ticking up (or down) to the game's value; the gain pops above it.
     if (v.money >= 0) {
@@ -959,6 +1196,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         g_briefResolved = false;
     }
     g_active = want;
+    UpdateAimHud(want, static_cast<float>(width), static_cast<float>(height), dt);   // QB-6
 
     Anim& an = g_anim;
     an.time += dt;

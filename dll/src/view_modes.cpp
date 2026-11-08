@@ -316,6 +316,78 @@ bool WriteAt(uintptr_t address, const T& value) {
 ViewQueries g_devQueries;
 void ViewModeSetQueries(const ViewQueries& queries) { g_devQueries = queries; }
 
+// ---- QB-6: aiming -------------------------------------------------------------------
+AimState g_aim;
+const AimState& ViewAim() { return g_aim; }
+
+bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1) {
+    if (!g_devQueries.blocked) return false;
+    const float d = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0));
+    const int steps = (std::max)(2, (std::min)(64, static_cast<int>(d / 0.2f)));
+    // The first and last fifth of a block are the shooter's and the target's own cells.
+    for (int i = 1; i < steps; ++i) {
+        const float t = static_cast<float>(i) / steps;
+        if (t * d < 0.2f || (1.0f - t) * d < 0.2f) continue;
+        if (g_devQueries.blocked(g_devQueries.context, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t)) return true;
+    }
+    return false;
+}
+
+namespace {
+// The player's weapon words last frame: a drop in the ammunition or a restart of the reload
+// timer with the same weapon object in his hands is a shot (live_geometry.cpp reads a
+// stranger's shots the same way).
+uintptr_t g_aimWeaponObject = 0;
+int g_aimLastAmmo = -1, g_aimLastReload = -1;
+
+void UpdateAim(const PlayerState& player, float px, float pz, float headingYaw, float dt) {
+    AimState& a = g_aim;
+    a.valid = player.valid;
+    a.x = px;
+    a.z = pz;
+    a.headingYaw = headingYaw;
+    int weapon = 0, ammo = -1, reload = -1;
+    uintptr_t object = 0;
+    int state = 0;
+    if (player.valid && !player.inVehicle && player.ped) {
+        GTA2_TRY {
+            const uint8_t* ped = static_cast<const uint8_t*>(player.ped);
+            weapon = game::PedWeaponOf(ped, nullptr);
+            const uint8_t* w = *reinterpret_cast<const uint8_t* const*>(ped + game::kPedCurrentWeapon);
+            if (weapon > 0 && game::PlausiblePointer(w)) {
+                object = reinterpret_cast<uintptr_t>(w);
+                ammo = *reinterpret_cast<const int16_t*>(w + game::kWeaponAmmo);
+                reload = *reinterpret_cast<const int16_t*>(w + 2);
+            }
+        } GTA2_EXCEPT {
+            weapon = 0;
+            object = 0;
+        }
+        state = ReadPedWords(player.ped).state;
+    }
+    a.weapon = weapon > 0 ? weapon : 0;
+    // Standing armed: not knocked down, dead or arrested (8/9), not in a car's door (3/4).
+    a.armed = a.weapon > 0 && state != 8 && state != 9 && state != 3 && state != 4;
+    if (object && object == g_aimWeaponObject) {
+        const bool shot = (ammo >= 0 && g_aimLastAmmo >= 0 && ammo < g_aimLastAmmo) ||
+                          (reload > g_aimLastReload && g_aimLastReload >= 0);
+        if (shot && a.armed) {
+            ++a.shots;
+            a.lastShot = Now();
+        }
+    }
+    g_aimWeaponObject = object;
+    g_aimLastAmmo = ammo;
+    g_aimLastReload = reload;
+    // The framing: over the shoulder for 2.5 s after a shot, a light lean in while armed.
+    const bool firing = a.armed && a.lastShot > 0.0 && Now() - a.lastShot < 2.5;
+    const float want = (CurrentViewMode() == ViewMode::ThirdPerson && a.armed) ? (firing ? 1.0f : 0.35f) : 0.0f;
+    const float tau = want > a.aimMix ? 0.18f : 0.5f;   // in quickly, out gently
+    a.aimMix += (want - a.aimMix) * (1.0f - std::exp(-(dt > 0.0f && dt < 0.25f ? dt : 1.0f / 30.0f) / tau));
+    if (a.aimMix < 0.002f) a.aimMix = 0.0f;
+}
+}  // namespace
+
 // After a warp the game streams the map around the player's new place; until
 // it has, there is nothing under him and he sinks through the lid he was put
 // on (seen on every warp of fifty blocks or more). So the position is held for
@@ -1329,6 +1401,27 @@ static void LogCameraFrame(const char* view, float camYaw, float headingYaw, flo
         Log("cam: %s yaw=%.1f heading=%.1f rate=%.0f dt=%.3f", view, camYaw / kDegToRad, headingYaw / kDegToRad, rate, dt);
 }
 
+// QUALITY-BAR row 22: the car chase framing. A low, close camera (the car about
+// 40 % of the frame's width at rest, its rear bumper in the frame), a field of
+// view that widens and a camera that drops back a little with speed, and a look
+// point that leads into a turn. The rig is sized from the car's own body
+// (CarBodiesExtent), so a van or a bus is framed as a sedan is. ThirdDistance
+// and ThirdHeight in the ini still scale it (their defaults 3.4 and 1.25 are 1).
+namespace chase {
+constexpr float kWidthAtRest = 0.40f;   // the car's share of the frame's width at a standstill
+constexpr float kSpeedFov = 11.0f;      // extra degrees of vertical field of view at full speed
+constexpr float kPullBack = 0.30f;      // extra blocks behind at full speed (times ThirdPullBack)
+constexpr float kTurnLead = 0.30f;      // blocks of sideways lead per rad/s of turn...
+constexpr float kTurnLeadMax = 0.55f;   // ...up to this
+float g_back = 0.0f, g_height = 0.0f, g_lookHeight = 0.0f;   // eased rig for the current body
+bool g_known = false;
+float g_lastHeading = 0.0f, g_turnRate = 0.0f, g_lead = 0.0f;
+bool g_headingKnown = false;
+// Framing counter (log): frames, sum of the width share, frames with the whole car in frame.
+int g_frames = 0, g_whole = 0;
+double g_widthSum = 0.0, g_fovSum = 0.0;
+}  // namespace chase
+
 // The soft follow's own line (GTA2DX9_LOG_CAMERA=1): the camera's yaw, what it
 // follows, his facing and the way he walks, his speed, and whether it follows.
 static void LogFootFollow(float yaw, float target, float heading, float walkYaw, float speed, bool following,
@@ -1417,6 +1510,11 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
         Reset();
         lastMode_ = mode;
     }
+    if (mode == ViewMode::Classic || !player.valid) {
+        g_aim.valid = false;
+        g_aim.armed = false;
+        g_aim.aimMix = 0.0f;
+    }
     if (mode == ViewMode::Classic) {
         status_ = "classic";
         camera->SetRoll(0.0f);
@@ -1482,7 +1580,9 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
             applied = want;
         }
     }
+    UpdateAim(player, px, pz, headingYaw, dt);
     Solve(player, queries, dt, camera, px, py, pz, headingYaw, player.inVehicle);
+    g_aim.y = floorY_;
     return true;
 }
 
@@ -1993,7 +2093,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         const float scale = ViewTurnSpeedScale();
         const bool walking = speed > 0.6f;
         const float walkYaw = walking ? std::atan2(velX_, velZ_) : followYaw_;
-        if (s.tpOrbitFollow) {
+        // QB-6: firing, the camera swings round behind the way he faces (the way the
+        // game's bullets fly) on a quick spring, so the line of fire runs into the
+        // picture and the reticle sits near its middle; the mouse still overrides it.
+        const bool aimRecentMouse = look.lastMoved > 0.0 && Now() - look.lastMoved < s.tpReturnDelay;
+        const bool aimFollow = g_aim.aimMix > 0.5f && !aimRecentMouse && downTime_ <= 0.0f && deathMix_ < 0.01f;
+        if (aimFollow) {
+            const float rate = 2.0f * s.turnRateFoot * scale * kDegToRad;
+            SpringTurn(&followYaw_, &followYawVel_, headingYaw, 2.0f / 0.3f, rate > 0.0f ? rate : 0.0f, dt);
+            footFollowing_ = false;
+            engageTime_ = 0.0f;
+            awayTime_ = 0.0f;
+        } else if (s.tpOrbitFollow) {
             // Drift round behind whichever way he walks.
             const float rate = s.turnRateFoot * scale * kDegToRad;
             SpringTurn(&followYaw_, &followYawVel_, walkYaw, 2.0f / (std::max)(s.tpOrbitTau, 0.1f), rate > 0.0f ? rate : 0.0f, dt);
@@ -2131,6 +2242,61 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     float height = (s.tpHeight + 0.25f * s.tpPullBack * speedFrac_) * scale + 0.8f * extraHeight_ + 0.1f * extraLength_;
     float lookAhead = (s.tpLookAhead + 0.8f * speedFrac_) * scale + 0.5f * extraLength_;
     float lookHeight = s.tpLookHeight * scale + 0.5f * extraHeight_;
+    float chaseFovExtra = s.speedFov * speedFrac_;
+    gta2::Vec3 turnLead{0.0f, 0.0f, 0.0f};
+    if (inVehicle) {
+        // QUALITY-BAR row 22 (chase:: above). The body's size: the one known from the
+        // car bodies, else a sedan's.
+        const bool body = exitCar_ == player.vehicle && exitCarHalfWidth_ > 0.05f && exitCarHalfLength_ > 0.1f;
+        const float halfW = body ? exitCarHalfWidth_ : 0.32f;
+        const float halfL = body ? exitCarHalfLength_ : 0.6f;
+        const float tall = body ? (std::max)(exitCarHeight_, 0.3f) : 0.45f;
+        const float fov0 = (std::min)((std::max)(s.tpFov, 20.0f), 110.0f);
+        const float tanH = std::tan(0.5f * fov0 * kDegToRad) * (16.0f / 9.0f);
+        // From the rear bumper, back by as much as puts its width at kWidthAtRest of
+        // the frame; up a little over the roof; looking at a point low and close
+        // enough ahead that the pitch keeps the bumper in the picture.
+        const float rear = halfW / (chase::kWidthAtRest * tanH);
+        const float back = (halfL + rear) * (std::max)(s.tpDistance, 0.5f) / 3.4f;
+        const float up = (tall + 0.17f) * (std::max)(s.tpHeight, 0.2f) / 1.25f;
+        const float lookUp = 0.45f * tall;
+        if (!chase::g_known) {
+            chase::g_back = back;
+            chase::g_height = up;
+            chase::g_lookHeight = lookUp;
+            chase::g_known = true;
+        } else {
+            const float k = 1.0f - std::exp(-dt / 0.4f);
+            chase::g_back += (back - chase::g_back) * k;
+            chase::g_height += (up - chase::g_height) * k;
+            chase::g_lookHeight += (lookUp - chase::g_lookHeight) * k;
+        }
+        // Speed: eased in on a smooth curve, so cruising and a standstill look the same
+        // and the stretch comes as the car gets going.
+        const float c = speedFrac_ * speedFrac_ * (3.0f - 2.0f * speedFrac_);
+        distance = chase::g_back + chase::kPullBack * s.tpPullBack * c;
+        height = chase::g_height + 0.05f * c;
+        lookAhead = halfL + (0.25f + 0.9f * c) * (std::max)(s.tpLookAhead, 0.0f) / 1.2f;
+        lookHeight = chase::g_lookHeight;
+        chaseFovExtra = (std::max)(s.speedFov, chase::kSpeedFov) * c;
+        // Into a turn: the look point leads sideways with the car's rate of turn (its
+        // heading, eased), at speed only, so the road it is turning into is in frame.
+        if (!chase::g_headingKnown) {
+            chase::g_lastHeading = headingYaw;
+            chase::g_headingKnown = true;
+        }
+        const float rawRate = WrapAngle(headingYaw - chase::g_lastHeading) / dt;
+        chase::g_lastHeading = headingYaw;
+        chase::g_turnRate += ((std::max)(-4.0f, (std::min)(4.0f, rawRate)) - chase::g_turnRate) * (1.0f - std::exp(-dt / 0.15f));
+        const float leadWant = (std::max)(-chase::kTurnLeadMax, (std::min)(chase::kTurnLeadMax, chase::g_turnRate * chase::kTurnLead)) *
+                               (std::min)(speed / 2.0f, 1.0f);
+        chase::g_lead += (leadWant - chase::g_lead) * (1.0f - std::exp(-dt / 0.25f));
+        turnLead = {std::cos(headingYaw) * chase::g_lead, 0.0f, -std::sin(headingYaw) * chase::g_lead};
+    } else {
+        chase::g_known = false;
+        chase::g_headingKnown = false;
+        chase::g_turnRate = chase::g_lead = 0.0f;
+    }
     // The death camera: back and up over him, looking at the body.
     if (deathMix_ > 0.0f) {
         distance += (2.8f - distance) * deathMix_;
@@ -2138,9 +2304,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         lookAhead += (0.0f - lookAhead) * deathMix_;
         lookHeight += (0.1f - lookHeight) * deathMix_;
     }
+    // QB-6, the aim framing (armed on foot, fully while firing): in closer and lower,
+    // further over the right shoulder, looking down range, a few degrees narrower.
+    const float aimMix = inVehicle ? 0.0f : g_aim.aimMix * (1.0f - deathMix_);
+    if (aimMix > 0.0f) {
+        distance *= 1.0f - 0.30f * aimMix;
+        height *= 1.0f - 0.35f * aimMix;
+        lookAhead += 1.6f * scale * aimMix;
+        lookHeight += 0.12f * scale * aimMix;
+    }
     // Over the shoulder on foot: the camera, and what it looks at, sit a little
     // to the right of him, so he is not a figure in the dead centre.
-    const float shoulder = inVehicle ? 0.0f : s.tpShoulder * scale * (1.0f - deathMix_);
+    const float shoulder = inVehicle ? 0.0f : (s.tpShoulder + 0.30f * aimMix) * scale * (1.0f - deathMix_);
     const float sx = std::cos(followYaw_), sz = -std::sin(followYaw_);   // right of the chase yaw
 
     // The point looked at is a little ahead of him along his heading, which is
@@ -2148,8 +2323,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // On foot the point looked at is ahead along the camera, not his heading:
     // an orbit camera frames the street it looks down, whichever way he faces.
     const float ax = inVehicle ? hx : std::sin(yaw), az = inVehicle ? hz : std::cos(yaw);
-    const gta2::Vec3 lookAt{px + ax * lookAhead + sx * shoulder, baseY + lookHeight,
-                            pz + az * lookAhead + sz * shoulder};
+    const gta2::Vec3 lookAt{px + ax * lookAhead + sx * shoulder + turnLead.x, baseY + lookHeight,
+                            pz + az * lookAhead + sz * shoulder + turnLead.z};
 
     // Where the camera wants to be: behind, above, swung by the mouse orbit.
     const float cp = std::cos(orbitPitch), sp = std::sin(orbitPitch);
@@ -2209,7 +2384,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         const gta2::Vec3 span = desired - pivot;
         const float spanLength = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
         const float spanFlat = std::hypot(span.x, span.z);
-        const float minPull = inVehicle ? 1.4f + 0.5f * extraLength_ + 0.5f * extraHeight_ : 0.5f;
+        // In a car: a stride behind the bumper, but the low close chase (row 22) is only
+        // that far back to begin with, so no more than three quarters of the way out.
+        const float minPull = inVehicle ? (std::min)(1.4f + 0.5f * extraLength_ + 0.5f * extraHeight_, 0.75f * spanLength) : 0.5f;
         float wantLift = 0.0f;
         // Something overhead (a sign gantry, a railway bridge over the road): the camera
         // goes down under it at the same distance, and neither pulls in nor swings up.
@@ -2506,13 +2683,56 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         roll += Wobble(shakeClock_ + 6.5, 6.0f) * 1.5f * kDegToRad * shake_;
     }
     roll_ += (roll - roll_) * (1.0f - std::exp(-dt / 0.15f));
-    const float fov = (std::min)((std::max)(s.tpFov, 20.0f), 110.0f) + s.speedFov * speedFrac_;
+    const float fov = (std::min)((std::max)(s.tpFov, 20.0f), 110.0f) + chaseFovExtra;
 
     camera->SetPosition(eye);
     camera->SetOrientation(camYaw, camPitch);
     camera->SetRoll(roll_);
     camera->SetFovY((std::min)(fov, 130.0f) * kDegToRad);
+    if (aimMix > 0.0f) {
+        // QB-6: the aim framing is 8 degrees narrower, and each shot kicks the view up
+        // 0.3 degrees, back over a tenth of a second (recoil).
+        camera->SetFovY(camera->FovY() - 8.0f * aimMix * kDegToRad);
+        const float since = g_aim.lastShot > 0.0 ? static_cast<float>(Now() - g_aim.lastShot) : 1.0f;
+        if (since >= 0.0f && since < 0.4f) camera->SetOrientation(camYaw, camPitch + 0.3f * kDegToRad * std::exp(-since / 0.1f));
+    }
     LogCameraFrame("third", camYaw, headingYaw, dt, &eye, px, pz, distance);
+    if (inVehicle && deathMix_ < 0.01f) {
+        // QUALITY-BAR row 22: the car's share of the frame's width (16:9) and whether the
+        // whole body (its box) is in the picture, from the camera actually set.
+        const bool body = exitCar_ == player.vehicle && exitCarHalfWidth_ > 0.05f;
+        const float halfW = body ? exitCarHalfWidth_ : 0.32f, halfL = body ? exitCarHalfLength_ : 0.6f;
+        const float tall = body ? exitCarHeight_ : 0.45f;
+        const float sy = std::sin(camYaw), cy = std::cos(camYaw), sp = std::sin(camPitch), cpv = std::cos(camPitch);
+        const float th = std::tan(0.5f * (std::min)(fov, 130.0f) * kDegToRad), tw = th * (16.0f / 9.0f);
+        float minX = 1e9f, maxX = -1e9f, minY = 1e9f, maxY = -1e9f;
+        bool front = true;
+        for (int i = 0; i < 8; ++i) {
+            const float l = (i & 1) ? halfL : -halfL, w = (i & 2) ? halfW : -halfW, h = (i & 4) ? tall : 0.0f;
+            const gta2::Vec3 c{px + hx * l + std::cos(headingYaw) * w, baseY + h, pz + hz * l - std::sin(headingYaw) * w};
+            const gta2::Vec3 d = c - eye;
+            const float zf = d.x * sy * cpv + d.y * sp + d.z * cy * cpv;
+            if (zf < 0.05f) { front = false; continue; }
+            const float xr = (d.x * cy - d.z * sy) / zf / tw;
+            const float yu = (-d.x * sy * sp + d.y * cpv - d.z * cy * sp) / zf / th;
+            minX = (std::min)(minX, xr); maxX = (std::max)(maxX, xr);
+            minY = (std::min)(minY, yu); maxY = (std::max)(maxY, yu);
+        }
+        const float share = front ? ((std::min)(maxX, 1.0f) - (std::max)(minX, -1.0f)) * 0.5f : 1.0f;
+        const bool whole = front && minX >= -1.0f && maxX <= 1.0f && minY >= -1.0f && maxY <= 1.0f;
+        ++chase::g_frames;
+        chase::g_whole += whole ? 1 : 0;
+        chase::g_widthSum += share;
+        chase::g_fovSum += fov;
+        LogCameraFrame("chase", camYaw, headingYaw, dt, &eye, px, pz, share);
+        if (chase::g_frames % 150 == 0) {
+            Log("view: framing chase frames=%d width=%.2f (now %.2f) whole=%d fov=%.1f (now %.1f) speed=%.2f back=%.2f up=%.2f lead=%.2f bottom=%.2f",
+                chase::g_frames, chase::g_widthSum / 150.0, share, chase::g_whole, chase::g_fovSum / 150.0, fov, speed, distance, height,
+                chase::g_lead, minY);
+            chase::g_widthSum = chase::g_fovSum = 0.0;
+            chase::g_whole = 0;
+        }
+    }
     if (!inVehicle && deathMix_ < 0.01f) {
         // QUALITY-BAR row 2: is his head in the picture (16:9) and not behind a wall?
         const gta2::Vec3 head{px, baseY + 0.42f, pz};

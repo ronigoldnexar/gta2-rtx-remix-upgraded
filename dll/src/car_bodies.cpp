@@ -20,6 +20,7 @@
 #include "texture_store.h"
 #include "time_of_day.h"
 #include "vehicle_fx.h"
+#include "explosion_fx.h"
 #include "../../src/sky.h"
 
 namespace gta2dx9 {
@@ -2342,6 +2343,24 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     sun.Direction = {dx / dl, dy / dl, dz / dl};
     device->SetLight(0, &sun);
     device->LightEnable(0, TRUE);
+    // QB-19: a blast nearby lights the bodies orange while it flashes (plain renderer only;
+    // under Remix the fireball's emissive particles do it).
+    bool blastLit = false;
+    {
+        float lp[3], lc[3], range = 0.0f;
+        if (!RemixApiAvailable() && ExplosionFxLight(lp, lc, &range)) {
+            D3DLIGHT9 blast = {};
+            blast.Type = D3DLIGHT_POINT;
+            blast.Diffuse = {lc[0], lc[1], lc[2], 1.0f};
+            blast.Position = {lp[0], lp[1], lp[2]};
+            blast.Range = range;
+            blast.Attenuation0 = 1.0f;
+            blast.Attenuation2 = 16.0f / (range * range);
+            device->SetLight(1, &blast);
+            device->LightEnable(1, TRUE);
+            blastLit = true;
+        }
+    }
     D3DMATERIAL9 material = {};
     material.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
     material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -2824,6 +2843,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         }
     }
     device->LightEnable(0, FALSE);
+    if (blastLit) device->LightEnable(1, FALSE);
     device->SetRenderState(D3DRS_LIGHTING, FALSE);
     device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
     device->SetRenderState(D3DRS_NORMALIZENORMALS, FALSE);

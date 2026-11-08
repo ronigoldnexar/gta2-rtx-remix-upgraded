@@ -29,6 +29,8 @@
 #include "view_modes.h"
 #include "model_store.h"
 #include "map_objects.h"
+#include "explosion_fx.h"
+#include <mmsystem.h>   // QB-29: the reload clicks (waveOut)
 
 namespace gta2dx9 {
 namespace {
@@ -294,9 +296,15 @@ bool g_viewActiveForPops = false;
 // The view frustum's side planes (left, right, bottom, top) as a*x + b*y + c*z + d >= 0
 // inside, normalised, from the camera's view-projection (row vectors, D3D).
 float g_frustum[4][4] = {};
+// QB-6: the camera's view-projection of the last Draw, for LiveWorldToScreen.
+float g_viewProj[4][4] = {};
+bool g_viewProjValid = false;
+std::vector<AimPed> g_aimPeds;
+uint32_t g_aimPedsFrame = 0;
 bool g_frustumValid = false;
 void SetViewFrustum(const gta2::Camera& camera, int width, int height) {
     g_frustumValid = false;
+    g_viewProjValid = false;
     if (width <= 0 || height <= 0) return;
     const gta2::Mat4 v = camera.ViewMatrix();
     const gta2::Mat4 p = camera.ProjectionMatrix(static_cast<float>(width) / static_cast<float>(height));
@@ -307,6 +315,8 @@ void SetViewFrustum(const gta2::Camera& camera, int width, int height) {
             for (int k = 0; k < 4; ++k) sum += v.m[r][k] * p.m[k][c];
             m[r][c] = sum;
         }
+    std::memcpy(g_viewProj, m, sizeof m);
+    g_viewProjValid = true;
     const int axis[4] = {0, 0, 1, 1};
     const float sign[4] = {1.0f, -1.0f, 1.0f, -1.0f};
     for (int i = 0; i < 4; ++i) {
@@ -328,6 +338,19 @@ bool OutsideViewFrustum(float x, float y, float z, float radius) {
 bool BehindView(float x, float y, float z, float margin) {
     const float dx = x - g_viewEye.x, dy = y - g_viewEye.y, dz = z - g_viewEye.z;
     return dx * g_viewForward.x + dy * g_viewForward.y + dz * g_viewForward.z < -margin;
+}
+const std::vector<AimPed>& LiveAimPeds() { return g_aimPeds; }
+uint32_t LiveAimPedsFrame() { return g_aimPedsFrame; }
+bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy) {
+    if (!g_viewProjValid) return false;
+    const float (*m)[4] = g_viewProj;
+    const float cx = x * m[0][0] + y * m[1][0] + z * m[2][0] + m[3][0];
+    const float cy = x * m[0][1] + y * m[1][1] + z * m[2][1] + m[3][1];
+    const float cw = x * m[0][3] + y * m[1][3] + z * m[2][3] + m[3][3];
+    if (!(cw > 0.05f)) return false;
+    *sx = 0.5f + 0.5f * cx / cw;
+    *sy = 0.5f - 0.5f * cy / cw;
+    return true;
 }
 void SetUprightPeds(bool on) { g_uprightPeds = on; }
 void SetPlayerWeapon(int weapon, int ammo) { g_playerWeapon = weapon; g_playerAmmo = ammo; }
@@ -4027,6 +4050,7 @@ void FireEffectsLoad(const char* iniPath) {
     f.tint[2] = pct("fire_tint_b", 18);
     f.flicker = pct("fire_flicker_percent", 20);
     f.flickerHz = static_cast<float>(num("fire_flicker_hz", 13));
+    ExplosionFxLoad(iniPath);
     g_charredLuma = static_cast<float>(num("car_charred_luma", 30));
     {
         // Signed: GetPrivateProfileInt returns an unsigned number, and a negative default such as
@@ -6278,6 +6302,91 @@ int CarryFor(int weapon) {
         default: return 14;
     }
 }
+// QB-29: reloading. GTA2 has no magazines (a weapon fires until its ammunition
+// is gone), so each gun gets a notional one: the shots are counted off the
+// weapon object (its ammunition dropping or its reload timer restarting, see
+// gameShot in DrawPedFigures) and, the magazine spent, the reload clip plays
+// once he stops firing (a shot cuts it off: the game fires regardless). Clips
+// (tools/gen_ped_clips.py): 24 reload (pistol, the dual pistols' right gun),
+// 25 reload_heavy (machine guns, shotgun), 26 reload_launcher. The times are
+// the clip's own: the magazine leaves the gun, the fresh one goes in, the
+// slide or charging handle (each a click for the player, see ReloadClick).
+// GTA2DX9_RELOAD=0 turns it off.
+struct ReloadInfo { int mag; int action; float len, dropT, grabT, insertT, rackT; };
+const ReloadInfo kReloads[kWpnCount] = {
+    {0, 0, 0, 0, 0, 0, 0},                                // none
+    {12, 24, 1.40f, 0.30f, 0.55f, 0.80f, 0.98f},          // pistol
+    {24, 24, 1.40f, 0.30f, 0.55f, 0.80f, 0.98f},          // dual pistols
+    {30, 25, 1.55f, 0.35f, 0.65f, 0.95f, 1.12f},          // silenced machine gun
+    {30, 25, 1.55f, 0.35f, 0.65f, 0.95f, 1.12f},          // machine gun
+    {1, 26, 1.20f, -1.0f, 0.40f, 0.85f, -1.0f},           // rocket launcher: a rocket in, nothing out
+    {0, 0, 0, 0, 0, 0, 0},                                // electro gun (a battery: no reload)
+    {0, 0, 0, 0, 0, 0, 0},                                // molotov
+    {0, 0, 0, 0, 0, 0, 0},                                // grenade
+    {6, 25, 1.55f, 0.35f, 0.65f, 0.95f, 1.12f},           // shotgun
+    {0, 0, 0, 0, 0, 0, 0},                                // flamethrower
+};
+bool IsReloadAction(int action) { return action >= 24 && action <= 26; }
+int g_reloadOn = -1;   // GTA2DX9_RELOAD (default on)
+bool ReloadOn() {
+    if (g_reloadOn < 0) { char buf[8] = {}; g_reloadOn = !(GetEnvironmentVariableA("GTA2DX9_RELOAD", buf, sizeof buf) && buf[0] == '0'); }
+    return g_reloadOn != 0;
+}
+// The player's clicks: synthesized (no recorded sound), 22.05 kHz mono through
+// waveOut, so they mix with the game's own sound and do not stop the voice-over
+// (PlaySound plays one sound at a time). 0 the magazine out, 1 in, 2 the slide.
+// GTA2DX9_RELOAD_SOUND=0 turns them off.
+void ReloadClick(int kind) {
+    static int on = -1;
+    if (on < 0) { char buf[8] = {}; on = !(GetEnvironmentVariableA("GTA2DX9_RELOAD_SOUND", buf, sizeof buf) && buf[0] == '0'); }
+    if (!on || kind < 0 || kind > 2) return;
+    static HWAVEOUT out = nullptr;
+    static bool tried = false;
+    static std::vector<int16_t> pcm[3];
+    static WAVEHDR hdr[3];
+    constexpr int kRate = 22050;
+    if (!tried) {
+        tried = true;
+        WAVEFORMATEX fmt = {};
+        fmt.wFormatTag = WAVE_FORMAT_PCM; fmt.nChannels = 1; fmt.nSamplesPerSec = kRate;
+        fmt.wBitsPerSample = 16; fmt.nBlockAlign = 2; fmt.nAvgBytesPerSec = kRate * 2;
+        if (waveOutOpen(&out, WAVE_MAPPER, &fmt, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) { out = nullptr; Log("reload: no waveOut device, clicks off"); return; }
+        // A click: a burst of noise and a damped metallic ring, at onset seconds.
+        uint32_t seed = 0x2545F491u;
+        auto click = [&](std::vector<int16_t>& v, float onset, float ring, float decay, float amp) {
+            const int start = static_cast<int>(onset * kRate);
+            const int n = static_cast<int>(0.06f * kRate);
+            if (static_cast<int>(v.size()) < start + n) v.resize(start + n, 0);
+            for (int i = 0; i < n; ++i) {
+                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+                const float t = static_cast<float>(i) / kRate;
+                const float noise = (static_cast<float>(seed & 0xFFFF) / 32768.0f - 1.0f) * std::exp(-t * 900.0f);
+                const float tone = std::sin(6.2831853f * ring * t) * std::exp(-t * decay) * 0.6f +
+                                   std::sin(6.2831853f * ring * 2.7f * t) * std::exp(-t * decay * 1.6f) * 0.25f;
+                const float s = (noise + tone) * amp * 9000.0f + v[start + i];
+                v[start + i] = static_cast<int16_t>((std::max)(-32000.0f, (std::min)(32000.0f, s)));
+            }
+        };
+        click(pcm[0], 0.0f, 900.0f, 90.0f, 0.8f);                                    // the magazine released
+        click(pcm[1], 0.0f, 1500.0f, 120.0f, 0.7f); click(pcm[1], 0.035f, 2100.0f, 160.0f, 1.0f);   // seated
+        click(pcm[2], 0.0f, 1800.0f, 110.0f, 0.8f); click(pcm[2], 0.11f, 2400.0f, 140.0f, 1.0f);    // back and home
+        for (int i = 0; i < 3; ++i) {
+            hdr[i] = {};
+            hdr[i].lpData = reinterpret_cast<LPSTR>(pcm[i].data());
+            hdr[i].dwBufferLength = static_cast<DWORD>(pcm[i].size() * sizeof(int16_t));
+            waveOutPrepareHeader(out, &hdr[i], sizeof(WAVEHDR));
+        }
+    }
+    if (!out) return;
+    if ((hdr[kind].dwFlags & WHDR_INQUEUE) && !(hdr[kind].dwFlags & WHDR_DONE)) return;   // still playing
+    hdr[kind].dwFlags &= ~WHDR_DONE;
+    waveOutWrite(out, &hdr[kind], sizeof(WAVEHDR));
+    static int logged = 0;
+    if (logged < 60) { ++logged; Log("reload: click %d", kind); }
+}
+// A magazine (or a rocket) as a particle: dark, falling to the ground beside him
+// and lying there a moment (kind 6); held, a particle of one frame's life.
+void ShotSpawnMag(float x, float y, float z, float vx, float vy, float vz, float life, float floorY, bool rocket);
 // Clips written as upper-body layers (only Bip01 Spine1 and up): drawn blended
 // at just under full weight over the walk, run or idle so the legs keep moving
 // (model_store.cpp: a joint the second clip leaves alone keeps the first's).
@@ -6285,7 +6394,8 @@ bool IsUpperLayer(int action) {
     // ACTIONS-3D-4: the fists (1), the car door (5, 6), taking a punch (22) and running
     // beside a moving car with a hand on its door (23) too.
     return action == 1 || action == 2 || action == 3 || action == 5 || action == 6 ||
-           (action >= 8 && action <= 18 && action != 9) || action == 19 || action == 21 || action == 22 || action == 23;
+           (action >= 8 && action <= 18 && action != 9) || action == 19 || action == 21 || action == 22 || action == 23 ||
+           IsReloadAction(action);   // QB-29
 }
 
 // The particles the shots leave: a muzzle glow, sparks, a brass case, blood,
@@ -6295,7 +6405,8 @@ struct ShotParticle {
     float x, y, z, vx, vy, vz;
     float life, age, size0, size1;
     float r, g, b, a;
-    uint8_t kind;   // 0 spark, 1 shell, 2 blood, 3 smoke, 4 glow, 5 arc
+    uint8_t kind;   // 0 spark, 1 shell, 2 blood, 3 smoke, 4 glow, 5 arc, 6 magazine (QB-29)
+    float floorY = -1e9f;   // kind 6: the ground it comes to rest on
 };
 std::vector<ShotParticle> g_shotParticles;
 // The muzzle lights, held for the frame they were seen on and the next: the
@@ -6317,6 +6428,14 @@ void ShotSpawn(float x, float y, float z, float vx, float vy, float vz, float li
     if (logged < 40) { ++logged; Log("shot fx: kind %d size %.3f..%.3f life %.2f at %.2f,%.2f,%.2f v %.2f,%.2f,%.2f", kind, s0, s1, life, x, y, z, vx, vy, vz); }
     s0 = (std::min)(s0, 0.6f); s1 = (std::min)(s1, 0.6f);
     g_shotParticles.push_back({x, y, z, vx, vy, vz, life, 0.0f, s0, s1, r, g, b, a, kind});
+}
+void ShotSpawnMag(float x, float y, float z, float vx, float vy, float vz, float life, float floorY, bool rocket) {
+    if (!g_uprightPeds) return;
+    if (g_shotParticles.size() >= 1200) g_shotParticles.erase(g_shotParticles.begin());
+    ShotParticle p = {x, y, z, vx, vy, vz, life, 0.0f, rocket ? 0.020f : 0.014f, rocket ? 0.020f : 0.014f,
+                      rocket ? 0.30f : 0.10f, rocket ? 0.32f : 0.10f, rocket ? 0.22f : 0.11f, 1.0f, 6};
+    p.floorY = floorY;
+    g_shotParticles.push_back(p);
 }
 // A soft round spot: white, alpha falling off to the edge.
 IDirect3DTexture9* ShotGlowTexture(IDirect3DDevice9* device) {
@@ -6416,8 +6535,9 @@ void ShotFxDraw(IDirect3DDevice9* device, float dt) {
         ShotParticle& sp = g_shotParticles[i];
         sp.age += dt;
         if (sp.age >= sp.life) { sp = g_shotParticles.back(); g_shotParticles.pop_back(); continue; }
-        if (sp.kind == 0 || sp.kind == 1 || sp.kind == 2) sp.vy -= (sp.kind == 2 ? 1.2f : 2.8f) * dt;   // gravity
+        if (sp.kind == 0 || sp.kind == 1 || sp.kind == 2 || sp.kind == 6) sp.vy -= (sp.kind == 2 ? 1.2f : 2.8f) * dt;   // gravity
         sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.z += sp.vz * dt;
+        if (sp.kind == 6 && sp.y < sp.floorY) { sp.y = sp.floorY; sp.vx = sp.vy = sp.vz = 0.0f; }   // a magazine at rest
         ++i;
     }
     if (g_shotParticles.empty()) return;
@@ -6442,6 +6562,7 @@ void ShotFxDraw(IDirect3DDevice9* device, float dt) {
         else if (sp.kind == 4) alpha *= 1.0f - t * t;
         else if (sp.kind == 2) alpha *= 1.0f - t;
         else if (sp.kind == 3) alpha *= (t < 0.1f ? t / 0.1f : 1.0f) * (1.0f - t) * (1.0f - t);
+        else if (sp.kind == 6 && sp.life > 0.2f) alpha *= t > 0.8f ? (1.0f - t) / 0.2f : 1.0f;
         const bool additive = sp.kind == 0 || sp.kind == 4 || sp.kind == 5;
         const float lv = additive ? alpha : 1.0f;
         const DWORD c = D3DCOLOR_COLORVALUE(sp.r * lv, sp.g * lv, sp.b * lv, additive ? 1.0f : alpha);
@@ -6450,7 +6571,16 @@ void ShotFxDraw(IDirect3DDevice9* device, float dt) {
         if (v.size() > 60000) continue;
         const uint16_t base = static_cast<uint16_t>(v.size());
         float ax = rx * size, ay = 0.0f, az = rz * size, bx = Ux * size, by = Uy * size, bz = Uz * size;
-        if (sp.kind == 0 || sp.kind == 1) {
+        if (sp.kind == 6) {
+            // A magazine: an upright bar (a rocket: a fatter one), along its fall
+            // while it falls.
+            const float vl = std::sqrt(sp.vx * sp.vx + sp.vy * sp.vy + sp.vz * sp.vz);
+            if (vl > 0.05f) { bx = sp.vx / vl * size * 2.2f; by = sp.vy / vl * size * 2.2f; bz = sp.vz / vl * size * 2.2f; }
+            else { bx = 0.0f; by = size * 2.2f; bz = 0.0f; }
+            ax = by * f.z - bz * f.y; ay = bz * f.x - bx * f.z; az = bx * f.y - by * f.x;
+            const float al = (std::max)(1e-4f, std::sqrt(ax * ax + ay * ay + az * az));
+            ax = ax / al * size * 0.8f; ay = ay / al * size * 0.8f; az = az / al * size * 0.8f;
+        } else if (sp.kind == 0 || sp.kind == 1) {
             // A spark or a case: stretched along its motion.
             const float vl = std::sqrt(sp.vx * sp.vx + sp.vy * sp.vy + sp.vz * sp.vz);
             if (vl > 0.05f) {
@@ -6557,19 +6687,83 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     const float shotT = g_fpShotFrame ? static_cast<float>(g_carFrame - g_fpShotFrame) / 30.0f : 10.0f;
     const float kick = (std::max)(0.0f, 1.0f - shotT / 0.12f);
     const bool thrown = wi.action == 13;
-    const float ahead = (wi.twoHanded ? 0.20f : 0.24f) - wi.kick * kick;
-    const float side = wi.twoHanded ? 0.055f : 0.095f, down = (wi.twoHanded ? 0.075f : 0.085f) + (thrown ? 0.02f : 0.0f);
+    // QB-29: the reload, from the game's words for the player (the figure, whose
+    // shots drive it in the other views, is not drawn here): the same magazine
+    // count (kReloads) off his weapon's ammunition, timed in real seconds.
+    static int rlWeapon = -1, rlShots = 0;
+    static int32_t rlAmmo = -1;
+    static uint32_t rlLastShot = 0;
+    static DWORD rlStart = 0;
+    static float rlPrevT = -1.0f;
+    float reloadT = -1.0f;
+    const ReloadInfo& ri = kReloads[weapon];
+    if (ReloadOn() && ri.mag > 0 && g_playerWeapon == weapon) {
+        if (weapon != rlWeapon) { rlWeapon = weapon; rlShots = 0; rlStart = 0; rlAmmo = g_playerAmmo; }
+        const bool shot = rlAmmo >= 0 && g_playerAmmo < rlAmmo;
+        if (shot) { ++rlShots; rlLastShot = g_carFrame; }
+        else if (rlAmmo >= 0 && g_playerAmmo > rlAmmo && rlShots > 0) rlShots = ri.mag;   // a pickup
+        rlAmmo = g_playerAmmo;
+        if (shot || g_fpShotFrame == g_carFrame) {
+            rlStart = 0;
+        } else if (!rlStart && rlShots >= ri.mag && g_carFrame - rlLastShot >= 9) {
+            rlStart = GetTickCount() | 1u;
+            rlShots = 0;
+            rlPrevT = -1.0f;
+            Log("reload: first person %s starts (magazine %d)", wi.name, ri.mag);
+        }
+        if (rlStart) {
+            reloadT = static_cast<float>(GetTickCount() - rlStart) / 1000.0f;
+            if (reloadT >= ri.len) { rlStart = 0; reloadT = -1.0f; }
+        }
+    } else {
+        rlStart = 0;
+    }
+    // Down and in, the muzzle up and the gun rolled to show its side, back up at
+    // the end; a jolt back on the slide or the charging handle.
+    float rs = 0.0f, rack = 0.0f;
+    if (reloadT >= 0.0f) {
+        const float u = reloadT / ri.len;
+        rs = (std::min)(1.0f, (std::min)(u / 0.18f, (1.0f - u) / 0.22f));
+        rs = rs * rs * (3.0f - 2.0f * rs);
+        if (ri.rackT >= 0.0f && reloadT >= ri.rackT && reloadT < ri.rackT + 0.12f) rack = 1.0f - (reloadT - ri.rackT) / 0.12f;
+    }
+    const float ahead = (wi.twoHanded ? 0.20f : 0.24f) - wi.kick * kick - 0.02f * rs - 0.02f * rack;
+    const float side = (wi.twoHanded ? 0.055f : 0.095f) - 0.02f * rs, down = (wi.twoHanded ? 0.075f : 0.085f) + (thrown ? 0.02f : 0.0f) + 0.05f * rs;
     float pos[3];
     for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * side - up[c] * down;
     // The barrel along the view, tipped up by the kick, and a little inward.
     float dir[3];
-    for (int c = 0; c < 3; ++c) dir[c] = (&f.x)[c] + up[c] * 0.10f * kick - right[c] * (wi.twoHanded ? 0.06f : 0.10f);
+    for (int c = 0; c < 3; ++c) dir[c] = (&f.x)[c] + up[c] * (0.10f * kick + 0.30f * rs) - right[c] * ((wi.twoHanded ? 0.06f : 0.10f) + 0.25f * rs);
     const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
     for (float& v : dir) v /= dl;
     float wr[3] = {dir[2], 0.0f, -dir[0]};
     const float wrl = (std::max)(1e-4f, std::sqrt(wr[0] * wr[0] + wr[2] * wr[2]));
     wr[0] /= wrl; wr[2] /= wrl;
     float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
+    if (rs > 0.0f) {
+        // Rolled about the barrel, the magazine well toward the eye.
+        const float ca = std::cos(0.55f * rs), sa = std::sin(0.55f * rs);
+        for (int c = 0; c < 3; ++c) { const float r0 = wr[c], u0 = wu[c]; wr[c] = r0 * ca + u0 * sa; wu[c] = u0 * ca - r0 * sa; }
+    }
+    if (reloadT >= 0.0f) {
+        auto crossed = [&](float e) { return e >= 0.0f && rlPrevT < e && reloadT >= e; };
+        if (crossed(ri.dropT)) {
+            ShotSpawnMag(pos[0] - wu[0] * 0.03f, pos[1] - wu[1] * 0.03f, pos[2] - wu[2] * 0.03f, right[0] * 0.1f - up[0] * 0.4f,
+                         -0.4f * up[1], right[2] * 0.1f - up[2] * 0.4f, 1.5f, eye.y - 0.9f, false);
+            ReloadClick(0);
+            Log("reload: first person magazine out at t=%.2f", reloadT);
+        }
+        if (reloadT >= ri.grabT && reloadT < ri.insertT) {
+            // The fresh magazine rising from below into the well.
+            const float u2 = (reloadT - ri.grabT) / (std::max)(0.05f, ri.insertT - ri.grabT);
+            float m[3];
+            for (int c = 0; c < 3; ++c) m[c] = pos[c] - up[c] * (0.02f + 0.13f * (1.0f - u2)) - right[c] * 0.04f * (1.0f - u2) + (&f.x)[c] * 0.02f;
+            ShotSpawnMag(m[0], m[1], m[2], 0.0f, 0.0f, 0.0f, 0.045f, -1e9f, weapon == kWpnRocket);
+        }
+        if (crossed(ri.insertT)) { ReloadClick(1); Log("reload: first person magazine in at t=%.2f", reloadT); }
+        if (crossed(ri.rackT)) ReloadClick(2);
+        rlPrevT = reloadT;
+    }
     const float k = (wi.length * (wi.twoHanded ? 1.2f : 1.4f)) / (std::max)(0.01f, WeaponSpan(*model));
     static int logged = 0;
     if (logged < 12) { ++logged; Log("view model: %s at %.2f,%.2f,%.2f dir %.2f,%.2f,%.2f up %.2f,%.2f,%.2f k %.3f kick %.2f", wi.name, pos[0], pos[1], pos[2], dir[0], dir[1], dir[2], up[0], up[1], up[2], k, kick); }
@@ -6670,6 +6864,8 @@ void FigureColours(uintptr_t object, DWORD* skin, DWORD* hair, DWORD* shirt, DWO
 void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     g_figuresLast.swap(g_figuresNow);
     g_figuresNow.clear();
+    g_aimPeds.clear();
+    g_aimPedsFrame = g_carFrame;
     std::vector<FigVertex> verts;
     verts.reserve(36 * 6);
 
@@ -6716,6 +6912,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         const gta2::Mat4& m = sprite.objectToWorld;
         const float cx = m.m[3][0], cy = m.m[3][1], cz = m.m[3][2];
+        if (sprite.object && reinterpret_cast<const void*>(sprite.object) != g_playerObject)
+            g_aimPeds.push_back({sprite.object, cx, cy, cz, sprite.pedHealth, sprite.corpse});   // QB-6
 
         // Which way the artwork's top points is which way he faces: the sprite's
         // own z axis, signed by where the top of the picture lies along it.
@@ -7016,7 +7214,41 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 if (attacking) track.aimUntil = g_carFrame + 30;
                 const bool carrying = ownPed || (track.aimUntil && g_carFrame < track.aimUntil + 90);
-                if (track.weapon == kWpnMolotov || track.weapon == kWpnGrenade) {
+                // QB-29: the magazine. Shots counted on this gun; a new gun starts full;
+                // ammunition going up (a pickup) with shots fired reloads too.
+                const ReloadInfo& ri = kReloads[track.weapon];
+                bool reloading = false;
+                if (ReloadOn() && ri.mag > 0) {
+                    if (!sameGun) { track.magShots = 0; track.reloadStart = 0; }
+                    if (gameShot) { ++track.magShots; track.magLastShot = g_carFrame; }
+                    if (sameGun && !gameShot && sprite.pedAmmo > track.lastAmmo && track.lastAmmo >= 0 && track.magShots > 0) track.magShots = ri.mag;
+                    if (attacking) {
+                        if (track.reloadStart && g_logPedFrames) Log("reload: %p %s cut off by a shot", reinterpret_cast<const void*>(sprite.object), kWeapons[track.weapon].name);
+                        track.reloadStart = 0;
+                    } else if (!track.reloadStart && track.magShots >= ri.mag && g_carFrame - track.magLastShot >= 9 && carrying) {
+                        track.reloadStart = g_carFrame;
+                        track.magShots = 0;
+                        track.reloadPrevT = -1.0f;
+                        static int logged = 0;
+                        if (logged < 120) {
+                            ++logged;
+                            Log("reload: %p%s %s starts (clip %d, magazine %d)", reinterpret_cast<const void*>(sprite.object), ownPed ? " (player)" : "",
+                                kWeapons[track.weapon].name, ri.action, ri.mag);
+                        }
+                    }
+                    // Held to its end (the clip's own time; frames as a backstop for a
+                    // figure that never runs it, the box figure or an avatar without it).
+                    if (track.reloadStart) {
+                        const bool started = track.action == ri.action;
+                        const bool over = (started && track.actionTime >= ri.len) || g_carFrame - track.reloadStart > 150 ||
+                                          (!started && g_carFrame - track.reloadStart > 3);
+                        if (over) track.reloadStart = 0;
+                        else reloading = true;
+                    }
+                }
+                if (reloading) {
+                    wantAction = ri.action;
+                } else if (track.weapon == kWpnMolotov || track.weapon == kWpnGrenade) {
                     // A throw per press: the attack state's rising edge, or the thrown thing seen.
                     const bool press = gameShot || shotNow;
                     if (track.action == 13 || press) wantAction = 13;
@@ -7045,7 +7277,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             track.burnFrames = 0;
         }
         if (!sprite.corpse && track.burnSeen && g_carFrame - track.burnSeen < 12 &&
-            (wantAction == 0 || IsCarryAction(wantAction) || IsAimAction(wantAction) || wantAction == 7)) {
+            (wantAction == 0 || IsCarryAction(wantAction) || IsAimAction(wantAction) || wantAction == 7 || IsReloadAction(wantAction))) {
             wantAction = 19;
         }
         // In the water (state 8 sub 0x14): the drowning clip, sinking as it runs.
@@ -7367,12 +7599,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // The action layer: its clip advances in real time (one-shots hold
                 // their last pose, the fall holds lying; a knock-down plays back out),
                 // and is faded in over the walk or idle, then out again when it is over.
-                static const char* const kActionClips[24] = {nullptr, "punch", "aim", "handsup", "fall", "enter_car", "exit_car", "hit", "aim_heavy", "drown",
+                static const char* const kActionClips[27] = {nullptr, "punch", "aim", "handsup", "fall", "enter_car", "exit_car", "hit", "aim_heavy", "drown",
                                                              "aim_dual", "aim_launcher", "aim_flame", "throw",
                                                              "carry", "carry_dual", "carry_heavy", "carry_launcher", "carry_flame",
-                                                             "burn", "fall_air", "cuffed", "hit_head", "grab_door_r"};
+                                                             "burn", "fall_air", "cuffed", "hit_head", "grab_door_r",
+                                                             "reload", "reload_heavy", "reload_launcher"};
                 static const char* const kLyingClips[5] = {"fall", "fall_front", "runover", "blown", "burnt"};
-                const char* clipName = track.action > 0 && track.action < 24 ? kActionClips[track.action] : nullptr;
+                const char* clipName = track.action > 0 && track.action < 27 ? kActionClips[track.action] : nullptr;
                 if (track.action == 23 && track.grabLeft) clipName = "grab_door_l";
                 if (track.action == 4 && track.lieClip > 0 && track.lieClip < 5) clipName = kLyingClips[track.lieClip];
                 if (track.action == 1 && track.punchAlt) clipName = "punch2";        // the combo's left jab
@@ -7386,11 +7619,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (!actionClip && track.action == 4) actionClip = model->Animation("fall");
                 if (!actionClip && track.action == 9) actionClip = model->Animation("swim");
                 if (!actionClip && track.action == 20) actionClip = model->Animation("hit");
+                if (!actionClip && IsReloadAction(track.action)) { track.action = 0; track.reloadStart = 0; }   // an avatar from before QB-29
                 float actionT = 0.0f;
                 if (actionClip) {
                     const float len = actionClip->length;
                     const bool oneShot = track.action == 1 || track.action == 5 || track.action == 6 || track.action == 7 || track.action == 13 ||
-                                         track.action == 22;
+                                         track.action == 22 || IsReloadAction(track.action);
                     if (track.actionReverse) {
                         track.actionTime -= dt * 1.4f;
                         if (track.actionTime <= 0.0f) { track.action = 0; track.actionReverse = false; actionClip = nullptr; }
@@ -7573,7 +7807,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // the right hand (the grip) to the left (the fore-end), so the
                 // stance clips place it by their hands. The muzzle flash, light,
                 // sparks and case come off its muzzle on the frame of a shot.
-                const bool stance = IsAimAction(track.action) || track.action == 13 || IsCarryAction(track.action);
+                const bool reloadPose = IsReloadAction(track.action);   // QB-29
+                const bool stance = IsAimAction(track.action) || track.action == 13 || IsCarryAction(track.action) || reloadPose;
                 if (stance && actW > 0.3f && g_pedWeapons && track.weapon > 0 && track.weapon < kWpnCount &&
                     !(track.action == 13 && track.actionTime > 0.34f)) {
                     const WeaponInfo& wi = kWeapons[track.weapon];
@@ -7584,7 +7819,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     const ModelAnimation* over = locoB; const float overT = locoTB; const float overW = locoW;
                     gta2::Mat4 hand, handL;
                     const bool haveR = weapon && ModelNodeWorld(*model, "Bip01 R Hand", base, baseT, over, overT, overW, &hand);
-                    const bool haveL = haveR && (wi.twoHanded || track.action == 10 || track.action == 15) &&
+                    const bool haveL = haveR && (wi.twoHanded || track.action == 10 || track.action == 15 || reloadPose) &&
                                        ModelNodeWorld(*model, "Bip01 L Hand", base, baseT, over, overT, overW, &handL);
                     if (haveR) {
                         auto mul = [](const gta2::Mat4& a, const gta2::Mat4& b) {
@@ -7601,14 +7836,31 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         gta2::Mat4 place;
                         float dir[3], right[3], up[3];
                         bool placed = false;
-                        if (wi.twoHanded && haveL) {
-                            const gta2::Mat4 handLWorld = mul(handL, world);
-                            dir[0] = handLWorld.m[3][0] - handWorld.m[3][0];
-                            dir[1] = handLWorld.m[3][1] - handWorld.m[3][1];
-                            dir[2] = handLWorld.m[3][2] - handWorld.m[3][2];
-                            float dl = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+                        if (wi.twoHanded && (reloadPose ? track.gripValid : haveL)) {
+                            float dl;
+                            if (reloadPose) {
+                                // QB-29: the left hand is off fetching a magazine: the gun
+                                // stays on the line it had in the right hand's frame.
+                                for (int c = 0; c < 3; ++c)
+                                    dir[c] = handWorld.m[0][c] * track.gripLocal[0] + handWorld.m[1][c] * track.gripLocal[1] + handWorld.m[2][c] * track.gripLocal[2];
+                                dl = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+                            } else {
+                                const gta2::Mat4 handLWorld = mul(handL, world);
+                                dir[0] = handLWorld.m[3][0] - handWorld.m[3][0];
+                                dir[1] = handLWorld.m[3][1] - handWorld.m[3][1];
+                                dir[2] = handLWorld.m[3][2] - handWorld.m[3][2];
+                                dl = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+                            }
                             if (dl < 0.02f) { dir[0] = std::sin(track.heading); dir[1] = 0.0f; dir[2] = std::cos(track.heading); dl = 1.0f; }
                             dir[0] /= dl; dir[1] /= dl; dir[2] /= dl;
+                            if (!reloadPose) {
+                                // The line in the right hand's frame (its rows are its axes, uniformly scaled).
+                                for (int r = 0; r < 3; ++r) {
+                                    const float rr = handWorld.m[r][0] * handWorld.m[r][0] + handWorld.m[r][1] * handWorld.m[r][1] + handWorld.m[r][2] * handWorld.m[r][2];
+                                    track.gripLocal[r] = (dir[0] * handWorld.m[r][0] + dir[1] * handWorld.m[r][1] + dir[2] * handWorld.m[r][2]) / (std::max)(1e-8f, rr);
+                                }
+                                track.gripValid = true;
+                            }
                             right[0] = dir[2]; right[1] = 0.0f; right[2] = -dir[0];
                             const float rl = (std::max)(1e-4f, std::sqrt(right[0] * right[0] + right[2] * right[2]));
                             right[0] /= rl; right[2] /= rl;
@@ -7677,6 +7929,35 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 for (int c = 0; c < 3; ++c) muzzle[c] = place.m[3][c] + place.m[2][c] * weapon->boundsMax.z;
                             }
                             track.muzzleX = muzzle[0]; track.muzzleY = muzzle[1]; track.muzzleZ = muzzle[2];
+                            if (reloadPose && track.weapon > 0 && track.weapon < kWpnCount) {
+                                // QB-29: the reload's events as its clip passes them: the spent
+                                // magazine drops from the grip, the fresh one rides in the left
+                                // hand from the pouch to the gun, the clicks (the player's own).
+                                const ReloadInfo& ri = kReloads[track.weapon];
+                                const float t = track.actionTime, pt = track.reloadPrevT;
+                                auto crossed = [&](float e) { return e >= 0.0f && pt < e && t >= e; };
+                                const bool rocket = track.weapon == kWpnRocket;
+                                // The magazine well: below the grip (a third of the way to the muzzle for a long gun).
+                                float well[3];
+                                for (int c = 0; c < 3; ++c) well[c] = place.m[3][c] + dir[c] * (wi.twoHanded ? 0.3f * wi.length : 0.0f) - up[c] * 0.015f;
+                                if (crossed(ri.dropT)) {
+                                    ShotSpawnMag(well[0], well[1], well[2], right[0] * 0.15f, -0.25f, right[2] * 0.15f, 2.5f, cy + 0.008f, false);
+                                    if (ownPed) ReloadClick(0);
+                                }
+                                if (haveL && t >= ri.grabT && t < ri.insertT) {
+                                    const gta2::Mat4 handLWorld = mul(handL, world);
+                                    ShotSpawnMag(handLWorld.m[3][0], handLWorld.m[3][1], handLWorld.m[3][2], 0.0f, 0.0f, 0.0f, 0.045f, -1e9f, rocket);
+                                }
+                                if (crossed(ri.insertT) && ownPed) ReloadClick(1);
+                                if (crossed(ri.rackT) && ownPed) ReloadClick(2);
+                                static int logged = 0;
+                                if ((crossed(ri.dropT) || crossed(ri.insertT)) && logged < 120) {
+                                    ++logged;
+                                    Log("reload: %p %s %s at t=%.2f, grip %.2f,%.2f,%.2f", reinterpret_cast<const void*>(sprite.object), wi.name,
+                                        crossed(ri.dropT) ? "magazine out" : "magazine in", t, place.m[3][0], place.m[3][1], place.m[3][2]);
+                                }
+                                track.reloadPrevT = t;
+                            }
                             if (track.action != 13 && track.muzzleFrame == g_carFrame && !(ownPed && g_hiddenObjects[0] == g_playerObject)) {
                                 ShotFxMuzzle(track.weapon, muzzle, dir, right, up, false);
                             }
@@ -8674,7 +8955,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             roofSpriteDone:
             continue;
         }
-        if (effect && g_fire.scorch && !sprite.pedestrian && sprite.corners == 4) {
+        // QB-19: a blast's own sprite is dimmed under the volumetric fireball (explosion_fx.cpp).
+        uint32_t blastDim = 0;
+        const bool blastFx = ExplosionFx().enabled && g_uprightPeds && g_fxUpright;
+        if (effect && (g_fire.scorch || blastFx) && !sprite.pedestrian && sprite.corners == 4) {
             // A big effect sprite is a blast: it leaves a burnt mark on the ground.
             const float (*sm)[4] = sprite.objectToWorld.m;
             auto toW = [&](const Vertex& v, float* out) {
@@ -8701,7 +8985,14 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         ground = car.objectToWorld.m[3][1];
                     }
                 }
-                NoteScorch(bx, ground + 0.02f, bz, blast * 1.35f);
+                if (g_fire.scorch) NoteScorch(bx, ground + 0.02f, bz, blast * 1.35f);
+                if (blastFx) {
+                    ExplosionFxNote(bx, ground, bz, blast);
+                    if (ExplosionFx().spriteBright < 0.999f) {
+                        const int c = static_cast<int>((std::max)(0.0f, ExplosionFx().spriteBright) * 255.0f + 0.5f);
+                        blastDim = static_cast<uint32_t>(D3DCOLOR_ARGB(255, c, c, c));
+                    }
+                }
             }
         }
         if (effect && g_fire.onTop && sprite.corners == 4 && !roofs.empty()) {
@@ -8769,6 +9060,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         const int c = static_cast<int>((std::max)(0.0f, g_fire.spriteBright) * 255.0f + 0.5f);
                         dim = static_cast<uint32_t>(D3DCOLOR_ARGB(255, c, c, c));
                     }
+                    if (!flame && blastDim) dim = blastDim;
                     effects.push_back({&base, texture, enlarged, dim});
                 }
                 if (flame) {
@@ -8815,7 +9107,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                                         0.5f * (w0[2] + w3[2]) + 0.5f * (w1[2] - w0[2])});
             }
         }
-        (effect ? effects : plain).push_back({&sprite, texture, enlarged, 0, bloodDecal});
+        (effect ? effects : plain).push_back({&sprite, texture, enlarged, effect ? blastDim : 0u, bloodDecal});
     }
 
     stageTimer.Mark();   // 1: the sprite loop
@@ -9621,6 +9913,13 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    if (fxUpright) {
+        // QB-19: fireball, flash, shock ring, sparks and the smoke column of every blast.
+        ExplosionFxDraw(device, g_viewForward, kWorldFvf);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blending ? TRUE : FALSE);
+        device->SetRenderState(D3DRS_ALPHAREF, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    }
     if (g_pedFigures && fxUpright) {
         ShotFxImpacts();
         ShotFxDraw(device, g_puffDt);
@@ -9755,4 +10054,5 @@ void ShotLightsSubmit() {
 const char* WeaponName(int weapon) {
     return weapon > 0 && weapon < kWpnCount ? kWeapons[weapon].name : (weapon == 0 ? "none" : "?");
 }
+uint32_t LiveDrawFrame() { return g_carFrame; }
 }  // namespace gta2dx9

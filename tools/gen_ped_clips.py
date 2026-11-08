@@ -634,6 +634,63 @@ def main():
     # Flamethrower: at the hip, the nozzle down and ahead.
     clips.append(held("carry_flame", {R: [(RIGHT, 12), (UP, 10)], RF: [(RIGHT, 64)],
                                       L: [(RIGHT, 36), (UP, -22)], LF: [(RIGHT, 30)]}))
+    # ---- Reloading (QB-29, upper-body layers, one shot) --------------------
+    # GTA2 has no magazines: the renderer counts the shots off the weapon object
+    # and plays these when a notional magazine is spent and he stops firing
+    # (live_geometry.cpp, kReloads: the times below are the drop and insert
+    # events it spawns the falling magazine and the clicks on). Each starts and
+    # ends on the weapon's carry pose so it fades in and out of it.
+    rel_carry = dict(carry)
+    pres = {R: [(RIGHT, 42), (UP, 24)], RF: [(RIGHT, 62)], "Bip01 R Hand": [(FWD, -25)], HEAD: [(RIGHT, -16)]}
+    # Pistol (also the dual pistols' right gun): bring it up in front of the
+    # chest, tip the mag out (a flick of the wrist, 0.30 s), the left hand to the
+    # belt for a fresh one, up into the grip (0.80 s), over the top to rack the
+    # slide, back to low ready.
+    clips.append(clip_keys(sk, "reload", [
+        (0.00, rel_carry, (0, 0, 0)),
+        (0.18, merged(pres, {L: [(RIGHT, 22), (UP, -10)], LF: [(RIGHT, 30)]}), (0, 0, 0)),
+        (0.30, merged(pres, {"Bip01 R Hand": [(RIGHT, -12)], L: [(RIGHT, 10), (UP, -6)], LF: [(RIGHT, 20)]}), (0, 0, 0)),
+        (0.55, merged(pres, {L: [(RIGHT, -6), (FWD, 8)], LF: [(RIGHT, 28)], HEAD: [(UP, -8)]}), (0, 0, 0)),
+        (0.68, merged(pres, {L: [(RIGHT, 30), (UP, -12)], LF: [(RIGHT, 46)]}), (0, 0, 0)),
+        (0.80, merged(pres, {L: [(RIGHT, 52), (UP, -36)], LF: [(RIGHT, 58)]}), (0, 0, 0)),
+        (0.98, merged(pres, {L: [(RIGHT, 58), (UP, -34)], LF: [(RIGHT, 62)], SP: [(UP, -4)]}), (0, 0, 0)),
+        (1.12, merged(pres, {L: [(RIGHT, 50), (UP, -30)], LF: [(RIGHT, 38)]}), (0, 0, 0)),
+        (1.24, merged(pres, {L: [(RIGHT, 30), (UP, 4)], LF: [(RIGHT, 16)]}), (0, 0, 0)),
+        (1.40, rel_carry, (0, 0, 0)),
+    ], upper=True))
+    # Rifle (machine guns, shotgun): the gun rolled and raised a little, the
+    # left hand off the fore-end to the magazine, pulled and dropped (0.35 s),
+    # a fresh one from the chest pouch, seated under the gun (0.95 s), a slap and
+    # a pull on the charging handle, back to low ready. The renderer keeps the
+    # weapon in the right hand meanwhile (its carry line, see kReloads).
+    heavy_carry = {R: [(RIGHT, 18), (UP, 34), (FWD, -11)], RF: [(RIGHT, 74)],
+                   L: [(RIGHT, 40), (UP, -26)], LF: [(RIGHT, 18)], SP: [(UP, -8)]}
+    hpres = {R: [(RIGHT, 26), (UP, 34), (FWD, -11)], RF: [(RIGHT, 78)], "Bip01 R Hand": [(FWD, -20)],
+             SP: [(UP, -8)], HEAD: [(RIGHT, -18), (UP, 6)]}
+    clips.append(clip_keys(sk, "reload_heavy", [
+        (0.00, heavy_carry, (0, 0, 0)),
+        (0.18, merged(hpres, {L: [(RIGHT, 46), (UP, -36)], LF: [(RIGHT, 48)]}), (0, 0, 0)),
+        (0.35, merged(hpres, {L: [(RIGHT, 12), (UP, -14)], LF: [(RIGHT, 30)]}), (0, 0, 0)),
+        (0.65, merged(hpres, {L: [(RIGHT, 18), (UP, -6)], LF: [(RIGHT, 112)], HEAD: [(UP, -10)]}), (0, 0, 0)),
+        (0.95, merged(hpres, {L: [(RIGHT, 46), (UP, -36)], LF: [(RIGHT, 48)]}), (0, 0, 0)),
+        (1.12, merged(hpres, {L: [(RIGHT, 50), (UP, -40)], LF: [(RIGHT, 66)]}), (0, 0, 0)),
+        (1.28, merged(hpres, {L: [(RIGHT, 30), (UP, -30)], LF: [(RIGHT, 92)]}), (0, 0, 0)),
+        (1.55, heavy_carry, (0, 0, 0)),
+    ], upper=True))
+    # Rocket launcher: the tube down off the shoulder to the hip, the left hand
+    # back over the shoulder for a rocket (0.40 s), pushed into the front of the
+    # tube (0.85 s), the tube back up on the shoulder.
+    launch_carry = {R: [(RIGHT, 49), (UP, 45), (FWD, -36)], RF: [(RIGHT, 104)],
+                    L: [(RIGHT, 66), (UP, -34)], LF: [(RIGHT, 40)], SP: [(UP, -8)]}
+    lpres = {R: [(RIGHT, 30), (UP, 30), (FWD, -20)], RF: [(RIGHT, 70)], SP: [(UP, -12)], HEAD: [(RIGHT, -14)]}
+    clips.append(clip_keys(sk, "reload_launcher", [
+        (0.00, launch_carry, (0, 0, 0)),
+        (0.20, merged(lpres, {L: [(RIGHT, 50), (UP, -30)], LF: [(RIGHT, 40)]}), (0, 0, 0)),
+        (0.40, merged(lpres, {L: [(RIGHT, 150), (UP, -10)], LF: [(RIGHT, 70)], SP: [(UP, 10)]}), (0, 0, 0)),
+        (0.65, merged(lpres, {L: [(RIGHT, 70), (UP, -36)], LF: [(RIGHT, 20)]}), (0, 0, 0)),
+        (0.85, merged(lpres, {L: [(RIGHT, 82), (UP, -30)], LF: [(RIGHT, 6)]}), (0, 0, 0)),
+        (1.20, launch_carry, (0, 0, 0)),
+    ], upper=True))
     # Cuffed: the hands together behind the back, the head down (arrested, led
     # to the police car; the legs walk).
     clips.append(held("cuffed", {R: [(RIGHT, -24), (FWD, 6)], RF: [(FWD, 78)],
