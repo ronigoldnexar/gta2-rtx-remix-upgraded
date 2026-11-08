@@ -41,6 +41,7 @@
 #include <backends/imgui_impl_dx9.h>
 
 #include "../../src/gta2_map.h"
+#include "beats.h"
 #include "compat.h"
 #include "game_access.h"
 #include "game_save.h"
@@ -343,7 +344,8 @@ struct Fonts {
     ImFont* heavy = nullptr;   // heavy italic, medium
     ImFont* label = nullptr;   // bold italic, small
     ImFont* text = nullptr;    // semibold upright, the briefs
-    float moneyPx = 0, heavyPx = 0, labelPx = 0, textPx = 0;
+    ImFont* title = nullptr;   // heavy italic, the beats' titles (QB-17/18)
+    float moneyPx = 0, heavyPx = 0, labelPx = 0, textPx = 0, titlePx = 0;
 };
 
 ImGuiContext* g_ctx = nullptr;
@@ -372,6 +374,8 @@ void BuildFonts(int height) {
     g_fonts.heavy = add(kHudFontHeavy, sizeof kHudFontHeavy, g_fonts.heavyPx);
     g_fonts.label = add(kHudFontBold, sizeof kHudFontBold, g_fonts.labelPx);
     g_fonts.text = add(kHudFontText, sizeof kHudFontText, g_fonts.textPx);
+    g_fonts.titlePx = std::round(92.0f * g_u);
+    g_fonts.title = add(kHudFontHeavy, sizeof kHudFontHeavy, g_fonts.titlePx);
     io.Fonts->Build();
     ImGui_ImplDX9_InvalidateDeviceObjects();   // the font texture is made again on NewFrame
     g_fontHeight = height;
@@ -645,8 +649,10 @@ void DrawWorldLayer(ImDrawList* dl, const Values& v, float A, float W, float H, 
 
     if (w.clock - w.lastLog >= 2.0) {
         w.lastLog = w.clock;
-        Log("hud3d: world layer: pickups drawn=%zu labelled=%d (peak %d, %d frames with a label) pops money=%d weapon=%d live=%zu",
-            MapObjectPickups().size(), labelled, w.labelledPeak, w.labelFrames, w.moneyPops, w.weaponPops, w.pops.size());
+        float nearest = 99.0f;
+        for (const PickupSpot& p : MapObjectPickups()) nearest = (std::min)(nearest, p.eyeDistance);
+        Log("hud3d: world layer: pickups drawn=%zu (nearest %.2f from the eye) labelled=%d (peak %d, %d frames with a label) pops money=%d weapon=%d live=%zu",
+            MapObjectPickups().size(), nearest, labelled, w.labelledPeak, w.labelFrames, w.moneyPops, w.weaponPops, w.pops.size());
         w.labelledPeak = 0;
         w.labelFrames = 0;
     }
@@ -731,7 +737,7 @@ struct AimHud {
     bool hitKill = false;
     struct Pop { float x, y, z, t; bool kill; };
     std::vector<Pop> pops;                    // marks on the people hit
-    struct Seen { int health; bool corpse; };
+    struct Seen { int health; bool corpse; double hitAt; };   // hitAt: our last hit on him, -1 none
     std::unordered_map<uintptr_t, Seen> seen;
     int shots = 0, hits = 0, hitsHighlighted = 0, kills = 0, shotsWithTarget = 0;
     int framesArmed = 0, framesShown = 0;
@@ -809,18 +815,32 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
         std::unordered_map<uintptr_t, AimHud::Seen> now;
         now.reserve(peds.size());
         for (const AimPed& p : peds) {
-            now[p.object] = {p.health, p.corpse};
+            AimHud::Seen& mine = now[p.object];
+            mine = {p.health, p.corpse, -1.0};
             const auto it = h.seen.find(p.object);
             if (it == h.seen.end()) continue;
             const AimHud::Seen& was = it->second;
-            const bool dropped = was.health > 0 && p.health >= 0 && p.health < was.health;
-            // Only a drop of the health word: a fall alone is a car or a shove, not a bullet.
+            mine.hitAt = was.hitAt;
+            // Down after a hit of ours (the game knocks him down and drains what health he has
+            // left four a frame): the kill marker, once, not a hit of its own.
+            if (!was.corpse && p.corpse && was.hitAt >= 0.0 && h.clock - was.hitAt < 1.5) {
+                ++h.kills;
+                h.hitT = 0.45f;
+                h.hitKill = true;
+                h.pops.push_back({p.x, p.y, p.z, 0.9f, true});
+                mine.hitAt = -1.0;
+                continue;
+            }
+            // Only a drop of the health word while he stands: a fall alone is a car or a shove,
+            // and the drain of a man already down is not a bullet.
+            const bool dropped = !was.corpse && was.health > 0 && p.health >= 0 && p.health < was.health;
             if (!dropped || h.clock - h.shotTime > 1.0) continue;
             const float rx = p.x - ox, rz = p.z - oz;
             const float along = rx * hx + rz * hz;
             const float perp = std::fabs(rx * hz - rz * hx);
             if (along < -0.3f || along > reach + 1.5f || perp > 0.9f + 0.05f * (std::max)(0.0f, along)) continue;
             const bool kill = p.corpse || p.health <= 0;
+            mine.hitAt = kill ? -1.0 : h.clock;
             bool highlighted = false;
             for (const auto& t : h.recentTargets) highlighted = highlighted || t.first == p.object;
             ++h.hits;
@@ -1292,9 +1312,92 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     DrawWorldLayer(ImGui::GetBackgroundDrawList(), v, A, W, H, dt);
 }
 
+// QB-17/18: a beat's screen treatment - a colour wash and an edge darkening, the
+// letterbox bars sliding in, the title in the HUD's heavy face with a short scale-in, and
+// the fade to black that hides the respawn cut.
+float Smoothstep01(float x) {
+    x = (std::max)(0.0f, (std::min)(1.0f, x));
+    return x * x * (3.0f - 2.0f * x);
+}
+
+void DrawBeat(ImDrawList* dl, float W, float H) {
+    const BeatState& b = Beat();
+    const float u = g_u;
+    ImU32 wash = IM_COL32(0, 0, 0, 0), edge = IM_COL32(0, 0, 0, 0), titleCol = kWhite, rule = kWhite;
+    switch (b.kind) {
+        case BeatKind::Wasted:     // drained, a dark red cast, heavy edges
+            wash = IM_COL32(70, 58, 58, 110); edge = IM_COL32(40, 0, 0, 200);
+            titleCol = IM_COL32(222, 38, 32, 255); rule = IM_COL32(222, 38, 32, 255);
+            break;
+        case BeatKind::Busted:     // cold blue cast, the edges lit red/blue in turn
+            wash = IM_COL32(20, 34, 80, 90); edge = IM_COL32(0, 10, 40, 190);
+            titleCol = IM_COL32(110, 160, 255, 255); rule = IM_COL32(110, 160, 255, 255);
+            break;
+        case BeatKind::Complete:   // warm, light
+            wash = IM_COL32(90, 70, 20, 40); edge = IM_COL32(30, 20, 0, 120);
+            titleCol = kYellow; rule = kYellow;
+            break;
+        default: return;
+    }
+    const float tint = b.tint;
+    if (tint > 0.0f) {
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Fade(wash, tint));
+        // The edges: gradients a fifth of the way in from each side.
+        const ImU32 e = Fade(edge, tint), clear = Fade(edge, 0.0f);
+        const float ex = W * 0.2f, ey = H * 0.22f;
+        dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(ex, H), e, clear, clear, e);
+        dl->AddRectFilledMultiColor(ImVec2(W - ex, 0), ImVec2(W, H), clear, e, e, clear);
+        dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(W, ey), e, e, clear, clear);
+        dl->AddRectFilledMultiColor(ImVec2(0, H - ey), ImVec2(W, H), clear, clear, e, e);
+        if (b.kind == BeatKind::Busted) {
+            // The squad car's beacons on the edges: red left, blue right, swapping 2.5 times a second.
+            const bool phase = std::fmod(b.t * 2.5f, 1.0f) < 0.5f;
+            const ImU32 red = Fade(IM_COL32(230, 30, 30, 90), tint), blue = Fade(IM_COL32(40, 80, 255, 90), tint);
+            const ImU32 l = phase ? red : blue, r = phase ? blue : red;
+            const ImU32 l0 = Fade(l, 0.0f), r0 = Fade(r, 0.0f);
+            dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(W * 0.14f, H), l, l0, l0, l);
+            dl->AddRectFilledMultiColor(ImVec2(W - W * 0.14f, 0), ImVec2(W, H), r0, r, r, r0);
+        }
+    }
+    // Letterbox: 2.39:1 at full height of the bars.
+    const float barFull = (std::max)(0.0f, (H - W / 2.39f) * 0.5f);
+    const float bar = barFull * (1.0f - (1.0f - b.letterbox) * (1.0f - b.letterbox));
+    if (bar > 0.5f) {
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, bar), IM_COL32(0, 0, 0, 255));
+        dl->AddRectFilled(ImVec2(0, H - bar), ImVec2(W, H), IM_COL32(0, 0, 0, 255));
+    }
+    // The title: centred a little above the middle, scaling in from 112% and settling.
+    if (b.title > 0.01f && g_fonts.title && !b.titleText.empty()) {
+        const float pop = 1.0f + 0.12f * std::exp(-b.t / 0.18f);
+        const float px = g_fonts.titlePx * pop;
+        const char* s = b.titleText.c_str();
+        const ImVec2 sz = Measure(g_fonts.title, px, s);
+        const ImVec2 at((W - sz.x) * 0.5f, H * 0.40f - sz.y * 0.5f);
+        const float o = (std::max)(2.0f, std::round(3.0f * u));
+        const ImU32 sh = Fade(IM_COL32(0, 0, 0, 230), b.title);
+        dl->AddText(g_fonts.title, px, ImVec2(at.x + o, at.y + o), sh, s);
+        dl->AddText(g_fonts.title, px, ImVec2(at.x - o * 0.5f, at.y + o), sh, s);
+        dl->AddText(g_fonts.title, px, at, Fade(titleCol, b.title), s);
+        // A thin rule under it, drawn out from the middle.
+        const float half = sz.x * 0.5f * Smoothstep01((b.t - 0.3f) / 0.5f);
+        const float ry = at.y + sz.y + 6.0f * u;
+        if (half > 1.0f)
+            dl->AddRectFilled(ImVec2(W * 0.5f - half, ry), ImVec2(W * 0.5f + half, ry + (std::max)(2.0f, 3.0f * u)), Fade(rule, b.title * 0.9f));
+    }
+    if (b.black > 0.0f) dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Fade(IM_COL32(0, 0, 0, 255), b.black));
+}
+
 }  // namespace
 
 bool Hud3dActive() { return g_active; }
+
+bool Hud3dGameText(const char* key, std::u16string* out) {
+    LoadGxt();
+    const auto it = g_gxt.find(key ? key : "");
+    if (it == g_gxt.end()) return false;
+    if (out) *out = it->second;
+    return true;
+}
 
 bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, int count) {
     if (!hud || part < 0 || part > 18) return false;
@@ -1308,6 +1411,8 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
         }
         else if (part == 10) Note(&g_portrait, texture, k, count);
     }
+    // QB-17/18: during a beat its title is drawn here, in the beat's own treatment.
+    if (part == 15 && Beat().kind != BeatKind::None && Beat().title > 0.0f) return true;
     if (!g_active) return false;
     switch (part) {
         case 1:    // score, lives, multiplier, weapon and ammo
@@ -1387,7 +1492,9 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
 
     Anim& an = g_anim;
     an.time += dt;
-    an.fade += ((want ? 1.0f : 0.0f) - an.fade) * (1.0f - std::exp(-dt * 8.0f));
+    // QB-17/18: the panels step aside while a beat holds the screen.
+    const float beatHide = street ? Beat().hudHide : 0.0f;
+    an.fade += ((want ? 1.0f - 0.92f * beatHide : 0.0f) - an.fade) * (1.0f - std::exp(-dt * 8.0f));
     if (!want && an.fade < 0.01f) {
         an.fade = 0.0f;
         an.money = -1;
@@ -1395,7 +1502,8 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         an.lastHealth = -1;
     }
 
-    if (an.fade > 0.01f && v.valid && device && width > 0 && height > 0 && EnsureContext(device, height)) {
+    const bool beatShown = street && Beat().kind != BeatKind::None;
+    if (((an.fade > 0.01f && v.valid) || beatShown) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
         ImGuiContext* previous = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(g_ctx);
         if (g_fontHeight != height) BuildFonts(height);
@@ -1405,7 +1513,9 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         io.DeltaTime = dt > 0 ? dt : 1.0f / 30.0f;
         ImGui_ImplDX9_NewFrame();
         ImGui::NewFrame();
-        Draw(ImGui::GetForegroundDrawList(), device, v, static_cast<float>(width), static_cast<float>(height), dt);
+        if (an.fade > 0.01f && v.valid)
+            Draw(ImGui::GetForegroundDrawList(), device, v, static_cast<float>(width), static_cast<float>(height), dt);
+        if (beatShown) DrawBeat(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height));
         ImGui::EndFrame();
         ImGui::Render();
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());

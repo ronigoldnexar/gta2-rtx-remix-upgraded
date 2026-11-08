@@ -119,12 +119,12 @@ IDirect3DTexture9* MakeTexture(IDirect3DDevice9* device, int size, int cells, Fi
 float BillowDensity(float u, float v, int cell) {
     const float r = std::sqrt(u * u + v * v);
     const float ang = std::atan2(v, u);
-    const float lobes = 0.16f * std::sin(ang * (3.0f + cell) + cell * 1.7f);
-    const float edge = 0.78f + lobes + 0.22f * (Fbm(u * 2.4f + cell * 7.0f, v * 2.4f + cell * 3.0f, 11 + cell) - 0.5f) * 2.0f;
-    float d = 1.0f - r / (std::max)(0.2f, edge);
-    d = Clamp01(d * 1.6f);
-    d = d * d * (3.0f - 2.0f * d);
-    const float grain = 0.55f + 0.45f * Fbm(u * 5.0f + cell * 13.0f, v * 5.0f + cell * 5.0f, 31 + cell);
+    const float lobes = 0.06f * std::sin(ang * (2.0f + cell) + cell * 1.7f);
+    const float edge = 0.86f + lobes + 0.12f * (Fbm(u * 2.0f + cell * 7.0f, v * 2.0f + cell * 3.0f, 11 + cell) - 0.5f) * 2.0f;
+    float d = Clamp01(1.0f - r / (std::max)(0.2f, edge));
+    // Soft all the way out: a hard rim is what makes a billboard read as a cut-out.
+    d = d * d * (1.6f - 0.6f * d);
+    const float grain = 0.65f + 0.35f * Fbm(u * 5.0f + cell * 13.0f, v * 5.0f + cell * 5.0f, 31 + cell);
     return d * grain;
 }
 
@@ -203,14 +203,14 @@ void SpawnSmoke(float x, float y, float z, float groundY, float k, float size, f
     p.vy = column ? Rand(0.55f, 0.85f) * k : Rand(0.25f, 0.5f) * k;
     p.drag = 0.25f;
     p.lift = column ? 0.05f : 0.35f * k;
-    p.size0 = size;
-    p.size1 = size * (column ? 3.0f : 2.2f);
+    p.size0 = size * 1.3f;
+    p.size1 = size * (column ? 3.4f : 3.0f);
     p.life = column ? Rand(4.0f, 6.5f) : Rand(3.0f, 4.5f);
     p.roll = Rand(-0.35f, 0.35f);      // the shading is lit from above: little roll
     p.spin = Rand(-0.15f, 0.15f);
-    const float grey = Rand(0.08f, 0.16f);
+    const float grey = Rand(0.16f, 0.26f);
     p.r = grey; p.g = grey * 0.96f; p.b = grey * 0.92f;
-    p.a = column ? 0.62f : 0.80f;
+    p.a = column ? 0.55f : 0.62f;
     p.glow = glow;
     Push(p);
 }
@@ -235,7 +235,7 @@ void SpawnBlast(Blast& b) {
         p.size1 = Rand(1.0f, 1.5f) * k;
         p.life = Rand(0.8f, 1.6f);
         p.spin = Rand(-1.2f, 1.2f);
-        p.a = Rand(0.75f, 1.0f);
+        p.a = Rand(0.30f, 0.50f);
         Push(p);
     }
     // A core that stays put and burns longest: the ball keeps a heart while it rolls up.
@@ -247,7 +247,7 @@ void SpawnBlast(Blast& b) {
         p.size0 = 0.7f * k; p.size1 = 1.3f * k;
         p.life = Rand(1.4f, 2.0f);
         p.spin = Rand(-0.6f, 0.6f);
-        p.a = 0.7f;
+        p.a = 0.38f;
         Push(p);
     }
     // Dust kicked out along the ground by the shock.
@@ -377,7 +377,8 @@ void ExplosionFxNote(float x, float groundY, float z, float size) {
     const double now = Now();
     for (Blast& b : g_blasts) {
         const float dx = b.x - x, dz = b.z - z;
-        if (now - b.lastSeen < 0.5 && dx * dx + dz * dz < 1.5f * 1.5f) {
+        // The sprite comes and goes while it plays: one blast for 1.6 s from its first sight.
+        if ((now - b.lastSeen < 0.5 || now - b.born < 1.6) && dx * dx + dz * dz < 1.5f * 1.5f) {
             b.lastSeen = now;
             return;
         }
@@ -432,7 +433,7 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
     // Ground light and shock ring.
     for (const Blast& b : g_blasts) {
         const float age = static_cast<float>(now - b.born);
-        const float light = g_set.flash * 0.42f * FlashLevel(age);
+        const float light = g_set.flash * 0.30f * FlashLevel(age);
         if (light > 0.01f) {
             const float c[3] = {b.x, b.y + 0.035f, b.z};
             const float s = 3.6f * b.k;
@@ -442,13 +443,13 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         if (age < 0.55f) {
             const float u = age / 0.55f;
             const float radius = (0.4f + 4.6f * (1.0f - (1.0f - u) * (1.0f - u))) * b.k;
-            const float level = 0.75f * (1.0f - u) * (1.0f - u) * (std::min)(1.0f, g_set.flash);
+            const float level = 0.55f * (1.0f - u) * (1.0f - u) * (std::min)(1.0f, g_set.flash);
             const float c[3] = {b.x, b.y + 0.04f, b.z};
             const float a[3] = {radius, 0.0f, 0.0f}, bb[3] = {0.0f, 0.0f, radius};
             ring.Quad(c, a, bb, Colour(level, level * 0.85f, level * 0.65f, 1.0f), 0, 1);
         }
         // The flash: a glow over the blast.
-        const float flash = g_set.flash * (1.1f * std::exp(-age / 0.12f) + 0.3f * Clamp01(1.0f - age / 1.4f));
+        const float flash = g_set.flash * (0.8f * std::exp(-age / 0.10f) + 0.18f * Clamp01(1.0f - age / 1.4f));
         if (flash > 0.01f) {
             const float c[3] = {b.x, b.y + 0.55f * b.k, b.z};
             const float s = 2.2f * b.k * (0.7f + 0.3f * Clamp01(age / 0.15f));
@@ -479,7 +480,7 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         const float t = p.age / p.life;
         const float grow = 1.0f - (1.0f - t) * (1.0f - t);
         const float size = 0.5f * (p.size0 + (p.size1 - p.size0) * grow);
-        const float in = Clamp01(p.age / 0.25f);
+        const float in = Clamp01(p.age / 0.45f);
         float alpha = p.a * in * std::pow(1.0f - t, 1.4f);
         if (alpha < 0.01f) continue;
         // Fire light on the underside of fresh smoke, fading as it rises and cools.
@@ -492,8 +493,8 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         if (p.kind == kFire) {
             // White-hot, then yellow, orange, red, out.
             float r, g, b;
-            if (t < 0.08f) { const float s = t / 0.08f; r = 1.0f; g = 0.95f - 0.2f * s; b = 0.75f - 0.45f * s; }
-            else if (t < 0.35f) { const float s = (t - 0.08f) / 0.27f; r = 1.0f; g = 0.75f - 0.33f * s; b = 0.30f - 0.21f * s; }
+            if (t < 0.05f) { const float s = t / 0.05f; r = 1.0f; g = 0.95f - 0.2f * s; b = 0.75f - 0.45f * s; }
+            else if (t < 0.35f) { const float s = (t - 0.05f) / 0.30f; r = 1.0f; g = 0.75f - 0.33f * s; b = 0.30f - 0.21f * s; }
             else { const float s = (t - 0.35f) / 0.65f; r = 1.0f - 0.45f * s; g = 0.42f - 0.3f * s; b = 0.09f - 0.07f * s; }
             const float level = p.a * Clamp01(p.age / 0.03f) * std::pow(1.0f - t, 1.3f) * (0.88f + 0.12f * std::sin(p.age * 23.0f + p.roll * 4.0f));
             if (level < 0.01f) continue;

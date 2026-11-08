@@ -1,0 +1,293 @@
+// QB-17/18: the framed beats (WASTED, BUSTED, JOB COMPLETE). See beats.h.
+
+#include "beats.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <mmsystem.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <string>
+
+#include "compat.h"
+#include "hud3d.h"
+#include "log.h"
+#include "view_modes.h"
+
+namespace gta2dx9 {
+namespace {
+
+// The game's big message (see beats.h): [kHudObject] + kBigMessage, its countdown byte
+// at +0 (90 when set, 0 when gone), the text a UTF-16 copy at +2 (wcscpy, up to 0xC8 bytes
+// before the wrapped copy at +0xCA).
+constexpr uintptr_t kHudObject = 0x00672F40;
+constexpr uintptr_t kBigMessage = 0x2854;
+constexpr int kBigTextChars = 0x60;
+// The text lookup (FUN_004C23A0, __thiscall on [0x671550], key -> UTF-16) and the big
+// message's setter (FUN_004C6060, __thiscall, text and priority): the devtools trigger
+// puts up a message the way the scripts do (0x479478: "push 3; push 0x5E9808").
+constexpr uintptr_t kTextObject = 0x00671550;
+constexpr uintptr_t kTextLookup = 0x004C23A0;
+constexpr uintptr_t kBigMessageSet = 0x004C6060;
+
+struct Config {
+    bool loaded = false;
+    bool enabled = true;          // [beats] enabled
+    float completeSecs = 4.2f;    // [beats] complete_ms / 1000
+    float fadeAfter = 3.4f;       // [beats] fade_after_ms / 1000: WASTED/BUSTED go to black from here
+    float maxSecs = 12.0f;        // the longest a death/arrest beat waits for the respawn
+    char sting[3][260] = {};      // [beats] sting_wasted, sting_busted, sting_complete
+};
+Config g_cfg;
+BeatState g_beat;
+BeatStingHook g_hook = nullptr;
+float g_respawnAt = -1.0f;   // the beat's time when the game put him back; < 0 not yet
+
+// The keys' texts, letters only, upper case, from data\e.gxt.
+struct KeySet { BeatKind kind; const char* keys[4]; };
+const KeySet kKeys[] = {
+    {BeatKind::Wasted, {"wasted", "fried", "shocked", nullptr}},
+    {BeatKind::Busted, {"nicked", nullptr, nullptr, nullptr}},
+    {BeatKind::Complete, {"1124", "3100", "2999", nullptr}},
+};
+std::u16string g_texts[3][4];
+bool g_textsLoaded = false;
+
+std::u16string Letters(const char16_t* s, size_t n) {
+    std::u16string out;
+    for (size_t i = 0; i < n && s[i]; ++i) {
+        char16_t c = s[i];
+        if (c >= u'a' && c <= u'z') c = static_cast<char16_t>(c - 32);
+        if ((c >= u'A' && c <= u'Z') || (c >= 0xC0 && c <= 0x24F)) out.push_back(c);
+    }
+    return out;
+}
+
+void LoadConfig() {
+    if (g_cfg.loaded) return;
+    g_cfg.loaded = true;
+    const char* ini = ViewModes().devIniPath;
+    if (ini && ini[0]) {
+        g_cfg.enabled = GetPrivateProfileIntA("beats", "enabled", 1, ini) != 0;
+        g_cfg.completeSecs = (std::max)(1500, (std::min)(10000, static_cast<int>(GetPrivateProfileIntA("beats", "complete_ms", 4200, ini)))) / 1000.0f;
+        g_cfg.fadeAfter = (std::max)(1000, (std::min)(9000, static_cast<int>(GetPrivateProfileIntA("beats", "fade_after_ms", 3400, ini)))) / 1000.0f;
+        GetPrivateProfileStringA("beats", "sting_wasted", "", g_cfg.sting[0], sizeof g_cfg.sting[0], ini);
+        GetPrivateProfileStringA("beats", "sting_busted", "", g_cfg.sting[1], sizeof g_cfg.sting[1], ini);
+        GetPrivateProfileStringA("beats", "sting_complete", "", g_cfg.sting[2], sizeof g_cfg.sting[2], ini);
+    }
+    Log("beats: framed WASTED/BUSTED/JOB COMPLETE %s (complete %.1f s, fade after %.1f s, stings %s/%s/%s)",
+        g_cfg.enabled ? "on" : "off", g_cfg.completeSecs, g_cfg.fadeAfter, g_cfg.sting[0][0] ? g_cfg.sting[0] : "-",
+        g_cfg.sting[1][0] ? g_cfg.sting[1] : "-", g_cfg.sting[2][0] ? g_cfg.sting[2] : "-");
+}
+
+void LoadTexts() {
+    if (g_textsLoaded) return;
+    g_textsLoaded = true;
+    int found = 0;
+    for (int k = 0; k < 3; ++k)
+        for (int i = 0; i < 4 && kKeys[k].keys[i]; ++i) {
+            std::u16string s;
+            if (Hud3dGameText(kKeys[k].keys[i], &s)) {
+                g_texts[k][i] = Letters(s.c_str(), s.size());
+                ++found;
+            }
+        }
+    Log("beats: %d of the beats' message texts found in data\\e.gxt", found);
+}
+
+BeatKind Classify(const std::u16string& letters) {
+    if (letters.empty()) return BeatKind::None;
+    for (int k = 0; k < 3; ++k)
+        for (int i = 0; i < 4; ++i)
+            if (!g_texts[k][i].empty() && g_texts[k][i] == letters) return kKeys[k].kind;
+    return BeatKind::None;
+}
+
+std::string Utf8(const char16_t* s, size_t n) {
+    std::string out;
+    for (size_t i = 0; i < n && s[i]; ++i) {
+        const unsigned c = s[i];
+        if (c < 0x80) out.push_back(static_cast<char>(c));
+        else if (c < 0x800) { out.push_back(static_cast<char>(0xC0 | (c >> 6))); out.push_back(static_cast<char>(0x80 | (c & 0x3F))); }
+        else { out.push_back(static_cast<char>(0xE0 | (c >> 12))); out.push_back(static_cast<char>(0x80 | ((c >> 6) & 0x3F))); out.push_back(static_cast<char>(0x80 | (c & 0x3F))); }
+    }
+    return out;
+}
+
+void Sting(BeatKind kind, const char* title) {
+    const int slot = kind == BeatKind::Wasted ? 0 : kind == BeatKind::Busted ? 1 : 2;
+    if (g_hook) {
+        g_hook(kind, title);
+        Log("beat: sting %s: hook called", BeatName(kind));
+    } else if (g_cfg.sting[slot][0]) {
+        const BOOL ok = PlaySoundA(g_cfg.sting[slot], nullptr, SND_ASYNC | SND_FILENAME | SND_NODEFAULT);
+        Log("beat: sting %s: %s %s", BeatName(kind), g_cfg.sting[slot], ok ? "playing" : "not played");
+    } else {
+        Log("beat: sting %s: hook point (no hook, no [beats] sting file set)", BeatName(kind));
+    }
+}
+
+float Smooth(float a, float b, float x) {
+    const float t = (std::max)(0.0f, (std::min)(1.0f, (x - a) / (b - a)));
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// [devtools] force_big_message=<gxt key>: put that message up through the game's own
+// calls (the beats' check without a mission, a death or an arrest), once per change.
+void DevtoolsTrigger() {
+    const char* ini = ViewModes().devIniPath;
+    if (!ini || !ini[0]) return;
+    static int clock = 0;
+    static char last[16] = {};
+    if (++clock % 15) return;
+    char key[16] = {};
+    GetPrivateProfileStringA("devtools", "force_big_message", "", key, sizeof key, ini);
+    if (!strcmp(key, last)) return;
+    strcpy(last, key);
+    if (!key[0]) return;
+    bool ok = false;
+    GTA2_TRY {
+        const uintptr_t text = *reinterpret_cast<const uintptr_t*>(kTextObject);
+        const uintptr_t hud = *reinterpret_cast<const uintptr_t*>(kHudObject);
+        if (text > 0x10000 && hud > 0x10000) {
+            typedef const char16_t*(__attribute__((thiscall)) * Lookup)(void* self, const char* key);
+            typedef void(__attribute__((thiscall)) * Set)(void* self, const char16_t* text, int priority);
+            const char16_t* s = reinterpret_cast<Lookup>(kTextLookup)(reinterpret_cast<void*>(text), key);
+            if (s) {
+                reinterpret_cast<Set>(kBigMessageSet)(reinterpret_cast<void*>(hud + kBigMessage), s, 3);
+                ok = true;
+            }
+        }
+    } GTA2_EXCEPT { ok = false; }
+    Log("devtools: force_big_message %s (%s)", key, ok ? "shown through the game's own call" : "failed");
+}
+
+}  // namespace
+
+const BeatState& Beat() { return g_beat; }
+
+const char* BeatName(BeatKind kind) {
+    switch (kind) {
+        case BeatKind::Wasted: return "WASTED";
+        case BeatKind::Busted: return "BUSTED";
+        case BeatKind::Complete: return "JOB COMPLETE";
+        default: return "none";
+    }
+}
+
+void BeatsSetStingHook(BeatStingHook hook) { g_hook = hook; }
+
+void BeatsUpdate(const PlayerState& player, bool street, float px, float py, float pz, float yaw, float dt) {
+    LoadConfig();
+    if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 30.0f;
+    if (street) DevtoolsTrigger();
+
+    // The big message this frame.
+    int count = 0;
+    char16_t text[kBigTextChars + 1] = {};
+    GTA2_TRY {
+        const uintptr_t hud = *reinterpret_cast<const uintptr_t*>(kHudObject);
+        if (hud > 0x10000) {
+            const uint8_t* b = reinterpret_cast<const uint8_t*>(hud + kBigMessage);
+            count = b[0];
+            if (count) memcpy(text, b + 2, kBigTextChars * sizeof(char16_t));
+        }
+    } GTA2_EXCEPT { count = 0; }
+    text[kBigTextChars] = 0;
+    static int lastCount = 0;
+    static std::u16string lastLetters;
+    const std::u16string letters = count ? Letters(text, kBigTextChars) : std::u16string();
+    // Fresh: it was not up last frame, or its words changed, and its countdown has barely
+    // started (a view switch in the middle of one does not start a beat late).
+    const bool fresh = count >= 75 && (lastCount == 0 || letters != lastLetters);
+    lastCount = count;
+    lastLetters = letters;
+
+    BeatState& b = g_beat;
+    if (fresh && street && g_cfg.enabled) {
+        LoadTexts();
+        const BeatKind kind = Classify(letters);
+        const std::string words = Utf8(text, kBigTextChars);
+        if (kind == BeatKind::None) {
+            Log("beat: big message \"%s\" (count %d): no beat", words.c_str(), count);
+        } else if (b.kind == BeatKind::None || kind != b.kind) {
+            b = BeatState{};
+            b.kind = kind;
+            static uint32_t serial = 0;
+            b.serial = ++serial;
+            g_respawnAt = -1.0f;
+            b.titleText = words;
+            b.inVehicle = player.valid && player.inVehicle;
+            if (player.valid) {
+                b.x = px; b.y = py; b.z = pz; b.yaw = yaw;
+            } else {
+                // Lost already (a car that blew up under him): where the camera last had him.
+                const AimState& a = ViewAim();
+                b.x = a.x; b.y = a.y; b.z = a.z; b.yaw = a.headingYaw;
+            }
+            Log("beat: %s start \"%s\" at %.2f,%.2f,%.2f yaw %.0f%s%s", BeatName(kind), words.c_str(), b.x, b.y, b.z,
+                b.yaw * 57.29578f, b.inVehicle ? ", in a car" : "", player.valid ? "" : ", player not found");
+            Sting(kind, words.c_str());
+        }
+    }
+    if (b.kind == BeatKind::None) return;
+    if (!street) {   // back to the classic view: the beat ends at once
+        Log("beat: %s ended by the classic view", BeatName(b.kind));
+        b = BeatState{};
+        return;
+    }
+    b.t += dt;
+    const float t = b.t;
+    if (b.kind == BeatKind::Complete) {
+        const float T = g_cfg.completeSecs;
+        const float in = Smooth(0.0f, 0.9f, t), out = 1.0f - Smooth(T - 1.0f, T, t);
+        b.camera = (std::min)(in, out);
+        b.letterbox = (std::min)(Smooth(0.0f, 0.45f, t), 1.0f - Smooth(T - 0.6f, T, t));
+        b.tint = 0.6f * b.letterbox;
+        b.title = (std::min)(Smooth(0.25f, 0.6f, t), 1.0f - Smooth(T - 0.9f, T - 0.3f, t));
+        b.black = 0.0f;
+        b.hudHide = 0.65f * b.letterbox;
+        if (t >= T) {
+            Log("beat: %s end after %.1f s", BeatName(b.kind), t);
+            b = BeatState{};
+        }
+        return;
+    }
+    // WASTED / BUSTED: framed on the body (or the arrest) until the game moves him, under
+    // a fade to black from fadeAfter; found again far away (hospital, station) or lost for
+    // good: fade in from black over 0.7 s, back on the chase camera.
+    const float moved = player.valid ? std::hypot(px - b.x, pz - b.z) : 0.0f;
+    const bool respawned = player.valid && moved > 4.0f && t > 1.0f;
+    if (g_respawnAt < 0.0f && (respawned || t > g_cfg.maxSecs)) {
+        g_respawnAt = t;
+        Log("beat: %s: %s after %.1f s (moved %.1f blocks)", BeatName(b.kind), respawned ? "respawned" : "no respawn seen",
+            t, moved);
+    }
+    const float toBlack = Smooth(g_cfg.fadeAfter, g_cfg.fadeAfter + 0.8f, t);
+    if (g_respawnAt < 0.0f) {
+        b.camera = Smooth(0.0f, 0.7f, t);
+        b.letterbox = Smooth(0.0f, 0.45f, t);
+        b.tint = Smooth(0.0f, 0.8f, t);
+        b.title = Smooth(0.2f, 0.5f, t) * (1.0f - toBlack);
+        b.black = toBlack;
+        b.hudHide = b.letterbox;
+    } else {
+        // The cut has happened under the black (or happens now, if it came first).
+        const float since = t - g_respawnAt;
+        const float from = (std::max)(b.black, 0.0f);
+        b.camera = 0.0f;
+        b.black = from * (1.0f - Smooth(0.15f, 0.85f, since));
+        b.letterbox = 1.0f - Smooth(0.2f, 0.9f, since);
+        b.tint = b.letterbox * 0.6f;
+        b.title = 0.0f;
+        b.hudHide = b.letterbox;
+        if (since >= 0.9f) {
+            Log("beat: %s end after %.1f s", BeatName(b.kind), t);
+            b = BeatState{};
+        }
+    }
+}
+
+}  // namespace gta2dx9

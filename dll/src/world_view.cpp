@@ -1,5 +1,6 @@
 #include "world_view.h"
 
+#include "beats.h"
 #include "car_bodies.h"
 #include "map_objects.h"
 #include "model_store.h"
@@ -2142,7 +2143,8 @@ void WorldView::UpdateCamera() {
             SetHudCameraMap(HudCameraMap{});
             // From his own eyes he is not in the picture, nor is the car he is
             // in; behind him, both are.
-            const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody;
+            // (QB-17/18: a beat's camera stands outside him, so he is drawn through it.)
+            const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody && !BeatActive();
             SetHiddenObjects(hide ? player.pedSprite : nullptr,
                              hide && player.inVehicle ? player.vehicleSprite : nullptr);
             SetPlayerObject(player.pedSprite);

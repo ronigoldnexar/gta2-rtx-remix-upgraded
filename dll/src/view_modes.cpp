@@ -12,6 +12,7 @@
 #include <string>
 
 #include "../../src/gta2_map.h"
+#include "beats.h"
 #include "car_bodies.h"
 #include "compat.h"
 #include "game_access.h"
@@ -1504,9 +1505,133 @@ static void SpringTurn(float* yaw, float* vel, float target, float omega, float 
     *yaw = WrapAngle(*yaw + step);
 }
 
+// ---- QB-17/18: the beats' camera (WASTED, BUSTED, JOB COMPLETE; see beats.h) ----------
+namespace beatcam {
+uint32_t g_serial = 0;
+float g_yaw0 = 0.0f;       // where round him the orbit starts (polar angle about the anchor)
+float g_clearR = 1e9f;     // the radius the walls leave, eased
+float g_lastLog = -1.0f;
+
+// How far along the line from `from` to `to` is free of solid blocks (1 all of it).
+float FreeFraction(const ViewQueries& q, const gta2::Vec3& from, const gta2::Vec3& to) {
+    if (!q.blocked) return 1.0f;
+    const float d = std::sqrt((to.x - from.x) * (to.x - from.x) + (to.y - from.y) * (to.y - from.y) + (to.z - from.z) * (to.z - from.z));
+    const int steps = (std::max)(4, (std::min)(48, static_cast<int>(d / 0.08f)));
+    for (int i = 1; i <= steps; ++i) {
+        const float t = static_cast<float>(i) / steps;
+        if (q.blocked(q.context, from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, from.z + (to.z - from.z) * t))
+            return static_cast<float>(i - 1) / steps;
+    }
+    return 1.0f;
+}
+
+struct Shot { float r0, r1, h0, h1, look, orbitDeg, fovDeg, pushSecs; };
+Shot ShotFor(const BeatState& b) {
+    Shot s{};
+    switch (b.kind) {
+        // High over the body, craning down and in while it turns slowly round him.
+        case BeatKind::Wasted:   s = {2.3f, 1.35f, 2.1f, 0.95f, 0.08f, 10.0f, 50.0f, 3.2f}; break;
+        // Eye level, close, turning the other way: him and the officers on him.
+        case BeatKind::Busted:   s = {2.1f, 1.45f, 0.85f, 0.6f, 0.30f, -7.0f, 50.0f, 3.0f}; break;
+        // In front of him, low, looking up a little, pushing in: the hero shot.
+        case BeatKind::Complete: s = {2.3f, 1.45f, 0.38f, 0.30f, 0.38f, 6.0f, 46.0f, 3.0f}; break;
+        default: break;
+    }
+    if (b.inVehicle) {
+        s.r0 *= 2.0f; s.r1 *= 2.0f;
+        s.h0 += 0.5f; s.h1 += 0.5f;
+        s.look = (std::max)(s.look, 0.25f);
+    }
+    return s;
+}
+
+// The beat's framing, blended over whatever the solver set (its share is Beat().camera).
+// In polar terms about where he was: the angle, radius and height go from the chase
+// camera's to the beat's, so the move swings round him and never passes through him; at
+// share 0 it is exactly the chase camera.
+void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
+    const BeatState& b = Beat();
+    if (b.kind == BeatKind::None) {
+        g_serial = 0;
+        return;
+    }
+    const float w = b.camera;
+    const Shot shot = ShotFor(b);
+    const gta2::Vec3 A{b.x, b.y, b.z};
+    const gta2::Vec3 T{A.x, A.y + shot.look, A.z};
+    const gta2::Vec3 P = camera->Position();
+    const float nYaw = camera->Yaw(), nPitch = camera->Pitch(), nFov = camera->FovY();
+    const float dx = P.x - A.x, dz = P.z - A.z;
+    const float rn = std::hypot(dx, dz);
+    const float phiN = rn > 0.3f ? std::atan2(dx, dz) : WrapAngle(nYaw + kPi);
+    const float hn = P.y - A.y;
+    if (b.serial != g_serial) {
+        // Where round him to stand: the clearest of 24 angles near the preferred one - for
+        // the death and the arrest where the camera already is, for the job in front of him.
+        g_serial = b.serial;
+        const float prefer = b.kind == BeatKind::Complete ? b.yaw : phiN;
+        float best = -1e9f, bestFree = 0.0f;
+        g_yaw0 = prefer;
+        const float rTest = 0.5f * (shot.r0 + shot.r1), hTest = 0.5f * (shot.h0 + shot.h1);
+        for (int k = 0; k < 24; ++k) {
+            const float off = ((k + 1) / 2) * (15.0f * kDegToRad) * ((k & 1) ? 1.0f : -1.0f);
+            const float phi = WrapAngle(prefer + off);
+            const gta2::Vec3 e{A.x + std::sin(phi) * rTest, A.y + hTest, A.z + std::cos(phi) * rTest};
+            const float free = FreeFraction(q, T, e);
+            const float score = free - 0.3f * std::fabs(off) / kPi;
+            if (score > best) { best = score; bestFree = free; g_yaw0 = phi; }
+        }
+        g_clearR = 1e9f;
+        g_lastLog = -1.0f;
+        Log("beat cam: %s from yaw %.0f (chase at %.0f, r %.2f, h %.2f): orbit starts at %.0f, %.0f%% clear",
+            BeatName(b.kind), prefer * (180.0f / kPi), phiN * (180.0f / kPi), rn, hn, g_yaw0 * (180.0f / kPi), bestFree * 100.0f);
+    }
+    if (w <= 0.001f) return;
+    if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 30.0f;
+    const float push = 1.0f - std::exp(-b.t / (shot.pushSecs * 0.4f));
+    float r = shot.r0 + (shot.r1 - shot.r0) * push;
+    float h = shot.h0 + (shot.h1 - shot.h0) * push;
+    const float phi = WrapAngle(g_yaw0 + shot.orbitDeg * kDegToRad * b.t);
+    // The walls: pull in to the free part of the line (fast in, slow out), and up a little.
+    const gta2::Vec3 want{A.x + std::sin(phi) * r, A.y + h, A.z + std::cos(phi) * r};
+    const float free = FreeFraction(q, T, want);
+    const float rc = (std::max)(0.6f, r * free - 0.12f);
+    g_clearR += (rc - g_clearR) * (rc < g_clearR ? 1.0f - std::exp(-dt / 0.06f) : 1.0f - std::exp(-dt / 0.5f));
+    if (g_clearR > 1e8f) g_clearR = rc;
+    if (free < 1.0f) h += (1.0f - free) * 0.4f;
+    r = (std::min)(r, g_clearR);
+    // Blend from the chase camera's polar place.
+    const float phiM = WrapAngle(phiN + WrapAngle(phi - phiN) * w);
+    const float rM = rn + (r - rn) * w, hM = hn + (h - hn) * w;
+    gta2::Vec3 eye{A.x + std::sin(phiM) * rM, A.y + hM, A.z + std::cos(phiM) * rM};
+    if (q.floorAt) {
+        float fy = 0.0f;
+        if (q.floorAt(q.context, eye.x, eye.z, eye.y + 0.5f, &fy) && eye.y < fy + 0.2f) eye.y += (fy + 0.2f - eye.y) * w;
+    }
+    const float fx = T.x - eye.x, fz = T.z - eye.z;
+    const float flat = (std::max)(std::hypot(fx, fz), 1e-3f);
+    const float lookYaw = std::atan2(fx, fz), lookPitch = std::atan2(T.y - eye.y, flat);
+    camera->SetPosition(eye);
+    camera->SetOrientation(WrapAngle(nYaw + WrapAngle(lookYaw - nYaw) * w), nPitch + (lookPitch - nPitch) * w);
+    camera->SetRoll(camera->Roll() * (1.0f - w));
+    camera->SetFovY(nFov + (shot.fovDeg * kDegToRad - nFov) * w);
+    if (b.t - g_lastLog >= 0.5f) {
+        g_lastLog = b.t;
+        Log("beat cam: %s t=%.1f share %.2f eye %.2f,%.2f,%.2f r %.2f h %.2f at %.0f deg, line %.0f%% clear",
+            BeatName(b.kind), b.t, w, eye.x, eye.y, eye.z, rM, hM, phiM * (180.0f / kPi), free * 100.0f);
+    }
+}
+}  // namespace beatcam
+
 bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& queries, float dt,
                               gta2::Camera* camera) {
     const ViewMode mode = CurrentViewMode();
+    {
+        // QB-17/18: the beats watch the game's big message every frame of a street view.
+        const float bx = player.x, bz = static_cast<float>(gta2::kMapHeight) - player.y;
+        const float byaw = player.facingKnown ? std::atan2(player.dirX, -player.dirY) : followYaw_;
+        BeatsUpdate(player, mode != ViewMode::Classic, bx, player.z, bz, byaw, dt);
+    }
     if (mode != lastMode_) {
         Reset();
         lastMode_ = mode;
@@ -1531,6 +1656,7 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
         if (settled_ && lostTime_ < 6.0f) {
             lostTime_ += (dt > 0.0f && dt < 0.25f) ? dt : 1.0f / 30.0f;
             SolveLost(queries, dt, camera);
+            beatcam::Apply(queries, dt, camera);   // QB-17/18
             status_ = "third person, over where the player was";
             g_navHeadingKnown = false;
             return true;
@@ -1596,11 +1722,12 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
             uintptr_t weapon = 0;
             int16_t ammo = 0;
             if (ReadAt(reinterpret_cast<uintptr_t>(player.ped) + game::kPedCurrentWeapon, &weapon) && weapon > 0x10000 &&
-                ReadAt(weapon + game::kWeaponAmmo, &ammo) && ammo >= 0 && ammo < want)
+                ReadAt(weapon + game::kWeaponAmmo, &ammo) && ammo >= 0 && ammo < want / 2)
                 WriteAt(weapon + game::kWeaponAmmo, static_cast<int16_t>(want));
         }
     }
     Solve(player, queries, dt, camera, px, py, pz, headingYaw, player.inVehicle);
+    beatcam::Apply(queries, dt, camera);   // QB-17/18
     g_aim.y = floorY_;
     return true;
 }

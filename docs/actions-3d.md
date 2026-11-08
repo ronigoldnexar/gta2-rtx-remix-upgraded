@@ -659,3 +659,41 @@ Runs `out/a34_before` / `a34_before2` (the build before this pass, with only the
 | kick | none: GTA2 has no kick frames | ped_states.json |
 | arms through the torso | checked in the generator for every clip; 8 fixed, 3 at 2 % contact | `gen_ped_clips.py` output |
 | NPC peds | same code path; NPC walkers seen stepping in the bursts; NPC boarding a moving car not singled out | bursts |
+
+## Reloading (8 Nov 2026, QB-29)
+
+GTA2 has no magazines: a weapon fires until its ammunition (`+0` of the weapon object, stored x10 of
+the HUD count) is gone, and the `+2` word is a per-shot cooldown, not a reload. The renderer gives each
+gun a notional magazine and plays a reload when it is spent and he stops firing:
+
+- **Magazines** (`kReloads` in `dll/src/live_geometry.cpp`): pistol 6 (a pickup is 10 shots), dual
+  pistols 12, machine gun and silenced MG 30, shotgun 6, rocket launcher 1. None for the electro gun,
+  flamethrower, molotov, grenade. A shot is the existing `gameShot` (ammunition dropping or the cooldown
+  restarting, so police with 990 rounds reload too); a new gun starts full; ammunition going up (a
+  pickup) after shots fired reloads too.
+- **When:** the magazine spent and 9 frames since the last shot (while the attack is held the game sits
+  in the firing frame, so a continuous burst never reloads; letting go does). A shot during the reload
+  cuts it off (the game fires regardless). `GTA2DX9_RELOAD=0` turns it off.
+- **Clips** (`tools/gen_ped_clips.py`, upper-body layers, one shot, starting and ending on the weapon's
+  carry pose): `reload` 1.40 s (pistol up to the chest, mag tipped out 0.30 s, left hand to the belt,
+  into the grip 0.80 s, racks the slide 0.98 s), `reload_heavy` 1.55 s (gun rolled, left hand pulls the
+  mag 0.35 s, a fresh one from the chest pouch, seated 0.95 s, charging handle 1.12 s), `reload_launcher`
+  1.20 s (tube down off the shoulder, a rocket from over the left shoulder 0.40 s, into the tube 0.85 s).
+  Actions 24-26. All pass the generator's arm/torso check. An avatar imported before these clips drops
+  the action (no stuck pose).
+- **The gun while the left hand is away:** a long gun is normally laid from the right hand to the left;
+  during a reload it keeps the line it last had in the right hand's frame (`gripLocal`, taken every frame
+  both hands hold it), so it moves with the right hand.
+- **Magazine:** a dark particle (kind 6) drops from the magazine well at the clip's drop time and lies on
+  the ground for 2.5 s; the fresh one rides in the left hand from the pouch to the gun.
+- **First person** (the own figure is not drawn): the same count off the player's ammunition word, timed
+  in real seconds; the view model dips, tips its muzzle up and rolls, a jolt back on the slide, the spent
+  magazine drops and the fresh one rises into the well.
+- **Sound:** three synthesized clicks (magazine out, seated, slide), 22.05 kHz through `waveOut` so they
+  mix with the game and do not cut the voice-over (`PlaySound` plays one sound at a time); the player's
+  reloads only. `GTA2DX9_RELOAD_SOUND=0` turns them off.
+- **Log:** `reload: <object> (player) <weapon> starts`, `... magazine out/in at t=`, `reload: first
+  person ...`, `reload: click N` (capped).
+- **Assets:** the 41 avatars re-imported with the three clips (`tools/import_assets.py ../assets-src/manifest.json
+  <dir> --only human_...`; only the `.mesh` files change, the textures are byte-identical). The clips JSON
+  was regenerated from `Male_Adult_01` + `idle_breathe` (that pair reproduces the previous file byte for byte).

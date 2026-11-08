@@ -7429,6 +7429,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                          (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
         if (!hitNow && track.action == 22 && !track.actionReverse && track.actionTime < 0.6f && !sprite.corpse &&
             (wantAction == 0 || IsCarryAction(wantAction) || (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
+        // A man shot as he squares up (the game's swing frames start the instant he is
+        // hit, qb16_r3) takes the bullet first: his swing waits out the jolt (0.35 s).
+        if (track.action == 22 && track.hitSide >= 2 && !track.actionReverse && track.actionTime < 0.35f && !sprite.corpse &&
+            (wantAction == 1 || hitNow)) wantAction = 22;
         // Boarding a car on the move (ACTIONS-3D-4): the game carries him along with the car
         // in state 3 before the climb (sprite frames below 24). While he covers ground faster
         // than a walk he runs beside it (legs from the ground covered, heading along the
@@ -7611,6 +7615,32 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         g_figuresNow.push_back({sprite.object, gx, gz, track.action == 1, track.punchAlt, track.muzzleFrame,
                                 std::sin(track.heading), std::cos(track.heading), track.weapon});
+        {
+            // QB-16 probe aid, GTA2DX9_LOG_NEAR_PED=1: three times a second, the nearest
+            // standing figure to the player's own, its distance and its bearing off his
+            // drawn facing (radians, + to his right), so a script can turn onto someone.
+            static int on = -1;
+            if (on < 0) { char v[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_LOG_NEAR_PED", v, sizeof v) && v[0] == '1'; }
+            static uint32_t nearFrame = 0;
+            static float nearD = 1e9f, nearA = 0.0f, ownX = 0.0f, ownZ = 0.0f, ownH = 0.0f;
+            static bool ownValid = false;
+            if (on) {
+                if (g_carFrame != nearFrame) {
+                    if (nearD < 10.0f && g_carFrame % 10 == 0) Log("qb16: near ped d=%.2f bearing=%.2f", nearD, nearA);
+                    nearFrame = g_carFrame; nearD = 1e9f;
+                }
+                if (ownPed) { ownX = gx; ownZ = gz; ownH = track.heading; ownValid = true; }
+                else if (ownValid && !sprite.corpse) {
+                    const float vx = gx - ownX, vz = gz - ownZ, d = std::sqrt(vx * vx + vz * vz);
+                    if (d < nearD && d > 0.3f) {
+                        float a = std::atan2(vx, vz) - ownH;
+                        while (a > kPi) a -= 2.0f * kPi;
+                        while (a < -kPi) a += 2.0f * kPi;
+                        nearD = d; nearA = a;
+                    }
+                }
+            }
+        }
 
         if (g_groundModels) {
             // Which of the people he is: fixed by his object, so he keeps his look.
