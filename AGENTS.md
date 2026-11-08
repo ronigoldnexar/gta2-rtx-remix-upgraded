@@ -105,6 +105,11 @@ The host has 8 CPUs and one L4. Load 60+ came from 20 agents each running a game
 - The shared `repo/stage` is built ONLY by `linux/docker/restage.sh`, which builds a detached worktree of committed HEAD
   (never the working tree, which holds other agents' partial edits: an unfinished lighting pass reached the play page once).
   Test your own build from a private stage copy. Commit before you want it on the play page.
+- Play-page gate (after the untextured-figures incident, 8 Nov): `restage.sh` builds a complete candidate stage
+  (DLLs from committed HEAD, models from assets/models, HD tiles from assets/textures_hd), runs
+  `stage_check.py` (inventory against the manifest) and `stage_smoke.sh` (a scripted 3D run: no model/texture
+  read errors, no faults, late frames in colour) and swaps only if both pass; `play.sh` refuses an unhealthy stage.
+  Never copy anything into repo/stage by hand.
 - `cpu_governor.sh` (cron) pauses the newest scripted containers when the load passes 20 and resumes them under 10;
   a paused run is not a failure, wait for it.
 - Never start a second play container (Remix play on 8082 costs 4 CPUs) unless the owner asks.
