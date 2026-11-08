@@ -25,6 +25,7 @@
 #include "log.h"
 #include "remix_api.h"
 #include "remix_lights.h"
+#include "vehicle_fx.h"
 #include "synthetic_lights.h"
 #include "texture_store.h"
 #include "time_of_day.h"
@@ -887,6 +888,7 @@ bool WorldView::Initialize(HWND window, int width, int height, std::string* erro
     // empty until a map is loaded, and the sprite pass falls back until it is.
     live_.SetGround(&ground_);
     LightsSetGround(&ground_);
+    VehicleFxSetGround(&ground_);   // VEHICLE-FEEL: kerbs under the wheels
     // The first frames the game draws are the front end, which is the same 2D
     // stream the menus use later. Traced once so a broken menu can be compared
     // against a working one.
