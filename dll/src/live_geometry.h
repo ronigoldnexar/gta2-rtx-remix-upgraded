@@ -116,6 +116,15 @@ bool BehindView(float x, float y, float z, float margin);
 // current view frustum's four side planes (PERF-2: props, map objects and people
 // outside the picture are not drawn; they were drawn whenever they were in front).
 bool OutsideViewFrustum(float x, float y, float z, float radius);
+// QB-6 (aim reticle and hit markers, hud3d.cpp): the people the street views drew this
+// frame (renderer coordinates, the sprite's origin; the game's health word, -1 unread),
+// and the projection of a world point with the camera of the last Draw, as a fraction of
+// the window (0..1 across and down); false behind the eye or before the first frame.
+struct AimPed { uintptr_t object; float x, y, z; int health; bool corpse; };
+const std::vector<AimPed>& LiveAimPeds();
+uint32_t LiveAimPedsFrame();   // the draw frame the list belongs to (bumped by every Draw)
+uint32_t LiveDrawFrame();
+bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy);
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);

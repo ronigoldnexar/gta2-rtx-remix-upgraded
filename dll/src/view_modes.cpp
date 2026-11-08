@@ -316,6 +316,78 @@ bool WriteAt(uintptr_t address, const T& value) {
 ViewQueries g_devQueries;
 void ViewModeSetQueries(const ViewQueries& queries) { g_devQueries = queries; }
 
+// ---- QB-6: aiming -------------------------------------------------------------------
+AimState g_aim;
+const AimState& ViewAim() { return g_aim; }
+
+bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1) {
+    if (!g_devQueries.blocked) return false;
+    const float d = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0));
+    const int steps = (std::max)(2, (std::min)(64, static_cast<int>(d / 0.2f)));
+    // The first and last fifth of a block are the shooter's and the target's own cells.
+    for (int i = 1; i < steps; ++i) {
+        const float t = static_cast<float>(i) / steps;
+        if (t * d < 0.2f || (1.0f - t) * d < 0.2f) continue;
+        if (g_devQueries.blocked(g_devQueries.context, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t)) return true;
+    }
+    return false;
+}
+
+namespace {
+// The player's weapon words last frame: a drop in the ammunition or a restart of the reload
+// timer with the same weapon object in his hands is a shot (live_geometry.cpp reads a
+// stranger's shots the same way).
+uintptr_t g_aimWeaponObject = 0;
+int g_aimLastAmmo = -1, g_aimLastReload = -1;
+
+void UpdateAim(const PlayerState& player, float px, float pz, float headingYaw, float dt) {
+    AimState& a = g_aim;
+    a.valid = player.valid;
+    a.x = px;
+    a.z = pz;
+    a.headingYaw = headingYaw;
+    int weapon = 0, ammo = -1, reload = -1;
+    uintptr_t object = 0;
+    int state = 0;
+    if (player.valid && !player.inVehicle && player.ped) {
+        GTA2_TRY {
+            const uint8_t* ped = static_cast<const uint8_t*>(player.ped);
+            weapon = game::PedWeaponOf(ped, nullptr);
+            const uint8_t* w = *reinterpret_cast<const uint8_t* const*>(ped + game::kPedCurrentWeapon);
+            if (weapon > 0 && game::PlausiblePointer(w)) {
+                object = reinterpret_cast<uintptr_t>(w);
+                ammo = *reinterpret_cast<const int16_t*>(w + game::kWeaponAmmo);
+                reload = *reinterpret_cast<const int16_t*>(w + 2);
+            }
+        } GTA2_EXCEPT {
+            weapon = 0;
+            object = 0;
+        }
+        state = ReadPedWords(player.ped).state;
+    }
+    a.weapon = weapon > 0 ? weapon : 0;
+    // Standing armed: not knocked down, dead or arrested (8/9), not in a car's door (3/4).
+    a.armed = a.weapon > 0 && state != 8 && state != 9 && state != 3 && state != 4;
+    if (object && object == g_aimWeaponObject) {
+        const bool shot = (ammo >= 0 && g_aimLastAmmo >= 0 && ammo < g_aimLastAmmo) ||
+                          (reload > g_aimLastReload && g_aimLastReload >= 0);
+        if (shot && a.armed) {
+            ++a.shots;
+            a.lastShot = Now();
+        }
+    }
+    g_aimWeaponObject = object;
+    g_aimLastAmmo = ammo;
+    g_aimLastReload = reload;
+    // The framing: over the shoulder for 2.5 s after a shot, a light lean in while armed.
+    const bool firing = a.armed && a.lastShot > 0.0 && Now() - a.lastShot < 2.5;
+    const float want = (CurrentViewMode() == ViewMode::ThirdPerson && a.armed) ? (firing ? 1.0f : 0.35f) : 0.0f;
+    const float tau = want > a.aimMix ? 0.18f : 0.5f;   // in quickly, out gently
+    a.aimMix += (want - a.aimMix) * (1.0f - std::exp(-(dt > 0.0f && dt < 0.25f ? dt : 1.0f / 30.0f) / tau));
+    if (a.aimMix < 0.002f) a.aimMix = 0.0f;
+}
+}  // namespace
+
 // After a warp the game streams the map around the player's new place; until
 // it has, there is nothing under him and he sinks through the lid he was put
 // on (seen on every warp of fifty blocks or more). So the position is held for
@@ -1439,6 +1511,11 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
         Reset();
         lastMode_ = mode;
     }
+    if (mode == ViewMode::Classic || !player.valid) {
+        g_aim.valid = false;
+        g_aim.armed = false;
+        g_aim.aimMix = 0.0f;
+    }
     if (mode == ViewMode::Classic) {
         status_ = "classic";
         camera->SetRoll(0.0f);
@@ -1504,7 +1581,27 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
             applied = want;
         }
     }
+    UpdateAim(player, px, pz, headingYaw, dt);
+    // And [devtools] set_player_ammo=N (QB-6, scripted shooting): the ammunition word of the
+    // gun in his hands is topped up to N whenever it is below (re-read twice a second, -1 off);
+    // after UpdateAim, which has to see the drop a shot makes first.
+    if (g_settings.devIniPath[0] && player.ped && !player.inVehicle) {
+        static int clock = 0, want = -1;
+        if (++clock % 15 == 0) {
+            const int now = GetPrivateProfileIntA("devtools", "set_player_ammo", -1, g_settings.devIniPath);
+            if (now != want) Log("devtools: set_player_ammo %d", now);
+            want = now;
+        }
+        if (want > 0 && want <= 30000) {
+            uintptr_t weapon = 0;
+            int16_t ammo = 0;
+            if (ReadAt(reinterpret_cast<uintptr_t>(player.ped) + game::kPedCurrentWeapon, &weapon) && weapon > 0x10000 &&
+                ReadAt(weapon + game::kWeaponAmmo, &ammo) && ammo >= 0 && ammo < want / 2)
+                WriteAt(weapon + game::kWeaponAmmo, static_cast<int16_t>(want));
+        }
+    }
     Solve(player, queries, dt, camera, px, py, pz, headingYaw, player.inVehicle);
+    g_aim.y = floorY_;
     return true;
 }
 
@@ -2035,7 +2132,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         const float scale = ViewTurnSpeedScale();
         const bool walking = speed > 0.6f;
         const float walkYaw = walking ? std::atan2(velX_, velZ_) : followYaw_;
-        if (s.tpOrbitFollow) {
+        // QB-6: firing, the camera swings round behind the way he faces (the way the
+        // game's bullets fly) on a quick spring, so the line of fire runs into the
+        // picture and the reticle sits near its middle; the mouse still overrides it.
+        const bool aimRecentMouse = look.lastMoved > 0.0 && Now() - look.lastMoved < s.tpReturnDelay;
+        const bool aimFollow = g_aim.aimMix > 0.5f && !aimRecentMouse && downTime_ <= 0.0f && deathMix_ < 0.01f;
+        if (aimFollow) {
+            const float rate = 2.0f * s.turnRateFoot * scale * kDegToRad;
+            SpringTurn(&followYaw_, &followYawVel_, headingYaw, 2.0f / 0.3f, rate > 0.0f ? rate : 0.0f, dt);
+            footFollowing_ = false;
+            engageTime_ = 0.0f;
+            awayTime_ = 0.0f;
+        } else if (s.tpOrbitFollow) {
             // Drift round behind whichever way he walks.
             const float rate = s.turnRateFoot * scale * kDegToRad;
             SpringTurn(&followYaw_, &followYawVel_, walkYaw, 2.0f / (std::max)(s.tpOrbitTau, 0.1f), rate > 0.0f ? rate : 0.0f, dt);
@@ -2239,9 +2347,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         lookAhead += (0.0f - lookAhead) * deathMix_;
         lookHeight += (0.1f - lookHeight) * deathMix_;
     }
+    // QB-6, the aim framing (armed on foot, fully while firing): in closer and lower,
+    // further over the right shoulder, looking down range, a few degrees narrower.
+    const float aimMix = inVehicle ? 0.0f : g_aim.aimMix * (1.0f - deathMix_);
+    if (aimMix > 0.0f) {
+        distance *= 1.0f - 0.30f * aimMix;
+        height *= 1.0f - 0.35f * aimMix;
+        lookAhead += 1.6f * scale * aimMix;
+        lookHeight += 0.12f * scale * aimMix;
+    }
     // Over the shoulder on foot: the camera, and what it looks at, sit a little
     // to the right of him, so he is not a figure in the dead centre.
-    const float shoulder = inVehicle ? 0.0f : s.tpShoulder * scale * (1.0f - deathMix_);
+    const float shoulder = inVehicle ? 0.0f : (s.tpShoulder + 0.30f * aimMix) * scale * (1.0f - deathMix_);
     const float sx = std::cos(followYaw_), sz = -std::sin(followYaw_);   // right of the chase yaw
 
     // The point looked at is a little ahead of him along his heading, which is
@@ -2623,6 +2740,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     camera->SetOrientation(camYaw, camPitch);
     camera->SetRoll(roll_);
     camera->SetFovY((std::min)(fov, 130.0f) * kDegToRad);
+    if (aimMix > 0.0f) {
+        // QB-6: the aim framing is 8 degrees narrower, and each shot kicks the view up
+        // 0.3 degrees, back over a tenth of a second (recoil).
+        camera->SetFovY(camera->FovY() - 8.0f * aimMix * kDegToRad);
+        const float since = g_aim.lastShot > 0.0 ? static_cast<float>(Now() - g_aim.lastShot) : 1.0f;
+        if (since >= 0.0f && since < 0.4f) camera->SetOrientation(camYaw, camPitch + 0.3f * kDegToRad * std::exp(-since / 0.1f));
+    }
     LogCameraFrame("third", camYaw, headingYaw, dt, &eye, px, pz, distance);
     if (inVehicle && deathMix_ < 0.01f) {
         // QUALITY-BAR row 22: the car's share of the frame's width (16:9) and whether the

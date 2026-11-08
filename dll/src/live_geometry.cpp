@@ -339,9 +339,15 @@ bool g_viewActiveForPops = false;
 // The view frustum's side planes (left, right, bottom, top) as a*x + b*y + c*z + d >= 0
 // inside, normalised, from the camera's view-projection (row vectors, D3D).
 float g_frustum[4][4] = {};
+// QB-6: the camera's view-projection of the last Draw, for LiveWorldToScreen.
+float g_viewProj[4][4] = {};
+bool g_viewProjValid = false;
+std::vector<AimPed> g_aimPeds;
+uint32_t g_aimPedsFrame = 0;
 bool g_frustumValid = false;
 void SetViewFrustum(const gta2::Camera& camera, int width, int height) {
     g_frustumValid = false;
+    g_viewProjValid = false;
     if (width <= 0 || height <= 0) return;
     const gta2::Mat4 v = camera.ViewMatrix();
     const gta2::Mat4 p = camera.ProjectionMatrix(static_cast<float>(width) / static_cast<float>(height));
@@ -352,6 +358,8 @@ void SetViewFrustum(const gta2::Camera& camera, int width, int height) {
             for (int k = 0; k < 4; ++k) sum += v.m[r][k] * p.m[k][c];
             m[r][c] = sum;
         }
+    std::memcpy(g_viewProj, m, sizeof m);
+    g_viewProjValid = true;
     const int axis[4] = {0, 0, 1, 1};
     const float sign[4] = {1.0f, -1.0f, 1.0f, -1.0f};
     for (int i = 0; i < 4; ++i) {
@@ -373,6 +381,19 @@ bool OutsideViewFrustum(float x, float y, float z, float radius) {
 bool BehindView(float x, float y, float z, float margin) {
     const float dx = x - g_viewEye.x, dy = y - g_viewEye.y, dz = z - g_viewEye.z;
     return dx * g_viewForward.x + dy * g_viewForward.y + dz * g_viewForward.z < -margin;
+}
+const std::vector<AimPed>& LiveAimPeds() { return g_aimPeds; }
+uint32_t LiveAimPedsFrame() { return g_aimPedsFrame; }
+bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy) {
+    if (!g_viewProjValid) return false;
+    const float (*m)[4] = g_viewProj;
+    const float cx = x * m[0][0] + y * m[1][0] + z * m[2][0] + m[3][0];
+    const float cy = x * m[0][1] + y * m[1][1] + z * m[2][1] + m[3][1];
+    const float cw = x * m[0][3] + y * m[1][3] + z * m[2][3] + m[3][3];
+    if (!(cw > 0.05f)) return false;
+    *sx = 0.5f + 0.5f * cx / cw;
+    *sy = 0.5f - 0.5f * cy / cw;
+    return true;
 }
 void SetUprightPeds(bool on) { g_uprightPeds = on; }
 void SetPlayerWeapon(int weapon, int ammo) { g_playerWeapon = weapon; g_playerAmmo = ammo; }
@@ -6726,6 +6747,8 @@ void FigureColours(uintptr_t object, DWORD* skin, DWORD* hair, DWORD* shirt, DWO
 void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     g_figuresLast.swap(g_figuresNow);
     g_figuresNow.clear();
+    g_aimPeds.clear();
+    g_aimPedsFrame = g_carFrame;
     std::vector<FigVertex> verts;
     verts.reserve(36 * 6);
 
@@ -6786,6 +6809,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         const gta2::Mat4& m = sprite.objectToWorld;
         const float cx = m.m[3][0], cy = m.m[3][1], cz = m.m[3][2];
+        if (sprite.object && reinterpret_cast<const void*>(sprite.object) != g_playerObject)
+            g_aimPeds.push_back({sprite.object, cx, cy, cz, sprite.pedHealth, sprite.corpse});   // QB-6
 
         // Which way the artwork's top points is which way he faces: the sprite's
         // own z axis, signed by where the top of the picture lies along it.
@@ -9917,4 +9942,5 @@ void ShotLightsSubmit() {
 const char* WeaponName(int weapon) {
     return weapon > 0 && weapon < kWpnCount ? kWeapons[weapon].name : (weapon == 0 ? "none" : "?");
 }
+uint32_t LiveDrawFrame() { return g_carFrame; }
 }  // namespace gta2dx9

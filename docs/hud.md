@@ -70,6 +70,46 @@ Font: **Barlow Condensed** by Jeremy Tribby, SIL Open Font License 1.1
 (`assets/fonts/*-hud.ttf`) and embedded in the DLL by `tools/gen_hud_font.py`
 (`dll/src/hud3d_font.inc`), so nothing extra has to be staged.
 
+## Aiming: reticle, target, hit markers and the aim camera (QB-6)
+
+GTA2 has no aim: a bullet leaves the gun along the way the pedestrian faces. The street views
+now show that line and what is on it.
+
+- **Reticle** (`hud3d.cpp`, `UpdateAimHud` / `DrawAimLayer`): on foot with a gun in his hands
+  (`ViewAim().armed`: a weapon object, not down, not in a car door) and the modern HUD up. Four
+  ticks round a dot, white; it sits on the first person standing on the line of fire, or where
+  the line meets a wall (binary search with the camera's own block query, `ViewLineBlocked`),
+  or 8 blocks out. A shot opens the ticks for a quarter of a second.
+- **Target**: the nearest person on the line, inside a corridor of 0.32 block + 0.03 per block
+  of range (the game's bullets were measured landing up to 0.45 block off the line at 4 blocks),
+  within the weapon's reach (10 blocks for pistols and machine guns, 6 shotgun and thrown, 3
+  flamethrower and electro gun, 12 rocket), within 1.2 levels of height, not behind a wall.
+  With one the reticle turns red, sits on his chest and red corner brackets frame him.
+- **Shots** are the game's own word (`view_modes.cpp`, `UpdateAim`): the gun's ammunition word
+  dropped, or its reload timer restarted (a kill frenzy's ammunition never drops), with the
+  same weapon object in his hands.
+- **Hit markers**: a person's health word (`ped+0x216`, read in the sprite pass and published
+  by `LiveAimPeds()`) drops within a second of a shot while he is near the line of fire: a
+  white X round the reticle for 0.25 s, a larger red X for 0.45 s when he goes down (health 0),
+  and a small cross over him in the world. A fall with no health change (a car, a shove) is not
+  a hit.
+- **Aim camera** (third person, `view_modes.cpp`): armed, the chase eases 35 % of the way to the
+  aim framing; for 2.5 s after a shot it is fully there: 30 % closer, 35 % lower, 0.30 block
+  further over the right shoulder, looking 1.6 blocks further down range, 8 degrees narrower,
+  and the yaw swings behind his facing (the line of fire) on a 0.3 s spring unless the mouse
+  moved in the last `tp_return_delay`. Each shot kicks the view up 0.3 degrees, back in 0.1 s.
+  First person needs none of it: the view is his facing, the reticle sits near the middle.
+- Projection: `LiveWorldToScreen` uses the view-projection of the frame's `LiveGeometry::Draw`.
+
+Developer aids: `GTA2DX9_LOG_AIM=1` logs, three times a second, the nearest person in the open
+(game coordinates), the reticle's pixel and whether a target is highlighted (`aim: near`);
+every 10 s after the first shot an `aim: shots= with_target= hits= on_highlighted= kills=
+reticle_frames=` total, and each hit (`aim: hit`). `[devtools] set_player_ammo=N` keeps the gun
+in his hands loaded for scripted shooting. Probe: `gamerun/aim_probe.py` (`keys_aim_probe.sh`;
+`GTA2_DIRECT_KEYS=1`, scene key F11, `set_player_ammo=300` added by `INI_SED`): picks up the
+COLLECT_02 machine gun, turns to the nearest person from the `aim: near` line and fires bursts in
+third and first person with a screenshot every ~0.1 s.
+
 ## Developer aids
 
 - `GTA2DX9_HUD_TEST=1`: the `[hud]` keys `modern`, `test_health` and `test_clock` are re-read
