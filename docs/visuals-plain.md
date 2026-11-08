@@ -1,5 +1,40 @@
 # The plain renderer's modern look (VISUALS-PLAIN, 8 Nov 2026)
 
+> **Status (8 Nov 19:20, paused for the host move): work in progress, OFF by default**
+> (`[visuals] enabled=0`). The renderer/sky hooks were already in HEAD (swept into another
+> stream's commit) without these files; this commit adds them so HEAD builds, and keeps the
+> pass off so the play page is unchanged.
+>
+> Verified in the running game (private stage, `out/vis_t3`, `out/vis_dbg*`):
+> - the post chain runs on the L4 under Wine 9 (INTZ, FP16 targets, timestamps);
+> - **the greyscale regression is understood and fixed**: vkd3d copies every uniform into a
+>   temporary, the old composite used `r32` (ps_3_0 has r0-r31), Wine's GLSL link failed
+>   (`undefined variable "R32"`) and wined3d silently drew the previous program (the AO blur,
+>   which outputs the red channel). The composite is now split into a per-cascade shadow-mask
+>   pass and a small composite; `tools/build_shaders.sh` fails any shader past r31. Frames after
+>   the fix are in full colour (`out/vis_t3`, day / golden hour / night pairs);
+> - SSAO (darkening at kerbs), richer sky (golden hour, stars), HDR sun, bloom, tonemap visible;
+> - recorded model casters (cars, people) reach the shadow map and cast soft shadows.
+>
+> Not working / unverified:
+> - **the world mesh does not reach the shadow map** (atlas dumps `out/vis_dbg12|13/atlas.pgm`:
+>   casters only), so buildings and fences cast no shadows. Tried: SHORT2 -> FLOAT2 cell stream
+>   (no change). Next test is in the build: `[visuals] debug=8` draws the world with the solid
+>   shadow shader (no alpha atlas); then check the chunk/run culling (`world runs` in the log)
+>   and the two-stream declaration;
+> - night lights were too strong (white pools); intensities lowered (0.12+0.25*I, spots x0.6),
+>   not yet seen;
+> - no frame-time measurement per tier on the 90 s drive yet (dbg10: p50 8.5 / p99 23.6 ms in
+>   a short chase-view run, medium); no sheet; Remix path untested (code path: no hook, no post
+>   on a Remix device).
+>
+> Acceptance tests before turning it on: (1) `linux/docker/vis_run.sh` with
+> `KEYS=keys_vis_look.sh` -> frames, `vis_sheet.py out/visuals_plain_sheet.png out/<run>`;
+> (2) a 90 s drive per tier (`QUALITY=low|medium|high gamerun/vis_run.sh <name> wil <stage>`),
+> `perf2_analyze.py out/<run>/frames.tsv`: p99 under 33 ms; (3) `vis_chroma.py out/<run>`:
+> chroma flat over the whole drive (no greying, the QUALITY-BAR row 3 finding); (4) a Remix run
+> logs `visuals: RTX Remix device ... stay off`.
+
 The play page runs the plain Direct3D 9 renderer (no path tracing), and next to the Remix
 footage it looked dated: unlit-looking textures, no shadows, a flat sky, lamps that light
 nothing at night. This pass gives the third- and first-person views a modern forward

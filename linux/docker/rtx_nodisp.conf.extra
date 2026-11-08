@@ -1,0 +1,55 @@
+# The showcase look on an NVIDIA GPU (appended to rtx.conf by run_game_remix_gpu.sh
+# with RTX_EXTRA=/work/rtx_showcase.conf.extra). Everything the plain GPU extra
+# sets, plus the atmosphere and post settings for the street views.
+rtx.dlfg.enable = False
+rtx.isReflexEnabled = False
+rtx.upscalerType = 0
+rtx.resolutionScale = 1.0
+rtx.faultNotice.enable = False
+rtx.screenshot.hotkey = F12
+rtx.shader.blockUntilPrewarmed = False
+rtx.gpuStallTimeoutSeconds = 600
+# Bloom: present but moderate, so neon and headlights glow without washing out.
+rtx.bloom.enable = True
+rtx.bloom.burnIntensity = 0.6
+rtx.bloom.luminanceThreshold = 0.6
+# Air: haze between the camera and the city, with the lamps and headlights
+# glowing in it; a light height fog so the street fades with distance at night.
+rtx.atmosphere.aerialPerspective = True
+rtx.atmosphere.aerialPerspectiveLocalLights = True
+rtx.atmosphere.fogVisibilityMeters = 8000
+rtx.atmosphere.fogNearFadeMeters = 40
+rtx.atmosphere.fogAnisotropy = 0.4
+# The night sky: the real stars and moon for the clock's date and latitude.
+rtx.atmosphere.nightSkyStars = True
+rtx.atmosphere.realMoonEnabled = True
+# Untagged materials (people, props, the game's own sprites): matte.
+rtx.legacyMaterial.roughnessConstant = 0.75
+rtx.legacyMaterial.metallicConstant = 0.05
+# Night (REMIX-POLISH, 7 Nov; option names from the runtime's own RtxOptions.md,
+# DXVK_DOCUMENTATION_WRITE_RTX_OPTIONS_MD=1). The night had been lifted to an overcast
+# evening: the ground moonlight is a stylised 50x and the auto exposure may brighten 8x.
+# Moonlight down, a little airglow so the sky is not pitch black, the exposure capped
+# so lamps, neon and headlights make pools instead of the whole street going grey,
+# and slower adaptation so the picture does not pump as lights pass while driving.
+rtx.atmosphere.surfaceMoonBrightness = 3
+rtx.atmosphere.nightSkyBrightness = 0.008
+rtx.autoExposure.maxExposure = 2.5
+rtx.autoExposure.darkAdaptTau = 2.0
+rtx.autoExposure.lightAdaptTau = 0.5
+# Highlights: bloom only on what is really bright, fireflies clamped (no white specks
+# from the small lamp bulbs on glossy paint).
+rtx.bloom.luminanceThreshold = 0.8
+rtx.bloom.burnIntensity = 0.5
+rtx.fireflyFilteringLuminanceThreshold = 400
+# The night that read floodlit (REMIX-3, 8 Nov): the renderer's D3D9 directional light
+# (its fixed-function shading of the models and the world) was converted by the runtime
+# into a distant light at full strength, the same by day and by night: hard parallel
+# shadows across a night plaza. The atmosphere's sun and moon light the street instead.
+# The fallback light (a distant light in any frame without lights of ours, e.g. by day
+# when every lamp is gated off) goes too.
+rtx.ignoreGameDirectionalLights = True
+rtx.fallbackLightMode = 0
+
+# REMIX-CARPROPS-PBR frame-cost run: parallax displacement off
+rtx.displacement.mode = 0

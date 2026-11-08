@@ -32,7 +32,7 @@ int ReadInt(const char* key, int def) { return GetPrivateProfileIntA("visuals", 
 void ReadSettings(bool first) {
     gta2::VisualsSettings& v = gta2::VisualsConfig();
     const gta2::VisualsSettings before = v;
-    v.enabled = ReadInt("enabled", 1) != 0;
+    v.enabled = ReadInt("enabled", 0) != 0;   // off until the shadows are verified (docs/visuals-plain.md)
     v.shadows = ReadInt("shadows", 1) != 0;
     v.ssao = ReadInt("ssao", 1) != 0;
     v.bloom = ReadInt("bloom", 1) != 0;

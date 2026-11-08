@@ -622,7 +622,7 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
         if (shadowIb_ && cellVb_ && worldVb_) {
             device_->SetVertexDeclaration(shadowWorldDecl_);
             device_->SetVertexShader(vsShadowWorld_);
-            device_->SetPixelShader(psShadowWorld_);
+            device_->SetPixelShader(g_visuals.debug == 8 ? psShadowSolid_ : psShadowWorld_);
             const float psc[4] = {atlasCell_, 0.5f, 0.0f, 0.0f};
             device_->SetPixelShaderConstantF(0, psc, 1);
             device_->SetTexture(0, alphaAtlas_);

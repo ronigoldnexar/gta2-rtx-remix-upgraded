@@ -67,9 +67,10 @@ not to `game_mounts.sh`, so `game/data` was bind-mounted read-only, every swap c
 played Downtown** (`map wil.gmp` in each log, the player starting at Downtown's 159.5,139.5).
 The Industrial or Residential coordinates were then warped to on Downtown's map, which put the
 player into water and off the map edge (for example 191.5,247.5 at z=1 in
-`sweep_bil_q3_0`), so he died again and again: the R.I.P. screen when lives ran out, a game
-camera parked over the water while no respawn came, and the `gta2.exe+0x3ED37` fault. The
-renderer's locator was right to report no player. Those runs' results describe Downtown, not
+`sweep_bil_q3_0`), so he died again and again: the R.I.P. screen, a game camera parked over the water while
+no respawn came (`sweep_bil_q3_0`), and in `sweep_bil_q3_1` the `gta2.exe+0x3ED37` fault 75 s
+after a death at the map's south edge (72.4,244.3) with no respawn. The renderer's locator was
+right to report no player. Those runs' results describe Downtown, not
 the two districts. Runs through `grun.sh` and `perf*_run.sh` pass `SWAP_LEVEL` and were not
 affected: the `pt6`..`pt9`, `pd3`, `p2_a3` and `tour_*` logs show `map bil.gmp`/`ste.gmp`
 and a respawn after each death.
@@ -80,7 +81,14 @@ Fix: the three callers now give `SWAP_LEVEL` to `game_mounts.sh` (it binds `data
 Proof (`qa_swapdeath.py`, `QA_DISTRICT=bil|ste gamerun/qa_run.sh sd_<d> 360 swapdeath`): in each
 district a death in third person and another in first person (the nearest parked car blown up
 with him at the wheel), the WASTED screen, the respawn, the player found again by the renderer
-and a short walk. RESULTS_PLACEHOLDER Sheet `out/qa_swap_sheet.png`.
+and a short walk. Runs `out/qa_sd_bil`, `out/qa_sd_ste` (8 Nov,
+private stage copy, `GTA2_DIRECT_KEYS=1`): `to_level: district bil|ste in play`; Industrial
+starts at its own 44.5,102.0, Residential at 113.4,124.8 (no longer Downtown's 159.5,139.5).
+Industrial: lives 5 -> 4 (respawn at the hospital, 44.5,191.8, third person) and 4 -> 3
+(166.5,220.8, first person); Residential: 5 -> 4 (51.5,214.9, third) and 4 -> 3 (138.5,96.9,
+first). Each time the renderer drew "over where the player was" through the WASTED screen and
+found him again within a second of the respawn (`player found, source pedestrian at the
+camera`); `waiting for the player` 0, FAULT 0 in both runs, and he walked on after each respawn. Sheet `out/qa_swap_sheet.png`.
 
 ## Remix
 

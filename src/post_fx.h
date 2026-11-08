@@ -30,7 +30,7 @@
 namespace gta2 {
 
 struct VisualsSettings {
-    bool enabled = true;      // the whole stack ([visuals] enabled)
+    bool enabled = false;     // the whole stack ([visuals] enabled); off until verified
     bool shadows = true;
     bool ssao = true;
     bool bloom = true;

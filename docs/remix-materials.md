@@ -320,6 +320,69 @@ The sheet is then the `ab_<spot>_<hour>_before/after` frames, one row per hour (
 Use `setsid` around `remix_l4.sh` when you start it from a shell that may end: the first launch here
 lost its `flock` parent and left an orphan run-queue ticket without the GPU lock.
 
+## Police light bars: coloured bulbs and sane siren lights (LIGHTBAR, 8 Nov 2026) - UNVERIFIED IN FRAME
+
+**Status: code committed, builds cleanly (both translation units, and the full DLL on 094930e), NOT yet
+seen in a Remix frame.** The two takes (`out/lightbar_a`, `out/lightbar_a2`) died before the level:
+the first at "Unable to create a Vulkan device" during the host overload, the second was stopped
+for the GPU reset and the move to the new host. No before/after sheet exists yet.
+
+**What REMIX-3's white flare was (from `remix3_i`'s frames and log).** Not the siren lights: with
+`force_sirens` on a parked car the synthetic siren lights never fired (they only follow the game's
+lamp bits 15..18 at vehicle+0x08, which a parked car does not have: `siren 0` in the log's totals
+through the whole sweep). The flare was `car_bodies.cpp DrawBeacons`' additive glow quads (core
+0.07 + halo 0.18, crossed). Their red/blue lives in the vertex colour, which Remix drops
+(`rtx.ignoreAllVertexColorBakedLighting = True` in `package/rtx.conf`), and the additive blend is
+translated to emissive (`rtx.enableEmissiveBlendModeTranslation`), so each lit bulb was the white
+glow texture as an emissive disc. That is why the 9 cm bulb change made no difference.
+
+**Changes.**
+* `car_bodies.cpp DrawBeacons` (beacon hunks only): under Remix (`RemixApiAvailable()`) each lit
+  bulb is drawn with its colour baked into the texture (`BeaconGlowTexture`, one per colour, a
+  lens-shaped disc) and a white vertex colour, core only (0.045, three orthogonal quads so it is not
+  edge-on from the side), no flat 0.36 halo. Each bulb also queues a light
+  (`SyntheticQueueBeacon(vehicle, slot, worldPos, colour, lit)`) every frame, lit or dark, so
+  `force_sirens` and real sirens both light the car and the road. The plain renderer is unchanged.
+  Colours by model: cop car 12 / SWAT 52 red + blue, ambulance 34 red + white, fire truck 17
+  red + amber; the bulbs alternate exactly as before (the game's bits; a 2.5 Hz phase when all are
+  lit or forced).
+* `synthetic_lights.cpp/.h`: the queued beacons become lights in the next frame's
+  `SyntheticLightsUpdate` (a frame late; `LightsBeginExtra` clears anything submitted during the
+  draw); a car with queued beacons skips the sprite-based `SubmitSirens`, so lights are not doubled.
+  Both paths now share `EmitBeacon`: per lamp a coloured glow sphere at the bulb and one rotating
+  spot, both lifted clear of the roof by their own radius, both fading over 120 ms when the lamp
+  goes dark (Flash=0 by default: follow the game's lamps, not a private 1.63 Hz timer).
+* New defaults (`[Sirens]`, radiance = value x RadianceScale 20 x Reach / 3; the old bulb-area
+  compensation `SirenBrightness` is gone):
+
+| | before | now |
+|---|---|---|
+| beam | Intensity 43.1 x (0.15/0.029)^2 at Reach 12: ~92 000 radiance, 0.029 bulb | Intensity 10, Reach 4: ~270, 0.07 bulb, 22 deg cone, pitch 12 |
+| glow | ~1 100 radiance, 0.02 bulb | Glow 3, GlowRadius 3: 60, 0.06 bulb (about a street lamp's power) |
+| red / blue | 1 0.06 0.04 / 0.08 0.22 1 | 1 0.02 0.01 / 0.02 0.07 1 (off-channels low enough not to clip white), BlueBoost 1.5 |
+| white / amber | - | 1 0.93 0.82 / 1 0.42 0.03 (new keys `White=`, `Amber=`) |
+
+* `GTA2DX9_EFFECTS_LIVE=1`: the effects ini is re-read when its file changes (checked once a
+  second), so one take can try several `[Sirens]` settings.
+* Take: `linux/docker/keys_lightbar.sh` runs
+  `lightbar_take.py` (scene car as 12, 34, 17 with `force_sirens=1`, orbited with bursts of marks so
+  both colours are caught, at 22:30 then 14:00; optional live `[Sirens]` VARIANTS on the cop car).
+
+**Acceptance test (to run on the new host).** One Remix session from a private stage of committed
+HEAD (`STAGE=<stage> gamerun/remix_l4.sh lightbar_a 600 /work/keys_lightbar.sh -e MODS_HD=1
+-e LEVEL_WAIT=60 -e RTX_EXTRA=/work/rtx_showcase.conf.extra
+-e INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/' -e SCENE_KEY=F11
+-e SETTINGS_SED='s/^Paused=.*/Paused=1/; s/^StartHour=.*/StartHour=14/' -e GTA2DX9_EFFECTS_LIVE=1
+-e 'VARIANTS=Glow=1.5|Intensity=5;Glow=6|Intensity=20;Glow=2|GlowBulb=0.1' -e 'VARIANT_RESET=Glow=3|Intensity=10|GlowBulb=0.06'`),
+frames with `remix_frames.py dump out/lightbar_a 600 <dir> 'night_|day_|var'`. Pass when: (1) at
+night the cop car's bulbs read red and blue (no white core wider than the bulb), alternating
+between bursts; (2) red/blue light is visible on the roof and the road around the car, not white;
+(3) by day the bulbs are still coloured and visible; (4) ambulance red/white and fire truck
+red/amber likewise; (5) `gta2dx9.log`'s synthetic totals show `siren` > 0 and `with beams` >= 1
+during the sweep. Then pick the variant that reads best, set it as the default in
+`synthetic_lights.cpp`, and build `out/lightbar_sheet.png` against REMIX-3's `remix3_i`
+night frames (before, night) and a before-day take on `stage_remix3`.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every
@@ -399,6 +462,121 @@ relief), the `displace_in` scale (taken as the Toolkit's "depth / UV width" rati
 measured), the cost of 1 674 POM materials on the L4, that the metallic patches read as
 metal and not as shiny stone, and the rain layer (`MODS_HD_SRC` at a folder whose
 `mod.usda` is `mod_wet.usda`).
+
+
+## Model PBR maps: cars, props, code objects, avatars (REMIX-CARPROPS-PBR, 8 Nov 2026)
+
+Every texture a manifest model's mesh names (73 cars, the props, code objects, pickups,
+tokens, weapons and the 41 Rocketbox avatars) now has a full AperturePBR material in the
+gta2hd layer, keyed like before by the XXH3-64 of its uploaded texels:
+`tools/remix_model_pbr.py` (new) makes the maps, `tools/remix_model_materials.py`
+(rewritten) writes the DDS files and the prims. `build_remix_mod.sh` needs no new step:
+its existing `remix_model_materials.py "$MODELS" "$MOD"` call now does all of it (the
+sources are found at `assets-src` beside the repo; `--src` overrides, `--jobs N` runs a
+pool, `--preview DIR` writes the maps of each texture as a PNG strip, `--report JSON`
+lists what was written). It replaces only its own prims (the hashes in
+`<mod>/model_prims.txt`, plus the older car prims), and unlinks a file before rewriting it,
+so a layer whose textures are hard links to another is safe to build into.
+
+**Formats (checked against the runtime's MDL, `dxvk-remix/src/mdl/Base`).**
+`AperturePBR_Normal.mdl` decodes the default `encoding = octahedral` exactly like
+`tangent_space_dx` (x along the tangent u, y along +v, no green flip; `tangent_space_ogl`
+negates y): so the normals are written in DirectX orientation (y down the image) as
+unsigned octahedral BC5, the convention `remix_materials.py` already used for the tiles.
+Roughness and metallic are separate single-channel linear textures
+(`reflectionroughness_texture`, `metallic_texture`, BC4); AperturePBR has no packed ORM
+input, so a glTF metallicRoughness (G, B) or a Poly Haven ARM (R ao, G rough, B metal) is
+split. A map that is flat over the visible texels becomes the `_constant` input instead
+of a file. Emission: `emissive_mask_texture` (sRGB colour, BC3) x `emissive_intensity`.
+All with full mip chains, at the texture's own size (most are 512 px).
+
+**Where each map comes from, best first.**
+
+1. *The source material* (`assets-src`, the glTF the importer read). Its normal map, its
+   metallicRoughness or ARM texture, its roughness / metallic factors and its
+   emissiveFactor. The procedural cars, code objects, pickups and weapons are authored per
+   material (chrome 0.12 / 1.0, grille 0.3 / 0.9, tyre 0.85 / 0, lamp 0.2 with a warm
+   emissiveFactor, tail lamp red, the siren lenses blue and red), Poly Haven (street lamp,
+   hydrant, trash can, bench) and six object packs have real maps. A picture shared by
+   several materials gets a material id per texel by rasterising each material's
+   triangles in UV space (smallest on top): the street lamp's bulb texels glow, its body
+   does not. The Rocketbox avatars' FBX2glTF export has 1x1 placeholder normals, so their
+   `_normal` and `_specular` maps were fetched from the Microsoft-Rocketbox repository (MIT,
+   beside the colour maps in `assets-src/humans/rocketbox/<name>/`); roughness from the
+   specular (0.88 - 0.55 x spec, 0.3..0.92), metallic only on the pistol's bright steel.
+   **Normal-map handedness is measured, not assumed**: a real height field's slopes are
+   curl-free, so d/dv(n_x/n_z) correlates with +d/du(n_y/n_z) in DirectX orientation and
+   with the negative in OpenGL. Poly Haven `nor_gl` maps come out OpenGL (-0.36), the
+   Rocketbox maps OpenGL too (-0.20 .. -0.56, flipped), the object-pack drum DirectX
+   (+0.17, kept).
+2. *Derived from the albedo, detail-aware* (the image-to-3D car atlases, code objects,
+   props without maps): a scale-normalised Hessian line and blob detector at three scales
+   (0.8, 1.5, 2.6 texels at 512 px), not a Sobel of the albedo. A thin dark line (panel
+   gap, door and shut lines, grille slot) is a valley of the luminance: one large positive
+   eigenvalue and one small -> a groove; a thin bright line (chrome strip, rib, grille bar)
+   -> a bead; a small round spot with both eigenvalues large and of one sign (rivet, bolt
+   head) -> a dome or a dimple. A colour step (paint against trim, a livery edge) has a
+   large gradient where it curves, and the detector subtracts 0.6 x the scale-normalised
+   gradient, so a livery edge does not become a step in the surface. Responses are
+   divided by the local contrast (a faint seam on dark paint counts like a crisp one on
+   white), a grain band at 0.15 adds surface texture, transparent atlas background is
+   filled by normalised convolution first, and the slopes fade to flat within two texels
+   of an island's edge (no seams). Strength 5 on the car atlases, 3.5 on props, 1.0 on
+   `__lit` and `__glass`; textures under 32 px get none (flat colour swatches).
+3. *Per-texel classes* where the source has nothing per texel (the baked car atlases:
+   their glTF says 0.38 / 0.55 for the whole car): REMIX-POLISH's classes (chrome, brushed
+   metal, glass, rubber, painted body with the clear coat 0.2 / 0.12), with two changes: a
+   large bright neutral field (a livery's white doors, a van's sides: more than 60 % of a
+   15 px window) is white paint, not chrome, and busy rubber (tread) is rougher (0.6-0.9);
+   avatars without a specular map: skin 0.5, cloth 0.78.
+
+**Emission.** Tail and brake lamps (REMIX-3's compact red islands at the car's ends) and,
+new, head lamps on the baked cars: compact, very bright (luminance > 0.8), white-to-warm
+islands at the ends that are smoother than the chrome around them, intensity 3; the
+proc cars' lamp / tail / siren materials (emissiveFactor, intensity 6); every `__lit`
+companion model (the booth's PHONE sign and rim, the traffic-light lenses, intensity 8;
+the pickups' and tokens' rings and the ringing handset, 3); the street lamp's bulb (12).
+No model has a dashboard material and no atlas has a recognisable lit dashboard, so no
+dashboard glows. Split pairs keep REMIX-POLISH's rule (both prims one opaque whole-model
+material); for an avatar the `_paint` half is the clothing and keeps the cloth roughness
+(a gang member's tint is a texture factor, so under Remix a tinted pedestrian's merged
+material takes the tint on the skin as well: untested).
+
+**Built** (into the package layer; VISUALS-REMIX's 17:26 build ran this tool and its
+prims are in commit 6559ad5's `mod.usda`): 552 model prims (was 253), all 552 hashes
+match a texture in `assets/models` (no stale prim):
+
+| | prims | normal | roughness map | metallic map | emissive |
+|---|---|---|---|---|---|
+| cars (73 models) | 215 | 209 | 124 | 120 | 67 |
+| props | 71 | 64 | 62 | 4 | 1 |
+| code objects, pickups, tokens, weapons, traffic lights | 92 | 25 | 24 | 0 | 40 |
+| avatars (41 Rocketbox + the starter character) | 174 | 174 | 173 | 3 | 0 |
+| all | 552 | 472 | 383 (169 constant) | 127 (425 constant) | 108 |
+
+Size: albedo 121 MB, normal 121 MB, roughness 54, metallic 22, emissive 22: **340 MB**
+for the model materials, against 135 MB for the 253 car prims before: **+205 MB**, of
+which the normals are 121 MB (they are at the textures' own 512 px; at 256 px they would
+be 30 MB). Offline sheet (maps, and the albedo lit by one raking light before / after,
+with 2x crops of three car atlases): `out/remix_carprops_pbr_sheet.png`
+(`linux/docker/remix_carprops_sheet.py`).
+
+Known weak spots of the derived maps: the image-to-3D atlases bake shading and
+reflections into the colour, so the class rules see some of them as material (the taxi's
+white chequer squares are bright, neutral and busy and come out chrome); the dark
+shadowed areas of a dark car read as rubber; a Hessian groove follows every dark
+line, including baked shadow lines.
+
+**Verification take** (`linux/docker/pbr_verify_run.sh <name> [layer]`, `keys_remix_pbr.sh`):
+VISUALS-REMIX's fixed spots (`remix_vis_take.py`) and, with `PBR_TAKE=1`,
+`remix_pbr_take.py`: the scene car dressed as the cop car, the taxi, the Schmidt and the
+fire truck, orbited and from the driver's side, the nearest pedestrian from a step away,
+the booth and the traffic lights walked up to, the plaza's lamp posts, at 14:00 and
+22:30; the per-frame log is on (`GTA2DX9_FRAME_LOG`), and `pbr_frame_cost.py` compares
+the frame cost of runs step by step (`rtx_nodisp.conf.extra` = the showcase settings with
+`rtx.displacement.mode = 0`, for the cost of the parallax materials). **Not yet run to
+the end**: the first session (`pbr_new`, 19:05) was stopped for the coordinator's GPU
+reset after the host-wide "Failed to create fence" failures.
 
 
 This note records what NVIDIA offers for turning GTA2's 64x64 tiles into PBR
