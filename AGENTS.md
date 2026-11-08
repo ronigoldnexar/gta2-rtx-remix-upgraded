@@ -28,6 +28,9 @@ docker run --rm --cpus=8 -v $PWD/../gamerun:/work -v $PWD/../game:/game:ro \
   -v $PWD/../remix-runtime/x86:/remix:ro -v $PWD/../out/run1:/out -w /work \
   gta2-remixbox bash /work/run_game.sh win32 240 0 /work/keys_demo_fp2.sh
 # GPU: image gta2-gpugl (Dockerfile.gpu-gl), --gpus, run_game_gpu.sh
+# CPU governor: linux/docker/cpu_governor.sh (cron, every minute) lets game containers use all 8 CPUs
+# while nobody is connected to the play page and pins them back to 0-4 within a minute of a connection.
+# Videos: linux/docker/videos_server.sh serves deliverables/web (faststart mp4 + index) on port 8081.
 # QA scenarios: [STAGE=<dir>] gamerun/qa_run.sh <name> <seconds> [wall|backforth|fight|crash|respawn4|long]
 # City sweep:   [STAGE=<dir>] gamerun/sweep_queue.sh wil:0/5 ... ; tools/sweep_detect.py
 ```
