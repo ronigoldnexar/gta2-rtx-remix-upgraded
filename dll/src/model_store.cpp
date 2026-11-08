@@ -306,6 +306,20 @@ void SampleClip(const Model& model, const ModelAnimation* animation, float time,
 // `second` at `secondTime` by `weight` (nlerp on the rotations, lerp on the
 // rest), then composed down the parent chain.
 static float g_torsoTwist = 0.0f;   // see ModelSetTorsoTwist
+static float g_headTurn = 0.0f;     // see ModelSetHeadTurn
+// A node's world matrix turned about the model's vertical through its own
+// origin (its children compose from it and turn with it).
+static void TurnAboutUp(gta2::Mat4& M, float radians) {
+    const float c = std::cos(radians), sn = std::sin(radians);
+    const float px = M.m[3][0], pz = M.m[3][2];
+    for (int r = 0; r < 4; ++r) {
+        const float x = M.m[r][0], z = M.m[r][2];
+        M.m[r][0] = x * c - z * sn;
+        M.m[r][2] = x * sn + z * c;
+    }
+    M.m[3][0] += px - (px * c - pz * sn);
+    M.m[3][2] += pz - (px * sn + pz * c);
+}
 // The overlay: a third clip blended over the pair (see ModelSetOverlay).
 static const ModelAnimation* g_overlay = nullptr;
 static float g_overlayTime = 0.0f, g_overlayWeight = 0.0f;
@@ -392,6 +406,10 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
                 }
                 M.m[3][0] += px - (px * c - pz * sn);
                 M.m[3][2] += pz - (px * sn + pz * c);
+            }
+            if (g_headTurn != 0.0f && model.nodes[i].name[0] == 'B') {
+                if (strcmp(model.nodes[i].name, "Bip01 Neck") == 0) TurnAboutUp((*out)[i], 0.4f * g_headTurn);
+                else if (strcmp(model.nodes[i].name, "Bip01 Head") == 0) TurnAboutUp((*out)[i], 0.6f * g_headTurn);
             }
             done[i] = true;
         }
@@ -822,6 +840,7 @@ void ModelSetOverlay(const ModelAnimation* clip, float time, float weight) {
     g_overlay = clip; g_overlayTime = time; g_overlayWeight = weight;
 }
 float ModelTorsoTwist() { return g_torsoTwist; }
+void ModelSetHeadTurn(float radians) { g_headTurn = radians; }
 
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
@@ -1041,7 +1060,7 @@ struct PoseKey {
     const Model* model = nullptr;
     const ModelAnimation* animation = nullptr;
     const ModelAnimation* second = nullptr;
-    float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f;
+    float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f, head = 0.0f;
     const ModelAnimation* overlay = nullptr;
     float overlayTime = 0.0f, overlayWeight = 0.0f;
     bool operator==(const PoseKey& o) const {
@@ -1049,7 +1068,7 @@ struct PoseKey {
                std::fabs(overlayTime - o.overlayTime) < 1e-4f && std::fabs(overlayWeight - o.overlayWeight) < 1e-3f &&
                std::fabs(time - o.time) < 1e-4f &&
                std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f &&
-               std::fabs(twist - o.twist) < 1e-3f;
+               std::fabs(twist - o.twist) < 1e-3f && std::fabs(head - o.head) < 1e-3f;
     }
 };
 struct PosedCache {
@@ -1221,7 +1240,7 @@ const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vec
         for (PosedCache& p : g_poses) {
             if (p.key.model != key.model || p.key.animation != key.animation || p.key.second != key.second ||
                 p.key.overlay != key.overlay) continue;
-            if (std::fabs(p.key.weight - key.weight) > 0.15f || std::fabs(p.key.twist - key.twist) > 0.05f ||
+            if (std::fabs(p.key.weight - key.weight) > 0.15f || std::fabs(p.key.twist - key.twist) > 0.05f || std::fabs(p.key.head - key.head) > 0.1f ||
                 std::fabs(p.key.overlayWeight - key.overlayWeight) > 0.15f) continue;
             const float d = std::fabs(p.key.time - key.time) + std::fabs(p.key.secondTime - key.secondTime) +
                             std::fabs(p.key.overlayTime - key.overlayTime);
@@ -1279,6 +1298,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.secondTime = secondTime;
         key.weight = weight;
         key.twist = g_torsoTwist;
+        key.head = g_headTurn;
         key.overlay = g_overlay;
         key.overlayTime = g_overlay ? g_overlayTime : 0.0f;
         key.overlayWeight = g_overlay ? g_overlayWeight : 0.0f;

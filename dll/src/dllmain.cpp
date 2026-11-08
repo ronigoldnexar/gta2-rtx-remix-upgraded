@@ -359,6 +359,7 @@ void LoadConfig() {
         GetPrivateProfileIntA("renderer", "car_glass_curve_percent", 60, ini) / 100.0f);
     gta2dx9::SkidSmokeLoad(ini);
     gta2dx9::FireEffectsLoad(ini);
+    gta2dx9::CrowdLoad(ini);
     gta2dx9::SetCarHd(GetPrivateProfileIntA("renderer", "car_hd", 1, ini) != 0,
                       GetPrivateProfileIntA("renderer", "car_normal_maps", 1, ini) != 0);
 
