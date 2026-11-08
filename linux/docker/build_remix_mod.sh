@@ -18,4 +18,6 @@ nice python3 repo/tools/remix_materials.py - "$MOD" --dds-tiles repo/assets/text
 [ -d "$UPSCALED" ] && nice python3 repo/tools/remix_emissive.py game/data "$MOD" repo/assets/textures_hd "$UPSCALED" | head -3
 nice python3 repo/tools/remix_model_materials.py "$MODELS" "$MOD"
 du -sh "$MOD"; ls "$MOD/textures" | wc -l
-if [ "${ZIP:-0}" = 1 ]; then mkdir -p deliverables; rm -f deliverables/remix_mod_gta2hd.zip; (cd "$(dirname "$MOD")" && zip -qr -0 "$OLDPWD/deliverables/remix_mod_gta2hd.zip" "$(basename "$MOD")/mod.usda" "$(basename "$MOD")/textures"); ls -la deliverables/remix_mod_gta2hd.zip; fi
+# (an absolute path for the archive: with "$OLDPWD/deliverables" the 8 Nov rebuild wrote
+# no deliverables/remix_mod_gta2hd.zip)
+if [ "${ZIP:-0}" = 1 ]; then ROOT=$PWD; mkdir -p deliverables; rm -f deliverables/remix_mod_gta2hd.zip; (cd "$(dirname "$MOD")" && zip -qr -0 "$ROOT/deliverables/remix_mod_gta2hd.zip" "$(basename "$MOD")/mod.usda" "$(basename "$MOD")/textures"); ls -la deliverables/remix_mod_gta2hd.zip; fi

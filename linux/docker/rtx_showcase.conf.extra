@@ -42,3 +42,11 @@ rtx.autoExposure.lightAdaptTau = 0.5
 rtx.bloom.luminanceThreshold = 0.8
 rtx.bloom.burnIntensity = 0.5
 rtx.fireflyFilteringLuminanceThreshold = 400
+# The night that read floodlit (REMIX-3, 8 Nov): the renderer's D3D9 directional light
+# (its fixed-function shading of the models and the world) was converted by the runtime
+# into a distant light at full strength, the same by day and by night: hard parallel
+# shadows across a night plaza. The atmosphere's sun and moon light the street instead.
+# The fallback light (a distant light in any frame without lights of ours, e.g. by day
+# when every lamp is gated off) goes too.
+rtx.ignoreGameDirectionalLights = True
+rtx.fallbackLightMode = 0

@@ -704,6 +704,18 @@ float PixelScale(const CarBodyUse& use, int h) {
     return dv > 1e-6f && h > 0 ? edge / dv / static_cast<float>(h) : 1.0f / 64.0f;
 }
 
+// Models painted in a fixed livery (CARI numbers): the bank van, bus, cop car,
+// fire truck, army jeep, hot-dog and ice-cream vans, medicar, the two taxis, SWAT
+// van, tank, the trains, TV van, special agent car and karma bus.
+bool LiveryModel(int m) {
+    switch (m) {
+        case 4: case 11: case 12: case 17: case 22: case 23: case 24: case 25: case 26: case 27:
+        case 34: case 51: case 52: case 54: case 56: case 59: case 60: case 61: case 67:
+        case 84: case 85: case 86: return true;
+        default: return false;
+    }
+}
+
 // The car's measurements (paint, footprint) from its artwork: what both a
 // hand-made model and a body built here need. The body mesh itself is built
 // only when it is going to be drawn (BodyMesh).
@@ -716,8 +728,8 @@ float PixelScale(const CarBodyUse& use, int h) {
 // lies below `yCut` and ahead of `zCut` (the hood, the fenders, the cowl). Each
 // (model, cuts) pair is built once and registered with the store.
 struct HoodKey {
-    const Model* model; int yq, zq;
-    bool operator<(const HoodKey& o) const { return std::tie(model, yq, zq) < std::tie(o.model, o.yq, o.zq); }
+    const Model* model; int yq, zq, xq;
+    bool operator<(const HoodKey& o) const { return std::tie(model, yq, zq, xq) < std::tie(o.model, o.yq, o.zq, o.xq); }
 };
 std::map<HoodKey, const Model*> g_hoods;
 
@@ -728,9 +740,10 @@ inline gta2::Vec3 PointBy(const gta2::Mat4& m, float x, float y, float z) {
             x * m.m[0][2] + y * m.m[1][2] + z * m.m[2][2] + m.m[3][2]};
 }
 
-const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut) {
+const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut, float eyeX) {
     // 0.04-block steps: the eye bobs and leans a little, the cache stays small.
-    const HoodKey key{&model, static_cast<int>(std::floor(yCut * 25.0f)), static_cast<int>(std::floor(zCut * 25.0f))};
+    const HoodKey key{&model, static_cast<int>(std::floor(yCut * 25.0f)), static_cast<int>(std::floor(zCut * 25.0f)),
+                      static_cast<int>(std::floor(eyeX * 25.0f))};
     auto it = g_hoods.find(key);
     if (it != g_hoods.end()) return it->second;
     if (g_hoods.size() > 96) g_hoods.clear();   // the store keeps the models; only the lookup is dropped
@@ -795,13 +808,27 @@ const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut,
                 q[c] = PointBy(toCar, v.x, v.y, v.z);
                 poly[static_cast<size_t>(c)] = {v, yCut - q[c].y, q[c].z - zCut};
             }
-            // Only faces that lie flat enough to be the hood's top (or its underside,
-            // hidden behind it): the engine bay's inner walls and the fenders' sides
-            // are what the eye would otherwise see from inside the hull.
-            const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
+            // Only faces the eye sees from their front, as back-face culling would
+            // show them: the hood's top, the fender tops, the cowl. The engine bay's
+            // inner walls, the body's sides and the faces that look down (the hood's
+            // underside, the floor pan and the underbody ahead of the seat) are seen
+            // from inside the hull from their back, and the path tracer draws back
+            // faces: run remix3_b showed them as black shreds across the view of a
+            // Schmidt (REMIX-3). Which way a face looks comes from its vertex normals
+            // in the car's frame, not the winding, which the fit's mirror (forward -1)
+            // reverses; a face that looks down by more than a little is dropped too.
+            gta2::Vec3 nrm{0.0f, 0.0f, 0.0f};
+            for (int c = 0; c < 3; ++c) {
+                const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                nrm.x += v.nx * toCar.m[0][0] + v.ny * toCar.m[1][0] + v.nz * toCar.m[2][0];
+                nrm.y += v.nx * toCar.m[0][1] + v.ny * toCar.m[1][1] + v.nz * toCar.m[2][1];
+                nrm.z += v.nx * toCar.m[0][2] + v.ny * toCar.m[1][2] + v.nz * toCar.m[2][2];
+            }
             const float nl = std::sqrt(gta2::Dot(nrm, nrm));
-            const bool flat = nl > 1e-9f && std::fabs(nrm.y) / nl > 0.35f;
-            if (!flat) continue;
+            const gta2::Vec3 centre{(q[0].x + q[1].x + q[2].x) / 3.0f, (q[0].y + q[1].y + q[2].y) / 3.0f, (q[0].z + q[1].z + q[2].z) / 3.0f};
+            const gta2::Vec3 toEye{eyeX - centre.x, yCut + 0.035f - centre.y, zCut - 0.10f - centre.z};
+            const bool seen = nl > 1e-9f && nrm.y / nl > -0.2f && gta2::Dot(nrm, toEye) > 0.0f;
+            if (!seen) continue;
             const bool allIn = poly[0].dy >= 0 && poly[1].dy >= 0 && poly[2].dy >= 0 && poly[0].dz >= 0 && poly[1].dz >= 0 && poly[2].dz >= 0;
             if (allIn) {
                 dst.indices.push_back(src.indices[t]);
@@ -2065,15 +2092,18 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // The hood-only copy is drawn on both paths (Remix ignores user clip planes;
         // on plain D3D9 the plane below still trims the copy's edge exactly).
         const bool cpuCut = inside && use.own;
-        float eyeLocalY = 0.0f, eyeLocalZ = 0.0f;
+        float eyeLocalX = 0.0f, eyeLocalY = 0.0f, eyeLocalZ = 0.0f;
         if (cpuCut) {
-            // The eye in the car's own frame: along its up and forward axes.
+            // The eye in the car's own frame: along its right, up and forward axes.
+            const float rx = carToWorld.m[0][0], ry = carToWorld.m[0][1], rz = carToWorld.m[0][2];
             const float ux = carToWorld.m[1][0], uy = carToWorld.m[1][1], uz = carToWorld.m[1][2];
             const float fx = carToWorld.m[2][0], fy = carToWorld.m[2][1], fz = carToWorld.m[2][2];
             const float dx = eye.x - carToWorld.m[3][0], dy = eye.y - carToWorld.m[3][1], dz = eye.z - carToWorld.m[3][2];
             const float ul = ux * ux + uy * uy + uz * uz, fl = fx * fx + fy * fy + fz * fz;
             eyeLocalY = ul > 1e-8f ? (dx * ux + dy * uy + dz * uz) / ul : 0.0f;
             eyeLocalZ = fl > 1e-8f ? (dx * fx + dy * fy + dz * fz) / fl : 0.0f;
+            const float rl = rx * rx + ry * ry + rz * rz;
+            eyeLocalX = rl > 1e-8f ? (dx * rx + dy * ry + dz * rz) / rl : 0.0f;
         }
         if (inside && use.own && !RemixApiAvailable()) {
             const float ux = carToWorld.m[1][0], uy = carToWorld.m[1][1], uz = carToWorld.m[1][2];
@@ -2128,7 +2158,15 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             fit.m[3][1] = -model->boundsMin.y * sy;
             fit.m[3][3] = 1.0f;
             // The car's paint over the model's own: what its painted textures are multiplied by.
-            const float tint[3] = {b->paint.r / model->paintRgb[0], b->paint.g / model->paintRgb[1], b->paint.b / model->paintRgb[2]};
+            // Not for a livery (cop car, taxi, ambulance, fire truck, buses, the
+            // service vans, the army's): its model is painted in the livery, which a
+            // remap would recolour (REMIX-3: under Remix the tint is applied too,
+            // rtx.enableMultiStageTextureFactorBlending). Nor for a model forced by
+            // the devtools: the paint measured is then another car's sprite's.
+            const bool keepOwnPaint = LiveryModel(modelNumber) || (g_forceModel >= 0 && !use.own);
+            const float tint[3] = {keepOwnPaint ? 1.0f : b->paint.r / model->paintRgb[0],
+                                   keepOwnPaint ? 1.0f : b->paint.g / model->paintRgb[1],
+                                   keepOwnPaint ? 1.0f : b->paint.b / model->paintRgb[2]};
             {
                 const float roof = model->Height() * sy;
                 const float cy = 0.5f * b->measure.h;
@@ -2148,7 +2186,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 }
                 g_cabins[use.object] = cabin;
             }
-            ModelSetPaintTint(tint);
+            // A livery is drawn with no tint stage at all (the same picture as a tint of 1).
+            ModelSetPaintTint(keepOwnPaint ? nullptr : tint);
             // A baked texture split into paint and the rest (import_assets.py's
             // paint_split) is two alpha-tested draws of the same mesh.
             device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
@@ -2183,7 +2222,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 if (g_damageLogged < 40) { ++g_damageLogged; Log("car bodies: object %p damage %d (fire stage %d) -> dent step %d", reinterpret_cast<const void*>(use.object), damageWord, fireStage, dentStep); }
             }
             const Model* drawn = worn;
-            if (cpuCut) drawn = HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f);
+            if (cpuCut) drawn = HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f, eyeLocalX);
             // The door: swings open while someone boards or leaves, shuts after.
             DoorState& ds = g_doors[use.object];
             const float dt = (std::min)(5u, (std::max)(1u, frame - ds.frame)) / 30.0f;

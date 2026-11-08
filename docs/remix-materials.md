@@ -83,6 +83,111 @@ car models change). `ZIP=1` packs `deliverables/remix_mod_gta2hd.zip` (mod.usda 
 textures/, ~1 GB, store-only) for the release page; the DDS embed the game's art, so the
 textures stay out of git and only `mod.usda` (hashes and constants) is committed.
 
+## Liveries, the driver's seat, the night lights (REMIX-3, 8 Nov 2026)
+
+Nine Remix sessions on the L4 (`out/remix3_a` .. `remix3_i`), Downtown, clock paused, all
+on a private stage (`stage_remix3`: the committed tree plus these changes, the current
+models). The clock is moved inside one session with a new devtools key, so a car or a
+street is seen by day, at dusk and at night in the same take. Sheets (local):
+`out/remix3_cars_sheet.png`, `out/remix3_driver_sheet.png`, `out/remix3_lights_sheet.png`.
+
+**Cop car and taxi in another car's colours: the paint tint, and a devtools artefact.**
+The renderer's per-car paint tint *is* applied under Remix (`rtx.enableMultiStageTextureFactorBlending`
+is on by default; the tint is the stage-1 texture factor). The tint is the sprite's measured
+paint over the model's own, so with `force_car_model` every model was drawn in the colour
+of the parked car whose sprite it stood on (REMIX-POLISH's `remix_pol_day3`: cop and taxi
+in the same brown). `car_bodies.cpp` now leaves the tint off (no stage at all) for the
+livery models (`LiveryModel`: bank van 4, bus 11, cop 12, fire truck 17, army jeep 22,
+hot-dog and ice-cream vans 23-27/85, medicar 34, taxis 51/56, SWAT 52, tank 54, trains
+59-61, TV van 67, special agent 84, karma bus 86) and for a model forced by the devtools.
+Seen in `remix3_b/e/g/i`: the cop car navy and white with its door badge, the taxi
+yellow with its chequer, the medicar white with red stripes and crosses, the bus cream
+and red, the fire truck red, by day, at dusk and at night. Ordinary cars keep their tint
+(the game's remaps).
+
+**Car material layer rebuilt** (`build_remix_mod.sh`, all three passes, so the prims of
+the 33 replaced CAR-QUALITY-4 models' old textures are gone: 2 649 tile prims, 64 of
+them with sign emission, and 215 car prims, 2 864 in all). The tail-lamp emission used to take every saturated red texel;
+on the new models that is the medicar's crosses and stripes and the bus's red band (1 138
+and 1 490 texels would have glowed at night). `remix_model_materials.py` now takes only
+compact red islands (at most 0.25 % of the texture, no longer than 4:1, at least 35 %
+filled) at the car's ends (the texels the mesh's triangles in the last 14 % of the length,
+facing along it, cover: `end_masks`, a UV rasterisation of the `.mesh`): medicar 93
+texels, bus 228, cop 0; 22 prims with lamp emission. Most generated models have no red
+tail-lamp texels at all, so at night the lamps are the `[Car lamps]` lights (head and
+tail lamps as small coloured lights, `remix3_g/i`).
+
+**The driver's seat.** Remix ignores user clip planes, so the own car is drawn from a
+CPU-cut hood copy (`HoodModelFor`, there before this pass). It kept every face with
+|normal y| > 0.35 below the eye and ahead of the windscreen, which included the faces that
+look *down* (the hood's underside, the floor pan and underbody ahead of the seat); the path
+tracer draws back faces, so from the seat they were black shreds across the view
+(`remix3_b`, a Schmidt). The copy now keeps the faces the eye sees from their front
+(vertex normal towards the eye, in the car's frame, so the fit's mirror does not matter)
+and not looking down by more than a little: from the Schmidt's seat a black hood with its
+chrome headlamps and ornament, by night and by day, while moving (`remix3_e/g`). The fire
+truck's short hood lies below the view from its cab: nothing of the body shows, nothing
+broken (`remix3_c/h`, by day and at night). The cache key now includes the eye's x.
+
+**The floodlit night: the game's D3D9 directional light.** The night plaza at 198,188 read
+as daylight with hard parallel shadows (a lamp post's shadow across the square, a fence
+casting a crisp shadow at 22:30 in `remix3_f`). Not a lamp of ours: with every one of our lights off
+(`remix_lights_off`) the plaza was unchanged (`remix3_d`); not the atmosphere's sun or moon
+light, the moonlight or the exposure cap (pushed live, `remix3_e`: no change); not the
+runtime's fallback light (it only appears in a frame with no lights at all, and then it
+does flood a scene: `remix3_c`, lights off). It is the D3D9 directional light the renderer
+sets for its fixed-function shading (`car_bodies.cpp` for the car bodies, `src/renderer.cpp`
+for the world in the street views): Remix converts it to a distant light at full strength,
+the same direction by day and by night. With `rtx.ignoreGameDirectionalLights = True` set at
+start (`remix3_g`, `remix3_i`) the plaza is a night street: dark paving, lamp pools, the neon
+and the windows; by day the atmosphere's sun alone gives the same sunny street
+(`remix3_h/i`). `rtx.fallbackLightMode = 0` goes with it (by day, with every lamp gated off,
+a frame can have no lights and would get the fallback's second sun). Both are in
+`package/rtx.conf` and `linux/docker/rtx_showcase.conf.extra`. Note: these two options, pushed
+live through the Remix API, changed nothing in a running session; only set at start do
+they apply. The attribution between the two rests on the fallback's rule (no lights at all),
+not on a run with one of them alone.
+
+**The other lights** (`remix3_a`, `remix3_d`, `remix3_i`): traffic-light lenses throw red,
+amber and green pools at night and at dusk; the JESUS SAVES neon and the lit windows read
+at night without blowing out; machine-gun shots light the paving round the shooter;
+a rocket into a parked van gives the fireball, its light on the square and the scorch
+(before the light fix, so the square is still floodlit there); dusk (18:00) is a violet sky
+with the lamps coming on. The siren beacons (`force_sirens=1` on cop car, medicar, fire
+truck) light the roof and the road, but each bulb is seen as a white flare beside the light
+bar: a 3 cm bulb with the beam's power clips every channel. Drawing the bulb at 9 cm with
+the radiance cut by the area gained (same power) did not visibly change it (`remix3_i`), so
+that change was not kept; the siren defaults are `synthetic_lights.cpp`'s.
+
+**Devtools added** (`[devtools]`, re-read once a second, `remix_lights.cpp`):
+`set_hour_tenths=N` sets the clock to N/10 h when the value changes; `remix_config=key=value|...`
+pushes runtime options (see the note above: not every option applies live);
+`remix_lights_off=1` withholds all our lights. `GTA2DX9_LOG_REMIX_LIGHTS=1` logs, every 256
+frames, the ten lights (cones excluded) that light the ground under the eye most.
+
+**Take.** `linux/docker/remix_showcase.py` plays the REMIX-3 parts when `PART` is set
+(`cars`, `nightcars`, `sedan`, `lights3`, `truck3`, `exposure`, `debuglights`, `fb`, `ab2`, ...),
+e.g. `STAGE=<stage> gamerun/remix_l4.sh remix3_i 1150 /work/keys_remix_showcase.sh -e MODS_HD=1
+-e LEVEL_WAIT=60 -e RTX_EXTRA=/work/rtx_showcase.conf.extra -e INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/'
+-e SCENE_KEY=F11 -e SETTINGS_SED='s/^Paused=.*/Paused=1/; s/^StartHour=.*/StartHour=14/'
+-e EFFECTS_SED='/^\[Car lamps\]/,/^\[/{s/^Enabled=0/Enabled=1/;s/^Daylight=0/Daylight=1/}'
+-e DUSK=18.0 -e PART=cars,sedan,lights3 -e CAR_MODELS=12,56,34,11,17,18,31`; the fire truck
+needs its own session (`-e GTA2DX9_SCENE_MODELS=17 -e PART=truck3`: every scene warp then goes
+to it). Frames: `remix_frames.py dump out/<run> <secs> <dir> <label regex>`.
+
+**Release archive.** `deliverables/remix_mod_gta2hd.zip`, 1 055 593 417 bytes (1.06 GB,
+store-only: `mod.usda` + 8 508 textures), from the rebuilt layer. `build_remix_mod.sh`'s
+`ZIP=1` step now writes it by absolute path (the 8 Nov rebuild's `$OLDPWD` path wrote none;
+the archive here was packed by hand with the same command).
+
+**Not verified.** A police chase under Remix: three stars kept by `force_wanted` brought no
+police within 45 s in two sessions, so the light bars were seen only on parked cars with
+`force_sirens`; the booth's lit PHONE sign and glass were not framed close enough to judge
+(the booth is in `remix3_i`'s frame, small); the muzzle flash itself (its light on the paving
+is seen, the flash sprite not caught in a frame); the explosion and fire after the light fix;
+clear-coat reflections are visible on the roofs by day but were not compared with the
+REMIX-POLISH constants; Industrial and Residential were not rerun.
+
 This note records what NVIDIA offers for turning GTA2's 64x64 tiles into PBR
 materials, why none of it runs on this Linux/B200 machine, and what
 `tools/remix_materials.py` produces instead: a complete Remix material layer,

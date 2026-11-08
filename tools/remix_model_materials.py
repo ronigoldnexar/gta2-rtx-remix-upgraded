@@ -94,7 +94,97 @@ def local_std(lum, vis, r=3):
     return np.sqrt(np.maximum(box(lum * lum * w) / n - m * m, 0))
 
 
-def trim_maps(rgba):
+def read_mesh(path):
+    """(texture, vertices[n, 8]: position, normal, uv; indices) per mesh of a GMSH file
+    (tools/import_assets.py writes them); node transforms are ignored (the car models
+    are one node at the origin, +z along the length)."""
+    import struct
+    d = open(path, "rb").read(); p = 4
+    _, nn, nm, _, _ = struct.unpack_from("<IIIII", d, p); p += 20
+    p += nn * (32 + 4 + 12 + 16 + 12 + 4)
+    out = []
+    for _ in range(nm):
+        nv, ni = struct.unpack_from("<II", d, p); p += 8
+        tex = d[p:p + 64].split(b"\0")[0].decode(); p += 64
+        skin, = struct.unpack_from("<i", d, p); p += 4
+        v = np.frombuffer(d, np.float32, nv * 8, p).reshape(nv, 8); p += nv * 32
+        if skin >= 0: p += nv * 24
+        idx = np.frombuffer(d, np.uint32, ni, p).reshape(-1, 3); p += ni * 4
+        out.append((tex, v, idx))
+    return out
+
+
+def end_masks(models_dir, names):
+    """Per texture: the texels the car's two ends use (REMIX-3). A lamp is red at the
+    nose or the tail; the red stripes, crosses and doors of a livery are along the
+    flanks. A triangle counts when its centre lies within 14 % of the length from either
+    end and it faces that way (|normal z| > 0.35); rasterised in UV space and grown by
+    two texels. Textures no mesh names are missing from the result."""
+    tris = {}
+    for m in names:
+        try: meshes = read_mesh(os.path.join(models_dir, m))
+        except Exception: continue
+        for tex, v, idx in meshes:
+            if len(idx): tris.setdefault(tex, []).append((v, idx))
+    masks = {}
+    for tex, parts in tris.items():
+        path = os.path.join(models_dir, tex)
+        if not os.path.exists(path): continue
+        with Image.open(path) as im: w, h = im.size
+        mask = np.zeros((h, w), bool)
+        zs = np.concatenate([v[:, 2] for v, _ in parts]); z0, z1 = float(zs.min()), float(zs.max())
+        L = max(z1 - z0, 1e-6)
+        for v, idx in parts:
+            P = v[idx][:, :, :3]; UV = v[idx][:, :, 6:8]
+            c = P.mean(1)[:, 2]
+            n = np.cross(P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]); nl = np.linalg.norm(n, axis=1) + 1e-12
+            at_end = ((c - z0 < 0.14 * L) | (z1 - c < 0.14 * L)) & (np.abs(n[:, 2]) / nl > 0.35)
+            for uv in UV[at_end]:
+                x = uv[:, 0] * w; y = uv[:, 1] * h
+                xa, xb = int(max(np.floor(x.min()), 0)), int(min(np.ceil(x.max()), w - 1))
+                ya, yb = int(max(np.floor(y.min()), 0)), int(min(np.ceil(y.max()), h - 1))
+                if xb < xa or yb < ya: continue
+                gx, gy = np.meshgrid(np.arange(xa, xb + 1) + 0.5, np.arange(ya, yb + 1) + 0.5)
+                d = (y[1] - y[2]) * (x[0] - x[2]) + (x[2] - x[1]) * (y[0] - y[2])
+                if abs(d) < 1e-9: continue
+                a = ((y[1] - y[2]) * (gx - x[2]) + (x[2] - x[1]) * (gy - y[2])) / d
+                b = ((y[2] - y[0]) * (gx - x[2]) + (x[0] - x[2]) * (gy - y[2])) / d
+                inside = (a >= -0.02) & (b >= -0.02) & (1 - a - b >= -0.02)
+                mask[ya:yb + 1, xa:xb + 1] |= inside
+        for _ in range(2):
+            g = mask.copy(); g[1:] |= mask[:-1]; g[:-1] |= mask[1:]; g[:, 1:] |= mask[:, :-1]; g[:, :-1] |= mask[:, 1:]; mask = g
+        masks[tex] = mask
+    return masks
+
+
+def lamp_blobs(mask, visible):
+    """Only the compact red islands of `mask` are lamps (REMIX-3): a tail or brake
+    lamp is a small, roughly convex patch of the atlas, while the red stripes and
+    crosses of a livery (ambulance, bus) are long, thin or large and must not glow.
+    Kept: 4-connected components of at most 0.25 % of the visible texels whose
+    bounding box is no more than 4:1 and at least 35 % filled."""
+    h, w = mask.shape
+    out = np.zeros_like(mask)
+    seen = np.zeros_like(mask)
+    amax = max(24, int(visible * 0.0025))
+    ys, xs = np.nonzero(mask)
+    for y0, x0 in zip(ys.tolist(), xs.tolist()):
+        if seen[y0, x0]: continue
+        stack, comp = [(y0, x0)], []
+        seen[y0, x0] = True
+        while stack:
+            y, x = stack.pop(); comp.append((y, x))
+            for yy, xx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                if 0 <= yy < h and 0 <= xx < w and mask[yy, xx] and not seen[yy, xx]:
+                    seen[yy, xx] = True; stack.append((yy, xx))
+        cy = [c[0] for c in comp]; cx = [c[1] for c in comp]
+        bh, bw = max(cy) - min(cy) + 1, max(cx) - min(cx) + 1
+        if 4 <= len(comp) <= amax and max(bh, bw) <= 4 * min(bh, bw) and len(comp) >= 0.35 * bh * bw:
+            out[cy, cx] = True
+    return out
+
+
+def trim_maps(rgba, ends=None):
     """metallic, roughness (0..255) and an emissive RGB mask from the texel colours.
     A baked texture cannot tell chrome from white paint by colour alone, so chrome is a
     bright neutral texel in a busy neighbourhood (the baked reflections of a bumper or
@@ -112,7 +202,10 @@ def trim_maps(rgba):
     brushed = neutral & (lum > 0.28) & (lum <= 0.45) & busy
     rubber = (mx < 0.11)
     glass = ~rubber & (lum < 0.30) & (rgb[..., 2] >= rgb[..., 0]) & (sat > 0.08) & (sat < 0.6)
-    lamp = (rgb[..., 0] > 0.50) & (rgb[..., 1] < 0.32) & (rgb[..., 2] < 0.32) & (sat > 0.55)
+    red = (rgb[..., 0] > 0.50) & (rgb[..., 1] < 0.32) & (rgb[..., 2] < 0.32) & (sat > 0.55)
+    # A lamp is a compact red island (a livery's stripes and crosses are long, thin or
+    # large) and, where the mesh says which texels are the car's ends, at an end.
+    lamp = lamp_blobs(red & ends if ends is not None and ends.shape == red.shape else red, int((rgba[..., 3] >= 128).sum()))
     for m, (mt, ro) in ((brushed, (0.7, 0.32)), (chrome, (1.0, 0.16)), (glass, (0.0, 0.05)),
                         (rubber, (0.0, 0.60)), (lamp, (0.0, 0.12))):
         metal[m] = mt; rough[m] = ro
@@ -148,6 +241,7 @@ def main():
             for t in re.findall(rb"[\w\-]+\.tga", open(os.path.join(a.models, m), "rb").read()):
                 t = t.decode(); used.add(t); used.add(t[:-4] + "_paint.tga")
     files = [f for f in files if f in used]
+    ends = end_masks(a.models, sorted(m for m in os.listdir(a.models) if m.endswith(".mesh") and re.match(r"^\d{3}_", m)))
     have = set(files)
     # Units: a split pair (rest + paint) or a lone texture.
     units = []
@@ -165,7 +259,7 @@ def main():
             r, pt = rm.to_rgba(bgr_r), rm.to_rgba(bgr_p)
             is_paint = pt[..., 3] >= 128
             albedo = np.where(is_paint[..., None], pt, r).copy(); albedo[..., 3] = 255
-            metal, rough, em, st = trim_maps(np.concatenate([albedo[..., :3], np.maximum(r[..., 3:], pt[..., 3:])], -1))
+            metal, rough, em, st = trim_maps(np.concatenate([albedo[..., :3], np.maximum(r[..., 3:], pt[..., 3:])], -1), ends.get(rest))
             metal[is_paint] = int(PAINT_METALLIC * 255); rough[is_paint] = int(PAINT_ROUGHNESS * 255)
             em[is_paint, :3] = 0
             for f, b in ((rest, bgr_r), (paint, bgr_p)):
@@ -176,7 +270,7 @@ def main():
             continue
         else:
             r = rm.to_rgba(bgr_r)
-            metal, rough, em, st = trim_maps(r)
+            metal, rough, em, st = trim_maps(r, ends.get(rest))
             entries.append((rm.remix_hash(bgr_r), rest, r, metal, rough, em, 1, "trim")); n["trim"] += 1
         for k, v in st.items(): stats[k] = stats.get(k, 0.0) + v
     car = {e[0] for e in entries}
