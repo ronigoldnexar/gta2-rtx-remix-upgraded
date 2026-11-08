@@ -320,6 +320,69 @@ The sheet is then the `ab_<spot>_<hour>_before/after` frames, one row per hour (
 Use `setsid` around `remix_l4.sh` when you start it from a shell that may end: the first launch here
 lost its `flock` parent and left an orphan run-queue ticket without the GPU lock.
 
+## Police light bars: coloured bulbs and sane siren lights (LIGHTBAR, 8 Nov 2026) - UNVERIFIED IN FRAME
+
+**Status: code committed, builds cleanly (both translation units, and the full DLL on 094930e), NOT yet
+seen in a Remix frame.** The two takes (`out/lightbar_a`, `out/lightbar_a2`) died before the level:
+the first at "Unable to create a Vulkan device" during the host overload, the second was stopped
+for the GPU reset and the move to the new host. No before/after sheet exists yet.
+
+**What REMIX-3's white flare was (from `remix3_i`'s frames and log).** Not the siren lights: with
+`force_sirens` on a parked car the synthetic siren lights never fired (they only follow the game's
+lamp bits 15..18 at vehicle+0x08, which a parked car does not have: `siren 0` in the log's totals
+through the whole sweep). The flare was `car_bodies.cpp DrawBeacons`' additive glow quads (core
+0.07 + halo 0.18, crossed). Their red/blue lives in the vertex colour, which Remix drops
+(`rtx.ignoreAllVertexColorBakedLighting = True` in `package/rtx.conf`), and the additive blend is
+translated to emissive (`rtx.enableEmissiveBlendModeTranslation`), so each lit bulb was the white
+glow texture as an emissive disc. That is why the 9 cm bulb change made no difference.
+
+**Changes.**
+* `car_bodies.cpp DrawBeacons` (beacon hunks only): under Remix (`RemixApiAvailable()`) each lit
+  bulb is drawn with its colour baked into the texture (`BeaconGlowTexture`, one per colour, a
+  lens-shaped disc) and a white vertex colour, core only (0.045, three orthogonal quads so it is not
+  edge-on from the side), no flat 0.36 halo. Each bulb also queues a light
+  (`SyntheticQueueBeacon(vehicle, slot, worldPos, colour, lit)`) every frame, lit or dark, so
+  `force_sirens` and real sirens both light the car and the road. The plain renderer is unchanged.
+  Colours by model: cop car 12 / SWAT 52 red + blue, ambulance 34 red + white, fire truck 17
+  red + amber; the bulbs alternate exactly as before (the game's bits; a 2.5 Hz phase when all are
+  lit or forced).
+* `synthetic_lights.cpp/.h`: the queued beacons become lights in the next frame's
+  `SyntheticLightsUpdate` (a frame late; `LightsBeginExtra` clears anything submitted during the
+  draw); a car with queued beacons skips the sprite-based `SubmitSirens`, so lights are not doubled.
+  Both paths now share `EmitBeacon`: per lamp a coloured glow sphere at the bulb and one rotating
+  spot, both lifted clear of the roof by their own radius, both fading over 120 ms when the lamp
+  goes dark (Flash=0 by default: follow the game's lamps, not a private 1.63 Hz timer).
+* New defaults (`[Sirens]`, radiance = value x RadianceScale 20 x Reach / 3; the old bulb-area
+  compensation `SirenBrightness` is gone):
+
+| | before | now |
+|---|---|---|
+| beam | Intensity 43.1 x (0.15/0.029)^2 at Reach 12: ~92 000 radiance, 0.029 bulb | Intensity 10, Reach 4: ~270, 0.07 bulb, 22 deg cone, pitch 12 |
+| glow | ~1 100 radiance, 0.02 bulb | Glow 3, GlowRadius 3: 60, 0.06 bulb (about a street lamp's power) |
+| red / blue | 1 0.06 0.04 / 0.08 0.22 1 | 1 0.02 0.01 / 0.02 0.07 1 (off-channels low enough not to clip white), BlueBoost 1.5 |
+| white / amber | - | 1 0.93 0.82 / 1 0.42 0.03 (new keys `White=`, `Amber=`) |
+
+* `GTA2DX9_EFFECTS_LIVE=1`: the effects ini is re-read when its file changes (checked once a
+  second), so one take can try several `[Sirens]` settings.
+* Take: `linux/docker/keys_lightbar.sh` runs
+  `lightbar_take.py` (scene car as 12, 34, 17 with `force_sirens=1`, orbited with bursts of marks so
+  both colours are caught, at 22:30 then 14:00; optional live `[Sirens]` VARIANTS on the cop car).
+
+**Acceptance test (to run on the new host).** One Remix session from a private stage of committed
+HEAD (`STAGE=<stage> gamerun/remix_l4.sh lightbar_a 600 /work/keys_lightbar.sh -e MODS_HD=1
+-e LEVEL_WAIT=60 -e RTX_EXTRA=/work/rtx_showcase.conf.extra
+-e INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/' -e SCENE_KEY=F11
+-e SETTINGS_SED='s/^Paused=.*/Paused=1/; s/^StartHour=.*/StartHour=14/' -e GTA2DX9_EFFECTS_LIVE=1
+-e 'VARIANTS=Glow=1.5|Intensity=5;Glow=6|Intensity=20;Glow=2|GlowBulb=0.1' -e 'VARIANT_RESET=Glow=3|Intensity=10|GlowBulb=0.06'`),
+frames with `remix_frames.py dump out/lightbar_a 600 <dir> 'night_|day_|var'`. Pass when: (1) at
+night the cop car's bulbs read red and blue (no white core wider than the bulb), alternating
+between bursts; (2) red/blue light is visible on the roof and the road around the car, not white;
+(3) by day the bulbs are still coloured and visible; (4) ambulance red/white and fire truck
+red/amber likewise; (5) `gta2dx9.log`'s synthetic totals show `siren` > 0 and `with beams` >= 1
+during the sweep. Then pick the variant that reads best, set it as the default in
+`synthetic_lights.cpp`, and build `out/lightbar_sheet.png` against REMIX-3's `remix3_i`
+night frames (before, night) and a before-day take on `stage_remix3`.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every

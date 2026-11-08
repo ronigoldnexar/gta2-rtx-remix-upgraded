@@ -16,6 +16,7 @@
 #include "log.h"
 #include "model_store.h"
 #include "remix_api.h"
+#include "synthetic_lights.h"
 #include "texture_store.h"
 #include "time_of_day.h"
 #include "vehicle_fx.h"
@@ -1942,6 +1943,38 @@ IDirect3DTexture9* g_glow = nullptr;
 struct Motion { float x, z, speed; uint32_t frame; float brake; };
 std::map<uintptr_t, Motion> g_motion;
 
+// The beacon bulb under Remix: the glow with its colour in the texels. Remix drops the
+// vertex colour (rtx.ignoreAllVertexColorBakedLighting) and takes an additive draw as
+// emissive, so the vertex-coloured white glow showed as a white flare (REMIX-3); with the
+// colour in the texture the bulb glows red, blue, white or amber. One per siren colour.
+IDirect3DTexture9* g_beaconGlow[4] = {};
+IDirect3DTexture9* BeaconGlowTexture(IDirect3DDevice9* device, int colour) {
+    if (colour < 0 || colour > 3) colour = 0;
+    if (g_beaconGlow[colour]) return g_beaconGlow[colour];
+    const float* rgb = SyntheticSirenColour(colour);
+    const int n = 32;
+    IDirect3DTexture9* tex = nullptr;
+    if (FAILED(device->CreateTexture(n, n, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr))) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (SUCCEEDED(tex->LockRect(0, &lr, nullptr, 0))) {
+        for (int y = 0; y < n; ++y) {
+            uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+            for (int x = 0; x < n; ++x) {
+                const float dx = (x + 0.5f) / n - 0.5f, dy = (y + 0.5f) / n - 0.5f;
+                const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
+                // A lens: full colour across most of the disc, a short soft edge.
+                const float a = (std::max)(0.0f, (std::min)(1.0f, (1.0f - r) * 4.0f));
+                uint32_t c[3];
+                for (int k = 0; k < 3; ++k) c[k] = static_cast<uint32_t>((std::min)(1.0f, (std::max)(0.0f, rgb[k])) * a * 255.0f + 0.5f);
+                row[x] = (static_cast<uint32_t>(a * 255.0f + 0.5f) << 24) | (c[0] << 16) | (c[1] << 8) | c[2];
+            }
+        }
+        tex->UnlockRect(0);
+    }
+    g_beaconGlow[colour] = tex;
+    return tex;
+}
+
 IDirect3DTexture9* GlowTexture(IDirect3DDevice9* device) {
     if (g_glow) return g_glow;
     const int n = 32;
@@ -2084,22 +2117,28 @@ int g_beaconLogged = 0;
 void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length, float width,
                  float roof, uint32_t frame, int modelNumber) {
     DWORD colA = 0, colB = 0;
+    int kindA = kSirenRed, kindB = kSirenBlue;   // SirenColour, for the lights and the Remix bulbs
     float along = 0.0f;
     switch (modelNumber) {
         case 12: case 52: colA = 0xFFFF2010u; colB = 0xFF1040FFu; along = -0.05f; break;   // police: red, blue
-        case 34: colA = 0xFFFF2010u; colB = 0xFFFFF4E0u; along = 0.30f; break;                     // ambulance: red, white, over the cab
-        case 17: colA = 0xFFFF2010u; colB = 0xFFFF7010u; along = 0.36f; break;                     // fire truck: red, amber, over the cab
+        case 34: colA = 0xFFFF2010u; colB = 0xFFFFF4E0u; kindB = kSirenWhite; along = 0.30f; break;   // ambulance: red, white, over the cab
+        case 17: colA = 0xFFFF2010u; colB = 0xFFFF7010u; kindB = kSirenAmber; along = 0.36f; break;   // fire truck: red, amber, over the cab
         default: return;
     }
     uint32_t mask = 0;
+    uintptr_t vehicle = use.object;
     {
         const uint8_t* object = reinterpret_cast<const uint8_t*>(use.object);
         const uint8_t* car = object ? *reinterpret_cast<const uint8_t* const*>(object + 0x08) : nullptr;   // sprite owner -> vehicle
-        if (car && reinterpret_cast<uintptr_t>(car) > 0x10000) mask = *reinterpret_cast<const uint32_t*>(car + 0x08);
+        if (car && reinterpret_cast<uintptr_t>(car) > 0x10000) {
+            mask = *reinterpret_cast<const uint32_t*>(car + 0x08);
+            vehicle = reinterpret_cast<uintptr_t>(car);
+        }
     }
     const uint32_t sirenBits = (0xFu << 15) | (0xFu << (15 + 17));   // deltas 15..18 and their mirrored copies
     const bool on = (mask & sirenBits) != 0 || g_forceSirens != 0;
     if (!on) return;
+    const bool remix = RemixApiAvailable();
     IDirect3DTexture9* glow = GlowTexture(device);
     if (!glow) return;
     if (g_beaconLogged < 12) {
@@ -2116,49 +2155,30 @@ void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Ma
     struct Beacon { float x; DWORD color; float size; };
     Beacon beacons[4]; int n = 0;
     const float hx = 0.22f * width, y = roof + 0.02f, z = along * length;
-    // A lit beacon is a bright core and a wide soft halo.
-    if (aOn) { beacons[n++] = {-hx, colA, 0.07f}; beacons[n++] = {-hx, (colA & 0x00FFFFFFu) | 0xFF000000u, 0.18f}; }
-    if (bOn) { beacons[n++] = {hx, colB, 0.07f}; beacons[n++] = {hx, (colB & 0x00FFFFFFu) | 0xFF000000u, 0.18f}; }
-    if (!n) return;
-    LampVertex v[32];
-    int count = 0;
     const float ax[3] = {carToWorld.m[0][0], carToWorld.m[0][1], carToWorld.m[0][2]};
     const float ay[3] = {carToWorld.m[1][0], carToWorld.m[1][1], carToWorld.m[1][2]};
     const float az[3] = {carToWorld.m[2][0], carToWorld.m[2][1], carToWorld.m[2][2]};
-    // Billboards facing the eye would need the camera here; the glows are spanned
-    // by the car's across and along axes (seen from above) and by across and up
-    // (seen from the street): two crossed quads per beacon.
-    for (int i = 0; i < n; ++i) {
-        const Beacon& bc = beacons[i];
-        const float s = bc.size;
-        DWORD col = bc.color;
-        if (s > 0.1f) {   // the halo dimmer than the core
-            const int r = static_cast<int>(((col >> 16) & 0xFF) * 0.45f), g = static_cast<int>(((col >> 8) & 0xFF) * 0.45f),
-                      b = static_cast<int>((col & 0xFF) * 0.45f);
-            col = D3DCOLOR_ARGB(255, r, g, b);
-        }
+    // Each lamp is also a light of its colour (synthetic_lights.cpp: a glow round the bulb and
+    // a rotating spot), lit while the bulb is, queued for the next frame's lights.
+    for (int i = 0; i < 2; ++i) {
+        const float bx = i ? hx : -hx;
         float c[3];
-        for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + bc.x * ax[j] + y * ay[j] + z * az[j];
-        const float corners[4][2] = {{-s, -s}, {s, -s}, {s, s}, {-s, s}};
-        const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
-        const float* second[2] = {ay, az};
-        for (int q = 0; q < 2 && count + 4 <= 32; ++q) {
-            const float* b2 = second[q];
-            for (int k = 0; k < 4; ++k) {
-                LampVertex& o = v[count++];
-                o.x = c[0] + corners[k][0] * ax[0] + corners[k][1] * b2[0];
-                o.y = c[1] + corners[k][0] * ax[1] + corners[k][1] * b2[1];
-                o.z = c[2] + corners[k][0] * ax[2] + corners[k][1] * b2[2];
-                o.color = col; o.u = uv[k][0]; o.v = uv[k][1];
-            }
-        }
+        for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + bx * ax[j] + y * ay[j] + z * az[j];
+        SyntheticQueueBeacon(vehicle, i, c, i ? kindB : kindA, i ? bOn : aOn);
     }
-    uint16_t idx[48];
-    for (int q = 0; q < count / 4; ++q) {
-        const uint16_t b0 = static_cast<uint16_t>(q * 4);
-        const uint16_t t[6] = {b0, static_cast<uint16_t>(b0 + 1), static_cast<uint16_t>(b0 + 2), b0, static_cast<uint16_t>(b0 + 2), static_cast<uint16_t>(b0 + 3)};
-        memcpy(idx + q * 6, t, sizeof t);
+    if (remix) {
+        // Under Remix: the bulb alone, in its own colour (BeaconGlowTexture); the halo is
+        // the path tracer's (the light round the bulb and the bloom), and a 0.36 flat
+        // emissive cross would be a glowing plate.
+        if (aOn) beacons[n++] = {-hx, 0xFFFFFFFFu, 0.045f};
+        if (bOn) beacons[n++] = {hx, 0xFFFFFFFFu, 0.045f};
+    } else {
+        // A lit beacon is a bright core and a wide soft halo.
+        if (aOn) { beacons[n++] = {-hx, colA, 0.07f}; beacons[n++] = {-hx, (colA & 0x00FFFFFFu) | 0xFF000000u, 0.18f}; }
+        if (bOn) { beacons[n++] = {hx, colB, 0.07f}; beacons[n++] = {hx, (colB & 0x00FFFFFFu) | 0xFF000000u, 0.18f}; }
     }
+    if (!n) return;
+    LampVertex v[48];
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
     device->SetTransform(D3DTS_WORLD, &identity);
@@ -2173,10 +2193,58 @@ void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Ma
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-    device->SetTexture(0, glow);
     device->SetFVF(kLampFvf);
-    device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(count), static_cast<UINT>(count / 2), idx,
-                                   D3DFMT_INDEX16, v, sizeof(LampVertex));
+    // Billboards facing the eye would need the camera here; the glows are spanned
+    // by the car's across and along axes (seen from above) and by across and up
+    // (seen from the street): two crossed quads per beacon. Under Remix a third, along
+    // and up, so the bulb is not edge-on from the side; and one draw per bulb, as each
+    // has its own texture there.
+    const int planes = remix ? 3 : 2;
+    auto draw = [&](int first, int last, IDirect3DTexture9* tex) {
+        int count = 0;
+        for (int i = first; i < last; ++i) {
+            const Beacon& bc = beacons[i];
+            const float s = bc.size;
+            DWORD col = bc.color;
+            if (s > 0.1f) {   // the halo dimmer than the core
+                const int r = static_cast<int>(((col >> 16) & 0xFF) * 0.45f), g = static_cast<int>(((col >> 8) & 0xFF) * 0.45f),
+                          b = static_cast<int>((col & 0xFF) * 0.45f);
+                col = D3DCOLOR_ARGB(255, r, g, b);
+            }
+            float c[3];
+            for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + bc.x * ax[j] + y * ay[j] + z * az[j];
+            const float corners[4][2] = {{-s, -s}, {s, -s}, {s, s}, {-s, s}};
+            const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+            const float* first2[3] = {ax, ax, az};
+            const float* second[3] = {ay, az, ay};
+            for (int q = 0; q < planes && count + 4 <= 48; ++q) {
+                const float* b1 = first2[q];
+                const float* b2 = second[q];
+                for (int k = 0; k < 4; ++k) {
+                    LampVertex& o = v[count++];
+                    o.x = c[0] + corners[k][0] * b1[0] + corners[k][1] * b2[0];
+                    o.y = c[1] + corners[k][0] * b1[1] + corners[k][1] * b2[1];
+                    o.z = c[2] + corners[k][0] * b1[2] + corners[k][1] * b2[2];
+                    o.color = col; o.u = uv[k][0]; o.v = uv[k][1];
+                }
+            }
+        }
+        if (!count || !tex) return;
+        uint16_t idx[72];
+        for (int q = 0; q < count / 4; ++q) {
+            const uint16_t b0 = static_cast<uint16_t>(q * 4);
+            const uint16_t t[6] = {b0, static_cast<uint16_t>(b0 + 1), static_cast<uint16_t>(b0 + 2), b0, static_cast<uint16_t>(b0 + 2), static_cast<uint16_t>(b0 + 3)};
+            memcpy(idx + q * 6, t, sizeof t);
+        }
+        device->SetTexture(0, tex);
+        device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(count), static_cast<UINT>(count / 2), idx,
+                                       D3DFMT_INDEX16, v, sizeof(LampVertex));
+    };
+    if (remix) {
+        for (int i = 0; i < n; ++i) draw(i, i + 1, BeaconGlowTexture(device, beacons[i].x < 0.0f ? kindA : kindB));
+    } else {
+        draw(0, n, glow);
+    }
     device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
     device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
@@ -2206,6 +2274,9 @@ void CarBodiesReleaseDevice() {
     g_cache.clear();
     if (g_glow) { g_glow->Release(); g_glow = nullptr; }
     VehicleFxReleaseDevice();
+    for (IDirect3DTexture9*& t : g_beaconGlow) {
+        if (t) { t->Release(); t = nullptr; }
+    }
     g_device = nullptr;
 }
 
