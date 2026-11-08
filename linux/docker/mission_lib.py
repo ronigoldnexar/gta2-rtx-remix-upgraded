@@ -754,6 +754,12 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
                 path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, kinds=(1, here[1]), cost=off)
         if not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2:
             path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, cost=CAR_COST)
+        if (not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2) and CAR_AVOID:
+            # PLAYTHROUGH-8: the avoid list can wall the car in (pt8_bil6: the alley it stood in
+            # was on it) and the fallback below is a straight line through everything
+            saved = set(CAR_AVOID); CAR_AVOID.clear()
+            path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, kinds=(1,), cost=CAR_COST) or path
+            CAR_AVOID.update(saved)
         # the straight legs may only cross what the route itself stands on: a road-only
         # route gives road-only legs (pt4_wil7's cop car was wrecked against a wall after
         # a leg cut across a pavement); a lot or a field on the route admits those kinds
@@ -871,7 +877,7 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
                     vcap = CARE_CAP; say(f"drive3: carhp {hp}: the mission car is fragile now; cap {vcap}")
             burning = cf > 0 or s2.get("fire", 0) > 0
             if burning:
-                left = (hp / 30.0) if hp >= 0 else 0.0
+                left = (hp / 100.0) if hp >= 0 else 0.0   # PLAYTHROUGH-8: measured ~100 a game second once alight (pt8_bil11: 15969 -> 5894 in 102 s), not one a frame
                 togo = sum(math.hypot(legs[k + 1][0] - legs[k][0], legs[k + 1][1] - legs[k][1]) for k in range(i, len(legs) - 1)) + math.hypot(legs[i][0] - s2["x"], legs[i][1] - s2["y"])
                 eta = togo / 1.6 + 6.0
                 if precious and KEEP_BURNING[0] and left > eta + BURN_MARGIN:
@@ -888,7 +894,7 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
                     legs, turns = legs_from(s2); i = 0; s = s2; last_hp[0] = -1; continue
             moved = math.hypot(s2["x"] - s["x"], s2["y"] - s["y"])
             wanted_motion = (up or abs(a) > 0.22)
-            if precious and hp >= 0 and len(hp_hist) >= 2:
+            if (precious or not RACE[0]) and hp >= 0 and len(hp_hist) >= 2:   # any car but a timed race: borrowed cars burned on the long Industrial drives (pt8_bil5/6)
                 # PLAYTHROUGH-8: a mission car pressed against something loses a few hundred a
                 # sample without moving (pt7_bil9's Z-Type: 4500 in 7 s against the railing at
                 # 23.5,223.4, 5000 in a second at a gantry pole at 135.9,149.5, 5000 against a
@@ -897,7 +903,7 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
                 # spot: off the throttle, straight back, the cells ahead off the route, re-route
                 rec = [h for h in hp_hist if time.time() - h[0] <= 0.8 / D.SPEED]
                 if rec and rec[0][1] - hp > 450 and math.hypot(rec[0][2] - s2["x"], rec[0][3] - s2["y"]) < 0.6 and cf <= 0:
-                    say(f"drive3: mission car pressed at {s2['x']:.1f},{s2['y']:.1f} (carhp {rec[0][1]} -> {hp}): straight back, round it")
+                    say(f"drive3: car pressed at {s2['x']:.1f},{s2['y']:.1f} (carhp {rec[0][1]} -> {hp}): straight back, round it")
                     keyup_all(); up = False
                     hx5, hy5 = heading(s2)
                     for k5 in (0.8, 1.4): CAR_AVOID.add((int(s2["x"] + hx5 * k5), int(s2["y"] + hy5 * k5)))
@@ -1517,6 +1523,51 @@ def _aim_walk(tx, ty, fire=True, walk=True, secs=0.5):
             xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.3)); xdo("keyup", key)
         time.sleep(0.08)
     if walk: xdo("keyup", "Up")
+
+def char_arrows():
+    """(x, y) of the mission arrows that point at characters (kind 2)"""
+    return [(v[2], v[3]) for v in mission_arrows().values() if v[1] == 2]
+
+def shoot_chars(world, money0, secs=240):
+    """PLAYTHROUGH-8: a plan step that waits on a kill counter while the arrows point at
+    characters (BANK ROBBERY's two guards, `m_20_count7 = 2`): walk at the nearest marked
+    character with the trigger held until his arrow goes; on foot, in the third-person view.
+    Returns 'done' (no character arrows left), 'no gun', or the job's outcome"""
+    t0 = time.time()
+    if not gun_ready(): fetch_gun(world, budget=200)
+    if not gun_ready(): return "no gun"
+    s = D.wait_state()
+    if s["driving"]: s = leave_car()
+    ensure_view("classic")
+    while time.time() - t0 < secs:
+        o, ms = outcome(money0)
+        if o != "running": return o
+        cs = char_arrows()
+        if not cs: return "done"
+        s = D.wait_state()
+        tx, ty = min(cs, key=lambda c: math.hypot(c[0] - s["x"], c[1] - s["y"]))
+        d = math.hypot(tx - s["x"], ty - s["y"])
+        if d > 9:
+            walk3(world, tx, ty, None, tol=6.0, budget=60); continue
+        if not gun_ready():
+            fetch_gun(world, budget=150)
+            if not gun_ready(): return "no gun"
+        _aim_walk(tx, ty, fire=True, walk=d > 3.0, secs=0.6)
+    xdo("keyup", "Control_L")
+    return "timeout"
+
+def follow_arrow(world, money0, view_switch=None, secs=240):
+    """PLAYTHROUGH-8: a plan step with no handler of its own while a point arrow is up
+    (BANK ROBBERY's respray shop, `CHECK_HEADS_GREATER`): go to the arrow (by car when in
+    one), stop there and wait for the objective to change. Returns True when it changed"""
+    o = objective()
+    if not o or o[3] != 1: return False
+    key0 = objective_key(); x, y = o[0], o[1]
+    s = D.wait_state()
+    mark(f"following the arrow to {x:.1f},{y:.1f}")
+    if s["driving"]: s = drive3(world, x, y, tol=1.2, budget=secs, view_switch=view_switch, slow=True, precious=True)
+    else: s = walk3(world, x, y, None, tol=0.8, budget=secs)
+    return wait_objective_change(key0, 20.0, money0)
 
 def stand_point(world, ap, off=1.4):
     """a spot beside the marked car's track point ap=(x, y, ux, uy): off blocks

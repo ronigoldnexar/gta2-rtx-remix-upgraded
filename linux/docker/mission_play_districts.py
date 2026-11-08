@@ -314,7 +314,8 @@ def creep_box(x, y, w, h, money0, secs=75):
 # blocks to line up for: (approach point on the row, the point to creep to). The
 # barricade block (110.5,77.5, 3x1) is road row 77 with the barricade in cell 111: in
 # from the west along the row, nose up to x=110
-APPROACH_BLOCK = {(110.5, 77.5): ((106.5, 77.5), (110.0, 77.5))}
+APPROACH_BLOCK = {(110.5, 77.5): ((106.5, 77.5), (110.0, 77.5)),
+                  (48.5, 20.5): ((53.5, 20.6), (49.0, 20.5))}   # PLAYTHROUGH-8: pt8_ste1's Pickup 1 stopped at 46.86,21.27, half west of the 3x1 trailer block (2005, 2004): lined up on row 20 from the east
 
 def park_in_block(x, y, w, h, money0, budget=300, parked_msgs=()):
     """drive the mission car into the block: the road route, then the creep.
@@ -450,31 +451,32 @@ def play_ste_re1(entry):
                 say("the game wants the bomb armed: back into the car")
                 s = enter_parked(x, y, budget=90, why="the Pickup again")
                 if s and s["driving"]:
-                    ok, s = creep_box(x, y, w, h, money0, secs=40)
+                    # the line-up and park again, not a creep from where it stands (pt8_ste1: four
+                    # creeps in place, the game said 2004 each time)
+                    ok, s = park_in_block(x, y, w, h, money0, parked_msgs=("2005", "2016"))
                     arm_and_run(money0, ("2006", "2018"))
             time.sleep(1.0)
     o, ms = M.wait_outcome(money0, 120)
     return o
 
-def dealer_stop(x, y, s, lo=1.6, hi=3.0):
-    """PLAYTHROUGH-8: where the car stops for a passenger: a road cell 1.6-3 blocks from him
-    (a pavement cell only when no road is that near), the nearest such cell to the car.
-    pt8_bil2 drove to dealer 2's own cell (46,187, on the pavement), ran him over and the
-    job failed (3526 then 3730 within the second)"""
+def dealer_stop(x, y, s, lo=0.9, hi=1.1):
+    """PLAYTHROUGH-8: where the Z-Type stops for a passenger. LOCATE_ANOTHER_CHARACTER_BY_CAR
+    (p1, dealer, 3.0, 3.0) wants the car within 1.5 blocks of him on each axis: a point at
+    most `hi` from him on each axis and at least `lo` away (pt8_bil2 drove onto dealer 2's own
+    cell and ran him over: 3526, then 3730 within the second; pt8_bil5 stopped on the road
+    1.5 blocks off on each axis and he never came), on flat ground at his level, a road
+    point preferred, the nearest such point to the car"""
+    Ld = next((L for L in range(0, 6) if M.node_kind(world, int(x), int(y), L)), 1)
     best = None
-    for kinds in ((1,), (1, 2)):
-        for dx in range(-4, 5):
-            for dy in range(-4, 5):
-                cx, cy = int(x) + dx, int(y) + dy
-                d = math.hypot(cx + 0.5 - x, cy + 0.5 - y)
-                if not (lo <= d <= hi): continue
-                for L in range(0, 6):
-                    k = M.node_kind(world, cx, cy, L)
-                    if k and k[0] == "flat" and k[1] in kinds:
-                        c = math.hypot(cx + 0.5 - s["x"], cy + 0.5 - s["y"]) + 3.0 * abs(d - 2.2)
-                        if best is None or c < best[0]: best = (c, cx + 0.5, cy + 0.5)
-                        break
-        if best: break
+    for k in range(-10, 11):
+        for m in range(-10, 11):
+            dx, dy = k * hi / 10.0, m * hi / 10.0
+            if math.hypot(dx, dy) < lo: continue
+            px, py = x + dx, y + dy
+            nk = M.node_kind(world, int(px), int(py), Ld)
+            if not nk or nk[0] != "flat" or nk[1] not in (1, 2): continue
+            c = math.hypot(px - s["x"], py - s["y"]) + (0.0 if nk[1] == 1 else 4.0) + 3.0 * (1.6 - math.hypot(dx, dy))   # away from his feet
+            if best is None or c < best[0]: best = (c, px, py)
     return (best[1], best[2]) if best else None
 
 def play_bil_re2(entry):
@@ -483,6 +485,11 @@ def play_bil_re2(entry):
     (135.5,5.5) and out of it: the crane dumps it in the water."""
     money0 = money()
     M.SLOW_CAP = 2.0          # the Z-Type burned after wall hits at cap 3.0 (run pd3_bil3): crawl
+    M.FAST_CAP = 4.0          # PLAYTHROUGH-8: borrowed cars to the Z-Type burned at 5.5 (pt8_bil5/6/8: two or three a session)
+    # PLAYTHROUGH-8: the flyover on the dealer-1 road (columns 54-57, ramps at rows 141-148 and
+    # 158-165, a two-wide level-2 deck between): the Z-Type stalled at its south end
+    # (55-57,157) eight times in pt8_bil13 and pt8_bil14, 10000 carhp each time. Off the route
+    M.CAR_AVOID.update({(xx, yy) for xx in range(54, 58) for yy in range(141, 166)})
     dealers = [(95.5, 171.5), (46.0, 187.0), (13.5, 233.5), (85.0, 147.0)]
     o = wait_arrow(30, kinds=(3, 4))
     car_at = (o[0], o[1]) if o else (48.0, 73.0)
@@ -496,6 +503,11 @@ def play_bil_re2(entry):
             say(f"the phone's terrace is at z={s['z']:.1f}; developer warp down to the street at {near[0]},{near[1]}")
             set_view("classic"); s = M.scene_warp(near[0], near[1], near[2], "down from the rooftop phone"); set_view("third")
     tries = 0
+    if os.environ.get("RS_WALK", "1") == "1" and not s["driving"]:
+        # PLAYTHROUGH-8: walk the 140 blocks from the phone to the Z-Type: the borrowed cars on
+        # that road burned two or three times a session (pt8_bil5/6/8/9: 5-10 minutes of wall
+        # time), the walker does it in about three (pt8_bil2: 423 cells)
+        M.mark("walking to the Z-Type"); tries = 4
     while s and math.hypot(car_at[0] - s["x"], car_at[1] - s["y"]) > 40 and tries < 4:
         # by car, again after a drive that ended far off (pt6_bil3: the borrowed car
         # was lost 140 blocks out and the runner set off on a 417-cell walk)
@@ -524,6 +536,29 @@ def play_bil_re2(entry):
         o = M.objective(); s = D.wait_state()
         if o and math.hypot(o[0] - s["x"], o[1] - s["y"]) > 3.0: break
         time.sleep(0.5)
+    s = D.wait_state()
+    if s["driving"] and math.hypot(s["x"] - 48.0, s["y"] - 73.0) < 3.0:
+        # PLAYTHROUGH-8: the Z-Type stands in the two-wide alley at 47-48 x 67-78, facing south,
+        # where the way out south is one block wide between a slope and a wall: pt8_bil4 pressed
+        # it eight times there (31847 -> 15905, alight before dealer 1). Back straight out north
+        # to the road on rows 65-66 first; the dealer legs start from there
+        M.mark("the Z-Type backs out of its alley to the road")
+        still = 0
+        for k_r in range(20):
+            s0 = D.wait_state()
+            if s0["y"] < 67.2: break
+            hold("Down", 0.6); time.sleep(0.25); s1 = D.wait_state()
+            if math.hypot(s1["x"] - s0["x"], s1["y"] - s0["y"]) < 0.05:
+                still += 1
+                if still >= 3: break
+            else: still = 0
+        hold("space", 0.4); s = D.wait_state()
+        say(f"backed out to {s['x']:.1f},{s['y']:.1f} (carhp {(M.mission_state() or {}).get('carhp')})")
+        if s["y"] < 67.5:
+            # out: never back through it (only then: from inside it an avoided alley leaves
+            # the router no way out, and drive3 falls back to a straight line, pt8_bil6)
+            for yy in range(67, 79):
+                for xx in (46, 47, 48, 49): M.CAR_AVOID.add((xx, yy))
     stage = 0
     t_all = time.time()
     while time.time() - t_all < 1500:
@@ -532,7 +567,10 @@ def play_bil_re2(entry):
         s = D.wait_state()
         if not s["driving"]:
             o = M.objective()
-            if o and o[3] in (3, 4) and ms and ms["msg"] in ("3525",):
+            tc_ = (ms or {}).get("tcar") or (0.0, 0.0)
+            if o and ((o[3] in (3, 4) and ms and ms["msg"] in ("3525",)) or o[3] == 0 or (tc_[0] > 0 and math.hypot(o[0] - tc_[0], o[1] - tc_[1]) < 1.5)):
+                # (PLAYTHROUGH-8: after an arrest the arrow on the Z-Type came back as kind 0 with no
+                # 3525, pt8_bil10, and the loop said 'not handled' for minutes)
                 M.mark("back to the Z-Type"); s = enter_parked(o[0], o[1], budget=120, why="the Z-Type"); continue
         o = wait_arrow(40)
         if o is None:
@@ -545,7 +583,7 @@ def play_bil_re2(entry):
             key0 = M.objective_key(); m0 = msg()
             sp = dealer_stop(x, y, s)
             say(f"dealer {stage+1} at {x:.1f},{y:.1f}: the car stops at {sp}")
-            if sp: s = M.drive3(world, sp[0], sp[1], tol=0.9, budget=360, view_switch=view_switch, slow=True, precious=True)
+            if sp: s = M.drive3(world, sp[0], sp[1], tol=0.6, budget=360, view_switch=view_switch, slow=True, precious=True)
             else: s = M.drive3(world, x, y, tol=2.6, budget=360, view_switch=view_switch, slow=True, precious=True)
             M.shot(f"{entry['mission']}_dealer{stage+1}")
             t0 = time.time(); boarded = False; spot = 0; t_spot = time.time()
@@ -561,8 +599,9 @@ def play_bil_re2(entry):
                     spot += 1; t_spot = time.time()
                     ang = spot * 1.5708
                     px, py = x + 2.2 * math.cos(ang), y + 2.2 * math.sin(ang)
-                    sp3 = dealer_stop(px, py, s, lo=0.0, hi=1.6)
-                    if sp3 and math.hypot(sp3[0] - x, sp3[1] - y) >= 1.5: px, py = sp3
+                    s_side = dict(s); s_side["x"], s_side["y"] = px, py
+                    sp3 = dealer_stop(x, y, s_side)
+                    if sp3: px, py = sp3
                     say(f"dealer {stage+1}: not coming; moving the car to {px:.1f},{py:.1f} (spot {spot})")
                     s = M.drive3(world, px, py, tol=1.0, budget=40, slow=True, precious=True)
                 o3 = M.objective()
@@ -577,7 +616,7 @@ def play_bil_re2(entry):
                     o2 = M.objective()
                     if o2 and math.hypot(o2[0] - s["x"], o2[1] - s["y"]) > 3.2:
                         sp2 = dealer_stop(o2[0], o2[1], s)
-                        if sp2: s = M.drive3(world, sp2[0], sp2[1], tol=0.9, budget=60, slow=True, precious=True)
+                        if sp2: s = M.drive3(world, sp2[0], sp2[1], tol=0.6, budget=60, slow=True, precious=True)
                     M.horn(1); time.sleep(2.0)
                 out, ms = M.outcome(money0)
                 if out != "running": return out

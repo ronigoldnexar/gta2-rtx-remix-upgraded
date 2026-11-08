@@ -484,6 +484,11 @@ def run_plan(entry):
                 if ms and ms["msg"] not in (msg0, "1648"): break
         elif "IS_CHAR_OBJECTIVE_PASSED" in cond:
             say("plan: waiting for the character (car still)")
+            s = D.wait_state(); o_c = M.objective()
+            if not s["driving"] and o_c and o_c[3] in (3, 4):
+                # PLAYTHROUGH-8: out of the car (the guards were shot on foot) and the arrow
+                # back on it: in again, the character boards the player's car
+                M.mark("back to the marked car for the character"); s = M.enter_car3(world, o_c[0], o_c[1], budget=90)
             t0 = time.time(); m_start = (M.mission_state() or {}).get("msg")
             while time.time() - t0 < 60:
                 time.sleep(2); o, ms = M.outcome(money0)
@@ -544,10 +549,18 @@ def run_plan(entry):
             t1 = time.time()
             while time.time() - t1 < 120 and M.objective() is None: time.sleep(0.5)
             say(f"plan: arrow after {time.time()-t1:.0f}s: {M.objective()}")
+            if M.char_arrows():
+                # PLAYTHROUGH-8: a kill counter with the arrows on characters: shoot them
+                M.mark(f"shoot the {len(M.char_arrows())} marked characters")
+                r = M.shoot_chars(world, money0); say("shoot_chars:", r)
+            elif M.objective() and M.objective()[3] == 1:
+                M.follow_arrow(world, money0, view_switch=view_switch)
         elif "CHECK_HEADS" in cond:
-            say("plan: a fight is expected; waiting"); time.sleep(30)
+            say("plan: a fight is expected; following the arrow")
+            if not M.follow_arrow(world, money0, view_switch=view_switch): time.sleep(30)
         else:
-            say("plan: unhandled wait", cond); time.sleep(5)
+            say("plan: unhandled wait", cond)
+            if not M.follow_arrow(world, money0, view_switch=view_switch): time.sleep(5)
         o, ms = M.outcome(money0)
         say("state:", o, ms)
         if o in ("complete", "failed", "dead"): return o

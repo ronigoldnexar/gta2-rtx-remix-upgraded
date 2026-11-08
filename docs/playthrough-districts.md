@@ -402,3 +402,75 @@ F9/F11, private stage `stage_pt7`. District files as before: `ste` is Residentia
   2 minutes left for the 200-block crane leg. With `tcarhp` the runner now sees that coming; what
   would finish it is fewer wall hits on the long Industrial legs (the stall pull-out still pushes
   into the obstacle before it reverses) or a respray on the way, which was not looked for.
+
+## Missions, 8 Nov 2026 (PLAYTHROUGH-8, `pt8_bil*`, `pt8_ste*`): protecting the Z-Type
+
+Same runner (`gamerun/mission_play_districts.py` and `mission_lib.py`, mirrored in
+`linux/docker/`), `GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1` (driving in the chase view, walking in third
+person, every frame 3D), `FPS=0`, `GTA2DX9_STATE_EVERY=5`, devtools F9/F11, private stage
+`stage_pt8`. The common runner changes of this pass (the walk round the car, the router's
+`EDGE_COST`, `back_toward`, the game-time timeouts) are described in `playthrough-downtown.md`
+Part 7.
+
+### What the logs showed (pt7_bil9 and this pass)
+
+- **The Z-Type was not lost to wall scrapes but to pressing**: in pt7_bil9 it lost 4500 in 7 s
+  against the railing at the Escobar Power Cores (23.5,223.4), 5000 in one second against a
+  gantry pole on the pavement (135.9,149.5) and 5000 in 8 s against a wall at 130.5,110 (frames
+  `out/pt7_bil9/shot_585/675/700.png`): a car standing still with the throttle on, at a few
+  hundred carhp a sample, too slow for the old "2500 in 1.2 s" guard, and the stall branch then
+  pulled out with the throttle and the wheel turned, into the same obstacle.
+- **The Z-Type stands in a two-wide alley** (47-48 x 67-78, facing south), whose way out south is
+  one block wide between a slope and a wall: pt8_bil4 pressed it eight times there before the
+  first dealer (31847 -> 15905, alight).
+- **Driving to a dealer's own cell runs him over** (pt8_bil2: dealer 2 stands on the pavement at
+  46,187; the drive's goal was his cell, 3526 "sound the horn" and 3730 JOB FAILED came in the
+  same second). The passenger box is `LOCATE_ANOTHER_CHARACTER_BY_CAR(p1, dealer, 3.0, 3.0)`, so
+  the car has to be within about 1.5 blocks of him on each axis: a stop 1.5 off on each axis
+  (pt8_bil5) never got him aboard, and the "not coming" spots round him then drove the car onto
+  the raised field south of him (188-190) and set it alight.
+- **The borrowed car beside the Z-Type**: pt8_bil3's borrowed car stood a block from the Z-Type
+  (48.5,74.0 against 47.9,71.8) and all nine door tries entered it; the runner left it each time.
+
+### Runner changes
+
+- **Pressed cars** (`drive3`): any 450 carhp lost within 0.8 game seconds on the spot (any car
+  except a timed race): off the throttle, back off with the wheel turned toward the next waypoint
+  (`back_toward`), the two cells ahead off the route (`CAR_AVOID`), re-route. A stalled mission
+  car never pulls out with the throttle: a short wait for traffic, then the same back-off.
+- **Out of the alley first** (`play_bil_re2`): the Z-Type backs straight out north to the road on
+  rows 65-66 before the first dealer leg, and the alley's cells go on `CAR_AVOID`.
+- **`dealer_stop`**: the car stops 0.9-1.1 blocks from the dealer on each axis, on flat ground at
+  his level, a road point preferred, the point nearest the car (approach tolerance 0.6); the
+  "not coming" spots round him use the same rule, so they never leave his level.
+- **The wrong car beside the mission car** is driven eight blocks away from the Z-Type (its
+  position is `tcar` from the mission line) and given up (`BAD_CARS`), and the door tries aim at
+  `tcar`, not at the nearest parked car.
+- **BLOW JOB's first block** (48.5,20.5, 3x1, by the trailer) is approached along row 20 from the
+  east (`APPROACH_BLOCK`), and a "get back and park" (2004/2017) re-parks with that line-up
+  instead of a creep from where the car stands (pt8_ste1 re-armed four times in place).
+- **The way to the Z-Type is walked** (`RS_WALK=1`, default): the borrowed cars on the 140
+  blocks from the rooftop phone burned two or three times a session (pt8_bil5/6/8/9, 5-10 minutes
+  of wall time each); the walker takes about three minutes (pt8_bil10: 315 cells).
+- A burning car's time left is carhp/100 game seconds (measured, pt8_bil11: 15969 -> 5894 in
+  102 s), not carhp/30; after an arrest the arrow on the Z-Type comes back as kind 0 without
+  3525 and is now taken for "back to the Z-Type" (pt8_bil10 said "not handled" for minutes).
+
+### Runs
+
+| session | job | reached | stopped because |
+|---|---|---|---|
+| pt8_bil1 | RUSSIAN SAILORS | phone, Z-Type, dealers 1-2 aboard, dealer 3 aboard as the car burned | pressed five times at 76.1,214.5 (heading south a block west of the narrow road 77-78 into the Power Cores, against the raised field corner at 75,215; straight back and the same line again): 23455 -> 15930, alight, JOB FAILED (fixed: `back_toward`) |
+| pt8_bil2 | same | phone, Z-Type, dealer 1 | **ran dealer 2 over**: the drive's goal was his own pavement cell (46,187); 3526 and 3730 in the same second (fixed: `dealer_stop`) |
+| pt8_bil3 | same | phone | nine door tries into the borrowed car parked a block from the Z-Type (fixed: drive it away, doors at `tcar`); stopped |
+| pt8_bil4 | same | phone, Z-Type | pressed eight times in the Z-Type's alley before dealer 1 (31847 -> 15905; frames `out/pt8_bil4/shot_860-875.png`, a van in the one-wide way out); stopped (fixed: back out north) |
+| pt8_bil5 | same, then HOT DOG HOMICIDE | phone, Z-Type, dealer 1 | dealer 2 never came to a stop 1.5 blocks off on each axis; the "not coming" spot drove onto the raised field south of him, the car burned, JOB FAILED. Then the HOT DOG HOMICIDE phone (187.5,76.5): **answered with 3104, "Respect the Russian Mafia!"** (a refusal after the failed job; frame `out/pt8_bil5/m_bil_re1_phone.png`) |
+| pt8_bil6/8/9 | same | phone (bil6: Z-Type, the back-out did not move) | bil6: the alley on the avoid list with the car still in it left the router no way out and drive3 fell back to a straight line (fixed: avoid only once out; drive3 retries without the avoid list); bil8/9: stopped after three borrowed cars burned on the way to the Z-Type (fixed: walk) |
+| pt8_bil10 | same | walked to the Z-Type (3 min), **backed out of the alley** (48.4,63.6, carhp 31478), dealer 1 | wanted level 1 on the dealer-1 leg, arrested out of the Z-Type near dealer 1; the arrow came back as kind 0 (fixed) |
+| **pt8_bil11** | same | phone, Z-Type, **all four dealers aboard** (dealer 2 after 74 s and three spots, dealer 3 at the Power Cores, dealer 4 as the car burned) | carhp 20273 after the Power Cores deck (a stall and a press at 26.3,223.6, the turn into the two-wide road at 26-27); alight at the start of the dealer-4 leg, which the road router sends round a 358-block loop (the direct way, column 90-93, is cut by a raised embankment at rows 158-166); out and clear, JOB FAILED. Frames `out/pt8_bil11/m_bil_re2_dealer1-4.png` (the Z-Type at each dealer, chase view) |
+| pt8_bil12 | same | | the phone said 3103 (a Russian refusal: a Russian run over on the way, presumably) |
+| pt8_ste1 | BLOW JOB | phone, Pickup 1 to the trailer block | the Pickup stopped half west of the block (2005, then 2004) and the arming loop re-armed in place four times (fixed: `APPROACH_BLOCK` for 48.5,20.5, re-park with the line-up); stopped |
+| pt8_ste2 | BLOW JOB, DOUBLE-CROSS CRUSH | phone, **stage 1 parked by the line-up (2005), armed (2006), escaped**; Pickup 2 entered | Pickup 2 pinned at 62.7,23.5 on the way to the barricade (five stalls, three times), alight, WASTED; then DOUBLE-CROSS CRUSH's phone was not answered (the BLOW JOB job still counted as running) |
+| pt8_ste3 | DOUBLE-CROSS CRUSH (fresh game) | **phone answered** (title 2803), frame `out/pt8_ste3/m_ste_re2_phone.png` (first person; the brief on screen is BLOW JOB's, the neighbouring phone at 18.5,68.5 answered as well) | no runner: the job wants a Zaibatsu Z-Type stolen from traffic, then seven Scientists run over in their zone (227.5,217.5) and eight Zaibatsu with a Stratos-B (199,25.5) under a bonus count; the renderer's mission line gives no pedestrian positions, so there is nothing to aim the car at |
+| pt8_respray2 | respray probe | a borrowed car (carhp 25464, $20) driven into Industrial's numeric car shop at 64.5,90.5 (`bil.mis` shop12, `CAR_SHOP 0`; the BANK ROBBERY respray in Downtown is the same kind, `CAR_SHOP 9`) and held there 12 game seconds | no repair: carhp and money unchanged (`out/pt8_respray2/m_in_shop.png`, first person inside the shop); a respray costs money the player does not have this early, so it is no way to save the Z-Type here |
+| pt8_bil13/14 | RUSSIAN SAILORS | walked to the Z-Type, backed out, dealers 1-3 (bil14) | the dealer-1 road's flyover (columns 54-57, a two-wide level-2 deck between ramps at rows 141-148 and 158-165): eight stalls at its south end (55-57,157) in both sessions, -10000 carhp, the Z-Type alight before dealer 2 (fixed: the flyover is off the Z-Type's route, the route runs down columns 66-68) |
