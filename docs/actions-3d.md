@@ -144,6 +144,49 @@ The game's weapon word is now read, so the "weapon type not readable" rows above
 - Verified: `out/weapon_offset_sheet.png` (runs weapon_offset_wil2/ste2, `linux/docker/weapon_probe2.py`): mission-line weapon matched the HUD icon at all 13 weapon stops; nine distinct first-person models. Scene warps need the INI_SED that sets `scene_key=F10`.
 - Still open: third-person frames show the hip carry rather than the aim stance because the stance keys off firing frames (shooting side).
 
+## Vehicle fields (8 Nov 2026, PLAYTHROUGH-7)
+
+The car object (the vehicle list at `[0x5E4CA0]+4`, next at `+0x4C`) is 0xBC bytes. Found
+with a probe (`GTA2DX9_LOG_CAR_WORDS=1`: every changed word of the player's car, or of the
+car nearest him on foot, every third frame; `gamerun/car_probe.py`, runs `out/pt7_carprobe1..6`)
+and read back in `gta2.exe`'s damage routine (`FUN_00427180`):
+
+| offset | type | meaning |
+|---|---|---|
+| `+0x74` | int16 | **damage**, 0 fresh. `FUN_00427180` adds the hit, clamps to 0..32000, then: at >= 16000 (0x3E80) the stage byte goes to 3 and the car is set alight (`FUN_004226C0(1)`); at >= 25000 (0x61A8) stage 4 and a second fire effect (`FUN_004226C0(2)`, `FUN_004BEB70`); at >= 31500 (0x7B0C) its lamps go out (`FUN_00426F60`); at 32000 (0x7D00) it explodes (`FUN_00426FA0`). 32001 marks a wreck (`FUN_0040F890`). |
+| `+0x76` | int16 | a counter that runs up after a car is created or entered (not damage) |
+| `+0x8C` | byte | damage stage: 0, 3 burning (from 16000), 4 burning hard (from 25000) |
+| `+0x00` | ptr | the car's effect list: gets its first entry when the fire starts, another at stage 4 |
+| `+0x60` | ptr | an object the car owns, released when it explodes or is removed (`FUN_00426730`, `FUN_00426FA0`) |
+| `+0x90`/`+0x94` | int | set to 1 / 0x130 on a hard knock and counted down (a shake), not damage |
+
+**A burning car keeps burning:** from 16000 on the damage also rises by itself, one point a
+game frame (measured: +3 every 3 frames between every hit, `pt7_carprobe5`), so a car that has
+just caught fire explodes 16000 frames (533 game seconds) later unless more hits shorten it,
+and `(32000 - damage) / 30` is the game seconds left. The driver dies in the explosion
+(`pt7_carprobe5/6`: lives 5 -> 4).
+
+**The old readings were wrong:** the mission line's `cardmg` and the dents in
+`car_bodies.cpp` (`DentStepFor`, "damage byte +0x74, 0..255") read the low byte of this word,
+which wraps every 256 points. The "counts up 15 a sample and wraps" of pt5_le2g is exactly
+the self-rise of a burning car (one point a frame, a sample every 15 frames): that car was
+already on fire. For the cars agent: dent steps should come
+from the int16 (e.g. step = damage / 8000), not the byte.
+
+The renderer now logs, in the `view: mission` line, `cardmg=` (the int16), `carhp=` (32000 -
+damage, 0 for a wreck, -1 on foot), `carfire=` (0 none, 1 burning, 2 burning hard; from the
+stage byte) and the same for the mission's target car: `tcarhp= tcarfire= tcar=x,y`, taken
+from the first objective arrow of kind 3 (a vehicle) whose `+0x34` names a live car (-1 when
+there is none). Verified against frames (`out/pt7_carfields_sheet.png`, run `pt7_carprobe6`,
+wall hits at full throttle, no forced damage): carfire 0 and no flames at carhp 18463,
+carfire 1 at carhp 15893 with the first flames on the next frame, carfire 2 at 6898 with
+bigger flames, the explosion and a lost life as carhp reached 0. The probe can start the
+player's car at a given damage (`GTA2DX9_PROBE_CARDMG=N`, probe only) to see the stages in a
+few hits.
+
+`GTA2DX9_STATE_EVERY=N` (environment) logs the `view: player` line every N frames instead of
+15, for a script driving fast.
+
 ## Actions pass (8 Nov 2026, ACTIONS-3D)
 
 The stance now keys off the weapon the game puts in the hands (`PedWeaponOf`), and the

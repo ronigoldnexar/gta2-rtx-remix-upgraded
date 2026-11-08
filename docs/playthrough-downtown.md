@@ -273,3 +273,83 @@ controller reacts in wall time).
 - **Open, with evidence**: no burning-car signal (`cardmg` is a counter, `fire=` misses most
   car fires); the carjack at a kerb sometimes ends in an arrest or the owner pulling him out; the
   developer scene warp now refuses spots away from a road, so a pinned walker stays pinned.
+
+## Part 6 (8 Nov 2026, PLAYTHROUGH-7): scripted play in the 3D views, the car's health from the game
+
+Sessions `pt7_*`, all on the fast path (`gamerun/grun.sh`, `FPS=0`, devtools F9/F11 for the
+reported warps, a private stage `stage_pt7` with this pass's renderer), `GTA2_SPEED=2` except
+WHEELER-DEALING (`GTA2_SPEED=1`, its clock is game time and the driver reacts in wall time).
+
+### Two engineering fixes
+
+1. **The car's condition is read from the game** (`docs/actions-3d.md`, "Vehicle fields"):
+   the damage is the int16 at `vehicle+0x74` (0..32000), the stage byte `+0x8C` says when it
+   burns. The `view: mission` line now carries `cardmg=` (the word), `carhp=` (32000 - damage),
+   `carfire=` (0, 1 burning, 2 burning hard) and `tcarhp= tcarfire= tcar=x,y` for the mission's
+   target car (the kind-3 arrow's vehicle). A car catches fire at carhp 16000 and then loses a
+   point a frame by itself, so it has carhp/30 game seconds before it explodes. Verified against
+   frames in `out/pt7_carfields_sheet.png` (run `pt7_carprobe6`).
+2. **Scripted play in the 3D views**: `GTA2_DIRECT_KEYS=1` on `grun.sh` sets `nav_map=0` in the
+   run's ini (the arrows stay the game's own in the chase and first-person views: Up walks where
+   the ped faces, Left/Right turn him, exactly as in the classic view; also the fire key, which
+   the camera-relative hook drops, see actions-3d.md "Shooting pass notes") and passes the same
+   variable to the runners, where `mission_lib.foot_view()` makes every on-foot move (`walk3`,
+   `cruise_to`, the nudges, the gun) run in the third-person view instead of the classic one.
+   The player's default (`nav_map=1`) is untouched; without the variable the runners behave as
+   before. Every frame of a `GTA2_DIRECT_KEYS=1` session is a 3D one, the JOB COMPLETE frames
+   included.
+
+### Runner changes (`gamerun/`, mirrored in `linux/docker/`)
+
+- `drive3` reads `carhp`/`carfire` every step: a hard hit is logged, a mission car
+  (`precious=True`) drops to 2.0 blocks/s below carhp 22000, a burning borrowed car is left at
+  once, a burning mission car is driven on only while carhp/30 s outlasts the way left (plus
+  20 s), otherwise the player bails out clear of it. A car found burning on entry is left and
+  never taken again (`BAD_CARS`; pt7_ze2b re-entered its own burning car six times).
+- Pinned cars: three stalls within 1.2 blocks put the cells ahead on the car router's avoid list
+  (`CAR_AVOID`), five give the drive up (pt7_ze2a hit one wall at 212.7,65.2 twelve times).
+- `GTA2DX9_STATE_EVERY=N` (renderer environment) logs the position line every N frames; the
+  sessions here use 5 (3 for WHEELER-DEALING), so the controller sees a fast car between corners.
+- The phone: "already on a Loony/Zaibatsu/Yakuza job" (1103/1113/1093) is not a refusal: a job
+  is running, the one this phone just started (pt7_le2a: PIZZA CAKE's brief 1531, then 1103 as
+  the walker stepped on again) or the neighbour's (pt7_le2d: RADIO ZA-ZA's 1954 when the walk
+  cut the corner of its cell); the runner names it from the title or the arrow. The game's
+  texts were read from `data/e.gxt` (1103: "are you not already on a Loo-Loo-Loony job?").
+- The Loonies' phones are walked to (a drive through their turf brings a refusal), and PIZZA
+  CAKE fetches the machine gun beside the phone (76.5,39.5) before answering: pt7_le2b went for
+  a pickup 60 blocks away after the countdown and was run over by a police car at the kerb.
+- Timed jobs (WHEELER-DEALING): no speed cap on straights (`RACE_CAP` 11), braking only into a
+  turn (2.6 + 1.2 x distance, from 8 blocks out), turns taken rolling (`M.RACE`), one-second
+  car exits, and a car with carhp under 26000 is swapped before the clock starts.
+
+### Runs
+
+| session | job | outcome | what happened |
+|---|---|---|---|
+| pt7_le2a | PIZZA CAKE (3D walker, first try) | phone mis-read | drove to the phone; the job started (brief 1531) and the walker's step back on gave 1103, taken for a refusal (fixed: 1103 means a job runs) |
+| pt7_le2b | PIZZA CAKE, RADIO ZA-ZA | failed; refused 1104 | the whole 187-cell walk to the phone in the chase view in 74 s of wall time; explosives, delivery, countdown escape; then run over by a police car at a kerb waiting for a car to the gun (fixed: gun first) |
+| pt7_le2d | PIZZA CAKE | wrong job | the gun beside the phone, then the walk to the phone cut the corner of RADIO ZA-ZA's cell (1954), PIZZA's phone said 1103 (fixed as above) |
+| **pt7_le2e** | **PIZZA CAKE, RADIO ZA-ZA** | **both JOB COMPLETE** | gun at 76.5,39.5 (300 rounds), phone, explosives, delivery, countdown; the van stood on its circuit at 138.9,149.5: shot on foot in the third-person view, 96 rounds, **JOB COMPLETE 1124** (+$20,000, multiplier 2) at game-second 503, frame `out/pt7_le2e/m_wil_le2_wrecked.png` (chase view). Then **RADIO ZA-ZA**: phone 1954, by car to Futuro FM (154.5,17.5), explosives by the generator (163.5,13.5), the DJ's door (159.5,5.5), the five-second escape, **JOB COMPLETE** (+$40,000, multiplier 3) at game-second 836, frame `out/pt7_le2e/m_wil_le1_end.png` (chase view) |
+| pt7_ze2a | WHEELER-DEALING | stopped | the borrowed car hammered a wall at 212.7,65.2 twelve times on the way to the phone (fixed: pinned cars) |
+| pt7_ze2b | WHEELER-DEALING | stopped | briefcase reached (one reported pinned-walker warp beside the box); the car, at carhp 18289 from the drive in, caught fire 17 s into the first dealer leg, the runner left it and re-entered it six times (fixed: `BAD_CARS`, a sound car before the clock) |
+| pt7_ze2c | WHEELER-DEALING | failed (clock) | the race driver and the 3-frame position line: dealers 1-3 served 51, 85 and 154 s after the briefcase (pt6_ze2c: dealer 1 at 77 s); 164 road cells left for 26 s |
+| pt7_ze2d | same | failed (clock) | dealers at 43, 85, 137 s; dealer 4 reached by car at about 175 s, the walk from the car to him stuck (the car between them), JOB FAILED at 188 s |
+| pt7_ze2e | same | failed | dealers 1-2 at 43 and 77 s; walking round the car to its door at dealer 2 he was run over (lives 5 -> 4) |
+| pt7_ze2f | same | failed (clock) | dealers at 46, 80, 149 s; the car caught fire on the last leg |
+| pt7_ze2g | same | failed | turn speed 3.0 / braking 1.4 (`RACE_TURN_V`, `RACE_BRAKE_K`): dealers at 43 and 85 s, then three hard hits set the car alight on leg 3 (back to 2.6 / 1.2) |
+| pt7_ze2h | same | failed | dealer 3 at about 150 s; the U-turn at dealer 3 (the car arrives heading south, leg 4 goes north) set the car alight |
+| pt7_ze2i | same | failed (clock, 8 s short) | dealers at 43, 68, 119 s; dealer 4 reached with the clock at 0:08 (`shot_420`), and he walked into the side of his own truck, which stood between him and the dealer on the pavement (fixed: round the car's nose when the dealer is beside it) |
+| pt7_ze2j-l | same | failed (clock, 10-25 s short) | the round-the-nose step stuck on a ramp at dealer 2 (now only for a dealer beside the car); the dealer-3 stop round the corner put the car between him and the dealer (now just past him on the same carriageway, leg 4 turning round the median's end); pt7_ze2l: dealers at 43, 77, 128 s, a wall at the last corner (166,117) cost 15 s and the clock ran out a block from dealer 4 |
+
+### Status after part 6
+
+- **PIZZA CAKE: JOB COMPLETE in the chase view** (pt7_le2e), the van shot on foot in third
+  person with the game's own keys (96 rounds), frame `out/pt7_le2e/m_wil_le2_wrecked.png`.
+- **RADIO ZA-ZA: JOB COMPLETE** in the same session right after it (the Loonies offer it after a
+  completed Loonies job), frame `out/pt7_le2e/m_wil_le1_end.png`.
+- **WHEELER-DEALING: not completed.** Twelve sessions; the pace is there (dealers 1-3 in 119-128 s
+  of the 180, against dealer 1 at 77 s in pt6_ze2c) and two sessions reached the last dealer
+  with seconds on the clock, but every session lost 10-25 s to one stall, one wall at a corner or
+  one walk blocked by the car itself. What is left is luck and the last corner (166,117) of
+  leg 4; the runner's choices for the four stops are in `mission_play_wil.py` (`WD_BACK`,
+  `WD_TURN_AVOID`, the dealer-3 and dealer-4 stops).

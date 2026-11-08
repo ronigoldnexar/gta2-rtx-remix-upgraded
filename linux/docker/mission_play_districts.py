@@ -34,6 +34,12 @@ s = D.wait_state(40)
 if not s: sys.exit(1)
 D.calibrate_turn()
 world = M.World(DISTRICT)
+if DISTRICT == "bil":
+    # the south stair to the Russians' rooftop phone (x=189, y 85..78) does not go through
+    # at its top (pt7_bil1's walker stood at 189.6,79.3 for four minutes of re-routes) and
+    # neither does the west one (row 77: pt7_bil2 stuck at 180.2,77.8 on its second step).
+    # The east stair (row 75, from 197 up to 190) is the way up pt6_bil2 took
+    M.BLOCKED.update({(189, 79), (189, 78), (180, 77), (181, 77)})
 M.mark(f"level ({DISTRICT})")
 M.arrows_baseline()
 set_view("third")
@@ -199,15 +205,29 @@ def enter_parked(cx, cy, budget=150, why="the mission car"):
     Enter; both sides, then the ends; the developer door warp (F9) only as a
     reported last resort"""
     t0 = time.time()
-    s = M.walk3(world, cx, cy, None, tol=2.2, budget=min(120, budget))
+    s = M.walk3(world, cx, cy, None, tol=2.2, budget=min(480, budget))
     tried = 0
     def got(s):
         """driving, and the car is where the mission car was parked (run pd3_bil5:
         a door try put the player into a passing traffic car 90 blocks away and
-        the script took it for the Z-Type)"""
-        return bool(s and s["driving"] and math.hypot(s["x"] - cx, s["y"] - cy) < 4.0)
+        the script took it for the Z-Type), and the mission arrow is not on another
+        car beside him (pt7_bil3: the borrowed car stopped 3 blocks from the Z-Type
+        and Return put him back into it; the dealers' loop then drove nowhere for
+        five minutes with the arrow on the Z-Type)"""
+        if not (s and s["driving"] and math.hypot(s["x"] - cx, s["y"] - cy) < 4.0): return False
+        time.sleep(1.5)
+        o = M.objective(); s2 = D.wait_state()
+        ms = M.mission_state() or {}
+        if o and o[3] in (3, 4) and ms.get("tcar") and math.hypot(ms["tcar"][0] - s2["x"], ms["tcar"][1] - s2["y"]) > 1.2:
+            say(f"enter_parked: in a car at {s2['x']:.1f},{s2['y']:.1f}, but the mission car is at {ms['tcar'][0]:.1f},{ms['tcar'][1]:.1f}: out")
+            M.mark("in the wrong car beside the mission car: out")
+            M.leave_car(); return False
+        return True
     while s and time.time() - t0 < budget:
         if got(s): return s
+        s = D.wait_state()
+        if s["driving"] and math.hypot(s["x"] - cx, s["y"] - cy) < 4.0:
+            M.leave_car(); s = D.wait_state()      # the wrong car beside the mission car (got() left it already, or about to)
         if s["driving"]:
             say(f"enter_parked: in a passing car at {s['x']:.1f},{s['y']:.1f}, not {why}; driving it to {cx:.1f},{cy:.1f}")
             M.mark(f"a passing car instead of {why}: driving it over")
@@ -274,26 +294,45 @@ def creep_box(x, y, w, h, money0, secs=75):
         if k % 6 == 0: hold("Down", 0.8); time.sleep(0.3)
     return False, D.wait_state()
 
+# blocks to line up for: (approach point on the row, the point to creep to). The
+# barricade block (110.5,77.5, 3x1) is road row 77 with the barricade in cell 111: in
+# from the west along the row, nose up to x=110
+APPROACH_BLOCK = {(110.5, 77.5): ((106.5, 77.5), (110.0, 77.5))}
+
 def park_in_block(x, y, w, h, money0, budget=300, parked_msgs=()):
     """drive the mission car into the block: the road route, then the creep.
     parked_msgs: game messages that mean "you are in the block": once one shows,
     do not move again (the creep's pulses pushed the rigged Pickup back out in
     run pd3_ste2: 2005 then 2004 then the fail)"""
     M.mark(f"by car to the block at {x},{y} ({w}x{h})")
-    s = M.drive3(world, x, y, tol=max(0.5, min(w, h) * 0.45 + 0.3), budget=budget, view_switch=view_switch, slow=True)
+    ap = APPROACH_BLOCK.get((x, y))
+    if ap:
+        # a long thin block counts the car only lying along it: pt7_ste3's Pickup drove
+        # through the barricade block (2016, then 2017 at once) and stopped in it facing
+        # north at 110.43,77.70, half outside; nothing more happened. Line up on the row
+        # first, then creep in along it
+        (ax, ay), (cx, cy) = ap
+        M.mark(f"lining up for the block at {ax},{ay}")
+        s = M.drive3(world, ax, ay, tol=0.9, budget=budget, view_switch=view_switch, slow=True, precious=True)
+        if msg() in parked_msgs:
+            xdo("keyup", "Up"); hold("space", 0.5); return True, D.wait_state()
+        ok, s = creep_box(cx, cy, 0.6, 0.6, money0, secs=60)
+        if msg() in parked_msgs:
+            xdo("keyup", "Up"); hold("space", 0.5); return True, D.wait_state()
+    s = M.drive3(world, x, y, tol=max(0.5, min(w, h) * 0.45 + 0.3), budget=budget, view_switch=view_switch, slow=True, precious=True)
     if msg() in parked_msgs:
         say(f"park_in_block: the game already reports the car in the block (msg {msg()}); holding still")
-        hold("Down", 0.3); return True, D.wait_state()
+        xdo("keyup", "Up"); hold("space", 0.5); return True, D.wait_state()
     legs = 0
     while s and s["driving"] and math.hypot(s["x"] - x, s["y"] - y) > 4.0 and legs < 2:
         legs += 1
         say(f"park_in_block: the drive ended {math.hypot(s['x'] - x, s['y'] - y):.0f} blocks from the block; driving again (leg {legs+1})")
-        s = M.drive3(world, x, y, tol=max(0.5, min(w, h) * 0.45 + 0.3), budget=budget, view_switch=view_switch, slow=True)
-        if msg() in parked_msgs: hold("Down", 0.3); return True, D.wait_state()
+        s = M.drive3(world, x, y, tol=max(0.5, min(w, h) * 0.45 + 0.3), budget=budget, view_switch=view_switch, slow=True, precious=True)
+        if msg() in parked_msgs: xdo("keyup", "Up"); hold("space", 0.5); return True, D.wait_state()
     ok, s = creep_box(x, y, w, h, money0)
-    if msg() in parked_msgs: hold("Down", 0.3); return True, D.wait_state()
+    if msg() in parked_msgs: xdo("keyup", "Up"); hold("space", 0.5); return True, D.wait_state()
     if not ok and s and s["driving"]:
-        s = M.drive3(world, x, y, tol=0.5, budget=60, slow=True)
+        s = M.drive3(world, x, y, tol=0.5, budget=60, slow=True, precious=True)
         ok, s = creep_box(x, y, w, h, money0, secs=60)
     say(f"park_in_block {x},{y}: {'reacted' if ok else 'no reaction'} at {s['x']:.2f},{s['y']:.2f}" if s else "park_in_block: no state")
     return ok, s
@@ -307,9 +346,14 @@ def arm_and_run(money0, armed_msgs, run_level=1, blast_at=None):
     M.ensure_view("classic")
     m0 = msg(); armed = False
     for k in range(8):
+        if msg() in ("2004", "2017"):
+            # "get back and park": the car is out of the block. Firing now sets the bomb
+            # off outside it (pt7_ste2: 2017, then the blast with him inside, 2998)
+            say(f"arm: the car is out of the block (msg {msg()}); not firing"); break
         if k == 3: tap("Tab", 0.3); time.sleep(0.5)        # the weapon slot, in case the bomb is not selected
         xdo("keydown", "Control_L"); time.sleep(0.4); xdo("keyup", "Control_L"); time.sleep(1.0)
         if msg() in armed_msgs or (msg() != m0 and M.objective() is None): armed = True; break
+    if not armed and msg() in ("2004", "2017"): return False
     say(f"arm: {'armed' if armed else 'no reaction'} (msg {msg()})")
     s = D.wait_state(); cx, cy = s["x"], s["y"]
     # out at once (leave_car's 2 s wait is most of the fuse) and run a routed path
@@ -330,6 +374,25 @@ def arm_and_run(money0, armed_msgs, run_level=1, blast_at=None):
     time.sleep(6.0)
     return armed
 
+LIE_LOW_SECS = float(os.environ.get("LIE_LOW_SECS", "20"))   # pt7_ste2/3: level 1 did not go in 150 s standing still
+def lie_low(secs=150, why=""):
+    """wait for the wanted level to go before taking a fragile mission car: pt7_ste1
+    blew stage 1 up, got wanted level 1 from it, walked to the second Pickup with a cop
+    behind him and was pulled out of the crawling Pickup and arrested (6159) a block
+    short of the barricade. Stand still out of the way and watch the game's own field"""
+    w0 = (M.mission_state() or {}).get("wanted", 0)
+    if w0 <= 0: return True
+    M.mark(f"wanted level {w0}{why}: lying low until it goes")
+    secs = min(secs, LIE_LOW_SECS)
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        ms = M.mission_state() or {}
+        if ms.get("wanted", 0) <= 0:
+            M.mark(f"wanted level gone after {time.time() - t0:.0f} s"); return True
+        time.sleep(1.0)
+    M.mark(f"still wanted ({(M.mission_state() or {}).get('wanted')}) after {secs} s: going on")
+    return False
+
 # ---------------------------------------------------------------- the jobs
 
 def play_ste_re1(entry):
@@ -344,6 +407,7 @@ def play_ste_re1(entry):
         M.mark(f"stage {stage+1}: to the Pickup at {car_at[0]:.1f},{car_at[1]:.1f}")
         s = D.wait_state()
         if s["driving"]: s = M.leave_car()
+        lie_low(150, " (the blast)" if stage else "")
         s = enter_parked(car_at[0], car_at[1], budget=200, why=f"the Pickup {stage+1}")
         if not (s and s["driving"]): return f"stuck: pickup {stage+1} not entered"
         FP["until"] = 0.0; M.shot(f"{entry['mission']}_incar{stage+1}")
@@ -401,14 +465,20 @@ def play_bil_re2(entry):
         M.mark(f"the Z-Type is {math.hypot(car_at[0] - s['x'], car_at[1] - s['y']):.0f} blocks away: by car (leg {tries})")
         s = D.wait_state()
         if not s["driving"]: s = M.any_car2(world, budget=120)
+        if not (s and s["driving"]):
+            # no car to be had (pt7_bil4 waited at the same kerb through four legs, eight
+            # minutes, 86 blocks from the Z-Type): walk it
+            M.mark("no car stopped: walking to the Z-Type"); break
         if s and s["driving"]:
             FP["until"] = 0.0
-            s = M.drive3(world, car_at[0], car_at[1], tol=5.0, budget=420, view_switch=view_switch, slow=False)
+            # stop well short: pt7_bil3 arrived at speed and rammed the Z-Type three times
+            # (its carhp dropped 28756 -> 25994 in one second) before the walk to its door
+            s = M.drive3(world, car_at[0], car_at[1], tol=9.0, budget=420, view_switch=view_switch, slow=False)
             if s and s["driving"]: s = M.leave_car()
         s = D.wait_state()
     o = M.objective()
     if o and o[3] in (3, 4): car_at = (o[0], o[1])
-    s = enter_parked(car_at[0], car_at[1], budget=360, why="the Z-Type")
+    s = enter_parked(car_at[0], car_at[1], budget=720, why="the Z-Type")
     if not (s and s["driving"]): return "stuck: the Z-Type not entered"
     FP["until"] = 0.0; M.shot(f"{entry['mission']}_incar")
     t0 = time.time()                      # the arrow keeps the car's position for a moment after entry (run pd3_bil4 read it as "dealer 1 at 48,73")
@@ -435,16 +505,26 @@ def play_bil_re2(entry):
             # in the Z-Type on it while only kinds 3/4 were taken for dealers)
             M.mark(f"dealer {stage+1}: by car to {x:.1f},{y:.1f}")
             key0 = M.objective_key(); m0 = msg()
-            s = M.drive3(world, x, y, tol=2.0, budget=360, view_switch=view_switch, slow=True)
+            s = M.drive3(world, x, y, tol=2.0, budget=360, view_switch=view_switch, slow=True, precious=True)
             o2 = M.objective()
             if o2 and math.hypot(o2[0] - s["x"], o2[1] - s["y"]) > 2.6:
-                s = M.drive3(world, o2[0], o2[1], tol=1.6, budget=120, slow=True)
+                s = M.drive3(world, o2[0], o2[1], tol=1.6, budget=120, slow=True, precious=True)
             M.shot(f"{entry['mission']}_dealer{stage+1}")
-            t0 = time.time(); boarded = False
-            while time.time() - t0 < 100:
+            t0 = time.time(); boarded = False; spot = 0; t_spot = time.time()
+            while time.time() - t0 < 160:
                 cur = msg()
-                if cur in ("3527", "3529", "3531", "3533", "3528", "3530", "3532"): boarded = True
+                # a fresh "aboard" brief only: pt7_bil6 took dealer 2's 3530, still in the
+                # message buffer, for dealer 3 aboard, waited 100 s and moved on without him
+                if cur != m0 and cur in ("3527", "3529", "3531", "3533", "3528", "3530", "3532", "3534"): boarded = True
                 if M.objective_key() != key0 and boarded: break
+                if time.time() - t_spot > 20 and not boarded:
+                    # he does not come (pt7_bil6: dealer 3 stood 2 blocks off the Z-Type at the
+                    # Escobar Power Cores for 100 s of horns): move the car round him
+                    spot += 1; t_spot = time.time()
+                    ang = spot * 1.5708
+                    px, py = x + 2.2 * math.cos(ang), y + 2.2 * math.sin(ang)
+                    say(f"dealer {stage+1}: not coming; moving the car to {px:.1f},{py:.1f} (spot {spot})")
+                    s = M.drive3(world, px, py, tol=1.0, budget=40, slow=True, precious=True)
                 o3 = M.objective()
                 if o3 and math.hypot(o3[0] - x, o3[1] - y) > 8.0:
                     # the arrow is on the next dealer (or the crane box): this one is aboard.
@@ -456,18 +536,20 @@ def play_bil_re2(entry):
                 else:
                     o2 = M.objective()
                     if o2 and math.hypot(o2[0] - s["x"], o2[1] - s["y"]) > 2.6:
-                        s = M.drive3(world, o2[0], o2[1], tol=1.6, budget=60, slow=True)
+                        s = M.drive3(world, o2[0], o2[1], tol=1.6, budget=60, slow=True, precious=True)
                     M.horn(1); time.sleep(2.0)
                 out, ms = M.outcome(money0)
                 if out != "running": return out
             say(f"dealer {stage+1}: {'boarded' if boarded else 'not confirmed'} after {time.time()-t0:.0f}s")
-            stage += 1
+            o4 = M.objective()
+            if boarded or (o4 and math.hypot(o4[0] - x, o4[1] - y) > 8.0): stage += 1
+            else: M.mark(f"dealer {stage+1} not aboard: the same dealer again")
             continue
         if kind not in (1, 2, 3, 4):
             say(f"arrow of kind {kind} at {x:.1f},{y:.1f}: not handled"); time.sleep(2.0); continue
         if kind == 1 or stage >= 4:
             M.mark(f"to the crane box at {x:.1f},{y:.1f}")
-            s = M.drive3(world, x, y, tol=2.0, budget=420, view_switch=view_switch, slow=True)
+            s = M.drive3(world, x, y, tol=2.0, budget=420, view_switch=view_switch, slow=True, precious=True)
             ok, s = creep_box(x, y, 7.0, 7.0, money0, secs=40)
             M.shot(f"{entry['mission']}_cranebox")
             M.leave_car(); M.mark("out of the car in the crane box")

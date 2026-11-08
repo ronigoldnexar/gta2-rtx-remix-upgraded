@@ -328,3 +328,77 @@ Frame times (4-CPU container, L4): Residential game 6.2/13.4 ms, world 1.5, spri
 3.9-5.5/11.4, wait 20-21 (at the cap); Industrial game 9.1/12.6, world 1.7, sprites
 2.4-2.8/7.0, wait 19-20. Car-model textures 344.8 MB managed in both. 0 faults in all
 eleven runs.
+
+## Missions, 8 Nov 2026 (PLAYTHROUGH-7, `pt7_ste*`, `pt7_bil*`): BLOW JOB complete in the chase view
+
+Same runner (`gamerun/mission_play_districts.py`, mirrored in `linux/docker/`), now on the two
+fixes described in `playthrough-downtown.md` Part 6: the car's condition from the game
+(`carhp`/`carfire`/`tcarhp` in the `view: mission` line, `actions-3d.md` "Vehicle fields") and
+`GTA2_DIRECT_KEYS=1` (the game's own keys in the 3D views, every on-foot move in the chase view,
+no classic-view frames). All sessions `GTA2_SPEED=2`, `FPS=0`, `GTA2DX9_STATE_EVERY=5`, devtools
+F9/F11, private stage `stage_pt7`. District files as before: `ste` is Residential (BLOW JOB),
+`bil` Industrial (RUSSIAN SAILORS).
+
+### What the runs showed, and what changed
+
+- **The police, not the Pickup, were the main danger in BLOW JOB.** Stage 1's blast gives wanted
+  level 1 (pt7_ste2: wanted 1 three seconds after 2006, every session since). It did not go in
+  150 game seconds of standing still (pt7_ste2, pt7_ste3), and with it the crawling second Pickup
+  was stopped by a police car and the player pulled out and arrested (pt7_ste1 at 109,65 a block
+  from the barricade, pt7_ste4 at 100,41: messages 6159/6155 "I hope the Cops...", JOB FAILED).
+  Now: with a wanted level a mission car is driven at 3.2 blocks/s while carhp >= 22000 (2.0
+  below), and a stall is backed out of at once instead of after a two-second wait for traffic.
+  (`lie_low` still waits up to `LIE_LOW_SECS`, 20 s, and logs whether the level went.)
+- **Down reverses a stopped car out of the block.** `park_in_block` held Down for 0.3 s on the
+  game's "in the block" message, and every `drive3` ended with Down for 0.8 s: pt7_ste2's Pickup
+  rolled back out of the barricade block (2016, then 2017 "That was the right place, Rooster. Get
+  back and park"), the runner fired anyway and the bomb went off outside with him in it (2998, a
+  life). Now a mission car stops on the handbrake (Space), and the arming refuses to fire while
+  the last message is 2004/2017.
+- **The barricade block counts a car lying along it.** pt7_ste3's Pickup drove through the 3x1
+  block (110.5,77.5; road row 77 with the barricade in cell 111) facing north, the game said 2016
+  then 2017 within 0.3 s, and the car stopped at 110.43,77.70, half outside: nothing more
+  happened. `APPROACH_BLOCK` lines the car up on row 77 from the west (106.5,77.5) and creeps to
+  x=110 (pt7_ste5 reached the block on the plain route after that line-up, and held it).
+- **The Russians' rooftop phone** (189.5,76.5, level 6): the router's south stair (x=189, y 85..78)
+  does not go through at its top (pt7_bil1: four minutes at 189.6,79.3) and neither does the west
+  one (row 77, pt7_bil2 stuck on its second step). Those cells are in `M.BLOCKED` for `bil`; the
+  north stair (x=187, y 67..74) is the way up (pt7_bil3: phone answered on foot, title 3855).
+- **The wrong car beside the Z-Type.** pt7_bil3's borrowed car arrived at speed, rammed the
+  Z-Type three times (`tcarhp` would have shown 28756 -> 25994) and stopped three blocks from it;
+  `enter_parked` accepted any car within four blocks, Return put him back into the borrowed car,
+  and the dealer loop drove nowhere for five minutes with the arrow on the Z-Type. Now the drive
+  stops nine blocks short, and a car is the mission car only when the mission line's `tcar` (the
+  target car's position) is under him.
+- **No car stops at the kerb** (pt7_bil4: four legs, eight minutes, at one kerb 86 blocks from the
+  Z-Type): after one failed wait the runner walks to the Z-Type.
+
+### Runs
+
+| session | job | reached | stopped because |
+|---|---|---|---|
+| pt7_ste1 | BLOW JOB | phone, Pickup 1 parked (2005), armed (2006), survived; Pickup 2 driven to within a block of the barricade | wanted level 1 from the blast; a police car stopped the Pickup at 109,65 and he was arrested (6159), JOB FAILED |
+| pt7_ste2 | same | stage 1 as above; the 150 s lie-low (wanted stayed 1); Pickup 2 into the barricade block (2016) | the stop's Down reversed it out (2017), the bomb went off outside with him in it (2998, lives 5 -> 4) |
+| pt7_ste3 | same | stage 1; Pickup 2 through the block facing north (2016, 2017), stopped half in it | no further reaction; the stale 2017 kept the new arming guard from firing; stopped by hand |
+| pt7_ste4 | same | stage 1; the line-up leg to 106.5,77.5 | arrested at 100,41 on the way (6155), JOB FAILED |
+| **pt7_ste5** | **BLOW JOB** | phone (south approach), Pickup 1 into the block (2005), armed (2006), escaped; Pickup 2 (wanted 1, cap 3.2) into the barricade block (2016), held on the handbrake, armed (2018), out | **Mission Complete (2999)**, +$30,000 at game-second 947 (`out/pt7_ste5/shot_570.png`: the payoff brief "Yee-ha! ... Here's $30,000" over the chase view, money 32878). Two seconds later the blast killed the player (lives 5 -> 4) after the job had paid |
+| pt7_bil1 | RUSSIAN SAILORS | drive to the rooftop car park, phone 3 blocks off | the walker stuck at the south stair's top for four minutes (fixed: `BLOCKED`) |
+| pt7_bil2 | same | | stuck on the west stair (fixed as above) |
+| pt7_bil3 | same | **phone answered on foot** by the north stair (3855), the warp down survived, a car to the Z-Type | rammed the Z-Type, re-entered the borrowed car beside it, the dealer loop never started (fixed: tcar check, stop short) |
+| pt7_bil4 | same | phone | no car stopped at the kerb for eight minutes (fixed: walk) |
+| pt7_bil5 | same | phone | a police car stopped beside him at a kerb and `any_car` took it: the wanted level rose and every car after it was rammed to burning within a minute (fixed: police models 12/52/54/17/34 are never jacked) |
+| pt7_bil6 | same | phone (north stair), warp down, the Z-Type by car, **dealers 1 and 2 aboard** (3527/3528, 3529/3530) | dealer 3 at the Escobar Power Cores (13.5,233.5) did not come to the Z-Type standing two blocks off; the stale 3530 in the message buffer was taken for "aboard", the runner moved on and left the car (fixed: only a fresh brief counts, the car is moved round a dealer who does not come, the same dealer again when he is not aboard) |
+| pt7_bil7/8 | same | phone | cars lost on the way to the Z-Type: carhp 1000 every 0.3 s on the spot at 173,35 and 156,61 (pressed against something at full throttle) until they burned; a burning car that stopped beside him was re-entered eight times (fixed: back out when carhp falls 2500 in a second on the spot; burning cars are never taken, from the kerb either) |
+| **pt7_bil9** | same | phone, the Z-Type, **all four dealers aboard** (dealer 3 at once this time, dealer 4 by 06:12:36) | the Z-Type had caught fire on the dealer-4 leg (stalls against walls at 24,223, 136,150 and 130,110 cost 5000-6000 carhp each) and reached the crane leg at carhp 3666, 122 s before the explosion, with the crane box (135.5,5.5) 200 blocks off: out and clear, then 3523 "You destroyed the Z-Type", JOB FAILED. Frames `out/pt7_bil9/m_bil_re2_*.png` (the burning Z-Type at dealer 4, the explosion behind the JOB FAILED banner) |
+| pt7_bil10 | same | phone, Z-Type, dealer 1 | the Z-Type burned out early (carhp 1795 on the way to dealer 2) |
+
+### Status (PLAYTHROUGH-7)
+
+- **BLOW JOB: Mission Complete** (pt7_ste5), both stages in the chase view: the second Pickup
+  driven to the barricade with the police after it, held in the block on the handbrake, armed,
+  +$30,000 (frame `out/pt7_ste5/shot_570.png`).
+- **RUSSIAN SAILORS: not completed.** Furthest: all four dealers aboard (pt7_bil9; pt6 got two),
+  lost to a Z-Type that had been set alight against walls on the 134-block dealer-4 leg and had
+  2 minutes left for the 200-block crane leg. With `tcarhp` the runner now sees that coming; what
+  would finish it is fewer wall hits on the long Industrial legs (the stall pull-out still pushes
+  into the obstacle before it reverses) or a respray on the way, which was not looked for.
