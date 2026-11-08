@@ -1,4 +1,5 @@
 #include "compat.h"
+#include "frame_log.h"
 #include "log.h"
 #include <cstdio>
 
@@ -95,6 +96,7 @@ LONG CALLBACK Handler(EXCEPTION_POINTERS* info) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     frame->fired = true;
+    gta2dx9::FrameLogNote(gta2dx9::kFcGuardedFault);
     CONTEXT* c = info->ContextRecord;
     c->Ebx = frame->ebx;
     c->Esi = frame->esi;

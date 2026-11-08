@@ -112,6 +112,10 @@ void SetEnvCells(const std::vector<EnvCell>& rail, const std::vector<EnvCell>& b
 // frame (set at the top of LiveGeometry::Draw): what the ground views need not
 // draw at all.
 bool BehindView(float x, float y, float z, float margin);
+// True when a sphere (world units, the renderer's frame) lies wholly outside the
+// current view frustum's four side planes (PERF-2: props, map objects and people
+// outside the picture are not drawn; they were drawn whenever they were in front).
+bool OutsideViewFrustum(float x, float y, float z, float radius);
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);

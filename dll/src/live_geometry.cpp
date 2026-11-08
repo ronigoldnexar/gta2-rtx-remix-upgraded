@@ -277,6 +277,45 @@ void SetPlayerObject(const void* object) {
     static bool checked = false;
     if (!checked) { checked = true; char buf[8] = {}; g_logPedFrames = GetEnvironmentVariableA("GTA2DX9_LOG_PED_FRAMES", buf, sizeof buf) && buf[0] == '1'; }
 }
+// The people's pop log (see DrawPedFigures, BeginFrame), street views only.
+int g_pedPops = 0, g_pedPopsInView = 0, g_pedPopsNear = 0;
+float g_pedPopDist = 0.0f;
+bool g_viewActiveForPops = false;
+
+// The view frustum's side planes (left, right, bottom, top) as a*x + b*y + c*z + d >= 0
+// inside, normalised, from the camera's view-projection (row vectors, D3D).
+float g_frustum[4][4] = {};
+bool g_frustumValid = false;
+void SetViewFrustum(const gta2::Camera& camera, int width, int height) {
+    g_frustumValid = false;
+    if (width <= 0 || height <= 0) return;
+    const gta2::Mat4 v = camera.ViewMatrix();
+    const gta2::Mat4 p = camera.ProjectionMatrix(static_cast<float>(width) / static_cast<float>(height));
+    float m[4][4];
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c) {
+            float sum = 0.0f;
+            for (int k = 0; k < 4; ++k) sum += v.m[r][k] * p.m[k][c];
+            m[r][c] = sum;
+        }
+    const int axis[4] = {0, 0, 1, 1};
+    const float sign[4] = {1.0f, -1.0f, 1.0f, -1.0f};
+    for (int i = 0; i < 4; ++i) {
+        float pl[4];
+        for (int r = 0; r < 4; ++r) pl[r] = m[r][3] + sign[i] * m[r][axis[i]];
+        const float n = std::sqrt(pl[0] * pl[0] + pl[1] * pl[1] + pl[2] * pl[2]);
+        if (!(n > 1e-6f)) return;
+        for (int r = 0; r < 4; ++r) g_frustum[i][r] = pl[r] / n;
+    }
+    g_frustumValid = true;
+}
+bool OutsideViewFrustum(float x, float y, float z, float radius) {
+    if (!g_frustumValid) return false;
+    for (int i = 0; i < 4; ++i) {
+        if (g_frustum[i][0] * x + g_frustum[i][1] * y + g_frustum[i][2] * z + g_frustum[i][3] < -radius) return true;
+    }
+    return false;
+}
 bool BehindView(float x, float y, float z, float margin) {
     const float dx = x - g_viewEye.x, dy = y - g_viewEye.y, dz = z - g_viewEye.z;
     return dx * g_viewForward.x + dy * g_viewForward.y + dz * g_viewForward.z < -margin;
@@ -4155,8 +4194,12 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
 
     struct Placed { const Model* model; float x, y, z, yaw, scale; float d2; };
     std::vector<Placed> placed;
-    constexpr float kRadius = 36.0f;   // inside the fog's first third, so the edge is hazed; was 26 (a visible edge)
-    constexpr int kBudget = 180;
+    // 48 blocks, a quarter into the fog (18-130), where a lamp is a few pixels tall: the
+    // edge where props appear is no longer seen while driving (PERF-2; was 36 with a budget
+    // of 180, and 26 before that). Affordable since the placements are cached per cell,
+    // the meshes merged and what is beside the picture skipped.
+    constexpr float kRadius = 48.0f;
+    constexpr int kBudget = 260;
     // A column's lid tile, ground type and level, or false off the map / in a hole.
     auto lidOf = [&](int cx, int cz, int* tile, int* ground, int* level) {
         const int my = gta2::kMapHeight - 1 - cz;
@@ -4173,6 +4216,23 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     auto isWater = [&](int cx, int cz, int level) { int t, g, l; return lidOf(cx, cz, &t, &g, &l) && IsWaterTile(t) && l <= level; };
     int cranes = 0;
 
+    // The placements depend only on the eye's cell and level (the rules read the map, the
+    // hashes the cell): kept from the last frame while the eye stays in its cell, with
+    // only the distances brought up to date (PERF-2: the scan of 73 x 73 cells with their
+    // neighbours was a millisecond or more of every frame).
+    static std::vector<Placed> s_placedCache;
+    static const void* s_placedMap = nullptr;
+    static int s_placedKey[3] = {-100000, -100000, -100000};
+    const int placedKey[3] = {static_cast<int>(std::floor(eye.x)), static_cast<int>(std::floor(eye.z)),
+                              static_cast<int>(std::floor(eye.y))};
+    if (s_placedMap == map && placedKey[0] == s_placedKey[0] && placedKey[1] == s_placedKey[1] &&
+        placedKey[2] == s_placedKey[2]) {
+        placed = s_placedCache;
+        for (Placed& p : placed) {
+            const float dx = p.x - eye.x, dz = p.z - eye.z;
+            p.d2 = dx * dx + dz * dz;
+        }
+    } else {
     // The lamps.
     if (lamp) {
         for (const gta2::Vec3& at : MapLamps()) {
@@ -4441,6 +4501,10 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         Log("park trees: in the last 300 frames %d grass cells seen, %d trees placed (eye level %d)", g_treeStatGrass, g_treeStatPlaced, eyeLevel);
         g_treeStatGrass = g_treeStatPlaced = 0;
     }
+    s_placedCache = placed;
+    s_placedMap = map;
+    for (int k = 0; k < 3; ++k) s_placedKey[k] = placedKey[k];
+    }   // the placement scan
     // Nothing behind the camera (a prop is at most about a block across).
     placed.erase(std::remove_if(placed.begin(), placed.end(),
                                 [](const Placed& p) { return BehindView(p.x, p.y, p.z, 1.5f); }),
@@ -4483,6 +4547,14 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     device->SetFVF(kWorldFvf);
     for (const Placed& p : placed) {
+        {
+            // Beside the picture (PERF-2): the model's bounding sphere, from its foot point up.
+            // Still counted above (budget, footprints), only not drawn.
+            const float h = p.model->Height() * p.scale;
+            const float r = 0.5f * p.scale * std::sqrt(p.model->Height() * p.model->Height() + p.model->Width() * p.model->Width() +
+                                                       p.model->Length() * p.model->Length());
+            if (OutsideViewFrustum(p.x, p.y + 0.5f * h, p.z, r + 0.25f)) continue;
+        }
         gta2::Mat4 m;
         const float c = std::cos(p.yaw), sn = std::sin(p.yaw);
         m.m[0][0] = c * p.scale;  m.m[0][2] = -sn * p.scale;
@@ -4506,6 +4578,12 @@ void LiveGeometry::BeginFrame() {
     if ((g_carFrame % 900) == 899) {
         Log("car pops: %d new bodies in 900 frames, %d within 12 blocks, mean first-seen distance %.1f blocks",
             carPops_, carPopsNear_, carPops_ ? carPopDist_ / carPops_ : 0.0f);
+        if (g_pedPops) {
+            Log("ped pops: %d new people in 900 frames (street views), %d of them in the picture, %d of those within 10 blocks, mean first-seen distance %.1f blocks",
+                g_pedPops, g_pedPopsInView, g_pedPopsNear, g_pedPopDist / g_pedPops);
+        }
+        g_pedPops = g_pedPopsInView = g_pedPopsNear = 0;
+        g_pedPopDist = 0.0f;
         carPops_ = carPopsNear_ = 0; carPopDist_ = 0.0f;
     }
     carModels_.clear();
@@ -6645,6 +6723,16 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
 
         // His pace, from where he was last frame. The game moves once a frame.
         PedTrack& track = pedTracks_[sprite.object];
+        if (track.frame == 0 && g_viewActiveForPops) {
+            // Pop log (PERF-2): a person the renderer had no track for, appearing now;
+            // in the picture and near is a pop the player sees.
+            const float pdx = cx - g_viewEye.x, pdz = cz - g_viewEye.z;
+            const float pd = std::sqrt(pdx * pdx + pdz * pdz);
+            const bool inView = !BehindView(cx, g_viewEye.y - 1.0f, cz, 0.0f) && !OutsideViewFrustum(cx, g_viewEye.y - 1.0f, cz, 0.5f);
+            ++g_pedPops;
+            g_pedPopDist += pd;
+            if (inView) { ++g_pedPopsInView; if (pd < 10.0f) ++g_pedPopsNear; }
+        }
         const unsigned frames = track.frame != 0 && g_carFrame > track.frame ? g_carFrame - track.frame : 1;
         const float dt = (std::min)(static_cast<float>(frames), 6.0f) / 30.0f;
         if (track.frame != 0 && frames < 10) {
@@ -7012,6 +7100,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // people share cached poses and cost no skinning of their own.
             if (!sprite.corpse) g_pedSpots.push_back({gx, cy, gz});
             if (model && BehindView(gx, cy, gz, 0.6f)) continue;
+            if (model && OutsideViewFrustum(gx, cy, gz, 0.75f)) continue;   // beside the picture: not drawn, track kept
             const float eyeDx = gx - g_viewEye.x, eyeDz = gz - g_viewEye.z;
             const float eyeD2 = eyeDx * eyeDx + eyeDz * eyeDz;
             const bool farAway = eyeD2 > 64.0f;
@@ -7633,6 +7722,8 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         const float cp = std::cos(camera.Pitch());
         g_viewForward = {std::sin(camera.Yaw()) * cp, std::sin(camera.Pitch()), std::cos(camera.Yaw()) * cp};
     }
+    SetViewFrustum(camera, width, height);
+    g_viewActiveForPops = CurrentViewMode() != ViewMode::Classic;
     ++g_carFrame;
     g_carMaterialsThisFrame = 0;
     lastEye_ = camera.Position();
@@ -8981,7 +9072,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     if (ModelsAvailable()) {
         static int left = 1;
         if (left > 0) {
-            left = ModelsWarmTextures(device, 2);
+            // The classic view has most of its frame to spare: the warm-up goes four
+            // times faster there (all of it in ~4 s of a level instead of ~18).
+            const bool classic = CurrentViewMode() == ViewMode::Classic;
+            left = classic ? ModelsWarmTextures(device, 16, 8.0) : ModelsWarmTextures(device, 2, 2.0);
             if (left == 0) Log("models: every texture created and uploaded ahead of use");
         }
     }

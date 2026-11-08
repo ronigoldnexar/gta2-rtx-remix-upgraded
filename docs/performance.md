@@ -258,3 +258,144 @@ What was wrong and what changed:
   posing); the cap still holds on average. A remote link that cannot carry 25 fps will
   still feel laggy; that is the next lever (lower resolution or H.264 streaming), not the
   renderer.
+
+## Frame-time stability while driving (8 Nov 2026, PERF-2)
+
+The complaint, from the browser: lag while driving, movement that felt stuck, distant objects
+popping in unstably, freezes. The spawn-window pop-in was fixed in PLAY-PERF; this pass measured
+every frame instead of 256-frame summaries.
+
+### The per-frame log
+
+`GTA2DX9_FRAME_LOG=<windows path>` (off by default; e.g. `-e 'GTA2DX9_FRAME_LOG=Z:\out\frames.tsv'`
+on a run) writes one tab-separated line per rendered frame (`dll/src/frame_log.cpp`):
+
+- phases in ms: `game` (GTA2's own step, split into `sim` = previous frame end to
+  `gbh_BeginScene`, `game_draw` = its draw stream, `hooks` = our code inside that stream),
+  `pre_*` (world load, animated tiles, input, `pre_camera` = UpdateCamera with `cam_locate` the
+  player locator and `solver` the camera solver, menu, time of day), `lights`, `sky`, `world`,
+  the sprites stage's sub-stages (`spr_setup`, `spr_loop`, `spr_skid`, `spr_issue`, `cars`,
+  `props`, `objects`, `peds`, `effects`), `ui`, `present`, `wait` (the 30 fps cap's sleep);
+- counts: `draws`/`up_draws`/`prims` (the device's draw entries are counted through its vtable
+  while the log is on), `tex_created`, `vb_created`, `ib_created`, `tex_uploads` (texture
+  UnlockRect), `update_tex`, `model_tex`, `model_buffers`, `new_poses`, `skin_buffers`,
+  `model_draws`, `skinned`, `posing`, `fills`, `car_measured`, `car_built`, `guarded_faults`;
+- state: `view` (0 classic, 1 third, 2 first), `driving`, the player `px py pz` (game frame) and
+  the camera eye `cx cy cz` (renderer frame), `sprite_quads`.
+
+Tools (`linux/docker/`, copied to `gamerun/`): `perf2_run.sh <name> <wil|bil|ste> [stage]`
+runs `perf2_drive.py` at the play container's settings (image `gta2-play`, `--cpuset-cpus=5-7`,
+1280x720, `GTA2_SPEED=1`, 15 fps capture): the scene warp puts a parked car on the road by the
+spawn, then `drive3` takes it to road cells 25-50 blocks away (seeded route) for 100 s in the
+chase view. `perf2_analyze.py` reports the driving window's frame cost (frame time minus the
+cap's wait) and every frame over 33 ms with its three largest phases; `perf2_motion.py` the
+camera's per-frame steps against the car's; `perf2_sheet.py` draws
+`out/perf2_frametimes.png` and `out/perf2_sheet.png` (matplotlib, in a venv).
+
+### Before and after
+
+Third-person driving, ~105-115 s per district (3100-3400 frames), frame cost in ms. Before =
+`out/p2_before_*` (the build of 8 Nov morning with the log added), after = `out/p2_final_*`
+(this pass). Both with the 15 fps recorder in the container, which competes for the same three
+CPUs the way x11vnc does when a player is connected.
+
+| district | p50 | p95 | p99 | max | frames over 33 ms | draws / triangles a frame | camera step jitter p90 | camera jumps / min |
+|---|---|---|---|---|---|---|---|---|
+| Downtown before | 18.3 | 50.9 | 92.6 | 809 | 577 (18.4 %) | 1598 / 2.05 M | 0.40 | 13.2 |
+| Downtown after | 9.0 | 25.4 | 40.9 | 61 | 73 (2.2 %) | 1204 / 1.88 M | 0.03 | 2.1 |
+| Downtown after, no recorder | 6.9 | 12.8 | **24.1** | 59 | 18 (0.5 %) | 1193 / 1.63 M | 0.04 | 6.0 |
+| Residential before | 14.0 | 40.3 | 84.5 | 654 | 256 (7.9 %) | 1392 / 1.40 M | 0.21 | 9.5 |
+| Residential after | 8.6 | 25.7 | 42.5 | 83 | 88 (2.7 %) | 1217 / 1.33 M | 0.10 | 11.0 |
+| Industrial before | 17.1 | 47.6 | 75.2 | 632 | 507 (16.3 %) | 1742 / 2.31 M | 0.46 | 40.5 |
+| Industrial after | 8.7 | 24.2 | 40.2 | 80 | 63 (1.9 %) | 1269 / 1.37 M | 0.05 | 0.0 |
+
+(The after runs also draw props out to 48 blocks instead of 36, see below.) Camera step jitter
+is the frame-to-frame change of the camera's step, in units of the car's step, over stretches
+where the car moves at a steady speed; a camera jump is more than 0.6 block in one frame.
+Downtown's route differs between before and after (the before route's seed lost the car).
+
+The targets are met only without the recorder: there the 99th percentile is 24 ms and the
+interval between frames holds 33.5 ms at the 99th percentile (no missed frame), with 18 frames
+over 33 ms in 105 s. With the recorder (or a player's VNC encoder) on the same three CPUs the
+99th percentile is 40-43 ms, and the spikes left are, in this order: GTA2's own step (`game`
+15-20 ms while the CPUs are shared: 1.8 ms mean and 5.7 ms p99 without the recorder, so it is
+contention, not the game), the cars' dent and door copies (below), a crowd's posing, and a
+`present` now and then.
+
+### Causes found and fixed
+
+1. **Other runs on the player's CPUs.** `grun.sh` documented `CPUSET=0-4` but only passed it when
+   set, and the other runners never did: two unpinned mission runs held CPUs 5-7 (the play
+   container's) at 75-97 %. `runq.sh` now pins every `docker run` it starts without a CPU set
+   to `GAME_CPUSET` (default `0-4`); the two running containers were moved with
+   `docker update --cpuset-cpus 0-4`.
+2. **The player locator read memory with ReadProcessMemory**, a wineserver round trip per read,
+   and at the wheel it walks the vehicle list every frame (`VehicleDrivenBy`): 3.6 ms per frame,
+   21 ms p99, 70 ms when the server was busy (`cam_locate`). Reads now check the address's
+   region once with VirtualQuery (committed, readable, no guard page), remember it, and load
+   under the fault guard (`view_modes.cpp` `ReadAt`): 0.01 ms.
+3. **Props were most of the draw calls and triangles**: up to 180 street lamps (30 k triangles,
+   8 meshes), hydrants (86 k, 10 meshes) and bins, rebuilt from a 73 x 73 cell scan every frame
+   and drawn whenever in front of the camera: 4.4 ms a frame in Downtown. Now each rigid prop
+   is one mesh per texture with its node transforms baked in (`MergeStatic` in
+   `model_store.cpp`; lamp 8 draws -> 2, hydrant 10 -> 1, bin 4 -> 1, same triangles), the
+   placements are kept while the eye stays in its cell, and a prop outside the view frustum's
+   side planes is not drawn (`OutsideViewFrustum`, also used for map objects and people beside
+   the picture). Props cost 0.6-1.3 ms with the radius raised to 48 blocks.
+4. **The model warm-up ran for 18 s of every level** at two textures a frame, each frame reading
+   TGA files on the render thread: 5 ms typical and up to 98 ms (the `effects` spikes), and a
+   switch to the street views inside those 18 s built the rest at first sight (`cars` 158 ms).
+   A reader thread now reads the ~680 model textures ahead (at most 96 MB waiting); the warm-up
+   is bounded by time (8 ms a frame in the classic view, 2 ms in the street views) and is done
+   3.5 s after the level loads. Tile textures warm 24 a frame in the classic view (was 6).
+5. **Shader compiles at the first street-view frames.** wined3d makes a GL shader for every new
+   fixed-function state (fog, sun light, water, glow, paint tint), and the NVIDIA driver
+   compiled them in the first frames of every session: `present` 300-700 ms. Its disk cache was
+   lost with each container; `play.sh` (and `perf2_run.sh NVCACHE=1`) now mount
+   `gamerun/nv_cache_gl` as `__GL_SHADER_DISK_CACHE_PATH`. Second session: those frames'
+   `present` is 0-1 ms (runs `p2_a4_bil` -> `p2_a5_bil`).
+6. **The sky's cloud texture** (256x256 of noise) was built in the first street-view frame
+   (`sky` 130 ms); it is built during the tile warm-up now (`Sky::Warm`).
+7. **Skinned pedestrians**: the per-pose vertex buffers were capped at 96, which a crowd cycling
+   24 walk poses each thrashed (5 buffer creations a frame); the cap is 256 and evicted buffers
+   are reused. New poses are limited to 5 a frame (past that a figure takes the cached pose of
+   its model and clips nearest in time, within 0.12 s), and the skinning loop is built for SSE2.
+8. **Camera clearance tests** ran over every lamp of the map (1-4 ms a frame in Industrial); a
+   lamp grid by map cell answers them now.
+
+### Smoothness of motion (frame pacing)
+
+GTA2 steps its simulation once per rendered frame and scales nothing by time, so at the cap the
+car's per-frame step is even (the position trace shows it changing smoothly with the throttle).
+The chase camera, though, eased with the wall clock: a frame that came 10 ms late moved the car
+no further but the camera further, so at a steady speed the camera's per-frame step ranged
+0.08-0.21 blocks for a car moving 0.13-0.15 (jitter p90 0.40 car steps). With the frame limiter
+on, the camera now advances one game step (1/30 s) per frame (`UpdateCamera`, `stepLocked`;
+uncapped it keeps the wall clock): jitter p90 0.03-0.10. `fps_cap` and `GTA2_SPEED` are
+unchanged: at `GTA2_SPEED=2` the camera moves with the game at twice the speed.
+
+The chase camera also jumped: every time the car passed under a sign gantry or a railway
+bridge over the road, the line from the car to the camera met it and the camera was pulled 1-4
+blocks toward the car in one frame (the ease allows a block of lag), then craned up over it;
+cutting a corner pulled it to a block from the car for one frame. It now goes down under an
+overhead at the same distance, and an eased eye cut off by a corner moves toward the wanted
+spot instead of along the ray (`view_modes.cpp`): camera jumps over 0.6 block 13-40 a minute
+before, 0-11 after (what is left is the car scraping walls in the scripted drive).
+
+### Pop-in
+
+Cars: 0 new car bodies within 12 blocks in every 900-frame window of driving (mean first sight
+20-28 blocks; windows with the scene warp excepted). People: a new `ped pops:` line counts the
+people the renderer had no track for: 3-53 a window, mean first sight 18-33 blocks, 0-2 of them
+in the picture within 10 blocks (people stepping out of doors and cars). Props now appear at 48
+blocks, a quarter into the fog. Buildings are the whole map's static mesh and never pop.
+
+### Still open
+
+- Car dents and door splits (`car_bodies.cpp` `DentedModelFor`, `DoorSplitFor`) are derived on
+  the render thread the first time a car reaches a new dent step or opens a door: 20-70 ms, the
+  largest `cars` spikes after this pass (33 copies in a 100 s Downtown drive with crashes).
+  Building them on a worker thread, drawing the previous step until ready, would remove them.
+- GTA2's own step and `present` spike when the three CPUs are shared with an encoder; without
+  the recorder the frame holds the cap (p99 interval 33.5 ms).
+- A crowd's posing reaches 10-14 ms in the worst Residential frames.

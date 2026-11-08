@@ -1197,6 +1197,7 @@ void Renderer::DrawWorld(const Camera& camera) {
 // that writes no pixels, so the uploads happen a few per frame in the first
 // seconds after a level loads instead. Returns what is still to do.
 int Renderer::WarmTileTextures(int perFrame) {
+    if (device_ && vertexBuffer_) sky_.Warm(device_);   // nothing once built
     if (!device_ || warmCursor_ >= textures_.size()) return 0;
     struct V { float x, y, z, rhw, u, v; };
     const V quad[4] = {{0.0f, 0.0f, 0.5f, 1.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.5f, 1.0f, 1.0f, 0.0f},

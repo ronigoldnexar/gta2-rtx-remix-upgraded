@@ -13,6 +13,7 @@
 
 #include "../../src/gta2_map.h"
 #include "car_bodies.h"
+#include "compat.h"
 #include "game_access.h"
 #include "log.h"
 #include "remix_api.h"
@@ -56,14 +57,41 @@ float WrapAngle(float a) {
 }
 
 // A read that cannot fault, for pointers that came out of a scan rather than
-// off a known structure.
+// off a known structure. It was ReadProcessMemory on every read, which under Wine
+// is a wineserver round trip: the player locator walks the vehicle list at the
+// wheel (VehicleDrivenBy), and that cost 3-4 ms of every frame and 20-70 ms when
+// the server was busy (PERF-2, cam_locate in the frame log). Now the region an
+// address lies in is checked once with VirtualQuery (committed, readable, no guard
+// page) and remembered; reads inside a known region are plain loads under the
+// fault guard, which also covers a region freed since.
+struct ReadableRange { uintptr_t lo, hi; };
+ReadableRange g_readable[64];
+int g_readableCount = 0, g_readableNext = 0;
+unsigned g_readableCalls = 0;
+bool KnownReadable(uintptr_t address, size_t bytes) {
+    if (++g_readableCalls >= 65536) { g_readableCalls = 0; g_readableCount = 0; g_readableNext = 0; }   // look again now and then
+    for (int i = 0; i < g_readableCount; ++i) {
+        if (address >= g_readable[i].lo && address + bytes <= g_readable[i].hi) return true;
+    }
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!VirtualQuery(reinterpret_cast<LPCVOID>(address), &mbi, sizeof mbi)) return false;
+    const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE |
+                           PAGE_EXECUTE_WRITECOPY;
+    if (mbi.State != MEM_COMMIT || !(mbi.Protect & readable) || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return false;
+    const uintptr_t lo = reinterpret_cast<uintptr_t>(mbi.BaseAddress), hi = lo + mbi.RegionSize;
+    if (address + bytes > hi) return false;
+    g_readable[g_readableNext] = {lo, hi};
+    g_readableNext = (g_readableNext + 1) % 64;
+    if (g_readableCount < 64) ++g_readableCount;
+    return true;
+}
 template <typename T>
 bool ReadAt(uintptr_t address, T* out) {
     if (address < 0x10000 || address >= 0x7FFE0000) return false;
-    SIZE_T got = 0;
-    return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<LPCVOID>(address), out,
-                             sizeof(T), &got) &&
-           got == sizeof(T);
+    if (!KnownReadable(address, sizeof(T))) return false;
+    bool ok = true;
+    GTA2_TRY { memcpy(out, reinterpret_cast<const void*>(address), sizeof(T)); } GTA2_EXCEPT { ok = false; }
+    return ok;
 }
 
 bool Plausible(uintptr_t address) {
@@ -1930,7 +1958,23 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         const float spanFlat = std::hypot(span.x, span.z);
         const float minPull = inVehicle ? 1.4f + 0.5f * extraLength_ + 0.5f * extraHeight_ : 0.5f;
         float wantLift = 0.0f;
-        if (spanLength > 1e-3f && spanFlat > 1e-3f) {
+        // Something overhead (a sign gantry, a railway bridge over the road): the camera
+        // goes down under it at the same distance, and neither pulls in nor swings up.
+        // Before, the line to the camera met the gantry, the camera was pulled 1-4 blocks
+        // toward the car in one frame (the ease allows a block of lag) and then craned up
+        // over it, every time a car passed under one (PERF-2, Downtown carriageway).
+        bool under = false;
+        if (desired.y > pivot.y + 0.1f && reachTo(pivot, desired) < 0.999f) {
+            for (int k = 1; k <= 4 && !under; ++k) {
+                gta2::Vec3 lower = desired;
+                lower.y = desired.y - (desired.y - (pivot.y + 0.05f)) * static_cast<float>(k) / 4.0f;
+                // only a true overhead: the ground beneath the camera's spot is open at the car's level
+                if (reachTo(pivot, lower) >= 0.999f) { desired = lower; under = true; }
+            }
+        }
+        if (under) {
+            liftAngle_ += (0.0f - liftAngle_) * (1.0f - std::exp(-dt / 0.6f));
+        } else if (spanLength > 1e-3f && spanFlat > 1e-3f) {
             const float a0 = std::atan2(span.y, spanFlat);
             const float aMax = (std::max)(a0, 75.0f * kDegToRad);
             auto at = [&](float a) {
@@ -2028,7 +2072,23 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // and a hand's breadth clear of one, so the near plane does not enter it.
     if (s.tpCollide && q.blocked) {
         gta2::Vec3 e{eyeX_, eyeY_, eyeZ_};
-        const float t = reachTo(pivot, e);
+        float t = reachTo(pivot, e);
+        if (t < 1.0f && desired.y < e.y) {
+            // On its way down under an overhead (above): the eased eye at the wanted
+            // height first, rather than pulled in along the ray.
+            const gta2::Vec3 lower{e.x, desired.y, e.z};
+            if (reachTo(pivot, lower) >= 1.0f) { e = lower; t = 1.0f; }
+        }
+        if (t < 1.0f) {
+            // Cut off by a corner on its way (the car turning past a building): the nearest
+            // point toward the wanted spot that the car can see, rather than pulled in along
+            // the ray, which put the camera a block from the car for one frame and back the
+            // next (PERF-2: 10-20 such one-frame dips a minute while driving).
+            for (int k = 1; k <= 4 && t < 1.0f; ++k) {
+                const gta2::Vec3 toward = e + (desired - e) * (static_cast<float>(k) / 4.0f);
+                if (reachTo(pivot, toward) >= 1.0f) { e = toward; t = 1.0f; }
+            }
+        }
         if (t < 1.0f) e = pivot + (e - pivot) * t;
         constexpr float kRadius = 0.1f;
         auto clear = [&](const gta2::Vec3& p) {

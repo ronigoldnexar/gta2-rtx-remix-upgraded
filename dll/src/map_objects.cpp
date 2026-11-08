@@ -162,6 +162,10 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             const float wy = cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1];
             const float wz = cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2];
             if (BehindView(wx, wy, wz, 1.5f)) continue;
+            // beside the picture (PERF-2): the model's bounding sphere round the quad's centre
+            const float r = 0.5f * scale * std::sqrt(model.Height() * model.Height() + model.Width() * model.Width() +
+                                                     model.Length() * model.Length());
+            if (OutsideViewFrustum(wx, wy + 0.5f * model.Height() * scale, wz, r + 0.25f)) continue;
         }
         fit.m[3][0] = cx; fit.m[3][1] = cy - model.boundsMin.y * scale; fit.m[3][2] = cz; fit.m[3][3] = 1.0f;
         {

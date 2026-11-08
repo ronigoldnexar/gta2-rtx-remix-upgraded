@@ -40,3 +40,4 @@ assets/models/human_*
 
 # Every Remix material layer's textures (the 64 px keyed layer too)
 package/rtx-remix/mods/*/textures/
+linux/docker/nv_cache_gl/

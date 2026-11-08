@@ -16,6 +16,15 @@ run) shift;;
 esac
 PRIO=5; NAME=run
 while [ $# -gt 0 ]; do case "$1" in -p) PRIO=$2; shift 2;; -n) NAME=$2; shift 2;; --) shift; break;; *) break;; esac; done
+# The player's container (gamerun/play.sh, PLAY_CPUSET=5-7) owns CPUs 5-7: a game container started
+# here without a CPU set of its own is pinned to GAME_CPUSET (0-4), so a scripted run can never take
+# the player's cores (PERF-2: unpinned runs held CPUs 5-7 at 75-97 % while the player drove).
+# GAME_CPUSET= (empty) leaves the command alone.
+GAME_CPUSET=${GAME_CPUSET-0-4}
+if [ -n "$GAME_CPUSET" ] && [[ " $* " == *" docker run "* ]] && [[ " $* " != *"--cpuset-cpus"* ]]; then
+  args=(); done_=0; for a in "$@"; do args+=("$a"); if [ $done_ = 0 ] && [ "$a" = run ] && [ "${args[-2]:-}" = docker ]; then args+=("--cpuset-cpus=$GAME_CPUSET"); done_=1; fi; done
+  set -- "${args[@]}"
+fi
 T="$Q/$(printf %02d "$PRIO")-$(date +%s%N)-$$"; printf '%s\n%s %s\n' "$$" "$NAME" "$*" > "$T"
 trap 'rm -f "$T"' EXIT
 while true; do

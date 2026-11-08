@@ -71,6 +71,10 @@ public:
               const SkyColours& colours, float blend, double seconds);
     void Release();
 
+    // Builds the cloud and glow textures now (the cloud noise is ~100 ms of CPU), so the
+    // first street-view frame does not (PERF-2: the sky phase read 130 ms there).
+    void Warm(IDirect3DDevice9* device) { Ensure(device); }
+
 private:
     bool Ensure(IDirect3DDevice9* device);
     void BuildDome();

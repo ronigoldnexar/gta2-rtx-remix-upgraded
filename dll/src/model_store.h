@@ -185,7 +185,7 @@ const double* ModelDrawStats();
 // Creates and uploads up to `perFrame` of the models' textures that have not
 // been used yet (no visible draw), so a model's first appearance costs nothing
 // extra. Returns how many are still to do; call every frame until it is 0.
-int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame);
+int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double budgetMs = 2.0);
 // Binds a texture in a draw that writes no pixels, for the driver to upload it.
 void WarmTexture(IDirect3DDevice9* device, IDirect3DTexture9* texture);
 void ModelsBeginFrame();

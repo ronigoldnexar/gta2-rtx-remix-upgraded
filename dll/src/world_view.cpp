@@ -17,6 +17,7 @@
 #include "../../src/world_mesh.h"
 #include "debug_overlay.h"
 #include "frame_limiter.h"
+#include "frame_log.h"
 #include "game_access.h"
 #include "compat.h"
 #include "game_save.h"
@@ -48,6 +49,8 @@ struct FrameTimer {
     int hitchLoggedOurs = 0;
 };
 FrameTimer g_frameTimer;
+double g_solverMs = 0.0;
+double g_camLocateMs = 0.0, g_camProbesMs = 0.0;   // UpdateCamera: the player locator; the state lines and probes   // the chase/first-person camera solver's share of UpdateCamera (frame log)
 double QpcMs(LARGE_INTEGER a, LARGE_INTEGER b) {
     static double toMs = 0.0;
     if (toMs == 0.0) {
@@ -749,13 +752,33 @@ bool WorldView::PanelDistance(float x, float y, float z, float* distance) const 
     // chase camera resting inside its post sees a black bar across the frame
     // just as it did inside a railing; the post counts as a panel too. Only the
     // lamps of this block and its neighbours can be near.
-    for (const gta2::Vec3& at : MapLamps()) {
+    // The lamps by map cell, built once (PERF-2: this ran over every lamp of the map for
+    // each of the chase camera's clearance tests, 1-4 ms a frame in Industrial).
+    static std::vector<std::vector<uint16_t>> lampGrid;
+    static size_t lampGridFrom = static_cast<size_t>(-1);
+    const std::vector<gta2::Vec3>& lamps = MapLamps();
+    if (lampGridFrom != lamps.size()) {
+        lampGrid.assign(static_cast<size_t>(gta2::kMapWidth) * gta2::kMapHeight, {});
+        for (size_t k = 0; k < lamps.size() && k < 65535; ++k) {
+            const int gx = static_cast<int>(std::floor(lamps[k].x)), gz = static_cast<int>(std::floor(lamps[k].z));
+            if (gx >= 0 && gx < gta2::kMapWidth && gz >= 0 && gz < gta2::kMapHeight)
+                lampGrid[static_cast<size_t>(gz) * gta2::kMapWidth + gx].push_back(static_cast<uint16_t>(k));
+        }
+        lampGridFrom = lamps.size();
+    }
+    const int cellX = static_cast<int>(std::floor(x)), cellZ = static_cast<int>(std::floor(z));
+    for (int gz = cellZ - 2; gz <= cellZ + 2; ++gz)
+    for (int gx = cellX - 2; gx <= cellX + 2; ++gx) {
+    if (gx < 0 || gx >= gta2::kMapWidth || gz < 0 || gz >= gta2::kMapHeight) continue;
+    for (uint16_t k : lampGrid[static_cast<size_t>(gz) * gta2::kMapWidth + gx]) {
+        const gta2::Vec3& at = lamps[k];
         if (std::fabs(at.x - x) > 1.5f || std::fabs(at.z - z) > 1.5f) continue;
         if (at.y - y > 3.5f || y - at.y > 1.0f) continue;   // the post stands below the lamp
         const float dx = at.x - x, dz = at.z - z;
         const float d = std::sqrt(dx * dx + dz * dz) - 0.06f;   // the post's own radius
         best = (std::min)(best, (std::max)(d, 0.0f));
         any = true;
+    }
     }
     // The street furniture placed by rule (bins, benches, meters, signs): the
     // same clearance, from the footprints DrawProps kept.
@@ -1452,7 +1475,15 @@ void WorldView::UpdateCamera() {
     QueryPerformanceCounter(&counter);
     QueryPerformanceFrequency(&frequency);
     const double now = static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
-    const float dt = camSettled_ ? static_cast<float>(now - camTime_) : 0.0f;
+    // GTA2 moves everything one fixed step per rendered frame and scales nothing by
+    // time, so with the frame limiter on the camera follows in the same steps: a frame
+    // that came 10 ms late moved the world no further, and a camera eased by the wall
+    // clock then jumped ahead of it (PERF-2: at a steady speed the chase camera's
+    // per-frame step ranged 0.08-0.21 blocks for a car moving 0.13-0.15). Uncapped, the
+    // wall clock as before.
+    const bool stepLocked = FrameLimitFps() > 0.0f;
+    const float kGameStep = 1.0f / 30.0f;
+    const float dt = camSettled_ ? (stepLocked ? kGameStep : static_cast<float>(now - camTime_)) : 0.0f;
     camTime_ = now;
 
     // A chase or first-person view, when one is up: the camera is placed from
@@ -1460,13 +1491,16 @@ void WorldView::UpdateCamera() {
     // view_modes.h. The classic filter below restarts from the game's camera
     // when the view comes back to it.
     {
-        const float viewDt = viewTime_ > 0.0 ? static_cast<float>(now - viewTime_) : 0.0f;
+        const float viewDt = viewTime_ > 0.0 ? (stepLocked ? kGameStep : static_cast<float>(now - viewTime_)) : 0.0f;
         viewTime_ = now;
         const ViewMode mode = CurrentViewMode();
         const bool wantView = mode != ViewMode::Classic && worldUploaded_;
         PlayerState player;
         if (worldUploaded_) LocatePlayer(&player);
         g_viewPlayer = player;
+        LARGE_INTEGER locatedAt;
+        QueryPerformanceCounter(&locatedAt);
+        g_camLocateMs = QpcMs(counter, locatedAt);
         // Where he is, twice a second, in the game's own frame: for reading a
         // session back, and for driving the game from a script (the test
         // harness steers by this line).
@@ -1655,7 +1689,12 @@ void WorldView::UpdateCamera() {
         queries.propPush = &WorldView::PropThunk;
         queries.roadArrows = &WorldView::ArrowsThunk;
         ViewModeSetQueries(queries);
+        LARGE_INTEGER solveT0, solveT1;
+        QueryPerformanceCounter(&solveT0);
+        g_camProbesMs = QpcMs(locatedAt, solveT0);
         const bool placed = wantView && viewSolver_.Update(player, queries, viewDt, &camera_);
+        QueryPerformanceCounter(&solveT1);
+        g_solverMs = QpcMs(solveT0, solveT1);
         if (viewSolver_.Status() != g_viewStatus) {
             // Every change of what the solver is doing, for reading a session back.
             Log("view: %s (player %s, source %s)", viewSolver_.Status(), player.valid ? "found" : "not found",
@@ -2027,7 +2066,10 @@ void WorldView::DrawSkyAndShading() {
 }
 
 void WorldView::RenderFrame() {
+    LARGE_INTEGER entryStamp;
+    QueryPerformanceCounter(&entryStamp);
     if (!EnsureDevice()) return;
+    if (FrameLogEnabled()) FrameLogAttachDevice(renderer_.Device());
 
     if (window_ != gameWindow_) {
         // The game pumps its own window, not ours, and an unpumped window is a
@@ -2055,11 +2097,17 @@ void WorldView::RenderFrame() {
         }
     }
 
+    LARGE_INTEGER preStamp[6] = {};
+    QueryPerformanceCounter(&preStamp[0]);
     EnsureWorldLoaded();
+    QueryPerformanceCounter(&preStamp[1]);
     RefreshAnimatedTiles();
+    QueryPerformanceCounter(&preStamp[2]);
     // The view's own key and, in a chase or first-person view, the mouse.
     ViewModePollInput(window_, DebugMenuVisible(), worldUploaded_);
+    QueryPerformanceCounter(&preStamp[3]);
     UpdateCamera();
+    QueryPerformanceCounter(&preStamp[4]);
 
     // The game's own screen size is what its HUD coordinates are expressed in,
     // and it is not our back buffer size. Prefer the camera struct, which holds
@@ -2093,6 +2141,7 @@ void WorldView::RenderFrame() {
 
     // The sky. Runs whether or not Remix answered - the clock is ours and the
     // menu shows it either way - and pushes the sun when it can.
+    QueryPerformanceCounter(&preStamp[5]);
     TimeOfDayUpdate();
 
     // Lights for the effects the game draws but never lights, read straight off
@@ -2120,6 +2169,7 @@ void WorldView::RenderFrame() {
     // now the list is complete and can be matched against what Remix already has.
     // Timed, for the benchmark: this is where every CreateLight crosses the bridge.
     LARGE_INTEGER lightTimer[4] = {};
+    LARGE_INTEGER skyStamp = {};
     QueryPerformanceCounter(&lightTimer[0]);
     LightsReconcile();
     QueryPerformanceCounter(&lightTimer[1]);
@@ -2129,8 +2179,9 @@ void WorldView::RenderFrame() {
         // The street views' sky, and the fog and sun that go with it; nothing
         // in the classic view.
         DrawSkyAndShading();
+        QueryPerformanceCounter(&skyStamp);
         renderer_.DrawWorld(camera_);
-        renderer_.WarmTileTextures(6);   // nothing once every tile has been drawn with
+        renderer_.WarmTileTextures(CurrentViewMode() == ViewMode::Classic ? 24 : 6);   // nothing once every tile has been drawn with
         QueryPerformanceCounter(&stamp[2]);
         // Sprites and the captured block shapes are real world geometry, so they
         // are depth tested against the static mesh rather than painted over it.
@@ -2260,6 +2311,50 @@ void WorldView::RenderFrame() {
                 Log("hitch @%d: car bodies: measured %.0f (%.1f ms) built %.0f (%.1f ms) model draws %.0f (%.1f ms) sprite bodies %.0f (%.1f ms)",
                     frameCount_, c[4], c[0], c[5], c[1], c[6], c[2], c[7], c[3]);
             }
+        }
+        if (FrameLogEnabled()) {
+            // GTA2DX9_FRAME_LOG: the same stages, one line a frame (frame_log.h).
+            FrameLogRecord r = {};
+            r.whole = whole;
+            r.pre = t.last.QuadPart ? QpcMs(entryStamp, stamp[0]) : 0.0;
+            r.game = t.last.QuadPart ? QpcMs(t.last, entryStamp) : 0.0;
+            r.lights = ms[1];
+            r.preParts[0] = QpcMs(entryStamp, preStamp[1]);   // device, window, world load
+            r.preParts[1] = QpcMs(preStamp[1], preStamp[2]);  // animated tiles
+            r.preParts[2] = QpcMs(preStamp[2], preStamp[3]);  // input
+            r.preParts[3] = QpcMs(preStamp[3], preStamp[4]);  // camera, player locator
+            r.preParts[4] = QpcMs(preStamp[4], preStamp[5]);  // HUD size, Remix, F4 menu
+            r.preParts[5] = QpcMs(preStamp[5], stamp[0]);     // time of day
+            r.sky = skyStamp.QuadPart ? QpcMs(stamp[1], skyStamp) : 0.0;
+            r.world = skyStamp.QuadPart && stamp[2].QuadPart ? QpcMs(skyStamp, stamp[2]) : ms[2];
+            const double* d = LiveDrawStageMs();
+            for (int i = 0; i < 9; ++i) r.sprites[i] = stamp[3].QuadPart ? d[i] : 0.0;
+            r.ui = ms[4];
+            r.lightsDraw = ms[5];
+            r.present = ms[6];
+            r.wait = ms[7];
+            const double* m = ModelDrawStats();
+            r.posing = m[0];
+            r.fills = m[1];
+            r.modelDraws = static_cast<int>(m[3]);
+            r.skinned = static_cast<int>(m[4]);
+            const double* c = CarBodiesStats();
+            r.carMeasured = static_cast<int>(c[4]);
+            r.carBuilt = static_cast<int>(c[5]);
+            r.view = !g_viewActive ? 0 : (CurrentViewMode() == ViewMode::FirstPerson ? 2 : (CurrentViewMode() == ViewMode::Classic ? 0 : 1));
+            r.driving = g_viewPlayer.valid && g_viewPlayer.inVehicle ? 1 : 0;
+            r.px = g_viewPlayer.valid ? g_viewPlayer.x : 0.0f;
+            r.py = g_viewPlayer.valid ? g_viewPlayer.y : 0.0f;
+            r.pz = g_viewPlayer.valid ? g_viewPlayer.z : 0.0f;
+            r.cx = camera_.Position().x;
+            r.cy = camera_.Position().y;
+            r.cz = camera_.Position().z;
+            r.spriteQuads = live_.SpriteQuads();
+            r.entryQpc = entryStamp.QuadPart;
+            r.solver = g_solverMs;
+            r.camLocate = g_camLocateMs;
+            r.camProbes = g_camProbesMs;
+            FrameLogEndFrame(static_cast<uint32_t>(frameCount_), r);
         }
         if (t.frames >= 256) {
             Log("frame times, avg/worst ms over %d frames | game %.1f/%.1f lights %.1f/%.1f world %.1f/%.1f "
