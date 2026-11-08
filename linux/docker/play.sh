@@ -5,7 +5,9 @@
 #   remix : RTX Remix path tracing (image gta2-play-remix; ~3 min shader warm-up)
 # Then open http://localhost:<port>/ (from another machine: ssh -L <port>:localhost:<port> <host>).
 # Env: PLAY_PASSWORD (VNC password), PLAY_DEVTOOLS=1 (F9/F11 warps), GPU (device index, 0),
-#      SWAP_LEVEL=bil|ste (start in another district's map), INI_SED / SETTINGS_SED as in the run scripts.
+#      SWAP_LEVEL=bil|ste (start in another district's map), INI_SED / SETTINGS_SED as in the run scripts,
+#      PLAY_X11VNC / PLAY_VNC_NICE (the VNC encoder's flags and niceness, see play_game.sh),
+#      PLAY_FRAME_LOG=1 (per-frame log to out/play-<port>/frames.tsv and player state lines, for perf3_play.sh).
 set -u
 cd "$(dirname "$0")/.."
 MODE=${1:-plain}; PORT=${2:-6080}; NAME=${NAME:-gta2-play-$PORT}
@@ -28,7 +30,7 @@ mkdir -p out/play-$PORT
 # freeze for 300-700 ms (PERF-2). With the cache kept they are read back instead.
 mkdir -p "$WORK/nv_cache_gl"
 $DOCKER run -d --name "$NAME" --gpus "\"device=${GPU:-0}\"" -e NVIDIA_DRIVER_CAPABILITIES=all --cpus=${CPUS:-7} ${PLAY_CPUSET:+--cpuset-cpus="$PLAY_CPUSET"} -e SCREEN_W=${SCREEN_W:-$([ "${PLAY_RES:-}" = low ] && echo 960 || echo 1280)} -e SCREEN_H=${SCREEN_H:-$([ "${PLAY_RES:-}" = low ] && echo 540 || echo 720)} \
-  -p "${PLAY_BIND:-127.0.0.1}:$PORT:$PORT" ${PLAY_VNC:+-p 127.0.0.1:$PLAY_VNC:5900} -e PLAY_PORT=$PORT -e PLAY_MOUSE="${PLAY_MOUSE:-0}" ${GTA2DX9_LOG_CAMERA:+-e GTA2DX9_LOG_CAMERA=$GTA2DX9_LOG_CAMERA} -e PLAY_PASSWORD="${PLAY_PASSWORD:-}" -e PLAY_DEVTOOLS="${PLAY_DEVTOOLS:-0}" \
+  -p "${PLAY_BIND:-127.0.0.1}:$PORT:$PORT" ${PLAY_VNC:+-p 127.0.0.1:$PLAY_VNC:5900} -e PLAY_PORT=$PORT -e PLAY_MOUSE="${PLAY_MOUSE:-0}" ${GTA2DX9_LOG_CAMERA:+-e GTA2DX9_LOG_CAMERA=$GTA2DX9_LOG_CAMERA} ${PLAY_FRAME_LOG:+-e 'GTA2DX9_FRAME_LOG=Z:\out\frames.tsv' -e GTA2DX9_STATE_EVERY=5} -e PLAY_PASSWORD="${PLAY_PASSWORD:-}" -e PLAY_DEVTOOLS="${PLAY_DEVTOOLS:-0}" -e PLAY_X11VNC="${PLAY_X11VNC:-}" -e PLAY_VNC_NICE="${PLAY_VNC_NICE:-0}" \
   -e SWAP_LEVEL="${SWAP_LEVEL:-}" -e INI_SED="${INI_SED:-}" -e SETTINGS_SED="${SETTINGS_SED:-}" -e MODS_HD="${MODS_HD:-1}" \
   -v "$WORK:/work" -v "$PWD/game:/game:ro" -v "$REL:/release:ro" -v "$STAGE:/stage:ro" -v "$RMX:/remix:ro" -v "$PKG:/package:ro" -v "$PWD/out/play-$PORT:/out" \
   -v "$WORK/nv_cache_gl:/nvcache" -e __GL_SHADER_DISK_CACHE=1 -e __GL_SHADER_DISK_CACHE_PATH=/nvcache -e __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1 \

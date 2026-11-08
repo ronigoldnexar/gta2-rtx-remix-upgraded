@@ -107,7 +107,9 @@ bool ModelsAvailable();
 bool ModelIsKnown(const Model* model);
 // Adds a model derived from another (a hood-only copy of a car body, say) to the
 // store, so it is drawn and cached like the rest; returns its stable address.
-const Model* ModelRegisterDerived(Model&& model);
+// dynamicBuffers: its meshes are drawn from dynamic default-pool buffers (for a
+// model made while the game runs, whose first draw is mid-frame; see BuffersFor).
+const Model* ModelRegisterDerived(Model&& model, bool dynamicBuffers = false);
 // The world matrix of every node in the rest pose.
 void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out);
 // The model for a car sprite number, or null; the pedestrian model, or null.

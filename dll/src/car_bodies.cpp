@@ -6,7 +6,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <map>
+#include <set>
+#include <unordered_map>
 #include <tuple>
 
 #include "compat.h"
@@ -30,7 +33,7 @@ std::map<int, gta2::CarInfo> g_info;
 int g_built = 0, g_drawn = 0;
 bool g_wreckTest = false;   // [devtools] wreck_models=1: every car drawn as a wreck, to check the models
 int g_forceModel = -1;      // [devtools] force_car_model=N: every traffic car drawn as model N (re-read once a second)
-int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage byte N (re-read once a second)
+int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
 int g_logNoses = -1;        // GTA2DX9_LOG_CAR_NOSES=1: a line per drawn car every 15 frames, for tools/check_car_noses.py
@@ -913,21 +916,35 @@ CabShape CabShapeFor(const Model& model, const gta2::Mat4& fit, int modelNumber)
     return cab;
 }
 
-// Dents. The game keeps a damage byte per vehicle (+0x74: 0 fresh, rising with
-// every knock, past 200 the car burns) and paints dents into the sprite; a
+// Dents. The game keeps a damage word per vehicle (int16 at +0x74: 0 fresh, rising
+// with every knock, on fire from 16000, burning hard from 25000, exploding at 32000;
+// docs/actions-3d.md "Vehicle fields") and paints dents into the sprite; a
 // model shows the same wear as a copy whose shell is pressed in by a smooth,
 // low-frequency field (three octaves of value noise over the car's own frame)
 // along normals smoothed across every seam, at most 2 % of the body length at
 // the top step, with the normals recomputed afterwards. No vertex moves on its
 // own, so nothing tears and nothing shows light through; the two paint-split
 // halves share positions, so they move together. Cached per (model, step).
+//
+// PERF-3: the dented copies and the door splits below are built on a worker
+// thread (WearThread), never on the render thread, where each cost 20-70 ms the
+// first time a car reached a new dent step or opened a door. The render thread
+// asks (DentReady / DoorReady), draws the previous dent step or the shut door
+// until the copy is there, and registers finished copies with the model store at
+// the start of the next cars stage. All four dent steps of a car model are
+// queued (at low priority) the first time that model is drawn, so a crash
+// normally finds its step already built.
 struct DentKey {
     const Model* model; int step;
     bool operator<(const DentKey& o) const { return std::tie(model, step) < std::tie(o.model, o.step); }
 };
 std::map<DentKey, const Model*> g_dents;
 constexpr int kDentSteps = 4;
-int DentStepFor(int damage) { return damage <= 0 ? 0 : (std::min)(kDentSteps, (damage + 32) / 64); }
+// The four steps from the 16-bit damage: 4000, 8000, 16000 (the game sets the car
+// alight) and 25000 (burning hard); a car under 4000 keeps its fresh shell.
+int DentStepFor(int damage) {
+    return damage >= 25000 ? 4 : damage >= 16000 ? 3 : damage >= 8000 ? 2 : damage >= 4000 ? 1 : 0;
+}
 
 uint32_t DentHash(int32_t x, int32_t y, int32_t z, uint32_t seed) {
     uint32_t h = static_cast<uint32_t>(x) * 73856093u ^ static_cast<uint32_t>(y) * 19349663u ^ static_cast<uint32_t>(z) * 83492791u ^ seed * 2654435761u;
@@ -947,10 +964,21 @@ float DentNoise(float x, float y, float z, uint32_t seed) {
     return c0 + (c1 - c0) * tz;
 }
 
-const Model* DentedModelFor(const Model& model, int step) {
-    const DentKey key{&model, step};
-    auto it = g_dents.find(key);
-    if (it != g_dents.end()) return it->second;
+// Vertices keyed by their quantised position (hashed: the accumulation order per
+// key is the vertex order either way, so the result is the same as an ordered map's).
+struct PosKey {
+    int32_t x, y, z;
+    bool operator==(const PosKey& o) const { return x == o.x && y == o.y && z == o.z; }
+};
+struct PosKeyHash {
+    size_t operator()(const PosKey& k) const {
+        return static_cast<size_t>(static_cast<uint32_t>(k.x) * 73856093u ^ static_cast<uint32_t>(k.y) * 19349663u ^ static_cast<uint32_t>(k.z) * 83492791u);
+    }
+};
+
+// The dented copy of `model` at `step`, built without touching anything shared
+// (runs on the worker thread). `moved` gets the count of vertices pressed in.
+Model BuildDented(const Model& model, int step, size_t* moved) {
     Model dented = model;
     dented.name = model.name + "#dent" + std::to_string(step);
     const float height = (std::max)(model.Height(), 0.05f);
@@ -960,12 +988,14 @@ const Model* DentedModelFor(const Model& model, int step) {
     // Positions are shared by the paint-split halves and across mesh seams:
     // key every vertex by its quantised position, and smooth the normals over
     // that key before displacing, then rebuild them from the moved faces.
-    struct PosKey { int32_t x, y, z; bool operator<(const PosKey& o) const { return std::tie(x, y, z) < std::tie(o.x, o.y, o.z); } };
     auto keyOf = [&](const ModelVertex& v) {
         const float q = 2000.0f / length;
         return PosKey{static_cast<int32_t>(std::lround(v.x * q)), static_cast<int32_t>(std::lround(v.y * q)), static_cast<int32_t>(std::lround(v.z * q))};
     };
-    std::map<PosKey, gta2::Vec3> smooth;
+    size_t vertexCount = 0;
+    for (const ModelMesh& mesh : dented.meshes) vertexCount += mesh.vertices.size();
+    std::unordered_map<PosKey, gta2::Vec3, PosKeyHash> smooth;
+    smooth.reserve(vertexCount);
     for (const ModelMesh& mesh : dented.meshes)
         for (const ModelVertex& v : mesh.vertices) {
             gta2::Vec3& n = smooth[keyOf(v)];
@@ -975,7 +1005,7 @@ const Model* DentedModelFor(const Model& model, int step) {
         const float l = std::sqrt(gta2::Dot(kv.second, kv.second));
         if (l > 1e-8f) { kv.second.x /= l; kv.second.y /= l; kv.second.z /= l; }
     }
-    size_t moved = 0;
+    *moved = 0;
     const uint32_t seed = static_cast<uint32_t>(std::hash<std::string>{}(model.name) & 0xFFFF);
     const float sx = 1.0f / (std::max)(model.Width(), 0.05f);
     for (ModelMesh& mesh : dented.meshes) {
@@ -993,11 +1023,12 @@ const Model* DentedModelFor(const Model& model, int step) {
             const gta2::Vec3& sn = smooth[keyOf(v)];
             const float depth = amplitude * f * f * wSill;
             v.x -= sn.x * depth; v.y -= sn.y * depth; v.z -= sn.z * depth;
-            ++moved;
+            ++*moved;
         }
     }
     // Normals from the moved faces, accumulated per shared position.
-    std::map<PosKey, gta2::Vec3> rebuilt;
+    std::unordered_map<PosKey, gta2::Vec3, PosKeyHash> rebuilt;
+    rebuilt.reserve(vertexCount);
     for (const ModelMesh& mesh : dented.meshes) {
         for (size_t t = 0; t + 2 < mesh.indices.size(); t += 3) {
             const ModelVertex& a = mesh.vertices[mesh.indices[t]];
@@ -1023,11 +1054,7 @@ const Model* DentedModelFor(const Model& model, int step) {
             v.nx = nn.x; v.ny = nn.y; v.nz = nn.z;
         }
     }
-    const Model* stored = ModelRegisterDerived(std::move(dented));
-    g_dents[key] = stored;
-    Log("car bodies: dented copy of %s, step %d of %d: %zu vertices pressed in, up to %.3f of the length", model.name.c_str(), step, kDentSteps, moved,
-        0.02f * static_cast<float>(step) / static_cast<float>(kDentSteps));
-    return stored;
+    return dented;
 }
 
 // Doors. A car's model is a sealed hull; when someone gets in or out the game
@@ -1042,14 +1069,18 @@ struct DoorKey {
 struct DoorSplit { const Model* body; const Model* door; };
 std::map<DoorKey, DoorSplit> g_doorSplits;
 
-DoorSplit DoorSplitFor(const Model& model, const gta2::Mat4& fit, int side, float zFront, float zRear, float roof, float halfW) {
-    const DoorKey key{&model, side, static_cast<int>(std::floor(zFront * 20.0f)), static_cast<int>(std::floor(zRear * 20.0f))};
-    auto it = g_doorSplits.find(key);
-    if (it != g_doorSplits.end()) return it->second;
-    if (g_doorSplits.size() > 64) g_doorSplits.clear();
+DoorKey DoorKeyFor(const Model& model, int side, float zFront, float zRear) {
+    return DoorKey{&model, side, static_cast<int>(std::floor(zFront * 20.0f)), static_cast<int>(std::floor(zRear * 20.0f))};
+}
+
+// The split of `model` into the body without the door panel and the panel (with
+// its inner face), built without touching anything shared (worker thread).
+void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float zFront, float zRear, float roof, float halfW,
+                    Model* bodyOut, Model* doorOut, size_t* doorTrisOut) {
     std::vector<gta2::Mat4> worlds;
     ModelRestNodeWorlds(model, &worlds);
-    Model body, door;
+    Model& body = *bodyOut;
+    Model& door = *doorOut;
     for (Model* m : {&body, &door}) {
         m->nodes = model.nodes; m->forward = model.forward;
         m->boundsMin = model.boundsMin; m->boundsMax = model.boundsMax;
@@ -1087,6 +1118,18 @@ DoorSplit DoorSplitFor(const Model& model, const gta2::Mat4& fit, int side, floa
             if (isDoor) ++doorTris;
         }
     }
+    // The door keeps only the vertices its triangles use (PERF-3: a full copy of
+    // the hull's vertices per door was most of a split's memory).
+    for (ModelMesh& mesh : door.meshes) {
+        if (mesh.indices.empty()) { mesh.vertices.clear(); continue; }
+        std::vector<uint32_t> remap(mesh.vertices.size(), UINT32_MAX);
+        std::vector<ModelVertex> used;
+        for (uint32_t& index : mesh.indices) {
+            if (remap[index] == UINT32_MAX) { remap[index] = static_cast<uint32_t>(used.size()); used.push_back(mesh.vertices[index]); }
+            index = remap[index];
+        }
+        mesh.vertices.swap(used);
+    }
     // The door's inner face is seen once it swings out: the same triangles again,
     // wound the other way with their normals flipped, so the inside is lit too.
     for (ModelMesh& mesh : door.meshes) {
@@ -1103,10 +1146,256 @@ DoorSplit DoorSplitFor(const Model& model, const gta2::Mat4& fit, int side, floa
             mesh.indices.push_back(base + mesh.indices[t]);
         }
     }
-    DoorSplit split{ModelRegisterDerived(std::move(body)), ModelRegisterDerived(std::move(door))};
-    g_doorSplits[key] = split;
-    Log("car bodies: door split of %s, side %d: %zu door triangles between z %.2f and %.2f", model.name.c_str(), side, doorTris, zRear, zFront);
-    return split;
+    *doorTrisOut = doorTris;
+}
+
+// The worker. Jobs come in two queues (urgent: a car on screen wants it now;
+// idle: the dent steps of a model seen, built ahead) and finished copies wait in
+// g_wearDone until the render thread registers them (WearCollect).
+struct WearJob {
+    bool door = false;
+    const Model* model = nullptr;
+    int step = 0;                       // dent
+    DoorKey key{};                      // door
+    gta2::Mat4 fit;
+    int side = 1;
+    float zFront = 0, zRear = 0, roof = 0, halfW = 0;
+};
+struct WearResult {
+    WearJob job;
+    Model a, b;                         // dented copy | body without the door, and the door
+    size_t count = 0;                   // vertices moved | door triangles
+    double ms = 0.0;
+};
+CRITICAL_SECTION g_wearLock;
+HANDLE g_wearWake = nullptr;
+bool g_wearStarted = false, g_wearFailed = false;
+std::deque<WearJob> g_wearUrgent, g_wearIdle;      // under g_wearLock
+std::vector<WearResult*> g_wearDone;               // under g_wearLock
+// Render thread only: what has been asked for and not collected yet, the models
+// whose dent steps were queued ahead, and what the copies hold.
+std::set<DentKey> g_dentAsked;
+std::set<DoorKey> g_doorAsked;
+std::set<const Model*> g_dentQueued;
+size_t g_wearBytes = 0, g_dentBytes = 0, g_doorBytes = 0;
+int g_wearCollected = 0, g_dentLate = 0, g_doorLate = 0;
+double g_wearWorkMs = 0.0;
+// Ahead-of-need dent copies stop being queued past this much memory (the
+// urgent ones are always built). 68 car models x 4 steps would be ~125 MB.
+constexpr size_t kDentAheadBytes = 160u << 20;
+// Door splits are per (model, dent step, side, sprite); past this much memory the
+// dented ones are no longer made (see the door in CarBodiesDraw).
+constexpr size_t kDoorSplitBytes = 64u << 20;
+
+// A copy's first draw creates its vertex and index buffers (dynamic, default pool, see
+// ModelRegisterDerived): cheap alone, but a forced door on every car in view finished a
+// dozen copies at once, and twelve buffer creations in one frame cost 170 ms on a busy
+// host (p3_fin4_wil). One new copy a frame goes on screen; the rest wait a frame or two
+// with the previous step or the shut door.
+std::set<const Model*> g_wearShown;
+uint32_t g_wearShowFrame = 0;
+int g_wearShownThisFrame = 0;
+bool WearMayShow(const Model* copy, uint32_t frame) {
+    if (g_wearShown.count(copy)) return true;
+    if (frame != g_wearShowFrame) { g_wearShowFrame = frame; g_wearShownThisFrame = 0; }
+    if (g_wearShownThisFrame >= 1) return false;
+    ++g_wearShownThisFrame;
+    g_wearShown.insert(copy);
+    return true;
+}
+uint32_t g_wearFrame = 0;   // the cars stage's frame, for WearMayShow
+
+size_t ModelBytes(const Model& m) {
+    size_t n = sizeof(Model) + m.nodes.size() * sizeof(ModelNode);
+    for (const ModelMesh& mesh : m.meshes) n += sizeof(ModelMesh) + mesh.vertices.size() * sizeof(ModelVertex) + mesh.indices.size() * sizeof(uint32_t);
+    return n;
+}
+
+DWORD WINAPI WearThread(void*) {
+    for (;;) {
+        WearJob job;
+        bool have = false, ahead = false;
+        EnterCriticalSection(&g_wearLock);
+        if (!g_wearUrgent.empty()) { job = g_wearUrgent.front(); g_wearUrgent.pop_front(); have = true; }
+        else if (!g_wearIdle.empty()) { job = g_wearIdle.front(); g_wearIdle.pop_front(); have = true; ahead = true; }
+        LeaveCriticalSection(&g_wearLock);
+        if (!have) { WaitForSingleObject(g_wearWake, 200); continue; }
+        WearResult* r = new WearResult;
+        r->job = job;
+        const double t0 = CarNowMs();
+        if (!job.door) r->a = BuildDented(*job.model, job.step, &r->count);
+        else BuildDoorSplit(*job.model, job.fit, job.side, job.zFront, job.zRear, job.roof, job.halfW, &r->a, &r->b, &r->count);
+        r->ms = CarNowMs() - t0;
+        const double ms = r->ms;
+        EnterCriticalSection(&g_wearLock);
+        g_wearDone.push_back(r);
+        LeaveCriticalSection(&g_wearLock);
+        // Work ahead of need takes at most half of one CPU: the play container has
+        // three, shared with the game's own thread, Wine's and the VNC encoder.
+        if (ahead) Sleep(static_cast<DWORD>((std::max)(5.0, ms)));
+    }
+}
+
+bool WearStart() {
+    if (g_wearStarted) return true;
+    if (g_wearFailed) return false;
+    InitializeCriticalSection(&g_wearLock);
+    g_wearWake = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    HANDLE thread = g_wearWake ? CreateThread(nullptr, 0, WearThread, nullptr, 0, nullptr) : nullptr;
+    if (!thread) {
+        g_wearFailed = true;
+        Log("car bodies: no wear thread; dents and door splits are built on the render thread");
+        return false;
+    }
+    SetThreadPriority(thread, THREAD_PRIORITY_LOWEST);
+    CloseHandle(thread);
+    g_wearStarted = true;
+    Log("car bodies: dents and door splits are built on a thread of their own");
+    return true;
+}
+
+void WearPush(const WearJob& job, bool urgent) {
+    EnterCriticalSection(&g_wearLock);
+    if (urgent) g_wearUrgent.push_back(job); else g_wearIdle.push_back(job);
+    LeaveCriticalSection(&g_wearLock);
+    SetEvent(g_wearWake);
+}
+
+// Finished copies into the model store and the caches (render thread, the start
+// of every cars stage; a move each, no copying).
+void WearCollect() {
+    if (!g_wearStarted) return;
+    // At most ~2 ms of it a frame (each copy is a log line and a few set inserts; a
+    // forced door on every car in view finishes a dozen at once): the rest wait.
+    std::vector<WearResult*> done;
+    const double t0 = CarNowMs();
+    EnterCriticalSection(&g_wearLock);
+    done.swap(g_wearDone);
+    LeaveCriticalSection(&g_wearLock);
+    for (size_t i = 0; i < done.size(); ++i) {
+        if (i > 0 && CarNowMs() - t0 > 2.0) {
+            EnterCriticalSection(&g_wearLock);
+            g_wearDone.insert(g_wearDone.begin(), done.begin() + static_cast<std::ptrdiff_t>(i), done.end());
+            LeaveCriticalSection(&g_wearLock);
+            break;
+        }
+        WearResult* r = done[i];
+        ++g_wearCollected;
+        g_wearWorkMs += r->ms;
+        if (!r->job.door) {
+            const DentKey key{r->job.model, r->job.step};
+            const size_t bytes = ModelBytes(r->a);
+            g_dentBytes += bytes;
+            g_wearBytes += bytes;
+            g_dents[key] = ModelRegisterDerived(std::move(r->a), true);
+            g_dentAsked.erase(key);
+            if (g_wearCollected <= 400)
+                Log("car bodies: dented copy of %s, step %d of %d: %zu vertices pressed in, up to %.3f of the length (worker %.1f ms, %.1f MB of copies)",
+                    r->job.model->name.c_str(), r->job.step, kDentSteps, r->count, 0.02f * static_cast<float>(r->job.step) / static_cast<float>(kDentSteps),
+                    r->ms, static_cast<double>(g_wearBytes) / (1 << 20));
+        } else {
+            const size_t bytes = ModelBytes(r->a) + ModelBytes(r->b);
+            g_doorBytes += bytes;
+            g_wearBytes += bytes;
+            DoorSplit split{ModelRegisterDerived(std::move(r->a), true), ModelRegisterDerived(std::move(r->b), true)};
+            g_doorSplits[r->job.key] = split;
+            g_doorAsked.erase(r->job.key);
+            if (g_wearCollected <= 400)
+                Log("car bodies: door split of %s, side %d: %zu door triangles between z %.2f and %.2f (worker %.1f ms, %.1f MB of copies)",
+                    r->job.model->name.c_str(), r->job.side, r->count, r->job.zRear, r->job.zFront, r->ms, static_cast<double>(g_wearBytes) / (1 << 20));
+        }
+        delete r;
+    }
+}
+
+// The four dent steps of a model, queued ahead of need the first time it is drawn.
+void DentQueueAhead(const Model& model) {
+    if (!g_wearStarted || !g_dentQueued.insert(&model).second) return;
+    if (g_dentBytes + 4 * ModelBytes(model) > kDentAheadBytes) return;
+    for (int step = 1; step <= kDentSteps; ++step) {
+        const DentKey key{&model, step};
+        if (g_dents.count(key) || !g_dentAsked.insert(key).second) continue;
+        WearJob job;
+        job.model = &model;
+        job.step = step;
+        WearPush(job, false);
+    }
+}
+
+// The dented copy when it is built; otherwise it is asked for (first in line)
+// and null comes back.
+const Model* DentReady(const Model& model, int step) {
+    const DentKey key{&model, step};
+    auto it = g_dents.find(key);
+    if (it != g_dents.end()) return WearMayShow(it->second, g_wearFrame) ? it->second : nullptr;
+    if (!WearStart()) {
+        // No thread: build here, as before PERF-3.
+        size_t moved = 0;
+        const double t0 = CarNowMs();
+        Model dented = BuildDented(model, step, &moved);
+        g_wearWorkMs += CarNowMs() - t0;
+        g_dentBytes += ModelBytes(dented);
+        g_wearBytes += ModelBytes(dented);
+        return g_dents[key] = ModelRegisterDerived(std::move(dented), true);
+    }
+    if (g_dentAsked.insert(key).second) {
+        WearJob job;
+        job.model = &model;
+        job.step = step;
+        WearPush(job, true);
+    } else {
+        // Already queued ahead: move it to the front.
+        EnterCriticalSection(&g_wearLock);
+        for (auto q = g_wearIdle.begin(); q != g_wearIdle.end(); ++q) {
+            if (!q->door && q->model == &model && q->step == step) { g_wearUrgent.push_front(*q); g_wearIdle.erase(q); break; }
+        }
+        LeaveCriticalSection(&g_wearLock);
+    }
+    ++g_dentLate;
+    return nullptr;
+}
+
+// The best dented copy there is for a car that wants `step`: that step, else the
+// highest lower step already built, else the model itself.
+const Model* DentedModelFor(const Model& model, int step) {
+    if (const Model* m = DentReady(model, step)) return m;
+    for (int s = step - 1; s >= 1; --s) {
+        auto it = g_dents.find(DentKey{&model, s});
+        if (it != g_dents.end() && g_wearShown.count(it->second)) return it->second;
+    }
+    return &model;
+}
+
+// The door split when it is built; otherwise it is asked for and false comes back.
+bool DoorReady(const Model& model, const gta2::Mat4& fit, int side, float zFront, float zRear, float roof, float halfW, DoorSplit* out) {
+    const DoorKey key = DoorKeyFor(model, side, zFront, zRear);
+    auto it = g_doorSplits.find(key);
+    if (it != g_doorSplits.end()) {
+        // Both halves count as one copy on screen (the door half is a few hundred triangles).
+        if (!WearMayShow(it->second.body, g_wearFrame)) return false;
+        g_wearShown.insert(it->second.door);
+        *out = it->second;
+        return true;
+    }
+    WearJob job;
+    job.door = true;
+    job.model = &model;
+    job.key = key;
+    job.fit = fit;
+    job.side = side;
+    job.zFront = zFront; job.zRear = zRear; job.roof = roof; job.halfW = halfW;
+    if (!WearStart()) {
+        Model body, door;
+        size_t tris = 0;
+        BuildDoorSplit(model, fit, side, zFront, zRear, roof, halfW, &body, &door, &tris);
+        g_doorBytes += ModelBytes(body) + ModelBytes(door);
+        g_wearBytes += ModelBytes(body) + ModelBytes(door);
+        *out = g_doorSplits[key] = DoorSplit{ModelRegisterDerived(std::move(body), true), ModelRegisterDerived(std::move(door), true)};
+        return true;
+    }
+    if (g_doorAsked.insert(key).second) WearPush(job, true);
+    ++g_doorLate;
+    return false;
 }
 
 // Turrets (POLICE-3D). The tank's gun turret and the fire truck's roof gear
@@ -1187,7 +1476,7 @@ TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof
 }
 
 // How far each car's door stands open (0 shut, 1 fully), by sprite object.
-struct DoorState { float open = 0.0f; int side = 1; uint32_t frame = 0; };
+struct DoorState { float open = 0.0f; int side = 1; uint32_t frame = 0; DoorSplit last{nullptr, nullptr}; int lastSide = 0; };
 std::map<uintptr_t, DoorState> g_doors;
 int g_damageLogged = 0;
 
@@ -1382,6 +1671,11 @@ void CarBodiesSetInfo(const std::vector<gta2::CarInfo>& infos) {
     }
     Log("car bodies: %u car models measured for %u sprites", static_cast<unsigned>(infos.size()),
         static_cast<unsigned>(g_info.size()));
+    if (ModelsAvailable()) WearStart();
+    if (g_wearCollected || g_dentLate || g_doorLate)
+        Log("car bodies: wear copies so far: %d built on the worker (%.0f ms of its time), %.1f MB (dents %.1f, doors %.1f); frames a car waited: dent %d, door %d",
+            g_wearCollected, g_wearWorkMs, static_cast<double>(g_wearBytes) / (1 << 20), static_cast<double>(g_dentBytes) / (1 << 20),
+            static_cast<double>(g_doorBytes) / (1 << 20), g_dentLate, g_doorLate);
 }
 
 bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth) {
@@ -1672,6 +1966,14 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     g_built = 0;
     g_drawn = 0;
     for (double& v : g_carStats) v = 0.0;
+    g_wearFrame = frame;
+    {
+        const double tw = CarNowMs();
+        WearCollect();
+        const double ms = CarNowMs() - tw;
+        static int slowCollectLogged = 0;
+        if (ms > 4.0 && slowCollectLogged < 40) { ++slowCollectLogged; Log("car bodies: collecting the worker's copies took %.1f ms", ms); }
+    }
     if (cars.empty()) return;
     if (g_device != device) {
         CarBodiesReleaseDevice();
@@ -1726,7 +2028,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     if (g_logNoses < 0) { char v[8] = {}; g_logNoses = GetEnvironmentVariableA("GTA2DX9_LOG_CAR_NOSES", v, sizeof v) ? atoi(v) : 0; }
     for (const CarBodyUse& use : cars) {
         bool effect = false;
+        const double ta = CarNowMs();
         IDirect3DTexture9* art = DeviceTextureFor(device, use.texture, &effect, true);
+        {
+            const double ms = CarNowMs() - ta;
+            static int slowArtLogged = 0;
+            if (ms > 8.0 && slowArtLogged < 60) { ++slowArtLogged; Log("car bodies: the sprite artwork of a car took %.1f ms to fetch (sprite %d)", ms, use.sprite); }
+        }
         if (!art) continue;
         Built* b = Measured(device, use, art, frame);
         if (!b) continue;
@@ -1851,39 +2159,66 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // same cuts the clip planes make elsewhere: a hand below the eye, a hand
             // ahead of it.
             // Wear: the damage byte in four steps, dents and a duller paint.
-            const int dentStep = DentStepFor(g_forceDamage >= 0 ? g_forceDamage : use.damage);
+            const int damageWord = g_forceDamage >= 0 ? g_forceDamage : use.damage;
+            const int dentStep = DentStepFor(damageWord);
+            // Burning (stage 3, from 16000) and burning hard (stage 4, from 25000): the paint
+            // scorched toward soot, on top of the dents' dulling.
+            // From the word too: the game sets the stage only when a hit crosses 16000.
+            const int fireStage = (std::max)(g_forceDamage >= 0 ? 0 : use.fireStage, damageWord >= 25000 ? 4 : damageWord >= 16000 ? 3 : 0);
+            if (use.driven) {
+                // The player's car: a line whenever its wear changes (the 40-line budget
+                // above is spent by the traffic in seconds).
+                static int lastStep = -1, lastFire = -1;
+                if (dentStep != lastStep || fireStage != lastFire) {
+                    Log("car bodies: the player's car (model %d) at damage %d: dent step %d, fire stage %d", modelNumber, damageWord, dentStep, fireStage);
+                    lastStep = dentStep; lastFire = fireStage;
+                }
+            }
+            if (modelNumber < 72) DentQueueAhead(*model);
             const Model* worn = dentStep > 0 && modelNumber < 72 ? DentedModelFor(*model, dentStep) : model;
-            if (dentStep > 0) {
-                const float dull = 1.0f - 0.06f * static_cast<float>(dentStep);
+            if (dentStep > 0 || fireStage >= 3) {
+                const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                 const float tintWorn[3] = {tint[0] * dull, tint[1] * dull, tint[2] * dull};
                 ModelSetPaintTint(tintWorn);
-                if (g_damageLogged < 40) { ++g_damageLogged; Log("car bodies: object %p damage %d -> dent step %d", reinterpret_cast<const void*>(use.object), use.damage, dentStep); }
+                if (g_damageLogged < 40) { ++g_damageLogged; Log("car bodies: object %p damage %d (fire stage %d) -> dent step %d", reinterpret_cast<const void*>(use.object), damageWord, fireStage, dentStep); }
             }
             const Model* drawn = worn;
             if (cpuCut) drawn = HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f);
             // The door: swings open while someone boards or leaves, shuts after.
             DoorState& ds = g_doors[use.object];
-            {
-                const float dt = (std::min)(5u, (std::max)(1u, frame - ds.frame)) / 30.0f;
-                ds.frame = frame;
-                if (use.doorPed && ds.open < 0.02f) {
-                    // Which side he stands on, in the car's frame.
-                    const float rx = carToWorld.m[0][0], ry = carToWorld.m[0][1], rz = carToWorld.m[0][2];
-                    const float dxp = use.doorPedX - carToWorld.m[3][0], dzp = use.doorPedZ - carToWorld.m[3][2];
-                    const float lateral = dxp * rx + 0.0f * ry + dzp * rz;
-                    ds.side = lateral >= 0.0f ? 1 : -1;
-                }
-                if (g_forceDoor != 0 && ds.open < 0.02f) ds.side = g_forceDoor > 0 ? 1 : -1;
-                const float target = (use.doorPed || g_forceDoor != 0) ? 1.0f : 0.0f;
-                if (target > ds.open) ds.open = (std::min)(1.0f, ds.open + dt * 2.5f);
-                else ds.open = (std::max)(0.0f, ds.open - dt * 1.7f);
+            const float dt = (std::min)(5u, (std::max)(1u, frame - ds.frame)) / 30.0f;
+            ds.frame = frame;
+            if (use.doorPed && ds.open < 0.02f) {
+                // Which side he stands on, in the car's frame.
+                const float rx = carToWorld.m[0][0], ry = carToWorld.m[0][1], rz = carToWorld.m[0][2];
+                const float dxp = use.doorPedX - carToWorld.m[3][0], dzp = use.doorPedZ - carToWorld.m[3][2];
+                const float lateral = dxp * rx + 0.0f * ry + dzp * rz;
+                ds.side = lateral >= 0.0f ? 1 : -1;
             }
-            if (ds.open > 0.02f && !cpuCut && modelNumber < 72) {
+            if (g_forceDoor != 0 && ds.open < 0.02f) ds.side = g_forceDoor > 0 ? 1 : -1;
+            const float target = (use.doorPed || g_forceDoor != 0) ? 1.0f : 0.0f;
+            // The split comes from the worker (DoorReady): until it is there the door
+            // stays shut, and a split made for an earlier dent step stands in for the
+            // current one rather than shutting a door that is already open.
+            DoorSplit split{nullptr, nullptr};
+            bool haveSplit = false;
+            float zFront = 0.0f;
+            if (!cpuCut && modelNumber < 72 && (target > 0.0f || ds.open > 0.02f)) {
                 const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
-                float zFront = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
+                zFront = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
                 zFront = (std::min)(zFront, 0.42f * b->bodyLength);
                 const float zRear = zFront - 0.27f * b->bodyLength;
-                const DoorSplit split = DoorSplitFor(*worn, fit, ds.side, zFront, zRear, roofY, halfW);
+                // Past kDoorSplitBytes of splits a dented car opens the door of its undented
+                // copy (the store never frees a model, so the splits are capped).
+                const Model* doorSource = g_doorBytes > kDoorSplitBytes ? model : worn;
+                haveSplit = DoorReady(*doorSource, fit, ds.side, zFront, zRear, roofY, halfW, &split);
+                if (haveSplit) { ds.last = split; ds.lastSide = ds.side; }
+                else if (ds.last.body && ds.lastSide == ds.side && ModelIsKnown(ds.last.body)) { split = ds.last; haveSplit = true; }
+            }
+            if (target > ds.open) { if (haveSplit) ds.open = (std::min)(1.0f, ds.open + dt * 2.5f); }
+            else ds.open = (std::max)(0.0f, ds.open - dt * 1.7f);
+            if (ds.open > 0.02f && haveSplit) {
+                const float halfW = 0.5f * b->bodyWidth;
                 ModelDraw(device, *split.body, Mul(fit, carToWorld), nullptr, 0.0f);
                 // Swing about the vertical through the door's front edge, outward.
                 const float theta = -static_cast<float>(ds.side) * ds.open * (60.0f * kPi / 180.0f);
@@ -2009,6 +2344,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         for (const auto& e : g_cache) if (e.second.atlas) atlasBytes += e.second.measure.w * kAtlasScale * static_cast<size_t>(e.second.measure.h * kAtlasScale + kBandRows + kBlockRows) * 4;
         Log("car models: %d textures, %.1f MB in the managed pool; %u sprite-built atlases, %.1f MB; %d cars drawn this frame",
             count, modelBytes / 1048576.0, static_cast<unsigned>(g_cache.size()), atlasBytes / 1048576.0, g_drawn);
+        Log("car wear: %d copies built on the worker (%.0f ms of its time), %.1f MB (dents %.1f in %zu copies, doors %.1f in %zu splits); frames a car waited for its copy: dent %d, door %d",
+            g_wearCollected, g_wearWorkMs, static_cast<double>(g_wearBytes) / (1 << 20), static_cast<double>(g_dentBytes) / (1 << 20), g_dents.size(),
+            static_cast<double>(g_doorBytes) / (1 << 20), g_doorSplits.size(), g_dentLate, g_doorLate);
     }
     if (g_doors.size() > 256) {
         for (auto it = g_doors.begin(); it != g_doors.end();) it = (frame - it->second.frame > 600) ? g_doors.erase(it) : std::next(it);

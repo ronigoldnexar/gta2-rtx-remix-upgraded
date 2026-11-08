@@ -399,3 +399,160 @@ blocks, a quarter into the fog. Buildings are the whole map's static mesh and ne
 - GTA2's own step and `present` spike when the three CPUs are shared with an encoder; without
   the recorder the frame holds the cap (p99 interval 33.5 ms).
 - A crowd's posing reaches 10-14 ms in the worst Residential frames.
+
+## Car wear off the render thread, and play with a browser connected (8 Nov 2026, PERF-3)
+
+### Dents and door splits
+
+PERF-2 left one car cost on the render thread: the dented copy of a car model (four steps) and
+the door split (the hull without the door panel, and the panel) were derived the first time a
+car reached a new step or opened a door, 20-70 ms each and up to 400 ms when several cars did it
+in one frame. Now (`car_bodies.cpp`, "PERF-3"):
+
+- **A worker thread builds them** (`WearThread`): the render thread asks (`DentReady`,
+  `DoorReady`), draws the highest dent step it already has (or the fresh shell) and keeps the
+  door shut until the split is there, and registers finished copies with the model store at the
+  start of the next cars stage (`WearCollect`, at most ~2 ms of it a frame). An open door whose
+  car changes dent step keeps its earlier split until the new one arrives, so a door never
+  snaps shut. The geometry is the same code as before (value-noise dents, door panel cut);
+  the position-keyed maps are hashed instead of ordered, which changes no result: across the
+  before and after runs, 72 of 72 dent copies moved the same number of vertices and 88 of 88
+  door splits cut the same number of triangles (`dented copy of ... N vertices pressed in`,
+  `door split of ... N door triangles` lines).
+- **Ahead of need:** the first time a car model is drawn, its four dent steps are queued at low
+  priority (the worker sleeps as long as each such job took, so it uses at most half of one
+  CPU); a crash then usually finds its step built. Queued ahead only while the dent copies hold
+  less than 160 MB (`kDentAheadBytes`).
+- **Their buffers do not stall the frame.** Moving the build off the thread was not enough
+  (`p3_after_wil`: cars spikes of 215 ms remained, all in frames that created a copy's buffers):
+  the first draw of a new mesh locked a new managed vertex buffer mid-frame, and wined3d waits
+  there for the frame's queued GL work. Copies registered with `ModelRegisterDerived(model,
+  true)` now get dynamic default-pool buffers written with `D3DLOCK_DISCARD` (`BuffersFor`,
+  `model_store.cpp`), and at most one new copy goes on screen per frame (`WearMayShow`: a forced
+  door on every car in view made twelve buffer creations in one frame, 174 ms on a busy host).
+- **Memory:** a dent copy is ~0.41 MB (vertices and indices; the same again in GPU buffers once
+  drawn). In the 100 s forced drives the copies held 41-62 MB (dents 21-31 MB in 52-76 copies,
+  door splits 19-29 MB in 43-69 splits). All 68 car models x 4 steps would be ~111 MB, under
+  the 160 MB cap; door splits of dented copies stop at 64 MB (`kDoorSplitBytes`; past it a
+  dented car opens the door of its undented copy), and the door panel now keeps only the
+  vertices it uses. The store never frees a model, so these caps are the bound; the old
+  `g_doorSplits.clear()` at 64 entries leaked every split it dropped and is gone.
+- `car wear:` log line every 900 frames: copies built, worker time, MB, and how many frames a
+  car waited for its copy.
+
+**The damage word.** PLAYTHROUGH-7 found that the dents read the low byte of the vehicle's
+damage, which is an int16 at `+0x74`, 0..32000 (docs/actions-3d.md, "Vehicle fields").
+`live_geometry.cpp` now passes the word and the fire stage byte (`+0x8C`); the dent steps are
+4000 / 8000 / 16000 / 25000 (under 4000 the shell stays fresh), and from 16000 (the game sets a
+car alight there) the paint is scorched to 0.70 of its colour, from 25000 to 0.45, on top of
+the dents' dulling. `[devtools] force_car_damage` now takes the word too (0..32000). Verified
+with `set_car_damage` 0/4000/8000/16000/25000 written into the player's car
+(`out/look_p3e`, log: `the player's car (model 13) at damage 16000: dent step 3, fire stage 3`
+... `25000: dent step 4, fire stage 4`; the frames are the last row of the sheet). The ini
+comment no longer contains the text `set_car_damage=`: the scripts' "add the key if it is not in
+the file" test matched the comment, so the key was never written.
+
+**Measured** with `gamerun/perf3_run.sh` (the PERF-2 drive through Downtown, `perf3_drive.py`,
+with `force_car_damage` and `force_car_door` stepped every 5 s so every car in view needs a new
+copy at once; 1280x720, `--cpus=3` on CPUs 0-4, frame log on). "Car frames" are frames over
+33 ms whose largest phase is the cars stage, from 5 s after the level; the host's load from the
+other streams' runs varied a lot (the drive's own p50 column says how busy it was):
+
+| run | build | drive p50 / p99 ms | car frames | cars stage p99 / max ms |
+|---|---|---|---|---|
+| `p3_before_wil` | before (HEAD 373181f) | 21.3 / 95.7 | 28 | 20.7 / 412 |
+| `p3_pb_wil` | before | 25.0 / 134 | 44 | 50.6 / 356 |
+| `p3_pb2_wil` | before | 9.7 / 56.7 | 33 | 18.9 / 213 |
+| `p3_pb4_wil` | before | 32.6 / 283 | 43 | 87.0 / 749 |
+| `p3_after_wil` | worker only (managed buffers) | 14.2 / 73.7 | 22 | 12.6 / 215 |
+| `p3_pa2_wil` | worker + dynamic buffers | 10.3 / 53.6 | 1 | 4.9 / 22 |
+| `p3_pa3_wil` | worker + dynamic buffers | 8.7 / 37.4 | 1 | 4.0 / 31 |
+| `p3_fin_wil` | + damage word (4 distinct steps) | 10.1 / 66.0 | 4 | 6.0 / 223 |
+| `p3_fin3_wil`, `p3_fin4_wil`, `p3_fin5_wil` | same, host at load 20-30 | 29.7-31.1 / 199-212 | 9, 16, 11 | 10.9-21.3 / 73-174 |
+| `p3_pb5_wil` | before | 16.7 / 95.1 | 46 | 33.4 / 194 |
+| `p3_fin6_wil` (run right after `p3_pb5_wil`) | final: + one new copy on screen a frame | 9.6 / 61.5 | 5 | 6.5 / 52 |
+
+On a host of ordinary load the dent and door copies no longer cause a frame over 33 ms: the
+one car frame left in `p3_pa2_wil`/`p3_pa3_wil` is a car's **sprite artwork** being created
+(`DeviceTextureFor`, `tex_created=1`; the new `the sprite artwork of a car took N ms` log line:
+44 such fetches over 8 ms in four runs, median 15 ms, worst 131 ms on the loaded host). On the
+heavily loaded host the rest are frames where GTA2's own step took 30-400 ms too and the car
+draws waited on Wine's GL thread (`model draws 4 (103 ms)` with no buffer or copy made); one
+frame with 12 buffer creations (174 ms) led to the one-copy-a-frame limit, confirmed in the
+paired runs `p3_pb5_wil` / `p3_fin6_wil` (46 car frames, worst 194 ms, before; 5, worst 52 ms,
+after: two sprite-artwork fetches, one copy's first draw at 35 ms, two first street-view frames
+with a crowd's first poses). No dent or door copy
+was built on the render thread in any after run (every `dented copy` / `door split` line says
+`worker N ms`).
+
+### Play with a browser connected
+
+`gamerun/perf3_play.sh <label> <none|novnc> [quality] [compression]` restarts the play
+container (`gta2-play-8090`, CPUs 5-7, image `gta2-play`, with `PLAY_FRAME_LOG=1`: the per-frame
+log in `out/play-8090/frames.tsv`) when nobody else is connected, runs the PERF-2 drive inside
+it (`docker exec ... perf2_drive.py`, 90 s), and for `novnc` opens the landing page's noVNC
+client in headless Chromium on the host (`perf3_vnc_client.py`, pinned to CPUs 0-4, the
+default Play link's quality 5 / compression 3 or the low-bandwidth link's 3 / 6), which decodes
+and paints every frame the way a browser tab does and counts what arrives on the websocket.
+
+| run | build | client | frame cost p50 / p95 / p99 / max ms | interval p99 ms | frames over 33 ms |
+|---|---|---|---|---|---|
+| `p_none_base` | HEAD (373181f) | none | 6.7 / 14.7 / 32.9 / 81 | 35.3 | 31 |
+| `p_novnc_base` | HEAD | noVNC q5 c3 | 7.4 / 16.1 / 25.2 / 76 | 35.0 | 17 |
+| `p_novnc_base2` | HEAD | noVNC q5 c3 | 10.1 / 25.2 / 41.2 / 131 | 41.3 | 59 (16 of the spikes are the cars stage: crashes building dents on the render thread) |
+| `p_none_fin` | PERF-3 | none | 7.8 / 16.2 / 25.2 / 61 | 34.0 | 10 |
+| `p_novnc_fin` | PERF-3 | noVNC q5 c3, 1.8 MB/s | 10.0 / 21.6 / **29.7** / 59 | 35.7 | 10 |
+| `p_novnc_fin2` | PERF-3 | noVNC q5 c3, 2.3 MB/s | 7.8 / 16.0 / **22.8** / 66 | 34.1 | 5 |
+| `p_novnc_fin_q3` | PERF-3 | noVNC q3 c6, 1.4 MB/s | 7.7 / 16.6 / **29.6** / 74 | 35.1 | 16 |
+| `p_novnc_base3` (PERF-3 build, mislabelled) | PERF-3 | noVNC q5 c3 | 11.2 / 25.4 / 36.7 / 51 | 37.8 | 58 (29 of the spikes are GTA2's own step) |
+| a real remote player, 07:10-07:20 (`real_player_session`) | PERF-3 (an earlier step: worker, dynamic buffers, damage word) | a browser over the internet | 7.8 / 15.0 / **26.4** / 252 | 34.8 | 55 spikes in 587 s (he joined during the scripted drive's last 45 s, then sat in the parked car in the chase view) |
+
+The encoder does not starve the game: x11vnc took 17-18 % of one CPU and Xvfb 5-9 % while
+`gta2.exe` took 70-80 %, and with a client connected the 99th percentile was 22.8-29.7 ms in
+three of four PERF-3 runs, under the 33 ms target; the x11vnc settings are therefore left as
+they were. The one run over (36.7 ms) had its spikes in GTA2's own step, and at that time
+three host-side Python jobs of another stream (`run_trellis.py`, `fit_r5.py`, a `gen3d`
+script) were running unpinned on all eight CPUs, two of them on CPUs 5-7 at 70-100 %; they
+were repinned to 0-4 (`taskset -apc 0-4`). Host jobs started outside the run scripts are not
+covered by `runq.sh`'s pinning; start them with `taskset -c 0-4`.
+
+Two per-frame costs in the play container were found and removed on the way:
+
+- **`pre_menu` spikes of 15-30 ms** in clusters (16 of the 45 spikes of `p_none_1`): the
+  auto-save watcher (`game_save.cpp`) read the score keeper with `ReadProcessMemory`, four
+  wineserver round trips a frame, which stall whenever the server is busy with input. It now
+  reads like `view_modes.cpp` does since PERF-2 (the region checked once with VirtualQuery,
+  then plain loads under the fault guard). The F4 menu and the F9/F10 probe keys asked for the
+  foreground window every frame; now only when their key goes down.
+- The dents and doors above (the `cars` spikes in `p_novnc_base2`).
+
+Knobs added (defaults unchanged): `PLAY_FRAME_LOG=1` (the per-frame log and the state lines),
+`PLAY_X11VNC` (x11vnc's tuning flags, default `-noxdamage -defer 15 -wait 15 -threads`) and
+`PLAY_VNC_NICE` (its niceness) in `play.sh` / `play_game.sh`.
+
+### Look check
+
+`gamerun/perf3_look.py` takes the same frames from any build: three Downtown spots after a
+scene warp, chase and first-person views on foot; the traffic at the spawn with
+`force_car_damage` 0 / 8000 / 25000 and `force_car_door` 1; the player's car with
+`set_car_damage` 0..25000, seen on foot beside it. Runs `out/look_p2old` (06d1a97, before
+PERF-2), `out/look_p2new` (HEAD, PERF-2) and `out/look_p3e` (this build). In the strip
+(`out/perf3_sheet.png`) the buildings, lamps, hydrants, bins, fences and signs are the same in
+every pair; what differs is the traffic and the people (the game's own randomness) and, between
+the PERF-2 pair, a slightly different chase framing from PERF-2's camera changes, which is why
+the coarse difference images are not near zero and are not the criterion. Distance 48 shows
+as lamps further down the road in the PERF-2 after frames, the intended change. For the wear
+change the geometry check above (identical vertex and triangle counts for every copy) is the
+stronger evidence; the frames show the same dents and door at the same steps.
+
+### Still open
+
+- A car's sprite artwork created at first sight or when the game repaints it (`DeviceTextureFor`
+  in `texture_store.cpp`): 8-36 ms on an ordinary host, the largest car cost left. The same
+  managed-texture lock as the buffers above; a dynamic default-pool texture would remove it,
+  but the store serves every sprite and was not changed here.
+- A copy's first draw can still cost ~35 ms on a busy host (`p3_fin6_wil` frame 1934, one
+  copy, four buffers): the GL upload of a new buffer; uploading them in a no-pixel draw at the
+  start of a frame, as the warm-up does, would spread it further.
+- On a host at load 20-30 every phase stretches with GTA2's own step, the car draws included;
+  that is contention, not the car code.

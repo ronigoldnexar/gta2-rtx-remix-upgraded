@@ -46,7 +46,8 @@ struct CarBodyUse {
     bool own = false;                // the player's own car, seen from inside in first person
     bool driven = false;             // the car the player is at the wheel of, in any view (the chase camera may sit inside a long one)
     uintptr_t object = 0;            // the game object, for steering memory
-    int damage = 0;                  // the vehicle's damage byte (+0x74), 0 when unknown
+    int damage = 0;                  // the vehicle's damage word (int16 at +0x74, 0 fresh .. 32000 explodes), 0 when unknown
+    int fireStage = 0;               // the vehicle's damage stage byte (+0x8C): 3 burning (from 16000), 4 burning hard (from 25000)
     // A pedestrian is getting in or out of this car (ped state 3/4) and stands
     // here: the door on his side swings open while he does.
     bool doorPed = false;

@@ -5697,7 +5697,10 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
             if (game::PlausiblePointer(car)) {
                 const int32_t number = *reinterpret_cast<const int32_t*>(car + game::kVehicleModel);
                 if (number >= 0 && number < 256) use.model = number;
-                use.damage = *reinterpret_cast<const uint8_t*>(car + 0x74);
+                // The damage word (int16, 0..32000, docs/actions-3d.md "Vehicle fields") and the
+                // fire stage byte (3 burning, 4 burning hard); not the word's low byte.
+                use.damage = *reinterpret_cast<const int16_t*>(car + 0x74);
+                use.fireStage = *(car + 0x8C);
                 if (const uint8_t* me = static_cast<const uint8_t*>(LocatedPlayerPed()))
                     use.driven = game::PlausiblePointer(me) && *reinterpret_cast<const uint8_t* const*>(me + game::kPedVehicle) == car;
                 float best = 1.6f * 1.6f;   // a boarding ped stands within a car's half length plus a door

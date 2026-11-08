@@ -207,11 +207,15 @@ void OnScanKey() {
 }  // namespace
 
 void ProgressProbeTick() {
-    DWORD pid = 0;
-    if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
-    const bool ours = pid == GetCurrentProcessId();
-    const bool f9 = ours && (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
-    const bool f10 = ours && (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+    // The keys first, the foreground window only when one is down: each of these is a
+    // wineserver call under Wine, and the window test was made every frame (PERF-3).
+    bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+    bool f10 = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+    if ((f9 && !g_prev9) || (f10 && !g_prev10)) {
+        DWORD pid = 0;
+        if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
+        if (pid != GetCurrentProcessId()) f9 = f10 = false;
+    }
     if (f9 && !g_prev9) OnSnapshotKey();
     if (f10 && !g_prev10) OnScanKey();
     g_prev9 = f9;

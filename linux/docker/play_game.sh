@@ -25,7 +25,10 @@ fi
 
 # The VNC server and the web side, up before the game so the page is reachable while Wine boots.
 PW=(); [ -n "${PLAY_PASSWORD:-}" ] && { x11vnc -storepasswd "$PLAY_PASSWORD" /tmp/vncpass >/dev/null 2>&1; PW=(-rfbauth /tmp/vncpass); } || PW=(-nopw)
-x11vnc -display :99 -shared -forever -noxdamage -defer 15 -wait 15 -nocursorshape -cursor arrow -xkb -threads "${PW[@]}" -rfbport 5900 -quiet -bg -o /tmp/x11vnc.log
+# PLAY_X11VNC: the encoder's tuning flags (PERF-3 measured them with a browser connected, docs/performance.md);
+# PLAY_VNC_NICE: its CPU niceness (the game keeps priority over the encoder on the container's CPUs).
+X11VNC_TUNE=${PLAY_X11VNC:--noxdamage -defer 15 -wait 15 -threads}
+nice -n "${PLAY_VNC_NICE:-0}" x11vnc -display :99 -shared -forever $X11VNC_TUNE -nocursorshape -cursor arrow -xkb "${PW[@]}" -rfbport 5900 -quiet -bg -o /tmp/x11vnc.log
 printf '{"mode":"%s","devtools":%s,"password":"%s"}\n' "$MODE" "$([ "${PLAY_DEVTOOLS:-0}" = 1 ] && echo true || echo false)" "${PLAY_PASSWORD:-}" > /usr/share/novnc/play_mode.json
 [ -f /work/play_index.html ] && cp /work/play_index.html /usr/share/novnc/index.html   # the landing page from the work folder, so edits need no image rebuild
 websockify --web /usr/share/novnc "$PLAY_PORT" localhost:5900 >/tmp/websockify.log 2>&1 &

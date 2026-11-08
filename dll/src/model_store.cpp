@@ -21,6 +21,9 @@ namespace {
 // process's life, and a deque never moves its elements when it grows.
 std::deque<Model> g_models;
 std::unordered_set<const Model*> g_known;   // every address the store ever handed out
+// Meshes of derived models registered with dynamicBuffers (PERF-3): their buffers are
+// dynamic default-pool buffers written with DISCARD (see BuffersFor).
+std::unordered_set<const ModelMesh*> g_dynamicMeshes;
 std::map<std::string, size_t> g_byName;
 std::vector<std::string> g_carDefault;    // cycled by sprite number
 std::map<int, std::string> g_carBySprite;
@@ -698,10 +701,11 @@ void ModelsLoad(const char* folder) {
 bool ModelsAvailable() { return !g_models.empty(); }
 bool ModelIsKnown(const Model* model) { return model && g_known.count(model) != 0; }
 void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out) { NodeWorlds(model, nullptr, 0.0f, out); }
-const Model* ModelRegisterDerived(Model&& model) {
+const Model* ModelRegisterDerived(Model&& model, bool dynamicBuffers) {
     g_models.push_back(std::move(model));
     const Model& m = g_models.back();
     g_known.insert(&m);
+    if (dynamicBuffers) for (const ModelMesh& mesh : m.meshes) g_dynamicMeshes.insert(&mesh);
     return &m;
 }
 
@@ -1066,8 +1070,16 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
     if (!b.vb) {
         const UINT vbytes = static_cast<UINT>(mesh.vertices.size() * sizeof(ModelVertex));
         const UINT ibytes = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
-        if (FAILED(device->CreateVertexBuffer(vbytes, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED, &b.vb, nullptr)) ||
-            FAILED(device->CreateIndexBuffer(ibytes, D3DUSAGE_WRITEONLY, D3DFMT_INDEX32, D3DPOOL_MANAGED, &b.ib,
+        // A mesh made while the game runs (a car's dented copy or door split) is
+        // first drawn mid-frame: locking a new managed buffer there makes wined3d
+        // wait for the frame's queued GL work (50-210 ms a copy, PERF-3), so those
+        // get dynamic default-pool buffers written with DISCARD, which do not wait.
+        const bool dynamic = !skinned && g_dynamicMeshes.count(&mesh) != 0;
+        const DWORD usage = dynamic ? (D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY) : D3DUSAGE_WRITEONLY;
+        const D3DPOOL pool = dynamic ? D3DPOOL_DEFAULT : D3DPOOL_MANAGED;
+        const DWORD lockFlags = dynamic ? D3DLOCK_DISCARD : 0;
+        if (FAILED(device->CreateVertexBuffer(vbytes, usage, 0, pool, &b.vb, nullptr)) ||
+            FAILED(device->CreateIndexBuffer(ibytes, usage, D3DFMT_INDEX32, pool, &b.ib,
                                              nullptr))) {
             if (b.vb) b.vb->Release();
             if (b.ib) b.ib->Release();
@@ -1079,13 +1091,13 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
             return nullptr;
         }
         void* idata = nullptr;
-        if (FAILED(b.ib->Lock(0, ibytes, &idata, 0)) || !idata) {
+        if (FAILED(b.ib->Lock(0, ibytes, &idata, lockFlags)) || !idata) {
             b.failed = true;
             return nullptr;
         }
         memcpy(idata, mesh.indices.data(), ibytes);
         b.ib->Unlock();
-        if (!FillVertices(b.vb, verts, mesh.vertices.size())) {
+        if (!FillVertices(b.vb, verts, mesh.vertices.size(), lockFlags)) {
             b.failed = true;
             return nullptr;
         }

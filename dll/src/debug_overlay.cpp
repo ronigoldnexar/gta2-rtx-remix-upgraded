@@ -2909,11 +2909,14 @@ void DebugMenuPoll() {
     // Polled rather than taken off WM_KEYDOWN: GTA2 reads the keyboard through
     // DirectInput, and relying on the message reaching the window proc first has
     // no advantage here. Alt+F4 is excluded so closing the game still closes it.
-    const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-    const bool f4Down = (GetAsyncKeyState(VK_F4) & 0x8000) != 0 && !altDown;
-    DWORD pid = 0;
-    if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
-    if (f4Down && !g_f4Down && pid == GetCurrentProcessId()) Toggle();
+    // Alt only asked about while F4 is down, and the foreground window only at the
+    // press: each is a wineserver call under Wine (PERF-3).
+    const bool f4Down = (GetAsyncKeyState(VK_F4) & 0x8000) != 0 && (GetAsyncKeyState(VK_MENU) & 0x8000) == 0;
+    if (f4Down && !g_f4Down) {
+        DWORD pid = 0;
+        if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
+        if (pid == GetCurrentProcessId()) Toggle();
+    }
     g_f4Down = f4Down;
 
     if (g_visible) FeedMouse();
