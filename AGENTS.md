@@ -91,3 +91,15 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
 - Mission and other long scripted sessions that need no real-time video: run the game faster with
   `GTA2_SPEED=2` (or 3) and `FPS=0` on `gamerun/grun.sh`; the runners' timing scales automatically
   (see docs/throughput.md "Fast sessions"). Recordings for people stay at `GTA2_SPEED=1`.
+
+## GitHub issues (progress and plan)
+
+Issues on ronigoldnexar/gta2-rtx-remix-upgraded: tracking issue #1 (pinned: status table, mission
+state, open items), stream issues cars #2, Remix #3, navigation/camera #4, actions/peds/police #5,
+performance #6, missions #7, props/assets #8, QA/release #9, agent rules #10.
+
+- At each commit, comment on your stream's issue: commit hash, what changed, what was verified vs
+  untested, the doc section (`gh issue comment <n> --repo ronigoldnexar/gta2-rtx-remix-upgraded`).
+- When a stream finishes, update its row and the open-items checklist in #1 and set the stream
+  issue's `status:` label.
+- Issues are public: no credentials, IPs, raw logs or game art; cite docs, not files under `out/`.
