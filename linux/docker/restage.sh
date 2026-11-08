@@ -25,11 +25,12 @@ if [ "${1:-}" != "--dll-only" ]; then
     exec 7>/tmp/gta2-game-slot-3.lock; flock -w "$WAIT" 7
     exec 8>/tmp/gta2-game-slot-4.lock; flock -w "$WAIT" 8
   fi
-  ( cd "$W" && flock /tmp/gta2-build.lock nice -n 10 make stage > "$W_LOG" 2>&1 ) || { tail -20 "$W_LOG"; exit 1; }
+  # The model art (avatars, cars) is not in git, so the models folder comes from THIS repo's assets/models
+  # (tracked code-object models + the untracked art that ships as archives), never from the worktree.
   rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage/.gta2dx9_models.new /home/roni_goldshmidt/gta2-linux/repo/stage/.gta2dx9_models.old
-  cp -al "$W/stage/gta2dx9_models" stage/.gta2dx9_models.new 2>/dev/null || cp -a "$W/stage/gta2dx9_models" stage/.gta2dx9_models.new
+  cp -al assets/models stage/.gta2dx9_models.new 2>/dev/null || cp -a assets/models stage/.gta2dx9_models.new
   mv stage/gta2dx9_models stage/.gta2dx9_models.old && mv stage/.gta2dx9_models.new stage/gta2dx9_models
   rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage/.gta2dx9_models.old
-  echo "models swapped from HEAD at $(date +%H:%M)"
+  echo "models swapped from assets/models at $(date +%H:%M) ($(ls stage/gta2dx9_models | wc -l) entries)"
 fi
 git worktree remove --force "$W" 2>/dev/null || true
