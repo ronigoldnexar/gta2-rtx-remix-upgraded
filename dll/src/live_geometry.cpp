@@ -218,6 +218,50 @@ int g_pedAimFrames[2] = {36, 47};      // arm out, from the frame sheet (not yet
 int g_pedHandsUpFrames[2] = {-1, -1};
    // GTA2DX9_LOG_PED_FRAMES=1: the player's frame/state changes, for the clip tables
 bool g_pedWeapons = true;   // the pickup models in the hand of a figure that aims
+// CROWD ([crowd] in gta2dx9.ini, CrowdLoad): civilians' own clothing colours and
+// builds, heads that follow the player, glances. The player's drawn spot (and the
+// frame of it and of his last shot) is kept as his figure is drawn, for the others.
+bool g_crowdVariety = true, g_crowdLookAt = true;
+float g_crowdLookRange = 5.0f;
+float g_crowdPlayerX = 0.0f, g_crowdPlayerZ = 0.0f;
+uint32_t g_crowdPlayerFrame = 0, g_crowdPlayerShot = 0;
+int g_crowdCount[4] = {};   // this frame: drawn, own clothes, looking at the player, glancing
+float g_crowdNearD2 = 1e9f, g_crowdNearRel = 0.0f;   // this frame: the nearest other figure to the player (log)
+int g_crowdWin[4] = {};   // over the log's ten seconds: figure-frames in range, passed over (one in four), behind him, looking
+uint32_t CrowdHash(uint32_t x) {
+    x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
+    return x;
+}
+// One person's look, fixed by his object: a build (height +-6%, width +-5%) and,
+// for a civilian (no uniform, no gang colours) three times in four, clothes of an
+// everyday colour: the avatar's "_paint" half multiplied toward it (most of the
+// way, so the cloth's own shading and the second garment's contrast remain).
+struct CrowdLook { float height = 1.0f, width = 1.0f; bool clothes = false; float tint[3] = {1.0f, 1.0f, 1.0f}; };
+CrowdLook CrowdLookFor(uint32_t seed, const Model& model, int remap, bool player) {
+    CrowdLook look;
+    if (!g_crowdVariety || player) return look;
+    const uint32_t h = CrowdHash(seed ^ 0x9e3779b9u);
+    look.height = 0.94f + 0.12f * static_cast<float>(h & 255) / 255.0f;
+    look.width = 0.95f + 0.10f * static_cast<float>((h >> 8) & 255) / 255.0f;
+    // The remaps the manifest gives a uniform or gang colours: 0-14, 16, 17, 22.
+    const bool civilian = remap < 0 || remap == 15 || (remap >= 18 && remap != 22);
+    if (civilian && model.splitPaint && ((h >> 16) & 3) != 0) {
+        static const uint8_t kClothes[][3] = {
+            {38, 52, 92},    {60, 62, 66},   {28, 28, 32},   {196, 178, 140}, {92, 100, 58},  {118, 32, 44},
+            {70, 104, 150},  {214, 212, 204}, {128, 130, 134}, {110, 76, 50},  {36, 80, 52},   {200, 160, 50},
+            {40, 120, 124},  {176, 46, 40},  {210, 140, 160}, {140, 176, 210}, {160, 146, 104}, {90, 60, 110},
+            {230, 120, 60},  {84, 40, 34},
+        };
+        constexpr uint32_t kN = sizeof(kClothes) / sizeof(kClothes[0]);
+        const uint8_t* c = kClothes[(h >> 18) % kN];
+        for (int k = 0; k < 3; ++k) {
+            const float ratio = static_cast<float>(c[k]) / (std::max)(8.0f, model.paintRgb[k]);
+            look.tint[k] = (std::max)(0.3f, (std::min)(2.0f, 1.0f + (ratio - 1.0f) * 0.85f));
+        }
+        look.clothes = true;
+    }
+    return look;
+}
 bool g_fxUpright = true;    // effect artwork faced to a street-level camera; bullets as streaks
 // Where small effect artwork (a muzzle flash, a bullet, a spark) was drawn last
 // frame: a figure standing in the attack state next to one is shooting, which
@@ -4008,6 +4052,16 @@ bool SkidSmokeSave() {
 
 FireSettings& FireEffects() { return g_fire; }
 
+void CrowdLoad(const char* iniPath) {
+    char buf[8] = {};
+    const bool off = GetEnvironmentVariableA("GTA2DX9_CROWD", buf, sizeof buf) && buf[0] == '0';
+    g_crowdVariety = !off && GetPrivateProfileIntA("crowd", "variety", 1, iniPath) != 0;
+    g_crowdLookAt = !off && GetPrivateProfileIntA("crowd", "look_at", 1, iniPath) != 0;
+    const int range = static_cast<int>(GetPrivateProfileIntA("crowd", "look_range", 5, iniPath));
+    g_crowdLookRange = static_cast<float>((std::max)(1, (std::min)(12, range)));
+    Log("crowd: variety %d, look_at %d, look_range %.0f blocks", g_crowdVariety ? 1 : 0, g_crowdLookAt ? 1 : 0, g_crowdLookRange);
+}
+
 void FireEffectsLoad(const char* iniPath) {
     if (!iniPath || !*iniPath) return;
     g_fireIniPath = iniPath;
@@ -6693,6 +6747,20 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     device->SetFVF(kFigFvf);
 
     constexpr float kPi = 3.14159265f;
+    // CROWD: last frame's counts, every ten seconds of drawing.
+    {
+        static uint32_t frames = 0;
+        if (g_crowdCount[0] && ++frames % 300 == 0) {
+            Log("crowd: %d figures drawn, %d in clothes of their own, %d looking at the player, %d glancing; nearest %.1f blocks at %.0f deg (player seen %d frames ago)",
+                g_crowdCount[0], g_crowdCount[1], g_crowdCount[2], g_crowdCount[3], std::sqrt(g_crowdNearD2), g_crowdNearRel * 57.3f,
+                g_crowdPlayerFrame ? static_cast<int>(g_carFrame - g_crowdPlayerFrame) : -1);
+            Log("crowd: last 300 frames: %d figure-frames within look_range, %d passed over, %d with the player behind them, %d looking",
+                g_crowdWin[0], g_crowdWin[1], g_crowdWin[2], g_crowdWin[3]);
+            for (int& c : g_crowdWin) c = 0;
+        }
+        for (int& c : g_crowdCount) c = 0;
+        g_crowdNearD2 = 1e9f;
+    }
     int drawn = 0;
     if (g_logPedFrames) {
         // Corpses in this frame's list and how each is flagged, when it changes.
@@ -7190,6 +7258,68 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             track.twist += (twistTarget - track.twist) * (std::min)(1.0f, dt / 0.12f);
         }
         const float legHeading = track.heading - track.twist;
+        // CROWD: where his head turns ([crowd] look_at). Toward the player when the
+        // player is within look_range and in front of him (twice as far while the
+        // player's gun is going off; one passer-by in four does not look unless it
+        // is), clamped to 70 degrees (50 walking); otherwise a glance now and then:
+        // standing every 3-8 s for 1-2.5 s up to 70 degrees, walking every 5-12 s up
+        // to 35. Only with no action clip on (those pose the head themselves);
+        // eased over 0.25 s at up to 230 degrees a second.
+        {
+            const bool own = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+            float headTarget = 0.0f;
+            track.lookingAtPlayer = false;
+            if (own) {
+                g_crowdPlayerX = track.dx; g_crowdPlayerZ = track.dz; g_crowdPlayerFrame = g_carFrame;
+                g_crowdPlayerShot = track.muzzleFrame;
+            } else if (g_crowdLookAt && track.action == 0 && !sprite.corpse) {
+                const uint32_t seed = static_cast<uint32_t>(sprite.object >> 4);
+                const bool walking = track.walkWeight > 0.5f;
+                if (g_crowdPlayerFrame && g_carFrame - g_crowdPlayerFrame <= 3) {
+                    const float px = g_crowdPlayerX - track.dx, pz = g_crowdPlayerZ - track.dz;
+                    const bool gunfire = g_crowdPlayerShot && g_carFrame - g_crowdPlayerShot < 90;
+                    const float range = g_crowdLookRange * (gunfire ? 2.0f : 1.0f);
+                    const float d2 = px * px + pz * pz;
+                    if (d2 < g_crowdNearD2) {
+                        g_crowdNearD2 = d2;
+                        float rl = std::atan2(px, pz) - track.heading;
+                        while (rl > kPi) rl -= 2.0f * kPi;
+                        while (rl < -kPi) rl += 2.0f * kPi;
+                        g_crowdNearRel = rl;
+                    }
+                    if (d2 < range * range && d2 > 0.04f) { ++g_crowdWin[0]; if (!gunfire && (CrowdHash(seed) & 3) == 0) ++g_crowdWin[1]; }
+                    if (d2 < range * range && d2 > 0.04f && (gunfire || (CrowdHash(seed) & 3) != 0)) {
+                        float rel = std::atan2(px, pz) - track.heading;
+                        while (rel > kPi) rel -= 2.0f * kPi;
+                        while (rel < -kPi) rel += 2.0f * kPi;
+                        if (std::fabs(rel) < 1.9f) {
+                            const float lim = walking ? 0.87f : 1.22f;
+                            headTarget = (std::max)(-lim, (std::min)(lim, rel));
+                            track.lookingAtPlayer = true;
+                            ++g_crowdWin[3];
+                        } else {
+                            ++g_crowdWin[2];
+                        }
+                    }
+                }
+                if (!track.lookingAtPlayer) {
+                    const uint32_t r = CrowdHash(seed ^ (g_carFrame * 2654435761u));
+                    if (track.nextGlance == 0) track.nextGlance = g_carFrame + 30 + r % 210;
+                    if (g_carFrame >= track.glanceUntil && g_carFrame >= track.nextGlance) {
+                        const float side = (r & 1) ? 1.0f : -1.0f;
+                        const float amount = static_cast<float>((r >> 1) & 255) / 255.0f;
+                        track.glanceYaw = side * (walking ? 0.3f + 0.3f * amount : 0.4f + 0.82f * amount);
+                        track.glanceUntil = g_carFrame + 30 + (r >> 9) % 45;
+                        track.nextGlance = track.glanceUntil + (walking ? 150 + (r >> 16) % 210 : 90 + (r >> 16) % 150);
+                    }
+                    if (g_carFrame < track.glanceUntil) headTarget = track.glanceYaw;
+                }
+            }
+            float step = (headTarget - track.headYaw) * (std::min)(1.0f, dt / 0.25f);
+            const float cap = 4.0f * dt;
+            step = (std::max)(-cap, (std::min)(cap, step));
+            track.headYaw += step;
+        }
         const float hx = std::sin(legHeading), hz = std::cos(legHeading);
         // Where the figure stands: the drawn position, at the sprite's height.
         const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX,
@@ -7264,7 +7394,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (model) {
                 // The character, at his pace, where the figure would stand, facing
                 // his drawn heading, upright, leaning a little into a turn.
-                const float scale = kPedHeight / (std::max)(model->Height(), 0.01f);
+                // CROWD: his own build and clothes (CrowdLookFor).
+                const bool ownFigure = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+                const CrowdLook look = CrowdLookFor(static_cast<uint32_t>(sprite.object >> 4), *model, remap, ownFigure);
+                const float scale = kPedHeight * look.height / (std::max)(model->Height(), 0.01f);
                 const float paceFactor = (std::min)(track.drawnSpeed / 1.5f, 1.0f);
                 float roll = -track.turnRate * paceFactor * 0.03f;
                 if (roll > 0.1f) roll = 0.1f;
@@ -7277,7 +7410,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 placed.m[2][0] = hx;       placed.m[2][1] = 0.0f; placed.m[2][2] = hz;
                 placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f; placed.m[3][2] = gz;
                 gta2::Mat4 fit;
-                fit.m[0][0] = scale * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * model->forward;
+                fit.m[0][0] = scale * look.width * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
                 gta2::Mat4 world;
                 for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
@@ -7546,7 +7679,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // split body texture) multiplied by the remap's colour over the
                 // avatar's own; the two halves are alpha-tested back together.
                 float tint[3];
-                const bool tinted = PedRemapTint(remap, *model, tint);
+                bool tinted = PedRemapTint(remap, *model, tint);
+                if (!tinted && look.clothes) { for (int k = 0; k < 3; ++k) tint[k] = look.tint[k]; tinted = true; }
+                ++g_crowdCount[0];
+                if (look.clothes) ++g_crowdCount[1];
+                if (track.lookingAtPlayer) ++g_crowdCount[2];
+                else if (std::fabs(track.headYaw) > 0.2f) ++g_crowdCount[3];
                 if (tinted) ModelSetPaintTint(tint);
                 if (tinted || model->splitPaint) {
                     // The test must read the texture's alpha, which is where the
@@ -7563,7 +7701,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // far figures, which hold coarser poses.
                 const float twistQ = lod == 0 ? std::floor(track.twist / 0.0524f + 0.5f) * 0.0524f : 0.0f;
                 ModelSetTorsoTwist(twistQ);
+                // CROWD: the head turn, in 6 degree steps near, 12 further, none far.
+                const float headStep = lod == 0 ? 0.105f : 0.21f;
+                ModelSetHeadTurn(lod <= 1 ? std::floor(track.headYaw / headStep + 0.5f) * headStep : 0.0f);
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                ModelSetHeadTurn(0.0f);
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
