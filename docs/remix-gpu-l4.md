@@ -242,3 +242,48 @@ game minute per second), `ClearSky=0` for Remix Plus's volumetric clouds.
 -e SETTINGS_SED='s/^Paused=.*/Paused=0/; s/^StartHour=.*/StartHour=16.8/; s/^ClearSky=.*/ClearSky=0/'`,
 then `gamerun/remix_daynight_sheet.py out/<name> 840 <sheet.png> <clip.mp4>`. A fixed night:
 `keys_remix_night.sh` with `Paused=1`, `StartHour=21.5`.
+
+## Night preset and car materials (REMIX-POLISH, 8 Nov)
+
+**Option names.** The runtime documents its own options: a run with
+`-e DXVK_DOCUMENTATION_WRITE_RTX_OPTIONS_MD=1` writes `RtxOptions.md` (1 998 options of
+this Remix Plus build; `run_game_remix_gpu.sh` now copies it to the run folder,
+`out/remix_optdoc/RtxOptions.md`). The `rtx.autoExposure.halo.maxEv` /
+`compensationNightStops` names guessed above do not exist in this build; the exposure
+knobs are `rtx.autoExposure.maxExposure` (default 8), `targetAdaptedYf`, `darkAdaptTau`,
+`lightAdaptTau`, and the night sky's are `rtx.atmosphere.surfaceMoonBrightness`
+(a stylised 50 by default), `nightSkyBrightness`, `moonNeeStrength`.
+
+**What changed** (`gamerun/rtx_showcase.conf.extra`, appended to rtx.conf with
+`RTX_EXTRA`; day is unaffected, the caps only stop the night being brightened):
+
+| option | default | now | why |
+|---|---|---|---|
+| rtx.atmosphere.surfaceMoonBrightness | 50 | 3 | the ground moonlight lit the street like an overcast day |
+| rtx.atmosphere.nightSkyBrightness | 0.002 | 0.008 | a little airglow: the sky is dark blue, not pitch black |
+| rtx.autoExposure.maxExposure | 8 | 2.5 | the auto exposure may no longer lift the night to mid-grey; lamps make pools |
+| rtx.autoExposure.darkAdaptTau | 0.75 s | 2.0 s | no pumping as lamps and headlights pass while driving |
+| rtx.autoExposure.lightAdaptTau | 0.15 s | 0.5 s | same, toward bright |
+| rtx.bloom.luminanceThreshold / burnIntensity | 0.25 / 1 (preset 0.6 / 0.6) | 0.8 / 0.5 | glow only on the really bright: neon, lamp heads, tail lamps |
+| rtx.fireflyFilteringLuminanceThreshold | 1000 | 400 | no white specks from the small bulbs on the glossy paint |
+
+Plus, per run (not rtx.conf): the effects ini's `[Car lamps]` category on and gated to
+the dark (`EFFECTS_SED`, new in `run_game_remix_gpu.sh`:
+`/^\[Car lamps\]/,/^\[/{s/^Enabled=0/Enabled=1/;s/^Daylight=0/Daylight=1/}`), so every
+car's head and tail lamps are small lights of their own colour at night (the tail lamps
+throw red on the road behind the car, not only while braking), and the car material
+layer's lamp emission (docs/remix-materials.md).
+
+**Runs** (`gamerun/remix_l4.sh` with `keys_remix_showcase.sh` → `remix_showcase.py`:
+spawn views, a parked car dressed by `force_car_model` as 012 / 056 / 018 / 031 and
+orbited, a drive, a first-person look round; frames cut at the marks with
+`remix_frames.py dump`, sheets with `remix_frames.py sheet`; all on a private stage copy
+`STAGE=~/gta2-linux/stage_polish`, because a `make stage` by another agent during run
+`remix_pol_day1` left every model texture unreadable for that run):
+`out/remix_pol_nightw1` (moonlight 12: the plaza still day-bright, hard moon shadows),
+`out/remix_pol_nightw2` (moonlight 3, the layer with whole-car materials),
+`out/remix_pol_nights` (Industrial, `SWAP_LEVEL=ste`), `out/remix_pol_nightb`
+(Residential, `SWAP_LEVEL=bil`), `out/remix_pol_day3` (14:00, the car sweep).
+Sheets: `out/remix_night_sheet.png`, `out/remix_carpaint_sheet.png`.
+`remix_l4.sh` now holds `/tmp/gta2-gpu.lock` for the whole session and honours
+`-e SWAP_LEVEL=` (the data folder is then copied, not mounted read-only).

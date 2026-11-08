@@ -26,3 +26,19 @@ rtx.atmosphere.realMoonEnabled = True
 # Untagged materials (people, props, the game's own sprites): matte.
 rtx.legacyMaterial.roughnessConstant = 0.75
 rtx.legacyMaterial.metallicConstant = 0.05
+# Night (REMIX-POLISH, 7 Nov; option names from the runtime's own RtxOptions.md,
+# DXVK_DOCUMENTATION_WRITE_RTX_OPTIONS_MD=1). The night had been lifted to an overcast
+# evening: the ground moonlight is a stylised 50x and the auto exposure may brighten 8x.
+# Moonlight down, a little airglow so the sky is not pitch black, the exposure capped
+# so lamps, neon and headlights make pools instead of the whole street going grey,
+# and slower adaptation so the picture does not pump as lights pass while driving.
+rtx.atmosphere.surfaceMoonBrightness = 3
+rtx.atmosphere.nightSkyBrightness = 0.008
+rtx.autoExposure.maxExposure = 2.5
+rtx.autoExposure.darkAdaptTau = 2.0
+rtx.autoExposure.lightAdaptTau = 0.5
+# Highlights: bloom only on what is really bright, fireflies clamped (no white specks
+# from the small lamp bulbs on glossy paint).
+rtx.bloom.luminanceThreshold = 0.8
+rtx.bloom.burnIntensity = 0.5
+rtx.fireflyFilteringLuminanceThreshold = 400

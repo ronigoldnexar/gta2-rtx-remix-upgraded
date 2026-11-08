@@ -30,6 +30,59 @@ Not tuned by measurement: the roughness heuristic (below), the paint constants, 
 runtime's exposure (see `docs/remix-gpu-l4.md`).
 
 
+## Cars, alpha state, roughness with the HD tiles, rebuilding (REMIX-POLISH, 8 Nov 2026)
+
+**Roughness applies with the HD tiles (verified).** The colour probe above proved the
+albedo hash; this pass checked a second input. `gamerun/remix_probe_rough/` is the shipped
+layer with every tile prim's roughness texture replaced by `reflection_roughness_constant
+= 0.03` (textures linked, not copied); run `out/remix_pol_rough` (`MODS_HD_SRC=/work/remix_probe_rough`,
+14:00, HD tiles installed, same key script as the day take; the probe's `mod.usda` is the shipped one with each tile prim's `reflectionroughness_texture` block and `reflection_roughness_constant = 0.8` replaced by `= 0.03`, and `textures` a symlink to `/package/rtx-remix/mods/gta2hd/textures`; not committed) shows the walls and kerbs of
+the spawn plaza as glossy mirrors reflecting the sky and the neon, where the shipped
+layer (`out/remix_pol_day3`) shows them matte: the layer's material inputs, not only its
+albedo, reach the HD tiles. The hashes did not need regenerating: all 846 / 930 / 876 HD
+tiles of wil / bil / ste in the current stage have a prim in the layer (checked with
+`remix_materials.dds_hash`). Frames: `out/remix_hd_roughness_probe.png`.
+
+**Alpha state.** Every prim used to say `use_legacy_alpha_state = 0`, whose MDL defaults
+are "alpha test: always, no blend": the 665 HD tiles with cutout alpha (fences, railings,
+gratings, tree edges) were path traced as opaque. Tile prims now keep the game's alpha
+state (`= 1`, `remix_materials.py MATERIAL`); the shipped `mod.usda` was patched in place.
+
+**Car paint, trim and lamps** (`tools/remix_model_materials.py`, rewritten). The 3D car
+models are drawn twice per car (car_bodies.cpp: the `_paint` half and the rest, each
+alpha-tested at 128, same mesh, same transform). Under Remix the second draw is taken as a
+duplicate of the first, so with each half's own alpha only one half of the car was path
+traced (run `out/remix_pol_day2`: cars in pieces, a different half from frame to frame).
+Both prims of a split pair therefore carry one opaque whole-car material, built from
+copies (the baked TGAs are not touched):
+
+* albedo: the two halves merged (paint texels from `_paint`, the rest from `_N`);
+* paint texels: clear coat approximated as a smooth dielectric with some flake,
+  metallic 0.2, roughness 0.12 (AperturePBR has no second specular lobe; this gives the
+  sharp sky/lamp reflections over the coloured paint of a coat, where the old 0.6 / 0.3
+  turned the paint into dark tinted metal);
+* the rest, per texel from its colour: bright neutral texels in a busy neighbourhood
+  chrome (1.0 / 0.16: bumpers, strips, hubcaps, grilles), mid-grey busy texels brushed
+  metal (0.7 / 0.32), dark blue-grey glass (0 / 0.05), near-black rubber (0 / 0.6),
+  anything else painted body with the coat;
+* saturated red texels (tail and brake lamps) an emissive mask in their own colour,
+  intensity 6, so the lamps glow at night.
+
+Lone textures (the 13 parametric cars' part textures: chrome, lamp, tyre ...) get the same
+per-texel maps and keep the game's alpha. 60 split pairs, 113 lone trim and 92 lone paint
+textures, 34 prims with lamp emission. `--preview <dir>` writes the albedo / metallic /
+roughness / emissive maps per texture. The renderer's per-car paint tint (a texture-stage
+factor) is not reproduced by a replacement material, so under the layer every car of a
+model shows the model's own paint colour (untested whether Remix applies the factor).
+
+**Rebuilding and shipping the layer.** `gamerun/build_remix_mod.sh` (`linux/docker/`) runs
+the three passes in the order that keeps each one's prims: tiles (`remix_materials.py
+--dds-tiles`, rewrites `mod.usda`), sign emission (`remix_emissive.py`, rewrites it again),
+cars (`remix_model_materials.py`, replaces only its own prims; re-run it alone after the
+car models change). `ZIP=1` packs `deliverables/remix_mod_gta2hd.zip` (mod.usda +
+textures/, ~1 GB, store-only) for the release page; the DDS embed the game's art, so the
+textures stay out of git and only `mod.usda` (hashes and constants) is committed.
+
 This note records what NVIDIA offers for turning GTA2's 64x64 tiles into PBR
 materials, why none of it runs on this Linux/B200 machine, and what
 `tools/remix_materials.py` produces instead: a complete Remix material layer,

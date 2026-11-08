@@ -276,7 +276,7 @@ MATERIAL = '''        over "mat_{h}"
                 )
                 custom float inputs:metallic_constant = 0
                 custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 0{emissive}
+                custom bool inputs:use_legacy_alpha_state = 1{emissive}
                 token outputs:out
             }}
         }}
