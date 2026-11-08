@@ -57,7 +57,11 @@ Screenshots are taken every ~0.4 s from the knock onwards.
   white, and the smoke billows had hard lobed rims ("black flowers"). The second pass lowered the
   billows' brightness, softened the billow rim, and made the smoke greyer and larger with a slower
   fade-in.
-- Before (`GTA2DX9_EXPLOSION_FX=0`, same scenario): see the issue comment for the A/B frame pair.
+- Before (`GTA2DX9_EXPLOSION_FX=0`, same scenario, run `qb19_off`): the blast is the game's blocky
+  orange-white sprite stood up as a flat billboard over the car, with hard pixel edges, no smoke
+  column and no light on the road. The A/B sheet is `out/qb19_ab_sheet.png` (local, not in git
+  because it contains game art). Top row: before, frames 0.0-2.8 s. Bottom row: after, same
+  timing.
 
 What is not verified:
 - Under RTX Remix: no path-traced frames of this yet.
