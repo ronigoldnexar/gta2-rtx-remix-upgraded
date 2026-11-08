@@ -1,0 +1,5449 @@
+{
+ "generated_by": "tools/mission_catalogue.py",
+ "sources": {
+  "scripts": "game scripts decompiled with https://github.com/Valps/gta2-tm-scr-decompiler (assets-src/missions, see docs/missions.md)",
+  "missions_list": "https://gta.wiki/w/Missions_in_GTA_2",
+  "kill_frenzies": "https://gta.wiki/w/Kill_Frenzies_in_GTA_2",
+  "bonus_levels": "https://www.grandtheftwiki.com/Bonus_Levels_in_GTA_2",
+  "bonus_levels_readme": "https://gtamp.com/mapscript/_maplump/_02_recent/bonus-levels.zip/data/readme-bonus-levels.txt",
+  "bonuses": "https://en.wikigta.org/wiki/Bonuses_(GTA2)"
+ },
+ "skills": {
+  "drive_to_point": "drive a car to a scripted point/box (LOCATE_*_BY_CAR, IS_CAR_IN_BLOCK)",
+  "walk_to_point": "reach a point on foot, incl. stairs, interiors, narrow walkways",
+  "enter_mission_car": "walk to and enter the scripted mission car",
+  "steal_model": "find a given car model (parked or in traffic) and jack it",
+  "deliver_intact": "deliver/park a fragile or valued vehicle in a garage/box without wrecking it",
+  "timed": "beat an on-screen clock",
+  "horn_pickup": "sound the horn at a box so NPCs board, then carry them",
+  "escort_protect": "keep NPC passengers/followers alive, wait for them, lead them",
+  "tail_unseen": "follow a target without being spotted or losing it",
+  "kill_marked": "kill specific marked characters (arrows on peds)",
+  "kill_count": "kill N peds of a gang/zone on foot (counter)",
+  "run_over_count": "run over N peds of a gang with a given vehicle (counter)",
+  "destroy_vehicle": "destroy marked or roaming vehicles (guns/ramming)",
+  "destroy_objects": "shoot/blow up static targets (generators, turbines, tanks, doors)",
+  "car_bomb": "rig a car at a bomb shop or arm a pre-rigged car, park it, escape the blast",
+  "plant_on_foot": "carry explosives on foot to a spot and run before the fuse",
+  "crusher_crane": "drive into a crusher/crane box, step out, let the crane take the car",
+  "truck_trailer": "truck cab + trailer: hook up, tow, drop at a crane",
+  "bus": "drive a bus (stops, boarding, capacity)",
+  "tank": "drive/steal/fight a tank",
+  "boat": "drive a boat (none of the phone jobs needs one)",
+  "rooftop_access": "phone or objective on a raised roof/terrace (stairs, ramps, rooftop jumps)",
+  "wanted_evasion": "survive or shake police (wanted level, respray, timed evasion)",
+  "money_needed": "needs cash on hand mid-job (bomb shop / bribe), may need a killing spree",
+  "remote_control": "drive a remote-controlled car",
+  "defend_area": "defend objects/area or survive in a zone for a time",
+  "cop_siren": "use a cop car and its siren (emergency lights)",
+  "gang_zone": "objective counts only inside a gang zone / area",
+  "combat_on_foot": "sustained on-foot gunfights with armed guards"
+ },
+ "district_files": {
+  "wil": "Downtown",
+  "ste": "Residential",
+  "bil": "Industrial"
+ },
+ "districts": {
+  "wil": {
+   "name": "Downtown",
+   "start": [
+    159.5,
+    139.5,
+    2.0
+   ],
+   "finish_score": 1000000,
+   "level_end": [
+    153.5,
+    138.5,
+    2.0
+   ],
+   "bonus_tokens": 49,
+   "info_phones": [
+    {
+     "x": 188.5,
+     "y": 37.5
+    },
+    {
+     "x": 31.0,
+     "y": 157.0
+    },
+    {
+     "x": 38.5,
+     "y": 38.5
+    }
+   ],
+   "rivals": {
+    "Yakuza": "Loonies",
+    "Zaibatsu": "Loonies",
+    "Loonies": "Yakuza"
+   },
+   "jobs": [
+    {
+     "id": "wil_tra",
+     "title": "TUTORIAL!",
+     "kind": "tutorial",
+     "gang": null,
+     "tier": "plain",
+     "phones": [
+      {
+       "x": 158.5,
+       "y": 138.5,
+       "level": 2.0,
+       "colour": "plain"
+      }
+     ],
+     "prerequisite": "none (plain phone at the spawn)",
+     "follow_up_of": null,
+     "reward": 20000,
+     "objective": "Get in the Messer (pistol inside), follow the pink marker through the Zaibatsu, Loonies and Yakuza zones and back to the spawn phone.",
+     "skills": [
+      "enter_mission_car",
+      "drive_to_point"
+     ],
+     "hazards": "car wrecked or sunk fails it; plain phone at spawn",
+     "status": "completed",
+     "status_evidence": "TUTORIAL complete (playthrough-downtown.md part 2 runs)",
+     "first_brief": "Hey there, stranger! Welcome to the Downtown District. Stick around if you wanna learn what's going down...",
+     "title_key": "1952",
+     "cars_created": [
+      "MESSER"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_on_foot",
+      "locate_any",
+      "char_died",
+      "car_wrecked",
+      "sinks_fail"
+     ],
+     "script": "assets-src/missions/wil_m/wil_tra.mis"
+    },
+    {
+     "id": "wil_ye1",
+     "title": "GET ZITZAKI!",
+     "kind": "phone",
+     "gang": "Yakuza",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 44.5,
+       "y": 150.5,
+       "level": 3,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Yakuza respect >= 0 (green phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 20000,
+     "objective": "Take the Miura from City University, horn in the 3x1 hospital box so Dr ZitZaki boards, deliver him to the J-Lab garage.",
+     "skills": [
+      "enter_mission_car",
+      "drive_to_point",
+      "horn_pickup",
+      "deliver_intact",
+      "escort_protect"
+     ],
+     "hazards": "doctor can die; car wreck/sink fails; hospital box is small (pt9)",
+     "status": "completed",
+     "status_evidence": "GET ZITZAKI JOB COMPLETE pt8_chain1, pt9_wil3/4/5/6",
+     "first_brief": "Kosai! Johnny Zoo here. The Zaibatsu have discovered our experiments with Doctor ZitZaki. He needs help - and fast. Collect the marked car parked at City University.",
+     "title_key": "1975",
+     "cars_created": [
+      "MIURA"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "car_in_block",
+      "park",
+      "horn",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "sinks_fail"
+     ],
+     "script": "assets-src/missions/wil_m/wil_ye1.mis"
+    },
+    {
+     "id": "wil_ye2",
+     "title": "BANK ROBBERY!",
+     "kind": "phone",
+     "gang": "Yakuza",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 46.5,
+       "y": 150.5,
+       "level": 3,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Yakuza respect >= 0 (green phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 20000,
+     "objective": "Drive the Graham to the City Bank, kill the 2 bank guards, Hiroshi boards; wanted level rises: respray ($5,000 given) or bribe, then the Safehouse.",
+     "skills": [
+      "enter_mission_car",
+      "drive_to_point",
+      "kill_marked",
+      "escort_protect",
+      "wanted_evasion"
+     ],
+     "hazards": "shooting at the bank raises wanted level, arrest on the spot (pt9_wil6); Hiroshi must live",
+     "status": "attempted",
+     "status_evidence": "BANK ROBBERY: guards found and shot, arrested at the bank (pt9_wil6)",
+     "first_brief": "Ah, Kosai! Johnny Zoo here. I am having money illegally transferred to my bank account and I need you to help my inside man, Hiroshi. Take the vehicle and firepower provided.",
+     "title_key": "1976",
+     "cars_created": [
+      "GRAHAM"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_any",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "sinks_fail",
+      "wanted_up",
+      "heads_check"
+     ],
+     "script": "assets-src/missions/wil_m/wil_ye2.mis"
+    },
+    {
+     "id": "wil_ym1",
+     "title": "HAPPY GAS SMASH!",
+     "kind": "phone",
+     "gang": "Yakuza",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 83.5,
+       "y": 185.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Yakuza respect >= 2 (yellow phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "Get a car to City University, horn to meet the Loonies (deal turns into a fight: kill them); steal an Ice-Cream Van, money for the rig, drive into the Asylum, arm the van bomb by the Happy Gas tanks and escape.",
+     "skills": [
+      "drive_to_point",
+      "horn_pickup",
+      "kill_marked",
+      "steal_model",
+      "money_needed",
+      "car_bomb"
+     ],
+     "hazards": "need cash to rig the van (killing spree); Loony ambush; police contact fails",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hi, Kosai, it's Johnny Zoo. The Loonies still owe me money for merchandise. Get some wheels, get to the City University and GET MY DOLLARS!",
+     "title_key": "1977",
+     "cars_created": [
+      "ISETTA",
+      "VAN"
+     ],
+     "models_required": [
+      "ICECREAM"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_by_car",
+      "car_in_block",
+      "horn",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "car_bomb",
+      "score_check"
+     ],
+     "script": "assets-src/missions/wil_m/wil_ym1.mis"
+    },
+    {
+     "id": "wil_ym2",
+     "title": "GET GAMA REI!",
+     "kind": "phone",
+     "gang": "Yakuza",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 86.5,
+       "y": 185.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Yakuza respect >= 2 (yellow phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "Steal a Medicar, collect Gama Rei at City Hospital, deliver him to the Safehouse while Loony assassins attack.",
+     "skills": [
+      "steal_model",
+      "drive_to_point",
+      "escort_protect",
+      "deliver_intact"
+     ],
+     "hazards": "Medicar must not be destroyed; Gama Rei must live; assassins en route",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hi, Kosai, it's Johnny Zoo. Gama Rei has to leave the City Hospital - fast. He's in plastic surgery so you need a Medicar.",
+     "title_key": "1978",
+     "cars_created": [
+      "ISETTA"
+     ],
+     "models_required": [
+      "MEDICAR"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/wil_m/wil_ym2.mis"
+    },
+    {
+     "id": "wil_ym3",
+     "title": "FOLLOW THAT TRAITOR!",
+     "kind": "phone",
+     "gang": "Yakuza",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 83.5,
+       "y": 185.5,
+       "level": 2,
+       "colour": "yellow"
+      },
+      {
+       "x": 86.5,
+       "y": 185.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Yakuza respect >= 2 (yellow phone); offered on the same phone(s) after wil_ym1 / wil_ym2 (follow-up job); passing it lowers Loonies respect",
+     "follow_up_of": [
+      "wil_ym1",
+      "wil_ym2"
+     ],
+     "reward": 40000,
+     "objective": "Tail the traitor on foot without being seen; at the hideout meet Refried Noodle (weapon), kill the traitor and his men.",
+     "skills": [
+      "tail_unseen",
+      "walk_to_point",
+      "kill_marked",
+      "combat_on_foot"
+     ],
+     "hazards": "losing him or being seen fails; Noodle must live",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hi, Kosai, it's Johnny Zoo. I think my top man is selling information to the Zaibatsu. I want you to tail him.",
+     "title_key": "1979",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_on_foot",
+      "char_died",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/wil_m/wil_ym3.mis"
+    },
+    {
+     "id": "wil_yh1",
+     "title": "SWAT VAN SWIPE!",
+     "kind": "phone",
+     "gang": "Yakuza",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 97.5,
+       "y": 245.5,
+       "level": 3,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Yakuza respect >= 4 (red phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "Steal a SWAT Van (any) and park it in Johnny Zoo's garage.",
+     "skills": [
+      "steal_model",
+      "deliver_intact",
+      "wanted_evasion"
+     ],
+     "hazards": "SWAT vans only appear at high wanted levels: needs 4+ stars",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hi, Kosai, it's Johnny Zoo. The authorities have impounded my favorite car and I want you to steal me a SWAT Van as compensation.",
+     "title_key": "1980",
+     "cars_created": [],
+     "models_required": [
+      "SWATVAN"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "steal_model",
+      "car_in_block",
+      "park",
+      "car_wrecked"
+     ],
+     "script": "assets-src/missions/wil_m/wil_yh1.mis"
+    },
+    {
+     "id": "wil_yh2",
+     "title": "STOP THE TANK!",
+     "kind": "phone",
+     "gang": "Yakuza",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 97.5,
+       "y": 245.5,
+       "level": 3,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Yakuza respect >= 4 (red phone); offered on the same phone(s) after wil_yh1 (follow-up job); passing it lowers Loonies respect",
+     "follow_up_of": [
+      "wil_yh1"
+     ],
+     "reward": 60000,
+     "objective": "A Tank and ground troops roll to destroy Johnny Zoo's exotic cars: stop the Tank (and troops) before the cars are wrecked.",
+     "skills": [
+      "destroy_vehicle",
+      "tank",
+      "kill_count"
+     ],
+     "hazards": "tank is armoured: needs rockets/explosives or a hijack; failure if his cars die",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Kosai! Johnny Zoo here! Military top brass are pissed with me and sending a Tank and Ground Troops to trash my exotic cars. I need your help.",
+     "title_key": "1981",
+     "cars_created": [
+      "MIURA",
+      "TANK"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "car_in_block",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "follow_car",
+      "tank"
+     ],
+     "script": "assets-src/missions/wil_m/wil_yh2.mis"
+    },
+    {
+     "id": "wil_ze1",
+     "title": "COP CAR CRUSH!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 208.5,
+       "y": 57.5,
+       "level": 5,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 0 (green phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 20000,
+     "objective": "Steal the Cop Car at the Zarelli station, drive to the Avalon train station, horn for Shady, take him to the Zaibatsu crusher (NE Zarelli), get out under the crane.",
+     "skills": [
+      "enter_mission_car",
+      "drive_to_point",
+      "horn_pickup",
+      "crusher_crane",
+      "rooftop_access"
+     ],
+     "hazards": "phone on the Zaibatsu HQ level-4 terrace; Cop Car wreck fails; Shady must not die early",
+     "status": "completed",
+     "status_evidence": "COP CAR CRUSH JOB COMPLETE pt4_wil15",
+     "first_brief": "Hey, Gecko, it's Trey Welsh. An informer is selling Zaibatsu secrets to the Cops. There's a Cop Car parked down at the Cop Station in Zarelli. Steal it.",
+     "title_key": "1982",
+     "cars_created": [
+      "COPCAR"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "car_in_block",
+      "horn",
+      "char_died",
+      "car_wrecked",
+      "crusher",
+      "passengers_group",
+      "emerg_lights",
+      "sinks_fail"
+     ],
+     "script": "assets-src/missions/wil_m/wil_ze1.mis"
+    },
+    {
+     "id": "wil_ze2",
+     "title": "WHEELER-DEALING!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 208.5,
+       "y": 59.5,
+       "level": 5,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 0 (green phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 20000,
+     "objective": "Pick up the briefcase and serve four dealers on foot/by car in 180 s.",
+     "skills": [
+      "timed",
+      "walk_to_point",
+      "drive_to_point",
+      "rooftop_access"
+     ],
+     "hazards": "180 s clock; dealers must not die; terrace phone",
+     "status": "completed",
+     "status_evidence": "WHEELER-DEALING JOB COMPLETE pt8_ze2f (GTA2_SPEED=2), after 17 short sessions",
+     "first_brief": "Hey, Gecko! Trey Welsh here. The Yakuza are flooding the streets with cheap merchandise. I need you to supply my dealers - FAST. Collect the new shipment and get moving!",
+     "title_key": "1983",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      180
+     ],
+     "script_features": [
+      "locate_on_foot",
+      "timer",
+      "char_died"
+     ],
+     "script": "assets-src/missions/wil_m/wil_ze2.mis"
+    },
+    {
+     "id": "wil_zm1",
+     "title": "LICK THOSE LOONIES!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 207.5,
+       "y": 8.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "Steal a Loony Dementia, earn $5,000, rig it at the bomb shop, take the Van to collect the Z-Men (horn), then dump the rigged Dementia in the Loony garage and set it off.",
+     "skills": [
+      "steal_model",
+      "money_needed",
+      "car_bomb",
+      "horn_pickup",
+      "escort_protect",
+      "drive_to_point"
+     ],
+     "hazards": "twitchy Loony guards; burning Dementia fails; Z-Men must live",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Trey Welsh here. The Loonies have slipped narcotics in the water supply and hit my drugs business. Revenge will be simple. First, you need a special Loony Dementia.",
+     "title_key": "1984",
+     "cars_created": [
+      "ISETTA",
+      "VAN"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "locate_any",
+      "car_in_block",
+      "park",
+      "horn",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "car_bomb",
+      "sinks_fail",
+      "score_check"
+     ],
+     "script": "assets-src/missions/wil_m/wil_zm1.mis"
+    },
+    {
+     "id": "wil_zm2",
+     "title": "YUTES MUST DIE!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 209.5,
+       "y": 8.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "Beat (not kill) snitch Lefty by the Casino until he talks, steal the Yute car at South Docks, horn at the Easy Rider for the Yute boss, drive to Zaibatsu HQ, then the South Docks crusher.",
+     "skills": [
+      "kill_marked",
+      "steal_model",
+      "horn_pickup",
+      "deliver_intact",
+      "crusher_crane",
+      "drive_to_point"
+     ],
+     "hazards": "punch only: killing Lefty fails; Yute car and boss must survive",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Trey Welsh here. The small-time Yute gang is getting cocky, crushing our new Zaibatsu cars for scrap. I want answers. There's a snitch called Lefty by the Casino. Find out what he knows.",
+     "title_key": "1985",
+     "cars_created": [
+      "GRAHAM"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "locate_any",
+      "car_in_block",
+      "horn",
+      "char_died",
+      "car_wrecked",
+      "crusher",
+      "passengers_group",
+      "sinks_fail"
+     ],
+     "script": "assets-src/missions/wil_m/wil_zm2.mis"
+    },
+    {
+     "id": "wil_zm3",
+     "title": "BIG BANK JOB!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 207.5,
+       "y": 8.5,
+       "level": 2,
+       "colour": "yellow"
+      },
+      {
+       "x": 209.5,
+       "y": 8.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); offered on the same phone(s) after wil_zm1 / wil_zm2 (follow-up job); passing it lowers Loonies respect",
+     "follow_up_of": [
+      "wil_zm1",
+      "wil_zm2"
+     ],
+     "reward": 40000,
+     "objective": "Steal the circling Third World Bank Van, horn for the Z-Men, drive through the bank clearance, grab the briefcase, swap cash with Rollo Tomassi, hand the package to the Cop, back to the Safehouse.",
+     "skills": [
+      "destroy_vehicle",
+      "steal_model",
+      "horn_pickup",
+      "escort_protect",
+      "drive_to_point",
+      "walk_to_point",
+      "wanted_evasion"
+     ],
+     "hazards": "Bank Van is moving; Z-Men and Rollo must live; wanted level",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Gecko, it's Trey Welsh. I need some clean cash for a Cop pay-off. There's a Third World Bank Van circling the city. Steal it.",
+     "title_key": "1986",
+     "cars_created": [
+      "BANKVAN",
+      "COPCAR"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "locate_on_foot",
+      "car_in_block",
+      "park",
+      "horn",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "sinks_fail",
+      "wanted_up"
+     ],
+     "script": "assets-src/missions/wil_m/wil_zm3.mis"
+    },
+    {
+     "id": "wil_zh1",
+     "title": "ARMORED CAR CLASH!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 181.5,
+       "y": 94.5,
+       "level": 3,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 4 (red phone); passing it lowers Loonies respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "Destroy the two Yakuza cars circling the city (Dr Cubana inside) within 6 minutes.",
+     "skills": [
+      "destroy_vehicle",
+      "timed"
+     ],
+     "hazards": "360 s clock; moving targets, need heavy weapon or ramming",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Gecko! Our Latin Biologist Doctor Cubana is being tortured for information in one of two Yakuza cars circling the city. Destroy the cars, before he squeals.",
+     "title_key": "1987",
+     "cars_created": [
+      "MIURA"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      360
+     ],
+     "script_features": [
+      "timer",
+      "car_wrecked"
+     ],
+     "script": "assets-src/missions/wil_m/wil_zh1.mis"
+    },
+    {
+     "id": "wil_zh2",
+     "title": "BANK VAN THEFT!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 181.5,
+       "y": 94.5,
+       "level": 3,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 4 (red phone); offered on the same phone(s) after wil_zh1 (follow-up job); passing it lowers Loonies respect",
+     "follow_up_of": [
+      "wil_zh1"
+     ],
+     "reward": 60000,
+     "objective": "Wait for the guard to board, steal the Bank Van unseen (do not kill the guard), shake the Yakuza tail, park at the Safehouse.",
+     "skills": [
+      "enter_mission_car",
+      "tail_unseen",
+      "deliver_intact",
+      "kill_marked",
+      "drive_to_point"
+     ],
+     "hazards": "being seen or killing the guard fails; Yakuza chasers",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Gecko! Trey Welsh here. I need used bank notes for my contraband drug operation. Once the Guard makes his pick-up, steal the bank van, but don't get seen or the job's screwed.",
+     "title_key": "1988",
+     "cars_created": [
+      "BANKVAN",
+      "MIURA"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_any",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "sinks_fail"
+     ],
+     "script": "assets-src/missions/wil_m/wil_zh2.mis"
+    },
+    {
+     "id": "wil_le1",
+     "title": "RADIO ZA-ZA!",
+     "kind": "phone",
+     "gang": "Loonies",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 75.5,
+       "y": 40.5,
+       "level": 2,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Loonies respect >= 0 (green phone); passing it lowers Yakuza respect",
+     "follow_up_of": null,
+     "reward": 20000,
+     "objective": "Get explosives, sneak in the back of the Zaibatsu site, drop them by the generator (5 s fuse), then at the Futuro FM riot kill the DJ. Every ped is a mugger (MAKE_ALL_CHARS_MUGGERS).",
+     "skills": [
+      "walk_to_point",
+      "plant_on_foot",
+      "kill_marked",
+      "timed"
+     ],
+     "hazards": "all peds mug: a stopped car is lost (pt9_wil1/2/7); 5 s fuse",
+     "status": "completed",
+     "status_evidence": "RADIO ZA-ZA JOB COMPLETE pt7_le2e; failed 3x in part 8 (muggers)",
+     "first_brief": "Hey, Jumbo, it's Elmo. A new Zaibatsu drug mixed with Futuro FM's music is sending people CRAZY. This is bad for our Loony reputation. Get some explosives and stop this madness NOW.",
+     "title_key": "1954",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      5
+     ],
+     "script_features": [
+      "locate_on_foot",
+      "locate_any",
+      "timer",
+      "char_died",
+      "muggers"
+     ],
+     "script": "assets-src/missions/wil_m/wil_le1.mis"
+    },
+    {
+     "id": "wil_le2",
+     "title": "PIZZA CAKE!",
+     "kind": "phone",
+     "gang": "Loonies",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 75.5,
+       "y": 41.5,
+       "level": 2,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Loonies respect >= 0 (green phone); passing it lowers Yakuza respect",
+     "follow_up_of": null,
+     "reward": 20000,
+     "objective": "Pick up explosives at City University, drop them at Pizza Cake (5 s fuse), then destroy the Pizza Cake delivery van.",
+     "skills": [
+      "walk_to_point",
+      "plant_on_foot",
+      "destroy_vehicle",
+      "timed"
+     ],
+     "hazards": "the van is fragile only to guns: ramming kills the player (pt6); 5 s fuse",
+     "status": "completed",
+     "status_evidence": "PIZZA CAKE JOB COMPLETE pt6_le2a, pt7_le2e (chase view)",
+     "first_brief": "Jumbo! It's me, Elmo. Pizza Cake restaurants keep screwing up my favorite food. Go to the City University, pick up some explosives and teach them a new recipe.",
+     "title_key": "1955",
+     "cars_created": [
+      "VAN"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      5
+     ],
+     "script_features": [
+      "locate_on_foot",
+      "timer",
+      "char_died",
+      "car_wrecked"
+     ],
+     "script": "assets-src/missions/wil_m/wil_le2.mis"
+    },
+    {
+     "id": "wil_lm1",
+     "title": "WHO'S MAD?",
+     "kind": "phone",
+     "gang": "Loonies",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 10.5,
+       "y": 46.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Loonies respect >= 2 (yellow phone); passing it lowers Yakuza respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "WHO'S MAD?: go meet Cosmo Trouble (a hoax); three hitmen come for you: kill them.",
+     "skills": [
+      "drive_to_point",
+      "kill_marked",
+      "combat_on_foot"
+     ],
+     "hazards": "three armed hitmen hunt the player",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Jumbo! You should meet Cosmo Trouble, Downtown. He's got a bonkers mad job for you!",
+     "title_key": "1970",
+     "cars_created": [
+      "VTYPE"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_any",
+      "char_died"
+     ],
+     "script": "assets-src/missions/wil_m/wil_lm1.mis"
+    },
+    {
+     "id": "wil_lm2",
+     "title": "DESTROY J-LAB!",
+     "kind": "phone",
+     "gang": "Loonies",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 11.5,
+       "y": 46.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Loonies respect >= 2 (yellow phone); passing it lowers Yakuza respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "Collect explosives at University, enter J-Lab, kill the short Yakuza guard, plant the explosives in his place, climb the stairs to watch.",
+     "skills": [
+      "walk_to_point",
+      "kill_marked",
+      "plant_on_foot",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "interior with levels 3-6; guards inside",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Yo, Jumbo, it's Elmo. New Yakuza drugs are making the insane sane - which is bad news for us Loonies. Pick up explosives from the University and use them to wreak havoc at J-Lab.",
+     "title_key": "1971",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_on_foot",
+      "char_died",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/wil_m/wil_lm2.mis"
+    },
+    {
+     "id": "wil_lm3",
+     "title": "DIMENTIA TO GO!",
+     "kind": "phone",
+     "gang": "Loonies",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 10.5,
+       "y": 46.5,
+       "level": 2,
+       "colour": "yellow"
+      },
+      {
+       "x": 11.5,
+       "y": 46.5,
+       "level": 2,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Loonies respect >= 2 (yellow phone); offered on the same phone(s) after wil_lm1 / wil_lm2 (follow-up job); passing it lowers Yakuza respect",
+     "follow_up_of": [
+      "wil_lm1",
+      "wil_lm2"
+     ],
+     "reward": 40000,
+     "objective": "Meet Dodo (University), pick up gun+bombs behind Harman Hotel, pay Lance $1,000 and drop him at the Cop Car Compound to distract the guard, sneak in, kill the other guard, Molotov the door locks, steal the Dementia Limo and drive it to the Asylum.",
+     "skills": [
+      "walk_to_point",
+      "money_needed",
+      "horn_pickup",
+      "escort_protect",
+      "kill_marked",
+      "destroy_objects",
+      "enter_mission_car",
+      "deliver_intact"
+     ],
+     "hazards": "Dodo/Lance must live; killing the nice cop fails; spotted makes it hard",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Jumbo, it's Elmo here. The Cops have a new Dementia Limousine in their Car Compound and I want it BAD. Meet my friend Dodo at the University - he will help you.",
+     "title_key": "1972",
+     "cars_created": [
+      "ISETLIMO"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "locate_on_foot",
+      "locate_any",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "score_check"
+     ],
+     "script": "assets-src/missions/wil_m/wil_lm3.mis"
+    },
+    {
+     "id": "wil_lh1",
+     "title": "TAXI DRIVERS MUST DIE!",
+     "kind": "phone",
+     "gang": "Loonies",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 58.5,
+       "y": 20.5,
+       "level": 3,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Loonies respect >= 4 (red phone); passing it lowers Yakuza respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "Three taxis in turn: steal the taxi, kill its driver(s)/passengers, take it to the South Docks crusher (right one), get out.",
+     "skills": [
+      "enter_mission_car",
+      "kill_marked",
+      "crusher_crane",
+      "drive_to_point"
+     ],
+     "hazards": "wrong crusher fails; taxi wreck/sink fails",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Jumbo, it's Elmo. The Taxis in this city won't give me a ride. I have chosen three of them for special attention. Go get the first Taxi.",
+     "title_key": "1973",
+     "cars_created": [
+      "TAXI"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "car_in_block",
+      "char_died",
+      "car_wrecked",
+      "crusher",
+      "passengers_group",
+      "sinks_fail"
+     ],
+     "script": "assets-src/missions/wil_m/wil_lh1.mis"
+    },
+    {
+     "id": "wil_lh2",
+     "title": "GANG WAR A-GO-GO!",
+     "kind": "phone",
+     "gang": "Loonies",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 58.5,
+       "y": 20.5,
+       "level": 3,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Loonies respect >= 4 (red phone); offered on the same phone(s) after wil_lh1 (follow-up job); passing it lowers Yakuza respect",
+     "follow_up_of": [
+      "wil_lh1"
+     ],
+     "reward": 60000,
+     "objective": "Steal a Zaibatsu Z-Type and run over Johnny Zoo's 3 top Yakuza in Yakuza town; then a Yakuza Miara and run over Trey Welsh's 3 Z-Lieutenants in the Zaibatsu quarter.",
+     "skills": [
+      "steal_model",
+      "run_over_count",
+      "kill_marked",
+      "gang_zone",
+      "rooftop_access"
+     ],
+     "hazards": "targets flee: any escape fails; must use the named model",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Jumbo! Elmo here. I'm bored so I'm starting a gang war. First, I want you to steal a Zaibatsu Z-Type and run down Johnny Zoo's three top Yakuza.",
+     "title_key": "1974",
+     "cars_created": [],
+     "models_required": [
+      "MIURA",
+      "VTYPE"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "steal_model",
+      "locate_on_foot",
+      "char_died",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/wil_m/wil_lh2.mis"
+    },
+    {
+     "id": "wil_end",
+     "title": "THE FINAL JOB!",
+     "kind": "final",
+     "gang": null,
+     "tier": null,
+     "phones": [],
+     "prerequisite": "all 21 phone jobs passed (missions-passed counter = 21); launched by the base script, not a phone. Optional: the district ends at the finish score + level-end point",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "THE FINAL JOB: after 21 jobs; the three bosses (Trey Welsh, Elmo, Johnny Zoo) come for you: kill all three.",
+     "skills": [
+      "kill_marked",
+      "combat_on_foot",
+      "destroy_vehicle"
+     ],
+     "hazards": "bosses in cars (Miura/Z-Type/Isetta) with escorts; not required to finish the district",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Well done, kid, you managed to piss off the Yakuza, Zaibatsu AND Loony Bosses and now they all want you dead.",
+     "title_key": "1953",
+     "cars_created": [
+      "ISETTA",
+      "MIURA",
+      "VTYPE"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "char_died"
+     ],
+     "script": "assets-src/missions/wil_m/wil_end.mis"
+    }
+   ],
+   "kill_frenzies": [
+    {
+     "id": "wil_kf01",
+     "text_key": "1901",
+     "text": "Kill 5 people with Molotov Cocktails in 60 seconds!",
+     "weapon": "MOLOTOV",
+     "trigger": "char_in_area",
+     "x": 130.5,
+     "y": 109.5,
+     "z": 6.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 5,
+     "target": "CHAR",
+     "method": "BY_MOLOTOV",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": "-2",
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf02",
+     "text_key": "7021",
+     "text": "Use the Flamethrower to kill 60 people in 120 seconds!",
+     "weapon": "FLAME_THROWER",
+     "trigger": "char_in_area",
+     "x": 125.5,
+     "y": 82.5,
+     "z": 4.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 60,
+     "target": "CHAR",
+     "method": "BY_FLAMETHROWER",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf03",
+     "text_key": "7031",
+     "text": "Use the Rocket Launcher to destroy 10 vehicles in 60 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 214.5,
+     "y": 50.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 10,
+     "target": "CAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf04",
+     "text_key": "7041",
+     "text": "Use the S-Uzi Machine Gun to kill 70 people in 120 seconds!",
+     "weapon": "MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 88.5,
+     "y": 27.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 70,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf05",
+     "text_key": "7051",
+     "text": "Use the Silenced S-Uzi Machine Gun to kill 80 people in 120 seconds!",
+     "weapon": "SILENCED_MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 198.5,
+     "y": 245.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 80,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf06",
+     "text_key": "7061",
+     "text": "Use the Silenced S-Uzi Machine Gun to kill 25 people in 60 seconds!",
+     "weapon": "SILENCED_MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 112.5,
+     "y": 241.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 25,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf07",
+     "text_key": "7101",
+     "text": "Use the Tank to kill 35 people in 60 seconds!",
+     "weapon": "TANK_GUN",
+     "trigger": "char_in_car",
+     "x": 226.5,
+     "y": 238.5,
+     "z": 2.0,
+     "vehicle": "TANK",
+     "start": "enter the parked TANK",
+     "count": 35,
+     "target": "CHAR",
+     "method": "BY_ANY_WEAPON",
+     "vehicle_req": "TANK",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "tank",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf08",
+     "text_key": "7111",
+     "text": "Use the Tank to destroy 20 vehicles in 60 seconds!",
+     "weapon": "TANK_GUN",
+     "trigger": "char_in_car",
+     "x": 3.5,
+     "y": 164.5,
+     "z": 3.0,
+     "vehicle": "TANK",
+     "start": "enter the parked TANK",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_ANY_WEAPON",
+     "vehicle_req": "TANK",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "tank",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf09",
+     "text_key": "7121",
+     "text": "Hee-hee! Use the Fire Engine to knock down 20 people in 60 seconds!",
+     "weapon": "NO_WEAPON",
+     "trigger": "char_in_car",
+     "x": 5.5,
+     "y": 26.5,
+     "z": 3.0,
+     "vehicle": "FIRETRUK",
+     "start": "enter the parked FIRETRUK",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_VEHICLE",
+     "vehicle_req": "FIRETRUK",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "enter_mission_car",
+      "run_over_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf10",
+     "text_key": "7131",
+     "text": "Use Molotov Cocktails to kill 10 people in 60 seconds!",
+     "weapon": "MOLOTOV",
+     "trigger": "char_in_area",
+     "x": 166.5,
+     "y": 183.5,
+     "z": 4.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 10,
+     "target": "CHAR",
+     "method": "BY_MOLOTOV",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf11",
+     "text_key": "7141",
+     "text": "Use Molotov Cocktails to kill 30 people in 120 seconds!",
+     "weapon": "MOLOTOV",
+     "trigger": "char_in_area",
+     "x": 168.5,
+     "y": 207.5,
+     "z": 3.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 30,
+     "target": "CHAR",
+     "method": "BY_MOLOTOV",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf12",
+     "text_key": "7151",
+     "text": "Use the Rocket Launcher to destroy 15 Vehicles in 60 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 181.5,
+     "y": 145.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 15,
+     "target": "CAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf13",
+     "text_key": "7161",
+     "text": "Use the Taxi to run over 50 people in 180 seconds!",
+     "weapon": "NO_WEAPON",
+     "trigger": "char_in_car",
+     "x": 8.5,
+     "y": 139.5,
+     "z": 3.0,
+     "vehicle": "TAXI",
+     "start": "enter the parked TAXI",
+     "count": 50,
+     "target": "CHAR",
+     "method": "BY_VEHICLE",
+     "vehicle_req": "TAXI",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 180,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "enter_mission_car",
+      "run_over_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf14",
+     "text_key": "7171",
+     "text": "Use the Flamethrower to kill 10 people in 60 seconds!",
+     "weapon": "FLAME_THROWER",
+     "trigger": "char_in_area",
+     "x": 247.5,
+     "y": 220.5,
+     "z": 3.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 10,
+     "target": "CHAR",
+     "method": "BY_FLAMETHROWER",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf15",
+     "text_key": "7181",
+     "text": "Use the Flamethrower to destroy 10 vehicles in 60 seconds!",
+     "weapon": "FLAME_THROWER",
+     "trigger": "char_in_area",
+     "x": 203.5,
+     "y": 197.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 10,
+     "target": "CAR",
+     "method": "BY_FLAMETHROWER",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf16",
+     "text_key": "7191",
+     "text": "Use the Rocket Launcher to kill 30 people in 180 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 194.5,
+     "y": 121.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 30,
+     "target": "CHAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 180,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf17",
+     "text_key": "7201",
+     "text": "Use the Machine Gun to kill 40 people in 120 seconds!",
+     "weapon": "MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 147.5,
+     "y": 91.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 40,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf18",
+     "text_key": "7211",
+     "text": "Use the Machine Gun to destroy 8 vehicles in 120 seconds!",
+     "weapon": "MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 153.5,
+     "y": 58.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 8,
+     "target": "CAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf19",
+     "text_key": "7221",
+     "text": "Use the Silenced Machine Gun to kill 5 Cops in 60 seconds!",
+     "weapon": "SILENCED_MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 152.5,
+     "y": 104.5,
+     "z": 3.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 5,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "POLICE",
+     "target_gang": "-2",
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "wil_kf20",
+     "text_key": "7231",
+     "text": "Use the Silenced Machine Gun to destroy 4 vehicles in 60 seconds!",
+     "weapon": "SILENCED_MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 9.5,
+     "y": 53.5,
+     "z": 5.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 4,
+     "target": "CAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    }
+   ]
+  },
+  "ste": {
+   "name": "Residential",
+   "start": [
+    113.5,
+    124.7,
+    255.0
+   ],
+   "finish_score": 3000000,
+   "level_end": [
+    116.0,
+    123.0,
+    2.0
+   ],
+   "bonus_tokens": 50,
+   "info_phones": [
+    {
+     "x": 199.0,
+     "y": 25.5
+    },
+    {
+     "x": 47.5,
+     "y": 49.5
+    },
+    {
+     "x": 211.5,
+     "y": 219.5
+    }
+   ],
+   "rivals": {
+    "SRS Scientists": "Rednecks",
+    "Zaibatsu": "Rednecks",
+    "Rednecks": "SRS Scientists"
+   },
+   "jobs": [
+    {
+     "id": "ste_se1",
+     "title": "SINK OR SWIM!",
+     "kind": "phone",
+     "gang": "SRS Scientists",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 234.5,
+       "y": 202.5,
+       "level": 2.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "SRS Scientists respect >= 0 (green phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 30000,
+     "objective": "Steal a taxi (STYPECAB) undamaged, horn-pick up 3 Zaibatsu operatives (Clock Tower first), drive them to the SE Dock crane and get out.",
+     "skills": [
+      "steal_model",
+      "horn_pickup",
+      "drive_to_point",
+      "crusher_crane",
+      "deliver_intact"
+     ],
+     "hazards": "too much damage alerts cops and fails; killing a Z-operative fails",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hello, THC-303, it's Dr LaBrat. Zaibatsu Operatives have secret SRS data and I want it back. Steal a Taxi and keep it in one piece - too much destruction will alert the Cops.",
+     "title_key": "2957",
+     "cars_created": [],
+     "models_required": [
+      "STYPECAB"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_by_car",
+      "car_in_block",
+      "horn",
+      "char_died",
+      "car_wrecked",
+      "crane_trailer",
+      "passengers_group",
+      "sinks_fail"
+     ],
+     "script": "assets-src/missions/ste_m/ste_se1.mis"
+    },
+    {
+     "id": "ste_se2",
+     "title": "FAKE TRUCE!",
+     "kind": "phone",
+     "gang": "SRS Scientists",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 235.5,
+       "y": 202.5,
+       "level": 2.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "SRS Scientists respect >= 0 (green phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 30000,
+     "objective": "Collect the Factory Bus, horn-pick up Rednecks at Cobbs Store and The Ol' Banjo, Zaibatsu at the Village (two groups), bring all to the SRS Research Center, get off.",
+     "skills": [
+      "enter_mission_car",
+      "bus",
+      "horn_pickup",
+      "drive_to_point",
+      "deliver_intact"
+     ],
+     "hazards": "bus must survive; four stops across the district",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Ah, THC-303. Dr LaBrat here. The Zaibatsu and Rednecks want a peace meeting so I'm taking the opportunity to perform an experiment. Collect the old Factory Bus and I will unravel my plan.",
+     "title_key": "2958",
+     "cars_created": [
+      "BUS"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "horn",
+      "car_wrecked",
+      "passengers_group",
+      "bus"
+     ],
+     "script": "assets-src/missions/ste_m/ste_se2.mis"
+    },
+    {
+     "id": "ste_sm1",
+     "title": "LABRAT'S PLAN!",
+     "kind": "phone",
+     "gang": "SRS Scientists",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 206.5,
+       "y": 227.5,
+       "level": 2.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "SRS Scientists respect >= 2 (yellow phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 50000,
+     "objective": "LABRAT'S PLAN: kill 47 Zaibatsu in The Village (any weapon).",
+     "skills": [
+      "kill_count",
+      "gang_zone",
+      "combat_on_foot"
+     ],
+     "hazards": "Zaibatsu fight back; must stay in the Village",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Ah, THC-303! Dr LaBrat here. SRS research suggests the Zaibatsu population is on the rise. Please visit The Village and reduce their number to a more acceptable statistical median.",
+     "title_key": "2959",
+     "cars_created": [
+      "VTYPE"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [
+      {
+       "zone": "m18",
+       "frames": "65535",
+       "count": "47",
+       "target": "CHAR",
+       "method": "BY_ANY_WEAPON",
+       "vehicle": "NONE",
+       "occupation": "zaibgang",
+       "gang": ""
+      }
+     ],
+     "timers_s": [],
+     "script_features": [
+      "counter",
+      "kill_count_bonus",
+      "char_died",
+      "passengers_group",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/ste_m/ste_sm1.mis"
+    },
+    {
+     "id": "ste_sm2",
+     "title": "GRAN'PA WE LOVE YOU!",
+     "kind": "phone",
+     "gang": "SRS Scientists",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 206.5,
+       "y": 228.5,
+       "level": 2.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "SRS Scientists respect >= 2 (yellow phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 50000,
+     "objective": "Meet Dirk at the Opry car park, pick a car, race to kill 3 escaped Loonies in 240 s (doors locked), win the Pickup, horn for Gran'pa at The Ol' Banjo, take him to the Research Center.",
+     "skills": [
+      "timed",
+      "run_over_count",
+      "kill_marked",
+      "horn_pickup",
+      "escort_protect",
+      "deliver_intact"
+     ],
+     "hazards": "240 s race; killing Rednecks/wrecking their cars fails; Rednecks chase",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hello, THC-303, it's Dr LaBrat. The Professor wants to experiment on a Redneck and has chosen the one they call Gran'pa. First you need to win their confidence...",
+     "title_key": "2460",
+     "cars_created": [
+      "FIAT",
+      "PICKUP",
+      "STRIPETB",
+      "ZCX5"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      240
+     ],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "car_in_block",
+      "park",
+      "horn",
+      "timer",
+      "char_died",
+      "car_wrecked",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/ste_m/ste_sm2.mis"
+    },
+    {
+     "id": "ste_sm3",
+     "title": "REDNECK ATTACK!",
+     "kind": "phone",
+     "gang": "SRS Scientists",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 206.5,
+       "y": 227.5,
+       "level": 2.0,
+       "colour": "yellow"
+      },
+      {
+       "x": 206.5,
+       "y": 228.5,
+       "level": 2.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "SRS Scientists respect >= 2 (yellow phone); offered on the same phone(s) after ste_sm1 / ste_sm2 (follow-up job); passing it lowers Rednecks respect",
+     "follow_up_of": [
+      "ste_sm1",
+      "ste_sm2"
+     ],
+     "reward": 50000,
+     "objective": "REDNECK ATTACK: defend the SRS generators against Rednecks for 2 minutes (at least one must survive).",
+     "skills": [
+      "defend_area",
+      "timed",
+      "kill_count",
+      "combat_on_foot"
+     ],
+     "hazards": "reward drops with every generator lost",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "THC-303 - it's Dr LaBrat. Drunken Rednecks are using our high-powered Generators for target practise. Go now and prepare to protect our power source.",
+     "title_key": "2461",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      120
+     ],
+     "script_features": [
+      "timer",
+      "char_died",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/ste_m/ste_sm3.mis"
+    },
+    {
+     "id": "ste_sh1",
+     "title": "TAXI TRAITOR TEST!",
+     "kind": "phone",
+     "gang": "SRS Scientists",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 222.5,
+       "y": 221.5,
+       "level": 2.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "SRS Scientists respect >= 4 (red phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 70000,
+     "objective": "TAXI TRAITOR TEST: 5 laps of the test track in the remote-control taxi under the record (120 s), then pick up 3 SRS traitors with it and blow it up each time.",
+     "skills": [
+      "remote_control",
+      "timed",
+      "horn_pickup",
+      "destroy_vehicle",
+      "rooftop_access"
+     ],
+     "hazards": "lap record; control is remote (player stands still)",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hello, THC-303, it's Dr LaBrat. Our prototype remote-control Taxi needs a good operator - like you. If you perform well further work will be made available.",
+     "title_key": "2462",
+     "cars_created": [
+      "STYPECAB"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      120
+     ],
+     "script_features": [
+      "locate_on_foot",
+      "car_in_block",
+      "timer",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "remote_control"
+     ],
+     "script": "assets-src/missions/ste_m/ste_sh1.mis"
+    },
+    {
+     "id": "ste_sh2",
+     "title": "WATER CARRY ON!",
+     "kind": "phone",
+     "gang": "SRS Scientists",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 222.5,
+       "y": 221.5,
+       "level": 2.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "SRS Scientists respect >= 4 (red phone); offered on the same phone(s) after ste_sh1 (follow-up job); passing it lowers Rednecks respect",
+     "follow_up_of": [
+      "ste_sh1"
+     ],
+     "reward": 70000,
+     "objective": "WATER CARRY ON: with SRS clones, get into the H2000 Water Company, destroy 4 turbines and then the generator, escape the guards.",
+     "skills": [
+      "walk_to_point",
+      "destroy_objects",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "levels 5-6 walkways; guards",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "I have SRS Clones who can help you, THC-303!",
+     "title_key": "2463",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_on_foot",
+      "locate_any",
+      "char_died",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/ste_m/ste_sh2.mis"
+    },
+    {
+     "id": "ste_ze1",
+     "title": "SCIENCE FRICTION!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 166.5,
+       "y": 19.5,
+       "level": 3.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 0 (green phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 30000,
+     "objective": "SCIENCE FRICTION: steal Montana's rigged Pickup, park it at the south end of the Clone Test Center, arm it, get out before it blows.",
+     "skills": [
+      "enter_mission_car",
+      "car_bomb",
+      "deliver_intact",
+      "drive_to_point"
+     ],
+     "hazards": "rigged Pickup burns easily",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko! Red Valdez here. I need you to bomb the SRS Clone Test Center so it looks like a Redneck attack. Montana's Pickup is loaded with lethal explosives. Steal it.",
+     "title_key": "2464",
+     "cars_created": [
+      "PICKUP"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "car_in_block",
+      "car_wrecked",
+      "car_bomb"
+     ],
+     "script": "assets-src/missions/ste_m/ste_ze1.mis"
+    },
+    {
+     "id": "ste_ze2",
+     "title": "FIRE TRUCK FUN!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 166.5,
+       "y": 16.5,
+       "level": 3.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 0 (green phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 30000,
+     "objective": "FIRE TRUCK FUN: steal a Cop Car (uniform), stop the SRS Security Van, take it to the Village garage; steal a Fire Truck, bring it to the Village, then flame 30 Rednecks in Mobile RV.",
+     "skills": [
+      "steal_model",
+      "cop_siren",
+      "deliver_intact",
+      "run_over_count",
+      "kill_count",
+      "gang_zone"
+     ],
+     "hazards": "flamethrower prototype must survive; Fire Truck must survive",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko! Red Valdez here. A new SRS Flamethrower is being transported across the city in an SRS Security Van - and I want it.",
+     "title_key": "2465",
+     "cars_created": [
+      "VAN"
+     ],
+     "models_required": [
+      "COPCAR",
+      "FIRETRUK"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [
+      {
+       "zone": "m19",
+       "frames": "65535",
+       "count": "30",
+       "target": "CHAR",
+       "method": "BY_FLAMETHROWER",
+       "vehicle": "FIRETRUK",
+       "occupation": "redngang",
+       "gang": ""
+      }
+     ],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_by_car",
+      "car_in_block",
+      "park",
+      "counter",
+      "kill_count_bonus",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/ste_m/ste_ze2.mis"
+    },
+    {
+     "id": "ste_zm1",
+     "title": "OPERATION Z!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 224.5,
+       "y": 34.5,
+       "level": 3.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 50000,
+     "objective": "OPERATION Z: deliver 4 loaded vehicles to the Village garage: the pill Pickup (Bowling Alley), a moving Meteor, Bean's red Limo (Disgracelands), and a Cop Car on a trailer (truck cab, trailer behind the cop station, crane).",
+     "skills": [
+      "steal_model",
+      "destroy_vehicle",
+      "deliver_intact",
+      "truck_trailer",
+      "crusher_crane"
+     ],
+     "hazards": "phone on level 6; Disgracelands guards; fragile cargo cars",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko - it's Red Valdez. The Rednecks and Scientists are moving new contraband around this city and I want it ALL. I want you to bring me FOUR loaded vehicles.",
+     "title_key": "2466",
+     "cars_created": [
+      "COPCAR",
+      "EDSEL",
+      "FIAT",
+      "LIMO",
+      "PICKUP",
+      "STRATOSB",
+      "TRUKTRNS"
+     ],
+     "models_required": [
+      "TRUKCAB1",
+      "TRUKCAB2"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "car_in_block",
+      "park",
+      "car_wrecked",
+      "crane_trailer"
+     ],
+     "script": "assets-src/missions/ste_m/ste_zm1.mis"
+    },
+    {
+     "id": "ste_zm2",
+     "title": "VALDEZ ALERT!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 225.5,
+       "y": 34.5,
+       "level": 3.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 50000,
+     "objective": "VALDEZ ALERT: with Z-Men, drive over rooftop ramps and along the old railway into the SRS Research Center, then on foot (anti-blast suits) rocket the 2 Cold Fusion generators.",
+     "skills": [
+      "drive_to_point",
+      "walk_to_point",
+      "destroy_objects",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "rooftop ramp jumps; SRS guards",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko - Red Valdez here. I want you to infiltrate the SRS Research Center and destroy their Cold Fusion Generators. Some Z-Men will join you shortly.",
+     "title_key": "2467",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_by_car",
+      "locate_any",
+      "char_died",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/ste_m/ste_zm2.mis"
+    },
+    {
+     "id": "ste_zm3",
+     "title": "LAW ENFORCEMENT LARCENY!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 224.5,
+       "y": 34.5,
+       "level": 3.0,
+       "colour": "yellow"
+      },
+      {
+       "x": 225.5,
+       "y": 34.5,
+       "level": 3.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); offered on the same phone(s) after ste_zm1 / ste_zm2 (follow-up job); passing it lowers Rednecks respect",
+     "follow_up_of": [
+      "ste_zm1",
+      "ste_zm2"
+     ],
+     "reward": 50000,
+     "objective": "LAW ENFORCEMENT LARCENY: steal a SWAT Van, then a Special Agent car, park each at Valdez's garage.",
+     "skills": [
+      "steal_model",
+      "deliver_intact",
+      "wanted_evasion"
+     ],
+     "hazards": "needs high wanted level for SWAT/FBI cars",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Red Valdez here! I have some extra special jobs in line for you, Gecko. But first I need to know just how tough you are. Can you steal a SWAT Van?",
+     "title_key": "2468",
+     "cars_created": [],
+     "models_required": [
+      "EDSELFBI",
+      "SWATVAN"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "car_in_block",
+      "park"
+     ],
+     "script": "assets-src/missions/ste_m/ste_zm3.mis"
+    },
+    {
+     "id": "ste_zh1",
+     "title": "MURDER IN THE MALL!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 208.5,
+       "y": 25.5,
+       "level": 4.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 4 (red phone); passing it lowers Rednecks respect",
+     "follow_up_of": null,
+     "reward": 70000,
+     "objective": "MURDER IN THE MALL: with Z-Men, kill 100 Scientists in The Mall on foot (no vehicles).",
+     "skills": [
+      "kill_count",
+      "gang_zone",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "on foot only; leaving the Mall",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Ah, Gecko! Red Valdez here. I'm curious to see how well you handle extreme situations. Some Z-Men will join you shortly. Your destination is The Mall.",
+     "title_key": "2469",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [
+      {
+       "zone": "s07",
+       "frames": "65535",
+       "count": "100",
+       "target": "CHAR",
+       "method": "BY_ANY_FOOT_WEAPON",
+       "vehicle": "NONE",
+       "occupation": "sciegang",
+       "gang": ""
+      }
+     ],
+     "timers_s": [],
+     "script_features": [
+      "counter",
+      "kill_count_bonus",
+      "char_died",
+      "passengers_group",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/ste_m/ste_zh1.mis"
+    },
+    {
+     "id": "ste_zh2",
+     "title": "DISTRACTION ACTION!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 208.5,
+       "y": 25.5,
+       "level": 4.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 4 (red phone); offered on the same phone(s) after ste_zh1 (follow-up job); passing it lowers Rednecks respect",
+     "follow_up_of": [
+      "ste_zh1"
+     ],
+     "reward": 70000,
+     "objective": "DISTRACTION ACTION: from the video store climb the steps and pipes into the cop station, destroy the rooftop generator, take the truck with the Special Agent car trailer, then evade arrest for 60 s.",
+     "skills": [
+      "walk_to_point",
+      "destroy_objects",
+      "truck_trailer",
+      "wanted_evasion",
+      "timed",
+      "rooftop_access"
+     ],
+     "hazards": "detaching the trailer fails; arrest",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko - it's Red Valdez. I need you to create a diversion - something to distract the Cops. Go to the Video Store for further directions.",
+     "title_key": "2470",
+     "cars_created": [
+      "COPCAR",
+      "EDSELFBI",
+      "TRUKCAB1"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      60
+     ],
+     "script_features": [
+      "enter_mission_car",
+      "locate_any",
+      "timer",
+      "car_wrecked",
+      "crane_trailer",
+      "wanted_up"
+     ],
+     "script": "assets-src/missions/ste_m/ste_zh2.mis"
+    },
+    {
+     "id": "ste_re1",
+     "title": "BLOW JOB!",
+     "kind": "phone",
+     "gang": "Rednecks",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 18.5,
+       "y": 68.5,
+       "level": 2.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Rednecks respect >= 0 (green phone); passing it lowers SRS Scientists respect",
+     "follow_up_of": null,
+     "reward": 30000,
+     "objective": "BLOW JOB: take the rigged Pickup to Fat Boy Jim's trailer, park, arm, run; then the second Pickup to the Zaibatsu barricade, park, arm, run.",
+     "skills": [
+      "enter_mission_car",
+      "car_bomb",
+      "deliver_intact",
+      "drive_to_point"
+     ],
+     "hazards": "rigged Pickups burn from wall hits (pt6); 2nd Pickup is a gang car that can drive off (pt9_ste5); fenced phone approach",
+     "status": "completed",
+     "status_evidence": "BLOW JOB Mission Complete pt7_ste5; stage 1 again pt9_ste5",
+     "first_brief": "Hey, Rooster, it's Billy Bob Bean. Montana has wired some new explosives to the ass of a Pickup and I want you to collect it.",
+     "title_key": "2671",
+     "cars_created": [
+      "PICKUP"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "car_in_block",
+      "car_wrecked",
+      "car_bomb"
+     ],
+     "script": "assets-src/missions/ste_m/ste_re1.mis"
+    },
+    {
+     "id": "ste_re2",
+     "title": "DOUBLE-CROSS CRUSH!",
+     "kind": "phone",
+     "gang": "Rednecks",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 18.5,
+       "y": 67.5,
+       "level": 2.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Rednecks respect >= 0 (green phone); passing it lowers SRS Scientists respect",
+     "follow_up_of": null,
+     "reward": 30000,
+     "objective": "DOUBLE-CROSS CRUSH: steal a Zaibatsu Z-Type, run over 50 Scientists in the SRS zone; steal an SRS Meteor, run over 50 Zaibatsu in the Village (no time limit).",
+     "skills": [
+      "steal_model",
+      "run_over_count",
+      "gang_zone"
+     ],
+     "hazards": "gang gunfire burns borrowed cars (pt9); Z-Types are moving gang cars",
+     "status": "attempted",
+     "status_evidence": "DOUBLE-CROSS CRUSH: phone answered pt8_ste3, pt9_ste2/3/4/6; Z-Type never jacked",
+     "first_brief": "Hey, Rooster! Billy Bob Bean here. I'm real pissed with the Zaibatsu and SRS troublin' us so I want you to make 'em trouble each other. Go steal a Zaibatsu Z-Type.",
+     "title_key": "2672",
+     "cars_created": [],
+     "models_required": [
+      "STRATOSB",
+      "VTYPE"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [
+      {
+       "zone": "sciegang",
+       "frames": "65535",
+       "count": "50",
+       "target": "CHAR",
+       "method": "BY_VEHICLE",
+       "vehicle": "VTYPE",
+       "occupation": "sciegang",
+       "gang": "7"
+      },
+      {
+       "zone": "zaibgang",
+       "frames": "65535",
+       "count": "50",
+       "target": "CHAR",
+       "method": "BY_VEHICLE",
+       "vehicle": "STRATOSB",
+       "occupation": "zaibgang",
+       "gang": "8"
+      }
+     ],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "counter",
+      "kill_count_bonus",
+      "car_wrecked",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/ste_m/ste_re2.mis"
+    },
+    {
+     "id": "ste_rm1",
+     "title": "GREATEST HITS!",
+     "kind": "phone",
+     "gang": "Rednecks",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 84.5,
+       "y": 30.5,
+       "level": 4.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Rednecks respect >= 2 (yellow phone); passing it lowers SRS Scientists respect",
+     "follow_up_of": null,
+     "reward": 50000,
+     "objective": "GREATEST HITS: assassinate the Zaibatsu hitmen, then Flambo Cortez in his protected Z-car at the Grand Central car park: rig a car bomb and park it beside him.",
+     "skills": [
+      "kill_marked",
+      "car_bomb",
+      "money_needed",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "Flambo's car is weapon-proof except a car bomb; phone on level 4",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Rooster, it's Billy Bob Bean. I fancy killin' myself some Zaibatsu Hitmen but they found out and I'm a little slow on the draw. Can you start assassinatin' 'em fer me?",
+     "title_key": "2673",
+     "cars_created": [
+      "LIMO"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "char_died",
+      "car_wrecked",
+      "weapon_hit_car",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/ste_m/ste_rm1.mis"
+    },
+    {
+     "id": "ste_rm2",
+     "title": "BENSON BURNER!",
+     "kind": "phone",
+     "gang": "Rednecks",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 84.5,
+       "y": 29.5,
+       "level": 4.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Rednecks respect >= 2 (yellow phone); passing it lowers SRS Scientists respect",
+     "follow_up_of": null,
+     "reward": 50000,
+     "objective": "BENSON BURNER: steal a Benson, take it to Buckwheat's crane; get a truck cab, fetch Dwight T's trailer, load the Benson, pay Montana $5,000 for the bomb, deliver near the Cop crane.",
+     "skills": [
+      "steal_model",
+      "truck_trailer",
+      "crusher_crane",
+      "money_needed",
+      "car_bomb",
+      "deliver_intact",
+      "rooftop_access"
+     ],
+     "hazards": "destroying the trailer/Benson fails",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Rooster! Billy Bob Bean here. The Cop Chief is expecting a shiny new Benson but he's been givin' me shit so I want to surprise him. So steal me a Benson!",
+     "title_key": "2674",
+     "cars_created": [
+      "MERC",
+      "TRUKTRNS"
+     ],
+     "models_required": [
+      "TRUKCAB1",
+      "TRUKCAB2"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "car_in_block",
+      "char_died",
+      "car_wrecked",
+      "crane_trailer",
+      "car_bomb"
+     ],
+     "script": "assets-src/missions/ste_m/ste_rm2.mis"
+    },
+    {
+     "id": "ste_rm3",
+     "title": "TANKS-GIVING!",
+     "kind": "phone",
+     "gang": "Rednecks",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 84.5,
+       "y": 30.5,
+       "level": 4.0,
+       "colour": "yellow"
+      },
+      {
+       "x": 84.5,
+       "y": 29.5,
+       "level": 4.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Rednecks respect >= 2 (yellow phone); offered on the same phone(s) after ste_rm1 / ste_rm2 (follow-up job); passing it lowers SRS Scientists respect",
+     "follow_up_of": [
+      "ste_rm1",
+      "ste_rm2"
+     ],
+     "reward": 50000,
+     "objective": "TANKS-GIVING: break into the Army Base, steal a Tank, drive it to Mobile RV.",
+     "skills": [
+      "tank",
+      "steal_model",
+      "deliver_intact",
+      "wanted_evasion",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "Army base guards and army wanted level",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Rooster, it's Billy Bob. I want to surprise Jungle Montana with a Tank fer his birthday. How about you drivin' over to the Army Base and stealin' me one?",
+     "title_key": "2954",
+     "cars_created": [
+      "JEEP",
+      "TANK"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "car_in_block",
+      "park",
+      "car_wrecked",
+      "tank",
+      "wanted_up"
+     ],
+     "script": "assets-src/missions/ste_m/ste_rm3.mis"
+    },
+    {
+     "id": "ste_rh1",
+     "title": "GANG CAR BANG!",
+     "kind": "phone",
+     "gang": "Rednecks",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 4.5,
+       "y": 5.5,
+       "level": 2.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Rednecks respect >= 4 (red phone); passing it lowers SRS Scientists respect",
+     "follow_up_of": null,
+     "reward": 70000,
+     "objective": "GANG CAR BANG: destroy 5 SRS Meteors in SRS territory, then 5 Z-Types in the Village.",
+     "skills": [
+      "destroy_vehicle",
+      "gang_zone"
+     ],
+     "hazards": "gang counter-fire",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Rooster! Billy Bob here! Me an' the boys are lookin' fer fun down SRS way. You bein' a Good Ol' Boy an' all you wanna join in the fun? First to destroy five Meteors is The King!",
+     "title_key": "2955",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [
+      {
+       "zone": "sciegang",
+       "frames": "65535",
+       "count": "5",
+       "target": "CAR",
+       "method": "BY_ANY_WEAPON",
+       "vehicle": "NONE",
+       "occupation": "STRATOSB",
+       "gang": ""
+      },
+      {
+       "zone": "zaibgang",
+       "frames": "65535",
+       "count": "5",
+       "target": "CAR",
+       "method": "BY_ANY_WEAPON",
+       "vehicle": "NONE",
+       "occupation": "VTYPE",
+       "gang": ""
+      }
+     ],
+     "timers_s": [],
+     "script_features": [
+      "counter",
+      "kill_count_bonus",
+      "char_died",
+      "passengers_group",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/ste_m/ste_rh1.mis"
+    },
+    {
+     "id": "ste_rh2",
+     "title": "PENAL TIES!",
+     "kind": "phone",
+     "gang": "Rednecks",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 4.5,
+       "y": 5.5,
+       "level": 2.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Rednecks respect >= 4 (red phone); offered on the same phone(s) after ste_rh1 (follow-up job); passing it lowers SRS Scientists respect",
+     "follow_up_of": [
+      "ste_rh1"
+     ],
+     "reward": 70000,
+     "objective": "PENAL TIES: meet the Liquor-Man by the strip club to get arrested into Alma Mater, find The Hump, get uniform + S-Uzi, start the riot and kill all 8 guards, keycard the gates, jump the raised bridge in a vehicle, change clothes at Disgracelands.",
+     "skills": [
+      "walk_to_point",
+      "kill_count",
+      "combat_on_foot",
+      "drive_to_point",
+      "wanted_evasion",
+      "timed",
+      "rooftop_access"
+     ],
+     "hazards": "deliberate arrest step; bridge gap jump",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Rooster, it's Billy Bob. I had me some bad times with the Alma Mater Prison Guards some years ago and now it's time for payback. Only first we gotta get you inside...",
+     "title_key": "2956",
+     "cars_created": [
+      "COPCAR",
+      "EDSELFBI",
+      "MERC"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [
+      {
+       "zone": "almagang",
+       "frames": "65535",
+       "count": "8",
+       "target": "CHAR",
+       "method": "BY_ANY_WEAPON",
+       "vehicle": "NONE",
+       "occupation": "NO_OCCUPATION",
+       "gang": "0"
+      }
+     ],
+     "timers_s": [
+      10,
+      10
+     ],
+     "script_features": [
+      "enter_mission_car",
+      "locate_on_foot",
+      "locate_any",
+      "timer",
+      "counter",
+      "kill_count_bonus",
+      "car_wrecked",
+      "follow_car",
+      "gang_zone",
+      "muggers",
+      "wanted_up"
+     ],
+     "script": "assets-src/missions/ste_m/ste_rh2.mis"
+    },
+    {
+     "id": "ste_end",
+     "title": "THE FINAL JOB",
+     "kind": "final",
+     "gang": null,
+     "tier": null,
+     "phones": [],
+     "prerequisite": "all 21 phone jobs passed (missions-passed counter = 21); launched by the base script, not a phone. Optional: the district ends at the finish score + level-end point",
+     "follow_up_of": null,
+     "reward": 3000000,
+     "objective": "THE FINAL JOB: after 21 jobs; Red Valdez, Billy Bob Bean and Dr LaBrat come for you: kill all three (every ped a mugger).",
+     "skills": [
+      "kill_marked",
+      "combat_on_foot"
+     ],
+     "hazards": "all peds muggers; not required to finish the district",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Nice work, kiddo! Now the Redneck, SRS AND Zaibatsu Bosses are ALL out for your ass!",
+     "title_key": null,
+     "cars_created": [
+      "STRATOSB"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "char_died",
+      "muggers"
+     ],
+     "script": "assets-src/missions/ste_m/ste_end.mis"
+    }
+   ],
+   "kill_frenzies": [
+    {
+     "id": "ste_kf01",
+     "text_key": "6106",
+     "text": "Use a Tank to shoot 20 people in 120 seconds!",
+     "weapon": "TANK_GUN",
+     "trigger": "char_in_car",
+     "x": 13.0,
+     "y": 83.0,
+     "z": 2.0,
+     "vehicle": "TANK",
+     "start": "enter the parked TANK",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "TANK",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "tank",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf02",
+     "text_key": "6107",
+     "text": "Use a Tank to shoot 20 vehicles in 120 seconds!",
+     "weapon": "TANK_GUN",
+     "trigger": "char_in_car",
+     "x": 29.0,
+     "y": 178.0,
+     "z": 3.0,
+     "vehicle": "TANK",
+     "start": "enter the parked TANK",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "TANK",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "tank",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf03",
+     "text_key": "6108",
+     "text": "Use Vehicle Machine Guns to shoot 100 people in 120 seconds!",
+     "weapon": "CAR_MACHINE_GUN",
+     "trigger": "char_in_car",
+     "x": 67.5,
+     "y": 17.5,
+     "z": 2.0,
+     "vehicle": "ZCX5",
+     "start": "enter the parked ZCX5",
+     "count": 100,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "ZCX5",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "enter_mission_car",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf04",
+     "text_key": "6109",
+     "text": "Use this Vehicle to shoot 75 people in 90 seconds!",
+     "weapon": "NO_WEAPON",
+     "trigger": "char_in_car",
+     "x": 6.5,
+     "y": 173.5,
+     "z": 2.0,
+     "vehicle": "ZCX5",
+     "start": "enter the parked ZCX5",
+     "count": 75,
+     "target": "CHAR",
+     "method": "BY_VEHICLE",
+     "vehicle_req": "ZCX5",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 90,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "enter_mission_car",
+      "run_over_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf05",
+     "text_key": "6110",
+     "text": "Use Vehicle Mines to destroy 20 Cop Cars in 120 seconds!",
+     "weapon": "CAR_MINE",
+     "trigger": "char_in_car",
+     "x": 242.5,
+     "y": 185.5,
+     "z": 2.0,
+     "vehicle": "ZCX5",
+     "start": "enter the parked ZCX5",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_CAR_MINE",
+     "vehicle_req": "ZCX5",
+     "occupation": "COPCAR",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "enter_mission_car",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf06",
+     "text_key": "6111",
+     "text": "Use an S-Uzi Machine Gun to shoot 20 people in 60 seconds!",
+     "weapon": "MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 132.5,
+     "y": 171.5,
+     "z": 2,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf07",
+     "text_key": "6112",
+     "text": "Use an S-Uzi Machine Gun to shoot 20 Cops in 60 seconds!",
+     "weapon": "MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 253.5,
+     "y": 86.5,
+     "z": 2,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "ANY_LAW_ENFORCEMENT",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf08",
+     "text_key": "6113",
+     "text": "Use Molotov Cocktails to kill 20 people in 60 seconds!",
+     "weapon": "MOLOTOV",
+     "trigger": "char_in_area",
+     "x": 113.5,
+     "y": 144.5,
+     "z": 6,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_MOLOTOV",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf09",
+     "text_key": "6114",
+     "text": "Use Molotov Cocktails to destroy 20 vehicles in 60 seconds!",
+     "weapon": "MOLOTOV",
+     "trigger": "char_in_area",
+     "x": 161.5,
+     "y": 78.5,
+     "z": 6,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_MOLOTOV",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf10",
+     "text_key": "6115",
+     "text": "Use a Rocket Launcher to shoot 20 people in 60 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 176.5,
+     "y": 143.5,
+     "z": 2,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf11",
+     "text_key": "6116",
+     "text": "Use a Rocket Launcher to destroy 20 Cop cars in 60 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 84.5,
+     "y": 57.5,
+     "z": 2,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "COPCAR",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf12",
+     "text_key": "6117",
+     "text": "Use a Rocket Launcher to destroy 20 vehicles in 60 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 112.5,
+     "y": 164.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf13",
+     "text_key": "6118",
+     "text": "Use a Flamethrower to torch 20 people in 60 seconds!",
+     "weapon": "FLAME_THROWER",
+     "trigger": "char_in_area",
+     "x": 9.5,
+     "y": 27.5,
+     "z": 3,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_FLAMETHROWER",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf14",
+     "text_key": "6119",
+     "text": "Use a Flamethrower to torch 20 Cops in 60 seconds!",
+     "weapon": "FLAME_THROWER",
+     "trigger": "char_in_area",
+     "x": 43.5,
+     "y": 146.5,
+     "z": 2,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_FLAMETHROWER",
+     "vehicle_req": "NONE",
+     "occupation": "ANY_LAW_ENFORCEMENT",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf15",
+     "text_key": "6120",
+     "text": "Use an ElectroGun to fry 20 people in 60 seconds!",
+     "weapon": "ELECTRO_GUN",
+     "trigger": "char_in_area",
+     "x": 147.5,
+     "y": 43.5,
+     "z": 2,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_ELECTRO_WEAPON",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf16",
+     "text_key": "6121",
+     "text": "Use an ElectroGun to destroy 20 people in 60 seconds!",
+     "weapon": "ELECTRO_GUN",
+     "trigger": "char_in_area",
+     "x": 151.5,
+     "y": 122.5,
+     "z": 3,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_ELECTRO_WEAPON",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf17",
+     "text_key": "6122",
+     "text": "Use an ElectroGun to fry 20 Cops in 60 seconds!",
+     "weapon": "ELECTRO_GUN",
+     "trigger": "char_in_area",
+     "x": 212.5,
+     "y": 201.5,
+     "z": 6,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_ELECTRO_WEAPON",
+     "vehicle_req": "NONE",
+     "occupation": "ANY_LAW_ENFORCEMENT",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf18",
+     "text_key": "6123",
+     "text": "Use an ElectroGun to destroy 20 Cop cars in 60 seconds!",
+     "weapon": "ELECTRO_GUN",
+     "trigger": "char_in_area",
+     "x": 146.5,
+     "y": 211.5,
+     "z": 2,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_ELECTRO_WEAPON",
+     "vehicle_req": "NONE",
+     "occupation": "COPCAR",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf19",
+     "text_key": "6124",
+     "text": "Use a Shotgun to shoot 20 people in 60 seconds!",
+     "weapon": "SHOTGUN",
+     "trigger": "char_in_area",
+     "x": 172.5,
+     "y": 192.5,
+     "z": 5,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_SHOTGUN",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "ste_kf20",
+     "text_key": "6125",
+     "text": "Use a Shotgun to shoot 20 Cops in 60 seconds!",
+     "weapon": "SHOTGUN",
+     "trigger": "char_in_area",
+     "x": 208.5,
+     "y": 93.5,
+     "z": 5,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_SHOTGUN",
+     "vehicle_req": "NONE",
+     "occupation": "ANY_LAW_ENFORCEMENT",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    }
+   ]
+  },
+  "bil": {
+   "name": "Industrial",
+   "start": [
+    44.5,
+    102.0,
+    2.0
+   ],
+   "finish_score": 5000000,
+   "level_end": [
+    44.5,
+    99.0,
+    3.0
+   ],
+   "bonus_tokens": 50,
+   "info_phones": [
+    {
+     "x": 64.0,
+     "y": 189.5
+    },
+    {
+     "x": 202.5,
+     "y": 34.5
+    },
+    {
+     "x": 234.5,
+     "y": 193.5
+    }
+   ],
+   "rivals": {
+    "Hare Krishna": "Russian Mafia",
+    "Zaibatsu": "Russian Mafia",
+    "Russian Mafia": "Hare Krishna"
+   },
+   "jobs": [
+    {
+     "id": "bil_ke1",
+     "title": "DECONSTRUCTION YARD!",
+     "kind": "phone",
+     "gang": "Hare Krishna",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 249.5,
+       "y": 199.5,
+       "level": 5.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Hare Krishna respect >= 0 (green phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "DECONSTRUCTION YARD: find Leo the Locksmith at the Water Towers, destroy the generator he cannot hit, lead him to the yard gateway, kill the Zaibatsu Construction Manager, then destroy a Zaibatsu truck.",
+     "skills": [
+      "walk_to_point",
+      "destroy_objects",
+      "escort_protect",
+      "kill_marked",
+      "destroy_vehicle",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "Leo must live; yard guards; phone on level 5",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Grasshopper - it's Sunbeam. The Zaibatsu are building Shopping Malls on Holy Krishna land. Pay a visit to their Construction Yard and end the destruction.",
+     "title_key": "3840",
+     "cars_created": [
+      "BOXTRUCK"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_on_foot",
+      "locate_any",
+      "char_died",
+      "car_wrecked",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/bil_m/bil_ke1.mis"
+    },
+    {
+     "id": "bil_ke2",
+     "title": "COP CAR SCRAP!",
+     "kind": "phone",
+     "gang": "Hare Krishna",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 249.5,
+       "y": 201.5,
+       "level": 5.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Hare Krishna respect >= 0 (green phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "COP CAR SCRAP: steal Cop Cars and deliver three to the Krishna cranes (get out for the crane).",
+     "skills": [
+      "steal_model",
+      "crusher_crane",
+      "drive_to_point",
+      "wanted_evasion",
+      "rooftop_access"
+     ],
+     "hazards": "stealing cop cars raises wanted level",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Ah, Grasshopper, it's Sunbeam. The Krishna program of automotive clearance has been halted by the Cops. Steal me a Cop Car so we can resume our work!",
+     "title_key": "3841",
+     "cars_created": [],
+     "models_required": [
+      "COPCAR"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "steal_model",
+      "locate_by_car",
+      "locate_any",
+      "car_in_block",
+      "crane_trailer"
+     ],
+     "script": "assets-src/missions/bil_m/bil_ke2.mis"
+    },
+    {
+     "id": "bil_km1",
+     "title": "COSSACK CONVERSION!",
+     "kind": "phone",
+     "gang": "Hare Krishna",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 233.5,
+       "y": 132.5,
+       "level": 3.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Hare Krishna respect >= 2 (yellow phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "COSSACK CONVERSION: steal a truck from the Lubyanka Warehouses, horn for Russian workers at Mad Island Docks (4 groups), drive them to the Conversion House by Krishna Krushers.",
+     "skills": [
+      "enter_mission_car",
+      "horn_pickup",
+      "escort_protect",
+      "deliver_intact"
+     ],
+     "hazards": "vicious warehouse guards; truck must survive",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Grasshopper! Sunbeam here. We need to convert strong Russian Workers. Steal a Truck from Lubyanka Warehouses and head for Mad Island Docks. Beware - the guards are vicious.",
+     "title_key": "3842",
+     "cars_created": [
+      "BOXTRUCK"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "car_in_block",
+      "park",
+      "horn",
+      "car_wrecked",
+      "passengers_group",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/bil_m/bil_km1.mis"
+    },
+    {
+     "id": "bil_km2",
+     "title": "SUNBEAM CONTRACT!",
+     "kind": "phone",
+     "gang": "Hare Krishna",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 235.5,
+       "y": 132.5,
+       "level": 3.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Hare Krishna respect >= 2 (yellow phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "SUNBEAM CONTRACT: meet the Krishna converts, kill Russians in their territory to draw out waves of Russian assassins, kill all assassins.",
+     "skills": [
+      "kill_count",
+      "kill_marked",
+      "gang_zone",
+      "combat_on_foot"
+     ],
+     "hazards": "deliberately lowers Russian respect",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Ah, Grasshopper! Sunbeam here. I have a very fun job for you. Go meet some loyal Krishna converts and I will tell you more.",
+     "title_key": "3843",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_any",
+      "char_died",
+      "passengers_group",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/bil_m/bil_km2.mis"
+    },
+    {
+     "id": "bil_km3",
+     "title": "CONVERSION EVASION!",
+     "kind": "phone",
+     "gang": "Hare Krishna",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 233.5,
+       "y": 132.5,
+       "level": 3.0,
+       "colour": "yellow"
+      },
+      {
+       "x": 235.5,
+       "y": 132.5,
+       "level": 3.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Hare Krishna respect >= 2 (yellow phone); offered on the same phone(s) after bil_km1 / bil_km2 (follow-up job); passing it lowers Russian Mafia respect",
+     "follow_up_of": [
+      "bil_km1",
+      "bil_km2"
+     ],
+     "reward": 60000,
+     "objective": "CONVERSION EVASION: break into the Z-Lab complex (Special Armored Vehicle offered), destroy the tanks, get a Krishna Karma Bus, let the Krishna board, take them to the Vedic Temple.",
+     "skills": [
+      "destroy_vehicle",
+      "tank",
+      "steal_model",
+      "bus",
+      "escort_protect",
+      "drive_to_point",
+      "rooftop_access"
+     ],
+     "hazards": "tanks around the lab; Krishna must live",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Grasshopper! Sunbeam here. Loyal Krishna are being held as Zaibatsu Guinea Pigs. You must save them before Deconversion Drugs have their effect!",
+     "title_key": "3844",
+     "cars_created": [
+      "GTRUCK",
+      "TANK"
+     ],
+     "models_required": [
+      "KRSNABUS"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_by_car",
+      "locate_on_foot",
+      "locate_any",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "bus",
+      "tank",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/bil_m/bil_km3.mis"
+    },
+    {
+     "id": "bil_kh1",
+     "title": "ROOFTOP RESCUE!",
+     "kind": "phone",
+     "gang": "Hare Krishna",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 216.5,
+       "y": 219.5,
+       "level": 4.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Hare Krishna respect >= 4 (red phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 80000,
+     "objective": "ROOFTOP RESCUE: destroy 3 generators above the Zaibatsu Power Plant containment block, follow the freed Krishna to two limos, clear the Z-guards blocking the way, lead them in the other limo to the Safehouse.",
+     "skills": [
+      "destroy_objects",
+      "escort_protect",
+      "kill_marked",
+      "drive_to_point",
+      "rooftop_access"
+     ],
+     "hazards": "both limos and the Krishna must survive; Zaibatsu chase",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Ah, Grasshopper - Sunbeam here. My Faithful Krishna are captive at the Zaibatsu Power Plant. Free them and Krishna will smile upon you.",
+     "title_key": "3845",
+     "cars_created": [
+      "LIMO",
+      "VAN"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_any",
+      "car_in_block",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "follow_car",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/bil_m/bil_kh1.mis"
+    },
+    {
+     "id": "bil_kh2",
+     "title": "POWER STATION!",
+     "kind": "phone",
+     "gang": "Hare Krishna",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 216.5,
+       "y": 219.5,
+       "level": 4.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Hare Krishna respect >= 4 (red phone); offered on the same phone(s) after bil_kh1 (follow-up job); passing it lowers Russian Mafia respect",
+     "follow_up_of": [
+      "bil_kh1"
+     ],
+     "reward": 80000,
+     "objective": "POWER STATION: meet Krishna helpers, kill each Russian guard at the Kovski Power Station and plant a bomb where he stood (4), then watch from high ground.",
+     "skills": [
+      "kill_marked",
+      "plant_on_foot",
+      "walk_to_point",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "bomb must be dropped exactly on the guard's spot",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Grasshopper, it is Sunbeam. I have a wonderful opportunity for you. Meet my loyal Krishna helpers and I will tell you more.",
+     "title_key": "3846",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_on_foot",
+      "locate_any",
+      "char_died",
+      "passengers_group",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/bil_m/bil_kh2.mis"
+    },
+    {
+     "id": "bil_ze1",
+     "title": "IT WAS AN ACCIDENT!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 44.5,
+       "y": 163.5,
+       "level": 3.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 0 (green phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "IT WAS AN ACCIDENT: collect the unstable package, deliver to Bilovski; get a Hot Dog Van, load poisoned hot dogs, serve target two; drive the remote-rigged Kovski limo into the Russian area and lead the Russians into the Krishna quarter.",
+     "skills": [
+      "walk_to_point",
+      "deliver_intact",
+      "steal_model",
+      "drive_to_point",
+      "escort_protect",
+      "rooftop_access"
+     ],
+     "hazards": "package unstable; killing targets early fails; Russians must follow",
+     "status": "attempted",
+     "status_evidence": "IT WAS AN ACCIDENT: tour take 3 (tour_bil_phone), JOB FAILED before the package",
+     "first_brief": "Hey, Gecko, it's Uno Carb. I need you to neutralize THREE Key Operatives from rival outfits. First you need to collect a Special Package...",
+     "title_key": "3851",
+     "cars_created": [
+      "BUICK",
+      "LIMO"
+     ],
+     "models_required": [
+      "HOTDOG"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_by_car",
+      "locate_on_foot",
+      "locate_any",
+      "car_in_block",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "follow_car",
+      "remote_control"
+     ],
+     "script": "assets-src/missions/bil_m/bil_ze1.mis"
+    },
+    {
+     "id": "bil_ze2",
+     "title": "GRAND THEFT AUTO!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 45.5,
+       "y": 161.5,
+       "level": 3.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 0 (green phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "GRAND THEFT AUTO: steal and park at the Zaibatsu Power Cores: the Jefferson (Krishna Krushers), a Kovski Bulwark (smash and grab), an unmarked car on an island reached via rooftops, a Cop Car on a trailer (truck cab, crane).",
+     "skills": [
+      "steal_model",
+      "deliver_intact",
+      "truck_trailer",
+      "crusher_crane",
+      "rooftop_access"
+     ],
+     "hazards": "owners fight back; rooftop route to the island",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Gecko, it's me, Uno Carb. If you fancy causing some trouble, try stealing the Jefferson down at Krishna Krushers.",
+     "title_key": "3848",
+     "cars_created": [
+      "BUICK",
+      "JEFFREY",
+      "TRUKTRNS",
+      "WBTWIN"
+     ],
+     "models_required": [
+      "TRUKCAB1",
+      "TRUKCAB2"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_by_car",
+      "locate_any",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "crane_trailer"
+     ],
+     "script": "assets-src/missions/bil_m/bil_ze2.mis"
+    },
+    {
+     "id": "bil_zm1",
+     "title": "PAYBACK!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 6.5,
+       "y": 183.5,
+       "level": 4.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "PAYBACK: meet Ziggy Pole in a Kovski car (Bulwark), visit 3 more dealers (kill the Kovski cash-dodger and gang), then at the Brown-Eye Sewage Works go round the back, destroy the Soviet generators and drive the unstable reactor-fuel truck to the Safehouse.",
+     "skills": [
+      "steal_model",
+      "drive_to_point",
+      "kill_marked",
+      "destroy_objects",
+      "deliver_intact",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "killing the wrong dealer fails; unstable truck",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Gecko, it's Uno Carb. I'm selling LEGAL drugs on the black market for twice the price. If you want in on the deal, go meet Ziggy Pole.",
+     "title_key": "3849",
+     "cars_created": [
+      "BOXTRUCK"
+     ],
+     "models_required": [
+      "BUICK"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_by_car",
+      "locate_on_foot",
+      "locate_any",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/bil_m/bil_zm1.mis"
+    },
+    {
+     "id": "bil_zm2",
+     "title": "LOCK-OUT!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 9.5,
+       "y": 183.5,
+       "level": 4.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "LOCK-OUT: back door at Tedium Docks, fetch Satchmo the Safecracker (slow walker; dies to a booby trap), steal a Kovski Bulwark to bluff the door, inside take the AI Brain truck, blow the 2 generators over the door, drive to the Safehouse.",
+     "skills": [
+      "escort_protect",
+      "steal_model",
+      "drive_to_point",
+      "destroy_objects",
+      "deliver_intact",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "the Safecracker's death is scripted; truck must survive",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko - it's Uno Carb. The Russians have taken a Truck full of Zaibatsu AI Brain Units. Steal the whole lot back from the Tedium Docks.",
+     "title_key": "3850",
+     "cars_created": [
+      "BOXTRUCK"
+     ],
+     "models_required": [
+      "BUICK"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_by_car",
+      "locate_on_foot",
+      "locate_any",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "passengers_group"
+     ],
+     "script": "assets-src/missions/bil_m/bil_zm2.mis"
+    },
+    {
+     "id": "bil_zm3",
+     "title": "GANG WAR!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 6.5,
+       "y": 183.5,
+       "level": 4.0,
+       "colour": "yellow"
+      },
+      {
+       "x": 9.5,
+       "y": 183.5,
+       "level": 4.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 2 (yellow phone); offered on the same phone(s) after bil_zm1 / bil_zm2 (follow-up job); passing it lowers Russian Mafia respect",
+     "follow_up_of": [
+      "bil_zm1",
+      "bil_zm2"
+     ],
+     "reward": 60000,
+     "objective": "GANG WAR: steal a Russian Bulwark, run over 50 Krishna in their quarter; steal a Krishna Karma Bus, run over 50 Russians in the Russian area.",
+     "skills": [
+      "steal_model",
+      "run_over_count",
+      "bus",
+      "gang_zone",
+      "rooftop_access"
+     ],
+     "hazards": "must use the named vehicles",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko - it's Uno Carb. Krishna conversion and Kovski black markets are crippling Zaibatsu enterprise. We need a gang war. You steal a Bulwark and I will give you a plan.",
+     "title_key": "3847",
+     "cars_created": [],
+     "models_required": [
+      "BUICK",
+      "KRSNABUS"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [
+      {
+       "zone": "krisgang",
+       "frames": "65535",
+       "count": "50",
+       "target": "CHAR",
+       "method": "BY_VEHICLE",
+       "vehicle": "BUICK",
+       "occupation": "krisgang",
+       "gang": "9"
+      },
+      {
+       "zone": "NO_ZONE",
+       "frames": "65535",
+       "count": "50",
+       "target": "CHAR",
+       "method": "BY_VEHICLE",
+       "vehicle": "KRSNABUS",
+       "occupation": "russgang",
+       "gang": "10"
+      }
+     ],
+     "timers_s": [],
+     "script_features": [
+      "steal_model",
+      "counter",
+      "kill_count_bonus",
+      "bus",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/bil_m/bil_zm3.mis"
+    },
+    {
+     "id": "bil_zh1",
+     "title": "I'D LIKE A TANK PLEASE, BOB!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 27.0,
+       "y": 249.0,
+       "level": 4.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 4 (red phone); passing it lowers Russian Mafia respect",
+     "follow_up_of": null,
+     "reward": 80000,
+     "objective": "I'D LIKE A TANK PLEASE, BOB!: steal and park at Uno Carb's garage a SWAT Van, a Special Agent car, then a Tank.",
+     "skills": [
+      "steal_model",
+      "deliver_intact",
+      "tank",
+      "wanted_evasion",
+      "rooftop_access"
+     ],
+     "hazards": "SWAT/FBI/army need high wanted levels",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko - it's Uno Carb. The City Security Services are getting too big for their boots so we need to show them the Zaibatsu still mean business. Bring me a SWAT Van.",
+     "title_key": "3852",
+     "cars_created": [
+      "EDSELFBI",
+      "SWATVAN",
+      "TANK"
+     ],
+     "models_required": [
+      "EDSELFBI",
+      "SWATVAN",
+      "TANK"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "steal_model",
+      "car_in_block",
+      "park",
+      "tank"
+     ],
+     "script": "assets-src/missions/bil_m/bil_zh1.mis"
+    },
+    {
+     "id": "bil_zh2",
+     "title": "ARMY BASE ALERT!",
+     "kind": "phone",
+     "gang": "Zaibatsu",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 27.0,
+       "y": 249.0,
+       "level": 4.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Zaibatsu respect >= 4 (red phone); offered on the same phone(s) after bil_zh1 (follow-up job); passing it lowers Russian Mafia respect",
+     "follow_up_of": [
+      "bil_zh1"
+     ],
+     "reward": 80000,
+     "objective": "ARMY BASE ALERT: get into the Army Base, steal a Tank, bring it to the garage.",
+     "skills": [
+      "tank",
+      "steal_model",
+      "deliver_intact",
+      "combat_on_foot",
+      "wanted_evasion",
+      "rooftop_access"
+     ],
+     "hazards": "army guards",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Gecko - it's Uno Carb. The last Tank you stole was booby-trapped and destroyed my Garage. Steal me another Tank direct from the Army Base to cause maximum embarrassment.",
+     "title_key": "3853",
+     "cars_created": [
+      "JEEP",
+      "TANK"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "car_in_block",
+      "park",
+      "car_wrecked",
+      "tank",
+      "wanted_up"
+     ],
+     "script": "assets-src/missions/bil_m/bil_zh2.mis"
+    },
+    {
+     "id": "bil_re1",
+     "title": "HOT DOG HOMICIDE!",
+     "kind": "phone",
+     "gang": "Russian Mafia",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 187.5,
+       "y": 76.5,
+       "level": 6.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Russian Mafia respect >= 0 (green phone); passing it lowers Hare Krishna respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "HOT DOG HOMICIDE: steal a Bus, fill it at bus stops, drive to the meat plant, stand on top of The Cage while passengers are processed, then drive the Hot Dog Van to the Kovski Diner.",
+     "skills": [
+      "steal_model",
+      "bus",
+      "drive_to_point",
+      "walk_to_point",
+      "deliver_intact",
+      "rooftop_access"
+     ],
+     "hazards": "must stay on The Cage; rooftop phone (level 6)",
+     "status": "attempted",
+     "status_evidence": "HOT DOG HOMICIDE: phone only, refused 3104 after a failed RUSSIAN SAILORS (pt8_bil5)",
+     "first_brief": "Comrade! Jerkov here! A leading meat processing plant will make special hot dogs to feed my troops if I supply the meat. Steal a Bus and pick up people from Bus Stops.",
+     "title_key": "3854",
+     "cars_created": [
+      "HOTDOG"
+     ],
+     "models_required": [
+      "BUS"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "steal_model",
+      "locate_on_foot",
+      "car_in_block",
+      "park",
+      "char_died",
+      "car_wrecked",
+      "passengers_group",
+      "bus"
+     ],
+     "script": "assets-src/missions/bil_m/bil_re1.mis"
+    },
+    {
+     "id": "bil_re2",
+     "title": "MMM, RUSSIAN SAILORS!",
+     "kind": "phone",
+     "gang": "Russian Mafia",
+     "tier": "green",
+     "phones": [
+      {
+       "x": 189.5,
+       "y": 76.5,
+       "level": 6.0,
+       "colour": "green"
+      }
+     ],
+     "prerequisite": "Russian Mafia respect >= 0 (green phone); passing it lowers Hare Krishna respect",
+     "follow_up_of": null,
+     "reward": 40000,
+     "objective": "MMM, RUSSIAN SAILORS: take the parked Z-Type, horn-pick up 4 Z-dealers (Bayano station, Bayano hospital, Escobar Power Cores, Sennora), drive them to the crane by the river, get out.",
+     "skills": [
+      "enter_mission_car",
+      "horn_pickup",
+      "drive_to_point",
+      "crusher_crane",
+      "deliver_intact",
+      "rooftop_access"
+     ],
+     "hazards": "Z-Type burns over ~1000 blocks of traffic (pt7-pt9); killing dealers fails; rooftop phone (level 6)",
+     "status": "attempted",
+     "status_evidence": "RUSSIAN SAILORS: 16+ sessions, furthest all 4 dealers aboard (pt7_bil9, pt8_bil11), Z-Type burns",
+     "first_brief": "Hey, Comrade, it's Jerkov! Zaibatsu Dealers are cutting in on our drug trade. Collect the Z-Type we have parked and help us redress the balance.",
+     "title_key": "3855",
+     "cars_created": [
+      "VTYPE"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "car_in_block",
+      "horn",
+      "char_died",
+      "car_wrecked",
+      "crane_trailer",
+      "passengers_group",
+      "sinks_fail"
+     ],
+     "script": "assets-src/missions/bil_m/bil_re2.mis"
+    },
+    {
+     "id": "bil_rm1",
+     "title": "OFFICER DOWN!",
+     "kind": "phone",
+     "gang": "Russian Mafia",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 204.5,
+       "y": 10.5,
+       "level": 5.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Russian Mafia respect >= 2 (yellow phone); passing it lowers Hare Krishna respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "OFFICER DOWN: in 5 minutes destroy 2 Cop Cars, then a SWAT Van, then 2 Special Agent cars.",
+     "skills": [
+      "destroy_vehicle",
+      "timed",
+      "wanted_evasion",
+      "rooftop_access"
+     ],
+     "hazards": "SWAT/FBI cars appear only with high wanted level",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Jerkov here, Comrade. Police protection is a big earner - and I want a slice of that pie. You have FIVE minutes to destroy TWO Cop Cars and disrupt the marketplace.",
+     "title_key": "3856",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [
+      "COPCAR",
+      "EDSELFBI",
+      "SWATVAN"
+     ],
+     "bonus_checks": [],
+     "timers_s": [
+      300
+     ],
+     "script_features": [
+      "destroy_model",
+      "timer"
+     ],
+     "script": "assets-src/missions/bil_m/bil_rm1.mis"
+    },
+    {
+     "id": "bil_rm2",
+     "title": "KARMA ASSASSINS!",
+     "kind": "phone",
+     "gang": "Russian Mafia",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 204.5,
+       "y": 13.5,
+       "level": 5.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Russian Mafia respect >= 2 (yellow phone); passing it lowers Hare Krishna respect",
+     "follow_up_of": null,
+     "reward": 60000,
+     "objective": "KARMA ASSASSINS: protect Jerkov: kill 8 Karma assassins, then destroy Nova Bright's armoured Karma Bus (only a car bomb works).",
+     "skills": [
+      "kill_marked",
+      "combat_on_foot",
+      "car_bomb",
+      "destroy_vehicle",
+      "money_needed",
+      "rooftop_access"
+     ],
+     "hazards": "bus immune to guns",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Comrade - it's Jerkov. The Karma Assassins are coming and all my good Kovski are drunk. You must protect me!",
+     "title_key": "3857",
+     "cars_created": [
+      "KRSNABUS"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "locate_any",
+      "char_died",
+      "car_wrecked",
+      "weapon_hit_car",
+      "passengers_group",
+      "bus"
+     ],
+     "script": "assets-src/missions/bil_m/bil_rm2.mis"
+    },
+    {
+     "id": "bil_rm3",
+     "title": "TANKS A LOT!",
+     "kind": "phone",
+     "gang": "Russian Mafia",
+     "tier": "yellow",
+     "phones": [
+      {
+       "x": 204.5,
+       "y": 10.5,
+       "level": 5.0,
+       "colour": "yellow"
+      },
+      {
+       "x": 204.5,
+       "y": 13.5,
+       "level": 5.0,
+       "colour": "yellow"
+      }
+     ],
+     "prerequisite": "Russian Mafia respect >= 2 (yellow phone); offered on the same phone(s) after bil_rm1 / bil_rm2 (follow-up job); passing it lowers Hare Krishna respect",
+     "follow_up_of": [
+      "bil_rm1",
+      "bil_rm2"
+     ],
+     "reward": 60000,
+     "objective": "TANKS A LOT: destroy the 3 Zaibatsu tanks before they crush Jerkov's Kovski cars.",
+     "skills": [
+      "destroy_vehicle",
+      "tank",
+      "defend_area",
+      "rooftop_access"
+     ],
+     "hazards": "tanks; protected cars must survive",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Comrade! It's me, Jerkov! Last night Zaibatsu Executives lost everything at my poker table and now they want revenge. THREE Tanks have been sent to crush my precious Kovski Cars.",
+     "title_key": "3858",
+     "cars_created": [
+      "BUICK",
+      "TANK"
+     ],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "car_in_block",
+      "car_wrecked",
+      "passengers_group",
+      "follow_car",
+      "tank"
+     ],
+     "script": "assets-src/missions/bil_m/bil_rm3.mis"
+    },
+    {
+     "id": "bil_rh1",
+     "title": "VEDIC MASSACRE!",
+     "kind": "phone",
+     "gang": "Russian Mafia",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 144.5,
+       "y": 33.5,
+       "level": 6.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Russian Mafia respect >= 4 (red phone); passing it lowers Hare Krishna respect",
+     "follow_up_of": null,
+     "reward": 80000,
+     "objective": "VEDIC MASSACRE: find Ivan and 3 soldiers, get a vehicle big enough, drive to the Vedic Temple, on foot kill Krishna and survive 2 minutes inside.",
+     "skills": [
+      "escort_protect",
+      "steal_model",
+      "drive_to_point",
+      "kill_count",
+      "timed",
+      "combat_on_foot",
+      "rooftop_access"
+     ],
+     "hazards": "using a vehicle or leaving the temple fails",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Hey, Comrade, it's Jerkov. Krishna free love is bankrupting my bitch action. Find Ivan and his mercenary friends to spill some free blood.",
+     "title_key": "3859",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [
+      120
+     ],
+     "script_features": [
+      "enter_mission_car",
+      "locate_by_car",
+      "locate_on_foot",
+      "timer",
+      "char_died",
+      "passengers_group",
+      "gang_zone"
+     ],
+     "script": "assets-src/missions/bil_m/bil_rh1.mis"
+    },
+    {
+     "id": "bil_rh2",
+     "title": "SUPER GRASS RESCUE!",
+     "kind": "phone",
+     "gang": "Russian Mafia",
+     "tier": "red",
+     "phones": [
+      {
+       "x": 144.5,
+       "y": 33.5,
+       "level": 6.0,
+       "colour": "red"
+      }
+     ],
+     "prerequisite": "Russian Mafia respect >= 4 (red phone); offered on the same phone(s) after bil_rh1 (follow-up job); passing it lowers Hare Krishna respect",
+     "follow_up_of": [
+      "bil_rh1"
+     ],
+     "reward": 80000,
+     "objective": "SUPER GRASS RESCUE: bomb 3 generators to open the Zaibatsu Power Core door, protect the freed Kovski from 3 assassins, take them to Uncle Vanka, steal a Cop Car, siren on, stop the informant's car, get him into the Cop Car, deliver to Lubyanka Docks, and back.",
+     "skills": [
+      "destroy_objects",
+      "escort_protect",
+      "kill_marked",
+      "steal_model",
+      "cop_siren",
+      "drive_to_point",
+      "rooftop_access"
+     ],
+     "hazards": "informant flees; Kovski/Vanka must live",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Comrade! It's Jerkov! Some of my special gangsters have information about an Informant but are trapped in the Zaibatsu Power Core. Free them - and their knowledge!",
+     "title_key": "3860",
+     "cars_created": [
+      "STINGRAY"
+     ],
+     "models_required": [
+      "COPCAR"
+     ],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "steal_model",
+      "locate_by_car",
+      "locate_on_foot",
+      "locate_any",
+      "char_died",
+      "passengers_group",
+      "emerg_lights"
+     ],
+     "script": "assets-src/missions/bil_m/bil_rh2.mis"
+    },
+    {
+     "id": "bil_end",
+     "title": "FINAL JOB!",
+     "kind": "final",
+     "gang": null,
+     "tier": null,
+     "phones": [],
+     "prerequisite": "all 21 phone jobs passed (missions-passed counter = 21); launched by the base script, not a phone. Optional: the district ends at the finish score + level-end point",
+     "follow_up_of": null,
+     "reward": 5000000,
+     "objective": "FINAL JOB: after 21 jobs; Uno Carb, Sunbeam and Jerkov come for you: kill all three.",
+     "skills": [
+      "kill_marked",
+      "combat_on_foot"
+     ],
+     "hazards": "all peds muggers; not required to finish the district",
+     "status": "not attempted",
+     "status_evidence": "",
+     "first_brief": "Congratulations, kid! Your activities have seriously upset the Russian, Krishna AND Zaibatsu Bosses and now they ALL want you wiped off the face of the city!",
+     "title_key": "3861",
+     "cars_created": [],
+     "models_required": [],
+     "destroy_models": [],
+     "bonus_checks": [],
+     "timers_s": [],
+     "script_features": [
+      "char_died",
+      "bus",
+      "muggers"
+     ],
+     "script": "assets-src/missions/bil_m/bil_end.mis"
+    }
+   ],
+   "kill_frenzies": [
+    {
+     "id": "bil_kf01",
+     "text_key": "4310",
+     "text": "Use a Tank to shoot 30 people in 120 seconds!",
+     "weapon": "TANK_GUN",
+     "trigger": "char_in_car",
+     "x": 3.0,
+     "y": 30.0,
+     "z": 3.0,
+     "vehicle": "TANK",
+     "start": "enter the parked TANK",
+     "count": 30,
+     "target": "CHAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "TANK",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "tank",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf02",
+     "text_key": "4311",
+     "text": "Use a Tank to shoot 30 vehicles in 120 seconds!",
+     "weapon": "TANK_GUN",
+     "trigger": "char_in_car",
+     "x": 72.0,
+     "y": 219.5,
+     "z": 2.0,
+     "vehicle": "TANK",
+     "start": "enter the parked TANK",
+     "count": 30,
+     "target": "CAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "TANK",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "tank",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf03",
+     "text_key": "4312",
+     "text": "Use Vehicle Machine Guns to shoot 60 people in 120 seconds!",
+     "weapon": "CAR_MACHINE_GUN",
+     "trigger": "char_in_car",
+     "x": 71.0,
+     "y": 241.0,
+     "z": 2.0,
+     "vehicle": "JEEP",
+     "start": "enter the parked JEEP",
+     "count": 60,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "JEEP",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "enter_mission_car",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf04",
+     "text_key": "4313",
+     "text": "Use this vehicle to kill 60 people in 90 seconds!",
+     "weapon": "NO_WEAPON",
+     "trigger": "char_in_car",
+     "x": 156.0,
+     "y": 146.0,
+     "z": 4.0,
+     "vehicle": "JEFFREY",
+     "start": "enter the parked JEFFREY",
+     "count": 60,
+     "target": "CHAR",
+     "method": "BY_VEHICLE",
+     "vehicle_req": "JEFFREY",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 90,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "enter_mission_car",
+      "run_over_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf05",
+     "text_key": "4314",
+     "text": "Use Vehicle Mines to destroy 20 Cop Cars in 120 seconds!",
+     "weapon": "CAR_MINE",
+     "trigger": "char_in_car",
+     "x": 246.5,
+     "y": 26.5,
+     "z": 2.0,
+     "vehicle": "XK120",
+     "start": "enter the parked XK120",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_CAR_MINE",
+     "vehicle_req": "XK120",
+     "occupation": "COPCAR",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "enter_mission_car",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf06",
+     "text_key": "4315",
+     "text": "Use an S-Uzi Machine Gun to shoot 40 people in 60 seconds!",
+     "weapon": "MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 72.5,
+     "y": 26.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 40,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf07",
+     "text_key": "4316",
+     "text": "Use an S-Uzi Machine Gun to shoot 20 Cops in 90 seconds!",
+     "weapon": "MACHINE_GUN",
+     "trigger": "char_in_area",
+     "x": 170.5,
+     "y": 219.5,
+     "z": 5.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_GUN",
+     "vehicle_req": "NONE",
+     "occupation": "ANY_LAW_ENFORCEMENT",
+     "target_gang": null,
+     "time_s": 90,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf08",
+     "text_key": "4317",
+     "text": "Use Molotov Cocktails to kill 20 people in 60 seconds!",
+     "weapon": "MOLOTOV",
+     "trigger": "char_in_area",
+     "x": 215.0,
+     "y": 80.0,
+     "z": 6.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_MOLOTOV",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf09",
+     "text_key": "4318",
+     "text": "Use Molotov Cocktails to destroy 30 vehicles in 90 seconds!",
+     "weapon": "MOLOTOV",
+     "trigger": "char_in_area",
+     "x": 97.5,
+     "y": 126.5,
+     "z": 5.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 30,
+     "target": "CAR",
+     "method": "BY_MOLOTOV",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 90,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf10",
+     "text_key": "4319",
+     "text": "Use a Rocket Launcher to shoot 40 people in 60 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 55.0,
+     "y": 73.0,
+     "z": 6.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 40,
+     "target": "CHAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf11",
+     "text_key": "4320",
+     "text": "Use a Rocket Launcher to destroy 20 Cop cars in 120 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 125.5,
+     "y": 123.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "COPCAR",
+     "target_gang": null,
+     "time_s": 120,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf12",
+     "text_key": "4321",
+     "text": "Use a Rocket Launcher to destroy 15 vehicles in 60 seconds!",
+     "weapon": "ROCKET_LAUNCHER",
+     "trigger": "char_in_area",
+     "x": 234.0,
+     "y": 124.0,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 15,
+     "target": "CAR",
+     "method": "BY_ROCKET_LAUNCHER",
+     "vehicle_req": "NONE",
+     "occupation": "NONE",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf13",
+     "text_key": "4322",
+     "text": "Use a Flamethrower to torch 40 people in 60 seconds!",
+     "weapon": "FLAME_THROWER",
+     "trigger": "char_in_area",
+     "x": 157.0,
+     "y": 163.0,
+     "z": 4.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 40,
+     "target": "CHAR",
+     "method": "BY_FLAMETHROWER",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf14",
+     "text_key": "4323",
+     "text": "Use a Flamethrower to torch 20 Cops in 90 seconds!",
+     "weapon": "FLAME_THROWER",
+     "trigger": "char_in_area",
+     "x": 2.0,
+     "y": 82.0,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_FLAMETHROWER",
+     "vehicle_req": "NONE",
+     "occupation": "ANY_LAW_ENFORCEMENT",
+     "target_gang": null,
+     "time_s": 90,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf15",
+     "text_key": "4324",
+     "text": "Use an ElectroGun to fry 40 people in 60 seconds!",
+     "weapon": "ELECTRO_GUN",
+     "trigger": "char_in_area",
+     "x": 175.5,
+     "y": 56.5,
+     "z": 4.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 40,
+     "target": "CHAR",
+     "method": "BY_ELECTRO_WEAPON",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf16",
+     "text_key": "4325",
+     "text": "Use an ElectroGun to fry 40 people in 60 seconds!",
+     "weapon": "ELECTRO_GUN",
+     "trigger": "char_in_area",
+     "x": 234.5,
+     "y": 180.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 40,
+     "target": "CHAR",
+     "method": "BY_ELECTRO_WEAPON",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf17",
+     "text_key": "4326",
+     "text": "Use an ElectroGun to fry 20 Cops in 90 seconds!",
+     "weapon": "ELECTRO_GUN",
+     "trigger": "char_in_area",
+     "x": 31.5,
+     "y": 107.5,
+     "z": 3.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_ELECTRO_WEAPON",
+     "vehicle_req": "NONE",
+     "occupation": "ANY_LAW_ENFORCEMENT",
+     "target_gang": null,
+     "time_s": 90,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf18",
+     "text_key": "4327",
+     "text": "Use an ElectroGun to destroy 10 Cop cars in 90 seconds!",
+     "weapon": "ELECTRO_GUN",
+     "trigger": "char_in_area",
+     "x": 13.5,
+     "y": 164.5,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 10,
+     "target": "CAR",
+     "method": "BY_ELECTRO_WEAPON",
+     "vehicle_req": "NONE",
+     "occupation": "COPCAR",
+     "target_gang": null,
+     "time_s": 90,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "destroy_vehicle"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf19",
+     "text_key": "4328",
+     "text": "Use a Shotgun to shoot 40 people in 60 seconds!",
+     "weapon": "SHOTGUN",
+     "trigger": "char_in_area",
+     "x": 95.0,
+     "y": 33.0,
+     "z": 2.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 40,
+     "target": "CHAR",
+     "method": "BY_SHOTGUN",
+     "vehicle_req": "NONE",
+     "occupation": "NO_OCCUPATION",
+     "target_gang": null,
+     "time_s": 60,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    },
+    {
+     "id": "bil_kf20",
+     "text_key": "4329",
+     "text": "Use a Shotgun to shoot 20 Cops in 90 seconds!",
+     "weapon": "SHOTGUN",
+     "trigger": "char_in_area",
+     "x": 64.0,
+     "y": 191.0,
+     "z": 4.0,
+     "start": "walk onto the kill-frenzy skull",
+     "count": 20,
+     "target": "CHAR",
+     "method": "BY_SHOTGUN",
+     "vehicle_req": "NONE",
+     "occupation": "ANY_LAW_ENFORCEMENT",
+     "target_gang": null,
+     "time_s": 90,
+     "reward": "LIVES x1",
+     "skills": [
+      "timed",
+      "kill_count",
+      "rooftop_access"
+     ],
+     "status": "not attempted",
+     "kind": "kill_frenzy"
+    }
+   ]
+  }
+ },
+ "bonus_levels": [
+  {
+   "id": "lorne2e",
+   "files": [
+    "lorne2e.gmp",
+    "lorne2e.SCR"
+   ],
+   "present": true,
+   "kind": "ice-cream vans",
+   "difficulty": "easy",
+   "objective": "Stinger with vehicle machine guns: destroy as many of the 12 ice-cream vans as possible; time extends every 4 vans (community: Bonus A-C)",
+   "skills": [
+    "destroy_vehicle",
+    "timed",
+    "drive_to_point"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  },
+  {
+   "id": "lorne2m",
+   "files": [
+    "lorne2m.gmp",
+    "lorne2m.SCR"
+   ],
+   "present": true,
+   "kind": "ice-cream vans",
+   "difficulty": "medium",
+   "objective": "Stinger with vehicle machine guns: destroy as many of the 12 ice-cream vans as possible; time extends every 4 vans (community: Bonus A-C)",
+   "skills": [
+    "destroy_vehicle",
+    "timed",
+    "drive_to_point"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  },
+  {
+   "id": "lorne2h",
+   "files": [
+    "lorne2h.gmp",
+    "lorne2h.SCR"
+   ],
+   "present": true,
+   "kind": "ice-cream vans",
+   "difficulty": "hard",
+   "objective": "Stinger with vehicle machine guns: destroy as many of the 12 ice-cream vans as possible; time extends every 4 vans (community: Bonus A-C)",
+   "skills": [
+    "destroy_vehicle",
+    "timed",
+    "drive_to_point"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  },
+  {
+   "id": "mike1e",
+   "files": [
+    "mike1e.gmp",
+    "mike1e.SCR"
+   ],
+   "present": true,
+   "kind": "race",
+   "difficulty": "easy",
+   "objective": "three-lap timed race in a Furore GT; running over roadside peds adds time/points (script zones Green_Park, Race_Island; community: Bonus D-F)",
+   "skills": [
+    "drive_to_point",
+    "timed",
+    "run_over_count"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  },
+  {
+   "id": "mike1m",
+   "files": [
+    "mike1m.gmp",
+    "mike1m.SCR"
+   ],
+   "present": true,
+   "kind": "race",
+   "difficulty": "medium",
+   "objective": "three-lap timed race in a Furore GT; running over roadside peds adds time/points (script zones Green_Park, Race_Island; community: Bonus D-F)",
+   "skills": [
+    "drive_to_point",
+    "timed",
+    "run_over_count"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  },
+  {
+   "id": "mike1h",
+   "files": [
+    "mike1h.gmp",
+    "mike1h.SCR"
+   ],
+   "present": true,
+   "kind": "race",
+   "difficulty": "hard",
+   "objective": "three-lap timed race in a Furore GT; running over roadside peds adds time/points (script zones Green_Park, Race_Island; community: Bonus D-F)",
+   "skills": [
+    "drive_to_point",
+    "timed",
+    "run_over_count"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  },
+  {
+   "id": "mike2e",
+   "files": [
+    "mike2e.gmp",
+    "mike2e.SCR"
+   ],
+   "present": true,
+   "kind": "massacre",
+   "difficulty": "easy",
+   "objective": "S-Uzi massacre: kill as many (gang) peds as possible in 30 s, +time every 15 kills (script gang EVILGANG; community: Bonus G-I)",
+   "skills": [
+    "kill_count",
+    "timed",
+    "combat_on_foot"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  },
+  {
+   "id": "mike2m",
+   "files": [
+    "mike2m.gmp",
+    "mike2m.SCR"
+   ],
+   "present": true,
+   "kind": "massacre",
+   "difficulty": "medium",
+   "objective": "S-Uzi massacre: kill as many (gang) peds as possible in 30 s, +time every 15 kills (script gang EVILGANG; community: Bonus G-I)",
+   "skills": [
+    "kill_count",
+    "timed",
+    "combat_on_foot"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  },
+  {
+   "id": "mike2h",
+   "files": [
+    "mike2h.gmp",
+    "mike2h.SCR"
+   ],
+   "present": true,
+   "kind": "massacre",
+   "difficulty": "hard",
+   "objective": "S-Uzi massacre: kill as many (gang) peds as possible in 30 s, +time every 15 kills (script gang EVILGANG; community: Bonus G-I)",
+   "skills": [
+    "kill_count",
+    "timed",
+    "combat_on_foot"
+   ],
+   "status": "not attempted",
+   "prerequisite": "engine-side: each district script ends with FINISH_LEVEL (BONUS_1) at the level-end point; which bonus level follows, and the token rule, are not in the scripts (unverified). Can be loaded directly (SWAP_LEVEL)"
+  }
+ ],
+ "totals": {
+  "per_district": {
+   "wil": {
+    "jobs": 23,
+    "completed": 6,
+    "attempted": 1,
+    "not_attempted": 16,
+    "kill_frenzies": 20
+   },
+   "ste": {
+    "jobs": 22,
+    "completed": 1,
+    "attempted": 1,
+    "not_attempted": 20,
+    "kill_frenzies": 20
+   },
+   "bil": {
+    "jobs": 22,
+    "completed": 0,
+    "attempted": 3,
+    "not_attempted": 19,
+    "kill_frenzies": 20
+   }
+  },
+  "bonus_levels": 9,
+  "skill_counts_all": {
+   "timed": 80,
+   "rooftop_access": 49,
+   "kill_count": 49,
+   "drive_to_point": 35,
+   "destroy_vehicle": 34,
+   "steal_model": 26,
+   "combat_on_foot": 25,
+   "deliver_intact": 25,
+   "kill_marked": 23,
+   "enter_mission_car": 20,
+   "walk_to_point": 15,
+   "escort_protect": 15,
+   "horn_pickup": 13,
+   "run_over_count": 12,
+   "tank": 12,
+   "wanted_evasion": 11,
+   "crusher_crane": 9,
+   "destroy_objects": 9,
+   "gang_zone": 8,
+   "car_bomb": 7,
+   "money_needed": 6,
+   "plant_on_foot": 4,
+   "truck_trailer": 4,
+   "bus": 4,
+   "tail_unseen": 2,
+   "defend_area": 2,
+   "cop_siren": 2,
+   "remote_control": 1
+  },
+  "skill_counts_not_completed": {
+   "timed": 77,
+   "kill_count": 49,
+   "rooftop_access": 47,
+   "destroy_vehicle": 33,
+   "drive_to_point": 30,
+   "steal_model": 26,
+   "combat_on_foot": 25,
+   "deliver_intact": 23,
+   "kill_marked": 22,
+   "enter_mission_car": 16,
+   "escort_protect": 14,
+   "run_over_count": 12,
+   "walk_to_point": 12,
+   "tank": 12,
+   "horn_pickup": 11,
+   "wanted_evasion": 11,
+   "destroy_objects": 9,
+   "crusher_crane": 8,
+   "gang_zone": 8,
+   "money_needed": 6,
+   "car_bomb": 6,
+   "truck_trailer": 4,
+   "bus": 4,
+   "plant_on_foot": 2,
+   "tail_unseen": 2,
+   "defend_area": 2,
+   "cop_siren": 2,
+   "remote_control": 1
+  },
+  "skill_counts_jobs": {
+   "rooftop_access": 32,
+   "drive_to_point": 29,
+   "steal_model": 26,
+   "deliver_intact": 25,
+   "kill_marked": 23,
+   "combat_on_foot": 22,
+   "walk_to_point": 15,
+   "escort_protect": 15,
+   "destroy_vehicle": 13,
+   "horn_pickup": 13,
+   "enter_mission_car": 12,
+   "timed": 11,
+   "wanted_evasion": 11,
+   "crusher_crane": 9,
+   "destroy_objects": 9,
+   "gang_zone": 8,
+   "kill_count": 8,
+   "car_bomb": 7,
+   "money_needed": 6,
+   "tank": 6,
+   "run_over_count": 5,
+   "plant_on_foot": 4,
+   "truck_trailer": 4,
+   "bus": 4,
+   "tail_unseen": 2,
+   "defend_area": 2,
+   "cop_siren": 2,
+   "remote_control": 1
+  },
+  "skill_counts_jobs_not_completed": {
+   "rooftop_access": 30,
+   "steal_model": 26,
+   "drive_to_point": 24,
+   "deliver_intact": 23,
+   "kill_marked": 22,
+   "combat_on_foot": 22,
+   "escort_protect": 14,
+   "destroy_vehicle": 12,
+   "walk_to_point": 12,
+   "horn_pickup": 11,
+   "wanted_evasion": 11,
+   "destroy_objects": 9,
+   "enter_mission_car": 8,
+   "crusher_crane": 8,
+   "gang_zone": 8,
+   "kill_count": 8,
+   "timed": 8,
+   "money_needed": 6,
+   "tank": 6,
+   "car_bomb": 6,
+   "run_over_count": 5,
+   "truck_trailer": 4,
+   "bus": 4,
+   "plant_on_foot": 2,
+   "tail_unseen": 2,
+   "defend_area": 2,
+   "cop_siren": 2,
+   "remote_control": 1
+  },
+  "skill_counts_kill_frenzies": {
+   "timed": 60,
+   "kill_count": 38,
+   "destroy_vehicle": 18,
+   "rooftop_access": 17,
+   "enter_mission_car": 8,
+   "tank": 6,
+   "run_over_count": 4
+  },
+  "skill_counts_bonus_levels": {
+   "timed": 9,
+   "drive_to_point": 6,
+   "destroy_vehicle": 3,
+   "run_over_count": 3,
+   "kill_count": 3,
+   "combat_on_foot": 3
+  }
+ }
+}
