@@ -23,6 +23,7 @@ def main():
     ap.add_argument('--catalog', required=True); ap.add_argument('--v1', required=True, help='v1 GLB dirs, first hit wins (the integration backup, then models3d)'); ap.add_argument('--v2', required=True)
     ap.add_argument('--out', required=True); ap.add_argument('--before', default=None); ap.add_argument('--after', default=None)
     ap.add_argument('--models', default=None); ap.add_argument('--tile', type=int, default=160)
+    ap.add_argument('--label', default='v3', help='name of the new models in the headers (r5 for round 5)')
     a = ap.parse_args()
     import render_glb as R
     import nvdiffrast.torch as dr
@@ -38,7 +39,7 @@ def main():
     W = 2 * n * T + 3 * pad; H = 30 + len(stems) * (T + head + pad)
     sheet = Image.new('RGB', (W, H), (24, 24, 28)); d = ImageDraw.Draw(sheet)
     d.text((pad, 8), 'BEFORE: sprite | v1 model  (3/4 front, top, side, front, 3/4 rear = far side)', fill=(230, 230, 230))
-    d.text((2 * pad + n * T, 8), 'AFTER: concept | v3 model (checked concept, TRELLIS, bilateral delight, side balance, roof-only sprite)', fill=(230, 230, 230))
+    d.text((2 * pad + n * T, 8), f'AFTER: concept | {a.label} model (checked concept, TRELLIS, bilateral delight, side balance, roof-only sprite)', fill=(230, 230, 230))
 
     def tiles(glb):
         ms = R.load(glb)
@@ -66,7 +67,7 @@ def main():
             txt += f"   v1 total {b['total']:.2f} (lighting {b.get('lighting', 0):.2f})"
         d.text((pad, y - head + 3), txt, fill=(255, 220, 120))
         if e:
-            d.text((2 * pad + n * T, y - head + 3), f"v3 total {e['total']:.2f} (lighting {e.get('lighting', 0):.2f})" +
+            d.text((2 * pad + n * T, y - head + 3), f"{a.label} total {e['total']:.2f} (lighting {e.get('lighting', 0):.2f})" +
                    ('   INTEGRATED' if e.get('integrated') else ''), fill=(140, 230, 140) if b and e['total'] > b['total'] else (255, 150, 150))
     sheet.save(a.out)
     print(a.out, sheet.size, len(stems), 'rows')

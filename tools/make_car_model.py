@@ -147,6 +147,101 @@ def balance_sides(mesh, tex, log, min_diff=0.12):
     return Image.fromarray((out * 255).astype(np.uint8))
 
 
+def _face_colours(mesh, arr):
+    """Per-face texture colour: mean of 4 samples (centroid + 3 towards the corners)."""
+    H, W = arr.shape[:2]
+    uv = np.asarray(mesh.visual.uv); f = mesh.faces
+    cols = []
+    for w in ((1/3, 1/3, 1/3), (0.6, 0.2, 0.2), (0.2, 0.6, 0.2), (0.2, 0.2, 0.6)):
+        c = (uv[f] * np.array(w)[None, :, None]).sum(1)
+        x = np.clip((c[:, 0] * (W - 1)).astype(int), 0, W - 1); y = np.clip(((1 - c[:, 1]) * (H - 1)).astype(int), 0, H - 1)
+        cols.append(arr[y, x, :3])
+    return np.mean(cols, 0)
+
+
+def _apply_face_gain(mesh, arr, gain, soft=False):
+    """Multiply the texture by a per-face gain (N x 3), averaged per vertex by position (across UV
+    seams) and interpolated in texture space, so the change is smooth over the surface."""
+    import torch
+    import nvdiffrast.torch as dr
+    H, W = arr.shape[:2]
+    uv = np.asarray(mesh.visual.uv); f = mesh.faces; area = mesh.area_faces
+    ext = np.linalg.norm(mesh.vertices.max(0) - mesh.vertices.min(0))
+    key = np.round(mesh.vertices / (ext * 1e-4)).astype(np.int64)
+    _, vid = np.unique(key, axis=0, return_inverse=True)
+    vid = vid.reshape(-1)
+    acc = np.zeros((vid.max() + 1, 3)); cnt = np.zeros(vid.max() + 1)
+    for j in range(3):
+        np.add.at(acc, vid[f[:, j]], gain * area[:, None]); np.add.at(cnt, vid[f[:, j]], area)
+    vg = (acc / np.maximum(cnt, 1e-12)[:, None])[vid].astype(np.float32)
+    ctx = dr.RasterizeCudaContext()
+    uvt = torch.tensor(uv, dtype=torch.float32, device='cuda')
+    clip = torch.stack([uvt[:, 0] * 2 - 1, (1 - uvt[:, 1]) * 2 - 1, torch.zeros_like(uvt[:, 0]), torch.ones_like(uvt[:, 0])], 1)
+    ft = torch.tensor(f, dtype=torch.int32, device='cuda')
+    rast, _ = dr.rasterize(ctx, clip[None], ft, (H, W))
+    g, _ = dr.interpolate(torch.tensor(vg, device='cuda')[None], rast, ft)
+    hit = (rast[0, ..., 3] > 0).cpu().numpy()
+    g = g[0].cpu().numpy()
+    g[~hit] = 1.0
+    for _ in range(4):
+        m = ~hit
+        if not m.any():
+            break
+        nb = np.maximum(np.roll(g, 1, 0), np.roll(g, -1, 0))
+        g[m] = nb[m]
+    out = arr.copy()
+    x = arr[..., :3]
+    if soft:     # a lift (g > 1) as x*g / (1 + (g-1)*x): dark paint rises ~g times, light paint and chrome never clip
+        out[..., :3] = np.where(g > 1, x * g / (1 + (g - 1) * x), x * g)
+    else:
+        out[..., :3] = np.clip(x * g, 0, 1)
+    return out
+
+
+def balance_vertical(mesh, tex, log, min_diff=0.08):
+    """The concept is lit from above: hood, roof and trunk come out brighter than the flanks (a
+    bright roof over dark sides). Paint faces = faces whose chromaticity is close to the flanks'
+    dominant paint colour; the median luminance of the upward-facing paint faces is brought to the
+    flank paint level by a smooth gain over the face normal's height (tops scaled by
+    sqrt(g), flanks lifted softly by 1/sqrt(g)). Only a function of the normal, so liveries keep their own contrast."""
+    if tex is None or mesh.visual.uv is None:
+        return tex
+    arr = np.asarray(tex.convert('RGBA'), np.float32) / 255
+    col = _face_colours(mesh, arr)
+    n = mesh.face_normals; area = mesh.area_faces; cen = mesh.triangles_center
+    L = col @ np.array([0.2126, 0.7152, 0.0722])
+    y0, y1 = mesh.vertices[:, 1].min(), mesh.vertices[:, 1].max()
+    yf = (cen[:, 1] - y0) / max(y1 - y0, 1e-6)
+    side = (np.abs(n[:, 0]) > 0.6) & (yf > 0.18) & (yf < 0.6) & (L > 0.08)
+    top = (n[:, 1] > 0.7) & (L > 0.08)
+    if area[side].sum() < 0.03 * area.sum() or area[top].sum() < 0.03 * area.sum():
+        log("vertical balance: too few side/top faces"); return tex
+    chrom = col / np.maximum(col.sum(1, keepdims=True), 1e-3)
+    # the flanks' dominant paint: area-weighted 2D chromaticity histogram peak
+    hb = 24
+    ci = np.clip((chrom[:, :2] * hb).astype(int), 0, hb - 1)
+    hist = np.zeros((hb, hb)); np.add.at(hist, (ci[side, 0], ci[side, 1]), area[side])
+    pk = np.unravel_index(np.argmax(hist), hist.shape)
+    paint = chrom[side][(ci[side, 0] == pk[0]) & (ci[side, 1] == pk[1])].mean(0)
+    near = np.abs(chrom - paint).max(1) < 0.035
+    sp, tp = side & near, top & near
+    if area[sp].sum() < 0.02 * area.sum() or area[tp].sum() < 0.02 * area.sum():
+        log("vertical balance: the top shows little of the flank paint (two-tone or livery), left"); return tex
+    def wmed(sel):
+        o = np.argsort(L[sel]); c = np.cumsum(area[sel][o]); return float(L[sel][o][np.searchsorted(c, 0.5 * c[-1])])
+    ls, lt = wmed(sp), wmed(tp)
+    g = ls / max(lt, 1e-3)
+    if abs(1 - g) < min_diff:
+        log(f"vertical balance: top {lt:.2f} flanks {ls:.2f}, balanced already"); return tex
+    g = float(np.clip(g, 0.62, 1.0))
+    gt, gs = g ** 0.5, g ** -0.5      # meet in the middle; the flank lift is soft (no clipping, see _apply_face_gain)
+    w = np.clip((n[:, 1] - 0.25) / 0.5, 0, 1)
+    gain = (gs * (1 - w) + gt * w)[:, None].repeat(3, 1)
+    out = _apply_face_gain(mesh, arr, gain, soft=True)
+    log(f"vertical balance: top paint {lt:.2f} vs flanks {ls:.2f}: tops x{gt:.2f}, flanks x{gs:.2f}")
+    return Image.fromarray((out * 255).astype(np.uint8))
+
+
 def texture_of(mesh):
     vis = mesh.visual
     if isinstance(vis, trimesh.visual.TextureVisuals) and vis.material is not None:
@@ -243,7 +338,7 @@ def fit(mesh, car, log):
     mesh.vertices -= np.array([(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2])
 
 
-def paint_from_above(mesh, tex, sprite, car, log, paint_rgb=(190, 160, 120), min_ny=0.3, full_ny=0.75, livery=False, paint_match=True, roof_from=0.0):
+def paint_from_above(mesh, tex, sprite, car, log, paint_rgb=(190, 160, 120), min_ny=0.3, full_ny=0.75, livery=False, paint_match=True, roof_from=0.0, roof_norm=False):
     """Project the sprite onto the upward-facing surfaces, in texture space."""
     import torch
     import nvdiffrast.torch as dr
@@ -314,6 +409,37 @@ def paint_from_above(mesh, tex, sprite, car, log, paint_rgb=(190, 160, 120), min
         ratio = ratio.clamp(0.8, 1.25)       # a nudge, not a repaint: a big dimming makes clean paint look dull and worn
         base = (base * ratio).clamp(0, 1)
         log(f"paint match ratio {ratio.cpu().numpy().round(2).tolist()}")
+    if roof_from > 0 and roof_norm and (wgt > 0.5).sum() > 100:
+        # The x4 sprite is drawn bright (lit from above): a roof much lighter than the flanks. Bring the
+        # sprite's roof to the body's own paint level: liveries keep the sprite's colours, scaled so
+        # their median brightness is the concept roof's; plain cars take the body paint of the top surfaces (hood,
+        # trunk, roof after the vertical balance) with
+        # the sprite's brightness pattern (sunroof, stripes, vinyl lines) on top of it.
+        Ls = 0.2126 * col[..., 0] + 0.7152 * col[..., 1] + 0.0722 * col[..., 2]
+        Lb = 0.2126 * base[..., 0] + 0.7152 * base[..., 1] + 0.0722 * base[..., 2]
+        rsel = wgt > 0.5
+        ymin_, ymax_ = float(mesh.vertices[:, 1].min()), float(mesh.vertices[:, 1].max())
+        yfb = (p[..., 1] - ymin_) / max(ymax_ - ymin_, 1e-6)
+        ssel = hit & ((1.0 - n[..., 1].abs()) > 0.7) & (yfb > 0.18) & (yfb < 0.6) & (Lb > 0.1)
+        lroof = Ls[rsel].median()
+        if livery or not paint_match or ssel.sum() < 200:
+            ref = Lb[rsel].median()
+            gain_r = (ref / lroof.clamp(min=0.03)).clamp(0.6, 1.15)
+            col = (col * gain_r).clamp(0, 1)
+            log(f"roof sprite brightness x{float(gain_r):.2f} (to the concept roof)")
+        else:
+            tsel = hit & (n[..., 1] > 0.7) & (Lb > 0.06)
+            body = base[tsel] if tsel.sum() > 200 else base[ssel]
+            bl = 0.2126 * body[:, 0] + 0.7152 * body[:, 1] + 0.0722 * body[:, 2]
+            lo_, hi_ = bl.quantile(0.25), bl.quantile(0.8)
+            pk = body[(bl >= lo_) & (bl <= hi_)].median(dim=0).values       # the hood/trunk/roof paint (balanced), not trim or glare
+            lpk = float(0.2126 * pk[0] + 0.7152 * pk[1] + 0.0722 * pk[2])
+            if float(lroof) > 1.1 * lpk:
+                rel = (Ls / lroof.clamp(min=0.03)).clamp(0.35, 1.08)   # the sprite's drawn highlights do not come along
+                col = (pk[None, None, :] * rel[..., None]).clamp(0, 1)
+                log(f"roof sprite recoloured to the body paint {(pk.cpu().numpy() * 255).round().astype(int).tolist()} (sprite roof lum {float(lroof):.2f} > paint {lpk:.2f})")
+            else:      # a dark (vinyl/two-tone) sprite roof is part of the design: kept
+                log(f"roof sprite kept (sprite roof lum {float(lroof):.2f} <= paint {lpk:.2f})")
     out = base * (1 - wgt[..., None]) + col * wgt[..., None]
     if livery:
         # Side livery: the sprite's colour profile along the length (one colour per row,
@@ -451,6 +577,8 @@ def main():
     ap.add_argument('--balance-sides', action='store_true', help="lift the hidden (darker) side's colour to its mirror side's")
     ap.add_argument('--roof-only', type=float, default=0.0, metavar='YF',
                     help='project the sprite only above this fraction of the height (0.8: the cabin roof; 0: every upward face)')
+    ap.add_argument('--balance-vertical', action='store_true', help='bring the lit top (hood, roof, trunk) to the flank paint level')
+    ap.add_argument('--roof-norm', action='store_true', help='with --roof-only: the sprite roof at the body paint level/colour, not its own bright drawn shade')
     ap.add_argument('--no-paint-match', action='store_true', help='keep the concept paint (liveries: the concept already has the right colours)')
     a = ap.parse_args()
     cat = json.load(open(a.catalog))
@@ -480,10 +608,13 @@ def main():
     if a.balance_sides and tex is not None:
         for _ in range(2):          # a second pass when the first one hit the gain clamp
             tex = balance_sides(mesh, tex, log)
+    if a.balance_vertical and tex is not None:
+        tex = balance_vertical(mesh, tex, log)
     sprite_img = Image.open(sprite_path)
     if not a.no_paint:
         tex = paint_from_above(mesh, tex, sprite_img, car, log, paint_rgb=car['remaps'][0]['paint_rgb'],
-                               livery=bool(a.livery and not a.no_livery), paint_match=not a.no_paint_match, roof_from=a.roof_only)
+                               livery=bool(a.livery and not a.no_livery), paint_match=not a.no_paint_match, roof_from=a.roof_only,
+                               roof_norm=a.roof_norm)
     mat = trimesh.visual.material.PBRMaterial(baseColorTexture=tex, metallicFactor=a.metallic, roughnessFactor=a.roughness,
                                               name=f"car_{a.model:03d}")
     mesh.visual = trimesh.visual.TextureVisuals(uv=np.asarray(mesh.visual.uv), material=mat)

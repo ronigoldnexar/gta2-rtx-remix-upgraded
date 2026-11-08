@@ -262,3 +262,65 @@ Open: models that still lose (2 3 4 7 13 17 21 22 23 27 28 29 31 35 38 39 40 41 
 57 64 70 82; several by < 0.01); a few concepts are of the wrong era (048, 083 modern, 052
 a modern van); the runtime paint tint recolours liveries per remap (taxis in green and
 orange as before); vertical light gradients (bright roof, dark flanks) are not removed.
+
+## Round 5: the 27 models that still shipped v1 (8 Nov 2026, CAR-QUALITY-5)
+
+After CAR-QUALITY-4, 27 models still used the worn v1 GLB: the 25 that did not beat v1
+(2 3 4 7 13 17 21 22 23 27 28 29 31 35 38 39 40 41 45 50 52 57 64 70 82) and 005/019, which
+scored higher but were rejected by eye. Scripts in `gen3d/` (outside git) unless noted.
+
+1. **Delighting: bright roof over dark flanks** (`tools/make_car_model.py`, two new flags used for
+   every round-5 fit). `--balance-vertical`: the concept is lit from above, so hood/roof/trunk come
+   out brighter than the flanks. Paint faces are the faces whose chromaticity matches the flanks'
+   dominant paint (an area-weighted chromaticity histogram peak of the side faces); the median
+   luminance of the upward paint faces is brought to the flank level by a smooth gain over the face
+   normal's height (tops x sqrt(g), flanks x 1/sqrt(g)). The lift is soft (x*g / (1 + (g-1)*x)), so
+   light paint and chrome never clip: a plain multiply clipped the light side and made new
+   highlight blobs and unequal flanks in the scorer. A function of the normal only, so liveries keep
+   their contrast; two-tone tops (little flank paint on top) are left alone. `--roof-norm` (with
+   `--roof-only`): the x4 sprite is drawn bright. On plain cars a sprite roof brighter than the body
+   paint takes the paint of the top surfaces (hood/trunk/roof after the vertical balance) with the
+   sprite's brightness pattern on it (ratio clamped to 0.35-1.08, so the drawn highlights do not come
+   along); a dark sprite roof (vinyl, two-tone: 005) is kept. Liveries keep the sprite's colours,
+   scaled to the concept roof's brightness. Both share `_face_colours` / `_apply_face_gain` with the
+   side balance.
+2. **Concepts** (`gen3d/concepts_r5.py`): a hand-written brief per model from the sprite and the
+   name, in two wordings (A = make, model and year, e.g. "1959 Aston Martin DB4 grand tourer coupe";
+   B = a generic era/body description), plus a third (C) for the long ladder fire truck and the
+   GT40; "modern car, 2000s, SUV, LED headlights, rear view, ..." added to the negative prompt; 4
+   seeds per wording, every try checked with `concepts_v3.qc` (+ the DINOv2 front-view test for car
+   classes). 228 tries in `concept/r5try/`, checks in `concept/r5_qc.json`. The 2-3 TRELLIS inputs
+   per model were picked from contact sheets (`gen3d/r5_contact.py`) by the check score and by eye:
+   right era and body (COE trucks for 007/064, a step-side for 041, a long body for 028), the car
+   centred, no text, no second object (the hot-dog and ice-cream tries often put a second sausage or
+   cone on the floor). Picks: `gen3d/r5/picks1.json`, `picks2.json`.
+3. **TRELLIS** (`gen3d/r5_jobs.py`, `run_trellis.py --jobs`): 82 candidates from the picks, then
+   seeds 2 and 3 of the best concept for the 18 models still behind, and of the fire truck and the
+   Isetta (42 more). `run_trellis.py` now loads DINOv2 from the local torch hub cache:
+   `torch.hub.load('facebookresearch/dinov2')` goes to GitHub, and its HTTP 504s killed whole batches.
+4. **Fit, score, pick** (`gen3d/fit_r5.py`, `gen3d/r5_choose.py`): the CQ4 fit (debris, bilateral
+   delight, side balance, roof-only sprite, concept-based nose turn) plus the two flags, for the new
+   candidates and the 95 CQ4 candidates refitted. Status in `models3d_r5/r5_status.json`, renders in
+   `models3d_r5/proof/<stem>__<cand>.png` (`gen3d/r5_proofs.py` stacks them); pick = car_pipeline2's
+   pick_key minus candidates rejected by eye (`gen3d/r5/rejects.json`: 005 v3c0/v3c1 dark side
+   smudges, 029 r5A51 red-smeared windows, 070 r5A53_s2 black far side), copied to
+   `models3d_r5/chosen/`. `gen3d/integrate_v2.sh` takes `V2=` to integrate from there.
+
+Results (v1 = the CQ4 v1 scores, same scorer): 10 of 27 now beat v1 and passed the look, and were
+integrated: 002 Aniston BD4 0.872 -> 0.941, 005 Beamer 0.883 -> 0.884 (a BMW Neue Klasse now, clean
+flanks), 017 Fire Truck 0.903 -> 0.917 (ladder lying along the body), 019 GT-A1 0.838 -> 0.906,
+028 Dementia Limousine 0.900 -> 0.921, 029 Dementia 0.940 -> 0.941, 035 Benson 0.894 -> 0.897,
+038 Big Bug 0.901 -> 0.912, 057 T-Rex 0.850 -> 0.901, 064 Truck Cab SX 0.827 -> 0.853 (a red
+cab-over). Sheets: `out/car_quality_sheet_r5.png` (all 27, v1 | chosen r5 from five views),
+`out/car_ingame_sheet_r5.png` (the 10, chase camera, before = `out/cq4_ingame_before_all`); scores
+`out/car_scores_after_r5.json` (`candidate`, `candidates`, `cq4_total`, `before_total`, `better`,
+`integrated`, `rejected_by_eye`).
+
+Still v1 (17): near misses 013 Minx 0.877/0.882, 021 Garbage Truck 0.893/0.895, 023 Hot Dog Van
+0.896/0.905, 045 Spritzer 0.881/0.885, 070 Z-Type 0.910/0.912, 003 Pacifier 0.856/0.865; further
+off 004 007 022 027 031 039 040 041 050 052 082. Where they lose: `lumps` (a cab and a taller box,
+a gun or a roof rack break the smoothed roof line: 007 0.12 vs 1.00), `texture` (Laplacian variance
+of the 1024 atlas plus a penalty for light-grey texels, which hits grey and cream paint), and the
+v1 baselines of the small cars are high (027 0.945, 050 0.948). 019 still has a darker lower flank
+(a shadow gradient, not the black side of its CQ4 model); 005's far side is a little darker toward
+the rear.
