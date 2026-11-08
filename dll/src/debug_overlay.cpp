@@ -468,13 +468,58 @@ void DrawCamera() {
 
     ImGui::SeparatorText("Turning");
     ImGui::SetNextItemWidth(S(240.0f));
-    changed |= ImGui::SliderFloat("Turn rate on foot", &vm.turnRateFoot, 60.0f, 720.0f, "%.0f deg/s");
-    Help("The fastest the camera turns. GTA2 spins you about-face in a few frames; the camera "
-         "follows on a damped spring no faster than this, so the world does not whirl. 720 is rigid.");
+    changed |= ImGui::SliderFloat("Turn speed", &vm.turnSpeed, 25.0f, 200.0f, "%.0f %%");
+    Help("Scales every turn below at once: camera, keyboard look, mouse, the figure. 50 halves them; "
+         "the ini key is turn_speed.");
     ImGui::SetNextItemWidth(S(240.0f));
-    changed |= ImGui::SliderFloat("Turn rate in a car", &vm.turnRateCar, 60.0f, 720.0f, "%.0f deg/s");
+    changed |= ImGui::SliderFloat("Turn rate on foot", &vm.turnRateFoot, 30.0f, 720.0f, "%.0f deg/s");
+    Help("The fastest the third-person camera turns on foot (mouse orbit, the re-centre).");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Chase turn rate in a car", &vm.turnRateCar, 30.0f, 720.0f, "%.0f deg/s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Chase damping in a car", &vm.tpChaseTau, 0.1f, 2.0f, "%.2f s");
     ImGui::SetNextItemWidth(S(240.0f));
     changed |= ImGui::SliderFloat("First-person ease", &vm.fpSmooth, 0.02f, 0.5f, "%.2f s");
+    Help("First person: the view eases onto the car (or the heading, when the keys are the game's) over this long.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Figure turn rate", &vm.pedDrawnTurnRate, 60.0f, 720.0f, "%.0f deg/s");
+    Help("Third person on foot: your drawn figure turns no faster than this, eased, although the game "
+         "snaps the heading underneath; the game's own movement is unchanged.");
+
+    ImGui::SeparatorText("Controls on foot");
+    changed |= ImGui::Checkbox("Camera-relative keys", &vm.navMap);
+    Help("The arrows mean 'walk that way as the camera sees it', as a modern game plays; the "
+         "pedestrian is steered there through the game's own turn keys. Off: the game's keys as they are.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("First-person key turn", &vm.fpTurnKeyRate, 20.0f, 240.0f, "%.0f deg/s");
+    Help("The full rate Left/Right turn the view at; it starts at the rate below and winds up over the ramp.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Key turn starts at", &vm.fpTurnKeyStart, 5.0f, 120.0f, "%.0f deg/s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Key turn ramp", &vm.fpTurnKeyRamp, 0.0f, 2.0f, "%.2f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Follow at a walk", &vm.tpFollowTauWalk, 0.0f, 4.0f, "%.1f s");
+    Help("Third person on foot, the soft follow (as GTA V): while you walk the camera eases round behind "
+         "the way you go over about this long; a turn key pressed while standing turns you and the camera "
+         "follows. Standing still with no key held, it holds. 0 turns the follow off (held orbit).");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Follow at a run", &vm.tpFollowTauRun, 0.1f, 4.0f, "%.1f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Follow waits", &vm.tpFollowDelay, 0.0f, 2.0f, "%.2f s");
+    changed |= ImGui::Checkbox("Orbit follows the walk", &vm.tpOrbitFollow);
+    Help("Third person on foot, the earlier drift: on, the camera drifts round behind whichever way you walk "
+         "(over the time below). Off with the follow at 0: it holds its yaw while you walk and re-centres "
+         "slowly behind you after you have walked straight away from it for a while.");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Re-centre after", &vm.tpRecentreDelay, 0.5f, 6.0f, "%.1f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Re-centre over", &vm.tpRecentreTau, 1.0f, 8.0f, "%.1f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Re-centre rate", &vm.tpRecentreRate, 5.0f, 120.0f, "%.0f deg/s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Orbit drifts behind in", &vm.tpOrbitTau, 0.3f, 4.0f, "%.1f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Turn dead band", &vm.navDeadband, 2.0f, 30.0f, "%.0f deg");
 
     ImGui::SeparatorText("Third person");
     ImGui::SetNextItemWidth(S(240.0f));
@@ -2873,11 +2918,14 @@ void DebugMenuPoll() {
     // Polled rather than taken off WM_KEYDOWN: GTA2 reads the keyboard through
     // DirectInput, and relying on the message reaching the window proc first has
     // no advantage here. Alt+F4 is excluded so closing the game still closes it.
-    const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-    const bool f4Down = (GetAsyncKeyState(VK_F4) & 0x8000) != 0 && !altDown;
-    DWORD pid = 0;
-    if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
-    if (f4Down && !g_f4Down && pid == GetCurrentProcessId()) Toggle();
+    // Alt only asked about while F4 is down, and the foreground window only at the
+    // press: each is a wineserver call under Wine (PERF-3).
+    const bool f4Down = (GetAsyncKeyState(VK_F4) & 0x8000) != 0 && (GetAsyncKeyState(VK_MENU) & 0x8000) == 0;
+    if (f4Down && !g_f4Down) {
+        DWORD pid = 0;
+        if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &pid);
+        if (pid == GetCurrentProcessId()) Toggle();
+    }
     g_f4Down = f4Down;
 
     if (g_visible) FeedMouse();

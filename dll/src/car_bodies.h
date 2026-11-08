@@ -44,7 +44,14 @@ struct CarBodyUse {
     int sprite = -1;                 // within the car base
     int model = -1;                  // the game's vehicle model number, -1 when unknown
     bool own = false;                // the player's own car, seen from inside in first person
+    bool driven = false;             // the car the player is at the wheel of, in any view (the chase camera may sit inside a long one)
     uintptr_t object = 0;            // the game object, for steering memory
+    int damage = 0;                  // the vehicle's damage word (int16 at +0x74, 0 fresh .. 32000 explodes), 0 when unknown
+    int fireStage = 0;               // the vehicle's damage stage byte (+0x8C): 3 burning (from 16000), 4 burning hard (from 25000)
+    // A pedestrian is getting in or out of this car (ped state 3/4) and stands
+    // here: the door on his side swings open while he does.
+    bool doorPed = false;
+    float doorPedX = 0.0f, doorPedZ = 0.0f;
     CarBodyVertex local[4];          // the body quad in its own space
     gta2::Mat4 objectToWorld;
 };
@@ -64,12 +71,21 @@ void CarBodiesReleaseDevice();
 // where the windscreen's base is ahead of the car's centre, and half the
 // width. For the first-person eye at the wheel. False when the car is unknown.
 bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth);
+// The same car's body as drawn: its length and full height (roof gear included)
+// in blocks and half its width, for the chase camera's framing. False when unknown.
+bool CarBodiesExtent(const void* object, float* length, float* height, float* halfWidth);
 // Bodies built and drawn in the last call, for the overlay.
 // Developer aid: draw every car as one of the wreck models ([devtools] wreck_models=1).
 void CarBodiesSetWreckTest(bool on);
 // Developer aid: the ini whose [devtools] force_car_model=N (every traffic car drawn as
 // model N, -1 off) is re-read once a second, so a script can step through the models.
 void CarBodiesSetDevIni(const char* ini);
+// That ini's path ("" when devtools are off), for other [devtools] keys re-read while the game runs.
+const char* CarBodiesDevIni();
+// The tank's turret / the fire truck's roof gear points along (dirX, dirZ) in the
+// world (renderer frame, the ground plane), seen this frame for the car whose
+// sprite object is `carObject`: the game's own turret sprite. Held for a second.
+void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame);
 int CarBodiesBuilt();
 int CarBodiesDrawn();
 // The last call's time, ms: [0] measuring artwork, [1] building sprite bodies,

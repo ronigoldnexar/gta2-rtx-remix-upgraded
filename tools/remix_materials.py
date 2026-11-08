@@ -214,6 +214,22 @@ def write_roughness(path, r):
     data = [bc4(np.clip(np.rint(m), 0, 255).astype(np.uint8)) for m in mips(r.astype(np.float32))]
     dds(path, (data, r.shape[:2]), b"BC4U", 8)
 
+def write_height(path, hgt):
+    """BC4 height (1 = surface, 0 = deepest) with a *max* mip chain: the runtime's
+    quadtree POM reads the mips as a max-quadtree, and the raymarch mode only gets a
+    slightly conservative coarse level from it."""
+    levels = [hgt.astype(np.float32)]
+    while levels[-1].shape[0] > 1 or levels[-1].shape[1] > 1:
+        a = levels[-1]; h2, w2 = max(a.shape[0] // 2, 1), max(a.shape[1] // 2, 1)
+        a = a[:h2 * 2 if a.shape[0] > 1 else 1, :w2 * 2 if a.shape[1] > 1 else 1]
+        levels.append(a.reshape(h2, 2 if a.shape[0] > 1 else 1, w2, 2 if a.shape[1] > 1 else 1).max(axis=(1, 3)))
+    dds(path, ([bc4(np.clip(np.rint(m), 0, 255).astype(np.uint8)) for m in levels], hgt.shape[:2]), b"BC4U", 8)
+
+def small(a, size):
+    """a uint8 map resampled to size x size (Lanczos)"""
+    if a.shape[0] == size: return a
+    return np.asarray(Image.fromarray(a, "L").resize((size, size), Image.LANCZOS))
+
 # ------------------------------------------------------- DDS tile sets --
 def dds_levels(path):
     """The mip levels (block bytes, top down) of a DXT1/DXT5 DDS as tools/pack_textures_dds.py writes it."""
@@ -236,11 +252,35 @@ def dds_hash(path, scheme="mip0"):
     if levels is None: return None
     return "%016X" % xxhash.xxh3_64_intdigest(levels[0] if scheme == "mip0" else b"".join(levels))
 
+def pbr_tile(job):
+    """VISUALS-REMIX: every map of one HD tile (tools/remix_pbr.py), written next to its albedo.
+    Normal at the tile's own 512 px (BC5 octahedral), roughness / wet roughness / metallic /
+    height at --map-size (BC4). Returns (hash, displace_in, groundish, class shares)."""
+    import shutil, remix_pbr
+    path, h, tex_dir, size, map_size = job
+    shutil.copyfile(path, os.path.join(tex_dir, f"{h}.a.rtex.dds"))
+    rgba = np.asarray(Image.open(path).convert("RGBA"))
+    if rgba.shape[0] != size: rgba = resize(rgba, size)
+    r = remix_pbr.analyse(rgba, True, kind="tile", seed=h)
+    write_normal(os.path.join(tex_dir, f"{h}.n.rtex.dds"), r["normal"])
+    write_roughness(os.path.join(tex_dir, f"{h}.r.rtex.dds"), small(r["rough"], map_size))
+    for key, ext in (("metal", "m"), ("height", "h")):
+        p = os.path.join(tex_dir, f"{h}.{ext}.rtex.dds")
+        if r[key] is not None:
+            (write_height if ext == "h" else write_roughness)(p, small(r[key], map_size))
+        elif os.path.exists(p): os.remove(p)
+    p = os.path.join(tex_dir, f"{h}.w.rtex.dds")
+    if r["groundish"]: write_roughness(p, small(r["rough_wet"], map_size))
+    elif os.path.exists(p): os.remove(p)
+    return h, r["displace"] if r["height"] is not None else 0.0, r["groundish"], r["cls"]
+
 def dds_tiles(a, tex_dir, taken):
     """--dds-tiles: one material per HD DDS tile, keyed by the hash of what the game uploads.
-    The DDS itself becomes the albedo (no re-encode); normal and roughness come from its pixels."""
-    import shutil
-    made = skipped = 0; t0 = time.time()
+    The DDS itself becomes the albedo (no re-encode); the other maps come from its pixels:
+    with --pbr full (default) every map of tools/remix_pbr.py, with --pbr basic the older
+    256 px band-pass normal and contrast roughness."""
+    import json, shutil
+    made = skipped = 0; t0 = time.time(); jobs = []
     for d in a.dds_tiles:
         for f in sorted(os.listdir(d)):
             if not f.endswith(".dds"): continue
@@ -249,12 +289,24 @@ def dds_tiles(a, tex_dir, taken):
             if h is None or h in taken: skipped += 1; continue
             if not a.force and os.path.exists(os.path.join(tex_dir, f"{h}.r.rtex.dds")): skipped += 1; continue
             taken.add(h)
+            if a.pbr == "full":
+                jobs.append((path, h, tex_dir, a.size, a.map_size)); continue
             shutil.copyfile(path, os.path.join(tex_dir, f"{h}.a.rtex.dds"))
             rgba = np.asarray(Image.open(path).convert("RGBA"))
             if rgba.shape[0] != a.size: rgba = resize(rgba, a.size)
             write_normal(os.path.join(tex_dir, f"{h}.n.rtex.dds"), normal_map(rgba[..., :3]))
             write_roughness(os.path.join(tex_dir, f"{h}.r.rtex.dds"), roughness_map(rgba[..., :3]))
             made += 1
+    if jobs:
+        import multiprocessing as mp
+        info_path = os.path.join(os.path.dirname(tex_dir), "pbr.json")
+        info = json.load(open(info_path)) if os.path.exists(info_path) else {}
+        with mp.Pool(a.jobs) as pool:
+            for i, (h, disp, ground, cls) in enumerate(pool.imap_unordered(pbr_tile, jobs, chunksize=4)):
+                info[h] = {"displace_in": disp, "wet": ground, "cls": cls}
+                if i % 200 == 0: print(f"  {i}/{len(jobs)} tiles, {time.time() - t0:.0f} s", flush=True)
+        json.dump(info, open(info_path, "w"), indent=0, sort_keys=True)
+        made += len(jobs)
     return made, skipped, time.time() - t0
 
 # ------------------------------------------------------------------ USDA --
@@ -276,7 +328,7 @@ MATERIAL = '''        over "mat_{h}"
                 )
                 custom float inputs:metallic_constant = 0
                 custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 0{emissive}
+                custom bool inputs:use_legacy_alpha_state = 1{metal}{height}{emissive}
                 token outputs:out
             }}
         }}
@@ -289,21 +341,56 @@ EMISSIVE = '''
                 custom bool inputs:enable_emission = 1
                 custom float inputs:emissive_intensity = {intensity}'''
 EMISSIVE_INTENSITY = 30
+# VISUALS-REMIX: per-texel metallic and the height field for Remix's parallax displacement.
+METAL = '''
+                custom asset inputs:metallic_texture = @./textures/{h}.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )'''
+HEIGHT = '''
+                custom asset inputs:height_texture = @./textures/{h}.h.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom float inputs:displace_in = {d}'''
 
-def write_usda(mod_dir):
-    # Tile materials only: an albedo with its normal map. A paint texture of the
-    # 3D car models has an albedo alone and its own prim (remix_model_materials.py).
-    tex0 = os.path.join(mod_dir, "textures")
-    hashes = sorted({re.match(r"([0-9A-F]{16})\.a\.rtex\.dds$", f).group(1)
-                     for f in os.listdir(tex0) if re.match(r"[0-9A-F]{16}\.a\.rtex\.dds$", f)
-                     and os.path.exists(os.path.join(tex0, f[:16] + ".n.rtex.dds"))})
+def write_usda(mod_dir, out_name="mod.usda"):
+    """The tile layer from what is in <mod>/textures: albedo + normal + roughness always,
+    metallic / height (+ displace_in from pbr.json) / emission when their maps exist.
+    The wet roughness (.w) is referenced only by the rain variant (wet_layer)."""
+    import json
     tex = os.path.join(mod_dir, "textures")
-    body = "\n".join(MATERIAL.format(h=h, mdl=MDL, emissive=(EMISSIVE.format(h=h, intensity=EMISSIVE_INTENSITY)
-                                                          if os.path.exists(os.path.join(tex, f"{h}.e.rtex.dds")) else ""))
-                     for h in hashes)
+    have = set(os.listdir(tex))
+    hashes = sorted({f[:16] for f in have if re.match(r"[0-9A-F]{16}\.a\.rtex\.dds$", f) and f[:16] + ".n.rtex.dds" in have})
+    info_path = os.path.join(mod_dir, "pbr.json")
+    info = json.load(open(info_path)) if os.path.exists(info_path) else {}
+    def prim(h):
+        text = MATERIAL.format(
+            h=h, mdl=MDL,
+            metal=METAL.format(h=h) if f"{h}.m.rtex.dds" in have else "",
+            height=HEIGHT.format(h=h, d=info.get(h, {}).get("displace_in") or 0.012) if f"{h}.h.rtex.dds" in have else "",
+            emissive=EMISSIVE.format(h=h, intensity=EMISSIVE_INTENSITY) if f"{h}.e.rtex.dds" in have else "")
+        return text
+    body = "\n".join(prim(h) for h in hashes)
     text = ('#usda 1.0\n(\n    upAxis = "Y"\n)\n\nover "RootNode"\n{\n    over "Looks"\n    {\n' + body + "    }\n}\n")
-    open(os.path.join(mod_dir, "mod.usda"), "w", encoding="utf-8", newline="\n").write(text)
+    open(os.path.join(mod_dir, out_name), "w", encoding="utf-8", newline="\n").write(text)
     return hashes
+
+def wet_layer(mod_dir, out_name="mod_wet.usda"):
+    """The rain variant of the finished layer (tiles, signs and cars): mod.usda with each
+    tile's roughness swapped for its wet roughness (.w: glossier, puddles on ground-like
+    tiles, water in the joints) where it has one. Remix reads mod.usda only, so the variant
+    is installed by copying it over mod.usda (or MODS_HD_SRC pointing at a folder whose
+    mod.usda is this file)."""
+    tex = os.path.join(mod_dir, "textures"); have = set(os.listdir(tex))
+    text = open(os.path.join(mod_dir, "mod.usda"), encoding="utf-8").read()
+    n = 0
+    def swap(m):
+        nonlocal n
+        h = m.group(1)
+        if f"{h}.w.rtex.dds" in have: n += 1; return f"./textures/{h}.w.rtex.dds"
+        return m.group(0)
+    text = re.sub(r"\./textures/([0-9A-F]{16})\.r\.rtex\.dds", swap, text)
+    open(os.path.join(mod_dir, out_name), "w", encoding="utf-8", newline="\n").write(text)
+    return n
 
 def validate(mod_dir):
     text = open(os.path.join(mod_dir, "mod.usda"), encoding="utf-8").read()
@@ -331,7 +418,13 @@ def main():
     ap.add_argument("--validate-only", action="store_true", help="only check an existing mod against the dump")
     ap.add_argument("--dds-tiles", nargs="*", default=[], help="HD DDS tile folders (assets/textures_hd/<style>): materials keyed by the uploaded block data; the dump argument is then unused (pass -)")
     ap.add_argument("--dds-hash", choices=["mip0", "all"], default="mip0", help="which bytes of a DDS Remix hashes (mip0, verified)")
+    ap.add_argument("--pbr", choices=["full", "basic"], default="full", help="full: every map of remix_pbr.py (VISUALS-REMIX); basic: the older normal + roughness")
+    ap.add_argument("--map-size", type=int, default=256, help="roughness / metallic / height / wet maps (the normal is at --size)")
+    ap.add_argument("--jobs", type=int, default=3)
+    ap.add_argument("--wet-layer", action="store_true", help="only write <mod>/mod_wet.usda from the finished mod.usda (the rain variant)")
     a = ap.parse_args()
+    if a.wet_layer:
+        print(f"mod_wet.usda: {wet_layer(a.mod)} tile prims with wet roughness"); return
     if a.validate_only:
         dump_hashes = {remix_hash(read_tga(os.path.join(a.dump, f))) for f in os.listdir(a.dump) if f.endswith(".tga")}
         prims, refs, problems, size = validate(a.mod)

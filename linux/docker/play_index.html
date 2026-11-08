@@ -19,6 +19,13 @@
   kbd { background:#0d0f12; border:1px solid #3a3f49; border-bottom-width:2px; border-radius:5px; padding:1px 7px; font:13px ui-monospace, monospace; }
   .note { color:var(--dim); font-size:13px; margin-top:16px; }
   .mode { font-weight:700; }
+  /* The game view (noVNC in a frame, so this page stays and can play the sound) and the audio bar. */
+  #game { position:fixed; inset:0; width:100%; height:100%; border:0; background:#000; display:none; z-index:1; }
+  #abar { position:fixed; top:8px; right:8px; z-index:2; display:none; align-items:center; gap:8px; background:rgba(20,22,26,.82);
+          border:1px solid var(--line); border-radius:8px; padding:4px 8px; font:12px/1.3 ui-monospace, monospace; color:var(--dim); }
+  #abar button { background:var(--card); color:var(--fg); border:1px solid #3a3f49; border-radius:6px; padding:3px 9px; font:13px system-ui, sans-serif; cursor:pointer; }
+  #abar input { width:70px; accent-color:var(--accent); }
+  #abar.idle { opacity:.45; } #abar:hover { opacity:1; }
 </style>
 </head>
 <body>
@@ -41,7 +48,9 @@
       <h2>Views</h2>
       <table>
         <tr><td>Cycle classic &rarr; third person &rarr; first person</td><td><kbd>V</kbd></td></tr>
-        <tr><td>Look around (third / first person)</td><td>mouse</td></tr>
+        <tr><td>Walk, in third person</td><td>arrows: as the camera sees it (Up toward where it looks, Left/Right to its sides); the camera holds still while you walk and re-centres slowly behind you after you walk away from it for 2 s</td></tr>
+        <tr><td>Look and walk, in first person</td><td>Left/Right turn the view (winds up from 25 to 70&deg;/s), Up/Down walk; mouse look only with PLAY_MOUSE=1</td></tr>
+        <tr><td>Everything turns too fast or too slow?</td><td><kbd>F4</kbd> &rarr; Camera &rarr; Turn speed (a percentage; 50 halves every turn), or <code>turn_speed=</code> in gta2dx9.ini</td></tr>
         <tr><td>Classic top-down is always one press away</td><td><kbd>V</kbd> until it returns</td></tr>
       </table>
     </div>
@@ -81,8 +90,10 @@
     </div>
   </div>
 
-  <p class="note">The browser gets the picture and sends your keys and mouse; there is no sound over this connection (noVNC carries no audio). If the view feels sluggish, lower the quality slider in the noVNC side panel. Click inside the game first so keys go to it; the mouse is captured only in the ground views.</p>
+  <p class="note">The browser gets the picture and the game's sound and sends your keys and mouse. The sound starts with Play (top right: mute and volume, and the sound's delay in ms). If the view feels sluggish, lower the quality slider in the noVNC side panel. Click inside the game first so keys go to it. Mouse look is off over this connection by default (a remote pointer jumps); start with PLAY_MOUSE=1 to use it.</p>
 </div>
+<iframe id="game" title="GTA2" allow="autoplay; fullscreen"></iframe>
+<div id="abar" class="idle"><button id="amute" type="button" title="Mute / unmute the game's sound"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2" fill="none"/></svg> Sound</button><input id="avol" type="range" min="0" max="100" value="80" title="Volume"><span id="astat">audio: off</span></div>
 <script>
   const q = new URLSearchParams(location.search);
   if (q.get('mode')) document.getElementById('mode').textContent = q.get('mode') === 'remix' ? 'RTX Remix path tracing' : 'plain renderer';
@@ -91,8 +102,136 @@
     if (!j) return;
     document.getElementById('mode').textContent = j.mode === 'remix' ? 'RTX Remix path tracing' : 'plain renderer';
     if (j.devtools) document.getElementById('devtools').style.display = '';
-    if (j.password) document.getElementById('playlink').href += '&password=' + encodeURIComponent(j.password);
+    if (j.password) for (const id of ['playlink', 'playlink_low']) document.getElementById(id).href += '&password=' + encodeURIComponent(j.password);
+    audioOn = !!j.audio;
   }).catch(() => {});
+
+  // ---- Play: noVNC in a frame on this page, and the game's sound -----------------------------
+  // The sound comes as Opus packets over a websocket on this same port (path "audio", play_audio.py).
+  // A worker receives and decodes them (WebCodecs) and hands the samples straight to an AudioWorklet,
+  // which keeps a small jitter buffer (40 ms target, 160 ms cap) and plays them; neither touches this
+  // page's main thread, which noVNC's frame shares. Browsers without AudioDecoder get 24 kHz mono PCM
+  // from "audio-pcm" instead (add ?audio=pcm to force it).
+  let audioOn = false;
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+                  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+  const A = window.playAudio = { packets:0, bytes:0, decoded:0, errors:0, late:0, behind:0, underruns:0, dropped:0, bufferMs:0, transitMs:null,
+                                 outMs:0, latencyMs:null, codec:'', state:'off', log:[], tap:null };
+  function startGame(ev) {
+    ev.preventDefault();
+    const f = document.getElementById('game');
+    f.src = ev.currentTarget.href; f.style.display = 'block';
+    document.querySelector('.wrap').style.display = 'none';
+    f.addEventListener('load', () => { try { f.contentWindow.focus(); } catch (e) {} });
+    if (audioOn) startAudio();
+  }
+  document.getElementById('playlink').addEventListener('click', startGame);
+  document.getElementById('playlink_low').addEventListener('click', startGame);
+
+  const WORKLET = `class P extends AudioWorkletProcessor {
+    constructor(o) { super(); const p = o.processorOptions; this.ch = p.ch; this.n = sampleRate * 2; this.buf = [];
+      for (let c = 0; c < this.ch; c++) this.buf.push(new Float32Array(this.n));
+      this.w = 0; this.r = 0; this.target = p.target * sampleRate / 1000 | 0; this.max = p.max * sampleRate / 1000 | 0;
+      this.playing = false; this.under = 0; this.drop = 0; this.k = 0; this.tap = p.tap ? [[], [], 0] : null;
+      this.port.onmessage = e => { if (e.data.port) e.data.port.onmessage = m => this.push(m.data); }; }
+    push(d) { const len = d[0].length;
+      for (let c = 0; c < this.ch; c++) { const b = this.buf[c], s = d[c] || d[0], o = this.w % this.n;
+        if (o + len <= this.n) b.set(s, o); else { b.set(s.subarray(0, this.n - o), o); b.set(s.subarray(this.n - o), 0); } }
+      this.w += len;
+      if (this.w - this.r > this.max) { const skip = this.w - this.r - this.target; this.r += skip; this.drop += skip; } }
+    process(_, outs) { const o = outs[0], len = o[0].length, fill = this.w - this.r;
+      if (!this.playing && fill >= this.target) this.playing = true;
+      if (this.playing && fill < len) { this.playing = false; this.under++; }
+      if (this.playing) { for (let c = 0; c < o.length; c++) { const b = this.buf[Math.min(c, this.ch - 1)];
+          for (let i = 0; i < len; i++) o[c][i] = b[(this.r + i) % this.n]; } this.r += len; }
+      else for (let c = 0; c < o.length; c++) o[c].fill(0);
+      if (this.tap) { const t = this.tap; if (!t[0].length) t[2] = currentTime; t[0].push(o[0].slice()); t[1].push((o[1] || o[0]).slice());
+        if (t[0].length === 16) { this.port.postMessage({tap: [t[0], t[1]], t: t[2]}); this.tap = [[], [], 0]; } }
+      if (++this.k % 25 === 0) this.port.postMessage({fill: (this.w - this.r) / sampleRate * 1000, under: this.under, drop: this.drop});
+      return true; } }
+  registerProcessor('play-audio', P);`;
+
+  const WORKER = `let port, dec = null, opus = true, up = 2, url = '', pend = new Uint8Array(0), tr = [], best = 1e9, minAt = 0;
+  const st = {packets: 0, bytes: 0, decoded: 0, errors: 0, late: 0, behind: 0, state: 'connecting'};
+  onmessage = e => { const d = e.data; port = d.port; url = d.url; opus = d.opus; up = d.up; if (opus) mkdec(); connect();
+    setInterval(() => { const s = tr.slice().sort((a, b) => a - b); postMessage(Object.assign({transit: s.length ? s[s.length >> 1] : null}, st)); }, 500); };
+  function mkdec() {
+    dec = new AudioDecoder({ output: ad => { const n = ad.numberOfFrames, out = [];
+        for (let c = 0; c < ad.numberOfChannels; c++) { const a = new Float32Array(n); ad.copyTo(a, {planeIndex: c, format: 'f32-planar'}); out.push(a); }
+        ad.close(); st.decoded++; port.postMessage(out, out.map(a => a.buffer)); },
+      error: () => { st.errors++; setTimeout(mkdec, 100); } });
+    dec.configure({codec: 'opus', sampleRate: 48000, numberOfChannels: 2}); }
+  function packet(seq, ts, body) {
+    // A packet that comes more than 200 ms later than the quickest of the last few seconds was held up on the way
+    // (a stalled tab, a queue in the network): it is skipped, so the delay does not build up. Relative to the
+    // quickest, so the two machines' clocks need not agree.
+    const t = Date.now() - ts, now = Date.now(); st.packets++; tr.push(t); if (tr.length > 200) tr.shift();
+    if (now - minAt > 5000 || t <= best) { best = t; minAt = now; }
+    if (t - best > 200) { st.late++; return; }
+    if (opus) { if (dec && dec.state === 'configured' && dec.decodeQueueSize < 50) dec.decode(new EncodedAudioChunk({type: 'key', timestamp: seq * 10000, data: body})); else st.behind++; return; }
+    const v = new DataView(body.buffer, body.byteOffset, body.byteLength), n = body.byteLength >> 1, a = new Float32Array(n * up);
+    for (let i = 0; i < n; i++) { const x = v.getInt16(2 * i, true) / 32768; for (let k = 0; k < up; k++) a[i * up + k] = x; }
+    st.decoded++; port.postMessage([a], [a.buffer]); }
+  function connect() {
+    const ws = new WebSocket(url); ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { st.state = 'on'; };
+    ws.onmessage = e => { st.bytes += e.data.byteLength;
+      const d = new Uint8Array(e.data), m = new Uint8Array(pend.length + d.length); m.set(pend); m.set(d, pend.length);
+      const v = new DataView(m.buffer); let o = 0;
+      while (m.length - o >= 2) { const len = v.getUint16(o, true); if (m.length - o - 2 < len) break;
+        packet(v.getUint32(o + 2, true), v.getFloat64(o + 6, true), m.subarray(o + 14, o + 2 + len)); o += 2 + len; }
+      pend = m.slice(o); };
+    ws.onclose = () => { st.state = 'reconnecting'; pend = new Uint8Array(0); setTimeout(connect, 2000); }; }`;
+
+  async function startAudio() {
+    if (A.state !== 'off') return;
+    A.state = 'starting';
+    // Made inside the Play click (before any await) so every browser's autoplay rule lets it run.
+    let ctx;
+    try { ctx = new AudioContext({latencyHint:'interactive', sampleRate:48000}); } catch (e) { ctx = new AudioContext({latencyHint:'interactive'}); }
+    ctx.resume();
+    const bar = document.getElementById('abar'), stat = document.getElementById('astat');
+    bar.style.display = 'flex';
+    const q2 = new URLSearchParams(location.search);
+    let opus = 'AudioDecoder' in window && q2.get('audio') !== 'pcm';
+    if (opus) { try { opus = (await AudioDecoder.isConfigSupported({codec:'opus', sampleRate:48000, numberOfChannels:2})).supported; } catch (e) { opus = false; } }
+    const ch = opus ? 2 : 1, up = Math.max(1, Math.round(ctx.sampleRate / 24000));   // PCM: 24 kHz repeated up to the context's rate
+    A.codec = opus ? 'opus 48k stereo' : 'pcm 24k mono';
+    const blob = (src) => URL.createObjectURL(new Blob([src], {type:'application/javascript'}));
+    await ctx.audioWorklet.addModule(blob(WORKLET));
+    const tap = q2.get('audiotap') === '1';
+    const node = new AudioWorkletNode(ctx, 'play-audio', {outputChannelCount:[2], processorOptions:{ch, target:40, max:160, tap}});
+    const gain = ctx.createGain(); node.connect(gain).connect(ctx.destination);
+    const vol = document.getElementById('avol'), mute = document.getElementById('amute');
+    let muted = store.get('gta2_muted', '0') === '1';
+    vol.value = store.get('gta2_vol', '80');
+    const apply = () => { gain.gain.value = muted ? 0 : (vol.value / 100) ** 2; mute.innerHTML = muted ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M16 9l6 6M22 9l-6 6" stroke="currentColor" stroke-width="2"/></svg> Muted' : '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2" fill="none"/></svg> Sound'; };
+    apply();
+    const refocus = () => { try { document.getElementById('game').contentWindow.focus(); } catch (e) {} };
+    mute.onclick = () => { muted = !muted; store.set('gta2_muted', muted ? '1' : '0'); apply(); ctx.resume(); refocus(); };
+    vol.oninput = () => { store.set('gta2_vol', vol.value); if (muted && vol.value > 0) muted = false; apply(); };
+    vol.onchange = refocus;
+    if (tap) A.tap = {chunks: [], times: []};
+    node.port.onmessage = e => { const d = e.data;
+      if (d.tap) { if (A.tap) { const ot = ctx.getOutputTimestamp(), w0 = performance.timeOrigin + ot.performanceTime + (d.t - ot.contextTime) * 1000;
+          for (let k = 0; k < d.tap[0].length; k++) { A.tap.chunks.push([d.tap[0][k], d.tap[1][k]]); A.tap.times.push(w0 + k * 128000 / ctx.sampleRate); } } return; }
+      A.bufferMs = d.fill; A.underruns = d.under; A.dropped = d.drop; };
+    const chan = new MessageChannel();
+    node.port.postMessage({port: chan.port1}, [chan.port1]);
+    const u = new URL(opus ? 'audio' : 'audio-pcm', location.href); u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; u.search = ''; u.hash = '';
+    const worker = new Worker(blob(WORKER));
+    worker.onmessage = e => { const d = e.data; A.packets = d.packets; A.bytes = d.bytes; A.decoded = d.decoded; A.errors = d.errors; A.late = d.late; A.behind = d.behind;
+      A.state = d.state; A.transitMs = d.transit; bar.classList.toggle('idle', d.state !== 'on'); };
+    worker.postMessage({port: chan.port2, url: u.href, opus, up}, [chan.port2]);
+    setInterval(() => {
+      A.outMs = ((ctx.baseLatency || 0) + (ctx.outputLatency || 0)) * 1000;
+      // capture (parec block + the 10 ms frame) + transit (same clock on a local link) + jitter buffer + the device's own output delay
+      A.latencyMs = A.transitMs === null ? null : Math.round(20 + Math.max(0, A.transitMs) + A.bufferMs + A.outMs);
+      const line = `${new Date().toISOString().slice(11, 23)} pkts=${A.packets} dec=${A.decoded} late=${A.late} behind=${A.behind} kB=${(A.bytes / 1024) | 0} buf=${A.bufferMs | 0}ms transit=${A.transitMs === null ? '-' : A.transitMs.toFixed(1)}ms out=${A.outMs | 0}ms latency~${A.latencyMs}ms under=${A.underruns} drop=${A.dropped}`;
+      A.log.push(line); if (A.log.length > 120) A.log.shift();
+      stat.textContent = A.state === 'on' ? `${A.codec} · ~${A.latencyMs === null ? '?' : A.latencyMs} ms` : 'audio: ' + A.state;
+    }, 1000);
+  }
 </script>
 </body>
 </html>

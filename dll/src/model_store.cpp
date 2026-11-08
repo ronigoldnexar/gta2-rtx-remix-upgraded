@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <set>
 
+#include "frame_log.h"
 #include "log.h"
 
 namespace gta2dx9 {
@@ -20,6 +21,9 @@ namespace {
 // process's life, and a deque never moves its elements when it grows.
 std::deque<Model> g_models;
 std::unordered_set<const Model*> g_known;   // every address the store ever handed out
+// Meshes of derived models registered with dynamicBuffers (PERF-3): their buffers are
+// dynamic default-pool buffers written with DISCARD (see BuffersFor).
+std::unordered_set<const ModelMesh*> g_dynamicMeshes;
 std::map<std::string, size_t> g_byName;
 std::vector<std::string> g_carDefault;    // cycled by sprite number
 std::map<int, std::string> g_carBySprite;
@@ -83,6 +87,61 @@ bool ReadAll(const std::string& path, std::vector<uint8_t>* out) {
     const bool ok = size > 0 && fread(out->data(), 1, out->size(), f) == out->size();
     fclose(f);
     return ok;
+}
+
+// The model textures' files, read ahead on a thread of their own (PERF-2). The warm-up
+// below creates and uploads every model texture in the first seconds of a level; with
+// 73 car models that is ~680 TGA files, and reading them on the render thread put
+// 10-100 ms spikes into those seconds. The reader keeps at most kPrefetchBytes of
+// files waiting; TextureFor takes a file from here when it is ready and reads it
+// itself otherwise, so nothing ever waits on the thread.
+constexpr size_t kPrefetchBytes = 96u << 20;
+CRITICAL_SECTION g_prefetchLock;
+std::map<std::string, std::vector<uint8_t>> g_prefetched;
+size_t g_prefetchedBytes = 0;
+std::vector<std::string> g_prefetchList;   // read in this order; fixed once the thread starts
+volatile LONG g_prefetchStarted = 0;
+
+DWORD WINAPI PrefetchThread(void*) {
+    for (const std::string& file : g_prefetchList) {
+        for (;;) {
+            EnterCriticalSection(&g_prefetchLock);
+            const size_t waiting = g_prefetchedBytes;
+            LeaveCriticalSection(&g_prefetchLock);
+            if (waiting < kPrefetchBytes) break;
+            Sleep(5);
+        }
+        std::vector<uint8_t> data;
+        if (!ReadAll(g_folder + "\\" + file, &data)) continue;
+        EnterCriticalSection(&g_prefetchLock);
+        g_prefetchedBytes += data.size();
+        g_prefetched[file] = std::move(data);
+        LeaveCriticalSection(&g_prefetchLock);
+    }
+    return 0;
+}
+
+// The prefetched file, moved out; false when the reader has not got to it (or never will).
+bool TakePrefetched(const std::string& file, std::vector<uint8_t>* out) {
+    if (!g_prefetchStarted) return false;
+    EnterCriticalSection(&g_prefetchLock);
+    auto it = g_prefetched.find(file);
+    const bool found = it != g_prefetched.end();
+    if (found) {
+        g_prefetchedBytes -= it->second.size();
+        out->swap(it->second);
+        g_prefetched.erase(it);
+    }
+    LeaveCriticalSection(&g_prefetchLock);
+    return found;
+}
+
+bool PrefetchReady(const std::string& file) {
+    if (!g_prefetchStarted) return true;
+    EnterCriticalSection(&g_prefetchLock);
+    const bool found = g_prefetched.count(file) != 0;
+    LeaveCriticalSection(&g_prefetchLock);
+    return found;
 }
 
 struct Reader {
@@ -246,6 +305,10 @@ void SampleClip(const Model& model, const ModelAnimation* animation, float time,
 // The node world matrices of a pose: `animation` at `time`, blended toward
 // `second` at `secondTime` by `weight` (nlerp on the rotations, lerp on the
 // rest), then composed down the parent chain.
+static float g_torsoTwist = 0.0f;   // see ModelSetTorsoTwist
+// The overlay: a third clip blended over the pair (see ModelSetOverlay).
+static const ModelAnimation* g_overlay = nullptr;
+static float g_overlayTime = 0.0f, g_overlayWeight = 0.0f;
 void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float time, const ModelAnimation* second,
                      float secondTime, float weight, std::vector<gta2::Mat4>* out) {
     const size_t n = model.nodes.size();
@@ -258,6 +321,10 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
     }
     const bool blend = second && second->length > 0.0f && weight > 1e-3f;
     if (blend && weight >= 0.999f) {
+        // The second clip alone, but over the first: a clip with channels for only
+        // some joints (a legs-only layer, ACTIONS-3D-4's turn_step) must not leave
+        // the rest in the bind pose (the arms of the T/A pose).
+        SampleClip(model, animation, time, &t, &q, &s);
         SampleClip(model, second, secondTime, &t, &q, &s);
     } else {
         SampleClip(model, animation, time, &t, &q, &s);
@@ -280,6 +347,27 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
             }
         }
     }
+    if (g_overlay && g_overlay->length > 0.0f && g_overlayWeight > 1e-3f) {
+        // Written over a copy of the pose so far (a joint the overlay has no
+        // channel for keeps it: an upper-body layer leaves the legs walking),
+        // then blended in by its weight.
+        std::vector<gta2::Vec3> t3(t), s3(s);
+        std::vector<std::array<float, 4>> q3(q);
+        SampleClip(model, g_overlay, g_overlayTime, &t3, &q3, &s3);
+        const float w = (std::min)(1.0f, g_overlayWeight), v = 1.0f - w;
+        for (size_t i = 0; i < n; ++i) {
+            t[i] = {t[i].x * v + t3[i].x * w, t[i].y * v + t3[i].y * w, t[i].z * v + t3[i].z * w};
+            s[i] = {s[i].x * v + s3[i].x * w, s[i].y * v + s3[i].y * w, s[i].z * v + s3[i].z * w};
+            const float* a = q[i].data();
+            const float* b = q3[i].data();
+            const float sign = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) < 0.0f ? -1.0f : 1.0f;
+            float r[4];
+            for (int k = 0; k < 4; ++k) r[k] = a[k] * v + b[k] * sign * w;
+            const float len = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]);
+            if (len > 1e-6f) for (float& x : r) x /= len;
+            memcpy(q[i].data(), r, sizeof(r));
+        }
+    }
     out->resize(n);
     // Parents come before children in glTF order in Kenney's kits; walk in
     // order and fall back to a second pass if not.
@@ -291,6 +379,20 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
             if (p >= 0 && p < static_cast<int>(n) && !done[p] && pass == 0) continue;
             const gta2::Mat4 local = Compose(t[i], q[i].data(), s[i]);
             (*out)[i] = (p >= 0 && p < static_cast<int>(n)) ? Multiply(local, (*out)[p]) : local;
+            if (g_torsoTwist != 0.0f && model.nodes[i].name[0] == 'B' && strcmp(model.nodes[i].name, "Bip01 Spine1") == 0) {
+                // Turned about the model's vertical through the joint; the
+                // children (chest, arms, head) compose from it and turn with it.
+                gta2::Mat4& M = (*out)[i];
+                const float c = std::cos(g_torsoTwist), sn = std::sin(g_torsoTwist);
+                const float px = M.m[3][0], pz = M.m[3][2];
+                for (int r = 0; r < 4; ++r) {
+                    const float x = M.m[r][0], z = M.m[r][2];
+                    M.m[r][0] = x * c - z * sn;
+                    M.m[r][2] = x * sn + z * c;
+                }
+                M.m[3][0] += px - (px * c - pz * sn);
+                M.m[3][2] += pz - (px * sn + pz * c);
+            }
             done[i] = true;
         }
     }
@@ -312,7 +414,12 @@ void SkinMatrices(const Model& model, const ModelSkin& skin, const std::vector<g
     }
 }
 
-// Poses a skinned mesh on the CPU: every vertex blended by its four joints.
+// Poses a skinned mesh on the CPU: every vertex blended by its four joints. Built for
+// SSE2 under GCC (the rest of the DLL is plain i686 x87 code): the inner loop is the
+// pedestrians' largest cost, 1.3 ms per new pose of a 13k-vertex avatar (PERF-2).
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((target("sse2"), optimize("O3")))
+#endif
 void SkinMesh(const ModelMesh& mesh, const std::vector<gta2::Mat4>& joints, std::vector<ModelVertex>* out) {
     out->resize(mesh.vertices.size());
     for (size_t i = 0; i < mesh.vertices.size(); ++i) {
@@ -410,12 +517,13 @@ IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file)
     if (it != g_textures.end()) return it->second;
     IDirect3DTexture9* texture = nullptr;
     std::vector<uint8_t> tga;
-    if (ReadAll(g_folder + "\\" + file, &tga) && tga.size() > 18 && tga[2] == 2 && tga[16] == 32) {
+    if ((TakePrefetched(file, &tga) || ReadAll(g_folder + "\\" + file, &tga)) && tga.size() > 18 && tga[2] == 2 && tga[16] == 32) {
         const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
         const bool topDown = (tga[17] & 0x20) != 0;
         if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 &&
             SUCCEEDED(device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) {
             g_textureBytes += static_cast<size_t>(w) * h * 4;
+            FrameLogNote(kFcModelTexture);
             D3DLOCKED_RECT lr;
             if (SUCCEEDED(texture->LockRect(0, &lr, nullptr, 0))) {
                 for (int y = 0; y < h; ++y) {
@@ -437,6 +545,9 @@ const ModelAnimation* Model::Animation(const char* name) const {
     for (const ModelAnimation& a : animations) if (a.name == name) return &a;
     return nullptr;
 }
+
+void StartTexturePrefetch();
+void MergeProps();
 
 void ModelsLoad(const char* folder) {
     if (g_loaded) return;
@@ -611,15 +722,18 @@ void ModelsLoad(const char* folder) {
     }
     Log("models: %zu loaded, %zu car models, pedestrian '%s' (%zu pedestrian models)", g_models.size(),
         g_carDefault.size(), g_pedestrian.c_str(), g_pedestrians.size());
+    MergeProps();
+    StartTexturePrefetch();
 }
 
 bool ModelsAvailable() { return !g_models.empty(); }
 bool ModelIsKnown(const Model* model) { return model && g_known.count(model) != 0; }
 void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out) { NodeWorlds(model, nullptr, 0.0f, out); }
-const Model* ModelRegisterDerived(Model&& model) {
+const Model* ModelRegisterDerived(Model&& model, bool dynamicBuffers) {
     g_models.push_back(std::move(model));
     const Model& m = g_models.back();
     g_known.insert(&m);
+    if (dynamicBuffers) for (const ModelMesh& mesh : m.meshes) g_dynamicMeshes.insert(&mesh);
     return &m;
 }
 
@@ -647,12 +761,95 @@ size_t ModelsTextureBytes(int* count) {
     return g_textureBytes;
 }
 
+// The torso twist for the next poses: radians about the model's up axis at
+// "Bip01 Spine1", so a figure's upper body can face one way (the aim) while
+// its legs walk another. Part of the pose cache key (quantised by the caller).
+void ModelSetTorsoTwist(float radians) { g_torsoTwist = radians; }
+void ModelSetOverlay(const ModelAnimation* clip, float time, float weight) {
+    if (!clip || weight <= 1e-3f) { g_overlay = nullptr; g_overlayTime = 0.0f; g_overlayWeight = 0.0f; return; }
+    g_overlay = clip; g_overlayTime = time; g_overlayWeight = weight;
+}
+float ModelTorsoTwist() { return g_torsoTwist; }
+
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
     if (rgb) for (int i = 0; i < 3; ++i) g_paintTint[i] = (std::max)(0.0f, (std::min)(2.0f, rgb[i]));
 }
 
+std::map<std::string, const Model*> g_propMerged;   // role -> the merged copy (MergeStatic)
+
+// A rigid, unanimated model as one mesh per texture, its node transforms baked into the
+// vertices: the same triangles, the same picture, but a street lamp is 2 draws instead of
+// 8 and a hydrant 2-3 instead of 20 (PERF-2: props were ~800 of ~1550 draw calls a frame).
+// Null when the model is skinned or animated, or merging would not save a draw.
+const Model* MergeStatic(const Model& model) {
+    if (model.skinned || !model.animations.empty()) return nullptr;
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    Model merged;
+    merged.name = model.name + "#merged";
+    merged.boundsMin = model.boundsMin;
+    merged.boundsMax = model.boundsMax;
+    merged.forward = model.forward;
+    for (int k = 0; k < 3; ++k) merged.paintRgb[k] = model.paintRgb[k];
+    merged.splitPaint = model.splitPaint;
+    std::map<std::string, size_t> byTexture;
+    size_t drawsBefore = 0;
+    for (size_t i = 0; i < model.nodes.size(); ++i) {
+        const int mi = model.nodes[i].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& src = model.meshes[mi];
+        if (src.indices.size() < 3) continue;
+        ++drawsBefore;
+        auto at = byTexture.find(src.texture);
+        if (at == byTexture.end()) {
+            at = byTexture.emplace(src.texture, merged.meshes.size()).first;
+            merged.meshes.emplace_back();
+            merged.meshes.back().texture = src.texture;
+        }
+        ModelMesh& dst = merged.meshes[at->second];
+        const gta2::Mat4& w = worlds[i];
+        const uint32_t base = static_cast<uint32_t>(dst.vertices.size());
+        for (const ModelVertex& v : src.vertices) {
+            ModelVertex o = v;
+            o.x = v.x * w.m[0][0] + v.y * w.m[1][0] + v.z * w.m[2][0] + w.m[3][0];
+            o.y = v.x * w.m[0][1] + v.y * w.m[1][1] + v.z * w.m[2][1] + w.m[3][1];
+            o.z = v.x * w.m[0][2] + v.y * w.m[1][2] + v.z * w.m[2][2] + w.m[3][2];
+            float nx = v.nx * w.m[0][0] + v.ny * w.m[1][0] + v.nz * w.m[2][0];
+            float ny = v.nx * w.m[0][1] + v.ny * w.m[1][1] + v.nz * w.m[2][1];
+            float nz = v.nx * w.m[0][2] + v.ny * w.m[1][2] + v.nz * w.m[2][2];
+            const float n = std::sqrt(nx * nx + ny * ny + nz * nz);
+            if (n > 1e-8f) { nx /= n; ny /= n; nz /= n; }
+            o.nx = nx; o.ny = ny; o.nz = nz;
+            dst.vertices.push_back(o);
+        }
+        for (uint32_t idx : src.indices) dst.indices.push_back(base + idx);
+    }
+    if (merged.meshes.empty() || merged.meshes.size() >= drawsBefore) return nullptr;
+    for (size_t mi = 0; mi < merged.meshes.size(); ++mi) {
+        ModelNode node = {};
+        snprintf(node.name, sizeof node.name, "merged%zu", mi);
+        node.parent = -1;
+        node.rotation[3] = 1.0f;
+        node.scale = {1.0f, 1.0f, 1.0f};
+        node.mesh = static_cast<int>(mi);
+        merged.nodes.push_back(node);
+    }
+    Log("models: prop %s merged for drawing, %zu draws -> %zu", model.name.c_str(), drawsBefore, merged.meshes.size());
+    return ModelRegisterDerived(std::move(merged));
+}
+
+void MergeProps() {
+    for (const auto& role : g_props) {
+        auto m = g_byName.find(role.second);
+        if (m == g_byName.end()) continue;
+        if (const Model* merged = MergeStatic(g_models[m->second])) g_propMerged[role.first] = merged;
+    }
+}
+
 const Model* ModelForProp(const char* role) {
+    auto merged = g_propMerged.find(role);
+    if (merged != g_propMerged.end()) return merged->second;
     auto it = g_props.find(role);
     if (it == g_props.end()) return nullptr;
     auto m = g_byName.find(it->second);
@@ -749,7 +946,8 @@ double ModelMs(const LARGE_INTEGER& a, const LARGE_INTEGER& b) {
     if (!g_modelFreq.QuadPart) QueryPerformanceFrequency(&g_modelFreq);
     return 1000.0 * static_cast<double>(b.QuadPart - a.QuadPart) / static_cast<double>(g_modelFreq.QuadPart);
 }
-void ModelsBeginFrame() { g_drawn = 0; for (double& v : g_modelStats) v = 0.0; }
+int g_newPosesThisFrame = 0;   // see PoseFor
+void ModelsBeginFrame() { g_drawn = 0; g_newPosesThisFrame = 0; for (double& v : g_modelStats) v = 0.0; }
 
 size_t g_warmCursor = 0;
 std::vector<std::string> g_warmList;
@@ -791,10 +989,15 @@ struct PoseKey {
     const Model* model = nullptr;
     const ModelAnimation* animation = nullptr;
     const ModelAnimation* second = nullptr;
-    float time = -1.0f, secondTime = -1.0f, weight = 0.0f;
+    float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f;
+    const ModelAnimation* overlay = nullptr;
+    float overlayTime = 0.0f, overlayWeight = 0.0f;
     bool operator==(const PoseKey& o) const {
-        return model == o.model && animation == o.animation && second == o.second && std::fabs(time - o.time) < 1e-4f &&
-               std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f;
+        return model == o.model && animation == o.animation && second == o.second && overlay == o.overlay &&
+               std::fabs(overlayTime - o.overlayTime) < 1e-4f && std::fabs(overlayWeight - o.overlayWeight) < 1e-3f &&
+               std::fabs(time - o.time) < 1e-4f &&
+               std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f &&
+               std::fabs(twist - o.twist) < 1e-3f;
     }
 };
 struct PosedCache {
@@ -847,8 +1050,12 @@ struct SkinKey {
     bool operator<(const SkinKey& o) const { return mesh != o.mesh ? mesh < o.mesh : pose < o.pose; }
 };
 std::map<SkinKey, SkinBuffer> g_skinBuffers;
+// Buffers of evicted poses, by size, kept for the next new pose of that size: creating
+// a default-pool buffer is a driver round trip, and a crowd needs ~5 new ones a frame
+// (PERF-2). Rewritten with DISCARD, so reuse never waits on a draw in flight.
+std::multimap<UINT, IDirect3DVertexBuffer9*> g_skinFree;
 unsigned g_skinClock = 0;
-constexpr size_t kSkinBuffersMax = 96;
+constexpr size_t kSkinBuffersMax = 256;   // ~70 KB each on average: ~18 MB (was 96, which a crowd cycling 24 walk poses thrashed)
 
 IDirect3DVertexBuffer9* SkinBufferFor(IDirect3DDevice9* device, const ModelMesh& mesh, const ModelVertex* verts,
                                       uint64_t pose) {
@@ -862,14 +1069,25 @@ IDirect3DVertexBuffer9* SkinBufferFor(IDirect3DDevice9* device, const ModelMesh&
     if (g_skinBuffers.size() >= kSkinBuffersMax) {
         auto oldest = g_skinBuffers.begin();
         for (auto i = g_skinBuffers.begin(); i != g_skinBuffers.end(); ++i) if (i->second.used < oldest->second.used) oldest = i;
-        if (oldest->second.vb) oldest->second.vb->Release();
+        if (oldest->second.vb) {
+            D3DVERTEXBUFFER_DESC desc;
+            if (SUCCEEDED(oldest->second.vb->GetDesc(&desc)) && g_skinFree.size() < 32) g_skinFree.emplace(desc.Size, oldest->second.vb);
+            else oldest->second.vb->Release();
+        }
         g_skinBuffers.erase(oldest);
     }
     IDirect3DVertexBuffer9* vb = nullptr;
     const UINT vbytes = static_cast<UINT>(mesh.vertices.size() * sizeof(ModelVertex));
-    if (FAILED(device->CreateVertexBuffer(vbytes, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &vb, nullptr)) ||
-        !vb) {
-        return nullptr;
+    auto spare = g_skinFree.find(vbytes);
+    if (spare != g_skinFree.end()) {
+        vb = spare->second;
+        g_skinFree.erase(spare);
+    } else {
+        if (FAILED(device->CreateVertexBuffer(vbytes, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &vb, nullptr)) ||
+            !vb) {
+            return nullptr;
+        }
+        FrameLogNote(kFcSkinBuffer);
     }
     if (!FillVertices(vb, verts, mesh.vertices.size(), D3DLOCK_DISCARD)) {
         vb->Release();
@@ -888,8 +1106,16 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
     if (!b.vb) {
         const UINT vbytes = static_cast<UINT>(mesh.vertices.size() * sizeof(ModelVertex));
         const UINT ibytes = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
-        if (FAILED(device->CreateVertexBuffer(vbytes, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED, &b.vb, nullptr)) ||
-            FAILED(device->CreateIndexBuffer(ibytes, D3DUSAGE_WRITEONLY, D3DFMT_INDEX32, D3DPOOL_MANAGED, &b.ib,
+        // A mesh made while the game runs (a car's dented copy or door split) is
+        // first drawn mid-frame: locking a new managed buffer there makes wined3d
+        // wait for the frame's queued GL work (50-210 ms a copy, PERF-3), so those
+        // get dynamic default-pool buffers written with DISCARD, which do not wait.
+        const bool dynamic = !skinned && g_dynamicMeshes.count(&mesh) != 0;
+        const DWORD usage = dynamic ? (D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY) : D3DUSAGE_WRITEONLY;
+        const D3DPOOL pool = dynamic ? D3DPOOL_DEFAULT : D3DPOOL_MANAGED;
+        const DWORD lockFlags = dynamic ? D3DLOCK_DISCARD : 0;
+        if (FAILED(device->CreateVertexBuffer(vbytes, usage, 0, pool, &b.vb, nullptr)) ||
+            FAILED(device->CreateIndexBuffer(ibytes, usage, D3DFMT_INDEX32, pool, &b.ib,
                                              nullptr))) {
             if (b.vb) b.vb->Release();
             if (b.ib) b.ib->Release();
@@ -901,17 +1127,18 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
             return nullptr;
         }
         void* idata = nullptr;
-        if (FAILED(b.ib->Lock(0, ibytes, &idata, 0)) || !idata) {
+        if (FAILED(b.ib->Lock(0, ibytes, &idata, lockFlags)) || !idata) {
             b.failed = true;
             return nullptr;
         }
         memcpy(idata, mesh.indices.data(), ibytes);
         b.ib->Unlock();
-        if (!FillVertices(b.vb, verts, mesh.vertices.size())) {
+        if (!FillVertices(b.vb, verts, mesh.vertices.size(), lockFlags)) {
             b.failed = true;
             return nullptr;
         }
         b.pose = pose;
+        FrameLogNote(kFcModelBuffers);
     } else if (skinned && b.pose != pose) {
         // The managed buffer keeps the first pose it was given; later poses come
         // from SkinBufferFor (see there), so this rewrite is never reached.
@@ -920,6 +1147,12 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
     }
     return &b;
 }
+
+// New poses skinned this frame, and the most a frame may skin (PERF-2: a crowd in
+// Residential needed up to 14 new poses in one frame, 18 ms). Past the budget a
+// figure takes the cached pose of the same model and clips nearest in time, a few
+// hundredths of a second of the cycle off for that one frame.
+constexpr int kNewPoseBudget = 5;
 
 // The cached pose for a key, skinned now if it was not there.
 const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vector<gta2::Mat4>& worlds) {
@@ -930,6 +1163,24 @@ const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vec
             return p;
         }
     }
+    if (g_newPosesThisFrame >= kNewPoseBudget) {
+        PosedCache* nearest = nullptr;
+        float best = 0.12f;   // seconds of the clip: beyond this, skin it anyway
+        for (PosedCache& p : g_poses) {
+            if (p.key.model != key.model || p.key.animation != key.animation || p.key.second != key.second ||
+                p.key.overlay != key.overlay) continue;
+            if (std::fabs(p.key.weight - key.weight) > 0.15f || std::fabs(p.key.twist - key.twist) > 0.05f ||
+                std::fabs(p.key.overlayWeight - key.overlayWeight) > 0.15f) continue;
+            const float d = std::fabs(p.key.time - key.time) + std::fabs(p.key.secondTime - key.secondTime) +
+                            std::fabs(p.key.overlayTime - key.overlayTime);
+            if (d < best) { best = d; nearest = &p; }
+        }
+        if (nearest) {
+            nearest->used = g_poseClock;
+            return *nearest;
+        }
+    }
+    ++g_newPosesThisFrame;
     if (g_poses.size() >= kPoseCacheMax) {
         size_t oldest = 0;
         for (size_t i = 1; i < g_poses.size(); ++i) if (g_poses[i].used < g_poses[oldest].used) oldest = i;
@@ -940,6 +1191,7 @@ const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vec
     p.key = key;
     p.id = g_poseNext++;
     p.used = g_poseClock;
+    FrameLogNote(kFcNewPose);
     std::vector<std::vector<gta2::Mat4>> joints(model.skins.size());
     for (size_t sk = 0; sk < model.skins.size(); ++sk) SkinMatrices(model, model.skins[sk], worlds, &joints[sk]);
     p.meshes.resize(model.meshes.size());
@@ -974,6 +1226,10 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.time = time;
         key.secondTime = secondTime;
         key.weight = weight;
+        key.twist = g_torsoTwist;
+        key.overlay = g_overlay;
+        key.overlayTime = g_overlay ? g_overlayTime : 0.0f;
+        key.overlayWeight = g_overlay ? g_overlayWeight : 0.0f;
         posed = &PoseFor(model, key, worlds);
     }
     QueryPerformanceCounter(&t1);
@@ -1101,28 +1357,58 @@ void WarmModelBuffers(IDirect3DDevice9* device, const Model& model) {
 
 size_t g_warmModelCursor = 0;
 
-int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame) {
-    if (!device || !g_loaded) return 0;
-    if (g_warmList.empty()) {
-        for (const Model& m : g_models) {
-            for (const ModelMesh& mesh : m.meshes) {
-                if (!mesh.texture.empty() && std::find(g_warmList.begin(), g_warmList.end(), mesh.texture) == g_warmList.end()) {
-                    g_warmList.push_back(mesh.texture);
-                }
+void BuildWarmList() {
+    if (!g_warmList.empty()) return;
+    for (const Model& m : g_models) {
+        for (const ModelMesh& mesh : m.meshes) {
+            if (!mesh.texture.empty() && std::find(g_warmList.begin(), g_warmList.end(), mesh.texture) == g_warmList.end()) {
+                g_warmList.push_back(mesh.texture);
             }
         }
     }
+}
+
+void StartTexturePrefetch() {
+    if (g_prefetchStarted || g_models.empty()) return;
+    BuildWarmList();
+    InitializeCriticalSection(&g_prefetchLock);
+    g_prefetchList = g_warmList;
+    if (HANDLE thread = CreateThread(nullptr, 0, PrefetchThread, nullptr, 0, nullptr)) {
+        SetThreadPriority(thread, THREAD_PRIORITY_BELOW_NORMAL);
+        CloseHandle(thread);
+        InterlockedExchange(&g_prefetchStarted, 1);
+        Log("models: reading %zu model textures ahead on a thread of their own", g_prefetchList.size());
+    } else {
+        DeleteCriticalSection(&g_prefetchLock);
+    }
+}
+
+// Every model texture created and uploaded, then every model's buffers, ahead of
+// their first use. Bounded by time rather than by count (PERF-2: two textures a frame
+// cost 5 ms typically and up to 98 ms in one frame): items are taken while the frame's
+// warm-up has used less than budgetMs, at most `perFrame` textures, and a texture
+// whose file the reader thread has not delivered yet waits for a later frame.
+int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double kWarmBudgetMs) {
+    if (!device || !g_loaded) return 0;
+    BuildWarmList();
+    LARGE_INTEGER t0, now;
+    QueryPerformanceCounter(&t0);
     int done = 0;
     while (g_warmCursor < g_warmList.size() && done < perFrame) {
-        WarmTexture(device, TextureFor(device, g_warmList[g_warmCursor]));
+        const std::string& file = g_warmList[g_warmCursor];
+        if (!g_textures.count(file) && !PrefetchReady(file)) break;   // the reader's next; not this frame
+        WarmTexture(device, TextureFor(device, file));
         ++g_warmCursor;
         ++done;
+        QueryPerformanceCounter(&now);
+        if (ModelMs(t0, now) > kWarmBudgetMs) break;
     }
-    // Then the meshes, one model a frame.
-    if (done == 0 && g_warmModelCursor < g_models.size()) {
+    // Then the meshes, while the budget lasts (at least one a frame once the textures are done).
+    while (g_warmCursor >= g_warmList.size() && g_warmModelCursor < g_models.size()) {
         WarmModelBuffers(device, g_models[g_warmModelCursor]);
         ++g_warmModelCursor;
-        ++done;
+        QueryPerformanceCounter(&now);
+        if (ModelMs(t0, now) > kWarmBudgetMs) break;
     }
     return static_cast<int>(g_warmList.size() - g_warmCursor) + static_cast<int>(g_models.size() - g_warmModelCursor);
 }
@@ -1191,6 +1477,8 @@ void ModelsReleaseDevice() {
     g_textures.clear();
     for (auto& b : g_skinBuffers) if (b.second.vb) b.second.vb->Release();
     g_skinBuffers.clear();
+    for (auto& b : g_skinFree) b.second->Release();
+    g_skinFree.clear();
     g_warmCursor = 0;
     g_warmModelCursor = 0;
     for (auto& b : g_buffers) {

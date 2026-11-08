@@ -21,27 +21,57 @@ import drive_lib as D
 import gmp
 
 say, tap, hold, xdo = D.say, D.tap, D.hold, D.xdo
-MISSION = re.compile(r"view: mission money=(-?\d+) mult=(-?\d+) lives=(-?\d+) death=(-?\d+) wanted=(-?\d+) health=(-?\d+) cardmg=(-?\d+) carmodel=(-?\d+) msg=(\S*) frame=(-?\d+)")
+MISSION = re.compile(r"view: mission money=(-?\d+) mult=(-?\d+) lives=(-?\d+) death=(-?\d+) wanted=(-?\d+) health=(-?\d+) cardmg=(-?\d+) carmodel=(-?\d+) msg=(\S*) frame=(-?\d+)(?: weapon=(\S+?)\((-?\d+)\) ammo=(-?\d+))?(?: carhp=(-?\d+) carfire=(-?\d+) tcarhp=(-?\d+) tcarfire=(-?\d+) tcar=(-?[\d.]+),(-?[\d.]+))?")
 GAME_DIR = "/tmp/wp/drive_c/Games/GTA2"
 MARKS = "/out/marks.txt"
 
+_FRAME0 = [None]
+def frames_rendered():
+    """Frames the renderer has drawn so far: its per-256-frame summaries (the
+    'frame=' field of the mission line is not a counter)."""
+    try:
+        with open(D.LOG, "rb") as f: return 256 * f.read().count(b"frame times, avg/worst ms over 256 frames")
+    except OSError:
+        return 0
 def mark(what):
-    with open(MARKS, "a") as f: f.write(f"{time.time():.3f} {what}\n")
-    say("MARK", what)
+    fr = frames_rendered()
+    if _FRAME0[0] is None: _FRAME0[0] = fr
+    gt = f" game={D.game_seconds(fr - _FRAME0[0]):.0f}s"   # game seconds since the first mark (1 frame = 1/30 game-second)
+    with open(MARKS, "a") as f: f.write(f"{time.time():.3f} {what}{gt}\n")
+    say("MARK", what + gt)
 
 def mission_state():
     """The last 'view: mission' line, or None."""
-    try:
-        with open(D.LOG, "rb") as f:
-            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 20000)); tail = f.read().decode("latin-1")
-    except OSError:
-        return None
+    tail = D.log_tail()
+    k = tail.rfind("view: mission money=")
+    if k < 0: return None
+    k2 = tail.rfind("view: mission money=", 0, k)
+    if k2 >= 0: k = k2
     m = None
-    for m in MISSION.finditer(tail): pass
+    for m in MISSION.finditer(tail, k): pass
     if not m: return None
     g = m.groups()
+    # cardmg: the car's damage word (+0x74, 0..32000; a byte read of it wrapped before
+    # PLAYTHROUGH-7). carhp = 32000 - damage: the car burns from 16000 damage on (carfire
+    # 1, 2 from 25000) and then loses a point a frame by itself, so a burning car has
+    # carhp / 30 game seconds left before it explodes. tcar*: the mission's target car
+    # (the kind-3 arrow's vehicle), -1 when there is none
     return dict(money=int(g[0]), mult=int(g[1]), lives=int(g[2]), death=int(g[3]), wanted=int(g[4]),
-                health=int(g[5]), cardmg=int(g[6]), carmodel=int(g[7]), msg=g[8], frame=int(g[9]))
+                health=int(g[5]), cardmg=int(g[6]), carmodel=int(g[7]), msg=g[8], frame=int(g[9]),
+                weapon=g[10] or "none", wid=int(g[11] or 0), ammo=int(g[12] or 0),
+                carhp=int(g[13]) if g[13] else -1, carfire=int(g[14]) if g[14] else -1,
+                tcarhp=int(g[15]) if g[15] else -1, tcarfire=int(g[16]) if g[16] else -1,
+                tcar=(float(g[17]), float(g[18])) if g[17] else None)
+
+CAR_HP_FIRE = 16000   # carhp at which the game sets a car alight (damage 16000)
+def car_condition():
+    """(carhp, carfire) of the player's car from the newest mission line, (-1, -1) on foot"""
+    ms = mission_state() or {}
+    return ms.get("carhp", -1), ms.get("carfire", -1)
+
+def car_burning(ms=None):
+    ms = ms or mission_state() or {}
+    return ms.get("carfire", -1) > 0
 
 def message_log():
     """Every (frame, msg key) change in the log so far, oldest first."""
@@ -175,7 +205,8 @@ def enter_car_at(world, cx, cy, budget=90):
     return s
 
 def speed_of(s0, s1, dt):
-    return math.hypot(s1["x"] - s0["x"], s1["y"] - s0["y"]) / max(dt, 0.1)
+    """Blocks per game second: wall time is divided by the game speed."""
+    return math.hypot(s1["x"] - s0["x"], s1["y"] - s0["y"]) / max(dt * D.SPEED, 0.1)
 
 def car_legs(world, s, tx, ty):
     """cell centres to drive through: straight runs merged, every corner kept"""
@@ -246,10 +277,14 @@ def horn(times=3):
         for key in ("Tab", "space"):
             xdo("keydown", key); time.sleep(0.6); xdo("keyup", key); time.sleep(0.3)
 
+LEAVE_WAIT = [2.0]   # a timed job shortens it (WHEELER-DEALING: eight exits and entries on the clock)
 def leave_car():
-    tap("Return", 0.3); time.sleep(2.0); return D.wait_state()
+    tap("Return", 0.3); time.sleep(LEAVE_WAIT[0]); return D.wait_state()
 
 # ---------------------------------------------------------------- phones and outcome
+
+def arm_lives():
+    ms = mission_state(); LIVES0[0] = ms["lives"] if ms else None
 
 def answer_phone(world, phone, budget=300):
     """walk onto the phone; the mission starts when the game shows its title message"""
@@ -266,12 +301,20 @@ def answer_phone(world, phone, budget=300):
         s = D.goto(phone["x"] - 0.2, phone["y"], tol=0.25, limit=3); time.sleep(1.0)
     return False, mission_state()
 
+# the game's own "JOB COMPLETE!" / "JOB FAILED!" message keys per district
+# (Downtown 1124/1125, Industrial file bil 3100/3730, Residential file ste 2999/2998)
+COMPLETE_KEYS = {"1124", "3100", "2999"}
+FAILED_KEYS = {"1125", "3730", "2998"}
+
+LIVES0 = [None]   # lives when the current job started (a death costs one; JOB FAILED follows)
 def outcome(money0):
     ms = mission_state()
     if not ms: return "unknown", ms
-    if ms["msg"] == "1124" or ms["money"] >= money0 + 10000: return "complete", ms
-    if ms["msg"] == "1125": return "failed", ms
+    if ms["msg"] in COMPLETE_KEYS or ms["money"] >= money0 + 10000: return "complete", ms
+    if ms["msg"] in FAILED_KEYS: return "failed", ms
     if ms["health"] == 0 or ms["death"] != 0: return "dead", ms
+    if LIVES0[0] is not None and ms["lives"] < LIVES0[0]:
+        LIVES0[0] = ms["lives"]; return "dead", ms      # a life gone: he died; the job has failed with him
     return "running", ms
 
 def wait_outcome(money0, seconds, poll=1.0):
@@ -308,16 +351,29 @@ def node_kind(world, x, y, level):
     if not b: return None
     g = _gtype(b); s = _slope(b)
     if 1 <= s <= 44:
-        if (x, y) in AVOID: return None
+        if (x, y) in AVOID or (x, y) in BLOCKED: return None
         return ("slope", g if g in (1, 2, 3) else 2)
     if not _lid(b) or g not in (1, 2, 3): return None
     above = _blk(world, x, y, level + 1)
     if above and _lid(above) and (_gtype(above) != 0 or any((above[i] & 1023) for i in range(4))):
-        return None                                  # a solid block on top (an air-typed bare lid is a canopy)
-    if (x, y) in AVOID: return None
+        # a solid block on top (an air-typed bare lid is a canopy). PLAYTHROUGH-9: a road under a
+        # lid with no side faces at all is an overpass (Industrial's pipe bridges at column 75
+        # and column 62 carry field lids at level 2 over the level-1 roads, whose lane arrows run
+        # under them): the car router treated them as walls and sent the RUSSIAN SAILORS dealer-4
+        # leg round a 358-block loop instead of the 70 blocks under the bridge
+        if not (g == 1 and not any(above[i] for i in range(4))):
+            return None
+    if (x, y) in AVOID or (x, y) in BLOCKED: return None
     return ("flat", g)
 
 COST = {1: 3.0, 2: 1.0, 3: 1.4}
+CAR_COST = {1: 1.0, 2: 8.0, 3: 6.0}   # a car: roads cheap, a lot or a pavement only to get on or off them
+# GMP arrows byte, in the face order left, right, up, down: bit 0 left (x-1), 1 right (x+1),
+# 2 up (y-1), 3 down (y+1); bits 4-7 the red set (checked on the Downtown carriageway:
+# rows 149-151 carry bit 0 and run west, rows 153-154 bit 1 and run east)
+ARROW_BIT = {(-1, 0): 0x11, (1, 0): 0x22, (0, -1): 0x44, (0, 1): 0x88}
+BLOCKED = set()    # cells the map calls walkable that are not (a runner fills it per district, with evidence)
+CAR_AVOID = set()  # cells a car stalled against again and again (drive3): the car router keeps off them
 AVOID = set()      # cells the router must not step on (the other phones: standing on one answers it)
 
 DONE_PHONES = set()   # (x,y) of phones whose job is complete: the game sets them dead, harmless to cross
@@ -382,7 +438,23 @@ def wall_between(world, x, y, L, dx, dy):
     if there and (there[FACE_OF[(-dx, -dy)]] & 0x400): return True
     return False
 
-def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
+EDGE_COST = 0.6   # PLAYTHROUGH-8: a car route pays for a road cell beside a wall or a drop
+_EDGE = {}
+def edge_cell(world, x, y, L):
+    """1 when the road cell (x,y,L) has a wall face or no ground (a building, a deck's
+    railing, a drop) beside it, else 0: the car router keeps to the middle of a deck or a
+    wide road (pt8_ze2d scraped the west railing of the level-3 deck at 245.1,100.5 four
+    times, -4000 carhp; pt7_bil9's Z-Type lost 5000 on a kerb pole)"""
+    k = (world.district if hasattr(world, "district") else "", x, y, L)
+    if k not in _EDGE:
+        e = 0
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if wall_between(world, x, y, L, dx, dy) or not (node_kind(world, x + dx, y + dy, L) or node_kind(world, x + dx, y + dy, L + 1) or node_kind(world, x + dx, y + dy, L - 1)):
+                e = 1; break
+        _EDGE[k] = e
+    return _EDGE[k]
+
+def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000, cost=None):
     """Dijkstra over (x,y,level). tl None = any level with something to stand
     on at (tx,ty). A slope block stored at level L joins level L-1 (its low
     end) to level L (its high end) along its own axis only; a flat cell at L
@@ -425,8 +497,11 @@ def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
             moves = []   # (level, allowed kinds)
             if here_slope:
                 if here_dir is None: continue
-                if (dx, dy) == here_dir: moves = [(L, ("flat", "slope"))]            # uphill: the top, or the next piece
-                elif (dx, dy) == (-here_dir[0], -here_dir[1]): moves = [(L - 1, ("flat",)), (L, ("slope",))]   # downhill
+                # uphill: the top, the next piece of the same flight, or the low
+                # piece of the next flight one level up (GTA2 stacks 26-degree
+                # pairs: the Industrial Russian phone's stair is five such pairs)
+                if (dx, dy) == here_dir: moves = [(L, ("flat", "slope")), (L + 1, ("slope",))]
+                elif (dx, dy) == (-here_dir[0], -here_dir[1]): moves = [(L - 1, ("flat", "slope")), (L, ("slope",))]   # downhill
                 else: continue                                                        # sideways off a slope: a wall
             else:
                 moves = [(L, ("flat",)), (L + 1, ("slope",)), (L, ("slope",))]
@@ -441,7 +516,17 @@ def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000):
                         if nl == L and sd != (-dx, -dy): continue            # entering at the high end, going downhill
                     elif sd != here_dir: continue
                 elif nk[1] not in kinds: continue
-                c = d + (COST.get(nk[1], 2.0) if nk[0] == "flat" else 1.0)
+                if CAR_AVOID and cost and cost.get(1) == 1.0 and (nx, ny) in CAR_AVOID: continue   # a car pinned there before
+                c = d + ((cost or COST).get(nk[1], 2.0) if nk[0] == "flat" else (1.0 if not (cost and cost.get(1) == 1.0) else cost.get(nk[1], 2.0) + 0.5))
+                # (a car pays a ramp's ground cost: pt6_ste2's rigged Pickup was routed off
+                # the Residential carriageway down a grass ramp into a walled field, 15 stalls)
+                if (kinds == (1,) or (cost and cost.get(1) == 1.0)) and nk[0] == "flat" and nk[1] == 1:
+                    # keep to the lanes: a road cell whose arrows exclude the way we enter it
+                    # is the oncoming lane (head-on traffic wrecks a fragile mission car)
+                    ab = _blk(world, nx, ny, nl)
+                    ab = ab[5] if ab else 0
+                    if ab & 0xFF and not (ab & ARROW_BIT.get((dx, dy), 0)): c += LANE_COST
+                    if EDGE_COST: c += EDGE_COST * edge_cell(world, nx, ny, nl)
                 m = (nx, ny, nl)
                 if c < dist.get(m, 1e18):
                     dist[m] = c; prev[m] = n; heapq.heappush(pq, (c, m))
@@ -459,11 +544,52 @@ def straighten3(path):
     out.append(path[-1])
     return out
 
+def line_clear(world, p, q, L, kinds=(1, 2), half_width=0.42):
+    """True when a car can drive straight from p to q at level L: every sample
+    along the line (and 0.42 block either side of it) is on a cell of `kinds`
+    with a lid and nothing built on it, and no wall face is crossed"""
+    (px, py), (qx, qy) = p, q
+    dx, dy = qx - px, qy - py; n = math.hypot(dx, dy)
+    if n < 1e-6: return True
+    ux, uy = dx / n, dy / n; lx, ly = -uy, ux
+    steps = max(2, int(n / 0.2) + 1); prev = {}
+    for k in range(steps + 1):
+        t = n * k / steps
+        for side in (0.0, half_width, -half_width):
+            x = px + ux * t + lx * side; y = py + uy * t + ly * side
+            cx, cy = int(math.floor(x)), int(math.floor(y))
+            k2 = node_kind(world, cx, cy, L)
+            if not (k2 and k2[0] == "flat" and k2[1] in kinds):
+                k2 = node_kind(world, cx, cy, L + 1)
+                if not (k2 and k2[0] == "flat" and k2[1] in kinds): return False
+            last = prev.get(side)
+            if last and last != (cx, cy):
+                sx, sy = cx - last[0], cy - last[1]
+                if abs(sx) + abs(sy) == 1 and wall_between(world, last[0], last[1], L, sx, sy): return False
+            prev[side] = (cx, cy)
+    return True
+
+def straighten_los(world, path, kinds=(1, 2), half_width=0.42):
+    """waypoints from a cell path: keep a cell only when the straight run to the
+    next kept cell stays on drivable ground; the path's own level is used"""
+    if len(path) < 3: return path
+    out = [path[0]]; i = 0
+    while i < len(path) - 1:
+        j = len(path) - 1
+        while j > i + 1:
+            a, b = path[i], path[j]
+            if a[2] == b[2] and line_clear(world, (a[0] + 0.5, a[1] + 0.5), (b[0] + 0.5, b[1] + 0.5), a[2], kinds, half_width): break
+            j -= 1
+        out.append(path[j]); i = j
+    return out
+
 def ped_level(s):
     return max(0, int(round(s["z"])) - 1)
 
 def cruise_to(tx, ty, tol=0.6, secs=30, stop=True):
-    """walk with Up held, steering from the samples; returns (state, reached)"""
+    """walk with Up held, steering from the samples; returns (state, reached).
+    Always in the classic view (the steering pulses are calibrated there)"""
+    ensure_view("classic")
     t0 = time.time(); best = 1e9; last_gain = time.time(); n = 0
     xdo("keydown", "Up")
     try:
@@ -474,7 +600,7 @@ def cruise_to(tx, ty, tol=0.6, secs=30, stop=True):
             d = math.hypot(tx - s["x"], ty - s["y"])
             if d < tol: return s, True
             if d < best - 0.12: best = d; last_gain = time.time()
-            if time.time() - last_gain > 3.0:
+            if time.time() - last_gain > (1.6 if RACE[0] else 3.0) / D.SPEED:
                 n += 1; say(f"cruise: stuck {d:.1f} from {tx:.1f},{ty:.1f}; unsticking {n}")
                 xdo("keyup", "Up"); hold("Down", 0.6); hold("Right" if n % 2 else "Left", 0.4); hold("Up", 0.5)
                 xdo("keydown", "Up"); last_gain = time.time(); best = 1e9
@@ -489,10 +615,43 @@ def cruise_to(tx, ty, tol=0.6, secs=30, stop=True):
         if stop: xdo("keyup", "Up")
     return D.wait_state(), False
 
+VIEW_HOOK = [None]   # the session's set_view: the walker needs the classic view (direct keys)
+CUR_VIEW = [None]    # the view the session's set_view last selected
+# GTA2_DIRECT_KEYS=1 (gamerun/grun.sh turns nav_map=0 on in the run's ini with it): the
+# renderer leaves the arrows to the game in the 3D views too, so Up walks where the
+# ped faces and Left/Right turn him exactly as in the classic view. The walker, the
+# nudges and the gun then run in the chase view (WALK_VIEW) and every frame of the
+# session, the JOB COMPLETE one included, is a 3D one. Without it (nav_map=1, the
+# player's default) the keys are camera relative there and the walker needs classic.
+DIRECT_KEYS = os.environ.get("GTA2_DIRECT_KEYS", "0") == "1"
+WALK_VIEW = ["third"]
+def foot_view():
+    """the view the on-foot steering runs in"""
+    return WALK_VIEW[0] if DIRECT_KEYS else "classic"
+
+def ensure_view(name):
+    """every on-foot move (walk3, cruise_to, the nudges) runs in the classic view and
+    every drive in a 3D view. pt6_ze2a: enter_car3's door approaches ran in the chase
+    view after walk3 had handed it back, wandered ten blocks off and lost 69 s of
+    WHEELER-DEALING's 180 at the first car. Now the walker leaves the view classic
+    and drive3 takes the chase view itself, so a walk-then-drive costs one V press.
+    With DIRECT_KEYS the classic request means foot_view() (the chase view)"""
+    if name == "classic": name = foot_view()
+    if VIEW_HOOK[0] and CUR_VIEW[0] != name: VIEW_HOOK[0](name)
+
 def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
     """route (multi-level, pavements preferred) and cruise leg by leg; re-routes
-    after a missed leg; returns the state"""
-    t0 = time.time(); s = D.wait_state(); reroutes = 0
+    after a missed leg; returns the state. Walks in the classic view: the 3D
+    orbit camera remaps the keys (Up walks where the camera looks, Left/Right
+    turn a wanted heading through a lagging controller), so the heading-pulse
+    steering that is calibrated in the classic view barely turns him there
+    (pt4_wil11: 0.45 s Right pulses turned him 0.5 rad in three seconds and
+    he walked away from the kerb). The 3D view comes back when the walk ends."""
+    ensure_view("classic")
+    return _walk3(world, tx, ty, tl, tol, budget, kinds)
+
+def _walk3(world, tx, ty, tl, tol, budget, kinds):
+    t0 = time.time(); s = D.wait_state(); reroutes = 0; pinned = None; pins = 0
     while s and time.time() - t0 < budget:
         if math.hypot(tx - s["x"], ty - s["y"]) < tol and (tl is None or ped_level(s) == tl): return s
         path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), tl, kinds)
@@ -504,7 +663,16 @@ def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
             path2 = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), tl, kinds)
             AVOID.update(saved)
             if len(path2) > len(path): say("walk3: no route off the phones; crossing them"); path = path2
-        legs = straighten3(path)[1:] if len(path) > 1 else []
+        # waypoints that never clip a wall or a railing (line of sight on walkable
+        # ground, a body's half width), and no leg longer than 6 blocks so a
+        # drift gets corrected before it meets a lamp post
+        legs = []
+        if len(path) > 1:
+            pts = straighten_los(world, path, kinds, half_width=0.3)
+            for a, b in zip(pts, pts[1:]):
+                n = max(1, int(math.ceil(math.hypot(b[0] - a[0], b[1] - a[1]) / 6.0)))
+                for k in range(1, n + 1):
+                    legs.append((a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, b[2]))
         say(f"walk3: {len(path)} cells, {len(legs)} legs from {s['x']:.1f},{s['y']:.1f} L{ped_level(s)} to {tx},{ty}" + (f" L{tl}" if tl is not None else ""))
         if not legs:
             s, ok = cruise_to(tx, ty, tol=tol, secs=12); 
@@ -516,7 +684,7 @@ def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
         xdo("keydown", "Up")
         for i, (cx, cy, cl) in enumerate(legs):
             last = i == len(legs) - 1
-            gx, gy = (tx, ty) if last else (cx + 0.5, cy + 0.5)
+            gx, gy = (tx, ty) if last else (cx + 0.5, cy + 0.5)   # cells → centres (interpolated legs carry fractions)
             s, ok = cruise_to(gx, gy, tol=(tol if last else 0.75), secs=max(8, 3 + 1.2 * 2), stop=False)
             # a long leg: allow the time its length needs
             if not ok and s:
@@ -532,90 +700,739 @@ def walk3(world, tx, ty, tl=None, tol=0.6, budget=300, kinds=(1, 2, 3)):
         say(f"walk3: re-routing ({reroutes})")
         if reroutes >= 12: break
         s = D.wait_state()
+        # pinned: two re-routes from the same spot (a body wedged in a wall corner,
+        # pt4_wil10 at 81.9,25.2) - a reported developer warp a few cells down the path
+        if s and pinned and math.hypot(s["x"] - pinned[0], s["y"] - pinned[1]) < 0.4:
+            pins += 1
+            if pins >= 2 and os.environ.get("WARP_OK", "1") == "1" and len(path) > 4:
+                ahead = next((n for n in path[3:] if node_kind(world, *n) and node_kind(world, *n)[0] == "flat"), None)
+                if ahead:
+                    say(f"walk3: pinned at {s['x']:.1f},{s['y']:.1f} for {pins} re-routes; developer warp {ahead[0]}.5,{ahead[1]}.5 (reported)")
+                    s = scene_warp(ahead[0] + 0.5, ahead[1] + 0.5, ahead[2], "pinned walker, a few cells down the path")
+                    pins = 0
+        else: pins = 0
+        pinned = (s["x"], s["y"]) if s else None
     return s
 
-def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False):
-    """drive by road waypoints with Up held: steer from the samples, brake for
-    corners, back out when stalled, re-route after a stall"""
+SLOW_CAP = 3.0
+FAST_CAP = 5.5
+RACE = [False]       # a timed job (WHEELER-DEALING): turns taken rolling at RACE_TURN_V
+RACE_TURN_V = 2.6
+LANE_COST = 2.5               # per road cell entered against its arrows
+CORNER_V = (1.0, 0.55)        # speed target near a turn: v0 + k * distance to it
+# A timed job (WHEELER-DEALING) lowers the lane cost and raises the corner speed:
+# pt6_ze2b drove dealer 1's 85 blocks at 1.3-1.6 blocks/s, round a block to keep
+# to its lane and crawling into every corner of Downtown's grid
+
+def back_toward(s, gx, gy, secs=0.9):
+    """PLAYTHROUGH-8: reverse off an obstacle with the wheel turned so the nose swings toward
+    the next waypoint (pt8_bil1's Z-Type, heading south a block west of the road at
+    76.1,214.5, reversed straight five times and drove back into the same corner)"""
+    hx, hy = heading(s); dx, dy = gx - s["x"], gy - s["y"]
+    a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+    rkey = ("Left" if a > 0 else "Right") if abs(a) > 0.15 else None
+    if rkey: xdo("keydown", rkey)
+    hold("Down", secs)
+    if rkey: xdo("keyup", rkey)
+
+def car_route(world, s, tx, ty):
+    """the car route drive3 takes (roads first, then the ground the car stands on, then any
+    ground; the avoid list dropped when it walls the car in), as (x, y, level) cells"""
+    L = ped_level(s)
+    path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, kinds=(1,), cost=CAR_COST)
+    if not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2:
+        # off the road (a lot, a ramp): roads plus the ground the car stands on,
+        # before the anything-goes route that walks a car across pavements
+        here = node_kind(world, int(s["x"]), int(s["y"]), L) or node_kind(world, int(s["x"]), int(s["y"]), L + 1)
+        if here and here[1] != 1:
+            # off the road (a lot, a lawn): the ground it stands on only to reach the road.
+            # With CAR_COST the lawn was cheap enough to cut across fields and down grass
+            # ramps (pt6_ste5/6: the rigged Pickup parked on grass at 24,44.5 was routed
+            # through the walled field at 63-83 x 24-31, stalls, wrecked)
+            off = dict(CAR_COST); off[here[1]] = 30.0
+            path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, kinds=(1, here[1]), cost=off)
+    if not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2:
+        path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, cost=CAR_COST)
+    if (not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2) and CAR_AVOID:
+        # PLAYTHROUGH-8: the avoid list can wall the car in (pt8_bil6: the alley it stood in
+        # was on it) and the fallback below is a straight line through everything
+        saved = set(CAR_AVOID); CAR_AVOID.clear()
+        path = route3(world, int(s["x"]), int(s["y"]), L, int(tx), int(ty), None, kinds=(1,), cost=CAR_COST) or path
+        CAR_AVOID.update(saved)
+    return path
+
+SMOOTH = [os.environ.get("DRIVER", "smooth") == "smooth"]   # PLAYTHROUGH-9: drive3 -> drive3_smooth
+SMOOTH_CAP = 4.0       # the smooth driver's top speed on a straight, blocks per game second
+SMOOTH_SLOW_CAP = 2.6  # ... for a fragile mission car (drive3's SLOW_CAP 2.0: its corners and traffic set the pace now)
+SMOOTH_EDGE_COST = 1.5 # its router pays more for a lane beside a wall or a drop (EDGE_COST 0.6)
+SMOOTH_MIN_TOL = 0.7   # the smooth driver's arrival radius at least (a precise stop is the caller's creep)
+RAMP_CAP = 1.6         # on and before a ramp
+NARROW_CAP = 1.9       # a fragile car in a lane beside a wall or a drop
+HIT_SLOW = 1.6         # after a hit: this cap for HIT_SLOW_SECS game seconds
+HIT_SLOW_SECS = 3.0
+DRIVE_LOG = []         # (wall time, event, x, y, carhp) for a bench to read back
+
+LANE_SHIFT = 0.38     # how far a lane point moves off a wall or a drop beside its cell
+def _side_open(world, x, y, L, dx, dy):
+    """the neighbour in direction (dx,dy) is ground a car may roll onto (no wall face between)"""
+    if wall_between(world, x, y, L, dx, dy): return False
+    k = node_kind(world, x + dx, y + dy, L)
+    return bool(k and k[0] == "flat")
+
+def unjog(world, path):
+    """drop the one-cell jogs of a lane-aware route: A, B, C, D with D beside A (the router's
+    lane arrows send a car sideways a cell and back at a corner: pt9_bil2/8/9 hit the field's
+    corner at 89.4,69.4 on the S it made at 89-90,70-71 every session)"""
+    out = list(path); i = 0
+    while i + 3 < len(out):
+        a, d = out[i], out[i + 3]
+        if a[2] == d[2] and abs(a[0] - d[0]) + abs(a[1] - d[1]) == 1 and not wall_between(world, a[0], a[1], a[2], d[0] - a[0], d[1] - a[1]):
+            del out[i + 1:i + 3]; continue
+        i += 1
+    return out
+
+def lane_points(world, path):
+    """the route's cells as points to steer along: each cell's centre (a GTA2 road is one
+    cell per lane), moved LANE_SHIFT away from a wall or a drop on one side of it when the
+    other side is open ground (pt9_bil1: the Z-Type scraped the east wall of its two-wide
+    alley ten times at x=48.7 with the path on the cell centres, 48.5)"""
+    out = []
+    n = len(path)
+    for i, (x, y, L) in enumerate(path):
+        a = path[max(0, i - 1)]; b = path[min(n - 1, i + 1)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        px, py = x + 0.5, y + 0.5
+        if (dx == 0) != (dy == 0):                      # a straight piece: the sides are across it
+            sx, sy = (0, 1) if dx else (1, 0)
+            o1 = _side_open(world, x, y, L, sx, sy); o2 = _side_open(world, x, y, L, -sx, -sy)
+            if o1 and not o2: px += sx * LANE_SHIFT; py += sy * LANE_SHIFT
+            elif o2 and not o1: px -= sx * LANE_SHIFT; py -= sy * LANE_SHIFT
+        out.append((px, py))
+    return out
+
+def blocked_ahead(world, s, dist=1.4):
+    """the ground `dist` blocks ahead of the nose is not ground a car may roll onto"""
+    hx, hy = heading(s); L = ped_level(s)
+    x, y = int(s["x"] + hx * dist), int(s["y"] + hy * dist)
+    if (x, y) in CAR_AVOID: return True
+    k = node_kind(world, x, y, L) or node_kind(world, x, y, L + 1)
+    if not k: return True
+    cx, cy = int(s["x"]), int(s["y"])
+    if abs(x - cx) + abs(y - cy) == 1 and wall_between(world, cx, cy, L, x - cx, y - cy): return True
+    return False
+
+QUEUE_SECS = 5.0      # game seconds behind a standing car before going round it
+TRAFFIC_GAP = 1.9     # blocks between the car's centre and the one ahead's when stopped behind it
+def traffic_ahead(s, v):
+    """(gap, its speed along our heading) of the nearest car in the lane ahead, from the
+    renderer's 'view: cars' line, or None. In the lane: within 0.95 blocks of the line
+    straight ahead of the nose; ahead: within the braking distance plus three blocks"""
+    hx, hy = heading(s); best = None
+    reach = 3.0 + TRAFFIC_GAP + v * v / (2 * D.ACCEL_BRAKE)
+    for c in cars():
+        if c["driver"] == "P": continue
+        dx, dy = c["x"] - s["x"], c["y"] - s["y"]
+        fwd = dx * hx + dy * hy; lat = -dx * hy + dy * hx
+        vo = c["v"] * (c["hx"] * hx + c["hy"] * hy)
+        if 0.6 <= fwd <= reach and abs(lat) <= 0.95:
+            if best is None or fwd < best[0]: best = (fwd, max(0.0, vo), c)
+            continue
+        # crossing traffic (pt9_bench_smooth2: a car crossing the junction hit in the flank):
+        # the closest approach of the two cars in the next 2.5 s, moving as they move now
+        if c["v"] < 0.3 or fwd < -0.5: continue
+        wx, wy = c["v"] * c["hx"] - v * hx, c["v"] * c["hy"] - v * hy
+        w2 = wx * wx + wy * wy
+        if w2 < 1e-4: continue
+        t = max(0.0, min(2.5, -(dx * wx + dy * wy) / w2))
+        dmin = math.hypot(dx + wx * t, dy + wy * t)
+        if dmin < 1.5 and t < 2.5:
+            gap = TRAFFIC_GAP + max(0.0, v * t - 1.0)      # stop short of where the paths meet
+            if best is None or gap < best[0]: best = (gap, 0.0, c)
+    return best
+
+JACKER_OCC = {10, 11, 12, 13, 14, 15, 16, 17, 18, 33, 34, 40}   # robbed drivers, psycho, mugger, car thief, bank robber, criminals
+def carjackers(s, wanted=False, within=3.0):
+    """(ped, distance) of the nearest ped on foot within `within` blocks who may pull the
+    driver out (the occupations above; police too when wanted), or None"""
+    best = None
+    for p in peds():
+        if p["car"] is not None or not ped_alive(p): continue
+        if not (p["occ"] in JACKER_OCC or (wanted and p["type"] in ("cop", "swat", "fbi", "army"))): continue
+        d = math.hypot(p["x"] - s["x"], p["y"] - s["y"])
+        if d < within and (best is None or d < best[1]): best = (p, d)
+    return best
+
+def car_behind(s, reach=3.2):
+    """a car within `reach` blocks behind the tail, in the lane (the 'view: cars' line):
+    reversing would hit it (pt9_bil5: the Z-Type, stopped in a queue on column 131, backed
+    off into the car behind it again and again, 12000 carhp lost in a jam)"""
+    hx, hy = heading(s)
+    for c in cars():
+        if c["driver"] == "P": continue
+        dx, dy = c["x"] - s["x"], c["y"] - s["y"]
+        fwd = dx * hx + dy * hy; lat = -dx * hy + dy * hx
+        if -reach < fwd < -0.3 and abs(lat) < 1.0: return c
+    return None
+
+def drive3_smooth(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, precious=False, until=None):
+    """PLAYTHROUGH-9: drive3 with the smooth control law (drive_lib: pure pursuit along the
+    route's lane centres, a speed profile from the turns ahead, slower after every hit). The
+    guards are drive3's: a pressed car backs off toward the route, a stall waits for traffic
+    and backs off, a burning car is driven on while its time lasts or left."""
+    if CUR_VIEW[0] == "classic": ensure_view("third")
+    t0 = time.time(); s = D.wait_state()
+    if not s: return s
+    cap = (max(SLOW_CAP, SMOOTH_SLOW_CAP) if slow else min(FAST_CAP, SMOOTH_CAP)) if not RACE[0] else FAST_CAP
+    def plan(s):
+        saved = globals()["EDGE_COST"]
+        globals()["EDGE_COST"] = SMOOTH_EDGE_COST
+        try: path = car_route(world, s, tx, ty)
+        finally: globals()["EDGE_COST"] = saved
+        path = unjog(world, path)
+        pts = [(s["x"], s["y"])] + lane_points(world, path)[1:]
+        if math.hypot(pts[-1][0] - tx, pts[-1][1] - ty) > 0.3: pts.append((tx, ty))
+        P = D.dense_path(pts)
+        # what each sample stands on: a ramp (slope) or a lane beside a wall or a drop
+        info = {}
+        for c in path:
+            k = node_kind(world, c[0], c[1], c[2])
+            info[(c[0], c[1])] = ((k is not None and k[0] == "slope"), bool(edge_cell(world, c[0], c[1], c[2])) if k else False)
+        F = [info.get((int(px), int(py)), (False, False)) for px, py in P]
+        FLAGS[0] = F
+        return P, D.path_headings(P)
+    FLAGS = [[]]
+    P, H = plan(s); j = 0
+    say(f"drive3s: {len(P) * D.STEP:.0f} blocks of path to {tx:.1f},{ty:.1f} (cap {cap})")
+    up = [False]; hist = [(time.time(), s["x"], s["y"])]; hp_hist = []; last_hp = -1
+    hit_until = 0.0; stall_t = None; stalls = 0; pins = []; burn_said = False; replans = 0; queue_t = None; jack_said = [False]; near_t = None; mark_said = [False]; ahead_now = [None]; loops = 0; queued = [None]; wait_until = [0.0]; parked_seen = set()
+    def keyup_all():
+        for k in ("Up", "Down", "Left", "Right"): xdo("keyup", k)
+        up[0] = False
+    def throttle(on):
+        if on and not up[0]: xdo("keydown", "Up"); up[0] = True
+        elif not on and up[0]: xdo("keyup", "Up"); up[0] = False
+    def replan(s2, why):
+        nonlocal P, H, j, replans
+        # keys up first: a long route takes the router a second or two, and with the throttle
+        # held the car ran on blind (pt9_bil9: 45 blocks straight up column 18 at full throttle
+        # during one re-route)
+        keyup_all()
+        replans += 1; P, H = plan(s2); j = 0
+        say(f"drive3s: re-route ({why}) at {s2['x']:.1f},{s2['y']:.1f}")
+    try:
+        while s and s["driving"] and time.time() - t0 < budget:
+            dgoal = math.hypot(tx - s["x"], ty - s["y"])
+            if dgoal < max(tol, SMOOTH_MIN_TOL): break
+            loops += 1
+            if until and loops % 8 == 0 and until(): say("drive3s: the watched condition holds: stopping"); break
+            # a marked character (a dealer to pick up) within 1.3 of the car on each axis (his
+            # LOCATE_ANOTHER_CHARACTER_BY_CAR box is 1.5) near the goal: there.
+            # pt9_bil4 circled the dealer-2 stop with three-point turns and reversed into the
+            # dealer (knocked down, 3730 JOB FAILED)
+            marked = [p_ for p_ in peds() if p_["mark"] is not None and p_["car"] is None]
+            if dgoal < 1.6 and any(abs(p_["x"] - s["x"]) < 1.3 and abs(p_["y"] - s["y"]) < 1.3 for p_ in marked):
+                say(f"drive3s: {dgoal:.1f} from the goal with the marked character beside the car: there"); break
+            # circling a goal it cannot quite reach (pt9_ste1: 80 s round the BLOW JOB line-up
+            # point with tol 0.9): within 2 blocks for 6 game seconds is arrival; the callers'
+            # creep (creep_box) places a car exactly
+            if dgoal < 2.0:
+                near_t = near_t or time.time()
+                if time.time() - near_t > 6.0 / D.SPEED: say(f"drive3s: {dgoal:.1f} from the goal for 6 s: there"); break
+            else: near_t = None
+            j, lat = D.nearest_index(P, j, s["x"], s["y"])
+            if lat > 2.2 or (j >= len(P) - 2 and dgoal > tol + 1.0):
+                if replans > 40: say("drive3s: too many re-routes; giving up"); break
+                replan(s, f"{lat:.1f} off the path"); continue
+            now = time.time()
+            old = [h for h in hist if now - h[0] >= 0.3]
+            ref = old[-1] if old else hist[0]
+            v = math.hypot(s["x"] - ref[1], s["y"] - ref[2]) / max((now - ref[0]) * D.SPEED, 0.1)
+            # the renderer's own speed for the player's car (blocks per game second from the frame
+            # count: GTA2_SPEED=2 delivers 1.1-1.7x on a loaded host, docs/throughput.md, so wall
+            # time times 2 overstated the game time and understated the speed)
+            mine = next((c for c in cars() if c["driver"] == "P"), None)
+            if mine is not None and math.hypot(mine["x"] - s["x"], mine["y"] - s["y"]) < 1.5: v = mine["v"]
+            # a view change takes two V presses and 3.4 s with no steering: only from a stop,
+            # keys up (pt9_bil3 drove 37 blocks blind with the throttle held while the runner's
+            # first-person stretch switched back to the chase view, and hit three things)
+            if view_switch and v < 0.3 and not carjackers(s, False, 12.0): keyup_all(); view_switch(s)
+            ms = mission_state() or {}
+            hp = ms.get("carhp", -1)
+            cap_now = cap
+            if now < hit_until: cap_now = min(cap_now, HIT_SLOW)
+            if precious and hp >= 0 and hp < CARE_HP: cap_now = min(cap_now, CARE_CAP)
+            if precious and ms.get("wanted", 0) > 0 and hp >= CARE_HP: cap_now = max(cap_now, min(WANTED_CAP, cap))
+            final_left = (len(P) - 1 - j) * D.STEP
+            # a ramp within 3 blocks: RAMP_CAP (pt9_bil2's Z-Type came off the Power Cores ramp at
+            # 3.3 blocks/s with a target of 1.3 and hit the deck's walls six times); a fragile car
+            # beside a wall or a drop: NARROW_CAP
+            near = FLAGS[0][j:j + int(3.0 / D.STEP)]
+            if any(f[0] for f in near): cap_now = min(cap_now, RAMP_CAP)
+            if precious and any(f[1] for f in near): cap_now = min(cap_now, NARROW_CAP)
+            vt = D.speed_target(P, H, j, cap_now, end_tol=max(0.3, tol * 0.5))
+            # a fragile car's last blocks at a walk, so it stops where it was sent (pt9_bil3 came
+            # into the dealer-2 stop at 2 blocks/s, slid 1.5 blocks past it and ran the dealer over:
+            # 3730, JOB FAILED)
+            if precious and dgoal < 3.5: vt = min(vt, 0.5 + 0.4 * dgoal)
+            if time.time() < wait_until[0]: vt = 0.0
+            # a marked character (the dealer being picked up, the man to collect) in front of the
+            # nose: stop short of him
+            for p_ in peds():
+                if p_["mark"] is None or p_["car"] is not None: continue
+                hx7, hy7 = heading(s); dx7, dy7 = p_["x"] - s["x"], p_["y"] - s["y"]
+                f7 = dx7 * hx7 + dy7 * hy7; l7 = -dx7 * hy7 + dy7 * hx7
+                if 0.3 < f7 < 1.3 + v * 0.6 and abs(l7) < 0.9:
+                    vt = 0.0
+                    if not mark_said[0]: say(f"drive3s: the marked character {f7:.1f} ahead: stopping short"); mark_said[0] = True
+                    break
+            else: mark_said[0] = False
+            # traffic ahead (the 'view: cars' line): a car in the lane within the braking
+            # distance sets the speed (its own along our heading, plus the gap beyond 1.8
+            # blocks); the first bench (pt9_bench_smooth1) had 12 contacts with traffic in 308 blocks
+            # (the turn wanted now: a car ahead of the nose does not hold back a car that is about
+            # to turn or back away from it; pt9_bil6 waited 2 minutes nose-on to a gridlocked
+            # southbound queue while its re-route pointed back west)
+            gx0, gy0 = D.lookahead(P, j, v)
+            hx0, hy0 = heading(s); a0 = math.atan2(hx0 * (gy0 - s["y"]) - hy0 * (gx0 - s["x"]), hx0 * (gx0 - s["x"]) + hy0 * (gy0 - s["y"]))
+            ahead = traffic_ahead(s, v) if abs(a0) < 0.9 else None; ahead_now[0] = ahead
+            if ahead is not None:
+                gap, vo, car_ = ahead
+                vt = min(vt, max(0.0, vo + (gap - TRAFFIC_GAP) * 0.9))
+                if car_["driver"] == "-" and car_["v"] < 0.1 and car_["id"] not in parked_seen:
+                    # a parked car (no driver) in the lane: it will never move; its cell off the
+                    # route at once (pt9_wil5/ste6 queued behind parked cars for minutes)
+                    parked_seen.add(car_["id"]); CAR_AVOID.add((int(car_["x"]), int(car_["y"])))
+                    keyup_all(); replan(s, f"a parked car {gap:.1f} ahead"); continue
+                # stopped behind a car that does not move (parked in the lane, a jam): after a
+                # few game seconds its cell goes off the route and the car goes round it
+                if vo < 0.15 and v < 0.25 and gap < TRAFFIC_GAP + 1.2:
+                    queue_t = queue_t or time.time()
+                    if time.time() - queue_t > QUEUE_SECS / D.SPEED:
+                        hx6, hy6 = heading(s)
+                        for k6 in (gap - 0.4, gap, gap + 0.6):
+                            CAR_AVOID.add((int(s["x"] + hx6 * k6), int(s["y"] + hy6 * k6)))
+                        qn = queued[0]; queued[0] = (s["x"], s["y"], (qn[2] + 1) if qn and math.hypot(qn[0] - s["x"], qn[1] - s["y"]) < 1.0 else 1)
+                        if queued[0][2] >= 3:
+                            # gridlock (pt9_bil6: nose-on to a standing southbound queue for two
+                            # minutes, the same re-route every 4 s): the band ahead off the route,
+                            # back away from it, route again
+                            for k6 in (1.0, 2.0, 3.0, 4.0):
+                                for l6 in (-1.0, 0.0, 1.0):
+                                    CAR_AVOID.add((int(s["x"] + hx6 * k6 - hy6 * l6), int(s["y"] + hy6 * k6 + hx6 * l6)))
+                            keyup_all()
+                            if not car_behind(s, 2.6): hold("Down", 1.0)
+                            queued[0] = None; say("drive3s: gridlock ahead: the band ahead off the route, backing away")
+                        queue_t = None; keyup_all(); replan(D.wait_state() or s, f"a standing car {gap:.1f} ahead"); continue
+                else: queue_t = None
+            else: queue_t = None
+            # PLAYTHROUGH-9 (RADIO ZA-ZA, pt8_chain1: pulled out of a slow car and run over): a
+            # carjacker on foot beside a slow car (a robbed driver come back for his car, a car
+            # thief, a mugger; the police when wanted) keeps it rolling unless the lane is blocked
+            if v < 2.4 and final_left > 3.0:
+                # (RADIO ZA-ZA sets MAKE_ALL_CHARS_MUGGERS: every ped is a mugger, occupation 40;
+                # pt9_wil1 was pulled out 3 s into its first drive with one 2.7 blocks off)
+                jack = carjackers(s, ms.get("wanted", 0) > 0, 4.5)
+                if jack and not (ahead is not None and ahead[0] < TRAFFIC_GAP + 0.5):
+                    if not jack_said[0]: say(f"drive3s: {jack[0]['type']} (occupation {jack[0]['occ']}) {jack[1]:.1f} from the car: keep rolling"); jack_said[0] = True
+                    vt = max(vt, 2.4)
+                else: jack_said[0] = False
+            gx, gy = D.lookahead(P, j, v)
+            if final_left < 1.5: gx, gy = tx, ty
+            hx, hy = heading(s); dx, dy = gx - s["x"], gy - s["y"]
+            a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+            steer = "Right" if a > 0 else "Left"
+            if abs(a) > 1.9 or (abs(a) > 1.1 and v < 0.8 and dgoal < 3.0) or (abs(a) > 0.9 and v < 1.0 and blocked_ahead(world, s)):
+                # (and a sharp turn from a crawl with a wall or the avoided cells ahead of the nose:
+                # pt9_bil1's Z-Type, backed out of its alley facing south, crept back into it
+                # turning toward the route east)
+                # behind, or close and well off the nose: the three-point turn of drive3, never
+                # backing toward a marked character within 3.5 blocks
+                hb_ = heading(s)
+                if any(math.hypot(p_["x"] - s["x"], p_["y"] - s["y"]) < 3.0 and (p_["x"] - s["x"]) * hb_[0] + (p_["y"] - s["y"]) * hb_[1] < 0.5 for p_ in marked):
+                    # (only with him behind the car or beside its tail: pt9_bil14 stood 2.4 from the
+                    # dealer-1 stop for minutes with the dealer in front, refusing to reverse)
+                    throttle(False); hold("space", 0.4)
+                    if dgoal < 3.0: say(f"drive3s: no reversing beside the marked character; {dgoal:.1f} from the goal: there"); break
+                    xdo("keydown", steer); xdo("keydown", "Up"); time.sleep(0.25); xdo("keyup", "Up"); xdo("keyup", steer); time.sleep(0.1)
+                    s = D.wait_state(); continue
+                throttle(False)
+                if v > 1.0: hold("Down", 0.3); time.sleep(0.2)
+                rkey = "Left" if a > 0 else "Right"
+                xdo("keydown", rkey); xdo("keydown", "Down"); time.sleep(0.8); xdo("keyup", "Down"); xdo("keyup", rkey); time.sleep(0.15)
+            else:
+                if v > vt + 0.3:
+                    throttle(False); hold("Down", min(0.45, 0.1 + 0.18 * (v - vt)))
+                elif v < vt - 0.1 and abs(a) < 1.0: throttle(True)
+                elif abs(a) >= 1.0 and v > 1.0: throttle(False)
+                elif v >= vt: throttle(False)
+                elif abs(a) >= 1.0: throttle(True)    # a crawl through a sharp corner needs some throttle
+                pulse = min(0.22, 0.04 + 0.22 * abs(a)) if abs(a) > 0.04 else 0.0
+                if abs(a) > 0.04: xdo("keydown", steer)
+                # a slow cap (a fragile car, 2.0-2.6): the throttle in short pulses, close to the
+                # target (held through a steering pulse it carried pt9_bil8's Z-Type to 3.2 against
+                # a target of 2.0)
+                if up[0] and vt <= 2.7 and v > vt - 0.8: time.sleep(min(0.1, pulse) if pulse else 0.1); throttle(False); time.sleep(max(0.0, pulse - 0.1))
+                else: time.sleep(pulse)
+                if abs(a) > 0.04: xdo("keyup", steer)
+            time.sleep(0.07)
+            s2 = D.wait_state()
+            if not s2: break
+            hist.append((time.time(), s2["x"], s2["y"])); del hist[:-20]
+            ms2 = mission_state() or {}
+            hp, cf = ms2.get("carhp", -1), ms2.get("carfire", -1)
+            if hp >= 0:
+                if last_hp >= 0 and last_hp - hp > 250 and cf <= 0:
+                    hit_until = time.time() + HIT_SLOW_SECS / D.SPEED
+                    if precious: cap = max(CARE_CAP, cap - 0.3)
+                    say(f"drive3s: hit: carhp {last_hp} -> {hp} at {s2['x']:.1f},{s2['y']:.1f} (v {v:.1f}, target {vt:.1f}); slow for {HIT_SLOW_SECS:.0f} s, cap {cap:.1f}")
+                    DRIVE_LOG.append((time.time(), "hit", s2["x"], s2["y"], hp))
+                last_hp = hp
+                hp_hist.append((time.time(), hp, s2["x"], s2["y"])); del hp_hist[:-12]
+                rec = [h for h in hp_hist if time.time() - h[0] <= 0.8 / D.SPEED]
+                # (PLAYTHROUGH-9: 250 with the throttle on and the car not moving, pt9_bil12 and
+                # pt9_wil3 lost 250-350 a sample against walls without tripping the 450 guard)
+                if not RACE[0] and rec and (rec[0][1] - hp > 450 or (rec[0][1] - hp > 250 and up[0])) and math.hypot(rec[0][2] - s2["x"], rec[0][3] - s2["y"]) < 0.5 and cf <= 0:
+                    if math.hypot(tx - s2["x"], ty - s2["y"]) < 2.5:
+                        # pressed against what stands at the goal (pt9_ste1: the BLOW JOB barricade
+                        # in its own block; the back-off put the goal's cells on the avoid list and
+                        # the re-route drove off across the district): arrived
+                        say(f"drive3s: pressed {math.hypot(tx - s2['x'], ty - s2['y']):.1f} from the goal: there"); keyup_all(); s = s2; break
+                    say(f"drive3s: car pressed at {s2['x']:.1f},{s2['y']:.1f} (carhp {rec[0][1]} -> {hp}): back off toward the route")
+                    keyup_all(); hx5, hy5 = heading(s2)
+                    for k5 in (0.8, 1.4): CAR_AVOID.add((int(s2["x"] + hx5 * k5), int(s2["y"] + hy5 * k5)))
+                    if car_behind(s2, 2.6):
+                        # sandwiched: no reversing and no pushing either; off the throttle a while
+                        say("drive3s: a car behind: no reversing; waiting off the throttle"); hold("space", 0.3)
+                        wait_until[0] = time.time() + 2.0 / D.SPEED
+                    else: back_toward(s2, gx, gy, 0.9)
+                    time.sleep(0.15); hp_hist.clear(); stall_t = None
+                    s2 = D.wait_state(); replan(s2, "pressed"); s = s2; continue
+            burning = cf > 0 or s2.get("fire", 0) > 0
+            if burning:
+                left = (hp / 100.0) if hp >= 0 else 0.0
+                togo = (len(P) - 1 - j) * D.STEP
+                eta = togo / 1.6 + 6.0
+                if precious and KEEP_BURNING[0] and left > eta + BURN_MARGIN:
+                    if not burn_said:
+                        say(f"drive3s: the car burns (carhp {hp}: {left:.0f} s left), {togo:.0f} blocks to go: on")
+                        mark(f"the mission car burns: {left:.0f} s left, {togo:.0f} blocks to go, driving on"); burn_said = True
+                else:
+                    say(f"drive3s: the car is burning (carfire {cf}, carhp {hp}: {left:.0f} s left); out")
+                    mark(f"the car is on fire (carhp {hp}): out and clear")
+                    keyup_all()
+                    if precious: return bail_clear(world, s2)
+                    s2 = flee_fire(world, s2)
+                    if not (s2 and s2["driving"]): return s2
+                    replan(s2, "a new car"); s = s2; last_hp = -1; continue
+            moved = math.hypot(s2["x"] - s["x"], s2["y"] - s["y"])
+            if up[0] and moved < 0.04:
+                stall_t = stall_t or time.time()
+                if time.time() - stall_t > 1.0 / D.SPEED:
+                    stalls += 1; stall_t = None; keyup_all()
+                    if math.hypot(tx - s2["x"], ty - s2["y"]) < 2.0:
+                        say(f"drive3s: stopped {math.hypot(tx - s2['x'], ty - s2['y']):.1f} from the goal: there"); s = s2; break
+                    pins.append((s2["x"], s2["y"]))
+                    near = [p for p in pins if math.hypot(p[0] - s2["x"], p[1] - s2["y"]) < 1.2]
+                    if len(near) >= 5:
+                        say(f"drive3s: pinned at {s2['x']:.1f},{s2['y']:.1f} for {len(near)} stalls: giving up this drive")
+                        mark(f"drive pinned at {s2['x']:.1f},{s2['y']:.1f}: giving up")
+                        if not precious: BAD_CARS.append((s2["x"], s2["y"]))
+                        hold("Down", 0.8); return D.wait_state()
+                    # traffic ahead is the usual case: wait for it first
+                    time.sleep(0.25 if ms2.get("wanted", 0) > 0 or RACE[0] else 0.9); s3 = D.wait_state()
+                    if s3 and math.hypot(s3["x"] - s2["x"], s3["y"] - s2["y"]) > 0.3: s = s3; continue
+                    if car_behind(s2) and (ahead_now[0] is not None):
+                        say(f"drive3s: stopped at {s2['x']:.1f},{s2['y']:.1f} in a queue, a car behind: waiting"); time.sleep(0.8); s = D.wait_state(); continue
+                    say(f"drive3s: stopped at {s2['x']:.1f},{s2['y']:.1f} (stall {stalls}): back off toward the route")
+                    if len(near) >= 3:
+                        hx3, hy3 = heading(s2)
+                        for k3 in (0.8, 1.4): CAR_AVOID.add((int(s2["x"] + hx3 * k3), int(s2["y"] + hy3 * k3)))
+                    back_toward(s2, gx, gy, 0.9); time.sleep(0.15); hp_hist.clear()
+                    s2 = D.wait_state(); replan(s2, "stall"); s = s2; continue
+            else:
+                stall_t = None
+            s = s2
+    finally:
+        keyup_all()
+    if not (s and s["driving"]):
+        sx_ = D.wait_state() or {}
+        say(f"drive3s: out of the car at {sx_.get('x', 0):.1f},{sx_.get('y', 0):.1f} (state {sx_.get('state')}, wanted {(mission_state() or {}).get('wanted')})")
+        mark("out of the car during the drive")
+        return sx_ or s
+    if time.time() - t0 >= budget: say(f"drive3s: budget {budget} s spent, {math.hypot(tx - s['x'], ty - s['y']):.1f} from the goal")
+    if precious: hold("space", 0.8)
+    elif RACE[0]: hold("space", 0.6)
+    else: hold("space", 0.6)    # the handbrake: Down rolls a stopped car back out of a block
+    return D.wait_state()
+
+def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, precious=False, until=None):
+    """wall-aware driving. Road-only route with lane preference, waypoints that
+    never cut a corner (line of sight on drivable ground), a speed target that
+    falls to a crawl before every turn and at the goal, Up never held while
+    the heading error is over 40 degrees, a straight reverse when the car is
+    pinned against something for a second, and a re-route after it."""
+    if SMOOTH[0]: return drive3_smooth(world, tx, ty, tol, budget, view_switch, slow, precious, until)
+    if CUR_VIEW[0] == "classic": ensure_view("third")      # driving is recorded in the 3D views
     t0 = time.time(); s = D.wait_state(); last = (s, time.time())
+    vcap = SLOW_CAP if slow else FAST_CAP   # SLOW_CAP: a script can lower it for a fragile mission car; FAST_CAP: a timed job raises it
     def legs_from(s):
-        path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), None, kinds=(1,))
-        if not path or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2:
-            path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(tx), int(ty), None)
-        cells = straighten3(path)[1:] if len(path) > 1 else []
+        L = ped_level(s)
+        path = car_route(world, s, tx, ty)
+        # the straight legs may only cross what the route itself stands on: a road-only
+        # route gives road-only legs (pt4_wil7's cop car was wrecked against a wall after
+        # a leg cut across a pavement); a lot or a field on the route admits those kinds
+        onpath = {node_kind(world, *n)[1] for n in path if node_kind(world, *n)}
+        kinds = tuple(k for k in (1, 2, 3) if k == 1 or k in onpath)
+        cells = straighten_los(world, path, kinds, half_width=0.45)[1:] if len(path) > 1 else []
         lg = [(cx + 0.5, cy + 0.5) for cx, cy, _ in cells]
-        lg.append((tx, ty)); return lg
-    legs = legs_from(s); i = 0; stall = 0; stalls = 0
-    say(f"drive3: {len(legs)} legs to {tx:.1f},{ty:.1f}")
-    xdo("keydown", "Up"); up = True
+        if lg and math.hypot(lg[-1][0] - tx, lg[-1][1] - ty) > 0.6: lg.append((tx, ty))
+        elif not lg: lg = [(tx, ty)]
+        # the turn at each waypoint, for the braking lookahead
+        turns = []
+        for k in range(len(lg)):
+            p0 = (s["x"], s["y"]) if k == 0 else lg[k - 1]
+            if k + 1 < len(lg):
+                v1 = (lg[k][0] - p0[0], lg[k][1] - p0[1]); v2 = (lg[k + 1][0] - lg[k][0], lg[k + 1][1] - lg[k][1])
+                n1, n2 = math.hypot(*v1), math.hypot(*v2)
+                turns.append(math.acos(max(-1.0, min(1.0, (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2)))) if n1 > 1e-6 and n2 > 1e-6 else 0.0)
+            else: turns.append(math.pi)          # the goal: stop there
+        return lg, turns
+    legs, turns = legs_from(s); i = 0; stall_t = None; stalls = 0; up = False; wedge_at = None
+    last_hp = [-1]; burn_said = [False]; pins = []; hp_hist = []
+    say(f"drive3: {len(legs)} legs to {tx:.1f},{ty:.1f} (cap {vcap})")
+    def keyup_all():
+        xdo("keyup", "Up"); xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right")
     try:
         while s and s["driving"] and time.time() - t0 < budget and i < len(legs):
             gx, gy = legs[i]; final = i == len(legs) - 1
             d = math.hypot(gx - s["x"], gy - s["y"])
-            if d < (tol if final else 1.8): i += 1; continue
-            if not final and i + 1 < len(legs):
+            # a corner waypoint is taken close (0.8): taken at 1.4 the car turned early and
+            # the diagonal to the next waypoint cut a ramp off the road (pt6_ste2 at 62,24)
+            if d < (tol if final else (0.8 if turns[i] > 0.6 else 1.4)): i += 1; continue
+            if not final:
+                # passed it: the next waypoint is already nearer along the way
                 nx, ny = legs[i + 1]
-                if math.hypot(nx - s["x"], ny - s["y"]) < d - 0.5: i += 1; continue
+                if math.hypot(nx - s["x"], ny - s["y"]) < math.hypot(nx - gx, ny - gy) - 0.3: i += 1; continue
             hx, hy = heading(s); dx, dy = gx - s["x"], gy - s["y"]
             a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
-            now = time.time(); v = speed_of(last[0], s, now - last[1]); last = (s, now)
+            now = time.time(); v = speed_of(last[0], s, now - last[1]) if now - last[1] > 0.05 else 0.0; last = (s, now)
             if view_switch: view_switch(s)
+            # distance along the path to the next real turn (or the goal)
+            cd = d; k = i
+            while k < len(legs) - 1 and turns[k] < 0.6:
+                cd += math.hypot(legs[k + 1][0] - legs[k][0], legs[k + 1][1] - legs[k][1]); k += 1
+            vt = vcap
+            if cd < (8.0 if RACE[0] else 4.0): vt = min(vt, CORNER_V[0] + cd * CORNER_V[1])
+            if final and d < 3.0: vt = min(vt, 2.2 if RACE[0] else 1.2)   # PLAYTHROUGH-8: a timed job's last 3 blocks at 2.2 (1.2: ~2 s per dealer)
             steer = "Right" if a > 0 else "Left"
-            nextd = math.hypot(legs[i + 1][0] - gx, legs[i + 1][1] - gy) if i + 1 < len(legs) else 99
-            if abs(a) > 2.2:
+            if abs(a) > 1.9 or (abs(a) > 0.9 and d < 2.2):
+                # the waypoint is behind, or close and well off the nose (a parking lot,
+                # a lot exit): a three-point turn. Reversing with the wheel the other way
+                # swings the nose toward the target; then the forward branches take over.
                 if up: xdo("keyup", "Up"); up = False
-                xdo("keydown", "Down"); xdo("keydown", "Left" if a > 0 else "Right"); time.sleep(0.9)
-                xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right")
-            elif abs(a) > 0.8:
+                if v > 1.0: hold("Down", 0.3); time.sleep(0.2)
+                rkey = "Left" if a > 0 else "Right"
+                xdo("keydown", rkey); xdo("keydown", "Down"); time.sleep(0.9); xdo("keyup", "Down"); xdo("keyup", rkey); time.sleep(0.15)
+            elif abs(a) > 0.70 and RACE[0] and d > 1.2:
+                # a timed job: take the turn rolling, the wheel held, throttle kept below the
+                # turn speed, a short brake only when it comes in fast
+                if v > RACE_TURN_V + 1.0:
+                    if up: xdo("keyup", "Up"); up = False
+                    hold("Down", min(0.35, 0.1 + (v - RACE_TURN_V) * 0.06))
+                xdo("keydown", steer)
+                if v < RACE_TURN_V: xdo("keydown", "Up"); up = True
+                elif up: xdo("keyup", "Up"); up = False
+                time.sleep(0.2); xdo("keyup", steer)
+            elif abs(a) > 0.70:
+                # a real turn: no throttle held; creep and steer in pulses, brake first when fast
                 if up: xdo("keyup", "Up"); up = False
-                if v > 3.0: hold("Down", 0.35)
-                xdo("keydown", steer); xdo("keydown", "Up"); time.sleep(0.35); xdo("keyup", "Up"); xdo("keyup", steer)
+                if v > 1.5: hold("Down", 0.3)
+                xdo("keydown", steer); xdo("keydown", "Up"); time.sleep(0.22); xdo("keyup", "Up"); time.sleep(0.12); xdo("keyup", steer)
+            elif abs(a) > 0.22:
+                if v > vt + 0.8:
+                    if up: xdo("keyup", "Up"); up = False
+                    hold("Down", 0.2)
+                xdo("keydown", steer)
+                if v < vt: xdo("keydown", "Up"); up = True
+                time.sleep(min(0.3, 0.12 + abs(a) * 0.3)); xdo("keyup", steer)
             else:
-                want_slow = slow or d < 3.0 or nextd < 4.0 or (final and d < 6)
-                if v > (3.8 if want_slow else 6.5):
+                if v > vt + 0.8:
                     if up: xdo("keyup", "Up"); up = False
-                    hold("Down", 0.25)
-                elif not up: xdo("keydown", "Up"); up = True
-                if abs(a) > 0.08:
-                    xdo("keydown", steer); time.sleep(min(abs(a) * 0.45, 0.3)); xdo("keyup", steer)
-            time.sleep(0.2)
+                    hold("Down", min(0.4, 0.12 + (v - vt) * 0.08))
+                elif v < vt and not up: xdo("keydown", "Up"); up = True
+                elif v >= vt and up: xdo("keyup", "Up"); up = False
+                if abs(a) > 0.06:
+                    xdo("keydown", steer); time.sleep(min(0.22, abs(a) * 0.5)); xdo("keyup", steer)
+            time.sleep(0.12)
             s2 = D.wait_state()
-            if s2 and s2.get("fire", 0) > 0:
-                say(f"drive3: the car is burning ({s2['fire']} flames); out")
-                mark("the car is on fire: out and clear")
-                if up: xdo("keyup", "Up"); up = False
-                s2 = flee_fire(world, s2)
-                if not (s2 and s2["driving"]): return s2
-                xdo("keydown", "Up"); up = True; legs = legs_from(s2); i = 0; s = s2; continue
-            if s2 and v < 0.4 and math.hypot(s2["x"] - s["x"], s2["y"] - s["y"]) < 0.08 and abs(a) <= 2.2:
-                stall += 1
-                if stall >= 4:
-                    stalls += 1; stall = 0
-                    say(f"drive3: stalled at {s2['x']:.1f},{s2['y']:.1f}; backing out ({stalls})")
-                    if up: xdo("keyup", "Up"); up = False
-                    xdo("keydown", "Down"); xdo("keydown", "Left" if stalls % 2 else "Right"); time.sleep(1.4)
-                    xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right"); time.sleep(0.3)
+            if not s2: break
+            # the car's condition from the game (carhp = 32000 - damage, carfire): a hard hit
+            # is logged, a damaged mission car is driven slower, a burning car is left in
+            # time. A burning car loses a point a frame, so it has carhp/30 game seconds
+            ms2 = mission_state() or {}
+            hp, cf = ms2.get("carhp", -1), ms2.get("carfire", -1)
+            if hp >= 0:
+                if last_hp[0] >= 0 and last_hp[0] - hp > 600 and cf <= 0:
+                    say(f"drive3: hit: carhp {last_hp[0]} -> {hp} at {s2['x']:.1f},{s2['y']:.1f}")
+                last_hp[0] = hp
+                hp_hist.append((time.time(), hp, s2["x"], s2["y"])); del hp_hist[:-12]
+                old = [h for h in hp_hist if time.time() - h[0] > 1.2 / D.SPEED]
+                # (burning or not: pt7_bil9's Z-Type, alight, lost 6000 against a wall at 130,110)
+                if old and old[-1][1] - hp > 2500 + (30 * 1.2 if cf > 0 else 0) and math.hypot(old[-1][2] - s2["x"], old[-1][3] - s2["y"]) < 1.0:
+                    # losing carhp fast on the spot (pt7_bil7: 1000 every 0.3 s at 173,35 and
+                    # 156,61 until it burned, pressed against something or under fire): back out
+                    # at once, keep the cells ahead off the route, go round
+                    say(f"drive3: carhp {old[-1][1]} -> {hp} in a second on the spot at {s2['x']:.1f},{s2['y']:.1f}: backing out")
+                    keyup_all(); up = False
+                    hx4, hy4 = heading(s2)
+                    for k4 in (0.8, 1.4): CAR_AVOID.add((int(s2["x"] + hx4 * k4), int(s2["y"] + hy4 * k4)))
+                    hold("Down", 1.0); time.sleep(0.1)
+                    hp_hist.clear(); s2 = D.wait_state()
+                    legs, turns = legs_from(s2); i = 0; s = s2; continue
+                if precious and ms2.get("wanted", 0) > 0 and hp >= CARE_HP and vcap < WANTED_CAP:
+                    vcap = WANTED_CAP; say(f"drive3: wanted (level {ms2['wanted']}): cap {vcap} while carhp {hp} allows")
+                if precious and hp < CARE_HP and vcap > CARE_CAP:
+                    vcap = CARE_CAP; say(f"drive3: carhp {hp}: the mission car is fragile now; cap {vcap}")
+            burning = cf > 0 or s2.get("fire", 0) > 0
+            if burning:
+                left = (hp / 100.0) if hp >= 0 else 0.0   # PLAYTHROUGH-8: measured ~100 a game second once alight (pt8_bil11: 15969 -> 5894 in 102 s), not one a frame
+                togo = sum(math.hypot(legs[k + 1][0] - legs[k][0], legs[k + 1][1] - legs[k][1]) for k in range(i, len(legs) - 1)) + math.hypot(legs[i][0] - s2["x"], legs[i][1] - s2["y"])
+                eta = togo / 1.6 + 6.0
+                if precious and KEEP_BURNING[0] and left > eta + BURN_MARGIN:
+                    if not burn_said[0]:
+                        say(f"drive3: the car burns (carfire {cf}, carhp {hp}: {left:.0f} s left), {togo:.0f} blocks to go (~{eta:.0f} s): on")
+                        mark(f"the mission car burns: {left:.0f} s left, {togo:.0f} blocks to go, driving on"); burn_said[0] = True
+                else:
+                    say(f"drive3: the car is burning (carfire {cf}, carhp {hp}: {left:.0f} s left; flames {s2.get('fire', 0)}); out")
+                    mark(f"the car is on fire (carhp {hp}): out and clear")
+                    keyup_all(); up = False
+                    if precious: s2 = bail_clear(world, s2); return s2
+                    s2 = flee_fire(world, s2)
+                    if not (s2 and s2["driving"]): return s2
+                    legs, turns = legs_from(s2); i = 0; s = s2; last_hp[0] = -1; continue
+            moved = math.hypot(s2["x"] - s["x"], s2["y"] - s["y"])
+            wanted_motion = (up or abs(a) > 0.22)
+            if (precious or not RACE[0]) and hp >= 0 and len(hp_hist) >= 2:   # any car but a timed race: borrowed cars burned on the long Industrial drives (pt8_bil5/6)
+                # PLAYTHROUGH-8: a mission car pressed against something loses a few hundred a
+                # sample without moving (pt7_bil9's Z-Type: 4500 in 7 s against the railing at
+                # 23.5,223.4, 5000 in a second at a gantry pole at 135.9,149.5, 5000 against a
+                # wall at 130.5,110: the old guard wanted 2500 in 1.2 s and the stall branch then
+                # pushed it on with the wheel turned). Any 450 lost within 0.8 game seconds on the
+                # spot: off the throttle, straight back, the cells ahead off the route, re-route
+                rec = [h for h in hp_hist if time.time() - h[0] <= 0.8 / D.SPEED]
+                if rec and rec[0][1] - hp > 450 and math.hypot(rec[0][2] - s2["x"], rec[0][3] - s2["y"]) < 0.6 and cf <= 0:
+                    say(f"drive3: car pressed at {s2['x']:.1f},{s2['y']:.1f} (carhp {rec[0][1]} -> {hp}): straight back, round it")
+                    keyup_all(); up = False
+                    hx5, hy5 = heading(s2)
+                    for k5 in (0.8, 1.4): CAR_AVOID.add((int(s2["x"] + hx5 * k5), int(s2["y"] + hy5 * k5)))
+                    back_toward(s2, gx, gy, 0.9); time.sleep(0.15); hp_hist.clear(); stall_t = None
+                    s2 = D.wait_state(); legs, turns = legs_from(s2); i = 0; s = s2; continue
+            if wanted_motion and moved < 0.05:
+                stall_t = stall_t or time.time()
+                if time.time() - stall_t > 1.0 / D.SPEED:
+                    stalls += 1; stall_t = None
+                    keyup_all(); up = False
+                    # pinned: the same spot again and again (pt7_ze2a hammered a wall at
+                    # 212.7,65.2 ten times; every hit costs carhp). The cell ahead goes to the
+                    # car router's avoid set and the leg is re-routed; at the fifth such stall
+                    # the drive gives up and the caller walks or swaps
+                    pins.append((s2["x"], s2["y"]))
+                    near = [p for p in pins if math.hypot(p[0] - s2["x"], p[1] - s2["y"]) < 1.2]
+                    if len(near) >= 3:
+                        hx3, hy3 = heading(s2)
+                        for k3 in (0.8, 1.4):
+                            CAR_AVOID.add((int(s2["x"] + hx3 * k3), int(s2["y"] + hy3 * k3)))
+                        if len(near) >= 5:
+                            say(f"drive3: pinned at {s2['x']:.1f},{s2['y']:.1f} for {len(near)} stalls: giving up this drive")
+                            mark(f"drive pinned at {s2['x']:.1f},{s2['y']:.1f}: giving up")
+                            if not precious: BAD_CARS.append((s2["x"], s2["y"]))   # PLAYTHROUGH-8: pt8_bil1 re-took the same pinned car at 147.3,107.1 four times
+                            hold("Down", 0.8); return D.wait_state()
+                        say(f"drive3: pinned at {s2['x']:.1f},{s2['y']:.1f} ({len(near)} stalls): the cells ahead are off the car route now")
+                    if precious and not RACE[0]:
+                        # PLAYTHROUGH-8: a mission car never pulls out with the throttle into
+                        # what stopped it: a short wait for traffic, then straight back, re-route
+                        say(f"drive3: mission car stopped at {s2['x']:.1f},{s2['y']:.1f} (stall {stalls}): straight back, re-route")
+                        time.sleep(0.8 if ms2.get("wanted", 0) == 0 else 0.2); s3 = D.wait_state()
+                        if s3 and math.hypot(s3["x"] - s2["x"], s3["y"] - s2["y"]) > 0.4: s = s3; continue
+                        back_toward(s2, gx, gy, 0.9); time.sleep(0.15); hp_hist.clear()
+                        s2 = D.wait_state(); legs, turns = legs_from(s2); i = 0; s = s2; continue
+                    # stopped with the throttle on: traffic ahead (the usual case on a
+                    # carriageway) or a wall. Wait a moment for traffic, then back off and
+                    # pull out round it on the side with road, then re-route.
+                    say(f"drive3: stopped with throttle at {s2['x']:.1f},{s2['y']:.1f} (stall {stalls}); waiting, then pulling out")
+                    # wanted: no waiting about (a cop pulls him out of a standing car: pt7_ste4)
+                    time.sleep(0.3 if (ms2.get("wanted", 0) > 0) else (0.6 if RACE[0] else 2.0)); s3 = D.wait_state()   # PLAYTHROUGH-8: a timed job waits 0.6 s (pt7_ze2n: 8 s at one stall)
+                    if s3 and math.hypot(s3["x"] - s2["x"], s3["y"] - s2["y"]) > 0.4:
+                        s = s3; continue                      # the queue moved
+                    # wedged in a traffic queue (two stalls within half a block): a borrowed
+                    # car is abandoned for one past the jam; a mission car keeps trying
+                    if stalls >= 2 and wedge_at is not None and math.hypot(s2["x"] - wedge_at[0], s2["y"] - wedge_at[1]) < 0.5:
+                        if RACE[0]:
+                            # PLAYTHROUGH-8: a timed job keeps its car (pt8_ze2d left it at 245.1,100.5,
+                            # walked past "the jam", found no car and walked back to the same one: 25 s)
+                            say("drive3: wedged (timed job): back off toward the route, re-route")
+                            back_toward(s2, gx, gy, 0.8); time.sleep(0.1); hp_hist.clear()
+                            s2 = D.wait_state(); legs, turns = legs_from(s2); i = 0; s = s2; wedge_at = None; continue
+                        if not slow:
+                            say("drive3: wedged in traffic; out, past the jam on foot, another car"); mark("wedged in traffic: leaving the jam on foot")
+                            hx2, hy2 = heading(s2); leave_car(); time.sleep(0.4)
+                            cruise_to(s2["x"] + hx2 * 6.0, s2["y"] + hy2 * 6.0, tol=1.2, secs=8)
+                            s2 = any_car2(world, budget=90)
+                            if not (s2 and s2["driving"]): return s2
+                            legs, turns = legs_from(s2); i = 0; s = s2; wedge_at = None; continue
+                        hold("Down", 1.4); time.sleep(0.2)
+                    wedge_at = (s2["x"], s2["y"])
+                    if RACE[0]:
+                        # a timed job: back off with the nose swung toward the route, no pull-out
+                        # with the throttle into what stopped it
+                        back_toward(s2, gx, gy, 0.7); time.sleep(0.1)
+                        s2 = D.wait_state(); legs, turns = legs_from(s2); i = 0; s = s2; continue
+                    hold("Down", 0.7); time.sleep(0.15)
+                    hx2, hy2 = heading(s2)
+                    lx, ly = -hy2, hx2                        # the car's left
+                    def roadside(sign):
+                        cx, cy = int(s2["x"] + lx * sign * 1.5 + hx2 * 1.5), int(s2["y"] + ly * sign * 1.5 + hy2 * 1.5)
+                        return walkable(world.blocks, world.columns, cx, cy, ped_level(s2), (1,))
+                    side = "Left" if roadside(1) or not roadside(-1) else "Right"
+                    xdo("keydown", side); xdo("keydown", "Up"); time.sleep(0.9); xdo("keyup", side); time.sleep(0.5); xdo("keyup", "Up")
                     s2 = D.wait_state()
-                    if stalls % 3 == 0:
-                        # three wall hits: the car may be burning (every death at the
-                        # wheel so far followed a run of stalls); step clear, let it
-                        # cool or blow, then take it back or another one
+                    if stalls % 6 == 0 and not slow:
                         s2 = bail_out(world, s2)
                         if not (s2 and s2["driving"]): return s2
-                        xdo("keydown", "Up"); up = True
-                    legs = legs_from(s2); i = 0
+                    legs, turns = legs_from(s2); i = 0
             else:
-                stall = 0
+                stall_t = None
             s = s2
     finally:
-        xdo("keyup", "Up"); xdo("keyup", "Left"); xdo("keyup", "Right")
-    hold("Down", 0.9)
+        keyup_all()
+    # stop: the handbrake for a mission car (Down brakes and then reverses: pt7_ste2's
+    # Pickup rolled back out of the barricade block, 2016 -> 2017, and the bomb went off
+    # outside it), the old brake-and-reverse otherwise
+    if precious: hold("space", 0.8)
+    elif RACE[0]: hold("space", 0.6)        # a timed job: the handbrake, no reverse (Down 0.8 rolls it back a block)
+    else: hold("Down", 0.8)
+    return D.wait_state()
+
+CARE_HP = 22000       # a mission car below this carhp (damage 10000) is driven at CARE_CAP
+CARE_CAP = 2.0
+WANTED_CAP = 3.2      # a mission car with the police after it, while carhp >= CARE_HP: a crawl gets
+                      # it stopped and the player pulled out and arrested (pt7_ste4, 6155)
+KEEP_BURNING = [True]  # a burning mission car is driven on while carhp/30 s outlasts the way left
+BURN_MARGIN = 20.0
+
+def bail_clear(world, s):
+    """out of a burning mission car and clear of its blast; the caller decides what next"""
+    hx, hy = heading(s)
+    xdo("keyup", "Up"); leave_car(); time.sleep(0.4)
+    s = D.wait_state()
+    cruise_to(s["x"] - hx * 7.0, s["y"] - hy * 7.0, tol=1.2, secs=7)
     return D.wait_state()
 
 def flee_fire(world, s):
     """the car is burning: leave it, run 7 blocks clear, wait out the blast,
     then another car"""
     cx, cy = s["x"], s["y"]; hx, hy = heading(s)
+    BAD_CARS.append((cx, cy))
     xdo("keyup", "Up"); leave_car(); time.sleep(0.4)
     s = D.wait_state()
     ux, uy = (-hx, -hy)
@@ -643,8 +1460,30 @@ def bail_out(world, s):
         if s and s["driving"]: return s
     return any_car2(world, budget=90)
 
+BAD_CARS = []        # (x, y) of cars found burning on entry: never taken again (pt7_ze2b re-entered its burning car six times)
+def bad_car(x, y):
+    return any(math.hypot(x - bx, y - by) < 3.0 for bx, by in BAD_CARS)
+
+def check_entered(s):
+    """just got in: a burning car (carfire) is left at once and remembered"""
+    if not (s and s["driving"]): return s
+    time.sleep(0.6)
+    ms = mission_state() or {}
+    if ms.get("carfire", -1) > 0:
+        say(f"enter: this car burns (carhp {ms.get('carhp')}); out, and never this one again")
+        mark(f"entered a burning car at {s['x']:.1f},{s['y']:.1f}: out")
+        BAD_CARS.append((s["x"], s["y"]))
+        s = bail_clear(world_ref[0], s) if world_ref[0] else leave_car()
+    return s
+world_ref = [None]
+
 def enter_car3(world, cx, cy, budget=120):
     """walk to the car's cell and get in; tries each side; True when driving"""
+    world_ref[0] = world
+    if bad_car(cx, cy): say(f"enter_car3: the car at {cx:.1f},{cy:.1f} burned before; not that one"); return D.wait_state()
+    return check_entered(_enter_car3(world, cx, cy, budget))
+
+def _enter_car3(world, cx, cy, budget=120):
     t0 = time.time()
     s = walk3(world, cx, cy, tol=1.5, budget=budget)
     tries = 0
@@ -654,8 +1493,12 @@ def enter_car3(world, cx, cy, budget=120):
         if d > 1.6:
             s, _ = cruise_to(cx, cy, tol=1.3, secs=8)
         hold("Up", 0.25); time.sleep(0.3)
-        tap("Return", 0.3); time.sleep(2.8)
-        s = D.wait_state(); tries += 1
+        tap("Return", 0.3)
+        for k_e in range(20):                     # poll instead of a flat 2.8 s (a timed job enters eight times)
+            time.sleep(0.25); s = D.wait_state()
+            if s["driving"]: break
+            if k_e >= 11 and s.get("state") not in (2, 3, 6): break   # not getting in: try another side
+        tries += 1
         if s["driving"]: return s
         ang = tries * 1.57
         cruise_to(cx + 1.0 * math.cos(ang), cy + 1.0 * math.sin(ang), tol=0.45, secs=8)
@@ -677,7 +1520,7 @@ def arrows():
     """{slot: (type, kind, x, y, z, obj)} from the last arrows line, or {}"""
     try:
         with open(D.LOG, "rb") as f:
-            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 40000)); tail = f.read().decode("latin-1")
+            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 80000)); tail = f.read().decode("latin-1")
     except OSError:
         return {}
     m = None
@@ -688,13 +1531,67 @@ def arrows():
         out[int(a.group(1))] = (int(a.group(2)), int(a.group(3)), float(a.group(4)), float(a.group(5)), float(a.group(6)), a.group(7), a.group(8) or '', a.group(9) or '', a.group(10) or '')
     return out
 
+# PLAYTHROUGH-9: the renderer's 'view: peds' and 'view: cars' lines (docs/actions-3d.md, "Ped
+# and car log lines"): every ped within 24 blocks and every car within 30, nearest first.
+PEDS_LINE = re.compile(r"view: peds frame=(-?\d+) live=(\d+) near=(\d+)((?: \S+)*)")
+PED_ITEM = re.compile(r"(\d+):(\w+)/(\w+):(-?\d+):(-?\d+):(-?[\d.]+),(-?[\d.]+),(-?[\d.]+):(-?\d+):(-?\d+):(-?\d+):(\S+?):(\S+)$")
+CARS_LINE = re.compile(r"view: cars frame=(-?\d+) near=(\d+)((?: \S+)*)")
+CAR_ITEM = re.compile(r"(-?\d+):m(-?\d+):(-?[\d.]+),(-?[\d.]+),(-?[\d.]+):(-?[\d.]+),(-?[\d.]+):(-?[\d.]+):(-?\d+):(-?\d+):(\S+?):(\S+)$")
+def _last_line(rx, key):
+    tail = D.log_tail()
+    k = tail.rfind(key)
+    if k < 0: return None
+    if tail.find("\n", k) < 0:                     # half written: the one before
+        k = tail.rfind(key, 0, k)
+        if k < 0: return None
+    return rx.match(tail, k)
+
+def peds():
+    """[{id, type, gang, remap, occ, x, y, z, state, sub, hp, car (model or None), mark (arrow slot or None)}]"""
+    m = _last_line(PEDS_LINE, "view: peds frame=")
+    if not m: return []
+    out = []
+    for item in m.group(4).split():
+        g = PED_ITEM.match(item)
+        if not g: continue
+        out.append(dict(id=int(g.group(1)), type=g.group(2), gang=g.group(3), remap=int(g.group(4)), occ=int(g.group(5)),
+                        x=float(g.group(6)), y=float(g.group(7)), z=float(g.group(8)), state=int(g.group(9)), sub=int(g.group(10)),
+                        hp=int(g.group(11)), car=None if g.group(12) == "-" else int(g.group(12)[1:]),
+                        mark=None if g.group(13) == "-" else int(g.group(13)[1:])))
+    return out
+
+def cars():
+    """[{id, model, x, y, z, hx, hy, v, hp, fire, driver ('-', 'P' or type/gang), mark}]"""
+    m = _last_line(CARS_LINE, "view: cars frame=")
+    if not m: return []
+    out = []
+    for item in m.group(3).split():
+        g = CAR_ITEM.match(item)
+        if not g: continue
+        out.append(dict(id=int(g.group(1)), model=int(g.group(2)), x=float(g.group(3)), y=float(g.group(4)), z=float(g.group(5)),
+                        hx=float(g.group(6)), hy=float(g.group(7)), v=float(g.group(8)), hp=int(g.group(9)), fire=int(g.group(10)),
+                        driver=g.group(11), mark=None if g.group(12) == "-" else int(g.group(12)[1:])))
+    return out
+
+def ped_alive(p):
+    return p["state"] != 9 and p["hp"] > 0 and not (p["state"] == 8 and p["sub"] in (0x16, 0x18, 0x19, 0x1A, 0x1B))
+
 def arrows_baseline():
     """remember the markers the base script keeps; call once at level start"""
     BASELINE.clear(); BASELINE.update(arrows()); say(f"arrows: baseline {len(BASELINE)} slots")
 
+START = [None]   # (x, y) at level start: the tutorial's gifts (hint 1608, a car and a gun) get an arrow near it
+
 def mission_arrows():
-    """the slots that differ from the baseline: the current objective's arrow(s)"""
-    return {k: v for k, v in arrows().items() if BASELINE.get(k) != v}
+    """the slots that differ from the baseline: the current objective's arrow(s).
+    An arrow within 8 blocks of the level start is the tutorial's (pt4_wil12 took
+    the 1608 gift arrow at 156.5,142.5 for a job), never a mission's"""
+    out = {}
+    for k, v in arrows().items():
+        if BASELINE.get(k) == v: continue
+        if START[0] and math.hypot(v[2] - START[0][0], v[3] - START[0][1]) < 8.0: continue
+        out[k] = v
+    return out
 
 def objective():
     """(x, y, z, kind, obj) of the mission arrow, or None when no mission arrow is up"""
@@ -716,7 +1613,7 @@ def wait_objective_change(key0, secs, money0=None):
     while time.time() - t0 < secs:
         if objective_key() != key0: return True
         ms = mission_state()
-        if ms and (ms["msg"] in ("1124", "1125") or (money0 is not None and ms["money"] >= money0 + 5000)): return True
+        if ms and (ms["msg"] in COMPLETE_KEYS or ms["msg"] in FAILED_KEYS or (money0 is not None and ms["money"] >= money0 + 5000)): return True
         time.sleep(0.3)
     return False
 
@@ -743,6 +1640,7 @@ def settle_box(x, y, w, h, money0=None, secs=40, nudge=None, key0=None):
     say(f"box {x},{y} ({w}x{h}): not passed in {secs}s (last {s['x']:.2f},{s['y']:.2f} z {s['z']:.2f})")
     return False
 
+POLICE_MODELS = {12, 52, 54, 17, 34}   # cop car, SWAT van, tank, fire truck, ambulance (vehicle +0x84)
 def any_car(world, budget=150, within=14.0):
     """get into some car: the nearest parked car the renderer reports, else wait
     at the kerb for one that stops beside him (natural entry)"""
@@ -750,25 +1648,36 @@ def any_car(world, budget=150, within=14.0):
     while time.time() - t0 < budget:
         s = D.wait_state()
         if s["driving"]: return s
-        if s["parked"] and s["pd"] < within:
+        if s["parked"] and s["pd"] < within and not bad_car(s["px"], s["py"]):
             say(f"any_car: parked car at {s['px']:.1f},{s['py']:.1f} d={s['pd']:.1f}")
             s = enter_car3(world, s["px"], s["py"], budget=60)
             if s and s["driving"]: return s
-        elif s["car"] and s["cd"] < 2.4:
+        elif s["car"] and s["cd"] < 2.4 and s.get("cmodel", -1) in POLICE_MODELS:
+            # a police car stopping beside him is the police (pt7_bil5 took one, the wanted
+            # level rose and every car after it was rammed to burning within a minute)
+            time.sleep(0.6); continue
+        elif s["car"] and s["cd"] < 2.4 and not bad_car(s["cx"], s["cy"]):
             pts = []
             for _ in range(3):
                 s = D.wait_state(); pts.append((s["cx"], s["cy"])); time.sleep(0.4)
             if max(math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]) for p in pts) < 0.3:
                 say(f"any_car: a car stopped beside him at {s['cx']:.1f},{s['cy']:.1f}")
                 hold("Up", 0.2); tap("Return", 0.3); time.sleep(3.0)
-                s = D.wait_state()
-                if s["driving"]: return s
+                s = check_entered(D.wait_state())
+                if s["driving"]:
+                    if (mission_state() or {}).get("wanted", 0) > 0:
+                        # seen taking it: pull away at once. pt6_le2d sat 4 s in a taken
+                        # taxi at wanted level 1 (the view change before the drive), a cop
+                        # pulled him out and he was arrested to the station 50 blocks off
+                        say("any_car: wanted for the car; pulling away"); hold("Up", 1.5)
+                    return D.wait_state()
         time.sleep(0.6)
     return D.wait_state()
 
 
 # ---------------------------------------------------------------- v3: kerb finding, warps, ramming
 INI = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.ini"
+SCENE_KEY = ["F11"]   # the [devtools] scene key the run enabled (F10 is eaten every other press under Wine)
 
 def nearest_kerb(world, s, radius=40):
     """the nearest pavement cell beside a road at street level"""
@@ -789,7 +1698,7 @@ def any_car2(world, budget=150):
     and the first car that stops beside him"""
     s = D.wait_state()
     if s["driving"]: return s
-    if s["parked"] and s["pd"] < 14:
+    if s["parked"] and s["pd"] < 30 and not bad_car(s["px"], s["py"]):
         s = enter_car3(world, s["px"], s["py"], budget=60)
         if s and s["driving"]: return s
     k = nearest_kerb(world, s)
@@ -798,10 +1707,17 @@ def any_car2(world, budget=150):
         s = walk3(world, k[0], k[1], None, tol=0.5, budget=90)
     return any_car(world, budget=budget, within=14.0)
 
-def devtools_lines():
+def log_size():
+    try: return os.path.getsize(D.LOG)
+    except OSError: return 0
+
+def devtools_lines(since=None):
+    """the devtools lines of the log after byte offset `since` (or in its last 60 KB). The
+    count-in-a-window comparison the warp used broke when the peds/cars lines (PLAYTHROUGH-9)
+    made 60 KB two seconds of log: every warp read 'no devtools line'"""
     try:
         with open(D.LOG, "rb") as f:
-            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 60000)); tail = f.read().decode("latin-1")
+            f.seek(0, 2); size = f.tell(); f.seek(since if since is not None else max(0, size - 60000)); tail = f.read().decode("latin-1")
     except OSError:
         return []
     return [l for l in tail.splitlines() if "devtools:" in l]
@@ -815,15 +1731,18 @@ def scene_warp(x, y, level, why):
         tap("Return", 0.3); time.sleep(2.0)
     try:
         t = open(INI, encoding="latin-1").read()
+        km = re.search(r"(?m)^scene_key=(\S+)", t)
+        if km: SCENE_KEY[0] = km.group(1)
+        else: say("scene_warp: no scene_key in the ini (run with INI_SED enabling [devtools]); the warp will be refused")
         t = re.sub(r"(?m)^scene_xy=.*$", f"scene_xy={x},{y},{level}", t)
         open(INI, "w", encoding="latin-1").write(t)
     except OSError as e:
         say("scene_warp: ini", e); return D.wait_state()
     s = D.wait_state()
     for attempt in range(4):
-        n0 = len(devtools_lines())
-        tap("F10", 0.3); time.sleep(2.5)
-        new = devtools_lines()[n0:]
+        off0 = log_size()
+        tap(SCENE_KEY[0], 0.3); time.sleep(2.5)
+        new = devtools_lines(off0)
         s = D.wait_state()
         if new and "ignored" not in new[-1] and "refused" not in new[-1]: break
         say(f"warp attempt {attempt+1}: {new[-1].split('devtools:')[-1] if new else 'no devtools line'}")
@@ -842,52 +1761,475 @@ def top_level(world, x, y):
         if b and _lid(b): best = lvl + 1
     return best or 2
 
-def ram_target(world, money0, secs=240, view_switch=None):
-    """wreck the car the mission arrow follows: drive at it at speed, back off,
-    repeat until the outcome changes"""
-    t0 = time.time(); hits = 0
+def van_motion(hist, span=1.2):
+    """(ux, uy, speed) of the marked car from its last `span` game seconds of
+    arrow samples; speed 0 when it has not moved"""
+    if len(hist) < 2: return 0.0, 0.0, 0.0
+    t1, x1, y1 = hist[-1]; t0, x0, y0 = hist[-2]
+    for t0, x0, y0 in reversed(hist[:-1]):
+        if (t1 - t0) * D.SPEED >= span: break
+    dt = max((t1 - t0) * D.SPEED, 0.05)
+    dx, dy = x1 - x0, y1 - y0; n = math.hypot(dx, dy)
+    if n < 0.25: return 0.0, 0.0, 0.0
+    return dx / n, dy / n, n / dt
+
+def ram_car(world):
+    """a car for the ramming: the nearest parked one within 45 blocks (the one
+    he arrived in, usually; the router walks him there), else the kerb wait.
+    pt4_wil14 stood 8 min at a kerb 16 blocks from its own car, pt4_wil16 was
+    run over there"""
+    s = D.wait_state()
+    if s["driving"]: return s
+    if s["parked"] and s["pd"] < 45:
+        say(f"ram: the parked car at {s['px']:.1f},{s['py']:.1f} d={s['pd']:.1f}")
+        s = enter_car3(world, s["px"], s["py"], budget=120)
+        if s and s["driving"]: return s
+    return any_car2(world, budget=90)
+
+def face_target(s, tx, ty, pulses=3):
+    """swing the nose toward (tx,ty) with reverse-and-steer pulses (drive3's
+    three-point turn); True once within 0.4 rad"""
+    for _ in range(pulses):
+        hx, hy = heading(s); dx, dy = tx - s["x"], ty - s["y"]
+        a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+        if abs(a) < 0.4: return True
+        rkey = "Left" if a > 0 else "Right"; fkey = "Right" if a > 0 else "Left"
+        xdo("keydown", rkey); xdo("keydown", "Down"); time.sleep(0.8); xdo("keyup", "Down"); xdo("keyup", rkey)
+        xdo("keydown", fkey); xdo("keydown", "Up"); time.sleep(0.35); xdo("keyup", "Up"); xdo("keyup", fkey); time.sleep(0.25)
+        s = D.wait_state()
+        if not s["driving"]: return False
+    return False
+
+def objective_slot():
+    ma = mission_arrows()
+    return max(ma) if ma else None
+
+def arrow_track(since_off, slot, kind):
+    """(wall seconds, x, y) of every `view: arrows` sample since the log offset
+    whose slot `slot` has kind `kind`: the marked car's dense track"""
+    out = []
+    try:
+        with open(D.LOG, "rb") as f:
+            f.seek(since_off); data = f.read().decode("latin-1")
+    except OSError:
+        return out
+    for m in ARROWS.finditer(data):
+        ls = data.rfind("\n", 0, m.start()) + 1
+        ts = data[ls + 1:ls + 13]
+        try: h, mi, sec = ts.split(":"); tw = int(h) * 3600 + int(mi) * 60 + float(sec)
+        except ValueError: continue
+        for a in ARROW.finditer(m.group(1)):
+            if int(a.group(1)) == slot and int(a.group(3)) == kind:
+                out.append((tw, float(a.group(4)), float(a.group(5)))); break
+    return out
+
+def ambush_point(track, s, min_age=6.0, now=None):
+    """(x, y, ux, uy): the sample of the marked car's track nearest to us that
+    is at least min_age wall seconds old, with the car's heading there (the
+    car loops its route, so it will pass that point again, heading that way)"""
+    if len(track) < 8: return None
+    now = track[-1][0] if now is None else now; best = None
+    for i in range(3, len(track) - 3):
+        tw, x, y = track[i]
+        if now - tw < min_age: continue
+        dx, dy = track[i + 3][1] - track[i - 3][1], track[i + 3][2] - track[i - 3][2]; n = math.hypot(dx, dy)
+        if n < 0.8: continue
+        dd = math.hypot(x - s["x"], y - s["y"])
+        if best is None or dd < best[0]: best = (dd, x, y, dx / n, dy / n)
+    return best[1:] if best else None
+
+def ram_target(world, money0, secs=420, view_switch=None):
+    """wreck the car the mission arrow follows. The arrow samples give its
+    heading and speed; far off, drive to a point ahead of it on its road; when
+    standing in its path ahead of it, stop, face it and wait; within ten
+    blocks charge it with Up held and the nose re-aimed until the impact
+    (head-on when it comes at us, from behind when it is stopped), push for a
+    moment, reverse well back for a run-up and charge again. A burning car of
+    our own is left (flee_fire) and its blast beside the van counts too."""
+    t0 = time.time(); hits = 0; hist = []; t_said = 0.0
+    ambush = None; u_pre = (0.0, 0.0); t_wait = None
+    try: log_off = os.path.getsize(D.LOG)
+    except OSError: log_off = 0
+    log_off = max(0, log_off - 400000)
     while time.time() - t0 < secs:
         o, ms = outcome(money0)
         if o != "running": return o
-        tgt = objective()
         s = D.wait_state()
+        if s["driving"] and s.get("fire", 0) > 0:
+            say("ram: my car burns; out"); mark("the car burns: out and clear")
+            s = flee_fire(world, s); hist = []; continue
         if not s["driving"]:
-            s = any_car2(world, budget=90)
+            s = ram_car(world)
             if not s["driving"]: continue
+        tgt = objective()
         if not tgt: time.sleep(1); continue
-        d = math.hypot(tgt[0] - s["x"], tgt[1] - s["y"])
-        if d > 6:
-            # the car moves: aim a few seconds ahead of it, in short legs
-            time.sleep(1.0); t2 = objective() or tgt
-            vx, vy = (t2[0] - tgt[0]), (t2[1] - tgt[1])
-            lead = min(3.0, d / 6.0)
-            s = drive3(world, t2[0] + vx * lead, t2[1] + vy * lead, tol=3.0, budget=14, view_switch=view_switch, slow=False)
+        hist.append((time.time(), tgt[0], tgt[1])); hist = hist[-40:]
+        ux, uy, vs = van_motion(hist)
+        dx, dy = tgt[0] - s["x"], tgt[1] - s["y"]; d = math.hypot(dx, dy)
+        hx, hy = heading(s); a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+        along = ux * (s["x"] - tgt[0]) + uy * (s["y"] - tgt[1])      # > 0: we are further along its way
+        lat = abs(ux * (s["y"] - tgt[1]) - uy * (s["x"] - tgt[0]))
+        if time.time() - t_said > 8:
+            say(f"ram: van {tgt[0]:.1f},{tgt[1]:.1f} v={vs:.1f} dir={ux:.1f},{uy:.1f} d={d:.1f} along={along:.1f} lat={lat:.1f} cardmg={(ms or {}).get('cardmg')}"); t_said = time.time()
+        if view_switch: view_switch(s)
+        if vs > 0.8: u_pre = (ux, uy)
+        if d > 10:
+            if vs > 1.0 and along > 2 and lat < 3.0 and d < 26:
+                # in its path, ahead of it: stop, face it and let it come
+                hold("Down", 0.5); face_target(s, tgt[0], tgt[1], pulses=2); time.sleep(0.4); continue
+            if vs < 0.5 and d < 40 and len(hist) > 3:
+                # it stands (a light, a jam): straight at it
+                drive3(world, tgt[0], tgt[1], tol=3.0, budget=8, view_switch=view_switch, slow=False); continue
+            if ambush is None or (t_wait and time.time() - t_wait > 150 / D.SPEED):
+                # the van outruns a chase (pt5_le2a/c/d fell 50-130 blocks behind for
+                # minutes): it drives a loop, so stand on its track, nose against its
+                # travel, and let it come head-on; the nearest track point to us, again
+                # after 150 game seconds without it
+                sl = objective_slot(); tr = arrow_track(log_off, sl, tgt[3]) if sl is not None else []
+                ap = ambush_point(tr, s)
+                if ap:
+                    ambush = ap; t_wait = time.time()
+                    say(f"ram: ambush at {ap[0]:.1f},{ap[1]:.1f} against {ap[2]:.1f},{ap[3]:.1f} ({len(tr)} track samples)")
+            if ambush and d > 12:
+                ax, ay, aux, auy = ambush
+                if t_wait is None: t_wait = time.time()
+                if math.hypot(ax - s["x"], ay - s["y"]) > 3.0:
+                    drive3(world, ax, ay, tol=2.0, budget=20, view_switch=view_switch, slow=True); continue
+                face_target(s, ax - aux * 8.0, ay - auy * 8.0, pulses=2); hold("Down", 0.3); time.sleep(0.8); continue
+            lead = min(d * 0.8, 18.0) if vs > 1.0 else 0.0
+            gx, gy = tgt[0] + ux * lead, tgt[1] + uy * lead
+            drive3(world, gx, gy, tol=3.0, budget=10, view_switch=view_switch, slow=False)
             continue
-        # line up and charge
-        hx, hy = heading(s); dx, dy = tgt[0] - s["x"], tgt[1] - s["y"]
-        a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
-        if abs(a) > 0.35:
-            xdo("keydown", "Down"); xdo("keydown", "Left" if a > 0 else "Right"); time.sleep(0.7)
-            xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right")
-            continue
-        # charge: Up held and re-aimed until the impact, then keep pushing into it
-        xdo("keydown", "Up"); t1 = time.time(); last_d = d
-        while time.time() - t1 < 4.0:
+        t_wait = None
+        if abs(a) > 0.45:
+            face_target(s, tgt[0], tgt[1], pulses=3); continue
+        # charge: Up held, nose re-aimed until the impact, then a push
+        xdo("keydown", "Up"); t1 = time.time(); why = "time"
+        while time.time() - t1 < 6.0:
             s = D.wait_state(); tgt = objective()
-            if not s["driving"] or not tgt: break
-            if s.get("fire", 0) > 0: break
+            if not s["driving"] or not tgt: why = "lost"; break
+            if s.get("fire", 0) > 0: why = "fire"; break
             hx, hy = heading(s); dx, dy = tgt[0] - s["x"], tgt[1] - s["y"]
             d = math.hypot(dx, dy); a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
-            if abs(a) > 0.12:
+            if abs(a) > 0.12 and d > 1.0:
                 key = "Right" if a > 0 else "Left"; xdo("keydown", key); time.sleep(min(abs(a) * 0.4, 0.25)); xdo("keyup", key)
-            if d < 1.3: time.sleep(1.2); break          # on it: push
-            if abs(a) > 1.2: break                        # it got past us
-            time.sleep(0.15)
+            if d < 1.3: time.sleep(1.5); why = "contact"; break
+            if abs(a) > 1.4 and d > 2.0: why = "passed"; break
+            time.sleep(0.12)
         xdo("keyup", "Up")
-        hits += 1; say(f"ram: charge {hits} ended at d={d:.1f}")
-        hold("Down", 0.7); time.sleep(0.2)
+        hits += 1; say(f"ram: charge {hits} ended ({why}) at d={d:.1f}")
+        if why == "contact" and tgt and (u_pre[0] or u_pre[1]):
+            ambush = (tgt[0], tgt[1], u_pre[0], u_pre[1]); t_wait = time.time()
+        s = D.wait_state()
+        if s["driving"] and s.get("fire", 0) > 0: continue
+        # a run-up: straight back until it is seven blocks off (pt5_le2e's nine
+        # contacts from one to three blocks were pushes that burned our own car
+        # first), then the loop re-aims and charges at full speed
+        if why == "contact":
+            xdo("keydown", "Down"); t2 = time.time()
+            while time.time() - t2 < 4.0:
+                time.sleep(0.25); s = D.wait_state(); tgt = objective()
+                if not tgt or not s["driving"]: break
+                if math.hypot(tgt[0] - s["x"], tgt[1] - s["y"]) >= 7.0: break
+            xdo("keyup", "Down")
+        else:
+            hold("Down", 0.7)
+        time.sleep(0.2)
     return outcome(money0)[0]
 
+
+# ---------------------------------------------------------------- the gun
+GUN_IDS = {1, 2, 3, 4, 5, 6, 9}          # pistol, dual pistol, silenced MG, machine gun, rocket launcher, electro gun, shotgun
+# machine-gun generators (COLLECT_01, 30 rounds, respawn 1800 frames) from <district>.mis;
+# every gang phone of Downtown has one beside it (the Loonies' at 76.5,39.5 is two
+# blocks from the PIZZA CAKE phone: pt5_le2g carried 300 rounds into the van step)
+GUN_PICKUPS = {"wil": [(76.5, 39.5, 2), (41.5, 48.5, 2), (11.5, 47.5, 2), (90.5, 87.5, 2), (208.5, 7.5, 2),
+                       (84.5, 184.5, 2), (50.5, 183.5, 2)]}
+
+def gun_ready(ms=None):
+    ms = ms or mission_state() or {}
+    return ms.get("wid", 0) in GUN_IDS and ms.get("ammo", 0) > 0
+
+def select_gun(presses=8):
+    """cycle the weapons (X) until a gun with rounds is in the hand: out of a car the
+    hand can come back empty with 990 machine-gun rounds in the inventory (pt9_wil4 drove
+    172 blocks to a pickup in the middle of BANK ROBBERY's guard fight)"""
+    for k in range(presses):
+        if gun_ready(): return True
+        tap("x", 0.15); time.sleep(0.5)
+    return gun_ready()
+
+def fetch_gun(world, budget=300, near=None, count=3, walk_only=False):
+    """walk (or drive, when far) to the nearest machine-gun pickups in turn and
+    over each until the weapon shows in the mission line (pt6_le2b found nothing
+    at 11.5,47.5 and went on to ram; pt6_le2a had picked it up there)"""
+    pk = list(GUN_PICKUPS.get(world.district) or [])
+    s = D.wait_state(); t0 = time.time()
+    if not pk or not s: return False
+    ref = near or (s["x"], s["y"])
+    pk.sort(key=lambda p: math.hypot(p[0] - ref[0], p[1] - ref[1]))
+    for x, y, L in pk[:count]:
+        if time.time() - t0 > budget: break
+        s = D.wait_state()
+        mark(f"to the gun pickup at {x},{y}")
+        if math.hypot(x - s["x"], y - s["y"]) > 30 and not walk_only:
+            if not s["driving"]: s = any_car2(world, budget=60)
+            if s["driving"]:
+                cell = street_cell_near(world, x, y, radius=6)
+                if cell: s = drive3(world, cell[0], cell[1], tol=2.0, budget=150)
+        if s["driving"]: s = leave_car()
+        walk3(world, x, y, None, tol=0.35, budget=max(30, min(400 if walk_only else 120, budget - (time.time() - t0))))
+        for k in range(8):
+            if gun_ready(): say(f"gun: {(mission_state() or {}).get('weapon')}"); return True
+            cruise_to(x + 0.3 * math.cos(k * 2.1), y + 0.3 * math.sin(k * 2.1), tol=0.15, secs=3)
+            time.sleep(0.4)
+        if gun_ready(): return True
+        say(f"gun: nothing picked up at {x},{y}")
+    return gun_ready()
+
+def _aim_walk(tx, ty, fire=True, walk=True, secs=0.5):
+    """one short slice of walking at (tx,ty) with the trigger held, heading
+    corrected from the samples (a moving ped's logged facing is his real one)"""
+    if fire: xdo("keydown", "Control_L")
+    if walk: xdo("keydown", "Up")
+    t1 = time.time()
+    while time.time() - t1 < secs:
+        s = D.wait_state()
+        if not s or s["driving"]: break
+        a = D.angle_to(s, tx, ty)
+        if abs(a) > 0.1:
+            key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
+            xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.3)); xdo("keyup", key)
+        time.sleep(0.08)
+    if walk: xdo("keyup", "Up")
+
+def char_arrows():
+    """(x, y) of the mission arrows that point at characters (kind 2)"""
+    return [(v[2], v[3]) for v in mission_arrows().values() if v[1] == 2]
+
+def shoot_chars(world, money0, secs=240):
+    """PLAYTHROUGH-8: a plan step that waits on a kill counter while the arrows point at
+    characters (BANK ROBBERY's two guards, `m_20_count7 = 2`): walk at the nearest marked
+    character with the trigger held until his arrow goes; on foot, in the third-person view.
+    Returns 'done' (no character arrows left), 'no gun', or the job's outcome"""
+    t0 = time.time()
+    if not gun_ready() and not select_gun(): fetch_gun(world, budget=200)
+    if not gun_ready(): return "no gun"
+    s = D.wait_state()
+    if s["driving"]: s = leave_car(); time.sleep(0.5); select_gun()
+    ensure_view("classic")
+    while time.time() - t0 < secs:
+        o, ms = outcome(money0)
+        if o != "running": return o
+        cs = char_arrows()
+        if not cs: return "done"
+        s = D.wait_state()
+        # PLAYTHROUGH-9: the marked characters as the 'view: peds' line has them (the arrow
+        # slot each one carries): his own position, and only while he stands
+        live = [(p["x"], p["y"]) for p in peds() if p["mark"] is not None and ped_alive(p) and p["car"] is None]
+        if live: cs = live
+        tx, ty = min(cs, key=lambda c: math.hypot(c[0] - s["x"], c[1] - s["y"]))
+        d = math.hypot(tx - s["x"], ty - s["y"])
+        if d > 9:
+            walk3(world, tx, ty, None, tol=6.0, budget=60); continue
+        if not gun_ready() and not select_gun():
+            fetch_gun(world, budget=150)
+            if not gun_ready(): return "no gun"
+        _aim_walk(tx, ty, fire=True, walk=d > 3.0, secs=0.6)
+    xdo("keyup", "Control_L")
+    return "timeout"
+
+def follow_arrow(world, money0, view_switch=None, secs=240):
+    """PLAYTHROUGH-8: a plan step with no handler of its own while a point arrow is up
+    (BANK ROBBERY's respray shop, `CHECK_HEADS_GREATER`): go to the arrow (by car when in
+    one), stop there and wait for the objective to change. Returns True when it changed"""
+    o = objective()
+    if not o or o[3] != 1: return False
+    key0 = objective_key(); x, y = o[0], o[1]
+    s = D.wait_state()
+    mark(f"following the arrow to {x:.1f},{y:.1f}")
+    if s["driving"]: s = drive3(world, x, y, tol=1.2, budget=secs, view_switch=view_switch, slow=True, precious=True)
+    else: s = walk3(world, x, y, None, tol=0.8, budget=secs)
+    return wait_objective_change(key0, 20.0, money0)
+
+def stand_point(world, ap, off=1.4):
+    """a spot beside the marked car's track point ap=(x, y, ux, uy): off blocks
+    to the side that is not road (a pavement), else on the road's edge"""
+    x, y, ux, uy = ap
+    for sgn in (1, -1):
+        px, py = -uy * sgn, ux * sgn
+        for o in (off, off + 0.8):
+            cx, cy = x + px * o, y + py * o
+            k = node_kind(world, int(cx), int(cy), 1) or node_kind(world, int(cx), int(cy), 2)
+            if k and k[1] in (2, 3): return (cx, cy)
+    return (x - uy * 0.9, y + ux * 0.9)
+
+SHOOT_3D_BURST = False
+
+def shoot_target(world, money0, secs=600, view_switch=None):
+    """wreck the car the mission arrow follows with the gun, on foot (GTA2 has
+    no drive-by). PIZZA CAKE's van loops a fixed circuit (about 400 blocks)
+    and outruns a chase, and ramming it burned our own cars first (pt5_le2e:
+    nine contacts; pt5_le2g: the player died at the wheel). So: pick the point
+    of its circuit nearest to us (the arrow track), go there (by car when far),
+    stand on the pavement beside it and wait; when the van comes within 12
+    blocks walk at it with the trigger held, hold still within four blocks
+    (the line of fire stays on its lane), step aside if it comes straight at
+    us, fire after it while it is within eight, then back to the spot for the
+    next lap. Walking keeps the logged facing true (a standing ped's sprite
+    facing can be half a turn off), so the aim is the walking heading.
+    pt6_le2a (first version) left the car as the van passed and chased it on
+    foot. Returns the outcome, or 'no gun' when the ammunition runs out."""
+    t0 = time.time(); hist = []; ambush = None; stand = None; t_spot = None; t_said = 0.0; fired = 0.0
+    try: log_off = max(0, os.path.getsize(D.LOG) - 400000)
+    except OSError: log_off = 0
+    hook = VIEW_HOOK[0]; close = [0.0]; in3d = [False, 0.0, False]   # in3d: in the chase view, since, used once per stop
+    def release(): xdo("keyup", "Control_L"); xdo("keyup", "Up")
+    while time.time() - t0 < secs:
+        o, ms = outcome(money0)
+        if o != "running": release(); return o
+        if not gun_ready(ms): release(); say("shoot: out of ammunition"); return "no gun"
+        s = D.wait_state(); tgt = objective()
+        if not s or not tgt: time.sleep(0.5); continue
+        hist.append((time.time(), tgt[0], tgt[1])); hist = hist[-40:]
+        ux, uy, vs = van_motion(hist)
+        dx, dy = tgt[0] - s["x"], tgt[1] - s["y"]; d = math.hypot(dx, dy)
+        along = ux * (s["x"] - tgt[0]) + uy * (s["y"] - tgt[1])      # > 0: we are ahead of it on its way
+        lat = abs(ux * (s["y"] - tgt[1]) - uy * (s["x"] - tgt[0]))
+        if time.time() - t_said > 6:
+            say(f"shoot: van {tgt[0]:.1f},{tgt[1]:.1f} v={vs:.1f} d={d:.1f} along={along:.1f} lat={lat:.1f} "
+                f"{'driving' if s['driving'] else 'on foot'} {ms.get('weapon')} ammo={ms.get('ammo')} fired={fired:.0f}s"); t_said = time.time()
+        coming = vs > 0.8 and along > 0 and lat < 4.0 and d < 13
+        standing = vs < 0.5 and len(hist) > 3 and d < 12
+        if not standing: in3d[2] = False
+        leaving = vs > 0.8 and along <= 0 and d < 8
+        # the waiting spot: the nearest point of its circuit, renewed when it has
+        # not come by for 200 game seconds (it changed its route)
+        if ambush is None or (t_spot and time.time() - t_spot > 200 / D.SPEED):
+            sl = objective_slot(); tr = arrow_track(log_off, sl, tgt[3]) if sl is not None else []
+            ap = ambush_point(tr, s)
+            if ap:
+                ambush = ap; stand = stand_point(world, ap); t_spot = time.time()
+                say(f"shoot: waiting spot {stand[0]:.1f},{stand[1]:.1f} beside its track at {ap[0]:.1f},{ap[1]:.1f} (heading {ap[2]:.1f},{ap[3]:.1f}; {len(tr)} samples)")
+        if s["driving"]:
+            if s.get("fire", 0) > 0 or car_burning(ms):
+                say("shoot: my car burns; out"); s = flee_fire(world, s); hist = []; continue
+            ds = math.hypot(stand[0] - s["x"], stand[1] - s["y"]) if stand else 1e9
+            if coming or standing or ds < 5.0 or (stand is None and d < 10):
+                hold("Down", 0.4); s = leave_car(); mark("out of the car: the gun")
+                ensure_view("classic")
+                continue
+            if view_switch: view_switch(s)
+            if stand: drive3(world, stand[0], stand[1], tol=3.0, budget=40, view_switch=view_switch, slow=True)
+            else: drive3(world, tgt[0], tgt[1], tol=6.0, budget=10, view_switch=view_switch, slow=True)
+            continue
+        # on foot
+        if coming and d < 4.5 and lat < 1.3:
+            # it comes straight at us: a step to the side, out of its lane
+            xdo("keyup", "Control_L")
+            px, py = -uy, ux
+            if (s["x"] - tgt[0]) * px + (s["y"] - tgt[1]) * py < 0: px, py = -px, -py
+            cruise_to(s["x"] + px * 1.8, s["y"] + py * 1.8, tol=0.4, secs=1.6); continue
+        if in3d[0] and not (standing and d < 6.0 and time.time() - in3d[1] < 10):
+            ensure_view("classic")
+            in3d[0] = False
+        if coming or standing or leaving:
+            t1 = time.time()
+            if in3d[0]:
+                # the last of the burst in the chase view: no steering keys (the 3D views
+                # remap them), the trigger held on the standing car he already faces
+                xdo("keydown", "Control_L"); time.sleep(0.5); fired += time.time() - t1; continue
+            if SHOOT_3D_BURST and standing and d < 5.5 and close[0] >= 2.0 and hook and not in3d[2]:
+                # aimed and firing at a standing van for two seconds: the rest of the
+                # burst in the third-person view. Off: pt6_le2f emptied 290 rounds at a van
+                # standing 2.5 blocks off in the chase view without wrecking it (110 rounds in
+                # the classic view did it in pt6_le2a): the 3D view turns him
+                hook("third"); in3d[:] = [True, time.time(), True]; continue
+            if d > 4.0 or standing:
+                _aim_walk(tgt[0], tgt[1], fire=True, walk=(d > 3.0), secs=0.5)
+            else:
+                xdo("keydown", "Control_L"); time.sleep(0.5)      # hold the line of fire across its lane
+            if standing and d < 2.4:
+                xdo("keyup", "Control_L"); hold("Down", 0.35)     # too close for its blast
+            fired += time.time() - t1
+            close[0] = close[0] + (time.time() - t1) if (standing and d < 5.5) else 0.0
+            continue
+        xdo("keyup", "Control_L")
+        if stand is None:
+            time.sleep(0.5); continue
+        ds = math.hypot(stand[0] - s["x"], stand[1] - s["y"])
+        if ds > 40:
+            s = ram_car(world); hist = []
+            continue
+        if ds > 1.2:
+            ensure_view("classic")
+            _walk3(world, stand[0], stand[1], None, 0.8, min(60, 8 + ds * 1.5), (1, 2, 3))   # already in the classic view
+            continue
+        # at the spot: face the way it will come from (a short step toward it)
+        if d > 13:
+            fx, fy = stand[0] - ambush[2] * 6.0, stand[1] - ambush[3] * 6.0
+            if abs(D.angle_to(s, fx, fy)) > 0.5:
+                _aim_walk(fx, fy, fire=False, walk=True, secs=0.25); hold("Down", 0.2)
+        time.sleep(0.4)
+    release()
+    return outcome(money0)[0]
+
+CAR_HALF_LEN, CAR_HALF_W = 0.75, 0.45   # a parked car's footprint for the walker (most saloons; a truck is longer)
+def car_blocks(sx, sy, tx, ty, car, head, pad=0.3):
+    """does the straight walk (sx,sy)->(tx,ty) cross the footprint of the car at `car`
+    facing `head` (padded by a body's half width)?"""
+    hx, hy = head; n = math.hypot(hx, hy)
+    if n < 0.1: return False
+    hx, hy = hx / n, hy / n
+    for k in range(21):
+        px, py = sx + (tx - sx) * k / 20.0, sy + (ty - sy) * k / 20.0
+        rx, ry = px - car[0], py - car[1]
+        lon, lat = rx * hx + ry * hy, -rx * hy + ry * hx
+        if abs(lon) < CAR_HALF_LEN + pad and abs(lat) < CAR_HALF_W + pad: return True
+    return False
+
+def walk_round_car(tx, ty, car, head, secs=4.0):
+    """PLAYTHROUGH-8: the driver gets out on the car's left, on the road side, and the
+    pedestrian he walks to stands on the pavement on its right: the straight walk runs
+    into his own car (pt7_ze2i/m/n/o lost 10-38 s of WHEELER-DEALING's clock pressed
+    against it, re-routing round it through the traffic queued behind it). When the
+    car is in the way, walk to the corner of the car on his side (nose or tail,
+    whichever makes the shorter walk) first. Returns the state."""
+    s = D.wait_state()
+    if not car_blocks(s["x"], s["y"], tx, ty, car, head): return s
+    hx, hy = head; n = math.hypot(hx, hy); hx, hy = hx / n, hy / n
+    rx, ry = s["x"] - car[0], s["y"] - car[1]
+    side = 1.0 if (-rx * hy + ry * hx) >= 0 else -1.0
+    lx, ly = -hy * side, hx * side                      # unit vector to his side of the car
+    best = None
+    for sgn in (1.0, -1.0):
+        cx = car[0] + hx * (CAR_HALF_LEN + 0.55) * sgn + lx * (CAR_HALF_W + 0.25)
+        cy = car[1] + hy * (CAR_HALF_LEN + 0.55) * sgn + ly * (CAR_HALF_W + 0.25)
+        cost = math.hypot(cx - s["x"], cy - s["y"]) + math.hypot(tx - cx, ty - cy)
+        if car_blocks(cx, cy, tx, ty, car, head, pad=0.2): cost += 3.0
+        if best is None or cost < best[0]: best = (cost, cx, cy, sgn)
+    _, cx, cy, sgn = best
+    say(f"walk_round_car: the car at {car[0]:.1f},{car[1]:.1f} stands between; round its {'nose' if sgn > 0 else 'tail'} at {cx:.1f},{cy:.1f}")
+    s, ok = cruise_to(cx, cy, tol=0.6, secs=secs, stop=False)
+    return s
+
+def street_cell_walk_nearest(world, x, y, radius=8, tl=None):
+    """the road cell (level 1 or 2) within radius from which the walk to (x,y) is
+    shortest: the place to leave a car for a box inside a walled block (pt6_ze2b
+    parked on the road north of the WHEELER-DEALING briefcase, 32 cells of
+    walking each way round the block wall, against 6 from the south road)"""
+    cx0, cy0 = int(x), int(y); cands = []
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            for lvl in (1, 2):
+                if walkable(world.blocks, world.columns, cx0 + dx, cy0 + dy, lvl, (1,)):
+                    cands.append((math.hypot(dx, dy), cx0 + dx, cy0 + dy, lvl)); break
+    cands.sort(); best = None
+    for _, cx, cy, lvl in cands[:48]:
+        path = route3(world, cx, cy, lvl, cx0, cy0, tl, limit=4000)
+        if not path or (path[-1][0], path[-1][1]) != (cx0, cy0): continue
+        if best is None or len(path) < best[0]: best = (len(path), cx + 0.5, cy + 0.5, lvl)
+    return best[1:] if best else street_cell_near(world, x, y, radius)
 
 def street_cell_near(world, x, y, radius=14):
     """the nearest road cell at street level (1 or 2) to a point"""
@@ -902,6 +2244,30 @@ def street_cell_near(world, x, y, radius=14):
     return None
 
 
+def escape_route(world, s, dist=9, away=None):
+    """waypoints for running clear of a blast: the nearest ring cell 7-10 blocks
+    away that the router can actually reach from here in at most 1.6x the
+    straight distance (walls, railings and drops respected), as line-of-sight
+    legs; [] when nothing is reachable"""
+    L = ped_level(s); sx, sy = int(s["x"]), int(s["y"]); best = None
+    for r in (dist, dist - 2, dist + 1):
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                if max(abs(dx), abs(dy)) != r: continue
+                if away is not None:
+                    # only cells on the far side from the blast (a car bomb: pt6_ste1 died 3 s
+                    # after arming, running along the trailer the script blows up)
+                    bx, by = s["x"] - away[0], s["y"] - away[1]; bn = math.hypot(bx, by) or 1.0
+                    if (dx * bx + dy * by) / (bn * math.hypot(dx, dy)) < 0.3: continue
+                if not any(walkable(world.blocks, world.columns, sx + dx, sy + dy, lv, (1, 2, 3)) for lv in (L, L + 1, max(1, L - 1))): continue
+                path = route3(world, sx, sy, L, sx + dx, sy + dy, None, limit=6000)
+                if not path or (path[-1][0], path[-1][1]) != (sx + dx, sy + dy): continue
+                if len(path) > r * 1.6 + 2: continue
+                if best is None or len(path) < len(best): best = path
+        if best: break
+    if not best: return []
+    return [(cx + 0.5, cy + 0.5) for cx, cy, _ in straighten_los(world, best, (1, 2, 3))[1:]]
+
 def escape_point(world, x, y, level, dist=7):
     """a point `dist` blocks from (x,y) with open walkable ground all the way
     (for running clear of a timed charge): the first of eight directions"""
@@ -915,3 +2281,147 @@ def escape_point(world, x, y, level, dist=7):
         if ok >= dist: return (x + dx * dist, y + dy * dist)
         if best is None or ok > best[0]: best = (ok, (x + dx * ok, y + dy * ok))
     return best[1] if best else (x, y - dist)
+
+
+# ================================================================ PLAYTHROUGH-9: targets from 'view: peds' / 'view: cars'
+
+def steal_model(world, models, search, budget=900, view_switch=None):
+    """a car of one of `models` (the vehicle +0x84 numbers: 70 Z-Type, 48 Stratos-B, 11 bus):
+    the nearest one the 'view: cars' line shows, taken when it stands (parked, or stopped
+    in traffic: Return beside an occupied car pulls the driver out); without one in sight,
+    a car of any kind and a tour of the `search` points, watching the line."""
+    t0 = time.time(); k = 0
+    while time.time() - t0 < budget:
+        s = D.wait_state()
+        if not s: return s
+        if s["driving"] and s.get("cmodel") in models: return s
+        cand = [c for c in cars() if c["model"] in models and c["driver"] != "P" and c["hp"] > CAR_HP_FIRE and c["fire"] == 0
+                and not bad_car(c["x"], c["y"])]
+        cand.sort(key=lambda c: math.hypot(c["x"] - s["x"], c["y"] - s["y"]))
+        if cand:
+            c = cand[0]; d = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
+            say(f"steal_model: model {c['model']} at {c['x']:.1f},{c['y']:.1f} ({d:.1f} off, v {c['v']:.1f}, driver {c['driver']})")
+            if s["driving"]:
+                # (pt9_ste2: drives at the Z-Type 29 blocks off stalled in the traffic round it and
+                # burned the borrowed car; within 14 blocks it is walked to)
+                if d > 14.0:
+                    drive3(world, c["x"], c["y"], tol=10.0, budget=30, view_switch=view_switch); continue
+                leave_car(); time.sleep(0.6); s = D.wait_state()
+            if c["v"] < 0.4 or d < 2.5:
+                mark(f"to the model {c['model']} at {c['x']:.1f},{c['y']:.1f}")
+                s = _enter_car3(world, c["x"], c["y"], budget=40)
+                s = D.wait_state()
+                if s and s["driving"] and s.get("cmodel") in models:
+                    mark(f"in a model {s.get('cmodel')}"); return s
+                if s and s["driving"]:
+                    say(f"steal_model: in a model {s.get('cmodel')}, not the one; out"); leave_car(); time.sleep(0.8)
+            else:
+                cruise_to(c["x"], c["y"], tol=1.2, secs=4)     # on foot after it: it stops at the next junction
+            continue
+        if not s["driving"]:
+            # a parked car close by is taken; else walk on toward the search point in short
+            # pieces, watching the line (pt9_ste2 waited six minutes at kerbs for a car)
+            if s["parked"] and s["pd"] < 8 and not bad_car(s["px"], s["py"]):
+                s = enter_car3(world, s["px"], s["py"], budget=40)
+                if s and s["driving"]: continue
+            px, py = search[k % len(search)]
+            if math.hypot(px - s["x"], py - s["y"]) < 6: k += 1; continue
+            path = route3(world, int(s["x"]), int(s["y"]), ped_level(s), int(px), int(py))
+            if len(path) > 2:
+                wx, wy, wl = path[min(len(path) - 1, 20)]
+                walk3(world, wx + 0.5, wy + 0.5, wl, tol=1.0, budget=40)
+            else: k += 1
+            continue
+        px, py = search[k % len(search)]; k += 1
+        mark(f"steal_model: no model {models} in sight; touring to {px},{py}")
+        drive_watch(world, px, py, lambda: any(c["model"] in models and c["driver"] != "P" for c in cars()), view_switch=view_switch)
+    return D.wait_state()
+
+def drive_watch(world, tx, ty, stop_when, budget=200, view_switch=None):
+    """drive3 in short pieces toward (tx,ty), stopping as soon as stop_when() is true"""
+    s = D.wait_state()
+    if not (s and s["driving"]) or stop_when(): return s
+    # (sub-goals a dozen cells along the route sent the lane-aware router round the block when
+    # one fell in the oncoming lane, pt9_ste3: 118 blocks for 12; the whole drive now, watched)
+    return drive3(world, tx, ty, tol=4.0, budget=budget, view_switch=view_switch, until=stop_when)
+
+def _ped_reachable(world, s, p):
+    L = ped_level(s)
+    return abs(p["z"] - s["z"]) < 0.6 and line_clear(world, (s["x"], s["y"]), (p["x"], p["y"]), L, kinds=(1, 2, 3), half_width=0.4)
+
+def run_over(world, remaps, done_keys, fail_keys, centre, money0=None, secs=1200, view_switch=None, radius=14, patrol=None):
+    """run over the peds of the given remaps (DOUBLE-CROSS CRUSH: 7 Scientists, 8 Zaibatsu,
+    counted by the game's BY_VEHICLE bonus) from the 'view: peds' line: the nearest live one
+    on foot at the car's level with a clear straight line to it is driven at (pursuit on his
+    position, a crawl when close, a three-point turn when he is behind); with none in reach,
+    a tour of road points round `centre`. Ends on a done/fail message, on foot, or the time."""
+    t0 = time.time(); kills = 0; hunted = {}; tour = 0; last_hp = -1; hp_hist = []; m_last = ""
+    if patrol is None:
+        patrol = []
+        for ang in range(0, 360, 45):
+            px, py = centre[0] + radius * 0.7 * math.cos(math.radians(ang)), centre[1] + radius * 0.7 * math.sin(math.radians(ang))
+            c = street_cell_near(world, px, py, radius=6)
+            if c: patrol.append((c[0], c[1]))
+        patrol = patrol or [tuple(centre)]
+    up = [False]
+    def thr(on):
+        if on and not up[0]: xdo("keydown", "Up"); up[0] = True
+        elif not on and up[0]: xdo("keyup", "Up"); up[0] = False
+    prev = None
+    try:
+        while time.time() - t0 < secs:
+            ms = mission_state() or {}
+            if ms.get("msg") != m_last: m_last = ms.get("msg"); say(f"run_over: message {m_last}")
+            if ms.get("msg") in done_keys: return "done", kills
+            if ms.get("msg") in fail_keys: return "failed", kills
+            s = D.wait_state()
+            if not (s and s["driving"]): return "on foot", kills
+            now = time.time()
+            v = speed_of(prev[0], s, now - prev[1]) if prev and now - prev[1] > 0.05 else 0.0
+            prev = (s, now)
+            ps = peds()
+            # a hunted ped that is now down or gone within 3 blocks of the car: a kill
+            for pid, (px, py, tt) in list(hunted.items()):
+                q = next((p for p in ps if p["id"] == pid), None)
+                if (q is None and now - tt < 2.0 and math.hypot(px - s["x"], py - s["y"]) < 4.0) or (q and not ped_alive(q)):
+                    kills += 1; del hunted[pid]; say(f"run_over: down ({kills}) at {px:.1f},{py:.1f}"); mark(f"run over {kills}")
+                elif now - tt > 6.0: del hunted[pid]
+            tg = [p for p in ps if p["remap"] in remaps and p["car"] is None and ped_alive(p) and _ped_reachable(world, s, p)]
+            tg.sort(key=lambda p: math.hypot(p["x"] - s["x"], p["y"] - s["y"]))
+            hp = ms.get("carhp", -1)
+            if hp >= 0:
+                hp_hist.append((now, hp, s["x"], s["y"])); del hp_hist[:-12]
+                rec = [h for h in hp_hist if now - h[0] <= 0.8 / D.SPEED]
+                if rec and rec[0][1] - hp > 450 and math.hypot(rec[0][2] - s["x"], rec[0][3] - s["y"]) < 0.6:
+                    say(f"run_over: pressed at {s['x']:.1f},{s['y']:.1f} (carhp {hp}): back off")
+                    thr(False); hold("Down", 0.8); hp_hist.clear(); continue
+                if ms.get("carfire", 0) > 0 and hp < 9000:
+                    say("run_over: the car is burning low; out"); thr(False); return "burning", kills
+            if not tg:
+                thr(False)
+                px, py = patrol[tour % len(patrol)]; tour += 1
+                say(f"run_over: no target in reach ({sum(1 for p in ps if p['remap'] in remaps)} of remap {remaps} near); tour to {px:.1f},{py:.1f}")
+                def seen():
+                    s9 = D.wait_state() or s
+                    return any(p["remap"] in remaps and p["car"] is None and ped_alive(p) and _ped_reachable(world, s9, p)
+                               and math.hypot(p["x"] - s9["x"], p["y"] - s9["y"]) < 12 for p in peds())
+                drive_watch(world, px, py, seen, budget=40, view_switch=view_switch)
+                continue
+            p = tg[0]; d = math.hypot(p["x"] - s["x"], p["y"] - s["y"])
+            hunted[p["id"]] = (p["x"], p["y"], now)
+            hx, hy = heading(s); dx, dy = p["x"] - s["x"], p["y"] - s["y"]
+            a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+            steer = "Right" if a > 0 else "Left"
+            if abs(a) > 1.8 and d < 6.0:
+                thr(False)
+                rkey = "Left" if a > 0 else "Right"
+                xdo("keydown", rkey); xdo("keydown", "Down"); time.sleep(0.6); xdo("keyup", "Down"); xdo("keyup", rkey); continue
+            vt = max(1.6, min(3.4, 1.0 + 0.45 * d))
+            if v > vt + 0.5: thr(False); hold("Down", 0.12)
+            elif v < vt: thr(True)
+            else: thr(False)
+            if abs(a) > 0.05: xdo("keydown", steer); time.sleep(min(0.25, 0.05 + 0.25 * abs(a))); xdo("keyup", steer)
+            time.sleep(0.06)
+    finally:
+        thr(False)
+    return "timeout", kills

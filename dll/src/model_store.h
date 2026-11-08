@@ -107,7 +107,9 @@ bool ModelsAvailable();
 bool ModelIsKnown(const Model* model);
 // Adds a model derived from another (a hood-only copy of a car body, say) to the
 // store, so it is drawn and cached like the rest; returns its stable address.
-const Model* ModelRegisterDerived(Model&& model);
+// dynamicBuffers: its meshes are drawn from dynamic default-pool buffers (for a
+// model made while the game runs, whose first draw is mid-frame; see BuffersFor).
+const Model* ModelRegisterDerived(Model&& model, bool dynamicBuffers = false);
 // The world matrix of every node in the rest pose.
 void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out);
 // The model for a car sprite number, or null; the pedestrian model, or null.
@@ -119,6 +121,18 @@ const Model* ModelForVehicle(int modelNumber, int sprite);
 // Meshes whose texture name contains "_paint" are multiplied by this factor
 // (0..2 per channel) in ModelDraw until it is cleared with null: a car's repaint.
 void ModelSetPaintTint(const float* rgb);
+// A twist of the upper body about the model's up axis at "Bip01 Spine1",
+// radians, applied to every pose drawn until it is set back to 0: the aim
+// turned off the walk. Quantise it (it keys the pose cache).
+void ModelSetTorsoTwist(float radians);
+float ModelTorsoTwist();
+// A third clip over the two that ModelDraw / ModelDrawBlend / ModelNodeWorld blend:
+// sampled over a copy of their pose (a joint it has no channel for keeps theirs, so
+// an upper-body layer leaves the legs to the pair) and blended in by `weight`
+// (0..1). Applies to every pose until it is cleared (null or weight 0); part of the
+// pose cache key, so quantise the time and weight. ACTIONS-3D-4: the action layer
+// over the locomotion pair (idle/walk/run/sprint/turn_step).
+void ModelSetOverlay(const ModelAnimation* clip, float time, float weight);
 // Bytes of model textures created so far (managed pool), and how many.
 size_t ModelsTextureBytes(int* count);
 const Model* ModelForPedestrian();
@@ -180,7 +194,7 @@ const double* ModelDrawStats();
 // Creates and uploads up to `perFrame` of the models' textures that have not
 // been used yet (no visible draw), so a model's first appearance costs nothing
 // extra. Returns how many are still to do; call every frame until it is 0.
-int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame);
+int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double budgetMs = 2.0);
 // Binds a texture in a draw that writes no pixels, for the driver to upload it.
 void WarmTexture(IDirect3DDevice9* device, IDirect3DTexture9* texture);
 void ModelsBeginFrame();

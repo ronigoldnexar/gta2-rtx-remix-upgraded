@@ -1,28 +1,63 @@
-# The showcase look on an NVIDIA GPU (appended to rtx.conf by run_game_remix_gpu.sh
-# with RTX_EXTRA=/work/rtx_showcase.conf.extra). Everything the plain GPU extra
-# sets, plus the atmosphere and post settings for the street views.
+# The "showcase" look on an NVIDIA GPU under Wine (REMIX-POST, 8 Nov 2026): appended to
+# rtx.conf with RTX_EXTRA=/work/rtx_showcase.conf.extra by the Remix takes. The play look
+# (rtx_play.conf.extra, repeated below) plus camera effects for recorded takes: subtle
+# motion blur and a soft vignette. This runtime build has no depth-of-field option, so
+# there is no DOF. For a fixed hour append one rtx_tod_*.conf.extra after this file.
+# Option names are this runtime's own (RtxOptions.md, out/remix_optdoc).
+#
+# Wine: no DLSS/NGX, frame generation or Reflex.
 rtx.dlfg.enable = False
 rtx.isReflexEnabled = False
-rtx.upscalerType = 0
-rtx.resolutionScale = 1.0
+rtx.dlssPreset = 0
 rtx.faultNotice.enable = False
 rtx.screenshot.hotkey = F12
 rtx.shader.blockUntilPrewarmed = False
 rtx.gpuStallTimeoutSeconds = 600
-# Bloom: present but moderate, so neon and headlights glow without washing out.
+# Quality: the runtime's Auto preset reads the L4 as "Turing" and picks Low.
+rtx.graphicsPreset = 1
+# Anti-aliasing: TAA-U at full resolution (DLSS needs NGX, which Wine lacks).
+rtx.upscalerType = 3
+rtx.taauPreset = 4
+rtx.resolutionScale = 1.0
+rtx.sharpening.sharpness = 0.2
+# Tonemapping: AgX with its Punchy look keeps the saturated GTA2 palette
+# while rolling the neon and the sun off without hue shifts; a light grade on top.
+rtx.tonemap.tonemapOperator = 4
+rtx.tonemap.agx.look = 2
+rtx.tonemap.agx.saturation = 1.15
+rtx.tonemap.colorGradingEnabled = True
+rtx.tonemap.contrast = 1.05
+rtx.tonemap.saturation = 1.08
+# Exposure: capped so the night stays night, slow both ways so passing lamps and
+# headlights do not pump the picture.
+rtx.autoExposure.maxExposure = 2.5
+rtx.autoExposure.darkAdaptTau = 2.5
+rtx.autoExposure.lightAdaptTau = 0.8
+# Bloom: wide and only on the really bright (neon, lamp heads, tail lamps, the sun's
+# glints), fireflies from the small bulbs clamped.
 rtx.bloom.enable = True
-rtx.bloom.burnIntensity = 0.6
-rtx.bloom.luminanceThreshold = 0.6
-# Air: haze between the camera and the city, with the lamps and headlights
-# glowing in it; a light height fog so the street fades with distance at night.
-rtx.atmosphere.aerialPerspective = True
-rtx.atmosphere.aerialPerspectiveLocalLights = True
-rtx.atmosphere.fogVisibilityMeters = 8000
-rtx.atmosphere.fogNearFadeMeters = 40
-rtx.atmosphere.fogAnisotropy = 0.4
-# The night sky: the real stars and moon for the clock's date and latitude.
-rtx.atmosphere.nightSkyStars = True
-rtx.atmosphere.realMoonEnabled = True
+rtx.bloom.steps = 6
+rtx.bloom.luminanceThreshold = 0.9
+rtx.bloom.burnIntensity = 0.55
+rtx.fireflyFilteringLuminanceThreshold = 400
+# Post (showcase): this runtime turns motion blur, chromatic aberration and vignette ON by default
+# (rtx.postfx.*); here: motion blur at a short shutter, emissives unblurred so neon
+# stays crisp, a soft vignette, no chromatic aberration. No depth of field in this build.
+rtx.postfx.enableMotionBlur = True
+rtx.postfx.exposureFraction = 0.25
+rtx.postfx.motionBlurSampleCount = 8
+rtx.postfx.enableMotionBlurEmissive = False
+rtx.postfx.enableChromaticAberration = False
+rtx.postfx.enableVignette = True
+rtx.postfx.vignetteIntensity = 0.35
+rtx.postfx.vignetteRadius = 0.85
+rtx.postfx.vignetteSoftness = 0.35
 # Untagged materials (people, props, the game's own sprites): matte.
 rtx.legacyMaterial.roughnessConstant = 0.75
 rtx.legacyMaterial.metallicConstant = 0.05
+# Lights: the renderer's D3D9 directional light and the fallback light stay out
+# (REMIX-3); the atmosphere's sun and moon light the street.
+rtx.ignoreGameDirectionalLights = True
+rtx.fallbackLightMode = 0
+# Night sky: the stylised ground moonlight (50) lit the street like an overcast day.
+rtx.atmosphere.surfaceMoonBrightness = 3

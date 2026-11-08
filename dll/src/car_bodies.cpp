@@ -6,13 +6,19 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <map>
+#include <set>
+#include <unordered_map>
 #include <tuple>
 
+#include "compat.h"
 #include "log.h"
 #include "model_store.h"
 #include "remix_api.h"
+#include "synthetic_lights.h"
 #include "texture_store.h"
+#include "vehicle_fx.h"
 
 namespace gta2dx9 {
 namespace {
@@ -29,6 +35,8 @@ std::map<int, gta2::CarInfo> g_info;
 int g_built = 0, g_drawn = 0;
 bool g_wreckTest = false;   // [devtools] wreck_models=1: every car drawn as a wreck, to check the models
 int g_forceModel = -1;      // [devtools] force_car_model=N: every traffic car drawn as model N (re-read once a second)
+int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
+int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
 int g_logNoses = -1;        // GTA2DX9_LOG_CAR_NOSES=1: a line per drawn car every 15 frames, for tools/check_car_noses.py
 // Where the cars stage's time went in the last call: measuring artwork, building
@@ -172,6 +180,7 @@ std::map<uintptr_t, Steer> g_steer;
 struct Cabin {
     float deck, roof, windscreen, halfWidth;
     uint32_t frame;
+    float length, height;   // the body as drawn: blocks along it and its full height (roof gear included)
 };
 std::map<uintptr_t, Cabin> g_cabins;
 
@@ -697,6 +706,18 @@ float PixelScale(const CarBodyUse& use, int h) {
     return dv > 1e-6f && h > 0 ? edge / dv / static_cast<float>(h) : 1.0f / 64.0f;
 }
 
+// Models painted in a fixed livery (CARI numbers): the bank van, bus, cop car,
+// fire truck, army jeep, hot-dog and ice-cream vans, medicar, the two taxis, SWAT
+// van, tank, the trains, TV van, special agent car and karma bus.
+bool LiveryModel(int m) {
+    switch (m) {
+        case 4: case 11: case 12: case 17: case 22: case 23: case 24: case 25: case 26: case 27:
+        case 34: case 51: case 52: case 54: case 56: case 59: case 60: case 61: case 67:
+        case 84: case 85: case 86: return true;
+        default: return false;
+    }
+}
+
 // The car's measurements (paint, footprint) from its artwork: what both a
 // hand-made model and a body built here need. The body mesh itself is built
 // only when it is going to be drawn (BodyMesh).
@@ -709,8 +730,8 @@ float PixelScale(const CarBodyUse& use, int h) {
 // lies below `yCut` and ahead of `zCut` (the hood, the fenders, the cowl). Each
 // (model, cuts) pair is built once and registered with the store.
 struct HoodKey {
-    const Model* model; int yq, zq;
-    bool operator<(const HoodKey& o) const { return std::tie(model, yq, zq) < std::tie(o.model, o.yq, o.zq); }
+    const Model* model; int yq, zq, xq;
+    bool operator<(const HoodKey& o) const { return std::tie(model, yq, zq, xq) < std::tie(o.model, o.yq, o.zq, o.xq); }
 };
 std::map<HoodKey, const Model*> g_hoods;
 
@@ -721,9 +742,10 @@ inline gta2::Vec3 PointBy(const gta2::Mat4& m, float x, float y, float z) {
             x * m.m[0][2] + y * m.m[1][2] + z * m.m[2][2] + m.m[3][2]};
 }
 
-const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut) {
+const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut, float eyeX) {
     // 0.04-block steps: the eye bobs and leans a little, the cache stays small.
-    const HoodKey key{&model, static_cast<int>(std::floor(yCut * 25.0f)), static_cast<int>(std::floor(zCut * 25.0f))};
+    const HoodKey key{&model, static_cast<int>(std::floor(yCut * 25.0f)), static_cast<int>(std::floor(zCut * 25.0f)),
+                      static_cast<int>(std::floor(eyeX * 25.0f))};
     auto it = g_hoods.find(key);
     if (it != g_hoods.end()) return it->second;
     if (g_hoods.size() > 96) g_hoods.clear();   // the store keeps the models; only the lookup is dropped
@@ -788,13 +810,27 @@ const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut,
                 q[c] = PointBy(toCar, v.x, v.y, v.z);
                 poly[static_cast<size_t>(c)] = {v, yCut - q[c].y, q[c].z - zCut};
             }
-            // Only faces that lie flat enough to be the hood's top (or its underside,
-            // hidden behind it): the engine bay's inner walls and the fenders' sides
-            // are what the eye would otherwise see from inside the hull.
-            const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
+            // Only faces the eye sees from their front, as back-face culling would
+            // show them: the hood's top, the fender tops, the cowl. The engine bay's
+            // inner walls, the body's sides and the faces that look down (the hood's
+            // underside, the floor pan and the underbody ahead of the seat) are seen
+            // from inside the hull from their back, and the path tracer draws back
+            // faces: run remix3_b showed them as black shreds across the view of a
+            // Schmidt (REMIX-3). Which way a face looks comes from its vertex normals
+            // in the car's frame, not the winding, which the fit's mirror (forward -1)
+            // reverses; a face that looks down by more than a little is dropped too.
+            gta2::Vec3 nrm{0.0f, 0.0f, 0.0f};
+            for (int c = 0; c < 3; ++c) {
+                const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                nrm.x += v.nx * toCar.m[0][0] + v.ny * toCar.m[1][0] + v.nz * toCar.m[2][0];
+                nrm.y += v.nx * toCar.m[0][1] + v.ny * toCar.m[1][1] + v.nz * toCar.m[2][1];
+                nrm.z += v.nx * toCar.m[0][2] + v.ny * toCar.m[1][2] + v.nz * toCar.m[2][2];
+            }
             const float nl = std::sqrt(gta2::Dot(nrm, nrm));
-            const bool flat = nl > 1e-9f && std::fabs(nrm.y) / nl > 0.35f;
-            if (!flat) continue;
+            const gta2::Vec3 centre{(q[0].x + q[1].x + q[2].x) / 3.0f, (q[0].y + q[1].y + q[2].y) / 3.0f, (q[0].z + q[1].z + q[2].z) / 3.0f};
+            const gta2::Vec3 toEye{eyeX - centre.x, yCut + 0.035f - centre.y, zCut - 0.10f - centre.z};
+            const bool seen = nl > 1e-9f && nrm.y / nl > -0.2f && gta2::Dot(nrm, toEye) > 0.0f;
+            if (!seen) continue;
             const bool allIn = poly[0].dy >= 0 && poly[1].dy >= 0 && poly[2].dy >= 0 && poly[0].dz >= 0 && poly[1].dz >= 0 && poly[2].dz >= 0;
             if (allIn) {
                 dst.indices.push_back(src.indices[t]);
@@ -822,6 +858,857 @@ const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut,
     Log("car bodies: hood copy of %s for the driver's seat: %zu of %zu triangles (y < %.2f, z > %.2f)", model.name.c_str(), kept, all, yCut, zCut);
     return stored;
 }
+
+// The driver's cab of a tall or long model (truck, bus, van, fire truck), in the
+// car's own frame after the fit (blocks; y up from the road, +z the nose): where
+// the hood ends and the windscreen starts, the hood's top (the deck) and the
+// cab's roof over the driver. A sedan's numbers come from its roof alone (deck
+// 0.62 of it, the windscreen from CARI); a truck's roof is often a box body or
+// roof gear behind the cab, and CARI's windscreen line on those long sprites
+// lies inside that body, so the eye sat behind the fire truck's ladder (run
+// a33_fire2 ft_drive_06). The model's own side profile says where the cab is:
+// the height of the middle band of the body in 32 slices from tail to nose; the
+// hood is the run of slices from the nose that stay within an eighth of the
+// height of the nose; the windscreen is where that run ends. A flat front (bus,
+// cab-over truck, train) has no hood: the windscreen is at the nose and the
+// deck a little over half the cab's height. Built once per model and fit.
+struct CabShape {
+    bool valid = false;
+    float length = 0, height = 0, deck = 0, roof = 0, windscreen = 0;
+};
+struct CabKey {
+    const Model* model; int xq, yq, zq;
+    bool operator<(const CabKey& o) const { return std::tie(model, xq, yq, zq) < std::tie(o.model, o.xq, o.yq, o.zq); }
+};
+std::map<CabKey, CabShape> g_cabShapes;
+
+CabShape CabShapeFor(const Model& model, const gta2::Mat4& fit, int modelNumber) {
+    const CabKey key{&model, static_cast<int>(std::lround(std::fabs(fit.m[0][0] + fit.m[2][0]) * 100.0f)),
+                     static_cast<int>(std::lround(fit.m[1][1] * 100.0f)),
+                     static_cast<int>(std::lround(std::fabs(fit.m[2][2] + fit.m[0][2]) * 100.0f))};
+    auto it = g_cabShapes.find(key);
+    if (it != g_cabShapes.end()) return it->second;
+    if (g_cabShapes.size() > 256) g_cabShapes.clear();
+    CabShape cab;
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    float minX = 1e9f, maxX = -1e9f, minY = 1e9f, maxY = -1e9f, minZ = 1e9f, maxZ = -1e9f;
+    auto each = [&](auto&& fn) {
+        for (size_t n = 0; n < model.nodes.size() && n < worlds.size(); ++n) {
+            const int mi = model.nodes[n].mesh;
+            if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+            const gta2::Mat4 toCar = Mul(worlds[n], fit);
+            for (const ModelVertex& v : model.meshes[static_cast<size_t>(mi)].vertices) fn(PointBy(toCar, v.x, v.y, v.z));
+        }
+    };
+    each([&](const gta2::Vec3& q) {
+        minX = (std::min)(minX, q.x); maxX = (std::max)(maxX, q.x);
+        minY = (std::min)(minY, q.y); maxY = (std::max)(maxY, q.y);
+        minZ = (std::min)(minZ, q.z); maxZ = (std::max)(maxZ, q.z);
+    });
+    const float L = maxZ - minZ, H = maxY - minY, W = maxX - minX, cx = 0.5f * (minX + maxX);
+    if (!(L > 0.05f && H > 0.05f && W > 0.05f)) {
+        g_cabShapes[key] = cab;
+        return cab;
+    }
+    constexpr int kSlices = 32;
+    float h[kSlices];
+    for (float& v : h) v = -1.0f;
+    each([&](const gta2::Vec3& q) {
+        if (std::fabs(q.x - cx) > 0.35f * W) return;
+        const int b = (std::min)(kSlices - 1, (std::max)(0, static_cast<int>((q.z - minZ) / L * kSlices)));
+        h[b] = (std::max)(h[b], q.y - minY);
+    });
+    for (int b = 1; b < kSlices; ++b) if (h[b] < 0.0f) h[b] = h[b - 1];
+    for (int b = kSlices - 2; b >= 0; --b) if (h[b] < 0.0f) h[b] = h[b + 1];
+    const float slice = L / kSlices;
+    const float nose = (std::max)(h[kSlices - 1], h[kSlices - 2]);
+    int end = kSlices - 1;   // the last slice of the hood run, counting from the nose
+    while (end > 0 && h[end - 1] <= nose + 0.125f * H) --end;
+    const float runLength = (kSlices - end) * slice;
+    const bool flat = nose >= 0.85f * H || runLength > 0.45f * L;
+    cab.windscreen = flat ? maxZ - 0.06f * L : minZ + end * slice;
+    float roof = 0.0f;
+    for (int b = 0; b < kSlices; ++b) {
+        const float z0 = minZ + b * slice, z1 = z0 + slice;
+        if (z1 > cab.windscreen - 0.35f && z0 < cab.windscreen + 0.02f) roof = (std::max)(roof, h[b]);
+    }
+    cab.roof = roof;
+    cab.deck = flat ? 0.55f * roof : nose;
+    if (cab.roof < cab.deck + 0.08f) cab.roof = cab.deck + 0.08f;
+    cab.length = L;
+    cab.height = H;
+    cab.valid = true;
+    g_cabShapes[key] = cab;
+    Log("car bodies: cab of model %d (%s): %.2f x %.2f x %.2f blocks, %s front, hood %.2f long at %.2f, windscreen %+.2f, cab roof %.2f",
+        modelNumber, model.name.c_str(), L, W, H, flat ? "flat" : "hooded", runLength, cab.deck, cab.windscreen, cab.roof);
+    return cab;
+}
+
+// Dents. The game keeps a damage word per vehicle (int16 at +0x74: 0 fresh, rising
+// with every knock, on fire from 16000, burning hard from 25000, exploding at 32000;
+// docs/actions-3d.md "Vehicle fields") and paints dents into the sprite; a
+// model shows the same wear as a copy whose shell is pressed in by a smooth,
+// low-frequency field (three octaves of value noise over the car's own frame)
+// along normals smoothed across every seam, at most 2 % of the body length at
+// the top step, with the normals recomputed afterwards. No vertex moves on its
+// own, so nothing tears and nothing shows light through; the two paint-split
+// halves share positions, so they move together. Cached per (model, step).
+//
+// PERF-3: the dented copies and the door splits below are built on a worker
+// thread (WearThread), never on the render thread, where each cost 20-70 ms the
+// first time a car reached a new dent step or opened a door. The render thread
+// asks (DentReady / DoorReady), draws the previous dent step or the shut door
+// until the copy is there, and registers finished copies with the model store at
+// the start of the next cars stage. All four dent steps of a car model are
+// queued (at low priority) the first time that model is drawn, so a crash
+// normally finds its step already built.
+struct DentKey {
+    const Model* model; int step;
+    bool operator<(const DentKey& o) const { return std::tie(model, step) < std::tie(o.model, o.step); }
+};
+std::map<DentKey, const Model*> g_dents;
+constexpr int kDentSteps = 4;
+// The four steps from the 16-bit damage: 4000, 8000, 16000 (the game sets the car
+// alight) and 25000 (burning hard); a car under 4000 keeps its fresh shell.
+int DentStepFor(int damage) {
+    return damage >= 25000 ? 4 : damage >= 16000 ? 3 : damage >= 8000 ? 2 : damage >= 4000 ? 1 : 0;
+}
+
+uint32_t DentHash(int32_t x, int32_t y, int32_t z, uint32_t seed) {
+    uint32_t h = static_cast<uint32_t>(x) * 73856093u ^ static_cast<uint32_t>(y) * 19349663u ^ static_cast<uint32_t>(z) * 83492791u ^ seed * 2654435761u;
+    h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+    return h;
+}
+// Value noise in [0,1]: a hashed lattice, smoothstep interpolation.
+float DentNoise(float x, float y, float z, uint32_t seed) {
+    const float fx = std::floor(x), fy = std::floor(y), fz = std::floor(z);
+    const int32_t ix = static_cast<int32_t>(fx), iy = static_cast<int32_t>(fy), iz = static_cast<int32_t>(fz);
+    float tx = x - fx, ty = y - fy, tz = z - fz;
+    tx = tx * tx * (3.0f - 2.0f * tx); ty = ty * ty * (3.0f - 2.0f * ty); tz = tz * tz * (3.0f - 2.0f * tz);
+    auto at = [&](int dx, int dy, int dz) { return static_cast<float>(DentHash(ix + dx, iy + dy, iz + dz, seed) & 0xFFFF) / 65535.0f; };
+    const float c00 = at(0, 0, 0) + (at(1, 0, 0) - at(0, 0, 0)) * tx, c10 = at(0, 1, 0) + (at(1, 1, 0) - at(0, 1, 0)) * tx;
+    const float c01 = at(0, 0, 1) + (at(1, 0, 1) - at(0, 0, 1)) * tx, c11 = at(0, 1, 1) + (at(1, 1, 1) - at(0, 1, 1)) * tx;
+    const float c0 = c00 + (c10 - c00) * ty, c1 = c01 + (c11 - c01) * ty;
+    return c0 + (c1 - c0) * tz;
+}
+
+// Vertices keyed by their quantised position (hashed: the accumulation order per
+// key is the vertex order either way, so the result is the same as an ordered map's).
+struct PosKey {
+    int32_t x, y, z;
+    bool operator==(const PosKey& o) const { return x == o.x && y == o.y && z == o.z; }
+};
+struct PosKeyHash {
+    size_t operator()(const PosKey& k) const {
+        return static_cast<size_t>(static_cast<uint32_t>(k.x) * 73856093u ^ static_cast<uint32_t>(k.y) * 19349663u ^ static_cast<uint32_t>(k.z) * 83492791u);
+    }
+};
+
+// The dented copy of `model` at `step`, built without touching anything shared
+// (runs on the worker thread). `moved` gets the count of vertices pressed in.
+Model BuildDented(const Model& model, int step, size_t* moved) {
+    Model dented = model;
+    dented.name = model.name + "#dent" + std::to_string(step);
+    const float height = (std::max)(model.Height(), 0.05f);
+    const float length = (std::max)(model.Length(), 0.05f);
+    const float sill = model.boundsMin.y + 0.20f * height;
+    const float amplitude = 0.02f * length * static_cast<float>(step) / static_cast<float>(kDentSteps);
+    // Positions are shared by the paint-split halves and across mesh seams:
+    // key every vertex by its quantised position, and smooth the normals over
+    // that key before displacing, then rebuild them from the moved faces.
+    auto keyOf = [&](const ModelVertex& v) {
+        const float q = 2000.0f / length;
+        return PosKey{static_cast<int32_t>(std::lround(v.x * q)), static_cast<int32_t>(std::lround(v.y * q)), static_cast<int32_t>(std::lround(v.z * q))};
+    };
+    size_t vertexCount = 0;
+    for (const ModelMesh& mesh : dented.meshes) vertexCount += mesh.vertices.size();
+    std::unordered_map<PosKey, gta2::Vec3, PosKeyHash> smooth;
+    smooth.reserve(vertexCount);
+    for (const ModelMesh& mesh : dented.meshes)
+        for (const ModelVertex& v : mesh.vertices) {
+            gta2::Vec3& n = smooth[keyOf(v)];
+            n.x += v.nx; n.y += v.ny; n.z += v.nz;
+        }
+    for (auto& kv : smooth) {
+        const float l = std::sqrt(gta2::Dot(kv.second, kv.second));
+        if (l > 1e-8f) { kv.second.x /= l; kv.second.y /= l; kv.second.z /= l; }
+    }
+    *moved = 0;
+    const uint32_t seed = static_cast<uint32_t>(std::hash<std::string>{}(model.name) & 0xFFFF);
+    const float sx = 1.0f / (std::max)(model.Width(), 0.05f);
+    for (ModelMesh& mesh : dented.meshes) {
+        for (ModelVertex& v : mesh.vertices) {
+            // Fade in above the sill so the sill is not a crease.
+            const float wSill = (std::min)(1.0f, (std::max)(0.0f, (v.y - sill) / (0.12f * height)));
+            if (wSill <= 0.0f) continue;
+            const float px = v.x * sx, py = v.y / height, pz = v.z / length;   // -0.5..0.5 about the body
+            float n = 0.60f * DentNoise(px * 2.6f, py * 2.0f, pz * 4.0f, seed)
+                    + 0.28f * DentNoise(px * 5.2f + 3.1f, py * 4.0f, pz * 8.0f + 1.7f, seed + 1)
+                    + 0.12f * DentNoise(px * 10.4f + 7.9f, py * 8.0f, pz * 16.0f + 5.3f, seed + 2);
+            // Only the peaks dent: most of the shell stays as it was.
+            const float f = (std::max)(0.0f, n - 0.42f) / 0.58f;
+            if (f <= 0.0f) continue;
+            const gta2::Vec3& sn = smooth[keyOf(v)];
+            const float depth = amplitude * f * f * wSill;
+            v.x -= sn.x * depth; v.y -= sn.y * depth; v.z -= sn.z * depth;
+            ++*moved;
+        }
+    }
+    // Normals from the moved faces, accumulated per shared position.
+    std::unordered_map<PosKey, gta2::Vec3, PosKeyHash> rebuilt;
+    rebuilt.reserve(vertexCount);
+    for (const ModelMesh& mesh : dented.meshes) {
+        for (size_t t = 0; t + 2 < mesh.indices.size(); t += 3) {
+            const ModelVertex& a = mesh.vertices[mesh.indices[t]];
+            const ModelVertex& b = mesh.vertices[mesh.indices[t + 1]];
+            const ModelVertex& c = mesh.vertices[mesh.indices[t + 2]];
+            const gta2::Vec3 e1{b.x - a.x, b.y - a.y, b.z - a.z}, e2{c.x - a.x, c.y - a.y, c.z - a.z};
+            const gta2::Vec3 fn = gta2::Cross(e1, e2);
+            for (const ModelVertex* v : {&a, &b, &c}) {
+                gta2::Vec3& acc = rebuilt[keyOf(*v)];
+                acc.x += fn.x; acc.y += fn.y; acc.z += fn.z;
+            }
+        }
+    }
+    for (ModelMesh& mesh : dented.meshes) {
+        for (ModelVertex& v : mesh.vertices) {
+            auto r = rebuilt.find(keyOf(v));
+            if (r == rebuilt.end()) continue;
+            const float l = std::sqrt(gta2::Dot(r->second, r->second));
+            if (l <= 1e-10f) continue;
+            // Keep the original facing where the rebuilt one disagrees (a flipped sliver).
+            gta2::Vec3 nn{r->second.x / l, r->second.y / l, r->second.z / l};
+            if (nn.x * v.nx + nn.y * v.ny + nn.z * v.nz < 0.0f) { nn.x = -nn.x; nn.y = -nn.y; nn.z = -nn.z; }
+            v.nx = nn.x; v.ny = nn.y; v.nz = nn.z;
+        }
+    }
+    return dented;
+}
+
+// Doors. A car's model is a sealed hull; when someone gets in or out the game
+// draws the door open on the sprite, so the body copy here loses the door's
+// panel (the outer skin between the windscreen base and a door's length back,
+// on the boarding side) and that panel is drawn on its own, swung about its
+// front edge. Both copies are cached per (model, side, position).
+struct DoorKey {
+    const Model* model; int side, zf, zr;
+    bool operator<(const DoorKey& o) const { return std::tie(model, side, zf, zr) < std::tie(o.model, o.side, o.zf, o.zr); }
+};
+struct DoorSplit { const Model* body; const Model* door; };
+std::map<DoorKey, DoorSplit> g_doorSplits;
+
+DoorKey DoorKeyFor(const Model& model, int side, float zFront, float zRear) {
+    return DoorKey{&model, side, static_cast<int>(std::floor(zFront * 20.0f)), static_cast<int>(std::floor(zRear * 20.0f))};
+}
+
+// The split of `model` into the body without the door panel and the panel (with
+// its inner face), built without touching anything shared (worker thread).
+void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float zFront, float zRear, float roof, float halfW,
+                    Model* bodyOut, Model* doorOut, size_t* doorTrisOut) {
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    Model& body = *bodyOut;
+    Model& door = *doorOut;
+    for (Model* m : {&body, &door}) {
+        m->nodes = model.nodes; m->forward = model.forward;
+        m->boundsMin = model.boundsMin; m->boundsMax = model.boundsMax;
+        for (int k = 0; k < 3; ++k) m->paintRgb[k] = model.paintRgb[k];
+        m->splitPaint = model.splitPaint;
+        m->meshes.resize(model.meshes.size());
+    }
+    body.name = model.name + "#nodoor"; door.name = model.name + "#door";
+    size_t doorTris = 0;
+    for (size_t n = 0; n < model.nodes.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& src = model.meshes[static_cast<size_t>(mi)];
+        ModelMesh& db = body.meshes[static_cast<size_t>(mi)];
+        ModelMesh& dd = door.meshes[static_cast<size_t>(mi)];
+        db.vertices = src.vertices; db.texture = src.texture; db.skin = -1;
+        dd.vertices = src.vertices; dd.texture = src.texture; dd.skin = -1;
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
+            gta2::Vec3 q[3];
+            float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                q[c] = PointBy(toCar, v.x, v.y, v.z);
+                cx += q[c].x; cy += q[c].y; cz += q[c].z;
+            }
+            cx /= 3.0f; cy /= 3.0f; cz /= 3.0f;
+            const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
+            const float nl = std::sqrt(gta2::Dot(nrm, nrm));
+            const bool lateral = nl > 1e-9f && std::fabs(nrm.x) / nl > 0.45f;
+            const bool isDoor = lateral && static_cast<float>(side) * cx > 0.5f * halfW && cy > 0.10f * roof && cy < 0.95f * roof &&
+                                cz > zRear && cz < zFront;
+            ModelMesh& dst = isDoor ? dd : db;
+            dst.indices.push_back(src.indices[t]); dst.indices.push_back(src.indices[t + 1]); dst.indices.push_back(src.indices[t + 2]);
+            if (isDoor) ++doorTris;
+        }
+    }
+    // The door keeps only the vertices its triangles use (PERF-3: a full copy of
+    // the hull's vertices per door was most of a split's memory).
+    for (ModelMesh& mesh : door.meshes) {
+        if (mesh.indices.empty()) { mesh.vertices.clear(); continue; }
+        std::vector<uint32_t> remap(mesh.vertices.size(), UINT32_MAX);
+        std::vector<ModelVertex> used;
+        for (uint32_t& index : mesh.indices) {
+            if (remap[index] == UINT32_MAX) { remap[index] = static_cast<uint32_t>(used.size()); used.push_back(mesh.vertices[index]); }
+            index = remap[index];
+        }
+        mesh.vertices.swap(used);
+    }
+    // The door's inner face is seen once it swings out: the same triangles again,
+    // wound the other way with their normals flipped, so the inside is lit too.
+    for (ModelMesh& mesh : door.meshes) {
+        if (mesh.indices.empty()) continue;
+        const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
+        std::vector<ModelVertex> inner = mesh.vertices;
+        // Normals kept as the outer skin's: the inside of a swung door takes the
+        // same light as the panel, not the dark of a face turned from the sun.
+        mesh.vertices.insert(mesh.vertices.end(), inner.begin(), inner.end());
+        const size_t n = mesh.indices.size();
+        for (size_t t = 0; t + 2 < n; t += 3) {
+            mesh.indices.push_back(base + mesh.indices[t + 2]);
+            mesh.indices.push_back(base + mesh.indices[t + 1]);
+            mesh.indices.push_back(base + mesh.indices[t]);
+        }
+    }
+    *doorTrisOut = doorTris;
+}
+
+// Wheels (VEHICLE-FEEL). A car model is one sealed shell with its wheels in it, so the
+// wheels are cut out of it the way the door is: every triangle that lies wholly inside
+// a wheel's disc (the wheel-arch bounds: a circle of the tyre's radius about the axle,
+// on the outer part of that side) goes to that wheel, the rest is the hull. The
+// parametric models carry their wheel centres as marker nodes (wheel_fl, ...); for the
+// image-to-3D shells the axles come from the CARI wheel rows, refined by where the
+// shell touches the road, and the radius from the body's height. Each wheel then turns
+// about its own axle and the front pair steers.
+struct WheelKey {
+    const Model* model; int zf, zr, hw;
+    bool operator<(const WheelKey& o) const { return std::tie(model, zf, zr, hw) < std::tie(o.model, o.zf, o.zr, o.hw); }
+};
+constexpr int kMaxWheels = 6;
+struct WheelSplit {
+    const Model* hull = nullptr;   // null: the model has no wheels to cut (drawn whole)
+    int n = 0;
+    const Model* wheel[kMaxWheels] = {};
+    gta2::Vec3 centre[kMaxWheels];
+    float radius[kMaxWheels] = {};
+};
+std::map<WheelKey, WheelSplit> g_wheelSplits;
+WheelKey WheelKeyFor(const Model& model, float zF, float zR, float halfW) {
+    return WheelKey{&model, static_cast<int>(std::floor(zF * 20.0f)), static_cast<int>(std::floor(zR * 20.0f)), static_cast<int>(std::floor(halfW * 40.0f))};
+}
+
+void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float zR, float halfW, float roof,
+                     Model* hullOut, std::vector<Model>* wheelsOut, std::vector<gta2::Vec3>* centresOut, std::vector<float>* radiiOut) {
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    struct Wheel { gta2::Vec3 c; float r; float xin; };
+    std::vector<Wheel> wheels;
+    // Marker nodes first (the parametric bodies and the wrecks).
+    for (size_t n = 0; n < model.nodes.size() && wheels.size() < static_cast<size_t>(kMaxWheels); ++n) {
+        if (strncmp(model.nodes[n].name, "wheel_", 6) != 0) continue;
+        const gta2::Vec3 c = PointBy(Mul(worlds[n], fit), 0.0f, 0.0f, 0.0f);
+        const float r = (std::max)(0.03f, c.y);
+        wheels.push_back(Wheel{c, r, (std::max)(0.25f * halfW, std::fabs(c.x) - 1.2f * r)});
+    }
+    if (wheels.empty()) {
+        // The shell: where it touches the road, near each CARI axle.
+        float minY = 1e9f;
+        std::vector<gta2::Vec3> pts;
+        for (size_t n = 0; n < model.nodes.size(); ++n) {
+            const int mi = model.nodes[n].mesh;
+            if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+            const gta2::Mat4 toCar = Mul(worlds[n], fit);
+            for (const ModelVertex& v : model.meshes[static_cast<size_t>(mi)].vertices) {
+                const gta2::Vec3 q = PointBy(toCar, v.x, v.y, v.z);
+                pts.push_back(q);
+                minY = (std::min)(minY, q.y);
+            }
+        }
+        const float r = (std::max)(0.055f, (std::min)(0.13f, 0.21f * roof));
+        const float mid = 0.5f * (zF + zR);
+        float sum[2] = {0, 0}; int cnt[2] = {0, 0};
+        for (const gta2::Vec3& q : pts) {
+            if (q.y > minY + 0.02f) continue;
+            const int k = q.z > mid ? 0 : 1;
+            const float hint = k ? zR : zF;
+            if (std::fabs(q.z - hint) > 2.0f * r) continue;
+            sum[k] += q.z; ++cnt[k];
+        }
+        const float zc[2] = {cnt[0] >= 3 ? sum[0] / cnt[0] : zF, cnt[1] >= 3 ? sum[1] / cnt[1] : zR};
+        for (int k = 0; k < 2; ++k) {
+            for (int side = -1; side <= 1; side += 2) {
+                float outer = 0.0f;
+                for (const gta2::Vec3& q : pts) {
+                    if (q.y < minY + 1.6f * r && std::fabs(q.z - zc[k]) < 0.8f * r) outer = (std::max)(outer, static_cast<float>(side) * q.x);
+                }
+                if (outer < 0.3f * halfW) outer = 0.85f * halfW;
+                const gta2::Vec3 c{static_cast<float>(side) * (outer - 0.3f * r), minY + r, zc[k]};
+                wheels.push_back(Wheel{c, r, (std::max)(0.35f * halfW, outer - 0.9f * r)});
+            }
+        }
+    }
+    Model& hull = *hullOut;
+    hull.nodes = model.nodes; hull.forward = model.forward;
+    hull.boundsMin = model.boundsMin; hull.boundsMax = model.boundsMax;
+    for (int k = 0; k < 3; ++k) hull.paintRgb[k] = model.paintRgb[k];
+    hull.splitPaint = model.splitPaint;
+    hull.meshes.resize(model.meshes.size());
+    hull.name = model.name + "#nowheels";
+    std::vector<Model> parts(wheels.size());
+    for (size_t w = 0; w < parts.size(); ++w) {
+        Model& m = parts[w];
+        m.nodes = model.nodes; m.forward = model.forward;
+        m.boundsMin = model.boundsMin; m.boundsMax = model.boundsMax;
+        for (int k = 0; k < 3; ++k) m.paintRgb[k] = model.paintRgb[k];
+        m.splitPaint = model.splitPaint;
+        m.meshes.resize(model.meshes.size());
+        m.name = model.name + "#wheel" + std::to_string(w);
+    }
+    for (size_t n = 0; n < model.nodes.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& src = model.meshes[static_cast<size_t>(mi)];
+        ModelMesh& hm = hull.meshes[static_cast<size_t>(mi)];
+        hm.vertices = src.vertices; hm.texture = src.texture; hm.skin = -1;
+        for (Model& m : parts) { m.meshes[static_cast<size_t>(mi)].vertices = src.vertices; m.meshes[static_cast<size_t>(mi)].texture = src.texture; m.meshes[static_cast<size_t>(mi)].skin = -1; }
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        std::vector<gta2::Vec3> q(src.vertices.size());
+        for (size_t i = 0; i < src.vertices.size(); ++i) q[i] = PointBy(toCar, src.vertices[i].x, src.vertices[i].y, src.vertices[i].z);
+        for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
+            int owner = -1;
+            for (size_t w = 0; w < wheels.size() && owner < 0; ++w) {
+                const Wheel& wh = wheels[w];
+                const float side = wh.c.x >= 0.0f ? 1.0f : -1.0f;
+                const float rr = 1.06f * wh.r;
+                bool in = true;
+                for (int c = 0; c < 3 && in; ++c) {
+                    const gta2::Vec3& p = q[src.indices[t + static_cast<size_t>(c)]];
+                    const float dy = p.y - wh.c.y, dz = p.z - wh.c.z;
+                    in = side * p.x > wh.xin && dy * dy + dz * dz < rr * rr;
+                }
+                if (in) owner = static_cast<int>(w);
+            }
+            ModelMesh& dst = owner < 0 ? hm : parts[static_cast<size_t>(owner)].meshes[static_cast<size_t>(mi)];
+            dst.indices.push_back(src.indices[t]); dst.indices.push_back(src.indices[t + 1]); dst.indices.push_back(src.indices[t + 2]);
+        }
+    }
+    // Each wheel keeps only the vertices it uses; a wheel with nothing in it is dropped.
+    for (size_t w = 0; w < parts.size(); ++w) {
+        size_t tris = 0;
+        for (ModelMesh& mesh : parts[w].meshes) {
+            if (mesh.indices.empty()) { mesh.vertices.clear(); continue; }
+            std::vector<uint32_t> remap(mesh.vertices.size(), UINT32_MAX);
+            std::vector<ModelVertex> used;
+            for (uint32_t& index : mesh.indices) {
+                if (remap[index] == UINT32_MAX) { remap[index] = static_cast<uint32_t>(used.size()); used.push_back(mesh.vertices[index]); }
+                index = remap[index];
+            }
+            mesh.vertices.swap(used);
+            tris += mesh.indices.size() / 3;
+        }
+        if (tris < 4) continue;
+        wheelsOut->push_back(std::move(parts[w]));
+        centresOut->push_back(wheels[w].c);
+        radiiOut->push_back(wheels[w].r);
+    }
+}
+
+// The worker. Jobs come in two queues (urgent: a car on screen wants it now;
+// idle: the dent steps of a model seen, built ahead) and finished copies wait in
+// g_wearDone until the render thread registers them (WearCollect).
+struct WearJob {
+    bool door = false;
+    bool wheels = false;                // a wheel split (VEHICLE-FEEL); `door` is false then
+    WheelKey wkey{};
+    const Model* model = nullptr;
+    int step = 0;                       // dent
+    DoorKey key{};                      // door
+    gta2::Mat4 fit;
+    int side = 1;
+    float zFront = 0, zRear = 0, roof = 0, halfW = 0;
+};
+struct WearResult {
+    WearJob job;
+    Model a, b;                         // dented copy | body without the door, and the door
+    size_t count = 0;                   // vertices moved | door triangles
+    double ms = 0.0;
+    std::vector<Model> wheels;          // a wheel split: the hull is `a`
+    std::vector<gta2::Vec3> centres;
+    std::vector<float> radii;
+};
+CRITICAL_SECTION g_wearLock;
+HANDLE g_wearWake = nullptr;
+bool g_wearStarted = false, g_wearFailed = false;
+std::deque<WearJob> g_wearUrgent, g_wearIdle;      // under g_wearLock
+std::vector<WearResult*> g_wearDone;               // under g_wearLock
+// Render thread only: what has been asked for and not collected yet, the models
+// whose dent steps were queued ahead, and what the copies hold.
+std::set<DentKey> g_dentAsked;
+std::set<DoorKey> g_doorAsked;
+std::set<WheelKey> g_wheelAsked;
+size_t g_wheelBytes = 0;
+int g_wheelLate = 0;
+// Wheel splits are per (model, dent step, sprite footprint); past this much memory no
+// new one is made and the car is drawn whole (its wheels do not turn).
+constexpr size_t kWheelSplitBytes = 64u << 20;
+std::set<const Model*> g_dentQueued;
+size_t g_wearBytes = 0, g_dentBytes = 0, g_doorBytes = 0;
+int g_wearCollected = 0, g_dentLate = 0, g_doorLate = 0;
+double g_wearWorkMs = 0.0;
+// Ahead-of-need dent copies stop being queued past this much memory (the
+// urgent ones are always built). 68 car models x 4 steps would be ~125 MB.
+constexpr size_t kDentAheadBytes = 160u << 20;
+// Door splits are per (model, dent step, side, sprite); past this much memory the
+// dented ones are no longer made (see the door in CarBodiesDraw).
+constexpr size_t kDoorSplitBytes = 64u << 20;
+
+// A copy's first draw creates its vertex and index buffers (dynamic, default pool, see
+// ModelRegisterDerived): cheap alone, but a forced door on every car in view finished a
+// dozen copies at once, and twelve buffer creations in one frame cost 170 ms on a busy
+// host (p3_fin4_wil). One new copy a frame goes on screen; the rest wait a frame or two
+// with the previous step or the shut door.
+std::set<const Model*> g_wearShown;
+uint32_t g_wearShowFrame = 0;
+int g_wearShownThisFrame = 0;
+bool WearMayShow(const Model* copy, uint32_t frame) {
+    if (g_wearShown.count(copy)) return true;
+    if (frame != g_wearShowFrame) { g_wearShowFrame = frame; g_wearShownThisFrame = 0; }
+    if (g_wearShownThisFrame >= 1) return false;
+    ++g_wearShownThisFrame;
+    g_wearShown.insert(copy);
+    return true;
+}
+uint32_t g_wearFrame = 0;   // the cars stage's frame, for WearMayShow
+
+size_t ModelBytes(const Model& m) {
+    size_t n = sizeof(Model) + m.nodes.size() * sizeof(ModelNode);
+    for (const ModelMesh& mesh : m.meshes) n += sizeof(ModelMesh) + mesh.vertices.size() * sizeof(ModelVertex) + mesh.indices.size() * sizeof(uint32_t);
+    return n;
+}
+
+DWORD WINAPI WearThread(void*) {
+    for (;;) {
+        WearJob job;
+        bool have = false, ahead = false;
+        EnterCriticalSection(&g_wearLock);
+        if (!g_wearUrgent.empty()) { job = g_wearUrgent.front(); g_wearUrgent.pop_front(); have = true; }
+        else if (!g_wearIdle.empty()) { job = g_wearIdle.front(); g_wearIdle.pop_front(); have = true; ahead = true; }
+        LeaveCriticalSection(&g_wearLock);
+        if (!have) { WaitForSingleObject(g_wearWake, 200); continue; }
+        WearResult* r = new WearResult;
+        r->job = job;
+        const double t0 = CarNowMs();
+        if (job.wheels) BuildWheelSplit(*job.model, job.fit, job.zFront, job.zRear, job.halfW, job.roof, &r->a, &r->wheels, &r->centres, &r->radii);
+        else if (!job.door) r->a = BuildDented(*job.model, job.step, &r->count);
+        else BuildDoorSplit(*job.model, job.fit, job.side, job.zFront, job.zRear, job.roof, job.halfW, &r->a, &r->b, &r->count);
+        r->ms = CarNowMs() - t0;
+        const double ms = r->ms;
+        EnterCriticalSection(&g_wearLock);
+        g_wearDone.push_back(r);
+        LeaveCriticalSection(&g_wearLock);
+        // Work ahead of need takes at most half of one CPU: the play container has
+        // three, shared with the game's own thread, Wine's and the VNC encoder.
+        if (ahead) Sleep(static_cast<DWORD>((std::max)(5.0, ms)));
+    }
+}
+
+bool WearStart() {
+    if (g_wearStarted) return true;
+    if (g_wearFailed) return false;
+    InitializeCriticalSection(&g_wearLock);
+    g_wearWake = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    HANDLE thread = g_wearWake ? CreateThread(nullptr, 0, WearThread, nullptr, 0, nullptr) : nullptr;
+    if (!thread) {
+        g_wearFailed = true;
+        Log("car bodies: no wear thread; dents and door splits are built on the render thread");
+        return false;
+    }
+    SetThreadPriority(thread, THREAD_PRIORITY_LOWEST);
+    CloseHandle(thread);
+    g_wearStarted = true;
+    Log("car bodies: dents and door splits are built on a thread of their own");
+    return true;
+}
+
+void WearPush(const WearJob& job, bool urgent) {
+    EnterCriticalSection(&g_wearLock);
+    if (urgent) g_wearUrgent.push_back(job); else g_wearIdle.push_back(job);
+    LeaveCriticalSection(&g_wearLock);
+    SetEvent(g_wearWake);
+}
+
+// Finished copies into the model store and the caches (render thread, the start
+// of every cars stage; a move each, no copying).
+void WearCollect() {
+    if (!g_wearStarted) return;
+    // At most ~2 ms of it a frame (each copy is a log line and a few set inserts; a
+    // forced door on every car in view finishes a dozen at once): the rest wait.
+    std::vector<WearResult*> done;
+    const double t0 = CarNowMs();
+    EnterCriticalSection(&g_wearLock);
+    done.swap(g_wearDone);
+    LeaveCriticalSection(&g_wearLock);
+    for (size_t i = 0; i < done.size(); ++i) {
+        if (i > 0 && CarNowMs() - t0 > 2.0) {
+            EnterCriticalSection(&g_wearLock);
+            g_wearDone.insert(g_wearDone.begin(), done.begin() + static_cast<std::ptrdiff_t>(i), done.end());
+            LeaveCriticalSection(&g_wearLock);
+            break;
+        }
+        WearResult* r = done[i];
+        ++g_wearCollected;
+        g_wearWorkMs += r->ms;
+        if (r->job.wheels) {
+            size_t bytes = ModelBytes(r->a);
+            for (const Model& m : r->wheels) bytes += ModelBytes(m);
+            WheelSplit split;
+            if (!r->wheels.empty()) {
+                g_wheelBytes += bytes;
+                g_wearBytes += bytes;
+                split.hull = ModelRegisterDerived(std::move(r->a), true);
+                for (size_t w = 0; w < r->wheels.size() && w < static_cast<size_t>(kMaxWheels); ++w) {
+                    split.wheel[w] = ModelRegisterDerived(std::move(r->wheels[w]), true);
+                    split.centre[w] = r->centres[w];
+                    split.radius[w] = r->radii[w];
+                    ++split.n;
+                }
+            }
+            g_wheelSplits[r->job.wkey] = split;
+            g_wheelAsked.erase(r->job.wkey);
+            if (g_wearCollected <= 400)
+                Log("car bodies: wheel split of %s: %d wheels, radius %.3f, axles at %.2f/%.2f (CARI %.2f/%.2f), track %.2f (worker %.1f ms, %.1f MB of wheel splits)",
+                    r->job.model->name.c_str(), split.n, split.n ? split.radius[0] : 0.0f, split.n ? split.centre[0].z : 0.0f,
+                    split.n ? split.centre[split.n - 1].z : 0.0f, r->job.zFront, r->job.zRear, split.n ? std::fabs(split.centre[0].x) * 2.0f : 0.0f,
+                    r->ms, static_cast<double>(g_wheelBytes) / (1 << 20));
+        } else if (!r->job.door) {
+            const DentKey key{r->job.model, r->job.step};
+            const size_t bytes = ModelBytes(r->a);
+            g_dentBytes += bytes;
+            g_wearBytes += bytes;
+            g_dents[key] = ModelRegisterDerived(std::move(r->a), true);
+            g_dentAsked.erase(key);
+            if (g_wearCollected <= 400)
+                Log("car bodies: dented copy of %s, step %d of %d: %zu vertices pressed in, up to %.3f of the length (worker %.1f ms, %.1f MB of copies)",
+                    r->job.model->name.c_str(), r->job.step, kDentSteps, r->count, 0.02f * static_cast<float>(r->job.step) / static_cast<float>(kDentSteps),
+                    r->ms, static_cast<double>(g_wearBytes) / (1 << 20));
+        } else {
+            const size_t bytes = ModelBytes(r->a) + ModelBytes(r->b);
+            g_doorBytes += bytes;
+            g_wearBytes += bytes;
+            DoorSplit split{ModelRegisterDerived(std::move(r->a), true), ModelRegisterDerived(std::move(r->b), true)};
+            g_doorSplits[r->job.key] = split;
+            g_doorAsked.erase(r->job.key);
+            if (g_wearCollected <= 400)
+                Log("car bodies: door split of %s, side %d: %zu door triangles between z %.2f and %.2f (worker %.1f ms, %.1f MB of copies)",
+                    r->job.model->name.c_str(), r->job.side, r->count, r->job.zRear, r->job.zFront, r->ms, static_cast<double>(g_wearBytes) / (1 << 20));
+        }
+        delete r;
+    }
+}
+
+// The four dent steps of a model, queued ahead of need the first time it is drawn.
+void DentQueueAhead(const Model& model) {
+    if (!g_wearStarted || !g_dentQueued.insert(&model).second) return;
+    if (g_dentBytes + 4 * ModelBytes(model) > kDentAheadBytes) return;
+    for (int step = 1; step <= kDentSteps; ++step) {
+        const DentKey key{&model, step};
+        if (g_dents.count(key) || !g_dentAsked.insert(key).second) continue;
+        WearJob job;
+        job.model = &model;
+        job.step = step;
+        WearPush(job, false);
+    }
+}
+
+// The dented copy when it is built; otherwise it is asked for (first in line)
+// and null comes back.
+const Model* DentReady(const Model& model, int step) {
+    const DentKey key{&model, step};
+    auto it = g_dents.find(key);
+    if (it != g_dents.end()) return WearMayShow(it->second, g_wearFrame) ? it->second : nullptr;
+    if (!WearStart()) {
+        // No thread: build here, as before PERF-3.
+        size_t moved = 0;
+        const double t0 = CarNowMs();
+        Model dented = BuildDented(model, step, &moved);
+        g_wearWorkMs += CarNowMs() - t0;
+        g_dentBytes += ModelBytes(dented);
+        g_wearBytes += ModelBytes(dented);
+        return g_dents[key] = ModelRegisterDerived(std::move(dented), true);
+    }
+    if (g_dentAsked.insert(key).second) {
+        WearJob job;
+        job.model = &model;
+        job.step = step;
+        WearPush(job, true);
+    } else {
+        // Already queued ahead: move it to the front.
+        EnterCriticalSection(&g_wearLock);
+        for (auto q = g_wearIdle.begin(); q != g_wearIdle.end(); ++q) {
+            if (!q->door && !q->wheels && q->model == &model && q->step == step) { g_wearUrgent.push_front(*q); g_wearIdle.erase(q); break; }
+        }
+        LeaveCriticalSection(&g_wearLock);
+    }
+    ++g_dentLate;
+    return nullptr;
+}
+
+// The best dented copy there is for a car that wants `step`: that step, else the
+// highest lower step already built, else the model itself.
+const Model* DentedModelFor(const Model& model, int step) {
+    if (const Model* m = DentReady(model, step)) return m;
+    for (int s = step - 1; s >= 1; --s) {
+        auto it = g_dents.find(DentKey{&model, s});
+        if (it != g_dents.end() && g_wearShown.count(it->second)) return it->second;
+    }
+    return &model;
+}
+
+// The door split when it is built; otherwise it is asked for and false comes back.
+bool DoorReady(const Model& model, const gta2::Mat4& fit, int side, float zFront, float zRear, float roof, float halfW, DoorSplit* out) {
+    const DoorKey key = DoorKeyFor(model, side, zFront, zRear);
+    auto it = g_doorSplits.find(key);
+    if (it != g_doorSplits.end()) {
+        // Both halves count as one copy on screen (the door half is a few hundred triangles).
+        if (!WearMayShow(it->second.body, g_wearFrame)) return false;
+        g_wearShown.insert(it->second.door);
+        *out = it->second;
+        return true;
+    }
+    WearJob job;
+    job.door = true;
+    job.model = &model;
+    job.key = key;
+    job.fit = fit;
+    job.side = side;
+    job.zFront = zFront; job.zRear = zRear; job.roof = roof; job.halfW = halfW;
+    if (!WearStart()) {
+        Model body, door;
+        size_t tris = 0;
+        BuildDoorSplit(model, fit, side, zFront, zRear, roof, halfW, &body, &door, &tris);
+        g_doorBytes += ModelBytes(body) + ModelBytes(door);
+        g_wearBytes += ModelBytes(body) + ModelBytes(door);
+        *out = g_doorSplits[key] = DoorSplit{ModelRegisterDerived(std::move(body), true), ModelRegisterDerived(std::move(door), true)};
+        return true;
+    }
+    if (g_doorAsked.insert(key).second) WearPush(job, true);
+    ++g_doorLate;
+    return false;
+}
+
+// The wheel split when it is built (hull null: nothing to cut); otherwise it is asked
+// for and false comes back.
+bool WheelReady(const Model& model, const gta2::Mat4& fit, float zF, float zR, float halfW, float roof, WheelSplit* out) {
+    const WheelKey key = WheelKeyFor(model, zF, zR, halfW);
+    auto it = g_wheelSplits.find(key);
+    if (it != g_wheelSplits.end()) {
+        if (!it->second.hull) return false;
+        if (!WearMayShow(it->second.hull, g_wearFrame)) return false;
+        for (int w = 0; w < it->second.n; ++w) g_wearShown.insert(it->second.wheel[w]);
+        *out = it->second;
+        return true;
+    }
+    if (!WearStart() || g_wheelBytes > kWheelSplitBytes) return false;   // no thread: never on the render thread
+    if (g_wheelAsked.insert(key).second) {
+        WearJob job;
+        job.wheels = true;
+        job.model = &model;
+        job.wkey = key;
+        job.fit = fit;
+        job.zFront = zF; job.zRear = zR; job.roof = roof; job.halfW = halfW;
+        WearPush(job, true);
+    }
+    ++g_wheelLate;
+    return false;
+}
+
+// Turrets (POLICE-3D). The tank's gun turret and the fire truck's roof gear
+// (the water cannon on its ladder deck) are part of each model's one sealed
+// mesh, and the game aims them on their own: the turret is a sprite object of
+// its own over the hull, with a heading of its own (CarBodiesSetTurret). The
+// model is split once into the hull and the part above a height cut (`cut` of
+// the roof; for the fire truck only behind `zMax` along the body), and that part
+// is turned about the vertical through its own middle by the turret's heading
+// against the hull's.
+struct TurretKey {
+    const Model* model; int cut, zMax;
+    bool operator<(const TurretKey& o) const { return std::tie(model, cut, zMax) < std::tie(o.model, o.cut, o.zMax); }
+};
+struct TurretSplit { const Model* hull; const Model* turret; float pivotX, pivotZ; };
+std::map<TurretKey, TurretSplit> g_turretSplits;
+struct TurretAim { float dirX = 0.0f, dirZ = 1.0f; uint32_t frame = 0; };
+std::map<uintptr_t, TurretAim> g_turretAims;   // by the car's sprite object
+int g_turretLogged = 0;
+
+TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof, float cut, float zMax) {
+    const TurretKey key{&model, static_cast<int>(cut * 100.0f), static_cast<int>(std::floor(zMax * 50.0f))};
+    auto it = g_turretSplits.find(key);
+    if (it != g_turretSplits.end()) return it->second;
+    if (g_turretSplits.size() > 16) g_turretSplits.clear();
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    Model hull, top;
+    for (Model* m : {&hull, &top}) {
+        m->nodes = model.nodes; m->forward = model.forward;
+        m->boundsMin = model.boundsMin; m->boundsMax = model.boundsMax;
+        for (int k = 0; k < 3; ++k) m->paintRgb[k] = model.paintRgb[k];
+        m->splitPaint = model.splitPaint;
+        m->meshes.resize(model.meshes.size());
+    }
+    hull.name = model.name + "#hull"; top.name = model.name + "#turret";
+    size_t topTris = 0;
+    double ax = 0.0, az = 0.0, aw = 0.0;
+    for (size_t n = 0; n < model.nodes.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& src = model.meshes[static_cast<size_t>(mi)];
+        ModelMesh& dh = hull.meshes[static_cast<size_t>(mi)];
+        ModelMesh& dt = top.meshes[static_cast<size_t>(mi)];
+        dh.vertices = src.vertices; dh.texture = src.texture; dh.skin = -1;
+        dt.vertices = src.vertices; dt.texture = src.texture; dt.skin = -1;
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
+            gta2::Vec3 q[3];
+            float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                q[c] = PointBy(toCar, v.x, v.y, v.z);
+                cx += q[c].x; cy += q[c].y; cz += q[c].z;
+            }
+            cx /= 3.0f; cy /= 3.0f; cz /= 3.0f;
+            const bool isTop = cy > cut * roof && cz < zMax;
+            ModelMesh& dst = isTop ? dt : dh;
+            dst.indices.push_back(src.indices[t]); dst.indices.push_back(src.indices[t + 1]); dst.indices.push_back(src.indices[t + 2]);
+            if (isTop) {
+                ++topTris;
+                const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
+                const double area = std::sqrt(gta2::Dot(nrm, nrm));
+                ax += area * cx; az += area * cz; aw += area;
+            }
+        }
+    }
+    TurretSplit split{nullptr, nullptr, 0.0f, 0.0f};
+    if (topTris >= 8 && aw > 0.0) {
+        split.pivotX = static_cast<float>(ax / aw); split.pivotZ = static_cast<float>(az / aw);
+        split.hull = ModelRegisterDerived(std::move(hull));
+        split.turret = ModelRegisterDerived(std::move(top));
+    }
+    g_turretSplits[key] = split;
+    Log("car bodies: turret split of %s above %.2f of the roof (z < %.2f): %zu triangles, pivot %.3f,%.3f", model.name.c_str(), cut, zMax, topTris,
+        split.pivotX, split.pivotZ);
+    return split;
+}
+
+// How far each car's door stands open (0 shut, 1 fully), by sprite object.
+struct DoorState { float open = 0.0f; int side = 1; uint32_t frame = 0; DoorSplit last{nullptr, nullptr}; int lastSide = 0; };
+std::map<uintptr_t, DoorState> g_doors;
+int g_damageLogged = 0;
 
 Built* Measured(IDirect3DDevice9* device, const CarBodyUse& use, IDirect3DTexture9* art, uint32_t frame) {
     (void)device;
@@ -1014,6 +1901,11 @@ void CarBodiesSetInfo(const std::vector<gta2::CarInfo>& infos) {
     }
     Log("car bodies: %u car models measured for %u sprites", static_cast<unsigned>(infos.size()),
         static_cast<unsigned>(g_info.size()));
+    if (ModelsAvailable()) WearStart();
+    if (g_wearCollected || g_dentLate || g_doorLate)
+        Log("car bodies: wear copies so far: %d built on the worker (%.0f ms of its time), %.1f MB (dents %.1f, doors %.1f); frames a car waited: dent %d, door %d",
+            g_wearCollected, g_wearWorkMs, static_cast<double>(g_wearBytes) / (1 << 20), static_cast<double>(g_dentBytes) / (1 << 20),
+            static_cast<double>(g_doorBytes) / (1 << 20), g_dentLate, g_doorLate);
 }
 
 bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth) {
@@ -1022,6 +1914,15 @@ bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscr
     *deck = it->second.deck;
     *roof = it->second.roof;
     *windscreen = it->second.windscreen;
+    *halfWidth = it->second.halfWidth;
+    return true;
+}
+
+bool CarBodiesExtent(const void* object, float* length, float* height, float* halfWidth) {
+    const auto it = g_cabins.find(reinterpret_cast<uintptr_t>(object));
+    if (it == g_cabins.end()) return false;
+    *length = it->second.length;
+    *height = it->second.height;
     *halfWidth = it->second.halfWidth;
     return true;
 }
@@ -1039,6 +1940,38 @@ bool g_lampDark = false;
 IDirect3DTexture9* g_glow = nullptr;
 struct Motion { float x, z, speed; uint32_t frame; float brake; };
 std::map<uintptr_t, Motion> g_motion;
+
+// The beacon bulb under Remix: the glow with its colour in the texels. Remix drops the
+// vertex colour (rtx.ignoreAllVertexColorBakedLighting) and takes an additive draw as
+// emissive, so the vertex-coloured white glow showed as a white flare (REMIX-3); with the
+// colour in the texture the bulb glows red, blue, white or amber. One per siren colour.
+IDirect3DTexture9* g_beaconGlow[4] = {};
+IDirect3DTexture9* BeaconGlowTexture(IDirect3DDevice9* device, int colour) {
+    if (colour < 0 || colour > 3) colour = 0;
+    if (g_beaconGlow[colour]) return g_beaconGlow[colour];
+    const float* rgb = SyntheticSirenColour(colour);
+    const int n = 32;
+    IDirect3DTexture9* tex = nullptr;
+    if (FAILED(device->CreateTexture(n, n, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr))) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (SUCCEEDED(tex->LockRect(0, &lr, nullptr, 0))) {
+        for (int y = 0; y < n; ++y) {
+            uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+            for (int x = 0; x < n; ++x) {
+                const float dx = (x + 0.5f) / n - 0.5f, dy = (y + 0.5f) / n - 0.5f;
+                const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
+                // A lens: full colour across most of the disc, a short soft edge.
+                const float a = (std::max)(0.0f, (std::min)(1.0f, (1.0f - r) * 4.0f));
+                uint32_t c[3];
+                for (int k = 0; k < 3; ++k) c[k] = static_cast<uint32_t>((std::min)(1.0f, (std::max)(0.0f, rgb[k])) * a * 255.0f + 0.5f);
+                row[x] = (static_cast<uint32_t>(a * 255.0f + 0.5f) << 24) | (c[0] << 16) | (c[1] << 8) | c[2];
+            }
+        }
+        tex->UnlockRect(0);
+    }
+    g_beaconGlow[colour] = tex;
+    return tex;
+}
 
 IDirect3DTexture9* GlowTexture(IDirect3DDevice9* device) {
     if (g_glow) return g_glow;
@@ -1066,8 +1999,10 @@ constexpr DWORD kLampFvf = D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1;
 
 // `carToWorld`: the body's frame (x across, y up, z along, nose +z); `length`,
 // `width`, `roof` in blocks. Leaves the states it changes as it found them.
+// `feel` (VEHICLE-FEEL, null when off): its brake and reverse levels replace the
+// measure here, reverse lamps join the tail lamps, and lit head lamps lay a pool on the road.
 void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length,
-               float width, float roof, uint32_t frame, bool wreck) {
+               float width, float roof, uint32_t frame, bool wreck, const VehicleFeel* feel = nullptr) {
     if (g_lampMode == 0 || wreck) return;
     // How fast, and is it slowing: the body's position frame to frame.
     Motion& mo = g_motion[use.object];
@@ -1085,18 +2020,29 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
     mo.x = x; mo.z = z; mo.frame = frame;
     if (g_motion.size() > 2048) { const Motion keep = mo; g_motion.clear(); g_motion[use.object] = keep; }
     const bool lit = g_lampMode == 2 || g_lampDark;
-    if (!lit && mo.brake < 0.05f) return;
+    const bool useFeel = feel && feel->on;
+    const float brake = useFeel ? feel->brake : mo.brake;
+    const float reverse = useFeel ? feel->reverse : 0.0f;
+    if (lit && useFeel) VehicleFxQueueHeadlamps(carToWorld, length, width);
+    if (!lit && brake < 0.05f && reverse < 0.05f) return;
     IDirect3DTexture9* glow = GlowTexture(device);
     if (!glow) return;
     const float hx = 0.34f * width, hy = (std::max)(0.05f, 0.30f * roof), nose = 0.5f * length + 0.006f;
     struct Lamp { float x, y, z; float size; DWORD color; };
-    Lamp lamps[4]; int n = 0;
+    Lamp lamps[6]; int n = 0;
     if (lit) {
         lamps[n++] = {-hx, hy, nose, 0.11f, 0xFFFFF0C8u};
         lamps[n++] = {hx, hy, nose, 0.11f, 0xFFFFF0C8u};
     }
+    if (reverse > 0.05f) {
+        // Reverse lamps: white, inboard of the tail lamps.
+        const int k = static_cast<int>(reverse * 235.0f);
+        const DWORD col = D3DCOLOR_ARGB(255, k, k, (k * 15) / 16);
+        lamps[n++] = {-0.55f * hx, hy, -nose, 0.065f, col};
+        lamps[n++] = {0.55f * hx, hy, -nose, 0.065f, col};
+    }
     {
-        const float b = mo.brake;
+        const float b = brake;
         const int r = static_cast<int>((lit ? 150.0f : 0.0f) + b * 105.0f), g = static_cast<int>(lit ? 30.0f : 0.0f);
         if (r > 0) {
             const DWORD col = D3DCOLOR_ARGB(255, r, g, g / 2);
@@ -1108,7 +2054,7 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
     if (!n) return;
     // Camera-facing quads: the car's axes give "across" and "up" of the body; a
     // lamp glow is round, so its own quad is spanned by the car's x and y.
-    LampVertex v[16];
+    LampVertex v[24];
     int count = 0;
     for (int i = 0; i < n; ++i) {
         const Lamp& l = lamps[i];
@@ -1128,7 +2074,8 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
             o.color = l.color; o.u = uv[k][0]; o.v = uv[k][1];
         }
     }
-    static const uint16_t idx[24] = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11, 12, 13, 14, 12, 14, 15};
+    static const uint16_t idx[36] = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11, 12, 13, 14, 12, 14, 15,
+                                     16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23};
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
     device->SetTransform(D3DTS_WORLD, &identity);
@@ -1155,6 +2102,155 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
     device->SetRenderState(D3DRS_LIGHTING, TRUE);
 }
 
+// Emergency lights on the 3D bodies (POLICE-3D). The game lights a siren car's
+// roof lamps as sprite deltas 15..18 (the car's delta mask, vehicle +0x08) while
+// its siren runs; a 3D model hides the sprite, so those lamps were lost in the
+// street views. A car of a siren model (cop car 12, ambulance 34, fire truck 17,
+// SWAT van 52) with any of those bits set gets two
+// beacons on its roof that flash in turn, the colours by model; with the siren
+// off the bar is dark. Drawn day and night, whatever car_lamps says.
+// `[devtools] force_sirens=1` lights them on every siren model for checks.
+int g_forceSirens = 0;
+int g_beaconLogged = 0;
+void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length, float width,
+                 float roof, uint32_t frame, int modelNumber) {
+    DWORD colA = 0, colB = 0;
+    int kindA = kSirenRed, kindB = kSirenBlue;   // SirenColour, for the lights and the Remix bulbs
+    float along = 0.0f;
+    switch (modelNumber) {
+        case 12: case 52: colA = 0xFFFF2010u; colB = 0xFF1040FFu; along = -0.05f; break;   // police: red, blue
+        case 34: colA = 0xFFFF2010u; colB = 0xFFFFF4E0u; kindB = kSirenWhite; along = 0.30f; break;   // ambulance: red, white, over the cab
+        case 17: colA = 0xFFFF2010u; colB = 0xFFFF7010u; kindB = kSirenAmber; along = 0.36f; break;   // fire truck: red, amber, over the cab
+        default: return;
+    }
+    uint32_t mask = 0;
+    uintptr_t vehicle = use.object;
+    {
+        const uint8_t* object = reinterpret_cast<const uint8_t*>(use.object);
+        const uint8_t* car = object ? *reinterpret_cast<const uint8_t* const*>(object + 0x08) : nullptr;   // sprite owner -> vehicle
+        if (car && reinterpret_cast<uintptr_t>(car) > 0x10000) {
+            mask = *reinterpret_cast<const uint32_t*>(car + 0x08);
+            vehicle = reinterpret_cast<uintptr_t>(car);
+        }
+    }
+    const uint32_t sirenBits = (0xFu << 15) | (0xFu << (15 + 17));   // deltas 15..18 and their mirrored copies
+    const bool on = (mask & sirenBits) != 0 || g_forceSirens != 0;
+    if (!on) return;
+    const bool remix = RemixApiAvailable();
+    IDirect3DTexture9* glow = GlowTexture(device);
+    if (!glow) return;
+    if (g_beaconLogged < 12) {
+        ++g_beaconLogged;
+        Log("car bodies: beacons on model %d object %p (delta mask %08x%s)", modelNumber, reinterpret_cast<const void*>(use.object), mask,
+            g_forceSirens ? ", forced" : "");
+    }
+    // The game's own lamps alternate; where it holds them all lit the flash is ours: 2.5 Hz.
+    const bool phase = ((frame / 6u) & 1u) != 0;
+    const bool litA = (mask & ((1u << 15) | (1u << 17))) ? true : phase;
+    const bool litB = (mask & ((1u << 16) | (1u << 18))) ? true : !phase;
+    const bool aOn = ((mask & sirenBits) == sirenBits || g_forceSirens) ? phase : litA;
+    const bool bOn = ((mask & sirenBits) == sirenBits || g_forceSirens) ? !phase : litB;
+    struct Beacon { float x; DWORD color; float size; };
+    Beacon beacons[4]; int n = 0;
+    const float hx = 0.22f * width, y = roof + 0.02f, z = along * length;
+    const float ax[3] = {carToWorld.m[0][0], carToWorld.m[0][1], carToWorld.m[0][2]};
+    const float ay[3] = {carToWorld.m[1][0], carToWorld.m[1][1], carToWorld.m[1][2]};
+    const float az[3] = {carToWorld.m[2][0], carToWorld.m[2][1], carToWorld.m[2][2]};
+    // Each lamp is also a light of its colour (synthetic_lights.cpp: a glow round the bulb and
+    // a rotating spot), lit while the bulb is, queued for the next frame's lights.
+    for (int i = 0; i < 2; ++i) {
+        const float bx = i ? hx : -hx;
+        float c[3];
+        for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + bx * ax[j] + y * ay[j] + z * az[j];
+        SyntheticQueueBeacon(vehicle, i, c, i ? kindB : kindA, i ? bOn : aOn);
+    }
+    if (remix) {
+        // Under Remix: the bulb alone, in its own colour (BeaconGlowTexture); the halo is
+        // the path tracer's (the light round the bulb and the bloom), and a 0.36 flat
+        // emissive cross would be a glowing plate.
+        if (aOn) beacons[n++] = {-hx, 0xFFFFFFFFu, 0.045f};
+        if (bOn) beacons[n++] = {hx, 0xFFFFFFFFu, 0.045f};
+    } else {
+        // A lit beacon is a bright core and a wide soft halo.
+        if (aOn) { beacons[n++] = {-hx, colA, 0.07f}; beacons[n++] = {-hx, (colA & 0x00FFFFFFu) | 0xFF000000u, 0.18f}; }
+        if (bOn) { beacons[n++] = {hx, colB, 0.07f}; beacons[n++] = {hx, (colB & 0x00FFFFFFu) | 0xFF000000u, 0.18f}; }
+    }
+    if (!n) return;
+    LampVertex v[48];
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    device->SetTransform(D3DTS_WORLD, &identity);
+    device->SetRenderState(D3DRS_LIGHTING, FALSE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetFVF(kLampFvf);
+    // Billboards facing the eye would need the camera here; the glows are spanned
+    // by the car's across and along axes (seen from above) and by across and up
+    // (seen from the street): two crossed quads per beacon. Under Remix a third, along
+    // and up, so the bulb is not edge-on from the side; and one draw per bulb, as each
+    // has its own texture there.
+    const int planes = remix ? 3 : 2;
+    auto draw = [&](int first, int last, IDirect3DTexture9* tex) {
+        int count = 0;
+        for (int i = first; i < last; ++i) {
+            const Beacon& bc = beacons[i];
+            const float s = bc.size;
+            DWORD col = bc.color;
+            if (s > 0.1f) {   // the halo dimmer than the core
+                const int r = static_cast<int>(((col >> 16) & 0xFF) * 0.45f), g = static_cast<int>(((col >> 8) & 0xFF) * 0.45f),
+                          b = static_cast<int>((col & 0xFF) * 0.45f);
+                col = D3DCOLOR_ARGB(255, r, g, b);
+            }
+            float c[3];
+            for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + bc.x * ax[j] + y * ay[j] + z * az[j];
+            const float corners[4][2] = {{-s, -s}, {s, -s}, {s, s}, {-s, s}};
+            const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+            const float* first2[3] = {ax, ax, az};
+            const float* second[3] = {ay, az, ay};
+            for (int q = 0; q < planes && count + 4 <= 48; ++q) {
+                const float* b1 = first2[q];
+                const float* b2 = second[q];
+                for (int k = 0; k < 4; ++k) {
+                    LampVertex& o = v[count++];
+                    o.x = c[0] + corners[k][0] * b1[0] + corners[k][1] * b2[0];
+                    o.y = c[1] + corners[k][0] * b1[1] + corners[k][1] * b2[1];
+                    o.z = c[2] + corners[k][0] * b1[2] + corners[k][1] * b2[2];
+                    o.color = col; o.u = uv[k][0]; o.v = uv[k][1];
+                }
+            }
+        }
+        if (!count || !tex) return;
+        uint16_t idx[72];
+        for (int q = 0; q < count / 4; ++q) {
+            const uint16_t b0 = static_cast<uint16_t>(q * 4);
+            const uint16_t t[6] = {b0, static_cast<uint16_t>(b0 + 1), static_cast<uint16_t>(b0 + 2), b0, static_cast<uint16_t>(b0 + 2), static_cast<uint16_t>(b0 + 3)};
+            memcpy(idx + q * 6, t, sizeof t);
+        }
+        device->SetTexture(0, tex);
+        device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(count), static_cast<UINT>(count / 2), idx,
+                                       D3DFMT_INDEX16, v, sizeof(LampVertex));
+    };
+    if (remix) {
+        for (int i = 0; i < n; ++i) draw(i, i + 1, BeaconGlowTexture(device, beacons[i].x < 0.0f ? kindA : kindB));
+    } else {
+        draw(0, n, glow);
+    }
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device->SetRenderState(D3DRS_LIGHTING, TRUE);
+}
+
 void CarBodiesSetLamps(int mode, bool dark) { g_lampMode = mode; g_lampDark = dark; }
 
 void CarBodiesReleaseDevice() {
@@ -1164,6 +2260,10 @@ void CarBodiesReleaseDevice() {
     }
     g_cache.clear();
     if (g_glow) { g_glow->Release(); g_glow = nullptr; }
+    VehicleFxReleaseDevice();
+    for (IDirect3DTexture9*& t : g_beaconGlow) {
+        if (t) { t->Release(); t = nullptr; }
+    }
     g_device = nullptr;
 }
 
@@ -1177,10 +2277,42 @@ bool Inside(const gta2::Mat4& carToWorld, const gta2::Vec3& p, float halfW, floa
     return std::fabs(x) < halfW + 0.15f && std::fabs(z) < halfL + 0.15f && y > -0.2f && y < height + 0.15f;
 }
 
+// VEHICLE-FEEL: the wheels each car last turned (for the one that flies off when it
+// blows up), and which corners a wreck model has lost (bit 0 front-left, 1 front-right,
+// 2 rear-left, 3 rear-right: its wheel_* markers are the wheels it kept).
+struct LastWheels { WheelSplit split; gta2::Mat4 fit; uint32_t frame = 0; };
+std::unordered_map<uintptr_t, LastWheels> g_lastWheels;
+std::map<const Model*, int> g_wreckLost;
+int WreckLostCorners(const Model& model) {
+    auto it = g_wreckLost.find(&model);
+    if (it != g_wreckLost.end()) return it->second;
+    static const char* names[4] = {"wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"};
+    int present = 0;
+    bool any = false;
+    for (const ModelNode& n : model.nodes) {
+        if (strncmp(n.name, "wheel_", 6) != 0) continue;
+        any = true;
+        for (int k = 0; k < 4; ++k) if (strcmp(n.name, names[k]) == 0) present |= 1 << k;
+    }
+    // The markers are in the model's own frame: with forward -1 its front is our rear.
+    int lost = any ? (~present & 0xF) : 0;
+    if (model.forward < 0.0f) lost = ((lost & 3) << 2) | ((lost >> 2) & 3);
+    return g_wreckLost[&model] = lost;
+}
+bool g_feelIniSet = false;
+
 void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame, const gta2::Vec3& eye) {
     g_built = 0;
     g_drawn = 0;
     for (double& v : g_carStats) v = 0.0;
+    g_wearFrame = frame;
+    {
+        const double tw = CarNowMs();
+        WearCollect();
+        const double ms = CarNowMs() - tw;
+        static int slowCollectLogged = 0;
+        if (ms > 4.0 && slowCollectLogged < 40) { ++slowCollectLogged; Log("car bodies: collecting the worker's copies took %.1f ms", ms); }
+    }
     if (cars.empty()) return;
     if (g_device != device) {
         CarBodiesReleaseDevice();
@@ -1226,11 +2358,28 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
 
     int builtThisFrame = 0;
-    if (g_devIni[0] && frame % 60 == 0) g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
+    if (g_devIni[0] && frame % 60 == 0) {
+        g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
+        g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
+        g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
+        g_forceSirens = GetPrivateProfileIntA("devtools", "force_sirens", 0, g_devIni);
+        // [devtools] vehicle_feel=0|1 (VEHICLE-FEEL): the feel off or on while the game
+        // runs, for before/after frames of one scene; absent leaves it as it is.
+        const int feelKey = GetPrivateProfileIntA("devtools", "vehicle_feel", -1, g_devIni);
+        if (feelKey >= 0) { VehicleFxSetEnabled(feelKey != 0); g_feelIniSet = true; }
+    }
+    VehicleFxSetDark(g_lampDark);
+    const bool feelOn = VehicleFxEnabled();
     if (g_logNoses < 0) { char v[8] = {}; g_logNoses = GetEnvironmentVariableA("GTA2DX9_LOG_CAR_NOSES", v, sizeof v) ? atoi(v) : 0; }
     for (const CarBodyUse& use : cars) {
         bool effect = false;
+        const double ta = CarNowMs();
         IDirect3DTexture9* art = DeviceTextureFor(device, use.texture, &effect, true);
+        {
+            const double ms = CarNowMs() - ta;
+            static int slowArtLogged = 0;
+            if (ms > 8.0 && slowArtLogged < 60) { ++slowArtLogged; Log("car bodies: the sprite artwork of a car took %.1f ms to fetch (sprite %d)", ms, use.sprite); }
+        }
         if (!art) continue;
         Built* b = Measured(device, use, art, frame);
         if (!b) continue;
@@ -1254,20 +2403,25 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // everything above a hand's breadth below the eye is clipped away and what
         // is left - hood, fenders, the cowl - is the view over a dashboard.
         const bool inside = Inside(carToWorld, eye, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.4f * b->bodyWidth);
-        if (inside && !use.own) continue;
+        // Nor the car he drives: a chase camera at the sedan distance sits inside a
+        // fire truck or a bus (run a33_fire1: the truck vanished from the chase view).
+        if (inside && !use.own && !use.driven) continue;
         bool clipped = false;
         // The hood-only copy is drawn on both paths (Remix ignores user clip planes;
         // on plain D3D9 the plane below still trims the copy's edge exactly).
         const bool cpuCut = inside && use.own;
-        float eyeLocalY = 0.0f, eyeLocalZ = 0.0f;
+        float eyeLocalX = 0.0f, eyeLocalY = 0.0f, eyeLocalZ = 0.0f;
         if (cpuCut) {
-            // The eye in the car's own frame: along its up and forward axes.
+            // The eye in the car's own frame: along its right, up and forward axes.
+            const float rx = carToWorld.m[0][0], ry = carToWorld.m[0][1], rz = carToWorld.m[0][2];
             const float ux = carToWorld.m[1][0], uy = carToWorld.m[1][1], uz = carToWorld.m[1][2];
             const float fx = carToWorld.m[2][0], fy = carToWorld.m[2][1], fz = carToWorld.m[2][2];
             const float dx = eye.x - carToWorld.m[3][0], dy = eye.y - carToWorld.m[3][1], dz = eye.z - carToWorld.m[3][2];
             const float ul = ux * ux + uy * uy + uz * uz, fl = fx * fx + fy * fy + fz * fz;
             eyeLocalY = ul > 1e-8f ? (dx * ux + dy * uy + dz * uz) / ul : 0.0f;
             eyeLocalZ = fl > 1e-8f ? (dx * fx + dy * fy + dz * fz) / fl : 0.0f;
+            const float rl = rx * rx + ry * ry + rz * rz;
+            eyeLocalX = rl > 1e-8f ? (dx * rx + dy * ry + dz * rz) / rl : 0.0f;
         }
         if (inside && use.own && !RemixApiAvailable()) {
             const float ux = carToWorld.m[1][0], uy = carToWorld.m[1][1], uz = carToWorld.m[1][2];
@@ -1322,13 +2476,36 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             fit.m[3][1] = -model->boundsMin.y * sy;
             fit.m[3][3] = 1.0f;
             // The car's paint over the model's own: what its painted textures are multiplied by.
-            const float tint[3] = {b->paint.r / model->paintRgb[0], b->paint.g / model->paintRgb[1], b->paint.b / model->paintRgb[2]};
+            // Not for a livery (cop car, taxi, ambulance, fire truck, buses, the
+            // service vans, the army's): its model is painted in the livery, which a
+            // remap would recolour (REMIX-3: under Remix the tint is applied too,
+            // rtx.enableMultiStageTextureFactorBlending). Nor for a model forced by
+            // the devtools: the paint measured is then another car's sprite's.
+            const bool keepOwnPaint = LiveryModel(modelNumber) || (g_forceModel >= 0 && !use.own);
+            const float tint[3] = {keepOwnPaint ? 1.0f : b->paint.r / model->paintRgb[0],
+                                   keepOwnPaint ? 1.0f : b->paint.g / model->paintRgb[1],
+                                   keepOwnPaint ? 1.0f : b->paint.b / model->paintRgb[2]};
             {
                 const float roof = model->Height() * sy;
                 const float cy = 0.5f * b->measure.h;
-                g_cabins[use.object] = {0.62f * roof, roof, (b->measure.cabinFront - cy) * b->scale, 0.5f * b->bodyWidth, frame};
+                Cabin cabin{0.62f * roof, roof, (b->measure.cabinFront - cy) * b->scale, 0.5f * b->bodyWidth, frame,
+                            b->bodyLength, roof};
+                // A tall or long body (taller than a sedan's roof by a quarter, or a
+                // third longer): the driver's cab from the model's own profile.
+                if ((roof > 0.45f || b->bodyLength > 1.3f) && modelNumber < 72) {
+                    const CabShape cab = CabShapeFor(*model, fit, modelNumber);
+                    if (cab.valid) {
+                        cabin.deck = cab.deck;
+                        cabin.roof = cab.roof;
+                        cabin.windscreen = cab.windscreen;
+                        cabin.length = (std::max)(cab.length, b->bodyLength);
+                        cabin.height = cab.height;
+                    }
+                }
+                g_cabins[use.object] = cabin;
             }
-            ModelSetPaintTint(tint);
+            // A livery is drawn with no tint stage at all (the same picture as a tint of 1).
+            ModelSetPaintTint(keepOwnPaint ? nullptr : tint);
             // A baked texture split into paint and the rest (import_assets.py's
             // paint_split) is two alpha-tested draws of the same mesh.
             device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
@@ -1338,15 +2515,191 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // Under Remix the own car is its hood-only copy (see HoodModelFor); the
             // same cuts the clip planes make elsewhere: a hand below the eye, a hand
             // ahead of it.
-            const Model* drawn = model;
-            if (cpuCut) drawn = HoodModelFor(*model, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f);
-            ModelDraw(device, *drawn, Mul(fit, carToWorld), nullptr, 0.0f);
+            // Wear: the damage byte in four steps, dents and a duller paint.
+            const int damageWord = g_forceDamage >= 0 ? g_forceDamage : use.damage;
+            const int dentStep = DentStepFor(damageWord);
+            // Burning (stage 3, from 16000) and burning hard (stage 4, from 25000): the paint
+            // scorched toward soot, on top of the dents' dulling.
+            // From the word too: the game sets the stage only when a hit crosses 16000.
+            const int fireStage = (std::max)(g_forceDamage >= 0 ? 0 : use.fireStage, damageWord >= 25000 ? 4 : damageWord >= 16000 ? 3 : 0);
+            if (use.driven) {
+                // The player's car: a line whenever its wear changes (the 40-line budget
+                // above is spent by the traffic in seconds).
+                static int lastStep = -1, lastFire = -1;
+                if (dentStep != lastStep || fireStage != lastFire) {
+                    Log("car bodies: the player's car (model %d) at damage %d: dent step %d, fire stage %d", modelNumber, damageWord, dentStep, fireStage);
+                    lastStep = dentStep; lastFire = fireStage;
+                }
+            }
+            if (modelNumber < 72) DentQueueAhead(*model);
+            const Model* worn = dentStep > 0 && modelNumber < 72 ? DentedModelFor(*model, dentStep) : model;
+            if (dentStep > 0 || fireStage >= 3) {
+                const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
+                const float tintWorn[3] = {tint[0] * dull, tint[1] * dull, tint[2] * dull};
+                ModelSetPaintTint(tintWorn);
+                if (g_damageLogged < 40) { ++g_damageLogged; Log("car bodies: object %p damage %d (fire stage %d) -> dent step %d", reinterpret_cast<const void*>(use.object), damageWord, fireStage, dentStep); }
+            }
+            const Model* drawn = worn;
+            if (cpuCut) drawn = HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f, eyeLocalX);
+            // VEHICLE-FEEL: the sprung body and the turning wheels (see vehicle_fx.h).
+            const float roofH = model->Height() * sy;
+            const bool wreckModel = modelNumber >= 72;
+            // The CARI axles along the body (b->wheelZ is only set for the sprite-built bodies).
+            const float axleF = (b->measure.wheelFront - 0.5f * b->measure.h) * b->scale;
+            const float axleR = (b->measure.wheelRear - 0.5f * b->measure.h) * b->scale;
+            WheelSplit wheels;
+            bool haveWheels = false;
+            if (feelOn && !wreckModel && !cpuCut && modelNumber != 54 && modelNumber != 17) {
+                const float ex = carToWorld.m[3][0] - eye.x, ez = carToWorld.m[3][2] - eye.z;
+                if (ex * ex + ez * ez < 22.0f * 22.0f || use.driven)
+                    haveWheels = WheelReady(*worn, fit, axleF, axleR, 0.5f * b->bodyWidth, roofH, &wheels);
+            }
+            VehicleFxCar fxCar;
+            fxCar.object = use.object;
+            fxCar.carToWorld = &carToWorld;
+            fxCar.length = b->bodyLength; fxCar.width = b->bodyWidth; fxCar.roof = roofH;
+            fxCar.wheelbase = (std::max)(axleF - axleR, 0.3f * b->bodyLength);
+            fxCar.wheelRadius = haveWheels && wheels.n ? wheels.radius[0] : (std::max)(0.055f, (std::min)(0.13f, 0.21f * roofH));
+            fxCar.damage = use.damage;
+            fxCar.wreck = wreckModel;
+            fxCar.driven = use.driven;
+            fxCar.paint[0] = b->paint.r / 255.0f; fxCar.paint[1] = b->paint.g / 255.0f; fxCar.paint[2] = b->paint.b / 255.0f;
+            if (fireStage >= 3) for (float& c : fxCar.paint) c *= 0.5f;
+            if (haveWheels) {
+                LastWheels& lw = g_lastWheels[use.object];
+                lw.split = wheels; lw.fit = fit; lw.frame = frame;
+            }
+            if (wreckModel) {
+                // The wheel that flies off: one of the car's own, from a corner the wreck has lost.
+                auto lw = g_lastWheels.find(use.object);
+                if (lw != g_lastWheels.end() && frame - lw->second.frame < 60) {
+                    const int lost = WreckLostCorners(*model);
+                    for (int w = 0; w < lw->second.split.n; ++w) {
+                        const gta2::Vec3& c = lw->second.split.centre[w];
+                        const int corner = (c.z >= 0.0f ? 0 : 2) + (c.x >= 0.0f ? 1 : 0);
+                        if (!lost || (lost & (1 << corner))) {
+                            fxCar.wheelPart = lw->second.split.wheel[w];
+                            fxCar.fit = lw->second.fit;
+                            fxCar.wheelCentre = c;
+                            break;
+                        }
+                    }
+                }
+            }
+            const VehicleFeel& feel = VehicleFxUpdate(fxCar, frame);
+            gta2::Mat4 posed = carToWorld;
+            if (feel.on) {
+                if (wreckModel) posed = Mul(VehicleFxWreckPose(WreckLostCorners(*model), b->bodyLength, b->bodyWidth, 0.075f), carToWorld);
+                else posed = Mul(feel.pose, carToWorld);
+            }
+            // The door: swings open while someone boards or leaves, shuts after.
+            DoorState& ds = g_doors[use.object];
+            const float dt = (std::min)(5u, (std::max)(1u, frame - ds.frame)) / 30.0f;
+            ds.frame = frame;
+            if (use.doorPed && ds.open < 0.02f) {
+                // Which side he stands on, in the car's frame.
+                const float rx = carToWorld.m[0][0], ry = carToWorld.m[0][1], rz = carToWorld.m[0][2];
+                const float dxp = use.doorPedX - carToWorld.m[3][0], dzp = use.doorPedZ - carToWorld.m[3][2];
+                const float lateral = dxp * rx + 0.0f * ry + dzp * rz;
+                ds.side = lateral >= 0.0f ? 1 : -1;
+            }
+            if (g_forceDoor != 0 && ds.open < 0.02f) ds.side = g_forceDoor > 0 ? 1 : -1;
+            const float target = (use.doorPed || g_forceDoor != 0) ? 1.0f : 0.0f;
+            // The split comes from the worker (DoorReady): until it is there the door
+            // stays shut, and a split made for an earlier dent step stands in for the
+            // current one rather than shutting a door that is already open.
+            DoorSplit split{nullptr, nullptr};
+            bool haveSplit = false;
+            float zFront = 0.0f;
+            if (!cpuCut && modelNumber < 72 && (target > 0.0f || ds.open > 0.02f)) {
+                const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
+                zFront = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
+                zFront = (std::min)(zFront, 0.42f * b->bodyLength);
+                const float zRear = zFront - 0.27f * b->bodyLength;
+                // Past kDoorSplitBytes of splits a dented car opens the door of its undented
+                // copy (the store never frees a model, so the splits are capped).
+                const Model* doorSource = g_doorBytes > kDoorSplitBytes ? model : worn;
+                haveSplit = DoorReady(*doorSource, fit, ds.side, zFront, zRear, roofY, halfW, &split);
+                if (haveSplit) { ds.last = split; ds.lastSide = ds.side; }
+                else if (ds.last.body && ds.lastSide == ds.side && ModelIsKnown(ds.last.body)) { split = ds.last; haveSplit = true; }
+            }
+            if (target > ds.open) { if (haveSplit) ds.open = (std::min)(1.0f, ds.open + dt * 2.5f); }
+            else ds.open = (std::max)(0.0f, ds.open - dt * 1.7f);
+            if (ds.open > 0.02f && haveSplit) {
+                const float halfW = 0.5f * b->bodyWidth;
+                ModelDraw(device, *split.body, Mul(fit, posed), nullptr, 0.0f);
+                // Swing about the vertical through the door's front edge, outward.
+                const float theta = -static_cast<float>(ds.side) * ds.open * (60.0f * kPi / 180.0f);
+                const float cs = std::cos(theta), sn = std::sin(theta);
+                const float hx = static_cast<float>(ds.side) * 0.92f * halfW, hz = zFront;
+                gta2::Mat4 hinge;
+                hinge.m[0][0] = cs; hinge.m[0][2] = -sn; hinge.m[1][1] = 1.0f; hinge.m[2][0] = sn; hinge.m[2][2] = cs;
+                hinge.m[3][0] = hx - (hx * cs + hz * sn); hinge.m[3][2] = hz - (-hx * sn + hz * cs); hinge.m[3][3] = 1.0f;
+                ModelDraw(device, *split.door, Mul(Mul(fit, hinge), posed), nullptr, 0.0f);
+            } else if ((modelNumber == 54 || modelNumber == 17) && !cpuCut) {
+                // The turret turned to the game's aim (see TurretSplitFor); without an
+                // aim seen in the last second it stays straight ahead.
+                const float roofY = model->Height() * sy;
+                const TurretSplit split = modelNumber == 54 ? TurretSplitFor(*worn, fit, roofY, 0.56f, 99.0f)
+                                                            : TurretSplitFor(*worn, fit, roofY, 0.80f, 0.05f * b->bodyLength);
+                auto aim = g_turretAims.find(use.object);
+                float yaw = 0.0f;
+                if (aim != g_turretAims.end() && frame - aim->second.frame < 30) {
+                    // The aim in the car's own frame: across (x) and along (z), from its world axes.
+                    const float ax = carToWorld.m[0][0], az = carToWorld.m[0][2], fx = carToWorld.m[2][0], fz = carToWorld.m[2][2];
+                    const float across = aim->second.dirX * ax + aim->second.dirZ * az, along = aim->second.dirX * fx + aim->second.dirZ * fz;
+                    if (across * across + along * along > 1e-8f) yaw = std::atan2(across, along);
+                }
+                if (split.turret) {
+                    ModelDraw(device, *split.hull, Mul(fit, posed), nullptr, 0.0f);
+                    const float cs = std::cos(yaw), sn = std::sin(yaw);
+                    const float px = split.pivotX, pz = split.pivotZ;
+                    gta2::Mat4 turn;
+                    turn.m[0][0] = cs; turn.m[0][2] = -sn; turn.m[1][1] = 1.0f; turn.m[2][0] = sn; turn.m[2][2] = cs;
+                    turn.m[3][0] = px - (px * cs + pz * sn); turn.m[3][2] = pz - (-px * sn + pz * cs); turn.m[3][3] = 1.0f;
+                    ModelDraw(device, *split.turret, Mul(Mul(fit, turn), posed), nullptr, 0.0f);
+                    if (g_turretLogged < 30 && (frame % 30u) == 0 && std::fabs(yaw) > 0.05f) {
+                        ++g_turretLogged;
+                        Log("car bodies: model %d turret turned %.0f deg (object %p)", modelNumber, yaw * 180.0f / kPi, reinterpret_cast<const void*>(use.object));
+                    }
+                } else {
+                    ModelDraw(device, *drawn, Mul(fit, posed), nullptr, 0.0f);
+                }
+            } else if (haveWheels) {
+                // The hull on its springs, the wheels on the road: each about its own axle,
+                // the front pair steered.
+                ModelDraw(device, *wheels.hull, Mul(fit, posed), nullptr, 0.0f);
+                for (int w = 0; w < wheels.n; ++w) {
+                    const gta2::Vec3& c = wheels.centre[w];
+                    gta2::Mat4 spin = gta2::Identity();
+                    const float cs = std::cos(feel.spin), sn = std::sin(feel.spin);
+                    spin.m[1][1] = cs; spin.m[1][2] = sn; spin.m[2][1] = -sn; spin.m[2][2] = cs;
+                    gta2::Mat4 steer = gta2::Identity();
+                    if (c.z > 0.0f) {
+                        const float cst = std::cos(feel.steer), snt = std::sin(feel.steer);
+                        steer.m[0][0] = cst; steer.m[0][2] = snt; steer.m[2][0] = -snt; steer.m[2][2] = cst;
+                    }
+                    gta2::Mat4 m = Mul(spin, steer);
+                    m.m[3][0] = c.x - (c.x * m.m[0][0] + c.y * m.m[1][0] + c.z * m.m[2][0]);
+                    m.m[3][1] = c.y - (c.x * m.m[0][1] + c.y * m.m[1][1] + c.z * m.m[2][1]);
+                    m.m[3][2] = c.z - (c.x * m.m[0][2] + c.y * m.m[1][2] + c.z * m.m[2][2]);
+                    ModelDraw(device, *wheels.wheel[w], Mul(Mul(fit, m), carToWorld), nullptr, 0.0f);
+                }
+            } else {
+                ModelDraw(device, *drawn, Mul(fit, posed), nullptr, 0.0f);
+            }
             g_carStats[2] += CarNowMs() - tm;
             g_carStats[6] += 1;
             device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
             ModelSetPaintTint(nullptr);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
-            DrawLamps(device, use, carToWorld, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber >= 72);
+            DrawLamps(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber >= 72, feel.on ? &feel : nullptr);
+            if (modelNumber < 72) {
+                GTA2_TRY {
+                    DrawBeacons(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber);
+                } GTA2_EXCEPT {
+                }
+            }
             ++g_drawn;
             continue;
         }
@@ -1362,7 +2715,20 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         if (!built) continue;
         const double td = CarNowMs();
         const bool buffered = Buffers(device, b);
-        memcpy(&wm, carToWorld.m, sizeof(wm));
+        // VEHICLE-FEEL on the sprite-built body: the same springs and turning wheels.
+        VehicleFxCar fxCar;
+        fxCar.object = use.object;
+        fxCar.carToWorld = &carToWorld;
+        fxCar.length = b->bodyLength; fxCar.width = b->bodyWidth; fxCar.roof = b->roofY;
+        fxCar.wheelbase = b->wheelbase;
+        fxCar.wheelRadius = (std::max)(0.03f, b->wheelY);
+        fxCar.damage = use.damage;
+        fxCar.wreck = use.sprite >= 65 && use.sprite <= 74;
+        fxCar.driven = use.driven;
+        fxCar.paint[0] = b->paint.r / 255.0f; fxCar.paint[1] = b->paint.g / 255.0f; fxCar.paint[2] = b->paint.b / 255.0f;
+        const VehicleFeel& feel = VehicleFxUpdate(fxCar, frame);
+        const gta2::Mat4 posed = feel.on ? Mul(feel.pose, carToWorld) : carToWorld;
+        memcpy(&wm, posed.m, sizeof(wm));
         device->SetTexture(0, b->atlas);
         device->SetTransform(D3DTS_WORLD, &wm);
         if (buffered) {
@@ -1379,16 +2745,19 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         }
         g_cabins[use.object] = {b->deckY, b->roofY, (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale,
                                 0.5f * b->bodyWidth, frame};
-        const float steer = SteerFor(use, carToWorld, b->wheelbase, frame);
+        const float steer = feel.on ? feel.steer : SteerFor(use, carToWorld, b->wheelbase, frame);
+        const float roll = feel.on ? feel.spin : 0.0f;
         for (int w = 0; w < 4; ++w) {
             const bool front = w < 2;
             const float x = (w & 1) ? b->wheelX : -b->wheelX;
             const float phi = front ? steer : 0.0f;
             const float cs = std::cos(phi), sn = std::sin(phi);
+            const float cr = std::cos(roll), sr = std::sin(roll);
+            // Rolling about the axle (x), then steered (y): [1 0 0; 0 cr sr; 0 -sr cr] x [cs 0 sn; 0 1 0; -sn 0 cs].
             gta2::Mat4 local;
             local.m[0][0] = cs;  local.m[0][2] = sn;
-            local.m[1][1] = 1.0f;
-            local.m[2][0] = -sn; local.m[2][2] = cs;
+            local.m[1][0] = -sr * sn; local.m[1][1] = cr; local.m[1][2] = sr * cs;
+            local.m[2][0] = -cr * sn; local.m[2][1] = -sr; local.m[2][2] = cr * cs;
             local.m[3][0] = x; local.m[3][1] = b->wheelY; local.m[3][2] = b->wheelZ[front ? 0 : 1]; local.m[3][3] = 1.0f;
             const gta2::Mat4 ww = Mul(local, carToWorld);
             memcpy(&wm, ww.m, sizeof(wm));
@@ -1406,7 +2775,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             device->SetStreamSource(0, nullptr, 0, 0);
             device->SetIndices(nullptr);
         }
-        DrawLamps(device, use, carToWorld, b->bodyLength, b->bodyWidth, b->roofY, frame, use.sprite >= 65 && use.sprite <= 74);
+        DrawLamps(device, use, posed, b->bodyLength, b->bodyWidth, b->roofY, frame, use.sprite >= 65 && use.sprite <= 74, feel.on ? &feel : nullptr);
         g_carStats[3] += CarNowMs() - td;
         g_carStats[7] += 1;
         ++g_drawn;
@@ -1419,6 +2788,22 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         for (const auto& e : g_cache) if (e.second.atlas) atlasBytes += e.second.measure.w * kAtlasScale * static_cast<size_t>(e.second.measure.h * kAtlasScale + kBandRows + kBlockRows) * 4;
         Log("car models: %d textures, %.1f MB in the managed pool; %u sprite-built atlases, %.1f MB; %d cars drawn this frame",
             count, modelBytes / 1048576.0, static_cast<unsigned>(g_cache.size()), atlasBytes / 1048576.0, g_drawn);
+        Log("car wear: %d copies built on the worker (%.0f ms of its time), %.1f MB (dents %.1f in %zu copies, doors %.1f in %zu splits); frames a car waited for its copy: dent %d, door %d",
+            g_wearCollected, g_wearWorkMs, static_cast<double>(g_wearBytes) / (1 << 20), static_cast<double>(g_dentBytes) / (1 << 20), g_dents.size(),
+            static_cast<double>(g_doorBytes) / (1 << 20), g_doorSplits.size(), g_dentLate, g_doorLate);
+        Log("car wheels: %zu wheel splits, %.1f MB; frames a car waited for its wheels: %d", g_wheelSplits.size(), static_cast<double>(g_wheelBytes) / (1 << 20), g_wheelLate);
+    }
+    if (g_doors.size() > 256) {
+        for (auto it = g_doors.begin(); it != g_doors.end();) it = (frame - it->second.frame > 600) ? g_doors.erase(it) : std::next(it);
+    }
+    if (g_lastWheels.size() > 256) {
+        for (auto it = g_lastWheels.begin(); it != g_lastWheels.end();) it = (frame - it->second.frame > 600) ? g_lastWheels.erase(it) : std::next(it);
+    }
+    // VEHICLE-FEEL: smoke, sparks, debris, skid marks, lamp pools and flying wheels.
+    {
+        const double tf = CarNowMs();
+        VehicleFxDraw(device, eye, frame, RemixApiAvailable());
+        g_carStats[3] += CarNowMs() - tf;
     }
     if (g_cabins.size() > 128) {
         for (auto it = g_cabins.begin(); it != g_cabins.end();) {
@@ -1440,6 +2825,16 @@ void CarBodiesSetDevIni(const char* ini) {
     if (!ini) { g_devIni[0] = 0; return; }
     strncpy(g_devIni, ini, sizeof(g_devIni) - 1);
     g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
+    g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
+    g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
+}
+const char* CarBodiesDevIni() { return g_devIni; }
+void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame) {
+    TurretAim& a = g_turretAims[carObject];
+    a.dirX = dirX; a.dirZ = dirZ; a.frame = frame;
+    if (g_turretAims.size() > 64) {
+        for (auto it = g_turretAims.begin(); it != g_turretAims.end();) it = (frame - it->second.frame > 300) ? g_turretAims.erase(it) : std::next(it);
+    }
 }
 
 }  // namespace gta2dx9

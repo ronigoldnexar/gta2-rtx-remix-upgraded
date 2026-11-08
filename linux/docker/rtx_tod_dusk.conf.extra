@@ -1,0 +1,13 @@
+# Time-of-day overlay: dusk (game clock 18:21, sun ~4 deg below, lamps on from 18:00).
+# Saturated afterglow, a little airglow, volumetric haze so lamps and neon glow in it.
+rtx.atmosphere.aerosolDensity = 1.4
+rtx.atmosphere.sunsetSaturation = 1.4
+rtx.atmosphere.sunShadowSoftnessDeg = 0.6
+rtx.atmosphere.nightSkyBrightness = 0.012
+rtx.volumetrics.transmittanceMeasurementDistanceMeters = 250
+rtx.volumetrics.transmittanceColor = 0.93, 0.94, 0.97
+rtx.volumetrics.anisotropy = 0.5
+rtx.volumetrics.fogSunVisibilityGain = 2
+rtx.opaqueMaterial.roughnessScale = 1
+rtx.opaqueMaterial.roughnessBias = 0
+rtx.weather.precipitation.intensity = 0

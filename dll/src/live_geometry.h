@@ -80,6 +80,21 @@ void SetHiddenObjects(const void* first, const void* second);
 // The player's own pedestrian sprite object (null when not located), so he
 // keeps one look rather than one hashed from his address.
 void SetPlayerObject(const void* object);
+// The weapon the player holds, as the game numbers them (see PedWeapon in
+// live_geometry.cpp: 1 pistol .. 10 flamethrower), -1 when not known. Read
+// off the player's ped by world_view each frame; drives the figure's stance,
+// the model in its hand and the first-person view model.
+void SetPlayerWeapon(int weapon, int ammo);
+int PlayerWeapon();
+const char* WeaponName(int weapon);
+// Submits the muzzle-flash lights of the last frame's shots to the invented
+// light list; call after SyntheticLightsUpdate and before LightsReconcile.
+void ShotLightsSubmit();
+// Flame sprites the last frame showed (world x, y, z and the car shell they sit on),
+// so the player log line can say whether his car is burning.
+struct FireSpotPublic { float x, y, z; const void* car; };
+extern std::vector<FireSpotPublic> g_fireSpotsLast;
+int FireSpotsNear(float x, float z, float radius, const void* carShell);
 // Where the player stands this frame (renderer coordinates), for keeping the
 // rule-placed street furniture out from under his feet; valid=false clears it.
 void SetPlayerPosition(float x, float y, float z, bool valid);
@@ -97,6 +112,10 @@ void SetEnvCells(const std::vector<EnvCell>& rail, const std::vector<EnvCell>& b
 // frame (set at the top of LiveGeometry::Draw): what the ground views need not
 // draw at all.
 bool BehindView(float x, float y, float z, float margin);
+// True when a sphere (world units, the renderer's frame) lies wholly outside the
+// current view frustum's four side planes (PERF-2: props, map objects and people
+// outside the picture are not drawn; they were drawn whenever they were in front).
+bool OutsideViewFrustum(float x, float y, float z, float radius);
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);
@@ -526,6 +545,17 @@ private:
         // base) and the game's state words, for the figure's own clips. See DrawPedFigures.
         unsigned pedFrame = 0;
         int32_t pedState = -1, pedSub = 0, pedPending = 0;
+        // What last hurt him (game::kPedDamageCause: 1 car, 3 run over, 4 explosion, ...),
+        // for the death pose; 0 unknown.
+        int32_t pedCause = 0;
+        // His health word (ped+0x216, int16; -1 unread): a drop with a puncher beside him is the
+        // game's own "that punch landed" (ACTIONS-3D-4).
+        int32_t pedHealth = -1;
+        // The weapon in his hands: its ammunition and reload timer (the weapon
+        // object's +0 and +2), -1 with none. A drop in the one or a restart of the
+        // other is a shot, whatever the frames say (state 7 is also just standing armed).
+        int32_t pedAmmo = -1, pedReload = -1;
+        uintptr_t pedWeaponObject = 0;
         // Drawn through the screen-space layer, over everything, while he boards a car.
         bool boardUi = false;
         // Not drawn: a pedestrian over his car as he gets in or out. See Draw.
@@ -556,7 +586,7 @@ private:
         uintptr_t object;
     };
     std::vector<CarModelUse> carModels_;
-    std::vector<uintptr_t> carSeenPrev_, carSeenNow_;   // car objects with a body last frame / this frame, for the pop log
+    std::vector<std::pair<uintptr_t, float>> carSeenPrev_, carSeenNow_;   // (object, distance from the eye)   // car objects with a body last frame / this frame, for the pop log
     int carPops_ = 0, carPopsNear_ = 0; float carPopDist_ = 0.0f;
     std::vector<PropFootprint> propFootprints_;   // the props drawn last frame, see DrawProps
 public:
@@ -593,11 +623,28 @@ private:
         // car, 6 getting out, 7 a stagger. See PedActionFor in DrawPedFigures.
         int action = 0;
         uint32_t shotFrame = 0;   // the last frame a flash or bullet was seen beside him
+        // Shooting: the weapon he holds (a PedWeapon, 0 unknown; the player's from
+        // the game, a stranger's from his frames and the effects beside him), the
+        // frame of his last shot (the recoil kick and muzzle glow run from it) and
+        // the torso twist (radians) of an aim carried off the line of his walk.
+        int weapon = 0;
+        uint32_t muzzleFrame = 0;
+        float twist = 0.0f;
+        float muzzleX = 0.0f, muzzleY = 0.0f, muzzleZ = 0.0f;   // where his muzzle was last drawn
         float actionTime = 0.0f;            // seconds into the clip
         float actionWeight = 0.0f;          // 0 locomotion .. 1 the action, eased
         bool actionReverse = false;         // getting up: the fall played backwards
         unsigned lastPedFrame = 0;          // his sprite frame last time, to see a cycle restart
         int lastLoggedAction = 0;           // for the GTA2DX9_LOG_PED_FRAMES log
+        // Actions beyond the stances (see PedActionFor and DrawPedFigures):
+        int lieClip = 0;                    // which lying clip action 4 plays: 0 fall, 1 fall_front, 2 runover, 3 blown, 4 burnt
+        uint32_t aimUntil = 0;              // the stance is held to this frame after the last attack or shot
+        int32_t lastState = -1;             // his state word last frame (the throw on the attack's rising edge)
+        int burnFrames = 0;                 // consecutive frames with the game's fire on him
+        uint32_t burnSeen = 0;              // the last frame he burned (a death soon after it is burnt)
+        uint32_t waterFrame = 0;            // the frame he went into the water (the drowning sinks him)
+        int32_t lastAmmo = -1, lastReload = -1;   // his weapon's words last frame (a shot: see Sprite::pedAmmo)
+        uintptr_t lastWeaponObject = 0;
         // Level of detail: his rank by distance from the eye last frame (the
         // nearest eight are posed every frame), and the pose values held for
         // the frames in between when he is further off.
@@ -605,6 +652,46 @@ private:
         int rank = 0;
         unsigned lodFrame = 0;
         float lodU = 0.0f, lodIdleT = 0.0f, lodWalkW = 0.0f, lodRunW = 0.0f, lodActT = 0.0f, lodActW = 0.0f;
+        // ACTIONS-3D-4: locomotion from the figure's own drawn motion. Where it was
+        // drawn last frame (the legs step by the ground between the two, signed
+        // along the legs' heading, so a push back steps back), whether it counts as
+        // moving (with hysteresis), the sprint weight over the run, the turn-on-the-
+        // spot cycle and weight, and the settle: after he stops, the cycle runs on to
+        // the next phase where the feet pass each other before the idle takes over.
+        float lastPX = 0.0f, lastPZ = 0.0f;
+        bool havePrev = false;
+        float legSpeed = 0.0f;              // blocks a second of the drawn figure, eased (0.1 s)
+        float stepFwd = 0.0f;               // this frame's drawn ground along the legs' heading, signed
+        bool moveOn = false;
+        float sprintWeight = 0.0f;
+        float turnCycle = 0.0f, turnWeight = 0.0f;
+        float settleTo = -1.0f;
+        float lodSprintW = 0.0f, lodTurnW = 0.0f, lodTurnT = 0.0f;
+        // Fists: which hand the current swing throws (false: the right cross,
+        // true: the left jab) and the frame of the last swing frame, so a swing
+        // within a second of the last one continues the combo.
+        bool punchAlt = false;
+        uint32_t lastPunchFrame = 0;
+        float lastPunchT = 0.0f;
+        // Taking a punch: when, from which side (0 a right cross: the head turns
+        // to his right; 1 a jab), and the stagger offset of the drawn figure along
+        // the blow (eased out and back, the legs step it).
+        uint32_t hitFrame = 0;
+        int32_t lastHealth = -1;
+        int hitSide = 0;
+        float hitDirX = 0.0f, hitDirZ = 0.0f;
+        float staggerX = 0.0f, staggerZ = 0.0f;
+        // Getting into / out of a car: the car's middle (the heading faces it on
+        // the way in and away from it on the way out) and when the state began.
+        bool carKnown = false;
+        float carX = 0.0f, carZ = 0.0f;
+        uint32_t carStateFrame = 0;
+        int32_t carState = -1;
+        bool grabLeft = false;              // running beside a moving car: it is on his left
+        // The clip an action ended on and where, faded out over the locomotion
+        // instead of dropped in one frame (ends of punches, exits, hits).
+        const void* fadeClip = nullptr;
+        float fadeT = 0.0f;
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
 

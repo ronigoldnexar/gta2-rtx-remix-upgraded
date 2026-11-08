@@ -20,8 +20,24 @@ def model_name(folder):
 
 def entry(folder):
     d = os.path.join(here, "rocketbox", folder)
-    texs = sorted(os.path.basename(t) for t in glob.glob(os.path.join(d, "*_color.tga")))
-    mats = {t[:-len("_color.tga")]: f"humans/rocketbox/{folder}/{t}" for t in texs}
+    # Colour textures by material: "<mat>_color.tga", or a variant "<mat>_color_<v>.tga" (the military
+    # avatars ship only "_color_acu", medic 02 "_color_blue"); "_od" (tools/army_olive.py, olive drab)
+    # wins over the others. Without this the military bodies, helmets and kit had no texture and the
+    # importer's 1x1 fallback drew the soldiers flat yellow.
+    rank = lambda t: (0 if t.endswith("_color.tga") else 1 if t.endswith("_color_od.tga") else 2, t)
+    mats = {}
+    for t in sorted((os.path.basename(t) for t in glob.glob(os.path.join(d, "*_color*.tga"))), key=rank):
+        mats.setdefault(t.split("_color")[0], f"humans/rocketbox/{folder}/{t}")
+    # material names with a typo in the FBX (Police_Male_03's "m172_equpiment") take the nearest texture
+    try:
+        import struct, difflib
+        raw = open(os.path.join(d, folder + ".glb"), "rb").read()
+        names = [x.get("name", "") for x in json.loads(raw[20:20 + struct.unpack("<I", raw[12:16])[0]]).get("materials", [])]
+        for n in names:
+            if n and n not in mats:
+                near = difflib.get_close_matches(n, list(mats), n=1, cutoff=0.85)
+                if near: mats[n] = mats[near[0]]
+    except Exception: pass
     body = [k for k in mats if k.endswith("_body")]
     return {"name": model_name(folder), "glb": f"humans/rocketbox/{folder}/{folder}.glb", "scale": 0.5,
             "texture_max": 512, "material_textures": mats, "tint_clothing": body,

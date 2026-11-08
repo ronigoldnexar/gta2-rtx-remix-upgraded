@@ -143,6 +143,29 @@ int ClassifiedFrames();
 // is built, and kept from then on, as ordinary artwork.
 IDirect3DTexture9* DeviceTextureFor(IDirect3DDevice9* device, const void* record,
                                     bool* effect = nullptr, bool mayBeEffect = true);
+// Whether the store has classified this sprite texture as an effect (a glow:
+// fire, blast, flash). Only what an earlier DeviceTextureFor call decided;
+// false for a texture never drawn.
+bool TextureIsEffect(const void* record);
+// --- Car sprite artwork off the render thread (PERF-4) ---------------------
+//
+// A car's sprite artwork that the cache has not seen (a new model or paint coming
+// into view, or the game patching a door or a dent into it) used to be decoded,
+// classified, bled and uploaded inside DeviceTextureFor on the render thread:
+// 8-36 ms a car, 131 ms on a busy host, most of it the managed texture's lock
+// waiting for the frame's queued GL work. For artwork recognised as a car's (a
+// car sprite's size in one of the car palettes, both from the style) that work
+// now runs on a thread of its own, the texture is a dynamic default-pool one
+// written with DISCARD, and at most a small budget of them is uploaded per
+// 20 ms; until it is there DeviceTextureFor answers with the record's previous
+// artwork of the same size, else the closest precached frame of that car, else
+// a transparent stand-in. Everything else is built as before.
+//
+// CarArtPrecache, called when a level loads with the district's style file,
+// queues every car sprite in its own palette and in every remap its models list
+// (CARI): ~660 frames, ~10 MB, built on the worker and uploaded a few a frame, so
+// a car coming into view usually finds its artwork made.
+void CarArtPrecache(const char* stylePath);
 // The box the artwork covers: the opaque texels of the game's own picture, in texels
 // (x1, y1 one past the last). False if the record has no pixels yet. Cars are drawn as a
 // nearly square picture with the car in the middle, so anything that has to sit on the

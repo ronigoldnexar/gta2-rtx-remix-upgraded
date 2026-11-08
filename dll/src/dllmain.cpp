@@ -30,6 +30,7 @@
 #include "hud_pass.h"
 #include "intro_movie.h"
 #include "live_geometry.h"
+#include "frame_log.h"
 #include "log.h"
 #include "remix_api.h"
 #include "remix_lights.h"
@@ -184,8 +185,24 @@ void LoadConfig() {
         vm.demoSwitchTo = GetPrivateProfileIntA("camera", "demo_switch_to", 2, ini);
         // The feel of the street views; the F4 menu's saved settings override these.
         vm.mouseLook = GetPrivateProfileIntA("camera", "mouse_look", 1, ini) != 0;
-        vm.turnRateFoot = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_foot", 180, ini));
-        vm.turnRateCar = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_car", 240, ini));
+        vm.turnSpeed = static_cast<float>(GetPrivateProfileIntA("camera", "turn_speed", 100, ini));
+        vm.turnRateFoot = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_foot", 120, ini));
+        vm.turnRateCar = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_car", 90, ini));
+        vm.navMap = GetPrivateProfileIntA("camera", "nav_map", 1, ini) != 0;
+        vm.navTurnSign = GetPrivateProfileIntA("camera", "nav_turn_sign", 1, ini) < 0 ? -1 : 1;
+        vm.fpTurnKeyRate = static_cast<float>(GetPrivateProfileIntA("camera", "first_turn_key_rate", 70, ini));
+        vm.tpOrbitFollow = GetPrivateProfileIntA("camera", "orbit_follow", 0, ini) != 0;
+        {
+            // Soft follow on foot (seconds): follow_tau_walk 0 turns it off.
+            auto iniFloat = [&](const char* key, float fallback) {
+                char v[32] = {};
+                GetPrivateProfileStringA("camera", key, "", v, sizeof(v), ini);
+                return v[0] ? static_cast<float>(atof(v)) : fallback;
+            };
+            vm.tpFollowTauWalk = iniFloat("follow_tau_walk", 1.5f);
+            vm.tpFollowTauRun = iniFloat("follow_tau_run", 1.0f);
+            vm.tpFollowDelay = iniFloat("follow_delay", 0.4f);
+        }
         vm.logKeys = GetPrivateProfileIntA("devtools", "log_keys", 0, ini) != 0;
         gta2dx9::CarBodiesSetWreckTest(GetPrivateProfileIntA("devtools", "wreck_models", 0, ini) != 0);
         gta2dx9::CarBodiesSetDevIni(ini);
@@ -921,6 +938,7 @@ __declspec(dllexport) int __stdcall gbh_Init(int param) {
 // our own map walk is checked against.
 __declspec(dllexport) void __stdcall gbh_DrawTile(unsigned flags, void* texture, float* vertices,
                                                   unsigned char shade) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_DrawTile) {
         Backend<void(__stdcall*)(unsigned, void*, float*, unsigned char)>(g_p_gbh_DrawTile)(
             flags, texture, vertices, shade);
@@ -932,6 +950,7 @@ __declspec(dllexport) void __stdcall gbh_DrawTile(unsigned flags, void* texture,
 
 __declspec(dllexport) void __stdcall gbh_BeginScene() {
     g_beat = GetTickCount();
+    gta2dx9::FrameLogMarkBeginScene();
     if (Proxying() && g_p_gbh_BeginScene) { Backend<void(__stdcall*)()>(g_p_gbh_BeginScene)(); return; }
     g_world.BeginFrame();
 }
@@ -960,6 +979,7 @@ __declspec(dllexport) void __stdcall gbh_EndLevel() {
 }
 
 __declspec(dllexport) void __stdcall gbh_SetCamera(float minX, float minY, float maxX, float maxY) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_SetCamera) {
         Backend<void(__stdcall*)(float, float, float, float)>(g_p_gbh_SetCamera)(minX, minY, maxX, maxY);
         return;
@@ -969,6 +989,7 @@ __declspec(dllexport) void __stdcall gbh_SetCamera(float minX, float minY, float
 
 __declspec(dllexport) void* __stdcall gbh_RegisterTexture(unsigned short width, unsigned short height,
                                                           void* pixels, int palette, char flag) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_RegisterTexture) {
         return Backend<void*(__stdcall*)(unsigned short, unsigned short, void*, int, char)>(
             g_p_gbh_RegisterTexture)(width, height, pixels, palette, flag);
@@ -985,12 +1006,14 @@ __declspec(dllexport) void* __stdcall gbh_RegisterTexture(unsigned short width, 
 }
 
 __declspec(dllexport) void __stdcall gbh_FreeTexture(void* texture) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_FreeTexture) { Backend<void(__stdcall*)(void*)>(g_p_gbh_FreeTexture)(texture); return; }
     gta2dx9::ForgetDeviceTexture(texture);
     free(texture);
 }
 
 __declspec(dllexport) void __stdcall gbh_LockTexture(void* texture) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_LockTexture) { Backend<void(__stdcall*)(void*)>(g_p_gbh_LockTexture)(texture); return; }
     if (texture) static_cast<TextureRecord*>(texture)->flags |= 1;
 }
@@ -998,6 +1021,7 @@ __declspec(dllexport) void __stdcall gbh_LockTexture(void* texture) {
 // The game edits a texture's pixels between lock and unlock, so an unlock is
 // the signal that any cached copy of it is stale.
 __declspec(dllexport) void __stdcall gbh_UnlockTexture(void* texture) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_UnlockTexture) { Backend<void(__stdcall*)(void*)>(g_p_gbh_UnlockTexture)(texture); return; }
     if (!texture) return;
     TextureRecord* record = static_cast<TextureRecord*>(texture);
@@ -1006,6 +1030,7 @@ __declspec(dllexport) void __stdcall gbh_UnlockTexture(void* texture) {
 }
 
 __declspec(dllexport) void __stdcall gbh_AssignPalette(void* texture, int palette) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_AssignPalette) {
         Backend<void(__stdcall*)(void*, int)>(g_p_gbh_AssignPalette)(texture, palette);
         return;
@@ -1072,6 +1097,7 @@ __declspec(dllexport) void* __stdcall gbh_LoadImage(void* spec) {
 // genuine 2D and goes to the screen-space pass.
 __declspec(dllexport) void __stdcall gbh_DrawQuad(unsigned flags, void* texture, float* vertices,
                                                   unsigned char shade) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_DrawQuad) {
         Backend<void(__stdcall*)(unsigned, void*, float*, unsigned char)>(g_p_gbh_DrawQuad)(
             flags, texture, vertices, shade);
@@ -1094,6 +1120,7 @@ __declspec(dllexport) void __stdcall gbh_DrawQuad(unsigned flags, void* texture,
 __declspec(dllexport) void __stdcall gbh_DrawQuadClipped(unsigned flags, void* texture,
                                                          float* vertices, unsigned char shade,
                                                          int clip) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_DrawQuadClipped) {
         Backend<void(__stdcall*)(unsigned, void*, float*, unsigned char, int)>(
             g_p_gbh_DrawQuadClipped)(flags, texture, vertices, shade, clip);
@@ -1116,6 +1143,7 @@ __declspec(dllexport) void __stdcall gbh_DrawQuadClipped(unsigned flags, void* t
 // partial block, so this is map geometry and belongs in the world.
 __declspec(dllexport) void __stdcall gbh_DrawTriangle(unsigned flags, void* texture,
                                                       float* vertices, unsigned char shade) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_DrawTriangle) {
         Backend<void(__stdcall*)(unsigned, void*, float*, unsigned char)>(g_p_gbh_DrawTriangle)(
             flags, texture, vertices, shade);
@@ -1129,6 +1157,7 @@ __declspec(dllexport) void __stdcall gbh_DrawTriangle(unsigned flags, void* text
 }
 
 __declspec(dllexport) void __stdcall gbh_DrawFlatRect(float* vertices, unsigned colour) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_DrawFlatRect) {
         Backend<void(__stdcall*)(float*, unsigned)>(g_p_gbh_DrawFlatRect)(vertices, colour);
         return;
@@ -1158,6 +1187,7 @@ __declspec(dllexport) void __stdcall gbh_ResetLights() {
 // One 20-byte descriptor. Decoded in remix_lights.cpp; the layout is in
 // docs/lighting-analysis.md.
 __declspec(dllexport) void __stdcall gbh_AddLight(void* descriptor) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_AddLight) {
         Backend<void(__stdcall*)(void*)>(g_p_gbh_AddLight)(descriptor);
         return;
@@ -1214,6 +1244,7 @@ __declspec(dllexport) void __stdcall gbh_FreeImageTable() {
 // the second half of its background on it. See Overlay::BlitImage.
 __declspec(dllexport) int __stdcall gbh_BlitImage(int image, int srcX1, int srcY1, int srcX2,
                                                   int srcY2, int dstX, int dstY) {
+    gta2dx9::FrameLogHookScope frameLogScope;
     if (Proxying() && g_p_gbh_BlitImage) {
         return Backend<int(__stdcall*)(int, int, int, int, int, int, int)>(g_p_gbh_BlitImage)(
             image, srcX1, srcY1, srcX2, srcY2, dstX, dstY);

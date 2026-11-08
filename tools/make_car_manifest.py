@@ -74,6 +74,8 @@ def main():
     manifest_path = os.path.join(src, manifest_name)
     manifest = json.load(open(manifest_path)) if os.path.exists(manifest_path) else {"models": []}
     kept = [e for e in manifest.get("models", []) if not re.match(r"^\d{3}_", e.get("name", ""))]
+    # hand-set per-model keys survive a rebuild (069 U-Jerk Truck: "forward": "-z", its GLB's nose is at -z)
+    carry = {e["name"]: {k: e[k] for k in ("forward",) if k in e} for e in manifest.get("models", []) if "name" in e}
     cars = manifest.get("cars", {})
     cars.pop("default", None)
     by_model = {}
@@ -113,6 +115,7 @@ def main():
             entry["paint_split"] = True
         else:
             entry["paint_materials"] = ["top", "side", "front", "rear"]
+        entry.update(carry.get(stem, {}))
         entries.append(entry)
         by_model[str(number)] = stem
     manifest["models"] = kept + entries

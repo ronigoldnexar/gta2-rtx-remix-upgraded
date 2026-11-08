@@ -258,14 +258,51 @@ def build_bus_shelter():
                          ("sign", plate_sign.mesh(mat(bus_face(), 0.1, 0.5, "sign")))])
 
 
+def meter_dial(size=128):
+    """A 1950s meter's window: a white dial, the red EXPIRED flag up, the coin slot below."""
+    im = Image.new("RGBA", (size, size), (168, 172, 178, 255))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle((size * 0.12, size * 0.08, size * 0.88, size * 0.62), radius=size * 0.2, fill=(52, 54, 58, 255))
+    d.pieslice((size * 0.18, size * 0.14, size * 0.82, size * 0.78), 180, 360, fill=(238, 236, 226, 255))
+    for k in range(7):
+        a = math.pi * (1 + k / 6)
+        cx, cy, r = size * 0.5, size * 0.46, size * 0.3
+        d.line((cx + r * 0.8 * math.cos(a), cy + r * 0.8 * math.sin(a), cx + r * math.cos(a), cy + r * math.sin(a)), fill=(30, 30, 30, 255), width=2)
+    d.polygon([(size * 0.5, size * 0.46), (size * 0.36, size * 0.2), (size * 0.47, size * 0.17)], fill=(200, 30, 30, 255))   # the flag
+    f = font(size // 11)
+    d.text((size * 0.3, size * 0.5), "EXPIRED", font=f, fill=(200, 30, 30, 255))
+    d.rectangle((size * 0.44, size * 0.72, size * 0.56, size * 0.76), fill=(20, 20, 22, 255))       # coin slot
+    d.ellipse((size * 0.42, size * 0.82, size * 0.58, size * 0.94), fill=(110, 112, 118, 255))      # the turn handle
+    return im
+
+
 def build_parking_meter():
-    p, head, face = G.Part(), G.Part(), G.Part()
-    post(p, 0.012, 0.0, 0.5)
-    G.box_part(head, -0.035, 0.035, 0.5, 0.64, -0.025, 0.025)
-    plate(face, 0.06, 0.12, 0.58, -0.026, thick=0.0)
+    """A 1950s parking meter: a steel post on a flange, a collar, a chrome head with a
+    rounded top and a dial window on both faces (toward the kerb and the pavement)."""
+    p, head, face, trim = G.Part(), G.Part(), G.Part(), G.Part()
+    post(p, 0.012, 0.0, 0.47)
+    G.cylinder_part(trim, lambda t: 0.03, 0.0, 0.012, segments=10, rings=1)       # flange
+    G.cylinder_part(trim, lambda t: 0.02 - 0.006 * t, 0.47, 0.50, segments=10, rings=1)   # collar
+    W, D, y0, y1 = 0.042, 0.03, 0.50, 0.60
+    G.box_part(head, -W, W, y0, y1, -D, D)
+    seg = 8
+    for k in range(seg):   # the rounded top: a half cylinder across x
+        a0, a1 = math.pi * k / seg, math.pi * (k + 1) / seg
+        xa, ya = -W * math.cos(a0), y1 + W * 0.8 * math.sin(a0)
+        xb, yb = -W * math.cos(a1), y1 + W * 0.8 * math.sin(a1)
+        head.quad((xa, ya, D), (xb, yb, D), (xb, yb, -D), (xa, ya, -D), (0, 0), (0, 1), (1, 1), (1, 0))
+        for z, sgn in ((D, 1), (-D, -1)):   # the end caps of the dome
+            b = len(head.v)
+            pts = [(0.0, y1, z), (xa, ya, z), (xb, yb, z)] if sgn > 0 else [(0.0, y1, z), (xb, yb, z), (xa, ya, z)]
+            head.v += [np.array(q, np.float32) for q in pts]
+            head.n += [np.array((0, 0, sgn), np.float32)] * 3
+            head.uv += [(0.5, 0.5)] * 3
+            head.f += [[b, b + 1, b + 2]]
+    plate(face, 0.074, 0.12, 0.575, -D - 0.002, thick=2 * D + 0.004)
     return G.scene_with([("post", p.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
-                         ("head", head.mesh(mat(noisy((150, 152, 156), amount=6), 0.7, 0.4, "head"))),
-                         ("face", face.mesh(mat(meter_face(), 0.3, 0.5, "face")))])
+                         ("trim", trim.mesh(mat(noisy(DARK, amount=4), 0.7, 0.45, "trim"))),
+                         ("head", head.mesh(mat(noisy(CHROME, amount=5), 0.85, 0.3, "head"))),
+                         ("face", face.mesh(mat(meter_dial(), 0.3, 0.4, "face")))])
 
 
 def build_mailbox():
@@ -295,8 +332,20 @@ def build_container(rgb, seed):
     # the plate faces -z; the doors are at +z: flip it round
     doors.v = [np.array(q, np.float32) for q in rot_y([tuple(v) for v in doors.v], 180)]
     doors.n = [np.array(q, np.float32) for q in rot_y([tuple(n) for n in doors.n], 180)]
+    # the steel frame: corner posts and top/bottom rails, a shade darker, standing proud of the sides
+    frame = G.Part()
+    e = 0.025
+    for x in (-W / 2 + e - 0.004, W / 2 - e + 0.004):
+        for z in (-L / 2 + e, L / 2 - e):
+            G.box_part(frame, x - e, x + e, 0.0, H, z - e, z + e)
+    for y in (0.0, H - 2 * e):
+        for x in (-W / 2, W / 2):
+            G.box_part(frame, x - 0.004, x + 0.004, y, y + 2 * e, -L / 2, L / 2)
+        for z in (-L / 2, L / 2):
+            G.box_part(frame, -W / 2, W / 2, y, y + 2 * e, z - 0.004, z + 0.004)
     return G.scene_with([("body", body.mesh(mat(corrugated(rgb, seed=seed), 0.6, 0.55, "body"))),
-                         ("doors", doors.mesh(mat(container_door(rgb), 0.6, 0.55, "doors")))])
+                         ("doors", doors.mesh(mat(container_door(rgb), 0.6, 0.55, "doors"))),
+                         ("frame", frame.mesh(mat(noisy(tuple(int(c * 0.7) for c in rgb), amount=6), 0.6, 0.5, "frame")))])
 
 
 def build_crane():

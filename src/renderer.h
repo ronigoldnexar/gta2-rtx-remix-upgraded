@@ -14,6 +14,7 @@
 
 #include "camera.h"
 #include "gta2_style.h"
+#include "post_fx.h"
 #include "sky.h"
 #include "world_mesh.h"
 
@@ -99,7 +100,11 @@ public:
     // The fog and sun for DrawWorld and for the live geometry drawn after it,
     // which inherits the fog state; EndWorldShading turns both off again before
     // the screen-space passes.
-    void SetWorldShading(const WorldShading& shading) { shading_ = shading; }
+    //
+    // In a street view with [visuals] on (and no RTX Remix) this also switches the
+    // frame to the post targets (post_fx.h) and rebalances the sun and ambient for
+    // the shadows; EndWorldShading then resolves the post onto the back buffer.
+    void SetWorldShading(const WorldShading& shading);
     const WorldShading& Shading() const { return shading_; }
     void EndWorldShading();
 
@@ -170,6 +175,10 @@ public:
     void CycleCullMode();
     const RenderStats& Stats() const { return stats_; }
     IDirect3DDevice9* Device() const { return device_; }
+    PostFx& Post() { return post_; }
+    // The device came from RTX Remix's d3d9 (the bridge client): Remix lights the scene,
+    // so the plain renderer's shadows and post passes never run.
+    bool IsRemixDevice() const { return remixDevice_; }
 
 private:
     void ApplyFixedFunctionState();
@@ -218,6 +227,8 @@ private:
     RenderStats stats_;
     WorldShading shading_;
     Sky sky_;
+    PostFx post_;
+    bool remixDevice_ = false;
 };
 
 }  // namespace gta2

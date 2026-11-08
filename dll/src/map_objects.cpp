@@ -31,6 +31,12 @@ std::map<uint32_t, const Model*> g_byKey;   // (base << 16 | number) -> model
 std::map<uint32_t, int> g_animByKey;        // 1 spin + float (pickups), 2 rotor
 std::map<const Model*, int> g_animByModel;
 std::map<uint32_t, float> g_yawByKey;       // extra yaw, degrees, from the manifest ("objects_yaw")
+// Companion models drawn with a model's placement (PROPS-2): "<name>__lit" unlit,
+// so traffic-light lenses, the phone booth's sign and the pickups' rings glow at
+// night; "<name>__glass" translucent, after everything else (the booth's panes).
+std::map<const Model*, const Model*> g_litOf, g_glassOf;
+struct Deferred { const Model* model; gta2::Mat4 out; };
+std::vector<Deferred> g_litNow, g_glassNow;
 std::set<uint32_t> g_logged;
 
 uint32_t Key(int base, int number) { return (static_cast<uint32_t>(base) << 16) | (static_cast<uint32_t>(number) & 0xFFFF); }
@@ -89,7 +95,14 @@ void LoadOnce() {
         auto it = g_byKey.find(kv.first);
         if (it != g_byKey.end()) g_animByModel[it->second] = kv.second;
     }
-    Log("objects: %d sprite(s) mapped to models", mapped);
+    int companions = 0;
+    for (const auto& kv : g_byKey) {
+        const Model* m = kv.second;
+        if (g_litOf.count(m) || g_glassOf.count(m)) continue;
+        if (const Model* lit = ModelByName((m->name + "__lit").c_str())) { g_litOf[m] = lit; ++companions; }
+        if (const Model* glass = ModelByName((m->name + "__glass").c_str())) { g_glassOf[m] = glass; ++companions; }
+    }
+    Log("objects: %d sprite(s) mapped to models, %d lit/glass companion model(s)", mapped, companions);
 }
 }  // namespace
 
@@ -120,9 +133,12 @@ const Model* MapObjectModel(const void* spriteObject, const LiveGeometry::Vertex
 
 std::vector<PropFootprint> g_objectFootprints;
 const std::vector<PropFootprint>& MapObjectFootprints() { return g_objectFootprints; }
+std::vector<PropFootprint> g_objectObstacles;
+const std::vector<PropFootprint>& MapObjectObstacles() { return g_objectObstacles; }
 
 void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::SpriteType>& sprites) {
     g_objectFootprints.clear();
+    g_objectObstacles.clear();
     for (const LiveGeometry::SpriteType& s : sprites) {
         if (!s.objectModel) continue;
         if (!ModelIsKnown(s.objectModel)) {
@@ -144,7 +160,11 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         float dirX = sx / ey, dirZ = sz / ey;
         const float longer = (std::max)(ex, ey);
         const float modelLong = (std::max)((std::max)(model.Length(), model.Width()), 0.01f);
-        const float scale = longer / modelLong;
+        // A spinning pickup is authored at its size in blocks: fitted to each frame's
+        // sprite extent it grew and shrank as the game cycled its turning frames.
+        auto animIt = g_animByModel.find(&model);
+        const bool spinning = animIt != g_animByModel.end() && animIt->second == 1;
+        const float scale = spinning ? 1.0f : longer / modelLong;
         const float f = model.forward;
         gta2::Mat4 fit;
         fit.m[0][0] = dirZ * scale * f;  fit.m[0][1] = 0.0f;  fit.m[0][2] = -dirX * scale * f;
@@ -155,6 +175,14 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         const float cx = 0.25f * (s.local[0].x + s.local[1].x + s.local[2].x + s.local[3].x);
         const float cz = 0.25f * (s.local[0].z + s.local[1].z + s.local[2].z + s.local[3].z);
         const float cy = 0.25f * (s.local[0].y + s.local[1].y + s.local[2].y + s.local[3].y);
+        if (!spinning) {
+            // Every standing object, drawn or culled, for the chase camera's clearance.
+            const gta2::Mat4& w = s.objectToWorld;
+            g_objectObstacles.push_back({cx * w.m[0][0] + cy * w.m[1][0] + cz * w.m[2][0] + w.m[3][0],
+                                         cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1],
+                                         cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2],
+                                         (std::min)(0.6f, (std::max)(0.12f, 0.5f * longer)), (std::max)(0.3f, model.Height() * scale)});
+        }
         {
             // World position of the quad's centre; nothing drawn behind the camera.
             const gta2::Mat4& w = s.objectToWorld;
@@ -162,8 +190,13 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             const float wy = cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1];
             const float wz = cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2];
             if (BehindView(wx, wy, wz, 1.5f)) continue;
+            // beside the picture (PERF-2): the model's bounding sphere round the quad's centre
+            const float r = 0.5f * scale * std::sqrt(model.Height() * model.Height() + model.Width() * model.Width() +
+                                                     model.Length() * model.Length());
+            if (OutsideViewFrustum(wx, wy + 0.5f * model.Height() * scale, wz, r + 0.25f)) continue;
         }
-        fit.m[3][0] = cx; fit.m[3][1] = cy - model.boundsMin.y * scale; fit.m[3][2] = cz; fit.m[3][3] = 1.0f;
+        // A pickup keeps its authored float above the ground (its origin is the ground).
+        fit.m[3][0] = cx; fit.m[3][1] = spinning ? cy : cy - model.boundsMin.y * scale; fit.m[3][2] = cz; fit.m[3][3] = 1.0f;
         {
             // A standing object (a pickup floats and is walked through): its
             // footprint, so a first-person eye inside a phone box is pushed out.
@@ -240,6 +273,49 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         } else {
             ModelDraw(device, model, out, nullptr, 0.0f);
         }
+        auto lit = g_litOf.find(&model);
+        if (lit != g_litOf.end()) g_litNow.push_back({lit->second, out});
+        auto glass = g_glassOf.find(&model);
+        if (glass != g_glassOf.end()) g_glassNow.push_back({glass->second, out});
+    }
+    if (!g_litNow.empty()) {
+        // Unlit: the texture as it is, so a lens or a sign reads in the dark. By day
+        // the same (a lit lens is as bright at noon); the scene's fog still applies.
+        DWORD colorOp = D3DTOP_MODULATE;
+        device->GetTextureStageState(0, D3DTSS_COLOROP, &colorOp);
+        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        for (const Deferred& d : g_litNow) ModelDraw(device, *d.model, d.out, nullptr, 0.0f);
+        device->SetTextureStageState(0, D3DTSS_COLOROP, colorOp);
+        g_litNow.clear();
+    }
+    if (!g_glassNow.empty()) {
+        // Translucent and without depth writes, after every opaque model, so what
+        // stands behind a pane (the phone, a person) is drawn and shows through.
+        DWORD blend = FALSE, test = FALSE, zwrite = TRUE, src = D3DBLEND_ONE, dst = D3DBLEND_ZERO, alphaOp = D3DTOP_SELECTARG1, alphaArg = D3DTA_TEXTURE;
+        device->GetRenderState(D3DRS_ALPHABLENDENABLE, &blend);
+        device->GetRenderState(D3DRS_ALPHATESTENABLE, &test);
+        device->GetRenderState(D3DRS_ZWRITEENABLE, &zwrite);
+        device->GetRenderState(D3DRS_SRCBLEND, &src);
+        device->GetRenderState(D3DRS_DESTBLEND, &dst);
+        device->GetTextureStageState(0, D3DTSS_ALPHAOP, &alphaOp);
+        device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &alphaArg);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        for (const Deferred& d : g_glassNow) ModelDraw(device, *d.model, d.out, nullptr, 0.0f);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, test);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, zwrite);
+        device->SetRenderState(D3DRS_SRCBLEND, src);
+        device->SetRenderState(D3DRS_DESTBLEND, dst);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg);
+        g_glassNow.clear();
     }
 }
 }  // namespace gta2dx9

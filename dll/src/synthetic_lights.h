@@ -115,8 +115,12 @@ struct SyntheticCategorySettings {
     float beaconAlong = 0.0f;         // and this far along the car, tiles
     float coneSoftness = 0.42f;       // the beams' own edge softness (not the headlamps')
     float glowRadius = 5.0f;          // the glow's reach, as Reach is for a beam
-    float sirenRed[3] = {1.0f, 0.06f, 0.04f};
-    float sirenBlue[3] = {0.08f, 0.22f, 1.0f};
+    // Nearly pure: a beacon is seen at a radiance far above the exposure, and any of the other
+    // two channels it carries clips first and turns the bulb and its reflections white.
+    float sirenRed[3] = {1.0f, 0.02f, 0.01f};
+    float sirenBlue[3] = {0.02f, 0.07f, 1.0f};
+    float sirenWhite[3] = {1.0f, 0.93f, 0.82f};   // the ambulance's second lamp
+    float sirenAmber[3] = {1.0f, 0.42f, 0.03f};   // the fire truck's second lamp
     bool  sirenAlwaysOn = false;      // test: every siren car burns, whatever it is doing
 };
 
@@ -220,6 +224,17 @@ void SyntheticSetCarLamps(int delta, std::vector<CarLamp> bySprite);
 // kSynthHeadlight and kSynthBrake take no types - they come off the vehicle list.
 int  SyntheticTypeBinding(int particleType);        // category, or -1
 void SyntheticBindType(int particleType, int category);   // -1 unbinds
+
+// A siren beacon on a 3D car body, from car_bodies.cpp's DrawBeacons: where its bulb
+// is (renderer world space, on the roof), which colour it is (SirenColour) and whether
+// the game has it lit this frame. Queued during the draw and turned into lights by the
+// next SyntheticLightsUpdate (a frame late); a car with queued beacons gets these lights
+// instead of the ones read off its sprite's roof lamps, so the light comes from where
+// the bulb is drawn and in the bulb's colour.
+enum SirenColour { kSirenRed = 0, kSirenBlue = 1, kSirenWhite = 2, kSirenAmber = 3 };
+void SyntheticQueueBeacon(uintptr_t vehicle, int slot, const float* worldPos, int colour, bool lit);
+// The bulb colour car_bodies.cpp draws for a SirenColour (0..1), the Sirens settings'.
+const float* SyntheticSirenColour(int colour);
 
 // Walks the game's particle and vehicle lists and submits this frame's invented
 // lights. Call once per frame, before LightsReconcile.

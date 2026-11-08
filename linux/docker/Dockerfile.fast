@@ -1,0 +1,6 @@
+# A thin layer with a ready-made 32-bit Wine prefix at /opt/wp, so a run copies
+# it (0.5 s) instead of running wineboot (5 s). Build on any game image:
+#   docker build -f Dockerfile.fast --build-arg BASE=gta2-gpugl -t gta2-gpugl-fast .
+ARG BASE=gta2-gpugl
+FROM $BASE
+RUN export WINEPREFIX=/opt/wp WINEARCH=win32 WINEDEBUG=-all && wineboot -i && wineserver -w && ls /opt/wp/drive_c/windows/system32 | head -1

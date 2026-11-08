@@ -21,4 +21,8 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
 // The footprints of the standing objects drawn last frame (phone boxes, traffic
 // lights: not the floating pickups), for the first-person eye's push-out.
 const std::vector<PropFootprint>& MapObjectFootprints();
+// The same for every standing object the game drew this frame, including those
+// outside the picture (behind the chase camera, where it may be about to go):
+// read-only, for the camera's clearance (view_modes.cpp).
+const std::vector<PropFootprint>& MapObjectObstacles();
 }  // namespace gta2dx9

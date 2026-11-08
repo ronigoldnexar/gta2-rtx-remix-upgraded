@@ -62,6 +62,11 @@ struct SkyColours {
 };
 SkyColours ComputeSkyColours(float sunElevationDeg, float sunAzimuthDeg);
 
+// With [visuals] on (post_fx.h) and no RTX Remix device, the colours above come from a
+// richer palette (a deeper day blue, a golden hour, a violet dusk, a navy night) and the
+// dome gets stars and an HDR sun disc for the bloom. The renderer says when it is Remix.
+void SetSkyRemix(bool remix);
+
 class Sky {
 public:
     ~Sky();
@@ -70,6 +75,12 @@ public:
     void Draw(IDirect3DDevice9* device, const Camera& camera, float aspect, const SkySettings& settings,
               const SkyColours& colours, float blend, double seconds);
     void Release();
+
+    // Builds the cloud and glow textures now (the cloud noise is ~100 ms of CPU), so the
+    // first street-view frame does not (PERF-2: the sky phase read 130 ms there).
+    void Warm(IDirect3DDevice9* device) { Ensure(device); }
+    // The frame goes to an FP16 target (the post is on): the sun's core may exceed 1.
+    void SetHdr(bool on) { hdr_ = on; }
 
 private:
     bool Ensure(IDirect3DDevice9* device);
@@ -86,7 +97,9 @@ private:
     std::vector<uint16_t> domeIndices_;
     IDirect3DTexture9* clouds_ = nullptr;
     IDirect3DTexture9* glow_ = nullptr;
+    IDirect3DTexture9* stars_ = nullptr;
     IDirect3DDevice9* device_ = nullptr;
+    bool hdr_ = false;
 };
 
 }  // namespace gta2

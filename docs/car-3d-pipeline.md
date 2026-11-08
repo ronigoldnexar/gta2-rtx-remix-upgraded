@@ -64,6 +64,29 @@ base model.
     TORCH_CUDA_ARCH_LIST=10.0 gen3d/venv/bin/pip install --no-build-isolation gen3d/ext/mip-splatting/submodules/diff-gaussian-rasterization/
     git clone --recurse-submodules https://github.com/microsoft/TRELLIS gen3d/TRELLIS
 
+### Rebuilding the CUDA extensions for another GPU (L4 = sm_89)
+
+The venv's compiled extensions only carry the architectures they were built for
+(`TORCH_CUDA_ARCH_LIST=10.0` on the B200). On the L4 host nvdiffrast and
+diff-gaussian-rasterization failed with "no kernel image" until rebuilt for sm_89
+(8 Nov 2026, logs `out/cq_nvdiffrast_build.log`, `out/cq_dgr_build2.log`):
+
+    cd ~/gta2-linux/gen3d
+    # stale objects from the old architecture are reused unless removed (literal paths only)
+    rm -rf ~/gta2-linux/gen3d/ext/mip-splatting/submodules/diff-gaussian-rasterization/build \
+           ~/gta2-linux/gen3d/ext/mip-splatting/submodules/diff-gaussian-rasterization/diff_gaussian_rasterization.egg-info
+    TORCH_CUDA_ARCH_LIST=8.9 venv/bin/pip install --no-build-isolation --force-reinstall --no-deps \
+        ext/mip-splatting/submodules/diff-gaussian-rasterization/
+    TORCH_CUDA_ARCH_LIST=8.9 venv/bin/pip install --no-build-isolation --force-reinstall --no-deps \
+        git+https://github.com/NVlabs/nvdiffrast.git
+    # check: every .so lists an sm_89 cubin
+    cuobjdump --list-elf venv/lib/python3.12/site-packages/diff_gaussian_rasterization/_C*.so
+
+`--no-deps` keeps pip from replacing torch; `--force-reinstall` is needed because the
+version number does not change. Use `TORCH_CUDA_ARCH_LIST="8.9;10.0"` for one venv
+that runs on both hosts. A check run afterwards (`run_trellis.py` on the cop car's
+views) produced a GLB in 2 minutes on the L4 (`out/cq_rebuild.log`).
+
 Patches to TRELLIS (two lines each, in `gen3d/TRELLIS`): the text pipeline
 import is wrapped in try/except (open3d needs libEGL, absent here); the kaolin
 `check_tensor` import in flexicubes falls back to a no-op. `run_trellis.py`
@@ -106,3 +129,259 @@ attempts kept in `models3d/rejected/`). Contact sheet of every car:
 - The nose test relies on the sprite's window rows; for symmetric bodies with a
   centred cabin the generated orientation is kept as is.
 - Heights come from the concept, not the game; the integration can clamp them.
+
+## Nose check and the all-models sheet (7 Nov 2026, CAR-FIDELITY pass)
+
+The user saw "some vehicles moving backward" in play. Two checks now cover the
+whole chain from sprite placement to model geometry:
+
+1. **Placement vs travel, in the running game.** With `GTA2DX9_LOG_CAR_NOSES=1`
+   the renderer logs every drawn car body every 15 frames (`car nose: obj=…
+   model=N f=±1 x z nx nz`: the placement's nose direction in the world and the
+   model's own `forward` sign). `tools/check_car_noses.py <gta2dx9.log>` pairs
+   consecutive samples of one car into a velocity and compares it with the drawn
+   nose; a model is flagged when most of its moving samples travel tail-first
+   (cars do reverse out of jams, so single samples do not count). Watching the
+   Downtown carriageway for 5.5 minutes from the kerb (`gamerun/car_noses.py`,
+   run `out/noses_wil`, 9 335 samples) gave 19 traffic models, all 100 % nose-first:
+   the placement convention (sprite nose = larger row = car +z) holds. Sheet:
+   `out/car_noses_sheet.png`.
+2. **The model's own nose.** A placement-correct car still drives backwards if the
+   GLB's grille sits at -z. The decisive view is the generator's post-fit proof
+   render (`assets-src/cars/models3d/proof/NNN_name.png`, panel "3D front" = the
+   camera at +z): all 60 image-to-3D models were tiled and read
+   (`out/proof_fronts_{1,2,3}.png`). One is wrong: **069 U-Jerk Truck** has the
+   pickup bed at +z (`out/proof_zoom.png`, middle row). It is also the third most
+   frequent car in Downtown traffic, which matches the report. Fixed at the source
+   for now by `"forward": "-z"` on its entry in `assets-src/manifest.json` and
+   `assets/models/manifest.json` (the runtime reads `forward` from the manifest's
+   `imported` list) and `69: 'flip'` in `gen3d/car_pipeline.py`'s `NOSE_OVERRIDE`,
+   so a refit (`--fit-only`) re-projects the roof sprite the right way round; until
+   that refit (nvdiffrast is built for the B200 and does not run on this L4) the
+   roof art of the truck is end-for-end, which only a rooftop camera would notice.
+3. **Every model in the game, from the chase camera and from eye height.**
+   `[devtools] force_car_model=N` (new, re-read once a second) draws every traffic
+   car as model N; `gamerun/car_models_sheet.py` warps the player into the
+   Downtown carriageway where the traffic queues up behind him nose-first, steps
+   through the model numbers and takes a chase and a first-person frame of the
+   stopped car for each (`gamerun/car_models_sheet_make2.py` tiles them). Sheet:
+   `out/car_models_ingame_sheet.png` (68 models; the queue faces the camera, so
+   every correct model shows its grille).
+
+Also in this pass (`dll/src/car_bodies.cpp`):
+- The fit of a model to the sprite's footprint scaled length and width
+  independently; a model whose proportions differ from the sprite's was stretched
+  one way. The aspect change is now capped at 15 % (the rest overhangs or falls
+  short of the footprint). The 60 image-to-3D models were already within the cap
+  (measured from their `size_blocks` against the CARI body size), so this is a
+  guard for the parametric set.
+- The driver's-seat hood copy dropped every triangle that crossed the cut planes,
+  leaving a stair-stepped edge on curved bonnets. The triangles are now clipped
+  against both planes (Sutherland-Hodgman per triangle, new vertices appended),
+  so the edge is the plane itself.
+
+## Clean albedo pass (8 Nov 2026, CAR-QUALITY-4)
+
+The user saw the cars as "completely worn out" and the police car with "lighting
+smeared across it". Causes found in the v1/v2 models: (1) the SDXL concepts were often
+line drawings, poster sheets or several cars on one image (a "black and white" livery
+reads to SDXL as a monochrome drawing); (2) the x4 game sprite projected onto every
+upward face put its soft, drawn-in highlights across hoods and trunks (the cop car's
+blotchy blue-white bonnet); (3) the side-livery option painted the sprite's row colours
+along the flanks as vertical streaks; (4) the v2 delighting divided by a global-median
+Gaussian low-pass, which turned black trim grey and left grey halos round every dark
+part; (5) image-to-3D sees one side of the car and bakes the hidden side into a shadow;
+(6) the cabin-position nose test put the v3 cop car tail-first.
+
+The pass, all scripts in `gen3d/` (outside git) plus the tools here:
+
+1. **Concepts** (`gen3d/concepts_v3.py`): "studio product photograph of one single car",
+   per-model paint words (cop: white body with dark blue doors, hood and trunk), a
+   negative prompt against drawings/text/collages/dirt, several seeds per view, and a
+   check on each try's rembg cut-out: one connected car, not touching the frame, not line
+   art (paper-white + ink-black share), no hot specular blobs, a sprite palette match
+   (k-means colours of the game sprite), and for car classes a front-view test (DINOv2
+   against front/rear prototypes, see 4). The best try is `concept/<stem>_3q_v3.png`;
+   tries and scores in `concept/v3try/`, `concept/v3_qc.json`, `gen3d/work/cq4_concepts.log`.
+2. **TRELLIS** (`gen3d/trellis_v3.py`, one process, the L4 cannot hold SDXL and TRELLIS
+   together, so `gen3d/work/cq4_orchestrate.sh` alternates batches): two candidates per
+   model, c0 = the 3/4 view, c1 = another seed (or the three views when they exist; with
+   separately generated views it blends bodies and is usually blurrier). 8 000 faces at the
+   source: pymeshlab's decimation filters do not load on this host.
+3. **Fit** (`tools/make_car_model.py` via `gen3d/car_pipeline2.py --stage fit --tag v3c`):
+   floating debris dropped (`drop_debris`, connectivity by position since UV seams split
+   the mesh), `--delight` with the new bilateral shading estimate
+   (`tools/delight_texture.py`: shading = local / regional bilateral low-pass of the
+   luminance, so the paint level stays and nothing bleeds across albedo edges; specular
+   blobs filled by normalised convolution), `--balance-sides` (the hidden flank's
+   low-frequency colour pulled to its mirror on the lit side, per channel, details and
+   lettering not mirrored), `--roof-only 0.8` (the sprite only on the cabin roof),
+   `--no-paint-match` for liveries and a paint-match clamp of 0.8-1.25 for the rest,
+   no side livery, materials left as plain PBR factors for the renderer.
+4. **Nose** (`tools/nose_from_concept.py`): the fitted model rendered from the four
+   diagonal 3/4 views, compared with the concept cut-out by DINOv2 (ViT-L/14 reg); the end
+   that matches is the end the concept shows. SDXL sometimes draws a rear 3/4 view (013
+   Minx, 033, 040): the concept's own front/rear margin against prototypes built from the
+   59 checked v1 models (`gen3d/work/nose_protos.npz`, `--protos`) flips the verdict for car
+   classes, and `proto_margin` (does the +z end look like a front) is kept as a second vote.
+   The v1 `NOSE_OVERRIDE` table is not used for v3 candidates.
+5. **Score and pick** (`tools/score_car_model.py`): the lighting term is now the bilateral
+   highlight share, the bilateral shading variance and the left/right flank balance; v1 was
+   re-scored with the same scorer (`out/car_scores_before_cq4.json`). Candidate = best total
+   (+0.3 x concept likeness as a tie-break, never a tail-first one); `--stage reselect`
+   re-picks from `status.json`, `--add-candidates 2,3` fits extra candidates without redoing
+   the others (`gen3d/cq4_round2.py` makes them: another TRELLIS seed, the runner-up concept).
+6. **Integrate** only models whose total beats v1 and that pass a look at
+   `out/car_quality_sheet.png` (`tools/car_quality_sheet.py` renders v1 and v3 with
+   `render_glb.py` from five views incl. the far side): `gen3d/integrate_v2.sh`, which now
+   turns 069 end for end (`gen3d/flip_forward.py`) because its manifest entry keeps
+   `"forward": "-z"`; `tools/make_car_manifest.py` now carries `forward` over when it rebuilds
+   the manifest (it used to drop it).
+7. **In game**: `gamerun/car_models_sheet.py` with `GTA2DX9_SCENE_NO_CAR=1`,
+   `SHEET_XY=164.5,149.2 FACE_XY=180,149.4` (in the lane, the queue facing the camera) and the
+   INI_SED for `scene_key=F10`; the player is run over now and then, so the runner re-warps
+   after a respawn and runs go in chunks of 5-10 models. Before frames: a stage copy with the
+   v1 models (`stage_cq4_v1`). `tools/car_ingame_sheet.py` -> `out/car_ingame_sheet_v2.png`.
+
+Results (8 Nov 2026, L4): 60 generated models regenerated (90 concept images kept of
+~260 tried, 120 + 49 TRELLIS candidates, ~45 s each). Same scorer for both: 35 of 60
+beat v1; 33 integrated (0 1 8 10 11 12 14 16 18 30 32 33 34 36 37 42 44 46 47 48 49 51 53
+54 56 58 62 63 67 69 71 83 86), mean total 0.859 -> 0.894 and lighting 0.59 -> 0.70 over
+those; 005 and 019 scored higher but were rejected on sight (dark smudges on the flank,
+a black side). Cop car 0.887 -> 0.901 (navy and white with the door badge, no sprite
+smear on the bonnet), taxi 0.912 -> 0.922, medicar 0.910 -> 0.917, karma bus 0.863 ->
+0.904; the fire truck (0.848 vs 0.903) and 24 others keep v1 for now. Sheets:
+`out/car_quality_sheet.png` (all 60, v1 | v3 from five views), `out/car_ingame_sheet_v2.png`
+(33 integrated models, chase camera, before = `stage_cq4_v1`), scores
+`out/car_scores_before_cq4.json`, `out/car_scores_after.json` (`integrated`, `better`,
+`nose_turned`, `nose_concept_match` per model). In game every integrated model that
+came close to the camera drove nose first; 069 shows its bed and tail lamps at the
+placement's rear with the turned GLB and `"forward": "-z"`.
+
+Open: models that still lose (2 3 4 7 13 17 21 22 23 27 28 29 31 35 38 39 40 41 45 50 52
+57 64 70 82; several by < 0.01); a few concepts are of the wrong era (048, 083 modern, 052
+a modern van); the runtime paint tint recolours liveries per remap (taxis in green and
+orange as before); vertical light gradients (bright roof, dark flanks) are not removed.
+
+## Round 5: the 27 models that still shipped v1 (8 Nov 2026, CAR-QUALITY-5)
+
+After CAR-QUALITY-4, 27 models still used the worn v1 GLB: the 25 that did not beat v1
+(2 3 4 7 13 17 21 22 23 27 28 29 31 35 38 39 40 41 45 50 52 57 64 70 82) and 005/019, which
+scored higher but were rejected by eye. Scripts in `gen3d/` (outside git) unless noted.
+
+1. **Delighting: bright roof over dark flanks** (`tools/make_car_model.py`, two new flags used for
+   every round-5 fit). `--balance-vertical`: the concept is lit from above, so hood/roof/trunk come
+   out brighter than the flanks. Paint faces are the faces whose chromaticity matches the flanks'
+   dominant paint (an area-weighted chromaticity histogram peak of the side faces); the median
+   luminance of the upward paint faces is brought to the flank level by a smooth gain over the face
+   normal's height (tops x sqrt(g), flanks x 1/sqrt(g)). The lift is soft (x*g / (1 + (g-1)*x)), so
+   light paint and chrome never clip: a plain multiply clipped the light side and made new
+   highlight blobs and unequal flanks in the scorer. A function of the normal only, so liveries keep
+   their contrast; two-tone tops (little flank paint on top) are left alone. `--roof-norm` (with
+   `--roof-only`): the x4 sprite is drawn bright. On plain cars a sprite roof brighter than the body
+   paint takes the paint of the top surfaces (hood/trunk/roof after the vertical balance) with the
+   sprite's brightness pattern on it (ratio clamped to 0.35-1.08, so the drawn highlights do not come
+   along); a dark sprite roof (vinyl, two-tone: 005) is kept. Liveries keep the sprite's colours,
+   scaled to the concept roof's brightness. Both share `_face_colours` / `_apply_face_gain` with the
+   side balance.
+2. **Concepts** (`gen3d/concepts_r5.py`): a hand-written brief per model from the sprite and the
+   name, in two wordings (A = make, model and year, e.g. "1959 Aston Martin DB4 grand tourer coupe";
+   B = a generic era/body description), plus a third (C) for the long ladder fire truck and the
+   GT40; "modern car, 2000s, SUV, LED headlights, rear view, ..." added to the negative prompt; 4
+   seeds per wording, every try checked with `concepts_v3.qc` (+ the DINOv2 front-view test for car
+   classes). 228 tries in `concept/r5try/`, checks in `concept/r5_qc.json`. The 2-3 TRELLIS inputs
+   per model were picked from contact sheets (`gen3d/r5_contact.py`) by the check score and by eye:
+   right era and body (COE trucks for 007/064, a step-side for 041, a long body for 028), the car
+   centred, no text, no second object (the hot-dog and ice-cream tries often put a second sausage or
+   cone on the floor). Picks: `gen3d/r5/picks1.json`, `picks2.json`.
+3. **TRELLIS** (`gen3d/r5_jobs.py`, `run_trellis.py --jobs`): 82 candidates from the picks, then
+   seeds 2 and 3 of the best concept for the 18 models still behind, and of the fire truck and the
+   Isetta (42 more). `run_trellis.py` now loads DINOv2 from the local torch hub cache:
+   `torch.hub.load('facebookresearch/dinov2')` goes to GitHub, and its HTTP 504s killed whole batches.
+4. **Fit, score, pick** (`gen3d/fit_r5.py`, `gen3d/r5_choose.py`): the CQ4 fit (debris, bilateral
+   delight, side balance, roof-only sprite, concept-based nose turn) plus the two flags, for the new
+   candidates and the 95 CQ4 candidates refitted. Status in `models3d_r5/r5_status.json`, renders in
+   `models3d_r5/proof/<stem>__<cand>.png` (`gen3d/r5_proofs.py` stacks them); pick = car_pipeline2's
+   pick_key minus candidates rejected by eye (`gen3d/r5/rejects.json`: 005 v3c0/v3c1 dark side
+   smudges, 029 r5A51 red-smeared windows, 070 r5A53_s2 black far side), copied to
+   `models3d_r5/chosen/`. `gen3d/integrate_v2.sh` takes `V2=` to integrate from there.
+
+Results (v1 = the CQ4 v1 scores, same scorer): 10 of 27 now beat v1 and passed the look, and were
+integrated: 002 Aniston BD4 0.872 -> 0.941, 005 Beamer 0.883 -> 0.884 (a BMW Neue Klasse now, clean
+flanks), 017 Fire Truck 0.903 -> 0.917 (ladder lying along the body), 019 GT-A1 0.838 -> 0.906,
+028 Dementia Limousine 0.900 -> 0.921, 029 Dementia 0.940 -> 0.941, 035 Benson 0.894 -> 0.897,
+038 Big Bug 0.901 -> 0.912, 057 T-Rex 0.850 -> 0.901, 064 Truck Cab SX 0.827 -> 0.853 (a red
+cab-over). Sheets: `out/car_quality_sheet_r5.png` (all 27, v1 | chosen r5 from five views),
+`out/car_ingame_sheet_r5.png` (the 10, chase camera, before = `out/cq4_ingame_before_all`); scores
+`out/car_scores_after_r5.json` (`candidate`, `candidates`, `cq4_total`, `before_total`, `better`,
+`integrated`, `rejected_by_eye`).
+
+Still v1 (17): near misses 013 Minx 0.877/0.882, 021 Garbage Truck 0.893/0.895, 023 Hot Dog Van
+0.896/0.905, 045 Spritzer 0.881/0.885, 070 Z-Type 0.910/0.912, 003 Pacifier 0.856/0.865; further
+off 004 007 022 027 031 039 040 041 050 052 082. Where they lose: `lumps` (a cab and a taller box,
+a gun or a roof rack break the smoothed roof line: 007 0.12 vs 1.00), `texture` (Laplacian variance
+of the 1024 atlas plus a penalty for light-grey texels, which hits grey and cream paint), and the
+v1 baselines of the small cars are high (027 0.945, 050 0.948). 019 still has a darker lower flank
+(a shadow gradient, not the black side of its CQ4 model); 005's far side is a little darker toward
+the rear.
+
+## Round 6: scorer biases fixed, the last 17 v1 models replaced (8 Nov 2026, CAR-QUALITY-6)
+
+Round 5 showed the 17 models still on v1 (003 004 007 013 021 022 023 027 031 039 040 041 045 050 052 070
+082) lost on the scorer, not by eye. Scripts in `gen3d/` (outside git) unless noted.
+
+1. **Scorer** (`tools/score_car_model.py`, nine terms now; totals are not comparable with earlier rounds):
+   - `lumps`: the roof profile is the max height per z-slice of points *sampled over the surface*. It used the
+     vertices, and a decimated flat box roof is a few big triangles with no vertex in most slices, so every
+     box truck, van and bus roof read as a row of deep dips (the "0.12 box truck"; with samples 007, 004, 052
+     score 1.0). The reference is body-type aware (`body_type`): trucks, vans, buses, pickups, emergency,
+     special/tank, off-road (`BOXY_CLASSES` + `BOXY_MODELS`) and the open-top jeeps/roadsters
+     (`OPEN_TOP_MODELS`) use a 5-slice running median, which keeps steps (cab then a taller box, windscreen
+     frame over a cockpit); cars keep the smoothed curve. Models whose sprite carries a roof item (gun,
+     turret, light bar, ladder, sign, rack, boom, stacks: `ROOF_ITEM_MODELS`) do not count tops above the
+     reference.
+   - `texture`: the near-background-grey penalty skips texels within 24 of the model's own flank paint
+     (`flank_paint`), so light grey and cream paint are neutral.
+   - `smear` (new): the albedo seen without lighting from the left, the right and above (`_view_grids`:
+     800 k surface samples, texel through the UVs, a z-buffer per cell; sides = the lower flank panels),
+     the dominant-paint region (chroma-histogram peak, closed and hole-filled so dark streaks inside the
+     panel stay in), split at crisp colour edges (liveries, two-tone, trim are design) and measured for soft
+     variation: band-pass lightness (blotches), low-pass lightness (stains), chroma std (colour smears),
+     against a clean level or the sprite's own paint variation where higher (capped at 1.5x); plus a penalty
+     when one flank has far less paint than the other (a black far side). v1 means 0.77 on the 17, chosen
+     0.90.
+   - Known remaining bias: the `texture` sharpness half (Laplacian variance of the atlas) still rewards v1's
+     noisy, high-contrast textures over a clean delighted albedo (17 models: 0.96 v1 vs 0.75 chosen), so
+     several clean candidates still total below a worn v1 (013 023 027 039 040 041 050 052 082). Not changed
+     this round: gradient percentiles show the same ordering, a fair crispness measure needs livery edges.
+2. **Re-score** (`gen3d/r6_rescore.py`): v1, shipped and every CQ4 (`models3d_v2`, `raw/*_c*_fit`), round-5
+   (`models3d_r5/fit`) and round-6 (`models3d_r6/fit`) candidate of the 60 models, 517 GLBs ->
+   `out/car_scores_r6.json` (`candidates` with every term and the nose check, `chosen`, `integrated`).
+3. **Look** (`gen3d/r6_contact.py`): one contact sheet per model, a row per GLB from five views (3/4 front,
+   top, side, front = +z, 3/4 rear = far side) with the terms, `out/r6_contact/`, `out/r6_contact43/`,
+   `out/r6_contact_new/`. Rejected on sight: split meshes (013 cq4/v3c, 045 c2), black far sides (013 r5A53*,
+   007 r5, 023 cq4_c3/v3c3, 035 r5_v3c2, 040 r5A51), tail-first (021 cq4/v3c dump bodies), modern vans (052
+   cq4), upside-down or cross-shaped fits (013 r6B62_s2, r6A63), black ground plane (031 r5A53).
+4. **New concepts** where no candidate was clean (`gen3d/concepts_r6.py`, body-type briefs: a 1940s box truck
+   with a box taller than the cab, a streamlined armoured bank van with two roof vents, a rear-loader garbage
+   truck with its hopper, the Minx; 30 tries in `concept/r6try/`, checks `concept/r6_qc.json`), TRELLIS from
+   the picks (`r6/picks1.json`, `picks2.json`, `r6_jobs.py`, 14 candidates) and `gen3d/fit_r6.py` (the round-5
+   fit with `--balance-vertical --roof-norm`). Briefs for 003 022 023 027 031 052 were written but not run:
+   their round-5 candidates were already clean.
+5. **Pick and integrate** (`gen3d/r6_choose.py r6/final_picks.json` -> `models3d_r6/chosen`,
+   `V2=assets-src/cars/models3d_r6/chosen gen3d/integrate_v2.sh ...`): by eye, score as tie-break.
+
+Results: all 17 replaced, plus 2 swaps among the 43 (001 Wellard CQ4 c0 -> c1: even olive paint instead of dark
+smears; 042 A-Type c0 -> c1: no grey patches). Picks (v1 -> chosen total, round-6 scorer): 003 Pacifier r5_v3c0
+0.828 -> 0.883 (green, turret), 004 G4 Bank Van r6A61 0.846 -> 0.884 (streamlined navy van), 007 Box Truck r6B63
+0.895 -> 0.900 (brown cab and taller box), 013 Minx r5A54 0.868 -> 0.865, 021 Garbage Truck r5B53_s2 0.891 ->
+0.896 (rounded body, rear hopper), 022 Armed Land Roamer r5B54 0.836 -> 0.868, 023 Hot Dog Van r5B53 0.888 ->
+0.862 (hot dog on the roof, awning), 027 Ice-Cream Van r5A51 0.936 -> 0.874 (cone along the roof), 031
+Jefferson r5A51_s3 0.884 -> 0.888, 039 Morton r5A53_s3 0.889 -> 0.875, 040 Maurice r5B51 0.918 -> 0.884, 041
+Pickup r5B51 0.932 -> 0.885, 045 Spritzer r5_v3c3 0.885 -> 0.908, 050 B-Type r5_v3c0 0.918 -> 0.905, 052 SWAT
+Van r5A51_s2 0.893 -> 0.866 (1950s armoured box), 070 Z-Type r5A51 0.894 -> 0.907, 082 Jagular XK r5A54_s2 0.910
+-> 0.898. Over all 60 (v1 -> shipped now): total 0.874 -> 0.891, smear 0.78 -> 0.84, lighting 0.60 -> 0.69.
+Considered and kept after a look: 011 014 035 036 047 063 064 069 083 (a higher-scoring candidate was not cleaner,
+or had a dark far side, or a wrong body). Sheets: `out/car_quality_sheet_r6.png` (all 60, v1 | shipped from five
+views), `out/car_ingame_sheet_r6.png` (the 19 changed models, chase camera before/after + first person).
+Open: 083 Furore GT and 047/048 Meteor are still modern bodies; the runtime paint tint recolours per remap.

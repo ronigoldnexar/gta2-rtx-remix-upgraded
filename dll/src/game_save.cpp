@@ -34,11 +34,39 @@ typedef void(__thiscall* SaveFn)(void* manager, const char* name);
 typedef int(__thiscall* MoneyFn)(void* scoreKeeper);
 typedef void(__thiscall* ShowFn)(void* ui, int a, const char* key);
 
+// Reads of the game's memory, every frame (the score keeper and its money). They were
+// ReadProcessMemory, a wineserver round trip each under Wine: four a frame, 15-30 ms
+// together whenever the server was busy with input (PERF-3, `pre_menu` in the frame
+// log). As in view_modes.cpp: the region is checked once with VirtualQuery and
+// remembered, and the read is a plain load under the fault guard.
+struct ReadableRange { uintptr_t lo, hi; };
+ReadableRange g_readable[16];
+int g_readableCount = 0, g_readableNext = 0;
+unsigned g_readableCalls = 0;
+bool KnownReadable(uintptr_t address, size_t bytes) {
+    if (++g_readableCalls >= 65536) { g_readableCalls = 0; g_readableCount = 0; g_readableNext = 0; }   // look again now and then
+    for (int i = 0; i < g_readableCount; ++i) {
+        if (address >= g_readable[i].lo && address + bytes <= g_readable[i].hi) return true;
+    }
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!VirtualQuery(reinterpret_cast<LPCVOID>(address), &mbi, sizeof mbi)) return false;
+    const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE |
+                           PAGE_EXECUTE_WRITECOPY;
+    if (mbi.State != MEM_COMMIT || !(mbi.Protect & readable) || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return false;
+    const uintptr_t lo = reinterpret_cast<uintptr_t>(mbi.BaseAddress), hi = lo + mbi.RegionSize;
+    if (address + bytes > hi) return false;
+    g_readable[g_readableNext] = {lo, hi};
+    g_readableNext = (g_readableNext + 1) % 16;
+    if (g_readableCount < 16) ++g_readableCount;
+    return true;
+}
 template <typename T>
 bool Read(uintptr_t address, T* out) {
-    SIZE_T got = 0;
-    return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<LPCVOID>(address), out, sizeof(T), &got) &&
-           got == sizeof(T);
+    if (address < 0x10000 || address >= 0x7FFE0000) return false;
+    if (!KnownReadable(address, sizeof(T))) return false;
+    bool ok = true;
+    GTA2_TRY { memcpy(out, reinterpret_cast<const void*>(address), sizeof(T)); } GTA2_EXCEPT { ok = false; }
+    return ok;
 }
 
 void* ScoreKeeper() {

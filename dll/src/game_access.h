@@ -392,6 +392,77 @@ constexpr uintptr_t kPhysicsSprite = 0x80;
 // FUN_00433270, which parks it at +0x280 instead while the ped is in state 8 -
 // knocked down, which is what a blast leaves them - so the game's own "is this
 // ped dead" tests read both, and so does anything here.
+// A ped's weapons (read off gta2.exe v9.6, 7 Nov: FUN_00434D70, FUN_004A4870,
+// FUN_004A5260, FUN_0041CC90): +0x15C is his inventory object; +0x170 is the
+// weapon object in his hands, null with none (FUN_00434D70 refreshes it from
+// the inventory each time he draws). The inventory keeps 28 weapon-object
+// pointers at +0x718, one per weapon type, and the int16 at +0x788 is the
+// selected type, -1 for none (FUN_004A4870: selected < 0 ? null : slots[selected]).
+// A weapon object: int16 ammo at +0, int16 reload timer at +2, and its type
+// at +0x1C, the index of its slot (what FUN_0041CC90 returns and the game's
+// aim code compares against 0, 1, 6, 9, 0xA, 0x12). The numbering, verified
+// on the pickups (a COLLECT_nn pickup fills slot nn; a kill frenzy sets its
+// slot's ammo to -1) against the HUD icon at every Z stop (runs
+// out/weapon_offset_wil2, _ste2 of 7 Nov; gamerun/weapon_probe2.py):
+// 0 pistol, 1 machine gun, 2 rocket launcher, 3 electro gun, 4 molotov,
+// 5 grenade, 6 shotgun, 7 electro baton (unverified), 8 flamethrower,
+// 9 silenced machine gun, 10 dual pistols (unverified; the GTAMP memory
+// thread's inventory table, same order). On foot the cycle covers slots
+// 0..14, in a car 0..27 (the vehicle weapons), skipping empty ones.
+inline bool PlausiblePointer(const void* p);
+constexpr uintptr_t kPedWeaponInventory = 0x15C;
+constexpr uintptr_t kPedCurrentWeapon = 0x170;
+constexpr uintptr_t kInventorySlots = 0x718;
+constexpr int kInventorySlotCount = 28;
+constexpr uintptr_t kInventorySelected = 0x788;
+constexpr uintptr_t kWeaponAmmo = 0x0;
+constexpr uintptr_t kWeaponType = 0x1C;
+// The game's weapon type to the renderer's PedWeapon (live_geometry.cpp:
+// 1 pistol, 2 dual pistols, 3 silenced machine gun, 4 machine gun, 5 rocket
+// launcher, 6 electro gun, 7 molotov, 8 grenade, 9 shotgun, 10 flamethrower);
+// 0 for bare hands, the electro baton (no model yet) and anything unknown.
+inline int PedWeaponFromGame(int raw) {
+    static const int kMap[11] = {1, 4, 5, 6, 7, 8, 9, 0, 10, 3, 2};
+    return raw >= 0 && raw < 11 ? kMap[raw] : 0;
+}
+// The weapon in a ped's hands as the game numbers it (-1: no weapon object, or
+// the ped unreadable) and its ammunition. Pointer-checked, not exception-guarded:
+// the caller wraps it in GTA2_TRY where the ped may be stale.
+inline int PedWeaponRaw(const uint8_t* ped, int* ammo = nullptr) {
+    if (!PlausiblePointer(ped)) return -1;
+    const uint8_t* weapon = *reinterpret_cast<const uint8_t* const*>(ped + kPedCurrentWeapon);
+    if (!PlausiblePointer(weapon)) return -1;
+    if (ammo) *ammo = *reinterpret_cast<const int16_t*>(weapon + kWeaponAmmo);
+    return *reinterpret_cast<const int32_t*>(weapon + kWeaponType);
+}
+// The same as the renderer's PedWeapon: 0 bare hands (no weapon object), -1 unreadable.
+inline int PedWeaponOf(const uint8_t* ped, int* ammo = nullptr) {
+    if (!PlausiblePointer(ped)) return -1;
+    const uint8_t* weapon = *reinterpret_cast<const uint8_t* const*>(ped + kPedCurrentWeapon);
+    if (!weapon) { if (ammo) *ammo = 0; return 0; }
+    const int raw = PedWeaponRaw(ped, ammo);
+    return raw < 0 ? -1 : PedWeaponFromGame(raw);
+}
+// The wanted level is the ped's cop points, int16 at +0x20A (read off gta2.exe
+// v9.6, 8 Nov): FUN_00434C00 turns them into stars at 600 / 1600 / 3000 / 5000 /
+// 8000 / 12000 (1..6), FUN_004353D0 adds to them (clamped to 0..12000; crimes
+// seen by the police call it), FUN_00434CD0 sets a star level outright (the
+// mission script's and the cheat's path) and the death/arrest code clears them
+// (0x00441394). The police manager ([0x66B7A0]) keeps up to four pursued peds
+// at +0x464 (stride 0x7C, the ped at +0), asks each one's stars every frame and
+// sets their unit's response level (+4 of the entry) from them; its +0x654 is
+// the highest response level this frame, rebuilt from zero each frame
+// (0x004AEF88), which is why writing +0x654 never stuck.
+constexpr uintptr_t kPedCopPoints = 0x20A;
+constexpr int16_t kCopPointsForStars[7] = {0, 600, 1600, 3000, 5000, 8000, 12000};
+constexpr uintptr_t kPoliceManagerPtr = 0x0066B7A0;
+constexpr uintptr_t kPoliceResponseLevel = 0x654;
+inline int PedWantedStars(const uint8_t* ped) {
+    const int16_t points = *reinterpret_cast<const int16_t*>(ped + kPedCopPoints);
+    int stars = 0;
+    for (int i = 1; i < 7; ++i) if (points >= kCopPointsForStars[i]) stars = i;
+    return stars;
+}
 constexpr uintptr_t kPedState = 0x278;
 constexpr uintptr_t kPedStatePending = 0x280;
 constexpr int32_t kPedStateDead = 9;

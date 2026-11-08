@@ -227,18 +227,16 @@ void ClearAll() {
 // because Apply is the first thing that wants it.
 float GameClassDaylight(uint8_t klass);
 
-void Apply(RemixTrackedLight& t) {
-    const remixapi_Interface* api = RemixApi();
-    if (!api) return;
-
+// Where a tracked light goes, its colour and the factor its colour is scaled by
+// (everything Apply describes to Remix but the emitter shape). Shared with the
+// strongest-lights log.
+void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOut) {
     const RemixLightOverride* ov = LightsFindOverride(t.key);
     const bool identified = t.key != 0 && t.key == g_identify;
-
-    float pos[3] = {t.def.pos[0], t.def.pos[1], t.def.pos[2]};
+    pos[0] = t.def.pos[0]; pos[1] = t.def.pos[1]; pos[2] = t.def.pos[2];
     if (t.def.source == kLightSourceGame && !t.moving && IsMapLight(pos)) {
         LiftOutOfGround(pos[0], &pos[1], pos[2]);
     }
-    float rgb[3];
     for (int i = 0; i < 3; ++i) {
         pos[i] += ov ? ov->offset[i] : 0.0f;
         rgb[i] = (ov && ov->recolor) ? ov->color[i] : t.def.rgb[i];
@@ -276,6 +274,20 @@ void Apply(RemixTrackedLight& t) {
         scale = kIdentifyRadiance;
     }
 
+    *scaleOut = scale;
+}
+
+void Apply(RemixTrackedLight& t) {
+    const remixapi_Interface* api = RemixApi();
+    if (!api) return;
+    const RemixLightOverride* ov = LightsFindOverride(t.key);
+    float pos[3], rgb[3], scale = 0.0f;
+    Describe(t, pos, rgb, &scale);
+
+    float emitter = (ov && ov->emitterRadius > 0.0f)  ? ov->emitterRadius
+                    : t.def.emitterRadius > 0.0f      ? t.def.emitterRadius
+                                                      : g_settings.emitterRadius;
+
     remixapi_LightInfo info = {};
     info.sType = REMIXAPI_STRUCT_TYPE_LIGHT_INFO;
     info.hash = t.id;
@@ -289,9 +301,7 @@ void Apply(RemixTrackedLight& t) {
     remixapi_LightInfoSphereEXT sphere = {};
     sphere.sType = REMIXAPI_STRUCT_TYPE_LIGHT_INFO_SPHERE_EXT;
     sphere.position = ToRemix(pos);
-    sphere.radius = (ov && ov->emitterRadius > 0.0f)  ? ov->emitterRadius
-                    : t.def.emitterRadius > 0.0f      ? t.def.emitterRadius
-                                                      : g_settings.emitterRadius;
+    sphere.radius = emitter;
     sphere.volumetricRadianceScale = 1.0f;
     // A headlight is a cone, not a bare bulb. Remix calls that shaping, and it
     // is the one thing here the game's own light model had no way to express.
@@ -499,8 +509,12 @@ void LightsSetMapLightRecords(const std::vector<uint8_t>& lght) {
         static_cast<unsigned>(g_mapLampRecords.size()), blinking);
 }
 
+float g_lastEye[3] = {0, 0, 0};
+bool g_haveEye = false;
+
 void LightsSubmitMapLampsNear(const float* eye, float radius, int cap) {
     g_farLampsLastFrame = 0;
+    memcpy(g_lastEye, eye, sizeof(g_lastEye)); g_haveEye = true;
     if (!g_settings.enabled || !g_settings.injectStatic || g_mapLampRecords.empty() || cap <= 0) {
         static bool said = false;
         if (!said) { said = true; Log("remix lights: far lamps off (enabled %d injectStatic %d records %u)", g_settings.enabled ? 1 : 0, g_settings.injectStatic ? 1 : 0, static_cast<unsigned>(g_mapLampRecords.size())); }
@@ -674,6 +688,50 @@ void RefreshClassDaylight() {
 
 void LightsReconcile() {
     ++g_frame;
+    // [devtools] set_hour_tenths=N (REMIX-3, a developer check for the lights): the
+    // clock is set to N/10 hours whenever the value changes, re-read once a second,
+    // so one scripted Remix session can show the same street by day, at dusk and at
+    // night. -1 (or absent) leaves the clock alone.
+    if ((g_frame % 60u) == 1u) {
+        static char ini[MAX_PATH] = "";
+        static int lastHour = -1;
+        if (!ini[0]) {
+            GetModuleFileNameA(nullptr, ini, MAX_PATH);
+            char* slash = strrchr(ini, '\\');
+            if (slash) strcpy(slash + 1, "gta2dx9.ini"); else strcpy(ini, "gta2dx9.ini");
+        }
+        const int tenths = GetPrivateProfileIntA("devtools", "set_hour_tenths", -1, ini);
+        if (tenths >= 0 && tenths != lastHour) {
+            TimeOfDaySetHour(static_cast<float>(tenths) / 10.0f);
+            Log("devtools: clock set to %.1f h", static_cast<float>(tenths) / 10.0f);
+        }
+        lastHour = tenths;
+        // [devtools] remix_lights_off=1: none of our lights reach Remix (the game's lamps,
+        // the far lamps, the synthetic lights), to see what lights a scene without them.
+        static int lastOff = -1;
+        const int off = GetPrivateProfileIntA("devtools", "remix_lights_off", 0, ini);
+        if (off != lastOff) {
+            if (lastOff >= 0 || off) { g_settings.enabled = off == 0; Log("devtools: our Remix lights %s", off ? "off" : "on"); }
+            lastOff = off;
+        }
+        // [devtools] remix_config=key=value|key=value: pushed to the runtime whenever the
+        // line changes (A/B checks of runtime options within one session).
+        static char lastConfig[512] = "";
+        char config[512] = "";
+        GetPrivateProfileStringA("devtools", "remix_config", "", config, sizeof(config), ini);
+        if (strcmp(config, lastConfig) != 0) {
+            strcpy(lastConfig, config);
+            char work[512];
+            strcpy(work, config);
+            for (char* item = strtok(work, "|"); item; item = strtok(nullptr, "|")) {
+                char* eq = strchr(item, '=');
+                if (!eq) continue;
+                *eq = 0;
+                const bool ok = RemixSetConfig(item, eq + 1);
+                Log("devtools: remix config %s = %s (%s)", item, eq + 1, ok ? "set" : "refused");
+            }
+        }
+    }
     RefreshClassDaylight();
 
     if (!g_settings.enabled) {
@@ -941,6 +999,36 @@ void LightsReconcile() {
             t.def.pos[0], t.def.pos[1], t.def.pos[2], t.def.rgb[0], t.def.rgb[1], t.def.rgb[2],
             t.def.intensity, t.def.radius, g_stats.submittedLastFrame,
             RemixApiAvailable() ? "available" : "ABSENT");
+    }
+    // GTA2DX9_LOG_REMIX_LIGHTS=1: every 256 frames, the ten lights that light the
+    // ground under the eye most (radiance over the squared distance from the point
+    // below the eye), to find which lamp makes a scene look floodlit (REMIX-3).
+    static int logStrong = -1;
+    if (logStrong < 0) { const char* e = getenv("GTA2DX9_LOG_REMIX_LIGHTS"); logStrong = e && *e == '1' ? 1 : 0; }
+    if (logStrong && g_haveEye && (g_frame & 0xFF) == 0x80) {
+        struct Strong { float score, scale, d; const RemixTrackedLight* t; float pos[3]; };
+        std::vector<Strong> list;
+        const float gx = g_lastEye[0], gy = g_lastEye[1] - 1.5f, gz = g_lastEye[2];
+        for (const RemixTrackedLight& t : g_tracked) {
+            if (!t.handle || t.def.spot) continue;   // the cones (headlights) aim along the road
+            Strong s{}; float rgb[3];
+            Describe(t, s.pos, rgb, &s.scale);
+            const float lum = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
+            const float dx = s.pos[0] - gx, dy = s.pos[1] - gy, dz = s.pos[2] - gz;
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            s.d = std::sqrt(d2); s.score = s.scale * lum / (std::max)(d2, 0.25f); s.t = &t;
+            list.push_back(s);
+        }
+        std::sort(list.begin(), list.end(), [](const Strong& a, const Strong& b) { return a.score > b.score; });
+        Log("remix lights: strongest at the eye %.1f,%.1f,%.1f (%zu lit):", g_lastEye[0], g_lastEye[1], g_lastEye[2], list.size());
+        for (size_t i = 0; i < list.size() && i < 10; ++i) {
+            const Strong& s = list[i];
+            Log("  #%zu %s/%s pos %.2f,%.2f,%.2f (game %.2f,%.2f,%.2f) rgb %.2f,%.2f,%.2f int %.2f reach %.2f scale %.1f emitter %.2f d %.1f score %.2f%s",
+                i, LightSourceName(s.t->def.source), s.t->def.source == kLightSourceGame ? GameLightClassName(s.t->gameClass) : "-",
+                s.pos[0], s.pos[1], s.pos[2], s.t->def.pos[0], s.t->def.pos[1], s.t->def.pos[2],
+                s.t->def.rgb[0], s.t->def.rgb[1], s.t->def.rgb[2], s.t->def.intensity, s.t->def.radius, s.scale,
+                s.t->def.emitterRadius, s.d, s.score, s.t->moving ? " moving" : "");
+        }
     }
     if ((g_frame & 0xFF) == 0 && (g_stats.submittedLastFrame || g_stats.tracked)) {
         // A map lamp counted as moving would be lit and gated as a car's.

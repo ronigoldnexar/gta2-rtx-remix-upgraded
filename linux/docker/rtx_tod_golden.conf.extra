@@ -1,0 +1,13 @@
+# Time-of-day overlay: golden hour (game clock 17:24, sun ~7 deg above the horizon).
+# Warmer, hazier air, a richer sunset, the sun visible in a light volumetric haze.
+rtx.atmosphere.aerosolDensity = 1.3
+rtx.atmosphere.sunsetSaturation = 1.35
+rtx.atmosphere.sunShadowSoftnessDeg = 0.6
+rtx.atmosphere.nightSkyBrightness = 0.008
+rtx.volumetrics.transmittanceMeasurementDistanceMeters = 600
+rtx.volumetrics.transmittanceColor = 0.97, 0.96, 0.95
+rtx.volumetrics.anisotropy = 0.6
+rtx.volumetrics.fogSunVisibilityGain = 4
+rtx.opaqueMaterial.roughnessScale = 1
+rtx.opaqueMaterial.roughnessBias = 0
+rtx.weather.precipitation.intensity = 0

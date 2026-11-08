@@ -30,6 +30,216 @@ Not tuned by measurement: the roughness heuristic (below), the paint constants, 
 runtime's exposure (see `docs/remix-gpu-l4.md`).
 
 
+## Cars, alpha state, roughness with the HD tiles, rebuilding (REMIX-POLISH, 8 Nov 2026)
+
+**Roughness applies with the HD tiles (verified).** The colour probe above proved the
+albedo hash; this pass checked a second input. `gamerun/remix_probe_rough/` is the shipped
+layer with every tile prim's roughness texture replaced by `reflection_roughness_constant
+= 0.03` (textures linked, not copied); run `out/remix_pol_rough` (`MODS_HD_SRC=/work/remix_probe_rough`,
+14:00, HD tiles installed, same key script as the day take; the probe's `mod.usda` is the shipped one with each tile prim's `reflectionroughness_texture` block and `reflection_roughness_constant = 0.8` replaced by `= 0.03`, and `textures` a symlink to `/package/rtx-remix/mods/gta2hd/textures`; not committed) shows the walls and kerbs of
+the spawn plaza as glossy mirrors reflecting the sky and the neon, where the shipped
+layer (`out/remix_pol_day3`) shows them matte: the layer's material inputs, not only its
+albedo, reach the HD tiles. The hashes did not need regenerating: all 846 / 930 / 876 HD
+tiles of wil / bil / ste in the current stage have a prim in the layer (checked with
+`remix_materials.dds_hash`). Frames: `out/remix_hd_roughness_probe.png`.
+
+**Alpha state.** Every prim used to say `use_legacy_alpha_state = 0`, whose MDL defaults
+are "alpha test: always, no blend": the 665 HD tiles with cutout alpha (fences, railings,
+gratings, tree edges) were path traced as opaque. Tile prims now keep the game's alpha
+state (`= 1`, `remix_materials.py MATERIAL`); the shipped `mod.usda` was patched in place.
+
+**Car paint, trim and lamps** (`tools/remix_model_materials.py`, rewritten). The 3D car
+models are drawn twice per car (car_bodies.cpp: the `_paint` half and the rest, each
+alpha-tested at 128, same mesh, same transform). Under Remix the second draw is taken as a
+duplicate of the first, so with each half's own alpha only one half of the car was path
+traced (run `out/remix_pol_day2`: cars in pieces, a different half from frame to frame).
+Both prims of a split pair therefore carry one opaque whole-car material, built from
+copies (the baked TGAs are not touched):
+
+* albedo: the two halves merged (paint texels from `_paint`, the rest from `_N`);
+* paint texels: clear coat approximated as a smooth dielectric with some flake,
+  metallic 0.2, roughness 0.12 (AperturePBR has no second specular lobe; this gives the
+  sharp sky/lamp reflections over the coloured paint of a coat, where the old 0.6 / 0.3
+  turned the paint into dark tinted metal);
+* the rest, per texel from its colour: bright neutral texels in a busy neighbourhood
+  chrome (1.0 / 0.16: bumpers, strips, hubcaps, grilles), mid-grey busy texels brushed
+  metal (0.7 / 0.32), dark blue-grey glass (0 / 0.05), near-black rubber (0 / 0.6),
+  anything else painted body with the coat;
+* saturated red texels (tail and brake lamps) an emissive mask in their own colour,
+  intensity 6, so the lamps glow at night.
+
+Lone textures (the 13 parametric cars' part textures: chrome, lamp, tyre ...) get the same
+per-texel maps and keep the game's alpha. 60 split pairs, 113 lone trim and 92 lone paint
+textures, 34 prims with lamp emission. `--preview <dir>` writes the albedo / metallic /
+roughness / emissive maps per texture. The renderer's per-car paint tint (a texture-stage
+factor) is not reproduced by a replacement material, so under the layer every car of a
+model shows the model's own paint colour (untested whether Remix applies the factor).
+
+**Rebuilding and shipping the layer.** `gamerun/build_remix_mod.sh` (`linux/docker/`) runs
+the three passes in the order that keeps each one's prims: tiles (`remix_materials.py
+--dds-tiles`, rewrites `mod.usda`), sign emission (`remix_emissive.py`, rewrites it again),
+cars (`remix_model_materials.py`, replaces only its own prims; re-run it alone after the
+car models change). `ZIP=1` packs `deliverables/remix_mod_gta2hd.zip` (mod.usda +
+textures/, ~1 GB, store-only) for the release page; the DDS embed the game's art, so the
+textures stay out of git and only `mod.usda` (hashes and constants) is committed.
+
+## Liveries, the driver's seat, the night lights (REMIX-3, 8 Nov 2026)
+
+Nine Remix sessions on the L4 (`out/remix3_a` .. `remix3_i`), Downtown, clock paused, all
+on a private stage (`stage_remix3`: the committed tree plus these changes, the current
+models). The clock is moved inside one session with a new devtools key, so a car or a
+street is seen by day, at dusk and at night in the same take. Sheets (local):
+`out/remix3_cars_sheet.png`, `out/remix3_driver_sheet.png`, `out/remix3_lights_sheet.png`.
+
+**Cop car and taxi in another car's colours: the paint tint, and a devtools artefact.**
+The renderer's per-car paint tint *is* applied under Remix (`rtx.enableMultiStageTextureFactorBlending`
+is on by default; the tint is the stage-1 texture factor). The tint is the sprite's measured
+paint over the model's own, so with `force_car_model` every model was drawn in the colour
+of the parked car whose sprite it stood on (REMIX-POLISH's `remix_pol_day3`: cop and taxi
+in the same brown). `car_bodies.cpp` now leaves the tint off (no stage at all) for the
+livery models (`LiveryModel`: bank van 4, bus 11, cop 12, fire truck 17, army jeep 22,
+hot-dog and ice-cream vans 23-27/85, medicar 34, taxis 51/56, SWAT 52, tank 54, trains
+59-61, TV van 67, special agent 84, karma bus 86) and for a model forced by the devtools.
+Seen in `remix3_b/e/g/i`: the cop car navy and white with its door badge, the taxi
+yellow with its chequer, the medicar white with red stripes and crosses, the bus cream
+and red, the fire truck red, by day, at dusk and at night. Ordinary cars keep their tint
+(the game's remaps).
+
+**Car material layer rebuilt** (`build_remix_mod.sh`, all three passes, so the prims of
+the 33 replaced CAR-QUALITY-4 models' old textures are gone: 2 649 tile prims, 64 of
+them with sign emission, and 215 car prims, 2 864 in all). The tail-lamp emission used to take every saturated red texel;
+on the new models that is the medicar's crosses and stripes and the bus's red band (1 138
+and 1 490 texels would have glowed at night). `remix_model_materials.py` now takes only
+compact red islands (at most 0.25 % of the texture, no longer than 4:1, at least 35 %
+filled) at the car's ends (the texels the mesh's triangles in the last 14 % of the length,
+facing along it, cover: `end_masks`, a UV rasterisation of the `.mesh`): medicar 93
+texels, bus 228, cop 0; 22 prims with lamp emission. Most generated models have no red
+tail-lamp texels at all, so at night the lamps are the `[Car lamps]` lights (head and
+tail lamps as small coloured lights, `remix3_g/i`).
+
+**The driver's seat.** Remix ignores user clip planes, so the own car is drawn from a
+CPU-cut hood copy (`HoodModelFor`, there before this pass). It kept every face with
+|normal y| > 0.35 below the eye and ahead of the windscreen, which included the faces that
+look *down* (the hood's underside, the floor pan and underbody ahead of the seat); the path
+tracer draws back faces, so from the seat they were black shreds across the view
+(`remix3_b`, a Schmidt). The copy now keeps the faces the eye sees from their front
+(vertex normal towards the eye, in the car's frame, so the fit's mirror does not matter)
+and not looking down by more than a little: from the Schmidt's seat a black hood with its
+chrome headlamps and ornament, by night and by day, while moving (`remix3_e/g`). The fire
+truck's short hood lies below the view from its cab: nothing of the body shows, nothing
+broken (`remix3_c/h`, by day and at night). The cache key now includes the eye's x.
+
+**The floodlit night: the game's D3D9 directional light.** The night plaza at 198,188 read
+as daylight with hard parallel shadows (a lamp post's shadow across the square, a fence
+casting a crisp shadow at 22:30 in `remix3_f`). Not a lamp of ours: with every one of our lights off
+(`remix_lights_off`) the plaza was unchanged (`remix3_d`); not the atmosphere's sun or moon
+light, the moonlight or the exposure cap (pushed live, `remix3_e`: no change); not the
+runtime's fallback light (it only appears in a frame with no lights at all, and then it
+does flood a scene: `remix3_c`, lights off). It is the D3D9 directional light the renderer
+sets for its fixed-function shading (`car_bodies.cpp` for the car bodies, `src/renderer.cpp`
+for the world in the street views): Remix converts it to a distant light at full strength,
+the same direction by day and by night. With `rtx.ignoreGameDirectionalLights = True` set at
+start (`remix3_g`, `remix3_i`) the plaza is a night street: dark paving, lamp pools, the neon
+and the windows; by day the atmosphere's sun alone gives the same sunny street
+(`remix3_h/i`). `rtx.fallbackLightMode = 0` goes with it (by day, with every lamp gated off,
+a frame can have no lights and would get the fallback's second sun). Both are in
+`package/rtx.conf` and `linux/docker/rtx_showcase.conf.extra`. Note: these two options, pushed
+live through the Remix API, changed nothing in a running session; only set at start do
+they apply. The attribution between the two rests on the fallback's rule (no lights at all),
+not on a run with one of them alone.
+
+**The other lights** (`remix3_a`, `remix3_d`, `remix3_i`): traffic-light lenses throw red,
+amber and green pools at night and at dusk; the JESUS SAVES neon and the lit windows read
+at night without blowing out; machine-gun shots light the paving round the shooter;
+a rocket into a parked van gives the fireball, its light on the square and the scorch
+(before the light fix, so the square is still floodlit there); dusk (18:00) is a violet sky
+with the lamps coming on. The siren beacons (`force_sirens=1` on cop car, medicar, fire
+truck) light the roof and the road, but each bulb is seen as a white flare beside the light
+bar: a 3 cm bulb with the beam's power clips every channel. Drawing the bulb at 9 cm with
+the radiance cut by the area gained (same power) did not visibly change it (`remix3_i`), so
+that change was not kept; the siren defaults are `synthetic_lights.cpp`'s.
+
+**Devtools added** (`[devtools]`, re-read once a second, `remix_lights.cpp`):
+`set_hour_tenths=N` sets the clock to N/10 h when the value changes; `remix_config=key=value|...`
+pushes runtime options (see the note above: not every option applies live);
+`remix_lights_off=1` withholds all our lights. `GTA2DX9_LOG_REMIX_LIGHTS=1` logs, every 256
+frames, the ten lights (cones excluded) that light the ground under the eye most.
+
+**Take.** `linux/docker/remix_showcase.py` plays the REMIX-3 parts when `PART` is set
+(`cars`, `nightcars`, `sedan`, `lights3`, `truck3`, `exposure`, `debuglights`, `fb`, `ab2`, ...),
+e.g. `STAGE=<stage> gamerun/remix_l4.sh remix3_i 1150 /work/keys_remix_showcase.sh -e MODS_HD=1
+-e LEVEL_WAIT=60 -e RTX_EXTRA=/work/rtx_showcase.conf.extra -e INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/'
+-e SCENE_KEY=F11 -e SETTINGS_SED='s/^Paused=.*/Paused=1/; s/^StartHour=.*/StartHour=14/'
+-e EFFECTS_SED='/^\[Car lamps\]/,/^\[/{s/^Enabled=0/Enabled=1/;s/^Daylight=0/Daylight=1/}'
+-e DUSK=18.0 -e PART=cars,sedan,lights3 -e CAR_MODELS=12,56,34,11,17,18,31`; the fire truck
+needs its own session (`-e GTA2DX9_SCENE_MODELS=17 -e PART=truck3`: every scene warp then goes
+to it). Frames: `remix_frames.py dump out/<run> <secs> <dir> <label regex>`.
+
+**Release archive.** `deliverables/remix_mod_gta2hd.zip`, 1 055 593 417 bytes (1.06 GB,
+store-only: `mod.usda` + 8 508 textures), from the rebuilt layer. `build_remix_mod.sh`'s
+`ZIP=1` step now writes it by absolute path (the 8 Nov rebuild's `$OLDPWD` path wrote none;
+the archive here was packed by hand with the same command).
+
+**After car round 6 (QA-RELEASE, 8 Nov 2026).** The round-6 car textures changed the hashes of 19
+models' materials, so `remix_model_materials.py assets/models package/rtx-remix/mods/gta2hd` was re-run
+alone (1.5 min): 8 630 textures, every one referenced by `mod.usda`, none missing. The release archive is
+now packed by `tools/pack_release.py <out> remix` (same layout, `gta2hd/` store-only):
+`remix_mod_gta2hd.zip`, 1 084 585 827 bytes. Not yet seen under Remix with the new cars.
+
+**Not verified.** A police chase under Remix: three stars kept by `force_wanted` brought no
+police within 45 s in two sessions, so the light bars were seen only on parked cars with
+`force_sirens`; the booth's lit PHONE sign and glass were not framed close enough to judge
+(the booth is in `remix3_i`'s frame, small); the muzzle flash itself (its light on the paving
+is seen, the flash sprite not caught in a frame); the explosion and fire after the light fix;
+clear-coat reflections are visible on the roofs by day but were not compared with the
+REMIX-POLISH constants; Industrial and Residential were not rerun.
+
+## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
+
+Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every
+tile had its albedo, a 256 px normal from a band-passed Sobel of that albedo (one noisy
+relief, mortar and grain alike) and a roughness from local contrast alone; no metallic,
+no height, no emission beyond the curated signs. This pass gives every HD tile of the
+three districts the full map set, from `tools/remix_pbr.py` (new; numpy only):
+
+| map | file | size / format | what it is |
+|---|---|---|---|
+| albedo | `<hash>.a.rtex.dds` | the game's own 512 px DXT1/DXT5, copied | unchanged (the hash is its top mip) |
+| normal | `.n.rtex.dds` | 512 px BC5 octahedral, 10 mips (was 256 px) | slope of a two-band height: *structure* (difference of Gaussians at ~1/40 of the tile, normalised by local contrast, through tanh: brick faces become plateaus, mortar and panel seams grooves) x a strong weight plus *grain* (the fine texture inside a face) x a weak one. Saturated paint (signs, road markings) gets a quarter of the structure relief. |
+| roughness | `.r.rtex.dds` | 256 px BC4 | a class per texel (asphalt 0.86, stone/concrete 0.78, brick 0.84, wood 0.70, vegetation 0.92, painted/sign 0.42, smooth plaster 0.55, metal 0.38, bright metal edges 0.20, near-black 0.60), plus local grain (busier = rougher) and grime (darker than its surroundings = rougher) |
+| metallic | `.m.rtex.dds` | 256 px BC4, only where there is metal | neutral texels in strongly oriented, finely periodic patches (corrugated sheet, gratings, girders, pipes, rails; a patch, not a lone edge, and at least 4 % of the tile) 0.45, their bright thin highlights 0.75 |
+| height | `.h.rtex.dds` + `displace_in` | 256 px BC4 with a **max** mip chain (what the runtime's quadtree POM reads) | the structure band (1 = surface, 0 = deepest) on relief tiles: no sign paint, at least 60 % surface, enough structure; `displace_in` 0.006 + 0.012 x the tile's structure amplitude (pbr.json) |
+| wet roughness | `.w.rtex.dds` | 256 px BC4, ground-like tiles only | half the roughness, puddles (0.025) in the low areas of a tile-seeded noise field and in the joints: referenced only by the rain variant `mod_wet.usda` |
+| emission | `.e.rtex.dds` | unchanged | the curated neon and lit signs (`remix_emissive.py`) |
+
+**Night windows are not generated.** `analyse(windows=True)` finds dark, smooth, framed
+rectangles and lights about half of them; on a random sample of 180 tiles every tile it
+lit was a false positive (blue-grey wall panels, roof plates, a cornice shadow), and a
+glowing wall at night is worse than a dark window, so it is off and documented as such.
+Lit windows would need a curated list like the signs'.
+
+Wiring: `remix_materials.py --dds-tiles ... --pbr full` (the default; `--pbr basic` is the
+older two maps) runs the tiles in a process pool (`--jobs`), writes `pbr.json` (per hash:
+displace_in, wet, class shares) beside `mod.usda`; `write_usda` adds `metallic_texture`,
+`height_texture` + `displace_in` and the emission to a prim when the file exists, so the
+sign pass keeps them; `--wet-layer` writes `mod_wet.usda` from the finished layer (cars
+included). Alpha: the prims keep `use_legacy_alpha_state = 1` (REMIX-POLISH's cutout fix),
+and a cut-out texel's luminance is filled from its visible neighbours before the bands
+are taken, so a fence's edge is not a cliff in the normal map.
+
+Regenerating (from `~/gta2-linux`, ~15 min of CPU at JOBS=3 on an idle machine; under the
+usual load of game runs it took far longer, see below):
+
+    MOD=gamerun/remix_vis/gta2hd JOBS=3 bash repo/linux/docker/build_remix_mod.sh   # a private copy
+    bash repo/linux/docker/build_remix_mod.sh                                         # the package layer
+    ZIP=1 bash repo/linux/docker/build_remix_mod.sh                                   # + the release zip
+    python3 repo/tools/remix_pbr.py preview <out.png> <tile.dds> ...                 # maps of some tiles
+
+The car and prop materials are REMIX-CARPROPS-PBR's (`remix_model_materials.py`), the
+post stack and presets REMIX-POST's (`package/rtx.conf`, `rtx_showcase.conf.extra`).
+
+<!-- VISUALS-REMIX-RESULTS -->
+
 This note records what NVIDIA offers for turning GTA2's 64x64 tiles into PBR
 materials, why none of it runs on this Linux/B200 machine, and what
 `tools/remix_materials.py` produces instead: a complete Remix material layer,
