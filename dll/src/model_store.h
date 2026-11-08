@@ -126,6 +126,13 @@ void ModelSetPaintTint(const float* rgb);
 // turned off the walk. Quantise it (it keys the pose cache).
 void ModelSetTorsoTwist(float radians);
 float ModelTorsoTwist();
+// A third clip over the two that ModelDraw / ModelDrawBlend / ModelNodeWorld blend:
+// sampled over a copy of their pose (a joint it has no channel for keeps theirs, so
+// an upper-body layer leaves the legs to the pair) and blended in by `weight`
+// (0..1). Applies to every pose until it is cleared (null or weight 0); part of the
+// pose cache key, so quantise the time and weight. ACTIONS-3D-4: the action layer
+// over the locomotion pair (idle/walk/run/sprint/turn_step).
+void ModelSetOverlay(const ModelAnimation* clip, float time, float weight);
 // Bytes of model textures created so far (managed pool), and how many.
 size_t ModelsTextureBytes(int* count);
 const Model* ModelForPedestrian();

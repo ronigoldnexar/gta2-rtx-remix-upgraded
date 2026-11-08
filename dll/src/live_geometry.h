@@ -548,6 +548,9 @@ private:
         // What last hurt him (game::kPedDamageCause: 1 car, 3 run over, 4 explosion, ...),
         // for the death pose; 0 unknown.
         int32_t pedCause = 0;
+        // His health word (ped+0x216, int16; -1 unread): a drop with a puncher beside him is the
+        // game's own "that punch landed" (ACTIONS-3D-4).
+        int32_t pedHealth = -1;
         // The weapon in his hands: its ammunition and reload timer (the weapon
         // object's +0 and +2), -1 with none. A drop in the one or a restart of the
         // other is a shot, whatever the frames say (state 7 is also just standing armed).
@@ -649,6 +652,48 @@ private:
         int rank = 0;
         unsigned lodFrame = 0;
         float lodU = 0.0f, lodIdleT = 0.0f, lodWalkW = 0.0f, lodRunW = 0.0f, lodActT = 0.0f, lodActW = 0.0f;
+        // ACTIONS-3D-4: locomotion from the figure's own drawn motion. Where it was
+        // drawn last frame (the legs step by the ground between the two, signed
+        // along the legs' heading, so a push back steps back), whether it counts as
+        // moving (with hysteresis), the sprint weight over the run, the turn-on-the-
+        // spot cycle and weight, and the settle: after he stops, the cycle runs on to
+        // the next phase where the feet pass each other before the idle takes over.
+        float lastPX = 0.0f, lastPZ = 0.0f;
+        bool havePrev = false;
+        float legSpeed = 0.0f;              // blocks a second of the drawn figure, eased (0.1 s)
+        float stepFwd = 0.0f;               // this frame's drawn ground along the legs' heading, signed
+        bool moveOn = false;
+        float sprintWeight = 0.0f;
+        float turnCycle = 0.0f, turnWeight = 0.0f;
+        float settleTo = -1.0f;
+        float lodSprintW = 0.0f, lodTurnW = 0.0f, lodTurnT = 0.0f;
+        // Fists: which hand the current swing throws (false: the right cross,
+        // true: the left jab) and the frame of the last swing frame, so a swing
+        // within a second of the last one continues the combo.
+        bool punchAlt = false;
+        uint32_t lastPunchFrame = 0;
+        float lastPunchT = 0.0f;
+        // Taking a punch: when, from which side (0 a right cross: the head turns
+        // to his right; 1 a jab), and the stagger offset of the drawn figure along
+        // the blow (eased out and back, the legs step it).
+        uint32_t hitFrame = 0;
+        int32_t lastHealth = -1;
+        int hitSide = 0;
+        float hitDirX = 0.0f, hitDirZ = 0.0f;
+        float staggerX = 0.0f, staggerZ = 0.0f;
+        // Getting into / out of a car: the car's middle (the heading faces it on
+        // the way in and away from it on the way out) and when the state began.
+        bool carKnown = false;
+        float carX = 0.0f, carZ = 0.0f;
+        uint32_t carStateFrame = 0;
+        int32_t carState = -1;
+        bool grabLeft = false;              // running beside a moving car: it is on his left
+        float carSpeed = 0.0f;              // that car's own pace, blocks a second, eased: moving or parked
+        uint32_t carSeenFrame = 0;
+        // The clip an action ended on and where, faded out over the locomotion
+        // instead of dropped in one frame (ends of punches, exits, hits).
+        const void* fadeClip = nullptr;
+        float fadeT = 0.0f;
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
 

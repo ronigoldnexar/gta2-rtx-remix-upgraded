@@ -203,6 +203,7 @@ namespace {
 const void* g_hiddenObjects[2] = {nullptr, nullptr};
 const void* g_playerObject = nullptr;
 bool g_logPedFrames = false;
+bool g_logFigures = false;   // GTA2DX9_LOG_FIGURES=1: a line per frame per figure near the player (ACTIONS-3D-4)
 // Pedestrians getting into or out of a car (ped state 3/4) seen last frame,
 // with the vehicle they are boarding: the car's door swings for them. Last
 // frame's list is read when the cars are collected, because a frame's
@@ -233,6 +234,13 @@ struct FxSeen { float x, y, z; uint32_t frame; float size; bool flying; };
 std::map<uintptr_t, FxSeen> g_fxSeen;   // every small effect sprite's last position
 struct PedSpot { float x, y, z; };
 std::vector<PedSpot> g_pedSpots;        // where the figures stood this frame (blood on a hit)
+// ACTIONS-3D-4: the figures drawn this frame and last (object, where, mid-swing and
+// with which fist), so a figure whose health drops can find who punched him (the
+// puncher may be drawn before or after him in a frame).
+struct FigureSpot { uintptr_t object; float x, z; bool punching, alt; };
+constexpr uintptr_t kPedHealthWord = 0x216;   // int16, as world_view.cpp's peds line reads it
+std::vector<FigureSpot> g_figuresNow, g_figuresLast;
+constexpr float kSprintStrideOverRun = 1.405f;   // tools/gen_ped_clips.py: the sprint's stride over the run's
 int g_playerWeapon = -1, g_playerAmmo = 0;   // from the game, see SetPlayerWeapon
 int g_playerWeaponSeen = 0;             // the last weapon the player's own figure was drawn with
 // The weapon in every drawn pedestrian's hands as the game numbers it (PedWeapon;
@@ -275,7 +283,8 @@ void SetPlayerPosition(float x, float y, float z, bool valid) {
 void SetPlayerObject(const void* object) {
     g_playerObject = object;
     static bool checked = false;
-    if (!checked) { checked = true; char buf[8] = {}; g_logPedFrames = GetEnvironmentVariableA("GTA2DX9_LOG_PED_FRAMES", buf, sizeof buf) && buf[0] == '1'; }
+    if (!checked) { checked = true; char buf[8] = {}; g_logPedFrames = GetEnvironmentVariableA("GTA2DX9_LOG_PED_FRAMES", buf, sizeof buf) && buf[0] == '1';
+                    g_logFigures = GetEnvironmentVariableA("GTA2DX9_LOG_FIGURES", buf, sizeof buf) && buf[0] == '1'; }
 }
 // The people's pop log (see DrawPedFigures, BeginFrame), street views only.
 int g_pedPops = 0, g_pedPopsInView = 0, g_pedPopsNear = 0;
@@ -5316,6 +5325,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                 placed.pedSub = *reinterpret_cast<const int32_t*>(ped + game::kPedSubState);
                 placed.pedPending = *reinterpret_cast<const int32_t*>(ped + game::kPedStatePending);
                 placed.pedCause = *reinterpret_cast<const int32_t*>(ped + game::kPedDamageCause);
+                placed.pedHealth = *reinterpret_cast<const int16_t*>(ped + kPedHealthWord);
                 {
                     const uint8_t* wobj = *reinterpret_cast<const uint8_t* const*>(ped + game::kPedCurrentWeapon);
                     if (game::PlausiblePointer(wobj)) {
@@ -6176,7 +6186,8 @@ namespace {
 int PedActionFor(bool corpse, unsigned pedFrame, int32_t pedState, int32_t pedSub) {
     if (corpse) return 4;   // dead, or knocked down: lying
     const unsigned f = pedFrame % 158u;
-    if (f >= 24 && f <= 35 && (pedState == 3 || pedState == 4)) return pedState == 4 ? 6 : 5;   // the climb (state 3: in, 4: out); the same frames pass in state 0 just after an exit
+    if (pedState == 4) return 6;   // getting out (sub 7: frames 36 down to 28, then 28-31; the game slides him out sideways)
+    if (f >= 24 && f <= 35 && pedState == 3) return 5;   // the climb (sub 6); the same frames pass in state 0 just after an exit   // the climb (state 3: in, 4: out); the same frames pass in state 0 just after an exit
     if (f >= 16 && f <= 23 && pedState == 3) return 5;    // reaching for the door
     if (pedState == 8 && pedSub == 0x13) return 20;   // falling from a height: arms and legs flailing (fall_air)
     if (pedState == 8 && pedSub == 0x11) return 7;    // thrown (before the frame ranges: a thrown ped passes through them)
@@ -6271,7 +6282,10 @@ int CarryFor(int weapon) {
 // at just under full weight over the walk, run or idle so the legs keep moving
 // (model_store.cpp: a joint the second clip leaves alone keeps the first's).
 bool IsUpperLayer(int action) {
-    return action == 2 || action == 3 || (action >= 8 && action <= 18 && action != 9) || action == 19 || action == 21;
+    // ACTIONS-3D-4: the fists (1), the car door (5, 6), taking a punch (22) and running
+    // beside a moving car with a hand on its door (23) too.
+    return action == 1 || action == 2 || action == 3 || action == 5 || action == 6 ||
+           (action >= 8 && action <= 18 && action != 9) || action == 19 || action == 21 || action == 22 || action == 23;
 }
 
 // The particles the shots leave: a muzzle glow, sparks, a brass case, blood,
@@ -6654,6 +6668,8 @@ void FigureColours(uintptr_t object, DWORD* skin, DWORD* hair, DWORD* shirt, DWO
 }  // namespace
 
 void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
+    g_figuresLast.swap(g_figuresNow);
+    g_figuresNow.clear();
     std::vector<FigVertex> verts;
     verts.reserve(36 * 6);
 
@@ -6849,7 +6865,83 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
             }
         }
-        const bool moving = track.drawnSpeed > 0.45f;
+        // ACTIONS-3D-4. Getting into or out of a car (state 3 / 4): the car's middle,
+        // the nearest body within 1.3 blocks, followed every frame (it may be moving), so
+        // the figure faces into the car on the way in and away from it on the way out
+        // while its legs step the ground the game moves it.
+        if (sprite.pedState == 3 || sprite.pedState == 4) {
+            if (track.carState != sprite.pedState) { track.carState = sprite.pedState; track.carStateFrame = g_carFrame; track.carKnown = false; }
+            {   // every frame: the car may be moving (boarding a car on the move)
+                const bool had = track.carKnown && track.carSeenFrame && g_carFrame - track.carSeenFrame < 4;
+                const float oldX = track.carX, oldZ = track.carZ;
+                float best = 1.3f * 1.3f;
+                for (const CarBodyUse& use : carBodies_) {
+                    float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+                    for (int i = 0; i < 4; ++i) { lx += 0.25f * use.local[i].x; ly += 0.25f * use.local[i].y; lz += 0.25f * use.local[i].z; }
+                    const float (*cm)[4] = use.objectToWorld.m;
+                    const float carX = lx * cm[0][0] + ly * cm[1][0] + lz * cm[2][0] + cm[3][0];
+                    const float carZ = lx * cm[0][2] + ly * cm[1][2] + lz * cm[2][2] + cm[3][2];
+                    const float ddx = carX - cx, ddz = carZ - cz;
+                    if (ddx * ddx + ddz * ddz < best) { best = ddx * ddx + ddz * ddz; track.carX = carX; track.carZ = carZ; track.carKnown = true; }
+                }
+                if (track.carKnown) {
+                    // The car's own pace: a parked car's boarding is a walk to the door,
+                    // a moving car's is a run beside it.
+                    const float span = had ? static_cast<float>(g_carFrame - track.carSeenFrame) / 30.0f : 0.0f;
+                    const float moved = had ? std::sqrt((track.carX - oldX) * (track.carX - oldX) + (track.carZ - oldZ) * (track.carZ - oldZ)) : 0.0f;
+                    if (span > 0.0f && moved < 0.5f) track.carSpeed += (moved / span - track.carSpeed) * (std::min)(1.0f, span / 0.15f);
+                    track.carSeenFrame = g_carFrame;
+                }
+            }
+        } else if (track.action != 6) {
+            track.carState = -1; track.carKnown = false; track.carSpeed = 0.0f; track.carSeenFrame = 0;
+        }
+        // Taking a punch: a blow another figure landed on him (PendingHit) starts the
+        // hit layer and a stagger of his drawn figure along the blow: 7 cm back over
+        // 0.15 s, then home over 0.6 s; the legs step it like any other motion.
+        bool hitNow = false;
+        {
+            // The game's word that a blow landed: his health dropped while a figure
+            // within 0.7 block is mid-swing (this frame's or last frame's list). The
+            // blow's direction is from that figure; its hand (cross or jab) picks
+            // which way his head turns.
+            const int32_t hp = sprite.pedHealth;
+            if (hp >= 0 && track.lastHealth >= 0 && hp < track.lastHealth && !sprite.corpse) {
+                const FigureSpot* by = nullptr;
+                float best = 0.7f * 0.7f;
+                for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
+                    for (const FigureSpot& f : *list) {
+                        if (!f.punching || f.object == sprite.object) continue;
+                        const float vx = cx - f.x, vz = cz - f.z;
+                        if (vx * vx + vz * vz < best) { best = vx * vx + vz * vz; by = &f; }
+                    }
+                }
+                if (!by && (g_logFigures || g_logPedFrames))
+                    Log("fig: health %04x %d -> %d, nobody mid-swing within 0.7 (state %d sub 0x%x)", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                        track.lastHealth, hp, sprite.pedState, sprite.pedSub);
+                if (by) {
+                    const float vx = cx - by->x, vz = cz - by->z;
+                    const float d = (std::max)(1e-3f, std::sqrt(vx * vx + vz * vz));
+                    hitNow = true;
+                    track.hitFrame = g_carFrame; track.hitSide = by->alt ? 1 : 0;
+                    track.hitDirX = vx / d; track.hitDirZ = vz / d;
+                    if (g_logFigures || g_logPedFrames)
+                        Log("fig: hit %04x by %04x (%s) health %d -> %d state %d sub 0x%x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                            static_cast<unsigned>((by->object >> 2) & 0xFFFF), by->alt ? "jab" : "cross", track.lastHealth, hp, sprite.pedState, sprite.pedSub);
+                }
+            }
+            track.lastHealth = hp;
+        }
+        {
+            float st = 0.0f;
+            if (track.hitFrame) {
+                const float ht = static_cast<float>(g_carFrame - track.hitFrame) / 30.0f;
+                if (ht < 0.15f) st = Smoothstep(0.0f, 0.15f, ht);
+                else if (ht < 0.75f) st = 1.0f - Smoothstep(0.15f, 0.75f, ht);
+            }
+            track.staggerX = track.hitDirX * 0.07f * st;
+            track.staggerZ = track.hitDirZ * 0.07f * st;
+        }
         // What the game has him doing, from his animation frame and state words.
         int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
         const bool ownPed = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
@@ -6984,6 +7076,24 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // A showcase for checking the clips on the player's own figure, off by
         // default: GTA2DX9_FORCE_ACTION_FILE names a file (re-read twice a second)
         // holding "action [lying clip] [weapon]"; -1 or no file lets the game drive.
+        // Taking a punch (ACTIONS-3D-4): over his walk, idle or carry; not while down,
+        // falling, swimming or climbing (the lying clip takes over if the game knocks
+        // him down: state 8 sub 0x16).
+        if (hitNow && !sprite.corpse && (wantAction == 0 || IsCarryAction(wantAction) || wantAction == 22)) wantAction = 22;
+        // Boarding a car on the move (ACTIONS-3D-4): the game carries him along with the car
+        // in state 3 before the climb (sprite frames below 24). While he covers ground faster
+        // than a walk he runs beside it (legs from the ground covered, heading along the
+        // motion) with a hand on the door (grab_door_r / _l, by which side the car is on);
+        // the climb's frames then pull him in (enter_car from its duck).
+        if (sprite.pedState == 3 && (sprite.pedFrame % 158u) < 24u && (wantAction == 0 || wantAction == 5) &&
+            track.carKnown && (track.carSpeed > 0.3f || track.action == 23) &&
+            (track.legSpeed > 0.6f || (track.action == 23 && track.legSpeed > 0.35f))) {
+            wantAction = 23;
+            if (track.action != 23) {   // which hand: chosen once, as he takes hold
+                const float rx = std::cos(track.heading), rz = -std::sin(track.heading);   // his right
+                track.grabLeft = (track.carX - cx) * rx + (track.carZ - cz) * rz < 0.0f;
+            }
+        }
         if (arrested && bustSecs > 0.0f) {
             // Up from the knock-down (the state machine plays the fall backwards),
             // then the hands up, then cuffed. No weapon: the game has taken them.
@@ -7008,7 +7118,16 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             track.actionReverse = true;
             track.actionTime = (std::min)(track.actionTime, 0.7f);
         } else if (wantAction != 0 && wantAction != 4 && track.action != wantAction && track.action != 4) {
-            track.action = wantAction; track.actionTime = 0.0f; track.actionReverse = false;
+            if (wantAction == 1) {
+                // A new swing within 1.2 s of the last continues the combo with the other
+                // fist; otherwise he leads with the right cross.
+                track.punchAlt = track.lastPunchFrame && g_carFrame - track.lastPunchFrame < 36 ? !track.punchAlt : false;
+                track.lastPunchT = 0.0f;
+            }
+            const bool pullIn = wantAction == 5 && track.action == 23;
+            track.action = wantAction; track.actionTime = pullIn ? 0.65f : 0.0f; track.actionReverse = false;
+        } else if (hitNow && track.action == 22) {
+            track.actionTime = 0.0f;   // hit again: the snap again
         }
         if (g_logPedFrames && track.action != track.lastLoggedAction) {
             track.lastLoggedAction = track.action;
@@ -7023,6 +7142,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         if (track.action != 4) {
             const float tx = gameMoving ? fx : -fx, tz = gameMoving ? fz : -fz;
             float target = std::atan2(tx, tz);
+            if (track.action == 23 && track.vx * track.vx + track.vz * track.vz > 0.09f) {
+                // Running beside a moving car: facing the way he runs.
+                target = std::atan2(track.vx, track.vz);
+            } else if (track.carKnown && (sprite.pedState == 3 || sprite.pedState == 4 || track.action == 6)) {
+                // Into the car facing it, out of it facing away (ACTIONS-3D-4): the legs
+                // step whichever way the game moves him meanwhile (back as the door swings).
+                const float ax = track.carX - track.dx, az = track.carZ - track.dz;
+                if (ax * ax + az * az > 0.0025f) target = sprite.pedState == 3 ? std::atan2(ax, az) : std::atan2(-ax, -az);
+            }
             if (arrested && g_arrestWalk.car && bustSecs > kBustHandsSecs) {
                 // Led away: facing the police car.
                 target = std::atan2(g_arrestWalk.carX - (track.dx + g_arrestWalk.ox), g_arrestWalk.carZ - (track.dz + g_arrestWalk.oz));
@@ -7062,9 +7190,26 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         const float legHeading = track.heading - track.twist;
         const float hx = std::sin(legHeading), hz = std::cos(legHeading);
         // Where the figure stands: the drawn position, at the sprite's height.
-        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f), gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f);
+        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX,
+                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ;
         fx = hx;
         fz = hz;
+        // ACTIONS-3D-4: the ground the drawn figure covered since last frame, signed
+        // along the way its legs face (a step back is a step back), and its pace. The
+        // legs' cycle is driven by this, never by the game's animation frame, so a
+        // figure the game slides (out of a car door, pushed, led) steps it.
+        {
+            const float mx = gx - track.lastPX, mz = gz - track.lastPZ;
+            const float md = std::sqrt(mx * mx + mz * mz);
+            if (!track.havePrev || frames >= 10 || md > 0.4f) {
+                track.stepFwd = 0.0f; track.legSpeed = 0.0f;
+            } else {
+                track.stepFwd = mx * hx + mz * hz;
+                track.legSpeed += (md / dt - track.legSpeed) * (std::min)(1.0f, dt / 0.1f);
+            }
+            track.lastPX = gx; track.lastPZ = gz; track.havePrev = true;
+        }
+        g_figuresNow.push_back({sprite.object, gx, gz, track.action == 1, track.punchAlt});
 
         if (g_groundModels) {
             // Which of the people he is: fixed by his object, so he keeps his look.
@@ -7155,60 +7300,159 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 static const char* const kIdles[3] = {"idle", "idle2", "idle3"};
                 const ModelAnimation* idle = model->Animation(kIdles[track.idleVariant]);
                 if (!idle) idle = model->Animation("idle");
-                track.walkWeight += ((moving ? 1.0f : 0.0f) - track.walkWeight) * (std::min)(1.0f, dt / 0.2f);
-                const float runTarget = run && model->runStride > 0.0f
-                                            ? (std::min)(1.0f, (std::max)(0.0f, (track.drawnSpeed - 1.3f) / 0.5f))
-                                            : 0.0f;
-                track.runWeight += (runTarget - track.runWeight) * (std::min)(1.0f, dt / 0.25f);
+                // ACTIONS-3D-4: locomotion from the drawn figure's own motion. The cycle
+                // advances by the ground the figure covered along its legs' heading
+                // (signed: pushed back, it steps back), with no cap, so the planted foot
+                // stays put at any pace; walk, run and sprint are blended by that pace
+                // (the sprint's stride is the run's x1.4, so at the player's 1.9 blocks a
+                // second the legs cycle 2.5 times a second, not 3.6); idle when still,
+                // with hysteresis so a figure creeping at the threshold does not flicker.
+                const ModelAnimation* sprint = model->Animation("sprint");
+                const ModelAnimation* turnStep = model->Animation("turn_step");
+                if (track.legSpeed > 0.08f) track.moveOn = true;
+                else if (track.legSpeed < 0.04f) track.moveOn = false;
+                const bool wasMoving = track.walkWeight > 0.5f;
+                track.walkWeight += ((track.moveOn ? 1.0f : 0.0f) - track.walkWeight) * (std::min)(1.0f, dt / (track.moveOn ? 0.1f : 0.2f));
+                const float runTarget = run && model->runStride > 0.0f ? Smoothstep(0.6f, 0.9f, track.legSpeed) : 0.0f;
+                track.runWeight += (runTarget - track.runWeight) * (std::min)(1.0f, dt / 0.2f);
+                const float sprintTarget = sprint && run && model->runStride > 0.0f ? Smoothstep(1.2f, 1.7f, track.legSpeed) : 0.0f;
+                track.sprintWeight += (sprintTarget - track.sprintWeight) * (std::min)(1.0f, dt / 0.2f);
                 const float walkCycle = model->stride > 0.0f ? model->stride * scale : 0.7f;
                 const float runCycle = model->runStride > 0.0f ? model->runStride * scale : walkCycle * 1.4f;
-                const float cycleLen = walkCycle + (runCycle - walkCycle) * track.runWeight;
-                // Advance by the ground covered, capped at 2.6 cycles a second (the
-                // game's people cover ground fast for their size: the player walks
-                // at 1.9 blocks a second, four body heights; beyond the cap the
-                // feet slide a little rather than the legs blurring).
-                const float covered = (std::min)(track.drawnSpeed * dt, 2.6f * cycleLen * dt);
-                if (moving) track.cycle = std::fmod(track.cycle + covered / cycleLen, 1.0f);
+                const float fastCycle = runCycle + (runCycle * kSprintStrideOverRun - runCycle) * track.sprintWeight;
+                const float cycleLen = walkCycle + (fastCycle - walkCycle) * track.runWeight;
+                if (track.moveOn) {
+                    track.settleTo = -1.0f;
+                    float c = track.cycle + track.stepFwd / cycleLen;
+                    c -= std::floor(c);
+                    track.cycle = c;
+                } else {
+                    if (wasMoving && track.settleTo < 0.0f) {
+                        // Stopping: the nearest phase where the feet pass each other (the
+                        // walk's 0 and 0.5; the run is played half a cycle on, the same
+                        // phases), reached in 0.2 s while the idle fades in.
+                        track.settleTo = std::floor(track.cycle * 2.0f + 0.5f) * 0.5f;
+                    }
+                    if (track.settleTo >= 0.0f) {
+                        const float d = track.settleTo - track.cycle;
+                        const float stepC = dt / 0.2f * 0.25f;
+                        if (std::fabs(d) <= stepC) { track.cycle = track.settleTo - std::floor(track.settleTo); track.settleTo = -1.0f; }
+                        else track.cycle += d > 0.0f ? stepC : -stepC;
+                        if (track.cycle < 0.0f) track.cycle += 1.0f;
+                    }
+                }
+                // Turning on the spot: the feet step (turn_step, a legs-only layer over
+                // the idle), one cycle per 100 degrees turned; when the turn stops, the
+                // step finishes to the next feet-together phase.
+                {
+                    const float turning = std::fabs(track.turnRate);
+                    const bool turnOn = turnStep && !track.moveOn && track.walkWeight < 0.5f && turning > 0.9f && track.action != 4;
+                    if (turnOn) track.turnCycle += turning * dt / 1.745f;
+                    else if (track.turnWeight > 0.01f) {
+                        const float to = std::ceil(track.turnCycle * 2.0f - 1e-3f) * 0.5f;
+                        track.turnCycle = (std::min)(to, track.turnCycle + dt * 1.5f);
+                    }
+                    track.turnCycle -= std::floor(track.turnCycle);
+                    track.turnWeight += ((turnOn ? 1.0f : 0.0f) - track.turnWeight) * (std::min)(1.0f, dt / (turnOn ? 0.08f : 0.15f));
+                }
                 float u = std::floor(track.cycle * cycleSteps) / cycleSteps;   // quantised: shared poses
                 float idleTime = idle ? std::floor((static_cast<float>(g_carFrame) / 30.0f * track.idleRate +
                                                     track.idleOffset) * idleSteps) / idleSteps
                                       : 0.0f;
                 float walkW = std::floor(track.walkWeight * 8.0f + 0.5f) / 8.0f;
                 float runW = std::floor(track.runWeight * 8.0f + 0.5f) / 8.0f;
+                float sprintW = std::floor(track.sprintWeight * 8.0f + 0.5f) / 8.0f;
+                float turnW = std::floor(track.turnWeight * 8.0f + 0.5f) / 8.0f;
+                float turnT = turnStep ? std::floor(track.turnCycle * 16.0f) / 16.0f * turnStep->length : 0.0f;
                 // The action layer: its clip advances in real time (one-shots hold
                 // their last pose, the fall holds lying; a knock-down plays back out),
                 // and is faded in over the walk or idle, then out again when it is over.
-                static const char* const kActionClips[22] = {nullptr, "punch", "aim", "handsup", "fall", "getin", "getout", "hit", "aim_heavy", "drown",
+                static const char* const kActionClips[24] = {nullptr, "punch", "aim", "handsup", "fall", "enter_car", "exit_car", "hit", "aim_heavy", "drown",
                                                              "aim_dual", "aim_launcher", "aim_flame", "throw",
                                                              "carry", "carry_dual", "carry_heavy", "carry_launcher", "carry_flame",
-                                                             "burn", "fall_air", "cuffed"};
+                                                             "burn", "fall_air", "cuffed", "hit_head", "grab_door_r"};
                 static const char* const kLyingClips[5] = {"fall", "fall_front", "runover", "blown", "burnt"};
-                const char* clipName = track.action > 0 && track.action < 22 ? kActionClips[track.action] : nullptr;
+                const char* clipName = track.action > 0 && track.action < 24 ? kActionClips[track.action] : nullptr;
+                if (track.action == 23 && track.grabLeft) clipName = "grab_door_l";
                 if (track.action == 4 && track.lieClip > 0 && track.lieClip < 5) clipName = kLyingClips[track.lieClip];
+                if (track.action == 1 && track.punchAlt) clipName = "punch2";        // the combo's left jab
+                if (track.action == 22 && track.hitSide) clipName = "hit_head2";     // a jab turns his head the other way
                 const ModelAnimation* actionClip = clipName ? model->Animation(clipName) : nullptr;
                 // Avatars imported before a clip existed fall back to the nearest older one.
+                if (!actionClip && track.action == 5) actionClip = model->Animation("getin");
+                if (!actionClip && track.action == 6) actionClip = model->Animation("getout");
+                if (!actionClip && track.action == 22) actionClip = model->Animation("hit");
+                if (!actionClip && track.action == 1) actionClip = model->Animation("punch");
                 if (!actionClip && track.action == 4) actionClip = model->Animation("fall");
                 if (!actionClip && track.action == 9) actionClip = model->Animation("swim");
                 if (!actionClip && track.action == 20) actionClip = model->Animation("hit");
                 float actionT = 0.0f;
                 if (actionClip) {
                     const float len = actionClip->length;
-                    const bool oneShot = track.action == 1 || track.action == 5 || track.action == 6 || track.action == 7 || track.action == 13;
+                    const bool oneShot = track.action == 1 || track.action == 5 || track.action == 6 || track.action == 7 || track.action == 13 ||
+                                         track.action == 22;
                     if (track.actionReverse) {
                         track.actionTime -= dt * 1.4f;
                         if (track.actionTime <= 0.0f) { track.action = 0; track.actionReverse = false; actionClip = nullptr; }
                     } else {
-                        track.actionTime += dt;
-                        if (track.action == 1 && wantAction == 1 && sprite.pedFrame < track.lastPedFrame &&
-                            track.actionTime > 0.25f) {
-                            track.actionTime = 0.0f;   // the game started the swing again
+                        // Getting in: the reach and the pull run while the game backs him
+                        // off the door (climb frames 24-31), the duck under the roof once
+                        // it moves him in (32-35), a little faster.
+                        if (track.action == 5) {
+                            const unsigned f5 = sprite.pedFrame % 158u;
+                            if (sprite.pedState == 3 && f5 < 32u) track.actionTime = (std::min)(track.actionTime + dt, 0.65f);
+                            else track.actionTime += dt * 1.6f;
+                        } else {
+                            track.actionTime += dt;
+                        }
+                        // The game started the swing again: back to its first frames (115-116)
+                        // from later ones. Not on its jumps between the swing and the recovery
+                        // frames (123-130) while he walks with the key held, which cut the
+                        // first build's punches off at 0.4 s.
+                        const unsigned pf = sprite.pedFrame % 158u, lpf = track.lastPedFrame % 158u;
+                        if (track.action == 1 && wantAction == 1 && pf <= 116u && pf >= 115u && lpf > 116u &&
+                            track.actionTime > 0.5f) {
+                            track.actionTime = 0.0f;   // the game started the swing again: the other fist
+                            track.punchAlt = !track.punchAlt;
+                            track.lastPunchT = 0.0f;
+                        }
+                        if (track.action == 1) {
+                            // The strike key (0.33 s): logged with the figure it would reach (within
+                            // half a block, 60 degrees either side), for the checks; whether it
+                            // landed is the game's (the victim's health, see hitNow).
+                            if (track.lastPunchT < 0.33f && track.actionTime >= 0.33f) {
+                                const FigureSpot* victim = nullptr;
+                                float best = 0.5f * 0.5f;
+                                for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
+                                    for (const FigureSpot& f : *list) {
+                                        if (f.object == sprite.object) continue;
+                                        const float vx = f.x - gx, vz = f.z - gz;
+                                        const float d2 = vx * vx + vz * vz;
+                                        if (d2 >= best || d2 < 1e-6f) continue;
+                                        const float d = std::sqrt(d2);
+                                        if ((vx * std::sin(track.heading) + vz * std::cos(track.heading)) / d < 0.5f) continue;
+                                        best = d2; victim = &f;
+                                    }
+                                    if (victim) break;
+                                }
+                                if (g_logFigures || g_logPedFrames)
+                                    Log("fig: punch %04x %s lands on %04x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                                        track.punchAlt ? "jab" : "cross", victim ? static_cast<unsigned>((victim->object >> 2) & 0xFFFF) : 0u);
+                            }
+                            track.lastPunchT = track.actionTime;
+                            track.lastPunchFrame = g_carFrame;
                         }
                         // The recoil: each shot restarts the stance clip from its kick.
                         if (shotNow && IsAimAction(track.action) && track.actionTime > 0.05f) track.actionTime = 0.0f;
                         if (track.action == 13 && track.actionTime >= len) track.action = 0;   // the throw is over
                         if (oneShot && track.actionTime >= len && wantAction != track.action) track.action = 0;
                         if (!oneShot && track.action != 4 && wantAction != track.action && wantAction != 4) track.action = 0;
-                        if (!track.action) actionClip = nullptr;
+                        if (!track.action) {
+                            // Ended: faded out from where it stopped, not dropped.
+                            track.fadeClip = actionClip;
+                            track.fadeT = std::floor((std::min)((std::max)(track.actionTime, 0.0f), len - 0.001f) * 30.0f) / 30.0f;
+                            actionClip = nullptr;
+                        }
                     }
                     actionT = (std::min)((std::max)(track.actionTime, 0.0f), len - 0.001f);
                     actionT = std::floor(actionT * 30.0f) / 30.0f;
@@ -7227,14 +7471,22 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         track.twist, track.drawnSpeed, track.walkWeight, sprite.pedFrame % 158u, sprite.pedState);
                 }
                 const float wantWeight = actionClip ? 1.0f : 0.0f;
-                track.actionWeight += (wantWeight - track.actionWeight) * (std::min)(1.0f, dt / (track.action == 4 ? 0.1f : 0.15f));
+                // In fast (a punch, a blow, a shot are quick), out over 0.15 s.
+                const float fadeIn = track.action == 4 ? 0.1f : (track.action == 1 || track.action == 22 || IsAimAction(track.action)) ? 0.05f : 0.15f;
+                track.actionWeight += (wantWeight - track.actionWeight) * (std::min)(1.0f, dt / (actionClip ? fadeIn : 0.15f));
+                if (actionClip) track.fadeClip = nullptr;
+                bool actUpper = IsUpperLayer(track.action);
+                if (!actionClip && track.fadeClip && track.actionWeight > 0.06f && ModelIsKnown(model)) {
+                    // The ended action's last pose, fading over the locomotion.
+                    actionClip = static_cast<const ModelAnimation*>(track.fadeClip);
+                    actionT = track.fadeT;
+                    actUpper = true;
+                }
+                if (!actionClip) track.fadeClip = nullptr;
                 float actW = actionClip ? std::floor(track.actionWeight * 8.0f + 0.5f) / 8.0f : 0.0f;
-                // An upper-body layer is never drawn alone (it has no legs): just
-                // under full weight over the walk, run or idle.
-                if (IsUpperLayer(track.action) && actW > 0.99f) actW = 0.99f;
                 if (lod == 2) {
                     // The idle key; a body lying on the ground stays lying.
-                    u = 0.0f; idleTime = 0.0f; walkW = 0.0f; runW = 0.0f;
+                    u = 0.0f; idleTime = 0.0f; walkW = 0.0f; runW = 0.0f; sprintW = 0.0f; turnW = 0.0f; turnT = 0.0f;
                     if (track.action == 4 && actionClip) { actW = 1.0f; actionT = (std::max)(0.0f, actionClip->length - 0.001f); }
                     else { actW = 0.0f; actionClip = nullptr; }
                 } else if (lod == 1) {
@@ -7244,13 +7496,47 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         track.lodFrame = g_carFrame;
                         track.lodU = u; track.lodIdleT = idleTime; track.lodWalkW = walkW; track.lodRunW = runW;
                         track.lodActT = actionT; track.lodActW = actW;
+                        track.lodSprintW = sprintW; track.lodTurnW = turnW; track.lodTurnT = turnT;
                     } else {
                         u = track.lodU; idleTime = track.lodIdleT; walkW = track.lodWalkW; runW = track.lodRunW;
                         actionT = track.lodActT; actW = actionClip ? track.lodActW : 0.0f;
+                        sprintW = track.lodSprintW; turnW = track.lodTurnW; turnT = track.lodTurnT;
                     }
                 }
                 const float walkTime = walk ? u * walk->length : 0.0f;
-                const float runTime = run ? u * run->length : 0.0f;
+                // The run (and the sprint made from it) put the same foot forward half a
+                // cycle after the walk does: played half a cycle on, so a walk/run blend
+                // moves both legs the same way instead of cancelling them out.
+                const float runU = u + 0.5f - std::floor(u + 0.5f);
+                const float runTime = run ? runU * run->length : 0.0f;
+                const float sprintTime = sprint ? runU * sprint->length : 0.0f;
+                // The locomotion pair (A at tA blended toward B at tB by w):
+                //   still: idle, or idle under the turn step while turning on the spot;
+                //   moving: walk, walk->run, run->sprint, faded in from the idle.
+                const ModelAnimation* locoA = idle; float locoTA = idleTime;
+                const ModelAnimation* locoB = nullptr; float locoTB = 0.0f, locoW = 0.0f;
+                {
+                    const ModelAnimation* mA = walk; float mTA = walkTime;
+                    const ModelAnimation* mB = nullptr; float mTB = 0.0f, mW = 0.0f;
+                    if (run && runW > 0.001f) {
+                        if (sprint && sprintW > 0.001f) { mA = run; mTA = runTime; mB = sprint; mTB = sprintTime; mW = sprintW; }
+                        else { mB = run; mTB = runTime; mW = runW; }
+                    }
+                    if (walkW >= 0.999f) {
+                        locoA = mA; locoTA = mTA; locoB = mB; locoTB = mTB; locoW = mW;
+                    } else if (walkW > 0.001f) {
+                        // Fading in or out: the idle toward whichever moving clip leads.
+                        locoB = mW > 0.5f ? mB : mA; locoTB = mW > 0.5f ? mTB : mTA; locoW = walkW;
+                    } else if (turnStep && turnW > 0.001f) {
+                        locoB = turnStep; locoTB = turnT; locoW = turnW;
+                    }
+                }
+                // The action as an overlay on the pair (model_store ModelSetOverlay): an
+                // upper-body layer leaves the legs to the locomotion at any weight; a whole-
+                // body clip at full weight is drawn alone (one cached pose for a body lying).
+                const bool actAlone = actionClip && actW > 0.999f && !actUpper;
+                if (actAlone) { locoA = actionClip; locoTA = actionT; locoB = nullptr; locoW = 0.0f; }
+                ModelSetOverlay(actAlone ? nullptr : actionClip, actionT, actAlone ? 0.0f : actW);
                 device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
                 device->SetFVF(kWorldFvf);
@@ -7275,20 +7561,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // far figures, which hold coarser poses.
                 const float twistQ = lod == 0 ? std::floor(track.twist / 0.0524f + 0.5f) * 0.0524f : 0.0f;
                 ModelSetTorsoTwist(twistQ);
-                if (actionClip && actW > 0.999f) {
-                    ModelDraw(device, *model, world, actionClip, actionT);
-                } else if (actionClip && actW > 0.001f) {
-                    // Over whichever locomotion clip carries the figure right now.
-                    const ModelAnimation* base = walkW < 0.5f ? idle : (runW > 0.5f ? run : walk);
-                    const float baseT = walkW < 0.5f ? idleTime : (runW > 0.5f ? runTime : walkTime);
-                    ModelDrawBlend(device, *model, world, base, baseT, actionClip, actionT, actW);
-                } else if (walkW < 0.999f) {
-                    ModelDrawBlend(device, *model, world, idle, idleTime, walk, walkTime, walkW);
-                } else if (runW > 0.001f) {
-                    ModelDrawBlend(device, *model, world, walk, walkTime, run, runTime, runW);
-                } else {
-                    ModelDraw(device, *model, world, walk, walkTime);
-                }
+                ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
@@ -7306,14 +7579,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     const WeaponInfo& wi = kWeapons[track.weapon];
                     const Model* weapon = ModelByName(wi.model);
                     if (!weapon) weapon = ModelByName(wi.twoHanded ? "pickup_machine_gun" : "pickup_pistol");
-                    const ModelAnimation* base = nullptr; float baseT = 0.0f;
-                    const ModelAnimation* over = nullptr; float overT = 0.0f; float overW = 0.0f;
-                    if (actionClip && actW > 0.999f) { base = actionClip; baseT = actionT; }
-                    else if (actionClip) {
-                        base = walkW < 0.5f ? idle : (runW > 0.5f ? run : walk);
-                        baseT = walkW < 0.5f ? idleTime : (runW > 0.5f ? runTime : walkTime);
-                        over = actionClip; overT = actionT; overW = actW;
-                    } else { base = walk; baseT = walkTime; }
+                    // The hands as drawn: the same pair, the overlay still set.
+                    const ModelAnimation* base = locoA; const float baseT = locoTA;
+                    const ModelAnimation* over = locoB; const float overT = locoTB; const float overW = locoW;
                     gta2::Mat4 hand, handL;
                     const bool haveR = weapon && ModelNodeWorld(*model, "Bip01 R Hand", base, baseT, over, overT, overW, &hand);
                     const bool haveL = haveR && (wi.twoHanded || track.action == 10 || track.action == 15) &&
@@ -7416,6 +7684,20 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
                 ModelSetTorsoTwist(0.0f);
+                ModelSetOverlay(nullptr, 0.0f, 0.0f);
+                if (g_logFigures) {
+                    // GTA2DX9_LOG_FIGURES=1 (ACTIONS-3D-4): the player's figure and everyone within
+                    // 1.5 blocks of him, every frame: where the game has him and where he is drawn,
+                    // the state words, the clip and the locomotion weights, for the slide checks.
+                    const float pdx = cx - g_playerPosX, pdz = cz - g_playerPosZ;
+                    if (ownPed || (g_playerPosValid && pdx * pdx + pdz * pdz < 2.25f)) {
+                        Log("fig: f=%u o=%04x own=%d game=%.3f,%.3f drawn=%.3f,%.3f v=%.2f st=%d sub=0x%x fr=%u act=%d t=%.2f aw=%.2f cyc=%.3f ww=%.2f rw=%.2f hd=%.2f leg=%.2f fwd=%.4f sw=%.2f tw=%.2f clip=%s",
+                            g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), ownPed ? 1 : 0, cx, cz, gx, gz, track.drawnSpeed,
+                            sprite.pedState, sprite.pedSub, sprite.pedFrame % 158u, track.action, track.actionTime, actW, track.cycle,
+                            walkW, runW, track.heading, track.legSpeed, track.stepFwd, sprintW, turnW,
+                            actionClip ? actionClip->name.c_str() : "-");
+                    }
+                }
                 if (tinted || model->splitPaint) {
                     device->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTest);
                     device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);

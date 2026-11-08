@@ -306,6 +306,9 @@ void SampleClip(const Model& model, const ModelAnimation* animation, float time,
 // `second` at `secondTime` by `weight` (nlerp on the rotations, lerp on the
 // rest), then composed down the parent chain.
 static float g_torsoTwist = 0.0f;   // see ModelSetTorsoTwist
+// The overlay: a third clip blended over the pair (see ModelSetOverlay).
+static const ModelAnimation* g_overlay = nullptr;
+static float g_overlayTime = 0.0f, g_overlayWeight = 0.0f;
 void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float time, const ModelAnimation* second,
                      float secondTime, float weight, std::vector<gta2::Mat4>* out) {
     const size_t n = model.nodes.size();
@@ -318,6 +321,10 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
     }
     const bool blend = second && second->length > 0.0f && weight > 1e-3f;
     if (blend && weight >= 0.999f) {
+        // The second clip alone, but over the first: a clip with channels for only
+        // some joints (a legs-only layer, ACTIONS-3D-4's turn_step) must not leave
+        // the rest in the bind pose (the arms of the T/A pose).
+        SampleClip(model, animation, time, &t, &q, &s);
         SampleClip(model, second, secondTime, &t, &q, &s);
     } else {
         SampleClip(model, animation, time, &t, &q, &s);
@@ -338,6 +345,27 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
                 if (len > 1e-6f) for (float& x : r) x /= len;
                 memcpy(q[i].data(), r, sizeof(r));
             }
+        }
+    }
+    if (g_overlay && g_overlay->length > 0.0f && g_overlayWeight > 1e-3f) {
+        // Written over a copy of the pose so far (a joint the overlay has no
+        // channel for keeps it: an upper-body layer leaves the legs walking),
+        // then blended in by its weight.
+        std::vector<gta2::Vec3> t3(t), s3(s);
+        std::vector<std::array<float, 4>> q3(q);
+        SampleClip(model, g_overlay, g_overlayTime, &t3, &q3, &s3);
+        const float w = (std::min)(1.0f, g_overlayWeight), v = 1.0f - w;
+        for (size_t i = 0; i < n; ++i) {
+            t[i] = {t[i].x * v + t3[i].x * w, t[i].y * v + t3[i].y * w, t[i].z * v + t3[i].z * w};
+            s[i] = {s[i].x * v + s3[i].x * w, s[i].y * v + s3[i].y * w, s[i].z * v + s3[i].z * w};
+            const float* a = q[i].data();
+            const float* b = q3[i].data();
+            const float sign = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) < 0.0f ? -1.0f : 1.0f;
+            float r[4];
+            for (int k = 0; k < 4; ++k) r[k] = a[k] * v + b[k] * sign * w;
+            const float len = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]);
+            if (len > 1e-6f) for (float& x : r) x /= len;
+            memcpy(q[i].data(), r, sizeof(r));
         }
     }
     out->resize(n);
@@ -737,6 +765,10 @@ size_t ModelsTextureBytes(int* count) {
 // "Bip01 Spine1", so a figure's upper body can face one way (the aim) while
 // its legs walk another. Part of the pose cache key (quantised by the caller).
 void ModelSetTorsoTwist(float radians) { g_torsoTwist = radians; }
+void ModelSetOverlay(const ModelAnimation* clip, float time, float weight) {
+    if (!clip || weight <= 1e-3f) { g_overlay = nullptr; g_overlayTime = 0.0f; g_overlayWeight = 0.0f; return; }
+    g_overlay = clip; g_overlayTime = time; g_overlayWeight = weight;
+}
 float ModelTorsoTwist() { return g_torsoTwist; }
 
 void ModelSetPaintTint(const float* rgb) {
@@ -958,8 +990,12 @@ struct PoseKey {
     const ModelAnimation* animation = nullptr;
     const ModelAnimation* second = nullptr;
     float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f;
+    const ModelAnimation* overlay = nullptr;
+    float overlayTime = 0.0f, overlayWeight = 0.0f;
     bool operator==(const PoseKey& o) const {
-        return model == o.model && animation == o.animation && second == o.second && std::fabs(time - o.time) < 1e-4f &&
+        return model == o.model && animation == o.animation && second == o.second && overlay == o.overlay &&
+               std::fabs(overlayTime - o.overlayTime) < 1e-4f && std::fabs(overlayWeight - o.overlayWeight) < 1e-3f &&
+               std::fabs(time - o.time) < 1e-4f &&
                std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f &&
                std::fabs(twist - o.twist) < 1e-3f;
     }
@@ -1131,9 +1167,12 @@ const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vec
         PosedCache* nearest = nullptr;
         float best = 0.12f;   // seconds of the clip: beyond this, skin it anyway
         for (PosedCache& p : g_poses) {
-            if (p.key.model != key.model || p.key.animation != key.animation || p.key.second != key.second) continue;
-            if (std::fabs(p.key.weight - key.weight) > 0.15f || std::fabs(p.key.twist - key.twist) > 0.05f) continue;
-            const float d = std::fabs(p.key.time - key.time) + std::fabs(p.key.secondTime - key.secondTime);
+            if (p.key.model != key.model || p.key.animation != key.animation || p.key.second != key.second ||
+                p.key.overlay != key.overlay) continue;
+            if (std::fabs(p.key.weight - key.weight) > 0.15f || std::fabs(p.key.twist - key.twist) > 0.05f ||
+                std::fabs(p.key.overlayWeight - key.overlayWeight) > 0.15f) continue;
+            const float d = std::fabs(p.key.time - key.time) + std::fabs(p.key.secondTime - key.secondTime) +
+                            std::fabs(p.key.overlayTime - key.overlayTime);
             if (d < best) { best = d; nearest = &p; }
         }
         if (nearest) {
@@ -1188,6 +1227,9 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.secondTime = secondTime;
         key.weight = weight;
         key.twist = g_torsoTwist;
+        key.overlay = g_overlay;
+        key.overlayTime = g_overlay ? g_overlayTime : 0.0f;
+        key.overlayWeight = g_overlay ? g_overlayWeight : 0.0f;
         posed = &PoseFor(model, key, worlds);
     }
     QueryPerformanceCounter(&t1);
