@@ -592,3 +592,66 @@ marks (`797:civ/zaibatsu:8:3:46.00,187.00,2.00:7:14:100:-:a12` at dealer 2, pt9_
   and walks toward its search points when on foot; `drive_watch` is one watched drive (`until=`)
   instead of 12-cell sub-goals (which sent the lane-aware router round blocks: 118 blocks for 12 in
   pt9_ste3); the developer warp's devtools check reads from a log offset.
+
+## RUSSIAN SAILORS, 8 Nov 2026 (PLAYTHROUGH-10, `pt10_rs*`): its own runner, paused unfinished
+
+**Status: not completed (0 of 9 played sessions). Paused by the owner for the host move; the runner
+is committed as it stands.** Runner: `gamerun/missions/russian_sailors.py` (mirrored in
+`linux/docker/missions/`, keys script `keys_russian_sailors.sh`), on the frozen shared libraries:
+it imports `mission_play_districts` for the session (phone, walk, door tries, dealer stops) with
+an empty mission list, and drives every leg with its own `calm_drive`. Same settings as PLAYTHROUGH-9
+(`GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1`, `FPS=0`, `SWAP_LEVEL=bil`, stage `stage_pt9`). Contact sheet:
+`out/mission_russian_sailors_sheet.png` (pt10_rs12: phone, Z-Type, dealers 1-3 aboard, dealer-4 stop
+with the car alight; no crane, no JOB COMPLETE frame exists yet).
+
+### What the PLAYTHROUGH-9 logs said (every carhp drop of the player's car in `view: cars`)
+
+Over pt9_bil1-16, about 70 % of the Z-Type's carhp went with no other car within 2.6 blocks, and
+most of that **while the car was going backwards**: the smooth driver's three-point turns after
+a re-route, the stall and press back-offs and the gridlock back-away are blind holds of Down
+(pt9_bil16: 14 600 of 20 900 lost in reverse). Traffic ramming a car in a queue was the smaller part.
+
+### What `calm_drive` changes (all in the module)
+
+- reverse only with the tail clear (no car in a 1.5-wide band 4 blocks behind or closing from 7, the
+  cells 1-2.2 behind drivable with no wall), in 0.3 s pulses re-checked; never on the Power Cores
+  deck (z > 3.3: pt10_rs12 lost 1800 in one 1.3-block reverse there); otherwise a forward turn or a
+  wait, and after 4 waits a cars-only reverse, after 8 a forward turn (pt10_rs8 stood 100 s boxed in);
+- no forward turn toward the dealer (pt10_rs13 ran dealer 2 over with one: 3730);
+- a standing driven car ahead is waited for 14 game s; re-routes start forward (cells behind the tail
+  off the plan); a police car within 3.2 ahead stops the car (pt10_rs11 pushed a cop car: wanted 1,
+  arrested 2 s later);
+- cap 1.8 (`RS_CAP`), throttle only below target - 0.25; the pull-out waits for a gap behind;
+- dealer 3 by the east ramp (the west ramp 3-9 x 208-223 is avoided for that leg);
+- the Russians' terrace: the north and west stairs blocked for the walk to the phone (pt10_rs1
+  stepped on HOT DOG HOMICIDE's phone two cells away: 3400 then 3103), a wrong title ends the run;
+  no F9 door warp at the Z-Type (pt10_rs1: it put him in a police car); a kind-0 arrow on the car
+  after an arrest means "dealer N at his spawn"; a start check ends a run whose game stands still.
+
+### Sessions
+
+| session | reached | stopped because |
+|---|---|---|
+| pt10_rs1 | walked to the phone | HOT DOG HOMICIDE's phone answered first (3400), RS said 3103; door warp into a police car (fixed: terrace stairs blocked, no door warp) |
+| pt10_rs2/3/4/5/6/7/14/15 | - | host overload (load 60-78): game frozen at the level brief, no level, VGL FBO error; not mission outcomes |
+| pt10_rs8 (cap 2.2) | Z-Type, out of the alley (31346) | boxed in on the pavement at 122.7,113.8 for 100 s (fixed: escape after 4/8 waits) |
+| pt10_rs9 (2.2) | dealer-1 stop | rammed by a police car at 101,176, wanted 1, pulled out; the Z-Type gone (fixed: dealer loop stops on foot) |
+| pt10_rs10 (2.2) | dealers 1-2 (24101 at dealer 1, 23144 at dealer 2) | alight on the dealer-3 leg; reverse damage now 8 % of the total, the rest spread over walls at corners, cars while moving, rams while queued |
+| pt10_rs11 (1.8) | **dealer 1 for -1000, dealer 2 at 30231** | pushed a police car at the Power Cores ramp, arrested; back in the Z-Type, the arrow stayed kind 0 on the car (fixed) |
+| **pt10_rs12** (1.8) | **dealers 1, 2, 3 aboard** (30213, 29364, 18374) | the dealer-3 leg cost 11 000: 30 s standing in a queue on the west ramp (7.5,216, rams of 2650 and 1700) and a reverse on the deck (1800); alight 126 blocks into the dealer-4 leg |
+| pt10_rs13 (1.8, east ramp) | **dealer 1 for -200**, dealer 2's stop (31309) | a forward turn ran dealer 2 over: 3730 (fixed) |
+| pt10_rs16 | dealer-1 leg running at the pause | |
+
+### Next steps
+
+1. Run the committed module (`STAGE=<stage_pt9> SWAP_LEVEL=bil GTA2_SPEED=2 GTA2_DIRECT_KEYS=1 FPS=0
+   gamerun/grun.sh pt10_rsN 1800 keys_russian_sailors.sh -e GTA2DX9_STATE_EVERY=5 -e DISTRICT=bil`):
+   the east-ramp dealer-3 leg and the dealer-safe forward turn are untested in a full session.
+2. Dealer 3 is the expensive leg (11 000 in rs12, 4000-7000 in pt9). If the east ramp still queues,
+   do not stand on a slope behind a car: hold back at the ramp foot until the ramp is empty
+   (`view: cars` on the ramp cells).
+3. The dealer-4 (246 blocks) and crane (about 200) legs and the crane step have never been reached
+   with the car unburnt; the crane code is the shared runner's (`creep_box`, leave, wait for 3536/3100).
+4. Shared fixes wanted (not made, libs frozen): `enter_parked` should not warp by default near a road
+   (F9 takes passing cars); the smooth driver's three-point turn and back-offs should check `car_behind`
+   and the map behind the tail; `answer()` should know the Russians' neighbouring phones.
