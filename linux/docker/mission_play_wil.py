@@ -217,6 +217,12 @@ def quick_enter(secs=4.0):
     return M.check_entered(s) if s["driving"] else s
 
 WD_TURN_AVOID = {(215, 212), (216, 212), (215, 211), (216, 211), (213, 212), (213, 213), (214, 212), (214, 213)}   # no way back north on the southbound carriageway at the third dealer
+# PLAYTHROUGH-8: WHEELER-DEALING's stops, dealer -> where the car stands (see run_plan)
+WD_STOPS = {(226.5, 82.5): (227.5, 80.4),      # southbound lane 227, he on the corner pavement 226,82
+            (245.5, 132.5): (246.5, 130.4),    # the ramp down to row 132, lane 246, he on the west pavement
+            (214.5, 211.5): (215.5, 209.3),    # southbound lane 215 (not 216), he on the west pavement 214
+            (164.5, 125.5): (168.5, 123.2)}    # southbound lane 168 beside him, by way of WD_VIA (the junction first)
+WD_VIA = {(164.5, 125.5): (169.5, 112.6)}   # the last corner taken from a standstill-ish (pt7: the race turn overshot onto the pavement)
 TIMED = {"wil_ze2"}
 GUN_FIRST = {"wil_le2"}   # jobs that end with a car to wreck: armed before the phone   # jobs on a DISPLAY_TIMER (WHEELER-DEALING: 180 s for four dealers): full driving speed
 
@@ -283,9 +289,51 @@ def run_plan(entry):
                 if cell:
                     # the timer starts in the box: leave the car on the road beside it, not
                     # in the lot (pt6_ze2a spent 40 of its 180 s wobbling out of the lot)
-                    s = M.drive3(world, cell[0], cell[1], tol=1.2, budget=200, view_switch=view_switch, slow=False)
+                    # PLAYTHROUGH-8: before the clock there is no hurry: the drive in at a careful
+                    # pace (pt8_ze2b raced in and hit the walls seven times, 31118 -> 20785, and
+                    # the car burned on the third dealer's leg), and a car that arrives under
+                    # 25000 is swapped for another before the box
+                    race0 = (M.RACE[0], M.FAST_CAP); M.RACE[0] = False; M.FAST_CAP = 5.0
+                    try:
+                        s = M.drive3(world, cell[0], cell[1], tol=1.2, budget=200, view_switch=view_switch, slow=False)
+                        for k_rt in range(2):
+                            # the drive given up (a pinned borrowed car, pt8_ze2c at 206.7,68.6): another
+                            # car, not a walk to the box without one (the clock then ran on foot)
+                            if s["driving"] and math.hypot(cell[0] - s["x"], cell[1] - s["y"]) < 4: break
+                            say("timed job: no car at the box yet; another car before the clock starts")
+                            if s["driving"]: M.BAD_CARS.append((s["x"], s["y"])); s = M.leave_car()
+                            s = M.any_car2(world, budget=90)
+                            if not s["driving"]: break
+                            s = M.drive3(world, cell[0], cell[1], tol=1.2, budget=200, view_switch=view_switch, slow=False)
+                        for k_sw in range(2):
+                            hp = (M.mission_state() or {}).get("carhp", -1)
+                            if not s["driving"] or hp < 0 or hp >= 25000: break
+                            say(f"timed job: the car reached the box at carhp {hp}; another before the clock starts")
+                            M.BAD_CARS.append((s["x"], s["y"])); s = M.leave_car(); s = M.any_car2(world, budget=90)
+                            if not s["driving"]: break
+                            s = M.drive3(world, cell[0], cell[1], tol=1.2, budget=200, view_switch=view_switch, slow=False)
+                    finally:
+                        M.RACE[0], M.FAST_CAP = race0
                 else:
                     s = M.drive3(world, x, y, tol=3.0, budget=200, view_switch=view_switch, slow=not timed)
+            if timed and s["driving"]:
+                # PLAYTHROUGH-8: the car arrives at the box heading the wrong way for the first
+                # dealer (pt8_ze2a: a three-point turn on the clock into the pavement at
+                # 240.5,44.1, 9 s and 10000 carhp). Turn it round before the clock starts: drive
+                # a few cells along the first leg's route and park there
+                idx0 = plan.index(step)
+                ch = next((p_["at"] for p_ in plan[idx0 + 1:] if "char" in p_), None)
+                if ch:
+                    dst = next((st for (dx_, dy_), st in WD_STOPS.items() if math.hypot(ch[0] - dx_, ch[1] - dy_) < 4), (ch[0], ch[1]))
+                    path0 = M.route3(world, int(s["x"]), int(s["y"]), M.ped_level(s), int(dst[0]), int(dst[1]), None, kinds=(1,), cost=M.CAR_COST)
+                    if path0 and len(path0) > 8:
+                        k0 = path0[min(6, len(path0) - 1)]; hx0, hy0 = M.heading(s)
+                        vx0, vy0 = k0[0] + 0.5 - s["x"], k0[1] + 0.5 - s["y"]
+                        if (hx0 * vx0 + hy0 * vy0) < -0.2 * math.hypot(vx0, vy0):
+                            say(f"timed job: the car faces away from the first leg; turned round before the clock, parked at {k0[0]}.5,{k0[1]}.5")
+                            race0 = M.RACE[0]; M.RACE[0] = False
+                            try: s = M.drive3(world, k0[0] + 0.5, k0[1] + 0.5, tol=1.0, budget=60, slow=True)
+                            finally: M.RACE[0] = race0
             if s["driving"]: left_car = (s["x"], s["y"]); s = M.leave_car(); M.mark("out of the car, walking")
             from_x, from_y = s["x"], s["y"]
             t_a = time.time()
@@ -351,49 +399,39 @@ def run_plan(entry):
                     # the road and the job fails when he is run over (pt5_ze2b after 60 s;
                     # pt5_ze2c coasted onto dealer 2 with a plain tolerance of 6)
                     sp = short_of(s, x, y, back=(int(os.environ.get("WD_BACK", "2")) if timed else 7))   # pt7_ze2c: 6-15 s of walking per dealer at back=4
-                    if timed and math.hypot(x - 214.5, y - 211.5) < 4:
-                        # the third dealer stands by a two-lane road the car arrives on heading
-                        # south; the fourth leg's route went back north on it, a U-turn that cost
-                        # the car (pt7_ze2h: three hits, alight at the leg's start). Stop round the
-                        # corner (pt7_ze2k: round the corner on row 212 the car stood between him and
-                        # the dealer, 28 s of walking): stop just past him on the same carriageway
-                        # (216.5,213.5); leg 4 then turns round the median's end at row 215 instead of
-                        # reversing (WD_TURN_AVOID keeps the router off the way back north)
-                        sp = (216.5, 213.5)
+                    if timed:
+                        # PLAYTHROUGH-8: each dealer's stop planned on the map, cell by cell: the
+                        # car stands in the lane next to his pavement, about two blocks before him,
+                        # so he is ahead of the car's nose and the walk is round the nose and a
+                        # step (pt7: the car stopped beside or past him, the walk ran into it).
+                        # The third dealer's stop moved off lane 216, where traffic queued behind
+                        # the car and boxed the walker in against the median (pt7_ze2o, 38 s).
+                        for (dx_, dy_), stop in WD_STOPS.items():
+                            if math.hypot(x - dx_, y - dy_) < 4: sp = stop
                     if timed and math.hypot(x - 164.5, y - 125.5) < 4:
                         for c in WD_TURN_AVOID: M.CAR_AVOID.add(c)
-                        # the fourth dealer stands off the road (164.5,125.5): the route's end
-                        # (168,125) left a walk the walker got stuck on (pt7_ze2d, 8 s short)
-                        # and the drive round the last corner into column 168 overshot onto the
-                        # stairs at 164-166,117 in three sessions (pt7_ze2d/l/m: a stall, 10-15 s,
-                        # the clock ran out 2-10 s short). Stop on row 115/116 before that corner
-                        # and walk the pavement (column 167) down to him: about six seconds
-                        sp = (167.5, 115.8)
+                    via = next((v_ for (dx_, dy_), v_ in WD_VIA.items() if math.hypot(x - dx_, y - dy_) < 4), None) if timed else None
+                    if sp and via:
+                        s = M.drive3(world, via[0], via[1], tol=1.6, budget=240, view_switch=view_switch, slow=False)
                     if sp: s = M.drive3(world, sp[0], sp[1], tol=1.2, budget=240, view_switch=view_switch, slow=not timed)
                     else: s = M.drive3(world, x, y, tol=(4.5 if timed else 7.0), budget=240, view_switch=view_switch, slow=not timed)
             if s["driving"]:
                 left_car = (s["x"], s["y"]); hcar = M.heading(s); s = M.leave_car()
-                # the car between him and the dealer (he gets out on the road side, the
-                # dealer stands on the pavement): pt7_ze2i walked into his own truck for the
-                # last 8 s of the clock at the fourth dealer. Round the car's nose first
-                vx, vy = x - s["x"], y - s["y"]; n = math.hypot(vx, vy)
-                if n > 0.5:
-                    t_c = ((left_car[0] - s["x"]) * vx + (left_car[1] - s["y"]) * vy) / (n * n)
-                    if 0.0 < t_c < 1.0:
-                        px, py = s["x"] + vx * t_c, s["y"] + vy * t_c
-                        # only for a dealer beside the car (pt7_ze2j: one straight ahead of the
-                        # car, and the walk round the nose stuck on the ramp it stood on)
-                        lon = (x - left_car[0]) * hcar[0] + (y - left_car[1]) * hcar[1]
-                        lat = abs((x - left_car[0]) * hcar[1] - (y - left_car[1]) * hcar[0])
-                        if math.hypot(px - left_car[0], py - left_car[1]) < 0.9 and lat > abs(lon):
-                            sgn = 1.0 if lon >= 0 else -1.0
-                            nx, ny = left_car[0] + hcar[0] * 1.7 * sgn, left_car[1] + hcar[1] * 1.7 * sgn
-                            say(f"dealer: the car stands between; round its nose at {nx:.1f},{ny:.1f}")
-                            M.cruise_to(nx, ny, tol=0.6, secs=4)
+                # the car as it stands now (it rolls on after the stop): the nearest parked car
+                car_now, head_now = left_car, hcar
+                if s.get("parked") and s.get("pd", 99) < 2.5 and math.hypot(s.get("phx", 0), s.get("phy", 0)) > 0.5:
+                    car_now, head_now = (s["px"], s["py"]), (s["phx"], s["phy"])
+                    left_car = car_now
+                o = M.objective()
+                if o and o[3] != 1 and math.hypot(o[0] - x, o[1] - y) < 12: x, y = o[0], o[1]
+                s = M.walk_round_car(x, y, car_now, head_now)
             o = M.objective()
             if o and o[3] != 1 and math.hypot(o[0] - x, o[1] - y) < 12: x, y = o[0], o[1]
             key0 = M.objective_key()
-            s = walk(x, y, None, tol=0.7, budget=300, fp_secs=0)
+            if timed and math.hypot(x - s["x"], y - s["y"]) < 7 and M.line_clear(world, (s["x"], s["y"]), (x, y), M.ped_level(s), kinds=(1, 2, 3), half_width=0.25):
+                M.ensure_view("classic"); s, _ = M.cruise_to(x, y, tol=0.7, secs=8)
+            else:
+                s = walk(x, y, None, tol=0.7, budget=300, fp_secs=0)
             if M.wait_objective_change(key0, 3.0, money0): M.shot(f"{entry['mission']}_char_{int(x)}_{int(y)}"); continue
             # he may have wandered: circle a little
             for k in range(4):

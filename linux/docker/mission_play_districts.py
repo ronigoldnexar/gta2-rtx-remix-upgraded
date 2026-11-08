@@ -199,6 +199,7 @@ def face_point(x, y, tries=6):
         hold(key, min(abs(a) / max(D.rate, 2.0), 0.35)); time.sleep(0.35)
     return D.wait_state()
 
+WRONG = [None]   # set when got() moved a wrong car away: the mission car's position to walk back to
 def enter_parked(cx, cy, budget=150, why="the mission car"):
     """get into the parked car at (cx,cy): walk near, read the renderer's own
     position and heading for it, stand at a door side that has floor, face it,
@@ -220,11 +221,23 @@ def enter_parked(cx, cy, budget=150, why="the mission car"):
         ms = M.mission_state() or {}
         if o and o[3] in (3, 4) and ms.get("tcar") and math.hypot(ms["tcar"][0] - s2["x"], ms["tcar"][1] - s2["y"]) > 1.2:
             say(f"enter_parked: in a car at {s2['x']:.1f},{s2['y']:.1f}, but the mission car is at {ms['tcar'][0]:.1f},{ms['tcar'][1]:.1f}: out")
-            M.mark("in the wrong car beside the mission car: out")
-            M.leave_car(); return False
+            M.mark("in the wrong car beside the mission car: moving it away")
+            # PLAYTHROUGH-8: pt8_bil3's borrowed car stood a block from the Z-Type and every
+            # door try (nine) put him back into it: drive it eight blocks away from the
+            # Z-Type first, then walk back to the Z-Type's own position (tcar)
+            tx_, ty_ = ms["tcar"]; vx_, vy_ = s2["x"] - tx_, s2["y"] - ty_; n_ = math.hypot(vx_, vy_) or 1.0
+            gx_, gy_ = s2["x"] + vx_ / n_ * 8.0, s2["y"] + vy_ / n_ * 8.0
+            cell = M.street_cell_near(world, gx_, gy_, radius=5)
+            if cell: M.drive3(world, cell[0], cell[1], tol=2.0, budget=40, slow=True)
+            M.BAD_CARS.append((D.wait_state()["x"], D.wait_state()["y"]))
+            M.leave_car(); WRONG[0] = (tx_, ty_); return False
         return True
     while s and time.time() - t0 < budget:
         if got(s): return s
+        if WRONG[0]:
+            # the mission car's own position from the game, and a walk back to it
+            cx, cy = WRONG[0]; WRONG[0] = None
+            s = M.walk3(world, cx, cy, None, tol=2.0, budget=60); tried = 0; continue
         s = D.wait_state()
         if s["driving"] and math.hypot(s["x"] - cx, s["y"] - cy) < 4.0:
             M.leave_car(); s = D.wait_state()      # the wrong car beside the mission car (got() left it already, or about to)
@@ -244,6 +257,10 @@ def enter_parked(cx, cy, budget=150, why="the mission car"):
             px, py, hx, hy = s["px"], s["py"], s["phx"], s["phy"]
         else:
             px, py, hx, hy = cx, cy, 0.0, 1.0
+        tc = (M.mission_state() or {}).get("tcar")
+        if tc and tc[0] > 0 and math.hypot(tc[0] - px, tc[1] - py) > 0.8 and math.hypot(tc[0] - cx, tc[1] - cy) < 4.0:
+            # the nearest parked car is not the mission car (pt8_bil3): its door, not that one's
+            px, py, hx, hy = tc[0], tc[1], 0.0, 1.0
         if abs(hx) + abs(hy) < 0.1: hx, hy = 0.0, 1.0
         sides = [(px - hy * 0.75, py + hx * 0.75), (px + hy * 0.75, py - hx * 0.75),
                  (px + hx * 1.5, py + hy * 1.5), (px - hx * 1.5, py - hy * 1.5)]
@@ -439,6 +456,27 @@ def play_ste_re1(entry):
     o, ms = M.wait_outcome(money0, 120)
     return o
 
+def dealer_stop(x, y, s, lo=1.6, hi=3.0):
+    """PLAYTHROUGH-8: where the car stops for a passenger: a road cell 1.6-3 blocks from him
+    (a pavement cell only when no road is that near), the nearest such cell to the car.
+    pt8_bil2 drove to dealer 2's own cell (46,187, on the pavement), ran him over and the
+    job failed (3526 then 3730 within the second)"""
+    best = None
+    for kinds in ((1,), (1, 2)):
+        for dx in range(-4, 5):
+            for dy in range(-4, 5):
+                cx, cy = int(x) + dx, int(y) + dy
+                d = math.hypot(cx + 0.5 - x, cy + 0.5 - y)
+                if not (lo <= d <= hi): continue
+                for L in range(0, 6):
+                    k = M.node_kind(world, cx, cy, L)
+                    if k and k[0] == "flat" and k[1] in kinds:
+                        c = math.hypot(cx + 0.5 - s["x"], cy + 0.5 - s["y"]) + 3.0 * abs(d - 2.2)
+                        if best is None or c < best[0]: best = (c, cx + 0.5, cy + 0.5)
+                        break
+        if best: break
+    return (best[1], best[2]) if best else None
+
 def play_bil_re2(entry):
     """MMM, RUSSIAN SAILORS! (Russians): the Z-Type at (48,73); four dealers
     to collect by car (horn beside each), then the car into the crane box at
@@ -505,10 +543,10 @@ def play_bil_re2(entry):
             # in the Z-Type on it while only kinds 3/4 were taken for dealers)
             M.mark(f"dealer {stage+1}: by car to {x:.1f},{y:.1f}")
             key0 = M.objective_key(); m0 = msg()
-            s = M.drive3(world, x, y, tol=2.0, budget=360, view_switch=view_switch, slow=True, precious=True)
-            o2 = M.objective()
-            if o2 and math.hypot(o2[0] - s["x"], o2[1] - s["y"]) > 2.6:
-                s = M.drive3(world, o2[0], o2[1], tol=1.6, budget=120, slow=True, precious=True)
+            sp = dealer_stop(x, y, s)
+            say(f"dealer {stage+1} at {x:.1f},{y:.1f}: the car stops at {sp}")
+            if sp: s = M.drive3(world, sp[0], sp[1], tol=0.9, budget=360, view_switch=view_switch, slow=True, precious=True)
+            else: s = M.drive3(world, x, y, tol=2.6, budget=360, view_switch=view_switch, slow=True, precious=True)
             M.shot(f"{entry['mission']}_dealer{stage+1}")
             t0 = time.time(); boarded = False; spot = 0; t_spot = time.time()
             while time.time() - t0 < 160:
@@ -523,6 +561,8 @@ def play_bil_re2(entry):
                     spot += 1; t_spot = time.time()
                     ang = spot * 1.5708
                     px, py = x + 2.2 * math.cos(ang), y + 2.2 * math.sin(ang)
+                    sp3 = dealer_stop(px, py, s, lo=0.0, hi=1.6)
+                    if sp3 and math.hypot(sp3[0] - x, sp3[1] - y) >= 1.5: px, py = sp3
                     say(f"dealer {stage+1}: not coming; moving the car to {px:.1f},{py:.1f} (spot {spot})")
                     s = M.drive3(world, px, py, tol=1.0, budget=40, slow=True, precious=True)
                 o3 = M.objective()
@@ -535,8 +575,9 @@ def play_bil_re2(entry):
                     M.horn(2); time.sleep(2.5)
                 else:
                     o2 = M.objective()
-                    if o2 and math.hypot(o2[0] - s["x"], o2[1] - s["y"]) > 2.6:
-                        s = M.drive3(world, o2[0], o2[1], tol=1.6, budget=60, slow=True, precious=True)
+                    if o2 and math.hypot(o2[0] - s["x"], o2[1] - s["y"]) > 3.2:
+                        sp2 = dealer_stop(o2[0], o2[1], s)
+                        if sp2: s = M.drive3(world, sp2[0], sp2[1], tol=0.9, budget=60, slow=True, precious=True)
                     M.horn(1); time.sleep(2.0)
                 out, ms = M.outcome(money0)
                 if out != "running": return out

@@ -432,6 +432,22 @@ def wall_between(world, x, y, L, dx, dy):
     if there and (there[FACE_OF[(-dx, -dy)]] & 0x400): return True
     return False
 
+EDGE_COST = 0.6   # PLAYTHROUGH-8: a car route pays for a road cell beside a wall or a drop
+_EDGE = {}
+def edge_cell(world, x, y, L):
+    """1 when the road cell (x,y,L) has a wall face or no ground (a building, a deck's
+    railing, a drop) beside it, else 0: the car router keeps to the middle of a deck or a
+    wide road (pt8_ze2d scraped the west railing of the level-3 deck at 245.1,100.5 four
+    times, -4000 carhp; pt7_bil9's Z-Type lost 5000 on a kerb pole)"""
+    k = (world.district if hasattr(world, "district") else "", x, y, L)
+    if k not in _EDGE:
+        e = 0
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if wall_between(world, x, y, L, dx, dy) or not (node_kind(world, x + dx, y + dy, L) or node_kind(world, x + dx, y + dy, L + 1) or node_kind(world, x + dx, y + dy, L - 1)):
+                e = 1; break
+        _EDGE[k] = e
+    return _EDGE[k]
+
 def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000, cost=None):
     """Dijkstra over (x,y,level). tl None = any level with something to stand
     on at (tx,ty). A slope block stored at level L joins level L-1 (its low
@@ -504,6 +520,7 @@ def route3(world, sx, sy, sl, tx, ty, tl=None, kinds=(1, 2, 3), limit=200000, co
                     ab = _blk(world, nx, ny, nl)
                     ab = ab[5] if ab else 0
                     if ab & 0xFF and not (ab & ARROW_BIT.get((dx, dy), 0)): c += LANE_COST
+                    if EDGE_COST: c += EDGE_COST * edge_cell(world, nx, ny, nl)
                 m = (nx, ny, nl)
                 if c < dist.get(m, 1e18):
                     dist[m] = c; prev[m] = n; heapq.heappush(pq, (c, m))
@@ -577,7 +594,7 @@ def cruise_to(tx, ty, tol=0.6, secs=30, stop=True):
             d = math.hypot(tx - s["x"], ty - s["y"])
             if d < tol: return s, True
             if d < best - 0.12: best = d; last_gain = time.time()
-            if time.time() - last_gain > 3.0:
+            if time.time() - last_gain > (1.6 if RACE[0] else 3.0) / D.SPEED:
                 n += 1; say(f"cruise: stuck {d:.1f} from {tx:.1f},{ty:.1f}; unsticking {n}")
                 xdo("keyup", "Up"); hold("Down", 0.6); hold("Right" if n % 2 else "Left", 0.4); hold("Up", 0.5)
                 xdo("keydown", "Up"); last_gain = time.time(); best = 1e9
@@ -701,6 +718,17 @@ CORNER_V = (1.0, 0.55)        # speed target near a turn: v0 + k * distance to i
 # pt6_ze2b drove dealer 1's 85 blocks at 1.3-1.6 blocks/s, round a block to keep
 # to its lane and crawling into every corner of Downtown's grid
 
+def back_toward(s, gx, gy, secs=0.9):
+    """PLAYTHROUGH-8: reverse off an obstacle with the wheel turned so the nose swings toward
+    the next waypoint (pt8_bil1's Z-Type, heading south a block west of the road at
+    76.1,214.5, reversed straight five times and drove back into the same corner)"""
+    hx, hy = heading(s); dx, dy = gx - s["x"], gy - s["y"]
+    a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+    rkey = ("Left" if a > 0 else "Right") if abs(a) > 0.15 else None
+    if rkey: xdo("keydown", rkey)
+    hold("Down", secs)
+    if rkey: xdo("keyup", rkey)
+
 def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, precious=False):
     """wall-aware driving. Road-only route with lane preference, waypoints that
     never cut a corner (line of sight on drivable ground), a speed target that
@@ -771,7 +799,7 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
                 cd += math.hypot(legs[k + 1][0] - legs[k][0], legs[k + 1][1] - legs[k][1]); k += 1
             vt = vcap
             if cd < (8.0 if RACE[0] else 4.0): vt = min(vt, CORNER_V[0] + cd * CORNER_V[1])
-            if final and d < 3.0: vt = min(vt, 1.2)
+            if final and d < 3.0: vt = min(vt, 2.2 if RACE[0] else 1.2)   # PLAYTHROUGH-8: a timed job's last 3 blocks at 2.2 (1.2: ~2 s per dealer)
             steer = "Right" if a > 0 else "Left"
             if abs(a) > 1.9 or (abs(a) > 0.9 and d < 2.2):
                 # the waypoint is behind, or close and well off the nose (a parking lot,
@@ -860,9 +888,24 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
                     legs, turns = legs_from(s2); i = 0; s = s2; last_hp[0] = -1; continue
             moved = math.hypot(s2["x"] - s["x"], s2["y"] - s["y"])
             wanted_motion = (up or abs(a) > 0.22)
+            if precious and hp >= 0 and len(hp_hist) >= 2:
+                # PLAYTHROUGH-8: a mission car pressed against something loses a few hundred a
+                # sample without moving (pt7_bil9's Z-Type: 4500 in 7 s against the railing at
+                # 23.5,223.4, 5000 in a second at a gantry pole at 135.9,149.5, 5000 against a
+                # wall at 130.5,110: the old guard wanted 2500 in 1.2 s and the stall branch then
+                # pushed it on with the wheel turned). Any 450 lost within 0.8 game seconds on the
+                # spot: off the throttle, straight back, the cells ahead off the route, re-route
+                rec = [h for h in hp_hist if time.time() - h[0] <= 0.8 / D.SPEED]
+                if rec and rec[0][1] - hp > 450 and math.hypot(rec[0][2] - s2["x"], rec[0][3] - s2["y"]) < 0.6 and cf <= 0:
+                    say(f"drive3: mission car pressed at {s2['x']:.1f},{s2['y']:.1f} (carhp {rec[0][1]} -> {hp}): straight back, round it")
+                    keyup_all(); up = False
+                    hx5, hy5 = heading(s2)
+                    for k5 in (0.8, 1.4): CAR_AVOID.add((int(s2["x"] + hx5 * k5), int(s2["y"] + hy5 * k5)))
+                    back_toward(s2, gx, gy, 0.9); time.sleep(0.15); hp_hist.clear(); stall_t = None
+                    s2 = D.wait_state(); legs, turns = legs_from(s2); i = 0; s = s2; continue
             if wanted_motion and moved < 0.05:
                 stall_t = stall_t or time.time()
-                if time.time() - stall_t > 1.0:
+                if time.time() - stall_t > 1.0 / D.SPEED:
                     stalls += 1; stall_t = None
                     keyup_all(); up = False
                     # pinned: the same spot again and again (pt7_ze2a hammered a wall at
@@ -878,19 +921,34 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
                         if len(near) >= 5:
                             say(f"drive3: pinned at {s2['x']:.1f},{s2['y']:.1f} for {len(near)} stalls: giving up this drive")
                             mark(f"drive pinned at {s2['x']:.1f},{s2['y']:.1f}: giving up")
+                            if not precious: BAD_CARS.append((s2["x"], s2["y"]))   # PLAYTHROUGH-8: pt8_bil1 re-took the same pinned car at 147.3,107.1 four times
                             hold("Down", 0.8); return D.wait_state()
                         say(f"drive3: pinned at {s2['x']:.1f},{s2['y']:.1f} ({len(near)} stalls): the cells ahead are off the car route now")
+                    if precious and not RACE[0]:
+                        # PLAYTHROUGH-8: a mission car never pulls out with the throttle into
+                        # what stopped it: a short wait for traffic, then straight back, re-route
+                        say(f"drive3: mission car stopped at {s2['x']:.1f},{s2['y']:.1f} (stall {stalls}): straight back, re-route")
+                        time.sleep(0.8 if ms2.get("wanted", 0) == 0 else 0.2); s3 = D.wait_state()
+                        if s3 and math.hypot(s3["x"] - s2["x"], s3["y"] - s2["y"]) > 0.4: s = s3; continue
+                        back_toward(s2, gx, gy, 0.9); time.sleep(0.15); hp_hist.clear()
+                        s2 = D.wait_state(); legs, turns = legs_from(s2); i = 0; s = s2; continue
                     # stopped with the throttle on: traffic ahead (the usual case on a
                     # carriageway) or a wall. Wait a moment for traffic, then back off and
                     # pull out round it on the side with road, then re-route.
                     say(f"drive3: stopped with throttle at {s2['x']:.1f},{s2['y']:.1f} (stall {stalls}); waiting, then pulling out")
                     # wanted: no waiting about (a cop pulls him out of a standing car: pt7_ste4)
-                    time.sleep(0.3 if (ms2.get("wanted", 0) > 0) else 2.0); s3 = D.wait_state()
+                    time.sleep(0.3 if (ms2.get("wanted", 0) > 0) else (0.6 if RACE[0] else 2.0)); s3 = D.wait_state()   # PLAYTHROUGH-8: a timed job waits 0.6 s (pt7_ze2n: 8 s at one stall)
                     if s3 and math.hypot(s3["x"] - s2["x"], s3["y"] - s2["y"]) > 0.4:
                         s = s3; continue                      # the queue moved
                     # wedged in a traffic queue (two stalls within half a block): a borrowed
                     # car is abandoned for one past the jam; a mission car keeps trying
                     if stalls >= 2 and wedge_at is not None and math.hypot(s2["x"] - wedge_at[0], s2["y"] - wedge_at[1]) < 0.5:
+                        if RACE[0]:
+                            # PLAYTHROUGH-8: a timed job keeps its car (pt8_ze2d left it at 245.1,100.5,
+                            # walked past "the jam", found no car and walked back to the same one: 25 s)
+                            say("drive3: wedged (timed job): back off toward the route, re-route")
+                            back_toward(s2, gx, gy, 0.8); time.sleep(0.1); hp_hist.clear()
+                            s2 = D.wait_state(); legs, turns = legs_from(s2); i = 0; s = s2; wedge_at = None; continue
                         if not slow:
                             say("drive3: wedged in traffic; out, past the jam on foot, another car"); mark("wedged in traffic: leaving the jam on foot")
                             hx2, hy2 = heading(s2); leave_car(); time.sleep(0.4)
@@ -900,6 +958,11 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
                             legs, turns = legs_from(s2); i = 0; s = s2; wedge_at = None; continue
                         hold("Down", 1.4); time.sleep(0.2)
                     wedge_at = (s2["x"], s2["y"])
+                    if RACE[0]:
+                        # a timed job: back off with the nose swung toward the route, no pull-out
+                        # with the throttle into what stopped it
+                        back_toward(s2, gx, gy, 0.7); time.sleep(0.1)
+                        s2 = D.wait_state(); legs, turns = legs_from(s2); i = 0; s = s2; continue
                     hold("Down", 0.7); time.sleep(0.15)
                     hx2, hy2 = heading(s2)
                     lx, ly = -hy2, hx2                        # the car's left
@@ -922,6 +985,7 @@ def drive3(world, tx, ty, tol=2.0, budget=240, view_switch=None, slow=False, pre
     # Pickup rolled back out of the barricade block, 2016 -> 2017, and the bomb went off
     # outside it), the old brake-and-reverse otherwise
     if precious: hold("space", 0.8)
+    elif RACE[0]: hold("space", 0.6)        # a timed job: the handbrake, no reverse (Down 0.8 rolls it back a block)
     else: hold("Down", 0.8)
     return D.wait_state()
 
@@ -1575,6 +1639,45 @@ def shoot_target(world, money0, secs=600, view_switch=None):
         time.sleep(0.4)
     release()
     return outcome(money0)[0]
+
+CAR_HALF_LEN, CAR_HALF_W = 0.75, 0.45   # a parked car's footprint for the walker (most saloons; a truck is longer)
+def car_blocks(sx, sy, tx, ty, car, head, pad=0.3):
+    """does the straight walk (sx,sy)->(tx,ty) cross the footprint of the car at `car`
+    facing `head` (padded by a body's half width)?"""
+    hx, hy = head; n = math.hypot(hx, hy)
+    if n < 0.1: return False
+    hx, hy = hx / n, hy / n
+    for k in range(21):
+        px, py = sx + (tx - sx) * k / 20.0, sy + (ty - sy) * k / 20.0
+        rx, ry = px - car[0], py - car[1]
+        lon, lat = rx * hx + ry * hy, -rx * hy + ry * hx
+        if abs(lon) < CAR_HALF_LEN + pad and abs(lat) < CAR_HALF_W + pad: return True
+    return False
+
+def walk_round_car(tx, ty, car, head, secs=4.0):
+    """PLAYTHROUGH-8: the driver gets out on the car's left, on the road side, and the
+    pedestrian he walks to stands on the pavement on its right: the straight walk runs
+    into his own car (pt7_ze2i/m/n/o lost 10-38 s of WHEELER-DEALING's clock pressed
+    against it, re-routing round it through the traffic queued behind it). When the
+    car is in the way, walk to the corner of the car on his side (nose or tail,
+    whichever makes the shorter walk) first. Returns the state."""
+    s = D.wait_state()
+    if not car_blocks(s["x"], s["y"], tx, ty, car, head): return s
+    hx, hy = head; n = math.hypot(hx, hy); hx, hy = hx / n, hy / n
+    rx, ry = s["x"] - car[0], s["y"] - car[1]
+    side = 1.0 if (-rx * hy + ry * hx) >= 0 else -1.0
+    lx, ly = -hy * side, hx * side                      # unit vector to his side of the car
+    best = None
+    for sgn in (1.0, -1.0):
+        cx = car[0] + hx * (CAR_HALF_LEN + 0.55) * sgn + lx * (CAR_HALF_W + 0.25)
+        cy = car[1] + hy * (CAR_HALF_LEN + 0.55) * sgn + ly * (CAR_HALF_W + 0.25)
+        cost = math.hypot(cx - s["x"], cy - s["y"]) + math.hypot(tx - cx, ty - cy)
+        if car_blocks(cx, cy, tx, ty, car, head, pad=0.2): cost += 3.0
+        if best is None or cost < best[0]: best = (cost, cx, cy, sgn)
+    _, cx, cy, sgn = best
+    say(f"walk_round_car: the car at {car[0]:.1f},{car[1]:.1f} stands between; round its {'nose' if sgn > 0 else 'tail'} at {cx:.1f},{cy:.1f}")
+    s, ok = cruise_to(cx, cy, tol=0.6, secs=secs, stop=False)
+    return s
 
 def street_cell_walk_nearest(world, x, y, radius=8, tl=None):
     """the road cell (level 1 or 2) within radius from which the walk to (x,y) is

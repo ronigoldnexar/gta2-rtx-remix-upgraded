@@ -358,3 +358,78 @@ WHEELER-DEALING (`GTA2_SPEED=1`, its clock is game time and the driver reacts in
   dealer-4 stops); what would buy the missing seconds is a faster car taken before the briefcase
   (the borrowed car is whatever stands at the kerb, a truck in pt7_ze2i) or a walk to the
   briefcase box that does not wait for the game's reaction.
+
+## Part 7 (8 Nov 2026, PLAYTHROUGH-8): WHEELER-DEALING complete; GET ZITZAKI after the Loonies
+
+Sessions `pt8_*`, all on the fast path (`gamerun/grun.sh`, `FPS=0`) at **`GTA2_SPEED=2`** and
+**`GTA2_DIRECT_KEYS=1`** (every frame a 3D one: driving in the chase view, walking in third
+person), devtools F9/F11, `GTA2DX9_STATE_EVERY=3`, private stage `stage_pt8` (the shared
+renderer, no DLL change). WHEELER-DEALING ran at speed 2 too: the runners' sleeps scale with
+the speed, and the timeouts that are physical (the walker's "stuck" wait, the driver's stall
+detection) now divide by it as well (`D.SPEED`), so a 2x session reacts in game time.
+
+### Where the seconds went (pt7_ze2i/m/n/o logs and frames)
+
+The pace on the dealer legs was already there in part 6; each near miss lost 10-38 s at one
+place: **the walk from the car to the dealer**. The driver gets out on the car's left, on the
+road side, and the dealer stands on the pavement on its right, so the straight walk ran into
+the player's own car (`cruise: stuck 2.2 from 214.5,211.5` four times in pt7_ze2o). Worse, at the
+third dealer the car stood in lane 216, traffic queued behind it and the walker was boxed in
+between the queue and the median (pt7_ze2o: the HUD clock went from 1:08 to 0:41 there,
+`shot_385`-`shot_410`). pt7_ze2n reached the fourth dealer one second after the clock ran out,
+having lost 15 s at the first dealer the same way.
+
+### Runner changes (`gamerun/`, mirrored in `linux/docker/`)
+
+- **`M.walk_round_car(x, y, car, head)`**: after a stop the car as it stands (the nearest parked
+  car and its heading from the renderer line) is a 1.5 x 0.9 footprint; when the straight walk
+  to the dealer crosses it, he walks to the corner on his side first (nose or tail, the shorter
+  way), then straight to the dealer (`cruise_to`, no router legs, when the line is clear within
+  7 blocks). Logged as `walk_round_car: ... round its nose at ...`.
+- **The four stops planned on the map, cell by cell** (`WD_STOPS` in `mission_play_wil.py`): the
+  car stands in the lane next to the dealer's pavement about two blocks before him, so he is
+  ahead of the nose and the walk is round the nose and a step: dealer 1 lane 227 at 80.4
+  (he is on the corner pavement 226,82), dealer 2 lane 246 on the ramp at 130.4, dealer 3 lane
+  215 at 209.3 (not 216, where the traffic queued), dealer 4 lane 168 at 123.2 beside him,
+  reached by way of the junction (169.5,112.6, `WD_VIA`) so the last corner is taken from a
+  slow roll instead of the race turn that overshot onto the pavement in pt7.
+- **Before the clock**: the drive to the briefcase is at a careful pace (race mode off, cap 5),
+  a car that arrives under carhp 25000 is swapped, a drive that is given up (a pinned borrowed
+  car) gets another car instead of a walk to the box, and a car that arrives facing away from the
+  first leg is turned round before the box (it is driven a few cells along the first leg's
+  route and parked there): pt8_ze2a's three-point turn on the clock cost 9 s and pt8_ze2b's race
+  into the box cost 10000 carhp, and that car burned on the third dealer's leg.
+- **On the clock** (`M.RACE`): no throttle pull-out after a stall and no "wedged in traffic,
+  leave the car" (pt8_ze2d walked past "the jam", found no car and came back to the same one):
+  the car backs off with the wheel turned so the nose swings toward the route (`back_toward`)
+  and re-routes; traffic waits are 0.6 s instead of 2; the last three blocks of a leg at 2.2
+  blocks/s (was 1.2) and a handbrake stop (Down rolled the car back a block).
+- **The car router keeps off walls and drops** (`EDGE_COST` 0.6 on a road cell with a wall face
+  or no ground beside it, `edge_cell`): pt8_ze2d scraped the west railing of the level-3 deck on
+  the dealer-2 leg four times (245.1,100.5, -4000 carhp); the route now runs down column 246.
+- `drive3` gives up a pinned borrowed car for good (`BAD_CARS`): pt8_bil1 re-took the same
+  pinned car four times.
+
+### Runs
+
+| session | job | outcome | what happened |
+|---|---|---|---|
+| pt8_ze2a | WHEELER-DEALING | failed (clock) | the first session with `walk_round_car`: every dealer walk 2-3 s; lost 9 s to a three-point turn into the pavement leaving the box (240.5,44.1) and 18 s at dealer 4 (the race turn into column 168 overshot onto the pavement, then a 13-cell walk) |
+| pt8_ze2b | same | failed | raced to the box (7 wall hits, carhp 31118 -> 20785), the car caught fire on the dealer-3 leg (fixed: careful pace before the clock, swap under 25000) |
+| pt8_ze2c | same | stopped | the borrowed car pinned at 206.7,68.6 on the way to the box, the runner walked to the box without a car and the clock started on foot (fixed: another car first) |
+| pt8_ze2d | same | stopped | turned round before the clock (236.5,45.5), **dealer 1 26 s after the box**; the dealer-2 leg scraped the deck railing at 245.1,100.5 and "wedged in traffic" sent him out on foot (fixed: `EDGE_COST`, no exits on the clock) |
+| pt8_ze2e | same | failed (clock) | no car at the kerb in 90 s, the box on foot, 86 s to dealer 1; then **dealer 2 in 25 s, dealer 3 in 34 s**, the clock ran out beside dealer 4 |
+| **pt8_ze2f** | **WHEELER-DEALING** | **JOB COMPLETE** (+$20,000, 16 s left on the HUD clock) | car turned round before the clock and parked at 236.5,47.5; box at game-second 435, dealers at 469, 503, 546 and 597 (34, 34, 43, 51 s), every walk round the nose in 2-3 s, no stall, no wall. Frames: the briefcase `out/pt8_ze2f/m_wil_ze2_at_242_39.png` (clock 2:59), dealer 3 `m_wil_ze2_char_214_211.png` (the walk round the nose; the HUD clock read 2:27, 1:45, 1:09 and 0:16 at the four dealers), **JOB COMPLETE `m_wil_ze2_char_164_125.png`** (chase view, "You drive like the wind, Gecko", clock 0:16), `m_wil_ze2_end.png` |
+| **pt8_chain1** | PIZZA CAKE, RADIO ZA-ZA, GET ZITZAKI | **PIZZA CAKE complete**, RADIO ZA-ZA failed, **GET ZITZAKI complete** | PIZZA CAKE: gun, phone, explosives, delivery, countdown, the van shot on foot in third person, **JOB COMPLETE** at game-second 521 (`m_wil_le2_wrecked.png`). RADIO ZA-ZA: answered (1954), on the drive to Futuro FM he was pulled out of the moving car at 128.6,15.1 (on foot at 08:01:43 while driving at 3 blocks/s) and run over on the road (lives 5 -> 4, 1125). **GET ZITZAKI** (Yakuza, 44.5,150.5): the Yakuza took the job after the two Loonies jobs (no refusal), Miura entered, hospital box, horn ("Get back there and sound the horn!" once, re-approached), the doctor aboard, the J-Lab garage box: **JOB COMPLETE** (+$20,000, multiplier 3, $60,186) at game-second 1493, frame `out/pt8_chain1/m_wil_ye1_end.png` (chase view, the Miura in the garage) |
+
+### Status after part 7
+
+- **WHEELER-DEALING: JOB COMPLETE** in the chase view at `GTA2_SPEED=2` (pt8_ze2f, 16 s to
+  spare), after 17 sessions short in part 6. The dealer legs now take 25-51 s each and every walk
+  2-3 s; what still loses a session is before the clock (no car at the kerb, a pinned borrowed
+  car), which the runner now retries.
+- **GET ZITZAKI: JOB COMPLETE** in the chase view (pt8_chain1), the Yakuza chain's first job,
+  played after PIZZA CAKE in the same game: the Downtown chain continues on the Yakuza phones
+  (next: BANK ROBBERY, `wil_ye2`, which needs the two bank guards shot; the plan runner has no
+  step for "kill the characters the arrows point at" yet).
+- RADIO ZA-ZA failed this time (a carjack and a death on the road), completed in part 6.
