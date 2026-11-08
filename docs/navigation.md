@@ -338,3 +338,45 @@ loaded host, `GTA2_DIRECT_KEYS=1`; sheet `out/camera_props_sheet.png`, local):
   outside its box, so its side fills the frame when he faces it but no part of it sits a hand from
   the eye. Not reproduced: the QA3 Truck Cab stack itself, and a lamp post (none within 1.5 blocks
   of the QA3 spot). The park trees are not covered (no accessor).
+
+## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
+
+QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`
+(the fade), `dll/src/view_modes.cpp` (the wall clearance).
+
+- **Near fade.** Every game object drawn as a model (phone box, traffic-light pole and head, bin,
+  cone, crate, the pickups) whose upright box (footprint radius, foot to top) comes within
+  0.5 block of the eye is drawn see-through: alpha 1 at 0.5 block down to 0.18 at 0.1 block
+  (smoothstep), after the opaque objects, blended, without depth writes, so the street and a
+  person behind it show through. Applies in both street views (the chase camera beside a box
+  too). The eye is read back from the device's view matrix at the top of `MapObjectsDraw`.
+  `GTA2DX9_NEAR_FADE=0` turns it off (before/after runs). Log: `objects: near fade: N object(s)
+  see-through this frame, the nearest at alpha A` every 150 frames while any is faded.
+- **Wall clearance.** On foot in first person the eye sits 0.12 ahead of his centre, so walking
+  into a shop front put it at the bricks (one magnified tile filled the frame). When a wall is
+  closer than 0.2 block along the view, the eye steps back along the view by up to 0.18 (never
+  into a wall behind). A wall 0.2 block ahead still fills the picture, as in any first-person
+  game; it is no longer seen from inside. Log: `view: fp eye: wall D ahead, eye stepped back B`
+  (first 20).
+- **Not covered:** the rule-placed lamp posts and the park trees are drawn by
+  `LiveGeometry::DrawProps` (`live_geometry.cpp`, outside this row's files) and are not faded;
+  the eye is still only kept 0.3 block from a post's axis (section above), so a post at
+  0.6 block still shows as a dark bar at the frame's edge (seen in the probe). The same fade could
+  be applied there with the helper's approach (TFACTOR alpha, deferred, no depth writes).
+
+Probe: `gamerun/qb49_probe.py` (`keys_qb49.sh`, items in `QB_ITEMS`: `booth pickup`), run as
+`GTA2_DIRECT_KEYS=1 STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/;
+s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 150 keys_qb49.sh -e GTA2DX9_SCENE_NO_CAR=1`
+(add `-e GTA2DX9_NEAR_FADE=0 -e GTA2DX9_PICKUP_LABELS=0` for the before run).
+
+Measured (runs `qb49_before`, `qb49_after`, `qb49_after5`, 8 Nov 2026, plain renderer, loaded
+host; the governor paused some runs for minutes, so a few frames were taken mid camera blend):
+- Phone box (map 158.5,138.5), first person 0.6 block south facing it: before, its opaque back
+  panel covers about half the frame; after, the box is see-through (the phone, the wall and the
+  lamp post behind it visible), log `near fade: 3 object(s) see-through, the nearest at alpha
+  0.51`. At 0.35 block the existing push-out puts the eye at the same place, same picture.
+- Walking north through the box and into the shop front behind it: the box never fills the frame;
+  at the wall the eye was stepped back 0.06-0.18 (`wall 0.02-0.14 ahead`), the bricks are seen
+  from 0.2 block instead of from inside. A lamp post 0.63 block from the eye showed at the left
+  edge (not faded, see above).
+- No `FAULT` in any run.

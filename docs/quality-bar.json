@@ -1169,9 +1169,9 @@
     "dll/src/world_view.cpp",
     "dll/src/map_objects.cpp"
    ],
-   "status": "frame",
+   "status": "partly",
    "feel": "fluid",
-   "note": "",
+   "note": "QB-49 (8 Nov): near fade of the game's objects (< 0.5 block, alpha to 0.18) and a 0.2-block wall clearance for the first-person eye, verified in frames. Lamp posts and park trees (live_geometry.cpp DrawProps) are not faded. docs/navigation.md (Near fade, QB-49).",
    "score": 26,
    "rank": 49,
    "id": "QB-49"
@@ -1192,9 +1192,9 @@
     "dll/src/hud_pass.cpp",
     "dll/src/overlay.cpp"
    ],
-   "status": "frame",
+   "status": "partly",
    "feel": "fun",
-   "note": "",
+   "note": "QB-50 (8 Nov): pickup name labels (7 blocks) and world-space pops (weapon name on pickup, +$n on money) in hud3d.cpp; labels and weapon pop verified in frames, money pop untested in play. docs/hud.md (Pickup labels and score pops).",
    "score": 26,
    "rank": 50,
    "id": "QB-50"

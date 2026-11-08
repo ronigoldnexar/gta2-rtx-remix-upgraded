@@ -1893,6 +1893,26 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             eye.z += hx * sway;
             roll += std::cos(bobPhase_ * kPi) * 0.6f * kDegToRad * pace * s.fpHeadBob;
         }
+        // QB-49: nor a hand from a wall he walks into. The eye sits ahead of his centre, so
+        // flush against a shop front it was at the bricks and one tile filled the frame. When
+        // a wall is closer than kWallClear along the view, the eye steps back along it (up to
+        // kWallBack, never into another wall behind).
+        if (!inVehicle && q.blocked) {
+            constexpr float kWallClear = 0.20f, kWallBack = 0.18f;
+            const float fx = std::sin(yaw), fz = std::cos(yaw);
+            float wall = kWallClear;
+            for (int i = 0; i <= 10; ++i) {
+                const float d = kWallClear * static_cast<float>(i) / 10.0f;
+                if (q.blocked(q.context, eye.x + fx * d, eye.y, eye.z + fz * d)) { wall = d; break; }
+            }
+            if (wall < kWallClear) {
+                const float back = (std::min)(kWallClear - wall, kWallBack);
+                const float nx = eye.x - fx * back, nz = eye.z - fz * back;
+                if (!q.blocked(q.context, nx, eye.y, nz)) { eye.x = nx; eye.z = nz; }
+                static int wallLogs = 0;
+                if (wallLogs < 20) { ++wallLogs; Log("view: fp eye: wall %.2f ahead, eye stepped back %.2f", wall, back); }
+            }
+        }
         if (inVehicle && s.fpLean > 0.0f) {
             // The nose dips under braking and lifts under power; the head leans
             // into a turn.

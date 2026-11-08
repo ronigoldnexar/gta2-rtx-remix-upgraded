@@ -46,6 +46,7 @@
 #include "game_save.h"
 #include "live_geometry.h"
 #include "log.h"
+#include "map_objects.h"
 #include "texture_store.h"
 #include "view_modes.h"
 #include "world_view.h"
@@ -495,6 +496,164 @@ void BuildMap(IDirect3DDevice9* device, const gta2::Map& map) {
     Log("hud3d: mini-map built from the level (%d road cells)", roads);
 }
 
+// ---- QB-50: pickup labels and score pops in the world ----------------------------------
+//
+// Over each floating pickup within kLabelFar blocks of the eye, its name ("SHOTGUN",
+// "POWER-UP": which power-up a token's colour is is not mapped) on a small dark pill, fading
+// out with distance. A money gain floats "+$n" up from the player (in first person, a little
+// ahead of the eye) and fades; a weapon picked up (its ammo rising) floats its name up from
+// the pickup he walked over (else from him). The pickups and the projection come from
+// map_objects.cpp, read back from the frame the street views drew. Labels are not tested
+// against walls: one behind a building within the range still shows (kept short for that).
+
+std::string Thousands(long long v);   // below, with the money counter
+
+constexpr float kLabelNear = 0.45f, kLabelFull = 4.0f, kLabelFar = 7.0f, kPopTime = 1.6f;
+
+struct WorldLayer {
+    struct Pop { float x, y, z, t; std::string text; ImU32 col; };
+    std::vector<Pop> pops;
+    int lastMoney = -1, lastWeapon = -1, lastAmmo = -1;
+    uint32_t lastPickupsFrame = 0;
+    struct Recent { float x, y, z; double seen; const char* label; };
+    std::vector<Recent> recent;            // pickups seen near him in the last half second
+    double clock = 0.0, lastLog = 0.0;
+    int moneyPops = 0, weaponPops = 0, labelledPeak = 0, labelFrames = 0;
+};
+WorldLayer g_world;
+int g_noWorldLabels = -1;   // GTA2DX9_PICKUP_LABELS=0 turns the layer off (QA before/after)
+
+// Where a pop starts: the given point, or, when that is within reach of the eye (his own
+// chest in first person), 1.2 blocks ahead of the eye a little below its line.
+void PopAnchor(float* x, float* y, float* z) {
+    float eye[3], dir[3];
+    if (!MapObjectsEye(eye, dir)) return;
+    const float dx = *x - eye[0], dy = *y - eye[1], dz = *z - eye[2];
+    if (dx * dx + dy * dy + dz * dz < 0.8f * 0.8f) {
+        *x = eye[0] + dir[0] * 1.2f;
+        *y = eye[1] + dir[1] * 1.2f - 0.12f;
+        *z = eye[2] + dir[2] * 1.2f;
+    }
+}
+
+void DrawWorldLayer(ImDrawList* dl, const Values& v, float A, float W, float H, float dt) {
+    if (g_noWorldLabels < 0) {
+        const char* e = getenv("GTA2DX9_PICKUP_LABELS");
+        g_noWorldLabels = (e && e[0] == '0') ? 1 : 0;
+        Log("hud3d: pickup labels and world score pops %s (QB-50)", g_noWorldLabels ? "off" : "on");
+    }
+    if (g_noWorldLabels) return;
+    WorldLayer& w = g_world;
+    w.clock += dt;
+    const float u = g_u;
+    // The pickups list is this frame's only when the street views drew since the last HUD frame.
+    const bool fresh = MapObjectPickupsFrame() != w.lastPickupsFrame;
+    w.lastPickupsFrame = MapObjectPickupsFrame();
+    const float px = v.x, pz = static_cast<float>(gta2::kMapHeight) - v.y;
+    const float py = ViewPlayer().z;
+
+    // Pickups near him lately: where a weapon he just got came from.
+    if (fresh) {
+        for (const PickupSpot& p : MapObjectPickups()) {
+            if (std::hypot(p.x - px, p.z - pz) < 1.2f && std::fabs(p.y - py) < 1.0f) {
+                bool known = false;
+                for (WorldLayer::Recent& r : w.recent) {
+                    if (std::fabs(r.x - p.x) < 0.05f && std::fabs(r.z - p.z) < 0.05f) { r.seen = w.clock; r.y = p.y; known = true; }
+                }
+                if (!known) w.recent.push_back({p.x, p.y, p.z, w.clock, p.label});
+            }
+        }
+    }
+    w.recent.erase(std::remove_if(w.recent.begin(), w.recent.end(), [&](const WorldLayer::Recent& r) { return w.clock - r.seen > 0.6; }), w.recent.end());
+
+    // New pops: money gained; a weapon picked up.
+    if (v.money >= 0) {
+        if (w.lastMoney >= 0 && v.money > w.lastMoney) {
+            char text[40];
+            snprintf(text, sizeof text, "+%s", Thousands(v.money - w.lastMoney).c_str());
+            float x = px, y = py + 0.55f, z = pz;
+            PopAnchor(&x, &y, &z);
+            w.pops.push_back({x, y, z, kPopTime, text, kYellow});
+            ++w.moneyPops;
+        }
+        w.lastMoney = v.money;
+    }
+    if (v.weapon > 0 && w.lastWeapon >= 0) {
+        // More ammo for the weapon in hand, or a new weapon in hand just after he passed over
+        // a pickup (a switch with no pickup near is the player choosing, not a pickup).
+        const bool gained = v.weapon == w.lastWeapon ? v.ammo > w.lastAmmo : !w.recent.empty();
+        if (gained) {
+            float x = px, y = py + 0.5f, z = pz;
+            if (!w.recent.empty()) {
+                const WorldLayer::Recent* best = &w.recent[0];
+                for (const WorldLayer::Recent& r : w.recent)
+                    if (std::hypot(r.x - px, r.z - pz) < std::hypot(best->x - px, best->z - pz)) best = &r;
+                x = best->x; y = best->y + 0.15f; z = best->z;
+            }
+            PopAnchor(&x, &y, &z);
+            std::string name = WeaponName(v.weapon);
+            for (char& c : name) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+            w.pops.push_back({x, y, z, kPopTime, name, kGreen});
+            ++w.weaponPops;
+            w.recent.clear();
+        }
+    }
+    if (v.weapon >= 0) { w.lastWeapon = v.weapon; w.lastAmmo = v.ammo; }
+
+    // Labels over the pickups, nearest drawn last (on top).
+    int labelled = 0;
+    if (fresh || w.clock < 0.1) {
+        std::vector<const PickupSpot*> order;
+        for (const PickupSpot& p : MapObjectPickups())
+            if (p.eyeDistance > kLabelNear && p.eyeDistance < kLabelFar) order.push_back(&p);
+        std::sort(order.begin(), order.end(), [](const PickupSpot* a, const PickupSpot* b) { return a->eyeDistance > b->eyeDistance; });
+        for (const PickupSpot* p : order) {
+            float sx, sy;
+            if (!MapObjectsProject(p->x, p->y + 0.22f, p->z, &sx, &sy)) continue;
+            if (sx < -0.05f || sx > 1.05f || sy < -0.05f || sy > 1.05f) continue;
+            const float nearA = (std::min)(1.0f, (p->eyeDistance - kLabelNear) / 0.35f);
+            const float farA = p->eyeDistance < kLabelFull ? 1.0f : 1.0f - (p->eyeDistance - kLabelFull) / (kLabelFar - kLabelFull);
+            const float a = A * (std::max)(0.0f, (std::min)(nearA, farA));
+            if (a < 0.02f) continue;
+            const float px2 = g_fonts.labelPx * (p->eyeDistance < 2.0f ? 1.0f : (std::max)(0.72f, 1.0f - (p->eyeDistance - 2.0f) * 0.06f));
+            const ImVec2 ts = Measure(g_fonts.label, px2, p->label);
+            const ImVec2 at(sx * W - ts.x * 0.5f, sy * H - ts.y);
+            const float padX = 6 * u, padY = 2 * u;
+            dl->AddRectFilled(ImVec2(at.x - padX, at.y - padY), ImVec2(at.x + ts.x + padX, at.y + ts.y + padY), Fade(kGlass, a), 4 * u);
+            dl->AddRectFilled(ImVec2(at.x - padX, at.y + ts.y + padY - 2 * u), ImVec2(at.x + ts.x + padX, at.y + ts.y + padY), Fade(kCyan, a * 0.9f), 1 * u);
+            Text(dl, g_fonts.label, px2, at, kWhite, p->label, a, false);
+            ++labelled;
+        }
+    }
+    if (labelled) ++w.labelFrames;
+    w.labelledPeak = (std::max)(w.labelledPeak, labelled);
+
+    // The pops: rise half a block, hold, fade.
+    for (WorldLayer::Pop& p : w.pops) {
+        const float age = kPopTime - p.t;
+        float sx, sy;
+        if (MapObjectsProject(p.x, p.y + 0.5f * (1.0f - std::exp(-age * 2.5f)), p.z, &sx, &sy)) {
+            const float a = A * (std::min)(1.0f, p.t / 0.5f) * (std::min)(1.0f, age / 0.08f);
+            const float scale = 1.0f + 0.25f * std::exp(-age * 8.0f);   // a little punch on arrival
+            const float fpx = g_fonts.heavyPx * scale;
+            const ImVec2 ts = Measure(g_fonts.heavy, fpx, p.text.c_str());
+            Text(dl, g_fonts.heavy, fpx, ImVec2(sx * W - ts.x * 0.5f, sy * H - ts.y * 0.5f), p.col, p.text.c_str(), a);
+        }
+        p.t -= dt;
+    }
+    w.pops.erase(std::remove_if(w.pops.begin(), w.pops.end(), [](const WorldLayer::Pop& p) { return p.t <= 0.0f; }), w.pops.end());
+
+    if (w.clock - w.lastLog >= 2.0) {
+        w.lastLog = w.clock;
+        float nearest = 99.0f;
+        for (const PickupSpot& p : MapObjectPickups()) nearest = (std::min)(nearest, p.eyeDistance);
+        Log("hud3d: world layer: pickups drawn=%zu (nearest %.2f from the eye) labelled=%d (peak %d, %d frames with a label) pops money=%d weapon=%d live=%zu",
+            MapObjectPickups().size(), nearest, labelled, w.labelledPeak, w.labelFrames, w.moneyPops, w.weaponPops, w.pops.size());
+        w.labelledPeak = 0;
+        w.labelFrames = 0;
+    }
+}
+
 // ---- Animation state ----------------------------------------------------------------------
 
 struct Anim {
@@ -866,6 +1025,8 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
                      p.w->highlight ? kYellow : kWhite, p.w->text.c_str(), BA);
         }
     }
+    // QB-50: under the panels (the background list is drawn first).
+    DrawWorldLayer(ImGui::GetBackgroundDrawList(), v, A, W, H, dt);
 }
 
 }  // namespace
