@@ -92,6 +92,20 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
   `GTA2_SPEED=2` (or 3) and `FPS=0` on `gamerun/grun.sh`; the runners' timing scales automatically
   (see docs/throughput.md "Fast sessions"). Recordings for people stay at `GTA2_SPEED=1`.
 
+## Host capacity (hard rules, after the 8 Nov overload that nearly took the host down)
+
+The host has 8 CPUs and one L4. Load 60+ came from 20 agents each running a game, a build and analysis at once.
+- Game runs: only through `gamerun/slot.sh` (4 slots at 1.5 CPUs; runq refuses to start a run while the 1-minute
+  load is above 12 or while `/tmp/gta2-load-hold` exists). One run at a time per agent. Short runs (set the run
+  length to what the check needs, never a default 10 minutes).
+- Builds: `flock /tmp/gta2-build.lock nice -n 10 make -j4` (never -j8 while other agents work).
+- GPU generation (SDXL, TRELLIS, Remix mod builds): one process at a time, `flock /tmp/gta2-gen.lock`, `taskset -c 0-4`, `nice -n 10`.
+- Heavy host-side work (ffmpeg, PIL batches, pandas): `nice -n 15`, never in parallel with your own game run.
+- The coordinator keeps at most 8 agents concurrent: at most 4 that need game runs, 2 that use the GPU, the rest offline.
+- `cpu_governor.sh` (cron) pauses the newest scripted containers when the load passes 20 and resumes them under 10;
+  a paused run is not a failure, wait for it.
+- Never start a second play container (Remix play on 8082 costs 4 CPUs) unless the owner asks.
+
 ## GitHub issues (progress and plan)
 
 Issues on ronigoldnexar/gta2-rtx-remix-upgraded: tracking issue #1 (pinned: status table, mission
