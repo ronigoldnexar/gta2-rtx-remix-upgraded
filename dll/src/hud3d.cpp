@@ -565,6 +565,9 @@ struct AimHud {
     float spread = 0;                         // 1 just after a shot, decaying
     uint32_t lastShots = 0;
     uintptr_t targetAtShot = 0;
+    // The people highlighted at the shots of the last 0.7 s: a machine gun's hit may come
+    // from any shot of the burst still in the air.
+    std::vector<std::pair<uintptr_t, double>> recentTargets;
     double shotTime = -10.0;
     double clock = 0.0;
     float hitT = 0;                           // the X's remaining time, seconds
@@ -612,7 +615,9 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             const float along = rx * hx + rz * hz;
             if (along < 0.25f || along > reach) continue;
             const float perp = std::fabs(rx * hz - rz * hx);
-            if (perp > 0.22f + 0.035f * along) continue;
+            // The game's bullets were measured landing up to 0.45 block off the line at 4
+            // blocks (run qb6_aim2: the person's own width and the bullet's): the corridor.
+            if (perp > 0.32f + 0.03f * along) continue;
             if (std::fabs(p.y - a.y) > 1.2f) continue;
             if (along >= best) continue;
             if (ViewLineBlocked(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
@@ -632,11 +637,15 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             if (h.target) h.shotsWithTarget += n;
             h.targetAtShot = h.targetObject;
             h.shotTime = h.clock;
+            if (h.target) h.recentTargets.push_back({h.targetObject, h.clock});
             h.spread = 1.0f;
         }
         h.lastShots = a.shots;
     }
     h.spread = (std::max)(0.0f, h.spread - dt / 0.25f);
+    h.recentTargets.erase(std::remove_if(h.recentTargets.begin(), h.recentTargets.end(),
+                                         [&](const std::pair<uintptr_t, double>& t) { return h.clock - t.second > 0.7; }),
+                          h.recentTargets.end());
 
     // Hits, from the people's health words.
     if (fresh) {
@@ -648,14 +657,15 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             if (it == h.seen.end()) continue;
             const AimHud::Seen& was = it->second;
             const bool dropped = was.health > 0 && p.health >= 0 && p.health < was.health;
-            const bool fell = !was.corpse && p.corpse;
-            if (!(dropped || fell) || h.clock - h.shotTime > 1.0) continue;
+            // Only a drop of the health word: a fall alone is a car or a shove, not a bullet.
+            if (!dropped || h.clock - h.shotTime > 1.0) continue;
             const float rx = p.x - ox, rz = p.z - oz;
             const float along = rx * hx + rz * hz;
             const float perp = std::fabs(rx * hz - rz * hx);
             if (along < -0.3f || along > reach + 1.5f || perp > 0.9f + 0.05f * (std::max)(0.0f, along)) continue;
             const bool kill = p.corpse || p.health <= 0;
-            const bool highlighted = h.targetAtShot && p.object == h.targetAtShot;
+            bool highlighted = false;
+            for (const auto& t : h.recentTargets) highlighted = highlighted || t.first == p.object;
             ++h.hits;
             h.hitsHighlighted += highlighted ? 1 : 0;
             h.kills += kill ? 1 : 0;
@@ -711,6 +721,24 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
         h.reticleKnown = false;
     }
 
+    // GTA2DX9_LOG_AIM=1 (scripted probes): three times a second, the nearest person standing
+    // in the open within 8 blocks (game coordinates, for a script to turn the player to him),
+    // the reticle on screen and whether a target is highlighted.
+    static int logAim = -1;
+    if (logAim < 0) { char b[4] = {}; logAim = GetEnvironmentVariableA("GTA2DX9_LOG_AIM", b, sizeof b) && b[0] == '1'; }
+    static uint32_t aimLogFrame = 0;
+    if (logAim && h.show && fresh && ++aimLogFrame % 10 == 0) {
+        float best = 64.0f, nx = 0, nz = 0;
+        for (const AimPed& p : peds) {
+            if (p.corpse || p.health == 0) continue;
+            const float d2 = (p.x - ox) * (p.x - ox) + (p.z - oz) * (p.z - oz);
+            if (d2 >= best || d2 < 0.3f * 0.3f || std::fabs(p.y - a.y) > 1.2f) continue;
+            if (ViewLineBlocked(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
+            best = d2; nx = p.x; nz = p.z;
+        }
+        Log("aim: near %s x=%.2f y=%.2f d=%.2f reticle=%.0f,%.0f target=%d",
+            best < 64.0f ? "ped" : "none", nx, static_cast<float>(gta2::kMapHeight) - nz, std::sqrt(best), h.rx, h.ry, h.target ? 1 : 0);
+    }
     if (h.shots > 0 && h.clock - h.lastLog >= 10.0) {
         h.lastLog = h.clock;
         Log("aim: shots=%d with_target=%d hits=%d on_highlighted=%d (%.0f%%) kills=%d reticle_frames=%d/%d mix=%.2f",
@@ -742,13 +770,13 @@ void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
     const ImVec2 c(h.rx, h.ry);
     const ImU32 col = Fade(h.target ? kRed : kWhite, A);
     // Four ticks round a dot, opened by a shot.
-    const float gap = (6.0f + 9.0f * h.spread) * u, len = 7.0f * u, w = 2.0f * u;
+    const float gap = (6.0f + 10.0f * h.spread) * u, len = 10.0f * u, w = 3.0f * u;
     Line2(dl, ImVec2(c.x - gap - len, c.y), ImVec2(c.x - gap, c.y), col, w);
     Line2(dl, ImVec2(c.x + gap, c.y), ImVec2(c.x + gap + len, c.y), col, w);
     Line2(dl, ImVec2(c.x, c.y - gap - len), ImVec2(c.x, c.y - gap), col, w);
     Line2(dl, ImVec2(c.x, c.y + gap), ImVec2(c.x, c.y + gap + len), col, w);
-    dl->AddCircleFilled(c, 2.6f * u, Fade(kShadow, A * 0.8f));
-    dl->AddCircleFilled(c, 1.6f * u, col);
+    dl->AddCircleFilled(c, 3.4f * u, Fade(kShadow, A * 0.8f));
+    dl->AddCircleFilled(c, 2.2f * u, col);
     // The target bracketed.
     if (h.target && h.bracketHalf > 0.0f) {
         float sx, sy;
@@ -759,15 +787,15 @@ void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
             for (int sxn = -1; sxn <= 1; sxn += 2)
                 for (int syn = -1; syn <= 1; syn += 2) {
                     const ImVec2 corner(m.x + sxn * bw, m.y + syn * bh);
-                    Line2(dl, corner, ImVec2(corner.x - sxn * k, corner.y), bc, 2.0f * u);
-                    Line2(dl, corner, ImVec2(corner.x, corner.y - syn * k), bc, 2.0f * u);
+                    Line2(dl, corner, ImVec2(corner.x - sxn * k, corner.y), bc, 2.5f * u);
+                    Line2(dl, corner, ImVec2(corner.x, corner.y - syn * k), bc, 2.5f * u);
                 }
         }
     }
     // The hit marker: an X round the reticle.
     if (h.hitT > 0.0f) {
         const float t = h.hitT / (h.hitKill ? 0.45f : 0.25f);
-        const float r0 = (h.hitKill ? 8.0f : 6.0f) * u, r1 = r0 + (h.hitKill ? 12.0f : 8.0f) * u;
+        const float r0 = (h.hitKill ? 9.0f : 7.0f) * u, r1 = r0 + (h.hitKill ? 14.0f : 10.0f) * u;
         const ImU32 hc = Fade(h.hitKill ? kRed : kWhite, alpha * (std::min)(1.0f, t * 2.0f));
         const float wv = (h.hitKill ? 3.0f : 2.5f) * u;
         for (int sxn = -1; sxn <= 1; sxn += 2)

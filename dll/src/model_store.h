@@ -126,6 +126,11 @@ void ModelSetPaintTint(const float* rgb);
 // turned off the walk. Quantise it (it keys the pose cache).
 void ModelSetTorsoTwist(float radians);
 float ModelTorsoTwist();
+// CROWD: a turn of the head about the model's up axis, radians, shared 40/60
+// between "Bip01 Neck" and "Bip01 Head" (a glance, a look at the player); on
+// top of the clip and the torso twist, until set back to 0. Quantise it (it
+// keys the pose cache).
+void ModelSetHeadTurn(float radians);
 // A third clip over the two that ModelDraw / ModelDrawBlend / ModelNodeWorld blend:
 // sampled over a copy of their pose (a joint it has no channel for keeps theirs, so
 // an upper-body layer leaves the legs to the pair) and blended in by `weight`

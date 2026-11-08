@@ -627,6 +627,12 @@ private:
         float runWeight = 0.0f;             // 0 walking .. 1 running, eased
         int idleVariant = 0;                // which idle clip he has
         float idleOffset = 0.0f, idleRate = 1.0f;
+        // CROWD: where his head is turned (radians off his torso, eased), the
+        // glance he is holding (its turn and the frame it ends) and the frame of
+        // the next one; whether he is looking at the player now (for the log).
+        float headYaw = 0.0f, glanceYaw = 0.0f;
+        uint32_t glanceUntil = 0, nextGlance = 0;
+        bool lookingAtPlayer = false;
         // The game's other states, as one action clip layered over the walk/idle:
         // 0 none, 1 punch, 2 aim, 3 hands up, 4 fall (held lying), 5 getting into a
         // car, 6 getting out, 7 a stagger. See PedActionFor in DrawPedFigures.

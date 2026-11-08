@@ -14,6 +14,8 @@
 #include <vector>
 
 #include "../../src/gta2_map.h"
+#include <windows.h>
+#include <mmsystem.h>   // QB-29: the reload clicks (waveOut)
 #include "../../src/renderer.h"
 #include "cache_warmup.h"
 #include "car_bodies.h"
@@ -30,7 +32,6 @@
 #include "model_store.h"
 #include "map_objects.h"
 #include "explosion_fx.h"
-#include <mmsystem.h>   // QB-29: the reload clicks (waveOut)
 
 namespace gta2dx9 {
 namespace {
@@ -6315,8 +6316,8 @@ int CarryFor(int weapon) {
 struct ReloadInfo { int mag; int action; float len, dropT, grabT, insertT, rackT; };
 const ReloadInfo kReloads[kWpnCount] = {
     {0, 0, 0, 0, 0, 0, 0},                                // none
-    {12, 24, 1.40f, 0.30f, 0.55f, 0.80f, 0.98f},          // pistol
-    {24, 24, 1.40f, 0.30f, 0.55f, 0.80f, 0.98f},          // dual pistols
+    {6, 24, 1.40f, 0.30f, 0.55f, 0.80f, 0.98f},           // pistol (a pickup is 10 shots)
+    {12, 24, 1.40f, 0.30f, 0.55f, 0.80f, 0.98f},          // dual pistols
     {30, 25, 1.55f, 0.35f, 0.65f, 0.95f, 1.12f},          // silenced machine gun
     {30, 25, 1.55f, 0.35f, 0.65f, 0.95f, 1.12f},          // machine gun
     {1, 26, 1.20f, -1.0f, 0.40f, 0.85f, -1.0f},           // rocket launcher: a rocket in, nothing out
@@ -6703,7 +6704,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         if (shot) { ++rlShots; rlLastShot = g_carFrame; }
         else if (rlAmmo >= 0 && g_playerAmmo > rlAmmo && rlShots > 0) rlShots = ri.mag;   // a pickup
         rlAmmo = g_playerAmmo;
-        if (shot || g_fpShotFrame == g_carFrame) {
+        if (shot) {   // not a fresh effect ahead: the last bullets still fly after the trigger is let go
             rlStart = 0;
         } else if (!rlStart && rlShots >= ri.mag && g_carFrame - rlLastShot >= 9) {
             rlStart = GetTickCount() | 1u;
