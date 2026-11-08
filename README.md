@@ -111,9 +111,18 @@ It needs [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) on the PATH. The switch i
 
 ## What you get
 
-- Third person and first person views, cycled with one key (see above)
-- Hand-made HD cars with full PBR maps and real glass (top-down); a 3D period model per vehicle type on the ground
+- Third person and first person views, cycled with one key (see above), with a modern orbit camera
+  and camera-relative controls on foot (`nav_map`, `turn_speed` on the Camera tab)
+- Hand-made HD cars with full PBR maps and real glass (top-down); a 3D period model per vehicle type on the ground,
+  with swinging doors, dents from the game's own damage value, fire, burnt-out wrecks, siren beacons, a turning
+  tank turret and fire-truck cannon, and trains on the elevated line
 - 512 px HD tiles for every district, a sky with sun and clouds, realistic pedestrians and objects in the ground views
+- People act out what the game does: weapons in hand with aim stances, recoil and muzzle flash (the game's own
+  weapon read from memory), first-person weapon models, falls, burning, lying clips by cause of death; police,
+  SWAT, FBI and the army in uniform; arrests with hands up and cuffs
+- Street props in 3D: phone booths, traffic lights, weapon pickups, tokens, parking meters
+- RTX Remix PBR material layer for the HD tiles and the 3D cars (`remix_mod_gta2hd.zip` on the release page),
+  path traced on an RTX GPU, also under Wine on Linux
 - Doors and dents drawn on the HD cars, wheels, roof domes and gang roof logos
 - Taxi, police and emergency lights; blood puddles on the road
 - Radio stays in stereo at any distance (the original distance effect is a menu option)

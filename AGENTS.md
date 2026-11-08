@@ -28,11 +28,31 @@ docker run --rm --cpus=8 -v $PWD/../gamerun:/work -v $PWD/../game:/game:ro \
   -v $PWD/../remix-runtime/x86:/remix:ro -v $PWD/../out/run1:/out -w /work \
   gta2-remixbox bash /work/run_game.sh win32 240 0 /work/keys_demo_fp2.sh
 # GPU: image gta2-gpugl (Dockerfile.gpu-gl), --gpus, run_game_gpu.sh
-# QA scenarios: gamerun/qa_run.sh <wall|backforth|fight|crash|death|long> <seconds>
+# QA scenarios: [STAGE=<dir>] gamerun/qa_run.sh <name> <seconds> [wall|backforth|fight|crash|respawn4|long]
+# City sweep:   [STAGE=<dir>] gamerun/sweep_queue.sh wil:0/5 ... ; tools/sweep_detect.py
 ```
 
 Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
 `frame times`), `shot_*.png`, `game.mp4`.
+
+## Rules from round 2 (multi-agent host; details in docs/HANDOVER.md section 0)
+
+- Never put a shell variable in an `rm` command typed into the agent shell (`rm -rf "$X"`):
+  the harness safety check hangs the call forever. Use literal absolute paths or Python.
+- Restage the shared `stage/` only with `linux/docker/restage.sh` (waits for the build lock
+  and all four game slots). Test from a private copy: `cp -al repo/stage ~/gta2-linux/stage_<you>`,
+  then `STAGE=<dir>` on `grun.sh` / `qa_run.sh` / `sweep_run.sh`.
+- Game runs under `nohup` through `gamerun/grun.sh` / `slot.sh` / `runq.sh` (slots 1-4,
+  containers on CPUs 0-4). Never stop the user's play container `gta2-play-<port>` (CPUs 5-7).
+- `GTA2_DIRECT_KEYS=1` (nav_map=0 for the run) for any scripted play in third/first person;
+  the shipped `nav_map=1` makes the arrows camera-relative and breaks scripted turns.
+- Bash poll loops under 8 minutes.
+- Release archives: `python3 tools/pack_release.py <out> [linux people cars textures remix]`;
+  layouts in HANDOVER section 0. Cars and avatars never go into git; code-object models do.
+- QA probes: `[devtools] force_wanted=N` (police 1-6 stars), `force_sirens=1`,
+  `GTA2DX9_SCENE_NO_CAR=1` (warp to the point, not to a car), `GTA2DX9_LOG_VEHICLES=1`
+  (vehicle list for finding an ambulance, a cop car, the train), `GTA2DX9_LOG_PED_FRAMES=1`
+  (`npc shot` lines). `linux/docker/qa3_probe.py` frames the ambulance and police gunfire.
 
 ## Conventions
 

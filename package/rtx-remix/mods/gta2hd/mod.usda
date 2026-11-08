@@ -61254,48 +61254,6 @@ over "RootNode"
             }
         }
 
-        over "mat_D78F464395B5D528"
-        {
-            over "Shader"
-            {
-                uniform token info:implementationSource = "sourceAsset"
-                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
-                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/D78F464395B5D528.a.rtex.dds@ (
-                    colorSpace = "sRGB"
-                )
-                custom asset inputs:metallic_texture = @./textures/D78F464395B5D528.m.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/D78F464395B5D528.r.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom bool inputs:use_legacy_alpha_state = 0
-                token outputs:out
-            }
-        }
-
-        over "mat_CAE53B455814345C"
-        {
-            over "Shader"
-            {
-                uniform token info:implementationSource = "sourceAsset"
-                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
-                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/CAE53B455814345C.a.rtex.dds@ (
-                    colorSpace = "sRGB"
-                )
-                custom asset inputs:metallic_texture = @./textures/CAE53B455814345C.m.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/CAE53B455814345C.r.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom bool inputs:use_legacy_alpha_state = 0
-                token outputs:out
-            }
-        }
-
         over "mat_E81A9CBFFA84E102"
         {
             over "Shader"
@@ -61331,48 +61289,6 @@ over "RootNode"
                     colorSpace = "raw"
                 )
                 custom asset inputs:reflectionroughness_texture = @./textures/A53FE0633F0D8B81.r.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom bool inputs:use_legacy_alpha_state = 0
-                token outputs:out
-            }
-        }
-
-        over "mat_24999A4681D7AA21"
-        {
-            over "Shader"
-            {
-                uniform token info:implementationSource = "sourceAsset"
-                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
-                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/24999A4681D7AA21.a.rtex.dds@ (
-                    colorSpace = "sRGB"
-                )
-                custom asset inputs:metallic_texture = @./textures/24999A4681D7AA21.m.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/24999A4681D7AA21.r.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom bool inputs:use_legacy_alpha_state = 0
-                token outputs:out
-            }
-        }
-
-        over "mat_ADB5FE031C5B3BF0"
-        {
-            over "Shader"
-            {
-                uniform token info:implementationSource = "sourceAsset"
-                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
-                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/ADB5FE031C5B3BF0.a.rtex.dds@ (
-                    colorSpace = "sRGB"
-                )
-                custom asset inputs:metallic_texture = @./textures/ADB5FE031C5B3BF0.m.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/ADB5FE031C5B3BF0.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -61457,6 +61373,918 @@ over "RootNode"
                     colorSpace = "raw"
                 )
                 custom asset inputs:reflectionroughness_texture = @./textures/F59033AC61E06522.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_DEFA2BDFEE6BD41E"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/DEFA2BDFEE6BD41E.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/DEFA2BDFEE6BD41E.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/DEFA2BDFEE6BD41E.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_D67C5EE78CC9591F"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/D67C5EE78CC9591F.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/D67C5EE78CC9591F.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/D67C5EE78CC9591F.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_97E224F72A9F9E92"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/97E224F72A9F9E92.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/97E224F72A9F9E92.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/97E224F72A9F9E92.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_14019D3F3D4EA82E"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/14019D3F3D4EA82E.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/14019D3F3D4EA82E.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/14019D3F3D4EA82E.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_0F9BD3A067CE42C2"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/0F9BD3A067CE42C2.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/0F9BD3A067CE42C2.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/0F9BD3A067CE42C2.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_AA4A5527F5E237F4"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/AA4A5527F5E237F4.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/AA4A5527F5E237F4.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/AA4A5527F5E237F4.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_5759AB8F41CAD9E5"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/5759AB8F41CAD9E5.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/5759AB8F41CAD9E5.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/5759AB8F41CAD9E5.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:emissive_mask_texture = @./textures/5759AB8F41CAD9E5.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_96C39C71AB93AD43"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/96C39C71AB93AD43.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/96C39C71AB93AD43.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/96C39C71AB93AD43.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:emissive_mask_texture = @./textures/96C39C71AB93AD43.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_7D316AA82BCA9199"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/7D316AA82BCA9199.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/7D316AA82BCA9199.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/7D316AA82BCA9199.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:emissive_mask_texture = @./textures/7D316AA82BCA9199.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_C99B32339DD05A37"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/C99B32339DD05A37.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/C99B32339DD05A37.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/C99B32339DD05A37.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:emissive_mask_texture = @./textures/C99B32339DD05A37.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_2DA3E199C6824166"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/2DA3E199C6824166.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/2DA3E199C6824166.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/2DA3E199C6824166.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_51939C4C9C71B381"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/51939C4C9C71B381.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/51939C4C9C71B381.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/51939C4C9C71B381.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_498C5B231DB2F0B1"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/498C5B231DB2F0B1.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/498C5B231DB2F0B1.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/498C5B231DB2F0B1.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_C7C40C484356318B"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/C7C40C484356318B.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/C7C40C484356318B.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/C7C40C484356318B.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_6CCF180EE21B003C"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/6CCF180EE21B003C.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/6CCF180EE21B003C.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/6CCF180EE21B003C.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_53ED709373F991BE"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/53ED709373F991BE.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/53ED709373F991BE.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/53ED709373F991BE.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_75B49E05D9D63224"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/75B49E05D9D63224.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/75B49E05D9D63224.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/75B49E05D9D63224.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_BF54131A3D97F837"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/BF54131A3D97F837.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/BF54131A3D97F837.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/BF54131A3D97F837.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_5302BDB5C04D0FBB"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/5302BDB5C04D0FBB.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/5302BDB5C04D0FBB.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/5302BDB5C04D0FBB.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_C9A745D1B61A680B"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/C9A745D1B61A680B.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/C9A745D1B61A680B.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/C9A745D1B61A680B.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_A4B852F481D09712"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/A4B852F481D09712.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/A4B852F481D09712.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/A4B852F481D09712.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_0529E63D00A5335B"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/0529E63D00A5335B.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/0529E63D00A5335B.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/0529E63D00A5335B.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_802B24B64FB354BD"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/802B24B64FB354BD.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/802B24B64FB354BD.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/802B24B64FB354BD.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_401E7193A3D3A7D0"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/401E7193A3D3A7D0.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/401E7193A3D3A7D0.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/401E7193A3D3A7D0.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_2B4F06172E971A4A"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/2B4F06172E971A4A.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/2B4F06172E971A4A.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/2B4F06172E971A4A.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_AD850D493526B1FE"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/AD850D493526B1FE.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/AD850D493526B1FE.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/AD850D493526B1FE.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_94918BAC8D384072"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/94918BAC8D384072.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/94918BAC8D384072.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/94918BAC8D384072.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_AD8B8871AFED23EE"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/AD8B8871AFED23EE.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/AD8B8871AFED23EE.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/AD8B8871AFED23EE.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_81EA8F4168C50284"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/81EA8F4168C50284.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/81EA8F4168C50284.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/81EA8F4168C50284.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_FBBA31CABFB88DA0"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/FBBA31CABFB88DA0.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/FBBA31CABFB88DA0.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/FBBA31CABFB88DA0.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_7B2AF1DB4FD81C67"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/7B2AF1DB4FD81C67.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/7B2AF1DB4FD81C67.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/7B2AF1DB4FD81C67.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_FA6DA50F6FC442B6"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/FA6DA50F6FC442B6.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/FA6DA50F6FC442B6.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/FA6DA50F6FC442B6.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_D78F464395B5D528"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/D78F464395B5D528.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/D78F464395B5D528.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/D78F464395B5D528.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_CAE53B455814345C"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/CAE53B455814345C.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/CAE53B455814345C.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/CAE53B455814345C.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_5FC82500017A5B4C"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/5FC82500017A5B4C.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/5FC82500017A5B4C.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/5FC82500017A5B4C.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_9A797E04517A3EC7"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/9A797E04517A3EC7.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/9A797E04517A3EC7.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/9A797E04517A3EC7.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_24999A4681D7AA21"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/24999A4681D7AA21.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/24999A4681D7AA21.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/24999A4681D7AA21.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_ADB5FE031C5B3BF0"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/ADB5FE031C5B3BF0.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/ADB5FE031C5B3BF0.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/ADB5FE031C5B3BF0.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_45AAF12287D0CA62"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/45AAF12287D0CA62.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/45AAF12287D0CA62.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/45AAF12287D0CA62.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:emissive_mask_texture = @./textures/45AAF12287D0CA62.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_A03B966EC6497F87"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/A03B966EC6497F87.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/A03B966EC6497F87.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/A03B966EC6497F87.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:emissive_mask_texture = @./textures/A03B966EC6497F87.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_3E166D1B6692AE44"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/3E166D1B6692AE44.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/3E166D1B6692AE44.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/3E166D1B6692AE44.r.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+
+        over "mat_E0C0A2C306CA0819"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/E0C0A2C306CA0819.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:metallic_texture = @./textures/E0C0A2C306CA0819.m.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom asset inputs:reflectionroughness_texture = @./textures/E0C0A2C306CA0819.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -61721,43 +62549,53 @@ over "RootNode"
             }
         }
 
-        over "mat_DEFA2BDFEE6BD41E"
+        over "mat_0DB00E66D71E9314"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/DEFA2BDFEE6BD41E.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/0DB00E66D71E9314.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/DEFA2BDFEE6BD41E.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/0DB00E66D71E9314.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/DEFA2BDFEE6BD41E.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/0DB00E66D71E9314.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
+                custom asset inputs:emissive_mask_texture = @./textures/0DB00E66D71E9314.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
                 custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
 
-        over "mat_D67C5EE78CC9591F"
+        over "mat_AAA0C84C32908285"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/D67C5EE78CC9591F.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/AAA0C84C32908285.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/D67C5EE78CC9591F.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/AAA0C84C32908285.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/D67C5EE78CC9591F.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/AAA0C84C32908285.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
+                custom asset inputs:emissive_mask_texture = @./textures/AAA0C84C32908285.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
                 custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
@@ -61941,20 +62779,20 @@ over "RootNode"
             }
         }
 
-        over "mat_97E224F72A9F9E92"
+        over "mat_AB65CE483A72AE57"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/97E224F72A9F9E92.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/AB65CE483A72AE57.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/97E224F72A9F9E92.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/AB65CE483A72AE57.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/97E224F72A9F9E92.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/AB65CE483A72AE57.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -61962,20 +62800,20 @@ over "RootNode"
             }
         }
 
-        over "mat_14019D3F3D4EA82E"
+        over "mat_974E19CD704BAA91"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/14019D3F3D4EA82E.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/974E19CD704BAA91.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/14019D3F3D4EA82E.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/974E19CD704BAA91.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/14019D3F3D4EA82E.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/974E19CD704BAA91.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -62203,20 +63041,20 @@ over "RootNode"
             }
         }
 
-        over "mat_0F9BD3A067CE42C2"
+        over "mat_8B80B936EBAF7EBD"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/0F9BD3A067CE42C2.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/8B80B936EBAF7EBD.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/0F9BD3A067CE42C2.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/8B80B936EBAF7EBD.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/0F9BD3A067CE42C2.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/8B80B936EBAF7EBD.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -62224,20 +63062,20 @@ over "RootNode"
             }
         }
 
-        over "mat_AA4A5527F5E237F4"
+        over "mat_5EBC0CA665353BB3"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/AA4A5527F5E237F4.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/5EBC0CA665353BB3.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/AA4A5527F5E237F4.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/5EBC0CA665353BB3.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/AA4A5527F5E237F4.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/5EBC0CA665353BB3.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -62245,23 +63083,23 @@ over "RootNode"
             }
         }
 
-        over "mat_5759AB8F41CAD9E5"
+        over "mat_4740A3B5053F0AA9"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/5759AB8F41CAD9E5.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/4740A3B5053F0AA9.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/5759AB8F41CAD9E5.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/4740A3B5053F0AA9.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/5759AB8F41CAD9E5.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/4740A3B5053F0AA9.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:emissive_mask_texture = @./textures/5759AB8F41CAD9E5.e.rtex.dds@ (
+                custom asset inputs:emissive_mask_texture = @./textures/4740A3B5053F0AA9.e.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
                 custom bool inputs:enable_emission = 1
@@ -62271,23 +63109,23 @@ over "RootNode"
             }
         }
 
-        over "mat_96C39C71AB93AD43"
+        over "mat_A8AA45D3D6BCB399"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/96C39C71AB93AD43.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/A8AA45D3D6BCB399.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/96C39C71AB93AD43.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/A8AA45D3D6BCB399.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/96C39C71AB93AD43.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/A8AA45D3D6BCB399.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:emissive_mask_texture = @./textures/96C39C71AB93AD43.e.rtex.dds@ (
+                custom asset inputs:emissive_mask_texture = @./textures/A8AA45D3D6BCB399.e.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
                 custom bool inputs:enable_emission = 1
@@ -62297,53 +63135,43 @@ over "RootNode"
             }
         }
 
-        over "mat_7D316AA82BCA9199"
+        over "mat_3AB1A69175073963"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/7D316AA82BCA9199.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/3AB1A69175073963.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/7D316AA82BCA9199.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/3AB1A69175073963.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/7D316AA82BCA9199.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/3AB1A69175073963.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:emissive_mask_texture = @./textures/7D316AA82BCA9199.e.rtex.dds@ (
-                    colorSpace = "sRGB"
-                )
-                custom bool inputs:enable_emission = 1
-                custom float inputs:emissive_intensity = 6.0
                 custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
 
-        over "mat_C99B32339DD05A37"
+        over "mat_FC8A34422FFC0A6F"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/C99B32339DD05A37.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/FC8A34422FFC0A6F.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/C99B32339DD05A37.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/FC8A34422FFC0A6F.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/C99B32339DD05A37.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/FC8A34422FFC0A6F.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:emissive_mask_texture = @./textures/C99B32339DD05A37.e.rtex.dds@ (
-                    colorSpace = "sRGB"
-                )
-                custom bool inputs:enable_emission = 1
-                custom float inputs:emissive_intensity = 6.0
                 custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
@@ -62489,20 +63317,20 @@ over "RootNode"
             }
         }
 
-        over "mat_2DA3E199C6824166"
+        over "mat_6AC6087D9396980D"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/2DA3E199C6824166.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/6AC6087D9396980D.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/2DA3E199C6824166.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/6AC6087D9396980D.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/2DA3E199C6824166.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/6AC6087D9396980D.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -62510,20 +63338,20 @@ over "RootNode"
             }
         }
 
-        over "mat_51939C4C9C71B381"
+        over "mat_7D4B2AEB14B908A9"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/51939C4C9C71B381.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/7D4B2AEB14B908A9.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/51939C4C9C71B381.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/7D4B2AEB14B908A9.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/51939C4C9C71B381.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/7D4B2AEB14B908A9.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -62657,20 +63485,20 @@ over "RootNode"
             }
         }
 
-        over "mat_498C5B231DB2F0B1"
+        over "mat_8967C1B8F2253722"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/498C5B231DB2F0B1.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/8967C1B8F2253722.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/498C5B231DB2F0B1.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/8967C1B8F2253722.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/498C5B231DB2F0B1.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/8967C1B8F2253722.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -62678,20 +63506,20 @@ over "RootNode"
             }
         }
 
-        over "mat_C7C40C484356318B"
+        over "mat_D0B4F4E92BA2F2CB"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/C7C40C484356318B.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/D0B4F4E92BA2F2CB.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/C7C40C484356318B.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/D0B4F4E92BA2F2CB.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/C7C40C484356318B.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/D0B4F4E92BA2F2CB.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63013,20 +63841,20 @@ over "RootNode"
             }
         }
 
-        over "mat_6CCF180EE21B003C"
+        over "mat_CF26DC4A00350F2B"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/6CCF180EE21B003C.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/CF26DC4A00350F2B.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/6CCF180EE21B003C.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/CF26DC4A00350F2B.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/6CCF180EE21B003C.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/CF26DC4A00350F2B.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63034,20 +63862,20 @@ over "RootNode"
             }
         }
 
-        over "mat_53ED709373F991BE"
+        over "mat_5B30212B98701377"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/53ED709373F991BE.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/5B30212B98701377.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/53ED709373F991BE.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/5B30212B98701377.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/53ED709373F991BE.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/5B30212B98701377.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63055,20 +63883,20 @@ over "RootNode"
             }
         }
 
-        over "mat_75B49E05D9D63224"
+        over "mat_CBB68CC733C3F394"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/75B49E05D9D63224.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/CBB68CC733C3F394.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/75B49E05D9D63224.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/CBB68CC733C3F394.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/75B49E05D9D63224.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/CBB68CC733C3F394.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63076,20 +63904,20 @@ over "RootNode"
             }
         }
 
-        over "mat_BF54131A3D97F837"
+        over "mat_40B2B1E0936BB671"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/BF54131A3D97F837.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/40B2B1E0936BB671.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/BF54131A3D97F837.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/40B2B1E0936BB671.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/BF54131A3D97F837.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/40B2B1E0936BB671.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63097,20 +63925,20 @@ over "RootNode"
             }
         }
 
-        over "mat_5302BDB5C04D0FBB"
+        over "mat_7F1A88616D6D803F"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/5302BDB5C04D0FBB.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/7F1A88616D6D803F.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/5302BDB5C04D0FBB.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/7F1A88616D6D803F.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/5302BDB5C04D0FBB.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/7F1A88616D6D803F.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63118,20 +63946,20 @@ over "RootNode"
             }
         }
 
-        over "mat_C9A745D1B61A680B"
+        over "mat_5E845196639CBCBA"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/C9A745D1B61A680B.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/5E845196639CBCBA.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/C9A745D1B61A680B.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/5E845196639CBCBA.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/C9A745D1B61A680B.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/5E845196639CBCBA.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63139,20 +63967,20 @@ over "RootNode"
             }
         }
 
-        over "mat_A4B852F481D09712"
+        over "mat_8499E7B3FB5574F7"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/A4B852F481D09712.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/8499E7B3FB5574F7.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/A4B852F481D09712.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/8499E7B3FB5574F7.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/A4B852F481D09712.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/8499E7B3FB5574F7.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63160,20 +63988,20 @@ over "RootNode"
             }
         }
 
-        over "mat_0529E63D00A5335B"
+        over "mat_33BEF030F77AFD8B"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/0529E63D00A5335B.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/33BEF030F77AFD8B.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/0529E63D00A5335B.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/33BEF030F77AFD8B.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/0529E63D00A5335B.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/33BEF030F77AFD8B.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63223,20 +64051,20 @@ over "RootNode"
             }
         }
 
-        over "mat_802B24B64FB354BD"
+        over "mat_DE65536A60F98159"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/802B24B64FB354BD.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/DE65536A60F98159.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/802B24B64FB354BD.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/DE65536A60F98159.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/802B24B64FB354BD.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/DE65536A60F98159.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63244,20 +64072,20 @@ over "RootNode"
             }
         }
 
-        over "mat_401E7193A3D3A7D0"
+        over "mat_4913F54F115797EC"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/401E7193A3D3A7D0.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/4913F54F115797EC.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/401E7193A3D3A7D0.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/4913F54F115797EC.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/401E7193A3D3A7D0.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/4913F54F115797EC.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63443,20 +64271,20 @@ over "RootNode"
             }
         }
 
-        over "mat_2B4F06172E971A4A"
+        over "mat_DB8ED06A864602CC"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/2B4F06172E971A4A.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/DB8ED06A864602CC.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/2B4F06172E971A4A.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/DB8ED06A864602CC.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/2B4F06172E971A4A.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/DB8ED06A864602CC.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63464,20 +64292,20 @@ over "RootNode"
             }
         }
 
-        over "mat_AD850D493526B1FE"
+        over "mat_A89C7D27F26F2C89"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/AD850D493526B1FE.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/A89C7D27F26F2C89.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/AD850D493526B1FE.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/A89C7D27F26F2C89.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/AD850D493526B1FE.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/A89C7D27F26F2C89.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -63537,43 +64365,53 @@ over "RootNode"
             }
         }
 
-        over "mat_94918BAC8D384072"
+        over "mat_5691A7DC42E2AF31"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/94918BAC8D384072.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/5691A7DC42E2AF31.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/94918BAC8D384072.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/5691A7DC42E2AF31.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/94918BAC8D384072.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/5691A7DC42E2AF31.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
+                custom asset inputs:emissive_mask_texture = @./textures/5691A7DC42E2AF31.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
                 custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
 
-        over "mat_AD8B8871AFED23EE"
+        over "mat_91102E9A026531B5"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/AD8B8871AFED23EE.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/91102E9A026531B5.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/AD8B8871AFED23EE.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/91102E9A026531B5.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/AD8B8871AFED23EE.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/91102E9A026531B5.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
+                custom asset inputs:emissive_mask_texture = @./textures/91102E9A026531B5.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 6.0
                 custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
@@ -64495,20 +65333,20 @@ over "RootNode"
             }
         }
 
-        over "mat_81EA8F4168C50284"
+        over "mat_AC6349CE65E0845F"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/81EA8F4168C50284.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/AC6349CE65E0845F.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/81EA8F4168C50284.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/AC6349CE65E0845F.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/81EA8F4168C50284.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/AC6349CE65E0845F.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -64516,20 +65354,20 @@ over "RootNode"
             }
         }
 
-        over "mat_FBBA31CABFB88DA0"
+        over "mat_59CCC78631C5A268"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/FBBA31CABFB88DA0.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/59CCC78631C5A268.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/FBBA31CABFB88DA0.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/59CCC78631C5A268.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/FBBA31CABFB88DA0.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/59CCC78631C5A268.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -65269,20 +66107,20 @@ over "RootNode"
             }
         }
 
-        over "mat_7B2AF1DB4FD81C67"
+        over "mat_0D79DDF0FA116C74"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/7B2AF1DB4FD81C67.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/0D79DDF0FA116C74.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/7B2AF1DB4FD81C67.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/0D79DDF0FA116C74.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/7B2AF1DB4FD81C67.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/0D79DDF0FA116C74.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0
@@ -65290,20 +66128,20 @@ over "RootNode"
             }
         }
 
-        over "mat_FA6DA50F6FC442B6"
+        over "mat_B4A1628477E7F6C3"
         {
             over "Shader"
             {
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
-                custom asset inputs:diffuse_texture = @./textures/FA6DA50F6FC442B6.a.rtex.dds@ (
+                custom asset inputs:diffuse_texture = @./textures/B4A1628477E7F6C3.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:metallic_texture = @./textures/FA6DA50F6FC442B6.m.rtex.dds@ (
+                custom asset inputs:metallic_texture = @./textures/B4A1628477E7F6C3.m.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/FA6DA50F6FC442B6.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/B4A1628477E7F6C3.r.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom bool inputs:use_legacy_alpha_state = 0

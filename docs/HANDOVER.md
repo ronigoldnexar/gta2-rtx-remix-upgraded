@@ -2,7 +2,84 @@
 
 For a person or an agent picking this up on another machine, Windows or Linux.
 Read this, then `AGENTS.md` (the short version), then the per-topic documents it
-points at. Everything here was true on 6 Nov 2026 at commit `3eebc50` or later.
+points at. Sections 1-9 were written on 6 Nov 2026 (commit `3eebc50`, release
+`v1.4-ground-views`); section 0 lists what changed in round 2 (6-8 Nov, release
+`v1.5-3d-round2`) and overrides anything older below it.
+
+## 0. Round 2 (6-8 Nov 2026): what changed since v1.4
+
+Everything below is in branch `camera-modes` and was seen in the running game on the
+L4 host unless it says otherwise; the per-topic documents have the evidence.
+
+| Area | What changed | Document |
+|---|---|---|
+| RTX Remix | **Path tracing runs** on an RTX-class GPU (NVIDIA L4, Wine 10 patched, `Dockerfile.remix-gpu*`, `gamerun/remix_l4.sh`); the PBR layer `package/rtx-remix/mods/gta2hd` is keyed by the HD tiles' top-mip hash (verified by a colour probe); car paint as clear-coat with metal trim, lit lamps, night/day presets in `package/rtx.conf`; liveries keep their colours (no paint tint on livery models), clean hood from the driver's seat, night plaza no longer floodlit (REMIX-3). Clock moved in-session by a devtools key. Only `mod.usda` is in git; the DDS ship as `remix_mod_gta2hd.zip` | `docs/remix-gpu-l4.md`, `docs/remix-materials.md` |
+| Weapons | The game's weapon is read: `ped+0x170` weapon object (type `+0x1C`, ammo `+0`, reload `+2`), inventory `ped+0x15C` (+0x718 pointers, selected slot int16 +0x788). Per-weapon aim stances with recoil, weapons in hand, muzzle glow, shell cases, first-person view model per weapon | `docs/actions-3d.md` (Weapon field) |
+| Vehicles | Car object fields: damage int16 `+0x74` (16000 alight, 25000 hard, 31500 lamps out, 32000 explodes; a burning car gains 1 a frame), stage byte `+0x8C`; `view: mission` logs `cardmg= carhp= carfire=` and the target car's; doors swing, dents from the 16-bit damage (built on a worker thread), burnt wrecks 72-81, tank turret and fire-truck cannon follow the game's turret sprite, siren beacons (cop car, SWAT van, ambulance, fire truck), trains at track height | `docs/actions-3d.md` (Vehicle fields, Police and special vehicles) |
+| Actions | Stance/carry keyed off the game's weapon, upper-body layers, burning, falls, lying clips by cause of death, get-up, drowning; every remap ped type as a textured avatar (army green, medics, police kit fixed: Rocketbox `*_color_acu.tga` were never fetched); SWAT/FBI/Zaibatsu sprite sets mapped by body | `docs/actions-3d.md` |
+| Police | Wanted level from the ped's cop points (int16 `ped+0x20A`); `[devtools] force_wanted=N` holds a star level for QA; the arrest acted out (hands up, cuffed, walked to the cop car); police shoot at 4 stars, FBI at 5, army with tanks at 6 | `docs/actions-3d.md` (Police) |
+| Navigation | Orbit chase camera with capped turn rates (`turn_speed`), camera-relative controls on foot (`nav_map=1`, a DirectInput8 patch; buffered events renumbered so injected keys never drop real ones), eased figure heading; chase framing from the vehicle's body, driver's eye from the model's cab | `docs/navigation.md` |
+| Cars | Rounds 4-6 (CAR-QUALITY-4..6): photographic concepts per model with era briefs, bilateral delighting, roof/flank balance, sprite on the roof only, nose check; a nine-term scorer (`tools/score_car_model.py`: surface-sampled roof line per body type, a smear term) re-scored 517 candidates; **all 60 image-to-3D models are now regenerated (no v1 left)**, 13 parametric bodies unchanged; still modern-looking: 083 Furore GT, 047/048 Meteor. **TRELLIS on the L4 needs the CUDA extensions rebuilt for sm_89** (`TORCH_CUDA_ARCH_LIST=8.9`, or `"8.9;10.0"` for one venv on both hosts) | `docs/car-3d-pipeline.md` (rounds 4, 5, 6) |
+| Props | A real phone booth in every district, traffic-light heads, 3D weapon pickups, tokens, briefcase, mission items, parking meters, containers. **These code-object models are in git** (`assets/models/booth*`, `light_*`, `pickup_*`, ...); only cars and avatars stay out | `docs/asset-audit.md` section 9 |
+| Performance | Per-frame log, prop merging and frustum culling, background model warm-up, cheap player locator, step-locked chase camera (PERF-2); car dents/door splits off the render thread (PERF-3); browser play p99 22.8-29.7 ms (under the 33 ms cap). Square 2.6x spawn window in the street views, car bodies to 60 blocks, props 36, fog 18-130 | `docs/performance.md` |
+| Map | Lids for lidless ground under decks and deck undersides (second hole class); city sweep: 0 holes in ~3000 frames (rerun in round 2: `docs/qa-report.md` QA3) | `docs/city-sweep.md` |
+| Play in a browser | `linux/docker/play.sh plain|remix [port]` (noVNC); the player's container is pinned to CPUs 5-7 and scripted runs to 0-4 | `linux/README.md` |
+| Missions | Mission runner v3 reads the game's objective arrows; see "Mission playthrough state" below | `docs/missions.md`, `docs/playthrough-*.md` |
+| Tooling | `linux/docker/restage.sh`, `GTA2_DIRECT_KEYS`, `GTA2_SPEED`, `runq.sh` priorities, `tools/pack_release.py` (all archives), `qa_run.sh`/`sweep_run.sh` take `STAGE=` and direct keys | below and `docs/throughput.md` |
+
+### Rules that cost hours when broken (multi-agent host)
+
+- **Never put a shell variable in an `rm` command** issued through an agent's shell tool
+  (`rm -rf "$OUT"`, `rm -f $D/x`): the agent harness's safety check hangs that call forever.
+  Delete with literal absolute paths, or from Python (`shutil.rmtree`). Scripts that a
+  command runs may use variables (the check reads the command line only).
+- **The shared `repo/stage` is rebuilt only with `linux/docker/restage.sh`**: it waits for
+  the build lock and all four game slots, then `make stage`. A `make stage` while a run
+  uses the stage recopies the models folder and that run draws white figures.
+- **Test from a private stage copy**: `cp -al repo/stage ~/gta2-linux/stage_<you>` (hard
+  links, instant, safe because `make stage` replaces rather than rewrites files), then
+  `STAGE=<that dir>` on `gamerun/grun.sh`, `qa_run.sh`, `sweep_run.sh`.
+- **Game runs only through the queue** (`gamerun/grun.sh`, `slot.sh`, `runq.sh`; slots
+  1-4 as `flock`s on `/tmp/gta2-game-slot-N.lock`), launched with `nohup` so a dropped
+  shell does not kill them; containers are pinned to CPUs 0-4 (`GAME_CPUSET`), the user's
+  play container (`gta2-play-<port>`, CPUs 5-7) is never stopped by an agent.
+- **`GTA2_DIRECT_KEYS=1` for scripted play in the 3D views**: it sets `nav_map=0` for the
+  run, so the arrow keys stay the game's own (tank controls) and a script's turn/walk/aim
+  works in third and first person. With the shipped `nav_map=1` the arrows are camera-
+  relative and the scripts' turns go wrong. `grun.sh` passes it to the runners;
+  `qa_run.sh` and `sweep_run.sh` default it to 1.
+- Poll loops under 8 minutes; long sessions at `GTA2_SPEED=2` with `FPS=0` when no video
+  is needed.
+
+### Release archives (v1.5-3d-round2)
+
+Built by `python3 tools/pack_release.py <out dir> [linux people cars textures remix]`
+from the repository root after `make stage`; each is checked against its source after
+packing. Paths inside the zips:
+
+| Archive | Contents (paths in the zip) | Unpack |
+|---|---|---|
+| `gta2dx9-x86-linux-built.zip` | `gta2dx9-linux-built/` with the two DLLs and their copies (`d3ddll.dll`, `Dmavideo.dll`, `DMAGlide.dll`), `gta2dx9.ini`, `install.reg`, `uninstall.reg`, and `linux/` (the committed tree) | anywhere; the DLL/ini/reg files go beside `gta2.exe` |
+| `gta2dx9_models_people.zip` | `assets/models/human_*` (41 Rocketbox avatars, MIT, re-imported in round 2: army/medic/police textures, new action clips) | repository root (then `make stage`), or its `assets/models/` content into `gta2dx9_models/` beside the game |
+| `gta2dx9_models_cars.zip` | `assets/models/0NN_*` (the car models; embed the game's sprites) | same as people |
+| `textures_hd_dds.zip` | `assets/textures_hd/{wil,bil,ste}/tile_NNNN.dds` (unchanged since v1.4, same CRCs) | repository root, or `gta2dx9_textures_hd/` beside the game |
+| `remix_mod_gta2hd.zip` | `gta2hd/mod.usda` + `gta2hd/textures/*.dds` (store-only, ~1.06 GB) | `package/rtx-remix/mods/` in the repo, or `rtx-remix/mods/` beside the game |
+
+The code-object models (booths, lights, pickups, ...) and `assets/models/manifest.json`
+are in git; the manifest at the release commit is the one the car and people archives
+match. A fresh clone plus the five archives reproduces `stage/` byte for byte
+(`docs/qa-report.md`, QA3, "fresh clone").
+
+### Mission playthrough state (8 Nov 2026)
+
+Completed by script in the chase view: Downtown tutorial, GET ZITZAKI, PIZZA CAKE, RADIO
+ZA-ZA, WHEELER-DEALING (at `GTA2_SPEED=2`, 16 s to spare), GET ZITZAKI after PIZZA CAKE in
+one game (the Yakuza chain); Residential BLOW JOB (once). Not yet: BANK ROBBERY (next
+Yakuza job; plan steps for marked characters and point arrows written, untested),
+Industrial RUSSIAN SAILORS (furthest: all four dealers aboard; the Z-Type burns on the
+long dealer-4 and crane legs), HOT DOG HOMICIDE and DOUBLE-CROSS CRUSH (phones answered,
+no runner). Details and the next steps: `docs/playthrough-downtown.md` (part 7),
+`docs/playthrough-districts.md` (PLAYTHROUGH-8).
 
 ## 1. Goal
 
@@ -52,14 +129,14 @@ own installer. Generated assets that embed the game's artwork stay out of git.
   the container and that `game.stdout` (with `WINEDEBUG=+mmdevapi`) selects the `pulse` driver.
   An ALSA null pcm is not a substitute (no clock: the intro movie freezes).
 
-1. **RTX Remix path tracing has never run.** On the first host (B200) Vulkan
+1. *(Superseded: Remix runs on the L4, see section 0.)* On the first host (B200) Vulkan
    had no ray query (device creation returned -7). Mesa lavapipe got the Remix
    server to its first frame and died in its JIT. The second host has an L4
    (Ada, RT cores): rebuild `linux/docker/Dockerfile.wine10-patched` +
    `Dockerfile.runtime-ubuntu2510` + `Dockerfile.remix-gpu` there and retry
    (`linux/docker/run_remix_gpu.sh`). The Remix PBR material mod
    (`package/rtx-remix/mods/gta2hd`, 891 materials) is unverified in Remix.
-2. **Driving frame cost** on software GL: 120-200 ms per frame among traffic
+2. *(Superseded by PERF-2/3 on the GPU, `docs/performance.md`.)* **Driving frame cost** on software GL: 120-200 ms per frame among traffic
    versus the cap on foot; prime suspect is `car_bodies.cpp` re-measuring sprite
    artwork with `LockRect` every frame. See `docs/qa-report.md`
    "Performance while driving". On a GPU it may be invisible; measure first.
@@ -67,8 +144,8 @@ own installer. Generated assets that embed the game's artwork stay out of git.
    single take, natural car entry) predates the ground-hole fix and the motion
    and performance passes; the first-person-on-foot segment shows the hole.
    `gamerun/final_demo.py` reproduces the take.
-4. **Death / arrest / respawn in the new views**: never provoked by script, so
-   untested (`docs/qa-report.md` scenario e).
+4. *(Superseded: death, respawn and arrest verified, `docs/qa-report.md` QA3 and
+   `docs/actions-3d.md`.)*
 5. Cosmetic: tall vehicles show a flat cut cowl in first person (solid hulls,
    user clip planes); the sky's sun is fixed (`follow_clock=0`) because the game
    clock starts at 02:00; the Remix materials and the 3D models have not been
@@ -116,15 +193,18 @@ All documented inline in `package/gta2dx9.ini`.
 
 ## 4. Assets: what is in git, what is not, how to regenerate
 
-Shipped in git: `assets/models/*` except the car models (humans, props, objects:
-MIT/CC0), `assets/manifest.json`, `package/rtx-remix/mods/gta2hd/mod.usda`.
+Shipped in git: `assets/models/*` except the car models and the avatars (props, objects,
+code objects such as booths, lights and pickups: MIT/CC0 or our own procedural models),
+`assets/models/manifest.json`, `package/rtx-remix/mods/gta2hd/mod.usda`. Release archives
+and their layout: section 0.
 
 **Not in git** (they embed the game's own artwork, which cannot be redistributed;
 ship them as release archives or regenerate from the user's game copy):
 
 | Folder | Size | Regenerate with |
 |---|---|---|
-| `assets/models/0NN_*` (73 car models, TGA) | ~280 MB | `tools/make_car_manifest.py <assets-src> --models models_proc --override models3d` then `tools/import_assets.py <assets-src>/manifest.json assets/models` |
+| `assets/models/human_*` (41 avatars) | ~330 MB | `tools/fetch_rocketbox_pro.sh`, `tools/make_ped_manifest.py`, `tools/army_olive.py`, `tools/gen_ped_clips.py`, then `tools/import_assets.py ../assets-src/manifest.json assets/models --only human_...` (`docs/actions-3d.md`) |
+| `assets/models/0NN_*` (73 car models, TGA) | ~425 MB | `tools/make_car_manifest.py <assets-src> --models models_proc --override models3d` then `tools/import_assets.py <assets-src>/manifest.json assets/models` |
 | `assets/textures_hd/{wil,bil,ste}` (DDS) | ~550 MB | `dump_tiles=1` run, `tools/upscale_textures.py`, `tools/enhance_textures_sd.py`, `tools/pack_textures_dds.py` (`docs/hd-textures.md`) |
 | `package/rtx-remix/mods/gta2hd/textures` (DDS) | ~190 MB | `tools/remix_materials.py` (`docs/remix-materials.md`) |
 

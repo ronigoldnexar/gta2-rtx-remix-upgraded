@@ -180,6 +180,12 @@ store-only: `mod.usda` + 8 508 textures), from the rebuilt layer. `build_remix_m
 `ZIP=1` step now writes it by absolute path (the 8 Nov rebuild's `$OLDPWD` path wrote none;
 the archive here was packed by hand with the same command).
 
+**After car round 6 (QA-RELEASE, 8 Nov 2026).** The round-6 car textures changed the hashes of 19
+models' materials, so `remix_model_materials.py assets/models package/rtx-remix/mods/gta2hd` was re-run
+alone (1.5 min): 8 630 textures, every one referenced by `mod.usda`, none missing. The release archive is
+now packed by `tools/pack_release.py <out> remix` (same layout, `gta2hd/` store-only):
+`remix_mod_gta2hd.zip`, 1 084 585 827 bytes. Not yet seen under Remix with the new cars.
+
 **Not verified.** A police chase under Remix: three stars kept by `force_wanted` brought no
 police within 45 s in two sessions, so the light bars were seen only on parked cars with
 `force_sirens`; the booth's lit PHONE sign and glass were not framed close enough to judge

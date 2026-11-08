@@ -123,8 +123,8 @@ Goal: nothing in the street views should look like a placeholder. Sheet:
 `out/props_booths_sheet.png` (model before/after per object kind, the booth in
 three districts, by day and at night, the pickups and two street scenes). All
 models are procedural (`tools/gen_code_objects.py`, `tools/gen_env2.py`,
-`tools/gen_objects.py`), ours, and go in the models archive, not git; only
-`assets/models/manifest.json` is committed.
+`tools/gen_objects.py`), ours, and committed under `assets/models/` with
+`assets/models/manifest.json` (commits cb5c776, 33e25f0); no archive needed.
 
 ### Renderer: companion models (`dll/src/map_objects.cpp`)
 
