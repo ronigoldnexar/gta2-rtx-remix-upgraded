@@ -43,13 +43,15 @@ D.calibrate_turn()
 s = D.wait_state()
 import math
 fx_, fy_ = [float(v) for v in os.environ.get("FACE_XY", "150,151.2").split(",")[:2]]
-D.hold("Up", 0.25); time.sleep(0.5)
-for _ in range(8):
-    s = D.wait_state()
-    a = D.angle_to(s, fx_, fy_)
-    if abs(a) < 0.2: break
-    key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
-    D.hold(key, min(abs(a) / D.rate, 0.3)); time.sleep(0.45)
+def face():
+    D.hold("Up", 0.25); time.sleep(0.5)
+    for _ in range(8):
+        s = D.wait_state()
+        a = D.angle_to(s, fx_, fy_)
+        if abs(a) < 0.2: break
+        key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
+        D.hold(key, min(abs(a) / D.rate, 0.3)); time.sleep(0.45)
+face()
 s = D.wait_state()
 say("viewpoint", round(s["x"], 2), round(s["y"], 2), "facing", fx_, fy_, "angle", round(D.angle_to(s, fx_, fy_), 2))
 time.sleep(2.0)
@@ -61,7 +63,20 @@ def car_ahead(s, maxd=6.0):
 # Standing in the lane, the traffic queues up behind him: a car stopped a couple
 # of blocks away, nose toward him. He faces it a little off its bearing so the
 # chase camera is not looking straight through him at it.
+s = D.wait_state(); ref = (s["x"], s["y"])     # where face() left him
 for n in models:
+    s = D.wait_state()
+    if math.hypot(s["x"] - x, s["y"] - y) > 2.5:
+        # standing in the lane, the player gets run over now and then and respawns elsewhere: go back
+        say("re-warp: player at", round(s["x"], 1), round(s["y"], 1))
+        T.warp(x, y, why="car model sheet (after a respawn)"); time.sleep(1.0)
+        T.Q.set_view("third", settle=1.5); face()
+    elif math.hypot(s["x"] - ref[0], s["y"] - ref[1]) > 1.0 or abs(D.angle_to(s, fx_, fy_)) > 0.4:
+        # pushed onto the kerb or turned by passing traffic/peds: the chase camera then looks at the railings
+        say("re-face: player at", round(s["x"], 1), round(s["y"], 1), "angle", round(D.angle_to(s, fx_, fy_), 2))
+        T.warp(x, y, why="car model sheet (re-face)"); time.sleep(1.0)
+        T.Q.set_view("third", settle=1.5); face()
+        s = D.wait_state(); ref = (s["x"], s["y"])
     force(n); time.sleep(2.4)
     t0 = time.time()
     while time.time() - t0 < 7.0:

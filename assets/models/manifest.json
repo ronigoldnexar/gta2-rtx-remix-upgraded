@@ -8250,7 +8250,7 @@
    "name": "001_wellard",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 8910,
+   "vertices": 8234,
    "animations": [],
    "textures": [
     "001_wellard_0.tga",
@@ -8280,7 +8280,7 @@
    "name": "003_pacifier",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 13336,
+   "vertices": 10084,
    "animations": [],
    "textures": [
     "003_pacifier_0.tga",
@@ -8295,7 +8295,7 @@
    "name": "004_g4_bank_van",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 8770,
+   "vertices": 12938,
    "animations": [],
    "textures": [
     "004_g4_bank_van_0.tga",
@@ -8349,7 +8349,7 @@
    "name": "007_box_truck",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 14340,
+   "vertices": 11166,
    "animations": [],
    "textures": [
     "007_box_truck_0.tga",
@@ -8424,7 +8424,7 @@
    "name": "013_minx",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 7242,
+   "vertices": 7572,
    "animations": [],
    "textures": [
     "013_minx_0.tga",
@@ -8540,7 +8540,7 @@
    "name": "021_garbage_truck",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 12572,
+   "vertices": 13890,
    "animations": [],
    "textures": [
     "021_garbage_truck_0.tga",
@@ -8555,7 +8555,7 @@
    "name": "022_armed_land_roamer",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 14662,
+   "vertices": 14828,
    "animations": [],
    "textures": [
     "022_armed_land_roamer_0.tga",
@@ -8570,7 +8570,7 @@
    "name": "023_hot_dog_van",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 12974,
+   "vertices": 14022,
    "animations": [],
    "textures": [
     "023_hot_dog_van_0.tga",
@@ -8685,7 +8685,7 @@
    "name": "027_ice_cream_van",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 13978,
+   "vertices": 8708,
    "animations": [],
    "textures": [
     "027_ice_cream_van_0.tga",
@@ -8745,7 +8745,7 @@
    "name": "031_jefferson",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 14032,
+   "vertices": 14342,
    "animations": [],
    "textures": [
     "031_jefferson_0.tga",
@@ -8879,7 +8879,7 @@
    "name": "039_morton",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 13980,
+   "vertices": 11172,
    "animations": [],
    "textures": [
     "039_morton_0.tga",
@@ -8894,7 +8894,7 @@
    "name": "040_maurice",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 12308,
+   "vertices": 7420,
    "animations": [],
    "textures": [
     "040_maurice_0.tga",
@@ -8909,7 +8909,7 @@
    "name": "041_pickup",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 13980,
+   "vertices": 9360,
    "animations": [],
    "textures": [
     "041_pickup_0.tga",
@@ -8924,7 +8924,7 @@
    "name": "042_a_type",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 13638,
+   "vertices": 12904,
    "animations": [],
    "textures": [
     "042_a_type_0.tga",
@@ -8954,7 +8954,7 @@
    "name": "045_spritzer",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 15056,
+   "vertices": 14412,
    "animations": [],
    "textures": [
     "045_spritzer_0.tga",
@@ -9029,7 +9029,7 @@
    "name": "050_b_type",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 12598,
+   "vertices": 13910,
    "animations": [],
    "textures": [
     "050_b_type_0.tga",
@@ -9059,7 +9059,7 @@
    "name": "052_swat_van",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 9488,
+   "vertices": 10330,
    "animations": [],
    "textures": [
     "052_swat_van_0.tga",
@@ -9387,7 +9387,7 @@
    "name": "070_z_type",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 8670,
+   "vertices": 13676,
    "animations": [],
    "textures": [
     "070_z_type_0.tga",
@@ -9607,7 +9607,7 @@
    "name": "082_jagular_xk",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 14372,
+   "vertices": 8052,
    "animations": [],
    "textures": [
     "082_jagular_xk_0.tga",

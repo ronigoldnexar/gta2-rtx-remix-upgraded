@@ -324,3 +324,64 @@ of the 1024 atlas plus a penalty for light-grey texels, which hits grey and crea
 v1 baselines of the small cars are high (027 0.945, 050 0.948). 019 still has a darker lower flank
 (a shadow gradient, not the black side of its CQ4 model); 005's far side is a little darker toward
 the rear.
+
+## Round 6: scorer biases fixed, the last 17 v1 models replaced (8 Nov 2026, CAR-QUALITY-6)
+
+Round 5 showed the 17 models still on v1 (003 004 007 013 021 022 023 027 031 039 040 041 045 050 052 070
+082) lost on the scorer, not by eye. Scripts in `gen3d/` (outside git) unless noted.
+
+1. **Scorer** (`tools/score_car_model.py`, nine terms now; totals are not comparable with earlier rounds):
+   - `lumps`: the roof profile is the max height per z-slice of points *sampled over the surface*. It used the
+     vertices, and a decimated flat box roof is a few big triangles with no vertex in most slices, so every
+     box truck, van and bus roof read as a row of deep dips (the "0.12 box truck"; with samples 007, 004, 052
+     score 1.0). The reference is body-type aware (`body_type`): trucks, vans, buses, pickups, emergency,
+     special/tank, off-road (`BOXY_CLASSES` + `BOXY_MODELS`) and the open-top jeeps/roadsters
+     (`OPEN_TOP_MODELS`) use a 5-slice running median, which keeps steps (cab then a taller box, windscreen
+     frame over a cockpit); cars keep the smoothed curve. Models whose sprite carries a roof item (gun,
+     turret, light bar, ladder, sign, rack, boom, stacks: `ROOF_ITEM_MODELS`) do not count tops above the
+     reference.
+   - `texture`: the near-background-grey penalty skips texels within 24 of the model's own flank paint
+     (`flank_paint`), so light grey and cream paint are neutral.
+   - `smear` (new): the albedo seen without lighting from the left, the right and above (`_view_grids`:
+     800 k surface samples, texel through the UVs, a z-buffer per cell; sides = the lower flank panels),
+     the dominant-paint region (chroma-histogram peak, closed and hole-filled so dark streaks inside the
+     panel stay in), split at crisp colour edges (liveries, two-tone, trim are design) and measured for soft
+     variation: band-pass lightness (blotches), low-pass lightness (stains), chroma std (colour smears),
+     against a clean level or the sprite's own paint variation where higher (capped at 1.5x); plus a penalty
+     when one flank has far less paint than the other (a black far side). v1 means 0.77 on the 17, chosen
+     0.90.
+   - Known remaining bias: the `texture` sharpness half (Laplacian variance of the atlas) still rewards v1's
+     noisy, high-contrast textures over a clean delighted albedo (17 models: 0.96 v1 vs 0.75 chosen), so
+     several clean candidates still total below a worn v1 (013 023 027 039 040 041 050 052 082). Not changed
+     this round: gradient percentiles show the same ordering, a fair crispness measure needs livery edges.
+2. **Re-score** (`gen3d/r6_rescore.py`): v1, shipped and every CQ4 (`models3d_v2`, `raw/*_c*_fit`), round-5
+   (`models3d_r5/fit`) and round-6 (`models3d_r6/fit`) candidate of the 60 models, 517 GLBs ->
+   `out/car_scores_r6.json` (`candidates` with every term and the nose check, `chosen`, `integrated`).
+3. **Look** (`gen3d/r6_contact.py`): one contact sheet per model, a row per GLB from five views (3/4 front,
+   top, side, front = +z, 3/4 rear = far side) with the terms, `out/r6_contact/`, `out/r6_contact43/`,
+   `out/r6_contact_new/`. Rejected on sight: split meshes (013 cq4/v3c, 045 c2), black far sides (013 r5A53*,
+   007 r5, 023 cq4_c3/v3c3, 035 r5_v3c2, 040 r5A51), tail-first (021 cq4/v3c dump bodies), modern vans (052
+   cq4), upside-down or cross-shaped fits (013 r6B62_s2, r6A63), black ground plane (031 r5A53).
+4. **New concepts** where no candidate was clean (`gen3d/concepts_r6.py`, body-type briefs: a 1940s box truck
+   with a box taller than the cab, a streamlined armoured bank van with two roof vents, a rear-loader garbage
+   truck with its hopper, the Minx; 30 tries in `concept/r6try/`, checks `concept/r6_qc.json`), TRELLIS from
+   the picks (`r6/picks1.json`, `picks2.json`, `r6_jobs.py`, 14 candidates) and `gen3d/fit_r6.py` (the round-5
+   fit with `--balance-vertical --roof-norm`). Briefs for 003 022 023 027 031 052 were written but not run:
+   their round-5 candidates were already clean.
+5. **Pick and integrate** (`gen3d/r6_choose.py r6/final_picks.json` -> `models3d_r6/chosen`,
+   `V2=assets-src/cars/models3d_r6/chosen gen3d/integrate_v2.sh ...`): by eye, score as tie-break.
+
+Results: all 17 replaced, plus 2 swaps among the 43 (001 Wellard CQ4 c0 -> c1: even olive paint instead of dark
+smears; 042 A-Type c0 -> c1: no grey patches). Picks (v1 -> chosen total, round-6 scorer): 003 Pacifier r5_v3c0
+0.828 -> 0.883 (green, turret), 004 G4 Bank Van r6A61 0.846 -> 0.884 (streamlined navy van), 007 Box Truck r6B63
+0.895 -> 0.900 (brown cab and taller box), 013 Minx r5A54 0.868 -> 0.865, 021 Garbage Truck r5B53_s2 0.891 ->
+0.896 (rounded body, rear hopper), 022 Armed Land Roamer r5B54 0.836 -> 0.868, 023 Hot Dog Van r5B53 0.888 ->
+0.862 (hot dog on the roof, awning), 027 Ice-Cream Van r5A51 0.936 -> 0.874 (cone along the roof), 031
+Jefferson r5A51_s3 0.884 -> 0.888, 039 Morton r5A53_s3 0.889 -> 0.875, 040 Maurice r5B51 0.918 -> 0.884, 041
+Pickup r5B51 0.932 -> 0.885, 045 Spritzer r5_v3c3 0.885 -> 0.908, 050 B-Type r5_v3c0 0.918 -> 0.905, 052 SWAT
+Van r5A51_s2 0.893 -> 0.866 (1950s armoured box), 070 Z-Type r5A51 0.894 -> 0.907, 082 Jagular XK r5A54_s2 0.910
+-> 0.898. Over all 60 (v1 -> shipped now): total 0.874 -> 0.891, smear 0.78 -> 0.84, lighting 0.60 -> 0.69.
+Considered and kept after a look: 011 014 035 036 047 063 064 069 083 (a higher-scoring candidate was not cleaner,
+or had a dark far side, or a wrong body). Sheets: `out/car_quality_sheet_r6.png` (all 60, v1 | shipped from five
+views), `out/car_ingame_sheet_r6.png` (the 19 changed models, chase camera before/after + first person).
+Open: 083 Furore GT and 047/048 Meteor are still modern bodies; the runtime paint tint recolours per remap.
