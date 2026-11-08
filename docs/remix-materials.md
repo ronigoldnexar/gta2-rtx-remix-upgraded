@@ -194,6 +194,132 @@ is seen, the flash sprite not caught in a frame); the explosion and fire after t
 clear-coat reflections are visible on the roofs by day but were not compared with the
 REMIX-POLISH constants; Industrial and Residential were not rerun.
 
+## Post stack and time-of-day presets (REMIX-POST, 8 Nov 2026)
+
+**Status: configuration only, not yet seen in a frame.** Every Remix session on the L4 after
+the 8 Nov afternoon host overload failed before the level: `remix_post1`, `remix_post2` with
+"Unable to create a Vulkan instance: VK_ERROR_INITIALIZATION_FAILED"; `remix_post3` (fresh
+stage) got the device, then "DxvkCommandList: Failed to create fence" at the front end;
+other agents' `vis_base`, `vis_base2` and `vis_t3` failed the same two ways. The kernel log has
+`NVRM ... Out of memory [NV_ERR_NO_MEMORY] ... system_mem.c` at the start of those runs; GL
+runs on the same GPU still work. Native `vulkaninfo` in the same container still lists the L4.
+A GPU reset or a reboot is probably needed (not done: the GL runs share the card). So there
+is no before/after sheet yet (`out/remix_post_sheet.png` is not made). The take that makes it
+is ready (below). What is known for certain comes from the runtime's own option table
+(`out/remix_optdoc/RtxOptions.md`) and its log, and is in the presets now. Look values that
+need a frame stay at the runtime defaults or are in opt-in overlays marked as not yet checked.
+
+**What the option table and the log say** (this Remix Plus build, `remix-runtime/x86`):
+
+* **Seven lines of the old showcase preset do nothing.** `rtx.atmosphere.aerialPerspective`,
+  `aerialPerspectiveLocalLights`, `fogVisibilityMeters`, `fogNearFadeMeters`, `fogAnisotropy`,
+  `nightSkyStars`, `realMoonEnabled` are not options of this build: the runtime echoes them
+  while reading rtx.conf and then ignores them. The haze and fog the
+  7 Nov notes describe never came from them. In this build, fog is `rtx.volumetrics.*`
+  (froxel volumetrics: `transmittanceMeasurementDistanceMeters`, `transmittanceColor`,
+  `anisotropy`, `fogSunVisibilityGain`) and the air is `rtx.atmosphere.aerosolDensity`.
+* **Motion blur, chromatic aberration and vignette are on by default** (`rtx.postfx.enableMotionBlur`,
+  `enableChromaticAberration`, `enableVignette`, all True). The renderer's own switch
+  (`view_modes.cpp` pushes `rtx.enableMotionBlur` for `g_settings.motionBlur`) uses a name this
+  build does not have, so the game's motion-blur setting has never controlled it (and with
+  the default `motionBlur=0` nothing is pushed). Fixing that name belongs to the view-modes owner:
+  it should be `rtx.postfx.enableMotionBlur`.
+* **The quality preset is Low.** `rtx.graphicsPreset` defaults to 5 (Auto) and the runtime
+  logs "NVIDIA Turing architecture detected, setting default graphics settings to Low" on the
+  L4 (an Ada card). Every Remix frame so far was rendered at the Low preset.
+* **No anti-aliasing.** `rtx.upscalerType = 0` (rtx_gpu.conf.extra) is "None": no DLSS (NGX fails
+  under Wine) and no TAA either. The build has TAA-U (`rtx.taauPreset`), XeSS (`libxess.dll`
+  ships) and FSR (`amd_fidelityfx_vk.dll`); upstream's enum is None 0, DLSS 1, NIS 2, TAA-U 3,
+  XeSS 4, and TaauPreset 4 is full resolution. The enum is not printed by this build, so
+  `upscalerType = 3` still has to be confirmed in a frame.
+* **No depth of field.** There is no DOF option in this build, so the showcase preset has none.
+* Tonemappers (`rtx.tonemap.tonemapOperator`): 0 none, 1 Hill ACES, 2 Narkowicz ACES, 3 Hable,
+  4 AgX (`agx.look` 0/1 Golden/2 Punchy, `agx.saturation`), 5 Lottes, 6 PsychoV17 (default),
+  7 Gran Turismo 7, 8 Neutwo. A grade after it: `rtx.tonemap.colorGradingEnabled`, `contrast`,
+  `saturation`, `colorBalance`.
+* Weather: `rtx.weather.precipitation.intensity` (0 by default) makes rain particles. The
+  `rtx.weather.preset.<name>.*` tables (clear, hazy, foggy, rainstorm, ...) have no selector
+  option in this build.
+* Live: options pushed with `[devtools] remix_config` apply in a running session for exposure
+  (REMIX-3's `ab2`), but the lights options did not (`docs/remix-materials.md`, REMIX-3).
+  `remix_post.py` pushes every look option live and keeps the start-only ones (quality preset,
+  upscaler, light options) for the start of a session.
+
+**The presets** (`linux/docker/`). Two base sets, each self-contained (each includes what
+`rtx_gpu.conf.extra` sets), plus optional time-of-day overlays appended after a base:
+
+| option | old showcase | play (`rtx_play.conf.extra`) | showcase (`rtx_showcase.conf.extra`) | basis |
+|---|---|---|---|---|
+| rtx.graphicsPreset | 5 Auto (= Low on the L4) | 2 Medium | 1 High | log; frame cost not measured |
+| rtx.upscalerType / taauPreset | 0 none | 3 TAA-U / 4 full res | same | upstream enum, to confirm |
+| rtx.sharpening.sharpness | 0 | 0.2 | 0.2 | RCAS after TAA-U |
+| rtx.dlssPreset | 1 | 0 | 0 | no NGX under Wine |
+| rtx.postfx.enableMotionBlur | True (default) | False | True, exposureFraction 0.25, 8 samples, emissives unblurred | option table |
+| rtx.postfx.enableChromaticAberration | True (default) | False | False | option table |
+| rtx.postfx.enableVignette | True (default) 0.6 | False | True, 0.35 / radius 0.85 / softness 0.35 | option table |
+| rtx.autoExposure.darkAdaptTau / lightAdaptTau | 2.0 / 0.5 s | 2.5 / 0.8 s | same | against pumping |
+| rtx.autoExposure.maxExposure | 2.5 | 2.5 | 2.5 | REMIX-POLISH |
+| rtx.bloom.steps / luminanceThreshold / burnIntensity | 5 / 0.8 / 0.5 | 6 / 0.9 / 0.55 | same | wider halo on neon and lamps only |
+| rtx.tonemap.* | default | default (AgX Punchy listed as the candidate) | same | needs a frame |
+| rtx.atmosphere.nightSkyBrightness | 0.008 | 0.008 | 0.008 | unchanged |
+| the 7 dead atmosphere lines | set | removed | removed | option table |
+
+Time-of-day overlays (`rtx_tod_<name>.conf.extra`; each sets the same keys, so one can replace
+another live; not yet seen in a frame). Hours are the game clock at latitude 40, equinox
+(`[timeofday]`): sun about 50 deg at 12:30, 7 deg at 17:24, -4 deg at 18:21 (lamps on from 18:00).
+
+| key | noon 12:30 | golden 17:24 | dusk 18:21 | night 22:30 | wet (night) |
+|---|---|---|---|---|---|
+| rtx.atmosphere.aerosolDensity (default 1.1) | 0.7 | 1.3 | 1.4 | 1.2 | 1.6 |
+| rtx.atmosphere.sunsetSaturation (1) | 1.0 | 1.35 | 1.4 | 1.0 | 1.0 |
+| rtx.atmosphere.sunShadowSoftnessDeg (0) | 0.4 | 0.6 | 0.6 | 0.4 | 0.4 |
+| rtx.atmosphere.nightSkyBrightness (0.002) | 0.008 | 0.008 | 0.012 | 0.008 | 0.008 |
+| rtx.volumetrics.transmittanceMeasurementDistanceMeters (500) | 2000 | 600 | 250 | 180 | 140 |
+| rtx.volumetrics.transmittanceColor (0.995) | 0.995 | 0.97, 0.96, 0.95 | 0.93, 0.94, 0.97 | 0.92, 0.93, 0.96 | 0.91, 0.92, 0.95 |
+| rtx.volumetrics.anisotropy (0.05) | 0.3 | 0.6 | 0.5 | 0.55 | 0.55 |
+| rtx.volumetrics.fogSunVisibilityGain (1) | 1 | 4 | 2 | 1 | 1 |
+| rtx.opaqueMaterial.roughnessScale / Bias (1 / 0) | 1 / 0 | 1 / 0 | 1 / 0 | 1 / 0 | 0.45 / -0.05 |
+| rtx.weather.precipitation.intensity (0) | 0 | 0 | 0 | 0 | 0.5 |
+
+The wet preset's roughness is global (walls and cars get glossier too). A road-only wet look
+needs the road tiles' own roughness maps, which belong to VISUALS-REMIX (`docs/remix-materials.md`,
+"Full PBR maps for the HD tiles"). `package/rtx.conf` (what players get) now turns the three
+default-on post effects off and slows the exposure (2.5 / 0.8 s). It sets nothing that depends
+on the card.
+
+**Using them.** `RTX_EXTRA=/work/rtx_play.conf.extra` (or `rtx_showcase.conf.extra`) on
+`gamerun/remix_l4.sh`; for a fixed hour `cat gamerun/rtx_play.conf.extra gamerun/rtx_tod_night.conf.extra
+> gamerun/<name>.conf.extra` and pass that. The play page (`gamerun/play_game.sh`, not this
+stream's file) appends `rtx_gpu.conf.extra` and then `gamerun/rtx_showcase.conf.extra`; it should
+append `rtx_play.conf.extra` instead (no motion blur, no vignette; the clock runs, so no
+time-of-day overlay). The `gamerun/` copy of `rtx_showcase.conf.extra` was left as it was,
+because other streams' before/after takes use it this evening. The new showcase file is in the repo
+and in `gamerun/rtx_post_showcase.conf.extra`.
+
+**The take** (ready, run it once the L4 renders again): `linux/docker/remix_post.py` with
+`keys_remix_post.sh`. The session starts with the old config. At three spots (the street at
+171,123 in first person facing the traffic lights; the plaza at 198.5,188.5 and the spawn at
+159.5,139.5 in the chase view) and five hours it pushes the before set and then the play + overlay set
+live (`[devtools] remix_config`, in lines under 512 characters, 6 s for the exposure to
+settle). It also runs tonemapper and fog variants (`explore`), the showcase motion blur
+while turning (`motion`), and last TAA-U and the quality presets with frame times (`aa`, then the
+play preset at every hour). The before values come from `gamerun/rtx_post_before.conf.extra`
+(`package/rtx.conf` + `rtx_gpu.conf.extra` + the old showcase file, concatenated), with
+the runtime defaults for keys it does not set from `remix_post_defaults.json` (taken from
+RtxOptions.md):
+
+    cat repo/package/rtx.conf gamerun/rtx_gpu.conf.extra <old rtx_showcase.conf.extra> > gamerun/rtx_post_before.conf.extra
+    STAGE=<private stage> gamerun/remix_l4.sh remix_post 1150 /work/keys_remix_post.sh -e MODS_HD=1 -e LEVEL_WAIT=60 \
+      -e RTX_EXTRA=/work/rtx_showcase.conf.extra -e POST_SHOW=/work/rtx_post_showcase.conf.extra \
+      -e INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/' -e SCENE_KEY=F11 \
+      -e SETTINGS_SED='s/^Paused=.*/Paused=1/; s/^StartHour=.*/StartHour=12.5/; s/^ClearSky=.*/ClearSky=1/' \
+      -e EFFECTS_SED='/^\[Car lamps\]/,/^\[/{s/^Enabled=0/Enabled=1/;s/^Daylight=0/Daylight=1/}'
+    python3 gamerun/remix_frames.py dump out/remix_post 1150 out/remix_post/frames '^(ab_|x_|mo_|aa_|fin_)'
+
+The sheet is then the `ab_<spot>_<hour>_before/after` frames, one row per hour (`remix_frames.py sheet`).
+Use `setsid` around `remix_l4.sh` when you start it from a shell that may end: the first launch here
+lost its `flock` parent and left an orphan run-queue ticket without the GPU lock.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every
@@ -238,7 +364,42 @@ usual load of game runs it took far longer, see below):
 The car and prop materials are REMIX-CARPROPS-PBR's (`remix_model_materials.py`), the
 post stack and presets REMIX-POST's (`package/rtx.conf`, `rtx_showcase.conf.extra`).
 
-<!-- VISUALS-REMIX-RESULTS -->
+**Built (8 Nov, 17:26; all 2 649 tile prims of wil/bil/ste, every one with the new maps):**
+2 649 normals (512 px BC5, 1 047 MB), 2 649 roughness (256 px BC4), 1 674 height maps
+with `displace_in` 0.006-0.018 (63 % of the tiles: brick, block, cobble, panel and relief
+facades; signs and flat paint left out), 500 tiles with a metallic map (630 metallic maps
+in all with the car pass), 864 wet roughness maps (ground-like tiles), 64 sign emission
+maps (unchanged); the car/prop pass (REMIX-CARPROPS-PBR's tool as of 17:26) added 552
+model prims. 3 201 prims, 11 830 texture references, none missing, in both `mod.usda`
+and `mod_wet.usda`; every map decodes with Pillow at its size. Bytes on disk by map:
+albedo 713 MB, normal 1 047, roughness 170, height 73, metallic 44, wet 38, emission 28:
+**2.0 GB** (was 1.1 GB; the 512 px normals are most of the growth; `SIZE=256` halves
+the normals to 262 MB if the size matters more than the close-up relief).
+`deliverables/remix_mod_gta2hd.zip` (`tools/pack_release.py <out> remix`, store-only,
+now with `mod_wet.usda` and `pbr.json`): **2 123 427 523 bytes** (was 1 084 585 827).
+The previous layer is kept outside the repo (`~/gta2-linux/trash_vis/gta2hd_before_visuals`)
+for a rollback. Map sheet (offline, raking-light preview of old vs new normal, roughness,
+wet roughness, metallic, height for eight tiles of the three districts):
+`out/visuals_remix_maps_sheet.png` (`remix_pbr.py preview`).
+
+**Not verified under Remix.** The take for it is ready (`linux/docker/vremix_run.sh <name>
+[layer folder]` → `remix_vis_take.py`: the spawn plaza and two warp spots, first person
+round and chase view, 14:00 and 22:00, the same headings in every run, so the old and
+new layers compare frame for frame), but on 8 Nov from 16:24 to 18:45 no Remix session on
+the L4 got past the front end, for this stream or REMIX-POST: the runtime either could not
+create its Vulkan instance (`VK_ERROR_INITIALIZATION_FAILED`, runs `vis_base`, `vis_base2`,
+REMIX-POST's) or failed with "DxvkCommandList: Failed to create fence" while compiling
+shaders (`vis_base` retry, `vis_new` with this layer); the kernel log has NVIDIA
+`NV_ERR_NO_MEMORY` allocation failures at 15:25 and 17:40 from the host overload. The
+failures came before the level and before the layer's textures are read, with the old
+layer as well as the new one, so they say nothing about the maps. Still to check on a
+working session: that the height maps parallax-displace without swimming or edge
+artifacts at tile seams (the tiles wrap, but the neighbouring tile does not continue the
+relief), the `displace_in` scale (taken as the Toolkit's "depth / UV width" ratio; not
+measured), the cost of 1 674 POM materials on the L4, that the metallic patches read as
+metal and not as shiny stone, and the rain layer (`MODS_HD_SRC` at a folder whose
+`mod.usda` is `mod_wet.usda`).
+
 
 This note records what NVIDIA offers for turning GTA2's 64x64 tiles into PBR
 materials, why none of it runs on this Linux/B200 machine, and what

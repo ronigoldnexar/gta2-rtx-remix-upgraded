@@ -24,7 +24,8 @@ view is untouched (it keeps the game's flat sprites).
 | Explosion | the car becoming a wreck (sprites 65-74) within 1.5 s of being seen whole, or its damage reaching 32000 | 22 tumbling shards (its scorched paint, dark metal, glass), 30 sparks, smoke, and one of its own cut wheels flying off (ballistic, spinning, bouncing, then lying on its side for up to 30 s) |
 | Wreck pose | the wreck model's `wheel_*` markers (the wheels it kept) | each lost corner drops onto its hub (0.85 of a wheel radius), the kept ones sit on flat tyres (0.25); the body tilts to match |
 
-Bounds: 640 particles (the oldest smoke gives way), 1400 skid segments in a ring, 6 flying
+All effect quads draw from one dynamic vertex buffer and a fixed quad index buffer (four
+draws a frame at most, plus the lamp pools). Bounds: 640 particles (the oldest smoke gives way), 1400 skid segments in a ring, 6 flying
 parts, 10 lamp pools, per-car state dropped after 20 s unseen. No per-frame allocation after
 the first frames.
 
@@ -42,11 +43,51 @@ the first frames.
 
 ## Cost
 
-RESULTS_COST
+The feel's own time (the car updates plus the effects pass, timed inside `car_bodies.cpp`'s cars
+stage and logged every 900 frames as `vehicle feel: ... ms a frame`): **0.04-0.38 ms a frame on
+average** with 15-20 cars tracked, up to ~70 particles and 450 skid segments (runs `out/vf_5`..`vf_8`).
+Wheel splits: 1-10 ms each on the worker thread (never the render thread), 17-19 splits = 8-9 MB
+in a drive; the hull + 4 wheels are 5 draws instead of 1 for cars within 22 blocks.
+
+One-off costs, logged as `vehicle feel: slow frame ...` (the breakdown is in the code):
+- the effect textures: first made as managed textures, each create cost 85-590 ms on the loaded
+  host (wined3d waits for the queued frame); now dynamic default-pool textures, one a frame: the
+  first 190 ms once (the first default-pool create of the session), the other four 0.4 ms;
+- the first draw from the dynamic quad buffer, ~80 ms once;
+- otherwise isolated 10-70 ms "updates" frames, only in runs with `GTA2DX9_LOG_VEHICLE_FEEL=1`
+  (a log line every 3 frames) or under host load; with the log off the worst after the first
+  second was 6.2 ms (`vf_8`).
+
+The p99 < 33 ms frame budget could not be re-measured cleanly in this pass: the host ran at load
+10-17 with three other game runs (driving p50 8.5 ms, p99 286 ms in `vf_6`, the largest phase in
+the slow frames being GTA2's own step and present, not the cars stage; cars stage p50 0.39 ms,
+p95 2.4 ms). A quiet-host `perf3_run.sh` drive is the check to run next.
 
 ## Evidence
 
-RESULTS_EVIDENCE
+- `out/vehicle_feel_sheet.png` (local, not in git): before (`vehicle_feel=0`) | after (`=1`) for the
+  same manoeuvres, every traffic car drawn as model 13 (`force_car_model`) so the rows compare;
+  rows: turn, brake, kerb runs, night lamp pools and brake lamps, night reverse lamps, night
+  idle exhaust, handbrake turn (skid marks), scrapes, blown up. Built by
+  `linux/docker/vehfeel_sheet.py` from the frames `vehfeel_take.py` grabs (runs `vf_5` day
+  before, `vf_6` day after / night / wreck before, `vf_8` wreck after from its clip).
+- `out/vehicle_feel.mp4` (27 s, 1280x720): the day manoeuvres, the night street, and a car
+  blowing up (`linux/docker/vehfeel_clip.sh`).
+- Seen: skid marks under the wheels on hard braking and handbrake turns, head-lamp pools and
+  reverse lamps at night (absent in "before": see the lamp fix below), exhaust puffs at idle,
+  the explosion's debris shards and sparks, all 4 wheels cut on every image-to-3D model drawn
+  (`wheel split of ...: 4 wheels` for 17 models; 6 on the parametric trucks). Roll and dive are
+  a few degrees and read in the clip more than in single chase-camera frames.
+- Not caught in a frame: the flying wheel (it needs the wheel split made in the minute before the
+  explosion, true for the player's car; the take's explosions killed the player and the camera
+  cut away), sparks on a pure scrape (the hits logged sparks; a long wall slide was not driven).
+
+## Lamp fix (follow_clock)
+
+`live_geometry.cpp` tells the lamps it is dark from the sky's fixed sun (`sun_elevation_tenths`);
+with `[sky] follow_clock=1` the picture follows the clock, so a night street had unlit cars
+(the "before" night rows). `CarBodiesSetLamps` now takes the clock's sun when `follow_clock=1`
+(`car_bodies.cpp`, no change in the caller).
 
 ## Hooks outside the owned files
 

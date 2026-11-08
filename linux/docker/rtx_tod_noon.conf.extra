@@ -1,3 +1,4 @@
+# NOT YET SEEN IN A FRAME: starting values; check with remix_post.py (docs/remix-materials.md).
 # Time-of-day overlay: noon (game clock 12:30, sun ~50 deg). Append after
 # rtx_play.conf.extra or rtx_showcase.conf.extra. Every rtx_tod_* file sets the same
 # keys, so pushing one live (devtools remix_config) fully replaces another.

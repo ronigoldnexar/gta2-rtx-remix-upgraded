@@ -556,3 +556,52 @@ stronger evidence; the frames show the same dents and door at the same steps.
   start of a frame, as the warm-up does, would spread it further.
 - On a host at load 20-30 every phase stretches with GTA2's own step, the car draws included;
   that is contention, not the car code.
+
+## Car sprite artwork off the render thread (8 Nov 2026, PERF-4)
+
+PERF-3 left one car cost on the render thread: a car's **sprite artwork** made the first time a
+car model or paint came into view, or when the game patched a door, a dent or a lamp into it
+(`DeviceTextureFor` in `texture_store.cpp`): 8-36 ms a car on an ordinary host and up to 131 ms
+on a busy one. The car models do not even sample that texture (only their paint is measured
+from the sprite, on the CPU), but the cars stage and the shells' setup asked for it, and it was
+built there: palette decode, the effect classifier, edge bleed, hole closing and a TGA dump,
+then a new managed texture whose first lock waited for the frame's queued GL work.
+
+Now (`texture_store.cpp`, "PERF-4"):
+
+- **Car artwork is recognised** by shape and palette: the size of one of the style's car
+  sprites in one of the palettes car models are drawn in (each car sprite's own, and every remap
+  its CARI entries list; 44 palettes in Downtown). No other sprite of the three districts has a
+  car sprite's size in one of those palettes.
+- **A worker thread makes it** (`CarArtThread`, the PERF-3 wear thread's pattern): the render
+  thread copies the palette indices and the 256 colours (the game rewrites both whenever it
+  likes) and queues the job; the worker runs the same pixel work as before (shared
+  `ClassifyArtwork` / `FinishArtwork`, so the texels are identical) and the dump. The worker
+  polls (2 ms) instead of being woken: a `SetEvent` is a wineserver round trip, and on the busy
+  host one cost the render thread 10-27 ms in the first after run.
+- **Dynamic textures, a per-frame budget.** A finished frame becomes a `D3DUSAGE_DYNAMIC`
+  default-pool texture written with `D3DLOCK_DISCARD`, which wined3d (Wine 10) serves from an
+  upload buffer without waiting for the frame (`wined3d_cs_map_upload_bo`); uploads measured
+  0.01-0.06 ms. At most 4 asked-for frames (2 ms) and 6 precached frames (1 ms) are uploaded
+  per 20 ms window.
+- **Until it is there** the car is drawn with the record's previous artwork when it is the same
+  size (the same car a door or a dent earlier), else the precached frame of that car sprite in
+  that palette whose pixels match best (the car without the patch), else a transparent 8x8
+  stand-in. The cars stage only measures the paint from the record's own pixels, so the 3D car
+  keeps its colour; in the run below a new frame was on screen after 1-2 draws (at most 72 ms).
+- **Precached at level load.** `CarArtPrecache(stylePath)` (the one hook, in `world_view.cpp`
+  where the level's style is loaded) has the worker read the style's car sprites and queue every
+  sprite in every palette its models use: 656 frames in Downtown, made in 4.9-6.2 s after the
+  level loads within the budget above. Afterwards only the game's patched frames (doors, dents,
+  lamps) are new: 16 asked-for frames in the 100 s after run, against 656 made ahead.
+- **Memory:** 9.1 MB of texels for the 656 precached frames (wined3d keeps a system-memory copy
+  of a dynamic texture besides the GL one, so up to ~18 MB), 0.3 MB of sprite indices, and the
+  asked-for frames as before. A district change precaches its own style; frames stay keyed by
+  content and the 8192-frame flush (which drops all frames) queues the precache again.
+- `car art:` log lines: the parse, the precache summary (frames, MB, seconds, upload and worker
+  times), each asked-for frame (first 60: worker ms, upload ms, wait, stand-in draws), uploads over
+  3 ms and asks over 4 ms.
+
+Not changed: other sprites (pedestrians' animation frames, objects, HUD) are still built on the
+render thread; with Remix the car artwork is now a dynamic texture (Remix's hash of it is not
+tested here).

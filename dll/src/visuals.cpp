@@ -96,10 +96,10 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         float r = d.radius * 1.35f;
         r = r < 1.5f ? 1.5f : (r > 6.0f ? 6.0f : r);
         l.radius = r;
-        l.intensity = 0.25f + 0.45f * d.intensity;
+        l.intensity = 0.12f + 0.25f * d.intensity;
         l.spot = d.spot && d.coneAngleDeg > 1.0f;
         l.coneDeg = d.coneAngleDeg;
-        if (l.spot) l.radius = r < 6.0f ? 6.0f : r;   // headlamp beams reach down the road
+        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity *= 0.6f; }   // headlamp beams reach down the road, softer
         out->push_back(l);
     }
 }

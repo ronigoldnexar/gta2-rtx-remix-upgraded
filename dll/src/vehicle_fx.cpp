@@ -275,10 +275,16 @@ IDirect3DTexture9* g_shardTex = nullptr;
 
 template <typename F>
 IDirect3DTexture9* MakeTexture(IDirect3DDevice9* device, int w, int h, F texel) {
+    // Dynamic, default pool, written with DISCARD: a managed texture's create and lock
+    // made wined3d wait for the frame's queued GL work (85-590 ms a texture on a busy host).
     IDirect3DTexture9* tex = nullptr;
-    if (FAILED(device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr))) return nullptr;
+    DWORD lockFlags = D3DLOCK_DISCARD;
+    if (FAILED(device->CreateTexture(w, h, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, nullptr))) {
+        lockFlags = 0;
+        if (FAILED(device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr))) return nullptr;
+    }
     D3DLOCKED_RECT lr;
-    if (SUCCEEDED(tex->LockRect(0, &lr, nullptr, 0))) {
+    if (SUCCEEDED(tex->LockRect(0, &lr, nullptr, lockFlags))) {
         for (int y = 0; y < h; ++y) {
             uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
             for (int x = 0; x < w; ++x) row[x] = texel((x + 0.5f) / w, (y + 0.5f) / h);

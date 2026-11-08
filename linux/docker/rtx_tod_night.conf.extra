@@ -1,3 +1,4 @@
+# NOT YET SEEN IN A FRAME: starting values; check with remix_post.py (docs/remix-materials.md).
 # Time-of-day overlay: night (game clock 22:30). Volumetric haze, forward-scattering,
 # so every lamp, neon sign and headlight has a halo and a shaft in the air.
 rtx.atmosphere.aerosolDensity = 1.2

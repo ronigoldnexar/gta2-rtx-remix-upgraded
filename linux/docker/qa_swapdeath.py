@@ -43,6 +43,8 @@ def frames(tag, secs, every=0.5):
 
 def one_death(rnd, view):
     tag = f"sd_{rnd}_{view}"
+    t0 = time.time()
+    while last_mission()[0] < 0 and time.time() - t0 < 60: time.sleep(0.5)
     s = D.wait_state(); lives0, hp0 = last_mission()
     say(f"MARK {tag} start: lives={lives0} health={hp0} {Q.words(s)}")
     Q.set_view(view, settle=1.5); shot(f"{tag}_a_alive")
@@ -72,14 +74,18 @@ def one_death(rnd, view):
     Q.set_view(view, settle=0.5); shot(f"{tag}_a_car")
     set_ini("set_car_damage", 31995)
     t0 = time.time()
-    for key in ("Down", "Up") * 6:
+    for key in ("Down", "Up") * 20:
         D.xdo("keydown", key); t1 = time.time()
-        while time.time() - t1 < 4.0:
+        while time.time() - t1 < 5.0:
             lv, hp = last_mission(); st = D.state() or {}
             if (0 <= lv < lives0) or st.get("state") in (8, 9): died = True; break
             time.sleep(0.2)
         D.xdo("keyup", key)
         if died: break
+    if not died:
+        set_ini("set_car_damage", -1)
+        say(f"CHECK {tag} NO DEATH (the car never took a knock) lives={last_mission()[0]}")
+        return False
     say(f"MARK {tag} died={died} after {time.time() - t0:.1f} s lives={last_mission()[0]}")
     at = ((D.state() or s)["x"], (D.state() or s)["y"])
     frames(f"{tag}_b_death", 7.0, 0.5)
@@ -88,7 +94,7 @@ def one_death(rnd, view):
     t0 = time.time(); found = None
     while time.time() - t0 < 150:
         st = D.state(); lv, hp = last_mission()
-        if st and hp > 0 and abs(st["x"] - at[0]) + abs(st["y"] - at[1]) > 2.0 and st.get("state") not in (8, 9):
+        if st and 0 <= lv < lives0 and hp > 0 and abs(st["x"] - at[0]) + abs(st["y"] - at[1]) > 2.0 and st.get("state") not in (8, 9) and not st.get("driving"):
             found = st; break
         shot(f"{tag}_c_wait_{int(time.time() - t0):02d}") if int(time.time() - t0) % 2 == 0 else None
         time.sleep(0.5)

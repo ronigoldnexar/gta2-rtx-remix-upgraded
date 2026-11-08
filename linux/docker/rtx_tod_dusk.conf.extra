@@ -1,3 +1,4 @@
+# NOT YET SEEN IN A FRAME: starting values; check with remix_post.py (docs/remix-materials.md).
 # Time-of-day overlay: dusk (game clock 18:21, sun ~4 deg below, lamps on from 18:00).
 # Saturated afterglow, a little airglow, volumetric haze so lamps and neon glow in it.
 rtx.atmosphere.aerosolDensity = 1.4

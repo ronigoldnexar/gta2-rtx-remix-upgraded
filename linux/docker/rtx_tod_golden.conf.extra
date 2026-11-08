@@ -1,3 +1,4 @@
+# NOT YET SEEN IN A FRAME: starting values; check with remix_post.py (docs/remix-materials.md).
 # Time-of-day overlay: golden hour (game clock 17:24, sun ~7 deg above the horizon).
 # Warmer, hazier air, a richer sunset, the sun visible in a light volumetric haze.
 rtx.atmosphere.aerosolDensity = 1.3

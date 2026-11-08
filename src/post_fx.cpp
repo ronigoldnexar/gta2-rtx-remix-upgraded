@@ -714,6 +714,34 @@ void PostFx::Resolve() {
     if (shadows) RenderShadows(cascades, frame_.sunDir);
     Timestamp(1);
     const double t1 = NowMs();
+    // debug=7: write the shadow atlas once to GTA2DX9_VISUALS_LOG's folder as atlas.pgm (depth 0..1 as grey).
+    static int dumped = 0;
+    if (cfg.debug == 7 && shadows && !dumped) {
+        dumped = 1;
+        IDirect3DSurface9* sys = nullptr;
+        D3DSURFACE_DESC sd = {};
+        shadowSurf_->GetDesc(&sd);
+        char path[MAX_PATH] = {};
+        if (GetEnvironmentVariableA("GTA2DX9_VISUALS_LOG", path, sizeof path) && strrchr(path, '\\')) strcpy(strrchr(path, '\\') + 1, "atlas.pgm");
+        else strcpy(path, "atlas.pgm");
+        if (SUCCEEDED(device_->CreateOffscreenPlainSurface(shadowSize_, shadowSize_, sd.Format, D3DPOOL_SYSTEMMEM, &sys, nullptr)) &&
+            SUCCEEDED(device_->GetRenderTargetData(shadowSurf_, sys))) {
+            D3DLOCKED_RECT r;
+            if (SUCCEEDED(sys->LockRect(&r, nullptr, D3DLOCK_READONLY))) {
+                if (FILE* f = fopen(path, "wb")) {
+                    fprintf(f, "P5\n%d %d\n255\n", shadowSize_ / 2, shadowSize_ / 2);
+                    for (int y = 0; y < shadowSize_; y += 2) for (int x = 0; x < shadowSize_; x += 2) {
+                        const float v = sd.Format == D3DFMT_R32F ? reinterpret_cast<const float*>(static_cast<const uint8_t*>(r.pBits) + y * r.Pitch)[x] : 0.5f;
+                        fputc(static_cast<int>(std::min(1.0f, std::max(0.0f, v)) * 255.0f), f);
+                    }
+                    fclose(f);
+                }
+                sys->UnlockRect();
+            }
+        }
+        SafeRelease(sys);
+        RendererTrace("visuals: shadow atlas written to %s (world runs %d, caster draws %d)", path, stats_.worldDraws, stats_.casterDraws);
+    }
 
     // Everything from here reads the scene's depth, so it is no longer the depth target.
     device_->SetDepthStencilSurface(nullptr);
@@ -901,7 +929,7 @@ void PostFx::Resolve() {
             device_->SetVertexShader(vsLight_);
             device_->SetPixelShader(psLight_);
             const float amb = std::max(0.15f, frame_.ambientLevel);
-            const float lc[4] = {1.0f / amb, 1.0f, frame_.fogStart, 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart)};
+            const float lc[4] = {1.0f / amb, 0.8f, frame_.fogStart, 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart)};
             device_->SetPixelShaderConstantF(2, lc, 1);
             device_->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(), sizeof(LightVertex));
             device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
@@ -947,10 +975,11 @@ void PostFx::Resolve() {
         device_->SetPixelShader(psFinal_);
         sampler(4, litTex_, false);
         sampler(1, bloom ? static_cast<IDirect3DBaseTexture9*>(bloomTex_[0]) : blackTex_, true);
-        sampler(2, sceneTex_, false);
+        // debug 1: the raw scene, 2: the shadow mask, 3: the shadow atlas
+        sampler(2, cfg.debug == 2 && shadows ? static_cast<IDirect3DBaseTexture9*>(maskTex_) : (cfg.debug == 3 && shadows ? static_cast<IDirect3DBaseTexture9*>(shadowTex_) : sceneTex_), false);
         sampler(3, bloom2 ? static_cast<IDirect3DBaseTexture9*>(bloomTex_[3]) : blackTex_, true);
         const float exposure = cfg.exposure * (1.0f + 0.12f * night);
-        const float fin[8] = {exposure, bloom ? cfg.bloomStrength : 0.0f, cfg.saturation, cfg.debug == 1 ? 0.0f : frame_.blend,
+        const float fin[8] = {exposure, bloom ? cfg.bloomStrength : 0.0f, cfg.saturation, cfg.debug >= 1 && cfg.debug <= 3 ? 0.0f : frame_.blend,
                               0.78f, 0.10f, cfg.tonemap ? 1.0f : 0.0f, bloom2 ? cfg.bloomStrength * 0.6f : 0.0f};
         device_->SetPixelShaderConstantF(0, fin, 2);
         DrawQuad(static_cast<int>(bd.Width), static_cast<int>(bd.Height));

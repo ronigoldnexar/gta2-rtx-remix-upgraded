@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """qa_swap_sheet.py <out.png> <run dir>...: the contact sheet of qa_swapdeath.py runs, one row per
-death round: the car he dies in, two frames of the death (WASTED), the respawn found again, the
+death round: the car he dies in, the death (WASTED), the respawn, the player found again, the
 view after it and the walk. Each row is labelled with the run's district and the CHECK line."""
 import glob, os, re, sys
 from PIL import Image, ImageDraw, ImageFont
 
 out, runs = sys.argv[1], sys.argv[2:]
 W, H = 384, 216
-COLS = [("a_car", "in the car"), ("b_death_0", "death"), ("b_death_last", "WASTED"),
+COLS = [("a_car", "in the car"), ("b_death_0", "death (WASTED)"), ("b_death_last", "respawn"),
         ("d_found", "respawn: found"), ("e_found_view", "found, 3D view"), ("f_walked", "walked on")]
 try:
     font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 15)
@@ -20,8 +20,8 @@ for run in runs:
     for tag in sorted({m for m in re.findall(r"qa_(sd_\d+_\w+?)_a_car\.png", " ".join(os.listdir(run)))}):
         check = re.search(rf"CHECK {tag} (.*)", keys)
         deaths = sorted(glob.glob(os.path.join(run, f"qa_{tag}_b_death_*.png")))
-        pick = {"b_death_0": deaths[min(2, len(deaths) - 1)] if deaths else None,
-                "b_death_last": deaths[-1] if deaths else None}
+        pick = {"b_death_0": deaths[0] if deaths else None,
+                "b_death_last": deaths[len(deaths) // 2] if deaths else None}
         cells = []
         for key, _ in COLS:
             p = pick.get(key) or os.path.join(run, f"qa_{tag}_{key}.png")

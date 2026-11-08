@@ -80,9 +80,36 @@ Font: **Barlow Condensed** by Jeremy Tribby, SIL Open Font License 1.1
 - `hud3d:` log lines: the values every two seconds (`money= shown= mult= lives= health=
   wanted= weapon= ammo= car= timer= counter= msg= brief= portrait= icon= arrows= parts=`),
   and the cost every 300 frames.
-- `linux/docker/hud_sheet_run.py` (`keys_hud_sheet.sh`, `hud_test.ini.extra`): the comparison run in
-  Downtown; `hud_sheet.py <run> <png>` builds the sheet.
+- `linux/docker/hud_sheet_run.py` (`keys_hud_sheet.sh`; Downtown: on foot, weapon, clock, low
+  health, driving, wanted) and `hud_sheet_bil.py` (`keys_hud_sheet_bil.sh`; Industrial: the
+  opening brief, the walk to the Zaibatsu phones, the phone answered), both with
+  `INI_EXTRA=/work/hud_test.ini.extra -e GTA2DX9_HUD_TEST=1` on `grun.sh`;
+  `hud_sheet.py <png> <run> [<run>...]` builds the sheet.
 
 ## Measured
 
-RESULTS_PLACEHOLDER
+Runs `hud6` (Downtown) and `hud7` (Industrial), 8 Nov 2026, L4 host, 1280x720, wined3d on the GPU
+through VirtualGL, the DLL built from `camera-modes` plus this change only. Sheet:
+`out/hud_modern_sheet.png` (local, not in git): the same moments, the game's own HUD left and
+the modern one right, 1.4 s apart (the `[hud] modern` switch is re-read once a second).
+
+- Values agree with the game's: money/multiplier/lives against the `view: mission` line; the
+  machine gun's ammo 300 shown as 30, as the game's icon reads; the 75 s clock counted down at
+  30 ticks a second (2203 -> 2128 in 2.5 s) and ran out to none; wanted 3 drew three stars and
+  the game's part 4 (its cop heads) only then, which is how part 4 was confirmed as the wanted
+  row; the car bar followed the damage word (1632 after a knock).
+- The weapon icon is the game's own sprite (49x40 game pixels), the portrait the game's own
+  (50x58/60).
+- Cost of the modern HUD on the render thread (the `hud3d:` 300-frame averages): 0.35-0.6 ms a
+  frame on foot, 0.9-1.4 ms with the clock and the low-health edge pulse on screen (four
+  full-screen gradients). Single frames up to tens of ms showed up in the same windows as
+  the whole frame's hitches on a loaded host (load 10-14); the first frame bakes the fonts and
+  builds the mini-map (a 256x256 texture, once per level).
+- Mini-map orientation checked against the street ahead at a crossroads (driving north) and a
+  boulevard with a median (wanted, on foot).
+- 0 FAULT lines in either run.
+
+Not covered: a counter (`+4` of a counter slot; no job with an on-screen counter was played),
+armour (no field known), Remix (drawn after the UI composite, like the F4 menu; not seen under
+the path tracer), resolutions other than 720p (the fonts re-bake on a height change; untested
+on screen).

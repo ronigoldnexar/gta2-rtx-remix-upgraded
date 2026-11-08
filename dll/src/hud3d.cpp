@@ -631,7 +631,7 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
         const ImVec2 as = Measure(g_fonts.heavy, g_fonts.heavyPx, ammo);
         Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(b.x - 10 * u - as.x, a.y + 4 * u), v.ammo >= 0 && v.ammo < 50 ? kRed : kWhite, ammo, A);
         std::string name = WeaponName(v.weapon);
-        for (char& c : name) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+        for (char& c : name) c = c == '_' ? ' ' : static_cast<char>(toupper(static_cast<unsigned char>(c)));
         const ImVec2 ns = Measure(g_fonts.label, g_fonts.labelPx, name.c_str());
         Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(b.x - 10 * u - ns.x, b.y - ns.y - 4 * u), Fade(kWhite, 0.8f), name.c_str(), A);
         y = b.y + 10 * u;

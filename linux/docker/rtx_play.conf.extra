@@ -14,21 +14,23 @@ rtx.faultNotice.enable = False
 rtx.screenshot.hotkey = F12
 rtx.shader.blockUntilPrewarmed = False
 rtx.gpuStallTimeoutSeconds = 600
-# Quality: the runtime's Auto preset reads the L4 as "Turing" and picks Low.
-rtx.graphicsPreset = 1
-# Anti-aliasing: TAA-U at full resolution (DLSS needs NGX, which Wine lacks).
+# Quality: the runtime's Auto preset (5) reads the L4 as "Turing" and picks Low
+# (remix-dxvk.log: "setting default graphics settings to Low"). Medium for play
+# (frame cost not yet measured; High = 1 is in the showcase preset).
+rtx.graphicsPreset = 2
+# Anti-aliasing: the old presets had upscalerType 0 = no temporal AA at all. TAA-U at full
+# resolution (DLSS needs NGX, which Wine lacks; 3 = TAA-U and taauPreset 4 = full
+# resolution follow the upstream enums, not yet confirmed in a frame here).
 rtx.upscalerType = 3
 rtx.taauPreset = 4
 rtx.resolutionScale = 1.0
 rtx.sharpening.sharpness = 0.2
-# Tonemapping: AgX with its Punchy look keeps the saturated GTA2 palette
-# while rolling the neon and the sun off without hue shifts; a light grade on top.
-rtx.tonemap.tonemapOperator = 4
-rtx.tonemap.agx.look = 2
-rtx.tonemap.agx.saturation = 1.15
-rtx.tonemap.colorGradingEnabled = True
-rtx.tonemap.contrast = 1.05
-rtx.tonemap.saturation = 1.08
+# Tonemapping: the runtime's default (6 = PsychoV17) until the A/B take
+# (remix_post.py POST_PARTS=explore) has been seen. Candidate for the saturated GTA2
+# palette, to switch on after that take:
+#   rtx.tonemap.tonemapOperator = 4      (AgX)
+#   rtx.tonemap.agx.look = 2             (Punchy)
+#   rtx.tonemap.agx.saturation = 1.15
 # Exposure: capped so the night stays night, slow both ways so passing lamps and
 # headlights do not pump the picture.
 rtx.autoExposure.maxExposure = 2.5
@@ -55,3 +57,5 @@ rtx.ignoreGameDirectionalLights = True
 rtx.fallbackLightMode = 0
 # Night sky: the stylised ground moonlight (50) lit the street like an overcast day.
 rtx.atmosphere.surfaceMoonBrightness = 3
+# A little airglow: the night sky dark blue, not pitch black.
+rtx.atmosphere.nightSkyBrightness = 0.008

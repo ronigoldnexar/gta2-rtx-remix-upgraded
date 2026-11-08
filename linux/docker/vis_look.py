@@ -35,15 +35,15 @@ def main():
             if v == "first": T.clear_of_cars()
             for name, el, az in TODS:
                 setv("sun_elevation_tenths", el); setv("sun_azimuth_tenths", az)
-                setv("enabled", 1); time.sleep(2.6); shot(f"s{i}_{v}_{name}_on")
-                setv("enabled", 0); time.sleep(2.6); shot(f"s{i}_{v}_{name}_off")
+                setv("enabled", 1); time.sleep(3.4); shot(f"s{i}_{v}_{name}_on")
+                setv("enabled", 0); time.sleep(3.4); shot(f"s{i}_{v}_{name}_off")
                 setv("enabled", 1)
     warp(*spots[0], None, why="quality tiers")
     view("third"); time.sleep(2.0)
     for name, el, az in TODS[:1] + TODS[2:]:
         setv("sun_elevation_tenths", el); setv("sun_azimuth_tenths", az)
         for qn in ("low", "medium", "high"):
-            setv("quality", qn); time.sleep(2.6); shot(f"tier_{name}_{qn}")
+            setv("quality", qn); time.sleep(3.4); shot(f"tier_{name}_{qn}")
     setv("quality", "medium"); setv("sun_elevation_tenths", -9999)
     view("classic"); time.sleep(1.0); shot("classic_after")
     open("/out/.keys_done", "w").close()
