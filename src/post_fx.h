@@ -210,10 +210,9 @@ private:
 
     // The world's shadow geometry.
     IDirect3DVertexBuffer9* worldVb_ = nullptr;    // the renderer's (AddRef'd; debug=9 draws the shadows from it)
-    // The shadow pass's own copy, one stream: position, uv, atlas cell (7 floats). The first
-    // version read the renderer's buffer on stream 0 and the cell on stream 1; under Wine 9
-    // those draws rasterised nothing (atlas dumps out/vp2_dbg2: casters only, even with the
-    // solid shader), so the world never cast a shadow.
+    // The shadow pass's own copy (FVF XYZ|TEX1): position and the uv already moved into the
+    // alpha atlas. The first version read the cell as a second interpolated texcoord; under
+    // Wine 9 every triangle through that shader was clipped, so the world cast no shadow.
     IDirect3DVertexBuffer9* cellVb_ = nullptr;
     IDirect3DIndexBuffer9* shadowIb_ = nullptr;
     IDirect3DTexture9* alphaAtlas_ = nullptr;

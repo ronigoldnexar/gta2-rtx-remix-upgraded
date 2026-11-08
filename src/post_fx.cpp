@@ -22,7 +22,8 @@ constexpr D3DFORMAT kIntz = static_cast<D3DFORMAT>(MAKEFOURCC('I', 'N', 'T', 'Z'
 constexpr int kChunk = 16;             // blocks per side of a shadow chunk
 constexpr int kMaxCasters = 900;
 constexpr int kCellPx = 64;            // the game's tile size
-constexpr int kShadowVertexFloats = 7;  // the world's shadow vertex: x y z u v cellx celly
+constexpr int kShadowVertexFloats = 5;  // the world's shadow vertex: x y z, and u v in the alpha atlas
+constexpr DWORD kShadowWorldFvf = D3DFVF_XYZ | D3DFVF_TEX1;
 
 // --- Matrices (row vectors, m[row][col], as math3d.h) ------------------------
 Mat4 Mul(const Mat4& a, const Mat4& b) {
@@ -329,19 +330,29 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
             alphaAtlas_->UnlockRect(0);
         }
     }
-    // The shadow copy of the vertices: position, uv, atlas cell (cell 0 = solid).
+    // The shadow copy of the vertices: position and the uv already moved into the alpha
+    // atlas, (cell + clamp(uv, 0.01, 0.99)) * cell size, so the pass needs no per-vertex cell
+    // (the first version interpolated the cell as a second texcoord and, under Wine 9, every
+    // cutout triangle was clipped: fences cast nothing, out/vp2_dbg5). A face's uv stays within
+    // its tile, so the interpolated atlas uv stays inside the cell. Solid vertices sample cell 0
+    // (opaque) but are drawn with the plain depth shader anyway.
+    const float cellSize = 1.0f / static_cast<float>(side);
     std::vector<float> cells(mesh.vertices.size() * kShadowVertexFloats, 0.0f);
+    std::vector<uint8_t> cutVertex(mesh.vertices.size(), 0);
     for (size_t v = 0; v < mesh.vertices.size(); ++v) {
         const Vertex& src = mesh.vertices[v];
         float* d = &cells[v * kShadowVertexFloats];
-        d[0] = src.x; d[1] = src.y; d[2] = src.z; d[3] = src.u; d[4] = src.v;
+        d[0] = src.x; d[1] = src.y; d[2] = src.z;
+        d[3] = std::min(0.99f, std::max(0.01f, src.u)) * cellSize;
+        d[4] = std::min(0.99f, std::max(0.01f, src.v)) * cellSize;
     }
     for (const TileBatch& b : mesh.batches) {
         if (!b.needsAlphaTest || b.tile < 0 || b.tile >= static_cast<int>(cellOf.size()) || cellOf[static_cast<size_t>(b.tile)] < 0) continue;
         const int c = cellOf[static_cast<size_t>(b.tile)];
         for (uint32_t v = b.vertexStart; v < b.vertexStart + b.vertexCount && v < mesh.vertices.size(); ++v) {
-            cells[v * kShadowVertexFloats + 5] = static_cast<float>(c % side);
-            cells[v * kShadowVertexFloats + 6] = static_cast<float>(c / side);
+            cells[v * kShadowVertexFloats + 3] += static_cast<float>(c % side) * cellSize;
+            cells[v * kShadowVertexFloats + 4] += static_cast<float>(c / side) * cellSize;
+            cutVertex[v] = 1;
         }
     }
     // Triangles by map chunk (of the centroid), row by row.
@@ -354,18 +365,25 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
     chunksX_ = std::max(1, static_cast<int>(std::ceil((hi[0] - ox) / kChunk)) + 1);
     chunksZ_ = std::max(1, static_cast<int>(std::ceil((hi[2] - oz) / kChunk)) + 1);
     const size_t triCount = mesh.indices.size() / 3;
+    // Two sets of chunks: the solid triangles (drawn without a texture fetch), then the
+    // cutout ones (fences, grilles: the alpha atlas). Each set is in chunk order, so the
+    // chunks a cascade touches still merge into runs.
+    const size_t nChunks = static_cast<size_t>(chunksX_) * chunksZ_;
     std::vector<int> chunkOf(triCount);
-    std::vector<uint32_t> perChunk(static_cast<size_t>(chunksX_) * chunksZ_ + 1, 0);
+    std::vector<uint32_t> perChunk(nChunks * 2 + 1, 0);
+    size_t cutoutTris = 0;
     for (size_t t = 0; t < triCount; ++t) {
         const Vertex& a = mesh.vertices[mesh.indices[t * 3]];
         const Vertex& b = mesh.vertices[mesh.indices[t * 3 + 1]];
         const Vertex& c = mesh.vertices[mesh.indices[t * 3 + 2]];
         const int cx = std::min(chunksX_ - 1, std::max(0, static_cast<int>(((a.x + b.x + c.x) / 3.0f - ox) / kChunk)));
         const int cz = std::min(chunksZ_ - 1, std::max(0, static_cast<int>(((a.z + b.z + c.z) / 3.0f - oz) / kChunk)));
-        chunkOf[t] = cz * chunksX_ + cx;
+        const bool cut = cutVertex[mesh.indices[t * 3]] != 0;
+        cutoutTris += cut ? 1 : 0;
+        chunkOf[t] = (cut ? static_cast<int>(nChunks) : 0) + cz * chunksX_ + cx;
         ++perChunk[static_cast<size_t>(chunkOf[t])];
     }
-    chunks_.assign(static_cast<size_t>(chunksX_) * chunksZ_, Chunk{});
+    chunks_.assign(nChunks * 2, Chunk{});
     uint32_t run = 0;
     for (size_t i = 0; i < chunks_.size(); ++i) {
         chunks_[i].start = run;
@@ -386,7 +404,7 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
     }
     bool good = true;
     void* dest = nullptr;
-    if (FAILED(device_->CreateVertexBuffer(static_cast<UINT>(cells.size() * sizeof(float)), D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED,
+    if (FAILED(device_->CreateVertexBuffer(static_cast<UINT>(cells.size() * sizeof(float)), D3DUSAGE_WRITEONLY, kShadowWorldFvf, D3DPOOL_MANAGED,
                                            &cellVb_, nullptr)) || FAILED(cellVb_->Lock(0, 0, &dest, 0))) {
         good = false;
     } else {
@@ -406,8 +424,26 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
         return;
     }
     worldIndexCount_ = static_cast<UINT>(sorted.size());
-    RendererTrace("visuals: world shadow copy: %u vertices, %zu triangles in %dx%d chunks, %zu cutout tiles in a %d px alpha atlas, %.0f ms",
-                  worldVertexCount_, triCount, chunksX_, chunksZ_, cutoutTiles.size(), atlasPx, NowMs() - t0);
+    // Read the alpha atlas back: cell 0 must be opaque, or every world triangle is cut away.
+    int solidAlpha = -1;
+    double cutCover = -1.0;
+    {
+        D3DLOCKED_RECT r;
+        if (SUCCEEDED(alphaAtlas_->LockRect(0, &r, nullptr, D3DLOCK_READONLY))) {
+            solidAlpha = static_cast<int>(reinterpret_cast<const uint32_t*>(r.pBits)[kCellPx / 2 + (kCellPx / 2) * (r.Pitch / 4)] >> 24);
+            if (!cutoutTiles.empty()) {
+                size_t opaque = 0;
+                for (int y = 0; y < kCellPx; ++y)
+                    for (int x = 0; x < kCellPx; ++x)
+                        opaque += (reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(r.pBits) + y * r.Pitch)[kCellPx + x] >> 24) >= 128;
+                cutCover = 100.0 * static_cast<double>(opaque) / (kCellPx * kCellPx);
+            }
+            alphaAtlas_->UnlockRect(0);
+        }
+    }
+    RendererTrace("visuals: world shadow copy: %u vertices, %zu triangles (%zu cutout) in %dx%d chunks, %zu cutout tiles in a %d px alpha atlas "
+                  "(solid cell alpha %d, first cutout cell %.0f%% opaque), %.0f ms",
+                  worldVertexCount_, triCount, cutoutTris, chunksX_, chunksZ_, cutoutTiles.size(), atlasPx, solidAlpha, cutCover, NowMs() - t0);
 }
 
 // --- A frame ---------------------------------------------------------------
@@ -626,55 +662,66 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
         device_->SetViewport(&vp);
         device_->SetVertexShaderConstantF(0, &cs.lightVP.m[0][0], 4);
 
-        // The world: runs of consecutive chunks whose box reaches the cascade.
+        // The world: runs of consecutive chunks whose box reaches the cascade; the solid set
+        // with the plain depth shader, then the cutout set through the alpha atlas.
         if (shadowIb_ && cellVb_ && worldVb_) {
             const int dbg = g_visuals.debug & 15;
-            if (dbg == 9 || dbg == 11) {   // the renderer's own buffer through the model path (no cutouts)
+            if (dbg == 9 || dbg == 11) {   // debug: the renderer's own buffer through the model path (no cutouts)
                 device_->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
                 device_->SetVertexShader(vsShadowModel_);
                 const Mat4 ident = Identity();
                 device_->SetVertexShaderConstantF(4, &ident.m[0][0], 4);
-                device_->SetPixelShader(psShadowSolid_);
                 device_->SetStreamSource(0, worldVb_, 0, sizeof(Vertex));
             } else {
-                device_->SetVertexDeclaration(shadowWorldDecl_);
-                device_->SetVertexShader(vsShadowWorld_);
-                device_->SetPixelShader(dbg == 8 || dbg == 10 ? psShadowSolid_ : psShadowWorld_);
+                // The same path as a recorded cutout caster: FVF, the model shader, identity.
+                device_->SetFVF(kShadowWorldFvf);
+                device_->SetVertexShader(vsShadowModel_);
+                const Mat4 ident = Identity();
+                device_->SetVertexShaderConstantF(4, &ident.m[0][0], 4);
                 device_->SetStreamSource(0, cellVb_, 0, kShadowVertexFloats * sizeof(float));
             }
-            const float psc[4] = {atlasCell_, 0.5f, 0.0f, 0.0f};
+            const float psc[4] = {0.0f, 0.5f, 0.0f, 0.0f};   // y: alpha reference of ps_shadow_cutout
             device_->SetPixelShaderConstantF(0, psc, 1);
             device_->SetTexture(0, alphaAtlas_);
             device_->SetIndices(shadowIb_);
-            uint32_t runStart = 0, runCount = 0;
-            auto flush = [&]() {
-                if (runCount) {
-                    device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, worldVertexCount_, runStart, runCount / 3);
-                    ++stats_.worldDraws;
-                }
-                runCount = 0;
-            };
-            if (dbg == 10 || dbg == 11) {   // debug: the whole world in one draw, no chunk culling
+            const size_t nChunks = chunks_.size() / 2;
+            if (dbg == 10 || dbg == 11) {   // debug: the whole world in one draw, no chunk culling, no cutouts
+                device_->SetPixelShader(psShadowSolid_);
                 device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, worldVertexCount_, 0, worldIndexCount_ / 3);
                 ++stats_.worldDraws;
-            } else
-            for (const Chunk& ch : chunks_) {
-                bool hit = false;
-                if (ch.count) {
-                    float mn[3] = {1e9f, 1e9f, 1e9f}, mx[3] = {-1e9f, -1e9f, -1e9f};
-                    for (int i = 0; i < 8; ++i) {
-                        const Vec3 p = XformPoint(view, Vec3{(i & 1) ? ch.hi[0] : ch.lo[0], (i & 2) ? ch.hi[1] : ch.lo[1],
-                                                             (i & 4) ? ch.hi[2] : ch.lo[2]});
-                        mn[0] = std::min(mn[0], p.x); mn[1] = std::min(mn[1], p.y); mn[2] = std::min(mn[2], p.z);
-                        mx[0] = std::max(mx[0], p.x); mx[1] = std::max(mx[1], p.y); mx[2] = std::max(mx[2], p.z);
+            } else {
+                for (int set = 0; set < 2; ++set) {
+                    // debug 8: everything solid; 12: the cutout set left out
+                    if (set == 1 && dbg == 12) break;
+                    device_->SetPixelShader(set == 0 || dbg == 8 || dbg == 9 ? psShadowSolid_ : psShadowCutout_);
+                    uint32_t runStart = 0, runCount = 0;
+                    auto flush = [&]() {
+                        if (runCount) {
+                            device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, worldVertexCount_, runStart, runCount / 3);
+                            ++stats_.worldDraws;
+                        }
+                        runCount = 0;
+                    };
+                    for (size_t ci = set * nChunks; ci < (set + 1) * nChunks; ++ci) {
+                        const Chunk& ch = chunks_[ci];
+                        bool hit = false;
+                        if (ch.count) {
+                            float mn[3] = {1e9f, 1e9f, 1e9f}, mx[3] = {-1e9f, -1e9f, -1e9f};
+                            for (int i = 0; i < 8; ++i) {
+                                const Vec3 p = XformPoint(view, Vec3{(i & 1) ? ch.hi[0] : ch.lo[0], (i & 2) ? ch.hi[1] : ch.lo[1],
+                                                                     (i & 4) ? ch.hi[2] : ch.lo[2]});
+                                mn[0] = std::min(mn[0], p.x); mn[1] = std::min(mn[1], p.y); mn[2] = std::min(mn[2], p.z);
+                                mx[0] = std::max(mx[0], p.x); mx[1] = std::max(mx[1], p.y); mx[2] = std::max(mx[2], p.z);
+                            }
+                            hit = mx[0] >= -r && mn[0] <= r && mx[1] >= -r && mn[1] <= r && mx[2] >= 0.0f && mn[2] <= range;
+                        }
+                        if (hit && runCount && runStart + runCount == ch.start) runCount += ch.count;
+                        else if (hit) { flush(); runStart = ch.start; runCount = ch.count; }
+                        else flush();
                     }
-                    hit = mx[0] >= -r && mn[0] <= r && mx[1] >= -r && mn[1] <= r && mx[2] >= 0.0f && mn[2] <= range;
+                    flush();
                 }
-                if (hit && runCount && runStart + runCount == ch.start) runCount += ch.count;
-                else if (hit) { flush(); runStart = ch.start; runCount = ch.count; }
-                else flush();
             }
-            flush();
         }
 
         // The recorded models.
