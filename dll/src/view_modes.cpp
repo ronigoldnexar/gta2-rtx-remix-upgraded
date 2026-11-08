@@ -702,6 +702,16 @@ float g_navRate = 0.0f;          // radians a second, eased
 int g_navPulse = 0, g_navCool = 0;
 int g_navLogEveryFrame = -1;
 long g_diReads = 0;
+// Third person: the camera yaw the arrows are read against. Latched when the
+// set of arrows held changes (a press or a release) and otherwise moved only
+// by an explicit look (the mouse orbit, g_navLookYaw): with the soft follow the
+// camera swings round behind him while a key is held, and re-reading the camera
+// every frame would turn the wanted heading with it, a circle that chases its
+// own tail. Latched, Right walks him straight off to the right of where the
+// camera looked, and the camera settles behind him.
+float g_navRefYaw = 0.0f;
+int g_navLastKeys = -1;
+float g_navLookYaw = 0.0f;       // mouse orbit applied by the camera since the controller last ran
 
 typedef HRESULT(WINAPI* GetDeviceStateFn)(IDirectInputDevice8A*, DWORD, LPVOID);
 typedef HRESULT(WINAPI* GetDeviceDataFn)(IDirectInputDevice8A*, DWORD, LPDIDEVICEOBJECTDATA, LPDWORD, DWORD);
@@ -834,8 +844,16 @@ void SteerPlayer(ViewMode mode, float dt) {
     float desired = g_navHeading;
     bool wantMove = false, reverse = false, keepAligned = false;
     if (mode == ViewMode::ThirdPerson) {
-        const float fx = std::sin(g_navCamYaw), fz = std::cos(g_navCamYaw);
-        const float rx = std::cos(g_navCamYaw), rz = -std::sin(g_navCamYaw);
+        const int keys = (up ? 1 : 0) | (down ? 2 : 0) | (left ? 4 : 0) | (right ? 8 : 0);
+        if (keys != g_navLastKeys) {
+            g_navRefYaw = g_navCamYaw;
+            g_navLastKeys = keys;
+        } else {
+            g_navRefYaw = WrapAngle(g_navRefYaw + g_navLookYaw);
+        }
+        g_navLookYaw = 0.0f;
+        const float fx = std::sin(g_navRefYaw), fz = std::cos(g_navRefYaw);
+        const float rx = std::cos(g_navRefYaw), rz = -std::sin(g_navRefYaw);
         const float f = (up ? 1.0f : 0.0f) - (down ? 1.0f : 0.0f);
         const float r = (right ? 1.0f : 0.0f) - (left ? 1.0f : 0.0f);
         const float vx = fx * f + rx * r, vz = fz * f + rz * r;
@@ -912,8 +930,8 @@ void SteerPlayer(ViewMode mode, float dt) {
     if (g_navLogEveryFrame ? (turning || g_inj[0] || g_inj[2] || g_inj[3]) : now - g_navLogClock > 0.5) {
         g_navLogClock = now;
         if (wantMove || keepAligned || g_inj[0] || g_inj[2] || g_inj[3])
-            Log("nav: %s keys U%d D%d L%d R%d -> heading %.0f rate %.0f wanted %.0f err %.0f pred %.0f : game U%d D%d L%d R%d (reads %ld, state %ld data %ld)",
-                mode == ViewMode::ThirdPerson ? "third" : "first", up, down, left, right,
+            Log("nav: %s keys U%d D%d L%d R%d ref %.0f -> heading %.0f rate %.0f wanted %.0f err %.0f pred %.0f : game U%d D%d L%d R%d (reads %ld, state %ld data %ld)",
+                mode == ViewMode::ThirdPerson ? "third" : "first", up, down, left, right, g_navRefYaw / kDegToRad,
                 g_navHeading / kDegToRad, g_navRate / kDegToRad, desired / kDegToRad, e / kDegToRad, ePred / kDegToRad,
                 g_inj[0], g_inj[1], g_inj[2], g_inj[3], g_diReads, g_diStateCalls, g_diDataCalls);
     }
@@ -1238,6 +1256,7 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
         if (active) InstallNavHook(false);
         const bool nowActive = active && g_diHooked;
         if (g_navActive && !nowActive) ReleaseInjected();
+        if (!nowActive) g_navLastKeys = -1, g_navLookYaw = 0.0f;   // re-latched on the next frame on foot
         g_navActive = nowActive;
         if (g_navActive) SteerPlayer(mode, dt);
     }
@@ -1308,6 +1327,20 @@ static void LogCameraFrame(const char* view, float camYaw, float headingYaw, flo
         Log("cam: %s yaw=%.1f heading=%.1f rate=%.0f dt=%.3f", view, camYaw / kDegToRad, headingYaw / kDegToRad, rate, dt);
 }
 
+// The soft follow's own line (GTA2DX9_LOG_CAMERA=1): the camera's yaw, what it
+// follows, his facing and the way he walks, his speed, and whether it follows.
+static void LogFootFollow(float yaw, float target, float heading, float walkYaw, float speed, bool following,
+                          bool keys, float engage) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", buf, sizeof buf) && atoi(buf) ? 1 : 0;
+    }
+    if (!enabled) return;
+    Log("foot: yaw=%.1f target=%.1f heading=%.1f walk=%.1f speed=%.2f follow=%d keys=%d engage=%.2f", yaw / kDegToRad,
+        target / kDegToRad, heading / kDegToRad, walkYaw / kDegToRad, speed, following ? 1 : 0, keys ? 1 : 0, engage);
+}
+
 float ViewTurnSpeedScale() { return (std::max)(g_settings.turnSpeed, 5.0f) / 100.0f; }
 
 bool ViewPlayerDrawnTurn(float* capRadPerSec, float* easeSec) {
@@ -1330,6 +1363,9 @@ void ViewLogPlayerDrawnYaw(float heading, float rate, float dt) {
 void ViewCameraSolver::Reset() {
     settled_ = false;
     awayTime_ = 0.0f;
+    engageTime_ = 0.0f;
+    idleTime_ = 0.0f;
+    footFollowing_ = false;
     finalYawKnown_ = false;
     floorSettled_ = false;
     status_ = "classic";
@@ -1819,6 +1855,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // the frame, and only the direction he walks in draws it slowly round
         // behind him. It never spins with his heading.
         followYaw_ = WrapAngle(followYaw_ + look.yaw);
+        g_navLookYaw = WrapAngle(g_navLookYaw + look.yaw);   // the arrows' reference turns with an explicit look
         look.yaw = 0.0f;
         // Over the body the death camera turns slowly round him.
         followYaw_ = WrapAngle(followYaw_ + 6.0f * kDegToRad * dt * deathMix_);
@@ -1830,6 +1867,71 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             const float rate = s.turnRateFoot * scale * kDegToRad;
             SpringTurn(&followYaw_, &followYawVel_, walkYaw, 2.0f / (std::max)(s.tpOrbitTau, 0.1f), rate > 0.0f ? rate : 0.0f, dt);
             awayTime_ = 0.0f;
+        } else if (s.tpFollowTauWalk > 0.0f) {
+            // Soft follow, as GTA V's camera on foot: while he walks the yaw eases
+            // round behind the way he goes; a key pressed while he stands turns him
+            // and the camera follows his facing. Each turn is followed only after
+            // tpFollowDelay (so a tap or a step does not stir the picture), on a
+            // critically damped spring (no overshoot) with a time constant from
+            // tpFollowTauWalk at a walk to tpFollowTauRun at a run, capped at
+            // turnRateFoot. Standing with no key held for a moment, it holds.
+            awayTime_ = 0.0f;
+            const bool keysHeld = g_navActive && (g_phys[0] || g_phys[1] || g_phys[2] || g_phys[3]);
+            keyAge_ = keysHeld ? 0.0f : keyAge_ + dt;
+            // What is followed is his facing (the game's heading; the spring and the
+            // delay smooth its snaps and the controller's pulses), not the way he
+            // moves: a car shoving him, a wall he slides along, being knocked down
+            // (ped state 8/9) never swing the camera. Moving more than 100 degrees
+            // off his facing is being pushed, not walking.
+            const bool down = downTime_ > 0.0f;
+            const bool pushed = walking && std::fabs(WrapAngle(walkYaw - headingYaw)) > 100.0f * kDegToRad;
+            // A key pressed (or let go under a second ago: a tap that turned him
+            // where he stands) or walking his own way is a wish to turn.
+            const bool intent = !down && !pushed && (walking || keysHeld || keyAge_ < 1.0f);
+            idleTime_ = intent ? 0.0f : idleTime_ + dt;
+            float target = headingYaw;
+            float err = WrapAngle(target - followYaw_);
+            // Nearly about-face (he turned to walk toward the camera): keep turning
+            // the way it already turns, so noise about 180 degrees cannot flip it.
+            if (std::fabs(err) > 150.0f * kDegToRad && followYawVel_ * err < 0.0f) {
+                err = (followYawVel_ > 0.0f ? 1.0f : -1.0f) * 150.0f * kDegToRad;
+                target = WrapAngle(followYaw_ + err);
+            }
+            // A new episode (a press, a step off after standing) waits the delay.
+            if (!footFollowing_) {
+                if (intent && std::fabs(err) > 2.0f * kDegToRad) {
+                    engageTime_ += dt;
+                    if (engageTime_ >= (std::max)(s.tpFollowDelay, 0.0f)) footFollowing_ = true;
+                } else {
+                    engageTime_ = 0.0f;
+                }
+            }
+            // A turn begun by a key is finished after the key is let go (he stands
+            // facing his new way, the camera settles behind him); then it holds.
+            // A bump or a shove, with no key, never starts one.
+            if (footFollowing_ && !intent &&
+                (idleTime_ > 2.5f || (std::fabs(err) < 1.0f * kDegToRad && std::fabs(followYawVel_) < 2.0f * kDegToRad))) {
+                footFollowing_ = false;
+                engageTime_ = 0.0f;
+            }
+            // The mouse is the player's: no follow until tpReturnDelay after it last moved.
+            const bool mouseRecent = look.lastMoved > 0.0 && Now() - look.lastMoved < s.tpReturnDelay;
+            if (footFollowing_ && !mouseRecent && !down && !pushed && deathMix_ < 0.01f) {
+                const float runSpeed = 2.6f, walkSpeed = 0.8f;   // blocks a second (GTA2 on foot runs at about 2.6)
+                const float k = (std::min)((std::max)((speed - walkSpeed) / (runSpeed - walkSpeed), 0.0f), 1.0f);
+                const float tauWalk = (std::max)(s.tpFollowTauWalk, 0.1f);
+                const float tauRun = s.tpFollowTauRun > 0.0f ? (std::max)(s.tpFollowTauRun, 0.1f) : tauWalk;
+                const float tau = tauWalk + (tauRun - tauWalk) * k;
+                const float rate = s.turnRateFoot * scale * kDegToRad;
+                SpringTurn(&followYaw_, &followYawVel_, target, 2.0f / tau, rate > 0.0f ? rate : 0.0f, dt);
+            } else {
+                // Holding: whatever turn was under way dies away over a fifth of a
+                // second rather than stopping dead.
+                followYawVel_ *= std::exp(-dt / 0.2f);
+                if (std::fabs(followYawVel_) < 0.5f * kDegToRad) followYawVel_ = 0.0f;
+                followYaw_ = WrapAngle(followYaw_ + followYawVel_ * (std::min)(dt, 1.0f / 30.0f));
+            }
+            LogFootFollow(followYaw_, target, headingYaw, walkYaw, speed, footFollowing_, keysHeld, engageTime_);
         } else {
             // Hold the yaw: he walks toward, away from or across the frame and
             // nothing turns by itself. Only after he has walked straight away
@@ -1848,6 +1950,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // The chase camera: heavily damped, aligned with where the car is going.
         const float rate = s.turnRateCar * ViewTurnSpeedScale() * kDegToRad;
         awayTime_ = 0.0f;
+        engageTime_ = 0.0f;
+        footFollowing_ = false;
         SpringTurn(&followYaw_, &followYawVel_, chaseYaw, 2.0f / (std::max)(s.tpChaseTau, 0.1f), rate > 0.0f ? rate : 0.0f, dt);
         orbitYaw = WrapAngle(followYaw_ + look.yaw);
     }

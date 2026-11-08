@@ -497,10 +497,19 @@ void DrawCamera() {
     changed |= ImGui::SliderFloat("Key turn starts at", &vm.fpTurnKeyStart, 5.0f, 120.0f, "%.0f deg/s");
     ImGui::SetNextItemWidth(S(240.0f));
     changed |= ImGui::SliderFloat("Key turn ramp", &vm.fpTurnKeyRamp, 0.0f, 2.0f, "%.2f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Follow at a walk", &vm.tpFollowTauWalk, 0.0f, 4.0f, "%.1f s");
+    Help("Third person on foot, the soft follow (as GTA V): while you walk the camera eases round behind "
+         "the way you go over about this long; a turn key pressed while standing turns you and the camera "
+         "follows. Standing still with no key held, it holds. 0 turns the follow off (held orbit).");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Follow at a run", &vm.tpFollowTauRun, 0.1f, 4.0f, "%.1f s");
+    ImGui::SetNextItemWidth(S(240.0f));
+    changed |= ImGui::SliderFloat("Follow waits", &vm.tpFollowDelay, 0.0f, 2.0f, "%.2f s");
     changed |= ImGui::Checkbox("Orbit follows the walk", &vm.tpOrbitFollow);
-    Help("Third person on foot. Off (default): the camera holds its yaw while you walk; only the mouse "
-         "orbits it, and it re-centres slowly behind you after you have walked straight away from it for "
-         "a while. On: it drifts round behind whichever way you walk.");
+    Help("Third person on foot, the earlier drift: on, the camera drifts round behind whichever way you walk "
+         "(over the time below). Off with the follow at 0: it holds its yaw while you walk and re-centres "
+         "slowly behind you after you have walked straight away from it for a while.");
     ImGui::SetNextItemWidth(S(240.0f));
     changed |= ImGui::SliderFloat("Re-centre after", &vm.tpRecentreDelay, 0.5f, 6.0f, "%.1f s");
     ImGui::SetNextItemWidth(S(240.0f));

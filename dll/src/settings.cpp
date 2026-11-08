@@ -130,6 +130,9 @@ void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCo
     f[nf++] = {"camera", "ThirdRecentreDelay", &vm.tpRecentreDelay};
     f[nf++] = {"camera", "ThirdRecentreTau", &vm.tpRecentreTau};
     f[nf++] = {"camera", "ThirdRecentreRate", &vm.tpRecentreRate};
+    f[nf++] = {"camera", "ThirdFollowTauWalk", &vm.tpFollowTauWalk};
+    f[nf++] = {"camera", "ThirdFollowTauRun", &vm.tpFollowTauRun};
+    f[nf++] = {"camera", "ThirdFollowDelay", &vm.tpFollowDelay};
     f[nf++] = {"camera", "FirstSmooth", &vm.fpSmooth};
     f[nf++] = {"camera", "FirstFollowRate", &vm.fpFollowRate};
     b[nb++] = {"camera", "NavMap", &vm.navMap};

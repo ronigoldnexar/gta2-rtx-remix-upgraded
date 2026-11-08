@@ -14,13 +14,15 @@ Every rate below (the camera, the keyboard look, the mouse, the drawn figure)
 is scaled by `turn_speed`, a percentage in `[camera]` of gta2dx9.ini and on
 the F4 Camera tab. 100 is the console-style default; 50 halves them all.
 
-## Third person on foot: a held orbit camera
+## Third person on foot: an orbit camera that follows softly
 
-- The camera does not follow where the player faces, and by default it does
-  not turn while he walks either: he walks toward, away from or across the
-  frame and the picture stays put. Only an explicit look input (the mouse)
-  orbits it.
-- A slow re-centre: once he has walked straight away from the camera (within
+- The camera never turns with the game's heading frame by frame. Since
+  CAMERA-FEEL-3 (8 Nov 2026) it follows the way he walks, softly, as GTA V's
+  does: see "Soft follow on foot" below. Standing still with no key held it
+  holds its yaw; the mouse orbits it.
+- With the follow off (`follow_tau_walk=0`), the earlier held orbit: he walks
+  toward, away from or across the frame and the picture stays put, with a slow
+  re-centre: once he has walked straight away from the camera (within
   30 degrees of its yaw) for `ThirdRecentreDelay` (2 s), the yaw eases round
   behind him on a critically damped spring with a 4 s time constant
   (`ThirdRecentreTau`), never faster than `ThirdRecentreRate` (30 degrees a
@@ -64,6 +66,77 @@ game's *own* turn and walk keys:
 
 `nav_turn_sign=-1` mirrors the turn keys if a control scheme ever has them the
 other way round; `nav_map=0` gives the arrows back to the game unchanged.
+
+## Soft follow on foot
+
+What players said of the held orbit: turning the character left the camera
+looking the old way, so he walked sideways across the frame. Now, as in GTA V:
+
+- **While he walks**, the camera's yaw eases round behind the way he is going
+  (his smoothed velocity) on the same critically damped spring as the other
+  cameras (`SpringTurn`, no overshoot), with a time constant of
+  `follow_tau_walk` (1.5 s) at a walk and `follow_tau_run` (1.0 s) at a run
+  (blended by speed between 0.8 and 2.6 blocks a second; GTA2's player runs at
+  about 2.6), never faster than `turn_rate_foot` (120 degrees a second). The
+  per-frame cap on the shown yaw and the step-locked camera (one game step per
+  frame with the frame limiter, PERF-2) are unchanged.
+- **Each turn waits `follow_delay` (0.4 s)** before the camera starts after it
+  (a step or a tap does not stir the picture), then the swing starts from rest.
+- **Standing**, a turn key turns him (the controller presses the game's turn
+  key; he takes a step as he turns) and the camera follows his new facing after
+  the same delay, finishing the turn after the key is let go. With no key held
+  it holds: a bump or a shove never swings it. A follow under way when he stops
+  dies away over 0.2 s instead of stopping dead.
+- **About-face** (Down: he walks toward the camera): the camera swings round
+  behind him the way it started, never dithering at 180 degrees.
+- **The mouse** orbits as before; the follow waits `ThirdReturnDelay` (1.5 s)
+  after the mouse last moved.
+- **The controls and the follow do not fight.** The arrows are read against the
+  camera yaw *latched when the set of arrows held changes* (a press or a
+  release), moved afterwards only by the mouse orbit. Reading the camera every
+  frame, a held Right would chase a camera that chases him: he would circle at
+  the camera's top rate. Latched, a held Right walks him straight to the right
+  of where the camera looked while the camera settles behind him, and Up then
+  carries on straight ahead (re-latched behind him); a further Right is
+  another 90-degree turn. So a square is Up, Right, Right, Right, Right.
+- **In and out of a car**: the chase camera's spring (`ThirdChaseTau`, 0.8 s,
+  `turn_rate_car`) at the wheel; on getting out the yaw is the car's and the
+  on-foot follow starts from there, from rest, under the existing 1.2 s glide of
+  the eye. Nothing is reset, so nothing jumps.
+- `orbit_follow=0` (default) means this follow, holding the yaw when idle;
+  `orbit_follow=1` is the older drift; `follow_tau_walk=0` the held orbit.
+  Saved in the F4 settings as `ThirdFollowTauWalk`, `ThirdFollowTauRun`,
+  `ThirdFollowDelay` (Camera tab: "Follow at a walk / at a run / waits").
+
+With `GTA2DX9_LOG_CAMERA=1` every on-foot frame logs a `foot:` line (camera
+yaw, the target it follows, his heading and walking direction, speed, whether
+it follows, whether a key is held), and the `nav:` lines carry `ref`, the
+latched yaw the arrows are read against.
+
+Measuring it: `gamerun/cam3_feel.py` (`keys_cam3_feel.sh`; nav_map=1, the shipped
+controls) walks a square (Up, then four Right presses), stop-turn-go (a 0.25 s Right tap
+standing, then Left, then Up), a circle (Up+Right pressed again every 1.5 s) and in/out of a
+car, in third person, run as `STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F11/;
+s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 300 keys_cam3_feel.sh -e
+GTA2DX9_LOG_CAMERA=1 -e GTA2DX9_SCENE_NO_CAR=1 -e SCENE_KEY=F11`;
+`gamerun/cam3_sheet.py <run dir> <png>` plots the yaws against the game clock (the sum of
+the step-locked camera's dt: on a loaded host a hitch stalls game and camera alike) and
+cuts frame strips from the square's recording. Sheet `out/camera_feel3_sheet.png`, clip
+`out/camera_feel3.mp4` (local).
+
+Measured (run `cam3_r3`, 8 Nov 2026, defaults, a loaded host at 0.95 game seconds per wall
+second): the square's four Right presses turned him 83-85 degrees each; the camera settled
+within 5 degrees of his new heading 3.1-3.3 game seconds after the press (of which about
+0.3 s is the key reaching the game and 0.4 s the delay), with no overshoot and no reversal
+of the follow, peaking at 52 degrees a second. One turn showed 8.8 degrees past the heading
+and one reversal in the *shown* yaw: he brushed a building and the wall clearance moved the
+eye; the follow's own yaw stayed monotonic. Stop-turn-go: a 0.25 s Right tap standing
+turned him 62 degrees and the camera followed from rest after the delay, peaking at 42
+degrees a second; the Left tap brought both back. Circle: monotonic, 24 degrees a second
+peak. Car: in, the chase spring swung round to the car's heading (unchanged); out, the yaw
+was held where the car left it, no jump. No frame turned the picture more than 4.0 degrees
+(the 120 degrees a second cap at 30 fps). Not measured here: the mouse orbit with the follow
+(no mouse in the scripted runs), the browser play page, Down (the about-face rule).
 
 ## First person
 

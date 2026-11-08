@@ -115,6 +115,18 @@ struct ViewModeSettings {
     // In a car the chase camera's yaw is damped over tpChaseTau.
     bool tpOrbitFollow = false;
     float tpOrbitTau = 1.5f;
+    // Soft follow on foot (the GTA V camera; on with tpOrbitFollow off and
+    // tpFollowTauWalk > 0): while he walks, the yaw eases round behind the way he
+    // is going on a critically damped spring with this time constant, seconds -
+    // tpFollowTauWalk at a walk, tpFollowTauRun at full running pace, in between
+    // by speed - never faster than turnRateFoot. A turn (a key pressed, or he
+    // sets off) is followed only after tpFollowDelay seconds; standing still with
+    // no key held the camera holds its yaw. tpFollowTauWalk 0 restores the held
+    // orbit with its slow re-centre below. [camera] follow_tau_walk,
+    // follow_tau_run, follow_delay in gta2dx9.ini.
+    float tpFollowTauWalk = 1.5f;
+    float tpFollowTauRun = 1.0f;
+    float tpFollowDelay = 0.4f;
     float tpRecentreDelay = 2.0f;
     float tpRecentreTau = 4.0f;
     float tpRecentreRate = 30.0f;
@@ -346,6 +358,13 @@ private:
     float followYaw_ = 0.0f;      // the yaw the chase camera sits at
     float followYawVel_ = 0.0f;   // its angular velocity, radians a second (the spring)
     float awayTime_ = 0.0f;       // third person on foot: seconds walked straight away from the camera
+    // Soft follow on foot: seconds since this turn or walk began (the follow waits
+    // tpFollowDelay), seconds since the last key or step (it finishes a turn begun
+    // by a key, then holds), and whether it is under way.
+    float engageTime_ = 0.0f;
+    float idleTime_ = 0.0f;
+    float keyAge_ = 10.0f;        // seconds since an arrow was last held on foot
+    bool footFollowing_ = false;
     float fpYaw_ = 0.0f;          // first person: the eased, rate-capped view heading
     float fpYawVel_ = 0.0f;
     float floorY_ = 0.0f;         // eased floor height under the player

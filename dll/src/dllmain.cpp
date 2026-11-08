@@ -192,6 +192,17 @@ void LoadConfig() {
         vm.navTurnSign = GetPrivateProfileIntA("camera", "nav_turn_sign", 1, ini) < 0 ? -1 : 1;
         vm.fpTurnKeyRate = static_cast<float>(GetPrivateProfileIntA("camera", "first_turn_key_rate", 70, ini));
         vm.tpOrbitFollow = GetPrivateProfileIntA("camera", "orbit_follow", 0, ini) != 0;
+        {
+            // Soft follow on foot (seconds): follow_tau_walk 0 turns it off.
+            auto iniFloat = [&](const char* key, float fallback) {
+                char v[32] = {};
+                GetPrivateProfileStringA("camera", key, "", v, sizeof(v), ini);
+                return v[0] ? static_cast<float>(atof(v)) : fallback;
+            };
+            vm.tpFollowTauWalk = iniFloat("follow_tau_walk", 1.5f);
+            vm.tpFollowTauRun = iniFloat("follow_tau_run", 1.0f);
+            vm.tpFollowDelay = iniFloat("follow_delay", 0.4f);
+        }
         vm.logKeys = GetPrivateProfileIntA("devtools", "log_keys", 0, ini) != 0;
         gta2dx9::CarBodiesSetWreckTest(GetPrivateProfileIntA("devtools", "wreck_models", 0, ini) != 0);
         gta2dx9::CarBodiesSetDevIni(ini);
