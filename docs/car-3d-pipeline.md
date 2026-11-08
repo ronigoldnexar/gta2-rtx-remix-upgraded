@@ -64,6 +64,29 @@ base model.
     TORCH_CUDA_ARCH_LIST=10.0 gen3d/venv/bin/pip install --no-build-isolation gen3d/ext/mip-splatting/submodules/diff-gaussian-rasterization/
     git clone --recurse-submodules https://github.com/microsoft/TRELLIS gen3d/TRELLIS
 
+### Rebuilding the CUDA extensions for another GPU (L4 = sm_89)
+
+The venv's compiled extensions only carry the architectures they were built for
+(`TORCH_CUDA_ARCH_LIST=10.0` on the B200). On the L4 host nvdiffrast and
+diff-gaussian-rasterization failed with "no kernel image" until rebuilt for sm_89
+(8 Nov 2026, logs `out/cq_nvdiffrast_build.log`, `out/cq_dgr_build2.log`):
+
+    cd ~/gta2-linux/gen3d
+    # stale objects from the old architecture are reused unless removed (literal paths only)
+    rm -rf ~/gta2-linux/gen3d/ext/mip-splatting/submodules/diff-gaussian-rasterization/build \
+           ~/gta2-linux/gen3d/ext/mip-splatting/submodules/diff-gaussian-rasterization/diff_gaussian_rasterization.egg-info
+    TORCH_CUDA_ARCH_LIST=8.9 venv/bin/pip install --no-build-isolation --force-reinstall --no-deps \
+        ext/mip-splatting/submodules/diff-gaussian-rasterization/
+    TORCH_CUDA_ARCH_LIST=8.9 venv/bin/pip install --no-build-isolation --force-reinstall --no-deps \
+        git+https://github.com/NVlabs/nvdiffrast.git
+    # check: every .so lists an sm_89 cubin
+    cuobjdump --list-elf venv/lib/python3.12/site-packages/diff_gaussian_rasterization/_C*.so
+
+`--no-deps` keeps pip from replacing torch; `--force-reinstall` is needed because the
+version number does not change. Use `TORCH_CUDA_ARCH_LIST="8.9;10.0"` for one venv
+that runs on both hosts. A check run afterwards (`run_trellis.py` on the cop car's
+views) produced a GLB in 2 minutes on the L4 (`out/cq_rebuild.log`).
+
 Patches to TRELLIS (two lines each, in `gen3d/TRELLIS`): the text pipeline
 import is wrapped in try/except (open3d needs libEGL, absent here); the kaolin
 `check_tensor` import in flexicubes falls back to a no-op. `run_trellis.py`
@@ -156,3 +179,66 @@ Also in this pass (`dll/src/car_bodies.cpp`):
   leaving a stair-stepped edge on curved bonnets. The triangles are now clipped
   against both planes (Sutherland-Hodgman per triangle, new vertices appended),
   so the edge is the plane itself.
+
+## Clean albedo pass (8 Nov 2026, CAR-QUALITY-4)
+
+The user saw the cars as "completely worn out" and the police car with "lighting
+smeared across it". Causes found in the v1/v2 models: (1) the SDXL concepts were often
+line drawings, poster sheets or several cars on one image (a "black and white" livery
+reads to SDXL as a monochrome drawing); (2) the x4 game sprite projected onto every
+upward face put its soft, drawn-in highlights across hoods and trunks (the cop car's
+blotchy blue-white bonnet); (3) the side-livery option painted the sprite's row colours
+along the flanks as vertical streaks; (4) the v2 delighting divided by a global-median
+Gaussian low-pass, which turned black trim grey and left grey halos round every dark
+part; (5) image-to-3D sees one side of the car and bakes the hidden side into a shadow;
+(6) the cabin-position nose test put the v3 cop car tail-first.
+
+The pass, all scripts in `gen3d/` (outside git) plus the tools here:
+
+1. **Concepts** (`gen3d/concepts_v3.py`): "studio product photograph of one single car",
+   per-model paint words (cop: white body with dark blue doors, hood and trunk), a
+   negative prompt against drawings/text/collages/dirt, several seeds per view, and a
+   check on each try's rembg cut-out: one connected car, not touching the frame, not line
+   art (paper-white + ink-black share), no hot specular blobs, a sprite palette match
+   (k-means colours of the game sprite), and for car classes a front-view test (DINOv2
+   against front/rear prototypes, see 4). The best try is `concept/<stem>_3q_v3.png`;
+   tries and scores in `concept/v3try/`, `concept/v3_qc.json`, `gen3d/work/cq4_concepts.log`.
+2. **TRELLIS** (`gen3d/trellis_v3.py`, one process, the L4 cannot hold SDXL and TRELLIS
+   together, so `gen3d/work/cq4_orchestrate.sh` alternates batches): two candidates per
+   model, c0 = the 3/4 view, c1 = another seed (or the three views when they exist; with
+   separately generated views it blends bodies and is usually blurrier). 8 000 faces at the
+   source: pymeshlab's decimation filters do not load on this host.
+3. **Fit** (`tools/make_car_model.py` via `gen3d/car_pipeline2.py --stage fit --tag v3c`):
+   floating debris dropped (`drop_debris`, connectivity by position since UV seams split
+   the mesh), `--delight` with the new bilateral shading estimate
+   (`tools/delight_texture.py`: shading = local / regional bilateral low-pass of the
+   luminance, so the paint level stays and nothing bleeds across albedo edges; specular
+   blobs filled by normalised convolution), `--balance-sides` (the hidden flank's
+   low-frequency colour pulled to its mirror on the lit side, per channel, details and
+   lettering not mirrored), `--roof-only 0.8` (the sprite only on the cabin roof),
+   `--no-paint-match` for liveries and a paint-match clamp of 0.8-1.25 for the rest,
+   no side livery, materials left as plain PBR factors for the renderer.
+4. **Nose** (`tools/nose_from_concept.py`): the fitted model rendered from the four
+   diagonal 3/4 views, compared with the concept cut-out by DINOv2 (ViT-L/14 reg); the end
+   that matches is the end the concept shows. SDXL sometimes draws a rear 3/4 view (013
+   Minx, 033, 040): the concept's own front/rear margin against prototypes built from the
+   59 checked v1 models (`gen3d/work/nose_protos.npz`, `--protos`) flips the verdict for car
+   classes, and `proto_margin` (does the +z end look like a front) is kept as a second vote.
+   The v1 `NOSE_OVERRIDE` table is not used for v3 candidates.
+5. **Score and pick** (`tools/score_car_model.py`): the lighting term is now the bilateral
+   highlight share, the bilateral shading variance and the left/right flank balance; v1 was
+   re-scored with the same scorer (`out/car_scores_before_cq4.json`). Candidate = best total
+   (+0.3 x concept likeness as a tie-break, never a tail-first one); `--stage reselect`
+   re-picks from `status.json`, `--add-candidates 2,3` fits extra candidates without redoing
+   the others (`gen3d/cq4_round2.py` makes them: another TRELLIS seed, the runner-up concept).
+6. **Integrate** only models whose total beats v1 and that pass a look at
+   `out/car_quality_sheet.png` (`tools/car_quality_sheet.py` renders v1 and v3 with
+   `render_glb.py` from five views incl. the far side): `gen3d/integrate_v2.sh`, which now
+   turns 069 end for end (`gen3d/flip_forward.py`) because its manifest entry keeps
+   `"forward": "-z"`; `tools/make_car_manifest.py` now carries `forward` over when it rebuilds
+   the manifest (it used to drop it).
+7. **In game**: `gamerun/car_models_sheet.py` with `GTA2DX9_SCENE_NO_CAR=1`,
+   `SHEET_XY=164.5,149.2 FACE_XY=180,149.4` (in the lane, the queue facing the camera) and the
+   INI_SED for `scene_key=F10`; the player is run over now and then, so the runner re-warps
+   after a respawn and runs go in chunks of 5-10 models. Before frames: a stage copy with the
+   v1 models (`stage_cq4_v1`). `tools/car_ingame_sheet.py` -> `out/car_ingame_sheet_v2.png`.
