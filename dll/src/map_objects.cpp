@@ -133,9 +133,12 @@ const Model* MapObjectModel(const void* spriteObject, const LiveGeometry::Vertex
 
 std::vector<PropFootprint> g_objectFootprints;
 const std::vector<PropFootprint>& MapObjectFootprints() { return g_objectFootprints; }
+std::vector<PropFootprint> g_objectObstacles;
+const std::vector<PropFootprint>& MapObjectObstacles() { return g_objectObstacles; }
 
 void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::SpriteType>& sprites) {
     g_objectFootprints.clear();
+    g_objectObstacles.clear();
     for (const LiveGeometry::SpriteType& s : sprites) {
         if (!s.objectModel) continue;
         if (!ModelIsKnown(s.objectModel)) {
@@ -172,6 +175,14 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         const float cx = 0.25f * (s.local[0].x + s.local[1].x + s.local[2].x + s.local[3].x);
         const float cz = 0.25f * (s.local[0].z + s.local[1].z + s.local[2].z + s.local[3].z);
         const float cy = 0.25f * (s.local[0].y + s.local[1].y + s.local[2].y + s.local[3].y);
+        if (!spinning) {
+            // Every standing object, drawn or culled, for the chase camera's clearance.
+            const gta2::Mat4& w = s.objectToWorld;
+            g_objectObstacles.push_back({cx * w.m[0][0] + cy * w.m[1][0] + cz * w.m[2][0] + w.m[3][0],
+                                         cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1],
+                                         cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2],
+                                         (std::min)(0.6f, (std::max)(0.12f, 0.5f * longer)), (std::max)(0.3f, model.Height() * scale)});
+        }
         {
             // World position of the quad's centre; nothing drawn behind the camera.
             const gta2::Mat4& w = s.objectToWorld;

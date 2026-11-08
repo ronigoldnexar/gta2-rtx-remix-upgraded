@@ -16,6 +16,8 @@
 #include "compat.h"
 #include "game_access.h"
 #include "log.h"
+#include "map_objects.h"
+#include "model_store.h"
 #include "remix_api.h"
 
 namespace gta2dx9 {
@@ -1489,8 +1491,14 @@ void ViewCameraSolver::SolveLost(const ViewQueries& q, float dt, gta2::Camera* c
     const gta2::Vec3 centre{lastX_, floorY_ + 0.2f, lastZ_};
     gta2::Vec3 eye{shownX_, shownY_, shownZ_};
     // A third of a second of stillness first: a locator that misses him for a
-    // frame or two (a car door, a respawn scan) does not start a crane move.
-    if (lostTime_ > 0.3f) {
+    // frame or two (a car door, a respawn scan) does not start a crane move. On
+    // foot and on his feet (not down, not in a car that blew up) he is only being
+    // re-found - getting into a car loses him for up to a second while the locator
+    // re-scans - so the camera holds where it is for 1.5 s: before, it craned up and
+    // back 3 blocks and the chase view then started from there, a hard cut to a high
+    // far rig (QUALITY-BAR row 7).
+    const bool aliveOnFoot = !lastInVehicle_ && downTime_ <= 0.0f && deathMix_ < 0.01f;
+    if (lostTime_ > (aliveOnFoot ? 1.5f : 0.3f)) {
         float ox = eye.x - centre.x, oz = eye.z - centre.z;
         if (std::hypot(ox, oz) < 0.2f) {
             const float back = yawDegrees * kDegToRad;
@@ -1550,6 +1558,50 @@ namespace {
 float Wobble(double t, float f) {
     return 0.5f * static_cast<float>(std::sin(t * f * 6.2832) + 0.6 * std::sin(t * f * 9.17 + 1.3) +
                                      0.3 * std::sin(t * f * 15.31 + 2.1));
+}
+
+// The street objects the camera keeps clear of, as upright cylinders (renderer
+// frame): the game's own objects drawn as models (phone boxes, traffic lights,
+// cones, crates, bins: map_objects.cpp, every one the game drew this frame, the
+// ones behind the camera too) and the posts under the map's lamps (DrawProps
+// stands one under every lamp). The map's walls and flat panels, and the street
+// furniture placed by rule (PanelDistance, PropPush), are queried as before.
+struct Obstacle {
+    float x, z, y0, y1, r;
+    bool post;
+};
+
+void GatherObstacles(float x, float z, float range, bool posts, std::vector<Obstacle>* out) {
+    out->clear();
+    for (const PropFootprint& p : MapObjectObstacles()) {
+        if (std::fabs(p.x - x) > range || std::fabs(p.z - z) > range) continue;
+        // The footprint radius is half the longer side of the object's quad; a box's
+        // corner is up to 1.42 times that from its middle.
+        out->push_back({p.x, p.z, p.y - 0.05f, p.y + p.height + 0.05f, p.radius * 1.42f, false});
+    }
+    if (!posts) return;
+    for (const gta2::Vec3& at : MapLamps()) {
+        if (std::fabs(at.x - x) > range || std::fabs(at.z - z) > range) continue;
+        // The post stands under the lamp (up to 3.5 blocks below it, DrawProps); the
+        // street_lamp model's foot is 0.15 of a block across at most.
+        out->push_back({at.x, at.z, at.y - 3.6f, at.y + 0.35f, 0.08f, true});
+    }
+}
+
+// The obstacle whose cylinder, widened by `clear`, holds the point; null when none.
+const Obstacle* ObstacleAt(const std::vector<Obstacle>& list, const gta2::Vec3& p, float clear, bool posts) {
+    const Obstacle* found = nullptr;
+    float deepest = 0.0f;
+    for (const Obstacle& o : list) {
+        if (o.post && !posts) continue;
+        if (p.y < o.y0 - clear || p.y > o.y1 + clear) continue;
+        const float depth = o.r + clear - std::hypot(p.x - o.x, p.z - o.z);
+        if (depth > deepest) {
+            deepest = depth;
+            found = &o;
+        }
+    }
+    return found;
 }
 
 }  // namespace
@@ -1684,6 +1736,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         if (inVehicle) {
             // In the cabin of the car's 3D body, when it has one: the driver's head.
             float deck, roof, screen, halfWidth;
+            float bodyLength, bodyHeight, bodyHalfWidth;
+            if (CarBodiesExtent(player.vehicleSprite, &bodyLength, &bodyHeight, &bodyHalfWidth)) {
+                exitCar_ = player.vehicle;
+                exitCarHalfLength_ = 0.5f * bodyLength;
+                exitCarHalfWidth_ = bodyHalfWidth;
+                exitCarHeight_ = bodyHeight;
+            }
             if (CarBodiesCabin(player.vehicleSprite, &deck, &roof, &screen, &halfWidth)) {
                 eyeHeight = deck + (roof - deck) * s.fpEyeCabin;
                 ahead = screen - s.fpBehindScreen;
@@ -1700,6 +1759,74 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 !(q.blocked && q.blocked(q.context, ox, eye.y, oz))) {
                 eye.x = ox;
                 eye.z = oz;
+            }
+        }
+        // Nor at a lamp post or a phone box (QA3 qa_crash_10: a post a hand from the eye
+        // drew a dark bar down a fifth of the frame; the game walks him through our posts,
+        // which it does not know). The eye is kept 0.3 block from a post's axis and 0.1
+        // clear of a game object's box, moved sideways round it (a continuous slide, no
+        // jump), never into a wall.
+        float fpPostDistance = 99.0f;
+        if (!inVehicle) {
+            static std::vector<Obstacle> fpObstacles;
+            GatherObstacles(eye.x, eye.z, 1.5f, true, &fpObstacles);
+            for (const Obstacle& o : fpObstacles) {
+                if (o.post && eye.y >= o.y0 && eye.y <= o.y1) fpPostDistance = (std::min)(fpPostDistance, std::hypot(eye.x - o.x, eye.z - o.z));
+            }
+            for (int iter = 0; iter < 3; ++iter) {
+                const Obstacle* o = ObstacleAt(fpObstacles, eye, 0.22f, true);
+                float clear = 0.22f;
+                if (!o || !o->post) {
+                    const Obstacle* box = ObstacleAt(fpObstacles, eye, 0.10f, false);
+                    if (box) { o = box; clear = 0.10f; }
+                }
+                if (!o) break;
+                float ox = eye.x - o->x, oz = eye.z - o->z;
+                float len = std::hypot(ox, oz);
+                if (len < 1e-3f) { ox = -hx; oz = -hz; len = 1.0f; }
+                const float rim = o->r + clear + 0.005f;
+                const float nx = o->x + ox / len * rim, nz = o->z + oz / len * rim;
+                if (q.blocked && q.blocked(q.context, nx, eye.y, nz)) break;
+                eye.x = nx;
+                eye.z = nz;
+            }
+        }
+        // Nor a hand from the car he just left (QA3 qa_crash_10: the Truck Cab's exhaust
+        // stack, 0.3 block from the eye, drew a dark bar down a sixth of the frame): the
+        // eye keeps 0.3 block outside the body's box (CarBodiesExtent, remembered from
+        // the wheel; a sedan's box for any other car), slid out sideways or lengthways,
+        // whichever is shorter, never into a wall.
+        if (!inVehicle) {
+            float vx = 0.0f, vy = 0.0f, vd = 0.0f;
+            bool driven = false;
+            const void* vehicle = nullptr;
+            const float gameY = static_cast<float>(gta2::kMapHeight) - eye.z;
+            float fx = 0.0f, fy = 0.0f;
+            if (NearestVehicle(eye.x, gameY, 3.0f, false, &vx, &vy, &vd, &driven, &vehicle) && vehicle &&
+                VehicleFacing(vehicle, &fx, &fy)) {
+                const bool known = vehicle == exitCar_ && exitCarHalfLength_ > 0.1f;
+                const float hl = known ? exitCarHalfLength_ : 0.6f, hw = known ? exitCarHalfWidth_ : 0.3f;
+                const float top = known ? exitCarHeight_ : 0.45f;
+                constexpr float kCarClear = 0.3f;
+                // Renderer frame: forward (fx, -fy) in x/z, side perpendicular.
+                const float flen = std::hypot(fx, fy);
+                if (flen > 1e-3f && eye.y < baseY + top + 0.15f) {
+                    const float ax = fx / flen, az = -fy / flen;
+                    const float cx = vx, cz = static_cast<float>(gta2::kMapHeight) - vy;
+                    const float rx = eye.x - cx, rz = eye.z - cz;
+                    float along = rx * ax + rz * az, side = -rx * az + rz * ax;
+                    const float inAlong = hl + kCarClear - std::fabs(along), inSide = hw + kCarClear - std::fabs(side);
+                    if (inAlong > 0.0f && inSide > 0.0f) {
+                        float a2 = along, s2 = side;
+                        if (inSide <= inAlong) s2 = (side >= 0.0f ? 1.0f : -1.0f) * (hw + kCarClear);
+                        else a2 = (along >= 0.0f ? 1.0f : -1.0f) * (hl + kCarClear);
+                        const float nx = cx + a2 * ax - s2 * az, nz = cz + a2 * az + s2 * ax;
+                        if (!(q.blocked && q.blocked(q.context, nx, eye.y, nz))) {
+                            eye.x = nx;
+                            eye.z = nz;
+                        }
+                    }
+                }
             }
         }
         // The view heading lags the game's: a rate cap and a short ease, so an
@@ -1823,8 +1950,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 logClock = 0.0f;
                 float under = 0.0f;
                 const bool hasUnder = q.floorAt && q.floorAt(q.context, eye.x, eye.z, eye.y + 0.75f, &under);
-                Log("view: fp eye %.2f,%.2f,%.2f  player y=%.2f floor=%.2f  lid under the eye=%s%.2f",
-                    eye.x, eye.y, eye.z, py, floorY_, hasUnder ? "" : "none ", under);
+                Log("view: fp eye %.2f,%.2f,%.2f  player y=%.2f floor=%.2f  lid under the eye=%s%.2f  post %.2f",
+                    eye.x, eye.y, eye.z, py, floorY_, hasUnder ? "" : "none ", under, fpPostDistance);
             }
         }
         eyeX_ = eye.x;
@@ -1854,6 +1981,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // An orbit camera: the mouse turns it directly, the player turns inside
         // the frame, and only the direction he walks in draws it slowly round
         // behind him. It never spins with his heading.
+        // A mouse movement takes the yaw over at once: whatever swing the follow had
+        // under way stops, so it never drifts on against the hand (it waits
+        // tpReturnDelay after the last movement, then starts again from rest).
+        if (look.yaw != 0.0f) followYawVel_ = 0.0f;
         followYaw_ = WrapAngle(followYaw_ + look.yaw);
         g_navLookYaw = WrapAngle(g_navLookYaw + look.yaw);   // the arrows' reference turns with an explicit look
         look.yaw = 0.0f;
@@ -1976,6 +2107,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         float extraLength = 0.0f, extraHeight = 0.0f, bodyHeight = 0.0f;
         float length = 0.0f, height = 0.0f, halfWidth = 0.0f;
         if (inVehicle && CarBodiesExtent(player.vehicleSprite, &length, &height, &halfWidth)) {
+            exitCar_ = player.vehicle;
+            exitCarHalfLength_ = 0.5f * length;
+            exitCarHalfWidth_ = halfWidth;
+            exitCarHeight_ = height;
             extraLength = (std::max)(0.0f, length - 1.2f);
             extraHeight = (std::max)(0.0f, height - 0.45f);
             bodyHeight = height;
@@ -2029,18 +2164,32 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // arc at the same distance, up to 75 degrees, to the first height that clears,
     // and that lift is eased so it is a crane move, not a jump. Under a roof (a
     // tunnel) where no height clears, it stays in front of the wall.
+    // His own map cell is not a wall to the camera on foot. GTA2 puts the solid face of
+    // a shop front on the pavement block in front of it as often as on the building's,
+    // and Blocked() calls such a block solid: with his back to the shop front every ray
+    // from him was blocked at once, the pivot was moved up to 0.9 block in front of him
+    // and the camera stared down at the paving ahead of him (QA3 qa_crash_11,
+    // QUALITY-BAR row 2). The march now starts in the open from his own cell.
+    const int ownX = static_cast<int>(std::floor(px)), ownZ = static_cast<int>(std::floor(pz));
+    const int ownY = static_cast<int>(std::floor(baseY + 0.6f));
+    auto solidAt = [&](float x, float y, float z) {
+        if (!inVehicle && static_cast<int>(std::floor(x)) == ownX && static_cast<int>(std::floor(z)) == ownZ &&
+            static_cast<int>(std::floor(y)) == ownY)
+            return false;
+        return q.blocked(q.context, x, y, z);
+    };
     gta2::Vec3 pivot{px, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f), pz};
     // A car shoved against a building can have its middle inside the wall's
     // block (run cp2_new8: the van reversed into a wall, every ray out of the
     // pivot was blocked at once and the camera sat inside the van). The pivot
     // then moves up and toward the nose until it is in the open.
-    if (q.blocked && q.blocked(q.context, pivot.x, pivot.y, pivot.z)) {
+    if (q.blocked && solidAt(pivot.x, pivot.y, pivot.z)) {
         const gta2::Vec3 base = pivot;
         bool found = false;
         for (int f = 0; f <= 3 && !found; ++f) {
             for (int u = 0; u <= 4 && !found; ++u) {
                 const gta2::Vec3 c{base.x + hx * 0.3f * f, base.y + 0.25f * u, base.z + hz * 0.3f * f};
-                if (!q.blocked(q.context, c.x, c.y, c.z)) {
+                if (!solidAt(c.x, c.y, c.z)) {
                     pivot = c;
                     found = true;
                 }
@@ -2052,7 +2201,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         for (int i = 1; i <= kSteps; ++i) {
             const float t = static_cast<float>(i) / kSteps;
             const gta2::Vec3 p = from + (to - from) * t;
-            if (q.blocked(q.context, p.x, p.y, p.z)) return (std::max)(0.0f, static_cast<float>(i - 1) / kSteps - 0.03f);
+            if (solidAt(p.x, p.y, p.z)) return (std::max)(0.0f, static_cast<float>(i - 1) / kSteps - 0.03f);
         }
         return 1.0f;
     };
@@ -2101,9 +2250,41 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         const float reach = reachTo(pivot, desired);
         desired = pivot + (desired - pivot) * reach;
-        if (!inVehicle && reach < 0.6f && wantLift <= 0.0f) {
-            const float rise = (0.6f - reach) * 1.2f;
-            if (!q.blocked(q.context, desired.x, desired.y + rise, desired.z)) desired.y += rise;
+        if (!inVehicle && wantLift <= 0.0f) {
+            // Pulled in toward him by a wall the arc could not clear (his back to a tall
+            // building, just out of a car against a shop front): a camera within a stride
+            // of his head sees the wall and not him (QA3 qa_crash_11). It cranes up over
+            // him instead, as high as is open (up to 1.2 blocks), and the framing below
+            // looks down at him.
+            const float nearDist = std::sqrt((desired.x - pivot.x) * (desired.x - pivot.x) + (desired.y - pivot.y) * (desired.y - pivot.y) +
+                                         (desired.z - pivot.z) * (desired.z - pivot.z));
+            const float want = (std::min)(1.2f, (std::max)(0.0f, (1.0f - nearDist) * 1.3f));
+            float rise = 0.0f;
+            for (float h = 0.1f; h <= want + 1e-3f; h += 0.1f) {
+                if (solidAt(desired.x, desired.y + h + 0.07f, desired.z)) break;
+                rise = h;
+            }
+            if (want > 0.3f && rise < 0.5f * want) {
+                // No room above either (an arcade, a tall building's face with a ledge
+                // over him): swing round him to the nearest side that is open at a
+                // useful distance, as a wall slides a modern chase camera along it.
+                const gta2::Vec3 full = span;
+                for (int k = 1; k <= 4; ++k) {
+                    bool found = false;
+                    for (int sign = -1; sign <= 1 && !found; sign += 2) {
+                        const float a = sign * 30.0f * k * kDegToRad, ca = std::cos(a), sa = std::sin(a);
+                        const gta2::Vec3 to{pivot.x + full.x * ca + full.z * sa, pivot.y + full.y, pivot.z - full.x * sa + full.z * ca};
+                        const float r = reachTo(pivot, to);
+                        if (r * spanLength >= 1.2f) {
+                            desired = pivot + (to - pivot) * r;
+                            rise = 0.0f;
+                            found = true;
+                        }
+                    }
+                    if (found) break;
+                }
+            }
+            desired.y += rise;
         }
     }
     // And never under the floor it is over.
@@ -2131,7 +2312,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 bool placed = false;
                 for (int step = 1; step <= 12 && !placed; ++step) {
                     const gta2::Vec3 p = desired + dir * (0.1f * step);
-                    if (q.blocked && q.blocked(q.context, p.x, p.y, p.z)) break;
+                    if (q.blocked && solidAt(p.x, p.y, p.z)) break;
                     float pd = 0.0f;
                     if (!q.panelDistance(q.context, p.x, p.y, p.z, &pd) || pd >= kClear) {
                         desired = p;
@@ -2146,6 +2327,64 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             }
         }
     }
+
+    // Nor inside a street object (QA3: after answering the tutorial phone the camera
+    // stood in the phone box, its glass and roof filling the frame). The game's
+    // objects drawn as models are upright cylinders round their footprint, widened
+    // to the box's corners (GatherObstacles); the camera keeps 0.15 block clear of
+    // one. Over a low one (a phone box, a bin, a cone) it rises above the roof at the
+    // same spot; a tall one (a traffic light's pole), or one with no room above, it
+    // stands in front of, toward him; when he stands at it, round its side.
+    static std::vector<Obstacle> obstacles;
+    GatherObstacles(px, pz, distance + 3.0f, false, &obstacles);
+    // Only what stands on the ground about his level: a traffic light's head over the
+    // road is passed under or beside, never hopped over.
+    obstacles.erase(std::remove_if(obstacles.begin(), obstacles.end(),
+                                   [&](const Obstacle& o) { return o.y0 > baseY + 0.6f || o.y0 < baseY - 1.5f; }),
+                    obstacles.end());
+    auto clearOfObstacles = [&](gta2::Vec3 e) {
+        constexpr float kPropClear = 0.15f;
+        for (int iter = 0; iter < 3; ++iter) {
+            const Obstacle* o = ObstacleAt(obstacles, e, kPropClear, false);
+            if (!o) break;
+            const float top = o->y1 + 0.3f;   // well over the roof, not skimming it
+            const gta2::Vec3 over{e.x, top, e.z};
+            if (top - e.y < 0.9f && !(q.blocked && solidAt(over.x, over.y, over.z)) &&
+                (!q.blocked || reachTo(pivot, over) >= 1.0f)) {
+                e = over;
+                continue;
+            }
+            const float rim = o->r + kPropClear + 0.01f;
+            const gta2::Vec3 toE = e - pivot;
+            const float flat = std::hypot(toE.x, toE.z);
+            bool moved = false;
+            if (flat > 1e-3f) {
+                // Where the line from him (seen from above) enters the widened circle.
+                const float dx = toE.x / flat, dz = toE.z / flat;
+                const float fx = pivot.x - o->x, fz = pivot.z - o->z;
+                const float b = fx * dx + fz * dz, c = fx * fx + fz * fz - rim * rim;
+                const float disc = b * b - c;
+                if (c > 0.0f && disc > 0.0f) {
+                    const float enter = -b - std::sqrt(disc);
+                    if (enter > 0.35f && enter < flat) {
+                        e = pivot + toE * (enter / flat);
+                        moved = true;
+                    }
+                }
+            }
+            if (!moved) {
+                float ox = e.x - o->x, oz = e.z - o->z;
+                float len = std::hypot(ox, oz);
+                if (len < 1e-3f) { ox = -std::sin(yaw); oz = -std::cos(yaw); len = 1.0f; }
+                const gta2::Vec3 side{o->x + ox / len * rim, e.y, o->z + oz / len * rim};
+                if (!(q.blocked && solidAt(side.x, side.y, side.z))) e = side;
+                else if (!(q.blocked && solidAt(over.x, over.y, over.z))) e = over;
+                else break;
+            }
+        }
+        return e;
+    };
+    desired = clearOfObstacles(desired);
 
     // The camera moves with him first, so that at a steady speed it never
     // trails, and is then eased onto where it wants to be: a swing or a pull-in
@@ -2196,9 +2435,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         if (t < 1.0f) e = pivot + (e - pivot) * t;
         constexpr float kRadius = 0.1f;
         auto clear = [&](const gta2::Vec3& p) {
-            return !q.blocked(q.context, p.x + kRadius, p.y, p.z) && !q.blocked(q.context, p.x - kRadius, p.y, p.z) &&
-                   !q.blocked(q.context, p.x, p.y, p.z + kRadius) && !q.blocked(q.context, p.x, p.y, p.z - kRadius) &&
-                   !q.blocked(q.context, p.x, p.y + 0.07f, p.z);
+            return !solidAt(p.x + kRadius, p.y, p.z) && !solidAt(p.x - kRadius, p.y, p.z) &&
+                   !solidAt(p.x, p.y, p.z + kRadius) && !solidAt(p.x, p.y, p.z - kRadius) &&
+                   !solidAt(p.x, p.y + 0.07f, p.z);
         };
         const gta2::Vec3 back = pivot - e;
         const float backLength = std::sqrt(back.x * back.x + back.y * back.y + back.z * back.z);
@@ -2210,13 +2449,32 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         eyeY_ = e.y;
         eyeZ_ = e.z;
     }
+    {
+        // The eased eye too: on its way it may pass through a phone box the wanted spot is clear of.
+        const gta2::Vec3 e = clearOfObstacles({eyeX_, eyeY_, eyeZ_});
+        eyeX_ = e.x;
+        eyeY_ = e.y;
+        eyeZ_ = e.z;
+    }
 
     gta2::Vec3 eye{eyeX_, eyeY_, eyeZ_};
     if (shake_ > 0.001f) {
         eye.x += Wobble(shakeClock_, 11.0f) * 0.04f * shake_;
         eye.y += Wobble(shakeClock_ + 2.3, 13.0f) * 0.03f * shake_;
     }
-    const gta2::Vec3 dir = lookAt - eye;
+    // Pulled in close (a wall behind him, craned up over him): the point looked at
+    // comes back from ahead of him toward his chest, so the frame holds him and
+    // not the wall beyond (on foot; at 0.4 block or less, 80 % of the way).
+    gta2::Vec3 aim = lookAt;
+    if (!inVehicle) {
+        const float nearDist = std::hypot(eye.x - px, eye.z - pz);
+        const float mix = 0.8f * (std::min)(1.0f, (std::max)(0.0f, (1.1f - nearDist) / 0.7f));
+        if (mix > 0.0f) {
+            const gta2::Vec3 chest{px, baseY + 0.25f, pz};
+            aim = lookAt + (chest - lookAt) * mix;
+        }
+    }
+    const gta2::Vec3 dir = aim - eye;
     const float flat = std::hypot(dir.x, dir.z);
     float camYaw = flat > 1e-5f ? std::atan2(dir.x, dir.z) : yaw;
     float camPitch = std::atan2(dir.y, (std::max)(flat, 1e-5f));
@@ -2255,6 +2513,30 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     camera->SetRoll(roll_);
     camera->SetFovY((std::min)(fov, 130.0f) * kDegToRad);
     LogCameraFrame("third", camYaw, headingYaw, dt, &eye, px, pz, distance);
+    if (!inVehicle && deathMix_ < 0.01f) {
+        // QUALITY-BAR row 2: is his head in the picture (16:9) and not behind a wall?
+        const gta2::Vec3 head{px, baseY + 0.42f, pz};
+        const float sy = std::sin(camYaw), cy = std::cos(camYaw), sp = std::sin(camPitch), cpv = std::cos(camPitch);
+        const gta2::Vec3 d = head - eye;
+        const float zf = d.x * sy * cpv + d.y * sp + d.z * cy * cpv;
+        const float xr = d.x * cy - d.z * sy;
+        const float yu = -d.x * sy * sp + d.y * cpv - d.z * cy * sp;
+        const float th = std::tan(0.5f * (std::min)(fov, 130.0f) * kDegToRad);
+        const bool in = zf > 0.06f && std::fabs(yu / zf) < th && std::fabs(xr / zf) < th * (16.0f / 9.0f);
+        bool seen = in;
+        if (seen && q.blocked) {
+            for (int i = 1; i < 16 && seen; ++i) {
+                const gta2::Vec3 p = eye + d * (static_cast<float>(i) / 16.0f);
+                if (solidAt(p.x, p.y, p.z)) seen = false;
+            }
+        }
+        ++framingFrames_;
+        framingHeadIn_ += in ? 1 : 0;
+        framingHeadSeen_ += seen ? 1 : 0;
+        if (!seen && (framingFrames_ - framingHeadSeen_) % 5 == 1) Log("view: framing miss eye=%.2f,%.2f,%.2f head=%.2f,%.2f,%.2f in=%d", eye.x, eye.y, eye.z, head.x, head.y, head.z, in ? 1 : 0);
+        if (framingFrames_ % 300 == 0)
+            Log("view: framing third on foot frames=%d head_in=%d head_seen=%d", framingFrames_, framingHeadIn_, framingHeadSeen_);
+    }
     shownX_ = eye.x;
     shownY_ = eye.y;
     shownZ_ = eye.z;
