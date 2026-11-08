@@ -5,8 +5,8 @@ A moment is taken from the last run dir that has both of its frames."""
 import os, sys
 from PIL import Image, ImageDraw, ImageFont
 
-MOMENTS = [("onfoot", "on foot"), ("brief_open", "the level's opening brief"), ("weapon", "weapon in hand"), ("phone", "by a phone"),
-           ("brief", "mission text (phone answered)"), ("brief_b", "mission text, later"), ("timer", "mission clock"), ("lowhealth", "low health"),
+MOMENTS = [("onfoot", "on foot"), ("brief_open", "mission text: the level's opening brief"), ("weapon", "weapon in hand"), ("phone", "by a phone"),
+            ("timer", "mission clock"), ("lowhealth", "low health"),
            ("driving", "driving (chase)"), ("driving_first", "driving (first person)"),
            ("wanted", "wanted (third)"), ("wanted_first", "wanted (first person)")]
 

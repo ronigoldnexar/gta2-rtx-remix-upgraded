@@ -78,6 +78,7 @@ def one_death(rnd, view):
         D.xdo("keydown", key); t1 = time.time()
         while time.time() - t1 < 5.0:
             lv, hp = last_mission(); st = D.state() or {}
+            if st.get("driving"): at = (st["x"], st["y"])   # the car, until it blows up
             if (0 <= lv < lives0) or st.get("state") in (8, 9): died = True; break
             time.sleep(0.2)
         D.xdo("keyup", key)
@@ -87,7 +88,6 @@ def one_death(rnd, view):
         say(f"CHECK {tag} NO DEATH (the car never took a knock) lives={last_mission()[0]}")
         return False
     say(f"MARK {tag} died={died} after {time.time() - t0:.1f} s lives={last_mission()[0]}")
-    at = ((D.state() or s)["x"], (D.state() or s)["y"])
     frames(f"{tag}_b_death", 7.0, 0.5)
     set_ini("set_car_damage", -1)
     # the respawn: a player line far from the death spot with health back up

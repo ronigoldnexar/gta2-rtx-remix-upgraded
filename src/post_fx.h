@@ -210,7 +210,7 @@ private:
 
     // The world's shadow geometry.
     IDirect3DVertexBuffer9* worldVb_ = nullptr;    // the renderer's (AddRef'd)
-    IDirect3DVertexBuffer9* cellVb_ = nullptr;     // per vertex: atlas cell (SHORT2)
+    IDirect3DVertexBuffer9* cellVb_ = nullptr;     // per vertex: atlas cell (FLOAT2)
     IDirect3DIndexBuffer9* shadowIb_ = nullptr;
     IDirect3DTexture9* alphaAtlas_ = nullptr;
     float atlasCell_ = 1.0f;

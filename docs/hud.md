@@ -99,7 +99,11 @@ the modern one right, 1.4 s apart (the `[hud] modern` switch is re-read once a s
   the game's part 4 (its cop heads) only then, which is how part 4 was confirmed as the wanted
   row; the car bar followed the damage word (1632 after a knock).
 - The weapon icon is the game's own sprite (49x40 game pixels), the portrait the game's own
-  (50x58/60).
+  (50x58/60). Briefs: Industrial's opening brief (key 3230) in `hud7`, Downtown's information
+  phone brief (1607, picked-out words in yellow) in an earlier run on the same code; the
+  phone prompt ("PHONE RINGING, 4-6 blocks", the cyan blip) on the walk to the Zaibatsu
+  phones. The scripted walker did not get up onto the phones' terrace, so a job brief after
+  answering is not on the sheet.
 - Cost of the modern HUD on the render thread (the `hud3d:` 300-frame averages): 0.35-0.6 ms a
   frame on foot, 0.9-1.4 ms with the clock and the low-health edge pulse on screen (four
   full-screen gradients). Single frames up to tens of ms showed up in the same windows as

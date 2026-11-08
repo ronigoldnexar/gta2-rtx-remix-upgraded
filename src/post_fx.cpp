@@ -264,7 +264,7 @@ bool PostFx::EnsureTargets() {
                                        D3DDECL_END()};
     const D3DVERTEXELEMENT9 world[] = {{0, 0, D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
                                        {0, 24, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
-                                       {1, 0, D3DDECLTYPE_SHORT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1},
+                                       {1, 0, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1},
                                        D3DDECL_END()};
     if (good && FAILED(device_->CreateVertexDeclaration(quad, &quadDecl_))) good = false;
     if (good && FAILED(device_->CreateVertexDeclaration(light, &lightDecl_))) good = false;
@@ -328,13 +328,13 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
         }
     }
     // Per-vertex cell.
-    std::vector<int16_t> cells(mesh.vertices.size() * 2, 0);
+    std::vector<float> cells(mesh.vertices.size() * 2, 0.0f);
     for (const TileBatch& b : mesh.batches) {
         if (!b.needsAlphaTest || b.tile < 0 || b.tile >= static_cast<int>(cellOf.size()) || cellOf[static_cast<size_t>(b.tile)] < 0) continue;
         const int c = cellOf[static_cast<size_t>(b.tile)];
         for (uint32_t v = b.vertexStart; v < b.vertexStart + b.vertexCount && v < mesh.vertices.size(); ++v) {
-            cells[v * 2] = static_cast<int16_t>(c % side);
-            cells[v * 2 + 1] = static_cast<int16_t>(c / side);
+            cells[v * 2] = static_cast<float>(c % side);
+            cells[v * 2 + 1] = static_cast<float>(c / side);
         }
     }
     // Triangles by map chunk (of the centroid), row by row.
@@ -379,11 +379,11 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
     }
     bool good = true;
     void* dest = nullptr;
-    if (FAILED(device_->CreateVertexBuffer(static_cast<UINT>(cells.size() * sizeof(int16_t)), D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED,
+    if (FAILED(device_->CreateVertexBuffer(static_cast<UINT>(cells.size() * sizeof(float)), D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED,
                                            &cellVb_, nullptr)) || FAILED(cellVb_->Lock(0, 0, &dest, 0))) {
         good = false;
     } else {
-        memcpy(dest, cells.data(), cells.size() * sizeof(int16_t));
+        memcpy(dest, cells.data(), cells.size() * sizeof(float));
         cellVb_->Unlock();
     }
     if (good && (FAILED(device_->CreateIndexBuffer(static_cast<UINT>(sorted.size() * 4), D3DUSAGE_WRITEONLY, D3DFMT_INDEX32,
@@ -627,7 +627,7 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
             device_->SetPixelShaderConstantF(0, psc, 1);
             device_->SetTexture(0, alphaAtlas_);
             device_->SetStreamSource(0, worldVb_, 0, sizeof(Vertex));
-            device_->SetStreamSource(1, cellVb_, 0, 4);
+            device_->SetStreamSource(1, cellVb_, 0, 8);
             device_->SetIndices(shadowIb_);
             uint32_t runStart = 0, runCount = 0;
             auto flush = [&]() {
