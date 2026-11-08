@@ -304,7 +304,9 @@ def dds_tiles(a, tex_dir, taken):
         with mp.Pool(a.jobs) as pool:
             for i, (h, disp, ground, cls) in enumerate(pool.imap_unordered(pbr_tile, jobs, chunksize=4)):
                 info[h] = {"displace_in": disp, "wet": ground, "cls": cls}
-                if i % 200 == 0: print(f"  {i}/{len(jobs)} tiles, {time.time() - t0:.0f} s", flush=True)
+                if i % 200 == 0:   # also saved as it goes: an interrupted build keeps what it made
+                    print(f"  {i}/{len(jobs)} tiles, {time.time() - t0:.0f} s", flush=True)
+                    json.dump(info, open(info_path, "w"), indent=0, sort_keys=True)
         json.dump(info, open(info_path, "w"), indent=0, sort_keys=True)
         made += len(jobs)
     return made, skipped, time.time() - t0

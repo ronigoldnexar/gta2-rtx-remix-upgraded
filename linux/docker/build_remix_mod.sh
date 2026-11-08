@@ -9,7 +9,8 @@
 # Tiles get every map of tools/remix_pbr.py (VISUALS-REMIX): a 512 px BC5 normal
 # (structure + grain), 256 px BC4 roughness, wet roughness (ground-like tiles),
 # metallic (where there is metal) and height for Remix's parallax displacement
-# (relief tiles). ~15 min with JOBS=3. ZIP=1 also packs the release archive
+# (relief tiles). ~15 min with JOBS=3 on an idle host; AGENTS.md "Host capacity": run it as
+# flock /tmp/gta2-gen.lock taskset -c 0-4 nice -n 10 bash build_remix_mod.sh. ZIP=1 also packs the release archive
 # deliverables/remix_mod_gta2hd.zip (mod.usda, mod_wet.usda, pbr.json, textures/;
 # it holds the game's art, so it is shipped as a release asset, never committed).
 # MOD=<dir> builds elsewhere (e.g. a private copy to try under Remix with MODS_HD_SRC).

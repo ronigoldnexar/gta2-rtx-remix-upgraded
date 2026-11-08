@@ -4,8 +4,9 @@
 #   runq.sh run [-p PRIO] [-n NAME] -- <command...>   (lower PRIO runs first; default 5)
 #   runq.sh status                                   (waiting tickets and busy slots)
 #   runq.sh wait                                     (block until the queue is empty)
-# GTA2_SLOTS (default 6; 4 when the player is online and CPUs 5-7 are reserved) is the number of concurrent scripted game runs; see docs/throughput.md.
-Q=/tmp/gta2-runq; mkdir -p "$Q"; N=${GTA2_SLOTS:-6}
+# GTA2_SLOTS (default 4). A run is not started while the 1-minute load is above GTA2_LOAD_MAX (12)
+# or while /tmp/gta2-load-hold exists (set by cpu_governor.sh when the host is overloaded).
+Q=/tmp/gta2-runq; mkdir -p "$Q"; N=${GTA2_SLOTS:-4}
 case "${1:-}" in
 status)
   echo "slots ($N):"; for i in $(seq 1 "$N"); do if flock -n "/tmp/gta2-game-slot-$i.lock" true 2>/dev/null; then echo "  $i free"; else echo "  $i busy: $(cat /tmp/gta2-game-slot-$i.who 2>/dev/null)"; fi; done
@@ -31,6 +32,7 @@ while true; do
   for t in "$Q"/*; do [ -f "$t" ] || continue; p=$(head -1 "$t"); kill -0 "$p" 2>/dev/null || rm -f "$t"; done   # drop tickets of dead callers
   head=$(ls "$Q" 2>/dev/null | sort | head -1)
   if [ "$Q/$head" = "$T" ]; then
+    while [ -e /tmp/gta2-load-hold ] || awk -v m="${GTA2_LOAD_MAX:-12}" '{exit !($1 > m)}' /proc/loadavg; do sleep 15; done
     for i in $(seq 1 "$N"); do
       exec {fd}>"/tmp/gta2-game-slot-$i.lock"
       if flock -n "$fd"; then rm -f "$T"; echo "$NAME pid $$ since $(date +%H:%M:%S)" > "/tmp/gta2-game-slot-$i.who"; "$@"; rc=$?; rm -f "/tmp/gta2-game-slot-$i.who"; flock -u "$fd"; exit $rc; fi

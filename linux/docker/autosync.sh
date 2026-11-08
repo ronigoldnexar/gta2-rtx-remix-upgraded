@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Every run: snapshot the working tree (tracked + new source/docs/scripts, never out/ or generated art)
 # onto the camera-modes-wip branch on GitHub without touching the curated camera-modes branch.
-cd "$HOME/gta2-linux/repo" || exit 1
+cd /home/roni_goldshmidt/gta2-linux/repo || exit 1
 git add -A . ':!out' >/dev/null 2>&1
 git diff --cached --quiet && exit 0
 tree=$(git write-tree)
