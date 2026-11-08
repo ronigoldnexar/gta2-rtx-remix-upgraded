@@ -1516,11 +1516,20 @@ float g_lastLog = -1.0f;
 float FreeFraction(const ViewQueries& q, const gta2::Vec3& from, const gta2::Vec3& to) {
     if (!q.blocked) return 1.0f;
     const float d = std::sqrt((to.x - from.x) * (to.x - from.x) + (to.y - from.y) * (to.y - from.y) + (to.z - from.z) * (to.z - from.z));
-    const int steps = (std::max)(4, (std::min)(48, static_cast<int>(d / 0.08f)));
+    const int steps = (std::max)(6, (std::min)(96, static_cast<int>(d / 0.04f)));
+    // The cell he stands in may count as solid itself (a stair or a slope has a lid): the
+    // line starts where it first leaves solid ground, and ends at the next wall - or at a
+    // railing, a fence or a sign (flat panels, see-through for the chase camera, but a
+    // beat's shot through one is a shot of the railing).
+    bool out = false;
     for (int i = 1; i <= steps; ++i) {
         const float t = static_cast<float>(i) / steps;
-        if (q.blocked(q.context, from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, from.z + (to.z - from.z) * t))
-            return static_cast<float>(i - 1) / steps;
+        const float x = from.x + (to.x - from.x) * t, y = from.y + (to.y - from.y) * t, z = from.z + (to.z - from.z) * t;
+        float panel = 1.0f;
+        const bool solid = q.blocked(q.context, x, y, z) ||
+                           (out && q.panelDistance && q.panelDistance(q.context, x, y, z, &panel) && panel < 0.04f);
+        if (!solid) out = true;
+        else if (out) return static_cast<float>(i - 1) / steps;
     }
     return 1.0f;
 }
@@ -1530,11 +1539,11 @@ Shot ShotFor(const BeatState& b) {
     Shot s{};
     switch (b.kind) {
         // High over the body, craning down and in while it turns slowly round him.
-        case BeatKind::Wasted:   s = {2.3f, 1.35f, 2.1f, 0.95f, 0.08f, 10.0f, 50.0f, 3.2f}; break;
+        case BeatKind::Wasted:   s = {1.7f, 1.05f, 1.7f, 0.75f, 0.08f, 10.0f, 50.0f, 3.2f}; break;
         // Eye level, close, turning the other way: him and the officers on him.
-        case BeatKind::Busted:   s = {2.1f, 1.45f, 0.85f, 0.6f, 0.30f, -7.0f, 50.0f, 3.0f}; break;
+        case BeatKind::Busted:   s = {1.5f, 1.0f, 0.65f, 0.5f, 0.30f, -7.0f, 50.0f, 3.0f}; break;
         // In front of him, low, looking up a little, pushing in: the hero shot.
-        case BeatKind::Complete: s = {2.3f, 1.45f, 0.38f, 0.30f, 0.38f, 6.0f, 46.0f, 3.0f}; break;
+        case BeatKind::Complete: s = {1.5f, 0.95f, 0.36f, 0.30f, 0.36f, 6.0f, 46.0f, 3.0f}; break;
         default: break;
     }
     if (b.inVehicle) {
@@ -1595,7 +1604,7 @@ void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
     // The walls: pull in to the free part of the line (fast in, slow out), and up a little.
     const gta2::Vec3 want{A.x + std::sin(phi) * r, A.y + h, A.z + std::cos(phi) * r};
     const float free = FreeFraction(q, T, want);
-    const float rc = (std::max)(0.6f, r * free - 0.12f);
+    const float rc = (std::max)(0.45f, r * free - 0.12f);
     g_clearR += (rc - g_clearR) * (rc < g_clearR ? 1.0f - std::exp(-dt / 0.06f) : 1.0f - std::exp(-dt / 0.5f));
     if (g_clearR > 1e8f) g_clearR = rc;
     if (free < 1.0f) h += (1.0f - free) * 0.4f;
@@ -2116,6 +2125,26 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             eye.x += -hz * sway;   // sideways is the heading turned a quarter
             eye.z += hx * sway;
             roll += std::cos(bobPhase_ * kPi) * 0.6f * kDegToRad * pace * s.fpHeadBob;
+        }
+        // QB-49: nor a hand from a wall he walks into. The eye sits ahead of his centre, so
+        // flush against a shop front it was at the bricks and one tile filled the frame. When
+        // a wall is closer than kWallClear along the view, the eye steps back along it (up to
+        // kWallBack, never into another wall behind).
+        if (!inVehicle && q.blocked) {
+            constexpr float kWallClear = 0.20f, kWallBack = 0.18f;
+            const float fx = std::sin(yaw), fz = std::cos(yaw);
+            float wall = kWallClear;
+            for (int i = 0; i <= 10; ++i) {
+                const float d = kWallClear * static_cast<float>(i) / 10.0f;
+                if (q.blocked(q.context, eye.x + fx * d, eye.y, eye.z + fz * d)) { wall = d; break; }
+            }
+            if (wall < kWallClear) {
+                const float back = (std::min)(kWallClear - wall, kWallBack);
+                const float nx = eye.x - fx * back, nz = eye.z - fz * back;
+                if (!q.blocked(q.context, nx, eye.y, nz)) { eye.x = nx; eye.z = nz; }
+                static int wallLogs = 0;
+                if (wallLogs < 20) { ++wallLogs; Log("view: fp eye: wall %.2f ahead, eye stepped back %.2f", wall, back); }
+            }
         }
         if (inVehicle && s.fpLean > 0.0f) {
             // The nose dips under braking and lifts under power; the head leans

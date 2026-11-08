@@ -228,7 +228,10 @@ Sound: the game's audio plays in the page too. Play starts it (the click is what
 browsers require); the bar at the top right mutes it and sets the volume, and shows
 the codec and the sound's delay. It is Opus over a websocket on the same port
 (`play_audio.py`, see `docs/HANDOVER.md`, "Play it interactively"); `PLAY_AUDIO=0`
-turns it off. Limits: the picture is JPEG-compressed, so it is for trying the game,
+turns it off. Check it without a browser: `docker cp linux/docker/play_audio_probe.py
+gta2-play-<port>:/tmp/ && docker exec gta2-play-<port> python3 /tmp/play_audio_probe.py <port> 10`
+(packets/s, sequence gaps, Opus decode errors, transit and level on `/audio` and `/audio-pcm`;
+exit 0 = sound flows); `play_audio_test.py` is the full browser test (playwright + Chromium). Limits: the picture is JPEG-compressed, so it is for trying the game,
 not for recording. On your own Linux box with a GPU, the native
 route is `linux/install.sh` + `linux/run.sh` (no container).
 

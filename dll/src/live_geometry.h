@@ -717,6 +717,11 @@ private:
         uint32_t carStateFrame = 0;
         int32_t carState = -1;
         bool grabLeft = false;              // running beside a moving car: it is on his left
+        // QB-14 jacking: boarding a car with a driver at the wheel (jack_pull for the
+        // enter_car layer); the driver thrown out of it (lying clip 5, "jacked") and when.
+        bool jacking = false;
+        bool jacked = false;
+        uint32_t jackFrame = 0;
         float carSpeed = 0.0f;              // that car's own pace, blocks a second, eased: moving or parked
         uint32_t carSeenFrame = 0;
         // The clip an action ended on and where, faded out over the locomotion

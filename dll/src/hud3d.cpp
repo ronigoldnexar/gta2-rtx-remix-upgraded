@@ -776,7 +776,7 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             if (p.corpse || p.health == 0) continue;
             const float rx = p.x - ox, rz = p.z - oz;
             const float along = rx * hx + rz * hz;
-            if (along < 0.25f || along > reach) continue;
+            if (along < 0.05f || along > reach) continue;   // point-blank counts (run qb6_aim11)
             const float perp = std::fabs(rx * hz - rz * hx);
             // The game's bullets were measured landing up to 0.45 block off the line at 4
             // blocks (run qb6_aim2: the person's own width and the bullet's): the corridor.
@@ -1366,13 +1366,15 @@ void DrawBeat(ImDrawList* dl, float W, float H) {
         dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, bar), IM_COL32(0, 0, 0, 255));
         dl->AddRectFilled(ImVec2(0, H - bar), ImVec2(W, H), IM_COL32(0, 0, 0, 255));
     }
-    // The title: centred a little above the middle, scaling in from 112% and settling.
+    // The title: centred in the lower third, clear of the figure the camera frames in the
+    // middle, scaling in from 112% and settling.
     if (b.title > 0.01f && g_fonts.title && !b.titleText.empty()) {
         const float pop = 1.0f + 0.12f * std::exp(-b.t / 0.18f);
         const float px = g_fonts.titlePx * pop;
         const char* s = b.titleText.c_str();
         const ImVec2 sz = Measure(g_fonts.title, px, s);
-        const ImVec2 at((W - sz.x) * 0.5f, H * 0.40f - sz.y * 0.5f);
+        const float barH = (std::max)(0.0f, (H - W / 2.39f) * 0.5f);
+        const ImVec2 at((W - sz.x) * 0.5f, H - barH - 0.06f * H - sz.y - 9.0f * u);
         const float o = (std::max)(2.0f, std::round(3.0f * u));
         const ImU32 sh = Fade(IM_COL32(0, 0, 0, 230), b.title);
         dl->AddText(g_fonts.title, px, ImVec2(at.x + o, at.y + o), sh, s);
@@ -1412,7 +1414,7 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
         else if (part == 10) Note(&g_portrait, texture, k, count);
     }
     // QB-17/18: during a beat its title is drawn here, in the beat's own treatment.
-    if (part == 15 && Beat().kind != BeatKind::None && Beat().title > 0.0f) return true;
+    if (part == 15 && Beat().kind != BeatKind::None) return true;
     if (!g_active) return false;
     switch (part) {
         case 1:    // score, lives, multiplier, weapon and ammo

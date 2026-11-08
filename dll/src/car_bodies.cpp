@@ -737,7 +737,10 @@ struct HoodKey {
     const Model* model; int yq, zq, xq;
     bool operator<(const HoodKey& o) const { return std::tie(model, yq, zq, xq) < std::tie(o.model, o.yq, o.zq, o.xq); }
 };
-std::map<HoodKey, const Model*> g_hoods;
+// QB-5: with the copy, the dashboard that closes it (see DrawDash): the top of what
+// is kept in the first 0.08 block ahead of the windscreen cut, and its width there.
+struct HoodCopy { const Model* model; float dashTop, dashX0, dashX1; bool dash; };
+std::map<HoodKey, HoodCopy> g_hoods;
 
 gta2::Mat4 Mul(const gta2::Mat4& a, const gta2::Mat4& b);   // defined below
 inline gta2::Vec3 PointBy(const gta2::Mat4& m, float x, float y, float z) {
@@ -746,13 +749,14 @@ inline gta2::Vec3 PointBy(const gta2::Mat4& m, float x, float y, float z) {
             x * m.m[0][2] + y * m.m[1][2] + z * m.m[2][2] + m.m[3][2]};
 }
 
-const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut, float eyeX) {
+const HoodCopy& HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut, float eyeX) {
     // 0.04-block steps: the eye bobs and leans a little, the cache stays small.
     const HoodKey key{&model, static_cast<int>(std::floor(yCut * 25.0f)), static_cast<int>(std::floor(zCut * 25.0f)),
                       static_cast<int>(std::floor(eyeX * 25.0f))};
     auto it = g_hoods.find(key);
     if (it != g_hoods.end()) return it->second;
     if (g_hoods.size() > 96) g_hoods.clear();   // the store keeps the models; only the lookup is dropped
+    float dashTop = -1.0f, dashX0 = 1e9f, dashX1 = -1e9f;
     std::vector<gta2::Mat4> worlds;
     ModelRestNodeWorlds(model, &worlds);
     Model hood;
@@ -835,6 +839,12 @@ const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut,
             const gta2::Vec3 toEye{eyeX - centre.x, yCut + 0.035f - centre.y, zCut - 0.10f - centre.z};
             const bool seen = nl > 1e-9f && nrm.y / nl > -0.2f && gta2::Dot(nrm, toEye) > 0.0f;
             if (!seen) continue;
+            // The dashboard's top and width: what is kept just ahead of the cut.
+            for (int c = 0; c < 3; ++c) {
+                if (q[c].z < zCut - 0.01f || q[c].z > zCut + 0.08f) continue;
+                dashTop = (std::max)(dashTop, (std::min)(q[c].y, yCut - 0.008f));   // under the clip plane, springs and all
+                dashX0 = (std::min)(dashX0, q[c].x); dashX1 = (std::max)(dashX1, q[c].x);
+            }
             const bool allIn = poly[0].dy >= 0 && poly[1].dy >= 0 && poly[2].dy >= 0 && poly[0].dz >= 0 && poly[1].dz >= 0 && poly[2].dz >= 0;
             if (allIn) {
                 dst.indices.push_back(src.indices[t]);
@@ -858,9 +868,13 @@ const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut,
         }
     }
     const Model* stored = ModelRegisterDerived(std::move(hood));
-    g_hoods[key] = stored;
-    Log("car bodies: hood copy of %s for the driver's seat: %zu of %zu triangles (y < %.2f, z > %.2f)", model.name.c_str(), kept, all, yCut, zCut);
-    return stored;
+    HoodCopy& copy = g_hoods[key];
+    copy.model = stored;
+    copy.dash = dashTop > 0.0f && dashX1 > dashX0;
+    copy.dashTop = dashTop; copy.dashX0 = dashX0; copy.dashX1 = dashX1;
+    Log("car bodies: hood copy of %s for the driver's seat: %zu of %zu triangles (y < %.2f, z > %.2f), dashboard %s top %.3f x %.2f..%.2f",
+        model.name.c_str(), kept, all, yCut, zCut, copy.dash ? "at" : "none,", dashTop, copy.dash ? dashX0 : 0.0f, copy.dash ? dashX1 : 0.0f);
+    return copy;
 }
 
 // The driver's cab of a tall or long model (truck, bus, van, fire truck), in the
@@ -947,6 +961,66 @@ CabShape CabShapeFor(const Model& model, const gta2::Mat4& fit, int modelNumber)
     Log("car bodies: cab of model %d (%s): %.2f x %.2f x %.2f blocks, %s front, hood %.2f long at %.2f, windscreen %+.2f, cab roof %.2f",
         modelNumber, model.name.c_str(), L, W, H, flat ? "flat" : "hooded", runLength, cab.deck, cab.windscreen, cab.roof);
     return cab;
+}
+
+// QB-5: the dashboard. The hood copy is the hull cut open at the windscreen plane;
+// from the seat the eye looks down through that open face into the hull, and what
+// it saw there - the inside of the wings and the underbody, from their back, and
+// whatever faces of a generated mesh the copy's facing test let through - read as
+// black shards and pale ribbons across the lower half of the view (runs qa_qb5base2,
+// qa_qb5fix: the Schmidt, the Aniston BD4). A panel across the cut, from the floor
+// to the top of what the copy keeps just ahead of the cut, and a shelf back toward
+// the eye at that height, close it: a dashboard in the body's colour, darker, as the
+// metal dashboards of these cars were. Lit by the scene's lights (it darkens at
+// night with the body), drawn untextured in the car's frame on its springs.
+void DrawDash(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const HoodCopy& hood, float zCut, const float paint[3],
+              const D3DMATERIAL9& restore) {
+    struct V { float x, y, z, nx, ny, nz; };
+    const float x0 = hood.dashX0 - 0.01f, x1 = hood.dashX1 + 0.01f;
+    const float top = hood.dashTop, floorY = 0.03f;
+    const float zf = zCut - 0.004f, zb = zCut - 0.065f;
+    const V local[8] = {
+        // the panel, facing the seat (-z)
+        {x0, floorY, zf, 0, 0, -1}, {x1, floorY, zf, 0, 0, -1}, {x1, top, zf, 0, 0, -1}, {x0, top, zf, 0, 0, -1},
+        // the shelf, facing up
+        {x0, top, zb, 0, 1, 0}, {x1, top, zb, 0, 1, 0}, {x1, top, zf, 0, 1, 0}, {x0, top, zf, 0, 1, 0},
+    };
+    V world[8];
+    for (int i = 0; i < 8; ++i) {
+        const gta2::Vec3 p = PointBy(carToWorld, local[i].x, local[i].y, local[i].z);
+        const float nx = local[i].nx * carToWorld.m[0][0] + local[i].ny * carToWorld.m[1][0] + local[i].nz * carToWorld.m[2][0];
+        const float ny = local[i].nx * carToWorld.m[0][1] + local[i].ny * carToWorld.m[1][1] + local[i].nz * carToWorld.m[2][1];
+        const float nz = local[i].nx * carToWorld.m[0][2] + local[i].ny * carToWorld.m[1][2] + local[i].nz * carToWorld.m[2][2];
+        const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+        world[i] = {p.x, p.y, p.z, nl > 1e-6f ? nx / nl : 0.0f, nl > 1e-6f ? ny / nl : 1.0f, nl > 1e-6f ? nz / nl : 0.0f};
+    }
+    const uint16_t idx[12] = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7};
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    device->SetTransform(D3DTS_WORLD, &identity);
+    D3DMATERIAL9 m = restore;
+    const float k = 0.38f;   // a darker shade of the paint, never a black hole on a dark car
+    m.Diffuse = {0.10f + k * paint[0], 0.10f + k * paint[1], 0.10f + k * paint[2], 1.0f};
+    m.Ambient = m.Diffuse;
+    m.Specular = {0.0f, 0.0f, 0.0f, 0.0f};
+    device->SetMaterial(&m);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device->SetTexture(0, nullptr);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL);
+    device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 8, 4, idx, D3DFMT_INDEX16, world, sizeof(V));
+    device->SetMaterial(&restore);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
 }
 
 // QB-5: the bonnet's top, in blocks over the road, of a model at `fit`: the 99th
@@ -2634,16 +2708,17 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 if (g_damageLogged < 40) { ++g_damageLogged; Log("car bodies: object %p damage %d (fire stage %d) -> dent step %d", reinterpret_cast<const void*>(use.object), damageWord, fireStage, dentStep); }
             }
             const Model* drawn = worn;
+            const HoodCopy* hood = nullptr;
             if (cpuCut) {
                 const Cabin& cab = g_cabins[use.object];
-                static int seatLogged = 0;
-                static const void* seatCar = nullptr;
-                if (seatCar != reinterpret_cast<const void*>(use.object) && seatLogged < 20) {
-                    ++seatLogged; seatCar = reinterpret_cast<const void*>(use.object);
+                static int seatLogged = 0, seatModel = -1;
+                if (seatModel != modelNumber && seatLogged < 100) {
+                    ++seatLogged; seatModel = modelNumber;
                     Log("car bodies: driver's seat of model %d: eye x=%.3f y=%.3f z=%.3f, deck %.3f, roof %.3f, windscreen %+.3f",
                         modelNumber, eyeLocalX, eyeLocalY, eyeLocalZ, cab.deck, cab.roof, cab.windscreen);
                 }
-                drawn = HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f, eyeLocalX);
+                hood = &HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f, eyeLocalX);
+                drawn = hood->model;
             }
             // VEHICLE-FEEL: the sprung body and the turning wheels (see vehicle_fx.h).
             const float roofH = model->Height() * sy;
@@ -2801,6 +2876,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 }
             } else {
                 ModelDraw(device, *drawn, Mul(fit, posed), nullptr, 0.0f);
+                if (hood && hood->dash) {
+                    const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
+                    const float paint[3] = {b->paint.r / 255.0f * dull, b->paint.g / 255.0f * dull, b->paint.b / 255.0f * dull};
+                    DrawDash(device, posed, *hood, eyeLocalZ + 0.10f, paint, material);
+                }
             }
             g_carStats[2] += CarNowMs() - tm;
             g_carStats[6] += 1;
