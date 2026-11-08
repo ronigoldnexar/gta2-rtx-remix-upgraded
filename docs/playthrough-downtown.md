@@ -565,3 +565,82 @@ ROBBERY guards, DOUBLE-CROSS CRUSH, RADIO ZA-ZA).
   identified in the log).
 - **The smooth driver** made the fixed 300-block route clean (0 hits in two runs, 2.8-3 hits per
   100 blocks before) and is now the default (`DRIVER=classic` for the old one).
+
+## Part 9 (8 Nov 2026, PLAYTHROUGH-10): BANK ROBBERY complete
+
+Sessions `br*`, fresh games, `GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1` (every frame a 3D one: driving in
+the chase view with a first-person stretch, walking and shooting in third person), `FPS=0`,
+`GTA2DX9_STATE_EVERY=5`, devtools F9/F11 (no warp was used), private stage `stage_pt9` (the renderer
+with the `view: peds` / `view: cars` lines). The job has a runner of its own,
+`gamerun/missions/bank_robbery.py` (mirrored in `linux/docker/missions/`, keys script
+`keys_bank_robbery.sh`), on the shared `mission_lib` / `drive_lib`, which were not changed.
+
+### What the script wants (`wil_m/wil_ye2.mis`) and what lost pt9_wil6
+
+The GRAHAM from 52.5,150.5 to the City Bank box 194.5,177.5 (3 x 2, in that car); two guards
+(`CRIMINAL_TYPE1` in police clothes, `crim/police` with arrow slots in `view: peds`) appear on the
+bank's level-2 entrance walk at 185.5,174.5 / 185.5,175.5 (z 3); when both are dead Hiroshi walks out of
+door16 one block, joins the player's group, and the script sets the wanted level to 2 stars with
+`ALTER_WANTED_LEVEL_NO_DROP` and pays $5,000 for a respray (1655). It then waits on
+`CHECK_HEADS_GREATER(p1, 0)`, so only a respray (or a bribe) ends that stage, and finally wants the
+GRAHAM in the safehouse garage (76.5,200.5, 3 x 1). An arrest, a death or a wrecked GRAHAM at any stage
+is JOB FAILED.
+
+pt9_wil6 shot from the street (z 2) at guards one level up: the bank's front wall took every round
+(ammo stopped falling while he stood firing into it), a passing patrol car saw the gunfire (wanted 1)
+and the officers arrested him there. Killing the guards does not raise the level by itself (wanted 0
+after both fell in br2, br7, br9); the two stars come from the script.
+
+### The runner (`missions/bank_robbery.py`)
+
+- **The phone on foot** (113 blocks from the spawn, 1-2.5 min): br2's borrowed car was pinned and set
+  alight at 57.4,143.6 on the way.
+- **The getaway is pre-positioned** before anyone is shot: in the box, as soon as the guards are in
+  `view: peds`, the car is turned with short reverse/forward pulses to face west, the way the getaway
+  runs (`turn_car_toward`), and he waits in it while any police car or officer is within 22/16 blocks.
+  br8 parked facing north; the first metres of the getaway were a turn and a re-route, and a cop pulled
+  him out 14 s in (JOB FAILED).
+- **The stairs by hand-placed points** (`CLIMB`, plain `cruise_to` legs): the flight on row 177 rises
+  west from 193 to 190 and is entered along the south half of the cell; the router's legs pressed him
+  against the stone block at its foot for 80 s in br4. Climb now 5-8 s.
+- **Shooting along the walk** from its east end (189,175), walking at the nearer marked guard with the
+  trigger held while he is over 2.2 blocks off (a standing ped turned with the trigger held lagged:
+  br2 fired north for 10 s). Both guards fall in 3-8 s; the trigger is released the moment the marked
+  `crim/police` peds are gone (Hiroshi comes out of the door behind them, and the job hangs if he dies).
+- **Straight back** by hand-placed points (`DESCEND`), Return beside the car, 0.8 s of throttle at once,
+  then the drive: on foot 7-10 s from the last guard to the wheel (br4: 28 s, and the police were at the
+  car).
+- **The nearer respray.** Any respray clears the level; the job's own shop (86.5,160.5, `CAR_SHOP 9`) only
+  adds a $5,000 bonus for its colour. The runner uses the `CAR_SHOP 10` drive-through at 204.5,221.5
+  (column 204 under a roof, entered from the road at row 216), 85 blocks from the bank instead of 156:
+  30-35 s with two stars behind. The respray costs $5,000 (money 5040 -> 40) and **repairs the car**
+  (carhp 31156 -> 32000 in br7), which answers PLAYTHROUGH-8's question: the $20 probe failed for money.
+- **The safehouse** from the road at row 203, creeping north into the 3 x 1 box; the game parks the car.
+- `drive3` is called with `CAR_AVOID` cleared (stall cells from an earlier leg sent br2's second attempt
+  round a 186-block loop by the north); the job's own outcome check (not `M.outcome`, which counts
+  +$10,000 as a completion: this job pays $5,000 twice before the end).
+
+### Runs
+
+| session | outcome | what happened |
+|---|---|---|
+| br1, br3 | no game | br1: the GPU's framebuffer could not be created (VGL FBO incomplete, 20 GB of 23 in use by other runs); br3 was a mistaken launch, killed |
+| br2 | failed | phone by a borrowed car that burned; the GRAHAM took 16000 in jams at the column-142/row-169 junction and burned on the way; the guards were shot from the walk (wanted 0), the car burned out before the respray |
+| br4 | failed | 80 s on the stairs, 28 s back to the car: the police were beside it, pulled him out (1666, 1125) |
+| br5, br6 | lost | the host overload (load 68) killed every container |
+| **br7** | **JOB COMPLETE** (282 s from the phone) | guards down 8 s after leaving the car, in the car 9 s later, respray at 204.5,221.5 (car repaired), safehouse; +$20,000 |
+| br8 | failed | the car faced north at the bank; a cop pulled him out during the turn 14 s into the getaway (fixed: pre-positioned getaway) |
+| **br9** | **JOB COMPLETE** (384 s) | getaway car set facing west at 199.8,178.9; walk reached in 8 s, guards down 3 s later, in the car 10 s after that, respray 31 s, safehouse; +$20,000 |
+| br10 | failed | getaway set facing west, guards down, in the car 7 s later (carhp 26963 after the first drive), then 30 blocks down column 178 the lane was blocked at 178.4,208.2 with officers 1-2 blocks off and a gang member beside the car; pulled out while the car was pressed (1125) |
+
+Frames: `out/mission_bank_robbery_sheet.png` (br9: the title at the phone, the GRAHAM at the bank,
+the walk, both guards down, the respray, JOB COMPLETE; br7 JOB COMPLETE), and `out/br7/m_br_*.png`,
+`out/br9/m_br_*.png` (`m_br_end.png` is the JOB COMPLETE frame in each).
+
+### Status after part 9
+
+- **BANK ROBBERY: JOB COMPLETE in 2 of 3 sessions on the current runner (br7, br9; br8 failed before
+  the getaway fix).** Counting the confirmation run br10 (failed in the getaway's traffic), it is 2 of 4 consecutive sessions.** The Yakuza green-phone pair is done (GET ZITZAKI in parts 7-8).
+- What still loses it: a standstill in traffic during the 85-block getaway with two stars behind (br10: a blocked lane at 178.4,208.2), a police car passing while the GRAHAM stands at the bank (the runner waits up to
+  70 s for none within 22 blocks, then goes anyway), and the jams at the column-142/row-169 junction on
+  the first drive (br2: the car burned there; the respray would repair it if it got that far).
