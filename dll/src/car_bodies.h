@@ -70,6 +70,9 @@ void CarBodiesReleaseDevice();
 // where the windscreen's base is ahead of the car's centre, and half the
 // width. For the first-person eye at the wheel. False when the car is unknown.
 bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth);
+// The same car's body as drawn: its length and full height (roof gear included)
+// in blocks and half its width, for the chase camera's framing. False when unknown.
+bool CarBodiesExtent(const void* object, float* length, float* height, float* halfWidth);
 // Bodies built and drawn in the last call, for the overlay.
 // Developer aid: draw every car as one of the wreck models ([devtools] wreck_models=1).
 void CarBodiesSetWreckTest(bool on);

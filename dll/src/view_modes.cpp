@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <string>
 
 #include "../../src/gta2_map.h"
 #include "car_bodies.h"
@@ -396,11 +398,56 @@ bool WarpPlayerToCarDoor(const PlayerState& player, const void* car, float cx, f
 
 // As above, any level, but the car must stand on a road cell (so a drive can
 // start from it), nearest to the given point.
+// GTA2DX9_SCENE_MODELS="11,86,7,63" (a developer aid for the camera tests): the
+// scene warp takes the nearest driverless vehicle of one of these model numbers
+// anywhere in the district, road or not, and logs every one it saw.
+bool SceneModelWanted(int32_t model, bool* listed) {
+    static int count = -1;
+    static int models[16];
+    if (count < 0) {
+        count = 0;
+        char buf[128] = {};
+        if (GetEnvironmentVariableA("GTA2DX9_SCENE_MODELS", buf, sizeof buf)) {
+            for (char* tok = strtok(buf, ", "); tok && count < 16; tok = strtok(nullptr, ", ")) models[count++] = atoi(tok);
+        }
+    }
+    *listed = count > 0;
+    for (int i = 0; i < count; ++i) if (models[i] == model) return true;
+    return false;
+}
+
 bool NearestParkedTrafficCarOnRoad(float x, float y, float within, float* vx, float* vy, float* distance,
                                    const void** vehicle) {
     bool found = false;
     float best = within;
     int guard = 0;
+    bool listed = false;
+    SceneModelWanted(-1, &listed);
+    if (listed) {
+        best = 1e9f;
+        std::string seen;
+        for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024; v = game::NextInList(v, game::kVehicleNext), ++guard) {
+            int32_t model = -1;
+            if (!ReadAt(reinterpret_cast<uintptr_t>(v) + game::kVehicleModel, &model)) continue;
+            bool l = false;
+            if (!SceneModelWanted(model, &l)) continue;
+            float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+            if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &cx, &cy, &cz)) continue;
+            const bool driver = game::VehicleHasDriver(v);
+            char buf[64];
+            snprintf(buf, sizeof buf, " m%d@%.1f,%.1f,%.0f%s", model, cx, cy, cz, driver ? "(driven)" : "");
+            if (seen.size() < 900) seen += buf;
+            if (driver) continue;
+            const float d = std::hypot(cx - x, cy - y);
+            if (d >= best) continue;
+            best = d;
+            found = true;
+            *vx = cx; *vy = cy; *distance = d;
+            if (vehicle) *vehicle = v;
+        }
+        Log("devtools: scene models seen:%s", seen.empty() ? " none" : seen.c_str());
+        return found;
+    }
     for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024;
          v = game::NextInList(v, game::kVehicleNext), ++guard) {
         if (game::VehicleHasDriver(v)) continue;
@@ -1215,7 +1262,8 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
 
 // Every frame's camera yaw against the game's heading, when GTA2DX9_LOG_CAMERA=1
 // is in the environment: for measuring the turn rate from a test session.
-static void LogCameraFrame(const char* view, float camYaw, float headingYaw, float dt) {
+static void LogCameraFrame(const char* view, float camYaw, float headingYaw, float dt,
+                           const gta2::Vec3* eye = nullptr, float px = 0.0f, float pz = 0.0f, float extra = 0.0f) {
     static int enabled = -1;
     if (enabled < 0) {
         char buf[8] = {};
@@ -1225,7 +1273,11 @@ static void LogCameraFrame(const char* view, float camYaw, float headingYaw, flo
     static float lastCam = 0.0f;
     const float rate = WrapAngle(camYaw - lastCam) / (std::max)(dt, 1e-3f) / kDegToRad;
     lastCam = camYaw;
-    Log("cam: %s yaw=%.1f heading=%.1f rate=%.0f dt=%.3f", view, camYaw / kDegToRad, headingYaw / kDegToRad, rate, dt);
+    if (eye)
+        Log("cam: %s yaw=%.1f heading=%.1f rate=%.0f dt=%.3f eye=%.2f,%.2f,%.2f at=%.2f,%.2f back=%.2f x=%.2f", view, camYaw / kDegToRad,
+            headingYaw / kDegToRad, rate, dt, eye->x, eye->y, eye->z, px, pz, std::hypot(eye->x - px, eye->z - pz), extra);
+    else
+        Log("cam: %s yaw=%.1f heading=%.1f rate=%.0f dt=%.3f", view, camYaw / kDegToRad, headingYaw / kDegToRad, rate, dt);
 }
 
 float ViewTurnSpeedScale() { return (std::max)(g_settings.turnSpeed, 5.0f) / 100.0f; }
@@ -1262,6 +1314,13 @@ void ViewCameraSolver::Reset() {
     shake_ = 0.0f;
     forwardAccel_ = 0.0f;
     speed = 0.0f;
+    blend_ = 0.0f;
+    downTime_ = 0.0f;
+    deathMix_ = 0.0f;
+    lastDeathCam_ = false;
+    lastPitchKnown_ = false;
+    fpEyeKnown_ = false;
+    fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
 }
 
 // A critically damped spring on an angle: `yaw` chases `target` with velocity
@@ -1299,12 +1358,25 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
         return false;
     }
     if (!player.valid) {
+        // Lost a moment ago - killed in a car that blew up, between the body and the
+        // WASTED / BUSTED screen, between two bodies: for a few seconds the camera
+        // rises and draws back over where he was, turning slowly, instead of
+        // freezing inside the fireball (run cp2_new9 exp_t: a white frame for three
+        // seconds). Found again far away (the hospital, the station), it cuts.
+        if (settled_ && lostTime_ < 6.0f) {
+            lostTime_ += (dt > 0.0f && dt < 0.25f) ? dt : 1.0f / 30.0f;
+            SolveLost(queries, dt, camera);
+            status_ = "third person, over where the player was";
+            g_navHeadingKnown = false;
+            return true;
+        }
         status_ = "waiting for the player to be found";
         settled_ = false;
         camera->SetRoll(0.0f);
         g_navHeadingKnown = false;
         return false;
     }
+    lostTime_ = 0.0f;
 
     // Into the renderer's frame: x east, y up, z north. Map rows run north to
     // south, so the row is mirrored exactly as the mesh builder mirrors it.
@@ -1315,8 +1387,96 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
     // (sin yaw, ., cos yaw). The game's facing is (dirX east, dirY south).
     const float headingYaw = player.facingKnown ? std::atan2(player.dirX, -player.dirY) : followYaw_;
 
+    // A developer aid for the camera tests: [devtools] set_car_damage=N (re-read
+    // twice a second, -1 off) writes N once into the damage word (+0x74) of the
+    // car the player drives; from 16000 the game sets it alight and raises it by
+    // itself, at 32000 it explodes (docs/actions-3d.md "Vehicle fields").
+    if (g_settings.devIniPath[0] && player.inVehicle && player.vehicle) {
+        static int clock = 0, applied = -1;
+        if (++clock % 15 == 0) {
+            const int want = GetPrivateProfileIntA("devtools", "set_car_damage", -1, g_settings.devIniPath);
+            if (want >= 0 && want != applied && want <= 32000) {
+                const int16_t v = static_cast<int16_t>(want);
+                const bool ok = WriteAt(reinterpret_cast<uintptr_t>(player.vehicle) + 0x74, v);
+                Log("devtools: set_car_damage %d on the player's car %p (%s)", want, player.vehicle, ok ? "written" : "write failed");
+            }
+            applied = want;
+        }
+    }
+    // And [devtools] set_player_health=N: his health word (ped+0x216), written once
+    // per change, so the next knock kills him (the WASTED camera checks).
+    if (g_settings.devIniPath[0] && player.ped) {
+        static int clock = 0, applied = -1;
+        if (++clock % 15 == 0) {
+            const int want = GetPrivateProfileIntA("devtools", "set_player_health", -1, g_settings.devIniPath);
+            if (want >= 0 && want != applied && want <= 1000) {
+                const bool ok = WriteAt(reinterpret_cast<uintptr_t>(player.ped) + 0x216, static_cast<uint16_t>(want));
+                Log("devtools: set_player_health %d (%s)", want, ok ? "written" : "write failed");
+            }
+            applied = want;
+        }
+    }
     Solve(player, queries, dt, camera, px, py, pz, headingYaw, player.inVehicle);
     return true;
+}
+
+void ViewCameraSolver::SolveLost(const ViewQueries& q, float dt, gta2::Camera* camera) {
+    if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 30.0f;
+    const gta2::Vec3 centre{lastX_, floorY_ + 0.2f, lastZ_};
+    gta2::Vec3 eye{shownX_, shownY_, shownZ_};
+    // A third of a second of stillness first: a locator that misses him for a
+    // frame or two (a car door, a respawn scan) does not start a crane move.
+    if (lostTime_ > 0.3f) {
+        float ox = eye.x - centre.x, oz = eye.z - centre.z;
+        if (std::hypot(ox, oz) < 0.2f) {
+            const float back = yawDegrees * kDegToRad;
+            ox = -std::sin(back);
+            oz = -std::cos(back);
+        }
+        const float around = std::atan2(ox, oz) + 6.0f * kDegToRad * dt;
+        gta2::Vec3 want{centre.x + std::sin(around) * 3.2f, centre.y + 2.8f, centre.z + std::cos(around) * 3.2f};
+        if (q.blocked) {
+            const gta2::Vec3 from{centre.x, centre.y + 0.4f, centre.z};
+            for (int i = 1; i <= 24; ++i) {
+                const float t = static_cast<float>(i) / 24.0f;
+                const gta2::Vec3 p = from + (want - from) * t;
+                if (q.blocked(q.context, p.x, p.y, p.z)) {
+                    want = from + (want - from) * (std::max)(0.0f, static_cast<float>(i - 1) / 24.0f - 0.03f);
+                    break;
+                }
+            }
+        }
+        const float k = 1.0f - std::exp(-dt / 0.6f);
+        eye = eye + (want - eye) * k;
+    }
+    const gta2::Vec3 dir = centre - eye;
+    const float flat = std::hypot(dir.x, dir.z);
+    float yaw = flat > 1e-4f ? std::atan2(dir.x, dir.z) : yawDegrees * kDegToRad;
+    float pitch = std::atan2(dir.y, (std::max)(flat, 1e-4f));
+    {
+        // No faster than the chase camera turns, and the pitch eased.
+        const float cap = 90.0f * kDegToRad * (std::min)(dt, 1.0f / 30.0f);
+        const float last = yawDegrees * kDegToRad;
+        yaw = WrapAngle(last + (std::max)(-cap, (std::min)(cap, WrapAngle(yaw - last))));
+        if (lastPitchKnown_) pitch = lastPitch_ + (pitch - lastPitch_) * (1.0f - std::exp(-dt / 0.25f));
+        lastPitch_ = pitch;
+        lastPitchKnown_ = true;
+    }
+    roll_ *= std::exp(-dt / 0.2f);
+    camera->SetPosition(eye);
+    camera->SetOrientation(yaw, pitch);
+    camera->SetRoll(roll_);
+    shownX_ = eye.x;
+    shownY_ = eye.y;
+    shownZ_ = eye.z;
+    eyeX_ = eye.x;
+    eyeY_ = eye.y;
+    eyeZ_ = eye.z;
+    finalYaw_ = yaw;
+    finalYawKnown_ = true;
+    yawDegrees = yaw / kDegToRad;
+    pitchDegrees = pitch / kDegToRad;
+    LogCameraFrame("lost", yaw, yaw, dt, &eye, centre.x, centre.z, lostTime_);
 }
 
 namespace {
@@ -1360,7 +1520,31 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         forwardAccel_ = 0.0f;
         lastX_ = px;
         lastZ_ = pz;
+        blend_ = 0.0f;
+        lastInVehicle_ = inVehicle;
+        downTime_ = 0.0f;
+        deathMix_ = 0.0f;
+        lastDeathCam_ = false;
+        lastPitchKnown_ = false;
+        fpEyeKnown_ = false;
+        fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
+        extraLength_ = extraHeight_ = bodyHeight_ = 0.0f;
+        framingKnown_ = false;
     }
+    // In or out of a car, or thrown out of one by a blast: not a cut, a glide.
+    if (inVehicle != lastInVehicle_) blend_ = 1.0f;
+    lastInVehicle_ = inVehicle;
+    // Down on the ground - knocked over, dead, arrested (ped state 8/9) - for more
+    // than a moment: the death camera, pulled back and up over him, eased in.
+    {
+        const PedWords w = inVehicle ? PedWords{} : ReadPedWords(player.ped);
+        const bool down = !inVehicle && (w.state == 8 || w.state == 9);
+        downTime_ = down ? downTime_ + dt : 0.0f;
+    }
+    const bool deathCam = downTime_ > 0.8f;
+    if (deathCam != lastDeathCam_) blend_ = 1.0f;
+    deathMix_ += ((deathCam ? 1.0f : 0.0f) - deathMix_) * (1.0f - std::exp(-dt / 0.45f));
+    if (!deathCam && deathMix_ < 0.01f) deathMix_ = 0.0f;
 
     // --- Motion ----------------------------------------------------------
     // Velocity from the position difference, lightly eased; the acceleration
@@ -1427,7 +1611,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
     }
 
+    blend_ = (std::max)(0.0f, blend_ - dt / 1.2f);
     if (mode == ViewMode::FirstPerson) {
+        lastDeathCam_ = deathCam;
         float eyeHeight = inVehicle ? s.fpEyeCar : s.fpEyeFoot;
         float ahead = inVehicle ? s.fpForwardCar : s.fpForwardFoot;
         float seat = 0.0f;
@@ -1505,6 +1691,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         followYaw_ = fpYaw_;   // so a switch to the chase view starts from where the eyes look
         followYawVel_ = fpYawVel_;
 
+        // Down on the ground (knocked over, dead, arrested): the eye sinks to
+        // the road and the head tips onto its side, eased in over half a second
+        // and out again when he gets up. (The chase view shows the body instead.)
+        if (deathMix_ > 0.0f) {
+            eye.y += (baseY + 0.10f - eye.y) * deathMix_;
+            roll += 35.0f * kDegToRad * deathMix_;
+            pitch += (8.0f * kDegToRad - pitch) * deathMix_;
+        }
         // The kick of an impact, and the stretch of speed.
         if (shake_ > 0.001f) {
             yaw += Wobble(shakeClock_, 7.0f) * 2.5f * kDegToRad * shake_;
@@ -1514,11 +1708,49 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         pitch = (std::min)((std::max)(pitch, -80.0f * kDegToRad), 80.0f * kDegToRad);
         const float fov = (std::min)((std::max)(s.fpFov, 30.0f), 120.0f) + s.speedFov * speedFrac_;
 
+        // A discontinuity of the eye that is not a cut - into the driver's seat,
+        // out of it, thrown by a blast, back from the death camera - is a glide:
+        // the eye keeps where it was shown and the difference dies away over a
+        // quarter of a second. Ordinary motion (the predicted step) never is.
+        {
+            if (fpEyeKnown_) {
+                const float ex = fpRawX_ + velX_ * dt, ez = fpRawZ_ + velZ_ * dt;
+                const float off = std::sqrt((eye.x - ex) * (eye.x - ex) + (eye.y - fpRawY_) * (eye.y - fpRawY_) + (eye.z - ez) * (eye.z - ez));
+                if ((inVehicle != lastFpInVehicle_ || off > 0.25f) && off < 6.0f) {
+                    fpOffX_ = shownX_ - eye.x;
+                    fpOffY_ = shownY_ - eye.y;
+                    fpOffZ_ = shownZ_ - eye.z;
+                }
+            }
+            fpRawX_ = eye.x; fpRawY_ = eye.y; fpRawZ_ = eye.z;
+            fpEyeKnown_ = true;
+            lastFpInVehicle_ = inVehicle;
+            const float k = std::exp(-dt / 0.12f);
+            fpOffX_ *= k; fpOffY_ *= k; fpOffZ_ *= k;
+            gta2::Vec3 shown{eye.x + fpOffX_, eye.y + fpOffY_, eye.z + fpOffZ_};
+            // The glide must not pass through a wall: from the seat out to where it is shown.
+            if (q.blocked && (std::fabs(fpOffX_) + std::fabs(fpOffY_) + std::fabs(fpOffZ_)) > 0.02f) {
+                for (int i = 1; i <= 8; ++i) {
+                    const float t = static_cast<float>(i) / 8.0f;
+                    if (q.blocked(q.context, eye.x + fpOffX_ * t, eye.y + fpOffY_ * t, eye.z + fpOffZ_ * t)) {
+                        const float keep = static_cast<float>(i - 1) / 8.0f;
+                        fpOffX_ *= keep; fpOffY_ *= keep; fpOffZ_ *= keep;
+                        shown = {eye.x + fpOffX_, eye.y + fpOffY_, eye.z + fpOffZ_};
+                        break;
+                    }
+                }
+            }
+            eye = shown;
+            shownX_ = eye.x; shownY_ = eye.y; shownZ_ = eye.z;
+            lastPitch_ = pitch;
+            lastPitchKnown_ = true;
+        }
+
         camera->SetPosition(eye);
         camera->SetOrientation(yaw, pitch);
         camera->SetRoll(roll);
         camera->SetFovY((std::min)(fov, 140.0f) * kDegToRad);
-        LogCameraFrame("first", yaw, headingYaw, dt);
+        LogCameraFrame("first", yaw, headingYaw, dt, &eye, px, pz, eyeHeight);
         {
             // Once a second: where the eye is against the floor under him, for the log.
             static float logClock = 0.0f;
@@ -1552,6 +1784,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // A critically damped spring, quicker at speed, and never faster than the
     // turn rate: the player turns on the spot in the game, the camera swings
     // round behind him over a few tenths of a second.
+    lastDeathCam_ = deathCam;
     float orbitYaw;
     if (!inVehicle) {
         // An orbit camera: the mouse turns it directly, the player turns inside
@@ -1559,6 +1792,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // behind him. It never spins with his heading.
         followYaw_ = WrapAngle(followYaw_ + look.yaw);
         look.yaw = 0.0f;
+        // Over the body the death camera turns slowly round him.
+        followYaw_ = WrapAngle(followYaw_ + 6.0f * kDegToRad * dt * deathMix_);
         const float scale = ViewTurnSpeedScale();
         const bool walking = speed > 0.6f;
         const float walkYaw = walking ? std::atan2(velX_, velZ_) : followYaw_;
@@ -1597,22 +1832,48 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const float orbitPitch = (std::min)((std::max)(look.pitch, -20.0f * kDegToRad), 70.0f * kDegToRad);
 
     const float scale = inVehicle ? 1.0f : (std::max)(s.tpFootScale, 0.2f);
-    // A tall vehicle (truck cab, bus, van) fills the frame from the sedan
-    // distance: the chase pulls back and rises with the body's roof, which the
-    // car bodies know (a sedan roof is about 0.35 blocks, a truck cab 0.9).
-    float tall = 1.0f;
-    if (inVehicle) {
-        float deck, roof, screen, halfWidth;
-        if (CarBodiesCabin(player.vehicleSprite, &deck, &roof, &screen, &halfWidth) && roof > 0.45f)
-            tall = (std::min)(1.0f + (roof - 0.45f) * 1.6f, 1.8f);
+    // A long or tall vehicle (fire truck, bus, truck, tank, train cab) is framed
+    // from its own body, which the car bodies know (CarBodiesExtent: length and
+    // full height in blocks): the camera stands back by the part of the length a
+    // sedan does not have and by the extra height, rises with the height, and
+    // looks at a point as much higher and further ahead, so the whole vehicle is
+    // in the frame from the first frame at the wheel. A sedan (about a block long,
+    // under 0.45 tall) gets no extra at all: its framing is the one tuned before.
+    // The extras are eased, so a body that becomes known a frame late never pops.
+    {
+        float extraLength = 0.0f, extraHeight = 0.0f, bodyHeight = 0.0f;
+        float length = 0.0f, height = 0.0f, halfWidth = 0.0f;
+        if (inVehicle && CarBodiesExtent(player.vehicleSprite, &length, &height, &halfWidth)) {
+            extraLength = (std::max)(0.0f, length - 1.2f);
+            extraHeight = (std::max)(0.0f, height - 0.45f);
+            bodyHeight = height;
+        }
+        if (!framingKnown_) {
+            extraLength_ = extraLength;
+            extraHeight_ = extraHeight;
+            bodyHeight_ = bodyHeight;
+            framingKnown_ = true;
+        } else {
+            const float k = 1.0f - std::exp(-dt / 0.4f);
+            extraLength_ += (extraLength - extraLength_) * k;
+            extraHeight_ += (extraHeight - extraHeight_) * k;
+            bodyHeight_ += (bodyHeight - bodyHeight_) * k;
+        }
     }
-    const float distance = ((std::max)(s.tpDistance, 0.5f) + s.tpPullBack * speedFrac_) * scale * tall;
-    const float height = (s.tpHeight + 0.25f * s.tpPullBack * speedFrac_) * scale * tall;
-    const float lookAhead = (s.tpLookAhead + 0.8f * speedFrac_) * scale;
-    const float lookHeight = s.tpLookHeight * scale;
+    float distance = ((std::max)(s.tpDistance, 0.5f) + s.tpPullBack * speedFrac_) * scale + 0.5f * extraLength_ + 1.0f * extraHeight_;
+    float height = (s.tpHeight + 0.25f * s.tpPullBack * speedFrac_) * scale + 0.8f * extraHeight_ + 0.1f * extraLength_;
+    float lookAhead = (s.tpLookAhead + 0.8f * speedFrac_) * scale + 0.5f * extraLength_;
+    float lookHeight = s.tpLookHeight * scale + 0.5f * extraHeight_;
+    // The death camera: back and up over him, looking at the body.
+    if (deathMix_ > 0.0f) {
+        distance += (2.8f - distance) * deathMix_;
+        height += (2.3f - height) * deathMix_;
+        lookAhead += (0.0f - lookAhead) * deathMix_;
+        lookHeight += (0.1f - lookHeight) * deathMix_;
+    }
     // Over the shoulder on foot: the camera, and what it looks at, sit a little
     // to the right of him, so he is not a figure in the dead centre.
-    const float shoulder = inVehicle ? 0.0f : s.tpShoulder * scale;
+    const float shoulder = inVehicle ? 0.0f : s.tpShoulder * scale * (1.0f - deathMix_);
     const float sx = std::cos(followYaw_), sz = -std::sin(followYaw_);   // right of the chase yaw
 
     // The point looked at is a little ahead of him along his heading, which is
@@ -1628,32 +1889,71 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     gta2::Vec3 desired{px - std::sin(yaw) * distance * cp + sx * shoulder, baseY + height + distance * sp,
                        pz - std::cos(yaw) * distance * cp + sz * shoulder};
 
-    // Not through a wall: walk from just above his head out to where the camera
-    // wants to be and stop short of the first solid block.
-    if (s.tpCollide && q.blocked) {
-        const gta2::Vec3 pivot{px, baseY + 0.6f, pz};
-        constexpr int kSteps = 32;
-        float reach = 1.0f;
-        for (int i = 1; i <= kSteps; ++i) {
-            const float t = static_cast<float>(i) / kSteps;
-            const gta2::Vec3 p = pivot + (desired - pivot) * t;
-            if (q.blocked(q.context, p.x, p.y, p.z)) {
-                reach = static_cast<float>(i - 1) / kSteps - 0.03f;
-                break;
+    // Not through a wall: walk from just above his head (or the vehicle's roof)
+    // out to where the camera wants to be and stop short of the first solid block.
+    // Where that is nearer than the camera may come (a stride behind a car, half a
+    // block behind him on foot: reversing into a wall, his back to a building) it
+    // does not go on through the wall, as it once did: it swings up over him on an
+    // arc at the same distance, up to 75 degrees, to the first height that clears,
+    // and that lift is eased so it is a crane move, not a jump. Under a roof (a
+    // tunnel) where no height clears, it stays in front of the wall.
+    gta2::Vec3 pivot{px, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f), pz};
+    // A car shoved against a building can have its middle inside the wall's
+    // block (run cp2_new8: the van reversed into a wall, every ray out of the
+    // pivot was blocked at once and the camera sat inside the van). The pivot
+    // then moves up and toward the nose until it is in the open.
+    if (q.blocked && q.blocked(q.context, pivot.x, pivot.y, pivot.z)) {
+        const gta2::Vec3 base = pivot;
+        bool found = false;
+        for (int f = 0; f <= 3 && !found; ++f) {
+            for (int u = 0; u <= 4 && !found; ++u) {
+                const gta2::Vec3 c{base.x + hx * 0.3f * f, base.y + 0.25f * u, base.z + hz * 0.3f * f};
+                if (!q.blocked(q.context, c.x, c.y, c.z)) {
+                    pivot = c;
+                    found = true;
+                }
             }
         }
-        // Never closer than a stride from a car, whatever is in the way: nearer
-        // than that the camera is inside its own body. On foot the figure is
-        // small (under half a block), so the camera may come in to half a block;
-        // and when a wall holds it that close it rises instead, so the view is
-        // down over his head rather than into the stonework behind him.
+    }
+    auto reachTo = [&](const gta2::Vec3& from, const gta2::Vec3& to) {
+        constexpr int kSteps = 32;
+        for (int i = 1; i <= kSteps; ++i) {
+            const float t = static_cast<float>(i) / kSteps;
+            const gta2::Vec3 p = from + (to - from) * t;
+            if (q.blocked(q.context, p.x, p.y, p.z)) return (std::max)(0.0f, static_cast<float>(i - 1) / kSteps - 0.03f);
+        }
+        return 1.0f;
+    };
+    if (s.tpCollide && q.blocked) {
         const gta2::Vec3 span = desired - pivot;
         const float spanLength = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
-        const float minPull = inVehicle ? 1.4f : 0.5f;
-        const float minReach = spanLength > 1e-3f ? (std::min)(1.0f, minPull / spanLength) : 1.0f;
-        reach = (std::max)(reach, minReach);
+        const float spanFlat = std::hypot(span.x, span.z);
+        const float minPull = inVehicle ? 1.4f + 0.5f * extraLength_ + 0.5f * extraHeight_ : 0.5f;
+        float wantLift = 0.0f;
+        if (spanLength > 1e-3f && spanFlat > 1e-3f) {
+            const float a0 = std::atan2(span.y, spanFlat);
+            const float aMax = (std::max)(a0, 75.0f * kDegToRad);
+            auto at = [&](float a) {
+                return gta2::Vec3{pivot.x + span.x / spanFlat * std::cos(a) * spanLength, pivot.y + std::sin(a) * spanLength,
+                                  pivot.z + span.z / spanFlat * std::cos(a) * spanLength};
+            };
+            if (reachTo(pivot, desired) * spanLength < minPull) {
+                for (int k = 1; k <= 6; ++k) {
+                    const float a = a0 + (aMax - a0) * k / 6.0f;
+                    if (reachTo(pivot, at(a)) * spanLength >= minPull) {
+                        wantLift = a - a0;
+                        break;
+                    }
+                }
+            }
+            // Up quickly (a wall is coming), down slowly (it has gone).
+            liftAngle_ += (wantLift - liftAngle_) * (1.0f - std::exp(-dt / (wantLift > liftAngle_ ? 0.15f : 0.6f)));
+            if (liftAngle_ < 1e-3f) liftAngle_ = 0.0f;
+            if (liftAngle_ > 0.0f) desired = at(a0 + liftAngle_);
+        }
+        const float reach = reachTo(pivot, desired);
         desired = pivot + (desired - pivot) * reach;
-        if (!inVehicle && reach < 0.6f) {
+        if (!inVehicle && reach < 0.6f && wantLift <= 0.0f) {
             const float rise = (0.6f - reach) * 1.2f;
             if (!q.blocked(q.context, desired.x, desired.y + rise, desired.z)) desired.y += rise;
         }
@@ -1704,21 +2004,47 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // is spread over a few frames, straight-line motion is not.
     eyeX_ += velX_ * dt;
     eyeZ_ += velZ_ * dt;
-    const float ease = 1.0f - std::exp(-dt / 0.09f);
+    // Just after a discontinuity (in or out of a car, thrown, down) the ease is
+    // slower and the lag allowed larger, so the move is a glide (blend_).
+    const float ease = 1.0f - std::exp(-dt / (0.09f + 0.35f * blend_ + 0.3f * deathMix_ * (1.0f - deathMix_)));
     eyeX_ += (desired.x - eyeX_) * ease;
     eyeY_ += (desired.y - eyeY_) * ease;
     eyeZ_ += (desired.z - eyeZ_) * ease;
     // But never further than a block from where it should be - a cut, a wall -
     // which is where easing would show as the camera arriving late.
     {
+        const float maxLag = 1.0f + 5.0f * blend_;
         const float dx = desired.x - eyeX_, dy = desired.y - eyeY_, dz = desired.z - eyeZ_;
         const float away = std::sqrt(dx * dx + dy * dy + dz * dz);
-        if (away > 1.0f) {
-            const float pull = (away - 1.0f) / away;
+        if (away > maxLag) {
+            const float pull = (away - maxLag) / away;
             eyeX_ += dx * pull;
             eyeY_ += dy * pull;
             eyeZ_ += dz * pull;
         }
+    }
+    // The eased eye is checked again: on its way it may cut a corner the wanted
+    // spot does not (a swing round a building, a pull-in): never through a wall,
+    // and a hand's breadth clear of one, so the near plane does not enter it.
+    if (s.tpCollide && q.blocked) {
+        gta2::Vec3 e{eyeX_, eyeY_, eyeZ_};
+        const float t = reachTo(pivot, e);
+        if (t < 1.0f) e = pivot + (e - pivot) * t;
+        constexpr float kRadius = 0.1f;
+        auto clear = [&](const gta2::Vec3& p) {
+            return !q.blocked(q.context, p.x + kRadius, p.y, p.z) && !q.blocked(q.context, p.x - kRadius, p.y, p.z) &&
+                   !q.blocked(q.context, p.x, p.y, p.z + kRadius) && !q.blocked(q.context, p.x, p.y, p.z - kRadius) &&
+                   !q.blocked(q.context, p.x, p.y + 0.07f, p.z);
+        };
+        const gta2::Vec3 back = pivot - e;
+        const float backLength = std::sqrt(back.x * back.x + back.y * back.y + back.z * back.z);
+        for (int i = 0; i < 10 && backLength > 1e-3f && !clear(e); ++i) {
+            const float stepLength = (std::min)(0.04f, backLength * 0.1f);
+            e = e + back * (stepLength / backLength);
+        }
+        eyeX_ = e.x;
+        eyeY_ = e.y;
+        eyeZ_ = e.z;
     }
 
     gta2::Vec3 eye{eyeX_, eyeY_, eyeZ_};
@@ -1730,6 +2056,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const float flat = std::hypot(dir.x, dir.z);
     float camYaw = flat > 1e-5f ? std::atan2(dir.x, dir.z) : yaw;
     float camPitch = std::atan2(dir.y, (std::max)(flat, 1e-5f));
+    // Through a glide the pitch eases too: from the eyes to the death camera the
+    // first frames look steeply down at a body right under the eye.
+    if (lastPitchKnown_ && (blend_ > 0.0f || (deathMix_ > 0.0f && deathMix_ < 0.99f))) {
+        camPitch = lastPitch_ + (camPitch - lastPitch_) * (1.0f - std::exp(-dt / 0.2f));
+    }
+    lastPitch_ = camPitch;
+    lastPitchKnown_ = true;
     // The orientation that is actually set is what the player sees, and the
     // eye's own lag can swing it faster than the orbit's yaw (a car turning
     // under a camera still on its way): the cap applies to it too, so no frame
@@ -1757,7 +2090,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     camera->SetOrientation(camYaw, camPitch);
     camera->SetRoll(roll_);
     camera->SetFovY((std::min)(fov, 130.0f) * kDegToRad);
-    LogCameraFrame("third", camYaw, headingYaw, dt);
+    LogCameraFrame("third", camYaw, headingYaw, dt, &eye, px, pz, distance);
+    shownX_ = eye.x;
+    shownY_ = eye.y;
+    shownZ_ = eye.z;
     yawDegrees = camYaw / kDegToRad;
     pitchDegrees = camPitch / kDegToRad;
     g_navCamYaw = camYaw;
@@ -1765,6 +2101,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     g_navInVehicle = inVehicle;
     g_navHeadingKnown = player.facingKnown;
     status_ = inVehicle ? "third person, following the car"
+                        : deathCam ? "third person, over the player on the ground"
                         : (g_navActive ? "third person, orbit (the keys walk as the camera sees)" : "third person, following on foot");
     (void)player;
 }

@@ -335,6 +335,10 @@ private:
     void Solve(const PlayerState& player, const ViewQueries& queries, float dt,
                gta2::Camera* camera, float px, float py, float pz, float headingYaw,
                bool inVehicle);
+    // The player lost for a moment (killed, between two bodies): the camera
+    // rises and draws back over where he was last.
+    void SolveLost(const ViewQueries& queries, float dt, gta2::Camera* camera);
+    float lostTime_ = 0.0f;
 
     bool settled_ = false;
     bool finalYawKnown_ = false;  // third person: the orientation actually set last frame
@@ -360,6 +364,30 @@ private:
     double shakeClock_ = 0.0;
     float bobPhase_ = 0.0f;                 // walking cycle, turns
     float forwardAccel_ = 0.0f;             // eased, blocks a second squared
+    // The chase framing of a long or tall vehicle: how much longer and taller its
+    // body is than a sedan's, eased so the framing never pops when it becomes known.
+    float extraLength_ = 0.0f, extraHeight_ = 0.0f, bodyHeight_ = 0.0f;
+    bool framingKnown_ = false;
+    float liftAngle_ = 0.0f;   // the chase camera swung up over a wall behind it, radians, eased
+    // A blend after a discontinuity that is not a cut (in or out of a car, thrown
+    // by a blast, down and up again): 1 just after it, 0 once settled. The eye
+    // then eases more slowly and may lag further, so the move is a glide.
+    float blend_ = 0.0f;
+    bool lastInVehicle_ = false;
+    // The player down (knocked over, dead, arrested: ped state 8/9) for this long,
+    // and the death camera's share (eased 0..1): pulled back and up over him.
+    float downTime_ = 0.0f;
+    float deathMix_ = 0.0f;
+    bool lastDeathCam_ = false;
+    float lastPitch_ = 0.0f;
+    bool lastPitchKnown_ = false;
+    // First person: the eye's own glide over a discontinuity (offset added to the
+    // seat or head position, decaying), and the raw and shown eyes last frame.
+    float fpOffX_ = 0.0f, fpOffY_ = 0.0f, fpOffZ_ = 0.0f;
+    float fpRawX_ = 0.0f, fpRawY_ = 0.0f, fpRawZ_ = 0.0f;
+    float shownX_ = 0.0f, shownY_ = 0.0f, shownZ_ = 0.0f;
+    bool fpEyeKnown_ = false;
+    bool lastFpInVehicle_ = false;
     const char* status_ = "classic";
     ViewMode lastMode_ = ViewMode::Classic;
 };

@@ -175,6 +175,7 @@ std::map<uintptr_t, Steer> g_steer;
 struct Cabin {
     float deck, roof, windscreen, halfWidth;
     uint32_t frame;
+    float length, height;   // the body as drawn: blocks along it and its full height (roof gear included)
 };
 std::map<uintptr_t, Cabin> g_cabins;
 
@@ -826,6 +827,92 @@ const Model* HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut,
     return stored;
 }
 
+// The driver's cab of a tall or long model (truck, bus, van, fire truck), in the
+// car's own frame after the fit (blocks; y up from the road, +z the nose): where
+// the hood ends and the windscreen starts, the hood's top (the deck) and the
+// cab's roof over the driver. A sedan's numbers come from its roof alone (deck
+// 0.62 of it, the windscreen from CARI); a truck's roof is often a box body or
+// roof gear behind the cab, and CARI's windscreen line on those long sprites
+// lies inside that body, so the eye sat behind the fire truck's ladder (run
+// a33_fire2 ft_drive_06). The model's own side profile says where the cab is:
+// the height of the middle band of the body in 32 slices from tail to nose; the
+// hood is the run of slices from the nose that stay within an eighth of the
+// height of the nose; the windscreen is where that run ends. A flat front (bus,
+// cab-over truck, train) has no hood: the windscreen is at the nose and the
+// deck a little over half the cab's height. Built once per model and fit.
+struct CabShape {
+    bool valid = false;
+    float length = 0, height = 0, deck = 0, roof = 0, windscreen = 0;
+};
+struct CabKey {
+    const Model* model; int xq, yq, zq;
+    bool operator<(const CabKey& o) const { return std::tie(model, xq, yq, zq) < std::tie(o.model, o.xq, o.yq, o.zq); }
+};
+std::map<CabKey, CabShape> g_cabShapes;
+
+CabShape CabShapeFor(const Model& model, const gta2::Mat4& fit, int modelNumber) {
+    const CabKey key{&model, static_cast<int>(std::lround(std::fabs(fit.m[0][0] + fit.m[2][0]) * 100.0f)),
+                     static_cast<int>(std::lround(fit.m[1][1] * 100.0f)),
+                     static_cast<int>(std::lround(std::fabs(fit.m[2][2] + fit.m[0][2]) * 100.0f))};
+    auto it = g_cabShapes.find(key);
+    if (it != g_cabShapes.end()) return it->second;
+    if (g_cabShapes.size() > 256) g_cabShapes.clear();
+    CabShape cab;
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    float minX = 1e9f, maxX = -1e9f, minY = 1e9f, maxY = -1e9f, minZ = 1e9f, maxZ = -1e9f;
+    auto each = [&](auto&& fn) {
+        for (size_t n = 0; n < model.nodes.size() && n < worlds.size(); ++n) {
+            const int mi = model.nodes[n].mesh;
+            if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+            const gta2::Mat4 toCar = Mul(worlds[n], fit);
+            for (const ModelVertex& v : model.meshes[static_cast<size_t>(mi)].vertices) fn(PointBy(toCar, v.x, v.y, v.z));
+        }
+    };
+    each([&](const gta2::Vec3& q) {
+        minX = (std::min)(minX, q.x); maxX = (std::max)(maxX, q.x);
+        minY = (std::min)(minY, q.y); maxY = (std::max)(maxY, q.y);
+        minZ = (std::min)(minZ, q.z); maxZ = (std::max)(maxZ, q.z);
+    });
+    const float L = maxZ - minZ, H = maxY - minY, W = maxX - minX, cx = 0.5f * (minX + maxX);
+    if (!(L > 0.05f && H > 0.05f && W > 0.05f)) {
+        g_cabShapes[key] = cab;
+        return cab;
+    }
+    constexpr int kSlices = 32;
+    float h[kSlices];
+    for (float& v : h) v = -1.0f;
+    each([&](const gta2::Vec3& q) {
+        if (std::fabs(q.x - cx) > 0.35f * W) return;
+        const int b = (std::min)(kSlices - 1, (std::max)(0, static_cast<int>((q.z - minZ) / L * kSlices)));
+        h[b] = (std::max)(h[b], q.y - minY);
+    });
+    for (int b = 1; b < kSlices; ++b) if (h[b] < 0.0f) h[b] = h[b - 1];
+    for (int b = kSlices - 2; b >= 0; --b) if (h[b] < 0.0f) h[b] = h[b + 1];
+    const float slice = L / kSlices;
+    const float nose = (std::max)(h[kSlices - 1], h[kSlices - 2]);
+    int end = kSlices - 1;   // the last slice of the hood run, counting from the nose
+    while (end > 0 && h[end - 1] <= nose + 0.125f * H) --end;
+    const float runLength = (kSlices - end) * slice;
+    const bool flat = nose >= 0.85f * H || runLength > 0.45f * L;
+    cab.windscreen = flat ? maxZ - 0.06f * L : minZ + end * slice;
+    float roof = 0.0f;
+    for (int b = 0; b < kSlices; ++b) {
+        const float z0 = minZ + b * slice, z1 = z0 + slice;
+        if (z1 > cab.windscreen - 0.35f && z0 < cab.windscreen + 0.02f) roof = (std::max)(roof, h[b]);
+    }
+    cab.roof = roof;
+    cab.deck = flat ? 0.55f * roof : nose;
+    if (cab.roof < cab.deck + 0.08f) cab.roof = cab.deck + 0.08f;
+    cab.length = L;
+    cab.height = H;
+    cab.valid = true;
+    g_cabShapes[key] = cab;
+    Log("car bodies: cab of model %d (%s): %.2f x %.2f x %.2f blocks, %s front, hood %.2f long at %.2f, windscreen %+.2f, cab roof %.2f",
+        modelNumber, model.name.c_str(), L, W, H, flat ? "flat" : "hooded", runLength, cab.deck, cab.windscreen, cab.roof);
+    return cab;
+}
+
 // Dents. The game keeps a damage byte per vehicle (+0x74: 0 fresh, rising with
 // every knock, past 200 the car burns) and paints dents into the sprite; a
 // model shows the same wear as a copy whose shell is pressed in by a smooth,
@@ -1307,6 +1394,15 @@ bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscr
     return true;
 }
 
+bool CarBodiesExtent(const void* object, float* length, float* height, float* halfWidth) {
+    const auto it = g_cabins.find(reinterpret_cast<uintptr_t>(object));
+    if (it == g_cabins.end()) return false;
+    *length = it->second.length;
+    *height = it->second.height;
+    *halfWidth = it->second.halfWidth;
+    return true;
+}
+
 int CarBodiesBuilt() { return g_built; }
 const double* CarBodiesStats() { return g_carStats; }
 int CarBodiesDrawn() { return g_drawn; }
@@ -1728,7 +1824,21 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             {
                 const float roof = model->Height() * sy;
                 const float cy = 0.5f * b->measure.h;
-                g_cabins[use.object] = {0.62f * roof, roof, (b->measure.cabinFront - cy) * b->scale, 0.5f * b->bodyWidth, frame};
+                Cabin cabin{0.62f * roof, roof, (b->measure.cabinFront - cy) * b->scale, 0.5f * b->bodyWidth, frame,
+                            b->bodyLength, roof};
+                // A tall or long body (taller than a sedan's roof by a quarter, or a
+                // third longer): the driver's cab from the model's own profile.
+                if ((roof > 0.45f || b->bodyLength > 1.3f) && modelNumber < 72) {
+                    const CabShape cab = CabShapeFor(*model, fit, modelNumber);
+                    if (cab.valid) {
+                        cabin.deck = cab.deck;
+                        cabin.roof = cab.roof;
+                        cabin.windscreen = cab.windscreen;
+                        cabin.length = (std::max)(cab.length, b->bodyLength);
+                        cabin.height = cab.height;
+                    }
+                }
+                g_cabins[use.object] = cabin;
             }
             ModelSetPaintTint(tint);
             // A baked texture split into paint and the rest (import_assets.py's
