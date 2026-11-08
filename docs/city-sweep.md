@@ -89,5 +89,11 @@ untextured face was found by the sweep (the one known case, Residential
   (`out/sweep_wil_0/t_grid_143_13_ta.png`): the 1.2 s settle in the sweep is
   short for the 1.4 s transition; a sweep artefact.
 
-Rerun: `gamerun/sweep_queue.sh wil:0/4 wil:1/4 ... ste:2/3`, then
+Rerun (8 Nov, QA3; results in `docs/qa-report.md` and the three district files, which now hold the
+8 Nov tables): `STAGE=<private stage> TAG=q3_ gamerun/sweep_queue.sh wil:0/5 ... ste:3/4` (two queues
+in parallel), retries with `SWEEP_PLAN=/work/<plan of the unlanded points>.json`, then
+`tools/sweep_detect.py <folder of links to the sweep_<d>_q3* runs> <district> ...`. `sweep_run.sh` now
+defaults to `GTA2_DIRECT_KEYS=1` (nav_map=0) and takes `STAGE=`.
+
+Rerun (7 Nov): `gamerun/sweep_queue.sh wil:0/4 wil:1/4 ... ste:2/3`, then
 `tools/sweep_detect.py out <district> docs/city-sweep-<district>.md out/sweep_<district>_sheet.png`.

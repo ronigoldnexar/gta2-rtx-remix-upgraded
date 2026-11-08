@@ -6,7 +6,8 @@ QA3_ITEMS picks, in order (default "amb"):
            (GTA2DX9_LOG_VEHICLES=1) is watched for model 34; while it drives the player
            stands ahead of it on its line, when it stops at the bodies he steps to its
            side; frames every 0.25 s in third person, a few in first
-  police   QA3_STARS (default 4) held with [devtools] force_wanted, bare-handed beside the
+  police   QA3_STARS (default 4) held with [devtools] force_wanted (QA3_ARMED, default 1 from 4
+           stars: the machine gun first and a burst at them now and then), beside the
            nearest driven police vehicle (cop car 12, SWAT van 52, FBI car 13): the officers
            shoot at a wanted man at 4 stars and up; frames every 0.15 s facing the nearest
            of them, rewarp every 40 s while nobody comes (QA3_POLICE_SECS, default 150)
@@ -91,6 +92,8 @@ def amb():
 
 def police():
     stars = int(os.environ.get("QA3_STARS", "4"))
+    armed = os.environ.get("QA3_ARMED", "1" if stars >= 4 else "0") == "1"   # bare hands get punched and busted, a gun gets shot at
+    if armed: A.collect(166.5, 140.5, 2, "machine_gun")
     T.warp(164.5, 147.6, 2, why="street"); Q.set_view("third", settle=0.6)
     set_ini("force_wanted", stars); lw = 0
     time.sleep(6.0)
@@ -108,6 +111,9 @@ def police():
         if Q.current_view() == "classic": Q.set_view("third", settle=0.3)   # after a bust or a respawn
         if n == 30: Q.set_view("first", settle=0.3)
         if n == 40: Q.set_view("third", settle=0.3)
+        if armed and cs and n % 3 == 0:
+            if A.mission()[2] == "none": A.collect(166.5, 140.5, 2, "machine_gun"); lw = 0
+            else: A.fire(f"pol{stars}_{n:03d}_fire", secs=0.6, every=0.3)
         for i in range(8): shot(f"pol{stars}_{n:03d}_{i}"); time.sleep(0.15)
         n += 1
         if n % 4 == 0:

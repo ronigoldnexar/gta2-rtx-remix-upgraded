@@ -1,3 +1,115 @@
+# QA3: round 2 release check (8 Nov 2026, QA-RELEASE)
+
+Build: the staged DLL of 11:42 (code of `049eb53`, identical in `dll/ src/ vid/` to the release
+commit), the round-6 car models and re-imported avatars (stage manifest = committed
+`assets/models/manifest.json` of `7bf6a51`), tested from a private hard-linked stage copy
+(`stage_qa`). NVIDIA L4 through VirtualGL (`gta2-gpugl-fast`), containers pinned to CPUs 0-4 and
+`--cpus=4`, with up to four game containers at once on those five CPUs (the `hitch` counts below
+are contention: the 256-frame summaries stay near the cap, wait 21.5 ms average over 100 summaries).
+All scripted runs with `GTA2_DIRECT_KEYS=1` (`nav_map=0`), which `qa_run.sh` and `sweep_run.sh`
+now default to; both take `STAGE=` for a private stage. Paths below are under `~/gta2-linux/out/`.
+
+## Scenarios (third and first person in each)
+
+| # | scenario | run | result |
+|---|---|---|---|
+| a | wall push, slide, 360, back off | `qa_q3_wall` | fault 0, waiting 0, lost 0; chase camera clear of the wall, first person at a hand's distance; the black band above the railing in `qa_wall_first_push1..3` is the same as in the 6 Nov run (`qa_wall/`), not new. Sheet `qa3_wall_sheet.png` |
+| b | back and forth with V; 29-31 rapid V | `qa_q3_backforth` | fault 0, waiting 0, lost 0, every switch landed. Sheet `qa3_backforth_sheet.png` |
+| c | 150 s brawl, 228 punches | `qa_q3_fight` | fault 0, waiting 0. Sheet `qa3_fight_sheet.png` |
+| d | car crash in chase and seat views, exit, re-enter | `qa_q3_crash` | fault 0, waiting 0, 100 driving lines; **QA2 open 1 fixed**: leaving the Truck Cab no longer puts the eye in a trash can (`qa_crash_09_first_out.png` vs `qa_crash/` of 6 Nov). Sheet `qa3_crash_sheet.png` |
+| e | death and respawn (`respawn4`: provoke, bust, punch the police) | `qa_q3_death` | fault 0; the 520 s run ran out before either: shooting people never raised the wanted level in this take (arrested=False, died=False). Arrest and the police seen in the probes below instead |
+| f | 8 min of everything (walk, drive, all views) | `qa_q3_long` | fault 0, waiting 0, lost 20 (the car-entry recycle); car-model textures **356.5 MB, flat from the first summary to the last** (751 textures; QA2's 184 MB predates rounds 4-6). Sheet `qa3_long_sheet.png` |
+
+## Special cases
+
+| case | run | result |
+|---|---|---|
+| death and respawn in the street views | `v3_a33` (6 stars, `force_wanted=6`) | **verified**: killed by the army five times (lives 5 -> 0, then GAME OVER), each WASTED shown and the view back in a street view after the respawn; fault 0, `waiting for the player` 0. Frames `qa3_army_wasted_third.png`, `qa3_army_respawn_third.png` |
+| arrest in the chase view | `q3_police4b` (4 stars, unarmed after the pickup was gone) | **verified**: an officer beside the player and the cop car with its beacons lit, BUSTED with his hands up, then out of the station in third person (`qa3_bust4_99.png` .. `qa3_bust4_103.png`; log `wanted: busted`, `arrest: busted 0.0 s ago, figure at 145.10,105.40, police car at 144.77,104.79`); `q3_police4` busted him five times in 3 minutes, `q3_arrest` (2 stars) once |
+| cop-car beacons | `q3_police4b` | verified in play (12 `beacons on model` lines, lit bar in `qa3_bust4_99.png`) |
+| ambulance with beacons | `q3_amb`, `q3_amb2` | **not framed**: the first try's bursts hit a wall and nobody died (`q3_amb`); in the second (`q3_amb2`, bursts along the pavement and the road) three ambulances were listed, all driving with **no siren** (0 `beacons on model 34` lines), 27-104 blocks away, and each had moved on by the time the warp ahead of it landed (frames `q3_amb2/qa_amb0*`: the empty street). Still verified only as logged beacons on a driven ambulance (ACTIONS-3D-3, `a33_resc1`) |
+| NPC muzzle flash | `q3_police4b` | **not framed**: four `npc shot` lines (an officer's pistol, 13:56:03-04, six blocks from the player) but the shooter was outside the chase camera's frame in every frame of the 15 fps video (video 90.6-94 s); the player's own muzzle flash, tracers and cases are in frame (`q3_amb/qa_amb_fire_07_01.png`). The machine-gun pickup at 166.5,140.5 did not respawn within the run, so the player could not keep shooting back, which is what makes the officers draw |
+| SWAT/FBI figures at 5 stars | `q3_police5`, `q3_fbi` | **not seen**: at 5 stars (held by `force_wanted=5`) no police vehicle of any kind came in 150 s on the carriageway (`q3_police5`) nor in 3 minutes driving away and then holding the plaza with the machine gun (`q3_fbi`); the vehicle log lists only trains, the parked tanks, the fire truck, a bus and ambulances. At 4 stars the police came within 35 s in both runs. The SWAT/FBI sprite-body mapping therefore stays unverified (the only `pedestrian without a remap palette` line is body 0, a civilian set). The 8 Nov FBI sightings (`a33_pol5`, `a33_gun1`) were not reproduced |
+| tanks, turret | `v3_a33` | verified: tanks and army jeeps on the boulevard, a tank firing its cannon (`qa3_tank_cannon.png`, `qa3_tanks_jeeps.png`) |
+| fire truck | `v3_a33` | verified at the wheel in the chase view (`qa3_firetruck_chase.png`), roof gear turned (`turret turned 180 deg` for model 17); no `beacons` line this time (the Tab siren did not register), and the first-person eye still sits behind the roof gear (open since ACTIONS-3D-3) |
+| train | `v3_a33` | not seen this time: no train stopped at the station in 180 s (the vehicle log listed both trains elsewhere); the video uses the 8 Nov `a33_train1` frames |
+| phone booth | `v3_demo2` | verified: the tutorial phone answered from the booth in third person (`qa3_booth_tutorial_third.png`); see finding 2 |
+| new cars in traffic | `v3_demo2` | the round-6 models in Downtown traffic from the chase view while driving the Truck Cab, no missing or white bodies seen (video 318-345 s) |
+
+## City sweep (all three districts, `GTA2DX9_SCENE_NO_CAR=1` warps, magenta clear, sky off)
+
+Plans as on 7 Nov (`gamerun/sweep_plan_<d>.json`), four headings in third and two in first person
+per point, two sweep queues in parallel; points lost to a death (finding 1) re-run from plans of the
+unlanded points (`gamerun/sweep_plan_bil_q3retry*.json`, `sweep_plan_ste_q3retry.json`). Runs
+`out/sweep_<d>_q3_<i>`, retries `sweep_<d>_q3r_*`/`q3s_*`; tables `docs/city-sweep-<d>.md` (regenerated),
+worst-20 sheets `out/sweep_<d>_q3_sheet.png`.
+
+| district | planned | landed | frames scored | holes | black | runs with a FAULT | notes |
+|---|---|---|---|---|---|---|---|
+| Downtown (wil) | 183 | **183** (7 Nov: 177) | 1 098 | 0 | 0 | 0 | 23 `flat` rows, all the first-person eye against a wall right after a warp |
+| Industrial (bil) | 188 | 153 | 918 | 0 | 1 (the black frame of a respawn transition, `sweep_bil_q3_3/t_grid_221_40_fa.png`) | 1 (`sweep_bil_q3_1`, after a death) | 34 points not landed: every run that lost the player after a death (finding 1) |
+| Residential (ste) | 145 | 134 | 804 | 0 (the 3 `hole` rows are the R.I.P. menu over the magenta clear) | 0 real (the same 3 frames) | 0 | 11 points not landed, same cause |
+
+**No hole in the world and no black street frame** in 2 820 scored frames from 470 viewpoints; the
+map-hole fixes hold everywhere the sweep looked, including the hole-class seed cells.
+
+## Regressions and new findings
+
+No regression against QA2 was found in the six scenarios; QA2 open 1 (eye in a trash can after
+leaving a car) is fixed. New or still open (none of them in a file this pass owns, so listed, not fixed):
+
+1. **A death in a swapped district ends the sweep run** (Industrial and Residential, `SWAP_LEVEL=bil|ste`;
+   seven runs). After a warp death the game shows the R.I.P. screen ("YOU ARE DEAD", although lives
+   went only 5 -> 4: `sweep_ste_q3_0/t_zone_164_173_fa.png`, `sweep_ste_q3_1/t_grid_188_246_fa.png`; the
+   detector's two `hole`/`black` rows are this menu over the magenta clear, not a hole), or a flat
+   changing green classic view with the HUD (`sweep_bil_q3_0`); the renderer logs one `view: waiting for
+   the player` and no `view: player` line after it, every later warp is refused (`player not located
+   on foot`), and once (`sweep_bil_q3_1`) gta2.exe faulted a minute later (`gta2.exe+0x3ED37 reading
+   00000064`, the game camera's bounds at -2..1, the map origin). In Downtown (no swap) deaths respawn
+   cleanly (`v3_a33`: five in a row, then the R.I.P. screen at lives 0). So most likely the level swap
+   of the test harness (the swapped script's respawn points), not the renderer; not checked in a
+   natural Industrial/Residential game. The cost is coverage: each death loses the rest of its chunk,
+   so the unlanded points were re-run (`sweep_bil_q3r_0`, `sweep_*_q3s_*`).
+2. **Chase camera inside the phone booth** after answering the tutorial phone: the booth model is
+   not an obstacle for the camera, so the booth's glass and roof fill the frame (`v3_demo2` video
+   about 428-440 s, `qa3_booth_camera_inside.png`). Owner: camera (`WorldView::PanelDistance`
+   knows map panels and lamp posts, not code-object models).
+3. **First person beside a lamp post** draws the post as a black bar a few centimetres from the eye
+   (`qa_q3_crash/qa_crash_10_first_out_turned.png`); the props-off-the-eye rule covers rule-placed
+   props, not this post. Owner: props/camera.
+4. **Third person after leaving a car against a shop front** frames the wall without the player
+   (`qa_q3_crash/qa_crash_11_third_out.png`). Owner: camera.
+5. **First person against a wall after a warp** fills the frame with the wall (the sweep's `flat`
+   rows, same as on 7 Nov); a sweep artefact, not seen in play.
+6. Not framed again: an NPC muzzle flash, the ambulance's beacons (see the table), the train at the
+   station this time. Fire-truck beacons not logged this run.
+7. Remix: the round-6 cars changed 19 models' texture hashes; the car materials were regenerated
+   (`docs/remix-materials.md`, "After car round 6") but **not yet seen under Remix**.
+
+## Release archives and fresh-clone check
+
+Built with `tools/pack_release.py` (new; `docs/HANDOVER.md` section 0 has the layouts) and
+attached to the draft release `v1.5-3d-round2`:
+
+| archive | files | bytes | source |
+|---|---|---|---|
+| `gta2dx9-x86-linux-built.zip` | 262 | 3 659 410 | stage DLLs (md5 `993c6385...` = `dll/build`), ini, reg files, `linux/` from git HEAD with modes |
+| `gta2dx9_models_people.zip` | 219 | 135 410 675 | `assets/models/human_*` (41 avatars; every texture the manifest names is present) |
+| `gta2dx9_models_cars.zip` | 1 283 | 97 809 314 | `assets/models/0NN_*` after round 6 (all 83 `by_model` entries resolve) |
+| `textures_hd_dds.zip` | 2 652 | 246 785 138 | unchanged: the v1.4 asset, CRCs equal to `assets/textures_hd` |
+| `remix_mod_gta2hd.zip` | 8 631 | 1 084 585 827 | `gta2hd/` with the round-6 car materials; 8 630 textures, all referenced, none missing |
+
+**Fresh clone** (`git clone` of `camera-modes` at `7bf6a51` into the scratch folder, the archives
+unpacked as documented): `assets/models` and `assets/textures_hd` equal `stage/gta2dx9_models` and
+`stage/gta2dx9_textures_hd` file for file (`diff -rq` empty), the linux archive's DLLs equal the
+staged ones, the Remix layer equals `package/rtx-remix/mods/gta2hd`, `git status` clean (the
+archives only add ignored files). `gta2dx9.ini` differs only in line endings (`.gitattributes`
+checks `*.ini` out with CRLF; the game reads both). Not done in the dry run: a `make` from the clone
+(the DLLs were compared, not rebuilt).
+
+---
+
+
 # QA report, second pass (6 Nov 2026, build 72642c6 + the two camera changes below)
 
 Run by script on the NVIDIA L4 through VirtualGL (image `gta2-gpugl`, `gamerun/run_game_gpu.sh`),

@@ -27,6 +27,10 @@ L4 host unless it says otherwise; the per-topic documents have the evidence.
 | Missions | Mission runner v3 reads the game's objective arrows; see "Mission playthrough state" below | `docs/missions.md`, `docs/playthrough-*.md` |
 | Tooling | `linux/docker/restage.sh`, `GTA2_DIRECT_KEYS`, `GTA2_SPEED`, `runq.sh` priorities, `tools/pack_release.py` (all archives), `qa_run.sh`/`sweep_run.sh` take `STAGE=` and direct keys | below and `docs/throughput.md` |
 
+Round-2 QA (scenarios, police/army/arrest, the city sweep, archives, fresh-clone check):
+`docs/qa-report.md`, section QA3. Highlights video of the round (local, not in git):
+`~/gta2-linux/deliverables/gta2_3d_round2_highlights.mp4` (2:59, 1280x720, 30 fps, H.264).
+
 ### Rules that cost hours when broken (multi-agent host)
 
 - **Never put a shell variable in an `rm` command** issued through an agent's shell tool
