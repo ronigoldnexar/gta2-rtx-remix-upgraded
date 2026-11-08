@@ -480,11 +480,15 @@ Part 7.
 | pt8_bil20 | same | phone, Z-Type, out of the alley, dealers 1-2 | stalls on the turns south of the alley (48-50,84-87) and on the western detour round the flyover; alight at 16927 before dealer 3 |
 | pt8_bil21 | same | phone (3103, now taken as the running job) | the walk from the rooftop to the Z-Type did not get there in its budget; then a crash in the phone approach for HOT DOG HOMICIDE (no position line; guarded) |
 | pt8_bil22 | same | phone, Z-Type, out of the alley | one hit of 7000 at 70.9,91.6 on the dealer-1 road, in the car-shop strip (bomb, mines, oil, gun and respray drive-ins at 58-70 x 88-92); alight before dealer 1 (fixed: the strip is off the Z-Type's route) |
+| pt8_bil23 | same | phone and Z-Type on foot, out of the alley, **dealers 1, 2 and 3 aboard** (carhp 25241 at dealer 1, 22014 at dealer 2, 19151 leaving the Power Cores) | alight 30 s into the dealer-4 leg (15741); stopped. Frames `out/pt8_bil23/m_bil_re2_dealer1-3.png` |
+| pt8_bil24 | same | phone, Z-Type, out of the alley | the damage spread over the whole dealer-1 leg (the turn south of the alley at 48.5,85: -4000; the route east of the flyover at 65-68,135-142: -4000; stalls on the western roads), alight 93 blocks from dealer 1; stopped |
 
 ### Status (PLAYTHROUGH-8)
 
 - **RUSSIAN SAILORS: not completed.** Furthest this pass: all four dealers aboard again
-  (pt8_bil11), with the car alight at the start of the dealer-4 leg. The runner now protects the
+  (pt8_bil11), dealers 1-3 aboard in pt8_bil23, both with the car alight at the start of the
+  dealer-4 leg: the Z-Type reaches the Power Cores with 19000-20000 carhp, and the dealer-4 and
+  crane legs (about 560 blocks together) need more than the 3000 left before it burns. The runner now protects the
   Z-Type from what the logs showed wrecking it: pressing (back off toward the route after 450 lost
   on the spot), its alley (backed out north), the passenger box (stops inside it, never on the
   dealer), the flyover and the car-shop strip on the dealer-1 road (off the route), walls and
