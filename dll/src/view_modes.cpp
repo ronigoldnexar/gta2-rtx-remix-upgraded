@@ -1409,11 +1409,11 @@ static void LogCameraFrame(const char* view, float camYaw, float headingYaw, flo
 // and ThirdHeight in the ini still scale it (their defaults 3.4 and 1.25 are 1).
 namespace chase {
 constexpr float kWidthAtRest = 0.40f;   // the car's share of the frame's width at a standstill
-constexpr float kPitch = 11.0f;         // degrees the camera looks down at a standstill
+constexpr float kPitch = 13.0f;         // degrees the camera looks down at a standstill
 constexpr float kSpeedFov = 11.0f;      // extra degrees of vertical field of view at full speed
 constexpr float kPullBack = 0.15f;      // extra blocks behind at full speed (times ThirdPullBack)
-constexpr float kTurnLead = 0.30f;      // blocks of sideways lead per rad/s of turn...
-constexpr float kTurnLeadMax = 0.55f;   // ...up to this
+constexpr float kTurnLead = 0.15f;      // blocks of sideways lead per rad/s of turn...
+constexpr float kTurnLeadMax = 0.30f;   // ...up to this
 float g_back = 0.0f, g_height = 0.0f, g_lookHeight = 0.0f;   // eased rig for the current body
 bool g_known = false;
 float g_lastHeading = 0.0f, g_turnRate = 0.0f, g_lead = 0.0f;
@@ -1582,6 +1582,24 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
         }
     }
     UpdateAim(player, px, pz, headingYaw, dt);
+    // And [devtools] set_player_ammo=N (QB-6, scripted shooting): the ammunition word of the
+    // gun in his hands is topped up to N whenever it is below (re-read twice a second, -1 off);
+    // after UpdateAim, which has to see the drop a shot makes first.
+    if (g_settings.devIniPath[0] && player.ped && !player.inVehicle) {
+        static int clock = 0, want = -1;
+        if (++clock % 15 == 0) {
+            const int now = GetPrivateProfileIntA("devtools", "set_player_ammo", -1, g_settings.devIniPath);
+            if (now != want) Log("devtools: set_player_ammo %d", now);
+            want = now;
+        }
+        if (want > 0 && want <= 30000) {
+            uintptr_t weapon = 0;
+            int16_t ammo = 0;
+            if (ReadAt(reinterpret_cast<uintptr_t>(player.ped) + game::kPedCurrentWeapon, &weapon) && weapon > 0x10000 &&
+                ReadAt(weapon + game::kWeaponAmmo, &ammo) && ammo >= 0 && ammo < want)
+                WriteAt(weapon + game::kWeaponAmmo, static_cast<int16_t>(want));
+        }
+    }
     Solve(player, queries, dt, camera, px, py, pz, headingYaw, player.inVehicle);
     g_aim.y = floorY_;
     return true;
@@ -2259,9 +2277,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // enough ahead that the pitch keeps the bumper in the picture.
         // The pitch is fixed at kPitch down (the horizon a third of the way from the
         // top), and the camera is never so close that the bumper's lower edge falls
-        // out of the frame's bottom 7 % (a truck cab's wheels did, run qb22_after4).
+        // out of the frame's bottom 5 % (a truck cab's wheels did, run qb22_after4).
         const float up = (tall + 0.17f) * (std::max)(s.tpHeight, 0.2f) / 1.25f;
-        const float bottomAngle = chase::kPitch * kDegToRad + std::atan(0.85f * std::tan(0.5f * fov0 * kDegToRad));
+        const float bottomAngle = chase::kPitch * kDegToRad + std::atan(0.90f * std::tan(0.5f * fov0 * kDegToRad));
         const float rear = (std::max)(halfW / (chase::kWidthAtRest * tanH), up / std::tan(bottomAngle));
         const float back = (halfL + rear) * (std::max)(s.tpDistance, 0.5f) / 3.4f;
         const float lookUp = (std::max)(0.05f, up - (rear + 2.0f * halfL + 0.25f) * std::tan(chase::kPitch * kDegToRad));
@@ -2327,7 +2345,15 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // what keeps the road ahead in the frame rather than his roof.
     // On foot the point looked at is ahead along the camera, not his heading:
     // an orbit camera frames the street it looks down, whichever way he faces.
-    const float ax = inVehicle ? hx : std::sin(yaw), az = inVehicle ? hz : std::cos(yaw);
+    // In a car (QUALITY-BAR row 22) along the chase yaw with the car's heading pulling it at most
+    // 20 degrees round: from the close chase a spin or a full-lock turn put the point looked at
+    // 45 degrees off the camera's axis and the car at the frame's edge (run qb22_after8).
+    float carLookYaw = headingYaw;
+    if (inVehicle) {
+        const float pull = (std::max)(-20.0f * kDegToRad, (std::min)(20.0f * kDegToRad, WrapAngle(headingYaw - followYaw_)));
+        carLookYaw = WrapAngle(followYaw_ + pull);
+    }
+    const float ax = inVehicle ? std::sin(carLookYaw) : std::sin(yaw), az = inVehicle ? std::cos(carLookYaw) : std::cos(yaw);
     const gta2::Vec3 lookAt{px + ax * lookAhead + sx * shoulder + turnLead.x, baseY + lookHeight,
                             pz + az * lookAhead + sz * shoulder + turnLead.z};
 

@@ -25,4 +25,21 @@ const std::vector<PropFootprint>& MapObjectFootprints();
 // outside the picture (behind the chase camera, where it may be about to go):
 // read-only, for the camera's clearance (view_modes.cpp).
 const std::vector<PropFootprint>& MapObjectObstacles();
+
+// QB-50: the floating pickups drawn this frame (renderer frame, the model's centre a hand
+// above the ground), with the label the HUD floats over each ("PISTOL", "POWER-UP"), the
+// game's sprite object (stable while the pickup lies there) and its distance to the eye.
+struct PickupSpot { float x, y, z, eyeDistance; uintptr_t object; const char* label; };
+const std::vector<PickupSpot>& MapObjectPickups();
+uint32_t MapObjectPickupsFrame();   // bumped by every MapObjectsDraw
+// The projection of a world point with the view and projection MapObjectsDraw drew
+// with, as a fraction of the viewport (0..1 across and down); false behind the eye or
+// before the first street-view frame. `depth` (optional) is the distance along the view.
+bool MapObjectsProject(float x, float y, float z, float* sx, float* sy, float* depth = nullptr);
+// The eye MapObjectsDraw last drew from and its view direction (renderer frame, 3 floats
+// each); false before the first frame.
+bool MapObjectsEye(float* eye, float* dir);
+// QB-49: how many objects were drawn faded (closer to the eye than the fade range) in
+// the last frame, for the log.
+int MapObjectsFadedLastFrame();
 }  // namespace gta2dx9

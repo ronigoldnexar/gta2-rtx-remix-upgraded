@@ -1,39 +1,39 @@
 # The plain renderer's modern look (VISUALS-PLAIN, 8 Nov 2026)
 
-> **Status (8 Nov 19:20, paused for the host move): work in progress, OFF by default**
-> (`[visuals] enabled=0`). The renderer/sky hooks were already in HEAD (swept into another
-> stream's commit) without these files; this commit adds them so HEAD builds, and keeps the
-> pass off so the play page is unchanged.
+> **Status (8 Nov 22:30, VISUALS-PLAIN-2): world shadows work; still OFF by default**
+> (`[visuals] enabled=0`) until the Remix check and the night beam are seen.
 >
-> Verified in the running game (private stage, `out/vis_t3`, `out/vis_dbg*`):
-> - the post chain runs on the L4 under Wine 9 (INTZ, FP16 targets, timestamps);
-> - **the greyscale regression is understood and fixed**: vkd3d copies every uniform into a
->   temporary, the old composite used `r32` (ps_3_0 has r0-r31), Wine's GLSL link failed
->   (`undefined variable "R32"`) and wined3d silently drew the previous program (the AO blur,
->   which outputs the red channel). The composite is now split into a per-cascade shadow-mask
->   pass and a small composite; `tools/build_shaders.sh` fails any shader past r31. Frames after
->   the fix are in full colour (`out/vis_t3`, day / golden hour / night pairs);
-> - SSAO (darkening at kerbs), richer sky (golden hour, stars), HDR sun, bloom, tonemap visible;
-> - recorded model casters (cars, people) reach the shadow map and cast soft shadows.
+> Fixed and verified in the running game (private stage, runs `out/vp2_*` on the 8x L4 host):
+> - **buildings, fences and the whole world now cast sun shadows.** Cause: every world triangle
+>   went through `ps_shadow_world`, which read the alpha-atlas cell as a second interpolated
+>   texcoord; under Wine 9 that shader clipped every pixel (atlas dumps `vp2_dbg4`: with the solid
+>   shader the city is in the map, with the cutout shader nothing; the atlas itself reads back
+>   correct). The shadow copy is now its own FVF `XYZ|TEX1` buffer whose uv is already the atlas
+>   coordinate, drawn through the caster path (`vs_shadow_model`, identity); solid triangles use
+>   the plain depth shader, the cutout set (42k of 408k triangles) `ps_shadow_cutout`
+>   (`vp2_dbg6`: the cutout set adds 9.7k atlas px; `vp2_look`: a building's shadow across the road);
+> - far cascades refreshed on alternate frames (`shadow_stagger=1`) and caster replays set only the
+>   state that changes: the post's own GPU time on the 90 s drive, medium, p50 8.4 -> 4.5 ms,
+>   p99 23.4 -> 14.0 ms;
+> - chroma flat over every drive (`vis_chroma.py`: medium p50 17.2, last 10 s 16.9; off 22.0).
 >
-> Not working / unverified:
-> - **the world mesh does not reach the shadow map** (atlas dumps `out/vis_dbg12|13/atlas.pgm`:
->   casters only), so buildings and fences cast no shadows. Tried: SHORT2 -> FLOAT2 cell stream
->   (no change). Next test is in the build: `[visuals] debug=8` draws the world with the solid
->   shadow shader (no alpha atlas); then check the chunk/run culling (`world runs` in the log)
->   and the two-stream declaration;
-> - night lights were too strong (white pools); intensities lowered (0.12+0.25*I, spots x0.6),
->   not yet seen;
-> - no frame-time measurement per tier on the 90 s drive yet (dbg10: p50 8.5 / p99 23.6 ms in
->   a short chase-view run, medium); no sheet; Remix path untested (code path: no hook, no post
->   on a Remix device).
+> 90 s drive (`keys_perf2_drive.sh`, frame cost = whole - wait):
 >
-> Acceptance tests before turning it on: (1) `linux/docker/vis_run.sh` with
-> `KEYS=keys_vis_look.sh` -> frames, `vis_sheet.py out/visuals_plain_sheet.png out/<run>`;
-> (2) a 90 s drive per tier (`QUALITY=low|medium|high gamerun/vis_run.sh <name> wil <stage>`),
-> `perf2_analyze.py out/<run>/frames.tsv`: p99 under 33 ms; (3) `vis_chroma.py out/<run>`:
-> chroma flat over the whole drive (no greying, the QUALITY-BAR row 3 finding); (4) a Remix run
-> logs `visuals: RTX Remix device ... stay off`.
+> | run | quality | cost p50 / p99 ms | post GPU p50 / p99 | note |
+> |---|---|---|---|---|
+> | vp2_off | visuals off | 5.9 / 39.3 | - | the game alone already spikes past 33 on this host |
+> | vp2_med | medium, before stagger | 12.3 / 53.3 | 8.4 / 23.4 | |
+> | vp2_med2 | medium | 7.3 / 26.4 | 4.5 / 14.0 | under 33 ms |
+> | vp2_low | low | 9.5 / 62.6 | 3.7 / 18.0 | host load 15-17 during the run; spikes are `game` (20 ms) |
+> | vp2_high | high | 12.2 / 48.5 | 7.4 / 25.2 | over budget (85-block third cascade) |
+>
+> Not verified: the headlamp spot lowered (x0.6 -> x0.3; at x0.6 a blown yellow-white bar on the
+> asphalt, `vp2_look` tier_night_high) but no car was in shot in the rerun; street lamps light the
+> facades but barely the ground; high tier over budget; Remix run (`visuals: RTX Remix device ...
+> stay off`) and the Windows build (`dll/build.bat` now lists visuals.cpp, post_fx.cpp, sky.cpp).
+> Debug: `debug=16|n` writes `atlas_<n>.pgm` once per value; n 8 all solid, 9 the renderer's buffer,
+> 10/11 one draw, 12 cutout set left out. A cold Wine/NVIDIA shader cache makes the first run on a
+> new host crawl (~1 fps for a minute); rerun before reading timings.
 
 The play page runs the plain Direct3D 9 renderer (no path tracing), and next to the Remix
 footage it looked dated: unlit-looking textures, no shadows, a flat sky, lamps that light
@@ -80,8 +80,9 @@ The renderer notes which `d3d9` answered `Direct3DCreate9`: the renamed bridge c
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | 1 | all of it; 0 is the v1.5 look |
+| `enabled` | 0 | all of it; 0 is the v1.5 look (off until verified) |
 | `shadows`, `ssao`, `bloom`, `tonemap`, `lights`, `hemisphere` | 1 | each pass |
+| `shadow_stagger` | 1 | far cascades redrawn on alternate frames |
 | `quality` | medium | `low`: 1 cascade to 30 blocks, bilinear PCF, no AO, 16 lights; `medium`: 2 cascades (14, 56), 16-tap PCF, AO 8 samples, 32 lights; `high`: 3 cascades (9, 28, 85), AO 12 samples, a second bloom level, 64 lights |
 | `shadow_strength_percent` | 135 | 100 removes exactly the sun's share |
 | `ao_strength_percent`, `bloom_strength_percent`, `bloom_threshold_percent`, `exposure_percent`, `saturation_percent`, `light_intensity_percent` | 75, 55, 80, 100, 110, 100 | tuning |

@@ -220,6 +220,48 @@ int g_pedAimFrames[2] = {36, 47};      // arm out, from the frame sheet (not yet
 int g_pedHandsUpFrames[2] = {-1, -1};
    // GTA2DX9_LOG_PED_FRAMES=1: the player's frame/state changes, for the clip tables
 bool g_pedWeapons = true;   // the pickup models in the hand of a figure that aims
+// CROWD ([crowd] in gta2dx9.ini, CrowdLoad): civilians' own clothing colours and
+// builds, heads that follow the player, glances. The player's drawn spot (and the
+// frame of it and of his last shot) is kept as his figure is drawn, for the others.
+bool g_crowdVariety = true, g_crowdLookAt = true;
+float g_crowdLookRange = 5.0f;
+float g_crowdPlayerX = 0.0f, g_crowdPlayerZ = 0.0f;
+uint32_t g_crowdPlayerFrame = 0, g_crowdPlayerShot = 0;
+int g_crowdCount[4] = {};   // this frame: drawn, own clothes, looking at the player, glancing
+uint32_t CrowdHash(uint32_t x) {
+    x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
+    return x;
+}
+// One person's look, fixed by his object: a build (height +-6%, width +-5%) and,
+// for a civilian (no uniform, no gang colours) three times in four, clothes of an
+// everyday colour: the avatar's "_paint" half multiplied toward it (most of the
+// way, so the cloth's own shading and the second garment's contrast remain).
+struct CrowdLook { float height = 1.0f, width = 1.0f; bool clothes = false; float tint[3] = {1.0f, 1.0f, 1.0f}; };
+CrowdLook CrowdLookFor(uint32_t seed, const Model& model, int remap, bool player) {
+    CrowdLook look;
+    if (!g_crowdVariety || player) return look;
+    const uint32_t h = CrowdHash(seed ^ 0x9e3779b9u);
+    look.height = 0.94f + 0.12f * static_cast<float>(h & 255) / 255.0f;
+    look.width = 0.95f + 0.10f * static_cast<float>((h >> 8) & 255) / 255.0f;
+    // The remaps the manifest gives a uniform or gang colours: 0-14, 16, 17, 22.
+    const bool civilian = remap < 0 || remap == 15 || (remap >= 18 && remap != 22);
+    if (civilian && model.splitPaint && ((h >> 16) & 3) != 0) {
+        static const uint8_t kClothes[][3] = {
+            {38, 52, 92},    {60, 62, 66},   {28, 28, 32},   {196, 178, 140}, {92, 100, 58},  {118, 32, 44},
+            {70, 104, 150},  {214, 212, 204}, {128, 130, 134}, {110, 76, 50},  {36, 80, 52},   {200, 160, 50},
+            {40, 120, 124},  {176, 46, 40},  {210, 140, 160}, {140, 176, 210}, {160, 146, 104}, {90, 60, 110},
+            {230, 120, 60},  {84, 40, 34},
+        };
+        constexpr uint32_t kN = sizeof(kClothes) / sizeof(kClothes[0]);
+        const uint8_t* c = kClothes[(h >> 18) % kN];
+        for (int k = 0; k < 3; ++k) {
+            const float ratio = static_cast<float>(c[k]) / (std::max)(8.0f, model.paintRgb[k]);
+            look.tint[k] = (std::max)(0.3f, (std::min)(2.0f, 1.0f + (ratio - 1.0f) * 0.85f));
+        }
+        look.clothes = true;
+    }
+    return look;
+}
 bool g_fxUpright = true;    // effect artwork faced to a street-level camera; bullets as streaks
 // Where small effect artwork (a muzzle flash, a bullet, a spark) was drawn last
 // frame: a figure standing in the attack state next to one is shooting, which
@@ -240,7 +282,15 @@ std::vector<PedSpot> g_pedSpots;        // where the figures stood this frame (b
 // ACTIONS-3D-4: the figures drawn this frame and last (object, where, mid-swing and
 // with which fist), so a figure whose health drops can find who punched him (the
 // puncher may be drawn before or after him in a frame).
-struct FigureSpot { uintptr_t object; float x, z; bool punching, alt; };
+// QB-16: and when he last fired (muzzleFrame), which way he faces, and his weapon,
+// so a figure whose health drops with nobody mid-swing beside him can be put to a shooter.
+struct FigureSpot { uintptr_t object; float x, z; bool punching, alt; uint32_t shotFrame; float fx, fz; int weapon; };
+// QB-16: GTA2DX9_SHOT_HITS=0 turns the shot reactions off (a punch's stay).
+bool ShotHitsOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_SHOT_HITS", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
 constexpr uintptr_t kPedHealthWord = 0x216;   // int16, as world_view.cpp's peds line reads it
 std::vector<FigureSpot> g_figuresNow, g_figuresLast;
 constexpr float kSprintStrideOverRun = 1.405f;   // tools/gen_ped_clips.py: the sprint's stride over the run's
@@ -4031,6 +4081,16 @@ bool SkidSmokeSave() {
 
 FireSettings& FireEffects() { return g_fire; }
 
+void CrowdLoad(const char* iniPath) {
+    char buf[8] = {};
+    const bool off = GetEnvironmentVariableA("GTA2DX9_CROWD", buf, sizeof buf) && buf[0] == '0';
+    g_crowdVariety = !off && GetPrivateProfileIntA("crowd", "variety", 1, iniPath) != 0;
+    g_crowdLookAt = !off && GetPrivateProfileIntA("crowd", "look_at", 1, iniPath) != 0;
+    const int range = static_cast<int>(GetPrivateProfileIntA("crowd", "look_range", 5, iniPath));
+    g_crowdLookRange = static_cast<float>((std::max)(1, (std::min)(12, range)));
+    Log("crowd: variety %d, look_at %d, look_range %.0f blocks", g_crowdVariety ? 1 : 0, g_crowdLookAt ? 1 : 0, g_crowdLookRange);
+}
+
 void FireEffectsLoad(const char* iniPath) {
     if (!iniPath || !*iniPath) return;
     g_fireIniPath = iniPath;
@@ -6729,12 +6789,12 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         if (ri.rackT >= 0.0f && reloadT >= ri.rackT && reloadT < ri.rackT + 0.12f) rack = 1.0f - (reloadT - ri.rackT) / 0.12f;
     }
     const float ahead = (wi.twoHanded ? 0.20f : 0.24f) - wi.kick * kick - 0.02f * rs - 0.02f * rack;
-    const float side = (wi.twoHanded ? 0.055f : 0.095f) - 0.02f * rs, down = (wi.twoHanded ? 0.075f : 0.085f) + (thrown ? 0.02f : 0.0f) + 0.05f * rs;
+    const float side = (wi.twoHanded ? 0.055f : 0.095f) - 0.015f * rs, down = (wi.twoHanded ? 0.075f : 0.085f) + (thrown ? 0.02f : 0.0f) + 0.07f * rs;
     float pos[3];
     for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * side - up[c] * down;
     // The barrel along the view, tipped up by the kick, and a little inward.
     float dir[3];
-    for (int c = 0; c < 3; ++c) dir[c] = (&f.x)[c] + up[c] * (0.10f * kick + 0.30f * rs) - right[c] * ((wi.twoHanded ? 0.06f : 0.10f) + 0.25f * rs);
+    for (int c = 0; c < 3; ++c) dir[c] = (&f.x)[c] + up[c] * (0.10f * kick + 0.22f * rs) - right[c] * ((wi.twoHanded ? 0.06f : 0.10f) + 0.05f * rs);
     const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
     for (float& v : dir) v /= dl;
     float wr[3] = {dir[2], 0.0f, -dir[0]};
@@ -6743,7 +6803,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
     if (rs > 0.0f) {
         // Rolled about the barrel, the magazine well toward the eye.
-        const float ca = std::cos(0.55f * rs), sa = std::sin(0.55f * rs);
+        const float ca = std::cos(-0.75f * rs), sa = std::sin(-0.75f * rs);
         for (int c = 0; c < 3; ++c) { const float r0 = wr[c], u0 = wu[c]; wr[c] = r0 * ca + u0 * sa; wu[c] = u0 * ca - r0 * sa; }
     }
     if (reloadT >= 0.0f) {
@@ -6888,6 +6948,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     device->SetFVF(kFigFvf);
 
     constexpr float kPi = 3.14159265f;
+    // CROWD: last frame's counts, every ten seconds of drawing.
+    {
+        static uint32_t frames = 0;
+        if (g_crowdCount[0] && ++frames % 300 == 0)
+            Log("crowd: %d figures drawn, %d in clothes of their own, %d looking at the player, %d glancing", g_crowdCount[0],
+                g_crowdCount[1], g_crowdCount[2], g_crowdCount[3]);
+        for (int& c : g_crowdCount) c = 0;
+    }
     int drawn = 0;
     if (g_logPedFrames) {
         // Corpses in this frame's list and how each is flagged, when it changes.
@@ -7115,15 +7183,57 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         if (vx * vx + vz * vz < best) { best = vx * vx + vz * vz; by = &f; }
                     }
                 }
-                if (!by && (g_logFigures || g_logPedFrames))
-                    Log("fig: health %04x %d -> %d, nobody mid-swing within 0.7 (state %d sub 0x%x)", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
-                        track.lastHealth, hp, sprite.pedState, sprite.pedSub);
+                // QB-16: shot. Nobody mid-swing: the figure that fired in the last
+                // 0.7 s within 12 blocks with his aim nearest the line to him (within
+                // 40 degrees) put a bullet in him. Which way the bullet came, against
+                // his own facing, picks the clip (front, back, his left or right side,
+                // hitSide 2-5) and the gun the stagger (a shotgun throws him further).
+                const FigureSpot* shooter = nullptr;
+                if (!by && ShotHitsOn()) {
+                    float bestScore = 1e9f;
+                    for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
+                        for (const FigureSpot& f : *list) {
+                            if (f.object == sprite.object || !f.shotFrame || g_carFrame - f.shotFrame > 21) continue;
+                            const float vx = cx - f.x, vz = cz - f.z;
+                            const float d2 = vx * vx + vz * vz;
+                            if (d2 > 12.0f * 12.0f || d2 < 1e-6f) continue;
+                            const float d = std::sqrt(d2);
+                            const float along = (vx * f.fx + vz * f.fz) / d;
+                            if (along < 0.766f) continue;
+                            const float score = d * (2.0f - along);
+                            if (score < bestScore) { bestScore = score; shooter = &f; }
+                        }
+                    }
+                }
+                if (!by && !shooter && (g_logFigures || g_logPedFrames))
+                    Log("fig: health %04x %d -> %d, nobody mid-swing within 0.7 or firing at him (state %d sub 0x%x cause %d)",
+                        static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), track.lastHealth, hp, sprite.pedState, sprite.pedSub, sprite.pedCause);
+                if (shooter) {
+                    const float vx = cx - shooter->x, vz = cz - shooter->z;
+                    const float d = (std::max)(1e-3f, std::sqrt(vx * vx + vz * vz));
+                    const float ux = vx / d, uz = vz / d;   // the bullet's way
+                    const float fwd = ux * std::sin(track.heading) + uz * std::cos(track.heading);
+                    const float right = ux * std::cos(track.heading) - uz * std::sin(track.heading);
+                    int side = fwd < -0.5f ? 2 : fwd > 0.5f ? 3 : right > 0.0f ? 4 : 5;   // front, back, his left, his right
+                    hitNow = true;
+                    track.hitFrame = g_carFrame; track.hitSide = side;
+                    track.hitDirX = ux; track.hitDirZ = uz;
+                    const int w = shooter->weapon;
+                    track.hitPush = w == kWpnShotgun ? 0.16f : (w == kWpnMg || w == kWpnSilencedMg) ? 0.10f : 0.08f;
+                    if (g_logFigures || g_logPedFrames) {
+                        static const char* const kSides[6] = {"", "", "front", "back", "left", "right"};
+                        Log("fig: shot %04x%s by %04x (weapon %d, %.1f blocks, %s) health %d -> %d state %d sub 0x%x",
+                            static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                            reinterpret_cast<const void*>(sprite.object) == g_playerObject ? " (player)" : "",
+                            static_cast<unsigned>((shooter->object >> 2) & 0xFFFF), w, d, kSides[side], track.lastHealth, hp, sprite.pedState, sprite.pedSub);
+                    }
+                }
                 if (by) {
                     const float vx = cx - by->x, vz = cz - by->z;
                     const float d = (std::max)(1e-3f, std::sqrt(vx * vx + vz * vz));
                     hitNow = true;
                     track.hitFrame = g_carFrame; track.hitSide = by->alt ? 1 : 0;
-                    track.hitDirX = vx / d; track.hitDirZ = vz / d;
+                    track.hitDirX = vx / d; track.hitDirZ = vz / d; track.hitPush = 0.07f;
                     if (g_logFigures || g_logPedFrames)
                         Log("fig: hit %04x by %04x (%s) health %d -> %d state %d sub 0x%x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
                             static_cast<unsigned>((by->object >> 2) & 0xFFFF), by->alt ? "jab" : "cross", track.lastHealth, hp, sprite.pedState, sprite.pedSub);
@@ -7138,8 +7248,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (ht < 0.15f) st = Smoothstep(0.0f, 0.15f, ht);
                 else if (ht < 0.75f) st = 1.0f - Smoothstep(0.15f, 0.75f, ht);
             }
-            track.staggerX = track.hitDirX * 0.07f * st;
-            track.staggerZ = track.hitDirZ * 0.07f * st;
+            track.staggerX = track.hitDirX * track.hitPush * st;
+            track.staggerZ = track.hitDirZ * track.hitPush * st;
         }
         // What the game has him doing, from his animation frame and state words.
         int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
@@ -7312,7 +7422,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // Taking a punch (ACTIONS-3D-4): over his walk, idle or carry; not while down,
         // falling, swimming or climbing (the lying clip takes over if the game knocks
         // him down: state 8 sub 0x16).
-        if (hitNow && !sprite.corpse && (wantAction == 0 || IsCarryAction(wantAction) || wantAction == 22)) wantAction = 22;
+        // QB-16: a bullet over the aim too (it takes the gun off the line for a moment),
+        // and the reaction held to its end over the walk, the carry or the aim, which
+        // would otherwise take the layer back the next frame.
+        if (hitNow && !sprite.corpse && (wantAction == 0 || IsCarryAction(wantAction) || wantAction == 22 ||
+                                         (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
+        if (!hitNow && track.action == 22 && !track.actionReverse && track.actionTime < 0.6f && !sprite.corpse &&
+            (wantAction == 0 || IsCarryAction(wantAction) || (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
         // Boarding a car on the move (ACTIONS-3D-4): the game carries him along with the car
         // in state 3 before the climb (sprite frames below 24). While he covers ground faster
         // than a walk he runs beside it (legs from the ground covered, heading along the
@@ -7421,6 +7537,57 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             track.twist += (twistTarget - track.twist) * (std::min)(1.0f, dt / 0.12f);
         }
         const float legHeading = track.heading - track.twist;
+        // CROWD: where his head turns ([crowd] look_at). Toward the player when the
+        // player is within look_range and in front of him (twice as far while the
+        // player's gun is going off; one passer-by in four does not look unless it
+        // is), clamped to 70 degrees (50 walking); otherwise a glance now and then:
+        // standing every 3-8 s for 1-2.5 s up to 70 degrees, walking every 5-12 s up
+        // to 35. Only with no action clip on (those pose the head themselves);
+        // eased over 0.25 s at up to 230 degrees a second.
+        {
+            const bool own = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+            float headTarget = 0.0f;
+            track.lookingAtPlayer = false;
+            if (own) {
+                g_crowdPlayerX = track.dx; g_crowdPlayerZ = track.dz; g_crowdPlayerFrame = g_carFrame;
+                g_crowdPlayerShot = track.muzzleFrame;
+            } else if (g_crowdLookAt && track.action == 0 && !sprite.corpse) {
+                const uint32_t seed = static_cast<uint32_t>(sprite.object >> 4);
+                const bool walking = track.walkWeight > 0.5f;
+                if (g_crowdPlayerFrame && g_carFrame - g_crowdPlayerFrame <= 3) {
+                    const float px = g_crowdPlayerX - track.dx, pz = g_crowdPlayerZ - track.dz;
+                    const bool gunfire = g_crowdPlayerShot && g_carFrame - g_crowdPlayerShot < 90;
+                    const float range = g_crowdLookRange * (gunfire ? 2.0f : 1.0f);
+                    const float d2 = px * px + pz * pz;
+                    if (d2 < range * range && d2 > 0.04f && (gunfire || (CrowdHash(seed) & 3) != 0)) {
+                        float rel = std::atan2(px, pz) - track.heading;
+                        while (rel > kPi) rel -= 2.0f * kPi;
+                        while (rel < -kPi) rel += 2.0f * kPi;
+                        if (std::fabs(rel) < 1.9f) {
+                            const float lim = walking ? 0.87f : 1.22f;
+                            headTarget = (std::max)(-lim, (std::min)(lim, rel));
+                            track.lookingAtPlayer = true;
+                        }
+                    }
+                }
+                if (!track.lookingAtPlayer) {
+                    const uint32_t r = CrowdHash(seed ^ (g_carFrame * 2654435761u));
+                    if (track.nextGlance == 0) track.nextGlance = g_carFrame + 30 + r % 210;
+                    if (g_carFrame >= track.glanceUntil && g_carFrame >= track.nextGlance) {
+                        const float side = (r & 1) ? 1.0f : -1.0f;
+                        const float amount = static_cast<float>((r >> 1) & 255) / 255.0f;
+                        track.glanceYaw = side * (walking ? 0.3f + 0.3f * amount : 0.4f + 0.82f * amount);
+                        track.glanceUntil = g_carFrame + 30 + (r >> 9) % 45;
+                        track.nextGlance = track.glanceUntil + (walking ? 150 + (r >> 16) % 210 : 90 + (r >> 16) % 150);
+                    }
+                    if (g_carFrame < track.glanceUntil) headTarget = track.glanceYaw;
+                }
+            }
+            float step = (headTarget - track.headYaw) * (std::min)(1.0f, dt / 0.25f);
+            const float cap = 4.0f * dt;
+            step = (std::max)(-cap, (std::min)(cap, step));
+            track.headYaw += step;
+        }
         const float hx = std::sin(legHeading), hz = std::cos(legHeading);
         // Where the figure stands: the drawn position, at the sprite's height.
         const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX,
@@ -7442,7 +7609,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
             track.lastPX = gx; track.lastPZ = gz; track.havePrev = true;
         }
-        g_figuresNow.push_back({sprite.object, gx, gz, track.action == 1, track.punchAlt});
+        g_figuresNow.push_back({sprite.object, gx, gz, track.action == 1, track.punchAlt, track.muzzleFrame,
+                                std::sin(track.heading), std::cos(track.heading), track.weapon});
 
         if (g_groundModels) {
             // Which of the people he is: fixed by his object, so he keeps his look.
@@ -7495,7 +7663,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (model) {
                 // The character, at his pace, where the figure would stand, facing
                 // his drawn heading, upright, leaning a little into a turn.
-                const float scale = kPedHeight / (std::max)(model->Height(), 0.01f);
+                // CROWD: his own build and clothes (CrowdLookFor).
+                const bool ownFigure = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+                const CrowdLook look = CrowdLookFor(static_cast<uint32_t>(sprite.object >> 4), *model, remap, ownFigure);
+                const float scale = kPedHeight * look.height / (std::max)(model->Height(), 0.01f);
                 const float paceFactor = (std::min)(track.drawnSpeed / 1.5f, 1.0f);
                 float roll = -track.turnRate * paceFactor * 0.03f;
                 if (roll > 0.1f) roll = 0.1f;
@@ -7508,7 +7679,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 placed.m[2][0] = hx;       placed.m[2][1] = 0.0f; placed.m[2][2] = hz;
                 placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f; placed.m[3][2] = gz;
                 gta2::Mat4 fit;
-                fit.m[0][0] = scale * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * model->forward;
+                fit.m[0][0] = scale * look.width * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
                 gta2::Mat4 world;
                 for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
@@ -7610,11 +7781,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (track.action == 23 && track.grabLeft) clipName = "grab_door_l";
                 if (track.action == 4 && track.lieClip > 0 && track.lieClip < 5) clipName = kLyingClips[track.lieClip];
                 if (track.action == 1 && track.punchAlt) clipName = "punch2";        // the combo's left jab
-                if (track.action == 22 && track.hitSide) clipName = "hit_head2";     // a jab turns his head the other way
+                if (track.action == 22 && track.hitSide == 1) clipName = "hit_head2";     // a jab turns his head the other way
+                static const char* const kShotClips[4] = {"hit_shot_front", "hit_shot_back", "hit_shot_l", "hit_shot_r"};   // QB-16
+                if (track.action == 22 && track.hitSide >= 2 && track.hitSide <= 5) clipName = kShotClips[track.hitSide - 2];
                 const ModelAnimation* actionClip = clipName ? model->Animation(clipName) : nullptr;
                 // Avatars imported before a clip existed fall back to the nearest older one.
                 if (!actionClip && track.action == 5) actionClip = model->Animation("getin");
                 if (!actionClip && track.action == 6) actionClip = model->Animation("getout");
+                if (!actionClip && track.action == 22) actionClip = model->Animation("hit_head");   // an avatar from before QB-16
                 if (!actionClip && track.action == 22) actionClip = model->Animation("hit");
                 if (!actionClip && track.action == 1) actionClip = model->Animation("punch");
                 if (!actionClip && track.action == 4) actionClip = model->Animation("fall");
@@ -7779,7 +7953,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // split body texture) multiplied by the remap's colour over the
                 // avatar's own; the two halves are alpha-tested back together.
                 float tint[3];
-                const bool tinted = PedRemapTint(remap, *model, tint);
+                bool tinted = PedRemapTint(remap, *model, tint);
+                if (!tinted && look.clothes) { for (int k = 0; k < 3; ++k) tint[k] = look.tint[k]; tinted = true; }
+                ++g_crowdCount[0];
+                if (look.clothes) ++g_crowdCount[1];
+                if (track.lookingAtPlayer) ++g_crowdCount[2];
+                else if (std::fabs(track.headYaw) > 0.2f) ++g_crowdCount[3];
                 if (tinted) ModelSetPaintTint(tint);
                 if (tinted || model->splitPaint) {
                     // The test must read the texture's alpha, which is where the
@@ -7796,7 +7975,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // far figures, which hold coarser poses.
                 const float twistQ = lod == 0 ? std::floor(track.twist / 0.0524f + 0.5f) * 0.0524f : 0.0f;
                 ModelSetTorsoTwist(twistQ);
+                // CROWD: the head turn, in 6 degree steps near, 12 further, none far.
+                const float headStep = lod == 0 ? 0.105f : 0.21f;
+                ModelSetHeadTurn(lod <= 1 ? std::floor(track.headYaw / headStep + 0.5f) * headStep : 0.0f);
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                ModelSetHeadTurn(0.0f);
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
