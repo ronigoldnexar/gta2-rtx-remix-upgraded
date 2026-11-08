@@ -121,6 +121,14 @@ docker run --rm --gpus '"device=0"' -e NVIDIA_DRIVER_CAPABILITIES=graphics,compu
     gta2-gpugl bash /work/run_game_gpu.sh win32 250 0 /work/keys_demo_fp2.sh
 ```
 
+On a host where anything calls `docker update` on a running container (here `cpu_governor.sh`
+moves the cpuset every minute), also pass the NVIDIA nodes as devices:
+`$(linux/docker/nv_devices.sh 0)` next to `--gpus`. On cgroup v2 `docker update` rebuilds the
+device filter from Docker's own `--device` list, which does not hold the nodes the NVIDIA hook
+added; the driver's next open of `/dev/nvidiaN` then fails with EPERM (GL loses the device, Remix
+dies with "DxvkCommandList: Failed to create fence"). All launchers in `linux/docker` do this, and
+`cpu_governor.sh` leaves the cpuset of a `--gpus` container without the nodes alone.
+
 `run_game_gpu.sh` is `run_game.sh` with the llvmpipe override removed, `vglrun -d egl0 wine
 gta2.exe` (env `VGL_DISPLAY` picks another EGL device; `eglinfo -e` lists them), and an `FPS`
 env for the capture rate (30 for smooth clips). Requirements: the NVIDIA container toolkit

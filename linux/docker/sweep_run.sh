@@ -6,7 +6,7 @@ Dd=$1; CH=$2; S=${3:-900}; I=${CH%/*}; N=sweep_${Dd}_${TAG:-}$I; rm -rf "out/$N"
 SED='s/^log_keys=.*/log_keys=1/; s/^warp_key=.*/warp_key=F9/; s/^scene_key=.*/scene_key=F11/; /^\[sky\]/,/^\[/ s/^enabled=.*/enabled=0/'
 # GTA2_DIRECT_KEYS=1 (default here): nav_map=0, so the quarter turns are the game's own Left key
 [ "${GTA2_DIRECT_KEYS:-1}" = 1 ] && SED="$SED; s/^nav_map=.*/nav_map=0/"
-gamerun/slot.sh sudo -n docker run --rm --gpus '"device=0"' \
+gamerun/slot.sh sudo -n docker run --rm --gpus '"device=0"' $(gamerun/nv_devices.sh 0) \
   -e NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility -e FPS=15 --cpus=4 \
   -e INI_SED="$SED" -e GTA2_DIRECT_KEYS="${GTA2_DIRECT_KEYS:-1}" -e SWAP_LEVEL=$Dd -e GTA2DX9_CLEAR_MAGENTA=1 \
   -e SWEEP_DISTRICT=$Dd -e SWEEP_CHUNK=$CH -e SCENE_KEY=F11 -e GTA2DX9_SCENE_NO_CAR=1 -e SWEEP_PLAN=${SWEEP_PLAN:-/work/sweep_plan_$Dd.json} \

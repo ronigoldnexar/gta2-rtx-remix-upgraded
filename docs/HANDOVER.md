@@ -275,6 +275,9 @@ mkdir -p out/demo && docker run --rm --cpus=8 \
 GPU (headless NVIDIA): build `Dockerfile.gpu-gl` on top (image `gta2-gpugl`,
 needs the NVIDIA container toolkit), run the same with `--gpus '"device=0"'
 -e NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility` and `run_game_gpu.sh`.
+Also pass `$(gamerun/nv_devices.sh <gpu>)` (the NVIDIA nodes as `--device`): without them the
+governor's per-minute `docker update` drops the GPU from the container's cgroup-v2 device filter
+(EPERM on `/dev/nvidiaN`; linux/README.md "Rendering on a headless NVIDIA GPU").
 Note the Xvfb line pins Mesa's EGL vendor (`__EGL_VENDOR_LIBRARY_FILENAMES`):
 with the NVIDIA EGL vendor Xvfb's software GLX segfaults; VirtualGL still goes to the GPU.
 

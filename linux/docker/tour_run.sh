@@ -3,7 +3,7 @@
 cd "$(dirname "$0")/.."
 Dd=$1; S=$2; K=${3:-$Dd}; N=tour_${K}_$Dd; rm -rf "out/$N"; mkdir -p "out/$N"
 SED='s/^log_keys=.*/log_keys=1/; s/^warp_key=.*/warp_key=F9/; s/^scene_key=.*/scene_key=F10/'
-gamerun/slot.sh sudo -n docker run --rm --gpus '"device=0"' \
+gamerun/slot.sh sudo -n docker run --rm --gpus '"device=0"' $(gamerun/nv_devices.sh 0) \
   -e NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility -e FPS=30 --cpus=4 \
   -e INI_SED="$SED" -e SWAP_LEVEL=$Dd \
   $([ "${GTA2_FAST:-1}" = 1 ] && ROOT=$PWD STAGE=${STAGE:-$PWD/repo/stage} SWAP_LEVEL=$Dd gamerun/game_mounts.sh) -e GTA2_INTRO="${GTA2_INTRO:-1}" -v "$PWD/gamerun:/work" -v "$PWD/game:/game:ro" -v "$PWD/upstream-release/files:/release:ro" \
