@@ -31,6 +31,8 @@ enum class CabClass { Car, Van, Truck, Bus, Sports };
 // cab-over) is a bus whatever its number.
 CabClass CabClassFor(int modelNumber, bool flatFront);
 const char* CabClassName(CabClass c);
+// An open-top body (roadster, jeep): the cab has no roof lining, only the windscreen frame.
+bool CabOpenTop(int modelNumber);
 
 struct CabInteriorParams {
     CabClass cls = CabClass::Car;
@@ -41,6 +43,7 @@ struct CabInteriorParams {
     float steer = 0;                             // front wheels, radians
     float speed = 0;                             // blocks/s along the nose
     bool night = false;                          // gauges lit
+    bool openTop = false;                        // no roof lining (FIX-COCKPIT-2)
     bool taxi = false;                           // a fare meter on the dash (FIX-FIGURE)
 };
 

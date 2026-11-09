@@ -3182,6 +3182,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         cp.steer = feel.on ? feel.steer : 0.0f;
                         cp.speed = feel.speed;
                         cp.night = g_lampDark;
+                        cp.openTop = CabOpenTop(modelNumber);
                         cp.taxi = modelNumber == 51 || modelNumber == 56;   // Taxi Xpress, Taxi
                         static int cabLogged = -1;
                         if (cabLogged != modelNumber) {
