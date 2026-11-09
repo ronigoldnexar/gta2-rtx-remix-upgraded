@@ -11,6 +11,7 @@
 #include "ground.h"
 #include "log.h"
 #include "model_store.h"
+#include "../../src/sky.h"
 
 namespace gta2dx9 {
 namespace {
@@ -223,7 +224,9 @@ void EmitEngineSmoke(const gta2::Vec3& at, float groundY, const gta2::Vec3& drif
     p.rot = Rand(0.0f, 2.0f * kPi); p.rotV = Rand(-0.6f, 0.6f);
     const float grey = 0.88f - 0.68f * dark + Rand(-0.04f, 0.04f);
     p.r = p.g = p.b = grey;
-    p.a = 0.34f + 0.16f * dark;   // white steam on a grey road needs more than the tyre smoke's 0.3
+    // White steam on a grey road needs more than the tyre smoke's 0.3; a plume of dark smoke is
+    // dozens of puffs deep, so each is thinner and the column keeps some light through it.
+    p.a = 0.34f - 0.10f * dark;
     p.groundY = groundY;
     Emit(p);
 }
@@ -907,7 +910,9 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
             const float level = (std::max)(Smooth((static_cast<float>(car.damage) - 7000.0f) / 9000.0f),
                                            Smooth((frontHurt - 4000.0f) / 6000.0f));
             if (level > 0.02f) {
-                const float dark = Smooth((static_cast<float>(car.damage) - 16000.0f) / 6000.0f);
+                // The game sets a car alight at 16000: its smoke is dark from there, not pale steam
+                // (FIX-FX: a burning car's plume read as a flat white-grey column).
+                const float dark = Smooth((static_cast<float>(car.damage) - 13000.0f) / 3500.0f);
                 st.steamT -= dt * (3.0f + 7.0f * level + 4.0f * dark);
                 while (st.steamT <= 0.0f) {
                     st.steamT += 1.0f;
@@ -1297,6 +1302,18 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     // Smoke and exhaust: soft puffs that grow, pale and thin out.
     device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    // FIX-FX (pm7): the puffs take the scene's light (a third of it at night, a quarter of the
+    // sky's tint), and thin out as the eye gets into them, so a plume the chase camera passes
+    // through stays local haze instead of a flat white-grey veil over the whole frame.
+    float shade[3] = {1.0f, 1.0f, 1.0f};
+    {
+        const float el = gta2::SkyConfig().sunElevationDeg;
+        const float day = Smooth((el + 4.0f) / 14.0f);
+        const float level = 0.36f + 0.64f * day;
+        const float fc[3] = {((fogColour >> 16) & 255) / 255.0f, ((fogColour >> 8) & 255) / 255.0f, (fogColour & 255) / 255.0f};
+        const float fm = (std::max)(0.05f, (fc[0] + fc[1] + fc[2]) / 3.0f);
+        for (int c = 0; c < 3; ++c) shade[c] = (std::min)(1.0f, level * (0.75f + 0.25f * fc[c] / fm));
+    }
     for (const Particle& p : g_particles) {
         if (p.kind != kSmoke && p.kind != kExhaust) continue;
         const gta2::Vec3 c{p.x, p.y, p.z};
@@ -1309,9 +1326,12 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         const float size = p.size0 + (p.size1 - p.size0) * (1.0f - (1.0f - t) * (1.0f - t));
         const float cs = std::cos(p.rot) * size, sn = std::sin(p.rot) * size;
         const gta2::Vec3 a = right * cs + up * sn, b = up * cs - right * sn;
-        const float alpha = p.a * Smooth(t / 0.12f) * (1.0f - Smooth((t - 0.35f) / 0.65f));
+        const float eyeD = std::sqrt(gta2::Dot(eye - c, eye - c));
+        const float nearK = Smooth((eyeD / (std::max)(0.02f, size) - 0.6f) / 2.4f);
+        const float alpha = p.a * Smooth(t / 0.12f) * (1.0f - Smooth((t - 0.35f) / 0.65f)) * nearK;
+        if (alpha < 0.004f) continue;
         const float grey = p.r + (1.0f - p.r) * 0.3f * t;
-        Quad(c, a, b, Colour(grey, grey, grey * 1.02f, alpha));
+        Quad(c, a, b, Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], alpha));
     }
     Flush(device, g_puffTex);
     mark[nm++] = NowMs();

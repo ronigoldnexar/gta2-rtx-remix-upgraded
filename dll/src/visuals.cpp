@@ -12,6 +12,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -91,8 +92,43 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
     const bool dump = gta2::VisualsConfig().debug == 32 && nowTick - lastDump > 20000u;
     if (dump) lastDump = nowTick;
     int dumped = 0;
+    // Fire (FIX-FX, ptm14/fire-fx): the game's flames come as a light per flame particle, a dozen
+    // over one burning car, and their sum blew a wall out to a flat disc. They are gathered here
+    // into one warm point light per blaze (within 1.5 blocks), bounded, with a slow flicker, and
+    // kept at 45 % by day so a burning car lights the road and the wall beside it.
+    struct Blaze { float pos[3]; float weight; float peak; };
+    std::vector<Blaze> blazes;
     for (const RemixTrackedLight& t : LightsTracked()) {
         const RemixLightDesc& d = t.def;
+        if (d.source != kLightSourceFire) continue;
+        if (d.intensity < 0.02f) continue;
+        Blaze* into = nullptr;
+        for (Blaze& b : blazes) {
+            const float dx = b.pos[0] / b.weight - d.pos[0], dz = b.pos[2] / b.weight - d.pos[2];
+            if (dx * dx + dz * dz < 1.5f * 1.5f) { into = &b; break; }
+        }
+        if (!into) { blazes.push_back(Blaze{{0, 0, 0}, 0.0f, 0.0f}); into = &blazes.back(); }
+        for (int i = 0; i < 3; ++i) into->pos[i] += d.pos[i];
+        into->weight += 1.0f;
+        into->peak = into->peak > d.intensity ? into->peak : d.intensity;
+    }
+    const float secs = static_cast<float>(nowTick % 100000u) / 1000.0f;
+    for (size_t i = 0; i < blazes.size(); ++i) {
+        const Blaze& b = blazes[i];
+        gta2::VisualLight l = {};
+        for (int c = 0; c < 3; ++c) l.pos[c] = b.pos[c] / b.weight;
+        l.pos[1] += 0.35f;   // over the flames, so the ground round the car is lit too
+        l.rgb[0] = 1.0f; l.rgb[1] = 0.52f; l.rgb[2] = 0.18f;
+        const float size = b.weight < 6.0f ? b.weight / 6.0f : 1.0f;
+        const float flicker = 0.86f + 0.08f * std::sin(secs * 7.3f + i * 1.7f) + 0.06f * std::sin(secs * 13.1f + i * 0.9f);
+        l.intensity = (0.55f + 0.45f * size) * flicker;
+        l.radius = 3.4f;
+        l.day = 0.45f;
+        out->push_back(l);
+    }
+    for (const RemixTrackedLight& t : LightsTracked()) {
+        const RemixLightDesc& d = t.def;
+        if (d.source == kLightSourceFire) continue;
         if (dump && dumped < 8 && (d.source == kLightSourceGame || dumped < 3)) {
             ++dumped;
             Log("visuals: light src %d at %.2f %.2f %.2f r %.2f i %.2f rgb %.2f %.2f %.2f spot %d", d.source, d.pos[0], d.pos[1],
@@ -108,7 +144,9 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         float r = d.radius * 1.35f;
         r = r < 1.5f ? 1.5f : (r > 6.0f ? 6.0f : r);
         l.radius = r;
-        l.intensity = 0.12f + 0.25f * d.intensity;
+        // Bounded per light (FIX-FX): siren and head-lamp lights carry Remix radiances (~10), which
+        // made a point light of 2.6 that flooded a wall pure red or blue.
+        l.intensity = 0.12f + 0.25f * (d.intensity < 3.5f ? d.intensity : 3.5f);
         l.spot = d.spot && d.coneAngleDeg > 1.0f;
         l.coneDeg = d.coneAngleDeg;
         // Headlamp beams reach down the road, softer: at x0.6 a beam read as a blown yellow-white

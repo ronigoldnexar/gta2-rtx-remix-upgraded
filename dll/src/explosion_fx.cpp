@@ -156,10 +156,13 @@ bool EnsureTextures(IDirect3DDevice9* device) {
         });
     }
     if (!g_ringTex) {
-        g_ringTex = MakeTexture(device, 128, 1, [](float u, float v, int, float* rgb, float* a) {
+        // 256 texels and no hard step (the inner fill used to stop dead at 0.86): from the
+        // driver's seat the ring is several blocks across and its edge read as a staircase.
+        g_ringTex = MakeTexture(device, 256, 1, [](float u, float v, int, float* rgb, float* a) {
             const float r = std::sqrt(u * u + v * v);
             const float ring = std::exp(-((r - 0.86f) / 0.07f) * ((r - 0.86f) / 0.07f));
-            const float inner = r < 0.86f ? 0.18f * (r / 0.86f) * (r / 0.86f) : 0.0f;
+            const float fillEnd = Clamp01((0.92f - r) / 0.12f);
+            const float inner = 0.18f * (r / 0.86f) * (r / 0.86f) * fillEnd * fillEnd * (3.0f - 2.0f * fillEnd);
             const float ragged = 0.7f + 0.3f * Noise(std::atan2(v, u) * 6.0f + 20.0f, 0.0f, 71);
             const float g = r >= 1.0f ? 0.0f : (ring + inner) * ragged;
             *rgb = g; *a = g;
@@ -437,7 +440,16 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
     // Ground light and shock ring.
     for (const Blast& b : g_blasts) {
         const float age = static_cast<float>(now - b.born);
-        const float light = g_set.flash * 0.30f * FlashLevel(age);
+        // The eye's nearness to the blast (1 far, 0.25 at its heart): the flash, and the ground
+        // light that from an eye at the wheel is most of the frame (FIX-FX, fire-fx 3d).
+        float flashK = 1.0f;
+        if (g_eyeSet) {
+            const float s0 = 2.2f * b.k;
+            const float dx = b.x - g_eye[0], dy = b.y + 0.55f * b.k - g_eye[1], dz = b.z - g_eye[2];
+            const float t = Clamp01((std::sqrt(dx * dx + dy * dy + dz * dz) / s0 - 0.4f) / 1.2f);
+            flashK = 0.25f + 0.75f * t * t * (3.0f - 2.0f * t);
+        }
+        const float light = g_set.flash * 0.30f * FlashLevel(age) * (0.4f + 0.6f * flashK);
         if (light > 0.01f) {
             const float c[3] = {b.x, b.y + 0.035f, b.z};
             const float s = 3.6f * b.k;
@@ -447,20 +459,13 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         if (age < 0.55f) {
             const float u = age / 0.55f;
             const float radius = (0.4f + 4.6f * (1.0f - (1.0f - u) * (1.0f - u))) * b.k;
-            const float level = 0.55f * (1.0f - u) * (1.0f - u) * (std::min)(1.0f, g_set.flash);
+            const float level = 0.55f * (1.0f - u) * (1.0f - u) * (std::min)(1.0f, g_set.flash) * (0.3f + 0.7f * flashK);
             const float c[3] = {b.x, b.y + 0.04f, b.z};
             const float a[3] = {radius, 0.0f, 0.0f}, bb[3] = {0.0f, 0.0f, radius};
             ring.Quad(c, a, bb, Colour(level, level * 0.85f, level * 0.65f, 1.0f), 0, 1);
         }
         // The flash: a glow over the blast.
         const float flash = g_set.flash * (0.8f * std::exp(-age / 0.10f) + 0.18f * Clamp01(1.0f - age / 1.4f));
-        float flashK = 1.0f;
-        if (g_eyeSet) {
-            const float s0 = 2.2f * b.k;
-            const float dx = b.x - g_eye[0], dy = b.y + 0.55f * b.k - g_eye[1], dz = b.z - g_eye[2];
-            const float t = Clamp01((std::sqrt(dx * dx + dy * dy + dz * dz) / s0 - 0.4f) / 1.2f);
-            flashK = 0.25f + 0.75f * t * t * (3.0f - 2.0f * t);
-        }
         if (flash * flashK > 0.01f) {
             const float c[3] = {b.x, b.y + 0.55f * b.k, b.z};
             const float s = 2.2f * b.k * (0.7f + 0.3f * Clamp01(age / 0.15f));
@@ -597,6 +602,10 @@ bool ExplosionFxLight(float pos[3], float rgb[3], float* range) {
         }
     }
     if (best < 0.03f) return false;
+    // Bounded (FIX-FX): on top of the sun and the ambient the flash's 2-3 washed a car body out to
+    // flat cream for the blast's first frames; 0.7 still reads as a hot orange light on it.
+    best = 0.7f * best / (0.7f + best) * 2.0f;
+    best = best < 0.7f ? best : 0.7f;
     rgb[0] = best; rgb[1] = best * 0.58f; rgb[2] = best * 0.24f;
     return true;
 }

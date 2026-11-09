@@ -28,6 +28,16 @@ and off while it plays, and without this window one blast was counted as two. Ea
 
 The game's own blast sprite stays underneath, dimmed to `sprite_percent` (35 %).
 
+Near the eye (FIX-FX, 9 Nov; first person at the wheel of a car that blows up): the flash, the
+ground light and the shock ring scale with the eye's nearness to the blast (to 0.25, 0.55 and 0.475 of
+their level at its heart), the game's big effect sprites stood up round the eye fade to a fifth
+inside 1.2 of their size, and the car light is bounded at 0.7 (a flash of 2-3 on top of the sun
+washed a car body to flat cream). The ring texture is 256 texels with no hard step in its fill.
+The burning-car flames and the fire and tyre smoke (`live_geometry.cpp`) face the camera in the
+street views and fade inside half to two of their sizes from the eye: laid flat, as the top-down view
+wants them, a puff at eye height was a screen-wide grey veil and a risen flame an orange plate in
+the sky. The classic view keeps them flat.
+
 Draw cost: five `DrawIndexedPrimitiveUP` batches a frame (ground glow, ring, smoke, fire, glow),
 with vertices built on the CPU in world space. The particle cap is 1600; one car blast peaks at
 about 280 live particles. The textures are procedural and built once per device. It all runs in the

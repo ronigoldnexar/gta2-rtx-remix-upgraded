@@ -235,9 +235,11 @@ float4 ps_ao_blur(QuadOut i) : COLOR0 {
     return float4(a, a, a, 1);
 }
 
-// --- Night lights: one quad per light, added over the lit frame. The light's
-// parameters ride in the vertices. Albedo is the frame's colour over the
-// ambient level it was drawn with.
+// --- Night lights: one quad per light, summed into a light buffer (no albedo); then
+// ps_light_apply adds albedo x the sum, the sum bounded first (FIX-FX, pm26/pm31: summed
+// additive pools clipped walls to flat white, pure red/blue or saturated yellow). The
+// light's parameters ride in the vertices. Albedo is the frame's colour over the ambient
+// level it was drawn with.
 struct LightIn  { float4 pos : POSITION; float4 posRadius : TEXCOORD0; float4 colour : TEXCOORD1; float4 spot : TEXCOORD2; };
 struct LightOut { float4 pos : POSITION; float4 posRadius : TEXCOORD0; float4 colour : TEXCOORD1; float4 spot : TEXCOORD2; };
 LightOut vs_light(LightIn i) { LightOut o; o.pos = i.pos; o.posRadius = i.posRadius; o.colour = i.colour; o.spot = i.spot; return o; }
@@ -266,11 +268,32 @@ float4 ps_light(LightOut i, float2 vpos : VPOS) : COLOR0 {
         cone = saturate((c - i.spot.w) / max(1.0 - i.spot.w, 1e-3) * 2.5);
         cone *= cone;
     }
-    float3 albedo = min(tex2D(sScene, uv).rgb * cLight.x, cLight.y);
+    float fog = 1.0 - saturate((p.z - cLight.z) * cLight.w);
+    return float4(i.colour.rgb * (att * ndl * cone * fog), 0);
+}
+
+// The light buffer applied: lit += albedo x bound(sum). The bound keeps the hue of the sum
+// (a siren still tints red) and rolls its strongest channel off towards cApply.x, so
+// overlapping pools never pass it; a saturated light gives up some of its purity as it
+// grows (cApply.y) the way a real bright source reads near-white at its core. Albedo
+// times light, so brick stays brick under a pool.
+sampler2D sLightSum : register(s5);
+float4 cApply : register(c3);   // ceiling of the summed light, whitening of a strong light, knee, -
+float4 ps_light_apply(QuadOut i) : COLOR0 {
+    float3 L = tex2D(sLightSum, i.uv).rgb;
+    float m = max(L.r, max(L.g, L.b));
+    if (m <= 1e-4) return float4(0, 0, 0, 0);
+    float cap = cApply.x, knee = cApply.z;
+    // The strongest channel: as it was up to the knee, then an exponential roll-off to the cap.
+    float mb = m <= knee ? m : knee + (cap - knee) * (1.0 - exp(-(m - knee) / (cap - knee)));
+    float3 hue = L / m;
+    float white = cApply.y * saturate(mb / cap);
+    float3 paler = 0.5 * hue + 0.5 * dot(hue, float3(0.3, 0.5, 0.2));
+    float3 Lb = mb * lerp(hue, paler, white);
+    float3 albedo = min(tex2D(sScene, i.uv).rgb * cLight.x, cLight.y);
     // A floor of albedo so black asphalt still shows the pool of light.
     albedo = max(albedo, 0.08);
-    float fog = 1.0 - saturate((p.z - cLight.z) * cLight.w);
-    return float4(albedo * i.colour.rgb * (att * ndl * cone * fog), 0);
+    return float4(albedo * Lb, 0);
 }
 
 // --- Bloom: a soft-knee bright pass at half resolution, a separable Gaussian.

@@ -142,6 +142,8 @@ void PostFx::ReleaseTargets() {
     SafeRelease(maskSurf_); SafeRelease(maskTex_);
     SafeRelease(wetSurf_); SafeRelease(wetTex_); SafeRelease(psWet_);
     wetFailed_ = false;
+    SafeRelease(lightSumSurf_); SafeRelease(lightSumTex_); SafeRelease(psLightApply_);
+    lightSumFailed_ = false;
     SafeRelease(psShadowmask_);
     SafeRelease(stateBlock_);
     SafeRelease(vsShadowWorld_); SafeRelease(vsShadowModel_); SafeRelease(vsQuad_); SafeRelease(vsLight_);
@@ -987,7 +989,9 @@ void PostFx::Resolve() {
     }
 
     // Night lights, added in one draw of a quad each.
-    if (cfg.lights && night > 0.02f && g_lightProvider) {
+    // (A fire's light also shows by day, at its own share: the provider runs every frame, and a
+    // frame with nothing to add draws nothing.)
+    if (cfg.lights && g_lightProvider) {
         lights_.clear();
         g_lightProvider(&lights_);
         struct Pick { float d2; int i; };
@@ -995,6 +999,7 @@ void PostFx::Resolve() {
         const float tanY = std::tan(fovY_ * 0.5f), tanX = tanY * aspect_;
         for (size_t i = 0; i < lights_.size(); ++i) {
             const VisualLight& l = lights_[i];
+            if (std::max(night, l.day) <= 0.02f) continue;
             const float r = l.radius;
             const Vec3 v = XformPoint(view_, Vec3{l.pos[0], l.pos[1], l.pos[2]});
             if (v.z < -r || v.z - r > frame_.fogEnd) continue;
@@ -1025,7 +1030,7 @@ void PostFx::Resolve() {
             }
             LightVertex base = {};
             base.p[0] = v.x; base.p[1] = v.y; base.p[2] = v.z; base.p[3] = r;
-            const float k = l.intensity * cfg.lightIntensity * night * frame_.blend;
+            const float k = l.intensity * cfg.lightIntensity * std::max(night, l.day) * frame_.blend;
             base.c[0] = l.rgb[0] * k; base.c[1] = l.rgb[1] * k; base.c[2] = l.rgb[2] * k;
             if (l.spot) {
                 const Vec3 d = Normalize(XformDir(view_, Vec3{l.dir[0], l.dir[1], l.dir[2]}));
@@ -1041,6 +1046,27 @@ void PostFx::Resolve() {
             }
         }
         stats_.lights = static_cast<int>(verts.size() / 6);
+        // The pools are summed in a buffer of their own and applied once, bounded, so overlapping
+        // or strong ones (sirens, head lamps, a fire) tint the surface instead of clipping it
+        // (FIX-FX, pm26/pm31). Without the buffer they add straight onto the frame as before.
+        if (!verts.empty() && !lightSumTex_ && !lightSumFailed_) {
+            const HRESULT ht = device_->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, hdrFormat_, D3DPOOL_DEFAULT, &lightSumTex_, nullptr);
+            const HRESULT hs = SUCCEEDED(ht) ? lightSumTex_->GetSurfaceLevel(0, &lightSumSurf_) : E_FAIL;
+            const HRESULT hp = device_->CreatePixelShader(k_ps_light_apply, &psLightApply_);
+            if (FAILED(ht) || FAILED(hs) || FAILED(hp)) {
+                SafeRelease(lightSumSurf_); SafeRelease(lightSumTex_); SafeRelease(psLightApply_);
+                lightSumFailed_ = true;
+                RendererTrace("visuals: no light-sum target (0x%08lx, 0x%08lx, 0x%08lx); night lights add unbounded",
+                              static_cast<unsigned long>(ht), static_cast<unsigned long>(hs), static_cast<unsigned long>(hp));
+            } else {
+                RendererTrace("visuals: night lights summed and bounded (%dx%d)", w, h);
+            }
+        }
+        const bool summed = lightSumTex_ != nullptr;
+        if (!verts.empty() && summed) {
+            SetTarget(lightSumSurf_, w, h);
+            device_->Clear(0, nullptr, D3DCLEAR_TARGET, 0x00000000u, 1.0f, 0);
+        }
         if (!verts.empty()) {
             device_->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
             device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
@@ -1054,9 +1080,21 @@ void PostFx::Resolve() {
             const float lc[4] = {1.0f / amb, 0.8f, frame_.fogStart, 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart)};
             device_->SetPixelShaderConstantF(2, lc, 1);
             device_->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(), sizeof(LightVertex));
-            device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
             device_->SetVertexShader(vsQuad_);
             device_->SetVertexDeclaration(quadDecl_);
+            if (summed) {
+                SetTarget(litSurf_, w, h);
+                device_->SetPixelShader(psLightApply_);
+                sampler(5, lightSumTex_, false);
+                // Ceiling of the summed light (in units of albedo), how far a strong saturated light
+                // pales towards white (a siren on a teal wall reads red-tinted teal, not red), and the
+                // knee below which a pool is as it was (one map lamp's pool is about 0.45).
+                const float ac[4] = {1.0f, 0.35f, 0.5f, 0.0f};
+                device_->SetPixelShaderConstantF(3, ac, 1);
+                DrawQuad(w, h);
+                device_->SetTexture(5, nullptr);
+            }
+            device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
         }
     }
 

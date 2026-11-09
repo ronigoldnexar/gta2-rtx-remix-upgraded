@@ -62,6 +62,7 @@ struct VisualLight {
     bool spot;
     float dir[3];        // spot direction, unit
     float coneDeg;       // spot half angle
+    float day;           // share kept in full daylight (0: a night light; a fire keeps some)
 };
 // The DLL side (dll/src/visuals.cpp) supplies the lights and re-reads the ini; the
 // renderer calls these once per street-view frame. Either may be null.
@@ -191,6 +192,10 @@ private:
     // Wet roads (weather_fx.h): made on first use, while it rains.
     IDirect3DTexture9* wetTex_ = nullptr;   IDirect3DSurface9* wetSurf_ = nullptr;
     IDirect3DPixelShader9* psWet_ = nullptr;
+    // Night lights' sum (FIX-FX): made on first use, at night.
+    IDirect3DTexture9* lightSumTex_ = nullptr; IDirect3DSurface9* lightSumSurf_ = nullptr;
+    IDirect3DPixelShader9* psLightApply_ = nullptr;
+    bool lightSumFailed_ = false;
     IDirect3DTexture9* puddles_ = nullptr;
     bool wetFailed_ = false;
     Vec3 skyZenith_{0.35f, 0.55f, 0.85f}, skyHorizon_{0.70f, 0.78f, 0.88f};

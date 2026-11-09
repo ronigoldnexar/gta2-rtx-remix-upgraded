@@ -1017,6 +1017,38 @@ std::string g_fireIniPath;
 std::vector<Puff> g_fireSmoke;   // smoke off burning cars
 std::vector<Puff> g_flames;      // flame tongues off burning cars
 std::vector<Puff> g_embers;      // sparks off burning cars
+// FIX-FX (pm7 3b, ptm14 3c): in the street views the flames and the fire and tyre smoke face the
+// camera. Laid flat (as the top-down view wants them) a puff at eye height spread over the whole
+// frame as a flat grey veil, and a risen flame seen from below hung in the sky as an orange oval
+// plate. g_puffEye is the eye of the frame being drawn; g_puffShade the light on the smoke.
+gta2::Vec3 g_puffEye = {0.0f, 0.0f, 0.0f};
+float g_puffShade[3] = {1.0f, 1.0f, 1.0f};
+bool PuffsUpright() { return g_uprightPeds && g_fxUpright; }
+// The world matrix of a quad laid in x/z (the puffs' own quad) turned to face the eye, rolled by
+// `angle`; fills `world` and returns how much of the puff to keep: 0 inside half its size of the
+// eye, 1 from two sizes away, so a puff the camera passes through thins out instead of filling
+// the frame.
+float PuffFacing(float x, float y, float z, float size, float angle, D3DMATRIX* world) {
+    float tx = g_puffEye.x - x, ty = g_puffEye.y - y, tz = g_puffEye.z - z;
+    const float d = std::sqrt(tx * tx + ty * ty + tz * tz);
+    if (d < 1e-4f) return 0.0f;
+    tx /= d; ty /= d; tz /= d;
+    // a: level and square to the eye; b = toEye x a, the quad's +z edge (the texture's top) upward.
+    float rx = tz, rz = -tx;
+    const float rl = std::sqrt(rx * rx + rz * rz);
+    if (rl < 1e-4f) { rx = 1.0f; rz = 0.0f; } else { rx /= rl; rz /= rl; }
+    const float a[3] = {rx, 0.0f, rz};
+    const float b[3] = {ty * rz, tz * rx - tx * rz, -ty * rx};
+    const float c = std::cos(angle) * size, sn = std::sin(angle) * size;
+    *world = {};
+    world->_11 = a[0] * c + b[0] * sn; world->_12 = a[1] * c + b[1] * sn; world->_13 = a[2] * c + b[2] * sn;
+    world->_31 = b[0] * c - a[0] * sn; world->_32 = b[1] * c - a[1] * sn; world->_33 = b[2] * c - a[2] * sn;
+    world->_22 = 1.0f;
+    world->_41 = x; world->_42 = y; world->_43 = z; world->_44 = 1.0f;
+    const float k = (d / (std::max)(0.05f, size) - 0.5f) / 1.5f;
+    const float t = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+    return t * t * (3.0f - 2.0f * t);
+}
 IDirect3DTexture9* g_flameTexture = nullptr;
 // A burnt mark on the ground where something blew up. Kept for a minute, fading very slowly.
 struct Scorch {
@@ -1465,6 +1497,10 @@ void DrawFlames(IDirect3DDevice9* device, bool blending, DWORD alphaRef) {
         world._42 = p.y + p.vy * p.age;
         world._43 = p.z + p.vz * p.age + wobble * 0.7f;
         world._44 = 1.0f;
+        if (PuffsUpright()) {
+            level *= PuffFacing(world._41, world._42 + grow * 0.25f, world._43, grow, angle, &world);
+            if (level < 0.01f) return;
+        }
         device->SetTransform(D3DTS_WORLD, &world);
         // Cools towards red as it rises; a spark stays hot and just goes out.
         const float g = ember ? 0.72f : 1.0f - 0.5f * t, b = ember ? 0.30f : 1.0f - 0.85f * t;
@@ -1640,8 +1676,8 @@ void DrawPuffList(IDirect3DDevice9* device, const std::vector<Puff>& list, bool 
         const float grow = 1.0f - (1.0f - t) * (1.0f - t);
         const float size = p.size0 + (p.size1 - p.size0) * grow;
         const float rise = t < 0.12f ? t / 0.12f : 1.0f;
-        const float alpha = p.alphaMax * rise * std::pow(1.0f - t, 1.4f);
-        if (alpha < 0.004f) continue;
+        const float alphaFlat = p.alphaMax * rise * std::pow(1.0f - t, 1.4f);
+        if (alphaFlat < 0.004f) continue;
         const float angle = p.angle + p.spin * p.age;
         D3DMATRIX world = {};
         world._11 = size * std::cos(angle);
@@ -1653,9 +1689,18 @@ void DrawPuffList(IDirect3DDevice9* device, const std::vector<Puff>& list, bool 
         world._42 = p.y + p.vy * p.age;
         world._43 = p.z + p.vz * p.age;
         world._44 = 1.0f;
+        float alpha = alphaFlat;
+        const bool upright = PuffsUpright();
+        if (upright) {
+            alpha *= PuffFacing(world._41, world._42 + size * 0.3f, world._43, size, angle, &world);
+            if (alpha < 0.004f) continue;
+        }
         device->SetTransform(D3DTS_WORLD, &world);
         const float grey = (std::min)(1.0f, p.grey + (1.0f - p.grey) * t * t * 0.45f);
         const int g = static_cast<int>(grey * 255.0f + 0.5f);
+        // Street views: the smoke takes the scene's light (dim at night, the sky's tint by day)
+        // rather than glowing a flat white over everything behind it.
+        auto lit = [&](int c) { return upright ? static_cast<int>(g * g_puffShade[c] + 0.5f) : g; };
         if (glow) {
             // Added, so the brightness is the colour: the puff's opacity as a level, a little
             // stronger than the translucent version so it reads as smoke over bright ground too.
@@ -1663,7 +1708,7 @@ void DrawPuffList(IDirect3DDevice9* device, const std::vector<Puff>& list, bool 
             device->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, level, level, level));
         } else {
             device->SetRenderState(D3DRS_TEXTUREFACTOR,
-                                   D3DCOLOR_ARGB(static_cast<int>((std::min)(1.0f, alpha) * 255.0f + 0.5f), g, g, g));
+                                   D3DCOLOR_ARGB(static_cast<int>((std::min)(1.0f, alpha) * 255.0f + 0.5f), lit(0), lit(1), lit(2)));
         }
         device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 4, 2, indices, D3DFMT_INDEX16, quad,
                                        sizeof(SmokeVertex));
@@ -11411,7 +11456,24 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 }
                 memcpy(&world, up.m, sizeof(world));
                 device->SetTransform(D3DTS_WORLD, &world);
-                if (d.color) {
+                // FIX-FX (fire-fx 3d): a blast sprite (up to 3.6 blocks) stood up round an eye at the
+                // wheel filled the first-person frame with flat orange. A big one fades as the eye gets
+                // inside it: full from 1.2 sizes away, a fifth at the centre (the volumetric
+                // fireball and the capped flash carry the moment).
+                DWORD fxColour = d.color;
+                if (!small) {
+                    const float ex = c[0] - fxEye.x, ey = c[1] + 0.4f * size - fxEye.y, ez = c[2] - fxEye.z;
+                    const float rel = std::sqrt(ex * ex + ey * ey + ez * ez) / (std::max)(0.1f, size);
+                    float k = (rel - 0.25f) / 0.95f;
+                    k = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+                    k = 0.2f + 0.8f * k * k * (3.0f - 2.0f * k);
+                    if (k < 0.999f) {
+                        const DWORD base = d.color ? d.color : 0xFFFFFFFFu;
+                        auto ch = [&](int sh) { return static_cast<DWORD>(((base >> sh) & 255u) * k + 0.5f) << sh; };
+                        fxColour = (base & 0xFF000000u) | ch(16) | ch(8) | ch(0);
+                    }
+                }
+                if (fxColour) {
                     if (!tinted) {
                         device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
                         device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
@@ -11421,7 +11483,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
                         tinted = true;
                     }
-                    device->SetRenderState(D3DRS_TEXTUREFACTOR, d.color);
+                    device->SetRenderState(D3DRS_TEXTUREFACTOR, fxColour);
                 } else if (tinted) {
                     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
@@ -12004,6 +12066,19 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
     }
     if (g_groundModels) DrawContactShadows(device);
+    if (fxUpright) {
+        g_puffEye = camera.Position();
+        // The light on the smoke: full by day, a third at night, with a quarter of the fog's
+        // (the sky's) colour in it so a plume sits in the scene's air.
+        DWORD fog = 0;
+        device->GetRenderState(D3DRS_FOGCOLOR, &fog);
+        const float el = gta2::SkyConfig().sunElevationDeg;
+        const float day = (std::max)(0.0f, (std::min)(1.0f, (el + 4.0f) / 14.0f));
+        const float level = 0.36f + 0.64f * day * day * (3.0f - 2.0f * day);
+        const float fc[3] = {((fog >> 16) & 255) / 255.0f, ((fog >> 8) & 255) / 255.0f, (fog & 255) / 255.0f};
+        const float fm = (std::max)(0.05f, (fc[0] + fc[1] + fc[2]) / 3.0f);
+        for (int c = 0; c < 3; ++c) g_puffShade[c] = (std::min)(1.0f, level * (0.75f + 0.25f * fc[c] / fm));
+    }
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
