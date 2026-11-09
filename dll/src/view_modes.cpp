@@ -1916,6 +1916,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         lastYaw_ = headingYaw;
         floorSettled_ = false;
         settled_ = true;
+        fpRespawnPending_ = 2.0f;
+        fpRespawnLeft_ = fpRespawnOffset_ = 0.0f;
         g_look = ViewLook{};
         eyeX_ = px;
         eyeY_ = py + 1.0f;
@@ -2139,6 +2141,62 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
             }
         }
+        // FIX-FIGURE-2: the eye's wall tests below ask `walled` (a solid side face the game
+        // stops him at). `blocked` also counts any block with a lid, so under a deck or an
+        // elevated walkway the eye's own block read as a wall 0.00 ahead and nothing moved
+        // (run ff2_rail1: every frame "wall 0.00 ahead, eye stepped back 0.00").
+        auto eyeWall = [&](float x, float y, float z) {
+            return q.walled ? q.walled(q.context, x, y, z) : q.blocked(q.context, x, y, z);
+        };
+        // pm-fp-respawn-eye-pressed-into-facade (FIX-FIGURE-2): after a respawn the game
+        // can leave him facing a facade a hand away; the screen was three magnified
+        // windows until the player turned. On the first frame on foot after a jump, if a
+        // wall is within half a block along his heading, the view sweeps (0.4 s) to the
+        // longest free ray of the eight directions at eye height. With nav the view yaw
+        // turns (he follows it when he walks); without, it is an offset to his heading the
+        // view follows, released when he turns or walks off.
+        if (fpRespawnPending_ > 0.0f) {
+            fpRespawnPending_ -= dt;
+            if (!inVehicle && q.blocked) {
+                fpRespawnPending_ = 0.0f;
+                auto freeRun = [&](float a, float maxLen) {
+                    const float fx = std::sin(a), fz = std::cos(a);
+                    for (float d = 0.05f; d <= maxLen; d += 0.05f)
+                        if (eyeWall(eye.x + fx * d, eye.y, eye.z + fz * d)) return d - 0.05f;
+                    return maxLen;
+                };
+                const float ahead = freeRun(headingYaw, 0.5f);
+                if (ahead < 0.5f) {
+                    float best = ahead, bestYaw = headingYaw;
+                    for (int k = 1; k < 8; ++k) {
+                        const float a = WrapAngle(headingYaw + static_cast<float>(k) * kPi / 4.0f);
+                        const float run = freeRun(a, 4.0f);
+                        if (run > best + 0.05f) { best = run; bestYaw = a; }
+                    }
+                    const float turn = WrapAngle(bestYaw - headingYaw);
+                    if (std::fabs(turn) > 0.01f) {
+                        fpRespawnLeft_ = turn;
+                        fpRespawnRate_ = std::fabs(turn) / 0.4f;
+                        fpRespawnOffset_ = 0.0f;
+                        fpRespawnHeading_ = headingYaw;
+                        Log("view: fp respawn: turned to open side: wall %.2f ahead, turn %.0f deg, free %.2f",
+                            ahead, turn / kDegToRad, best);
+                    }
+                }
+            }
+        }
+        if (inVehicle) fpRespawnLeft_ = fpRespawnOffset_ = 0.0f;
+        if (fpRespawnLeft_ != 0.0f) {
+            const float step = (std::min)(std::fabs(fpRespawnLeft_), fpRespawnRate_ * dt) * (fpRespawnLeft_ > 0.0f ? 1.0f : -1.0f);
+            fpRespawnLeft_ -= step;
+            if (std::fabs(fpRespawnLeft_) < 1e-4f) fpRespawnLeft_ = 0.0f;
+            if (g_navActive) g_fpViewYaw = WrapAngle(g_fpViewYaw + step);
+            else fpRespawnOffset_ += step;
+        }
+        if (fpRespawnOffset_ != 0.0f && (g_navActive || std::fabs(WrapAngle(headingYaw - fpRespawnHeading_)) > 3.0f * kDegToRad ||
+                                         speed > 0.5f)) {
+            fpRespawnOffset_ = fpRespawnLeft_ = 0.0f;
+        }
         // The view heading lags the game's: a rate cap and a short ease, so an
         // about-face is a half-second sweep rather than a two-frame whirl. At
         // the wheel it also leans a little toward where the car is going.
@@ -2151,7 +2209,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             fpYaw_ = g_fpViewYaw;
             fpYawVel_ = 0.0f;
         } else {
-            float target = headingYaw;
+            float target = WrapAngle(headingYaw + fpRespawnOffset_);
             if (inVehicle && speed > 1.5f) {
                 const float vx = velX_ / speed, vz = velZ_ / speed;
                 if (vx * hx + vz * hz > 0.2f) {
@@ -2194,7 +2252,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             float wall = kWallClear;
             for (int i = 0; i <= 10; ++i) {
                 const float d = kWallClear * static_cast<float>(i) / 10.0f;
-                if (q.blocked(q.context, eye.x + fx * d, eye.y, eye.z + fz * d)) { wall = d; break; }
+                if (eyeWall(eye.x + fx * d, eye.y, eye.z + fz * d)) { wall = d; break; }
             }
             if (wall < kWallClear) {
                 const float want = (std::min)(kWallClear - wall, kWallBack);
@@ -2202,10 +2260,30 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 float back = 0.0f;
                 for (const float part : {1.0f, 2.0f / 3.0f, 1.0f / 3.0f}) {
                     const float nx = eye.x - fx * want * part, nz = eye.z - fz * want * part;
-                    if (!q.blocked(q.context, nx, eye.y, nz)) { eye.x = nx; eye.z = nz; back = want * part; break; }
+                    if (!eyeWall(nx, eye.y, nz)) { eye.x = nx; eye.z = nz; back = want * part; break; }
                 }
                 static int wallLogs = 0;
                 if (wallLogs < 20) { ++wallLogs; Log("view: fp eye: wall %.2f ahead, eye stepped back %.2f", wall, back); }
+            }
+        }
+        // fp-eye-inside-railing (FIX-FIGURE-2): QB-49 asks `blocked`, which passes flat
+        // panels by design, and the game lets him stand at a railing's tile edge, so with
+        // the eye ahead of him and the head-bob sway the eye went 0.1 block from the
+        // railing line and into its 3D bars (black and brown slabs cut by the near plane).
+        // The eye keeps kPanelClear from every flat panel of its block and the blocks round
+        // it, after the bob, so the sway cannot carry it through a bar.
+        if (!inVehicle && q.panelPush) {
+            constexpr float kPanelClear = 0.22f;
+            float nx = eye.x, nz = eye.z;
+            if (q.panelPush(q.context, eye.x, eye.y, eye.z, kPanelClear, &nx, &nz) &&
+                !eyeWall(nx, eye.y, nz)) {
+                static int panelLogs = 0;
+                if (panelLogs < 20) {
+                    ++panelLogs;
+                    Log("view: fp eye: panel within %.2f, eye moved %.2f", kPanelClear, std::hypot(nx - eye.x, nz - eye.z));
+                }
+                eye.x = nx;
+                eye.z = nz;
             }
         }
         if (inVehicle && s.fpBodyRide > 0.0f) {

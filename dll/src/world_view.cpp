@@ -760,6 +760,59 @@ bool WorldView::Walled(float x, float y, float z) const {
 // south (the mesh builder's corners). A camera inside such a block but a few
 // centimetres from the panel sees nothing but its texels, so the chase camera
 // asks how close it is.
+bool WorldView::PanelPush(float x, float y, float z, float clear, float* outX, float* outZ) const {
+    if (map_.Empty()) return false;
+    const int level = static_cast<int>(std::floor(y));
+    float px = x, pz = z;
+    bool moved = false;
+    // Twice: in a corner of two railings the first push can bring the point to the other.
+    for (int pass = 0; pass < 2; ++pass) {
+        const float mapY = static_cast<float>(gta2::kMapHeight) - pz;
+        const int cbx = static_cast<int>(std::floor(px)), cby = static_cast<int>(std::floor(mapY));
+        float bestD = clear, bestNx = 0.0f, bestNz = 0.0f;
+        // The eye's level and the one below: a stair's railing is built on the sloped
+        // block whose panel rises past the level line.
+        for (int lv = level - 1; lv <= level; ++lv)
+        for (int by = cby - 1; by <= cby + 1; ++by)
+        for (int bx = cbx - 1; bx <= cbx + 1; ++bx) {
+            if (bx < 0 || bx >= gta2::kMapWidth || by < 0 || by >= gta2::kMapHeight) continue;
+            const gta2::Column& column = map_.ColumnAt(bx, by);
+            const int i = lv - static_cast<int>(column.offset);
+            if (i < 0 || i >= static_cast<int>(column.blocks.size())) continue;
+            const uint32_t index = column.blocks[static_cast<size_t>(i)];
+            if (index >= map_.BlockCount()) continue;
+            const gta2::Block& block = map_.BlockAt(index);
+            const float x0 = static_cast<float>(bx), x1 = x0 + 1.0f;
+            const float z0 = static_cast<float>(gta2::kMapHeight - by - 1), z1 = z0 + 1.0f;
+            // A segment of the panel's line in x/z: the nearest point and the way out from it.
+            auto consider = [&](const gta2::Face& f, float ax, float az, float bx2, float bz2) {
+                if (!(f && f.IsFlat())) return;
+                const float sx = bx2 - ax, sz = bz2 - az;
+                const float len2 = sx * sx + sz * sz;
+                float t = len2 > 0.0f ? ((px - ax) * sx + (pz - az) * sz) / len2 : 0.0f;
+                t = (std::max)(0.0f, (std::min)(1.0f, t));
+                const float qx = ax + sx * t, qz = az + sz * t;
+                float dx = px - qx, dz = pz - qz;
+                const float d = std::sqrt(dx * dx + dz * dz);
+                if (d >= bestD) return;
+                if (d < 1e-4f) { dx = -sz; dz = sx; }   // on the line: either side; the caller checks walls
+                const float n = std::sqrt(dx * dx + dz * dz);
+                bestD = d; bestNx = dx / n; bestNz = dz / n;
+            };
+            consider(block.left, x0, z0, x0, z1);
+            consider(block.right, x1, z0, x1, z1);
+            consider(block.top, x0, z1, x1, z1);
+            consider(block.bottom, x0, z0, x1, z0);
+        }
+        if (bestD >= clear) break;
+        px += bestNx * (clear - bestD + 0.002f);
+        pz += bestNz * (clear - bestD + 0.002f);
+        moved = true;
+    }
+    if (moved) { *outX = px; *outZ = pz; }
+    return moved;
+}
+
 bool WorldView::PanelDistance(float x, float y, float z, float* distance) const {
     if (map_.Empty()) return false;
     const float mapY = static_cast<float>(gta2::kMapHeight) - z;
@@ -2133,6 +2186,7 @@ void WorldView::UpdateCamera() {
         queries.blocked = &WorldView::BlockedThunk;
         queries.walled = &WorldView::WalledThunk;
         queries.panelDistance = &WorldView::PanelThunk;
+        queries.panelPush = &WorldView::PanelPushThunk;
         queries.groundAt = &WorldView::GroundThunk;
         queries.propPush = &WorldView::PropThunk;
         queries.roadArrows = &WorldView::ArrowsThunk;

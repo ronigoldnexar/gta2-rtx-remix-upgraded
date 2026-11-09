@@ -160,6 +160,14 @@ private:
     // The distance from a point to the nearest flat panel (fence, railing,
     // grille) of the block it is in; false when the block has none.
     bool PanelDistance(float x, float y, float z, float* distance) const;
+    // FIX-FIGURE-2 (fp-eye-inside-railing): a point moved to `clear` from every flat
+    // panel of its block and the eight round it (a railing on the tile edge belongs to
+    // either side's block, and its bars stand a few pixels off that plane); false when
+    // none is that close.
+    bool PanelPush(float x, float y, float z, float clear, float* outX, float* outZ) const;
+    static bool PanelPushThunk(void* context, float x, float y, float z, float clear, float* outX, float* outZ) {
+        return static_cast<const WorldView*>(context)->PanelPush(x, y, z, clear, outX, outZ);
+    }
     static bool FloorThunk(void* context, float x, float z, float ceiling, float* y) {
         return static_cast<const WorldView*>(context)->FloorAt(x, z, ceiling, y);
     }

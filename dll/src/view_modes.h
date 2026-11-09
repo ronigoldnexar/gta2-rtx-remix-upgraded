@@ -322,6 +322,9 @@ struct ViewQueries {
     // The distance from a point to the nearest flat panel (fence, railing) of
     // the block it is in; false when there is none.
     bool (*panelDistance)(void* context, float x, float y, float z, float* distance) = nullptr;
+    // A point moved `clear` away from every flat panel of its block and the blocks
+    // round it (x/z only); false when none is that close.
+    bool (*panelPush)(void* context, float x, float y, float z, float clear, float* outX, float* outZ) = nullptr;
     // The highest surface at or below `ceiling` under a point, with its ground
     // type (1 road, 2 pavement, 3 field, 0 other); false when there is none.
     bool (*groundAt)(void* context, float x, float z, float ceiling, float* y, int* type) = nullptr;
@@ -391,6 +394,13 @@ private:
     float carPitch_ = 0.0f, carRoll_ = 0.0f, carHeave_ = 0.0f;   // the drawn body of his car (vehicle_fx)
     double shakeClock_ = 0.0;
     float bobPhase_ = 0.0f;                 // walking cycle, turns
+    // pm-fp-respawn-eye-pressed-into-facade: after a respawn or level cut the first-person
+    // view turns from a wall within half a block toward the most open side.
+    float fpRespawnPending_ = 0.0f;         // seconds left to look for the first on-foot frame
+    float fpRespawnLeft_ = 0.0f;            // turn still to sweep (nav: on the view yaw)
+    float fpRespawnRate_ = 0.0f;            // radians a second of that sweep
+    float fpRespawnOffset_ = 0.0f;          // without nav: added to the heading the view follows
+    float fpRespawnHeading_ = 0.0f;         // his heading when it was chosen (a turn of his releases it)
     float forwardAccel_ = 0.0f;             // eased, blocks a second squared
     // The chase framing of a long or tall vehicle: how much longer and taller its
     // body is than a sedan's, eased so the framing never pops when it becomes known.
