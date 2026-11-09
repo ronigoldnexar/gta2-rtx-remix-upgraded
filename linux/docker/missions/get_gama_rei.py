@@ -20,7 +20,7 @@ PLAYTHROUGH-10; missions/get_zitzaki.py, SKILL-DELIVER), sharing one view state,
      JOB COMPLETE 1124 (+$40,000) follow, with both of them in the car.
 
 Env: GR_SKIP_GREEN=1 goes straight to the yellow phone (a session that already has the respect),
-GR_GREEN_TRIES (2) attempts per green job. Frames /out/m_gr_*.png (chase view), marks /out/marks.txt."""
+one attempt per green job (a failure ends the session). Frames /out/m_gr_*.png (chase view), marks /out/marks.txt."""
 import math, os, sys, time
 sys.path.insert(0, "/work")
 import drive_lib as D
@@ -37,6 +37,7 @@ MISSION = "wil_ym2"
 TITLE = "1978"
 REFUSALS = ("1097", "1096", "1103", "1098", "1102", "1104", "1113", "1093")
 MEDICAR = 34
+SCRIPT_OCC = 18     # a CREATE_CHAR ... CRIMINAL character: occupation 18 in `view: peds` (gr4: Dr ZitZaki, ped 337, crim/yakuza then gang/yakuza, remap 13)
 HOSP_BOX = (88.5, 84.5, 3.0, 2.0)
 GAMA_AT = (92.5, 84.0)
 SAFE_BOX = (35.5, 187.5, 4.0, 2.0)
@@ -112,6 +113,60 @@ def off_the_dais(world, entry):
             say(f"on the phone dais (z {s['z']:.1f}); developer warp to the street at {cell[0]},{cell[1]} (reported)")
             set_view("classic"); M.scene_warp(cell[0], cell[1], cell[2], "down from the phone dais"); set_view("third")
 
+def zitzaki_escort(world):
+    """GET ZITZAKI with Dr ZitZaki handed to the escort skill: the Miura and the hospital box by
+    get_zitzaki's own legs (deliver_intact), then the horn in the 3 x 1 box until the doctor is
+    created (CREATE_CHAR 47.5,178.5 remap 13), escort.wait_board for his walk and
+    ENTER_CAR_AS_PASSENGER, and escort.drive (deliver_intact with him watched aboard) to the J-Lab
+    garage. Raises GZ.Over at the job's end like GZ.run"""
+    CAR0, HOSPITAL, GARAGE = GZ.CAR0, GZ.HOSPITAL, GZ.GARAGE
+    M.mark(f"to the MIURA at {CAR0[0]},{CAR0[1]}")
+    s = M.enter_car3(world, CAR0[0], CAR0[1], budget=200)
+    if not (s and s["driving"]) and os.environ.get("WARP_OK", "1") == "1":
+        say("the walk to the mission car failed; developer warp to its door (reported)")
+        set_view("classic"); M.scene_warp(CAR0[0], CAR0[1] + 1.0, M.top_level(world, CAR0[0], CAR0[1]) or 1, "to the mission car's door"); set_view("third")
+        s = M.enter_car3(world, CAR0[0], CAR0[1], budget=90)
+    if not (s and s["driving"]): return "stuck: could not enter the Miura"
+    GZ.check()
+    t1 = time.time()
+    while time.time() - t1 < 20 and DI.box_arrow(HOSPITAL) != "up": time.sleep(0.5)
+    GZ.FP["until"] = 0.0
+    in_box = lambda: DI.box_arrow(HOSPITAL) == "cleared" or GZ.doctor_aboard()
+    r = DI.deliver(world, HOSPITAL, car=CAR0, check=GZ.check, view_switch=GZ.view_switch, budget=420,
+                   done=in_box, label="the hospital box")
+    say("hospital:", r)
+    if r in ("complete", "failed", "dead"): return r
+    chase_shot("zz_hospital")
+    doc = ES.Escort("Dr ZitZaki", pick=lambda p: p["remap"] == 13 and p["occ"] == SCRIPT_OCC and p["car"] is None, near=(47.8, 178.5), radius=3.0)
+    # the horn in the box until the script creates him (it removes the box arrow while the car is in it)
+    t0 = time.time(); k = 0
+    while time.time() - t0 < 150 and not doc.ids and not GZ.doctor_aboard():
+        GZ.check()
+        s = D.wait_state()
+        if not s["driving"]: DI.board(world, CAR0, check=GZ.check); continue
+        if DI.box_arrow(HOSPITAL) == "up":
+            say("horn: outside the 3 x 1 box: back in")
+            DI.deliver(world, HOSPITAL, car=CAR0, check=GZ.check, view_switch=None, budget=120, tries=2,
+                       done=lambda: DI.box_arrow(HOSPITAL) == "cleared" or GZ.doctor_aboard(), label="the hospital box")
+        DI.keys_off(); M.horn(1); k += 1
+        doc.acquire(secs=2.0, check=GZ.check)
+    if not doc.ids and not GZ.doctor_aboard(): return "stuck: the doctor never came out"
+    r = ES.wait_board(world, doc, car=CAR0, budget=150, horn=False, move=True, done=GZ.doctor_aboard, check=GZ.check)
+    if r != "aboard": return f"escort: {r}"
+    ms = GZ.check()
+    M.mark(f"Dr ZitZaki aboard (msg {ms.get('msg')}, carhp {ms.get('carhp')}, ids {doc.ids})"); chase_shot("zz_doctor")
+    GZ.FP["until"] = 0.0
+    if doc.ids:
+        r = ES.drive(world, GARAGE, doc, car=CAR0, check=GZ.check, view_switch=GZ.view_switch, budget=420,
+                     park_wait=45, label="the J-Lab garage")
+    else:
+        r = DI.deliver(world, GARAGE, car=CAR0, check=GZ.check, view_switch=GZ.view_switch, budget=420, park_wait=45, label="the J-Lab garage")
+    say("garage:", r)
+    chase_shot("zz_garage")
+    if r in ("complete", "failed", "dead"): return r
+    o, ms = GZ.wait_outcome(45)
+    return o
+
 def green(world, mod, mission, runs_entry):
     """one green Yakuza job with its own runner module; returns its result string"""
     entry = next(m for m in world.db["missions"] if m.get("mission") == mission)
@@ -128,7 +183,7 @@ def green(world, mod, mission, runs_entry):
     mod.FP["until"] = 0.0
     off_the_dais(world, entry)
     try:
-        r = mod.run(world, entry) if runs_entry else mod.run(world)
+        r = runs_entry(world) if callable(runs_entry) else (mod.run(world, entry) if runs_entry else mod.run(world))
     except mod.Over as e:
         r = str(e)
     if r == "running":
@@ -207,16 +262,58 @@ def is_killer_car(c):
 def is_killer(p):
     return p["gang"].startswith("loon") and p["occ"] in ES.ARMED_OCC
 
+def summon_medicar(world, secs=150):
+    """gr1: no Medicar drove past in 10 minutes of touring; the game sends one to a casualty. On foot,
+    shoot the nearest civilian on foot (not a cop, not near a cop), then stand off and watch the cars
+    line for model 34. True when one is in sight"""
+    s = D.wait_state()
+    if s["driving"]: hold("Down", 0.8); DI.keys_off(); s = M.leave_car()
+    set_view("third")
+    if not M.gun_ready() and not M.select_gun(): M.fetch_gun(world, budget=200)
+    t0 = time.time(); victim = None
+    while time.time() - t0 < 60:
+        check()
+        s = D.wait_state()
+        cops = [p for p in M.peds() if p["type"] in ("cop", "swat", "fbi") and M.ped_alive(p)]
+        civs = [p for p in M.peds() if p["type"] == "civ" and p["car"] is None and M.ped_alive(p) and p["id"] != 1
+                and all(math.hypot(p["x"] - c["x"], p["y"] - c["y"]) > 14 for c in cops)]
+        if victim is not None:
+            q = next((p for p in M.peds() if p["id"] == victim["id"]), None)
+            if q is None or not M.ped_alive(q):
+                M.mark(f"medicar: casualty at {victim['x']:.1f},{victim['y']:.1f}"); break
+            victim = q
+        elif civs:
+            victim = min(civs, key=lambda p: math.hypot(p["x"] - s["x"], p["y"] - s["y"]))
+            M.mark(f"medicar: a casualty to bring an ambulance: ped {victim['id']} at {victim['x']:.1f},{victim['y']:.1f}")
+        if victim is None:
+            M.walk3(world, s["x"] + 4, s["y"], None, tol=1.0, budget=15); continue
+        d = math.hypot(victim["x"] - s["x"], victim["y"] - s["y"])
+        M._aim_walk(victim["x"], victim["y"], fire=True, walk=d > 4.0, secs=0.5)
+    xdo("keyup", "Control_L"); xdo("keyup", "Up")
+    t1 = time.time()
+    while time.time() - t1 < secs:
+        check()
+        if medicar_xy(): M.mark(f"medicar: one in sight at {medicar_xy()}"); return True
+        time.sleep(1.0)
+    return False
+
 def run(world):
     # 1. a Medicar
     M.mark("steal a MEDICAR")
     tries = 0
     while not in_medicar():
         check(); tries += 1
-        if tries > 3: return "stuck: no Medicar"
-        s = SC.steal_car(world, "MEDICAR", search=seeds(world), budget=900,
+        if tries > 4: return "stuck: no Medicar"
+        if tries > 1 and not medicar_xy(): summon_medicar(world)
+        s = SC.steal_car(world, "MEDICAR", search=seeds(world), budget=1200 if tries == 1 else 300,
                          check=lambda: outcome()[0] not in ("running", "unknown"), view_switch=view_switch)
-        if s is None: check()
+        if s is None: check(); continue
+        # gr1: steal_car was in the Medicar and this loop gave up the same second: the mission
+        # line's carmodel lags the jack by a few frames; wait for it (or brief 1372)
+        t1 = time.time()
+        while time.time() - t1 < 8 and not in_medicar() and (M.mission_state() or {}).get("msg") != "1372":
+            time.sleep(0.5)
+        if (M.mission_state() or {}).get("msg") == "1372": break
     ms = check()
     M.mark(f"in a MEDICAR (carhp {ms.get('carhp')})"); chase_shot("medicar")
     t1 = time.time()
@@ -224,7 +321,7 @@ def run(world):
 
     # 2. into the hospital box
     FP["until"] = 0.0
-    gama = ES.Escort("Gama Rei", pick=lambda p: p["remap"] == 13 and p["car"] is None, near=GAMA_AT, radius=3.5)
+    gama = ES.Escort("Gama Rei", pick=lambda p: p["remap"] == 13 and p["occ"] == SCRIPT_OCC and p["car"] is None, near=GAMA_AT, radius=3.5)
     r = DI.deliver(world, HOSP_BOX, car=None, check=check, view_switch=view_switch, budget=600,
                    done=lambda: DI.box_arrow(HOSP_BOX) in ("cleared", "moved") or (M.mission_state() or {}).get("msg") == "1374",
                    label="the hospital box")
@@ -236,7 +333,7 @@ def run(world):
     # 3. Gama Rei boards
     r = ES.wait_board(world, gama, car=medicar_xy(), budget=180, move=True, done=gama_aboard_brief, check=check)
     if r != "aboard": return f"escort: {r}"
-    if not gama.ids: gama.acquire(secs=3)
+    if not gama.ids: gama.adopt_aboard()
     ms = check()
     M.mark(f"Gama Rei aboard (msg {ms.get('msg')}, carhp {ms.get('carhp')}, ids {gama.ids})"); chase_shot("aboard")
 
@@ -267,12 +364,14 @@ def main():
     set_view("third")
     results = {}
     if os.environ.get("GR_SKIP_GREEN", "0") != "1":
-        tries = int(os.environ.get("GR_GREEN_TRIES", "2"))
-        for mission, mod, runs_entry in (("wil_ye2", BR, True), ("wil_ye1", GZ, False)):
-            for k in range(tries):
-                r = green(world, mod, mission, runs_entry)
-                results[mission] = r
-                if r == "complete" or r.startswith("phone"): break
+        # one try each: a failed green job is -1 respect, and with only two green Yakuza jobs the
+        # yellow phone can then not open in this session (gr2: BANK ROBBERY failed at the respray)
+        for mission, mod, runs_entry in (("wil_ye1", GZ, zitzaki_escort), ("wil_ye2", BR, True)):
+            r = green(world, mod, mission, runs_entry)
+            results[mission] = r
+            if r != "complete":
+                say("green jobs:", results); M.mark(f"session over: {mission} {r}, Yakuza respect cannot reach 2")
+                say("RESULTS", results); return
         say("green jobs:", results)
     entry = next(m for m in world.db["missions"] if m.get("mission") == MISSION)
     M.mark(f"mission {MISSION}: GET GAMA REI! (skill escort)")

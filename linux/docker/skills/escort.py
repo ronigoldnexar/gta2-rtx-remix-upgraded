@@ -97,6 +97,20 @@ class Escort:
             if check: check()
             time.sleep(0.4)
 
+    def adopt_aboard(self, pick=None):
+        """take the matching peds already in the player's car (a boarding that was quicker than the
+        on-foot pick: gr4's Dr ZitZaki was on foot in the log for nine lines). True when complete"""
+        s = D.state()
+        if not s or not s["driving"]: return len(self.ids) >= self.count
+        for p in M.peds():
+            if len(self.ids) >= self.count: break
+            if p["id"] in self.ids or p["id"] == 1 or p["car"] is None or not M.ped_alive(p): continue
+            if math.hypot(p["x"] - s["x"], p["y"] - s["y"]) > ABOARD_R: continue
+            if not (pick or (lambda q: self.pick(dict(q, car=None)) if self.pick else True))(p): continue
+            self.ids.append(p["id"]); self.last[p["id"]] = p
+            _ev(f"{self.name}: ped {p['id']} {p['type']}/{p['gang']} remap {p['remap']} occ {p['occ']} found aboard")
+        return len(self.ids) >= self.count
+
     def members(self, s=None):
         """{id: ped dict} of the members in the log now; refreshes `last` and `gone`"""
         cur = {p["id"]: p for p in M.peds()}
@@ -239,22 +253,25 @@ def bring_car(world, p, check=None, budget=40):
     return s
 
 
-def wait_board(world, esc, car=None, budget=150, horn=False, move=True, done=None, check=None, acquire_secs=40):
+def wait_board(world, esc, car=None, budget=150, horn=False, move=True, done=None, check=None):
     """keys off in the car until every member is aboard. done(): the job's own "aboard" signal
     (a brief, the arrow moving on). Returns 'aboard', 'dead', 'timeout'"""
     t0 = time.time()
     _ev(f"{esc.name}: waiting for {esc.count} to board (horn {horn}, move {move})")
-    if len(esc.ids) < esc.count: esc.acquire(secs=acquire_secs, check=check)
     best = {}; t_prog = {}; brought = 0; k = 0; t_said = 0.0
     while time.time() - t0 < budget:
         if check: check()
-        if done and done(): _ev(f"{esc.name}: the job says aboard"); return "aboard"
+        if done and done():
+            esc.adopt_aboard()
+            _ev(f"{esc.name}: the job says aboard (tracked {esc.ids})"); return "aboard"
         s = D.wait_state()
         if not s["driving"]:
             s = DI.board(world, car, check=check)
             continue
         if esc.dead(): return "dead"
-        if len(esc.ids) < esc.count: esc.acquire(secs=0)
+        if len(esc.ids) < esc.count:
+            esc.acquire(secs=0)
+            if len(esc.ids) < esc.count: esc.adopt_aboard()
         if esc.ids and esc.aboard(s):
             _ev(f"{esc.name}: aboard at {s['x']:.1f},{s['y']:.1f} ({time.time() - t0:.0f}s)"); return "aboard"
         DI.keys_off()

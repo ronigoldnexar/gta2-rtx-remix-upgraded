@@ -417,7 +417,8 @@ void Sky::Draw(IDirect3DDevice9* device, const Camera& camera, float aspect, con
         // Cloud colour: white in the sun by day, grey-blue underneath, warm at
         // dusk, near-black at night.
         const Vec3 lit = Lerp(Vec3{0.10f, 0.11f, 0.15f},
-                              Lerp(Vec3{0.98f, 0.98f, 1.0f}, colours.sunColour, 0.35f * lowSun), colours.day);
+                              Lerp(Vec3{0.98f, 0.98f, 1.0f}, colours.sunColour, 0.35f * lowSun), colours.day) *
+                         (1.0f - 0.55f * Clamp01(settings.cloudShade));
         const float scroll = static_cast<float>(std::fmod(seconds * 0.0025, 1.0));
         for (size_t i = 0; i < domeDirs_.size(); ++i) {
             const Vec3& d = domeDirs_[i];

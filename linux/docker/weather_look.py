@@ -40,7 +40,7 @@ def main():
     HOURS = [("day", 1000), ("golden", 1720), ("blue", 1825), ("night", 2230)]
     WX = [("clear", dict()), ("rain", dict(rain=100, cloud=100, wet=100, wind=40)), ("fog", dict(fog=90, cloud=60))]
     for v in ("third", "first"):
-        view(v); time.sleep(4.0)
+        view(v); time.sleep(7.0)
         if v == "first": T.clear_of_cars()
         for hname, hh in HOURS:
             setk("weather", "hour_hhmm", hh); time.sleep(0.4)

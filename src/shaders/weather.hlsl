@@ -9,7 +9,9 @@
 // src/shaders/weather_gen.h. Loop-free (the march is written out by a macro) so
 // Wine 9's d3dcompiler in the gta2-remixbox image builds it.
 
-struct QuadOut { float4 pos : POSITION; float2 uv : TEXCOORD0; };
+// No POSITION in the pixel shader's input: Wine 9's compiler declares it (dcl_position0) and
+// wined3d refuses such a ps_3_0 shader (D3DERR_INVALIDCALL), as the water shader found.
+struct WetIn { float2 uv : TEXCOORD0; };
 
 float4 cProj       : register(c0);   // P33, P43, 1/P11, 1/P22
 float4 cScreen     : register(c1);   // 1/W, 1/H, W, H
@@ -61,7 +63,7 @@ float3 ViewNormal(float2 uv, float3 p) {
     found = max(found, hit);                                                                \
     stepLen *= cK2.z;
 
-float4 ps_wet(QuadOut i) : COLOR0 {
+float4 ps_wet(WetIn i) : COLOR0 {
     float4 lit = tex2Dlod(sLit, float4(i.uv, 0, 0));
     float d = DepthAt(i.uv);
     float sky0 = St(0.999999, d);   // the sky: left as it is (no branches in this compiler)

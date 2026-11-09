@@ -7,8 +7,8 @@
   },
   {
    "name": "street_lamp",
-   "glb": "objects/models/street_lamp.glb",
-   "scale": 1.0,
+   "glb": "polyhaven/street_lamp_01/street_lamp_01_1k.gltf",
+   "scale": 0.5,
    "texture_max": 512
   },
   {
@@ -683,7 +683,12 @@
     "f014_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    54.9,
+    54.7,
+    60.3
+   ]
   },
   {
    "name": "human_business_male_01",
@@ -699,7 +704,12 @@
     "m005_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    36.5,
+    34.3,
+    29.8
+   ]
   },
   {
    "name": "human_business_male_02",
@@ -715,7 +725,12 @@
     "m008_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    55.3,
+    55.5,
+    62.5
+   ]
   },
   {
    "name": "human_business_male_03",
@@ -731,7 +746,12 @@
     "m020_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    47.0,
+    48.2,
+    44.9
+   ]
   },
   {
    "name": "human_construction_male_01",
@@ -749,7 +769,12 @@
     "m111_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    107.9,
+    126.1,
+    134.2
+   ]
   },
   {
    "name": "human_construction_male_02",
@@ -765,7 +790,12 @@
     "m101_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    27.4,
+    73.8,
+    110.7
+   ]
   },
   {
    "name": "human_female_01",
@@ -781,7 +811,12 @@
     "f001_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    58.5,
+    74.9,
+    84.9
+   ]
   },
   {
    "name": "human_female_adult_02",
@@ -797,7 +832,12 @@
     "f002_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    180.4,
+    182.2,
+    173.4
+   ]
   },
   {
    "name": "human_female_03",
@@ -813,7 +853,12 @@
     "f003_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    95.3,
+    47.9,
+    92.4
+   ]
   },
   {
    "name": "human_female_05",
@@ -829,7 +874,12 @@
     "f005_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    83.8,
+    102.8,
+    113.1
+   ]
   },
   {
    "name": "human_female_adult_06",
@@ -845,7 +895,12 @@
     "f202_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    55.4,
+    47.0,
+    28.6
+   ]
   },
   {
    "name": "human_female_08",
@@ -861,7 +916,12 @@
     "f008_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    106.7,
+    110.5,
+    109.9
+   ]
   },
   {
    "name": "human_female_adult_10",
@@ -877,7 +937,12 @@
     "f201_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    27.8,
+    27.1,
+    26.1
+   ]
   },
   {
    "name": "human_female_adult_13",
@@ -893,7 +958,12 @@
     "f019_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    67.0,
+    71.7,
+    75.5
+   ]
   },
   {
    "name": "human_fire_female_01",
@@ -912,7 +982,12 @@
     "m131_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    85.7,
+    83.7,
+    60.8
+   ]
   },
   {
    "name": "human_fire_male_01",
@@ -928,7 +1003,12 @@
     "m138_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    73.5,
+    75.1,
+    74.8
+   ]
   },
   {
    "name": "human_fire_male_02",
@@ -945,7 +1025,12 @@
     "m132_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    136.8,
+    119.5,
+    71.9
+   ]
   },
   {
    "name": "human_male_01",
@@ -961,7 +1046,12 @@
     "m002_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    198.4,
+    190.5,
+    182.1
+   ]
   },
   {
    "name": "human_male_adult_02",
@@ -977,7 +1067,12 @@
     "m003_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    44.7,
+    38.6,
+    31.7
+   ]
   },
   {
    "name": "human_male_04",
@@ -993,7 +1088,12 @@
     "m006_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    69.5,
+    72.7,
+    67.5
+   ]
   },
   {
    "name": "human_male_adult_05",
@@ -1009,7 +1109,12 @@
     "m009_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    64.6,
+    55.9,
+    40.8
+   ]
   },
   {
    "name": "human_male_07",
@@ -1025,7 +1130,12 @@
     "m013_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    58.4,
+    62.6,
+    61.4
+   ]
   },
   {
    "name": "human_male_adult_08",
@@ -1041,7 +1151,12 @@
     "m014_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    132.6,
+    155.1,
+    176.3
+   ]
   },
   {
    "name": "human_male_10",
@@ -1057,7 +1172,12 @@
     "m024_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    96.2,
+    49.6,
+    47.5
+   ]
   },
   {
    "name": "human_male_adult_11",
@@ -1072,7 +1192,12 @@
     "m001_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    68.5,
+    78.4,
+    81.0
+   ]
   },
   {
    "name": "human_male_13",
@@ -1087,7 +1212,12 @@
     "m010_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    89.1,
+    91.3,
+    91.8
+   ]
   },
   {
    "name": "human_male_adult_16",
@@ -1102,7 +1232,12 @@
     "m019_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    92.0,
+    108.9,
+    125.4
+   ]
   },
   {
    "name": "human_medical_female_01",
@@ -1118,7 +1253,12 @@
     "f152_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    212.9,
+    208.9,
+    203.8
+   ]
   },
   {
    "name": "human_medical_female_02",
@@ -1135,7 +1275,12 @@
     "f153_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    188.8,
+    190.8,
+    195.0
+   ]
   },
   {
    "name": "human_medical_male_01",
@@ -1151,7 +1296,12 @@
     "m152_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    199.1,
+    198.5,
+    193.1
+   ]
   },
   {
    "name": "human_medical_male_02",
@@ -1167,7 +1317,12 @@
     "m154_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    59.6,
+    93.3,
+    178.1
+   ]
   },
   {
    "name": "human_military_female_01",
@@ -1184,7 +1339,12 @@
     "sf003_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    103.1,
+    113.2,
+    71.5
+   ]
   },
   {
    "name": "human_military_male_01",
@@ -1202,7 +1362,12 @@
     "sm002_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    102.7,
+    112.3,
+    71.5
+   ]
   },
   {
    "name": "human_military_male_02",
@@ -1217,7 +1382,12 @@
     "sm024_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    89.0,
+    97.8,
+    61.8
+   ]
   },
   {
    "name": "human_police_female_01",
@@ -1238,7 +1408,12 @@
     "m157_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    41.1,
+    41.5,
+    40.9
+   ]
   },
   {
    "name": "human_police_male_01",
@@ -1255,7 +1430,12 @@
     "m220_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    70.0,
+    91.6,
+    112.9
+   ]
   },
   {
    "name": "human_police_male_02",
@@ -1274,7 +1454,12 @@
     "m158_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    37.0,
+    38.0,
+    36.3
+   ]
   },
   {
    "name": "human_police_male_03",
@@ -1297,7 +1482,12 @@
     "m172_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    43.9,
+    44.0,
+    46.2
+   ]
   },
   {
    "name": "human_security_male_01",
@@ -1313,7 +1503,12 @@
     "m171_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    60.3,
+    60.3,
+    63.7
+   ]
   },
   {
    "name": "human_sports_female_01",
@@ -1328,7 +1523,12 @@
     "f021_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    48.0,
+    10.2,
+    26.1
+   ]
   },
   {
    "name": "human_sports_male_01",
@@ -1343,7 +1543,12 @@
     "m021_body"
    ],
    "forward": "+z",
-   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"
+   "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)",
+   "paint_rgb": [
+    10.1,
+    11.1,
+    12.8
+   ]
   },
   {
    "name": "sign_stop",
@@ -9551,7 +9756,7 @@
    "name": "047_meteor",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 5482,
+   "vertices": 5306,
    "animations": [],
    "textures": [
     "047_meteor_0.tga",
@@ -9566,7 +9771,7 @@
    "name": "048_meteor",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 5420,
+   "vertices": 12424,
    "animations": [],
    "textures": [
     "048_meteor_0.tga",
@@ -10189,7 +10394,7 @@
    "name": "083_furore_gt",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 6312,
+   "vertices": 7754,
    "animations": [],
    "textures": [
     "083_furore_gt_0.tga",

@@ -74,7 +74,12 @@ def to_phone(entry):
         near = (wx, wy, 1)
         if near:
             P.set_view("classic")        # the scene key acts in the classic view (sink_or_swim.py does the same)
-            M.scene_warp(near[0], near[1], near[2], "CB_WARP_PHONE: the field 4 blocks south of the Rednecks' phone; the job starts at the phone")
+            for k in range(4):
+                # cb1/cb3: the first presses after the level loads are often ignored (the
+                # player stays at the start): again until he is near the point
+                s2 = M.scene_warp(near[0], near[1], near[2], "CB_WARP_PHONE: the field 4 blocks south of the Rednecks' phone; the job starts at the phone")
+                if s2 and math.hypot(s2["x"] - near[0], s2["y"] - near[1]) < 8: break
+                time.sleep(2.0)
             P.set_view("third")
             RESULT["events"].append(f"phone warp to {near}")
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))

@@ -108,7 +108,10 @@ void WeatherAdjustSky(SkyColours* c, SkySettings* settings) {
     c->zenith = Lerp(c->zenith, c->fog, g_fogHere * 0.8f);
     c->sunColour = c->sunColour * (1.0f - 0.92f * oc);
     c->ambient = Grey(c->ambient, 0.5f * oc);
-    if (settings) settings->cloudCover = std::max(settings->cloudCover, oc);
+    if (settings) {
+        settings->cloudCover = std::max(settings->cloudCover, oc);
+        settings->cloudShade = Clamp01(0.6f * oc + 0.4f * rain);
+    }
 }
 
 void WeatherFx::Init(IDirect3DDevice9* device, bool remix) {

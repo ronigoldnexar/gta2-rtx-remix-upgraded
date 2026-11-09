@@ -43,13 +43,51 @@ Yakuza job passed is +1 and each failed one -1 (`CHANGE_GANG_CHAR_RESPECT_AND_UP
 therefore plays BANK ROBBERY (`missions/bank_robbery.py`) and GET ZITZAKI (`missions/get_zitzaki.py`)
 first, imported unchanged with their view state shared, up to `GR_GREEN_TRIES` (2) times each, then:
 
-1. any Medicar (model 34) through `steal_car` (search points round both hospitals);
+0. GET ZITZAKI first, on this skill: the Miura and the hospital box by `get_zitzaki`'s own legs, the
+   horn in the 3 x 1 box until the script creates the doctor, `wait_board` for him and `drive` (with
+   him watched aboard) to the J-Lab garage; then BANK ROBBERY by its own runner. A failed green job
+   ends the session (respect can no longer reach 2);
+1. any Medicar (model 34) through `steal_car` (search points round both hospitals; after a fruitless
+   round, a casualty to bring one out: untested);
 2. `deliver` into `IS_CAR_IN_BLOCK (88.5, 84.5, 3 x 2)` (the arrow is removed there; brief 1374);
 3. `wait_board` for Gama Rei (`CREATE_CHAR 92.5,83.5`, remap 13), `done` = brief 1377/1378 or the
    arrow on the safehouse;
 4. `drive` to `IS_CAR_IN_BLOCK (35.5, 187.5, 4 x 2)` with the Isettas (model 29) and armed Loonies as
    threats; `PARK (door7)`, JOB COMPLETE 1124, +$40,000.
 
-## Sessions
+## Who the escortee is in the log
 
-(filled in below as they run)
+A character a script creates with `CREATE_CHAR (...) 13 ... CRIMINAL` is **occupation 18** in
+`view: peds`, remap 13, and the game gives him the Yakuza gang pointer: gr4's Dr ZitZaki was ped 337,
+logged `crim/yakuza` for one line and `gang/yakuza` after (so a "not a gang member" filter drops
+him); ordinary Yakuza members are occupation 42 or 19. He was on foot in the log for nine lines
+before he was in the Miura, so `Escort.adopt_aboard()` takes an escortee from the player's car
+when the boarding beats the on-foot pick, and `wait_board` calls it whenever the job's own
+"aboard" signal comes first.
+
+## Sessions (Downtown, `GTA2_SPEED=2`, `FPS=0`, direct keys)
+
+| run | green jobs | GET GAMA REI | escort evidence |
+|---|---|---|---|
+| gr1 | BANK ROBBERY complete (653 s), GET ZITZAKI complete (333 s, `get_zitzaki` as is) | **yellow phone answered** (brief 1371): the respect chain works. Stopped at the Medicar: `steal_car` followed six Medicars for 15 min and was in one at 9.5,150.4, but the runner gave up in the same second (the mission line's `carmodel=34` / brief 1372 came 2 s later) | none (fixed: wait 8 s for the game to confirm) |
+| gr2 | BANK ROBBERY failed at the respray (317 s) | not reached (respect can not reach 2; stopped by hand) | none |
+| gr3 | BANK ROBBERY failed on the bank walk after the walker was pinned on the stairs (757 s) | not reached | none |
+| gr4 | **GET ZITZAKI complete (921 s) with the escort flow**; BANK ROBBERY failed (432 s) | not reached | `wait_board` in the box, the doctor aboard 40 s later on the job's signal; the doctor was not tracked (the gang filter above), so the garage leg ran without the aboard watch (fixed: occupation 18 pick, `adopt_aboard`) |
+
+BANK ROBBERY's runner (`missions/bank_robbery.py`, not this stream's) is the bottleneck of the chain:
+3 complete in 8 sessions over the two days (br7, br9, gr1).
+
+## Verified vs untested
+
+- Verified in game: the respect chain opens the yellow phone (gr1); `wait_board` keeps the car still
+  in the box until the job signals the passenger aboard, and GET ZITZAKI completes with it (gr4).
+- Verified offline (a synthetic renderer log in the gr4 line format): pick, `adopt_aboard`,
+  `aboard`, `threats`, `threat_cars`, out-of-window is not death.
+- Untested in game: `drive`'s aboard watch and threat pace, `bring_car`, `lead`, `defend`, the
+  Medicar casualty fallback, and GET GAMA REI past the Medicar.
+
+## Dependencies
+
+`get_gama_rei.py` imports `skills/deliver_intact.py` (SKILL-DELIVER), `skills/steal_car.py`
+(SKILL-STEALCAR), `missions/get_zitzaki.py` (SKILL-DELIVER) and `missions/bank_robbery.py`
+(PLAYTHROUGH-10) unchanged; the first three are those streams' files and are committed by them.

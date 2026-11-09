@@ -46,7 +46,15 @@ rings the map edge; a later cut could keep the flat panel for panels the street 
 - Offline: the world mesh around the park fence (147,116-118) rendered with the HD tiles, flat
   panel vs model (`qb11/r635_flat.png`, `qb11/r635.png`, workspace): bars, rails and spear finials
   with depth; the finial no longer shows the blob and speck art.
-- In game: see the run notes below.
+- In game (`linux/docker/qb11_railings.py`, run `out/qb11_rl1`, private stage = HEAD + this change, GPU
+  build, Downtown): the log has `world loaded: ... 441802 triangles` and `railings (QB-11): modelled,
+  2 tile(s), 233 panel(s) from 466 flat quads, 34436 triangles`, the railing numbers the host build gives; 0 FAULT
+  lines. Frames at the park's spear fence (146.3,121.5 and 148.5,117.3) and a bar fence
+  (205.5,36.2), third and first person at six headings: bars, rails and spear finials stand with
+  depth and shading along the pavement, no blob art; the classic view frames at each spot are
+  unchanged (the classic view is the game's own drawing, the world mesh is not used there).
+- Not run in game: a before/after A/B with `GTA2DX9_RAILINGS=0` (the host was at load 17-85; the
+  before is the quality-bar evidence frame `frames/fence_hedges.png`), and frame times.
 
 ## Not done / open
 
