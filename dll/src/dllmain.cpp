@@ -39,6 +39,7 @@
 #include "texture_store.h"
 #include "time_of_day.h"
 #include "voice_over.h"
+#include "audio3d.h"
 #include "cache_warmup.h"
 #include "world_view.h"
 #include "../../src/sky.h"
@@ -866,6 +867,12 @@ __declspec(dllexport) void __stdcall gbh_InitDLL(void* system) {
         gta2dx9::EngineSoundInstall();
         // Radio stations stay in stereo at any distance, unless the menu switches the effect on.
         gta2dx9::RadioInstall();
+        // In the street views every sound is placed relative to our camera, not the game's top-down one.
+        {
+            char audioIni[MAX_PATH];
+            PathBesideGame("gta2dx9.ini", audioIni, sizeof(audioIni));
+            gta2dx9::Audio3DInstall(audioIni);
+        }
         // The game's Options button opens our panel; GTA2 Manager.exe does nothing here.
         gta2dx9::OptionsButtonInstall();
         // Reads last session's files into memory in the background, so cars do not stall on a cold disk.
