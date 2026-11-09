@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -133,6 +134,8 @@ std::string g_photoTextureDir;
 void SetPhotoTextureDir(const char* dir) { g_photoTextureDir = dir ? dir : ""; }
 std::string g_roadTextureDir;
 void SetRoadTextureDir(const char* dir) { g_roadTextureDir = dir ? dir : ""; }
+bool g_toneMatch = true;
+void SetToneMatch(bool on) { g_toneMatch = on; }
 void SetTileDumpDir(const char* dir) { g_tileDumpDir = dir ? dir : ""; }
 bool g_waterEffect = true;
 void SetWaterEffect(bool on) { g_waterEffect = on; }
@@ -308,6 +311,89 @@ bool ReadDds(const std::string& path, DdsImage* out) {
     const bool ok = fread(out->data.data(), 1, total, f) == total;
     fclose(f);
     return ok;
+}
+
+// The street views' tone match (defect pm-road-tiles-patchwork-tone-seams): each HD tile came
+// out of the upscalers with its own mean brightness and hue, so neighbouring ground tiles step
+// visibly where the game's own 64 px art matches. The street-view copy of a ground tile is
+// scaled toward the game tile's mean (times the district's overall grade) by scaling the DXT
+// colour endpoints: the shipped files, the classic view and Remix keep the tile as it is.
+void DxtDecodeColours(const uint8_t* b, bool dxt1, float c[4][3], bool* fourth) {
+    const uint16_t c0 = static_cast<uint16_t>(b[0] | (b[1] << 8)), c1 = static_cast<uint16_t>(b[2] | (b[3] << 8));
+    auto rgb = [](uint16_t v, float* o) {
+        o[0] = ((v >> 11) & 31) * (255.0f / 31.0f); o[1] = ((v >> 5) & 63) * (255.0f / 63.0f); o[2] = (v & 31) * (255.0f / 31.0f);
+    };
+    rgb(c0, c[0]); rgb(c1, c[1]);
+    *fourth = true;
+    for (int k = 0; k < 3; ++k) {
+        if (!dxt1 || c0 > c1) { c[2][k] = (2.0f * c[0][k] + c[1][k]) / 3.0f; c[3][k] = (c[0][k] + 2.0f * c[1][k]) / 3.0f; }
+        else { c[2][k] = 0.5f * (c[0][k] + c[1][k]); c[3][k] = 0.0f; *fourth = false; }
+    }
+}
+
+// The base colour of a DDS: the mean of its texels at the 16 px level (or the smallest of at
+// least 4 px) whose brightness is within 18 levels of the median, so the paint, a kerb or a
+// manhole does not count; 0..255. False for a cutout (transparent texels).
+bool DdsBaseRgb(const DdsImage& dds, float out[3]) {
+    int level = 0;
+    for (int l = 0; l < dds.mips; ++l) { level = l; if ((std::max)(1, dds.width >> l) <= 16) break; }
+    while (level > 0 && (std::max)(1, dds.width >> level) < 4) --level;
+    size_t at = 0;
+    for (int l = 0; l < level; ++l) at += dds.LevelBytes(l);
+    const size_t bytes = dds.LevelBytes(level);
+    if (at + bytes > dds.data.size() || !bytes) return false;
+    const bool dxt1 = dds.format == D3DFMT_DXT1;
+    std::vector<std::array<float, 3>> texels;
+    for (size_t o = at; o + dds.blockBytes <= at + bytes; o += dds.blockBytes) {
+        const uint8_t* b = &dds.data[o + (dxt1 ? 0 : 8)];
+        float c[4][3]; bool fourth;
+        DxtDecodeColours(b, dxt1, c, &fourth);
+        const uint32_t idx = static_cast<uint32_t>(b[4]) | (b[5] << 8) | (b[6] << 16) | (static_cast<uint32_t>(b[7]) << 24);
+        for (int t = 0; t < 16; ++t) {
+            const int i = (idx >> (2 * t)) & 3;
+            if (i == 3 && !fourth) return false;   // DXT1 transparent texel: a cutout
+            texels.push_back({c[i][0], c[i][1], c[i][2]});
+        }
+    }
+    if (texels.empty()) return false;
+    std::vector<float> lum;
+    for (const auto& t : texels) lum.push_back(0.299f * t[0] + 0.587f * t[1] + 0.114f * t[2]);
+    std::vector<float> sorted = lum;
+    std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+    const float median = sorted[sorted.size() / 2];
+    double sum[3] = {0, 0, 0}; int n = 0;
+    for (size_t i = 0; i < texels.size(); ++i) {
+        if (std::fabs(lum[i] - median) > 18.0f) continue;
+        for (int k = 0; k < 3; ++k) sum[k] += texels[i][k];
+        ++n;
+    }
+    if (n < static_cast<int>(texels.size()) / 3) return false;
+    for (int k = 0; k < 3; ++k) out[k] = static_cast<float>(sum[k] / n);
+    return true;
+}
+
+// Scales every colour endpoint of every level by f (per channel). A DXT1 block keeps its
+// mode: c0 > c1 (four colours) stays so, or its third and fourth colours would turn into a
+// transparent texel.
+void DdsTint(DdsImage* dds, const float f[3]) {
+    const bool dxt1 = dds->format == D3DFMT_DXT1;
+    auto scale = [&](uint16_t v) {
+        int r = static_cast<int>(((v >> 11) & 31) * f[0] + 0.5f), g = static_cast<int>(((v >> 5) & 63) * f[1] + 0.5f), b = static_cast<int>((v & 31) * f[2] + 0.5f);
+        r = (std::min)(31, (std::max)(0, r)); g = (std::min)(63, (std::max)(0, g)); b = (std::min)(31, (std::max)(0, b));
+        return static_cast<uint16_t>((r << 11) | (g << 5) | b);
+    };
+    for (size_t o = 0; o + dds->blockBytes <= dds->data.size(); o += dds->blockBytes) {
+        uint8_t* b = &dds->data[o + (dxt1 ? 0 : 8)];
+        const uint16_t c0 = static_cast<uint16_t>(b[0] | (b[1] << 8)), c1 = static_cast<uint16_t>(b[2] | (b[3] << 8));
+        uint16_t n0 = scale(c0), n1 = scale(c1);
+        if (dxt1 && c0 > c1 && n0 <= n1) {
+            if (n1 > 0) { n0 = n1; n1 = static_cast<uint16_t>(n1 - 1); } else { n0 = 1; n1 = 0; }
+        } else if (dxt1 && c0 <= c1 && n0 > n1) {
+            n0 = n1;   // keep the three-colour (cutout) mode
+        }
+        b[0] = static_cast<uint8_t>(n0 & 0xFF); b[1] = static_cast<uint8_t>(n0 >> 8);
+        b[2] = static_cast<uint8_t>(n1 & 0xFF); b[3] = static_cast<uint8_t>(n1 >> 8);
+    }
 }
 
 uint64_t TileContentHash(const uint32_t* pixels) {
@@ -702,6 +788,59 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         CreateDirectoryA(g_tileDumpDir.c_str(), nullptr);
         CreateDirectoryA(dumpDir.c_str(), nullptr);
     }
+    // The street views' tone match (see DdsTint): the unpainted base of every asphalt road
+    // tile (the lid of a road block) the street views show is brought to the district's median asphalt colour (at most
+    // 12% per channel), so the road reads as one surface instead of tile-sized tone blocks.
+    // Pavements, grass, roofs and cutouts are left as they are.
+    streetTint_.assign(textures_.size() * 3, 1.0f);
+    toneTiles_ = 0;
+    if (g_toneMatch && !remixDevice_ && !hdDir.empty()) {
+        LARGE_INTEGER t0, t1, freq;
+        QueryPerformanceCounter(&t0);
+        std::vector<uint8_t> lid(textures_.size(), 0);   // the road blocks' lids only
+        for (int t : mesh.roadLidTiles)
+            if (t >= 0 && t < static_cast<int>(lid.size())) lid[static_cast<size_t>(t)] = 1;
+        struct Base { int tile; float rgb[3]; };
+        std::vector<Base> asphalt;
+        for (int i = 0; i < style.TileCount() && i < static_cast<int>(lid.size()); ++i) {
+            if (!lid[static_cast<size_t>(i)] || IsWaterTileIndex(i) || i == sealTile || i == riverbedTile) continue;
+            DdsImage dds;
+            const std::string name = std::string("\\") + TileDdsFileName(i);
+            if (!((!roadDir_.empty() && ReadDds(roadDir_ + name, &dds)) || (!photoDir_.empty() && ReadDds(photoDir_ + name, &dds)) ||
+                  ReadDds(hdDir + name, &dds))) continue;
+            Base m;
+            m.tile = i;
+            if (!DdsBaseRgb(dds, m.rgb)) continue;
+            const float lum = 0.299f * m.rgb[0] + 0.587f * m.rgb[1] + 0.114f * m.rgb[2];
+            const float chroma = (std::max)({m.rgb[0], m.rgb[1], m.rgb[2]}) - (std::min)({m.rgb[0], m.rgb[1], m.rgb[2]});
+            // Asphalt: dark to mid grey with no strong hue (blue-green in Downtown and Industrial,
+            // warm brown in Residential); a sand track or a grass verge the map calls road is not.
+            if (lum < 40.0f || lum > 120.0f || chroma > 36.0f) continue;
+            asphalt.push_back(m);
+        }
+        if (asphalt.size() >= 8) {
+            float target[3];
+            for (int k = 0; k < 3; ++k) {
+                std::vector<float> v;
+                for (const Base& m : asphalt) v.push_back(m.rgb[k]);
+                std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+                target[k] = v[v.size() / 2];
+            }
+            for (const Base& m : asphalt) {
+                float f[3]; bool any = false;
+                for (int k = 0; k < 3; ++k) {
+                    f[k] = (std::min)(1.12f, (std::max)(0.88f, target[k] / (std::max)(m.rgb[k], 1.0f)));
+                    if (std::fabs(f[k] - 1.0f) > 0.01f) any = true;
+                }
+                if (!any) continue;
+                for (int k = 0; k < 3; ++k) streetTint_[static_cast<size_t>(m.tile) * 3 + k] = f[k];
+                ++toneTiles_;
+            }
+            QueryPerformanceCounter(&t1); QueryPerformanceFrequency(&freq);
+            Trace("tone match: %d of %zu asphalt road tiles tinted to the median asphalt %.0f %.0f %.0f, %.0f ms",
+                  toneTiles_, asphalt.size(), target[0], target[1], target[2], 1000.0 * (t1.QuadPart - t0.QuadPart) / freq.QuadPart);
+        }
+    }
     std::vector<uint32_t> hd;
     for (const TileBatch& batch : batches_) {
         if (textures_[batch.tile]) continue;
@@ -825,15 +964,26 @@ IDirect3DTexture9* Renderer::LoadHdTileTexture(int tile) {
 
 IDirect3DTexture9* Renderer::LoadPhotoTileTexture(int tile) {
     DdsImage dds;
-    // The re-authored road markings first (clean paint over the photo asphalt), then the photo set.
+    const size_t at = static_cast<size_t>(tile) * 3;
+    const float* tint = (at + 2 < streetTint_.size() &&
+                         (streetTint_[at] != 1.0f || streetTint_[at + 1] != 1.0f || streetTint_[at + 2] != 1.0f)) ? &streetTint_[at] : nullptr;
+    auto make = [&](int* counter) -> IDirect3DTexture9* {
+        if (tint) DdsTint(&dds, tint);
+        IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax);
+        if (texture) ++*counter;
+        return texture;
+    };
+    // The re-authored road markings first (clean paint over the photo asphalt), then the photo set,
+    // then (only to carry the tone match) the HD tile itself.
     if (!roadDir_.empty() && ReadDds(roadDir_ + "\\" + TileDdsFileName(tile), &dds)) {
-        if (IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax)) { ++roadTiles_; return texture; }
+        if (IDirect3DTexture9* texture = make(&roadTiles_)) return texture;
     }
-    if (photoDir_.empty()) return nullptr;
-    if (!ReadDds(photoDir_ + "\\" + TileDdsFileName(tile), &dds)) return nullptr;
-    IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax);
-    if (texture) ++photoTiles_;
-    return texture;
+    if (!photoDir_.empty() && ReadDds(photoDir_ + "\\" + TileDdsFileName(tile), &dds)) {
+        if (IDirect3DTexture9* texture = make(&photoTiles_)) return texture;
+    }
+    int toneOnly = 0;
+    if (tint && !hdDir_.empty() && ReadDds(hdDir_ + "\\" + TileDdsFileName(tile), &dds)) return make(&toneOnly);
+    return nullptr;
 }
 
 void Renderer::UpdateTileTexture(int tile, const uint32_t* pixels) {

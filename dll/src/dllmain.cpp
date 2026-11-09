@@ -425,6 +425,7 @@ void LoadConfig() {
             snprintf(roads, sizeof(roads), "%s\\roads", dir);
             gta2::SetRoadTextureDir(roads);
         }
+        gta2::SetToneMatch(GetPrivateProfileIntA("renderer", "tone_match", 1, ini) != 0);
         gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
         gta2::SetWaterEffect(GetPrivateProfileIntA("renderer", "water_effect", 1, ini) != 0);
         gta2::SetWaterShader(GetPrivateProfileIntA("renderer", "water_shader", 1, ini) != 0);

@@ -69,6 +69,8 @@ void SetPhotoTextureDir(const char* dir);
 // Re-authored road-marking tiles (tools/reauthor_road_markings.py over the photo set), per
 // style; street views only like the photo tiles, and loaded before them.
 void SetRoadTextureDir(const char* dir);
+// Street views: ground tiles tinted toward the game tile's mean (DdsTint), on by default.
+void SetToneMatch(bool on);
 void SetTileDumpDir(const char* dir);
 // Tile numbers are per style file (wil.sty, bil.sty, ste.sty), so both folders
 // hold one subfolder per style, named by this: the style file's name without
@@ -221,6 +223,8 @@ private:
     int photoTiles_ = 0;
     std::string roadDir_;              // the style's re-authored road-marking folder, "" when off
     int roadTiles_ = 0;
+    std::vector<float> streetTint_;    // per tile, 3 factors for its street-view copy (1 = as shipped)
+    int toneTiles_ = 0;
     // Per tile: the photo-material variant, bound instead of textures_[tile] while
     // streetView_ (never for an animated tile, whose slot points at its frames).
     std::vector<IDirect3DTexture9*> photoTextures_;

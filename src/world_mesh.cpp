@@ -580,7 +580,11 @@ public:
 
     // Opaque batches first, then the see-through ones, so a tile used both ways
     // is two draws sharing one texture.
+    void MarkRoadLid(int tile) { roadLids_.insert(tile); }
+    std::set<int> roadLids_;
+
     void Flatten(WorldMesh* out) const {
+        out->roadLidTiles.assign(roadLids_.begin(), roadLids_.end());
         for (int keyed = 0; keyed < 2; ++keyed) {
             for (size_t tile = 0; tile < perTile_[keyed].size(); ++tile) {
                 FlattenOne(out, static_cast<int>(tile), keyed != 0);
@@ -1224,6 +1228,7 @@ void AddPartialBlock(MeshBuilder* builder, const Block& block, int slopeType,
 
 void AddBlock(MeshBuilder* builder, const Block& block, const SlopeInfo& slope,
               const PartialCuts& cuts, int bx, int by, int level) {
+    if (block.lid && block.GroundType() == 1) builder->MarkRoadLid(block.lid.Tile());   // the street views' tone match
     // Map rows run north to south, so the row index is mirrored into +Z-is-north.
     // Keeping north positive makes the world frame agree with the left-handed
     // view frame; sharing the sign would mirror the whole city.

@@ -47,6 +47,9 @@ struct WorldMesh {
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     std::vector<TileBatch> batches;
+    // Tiles used as the lid of a road block (ground type 1): the street views' tone match
+    // (renderer.cpp, tone_match) evens out their asphalt.
+    std::vector<int> roadLidTiles;
 };
 
 // One entry of gta2.exe's slope descriptor table at 0x00662DB0, twelve bytes
