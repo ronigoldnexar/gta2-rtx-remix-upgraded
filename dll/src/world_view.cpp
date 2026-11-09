@@ -1,4 +1,5 @@
 #include "world_view.h"
+#include "density.h"
 
 #include "car_bodies.h"
 #include "map_objects.h"
@@ -682,6 +683,9 @@ void WorldView::MatchGameViewToFrame() {
     // when looking along the short axis, and popped into clear air.
     g_viewAspect = ground ? static_cast<int32_t>(0x4000 * widen + 0.5f)
                           : static_cast<int32_t>(game::kViewAspectStock / widen + 0.5f);
+    // The game's car and people budgets grow with that window (density.cpp);
+    // the classic view gets them back as shipped.
+    DensityUpdate(ground && g_spawnOffscreenActive, g_viewPlayer.valid, g_viewPlayer.x, g_viewPlayer.y);
 }
 
 const PlayerState& ViewPlayer() { return g_viewPlayer; }

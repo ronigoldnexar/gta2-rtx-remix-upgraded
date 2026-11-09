@@ -27,6 +27,7 @@
 #include "frame_limiter.h"
 #include "game_access.h"
 #include "gibs.h"
+#include "density.h"
 #include "hud_pass.h"
 #include "intro_movie.h"
 #include "live_geometry.h"
@@ -279,6 +280,19 @@ void LoadConfig() {
     gta2dx9::SetSpawnOffscreen(GetPrivateProfileIntA("renderer", "spawn_offscreen",
                                                      gta2dx9::kDefaultSpawnOffscreen ? 1 : 0, ini)
                                != 0);
+
+    // Traffic and people in the street views (density.cpp). GTA2DX9_DENSITY=0 in
+    // the environment turns all three off, for before/after measurements.
+    {
+        char env[8] = {};
+        const bool off = GetEnvironmentVariableA("GTA2DX9_DENSITY", env, sizeof env) && env[0] == '0';
+        gta2dx9::SetDensity(
+            off ? 0 : GetPrivateProfileIntA("density", "traffic_cap", gta2dx9::kDefaultTrafficCap, ini),
+            off ? 0 : GetPrivateProfileIntA("density", "ped_density_scale", gta2dx9::kDefaultPedDensityScale, ini),
+            off ? 0 : GetPrivateProfileIntA("density", "ped_cap", gta2dx9::kDefaultPedCap, ini));
+        gta2dx9::SetZoneCarDensity(
+            off ? 0 : GetPrivateProfileIntA("density", "zone_car_density", gta2dx9::kDefaultZoneCarDensity, ini));
+    }
 
     // Blood pools under bodies, which GTA2 keeps behind a debug flag.
     gta2dx9::SetBlood(
