@@ -22,6 +22,7 @@ if git fetch -q fork 2>/dev/null && git rev-parse -q --verify fork/camera-modes 
 fi
 git worktree remove --force "$W" 2>/dev/null || true
 git worktree add -f --detach "$W" HEAD >/dev/null
+STAGED_FROM=$(git -C "$W" rev-parse --short HEAD)   # the commit the DLLs come from; the shared checkout may move on (autounify) while the candidate builds
 ( cd "$W" && flock /tmp/gta2-build.lock nice -n 10 make -j4 dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll > "$W_LOG" 2>&1 ) || { tail -20 "$W_LOG"; exit 1; }
 # repository checks (ini sections, check tools link; load/SEH checks run under Wine, SKIP without it) on the candidate worktree
 ( cd "$W" && flock /tmp/gta2-build.lock nice -n 10 make -j4 check >> "$W_LOG" 2>&1 ) || { tail -20 "$W_LOG"; echo "restage refused: make check failed on the candidate"; exit 1; }
@@ -50,4 +51,5 @@ for d in gta2dx9_models gta2dx9_textures_hd; do
 done
 rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage_candidate
 python3 ../gamerun/stage_check.py stage "$R"
-echo "staged from $(git rev-parse --short HEAD) at $(date +%H:%M)"
+echo "$STAGED_FROM" > stage/.stage_commit   # a run can prove its stage without the log
+echo "staged from $STAGED_FROM at $(date +%H:%M)"
