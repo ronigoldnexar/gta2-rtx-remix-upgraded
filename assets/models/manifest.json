@@ -1372,6 +1372,7 @@
    "texture_max": 512,
    "material_textures": {
     "chrome": "cars/vehicle_art2/036_schmidt/chrome.png",
+    "chrome_spine": "cars/vehicle_art2/036_schmidt/chrome_spine.png",
     "underbody": "cars/vehicle_art2/036_schmidt/underbody.png",
     "paint_body": "cars/vehicle_art2/036_schmidt/paint_body.png",
     "paint_frame": "cars/vehicle_art2/036_schmidt/paint_frame.png",
@@ -1568,15 +1569,39 @@
   },
   {
    "name": "050_b_type",
-   "glb": "cars/models3d/050_b_type.glb",
+   "glb": "cars/vehicle_art2/050_b_type.glb",
    "scale": 1.0,
    "paint_rgb": [
-    153.0,
-    122.9,
-    114.8
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/050_b_type/seal.png",
+    "chrome": "cars/vehicle_art2/050_b_type/chrome.png",
+    "underbody": "cars/vehicle_art2/050_b_type/underbody.png",
+    "paint_body": "cars/vehicle_art2/050_b_type/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/050_b_type/interior_dark.png",
+    "grille": "cars/vehicle_art2/050_b_type/grille.png",
+    "chrome_disc": "cars/vehicle_art2/050_b_type/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/050_b_type/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/050_b_type/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/050_b_type/lamp_tail.png",
+    "seat": "cars/vehicle_art2/050_b_type/seat.png",
+    "tyre_side": "cars/vehicle_art2/050_b_type/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/050_b_type/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/050_b_type/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/050_b_type/paint_wheel.png",
+    "glass": "cars/vehicle_art2/050_b_type/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_050.py",
+   "driver_seat": [
+    0.09,
+    0.14,
+    -0.008,
+    0.317
+   ]
   },
   {
    "name": "051_taxi_xpress",
@@ -1628,20 +1653,30 @@
   },
   {
    "name": "055_tanker",
-   "glb": "cars/models_proc/055_tanker.glb",
+   "glb": "cars/vehicle_art2/055_tanker.glb",
    "scale": 1.0,
    "paint_rgb": [
-    171.3,
-    155.9,
-    146.2
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ]
+   "material_textures": {
+    "steel_bright": "cars/vehicle_art2/055_tanker/steel_bright.png",
+    "tank_band": "cars/vehicle_art2/055_tanker/tank_band.png",
+    "paint_body": "cars/vehicle_art2/055_tanker/paint_body.png",
+    "hatch": "cars/vehicle_art2/055_tanker/hatch.png",
+    "grating": "cars/vehicle_art2/055_tanker/grating.png",
+    "frame_dark": "cars/vehicle_art2/055_tanker/frame_dark.png",
+    "lamp_tail": "cars/vehicle_art2/055_tanker/lamp_tail.png",
+    "lamp_amber": "cars/vehicle_art2/055_tanker/lamp_amber.png",
+    "rubber_flap": "cars/vehicle_art2/055_tanker/rubber_flap.png",
+    "tyre_side": "cars/vehicle_art2/055_tanker/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/055_tanker/tyre_tread.png",
+    "wheel_steel": "cars/vehicle_art2/055_tanker/wheel_steel.png",
+    "underbody": "cars/vehicle_art2/055_tanker/underbody.png"
+   },
+   "generator": "tools/vehicle_art2/car_055.py"
   },
   {
    "name": "056_taxi",
@@ -1709,54 +1744,90 @@
   },
   {
    "name": "059_train",
-   "glb": "cars/models_proc/059_train.glb",
+   "glb": "cars/vehicle_art2/059_train.glb",
    "scale": 1.0,
    "paint_rgb": [
-    142.2,
-    126.5,
-    111.9
+    163.0,
+    144.0,
+    123.0
    ],
    "texture_max": 512,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ]
+   "material_textures": {
+    "seal": "cars/vehicle_art2/059_train/seal.png",
+    "door_dark": "cars/vehicle_art2/059_train/door_dark.png",
+    "band_dark": "cars/vehicle_art2/059_train/band_dark.png",
+    "roof_panel": "cars/vehicle_art2/059_train/roof_panel.png",
+    "roof": "cars/vehicle_art2/059_train/roof.png",
+    "underbody": "cars/vehicle_art2/059_train/underbody.png",
+    "body": "cars/vehicle_art2/059_train/body.png",
+    "interior_dark": "cars/vehicle_art2/059_train/interior_dark.png",
+    "bellows": "cars/vehicle_art2/059_train/bellows.png",
+    "steel_bright": "cars/vehicle_art2/059_train/steel_bright.png",
+    "lamp_tail": "cars/vehicle_art2/059_train/lamp_tail.png",
+    "wheel_dark": "cars/vehicle_art2/059_train/wheel_dark.png",
+    "lamp_head": "cars/vehicle_art2/059_train/lamp_head.png",
+    "vent": "cars/vehicle_art2/059_train/vent.png",
+    "frame_dark": "cars/vehicle_art2/059_train/frame_dark.png",
+    "bogie": "cars/vehicle_art2/059_train/bogie.png",
+    "glass": "cars/vehicle_art2/059_train/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_059.py"
   },
   {
    "name": "060_train_cab",
-   "glb": "cars/models_proc/060_train_cab.glb",
+   "glb": "cars/vehicle_art2/060_train_cab.glb",
    "scale": 1.0,
    "paint_rgb": [
-    127.4,
-    108.0,
-    89.9
+    181.0,
+    161.0,
+    145.0
    ],
    "texture_max": 512,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ]
+   "material_textures": {
+    "seal": "cars/vehicle_art2/060_train_cab/seal.png",
+    "door_dark": "cars/vehicle_art2/060_train_cab/door_dark.png",
+    "band_dark": "cars/vehicle_art2/060_train_cab/band_dark.png",
+    "roof_panel": "cars/vehicle_art2/060_train_cab/roof_panel.png",
+    "roof": "cars/vehicle_art2/060_train_cab/roof.png",
+    "underbody": "cars/vehicle_art2/060_train_cab/underbody.png",
+    "body": "cars/vehicle_art2/060_train_cab/body.png",
+    "interior_dark": "cars/vehicle_art2/060_train_cab/interior_dark.png",
+    "hood_silver": "cars/vehicle_art2/060_train_cab/hood_silver.png",
+    "vent": "cars/vehicle_art2/060_train_cab/vent.png",
+    "steel_bright": "cars/vehicle_art2/060_train_cab/steel_bright.png",
+    "lamp_head": "cars/vehicle_art2/060_train_cab/lamp_head.png",
+    "frame_dark": "cars/vehicle_art2/060_train_cab/frame_dark.png",
+    "bellows": "cars/vehicle_art2/060_train_cab/bellows.png",
+    "wheel_dark": "cars/vehicle_art2/060_train_cab/wheel_dark.png",
+    "bogie": "cars/vehicle_art2/060_train_cab/bogie.png",
+    "glass_cab": "cars/vehicle_art2/060_train_cab/glass_cab.png",
+    "glass": "cars/vehicle_art2/060_train_cab/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_060.py"
   },
   {
    "name": "061_train_fb",
-   "glb": "cars/models_proc/061_train_fb.glb",
+   "glb": "cars/vehicle_art2/061_train_fb.glb",
    "scale": 1.0,
    "paint_rgb": [
-    99.0,
-    67.6,
-    55.5
+    110.0,
+    62.0,
+    40.0
    ],
    "texture_max": 512,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ]
+   "material_textures": {
+    "deck": "cars/vehicle_art2/061_train_fb/deck.png",
+    "body": "cars/vehicle_art2/061_train_fb/body.png",
+    "frame_dark": "cars/vehicle_art2/061_train_fb/frame_dark.png",
+    "steel_post": "cars/vehicle_art2/061_train_fb/steel_post.png",
+    "lamp_tail": "cars/vehicle_art2/061_train_fb/lamp_tail.png",
+    "underbody": "cars/vehicle_art2/061_train_fb/underbody.png",
+    "wheel_dark": "cars/vehicle_art2/061_train_fb/wheel_dark.png",
+    "steel_bright": "cars/vehicle_art2/061_train_fb/steel_bright.png",
+    "lamp_head": "cars/vehicle_art2/061_train_fb/lamp_head.png",
+    "bogie": "cars/vehicle_art2/061_train_fb/bogie.png"
+   },
+   "generator": "tools/vehicle_art2/car_061.py"
   },
   {
    "name": "062_trance_am",
@@ -1801,37 +1872,53 @@
   },
   {
    "name": "065_container",
-   "glb": "cars/models_proc/065_container.glb",
+   "glb": "cars/vehicle_art2/065_container.glb",
    "scale": 1.0,
    "paint_rgb": [
-    147.1,
-    111.6,
-    86.9
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ]
+   "material_textures": {
+    "paint_box": "cars/vehicle_art2/065_container/paint_box.png",
+    "paint_frame": "cars/vehicle_art2/065_container/paint_frame.png",
+    "frame_dark": "cars/vehicle_art2/065_container/frame_dark.png",
+    "steel_bright": "cars/vehicle_art2/065_container/steel_bright.png",
+    "lamp_tail": "cars/vehicle_art2/065_container/lamp_tail.png",
+    "lamp_amber": "cars/vehicle_art2/065_container/lamp_amber.png",
+    "rubber_flap": "cars/vehicle_art2/065_container/rubber_flap.png",
+    "tyre_side": "cars/vehicle_art2/065_container/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/065_container/tyre_tread.png",
+    "wheel_steel": "cars/vehicle_art2/065_container/wheel_steel.png",
+    "underbody": "cars/vehicle_art2/065_container/underbody.png"
+   },
+   "generator": "tools/vehicle_art2/car_065.py"
   },
   {
    "name": "066_transporter",
-   "glb": "cars/models_proc/066_transporter.glb",
+   "glb": "cars/vehicle_art2/066_transporter.glb",
    "scale": 1.0,
    "paint_rgb": [
-    119.3,
-    93.9,
-    82.3
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ]
+   "material_textures": {
+    "grating": "cars/vehicle_art2/066_transporter/grating.png",
+    "paint_frame": "cars/vehicle_art2/066_transporter/paint_frame.png",
+    "frame_dark": "cars/vehicle_art2/066_transporter/frame_dark.png",
+    "lamp_tail": "cars/vehicle_art2/066_transporter/lamp_tail.png",
+    "lamp_amber": "cars/vehicle_art2/066_transporter/lamp_amber.png",
+    "rubber_flap": "cars/vehicle_art2/066_transporter/rubber_flap.png",
+    "tyre_side": "cars/vehicle_art2/066_transporter/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/066_transporter/tyre_tread.png",
+    "wheel_steel": "cars/vehicle_art2/066_transporter/wheel_steel.png",
+    "steel_bright": "cars/vehicle_art2/066_transporter/steel_bright.png",
+    "underbody": "cars/vehicle_art2/066_transporter/underbody.png"
+   },
+   "generator": "tools/vehicle_art2/car_066.py"
   },
   {
    "name": "067_tv_van",
@@ -7930,13 +8017,14 @@
   },
   {
    "name": "036_schmidt",
-   "nodes": 19,
-   "meshes": 15,
+   "nodes": 20,
+   "meshes": 16,
    "vertices": 14454,
    "animations": [],
    "textures": [
     "036_schmidt_chrome.tga",
     "036_schmidt_chrome_disc.tga",
+    "036_schmidt_chrome_spine.tga",
     "036_schmidt_glass.tga",
     "036_schmidt_interior_dark.tga",
     "036_schmidt_lamp_amber.tga",
@@ -8003,13 +8091,30 @@
   },
   {
    "name": "040_maurice",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 7420,
+   "nodes": 23,
+   "meshes": 19,
+   "vertices": 19352,
    "animations": [],
    "textures": [
-    "040_maurice_0.tga",
-    "040_maurice_0_paint.tga"
+    "040_maurice_chrome.tga",
+    "040_maurice_chrome_disc.tga",
+    "040_maurice_glass.tga",
+    "040_maurice_grille.tga",
+    "040_maurice_interior_dark.tga",
+    "040_maurice_lamp_amber.tga",
+    "040_maurice_lamp_head.tga",
+    "040_maurice_lamp_tail.tga",
+    "040_maurice_paint_body_paint.tga",
+    "040_maurice_paint_fender_f_paint.tga",
+    "040_maurice_paint_fender_r_paint.tga",
+    "040_maurice_paint_wheel_paint.tga",
+    "040_maurice_plate.tga",
+    "040_maurice_running_board_rubber.tga",
+    "040_maurice_seal.tga",
+    "040_maurice_seat.tga",
+    "040_maurice_tyre_side.tga",
+    "040_maurice_tyre_tread.tga",
+    "040_maurice_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8138,15 +8243,27 @@
   },
   {
    "name": "050_b_type",
-   "nodes": 4,
-   "meshes": 4,
-   "vertices": 14846,
+   "nodes": 20,
+   "meshes": 16,
+   "vertices": 18438,
    "animations": [],
    "textures": [
-    "050_b_type_0.tga",
-    "050_b_type_0_paint.tga",
-    "050_b_type_1.tga",
-    "050_b_type_3.tga"
+    "050_b_type_chrome.tga",
+    "050_b_type_chrome_disc.tga",
+    "050_b_type_glass.tga",
+    "050_b_type_grille.tga",
+    "050_b_type_interior_dark.tga",
+    "050_b_type_lamp_amber.tga",
+    "050_b_type_lamp_head.tga",
+    "050_b_type_lamp_tail.tga",
+    "050_b_type_paint_body_paint.tga",
+    "050_b_type_paint_wheel_paint.tga",
+    "050_b_type_seal.tga",
+    "050_b_type_seat.tga",
+    "050_b_type_tyre_side.tga",
+    "050_b_type_tyre_tread.tga",
+    "050_b_type_underbody.tga",
+    "050_b_type_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8216,21 +8333,23 @@
   {
    "name": "055_tanker",
    "nodes": 17,
-   "meshes": 11,
-   "vertices": 7506,
+   "meshes": 13,
+   "vertices": 18982,
    "animations": [],
    "textures": [
-    "055_tanker_0_paint.tga",
-    "055_tanker_10.tga",
-    "055_tanker_1_paint.tga",
-    "055_tanker_2_paint.tga",
-    "055_tanker_3_paint.tga",
-    "055_tanker_4.tga",
-    "055_tanker_5.tga",
-    "055_tanker_6.tga",
-    "055_tanker_7.tga",
-    "055_tanker_8.tga",
-    "055_tanker_9.tga"
+    "055_tanker_frame_dark.tga",
+    "055_tanker_grating.tga",
+    "055_tanker_hatch.tga",
+    "055_tanker_lamp_amber.tga",
+    "055_tanker_lamp_tail.tga",
+    "055_tanker_paint_body_paint.tga",
+    "055_tanker_rubber_flap.tga",
+    "055_tanker_steel_bright.tga",
+    "055_tanker_tank_band.tga",
+    "055_tanker_tyre_side.tga",
+    "055_tanker_tyre_tread.tga",
+    "055_tanker_underbody.tga",
+    "055_tanker_wheel_steel.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8241,7 +8360,7 @@
    "name": "056_taxi",
    "nodes": 24,
    "meshes": 20,
-   "vertices": 18537,
+   "vertices": 18189,
    "animations": [],
    "textures": [
     "056_taxi_chequer.tga",
@@ -8302,22 +8421,28 @@
   },
   {
    "name": "059_train",
-   "nodes": 17,
-   "meshes": 11,
-   "vertices": 7506,
+   "nodes": 21,
+   "meshes": 17,
+   "vertices": 25480,
    "animations": [],
    "textures": [
-    "059_train_0_paint.tga",
-    "059_train_10.tga",
-    "059_train_1_paint.tga",
-    "059_train_2_paint.tga",
-    "059_train_3_paint.tga",
-    "059_train_4.tga",
-    "059_train_5.tga",
-    "059_train_6.tga",
-    "059_train_7.tga",
-    "059_train_8.tga",
-    "059_train_9.tga"
+    "059_train_band_dark.tga",
+    "059_train_bellows.tga",
+    "059_train_body_paint.tga",
+    "059_train_bogie.tga",
+    "059_train_door_dark.tga",
+    "059_train_frame_dark.tga",
+    "059_train_glass.tga",
+    "059_train_interior_dark.tga",
+    "059_train_lamp_head.tga",
+    "059_train_lamp_tail.tga",
+    "059_train_roof.tga",
+    "059_train_roof_panel.tga",
+    "059_train_seal.tga",
+    "059_train_steel_bright.tga",
+    "059_train_underbody.tga",
+    "059_train_vent.tga",
+    "059_train_wheel_dark.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8326,22 +8451,29 @@
   },
   {
    "name": "060_train_cab",
-   "nodes": 17,
-   "meshes": 11,
-   "vertices": 7506,
+   "nodes": 22,
+   "meshes": 18,
+   "vertices": 24644,
    "animations": [],
    "textures": [
-    "060_train_cab_0_paint.tga",
-    "060_train_cab_10.tga",
-    "060_train_cab_1_paint.tga",
-    "060_train_cab_2_paint.tga",
-    "060_train_cab_3_paint.tga",
-    "060_train_cab_4.tga",
-    "060_train_cab_5.tga",
-    "060_train_cab_6.tga",
-    "060_train_cab_7.tga",
-    "060_train_cab_8.tga",
-    "060_train_cab_9.tga"
+    "060_train_cab_band_dark.tga",
+    "060_train_cab_bellows.tga",
+    "060_train_cab_body_paint.tga",
+    "060_train_cab_bogie.tga",
+    "060_train_cab_door_dark.tga",
+    "060_train_cab_frame_dark.tga",
+    "060_train_cab_glass.tga",
+    "060_train_cab_glass_cab.tga",
+    "060_train_cab_hood_silver.tga",
+    "060_train_cab_interior_dark.tga",
+    "060_train_cab_lamp_head.tga",
+    "060_train_cab_roof.tga",
+    "060_train_cab_roof_panel.tga",
+    "060_train_cab_seal.tga",
+    "060_train_cab_steel_bright.tga",
+    "060_train_cab_underbody.tga",
+    "060_train_cab_vent.tga",
+    "060_train_cab_wheel_dark.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8350,22 +8482,21 @@
   },
   {
    "name": "061_train_fb",
-   "nodes": 17,
-   "meshes": 11,
-   "vertices": 7506,
+   "nodes": 14,
+   "meshes": 10,
+   "vertices": 7700,
    "animations": [],
    "textures": [
-    "061_train_fb_0_paint.tga",
-    "061_train_fb_10.tga",
-    "061_train_fb_1_paint.tga",
-    "061_train_fb_2_paint.tga",
-    "061_train_fb_3_paint.tga",
-    "061_train_fb_4.tga",
-    "061_train_fb_5.tga",
-    "061_train_fb_6.tga",
-    "061_train_fb_7.tga",
-    "061_train_fb_8.tga",
-    "061_train_fb_9.tga"
+    "061_train_fb_body_paint.tga",
+    "061_train_fb_bogie.tga",
+    "061_train_fb_deck.tga",
+    "061_train_fb_frame_dark.tga",
+    "061_train_fb_lamp_head.tga",
+    "061_train_fb_lamp_tail.tga",
+    "061_train_fb_steel_bright.tga",
+    "061_train_fb_steel_post.tga",
+    "061_train_fb_underbody.tga",
+    "061_train_fb_wheel_dark.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8421,19 +8552,21 @@
   {
    "name": "065_container",
    "nodes": 15,
-   "meshes": 9,
-   "vertices": 6534,
+   "meshes": 11,
+   "vertices": 10498,
    "animations": [],
    "textures": [
-    "065_container_0_paint.tga",
-    "065_container_1_paint.tga",
-    "065_container_2_paint.tga",
-    "065_container_3_paint.tga",
-    "065_container_4.tga",
-    "065_container_5.tga",
-    "065_container_6.tga",
-    "065_container_7.tga",
-    "065_container_8.tga"
+    "065_container_frame_dark.tga",
+    "065_container_lamp_amber.tga",
+    "065_container_lamp_tail.tga",
+    "065_container_paint_box_paint.tga",
+    "065_container_paint_frame_paint.tga",
+    "065_container_rubber_flap.tga",
+    "065_container_steel_bright.tga",
+    "065_container_tyre_side.tga",
+    "065_container_tyre_tread.tga",
+    "065_container_underbody.tga",
+    "065_container_wheel_steel.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8443,19 +8576,21 @@
   {
    "name": "066_transporter",
    "nodes": 15,
-   "meshes": 9,
-   "vertices": 6534,
+   "meshes": 11,
+   "vertices": 10282,
    "animations": [],
    "textures": [
-    "066_transporter_0_paint.tga",
-    "066_transporter_1_paint.tga",
-    "066_transporter_2_paint.tga",
-    "066_transporter_3_paint.tga",
-    "066_transporter_4.tga",
-    "066_transporter_5.tga",
-    "066_transporter_6.tga",
-    "066_transporter_7.tga",
-    "066_transporter_8.tga"
+    "066_transporter_frame_dark.tga",
+    "066_transporter_grating.tga",
+    "066_transporter_lamp_amber.tga",
+    "066_transporter_lamp_tail.tga",
+    "066_transporter_paint_frame_paint.tga",
+    "066_transporter_rubber_flap.tga",
+    "066_transporter_steel_bright.tga",
+    "066_transporter_tyre_side.tga",
+    "066_transporter_tyre_tread.tga",
+    "066_transporter_underbody.tga",
+    "066_transporter_wheel_steel.tga"
    ],
    "skins": 0,
    "forward": "",

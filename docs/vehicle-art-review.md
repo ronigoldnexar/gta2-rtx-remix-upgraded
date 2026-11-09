@@ -347,3 +347,51 @@ replaced. Run the tool on the original glb (backup in `<workspace>/backup_va6/sr
   changed texture has a new hash, so any gta2hd prim keyed on the old 051 texture no longer applies (FIX-REMIX-IDENTITY).
 - 036 Schmidt and 056 Taxi (VEHICLE-ART-2's authored bodies), checked in out/va6_taxi1: the 036 canopy is clean
   glass with no sprite lines, and the 056 band is straight. Their lamps are plain dark domes (not done).
+
+## VEHICLE-ART-7 (9-10 Nov 2026): 050 authored, trains and trailers authored, sealed beams, hubs, roofs, chrome
+
+Probe: `gamerun/va6_own.py` (the stopped own car forced to each model, regression-camera poses front34 / eye /
+side / far / chase, same spot and DLL before and after), plus `gamerun/va2_show.py` for traffic cars (no seated
+driver, forced paint). Runs: `va7_base` (before), `va7_a1`..`va7_a4` (after). 0 FAULT in every run.
+
+Per model, what the close frames showed and what was done (mesh work only where a frame proved it):
+
+| Model | Close-pose finding (va7_base) | Fix |
+|---|---|---|
+| 050 B-Type | bonnet and wings a crumpled mosaic of lumps several faces wide, a torn grille, a stray fin on the bonnet: geometry, not shading (a normal-only Taubin pass, `tools/vehicle_art/smooth_shell.py`, barely changed it) | **re-authored** in the vehicle_art2 kit: `tools/vehicle_art2/car_050.py`, a late-1940s four-door (wings swelling round each wheel in plan, split windscreen, bar grille with the sprite's chrome centre bar, sealed-beam lamps in the wings, spear, wraparound bumpers with over-riders, whitewalls), neutral 235 paint tinted by the identity record; `driver_seat` in `seat_anchor.py` |
+| 018 Shark | bonnet acceptable; front and rear hubs jagged spiked lumps (spun by the shell wheel split) | `tools/vehicle_art/flatten_hubs.py`: the hub vertices pressed onto a smooth dome (positions only, UVs/textures untouched; the 20:38 re-split `_0` textures kept). Body still 1930s against a 1950s sprite |
+| 013 Minx, 063 Truck Cab | authored (carkit), smooth: no facets | 013 and 068 re-baked with the hazy-zenith chrome (92fa080): only `_0` (trim atlas) and `_4` (glass) change; mesh and paint byte-identical |
+| 036 Schmidt | dark-dome lamps; the bonnet spine a black stripe (the chrome band texture's ground half at the deck's v ~ 1) | spine: own `chrome_spine` material (flat bright metal); lamps as below |
+| 056 Taxi | dark-dome lamps; the chequer band bent down and up round the wheel openings (a band at fixed loft v over the lifted arch) | band stops 4 cm clear of each opening; lamps as below |
+| 008, 040 | dark-dome lamps | lamps as below |
+
+**Sealed beams (vehicle_art2 kit, `tex_lamp("head")`):** the fluted grey-blue lens over a dark bowl read as a dark
+dome in the game's light. It is now the 063's sealed beam as a texture: a silvered reflector bright round the bulb,
+prism cells, the bulb shield with a chrome cap, a dark seal (128 px). Only `NNN_lamp_head.tga` changes for 008, 036,
+040 and 056 (tail and amber lamps byte-identical).
+
+**Trains and trailers** (vr-trains-trailers-parametric-loaves-sprite-smear): six authored bodies in
+`tools/vehicle_art2` with a shared `rail_kit.py` (flanged rail wheels, two-axle bogies with side frames, springs and a
+bolster, buffers and coupler, trailer chassis, dual-tyre axles, landing legs, mud flaps, grime / corrugated / plank
+/ grating / louvre textures). Every model spans exactly +-1.0 block (the game's 2-block body); a carriage's body
+stops at +-3.95 m (GTA2 overlaps coupled cars by 0.41 block), a 1 cm marker on the ground holds the length.
+- 059 Train: coach with a window band, two pairs of sliding doors (CARI door rows), end doors, gangway, roof vents, cream roof.
+- 060 Train Cab: the coach shell with a streamlined nose (wraparound windscreen cut on the shell, headlamp, pilot), silver louvred roof hood, crew doors at the back.
+- 061 Train FB: plank deck, side sills with stake pockets and stanchions, end bulkheads with lamps.
+- 055 Tanker: elliptical tank, girth bands, stainless ends, two filler domes (the sprite's), walkway with rails, ladder, tandem dual axles, landing legs.
+- 065 Container: ribbed box with the sprite's X-braced outside frame, corner castings, roof spine, rear doors with locking bars.
+- 066 Transporter: two-deck open frame, grated decks, diagonals, headboard, folded ramps.
+59-61 are liveries (own colours); 055/065/066 are neutral paint tinted per remap.
+
+**Roofs** (vr-roof-sprite-keeps-sprite-paint-mismatched-roof-colour): `tools/vehicle_art/roof_paint.py` moves a
+generated car's roof texels (upward faces near the top, not glass, not chrome, not already paint) from the untinted
+half into the paint half with their luminance only. Applied to 046 Stinger (the tan hardtop now takes the body
+paint) and 062 Trance-Am (a small remainder). Not applied: 014 Eddy and 047 Meteor (the roof is already paint after
+FIX-CAR-IDENTITY-3 / round 8), 037 Miara (already paint; the tool would paint over the engine-cover louvres).
+
+Remix: every changed texture has a new hash (list in the journal line of 9-10 Nov); prims are FIX-REMIX-MATERIALS-2's.
+
+Still short of a shipping-AAA frame: the 050 is clean but plain (no stamped wing creases or trim detail of a real
+1948 car, lamps a little small); the 018's 1930s body against its 1950s sprite; the 051's door ghosts, roof blotches
+and C-pillar stub (needs re-authoring like the 050); the train cars are seen only as forced models at street level
+(not yet filmed on the elevated line in motion); the trailers' coupling with the 063 cab is not filmed.

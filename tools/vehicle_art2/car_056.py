@@ -95,7 +95,12 @@ def build():
     glass = sdf_union(side1, side2, side3, screen, backl)
     seal = lambda u, v: glass(u, v) - 0.014
     # chequer band below the side windows, chequer strip down the roof (the sprite's)
-    band = lambda u, v: np.maximum(np.abs(np.asarray(v) - 0.475) * SV - 0.055, np.abs(np.asarray(u) + 0.3) - 1.95)
+    # VEHICLE-ART-7: the band stops 4 cm clear of each wheel opening; over an arch the loft's lower half is lifted,
+    # so a band at fixed v bent down and up round the wheel (vr-taxi-056 "torn" read at the rear wing)
+    def band(u, v):
+        u = np.asarray(u, float)
+        clear = np.minimum(np.abs(u - ZF), np.abs(u - ZR)) - (R_ARCH + 0.04)
+        return np.maximum(np.maximum(np.abs(np.asarray(v) - 0.475) * SV - 0.055, np.abs(u + 0.3) - 1.95), -clear)
     roofstrip = lambda u, v: np.maximum((1 - np.asarray(v)) * SV * 1.6 - 0.15, np.abs(np.asarray(u) + 0.25) - 0.82)
     belt_chrome = lambda u, v: np.maximum(np.abs(np.asarray(v) - 0.505) * SV - 0.014,
                                           np.maximum(np.abs(np.asarray(u) - 0.2) - 2.25, -np.where(arch(np.asarray(u, float)) > 0, -1.0, 1.0)))

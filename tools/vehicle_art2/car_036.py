@@ -107,7 +107,7 @@ def build():
         return np.maximum(np.abs(1 - v) * 3.0 - 0.018, np.maximum(1.02 - z, z - (zn - 0.12)))
 
     car.surface(tub, zt, zn, 0.0, 1.0, 64, 26, mirror=True,
-                regions=[("_cut", opening), ("chrome", rub), ("chrome", spine), ("underbody", under)],
+                regions=[("_cut", opening), ("chrome", rub), ("chrome_spine", spine), ("underbody", under)],
                 default="paint_body", uvfn=lambda u, v: ((u - zt) / LEN, v),
                 ukeys=[ZF - R_ARCH, ZF + R_ARCH, ZR - R_ARCH, ZR + R_ARCH])
     car.parts.pop("_cut", None)
@@ -191,6 +191,9 @@ def build():
     car.materials["glass"] = tex_glass(256, tint=(60, 80, 96), alpha=105)
     car.materials["seal"] = tex_flat((22, 22, 24))
     car.materials["chrome"] = tex_chrome()
+    # VEHICLE-ART-7: the spine lies flat on the deck, at the body map's v ~ 1, where the chrome band texture is its
+    # dark ground reflection (a black stripe in the game): a flat strip of bright metal mirroring the sky instead
+    car.materials["chrome_spine"] = tex_flat((222, 228, 236), 64)
     car.materials["underbody"] = tex_flat((30, 28, 27))
     car.materials["interior_dark"] = tex_flat((38, 34, 32))
     car.materials["seat"] = tex_leather((122, 38, 32))

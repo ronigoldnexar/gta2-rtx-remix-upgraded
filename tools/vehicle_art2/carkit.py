@@ -576,14 +576,26 @@ def tex_tyre_side(size=128):
 
 
 def tex_lamp(kind, size=64):
+    if kind == "head":
+        size = max(size, 128)     # the prism cells need the texels
     yy, xx = np.mgrid[0:size, 0:size] / (size - 1.0) * 2 - 1
     r = np.hypot(xx, yy)
     if kind == "head":
-        # a fluted lens over a dark reflector bowl: grey-blue glass with ring flutes and one glint
-        rgb = np.dstack([150 - 50 * r, 156 - 50 * r, 162 - 45 * r])
-        rings = 0.5 + 0.5 * np.cos(r * 30)
-        rgb = rgb * (0.80 + 0.20 * rings[..., None])
-        rgb += np.exp(-(((xx + 0.3) ** 2 + (yy + 0.35) ** 2) / 0.03))[..., None] * 90
+        # VEHICLE-ART-7: a 1950s sealed beam seen by day (as tools/vehicle_art/m063_truck_cab.py
+        # sealed_beam_shader): a silvered reflector bright round the bulb behind clear prism glass (a grid
+        # of lens cells), the bulb's dark shield with a chrome cap, a dark seal at the rim. The old fluted
+        # grey-blue lens over a dark bowl read as a dark dome in the game's light.
+        b = 0.50 + 0.42 * np.exp(-((r - 0.52) / 0.24) ** 2) + 0.10 * np.clip(-yy, 0, 1)
+        cell = 0.17
+        gx = np.abs(((xx / cell) % 1.0) - 0.5) > 0.40
+        gy = np.abs(((yy / cell) % 1.0) - 0.5) > 0.40
+        b = np.where((gx | gy) & (r < 0.86), b * 0.74, b)
+        b = np.where(r < 0.11, 0.30, b)
+        b = np.where((r >= 0.11) & (r < 0.16), 0.98, b)
+        b = np.where(r > 0.90, 0.16, b)
+        rgb = b[..., None] * np.array([0.90, 0.92, 0.95]) * 255
+        rgb[..., 0] += 10 * np.exp(-((r - 0.30) / 0.10) ** 2)
+        rgb += np.exp(-(((xx + 0.35) ** 2 + (yy + 0.40) ** 2) / 0.012))[..., None] * 60
     elif kind == "tail":
         rgb = np.dstack([170 - 50 * r, 18 + 0 * r, 22 + 0 * r]) * (0.85 + 0.15 * (0.5 + 0.5 * np.cos(r * 22)))[..., None]
         rgb += np.exp(-(((xx + 0.3) ** 2 + (yy + 0.35) ** 2) / 0.05))[..., None] * 70

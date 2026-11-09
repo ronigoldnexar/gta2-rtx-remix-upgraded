@@ -50,6 +50,7 @@ SEATS = {
     "036_schmidt": ((0.0, 0.52, 0.19), 5.0),       # tandem: front seat centred, top 0.52, back -0.05..0.07
     "056_taxi": ((0.45, 0.72, 0.0), 5.0),          # front bench x +-1.02, top 0.72, back -0.25..-0.12
     "040_maurice": ((0.38, 0.64, 0.04), 5.0),      # FIX-CAR-TEX: seats x +-0.38, top 0.64, back -0.20..-0.08
+    "050_b_type": ((0.45, 0.70, -0.04), 5.0),       # VEHICLE-ART-7: front bench x +-1.00, top 0.70, back -0.30..-0.16
 }
 
 
