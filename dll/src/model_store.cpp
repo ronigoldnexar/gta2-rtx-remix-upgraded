@@ -75,6 +75,7 @@ bool g_zoneHair = false;
 std::map<int, int> g_pedRemapByPalette;   // physical palette -> remap, from the loaded style
 std::map<std::string, std::string> g_props;
 std::vector<gta2::Vec3> g_mapLamps;
+std::vector<gta2::Vec3> g_mapLampPosts;   // see MapLampPosts
 std::string g_folder;
 bool g_loaded = false;
 int g_drawn = 0;
@@ -1206,8 +1207,10 @@ const Model* ModelByName(const char* name) {
 }
 const char* ModelsFolder() { return g_folder.c_str(); }
 
-void SetMapLamps(const std::vector<gta2::Vec3>& lamps) { g_mapLamps = lamps; }
+void SetMapLamps(const std::vector<gta2::Vec3>& lamps) { g_mapLamps = lamps; g_mapLampPosts.clear(); }
 const std::vector<gta2::Vec3>& MapLamps() { return g_mapLamps; }
+void SetMapLampPosts(const std::vector<gta2::Vec3>& posts) { g_mapLampPosts = posts; }
+const std::vector<gta2::Vec3>& MapLampPosts() { return g_mapLampPosts; }
 
 const Model* ModelForPedestrian() {
     auto it = g_byName.find(g_pedestrian);

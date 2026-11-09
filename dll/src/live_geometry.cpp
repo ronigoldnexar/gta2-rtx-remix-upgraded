@@ -4346,17 +4346,85 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             p.d2 = dx * dx + dz * dz;
         }
     } else {
-    // The lamps.
+    // The lamps. The post goes to the edge of its cell, not under the light wherever the
+    // map put it (often mid-pavement, where the game walks its people straight through
+    // it: defect pt-player-walks-through-street-lamps): to the kerb when a road runs
+    // beside the cell, else against a building, else to the cell's nearest edge. A lamp
+    // over the roadway stands on the kerb of a pavement cell beside it, or not at all
+    // (never on a cell a car drives over). Computed once per level for every lamp and
+    // shared with the chase camera's obstacles (MapLampPosts).
     if (lamp) {
-        for (const gta2::Vec3& at : MapLamps()) {
-            const float dx = at.x - eye.x, dz = at.z - eye.z;
+        static const void* s_postsMap = nullptr;
+        static size_t s_postsCount = 0;
+        const std::vector<gta2::Vec3>& lamps = MapLamps();
+        if (s_postsMap != map || s_postsCount != lamps.size() || MapLampPosts().size() != lamps.size()) {
+            std::vector<gta2::Vec3> posts;
+            posts.reserve(lamps.size());
+            int moved = 0, dropped = 0;
+            auto higher = [&](int nx, int nz, int level) {
+                const int nMapY = gta2::kMapHeight - 1 - nz;
+                if (nx < 0 || nx >= gta2::kMapWidth || nMapY < 0 || nMapY >= gta2::kMapHeight) return false;
+                const gta2::Column& nc = map->ColumnAt(nx, nMapY);
+                return nc.offset + static_cast<int>(nc.blocks.size()) > level;
+            };
+            for (const gta2::Vec3& at : lamps) {
+                gta2::Vec3 post = at;
+                float floor = at.y;
+                const int cx = static_cast<int>(std::floor(at.x)), cz = static_cast<int>(std::floor(at.z));
+                int t, g, l;
+                if (!ground_->SurfaceAt(at.x, at.z, at.y + 0.5f, &floor) || !lidOf(cx, cz, &t, &g, &l)) { posts.push_back(post); continue; }
+                auto clampIn = [](float v, int c) { return (std::min)(c + 0.85f, (std::max)(c + 0.15f, v)); };
+                if (g == 1) {
+                    // Over the roadway: the kerb of a pavement neighbour at this level, on its road side.
+                    bool found = false;
+                    for (int k = 0; k < 4 && !found; ++k) {
+                        const int dx = (k == 0) - (k == 1), dz = (k == 2) - (k == 3);
+                        int nt, ng, nl;
+                        if (!lidOf(cx + dx, cz + dz, &nt, &ng, &nl) || ng != 2 || nl != l) continue;
+                        post.x = dx ? cx + dx + 0.5f - dx * 0.42f : clampIn(at.x, cx);
+                        post.z = dz ? cz + dz + 0.5f - dz * 0.42f : clampIn(at.z, cz);
+                        found = true;
+                    }
+                    if (!found) { post.x = std::nanf(""); ++dropped; } else ++moved;
+                    posts.push_back(post);
+                    continue;
+                }
+                int edgeDx = 0, edgeDz = 0;
+                for (int k = 0; k < 4 && !edgeDx && !edgeDz; ++k) {   // a road beside: the kerb
+                    const int dx = (k == 0) - (k == 1), dz = (k == 2) - (k == 3);
+                    if (isRoad(cx + dx, cz + dz, l)) { edgeDx = dx; edgeDz = dz; }
+                }
+                for (int k = 0; k < 4 && !edgeDx && !edgeDz; ++k) {   // else a building beside: the wall
+                    const int dx = (k == 0) - (k == 1), dz = (k == 2) - (k == 3);
+                    if (higher(cx + dx, cz + dz, l)) { edgeDx = dx; edgeDz = dz; }
+                }
+                if (!edgeDx && !edgeDz) {   // else the cell's edge nearest the light
+                    const float fx = at.x - cx - 0.5f, fz = at.z - cz - 0.5f;
+                    if (std::fabs(fx) >= std::fabs(fz)) edgeDx = fx < 0.0f ? -1 : 1; else edgeDz = fz < 0.0f ? -1 : 1;
+                }
+                post.x = edgeDx ? cx + 0.5f + edgeDx * 0.42f : clampIn(at.x, cx);
+                post.z = edgeDz ? cz + 0.5f + edgeDz * 0.42f : clampIn(at.z, cz);
+                if (std::fabs(post.x - at.x) + std::fabs(post.z - at.z) > 0.02f) ++moved;
+                posts.push_back(post);
+            }
+            SetMapLampPosts(posts);
+            s_postsMap = map;
+            s_postsCount = lamps.size();
+            Log("lamp posts: %zu lamps, %d posts moved to a kerb or wall, %d over the roadway left out", lamps.size(), moved, dropped);
+        }
+        const std::vector<gta2::Vec3>& posts = MapLampPosts();
+        for (size_t i = 0; i < lamps.size() && i < posts.size(); ++i) {
+            const gta2::Vec3& at = lamps[i];
+            const gta2::Vec3& post = posts[i];
+            if (std::isnan(post.x)) continue;
+            const float dx = post.x - eye.x, dz = post.z - eye.z;
             const float d2 = dx * dx + dz * dz;
             if (d2 > kRadius * kRadius) continue;
             float floor = at.y;
-            if (!ground_->SurfaceAt(at.x, at.z, at.y + 0.5f, &floor)) continue;
+            if (!ground_->SurfaceAt(post.x, post.z, at.y + 0.5f, &floor)) continue;
             // A GTA2 street lamp sits well above the road; the post stands under it.
             if (at.y - floor > 3.5f || at.y - floor < 0.3f) continue;
-            placed.push_back({lamp, at.x, floor, at.z, 0.0f, (at.y - floor + 0.3f) / (std::max)(lamp->Height(), 0.1f), d2});
+            placed.push_back({lamp, post.x, floor, post.z, 0.0f, (at.y - floor + 0.3f) / (std::max)(lamp->Height(), 0.1f), d2});
         }
     }
     // The cells.
@@ -4630,12 +4698,9 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         std::vector<std::pair<float, float>> doors;
         for (const CarBodyUse& use : carBodies_) doors.push_back({use.objectToWorld.m[3][0], use.objectToWorld.m[3][2]});
         for (const CarModelUse& use : carModels_) doors.push_back({use.placement.m[3][0], use.placement.m[3][2]});
+        // (The player on foot beside a prop: faded in the draw loop below, not removed.)
         placed.erase(std::remove_if(placed.begin(), placed.end(), [&](const Placed& p) {
                          if (p.model == lamp || p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) return false;
-                         if (g_playerPosValid && std::fabs(p.y - g_playerPosY) < 1.5f) {
-                             const float dx = p.x - g_playerPosX, dz = p.z - g_playerPosZ;
-                             if (dx * dx + dz * dz < 0.6f * 0.6f) return true;
-                         }
                          for (const auto& d : doors) {
                              const float dx = p.x - d.first, dz = p.z - d.second;
                              if (dx * dx + dz * dz < 1.1f * 1.1f) return true;
@@ -4667,7 +4732,75 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     static double s_kind[6] = {};   // lamp, bin, bench, hydrant, tree, other
     int frameDrawn = 0, frameTris = 0;
     s_inRange += static_cast<double>(placed.size());
+    // Defect pt-player-walks-through-street-lamps: the game does not know these props, so
+    // its people and cars pass through them. A small prop (lamp post, bin, bench, hydrant,
+    // mailbox, meter, sign) that a person or a car body overlaps fades out, smoothly over
+    // the last 0.2 block of approach, and comes back as they move on; and the eye is never
+    // inside one: faded fully within 0.2 block of it. Shelters, containers, cranes, rail,
+    // roof units and trees stay as they are. GTA2DX9_PROP_OVERLAP_FADE=0 turns it off.
+    static int s_overlapFade = -1;
+    if (s_overlapFade < 0) {
+        char v[8] = {};
+        s_overlapFade = (GetEnvironmentVariableA("GTA2DX9_PROP_OVERLAP_FADE", v, sizeof v) && v[0] == '0') ? 0 : 1;
+        Log("props: overlap fade %s (people, car bodies and the eye fade the small street props they reach)", s_overlapFade ? "on" : "off");
+    }
+    struct CarRect { float cx, cz, ax, az, bx, bz, ha, hb; };   // centre, unit axes, half extents
+    std::vector<CarRect> carRects;
+    if (s_overlapFade) {
+        auto addRect = [&](const gta2::Mat4& m, float x0, float x1, float z0, float z1) {
+            const float lx = 0.5f * (x0 + x1), lz = 0.5f * (z0 + z1);
+            CarRect r;
+            r.cx = lx * m.m[0][0] + lz * m.m[2][0] + m.m[3][0];
+            r.cz = lx * m.m[0][2] + lz * m.m[2][2] + m.m[3][2];
+            const float la = std::hypot(m.m[0][0], m.m[0][2]), lb = std::hypot(m.m[2][0], m.m[2][2]);
+            if (la < 1e-5f || lb < 1e-5f) return;
+            r.ax = m.m[0][0] / la; r.az = m.m[0][2] / la; r.bx = m.m[2][0] / lb; r.bz = m.m[2][2] / lb;
+            r.ha = 0.5f * (x1 - x0) * la; r.hb = 0.5f * (z1 - z0) * lb;
+            carRects.push_back(r);
+        };
+        for (const CarBodyUse& use : carBodies_) {
+            float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+            for (const CarBodyVertex& v : use.local) { x0 = (std::min)(x0, v.x); x1 = (std::max)(x1, v.x); z0 = (std::min)(z0, v.z); z1 = (std::max)(z1, v.z); }
+            if (x1 > x0) addRect(use.objectToWorld, x0, x1, z0, z1);
+        }
+        for (const CarModelUse& use : carModels_)
+            if (use.model) addRect(use.placement, use.model->boundsMin.x, use.model->boundsMax.x, use.model->boundsMin.z, use.model->boundsMax.z);
+    }
+    auto smooth01 = [](float t) { t = (std::min)(1.0f, (std::max)(0.0f, t)); return t * t * (3.0f - 2.0f * t); };
+    auto overlapAlpha = [&](const Placed& p) -> float {
+        if (!s_overlapFade) return 1.0f;
+        if (!(p.model == lamp || p.model == bin || p.model == bench || p.model == hydrant || p.model == mailbox ||
+              p.model == meter || p.model == signStop || p.model == signOneWay)) return 1.0f;
+        const float r = p.model == lamp ? 0.08f
+                      : (std::min)(0.6f, (std::max)(0.08f, 0.5f * p.scale * (std::max)(p.model->Length(), p.model->Width())));
+        const float top = p.y + p.model->Height() * p.scale;
+        float alpha = 1.0f;
+        // The eye: never inside, gone within 0.2 block of the prop's rim.
+        if (eye.y > p.y - 0.3f && eye.y < top + 0.3f)
+            alpha = (std::min)(alpha, smooth01((std::hypot(eye.x - p.x, eye.z - p.z) - r - 0.2f) / 0.3f));
+        // People (a figure's body is about 0.15 block across the shoulders' half), the player included.
+        auto person = [&](float x, float z) {
+            const float d = std::hypot(x - p.x, z - p.z) - r - 0.15f;
+            alpha = (std::min)(alpha, smooth01((d + 0.05f) / 0.2f));
+        };
+        for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast})
+            for (const FigureSpot& f : *list) person(f.x, f.z);
+        if (g_playerPosValid && std::fabs(g_playerPosY - p.y) < 1.5f) person(g_playerPosX, g_playerPosZ);
+        // Car bodies: the distance from the prop to the body's rectangle.
+        for (const CarRect& c : carRects) {
+            const float vx = p.x - c.cx, vz = p.z - c.cz;
+            const float qa = std::fabs(vx * c.ax + vz * c.az) - c.ha, qb = std::fabs(vx * c.bx + vz * c.bz) - c.hb;
+            const float out = std::hypot((std::max)(qa, 0.0f), (std::max)(qb, 0.0f)) + (std::min)((std::max)(qa, qb), 0.0f);
+            alpha = (std::min)(alpha, smooth01((out - r + 0.05f) / 0.2f));
+        }
+        return alpha;
+    };
+    struct FadedProp { const Model* model; gta2::Mat4 m; float alpha; };
+    std::vector<FadedProp> faded;
+    int hiddenNow = 0;
     for (const Placed& p : placed) {
+        const float overlap = overlapAlpha(p);
+        if (overlap <= 0.02f) { ++hiddenNow; continue; }
         {
             // Beside the picture (PERF-2): the model's bounding sphere, from its foot point up.
             // Still counted above (budget, footprints), only not drawn.
@@ -4690,7 +4823,54 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         m.m[1][1] = p.scale;
         m.m[2][0] = sn * p.scale; m.m[2][2] = c * p.scale;
         m.m[3][0] = p.x; m.m[3][1] = p.y - p.model->boundsMin.y * p.scale; m.m[3][2] = p.z; m.m[3][3] = 1.0f;
+        if (overlap < 0.98f) { faded.push_back({p.model, m, overlap}); continue; }
         ModelDraw(device, *p.model, m, nullptr, 0.0f);
+    }
+    if (!faded.empty()) {
+        // Last and see-through (texture alpha times the fade), no depth writes, as the
+        // map objects' near fade (map_objects.cpp): what stands behind shows through.
+        DWORD factor = 0xFFFFFFFF, alphaOp = D3DTOP_SELECTARG1, alphaArg1 = D3DTA_TEXTURE, alphaArg2 = D3DTA_CURRENT;
+        DWORD blend = FALSE, test = TRUE, zwrite = TRUE, src = D3DBLEND_ONE, dst = D3DBLEND_ZERO;
+        device->GetRenderState(D3DRS_ALPHABLENDENABLE, &blend);
+        device->GetRenderState(D3DRS_ALPHATESTENABLE, &test);
+        device->GetRenderState(D3DRS_ZWRITEENABLE, &zwrite);
+        device->GetRenderState(D3DRS_SRCBLEND, &src);
+        device->GetRenderState(D3DRS_DESTBLEND, &dst);
+        device->GetRenderState(D3DRS_TEXTUREFACTOR, &factor);
+        device->GetTextureStageState(0, D3DTSS_ALPHAOP, &alphaOp);
+        device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &alphaArg1);
+        device->GetTextureStageState(0, D3DTSS_ALPHAARG2, &alphaArg2);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+        std::sort(faded.begin(), faded.end(), [](const FadedProp& a, const FadedProp& b) { return a.alpha > b.alpha; });
+        for (const FadedProp& f : faded) {
+            const DWORD a = static_cast<DWORD>((std::min)(1.0f, (std::max)(0.0f, f.alpha)) * 255.0f + 0.5f);
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, (a << 24) | 0x00FFFFFFu);
+            ModelDraw(device, *f.model, f.m, nullptr, 0.0f);
+        }
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, test);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, zwrite);
+        device->SetRenderState(D3DRS_SRCBLEND, src);
+        device->SetRenderState(D3DRS_DESTBLEND, dst);
+        device->SetRenderState(D3DRS_TEXTUREFACTOR, factor);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG2, alphaArg2);
+    }
+    {
+        static int s_fadeFrames = 0, s_fadedSum = 0, s_hiddenSum = 0;
+        s_fadedSum += static_cast<int>(faded.size()); s_hiddenSum += hiddenNow;
+        if (++s_fadeFrames == 300) {
+            if (s_fadedSum || s_hiddenSum) Log("props: overlap fade over 300 frames: %d prop-frames see-through, %d hidden", s_fadedSum, s_hiddenSum);
+            s_fadeFrames = s_fadedSum = s_hiddenSum = 0;
+        }
     }
     s_drawn += frameDrawn; s_tris += frameTris;
     s_maxDrawn = (std::max)(s_maxDrawn, frameDrawn); s_maxTris = (std::max)(s_maxTris, frameTris);

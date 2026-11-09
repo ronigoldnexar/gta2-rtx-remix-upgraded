@@ -229,6 +229,13 @@ const char* ModelsFolder();
 // when a level loads; the lamp posts stand on them.
 void SetMapLamps(const std::vector<gta2::Vec3>& lamps);
 const std::vector<gta2::Vec3>& MapLamps();
+// Where the street views stand each lamp's post (x, z; y is the lamp's own height):
+// moved off the cell's walking line to the kerb or the wall (DrawProps, defect
+// pt-player-walks-through-street-lamps). One entry per MapLamps() entry, in the same
+// order, with x = NaN where no post is drawn (a lamp over the roadway with no kerb).
+// Empty until DrawProps has run on the level; callers fall back to MapLamps().
+void SetMapLampPosts(const std::vector<gta2::Vec3>& posts);
+const std::vector<gta2::Vec3>& MapLampPosts();
 
 // Draws a model with `placement` (row-vector D3D convention: the model's own
 // space into the world), posed by `animation` at `time` seconds (null for the

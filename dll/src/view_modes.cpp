@@ -1845,7 +1845,11 @@ void GatherObstacles(float x, float z, float range, bool posts, std::vector<Obst
         out->push_back({p.x, p.z, p.y - 0.05f, p.y + p.height + 0.05f, p.radius * 1.42f, false});
     }
     if (!posts) return;
-    for (const gta2::Vec3& at : MapLamps()) {
+    // DrawProps stands the post at the cell's kerb or wall, not under the light
+    // (MapLampPosts; the lamps themselves until it has run).
+    const std::vector<gta2::Vec3>& lampPosts = MapLampPosts().size() == MapLamps().size() ? MapLampPosts() : MapLamps();
+    for (const gta2::Vec3& at : lampPosts) {
+        if (std::isnan(at.x)) continue;
         if (std::fabs(at.x - x) > range || std::fabs(at.z - z) > range) continue;
         // The post stands under the lamp (up to 3.5 blocks below it, DrawProps); the
         // street_lamp model's foot is 0.15 of a block across at most.
