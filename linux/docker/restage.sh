@@ -3,6 +3,7 @@
 # candidate stage passes stage_check.py (inventory against the manifest) and stage_smoke.sh (a scripted
 # 3D run: no model/texture read errors, no faults, late frames in colour).
 #   DLLs      : built in a detached worktree of committed HEAD (never the working tree with others' partial edits)
+#   ini       : package/gta2dx9.ini from that worktree, with the running stage's overrides re-applied (merge_stage_ini.py)
 #   models    : this repo's assets/models (the avatar/car art is not in git; it ships as archives)
 #   HD tiles  : this repo's assets/textures_hd
 # Usage: restage.sh [--no-smoke]      (--no-smoke skips the game run; the inventory check always runs)
@@ -15,7 +16,10 @@ git worktree add -f --detach "$W" HEAD >/dev/null
 rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage_candidate; mkdir -p "$C"
 cp "$W/dll/build/gta2dx9.dll" "$C/gta2dx9.dll"; cp "$W/dll/build/gta2dx9.dll" "$C/d3ddll.dll"
 cp "$W/vid/build/gta2dx9_vid.dll" "$C/gta2dx9_vid.dll"; cp "$W/vid/build/gta2dx9_vid.dll" "$C/Dmavideo.dll"; cp "$W/vid/build/gta2dx9_vid.dll" "$C/DMAGlide.dll"
-for f in gta2dx9.ini install.reg uninstall.reg; do [ -f "stage/$f" ] && cp "stage/$f" "$C/$f" || cp "$W/package/$f" "$C/$f" 2>/dev/null || true; done
+# ini: the committed package ini (every documented key, one section each) with the stage's deliberate overrides kept
+# (tools/merge_stage_ini.py; 9 Nov: the stage ini had gone stale, two [renderer] blocks and 71 keys missing)
+python3 "$W/tools/merge_stage_ini.py" "$W/package/gta2dx9.ini" "stage/gta2dx9.ini" "$C/gta2dx9.ini"
+for f in install.reg uninstall.reg; do [ -f "stage/$f" ] && cp "stage/$f" "$C/$f" || cp "$W/package/$f" "$C/$f" 2>/dev/null || true; done
 cp -al assets/models "$C/gta2dx9_models" 2>/dev/null || cp -a assets/models "$C/gta2dx9_models"
 [ -d assets/textures_hd ] && { cp -al assets/textures_hd "$C/gta2dx9_textures_hd" 2>/dev/null || cp -a assets/textures_hd "$C/gta2dx9_textures_hd"; }
 git worktree remove --force "$W" 2>/dev/null || true
