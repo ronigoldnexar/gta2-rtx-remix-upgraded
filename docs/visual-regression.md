@@ -159,3 +159,32 @@ not compile. `dll/src/beats.cpp` (in the WIP snapshot `14ae447`) calls `Hud3dGam
 only exists on camera-modes (`4227371`, QB-17/18 hud3d hunks). Each commit was therefore tested
 cherry-picked onto `16fcaf8` (`vreg.sh check 16fcaf8+<commit>...`). The only conflicts were in
 `package/gta2dx9.ini` text; the stage takes its ini from `repo/stage`.
+
+## Classic after a V cycle (FIX-CLASSIC, pm18, 9 Nov 2026)
+
+The classic view must come back byte-for-byte after classic > third > first > classic. The vreg
+`spawn_classic` shot never presses V, so this A/B covers it:
+
+```
+cp tools/keys_classic_vcycle.sh ../gamerun/
+STAGE=<private stage> GTA2_GPU=<n> GTA2_DIRECT_KEYS=1 FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/' \
+  gamerun/pm_grun.sh <run> 120 keys_classic_vcycle.sh -e GTA2DX9_SCENE_NO_CAR=1 [-e GTA2DX9_LOG_CLASSIC_CAM=1]
+python3 tools/classic_ab.py out/<run> 'fc_*_pre.png' 'fc_*_r1post.png' diff.png   # vreg venv: numpy, pillow
+```
+
+`classic_ab.py` keeps only the pixels that hold still through all 8 pre frames and all 8 post frames
+(traffic and people drop out) and counts how many of them differ between the two windows. The
+answer must be 0 apart from the edges of a car that stopped in one window.
+
+Findings:
+- The view switch logs `view: tile set street (photo/road)` / `classic (plain HD)` with its frame.
+  The photo/road tiles stay bound for the whole 1.4 s move back (sky blend > 0). Near the end of
+  that move the camera already looks like classic, so a shot taken then shows crisp
+  re-authored markings, and the settled view (plain HD set) looks softer. That is the move's tail,
+  not a change to classic.
+- The real residue was the classic camera's smoothing filters (follow position, ground height,
+  zoom). A float exponential filter stops a few ULPs short of its target, and where it stops
+  depends on its history. Before the cycle the camera sat 0.0001 tiles off; after it, the zoom
+  was one ULP out. About 118k still pixels then differed by 1-2 levels. The filters now land
+  exactly on their target within `kCameraSnap` (1e-3 tiles, about 0.1 px) (world_view.cpp).
+  `GTA2DX9_LOG_CLASSIC_CAM=1` logs the inputs as hex floats every 15 frames.

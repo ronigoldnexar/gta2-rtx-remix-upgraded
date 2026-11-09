@@ -84,6 +84,12 @@ constexpr float kCameraZoomTau = 0.35f;
 // The furthest the view may be from the game's camera, in tiles. The game only
 // draws and populates the window its own camera frames, with a little to spare.
 constexpr float kCameraMaxLag = 1.3f;
+// pm18 (FIX-CLASSIC): a float exponential filter stalls a few ULPs short of its target, and
+// where it stalls depends on the path taken (the camera before a V cycle sat 0.0001 tiles
+// off the game's camera, after it on it with the zoom one ULP out), so the settled classic
+// frame differed by a level or two in thousands of texels. Within this gap (tiles; ~0.1 px
+// at the classic zoom) each filter lands exactly on its target and stops.
+constexpr float kCameraSnap = 1e-3f;
 float g_cameraSmoothing = kDefaultCameraSmoothing;
 
 // ---------------------------------------------------------------------------
@@ -2309,6 +2315,12 @@ void WorldView::UpdateCamera() {
                 camX_ = rawX + (camX_ - rawX) * shrink;
                 camY_ = rawY + (camY_ - rawY) * shrink;
             }
+            if (std::fabs(rawX - camX_) < kCameraSnap && std::fabs(rawY - camY_) < kCameraSnap &&
+                std::fabs(camVX_) < kCameraSnap && std::fabs(camVY_) < kCameraSnap) {
+                camX_ = rawX;
+                camY_ = rawY;
+                camVX_ = camVY_ = 0.0f;
+            }
         }
         tileX = camX_;
         tileY = camY_;
@@ -2322,6 +2334,7 @@ void WorldView::UpdateCamera() {
         heightSettled_ = true;
     } else {
         smoothedHeight_ += (desired - smoothedHeight_) * kHeightFollowRate;
+        if (std::fabs(desired - smoothedHeight_) < kCameraSnap) smoothedHeight_ = desired;
     }
 
     // Map rows run north to south, so the row is mirrored exactly the way the
@@ -2347,6 +2360,7 @@ void WorldView::UpdateCamera() {
             camZoom_ = visibleTiles_;
         } else {
             camZoom_ += (visibleTiles_ - camZoom_) * (1.0f - std::exp(-dt / (kCameraZoomTau * k)));
+            if (std::fabs(visibleTiles_ - camZoom_) < kCameraSnap) camZoom_ = visibleTiles_;
         }
         shown = (std::min)(camZoom_, visibleTiles_ * 1.05f);
     } else {
@@ -2362,6 +2376,16 @@ void WorldView::UpdateCamera() {
     const float distance = (shown * 0.5f) / std::tan(camera_.FovY() * 0.5f);
     camera_.FrameTarget(target, distance);
     ApplyTransition(viewTime_ > 0.0 ? dt : 0.0f, ViewMode::Classic);
+    {   // FIX-CLASSIC probe (GTA2DX9_LOG_CLASSIC_CAM=1): the classic camera's inputs, bit-exact, every 15 frames.
+        static int logCam = -1;
+        if (logCam < 0) { char buf[8] = {}; logCam = GetEnvironmentVariableA("GTA2DX9_LOG_CLASSIC_CAM", buf, sizeof buf) && buf[0] == '1'; }
+        if (logCam && frameCount_ % 15 == 0) {
+            const gta2::Vec3& p = camera_.Position();
+            Log("classic cam f=%d raw=%a,%a cam=%a,%a h=%a zoom=%a vis=%a shown=%a pos=%a,%a,%a yaw=%a pitch=%a fov=%a dt=%a",
+                frameCount_, rawX, rawY, camX_, camY_, smoothedHeight_, camZoom_, visibleTiles_, shown,
+                p.x, p.y, p.z, camera_.Yaw(), camera_.Pitch(), camera_.FovY(), dt);
+        }
+    }
 
     // Tell the HUD how the two cameras differ. See HudCameraMap.
     HudCameraMap map;
@@ -2719,7 +2743,18 @@ void WorldView::RenderFrame() {
         QueryPerformanceCounter(&skyStamp);
         // Photo-material tiles only while a street view shows (skyBlend_ is 0 whenever
         // the classic view is settled): classic keeps the plain HD set unchanged.
-        renderer_.SetStreetView(worldUploaded_ && skyBlend_ > 0.001f);
+        {
+            const bool street = worldUploaded_ && skyBlend_ > 0.001f;
+            // The tile set switch (plain HD set in classic, photo/road set in the street views),
+            // logged with its frame so a classic A/B can tell a move's tail from the settled view.
+            static int lastStreet = -1;
+            if (static_cast<int>(street) != lastStreet) {
+                Log("view: tile set %s (frame %d, sky blend %.4f)", street ? "street (photo/road)" : "classic (plain HD)",
+                    frameCount_, skyBlend_);
+                lastStreet = street ? 1 : 0;
+            }
+            renderer_.SetStreetView(street);
+        }
         renderer_.DrawWorld(camera_);
         renderer_.WarmTileTextures(CurrentViewMode() == ViewMode::Classic ? 24 : 6);   // nothing once every tile has been drawn with
         QueryPerformanceCounter(&stamp[2]);
