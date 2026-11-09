@@ -753,3 +753,25 @@ all 20 sessions are in `docs/skill-carbomb.md`.
 - Settings: `SWAP_LEVEL=ste GTA2_SPEED=1 GTA2_DIRECT_KEYS=1 FPS=0 CB_WARP_PHONE=1 CB_DRIVER=old
   GTA2DX9_STATE_EVERY=3`. The approach to the phone is the developer scene warp, marked in the
   marks.
+
+## Bus and truck-and-trailer skills, 9 Nov 2026 (SKILL-BUS, `hd*`, `da*`): not complete
+
+**Modules:** `gamerun/skills/bus.py` and `gamerun/skills/truck_trailer.py` (mirrored in
+`linux/docker/skills/`). **Runners:** HOT DOG HOMICIDE! (`bil_re1`, `missions/hot_dog_homicide.py`),
+DISTRACTION ACTION! (`ste_zh2`, `missions/distraction_action.py`) and OPERATION Z! (`ste_zm1`,
+`missions/operation_z.py`, not run yet). Details, API and every session are in `docs/skill-bus.md`
+and `docs/skill-truck-trailer.md`.
+
+- **HOT DOG HOMICIDE (bus), 10 sessions, JOB COMPLETE 0.** Phone answered on foot in each one. A
+  bus is taken from traffic on the busstop1 stretch (109,53) within 2-3 minutes once the search
+  patrols there; a random tour saw none in 10 minutes. The bus is driven to each stop and pulled
+  in to the kerb beside the shelter (frame `out/hd6/m_bus_busstop1.png`). The job stops there: the
+  people waiting at the stops (occupation 8 in the peds line) did not board in 70 game s at the
+  kerb, one lane out, or with the horn. The only boarding was 3 people at busstop2 in hd2.
+  `IS_BUS_FULL` never came, so the garage, The Cage and the van legs are untested.
+- **DISTRACTION ACTION (truck), 4 sessions.** The red phone gives MURDER IN THE MALL! (zh1) first.
+  After zh1 was ended by a death (`[devtools] force_wanted=4`, a marked developer aid, as is the
+  respect set by `skills/gang_respect.exe`), the phone answered 6173 "pitiful displays" and offered
+  no job (da2). zh2 looks reachable only by passing zh1. The truck runner moves to OPERATION Z (the
+  yellow phone's first job, four cars into the Village garage, the fourth a Cop Car brought on a
+  transporter and lifted off by the crane), written but not yet run.
