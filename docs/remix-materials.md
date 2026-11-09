@@ -320,6 +320,61 @@ The sheet is then the `ab_<spot>_<hour>_before/after` frames, one row per hour (
 Use `setsid` around `remix_l4.sh` when you start it from a shell that may end: the first launch here
 lost its `flock` parent and left an orphan run-queue ticket without the GPU lock.
 
+## Verification in game on the 8x L4 host (REMIX-VERIFY, 9 Nov 2026)
+
+Remix first had to run on the new host at all (two launcher faults; see `docs/remix-gpu-l4.md`,
+"What had to change on the 8x L4 host"). Then three sessions ran on GPU 0, image
+`gta2-remix-gpu2`, private stage = `repo/stage` of 8 Nov 20:24, with the `gta2hd` layer from
+`package/rtx-remix/mods/gta2hd` (12 694 textures, 3 201 materials).
+
+**Presets (REMIX-POST): verified in frame.** Runs: `out/rv_post` (the whole take) and
+`out/rv_post_ab` (`POST_PARTS=ab`, after the fix below). Sheets: `out/rv_post_ab/sheet_ab_{street,plaza,spawn}.png`
+(rows = noon, golden, dusk, night, wet; left = old config, right = play + time-of-day overlay),
+`out/rv_post/sheet_tm.png` (tonemappers), and `out/rv_post/sheet_aa.png` (anti-aliasing and quality).
+- The first take's before/after part is invalid. `remix_post.py` reset only the keys that a
+  preset file sets, and no preset sets `rtx.tonemap.*` or the froxel distance. So the explore
+  part's last step (colour grading on, contrast 1.08, saturation 1.15) stayed live through
+  every A/B frame: the dusk, night and wet rows were near-black, and before looked the same as
+  after. Fixed (`691e5f3`); `rv_post_ab` is the valid A/B.
+- Play preset vs the old showcase config: no regression at any hour or spot. In stills the two
+  are close; the play preset's changes are motion ones (no motion blur, vignette or chromatic
+  aberration, slower exposure) plus TAA-U. TAA-U at full resolution (`upscalerType 3`,
+  `taauPreset 4`) and sharpening 0.2 render without artifacts (`sheet_aa`).
+- Overlays: **wet** visibly works (lamp and headlight reflections on the street and plaza
+  paving). **noon / dusk / night** are near-neutral against the old look. **golden** is too
+  weak: the sky stays blue-grey, with no warm cast. It needs a stronger overlay (sunset
+  saturation, a lower sun, a warmer transmittance) before it is used.
+- Tonemappers at the street spot (explore part, before the leaked grade): PsychoV17 (the default)
+  and AgX Punchy are both readable at noon and night. AgX Punchy is brighter and more
+  saturated at night, with a yellow cast. GT7 and PsychoV17 + grade crush the night to black;
+  do not use them. The default stays.
+- **The 8082 Remix page now appends `rtx_play.conf.extra`** (`play_game.sh`, `PLAY_RTX_PRESET`
+  overrides it; `1b48278`). No time-of-day overlay is used, because the page's clock runs.
+  Not yet seen on the page itself: no Remix play container was started.
+
+**Model and tile PBR layer (REMIX-CARPROPS-PBR / VISUALS-REMIX): seen in frame.** Run
+`out/rv_pbr` (`pbr_verify_run.sh`, `PBR_TAKE=1`, showcase settings). Sheets:
+`out/rv_pbr/sheet_cars_day.png`, `sheet_props_day.png`, `sheet_night.png`.
+- Cars take the new materials. The cop car's paint shows clear-coat sky reflections on the roof
+  and hood with chrome trim, car 036 reads as bare metal, and the taxi and fire truck keep
+  their paint. As predicted above, the taxi's white chequer strip comes out as speckled
+  chrome; it needs a class override.
+- Paving tiles show relief (slabs, grout, cracks) with no visible seam at tile borders in
+  stills. Swimming under camera motion is not judged: stills only.
+- At night (22:30, showcase): facades are lamp-lit, cars and pedestrians are readable, and
+  headlights are on.
+- An emissive object in a doorway near 206,199 (lime green) throws strong light on the
+  wall at 14:00. It is probably an over-bright `__lit` emission; not identified.
+- Frame cost (frame log, third and first person, 10 986 in-level frames, while the host's
+  other scripted runs loaded CPUs 0-4): whole-minus-wait p50 42.3 / p90 60.0 / p99 81.2 ms.
+  Present (the path tracer's GPU time) is only p50 9.0 / p99 51 ms. The biggest stage is
+  `peds` (p50 12.9 / p90 33 ms), so the frame is CPU-bound on the skinned pedestrians, not on
+  the 1 674 displaced materials. The displacement-off comparison (`rtx_nodisp.conf.extra`)
+  was not run. The booth, traffic-light and plaza night frames fell after the end of the
+  recording.
+- Not done: 512 vs 256 px normals, a measured `displace_in` scale, and the
+  `mod_wet.usda` layer.
+
 ## Police light bars: coloured bulbs and sane siren lights (LIGHTBAR, 8 Nov 2026) - UNVERIFIED IN FRAME
 
 **Status: code committed, builds cleanly (both translation units, and the full DLL on 094930e), NOT yet

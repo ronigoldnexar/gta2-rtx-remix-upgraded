@@ -76,14 +76,85 @@ def roll_in(x, y, secs=25, until=None):
                 xdo("keyup", "Up"); hold("space", 0.4); return s
             hx, hy = M.heading(s); dx, dy = x - s["x"], y - s["y"]
             a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
-            if abs(a) > 1.6:      # passed it or facing away: back up a little
-                xdo("keyup", "Up"); hold("Down", 0.6); xdo("keydown", "Up"); continue
+            if abs(a) > 0.7:
+                # not lined up (km6: arriving along row 216 at speed, the Up-held turn into the
+                # one-cell tunnel circled at its mouth until an officer pulled him out): stop,
+                # point the nose with reverse/forward pulses, then on
+                xdo("keyup", "Up"); hold("space", 0.3)
+                BR.turn_car_toward(x, y, secs=12); xdo("keydown", "Up"); continue
             if abs(a) > 0.08:
                 key = "Right" if a > 0 else "Left"
                 xdo("keydown", key); time.sleep(min(0.25, abs(a) * 0.4)); xdo("keyup", key)
             time.sleep(0.12)
     finally:
         xdo("keyup", "Up")
+    return D.wait_state()
+
+
+# Each respray block is four one-cell drive-through bays under one roof (wil.mis): at row 221 the
+# bays at columns 200/202/204/206 are the machine-gun, BOMB, respray (CAR_SHOP 10) and oil-slick
+# shops, and the same at row 160 (82/84/86/88; respray 86). km6 swung into the shop turning off
+# row 216 at speed, ended in the 202 bay, paid $5,000 for a car bomb (money 5040 -> 41, wanted
+# still 2: no money left for the respray), and the reverse pulses of the turn backed him out into
+# an officer (1666, arrest). The bay is now entered only lined up: stop on the carriageway in
+# front of it, turn there, then a straight run down the bay's centre line.
+BAYS = {(204.5, 221.5): +1, (86.5, 160.5): -1}     # shop -> direction along y into the bay
+
+def bay_pre(shop):
+    d = BAYS[shop]; return (shop[0], shop[1] - d * 6.0)
+
+def speed(prev, s, dt):
+    return math.hypot(s["x"] - prev["x"], s["y"] - prev["y"]) / max(dt, 1e-3)
+
+def stop_car(secs=2.0):
+    xdo("keyup", "Up"); t0 = time.time(); prev = D.wait_state(); tp = time.time()
+    xdo("keydown", "space")
+    try:
+        while time.time() - t0 < secs:
+            time.sleep(0.15); s = D.wait_state(); now = time.time()
+            if not s or not s["driving"]: return s
+            if speed(prev, s, now - tp) < 0.3: return s
+            prev, tp = s, now
+    finally:
+        xdo("keyup", "space")
+    return D.wait_state()
+
+def lane_in(shop, secs=30, until=None, vmax=3.0):
+    """into a one-cell drive-through bay along its centre line (pure pursuit on x = shop x, 1.8
+    blocks ahead), the throttle on only while lined up and under vmax (blocks per wall second);
+    a wrong bay (off the line past the bay's mouth) is backed out of straight"""
+    lx, sy = shop; d = BAYS[shop]; mouth = sy - d * 1.7
+    t0 = time.time(); prev = D.wait_state(); tp = time.time(); thr = [False]
+    def throttle(on):
+        if on != thr[0]: xdo("keydown" if on else "keyup", "Up"); thr[0] = on
+    try:
+        while time.time() - t0 < secs:
+            time.sleep(0.07)
+            s = D.wait_state(); now = time.time()
+            if not s or not s["driving"]: return s
+            v = speed(prev, s, now - tp); prev, tp = s, now
+            BR.check()
+            if until and until(): throttle(False); return s
+            ex = s["x"] - lx; along = (s["y"] - sy) * d          # along: < 0 before the shop point
+            if along > -0.35 and abs(ex) < 0.5:
+                throttle(False); hold("space", 0.5); return s
+            if (s["y"] - mouth) * d > 0 and abs(ex) > 0.7:
+                throttle(False); M.mark(f"lane_in: in the wrong bay at {s['x']:.1f},{s['y']:.1f}: straight back out")
+                stop_car(); hold("Down", 1.4); stop_car()
+                BR.turn_car_toward(lx, sy, secs=8); prev, tp = D.wait_state(), time.time(); continue
+            ty = s["y"] + d * 1.8
+            if (ty - sy) * d > 1.0: ty = sy + d * 1.0
+            hx, hy = M.heading(s); dx, dy = lx - s["x"], ty - s["y"]
+            a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+            if abs(a) > 1.0 and (s["y"] - mouth) * d < 0:
+                throttle(False); stop_car(); BR.turn_car_toward(lx, sy, secs=8)
+                prev, tp = D.wait_state(), time.time(); continue
+            throttle(abs(a) < 0.45 and v < vmax)
+            if abs(a) > 0.05:
+                key = "Right" if a > 0 else "Left"
+                xdo("keydown", key); time.sleep(min(0.18, abs(a) * 0.3)); xdo("keyup", key)
+    finally:
+        throttle(False)
     return D.wait_state()
 
 
@@ -175,26 +246,28 @@ def run(world, entry):
         if not s["driving"]: continue
         BR.FP["until"] = -1
         M.mark(f"to the respray at {shop} (try {k + 1})")
-        pre = (tunnel[0], tunnel[1] - 2.5 if shop[1] > tunnel[1] else tunnel[1] + 2.5)
+        pre = bay_pre(shop)
         if shop == BR.SHOPS[0][0]:
             for wx, wy in GETAWAY_LEGS:
                 s = D.wait_state()
-                if not s["driving"] or s["y"] > wy - 3: continue
+                if not s["driving"] or (wy < 200 and s["x"] > 213) or (wy > 200 and s["y"] > 210): continue
                 M.mark(f"getaway leg to {wx},{wy}")
                 s = BR.drive(world, wx, wy, 2.5, 120)
                 BR.check(); remember_car()
             if not s["driving"]: continue
-        s = BR.drive(world, pre[0], pre[1], 1.5, 360)
+        s = BR.drive(world, pre[0], pre[1], 1.2, 360)
         BR.check(); remember_car()
         if not s["driving"]: continue
         t6 = time.time()
-        while time.time() - t6 < 40 and not heads_up() and not safe_up():
+        while time.time() - t6 < 12 and not heads_up() and not safe_up():
             BR.check(); time.sleep(0.5)
         if safe_up(): sprayed = True; break
         ms = BR.check()
         M.mark(f"into the respray shop {shop} (wanted {ms.get('wanted')}, money {ms.get('money')}, carhp {ms.get('carhp')}): rolling in")
-        s = roll_in(tunnel[0], tunnel[1], secs=12)
-        s = roll_in(shop[0], shop[1], secs=20, until=safe_up)
+        s = stop_car(); BR.turn_car_toward(shop[0], shop[1], secs=12)
+        s = D.wait_state()
+        M.mark(f"lined up at {s['x']:.1f},{s['y']:.1f} heading {M.heading(s)[0]:.2f},{M.heading(s)[1]:.2f}: down the bay")
+        s = lane_in(shop, secs=25, until=safe_up)
         M.shot("br_respray_in")
         t6 = time.time()
         while time.time() - t6 < 25 and not safe_up():

@@ -760,3 +760,53 @@ phone dais was used in km2 and km5).
 Frames (chase view): `out/km1/m_km_bank_engage.png`, `out/km*/m_km_bank_first_down.png` (the first
 guard falling), `out/km*/m_br_guards.png` (both guards down on the walk, the player standing over
 them); marks and the skill's lines (`kill_marked: ...`) in `out/km*/marks.txt` and `keys.log`.
+
+## Wave M, SKILL-ROOFTOP (9 Nov 2026): rooftop access on foot, `skills/rooftop_access.py`
+
+32 of the 67 phone, tutorial and final jobs need `rooftop_access`: the phone or an objective is on a
+raised terrace or roof. Until now the runners reached those phones with a reported developer scene warp
+and warped back down after the answer (parts 3-4; `mission_play_wil.answer`,
+`mission_play_districts.answer`). The skill module `gamerun/skills/rooftop_access.py` (mirrored in
+`linux/docker/skills/`, keys script `keys_rooftop_access.sh`) climbs up and comes back down on foot with
+warps off. It changes none of the shared libraries.
+
+- `launch_cell`: chooses the cell beside the phone to step on from. The cell must be level with the
+  phone, have no wall face toward it, and not be a phone itself. It must be reachable with every other
+  phone cell avoided, and should be as far from the other phones as possible. The Downtown Zaibatsu pair
+  (COP CAR CRUSH 208.5,57.5 and WHEELER-DEALING 208.5,59.5) stands on a one-block rim. The router's
+  last cell would be (208,58), between the two phones; the skill steps on from (209,57) instead.
+- `climb`: plans with `mission_lib.route3` and splits the route into flights. A flight is a stair, or a
+  ramp of up to eight slope pieces stored at one level. Each flight is walked to the first flat cell above
+  it, and arrival is checked by the ped's height. If the walker fails the same flight twice, its slope
+  cells are added to `BLOCKED` (learned) and the route is planned again. A fall triggers a new plan from
+  where he lands.
+- `descend`: walks back down to street level along the route toward the plan's first target (the mission
+  car), with the same height checks.
+- `answer_roof_phone`: climbs to the launch cell, then calls the session's own `answer`. After the
+  answer, the player steps back onto the launch cell, never `step_off_phone`. In rf1, `step_off_phone`
+  picked (208,56): a dead end on the terrace whose only way out is the phone itself.
+- `--survey <game dir> <missions-catalogue.json>` runs on the host and needs no game. **34 of the 36
+  rooftop-job phones** (the 32 jobs; the shared yellow follow-ups appear twice) have a stair or ramp
+  route from the district start to a launch cell. Typical routes are 130-325 cells with 1-8 flights. The
+  two without a route are Industrial's Zaibatsu pair (`bil_ze1`/`bil_ze2`, 44.5,163.5 / 45.5,161.5,
+  level 2). Both phones stand on level-2 field cells boxed in by level-3/4 blocks, and the router finds
+  no stair into them; this has not been checked in game.
+
+### Sessions (COP CAR CRUSH, `wil_ze1`, fresh game, `GTA2_DIRECT_KEYS=1`, plain renderer, no warp anywhere)
+
+| session | rooftop part | job outcome | what ended the job |
+|---|---|---|---|
+| rf1 (2x) | terrace reached on foot in 145 game-s; phone answered (brief 1681); the descent failed (dead-end step-off, fixed) | JOB FAILED | the Cop Car caught fire on the crusher leg. The first version also checked the ramp top on a slope piece, which made 5 spurious retries and learned 1 false block (fixed). |
+| rf2 | up 3 flights, phone, down 3 flights, back on the street at game-second 145; 0 retries | BUSTED | wanted level 1 in the Cop Car; the driver stopped behind a parked car at 85,74 and a cop arrested him |
+| rf3 | up and down clean (a governor pause of 9 wall-minutes = 17 game-s at the last flight) | stopped | run over by traffic crossing to the Cop Car at 208,43.5; hospital respawn |
+| rf4 | up and down clean, 6 flights, 1 retry; phone answered at game-second 119 | stopped (car burned) | Shady aboard and the yard box passed. The shared crusher-pad step then pressed the Cop Car around the crusher yard (175-185 x 14-16) from carhp 22000 until it caught fire |
+| rf5 | see below | | |
+
+Frames (chase view, not in git): `out/rf1/m_rooftop_terrace.png` (on the terrace beside the phone,
+with the HUD's "Answer the phone"), `out/rf2/m_wil_ze1_street.png` (back on the street after the
+descent), and `m_wil_ze1_*` for the job's steps.
+
+**Rooftop access: 5 of 5 sessions climbed to the terrace phone and answered the right job without a
+warp, and 4 of 5 came back down on foot. The fifth descent ran before the step-off fix.** Every job
+failure so far came after the roof, in the shared drive, police and crusher steps of
+`mission_play_wil.run_plan`. Those steps belong to the crusher/crane, police, and traffic skills.

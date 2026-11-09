@@ -15,6 +15,7 @@
 #include "camera.h"
 #include "gta2_style.h"
 #include "post_fx.h"
+#include "water.h"
 #include "sky.h"
 #include "world_mesh.h"
 
@@ -228,6 +229,7 @@ private:
     WorldShading shading_;
     Sky sky_;
     PostFx post_;
+    WaterFx water_;   // the street views' water shader (water.h)
     bool remixDevice_ = false;
 };
 

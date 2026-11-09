@@ -30,6 +30,7 @@
 #include "time_of_day.h"
 #include "view_modes.h"
 #include "model_store.h"
+#include "ragdoll.h"
 #include "map_objects.h"
 #include "explosion_fx.h"
 
@@ -4649,6 +4650,14 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);   // leaves are cutouts
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     device->SetFVF(kWorldFvf);
+    // PROPS-SLIM: what the street furniture costs, logged every 300 drawn frames:
+    // props in range and drawn per frame, their triangles and draws, by kind.
+    static int s_propFrames = 0;
+    static double s_inRange = 0, s_drawn = 0, s_tris = 0, s_draws = 0;
+    static int s_maxDrawn = 0, s_maxTris = 0;
+    static double s_kind[6] = {};   // lamp, bin, bench, hydrant, tree, other
+    int frameDrawn = 0, frameTris = 0;
+    s_inRange += static_cast<double>(placed.size());
     for (const Placed& p : placed) {
         {
             // Beside the picture (PERF-2): the model's bounding sphere, from its foot point up.
@@ -4658,6 +4667,14 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                                                        p.model->Length() * p.model->Length());
             if (OutsideViewFrustum(p.x, p.y + 0.5f * h, p.z, r + 0.25f)) continue;
         }
+        {
+            int tris = 0, draws = 0;
+            for (const ModelMesh& mm : p.model->meshes) { tris += static_cast<int>(mm.indices.size() / 3); ++draws; }
+            ++frameDrawn; frameTris += tris; s_draws += draws;
+            const int kind = p.model == lamp ? 0 : p.model == bin ? 1 : p.model == bench ? 2 : p.model == hydrant ? 3
+                           : (p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) ? 4 : 5;
+            s_kind[kind] += 1.0;
+        }
         gta2::Mat4 m;
         const float c = std::cos(p.yaw), sn = std::sin(p.yaw);
         m.m[0][0] = c * p.scale;  m.m[0][2] = -sn * p.scale;
@@ -4665,6 +4682,17 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         m.m[2][0] = sn * p.scale; m.m[2][2] = c * p.scale;
         m.m[3][0] = p.x; m.m[3][1] = p.y - p.model->boundsMin.y * p.scale; m.m[3][2] = p.z; m.m[3][3] = 1.0f;
         ModelDraw(device, *p.model, m, nullptr, 0.0f);
+    }
+    s_drawn += frameDrawn; s_tris += frameTris;
+    s_maxDrawn = (std::max)(s_maxDrawn, frameDrawn); s_maxTris = (std::max)(s_maxTris, frameTris);
+    if (++s_propFrames == 300) {
+        const double n = s_propFrames;
+        Log("props drawn: per frame %.1f in range, %.1f drawn (max %d), %.0f triangles (max %d), %.1f draws; "
+            "drawn by kind lamp %.1f bin %.1f bench %.1f hydrant %.1f tree %.1f other %.1f",
+            s_inRange / n, s_drawn / n, s_maxDrawn, s_tris / n, s_maxTris, s_draws / n,
+            s_kind[0] / n, s_kind[1] / n, s_kind[2] / n, s_kind[3] / n, s_kind[4] / n, s_kind[5] / n);
+        s_propFrames = 0; s_inRange = s_drawn = s_tris = s_draws = 0; s_maxDrawn = s_maxTris = 0;
+        for (double& k : s_kind) k = 0;
     }
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
 }
@@ -6956,6 +6984,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     g_figuresNow.clear();
     g_aimPeds.clear();
     g_aimPedsFrame = g_carFrame;
+    // QB-27: the cars drawn this frame, for the ragdolls (the car that hit him, its pace).
+    if (g_groundModels && RagdollEnabled()) {
+        for (const CarBodyUse& use : carBodies_) {
+            float corners[4][3];
+            const float (*cm)[4] = use.objectToWorld.m;
+            for (int i = 0; i < 4; ++i) {
+                const float lx = use.local[i].x, ly = use.local[i].y, lz = use.local[i].z;
+                for (int c = 0; c < 3; ++c) corners[i][c] = lx * cm[0][c] + ly * cm[1][c] + lz * cm[2][c] + cm[3][c];
+            }
+            RagdollNoteCar(use.object, corners, g_carFrame);
+        }
+    }
     std::vector<FigVertex> verts;
     verts.reserve(36 * 6);
 
@@ -8144,7 +8184,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // CROWD: the head turn, in 6 degree steps near, 12 further, none far.
                 const float headStep = lod == 0 ? 0.105f : 0.21f;
                 ModelSetHeadTurn(lod <= 1 ? std::floor(track.headYaw / headStep + 0.5f) * headStep : 0.0f);
+                // QB-27: run over (lying clip 2) or blown off his feet (3): a ragdoll
+                // seeded from this pose drives the skeleton while he is down.
+                const bool ragdoll = RagdollFigure(sprite.object, track.lieClip == 2 ? 1 : track.lieClip == 3 ? 2 : 0,
+                                                   track.action == 4 && !track.actionReverse && !track.waterFrame, *model, world,
+                                                   gx, cy, gz, track.heading, dt, g_carFrame, locoA, locoTA, locoB, locoTB, locoW);
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                if (ragdoll) RagdollDone();
                 ModelSetHeadTurn(0.0f);
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
@@ -8382,6 +8428,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         std::sort(seen.begin(), seen.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         for (size_t i = 0; i < seen.size(); ++i) seen[i].second->rank = static_cast<int>(i);
     }
+    RagdollEndFrame(g_carFrame);   // QB-27
     // Tracks of pedestrians gone for a while are dropped.
     if (pedTracks_.size() > 512) {
         for (auto it = pedTracks_.begin(); it != pedTracks_.end();) {
@@ -9335,6 +9382,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         ground = car.objectToWorld.m[3][1];
                     }
                 }
+                RagdollNoteBlast(bx, ground, bz, blast, g_carFrame);   // QB-27: blown off his feet away from it
                 if (g_fire.scorch) NoteScorch(bx, ground + 0.02f, bz, blast * 1.35f);
                 if (blastFx) {
                     ExplosionFxNote(bx, ground, bz, blast);

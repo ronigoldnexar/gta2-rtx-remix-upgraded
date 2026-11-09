@@ -439,6 +439,7 @@ Renderer::~Renderer() { Shutdown(); }
 
 void Renderer::Shutdown() {
     post_.Release();
+    water_.Release();
     ReleaseResources();
     batches_.clear();
     if (device_) {
@@ -601,6 +602,7 @@ bool Renderer::Initialize(HWND window, int width, int height, std::string* error
     Trace("device created on attempt %d", deviceAttempts_);
     remixDevice_ = g_remixD3D9;
     post_.Init(device_, width_, height_, remixDevice_);
+    water_.Init(device_, remixDevice_);
     SetSkyRemix(remixDevice_);
     return true;
 }
@@ -677,6 +679,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         Trace("windows: %d wall tiles glow from inside when the sun is low", windows);
     }
     if (!waterNoise_) waterNoise_ = MakeWaterNoise(device_);
+    water_.BuildShore(mesh, waterTile_);
     if (!dumpDir.empty()) {
         CreateDirectoryA(g_tileDumpDir.c_str(), nullptr);
         CreateDirectoryA(dumpDir.c_str(), nullptr);
@@ -1133,7 +1136,11 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetRenderState(D3DRS_CULLMODE, doubleSided ? D3DCULL_NONE : cullMode_);
         }
         device_->SetTexture(0, textures_[batch.tile]);
-        const bool water = g_waterEffect && (shading_.sun || shading_.fog) && waterNoise_ && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile];
+        const bool waterBatch = (shading_.sun || shading_.fog) && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile];
+        // The shader surface (water.h) when it is up; else the fixed-function ripple below.
+        const bool waterShader = waterBatch && WaterShaderEnabled() && water_.Ready();
+        const bool water = waterBatch && !waterShader && g_waterEffect && waterNoise_;
+        if (waterShader) water_.Begin(camera.ViewMatrix(), camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)), camera.Position(), shading_, waterClock_);
         if (water) {
             // Two layers of noise drifting across each other, signed-added so the
             // surface sparkles and darkens with the ripples, then pulled a
@@ -1173,7 +1180,7 @@ void Renderer::DrawWorld(const Camera& camera) {
         }
         // Lit windows: the room glow added on top, scaled by how low the sun
         // is (nothing at noon, full at dusk and night), in the street views only.
-        const float glowAmount = g_windowGlow && shading_.sun && !water ? std::min(1.0f, std::max(0.0f, (0.55f - shading_.sunDir.y) / 0.45f)) : 0.0f;
+        const float glowAmount = g_windowGlow && shading_.sun && !water && !waterShader ? std::min(1.0f, std::max(0.0f, (0.55f - shading_.sunDir.y) / 0.45f)) : 0.0f;
         IDirect3DTexture9* glow = glowAmount > 0.02f && batch.tile < static_cast<int>(windowGlow_.size()) ? windowGlow_[static_cast<size_t>(batch.tile)] : nullptr;
         if (glow) {
             const int a = static_cast<int>(glowAmount * 255.0f + 0.5f);
@@ -1193,6 +1200,7 @@ void Renderer::DrawWorld(const Camera& camera) {
         }
         device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
                                       batch.indexStart, batch.indexCount / 3);
+        if (waterShader) water_.End();
         if (glow) {
             device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
             device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
@@ -1265,6 +1273,7 @@ void Renderer::DrawSky(const Camera& camera, const SkySettings& settings, const 
     sky_.Draw(device_, camera, static_cast<float>(width_) / static_cast<float>(height_), settings, colours, blend,
               seconds);
     if (post_.Active()) post_.SetSky(colours.zenith, colours.horizon, colours.day);
+    water_.SetSky(colours.zenith, colours.horizon);
     stats_.drawCalls += 3;
 }
 

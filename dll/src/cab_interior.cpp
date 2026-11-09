@@ -90,7 +90,7 @@ Style StyleFor(CabClass c, const float paint[3]) {
             set(s.dashDark, 0.07f, 0.07f, 0.08f);
             set(s.trim, 0.13f, 0.13f, 0.14f);
             set(s.header, 0.62f, 0.58f, 0.52f);
-            set(s.wheel, 0.08f, 0.08f, 0.09f);
+            set(s.wheel, 0.13f, 0.12f, 0.12f);
             s.wheelR = 0.019f; s.wheelRake = 25.0f * kPi / 180.0f; s.wheelTube = 0.0017f;
             s.binnacleHalf = 0.020f; s.gauges = 2;
             s.headerAngle = 30.0f; s.mirrorW = 0.024f; s.mirrorH = 0.0075f; s.sideMirrorH = 0.006f;
@@ -100,17 +100,17 @@ Style StyleFor(CabClass c, const float paint[3]) {
             set(s.dashDark, 0.10f, 0.10f, 0.11f);
             set(s.trim, 0.20f, 0.20f, 0.21f);
             set(s.header, 0.55f, 0.55f, 0.53f);
-            set(s.wheel, 0.10f, 0.10f, 0.11f);
+            set(s.wheel, 0.15f, 0.15f, 0.16f);
             s.wheelR = 0.021f; s.wheelRake = 38.0f * kPi / 180.0f; s.wheelTube = 0.0018f;
             s.binnacleHalf = 0.022f; s.gauges = 2;
             s.headerAngle = 29.5f; s.mirrorW = 0.026f; s.mirrorH = 0.008f; s.sideMirrorH = 0.009f;
             break;
         case CabClass::Truck:
-            set(s.dash, 0.13f, 0.12f, 0.11f);
-            set(s.dashDark, 0.05f, 0.05f, 0.05f);
-            set(s.trim, 0.30f, 0.30f, 0.32f);
-            set(s.header, 0.32f, 0.27f, 0.22f);
-            set(s.wheel, 0.06f, 0.06f, 0.06f);
+            set(s.dash, 0.26f, 0.23f, 0.20f);
+            set(s.dashDark, 0.10f, 0.09f, 0.08f);
+            set(s.trim, 0.34f, 0.34f, 0.36f);
+            set(s.header, 0.46f, 0.40f, 0.33f);
+            set(s.wheel, 0.15f, 0.14f, 0.13f);
             s.wheelR = 0.025f; s.wheelRake = 55.0f * kPi / 180.0f; s.wheelTube = 0.0020f;
             s.binnacleHalf = 0.027f; s.gauges = 3;
             s.headerAngle = 29.0f; s.mirrorW = 0.026f; s.mirrorH = 0.008f; s.sideMirrorH = 0.016f;
@@ -120,7 +120,7 @@ Style StyleFor(CabClass c, const float paint[3]) {
             set(s.dashDark, 0.09f, 0.10f, 0.09f);
             set(s.trim, 0.42f, 0.42f, 0.40f);
             set(s.header, 0.70f, 0.70f, 0.66f);
-            set(s.wheel, 0.07f, 0.07f, 0.07f);
+            set(s.wheel, 0.15f, 0.15f, 0.15f);
             s.wheelR = 0.028f; s.wheelRake = 62.0f * kPi / 180.0f; s.wheelTube = 0.0020f;
             s.binnacleHalf = 0.029f; s.gauges = 3;
             s.headerAngle = 28.5f; s.mirrorW = 0.034f; s.mirrorH = 0.009f; s.sideMirrorH = 0.018f;
@@ -163,9 +163,13 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     b.eye = {p.eyeX, p.eyeY, p.eyeZ};
     const float ex = p.eyeX, ey = p.eyeY, ez = p.eyeZ;
     const float side = ex >= 0.0f ? 1.0f : -1.0f;   // the driver's side of the car
-    // The dashboard's line: the hood copy's, under the cut a hand below the eye; a
-    // bonnet far below the eye (a truck's) gets a dash no deeper than a hand and a half.
-    const float top = (std::min)(ey - 0.043f, (std::max)(p.dashTop, ey - 0.075f));
+    // The dashboard's line: the hood copy's, under the cut a hand below the eye. Where
+    // the copy keeps nothing high just ahead of the cut (a van's bonnet that falls away,
+    // the eye lifted over a Schmidt's tall lamps), the dash stays at most 0.047 under
+    // the eye: lower, the wheel and the gauges left the bottom of the view (run
+    // qa_qb31c, the van) and with the dash at the copy's line the road showed where the
+    // dash should be (qa_qb31b, the Schmidt). Every class then frames the same way.
+    const float top = (std::min)(ey - 0.043f, (std::max)(p.dashTop, ey - 0.047f));
     const float dc = (std::max)(0.06f, p.zCut - ez);   // the windscreen's foot, ahead of the eye
     const float x0 = p.dashX0 - 0.01f, x1 = p.dashX1 + 0.01f;
     auto P = [&](float x, float d, float h) { return Vec3{x, top + h, ez + d}; };   // d ahead of the eye, h over the dash line
@@ -191,36 +195,41 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     }
     // 2. The binnacle in front of the driver: a cowl over the gauges.
     {
+        // The cluster tilted up toward the eye at the binnacle's back, a visor over its far
+        // half: from the seat the eye looks down on the dash at a steep angle (the dash
+        // stands a hand ahead and under the eye), so gauges under an overhanging cowl hid.
         const float bw = st.binnacleHalf, xa = ex - bw, xb = ex + bw;
-        const float dBack = dRear + 0.004f, dFront = dBack + 0.014f, dNose = dFront + 0.008f;
-        const float hTop = 0.011f;
-        b.Quad(kDashDark, P(xa, dBack, hTop), P(xb, dBack, hTop), P(xb, dFront, hTop), P(xa, dFront, hTop));      // cowl top
-        b.Quad(kDashDark, P(xa, dFront, hTop), P(xb, dFront, hTop), P(xb, dNose, 0.003f), P(xa, dNose, 0.003f));  // its front slope
-        b.Quad(kTrim, P(xa, dBack, hTop), P(xb, dBack, hTop), P(xb, dBack + 0.001f, hTop - 0.004f), P(xa, dBack + 0.001f, hTop - 0.004f));  // the lip
+        const float dBack = dRear + 0.004f, dPlateTop = dBack + 0.010f, dFront = dPlateTop + 0.012f, dNose = dFront + 0.008f;
+        const float hPlate0 = 0.002f, hPlate1 = 0.009f, hTop = 0.0115f;
+        b.Quad(kDashDark, P(xa, dPlateTop, hTop), P(xb, dPlateTop, hTop), P(xb, dFront, hTop), P(xa, dFront, hTop));   // visor top
+        b.Quad(kDashDark, P(xa, dFront, hTop), P(xb, dFront, hTop), P(xb, dNose, 0.003f), P(xa, dNose, 0.003f));       // its front slope
+        b.Quad(kTrim, P(xa, dPlateTop, hTop), P(xb, dPlateTop, hTop), P(xb, dPlateTop - 0.0005f, hPlate1), P(xa, dPlateTop - 0.0005f, hPlate1));  // the lip
         for (float x : {xa, xb}) {
-            b.Quad(kDashDark, P(x, dBack, hTop), P(x, dFront, hTop), P(x, dFront, 0.0f), P(x, dBack, 0.0f));
-            b.Tri(kDashDark, P(x, dFront, hTop), P(x, dNose, 0.003f), P(x, dFront, 0.0f));
+            const Vec3 o[5] = {P(x, dBack, hPlate0 - 0.002f), P(x, dPlateTop, hTop), P(x, dFront, hTop), P(x, dNose, 0.003f), P(x, dNose, 0.0f)};
+            for (int k = 1; k + 1 < 5; ++k) b.Tri(kDashDark, o[0], o[k], o[k + 1]);
         }
-        // The cluster's backplate and the gauges on it, facing the eye.
-        const float dPlate = dBack + 0.008f;
-        b.Quad(kDashDark, P(xa + 0.001f, dPlate, -0.002f), P(xb - 0.001f, dPlate, -0.002f), P(xb - 0.001f, dPlate, hTop - 0.001f), P(xa + 0.001f, dPlate, hTop - 0.001f));
-        const Vec3 toEye = gta2::Normalize(b.eye - P(ex, dPlate, 0.006f));
-        const Vec3 u = gta2::Normalize(gta2::Cross(Vec3{0.0f, 1.0f, 0.0f}, toEye));
-        const Vec3 v = gta2::Normalize(gta2::Cross(toEye, u));
+        // The plate and the gauges on it.
+        const Vec3 p0 = P(xa, dBack, hPlate0), p1 = P(xb, dBack, hPlate0), p2 = P(xb, dPlateTop, hPlate1), p3 = P(xa, dPlateTop, hPlate1);
+        b.Quad(kDashDark, p0, p1, p2, p3);
+        const Vec3 u{1.0f, 0.0f, 0.0f};
+        const Vec3 v = gta2::Normalize(p3 - p0);
+        Vec3 nrm = gta2::Normalize(gta2::Cross(u, v));
+        if (gta2::Dot(nrm, b.eye - p0) < 0.0f) nrm = nrm * -1.0f;
         const int n = st.gauges;
-        const float r = (std::min)(0.0036f, (2.0f * bw - 0.004f) / (2.0f * n) * 0.8f);
+        const float slant = std::sqrt(gta2::Dot(p3 - p0, p3 - p0));
+        const float r = (std::min)(0.40f * slant, (2.0f * bw - 0.004f) / (2.0f * n) * 0.8f);
         const float sp = (std::min)(1.0f, std::fabs(p.speed) / 9.0f);
         for (int i = 0; i < n; ++i) {
             const float gx = xa + 0.002f + (2.0f * bw - 0.004f) * (i + 0.5f) / n;
-            const Vec3 c = P(gx, dPlate - 0.0003f, 0.0062f);
-            b.Disc(kGaugeRim, c + toEye * 0.0001f, u, v, r * 1.15f);
-            b.Disc(kGaugeFace, c + toEye * 0.0003f, u, v, r);
+            const Vec3 c{gx, (p0.y + p3.y) * 0.5f, (p0.z + p3.z) * 0.5f};
+            b.Disc(kGaugeRim, c + nrm * 0.0002f, u, v, r * 1.15f);
+            b.Disc(kGaugeFace, c + nrm * 0.0004f, u, v, r);
             // Speed on the big dial (the one nearest the middle), revs on the others, fuel steady.
             const bool speedo = i == n / 2 || (n == 2 && i == 1);
             float frac = speedo ? sp : (i == 0 ? (std::min)(1.0f, 0.18f + 0.7f * sp + 0.08f * std::sin(p.speed * 3.0f)) : 0.62f);
             const float a = (225.0f - 270.0f * frac) * kPi / 180.0f;
             const Vec3 dir = u * std::cos(a) + v * std::sin(a);
-            const Vec3 base = c + toEye * 0.0005f;
+            const Vec3 base = c + nrm * 0.0006f;
             const Vec3 perp = u * -std::sin(a) + v * std::cos(a);
             b.Tri(kNeedle, base + perp * 0.0004f, base - perp * 0.0004f, base + dir * (r * 0.85f));
         }
@@ -244,13 +253,13 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             const Vec3 dir = u * std::cos(a) + v * std::sin(a);
             b.Bar(kWheel, c + dir * (0.24f * R) + axis * 0.0015f, c + dir * (R - st.wheelTube), st.wheelTube * 0.6f);
         }
-        b.Disc(kTrim, c - axis * 0.0008f, u, v, 0.24f * R, 12);
+        b.Disc(kTrim, c - axis * 0.0008f, u, v, 0.20f * R, 12);
     }
     // 4. The windscreen header across the top of the view and the rear-view mirror under it.
     const float tanH = std::tan(st.headerAngle * kPi / 180.0f);
     const float dH = dc + 0.02f, hHeader = tanH * dH;   // over the eye
     {
-        const float hx0 = x0 - 0.06f, hx1 = x1 + 0.06f;
+        const float hx0 = x0 - 0.40f, hx1 = x1 + 0.40f;
         const Vec3 a0{hx0, ey + hHeader, ez + dH}, a1{hx1, ey + hHeader, ez + dH};
         const Vec3 b0{hx0, ey + hHeader + 0.08f, ez + dH + 0.10f}, b1{hx1, ey + hHeader + 0.08f, ez + dH + 0.10f};
         b.Quad(kHeader, a0, a1, b1, b0);

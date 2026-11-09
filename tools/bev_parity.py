@@ -169,8 +169,9 @@ def patch_offset_at(a, b, ca, cb, r, search):
 
 
 def ink(img, cx, cy, r):
-    """pixels around (cx, cy) that stand out from the ring of ground around them: how much
-    of the frame an object covers (its sprite, or its 3D body seen from the camera)"""
+    """what of the frame around (cx, cy) stands out from the ring of ground around it: the
+    object's sprite, or its 3D body seen from the camera. (pixel count, centroid dx, dy from
+    (cx, cy), median colour of those pixels) or None near the frame's edge"""
     H, W = img.shape[:2]
     R = int(r * 1.7)
     if cx - R < 0 or cy - R < 0 or cx + R > W or cy + R > H: return None
@@ -178,7 +179,10 @@ def ink(img, cx, cy, r):
     yy, xx = np.mgrid[-R:R, -R:R]
     inner = (np.abs(xx) < r) & (np.abs(yy) < r)
     bg = np.median(box[~inner], axis=0)
-    return int((np.abs(box[inner] - bg).max(1) > 40).sum())
+    on = inner & (np.abs(box - bg).max(2) > 40)
+    n = int(on.sum())
+    if n == 0: return (0, 0.0, 0.0, None)
+    return (n, float(xx[on].mean()), float(yy[on].mean()), [int(c) for c in np.median(box[on], axis=0)])
 
 
 def day_seconds(epoch):
@@ -270,6 +274,7 @@ def project(cam, W, H, x, y, z, zref):
     return W / 2 + (x - (x0 + x1) / 2) * s * k, H / 2 + (y - (y0 + y1) / 2) * s * k, s
 
 
+COLOUR_MAX = 60.0  # RGB distance between the median colours of sprite and 3D body
 NCC_MIN = 0.5      # below this the 3D body and the sprite do not look alike enough to locate
 GRAB_DELAY = 0.1   # x11grab's first frame comes about this long after ffmpeg starts
 
@@ -336,9 +341,15 @@ def check_frames(run, lines, tl, ev, tag, sheet_rows):
         if m:
             ncc, ox, oy = m
             row.update(ncc=round(ncc, 3), off_px=(ox, oy), off_tiles=round(math.hypot(ox, oy) / s, 3))
+        if k.startswith("car"): row["model"] = oa[k][3].split(":")[0]
         ia, ib = ink(a, int(xa), int(ya), r), ink(b, int(xb), int(yb), r)
-        if ia and ib is not None:
-            row.update(ink_classic=ia, ink_3d=ib, size_ratio=round(ib / ia, 2))
+        if ia and ib and ia[0] > 0:
+            row.update(ink_classic=ia[0], ink_3d=ib[0], size_ratio=round(ib[0] / ia[0], 2))
+            if ib[0] > 0:
+                # where the drawn pixels sit around each frame's own logged position
+                row["centroid_off_tiles"] = round(math.hypot(ib[1] - ia[1], ib[2] - ia[2]) / s, 3)
+                row["colour_classic"], row["colour_3d"] = ia[3], ib[3]
+                row["colour_dist"] = round(math.dist(ia[3], ib[3]), 1)
         rows.append(row)
     out["objects"] = rows
     keep = band & ~object_mask(H, W, pa) & ~object_mask(H, W, pb)
@@ -486,6 +497,16 @@ def verdicts(rep):
                       f"{len(offs)} of {len(objs)} objects look alike (gradient NCC >= {NCC_MIN}); "
                       + (f"median offset {np.median(offs):.3f} tiles, worst {max(offs):.3f}" if offs else "no position to compare")
                       + "; unlike: " + (", ".join(f"{o['id']} (NCC {o.get('ncc')})" for o in objs if o.get("ncc", 0) < NCC_MIN) or "none")))
+            cs = [o for o in objs if o["id"].startswith("car") and "colour_dist" in o]
+            if cs:
+                bad = [o for o in cs if o["colour_dist"] > COLOUR_MAX]
+                v.append((f"car paint: 3D body the colour of the game's sprite ({tag})", not bad,
+                          f"{len(cs) - len(bad)} of {len(cs)} within {COLOUR_MAX} RGB; off: " + (", ".join(
+                              f"{o['id']} {o['model']} sprite {o['colour_classic']} vs 3D {o['colour_3d']}" for o in bad) or "none")))
+            co = [o["centroid_off_tiles"] for o in objs if "centroid_off_tiles" in o and 0.5 <= o.get("size_ratio", 0) <= 2]
+            if co:
+                v.append((f"3D bodies centred where the sprites are (drawn-pixel centroids, {tag})", float(np.median(co)) <= 0.15,
+                          f"median {np.median(co):.3f} tiles over {len(co)}, worst {max(co):.3f}"))
             for kind in ("player", "ped", "car"):
                 rs = [o["size_ratio"] for o in objs if "size_ratio" in o and o["id"].startswith(kind)]
                 if rs:

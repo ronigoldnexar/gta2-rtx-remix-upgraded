@@ -399,6 +399,10 @@ void LoadConfig() {
         gta2::SetHdTextureDir(dir);
         gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
         gta2::SetWaterEffect(GetPrivateProfileIntA("renderer", "water_effect", 1, ini) != 0);
+        gta2::SetWaterShader(GetPrivateProfileIntA("renderer", "water_shader", 1, ini) != 0);
+        gta2::SetWaterTuning(GetPrivateProfileIntA("renderer", "water_waves", 100, ini) / 100.0f,
+                             GetPrivateProfileIntA("renderer", "water_reflection", 100, ini) / 100.0f,
+                             GetPrivateProfileIntA("renderer", "water_foam", 100, ini) / 100.0f);
         gta2::SetWindowGlow(GetPrivateProfileIntA("renderer", "window_glow", 1, ini) != 0);
         gta2::SetAnisotropy(GetPrivateProfileIntA("renderer", "anisotropy", 0, ini));
         if (GetPrivateProfileIntA("renderer", "dump_tiles", 0, ini) != 0) {

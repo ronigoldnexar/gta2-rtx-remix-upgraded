@@ -2881,8 +2881,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     ModelDraw(device, *wheels.wheel[w], Mul(Mul(fit, m), carToWorld), nullptr, 0.0f);
                 }
             } else {
-                ModelDraw(device, *drawn, Mul(fit, posed), nullptr, 0.0f);
-                if (hood && hood->dash) {
+                // QB-31: from the seat of a flat-fronted body (bus, cab-over, train) the hood copy
+                // is only the front panel under the windscreen, seen through the cut as a dark
+                // slab past the dashboard; the cab's dashboard is all there is ahead of the glass.
+                const bool flatCab = hood && g_cabInterior && modelNumber < 72 &&
+                                     CabClassFor(modelNumber, g_cabins[use.object].flat) == CabClass::Bus;
+                if (!flatCab) ModelDraw(device, *drawn, Mul(fit, posed), nullptr, 0.0f);
+                if (hood && (hood->dash || (g_cabInterior && modelNumber < 72))) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                     const float paint[3] = {b->paint.r / 255.0f * dull, b->paint.g / 255.0f * dull, b->paint.b / 255.0f * dull};
                     if (g_cabInterior && modelNumber < 72) {
@@ -2891,7 +2896,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         cp.cls = CabClassFor(modelNumber, g_cabins[use.object].flat);
                         cp.eyeX = eyeLocalX; cp.eyeY = eyeLocalY; cp.eyeZ = eyeLocalZ;
                         cp.zCut = eyeLocalZ + 0.10f;
-                        cp.dashTop = hood->dashTop; cp.dashX0 = hood->dashX0; cp.dashX1 = hood->dashX1;
+                        // No dashboard line from the copy (nothing kept just ahead of the cut): the
+                        // body's width, the dash just under the cut.
+                        const float halfW = 0.5f * b->bodyWidth;
+                        cp.dashTop = hood->dash ? hood->dashTop : eyeLocalY - 0.043f;
+                        cp.dashX0 = hood->dash ? hood->dashX0 : -0.9f * halfW;
+                        cp.dashX1 = hood->dash ? hood->dashX1 : 0.9f * halfW;
                         for (int k = 0; k < 3; ++k) cp.paint[k] = paint[k];
                         cp.steer = feel.on ? feel.steer : 0.0f;
                         cp.speed = feel.speed;
