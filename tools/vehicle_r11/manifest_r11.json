@@ -1,0 +1,52 @@
+{
+ "models": [
+  {
+   "name": "003_pacifier",
+   "glb": "cars/models3d/003_pacifier.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    58.8,
+    69.2,
+    38.9
+   ],
+   "texture_max": 512,
+   "paint_split": true
+  },
+  {
+   "name": "021_garbage_truck",
+   "glb": "cars/models3d/021_garbage_truck.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    127.0,
+    99.3,
+    82.2
+   ],
+   "texture_max": 512,
+   "paint_split": true
+  },
+  {
+   "name": "029_dementia",
+   "glb": "cars/models3d/029_dementia.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    163.1,
+    131.4,
+    112.1
+   ],
+   "texture_max": 512,
+   "paint_split": true
+  },
+  {
+   "name": "069_u_jerk_truck",
+   "glb": "cars/models3d/069_u_jerk_truck.glb",
+   "scale": 1.0,
+   "paint_rgb": [
+    103.3,
+    83.8,
+    73.4
+   ],
+   "texture_max": 512,
+   "paint_split": true
+  }
+ ]
+}

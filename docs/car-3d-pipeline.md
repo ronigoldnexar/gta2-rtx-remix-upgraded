@@ -664,3 +664,41 @@ Still wrong:
 - Remix PBR maps are not regenerated for these four; no path-traced frames. Not restaged: the next `restage.sh` takes the
   models from `assets/models` (the four `.mesh` and `_0`/`_0_paint` textures were replaced there with `cp --remove-destination`).
   Models stay out of git.
+
+## Round 11: the four round-10 leftovers (9 Nov 2026, ASSET-VEHICLES-11)
+
+Same pipeline and sheet as round 10, GPU 2 under `flock /tmp/gta2-gen-gpu2.lock`. Scripts: `tools/vehicle_r11/`
+(`concepts_r11.py` briefs, `r11_jobs.py`, `fit_r11.py`, `picks.json`, `manifest_r11.json`, plus `car_models_close.py` /
+`keys_car_models_close.sh`, the round-10 model sheet script with an extra `close_model_NNN` frame taken when the car is
+within ~2.4 blocks of the camera). Rules kept from round 10: 36 SDXL concepts (4 models x 3 wordings x 3 seeds,
+`concept/r11try`), only FRONT three-quarter or front concepts go to TRELLIS (no rear view; the 069 B102 mistake), 16
+TRELLIS candidates, picks by eye. The negative prompt now also carries `turret, gun barrel, cannon`.
+
+| Model | Round 10 problem | Round 11 pick | Total |
+|---|---|---|---|
+| 003 Pacifier | one turret with a gun, truck cab | olive boxy armoured van, glazed cab, flat roof with two plain hatches -> `r11A112_s2` | 0.851 |
+| 021 Garbage Truck | roof grille near-black from above | rusty brown refuse truck, tan bins and ribbed hopper -> `r11A111` | 0.887 |
+| 029 Dementia | cream with a dark roof | tan one-box with a tan roof -> `r11A111_s2` | 0.876 |
+| 069 U-Jerk Truck | plain wood bed | Model AA, tan cab, black louvred box bed -> `r11A112` | 0.881 |
+
+The 003 roof comes from the sprite (`--roof-only`), so the two hatches are the sprite's; the hull has no weapon. 029: the
+TRELLIS mesh came with a flat black base plate under the car (visible as a dark wedge at the wheels in game); I removed
+the faces lying flat at ground level (107 of 4246 triangles, `trimesh`, before the import) and re-ran the game check. 069:
+the stale `"forward": "-z"` of the old model was dropped from the manifest entry (the fit already turns the new mesh to +z;
+the log says `faces +z`). Rejected on sight: 021 `A112` (fitted upside down), 029 `B111` (grey, a floor plate in the texture),
+029 `A113` (dark body), 069 `B112`/`C112` (red bed, no black box). Old GLBs: `models3d_r11/old_shipped/`.
+
+Checked in game (private stage `stage_av11` = `repo/stage` copy with the four models swapped, `av_grun.sh`, `GTA2_GPU=2`,
+`MODELS=3,21,29,69`, `GTA2DX9_SCENE_NO_CAR=1`, `GTA2DX9_LOG_VEHICLES=1`, runs `av11_ingame`, `av11_ingame29`): all four load
+(`003 0.75 x 0.72 x 1.33`, `021 0.56 x 0.73 x 1.34`, `029 0.41 x 0.44 x 0.69`, `069 0.50 x 0.51 x 0.88`, all `faces +z`),
+0 `FAULT`, no model/texture read errors. Frames: `drv_close_model_NNN.png` (car at the camera), `drv_model_NNN.png`,
+`drv_fp_model_NNN.png`; sheets `out/asset_vehicles/vehicle_identity_r11_sheet.png` (sprite | old | new) and
+`vehicle_identity_r11_ingame.png`.
+
+What reads right now: 003 is a green armoured van with a flat sprite roof carrying two plain hatches; 021 from above shows
+the tan bins instead of a black slab; 029 is tan with a tan roof; 069 has a dark slatted box over the bed (from above it is
+black and louvred like the sprite).
+Still not matching: 003's cab is a Land-Rover-style van front (the sprite has a low wide glazed front); 029 is a boxier
+one-box van than the sprite's egg; 069's box sides look red-brown with light stripes from behind rather than black; 021's
+hopper is a plain box. Not done: Remix PBR maps for these four, path-traced frames, restage (the models are in `assets/models`
+for the next `restage.sh`; `assets/models/manifest.json` vertex counts of these four entries not refreshed). Models stay out of git.
