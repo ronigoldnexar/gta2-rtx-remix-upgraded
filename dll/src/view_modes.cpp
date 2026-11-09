@@ -2141,7 +2141,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // a wall is closer than kWallClear along the view, the eye steps back along it (up to
         // kWallBack, never into another wall behind).
         if (!inVehicle && q.blocked) {
-            constexpr float kWallClear = 0.20f, kWallBack = 0.18f;
+            // pt-fp-wall-closeup-smear: 0.20/0.18 left the eye 0.2 block (40 cm) from the
+            // bricks, one magnified tile filling the frame; 0.32 is an arm's length. The eye
+            // may end up a little behind his centre: first person draws no body.
+            constexpr float kWallClear = 0.32f, kWallBack = 0.28f;
             const float fx = std::sin(yaw), fz = std::cos(yaw);
             float wall = kWallClear;
             for (int i = 0; i <= 10; ++i) {
@@ -2149,9 +2152,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 if (q.blocked(q.context, eye.x + fx * d, eye.y, eye.z + fz * d)) { wall = d; break; }
             }
             if (wall < kWallClear) {
-                const float back = (std::min)(kWallClear - wall, kWallBack);
-                const float nx = eye.x - fx * back, nz = eye.z - fz * back;
-                if (!q.blocked(q.context, nx, eye.y, nz)) { eye.x = nx; eye.z = nz; }
+                const float want = (std::min)(kWallClear - wall, kWallBack);
+                // As far as the space behind allows: a full step, else two thirds, else a third.
+                float back = 0.0f;
+                for (const float part : {1.0f, 2.0f / 3.0f, 1.0f / 3.0f}) {
+                    const float nx = eye.x - fx * want * part, nz = eye.z - fz * want * part;
+                    if (!q.blocked(q.context, nx, eye.y, nz)) { eye.x = nx; eye.z = nz; back = want * part; break; }
+                }
                 static int wallLogs = 0;
                 if (wallLogs < 20) { ++wallLogs; Log("view: fp eye: wall %.2f ahead, eye stepped back %.2f", wall, back); }
             }
