@@ -8,6 +8,8 @@ shot() { T0=$(date +%s.%N); ffmpeg -y -loglevel error -f x11grab -video_size ${S
 tap() { xdotool keydown "$1"; sleep 0.3; xdotool keyup "$1"; }
 bash /work/to_level.sh
 sleep 4
+# WARP=1: the scene key (F10 in INI_SED) first, to scene_xy (a busier street than the spawn)
+if [ "${WARP:-0}" = 1 ]; then tap F10; sleep 5; fi
 for r in $(seq -w 1 ${ROUNDS:-10}); do
   shot ${r}_0c; sleep 0.4; shot ${r}_0c_b
   tap v; sleep 2.2; shot ${r}_1t; sleep 0.4; shot ${r}_1t_b

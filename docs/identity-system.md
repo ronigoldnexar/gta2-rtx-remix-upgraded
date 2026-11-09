@@ -426,7 +426,8 @@ read a car's dark rear (delta-E 30+ on cars that matched by eye). Fixed:
 - **The first-person bonnet is probed** (`IdentityProbePoints`: the far rows of the seat's bonnet, as `mycar` view 2).
 - **Traffic**: `gamerun/keys_fci2_traffic.sh` (he stands at the spawn, V cycles with shots in each view, `ROUNDS`)
   compares every car seen big enough in classic and again in third / first by its probe object, and reports per class
-  (car, van, truck, bus, police, taxi, emergency, authored).
+  (car, van, truck, bus, police, taxi, emergency, authored). `-e WARP=1` with `INI_SED='s/^scene_key=.*/scene_key=F10/;
+  s/^scene_xy=.*/scene_xy=171,123/'` and `-e GTA2DX9_SCENE_NO_CAR=1` puts him on a busy wil street first (the spawn has little traffic).
 
 Run it per build (one slot each, ~2.5 min):
 
@@ -462,6 +463,8 @@ Results (this build, private stage `stage_fcid2`):
 | `fci2_tr1` | 067 TV van | 79,120,142 | khaki/black | | WARN, real (art: 6.2) |
 | `fci2_tr1` | 057 T-Rex | 30,98,66 | near-black | | WARN (not investigated) |
 | `fci2_tr2` (ste traffic) | 7 sedans (5 models), a truck, the bank van c1f4 | | | | 10.9-24.1 pass; one ambulance WARN with its rectangle off the car |
+| `fci2_trw2` (wil, `WARP=1` to 171,123) | 16 pairs: authored 063/068, U-Jerk, bank van, taxi, Romero, Schmidt | | | | 7 ok, 9 WARN: by eye on the sheet the taxi is yellow and the U-Jerk teal in both views; the WARNs are crops (classic boxes lag fast cars, dark street crops) |
+| `fci2_trw1` (wil spawn) | red Minx (remap 26) | log: paint 133,65,65 (old rule 189,109,108), shown 133,65,65 | | | not filmed close: re-run feel25's demo |
 
 ### 6.6 Still short
 
