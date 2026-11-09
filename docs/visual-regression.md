@@ -38,21 +38,25 @@ Downtown (wil), the lighting clock held at 12:30 with a clear sky (`SETTINGS_SED
 - `spawn_classic`, `spawn_third`, `spawn_first`: at the spawn, with no input except Return and V.
   These are the views' own cameras, so the camera code is under test too. The classic shot
   guards "classic stays byte-for-byte the game's".
+- `spawn_portrait_front`: a fixed pose 0.75 blocks in front of the player where he starts (he
+  faces north there), looking at his chest, for his textures, clothes and model. (A pose behind
+  him lands inside the stair railing.)
+  A person is about 0.45 blocks tall, so 1 block is about 4 m.
 - 9 points (police HQ, city info, bank, the traffic lights at 120,152, Yakuza, the raised w03
   street, m37, restart1, Loonies). Each is reached by developer warp
   (`GTA2DX9_SCENE_NO_CAR=1`), and each has 3 fixed poses:
-  - `chase`: 3 blocks south-east, 2.6 up, looking at the player;
-  - `street`: eye height looking north up the street, so facades and sky;
-  - `high`: 7 west and 7 up looking east and down;
-  - `figure` (at lights23, restart1 and bank): 1.8 blocks from the player at chest height, looking
-    at him (his textures, clothes and model).
+  - `chase`: 3 blocks south-east, 2.6 up, looking at the point;
+  - `street`: 1.6 up (a first-floor window) looking north up the street, so facades and sky;
+  - `high`: 7 west and 7 up looking east and down.
+
+  These are scene views: after a warp the player himself is not drawn (see "Findings").
 
   The fixed poses come from `GTA2DX9_REGRESS_CAM=<file>` (`dll/src/regress_cam.cpp`): while the
   file holds `cam ex ey ez tx ty tz fov` in game coordinates, the street views draw from exactly
   that eye. It does nothing without the environment variable. It only applies after a view
   transition has finished, and never in the classic view.
 
-That gives 33 frames in total. `out/<run>/vreg.jsonl` records where the player landed for each
+That gives 31 frames in total. `out/<run>/vreg.jsonl` records where the player landed for each
 frame. A shot whose warp landed elsewhere than the golden's is reported SKIP (a game-state
 difference, not a rendering one).
 
@@ -96,7 +100,7 @@ points) and `noise.json` (per-tile noise).
   is a 30 % relative change.
 - Weak: tile texture far from the camera (at 20+ blocks, HD and the game's own tiles are nearly
   the same at any resolution). Pedestrians and traffic are only seen where they happen to be in
-  frame, and the street is quiet at 12:30, so a crowd regression may slip by. The `figure` poses
+  frame, and the street is quiet at 12:30, so a crowd regression may slip by. The spawn portraits
   look at the player himself. In `spawn_third` the views' own chase camera settles at a slightly
   different orbit each run, so that shot only catches large changes.
 - Not covered: motion (animation, camera feel), Remix, other districts, night.
@@ -111,16 +115,24 @@ each. Queue waits were 5-25 minutes, because the governor's 8-CPU thresholds pau
 | Run | Result | Reading |
 |---|---|---|
 | 2 clean runs, sky clock free | 0 false alarms of 60 leave-one-out, but the street shots had 31-92 noisy tiles (clouds follow the host's uptime) | led to `RegressClock` |
-| 3 clean runs, clock held (the goldens) | leave-one-out 0 WARN/FAIL of 90; noisy tiles 0-3 per shot except `spawn_third` 59, `yakuza1_high` 9 | tolerance mostly at the floors |
-| held-out clean run d | PASS 29, WARN 1 (`spawn_first`: the SAVES neon border in another phase), FAIL 0 | a WARN, not a FAIL; folded into the goldens as a 4th-6th sample |
-| CONTROL: sky off (`[sky] enabled=0`) | FAIL 29 of 30; the classic view PASSes (it draws no sky) | gross change, caught everywhere it should be |
-| CONTROL: no HD tiles | FAIL 14, WARN 8, PASS 8 (with `detail`; 9/7/14 without) | subtle change caught near the camera; far shots pass |
-| `16fcaf8`+2d6b038+8ba42ea (QB-13 audio, QB-20 locomotion) | PASS 29, WARN 1 (the same neon phase) | no visual regression |
-| ...+aa7d383 (QB-36 booth)+1f5b243 (QB-9 density)+294fdc2 (CROWD)+36b4ce8 (ASSET-PEDS) | PASS 29, FAIL 1: `spawn_first`, 22 tiles, the phone booth smaller and further away | **QB-36's intended change**, found and localised; bisect puts it at aa7d383 |
-| ...+b648111 (ASSET-BUILDINGS, photo tiles), `repo/stage` art | same as above | the DLL change alone draws nothing new (no photo/ folder in the stage) |
-| same, workspace `assets/` art (`VREG_ART=assets`: what the next restage ships) | FAIL 4, WARN 2: `m37_chase` (roof tile softer and smudged), `lights23_chase`, `spawn_first`/`spawn_third` (booth; the SAVES sign frame), `spawn_classic` WARN (the plaza paving is smoother **in the classic view**) | the photo tiles change the look, including the classic view: for the ASSET-BUILDINGS owner and a reviewer to accept or not before the restage |
+| clean runs a-c, clock held | leave-one-out 0 of 90; noisy tiles 0-3 per shot except `spawn_third` (59, the chase camera's settle) | tolerance mostly at the floors |
+| held-out clean runs d, e (against a-c) | each PASS 29, WARN 1, FAIL 0 (`spawn_first`: the SAVES neon border in another phase; `spawn_third`: camera settle) | false alarms stay WARN; d-k then joined the goldens |
+| **goldens in force: 11 clean runs a-k** (`goldens/16fcaf8_v4`) | leave-one-out **0 WARN/FAIL of 333** samples | |
+| CONTROL: sky off (`[sky] enabled=0`) | FAIL 30 of 31 (the spawn portrait was not in that run); the classic view PASSes (it draws no sky) | gross change, caught everywhere it should be |
+| CONTROL: no HD tiles | FAIL 15, WARN 7, PASS 9 | subtle change caught near the camera; far shots pass |
+| `16fcaf8`+2d6b038+8ba42ea (QB-13 audio, QB-20 locomotion) | PASS all 30 scene shots | no visual regression |
+| ...+aa7d383 (QB-36 booth)+1f5b243 (QB-9 density)+294fdc2 (CROWD)+36b4ce8 (ASSET-PEDS), 3 separate runs | each: FAIL 1, `spawn_first`, 22 tiles: the phone booth smaller and further away; the player's portrait PASSes | **QB-36's intended change**, found and localised; the bisect puts it at aa7d383 |
+| ...+b648111 (ASSET-BUILDINGS, photo tiles), `repo/stage` art | the same booth FAIL only | the DLL change alone draws nothing new (no `photo/` folder in the stage) |
+| same, workspace `assets/` art (`VREG_ART=assets`: what the next restage ships) | FAIL 4 (`m37_chase` roof tile softer and smudged, `lights23_chase`, `spawn_first`), WARN 3 (`policehq_chase`, `spawn_third`, `spawn_classic`: the plaza paving is smoother **in the classic view**) | the photo tiles change the look, including the classic view: for the ASSET-BUILDINGS owner and a reviewer to accept or not before the restage |
 
-Not testable directly: the tip of `night-skills-2026-11-09` (from `14ae447` to `b648111`) does
+Findings:
+
+- **After a developer warp the player's own figure is not drawn in the 3D views.** The
+  regression camera frames the point where he stands, and the city sweep's natural third-person
+  frames after a warp show the same: other people are drawn, he is not. A small marker stays at
+  his feet. This was not looked into further (live_geometry's owner); it limits every warp-based
+  tool (sweep, regression), not normal play as far as is known.
+- Not testable directly: the tip of `night-skills-2026-11-09` (from `14ae447` to `b648111`) does
 not compile. `dll/src/beats.cpp` (in the WIP snapshot `14ae447`) calls `Hud3dGameText`, which
 only exists on camera-modes (`4227371`, QB-17/18 hud3d hunks). Each commit was therefore tested
 cherry-picked onto `16fcaf8` (`vreg.sh check 16fcaf8+<commit>...`). The only conflicts were in

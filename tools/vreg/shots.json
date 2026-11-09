@@ -1,5 +1,5 @@
 {
- "comment": "tools/vreg: fixed camera shots in Downtown (wil). eye/at offsets from the point in blocks (x east, y south, z up from the point's level). Changing a pose or point invalidates its goldens: reseed. 'figure': a close look at the player standing at the point (his own figure: textures, clothes, model).",
+ "comment": "tools/vreg: fixed camera shots in Downtown (wil). eye/at offsets from the point in blocks (x east, y south, z up from the point's level). Changing a pose or point invalidates its goldens: reseed. spawn_poses: fixed poses about the player where he starts (he faces north there), taken before any warp: after a developer warp his own figure is not drawn in the 3D views. He is ~0.45 blocks tall (1 block is ~4 m).",
  "district": "wil",
  "points": [
   {
@@ -149,20 +149,6 @@
       0
      ],
      "fov": 60
-    },
-    {
-     "name": "figure",
-     "eye": [
-      1.3,
-      1.3,
-      1.35
-     ],
-     "at": [
-      0,
-      0,
-      0.75
-     ],
-     "fov": 50
     }
    ]
   },
@@ -213,20 +199,6 @@
       0
      ],
      "fov": 60
-    },
-    {
-     "name": "figure",
-     "eye": [
-      1.3,
-      1.3,
-      1.35
-     ],
-     "at": [
-      0,
-      0,
-      0.75
-     ],
-     "fov": 50
     }
    ]
   },
@@ -427,20 +399,6 @@
       0
      ],
      "fov": 60
-    },
-    {
-     "name": "figure",
-     "eye": [
-      1.3,
-      1.3,
-      1.35
-     ],
-     "at": [
-      0,
-      0,
-      0.75
-     ],
-     "fov": 50
     }
    ]
   },
@@ -493,6 +451,22 @@
      "fov": 60
     }
    ]
+  }
+ ],
+ "spawn_poses": [
+  {
+   "name": "portrait_front",
+   "eye": [
+    0.35,
+    -0.65,
+    0.4
+   ],
+   "at": [
+    0,
+    0,
+    0.24
+   ],
+   "fov": 45
   }
  ]
 }
