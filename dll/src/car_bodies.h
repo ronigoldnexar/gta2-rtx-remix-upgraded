@@ -93,6 +93,10 @@ const char* CarBodiesDevIni();
 void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame);
 // VEHICLE-GLASS: the world height where this frame's drawn body of `object` meets the road.
 bool CarBodiesGround(const void* object, float* y);
+// VEHICLE-ART-5: where the drawn car's tyres touch the road (world x, z), their radii and the car's
+// nose axis (world xz, unit), for the tyres' own contact shadows; 0 when its wheels are not cut.
+bool CarBodiesTyreShadowsOn();   // [devtools] tyre_shadows (default on): the two above, for A/B
+int CarBodiesWheelContacts(const void* object, float* x, float* z, float* r, float* ax, float* az, int max);
 int CarBodiesBuilt();
 int CarBodiesDrawn();
 // The last call's time, ms: [0] measuring artwork, [1] building sprite bodies,

@@ -8174,6 +8174,8 @@ void FigureColours(uintptr_t object, DWORD* skin, DWORD* hair, DWORD* shirt, DWO
 // traces real shadows) nor in the classic view. [renderer] contact_shadows (percent opacity, 0 off).
 int g_contactShadows = 70;
 void SetContactShadows(int percent) { g_contactShadows = (std::max)(0, (std::min)(percent, 100)); }
+int g_tyreShadows = 1;   // [renderer] tyre_shadows=0: no per-tyre contact patch (VEHICLE-ART-5)
+void SetTyreShadows(int on) { g_tyreShadows = on ? 1 : 0; }
 namespace {
 IDirect3DTexture9* g_contactTexture = nullptr;
 IDirect3DDevice9* g_contactDevice = nullptr;
@@ -8229,7 +8231,7 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
         verts.push_back(q[0]); verts.push_back(q[2]); verts.push_back(q[3]);
     };
     const bool firstPerson = CurrentViewMode() == ViewMode::FirstPerson;
-    int cars = 0, peds = 0, props = 0;
+    int cars = 0, peds = 0, props = 0, tyres = 0;
     for (const ContactCar& c : contactCars_) {
         if (c.own && firstPerson) continue;   // seen from the seat: the cockpit is over it
         const float cx = (c.x[0] + c.x[1] + c.x[2] + c.x[3]) * 0.25f, cz = (c.z[0] + c.z[1] + c.z[2] + c.z[3]) * 0.25f;
@@ -8241,8 +8243,37 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
         // which is the car's own height: the patch was drawn inside the body and never showed.
         float ground = c.y;
         if (c.object && CarBodiesGround(c.object, &ground) && ground > c.y + 0.3f) ground = c.y;
+        // VEHICLE-ART-5: on the map's own surface under the car where there is one near the body's foot
+        // (a car with a wheel up a kerb has its lowest point under the pavement, which hid the patch:
+        // the cars floated); the highest of the centre and the four corners, so the patch is not buried.
+        auto surface = [&](float x, float z, float near, float* y) {
+            float s = 0.0f;
+            if (!ground_ || !ground_->Ready() || !ground_->SurfaceAt(x, z, near + 0.45f, &s) || s < near - 0.45f) return false;
+            *y = s;
+            return true;
+        };
+        if (CarBodiesTyreShadowsOn()) {
+            float best = -1e9f, s = 0.0f;
+            if (surface(cx, cz, ground, &s)) best = s;
+            for (int k = 0; k < 4; ++k)
+                if (surface(cx + 0.8f * (c.x[k] - cx), cz + 0.8f * (c.z[k] - cz), ground, &s)) best = (std::max)(best, s);
+            if (best > -1e8f) ground = best;
+        }
         quad(cx, ground + 0.012f, cz, ax, az, bx, bz);
         ++cars;
+        // VEHICLE-ART-5: each tyre's own tight, dark contact under it (over the body's soft patch the two
+        // multiply), so the wheels sit on the road instead of over a uniform grey haze.
+        if (c.object && g_tyreShadows) {
+            float wx[6], wz[6], wr[6], fx = 0.0f, fz = 1.0f;
+            const int n = CarBodiesWheelContacts(c.object, wx, wz, wr, &fx, &fz, 6);
+            for (int w = 0; w < n; ++w) {
+                const float along = 1.05f * wr[w], across = 0.75f * wr[w];
+                float wy = ground;
+                surface(wx[w], wz[w], ground, &wy);
+                quad(wx[w], wy + 0.014f, wz[w], fx * along, fz * along, fz * across, -fx * across);
+                ++tyres;
+            }
+        }
     }
     for (const Sprite& sprite : sprites_) {
         if (!sprite.pedestrian || sprite.ghost || sprite.boardUi || sprite.corners != 4 || sprite.hidden || sprite.climbing ||
@@ -8273,7 +8304,7 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
     QueryPerformanceCounter(&t0);
     static int logs = 0;
     if (logs < 6 && (++logs, true))
-        Log("contact shadows: %d cars, %d peds, %d props (opacity %d%%, day %.2f)", cars, peds, props, g_contactShadows, day);
+        Log("contact shadows: %d cars (%d tyres), %d peds, %d props (opacity %d%%, day %.2f)", cars, tyres, peds, props, g_contactShadows, day);
 
     IDirect3DStateBlock9* saved = nullptr;
     device->CreateStateBlock(D3DSBT_ALL, &saved);

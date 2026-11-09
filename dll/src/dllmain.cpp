@@ -318,6 +318,7 @@ void LoadConfig() {
     gta2dx9::SetCarModels3d(GetPrivateProfileIntA("renderer", "car_models3d", 0, ini) != 0);
     gta2dx9::SetCarLamps(GetPrivateProfileIntA("renderer", "car_lamps", 1, ini));
     gta2dx9::SetContactShadows(GetPrivateProfileIntA("renderer", "contact_shadows", 70, ini));
+    gta2dx9::SetTyreShadows(GetPrivateProfileIntA("renderer", "tyre_shadows", 1, ini));
     gta2dx9::CarGlassSettings(GetPrivateProfileIntA("renderer", "car_glass", 1, ini), GetPrivateProfileIntA("renderer", "car_glass_alpha", 52, ini),
                               GetPrivateProfileIntA("renderer", "car_glass_range", 40, ini));   // VEHICLE-GLASS
     gta2dx9::SetCarBodies(GetPrivateProfileIntA("renderer", "car_bodies",

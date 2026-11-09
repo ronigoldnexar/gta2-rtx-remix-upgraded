@@ -162,6 +162,8 @@ void SetUprightPeds(bool on);
 void SetCarLamps(int mode);
 // Street views, plain renderer: the soft contact shadow under cars, peds and props, percent opacity (0 off).
 void SetContactShadows(int percent);
+// Each drawn tyre's own dark contact patch under it, over the car's soft one (1 on, 0 off).
+void SetTyreShadows(int on);
 bool UprightPeds();
 // ... and, instead of a billboard, a small three-dimensional figure that walks:
 // head, body, arms and legs, the limbs swinging with the pedestrian's speed.

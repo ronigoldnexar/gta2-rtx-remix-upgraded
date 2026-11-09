@@ -114,3 +114,31 @@ Not done / short of a shipping bar:
 - The cabin is a box with block seats, not a modelled interior.
 - Facets: the normals are smooth, but the low polygon count still shows on silhouettes and the bake's
   painted highlights do not move with the light.
+
+## 4. VEHICLE-ART-5 (9 Nov 2026): a dark cabin behind the driver band, patches on the road, tyre contacts
+
+- **Driver band interior** (feel20, `car_bodies.cpp` DrawBandInterior / MeasureBandBox). The FIX-SEATED band above
+  is the hull at 40 % with no depth written. Behind it there was nothing, so the street showed through the
+  roof and upper body, and the props and walls drawn after the cars painted over it (parking meters on the
+  roof, a hydrant through the body). Before the band is drawn, a box inside the cabin is drawn opaque and dark
+  (0x1A1C21, unlit) with depth written. Only its far walls and floor are drawn (CULL_CW): the near ones would
+  hide the driver. The box is measured from the model per fit and cached:
+  - **Half width:** the lower quartile, over ten stations along the cabin, of the widest vertex at the band's
+    heights, times 0.9. A stack or a mirror at one station does not widen it.
+  - **Length:** the hull's extent near the roof, so the box stays behind raked screens.
+  - **Height:** from the belt to 0.9 of the cabin's own roof (the median highest point within the box's inner
+    width).
+
+  The band's clip planes now use that cabin roof too. The 063 cab's model height includes its stacks, which
+  put 0.9 of it above the roof, so the whole roof was drawn see-through. `[devtools] band_interior=0` gives the
+  old drawing for A/B. Log: `band box <model>: half width .., z .., cabin roof .. of ..`.
+- **Contact patch on the road surface** (`live_geometry.cpp` DrawContactShadows). The car patch was at the body's
+  lowest point. A car with a wheel up a kerb has that point under the pavement, so the depth test buried
+  the patch. The patch now lies on the map's surface: the highest of the centre and the four corners from
+  `GroundSampler::SurfaceAt`, within 0.45 block of the body's foot.
+- **Tyre contacts.** Each cut wheel (`CarBodiesWheelContacts`: where the tyre meets the road, from the wheel
+  split's centres and radii) gets its own small patch, 1.05 r along by 0.75 r across, on that spot's surface.
+  It multiplies with the car's soft patch, so the tyres sit on a darker core. Settings and logs:
+  - `[renderer] tyre_shadows=1` turns it on.
+  - `[devtools] tyre_shadows=0` turns off the tyre patches and the surface placement, for A/B.
+  - The log line is `contact shadows: N cars (M tyres), ...`.

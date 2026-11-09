@@ -193,3 +193,23 @@ Frames: `out/fv_sheets/brake_sheet.png`, `turns_sheet.png`, `crash_sheet.png`, `
 - Wine reads only the first of two sections with the same name: keys in the second `[renderer]`
   block of gta2dx9.ini (`spawn_offscreen`, `blood`, `gibs`, `ragdoll`, `intro`, ...) fall back to their
   code defaults on Linux (seen here: `car_separation=0` there had no effect).
+
+## VEHICLE-ART-5 (9 Nov 2026): a marker-less shell turns its hubs only
+
+The image-to-3D shells have no `wheel_*` marker nodes. Their wheel circle is a guess from the CARI axle and the
+body height, and it rarely sits on the shell's own tyre. Cutting the whole 1.06 r disc out of the shell caused
+two faults (pm-van-model-torn-black-shards-under-body, pm2's hanging wheel):
+- The arch lips and fender skirts in the disc turned and steered with the wheel: the 027 van's pink crescents,
+  the 050's skirt hanging off its rear wheel.
+- The tread outside the disc stayed on the sprung hull: black shards beside the wheel.
+
+For a shell (`(shell: hubs only)` in the `wheel split of` log line), only the faces within 0.5 r turn. Those faces
+are also kept in the hull, so the hub's ragged edge can never open a hole. They spin about the axle in the hull's
+own (sprung) frame, 0.004 block outboard, with no steer, lift or camber. Tyre, arch and skirt are all the
+hull's, so nothing tears away from it. Parametric bodies and wrecks (marker nodes) are unchanged.
+`[devtools] shell_wheels=0` gives the old whole-disc split for A/B (it is part of the split's cache key).
+Same-spot A/B frames: `gamerun/va5_own.py` (the player's own car stopped at the street warp, forced to each
+model, regression-camera poses).
+Known limits:
+- A shell's front wheels no longer visibly steer.
+- The kerb-strike lift and the camber of a bent corner are not shown on shells.
