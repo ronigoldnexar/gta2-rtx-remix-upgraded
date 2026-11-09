@@ -57,8 +57,9 @@ def main():
     for s, items in pending_extras.items():
         out.append(f"[{s}]"); print(f"stage ini: kept stage-only section [{s}]")
         for key, val in items: out.append(f"{key}={val}"); print(f"stage ini: kept stage-only key [{s}] {key}={val}")
-    with open(out_path, "w") as f:
-        f.write("\n".join(out) + "\n")
+    nl = "\r\n" if "\r\n" in open(pkg_path, "rb").read(4096).decode(errors="replace") else "\n"   # keep the package file's line endings
+    with open(out_path, "w", newline="") as f:
+        f.write(nl.join(out) + nl)
 
 if __name__ == "__main__":
     main()
