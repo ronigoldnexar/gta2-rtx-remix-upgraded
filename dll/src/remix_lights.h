@@ -260,8 +260,11 @@ void LightsSetMapLightRecords(const std::vector<uint8_t>& lght);
 // Submits the map's lamps within `radius` tiles of `eye` (renderer world
 // space) that the game did not list this frame, nearest first up to `cap`, as
 // this frame's extra lights. Call after LightsBeginExtra and before
-// LightsReconcile; the classic view needs none of it.
-void LightsSubmitMapLampsNear(const float* eye, float radius, int cap);
+// LightsReconcile; the classic view needs none of it. `weight` (0..1) scales their
+// intensity: the view transition's blend, so they fade in as the camera comes down
+// from the classic view and out as it goes back up, instead of 100-odd lights
+// switching on or off in the frame V is pressed (REMIX-3D-PARITY).
+void LightsSubmitMapLampsNear(const float* eye, float radius, int cap, float weight = 1.0f);
 int LightsFarLampsLastFrame();
 
 // gbh_SetAmbient, in the game's own 0..1 scale.

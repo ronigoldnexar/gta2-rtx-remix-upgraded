@@ -28,6 +28,7 @@ std::unordered_set<uint64_t> g_listedMapKeys;   // the map lamps the game listed
 struct MapLampRecord { float pos[3]; float rgb[3]; float intensity; float radius; uint64_t key; };
 std::vector<MapLampRecord> g_mapLampRecords;   // every steady lamp of the map file, decoded like the game's
 int g_farLampsLastFrame = 0;
+float g_farLampWeight = 0.0f;   // this frame's fade of the far lamps (0 when none were submitted)
 bool g_reliftPending = false;
 
 uint64_t MapLightKey(uint32_t x, uint32_t y, uint32_t z) {
@@ -512,8 +513,10 @@ void LightsSetMapLightRecords(const std::vector<uint8_t>& lght) {
 float g_lastEye[3] = {0, 0, 0};
 bool g_haveEye = false;
 
-void LightsSubmitMapLampsNear(const float* eye, float radius, int cap) {
+void LightsSubmitMapLampsNear(const float* eye, float radius, int cap, float weight) {
     g_farLampsLastFrame = 0;
+    weight = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
+    g_farLampWeight = weight;
     memcpy(g_lastEye, eye, sizeof(g_lastEye)); g_haveEye = true;
     if (!g_settings.enabled || !g_settings.injectStatic || g_mapLampRecords.empty() || cap <= 0) {
         static bool said = false;
@@ -539,7 +542,7 @@ void LightsSubmitMapLampsNear(const float* eye, float radius, int cap) {
         RemixLightDesc d;
         memcpy(d.pos, n.r->pos, sizeof(d.pos));
         memcpy(d.rgb, n.r->rgb, sizeof(d.rgb));
-        d.intensity = n.r->intensity;
+        d.intensity = n.r->intensity * weight;
         d.radius = n.r->radius;
         d.source = kLightSourceGame;   // matched by position like the game's own, lifted and gated the same
         g_extra.push_back(d);
@@ -567,7 +570,11 @@ void LightsSetMapLights(const std::vector<uint16_t>& xyz) {
     g_reliftPending = true;
 }
 
-void LightsBeginExtra() { g_extra.clear(); }
+void LightsBeginExtra() {
+    g_extra.clear();
+    g_farLampsLastFrame = 0;   // until LightsSubmitMapLampsNear says otherwise this frame
+    g_farLampWeight = 0.0f;
+}
 
 void LightsSubmitExtra(const RemixLightDesc& desc) { g_extra.push_back(desc); }
 
@@ -1030,17 +1037,21 @@ void LightsReconcile() {
                 s.t->def.emitterRadius, s.d, s.score, s.t->moving ? " moving" : "");
         }
     }
-    if ((g_frame & 0xFF) == 0 && (g_stats.submittedLastFrame || g_stats.tracked)) {
+    // GTA2DX9_LOG_LIGHTS_EVERY=N: this line every N frames instead of every 256 (the
+    // view-switch continuity check reads the light set frame by frame, REMIX-3D-PARITY).
+    static int logEvery = -1;
+    if (logEvery < 0) { const char* e = getenv("GTA2DX9_LOG_LIGHTS_EVERY"); logEvery = e && atoi(e) > 0 ? atoi(e) : 256; }
+    if ((g_frame % static_cast<uint32_t>(logEvery)) == 0 && (g_stats.submittedLastFrame || g_stats.tracked)) {
         // A map lamp counted as moving would be lit and gated as a car's.
         int movingLamps = 0;
         for (const RemixTrackedLight& t : g_tracked) {
             if (t.moving && t.def.source == kLightSourceGame && IsMapLight(t.def.pos)) ++movingLamps;
         }
         Log("remix lights @%u: submitted %d, tracked %d (%d moving, %d of them map lamps), "
-            "drawn %d, ambient %.3f, created %u updated %u destroyed %u failures %u",
+            "drawn %d, ambient %.3f, created %u updated %u destroyed %u failures %u, far %d x%.2f",
             g_frame, g_stats.submittedLastFrame, g_stats.tracked, g_stats.moving, movingLamps,
             g_stats.drawnLastFrame, g_ambient, g_stats.created, g_stats.updated,
-            g_stats.destroyed, g_stats.applyFailures);
+            g_stats.destroyed, g_stats.applyFailures, g_farLampsLastFrame, g_farLampWeight);
     }
 }
 

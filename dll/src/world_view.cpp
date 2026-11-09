@@ -2573,10 +2573,20 @@ void WorldView::RenderFrame() {
     // was lit for a dozen blocks and dark beyond. The map's steady lamps within
     // reach of the eye fill the rest, nearest first, up to a budget that keeps
     // the direct-light sampling honest (see RemixSetLightSampling).
-    if (g_viewActive && CurrentViewMode() != ViewMode::Classic) {
+    // They come and go with the camera move, weighted by the same blend as the sky
+    // (skyBlend_: 0 -> 1 as the eye comes down from the classic view, 1 -> 0 as it
+    // goes back up), so V does not switch a hundred lights on or off in one frame;
+    // on the way back they now fade over the move rather than vanishing at the key
+    // press. skyBlend_ is 0 whenever the classic view is settled, so the classic
+    // view's light set is unchanged (REMIX-3D-PARITY).
+    // GTA2DX9_FAR_LAMP_FADE=0 puts back the old switch (all at once, only while a 3D
+    // view is the current one), for a before/after run.
+    static int farFade = -1;
+    if (farFade < 0) { char buf[8] = {}; farFade = GetEnvironmentVariableA("GTA2DX9_FAR_LAMP_FADE", buf, sizeof buf) && buf[0] == '0' ? 0 : 1; }
+    if (farFade ? (worldUploaded_ && skyBlend_ > 0.001f) : (g_viewActive && CurrentViewMode() != ViewMode::Classic)) {
         const gta2::Vec3& eye = camera_.Position();
         const float e[3] = {eye.x, eye.y, eye.z};
-        LightsSubmitMapLampsNear(e, kFarLampRadius, kFarLampCap);
+        LightsSubmitMapLampsNear(e, kFarLampRadius, kFarLampCap, farFade ? skyBlend_ : 1.0f);
     }
 
     // The game lists this frame's lights during its own world pass, which runs
