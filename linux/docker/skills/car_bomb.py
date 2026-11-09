@@ -232,16 +232,22 @@ def board(world, stage, check=None, tries=4):
             return None
         cx, cy = xy
         ms = M.mission_state() or {}
-        if ms.get("tcarfire", -1) > 0 and 0 <= ms.get("tcarhp", -1) < 4000:
-            # cb8 walked back into its Pickup at carhp 84: it will blow up with him in it
+        if ms.get("tcarfire", -1) > 0 and 0 <= ms.get("tcarhp", -1) < 900:
+            # cb8 walked back into its Pickup at carhp 84: it will blow up with him in it. A burning
+            # car loses about 30 carhp a game second, so 900 is 30 s; above that it can still be
+            # parked (wrecked in the block counts: cb16 refused a car with 2787, 5 blocks short)
             ev(f"{stage.name}: the car burns with carhp {ms.get('tcarhp')}: not boarding it")
             return None
         STATS["boards"] += 1
         ev(f"{stage.name}: boarding the car at {cx:.1f},{cy:.1f} (try {attempt + 1})")
         if s and s["driving"]:
             M.leave_car(); s = D.wait_state()
-        if s and math.hypot(s["x"] - cx, s["y"] - cy) > 12:
-            M.walk3(world, cx, cy, None, tol=8.0, budget=240)
+        t2 = time.time()
+        while s and math.hypot(s["x"] - cx, s["y"] - cy) > 12 and time.time() - t2 < 300:
+            # in chunks, with the job's own check between them (cb11/cb15: arrested and killed on
+            # the walk; the runner went on trying doors at an empty spawn)
+            s = M.walk3(world, cx, cy, None, tol=8.0, budget=40)
+            if check: check()
             xy2 = mission_car_xy(None)
             if xy2 and math.hypot(xy2[0] - cx, xy2[1] - cy) > 2.0:
                 say(f"car_bomb.board: the car moved to {xy2[0]:.1f},{xy2[1]:.1f}"); continue
@@ -352,6 +358,9 @@ def park(world, stage, job, check=None, budget=600):
             # stretch of BLOW JOB's road way that first leads away from the barricade)
             s = D.wait_state()
             k0 = min(range(len(stage.via)), key=lambda i: math.hypot(stage.via[i][0] - s["x"], stage.via[i][1] - s["y"])) if s else 0
+            # only when he is on the way already (cb13: the Pickup's spawn is nearest to the LAST
+            # stage-1 point as the crow flies; the drive skipped the road way and the car burned)
+            if s and math.hypot(stage.via[k0][0] - s["x"], stage.via[k0][1] - s["y"]) > 8.0: k0 = 0
             if s and k0 + 1 < len(stage.via):
                 a, b = stage.via[k0], stage.via[k0 + 1]
                 # past the nearest one already when he is nearer to the next than it is
@@ -524,6 +533,7 @@ def plan_escape(world, stage, car, heading, s=None, start=None, quick=False):
         pt, _ = at_fuse(door, legs, turn)
         d_t = min(math.hypot(pt[0] - p[0], pt[1] - p[1]) for p in dangers)
         score = (0 if ok else -20) + min(d_t, 10) + 0.2 * min(clear, 14) - 0.5 * turn
+        if on_road(world, end[0], end[1], level): score -= 2.5     # cb11/cb15: hit and arrested on the junction the run ended on
         say(f"car_bomb.escape {name}: ok={ok} turn {math.degrees(turn):.0f} at the blast {d_t:.1f} clear {clear:.1f} -> {score:.2f}")
         if best is None or score > best[0]: best = (score, name, legs)
     if not best:
@@ -535,6 +545,45 @@ def plan_escape(world, stage, car, heading, s=None, start=None, quick=False):
 
 
 LAST_SCORE = [0.0]      # the score of the last plan_escape pick
+
+
+FOOT_TURN = 4.0        # rad per game second, on foot (cb14's samples: 100-140 degrees per half second held)
+
+
+def fresh(s0, secs=0.35):
+    """wait for a position sample newer than s0 (a different position or facing)"""
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        time.sleep(0.04)
+        s = D.wait_state(1)
+        if s and (s["x"], s["y"], s["fx"], s["fy"]) != (s0["x"], s0["y"], s0["fx"], s0["fy"]): return s
+    return D.wait_state(1)
+
+
+def on_road(world, x, y, level):
+    k = M.node_kind(world, int(x), int(y), level)
+    return bool(k) and k[1] == 1
+
+
+def off_road(world, s=None, radius=4):
+    """step off a road cell onto the nearest pavement or field cell (traffic: cb15 lost 100
+    health in 2 s standing on the junction 61,23 his escape ended on)"""
+    s = s or D.wait_state()
+    if not s: return s
+    L = M.ped_level(s)
+    if not on_road(world, s["x"], s["y"], L): return s
+    best = None
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            cx, cy = int(s["x"]) + dx, int(s["y"]) + dy
+            k = M.node_kind(world, cx, cy, L)
+            if k and k[1] in (2, 3):
+                d = math.hypot(cx + 0.5 - s["x"], cy + 0.5 - s["y"])
+                if best is None or d < best[0]: best = (d, cx + 0.5, cy + 0.5)
+    if best:
+        say(f"car_bomb.off_road: off the road to {best[1]},{best[2]}")
+        M.cruise_to(best[1], best[2], tol=0.5, secs=6)
+    return D.wait_state()
 
 
 def run_legs(legs, secs):
@@ -549,10 +598,14 @@ def run_legs(legs, secs):
             if math.hypot(tx - s["x"], ty - s["y"]) < 1.2:
                 k += 1; continue
             a = D.angle_to(s, tx, ty)
-            if abs(a) > 0.15:
+            if abs(a) > 0.2:
+                # cb14: 0.35 s pulses on a position line logged every 0.5 s spun him round on the
+                # spot for 2.5 s beside the bomb. Short pulses (on foot he turns about 4 rad per
+                # game second), then a fresh sample before the next decision (run with
+                # GTA2DX9_STATE_EVERY=3 for a line every 3 frames)
                 key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
-                xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.35)); xdo("keyup", key)
-            time.sleep(0.08)
+                xdo("keydown", key); time.sleep(min(abs(a) / (FOOT_TURN * D.SPEED) * 0.7, 0.12)); xdo("keyup", key)
+            fresh(s)
     finally:
         xdo("keyup", "Up")
     return D.wait_state()
@@ -601,6 +654,7 @@ def run_clear(world, stage, car, heading, plans=None, secs=14.0):
     if s:
         d = math.hypot(s["x"] - car[0], s["y"] - car[1])
         say(f"car_bomb.run_clear: {d:.1f} blocks from the car after {gsecs(t0):.1f} game s")
+        if d < 30: s = off_road(world, s)
     return s
 
 
@@ -653,6 +707,33 @@ def lie_low(secs=25.0):
             ev(f"wanted level gone after {gsecs(t0):.0f} game s"); return True
         time.sleep(1.0)
     return False
+
+
+def evade(world, goal, secs=40.0, check=None):
+    """the blast's wanted level, on the move: toward `goal` (the next car), stepping away from any
+    cop within 7 blocks, until the level is gone. cb11, cb15 and cb17 stood still for lie_low()
+    at the escape's end with two cops on foot beside him: arrested once, beaten to death twice
+    (health in steps of 10)"""
+    t0 = time.time(); w0 = (M.mission_state() or {}).get("wanted", 0)
+    ev(f"wanted level {w0}: moving toward {goal[0]:.1f},{goal[1]:.1f}, away from the cops")
+    while gsecs(t0) < secs:
+        if check: check()
+        ms = M.mission_state() or {}
+        s = D.wait_state()
+        if not s: break
+        cops = [p for p in M.peds() if p["type"] == "cop" and math.hypot(p["x"] - s["x"], p["y"] - s["y"]) < 7.0]
+        if ms.get("wanted", 0) <= 0 and not cops:
+            ev(f"wanted level gone after {gsecs(t0):.0f} game s"); return True
+        gx, gy = goal[0] - s["x"], goal[1] - s["y"]; gn = math.hypot(gx, gy) or 1.0
+        if gn < 6.0 and not cops: return True
+        vx, vy = gx / gn, gy / gn
+        for p in cops:
+            ax, ay = s["x"] - p["x"], s["y"] - p["y"]; an = math.hypot(ax, ay) or 0.5
+            vx += 2.0 * ax / an / an; vy += 2.0 * ay / an / an
+        vn = math.hypot(vx, vy) or 1.0
+        tx, ty = s["x"] + vx / vn * 6.0, s["y"] + vy / vn * 6.0
+        M.walk3(world, tx, ty, None, tol=1.5, budget=8)
+    return (M.mission_state() or {}).get("wanted", 0) <= 0
 
 
 # ---------------------------------------------------------------- the whole stage
