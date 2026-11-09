@@ -1,4 +1,5 @@
 #include "live_geometry.h"
+#include "prop_collision.h"
 #include "boarding.h"
 
 #include <algorithm>
@@ -4792,10 +4793,65 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         Log("park trees: in the last 300 frames %d grass cells seen, %d trees placed (eye level %d)", g_treeStatGrass, g_treeStatPlaced, eyeLevel);
         g_treeStatGrass = g_treeStatPlaced = 0;
     }
+    {
+        // FIX-COLLISION probes (GTA2DX9_LOG_PROPS_NEAR=1): the two nearest of each kind to the
+        // player, game frame, at each rebuild, so a script can walk into every kind.
+        static int s_scout = -1;
+        if (s_scout < 0) { char v[8] = {}; s_scout = (GetEnvironmentVariableA("GTA2DX9_LOG_PROPS_NEAR", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+        if (s_scout && g_playerPosValid) {
+            std::map<std::string, std::vector<std::pair<float, const Placed*>>> byKind;
+            for (const Placed& p : placed) {
+                if (std::fabs(p.y - g_playerPosY) > 0.6f) continue;
+                byKind[p.model->name].push_back({std::hypot(p.x - g_playerPosX, p.z - g_playerPosZ), &p});
+            }
+            char line[2048];
+            int n = snprintf(line, sizeof line, "collide: scout from %.2f,%.2f:", g_playerPosX, static_cast<float>(gta2::kMapHeight) - g_playerPosZ);
+            for (auto& kv : byKind) {
+                std::sort(kv.second.begin(), kv.second.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+                for (size_t i = 0; i < kv.second.size() && i < 3 && n < static_cast<int>(sizeof line) - 64; ++i)
+                    n += snprintf(line + n, sizeof line - n, " %s@%.2f,%.2f", kv.first.c_str(), kv.second[i].second->x,
+                                  static_cast<float>(gta2::kMapHeight) - kv.second[i].second->z);
+            }
+            Log("%s", line);
+        }
+    }
     s_placedCache = placed;
     s_placedMap = map;
     for (int k = 0; k < 3; ++k) s_placedKey[k] = placedKey[k];
     }   // the placement scan
+    // FIX-COLLISION (prop_collision.h): the props are solid for the player on foot. A bin
+    // he shoved is drawn where it went; the shapes near him, those behind the camera too,
+    // go to the solver (not the elevated rail, whose girders he walks under).
+    const bool collide = PropCollisionEnabled();
+    if (collide) {
+        PropCollisionBeginFrame();
+        std::vector<std::pair<float, float>> doors;
+        for (const CarBodyUse& use : carBodies_) doors.push_back({use.objectToWorld.m[3][0], use.objectToWorld.m[3][2]});
+        for (const CarModelUse& use : carModels_) doors.push_back({use.placement.m[3][0], use.placement.m[3][2]});
+        for (Placed& p : placed) {
+            if (!p.model || p.model == rail) continue;
+            const bool light = p.model == bin;
+            int pushIndex = -1;
+            if (light) {
+                float dx = 0.0f, dz = 0.0f, dyaw = 0.0f;
+                const float r = 0.5f * p.scale * (std::max)(p.model->Length(), p.model->Width());
+                pushIndex = PropPushableAt(p.x, p.y, p.z, r, p.model->Height() * p.scale, &dx, &dz, &dyaw);
+                p.x += dx; p.z += dz; p.yaw += dyaw;
+            }
+            // Near him: his body and the passers-by drawn round him.
+            if (!g_playerPosValid || std::fabs(p.x - g_playerPosX) > 10.0f || std::fabs(p.z - g_playerPosZ) > 10.0f) continue;
+            if (p.model != lamp && p.model != trees[0] && p.model != trees[1] && p.model != trees[2]) {
+                bool atDoor = false;   // left out below, so not solid either
+                for (const auto& d : doors) {
+                    const float dx = p.x - d.first, dz = p.z - d.second;
+                    if (dx * dx + dz * dz < 1.1f * 1.1f) { atDoor = true; break; }
+                }
+                if (atDoor) continue;
+            }
+            PropCollisionAddPlaced(p.model, p.x, p.y, p.z, p.yaw, p.scale, light, pushIndex);
+        }
+        if (g_playerPosValid) PropCollisionLogNear(g_playerPosX, g_playerPosZ, g_playerPosY);
+    }
     // Nothing behind the camera (a prop is at most about a block across).
     placed.erase(std::remove_if(placed.begin(), placed.end(),
                                 [](const Placed& p) { return BehindView(p.x, p.y, p.z, 1.5f); }),
@@ -4904,7 +4960,9 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         // of two frames and every car, tens of thousands of (slow, mingw) hypot calls a frame with
         // the QB-9 crowd, which took the props stage from 0.9 to 2.7 ms (docs/performance.md,
         // PERF-BISECT).
-        if (eye.y > p.y - 0.3f && eye.y < top + 0.3f) {
+        // (Solid props, FIX-COLLISION: the player's body and eye are kept out of them instead,
+        // prop_collision.cpp; a third-person camera keeps its own clearance.)
+        if (!collide && eye.y > p.y - 0.3f && eye.y < top + 0.3f) {
             const float ex = eye.x - p.x, ez = eye.z - p.z, reach = r + 0.5f;
             if (ex * ex + ez * ez < reach * reach)
                 alpha = (std::min)(alpha, smooth01((std::hypot(ex, ez) - r - 0.2f) / 0.3f));
@@ -4914,12 +4972,20 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         auto person = [&](float x, float z) {
             const float dx = x - p.x, dz = z - p.z;
             if (dx * dx + dz * dz >= personReach2) return;   // d >= 0.15: smooth01 gives 1
+            if (collide) {
+                // Solid props: people are kept at their rim; only one the solver did not reach
+                // (beyond its range, or held by a wall) and standing well inside still fades it.
+                const float dist = std::hypot(dx, dz);
+                alpha = (std::min)(alpha, smooth01((dist - 0.35f * r) / (0.3f * r + 0.01f)));
+                return;
+            }
             const float d = std::hypot(dx, dz) - r - 0.15f;
             alpha = (std::min)(alpha, smooth01((d + 0.05f) / 0.2f));
         };
         for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast})
-            for (const FigureSpot& f : *list) person(f.x, f.z);
-        if (g_playerPosValid && std::fabs(g_playerPosY - p.y) < 1.5f) person(g_playerPosX, g_playerPosZ);
+            for (const FigureSpot& f : *list)
+                if (!collide || !g_playerObject || f.object != reinterpret_cast<uintptr_t>(g_playerObject)) person(f.x, f.z);
+        if (!collide && g_playerPosValid && std::fabs(g_playerPosY - p.y) < 1.5f) person(g_playerPosX, g_playerPosZ);
         // Car bodies: the distance from the prop to the body's rectangle.
         for (const CarRect& c : carRects) {
             const float vx = p.x - c.cx, vz = p.z - c.cz;
@@ -5829,6 +5895,15 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                     }
                 }
                 g_pedWeaponByObject[reinterpret_cast<uintptr_t>(object)] = game::PedWeaponOf(ped);
+                if (g_groundModels && reinterpret_cast<const void*>(object) != g_playerObject && PropCollisionEnabled() &&
+                    placed.pedState != 8 && placed.pedState != 9 && placed.pedState != 3 && placed.pedState != 4 &&
+                    *reinterpret_cast<const void* const*>(ped + game::kPedVehicle) == nullptr) {
+                    // FIX-COLLISION: a passer-by on foot, kept out of the street props (prop_collision.h).
+                    const float px = *reinterpret_cast<const int32_t*>(ped + game::kPedX) / 16384.0f;
+                    const float py = *reinterpret_cast<const int32_t*>(ped + game::kPedY) / 16384.0f;
+                    const float pz = *reinterpret_cast<const int32_t*>(ped + game::kPedZ) / 16384.0f;
+                    PropCollisionNotePed(const_cast<uint8_t*>(ped), px, pz, static_cast<float>(gta2::kMapHeight) - py);
+                }
                 if ((placed.pedState == 3 || placed.pedState == 4) && g_doorPedsNow.size() < 32) {
                     // The ped's vehicle word is only set once he is inside, so the car
                     // he is boarding is matched by position when the cars are collected.
@@ -7847,7 +7922,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             continue;
         }
         const gta2::Mat4& m = sprite.objectToWorld;
-        const float cx = m.m[3][0], cy = m.m[3][1], cz = m.m[3][2];
+        float cx = m.m[3][0], cz = m.m[3][2];
+        const float cy = m.m[3][1];
+        if (sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject) {
+            // FIX-COLLISION: the game drew him a step into a street prop this frame; the
+            // body was moved out after (prop_collision.h), and so is the figure.
+            float ox = 0.0f, oz = 0.0f;
+            if (PropCollisionPlayerCorrection(&ox, &oz)) { cx += ox; cz += oz; }
+        }
         if (sprite.object && reinterpret_cast<const void*>(sprite.object) != g_playerObject)
             g_aimPeds.push_back({sprite.object, cx, cy, cz, sprite.pedHealth, sprite.corpse});   // QB-6
 

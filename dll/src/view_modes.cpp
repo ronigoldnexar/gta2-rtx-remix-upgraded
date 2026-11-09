@@ -434,6 +434,28 @@ void ServiceWarpHold() {
     WriteAt(ped + game::kPedX, g_warpHold.fx); WriteAt(ped + game::kPedY, g_warpHold.fy); WriteAt(ped + game::kPedZ, g_warpHold.fz);
 }
 
+// FIX-COLLISION: the player's ground position (game frame, tiles) moved by the street
+// props' collision (prop_collision.cpp): x and y only, the level is the game's. Written
+// where the warp hold writes it, the sprite's placement and the ped's own copy.
+bool WritePlayerGroundPosition(const void* pedPtr, float x, float y) {
+    const uintptr_t ped = reinterpret_cast<uintptr_t>(pedPtr);
+    if (!Plausible(ped)) return false;
+    uintptr_t physics = 0, place = 0;
+    if (!ReadAt(ped + game::kPedPhysics, &physics) || !Plausible(physics)) return false;
+    if (!ReadAt(physics + game::kPhysicsSprite, &place) || !Plausible(place)) return false;
+    const int32_t fx = static_cast<int32_t>(std::lround(x * (1 << 14)));
+    const int32_t fy = static_cast<int32_t>(std::lround(y * (1 << 14)));
+    return WriteAt(place + game::kPlaceX, fx) && WriteAt(place + game::kPlaceY, fy) &&
+           WriteAt(ped + game::kPedX, fx) && WriteAt(ped + game::kPedY, fy);
+}
+
+// The ped's state word (game::kPedState), -1 when unreadable.
+int ReadPedState(const void* pedPtr) {
+    int32_t state = -1;
+    if (!ReadAt(reinterpret_cast<uintptr_t>(pedPtr) + game::kPedState, &state)) return -1;
+    return state;
+}
+
 // Where a developer warp may put the player: the surface under the asked-for
 // point at the reference level, else the nearest road (then pavement) cell
 // within six blocks, else nowhere. Game coordinates in and out (x east, y

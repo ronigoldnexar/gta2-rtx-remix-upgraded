@@ -16,6 +16,7 @@
 #include "log.h"
 #include "live_geometry.h"
 #include "model_store.h"
+#include "prop_collision.h"
 
 namespace gta2dx9 {
 namespace {
@@ -237,6 +238,7 @@ bool MapObjectsProject(float x, float y, float z, float* sx, float* sy, float* d
 void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::SpriteType>& sprites) {
     g_objectFootprints.clear();
     g_objectObstacles.clear();
+    PropCollisionObjectsDone();   // FIX-COLLISION: the last pass's solid objects
     CaptureView(device);
     g_pickups.clear();
     ++g_pickupsFrame;
@@ -303,6 +305,16 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         }
         // A pickup keeps its authored float above the ground (its origin is the ground).
         fit.m[3][0] = cx; fit.m[3][1] = spinning ? cy : cy - model.boundsMin.y * scale; fit.m[3][2] = cz; fit.m[3][3] = 1.0f;
+        if (!spinning && PropCollisionEnabled() && PropCollisionSolidObject(model.name.c_str())) {
+            // FIX-COLLISION: solid for the player in the 3D views, by the placement it is drawn with.
+            const gta2::Mat4& w = s.objectToWorld;
+            float o[3];
+            for (int c = 0; c < 3; ++c) o[c] = fit.m[3][0] * w.m[0][c] + fit.m[3][1] * w.m[1][c] + fit.m[3][2] * w.m[2][c] + w.m[3][c];
+            const float ax = fit.m[0][0] * w.m[0][0] + fit.m[0][2] * w.m[2][0];
+            const float az = fit.m[0][0] * w.m[0][2] + fit.m[0][2] * w.m[2][2];
+            const float sc = std::hypot(ax, az);
+            if (sc > 1e-4f) PropCollisionAddObject(&model, o[0], o[1] + model.boundsMin.y * scale, o[2], std::atan2(-az, ax), sc);
+        }
         {
             // A standing object (a pickup floats and is walked through): its
             // footprint, so a first-person eye inside a phone box is pushed out.

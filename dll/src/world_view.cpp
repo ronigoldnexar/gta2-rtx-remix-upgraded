@@ -1,4 +1,5 @@
 #include "world_view.h"
+#include "prop_collision.h"
 #include "regress_cam.h"
 #include "density.h"
 #include "boarding.h"
@@ -1889,6 +1890,40 @@ void WorldView::UpdateCamera() {
         const bool wantView = mode != ViewMode::Classic && worldUploaded_;
         PlayerState player;
         if (worldUploaded_) LocatePlayer(&player);
+        // FIX-COLLISION: the street props are solid in the 3D views (prop_collision.h). His
+        // body is moved out of any he walked into, in the game's own position, before
+        // anything here reads where he is. Never in the classic view (no 3D props there,
+        // and its frame stays the game's).
+        PropCollisionSetPlayerCorrection(0.0f, 0.0f);
+        if (!wantView) PropCollisionTakePeds();   // none kept from a frame without the solver
+        if (wantView && PropCollisionEnabled()) {
+            const float dtc = stepLocked ? kGameStep : static_cast<float>(viewDt);
+            const int state = player.valid && !player.inVehicle && player.ped ? ReadPedState(player.ped) : -1;
+            // On his feet and free: not knocked down or dead (8, 9), not at a car door (3, 4).
+            if (state >= 0 && state != 8 && state != 9 && state != 3 && state != 4 && !BeatActive()) {
+                float rx = player.x, rz = static_cast<float>(gta2::kMapHeight) - player.y;
+                const float fx = player.facingKnown ? player.dirX : 0.0f, fz = player.facingKnown ? -player.dirY : 0.0f;
+                if (PropCollisionResolvePlayer(&rx, &rz, player.z, fx, fz, mode == ViewMode::FirstPerson, ViewModes().fpForwardFoot,
+                                               dtc, &WorldView::WalledThunk, this)) {
+                    const float gx = rx, gy = static_cast<float>(gta2::kMapHeight) - rz;
+                    if (WritePlayerGroundPosition(player.ped, gx, gy)) {
+                        PropCollisionSetPlayerCorrection(gx - player.x, (static_cast<float>(gta2::kMapHeight) - gy) -
+                                                                            (static_cast<float>(gta2::kMapHeight) - player.y));
+                        player.x = gx; player.y = gy;
+                    }
+                }
+            } else {
+                PropCollisionStepPushables(dtc, &WorldView::WalledThunk, this);
+            }
+            // The passers-by drawn this frame, each out of the props it walked into.
+            for (const PedBody& b : PropCollisionTakePeds()) {
+                if (player.valid && (std::fabs(b.x - player.x) > 9.0f ||
+                                     std::fabs((static_cast<float>(gta2::kMapHeight) - b.z) - player.y) > 9.0f)) continue;
+                float bx = b.x, bz = b.z;
+                if (PropCollisionResolvePed(&bx, &bz, b.y, dtc, &WorldView::WalledThunk, this))
+                    WritePlayerGroundPosition(b.ped, bx, static_cast<float>(gta2::kMapHeight) - bz);
+            }
+        }
         g_viewPlayer = player;
         LARGE_INTEGER locatedAt;
         QueryPerformanceCounter(&locatedAt);

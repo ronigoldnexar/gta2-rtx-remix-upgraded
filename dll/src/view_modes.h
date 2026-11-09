@@ -274,6 +274,11 @@ void ViewLogPlayerDrawnYaw(float heading, float rate, float dt);
 // slot that held him is remembered; if both fail, the pedestrian the game's
 // camera is centred on, or the driven car it is centred on, is taken instead.
 bool LocatePlayer(PlayerState* out);
+// FIX-COLLISION: move the player on foot to (x, y) in the game's frame (tiles east, south),
+// keeping his level; false when the ped cannot be reached.
+bool WritePlayerGroundPosition(const void* ped, float x, float y);
+// The ped's state word (8 knocked down, 9 dead, 3/4 at a car door), -1 when unreadable.
+int ReadPedState(const void* ped);
 // The ped LocatePlayer last found for him (kept while he is at the wheel); null in the menus.
 const void* LocatedPlayerPed();
 
