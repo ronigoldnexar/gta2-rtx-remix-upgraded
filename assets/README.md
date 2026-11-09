@@ -237,3 +237,6 @@ displacement; fetched by `photoreal_tiles.py fetch`). The material classes come 
 Qwen3-VL-8B-Instruct (Apache-2.0), run offline. See docs/photoreal-tiles.md.
 After a `build`, `tools/railing_metal_tiles.py assets/textures_hd assets/textures_hd/photo` rewrites the
 near-black Downtown spear fence (wil 635) as dark grey painted iron (pm5; no third-party input).
+`tools/billboard_text_tiles.py assets/textures_hd assets/textures_hd/photo` redraws the face of the
+Industrial LIVE SHOW neon (bil 412/413) with crisp lettering (pm21). The font is DejaVu Serif Bold (Bitstream Vera
+Fonts licence, permissive; the system's fonts-dejavu-core), rendered into the tile, not shipped.

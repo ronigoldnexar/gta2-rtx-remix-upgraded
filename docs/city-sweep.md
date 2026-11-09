@@ -351,6 +351,35 @@ b9a234d14d489bf7).
 In the courtyard views the slab is gone. From the alley to the south, the sign stands upright and reads
 correctly. wil hoarding at (78,157..161): `out/fw3_pm16w_base` and `out/fw3_pm16w_fix`.
 
+## LIVE SHOW billboard lettering (FIX-WORLD-3, 9 Nov 2026)
+
+Defect pm21 `pm21-bil-billboard-live-show-sign-illegible-red-mush`. The Industrial billboards at
+(43,97), (45,97) and (44,104) carry tiles 412 and 413, the two frames of a neon: red serif LIVE / SHOW
+on a dark red panel with rows of bulbs, in a pink frame. The HD upscale kept the frame but melted the
+face.
+
+`tools/billboard_text_tiles.py` writes photo-set copies of both tiles (street views only; the classic
+view keeps the HD tile and Remix its hashes). The frame comes from the HD tile. The face is redrawn at
+512 px:
+
+- the original's dark red panel;
+- bulbs in the two corners the lettering leaves free, with alternate bulbs lit in the two frames;
+- LIVE and SHOW in DejaVu Serif Bold (Bitstream Vera licence) in the original's red, fitted to the
+  original's boxes, with a dark outline.
+
+The neon animates, and an animated tile never used the photo set: its slot points at its current
+frame's HD texture. `Renderer::UpdateTileTexture` now looks the frame up by content among the tiles
+that have a photo copy (`photoByContent_`). In the street views it binds that copy
+(`animatedPhotoFrame_`) and keeps it through frames that match no tile. The game also shows frames
+whose pixels are no tile of the style; with the HD frame there, the sign flickered back to the old
+smear. Water is excluded. Any other animated tile whose frames have photo copies now animates with
+them in the street views, which is a side effect of this change.
+
+**Classic view.** No mesh change, and the photo set is never bound while classic is settled.
+
+**Frames.** Fixed poses at the boards (`gamerun/fw3_poses_bil.txt` as used for this run):
+`out/fw3_pm21_base` (HEAD) and `out/fw3_pm21_fix`.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder

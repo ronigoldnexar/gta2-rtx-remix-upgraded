@@ -258,6 +258,7 @@ private:
     // uploads for an animated tile can be recognised as "tile N of the style"
     // and shown with tile N's high-resolution artwork (UpdateTileTexture).
     std::map<uint64_t, int> tileByContent_;
+    std::map<uint64_t, int> photoByContent_;   // the same, only tiles with a photo variant
     std::string hdDir_;                // the style's HD folder, "" when none
     std::string photoDir_;             // the style's photo-material folder, "" when off
     int photoTiles_ = 0;
@@ -266,15 +267,23 @@ private:
     std::vector<float> streetTint_;    // per tile, 3 factors for its street-view copy (1 = as shipped)
     int toneTiles_ = 0;
     // Per tile: the photo-material variant, bound instead of textures_[tile] while
-    // streetView_ (never for an animated tile, whose slot points at its frames).
+    // streetView_. An animated tile's slot points at its frames; while a frame that is
+    // itself a tile with a photo variant shows, that variant is bound instead, and stays
+    // bound through frames that match no tile (animatedPhotoFrame_: the last such frame's
+    // tile, -1 for none; never for water). The Industrial LIVE SHOW neon (412/413) (pm21).
     std::vector<IDirect3DTexture9*> photoTextures_;
     std::vector<uint8_t> tileAnimated_;
+    std::vector<int> animatedPhotoFrame_;
     bool streetView_ = false;
     float photoMix_ = 0.0f;
     IDirect3DTexture9* LoadPhotoTileTexture(int tile);
     IDirect3DTexture9* PhotoTileTexture(int tile) const {
-        return tile < static_cast<int>(photoTextures_.size()) && photoTextures_[tile] && !tileAnimated_[tile] ? photoTextures_[tile]
-                                                                                                              : nullptr;
+        if (tile < 0 || tile >= static_cast<int>(photoTextures_.size())) return nullptr;
+        if (!tileAnimated_[tile]) return photoTextures_[tile];
+        // An animated tile: its current frame's photo copy, if the frame has one (pm21).
+        if (tile < static_cast<int>(animatedPhotoFrame_.size()) && animatedPhotoFrame_[tile] >= 0)
+            return photoTextures_[static_cast<size_t>(animatedPhotoFrame_[tile])];
+        return nullptr;
     }
     // The one texture a tile is drawn with where no cross-fade is done: the photo set
     // from half way through the material's change-over.

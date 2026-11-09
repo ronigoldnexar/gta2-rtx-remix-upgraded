@@ -571,6 +571,7 @@ void Renderer::ReleaseResources() {
     for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
     photoTextures_.clear();
     tileAnimated_.clear();
+    animatedPhotoFrame_.clear();
     for (auto& frame : tileFrames_) {
         if (frame.second) frame.second->Release();
     }
@@ -760,6 +761,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
     photoTextures_.assign(textures_.size(), nullptr);
     tileAnimated_.assign(textures_.size(), 0);
+    animatedPhotoFrame_.assign(textures_.size(), -1);
     tileByContent_.clear();
     for (int i = 0; i < style.TileCount(); ++i) {
         const Tile& t = style.GetTile(i);
@@ -949,6 +951,14 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         texture->UnlockRect(0);
         textures_[batch.tile] = texture;
     }
+    // An animation frame's photo variant by content: the frame may resolve to another
+    // tile number with the same artwork, one that has no photo copy of its own.
+    photoByContent_.clear();
+    for (int i = 0; i < style.TileCount() && i < static_cast<int>(photoTextures_.size()); ++i) {
+        const Tile& t = style.GetTile(i);
+        if (photoTextures_[static_cast<size_t>(i)] && t.pixels.size() == static_cast<size_t>(kTileSize) * kTileSize)
+            photoByContent_.emplace(TileContentHash(t.pixels.data()), i);
+    }
     if (hdTiles_ > 0 || hdFailed_ > 0) {
         Trace("hd tiles: %d loaded (%d block-compressed DDS with mips, cap %d px), %d failed, of %zu tile textures",
               hdTiles_, hdDdsTiles_, g_hdTileMax, hdFailed_, textures_.size());
@@ -1008,6 +1018,18 @@ void Renderer::UpdateTileTexture(int tile, const uint32_t* pixels) {
     // artwork exists rather than by how long the game runs.
     const uint64_t key = TileContentHash(pixels);
 
+    // The street views' photo variant of the frame, when the frame is a tile that has one
+    // (not for water, whose animation keeps the HD frames it always had). Sticky: the neon
+    // also shows frames that are no tile of the style (the game rewrites the record's
+    // pixels), and those keep the last photo frame rather than the smeared HD one.
+    {
+        const auto frameTile = photoByContent_.find(key);
+        const bool water = tile < static_cast<int>(waterTile_.size()) && waterTile_[tile];
+        if (!water && frameTile != photoByContent_.end() && frameTile->second >= 0 &&
+            frameTile->second < static_cast<int>(photoTextures_.size()) && photoTextures_[frameTile->second] &&
+            tile < static_cast<int>(animatedPhotoFrame_.size()))
+            animatedPhotoFrame_[tile] = frameTile->second;
+    }
     const auto existing = tileFrames_.find(key);
     if (existing != tileFrames_.end()) {
         textures_[tile] = existing->second;
