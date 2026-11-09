@@ -345,6 +345,7 @@ void LoadConfig() {
         GetPrivateProfileIntA("renderer", "car_glass_curve_percent", 60, ini) / 100.0f);
     gta2dx9::SkidSmokeLoad(ini);
     gta2dx9::FireEffectsLoad(ini);
+    gta2dx9::CrowdLoad(ini);
     gta2dx9::SetCarHd(GetPrivateProfileIntA("renderer", "car_hd", 1, ini) != 0,
                       GetPrivateProfileIntA("renderer", "car_normal_maps", 1, ini) != 0);
 
@@ -399,6 +400,10 @@ void LoadConfig() {
         gta2::SetHdTextureDir(dir);
         gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
         gta2::SetWaterEffect(GetPrivateProfileIntA("renderer", "water_effect", 1, ini) != 0);
+        gta2::SetWaterShader(GetPrivateProfileIntA("renderer", "water_shader", 1, ini) != 0);
+        gta2::SetWaterTuning(GetPrivateProfileIntA("renderer", "water_waves", 100, ini) / 100.0f,
+                             GetPrivateProfileIntA("renderer", "water_reflection", 100, ini) / 100.0f,
+                             GetPrivateProfileIntA("renderer", "water_foam", 100, ini) / 100.0f);
         gta2::SetWindowGlow(GetPrivateProfileIntA("renderer", "window_glow", 1, ini) != 0);
         gta2::SetAnisotropy(GetPrivateProfileIntA("renderer", "anisotropy", 0, ini));
         if (GetPrivateProfileIntA("renderer", "dump_tiles", 0, ini) != 0) {

@@ -40,6 +40,7 @@ struct SkySettings {
     float fogStart = 30.0f;
     float fogEnd = 140.0f;
     float cloudCover = 0.45f;     // 0 clear .. 1 overcast
+    float cloudShade = 0.0f;      // weather (weather_fx.h): 0 white clouds .. 1 dark rain cloud
     // The world's lighting in the street views: ambient as a fraction of the
     // texture's own brightness, plus the sun's contribution on a face that
     // squarely faces it. 0 sun leaves every face at ambient.

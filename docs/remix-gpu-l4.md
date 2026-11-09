@@ -27,6 +27,43 @@
   otherwise the NVIDIA EGL vendor segfaults it.
 - Launcher: `gamerun/remix_l4.sh <name> <seconds> [keys] [docker -e ...]` (slot-locked, --cpus=4).
 
+## What had to change on the 8x L4 host (REMIX-VERIFY, 8-9 Nov)
+
+Two faults stopped every Remix run on the new host, and the second one also explains the
+old host's "Failed to create fence" evening of 8 Nov. Both fixes are in the launchers.
+
+1. **No game window** (`out/verify_remix`: every shot is the empty grey X desktop; Wine:
+   `nodrv_CreateWindow: no driver could be loaded`). `run_game_remix_gpu.sh` boots the win64
+   prefix with `DISPLAY` unset. With the bind-mounted fast path the game started within a
+   few seconds, while that boot's wineserver and explorer (a desktop with no display driver)
+   were still alive, so the game ran inside it, windowless. Fix: `wineserver -w` after the
+   headless `wineboot` (also in `play_game.sh`). A notepad probe shows its window only with
+   the wait.
+2. **"DxvkCommandList: Failed to create fence"** (and sometimes
+   `VK_ERROR_INITIALIZATION_FAILED`, `vkAllocateMemory` OUT_OF_DEVICE_MEMORY), always in the
+   first seconds of a minute. `cpu_governor.sh` (cron, every minute) runs
+   `docker update --cpuset-cpus` on the scripted containers. On cgroup v2 an update rewrites
+   the container's device filter from Docker's own device list, which does not hold the
+   nodes the NVIDIA hook added for `--gpus`. Open descriptors keep working, but the driver
+   re-opens `/dev/nvidiaN` for host-visible mappings, that open now gets EPERM, and the
+   Vulkan call fails with OUT_OF_HOST_MEMORY (errno EPERM). The evidence:
+   - a fence-logging Vulkan layer: `vkCreateFence -> -1, errno EPERM`, with 1-7 fences live;
+   - a native Vulkan stress test with no Wine: it passes on the host and fails in the container;
+   - strace: `openat("/dev/nvidia5") = -1 EPERM`;
+   - a deterministic repro: `docker update` in the middle of the test fails it at once.
+
+   Fix: `remix_l4.sh` also passes the nodes as `--device` (`/dev/nvidiaN`, `nvidiactl`,
+   `nvidia-uvm`, `nvidia-uvm-tools`, `nvidia-modeset`). With them the stress test passes
+   40 000 rounds across a `docker update`, and Remix sessions run to the end (`out/rv_fixed`,
+   `rv_post`, `rv_pbr`). Every other GPU container that the governor updates (the
+   `gta2-gpugl` game runs) has the same exposure until its launcher passes the nodes too, or
+   the governor skips containers that hold a GPU. Play containers (`gta2-play-*`) are never
+   updated.
+
+Also: `remix_l4.sh` takes `REMIX_GPU` (default 0). NVIDIA persistence mode is on
+(`nvidia-smi -pm 1`; the `nvidia-persistenced` unit failed at the 20:01 driver swap). It was
+not the cause of either fault.
+
 ## Runs 3-7: the three views path traced
 - Run 3 (`out/remix_l4_3`): the welcome dialog dismissed by keyboard; Remix wrote
   `neverShowFirstUseGuide = True` to its user settings, now seeded by `gamerun/remix_user_settings/`

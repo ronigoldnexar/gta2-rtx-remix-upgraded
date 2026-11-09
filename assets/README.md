@@ -132,6 +132,26 @@ frame are in `objects` is not drawn as a quad; the model is scaled so its long a
 quad's longer edge, turned to the quad, and stood on the quad's plane. Every new object sprite
 seen (base, frame, size) is logged once as `object sprite: ...`, which is how the map is extended.
 
+### Slim street props (rule props: lamp, hydrant, bin)
+
+The rule-placed street furniture is drawn by the dozen (`DrawProps` in `dll/src/live_geometry.cpp`:
+a post under every map lamp, up to ~35 lamps in a street view), so its three Poly Haven (CC0)
+scans are rebuilt by `tools/gen_objects.py` (`SLIM_PROPS`: `build_hydrant`, `build_bin`,
+`build_lamp`) as low-poly surfaces of revolution about their own axes, with the scan's colour and
+relief baked into one 512 px atlas, and written to `objects/models/<name>.glb`, which the import
+manifest's `street_lamp`, `fire_hydrant` and `trash_can` entries point at:
+
+| model | scan | before (drawn triangles) | after | textures |
+|---|---|---|---|---|
+| street_lamp | `street_lamp_01` | 30 610 | 1 656 (post lathe, cross-bar lathe, 4 lantern posts, bulb on the atlas; the scan's glass kept) | `street_lamp_0` atlas, `street_lamp_1` glass |
+| fire_hydrant | `fire_hydrant` (no `_aged` variant) | 43 000 | 1 184 | `fire_hydrant_0` atlas |
+| trash_can | `metal_trash_can` (no `_rust` variant) | 6 400 | 772 | `trash_can_0` atlas |
+
+Regenerate: `gen_objects.py <assets-src> <assets-src>/objects/models --props-sheet <png>` (the
+`gen3d` venv), then `import_assets.py <assets-src>/manifest.json assets/models --only
+street_lamp,fire_hydrant,trash_can`. The atlases are CC0-derived (no game art) and committed.
+Evidence and the in-game count: `docs/props-slim.md`.
+
 ### Pedestrian action clips
 
 Besides the walk, run and idles, every avatar carries `getin`/`getout` (Rocketbox `m_crouch_in`/

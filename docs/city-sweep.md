@@ -56,6 +56,62 @@ example Industrial tile 352, a plain concrete pavement with a colour spread of
 untextured face was found by the sweep (the one known case, Residential
 (216,22), is in the tour-fixes stream).
 
+## Result, 8 Nov 2026 (SWEEP-DISTRICTS: Industrial and Residential with the verified swap)
+
+QA3's 8 Nov tables for Industrial and Residential were measured on Downtown's map: the harness never
+swapped the level (`data/` was bound read-only by `game_mounts.sh` and the copy failed silently). The
+swap now verifies itself (`gamerun/swap_level.sh` compares the copied map, style and script and aborts
+the run otherwise; `to_level.sh` checks again in play). Every run below logs
+`level 1 is now <district> (map, style, script verified)`, and the frames are the right district (the
+Industrial arrival message, Residential's own streets). The Downtown table of 8 Nov stands.
+
+| district | planned | landed | frames scored | holes | black | flat (advisory) | log rows | warps (runs) | warp deaths |
+|---|---|---|---|---|---|---|---|---|---|
+| Industrial (bil) | 188 | 188 | 1 128 | 0 | 1 | 2 | 0 | 260 (13) | 4 |
+| Residential (ste) | 145 | 145 | 870 | 0 | 0 | 24 | 0 | 155 (6) | 1 |
+
+Stage: the gated stage from `a2d66a0`, as a private hard-link copy. Commands (2 slots):
+`STAGE=<copy> TAG=sd_ gamerun/sweep_queue.sh bil:0/6 ... bil:5/6` and `ste:0/5 ... ste:4/5` in
+parallel, then retries `TAG=sdrK_ SWEEP_PLAN=/work/sweep_plan_<d>_sdretryK.json gamerun/sweep_run.sh <d> i/n`
+(the retry plans hold the points that had not landed before a death; cells where someone died go last),
+then `tools/sweep_detect.py ../out/sweep_sd/<d> <d> docs/city-sweep-<d>.md ../out/sweep_<d>_sd_sheet.png`.
+`out/sweep_sd/<d>/` holds a link folder per run, and for a run with a death a `sweep.jsonl` cut before the
+death point (the reason is below).
+
+What the frames show:
+- **No hole and no untextured face anywhere** in either district: 0 magenta below the horizon in 1 998 frames.
+- **Residential (11,33), chase camera inside geometry**: in all four third-person headings the frame is one
+  flat tan field (`flat` 0.90), while first person at the same spot shows a sand yard under steel girders.
+  The chase camera ends up inside the girder structure or the ground there. Owner: camera
+  (`WorldView::PanelDistance` knows map panels and lamp posts, not this structure).
+- **Industrial (250,13), first person at the east map edge**: from a height the eye looks out past the map
+  into black (`black` 0.79; the city is drawn below). An edge view, not a hole; with the magenta clear,
+  undrawn space would be magenta, so something past the edge draws black.
+- The other `flat` rows are the game's smooth tiles or a steep chase view of pavement (props and walls
+  textured; checked by eye for Residential's top two; Industrial's two `flat` rows, 0.41 and 0.30, not looked at).
+- No `FAULT` and no `waiting for the player` in any scored point.
+
+Found on the way:
+- **A death in a swapped district loses the player** (QA3 open 1, now reproduced on the real Industrial
+  and Residential maps): five warp deaths in 415 warps, each on landing (state 8, killed within 11 s;
+  the three cells that killed in Industrial landed alive on a later try, so the cause is not the cell).
+  After the death the renderer's player locator follows another ped: the reported position jumps,
+  warps are refused (`player not located on foot`) or land somewhere else, and the third-person frames
+  show no player. Once (Industrial retry 1, ten minutes after its death) gta2.exe faulted at
+  `gta2.exe+0x3ED37 reading 00000064`, the same address as QA3's. Points from a death onwards are not
+  scored and were re-run. Owner: the respawn handling of the swapped level (harness) or the locator
+  (`view_modes.cpp`); not seen in Downtown, where deaths respawn cleanly.
+- Under heavy host load (1-minute load 78, the governor's hold on) the game window took 5 minutes to
+  appear and four warps were logged by the renderer (`moved the player alone ... (written)`) but read
+  back at the old position by `sweep.py`. Those points landed on a later retry.
+- `sweep_run.sh`: game GPU 3-7 by chunk (`GPU=` overrides; GPU 0 is Remix's on the 8x L4 host), and a
+  per-run keys wrapper that ends the chunk when `sweep.py` is done (it sometimes prints `done` and does
+  not exit, which held the slot to the time cap) or once two points in the chunk had all four warp
+  attempts unseen (the state after a death).
+- A workspace-wide migration rsync running at the same time put the old `gamerun/sweep_run.sh` back mid-sweep,
+  so four chunks ran on the old script (GPU 0, no early end; their frames are valid). The
+  tracked copy is `linux/docker/sweep_run.sh`; keep the two the same.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder
@@ -89,8 +145,8 @@ untextured face was found by the sweep (the one known case, Residential
   (`out/sweep_wil_0/t_grid_143_13_ta.png`): the 1.2 s settle in the sweep is
   short for the 1.4 s transition; a sweep artefact.
 
-Rerun (8 Nov, QA3; results in `docs/qa-report.md` and the three district files, which now hold the
-8 Nov tables): `STAGE=<private stage> TAG=q3_ gamerun/sweep_queue.sh wil:0/5 ... ste:3/4` (two queues
+Rerun (8 Nov, QA3; results in `docs/qa-report.md`; its Industrial and Residential tables were Downtown and are
+replaced by the SWEEP-DISTRICTS result above): `STAGE=<private stage> TAG=q3_ gamerun/sweep_queue.sh wil:0/5 ... ste:3/4` (two queues
 in parallel), retries with `SWEEP_PLAN=/work/<plan of the unlanded points>.json`, then
 `tools/sweep_detect.py <folder of links to the sweep_<d>_q3* runs> <district> ...`. `sweep_run.sh` now
 defaults to `GTA2_DIRECT_KEYS=1` (nav_map=0) and takes `STAGE=`.

@@ -41,11 +41,13 @@
 #include <backends/imgui_impl_dx9.h>
 
 #include "../../src/gta2_map.h"
+#include "beats.h"
 #include "compat.h"
 #include "game_access.h"
 #include "game_save.h"
 #include "live_geometry.h"
 #include "log.h"
+#include "map_objects.h"
 #include "texture_store.h"
 #include "view_modes.h"
 #include "world_view.h"
@@ -342,7 +344,8 @@ struct Fonts {
     ImFont* heavy = nullptr;   // heavy italic, medium
     ImFont* label = nullptr;   // bold italic, small
     ImFont* text = nullptr;    // semibold upright, the briefs
-    float moneyPx = 0, heavyPx = 0, labelPx = 0, textPx = 0;
+    ImFont* title = nullptr;   // heavy italic, the beats' titles (QB-17/18)
+    float moneyPx = 0, heavyPx = 0, labelPx = 0, textPx = 0, titlePx = 0;
 };
 
 ImGuiContext* g_ctx = nullptr;
@@ -371,6 +374,8 @@ void BuildFonts(int height) {
     g_fonts.heavy = add(kHudFontHeavy, sizeof kHudFontHeavy, g_fonts.heavyPx);
     g_fonts.label = add(kHudFontBold, sizeof kHudFontBold, g_fonts.labelPx);
     g_fonts.text = add(kHudFontText, sizeof kHudFontText, g_fonts.textPx);
+    g_fonts.titlePx = std::round(92.0f * g_u);
+    g_fonts.title = add(kHudFontHeavy, sizeof kHudFontHeavy, g_fonts.titlePx);
     io.Fonts->Build();
     ImGui_ImplDX9_InvalidateDeviceObjects();   // the font texture is made again on NewFrame
     g_fontHeight = height;
@@ -495,6 +500,164 @@ void BuildMap(IDirect3DDevice9* device, const gta2::Map& map) {
     Log("hud3d: mini-map built from the level (%d road cells)", roads);
 }
 
+// ---- QB-50: pickup labels and score pops in the world ----------------------------------
+//
+// Over each floating pickup within kLabelFar blocks of the eye, its name ("SHOTGUN",
+// "POWER-UP": which power-up a token's colour is is not mapped) on a small dark pill, fading
+// out with distance. A money gain floats "+$n" up from the player (in first person, a little
+// ahead of the eye) and fades; a weapon picked up (its ammo rising) floats its name up from
+// the pickup he walked over (else from him). The pickups and the projection come from
+// map_objects.cpp, read back from the frame the street views drew. Labels are not tested
+// against walls: one behind a building within the range still shows (kept short for that).
+
+std::string Thousands(long long v);   // below, with the money counter
+
+constexpr float kLabelNear = 0.45f, kLabelFull = 4.0f, kLabelFar = 7.0f, kPopTime = 1.6f;
+
+struct WorldLayer {
+    struct Pop { float x, y, z, t; std::string text; ImU32 col; };
+    std::vector<Pop> pops;
+    int lastMoney = -1, lastWeapon = -1, lastAmmo = -1;
+    uint32_t lastPickupsFrame = 0;
+    struct Recent { float x, y, z; double seen; const char* label; };
+    std::vector<Recent> recent;            // pickups seen near him in the last half second
+    double clock = 0.0, lastLog = 0.0;
+    int moneyPops = 0, weaponPops = 0, labelledPeak = 0, labelFrames = 0;
+};
+WorldLayer g_world;
+int g_noWorldLabels = -1;   // GTA2DX9_PICKUP_LABELS=0 turns the layer off (QA before/after)
+
+// Where a pop starts: the given point, or, when that is within reach of the eye (his own
+// chest in first person), 1.2 blocks ahead of the eye a little below its line.
+void PopAnchor(float* x, float* y, float* z) {
+    float eye[3], dir[3];
+    if (!MapObjectsEye(eye, dir)) return;
+    const float dx = *x - eye[0], dy = *y - eye[1], dz = *z - eye[2];
+    if (dx * dx + dy * dy + dz * dz < 0.8f * 0.8f) {
+        *x = eye[0] + dir[0] * 1.2f;
+        *y = eye[1] + dir[1] * 1.2f - 0.12f;
+        *z = eye[2] + dir[2] * 1.2f;
+    }
+}
+
+void DrawWorldLayer(ImDrawList* dl, const Values& v, float A, float W, float H, float dt) {
+    if (g_noWorldLabels < 0) {
+        const char* e = getenv("GTA2DX9_PICKUP_LABELS");
+        g_noWorldLabels = (e && e[0] == '0') ? 1 : 0;
+        Log("hud3d: pickup labels and world score pops %s (QB-50)", g_noWorldLabels ? "off" : "on");
+    }
+    if (g_noWorldLabels) return;
+    WorldLayer& w = g_world;
+    w.clock += dt;
+    const float u = g_u;
+    // The pickups list is this frame's only when the street views drew since the last HUD frame.
+    const bool fresh = MapObjectPickupsFrame() != w.lastPickupsFrame;
+    w.lastPickupsFrame = MapObjectPickupsFrame();
+    const float px = v.x, pz = static_cast<float>(gta2::kMapHeight) - v.y;
+    const float py = ViewPlayer().z;
+
+    // Pickups near him lately: where a weapon he just got came from.
+    if (fresh) {
+        for (const PickupSpot& p : MapObjectPickups()) {
+            if (std::hypot(p.x - px, p.z - pz) < 1.2f && std::fabs(p.y - py) < 1.0f) {
+                bool known = false;
+                for (WorldLayer::Recent& r : w.recent) {
+                    if (std::fabs(r.x - p.x) < 0.05f && std::fabs(r.z - p.z) < 0.05f) { r.seen = w.clock; r.y = p.y; known = true; }
+                }
+                if (!known) w.recent.push_back({p.x, p.y, p.z, w.clock, p.label});
+            }
+        }
+    }
+    w.recent.erase(std::remove_if(w.recent.begin(), w.recent.end(), [&](const WorldLayer::Recent& r) { return w.clock - r.seen > 0.6; }), w.recent.end());
+
+    // New pops: money gained; a weapon picked up.
+    if (v.money >= 0) {
+        if (w.lastMoney >= 0 && v.money > w.lastMoney) {
+            char text[40];
+            snprintf(text, sizeof text, "+%s", Thousands(v.money - w.lastMoney).c_str());
+            float x = px, y = py + 0.55f, z = pz;
+            PopAnchor(&x, &y, &z);
+            w.pops.push_back({x, y, z, kPopTime, text, kYellow});
+            ++w.moneyPops;
+        }
+        w.lastMoney = v.money;
+    }
+    if (v.weapon > 0 && w.lastWeapon >= 0) {
+        // More ammo for the weapon in hand, or a new weapon in hand just after he passed over
+        // a pickup (a switch with no pickup near is the player choosing, not a pickup).
+        const bool gained = v.weapon == w.lastWeapon ? v.ammo > w.lastAmmo : !w.recent.empty();
+        if (gained) {
+            float x = px, y = py + 0.5f, z = pz;
+            if (!w.recent.empty()) {
+                const WorldLayer::Recent* best = &w.recent[0];
+                for (const WorldLayer::Recent& r : w.recent)
+                    if (std::hypot(r.x - px, r.z - pz) < std::hypot(best->x - px, best->z - pz)) best = &r;
+                x = best->x; y = best->y + 0.15f; z = best->z;
+            }
+            PopAnchor(&x, &y, &z);
+            std::string name = WeaponName(v.weapon);
+            for (char& c : name) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+            w.pops.push_back({x, y, z, kPopTime, name, kGreen});
+            ++w.weaponPops;
+            w.recent.clear();
+        }
+    }
+    if (v.weapon >= 0) { w.lastWeapon = v.weapon; w.lastAmmo = v.ammo; }
+
+    // Labels over the pickups, nearest drawn last (on top).
+    int labelled = 0;
+    if (fresh || w.clock < 0.1) {
+        std::vector<const PickupSpot*> order;
+        for (const PickupSpot& p : MapObjectPickups())
+            if (p.eyeDistance > kLabelNear && p.eyeDistance < kLabelFar) order.push_back(&p);
+        std::sort(order.begin(), order.end(), [](const PickupSpot* a, const PickupSpot* b) { return a->eyeDistance > b->eyeDistance; });
+        for (const PickupSpot* p : order) {
+            float sx, sy;
+            if (!MapObjectsProject(p->x, p->y + 0.22f, p->z, &sx, &sy)) continue;
+            if (sx < -0.05f || sx > 1.05f || sy < -0.05f || sy > 1.05f) continue;
+            const float nearA = (std::min)(1.0f, (p->eyeDistance - kLabelNear) / 0.35f);
+            const float farA = p->eyeDistance < kLabelFull ? 1.0f : 1.0f - (p->eyeDistance - kLabelFull) / (kLabelFar - kLabelFull);
+            const float a = A * (std::max)(0.0f, (std::min)(nearA, farA));
+            if (a < 0.02f) continue;
+            const float px2 = g_fonts.labelPx * (p->eyeDistance < 2.0f ? 1.0f : (std::max)(0.72f, 1.0f - (p->eyeDistance - 2.0f) * 0.06f));
+            const ImVec2 ts = Measure(g_fonts.label, px2, p->label);
+            const ImVec2 at(sx * W - ts.x * 0.5f, sy * H - ts.y);
+            const float padX = 6 * u, padY = 2 * u;
+            dl->AddRectFilled(ImVec2(at.x - padX, at.y - padY), ImVec2(at.x + ts.x + padX, at.y + ts.y + padY), Fade(kGlass, a), 4 * u);
+            dl->AddRectFilled(ImVec2(at.x - padX, at.y + ts.y + padY - 2 * u), ImVec2(at.x + ts.x + padX, at.y + ts.y + padY), Fade(kCyan, a * 0.9f), 1 * u);
+            Text(dl, g_fonts.label, px2, at, kWhite, p->label, a, false);
+            ++labelled;
+        }
+    }
+    if (labelled) ++w.labelFrames;
+    w.labelledPeak = (std::max)(w.labelledPeak, labelled);
+
+    // The pops: rise half a block, hold, fade.
+    for (WorldLayer::Pop& p : w.pops) {
+        const float age = kPopTime - p.t;
+        float sx, sy;
+        if (MapObjectsProject(p.x, p.y + 0.5f * (1.0f - std::exp(-age * 2.5f)), p.z, &sx, &sy)) {
+            const float a = A * (std::min)(1.0f, p.t / 0.5f) * (std::min)(1.0f, age / 0.08f);
+            const float scale = 1.0f + 0.25f * std::exp(-age * 8.0f);   // a little punch on arrival
+            const float fpx = g_fonts.heavyPx * scale;
+            const ImVec2 ts = Measure(g_fonts.heavy, fpx, p.text.c_str());
+            Text(dl, g_fonts.heavy, fpx, ImVec2(sx * W - ts.x * 0.5f, sy * H - ts.y * 0.5f), p.col, p.text.c_str(), a);
+        }
+        p.t -= dt;
+    }
+    w.pops.erase(std::remove_if(w.pops.begin(), w.pops.end(), [](const WorldLayer::Pop& p) { return p.t <= 0.0f; }), w.pops.end());
+
+    if (w.clock - w.lastLog >= 2.0) {
+        w.lastLog = w.clock;
+        float nearest = 99.0f;
+        for (const PickupSpot& p : MapObjectPickups()) nearest = (std::min)(nearest, p.eyeDistance);
+        Log("hud3d: world layer: pickups drawn=%zu (nearest %.2f from the eye) labelled=%d (peak %d, %d frames with a label) pops money=%d weapon=%d live=%zu",
+            MapObjectPickups().size(), nearest, labelled, w.labelledPeak, w.labelFrames, w.moneyPops, w.weaponPops, w.pops.size());
+        w.labelledPeak = 0;
+        w.labelFrames = 0;
+    }
+}
+
 // ---- Animation state ----------------------------------------------------------------------
 
 struct Anim {
@@ -540,11 +703,290 @@ std::string Thousands(long long v) {
     return (v < 0 ? "-$" : "$") + s;
 }
 
+
+// ---- QB-6: the reticle, the target and the hit markers ------------------------------------
+//
+// GTA2 has no aim: a bullet leaves the gun along the way the pedestrian faces. So the reticle
+// marks that line. The target is the first person standing on it (within a corridor that
+// widens a little with range, and not behind a wall) up to the weapon's reach; with one the
+// reticle sits on his chest, turns red and brackets him; with none it sits where the line
+// meets a wall or runs out. A shot opens the reticle for a moment. A hit is the game's own
+// word: a person's health word drops (or he goes down) within a second of the player's
+// shot while he is near the line of fire; it flashes an X on the reticle, white, or red and
+// larger for a kill, and the hit is counted against whether he was the one highlighted when
+// the shot left the gun (docs/quality-bar.md FEEL-13: >= 90 %).
+
+struct AimHud {
+    bool show = false;
+    float fade = 0.0f;
+    bool target = false;
+    uintptr_t targetObject = 0;
+    float tx = 0, ty = 0, tz = 0;            // the target's sprite origin
+    bool reticleKnown = false;
+    float rx = 0, ry = 0;                     // the reticle, pixels, eased
+    float bracketHalf = 0;                    // the target's projected half height, pixels
+    float spread = 0;                         // 1 just after a shot, decaying
+    uint32_t lastShots = 0;
+    uintptr_t targetAtShot = 0;
+    // The people highlighted at the shots of the last 0.7 s: a machine gun's hit may come
+    // from any shot of the burst still in the air.
+    std::vector<std::pair<uintptr_t, double>> recentTargets;
+    double shotTime = -10.0;
+    double clock = 0.0;
+    float hitT = 0;                           // the X's remaining time, seconds
+    bool hitKill = false;
+    struct Pop { float x, y, z, t; bool kill; };
+    std::vector<Pop> pops;                    // marks on the people hit
+    struct Seen { int health; bool corpse; double hitAt; };   // hitAt: our last hit on him, -1 none
+    std::unordered_map<uintptr_t, Seen> seen;
+    int shots = 0, hits = 0, hitsHighlighted = 0, kills = 0, shotsWithTarget = 0;
+    int framesArmed = 0, framesShown = 0;
+    double lastLog = 0.0;
+    int hitLogs = 0;
+};
+AimHud g_aimHud;
+
+float WeaponReach(int weapon) {
+    switch (weapon) {
+        case 6: case 10: return 3.0f;    // electro gun, flamethrower
+        case 7: case 8: return 6.0f;     // molotov, grenade (thrown)
+        case 9: return 6.0f;             // shotgun
+        case 5: return 12.0f;            // rocket launcher
+        default: return 10.0f;           // the pistols and machine guns
+    }
+}
+
+void UpdateAimHud(bool street, float W, float H, float dt) {
+    AimHud& h = g_aimHud;
+    h.clock += dt;
+    const AimState& a = ViewAim();
+    const bool fresh = LiveAimPedsFrame() == LiveDrawFrame();
+    const std::vector<AimPed>& peds = LiveAimPeds();
+    h.show = street && a.valid && a.armed && !ViewPlayer().inVehicle;
+    h.fade += ((h.show ? 1.0f : 0.0f) - h.fade) * (1.0f - std::exp(-dt / 0.08f));
+    const float hx = std::sin(a.headingYaw), hz = std::cos(a.headingYaw);
+    const float ox = a.x, oy = a.y + 0.30f, oz = a.z;
+    const float reach = WeaponReach(a.weapon);
+
+    // The target: the nearest person along the line of fire.
+    h.target = false;
+    if (h.show && fresh) {
+        float best = 1e9f;
+        for (const AimPed& p : peds) {
+            if (p.corpse || p.health == 0) continue;
+            const float rx = p.x - ox, rz = p.z - oz;
+            const float along = rx * hx + rz * hz;
+            if (along < 0.05f || along > reach) continue;   // point-blank counts (run qb6_aim11)
+            const float perp = std::fabs(rx * hz - rz * hx);
+            // The game's bullets were measured landing up to 0.45 block off the line at 4
+            // blocks (run qb6_aim2: the person's own width and the bullet's): the corridor.
+            if (perp > 0.32f + 0.03f * along) continue;
+            if (std::fabs(p.y - a.y) > 1.2f) continue;
+            if (along >= best) continue;
+            if (ViewLineBlocked(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
+            best = along;
+            h.target = true;
+            h.targetObject = p.object;
+            h.tx = p.x; h.ty = p.y; h.tz = p.z;
+        }
+    }
+    if (!h.target) h.targetObject = 0;
+
+    // A shot: what was highlighted as it left the gun.
+    if (a.shots != h.lastShots) {
+        if (h.show && a.shots > h.lastShots) {
+            const int n = static_cast<int>(a.shots - h.lastShots);
+            h.shots += n;
+            if (h.target) h.shotsWithTarget += n;
+            h.targetAtShot = h.targetObject;
+            h.shotTime = h.clock;
+            if (h.target) h.recentTargets.push_back({h.targetObject, h.clock});
+            h.spread = 1.0f;
+        }
+        h.lastShots = a.shots;
+    }
+    h.spread = (std::max)(0.0f, h.spread - dt / 0.25f);
+    h.recentTargets.erase(std::remove_if(h.recentTargets.begin(), h.recentTargets.end(),
+                                         [&](const std::pair<uintptr_t, double>& t) { return h.clock - t.second > 0.7; }),
+                          h.recentTargets.end());
+
+    // Hits, from the people's health words.
+    if (fresh) {
+        std::unordered_map<uintptr_t, AimHud::Seen> now;
+        now.reserve(peds.size());
+        for (const AimPed& p : peds) {
+            AimHud::Seen& mine = now[p.object];
+            mine = {p.health, p.corpse, -1.0};
+            const auto it = h.seen.find(p.object);
+            if (it == h.seen.end()) continue;
+            const AimHud::Seen& was = it->second;
+            mine.hitAt = was.hitAt;
+            // Down after a hit of ours (the game knocks him down and drains what health he has
+            // left four a frame): the kill marker, once, not a hit of its own.
+            if (!was.corpse && p.corpse && was.hitAt >= 0.0 && h.clock - was.hitAt < 1.5) {
+                ++h.kills;
+                h.hitT = 0.45f;
+                h.hitKill = true;
+                h.pops.push_back({p.x, p.y, p.z, 0.9f, true});
+                mine.hitAt = -1.0;
+                continue;
+            }
+            // Only a drop of the health word while he stands: a fall alone is a car or a shove,
+            // and the drain of a man already down is not a bullet.
+            const bool dropped = !was.corpse && was.health > 0 && p.health >= 0 && p.health < was.health;
+            if (!dropped || h.clock - h.shotTime > 1.0) continue;
+            const float rx = p.x - ox, rz = p.z - oz;
+            const float along = rx * hx + rz * hz;
+            const float perp = std::fabs(rx * hz - rz * hx);
+            if (along < -0.3f || along > reach + 1.5f || perp > 0.9f + 0.05f * (std::max)(0.0f, along)) continue;
+            const bool kill = p.corpse || p.health <= 0;
+            mine.hitAt = kill ? -1.0 : h.clock;
+            bool highlighted = false;
+            for (const auto& t : h.recentTargets) highlighted = highlighted || t.first == p.object;
+            ++h.hits;
+            h.hitsHighlighted += highlighted ? 1 : 0;
+            h.kills += kill ? 1 : 0;
+            h.hitT = kill ? 0.45f : 0.25f;
+            h.hitKill = kill;
+            h.pops.push_back({p.x, p.y, p.z, kill ? 0.9f : 0.6f, kill});
+            if (h.hitLogs < 200) {
+                ++h.hitLogs;
+                Log("aim: hit %04x health %d -> %d%s %.2f s after the shot, %.1f along %.2f off the line, highlighted %d",
+                    static_cast<unsigned>((p.object >> 2) & 0xFFFF), was.health, p.health, kill ? " (down)" : "",
+                    h.clock - h.shotTime, along, perp, highlighted ? 1 : 0);
+            }
+        }
+        h.seen.swap(now);
+    }
+    h.hitT = (std::max)(0.0f, h.hitT - dt);
+    for (AimHud::Pop& p : h.pops) p.t -= dt;
+    h.pops.erase(std::remove_if(h.pops.begin(), h.pops.end(), [](const AimHud::Pop& p) { return p.t <= 0.0f; }), h.pops.end());
+
+    // Where the reticle goes: the target's chest, or where the line meets a wall or ends.
+    if (h.show) {
+        float wx, wy, wz;
+        if (h.target) {
+            wx = h.tx; wy = h.ty + 0.28f; wz = h.tz;
+        } else {
+            float lo = 0.0f, hi = (std::min)(reach, 8.0f);
+            if (ViewLineBlocked(ox, oy, oz, ox + hx * hi, oy, oz + hz * hi)) {
+                for (int i = 0; i < 6; ++i) {
+                    const float mid = 0.5f * (lo + hi);
+                    if (ViewLineBlocked(ox, oy, oz, ox + hx * mid, oy, oz + hz * mid)) hi = mid; else lo = mid;
+                }
+                hi = (std::max)(lo, 0.6f);
+            }
+            wx = ox + hx * hi; wy = oy; wz = oz + hz * hi;
+        }
+        float sx, sy;
+        if (LiveWorldToScreen(wx, wy, wz, &sx, &sy) && sx > -0.2f && sx < 1.2f && sy > -0.2f && sy < 1.2f) {
+            sx *= W; sy *= H;
+            if (!h.reticleKnown || std::hypot(sx - h.rx, sy - h.ry) > 0.4f * H) { h.rx = sx; h.ry = sy; }
+            else {
+                const float k = 1.0f - std::exp(-dt / 0.045f);
+                h.rx += (sx - h.rx) * k; h.ry += (sy - h.ry) * k;
+            }
+            h.reticleKnown = true;
+        }
+        h.bracketHalf = 0.0f;
+        float ax, ay, bx, by;
+        if (h.target && LiveWorldToScreen(h.tx, h.ty, h.tz, &ax, &ay) && LiveWorldToScreen(h.tx, h.ty + 0.5f, h.tz, &bx, &by))
+            h.bracketHalf = (std::min)(0.25f * H, (std::max)(10.0f, 0.5f * std::fabs(ay - by) * H));
+        ++h.framesArmed;
+        h.framesShown += h.reticleKnown ? 1 : 0;
+    } else {
+        h.reticleKnown = false;
+    }
+
+    // GTA2DX9_LOG_AIM=1 (scripted probes): three times a second, the nearest person standing
+    // in the open within 8 blocks (game coordinates, for a script to turn the player to him),
+    // the reticle on screen and whether a target is highlighted.
+    static int logAim = -1;
+    if (logAim < 0) { char b[4] = {}; logAim = GetEnvironmentVariableA("GTA2DX9_LOG_AIM", b, sizeof b) && b[0] == '1'; }
+    static uint32_t aimLogFrame = 0;
+    if (logAim && h.show && fresh && ++aimLogFrame % 10 == 0) {
+        float best = 64.0f, nx = 0, nz = 0;
+        for (const AimPed& p : peds) {
+            if (p.corpse || p.health == 0) continue;
+            const float d2 = (p.x - ox) * (p.x - ox) + (p.z - oz) * (p.z - oz);
+            if (d2 >= best || d2 < 0.3f * 0.3f || std::fabs(p.y - a.y) > 1.2f) continue;
+            if (ViewLineBlocked(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
+            best = d2; nx = p.x; nz = p.z;
+        }
+        Log("aim: near %s x=%.2f y=%.2f d=%.2f reticle=%.0f,%.0f target=%d",
+            best < 64.0f ? "ped" : "none", nx, static_cast<float>(gta2::kMapHeight) - nz, std::sqrt(best), h.rx, h.ry, h.target ? 1 : 0);
+    }
+    if (h.shots > 0 && h.clock - h.lastLog >= 10.0) {
+        h.lastLog = h.clock;
+        Log("aim: shots=%d with_target=%d hits=%d on_highlighted=%d (%.0f%%) kills=%d reticle_frames=%d/%d mix=%.2f",
+            h.shots, h.shotsWithTarget, h.hits, h.hitsHighlighted, h.hits ? 100.0 * h.hitsHighlighted / h.hits : 0.0,
+            h.kills, h.framesShown, h.framesArmed, a.aimMix);
+    }
+}
+
+void Line2(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col, float w) {
+    dl->AddLine(a, b, Fade(kShadow, (float)(col >> IM_COL32_A_SHIFT & 0xFF) / 255.0f * 0.7f), w + 2.0f * g_u);
+    dl->AddLine(a, b, col, w);
+}
+
+void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
+    const AimHud& h = g_aimHud;
+    const float A = alpha * h.fade;
+    const float u = g_u;
+    // The marks on the people hit, in the world: a small red cross rising off a kill.
+    for (const AimHud::Pop& p : h.pops) {
+        float sx, sy;
+        if (!LiveWorldToScreen(p.x, p.y + 0.55f + (p.kill ? 0.25f : 0.1f) * (1.0f - p.t), p.z, &sx, &sy)) continue;
+        const ImVec2 c(sx * W, sy * H);
+        const float r = (p.kill ? 7.0f : 5.0f) * u;
+        const ImU32 col = Fade(p.kill ? kRed : kWhite, alpha * (std::min)(1.0f, p.t * 3.0f));
+        Line2(dl, ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, 2.5f * u);
+        Line2(dl, ImVec2(c.x - r, c.y + r), ImVec2(c.x + r, c.y - r), col, 2.5f * u);
+    }
+    if (A < 0.02f || !h.reticleKnown) return;
+    const ImVec2 c(h.rx, h.ry);
+    const ImU32 col = Fade(h.target ? kRed : kWhite, A);
+    // Four ticks round a dot, opened by a shot.
+    const float gap = (6.0f + 10.0f * h.spread) * u, len = 10.0f * u, w = 3.0f * u;
+    Line2(dl, ImVec2(c.x - gap - len, c.y), ImVec2(c.x - gap, c.y), col, w);
+    Line2(dl, ImVec2(c.x + gap, c.y), ImVec2(c.x + gap + len, c.y), col, w);
+    Line2(dl, ImVec2(c.x, c.y - gap - len), ImVec2(c.x, c.y - gap), col, w);
+    Line2(dl, ImVec2(c.x, c.y + gap), ImVec2(c.x, c.y + gap + len), col, w);
+    dl->AddCircleFilled(c, 3.4f * u, Fade(kShadow, A * 0.8f));
+    dl->AddCircleFilled(c, 2.2f * u, col);
+    // The target bracketed.
+    if (h.target && h.bracketHalf > 0.0f) {
+        float sx, sy;
+        if (LiveWorldToScreen(h.tx, h.ty + 0.25f, h.tz, &sx, &sy)) {
+            const ImVec2 m(sx * W, sy * H);
+            const float bh = h.bracketHalf * 1.15f, bw = h.bracketHalf * 0.75f, k = (std::max)(5.0f * u, bw * 0.4f);
+            const ImU32 bc = Fade(kRed, A * 0.9f);
+            for (int sxn = -1; sxn <= 1; sxn += 2)
+                for (int syn = -1; syn <= 1; syn += 2) {
+                    const ImVec2 corner(m.x + sxn * bw, m.y + syn * bh);
+                    Line2(dl, corner, ImVec2(corner.x - sxn * k, corner.y), bc, 2.5f * u);
+                    Line2(dl, corner, ImVec2(corner.x, corner.y - syn * k), bc, 2.5f * u);
+                }
+        }
+    }
+    // The hit marker: an X round the reticle.
+    if (h.hitT > 0.0f) {
+        const float t = h.hitT / (h.hitKill ? 0.45f : 0.25f);
+        const float r0 = (h.hitKill ? 9.0f : 7.0f) * u, r1 = r0 + (h.hitKill ? 14.0f : 10.0f) * u;
+        const ImU32 hc = Fade(h.hitKill ? kRed : kWhite, alpha * (std::min)(1.0f, t * 2.0f));
+        const float wv = (h.hitKill ? 3.0f : 2.5f) * u;
+        for (int sxn = -1; sxn <= 1; sxn += 2)
+            for (int syn = -1; syn <= 1; syn += 2)
+                Line2(dl, ImVec2(c.x + sxn * r0 * 0.7071f, c.y + syn * r0 * 0.7071f), ImVec2(c.x + sxn * r1 * 0.7071f, c.y + syn * r1 * 0.7071f), hc, wv);
+    }
+}
+
 void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, float H, float dt) {
     Anim& an = g_anim;
     const float A = an.fade;
     const float u = g_u;
     const float margin = 28.0f * u;
+    DrawAimLayer(dl, A, W, H);   // QB-6
 
     // Money, ticking up (or down) to the game's value; the gain pops above it.
     if (v.money >= 0) {
@@ -866,11 +1308,98 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
                      p.w->highlight ? kYellow : kWhite, p.w->text.c_str(), BA);
         }
     }
+    // QB-50: under the panels (the background list is drawn first).
+    DrawWorldLayer(ImGui::GetBackgroundDrawList(), v, A, W, H, dt);
+}
+
+// QB-17/18: a beat's screen treatment - a colour wash and an edge darkening, the
+// letterbox bars sliding in, the title in the HUD's heavy face with a short scale-in, and
+// the fade to black that hides the respawn cut.
+float Smoothstep01(float x) {
+    x = (std::max)(0.0f, (std::min)(1.0f, x));
+    return x * x * (3.0f - 2.0f * x);
+}
+
+void DrawBeat(ImDrawList* dl, float W, float H) {
+    const BeatState& b = Beat();
+    const float u = g_u;
+    ImU32 wash = IM_COL32(0, 0, 0, 0), edge = IM_COL32(0, 0, 0, 0), titleCol = kWhite, rule = kWhite;
+    switch (b.kind) {
+        case BeatKind::Wasted:     // drained, a dark red cast, heavy edges
+            wash = IM_COL32(70, 58, 58, 110); edge = IM_COL32(40, 0, 0, 200);
+            titleCol = IM_COL32(222, 38, 32, 255); rule = IM_COL32(222, 38, 32, 255);
+            break;
+        case BeatKind::Busted:     // cold blue cast, the edges lit red/blue in turn
+            wash = IM_COL32(20, 34, 80, 90); edge = IM_COL32(0, 10, 40, 190);
+            titleCol = IM_COL32(110, 160, 255, 255); rule = IM_COL32(110, 160, 255, 255);
+            break;
+        case BeatKind::Complete:   // warm, light
+            wash = IM_COL32(90, 70, 20, 40); edge = IM_COL32(30, 20, 0, 120);
+            titleCol = kYellow; rule = kYellow;
+            break;
+        default: return;
+    }
+    const float tint = b.tint;
+    if (tint > 0.0f) {
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Fade(wash, tint));
+        // The edges: gradients a fifth of the way in from each side.
+        const ImU32 e = Fade(edge, tint), clear = Fade(edge, 0.0f);
+        const float ex = W * 0.2f, ey = H * 0.22f;
+        dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(ex, H), e, clear, clear, e);
+        dl->AddRectFilledMultiColor(ImVec2(W - ex, 0), ImVec2(W, H), clear, e, e, clear);
+        dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(W, ey), e, e, clear, clear);
+        dl->AddRectFilledMultiColor(ImVec2(0, H - ey), ImVec2(W, H), clear, clear, e, e);
+        if (b.kind == BeatKind::Busted) {
+            // The squad car's beacons on the edges: red left, blue right, swapping 2.5 times a second.
+            const bool phase = std::fmod(b.t * 2.5f, 1.0f) < 0.5f;
+            const ImU32 red = Fade(IM_COL32(230, 30, 30, 90), tint), blue = Fade(IM_COL32(40, 80, 255, 90), tint);
+            const ImU32 l = phase ? red : blue, r = phase ? blue : red;
+            const ImU32 l0 = Fade(l, 0.0f), r0 = Fade(r, 0.0f);
+            dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(W * 0.14f, H), l, l0, l0, l);
+            dl->AddRectFilledMultiColor(ImVec2(W - W * 0.14f, 0), ImVec2(W, H), r0, r, r, r0);
+        }
+    }
+    // Letterbox: 2.39:1 at full height of the bars.
+    const float barFull = (std::max)(0.0f, (H - W / 2.39f) * 0.5f);
+    const float bar = barFull * (1.0f - (1.0f - b.letterbox) * (1.0f - b.letterbox));
+    if (bar > 0.5f) {
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, bar), IM_COL32(0, 0, 0, 255));
+        dl->AddRectFilled(ImVec2(0, H - bar), ImVec2(W, H), IM_COL32(0, 0, 0, 255));
+    }
+    // The title: centred in the lower third, clear of the figure the camera frames in the
+    // middle, scaling in from 112% and settling.
+    if (b.title > 0.01f && g_fonts.title && !b.titleText.empty()) {
+        const float pop = 1.0f + 0.12f * std::exp(-b.t / 0.18f);
+        const float px = g_fonts.titlePx * pop;
+        const char* s = b.titleText.c_str();
+        const ImVec2 sz = Measure(g_fonts.title, px, s);
+        const float barH = (std::max)(0.0f, (H - W / 2.39f) * 0.5f);
+        const ImVec2 at((W - sz.x) * 0.5f, H - barH - 0.06f * H - sz.y - 9.0f * u);
+        const float o = (std::max)(2.0f, std::round(3.0f * u));
+        const ImU32 sh = Fade(IM_COL32(0, 0, 0, 230), b.title);
+        dl->AddText(g_fonts.title, px, ImVec2(at.x + o, at.y + o), sh, s);
+        dl->AddText(g_fonts.title, px, ImVec2(at.x - o * 0.5f, at.y + o), sh, s);
+        dl->AddText(g_fonts.title, px, at, Fade(titleCol, b.title), s);
+        // A thin rule under it, drawn out from the middle.
+        const float half = sz.x * 0.5f * Smoothstep01((b.t - 0.3f) / 0.5f);
+        const float ry = at.y + sz.y + 6.0f * u;
+        if (half > 1.0f)
+            dl->AddRectFilled(ImVec2(W * 0.5f - half, ry), ImVec2(W * 0.5f + half, ry + (std::max)(2.0f, 3.0f * u)), Fade(rule, b.title * 0.9f));
+    }
+    if (b.black > 0.0f) dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Fade(IM_COL32(0, 0, 0, 255), b.black));
 }
 
 }  // namespace
 
 bool Hud3dActive() { return g_active; }
+
+bool Hud3dGameText(const char* key, std::u16string* out) {
+    LoadGxt();
+    const auto it = g_gxt.find(key ? key : "");
+    if (it == g_gxt.end()) return false;
+    if (out) *out = it->second;
+    return true;
+}
 
 bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, int count) {
     if (!hud || part < 0 || part > 18) return false;
@@ -884,6 +1413,9 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
         }
         else if (part == 10) Note(&g_portrait, texture, k, count);
     }
+    // QB-17/18: during a beat its title is drawn here, in the beat's own treatment.
+    // (Never in the classic view, which keeps the game's HUD as it draws it.)
+    if (part == 15 && Beat().kind != BeatKind::None && CurrentViewMode() != ViewMode::Classic) return true;
     if (!g_active) return false;
     switch (part) {
         case 1:    // score, lives, multiplier, weapon and ammo
@@ -959,10 +1491,13 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         g_briefResolved = false;
     }
     g_active = want;
+    UpdateAimHud(want, static_cast<float>(width), static_cast<float>(height), dt);   // QB-6
 
     Anim& an = g_anim;
     an.time += dt;
-    an.fade += ((want ? 1.0f : 0.0f) - an.fade) * (1.0f - std::exp(-dt * 8.0f));
+    // QB-17/18: the panels step aside while a beat holds the screen.
+    const float beatHide = street ? Beat().hudHide : 0.0f;
+    an.fade += ((want ? 1.0f - 0.92f * beatHide : 0.0f) - an.fade) * (1.0f - std::exp(-dt * 8.0f));
     if (!want && an.fade < 0.01f) {
         an.fade = 0.0f;
         an.money = -1;
@@ -970,7 +1505,8 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         an.lastHealth = -1;
     }
 
-    if (an.fade > 0.01f && v.valid && device && width > 0 && height > 0 && EnsureContext(device, height)) {
+    const bool beatShown = street && Beat().kind != BeatKind::None;
+    if (((an.fade > 0.01f && v.valid) || beatShown) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
         ImGuiContext* previous = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(g_ctx);
         if (g_fontHeight != height) BuildFonts(height);
@@ -980,7 +1516,9 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         io.DeltaTime = dt > 0 ? dt : 1.0f / 30.0f;
         ImGui_ImplDX9_NewFrame();
         ImGui::NewFrame();
-        Draw(ImGui::GetForegroundDrawList(), device, v, static_cast<float>(width), static_cast<float>(height), dt);
+        if (an.fade > 0.01f && v.valid)
+            Draw(ImGui::GetForegroundDrawList(), device, v, static_cast<float>(width), static_cast<float>(height), dt);
+        if (beatShown) DrawBeat(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height));
         ImGui::EndFrame();
         ImGui::Render();
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());

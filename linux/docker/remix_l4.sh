@@ -4,7 +4,12 @@
 cd "$(dirname "$0")/.."; NAME=$1; SECS=$2; KEYS=${3:-/work/keys_remix_gpu.sh}; shift 3 2>/dev/null
 rm -rf "out/$NAME"; mkdir -p "out/$NAME"
 for a in "$@"; do case "$a" in SWAP_LEVEL=*) export "$a";; esac; done   # -e SWAP_LEVEL=x: the level swap writes into data/, so game_mounts.sh must not mount it read-only
-flock /tmp/gta2-gpu.lock gamerun/slot.sh sudo -n docker run --rm --gpus '"device=0"' -e NVIDIA_DRIVER_CAPABILITIES=all --cpus=4 "$@" \
+# The NVIDIA device nodes are also passed with --device, so they are in Docker's own device rules: a
+# `docker update` (cpu_governor.sh changes the cpuset every minute) rewrites the cgroup-v2 device filter from
+# those rules and drops the nodes the NVIDIA hook added; the driver re-opens /dev/nvidiaN for host-visible
+# mappings, gets EPERM, and Remix dies with "DxvkCommandList: Failed to create fence" (REMIX-VERIFY, 8 Nov).
+NVDEV="--device /dev/nvidia${REMIX_GPU:-0} --device /dev/nvidiactl --device /dev/nvidia-uvm --device /dev/nvidia-uvm-tools --device /dev/nvidia-modeset"
+flock /tmp/gta2-gpu.lock gamerun/slot.sh sudo -n docker run --rm --gpus "\"device=${REMIX_GPU:-0}\"" $NVDEV -e NVIDIA_DRIVER_CAPABILITIES=all --cpus=4 "$@" \
   $([ "${GTA2_FAST:-1}" = 1 ] && ROOT=$PWD STAGE=${STAGE:-$PWD/repo/stage} gamerun/game_mounts.sh) -e GTA2_INTRO="${GTA2_INTRO:-1}" -v "$PWD/gamerun:/work" -v "$PWD/game:/game:ro" -v "$PWD/upstream-release/files:/release:ro" -v "${STAGE:-$PWD/repo/stage}:/stage:ro" \
   -v "$PWD/remix-runtime/x86:/remix:ro" -v "$PWD/repo/package:/package:ro" -v "$PWD/out/$NAME:/out" -w /work \
   ${REMIX_IMAGE:-gta2-remix-gpu2} bash /work/run_game_remix_gpu.sh "$SECS" "$KEYS" > "out/$NAME.run.log" 2>&1

@@ -59,4 +59,63 @@ chase and first-person views on foot, the clock set to 10:00, 17:20 (golden hour
 hour, sun -5 deg) and 22:30, each clear / rain / fog; then the roads wetting and drying with no
 forced wetness; then weather off and the classic view.
 
-RESULTS
+Runs on the 8x L4 host, private stage (`stage_qb35`, the DLL built from fork/camera-modes plus
+this change), 1280x720, `[visuals]` medium. Frames in `out/qb35_look3/t_w_*.png` (sheets
+`/tmp/qb35/l3_*.png` at the time of writing); run 4 (`out/qb35_look4`) re-checks the lamp pools
+and the far puddle fade (`out/qb35_look4`: wet pass ready, no FAULT; the far grain is gone in
+`t_w_first_day_rain`; lamp pools not seen, see below). Note the "clear" frames after a rain frame
+show drying roads: wetness follows the rain unless forced, and dries over 150 s.
+
+Verified in frame (qb35_look3):
+- **time of day**: 10:00 clear (blue sky, sun shadows), 17:20 golden hour (warm low light),
+  18:25 blue hour (violet sky, lit windows, car lamps), 22:30 night (navy sky with stars, lit
+  windows, head lamps); the log's status line follows the clock (`weather: 22:30 sun -45.1 deg`).
+- **rain**: streaks in the chase and first-person views at every hour, slanted by the wind, darker
+  grey overcast with heavy cloud, the sun and its shadows gone.
+- **wet roads**: the asphalt darkens and reflects the cars, lamp posts, fence and hydrant (the
+  taxi in `t_w_third_day_rain`, the van in `t_w_third_golden_rain`, the bus at night in
+  `t_w_first_night_rain`); `weather: wet-road pass ready (1280x720)`.
+- **fog bank**: at 10:00 with fog 90 % the street closes in to ~12 blocks in a pale grey haze,
+  the dome fades into it (`t_w_third_day_fog`).
+- **wetting / drying**: with no forced wetness the roads wet within ~30 s of rain and are still
+  damp 15 s after it stops (`t_w_wetting_*`, `t_w_drying_*`).
+- **off**: `enabled=0` gives back the plain sunny frame (`t_w_off_after`); the classic view is the
+  game's own top-down picture (`t_w_classic_after`).
+- no `FAULT` in any of the four runs.
+
+Fixed on the way (each seen in a frame or the log first):
+- the wet shader was refused twice by `CreatePixelShader` (`D3DERR_INVALIDCALL`): 436 constants
+  (see Shader above), then a `dcl_position0` input that wined3d does not accept in ps_3_0 (the
+  pixel input struct now carries the texcoord only, as the water shader's does);
+- the ini was polled by frame count: under load (15 fps) a scripted change stayed unread for 4 s
+  and frames were taken before it applied; now once a second by the clock;
+- night head lamps were a blown white-yellow pool across the road (two beams at 0.79 each,
+  from the Remix radiance 10): a beam is now at most 0.22 (`dll/src/visuals.cpp`); the frames
+  after show readable beams;
+- overcast clouds were white: the cloud layer now darkens with `SkySettings::cloudShade`;
+- streaks were too faint at first (alpha 0.2, 0.006 blocks wide): now 0.3-0.55 and 0.009 wide;
+- grain at 30+ blocks in the wet road (the puddle map minified without mips): puddles and
+  reflection fade out between 25 and 60 blocks;
+- street lamps lit no pool on the ground (the lamp sits 1.5-3 blocks up and the soft falloff left
+  ~3 % on the pavement; the light list in the log has them at r 3-5, i 1): a second, shorter
+  light a block under each map lamp was added - **but run 4 still shows no pool** at the lamp
+  3.6 blocks from the player (`visuals: light src 0 at 166.50 3.50 103.50 r 5.02` in the
+  `debug=32` dump, player at 164.5,149.5 = world z 106.5; `t_w_third_night_clear`,
+  `t_w_first_night_clear`). Head-lamp spots from the same pass do show, so the cause is between
+  the provider and `ps_light` for point lights; not found yet.
+
+Not verified: the RTX Remix path (the renderer skips the weather on a Remix device by the same
+flag the post uses; no Remix run made), the weather cycle (`cycle=1`, code only), the Windows build
+(`dll/build.bat` lists the two new files), frame cost (the host ran at load 20-30 throughout; the
+wet pass is one full-screen draw with 10 depth taps and the streaks one `DrawPrimitiveUP` of
+≤ 9600 vertices).
+
+## Open
+
+- Wind in trees (QB-43's third item): the trees are rule-placed props drawn in
+  `live_geometry.cpp` (another subsystem); nothing sways yet.
+- Fog banks are one density at the eye (with distance fog), not volumes you can see from outside.
+- No splashes or ripple rings on the ground, no wet sheen on the cars' own shaders.
+- **Lamp pools (QB-35)**: not achieved, see above; night is dark away from lit windows and car
+  lamps, the blue hour reads best. Next step: log `ps_light`'s inputs for one map lamp
+  (`[visuals] debug=32` already dumps the provider's list).

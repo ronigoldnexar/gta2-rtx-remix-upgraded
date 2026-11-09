@@ -2,14 +2,21 @@
 """Packs the release archives that cannot live in git (they embed the game's own
 artwork) or that carry a build, the same way on Linux and Windows.
 
-    python3 tools/pack_release.py <out dir> [linux|people|cars|textures|remix ...]
+    python3 tools/pack_release.py [--stage DIR] [--rev REV] <out dir> [linux|people|cars|textures|remix ...]
 
-Run from the repository root after `make stage` (or `package.bat`). With no names
+Run from the repository root after `make stage` (or `package.bat`). For a release, build
+the DLLs from a clean worktree of the release commit instead of the shared stage/ (whose
+DLLs may come from another commit):
+    git worktree add --detach /tmp/rel-wt <rev> && (cd /tmp/rel-wt && make stage)
+    python3 tools/pack_release.py --stage /tmp/rel-wt/stage --rev <rev> <out dir> linux
+--stage is where the DLL/ini/reg files are read (default stage/); --rev is the commit the
+linux/ tree is read from (default HEAD) and is written to gta2dx9-linux-built/BUILD.txt
+with the DLLs' SHA-256, so a binary can be traced to its source. With no names
 every archive is written. Each archive is written whole (an existing file of the
 same name is replaced), entries in sorted order, and its listing is checked
 against the source tree afterwards. Layout (paths inside the zip):
 
-  gta2dx9-x86-linux-built.zip  gta2dx9-linux-built/{gta2dx9.dll, d3ddll.dll, gta2dx9_vid.dll,
+  gta2dx9-x86-linux-built.zip  gta2dx9-linux-built/{BUILD.txt, gta2dx9.dll, d3ddll.dll, gta2dx9_vid.dll,
                                Dmavideo.dll, DMAGlide.dll, gta2dx9.ini, install.reg, uninstall.reg}
                                from stage/, plus gta2dx9-linux-built/linux/... (the committed linux/
                                tree at HEAD, read from git, so local edits never ship)
@@ -23,7 +30,10 @@ Unpack the asset archives at the repository root (`make stage` then copies
 assets/models and assets/textures_hd into stage/); the Remix one into
 package/rtx-remix/mods/ (or rtx-remix/mods/ beside gta2.exe).
 """
-import os, re, subprocess, sys, zipfile
+import hashlib, os, re, subprocess, sys, zipfile
+
+STAGE = "stage"
+REV = "HEAD"
 
 STAGE_FILES = ["gta2dx9.dll", "d3ddll.dll", "gta2dx9_vid.dll", "Dmavideo.dll", "DMAGlide.dll",
                "gta2dx9.ini", "install.reg", "uninstall.reg"]
@@ -32,9 +42,10 @@ STAGE_FILES = ["gta2dx9.dll", "d3ddll.dll", "gta2dx9_vid.dll", "Dmavideo.dll", "
 def entries(name):
     """(path in the zip, path on disk) pairs for one archive"""
     if name == "linux":
-        out = [(f"gta2dx9-linux-built/{f}", os.path.join("stage", f)) for f in STAGE_FILES]
-        files = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD", "linux"], capture_output=True, text=True, check=True).stdout.split()
-        out += [(f"gta2dx9-linux-built/{f}", "git:" + f) for f in files]   # as committed at HEAD, not the working tree
+        out = [(f"gta2dx9-linux-built/{f}", os.path.join(STAGE, f)) for f in STAGE_FILES]
+        out.append(("gta2dx9-linux-built/BUILD.txt", "build:"))
+        files = subprocess.run(["git", "ls-tree", "-r", "--name-only", REV, "linux"], capture_output=True, text=True, check=True).stdout.split()
+        out += [(f"gta2dx9-linux-built/{f}", "git:" + f) for f in files]   # as committed at REV, not the working tree
         return "gta2dx9-x86-linux-built.zip", out, zipfile.ZIP_DEFLATED
     if name in ("people", "cars"):
         pat = re.compile(r"^human_" if name == "people" else r"^\d{3}_")
@@ -56,15 +67,21 @@ def entries(name):
 def pack(outdir, name):
     zname, items, method = entries(name)
     items = sorted(items)
-    missing = [d for _, d in items if not d.startswith("git:") and not os.path.isfile(d)]
+    missing = [d for _, d in items if not d.startswith(("git:", "build:")) and not os.path.isfile(d)]
     if missing or not items:
         raise SystemExit(f"{zname}: {len(missing)} missing source files, e.g. {missing[:3]}" if missing else f"{zname}: nothing to pack")
     path = os.path.join(outdir, zname); tmp = path + ".part"
     with zipfile.ZipFile(tmp, "w", method, compresslevel=9 if method == zipfile.ZIP_DEFLATED else None) as z:
         for arc, disk in items:
-            if disk.startswith("git:"):
-                data = subprocess.run(["git", "show", "HEAD:" + disk[4:]], capture_output=True, check=True).stdout
-                mode = subprocess.run(["git", "ls-tree", "HEAD", disk[4:]], capture_output=True, text=True).stdout.split()[0]
+            if disk == "build:":
+                rev = subprocess.run(["git", "rev-parse", REV], capture_output=True, text=True, check=True).stdout.strip()
+                lines = [f"source commit: {rev}", "built with mingw-w64 (make stage) from a clean worktree of that commit", ""]
+                lines += [f"{hashlib.sha256(open(os.path.join(STAGE, f), 'rb').read()).hexdigest()}  {f}" for f in STAGE_FILES]
+                zi = zipfile.ZipInfo(arc, (2026, 1, 1, 0, 0, 0)); zi.external_attr = 0o100644 << 16
+                z.writestr(zi, "\n".join(lines) + "\n", compress_type=method)
+            elif disk.startswith("git:"):
+                data = subprocess.run(["git", "show", f"{REV}:" + disk[4:]], capture_output=True, check=True).stdout
+                mode = subprocess.run(["git", "ls-tree", REV, disk[4:]], capture_output=True, text=True).stdout.split()[0]
                 zi = zipfile.ZipInfo(arc, (2026, 1, 1, 0, 0, 0))
                 zi.external_attr = (0o100755 if mode == "100755" else 0o100644) << 16
                 z.writestr(zi, data, compress_type=method)
@@ -78,7 +95,12 @@ def pack(outdir, name):
 
 
 if __name__ == "__main__":
-    outdir = sys.argv[1] if len(sys.argv) > 1 else "release"
+    args = sys.argv[1:]
+    while args and args[0] in ("--stage", "--rev") and len(args) > 1:
+        if args[0] == "--stage": STAGE = args[1]
+        else: REV = args[1]
+        args = args[2:]
+    outdir = args[0] if args else "release"
     os.makedirs(outdir, exist_ok=True)
-    for n in sys.argv[2:] or ["linux", "people", "cars", "textures", "remix"]:
+    for n in args[1:] or ["linux", "people", "cars", "textures", "remix"]:
         pack(outdir, n)

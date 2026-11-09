@@ -3,8 +3,10 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <set>
 #include <string>
@@ -138,9 +140,107 @@ const std::vector<PropFootprint>& MapObjectFootprints() { return g_objectFootpri
 std::vector<PropFootprint> g_objectObstacles;
 const std::vector<PropFootprint>& MapObjectObstacles() { return g_objectObstacles; }
 
+// ---- QB-49 near fade, QB-50 pickup list ----------------------------------------------------
+namespace {
+// The view and projection of the street views' frame, read back from the device at the top
+// of MapObjectsDraw (LiveGeometry::Draw has set them by then), and the eye they imply.
+float g_viewProj[4][4] = {};
+bool g_viewProjValid = false;
+float g_eye[3] = {0.0f, 0.0f, 0.0f};
+float g_viewDir[3] = {0.0f, 0.0f, 1.0f};
+std::vector<PickupSpot> g_pickups;
+uint32_t g_pickupsFrame = 0;
+std::map<const Model*, std::string> g_pickupLabels;
+// An object closer to the eye than kFadeFar (blocks, from its footprint's rim or its top)
+// is drawn see-through, down to kFadeMinAlpha at kFadeNear: a phone box or a traffic-light
+// pole a hand from the first-person eye no longer fills the frame with a dark slab.
+constexpr float kFadeNear = 0.10f, kFadeFar = 0.50f, kFadeMinAlpha = 0.18f;
+struct Faded { const Model* model; gta2::Mat4 out; const ModelAnimation* spin; float t, alpha; };
+std::vector<Faded> g_fadedNow;
+int g_fadedLast = 0;
+int g_nearFade = -1;   // GTA2DX9_NEAR_FADE=0 turns the fade off (QA before/after)
+
+void CaptureView(IDirect3DDevice9* device) {
+    D3DMATRIX v, p;
+    g_viewProjValid = false;
+    if (FAILED(device->GetTransform(D3DTS_VIEW, &v)) || FAILED(device->GetTransform(D3DTS_PROJECTION, &p))) return;
+    for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
+        float acc = 0.0f;
+        for (int k = 0; k < 4; ++k) acc += v.m[r][k] * p.m[k][c];
+        g_viewProj[r][c] = acc;
+    }
+    // Row vectors: p_view = p_world * V, so V's upper 3x3 holds the camera's axes as
+    // columns and the eye is -(t R^T).
+    for (int j = 0; j < 3; ++j) g_eye[j] = -(v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+    for (int j = 0; j < 3; ++j) g_viewDir[j] = v.m[j][2];
+    g_viewProjValid = true;
+}
+
+// 1 beyond the fade range, down to kFadeMinAlpha at the eye: the gap from the eye to an
+// upright box round the object (footprint radius, from its foot up to its top).
+float NearFadeAlpha(float x, float footY, float z, float radius, float height) {
+    if (g_nearFade < 0) {
+        const char* e = getenv("GTA2DX9_NEAR_FADE");
+        g_nearFade = (e && e[0] == '0') ? 0 : 1;
+        Log("objects: near fade %s (QB-49: %.2f..%.2f blocks, alpha down to %.2f)", g_nearFade ? "on" : "off", kFadeNear, kFadeFar, kFadeMinAlpha);
+    }
+    if (!g_nearFade || !g_viewProjValid) return 1.0f;
+    const float horiz = (std::max)(0.0f, std::hypot(g_eye[0] - x, g_eye[2] - z) - radius);
+    const float vert = g_eye[1] < footY ? footY - g_eye[1] : g_eye[1] > footY + height ? g_eye[1] - footY - height : 0.0f;
+    const float d = std::sqrt(horiz * horiz + vert * vert);
+    if (d >= kFadeFar) return 1.0f;
+    float t = (d - kFadeNear) / (kFadeFar - kFadeNear);
+    t = (std::min)(1.0f, (std::max)(0.0f, t));
+    t = t * t * (3.0f - 2.0f * t);
+    return kFadeMinAlpha + (1.0f - kFadeMinAlpha) * t;
+}
+
+const char* PickupLabel(const Model& model) {
+    auto it = g_pickupLabels.find(&model);
+    if (it != g_pickupLabels.end()) return it->second.c_str();
+    std::string label;
+    const std::string& n = model.name;
+    if (n.rfind("pickup_item_", 0) == 0) label = "PICKUP";
+    else if (n == "token_briefcase") label = "BRIEFCASE";
+    else if (n.rfind("token_", 0) == 0) label = "POWER-UP";   // which power-up a colour is: not mapped
+    else if (n.rfind("pickup_", 0) == 0) {
+        // The weapon's name from the model's: pickup_machine_gun -> MACHINE GUN.
+        for (char c : n.substr(7)) label.push_back(c == '_' ? ' ' : static_cast<char>(toupper(static_cast<unsigned char>(c))));
+        if (label == "SILENCED MG") label = "SILENCED MACHINE GUN";
+        if (label == "DUAL PISTOL") label = "DUAL PISTOLS";
+    } else label = "PICKUP";
+    return (g_pickupLabels[&model] = label).c_str();
+}
+}  // namespace
+
+const std::vector<PickupSpot>& MapObjectPickups() { return g_pickups; }
+uint32_t MapObjectPickupsFrame() { return g_pickupsFrame; }
+int MapObjectsFadedLastFrame() { return g_fadedLast; }
+bool MapObjectsEye(float* eye, float* dir) {
+    if (!g_viewProjValid) return false;
+    for (int i = 0; i < 3; ++i) { eye[i] = g_eye[i]; dir[i] = g_viewDir[i]; }
+    return true;
+}
+bool MapObjectsProject(float x, float y, float z, float* sx, float* sy, float* depth) {
+    if (!g_viewProjValid) return false;
+    const float (*m)[4] = g_viewProj;
+    const float cx = x * m[0][0] + y * m[1][0] + z * m[2][0] + m[3][0];
+    const float cy = x * m[0][1] + y * m[1][1] + z * m[2][1] + m[3][1];
+    const float cw = x * m[0][3] + y * m[1][3] + z * m[2][3] + m[3][3];
+    if (cw < 0.05f) return false;
+    *sx = 0.5f + 0.5f * cx / cw;
+    *sy = 0.5f - 0.5f * cy / cw;
+    if (depth) *depth = (x - g_eye[0]) * g_viewDir[0] + (y - g_eye[1]) * g_viewDir[1] + (z - g_eye[2]) * g_viewDir[2];
+    return true;
+}
+
 void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::SpriteType>& sprites) {
     g_objectFootprints.clear();
     g_objectObstacles.clear();
+    CaptureView(device);
+    g_pickups.clear();
+    ++g_pickupsFrame;
+    g_fadedNow.clear();
     for (const LiveGeometry::SpriteType& s : sprites) {
         if (!s.objectModel) continue;
         if (!ModelIsKnown(s.objectModel)) {
@@ -273,12 +373,36 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
                 }
             }
         }
-        if (spin) {
-            const float t = static_cast<float>(std::fmod(NowSeconds(), static_cast<double>(spin->length)));
-            ModelDraw(device, model, out, spin, t);
-        } else {
-            ModelDraw(device, model, out, nullptr, 0.0f);
+        const float spinT = spin ? static_cast<float>(std::fmod(NowSeconds(), static_cast<double>(spin->length))) : 0.0f;
+        float alpha = 1.0f;
+        {
+            // World position of the quad's centre (the object's foot), for the near fade and
+            // the pickups' labels.
+            const gta2::Mat4& w = s.objectToWorld;
+            const float wx = cx * w.m[0][0] + cy * w.m[1][0] + cz * w.m[2][0] + w.m[3][0];
+            const float wy = cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1];
+            const float wz = cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2];
+            const float h = (std::max)(0.05f, model.Height() * scale);
+            const float footY = spinning ? out.m[3][1] + model.boundsMin.y * scale : wy;
+            alpha = NearFadeAlpha(wx, footY, wz, spinning ? 0.5f * (std::max)(model.Width(), model.Length()) * scale
+                                                           : (std::min)(0.6f, (std::max)(0.12f, 0.5f * longer)), h);
+            if (spinning && s.object) {
+                // The model's centre, where it floats (its own float, not the bob).
+                const float my = out.m[3][1] + 0.5f * (model.boundsMin.y + model.boundsMax.y) * scale;
+                const float ed = std::sqrt((wx - g_eye[0]) * (wx - g_eye[0]) + (my - g_eye[1]) * (my - g_eye[1]) + (wz - g_eye[2]) * (wz - g_eye[2]));
+                g_pickups.push_back({wx, my, wz, ed, reinterpret_cast<uintptr_t>(s.object), PickupLabel(model)});
+            }
         }
+        if (alpha < 0.999f) {
+            // Drawn after everything else of this pass, see-through (QB-49).
+            g_fadedNow.push_back({&model, out, spin, spinT, alpha});
+            auto litF = g_litOf.find(&model);
+            if (litF != g_litOf.end()) g_fadedNow.push_back({litF->second, out, nullptr, 0.0f, alpha});
+            auto glassF = g_glassOf.find(&model);
+            if (glassF != g_glassOf.end()) g_fadedNow.push_back({glassF->second, out, nullptr, 0.0f, alpha * 0.6f});
+            continue;
+        }
+        ModelDraw(device, model, out, spin, spinT);
         auto lit = g_litOf.find(&model);
         if (lit != g_litOf.end()) g_litNow.push_back({lit->second, out});
         auto glass = g_glassOf.find(&model);
@@ -322,6 +446,50 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
         device->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg);
         g_glassNow.clear();
+    }
+    g_fadedLast = static_cast<int>(g_fadedNow.size());
+    if (!g_fadedNow.empty()) {
+        // QB-49: the objects a hand from the eye, last and see-through: the texture's alpha
+        // times the fade (the texture factor's alpha), blended, no depth writes, so what
+        // stands behind (the street, a person drawn after) shows through.
+        DWORD blend = FALSE, test = FALSE, zwrite = TRUE, src = D3DBLEND_ONE, dst = D3DBLEND_ZERO, factor = 0xFFFFFFFF;
+        DWORD alphaOp = D3DTOP_SELECTARG1, alphaArg1 = D3DTA_TEXTURE, alphaArg2 = D3DTA_CURRENT;
+        device->GetRenderState(D3DRS_ALPHABLENDENABLE, &blend);
+        device->GetRenderState(D3DRS_ALPHATESTENABLE, &test);
+        device->GetRenderState(D3DRS_ZWRITEENABLE, &zwrite);
+        device->GetRenderState(D3DRS_SRCBLEND, &src);
+        device->GetRenderState(D3DRS_DESTBLEND, &dst);
+        device->GetRenderState(D3DRS_TEXTUREFACTOR, &factor);
+        device->GetTextureStageState(0, D3DTSS_ALPHAOP, &alphaOp);
+        device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &alphaArg1);
+        device->GetTextureStageState(0, D3DTSS_ALPHAARG2, &alphaArg2);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+        // Farthest first, so two faded objects overlap the right way round.
+        std::sort(g_fadedNow.begin(), g_fadedNow.end(), [](const Faded& a, const Faded& b) { return a.alpha > b.alpha; });
+        for (const Faded& d : g_fadedNow) {
+            const DWORD a = static_cast<DWORD>((std::min)(1.0f, (std::max)(0.0f, d.alpha)) * 255.0f + 0.5f);
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, (a << 24) | 0x00FFFFFFu);
+            ModelDraw(device, *d.model, d.out, d.spin, d.t);
+        }
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, test);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, zwrite);
+        device->SetRenderState(D3DRS_SRCBLEND, src);
+        device->SetRenderState(D3DRS_DESTBLEND, dst);
+        device->SetRenderState(D3DRS_TEXTUREFACTOR, factor);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG2, alphaArg2);
+        static uint32_t fadeLogFrame = 0;
+        if (((++fadeLogFrame) % 150) == 1) Log("objects: near fade: %d object(s) see-through this frame, the nearest at alpha %.2f", g_fadedLast, g_fadedNow.back().alpha);
+        g_fadedNow.clear();
     }
 }
 }  // namespace gta2dx9

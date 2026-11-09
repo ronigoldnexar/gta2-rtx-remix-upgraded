@@ -645,6 +645,317 @@ the walk, both guards down, the respray, JOB COMPLETE; br7 JOB COMPLETE), and `o
   70 s for none within 22 blocks, then goes anyway), and the jams at the column-142/row-169 junction on
   the first drive (br2: the car burned there; the respray would repair it if it got that far).
 
+## Part 10 (9 Nov 2026, Wave M SKILL-DELIVER): the 'deliver intact' skill, proven on GET ZITZAKI
+
+The Wave M skill module for the 25 catalogue jobs tagged `deliver_intact`:
+`gamerun/skills/deliver_intact.py` (mirrored in `linux/docker/skills/`). The proof job has its own runner,
+`gamerun/missions/get_zitzaki.py` (keys script `keys_get_zitzaki.sh`). Both car legs of the job, the
+Miura to the hospital's 3 x 1 horn box and the doctor to the J-Lab garage (`IS_CAR_IN_BLOCK` 44.5,203.5,
+3 x 0.8, then `PARK`), are `deliver_intact.deliver(world, box, ...)` calls. The shared
+`mission_lib` / `drive_lib` were not changed.
+
+All sessions: fresh game, plain renderer (shared `repo/stage`), `GTA2_SPEED=1`, `GTA2_DIRECT_KEYS=1`,
+`FPS=0`, devtools F9/F11 enabled. No warp was used: the phone on its level-3 dais was reached on foot
+every time. Driving was in the chase view, with a 15 s first-person stretch at the start of the first
+drive.
+
+### What the skill does
+
+- `deliver(world, box, car=, approach=, done=, check=, shops=, budget=, park_wait=)` runs one leg:
+  - It re-boards the mission car whenever he is out of it. The script's arrow goes back to the car,
+    target kind 3/4.
+  - It drives with the fragile-car guards (`M.drive3(..., slow=True, precious=True)`), clearing the
+    avoid list for each leg.
+  - It lowers the speed cap in steps as carhp falls (26000/22000/18000 -> 2.6/2.0/1.6).
+  - It goes to a respray when the car burns or carhp drops below 17500 and a shop is nearer than the
+    goal. A respray repairs the car to carhp 32000 and clears the wanted level. Downtown's two shops
+    are built in; other districts pass `shops=`.
+  - It approaches a narrow box from its open side and creeps in with short pulses.
+  - Once the box is reached it releases every key and waits while the game parks the car.
+- `open_side(world, box)` reads the map to find where a car can enter a box. For each side it scores
+  the lanes 1-3 cells out from the box edge (road 3, lot 1, pavement 0.5) and stops a lane at a wall
+  face or missing ground. Results: the hospital forecourt from the east (54.6,178.5); the J-Lab garage
+  from the south (44.5,206.5); the BANK ROBBERY safehouse from the south (76.5,203.6, the same point
+  that runner places by hand).
+- `box_arrow(box)` is the arrival test, read from the script's arrow: `up` (pointing at the box, not
+  there yet), `cleared`, `moved` or `car`. **REMOVE_ARROW does not empty the slot.** It keeps the box
+  coordinates and sets the target kind to 0. In dl_zz2 the Miura stood inside the hospital box at
+  51.32,178.30 with slot 12 at `12:4:0:50.50,178.50` for 8 s. The skill was waiting for the slot to
+  disappear, so it backed out, and it did this eight times. Kind 0 at the box now counts as arrived.
+
+### Sessions
+
+| session | code | outcome | what happened |
+|---|---|---|---|
+| **dl_zz1** | first version | **JOB COMPLETE** (956 s from level start; +$20,000, multiplier 2) | The phone was reached on foot. The first drive to the hospital took 255 blocks of the router's path, at the smooth driver's normal pace: a bug restored the caps in the wrong order, so `SMOOTH_SLOW_CAP` was 22000 (fixed). The approach point taken from the route's last cells (north of the box) left the car pressed against the forecourt's kerb for two minutes. Once in the box (arrow kind 0) the horn worked and the doctor boarded (1639, carhp 18300). The garage was entered from the south and the game parked the car. |
+| dl_zz2 | + open-side approach | stuck (doctor never boarded) | Each of the eight approaches from the east got into the box (51.3,178.3, arrow kind 0). Each time the skill waited for the arrow to disappear and then backed out. Fixed with `box_arrow`. |
+| **dl_zz3** | + `box_arrow` | **JOB COMPLETE** (1039 s; +$20,000) | Hospital box from the east, creep, "the game has it" (carhp 29973). Doctor aboard 6 s later. The garage drive was 130 blocks of the shared router's route for a 30-block crow line, with 7 hits; carhp 23650 at the door. Garage from the south, park, 1124. |
+| dl_zz4 | same | stuck (doctor never boarded) | The car was in the box with the arrow cleared, then rolled out after a 0.3 s handbrake tap. The skill was still in its 45 s park wait, so the horn came too late. Its 2-block `drive3` back to the approach point then re-planned itself 50 blocks away from 53.1,177.9. Fixed: the creep returns only once the car has stopped inside (handbrake 0.7 s, brake tap, position checked again); within 6 blocks of the box, on its open side, it creeps directly and skips `drive3`; `park_wait=0` for a box that is not a park. |
+| dl_zz5 | + those fixes | stuck (ran out of time 8 blocks from the garage) | The hospital part was clean: in the box in 26 s of creep, doctor aboard 6 s later. The garage leg spent its whole 420 s budget in one `drive3` call on the 130-block route, in traffic, with 13 hits. Fixed: one `drive3` call is capped at 240 s (`DRIVE_CALL`) and the leg then re-plans; the garage leg gets 800 s and 8 tries. |
+| **dl_zz6** | + `DRIVE_CALL` (latest code) | **JOB COMPLETE** (900 s; +$20,000) | The first drive to the hospital was pushed 30 blocks west by traffic and stopped at the 420 s leg budget. The horn step's re-delivery drove back (two calls). Creep, "the game has it" in 12 s, doctor aboard 6 s later. Garage in 96 s (carhp 24785), park, 1124. |
+| **dl_zz7** | same (confirmation) | **JOB COMPLETE** (858 s; +$20,000) | Hospital box from the east (creep 25 s, carhp 28697), doctor aboard 6 s later. Garage in 218 s (carhp 23535), park, 1124. |
+
+**Result: the first three sessions reached JOB COMPLETE 2 of 3 times (dl_zz1, dl_zz3). Over all six
+sessions it is 4 of 7 (dl_zz1, dl_zz3, dl_zz6, dl_zz7), and 2 of 2 on the latest code (dl_zz6,
+dl_zz7).** Each failure found a defect in the skill, fixed before the next session. The frames are in the chase view:
+`out/dl_zz3/m_zz_hospital.png` and `out/dl_zz6/m_zz_*.png`, `m_zz_doctor.png` (the Miura in the forecourt, brief "Bring Doctor
+ZitZaki directly to the new J-Lab") and `m_zz_garage.png` (JOB COMPLETE at the garage door). dl_zz1 has
+the same names. The frames are not in git.
+
+### Using the skill in another job runner
+
+```python
+from skills import deliver_intact as DI
+r = DI.deliver(world, (x, y, w, h), car=(cx, cy), check=check, view_switch=view_switch,
+               done=None,            # default: the box's arrow cleared/moved, or 1124/1125
+               shops=None,           # default: DI.SHOPS[world.district] (only 'wil' is filled in)
+               budget=420, park_wait=45, label="the garage")
+# r: "delivered" | "complete" | "failed" | "dead" | "stuck: ..."
+```
+
+Open items:
+- Respray shops for `ste` and `bil` are not listed yet.
+- The respray detour has not run in a session yet: no car fell below 17500 on a leg it could save.
+- The shared car router still chooses long detours, which the skill cannot change: 255 blocks for a
+  60-block crow line to the hospital in dl_zz1, 130 for 30 to the garage (dl_zz3; this one is real: row 194 is solid and the garage driveway is reached from row 211). These detours cost
+  most of the car damage.
+
+## Part 11 (9 Nov 2026, Wave M, SKILL-KILLMARK): the kill-marked skill on BANK ROBBERY
+
+The `kill_marked` skill (23 jobs in `missions-catalogue.md`) as one module,
+`gamerun/skills/kill_marked.py` (mirrored in `linux/docker/skills/`), on the shared `mission_lib` /
+`drive_lib` (unchanged). Proven on BANK ROBBERY (`wil_ye2`), the only green-phone job of a fresh
+game whose kill step is marked characters (the two bank guards); the yellow and red jobs need respect
+2/4 first. The job glue, `gamerun/missions/bank_robbery_km.py` (keys `keys_bank_robbery_km.sh`), reuses
+`missions/bank_robbery.py` unchanged for the phone, the GRAHAM and the bank box, and replaces its
+hand-written guard loop with one call:
+
+    K.kill_marked(world, select=is_guard, spare=is_spare, approach=BR.CLIMB, level=2,
+                  fire_spots=BR.FIRE_SPOTS, secs=150, check=job_check)
+
+What the skill does for any job: targets are the marked live peds of `view: peds` (the arrow slot on
+the ped), filtered by the job's `select`, nearest first and the player's own level first; kind-2 arrows
+when no target is in the 24-block peds window (or he sits in a car: the car is shot). Out of the car,
+a gun in the hand (`select_gun`, a pickup only with no rounds at all). A target on another level: the
+job's hand-placed `approach` points once, then the multi-level router. Far: walk at him, trigger off;
+in range (7-8 blocks): walk at him with the trigger held, standing under 2.2 blocks. No damage for 8 s:
+the next fire spot, a side step across the line, or closer. A `spare` ped (Hiroshi here) in the line of
+fire holds the trigger. The trigger is released the moment the last target falls; the step ends when
+the character arrows are gone, or when every target seen is down (an arrow on a spared ped is ignored).
+With `GTA2_DIRECT_KEYS=1` the walk and the gun run in the chase view: every fight frame is third person.
+
+The glue also hardens the getaway after the first runs: the GRAHAM is followed by its model in
+`view: cars` when it has been taken (km2: the old runner walked to where it had been parked); the
+respray is entered rolling with the throttle held from 2.5 blocks before the tunnel (km1: the drive
+stopped at the tunnel mouth with officers 1-1.5 blocks off, 1666, arrest); from km5 the getaway car
+faces east and runs east on row 180, south down the column-216 avenue and west on row 215 to the
+tunnel, off the column-178 avenue where br10 and km4 were caught.
+
+Sessions `km*`, fresh games, `GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1`, `FPS=0`, plain renderer on a private
+stage (hard link of the gated `repo/stage`), devtools F9/F10 (the job runner's reported warp onto the
+phone dais was used in km2 and km5).
+
+| session | skill (guards) | job | what happened |
+|---|---|---|---|
+| km1 | **both down**, 32 s after leaving the car (stairs: the approach missed one point, the router finished the climb) | failed | getaway: the drive stopped at the respray tunnel mouth (205.3,218.0) with officers beside the car; pulled out (1666) and arrested |
+| km2 | **both down** 9 game-s after the climb | failed | a gang member 0.5 blocks from the car at the start of the getaway; pulled out at 178.9,183.7 17 s in; the runner walked to the old parking spot |
+| km3 | **both down** in 9 game-s | failed | respray rolled in (wanted 2 -> 0, carhp 32000); on the 197-block safehouse drive the GRAHAM was pinned at 96.3,202.1 and took 6 000 in 4 s, burned and was wrecked |
+| km4 | **both down** in 26 game-s | failed | getaway west then south: pressed in a jam at 181.3,206.0 with an officer 1.6 blocks off, pulled out and arrested (as br10 at 178.4,208.2) |
+| km5 | **both down** in 9 game-s (6 s wall) | failed | back in the car 5 s after the last guard; pulled out 0.3 s after boarding by a passer-by (1666) as the two stars came, then arrested |
+| km6 | **both down** in 9 game-s | failed | east getaway, but leg 1 was skipped by a wrong test and the drive came along row 216; the Up-held roll-in could not turn into the one-cell bay, swung into the BOMB bay at 202 (money 5040 -> 41: a car bomb, no respray, wanted still 2) and the turn's reverse pulses backed him into an officer (1666, arrest) |
+| km7 | - | no job | the job runner's phone step: after the reported warp onto the dais the phone said 1093 (refused); not counted |
+| km8 | **both down** in 9 game-s | failed | ran with KILLMARK-GETAWAY's getaway rework of the glue (lane launch, bay lane-in); out of the car on the second respray try at 197.7,213.5, then 1125 |
+
+Frames (chase view): `out/km1/m_km_bank_engage.png`, `out/km*/m_km_bank_first_down.png` (the first
+guard falling), `out/km*/m_br_guards.png` (both guards down on the walk, the player standing over
+them); marks and the skill's lines (`kill_marked: ...`) in `out/km*/marks.txt` and `keys.log`.
+
+### Status after part 11
+
+- **The skill: 7 of 7 sessions with both marked guards down** (km1-km6, km8), 6-32 s after leaving the
+  car, 25-40 rounds, wanted level 0 at the last kill (the two stars come from the script afterwards),
+  Hiroshi never hit, every fight frame in the chase view.
+- **The job: 0 of 7 JOB COMPLETE.** Every loss came after the skill returned: the two-star getaway to
+  the respray (pull-outs at the car, at the tunnel and in jams; a wrong bay; a wrecked car on the
+  safehouse drive). The old runner had 2 of 4 on the same getaway. The acceptance criterion (2 of 3 to
+  JOB COMPLETE) is **not met**. The getaway in `bank_robbery_km.py` is now KILLMARK-GETAWAY's (kmg*
+  sessions); the wanted-level side belongs to SKILL-POLICE (`skills/shake_police.py`).
+- For other jobs: `kill_marked(world, select=..., spare=...)` with no other arguments covers street-level
+  targets. Pass `approach`/`level` for targets on a terrace, `count` for a counter step, and `check`
+  for the job's own failure test.
+
+## Wave M, SKILL-ROOFTOP (9 Nov 2026): rooftop access on foot, `skills/rooftop_access.py`
+
+32 of the 67 phone, tutorial and final jobs need `rooftop_access`: the phone or an objective is on a
+raised terrace or roof. Until now the runners reached those phones with a reported developer scene warp
+and warped back down after the answer (parts 3-4; `mission_play_wil.answer`,
+`mission_play_districts.answer`). The skill module `gamerun/skills/rooftop_access.py` (mirrored in
+`linux/docker/skills/`, keys script `keys_rooftop_access.sh`) climbs up and comes back down on foot with
+warps off. It changes none of the shared libraries.
+
+- `launch_cell`: chooses the cell beside the phone to step on from. The cell must be level with the
+  phone, have no wall face toward it, and not be a phone itself. It must be reachable with every other
+  phone cell avoided, and should be as far from the other phones as possible. The Downtown Zaibatsu pair
+  (COP CAR CRUSH 208.5,57.5 and WHEELER-DEALING 208.5,59.5) stands on a one-block rim. The router's
+  last cell would be (208,58), between the two phones; the skill steps on from (209,57) instead.
+- `climb`: plans with `mission_lib.route3` and splits the route into flights. A flight is a stair, or a
+  ramp of up to eight slope pieces stored at one level. Each flight is walked to the first flat cell above
+  it, and arrival is checked by the ped's height. If the walker fails the same flight twice, its slope
+  cells are added to `BLOCKED` (learned) and the route is planned again. A fall triggers a new plan from
+  where he lands.
+- `descend`: walks back down to street level along the route toward the plan's first target (the mission
+  car), with the same height checks.
+- `answer_roof_phone`: climbs to the launch cell, then calls the session's own `answer`. After the
+  answer, the player steps back onto the launch cell, never `step_off_phone`. In rf1, `step_off_phone`
+  picked (208,56): a dead end on the terrace whose only way out is the phone itself.
+- `--survey <game dir> <missions-catalogue.json>` runs on the host and needs no game. **34 of the 36
+  rooftop-job phones** (the 32 jobs; the shared yellow follow-ups appear twice) have a stair or ramp
+  route from the district start to a launch cell. Typical routes are 130-325 cells with 1-8 flights. The
+  two without a route are Industrial's Zaibatsu pair (`bil_ze1`/`bil_ze2`, 44.5,163.5 / 45.5,161.5,
+  level 2). Both phones stand on level-2 field cells boxed in by level-3/4 blocks, and the router finds
+  no stair into them; this has not been checked in game.
+
+### Sessions (COP CAR CRUSH, `wil_ze1`, fresh game, `GTA2_DIRECT_KEYS=1`, plain renderer, no warp anywhere)
+
+| session | rooftop part | job outcome | what ended the job |
+|---|---|---|---|
+| rf1 (2x) | terrace reached on foot in 145 game-s; phone answered (brief 1681); the descent failed (dead-end step-off, fixed) | JOB FAILED | the Cop Car caught fire on the crusher leg. The first version also checked the ramp top on a slope piece, which made 5 spurious retries and learned 1 false block (fixed). |
+| rf2 | up 3 flights, phone, down 3 flights, back on the street at game-second 145; 0 retries | BUSTED | wanted level 1 in the Cop Car; the driver stopped behind a parked car at 85,74 and a cop arrested him |
+| rf3 | up and down clean (a governor pause of 9 wall-minutes = 17 game-s at the last flight) | stopped | run over by traffic crossing to the Cop Car at 208,43.5; hospital respawn |
+| rf4 | up and down clean, 6 flights, 1 retry; phone answered at game-second 119 | stopped (car burned) | Shady aboard and the yard box passed. The shared crusher-pad step then pressed the Cop Car around the crusher yard (175-185 x 14-16) from carhp 22000 until it caught fire |
+| **rf5** | up 3 flights in 119 game-s, 0 retries; phone at 154 s; back on the street at 188 s | **JOB COMPLETE** (+$20,000, multiplier 2, message 1124, game-second 930, 0 faults) | Cop Car at 196 s, Shady aboard at 435 s. The car caught fire 160 blocks from the yard and was driven on; parked at the pad and crushed. Frame `out/rf5/m_wil_ze1_crusher0.png`: JOB COMPLETE in the chase view |
+| rf6 | up and down clean (6 flights, 1 retry), street at game-second 196 | BUSTED | arrested at the Zarelli Cop Station (209.6,43.8) seconds after taking the Cop Car (cop points 600, "punched down while wanted") |
+| rf7 | up and down clean, phone at 128 s, street at 171 s | JOB FAILED | Shady aboard at 486 s; the car caught fire 180 blocks from the yard, and the crusher-pad step finished it in the yard (as in rf4) |
+
+Frames (chase view, not in git): `out/rf1/m_rooftop_terrace.png` (on the terrace beside the phone,
+with the HUD's "Answer the phone"), `out/rf2/m_wil_ze1_street.png` (back on the street after the
+descent), and `m_wil_ze1_*` for the job's steps.
+
+**Rooftop access: 7 of 7 sessions climbed to the terrace phone and answered COP CAR CRUSH (not the
+neighbour) without a warp. 6 of 6 came back down on foot after the step-off fix (rf1's descent ran before
+it).** Climb time from the level start: 119-137 game seconds; 0-1 flight retries per session; no false
+learned blocks after the flight fix.
+
+**Job: 1 of 6 sessions with the final code reached JOB COMPLETE (rf5).** The acceptance bar of 2 of 3 is
+not met with the shared plan runner. Every loss came after the roof, in shared steps of
+`mission_play_wil.run_plan` and `mission_lib.drive3`:
+- the crusher-yard parking step burned the Cop Car (rf4, rf7);
+- busted around the stolen Cop Car (rf2, rf6);
+- run over crossing to the car (rf3).
+
+Those steps belong to the crusher/crane, police and car-handling streams. SKILL-CRUSHER's
+`missions/cop_car_crush.py` now chains this skill with `deliver_intact`, `horn_pickup` and
+`crusher_crane` for the same job.
+
+### Using the skill in another job runner
+
+```python
+from skills import rooftop_access as RA
+RA.D, RA.M, RA.P, RA.world, RA.say = D, M, P, world, D.say    # the session's modules
+ok, ms, info = RA.answer_roof_phone(world, entry, P.answer)     # climb, answer; info["launch"] = launch cell
+s, down = RA.descend(world, toward=(x, y))                      # back to the street toward the next target
+s, ok = RA.climb(world, tx, ty, tl)                             # any raised point (a LOCATE box at z >= 4)
+```
+
+Open items: Industrial's Zaibatsu phones (`bil_ze1`/`bil_ze2`) have no router route (check in game); the
+CLI hands over only to the Downtown session (`mission_play_districts` for ste/bil needs the same hand-off).
+
+## Wave M, SKILL-CRUSHER (9 Nov 2026): crusher and crane, `skills/crusher_crane.py`
+
+COP CAR CRUSH (`wil_ze1`) played by `missions/cop_car_crush.py`, which chains the Wave M modules:
+`rooftop_access` (the Zaibatsu terrace phone on foot), `deliver_intact.board` (the Cop Car),
+`horn_pickup.pickup` (Shady at the Avalon station) and `crusher_crane.crush` (the crusher leg and the
+crane). Details, API and the hook rule: `docs/skill-crusher.md`.
+
+The crane lifts a car standing under its hook, 2.5 blocks from the tower along the crane's rotation
+(Downtown crane1: 177.0,11.5). The module reaches the yard by the fragile drive to a lane mouth only,
+then creeps straight up an open lane (south through the yard gate) to the hook, gets out and walks
+back down the lane. That replaces the shared crusher-pad step that pressed the car round the yard
+walls until it burned (rf4, rf7).
+
+| session | outcome | crane step |
+|---|---|---|
+| ccc1 | not a test (a 16-minute governor pause spent the climb's wall-time budget) | - |
+| ccc2 | failed: the Cop Car pinned against a stopped car at 144,35 on the crusher leg, alight | not reached (pin guard added) |
+| **ccc3** | **JOB COMPLETE**, game-s 759 | the car arrived alight (16336); second hook candidate, crushed at once |
+| **ccc4** | **JOB COMPLETE**, game-s 879 | gate scraped on the first creep; second candidate, taken in 4 s |
+| **ccc5** | **JOB COMPLETE**, game-s 666 | first try, 0.06 from the hook, no damage |
+
+**3 of 3 sessions since the pin guard reached JOB COMPLETE**, all in a fresh game, no warp, chase-view
+frames (`out/ccc5/m_ccc_crane_hook.png`, `m_ccc_end.png`; not in git).
+
+## Wave M, SKILL-HORN (9 Nov 2026): horn pick-ups, `skills/horn_pickup.py`
+
+GET ZITZAKI (`wil_ye1`) played by `missions/zitzaki_horn.py`: SKILL-DELIVER's `get_zitzaki.py`
+unchanged, with only its horn step replaced by `horn_pickup.pickup`. The stop is the hospital's
+3 x 1 strip, entered by `deliver_intact`'s creep. The horn is taken when the script creates the doctor,
+and the car stays in the strip while he walks. Details, API and FAKE TRUCE (`ste_se2`, the module's
+four-group runner; the Factory Bus burns after group 2): `docs/skill-horn.md`.
+
+| session | horn stop | outcome |
+|---|---|---|
+| **zh1** | horn on press 1, the doctor aboard in 5 s (1639) | **JOB COMPLETE** 1124 at game-s 811, +$20,000 |
+| zh2 | press 1, aboard in 0 s | not complete: the Miura burned on the garage leg; the 900 s run ended |
+| zh3 | not reached | stuck: pulled out of the Miura on the hospital leg, the re-board walked to the spawn point |
+| **zh4** | press 1, aboard in 0 s | **JOB COMPLETE** at game-s 777 |
+| **zh5** | press 2, aboard in 0 s | **JOB COMPLETE** at game-s 896 |
+
+**3 of 5 sessions, 2 of the last 3, reached JOB COMPLETE. The horn stop succeeded every time it was
+reached.** Speed 2, fresh game, no warp, frames in the chase view (`out/zh1/m_horn_doctor_horn.png`,
+`out/zh4/m_zz_end_third.png`; not in git). The same module is in SKILL-CRUSHER's COP CAR CRUSH (Shady,
+ccc3-ccc5, 3 of 3 complete).
+
+## Wave M, ROOFTOP-PROVE (9 Nov 2026): COP CAR CRUSH with the on-foot climb, `skills/rooftop_access.py` fixes
+
+The proof job was COP CAR CRUSH (`wil_ze1`, Zaibatsu HQ level-4 terrace). The runner was
+`missions/cop_car_crush.py` (SKILL-CRUSHER's). It calls `skills/rooftop_access` for the phone,
+`deliver_intact` for the Cop Car, `horn_pickup` for Shady and `crusher_crane` for the crane. Every
+session ran on a fresh game with `GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1` and `WARP_OK=0`. There was no
+warp anywhere. Changes to `skills/rooftop_access.py` (shared runner libraries untouched):
+
+- **Budgets on the game clock** (`GameClock`): the climb's budget is the wall clock, capped at the
+  game's own clock (the renderer's frame counter) plus 12 s. A flight whose walk spanned a governor
+  pause is not counted as a failed flight (ccc1 lost its whole climb, 991 s, to a 16-minute pause
+  after 17 game seconds). In the game: rp1, rp2, ccc4 and rp4 each had a 441-1045 s pause on the first
+  flight. Each was marked "spanned a pause ... not counted", and the climb went on.
+- **Beside a neighbour phone** (`phone_margin`, `careful_walk`): the only way to the launch cell
+  (209,57) runs along x=209, beside WHEELER-DEALING's phone (208.5,59.5). In rp2 the walker's
+  sideways unstick on that stretch answered it, and COP CAR CRUSH then said 1113 ("already on a
+  Zaibatsu job"). The skill now first tries a route with a 1-cell margin round neighbour phones. When
+  there is none, as here, it walks those cells one at a time. Each aim point is 0.15 off-centre away
+  from the phone. The session's `cruise_to` runs in bursts shorter than its no-progress limit, so the
+  unstick never fires there. After three passes that do not get through, the plain walker takes over.
+  A first version steered with its own pulses. It drifted onto the neighbour phone at the corner in
+  rp4 and stalled in rp5, so it was replaced.
+- **Re-centred before the answer**: after arriving, he drifted to 209.9,58.2 (rp7). The session's
+  `answer` walk then went diagonally to the phone, stuck, and its unstick answered the neighbour
+  (1113). A careful step back onto the launch cell now precedes the answer, so the step onto the phone
+  is straight (rp8: answered, brief 1681).
+- **Repeated-flight guard**: standing on a slope top, the planner could report the same flight as
+  climbed 25 times in a second (rp2). Now it steps one cell on.
+
+| session | roof (climb, answer, descent) | job | what ended it |
+|---|---|---|---|
+| rp1 | clean (654 s pause not counted) | stuck | Cop Car pinned at 210.6,43.5 on the Shady drive, burned |
+| rp2 | climbed; the unstick answered WHEELER-DEALING | phone: 1113 | fixed (careful walk) |
+| rp3 | clean, careful walk 3 cells | stuck | Cop Car burned at 146.5,30.9 on the crusher drive |
+| rp4 | pulse-steered careful walk onto the neighbour phone | phone not answered | fixed (cruise_to bursts) |
+| **rp5** | clean (fallback walker after the pulse walk stalled) | **JOB COMPLETE** (1124, +$20,000, game-second 1263) | `out/rp5/m_ccc_end.png`: chase view, $20,875, "Here's $20,000 for a job well done" |
+| rp6 | clean, final careful walk: 3 cells in 4 s | stuck | Cop Car burned on the Shady and crusher drives (respray not reached) |
+| rp7 | clean climb and careful walk; drifted before the answer, the answer walk's unstick hit the neighbour | phone: 1113 | fixed (re-centre) |
+| rp8 | clean on the final code: re-centred, answered (1681), back on the street at game-second 213 | stuck | Cop Car burned on the Shady and crusher drives (carhp 32000 -> 14714 on the first) |
+| ccc3, ccc4, **ccc5** (SKILL-CRUSHER, same runner and skill) | clean (ccc4 with the pause fix and careful walk, ccc5 with the eased walk) | **JOB COMPLETE** x3 | `out/ccc*/m_ccc_crane_crushed.png`, `m_ccc_end.png` |
+
+**The acceptance bar (JOB COMPLETE in 2 of 3 sessions) is not met by this agent's own sessions:
+1 of 8 (rp5).** Across all 11 sessions of this runner since the game-clock fix, it is 4 of 11 (ccc3,
+ccc4, ccc5, rp5). ccc3-ccc5 were three in a row, but they are SKILL-CRUSHER's sessions, and rp6-rp8
+after them all failed. The roof reached the right job in 8 of the 11. The three misses (rp2, rp4,
+rp7) are each fixed above, and the final code (rp8) climbed, answered and came down clean. Every
+other failure was the Cop Car catching fire on a drive, in `deliver_intact` / `crusher_crane` (other
+streams). At `GTA2_SPEED=2` the burning car lost the job in 4 of the 11 (rp1, rp3, rp6, rp8).
+Frames, chase view, not in git:
+`out/rp*/m_rooftop_terrace.png` (the terrace beside the phone), `out/rp5/m_ccc_end.png` (JOB COMPLETE).
+
 ## Wave M, SKILL-GUNFIGHT (9 Nov 2026): WHO'S MAD? complete with the on-foot gunfight skill
 
 `gamerun/skills/gunfight.py` (mirrored in `linux/docker/skills/`) is the `combat_on_foot` skill: armed
@@ -671,8 +982,31 @@ details, the skill's options and every session are in `docs/skill-gunfight.md`.
 | **gf_wm7** | **JOB COMPLETE** (1124, +$40,000): three down in 17 game-s at health 100; `out/gf_wm7/shot_475.png` |
 | **gf_wm8** | **JOB COMPLETE**: three down in 8 game-s at health 100; `out/gf_wm8/m_wm_end.png` |
 | gf_wm9 | dead: 60 health lost on a walk to the plaza before the fight loop (fixed: the fight starts at brief 1464, bounded steps) |
+| **gf_wm10** | **JOB COMPLETE** with the gf_wm9 fix (+$40,000); two hitmen died when their car blew up, and the blast took health to 10; `out/gf_wm10/m_wm_end.png` |
 
-**2 of 3 consecutive sessions (gf_wm7-9) reached JOB COMPLETE in the chase view**, with no warp.
+**2 of 3 consecutive sessions (gf_wm7-9) reached JOB COMPLETE in the chase view** (3 of 4 counting
+gf_wm10), with no warp.
+
+## Wave M, SKILL-DESTROY (9 Nov 2026): PIZZA CAKE with the destroy-a-vehicle skill, `skills/destroy_vehicle.py`
+
+Module and runner: `gamerun/skills/destroy_vehicle.py`, `gamerun/missions/pizza_cake.py`
+(`missions/keys_pizza_cake.sh`); API, rules and every session in `docs/skill-destroy.md`.
+The van step is the skill: the target car tracked by id from `view: cars` (its arrow slot, hp,
+fire), pursued by car in 15 s `drive3` legs that stop when the police want us or the van stands
+near, then the machine gun on foot from 3-12 blocks. Eleven sessions (`dv_pc1`-`dv_pc11`, fresh
+game each, `GTA2_DIRECT_KEYS=1`); the first eight each failed at a different point that is now
+fixed: the RADIO ZA-ZA phone next door answered first (twice), run over at a kerb waiting for a
+car, firing from too far at a burning van, arrested after 30 s car legs (twice), waiting at
+spots the van never came back to (twice).
+
+| session | outcome |
+|---|---|
+| **dv_pc9** (2x) | **JOB COMPLETE** (1124, +$20,000) 365 s after the phone: pursuit by car, out 10 blocks from the slowing van, 282 rounds, wrecked; `out/dv_pc9/m_pc_van_burning.png`, `m_pc_end.png` |
+| **dv_pc10** (2x) | **JOB COMPLETE** 193 s after the phone: the van stopped 12 blocks off at 59.5,134; 100 rounds, 5 s |
+| **dv_pc11** (1x, `game.mp4`) | **JOB COMPLETE** 309 s after the phone: pursuit from 44 blocks, out 13 blocks from the standing van, 17 s of fire; `m_pc_end.png` the explosion behind the banner |
+
+**3 of 3 sessions with the final code reached JOB COMPLETE, all frames of the job in the chase
+view**, with no developer warp.
 
 ## Part 12 (9 Nov 2026, Wave M, KILLMARK-GETAWAY): the BANK ROBBERY getaway
 

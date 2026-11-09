@@ -94,13 +94,14 @@ counted as a failure.
 | **gf_wm7** | **JOB COMPLETE** (1124, +$40,000, multiplier 2) | All three down by game-second 640 (17 s of fight, 9 s of fire). Health stayed at 100. Five steps away from burning cars. The runner's newest-line check missed the 1.7 s of 1124 (then "svdone") and logged "running"; the game's log and the money show the completion. Frame: `out/gf_wm7/shot_475.png` (JOB COMPLETE! in the chase view). Changed: `arm_job()` / sticky message scan. |
 | **gf_wm8** | **JOB COMPLETE** (589 s from the level, +$40,000) | All three down within 8 game-seconds of the fight starting (3.4 s of fire). Health stayed at 100. The runner logged `complete`. Frame: `out/gf_wm8/m_wm_end.png` (JOB COMPLETE! in the chase view, a hitman down beside the VTYPEs). |
 | gf_wm9 | dead (7073) | The hitmen arrived early. The runner's separate walk from the box to the plaza, with the trigger off and before the fight loop began, cost 60 health (100 -> 40). A `walk3` leg toward a hitman's last place then kept walking through the death (walk3's budget is checked between legs only). Changed: the fight loop starts at brief 1464 and moves him to the plaza itself; every move in the skill is a bounded `route_step` (at most 3 blocks / 2 s). |
-| gf_wm10 | running at commit time | First session with the gf_wm9 changes; reported on issue #7. |
+| **gf_wm10** | **JOB COMPLETE** (1124, money 1,723 -> 41,729, multiplier 2) | First session with the gf_wm9 changes. The fight started at brief 1464 in the yard; the skill went round its wall twice (`walls` 2) and shot one hitman, and the other two died when their VTYPE blew up beside them. The blast took health to 10, a close call: `blast` 3.2 is not enough clearance for a car that burns out where the player stands. The skill counted one kill, but the game counted three. Frame: `out/gf_wm10/m_wm_end.png` (JOB COMPLETE!, chase view, the three hitmen down beside the VTYPEs). |
 
 **Acceptance: gf_wm7, gf_wm8 and gf_wm9 were three consecutive sessions on the same fight logic.
 2 of 3 reached JOB COMPLETE in the chase view.** The only code change between gf_wm7 and gf_wm8 was
-the message scan, which affects reporting only.
+the message scan, which affects reporting only. With the gf_wm9 fix, gf_wm8-10 were also 2 of 3, and
+gf_wm7-10 were 3 of 4.
 
-No developer warp was used in gf_wm7, gf_wm8 or gf_wm9. The shared walker warps itself when pinned
+No developer warp was used in gf_wm7-10. The shared walker warps itself when pinned
 (`WARP_OK`); gf_wm4 shows one, near the phone yard.
 
 Frames are in the chase view and not in git:

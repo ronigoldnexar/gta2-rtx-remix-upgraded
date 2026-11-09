@@ -176,6 +176,10 @@ STOPS = {1: (42.6, 116.1)}
 # the parked car at 243.5,185.5 (east of the phone) cannot be entered: sos4, sos5 and sos7 each spent
 # minutes at its doors while looking for a carrier
 M.BAD_CARS.append((243.5, 185.5))
+# sos9: calm_drive stops 3 blocks short of any POLICE_MODELS car ahead, and that set holds the
+# ambulance (34) and the fire truck (17); the two Medicars parked at the hospital beside operative 3
+# (104.5,140.5) held the taxi there for minutes. For this job only the police's own vehicles count
+M.POLICE_MODELS.difference_update({34, 17})
 EXIT_BACK = {1: 1.0}
 
 def back_out(secs):

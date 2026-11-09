@@ -17,7 +17,16 @@ if [ $((now - last)) -ge $((IDLE_MIN*60)) ]; then want=0-7; else want=0-4; fi
 games=$($D ps --format '{{.Names}}' | grep -v '^gta2-play-')
 for c in $games; do
   cur=$($D inspect -f '{{.HostConfig.CpusetCpus}}' "$c" 2>/dev/null)
-  [ "$cur" = "$want" ] || $D update --cpuset-cpus "$want" "$c" >/dev/null 2>&1
+  [ "$cur" = "$want" ] && continue
+  # A --gpus container whose NVIDIA nodes are not also in its --device list must not be updated: on cgroup v2
+  # `docker update` rebuilds the device filter from that list and the driver's next open of /dev/nvidiaN
+  # gets EPERM (Vulkan "Failed to create fence", commit 68bec1e). Launchers pass the nodes via nv_devices.sh;
+  # a container started without them keeps its cpuset.
+  gpu=$($D inspect -f '{{len .HostConfig.DeviceRequests}} {{range .HostConfig.Devices}}{{.PathOnHost}} {{end}}' "$c" 2>/dev/null)
+  if [ "${gpu%% *}" != 0 ] && ! grep -q '/dev/nvidiactl' <<<"$gpu"; then
+    echo "$(date +%T) kept cpuset of $c (GPU container without --device NVIDIA nodes)" >> /tmp/gta2-governor.log; continue
+  fi
+  $D update --cpuset-cpus "$want" "$c" >/dev/null 2>&1
 done
 echo "$want" > /tmp/gta2-game-cpuset
 # --- 2. overload watchdog

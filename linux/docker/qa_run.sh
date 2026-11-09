@@ -13,7 +13,7 @@ SED='s/^log_keys=.*/log_keys=1/; s/^warp_key=.*/warp_key=F9/; s/^scene_key=.*/sc
 # (the scenarios turn and walk with them); 0 keeps the shipped camera-relative controls.
 [ "${GTA2_DIRECT_KEYS:-1}" = 1 ] && SED="$SED; s/^nav_map=.*/nav_map=0/"
 [ -n "$QA_SED" ] && SED="$SED; $QA_SED"
-gamerun/slot.sh sudo -n docker run --rm --gpus '"device=0"' \
+gamerun/slot.sh sudo -n docker run --rm --gpus '"device=0"' $(gamerun/nv_devices.sh 0) \
   -e NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility -e FPS=${QA_FPS:-15} --cpus=${QA_CPUS:-4} \
   -e INI_SED="$SED" -e GTA2_DIRECT_KEYS="${GTA2_DIRECT_KEYS:-1}" ${QA_DISTRICT:+-e SWAP_LEVEL=$QA_DISTRICT} ${QA_ENV} \
   $([ "${GTA2_FAST:-1}" = 1 ] && ROOT=$PWD STAGE=${STAGE:-$PWD/repo/stage} SWAP_LEVEL="${QA_DISTRICT:-}" gamerun/game_mounts.sh) -e GTA2_INTRO="${GTA2_INTRO:-1}" -v "$PWD/gamerun:/work" -v "$PWD/game:/game:ro" -v "$PWD/upstream-release/files:/release:ro" \

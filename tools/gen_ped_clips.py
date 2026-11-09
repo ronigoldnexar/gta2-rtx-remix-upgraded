@@ -445,6 +445,40 @@ def main():
     hit_keys = [(0.00, {}, (0, 0, 0)), (0.07, hit1, (0, 0, 0)), (0.24, hit2, (0, 0, 0)), (0.55, {}, (0, 0, 0))]
     clips.append(clip_keys(sk, "hit_head", hit_keys, upper=True))
     clips.append(clip_keys(sk, "hit_head2", [(t, mirror(d), ro) for t, d, ro in hit_keys], upper=True))
+    # ---- Shot (QB-16, upper-body layers, 0.6 s, one shot) --------------------
+    # A bullet landing (the game's health drop with a figure that just fired at
+    # him, live_geometry.cpp): the torso jolts along the bullet in the first
+    # 0.06 s, the head lags the other way, a hand goes to the wound, then it
+    # eases back to whatever the legs and the carry layer are doing. The renderer
+    # adds a stagger of the whole figure along the shot (more for heavy guns).
+    # hit_shot_front: struck in the chest from ahead (thrown back, then folding
+    # over the wound); hit_shot_back: struck from behind (pitched forward, the
+    # head and arms flung back); hit_shot_l: struck on his left side from his
+    # left (the left shoulder driven back, bent away to his right, the left hand
+    # clutching it); hit_shot_r the mirror.
+    sf1 = {SP: [(RIGHT, 16)], SP2: [(RIGHT, 10)], HEAD: [(RIGHT, -14)],
+           R: [(RIGHT, 28), (UP, -18)], RF: [(RIGHT, 30)], L: [(RIGHT, 28), (UP, 18)], LF: [(RIGHT, 30)]}
+    sf2 = {SP: [(RIGHT, -12)], SP2: [(RIGHT, -6)], HEAD: [(RIGHT, -12)],
+           R: [(RIGHT, 30), (UP, 24)], RF: [(RIGHT, 96)], L: [(RIGHT, 24), (UP, -12)], LF: [(RIGHT, 70)]}
+    sf3 = {SP: [(RIGHT, -5)], HEAD: [(RIGHT, -5)], R: [(RIGHT, 14), (UP, 12)], RF: [(RIGHT, 50)], LF: [(RIGHT, 20)]}
+    clips.append(clip_keys(sk, "hit_shot_front", [
+        (0.00, {}, (0, 0, 0)), (0.06, sf1, (0, 0, 0)), (0.22, sf2, (0, 0, 0)), (0.40, sf3, (0, 0, 0)), (0.62, {}, (0, 0, 0)),
+    ], upper=True))
+    sb1 = {SP: [(RIGHT, -20)], SP2: [(RIGHT, -10)], HEAD: [(RIGHT, 22)],
+           R: [(RIGHT, -24), (UP, -10)], RF: [(RIGHT, 20)], L: [(RIGHT, -24), (UP, 10)], LF: [(RIGHT, 20)]}
+    sb2 = {SP: [(RIGHT, -10)], SP2: [(RIGHT, -4)], HEAD: [(RIGHT, 6)],
+           R: [(RIGHT, 10), (UP, -6)], RF: [(RIGHT, 40)], L: [(RIGHT, 10), (UP, 6)], LF: [(RIGHT, 40)]}
+    clips.append(clip_keys(sk, "hit_shot_back", [
+        (0.00, {}, (0, 0, 0)), (0.06, sb1, (0, 0, 0)), (0.26, sb2, (0, 0, 0)), (0.60, {}, (0, 0, 0)),
+    ], upper=True))
+    ss1 = {SP: [(UP, 24), (FWD, 12)], SP2: [(UP, 10), (FWD, 6)], HEAD: [(UP, -14), (FWD, -12)],
+           L: [(RIGHT, -10), (UP, 16)], LF: [(RIGHT, 24)], R: [(RIGHT, 18), (UP, -20)], RF: [(RIGHT, 30)]}
+    ss2 = {SP: [(UP, 12), (FWD, 8), (RIGHT, -8)], SP2: [(UP, 4)], HEAD: [(UP, -6), (FWD, -4)],
+           L: [(RIGHT, 22), (UP, 30)], LF: [(RIGHT, 110)], R: [(RIGHT, 12), (UP, -10)], RF: [(RIGHT, 24)]}
+    ss3 = {SP: [(UP, 4), (FWD, 3)], L: [(RIGHT, 12), (UP, 14)], LF: [(RIGHT, 50)]}
+    side_keys = [(0.00, {}, (0, 0, 0)), (0.06, ss1, (0, 0, 0)), (0.24, ss2, (0, 0, 0)), (0.42, ss3, (0, 0, 0)), (0.62, {}, (0, 0, 0))]
+    clips.append(clip_keys(sk, "hit_shot_l", side_keys, upper=True))
+    clips.append(clip_keys(sk, "hit_shot_r", [(t, mirror(d), ro) for t, d, ro in side_keys], upper=True))
 
     # ---- Cars (ACTIONS-3D-4) -----------------------------------------------
     # Upper-body layers over legs that step by the ground the game moves him
@@ -491,6 +525,31 @@ def main():
     clips.append(clip_keys(sk, "grab_door_r", grab_keys, loop=True, joints=grab_joints))
     grab_joints_l = {n.replace(" R ", " L ") for n in grab_joints}
     clips.append(clip_keys(sk, "grab_door_l", [(t, mirror(d), ro) for t, d, ro in grab_keys], loop=True, joints=grab_joints_l))
+    # ---- Jacking a driver (QB-14) --------------------------------------------
+    # GTA2 boards an occupied car with the same states as an empty one (state 3:
+    # sub 4 the reach, sub 6 the climb, sprite frames 24-35 over ~1.4 s); 0.6 s into
+    # the climb the driver appears beside the door, thrown (state 8 sub 0x11, 0.5 s,
+    # sliding ~0.45 blocks off the car), then lies knocked down (sub 0x19 / 0x16,
+    # ~2.3 s) and gets up and walks or runs off (probe runs qb14_before2).
+    # jack_pull (upper-body layer, 1.95 s), the jacker: the hand to the handle
+    # (0.30), the door yanked wide, shoulders thrown round to his right (0.50), both
+    # hands into the doorway at chest height (0.80) and the grip (0.95) - the
+    # renderer holds there until the driver comes out - then the haul, leaning back
+    # with the shoulders turning to his left and the fists drawn to his chest (1.20),
+    # the fling out to his left (1.40), and back round into enter_car's duck under
+    # the roof (1.65, 1.95) as the game climbs him in.
+    clips.append(clip_keys(sk, "jack_pull", [
+        (0.00, {}, (0, 0, 0)),
+        (0.30, leaned({SP: [(RIGHT, -12)]}, (5, -9, 27), (55, 5, 6), [(RIGHT, -8)]), (0, 0, 0)),
+        (0.50, leaned({SP: [(RIGHT, 6), (UP, -28)], SP2: [(UP, -10)]}, (20, 10, 40), (32, -70, 15), [(UP, 14)]), (0, 0, 0)),
+        (0.80, leaned({SP: [(RIGHT, -22)], SP2: [(RIGHT, -8)]}, (80, 14, 40), (84, -14, 36), [(RIGHT, -6)]), (0, 0, 0)),
+        (0.95, leaned({SP: [(RIGHT, -25)], SP2: [(RIGHT, -9)]}, (74, 10, 64), (78, -10, 64), [(RIGHT, -8)]), (0, 0, 0)),
+        (1.20, leaned({SP: [(RIGHT, 18), (UP, 26)], SP2: [(RIGHT, 6), (UP, 10)]}, (32, 28, 112), (56, -4, 116),
+                      [(RIGHT, 4), (UP, 14)]), (0, 0, 0)),
+        (1.40, leaned({SP: [(RIGHT, 4), (UP, 40)], SP2: [(UP, 14)]}, (46, 58, 22), (70, 38, 26), [(UP, 24)]), (0, 0, 0)),
+        (1.65, leaned({SP: [(RIGHT, -30)], SP2: [(RIGHT, -10)]}, (83, -3, 56), (57, -45, 67), [(RIGHT, -6)]), (0, 0, 0)),
+        (1.95, leaned({SP: [(RIGHT, -38)], SP2: [(RIGHT, -12)]}, (65, -20, 47), (45, 45, 60), [(RIGHT, -4)]), (0, 0, 0)),
+    ], upper=True))
 
     # ---- Turning on the spot (ACTIONS-3D-4) ----------------------------------
     # A legs-only layer (thighs and below) over the idle: the feet step in place,
@@ -549,6 +608,37 @@ def main():
         (0.70, {ROOT: [(RIGHT, 90)], RT: [(RIGHT, 0), (UP, 8)], LT: [(RIGHT, 0), (UP, -8)],
                 R: [(RIGHT, 20), (UP, -45)], L: [(RIGHT, 20), (UP, 45)], HEAD: [(RIGHT, -10)]}, (lying_root[0], lying_root[1], 0.0)),
     ]))   # held at its last key by the renderer (one pose, one cached buffer)
+    # Jacked (QB-14, whole body, 1.0 s, held lying): the driver hauled out of his
+    # seat by the collar. The renderer turns him to face the car he came out of, so
+    # the game's slide off the door carries him backwards: still folded at the hips
+    # and knees as if seated, the arms reaching back for the wheel (0.00), the feet
+    # swung out and down, the torso yanked back, the arms flung up (0.20), two
+    # stumbling steps back with the arms windmilling (0.40), over backwards (0.60),
+    # a bounce on landing with the knees up (0.80), and then exactly the end of
+    # "fall" (1.00), so getting up is "fall" played backwards like any knock-down.
+    fall_end = {ROOT: [(RIGHT, 90)], RT: [(RIGHT, 0), (UP, 8)], LT: [(RIGHT, 0), (UP, -8)],
+                R: [(RIGHT, 20), (UP, -45)], L: [(RIGHT, 20), (UP, 45)], HEAD: [(RIGHT, -10)]}
+    clips.append(clip_keys(sk, "jacked", [
+        (0.00, {RT: [(RIGHT, 80)], LT: [(RIGHT, 74)], RC: [(RIGHT, -84)], LC: [(RIGHT, -78)],
+                SP: [(RIGHT, 14)], SP2: [(RIGHT, 6)], HEAD: [(RIGHT, -18)],
+                R: [(RIGHT, 72), (UP, -8)], RF: [(RIGHT, 40)], L: [(RIGHT, 66), (UP, 8)], LF: [(RIGHT, 44)]},
+         (0, -0.42, 0.10)),
+        (0.20, {ROOT: [(RIGHT, 12)], RT: [(RIGHT, 34)], LT: [(RIGHT, 18)], RC: [(RIGHT, -34)], LC: [(RIGHT, -20)],
+                SP: [(RIGHT, 18)], SP2: [(RIGHT, 8)], HEAD: [(RIGHT, -22)],
+                R: [(RIGHT, 118), (UP, -22)], RF: [(RIGHT, 30)], L: [(RIGHT, 104), (UP, 24)], LF: [(RIGHT, 36)]},
+         (0, -0.16, 0.04)),
+        (0.40, {ROOT: [(RIGHT, 20)], RT: [(RIGHT, -18)], LT: [(RIGHT, 32)], RC: [(RIGHT, -22)], LC: [(RIGHT, -30)],
+                SP: [(RIGHT, 8)], HEAD: [(RIGHT, -16)],
+                R: [(RIGHT, 150), (UP, -40)], RF: [(RIGHT, 20)], L: [(RIGHT, 40), (UP, 50)], LF: [(RIGHT, 30)]},
+         (0, -0.07, -0.02)),
+        (0.60, {ROOT: [(RIGHT, 62)], RT: [(RIGHT, 28)], LT: [(RIGHT, 12)], RC: [(RIGHT, -30)], LC: [(RIGHT, -14)],
+                HEAD: [(RIGHT, -26)], R: [(RIGHT, 72), (UP, -60)], L: [(RIGHT, 72), (UP, 60)]},
+         (0, -root_y + 0.30, -0.06)),
+        (0.80, {ROOT: [(RIGHT, 94)], RT: [(RIGHT, 22), (UP, 8)], LT: [(RIGHT, 8), (UP, -8)], RC: [(RIGHT, -30)], LC: [(RIGHT, -10)],
+                HEAD: [(RIGHT, -20)], R: [(RIGHT, 30), (UP, -60)], L: [(RIGHT, 30), (UP, 60)]},
+         (0, lying_root[1] + 0.03, -0.02)),
+        (1.00, fall_end, (lying_root[0], lying_root[1], 0.0)),
+    ]))
     # Rifle (machine gun, silenced machine gun, shotgun): the stock in the right
     # shoulder, the right hand at the pistol grip by the chest, the left arm out
     # on the fore-end, the body bladed with the left shoulder leading, the cheek
@@ -634,6 +724,63 @@ def main():
     # Flamethrower: at the hip, the nozzle down and ahead.
     clips.append(held("carry_flame", {R: [(RIGHT, 12), (UP, 10)], RF: [(RIGHT, 64)],
                                       L: [(RIGHT, 36), (UP, -22)], LF: [(RIGHT, 30)]}))
+    # ---- Reloading (QB-29, upper-body layers, one shot) --------------------
+    # GTA2 has no magazines: the renderer counts the shots off the weapon object
+    # and plays these when a notional magazine is spent and he stops firing
+    # (live_geometry.cpp, kReloads: the times below are the drop and insert
+    # events it spawns the falling magazine and the clicks on). Each starts and
+    # ends on the weapon's carry pose so it fades in and out of it.
+    rel_carry = dict(carry)
+    pres = {R: [(RIGHT, 42), (UP, 24)], RF: [(RIGHT, 62)], "Bip01 R Hand": [(FWD, -25)], HEAD: [(RIGHT, -16)]}
+    # Pistol (also the dual pistols' right gun): bring it up in front of the
+    # chest, tip the mag out (a flick of the wrist, 0.30 s), the left hand to the
+    # belt for a fresh one, up into the grip (0.80 s), over the top to rack the
+    # slide, back to low ready.
+    clips.append(clip_keys(sk, "reload", [
+        (0.00, rel_carry, (0, 0, 0)),
+        (0.18, merged(pres, {L: [(RIGHT, 22), (UP, -10)], LF: [(RIGHT, 30)]}), (0, 0, 0)),
+        (0.30, merged(pres, {"Bip01 R Hand": [(RIGHT, -12)], L: [(RIGHT, 10), (UP, -6)], LF: [(RIGHT, 20)]}), (0, 0, 0)),
+        (0.55, merged(pres, {L: [(RIGHT, -6), (FWD, 8)], LF: [(RIGHT, 28)], HEAD: [(UP, -8)]}), (0, 0, 0)),
+        (0.68, merged(pres, {L: [(RIGHT, 30), (UP, -12)], LF: [(RIGHT, 46)]}), (0, 0, 0)),
+        (0.80, merged(pres, {L: [(RIGHT, 52), (UP, -36)], LF: [(RIGHT, 58)]}), (0, 0, 0)),
+        (0.98, merged(pres, {L: [(RIGHT, 58), (UP, -34)], LF: [(RIGHT, 62)], SP: [(UP, -4)]}), (0, 0, 0)),
+        (1.12, merged(pres, {L: [(RIGHT, 50), (UP, -30)], LF: [(RIGHT, 38)]}), (0, 0, 0)),
+        (1.24, merged(pres, {L: [(RIGHT, 30), (UP, 4)], LF: [(RIGHT, 16)]}), (0, 0, 0)),
+        (1.40, rel_carry, (0, 0, 0)),
+    ], upper=True))
+    # Rifle (machine guns, shotgun): the gun rolled and raised a little, the
+    # left hand off the fore-end to the magazine, pulled and dropped (0.35 s),
+    # a fresh one from the chest pouch, seated under the gun (0.95 s), a slap and
+    # a pull on the charging handle, back to low ready. The renderer keeps the
+    # weapon in the right hand meanwhile (its carry line, see kReloads).
+    heavy_carry = {R: [(RIGHT, 18), (UP, 34), (FWD, -11)], RF: [(RIGHT, 74)],
+                   L: [(RIGHT, 40), (UP, -26)], LF: [(RIGHT, 18)], SP: [(UP, -8)]}
+    hpres = {R: [(RIGHT, 26), (UP, 34), (FWD, -11)], RF: [(RIGHT, 78)], "Bip01 R Hand": [(FWD, -20)],
+             SP: [(UP, -8)], HEAD: [(RIGHT, -18), (UP, 6)]}
+    clips.append(clip_keys(sk, "reload_heavy", [
+        (0.00, heavy_carry, (0, 0, 0)),
+        (0.18, merged(hpres, {L: [(RIGHT, 46), (UP, -36)], LF: [(RIGHT, 48)]}), (0, 0, 0)),
+        (0.35, merged(hpres, {L: [(RIGHT, 12), (UP, -14)], LF: [(RIGHT, 30)]}), (0, 0, 0)),
+        (0.65, merged(hpres, {L: [(RIGHT, 18), (UP, -6)], LF: [(RIGHT, 112)], HEAD: [(UP, -10)]}), (0, 0, 0)),
+        (0.95, merged(hpres, {L: [(RIGHT, 46), (UP, -36)], LF: [(RIGHT, 48)]}), (0, 0, 0)),
+        (1.12, merged(hpres, {L: [(RIGHT, 50), (UP, -40)], LF: [(RIGHT, 66)]}), (0, 0, 0)),
+        (1.28, merged(hpres, {L: [(RIGHT, 30), (UP, -30)], LF: [(RIGHT, 92)]}), (0, 0, 0)),
+        (1.55, heavy_carry, (0, 0, 0)),
+    ], upper=True))
+    # Rocket launcher: the tube down off the shoulder to the hip, the left hand
+    # back over the shoulder for a rocket (0.40 s), pushed into the front of the
+    # tube (0.85 s), the tube back up on the shoulder.
+    launch_carry = {R: [(RIGHT, 49), (UP, 45), (FWD, -36)], RF: [(RIGHT, 104)],
+                    L: [(RIGHT, 66), (UP, -34)], LF: [(RIGHT, 40)], SP: [(UP, -8)]}
+    lpres = {R: [(RIGHT, 30), (UP, 30), (FWD, -20)], RF: [(RIGHT, 70)], SP: [(UP, -12)], HEAD: [(RIGHT, -14)]}
+    clips.append(clip_keys(sk, "reload_launcher", [
+        (0.00, launch_carry, (0, 0, 0)),
+        (0.20, merged(lpres, {L: [(RIGHT, 50), (UP, -30)], LF: [(RIGHT, 40)]}), (0, 0, 0)),
+        (0.40, merged(lpres, {L: [(RIGHT, 150), (UP, -10)], LF: [(RIGHT, 70)], SP: [(UP, 10)]}), (0, 0, 0)),
+        (0.65, merged(lpres, {L: [(RIGHT, 70), (UP, -36)], LF: [(RIGHT, 20)]}), (0, 0, 0)),
+        (0.85, merged(lpres, {L: [(RIGHT, 82), (UP, -30)], LF: [(RIGHT, 6)]}), (0, 0, 0)),
+        (1.20, launch_carry, (0, 0, 0)),
+    ], upper=True))
     # Cuffed: the hands together behind the back, the head down (arrested, led
     # to the police car; the legs walk).
     clips.append(held("cuffed", {R: [(RIGHT, -24), (FWD, 6)], RF: [(FWD, 78)],

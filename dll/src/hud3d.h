@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 struct IDirect3DDevice9;
 namespace gta2 { class Map; }
@@ -25,5 +26,8 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
 
 // Whether the modern HUD is the one on screen this frame.
 bool Hud3dActive();
+
+// QB-17/18: a text of the player's data\e.gxt by key ("wasted", "1124"); false when unknown.
+bool Hud3dGameText(const char* key, std::u16string* out);
 
 }  // namespace gta2dx9

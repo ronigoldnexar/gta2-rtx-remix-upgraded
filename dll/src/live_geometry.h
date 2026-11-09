@@ -116,6 +116,15 @@ bool BehindView(float x, float y, float z, float margin);
 // current view frustum's four side planes (PERF-2: props, map objects and people
 // outside the picture are not drawn; they were drawn whenever they were in front).
 bool OutsideViewFrustum(float x, float y, float z, float radius);
+// QB-6 (aim reticle and hit markers, hud3d.cpp): the people the street views drew this
+// frame (renderer coordinates, the sprite's origin; the game's health word, -1 unread),
+// and the projection of a world point with the camera of the last Draw, as a fraction of
+// the window (0..1 across and down); false behind the eye or before the first frame.
+struct AimPed { uintptr_t object; float x, y, z; int health; bool corpse; };
+const std::vector<AimPed>& LiveAimPeds();
+uint32_t LiveAimPedsFrame();   // the draw frame the list belongs to (bumped by every Draw)
+uint32_t LiveDrawFrame();
+bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy);
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);
@@ -397,6 +406,9 @@ struct FireSettings {
     float scorchSize = 1.0f;      // against the size of the blast
 };
 FireSettings& FireEffects();
+// CROWD: [crowd] variety / look_at / look_range (people's own clothes and builds,
+// heads that follow the player, glances); GTA2DX9_CROWD=0 turns them off.
+void CrowdLoad(const char* iniPath);
 // Reads and writes the [fire] section of the renderer's ini.
 void FireEffectsLoad(const char* iniPath);
 bool FireEffectsSave();
@@ -618,6 +630,12 @@ private:
         float runWeight = 0.0f;             // 0 walking .. 1 running, eased
         int idleVariant = 0;                // which idle clip he has
         float idleOffset = 0.0f, idleRate = 1.0f;
+        // CROWD: where his head is turned (radians off his torso, eased), the
+        // glance he is holding (its turn and the frame it ends) and the frame of
+        // the next one; whether he is looking at the player now (for the log).
+        float headYaw = 0.0f, glanceYaw = 0.0f;
+        uint32_t glanceUntil = 0, nextGlance = 0;
+        bool lookingAtPlayer = false;
         // The game's other states, as one action clip layered over the walk/idle:
         // 0 none, 1 punch, 2 aim, 3 hands up, 4 fall (held lying), 5 getting into a
         // car, 6 getting out, 7 a stagger. See PedActionFor in DrawPedFigures.
@@ -645,6 +663,16 @@ private:
         uint32_t waterFrame = 0;            // the frame he went into the water (the drowning sinks him)
         int32_t lastAmmo = -1, lastReload = -1;   // his weapon's words last frame (a shot: see Sprite::pedAmmo)
         uintptr_t lastWeaponObject = 0;
+        // QB-29 reloading (kReloads in live_geometry.cpp): the shots since the last
+        // reload, the frame of the last, the frame a reload began (0 none), the clip
+        // time last frame (its drop/insert events fire as it is crossed), and the
+        // long gun's line in the right hand's frame, taken while both hands hold it,
+        // which keeps it in the right hand while the left fetches a magazine.
+        int magShots = 0;
+        uint32_t magLastShot = 0, reloadStart = 0;
+        float reloadPrevT = -1.0f;
+        float gripLocal[3] = {0.0f, 0.0f, 1.0f};
+        bool gripValid = false;
         // Level of detail: his rank by distance from the eye last frame (the
         // nearest eight are posed every frame), and the pose values held for
         // the frames in between when he is further off.
@@ -678,8 +706,9 @@ private:
         // the blow (eased out and back, the legs step it).
         uint32_t hitFrame = 0;
         int32_t lastHealth = -1;
-        int hitSide = 0;
+        int hitSide = 0;   // QB-16: 2-5 shot from his front, back, left, right
         float hitDirX = 0.0f, hitDirZ = 0.0f;
+        float hitPush = 0.07f;   // the stagger's reach (QB-16: by the gun)
         float staggerX = 0.0f, staggerZ = 0.0f;
         // Getting into / out of a car: the car's middle (the heading faces it on
         // the way in and away from it on the way out) and when the state began.
@@ -688,6 +717,11 @@ private:
         uint32_t carStateFrame = 0;
         int32_t carState = -1;
         bool grabLeft = false;              // running beside a moving car: it is on his left
+        // QB-14 jacking: boarding a car with a driver at the wheel (jack_pull for the
+        // enter_car layer); the driver thrown out of it (lying clip 5, "jacked") and when.
+        bool jacking = false;
+        bool jacked = false;
+        uint32_t jackFrame = 0;
         float carSpeed = 0.0f;              // that car's own pace, blocks a second, eased: moving or parked
         uint32_t carSeenFrame = 0;
         // The clip an action ended on and where, faded out over the locomotion

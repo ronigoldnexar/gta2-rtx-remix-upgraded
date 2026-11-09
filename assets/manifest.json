@@ -8,27 +8,21 @@
   },
   {
    "name": "street_lamp",
-   "glb": "polyhaven/street_lamp_01/street_lamp_01_1k.gltf",
-   "scale": 0.5,
+   "glb": "objects/models/street_lamp.glb",
+   "scale": 1.0,
    "texture_max": 512
   },
   {
    "name": "fire_hydrant",
-   "glb": "polyhaven/fire_hydrant/fire_hydrant_1k.gltf",
-   "scale": 0.5,
-   "texture_max": 512,
-   "nodes_exclude": [
-    "_aged"
-   ]
+   "glb": "objects/models/fire_hydrant.glb",
+   "scale": 1.0,
+   "texture_max": 512
   },
   {
    "name": "trash_can",
-   "glb": "polyhaven/metal_trash_can/metal_trash_can_1k.gltf",
-   "scale": 0.5,
-   "texture_max": 512,
-   "nodes_exclude": [
-    "_rust"
-   ]
+   "glb": "objects/models/trash_can.glb",
+   "scale": 1.0,
+   "texture_max": 512
   },
   {
    "name": "bench",

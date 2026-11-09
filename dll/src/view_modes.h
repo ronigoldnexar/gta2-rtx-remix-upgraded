@@ -420,6 +420,26 @@ private:
     ViewMode lastMode_ = ViewMode::Classic;
 };
 
+// QB-6: aiming in the street views. Updated once a frame by the camera solver from the
+// player's ped: armed (on foot, a gun in his hands, standing), his shots (his weapon's
+// ammunition dropped or its reload timer restarted: the game's own word that a shot left
+// the gun), and how far the third-person camera has moved to the aim framing (0 the
+// normal chase, 1 over the shoulder, closer and lower, behind his heading).
+struct AimState {
+    bool armed = false;
+    int weapon = 0;            // the renderer's PedWeapon (live_geometry.cpp)
+    uint32_t shots = 0;        // shots seen since the level came up
+    double lastShot = 0.0;     // seconds (performance counter) of the last one; 0 none
+    float aimMix = 0.0f;       // the camera's blend to the aim framing
+    float headingYaw = 0.0f;   // his facing, renderer yaw (0 north, sin/cos)
+    float x = 0.0f, y = 0.0f, z = 0.0f;   // where he stands, renderer frame (y the eased floor)
+    bool valid = false;
+};
+const AimState& ViewAim();
+// True when the straight line between two points (renderer frame) passes through a solid
+// block of the map, by the camera's own world queries; false when they are unknown.
+bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1);
+
 // Pushes the motion blur choice to RTX Remix when it changes. Cheap to call
 // every frame: it only crosses the bridge when the answer is different.
 void ViewModePushRemixOptions(bool viewActive);

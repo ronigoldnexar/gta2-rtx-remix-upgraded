@@ -140,6 +140,19 @@ void ModelSetPaintTint(const float* rgb);
 // turned off the walk. Quantise it (it keys the pose cache).
 void ModelSetTorsoTwist(float radians);
 float ModelTorsoTwist();
+// CROWD: a turn of the head about the model's up axis, radians, shared 40/60
+// between "Bip01 Neck" and "Bip01 Head" (a glance, a look at the player); on
+// top of the clip and the torso twist, until set back to 0. Quantise it (it
+// keys the pose cache).
+void ModelSetHeadTurn(float radians);
+// QB-27: a hook run on the node matrices of every pose built until cleared (a
+// ragdoll writes its own); `key` tells the pose cache which pose it is (0: none).
+using ModelPoseHookFn = void (*)(const Model& model, std::vector<gta2::Mat4>* worlds, void* context);
+void ModelSetPoseHook(ModelPoseHookFn fn, void* context, uint64_t key);
+// The node matrices (model space) of a pose, as ModelDrawBlend would build them
+// with the current overlay and torso twist (no pose hook).
+void ModelPoseWorlds(const Model& model, const ModelAnimation* animation, float time, const ModelAnimation* second,
+                     float secondTime, float weight, std::vector<gta2::Mat4>* out);
 // A third clip over the two that ModelDraw / ModelDrawBlend / ModelNodeWorld blend:
 // sampled over a copy of their pose (a joint it has no channel for keeps theirs, so
 // an upper-body layer leaves the legs to the pair) and blended in by `weight`

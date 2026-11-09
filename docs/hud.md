@@ -70,6 +70,46 @@ Font: **Barlow Condensed** by Jeremy Tribby, SIL Open Font License 1.1
 (`assets/fonts/*-hud.ttf`) and embedded in the DLL by `tools/gen_hud_font.py`
 (`dll/src/hud3d_font.inc`), so nothing extra has to be staged.
 
+## Aiming: reticle, target, hit markers and the aim camera (QB-6)
+
+GTA2 has no aim: a bullet leaves the gun along the way the pedestrian faces. The street views
+now show that line and what is on it.
+
+- **Reticle** (`hud3d.cpp`, `UpdateAimHud` / `DrawAimLayer`): on foot with a gun in his hands
+  (`ViewAim().armed`: a weapon object, not down, not in a car door) and the modern HUD up. Four
+  ticks round a dot, white; it sits on the first person standing on the line of fire, or where
+  the line meets a wall (binary search with the camera's own block query, `ViewLineBlocked`),
+  or 8 blocks out. A shot opens the ticks for a quarter of a second.
+- **Target**: the nearest person on the line, inside a corridor of 0.32 block + 0.03 per block
+  of range (the game's bullets were measured landing up to 0.45 block off the line at 4 blocks),
+  within the weapon's reach (10 blocks for pistols and machine guns, 6 shotgun and thrown, 3
+  flamethrower and electro gun, 12 rocket), within 1.2 levels of height, not behind a wall.
+  With one the reticle turns red, sits on his chest and red corner brackets frame him.
+- **Shots** are the game's own word (`view_modes.cpp`, `UpdateAim`): the gun's ammunition word
+  dropped, or its reload timer restarted (a kill frenzy's ammunition never drops), with the
+  same weapon object in his hands.
+- **Hit markers**: a person's health word (`ped+0x216`, read in the sprite pass and published
+  by `LiveAimPeds()`) drops within a second of a shot while he is near the line of fire: a
+  white X round the reticle for 0.25 s, a larger red X for 0.45 s when he goes down (health 0),
+  and a small cross over him in the world. A fall with no health change (a car, a shove) is not
+  a hit.
+- **Aim camera** (third person, `view_modes.cpp`): armed, the chase eases 35 % of the way to the
+  aim framing; for 2.5 s after a shot it is fully there: 30 % closer, 35 % lower, 0.30 block
+  further over the right shoulder, looking 1.6 blocks further down range, 8 degrees narrower,
+  and the yaw swings behind his facing (the line of fire) on a 0.3 s spring unless the mouse
+  moved in the last `tp_return_delay`. Each shot kicks the view up 0.3 degrees, back in 0.1 s.
+  First person needs none of it: the view is his facing, the reticle sits near the middle.
+- Projection: `LiveWorldToScreen` uses the view-projection of the frame's `LiveGeometry::Draw`.
+
+Developer aids: `GTA2DX9_LOG_AIM=1` logs, three times a second, the nearest person in the open
+(game coordinates), the reticle's pixel and whether a target is highlighted (`aim: near`);
+every 10 s after the first shot an `aim: shots= with_target= hits= on_highlighted= kills=
+reticle_frames=` total, and each hit (`aim: hit`). `[devtools] set_player_ammo=N` keeps the gun
+in his hands loaded for scripted shooting. Probe: `gamerun/aim_probe.py` (`keys_aim_probe.sh`;
+`GTA2_DIRECT_KEYS=1`, scene key F11, `set_player_ammo=300` added by `INI_SED`): picks up the
+COLLECT_02 machine gun, turns to the nearest person from the `aim: near` line and fires bursts in
+third and first person with a screenshot every ~0.1 s.
+
 ## Developer aids
 
 - `GTA2DX9_HUD_TEST=1`: the `[hud]` keys `modern`, `test_health` and `test_clock` are re-read
@@ -117,3 +157,35 @@ Not covered: a counter (`+4` of a counter slot; no job with an on-screen counter
 armour (no field known), Remix (drawn after the UI composite, like the F4 menu; not seen under
 the path tracer), resolutions other than 720p (the fonts re-bake on a height change; untested
 on screen).
+
+## Pickup labels and score pops (QB-50, 8 Nov 2026)
+
+QUALITY-BAR row 50. Code: `DrawWorldLayer` in `dll/src/hud3d.cpp`, drawn on ImGui's background
+list (under the panels) from `Draw`; the pickups and the projection come from
+`dll/src/map_objects.cpp` (`MapObjectPickups()`, `MapObjectsProject()`, `MapObjectsEye()`), read
+back from the device's view and projection when the street views drew the objects.
+
+- **Labels.** Over every floating pickup (the manifest's `spin` objects) between 0.45 and 7 blocks
+  from the eye: its name on a dark pill with a cyan underline, full strength to 4 blocks, fading
+  out to 7 and in from 0.45 (so the one under his feet does not cover the view), shrinking a
+  little with distance. Names come from the model: `pickup_machine_gun` -> MACHINE GUN, the
+  silenced machine gun and dual pistols spelled out, the briefcase BRIEFCASE, every power-up
+  token POWER-UP (which power-up a token's colour stands for is not mapped), the three unnamed
+  items PICKUP. Labels are not tested against walls: one behind a building within 7 blocks still
+  shows.
+- **Pops.** A money gain floats `+$n` (yellow) up from the player's chest; a weapon picked up (the
+  ammo of the weapon in hand rising, or a new weapon in hand within 0.6 s of passing within 1.2
+  blocks of a pickup) floats its name (green) up from that pickup. Both rise half a block with a
+  small punch on arrival and fade over 1.6 s. In first person a pop that would start within
+  0.8 block of the eye starts 1.2 blocks ahead of it instead. The game's own 2D texts (the
+  weapon name, the score digits over a victim) still show.
+- `GTA2DX9_PICKUP_LABELS=0` turns the layer off. Log every 2 s: `hud3d: world layer: pickups
+  drawn=N (nearest D from the eye) labelled=L (peak, frames with a label) pops money= weapon=`.
+
+Measured (`qb49_after4`, 8 Nov 2026, plain renderer, probe `gamerun/qb49_probe.py`, see
+`docs/navigation.md` "Near fade"): the machine gun at map 166.5,140.5 labelled MACHINE GUN at
+4.15 blocks in third person and at 1.9 in first person, 60 of 60 HUD frames with a label in
+each 2 s window; the rocket launcher (154.5,129.5) labelled ROCKET LAUNCHER, and on collecting
+it the green ROCKET LAUNCHER pop rose from the pickup's spot beside the game's own text.
+Untested: the money pop in play (no kill or paid event in the probe; it is the same drawing path
+as the weapon pop), a token's label in play (none near the probe's spots), Remix.

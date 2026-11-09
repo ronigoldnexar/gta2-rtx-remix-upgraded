@@ -65,6 +65,48 @@ turns it off; the classic view never uses it.
 The ready-made set for all three districts (wil, bil, ste; 2 652 tiles, 570 MB, about 245 MB zipped) is a release asset,
 `textures_hd_dds.zip`; unzip it into `gta2dx9_textures_hd/` beside `gta2.exe`.
 
+## Road markings (QB-24, 9 Nov 2026)
+
+The upscalers read the worn, dithered paint of the 64 px road tiles as texture: zebra
+bars, STOP letters, double lines and lane lines came out filled with squiggly black noise
+and invented cracks (ESRGAN and SD alike), which is what you see from the street.
+`tools/reauthor_road_markings.py` draws that paint again instead of upscaling it:
+
+    reauthor_road_markings.py <game/data> <wil|bil|ste> <64 px dump> assets/textures_hd/<style> <out> [--sheet PNG]
+
+(the 64 px dump: `tools/dump_style_tiles.py <game/data> <style> <dir> --all`.)
+
+1. Only the lids of the map's road blocks (ground type 1 in the `.gmp`), and only those
+   that are asphalt (median luminance <= 105, median chroma <= 26): sand tracks, grass,
+   dirt and pavers that the map calls road are left alone.
+2. Paint in the 64 px original: white = 28+ levels above the tile's asphalt and nearly
+   grey, yellow = red well above blue; coverage is then measured from the tile's asphalt
+   to its own paint, so the 0.5 contour is the half-maximum edge even of a soft,
+   low-contrast arrow. Not paint: a kerb band (an edge strip closed by its dark shadow
+   line or the yellow kerb line), a thick yellow kerb band along an edge (the
+   darker-asphalt set paints its kerbs), light nubs in a tile corner (kerb ends).
+3. Shape: one-pixel wear streaks bridged (cross-shaped closing, only over grey pixels,
+   so the counter of an O and the notches of a W stay open), a light blur, the mask
+   upscaled bicubically with edge padding (paint runs on into the neighbour tile) and
+   steepened to a ~2 px edge.
+4. Under the paint the HD asphalt is rebuilt from the tile's own bare asphalt (shifted
+   copies; not paint, kerb, yellow line or manhole), which removes the invented noise.
+5. Paint on top: one colour per kind (the original's tint at road-paint brightness),
+   the aggregate faintly through it, small chips and broad thinning from tileable noise.
+
+Re-authored: Downtown 20, Residential 14, Industrial 26 tiles (60 of 178 road lids; the
+rest carry no paint or were left on review). Left alone on review (`SKIP` in the tool):
+the kerb-only corner tiles of Downtown (262, 678, 681, 682, 684), the derelict quarter
+of the Residential district (960-991: its paint is cracked and flaking on purpose and too
+broken at 64 px to redraw; the HD keeps that look), Industrial 70/80 (shore) and 693
+(hazard box). Originals of the 60 tiles: `~/gta2-linux/qb24/backup/<style>/`.
+
+Before/after sheets (64 px original, the HD tile it replaces, the re-authored tile):
+`qb24/re_<style>.png` in the working folder. The new tiles change `textures_hd_dds.zip`
+(60 files) and, under RTX Remix, the 60 tiles' top-mip hashes: until the gta2hd layer is
+rebuilt (`linux/docker/build_remix_mod.sh`), those tiles draw in Remix with the
+runtime's default material instead of their PBR maps.
+
 ## Cutouts
 
 GTA2's alpha is one bit at 64 px. Scaled up nearest, a chain-link fence or a railing

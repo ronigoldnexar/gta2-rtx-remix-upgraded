@@ -306,6 +306,24 @@ void SampleClip(const Model& model, const ModelAnimation* animation, float time,
 // `second` at `secondTime` by `weight` (nlerp on the rotations, lerp on the
 // rest), then composed down the parent chain.
 static float g_torsoTwist = 0.0f;   // see ModelSetTorsoTwist
+static float g_headTurn = 0.0f;     // see ModelSetHeadTurn
+// A node's world matrix turned about the model's vertical through its own
+// origin (its children compose from it and turn with it).
+static void TurnAboutUp(gta2::Mat4& M, float radians) {
+    const float c = std::cos(radians), sn = std::sin(radians);
+    const float px = M.m[3][0], pz = M.m[3][2];
+    for (int r = 0; r < 4; ++r) {
+        const float x = M.m[r][0], z = M.m[r][2];
+        M.m[r][0] = x * c - z * sn;
+        M.m[r][2] = x * sn + z * c;
+    }
+    M.m[3][0] += px - (px * c - pz * sn);
+    M.m[3][2] += pz - (px * sn + pz * c);
+}
+// QB-27: the pose hook (see ModelSetPoseHook).
+static ModelPoseHookFn g_poseHook = nullptr;
+static void* g_poseHookContext = nullptr;
+static uint64_t g_poseHookKey = 0;
 // The overlay: a third clip blended over the pair (see ModelSetOverlay).
 static const ModelAnimation* g_overlay = nullptr;
 static float g_overlayTime = 0.0f, g_overlayWeight = 0.0f;
@@ -393,9 +411,14 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
                 M.m[3][0] += px - (px * c - pz * sn);
                 M.m[3][2] += pz - (px * sn + pz * c);
             }
+            if (g_headTurn != 0.0f && model.nodes[i].name[0] == 'B') {
+                if (strcmp(model.nodes[i].name, "Bip01 Neck") == 0) TurnAboutUp((*out)[i], 0.4f * g_headTurn);
+                else if (strcmp(model.nodes[i].name, "Bip01 Head") == 0) TurnAboutUp((*out)[i], 0.6f * g_headTurn);
+            }
             done[i] = true;
         }
     }
+    if (g_poseHook) g_poseHook(model, out, g_poseHookContext);
 }
 
 void NodeWorlds(const Model& model, const ModelAnimation* animation, float time, std::vector<gta2::Mat4>* out) {
@@ -817,11 +840,24 @@ size_t ModelsTextureBytes(int* count) {
 // "Bip01 Spine1", so a figure's upper body can face one way (the aim) while
 // its legs walk another. Part of the pose cache key (quantised by the caller).
 void ModelSetTorsoTwist(float radians) { g_torsoTwist = radians; }
+void ModelSetPoseHook(ModelPoseHookFn fn, void* context, uint64_t key) {
+    g_poseHook = fn;
+    g_poseHookContext = context;
+    g_poseHookKey = fn ? key : 0;
+}
+void ModelPoseWorlds(const Model& model, const ModelAnimation* animation, float time, const ModelAnimation* second,
+                     float secondTime, float weight, std::vector<gta2::Mat4>* out) {
+    const ModelPoseHookFn hook = g_poseHook;
+    g_poseHook = nullptr;
+    NodeWorldsBlend(model, animation, time, second, secondTime, weight, out);
+    g_poseHook = hook;
+}
 void ModelSetOverlay(const ModelAnimation* clip, float time, float weight) {
     if (!clip || weight <= 1e-3f) { g_overlay = nullptr; g_overlayTime = 0.0f; g_overlayWeight = 0.0f; return; }
     g_overlay = clip; g_overlayTime = time; g_overlayWeight = weight;
 }
 float ModelTorsoTwist() { return g_torsoTwist; }
+void ModelSetHeadTurn(float radians) { g_headTurn = radians; }
 
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
@@ -1041,15 +1077,16 @@ struct PoseKey {
     const Model* model = nullptr;
     const ModelAnimation* animation = nullptr;
     const ModelAnimation* second = nullptr;
-    float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f;
+    float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f, head = 0.0f;
     const ModelAnimation* overlay = nullptr;
     float overlayTime = 0.0f, overlayWeight = 0.0f;
+    uint64_t hook = 0;   // QB-27: a ragdoll's pose (its id and generation), 0 for a clip pose
     bool operator==(const PoseKey& o) const {
-        return model == o.model && animation == o.animation && second == o.second && overlay == o.overlay &&
+        return model == o.model && hook == o.hook && animation == o.animation && second == o.second && overlay == o.overlay &&
                std::fabs(overlayTime - o.overlayTime) < 1e-4f && std::fabs(overlayWeight - o.overlayWeight) < 1e-3f &&
                std::fabs(time - o.time) < 1e-4f &&
                std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f &&
-               std::fabs(twist - o.twist) < 1e-3f;
+               std::fabs(twist - o.twist) < 1e-3f && std::fabs(head - o.head) < 1e-3f;
     }
 };
 struct PosedCache {
@@ -1220,8 +1257,8 @@ const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vec
         float best = 0.12f;   // seconds of the clip: beyond this, skin it anyway
         for (PosedCache& p : g_poses) {
             if (p.key.model != key.model || p.key.animation != key.animation || p.key.second != key.second ||
-                p.key.overlay != key.overlay) continue;
-            if (std::fabs(p.key.weight - key.weight) > 0.15f || std::fabs(p.key.twist - key.twist) > 0.05f ||
+                p.key.overlay != key.overlay || p.key.hook != key.hook) continue;
+            if (std::fabs(p.key.weight - key.weight) > 0.15f || std::fabs(p.key.twist - key.twist) > 0.05f || std::fabs(p.key.head - key.head) > 0.1f ||
                 std::fabs(p.key.overlayWeight - key.overlayWeight) > 0.15f) continue;
             const float d = std::fabs(p.key.time - key.time) + std::fabs(p.key.secondTime - key.secondTime) +
                             std::fabs(p.key.overlayTime - key.overlayTime);
@@ -1233,6 +1270,17 @@ const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vec
         }
     }
     ++g_newPosesThisFrame;
+    if (key.hook) {
+        // A ragdoll's earlier poses are never drawn again: dropped, not left to age out.
+        for (size_t i = 0; i < g_poses.size();) {
+            if (g_poses[i].key.hook && (g_poses[i].key.hook >> 24) == (key.hook >> 24)) {
+                g_poses[i] = std::move(g_poses.back());
+                g_poses.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    }
     if (g_poses.size() >= kPoseCacheMax) {
         size_t oldest = 0;
         for (size_t i = 1; i < g_poses.size(); ++i) if (g_poses[i].used < g_poses[oldest].used) oldest = i;
@@ -1279,9 +1327,11 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.secondTime = secondTime;
         key.weight = weight;
         key.twist = g_torsoTwist;
+        key.head = g_headTurn;
         key.overlay = g_overlay;
         key.overlayTime = g_overlay ? g_overlayTime : 0.0f;
         key.overlayWeight = g_overlay ? g_overlayWeight : 0.0f;
+        key.hook = g_poseHookKey;
         posed = &PoseFor(model, key, worlds);
     }
     QueryPerformanceCounter(&t1);

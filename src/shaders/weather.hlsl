@@ -77,7 +77,10 @@ float4 ps_wet(WetIn i) : COLOR0 {
 
     float2 wxz = float2(dot(float4(p, 1.0), cToWorldX), dot(float4(p, 1.0), cToWorldZ));
     float2 pn = tex2Dlod(sPuddle, float4(wxz / 32.0, 0, 0)).rg;
-    float puddle = smoothstep(cWet.z, cWet.z + 0.10, pn.x) * flat;
+    // Far off the puddle map is minified with no mips and turns to grain: fade the puddles
+    // (and below, the reflection) out between 25 and 60 blocks.
+    float near = 1.0 - saturate((p.z - 25.0) / 35.0);
+    float puddle = smoothstep(cWet.z, cWet.z + 0.10, pn.x) * flat * near;
 
     // Wet surfaces are darker: more on the ground, much more in a puddle's dark water.
     float3 col = lit.rgb * (1.0 - wet * (lerp(0.10, 0.38, flat) + 0.12 * puddle));
@@ -108,7 +111,7 @@ float4 ps_wet(WetIn i) : COLOR0 {
     // few percent; a floor keeps the wet sheen readable, puddles reflect most.
     float cosv = saturate(dot(-v, n));
     float f = 0.04 + 0.96 * pow(1.0 - cosv, 5.0);
-    float gloss = wet * flat * lerp(0.28, 0.85, puddle) * cZenith.w;
+    float gloss = wet * flat * lerp(0.28, 0.85, puddle) * cZenith.w * (0.5 + 0.5 * near);
     float amount = saturate(gloss * (0.40 + 0.60 * f));
     col = lerp(col, reflCol, amount);
     return float4(lerp(col, lit.rgb, sky0), lit.a);

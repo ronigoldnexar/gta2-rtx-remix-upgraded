@@ -41,3 +41,7 @@ assets/models/human_*
 # Every Remix material layer's textures (the 64 px keyed layer too)
 package/rtx-remix/mods/*/textures/
 linux/docker/nv_cache_gl/
+
+# build outputs that must never be committed (merge of night-skills-2026-11-09)
+stage_candidate/
+__pycache__/
