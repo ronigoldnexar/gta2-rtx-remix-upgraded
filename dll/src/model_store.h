@@ -167,6 +167,9 @@ bool ModelTextureSample(const std::string& file, float u, float v, float* luma, 
 // A twist of the upper body about the model's up axis at "Bip01 Spine1",
 // radians, applied to every pose drawn until it is set back to 0: the aim
 // turned off the walk. Quantise it (it keys the pose cache).
+// FIX-FIGURE-5: the hips (Bip01 Pelvis) turned about the vertical by `twist` radians and shifted by
+// (dx, dy, dz) in model space, for every pose until set back to zeros (part of the pose cache key).
+void ModelSetHipShift(float twist, float dx, float dy, float dz);
 void ModelSetTorsoTwist(float radians);
 float ModelTorsoTwist();
 // CROWD: a turn of the head about the model's up axis, radians, shared 40/60

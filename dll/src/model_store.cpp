@@ -349,6 +349,7 @@ void SampleClip(const Model& model, const ModelAnimation* animation, float time,
 // `second` at `secondTime` by `weight` (nlerp on the rotations, lerp on the
 // rest), then composed down the parent chain.
 static float g_torsoTwist = 0.0f;   // see ModelSetTorsoTwist
+static float g_hip[4] = {};   // FIX-FIGURE-5: hip turn (radians) and shift (model space), see ModelSetHipShift
 static float g_headTurn = 0.0f;     // see ModelSetHeadTurn
 // A node's world matrix turned about the model's vertical through its own
 // origin (its children compose from it and turn with it).
@@ -606,6 +607,22 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
                 }
                 M.m[3][0] += px - (px * c - pz * sn);
                 M.m[3][2] += pz - (px * sn + pz * c);
+            }
+            if ((g_hip[0] != 0.0f || g_hip[1] != 0.0f || g_hip[2] != 0.0f || g_hip[3] != 0.0f) && model.nodes[i].name[0] == 'B' &&
+                strcmp(model.nodes[i].name, "Bip01 Pelvis") == 0) {
+                // FIX-FIGURE-5: the hips turned about the vertical through the joint and shifted;
+                // everything under them (spine, thighs) follows; feet are held by limb IK if asked.
+                gta2::Mat4& M = (*out)[i];
+                const float c = std::cos(g_hip[0]), sn = std::sin(g_hip[0]);
+                const float px = M.m[3][0], pz = M.m[3][2];
+                for (int r = 0; r < 4; ++r) {
+                    const float x = M.m[r][0], z = M.m[r][2];
+                    M.m[r][0] = x * c - z * sn;
+                    M.m[r][2] = x * sn + z * c;
+                }
+                M.m[3][0] += px - (px * c - pz * sn) + g_hip[1];
+                M.m[3][1] += g_hip[2];
+                M.m[3][2] += pz - (px * sn + pz * c) + g_hip[3];
             }
             if (g_headTurn != 0.0f && model.nodes[i].name[0] == 'B') {
                 if (strcmp(model.nodes[i].name, "Bip01 Neck") == 0) TurnAboutUp((*out)[i], 0.4f * g_headTurn);
@@ -1587,6 +1604,7 @@ size_t ModelsTextureBytes(int* count) {
 // "Bip01 Spine1", so a figure's upper body can face one way (the aim) while
 // its legs walk another. Part of the pose cache key (quantised by the caller).
 void ModelSetTorsoTwist(float radians) { g_torsoTwist = radians; }
+void ModelSetHipShift(float twist, float dx, float dy, float dz) { g_hip[0] = twist; g_hip[1] = dx; g_hip[2] = dy; g_hip[3] = dz; }
 void ModelSetPoseHook(ModelPoseHookFn fn, void* context, uint64_t key) {
     g_poseHook = fn;
     g_poseHookContext = context;
@@ -2424,6 +2442,7 @@ struct PoseKey {
     const ModelAnimation* animation = nullptr;
     const ModelAnimation* second = nullptr;
     float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f, head = 0.0f;
+    float hip[4] = {};   // FIX-FIGURE-5 ModelSetHipShift
     const ModelAnimation* overlay = nullptr;
     float overlayTime = 0.0f, overlayWeight = 0.0f;
     int layers = 0;      // ANIM-BLEND-AUDIT: ModelSetLayers
@@ -2442,7 +2461,8 @@ struct PoseKey {
                std::fabs(overlayTime - o.overlayTime) < 1e-4f && std::fabs(overlayWeight - o.overlayWeight) < 1e-3f &&
                std::fabs(time - o.time) < 1e-4f &&
                std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f &&
-               std::fabs(twist - o.twist) < 1e-3f && std::fabs(head - o.head) < 1e-3f;
+               std::fabs(twist - o.twist) < 1e-3f && std::fabs(head - o.head) < 1e-3f &&
+               std::fabs(hip[0] - o.hip[0]) < 1e-4f && std::fabs(hip[1] - o.hip[1]) < 1e-5f && std::fabs(hip[2] - o.hip[2]) < 1e-5f && std::fabs(hip[3] - o.hip[3]) < 1e-5f;
     }
 };
 struct PosedCache {
@@ -2744,6 +2764,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.secondTime = secondTime;
         key.weight = weight;
         key.twist = g_torsoTwist;
+        for (int k = 0; k < 4; ++k) key.hip[k] = g_hip[k];
         key.head = g_headTurn;
         key.ik = g_limbIkKey;
         key.overlay = g_overlay;

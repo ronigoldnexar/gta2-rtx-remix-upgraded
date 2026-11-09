@@ -8251,7 +8251,15 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
         const gta2::Mat4& m = sprite.objectToWorld;
         if (!nearEye(m.m[3][0], m.m[3][2])) continue;
         constexpr float r = 0.21f;   // a figure is ~0.46 block across the shoulders
-        quad(m.m[3][0], m.m[3][1] + 0.016f, m.m[3][2], r, 0.0f, 0.0f, r);
+        // FIX-FIGURE-5 feel18: under the figure as drawn (it trails the game's position by up to
+        // 0.1 block while he runs, so the patch at the game's point read as a gap under his feet).
+        float sx = m.m[3][0], sz = m.m[3][2];
+        const auto drawn = pedTracks_.find(sprite.object);
+        if (drawn != pedTracks_.end() && drawn->second.shadowFrame == g_carFrame) {
+            const float ddx = drawn->second.shadowX - sx, ddz = drawn->second.shadowZ - sz;
+            if (ddx * ddx + ddz * ddz < 0.5f * 0.5f) { sx = drawn->second.shadowX; sz = drawn->second.shadowZ; }
+        }
+        quad(sx, m.m[3][1] + 0.016f, sz, r, 0.0f, 0.0f, r);
         ++peds;
     }
     for (const PropFootprint& p : contactProps_) {
@@ -9530,7 +9538,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 else track.walkWeight = (std::max)(0.0f, track.walkWeight - dt / 0.25f);
                 const float runTarget = run && model->runStride > 0.0f ? Smoothstep(0.6f, 0.9f, track.legSpeed) : 0.0f;
                 track.runWeight += (runTarget - track.runWeight) * (std::min)(1.0f, dt / 0.2f);
-                const float sprintTarget = sprint && run && model->runStride > 0.0f ? Smoothstep(1.2f, 1.7f, track.legSpeed) : 0.0f;
+                float sprintTarget = sprint && run && model->runStride > 0.0f ? Smoothstep(1.2f, 1.7f, track.legSpeed) : 0.0f;
+                // FIX-FIGURE-5 feel21: a two-handed weapon (the machine gun, launcher, flamethrower: their
+                // carry or aim layers) is run with, not sprinted with: the mocap fast run's deep low
+                // stride (pelvis 10-12 cm down, the rear knee by the ground) under a gun held across
+                // the chest read as a drop to one knee at every stop and step. At most a third of it.
+                if (track.action == 8 || track.action == 11 || track.action == 12 || (track.action >= 16 && track.action <= 18))
+                    sprintTarget = (std::min)(sprintTarget, 0.33f);
                 track.sprintWeight += (sprintTarget - track.sprintWeight) * (std::min)(1.0f, dt / 0.2f);
                 const float walkCycle = model->stride > 0.0f ? model->stride * scale : 0.7f;
                 const float runCycle = model->runStride > 0.0f ? model->runStride * scale : walkCycle * 1.4f;
@@ -10036,6 +10050,123 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         boardIk = true;
                     }
                 }
+                // FIX-FIGURE-5 feel5: the punch with the body behind it. The fist clips are upper-body
+                // layers (the arms and the spine's turn), so the legs and hips stood frozen under them and
+                // the swing read as arm waving. Standing (not walking), near: the hips turn into the
+                // strike (the cross ~20 degrees, the jab ~11 the other way, after a small wind-up the
+                // other way), drop and shift forward a little, and the lead (left) foot steps out a
+                // half step and back; both feet are held to the ground by the limb IK, so the rear foot
+                // pivots under the turned hips instead of sliding. Timed to the clip's own keys (the
+                // strike at 0.30-0.44 s of the cross, 0.26-0.40 s of the jab).
+                bool punchBody = false;
+                if (lod == 0 && !ragdoll && !boardIk && track.action == 1 && actionClip && actW > 0.05f && walkW < 0.3f) {
+                    static const char* const kLegs[4] = {"Bip01 L Foot", "Bip01 R Foot", "Bip01 L Calf", "Bip01 R Calf"};
+                    struct LegNodes { int n[4]; int thighR; };
+                    static std::map<const Model*, LegNodes> legNodes;
+                    auto ln = legNodes.find(model);
+                    if (ln == legNodes.end()) {
+                        LegNodes l{{-1, -1, -1, -1}, -1};
+                        for (size_t i = 0; i < model->nodes.size(); ++i) {
+                            for (int b = 0; b < 4; ++b) if (strcmp(model->nodes[i].name, kLegs[b]) == 0) l.n[b] = static_cast<int>(i);
+                            if (strcmp(model->nodes[i].name, "Bip01 R Thigh") == 0) l.thighR = static_cast<int>(i);
+                        }
+                        ln = legNodes.emplace(model, l).first;
+                    }
+                    const LegNodes& L = ln->second;
+                    if (L.n[0] >= 0 && L.n[1] >= 0 && L.n[2] >= 0 && L.n[3] >= 0 && L.thighR >= 0) {
+                        std::vector<gta2::Mat4> base;
+                        ModelSetHipShift(0.0f, 0.0f, 0.0f, 0.0f);
+                        ModelPoseWorlds(*model, locoA, locoTA, locoB, locoTB, locoW, &base);
+                        const bool jab = track.punchAlt;
+                        const float t = actionT;
+                        const float rise = jab ? Smoothstep(0.08f, 0.30f, t) : Smoothstep(0.12f, 0.34f, t);
+                        const float fall = jab ? Smoothstep(0.44f, 0.78f, t) : Smoothstep(0.48f, 0.80f, t);
+                        const float wind = jab ? 0.0f : Smoothstep(0.0f, 0.18f, t) * (1.0f - Smoothstep(0.18f, 0.32f, t));
+                        const float e = rise * (1.0f - fall) * (std::min)(1.0f, actW);
+                        const float fw = model->forward;
+                        const float H = (std::max)(0.1f, model->Height());
+                        // +twist brings the model's +x side forward; which side his right hip is on, from the pose.
+                        const float rightSide = base[static_cast<size_t>(L.thighR)].m[3][0] * fw > 0.0f ? 1.0f : -1.0f;
+                        const float turn = (jab ? -0.19f : 0.35f) * rightSide * (e - 0.35f * wind * (std::min)(1.0f, actW));
+                        const float lunge = (jab ? 0.035f : 0.05f) * H * e, drop = (jab ? 0.015f : 0.03f) * H * e;
+                        ModelSetHipShift(std::floor(turn / 0.01f + 0.5f) * 0.01f, 0.0f,
+                                         -std::floor(drop / 0.002f + 0.5f) * 0.002f, std::floor(lunge * fw / 0.002f + 0.5f) * 0.002f);
+                        // The lead foot out along his facing, lifted over the middle of the step.
+                        const float stepE = (jab ? 0.06f : 0.09f) * H * e;
+                        const float lift = 0.035f * H * std::sin(3.14159f * (std::min)(1.0f, rise)) * (1.0f - fall);
+                        for (int foot = 0; foot < 2; ++foot) {
+                            const gta2::Mat4& f = base[static_cast<size_t>(L.n[foot])];
+                            const gta2::Mat4& k = base[static_cast<size_t>(L.n[foot + 2])];
+                            float tg[3] = {f.m[3][0], f.m[3][1], f.m[3][2]};
+                            if (foot == 0) { tg[2] += stepE * fw; tg[1] += lift; }
+                            for (float& v : tg) v = std::floor(v / 0.002f + 0.5f) * 0.002f;
+                            const float pole[3] = {k.m[3][0], k.m[3][1], k.m[3][2] + 0.4f * H * fw};
+                            ModelSetLimbTarget(2 + foot, tg, pole, 1.0f);
+                        }
+                        punchBody = true;
+                    }
+                }
+                // FIX-FIGURE-5 feel18: the planted foot on the floor. The figure stands where its bind
+                // pose's lowest vertex meets the ground, which is right for the idle (feet flat) but not
+                // for the run and sprint clips, whose lowest sole stays 0.02-0.08 block (8-30 cm) above
+                // it through the whole cycle: every run read as a hover over the contact shadow. Per
+                // frame, near figures on their feet: each ankle and toe joint's height over where the
+                // idle holds it (the idle's first frame, measured once per avatar under this same
+                // matrix), the lowest of the four taken off the figure (eased over ~50 ms against the
+                // pose cache's steps). Idle ~0 (unchanged); no lying, ragdoll, boarding, swimming or seat.
+                {
+                    float target = 0.0f;
+                    const bool onFeet = lod == 0 && !ragdoll && !boardIk && !actAlone && !sprite.climbing && !sprite.corpse &&
+                                        boardSink == 0.0f && track.action != 4 && track.action != 9 && !track.waterFrame && idle;
+                    if (onFeet) {
+                        struct SoleRef { int node[4]; float y[4][3]; bool ok; };
+                        static std::map<const Model*, SoleRef> refs;
+                        auto found = refs.find(model);
+                        if (found == refs.end()) {
+                            SoleRef r{};
+                            static const char* const kSole[4] = {"Bip01 L Foot", "Bip01 L Toe0", "Bip01 R Foot", "Bip01 R Toe0"};
+                            r.ok = true;
+                            for (int b = 0; b < 4; ++b) {
+                                r.node[b] = -1;
+                                for (size_t i = 0; i < model->nodes.size(); ++i)
+                                    if (strcmp(model->nodes[i].name, kSole[b]) == 0) { r.node[b] = static_cast<int>(i); break; }
+                            }
+                            if (r.node[0] < 0 || r.node[2] < 0) r.ok = false;
+                            if (r.ok) {
+                                // The idle alone: no overlay, layers or limb targets (set again below).
+                                ModelSetOverlay(nullptr, 0.0f, 0.0f);
+                                ModelSetLayers(nullptr, nullptr, nullptr, nullptr, 0);
+                                std::vector<gta2::Mat4> rest;
+                                const ModelAnimation* idle0 = model->Animation("idle") ? model->Animation("idle") : idle;
+                                ModelPoseWorlds(*model, idle0, 0.0f, nullptr, 0.0f, 0.0f, &rest);
+                                for (int b = 0; b < 4; ++b)
+                                    for (int c = 0; c < 3; ++c) r.y[b][c] = r.node[b] >= 0 ? rest[static_cast<size_t>(r.node[b])].m[3][c] : 0.0f;
+                                ModelSetOverlay(actAlone ? nullptr : actionClip, actionT, actAlone ? 0.0f : actW);
+                                ModelSetLayers(model, layerClip, layerT, layerW, layers);
+                            }
+                            found = refs.emplace(model, r).first;
+                        }
+                        const SoleRef& r = found->second;
+                        if (r.ok) {
+                            std::vector<gta2::Mat4> pose;
+                            ModelPoseWorlds(*model, locoA, locoTA, locoB, locoTB, locoW, &pose);
+                            float lowest = 1e9f;
+                            for (int b = 0; b < 4; ++b) {
+                                if (r.node[b] < 0) continue;
+                                const gta2::Mat4& n = pose[static_cast<size_t>(r.node[b])];
+                                float d = 0.0f;
+                                for (int c = 0; c < 3; ++c) d += (n.m[3][c] - r.y[b][c]) * world.m[c][1];
+                                lowest = (std::min)(lowest, d);
+                            }
+                            if (lowest < 1e8f) target = (std::max)(-0.04f, (std::min)(0.12f, lowest));
+                        }
+                    }
+                    track.soleDrop += (target - track.soleDrop) * (std::min)(1.0f, dt / 0.05f);
+                    static const bool soleOff = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_NO_SOLE_GROUND", b, sizeof b) && b[0] == '1'; }();
+                    if (soleOff) track.soleDrop = 0.0f;   // A/B: the figure at its bind-pose height, as before
+                    world.m[3][1] -= track.soleDrop;
+                }
+                track.shadowX = gx; track.shadowZ = gz; track.shadowY = cy; track.shadowFrame = g_carFrame;
                 // ANIM-WEAPONS: the weapon rig (weapon_rig.h): the gun placed from the body, the
                 // hands on its grips, the fingers closed, the recoil through the body and a
                 // push of the whole figure back along the line of fire. Not while boarding IK has the hands.
@@ -10138,6 +10269,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
                 ModelSetHeadTurn(0.0f);
+                if (punchBody) { ModelSetHipShift(0.0f, 0.0f, 0.0f, 0.0f); ModelClearLimbTargets(); }
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);

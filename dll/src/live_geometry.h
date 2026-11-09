@@ -668,6 +668,12 @@ private:
         // and plays its cycles from the ground it actually covers.
         bool placed = false;
         float dx = 0.0f, dz = 0.0f;         // drawn position
+        // FIX-FIGURE-5 feel18: how far the drawn pose's lowest sole was above the floor (blocks,
+        // eased), taken off the figure so a planted foot stands on the ground; and where the
+        // figure was last drawn (its contact shadow goes there, not under the game's position).
+        float soleDrop = 0.0f;
+        float shadowX = 0.0f, shadowY = 0.0f, shadowZ = 0.0f;
+        unsigned shadowFrame = 0;
         float vx = 0.0f, vz = 0.0f;         // its velocity (critically damped spring)
         float drawnSpeed = 0.0f;            // blocks a second, from the drawn motion
         float heading = 0.0f;               // drawn heading, radians, atan2(x, z)
