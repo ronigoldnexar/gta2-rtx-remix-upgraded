@@ -693,10 +693,11 @@ drive.
 | dl_zz4 | same | stuck (doctor never boarded) | The car was in the box with the arrow cleared, then rolled out after a 0.3 s handbrake tap. The skill was still in its 45 s park wait, so the horn came too late. Its 2-block `drive3` back to the approach point then re-planned itself 50 blocks away from 53.1,177.9. Fixed: the creep returns only once the car has stopped inside (handbrake 0.7 s, brake tap, position checked again); within 6 blocks of the box, on its open side, it creeps directly and skips `drive3`; `park_wait=0` for a box that is not a park. |
 | dl_zz5 | + those fixes | stuck (ran out of time 8 blocks from the garage) | The hospital part was clean: in the box in 26 s of creep, doctor aboard 6 s later. The garage leg spent its whole 420 s budget in one `drive3` call on the 130-block route, in traffic, with 13 hits. Fixed: one `drive3` call is capped at 240 s (`DRIVE_CALL`) and the leg then re-plans; the garage leg gets 800 s and 8 tries. |
 | **dl_zz6** | + `DRIVE_CALL` (latest code) | **JOB COMPLETE** (900 s; +$20,000) | The first drive to the hospital was pushed 30 blocks west by traffic and stopped at the 420 s leg budget. The horn step's re-delivery drove back (two calls). Creep, "the game has it" in 12 s, doctor aboard 6 s later. Garage in 96 s (carhp 24785), park, 1124. |
+| **dl_zz7** | same (confirmation) | **JOB COMPLETE** (858 s; +$20,000) | Hospital box from the east (creep 25 s, carhp 28697), doctor aboard 6 s later. Garage in 218 s (carhp 23535), park, 1124. |
 
 **Result: the first three sessions reached JOB COMPLETE 2 of 3 times (dl_zz1, dl_zz3). Over all six
-sessions it is 3 of 6 (dl_zz1, dl_zz3, dl_zz6).** Each failure found a defect in the skill, fixed
-before the next session. dl_zz6 is the latest code; the confirmation session on it is listed below. The frames are in the chase view:
+sessions it is 4 of 7 (dl_zz1, dl_zz3, dl_zz6, dl_zz7), and 2 of 2 on the latest code (dl_zz6,
+dl_zz7).** Each failure found a defect in the skill, fixed before the next session. The frames are in the chase view:
 `out/dl_zz3/m_zz_hospital.png` and `out/dl_zz6/m_zz_*.png`, `m_zz_doctor.png` (the Miura in the forecourt, brief "Bring Doctor
 ZitZaki directly to the new J-Lab") and `m_zz_garage.png` (JOB COMPLETE at the garage door). dl_zz1 has
 the same names. The frames are not in git.
