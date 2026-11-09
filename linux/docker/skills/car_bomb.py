@@ -89,8 +89,9 @@ WARPING = [False]      # set by a runner around a developer warp (not a respawn)
 class Job:
     """every message key the mission line showed (the brief changes inside a second: 2016 then
     2018), the job's end from them and from the player's own fields."""
-    def __init__(self, done=("2999",), failed=("2998",), busted=("6155", "6159"), lives0=None):
-        self.done, self.failed, self.busted = set(done), set(failed), set(busted)
+    # 6156 and 6158 (e.gxt) came with every death (cb15, cb17) and the arrest (cb19) in BLOW JOB
+    def __init__(self, done=("2999",), failed=("2998",), busted=("6155", "6158", "6159"), dead=("6156",), lives0=None):
+        self.done, self.failed, self.busted, self.dead = set(done), set(failed), set(busted), set(dead)
         self.seen = []; self._off = 0; self.last_xy = None
         ms = M.mission_state() or {}
         self.lives0 = lives0 if lives0 is not None else ms.get("lives")
@@ -124,6 +125,7 @@ class Job:
         ms = M.mission_state() or {}
         if any(k in self.failed for k in self.seen): return "failed"
         if any(k in self.busted for k in self.seen): return "busted"
+        if any(k in self.dead for k in self.seen): return "dead"
         if ms.get("health", 1) == 0 or ms.get("death", 0) != 0: return "dead"
         if self.lives0 is not None and ms.get("lives", self.lives0) < self.lives0: return "dead"
         # cb11: arrested on foot after stage 1 (lives unchanged, no message key of this job): a jump

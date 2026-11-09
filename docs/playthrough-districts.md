@@ -655,3 +655,29 @@ a re-route, the stall and press back-offs and the gridlock back-away are blind h
 4. Shared fixes wanted (not made, libs frozen): `enter_parked` should not warp by default near a road
    (F9 takes passing cars); the smooth driver's three-point turn and back-offs should check `car_behind`
    and the map behind the tail; `answer()` should know the Russians' neighbouring phones.
+
+## BLOW JOB through the car-bomb skill, 9 Nov 2026 (SKILL-CARBOMB, `cb*`)
+
+**Skill module:** `gamerun/skills/car_bomb.py` (mirrored in `linux/docker/skills/`), for the 7
+`car_bomb` jobs. **Proof job:** BLOW JOB! (`ste_re1`, both stages), runner
+`gamerun/missions/blow_job_cb.py`, keys `missions/keys_blow_job_cb.sh`. The details, the API and
+all 20 sessions are in `docs/skill-carbomb.md`.
+
+- **2 of 3 sessions with the final code reached JOB COMPLETE:** cb18 (2999 at 478 game s) and cb20
+  (2999 at 503 game s), both +$30,000, saved, and both survived. cb19 was arrested after stage 1.
+  cb12, on earlier code, also paid out and saved, then died in the barricade blast.
+- The frames are in the chase view (`GTA2_DIRECT_KEYS=1`), for example `m_m_cb_complete_0.png`
+  in each session.
+- The fixes that got there:
+  - **Via points.** Each stage carries road points, because the router's way cuts the corner at
+    61,23 into a wall.
+  - **Stage 1 entered from the west.** The car faces east, so the door is on the side away from
+    the trailer.
+  - **Escape planned before arming.** There is a route for each door, scored by clearance at the
+    end of the fuse; the side he lands on picks the route.
+  - **Steering.** Short turn pulses on a position line every 3 frames.
+  - **Escape ends.** Routes do not end on a road.
+  - **Wanted level.** He moves away from the cops toward the next car instead of standing still.
+- Settings: `SWAP_LEVEL=ste GTA2_SPEED=1 GTA2_DIRECT_KEYS=1 FPS=0 CB_WARP_PHONE=1 CB_DRIVER=old
+  GTA2DX9_STATE_EVERY=3`. The approach to the phone is the developer scene warp, marked in the
+  marks.
