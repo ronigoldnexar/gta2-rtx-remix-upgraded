@@ -1047,7 +1047,7 @@ bunches frames, so index/fps drifted by seconds). Run:
 
 | item | status | evidence |
 |---|---|---|
-| contact sync, NPC cross on NPC | verified in the log: damage at the striker's t 0.10, his clip 0.10 -> 0.165 -> 0.23 -> 0.295 -> 0.36 in 4 frames, `contact` on the 0.36 frame, both held 2 frames (striker at 0.360, victim at 0.070), then on. No usable frames (the run's view never left classic at host load 78) | `out/combat_r2` log |
+| contact sync, NPC cross on NPC | verified in the log: damage at the striker's t 0.10, his clip 0.10 -> 0.165 -> 0.23 -> 0.295 -> 0.36 in 4 frames, `contact` on the 0.36 frame, both held 2 frames (striker at 0.360, victim at 0.070), then on. No usable frames (the run's view never left classic at host load 78). Again in r3 (damage at the striker's t 0.00, frame 123; contact 4 frames on), filmed only 20 px tall in the distance | `out/combat_r2`, `out/combat_r3` logs |
 | player jab | verified: log (damage at the swing restart, frame 115; 4-frame catch-up; contact one frame after the fist's key; victim killed and down) and frames: guard up while closing, arm out on the contact frame, she goes down; from the chase camera behind him his body hides most of her | `out/combat_r1/combat_jab_sheet.png` |
 | kick | verified in frames (r1): knee chambers, leg out at hip height, rechamber, step down. It was thrown at a body already on the ground (the first build left corpses out of the stomp rule): fixed after, not re-filmed | `out/combat_r1/combat_kick_sheet.png`; clip poses `out/combat_r1/combat_clips_fk.png` |
 | stomp, `hit_body`, ragdoll on a blow, camera nudge | built, not seen in a run (no stomp or kick contact landed in r1/r2; the r1 victim's fall was hidden behind the player) | - |
