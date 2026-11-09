@@ -191,3 +191,10 @@ Condensed by Jeremy Tribby (github.com/jpt/barlow, fetched from github.com/googl
 SIL Open Font License 1.1 (`assets/fonts/OFL-BarlowCondensed.txt`; no Reserved Font Name),
 subset to Latin-1 with fontTools. Embedded in the DLL by `tools/gen_hud_font.py`
 (`dll/src/hud3d_font.inc`); see `docs/hud.md`.
+
+### Mocap locomotion (QB-20, 9 Nov 2026)
+Walks, runs, fast runs, starts, stops, idles and fidgets from the Rocketbox animation library
+(github.com/microsoft/Microsoft-Rocketbox, `Assets/Animations`, MIT, Copyright (c) Microsoft Corporation),
+fetched into `assets-src/humans/rocketbox/anim_loco/`, men's clips on the male avatars and women's on the
+female ones, retargeted on import (rotations and root motion only; `tools/locomotion_meta.py`). See
+docs/actions-3d.md "QB-20/21/39".

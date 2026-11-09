@@ -15,6 +15,40 @@ m = json.load(open(manifest_path))
 clips = [("walk_neutral", "walk"), ("idle_breathe", "idle"), ("run_neutral_01", "run"),
          ("idle_look_around_01", "idle2"), ("idle_neutral_03", "idle3")]
 
+# QB-20/21/39 (9 Nov 2026): the mocap locomotion set, retargeted. Rocketbox's own motion
+# capture (Assets/Animations, MIT; fetched into rocketbox/anim_loco/ and converted with
+# FBX2glTF): the men's clips on the male avatars, the women's on the female ones (until
+# now every avatar walked the women's walk on the women's bone lengths). Each avatar gets
+# one of two walks by a hash of its name, a run, a fast run, walk and run starts and
+# stops, and fidgets for standing still. "retarget": rotations and root motion only (the
+# avatar keeps its bones; tools/import_assets.py); "ref": the cycle the clip's foot
+# phases are measured on (tools/locomotion_meta.py), for the renderer's transitions.
+def loco_clips(folder):
+    female = "Female" in folder
+    s = "f" if female else "m"
+    h = sum(folder.encode()) % 2
+    walk = (["f_walk_neutral", "f_walk_neutral_01"] if female else ["m_walk_neutral_01", "m_walk_neutral_02"])[h]
+    run = "f_run_neutral" if female else "m_run_neutral"
+    fidgets = (["f_idle_look_around_02", "f_idle_touch_hair_01", "f_idle_move_leg_01", "f_idle_waiting_01"] if female else
+               ["m_idle_look_around_02", "m_idle_scratch_head_01", "m_idle_shake_leg_01", "m_idle_waiting_01"])
+    idles = ["f_idle_breathe_01", "f_idle_neutral_01", "f_idle_neutral_02"] if female else \
+            ["m_idle_neutral_01", "m_idle_neutral_02", "idle_neutral_03"]
+    # the run's phases are measured on the walk (that lines the two up), the rest on their own cycle
+    out = [(walk, "walk", "walk"), (run, "run", "walk"), (f"{s}_run_fast_01", "run_fast", "run"),
+           (f"{s}_walk_start", "walk_start", "walk"), (f"{s}_walk_stop", "walk_stop", "walk"),
+           (f"{s}_run_start", "run_start", "run"), (f"{s}_run_stop", "run_stop", "run"),
+           (idles[0], "idle", None), (idles[1], "idle2", None), (idles[2], "idle3", None)]
+    out += [(f, f"fidget{i + 1}", None) for i, f in enumerate(fidgets)]
+    res = []
+    for c, n, ref in out:
+        d = "anim" if c in ("idle_neutral_03",) else "anim_loco"
+        if not os.path.exists(os.path.join(here, "rocketbox", d, c + ".glb")): continue
+        e = {"glb": f"humans/rocketbox/{d}/{c}.glb", "name": n, "strip_root": "Bip01", "retarget": True}
+        if ref: e["ref"] = ref
+        if n.startswith("fidget"): e["max_len"] = 9.0      # the renderer plays at most 9 s of one
+        res.append(e)
+    return res
+
 def model_name(folder):
     return "human_" + folder.lower()
 
@@ -41,7 +75,7 @@ def entry(folder):
     body = [k for k in mats if k.endswith("_body")]
     return {"name": model_name(folder), "glb": f"humans/rocketbox/{folder}/{folder}.glb", "scale": 0.5,
             "texture_max": 512, "material_textures": mats, "tint_clothing": body,
-            "animations_from": [{"glb": f"humans/rocketbox/anim/{c}.glb", "name": n, "strip_root": "Bip01"} for c, n in clips],
+            "animations_from": loco_clips(folder) or [{"glb": f"humans/rocketbox/anim/{c}.glb", "name": n, "strip_root": "Bip01"} for c, n in clips],
             "forward": "+z", "_licence": "Microsoft Rocketbox avatar library, MIT (github.com/microsoft/Microsoft-Rocketbox)"}
 
 folders = sorted(f for f in os.listdir(os.path.join(here, "rocketbox")) if f != "anim" and os.path.exists(os.path.join(here, "rocketbox", f, f + ".glb")))

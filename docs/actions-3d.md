@@ -659,3 +659,336 @@ Runs `out/a34_before` / `a34_before2` (the build before this pass, with only the
 | kick | none: GTA2 has no kick frames | ped_states.json |
 | arms through the torso | checked in the generator for every clip; 8 fixed, 3 at 2 % contact | `gen_ped_clips.py` output |
 | NPC peds | same code path; NPC walkers seen stepping in the bursts; NPC boarding a moving car not singled out | bursts |
+
+## Reloading (8 Nov 2026, QB-29)
+
+GTA2 has no magazines: a weapon fires until its ammunition (`+0` of the weapon object, stored x10 of
+the HUD count) is gone, and the `+2` word is a per-shot cooldown, not a reload. The renderer gives each
+gun a notional magazine and plays a reload when it is spent and he stops firing:
+
+- **Magazines** (`kReloads` in `dll/src/live_geometry.cpp`): pistol 6 (a pickup is 10 shots), dual
+  pistols 12, machine gun and silenced MG 30, shotgun 6, rocket launcher 1. None for the electro gun,
+  flamethrower, molotov, grenade. A shot is the existing `gameShot` (ammunition dropping or the cooldown
+  restarting, so police with 990 rounds reload too); a new gun starts full; ammunition going up (a
+  pickup) after shots fired reloads too.
+- **When:** the magazine spent and 9 frames since the last shot (while the attack is held the game sits
+  in the firing frame, so a continuous burst never reloads; letting go does). A shot during the reload
+  cuts it off (the game fires regardless). `GTA2DX9_RELOAD=0` turns it off.
+- **Clips** (`tools/gen_ped_clips.py`, upper-body layers, one shot, starting and ending on the weapon's
+  carry pose): `reload` 1.40 s (pistol up to the chest, mag tipped out 0.30 s, left hand to the belt,
+  into the grip 0.80 s, racks the slide 0.98 s), `reload_heavy` 1.55 s (gun rolled, left hand pulls the
+  mag 0.35 s, a fresh one from the chest pouch, seated 0.95 s, charging handle 1.12 s), `reload_launcher`
+  1.20 s (tube down off the shoulder, a rocket from over the left shoulder 0.40 s, into the tube 0.85 s).
+  Actions 24-26. All pass the generator's arm/torso check. An avatar imported before these clips drops
+  the action (no stuck pose).
+- **The gun while the left hand is away:** a long gun is normally laid from the right hand to the left;
+  during a reload it keeps the line it last had in the right hand's frame (`gripLocal`, taken every frame
+  both hands hold it), so it moves with the right hand.
+- **Magazine:** a dark particle (kind 6) drops from the magazine well at the clip's drop time and lies on
+  the ground for 2.5 s; the fresh one rides in the left hand from the pouch to the gun.
+- **First person** (the own figure is not drawn): the same count off the player's ammunition word, timed
+  in real seconds; the view model dips, tips its muzzle up and rolls, a jolt back on the slide, the spent
+  magazine drops and the fresh one rises into the well.
+- **Sound:** three synthesized clicks (magazine out, seated, slide), 22.05 kHz through `waveOut` so they
+  mix with the game and do not cut the voice-over (`PlaySound` plays one sound at a time); the player's
+  reloads only. `GTA2DX9_RELOAD_SOUND=0` turns them off.
+- **Log:** `reload: <object> (player) <weapon> starts`, `... magazine out/in at t=`, `reload: first
+  person ...`, `reload: click N` (capped).
+- **Assets:** the 41 avatars re-imported with the three clips (`tools/import_assets.py ../assets-src/manifest.json
+  <dir> --only human_...`; only the `.mesh` files change, the textures are byte-identical). The clips JSON
+  was regenerated from `Male_Adult_01` + `idle_breathe` (that pair reproduces the previous file byte for byte).
+
+### Status (QB-29)
+
+Runs `qb29_r3`..`qb29_r9` (private stage: this build + the re-imported avatars, L4, the host at load
+15-35, so clips ran slow in wall time); probe `gamerun/qb29_reload.py` (collect pistol, MG, launcher;
+burst, let go, 8 fps frames for 7 s, then first person).
+
+| item | status | evidence |
+|---|---|---|
+| MG reload, third person | verified: log `starts` 9 frames after the last of 53 shots, `magazine out at t=0.37`, `in at t=0.97`; frames: the left hand leaves the gun, drops, goes to the chest pouch, back under the gun, carry again. Seen from behind (the chase camera swings behind a shooter), the gun half hidden by the body | qb29_r8 `r_machine_gun_reload_third_06..30`, qb29_r9 |
+| MG reload, first person | verified: the view model drops low and left, muzzle up, rolled, back to the carry; mag out 0.38 s, in 0.95 s | qb29_r8 `r_machine_gun_reload_fp_04..28` |
+| launcher reload, third person | verified: tube down off the shoulder and back; `rocket in at t=0.87`; a shot during the reload cuts it off (log) | qb29_r5 `r_rocket_launcher_reload_third`, qb29_r9 log |
+| launcher, first person | log only (`first person magazine in at t=0.87`) | qb29_r5, r9 |
+| pistol reload | log only (six aimed shots, `starts`, out 0.30, in 0.80); the frame burst came too late | qb29_r9 |
+| falling magazine, held magazine | spawned (log times), not singled out in a frame (a small dark particle) | - |
+| clicks | `reload: click 0/1/2` logged at the events; not heard (no audio capture in the runs) | logs |
+| NPCs (police 990 rounds) | same code path (their cooldown restarts count as shots); not filmed | - |
+
+## CROWD (8 Nov 2026): people's own clothes and builds, heads that follow the player, glances
+
+Street views only (third and first person); the classic view is untouched. `[crowd]` in
+`package/gta2dx9.ini` (`variety`, `look_at`, `look_range`), `GTA2DX9_CROWD=0` turns all of it
+off for a run.
+
+- **Clothes** (`CrowdLookFor`, `live_geometry.cpp`): a civilian (no remap, remap 15 or 18-52
+  except 22: the manifest's `civilian_*` types) three times in four gets an everyday clothing
+  colour from a palette of 20 (navy, charcoal, beige, olive, burgundy, denim, mustard, teal...):
+  the avatar's `_paint` half multiplied 85% of the way toward it (the existing paint-tint stage,
+  so it costs no pose and no texture). With 4 avatars per civilian remap, 20 colours plus the
+  avatar's own and the builds below, one avatar is now ~80 different-looking people. Uniforms
+  (police, army, medics, firemen, suits) and gang colours are unchanged; the player is unchanged.
+- **Builds**: height x0.94-1.06 and width x0.95-1.05 per person (the placement's fit matrix), for
+  everyone but the player. Fixed by the ped's object, like the avatar choice.
+- **Look-at**: a person with no action clip on, the player within `look_range` blocks (default
+  5; doubled for 3 s after the player fires) and within 110 degrees of the way he faces, turns
+  his head to the player: `ModelSetHeadTurn` (`model_store.cpp`) turns `Bip01 Neck` 40% and
+  `Bip01 Head` 60% about the model's vertical, clamped to 70 degrees (50 walking), eased over
+  0.25 s at up to 230 deg/s. One passer-by in four does not look (unless the player is shooting).
+- **Glances** (idle behaviour): otherwise a standing person glances left or right every 3-8 s
+  for 1-2.5 s (up to 70 degrees), a walker every 5-12 s (up to 35). Over the existing three idle
+  clips (`idle`, `idle2`, `idle3`, picked per person).
+- **Cost**: the head turn is part of the pose-cache key, quantised to 6 degrees for the nearest
+  figures (LOD 0), 12 for LOD 1, none beyond 18 blocks.
+- **Log**: every 300 drawn frames, `crowd: N figures drawn, N in clothes of their own, ...` and
+  `crowd: last 300 frames: N figure-frames within look_range, N passed over, N with the player
+  behind them, N looking`.
+
+Verified (plain renderer, L4 host, private stage, `gamerun/crowd_probe.py` via
+`keys_crowd_probe.sh`: warp to the Downtown pavement at 165.5,140.5, first then third person):
+run `crowd_r5` logged 6-10 of 7-12 drawn figures in clothes of their own, and 144-407
+figure-frames looking at the player per 300 frames while people were within 5 blocks; frames
+show passers-by in varied clothes and a walker's head turned toward the player; no faults. Run
+`crowd_r6_off` (`GTA2DX9_CROWD=0`) logged `variety 0, look_at 0` and 0 of each. Frame times
+unchanged in kind (the one 59 s frame in `crowd_r5` is the governor's pause of the container,
+23:11-23:12).
+
+Not done (rows 23/39): no children or elderly avatars and no carried props (bags, phones,
+umbrellas) — they need new Rocketbox imports, which stay out of git; no stop/settle clip and no
+fidget clips (new clips in `tools/gen_ped_clips.py` mean re-importing the avatars). Untested:
+the look-at under RTX Remix (Remix down on this host), and the gunfire range doubling (the
+probe did not fire).
+
+## QB-16 (8 Nov 2026): hit reactions in real fights (shot, punched; peds and the player)
+
+Quality-bar row 16 said a shot ped "keeps walking until the game puts him down". The punch
+reaction (ACTIONS-3D-4) only fired when a figure within 0.7 block was mid-swing, so a bullet
+never moved anyone, and a reaction over a carry or an aim was cut off the next frame.
+
+**Mechanism.** `DrawPedFigures` (`dll/src/live_geometry.cpp`): every figure's health word
+(ped+0x216) is compared with last frame's. A drop with a puncher beside him is the punch
+reaction as before. A drop with nobody mid-swing is put to a shooter: each drawn figure now
+leaves its last shot frame (`muzzleFrame`: the game's own ammunition/reload words, or a
+flash beside him), its facing and its weapon in `FigureSpot`; the shooter is the figure that
+fired in the last 0.7 s within 12 blocks whose facing is within 60 degrees of the line to
+the victim (the best aligned and nearest). The bullet's direction against the victim's own
+facing picks one of four new upper-body clips (`tools/gen_ped_clips.py`, 0.6 s, one shot):
+`hit_shot_front` (thrown back at the chest, then folding over the wound, a hand to it),
+`hit_shot_back` (pitched forward, head and arms flung back), `hit_shot_l` / `hit_shot_r` (the
+struck shoulder driven back, bent away, the hand clutching it). The whole figure staggers
+along the bullet (8 cm for a pistol, 10 for a machine gun, 16 for a shotgun; out over 0.15 s,
+back over 0.6 s; the legs step it). The layer is upper body, so a running or walking man
+keeps his legs going under it. The reaction (shot or punched) is now held to its end over the
+walk, the carry and, for a bullet, the aim; a man shot as he squares up to fight (the game
+starts his swing frames the instant he is hit) takes the jolt for 0.35 s before his swing. A
+second hit restarts it. A hit that kills goes straight to the lying clip as before (a pistol
+bullet kills a pedestrian outright in GTA2; the machine gun's take 25 of a ped's health, so a
+short burst leaves him standing). Avatars from before this fall back to `hit_head`.
+`GTA2DX9_SHOT_HITS=0` turns the shot reactions off.
+
+**Log** (`GTA2DX9_LOG_PED_FRAMES=1`): `fig: shot <victim>[ (player)] by <shooter> (weapon N,
+D blocks, front|back|left|right) health a -> b`, then `ped anim: object ... action 22`. An
+unexplained drop: `fig: health ... nobody mid-swing within 0.7 or firing at him (... cause C;
+nearest shooter D blocks facing F)`. Probe aid: `GTA2DX9_LOG_NEAR_PED=1` logs the nearest
+figure to the player (`qb16: near ped d= bearing=`) three times a second, for scripts that
+turn onto someone.
+
+**Probe.** `linux/docker/qb16_hits.py` + `keys_qb16_hits.sh` (mirrored in `gamerun/`):
+pistol and machine gun pickups, then on QB-6's busy pavements it turns onto the nearest
+person, closes in and fires two 0.1 s taps (about two bullets each), with frame bursts at
+10 fps (`/out/qb16_marks.txt` holds each burst's start). `QB16_VIEW` (first) picks the view,
+`QB16_ARMY_SECS` (150) a 6-star wait for soldiers. Run:
+`STAGE=<stage> GTA2_DIRECT_KEYS=1 INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 480 keys_qb16_hits.sh -e GTA2DX9_LOG_PED_FRAMES=1 -e SCENE_KEY=F11 -e GTA2DX9_LOG_NEAR_PED=1 -e GTA2DX9_SCENE_NO_CAR=1`.
+
+**Verified (plain renderer, Downtown, runs `qb16_r3`, `r6`, `r8`, `r9`; a heavily loaded host, so
+the governor paused most runs for minutes and each produced one or two hits).** Five real shot hits
+were logged on pedestrians who survived them, all from the player's machine gun: `fig: shot ...
+(weapon 4, 0.2 blocks, front) 50 -> 25` (r3), `0.9 blocks, back` (r6), `3.2 blocks, back` (r8, first
+person, through the eye stand-in), `1.5 blocks, left` and `3.8 blocks, back` (r9); each followed by
+`action 22` on the victim in the same frame, and QB-6's `aim: hit` line agreeing on the victim and
+the health. Frames: `out/qb16_r9/qb_st2_machine_gun_0_025..048.png` (third person, the player in the
+striped shirt firing at a man in a navy shirt 1.5 blocks away: the hit marker at frame 36, his
+shoulders turning over 36-40, then the game turns him to run). In r3 the victim squared up to punch
+0.11 s after the bullet and the swing took the layer back: fixed (the 0.35 s hold above). Seen as a
+limit: at chase-camera distance the flinch reads as a short shoulder jolt, not a big one.
+**Not verified:** the player being shot. In 4.5 min at 3, 4 and 6 stars no officer or soldier hit
+him: at 3-4 stars the police punch and arrest (his punch reactions fired: `fig: hit <player> by
+<cop> (cross) 100 -> 90`, r2/r3), and the army did not reach him at the plaza (r4-r6). The code path
+is the same (the player's figure has the same health word and track), untested. A shotgun's larger
+stagger: untested. Both machine-gun hits whose log line carries the cause word (`ped+0x290`) had cause 11, so
+the lying-clip rule that reads 11 as burnt (ACTIONS-3D-3) may give a man shot dead the burnt pose:
+for QB-17 (death) to check.
+
+## Jacking a driver (9 Nov 2026, QB-14)
+
+What the game does (probe runs `qb14_before2`, `qb14_after3`, `gamerun/qb14_probe.py`, dense
+`GTA2DX9_PEDS_EVERY=2` ped lines): the jacker boards with exactly the states of an empty car (state 3:
+sub 4 the walk and reach, frames 12-19; sub 6 the climb, frames 24-35, ~1.4 s). The driver, out of
+sight in the car until then, appears beside the door about 0.6 s into the climb in state 8 sub 0x11
+(thrown, 0.5 s, sliding ~0.45 blocks off the car), lies knocked down (sub 0x19, then 0x16, ~2.3 s),
+then gets up and walks or runs off with full health. Sometimes the game lets the driver step out
+instead (state 4 sub 7, the ordinary exit) as the jacker reaches the door. Before this pass the
+jacker played `enter_car` and the thrown driver played the `hit` stagger and then the `runover`
+lying clip (sub 0x19 is in the car knock-down range), so he flew up and over as if run down.
+
+Now (`dll/src/live_geometry.cpp`, `tools/gen_ped_clips.py`):
+
+- **Telling a jack.** Every car drawn records where it is and whether its driver word (`+0x54`) is
+  set (`g_carSeats`). A ped in state 3 at the door (reach or early climb frames 16-27) with the
+  nearest car within a block having a driver is jacking (`PedTrack::jacking`), and his `enter_car`
+  layer becomes `jack_pull` (same action 5).
+- **`jack_pull`** (upper-body layer, 1.95 s): the hand to the handle (0.30), the door yanked wide with
+  the shoulders thrown round (0.50), both hands into the doorway (0.80), the grip (0.95), the haul
+  leaning back with the fists to the chest (1.20), the fling to his left (1.40), and `enter_car`'s duck
+  (1.65, 1.95). Timed by the game: held at 0.50 until the climb starts, held at 0.95 until the driver
+  is seen coming out beside him (thrown or stepping out), then real time, faster once the game moves
+  him in (frames 32+). From a run beside a moving car (`grab_door_*`) it picks up at 0.50.
+- **The driver.** A fresh track in state 8 sub 0x11 within 1.2 blocks of a ped in state 3 is the jacked
+  driver (`PedTrack::jacked`): he is turned to face the car and plays lying clip 5, `jacked` (whole
+  body, 1.0 s: still folded as if seated with the arms reaching back for the wheel, the feet swung
+  out, two stumbling steps back with the arms windmilling, over onto his back, a bounce), held lying
+  through the knock-down; its last pose is exactly `fall`'s, so getting up is `fall` played backwards
+  like any knock-down. A driver who steps out keeps `exit_car`.
+- Logged with `GTA2DX9_LOG_PED_FRAMES=1`: `jack: <ped> boarding a car with a driver`, `jack: driver
+  <ped> thrown out` / `stepping out`.
+- Avatars imported before this pass fall back to `enter_car` and `fall`. The 41 avatars were
+  re-imported (`assets/models`, not in git; manifest report updated).
+
+### Status (QB-14)
+
+Runs `qb14_after1`..`qb14_after5` (private stage: this build plus the re-imported avatars, plain
+renderer on the L4, the host at load 15-40 with governor pauses). Remix not tried (down on this host).
+
+| item | status | evidence |
+|---|---|---|
+| player jacks a stopped car, third person | verified: `jack_pull` held at t=0.95 (hands in) until the driver was thrown at climb frame 28, then 1.51 by frame 33; frames show the reach and yank, the driver hauled out arms up, stumbling back and onto his back, lying while the player ducks in | qb14_after5 `b_jack_3.mp4`, `qb14_jack_sheet.png`, log `player figure` lines |
+| AI carjackers | same path: driver thrown out next to the boarding ped, `jacked` from the throw (two in qb14_after5, one in qb14_after1) | logs |
+| getting up after `jacked` | log only (qb14_after1: the driver back to action 0 in state 1 after the knock-down); not filmed (the player drove off) | qb14_after1 log |
+| driver steps out (state 4) | the jacker's haul is released by it (code); seen once in qb14_after3, before that release was added | qb14_after3 log |
+| jacking a moving car | not filmed: traffic at the probe kerb did not come close enough in the after runs; code path is `grab_door_*` -> `jack_pull` at 0.50 | - |
+| a passenger boarding an occupied car | untested: would show the reach and the hands-in hold, then the duck (no throw seen) | - |
+| classic top-down view | untouched (figures are drawn only in the street views) | - |
+## QB-27 (9 Nov 2026): ragdolls for people run over or blown off their feet
+
+Quality-bar row 27: the `runover` lying clip was the same canned arc whatever the car's speed or
+side. Now a person struck or run over by a car (lying clip 2: cause 1/3, sub-states 0x18-0x1A) or
+blown off his feet (lying clip 3: cause 4) goes down as a ragdoll in the street views.
+
+- Solver (`dll/src/ragdoll.cpp/.h`): position-based (Verlet, 120 Hz substeps, 6 iterations), 17
+  particles on the Bip01 joints (pelvis, chest, neck, head, a head-top point, shoulders, elbows,
+  hands, hips, knees, feet). Torso rigid (all pairs of pelvis/chest/neck/shoulders/hips), limbs at
+  their seed lengths, ranges that stop a knee or elbow folding flat, the head sinking into the
+  chest or the legs passing through each other, hinges (knees bend forward, elbows back), gravity
+  3 blocks/s^2, ground at the victim's floor with friction and a 0.15 bounce, the map's walls
+  (`ViewQueries::blocked`), at most 3 blocks of travel. Settles when every joint is under
+  0.06 blocks/s for 0.4 s (or after 6 s); a settled body keeps one cached pose.
+- Seed and throw: the pose being drawn on the frame he goes down (walk, run, idle), so there is
+  no snap. Run over: the hitting car is the nearest car body drawn this or last frame (velocity
+  from its positions); every joint gets the car's velocity, the upper body less (x0.45: he folds
+  back over the bonnet), lift 0.3 x speed at speed, a little sideways jitter. The car is a moving
+  box for the first 0.6 s (sills at 0.05, bonnet 0.20, cabin 0.34 blocks). The game reports the
+  hit once the car already overlaps him, so at the seed the whole body is moved out of the box in
+  one piece. Later contacts push out by the face the joint came through, at most 3 cm an
+  iteration, without adding speed; the car's pace is given by friction. Blast: away from the
+  nearest scorch noted in the last second within 3 blocks, the upper body first (onto his back),
+  lift 0.75 x strength.
+- Skeleton: the torso nodes follow the torso frame (hips, shoulders), each limb bone (neck, head,
+  upper arms, forearms, thighs, calves) is aimed at its particle, every other node is carried by
+  its parent as in the seed. Written to model space through a pose hook in `model_store`
+  (`ModelSetPoseHook`, the pose cache keyed by ragdoll id and generation, a ragdoll's older poses
+  dropped from the cache).
+- Getting up (the game stands a knocked-down person up, often after 0.37 s): the ragdoll's pose is
+  blended into the clip's get-up over 0.3 s, not dropped in a frame.
+- `[renderer] ragdoll=1` (default) in `gta2dx9.ini`; `GTA2DX9_RAGDOLL=0/1` overrides. Log lines
+  `ragdoll: start|settled|gets up` (always, first 200).
+
+Probe: `gamerun/qb27_probe.py` (`keys_qb27.sh`): F10 scene warp to the Downtown carriageway with
+`GTA2DX9_SCENE_NO_CAR=1`, third person, pacing across the traffic lanes until cars hit him; one
+continuous 15 fps recording, and the log's wall-clock `ragdoll: start` lines give the offsets.
+`STAGE=<stage> FPS=0 GTA2_DIRECT_KEYS=1 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 300 keys_qb27.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_PED_FRAMES=1 -e QB27_SECS=200`.
+
+| item | status | evidence |
+|---|---|---|
+| player run over (truck, slow) | verified in frames: knocked back from the truck's line, folds and falls away from it over 0.4 s; the game stands him up at 0.37 s and the blend brings him upright with no pop | `out/qb27_r9/fr/p1z.png` (b_lane.mp4 at 15.9 s) |
+| a body seeded inside the car | fixed: the first builds stood him on his head within 0.1 s (legs pushed out on their own, then a Verlet push adding speed); seen in `qb27_r4`, `qb27_r6`, `qb27_r8` | `out/qb27_r8/fr/p1z.png` (before) |
+| NPCs run over | log: 8 NPC ragdolls over the runs settle in 1.4-1.8 s, 0.27-0.52 blocks from the hit, pelvis peaking 0.23-0.24; a fast hit (4.9 blocks/s) threw one 3.06 blocks, pelvis peaking 0.51. These were off camera (the far lane or 14 blocks away), so no frames | `qb27_r4/r6/r8/r9` logs |
+| blast victims | untested in a run (`gamerun/qb27_blast.py` written, not run): same solver, throw from the scorch note | - |
+| cost | not measured: the host was at load 20-90 during every run; one skinning a frame per moving ragdoll, none once settled | - |
+| first person | same code path; not filmed | - |
+
+Known limits: the solver is not stepped while the body is out of view (frustum/behind culling);
+no collision with other people, props or parked cars after the first 0.6 s; a body thrown onto
+higher ground (a kerb) is held at the hit's floor height.
+
+## QB-20/21/39 (9 Nov 2026): mocap locomotion, retargeted onto the Rocketbox avatars
+
+The quality-bar rows "walk/run cycles" (QB-20), "turning in place" (QB-21) and "stopping and idle" (QB-39).
+
+### What was wrong
+- Every avatar, male or female, walked the **women's** walk (`anim/walk_neutral.glb` is Rocketbox's
+  `f_walk_neutral`), and the clip's **bone translations** were merged too, so a man's calves and thighs took the
+  female recording's lengths (0.426 instead of 0.399 for the calf, and so on).
+- No starts and no stops: the idle cross-faded into the cycle in 0.1 s; a stop settled the cycle to the
+  nearest feet-together phase and faded to one idle loop. No lean into acceleration. No idle variety.
+
+### What changed
+- **Source**: Rocketbox's own motion capture (github.com/microsoft/Microsoft-Rocketbox, `Assets/Animations`,
+  MIT, the same library and licence as the avatars): men's and women's walks (two each), run, fast run,
+  walk start/stop, run start/stop, idles and fidgets (look around, scratch head, shift a leg, touch hair,
+  waiting). Fetched into `assets-src/humans/rocketbox/anim_loco/` (`*_motextr_xy` for the moving clips,
+  `*_static` for the idles), converted with FBX2glTF.
+- **Retarget** (`tools/import_assets.py`, `"retarget": true` in `animations_from`): the clip's joint
+  rotations are copied by joint name (Biped joint frames agree across the library); its joint translations
+  are dropped, so the avatar keeps its own bones; the root's height and the ground covered are scaled by the
+  hip-height ratio (avatar / recording). Men get the men's clips, women the women's. Each avatar gets one of
+  two walks by a hash of its folder name (variety in a crowd). `"max_len"` trims a long capture (fidgets to 9 s).
+  The meshes stay the same size (3.84 MB for human_male_01, was 3.75 MB): dropping the translations paid for
+  the new clips.
+- **Locomotion tables** (`tools/locomotion_meta.py`, the manifest's `"loco"` string, `Model::Loco` in
+  `dll/src/model_store.*`): per clip at 15 Hz the ground its root covered and its foot phase on a reference
+  cycle (the phase whose left-minus-right foot and calf offsets match best, forward kinematics on the
+  recording's own bones). They line the run up with the walk and the fast run with the run (measured, not the
+  old fixed half cycle), carry the fast run's own stride, and drive the transitions.
+- **Renderer** (`dll/src/live_geometry.cpp`, the figure's locomotion block; state in `PedTrack`):
+  - *Start*: from standing, `walk_start` or `run_start` (a walk start becomes the run start if he is
+    running within 0.25 s), played at the pace of the ground he covers, between 1x and 2x real time (the game is
+    at full speed at once, the capture accelerates); the idle fades into it over 0.15 s; the cycle is held
+    on the start's own foot phase, so the last 0.25 s hands over to the walk or run in step.
+  - *Stop*: `walk_stop` or `run_stop` (by his recent top pace), entered at the frame of its walking part whose
+    feet match the cycle's, played in real time, faded into the idle over its last 0.45 s.
+  - *Fidgets*: after 5-13 s standing still (hash per person), one of four fidgets over the idle (0.6 s in,
+    0.7 s out); any movement, action or turn ends it.
+  - *Lean*: the figure tips forward with acceleration and back with deceleration (critically damped spring,
+    at most 6 degrees forward and 3 back), pivoting on the feet; none during actions other than aiming and carrying.
+  - The turn on the spot stays the procedural `turn_step` layer (see ACTIONS-3D-4): the Rocketbox library has
+    no turn clips (see below).
+  - Log: `loco: <obj> walk_start|run_start|walk_stop|run_stop|fidget|cycle/idle ...` with
+    `GTA2DX9_LOG_FIGURES=1` or `GTA2DX9_LOG_PED_FRAMES=1`; the `fig:` line gained `tr trt trw lean`.
+
+### Regenerate
+`python3 tools/make_ped_manifest.py` from `assets-src/humans/` (writes the clip lists), then
+`gen3d/venv/bin/python tools/import_assets.py assets-src/manifest.json assets/models --only <human_ names>`.
+
+### Verification (runs qb20_r1..r3, private stage, L4, 15 fps bursts)
+Probe: `linux/docker/qb20_probe.py` + `keys_qb20.sh` (items idle, side, start, tap, turn, curve);
+`STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/; s/^nav_map=.*/nav_map=0/' gamerun/grun.sh <run> 170 keys_qb20.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_FIGURES=1`;
+strips with `linux/docker/qb20_strip.py`.
+
+| item | result | evidence |
+|---|---|---|
+| run start, side-on | verified: quarter turn, push-off with forward lean, men's run stride, stop step, settle into idle | qb20_r2 `b_side2` (sheet `qb20_side2.png`) |
+| run from behind | verified: men's run, arms and stride; stands after the stop | qb20_r1 `b_start` |
+| start choice | log: the player's starts go walk_start -> run_start in the first frame of running | qb20_r2 log |
+| stop choice after a run | fixed after r2 (the stop always took walk_stop: the run weight had faded before the stop fired); r3: every stop after a run is run_stop (log), braking stance then upright in frames (camera unsettled after the warp) | qb20_r3 `b_side2` (sheet `qb20_r3_side2.png`) |
+| turn on the spot | the feet step (procedural turn_step, unchanged) | qb20_r1 `b_turn` |
+| fidget | log only: `loco: fidget` after 9-12 s standing, ended at 6.7 s; from behind the camera it is not clear in the frames | qb20_r1/r2 log |
+| NPCs | log: NPC walk starts, run starts, walk stops and a fidget near the player | qb20_r2 log |
+| faults | none in r1, r2, r3 | logs |
+
+### Not done / open
+- **QB-21, turning in place**: still the procedural step layer. The Rocketbox library (MIT) has no turn or
+  pivot clips. CMU mocap has turns but its licence is not CC0/MIT-class, so it was not used; adding turn clips
+  needs a licence decision by the owner (or an MIT/CC0 capture).
+- A stop has no root motion (the game stops at once), so the stop's remaining steps slide the feet a little
+  (up to about one walking cycle, 0.1-0.3 block).
+- Remix not tested; the women's clips seen in log only (the player is male).

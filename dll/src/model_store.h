@@ -95,6 +95,20 @@ struct Model {
     float stride = 0.0f;
     // The same for the run cycle ("run_stride"); 0 when the model has no run clip.
     float runStride = 0.0f;
+    // QB-20: the mocap locomotion clips' tables (the manifest's "loco", written by
+    // tools/locomotion_meta.py): per clip, sampled 15 times a second, the ground its
+    // stripped root motion covered (model units) and its foot phase on its reference
+    // cycle (the walk for walking clips and the run, the run for running ones).
+    struct Loco {
+        std::string name;
+        std::vector<float> dist, phase;
+        float Length() const { return dist.empty() ? 0.0f : static_cast<float>(dist.size() - 1) / 15.0f; }
+        float Covered() const { return dist.empty() ? 0.0f : dist.back(); }
+        float PhaseAt(float t) const;      // interpolated on the circle
+        float TimeAtDist(float d) const;   // the first time the clip has covered d
+    };
+    std::vector<Loco> loco;
+    const Loco* LocoFor(const char* name) const;
     const ModelAnimation* Animation(const char* name) const;
 };
 
