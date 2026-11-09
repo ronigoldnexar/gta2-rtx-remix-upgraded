@@ -43,13 +43,21 @@ STAGE1 = CB.Stage(
     # entered along row 20 from the WEST, so the car faces east and he gets out on its south
     # side, away from the trailer: cb7 came in from the east, got out on the north (trailer) side
     # and died 0.8 blocks from the script's EXPLODE at 51,19.5 (the stage itself done, 2012)
-    line=((43.5, 20.5), (48.4, 20.5)))
+    line=((43.5, 20.5), (48.4, 20.5)),
+    # the road way (the router's own): column 60-61 north to the junction, then west along
+    # row 22; explicit points so the turn into row 22 is made at the junction (cb8: pinned on the
+    # wall column 58 at rows 25-27 cutting that corner, the Pickup burned)
+    via=[(60.5, 35.5), (60.8, 23.5), (52.5, 22.6), (44.5, 22.6)])
 STAGE2 = CB.Stage(
     box=(111.5, 77.5, 3.0, 1.0), arrow=(110.5, 77.5), name="bj2", model=41, car=(24.0, 44.5),
     keys=dict(drive="2014", parked="2016", left="2017", out="2019", armed="2018", outside="2020", done="2021"),
     blasts=[(111.5, 75.5), (111.5, 76.5), (111.5, 77.5), (111.5, 78.5)],
     # the barricade stands in cell 111: in from the west along row 77
-    line=((106.5, 77.5), (110.3, 77.5)))
+    line=((106.5, 77.5), (110.3, 77.5)),
+    # the router's road way, corner by corner: east on row 41, north on column 61 to row 23,
+    # east to column 89, south to row 41, east to column 105, south to the barricade row
+    via=[(55.5, 41.0), (60.8, 40.0), (60.8, 23.5), (70.5, 22.8), (88.8, 23.2), (88.8, 40.5),
+         (97.5, 41.0), (105.3, 42.0), (105.4, 60.5), (105.8, 72.5)])
 if os.environ.get("CB_ROUTES") == "fixed":     # blow_job.py's hand-made routes, for comparison
     STAGE1.routes = {"west": [(44.0, 21.7), (37.0, 22.2), (31.0, 22.4)], "east": [(53.5, 21.8), (59.0, 22.3), (63.5, 22.5)]}
     STAGE2.routes = {"north": [(107.5, 74.5), (106.6, 68.0), (106.6, 64.5)], "south": [(107.5, 80.5), (106.6, 86.0), (106.6, 89.5)]}
@@ -79,12 +87,14 @@ def to_phone(entry):
         near = (15.5, 85.5, 1)
         if near:
             P.set_view("classic")        # the scene key acts in the classic view (sink_or_swim.py does the same)
+            CB.WARPING[0] = True
             for k in range(4):
                 # cb1/cb3: the first presses after the level loads are often ignored (the
                 # player stays at the start): again until he is near the point
                 s2 = M.scene_warp(near[0], near[1], near[2], "CB_WARP_PHONE: the street 17 blocks south of the Rednecks' phone; the job starts at the phone")
                 if s2 and math.hypot(s2["x"] - near[0], s2["y"] - near[1]) < 8: break
                 time.sleep(2.0)
+            CB.WARPING[0] = False
             P.set_view("third")
             RESULT["events"].append(f"phone warp to {near}")
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
