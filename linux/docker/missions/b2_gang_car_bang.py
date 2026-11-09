@@ -198,7 +198,9 @@ def rocket_engage(tgt_model, zones, secs=60):
         if time.time() - SAID[0] > 5:
             SAID[0] = time.time()
             say(f"rocket_engage: {c['id']} d {d:.1f} angle {D.angle_to(s, ax, ay):.2f} v {c['v']:.1f} clear {G.clear_shot(world, s, c['x'], c['y'])}")
-        if c["v"] > 1.0 or not (4.5 <= d <= 8.5) or abs(D.angle_to(s, ax, ay)) > 0.12 or time.time() - last_fire < 2.5 / D.SPEED:
+        # b2_gcb25: two misses at 6.6 and 7.8 blocks with 0.12 rad (a block of lateral error at 8);
+        # gcb15's hits were all from 4.6-6.5 blocks
+        if c["v"] > 1.0 or not (4.5 <= d <= 6.8) or abs(D.angle_to(s, ax, ay)) > 0.08 or time.time() - last_fire < 2.5 / D.SPEED:
             continue
         # nobody of ours in the line of fire (a rocket into an escort a block away killed him, b2_gcb17):
         # hold the shot and keep walking

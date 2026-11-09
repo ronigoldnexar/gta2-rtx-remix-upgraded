@@ -6,7 +6,7 @@ released GANG CAR BANG to this batch). Runners in `linux/docker/missions/` (mirr
 `b2_common.py`, keys scripts `keys_b2_*.sh`, and `b2_respect.c` (gang_respect.c taking a gang index).
 
 **Result: no JOB COMPLETE on any of the three.** GANG CAR BANG reached its first stage's pass
-(five Meteors, message 2163) once in 25 sessions; TAXI DRIVERS jacked the first taxi once in two
+(five Meteors, message 2163) once in 25 sessions (gcb1-25); TAXI DRIVERS jacked the first taxi once in two
 sessions; COSSACK CONVERSION was never run (the one-run-per-agent rule and 25-40 minute sessions
 left no slot for it). What follows is what each session taught, so the next agent starts from it.
 
@@ -46,13 +46,15 @@ What it takes, in the order it was learnt:
 | gcb20-21 | turning on the spot and requiring a standing target with the escort out of line: no shot in 40 s at any target | back to the gcb15 way (fire while walking at it) with the line-of-fire and police checks |
 | gcb22, gcb24 | wanted 1 that never decayed (17 minutes) with a cop car tailing at 3-10 blocks; on foot it cannot be shaken; died | open: a respray needs a car; killing the cop raises the level |
 | gcb23 | a rocket at a burning Meteor (1739 hp) from 6 blocks: its blast killed him | burning cars (fire, or hp under 16000) are no targets and are kept 7 blocks off |
+| gcb25 | six rockets, six misses (6.4-7.9 blocks, standing targets, facing within 0.12 rad), job failed | fire only from 4.5-6.8 blocks within 0.08 rad (gcb15's hits were all from 4.6-6.5); untested |
 
 Frames: `out/b2_gcb15/` (the Meteor hunt in the chase view, the counter going 5 -> 0, `m_gcb_meteors_*`),
 `out/b2_gcb12/shot_665.png` (a rocket fired 100 degrees off on the stale facing),
 `out/b2_gcb10/shot_150.png`/`155` (the escort crowding him on the jetty), `out/b2_gcb17/shot_1100.png`
 and `out/b2_gcb18/shot_610.png` (the Wine crash dialog).
 
-Next: the police after a rocket hit is now the main loss. Ideas not tried: a car for the Zaibatsu
+Next: the rocket aim is the first problem (gcb15 hit 4 of 5, gcb25 0 of 6 with the same code), the
+police after a hit the second. Ideas not tried: a car for the Zaibatsu
 stage and the respray at the nearest shop (`skills/shake_police.respray`), or a stand-off spot out of
 the police routes before each shot; the 5-for-5 rocket budget of stage 2 needs every shot to hit
 (the escort's own kills seem to be credited: gcb13's counter fell 2 for 1 rocket).
