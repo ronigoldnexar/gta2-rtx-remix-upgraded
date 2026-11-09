@@ -8692,14 +8692,15 @@
   },
   {
    "name": "mailbox",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 160,
+   "nodes": 4,
+   "meshes": 4,
+   "vertices": 204,
    "animations": [],
    "textures": [
     "mailbox_0_paint.tga",
     "mailbox_1.tga",
-    "mailbox_2.tga"
+    "mailbox_2.tga",
+    "mailbox_3.tga"
    ],
    "skins": 0,
    "forward": "+z",

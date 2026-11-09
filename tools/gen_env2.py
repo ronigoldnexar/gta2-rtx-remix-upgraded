@@ -180,12 +180,16 @@ def meter_face(size=128):
 
 
 def mail_face(size=(192, 256)):
-    im = noisy((36, 78, 150), size=256, amount=8).resize(size)
+    im = noisy((34, 74, 146), size=256, amount=2).resize(size)   # the body's matt blue
     d = ImageDraw.Draw(im)
     f = font(size[0] // 4)
     tw = d.textlength("MAIL", font=f)
-    d.text((size[0] / 2 - tw / 2, size[1] * 0.42), "MAIL", font=f, fill=(240, 240, 245, 255))
-    d.rectangle((size[0] * 0.2, size[1] * 0.2, size[0] * 0.8, size[1] * 0.3), fill=(22, 50, 100, 255))
+    d.text((size[0] / 2 - tw / 2, size[1] * 0.40), "MAIL", font=f, fill=(240, 240, 245, 255))
+    # a white stencilled eagle-ish emblem above the word: a circle and a bar
+    cx, cy, r = size[0] / 2, size[1] * 0.22, size[0] * 0.13
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(240, 240, 245, 255), width=max(2, size[0] // 48))
+    d.rectangle((cx - r * 0.7, cy - r * 0.15, cx + r * 0.7, cy + r * 0.15), fill=(240, 240, 245, 255))
+    d.rectangle((size[0] * 0.15, size[1] * 0.62, size[0] * 0.85, size[1] * 0.64), fill=(240, 240, 245, 255))
     return im
 
 
@@ -348,23 +352,38 @@ def build_parking_meter():
 
 
 def build_mailbox():
-    body, legs, front = G.Part(), G.Part(), G.Part()
-    G.box_part(body, -0.08, 0.08, 0.17, 0.4, -0.07, 0.07)
-    # rounded top: a half cylinder along z
-    seg = 8
-    for s in range(seg):
-        a0, a1 = math.pi * s / seg, math.pi * (s + 1) / seg
-        x0, y0 = -0.08 * math.cos(a0), 0.4 + 0.08 * math.sin(a0)
-        x1, y1 = -0.08 * math.cos(a1), 0.4 + 0.08 * math.sin(a1)
-        body.quad((x0, y0, 0.07), (x1, y1, 0.07), (x1, y1, -0.07), (x0, y0, -0.07), (0, 0), (0, 1), (1, 1), (1, 0))
-    for x in (-0.05, 0.05):
-        for z in (-0.04, 0.04):
-            G.box_part(legs, x - 0.01, x + 0.01, 0.0, 0.17, z - 0.01, z + 0.01)
-    plate(front, 0.15, 0.22, 0.3, -0.075, thick=0.0)
-    return G.scene_with([("body", body.mesh(mat(noisy((36, 78, 150), amount=8), 0.5, 0.45, "body"))),
-                         ("legs", legs.mesh(mat(noisy(DARK, amount=4), 0.7, 0.5, "legs"))),
+    """A US-style collection box, 0.55 block (1.1 m) tall: a matt blue body with a rounded
+    top and a dark pull-down slot, standing on a solid pedestal and foot plate of its own
+    (defect pm-mailbox-prop-oversized-blue-box-on-legs: the old one stood on four detached
+    sticks and carried a noisy texture)."""
+    body, base, slot, front = G.Part(), G.Part(), G.Part(), G.Part()
+    W, D, Y0, Y1 = 0.11, 0.1, 0.12, 0.44    # half width (x), half depth (z), body bottom, dome spring line
+    G.box_part(body, -W, W, Y0, Y1, -D, D)
+    seg = 10
+    for s_ in range(seg):   # the rounded top: a half cylinder along z, with end caps
+        a0, a1 = math.pi * s_ / seg, math.pi * (s_ + 1) / seg
+        xa, ya = -W * math.cos(a0), Y1 + W * math.sin(a0)
+        xb, yb = -W * math.cos(a1), Y1 + W * math.sin(a1)
+        body.quad((xa, ya, D), (xb, yb, D), (xb, yb, -D), (xa, ya, -D), (0, 0), (0, 1), (1, 1), (1, 0))
+        for z, sgn in ((D, 1), (-D, -1)):
+            k = len(body.v)
+            pts = [(0.0, Y1, z), (xa, ya, z), (xb, yb, z)] if sgn > 0 else [(0.0, Y1, z), (xb, yb, z), (xa, ya, z)]
+            body.v += [np.array(q, np.float32) for q in pts]
+            body.n += [np.array((0, 0, sgn), np.float32)] * 3
+            body.uv += [(0.5, 0.5)] * 3
+            body.f += [[k, k + 1, k + 2]]
+    # the pedestal the body sits on (meets it at Y0) and the foot plate under it
+    G.box_part(base, -0.075, 0.075, 0.025, Y0, -0.065, 0.065)
+    G.box_part(base, -0.1, 0.1, 0.0, 0.025, -0.09, 0.09)
+    # the pull-down slot handle across the front, under the dome
+    G.box_part(slot, -0.075, 0.075, 0.385, 0.425, -D - 0.012, -D)
+    plate(front, 0.17, 0.2, 0.25, -D - 0.002, thick=0.0)
+    blue = (34, 74, 146)
+    return G.scene_with([("body", body.mesh(mat(noisy(blue, amount=2), 0.15, 0.75, "body"))),
+                         ("base", base.mesh(mat(noisy(DARK, amount=3), 0.5, 0.6, "base"))),
+                         ("slot", slot.mesh(mat(noisy((52, 60, 72), amount=2), 0.6, 0.4, "slot"))),
                          ("front", front.mesh(mat(mail_face().transpose(Image.FLIP_LEFT_RIGHT),   # plate() front: mirrored picture reads right
-                     0.4, 0.45, "front")))])
+                     0.15, 0.75, "front")))])
 
 
 def build_container(rgb, seed):
