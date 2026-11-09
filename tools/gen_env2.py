@@ -77,12 +77,24 @@ def tilted_box(part, x0, x1, y0, y1, z0, z1, pitch_deg, pivot):
         part.quad(*[R(p) for p in f])
 
 
-def plate(part, w, h, y_centre, z, thick=0.012, u_flip=False):
-    """A vertical plate facing -z (the viewer on the pavement), textured on both faces."""
+def plate(part, w, h, y_centre, z, thick=0.012, u_flip=False, back=None):
+    """A vertical plate facing -z (the viewer on the pavement). The back face goes into
+    `back` when given (a part of its own, so it can carry a plain metal texture: a
+    stop sign seen from behind must not read STOP mirrored), else into `part` with the
+    same picture.
+
+    UVs are trimesh's (v=0 at the picture's bottom; the glb export turns them over), so
+    the plate's bottom edge takes v=0: with v=0 at the top the picture stood on its head
+    in game. And the renderer draws the glb's right-handed coordinates in D3D's
+    left-handed space with no flip, so the front face shows its picture mirrored left to
+    right: a front with text or an arrow is given the picture MIRRORED (FLIP_LEFT_RIGHT)
+    and then reads right; the back face, seen from +z, reads a picture as drawn.
+    (Defects pt-stopsign-back-mirrored / tri-plate-text-mirrored-oneway-bus: runs
+    out/tri_signs1..4 tried the four combinations; this is the one that reads.)"""
     x0, x1 = -w / 2, w / 2
     y0, y1 = y_centre - h / 2, y_centre + h / 2
-    part.quad((x0, y0, z), (x0, y1, z), (x1, y1, z), (x1, y0, z), (1, 1), (1, 0), (0, 0), (0, 1))                 # front (-z), read from -z
-    part.quad((x1, y0, z + thick), (x1, y1, z + thick), (x0, y1, z + thick), (x0, y0, z + thick), (0, 1), (0, 0), (1, 0), (1, 1))  # back
+    part.quad((x0, y0, z), (x0, y1, z), (x1, y1, z), (x1, y0, z), (1, 0), (1, 1), (0, 1), (0, 0))                 # front (-z), read from -z
+    (back if back is not None else part).quad((x1, y0, z + thick), (x1, y1, z + thick), (x0, y1, z + thick), (x0, y0, z + thick), (0, 0), (0, 1), (1, 1), (1, 0))  # back
 
 
 def post(part, r, y0, y1, x=0.0, z=0.0, segments=10):
@@ -111,6 +123,26 @@ def stop_face(size=256):
     f = font(size // 4)
     tw = d.textlength("STOP", font=f)
     d.text((c - tw / 2, c - size * 0.15), "STOP", font=f, fill=(245, 245, 245, 255))
+    return im
+
+
+def stop_back(size=256):
+    """The back of a stop plate: bare galvanised steel in the same octagon (same alpha
+    cut-out as the face), a darker rim and the bracket strap where it meets the post."""
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = size / 2; r = size * 0.48
+    oct_pts = [(c + r * math.cos(math.radians(22.5 + 45 * i)), c + r * math.sin(math.radians(22.5 + 45 * i))) for i in range(8)]
+    d.polygon(oct_pts, fill=(150, 154, 158, 255), outline=(104, 108, 112, 255), width=max(2, size // 40))
+    rng = np.random.default_rng(3)
+    a = np.array(im, np.float32)
+    a[..., :3] += rng.uniform(-7, 7, (size, size, 1)) * (a[..., 3:4] > 0)
+    im = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGBA")
+    d = ImageDraw.Draw(im)
+    s = size // 22
+    d.rectangle((c - s, c - r * 0.85, c + s, c + r * 0.85), fill=(96, 100, 104, 255))   # bracket strap
+    for y in (c - r * 0.6, c + r * 0.6):
+        d.ellipse((c - s * 0.8, y - s * 0.8, c + s * 0.8, y + s * 0.8), fill=(70, 72, 76, 255))   # bolts
     return im
 
 
@@ -216,19 +248,26 @@ def wood(size=128, seed=7):
 # --- builders -----------------------------------------------------------------
 
 def build_sign_stop():
-    p_post, p_plate = G.Part(), G.Part()
+    p_post, p_plate, p_back = G.Part(), G.Part(), G.Part()
     post(p_post, 0.013, 0.0, 1.08)
-    plate(p_plate, 0.3, 0.3, 0.92, -0.013)
+    plate(p_plate, 0.3, 0.3, 0.92, -0.013, back=p_back)
     return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
-                         ("plate", p_plate.mesh(mat(stop_face(), 0.1, 0.5, "plate")))])
+                         # The face mirrored (see plate()); the back is plain metal.
+                         ("plate", p_plate.mesh(mat(stop_face().transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "plate"))),
+                         ("plate_back", p_back.mesh(mat(stop_back(), 0.7, 0.45, "plate_back")))])
 
 
 def build_sign_oneway():
-    p_post, p_plate = G.Part(), G.Part()
+    # Two parts: the front shows its picture mirrored, the back (seen from the other side)
+    # as drawn, so the front gets the picture mirrored: "ONE WAY" reads left to right from
+    # both sides (see plate()).
+    p_post, p_plate, p_back = G.Part(), G.Part(), G.Part()
     post(p_post, 0.013, 0.0, 1.0)
-    plate(p_plate, 0.4, 0.15, 0.9, -0.013)
+    plate(p_plate, 0.4, 0.15, 0.9, -0.013, back=p_back)
+    face = oneway_face()
     return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
-                         ("plate", p_plate.mesh(mat(oneway_face(), 0.1, 0.5, "plate")))])
+                         ("plate", p_plate.mesh(mat(face.transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "plate"))),
+                         ("plate_back", p_back.mesh(mat(face, 0.1, 0.5, "plate_back")))])
 
 
 def build_bus_shelter():
@@ -245,17 +284,20 @@ def build_bus_shelter():
     for z in (-0.32, 0.32):
         G.box_part(bench, -0.03, 0.11, 0.0, 0.22, z - 0.015, z + 0.015)
     post(sign, 0.01, 0.0, 1.05, x=-0.22, z=-0.52)
-    plate_sign = G.Part()
-    plate(plate_sign, 0.26, 0.13, 0.97, -0.53 - 0.01)
+    plate_sign, plate_sign_back = G.Part(), G.Part()
+    plate(plate_sign, 0.26, 0.13, 0.97, -0.53 - 0.01, back=plate_sign_back)
     # the sign plate faces -z here; the shelter's road side is -x, so turn the plate about its post
-    plate_sign.v = [np.array(q, np.float32) for q in rot_y([tuple(v) for v in plate_sign.v], 90, cx=-0.28, cz=-0.62)]
-    plate_sign.n = [np.array(q, np.float32) for q in rot_y([tuple(n) for n in plate_sign.n], 90)]
+    for part in (plate_sign, plate_sign_back):
+        part.v = [np.array(q, np.float32) for q in rot_y([tuple(v) for v in part.v], 90, cx=-0.28, cz=-0.62)]
+        part.n = [np.array(q, np.float32) for q in rot_y([tuple(n) for n in part.n], 90)]
     return G.scene_with([("frame", frame.mesh(mat(noisy(TEAL, amount=8), 0.6, 0.5, "frame"))),
                          ("roof", roof.mesh(mat(noisy(MUSTARD, amount=8), 0.2, 0.6, "roof"))),
                          ("glass", glass.mesh(mat(noisy((150, 180, 190), amount=4), 0.1, 0.15, "glass"))),
                          ("bench", bench.mesh(mat(wood(), 0.0, 0.8, "bench"))),
                          ("signpost", sign.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
-                         ("sign", plate_sign.mesh(mat(bus_face(), 0.1, 0.5, "sign")))])
+                         # front mirrored, back as drawn: "BUS" reads left to right from both sides (see plate())
+                         ("sign", plate_sign.mesh(mat(bus_face().transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "sign"))),
+                         ("sign_back", plate_sign_back.mesh(mat(bus_face(), 0.1, 0.5, "sign_back")))])
 
 
 def meter_dial(size=128):
@@ -321,7 +363,8 @@ def build_mailbox():
     plate(front, 0.15, 0.22, 0.3, -0.075, thick=0.0)
     return G.scene_with([("body", body.mesh(mat(noisy((36, 78, 150), amount=8), 0.5, 0.45, "body"))),
                          ("legs", legs.mesh(mat(noisy(DARK, amount=4), 0.7, 0.5, "legs"))),
-                         ("front", front.mesh(mat(mail_face(), 0.4, 0.45, "front")))])
+                         ("front", front.mesh(mat(mail_face().transpose(Image.FLIP_LEFT_RIGHT),   # plate() front: mirrored picture reads right
+                     0.4, 0.45, "front")))])
 
 
 def build_container(rgb, seed):
