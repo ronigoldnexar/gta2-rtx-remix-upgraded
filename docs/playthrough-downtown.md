@@ -644,3 +644,50 @@ the walk, both guards down, the respray, JOB COMPLETE; br7 JOB COMPLETE), and `o
 - What still loses it: a standstill in traffic during the 85-block getaway with two stars behind (br10: a blocked lane at 178.4,208.2), a police car passing while the GRAHAM stands at the bank (the runner waits up to
   70 s for none within 22 blocks, then goes anyway), and the jams at the column-142/row-169 junction on
   the first drive (br2: the car burned there; the respray would repair it if it got that far).
+
+## Part 11 (9 Nov 2026, Wave M, SKILL-KILLMARK): the kill-marked skill on BANK ROBBERY
+
+The `kill_marked` skill (23 jobs in `missions-catalogue.md`) as one module,
+`gamerun/skills/kill_marked.py` (mirrored in `linux/docker/skills/`), on the shared `mission_lib` /
+`drive_lib` (unchanged). Proven on BANK ROBBERY (`wil_ye2`), the only green-phone job of a fresh
+game whose kill step is marked characters (the two bank guards); the yellow and red jobs need respect
+2/4 first. The job glue, `gamerun/missions/bank_robbery_km.py` (keys `keys_bank_robbery_km.sh`), reuses
+`missions/bank_robbery.py` unchanged for the phone, the GRAHAM and the bank box, and replaces its
+hand-written guard loop with one call:
+
+    K.kill_marked(world, select=is_guard, spare=is_spare, approach=BR.CLIMB, level=2,
+                  fire_spots=BR.FIRE_SPOTS, secs=150, check=job_check)
+
+What the skill does for any job: targets are the marked live peds of `view: peds` (the arrow slot on
+the ped), filtered by the job's `select`, nearest first and the player's own level first; kind-2 arrows
+when no target is in the 24-block peds window (or he sits in a car: the car is shot). Out of the car,
+a gun in the hand (`select_gun`, a pickup only with no rounds at all). A target on another level: the
+job's hand-placed `approach` points once, then the multi-level router. Far: walk at him, trigger off;
+in range (7-8 blocks): walk at him with the trigger held, standing under 2.2 blocks. No damage for 8 s:
+the next fire spot, a side step across the line, or closer. A `spare` ped (Hiroshi here) in the line of
+fire holds the trigger. The trigger is released the moment the last target falls; the step ends when
+the character arrows are gone, or when every target seen is down (an arrow on a spared ped is ignored).
+With `GTA2_DIRECT_KEYS=1` the walk and the gun run in the chase view: every fight frame is third person.
+
+The glue also hardens the getaway after the first runs: the GRAHAM is followed by its model in
+`view: cars` when it has been taken (km2: the old runner walked to where it had been parked); the
+respray is entered rolling with the throttle held from 2.5 blocks before the tunnel (km1: the drive
+stopped at the tunnel mouth with officers 1-1.5 blocks off, 1666, arrest); from km5 the getaway car
+faces east and runs east on row 180, south down the column-216 avenue and west on row 215 to the
+tunnel, off the column-178 avenue where br10 and km4 were caught.
+
+Sessions `km*`, fresh games, `GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1`, `FPS=0`, plain renderer on a private
+stage (hard link of the gated `repo/stage`), devtools F9/F10 (the job runner's reported warp onto the
+phone dais was used in km2 and km5).
+
+| session | skill (guards) | job | what happened |
+|---|---|---|---|
+| km1 | **both down**, 32 s after leaving the car (stairs: the approach missed one point, the router finished the climb) | failed | getaway: the drive stopped at the respray tunnel mouth (205.3,218.0) with officers beside the car; pulled out (1666) and arrested |
+| km2 | **both down** 9 game-s after the climb | failed | a gang member 0.5 blocks from the car at the start of the getaway; pulled out at 178.9,183.7 17 s in; the runner walked to the old parking spot |
+| km3 | **both down** in 9 game-s | failed | respray rolled in (wanted 2 -> 0, carhp 32000); on the 197-block safehouse drive the GRAHAM was pinned at 96.3,202.1 and took 6 000 in 4 s, burned and was wrecked |
+| km4 | **both down** in 26 game-s | failed | getaway west then south: pressed in a jam at 181.3,206.0 with an officer 1.6 blocks off, pulled out and arrested (as br10 at 178.4,208.2) |
+| km5 | **both down** in 9 game-s (6 s wall) | failed | back in the car 5 s after the last guard; pulled out 0.3 s after boarding by a passer-by (1666) as the two stars came, then arrested |
+
+Frames (chase view): `out/km1/m_km_bank_engage.png`, `out/km*/m_km_bank_first_down.png` (the first
+guard falling), `out/km*/m_br_guards.png` (both guards down on the walk, the player standing over
+them); marks and the skill's lines (`kill_marked: ...`) in `out/km*/marks.txt` and `keys.log`.
