@@ -70,7 +70,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 # Clear coat (AperturePBR has no second lobe): smooth dielectric with a little flake.
-PAINT_METALLIC, PAINT_ROUGHNESS = 0.2, 0.12
+# REMIX-MATERIALS (pt-remix-car-paint-firefly-sparkle): 0.12 over the derived normal of the
+# image-to-3D atlases (strength 5) path traced every car by day as a crawl of 1-3 px white sun
+# glints the denoiser could not settle; 0.28 keeps a coat's sky reflection and a sun highlight
+# that follows the body, chrome 0.24 (was 0.16), the atlases' derived normal at strength 2.5.
+PAINT_METALLIC, PAINT_ROUGHNESS = 0.2, 0.28
+CHROME_ROUGHNESS = 0.24
 LAMP_INTENSITY = 6.0        # tail / brake lamps, emissiveFactor lamps
 HEADLAMP_INTENSITY = 3.0    # white head lamps on the baked cars (brighter colour, lower gain)
 LIT_INTENSITY = 8.0         # __lit companions: booth sign, traffic-light lenses
@@ -375,7 +380,7 @@ def car_trim_maps(rgba, ends=None):
     if at_end is not None:
         bright = (lum > 0.80) & (sat < 0.35) & (sd < 0.16) & at_end & vis
         head = blobs(bright, nvis, amax_frac=0.0015, ratio=3, fill=0.45)
-    for m, (mt, ro) in ((brushed, (0.7, 0.32)), (chrome, (1.0, 0.16)), (glass, (0.0, 0.05)),
+    for m, (mt, ro) in ((brushed, (0.7, 0.32)), (chrome, (1.0, CHROME_ROUGHNESS)), (glass, (0.0, 0.05)),
                         (rubber, (0.0, 0.60)), (lamp, (0.0, 0.12)), (head, (0.0, 0.08))):
         metal[m] = mt; rough[m] = ro
     # tyre tread and seals rougher where the rubber is busy, glossy paint micro-variation
@@ -498,7 +503,7 @@ def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False):
         normal[sel] = n[sel]
         source.append(f"normal:{conv}({c:+.2f})")
     if normal is None and min(h, w) >= 32:
-        strength = {"car3d": 5.0, "carproc": 3.0, "humans": 1.5}.get(group, 3.5)
+        strength = {"car3d": 2.5, "carproc": 3.0, "humans": 1.5}.get(group, 3.5)
         if human: strength = 1.5
         if spec.get("lit") or spec.get("glass_model"): strength = 1.0
         normal = derived_normal(rgba, strength)

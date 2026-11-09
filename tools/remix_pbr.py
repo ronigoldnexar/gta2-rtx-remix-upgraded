@@ -99,7 +99,21 @@ CLASS_ROUGH = {"asphalt": 0.86, "stone": 0.78, "brick": 0.84, "veg": 0.92, "pain
                "ceramic": 0.55, "glass": 0.05, "metal": 0.38, "chrome": 0.2, "wood": 0.7, "dark": 0.6}
 WARM = [(1.0, 0.72, 0.42), (1.0, 0.82, 0.55), (1.0, 0.62, 0.32), (0.75, 0.85, 1.0), (1.0, 0.9, 0.75)]
 
-def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0):
+# REMIX-MATERIALS (9 Nov 2026): what a tile is used for in the maps (tile_class in
+# remix_materials.py, from the .gmp lids), because luminance alone cannot tell road paint
+# from a raised kerb or a paving joint from a brick wall's mortar. Seen from eye height at a
+# grazing angle under path tracing, the wall-strength relief and the parallax displacement
+# turned road paint into raised clay (pt-remix-road-paint-embossed-clay-relief) and the
+# paving of the plazas into torn bark (pt-remix-rail-track-tile-extreme-normal-relief).
+#   road: lids of road blocks. Paint (texels clearly brighter than the asphalt, white or
+#         yellow) is flat, the asphalt keeps a fine grain, the structure relief is a fifth,
+#         no parallax height.
+#   pave: lids of pavement / field blocks (paving, plazas, roofs). Structure relief at 45 %,
+#         grain at 70 %, no parallax height: a lid is seen at grazing angles where the
+#         runtime's parallax tears and swims.
+GROUND_GAIN = {"road": (0.2, 0.5), "pave": (0.45, 0.7)}   # (structure, grain) gain
+
+def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0, ground=None):
     """Maps for one texture (uint8 RGBA, any size). Returns a dict:
     normal (h, w, 3 float, DirectX tangent space), rough / rough_wet / metal / height
     (uint8 h, w; metal and height None when the texture has none), displace (float,
@@ -236,6 +250,16 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
     k_s = 2.6 * struct_amp * structure_gain / S   # structure slope per texel at 512 px
     k_g = 0.9 / S
     flat = paint & (sat > 0.6)                     # signs and road paint: a painted surface, no relief
+    if ground in GROUND_GAIN:
+        k_s *= GROUND_GAIN[ground][0]; k_g *= GROUND_GAIN[ground][1]
+    if ground == "road":
+        # road paint: brighter than the asphalt around it by a clear step (white, or yellow);
+        # flat, and its edge does not become a step (the paint mask is grown by a few texels)
+        base = gauss(lum, 24 * S + 2, wrap)
+        rp = (lum > base + 0.12) & ((sat < 0.3) | ((hue >= 30) & (hue < 65)))
+        rp = gauss(rp.astype(np.float32), 2.5 * S + 0.5, wrap) > 0.05
+        flat = flat | rp
+        rough = np.where(rp, np.clip(rough - 0.08, 0.3, 0.98), rough)   # paint a little smoother than asphalt
     Hn = (k_s * Hs * np.where(flat, 0.25, 1.0) + k_g * Hg * np.where(glass, 0.15, 1.0)) * visf
     nx, ny = grad(Hn, wrap)
     # slope in "units of texels", keep the tilt sane
@@ -246,7 +270,7 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
     rel = 1.0 - float((paint | glass | veg | dark).mean())     # the share of the tile that is a surface with relief
     signish = float((paint & vis).mean())
     height = None; displace = 0.0
-    if kind in ("tile", "prop") and panes == 0 and signish < 0.08 and rel > 0.6 and struct_amp > 0.45:
+    if kind in ("tile", "prop") and ground is None and panes == 0 and signish < 0.08 and rel > 0.6 and struct_amp > 0.45:
         H = 0.5 + 0.5 * (0.85 * Hs + 0.15 * Hg * 2)
         H = np.clip(gauss(H, 0.5 * S + 0.2, wrap), 0, 1)
         height = (H * 255).astype(np.uint8)
@@ -260,6 +284,65 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
     return {"normal": n, "rough": (rough * 255).astype(np.uint8), "rough_wet": (wet * 255).astype(np.uint8),
             "metal": metal_map, "height": height, "displace": displace, "emissive": emissive, "cls": cls,
             "groundish": groundish}
+
+# ------------------------------------------------------------ leaf albedo --
+def veg_dark(rgba):
+    """True for a vegetation tile (hedge, bush, lawn) whose leaves are too dark to path
+    trace: at least half its visible texels leaf-coloured and their mean sRGB luminance
+    under 0.2 (linear albedo under ~0.03; a real leaf is 0.08-0.15)."""
+    rgb = rgba[..., :3].astype(np.float32) / 255.0
+    vis = rgba[..., 3] >= 128
+    if vis.mean() < 0.05: return False
+    hue, sat, val = hsv(rgb[vis][None])
+    veg = ((hue >= 65) & (hue < 170) & (sat > 0.22))[0]
+    lum = rgb[vis] @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    return bool(veg.mean() > 0.5 and lum.mean() < 0.2)
+
+LEAF = np.array([0.30, 0.42, 0.16], np.float32)    # sRGB leaf green (linear albedo ~0.13)
+# The foliage tiles (hedges, bushes, lawns, the cut-out tree and shrub sprites) whose leaves
+# veg_dark() finds too dark, reviewed on a sheet: Industrial's green-painted metal panels
+# (ste 320-381) and window frames (ste 90/91) and bil 580 (pipework) pass veg_dark() but are
+# not leaves, so the lift is a curated list, not the detector alone.
+VEG_LIFT = {"wil": {108, 477, 837, 841, 849, 854, 856, 860, 862},
+            "bil": {219, 220, 695, 696, 854},
+            "ste": {470, 471, 472, 526, 530}}
+# Hedge blocks: the same tile on the lid and the sides of a closed block, cut out at 64 %. In
+# the plain renderer the holes show the lawn; path traced at dusk they look into the block's
+# unlit inside and stay black (rmat_bil1, 17:30: 17 % of the top under 0.03). A hedge is a
+# dense mass, so the layer draws these opaque, the holes a darker leaf shade (depth between
+# the leaves). The cut-out shrub sprites keep their alpha.
+VEG_SOLID = {"bil": {854}, "ste": {470}}
+
+def veg_albedo(rgba, lo=0.14, target=0.30, kmax=4.0, solid=False):
+    """REMIX-MATERIALS (pt-remix-hedge-top-black-holes): the Remix albedo of a dark leaf tile.
+    The bil/ste hedge tile (854 / 470) has opaque leaves at sRGB (6,14,4): median luminance
+    2/255, which path traces as black speckle. The visible texels' sRGB luminance is lifted
+    affinely, L' = lo + k (L - Lmin), k so the mean reaches `target` (capped at kmax): the
+    leaf structure keeps its order and most of its contrast, nothing stays black. Colour is
+    the texel's own chroma where it is bright enough to have one, the tile's leaf hue pulled
+    half way to a leaf green where it is near black. The alpha (the cutout) is bit-exact.
+    Only the layer's albedo changes: the game's tile and its Remix hash stay as they are."""
+    out = rgba.copy()
+    W = np.array([0.2126, 0.7152, 0.0722], np.float32)
+    rgb = rgba[..., :3].astype(np.float32) / 255.0
+    vis = rgba[..., 3] >= 128
+    lum = rgb @ W
+    v = lum[vis]; lmin = float(np.percentile(v, 1)); mean = float(v.mean())
+    k = min(kmax, (target - lo) / max(mean - lmin, 1e-3))
+    newl = np.clip(lo + k * (lum - lmin), lo, 0.85)
+    chroma = rgb / np.maximum(lum[..., None], 1e-3)                  # colour at unit luminance
+    tile_c = np.median(chroma[vis & (lum > 0.03)], axis=0) if (vis & (lum > 0.03)).any() else LEAF / float(LEAF @ W)
+    leaf_c = 0.5 * tile_c + 0.5 * LEAF / float(LEAF @ W)
+    own = np.clip((lum - 0.02) / 0.06, 0, 1)[..., None] * 0.85       # a near-black texel's own hue is noise
+    c = own * np.clip(chroma, 0, 3) + (1 - own) * leaf_c
+    c = c / np.maximum(c @ W, 1e-3)[..., None]
+    if solid:                                            # the holes: a darker leaf, a little of the neighbours' light
+        near = gauss(np.where(vis, newl, 0), 3.0) / np.maximum(gauss(vis.astype(np.float32), 3.0), 1e-3)
+        newl = np.where(vis, newl, np.clip(0.8 * near, 0.16, 0.26))
+        c = np.where(vis[..., None], c, leaf_c)
+        out[..., 3] = 255
+    out[..., :3] = np.clip(c * newl[..., None] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    return out
 
 # ----------------------------------------------------------------- preview --
 def shade(rgba, n, light=(-0.6, -0.5, 0.62)):

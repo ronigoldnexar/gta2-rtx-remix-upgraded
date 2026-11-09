@@ -20,7 +20,7 @@ MOD=${MOD:-repo/package/rtx-remix/mods/gta2hd}; SIZE=${SIZE:-512}; MAPSIZE=${MAP
 MODELS=${MODELS:-repo/assets/models}; UPSCALED=${UPSCALED:-upscale/hd}
 EXCL=$(find upstream-release/files/rtx-remix/mods -maxdepth 2 -name "*.usd*" | tr '\n' ' ')
 rm -rf "$MOD/textures" "$MOD/pbr.json"; mkdir -p "$MOD"
-nice python3 repo/tools/remix_materials.py - "$MOD" --dds-tiles repo/assets/textures_hd/wil repo/assets/textures_hd/bil repo/assets/textures_hd/ste --size "$SIZE" --map-size "$MAPSIZE" --jobs "$JOBS" --exclude $EXCL
+nice python3 repo/tools/remix_materials.py - "$MOD" --dds-tiles repo/assets/textures_hd/wil repo/assets/textures_hd/bil repo/assets/textures_hd/ste --size "$SIZE" --map-size "$MAPSIZE" --jobs "$JOBS" --gmp-dir game/data --exclude $EXCL
 [ -d "$UPSCALED" ] && nice python3 repo/tools/remix_emissive.py game/data "$MOD" repo/assets/textures_hd "$UPSCALED" | head -3
 nice python3 repo/tools/remix_model_materials.py "$MODELS" "$MOD"
 python3 repo/tools/remix_materials.py - "$MOD" --wet-layer

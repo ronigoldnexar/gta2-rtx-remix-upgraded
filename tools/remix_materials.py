@@ -252,16 +252,59 @@ def dds_hash(path, scheme="mip0"):
     if levels is None: return None
     return "%016X" % xxhash.xxh3_64_intdigest(levels[0] if scheme == "mip0" else b"".join(levels))
 
+def tile_classes(gmp_dir, style):
+    """REMIX-MATERIALS: {tile: (ground, lift)} for one district from its .gmp. ground is "road"
+    for a tile used mostly as the lid of road blocks, "pave" mostly as the lid of pavement or
+    field blocks (paving, plazas, lawns, roofs), None otherwise (walls); lift is True for the
+    curated dark foliage tiles (remix_pbr.VEG_LIFT). See remix_pbr.GROUND_GAIN."""
+    import remix_pbr
+    from collections import Counter
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "linux", "docker"))
+    import gmp
+    out = {}
+    path = os.path.join(gmp_dir, f"{style}.gmp")
+    if os.path.exists(path):
+        blocks, cols = gmp.load(path)
+        lid, side, gt = Counter(), Counter(), {}
+        for _, idx in cols.values():
+            for i in idx:
+                b = blocks[i]; t = b[4] & 1023
+                if t: lid[t] += 1; gt.setdefault(t, Counter())[b[6] & 3] += 1
+                for f in b[:4]:
+                    if f & 1023: side[f & 1023] += 1
+        for t in lid:
+            if lid[t] <= side[t]: continue
+            g = gt[t].most_common(1)[0][0]
+            out[t] = ("road" if g == 1 else "pave" if g in (2, 3) else None, False)
+    for t in remix_pbr.VEG_LIFT.get(style, ()):
+        out[t] = (out.get(t, (None, False))[0], "solid" if t in remix_pbr.VEG_SOLID.get(style, ()) else True)
+    return out
+
 def pbr_tile(job):
     """VISUALS-REMIX: every map of one HD tile (tools/remix_pbr.py), written next to its albedo.
     Normal at the tile's own 512 px (BC5 octahedral), roughness / wet roughness / metallic /
-    height at --map-size (BC4). Returns (hash, displace_in, groundish, class shares)."""
+    height at --map-size (BC4). Returns (hash, displace_in, groundish, class shares).
+    REMIX-MATERIALS: job may carry (ground, lift, albedo): a road/pave lid class for the
+    relief, the foliage lift, and another DDS for the albedo (the re-authored road paint of
+    assets/textures_hd/roads/<style>, which the renderer binds in the street views only;
+    under Remix the plain tile's hash keys it, the clean paint is what is drawn)."""
     import shutil, remix_pbr
-    path, h, tex_dir, size, map_size = job
-    shutil.copyfile(path, os.path.join(tex_dir, f"{h}.a.rtex.dds"))
-    rgba = np.asarray(Image.open(path).convert("RGBA"))
+    path, h, tex_dir, size, map_size = job[:5]
+    ground, lift, albedo = (tuple(job[5:]) + (None, False, None))[:3] if len(job) > 5 else (None, False, None)
+    src = albedo or path
+    rgba = np.asarray(Image.open(src).convert("RGBA"))
     if rgba.shape[0] != size: rgba = resize(rgba, size)
-    r = remix_pbr.analyse(rgba, True, kind="tile", seed=h)
+    a_path = os.path.join(tex_dir, f"{h}.a.rtex.dds")
+    if os.path.lexists(a_path): os.remove(a_path)       # never write through a hard link into another layer
+    if lift:
+        rgba = remix_pbr.veg_albedo(rgba, solid=lift == "solid")
+        write_albedo(a_path, rgba)
+    else:
+        shutil.copyfile(src, a_path)
+    for ext in "nrmhw":                                  # same for every other map (dds() opens "wb")
+        p = os.path.join(tex_dir, f"{h}.{ext}.rtex.dds")
+        if os.path.lexists(p): os.remove(p)
+    r = remix_pbr.analyse(rgba, True, kind="tile", seed=h, ground=ground)
     write_normal(os.path.join(tex_dir, f"{h}.n.rtex.dds"), r["normal"])
     write_roughness(os.path.join(tex_dir, f"{h}.r.rtex.dds"), small(r["rough"], map_size))
     for key, ext in (("metal", "m"), ("height", "h")):
@@ -282,15 +325,22 @@ def dds_tiles(a, tex_dir, taken):
     import json, shutil
     made = skipped = 0; t0 = time.time(); jobs = []
     for d in a.dds_tiles:
+        style = os.path.basename(os.path.normpath(d))
+        classes = tile_classes(a.gmp_dir, style) if a.gmp_dir else {}
+        roads = os.path.join(os.path.dirname(os.path.normpath(d)), "roads", style)
         for f in sorted(os.listdir(d)):
             if not f.endswith(".dds"): continue
             path = os.path.join(d, f)
+            m = re.match(r"tile_(\d{4})\.dds$", f)
+            ground, lift = classes.get(int(m.group(1)), (None, False)) if m else (None, False)
+            if a.only_classed and ground is None and not lift: continue
             h = dds_hash(path, a.dds_hash)
             if h is None or h in taken: skipped += 1; continue
             if not a.force and os.path.exists(os.path.join(tex_dir, f"{h}.r.rtex.dds")): skipped += 1; continue
             taken.add(h)
             if a.pbr == "full":
-                jobs.append((path, h, tex_dir, a.size, a.map_size)); continue
+                alb = os.path.join(roads, f) if ground == "road" and os.path.exists(os.path.join(roads, f)) else None
+                jobs.append((path, h, tex_dir, a.size, a.map_size, ground, lift, alb)); continue
             shutil.copyfile(path, os.path.join(tex_dir, f"{h}.a.rtex.dds"))
             rgba = np.asarray(Image.open(path).convert("RGBA"))
             if rgba.shape[0] != a.size: rgba = resize(rgba, a.size)
@@ -304,6 +354,11 @@ def dds_tiles(a, tex_dir, taken):
         with mp.Pool(a.jobs) as pool:
             for i, (h, disp, ground, cls) in enumerate(pool.imap_unordered(pbr_tile, jobs, chunksize=4)):
                 info[h] = {"displace_in": disp, "wet": ground, "cls": cls}
+                if a.gmp_dir:
+                    j = next(j for j in jobs if j[1] == h)
+                    if j[5]: info[h]["ground"] = j[5]
+                    if j[6]: info[h]["lift"] = j[6]
+                    if j[7]: info[h]["albedo"] = os.path.relpath(j[7], os.path.dirname(os.path.dirname(os.path.dirname(j[7]))))
                 if i % 200 == 0:   # also saved as it goes: an interrupted build keeps what it made
                     print(f"  {i}/{len(jobs)} tiles, {time.time() - t0:.0f} s", flush=True)
                     json.dump(info, open(info_path, "w"), indent=0, sort_keys=True)
@@ -447,6 +502,8 @@ def main():
     ap.add_argument("--pbr", choices=["full", "basic"], default="full", help="full: every map of remix_pbr.py (VISUALS-REMIX); basic: the older normal + roughness")
     ap.add_argument("--map-size", type=int, default=256, help="roughness / metallic / height / wet maps (the normal is at --size)")
     ap.add_argument("--jobs", type=int, default=3)
+    ap.add_argument("--gmp-dir", default=None, help="REMIX-MATERIALS: game/data with <style>.gmp: lid classes (road paint flat, no parallax on lids), the foliage lift, and the re-authored road paint (<hd>/../roads/<style>) as the road lids' albedo")
+    ap.add_argument("--only-classed", action="store_true", help="with --gmp-dir: only the tiles that have a class (road/pave lid or foliage lift); use with --force into a scratch layer, then tools/remix_layer_merge.py --tiles")
     ap.add_argument("--wet-layer", action="store_true", help="only write <mod>/mod_wet.usda from the finished mod.usda (the rain variant)")
     a = ap.parse_args()
     if a.wet_layer:

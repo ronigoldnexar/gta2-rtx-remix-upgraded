@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Procedural park trees for the street views: a tapered trunk with a few
-branches and a canopy of alpha-cutout leaf cards (three crossed vertical cards
-and two tilted horizontal ones), textured with generated bark and a generated
+branches and a canopy of alpha-cutout leaf cards (a shell of fourteen cards on
+an ellipsoid plus two crossed inner ones: canopy_shell), textured with generated bark and a generated
 leaf-cluster sheet. Three variants: a tall slim tree, a round one and a wide
 one. Output: GLBs with PBR materials, origin at the base of the trunk, +y up,
 units in blocks (the importer scales them by the manifest / the placement rule).
@@ -117,6 +117,49 @@ def flat_card(center, size, rot, tilt):
     f = np.array([[0, 1, 2], [0, 2, 3], [2, 1, 0], [3, 2, 0]])
     return v, f, uv
 
+def oriented_card(center, size, normal, spin):
+    """A square leaf card centred at center, facing `normal` (both windings), turned by
+    spin about its normal: one piece of the canopy shell."""
+    n = np.asarray(normal, float); n /= np.linalg.norm(n)
+    a = np.array([0.0, 1.0, 0.0]) if abs(n[1]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    u = np.cross(a, n); u /= np.linalg.norm(u); w = np.cross(n, u)
+    c, s_ = math.cos(spin), math.sin(spin)
+    u, w = c * u + s_ * w, -s_ * u + c * w
+    h = size / 2
+    v = np.array([center - u * h - w * h, center + u * h - w * h, center + u * h + w * h, center - u * h + w * h])
+    uv = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], float)
+    f = np.array([[0, 1, 2], [0, 2, 3], [2, 1, 0], [3, 2, 0]])
+    return v, f, uv
+
+def canopy_shell(rng, cy, canopy_w, canopy_h, n=14):
+    """REMIX-MATERIALS (pt-remix-tree-canopy-black-bands): the canopy as a volume. The old
+    canopy was three crossed vertical cards through the axis and two near-horizontal ones
+    across the whole crown: path traced from the side, the horizontal cards (and their
+    shadows on the vertical ones) were two straight black bands over a flat disc. Here n
+    smaller cards sit on an ellipsoid shell (Fibonacci directions, jittered), each facing out
+    from the centre and turned at random, plus two smaller crossed cards inside for density:
+    no card spans the crown, no two are coplanar, and the self-shadow falls in patches, so
+    the crown shades as a rounded volume (lit top, darker underside)."""
+    parts = []
+    rx, ry = canopy_w / 2, canopy_h / 2
+    golden = math.pi * (3 - math.sqrt(5))
+    for i in range(n):
+        y = 1 - 2 * (i + 0.5) / n
+        y = max(-0.75, y)                                   # few cards straight under the crown
+        r = math.sqrt(max(0.0, 1 - y * y))
+        t = i * golden + rng.uniform(-0.3, 0.3)
+        d = np.array([math.cos(t) * r, y, math.sin(t) * r])
+        d += rng.uniform(-0.12, 0.12, 3); d /= np.linalg.norm(d)
+        k = rng.uniform(0.5, 0.62)                          # depth of the card's centre in the shell
+        c = np.array([d[0] * rx * k, cy + d[1] * ry * k, d[2] * rx * k])
+        nrm = np.array([d[0] / rx, d[1] / ry, d[2] / rx])   # the ellipsoid's outward normal there
+        nrm = nrm / np.linalg.norm(nrm) + rng.uniform(-0.25, 0.25, 3)
+        parts.append(oriented_card(c, canopy_w * rng.uniform(0.55, 0.68), nrm, rng.uniform(0, math.pi)))
+    for i in range(2):
+        yaw = i * math.pi / 2 + rng.uniform(0.2, 0.6)
+        parts.append(card((0, cy + rng.uniform(-0.05, 0.05) * canopy_h, 0), canopy_w * 0.7, canopy_h * 0.7, yaw))
+    return parts
+
 def build(variant, out_dir):
     name, height, canopy_w, canopy_h, trunk_r, tint, seed = variant
     rng = np.random.default_rng(seed)
@@ -129,10 +172,7 @@ def build(variant, out_dir):
         tip = (math.cos(ang) * canopy_w * 0.3, y0 + height * 0.2, math.sin(ang) * canopy_w * 0.3)
         bark_parts.append(cylinder((0, y0, 0), tip, trunk_r * 0.45, trunk_r * 0.15, 6))
     cy = trunk_top + canopy_h * 0.42
-    for i in range(3):
-        leaf_parts.append(card((0, cy, 0), canopy_w, canopy_h, i / 3 * math.pi + rng.uniform(-0.2, 0.2)))
-    leaf_parts.append(flat_card((0, cy + canopy_h * 0.12, 0), canopy_w * 0.95, rng.uniform(0, 3), 0.25))
-    leaf_parts.append(flat_card((0, cy - canopy_h * 0.18, 0), canopy_w * 0.85, rng.uniform(0, 3), -0.2))
+    leaf_parts += canopy_shell(rng, cy, canopy_w, canopy_h)
     scene = trimesh.Scene()
     def merge(parts, image, name_):
         vs, fs, uvs = [], [], []; off = 0

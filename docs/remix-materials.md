@@ -1282,3 +1282,60 @@ The new prims' hashes follow the scheme the probe proved. There was no per-prim 
 
 To check the gap again: `remix_model_materials.py <models> <scratch> --report r.json`,
 then diff the report's hashes against `mod.usda`.
+
+## Material classes: road paint, paving, foliage, car paint, trees (REMIX-MATERIALS, 9 Nov 2026)
+
+Five path-traced material defects had one root: every tile got the same treatment from its albedo, and the cars a coat
+too smooth for their maps. The fixes change only what the gta2hd layer draws for a texture (albedo and maps); every
+Remix hash stays the game's, the renderer is not touched, and the plain classic view cannot change.
+
+**Tile classes from the map** (`remix_materials.py --gmp-dir game/data`, `tile_classes`). A tile used mostly as the lid of
+road blocks (ground type 1) is `road`, mostly as the lid of pavement or field blocks `pave`, the rest (walls) as before.
+`remix_pbr.analyse(..., ground=)`:
+
+| class | structure / grain relief | parallax height | paint |
+|---|---|---|---|
+| road (186 tiles of the three districts) | 0.2 / 0.5 | none | texels 0.12 brighter than the asphalt (white or yellow) flat, roughness -0.08 |
+| pave (955) | 0.45 / 0.7 | none | as before |
+| walls | 1 / 1 | as before (bricks, facades) | as before |
+
+The **road lids' Remix albedo is the re-authored paint** (`assets/textures_hd/roads/<style>/`, FIX-PROPS/QB-24): the
+renderer binds that set in the plain street views only, so under Remix the plain tile's hash still keys the material
+but the clean paint is what is drawn (56 tiles; `pbr.json` notes `"albedo": "roads/<style>/tile_NNNN.dds"`). Causes, as
+seen offline (map sheet: albedo and raking-light normal, old vs new) and in frame: the crosswalk's albedo was the
+upscalers' zebra noise, its normal a relief of that noise and its prim had a parallax height map on it (the "clay");
+the wil plaza paving (436/440/443, the "rail track" of pt-remix-rail-track-tile-extreme-normal-relief, which is brick
+paving, not rails) had parallax 0.014-0.016 on a lid seen at grazing angles. No lid has a parallax height now; walls keep it.
+
+**Foliage** (`remix_pbr.VEG_LIFT`, `veg_albedo`). The hedge tile (bil 854 = ste 470) has opaque leaves at sRGB (6,14,4),
+median luminance 2/255: path traced, black speckle (FIX-REMIX-2's finding; the cutout already worked). The layer's albedo
+of 19 curated foliage tiles (hedges, bushes, lawns, the cut-out shrub sprites, mossy walls) is lifted affinely in sRGB
+luminance to a mean of 0.30 (floor 0.14, gain capped at 4), keeping each texel's own chroma where it has one and a
+leaf green where it is near black; alpha bit-exact, except on the two **hedge-block** tiles (bil 854, ste 470,
+`VEG_SOLID`): at dusk their cutout holes looked into the block's unlit inside and stayed black (17 % of the top under
+0.03 at 17:30 with the lift alone), so those two are drawn opaque, the holes a darker leaf (sRGB 0.16-0.26). The detector `veg_dark()` alone also takes Industrial's green-painted
+metal panels (ste 320-381), window frames (ste 90/91) and pipework (bil 580), which is why the list is curated.
+
+**Car paint** (`remix_model_pbr.py`): clear coat roughness 0.12 -> 0.28, chrome 0.16 -> 0.24, the image-to-3D atlases'
+derived normal strength 5 -> 2.5. The 1-3 px white dashes on every car by day were sun glints on a near-mirror coat over
+a noisy derived normal. Regenerated for the 246 car prims (`--pattern '^\d{3}_.*\.tga$'`).
+
+**Trees** (`tools/gen_trees.py canopy_shell`): the canopy was three crossed vertical cards through the axis plus two
+near-horizontal cards across the whole crown; from the side the horizontal cards and their shadows were the two straight
+black bands. Now 14 smaller cards on an ellipsoid shell, each facing out, plus two inner crossed cards (128 triangles,
+was 84); the leaf and bark textures are byte-identical, so their Remix prims still match. `assets/models/tree_0N.mesh`
+re-imported with `import_assets.py`.
+
+**Building into the shared layer** without rewriting other agents' prims:
+
+    P=/mnt/gta2/ab_work/venv/bin/python     # numpy, PIL, xxhash
+    $P repo/tools/remix_materials.py - <scratch>/gta2hd --dds-tiles repo/assets/textures_hd/{wil,bil,ste} --size 512 \
+        --map-size 256 --jobs 4 --gmp-dir game/data --only-classed --force --exclude <upstream mod usda files>
+    $P repo/tools/remix_materials.py - <scratch>/gta2hd --wet-layer
+    $P repo/tools/remix_layer_merge.py <scratch>/gta2hd <layer> <tile hashes> --tiles     # skips water / sign / facade prims
+    $P repo/tools/remix_model_materials.py repo/assets/models <scratch>/cars --pattern '^\d{3}_.*\.tga$' --report r.json
+    $P repo/tools/remix_layer_merge.py <scratch>/cars <layer> <car hashes>
+
+(77 s and 48 s of CPU under the gen lock.) `remix_layer_merge.py --tiles` also carries the `.h`/`.w` maps and the
+`pbr.json` entries and leaves `model_prims.txt` alone. `build_remix_mod.sh` gets the same result for a full rebuild once
+it passes `--gmp-dir game/data` (it does now). The DDS maps embed the game's art: release archive `remix_mod_gta2hd.zip` only.
