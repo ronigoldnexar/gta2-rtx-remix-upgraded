@@ -8,6 +8,7 @@
 #include <array>
 #include <deque>
 #include <map>
+#include <tuple>
 #include <unordered_set>
 #include <set>
 
@@ -1286,6 +1287,169 @@ bool ModelNodeTextureMean(IDirect3DDevice9* device, const Model& model, const ch
     return false;
 }
 
+// IDENTITY-SYSTEM (docs/identity-system.md 2.4): under RTX Remix a figure's tinted cloth is not
+// trusted to the stage-1 texture factor (pt-remix-third-figure-*: grey clay, then torso and legs
+// not drawn): the identity record's tint is baked into a copy of the texture, so Remix sees an
+// ordinary textured draw whose albedo is the record's colours. Cached by texture and tint (1/64).
+bool g_bakeTints = false;
+void ModelSetBakeTints(bool on) { g_bakeTints = on; }
+IDirect3DTexture9* BakedTint(IDirect3DDevice9* device, const std::string& file, const float tint[3]) {
+    struct Key { std::string file; int t[3]; bool operator<(const Key& o) const {
+        return std::tie(file, t[0], t[1], t[2]) < std::tie(o.file, o.t[0], o.t[1], o.t[2]); } };
+    static std::map<Key, IDirect3DTexture9*> s_baked;
+    static IDirect3DDevice9* s_device = nullptr;
+    if (s_device != device) { for (auto& b : s_baked) if (b.second) b.second->Release(); s_baked.clear(); s_device = device; }
+    Key key{file, {static_cast<int>(std::lround(tint[0] * 64.0f)), static_cast<int>(std::lround(tint[1] * 64.0f)),
+                   static_cast<int>(std::lround(tint[2] * 64.0f))}};
+    auto it = s_baked.find(key);
+    if (it != s_baked.end()) return it->second;
+    if (s_baked.size() >= 256) return nullptr;   // the stage-1 factor then, as before
+    IDirect3DTexture9* src = TextureFor(device, file);
+    IDirect3DTexture9* out = nullptr;
+    D3DSURFACE_DESC desc;
+    if (src && SUCCEEDED(src->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
+        SUCCEEDED(device->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &out, nullptr))) {
+        D3DLOCKED_RECT a, b;
+        if (SUCCEEDED(src->LockRect(0, &a, nullptr, D3DLOCK_READONLY))) {
+            if (SUCCEEDED(out->LockRect(0, &b, nullptr, 0))) {
+                const float k[3] = {key.t[0] / 64.0f, key.t[1] / 64.0f, key.t[2] / 64.0f};
+                for (UINT y = 0; y < desc.Height; ++y) {
+                    const uint32_t* r = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(a.pBits) + y * a.Pitch);
+                    uint32_t* w = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(b.pBits) + y * b.Pitch);
+                    for (UINT x = 0; x < desc.Width; ++x) {
+                        const uint32_t c = r[x];
+                        const uint32_t cr = (std::min)(255u, static_cast<uint32_t>(((c >> 16) & 255) * k[0] + 0.5f));
+                        const uint32_t cg = (std::min)(255u, static_cast<uint32_t>(((c >> 8) & 255) * k[1] + 0.5f));
+                        const uint32_t cb = (std::min)(255u, static_cast<uint32_t>((c & 255) * k[2] + 0.5f));
+                        w[x] = (c & 0xFF000000u) | (cr << 16) | (cg << 8) | cb;
+                    }
+                }
+                out->UnlockRect(0);
+            } else { out->Release(); out = nullptr; }
+            src->UnlockRect(0);
+        } else { out->Release(); out = nullptr; }
+    }
+    s_baked[key] = out;
+    static int logged = 0;
+    if (logged++ < 40) Log("models: identity tint baked: %s x %.2f,%.2f,%.2f -> %s (%zu baked)", file.c_str(), key.t[0] / 64.0f, key.t[1] / 64.0f,
+                           key.t[2] / 64.0f, out ? "ok" : "failed", s_baked.size());
+    return out;
+}
+
+// IDENTITY-SYSTEM: a figure's split pair under RTX Remix. The importer draws a person's clothing
+// as a second mesh over the same triangles (ped zones "#pt"/"#pb", or the "_paint" half), each half
+// alpha-tested. Remix takes the second draw of the same surface as a duplicate (docs/remix-materials.md,
+// "Car paint"): the clothing half was never path traced (pt-remix-third-figure-*: grey clay, then a
+// floating head, forearms and shoes). Under the bake the rest mesh is drawn once with one merged
+// texture - its own texels, and where it is cut out the paint half's texels in the identity record's
+// tint for that texel's zone (top / bottom, rasterised from the zone meshes' UVs) - and the paint
+// meshes are not drawn. The plain renderer keeps the two halves (same colours: same texels, same tint).
+namespace {
+void RasterUv(std::vector<uint8_t>* map, int w, int h, const ModelMesh& mesh, uint8_t value) {
+    for (size_t t = 0; t + 2 < mesh.indices.size(); t += 3) {
+        float px[3], py[3];
+        for (int k = 0; k < 3; ++k) {
+            const ModelVertex& v = mesh.vertices[mesh.indices[t + k]];
+            px[k] = v.u * w; py[k] = v.v * h;
+        }
+        const int x0 = (std::max)(0, static_cast<int>(std::floor((std::min)({px[0], px[1], px[2]})))) ,
+                  x1 = (std::min)(w - 1, static_cast<int>(std::ceil((std::max)({px[0], px[1], px[2]}))));
+        const int y0 = (std::max)(0, static_cast<int>(std::floor((std::min)({py[0], py[1], py[2]})))),
+                  y1 = (std::min)(h - 1, static_cast<int>(std::ceil((std::max)({py[0], py[1], py[2]}))));
+        const float d = (py[1] - py[2]) * (px[0] - px[2]) + (px[2] - px[1]) * (py[0] - py[2]);
+        if (std::fabs(d) < 1e-6f) continue;
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x) {
+                const float cx = x + 0.5f, cy = y + 0.5f;
+                const float a = ((py[1] - py[2]) * (cx - px[2]) + (px[2] - px[1]) * (cy - py[2])) / d;
+                const float b = ((py[2] - py[0]) * (cx - px[2]) + (px[0] - px[2]) * (cy - py[2])) / d;
+                const float c = 1.0f - a - b;
+                const float e = -0.02f;   // a texel's width of slack on the edges
+                if (a >= e && b >= e && c >= e) (*map)[static_cast<size_t>(y) * w + x] = value;
+            }
+    }
+}
+}  // namespace
+
+bool FigurePairPaintSkipped(const Model& model, const ModelMesh& mesh) {
+    if (!g_bakeTints || mesh.texture.size() < 11 || mesh.texture.compare(mesh.texture.size() - 10, 10, "_paint.tga") != 0) return false;
+    const std::string rest = mesh.texture.substr(0, mesh.texture.size() - 10) + ".tga";
+    for (const ModelMesh& m : model.meshes) if (m.texture == rest) return true;   // drawn in the rest mesh's merged texture
+    return false;
+}
+
+IDirect3DTexture9* FigurePairMerged(IDirect3DDevice9* device, const Model& model, const ModelMesh& mesh) {
+    if (!g_bakeTints || !g_paintRests.count(mesh.texture)) return nullptr;
+    const std::string paintFile = mesh.texture.substr(0, mesh.texture.size() - 4) + "_paint.tga";
+    // The tints: per zone (top, bottom) for a zoned avatar, one for a tinted one, none for an untinted split.
+    float tint[2][3] = {{1, 1, 1}, {1, 1, 1}};
+    const bool zones = g_zoneOn && model.pedZones;
+    if (zones) { for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) tint[z][k] = g_zoneTint[z][k]; }
+    else if (g_paintTintOn) { for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) tint[z][k] = g_paintTint[k]; }
+    int q[6];
+    for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) q[z * 3 + k] = static_cast<int>(std::lround(tint[z][k] * 64.0f));
+    struct Key { const Model* m; std::string file; int q[6]; bool operator<(const Key& o) const {
+        return std::tie(m, file, q[0], q[1], q[2], q[3], q[4], q[5]) < std::tie(o.m, o.file, o.q[0], o.q[1], o.q[2], o.q[3], o.q[4], o.q[5]); } };
+    static std::map<Key, IDirect3DTexture9*> s_merged;
+    static std::map<std::pair<const Model*, std::string>, std::vector<uint8_t>> s_zoneMaps;
+    static IDirect3DDevice9* s_device = nullptr;
+    if (s_device != device) { for (auto& b : s_merged) if (b.second) b.second->Release(); s_merged.clear(); s_device = device; }
+    Key key{&model, mesh.texture, {q[0], q[1], q[2], q[3], q[4], q[5]}};
+    auto it = s_merged.find(key);
+    if (it != s_merged.end()) return it->second;
+    if (s_merged.size() >= 256) return nullptr;
+    IDirect3DTexture9* rest = TextureFor(device, mesh.texture);
+    IDirect3DTexture9* paint = TextureFor(device, paintFile);
+    IDirect3DTexture9* out = nullptr;
+    D3DSURFACE_DESC dr, dp;
+    if (rest && paint && SUCCEEDED(rest->GetLevelDesc(0, &dr)) && SUCCEEDED(paint->GetLevelDesc(0, &dp)) && dr.Format == D3DFMT_A8R8G8B8 &&
+        dp.Format == D3DFMT_A8R8G8B8 && dr.Width == dp.Width && dr.Height == dp.Height &&
+        SUCCEEDED(device->CreateTexture(dr.Width, dr.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &out, nullptr))) {
+        const int w = static_cast<int>(dr.Width), h = static_cast<int>(dr.Height);
+        // The texel zones: 1 top, 2 bottom, from the zone meshes' triangles in UV space.
+        std::vector<uint8_t>& zmap = s_zoneMaps[{&model, paintFile}];
+        if (zones && zmap.empty()) {
+            zmap.assign(static_cast<size_t>(w) * h, 0);
+            for (const ModelNode& node : model.nodes) {
+                if (node.mesh < 0 || node.mesh >= static_cast<int>(model.meshes.size())) continue;
+                const ModelMesh& zm = model.meshes[node.mesh];
+                if (zm.texture != paintFile) continue;
+                if (strstr(node.name, "#pt")) RasterUv(&zmap, w, h, zm, 1);
+                else if (strstr(node.name, "#pb")) RasterUv(&zmap, w, h, zm, 2);
+            }
+        }
+        D3DLOCKED_RECT lr, lp, lo;
+        const bool okR = SUCCEEDED(rest->LockRect(0, &lr, nullptr, D3DLOCK_READONLY));
+        const bool okP = SUCCEEDED(paint->LockRect(0, &lp, nullptr, D3DLOCK_READONLY));
+        const bool okO = SUCCEEDED(out->LockRect(0, &lo, nullptr, 0));
+        if (okR && okP && okO) {
+            for (int y = 0; y < h; ++y) {
+                const uint32_t* r = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(lr.pBits) + y * lr.Pitch);
+                const uint32_t* p = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(lp.pBits) + y * lp.Pitch);
+                uint32_t* o = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lo.pBits) + y * lo.Pitch);
+                for (int x = 0; x < w; ++x) {
+                    if ((r[x] >> 24) >= 128 || (p[x] >> 24) < 128) { o[x] = r[x]; continue; }
+                    const int z = zones ? (zmap[static_cast<size_t>(y) * w + x] == 2 ? 1 : 0) : 0;
+                    const uint32_t c = p[x];
+                    const uint32_t cr = (std::min)(255u, static_cast<uint32_t>(((c >> 16) & 255) * q[z * 3 + 0] / 64.0f + 0.5f));
+                    const uint32_t cg = (std::min)(255u, static_cast<uint32_t>(((c >> 8) & 255) * q[z * 3 + 1] / 64.0f + 0.5f));
+                    const uint32_t cb = (std::min)(255u, static_cast<uint32_t>((c & 255) * q[z * 3 + 2] / 64.0f + 0.5f));
+                    o[x] = 0xFF000000u | (cr << 16) | (cg << 8) | cb;
+                }
+            }
+        }
+        if (okO) out->UnlockRect(0);
+        if (okP) paint->UnlockRect(0);
+        if (okR) rest->UnlockRect(0);
+        if (!(okR && okP && okO)) { out->Release(); out = nullptr; }
+    }
+    s_merged[key] = out;
+    static int logged = 0;
+    if (logged++ < 40) Log("models: identity figure pair merged for Remix: %s + %s, top x %.2f,%.2f,%.2f bottom x %.2f,%.2f,%.2f -> %s", mesh.texture.c_str(),
+                           paintFile.c_str(), q[0] / 64.0f, q[1] / 64.0f, q[2] / 64.0f, q[3] / 64.0f, q[4] / 64.0f, q[5] / 64.0f, out ? "ok" : "failed");
+    return out;
+}
+
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
     if (rgb) for (int i = 0; i < 3; ++i) g_paintTint[i] = (std::max)(0.0f, (std::min)(2.0f, rgb[i]));
@@ -1969,7 +2133,10 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             ResetSoftStages(device);
             softStages = false;
         }
-        IDirect3DTexture9* texture = TextureFor(device, mesh.texture);
+        // IDENTITY-SYSTEM: a figure's split pair under the bake (Remix): the rest mesh carries both halves.
+        if (FigurePairPaintSkipped(model, mesh)) continue;
+        IDirect3DTexture9* merged = FigurePairMerged(device, model, mesh);
+        IDirect3DTexture9* texture = merged ? merged : TextureFor(device, mesh.texture);
         if (first || texture != bound) {
             device->SetTexture(0, texture);
             bound = texture;
@@ -1996,7 +2163,12 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             const char* nn = model.nodes[i].name;
             const int zone = strstr(nn, "#pt") ? 0 : strstr(nn, "#pb") ? 1
                            : (g_zoneHair && mesh.texture.find("_opacity") != std::string::npos) ? 2 : -1;
-            if (zone >= 0) {
+            IDirect3DTexture9* baked = zone >= 0 && g_bakeTints ? BakedTint(device, mesh.texture, g_zoneTint[zone]) : nullptr;
+            if (baked) {
+                device->SetTexture(0, baked);
+                bound = baked;
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            } else if (zone >= 0) {
                 const float* zt = g_zoneTint[zone];
                 const DWORD t = 0xFF000000u | (static_cast<DWORD>(zt[0] * 127.5f) << 16) |
                                 (static_cast<DWORD>(zt[1] * 127.5f) << 8) | static_cast<DWORD>(zt[2] * 127.5f);
@@ -2036,7 +2208,12 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         // A car's paint: the second stage multiplies the painted meshes by the tint.
         if (g_paintTintOn) {
             const bool paint = mesh.texture.find("_paint") != std::string::npos;
-            if (paint) {
+            IDirect3DTexture9* baked = paint && g_bakeTints ? BakedTint(device, mesh.texture, g_paintTint) : nullptr;
+            if (baked) {
+                device->SetTexture(0, baked);
+                bound = baked;
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            } else if (paint) {
                 // The factor is half the tint and the stage doubles it, so a repaint
                 // brighter than the model's own paint still gets there.
                 const DWORD t = 0xFF000000u | (static_cast<DWORD>(g_paintTint[0] * 127.5f) << 16) |

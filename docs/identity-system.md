@@ -101,7 +101,31 @@ Under RTX Remix the 3D figure and car draws are the same D3D9 draws. The record'
   default; proven for car paint in `docs/remix-materials.md`), and
 - the replacement material (albedo, normal, roughness) keyed by the hash of the model texture the record names.
 
-So the record drives Remix through the same two channels as the plain renderer. `tools/identity_remix_check.py`
+So the record drives Remix through the same two channels as the plain renderer.
+
+**Figures under Remix: one draw per surface, the record's colours in its albedo.** The root cause of the
+grey-clay figure and of the floating head (`pt-remix-third-figure-*`) is the split pair, not the tint: the
+importer (`tools/import_assets.py` `ped_zone_split`) draws a person's clothing as a second mesh over the same
+triangles. For `human_male_adult_11`, all 2 775 triangles of the shirt mesh (`#pt`) and all 594 of the trousers
+mesh (`#pb`) are also in the body mesh, whose texture is cut out (alpha 0) on the cloth. Remix takes the second
+draw of a surface as a duplicate (`docs/remix-materials.md`, "Car paint": the same thing cut the cars in half),
+so the clothing was never path traced: what was left were the body mesh's uncut parts, the head, forearms and
+shoes (`out/idr_1`, run on this commit's first build, with the tint bake below already on). Under the bake the
+body mesh is drawn once with one merged texture (`FigurePairMerged`): its own texels, and where it is cut out
+the paint half's texels times the record's tint for that texel's zone. The zones (top, bottom) are rasterised
+from the `#pt` / `#pb` meshes' UVs. The paint meshes are not drawn (`FigurePairPaintSkipped`). Merged textures
+are cached per model, texture and tint at 1/64, at most 256.
+
+**Figures under Remix: the record's tints baked into the albedo.** The figures' clothing tints (the
+zones' shirt, trousers and hair, and the one-tint types and civilian clothes) are not left to the stage-1
+texture factor under Remix. Playtests saw the third-person figure as grey clay (`4ed7169`), then with its torso
+and legs missing (`7bfd77b`): exactly the meshes drawn with that stage. With `IdentityBakeTints()` (on when the
+Remix API is up, or `GTA2DX9_IDENTITY_BAKE=1`; `=0` never), `ModelDraw` binds a copy of the mesh's texture with
+the record's tint multiplied in (`BakedTint`, cached by texture and tint at 1/64, at most 256 copies) and no
+stage 1. Remix then sees an ordinary textured draw whose albedo is the record's colours. A baked copy has its
+own texture hash, so no prim of the layer replaces it: the legacy material, with the record's albedo. The
+plain renderer keeps the texture factor (its frames unchanged). The two are equal to within the factor's own
+quantisation: the stage gives texel x floor(t x 127.5) / 127.5, the bake texel x round(t x 64) / 64. `tools/identity_remix_check.py`
 checks offline, per build, that every texture an identity model draws with has its Remix prim, that the prim's
 albedo file exists, and that the albedo is not flat grey. Missing prims are listed. A missing prim is not
 grey on its own: Remix then uses the game texture. But it means no PBR. The grey-clay figure
@@ -216,10 +240,32 @@ is not).
   layer was built, so under Remix they are drawn with the game texture and the legacy material (colour, but no
   normal or roughness map).
 - Pedestrians: 96 of 215 avatar textures have their prim; the rest are legacy material for the same reason.
-- Cars: 303 of 323 textures pass; 20 have no prim or a prim whose albedo no longer matches the texture drawn.
-- None of this makes the albedo grey: a texture without a prim keeps its colour. So the grey-clay figure
-  (`pt-remix-third-figure-single-tone-grey-clay-no-albedo`) is not a missing albedo file. It needs a Remix
-  capture of the figure's draw.
+- Cars: 303 of 323 textures pass; the other 20 (10 models) have no prim; none is stale.
+- None of this makes the albedo grey: a texture without a prim keeps its colour. The grey-clay figure
+  (`pt-remix-third-figure-single-tone-grey-clay-no-albedo`) and the floating head
+  (`pt-remix-third-figure-torso-legs-invisible-floating-head-arms-shoes`) were the duplicate split pair (2.4).
+
+### 4.5 Remix, path traced (`remix_l4.sh`, `keys_remix_gpu.sh`, `PREWARM_WAIT=250`, GPU 4, stage `stage_identity`)
+
+| run | build | third-person figure |
+|---|---|---|
+| `out/idr_1` | tint bake only (stage-1 factor replaced by baked copies) | head, forearms and shoes only: torso and legs not drawn (the 7bfd77b report reproduced) |
+| `out/idr_2` | + one draw per surface (`FigurePairMerged`) | the whole figure: dark navy shirt, dark trousers, skin, hair, in `view_1_third`, `_walked`, `_turned` |
+
+The plain renderer with the same path forced on (`GTA2DX9_IDENTITY_BAKE=1`, `out/idp_bake2`) draws the same
+figure as with the texture-factor path (`out/idp_s4`): same dark shirt and jeans, whole. The parity check
+passes him (delta-E 29.3 against the sprite).
+
+Still short of the owner's bar: under Remix the merged figure textures have no PBR maps (a runtime copy has its
+own hash, so the layer's normal and roughness prims do not apply; the hero's body halves had none anyway). Cloth
+is the legacy material's constant roughness. The fix for that is a layer prim keyed by the merged texture's
+hash, which needs the record's tints known at build time (the player's are fixed: remap 25).
 
 The layer is rebuilt by `build_remix_mod.sh` (REMIX streams); the check tells that stream which identity
 textures are missing.
+
+Cars are not merged at run time. Their split pairs are handled by the layer's merged prims (`remix_model_materials.py`:
+both halves one opaque whole-car material, with PBR maps), which a runtime copy would bypass. A car whose
+textures the check lists as "no prim" (20 textures of 10 models today: `003_pacifier`, `004_g4_bank_van`, `005_beamer`,
+`019_gt_a1`, `021_garbage_truck`, `022_armed_land_roamer`, `029_dementia`, `052_swat_van`, `069_u_jerk_truck`,
+`071_rumbler`; none stale) can be path traced in halves until the layer is rebuilt.

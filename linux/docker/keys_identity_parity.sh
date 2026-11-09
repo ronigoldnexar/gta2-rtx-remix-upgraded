@@ -12,7 +12,8 @@ tap() { xdotool keydown "$1"; sleep 0.3; xdotool keyup "$1"; }
 cycle() {   # $1: prefix. classic -> (3D at the classic camera) -> third -> first -> classic
   shot "$1_0classic"; sleep 1; shot "$1_0classic_b"
   tap v; sleep 0.9; shot "$1_1at_classic_cam"
-  sleep 13; shot "$1_2third"
+  sleep 0.6; shot "$1_1at_classic_cam_b"   # a slow host may not have switched by the first
+  sleep 12.4; shot "$1_2third"
   tap v; sleep 13; shot "$1_3first"
   tap v; sleep 13; shot "$1_4classic"
 }

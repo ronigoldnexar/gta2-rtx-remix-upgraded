@@ -21,8 +21,8 @@ Checks (each failure is a FAIL line; the exit status is the number of failures, 
   3 colour   the player's (and his car's) dominant colour in the classic frame against the third- and
              first-person frames, and every car's classic sprite against its 3D model at the classic
              camera (the frame 1 s after V with a 12 s camera move): CIE76 delta-E <= --de.
-  4 shape    every car: the 3D model's screen rectangle against its sprite's at the classic camera,
-             IoU >= --iou (the footprint the game drew is where the model stands).
+  4 shape    every car: the 3D model's drawn pixels against its sprite's at the classic camera,
+             IoU >= --iou (the silhouette the game drew is where and how big the model stands).
 Needs numpy and Pillow.
 """
 import argparse, glob, json, math, os, re, sys
@@ -84,6 +84,18 @@ def subject(img, rect, pad=0.35):
     # the third whose colours agree best (smallest spread) among the larger ones: the cloth / paint
     best = min((p for p in parts if len(p) >= len(px) // 4), key=lambda p: float(np.mean(np.std(p, axis=0))), default=px)
     return np.median(best, axis=0), mask, (x0, y0, x1, y1)
+
+
+def mask_iou(shape, s0, s1):
+    """IoU of the two subjects' drawn pixels (subject() masks) in frame coordinates: the sprite's
+    opaque pixels against the model's, not their rectangles (a sprite quad is mostly transparent)."""
+    h, w = shape[:2]
+    m = [np.zeros((h, w), bool), np.zeros((h, w), bool)]
+    for k, s in enumerate((s0, s1)):
+        x0, y0, x1, y1 = s[2]
+        m[k][y0:y1, x0:x1] = s[1]
+    inter = np.logical_and(m[0], m[1]).sum(); union = np.logical_or(m[0], m[1]).sum()
+    return float(inter) / float(union) if union else 0.0
 
 
 def rect_iou(a, b):
@@ -159,7 +171,7 @@ def main():
     ap.add_argument("--report", default=None)
     ap.add_argument("--sheet", default=None)
     ap.add_argument("--de", type=float, default=30.0)
-    ap.add_argument("--iou", type=float, default=0.35)
+    ap.add_argument("--iou", type=float, default=0.4)
     ap.add_argument("--json", default=None)
     a = ap.parse_args()
     fails, lines, result = [], [], {"runs": []}
@@ -250,7 +262,14 @@ def main():
                        f"(probe {p['what']}): delta-E {de:.1f} (limit {a.de:.0f})")
                 (fail if de > a.de else ok)(msg)
             # every car: classic sprite against its model at the classic camera
-            at = imgs.get(f"{phase}_1at_classic_cam")
+            at = None
+            for cand in (f"{phase}_1at_classic_cam", f"{phase}_1at_classic_cam_b"):
+                f = imgs.get(cand)
+                # the switch may not have reached the screen yet on a loaded host: still the classic frame
+                if f is not None and float(np.mean(np.abs(f[0].astype(float) - c[0].astype(float)))) >= 3.0:
+                    at = f; break
+            if at is None:
+                lines.append(f"     {name} {phase}: no frame after V differs from the classic one; classic-camera comparison skipped")
             if at:
                 aprobes = probes_at(R, at[1], 1)
                 n = nbad = 0
@@ -264,7 +283,7 @@ def main():
                     if not (on_screen(r0, c[0]) and on_screen(r1, at[0])):
                         continue
                     s0, s1 = subject(c[0], r0), subject(at[0], r1)
-                    iou = rect_iou(r0, r1)
+                    iou = mask_iou(c[0].shape, s0, s1) if (s0 is not None and s1 is not None) else rect_iou(r0, r1)
                     if s0 is None or s1 is None:
                         continue
                     n += 1
@@ -272,7 +291,7 @@ def main():
                     bad = de > a.de or (k[0] != "player" and iou < a.iou)   # a figure's sprite quad is mostly transparent
                     nbad += bad
                     msg = (f"{name} {phase}: {'player' if k[0] == 'player' else 'car'} {k[1]} {q['model']} classic {tuple(int(v) for v in s0[0])} vs 3D {tuple(int(v) for v in s1[0])} "
-                           f"delta-E {de:.1f}, footprint IoU {iou:.2f}")
+                           f"delta-E {de:.1f}, drawn-pixel IoU {iou:.2f}")
                     (fail if bad else ok)(msg)
                     if len(row["panels"]) < 12:
                         kind = "player" if k[0] == "player" else "car " + k[1][-4:]

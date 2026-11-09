@@ -199,6 +199,9 @@ size_t ModelsTextureBytes(int* count);
 // `nodePrefix` in the next draws (null: off), and the mean colour of such a node's texture
 // (its opaque texels), so a caller can take the texture to a colour (factor = want / mean).
 void ModelSetNodeTint(const char* nodePrefix, const float* rgb);
+// IDENTITY-SYSTEM: the zone and clothing tints of the next draws baked into texture copies instead
+// of the stage-1 texture factor (the figures under RTX Remix; identity.h IdentityBakeTints).
+void ModelSetBakeTints(bool on);
 bool ModelNodeTextureMean(IDirect3DDevice9* device, const Model& model, const char* nodePrefix, float rgb[3]);
 const Model* ModelForPedestrian();
 // One of the pedestrian models, chosen by a seed (the same seed always gives

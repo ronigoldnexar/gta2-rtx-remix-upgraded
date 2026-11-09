@@ -9205,6 +9205,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 float tint[3] = {ident.tint[0], ident.tint[1], ident.tint[2]};
                 bool tinted = ident.tinted;
                 const bool zoned = ident.zoned;
+                ModelSetBakeTints(IdentityBakeTints());   // under Remix: one draw per surface, the record's colours in its albedo
                 if (zoned) {
                     ModelSetZoneTints(ident.zone[0], ident.zone[1], ident.zoneHair ? ident.zone[2] : nullptr);
                     ++g_crowdCount[4];
@@ -9352,6 +9353,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     ModelSetZoneTints(nullptr, nullptr, nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
                 }
+                ModelSetBakeTints(false);
                 // The weapon in his hands while he aims or throws: its own model
                 // (assets-src/weapons) held at the hand joints of the pose just
                 // drawn. A pistol sits in the right hand's frame (the barrel along

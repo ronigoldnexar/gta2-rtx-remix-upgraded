@@ -13,6 +13,7 @@
 
 #include "log.h"
 #include "model_store.h"
+#include "remix_api.h"
 
 namespace gta2dx9 {
 namespace {
@@ -208,6 +209,18 @@ std::unordered_map<uint32_t, int> g_carLogged;   // fingerprint -> times logged
 int g_probe = -1, g_probeEvery = 15;
 
 }  // namespace
+
+bool IdentityBakeTints() {
+    static int forced = -2;
+    if (forced == -2) {
+        char v[8] = {};
+        forced = GetEnvironmentVariableA("GTA2DX9_IDENTITY_BAKE", v, sizeof v) ? (v[0] == '1' ? 1 : 0) : -1;
+    }
+    const bool on = forced >= 0 ? forced == 1 : RemixApiAvailable();
+    static int logged = -1;
+    if (logged != (on ? 1 : 0)) { logged = on ? 1 : 0; Log("identity: figure tints %s", on ? "baked into texture copies (Remix or GTA2DX9_IDENTITY_BAKE=1)" : "by the stage-1 texture factor"); }
+    return on;
+}
 
 void IdentitySetCrowdVariety(bool on) {
     if (g_crowdVariety != on) { g_crowdVariety = on; g_peds.clear(); }

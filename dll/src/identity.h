@@ -72,6 +72,11 @@ int IdentityVehicleModelNumber(int gameModel, int sprite);
 // The hero's avatar (the manifest's "pedestrian"), which no crowd record may get.
 const Model* IdentityHeroModel();
 
+// Whether a figure's record tints are baked into its textures (model_store ModelSetBakeTints)
+// rather than applied by the stage-1 texture factor: under RTX Remix, or GTA2DX9_IDENTITY_BAKE=1
+// (=0: never). docs/identity-system.md 2.4.
+bool IdentityBakeTints();
+
 // Settings, from their owners' ini readers.
 void IdentitySetCrowdVariety(bool on);     // [crowd] variety
 void IdentitySetPaintFloor(float floor);   // [renderer] car_paint_floor_percent, as 0..255 luminance
