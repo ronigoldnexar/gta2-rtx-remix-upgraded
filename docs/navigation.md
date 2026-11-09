@@ -350,7 +350,8 @@ feel-armed-third-camera-collapses-to-eye-looking-down. Code: `ViewCameraSolver::
   left it alone for 0.3 s, then eased (0.3 s) and at most 2.2 blocks a second. Before, the solve moved
   the eye from 2.2 blocks to his head in one frame and back out the next (`cam: third back=2.18 -> 0.01`),
   and a car grinding a wall pumped the boom a block every two seconds.
-- Never shorter than 0.6 block from his head on foot, and outside the car's own body at the wheel (its
+- Never shorter than 0.6 block from his head on foot (measured flat, so a boom lifted over a wall still
+  stays 0.6 behind him), and outside the car's own body at the wheel (its
   half length + 0.15 from the body centre): the eye no longer ends up inside the van's roof.
 - The orientation is the rig's along the boom (a spring arm): a pull-in slides the camera toward his
   head and turns nothing, so his head stays where the rig puts it in the frame. The crane up over him

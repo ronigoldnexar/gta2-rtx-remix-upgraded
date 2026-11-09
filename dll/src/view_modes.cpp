@@ -2943,7 +2943,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         float halfLen = 0.6f;
         if (inVehicle && exitCar_ == player.vehicle && exitCarHalfLength_ > 0.1f) halfLen = exitCarHalfLength_;
-        const float minBoom = (std::min)(inVehicle ? halfLen + 0.15f : 0.6f, (std::max)(rigLen, 0.1f));
+        // On foot 0.6 block measured flat (the boom may be lifted up to 45 degrees over a wall
+        // behind him; a 3D 0.6 then put the eye 0.52 behind him, nearly over his head).
+        const float flatPart = (std::max)(std::hypot(armDirX_, armDirZ_), 0.5f);
+        const float minBoom = (std::min)(inVehicle ? halfLen + 0.15f : 0.6f / flatPart, (std::max)(rigLen, 0.1f));
         const float target = (std::max)(armLen, minBoom);
         const bool pulled = solveLen < rigLen - 0.15f || armLen < (std::min)(solveLen, boom_) - 0.15f;
         boomClear_ = pulled ? 0.0f : boomClear_ + dt;
