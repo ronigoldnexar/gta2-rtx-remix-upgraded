@@ -63,6 +63,7 @@ struct PedType {
     std::vector<int> remaps;
     std::vector<std::string> models;
     bool tint = false;
+    float scale = 1.0f, width = 1.0f;       // ASSET-PEDS-2: the type's build (the Hulks), 1 = the crowd's
 };
 std::vector<PedType> g_pedTypes;
 int g_pedTypeByRemap[64];                 // index into g_pedTypes, -1 none
@@ -906,6 +907,8 @@ void ModelsLoad(const char* folder) {
             PedType type;
             type.name = Field(entry, "name");
             type.tint = Field(entry, "tint") == "1" || Field(entry, "tint") == "true";
+            if (!Field(entry, "scale").empty()) type.scale = (std::max)(0.5f, (std::min)(2.0f, static_cast<float>(atof(Field(entry, "scale").c_str()))));
+            if (!Field(entry, "width").empty()) type.width = (std::max)(0.5f, (std::min)(2.0f, static_cast<float>(atof(Field(entry, "width").c_str()))));
             for (const std::string& name : Strings(Field(entry, "models")))
                 if (g_byName.count(name)) type.models.push_back(name);
                 else Log("models: ped type '%s' names '%s', which is not loaded", type.name.c_str(), name.c_str());
@@ -1265,6 +1268,14 @@ bool PedRemapTint(int remap, const Model& model, float rgb[3]) {
     if (c[0] + c[1] + c[2] < 1.0f) return false;
     for (int k = 0; k < 3; ++k) rgb[k] = (std::max)(0.0f, (std::min)(2.0f, c[k] / (std::max)(8.0f, model.paintRgb[k])));
     return true;
+}
+
+bool PedTypeBuild(int remap, float* scale, float* width) {
+    *scale = *width = 1.0f;
+    if (remap < 0 || remap >= 64 || g_pedTypeByRemap[remap] < 0) return false;
+    const PedType& t = g_pedTypes[g_pedTypeByRemap[remap]];
+    *scale = t.scale; *width = t.width;
+    return t.scale != 1.0f || t.width != 1.0f;
 }
 
 bool PedRemapHasType(int remap) { return remap >= 0 && remap < 64 && g_pedTypeByRemap[remap] >= 0; }

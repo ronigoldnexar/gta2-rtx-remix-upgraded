@@ -127,3 +127,37 @@ What still looks wrong or is not done:
 `PedZoneTints` (anything before this commit) would draw them grey. So the new
 `gta2dx9_models_people` set and this DLL must be staged together. Do not copy the avatars into
 `repo/assets/models` ahead of the code.
+
+## Round 2 (ASSET-PEDS-2, 9 Nov 2026): police, Krishna, Elvis, rednecks, Hulks
+
+Closes most of the open items above. All with the same pipeline; new in this round:
+
+- **Baked avatar variants** (`tools/ped_identity/ap2_variants.json`, built by `make_ped_manifest.py`
+  through `tools/ped_identity/recolor_hair.py`). The hair of a Rocketbox avatar is painted into its
+  head map (no hair-card meshes on the avatars used here: every `zone_rgb_h` is null, so the hair
+  tint of round 1 never had anything to reach). `recolor_hair.py hair` finds the hair texels (the
+  upper part of the map, outside the face ellipse, that differ from the face's median skin), keeps
+  their luminance detail and sets the hue; `mul` multiplies a whole map by a colour. Variants are
+  new entries (`<avatar>_z`, `_hr`, `_hb`, `_k`, `_g`) with their own baked head/body texture in
+  `assets-src/humans/rocketbox/_ap2/`; nothing under that folder goes into git.
+- **Coloured police (remaps 1-3).** `Police_Male_03/04`, `Security_Female_01` copied with
+  `ped_zones` (the black uniform becomes the neutral grey top/bottom zones). The type
+  `police_coloured` tints them to the sprite's shirt (dark green, dark red, olive/yellow) and navy
+  trousers. The blue police (0) keep the original textured uniform.
+- **Krishna (9).** `Medical_Male_01` (a long coat to the knees) with the coat tinted saffron to the
+  ground and the hair stubble-dark: the closest thing to a robe the library has.
+- **Elvis (12).** `Male_Adult_10` and `Male_Adult_16` with black hair (`_k`), the tallest-styled hair
+  available; no pompadour geometry exists in the library (a real quiff needs a hair mesh: open).
+- **Rednecks (5, 6).** Split into `redneck_red` / `redneck_blonde` on `Male_Adult_16/09` heads baked
+  ginger / blond.
+- **Hulks (23, 24).** Types `hulk` / `hulk_green`: the manifest's `"scale": 1.3, "width": 1.18`
+  per type (`PedTypeBuild` in `model_store.cpp`, applied in `live_geometry.cpp` where the figure is
+  fitted; the player's own figure is never rescaled). Hulk 24 uses `Male_Adult_01_g` /
+  `Sports_Male_04_g` with head and body maps multiplied green. Limit: the zone tint also multiplies
+  the bare arms and legs of the top/bottom meshes, so the green Hulk's shirt and trousers are the
+  sprite colours mixed toward green and read olive.
+
+Regenerate: `python3 assets-src/humans/make_ped_manifest.py` (with `tools/ap2_variants.json` and
+`recolor_hair.py` copied into `assets-src/humans/tools/`), then `tools/import_assets.py` with `--only` the
+twelve new names (`human_police_male_03_z` ... `human_sports_male_04_g`); sheet: `compare_sheet.py`.
+Needs the new DLL (`PedTypeBuild`) with the new `manifest.json`; an older DLL ignores the scale.

@@ -211,6 +211,8 @@ bool PedRemapTint(int remap, const Model& model, float rgb[3]);
 // multipliers (0..2) for ModelSetZoneTints; a zone the outfit leaves open keeps
 // the avatar's own colour, the hair stays untinted (hairTint false). False when
 // the model has no zones or the remap's type is not tinted.
+// ASSET-PEDS-2: the pedestrian type's build (scale, width), 1 and 1 for the crowd's; true when it differs.
+bool PedTypeBuild(int remap, float* scale, float* width);
 bool PedZoneTints(int remap, const Model& model, float tints[3][3], bool* hairTint);
 bool PedRemapHasType(int remap);   // a ped type lists this remap (53: the SWAT/FBI body)
 // Meshes of a zoned avatar drawn with these factors (top, bottom; hair on the

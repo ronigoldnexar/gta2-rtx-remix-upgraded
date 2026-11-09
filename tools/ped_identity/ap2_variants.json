@@ -1,0 +1,14 @@
+[
+ {"name": "Police_Male_03_z", "base": "Police_Male_03", "suffix": "_z", "zones": true},
+ {"name": "Police_Male_04_z", "base": "Police_Male_04", "suffix": "_z", "zones": true},
+ {"name": "Security_Female_01_z", "base": "Security_Female_01", "suffix": "_z", "zones": true},
+ {"name": "Male_Adult_16_hr", "base": "Male_Adult_16", "suffix": "_hr", "bake": [["_head", "hair", [150, 55, 12]]]},
+ {"name": "Male_Adult_09_hr", "base": "Male_Adult_09", "suffix": "_hr", "bake": [["_head", "hair", [150, 55, 12]]]},
+ {"name": "Male_Adult_16_hb", "base": "Male_Adult_16", "suffix": "_hb", "bake": [["_head", "hair", [200, 160, 70]]]},
+ {"name": "Male_Adult_09_hb", "base": "Male_Adult_09", "suffix": "_hb", "bake": [["_head", "hair", [200, 160, 70]]]},
+ {"name": "Male_Adult_10_k", "base": "Male_Adult_10", "suffix": "_k", "bake": [["_head", "hair", [26, 20, 18]]]},
+ {"name": "Male_Adult_16_k", "base": "Male_Adult_16", "suffix": "_k", "bake": [["_head", "hair", [26, 20, 18]]]},
+ {"name": "Medical_Male_01_k", "base": "Medical_Male_01", "suffix": "_k", "bake": [["_head", "hair", [110, 80, 62]]]},
+ {"name": "Male_Adult_01_g", "base": "Male_Adult_01", "suffix": "_g", "bake": [["_head", "mul", [0.72, 1.0, 0.5]], ["_body", "mul", [0.72, 1.0, 0.5]]]},
+ {"name": "Sports_Male_04_g", "base": "Sports_Male_04", "suffix": "_g", "bake": [["_head", "mul", [0.72, 1.0, 0.5]], ["_body", "mul", [0.72, 1.0, 0.5]]]}
+]

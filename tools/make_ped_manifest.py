@@ -107,27 +107,58 @@ for e, f in zip(new_models, folders):
     # the prisoners wear the construction coveralls: without the hard hat
     if f.startswith("Construction_Male_0") and f != "Construction_Male_01":
         e["materials_exclude"] = [k for k in e["material_textures"] if k.endswith("_helmet")]
+
+# ASSET-PEDS-2 (9 Nov 2026): variants of avatars baked by tools/ped_identity/recolor_hair.py
+# (the hair is painted into the head map, so a hair colour is a copy of the head texture):
+# zoned police (the coloured police remaps 1-3 wore the black uniform), red / blonde rednecks,
+# Elvis's black hair, the Krishna's robe (a lab coat, saffron, shaved head), the Hulks
+# (green skin by a baked multiply). tools/ped_identity/ap2_variants.json lists them.
+import subprocess
+RECOLOR = os.environ.get("RECOLOR", os.path.join(here, "tools", "recolor_hair.py"))
+variants = json.load(open(os.environ.get("AP2_VARIANTS", os.path.join(here, "tools", "ap2_variants.json"))))
+os.makedirs(os.path.join(here, "rocketbox", "_ap2"), exist_ok=True)
+base_by_name = {e["name"]: e for e in new_models}
+for v in variants:
+    b = base_by_name[names[v["base"]]]
+    e = json.loads(json.dumps(b))
+    e["name"] = names[v["base"]] + v["suffix"]
+    if v.get("zones"): e["ped_zones"] = 1
+    for mat, mode, rgb in v.get("bake", []):          # (a material suffix, hair|mul, r g b)
+        for k, path in list(e["material_textures"].items()):
+            if not k.endswith(mat): continue
+            src = os.path.join(here, path.split("humans/", 1)[1])
+            dst_rel = f"humans/rocketbox/_ap2/{e['name']}_{k}.tga"
+            subprocess.run([sys.executable, RECOLOR, mode, src, os.path.join(here, dst_rel.split("humans/", 1)[1]), *map(str, rgb)], check=True)
+            e["material_textures"][k] = dst_rel
+    names[v["name"]] = e["name"]
+    new_models.append(e); m["models"].append(e)
 civ_long = ["Male_Adult_06", "Male_Adult_08", "Male_Adult_20", "Male_Adult_18", "Male_Adult_13", "Female_Adult_04", "Female_Adult_02"]
 civ_short = ["Male_Adult_16", "Male_Adult_11", "Male_Adult_09", "Female_Adult_08", "Female_Adult_17", "Female_Adult_13"]
 civ_shorts = ["Male_Adult_01", "Sports_Male_04", "Female_Adult_12"]
 civ = [names[f] for f in civ_long + civ_short + civ_shorts if f in names]
 def N(*fs): return [names[f] for f in fs if f in names]
 types = [
-    {"name": "police", "remaps": [0, 1, 2, 3], "models": N("Police_Male_03", "Police_Male_04", "Security_Female_01"), "tint": 0},
+    {"name": "police", "remaps": [0], "models": N("Police_Male_03", "Police_Male_04", "Security_Female_01"), "tint": 0},
+    # ASSET-PEDS-2: the green, red and yellow police: the black uniform's zones in the sprite's shirt colour
+    {"name": "police_coloured", "remaps": [1, 2, 3], "models": N("Police_Male_03_z", "Police_Male_04_z", "Security_Female_01_z"), "tint": 1},
     {"name": "army", "remaps": [4], "models": N("Military_Male_01", "Military_Male_02", "Military_Female_01"), "tint": 0},
-    {"name": "redneck", "remaps": [5, 6], "models": N("Male_Adult_16", "Male_Adult_09", "Male_Adult_11"), "tint": 1},
+    {"name": "redneck_red", "remaps": [5], "models": N("Male_Adult_16_hr", "Male_Adult_09_hr"), "tint": 1},
+    {"name": "redneck_blonde", "remaps": [6], "models": N("Male_Adult_16_hb", "Male_Adult_09_hb"), "tint": 1},
     {"name": "scientist", "remaps": [7], "models": N("Medical_Male_01", "Medical_Female_02"), "tint": 1},
     {"name": "zaibatsu", "remaps": [8], "models": N("Business_Male_01", "Business_Male_03", "Business_Female_01"), "tint": 0},
-    {"name": "krishna", "remaps": [9], "models": N("Business_Male_07", "Business_Male_04"), "tint": 1},
+    {"name": "krishna", "remaps": [9], "models": N("Medical_Male_01_k"), "tint": 1},   # a long coat in saffron, shaved head
     {"name": "russian", "remaps": [10], "models": N("Male_Adult_06", "Male_Adult_20"), "tint": 1},
     {"name": "loony", "remaps": [11], "models": N("Male_Adult_10", "Male_Adult_08", "Female_Adult_17"), "tint": 1},
-    {"name": "elvis", "remaps": [12], "models": N("Business_Male_06", "Male_Adult_16"), "tint": 1},
+    {"name": "elvis", "remaps": [12], "models": N("Male_Adult_10_k", "Male_Adult_16_k"), "tint": 1},   # black hair
     {"name": "yakuza", "remaps": [13], "models": N("Business_Male_02", "Business_Male_05"), "tint": 0},
     {"name": "fireman", "remaps": [14], "models": N("Fire_Male_02", "Fire_Male_03", "Fire_Female_01"), "tint": 1},
     {"name": "medic", "remaps": [16], "models": N("Medical_Male_04", "Medical_Female_01"), "tint": 1},
     {"name": "mugger", "remaps": [17], "models": N("Male_Adult_18", "Male_Adult_10"), "tint": 1},
     {"name": "prisoner", "remaps": [22], "models": N("Construction_Male_05", "Construction_Male_02"), "tint": 1},
     {"name": "player", "remaps": [25], "models": N("Male_Adult_11"), "tint": 1},
+    # ASSET-PEDS-2: the Hulks, bigger (the type's "scale", "width") and, for 24, green-skinned avatars
+    {"name": "hulk", "remaps": [23], "models": N("Male_Adult_01", "Sports_Male_04"), "tint": 1, "scale": 1.3, "width": 1.18},
+    {"name": "hulk_green", "remaps": [24], "models": N("Male_Adult_01_g", "Sports_Male_04_g"), "tint": 1, "scale": 1.3, "width": 1.18},
     {"name": "naked", "remaps": [26], "models": N("Sports_Male_01", "Sports_Female_01"), "tint": 0},
     # 53: not a remap, the EMERG_GRAPHIC body (SWAT, FBI) the renderer maps here
     {"name": "swat", "remaps": [53], "models": N("Police_Male_02", "Police_Female_01"), "tint": 0},
@@ -156,8 +187,9 @@ for r in range(54):
     o = outfits.get(str(r))
     if not o: outfit_rows.append([0] * 9); continue
     top, bottom = o["top"], o["thigh"]
-    if r == 9:  top = mix(top, o["forearm"], 0.5)        # Krishna: the robe's saffron is on the arms
+    if r == 9:  top = mix(top, o["forearm"], 0.85); bottom = top   # Krishna: a saffron robe to the ground
     if r == 12: top = mix(top, o["forearm"], 0.5)        # Elvis: pale sleeves over a mauve jacket
+    if r == 24: top = mix(top, o["forearm"], 0.5); bottom = mix(bottom, o["shin"], 0.35)   # the green Hulk: the tint also reaches the bare arms and legs
     if r == 14: bottom = o["shin"]                       # firemen: the orange suit all the way down
     hair = o["hair"] if (r in (5, 6) or o["hair"] not in default_hair and r not in range(0, 5) and r != 9) else [0, 0, 0]
     if r == 25: top, bottom = [30, 30, 32], [24, 24, 28]  # the protagonist: black, as the sprite (lifted below)

@@ -7913,7 +7913,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // CROWD: his own build and clothes (CrowdLookFor).
                 const bool ownFigure = ownPed;   // (ownPed: the boarding ghost of the player too)
                 const CrowdLook look = CrowdLookFor(static_cast<uint32_t>(sprite.object >> 4), *model, remap, ownFigure);
-                const float scale = kPedHeight * look.height / (std::max)(model->Height(), 0.01f);
+                float typeScale = 1.0f, typeWidth = 1.0f;
+                if (!ownFigure) PedTypeBuild(remap, &typeScale, &typeWidth);   // ASSET-PEDS-2: the Hulks are bigger
+                const float scale = kPedHeight * look.height * typeScale / (std::max)(model->Height(), 0.01f);
                 const float paceFactor = (std::min)(track.drawnSpeed / 1.5f, 1.0f);
                 float roll = -track.turnRate * paceFactor * 0.03f;
                 if (roll > 0.1f) roll = 0.1f;
@@ -7942,7 +7944,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 placed.m[2][0] = hx * cp + hz * sr * sp;  placed.m[2][1] = -cr * sp; placed.m[2][2] = hz * cp - hx * sr * sp;
                 placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f - boardSink; placed.m[3][2] = gz;
                 gta2::Mat4 fit;
-                fit.m[0][0] = scale * look.width * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * model->forward;
+                fit.m[0][0] = scale * look.width * typeWidth * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * typeWidth * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
                 gta2::Mat4 world;
                 for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
