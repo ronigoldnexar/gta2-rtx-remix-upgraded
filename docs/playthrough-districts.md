@@ -851,3 +851,10 @@ Notes for other runners:
 
 Frames: the fight in the chase view is in `out/mb1_ra1/m_gf_lp1_firing.png`, `out/mb1_ra8/m_gf_lp6_firing.png`
 and `out/mb1_ra10/m_m_lp_round*.png` (not in git).
+
+## SUNBEAM CONTRACT, 9 Nov 2026 (MISSIONS-BATCH4-3, `mb43_*`): complete once in the chase view, not repeatable yet
+
+`mb43_s2`: the job played from the phone warp (developer aid, marked) to JOB COMPLETE in the third-person chase view,
+the 270-block drive to the Russian zone played in full (no `SC_WARP_ZONE`), the assassins' Buicks engaged from 18 blocks
+by their on-screen arrow, health 100 -> 60, $60,000. Nine sessions in all; the three acceptance runs after the final
+runner changes failed on the drive and the convert (see `docs/missions-batch4.md`). Respect pokes stay developer aids.

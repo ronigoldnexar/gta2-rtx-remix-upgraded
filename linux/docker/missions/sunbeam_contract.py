@@ -46,14 +46,15 @@ R = B.Result("/out/sb_result.json")
 MSG = B.Msgs()
 TITLE = {"3843", "3148"}
 DONE_KEYS = {"3100", "3141"}
-FAIL = {"3730"}
-BUSTED = {"6155", "6158", "6159", "4209"}
+FAIL = {"3730", "3149"}          # 3149: the convert died (mb43_s6: the run went on 25 minutes to the zone without him; no assassin was ever made)
+BUSTED = {"6155", "6158", "6159", "4209", "4207", "4208"}     # 4207/4208: arrested (mb43_a2: respawned at the police station, 135 blocks away, no gun)
 # (respect to set, message the job shows when that assassin is created)
 STAGES = [(-1, "3126", "pistol", "3129"), (-3, "3127", "molotov", "3130"), (-5, "3128", "shotgun", "3141")]
 # the death messages 3129, 3130; the script shows nothing for the third (its second "= 2" test should be 3), so the
 # last fight ends on JOB COMPLETE (3141, 3100)
 ASSASSINS = set()
 ANCHOR = ZONE
+ENGAGE = float(os.environ.get("SC_ENGAGE", "18"))    # BATCH4-3: shoot the marked Buicks from 15-20 blocks (the shotgun man kills at 10-20)
 
 
 class Over(Exception):
@@ -91,19 +92,33 @@ def phone(entry):
 
 
 def to_point(x, y, label, tol=2.0, park=5.0):
-    """a car to the nearest road to (x, y), out, the rest on foot into the box"""
-    s = D.wait_state()
-    if not s["driving"] and math.hypot(x - s["x"], y - s["y"]) > 25:
-        s = B.any_car(world, toward=(x, y), budget=240, view_switch=P.view_switch)
-    check()
-    if s and s["driving"]:
-        P.FP["until"] = 0.0
-        s = M.drive3(world, x, y, tol=park, budget=420, view_switch=P.view_switch)
-        check()
+    """a car to the nearest road to (x, y), out, the rest on foot into the box. BATCH4-3 (mb43_s1): a hit on a cop ended
+    the drive 270 blocks short and the 270-block walk got nowhere; so a new car and a new drive, up to 5 times"""
+    for attempt in range(5):
         s = D.wait_state()
-        if s["driving"]:
-            hold("Down", 0.4); s = M.leave_car(); P.set_view("third")
-    s = M.walk3(world, x, y, None, tol=0.8, budget=150)
+        if math.hypot(x - s["x"], y - s["y"]) < max(14, park): break
+        if not s["driving"]:
+            s = B.any_car(world, toward=(x, y), budget=240, view_switch=P.view_switch)
+        check()
+        if s and s["driving"]:
+            P.FP["until"] = 0.0
+            s = M.drive3(world, x, y, tol=park, budget=420, view_switch=P.view_switch)
+            check()
+            s = D.wait_state()
+            if s["driving"] and math.hypot(x - s["x"], y - s["y"]) < max(14, park + 2):
+                hold("Down", 0.4); s = M.leave_car(); P.set_view("third")
+            elif s["driving"]:
+                R.ev(f"{label}: drive ended {math.hypot(x - s['x'], y - s['y']):.0f} blocks short, in the car (attempt {attempt})")
+        else:
+            R.ev(f"{label}: no car (attempt {attempt})")
+        s = D.wait_state(); d = math.hypot(x - s["x"], y - s["y"])
+        if d >= 14: R.ev(f"{label}: {d:.0f} blocks short at {s['x']:.1f},{s['y']:.1f} (attempt {attempt})")
+        # mb43_s3: gridlock 37 blocks short (a standing car in the lane, 3 drives of 420 s): the rest on foot
+        if d < max(60, park + 20): break      # mb43_s4: after a burned car the steal-car chase took the player 150 blocks the wrong way
+    s = D.wait_state()
+    if s["driving"]:
+        hold("Down", 0.4); M.leave_car(); P.set_view("third")
+    M.walk3(world, x, y, None, tol=0.8, budget=150)
     check()
     R.ev(f"{label}: at {D.wait_state()['x']:.1f},{D.wait_state()['y']:.1f}")
 
@@ -128,7 +143,7 @@ def hostile(p):
 def fight(label, dead_key, secs):
     [hostile(p) for p in M.peds()]
     M.mark(f"gunfight skill: {label}")
-    r = G.gunfight(world, select=hostile, check=check, secs=secs, done=lambda: MSG.saw({dead_key}), engage=10.0, close=2.5, low=45, hunt=999.0, anchor=ANCHOR, leash=3.0,
+    r = G.gunfight(world, select=hostile, check=check, secs=secs, done=lambda: MSG.saw({dead_key}), engage=ENGAGE, far=34.0, close=2.5, close_car=ENGAGE - 3.0, low=45, hunt=999.0, anchor=ANCHOR, leash=3.0,
                    shot_prefix="gf_sb")
     ms = M.mission_state() or {}
     R.ev(f"gunfight {label}: {r} {dict(G.STATS)} (health {ms.get('health')}, msg {ms.get('msg')})")
@@ -154,13 +169,14 @@ def play():
     check()
     # the convert
     R.d["stage"] = "convert"
-    to_point(CONVERT[0], CONVERT[1], "the convert")
+    # mb43_a2/a1/s6: a car pulled up at the convert ran him (or his Krishna group) down: 3149 / 4208, the job lost; so out at 16 blocks, the rest on foot
+    to_point(CONVERT[0], CONVERT[1], "the convert", park=16.0)
     t0 = time.time()
     while time.time() - t0 < 12 and not MSG.saw({"3120"}):
         P.nudge_to(CONVERT[0], CONVERT[1], tol=0.5, tries=2); check()
     # sc15: the convert had walked off (no 3120 in 12 s): to the nearest Krishna on foot, then he joins
     for k in range(6):
-        if MSG.saw({"3120", "3149"}): break
+        if MSG.saw({"3120"}): break
         s = D.wait_state()
         kr = [p for p in M.peds() if p["gang"] == "krishna" and M.ped_alive(p)]
         if kr:
@@ -168,7 +184,7 @@ def play():
             R.ev(f"convert: not joined yet; to the Krishna at {c['x']:.1f},{c['y']:.1f}")
             M.walk3(world, c["x"], c["y"], None, tol=1.0, budget=40)
         time.sleep(2.0); check()
-    if not MSG.saw({"3120", "3149"}): return f"the convert never joined ({MSG.keys()[-4:]})"
+    if not MSG.saw({"3120"}): return f"the convert never joined ({MSG.keys()[-4:]})"
     R.ev(f"convert: messages {MSG.keys()[-3:]}"); M.shot("sb_convert")
     # the Russian zone
     R.d["stage"] = "zone"
@@ -180,11 +196,16 @@ def play():
             time.sleep(2.0)
         P.set_view("third")
         R.ev("zone warp")
-    to_point(ZONE[0], ZONE[1], "the Russian zone arrow")
+    # mb43_a1/s3: the lane at 165,35 (37 blocks short) is gridlocked: the car burned there and killed the player; the drive stops at 40 blocks and the rest is on foot
+    to_point(ZONE[0], ZONE[1], "the Russian zone arrow", park=40.0)
+    s = D.wait_state()
+    if math.hypot(ZONE[0] - s["x"], ZONE[1] - s["y"]) > 12: return f"never reached the zone (at {s['x']:.0f},{s['y']:.0f})"
     t0 = time.time()
     while time.time() - t0 < 20 and not MSG.saw({"3122"}): check(); time.sleep(0.5)
     R.ev(f"in the zone: {MSG.saw({'3122'})} (messages {MSG.keys()[-3:]})"); M.shot("sb_zone")
     M.select_gun()
+    ms = M.mission_state() or {}
+    R.ev(f"before the fight: health {ms.get('health')} weapon {ms.get('weapon')} ammo {ms.get('ammo')} wanted {ms.get('wanted')}")
     # the respect byte is in bars of 20 (sc3: -1 did nothing, -20 tripped the -1 bar check). sc7: the molotov and
     # shotgun assassins, created 80-100 blocks west (123.5,77.5 and 145,77), never reached the zone in 10 minutes
     # (the job slows their cars to 0.4 off screen): one poke to -5 bars brings all three out at once, the pistol
@@ -204,6 +225,9 @@ def play():
     # on foot, in the fight, 60 s at each point in turn, until JOB COMPLETE (the script shows nothing for the third death)
     R.d["stage"] = "fight"
     legs = [ZONE, (190.5, 34.5), (213.5, 34.5), (202.5, 34.5), (190.5, 34.5), (213.5, 34.5)]
+    # mb43_s5: only the pistol man came in 8 minutes (s2: all three in 30 s); after six idle legs the patrol goes
+    # to the molotov and shotgun men's own spawn points (the first-person-fight lesson: they stand there if their car is stuck)
+    legs += [(190.5, 34.5), (160.5, 34.5), (145.0, 60.0), (145.0, 77.0), (123.5, 77.5), (145.0, 77.0), (160.5, 34.5), (190.5, 34.5)]
     for k in range(int(os.environ.get("SC_LEGS", "16"))):
         global ANCHOR
         ANCHOR = legs[k % len(legs)]

@@ -1,4 +1,4 @@
-# Missions batch 4 (MISSIONS-BATCH4 and MISSIONS-BATCH4-2, Wave M)
+# Missions batch 4 (MISSIONS-BATCH4, -2, -3, Wave M)
 
 Runners: `linux/docker/missions/armored_car_clash.py` (BATCH4), `sunbeam_contract.py` (BATCH4-2), with their
 `keys_*.sh`. Both on the shared libraries (`mission_lib`, `drive_lib`, `skills/*`), none forked.
@@ -57,14 +57,46 @@ What was learnt (sessions `mb42_sc1` .. `sc12`, out/ of the host):
 | sc15 | the convert had walked off (no 3120), the job still in its first phase | invalid; convert retry added |
 | sc16 | all three triggered | killed 5 s into the fight without a hostile in sight (health 30 at the fight's start) |
 
-Result: **no JOB COMPLETE**. At best two of the three assassins' deaths were registered (sc9, sc14), one by our rounds.
-The blocker is the third (shotgun) man: he reaches the player only when the player moves, and kills him in the open
-(health 100 to 0 in 10 s at 10-20 blocks, the skill's engage range is 10 and a shotgun man in a Buick is shot only
-once close). Next: a fighting posture that shoots cars at 15-20 blocks, or first aid (health pickup) before the fight,
-and a bigger lead (the zone's street has a health pack? not looked for).
+Result of BATCH4-2: **no JOB COMPLETE**. At best two of the three assassins' deaths were registered (sc9, sc14).
+
+### BATCH4-3: SUNBEAM CONTRACT complete (`mb43_s1` .. )
+
+Two changes to the runner, no change to the shared skills:
+- the gunfight engages from 18 blocks (`SC_ENGAGE`, was 10) with `far` 34 and `close_car` 15: the marked Buicks
+  (the on-screen arrow, or the spawn-point rule in the 15 s after the trigger; never an unmarked Buick) are shot
+  while still driving up, before the shotgun man is in range;
+- the 270-block drive to the Russian zone is played in full (no `SC_WARP_ZONE`): `to_point` takes a new car and
+  drives again when a drive ends short (`mb43_s1`: a hit on a cop ended the drive and the 270-block walk got nowhere).
+  The runner stops with "never reached the zone" rather than fighting outside it.
+Health and arms: the player enters the zone at health 100 with the machine gun (150 rounds) from the terrace; no health
+pickup was needed once the fight no longer starts on a long walk under fire (the `sc16` 30 health came from the walk).
+
+| session | reached | ended because |
+|---|---|---|
+| mb43_s1 | drive ended after a cop hit (wanted 1), 270-block walk stuck at 121,113 | invalid: runner fixed (new car, new drive) |
+| mb43_s2 | **JOB COMPLETE** (3126-3128, 3129, 3130, 3100, $60,000, lives 5), 1007 s of game time at speed 2 | complete; fight 28 s, health 100 -> 60, 4 Russians down (the three marked men and one rider), no wanted level |
+| mb43_s3 | drive to the zone gridlocked at 165,32 (a standing car, three 420 s drives) | stopped at the wall limit: walk the last stretch (fix) |
+| mb43_s4 | convert stage: burned car, then a steal-car chase 150 blocks the wrong way, arrested (3093, 4207) | invalid; the walk-short rule added |
+| mb43_s5 | zone reached on foot after the drive, all three triggered, **pistol man killed (3129)** in 2 min; the molotov and shotgun men never came in 8 more minutes | spawn-point patrol added |
+| mb43_s6 | the convert died (3149) on the way, the run went on without him; arrested in the zone (4208), gun lost, no assassin made | invalid: 3149 now ends the run, 4207/4208 are arrests |
+| mb43_a1 | acceptance 1: the convert died (3149) near the zone and the player died when the car burned in the gridlock at 166,35 | failed |
+| mb43_a2 | acceptance 2: the car hit a cop near the phone street (wanted 1), arrested, respawned at the police station | failed (4208) |
+| mb43_a3 | acceptance 3: the convert died (3149) 30 s after he joined, then the player died | failed |
+
+Status: **SUNBEAM CONTRACT is not at 2 of 3 acceptance sessions.** One full JOB COMPLETE (`mb43_s2`: the whole job
+played from the phone warp, the drive to the Russian zone with no `SC_WARP_ZONE`, 28 s fight, chase-view frames of
+JOB COMPLETE and the $60,000 message, health 100 -> 60), and the three acceptance runs after the final changes (`a1`-`a3`)
+failed before the fight on the long drive, not in it. Pistol/molotov/shotgun men were all killed from range in `s2`
+(engage 18); in `s5` only the pistol man came. The open blockers, in order of cost:
+1. the Krishna convert dies in traffic on the 270-block drive to the zone (3149, three of nine sessions): he follows the
+   player's car; a drive that keeps the convert alive, or a convert escorted on foot, is not built;
+2. the drive itself: standing cars at 165,32 (the lane to the zone), cops hit near the phone street (wanted level, arrest);
+3. the molotov and shotgun men often do not reach the zone (s5, sc11): the spawn-point patrol is untried.
+The runner's final code is the one in this commit (park 16 at the convert, 40 at the zone, `3149` fails the run, arrests stop it).
+The third job (HAPPY GAS SMASH, FIRE TRUCK FUN) was not started: the brief's move-on rule is for a SUNBEAM at 0 of 6, and it had one.
 
 Developer aids used, all in `marks.txt`: Krishna respect 60 (yellow phone), the scene warp to the street below the
 terrace (`SC_WARP_PHONE=1`), the warp to the Russian zone (`SC_WARP_ZONE=1`, tuning runs only; sc2-sc4 drove the
 170 blocks and burned the car twice, 400 s), the Russian respect pokes. Not used: any damage poke.
 
-Not done: the third job (HAPPY GAS SMASH `wil_ym1` or FIRE TRUCK FUN `ste_ze2`), a second ARMORED CAR CLASH session.
+Not done: a second ARMORED CAR CLASH session.
