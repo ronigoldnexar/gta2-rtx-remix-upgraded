@@ -3140,6 +3140,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         SpriteRef vref;
         vref.carModel = modelNumber;
         vref.carSprite = use.sprite;
+        // VEHICLE-ART-3: the game's own model number while the car is whole (identity remembers it
+        // for the wreck it may become; a devtools-forced model is not the car's).
+        vref.wholeModel = (use.sprite >= 65 && use.sprite <= 74) || WreckModelNumber(use.model) ? -1 : use.model;
         const bool forcedPaint = g_forceCarPaint[0] >= 0;   // devtools force_car_paint (a livery keeps its own)
         // A model forced by the devtools keeps its own paint, unless a paint is forced too.
         vref.forcedModel = forcedModel && !forcedPaint && !(use.sprite >= 65 && use.sprite <= 74);
@@ -3244,6 +3247,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // scorched toward soot, on top of the dents' dulling.
             // From the word too: the game sets the stage only when a hit crosses 16000.
             const int fireStage = (std::max)(g_forceDamage >= 0 ? 0 : use.fireStage, damageWord >= 25000 ? 4 : damageWord >= 16000 ? 3 : 0);
+            // VEHICLE-ART-3: a burning car is about to be a wreck: its charred copy (and that copy's textures,
+            // one a frame, and its glass masks) is made now, not in the frame it blows up.
+            if (fireStage >= 3 && !WreckModelNumber(modelNumber) && !forcedModel)
+                if (const Model* charred = CarWreckCopyOf(*model)) ModelPrepareOneTexture(device, *charred);
             if (use.driven) {
                 // The player's car: a line whenever its wear changes (the 40-line budget
                 // above is spent by the traffic in seconds).
@@ -3255,7 +3262,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             }
             if (!WreckModelNumber(modelNumber)) DentQueueAhead(*model);
             const Model* worn = dentStep > 0 && !WreckModelNumber(modelNumber) ? DentedModelFor(*model, dentStep) : model;
-            if (dentStep > 0 || fireStage >= 3) {
+            if ((dentStep > 0 || fireStage >= 3) && !ident.wreck) {
                 const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                 if (ModelSoftPaintActive()) {
                     // Soft paint: the wear darkens the whole body (paint, trim and glass), not only
@@ -3267,6 +3274,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     ModelSetPaintTint(tintWorn);
                 }
                 if (g_damageLogged < 40) { ++g_damageLogged; Log("car bodies: object %p damage %d (fire stage %d) -> dent step %d", reinterpret_cast<const void*>(use.object), damageWord, fireStage, dentStep); }
+            }
+            if (ident.wreck) {
+                // Burnt paint and bare metal: matte, a faint dull sheen only.
+                carMaterial.Specular = {0.10f, 0.09f, 0.08f, 1.0f};
+                carMaterial.Power = 6.0f;
             }
             const bool carMaterialSet = memcmp(&carMaterial, &material, sizeof(material)) != 0;
             if (carMaterialSet) device->SetMaterial(&carMaterial);
@@ -3855,6 +3867,86 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_CURRENT);
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
     device->SetTexture(0, nullptr);
+}
+
+// VEHICLE-ART-3 (vr-wrecks-flat-dark-pancakes-no-car-shape): the burnt-out copy of a whole car's
+// model, drawn for its wreck (identity.cpp DeriveWreck). The shape stays the car's - cabin,
+// pillars, arches, wheels and tyres - on the same footprint (x and z untouched, so it never leaves
+// the wreck's collision box), with:
+//  - the dents of the worst damage step (BuildDented), deeper;
+//  - the cabin sagged: everything above the waist pressed toward it, the roof's middle most
+//    (the roof top 25-35 % lower: a burnt car's roof drops as the pillars soften);
+//  - the paint split merged into one opaque surface and every texture swapped for its charred copy
+//    (model_store.cpp, "wreck|" names: soot to rust over the texture's own light and shade, glass
+//    burnt out to black, no paint stage at all).
+Model BuildWreck(const Model& model) {
+    size_t moved = 0;
+    Model w = BuildDented(model, kDentSteps, &moved);
+    w.name = model.name + "#wreck";
+    w.splitPaint = false;
+    w.paintRgb[0] = w.paintRgb[1] = w.paintRgb[2] = 235.0f;
+    const float minY = model.boundsMin.y, height = (std::max)(model.Height(), 0.05f);
+    const float waist = minY + 0.50f * height;
+    const bool sideways = model.Width() > model.Length() * 1.3f;
+    const float cx = 0.5f * (model.boundsMin.x + model.boundsMax.x), cz = 0.5f * (model.boundsMin.z + model.boundsMax.z);
+    const float hx = (std::max)(0.5f * model.Width(), 0.02f), hz = (std::max)(0.5f * model.Length(), 0.02f);
+    float maxY = minY;
+    for (ModelMesh& mesh : w.meshes) {
+        for (ModelVertex& v : mesh.vertices) {
+            if (v.y > waist) {
+                // 0 at the body's edges, 1 over its middle (along the car more than across).
+                const float a = sideways ? (v.z - cz) / hz : (v.x - cx) / hx;   // across
+                const float l = sideways ? (v.x - cx) / hx : (v.z - cz) / hz;   // along
+                const float mid = (std::max)(0.0f, 1.0f - a * a) * (std::max)(0.0f, 1.0f - l * l);
+                const float keep = 0.66f - 0.14f * mid;   // of the height above the waist
+                const float t = (std::min)(1.0f, (v.y - waist) / (0.10f * height));   // no crease at the waist
+                v.y = waist + (v.y - waist) * (1.0f - t * (1.0f - keep));
+            }
+            maxY = (std::max)(maxY, v.y);
+        }
+    }
+    w.boundsMax.y = (std::max)(maxY, minY + 0.05f);
+    // One opaque surface: the paint half of a split pair is merged into its rest half's charred copy.
+    auto ends = [](const std::string& s, const char* tail) {
+        const size_t n = strlen(tail);
+        return s.size() >= n && s.compare(s.size() - n, n, tail) == 0;
+    };
+    std::set<std::string> rests;
+    for (const ModelMesh& mesh : w.meshes) if (!ends(mesh.texture, "_paint.tga")) rests.insert(mesh.texture);
+    std::vector<char> drop(w.meshes.size(), 0);
+    for (size_t i = 0; i < w.meshes.size(); ++i) {
+        ModelMesh& mesh = w.meshes[i];
+        if (mesh.texture.empty()) continue;
+        if (ends(mesh.texture, "_paint.tga")) {
+            const std::string rest = mesh.texture.substr(0, mesh.texture.size() - 10) + ".tga";
+            if (rests.count(rest)) { drop[i] = 1; continue; }
+            mesh.texture = "wreck|" + mesh.texture;
+        } else {
+            const std::string paint = mesh.texture.substr(0, mesh.texture.size() - 4) + "_paint.tga";
+            bool paired = false;
+            for (const ModelMesh& m : model.meshes) if (m.texture == paint) { paired = true; break; }
+            mesh.texture = (paired ? "wreckp|" : "wreck|") + mesh.texture;
+        }
+    }
+    for (ModelNode& n : w.nodes) if (n.mesh >= 0 && n.mesh < static_cast<int>(drop.size()) && drop[n.mesh]) n.mesh = -1;
+    return w;
+}
+
+const Model* CarWreckCopyOf(const Model& model) {
+    static std::map<const Model*, const Model*> s_copies;
+    auto it = s_copies.find(&model);
+    if (it != s_copies.end()) return it->second;
+    if (model.skinned || model.meshes.empty()) return s_copies[&model] = nullptr;
+    const double t0 = CarNowMs();
+    Model w = BuildWreck(model);
+    size_t verts = 0;
+    for (const ModelMesh& m : w.meshes) verts += m.vertices.size();
+    const float h0 = model.Height(), h1 = w.Height();
+    const Model* out = ModelRegisterDerived(std::move(w), true);
+    CarGlassRequestMasks(model);   // its windows, burnt out in the charred textures
+    Log("car bodies: wreck copy of %s: %zu vertices, height %.3f -> %.3f (%.0f %%), %.1f ms", model.name.c_str(), verts, h0, h1,
+        h0 > 0.0f ? 100.0f * h1 / h0 : 0.0f, CarNowMs() - t0);
+    return s_copies[&model] = out;
 }
 
 void CarBodiesSetWreckTest(bool on) { g_wreckTest = on; }

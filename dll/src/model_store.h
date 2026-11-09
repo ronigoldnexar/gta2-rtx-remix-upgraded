@@ -305,6 +305,9 @@ void ModelsWarmFirst(const Model* model);
 // Draws a prop, the avatar and a car once under the caller's states, into targets nothing shows,
 // so the driver has their GL programs before the first street view (FIX-PERF-VSWITCH).
 void ModelsGhostDraws(IDirect3DDevice9* device, const gta2::Mat4& at);
+// VEHICLE-ART-3: makes the first of the model's textures not made yet (one per call, so a caller
+// can spread a derived model's textures over frames); false when all are made.
+bool ModelPrepareOneTexture(IDirect3DDevice9* device, const Model& model);
 // Binds a texture in a draw that writes no pixels, for the driver to upload it.
 void WarmTexture(IDirect3DDevice9* device, IDirect3DTexture9* texture);
 void ModelsBeginFrame();

@@ -31,6 +31,7 @@ struct SpriteRef {
     int carSprite = -1;    // vehicle: the car sprite the classic view draws
     float paint[3] = {0, 0, 0};   // vehicle: the paint measured from that sprite's art
     bool forcedModel = false;     // vehicle: a devtools model override (keeps the model's own paint)
+    int wholeModel = -1;          // vehicle: the game's model number when it is not a wreck (-1 a wreck or unread)
 };
 
 struct IdentityRecord {
@@ -50,6 +51,11 @@ struct IdentityRecord {
     bool livery = false;        // the model keeps its own paint (cop car, taxi, ...): no tint stage
     float paintTint[3] = {1, 1, 1};
     float darkness = 0.0f;      // 0..1: a dark body's sheen (car_bodies.cpp material)
+    // VEHICLE-ART-3 (vr-wrecks-flat-dark-pancakes): a burnt-out car (models 72..81) is drawn as the
+    // charred copy of the car it was (`model` is that copy): wreckOf is the whole car's model number,
+    // remembered from this vehicle's last whole sighting, else the wreck class's stand-in.
+    bool wreck = false;
+    int wreckOf = -1;
     // The colours the 3D view should show where the classic view shows the sprite's
     // (people: shirt and trousers; vehicles: the body paint). 0..255. For the checks.
     float shownTop[3] = {0, 0, 0}, shownBottom[3] = {0, 0, 0};
@@ -68,6 +74,10 @@ const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& re
 // The car model number the classic view's sprite stands for: a burnt-out car keeps its model
 // number but the game swaps its sprite for one of the ten wreck sprites 65..74 (CARI 72..81).
 int IdentityVehicleModelNumber(int gameModel, int sprite);
+// The game's wreck class of a whole car model (CARI's wreck byte: model 72 + class), -1 none;
+// and the whole model a wreck class stands for when the car was never seen whole.
+int IdentityWreckClassOf(int wholeModel);
+int IdentityWreckStandIn(int wreckModel);
 
 // The hero's avatar (the manifest's "pedestrian"), which no crowd record may get.
 const Model* IdentityHeroModel();

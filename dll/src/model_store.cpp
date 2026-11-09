@@ -831,6 +831,8 @@ void SoftenPaintMask(uint8_t* px, int w, int h) {
     for (size_t i = 0; i < n; ++i) px[i * 4 + 3] = static_cast<uint8_t>((std::min)(255.0f, m[i] * 255.0f + 0.5f));
 }
 
+std::set<std::string> g_charredPending;
+void RefillCharredPending(IDirect3DDevice9* device);
 double g_texNewMs = 0.0;
 int g_texNew = 0;
 bool g_modelGhost = false;   // FIX-PERF-VSWITCH: ModelsGhostDraws is drawing (no logs, no stats)
@@ -838,7 +840,13 @@ IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::strin
 IDirect3DTexture9* BaseTextureFor(IDirect3DDevice9* device, const std::string& file) {
     if (file.empty()) return nullptr;
     auto it = g_textures.find(file);
-    if (it != g_textures.end()) return it->second;
+    if (it != g_textures.end()) {
+        if (file[0] == 'w' && !g_charredPending.empty() && g_charredPending.count(file)) {
+            RefillCharredPending(device);
+            it = g_textures.find(file);
+        }
+        return it->second;
+    }
     LARGE_INTEGER a, b;
     QueryPerformanceCounter(&a);
     IDirect3DTexture9* t = BaseTextureForImpl(device, file);
@@ -849,7 +857,159 @@ IDirect3DTexture9* BaseTextureFor(IDirect3DDevice9* device, const std::string& f
     ++g_texNew;
     return t;
 }
+// VEHICLE-ART-3: a wreck's charred copy of a car texture ("wreck|<file>", or "wreckp|<file>" for
+// the rest half of a paint split, whose cut-out texels are taken from "<file>_paint.tga"; see
+// car_bodies.cpp BuildWreck). The texel's own light and shade (panel lines, grille, the wheels)
+// is kept as luminance over a burnt palette: soot, rust in blotches, grey ash on the flat tops
+// the fire scoured; glass burnt out to black, chrome gone to a smoky grey, rubber kept. Opaque.
+float CharNoise(float x, float y, uint32_t seed) {
+    auto h = [seed](int i, int j) {
+        uint32_t k = static_cast<uint32_t>(i) * 73856093u ^ static_cast<uint32_t>(j) * 19349663u ^ seed * 83492791u;
+        k ^= k >> 13; k *= 0x5bd1e995u; k ^= k >> 15;
+        return static_cast<float>(k & 0xFFFF) / 65535.0f;
+    };
+    const int i = static_cast<int>(std::floor(x)), j = static_cast<int>(std::floor(y));
+    const float fx = x - i, fy = y - j;
+    const float sx = fx * fx * (3.0f - 2.0f * fx), sy = fy * fy * (3.0f - 2.0f * fy);
+    const float a = h(i, j) + (h(i + 1, j) - h(i, j)) * sx;
+    const float b = h(i, j + 1) + (h(i + 1, j + 1) - h(i, j + 1)) * sx;
+    return a + (b - a) * sy;
+}
+IDirect3DTexture9* BaseTextureFor(IDirect3DDevice9* device, const std::string& file);
+// g_charredPending: the charred copies made before the body's glass mask was (refilled when it is).
+// Fills `out` (created with the rest texture's size) from the source texels; false on a lock failure.
+// `pending` is set when the glass mask of the texture is still being built.
+bool FillCharred(IDirect3DDevice9* device, IDirect3DTexture9* out, const std::string& file, bool* pending, int* glassTexels) {
+    const bool paired = file.compare(0, 7, "wreckp|") == 0;
+    const std::string src = file.substr(paired ? 7 : 6);
+    IDirect3DTexture9* rest = BaseTextureFor(device, src);
+    IDirect3DTexture9* paint = paired ? BaseTextureFor(device, src.substr(0, src.size() - 4) + "_paint.tga") : nullptr;
+    D3DSURFACE_DESC dr = {}, dp = {};
+    if (!rest || FAILED(rest->GetLevelDesc(0, &dr)) || dr.Format != D3DFMT_A8R8G8B8) return false;
+    if (paint && (FAILED(paint->GetLevelDesc(0, &dp)) || dp.Width != dr.Width || dp.Height != dr.Height || dp.Format != D3DFMT_A8R8G8B8)) paint = nullptr;
+    auto has = [&src](const char* part) { return src.find(part) != std::string::npos; };
+    const int kind = has("_glass") ? 1 : has("_chrome") ? 2 : (has("_tyre") || has("_rubber") || has("_whitewall") || has("_seal")) ? 3 : 0;
+    // The windows baked into a generated body's texture: VEHICLE-GLASS's mask (255 = glass).
+    std::vector<uint8_t> mask;
+    int mr = 0;
+    const int found = kind == 0 ? CarGlassMaskForTexture(src, &mask, &mr) : -1;
+    *pending = found == 0;
+    if (found != 1) mask.clear();
+    const uint32_t seed = static_cast<uint32_t>(std::hash<std::string>{}(src) & 0xFFFFu);
+    D3DLOCKED_RECT lr, lp, lo;
+    const bool okR = SUCCEEDED(rest->LockRect(0, &lr, nullptr, D3DLOCK_READONLY));
+    const bool okP = paint && SUCCEEDED(paint->LockRect(0, &lp, nullptr, D3DLOCK_READONLY));
+    const bool okO = SUCCEEDED(out->LockRect(0, &lo, nullptr, 0));
+    int glass = 0;
+    if (okR && okO) {
+        const int w = static_cast<int>(dr.Width), h = static_cast<int>(dr.Height);
+        // The blotch field (about an eighth of the atlas a blotch) on a 128 grid, read bilinearly; the
+        // shade by the texel's luminance from a table: a 1024 texture is charred in a few milliseconds.
+        constexpr int kG = 128;
+        static float field[kG + 1][kG + 1];
+        static uint32_t fieldSeed = 0xFFFFFFFFu;
+        if (fieldSeed != seed) {
+            fieldSeed = seed;
+            for (int j = 0; j <= kG; ++j)
+                for (int i = 0; i <= kG; ++i) {
+                    const float fx = i * (8.0f / kG), fy = j * (8.0f / kG);
+                    field[j][i] = 0.62f * CharNoise(fx, fy, seed) + 0.28f * CharNoise(fx * 2.7f + 5.1f, fy * 2.7f + 1.3f, seed + 7) +
+                                  0.10f * CharNoise(fx * 9.0f + 2.2f, fy * 9.0f + 8.4f, seed + 13);
+                }
+        }
+        float shadeLut[256];
+        for (int i = 0; i < 256; ++i) shadeLut[i] = (std::min)(1.3f, 0.50f + 0.95f * std::sqrt(i / 255.0f));
+        const float gx = static_cast<float>(kG) / w, gy = static_cast<float>(kG) / h;
+        for (int y = 0; y < h; ++y) {
+            const uint32_t* r = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(lr.pBits) + y * lr.Pitch);
+            const uint32_t* p = okP ? reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(lp.pBits) + y * lp.Pitch) : nullptr;
+            uint32_t* o = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lo.pBits) + y * lo.Pitch);
+            const int my = mr ? (std::min)(mr - 1, y * mr / h) : 0;
+            for (int x = 0; x < w; ++x) {
+                uint32_t c = r[x];
+                if (p && (c >> 24) < 128 && (p[x] >> 24) >= 8) c = p[x];
+                const float cr = ((c >> 16) & 255) / 255.0f, cg = ((c >> 8) & 255) / 255.0f, cb = (c & 255) / 255.0f;
+                const float lum = 0.30f * cr + 0.59f * cg + 0.11f * cb;
+                const bool burntGlass = kind == 1 || (!mask.empty() && mask[static_cast<size_t>(my) * mr + (std::min)(mr - 1, x * mr / w)] >= 128);
+                float out3[3];
+                if (burntGlass) {
+                    // The window gone: the dark of the burnt cabin behind it.
+                    ++glass;
+                    for (int k = 0; k < 3; ++k) out3[k] = (k == 0 ? 0.040f : k == 1 ? 0.034f : 0.030f) + 0.03f * lum;
+                } else if (kind == 3) {
+                    for (int k = 0; k < 3; ++k) out3[k] = (std::min)(0.15f, 0.045f + 0.30f * lum);
+                } else {
+                    const float px = x * gx, py = y * gy;
+                    const int ix = (std::min)(kG - 1, static_cast<int>(px)), iy = (std::min)(kG - 1, static_cast<int>(py));
+                    const float tx = px - ix, ty = py - iy;
+                    const float n0 = field[iy][ix] + (field[iy][ix + 1] - field[iy][ix]) * tx;
+                    const float n1 = field[iy + 1][ix] + (field[iy + 1][ix + 1] - field[iy + 1][ix]) * tx;
+                    const float n = n0 + (n1 - n0) * ty;
+                    // Rust where the paint burnt off (the blotches' peaks), grey ash in their troughs, soot elsewhere.
+                    // Albedo from the wreck sprites (072-081: mean 32,25,20, highlights 60,48,35, an umber rust).
+                    const float rust = kind == 2 ? 0.0f : (std::max)(0.0f, (std::min)(1.0f, (n - 0.56f) / 0.18f));
+                    const float ash = (std::max)(0.0f, (std::min)(1.0f, (0.32f - n) / 0.12f)) * 0.40f;
+                    // soot 22,19,17 -> rust 64,40,21; ash 54,52,49; chrome smoke 52,50,47
+                    const float soot[3] = {0.086f, 0.075f, 0.067f}, rustC[3] = {0.25f, 0.155f, 0.082f}, ashC[3] = {0.21f, 0.205f, 0.19f},
+                                smoke[3] = {0.205f, 0.195f, 0.185f};
+                    // The texture's own shading kept: dark seams, lit edges (a near-black tyre stays black).
+                    const float shade = shadeLut[(std::min)(255, static_cast<int>(lum * 255.0f + 0.5f))];
+                    for (int k = 0; k < 3; ++k) {
+                        float base = kind == 2 ? smoke[k] : soot[k] + (rustC[k] - soot[k]) * rust;
+                        base += (ashC[k] - base) * ash;
+                        out3[k] = base * shade;
+                    }
+                }
+                const uint32_t R = static_cast<uint32_t>((std::min)(255.0f, out3[0] * 255.0f + 0.5f));
+                const uint32_t G = static_cast<uint32_t>((std::min)(255.0f, out3[1] * 255.0f + 0.5f));
+                const uint32_t B = static_cast<uint32_t>((std::min)(255.0f, out3[2] * 255.0f + 0.5f));
+                o[x] = 0xFF000000u | (R << 16) | (G << 8) | B;
+            }
+        }
+    }
+    if (okO) out->UnlockRect(0);
+    if (okP) paint->UnlockRect(0);
+    if (okR) rest->UnlockRect(0);
+    if (glassTexels) *glassTexels = glass;
+    static int logged = 0;
+    if (okR && okO && logged++ < 60)
+        Log("models: charred wreck copy of %s%s (%ux%u, %s, %d glass texels%s)", src.c_str(), okP ? " + its paint" : "", dr.Width, dr.Height,
+            kind == 1 ? "glass" : kind == 2 ? "chrome" : kind == 3 ? "rubber" : "body", glass, *pending ? ", glass mask pending" : "");
+    return okR && okO;
+}
+IDirect3DTexture9* CharredTexture(IDirect3DDevice9* device, const std::string& file) {
+    const bool paired = file.compare(0, 7, "wreckp|") == 0;
+    IDirect3DTexture9* rest = BaseTextureFor(device, file.substr(paired ? 7 : 6));
+    D3DSURFACE_DESC dr = {};
+    if (!rest || FAILED(rest->GetLevelDesc(0, &dr)) || dr.Format != D3DFMT_A8R8G8B8) return nullptr;
+    IDirect3DTexture9* out = nullptr;
+    if (FAILED(device->CreateTexture(dr.Width, dr.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &out, nullptr))) return nullptr;
+    bool pending = false;
+    if (!FillCharred(device, out, file, &pending, nullptr)) { out->Release(); return nullptr; }
+    if (pending) g_charredPending.insert(file);
+    g_textureBytes += static_cast<size_t>(dr.Width) * dr.Height * 4;
+    return out;
+}
+// Once a second at most: the charred copies made before their glass mask, refilled when it is in.
+void RefillCharredPending(IDirect3DDevice9* device) {
+    static DWORD last = 0;
+    if (g_charredPending.empty() || GetTickCount() - last < 1000) return;
+    last = GetTickCount();
+    for (auto it = g_charredPending.begin(); it != g_charredPending.end();) {
+        auto t = g_textures.find(*it);
+        bool pending = false;
+        if (t == g_textures.end() || !t->second || !FillCharred(device, t->second, *it, &pending, nullptr) || !pending) it = g_charredPending.erase(it);
+        else ++it;
+    }
+}
+
 IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::string& file) {
+    if (file.compare(0, 6, "wreck|") == 0 || file.compare(0, 7, "wreckp|") == 0) {
+        IDirect3DTexture9* charred = CharredTexture(device, file);
+        if (!charred) Log("models: no charred copy of %s", file.c_str());
+        g_textures[file] = charred;
+        return charred;
+    }
     IDirect3DTexture9* texture = nullptr;
     std::vector<uint8_t> tga;
     bool softened = false;
@@ -1691,6 +1851,15 @@ IDirect3DTexture9* FigurePairMerged(IDirect3DDevice9* device, const Model& model
 }
 
 void ModelSetPlayerTextures(bool on) { g_playerTextures = on; }
+
+bool ModelPrepareOneTexture(IDirect3DDevice9* device, const Model& model) {
+    for (const ModelMesh& mesh : model.meshes) {
+        if (mesh.texture.empty() || g_textures.count(mesh.texture)) continue;
+        TextureFor(device, mesh.texture);
+        return true;
+    }
+    return false;
+}
 
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;

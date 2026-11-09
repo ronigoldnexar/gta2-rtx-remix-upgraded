@@ -825,3 +825,39 @@ the Schmidt's fins read a little like horns from the rear 3/4; the open door's i
 copies the outer skin); the Bug and Schmidt are about 10 % lower than a person-scaled real car (footprint at 5 m a
 block); no Remix PBR for the new textures (new hashes) and no path-traced frames; the first-person seat view with
 these bodies was not filmed (force_own_car_model) in this pass.
+
+### Wrecks are the burnt-out car they were (VEHICLE-ART-3, vr-wrecks-flat-dark-pancakes-no-car-shape)
+
+The ten wreck models 72..81 were parametric pancakes (a hull a third of a car high with the wreck sprite smeared
+over it). The game turns a blown-up car into one of them: the CARI wreck byte of each whole model names the class
+(sedans 74, saloons 75, vans 80, trucks 79, truck cabs 73, the 128-long buses/trains 72, limousines 76, the
+Jefferson 77, micro cars 78, the tank 81) and the classic view draws that class's wreck sprite. Now:
+
+- `identity.cpp` (the sole resolver) remembers each vehicle's whole model number while it is whole
+  (`SpriteRef::wholeModel`, the game's own number, never a devtools override) and resolves a wreck to the charred
+  copy of that model (`IdentityRecord::wreck`, `wreckOf`). The class must match (`IdentityWreckClassOf`, the CARI
+  table), so a sprite object the game reuses for another car is not taken for it. A wreck never seen whole (a
+  mission's parked wreck, a car that blew up off screen, `force_car_model=72..81`, `wreck_models=1`) gets its
+  class's stand-in (`IdentityWreckStandIn`: 011 Bus, 063, 000 Romero, 013 Minx, 032, 031, 036, 007, 067, 054).
+  The log line says which: `identity: vehicle CHANGED model 73 ... -> 063_truck_cab#wreck livery (wreck of this
+  car's own model)` or `(wreck: the class's stand-in)`.
+- `car_bodies.cpp` `CarWreckCopyOf` / `BuildWreck`: the model's worst dent step, the cabin sagged toward the waist
+  (everything above half height pressed down, the roof's middle most: the copies are 76-80 % of the car's height),
+  x and z untouched (the footprint is the car's, inside the game's wreck box; the draw fits it to the wreck sprite's
+  footprint as before), the paint split merged into one opaque surface, every texture renamed `wreck|<file>`
+  (`wreckp|` for the rest half of a paint pair). The copy is made while the car burns (fire stage 3, damage 16000 on;
+  one texture a frame, and its glass masks are asked for), so the explosion frame does not build it.
+- `model_store.cpp` `FillCharred`: the charred texture keeps the source texel's luminance (panel lines, grille,
+  wheels) over a burnt palette measured from the wreck sprites (mean 32,25,20): soot 22,19,17, umber rust 64,40,21
+  in blotches, grey ash in the troughs; `_chrome` goes smoky grey, rubber stays black; glass burns out to near
+  black: `_glass` textures, and on the generated bodies the windows VEHICLE-GLASS finds (`CarGlassMaskForTexture`;
+  a copy made before its mask is refilled once the mask is in). No paint stage (the record is a livery), a matte
+  material, no lamps, glass pass, cabin or wheel spin (the existing wreck branches still key on the model number).
+- Classic view: untouched (wrecks are the game's sprites there; nothing here runs in it).
+
+Still short of a shipping AAA frame: the wreck keeps the car's panels whole (no torn-open bonnet, no missing doors,
+no exposed seat springs or engine); the rust/soot is a UV-space blotch field, so blotch edges follow the texture
+charts on the image-to-3D bodies; the windows of 063 and other bodies whose glass VEHICLE-GLASS does not find stay
+body-coloured soot; no smoke or ember decals after the fire dies; under Remix the charred textures are new hashes with
+no PBR replacement (roughness from the default material); the stand-ins are one model per class, so two parked wrecks
+of a class look alike.

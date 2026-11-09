@@ -24,6 +24,8 @@
 
 namespace gta2dx9 {
 
+struct Model;
+
 // Same layout as LiveGeometry::Vertex and kWorldFvf.
 struct CarBodyVertex {
     float x, y, z;
@@ -77,6 +79,9 @@ bool CarBodiesExtent(const void* object, float* length, float* height, float* ha
 // Bodies built and drawn in the last call, for the overlay.
 // Developer aid: draw every car as one of the wreck models ([devtools] wreck_models=1).
 void CarBodiesSetWreckTest(bool on);
+// VEHICLE-ART-3: the charred, roof-sagged copy of a whole car's model that its wreck is drawn
+// with (cached; null for a model it cannot copy). Called by identity.cpp only.
+const Model* CarWreckCopyOf(const Model& model);
 // Developer aid: the ini whose [devtools] force_car_model=N (every traffic car drawn as
 // model N, -1 off) is re-read once a second, so a script can step through the models.
 void CarBodiesSetDevIni(const char* ini);

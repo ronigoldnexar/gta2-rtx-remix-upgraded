@@ -21,7 +21,9 @@
 #include <windows.h>
 #include <d3d9.h>
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include "../../src/math3d.h"
 
@@ -35,6 +37,13 @@ void CarGlassSetEnabled(int enabled);   // [devtools] car_glass=0|1 (re-read onc
 
 // Starts (once) the mask build for `base`'s body textures; true when its glass is ready to use.
 bool CarGlassReady(IDirect3DDevice9* device, const Model& base);
+
+// VEHICLE-ART-3: the glass masks for a wreck's charred textures (model_store.cpp). Starts the
+// mask build for `base` whatever car_glass says (the wreck uses the masks, not the glass pass);
+// then the mask of one body texture (size x size, 255 = glass): 1 found, 0 a build is still
+// running, -1 no mask for it (an authored body with its own glass, or no glass found).
+void CarGlassRequestMasks(const Model& base);
+int CarGlassMaskForTexture(const std::string& texture, std::vector<uint8_t>* out, int* size);
 
 // Whether the model's rear screen was found (a seated car without one keeps FIX-SEATED's band).
 bool CarGlassHasRear(const Model& base);

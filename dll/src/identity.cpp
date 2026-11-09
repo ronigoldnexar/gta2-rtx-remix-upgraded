@@ -11,6 +11,7 @@
 #include <cstring>
 #include <unordered_map>
 
+#include "car_bodies.h"
 #include "log.h"
 #include "model_store.h"
 #include "remix_api.h"
@@ -48,6 +49,7 @@ uint32_t Fingerprint(const IdentityRecord& r) {
     for (float c : r.tint) f.Float(c);
     for (float c : r.paintTint) f.Float(c);
     f.Float(r.height); f.Float(r.width); f.Float(r.darkness);
+    if (r.wreck) f.Int(1000 + r.wreckOf);
     return f.h;
 }
 
@@ -201,7 +203,29 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     return r;
 }
 
-struct CarEntry { IdentityRecord rec; uint32_t seen = 0; };
+// VEHICLE-ART-3: a wreck as the charred body of the car it was. The game turns a blown-up car
+// into one of the ten wreck models (72..81, its CARI wreck byte) and draws the wreck sprite; the
+// record remembers the model this vehicle had when last seen whole, and the 3D view draws that
+// model's charred copy (CarWreckCopyOf: soot and rust, no paint, roof sagged, windows burnt out).
+// A wreck never seen whole (a mission's parked wreck, a car that blew up off screen) gets its
+// class's stand-in: a well-modelled car of the same CARI wreck class and size.
+IdentityRecord DeriveWreck(const SpriteRef& ref, int whole) {
+    IdentityRecord r;
+    r.kind = IdKind::Vehicle;
+    r.ref = ref;
+    r.wreck = true;
+    r.wreckOf = whole;
+    const Model* base = whole >= 0 ? ModelForVehicle(whole, -1) : nullptr;
+    r.model = base ? CarWreckCopyOf(*base) : nullptr;
+    if (!r.model) { r.wreckOf = -1; r.model = ModelForVehicle(ref.carModel, ref.carSprite); }   // the old wreck mesh
+    // No paint stage: the copy's textures are the charred colours (soot 34,30,28 to rust 96,52,30).
+    r.livery = true;
+    for (int k = 0; k < 3; ++k) { r.paintTint[k] = 1.0f; r.shownTop[k] = r.shownBottom[k] = k == 0 ? 52.0f : k == 1 ? 40.0f : 33.0f; }
+    r.fingerprint = Fingerprint(r);
+    return r;
+}
+
+struct CarEntry { IdentityRecord rec; uint32_t seen = 0; int whole = -1; };
 std::unordered_map<uintptr_t, CarEntry> g_cars;
 std::unordered_map<uint32_t, int> g_carLogged;   // fingerprint -> times logged
 
@@ -278,25 +302,70 @@ const IdentityRecord& IdentityForPed(uintptr_t cacheKey, int pedId, int palette,
     return e.rec;
 }
 
+// CARI's wreck byte of every whole car model (wil/ste/bil carry the same table), as model 72 + class.
+int IdentityWreckClassOf(int m) {
+    static const signed char kClass[87] = {
+        // 0..9
+        2, 3, 3, 8, 8, 2, 0, 7, 2, -1,
+        // 10..19
+        3, 0, 2, 3, 2, -1, 6, 7, 2, 3,
+        // 20..29
+        -1, 7, 2, 8, 8, 8, 8, 8, 4, 6,
+        // 30..39
+        3, 5, 4, 4, 4, 2, 6, 3, 2, 3,
+        // 40..49
+        2, 3, 2, -1, 2, 3, 2, 3, 3, 2,
+        // 50..59
+        2, 3, 8, 3, 9, 0, 2, 3, 8, 0,
+        // 60..69
+        0, 0, 3, 1, 1, 0, 0, 8, 8, 6,
+        // 70..79
+        2, 3, -1, -1, -1, -1, -1, -1, -1, -1,
+        // 80..86
+        -1, -1, 3, 2, 2, 8, 0};
+    if (m < 0 || m > 86 || kClass[m] < 0) return -1;
+    return 72 + kClass[m];
+}
+
+int IdentityWreckStandIn(int w) {
+    // A good model of each class's size (docs/vehicle-art-review.md grades): 72 the 128-long
+    // bus/train class -> 011 Bus, 73 truck cabs -> 063, 74 sedans -> 000 Romero, 75 saloons -> 013
+    // Minx, 76 limousines -> 032, 77 roadster -> 031 Jefferson, 78 micro cars -> 036 Schmidt,
+    // 79 trucks -> 007 Box Truck, 80 vans -> 067 TV Van, 81 tank -> 054.
+    static const int kStandIn[10] = {11, 63, 0, 13, 32, 31, 36, 7, 67, 54};
+    return w >= 72 && w <= 81 ? kStandIn[w - 72] : -1;
+}
+
 int IdentityVehicleModelNumber(int gameModel, int sprite) {
     return (sprite >= 65 && sprite <= 74) ? 72 + (sprite - 65) : gameModel;
 }
 
 const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& ref) {
     CarEntry& e = g_cars[cacheKey];
+    const bool wreck = ref.carModel >= 72 && ref.carModel <= 81;
+    // The whole car this vehicle was: its own model while it is one (the wreck class must match,
+    // so a sprite object the game reuses for another car is not taken for it), else the stand-in.
+    // A devtools-forced wreck (the review cards' MODELS=72-81) shows each class's stand-in.
+    if (!wreck && ref.wholeModel >= 0 && !ref.forcedModel) e.whole = ref.wholeModel;
+    if (wreck && ref.wholeModel >= 0 && !ref.forcedModel && IdentityWreckClassOf(ref.wholeModel) == ref.carModel) e.whole = ref.wholeModel;
+    const int whole = !wreck ? -1
+                      : (!ref.forcedModel && e.whole >= 0 && IdentityWreckClassOf(e.whole) == ref.carModel) ? e.whole
+                      : IdentityWreckStandIn(ref.carModel);
     const SpriteRef& o = e.rec.ref;
     const bool same = e.seen != 0 && o.carModel == ref.carModel && o.carSprite == ref.carSprite && o.forcedModel == ref.forcedModel &&
+                      e.rec.wreck == wreck && (!wreck || e.rec.wreckOf == whole || e.rec.wreckOf < 0) &&
                       std::lround(o.paint[0]) == std::lround(ref.paint[0]) && std::lround(o.paint[1]) == std::lround(ref.paint[1]) &&
                       std::lround(o.paint[2]) == std::lround(ref.paint[2]);
     if (!same) {
         const bool changed = e.seen != 0;
-        e.rec = DeriveVehicle(ref);
+        e.rec = wreck && whole >= 0 ? DeriveWreck(ref, whole) : DeriveVehicle(ref);
         int& n = g_carLogged[e.rec.fingerprint];
         if (n++ == 0 && g_carLogged.size() < 400) {
             const IdentityRecord& r = e.rec;
-            Log("identity: vehicle%s model %d sprite %d paint %.0f,%.0f,%.0f -> %s%s tint %.2f,%.2f,%.2f shown %.0f,%.0f,%.0f fp %08x",
+            Log("identity: vehicle%s model %d sprite %d paint %.0f,%.0f,%.0f -> %s%s%s tint %.2f,%.2f,%.2f shown %.0f,%.0f,%.0f fp %08x",
                 changed ? " CHANGED" : "", ref.carModel, ref.carSprite, ref.paint[0], ref.paint[1], ref.paint[2],
-                r.model ? r.model->name.c_str() : "(built from sprite)", r.livery ? " livery" : "", r.paintTint[0], r.paintTint[1],
+                r.model ? r.model->name.c_str() : "(built from sprite)", r.livery ? " livery" : "",
+                !r.wreck ? "" : r.wreckOf == e.whole ? " (wreck of this car's own model)" : " (wreck: the class's stand-in)", r.paintTint[0], r.paintTint[1],
                 r.paintTint[2], r.shownTop[0], r.shownTop[1], r.shownTop[2], r.fingerprint);
         }
     }

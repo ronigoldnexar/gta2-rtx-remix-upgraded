@@ -709,6 +709,31 @@ bool CarGlassReady(IDirect3DDevice9* device, const Model& base) {
     return true;
 }
 
+void CarGlassRequestMasks(const Model& base) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    if (g_models.count(&base)) return;
+    auto glass = std::make_shared<Glass>();
+    g_models[&base] = glass;
+    std::thread(Build, &base, glass).detach();
+}
+
+int CarGlassMaskForTexture(const std::string& texture, std::vector<uint8_t>* out, int* size) {
+    const std::string stem = StemOf(texture);
+    std::lock_guard<std::mutex> lk(g_lock);
+    bool pending = false;
+    for (auto& m : g_models) {
+        const int st = m.second->state.load();
+        if (st == 0 || st == 1) { pending = true; continue; }
+        if (st < 2) continue;
+        auto it = m.second->masks.find(stem);
+        if (it == m.second->masks.end()) continue;
+        if (out) *out = it->second;
+        if (size) *size = kR;
+        return 1;
+    }
+    return pending ? 0 : -1;
+}
+
 bool CarGlassHasRear(const Model& base) {
     std::lock_guard<std::mutex> lk(g_lock);
     auto it = g_models.find(&base);
