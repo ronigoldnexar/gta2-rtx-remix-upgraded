@@ -645,6 +645,80 @@ the walk, both guards down, the respray, JOB COMPLETE; br7 JOB COMPLETE), and `o
   70 s for none within 22 blocks, then goes anyway), and the jams at the column-142/row-169 junction on
   the first drive (br2: the car burned there; the respray would repair it if it got that far).
 
+## Part 10 (9 Nov 2026, Wave M SKILL-DELIVER): the 'deliver intact' skill, proven on GET ZITZAKI
+
+The Wave M skill module for the 25 catalogue jobs tagged `deliver_intact`:
+`gamerun/skills/deliver_intact.py` (mirrored in `linux/docker/skills/`). The proof job has its own runner,
+`gamerun/missions/get_zitzaki.py` (keys script `keys_get_zitzaki.sh`). Both car legs of the job, the
+Miura to the hospital's 3 x 1 horn box and the doctor to the J-Lab garage (`IS_CAR_IN_BLOCK` 44.5,203.5,
+3 x 0.8, then `PARK`), are `deliver_intact.deliver(world, box, ...)` calls. The shared
+`mission_lib` / `drive_lib` were not changed.
+
+All sessions: fresh game, plain renderer (shared `repo/stage`), `GTA2_SPEED=1`, `GTA2_DIRECT_KEYS=1`,
+`FPS=0`, devtools F9/F11 enabled. No warp was used: the phone on its level-3 dais was reached on foot
+every time. Driving was in the chase view, with a 15 s first-person stretch at the start of the first
+drive.
+
+### What the skill does
+
+- `deliver(world, box, car=, approach=, done=, check=, shops=, budget=, park_wait=)` runs one leg:
+  - It re-boards the mission car whenever he is out of it. The script's arrow goes back to the car,
+    target kind 3/4.
+  - It drives with the fragile-car guards (`M.drive3(..., slow=True, precious=True)`), clearing the
+    avoid list for each leg.
+  - It lowers the speed cap in steps as carhp falls (26000/22000/18000 -> 2.6/2.0/1.6).
+  - It goes to a respray when the car burns or carhp drops below 17500 and a shop is nearer than the
+    goal. A respray repairs the car to carhp 32000 and clears the wanted level. Downtown's two shops
+    are built in; other districts pass `shops=`.
+  - It approaches a narrow box from its open side and creeps in with short pulses.
+  - Once the box is reached it releases every key and waits while the game parks the car.
+- `open_side(world, box)` reads the map to find where a car can enter a box. For each side it scores
+  the lanes 1-3 cells out from the box edge (road 3, lot 1, pavement 0.5) and stops a lane at a wall
+  face or missing ground. Results: the hospital forecourt from the east (54.6,178.5); the J-Lab garage
+  from the south (44.5,206.5); the BANK ROBBERY safehouse from the south (76.5,203.6, the same point
+  that runner places by hand).
+- `box_arrow(box)` is the arrival test, read from the script's arrow: `up` (pointing at the box, not
+  there yet), `cleared`, `moved` or `car`. **REMOVE_ARROW does not empty the slot.** It keeps the box
+  coordinates and sets the target kind to 0. In dl_zz2 the Miura stood inside the hospital box at
+  51.32,178.30 with slot 12 at `12:4:0:50.50,178.50` for 8 s. The skill was waiting for the slot to
+  disappear, so it backed out, and it did this eight times. Kind 0 at the box now counts as arrived.
+
+### Sessions
+
+| session | code | outcome | what happened |
+|---|---|---|---|
+| **dl_zz1** | first version | **JOB COMPLETE** (956 s from level start; +$20,000, multiplier 2) | The phone was reached on foot. The first drive to the hospital took 255 blocks of the router's path, at the smooth driver's normal pace: a bug restored the caps in the wrong order, so `SMOOTH_SLOW_CAP` was 22000 (fixed). The approach point taken from the route's last cells (north of the box) left the car pressed against the forecourt's kerb for two minutes. Once in the box (arrow kind 0) the horn worked and the doctor boarded (1639, carhp 18300). The garage was entered from the south and the game parked the car. |
+| dl_zz2 | + open-side approach | stuck (doctor never boarded) | Each of the eight approaches from the east got into the box (51.3,178.3, arrow kind 0). Each time the skill waited for the arrow to disappear and then backed out. Fixed with `box_arrow`. |
+| **dl_zz3** | + `box_arrow` | **JOB COMPLETE** (1039 s; +$20,000) | Hospital box from the east, creep, "the game has it" (carhp 29973). Doctor aboard 6 s later. The garage drive was 130 blocks of the shared router's route for a 30-block crow line, with 7 hits; carhp 23650 at the door. Garage from the south, park, 1124. |
+| dl_zz4 | same | stuck (doctor never boarded) | The car was in the box with the arrow cleared, then rolled out after a 0.3 s handbrake tap. The skill was still in its 45 s park wait, so the horn came too late. Its 2-block `drive3` back to the approach point then re-planned itself 50 blocks away from 53.1,177.9. Fixed: the creep returns only once the car has stopped inside (handbrake 0.7 s, brake tap, position checked again); within 6 blocks of the box, on its open side, it creeps directly and skips `drive3`; `park_wait=0` for a box that is not a park. |
+| dl_zz5 | + those fixes | stuck (ran out of time 8 blocks from the garage) | The hospital part was clean: in the box in 26 s of creep, doctor aboard 6 s later. The garage leg spent its whole 420 s budget in one `drive3` call on the 130-block route, in traffic, with 13 hits. Fixed: one `drive3` call is capped at 240 s (`DRIVE_CALL`) and the leg then re-plans; the garage leg gets 800 s and 8 tries. |
+| **dl_zz6** | + `DRIVE_CALL` (latest code) | **JOB COMPLETE** (900 s; +$20,000) | The first drive to the hospital was pushed 30 blocks west by traffic and stopped at the 420 s leg budget. The horn step's re-delivery drove back (two calls). Creep, "the game has it" in 12 s, doctor aboard 6 s later. Garage in 96 s (carhp 24785), park, 1124. |
+
+**Result: the first three sessions reached JOB COMPLETE 2 of 3 times (dl_zz1, dl_zz3). Over all six
+sessions it is 3 of 6 (dl_zz1, dl_zz3, dl_zz6).** Each failure found a defect in the skill, fixed
+before the next session. dl_zz6 is the latest code; the confirmation session on it is listed below. The frames are in the chase view:
+`out/dl_zz3/m_zz_hospital.png` and `out/dl_zz6/m_zz_*.png`, `m_zz_doctor.png` (the Miura in the forecourt, brief "Bring Doctor
+ZitZaki directly to the new J-Lab") and `m_zz_garage.png` (JOB COMPLETE at the garage door). dl_zz1 has
+the same names. The frames are not in git.
+
+### Using the skill in another job runner
+
+```python
+from skills import deliver_intact as DI
+r = DI.deliver(world, (x, y, w, h), car=(cx, cy), check=check, view_switch=view_switch,
+               done=None,            # default: the box's arrow cleared/moved, or 1124/1125
+               shops=None,           # default: DI.SHOPS[world.district] (only 'wil' is filled in)
+               budget=420, park_wait=45, label="the garage")
+# r: "delivered" | "complete" | "failed" | "dead" | "stuck: ..."
+```
+
+Open items:
+- Respray shops for `ste` and `bil` are not listed yet.
+- The respray detour has not run in a session yet: no car fell below 17500 on a leg it could save.
+- The shared car router still chooses long detours, which the skill cannot change: 255 blocks for a
+  60-block crow line to the hospital in dl_zz1, 130 for 30 to the garage (dl_zz3; this one is real: row 194 is solid and the garage driveway is reached from row 211). These detours cost
+  most of the car damage.
+
 ## Part 11 (9 Nov 2026, Wave M, SKILL-KILLMARK): the kill-marked skill on BANK ROBBERY
 
 The `kill_marked` skill (23 jobs in `missions-catalogue.md`) as one module,
