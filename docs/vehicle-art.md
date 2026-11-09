@@ -87,6 +87,21 @@ sheet from the review probes (gamerun/vr_traffic.py, vr_seat.py).
   walk-round, seat; sheets `out/vart_sheets/ba_NNN.png`.
 - Classic: `tools/vreg/vreg.sh stage stage_vart` (see the commit message for the result).
 
+## The "pale dome" regression (FIX-CABIN-DOME, 9 Nov 2026)
+
+The operator's REGRESSION-vehicle-cabin-pale-opaque-dome (owner demo, run dh_owner6) was not the car
+glass (33c34be): with `[devtools] car_glass=0` the domes stay (run cd_vg1). Two causes, both on the
+authored bodies:
+- **Small domes on the roof (t=60):** 063's two roof lamps were mirror-chrome cans whose backs face the
+  chase camera; with the baked sky reflection they read as pale sky-blue balls. Now black steel
+  housings with a thin chrome bezel at the lens (m063_truck_cab.py), the rest of the model unchanged.
+- **Large dome filling the seat view (t=110):** the driver's-seat bonnet (car_bodies.cpp,
+  BonnetSurfaceFor) takes a texel's paint share as 1 - the base texture's alpha. The carkit bodies
+  import an opaque base twin of the paint texture (`NNN_2.tga` beside `NNN_2_paint.tga`), so the share
+  came out 0 and the bonnet drew untinted in the neutral 235 paint, lit pale blue by the sky. A hit on a
+  `_paint` texture now takes the share from that texture's own alpha (identical for the split
+  image-to-3D bodies, where it is exactly 1 - the base's alpha). Affects 063, 013 and 068 from the seat.
+
 ## What still falls short of a shipping AAA frame
 
 - Lighting, not geometry: the street views light car bodies with one sun and an ambient of

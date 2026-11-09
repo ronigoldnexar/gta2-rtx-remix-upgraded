@@ -369,9 +369,13 @@ def build_truck():
     # ---- roof: the sprite's two round roof lamps, amber clearance lamps along the front edge
     for sx in (1, -1):
         c = np.array([0.42 * sx, 2.56, 0.30])
-        P.append(revolve(f"roof_lamp{sx}", M["chrome"], [(0.02, -0.10), (0.07, -0.08), (0.095, -0.02), (0.10, 0.0), (0.09, 0.01)], c, (0, 0, 1), R=16))
+        # FIX-CABIN-DOME: the housings are painted black steel with a thin chrome bezel at the lens.
+        # Mirror-chrome cans read from the chase camera as pale sky-blue domes on the roof (and filled
+        # the frame when the camera passed over them into the cab).
+        P.append(revolve(f"roof_lamp{sx}", M["black"], [(0.02, -0.10), (0.07, -0.08), (0.095, -0.02), (0.097, -0.005)], c, (0, 0, 1), R=16))
+        P.append(revolve(f"roof_bezel{sx}", M["chrome"], [(0.097, -0.005), (0.10, 0.0), (0.09, 0.01)], c, (0, 0, 1), R=16))
         P.append(revolve(f"roof_lens{sx}", M["head"], [(0.09, 0.008), (0.0001, 0.02)], c, (0, 0, 1), R=16, tag=dict(center=list(c), r=0.09)))
-        P.append(tube(f"roof_lamp_post{sx}", M["chrome"], [c + [0, -0.12, -0.06], c + [0, -0.03, -0.05]], 0.015, R=6))
+        P.append(tube(f"roof_lamp_post{sx}", M["black"], [c + [0, -0.12, -0.06], c + [0, -0.03, -0.05]], 0.015, R=6))
     for i in range(5):
         x = -0.40 + 0.20 * i
         P.append(revolve(f"marker{i}", M["amber"], [(0.0001, 0.0), (0.04, 0.0), (0.035, 0.03), (0.0001, 0.04)], (x, 2.455, 0.66), (0, 1, 0), R=8))

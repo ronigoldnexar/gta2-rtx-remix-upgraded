@@ -1277,6 +1277,12 @@ const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit,
         // where the base is see-through, its _paint twin's texels (the same colour) are the paint
         // (the see-through texels keep the paint's RGB, so the average needs no correction)
         out[3] = 1.0f - m->a[static_cast<size_t>(i)];
+        // FIX-CABIN-DOME: a hit on the "_paint" texture is paint by its own alpha. On the split
+        // image-to-3D bodies that is exactly 1 - the base's alpha (no change); the authored carkit
+        // bodies (063, 013, 068) import an opaque base twin of their paint, so the share above came
+        // out 0 and the bonnet drew untinted in the neutral 235: a pale dome filling the seat view.
+        if (pp != std::string::npos)
+            if (const RgbMap* pm = RgbFor(*hitTri->tex)) out[3] = pm->a[static_cast<size_t>(i)];
     };
     constexpr int kRows = 22, kScan = 48, kCols = 17;
     const float zEnd = maxZ - 0.004f;
