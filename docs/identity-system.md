@@ -381,7 +381,7 @@ Other liveries the game remaps (from the style's sprites): bus 11 (the stripe), 
 remap 36), TV van 67 (whole body, six remaps), 84 (yellow to dark grey). They stay liveries: the TV van's generated art
 is two-tone (sage upper, cream lower, tan roof) and 84's authored atlas is painted saturated yellow, so neither can be
 tinted to the sprite. Seen in ste traffic: a light blue TV van in classic is khaki in third person (`fci2_tr1`, parity
-WARN). Those need new art (VEHICLE-ART), then the same treatment as 004.
+WARN). Those need new art (VEHICLE-ART), then the same treatment as 004. (Done for 67 and 84 by FIX-CAR-IDENTITY-3: section 8.3.)
 
 ### 6.3 Police and ambulance tops repainted from the sprite (pm24, pm29)
 
@@ -476,7 +476,7 @@ Results (this build, private stage `stage_fcid2`):
 - The textures changed in the cars archive (`assets/models`, not git): `004_g4_bank_van_0(_paint).tga`,
   `012_cop_car_0(_paint).tga`, `034_medicar_0(_paint).tga`. The cars archive needs repacking and their Remix prims
   rebuilding (`docs/remix-materials.md`, last section).
-- 057 T-Rex's green sprite draws near-black in third person: not investigated.
+- 057 T-Rex's green sprite draws near-black in third person: the paint split took the chrome (section 8.2).
 
 ## 7. Under Remix: the semi-truck red-orange in classic, brown in third person (FIX-REMIX-IDENTITY, 9 Nov 2026)
 
@@ -510,3 +510,58 @@ reflection). This truck was not in the first-person frames of the run, and at 19
 dusk or night number for it. Two things were tried and dropped: a painted-roof rule for the old brighter-half
 measure (156 of 668 sprites changed, none worse offline, but after section 6 it only moves the dark-paint floor test,
 untested), and a global hue-cluster rule (87 sprites worse).
+
+## 8. The T-Rex, the TV van and the special agent car; the first-person bonnet re-checked (FIX-CAR-IDENTITY-3, 9 Nov 2026)
+
+### 8.1 pm101: the first-person bonnet (wine red while the third-person body is lavender)
+
+Filed on the afb3cb6 DLLs; the fix is section 6.4 (c8ba78f). Re-filmed on fafad27 (private stage, ste, seated in the
+player's 044 Arachnid by warp + Return: `gamerun/keys_fci3_seat.sh`, a copy of `keys_identity_parity.sh` that goes back to
+the door before Return; the original steps away and stays on foot). Pixels of the car's body: classic 56,53,67 (hue 253),
+third 93,91,124 (hue 244), the seat's bonnet 110,111,135 (hue 238): the same violet-grey, lighter in 3D under the sun.
+`identity_parity.py` passes the record (one fingerprint in the three views) but fails the classic crop at this spot: the
+probe rectangle round the small dark car is mostly the olive pavement (90,98,71). bil (the green Maurice, F10 scene car):
+green in classic and third; first person not filmed (F10 then Return twice left him on foot).
+
+### 8.2 057 T-Rex near-black: the paint split took the chrome, not the body
+
+Not the remap-texel measure (the log's paint 40,96,58 for a 30,98,66 green sprite in remap) and not the tint: the model's
+texture pair. `car_paint_resplit.py` picked the body's hue from the histogram of every texel with saturation >= 0.1, and the
+generator's chrome (bumpers, trim, whitewalls) reflects a pale blue sky: the peak was 215 (blue), so the paint half became
+the chrome and the gold body (hue 35) went back into the untinted rest. The body texels of the base are mostly dark (86 % of
+its opaque texels under luminance 40: the atlas' gaps and the shadowed panels), so with the chrome tinted green and the
+body left the generator's dark gold, the car read near-black at street distance. Re-split from the pre-resplit original
+with `--only 057 --min-sat 0.35` (the chrome is pale, the gold saturated): body hue 35, paint 28 759 texels (was 25 181
+texels of chrome). Seen (`fci3_show1`, force_car_model 57 with force_car_paint): in the ste green 40,96,58 the body is
+green, 59,123,93 from above (hue 151 against the sprite's 139); in the default gold 120,84,64 it is bronze, 109,95,84 (hue
+27 against 21). The flank's brown pin-stripe and the roof's grey panel stay in the untinted rest.
+
+### 8.3 067 TV van and 084: painted cars, not liveries
+
+The TV van's sprite is one colour in each of its six remaps (tan default, light blue, red, white, blue, purple, green): one
+body colour, not a livery. Its generated texture is two-tone (sage upper, cream lower, a tan roof). Re-split as one paint
+with two new options of `car_paint_resplit.py`: `--hue 70 --hue-tol 60 --min-sat 0.05` (sage, cream and tan in one mask:
+122 815 texels) and `--flatten 0.8` (the paint's large-scale shading, a blur inside the mask, pulled 80 % toward the level:
+the two tones become one, the panel detail stays). 67 left `Livery()` (identity.cpp) and the resplit tool's livery set.
+Seen: light blue 78,105,140 all over in `fci3_show1` (forced paint); in ste traffic (`fci3_tr1`, live remaps) a tan TV van
+one tan from the roof to the sills (was sage over cream), and a light blue one in classic whose third-person frame fell in
+the BUSTED cut. The wheels' cream hubcaps are in the mask and take the tint.
+
+084 draws 014 Eddy's mesh and textures since VEHICLE-ART (manifest "84": "014_eddy"), and its sprite is the Eddy's
+(yellow-green; dark grey in remap 2). As a livery it drew the Eddy untinted; it is a painted car now. Seen: yellow-green
+in `fci3_show1` (force_car_model 84, force_car_paint 95,107,10). In the dark grey of remap 2 (`fci3_show2`) its roof
+stayed yellow: the Eddy's generated body is red with a yellow roof panel, and the earlier re-split (body hue 355) left the
+roof in the untinted rest. Re-split from the pre-resplit original as one paint, `--only 014 --hue 30 --hue-tol 42
+--min-sat 0.15 --flatten 0.5` (red and yellow in one mask, the roof kept a little lighter, as the sprite's is): 90 770
+paint texels. This changes the 014 Eddy in traffic too (its sprite: yellow-green body, lighter roof).
+
+The textures changed are in the cars archive (`assets/models`, not git): `057_t_rex_0(_paint).tga`,
+`067_tv_van_0(_paint).tga`, `014_eddy_0(_paint).tga` (the originals and the pre-resplit 057/014 in `/mnt/gta2/gta2-linux/backup_fci3_textures`). Their Remix prims: section 8.5.
+
+### 8.4 Still short
+
+- The repainted tops of 012/034 (section 6.3) and the re-split bodies are the sprite's flat colour with the generator's
+  detail: right colours, not AAA paint (no crisp panel lines, no clear-coat depth beyond the Remix layer's class maps).
+- The TV van's hubcaps take the body tint; the T-Rex's pin-stripe and roof panel stay the generator's colours.
+- The parity tool's classic crop fails on a small dark car on bright pavement (8.1); traffic WARN lines are still crops
+  (section 6.5).

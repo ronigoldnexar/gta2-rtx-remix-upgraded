@@ -180,8 +180,13 @@ bool Livery(int m) {
         // (tools/car_paint_resplit.py --only 004 --min-sat 0.3: the pale roof panels and white band stay
         // in the rest), tinted to the sprite's measured body colour like any other car.
         case 11: case 12: case 17: case 22: case 23: case 24: case 25: case 26: case 27:
-        case 34: case 51: case 52: case 54: case 56: case 59: case 60: case 61: case 67:
-        case 84: case 85: case 86: return true;
+        // FIX-CAR-IDENTITY-3: not the TV van (67) nor the special agent car (84) any more. The game draws the TV
+        // van one colour in each of six remaps (tan, light blue, red, white, purple, green): its two-tone generated
+        // body was re-split as one neutral paint (car_paint_resplit.py --only 067 --hue 70 --hue-tol 60 --min-sat
+        // 0.05 --flatten 0.8), tinted to the sprite. 84 draws 014 Eddy's mesh and paint (the same sprite: yellow,
+        // dark grey in remap 2), so it is tinted like the Eddy.
+        case 34: case 51: case 52: case 54: case 56: case 59: case 60: case 61:
+        case 85: case 86: return true;
         default: return false;
     }
 }

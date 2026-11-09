@@ -60,6 +60,10 @@ def main():
     ap.add_argument("--min-colour", type=float, default=0.30, help="below this share of coloured lit texels the body is neutral: kept")
     ap.add_argument("--min-max", type=float, default=26.0)
     ap.add_argument("--level", type=float, default=215.0)
+    ap.add_argument("--hue", type=float, default=None, help="the body's hue in degrees instead of the histogram's peak")
+    ap.add_argument("--flatten", type=float, default=0.0,
+                    help="0..1: flatten the paint's large-scale shading toward --level (a two-tone generated body made one "
+                         "colour: the TV van 067, whose sprite is one colour in every remap); fine detail is kept")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     out = a.out or a.models
@@ -69,7 +73,11 @@ def main():
     # style's navy), so it is a painted car; re-split with --only 004 --min-sat 0.3 (its saturated navy body; the pale
     # roof panels and white band stay in the rest). The TV van (67) and 84 are remapped too, but their generated art is
     # two-tone / painted yellow: they need new art, not a split (docs/identity-system.md 6).
-    livery = {11, 12, 17, 22, 23, 24, 25, 26, 27, 34, 51, 52, 54, 56, 59, 60, 61, 67, 84, 85, 86}
+    # FIX-CAR-IDENTITY-3: not the TV van (67): the game draws it one colour in each of six remaps; its two-tone
+    # generated body is re-split as one paint (--only 067 --hue 70 --hue-tol 60 --min-sat 0.05 --flatten 0.8).
+    # Not 84 either: it draws 014 Eddy's mesh and textures (the same sprite), a painted car. 014 itself is two-tone
+    # (red body, yellow roof): re-split as one paint with --only 014 --hue 30 --hue-tol 42 --min-sat 0.15 --flatten 0.5.
+    livery = {11, 12, 17, 22, 23, 24, 25, 26, 27, 34, 51, 52, 54, 56, 59, 60, 61, 85, 86}
     pairs = sorted(glob.glob(os.path.join(a.models, "[0-9][0-9][0-9]_*_paint.tga")))
     n = 0
     for pp in pairs:
@@ -98,7 +106,7 @@ def main():
             print(f"keep {base}: neutral body ({int(lit.sum())} of {int(used.sum())} lit texels coloured), split unchanged"); continue
         hist, _ = np.histogram(h[lit], bins=36, range=(0, 360))
         sm = hist + 0.5 * (np.roll(hist, 1) + np.roll(hist, -1))
-        peak = (int(np.argmax(sm)) + 0.5) * 10.0
+        peak = (int(np.argmax(sm)) + 0.5) * 10.0 if a.hue is None else a.hue
         dh = np.abs((h - peak + 180.0) % 360.0 - 180.0)
         # The paint: every texel of the body's hue, from either half (the old paint texels of another hue,
         # a whitewall or a lamp the old split took, go back to the rest and keep their colour).
@@ -108,7 +116,21 @@ def main():
         lv = lum[mask]
         top = lv[lv >= np.median(lv)].mean() if lv.size else 1.0
         k = a.level / max(top, 1.0)
-        grey = np.clip(lum * k, 0, 255)
+        grey = lum * k
+        if a.flatten > 0 and mask.any():
+            # the paint's shading at a large scale (a blur inside the mask only), pulled toward --level
+            def mblur(img, r=12):
+                # three box passes per axis ~ a gaussian (numpy only: PIL cannot blur float images)
+                out = img.astype(np.float64)
+                for ax in (0, 1):
+                    for _ in range(3):
+                        c = np.cumsum(np.pad(out, [(r + 1, r) if i == ax else (0, 0) for i in range(2)], mode="edge"), axis=ax)
+                        out = (np.take(c, range(2 * r + 1, c.shape[ax]), axis=ax) - np.take(c, range(0, c.shape[ax] - 2 * r - 1), axis=ax)) / (2 * r + 1)
+                return out
+            m = mask.astype(np.float32)
+            low = mblur(grey * m) / np.maximum(mblur(m), 1e-3)
+            grey = grey - a.flatten * (low - a.level * 0.85)
+        grey = np.clip(grey, 0, 255)
         newP = P.copy(); newR = R.copy()
         for c in range(3):
             newP[..., c] = np.where(mask, grey, P[..., c])
