@@ -95,6 +95,8 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
 ## Host capacity (hard rules, after the 8 Nov overload that nearly took the host down)
 
 The host has 8 CPUs and one L4. Load 60+ came from 20 agents each running a game, a build and analysis at once.
+(The 9 Nov program host has 96 CPUs and eight L4s: the governor, slots and load limits scale with `nproc`,
+see docs/throughput.md "Governor"; the per-agent rules below still apply, read "8 CPUs" as "the host's CPUs".)
 - Game runs: only through `gamerun/slot.sh` (4 slots at 1.5 CPUs; runq refuses to start a run while the 1-minute
   load is above 12, while MemAvailable is under 6 GB, or while `/tmp/gta2-load-hold` exists; each game session
   takes ~2.2 GB RAM, a Remix run ~2 GB, SDXL ~8 GB, TRELLIS ~6 GB on a 31 GB host). One run at a time per agent. Short runs (set the run

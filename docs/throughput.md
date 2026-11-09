@@ -148,3 +148,14 @@ was not answered by the runner's current code, which another stream was editing 
 the 1x result is the only clean completion). `frames_rendered()` in `mission_lib.py` (the
 renderer's 256-frame summaries) is the game clock the marks use; the mission line's `frame=`
 field is not a counter.
+
+## Governor (host-sized, 9 Nov)
+
+`linux/docker/cpu_governor.sh` was written for the 8-CPU host: pin scripted containers to 0-4 while a player is
+connected and to 0-7 otherwise, hold the run queue at load 22 and release under 15. On the 96-CPU, 8-GPU host those
+numbers starved the program: every game container was re-pinned to 8 CPUs a minute after launch, the hold engaged
+at load 17-22 with 24 free slots, and runs were paused at load 59 (defect `infra-governor-hold-starves-runs`).
+The script now sizes itself from `nproc`: LOAD_HIGH = max(22, 1.15 x nproc), LOAD_LOW = max(15, 0.85 x nproc),
+the player's set is the top three CPUs (`PLAY_CPUSET`, 93-95 here), the scripted set everything below it, and a
+container that a launcher pinned to its own CPU set is left alone. Crontab env (`LOAD_HIGH`, `LOAD_LOW`,
+`PLAY_CPUSET`) still overrides. On the 8-CPU host the behaviour is unchanged.
