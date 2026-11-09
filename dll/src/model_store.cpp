@@ -327,6 +327,34 @@ static void TurnAboutUp(gta2::Mat4& M, float radians) {
 // The overlay: a third clip blended over the pair (see ModelSetOverlay).
 static const ModelAnimation* g_overlay = nullptr;
 static float g_overlayTime = 0.0f, g_overlayWeight = 0.0f;
+// ANIM-BLEND-AUDIT: more clips blended over the pair before the overlay, for one model
+// (see ModelSetLayers).
+static const Model* g_layerModel = nullptr;
+static int g_layerCount = 0;
+static const ModelAnimation* g_layerClip[kModelLayers] = {};
+static float g_layerTime[kModelLayers] = {}, g_layerWeight[kModelLayers] = {};
+// `clip` at `time` written over a copy of the pose so far (a joint the clip has no channel
+// for keeps it), then blended into the pose by `weight` (lerp, nlerp on the rotations).
+static void BlendOver(const Model& model, const ModelAnimation* clip, float time, float weight, std::vector<gta2::Vec3>& t,
+                      std::vector<std::array<float, 4>>& q, std::vector<gta2::Vec3>& s) {
+    const size_t n = model.nodes.size();
+    std::vector<gta2::Vec3> t3(t), s3(s);
+    std::vector<std::array<float, 4>> q3(q);
+    SampleClip(model, clip, time, &t3, &q3, &s3);
+    const float w = (std::min)(1.0f, weight), v = 1.0f - w;
+    for (size_t i = 0; i < n; ++i) {
+        t[i] = {t[i].x * v + t3[i].x * w, t[i].y * v + t3[i].y * w, t[i].z * v + t3[i].z * w};
+        s[i] = {s[i].x * v + s3[i].x * w, s[i].y * v + s3[i].y * w, s[i].z * v + s3[i].z * w};
+        const float* a = q[i].data();
+        const float* b = q3[i].data();
+        const float sign = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) < 0.0f ? -1.0f : 1.0f;
+        float r[4];
+        for (int k = 0; k < 4; ++k) r[k] = a[k] * v + b[k] * sign * w;
+        const float len = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]);
+        if (len > 1e-6f) for (float& x : r) x /= len;
+        memcpy(q[i].data(), r, sizeof(r));
+    }
+}
 void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float time, const ModelAnimation* second,
                      float secondTime, float weight, std::vector<gta2::Mat4>* out) {
     const size_t n = model.nodes.size();
@@ -364,6 +392,11 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
                 memcpy(q[i].data(), r, sizeof(r));
             }
         }
+    }
+    if (g_layerModel == &model) {
+        for (int k = 0; k < g_layerCount; ++k)
+            if (g_layerClip[k] && g_layerClip[k]->length > 0.0f && g_layerWeight[k] > 1e-3f)
+                BlendOver(model, g_layerClip[k], g_layerTime[k], g_layerWeight[k], t, q, s);
     }
     if (g_overlay && g_overlay->length > 0.0f && g_overlayWeight > 1e-3f) {
         // Written over a copy of the pose so far (a joint the overlay has no
@@ -890,6 +923,16 @@ void ModelSetOverlay(const ModelAnimation* clip, float time, float weight) {
     if (!clip || weight <= 1e-3f) { g_overlay = nullptr; g_overlayTime = 0.0f; g_overlayWeight = 0.0f; return; }
     g_overlay = clip; g_overlayTime = time; g_overlayWeight = weight;
 }
+void ModelSetLayers(const Model* model, const ModelAnimation* const* clips, const float* times, const float* weights, int count) {
+    g_layerModel = nullptr; g_layerCount = 0;
+    if (!model || count <= 0) return;
+    for (int k = 0; k < count && g_layerCount < kModelLayers; ++k) {
+        if (!clips[k] || weights[k] <= 1e-3f) continue;
+        g_layerClip[g_layerCount] = clips[k]; g_layerTime[g_layerCount] = times[k];
+        g_layerWeight[g_layerCount] = (std::min)(1.0f, weights[k]); ++g_layerCount;
+    }
+    if (g_layerCount) g_layerModel = model;
+}
 float ModelTorsoTwist() { return g_torsoTwist; }
 void ModelSetHeadTurn(float radians) { g_headTurn = radians; }
 
@@ -1140,8 +1183,17 @@ struct PoseKey {
     float time = -1.0f, secondTime = -1.0f, weight = 0.0f, twist = 0.0f, head = 0.0f;
     const ModelAnimation* overlay = nullptr;
     float overlayTime = 0.0f, overlayWeight = 0.0f;
+    int layers = 0;      // ANIM-BLEND-AUDIT: ModelSetLayers
+    const ModelAnimation* layer[kModelLayers] = {};
+    float layerT[kModelLayers] = {}, layerW[kModelLayers] = {};
+    bool LayersEqual(const PoseKey& o) const {
+        if (layers != o.layers) return false;
+        for (int k = 0; k < layers; ++k)
+            if (layer[k] != o.layer[k] || std::fabs(layerT[k] - o.layerT[k]) >= 1e-4f || std::fabs(layerW[k] - o.layerW[k]) >= 1e-3f) return false;
+        return true;
+    }
     bool operator==(const PoseKey& o) const {
-        return model == o.model && animation == o.animation && second == o.second && overlay == o.overlay &&
+        return model == o.model && LayersEqual(o) && animation == o.animation && second == o.second && overlay == o.overlay &&
                std::fabs(overlayTime - o.overlayTime) < 1e-4f && std::fabs(overlayWeight - o.overlayWeight) < 1e-3f &&
                std::fabs(time - o.time) < 1e-4f &&
                std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f &&
@@ -1379,6 +1431,10 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.overlay = g_overlay;
         key.overlayTime = g_overlay ? g_overlayTime : 0.0f;
         key.overlayWeight = g_overlay ? g_overlayWeight : 0.0f;
+        if (g_layerModel == &model) {
+            key.layers = g_layerCount;
+            for (int k = 0; k < g_layerCount; ++k) { key.layer[k] = g_layerClip[k]; key.layerT[k] = g_layerTime[k]; key.layerW[k] = g_layerWeight[k]; }
+        }
         posed = &PoseFor(model, key, worlds);
     }
     QueryPerformanceCounter(&t1);

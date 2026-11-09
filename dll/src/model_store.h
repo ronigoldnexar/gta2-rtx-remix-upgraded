@@ -158,6 +158,14 @@ void ModelSetHeadTurn(float radians);
 // pose cache key, so quantise the time and weight. ACTIONS-3D-4: the action layer
 // over the locomotion pair (idle/walk/run/sprint/turn_step).
 void ModelSetOverlay(const ModelAnimation* clip, float time, float weight);
+// ANIM-BLEND-AUDIT: up to kModelLayers more clips blended over the pair (after it, before
+// the overlay) when `model` is drawn or its nodes asked for: in order, each written over a
+// copy of the pose so far and blended in by its weight (pose = lerp(pose, clip at time, w)),
+// so a chain of them makes any mix of clips with continuous weights (the locomotion:
+// walk/run/sprint/idle/turn/start/stop/fidget, see DrawPedFigures). Clips with weight 0 are
+// skipped; count 0 (or a null model) clears. Part of the pose cache key; clear it after the draw.
+constexpr int kModelLayers = 6;
+void ModelSetLayers(const Model* model, const ModelAnimation* const* clips, const float* times, const float* weights, int count);
 // Bytes of model textures created so far (managed pool), and how many.
 size_t ModelsTextureBytes(int* count);
 const Model* ModelForPedestrian();
