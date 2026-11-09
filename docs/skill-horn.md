@@ -97,3 +97,35 @@ ran well below 2x.
 | ft3 | FAKE TRUCE (hybrid: calm, a smooth burst after 20 game s without progress) | none reached | bus burned before group 1 | 20 smooth bursts. Damage was rams while standing in queues (calm 6800) and the bursts (5000) |
 | **zh1** | GET ZITZAKI | doctor: the 3 x 1 strip by creep, horn taken on press 1, doctor aboard in 5 s (1639) | **JOB COMPLETE** (1124, +$20,000, 811 game s) | frames `m_horn_doctor_horn.png` (the 1638 "sound the horn" brief, the doctor walking out, chase view), `m_zz_end_third.png` (JOB COMPLETE) |
 | zh2 | GET ZITZAKI | doctor: horn on press 1, aboard in 0 s (1639) | not complete: the run's 900 s ran out | the Miura caught fire on `deliver_intact`'s garage leg, 115 blocks out (that leg is SKILL-DELIVER's) |
+| zh3 | GET ZITZAKI | not reached | stuck before the horn | he was pulled out of the Miura on the hospital leg; `deliver_intact.board` walked to the car's spawn point (74.5,163.5) for the rest of the run (SKILL-DELIVER's leg). The module gave up cleanly ("timeout: the box not reached") |
+| **zh4** | GET ZITZAKI | doctor: in the strip at once, horn on press 1, aboard in 0 s | **JOB COMPLETE** (1124, +$20,000, 777 game s) | the Miura reached the garage alight (14078) |
+| **zh5** | GET ZITZAKI | doctor: horn on press 2, aboard in 0 s | **JOB COMPLETE** (1124, +$20,000, 896 game s) | |
+
+The same module on a third job, from SKILL-CRUSHER's COP CAR CRUSH runner (`missions/cop_car_crush.py`,
+`docs/skill-crusher.md`). Shady at the Avalon station: `Stop("shady", 94.5, 95.5, 2, 2,
+aboard_keys=1694, man=97.5,89.5)`. He stands 7 blocks from his 2 x 2 box, so `stand_point` finds no
+point 2.2-4.2 from him and the module falls back to the box's edge (94.5,95.8). With no horn brief to
+wait for, it presses three times. Shady was aboard in ccc3, ccc4 and ccc5 (3 presses, 0 s), and all
+three reached JOB COMPLETE.
+
+## Result
+
+- **The horn stop itself: all 9 stops the car reached ended with everyone aboard.** FAKE TRUCE: 2 groups of six. GET
+  ZITZAKI: 4 (zh1, zh2, zh4, zh5). COP CAR CRUSH: 3. The horn was taken within 1-3 presses and they
+  were aboard within 5 s of it every time.
+- **GET ZITZAKI with the module: JOB COMPLETE in zh1, zh4 and zh5 (3 of 5; 2 of the last 3).** The
+  two failures were in the drive legs before and after the stop (SKILL-DELIVER's `get_zitzaki.py`
+  legs: a fire on the garage leg, a re-board to the wrong place).
+- **COP CAR CRUSH with the module (SKILL-CRUSHER): JOB COMPLETE 3 of 3 (ccc3-ccc5).**
+- **FAKE TRUCE: not complete.** The Factory Bus does not survive about 800 blocks of the Residential
+  traffic with the shared drivers. Fixing that needs a driver that keeps a long vehicle out of queues
+  and off kerbs, or $5,000 for a respray.
+
+Frames (not in git): `out/zh1/m_horn_doctor_horn.png` (the 1638 brief, the doctor walking out),
+`out/zh1/m_zz_end_third.png` and `out/zh4/m_zz_end_third.png` (JOB COMPLETE), `out/zh4/m_horn_doctor_aboard.png`
+(1639), `out/ft1/m_horn_rednecks2_horn.png` (the Rednecks walking to the bus).
+
+Known limits: `stand_point` needs flat ground 2.2-4.2 blocks from the man inside the box, so for a man
+outside a small box (COP CAR CRUSH) it falls back to the box edge. The horn is pressed blind (3 times)
+when the job gives neither a brief nor a `horned()` test. The group-stall move is untested in game:
+no group stalled.

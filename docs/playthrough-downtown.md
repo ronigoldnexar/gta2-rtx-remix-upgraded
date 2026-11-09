@@ -883,3 +883,24 @@ walls until it burned (rf4, rf7).
 
 **3 of 3 sessions since the pin guard reached JOB COMPLETE**, all in a fresh game, no warp, chase-view
 frames (`out/ccc5/m_ccc_crane_hook.png`, `m_ccc_end.png`; not in git).
+
+## Wave M, SKILL-HORN (9 Nov 2026): horn pick-ups, `skills/horn_pickup.py`
+
+GET ZITZAKI (`wil_ye1`) played by `missions/zitzaki_horn.py`: SKILL-DELIVER's `get_zitzaki.py`
+unchanged, with only its horn step replaced by `horn_pickup.pickup`. The stop is the hospital's
+3 x 1 strip, entered by `deliver_intact`'s creep. The horn is taken when the script creates the doctor,
+and the car stays in the strip while he walks. Details, API and FAKE TRUCE (`ste_se2`, the module's
+four-group runner; the Factory Bus burns after group 2): `docs/skill-horn.md`.
+
+| session | horn stop | outcome |
+|---|---|---|
+| **zh1** | horn on press 1, the doctor aboard in 5 s (1639) | **JOB COMPLETE** 1124 at game-s 811, +$20,000 |
+| zh2 | press 1, aboard in 0 s | not complete: the Miura burned on the garage leg; the 900 s run ended |
+| zh3 | not reached | stuck: pulled out of the Miura on the hospital leg, the re-board walked to the spawn point |
+| **zh4** | press 1, aboard in 0 s | **JOB COMPLETE** at game-s 777 |
+| **zh5** | press 2, aboard in 0 s | **JOB COMPLETE** at game-s 896 |
+
+**3 of 5 sessions, 2 of the last 3, reached JOB COMPLETE. The horn stop succeeded every time it was
+reached.** Speed 2, fresh game, no warp, frames in the chase view (`out/zh1/m_horn_doctor_horn.png`,
+`out/zh4/m_zz_end_third.png`; not in git). The same module is in SKILL-CRUSHER's COP CAR CRUSH (Shady,
+ccc3-ccc5, 3 of 3 complete).
