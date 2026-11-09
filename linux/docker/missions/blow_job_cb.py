@@ -56,7 +56,9 @@ STAGE2 = CB.Stage(
     line=((106.5, 77.5), (110.3, 77.5)),
     # the router's road way, corner by corner: east on row 41, north on column 61 to row 23,
     # east to column 89, south to row 41, east to column 105, south to the barricade row
-    via=[(55.5, 41.0), (60.8, 40.0), (60.8, 23.5), (70.5, 22.8), (88.8, 23.2), (88.8, 40.5),
+    # (cb16: explicit points up column 61 and round the junction 61,23 cost 14000 carhp; cb12 left
+    # that stretch to the router and lost 400)
+    via=[(55.5, 41.0), (60.8, 40.0), (88.8, 23.2), (88.8, 40.5),
          (97.5, 41.0), (105.3, 42.0), (105.4, 60.5), (105.8, 72.5)])
 if os.environ.get("CB_ROUTES") == "fixed":     # blow_job.py's hand-made routes, for comparison
     STAGE1.routes = {"west": [(44.0, 21.7), (37.0, 22.2), (31.0, 22.4)], "east": [(53.5, 21.8), (59.0, 22.3), (63.5, 22.5)]}
@@ -127,7 +129,7 @@ def play():
     if r != "done": return f"stage 1 {r}"
     RESULT["stage"] = "stage1"
     shots("m_cb_bj1_after", n=2)
-    CB.lie_low(float(os.environ.get("CB_LIE_LOW", "25")))
+    CB.evade(world, STAGE2.car, secs=float(os.environ.get("CB_LIE_LOW", "40")), check=job.check)
     r = CB.car_bomb(world, STAGE2, job, shot_prefix="m_cb_bj2")
     RESULT["stage2"] = r; ev(f"stage 2: {r}")
     if r in ("done", "complete") or job.outcome() == "complete":
