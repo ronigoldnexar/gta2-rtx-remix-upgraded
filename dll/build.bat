@@ -26,7 +26,7 @@ rem instead of failing to compile. deps\imgui is the F4 menu.
 cl /nologo /std:c++17 /EHsc /O2 /W3 /MT /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
    /I deps\bridge_api /I deps\imgui ^
    /LD /Fe:build\gta2dx9.dll /Fo:build\ ^
-   src\dllmain.cpp src\world_view.cpp src\log.cpp src\texture_store.cpp src\overlay.cpp ^
+   src\dllmain.cpp src\world_view.cpp src\regress_cam.cpp src\log.cpp src\texture_store.cpp src\overlay.cpp ^
    src\live_geometry.cpp src\ground.cpp src\remix_api.cpp src\remix_lights.cpp src\debug_overlay.cpp ^
    src\synthetic_lights.cpp src\settings.cpp src\frame_limiter.cpp src\frame_log.cpp src\time_of_day.cpp ^
    src\intro_movie.cpp src\hud_pass.cpp src\hud3d.cpp src\gibs.cpp src\light_bench.cpp src\progress_probe.cpp src\game_save.cpp src\voice_over.cpp src\cache_warmup.cpp src\plugin_d3d6.cpp src\view_modes.cpp src\model_store.cpp src\car_bodies.cpp src\vehicle_fx.cpp src\map_objects.cpp build\plugin_slot.obj ^
