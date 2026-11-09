@@ -194,3 +194,24 @@ Findings:
   (plaza 198.5,188.5: 0 differing still pixels), the player's car colour under the identity record (ste
   scene car: no differing pixel on it), and the game's subtitle with the modern HUD on vs off
   (`tools/keys_classic_subtitle.sh`, bil opening subtitle: every distinct subtitle crop byte-identical).
+
+## Reseed of 9 Nov 2026, second (QA-RESEED-2, goldens `e93b53c`)
+
+The goldens of `48a9b58` flagged intended changes (one check of `e93b53c` against them: PASS 23, WARN 4, FAIL 4,
+0 faults). Every WARN/FAIL sheet was looked at (not in git). All changes are explained by commits after `48a9b58`;
+`spawn_classic` was identical (0 tiles). Nothing was refused.
+
+| Shot | Difference | Explained by |
+|---|---|---|
+| `spawn_classic` | none | classic is byte-for-byte unchanged |
+| `bank_chase` (FAIL, 70) | the camera now sits against a wall and a roof edge instead of looking across the roof | d33b659 (street-view camera collides with the mesh), 2cc716a (roofs and overhangs closed) |
+| `spawn_third` (FAIL, 64) | chase camera closer behind the player; soft contact shadows under him and the booth; the game's orange target arrows gone | 63f51e5, e93b53c (the move into a street view aims at him), aafde55 / 33c34be (contact shadows), 2fd8c7d / 8d78e89 (arrows dropped in street views) |
+| `spawn_portrait_front` (FAIL, 22) | contact shadow under his feet; the post box smaller and at figure scale; arrows gone | aafde55, 33c34be, a062ae0 (props at human scale), 2fd8c7d |
+| `raised_w03_high` (FAIL, 22) | the band above the horizon shows sea instead of flat pale sky | d2bbf01 (sea apron past the map edge, haze band) |
+| `lights23_chase`, `_high`, `_street`, `cityinfo_street` (WARN, 8-13) | shadow tone on the road and a passer-by in frame, arrows and distance labels gone | aafde55, 33c34be (contact shadows), 2fd8c7d, 8d78e89 (arrows) |
+
+Goldens in force: `goldens/e93b53c` (3 captures of that revision, 93 samples; the directory has no `_vN` suffix),
+leave-one-out **0 WARN/FAIL of 93**. The check run re-diffed against them: PASS 31 of 31. The m37 shots are still seeded
+with the soft roof (defect `pm-photo-tiles-roof-and-brick-softer-than-plain-hd` is open); reseed them when it is fixed.
+Shots: `spawn_classic`, `spawn_third`, `spawn_first`, `spawn_portrait_front`, and `chase`/`street`/`high` for policehq,
+cityinfo, bank, lights23, yakuza1, raised_w03, m37, restart1, loonie (31). The older `48a9b58` goldens are kept.
