@@ -1,4 +1,5 @@
 #include "view_modes.h"
+#include "eye_collision.h"
 
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
@@ -2254,6 +2255,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 const float d = kWallClear * static_cast<float>(i) / 10.0f;
                 if (eyeWall(eye.x + fx * d, eye.y, eye.z + fz * d)) { wall = d; break; }
             }
+            // FIX-OCCLUSION: and the drawn surface along the view, which the cells miss on a
+            // diagonal wall or a partial block.
+            if (eyecol::Ready()) {
+                float t = 0.0f;
+                if (eyecol::SegmentHit(eye, {eye.x + fx * kWallClear, eye.y, eye.z + fz * kWallClear}, &t))
+                    wall = (std::min)(wall, t * kWallClear);
+            }
             if (wall < kWallClear) {
                 const float want = (std::min)(kWallClear - wall, kWallBack);
                 // As far as the space behind allows: a full step, else two thirds, else a third.
@@ -2356,6 +2364,27 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
             }
             eye = shown;
+            // BLOCKER fp-camera-sees-through-wall (FIX-OCCLUSION): the tests above ask the map's
+            // cells, which do not see a diagonal wall, a partial block or any face off a cell
+            // edge. At the chamfered church corner in wil the eye went to 0.03 of the bricks,
+            // the 0.05 near plane cut the wall open and the frame was the inside of the block
+            // (backfaces, a black void, sky) for three seconds. Last of all, against the mesh
+            // that is drawn: from his centre at eye height the eye goes no further than a
+            // surface on the way, and keeps a sphere's clearance from every surface round it
+            // (0.24 on foot, a hand; 0.12 in a car's cabin, the near plane's reach), slid along
+            // it, not stopped.
+            if (eyecol::Ready()) {
+                const gta2::Vec3 head{px, eye.y, pz};
+                const float moved = eyecol::Clear(head, &eye, inVehicle ? 0.12f : 0.24f);
+                if (moved > 0.0f) {
+                    static int clearLogs = 0;
+                    if (clearLogs < 40) {
+                        ++clearLogs;
+                        Log("view: fp eye: surface clearance moved the eye %.3f (near %.3f after)", moved,
+                            eyecol::Nearest(eye, 1.0f));
+                    }
+                }
+            }
             shownX_ = eye.x; shownY_ = eye.y; shownZ_ = eye.z;
             lastPitch_ = pitch;
             lastPitchKnown_ = true;
@@ -2374,8 +2403,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 logClock = 0.0f;
                 float under = 0.0f;
                 const bool hasUnder = q.floorAt && q.floorAt(q.context, eye.x, eye.z, eye.y + 0.75f, &under);
-                Log("view: fp eye %.2f,%.2f,%.2f  player y=%.2f floor=%.2f  lid under the eye=%s%.2f  post %.2f",
-                    eye.x, eye.y, eye.z, py, floorY_, hasUnder ? "" : "none ", under, fpPostDistance);
+                const eyecol::Stats cs = eyecol::TakeStats();
+                Log("view: fp eye %.2f,%.2f,%.2f  player y=%.2f floor=%.2f  lid under the eye=%s%.2f  post %.2f  surface %.3f"
+                    "  (clear: %d moves, max %.3f, %d segment stops, caps %d)",
+                    eye.x, eye.y, eye.z, py, floorY_, hasUnder ? "" : "none ", under, fpPostDistance,
+                    eyecol::Nearest(eye, 2.0f), cs.pushes, cs.maxPush, cs.segmentStops, cs.capTris);
             }
         }
         eyeX_ = eye.x;

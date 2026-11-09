@@ -28,6 +28,7 @@
 #include "game_access.h"
 #include "compat.h"
 #include "game_save.h"
+#include "eye_collision.h"
 #include "light_bench.h"
 #include "log.h"
 #include "remix_api.h"
@@ -1470,6 +1471,8 @@ bool WorldView::EnsureWorldLoaded() {
 
     gta2::WorldMesh mesh;
     gta2::BuildWorldMesh(map_, style, slopes.data(), cuts, &mesh);
+    // The street views' camera collides with this same mesh (BLOCKER fp-camera-sees-through-wall).
+    eyecol::Build(mesh, style);
     {
         // Tile numbers are per style, so the high-resolution folder and the dump
         // are kept per style: wil, bil, ste.
@@ -2454,6 +2457,15 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         // Out of any building the path crosses - by a storey at most, so a short
         // move past a wall never becomes a flight over the city.
         for (int lift = 0; lift < 6 && Blocked(p.x, p.y, p.z); ++lift) p.y += 0.25f;
+        // FIX-OCCLUSION: nor through a wall the cells do not see (a diagonal, a partial block):
+        // on the way into a street view the camera is never on the far side of a surface from
+        // where it is going, nor nearer one than the near plane allows.
+        if (!transitionToClassic_ && eyecol::Ready()) {
+            eyecol::Clear(b, &p, 0.15f);
+            // Still in a closed block (the path dives through a roof the destination is under):
+            // the camera waits where it was last shown, outside, until the path leaves it.
+            if (lastPoseValid_ && eyecol::InsideSolid(p) && !eyecol::InsideSolid(lastPose_.position)) p = lastPose_.position;
+        }
         // The short way round for the heading.
         float dyaw = target.yaw - transitionFrom_.yaw;
         while (dyaw > 3.14159265f) dyaw -= 6.2831853f;
@@ -2475,6 +2487,33 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         // own body is hidden either, since the eye is not yet in his head.
         if (transitionToClassic_) SetHudCameraMap(HudCameraMap{});
         if (mode == ViewMode::FirstPerson && t < 0.8f) SetHiddenObjects(nullptr, nullptr);
+    }
+    // FIX-OCCLUSION safety net, every street view (the first-person eye has already been kept
+    // 0.24 clear; the chase camera solves its own boom): never closer to a surface than the
+    // near plane's corners (0.09 at the widest field of view), so no wall is ever cut open.
+    if (mode != ViewMode::Classic && eyecol::Ready()) {
+        gta2::Vec3 p = camera_.Position();
+        const float netMove = eyecol::Push(&p, 0.12f);
+        if (netMove > 0.0f) {
+            camera_.SetPosition(p);
+            shown.position = p;
+        }
+        // Once a second: the closest any surface came to the camera that was shown (the
+        // regression evidence: under 0.093, the near plane's corner reach, a wall is cut open).
+        static float clearMin = 99.0f, clearClock = 0.0f, netMax = 0.0f;
+        static int clearFrames = 0, netFrames = 0;
+        static gta2::Vec3 clearAt{};
+        const float nearNow = eyecol::Nearest(p, 0.6f);
+        if (nearNow < clearMin) { clearMin = nearNow; clearAt = p; }
+        ++clearFrames;
+        if (netMove > 0.0f) { ++netFrames; netMax = (std::max)(netMax, netMove); }
+        clearClock += dt;
+        if (clearClock >= 1.0f) {
+            Log("view: camera clearance (%s%s): nearest surface %.3f at %.2f,%.2f,%.2f over %d frames, safety net moved %d frames (max %.3f)",
+                ViewModeName(mode), transitionT_ < 1.0f ? ", moving" : "", clearMin, clearAt.x, clearAt.y, clearAt.z, clearFrames,
+                netFrames, netMax);
+            clearMin = 99.0f; clearClock = 0.0f; netMax = 0.0f; clearFrames = netFrames = 0;
+        }
     }
     lastPose_ = shown;
     lastPoseValid_ = true;
@@ -2756,6 +2795,15 @@ void WorldView::RenderFrame() {
             renderer_.SetStreetView(street);
         }
         renderer_.DrawWorld(camera_);
+        // FIX-OCCLUSION: should the eye still be in a block, the block is closed round it
+        // (back sides of the faces near the eye, depth-hidden from outside). Street views only,
+        // never under Remix (its own geometry rules) nor in the classic view.
+        if (worldUploaded_ && skyBlend_ > 0.001f && CurrentViewMode() != ViewMode::Classic && !renderer_.IsRemixDevice() &&
+            renderer_.Device()) {
+            DWORD cull = D3DCULL_CCW;
+            renderer_.Device()->GetRenderState(D3DRS_CULLMODE, &cull);
+            eyecol::DrawInteriorCaps(renderer_.Device(), camera_.Position(), cull);
+        }
         renderer_.WarmTileTextures(CurrentViewMode() == ViewMode::Classic ? 24 : 6);   // nothing once every tile has been drawn with
         QueryPerformanceCounter(&stamp[2]);
         // Sprites and the captured block shapes are real world geometry, so they
