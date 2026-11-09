@@ -1031,15 +1031,14 @@
   },
   {
    "name": "013_minx",
-   "glb": "cars/models3d/013_minx.glb",
+   "glb": "cars/models_art/013_minx.glb",
    "scale": 1.0,
    "paint_rgb": [
-    163.7,
-    127.2,
-    101.4
+    235.0,
+    235.0,
+    235.0
    ],
-   "texture_max": 512,
-   "paint_split": true
+   "texture_max": 1024
   },
   {
    "name": "014_eddy",
@@ -7430,13 +7429,14 @@
   },
   {
    "name": "013_minx",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 7572,
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 15044,
    "animations": [],
    "textures": [
     "013_minx_0.tga",
-    "013_minx_0_paint.tga"
+    "013_minx_2_paint.tga",
+    "013_minx_4.tga"
    ],
    "skins": 0,
    "forward": "",
