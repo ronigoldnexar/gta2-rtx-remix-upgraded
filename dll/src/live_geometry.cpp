@@ -7870,10 +7870,13 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
     {
         const bool night = gta2::SkyConfig().sunElevationDeg < 6.0f;
+        // ptm14: the hour's light, as the figures take it (the test above reads the configured sun only).
+        float tod[3];
+        FigureTimeOfDayLight(tod);
         D3DLIGHT9 sun = {};
         sun.Type = D3DLIGHT_DIRECTIONAL;
         const float li = night ? 0.45f : 0.80f;
-        sun.Diffuse = {li, li, li, 1.0f};
+        sun.Diffuse = {li * tod[0], li * tod[1], li * tod[2], 1.0f};
         // From above, a little ahead and to the left of the eye: the top of the
         // slide and the back of the hand catch it.
         float ld[3];
@@ -7888,7 +7891,11 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
         device->SetMaterial(&material);
         device->SetRenderState(D3DRS_LIGHTING, TRUE);
-        device->SetRenderState(D3DRS_AMBIENT, night ? 0x00404048u : 0x00686868u);
+        {
+            const float a[3] = {night ? 0x40 / 255.0f : 0x68 / 255.0f, night ? 0x40 / 255.0f : 0x68 / 255.0f, night ? 0x48 / 255.0f : 0x68 / 255.0f};
+            auto byte = [](float v) { return static_cast<DWORD>((std::min)(255.0f, (std::max)(0.0f, v * 255.0f + 0.5f))); };
+            device->SetRenderState(D3DRS_AMBIENT, (byte(a[0] * tod[0]) << 16) | (byte(a[1] * tod[1]) << 8) | byte(a[2] * tod[2]));
+        }
         device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
         device->SetRenderState(D3DRS_NORMALIZENORMALS, TRUE);
         device->SetRenderState(D3DRS_COLORVERTEX, FALSE);
