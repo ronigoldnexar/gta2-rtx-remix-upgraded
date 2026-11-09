@@ -308,6 +308,18 @@ in `gta2dx9.log`), the level renders in all three views (`out/play_interface_she
 - `demo_fp.py` / `keys_demo_fp2.sh`: walk to the carriageway pavement, V into
   first person, walk, V back. `final_demo.py`: the full continuous take incl. a
   natural car entry. `cars_drive.py`: F10 scene car + Return, drive in each view.
+- `owner_demo.py` / `keys_owner_demo.sh` (DEMO-HARNESS, 9 Nov): the owner's gameplay demo in
+  one take: classic opening, third-person walk, first-person look, a punch that knocks a
+  civilian down (third person), a car jacked from the kerb lane, a road loop through the chase
+  view, driver's seat and classic, out and a few steps. Every beat goes to `/out/marks.txt`
+  (`<epoch> <video s> <event>`) with whether a developer warp was used (`DEVWARP`). Run with
+  `GTA2_DIRECT_KEYS=1 FPS=30 gamerun/grun.sh <run> 480 keys_owner_demo.sh -e GTA2DX9_STATE_EVERY=3
+  -e GTA2DX9_PEDS_EVERY=3 -e GTA2DX9_LOG_PED_FRAMES=1`. Its fixes over the older harnesses:
+  punch targets come from the always-on `view: peds` line (combat_probe.py needs
+  `GTA2DX9_LOG_NEAR_PED=1` or never presses the fist); a knock-down is state 8 sub 0x16, not
+  death; traffic stops for a man in its lane, not on the pavement (final_demo2 waited 178 s);
+  `qa_lib.current_view()` only sees the last 400 KB of the log, which a run logging the player
+  and peds every 3 frames outgrows in ~15 s, so the demo tracks the view incrementally.
 - `qa_*.py` with `qa_run.sh <name> <seconds>`: wall, backforth (incl. rapid V),
   fight, crash, death, long. `qa_lib.py` reads the view back from the log.
 - `slot.sh`: at most `GTA2_SLOTS` game containers at once on a small host;
