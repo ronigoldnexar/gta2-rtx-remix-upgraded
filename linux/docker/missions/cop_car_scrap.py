@@ -45,6 +45,8 @@ JOB = "bil_ke2"
 PHONE = (249.5, 201.5)
 YARD = (176.5, 249.5)
 COPCAR = 12
+# road points round the Krishna temple: row 187 (x 180-222), column 219-222, row 172, column 198-201
+SEARCH = [(220.5, 187.5), (200.5, 187.5), (220.5, 175.5), (210.5, 172.5), (199.5, 200.5), (185.5, 187.5)]
 TITLE = {"3841", "3480"}
 IN_COP, OUT_COP, AT_YARD = "3482", "3483", "3484"
 COUNT_KEYS = ("3485", "3486", "3488")
@@ -118,12 +120,18 @@ def set_wanted(n, why):
 def phone(entry):
     s = D.wait_state()
     if os.environ.get("CCS_WARP_PHONE", "0") == "1" and math.hypot(PHONE[0] - s["x"], PHONE[1] - s["y"]) > 30:
-        near = M.street_cell_near(world, 238.5, 192.5, radius=8) or (238.5, 192.5, 1)
+        # ccs1: the renderer refused 238.5,192.5 L1 (no road or pavement within six blocks by its test);
+        # the nearest road cell to the climb's foot (241,196) is 222,189
+        near = (222.5, 189.5, 1)
         P.set_view("classic")
-        for k in range(4):
-            s2 = M.scene_warp(near[0], near[1], near[2], "CCS_WARP_PHONE: the street below the Hare Krishna roof; the climb and the job are played")
+        for k in range(5):
+            M.scene_warp(near[0], near[1], near[2], "CCS_WARP_PHONE: the street below the Hare Krishna roof; the climb and the job are played")
+            time.sleep(3.0)          # a fresh sample (science_friction sf11: the warp's own read was stale)
+            s2 = D.wait_state()
             if s2 and math.hypot(s2["x"] - near[0], s2["y"] - near[1]) < 8: break
             time.sleep(2.0)
+        else:
+            P.set_view("third"); return False
         P.set_view("third")
         RESULT["events"].append(f"phone warp to {near}")
     info = {}
@@ -156,7 +164,14 @@ def get_copcar(k):
     if in_copcar(): return True
     t0 = time.time()
     secs = float(os.environ.get("CCS_TRAFFIC_SECS", "240"))
-    s = SC.steal_car(world, [COPCAR], budget=secs, check=lambda: bool(over()), view_switch=P.view_switch)
+    # ccs2: down from the roof he stood in the Krishna temple's walled courtyard, with no road within
+    # reach; steal_car's ring tour round him found nothing to drive or see for 11 game minutes.
+    # To the road (row 187) first, and tour the roads round the temple
+    s = D.wait_state()
+    if not s["driving"] and min(math.hypot(s["x"] - x, s["y"] - y) for x, y in SEARCH) > 6:
+        ev(f"car {k}: to the road at {SEARCH[0]}")
+        M.walk3(world, SEARCH[0][0], SEARCH[0][1], None, tol=1.5, budget=120)
+    s = SC.steal_car(world, [COPCAR], search=SEARCH, budget=secs, check=lambda: bool(over()), view_switch=P.view_switch)
     check()
     if in_copcar():
         ev(f"car {k}: a Cop Car from traffic after {time.time() - t0:.0f}s"); return True
@@ -164,7 +179,7 @@ def get_copcar(k):
     if n < 0: return False
     set_wanted(n, f"car {k}: no Cop Car in traffic for {secs:.0f}s; the police bring theirs")
     try:
-        s = SC.steal_car(world, [COPCAR], search=None, budget=float(os.environ.get("CCS_STEAL_SECS", "420")),
+        s = SC.steal_car(world, [COPCAR], search=SEARCH, budget=float(os.environ.get("CCS_STEAL_SECS", "420")),
                          check=lambda: bool(over()), view_switch=P.view_switch)
     finally:
         set_wanted(-1, f"car {k}: off again (in model {(M.mission_state() or {}).get('carmodel')})")

@@ -73,6 +73,28 @@ def ev(what):
     RESULT["events"].append(f"{time.strftime('%H:%M:%S')} {what}"); M.mark(what); say(what)
 
 
+def warp_verified(x, y, level, why, tries=5):
+    """the scene warp, checked on a fresh position a few seconds later (sf11: the warp's own
+    state read was stale under load, he was still at the start and the climb walked him over the
+    river); True when he stands within 8 blocks of the point"""
+    P.set_view("classic")
+    CB.WARPING[0] = True
+    ok = False
+    try:
+        for k in range(tries):
+            M.scene_warp(x, y, level, why)
+            time.sleep(3.0)
+            s = D.wait_state()
+            if s and math.hypot(s["x"] - x, s["y"] - y) < 8:
+                ok = True; break
+            say(f"sf: warp to {x},{y} not taken (at {s['x']:.1f},{s['y']:.1f}); again")
+            time.sleep(2.0)
+    finally:
+        CB.WARPING[0] = False
+        P.set_view("third")
+    return ok
+
+
 def phone(entry, job):
     s = D.wait_state()
     if os.environ.get("SF_WARP_PHONE", "0") == "1" and math.hypot(PHONE[0] - s["x"], PHONE[1] - s["y"]) > 30:
@@ -80,16 +102,10 @@ def phone(entry, job):
         # road at 159.5,34.5 L1; the climb's route crossed 138-140,24 by the water and he drowned
         # twice (respawned at 195,140). The road column 167-168 (L2) passes the phone: warp there
         near = (167.5, 27.5, 2)
-        if near:
-            P.set_view("classic")
-            CB.WARPING[0] = True
-            for k in range(4):
-                s2 = M.scene_warp(near[0], near[1], near[2], "SF_WARP_PHONE: the L2 road 8 blocks south of the Zaibatsu phone; the walk and the job are played")
-                if s2 and math.hypot(s2["x"] - near[0], s2["y"] - near[1]) < 8: break
-                time.sleep(2.0)
-            CB.WARPING[0] = False
-            P.set_view("third")
-            RESULT["events"].append(f"phone warp to {near}")
+        if not warp_verified(*near, "SF_WARP_PHONE: the L2 road 8 blocks south of the Zaibatsu phone; the walk and the job are played"):
+            RESULT["phone"] = {"why": "phone warp not taken"}
+            return False
+        RESULT["events"].append(f"phone warp to {near}")
     for k in range(3):
         ok, ms, info = RA.answer_roof_phone(world, entry, P.answer)
         job.poll()
@@ -201,14 +217,8 @@ def play():
         # every session (no traffic on the L2 roads by the phone; a car burned at the 118,39
         # crossing; a jacked Zaibatsu car shot to pieces by their gunmen). Marked WARP; the
         # guards, the Pickup, the drive to the lab, the park, the bomb and the escape are played
-        P.set_view("classic")
-        CB.WARPING[0] = True
-        for k in range(4):
-            s2 = M.scene_warp(STAND[0], STAND[1], STAND[2], "SF_WARP_CAR: the road 13 blocks south of Montana's Pickup; the guards, the Pickup and the bomb are played")
-            if s2 and math.hypot(s2["x"] - STAND[0], s2["y"] - STAND[1]) < 8: break
-            time.sleep(2.0)
-        CB.WARPING[0] = False
-        P.set_view("third")
+        if not warp_verified(*STAND, "SF_WARP_CAR: the road 13 blocks south of Montana's Pickup; the guards, the Pickup and the bomb are played"):
+            return "car warp not taken"
         RESULT["events"].append(f"car warp to {STAND}")
     else:
         drive_near(*PICKUP, stop=10.0, job=job)
@@ -221,6 +231,26 @@ def play():
     RESULT["stage"] = "at the Pickup"; M.shot("m_sf_pickup_near")
     if os.environ.get("SF_GUARDS", "1") == "1":
         clear_guards(job)
+    # out of the Rednecks' zone (x < 80) at speed before the careful drive: sf12's slow precious
+    # drive north through 60-75 x 25-50 took hit after hit (32000 -> 15938, burning 185 blocks
+    # short of the lab). East along rows 34-35, the zone's edge at x 80, then the skill's drive
+    if os.environ.get("SF_FAST_EXIT", "1") == "1":
+        s = CB.board(world, STAGE, check=job.check)
+        if s and s.get("driving"):
+            M.shot("m_sf_incar")
+            ev(f"in the Pickup (carhp {(M.mission_state() or {}).get('carhp')}): fast out of the Rednecks' zone")
+            # the old driver (drive3 without the smooth one), not slow: sf13's smooth driver stalled
+            # in the Pickup's shelter and backed west into the gunners (32000 -> 2372 in 3 s); the
+            # old one left the shelter cleanly in sf7, sf8 and sf12
+            saved = M.SMOOTH[0]; M.SMOOTH[0] = False
+            try:
+                for gx, gy in ((45.5, 34.5), (92.5, 34.5)):
+                    M.drive3(world, gx, gy, tol=3.0, budget=90, slow=False, view_switch=P.view_switch,
+                             until=lambda: bool(job.outcome()))
+                    job.check()
+            finally:
+                M.SMOOTH[0] = saved
+            ev(f"out of the zone at {D.wait_state()['x']:.0f},{D.wait_state()['y']:.0f} (carhp {(M.mission_state() or {}).get('carhp')})")
     r = CB.car_bomb(world, STAGE, job, shot_prefix="m_sf")
     RESULT["bomb"] = r; ev(f"car bomb: {r}")
     if r in ("done", "complete") or job.outcome() == "complete":

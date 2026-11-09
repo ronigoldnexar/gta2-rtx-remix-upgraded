@@ -10,7 +10,7 @@ What the script wants (assets-src/missions/wil_m/wil_yh1.mis):
   1125. No timer; death or arrest end it.
 
 A SWAT van (model 52) only comes with the police at three stars. Developer aids, each marked in
-/out/marks.txt: skills/gang_respect.exe sets the Yakuza respect to 100 (the red phone wants 4 bars;
+/out/marks.txt: missions/mb3_respect.exe sets the Yakuza (gang 0) respect to 100 (the red phone wants 4 bars;
 a fresh session has 0); [devtools] force_wanted=3 keeps his wanted level at three stars so the
 police send a SWAT van without a massacre first, and is set back to -1 (off) the moment he sits in
 the van (the game's own wanted level stays and decays as it would); SVS_WARP_PHONE=1 warps him to
@@ -89,7 +89,19 @@ def over():
     ms = M.mission_state() or {}
     if ms.get("health", 1) == 0 or ms.get("death", 0) != 0: return "dead"
     if LIVES0[0] is not None and ms.get("lives", LIVES0[0]) < LIVES0[0]: return "dead"
+    # svs3: arrested by the SWAT troops (a 52-block jump to the station, no message key seen): a
+    # jump of more than 25 blocks on foot within 6 s is a respawn (car_bomb.Job's rule)
+    s = D.wait_state(2)
+    if s and not WARPING[0]:
+        lx = LAST_XY[0]
+        if lx and not s["driving"] and not lx[2] and time.time() - lx[3] < 6.0 and math.hypot(s["x"] - lx[0], s["y"] - lx[1]) > 25:
+            return "busted"
+        LAST_XY[0] = (s["x"], s["y"], s["driving"], time.time())
     return None
+
+
+LAST_XY = [None]
+WARPING = [False]
 
 
 def check():
@@ -99,11 +111,17 @@ def check():
 
 
 def respect(gang, value):
-    try:
-        out = subprocess.run(["wine", "/work/skills/gang_respect.exe", gang, str(value)], capture_output=True, text=True, timeout=40).stdout.strip()
-    except Exception as e:
-        out = f"gang_respect failed: {e}"
-    M.mark(f"DEV AID: gang_respect {gang} {value} ({out.splitlines()[-1] if out else ''})")
+    """missions/mb3_respect.exe (gang_respect.c with an index accepted, after MISSIONS-BATCH2's
+    b2_respect.c): gang 0 reads back with an unprintable name, so svs1's "yaku" matched nothing
+    and the red phone refused (1092). The Yakuza are gang 0 in Downtown (the first SET_GANG_INFO)"""
+    out = ""
+    for args in ([], [str(gang), str(value)], []):
+        try:
+            r = subprocess.run(["wine", "/work/missions/mb3_respect.exe"] + args, capture_output=True, text=True, timeout=40).stdout.strip()
+        except Exception as e:
+            r = f"mb3_respect failed: {e}"
+        say(f"mb3_respect {args}: {r}"); out = r
+    M.mark(f"DEV AID: gang respect {gang} {value} ({' | '.join(out.splitlines()[-4:]) if out else ''})")
 
 
 def set_wanted(n, why):
@@ -120,15 +138,17 @@ def set_wanted(n, why):
 
 
 def phone(entry):
-    respect("yaku", 100)
+    respect(os.environ.get("SVS_GANG", "0"), 100)
     s = D.wait_state()
     if os.environ.get("SVS_WARP_PHONE", "0") == "1" and math.hypot(PHONE[0] - s["x"], PHONE[1] - s["y"]) > 30:
         near = (100.5, 241.5, 1)          # the street below the phone's roof: one flight up (route survey)
         P.set_view("classic")
+        WARPING[0] = True
         for k in range(4):
             s2 = M.scene_warp(near[0], near[1], near[2], "SVS_WARP_PHONE: the street below the Yakuza red phone's roof; the climb and the job are played")
             if s2 and math.hypot(s2["x"] - near[0], s2["y"] - near[1]) < 8: break
             time.sleep(2.0)
+        WARPING[0] = False; LAST_XY[0] = None
         P.set_view("third")
         RESULT["events"].append(f"phone warp to {near}")
     info = {}
@@ -166,13 +186,33 @@ def to_wait():
 
 
 def get_van():
-    set_wanted(3, "three stars so the police send a SWAT van")
+    # svs2: three stars for 7 game minutes brought cop cars only (the HUD showed the three heads);
+    # the catalogue has SWAT vans from four. The search stays at the waiting road: touring by car
+    # 150 s legs (svs2) outran the response
+    n = int(os.environ.get("SVS_WANTED", "4"))
+    set_wanted(n, f"{n} stars so the police send a SWAT van")
     s = None
+    # svs3: the van came at four stars (id 179 at 89.5,241.5, then empty at 62,246.5), but the stars
+    # held by force_wanted kept the troops on him and he was arrested walking to its door. The aid
+    # is dropped the moment a SWAT van is listed; the game's own level then decays as it would
+    import threading
+    seen_van = threading.Event()
+    def watch():
+        t0 = time.time()
+        while not seen_van.is_set() and time.time() - t0 < 900:
+            if any(c["model"] == SWATVAN for c in M.cars()):
+                seen_van.set()
+                c = next(c for c in M.cars() if c["model"] == SWATVAN)
+                set_wanted(-1, f"a SWAT van is listed at {c['x']:.1f},{c['y']:.1f} (driver {c['driver']}): the aid off")
+                return
+            time.sleep(0.5)
+    threading.Thread(target=watch, daemon=True).start()
     try:
-        s = SC.steal_car(world, [SWATVAN], search=[WAIT, (WAIT[0] + 15, WAIT[1]), (WAIT[0] - 12, WAIT[1])],
+        s = SC.steal_car(world, [SWATVAN], search=[WAIT, (WAIT[0] + 6, WAIT[1])],
                          budget=float(os.environ.get("SVS_STEAL_SECS", "600")), check=lambda: bool(over()),
                          view_switch=P.view_switch)
     finally:
+        seen_van.set()
         ms = M.mission_state() or {}
         set_wanted(-1, f"off again (in model {ms.get('carmodel')}, wanted {ms.get('wanted')})")
     check()
