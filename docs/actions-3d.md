@@ -868,3 +868,54 @@ renderer on the L4, the host at load 15-40 with governor pauses). Remix not trie
 | jacking a moving car | not filmed: traffic at the probe kerb did not come close enough in the after runs; code path is `grab_door_*` -> `jack_pull` at 0.50 | - |
 | a passenger boarding an occupied car | untested: would show the reach and the hands-in hold, then the duck (no throw seen) | - |
 | classic top-down view | untouched (figures are drawn only in the street views) | - |
+## QB-27 (9 Nov 2026): ragdolls for people run over or blown off their feet
+
+Quality-bar row 27: the `runover` lying clip was the same canned arc whatever the car's speed or
+side. Now a person struck or run over by a car (lying clip 2: cause 1/3, sub-states 0x18-0x1A) or
+blown off his feet (lying clip 3: cause 4) goes down as a ragdoll in the street views.
+
+- Solver (`dll/src/ragdoll.cpp/.h`): position-based (Verlet, 120 Hz substeps, 6 iterations), 17
+  particles on the Bip01 joints (pelvis, chest, neck, head, a head-top point, shoulders, elbows,
+  hands, hips, knees, feet). Torso rigid (all pairs of pelvis/chest/neck/shoulders/hips), limbs at
+  their seed lengths, ranges that stop a knee or elbow folding flat, the head sinking into the
+  chest or the legs passing through each other, hinges (knees bend forward, elbows back), gravity
+  3 blocks/s^2, ground at the victim's floor with friction and a 0.15 bounce, the map's walls
+  (`ViewQueries::blocked`), at most 3 blocks of travel. Settles when every joint is under
+  0.06 blocks/s for 0.4 s (or after 6 s); a settled body keeps one cached pose.
+- Seed and throw: the pose being drawn on the frame he goes down (walk, run, idle), so there is
+  no snap. Run over: the hitting car is the nearest car body drawn this or last frame (velocity
+  from its positions); every joint gets the car's velocity, the upper body less (x0.45: he folds
+  back over the bonnet), lift 0.3 x speed at speed, a little sideways jitter. The car is a moving
+  box for the first 0.6 s (sills at 0.05, bonnet 0.20, cabin 0.34 blocks). The game reports the
+  hit once the car already overlaps him, so at the seed the whole body is moved out of the box in
+  one piece. Later contacts push out by the face the joint came through, at most 3 cm an
+  iteration, without adding speed; the car's pace is given by friction. Blast: away from the
+  nearest scorch noted in the last second within 3 blocks, the upper body first (onto his back),
+  lift 0.75 x strength.
+- Skeleton: the torso nodes follow the torso frame (hips, shoulders), each limb bone (neck, head,
+  upper arms, forearms, thighs, calves) is aimed at its particle, every other node is carried by
+  its parent as in the seed. Written to model space through a pose hook in `model_store`
+  (`ModelSetPoseHook`, the pose cache keyed by ragdoll id and generation, a ragdoll's older poses
+  dropped from the cache).
+- Getting up (the game stands a knocked-down person up, often after 0.37 s): the ragdoll's pose is
+  blended into the clip's get-up over 0.3 s, not dropped in a frame.
+- `[renderer] ragdoll=1` (default) in `gta2dx9.ini`; `GTA2DX9_RAGDOLL=0/1` overrides. Log lines
+  `ragdoll: start|settled|gets up` (always, first 200).
+
+Probe: `gamerun/qb27_probe.py` (`keys_qb27.sh`): F10 scene warp to the Downtown carriageway with
+`GTA2DX9_SCENE_NO_CAR=1`, third person, pacing across the traffic lanes until cars hit him; one
+continuous 15 fps recording, and the log's wall-clock `ragdoll: start` lines give the offsets.
+`STAGE=<stage> FPS=0 GTA2_DIRECT_KEYS=1 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 300 keys_qb27.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_PED_FRAMES=1 -e QB27_SECS=200`.
+
+| item | status | evidence |
+|---|---|---|
+| player run over (truck, slow) | verified in frames: knocked back from the truck's line, folds and falls away from it over 0.4 s; the game stands him up at 0.37 s and the blend brings him upright with no pop | `out/qb27_r9/fr/p1z.png` (b_lane.mp4 at 15.9 s) |
+| a body seeded inside the car | fixed: the first builds stood him on his head within 0.1 s (legs pushed out on their own, then a Verlet push adding speed); seen in `qb27_r4`, `qb27_r6`, `qb27_r8` | `out/qb27_r8/fr/p1z.png` (before) |
+| NPCs run over | log: 8 NPC ragdolls over the runs settle in 1.4-1.8 s, 0.27-0.52 blocks from the hit, pelvis peaking 0.23-0.24; a fast hit (4.9 blocks/s) threw one 3.06 blocks, pelvis peaking 0.51. These were off camera (the far lane or 14 blocks away), so no frames | `qb27_r4/r6/r8/r9` logs |
+| blast victims | untested in a run (`gamerun/qb27_blast.py` written, not run): same solver, throw from the scorch note | - |
+| cost | not measured: the host was at load 20-90 during every run; one skinning a frame per moving ragdoll, none once settled | - |
+| first person | same code path; not filmed | - |
+
+Known limits: the solver is not stepped while the body is out of view (frustum/behind culling);
+no collision with other people, props or parked cars after the first 0.6 s; a body thrown onto
+higher ground (a kerb) is held at the hit's floor height.

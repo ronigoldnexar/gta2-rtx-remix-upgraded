@@ -30,6 +30,7 @@
 #include "time_of_day.h"
 #include "view_modes.h"
 #include "model_store.h"
+#include "ragdoll.h"
 #include "map_objects.h"
 #include "explosion_fx.h"
 
@@ -6956,6 +6957,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     g_figuresNow.clear();
     g_aimPeds.clear();
     g_aimPedsFrame = g_carFrame;
+    // QB-27: the cars drawn this frame, for the ragdolls (the car that hit him, its pace).
+    if (g_groundModels && RagdollEnabled()) {
+        for (const CarBodyUse& use : carBodies_) {
+            float corners[4][3];
+            const float (*cm)[4] = use.objectToWorld.m;
+            for (int i = 0; i < 4; ++i) {
+                const float lx = use.local[i].x, ly = use.local[i].y, lz = use.local[i].z;
+                for (int c = 0; c < 3; ++c) corners[i][c] = lx * cm[0][c] + ly * cm[1][c] + lz * cm[2][c] + cm[3][c];
+            }
+            RagdollNoteCar(use.object, corners, g_carFrame);
+        }
+    }
     std::vector<FigVertex> verts;
     verts.reserve(36 * 6);
 
@@ -8144,7 +8157,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // CROWD: the head turn, in 6 degree steps near, 12 further, none far.
                 const float headStep = lod == 0 ? 0.105f : 0.21f;
                 ModelSetHeadTurn(lod <= 1 ? std::floor(track.headYaw / headStep + 0.5f) * headStep : 0.0f);
+                // QB-27: run over (lying clip 2) or blown off his feet (3): a ragdoll
+                // seeded from this pose drives the skeleton while he is down.
+                const bool ragdoll = RagdollFigure(sprite.object, track.lieClip == 2 ? 1 : track.lieClip == 3 ? 2 : 0,
+                                                   track.action == 4 && !track.actionReverse && !track.waterFrame, *model, world,
+                                                   gx, cy, gz, track.heading, dt, g_carFrame, locoA, locoTA, locoB, locoTB, locoW);
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                if (ragdoll) RagdollDone();
                 ModelSetHeadTurn(0.0f);
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
@@ -8382,6 +8401,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         std::sort(seen.begin(), seen.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         for (size_t i = 0; i < seen.size(); ++i) seen[i].second->rank = static_cast<int>(i);
     }
+    RagdollEndFrame(g_carFrame);   // QB-27
     // Tracks of pedestrians gone for a while are dropped.
     if (pedTracks_.size() > 512) {
         for (auto it = pedTracks_.begin(); it != pedTracks_.end();) {
@@ -9335,6 +9355,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         ground = car.objectToWorld.m[3][1];
                     }
                 }
+                RagdollNoteBlast(bx, ground, bz, blast, g_carFrame);   // QB-27: blown off his feet away from it
                 if (g_fire.scorch) NoteScorch(bx, ground + 0.02f, bz, blast * 1.35f);
                 if (blastFx) {
                     ExplosionFxNote(bx, ground, bz, blast);
