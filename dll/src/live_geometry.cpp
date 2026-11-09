@@ -1,3 +1,4 @@
+#include "vehicle_fx.h"
 #include "live_geometry.h"
 #include "boarding.h"
 
@@ -8681,6 +8682,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 placed.m[1][0] = -hz * sr * cp + hx * sp; placed.m[1][1] = cr * cp;  placed.m[1][2] = hx * sr * cp + hz * sp;
                 placed.m[2][0] = hx * cp + hz * sr * sp;  placed.m[2][1] = -cr * sp; placed.m[2][2] = hz * cp - hx * sr * sp;
                 placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f - boardSink; placed.m[3][2] = gz;
+                // FIX-REMIX: a soft contact shadow under his feet (a lying body: along it), not
+                // for a swimmer; drawn by the street views' FX pass (vehicle_fx.cpp).
+                if (g_groundModels && track.action != 9 && !(track.action == 4 && track.waterFrame)) {
+                    const bool lying = sprite.corpse;
+                    VehicleFxQueueContactShadow(gta2::Vec3{gx, cy + 0.008f, gz}, gta2::Vec3{hz, 0.0f, -hx}, gta2::Vec3{hx, 0.0f, hz},
+                                                lying ? 0.13f : 0.11f, lying ? 0.26f : 0.11f, lying ? 0.45f : 0.50f, g_carFrame);
+                }
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * look.width * typeWidth * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * typeWidth * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
