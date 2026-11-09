@@ -62,7 +62,9 @@ forced wetness; then weather off and the classic view.
 Runs on the 8x L4 host, private stage (`stage_qb35`, the DLL built from fork/camera-modes plus
 this change), 1280x720, `[visuals]` medium. Frames in `out/qb35_look3/t_w_*.png` (sheets
 `/tmp/qb35/l3_*.png` at the time of writing); run 4 (`out/qb35_look4`) re-checks the lamp pools
-and the far puddle fade.
+and the far puddle fade (`out/qb35_look4`: wet pass ready, no FAULT; the far grain is gone in
+`t_w_first_day_rain`; lamp pools not seen, see below). Note the "clear" frames after a rain frame
+show drying roads: wetness follows the rain unless forced, and dries over 150 s.
 
 Verified in frame (qb35_look3):
 - **time of day**: 10:00 clear (blue sky, sun shadows), 17:20 golden hour (warm low light),
@@ -96,7 +98,11 @@ Fixed on the way (each seen in a frame or the log first):
   reflection fade out between 25 and 60 blocks;
 - street lamps lit no pool on the ground (the lamp sits 1.5-3 blocks up and the soft falloff left
   ~3 % on the pavement; the light list in the log has them at r 3-5, i 1): a second, shorter
-  light a block under each map lamp now lays a pool.
+  light a block under each map lamp was added - **but run 4 still shows no pool** at the lamp
+  3.6 blocks from the player (`visuals: light src 0 at 166.50 3.50 103.50 r 5.02` in the
+  `debug=32` dump, player at 164.5,149.5 = world z 106.5; `t_w_third_night_clear`,
+  `t_w_first_night_clear`). Head-lamp spots from the same pass do show, so the cause is between
+  the provider and `ps_light` for point lights; not found yet.
 
 Not verified: the RTX Remix path (the renderer skips the weather on a Remix device by the same
 flag the post uses; no Remix run made), the weather cycle (`cycle=1`, code only), the Windows build
@@ -110,4 +116,6 @@ wet pass is one full-screen draw with 10 depth taps and the streaks one `DrawPri
   `live_geometry.cpp` (another subsystem); nothing sways yet.
 - Fog banks are one density at the eye (with distance fog), not volumes you can see from outside.
 - No splashes or ripple rings on the ground, no wet sheen on the cars' own shaders.
-- Night is still dark away from the lamps (the night light pass's reach); the blue hour reads best.
+- **Lamp pools (QB-35)**: not achieved, see above; night is dark away from lit windows and car
+  lamps, the blue hour reads best. Next step: log `ps_light`'s inputs for one map lamp
+  (`[visuals] debug=32` already dumps the provider's list).
