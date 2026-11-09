@@ -213,6 +213,13 @@ bool g_logFigures = false;   // GTA2DX9_LOG_FIGURES=1: a line per frame per figu
 // pedestrians may be drawn after its cars.
 struct DoorPed { uintptr_t vehicle; float x, z; int state; };
 std::vector<DoorPed> g_doorPeds, g_doorPedsNow;
+// QB-14 jacking: the cars drawn last frame and this one (renderer coordinates) and
+// whether a driver sits in each, which tells a jack from the boarding of an empty
+// car; and the drivers seen thrown out beside a boarding ped (where, which frame).
+struct CarSeat { float x, z; bool driver; };
+std::vector<CarSeat> g_carSeats, g_carSeatsNow;
+struct JackThrow { float x, z; uint32_t frame; };
+std::vector<JackThrow> g_jackThrows;
 // Frame ranges (within one body's 158) of the punch, the aim and the hands up;
 // see PedActionFor. Filled in from the probe runs; -1 disables a range.
 int g_pedPunchFrames[2] = {115, 130};   // the swing 115-122, the recovery 123-130 (probe run)
@@ -4686,6 +4693,8 @@ void LiveGeometry::BeginFrame() {
     carBodies_.clear();
     g_doorPeds.swap(g_doorPedsNow);
     g_doorPedsNow.clear();
+    g_carSeats.swap(g_carSeatsNow);
+    g_carSeatsNow.clear();
     if (g_carHd && g_carMaterial && !g_hdPrepStarted) StartHdPrepare();
     sprites_.clear();
     shells_.clear();
@@ -5773,6 +5782,10 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
         {
             const float sx = body->objectToWorld.m[3][0] - lastEye_.x, sz = body->objectToWorld.m[3][2] - lastEye_.z;
             carSeenNow_.push_back({reinterpret_cast<uintptr_t>(object), std::sqrt(sx * sx + sz * sz)});
+            // QB-14: where it is and whether anyone is at the wheel (a ped boarding it is a jack).
+            const uint8_t* seatCar = *reinterpret_cast<const uint8_t* const*>(object + game::kSpriteObjectOwner);
+            if (g_carSeatsNow.size() < 256 && game::PlausiblePointer(seatCar))
+                g_carSeatsNow.push_back({body->objectToWorld.m[3][0], body->objectToWorld.m[3][2], game::VehicleHasDriver(seatCar)});
         }
         if (const Model* model = ModelForCar(sprite)) {
             carModels_.push_back({model, FitModel(*model, body->local, body->corners, body->objectToWorld, 0.0f),
@@ -7043,6 +7056,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         const unsigned frames = track.frame != 0 && g_carFrame > track.frame ? g_carFrame - track.frame : 1;
         const float dt = (std::min)(static_cast<float>(frames), 6.0f) / 30.0f;
+        const bool freshTrack = track.frame == 0 || frames >= 10;   // QB-14: new, or back after being out of sight (in a car)
         if (track.frame != 0 && frames < 10) {
             const float dx = cx - track.x, dz = cz - track.z;
             const float dist = std::sqrt(dx * dx + dz * dz);
@@ -7159,7 +7173,30 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // the figure faces into the car on the way in and away from it on the way out
         // while its legs step the ground the game moves it.
         if (sprite.pedState == 3 || sprite.pedState == 4) {
-            if (track.carState != sprite.pedState) { track.carState = sprite.pedState; track.carStateFrame = g_carFrame; track.carKnown = false; }
+            if (track.carState != sprite.pedState) {
+                track.carState = sprite.pedState; track.carStateFrame = g_carFrame; track.carKnown = false;
+                track.jacking = false;
+            }
+            // QB-14: boarding a car with a driver at the wheel is a jack (the game uses the
+            // same states as for an empty car). Decided at the door, before the climb gets
+            // far (reach and early climb frames 16-27): the nearest car drawn within a block,
+            // by its driver word (further off, a ped walking past to another car's door).
+            if (sprite.pedState == 3 && !track.jacking && (sprite.pedFrame % 158u) >= 16u && (sprite.pedFrame % 158u) < 28u) {
+                float best = 1.0f * 1.0f;
+                bool driver = false, found = false;
+                for (const std::vector<CarSeat>* list : {&g_carSeats, &g_carSeatsNow}) {
+                    for (const CarSeat& s : *list) {
+                        const float ddx = s.x - cx, ddz = s.z - cz;
+                        if (ddx * ddx + ddz * ddz < best) { best = ddx * ddx + ddz * ddz; driver = s.driver; found = true; }
+                    }
+                }
+                if (found && driver) {
+                    track.jacking = true;
+                    if (g_logPedFrames)
+                        Log("jack: %p boarding a car with a driver %.2f blocks off (frame %u sub 0x%x)", reinterpret_cast<const void*>(sprite.object),
+                            std::sqrt(best), sprite.pedFrame % 158u, sprite.pedSub);
+                }
+            }
             {   // every frame: the car may be moving (boarding a car on the move)
                 const bool had = track.carKnown && track.carSeenFrame && g_carFrame - track.carSeenFrame < 4;
                 const float oldX = track.carX, oldZ = track.carZ;
@@ -7424,11 +7461,53 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         } else if (!sprite.corpse) {
             track.waterFrame = 0;
         }
+        // QB-14: the driver of a jacked car. The game shows him first thrown (state 8 sub
+        // 0x11) beside a ped boarding the car, then knocked down (sub 0x19 / 0x16); he was
+        // out of sight in the car until then, so his track is fresh. He plays "jacked"
+        // (lying clip 5: hauled out of the seat, stumbling back, over onto his back)
+        // from the throw on, facing the car, instead of a stagger and the run-over arc.
+        // A driver who gets out by himself (state 4: the game sometimes lets him step out
+        // as the jacker reaches the door) keeps exit_car, but still releases the jacker's haul.
+        const bool thrownOut = sprite.pedState == 8 && sprite.pedSub == 0x11;
+        if (freshTrack && (thrownOut || sprite.pedState == 4) && !sprite.corpse) {
+            const DoorPed* jacker = nullptr;
+            float best = 1.2f * 1.2f;
+            for (const std::vector<DoorPed>* list : {&g_doorPeds, &g_doorPedsNow}) {
+                for (const DoorPed& dp : *list) {
+                    const float ddx = dp.x - cx, ddz = dp.z - cz;
+                    if (dp.state == 3 && ddx * ddx + ddz * ddz < best) { best = ddx * ddx + ddz * ddz; jacker = &dp; }
+                }
+            }
+            if (jacker) {
+                float tx = jacker->x, tz = jacker->z, bestCar = 1.6f * 1.6f;
+                for (const std::vector<CarSeat>* list : {&g_carSeats, &g_carSeatsNow}) {
+                    for (const CarSeat& s : *list) {
+                        const float ddx = s.x - cx, ddz = s.z - cz;
+                        if (ddx * ddx + ddz * ddz < bestCar) { bestCar = ddx * ddx + ddz * ddz; tx = s.x; tz = s.z; }
+                    }
+                }
+                if (thrownOut) {
+                    track.jacked = true; track.jackFrame = g_carFrame;
+                    if ((tx - cx) * (tx - cx) + (tz - cz) * (tz - cz) > 1e-4f) track.heading = std::atan2(tx - cx, tz - cz);
+                }
+                if (g_jackThrows.size() > 16) g_jackThrows.erase(g_jackThrows.begin());
+                g_jackThrows.push_back({cx, cz, g_carFrame});
+                if (g_logPedFrames)
+                    Log("jack: driver %p %s %.2f blocks from the boarding ped, the car %.2f off", reinterpret_cast<const void*>(sprite.object),
+                        thrownOut ? "thrown out" : "stepping out", std::sqrt(best), std::sqrt((tx - cx) * (tx - cx) + (tz - cz) * (tz - cz)));
+            }
+        }
+        if (track.jacked) {
+            if (g_carFrame - track.jackFrame < 600 && sprite.pedState == 8 && (sprite.pedSub == 0x11 || sprite.corpse)) wantAction = 4;
+            else if (!sprite.corpse) track.jacked = false;
+        }
         // Down: which way he falls follows what put him there (the game's damage
         // cause word, the fire): burnt, blown off his feet by an explosion, run
         // over or struck by a car (cause 1/3, or the car knock-down sub-states
         // 0x18-0x1A), else onto his back or his front by his own seed.
-        if (wantAction == 4 && track.action != 4) {
+        if (wantAction == 4 && track.action != 4 && track.jacked) {
+            track.lieClip = 5;
+        } else if (wantAction == 4 && track.action != 4) {
             const int32_t cause = sprite.pedCause;
             const bool carHit = cause == game::kDamageCarHit || cause == game::kDamageRunOver ||
                                 (sprite.pedState == 8 && sprite.pedSub >= 0x18 && sprite.pedSub <= 0x1A);
@@ -7496,6 +7575,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         } else if (wantAction != 4 && track.action == 4 && !track.actionReverse) {
             // Up again (knocked down, not dead): the fall, backwards, from where it is.
             track.actionReverse = true;
+            if (track.lieClip == 5) track.lieClip = 0;   // QB-14: "jacked" ends on "fall"'s last pose
             track.actionTime = (std::min)(track.actionTime, 0.7f);
         } else if (wantAction != 0 && wantAction != 4 && track.action != wantAction && track.action != 4) {
             if (wantAction == 1) {
@@ -7505,7 +7585,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 track.lastPunchT = 0.0f;
             }
             const bool pullIn = wantAction == 5 && track.action == 23;
-            track.action = wantAction; track.actionTime = pullIn ? 0.65f : 0.0f; track.actionReverse = false;
+            track.action = wantAction; track.actionTime = pullIn ? (track.jacking ? 0.5f : 0.65f) : 0.0f; track.actionReverse = false;
         } else if (hitNow && track.action == 22) {
             track.actionTime = 0.0f;   // hit again: the snap again
         }
@@ -7847,16 +7927,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                                              "carry", "carry_dual", "carry_heavy", "carry_launcher", "carry_flame",
                                                              "burn", "fall_air", "cuffed", "hit_head", "grab_door_r",
                                                              "reload", "reload_heavy", "reload_launcher"};
-                static const char* const kLyingClips[5] = {"fall", "fall_front", "runover", "blown", "burnt"};
+                static const char* const kLyingClips[6] = {"fall", "fall_front", "runover", "blown", "burnt", "jacked"};
                 const char* clipName = track.action > 0 && track.action < 27 ? kActionClips[track.action] : nullptr;
                 if (track.action == 23 && track.grabLeft) clipName = "grab_door_l";
-                if (track.action == 4 && track.lieClip > 0 && track.lieClip < 5) clipName = kLyingClips[track.lieClip];
+                if (track.action == 5 && track.jacking) clipName = "jack_pull";   // QB-14
+                if (track.action == 4 && track.lieClip > 0 && track.lieClip < 6) clipName = kLyingClips[track.lieClip];
                 if (track.action == 1 && track.punchAlt) clipName = "punch2";        // the combo's left jab
                 if (track.action == 22 && track.hitSide == 1) clipName = "hit_head2";     // a jab turns his head the other way
                 static const char* const kShotClips[4] = {"hit_shot_front", "hit_shot_back", "hit_shot_l", "hit_shot_r"};   // QB-16
                 if (track.action == 22 && track.hitSide >= 2 && track.hitSide <= 5) clipName = kShotClips[track.hitSide - 2];
                 const ModelAnimation* actionClip = clipName ? model->Animation(clipName) : nullptr;
                 // Avatars imported before a clip existed fall back to the nearest older one.
+                if (!actionClip && track.action == 5 && track.jacking) actionClip = model->Animation("enter_car");   // before QB-14
                 if (!actionClip && track.action == 5) actionClip = model->Animation("getin");
                 if (!actionClip && track.action == 6) actionClip = model->Animation("getout");
                 if (!actionClip && track.action == 22) actionClip = model->Animation("hit_head");   // an avatar from before QB-16
@@ -7878,7 +7960,20 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         // Getting in: the reach and the pull run while the game backs him
                         // off the door (climb frames 24-31), the duck under the roof once
                         // it moves him in (32-35), a little faster.
-                        if (track.action == 5) {
+                        if (track.action == 5 && track.jacking) {
+                            // QB-14, jack_pull: the reach and the yank while he comes to the
+                            // door (frames below 24), both hands in and the grip held until the
+                            // driver is seen thrown out beside him, then the haul and the fling
+                            // in real time, and the duck a little faster once the game moves
+                            // him in (32-35).
+                            const unsigned f5 = sprite.pedFrame % 158u;
+                            bool out = false;
+                            for (const JackThrow& j : g_jackThrows)
+                                if (j.frame >= track.carStateFrame && (j.x - cx) * (j.x - cx) + (j.z - cz) * (j.z - cz) < 1.3f * 1.3f) out = true;
+                            if (sprite.pedState == 3 && f5 < 24u) track.actionTime = (std::min)(track.actionTime + dt, 0.5f);
+                            else if (sprite.pedState == 3 && f5 < 32u && !out) track.actionTime = (std::min)(track.actionTime + dt, 0.95f);
+                            else track.actionTime += dt * (sprite.pedState == 3 && f5 >= 32u ? 1.6f : 1.0f);
+                        } else if (track.action == 5) {
                             const unsigned f5 = sprite.pedFrame % 158u;
                             if (sprite.pedState == 3 && f5 < 32u) track.actionTime = (std::min)(track.actionTime + dt, 0.65f);
                             else track.actionTime += dt * 1.6f;

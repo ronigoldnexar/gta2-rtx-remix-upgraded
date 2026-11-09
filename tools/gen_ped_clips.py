@@ -525,6 +525,31 @@ def main():
     clips.append(clip_keys(sk, "grab_door_r", grab_keys, loop=True, joints=grab_joints))
     grab_joints_l = {n.replace(" R ", " L ") for n in grab_joints}
     clips.append(clip_keys(sk, "grab_door_l", [(t, mirror(d), ro) for t, d, ro in grab_keys], loop=True, joints=grab_joints_l))
+    # ---- Jacking a driver (QB-14) --------------------------------------------
+    # GTA2 boards an occupied car with the same states as an empty one (state 3:
+    # sub 4 the reach, sub 6 the climb, sprite frames 24-35 over ~1.4 s); 0.6 s into
+    # the climb the driver appears beside the door, thrown (state 8 sub 0x11, 0.5 s,
+    # sliding ~0.45 blocks off the car), then lies knocked down (sub 0x19 / 0x16,
+    # ~2.3 s) and gets up and walks or runs off (probe runs qb14_before2).
+    # jack_pull (upper-body layer, 1.95 s), the jacker: the hand to the handle
+    # (0.30), the door yanked wide, shoulders thrown round to his right (0.50), both
+    # hands into the doorway at chest height (0.80) and the grip (0.95) - the
+    # renderer holds there until the driver comes out - then the haul, leaning back
+    # with the shoulders turning to his left and the fists drawn to his chest (1.20),
+    # the fling out to his left (1.40), and back round into enter_car's duck under
+    # the roof (1.65, 1.95) as the game climbs him in.
+    clips.append(clip_keys(sk, "jack_pull", [
+        (0.00, {}, (0, 0, 0)),
+        (0.30, leaned({SP: [(RIGHT, -12)]}, (5, -9, 27), (55, 5, 6), [(RIGHT, -8)]), (0, 0, 0)),
+        (0.50, leaned({SP: [(RIGHT, 6), (UP, -28)], SP2: [(UP, -10)]}, (20, 10, 40), (32, -70, 15), [(UP, 14)]), (0, 0, 0)),
+        (0.80, leaned({SP: [(RIGHT, -22)], SP2: [(RIGHT, -8)]}, (80, 14, 40), (84, -14, 36), [(RIGHT, -6)]), (0, 0, 0)),
+        (0.95, leaned({SP: [(RIGHT, -25)], SP2: [(RIGHT, -9)]}, (74, 10, 64), (78, -10, 64), [(RIGHT, -8)]), (0, 0, 0)),
+        (1.20, leaned({SP: [(RIGHT, 18), (UP, 26)], SP2: [(RIGHT, 6), (UP, 10)]}, (32, 28, 112), (56, -4, 116),
+                      [(RIGHT, 4), (UP, 14)]), (0, 0, 0)),
+        (1.40, leaned({SP: [(RIGHT, 4), (UP, 40)], SP2: [(UP, 14)]}, (46, 58, 22), (70, 38, 26), [(UP, 24)]), (0, 0, 0)),
+        (1.65, leaned({SP: [(RIGHT, -30)], SP2: [(RIGHT, -10)]}, (83, -3, 56), (57, -45, 67), [(RIGHT, -6)]), (0, 0, 0)),
+        (1.95, leaned({SP: [(RIGHT, -38)], SP2: [(RIGHT, -12)]}, (65, -20, 47), (45, 45, 60), [(RIGHT, -4)]), (0, 0, 0)),
+    ], upper=True))
 
     # ---- Turning on the spot (ACTIONS-3D-4) ----------------------------------
     # A legs-only layer (thighs and below) over the idle: the feet step in place,
@@ -583,6 +608,37 @@ def main():
         (0.70, {ROOT: [(RIGHT, 90)], RT: [(RIGHT, 0), (UP, 8)], LT: [(RIGHT, 0), (UP, -8)],
                 R: [(RIGHT, 20), (UP, -45)], L: [(RIGHT, 20), (UP, 45)], HEAD: [(RIGHT, -10)]}, (lying_root[0], lying_root[1], 0.0)),
     ]))   # held at its last key by the renderer (one pose, one cached buffer)
+    # Jacked (QB-14, whole body, 1.0 s, held lying): the driver hauled out of his
+    # seat by the collar. The renderer turns him to face the car he came out of, so
+    # the game's slide off the door carries him backwards: still folded at the hips
+    # and knees as if seated, the arms reaching back for the wheel (0.00), the feet
+    # swung out and down, the torso yanked back, the arms flung up (0.20), two
+    # stumbling steps back with the arms windmilling (0.40), over backwards (0.60),
+    # a bounce on landing with the knees up (0.80), and then exactly the end of
+    # "fall" (1.00), so getting up is "fall" played backwards like any knock-down.
+    fall_end = {ROOT: [(RIGHT, 90)], RT: [(RIGHT, 0), (UP, 8)], LT: [(RIGHT, 0), (UP, -8)],
+                R: [(RIGHT, 20), (UP, -45)], L: [(RIGHT, 20), (UP, 45)], HEAD: [(RIGHT, -10)]}
+    clips.append(clip_keys(sk, "jacked", [
+        (0.00, {RT: [(RIGHT, 80)], LT: [(RIGHT, 74)], RC: [(RIGHT, -84)], LC: [(RIGHT, -78)],
+                SP: [(RIGHT, 14)], SP2: [(RIGHT, 6)], HEAD: [(RIGHT, -18)],
+                R: [(RIGHT, 72), (UP, -8)], RF: [(RIGHT, 40)], L: [(RIGHT, 66), (UP, 8)], LF: [(RIGHT, 44)]},
+         (0, -0.42, 0.10)),
+        (0.20, {ROOT: [(RIGHT, 12)], RT: [(RIGHT, 34)], LT: [(RIGHT, 18)], RC: [(RIGHT, -34)], LC: [(RIGHT, -20)],
+                SP: [(RIGHT, 18)], SP2: [(RIGHT, 8)], HEAD: [(RIGHT, -22)],
+                R: [(RIGHT, 118), (UP, -22)], RF: [(RIGHT, 30)], L: [(RIGHT, 104), (UP, 24)], LF: [(RIGHT, 36)]},
+         (0, -0.16, 0.04)),
+        (0.40, {ROOT: [(RIGHT, 20)], RT: [(RIGHT, -18)], LT: [(RIGHT, 32)], RC: [(RIGHT, -22)], LC: [(RIGHT, -30)],
+                SP: [(RIGHT, 8)], HEAD: [(RIGHT, -16)],
+                R: [(RIGHT, 150), (UP, -40)], RF: [(RIGHT, 20)], L: [(RIGHT, 40), (UP, 50)], LF: [(RIGHT, 30)]},
+         (0, -0.07, -0.02)),
+        (0.60, {ROOT: [(RIGHT, 62)], RT: [(RIGHT, 28)], LT: [(RIGHT, 12)], RC: [(RIGHT, -30)], LC: [(RIGHT, -14)],
+                HEAD: [(RIGHT, -26)], R: [(RIGHT, 72), (UP, -60)], L: [(RIGHT, 72), (UP, 60)]},
+         (0, -root_y + 0.30, -0.06)),
+        (0.80, {ROOT: [(RIGHT, 94)], RT: [(RIGHT, 22), (UP, 8)], LT: [(RIGHT, 8), (UP, -8)], RC: [(RIGHT, -30)], LC: [(RIGHT, -10)],
+                HEAD: [(RIGHT, -20)], R: [(RIGHT, 30), (UP, -60)], L: [(RIGHT, 30), (UP, 60)]},
+         (0, lying_root[1] + 0.03, -0.02)),
+        (1.00, fall_end, (lying_root[0], lying_root[1], 0.0)),
+    ]))
     # Rifle (machine gun, silenced machine gun, shotgun): the stock in the right
     # shoulder, the right hand at the pistol grip by the chest, the left arm out
     # on the fore-end, the body bladed with the left shoulder leading, the cheek
