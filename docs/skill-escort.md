@@ -73,17 +73,20 @@ when the boarding beats the on-foot pick, and `wait_board` calls it whenever the
 | gr2 | BANK ROBBERY failed at the respray (317 s) | not reached (respect can not reach 2; stopped by hand) | none |
 | gr3 | BANK ROBBERY failed on the bank walk after the walker was pinned on the stairs (757 s) | not reached | none |
 | gr4 | **GET ZITZAKI complete (921 s) with the escort flow**; BANK ROBBERY failed (432 s) | not reached | `wait_board` in the box, the doctor aboard 40 s later on the job's signal; the doctor was not tracked (the gang filter above), so the garage leg ran without the aboard watch (fixed: occupation 18 pick, `adopt_aboard`) |
+| gr5 | **GET ZITZAKI complete with the escort flow** (doctor leg 3 min; the session was paused 25 min by the CPU governor); BANK ROBBERY failed (176 s: guards down in 4 s, then out of the car on the way to the respray with wanted 2 and a cop 11 blocks off; briefs 1666, 1668, 1125: pulled out / arrested) | not reached | **the doctor picked on foot** (ped 409, `gang/yakuza` remap 13 occupation 18, 0.6 from the car) and **seen aboard by the skill's own test** 1 s later; `drive`'s aboard watch ran the whole 3-min garage leg with no false alarm; JOB COMPLETE |
 
 BANK ROBBERY's runner (`missions/bank_robbery.py`, not this stream's) is the bottleneck of the chain:
-3 complete in 8 sessions over the two days (br7, br9, gr1).
+3 complete in 9 sessions over the two days (br7, br9, gr1); in this stream's sessions 1 of 5.
 
 ## Verified vs untested
 
 - Verified in game: the respect chain opens the yellow phone (gr1); `wait_board` keeps the car still
-  in the box until the job signals the passenger aboard, and GET ZITZAKI completes with it (gr4).
+  in the box until the job signals the passenger aboard, and GET ZITZAKI completes with it (gr4);
+  the occupation-18 pick, the skill's own aboard test and `drive`'s aboard watch over a whole leg,
+  GET ZITZAKI complete (gr5). GET ZITZAKI on the escort flow: 2 of 2 sessions complete.
 - Verified offline (a synthetic renderer log in the gr4 line format): pick, `adopt_aboard`,
   `aboard`, `threats`, `threat_cars`, out-of-window is not death.
-- Untested in game: `drive`'s aboard watch and threat pace, `bring_car`, `lead`, `defend`, the
+- Untested in game: `drive`'s threat pace and its stop-and-reboard path, `bring_car`, `lead`, `defend`, the
   Medicar casualty fallback, and GET GAMA REI past the Medicar.
 
 ## Dependencies
