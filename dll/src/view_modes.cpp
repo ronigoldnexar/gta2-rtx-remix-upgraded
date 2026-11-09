@@ -1953,6 +1953,16 @@ bool CameraCarsOn() {
     return enabled != 0;
 }
 
+// The in-car lift cap and pitch hold (feel8): OFF with GTA2DX9_CAM_PITCHCAP=0 (A/B).
+bool CameraCarPitchCapOn() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_CAM_PITCHCAP", buf, sizeof buf) && atoi(buf) == 0 ? 0 : 1;
+    }
+    return enabled != 0;
+}
+
 }  // namespace
 
 void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, float dt,
@@ -2852,7 +2862,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // On foot at most 45 degrees (FIX-CAMERA): at 75 the camera hung over him looking
             // straight down at the paving while he stood with his back to a wall (feel probe
             // punch bursts); past 45 the boom shortens instead (the boom filter below).
-            const float aMax = (std::max)(a0, (inVehicle ? 75.0f : 45.0f) * kDegToRad);
+            // In a car at most 40 (FIX-CAMERA-2): at 75 a van backed into a wall had the camera
+            // straight over its roof looking down for ~3 s (feel8-third-reverse-into-wall-camera-
+            // straight-down-onto-roof); past 40 the boom shortens instead, and the pitch below is
+            // held at 35 degrees down.
+            const float aMax = (std::max)(a0, (inVehicle ? (CameraCarPitchCapOn() ? 40.0f : 75.0f) : 45.0f) * kDegToRad);
             auto at = [&](float a) {
                 return gta2::Vec3{pivot.x + span.x / spanFlat * std::cos(a) * spanLength, pivot.y + std::sin(a) * spanLength,
                                   pivot.z + span.z / spanFlat * std::cos(a) * spanLength};
@@ -3229,6 +3243,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const float flat = std::hypot(dir.x, dir.z);
     float camYaw = flat > 1e-5f ? std::atan2(dir.x, dir.z) : yaw;
     float camPitch = std::atan2(dir.y, (std::max)(flat, 1e-5f));
+    // FIX-CAMERA-2 (feel8): at the wheel never steeper than 35 degrees down (unless the mouse
+    // orbit asks for more), so the horizon stays in the picture when a wall behind the car
+    // shortens and lifts the boom; it used to look straight down at the roof.
+    const float rawPitch = camPitch;
+    if (inVehicle && mode == ViewMode::ThirdPerson && CameraCarPitchCapOn()) {
+        const float limit = -(std::max)(35.0f * kDegToRad, orbitPitch + chase::kPitch * kDegToRad);
+        if (camPitch < limit) camPitch = limit;
+    }
+    if (cameraLogOn() && mode == ViewMode::ThirdPerson) {
+        static int every = 0;
+        if (inVehicle || (++every % 15) == 0) Log("cam: pitch %.1f raw=%.1f %s", camPitch / kDegToRad, rawPitch / kDegToRad, inVehicle ? "car" : "foot");
+    }
     // Through a glide the pitch eases too: from the eyes to the death camera the
     // first frames look steeply down at a body right under the eye.
     if (lastPitchKnown_ && (blend_ > 0.0f || (deathMix_ > 0.0f && deathMix_ < 0.99f))) {

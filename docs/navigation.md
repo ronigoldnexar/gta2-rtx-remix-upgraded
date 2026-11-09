@@ -390,6 +390,22 @@ filled with the contact-shadow footprints in `RaiseCarBody`: four corners, groun
   third-person frames had another car's body within 0.1 block of the eye (`fc2_jack3_c0`); on, 0 of 3600
   (`fc2_jack3_c1`), nearest 0.20.
 
+## A wall behind the car: no shot straight down onto the roof (FIX-CAMERA-2, 9 Nov 2026)
+
+Defect feel8-third-reverse-into-wall-camera-straight-down-onto-roof. Code: `ViewCameraSolver::Solve`, the arc
+lift's `aMax` and the pitch hold after `camPitch`.
+
+- At the wheel the arc lift over a wall behind the car stops at 40 degrees (it was 75; on foot 45 since
+  FIX-CAMERA); past that the boom shortens instead (the boom filter's rate limits as before).
+- The look pitch at the wheel is never steeper than 35 degrees down (or the mouse orbit's own pitch plus
+  the chase pitch, when the player looks down himself), so the horizon stays in the picture.
+- `GTA2DX9_CAM_PITCHCAP=0` restores the old lift and drops the hold (A/B). With `GTA2DX9_LOG_CAMERA=1`:
+  `cam: pitch P raw=R car|foot` every frame at the wheel (every 15th on foot), R before the hold.
+- Probe `gamerun/keys_fc2_rev.sh` (`fc2_rev.py`: the parked car at the wall-grind spot, three reverse-and-turn
+  passes held against the building): off, 82 frames steeper than 30 degrees, down to 47, roof only in the
+  picture (`fc2_rev2_p0`); on, never steeper than 29, horizon in every frame (`fc2_rev2_p1`). Largest eye
+  step 0.28 / 0.12 block a frame, yaw 3.0 / 1.5 degrees a frame.
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`
