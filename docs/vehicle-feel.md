@@ -105,3 +105,71 @@ with `[sky] follow_clock=1` the picture follows the clock, so a night street had
   height), so a car crossing a dropped kerb at a junction bumps too.
 - Skid marks lie on the plane of the car's ground at the time; on a ramp they follow it only
   segment by segment.
+
+## VEHICLE-PHYSICS (9 Nov 2026): load transfer, tyre grip, impacts, progressive damage
+
+The first feel leaned the body by fixed gains on the measured acceleration. This pass replaces
+those gains with a small physical model of the same inputs (`dll/src/vehicle_fx.cpp`, the
+`live && g_physics` branch of `VehicleFxUpdate`). It is still drawing only: GTA2's handling and
+collisions are untouched, so the model can only show what the game's motion implies.
+`[devtools] vehicle_physics=0|1` (or `GTA2DX9_VEHICLE_PHYSICS=0`) switches between this pass
+and the first feel's springs, for before/after frames.
+
+| Part | Model |
+|---|---|
+| Chassis per car | track 0.84 x body width, wheelbase from the model's axles, centre of mass at 0.38 of the body height. Ride frequency from body height over width: a low coupe ~1.6 Hz, a sedan ~1.45 Hz, a van ~1.25 Hz (period 1960s springs). Static spring deflection is g / w^2, scaled to blocks at 1.8 m per car width (~0.03 block for a sedan); bump stops at 1.25 x that each way |
+| Weight transfer | GTA2's accelerations are taken in "game g" (9 blocks/s^2 = 1 g; its turns pull up to ~8, its brakes 6-15). What the tyres carry is capped softly at the grip limit, so a 15 blocks/s^2 stop does not dive further than a 10 one. Longitudinal transfer is a x h / wheelbase (0.85 of it through the springs: anti-dive and anti-squat). Lateral transfer is a x h / track, 56 % on the front axle, with the roll stiffness 1.2 x the springs (a period front bar). Each corner's load gives its spring compression, and the four compressions give the roll, pitch and heave targets. Ceilings: 6 deg roll and 3 deg pitch from manoeuvres (the quality bar's FEEL-09) |
+| Springs | roll at 1.2 x and pitch at 1.1 x the ride frequency, damping 0.6 of critical (a ~10 % overshoot that settles within ~0.4 s to the 10 % band). Damping falls to 0.3 as the damage word rises from 4000 to 20000: a beaten car bounces longer |
+| Tyres | a friction circle per tyre. Braking is split by the axle loads plus 5 % front bias, so the fronts lock first; drive is on the rear axle. Cornering force is shared by load. Grip falls 25 % per +100 % load (load sensitivity). A tyre over ~0.95 of its grip marks the road; past it, it slides: per-wheel skid marks, and smoke from the wheel that slides most. The handbrake/slide test from the first feel still drives the rear pair |
+| Steering | the front wheels point along the front axle's own velocity (sideways velocity plus the yaw's swing of the nose), so a car whose tail slides out shows counter-steer. With the rear gripping this equals the first feel's atan(wheelbase x yaw rate / speed) |
+| Kerbs | the wheel that crosses road <-> pavement lifts for 0.14 s (up to 0.018 block) and its corner passes the step to the body |
+| Impacts | the velocity's jump in one step is the impulse per unit mass. The sprung body pitches or rolls by dv x h / k^2 (k the radius of gyration, 0.3 x length or 0.35 x width), with 0.35 of it felt before the springs take it, and gives on its mounts by up to 0.03 block against the push. A jump with no damage counts only if the car lost speed: GTA2's traffic pulling off from a stop jumps 4-7 blocks/s in one step, which vp_1 showed being taken for hits |
+| Progressive damage | each hit's damage goes 70 % to the corner that struck (from the push's direction on the body outline) and 15 % to each neighbour; scrapes go to the side leaning on the wall. That corner sags up to half a wheel radius (4000-16000 of corner damage); its wheel cambers up to 8 deg (5000-17000) and wobbles with the spin (a bent rim, from 7000). The engine steams from 7000 of damage (or a hurt front) and gives off dark smoke from 16000 |
+| A wheel off the ground | a corner rising past full droop lifts its wheel with it |
+
+Telemetry: with `GTA2DX9_LOG_VEHICLE_FEEL=1` the player's car also logs `vehicle physics: player car
+load= use= slip= carried= shove= lift= camber= corners= wear= ride= defl=` every 3 frames, and
+`vehicle physics: impact (player) dv= ... at corner N, damage +d -> D, corners ...` on every hit
+(other cars' hits log only with the switch on). `tools/vphys_telemetry.py <run>` cuts it by the
+take's marks.
+
+Take: `gamerun/vphys_take.py` (mirrored in `linux/docker/`) with `keys_vphys.sh` and
+`vphys_grun.sh`, which is grun.sh on the agent's own GPU. It runs on the scene car by the
+Downtown carriageway: a test launch must reach 3 blocks/s or another car is taken; then
+launch-and-brake, a hard left, drives at the kerb walls until two logged hits (a frame burst on
+each), and for the "after" variant the damage set to 9000, 13000 and 19000.
+
+## FIX-VEHICLES (9 Nov 2026): a body you can see move, the camera feels the hits
+
+PLAYTEST-FEEL (defect `vehicle-body-rigid-no-weight-transfer`) read the body as rigid in the
+chase view although the springs above were working: the renderer log of HEAD c69c620 (run
+`fv_before1`) shows 3.6 deg of dive on a hard stop and 2.6 deg of roll, but pitched about the
+middle a van seen from behind moves its tail by a few pixels. The camera's own impact shake and
+the first-person lean existed but were off (`ImpactShake=0`, `FirstLean=0`). This pass keeps the
+model (VEHICLE-PHYSICS above) and changes what is drawn and what the camera does:
+
+- **Drawn lean**: the model's pitch times `[renderer] car_body_pitch` (220 %) and roll times
+  `car_body_roll` (170 %), at most 7 and 8 degrees drawn (an impact's kick included); the telemetry's
+  `roll=` / `pitch=` are now the drawn angles.
+- **Pitch centre ahead of the middle** (0.25 of the length): the tail lifts under braking and squats
+  on a launch, which is what the chase camera sees.
+- **Impact camera shake** at the wheel (`[camera] car_impact_shake`, 100 %): from the speed lost in
+  a hit as the body model measures it (`VehicleFxPlayerMotion`, filtered against GTA2's traffic
+  jumps), above 0.6 blocks/s; log line `view: car impact N blocks/s lost, camera shake S`.
+- **First person rides the body** (`[camera] first_body_ride`, 100 %): the eye takes the drawn
+  pitch, roll and heave; the cut cockpit body takes the same share (it was a third, QB-5), so the
+  bonnet holds still under the eye while the street tilts.
+
+Measured (`tools/body_motion_telemetry.py`, peaks in the `feel_probe` drive and crash bursts, same
+command as the defect, `fv_before1` HEAD vs `fv_after2`):
+
+| | before | after |
+|---|---|---|
+| launch squat (tail down) | -1.2 deg | -2.4 deg |
+| hard brake dive | +3.6 deg (+5.7 at a hit) | +7.0 deg (cap; +4.4 on a clean stop in `fv_after1` at 170 %) |
+| roll in the turns | 2.6 deg | 3.5 deg |
+| wall impact | 5.7 deg pitch, no camera shake | 7.0 deg kick, shake 0.8-1.5 (2.5-3.6 blocks/s lost), settled in ~0.3 s |
+| first person on braking | eye level | eye dips 2.8 deg, rolls with the body |
+
+Frames: `out/fv_sheets/brake_sheet.png`, `turns_sheet.png`, `crash_sheet.png`, `a_first.png`
+(local; built by `tools/body_motion_sheet.py`, each tile labelled with its logged pitch and roll).

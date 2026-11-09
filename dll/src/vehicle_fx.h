@@ -40,6 +40,13 @@ struct VehicleFeel {
     float reverse = 0.0f;     // reverse lamps 0..1
     float speed = 0.0f;       // signed, blocks/s along the nose
     bool on = false;          // the feel is enabled
+    // Per wheel (0 front-left, 1 front-right, 2 rear-left, 3 rear-right; "right" is +x),
+    // VEHICLE-PHYSICS: the wheel's rise off the road (a kerb strike, the inside wheel off
+    // the ground), its camber (radians, + top outward: a bent corner) and an extra steer
+    // (radians: a bent corner's toe and a bent rim's wobble with the spin).
+    float wheelLift[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float wheelCamber[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float wheelToe[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 // The car as car_bodies.cpp draws it.
@@ -66,8 +73,31 @@ void VehicleFxSetGround(const GroundSampler* ground);
 // (the "before" of the comparison sheet).
 void VehicleFxSetEnabled(bool on);
 bool VehicleFxEnabled();
+// VEHICLE-PHYSICS (on by default): the body's motion from a load-transfer model (four
+// corners on springs, a friction circle per tyre, impact impulses, damage that stays in
+// the corner that took it). 0 = the first VEHICLE-FEEL springs (the "before"); -1 leaves
+// it. GTA2DX9_VEHICLE_PHYSICS=0 or [devtools] vehicle_physics=0|1 (re-read once a second).
+void VehicleFxSetPhysics(int mode);
 // Night: head lamps, exhaust puffs (car_bodies.cpp passes its lamp state).
 void VehicleFxSetDark(bool dark);
+// FIX-VEHICLES: the drawn lean over the springs', percent ([renderer] car_body_pitch,
+// car_body_roll; defaults 220 and 170). The model and its telemetry are unchanged.
+void VehicleFxSetLean(int pitchPercent, int rollPercent);
+// The player's car as last drawn (FIX-VEHICLES), for the camera: the drawn pitch (nose
+// down +) and roll, the heave, and the speed lost to impacts since the last call
+// (blocks/s, consumed by the call). False when the player has no car drawn in the
+// last 3 frames.
+struct VehicleFxMotion {
+    uint32_t frame = 0;
+    float pitch = 0.0f, roll = 0.0f, heave = 0.0f;
+    float impulse = 0.0f;
+};
+bool VehicleFxPlayerMotion(VehicleFxMotion* out);
+// The share of the body's pose the first-person eye rides ([camera] first_body_ride,
+// set by the camera): the cut cockpit body is drawn with the same share (at least a
+// third), so the bonnet holds still under the eye while the street tilts.
+void VehicleFxSetFirstRide(float share);
+float VehicleFxFirstRide();
 
 // One car, once a frame, before it is drawn.
 const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame);

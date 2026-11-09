@@ -20,6 +20,7 @@
 #include "map_objects.h"
 #include "model_store.h"
 #include "remix_api.h"
+#include "vehicle_fx.h"
 
 namespace gta2dx9 {
 namespace {
@@ -1977,6 +1978,22 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     if (s.impactShake > 0.0f && rawDrop > 3.0f && speed < reference) {
         shake_ = (std::min)(shake_ + (rawDrop - 3.0f) / 8.0f * s.impactShake, 1.5f);
     }
+    // FIX-VEHICLES: at the wheel, the body model's own impacts (the speed the car lost
+    // in a step, filtered against GTA2's traffic jumps) kick the camera too, and its
+    // drawn pitch, roll and heave are kept for the first-person eye.
+    {
+        VehicleFxMotion m;
+        const bool have = inVehicle && VehicleFxPlayerMotion(&m);
+        VehicleFxSetFirstRide(s.fpBodyRide);
+        carPitch_ = have ? m.pitch : 0.0f;
+        carRoll_ = have ? m.roll : 0.0f;
+        carHeave_ = have ? m.heave : 0.0f;
+        if (have && s.carImpactShake > 0.0f && m.impulse > 0.6f) {
+            const float add = (std::min)((m.impulse - 0.4f) / 3.0f, 1.0f) * s.carImpactShake;
+            shake_ = (std::min)(shake_ + add, 1.5f);
+            Log("view: car impact %.2f blocks/s lost, camera shake %.2f", m.impulse, shake_);
+        }
+    }
     shake_ *= std::exp(-dt / 0.22f);
     shakeClock_ += dt;
 
@@ -2187,6 +2204,15 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 static int wallLogs = 0;
                 if (wallLogs < 20) { ++wallLogs; Log("view: fp eye: wall %.2f ahead, eye stepped back %.2f", wall, back); }
             }
+        }
+        if (inVehicle && s.fpBodyRide > 0.0f) {
+            // FIX-VEHICLES: the eye sits in the sprung body: it dips with the nose
+            // under braking, tips back on a launch, leans with the roll and rises and
+            // falls with the heave, by the share the cockpit is drawn with.
+            const float ride = (std::min)(s.fpBodyRide, 1.0f);
+            pitch -= carPitch_ * ride;   // the body's pitch is nose down +, the camera's down -
+            roll -= carRoll_ * ride;     // the body's roll is left side down +, the camera's leaning right +
+            eye.y += carHeave_ * ride;
         }
         if (inVehicle && s.fpLean > 0.0f) {
             // The nose dips under braking and lifts under power; the head leans

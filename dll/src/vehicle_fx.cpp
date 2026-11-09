@@ -24,6 +24,16 @@ constexpr int kMaxCones = 10;
 constexpr float kSkidHold = 25.0f, kSkidFade = 15.0f;   // seconds: full, then fading out
 
 bool g_on = true;
+bool g_physics = true;   // VEHICLE-PHYSICS: the load-transfer model (0: the first feel's springs)
+// FIX-VEHICLES: the drawn lean over the springs' (percent / 100). A few degrees of
+// physical pitch moved a van's tail by ~6 pixels in the chase view (PLAYTEST-FEEL read
+// the body as rigid), so the picture leans more than the model: [renderer]
+// car_body_pitch / car_body_roll, re-read with the devtools keys.
+float g_pitchGain = 2.2f, g_rollGain = 1.7f;
+// The player's car, for the camera (VehicleFxPlayerMotion).
+VehicleFxMotion g_player;
+uint32_t g_newestFrame = 0;   // the newest frame VehicleFxUpdate saw
+float g_firstRide = 1.0f;
 bool g_envRead = false;
 bool g_dark = false;
 int g_logFeel = -1;   // GTA2DX9_LOG_VEHICLE_FEEL=1: the player's car's numbers every 3 frames
@@ -136,6 +146,15 @@ struct CarState {
     float aF = 0, aL = 0, aY = 0;          // smoothed acceleration in the car frame
     float yawRate = 0;                     // smoothed, rad/s
     Spring roll, pitch, heave;
+    // VEHICLE-PHYSICS: the body's give on its mounts after a hit (blocks, car frame x, z),
+    // the damage each corner has taken (0 FL, 1 FR, 2 RL, 3 RR), a kerb strike's wheel
+    // lift (seconds left), the time since the last hit, and the telemetry of the last step.
+    Spring shoveX, shoveZ;
+    float zone[4] = {0, 0, 0, 0};
+    float kerbT[4] = {0, 0, 0, 0}, kerbH[4] = {0, 0, 0, 0};
+    float sinceHit = 99.0f;
+    float load[4] = {0.25f, 0.25f, 0.25f, 0.25f}, use[4] = {0, 0, 0, 0}, slip[4] = {0, 0, 0, 0};
+    float steamT = 0;
     float spin = 0, steer = 0;
     float brake = 0, reverse = 0;
     int damage = -1;
@@ -189,6 +208,22 @@ void EmitSmoke(const gta2::Vec3& at, float groundY, const gta2::Vec3& drift, flo
     const float grey = exhaust ? Rand(0.70f, 0.80f) : Rand(0.80f, 0.90f);
     p.r = p.g = p.b = grey;
     p.a = exhaust ? 0.20f : 0.30f * Clamp(amount, 0.3f, 1.0f);
+    p.groundY = groundY;
+    Emit(p);
+}
+
+// Steam (white, thin) from a hurt engine, dark smoke from a badly hurt one.
+void EmitEngineSmoke(const gta2::Vec3& at, float groundY, const gta2::Vec3& drift, float dark) {
+    Particle p{};
+    p.kind = kSmoke;
+    p.x = at.x + Rand(-0.03f, 0.03f); p.y = at.y; p.z = at.z + Rand(-0.03f, 0.03f);
+    p.vx = drift.x + Rand(-0.05f, 0.05f); p.vy = Rand(0.22f, 0.40f); p.vz = drift.z + Rand(-0.05f, 0.05f);
+    p.life = Rand(1.2f, 2.0f) + dark;
+    p.size0 = 0.05f; p.size1 = Rand(0.30f, 0.45f) + 0.25f * dark;
+    p.rot = Rand(0.0f, 2.0f * kPi); p.rotV = Rand(-0.6f, 0.6f);
+    const float grey = 0.88f - 0.68f * dark + Rand(-0.04f, 0.04f);
+    p.r = p.g = p.b = grey;
+    p.a = 0.34f + 0.16f * dark;   // white steam on a grey road needs more than the tyre smoke's 0.3
     p.groundY = groundY;
     Emit(p);
 }
@@ -461,10 +496,13 @@ void ReadEnv() {
     char v[16] = {};
     if (GetEnvironmentVariableA("GTA2DX9_VEHICLE_FEEL", v, sizeof v) && v[0] == '0') g_on = false;
     v[0] = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_VEHICLE_PHYSICS", v, sizeof v) && v[0] == '0') g_physics = false;
+    v[0] = 0;
     g_logFeel = GetEnvironmentVariableA("GTA2DX9_LOG_VEHICLE_FEEL", v, sizeof v) ? atoi(v) : 0;
     g_particles.reserve(kMaxParticles);
     g_skids.reserve(kMaxSkids);
-    Log("vehicle feel: %s (sprung bodies, turning wheels, lamps, smoke, skid marks, sparks, debris)", g_on ? "on" : "off");
+    Log("vehicle feel: %s (sprung bodies, turning wheels, lamps, smoke, skid marks, sparks, debris); physics %s", g_on ? "on" : "off",
+        g_physics ? "on (load transfer, tyre grip, impacts, corner damage)" : "off");
 }
 
 }  // namespace
@@ -476,7 +514,26 @@ void VehicleFxSetEnabled(bool on) {
     g_on = on;
 }
 bool VehicleFxEnabled() { ReadEnv(); return g_on; }
+void VehicleFxSetPhysics(int mode) {
+    ReadEnv();
+    if (mode < 0) return;
+    if ((mode != 0) != g_physics) Log("vehicle feel: physics %s", mode ? "on" : "off");
+    g_physics = mode != 0;
+}
 void VehicleFxSetDark(bool dark) { g_dark = dark; }
+void VehicleFxSetLean(int pitchPercent, int rollPercent) {
+    const float p = Clamp(pitchPercent / 100.0f, 0.0f, 4.0f), r = Clamp(rollPercent / 100.0f, 0.0f, 4.0f);
+    if (p != g_pitchGain || r != g_rollGain) Log("vehicle feel: drawn lean pitch %d%%, roll %d%%", pitchPercent, rollPercent);
+    g_pitchGain = p; g_rollGain = r;
+}
+void VehicleFxSetFirstRide(float share) { g_firstRide = Clamp(share, 0.0f, 1.0f); }
+float VehicleFxFirstRide() { return g_firstRide; }
+bool VehicleFxPlayerMotion(VehicleFxMotion* out) {
+    if (!g_on || !g_player.frame || g_newestFrame - g_player.frame > 3) { g_player.impulse = 0.0f; return false; }
+    *out = g_player;
+    g_player.impulse = 0.0f;
+    return true;
+}
 
 gta2::Mat4 VehicleFxWreckPose(int lost, float length, float width, float wheelRadius) {
     if (!lost) return Translate(0.0f, -0.25f * wheelRadius, 0.0f);   // flat tyres
@@ -509,6 +566,7 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     const float x = w.m[3][0], y = w.m[3][1], z = w.m[3][2];
     const float yaw = std::atan2(f.z, f.x);
     const float now = static_cast<float>(frame) * kStep;
+    if (frame > g_newestFrame || g_newestFrame - frame > 1000) g_newestFrame = frame;
     if (st.frame == frame && st.born) return feel;   // drawn twice this frame (a mirror, a second pass)
     const bool fresh = !st.born || frame - st.frame > 10 || frame < st.frame ||
                        (x - st.x) * (x - st.x) + (z - st.z) * (z - st.z) > 2.25f;   // a respawn or a warp
@@ -540,6 +598,10 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     // The raw jolt, for impacts: how hard the velocity jumped this step.
     const float jx = (rvx - st.rvx) / dt, jz = (rvz - st.rvz) / dt;
     const float jolt = std::sqrt(jx * jx + jz * jz);
+    // An impact takes speed away; GTA2's traffic pulling off from a stop jumps the
+    // other way (4-7 blocks/s in one step, seen in vp_1), which is not a hit.
+    const float lostSpeed = std::sqrt(st.rvx * st.rvx + st.rvz * st.rvz) - std::sqrt(rvx * rvx + rvz * rvz);
+    const bool joltHit = jolt > 45.0f && (!g_physics || lostSpeed > 0.3f * jolt * dt);
     st.rvx = rvx; st.rvz = rvz;
     st.vx = nvx; st.vy = nvy; st.vz = nvz;
     const float vF = st.vx * f.x + st.vz * f.z, vL = st.vx * r.x + st.vz * r.z;
@@ -556,6 +618,19 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     {
         float target = st.steer * 0.92f;
         if (std::fabs(ds) > 0.004f && std::fabs(ds) < 1.0f) target = Clamp(std::atan(car.wheelbase * dyaw / ds), -0.6f, 0.6f);
+        if (g_physics && g_on && std::fabs(vF) > 0.8f) {
+            // VEHICLE-PHYSICS: the front wheels point along the front axle's own velocity
+            // (the car's sideways velocity plus the yaw's swing of the nose), so a car
+            // whose tail slides out shows counter-steer instead of full lock into the turn.
+            // s maps the yaw's sense onto the car's x axis (the same convention as above:
+            // with the rear axle not sliding this is atan(wheelbase * yaw rate / speed)).
+            const float s = -f.z * r.x + f.x * r.z;
+            const float vLr = s * vL - 0.5f * car.wheelbase * st.yawRate;
+            // While the rear grips, vLr ~ 0 and this is the kinematic steer; GTA2's
+            // measured vL is noisy, so the slide term only counts past 0.5 blocks/s.
+            const float rearSlide = std::fabs(vLr) > 0.5f ? vLr - (vLr > 0 ? 0.5f : -0.5f) : 0.0f;
+            target = Clamp(std::atan((car.wheelbase * st.yawRate + rearSlide) / vF), -0.6f, 0.6f);
+        }
         st.steer += (target - st.steer) * 0.3f;
     }
     st.spin = std::fmod(st.spin + ds / (std::max)(0.03f, car.wheelRadius), 2.0f * kPi);
@@ -571,7 +646,284 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     }
 
     const bool live = !car.wreck && g_on;
-    if (live) {
+    // The car's chassis for the load-transfer model (VEHICLE-PHYSICS), from its body:
+    // track and wheelbase, the centre of mass at 0.38 of the body height, a ride
+    // frequency from how tall the body is for its width (GTA2's cars are 1960s designs on
+    // soft springs: a low coupe ~1.6 Hz, a sedan ~1.45, a van or a bus ~1.25), the static
+    // spring deflection that frequency means (g / w^2, in blocks at 1.8 m to the car's
+    // width), roll stiffened a little by anti-roll bars.
+    const float track = (std::max)(0.2f, 0.84f * car.width);
+    const float wb = (std::max)(0.25f, car.wheelbase);
+    const float cgH = 0.38f * (std::max)(0.15f, car.roof);
+    const float rideHz = Clamp(1.50f - 0.40f * (car.roof / (std::max)(0.2f, car.width) - 0.75f), 1.25f, 1.75f);
+    const float mPerBlock = 1.8f / (std::max)(0.2f, car.width);
+    const float wRide = 2.0f * kPi * rideHz;
+    const float staticDefl = (9.81f / (wRide * wRide)) / mPerBlock;   // blocks
+    const float travel = 1.25f * staticDefl;                          // to the bump stop, each way
+    constexpr float kG = 9.0f;            // GTA2's 1 g, blocks/s^2 (its hardest turns pull ~8, its brakes ~10-15)
+    constexpr float kMu = 1.0f;           // tyre peak friction, in those g
+    constexpr float kFront = 0.52f;       // static front axle share (engine in front)
+    constexpr float kRollFront = 0.56f;   // front share of the roll stiffness (the front bar is stiffer)
+    constexpr float kRollMul = 1.2f;      // roll stiffness over the springs alone (a period front bar)
+    // Wear: the damage softens the dampers, so a beaten car bounces longer.
+    const float wear = Smooth((static_cast<float>(car.damage) - 4000.0f) / 16000.0f);
+    st.sinceHit += dt;
+    for (int i = 0; i < 4; ++i) feel.wheelLift[i] = feel.wheelCamber[i] = feel.wheelToe[i] = 0.0f;
+    float axT = 0.0f, ayT = 0.0f;   // the accelerations the tyres carry, g
+    if (live && g_physics) {
+        const float wheelX[4] = {-0.40f * car.width, 0.40f * car.width, -0.40f * car.width, 0.40f * car.width};
+        const float wheelZ[4] = {0.5f * wb, 0.5f * wb, -0.5f * wb, -0.5f * wb};
+        // ---- load transfer: what the tyres carry, capped by what they can carry
+        // (an impact's deceleration comes from the wall, not the tyres: for 0.25 s after
+        // a hit the accelerations do not load the springs).
+        float ax = st.aF / kG, ay = st.aL / kG;
+        if (st.sinceHit < 0.25f) { ax = 0.0f; ay = 0.0f; }
+        const float demand = std::sqrt(ax * ax + ay * ay);
+        float carried = demand;
+        if (demand > 0.8f * kMu) carried = 0.8f * kMu + 0.25f * kMu * std::tanh((demand - 0.8f * kMu) / (0.25f * kMu));
+        if (demand > 1e-4f) { axT = ax * carried / demand; ayT = ay * carried / demand; }
+        // Longitudinal: braking (ax < 0) moves load to the front; anti-dive and anti-squat
+        // geometry take a little of it out of the springs.
+        const float dLong = -axT * cgH / wb;
+        const float springLong = dLong * 0.85f;
+        // Lateral: a right-hand pull (ay > 0) loads the left wheels by ay h / t of the weight.
+        const float dLat = ayT * cgH / track;
+        const float ns[4] = {0.5f * kFront, 0.5f * kFront, 0.5f * (1.0f - kFront), 0.5f * (1.0f - kFront)};
+        float n[4];
+        for (int i = 0; i < 4; ++i) {
+            const float lon = (i < 2 ? 0.5f : -0.5f) * dLong;
+            const float lat = ((i & 1) ? -1.0f : 1.0f) * (i < 2 ? kRollFront : 1.0f - kRollFront) * dLat;
+            n[i] = ns[i] + lon + lat;
+            st.load[i] = n[i];
+        }
+        // Spring compression of each corner (blocks, + compressed) as the modal targets:
+        // roll (left side down +), pitch (nose down +), heave.
+        float c[4];
+        for (int i = 0; i < 4; ++i) {
+            const float lon = (i < 2 ? 0.5f : -0.5f) * springLong;
+            const float lat = ((i & 1) ? -1.0f : 1.0f) * (i < 2 ? kRollFront : 1.0f - kRollFront) * dLat / kRollMul;
+            c[i] = (lon + lat) / ns[i] * staticDefl;
+        }
+        const float left = 0.5f * (c[0] + c[2]), right = 0.5f * (c[1] + c[3]);
+        const float front = 0.5f * (c[0] + c[1]), rear = 0.5f * (c[2] + c[3]);
+        // The quality bar's ceiling: 6 degrees of roll, 3 of pitch from manoeuvres
+        // (a tall van would roll more on these springs; real vans have stiffer bars).
+        float rollTarget = Clamp(std::atan2(left - right, track), -0.105f, 0.105f);
+        float pitchTarget = Clamp(std::atan2(front - rear, wb), -0.052f, 0.052f);
+        float heaveTarget = Clamp(-0.0035f * st.aY, -0.03f, 0.03f);
+        // Progressive damage: a corner that has taken hits sits lower (bent mounts, a
+        // broken spring), up to half a wheel radius, and the body leans to match.
+        float sag[4];
+        for (int i = 0; i < 4; ++i) sag[i] = Smooth((st.zone[i] - 4000.0f) / 12000.0f) * 0.45f * car.wheelRadius;
+        rollTarget += std::atan2(0.5f * (sag[0] + sag[2]) - 0.5f * (sag[1] + sag[3]), track);
+        pitchTarget += std::atan2(0.5f * (sag[0] + sag[1]) - 0.5f * (sag[2] + sag[3]), wb);
+        heaveTarget -= 0.25f * (sag[0] + sag[1] + sag[2] + sag[3]);
+        // Bump stops: no more than the travel each way at any corner.
+        const float maxRoll = std::atan2(2.0f * travel, track), maxPitch = std::atan2(2.0f * travel, wb);
+
+        // ---- kerbs: the wheel rides up the step (a short lift of that wheel), the
+        // corner's spring passes it to the body.
+        if (speed > 0.5f && g_ground) {
+            for (int i = 0; i < 4; ++i) {
+                const float sx = (i & 1) ? 0.42f * car.width : -0.42f * car.width;
+                const float sz = (i < 2) ? 0.5f * wb : -0.5f * wb;
+                const float wx = x + r.x * sx + f.x * sz, wz = z + r.z * sx + f.z * sz;
+                const int type = GroundTypeAt(wx, wz, y + 0.5f);
+                if (type && st.ground[i] && type != st.ground[i] && (type == 1 || st.ground[i] == 1)) {
+                    const float k = Clamp(speed / 4.0f, 0.25f, 1.0f);
+                    st.kerbT[i] = 0.14f;
+                    st.kerbH[i] = 0.018f * k;
+                    const float vUp = 0.30f * k;   // blocks/s the corner is pushed up
+                    st.heave.v += 0.30f * vUp;
+                    st.pitch.v += (i < 2 ? -1.0f : 1.0f) * 0.5f * vUp / wb;
+                    st.roll.v += ((i & 1) ? 1.0f : -1.0f) * 0.5f * vUp / track;
+                }
+                if (type) st.ground[i] = type;
+            }
+        }
+        for (int i = 0; i < 4; ++i) {
+            if (st.kerbT[i] > 0.0f) {
+                st.kerbT[i] -= dt;
+                const float ph = Clamp(1.0f - st.kerbT[i] / 0.14f, 0.0f, 1.0f);
+                feel.wheelLift[i] = st.kerbH[i] * std::sin(ph * kPi);
+            }
+        }
+
+        // ---- impacts: the velocity's jump is the impulse (per unit mass). The sprung
+        // body keeps going while the wheels and the bumper stop: it pitches or rolls
+        // about the axles by dv h / k^2 (k the radius of gyration, ~0.3 of the length or
+        // the width), gives on its mounts against the push, and the corner that met
+        // the wall keeps the damage.
+        const int dDamage = (st.damage >= 0 && car.damage > st.damage) ? car.damage - st.damage : 0;
+        const bool hit = (dDamage > 0 && speed + std::sqrt(st.rvx * st.rvx + st.rvz * st.rvz) > 0.3f) || joltHit;
+        if (hit) {
+            const float dvF = jx * f.x * dt + jz * f.z * dt, dvL = (jx * r.x + jz * r.z) * dt;   // blocks/s, car frame
+            const float dv = std::sqrt(dvF * dvF + dvL * dvL);
+            const float kP = 0.3f * car.length, kR = 0.35f * car.width;
+            const float sprung = 0.35f;   // the share of the jump the body feels before the springs take it
+            st.pitch.v += Clamp(-dvF * cgH / (kP * kP) * sprung, -3.0f, 3.0f);
+            st.roll.v += Clamp(dvL * cgH / (kR * kR) * sprung, -3.0f, 3.0f);
+            st.heave.v += Clamp(0.05f * dv, 0.0f, 0.25f);
+            st.shoveX.v += Clamp(-dvL * 0.10f, -0.6f, 0.6f);
+            st.shoveZ.v += Clamp(-dvF * 0.10f, -0.6f, 0.6f);
+            // Where it struck: the body's edge on the side the push came from.
+            float jF = dvF, jL = dvL;
+            const float jl = std::sqrt(jF * jF + jL * jL);
+            if (jl > 1e-3f) { jF /= jl; jL /= jl; } else { jF = vF >= 0.0f ? -1.0f : 1.0f; jL = 0.0f; }
+            const float cx = -jL, cz = -jF;
+            const float tx = std::fabs(cx) > 1e-3f ? halfW / std::fabs(cx) : 1e9f, tz = std::fabs(cz) > 1e-3f ? halfL / std::fabs(cz) : 1e9f;
+            const float t = (std::min)(tx, tz);
+            const float lx = cx * t, lz = cz * t;
+            const int corner = (lz >= 0.0f ? 0 : 2) + (lx >= 0.0f ? 1 : 0);
+            if (dDamage > 0) {
+                // 70 % to the corner, the rest to its neighbours along the end and the side.
+                st.zone[corner] += 0.70f * dDamage;
+                st.zone[corner ^ 1] += 0.15f * dDamage;
+                st.zone[corner ^ 2] += 0.15f * dDamage;
+            }
+            if (st.sparkT <= 0.0f) {
+                const float k = Clamp((dDamage > 0 ? dDamage / 1500.0f : 0.0f) + (jolt - 30.0f) / 120.0f, 0.2f, 1.0f);
+                const gta2::Vec3 at = Point(w, lx, 0.12f, lz);
+                const gta2::Vec3 along{st.vx * 0.5f, 0.0f, st.vz * 0.5f};
+                const gta2::Vec3 out{-(r.x * cx + f.x * cz), 0.0f, -(r.z * cx + f.z * cz)};
+                EmitSparks(at, groundY, along, out, 8 + static_cast<int>(22.0f * k));
+                st.sparkT = 0.08f;
+            }
+            if (car.driven) g_player.impulse += dv;
+            if (st.sinceHit > 0.3f && (car.driven || g_logFeel > 0))
+                Log("vehicle physics: impact%s dv=%.2f blocks/s (along %.2f, across %.2f) at corner %d, damage +%d -> %d, corners %.0f %.0f %.0f %.0f",
+                    car.driven ? " (player)" : "", dv, dvF, dvL, corner, dDamage, car.damage, st.zone[0], st.zone[1], st.zone[2], st.zone[3]);
+            st.sinceHit = 0.0f;
+        } else if (dDamage > 0 && dDamage < 400 && speed > 1.0f) {
+            // A scrape: the damage creeps up while sliding along a wall; the side we lean
+            // into takes it, front and back alike.
+            const int side = vL >= 0.0f ? 1 : 0;
+            st.zone[side] += 0.5f * dDamage; st.zone[2 + side] += 0.5f * dDamage;
+        }
+        if (dDamage > 0 && speed > 1.0f && st.sparkT <= 0.0f) {
+            const float side = (vL >= 0.0f) ? 1.0f : -1.0f;
+            const gta2::Vec3 at = Point(w, side * halfW, 0.10f, Rand(-0.3f, 0.3f) * halfL);
+            EmitSparks(at, groundY, gta2::Vec3{-st.vx * 0.3f, 0.0f, -st.vz * 0.3f}, gta2::Vec3{r.x * side, 0.0f, r.z * side}, 6);
+            st.sparkT = 0.05f;
+        }
+        st.sparkT -= dt;
+
+        // ---- the springs: ride frequency, roll and pitch a little stiffer; damping
+        // falls from ~0.6 of critical (a small overshoot, settled in ~0.4 s) to ~0.3
+        // as the car is beaten.
+        const float zeta = 0.60f * (1.0f - 0.5f * wear);
+        st.roll.Step(rollTarget, rideHz * 1.20f, zeta, dt);
+        st.pitch.Step(pitchTarget, rideHz * 1.10f, zeta, dt);
+        st.heave.Step(heaveTarget, rideHz, zeta * 0.85f, dt);
+        st.shoveX.Step(0.0f, 4.0f, 0.30f, dt);
+        st.shoveZ.Step(0.0f, 4.0f, 0.30f, dt);
+        if (std::fabs(st.roll.x) > maxRoll + 0.02f) { st.roll.x = Clamp(st.roll.x, -maxRoll - 0.02f, maxRoll + 0.02f); st.roll.v *= -0.3f; }
+        if (std::fabs(st.pitch.x) > maxPitch + 0.02f) { st.pitch.x = Clamp(st.pitch.x, -maxPitch - 0.02f, maxPitch + 0.02f); st.pitch.v *= -0.3f; }
+        st.heave.x = Clamp(st.heave.x, -travel - 0.02f, travel + 0.01f);
+        st.shoveX.x = Clamp(st.shoveX.x, -0.03f, 0.03f);
+        st.shoveZ.x = Clamp(st.shoveZ.x, -0.035f, 0.035f);
+        // A wheel leaves the road when its corner rises past full droop (a tall van
+        // in a hard turn): it hangs from the body.
+        for (int i = 0; i < 4; ++i) {
+            const float rise = ((i & 1) ? 0.5f : -0.5f) * track * std::sin(st.roll.x) + (i < 2 ? -0.5f : 0.5f) * wb * std::sin(st.pitch.x) + st.heave.x;
+            if (rise > travel) feel.wheelLift[i] = (std::max)(feel.wheelLift[i], rise - travel);
+        }
+
+        // ---- tyres: a friction circle each. Braking force split by the axle loads
+        // (a little front-biased so the fronts lock first), drive on the rear axle,
+        // cornering force shared by load; a tyre's grip falls a little as it is loaded
+        // more (load sensitivity). Over ~0.95 of its grip it squeals and marks, past it
+        // it slides: skids, smoke.
+        float tyre[4];
+        {
+            const float frontAxle = n[0] + n[1], rearAxle = n[2] + n[3];
+            const float bias = Clamp(frontAxle + 0.05f, 0.5f, 0.85f);
+            const float rawAx = st.sinceHit < 0.25f ? 0.0f : st.aF / kG, rawAy = st.sinceHit < 0.25f ? 0.0f : st.aL / kG;
+            for (int i = 0; i < 4; ++i) {
+                const bool fr = i < 2;
+                const float axle = fr ? frontAxle : rearAxle;
+                const float fx = rawAx < 0.0f ? rawAx * (fr ? bias : 1.0f - bias) * 0.5f : (fr ? 0.0f : rawAx * 0.5f);
+                const float fy = rawAy * (fr ? kFront : 1.0f - kFront) * Clamp(n[i] / (std::max)(axle, 0.05f), 0.0f, 1.0f);
+                const float ni = (std::max)(n[i], 0.0f);
+                const float mu = kMu * Clamp(1.0f - 0.25f * (ni / 0.25f - 1.0f), 0.6f, 1.2f);
+                const float cap = (std::max)(mu * ni, 0.01f);
+                st.use[i] = std::sqrt(fx * fx + fy * fy) / cap;
+                tyre[i] = Smooth((st.use[i] - 0.95f) / 0.35f) * Smooth((speed - 0.8f) / 1.2f);
+            }
+        }
+        // GTA2 keeps the velocity close to the heading even in a handbrake turn, so a
+        // slide also shows as the heading swinging faster than a cornering car's: the
+        // rear tyres are past their grip.
+        const float slide = (std::max)(Smooth((std::fabs(vL) - 0.9f) / 1.2f), Smooth((std::fabs(st.yawRate) - 1.9f) / 1.0f)) *
+                            Smooth((speed - 1.2f) / 1.5f);
+        for (int i = 0; i < 4; ++i) {
+            tyre[i] = (std::max)(tyre[i], i < 2 ? slide * 0.6f : slide);
+            st.slip[i] = tyre[i];
+        }
+        float tyreMax = 0.0f;
+        for (int i = 0; i < 4; ++i) {
+            tyreMax = (std::max)(tyreMax, tyre[i]);
+            const gta2::Vec3 at = Point(w, wheelX[i], 0.0f, wheelZ[i]);
+            if (tyre[i] > 0.30f) {
+                if (st.skidOn[i]) {
+                    const float dx = at.x - st.skidLast[i].x, dz = at.z - st.skidLast[i].z;
+                    if (dx * dx + dz * dz > 0.0025f) {
+                        AddSkid(st.skidLast[i], at, 0.024f, 0.55f * Clamp(tyre[i], 0.0f, 1.0f), now);
+                        st.skidLast[i] = at;
+                    }
+                } else {
+                    st.skidOn[i] = true;
+                    st.skidLast[i] = at;
+                }
+            } else {
+                st.skidOn[i] = false;
+            }
+        }
+        if (tyreMax > 0.25f) {
+            st.smokeT -= dt * (8.0f + 22.0f * tyreMax);
+            while (st.smokeT <= 0.0f) {
+                st.smokeT += 1.0f;
+                // From the wheel that slides most (two picks, the harder one).
+                int i = static_cast<int>(Rand() * 3.99f), j = static_cast<int>(Rand() * 3.99f);
+                if (tyre[j] > tyre[i]) i = j;
+                const gta2::Vec3 at = Point(w, wheelX[i] * 1.05f, 0.04f, wheelZ[i]);
+                EmitSmoke(at, groundY, gta2::Vec3{st.vx * 0.15f, 0.0f, st.vz * 0.15f}, tyre[i], false);
+            }
+        }
+
+        // ---- the wheels of a hurt corner: camber (top out) and a bent toe that
+        // wobbles with the spin.
+        for (int i = 0; i < 4; ++i) {
+            const float bent = Smooth((st.zone[i] - 5000.0f) / 12000.0f);
+            feel.wheelCamber[i] = 0.14f * bent;
+            const float rim = Smooth((st.zone[i] - 7000.0f) / 14000.0f);
+            feel.wheelToe[i] = rim * (0.03f + 0.05f * std::sin(st.spin + 1.7f * static_cast<float>(i)));
+        }
+        // ---- the engine: steam past 7000 (more with a hurt front), dark smoke past 16000.
+        {
+            const float frontHurt = 0.5f * (st.zone[0] + st.zone[1]);
+            const float level = (std::max)(Smooth((static_cast<float>(car.damage) - 7000.0f) / 9000.0f),
+                                           Smooth((frontHurt - 4000.0f) / 6000.0f));
+            if (level > 0.02f) {
+                const float dark = Smooth((static_cast<float>(car.damage) - 16000.0f) / 6000.0f);
+                st.steamT -= dt * (3.0f + 7.0f * level + 4.0f * dark);
+                while (st.steamT <= 0.0f) {
+                    st.steamT += 1.0f;
+                    const gta2::Vec3 at = Point(w, Rand(-0.25f, 0.25f) * car.width, 0.85f * car.roof, 0.30f * car.length);
+                    EmitEngineSmoke(at, groundY, gta2::Vec3{-st.vx * 0.4f, 0.0f, -st.vz * 0.4f}, dark);
+                }
+            }
+        }
+        // Exhaust at idle on a cold night (and on a hard launch at night).
+        if (g_dark && (speed < 0.3f || st.aF > 5.0f)) {
+            st.exhaustT -= dt;
+            if (st.exhaustT <= 0.0f) {
+                st.exhaustT = speed < 0.3f ? Rand(0.35f, 0.65f) : 0.12f;
+                const gta2::Vec3 at = Point(w, 0.28f * car.width, 0.06f, -halfL - 0.03f);
+                EmitSmoke(at, groundY, gta2::Vec3{-f.x * 0.22f, 0.0f, -f.z * 0.22f}, 1.0f, true);
+            }
+        }
+    } else if (live) {
         // The sprung body: it leans against the acceleration (out of a turn, onto the
         // nose under braking, back under power), on springs that overshoot a little.
         // GTA2's turns pull up to ~6 blocks/s^2 sideways and its brakes ~15 forward
@@ -601,6 +953,7 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
         const bool hit = (dDamage > 0 && speed + std::sqrt(st.rvx * st.rvx + st.rvz * st.rvz) > 0.3f) || jolt > 45.0f;
         if (hit) {
             const float k = Clamp((dDamage > 0 ? dDamage / 1500.0f : 0.0f) + (jolt - 30.0f) / 120.0f, 0.2f, 1.0f);
+            if (car.driven) g_player.impulse += jolt * dt;
             // The jolt's direction in the car frame: where the push came from.
             float jF = jx * f.x + jz * f.z, jL = jx * r.x + jz * r.z;
             const float jl = std::sqrt(jF * jF + jL * jL);
@@ -686,8 +1039,8 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
             }
         }
     } else {
-        st.roll.x = st.pitch.x = st.heave.x = 0.0f;
-        st.roll.v = st.pitch.v = st.heave.v = 0.0f;
+        st.roll.x = st.pitch.x = st.heave.x = st.shoveX.x = st.shoveZ.x = 0.0f;
+        st.roll.v = st.pitch.v = st.heave.v = st.shoveX.v = st.shoveZ.v = 0.0f;
     }
 
     // Blown up: the car became a wreck (or its damage reached 32000) since we last saw
@@ -719,12 +1072,20 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     st.wreck = car.wreck;
     st.damage = car.damage;
 
-    // The body's pose about a point a little above the road, under the middle.
-    const float pivotY = 0.30f * car.roof;
+    // The body's pose about a point a little above the road. FIX-VEHICLES: it pitches
+    // about a point a quarter of the length ahead of the middle (the anti-dive front
+    // geometry's pitch centre, stylised): seen from the chase camera behind, the tail
+    // lifts under braking and squats on a launch, which is what reads from there; about
+    // the middle a few degrees moved the tail by a few pixels. The drawn angles are the
+    // model's times [renderer] car_body_pitch / car_body_roll, at most 7 and 8 degrees
+    // (an impact's kick included).
+    const float pivotY = 0.30f * car.roof, pivotZ = 0.25f * car.length;
     gta2::Mat4 pose = gta2::Identity();
+    const float drawRoll = Clamp(st.roll.x * g_rollGain, -0.14f, 0.14f);
+    const float drawPitch = Clamp(st.pitch.x * g_pitchGain, -0.122f, 0.122f);
     if (live) {
-        pose = Mul(Mul(Mul(Translate(0.0f, -pivotY, 0.0f), RotZ(st.roll.x)), RotX(st.pitch.x)),
-                   Translate(0.0f, pivotY + st.heave.x, 0.0f));
+        pose = Mul(Mul(Mul(Translate(0.0f, -pivotY, -pivotZ), RotZ(drawRoll)), RotX(drawPitch)),
+                   Translate(g_physics ? st.shoveX.x : 0.0f, pivotY + st.heave.x, pivotZ + (g_physics ? st.shoveZ.x : 0.0f)));
     }
     feel.pose = pose;
     feel.steer = st.steer;
@@ -732,10 +1093,24 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     feel.brake = st.brake;
     feel.reverse = st.reverse;
     feel.speed = vF;
+    if (car.driven) {
+        g_player.frame = frame;
+        g_player.pitch = live ? drawPitch : 0.0f;
+        g_player.roll = live ? drawRoll : 0.0f;
+        g_player.heave = live ? st.heave.x : 0.0f;
+    }
     if (g_logFeel > 0 && car.driven && frame % 3 == 0) {
         Log("vehicle feel: player car v=%.2f lat=%.2f yawr=%.2f aF=%.1f aL=%.1f jolt=%.0f roll=%.1f pitch=%.1f heave=%.3f steer=%.2f brake=%.2f rev=%.2f dmg=%d ground=%d%d%d%d",
-            vF, vL, st.yawRate, st.aF, st.aL, jolt, st.roll.x * 180.0f / kPi, st.pitch.x * 180.0f / kPi, st.heave.x, st.steer, st.brake, st.reverse, car.damage,
+            vF, vL, st.yawRate, st.aF, st.aL, jolt, drawRoll * 180.0f / kPi, drawPitch * 180.0f / kPi, st.heave.x, st.steer, st.brake, st.reverse, car.damage,
             st.ground[0], st.ground[1], st.ground[2], st.ground[3]);
+        if (g_physics && live)
+            Log("vehicle physics: player car load=%.2f %.2f %.2f %.2f use=%.2f %.2f %.2f %.2f slip=%.2f %.2f %.2f %.2f carried=%.2f,%.2f g "
+                "shove=%.3f,%.3f lift=%.3f %.3f %.3f %.3f camber=%.1f %.1f %.1f %.1f corners=%.0f %.0f %.0f %.0f wear=%.2f ride=%.2fHz defl=%.4f",
+                st.load[0], st.load[1], st.load[2], st.load[3], st.use[0], st.use[1], st.use[2], st.use[3],
+                st.slip[0], st.slip[1], st.slip[2], st.slip[3], axT, ayT, st.shoveX.x, st.shoveZ.x,
+                feel.wheelLift[0], feel.wheelLift[1], feel.wheelLift[2], feel.wheelLift[3],
+                feel.wheelCamber[0] * 180.0f / kPi, feel.wheelCamber[1] * 180.0f / kPi, feel.wheelCamber[2] * 180.0f / kPi, feel.wheelCamber[3] * 180.0f / kPi,
+                st.zone[0], st.zone[1], st.zone[2], st.zone[3], wear, rideHz, staticDefl);
     }
     (void)up;
     g_updateMs += NowMs() - t0;

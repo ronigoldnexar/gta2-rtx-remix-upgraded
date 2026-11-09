@@ -2604,6 +2604,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // runs, for before/after frames of one scene; absent leaves it as it is.
         const int feelKey = GetPrivateProfileIntA("devtools", "vehicle_feel", -1, g_devIni);
         if (feelKey >= 0) { VehicleFxSetEnabled(feelKey != 0); g_feelIniSet = true; }
+        VehicleFxSetPhysics(GetPrivateProfileIntA("devtools", "vehicle_physics", -1, g_devIni));
+        VehicleFxSetLean(GetPrivateProfileIntA("renderer", "car_body_pitch", 220, g_devIni),
+                         GetPrivateProfileIntA("renderer", "car_body_roll", 170, g_devIni));
     }
     VehicleFxSetDark(g_lampDark);
     const bool feelOn = VehicleFxEnabled();
@@ -2880,9 +2883,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     // the bonnet through the cut a hand under the eye. A third of the
                     // pose (small angles: the matrix lerped toward the identity) still
                     // shows the jolt and keeps the bonnet under the cut.
+                    // FIX-VEHICLES: the eye now rides the body (VehicleFxFirstRide, [camera]
+                    // first_body_ride), so the cockpit takes the same share and the
+                    // bonnet holds still under the eye while the street tilts.
+                    const float share = (std::max)(0.33f, VehicleFxFirstRide());
                     gta2::Mat4 soft = gta2::Identity();
                     for (int r = 0; r < 4; ++r)
-                        for (int c = 0; c < 4; ++c) soft.m[r][c] += (feel.pose.m[r][c] - soft.m[r][c]) * 0.33f;
+                        for (int c = 0; c < 4; ++c) soft.m[r][c] += (feel.pose.m[r][c] - soft.m[r][c]) * share;
                     posed = Mul(soft, carToWorld);
                 } else posed = Mul(feel.pose, carToWorld);
             }
@@ -2998,14 +3005,26 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     gta2::Mat4 spin = gta2::Identity();
                     const float cs = std::cos(feel.spin), sn = std::sin(feel.spin);
                     spin.m[1][1] = cs; spin.m[1][2] = sn; spin.m[2][1] = -sn; spin.m[2][2] = cs;
+                    // VEHICLE-PHYSICS: each corner's own lift (kerb strike, off the
+                    // ground), camber and toe (a bent corner) on top of spin and steer.
+                    const int corner = (c.z >= 0.0f ? 0 : 2) + (c.x >= 0.0f ? 1 : 0);
+                    const float steerA = (c.z > 0.0f ? feel.steer : 0.0f) + feel.wheelToe[corner];
                     gta2::Mat4 steer = gta2::Identity();
-                    if (c.z > 0.0f) {
-                        const float cst = std::cos(feel.steer), snt = std::sin(feel.steer);
+                    if (steerA != 0.0f) {
+                        const float cst = std::cos(steerA), snt = std::sin(steerA);
                         steer.m[0][0] = cst; steer.m[0][2] = snt; steer.m[2][0] = -snt; steer.m[2][2] = cst;
                     }
                     gta2::Mat4 m = Mul(spin, steer);
+                    if (feel.wheelCamber[corner] != 0.0f) {
+                        // Top outward: about the car's z axis, away from the centre line.
+                        const float ca = (c.x >= 0.0f ? -1.0f : 1.0f) * feel.wheelCamber[corner];
+                        const float cc = std::cos(ca), sc = std::sin(ca);
+                        gta2::Mat4 camber = gta2::Identity();
+                        camber.m[0][0] = cc; camber.m[0][1] = sc; camber.m[1][0] = -sc; camber.m[1][1] = cc;
+                        m = Mul(m, camber);
+                    }
                     m.m[3][0] = c.x - (c.x * m.m[0][0] + c.y * m.m[1][0] + c.z * m.m[2][0]);
-                    m.m[3][1] = c.y - (c.x * m.m[0][1] + c.y * m.m[1][1] + c.z * m.m[2][1]);
+                    m.m[3][1] = c.y - (c.x * m.m[0][1] + c.y * m.m[1][1] + c.z * m.m[2][1]) + feel.wheelLift[corner];
                     m.m[3][2] = c.z - (c.x * m.m[0][2] + c.y * m.m[1][2] + c.z * m.m[2][2]);
                     ModelDraw(device, *wheels.wheel[w], Mul(Mul(fit, m), carToWorld), nullptr, 0.0f);
                 }

@@ -180,6 +180,12 @@ struct ViewModeSettings {
     float referenceSpeed = 8.0f;
     float speedFov = 4.0f;          // extra degrees of field of view at full speed (subtle)
     float impactShake = 0.0f;       // the camera's kick on a hard stop; 0 is none (default off)
+    // FIX-VEHICLES, at the wheel: the camera's kick on an impact the car's body
+    // model measured (the speed lost, vehicle_fx), and the share of the drawn body's
+    // pitch, roll and heave the first-person eye rides. [camera] car_impact_shake,
+    // first_body_ride (percent).
+    float carImpactShake = 1.0f;
+    float fpBodyRide = 1.0f;
     // RTX Remix's own motion blur, pushed through its API while a chase or
     // first-person view is up: 0 leaves Remix's setting alone, 1 turns it on
     // there and back off in the classic view, 2 keeps it on everywhere.
@@ -382,6 +388,7 @@ private:
     float yawRate_ = 0.0f;                  // eased, radians a second
     float roll_ = 0.0f;                     // eased camera roll
     float shake_ = 0.0f;                    // impact energy, decaying
+    float carPitch_ = 0.0f, carRoll_ = 0.0f, carHeave_ = 0.0f;   // the drawn body of his car (vehicle_fx)
     double shakeClock_ = 0.0;
     float bobPhase_ = 0.0f;                 // walking cycle, turns
     float forwardAccel_ = 0.0f;             // eased, blocks a second squared
