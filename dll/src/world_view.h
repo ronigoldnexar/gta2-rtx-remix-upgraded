@@ -260,6 +260,7 @@ private:
     CameraPose lastPose_;          // what was shown last frame, blended
     bool lastPoseValid_ = false;
     CameraPose transitionFrom_;    // where the camera was when the view changed
+    float transitionAimYaw_ = 0.0f;   // FIX-CAMERA-2: the move's aim heading, unwrapped frame to frame
     float transitionT_ = 1.0f;     // 0..1, 1 when no move is in progress
     ViewMode lastViewMode_ = ViewMode::Classic;
     bool transitionToClassic_ = false;

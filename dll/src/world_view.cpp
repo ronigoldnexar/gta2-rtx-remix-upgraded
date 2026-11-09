@@ -2515,6 +2515,49 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         shown.position = p;
         shown.yaw = transitionFrom_.yaw + dyaw * e;
         shown.pitch = transitionFrom_.pitch + (target.pitch - transitionFrom_.pitch) * e;
+        static int moveAim = -1;
+        if (moveAim < 0) { char b2[8] = {}; moveAim = GetEnvironmentVariableA("GTA2DX9_MOVE_AIM", b2, sizeof b2) && atoi(b2) == 0 ? 0 : 1; }
+        if (!transitionToClassic_ && moveAim) {
+            // FIX-CAMERA-2 (pm11-classic-to-third-switch-camera-rolls-and-lands-behind-wall-player-hidden).
+            // Into a street view the camera looks, as it goes, at the point the destination
+            // looks at (kLookAhead along its view: him, from the chase camera), blended in
+            // with the move; the camera held over him by the walls (the yard at the Industrial
+            // start: 4 blocks up for the first 60 % of the move, above) used to tilt up to the
+            // chase pitch blindly and look level at the yard's walls, him out of the picture
+            // below. And the turn's direction is chosen once: with the destination heading at
+            // +-180 degrees "the short way" flipped between frames and the picture spun 88
+            // degrees back in three frames (run fc2_sw_log).
+            constexpr float kLookAhead = 2.4f;
+            const gta2::Vec3 f{std::sin(target.yaw) * std::cos(target.pitch), std::sin(target.pitch),
+                               std::cos(target.yaw) * std::cos(target.pitch)};
+            const gta2::Vec3 look = b + f * kLookAhead;
+            const gta2::Vec3 to = look - p;
+            const float flat = std::sqrt(to.x * to.x + to.z * to.z);
+            float aimYaw = target.yaw, aimPitch = target.pitch;
+            if (flat > 0.3f) {
+                aimYaw = std::atan2(to.x, to.z);
+                aimPitch = std::atan2(to.y, flat);
+            } else {
+                aimPitch = -1.5f;   // straight over the point: down at it
+            }
+            // The aim's heading unwrapped next to last frame's, and the turn from the start's
+            // heading kept on the side it began on.
+            float d = aimYaw - transitionAimYaw_;
+            while (d > 3.14159265f) d -= 6.2831853f;
+            while (d < -3.14159265f) d += 6.2831853f;
+            transitionAimYaw_ = transitionT_ <= dt / (std::max)(vm.transitionSeconds, 0.05f) + 1e-4f
+                                    ? transitionFrom_.yaw + [&] { float w = aimYaw - transitionFrom_.yaw;
+                                                                  while (w > 3.14159265f) w -= 6.2831853f;
+                                                                  while (w < -3.14159265f) w += 6.2831853f;
+                                                                  return w; }()
+                                    : transitionAimYaw_ + d;
+            // The turn onto that point is done in the first 60 % of the move (the camera may be
+            // held where it is for most of it, so the position's ease is no guide).
+            const float ta = (std::min)(1.0f, t / 0.6f);
+            const float ea = ta * ta * (3.0f - 2.0f * ta);
+            shown.yaw = transitionFrom_.yaw + (transitionAimYaw_ - transitionFrom_.yaw) * ea;
+            shown.pitch = transitionFrom_.pitch + (aimPitch - transitionFrom_.pitch) * ea;
+        }
         shown.roll = transitionFrom_.roll + (target.roll - transitionFrom_.roll) * e;
         shown.fov = transitionFrom_.fov + (target.fov - transitionFrom_.fov) * e;
         // The sky comes up as the eye comes down, and goes as it rises.
@@ -2556,6 +2599,32 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
                 netFrames, netMax);
             clearMin = 99.0f; clearClock = 0.0f; netMax = 0.0f; clearFrames = netFrames = 0;
         }
+    }
+    {
+        // FIX-CAMERA-2 (pm11): the shown pose against the view's own for 3 s after a switch
+        // (GTA2DX9_LOG_CAMERA=1), every third frame.
+        static int logEnv = -1;
+        if (logEnv < 0) { char b[8] = {}; logEnv = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", b, sizeof b) && atoi(b) ? 1 : 0; }
+        static float since = 99.0f;
+        static int n = 0;
+        if (transitionT_ < 1.0f && transitionT_ <= dt / (std::max)(vm.transitionSeconds, 0.05f) + 1e-4f) since = 0.0f;
+        since += dt;
+        // How far the shown view points from the destination's look point (2.4 along its view).
+        const gta2::Vec3 tf{std::sin(target.yaw) * std::cos(target.pitch), std::sin(target.pitch), std::cos(target.yaw) * std::cos(target.pitch)};
+        const gta2::Vec3 lk = target.position + tf * 2.4f - shown.position;
+        const gta2::Vec3 sf{std::sin(shown.yaw) * std::cos(shown.pitch), std::sin(shown.pitch), std::cos(shown.yaw) * std::cos(shown.pitch)};
+        const float ll = std::sqrt(lk.x * lk.x + lk.y * lk.y + lk.z * lk.z);
+        const float off = ll > 1e-3f ? std::acos((std::max)(-1.0f, (std::min)(1.0f, (lk.x * sf.x + lk.y * sf.y + lk.z * sf.z) / ll))) * 57.2958f : 0.0f;
+        static float lastYaw = 0.0f;
+        float yawStep = shown.yaw - lastYaw;
+        while (yawStep > 3.14159265f) yawStep -= 6.2831853f;
+        while (yawStep < -3.14159265f) yawStep += 6.2831853f;
+        lastYaw = shown.yaw;
+        if (logEnv && since < 3.0f && mode != ViewMode::Classic)
+            Log("view move: t=%.2f %s pos=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f roll=%.1f off=%.1f ystep=%.1f | view pos=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f",
+                transitionT_, ViewModeName(mode), shown.position.x, shown.position.y, shown.position.z, shown.yaw * 57.2958f,
+                shown.pitch * 57.2958f, shown.roll * 57.2958f, off, yawStep * 57.2958f, target.position.x, target.position.y, target.position.z,
+                target.yaw * 57.2958f, target.pitch * 57.2958f);
     }
     lastPose_ = shown;
     lastPoseValid_ = true;

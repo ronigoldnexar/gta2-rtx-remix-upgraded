@@ -406,6 +406,28 @@ lift's `aMax` and the pitch hold after `camPitch`.
   picture (`fc2_rev2_p0`); on, never steeper than 29, horizon in every frame (`fc2_rev2_p1`). Largest eye
   step 0.28 / 0.12 block a frame, yaw 3.0 / 1.5 degrees a frame.
 
+## The move into a street view keeps him in the picture (FIX-CAMERA-2, 9 Nov 2026)
+
+Defect pm11-classic-to-third-switch-camera-rolls-and-lands-behind-wall-player-hidden. Code: `WorldView::ApplyTransition`
+(`dll/src/world_view.cpp`, `transitionAimYaw_`). Moves into classic are unchanged.
+
+- Into third or first person the moving camera looks at the destination's look point (2.4 blocks along the
+  destination's view: him, from the chase camera), and that turn is finished in the first 60 % of the move.
+  The position is still the arc and the FIX-OCCLUSION clearance (which, at the Industrial start yard, holds
+  the camera where it was for most of the move). Before, pitch and heading were eased blindly from straight
+  down to the chase pose: the camera, held up above the yard, tilted up to look level at its walls and roofs
+  with him out of the picture below.
+- The turn's direction is chosen once and the aim heading unwrapped frame to frame: with the destination heading
+  at +-180 degrees "the short way" flipped between frames (one frame turned 76.7 degrees back).
+- `GTA2DX9_MOVE_AIM=0` restores the old easing (A/B). With `GTA2DX9_LOG_CAMERA=1`: `view move: t= ... off= ystep=`
+  for 3 s after a switch (shown pose, the view's own pose, the angle from the look point, the heading step).
+- Probe `gamerun/keys_fc2_sw.sh` (bil start, walk into a V press, four switches, 9 s clips): him more than 30 degrees
+  off the view axis in 72 of 164 move frames before (`fc2_sw2_a0`), 18 after (`fc2_sw3_a1`, all in the first
+  quarter of the moves, where the classic camera's wide view still holds him); largest heading step 76.7 -> 10.6
+  degrees a frame. Measured from the `view move` lines against the `cam: third ... at=` position.
+- Still: mid-move the held camera can sit a hand from the yard's wall (half the picture one wall, him in the
+  other half): the hold's position, not changed here.
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`
