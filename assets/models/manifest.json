@@ -1753,7 +1753,7 @@
    ],
    "texture_max": 512,
    "paint_split": true,
-   "forward": "-z"
+   "forward": "+z"
   },
   {
    "name": "070_z_type",
@@ -3226,7 +3226,7 @@
    "12": "012_cop_car",
    "13": "013_minx",
    "14": "014_eddy",
-   "84": "084_special_agent_car",
+   "84": "014_eddy",
    "16": "016_panto",
    "17": "017_fire_truck",
    "18": "018_shark",
@@ -3234,10 +3234,10 @@
    "21": "021_garbage_truck",
    "22": "022_armed_land_roamer",
    "23": "023_hot_dog_van",
-   "24": "024_hot_dog_dummy_1",
-   "25": "025_hot_dog_dummy_2",
-   "26": "026_hot_dog_dummy_3",
-   "85": "085_hot_dog_dummy_4",
+   "24": "023_hot_dog_van",
+   "25": "023_hot_dog_van",
+   "26": "023_hot_dog_van",
+   "85": "023_hot_dog_van",
    "27": "027_ice_cream_van",
    "28": "028_dementia_limousine",
    "29": "029_dementia",
@@ -3279,7 +3279,7 @@
    "65": "065_container",
    "66": "066_transporter",
    "67": "067_tv_van",
-   "68": "068_van",
+   "68": "067_tv_van",
    "69": "069_u_jerk_truck",
    "70": "070_z_type",
    "71": "071_rumbler",
@@ -8321,7 +8321,7 @@
     "069_u_jerk_truck_0_paint.tga"
    ],
    "skins": 0,
-   "forward": "-z",
+   "forward": "+z",
    "stride": 0.0,
    "run_stride": 0.0
   },
