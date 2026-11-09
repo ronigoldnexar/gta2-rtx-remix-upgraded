@@ -81,7 +81,14 @@ void UpdateSky(const LARGE_INTEGER& now) {
     // is clear whichever layers a preset has switched on.
     const bool a = PushText("rtx.atmosphere.cloudEnabled", want ? "False" : "True");
     const bool b = want ? PushText("rtx.atmosphere.cloudLayer2Enable", "False") : true;
-    g_skyOk = a && b;
+    // The clouds' shadow on the ground is a separate term (a voxel grid of the cloud
+    // deck, rtx.atmosphere.cloudVoxelShadowsEnable) and switching the clouds off does
+    // not clear it: the default deck kept shading the sun, so a clear noon was lit by
+    // the sky alone, with no sun and no shadows, depending on where the sun stood and
+    // how far the invisible deck had drifted (FIX-REMIX-2, pt-remix-daytime-no-sun-
+    // no-shadows: one live push of cloudShadowStrength=0 brought the noon sun back).
+    const bool c = PushText("rtx.atmosphere.cloudShadowStrength", want ? "0" : "1");
+    g_skyOk = a && b && c;
     if (changed) {
         Log("time of day: clouds %s %s", want ? "off (clear sky)" : "on",
             g_skyOk ? "set" : "refused by Remix");

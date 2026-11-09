@@ -674,6 +674,35 @@ the taxi chequer-as-chrome material (`tools/remix_model_pbr.py` `car_trim_maps`:
 bright, neutral, busy and fill < 60 % of their window, so they pass the chrome test; a structure-tensor
 isotropy test caught only part of them offline, not shipped); 1440p capture.
 
+## The sunless daytime: the clouds' shadow outlived the clouds (FIX-REMIX-2, 9 Nov 2026)
+
+Defect `pt-remix-daytime-no-sun-no-shadows` (and the "sunless daytime" of REMIX-SHOWCASE and
+REMIX-ADVANCED above). **Cause:** the time-of-day code switches Remix's clouds off
+(`rtx.atmosphere.cloudEnabled = False`, `[timeofday] ClearSky`), but the clouds' shadow on the
+ground is a separate term, the voxel grid of the cloud deck that the sun's light samples
+(`rtx.atmosphere.cloudVoxelShadowsEnable`, strength `rtx.atmosphere.cloudShadowStrength`). It
+kept the runtime's default deck (coverage 0.29, drifting with the wind) and shaded the sun with
+it. Whether a frame had sun depended on where the sun stood and how far the invisible deck had
+drifted: 08:00 and 13:00 starts had sun, 12:00 set in-session did not, and the same plaza went
+from flat to sunny within minutes. **Fix:** with a clear sky the DLL also pushes
+`rtx.atmosphere.cloudShadowStrength = 0` (and 1 when clouds are wanted), every few seconds with
+the clouds switch (`UpdateSky`, `time_of_day.cpp`); `package/rtx.conf` sets 0 from the start.
+
+Evidence (Downtown, `gamerun/playtest_remix.sh`, start 05:30, clock paused):
+- `out/fr2_probe2`: 12:00 set in-session flat; 08:00 sunny; 12:30 flat; a live
+  `skyLutCacheKeySplitEnable=False` and a later jump showed the sun once, but
+  `out/fr2_split1` (that option from the start, the filer's command) is sunless at noon: refuted.
+- `out/fr2_cloud1` (stock DLL, 120.5,152.5): noon flat (`fr/011`), then one live push of
+  `cloudShadowStrength=0`: full sun, lit facades against shaded ones, hard shadows (`fr/013`);
+  the later pushes (`cloudVoxelShadowsEnable=False`, `cloudCoverageMean=0`) and a jump to 12:30
+  keep it.
+- `out/fr2_fix1_wil` (the fix, the filer's command): every 12:00 frame at the three points,
+  third and first person, is sunlit with shadows from the tree, the lamp posts, the van, the
+  gantry and the buildings on a light-grey road.
+- Night: `out/fr2_night1` (stock DLL, 23:30) gives the same picture with the shadow term at 1 and
+  at 0 (mean luminance 0.162/0.161 at the plaza, 0.242/0.242 at the junction), and the fixed run's
+  23:30 frames sit at the same levels. The night is unchanged by this.
+
 ## Street-lamp pools under the posts (FIX-REMIX, 9 Nov 2026)
 
 Defect `pt-remix-lamp-posts-cast-no-light`: at night every lamp-post lantern glowed and nothing
