@@ -1046,7 +1046,7 @@ void DrawMarkerPin(ImDrawList* dl, ImVec2 tip, float s, ImU32 col, float a) {
     dl->AddLine(P(-hw + 0.5f, -hh + 0.5f, 0), P(hw - 0.5f, -hh + 0.5f, 0), Fade(Shade(col, 1.6f), a * 0.8f), (std::max)(1.0f, 0.1f * s));
 }
 
-constexpr float kMarkerLiftMax = 9.0f;   // blocks above the target the pin may rise to clear walls
+constexpr float kMarkerLiftMax = 2.0f;   // blocks above a PLACE target the pin may rise to clear a wall; more and it hangs in the sky (pm15-orange-arrowhead-sprites)
 
 // A wall between the eye and a marker's spot: samples every quarter block, leaving out the
 // eye's own half block and the last three quarters before the spot (the target's own cell,
@@ -1092,9 +1092,12 @@ void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, flo
     const float edge = 34.0f * u;
     const float bob = std::sin(g_anim.time * 3.2f);
     const Arrow* nearestArrow = nullptr;
+    const Arrow* nearestPlace = nullptr;   // the one place target that gets an edge chevron when off screen
     {
         float nd = 1e9f;
         for (const Arrow& ar : v.arrows) { const float d = std::hypot(ar.x - v.x, ar.y - v.y); if (d < nd) { nd = d; nearestArrow = &ar; } }
+        float npd = 1e9f;
+        for (const Arrow& ar : v.arrows) { if (ar.kind != 5) continue; const float d = std::hypot(ar.x - v.x, ar.y - v.y); if (d < npd) { npd = d; nearestPlace = &ar; } }
     }
     for (const Arrow& ar : v.arrows) {
         const bool place = ar.kind == 5;
@@ -1127,8 +1130,13 @@ void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, flo
                 g_markerStats.hitTo[0] = wx; g_markerStats.hitTo[1] = wy; g_markerStats.hitTo[2] = wz;
             }
             bool clear = false;
-            for (float lift = 1.0f; lift <= kMarkerLiftMax + 0.01f; lift += 1.0f) {
-                if (!MarkerSightBlocked(eye, wx, wy + lift, wz, nullptr)) { wy += lift; clear = true; break; }
+            // Only a place marker is lifted (a little); an object pointer (ped, car, phone) behind a wall
+            // is simply not shown: lifted object pins scattered orange triangles over walls and sky
+            // (pm15-orange-arrowhead-sprites-scatter-across-3d-views).
+            if (place) {
+                for (float lift = 1.0f; lift <= kMarkerLiftMax + 0.01f; lift += 1.0f) {
+                    if (!MarkerSightBlocked(eye, wx, wy + lift, wz, nullptr)) { wy += lift; clear = true; break; }
+                }
             }
             if (clear) ++g_markerStats.lifted;
             else { hidden = true; ++g_markerStats.blocked; }
@@ -1160,6 +1168,9 @@ void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, flo
             continue;
         }
         if (!place) continue;
+        // One chevron, for the nearest place: three gang arrows plus the job's at once read as noise
+        // on the screen edge (pm15-orange-arrowhead-sprites-scatter-across-3d-views).
+        if (&ar != nearestPlace) continue;
         ++g_markerStats.edges;
         // Off screen (or behind the eye): the bearing from the camera's heading, laid on an
         // ellipse inside the screen's edge; ahead is up, behind is down.
