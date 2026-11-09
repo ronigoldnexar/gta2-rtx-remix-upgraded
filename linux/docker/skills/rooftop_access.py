@@ -90,6 +90,24 @@ def _other_phones(world, keep):
     return [(p["x"], p["y"]) for p in world.db["phones"].values()
             if math.hypot(p["x"] - keep[0], p["y"] - keep[1]) > 0.1]
 
+PHONE_MARGIN = 1     # cells round a neighbour phone kept clear on the way to the launch cell
+MARGIN_RANGE = 6.0   # only neighbour phones this near the answered one
+
+def phone_margin(world, entry, r=PHONE_MARGIN):
+    """cells within r (Chebyshev) of every other phone near this one, the phone's own four
+    neighbours left out. rp2: the walk across the Zaibatsu terrace to the launch cell (209,57)
+    went along row 59 and its unstick brushed WHEELER-DEALING's phone (208.5,59.5): that job
+    started, and COP CAR CRUSH answered 1113 'already on a Zaibatsu job'"""
+    px, py = int(entry["x"]), int(entry["y"])
+    out = set()
+    for ox, oy in _other_phones(world, (entry["x"], entry["y"])):
+        if math.hypot(ox - entry["x"], oy - entry["y"]) > MARGIN_RANGE: continue
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                out.add((int(ox) + dx, int(oy) + dy))
+    out.discard((px, py))
+    return out
+
 def launch_cell(world, entry, start=None):
     """(x, y, level, path) of the cell beside the phone to step on from, or None.
     start = (x, y, level) to check reachability from (the route with all other phones
@@ -128,15 +146,66 @@ def _here(world):
     if not s: return None, None
     return s, (int(s["x"]), int(s["y"]), stand_level(world, int(s["x"]), int(s["y"]), M.ped_level(s)) or M.ped_level(s))
 
+class GameClock:
+    """seconds of play since start: the wall clock, but never more than the game's own clock
+    (the renderer's frame counter, 256-frame granular) plus a margin. The CPU governor freezes the
+    whole container when the host's load passes 20; with a wall-time budget ccc1 spent its whole
+    climb (991 s) in a 16-minute pause after 17 game seconds"""
+    MARGIN = 12.0
+
+    def __init__(self):
+        self.t0 = time.time(); self.f0 = M.frames_rendered()
+
+    def __call__(self):
+        wall = time.time() - self.t0
+        game = D.game_seconds(M.frames_rendered() - self.f0) / max(1.0, getattr(D, "SPEED", 1.0))   # wall-equivalent at GTA2_SPEED
+        return min(wall, game + self.MARGIN)
+
+    def paused(self, since_wall, since_game):
+        """True when a stretch that took since_wall wall seconds advanced the game far less"""
+        return (time.time() - since_wall) > 3 * max(10.0, self() - since_game) and time.time() - since_wall > 60
+
+
 def _no_warps():
     old = os.environ.get("WARP_OK", "1"); os.environ["WARP_OK"] = "0"; return old
 
-def climb(world, tx, ty, tl, budget=600, tol=0.6, learn=True):
+def careful_walk(world, cells, level, secs=25):
+    """walk the cells one by one, each aimed 0.15 off-centre away from the nearest other phone,
+    with the session's calibrated steering (cruise_to) in bursts shorter than its no-progress
+    limit, so its sideways unstick (Down, Left/Right, Up) never fires here: in rp2 that move
+    answered WHEELER-DEALING's phone (208.5,59.5) on the Zaibatsu terrace (x=209, y 59 -> 57).
+    A first version steered with its own pulses and drifted onto that phone at the corner (209,59)
+    in rp4. Between bursts: when he stands within NEAR of another phone's centre he backs off.
+    Returns the state"""
+    NEAR = 0.95
+    phones = _other_phones(world, (-99, -99))
+    burst = 2.4 / max(1.0, D.SPEED)          # cruise_to unsticks after 3.0 / SPEED s without gain
+    s = D.wait_state()
+    for cx, cy in cells:
+        wx, wy = cx + 0.5, cy + 0.5
+        near = [p for p in phones if max(abs(p[0] - wx), abs(p[1] - wy)) < 1.6]
+        if near:
+            px, py = min(near, key=lambda p: math.hypot(p[0] - wx, p[1] - wy))
+            vx, vy = wx - px, wy - py; n = math.hypot(vx, vy) or 1.0
+            # ccc4: aimed at x 209.72 he stuck against the terrace's east edge for 90 game-s
+            wx = min(cx + 0.65, max(cx + 0.35, wx + 0.15 * vx / n)); wy = min(cy + 0.65, max(cy + 0.35, wy + 0.15 * vy / n))
+        t0 = time.time(); reached = False
+        while time.time() - t0 < secs / max(1.0, D.SPEED):
+            s, reached = M.cruise_to(wx, wy, tol=0.3, secs=burst)
+            if reached or not s or s["driving"]: break
+            close = min([math.hypot(p[0] - s["x"], p[1] - s["y"]) for p in phones] or [9])
+            if close < NEAR:
+                D.hold("Down", 0.25); time.sleep(0.2)
+        M.mark(f"rooftop: careful step to {cx},{cy} L{level} ({'reached' if reached else 'not reached'}, at {s['x']:.2f},{s['y']:.2f})" if s else "rooftop: careful step, no state")
+        if not reached: break
+    return s
+
+def climb(world, tx, ty, tl, budget=600, tol=0.6, learn=True, hug=None):
     """walk to cell (tx,ty) at lid level tl by stairs and ramps, flight by flight, no warp.
     Returns (state, reached)"""
-    old = _no_warps(); t0 = time.time(); fails = {}; best_level = None
+    old = _no_warps(); clk = GameClock(); fails = {}; best_level = None; last_key = None; repeats = 0
     try:
-        while time.time() - t0 < budget:
+        while clk() < budget:
             s, here = _here(world)
             if not s: return s, False
             if s["driving"]:
@@ -152,10 +221,32 @@ def climb(world, tx, ty, tl, budget=600, tol=0.6, learn=True):
                 M.cruise_to(here[0] + 0.5, here[1] + 0.5, tol=0.4, secs=4); continue
             fl = flights(path, world)
             STATS["replans"] += 1
+            # cells beside another phone before the next flight: walk to the cell before them,
+            # then step through them carefully
+            if hug:
+                lim = fl[0][0] if fl else len(path) - 1
+                hi = [i for i in range(1, lim + 1) if (path[i][0], path[i][1]) in hug]
+                if hi:
+                    i = hi[0]; j = i
+                    while j + 1 <= lim and (path[j + 1][0], path[j + 1][1]) in hug: j += 1
+                    if i > 1:
+                        pc = path[i - 1]
+                        s = M.walk3(world, pc[0] + 0.5, pc[1] + 0.5, pc[2], tol=0.4, budget=60)
+                        if not s or math.hypot(pc[0] + 0.5 - s["x"], pc[1] + 0.5 - s["y"]) > 0.7:
+                            fails["hug"] = fails.get("hug", 0) + 1
+                            if fails["hug"] >= 4: hug = None
+                            continue
+                    nxt = [path[k] for k in range(i, min(j + 2, len(path)))]
+                    careful_walk(world, [(c[0], c[1]) for c in nxt], nxt[0][2])
+                    fails["hug_walk"] = fails.get("hug_walk", 0) + 1
+                    if fails["hug_walk"] >= 3:
+                        M.mark("rooftop: three careful passes beside the neighbour phone did not get through; the plain walker")
+                        hug = None
+                    continue
             _say(f"climb: {len(path)} cells, {len(fl)} flights from {here} to {tx},{ty} L{tl}: "
                  + ", ".join(f"{path[a][:2]}L{la}->{path[b][:2]}L{lb}" for a, b, la, lb in fl))
             if not fl:
-                s = M.walk3(world, tx + 0.5, ty + 0.5, tl, tol=tol, budget=max(30, budget - (time.time() - t0)))
+                s = M.walk3(world, tx + 0.5, ty + 0.5, tl, tol=tol, budget=max(30, budget - clk()))
                 if s and math.hypot(tx + 0.5 - s["x"], ty + 0.5 - s["y"]) < tol + 0.3 and M.ped_level(s) == tl: return s, True
                 fails["flat"] = fails.get("flat", 0) + 1
                 if fails["flat"] >= 3: return s, False
@@ -165,11 +256,26 @@ def climb(world, tx, ty, tl, budget=600, tol=0.6, learn=True):
             top = path[b]
             key = (path[a], top)
             seg_budget = 60 + 1.6 * (b + 1)
+            w0, g0 = time.time(), clk()
             s = M.walk3(world, top[0] + 0.5, top[1] + 0.5, top[2], tol=0.6, budget=seg_budget)
             if s and M.ped_level(s) == top[2] and math.hypot(top[0] + 0.5 - s["x"], top[1] + 0.5 - s["y"]) < 1.3:
+                if key == last_key:
+                    # rp2: standing on the top of a slope the planner still starts the route a
+                    # level up, and the same flight 'climbed' 25 times in a second: one cell on
+                    nxt = path[min(len(path) - 1, b + 1)]
+                    M.cruise_to(nxt[0] + 0.5, nxt[1] + 0.5, tol=0.4, secs=4)
+                    repeats += 1
+                    if repeats > 4: fails[key] = fails.get(key, 0) + 1; repeats = 0
+                    continue
+                last_key = key; repeats = 0
                 STATS["flights"] += 1
                 best_level = top[2] if best_level is None else max(best_level, top[2])
                 M.mark(f"rooftop: flight {path[a][:2]} L{la} -> {top[:2]} L{lb} climbed (z {s['z']:.2f})")
+                continue
+            if clk.paused(w0, g0):
+                # the container was frozen during the flight: not a failure of the flight
+                STATS["pauses"] = STATS.get("pauses", 0) + 1
+                M.mark(f"rooftop: flight {path[a][:2]}->{top[:2]} spanned a pause ({time.time()-w0:.0f} wall-s, {clk()-g0:.0f} game-s); not counted")
                 continue
             fails[key] = fails.get(key, 0) + 1; STATS["flight_retries"] += 1
             lvl = M.ped_level(s) if s else None
@@ -186,7 +292,7 @@ def climb(world, tx, ty, tl, budget=600, tol=0.6, learn=True):
     finally:
         os.environ["WARP_OK"] = old
 
-def descend(world, toward=None, budget=300):
+def descend(world, toward=None, budget=300, hug=None):
     """back down to the street (level 1, or the lowest level of the route towards `toward`),
     on foot, no warp. Returns (state, reached)"""
     s, here = _here(world)
@@ -207,38 +313,57 @@ def descend(world, toward=None, budget=300):
         if cell: tgt = (int(cell[0]), int(cell[1]), cell[2] if len(cell) > 2 else 1)
     if tgt is None: _say("descend: no street cell found"); return s, False
     M.mark(f"rooftop: descending from {here} to {tgt}")
-    s, ok = climb(world, tgt[0], tgt[1], tgt[2], budget=budget, tol=0.9)
+    s, ok = climb(world, tgt[0], tgt[1], tgt[2], budget=budget, tol=0.9, hug=hug)
     if ok: M.mark(f"rooftop: back on the street at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f}")
     return s, ok
 
 def answer_roof_phone(world, entry, answer_fn, budget=900):
     """climb to the phone's launch cell, then the session's answer (step on, title, step off
     and on), warps off. Returns (ok, ms_or_key, info)"""
-    t0 = time.time()
+    t0 = time.time(); clk = GameClock()
     s, here = _here(world)
     if not s: return False, None, {"why": "no state"}
     tl = phone_level(world, entry)
     M.set_avoid_phones(world, keep=None)          # every phone avoided, this one too, until the step on
+    margin = phone_margin(world, entry) - set(M.AVOID)
+    M.AVOID.update(margin); hug = set()
     lc = launch_cell(world, entry, start=here)
+    if not lc and margin:
+        # the Zaibatsu terrace: the only way to COP CAR CRUSH's launch cell runs beside the
+        # WHEELER-DEALING phone. Walk those cells carefully instead
+        M.AVOID.difference_update(margin); hug = margin; margin = set()
+        lc = launch_cell(world, entry, start=here)
+        if lc: M.mark(f"rooftop: the launch route passes beside a neighbour phone: {sorted(c[:2] for c in lc[3] if c[:2] in hug)} walked cell by cell")
+    elif margin:
+        M.mark(f"rooftop: {len(margin)} cells round the neighbour phones kept clear")
     if not lc:
         _say(f"phone {entry['x']},{entry['y']} L{tl}: no reachable launch cell from {here}")
         return False, None, {"why": "no launch cell"}
     lx, ly, ll, path = lc
     M.mark(f"rooftop: phone {entry['x']},{entry['y']} L{tl}: launch cell {lx},{ly} L{ll}, {len(path)} cells, {len(flights(path, world))} flights")
-    s, ok = climb(world, lx, ly, ll, budget=budget * 0.8, tol=0.45)
-    info = {"launch": (lx, ly, ll), "climb_s": round(time.time() - t0), "reached": ok, "z": s["z"] if s else None}
+    try:
+        s, ok = climb(world, lx, ly, ll, budget=budget * 0.8, tol=0.45, hug=hug)
+    finally:
+        M.AVOID.difference_update(margin)
+    info = {"hug": sorted(hug), "launch": (lx, ly, ll), "climb_s": round(clk()), "climb_wall_s": round(time.time() - t0), "reached": ok, "z": s["z"] if s else None}
     if not ok:
-        M.mark(f"rooftop: launch cell not reached ({time.time()-t0:.0f}s, at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f})" if s else "rooftop: no state")
+        M.mark(f"rooftop: launch cell not reached ({clk():.0f} game-s, at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f})" if s else "rooftop: no state")
         return False, None, info
-    M.mark(f"rooftop: on the terrace at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f} after {time.time()-t0:.0f}s, no warp")
+    M.mark(f"rooftop: on the terrace at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f} after {clk():.0f} game-s, no warp")
     M.shot("rooftop_terrace")
+    if hug:
+        # rp7: between the arrival and the answer he drifted to 209.9,58.2; the answer's walk3 went
+        # diagonally from there, stuck, and its unstick answered the neighbour (1113). Back onto
+        # the launch cell (aimed away from the phones) so the step onto the phone is a straight one
+        s = careful_walk(world, [(lx, ly)], ll) or s
+        M.mark(f"rooftop: re-centred on the launch cell at {s['x']:.2f},{s['y']:.2f} before the answer")
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
     old = _no_warps()
     try:
         ok, ms = answer_fn(entry)
     finally:
         os.environ["WARP_OK"] = old
-    info["answer_s"] = round(time.time() - t0)
+    info["answer_s"] = round(clk())
     return ok, ms, info
 
 # ---------------------------------------------------------------- the CLI: a real job

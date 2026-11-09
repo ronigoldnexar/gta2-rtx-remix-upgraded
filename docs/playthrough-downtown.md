@@ -904,3 +904,54 @@ four-group runner; the Factory Bus burns after group 2): `docs/skill-horn.md`.
 reached.** Speed 2, fresh game, no warp, frames in the chase view (`out/zh1/m_horn_doctor_horn.png`,
 `out/zh4/m_zz_end_third.png`; not in git). The same module is in SKILL-CRUSHER's COP CAR CRUSH (Shady,
 ccc3-ccc5, 3 of 3 complete).
+
+### ROOFTOP-PROVE (9 Nov 2026): COP CAR CRUSH to JOB COMPLETE with the climb, and three skill fixes
+
+The proof job was COP CAR CRUSH (`wil_ze1`, Zaibatsu HQ level-4 terrace). The runner was
+`missions/cop_car_crush.py` (SKILL-CRUSHER's). It calls `skills/rooftop_access` for the phone,
+`deliver_intact` for the Cop Car, `horn_pickup` for Shady and `crusher_crane` for the crane. Every
+session ran on a fresh game with `GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1` and `WARP_OK=0`. There was no
+warp anywhere. Changes to `skills/rooftop_access.py` (shared runner libraries untouched):
+
+- **Budgets on the game clock** (`GameClock`): the climb's budget is the wall clock, capped at the
+  game's own clock (the renderer's frame counter) plus 12 s. A flight whose walk spanned a governor
+  pause is not counted as a failed flight (ccc1 lost its whole climb, 991 s, to a 16-minute pause
+  after 17 game seconds). In the game: rp1, rp2, ccc4 and rp4 each had a 441-1045 s pause on the first
+  flight. Each was marked "spanned a pause ... not counted", and the climb went on.
+- **Beside a neighbour phone** (`phone_margin`, `careful_walk`): the only way to the launch cell
+  (209,57) runs along x=209, beside WHEELER-DEALING's phone (208.5,59.5). In rp2 the walker's
+  sideways unstick on that stretch answered it, and COP CAR CRUSH then said 1113 ("already on a
+  Zaibatsu job"). The skill now first tries a route with a 1-cell margin round neighbour phones. When
+  there is none, as here, it walks those cells one at a time. Each aim point is 0.15 off-centre away
+  from the phone. The session's `cruise_to` runs in bursts shorter than its no-progress limit, so the
+  unstick never fires there. After three passes that do not get through, the plain walker takes over.
+  A first version steered with its own pulses. It drifted onto the neighbour phone at the corner in
+  rp4 and stalled in rp5, so it was replaced.
+- **Re-centred before the answer**: after arriving, he drifted to 209.9,58.2 (rp7). The session's
+  `answer` walk then went diagonally to the phone, stuck, and its unstick answered the neighbour
+  (1113). A careful step back onto the launch cell now precedes the answer, so the step onto the phone
+  is straight (rp8: answered, brief 1681).
+- **Repeated-flight guard**: standing on a slope top, the planner could report the same flight as
+  climbed 25 times in a second (rp2). Now it steps one cell on.
+
+| session | roof (climb, answer, descent) | job | what ended it |
+|---|---|---|---|
+| rp1 | clean (654 s pause not counted) | stuck | Cop Car pinned at 210.6,43.5 on the Shady drive, burned |
+| rp2 | climbed; the unstick answered WHEELER-DEALING | phone: 1113 | fixed (careful walk) |
+| rp3 | clean, careful walk 3 cells | stuck | Cop Car burned at 146.5,30.9 on the crusher drive |
+| rp4 | pulse-steered careful walk onto the neighbour phone | phone not answered | fixed (cruise_to bursts) |
+| **rp5** | clean (fallback walker after the pulse walk stalled) | **JOB COMPLETE** (1124, +$20,000, game-second 1263) | `out/rp5/m_ccc_end.png`: chase view, $20,875, "Here's $20,000 for a job well done" |
+| rp6 | clean, final careful walk: 3 cells in 4 s | stuck | Cop Car burned on the Shady and crusher drives (respray not reached) |
+| rp7 | clean climb and careful walk; drifted before the answer, the answer walk's unstick hit the neighbour | phone: 1113 | fixed (re-centre) |
+| rp8 | clean on the final code: re-centred, answered (1681), back on the street at game-second 213 | stuck | Cop Car burned on the Shady and crusher drives (carhp 32000 -> 14714 on the first) |
+| ccc3, ccc4, **ccc5** (SKILL-CRUSHER, same runner and skill) | clean (ccc4 with the pause fix and careful walk, ccc5 with the eased walk) | **JOB COMPLETE** x3 | `out/ccc*/m_ccc_crane_crushed.png`, `m_ccc_end.png` |
+
+**The acceptance bar (JOB COMPLETE in 2 of 3 sessions) is not met by this agent's own sessions:
+1 of 8 (rp5).** Across all 11 sessions of this runner since the game-clock fix, it is 4 of 11 (ccc3,
+ccc4, ccc5, rp5). ccc3-ccc5 were three in a row, but they are SKILL-CRUSHER's sessions, and rp6-rp8
+after them all failed. The roof reached the right job in 8 of the 11. The three misses (rp2, rp4,
+rp7) are each fixed above, and the final code (rp8) climbed, answered and came down clean. Every
+other failure was the Cop Car catching fire on a drive, in `deliver_intact` / `crusher_crane` (other
+streams). At `GTA2_SPEED=2` the burning car lost the job in 4 of the 11 (rp1, rp3, rp6, rp8).
+Frames, chase view, not in git:
+`out/rp*/m_rooftop_terrace.png` (the terrace beside the phone), `out/rp5/m_ccc_end.png` (JOB COMPLETE).
