@@ -42,4 +42,10 @@ bool MapObjectsEye(float* eye, float* dir);
 // QB-49: how many objects were drawn faded (closer to the eye than the fade range) in
 // the last frame, for the log.
 int MapObjectsFadedLastFrame();
+// FIX-ARTEFACTS: the share of the frame (0..1) a model's bounding box covers with the device's
+// current view and projection (1 when the box straddles the eye's plane; eyeGap: its nearest
+// corner's distance from the eye), and a rate-limited 'artefact probe:' log line for a
+// see-through draw that covers more than a twentieth of the frame.
+float ModelScreenShare(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement, float* eyeGap = nullptr);
+void LogLargeSeeThrough(IDirect3DDevice9* device, const char* kind, const Model& model, const gta2::Mat4& placement, float alpha);
 }  // namespace gta2dx9

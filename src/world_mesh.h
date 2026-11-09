@@ -180,6 +180,11 @@ struct MapTree { int x = 0, y = 0, level = 0; };
 std::vector<MapTree> FindMapTrees(const Map& map);
 bool MapTreesEnabled();
 struct MapTreeStats { int trees = 0, faces = 0; };
+// FIX-ARTEFACTS (pm24): the plain flat sides of composed window panels (the rose windows'
+// unflipped quarters) the street views leave out, so the composed side shows from behind
+// (FindPlainPanelSides in world_mesh.cpp); the faces left out at the last build.
+std::vector<uint8_t> FindPlainPanelSides(const Map& map);
+int LastPlainPanelSides();
 MapTreeStats LastMapTreeStats();
 // Walkable see-through gratings given an opaque underside in the street views (defect pm36).
 int LastGrateUndersides();

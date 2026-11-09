@@ -418,6 +418,13 @@ public:
     // While set, every face AddFaceUv or AddTriangle emits (walls and ramp cuts too, not only
     // lids) is left out of the street views: the map's tree blocks (FindMapTrees).
     void SetStreetHiddenAll(bool on) { streetHideAll_ = on; }
+    bool StreetHiddenAll() const { return streetHideAll_; }
+    // FIX-ARTEFACTS (pm24): the walls of the next AddBlock that the street views leave out,
+    // by side (1 left, 2 right, 4 top, 8 bottom): the plain far side of a composed window
+    // panel (FindPlainPanelSides).
+    void SetStreetHiddenSides(uint8_t sides) { streetHiddenSides_ = sides; }
+    uint8_t StreetHiddenSides() const { return streetHiddenSides_; }
+    uint8_t streetHiddenSides_ = 0;
 
     // A quad with no tile behind it, for the black seal under the world. The
     // corners are given anticlockwise seen from the side the normal points at,
@@ -1439,17 +1446,33 @@ void AddBlock(MeshBuilder* builder, const Block& block, const SlopeInfo& slope,
     const float southHeights[2] = {h[3], h[2]};
     const int southU[4] = {0, 1, 1, 0};
 
+    // FIX-ARTEFACTS (pm24): a side FindPlainPanelSides marked is drawn as before for the
+    // classic view and left out of the street views (TileBatch::streetIndices).
+    const uint8_t hiddenSides = builder->StreetHiddenSides();
+    auto streetHide = [&](uint8_t side, bool on) {
+        if (!(hiddenSides & side) || builder->StreetHiddenAll() == on) return;
+        builder->SetStreetHiddenAll(on);
+    };
+    const bool hideAllBefore = builder->StreetHiddenAll();
     if (SoloFace(block.left, block.right)) {
+        streetHide(1, true);
         addWall(block.left, leftCorners, kWest, kLeftFlags, leftTop, leftHeights, leftU);
+        if (!hideAllBefore) streetHide(1, false);
     }
     if (SoloFace(block.right, block.left)) {
+        streetHide(2, true);
         addWall(block.right, rightCorners, kEast, kRightFlags, rightTop, rightHeights, rightU);
+        if (!hideAllBefore) streetHide(2, false);
     }
     if (SoloFace(block.top, block.bottom)) {
+        streetHide(4, true);
         addWall(block.top, topCorners, kNorth, kTopFlags, northTop, northHeights, northU);
+        if (!hideAllBefore) streetHide(4, false);
     }
     if (SoloFace(block.bottom, block.top)) {
+        streetHide(8, true);
         addWall(block.bottom, bottomCorners, kSouth, kBottomFlags, southTop, southHeights, southU);
+        if (!hideAllBefore) streetHide(8, false);
     }
 
     // The far side of a flat panel: the opposite face's tile, on the panel's own
@@ -2583,6 +2606,86 @@ bool FineMeshTile(const Tile& tile) {
 
 int LastGrateUndersides() { return g_grateUndersides; }
 
+namespace {
+int g_plainPanelSides = 0;
+}  // namespace
+int LastPlainPanelSides() { return g_plainPanelSides; }
+
+// FIX-ARTEFACTS (pm24-bil-fp-rose-window-square-pixelated-tile): a flat panel carries one tile on
+// each face. Where a picture is built from flipped and turned copies of one tile (the Industrial
+// church's rose windows: four quarters of tile 388), the map gives that composition to one side
+// only and repeats the plain quarter, unflipped, on the panel's flat side: from the courtyard,
+// through the hollow facade's open back, the window was four copies of the same quarter. A
+// panel's composed side is already drawn double sided on the same plane (PanelBack), so the
+// street views leave the plain flat side out and see the composed one from behind, as glass is
+// seen: the window, mirrored. Only where a connected group (along the plane and up the levels)
+// of same-tile panels has two or more flip/turn words on one side and one on the flat side, so a
+// sign that repeats its tile the same way on both faces keeps both. Classic: unchanged
+// (streetIndices). Returns a mask per (x, y, level): 1 left, 2 right, 4 top, 8 bottom.
+std::vector<uint8_t> FindPlainPanelSides(const Map& map) {
+    std::vector<uint8_t> out;
+    struct Cand { int along, level, x, y; uint16_t flatWord, otherWord; };
+    // key: side (0 left, 1 right, 2 top, 3 bottom of the flat face), plane coordinate, tile
+    std::map<std::tuple<int, int, int>, std::vector<Cand>> groups;
+    for (int y = 0; y < kMapHeight; ++y)
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            for (size_t i = 0; i < column.blocks.size(); ++i) {
+                if (column.blocks[i] >= map.BlockCount()) continue;
+                const Block& b = map.BlockAt(column.blocks[i]);
+                if (b.SlopeType() != 0) continue;   // the plain cube walls only (AddBlock's SoloFace path)
+                const int level = column.offset + static_cast<int>(i);
+                const Face* f[4] = {&b.left, &b.right, &b.top, &b.bottom};
+                for (int side = 0; side < 4; ++side) {
+                    const Face& flat = *f[side];
+                    const Face& other = *f[side ^ 1];
+                    if (!flat || !other || !flat.IsFlat() || other.IsFlat() || flat.Tile() != other.Tile()) continue;
+                    const int plane = side < 2 ? x : y, along = side < 2 ? y : x;
+                    groups[{side, plane, flat.Tile()}].push_back(
+                        {along, level, x, y, static_cast<uint16_t>(flat.raw & 0xE000), static_cast<uint16_t>(other.raw & 0xE000)});
+                }
+            }
+        }
+    int marked = 0;
+    for (auto& g : groups) {
+        std::vector<Cand>& c = g.second;
+        std::vector<int> comp(c.size(), -1);
+        int next = 0;
+        for (size_t s = 0; s < c.size(); ++s) {
+            if (comp[s] >= 0) continue;
+            std::vector<size_t> stack{s};
+            comp[s] = next;
+            while (!stack.empty()) {
+                const size_t k = stack.back();
+                stack.pop_back();
+                for (size_t j = 0; j < c.size(); ++j)
+                    if (comp[j] < 0 && std::abs(c[j].along - c[k].along) + std::abs(c[j].level - c[k].level) == 1) {
+                        comp[j] = next;
+                        stack.push_back(j);
+                    }
+            }
+            ++next;
+        }
+        const int side = std::get<0>(g.first);
+        for (int id = 0; id < next; ++id) {
+            std::set<uint16_t> flatWords, otherWords;
+            int n = 0;
+            for (size_t j = 0; j < c.size(); ++j)
+                if (comp[j] == id) { flatWords.insert(c[j].flatWord); otherWords.insert(c[j].otherWord); ++n; }
+            if (n < 2 || flatWords.size() != 1 || otherWords.size() < 2) continue;
+            if (out.empty()) out.assign(static_cast<size_t>(kMapWidth) * kMapHeight * 9, 0);
+            for (size_t j = 0; j < c.size(); ++j) {
+                if (comp[j] != id || c[j].level < 0 || c[j].level > 8) continue;
+                out[(static_cast<size_t>(c[j].level) * kMapHeight + static_cast<size_t>(c[j].y)) * kMapWidth + static_cast<size_t>(c[j].x)] |=
+                    static_cast<uint8_t>(1u << side);
+                ++marked;
+            }
+        }
+    }
+    g_plainPanelSides = marked;
+    return out;
+}
+
 std::vector<MapTree> FindMapTrees(const Map& map) {
     std::vector<MapTree> trees;
     if (map.Empty()) return trees;
@@ -2643,6 +2746,9 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
         }
     }
     int treeFaces = 0;
+    const std::vector<uint8_t> plainSides = g_streetFill ? FindPlainPanelSides(map) : std::vector<uint8_t>{};
+    const int plainBefore = builder.StreetHiddenCount();
+    int plainFaces = 0;
     for (int y = 0; y < kMapHeight; ++y) {
         for (int x = 0; x < kMapWidth; ++x) {
             const Column& column = map.ColumnAt(x, y);
@@ -2661,10 +2767,14 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                 const uint8_t treePart = treeCell.empty() || level < 0 || level > 8 ? 0 : treeCell[treeSlot(x, y, level)];
                 builder.SetStreetHidden(decal || boardCandidate || treePart == 2);
                 builder.SetStreetHiddenAll(treePart == 1);
+                builder.SetStreetHiddenSides(plainSides.empty() || level < 0 || level > 8 ? 0 : plainSides[treeSlot(x, y, level)]);
                 const int hiddenBefore = builder.StreetHiddenCount();
                 AddBlock(&builder, block, resolved[block.SlopeType() & (kSlopeTypeCount - 1)], cuts, x, y, level);
+                builder.SetStreetHiddenSides(0);
                 builder.SetStreetHiddenAll(false);
                 if (treePart) treeFaces += builder.StreetHiddenCount() - hiddenBefore;
+                else if (!plainSides.empty() && level >= 0 && level <= 8 && plainSides[treeSlot(x, y, level)])
+                    plainFaces += builder.StreetHiddenCount() - hiddenBefore;
                 if (boardCandidate) {
                     std::array<Vertex, 4> quad;
                     std::array<Vec3, 4> corners;
@@ -2686,7 +2796,9 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
             }
         }
     }
-    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - treeFaces};
+    (void)plainBefore;
+    g_plainPanelSides = plainFaces;
+    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - treeFaces - plainFaces};
     g_mapTreeStats = MapTreeStats{static_cast<int>(trees.size()), treeFaces};
     g_boards = boards;
     AddImplicitFloors(&builder, map);

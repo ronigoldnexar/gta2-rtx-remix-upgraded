@@ -5435,6 +5435,20 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 it->second.second = s_fadeFrame;
                 overlap = a;
             }
+            // FIX-ARTEFACTS (pm7): a prop held see-through (neither gone nor whole) for more than
+            // half a second is the ghost of pm7/pm16; the fade above only passes through.
+            static std::unordered_map<uint64_t, int> s_partialRun;
+            int& run = s_partialRun[key];
+            run = (overlap > 0.02f && overlap < 0.98f) ? run + 1 : 0;
+            if (run == 16) {
+                static int s_heldLogs = 0;
+                if (s_heldLogs < 64) {
+                    ++s_heldLogs;
+                    Log("artefact probe: prop %s held see-through for %d frames at alpha %.2f at %.2f,%.2f (eye %.2f,%.2f,%.2f)", p.model->name.c_str(), run,
+                        overlap, p.x, static_cast<float>(gta2::kMapHeight) - p.z, eye.x, eye.y, static_cast<float>(gta2::kMapHeight) - eye.z);
+                }
+            }
+            if (s_partialRun.size() > 4096) s_partialRun.clear();
         }
         if (overlap <= 0.02f) { ++hiddenNow; continue; }
         {
@@ -5514,6 +5528,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         for (const FadedProp& f : faded) {
             const DWORD a = static_cast<DWORD>((std::min)(1.0f, (std::max)(0.0f, f.alpha)) * 255.0f + 0.5f);
             device->SetRenderState(D3DRS_TEXTUREFACTOR, (a << 24) | 0x00FFFFFFu);
+            LogLargeSeeThrough(device, "prop (overlap fade)", *f.model, f.m, f.alpha);
             ModelDraw(device, *f.model, f.m, nullptr, 0.0f);
         }
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);

@@ -214,6 +214,61 @@ const char* PickupLabel(const Model& model) {
 }
 }  // namespace
 
+// FIX-ARTEFACTS (pm7, pm27): the share of the frame a model's bounding box covers, with the view
+// and projection now set on the device (0..1; 1 when the box straddles the eye's plane, i.e. the
+// eye is in or right at it), and a rate-limited log of every see-through draw that covers more
+// than a twentieth of the frame: the 'wrong object in the frame' probe.
+float ModelScreenShare(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& w, float* eyeGap) {
+    D3DMATRIX v, p;
+    if (FAILED(device->GetTransform(D3DTS_VIEW, &v)) || FAILED(device->GetTransform(D3DTS_PROJECTION, &p))) return 0.0f;
+    float vp[4][4];
+    for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
+        float acc = 0.0f;
+        for (int k = 0; k < 4; ++k) acc += v.m[r][k] * p.m[k][c];
+        vp[r][c] = acc;
+    }
+    float eye[3];
+    for (int j = 0; j < 3; ++j) eye[j] = -(v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f, gap = 1e9f;
+    int front = 0, behind = 0;
+    for (int i = 0; i < 8; ++i) {
+        const float lx = (i & 1) ? model.boundsMax.x : model.boundsMin.x;
+        const float ly = (i & 2) ? model.boundsMax.y : model.boundsMin.y;
+        const float lz = (i & 4) ? model.boundsMax.z : model.boundsMin.z;
+        const float wx = lx * w.m[0][0] + ly * w.m[1][0] + lz * w.m[2][0] + w.m[3][0];
+        const float wy = lx * w.m[0][1] + ly * w.m[1][1] + lz * w.m[2][1] + w.m[3][1];
+        const float wz = lx * w.m[0][2] + ly * w.m[1][2] + lz * w.m[2][2] + w.m[3][2];
+        gap = (std::min)(gap, std::sqrt((wx - eye[0]) * (wx - eye[0]) + (wy - eye[1]) * (wy - eye[1]) + (wz - eye[2]) * (wz - eye[2])));
+        const float cx = wx * vp[0][0] + wy * vp[1][0] + wz * vp[2][0] + vp[3][0];
+        const float cy = wx * vp[0][1] + wy * vp[1][1] + wz * vp[2][1] + vp[3][1];
+        const float cw = wx * vp[0][3] + wy * vp[1][3] + wz * vp[2][3] + vp[3][3];
+        if (cw < 0.02f) { ++behind; continue; }
+        ++front;
+        const float sx = 0.5f + 0.5f * cx / cw, sy = 0.5f - 0.5f * cy / cw;
+        x0 = (std::min)(x0, sx); x1 = (std::max)(x1, sx); y0 = (std::min)(y0, sy); y1 = (std::max)(y1, sy);
+    }
+    if (eyeGap) *eyeGap = gap;
+    if (!front) return 0.0f;
+    if (behind) return 1.0f;
+    x0 = (std::max)(0.0f, x0); x1 = (std::min)(1.0f, x1); y0 = (std::max)(0.0f, y0); y1 = (std::min)(1.0f, y1);
+    return (x1 > x0 && y1 > y0) ? (x1 - x0) * (y1 - y0) : 0.0f;
+}
+
+void LogLargeSeeThrough(IDirect3DDevice9* device, const char* kind, const Model& model, const gta2::Mat4& w, float alpha) {
+    static int s_lines = 0;
+    static double s_last = -1.0;
+    static const Model* s_lastModel = nullptr;
+    if (s_lines >= 400) return;
+    float gap = 0.0f;
+    const float share = ModelScreenShare(device, model, w, &gap);
+    if (share < 0.05f) return;
+    const double now = NowSeconds();
+    if (&model == s_lastModel && now - s_last < 0.25) return;
+    s_last = now; s_lastModel = &model; ++s_lines;
+    Log("artefact probe: %s %s drawn see-through at alpha %.2f covers %.0f%% of the frame (box %.2f from the eye) at %.2f,%.2f,%.2f",
+        kind, model.name.c_str(), alpha, 100.0f * share, gap, w.m[3][0], w.m[3][1], w.m[3][2]);
+}
+
 const std::vector<PickupSpot>& MapObjectPickups() { return g_pickups; }
 uint32_t MapObjectPickupsFrame() { return g_pickupsFrame; }
 int MapObjectsFadedLastFrame() { return g_fadedLast; }
@@ -506,6 +561,7 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         for (const Faded& d : g_fadedNow) {
             const DWORD a = static_cast<DWORD>((std::min)(1.0f, (std::max)(0.0f, d.alpha)) * 255.0f + 0.5f);
             device->SetRenderState(D3DRS_TEXTUREFACTOR, (a << 24) | 0x00FFFFFFu);
+            LogLargeSeeThrough(device, "object (near fade)", *d.model, d.out, d.alpha);
             ModelDraw(device, *d.model, d.out, d.spin, d.t);
         }
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);

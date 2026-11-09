@@ -466,6 +466,41 @@ classic underside from `AddHiddenSurfaces` (b)) flanked by diagonal half cells (
 `AddDiagonalUndersides` (street-only) gives a diagonal block with a solid lid over open air the triangle of its lid,
 faced down at its base: Downtown 3, Residential 33, Industrial 57 (log `... N diagonal undersides`).
 
+## Rose window backs; the 'wrong object' probe (FIX-ARTEFACTS, 9 Nov 2026; defects pm24, pm7, pm27, tri whirl)
+
+**pm24 (bil courtyard exit, first person: the rose window as a hard-edged square of four identical pixelated quarters).**
+The Industrial church's rose windows are flat panels of tile 388, one quarter of the disc: (41..42,106) and (46..47,106) levels
+3-4 facing the street, (42,101..102) and (46,101..102) facing the courtyard. The map composes the disc from flipped and
+turned copies on one side only (the bottom/right faces: `m r2`, `r2`, `m`, `r0`) and repeats the plain quarter, unflipped, on
+the panel's flat side. The street-facing windows' flat side looks north into the church, a hollow facade whose courtyard
+side is invisible walls (tile 0 with the wall bit at (41..43,105)), so from the courtyard exit the window was four copies of the
+same quarter (`out/fa_bil_cam1`, fixed cameras, t_c0/t_c2). The composed side is already on the same plane as a double-sided
+panel back (`PanelBack`), so `FindPlainPanelSides` leaves the plain flat side out of the street views (TileBatch::streetIndices)
+and the composed side is seen from behind, as glass is: the round window, mirrored (`out/fa_bil_cam2`). Only where a connected
+group of same-tile panels (along the plane and up the levels) has two or more flip/turn words on one side and a single word on
+the flat side, so a sign that repeats its tile the same way on both faces keeps both. Faces left out: Industrial 50 (the four
+rose windows, truss and fence runs whose composed side has a mirrored end piece), Residential 30 (girder and picture
+hoardings), Downtown 0; log line `plain window backs (street views: the composed side seen through): N face(s) left out`.
+Classic mesh hashes unchanged (wil b9a234d14d489bf7, ste fc908f869418d987, bil 1d2767964eba1223); vreg spawn_classic 0 tiles.
+Left as the map has it: the church's hollow back (the one-sided brick 179 under the window at level 2 and the roof slabs seen
+from below), which the courtyard sees through the invisible walls.
+
+**The probe.** `artefact probe:` log lines name a see-through draw that covers more than a twentieth of the frame (a map object
+in the near fade, `map_objects.cpp`; a street prop in the overlap fade, `live_geometry.cpp`: name, alpha, share of the frame,
+distance of its box from the eye) and a street prop held see-through (neither gone nor whole) for more than half a second
+(`held see-through for N frames`). Always on, rate limited (400 and 64 lines a session).
+
+**pm7 (bil, third person: a translucent grey octagon over the street for a second).** Not a prop: the frame is the game's
+score pop. The filer's log has the +$10 at that moment (`view: mission money=110`, 13:56:14.9) and the "octagon" is a "0" with
+the "1" beside it, the digits the game zooms up from its top-down layout (FIX-HUD-2, 3c5bc3c, pm50/feel4: `hud_pass.cpp` now
+drops or caps them in the street views). The probe saw no large see-through prop or object in the repro runs.
+
+**pm27 and the tri whirl (ste spawn, third person: a blue-white "cartoon face" with a torn edge).** Graffiti tile 355 on the
+wall plane x=117 (FIX-WORLD-4 above). The game's 64 px tile is the same teal, shaded piece with the eye ring and a serrated
+dark outline, so the "torn edge" is the art's own, not near-plane clipping, and it draws at its own scale (`out/fa_ste_1`).
+It fills the frame only because the chase eye stood about a block from that wall with the car jammed into it (filer's
+`camera clearance ... 0.150 at 116.04,2.85,131.57`): a camera-distance matter, noted for the chase camera's owner.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder
