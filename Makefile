@@ -79,6 +79,7 @@ linux/build/sehcheck.exe: linux/sehcheck.cpp dll/src/compat.cpp dll/src/compat.h
 	$(CXX) -std=c++17 -O2 -Idll/src -o $@ linux/sehcheck.cpp dll/src/compat.cpp -static
 
 check: stage linux/build/loadcheck.exe linux/build/sehcheck.exe
+	python3 tools/check_ini_sections.py package/gta2dx9.ini
 	cd stage && $(WINE) ../linux/build/loadcheck.exe
 	$(WINE) linux/build/sehcheck.exe
 
