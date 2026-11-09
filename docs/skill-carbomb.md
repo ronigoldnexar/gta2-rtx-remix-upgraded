@@ -95,4 +95,16 @@ marks. Everything from the phone on is played.
 
 ## Sessions
 
-(filled in as they run)
+All sessions used the shared `repo/stage`, the plain renderer, `GTA2_DIRECT_KEYS=1` (every frame
+in the chase view) and `FPS=0`. cb1-cb7 ran at `GTA2_SPEED=2`, cb8 on at `GTA2_SPEED=1`.
+
+| session | reached | ended because | fixed in |
+|---|---|---|---|
+| cb1 | level | the scene warp was pressed in the chase view and ignored; stopped by me | runner: classic view for the warp |
+| cb2 | phone not answered | warped to 15.5,85.5, answer()'s waypoint 18.5,100 walked him back south, the walker stuck at 5,114 | runner: one approach point only |
+| cb3, cb4, cb5 | level | warp refused: the renderer wants a road or pavement cell within 6 blocks by its own test (18.5,72.5 and 13.5,72.5 refused); stopped by me | runner: warp to cb2's 15.5,85.5, walk to 18.5,72.5 |
+| cb6 | phone (34 s), Pickup boarded | shared smooth driver: carhp 32000 -> 17000 on the road way; the drive ended north of the trailer and the straight creep pushed into it | skill: creep only from the line-up point |
+| cb7 (`CB_DRIVER=old`) | **stage 1 parked (2005), armed (2006) on the first press, blown in the block (2012, +$95)** | he got out on the trailer side (car facing west-north-west, door north) and his facing took him north-west; dead 0.8 blocks from the script's EXPLODE at 51,19.5, 2.1 s wall (about 4 game s) after arming | skill: escape model (turn and run until the fuse ends), straight and dogleg runs fanned round the heading, re-plan from where he lands; runner: line up from the west (car faces east, door south) |
+| cb8 | Pickup to column 60 | the router's road way cut the corner from column 61 into row 22 and pinned the car on the wall column 58 (rows 25-27) until it burned | skill: `via` points; never board a car burning under carhp 4000 |
+| cb9, cb10 | **at the line-up point with carhp 28500-26700** | the car arrived facing north with the block due east; the pulse creep (reverse-and-steer, then a forward arc) took it away; stopped by me | skill: the shared driver takes the last 5 blocks, stopping at "parked" |
+| cb11 | **stage 1 done and survived**: via points (carhp 30532 at the block), parked, armed, ran 11.7 blocks east, 2012 at 222 game s; wanted level gone in 8 s | walking to the second Pickup he was arrested (an 86-block jump, lives unchanged) and the job ended; the runner did not notice and tried 13 doors at the empty spawn | skill: a jump over 25 blocks on foot ends the job (`busted`); `board` needs the game's target car |

@@ -83,12 +83,15 @@ class JobOver(Exception):
     pass
 
 
+WARPING = [False]      # set by a runner around a developer warp (not a respawn)
+
+
 class Job:
     """every message key the mission line showed (the brief changes inside a second: 2016 then
     2018), the job's end from them and from the player's own fields."""
     def __init__(self, done=("2999",), failed=("2998",), busted=("6155", "6159"), lives0=None):
         self.done, self.failed, self.busted = set(done), set(failed), set(busted)
-        self.seen = []; self._off = 0
+        self.seen = []; self._off = 0; self.last_xy = None
         ms = M.mission_state() or {}
         self.lives0 = lives0 if lives0 is not None else ms.get("lives")
         self.money0 = ms.get("money", 0)
@@ -123,6 +126,14 @@ class Job:
         if any(k in self.busted for k in self.seen): return "busted"
         if ms.get("health", 1) == 0 or ms.get("death", 0) != 0: return "dead"
         if self.lives0 is not None and ms.get("lives", self.lives0) < self.lives0: return "dead"
+        # cb11: arrested on foot after stage 1 (lives unchanged, no message key of this job): a jump
+        # of more than 25 blocks while on foot is a respawn at a station or a hospital
+        s = D.wait_state(2)
+        if s:
+            if self.last_xy and not s["driving"] and not self.last_xy[2] and time.time() - self.last_xy[3] < 6.0 \
+                    and math.hypot(s["x"] - self.last_xy[0], s["y"] - self.last_xy[1]) > 25 and not WARPING[0]:
+                return "busted"
+            self.last_xy = (s["x"], s["y"], s["driving"], time.time())
         return None
 
     def check(self):
@@ -147,13 +158,15 @@ class Stage:
     blasts: extra points the script blows up after the car; model: the car's model number
     (vehicle +0x84 enum: 41 PICKUP); car: its spawn (fallback when no arrow); line: (approach,
     creep point) for a thin block that must be entered along its length; routes: {name: [legs]}
-    fixed escape routes (else computed); name: for marks and frames."""
+    fixed escape routes (else computed); via: road points driven in order before the block (the
+    shared router's own way can cut a corner into a wall: cb8 pinned at 58.5,25-27 until the
+    Pickup burned); name: for marks and frames."""
     def __init__(self, box, keys, arrow=None, blasts=(), model=None, car=None, line=None,
-                 routes=None, name="cb", escape_dist=11):
+                 routes=None, name="cb", escape_dist=11, via=()):
         self.box = box; self.keys = {k: set(v) if not isinstance(v, str) else {v} for k, v in keys.items()}
         self.arrow = arrow or (box[0], box[1]); self.blasts = list(blasts); self.model = model
         self.car = car; self.line = line; self.routes = routes; self.name = name
-        self.escape_dist = escape_dist
+        self.escape_dist = escape_dist; self.via = list(via)
 
     def k(self, what):
         return self.keys.get(what, set())
@@ -207,10 +220,22 @@ def board(world, stage, check=None, tries=4):
         if check: check()
         s = D.wait_state()
         if s and s["driving"] and _is_mission_car(stage): return s
-        xy = mission_car_xy(stage.car)
+        xy = mission_car_xy(None)
+        t1 = time.time()
+        while xy is None and gsecs(t1) < 6.0:
+            time.sleep(0.5); xy = mission_car_xy(None)
         if xy is None:
-            say("car_bomb.board: no arrow on a car and no spawn given"); return None
+            # cb11: no target car and no car arrow (the job ended: arrested): the spawn point holds
+            # no car, and 13 door tries at it were wasted
+            ev(f"{stage.name}: no mission car in the game (no tcar, no car arrow): not boarding")
+            if check: check()
+            return None
         cx, cy = xy
+        ms = M.mission_state() or {}
+        if ms.get("tcarfire", -1) > 0 and 0 <= ms.get("tcarhp", -1) < 4000:
+            # cb8 walked back into its Pickup at carhp 84: it will blow up with him in it
+            ev(f"{stage.name}: the car burns with carhp {ms.get('tcarhp')}: not boarding it")
+            return None
         STATS["boards"] += 1
         ev(f"{stage.name}: boarding the car at {cx:.1f},{cy:.1f} (try {attempt + 1})")
         if s and s["driving"]:
@@ -280,8 +305,18 @@ def creep(stage, x, y, job, since, secs=60, check=None):
             time.sleep(0.6); continue
         a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
         if abs(a) > 0.6 and math.hypot(dx, dy) > 0.7:
-            xdo("keydown", "Down"); xdo("keydown", "Left" if a > 0 else "Right"); time.sleep(0.6)
-            xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right"); time.sleep(0.3)
+            # cb9: facing north at the line-up point with the block due east, 48 reverse-and-steer
+            # pulses backed the car 10 blocks away. A forward arc first; reverse only when the
+            # arc does not move the car (a wall ahead)
+            p0 = (s["x"], s["y"])
+            key = "Right" if a > 0 else "Left"
+            xdo("keydown", key); xdo("keydown", "Up"); time.sleep(0.35); xdo("keyup", "Up"); time.sleep(0.25); xdo("keyup", key)
+            time.sleep(0.3)
+            s2 = D.wait_state()
+            if s2 and math.hypot(s2["x"] - p0[0], s2["y"] - p0[1]) < 0.15:
+                xdo("keydown", "Down"); xdo("keydown", "Left" if a > 0 else "Right"); time.sleep(0.5)
+                xdo("keyup", "Down"); xdo("keyup", "Left"); xdo("keyup", "Right"); time.sleep(0.3)
+            k += 1
             continue
         if abs(a) > 0.12: xdo("keydown", "Right" if a > 0 else "Left")
         xdo("keydown", "Up"); time.sleep(0.25); xdo("keyup", "Up"); xdo("keyup", "Right"); xdo("keyup", "Left")
@@ -312,6 +347,21 @@ def park(world, stage, job, check=None, budget=600):
         if time.time() - t0 > budget: break
         s = D.wait_state()
         if not (s and s["driving"]): return False
+        if stage.via:
+            # from the via point nearest to him on (cb12: "nearer to the goal than he is" skipped the
+            # stretch of BLOW JOB's road way that first leads away from the barricade)
+            s = D.wait_state()
+            k0 = min(range(len(stage.via)), key=lambda i: math.hypot(stage.via[i][0] - s["x"], stage.via[i][1] - s["y"])) if s else 0
+            if s and k0 + 1 < len(stage.via):
+                a, b = stage.via[k0], stage.via[k0 + 1]
+                # past the nearest one already when he is nearer to the next than it is
+                if math.hypot(b[0] - s["x"], b[1] - s["y"]) < math.hypot(b[0] - a[0], b[1] - a[1]): k0 += 1
+            for vx, vy in stage.via[k0:]:
+                s = D.wait_state()
+                if not (s and s["driving"]) or parked(): break
+                ev(f"{stage.name}: via {vx},{vy} (carhp {(M.mission_state() or {}).get('carhp')})")
+                drive(world, vx, vy, tol=1.5, budget=max(60, budget - (time.time() - t0)), until=parked)
+                if check: check()
         if stage.line:
             (ax, ay), (cx, cy) = stage.line
             # cb6: the drive ended north of the trailer (54.1,17.4) and a straight creep toward
@@ -329,8 +379,14 @@ def park(world, stage, job, check=None, budget=600):
             if da > 2.2 and dc > 2.0:
                 say(f"car_bomb.park: not at the line-up point ({da:.1f} off at {s['x']:.1f},{s['y']:.1f}); no creep")
                 hold("Down", 0.8); continue
-            ev(f"{stage.name}: creeping in from {s['x']:.1f},{s['y']:.1f} toward {cx},{cy} (carhp {(M.mission_state() or {}).get('carhp')})")
-            if creep(stage, cx, cy, job, since, secs=50, check=check): hold_still(); return True
+            ev(f"{stage.name}: in from {s['x']:.1f},{s['y']:.1f} toward {cx},{cy} (carhp {(M.mission_state() or {}).get('carhp')})")
+            # cb9/cb10: the pulse creep from a car facing across the line (north at the line-up,
+            # the block east) backed or arced away; the shared driver turns it on the field and
+            # stops the moment the game says parked
+            drive(world, cx, cy, tol=0.7, budget=60, until=parked)
+            if parked(): hold_still(); return True
+            if check: check()
+            if creep(stage, cx, cy, job, since, secs=40, check=check): hold_still(); return True
         elif DI:
             DI.deliver(world, stage.box, done=parked, check=check, label=f"the {stage.name} block",
                        park_wait=0.5, budget=budget, tries=3)
@@ -502,25 +558,45 @@ def run_legs(legs, secs):
     return D.wait_state()
 
 
-def run_clear(world, stage, car, heading, legs=None, secs=14.0):
-    """out of the car and away from the bomb along the planned legs (re-planned from where he
-    actually stands when that is off the door point by more than a block)"""
+def side_doors(car, heading):
+    """the two door points: right (y south: (-hy, hx)) and left"""
+    hx, hy = heading
+    return {"right": (car[0] - hy * 1.0, car[1] + hx * 1.0), "left": (car[0] + hy * 1.0, car[1] - hx * 1.0)}
+
+
+def plan_both(world, stage, car, heading, s):
+    """an escape for each door, before arming (cb12: the right-hand door at the barricade was
+    blocked, he came out on the left and ran the right door's route round the car's tail)"""
+    plans = {}
+    for side, door in side_doors(car, heading).items():
+        name, legs = plan_escape(world, stage, car, heading, s, start=door)
+        plans[side] = (name, legs, LAST_SCORE[0])
+    return plans
+
+
+def run_clear(world, stage, car, heading, plans=None, secs=14.0):
+    """out of the car and away from the bomb: the side he comes out on (his offset across the
+    car's axis once he is half a block out) picks the plan"""
     t0 = time.time()
     tap("Return", 0.2)
-    for _ in range(20):
+    hx, hy = heading
+    s = None
+    for _ in range(30):
         s = D.wait_state()
-        if s and not s["driving"]: break
-        time.sleep(0.08)
+        if s and not s["driving"]:
+            off = (s["x"] - car[0]) * (-hy) + (s["y"] - car[1]) * hx       # + right, - left
+            if abs(off) > 0.45 or time.time() - t0 > 1.0: break
+        time.sleep(0.05)
     s = D.wait_state()
-    planned = LAST_SCORE[0] if legs is not None else -99.0
-    # from where he actually stands (cheap: straight runs and doglegs); taken when the
-    # precomputed plan is worse (cb7: he came out where no planned route was safe)
-    name2, legs2 = plan_escape(world, stage, car, heading, s, start=(s["x"], s["y"]), quick=True)
-    if legs is None or LAST_SCORE[0] > planned + 1.0:
-        say(f"car_bomb.run_clear: from {s['x']:.1f},{s['y']:.1f}: {name2} ({LAST_SCORE[0]:.1f} over the plan's {planned:.1f})")
-        legs = legs2
+    off = (s["x"] - car[0]) * (-hy) + (s["y"] - car[1]) * hx
+    side = "right" if off >= 0 else "left"
+    if plans and side in plans and plans[side][1]:
+        name, legs, score = plans[side]
+    else:
+        name, legs = plan_escape(world, stage, car, heading, s, start=(s["x"], s["y"]), quick=True)
     STATS["escapes"] += 1
-    M.mark(f"car_bomb: out at {s['x']:.1f},{s['y']:.1f}, running {[(round(a, 1), round(b, 1)) for a, b in legs]}")
+    M.mark(f"car_bomb: out on the {side} side at {s['x']:.1f},{s['y']:.1f} (offset {off:+.2f}), running {name} "
+           f"{[(round(a, 1), round(b, 1)) for a, b in legs]}")
     s = run_legs(legs, secs)
     if s:
         d = math.hypot(s["x"] - car[0], s["y"] - car[1])
@@ -599,14 +675,14 @@ def car_bomb(world, stage, job, check=None, tries=3, budget=900, shot_prefix=Non
             s = D.wait_state()
             M.shot(f"{shot_prefix}_block")
             car = (s["x"], s["y"]); heading = M.heading(s)
-            name, legs = plan_escape(world, stage, car, heading, s)
+            plans = plan_both(world, stage, car, heading, s)
             ev(f"{stage.name}: parked at {car[0]:.2f},{car[1]:.2f} heading {heading[0]:.2f},{heading[1]:.2f}; "
-               f"escape {name}")
+               f"escape right {plans['right'][0]} ({plans['right'][2]:.1f}), left {plans['left'][0]} ({plans['left'][2]:.1f})")
             if not arm(stage, job, check=chk):
                 if job.last() in stage.k("left"): continue
                 return "stuck: not armed"
             ev(f"{stage.name}: armed (msg {job.last()})")
-            run_clear(world, stage, car, heading, legs, secs=run_secs)
+            run_clear(world, stage, car, heading, plans, secs=run_secs)
             M.shot(f"{shot_prefix}_run")
             v = watch(stage, job, shot_prefix=shot_prefix)
             ev(f"{stage.name}: {v}")
