@@ -191,6 +191,15 @@ standing through the canopy for the whole drive. Now:
   cycled live through the bodies, third person still, turning and side shots, first person) and
   `va4_enter.py` (enter, drive, exit bursts at a warp spot). Bodies without the entry keep the sprite's seat.
 
+**The open door's inside (VEHICLE-ART-4, 9 Nov; feel19).** An authored body's cabin liner (normals into the
+cabin, near-black interior texture) lies in the door's box, so `BuildDoorSplit` swung it out with the door: from
+behind, the open door was a flat black slab (068 van: 188 liner triangles a side). Faces in the box whose vertex
+normals point into the cabin now go with neither piece while the door is open (log `car bodies: door of <name>,
+side <s>: N cabin-liner triangles left out`): the door shows its own skin from inside (the inner copy, painted and
+lit as the panel), the opening the cabin behind it. By vertex normals, not winding, so an image-to-3D shell's
+faces wound either way stay. Still open: the door's rear edge is the clip outline (saw-toothed on the 068's ribbed
+side), and the inside of a door is the outer paint, not a trim panel.
+
 **Verification aids.** `GTA2DX9_BOARDING_CAM=2` holds the camera ahead of the door (front quarter: the
 door's swing and the figure behind it are both seen); both cameras now stay through the shut. Probe
 `linux/docker/aee_probe.py` + `keys_aee_probe.sh` (mirrored in `gamerun/`) = `entry_probe.py` plus

@@ -1661,7 +1661,7 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
     }
     body.name = model.name + "#nodoor"; door.name = model.name + "#door";
     size_t doorTris = 0;
-    size_t clippedTris = 0;
+    size_t clippedTris = 0, linerTris = 0;
     for (size_t n = 0; n < model.nodes.size(); ++n) {
         const int mi = model.nodes[n].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
@@ -1685,6 +1685,20 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
             const bool lateral = nl > 1e-9f && std::fabs(nrm.x) / nl > 0.45f;
             const bool isDoor = lateral && static_cast<float>(side) * cx > 0.5f * halfW && cy > 0.10f * roof && cy < 0.95f * roof &&
                                 cz > zRear && cz < zFront;
+            // VEHICLE-ART-4 (feel19): an authored body's cabin liner (its normals into the cabin, a
+            // near-black interior texture: 188 of the 068 van's door faces) lay in the door's box and
+            // swung out with it: the open door, seen from inside, was a flat black slab. Those faces go
+            // with neither piece while the door is open: the door shows its own skin from inside (the
+            // inner copy below, painted and lit as the panel), the opening the cabin behind it. By the
+            // vertex normals, not the winding (an image-to-3D shell has faces wound either way).
+            if (isDoor) {
+                float nxSum = 0.0f;
+                for (int c = 0; c < 3; ++c) {
+                    const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                    nxSum += v.nx * toCar.m[0][0] + v.ny * toCar.m[1][0] + v.nz * toCar.m[2][0];
+                }
+                if (static_cast<float>(side) * nxSum < -0.3f * 3.0f * (std::fabs(toCar.m[0][0]) + std::fabs(toCar.m[2][0]))) { ++linerTris; continue; }
+            }
             // ANIM-ENTRY-EXIT: the image-to-3D shells have long thin triangles whose centroid lies
             // on the door while a corner reaches the sill, the wheel arch or the road. Swung whole
             // with the door they hung below it as black shards that crossed the person getting out
@@ -1781,6 +1795,7 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
         }
     }
     if (clippedTris) Log("car bodies: door of %s, side %d: %zu triangles clipped to the door's outline", model.name.c_str(), side, clippedTris);
+    if (linerTris) Log("car bodies: door of %s, side %d: %zu cabin-liner triangles left out while it is open", model.name.c_str(), side, linerTris);
     *doorTrisOut = doorTris;
 }
 
