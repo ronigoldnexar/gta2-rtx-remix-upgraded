@@ -1068,3 +1068,16 @@ reflection crop was taken; 019 had no day third-person frame (the view switch mi
 but were not filmed. The maps are not in the shared `package/` layer (release-archive material); the layer used is a
 private copy. Known unrelated defect: the avatars' police and security pistols share one texture with and without a metallic
 map, so `1AA4B8C5FD5FD552.m.rtex.dds` can be missing (layer validation reports it).
+
+### CAR-PBR merged into the shared layer (REMIX-LAYER-INTEGRATE, 9 Nov 2026)
+
+The ten cars' prims and maps (20 prims: `_0` atlas and `_0_paint` for 003 004 005 019 021 022 029 052 069 071; 92 map files)
+were copied from the private layer into `package/rtx-remix/mods/gta2hd` with the new `tools/remix_layer_merge.py <src> <dst>
+<hashes.txt>`: it copies only the listed hashes' DDS files (unlinking the target first), replaces or inserts those `mat_<h>`
+prims in `mod.usda` and `mod_wet.usda` (model prims are identical in both), adds the hashes to `model_prims.txt`, and writes
+the text files through a temp file + rename. It deliberately does not re-run `remix_model_materials.py` on the shared layer:
+that rewrites every model prim and would have added the avatar prims of other agents. `pbr.json` holds tile entries only, so
+it needed no change. Result: `git diff` of the three tracked files is additions only (the station glass, lights and sky prims
+of FIX-REMIX / FIX-REMIX-2 are byte-identical); `remix_materials.validate` reports 3222 prims, 0 problems; the old-hash prims
+of these cars stay in the layer (inert; no manifest model references them). The DDS maps are not in git (release archive only).
+
