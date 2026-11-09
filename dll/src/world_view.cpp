@@ -2394,6 +2394,12 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             transitionT_ = 0.0f;
             transitionToClassic_ = mode == ViewMode::Classic;
             transitionFromClassic_ = lastViewMode_ == ViewMode::Classic;
+            // The last frame drawn was the settled classic view and the renderer kept it:
+            // the move opens on that frame and dissolves it away (RenderFrame).
+            dissolveActive_ = transitionFromClassic_ && vm.switchDissolve > 0.001f && renderer_.HasKeptFrame() &&
+                              keptClassicAt_ == frameCount_ - 1;
+            dissolveT0_ = -1.0f;
+            Log("view dissolve: %s", dissolveActive_ ? "from the last classic frame" : "none (no kept classic frame)");
             Log("view: moving the camera to %s over %.1f s", ViewModeName(mode), vm.transitionSeconds);
         }
         lastViewMode_ = mode;
@@ -2730,6 +2736,31 @@ void WorldView::RenderFrame() {
             overlay_.Flush(renderer_.Device(), renderer_.Width(), renderer_.Height());
         }
         Hud3dRender(renderer_.Device(), renderer_.Width(), renderer_.Height(), map_, worldUploaded_);   // MODERN HUD (hud3d.cpp)
+        // The view switch out of the classic view (BEV-PURITY). The street view's renderer
+        // draws its own figures, photo tiles, sky and HUD from the very first frame of the
+        // move, while the camera is still at the classic camera, so V changed the top-down
+        // picture at once (the player's dark sprite became the lighter 3D figure seen from
+        // above). Instead the move opens on the last classic frame itself, copied bit for bit,
+        // and that frame dissolves into the street view over the first switch_dissolve_percent
+        // of the move, as the eye starts to come down. The settled classic view is untouched:
+        // it is only copied (KeepFrame), never drawn over.
+        if (dissolveActive_) {
+            if (CurrentViewMode() == ViewMode::Classic || !transitionFromClassic_ || transitionT_ >= 1.0f) {
+                dissolveActive_ = false;
+            } else {
+                if (dissolveT0_ < 0.0f) dissolveT0_ = transitionT_;
+                const float span = (std::max)(ViewModes().switchDissolve * (1.0f - dissolveT0_), 0.01f);
+                const float u = (std::min)(1.0f, (std::max)(0.0f, (transitionT_ - dissolveT0_) / span));
+                const float alpha = 1.0f - u * u * (3.0f - 2.0f * u);
+                if (alpha <= 0.0f) dissolveActive_ = false;
+                else renderer_.DrawKeptFrame(alpha);
+                static int verify = -1;
+                if (verify < 0) { char buf[8] = {}; verify = GetEnvironmentVariableA("GTA2DX9_DISSOLVE_VERIFY", buf, sizeof buf) && buf[0] == '1'; }
+                if (verify && dissolveT0_ == transitionT_)
+                    Log("view dissolve: first frame of the move vs the last classic frame: %ld pixels differ (alpha %.3f)",
+                        renderer_.KeptFrameDifference(), alpha);
+            }
+        }
         // ImGui issues ordinary D3D9 draws, so it belongs inside the scene.
         DebugMenuRender();
         // Remix clears its per-frame light list every frame, so a light is in the
@@ -2739,6 +2770,15 @@ void WorldView::RenderFrame() {
         LightsDraw();
         QueryPerformanceCounter(&lightTimer[3]);
         stamp[5] = lightTimer[3];
+        // A settled classic frame is kept for the dissolve above (a copy; this frame is
+        // presented exactly as drawn). Any other frame drops the copy.
+        if (worldUploaded_ && CurrentViewMode() == ViewMode::Classic && !g_viewActive && transitionT_ >= 1.0f &&
+            skyBlend_ <= 0.0f && !DebugMenuVisible()) {
+            renderer_.KeepFrame();
+            keptClassicAt_ = frameCount_;
+        } else if (renderer_.HasKeptFrame() && !dissolveActive_) {
+            renderer_.DropKeptFrame();
+        }
         renderer_.EndFrame();
         QueryPerformanceCounter(&stamp[6]);
     }

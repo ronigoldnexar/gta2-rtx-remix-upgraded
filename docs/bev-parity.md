@@ -127,6 +127,50 @@ reproduced in run 4. Open.
    wall time for that stretch. Other runs: 29.4-30.0 in every view. Recheck on a quiet host before
    calling it a 3D cost (see `docs/performance.md`).
 
+## BEV purity at the switch (BEV-PURITY, 9 Nov 2026)
+
+The owner saw the character turn lighter in the top-down picture at the moment V was pressed.
+Measured with `gamerun/keys_bevpurity.sh`: a lossless 30 fps recording across the press, and the
+mean and the dark-pixel count (luminance < 60) of an 80x70 box around the player.
+
+- **Cause.** On the first frame of the move out of the classic view, the camera is still the
+  classic camera, but the frame is drawn the street view's way. The player's dark sprite becomes
+  the 3D figure seen from straight above, the ground switches to the photo tiles and the HUD
+  switches to the modern one. The whole frame changed by a mean of 14.2/255 in one frame. The
+  box's dark pixels went from 262 to 20, the box mean from 126.0 to 131.3.
+- **Not `[visuals]`.** The same step appears with `[visuals] enabled=0` (14.18, 262 -> 18). The
+  post chain is gated on the transition weight (`PostFx::BeginScene`: `frame.blend > 0.002`, and
+  `Renderer::SetWorldShading` returns early without fog). That weight is 0 whenever the classic
+  view is settled, so no post pass ever runs on a settled classic frame.
+- **Fix: a dissolve from the last classic frame.** The renderer copies every settled classic frame
+  (`Renderer::KeepFrame`, one StretchRect of the back buffer; the presented frame is not
+  touched). The move then opens on that copy, drawn unblended and point-sampled over the street
+  view's frame. It dissolves out over the first `[camera] switch_dissolve_percent` (45) of the
+  move. Measured in-process (`GTA2DX9_DISSOLVE_VERIFY=1`): the first frame of the move is the
+  last classic frame with **0 pixels different**. The box now changes gradually (262 -> 256 ->
+  222 -> 146) as the eye starts to come down. The first changed frame differs from the classic
+  frame by a mean of 0.58/255, not 14.2.
+- **Acceptance: the classic view with `[visuals]` on and off.** Standing classic sessions of 30 s
+  at 5 fps (150 frame pairs per district, the new DLL). Compared on the pixels that never change
+  in either run, which excludes moving peds, cars and animated tiles:
+
+  | district | static pixels | hash, visuals 1 | hash, visuals 0 | static pixels differing, worst pair |
+  |---|---|---|---|---|
+  | wil | 90.73 % | 606dbaf9c00b6847 | 606dbaf9c00b6847 | 0 |
+  | bil | 93.69 % | 3b5e8a126039c00c | 3b5e8a126039c00c | 0 |
+  | ste | 54.82 % | b95848b7670a5871 | b95848b7670a5871 | 0 |
+
+  Every pixel that differs between the runs is on a moving object. In bil, 7 of 150 whole frames
+  are bit-identical (no ped happened to differ). The new DLL against the live one (`ac0e16a`),
+  wil classic, visuals on: 99.47 % static, the same hash, 0 pixels differing.
+- **Limits.** Plain renderer only: under RTX Remix the back buffer does not hold the path-traced
+  picture, so `KeepFrame` keeps nothing and the move cuts as before. While the dissolve runs,
+  the frozen classic frame and the moving street view show as a double exposure for about 0.6 s.
+  The 3D figure from above is still lighter than the sprite. That is the player-identity defect
+  (`/mnt/gta2/IDENTITY_MECHANISM.md`), which the dissolve hides but does not fix. The way back
+  into the classic view draws the classic presentation from the V press on, and has no step at
+  arrival.
+
 ## Limits
 
 - The world is not frozen, so the two frames of a moment are 0.65-1.25 s apart. Objects are

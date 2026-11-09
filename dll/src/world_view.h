@@ -267,6 +267,12 @@ private:
     // How much of the street views' sky, fog and sun is shown: 0 in the classic
     // view, 1 in the others, eased through a move between them. See sky.h.
     float skyBlend_ = 0.0f;
+    // The classic-to-street dissolve (BEV-PURITY): the frame on which the renderer last
+    // kept a settled classic frame, and while a move out of the classic view runs, the
+    // move's progress on its first frame (-1 until then).
+    int keptClassicAt_ = -100;
+    bool dissolveActive_ = false;
+    float dissolveT0_ = -1.0f;
     int viewLostFrames_ = 0;       // frames a ground view has gone without the player
     void ApplyTransition(float dt, ViewMode mode);
     void DrawSkyAndShading();

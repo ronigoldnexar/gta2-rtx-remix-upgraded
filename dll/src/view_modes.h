@@ -217,6 +217,10 @@ struct ViewModeSettings {
     // would still be inside a building is lifted out of it.
     float transitionSeconds = 1.4f;
     float transitionArc = 0.25f;
+    // [camera] switch_dissolve_percent: the first part of a move out of the classic view
+    // (percent of the move) over which the last classic frame dissolves into the street
+    // view. The move's first frame is that classic frame bit for bit (BEV-PURITY). 0: cut.
+    float switchDissolve = 0.45f;
 
     // For recording a demonstration: this many seconds after a level comes up
     // the view switches by itself to `demoSwitchTo`, as if the key had been

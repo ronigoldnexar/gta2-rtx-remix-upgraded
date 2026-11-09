@@ -187,6 +187,19 @@ public:
     void Shutdown();
 
     void ToggleWireframe() { wireframe_ = !wireframe_; }
+    // The classic-to-street dissolve (BEV-PURITY, docs/bev-parity.md "BEV purity at the switch"):
+    // KeepFrame copies the finished back buffer (one GPU blit) on every settled classic
+    // frame; DrawKeptFrame lays that copy over the frame being drawn. At alpha 1 the draw
+    // is an unblended point-sampled copy, so the first frame of the camera move is the
+    // last classic frame bit for bit. Plain renderer only: under RTX Remix the back
+    // buffer does not hold the path-traced picture, so KeepFrame keeps nothing.
+    void KeepFrame();
+    bool HasKeptFrame() const { return keptValid_; }
+    void DropKeptFrame() { keptValid_ = false; }
+    void DrawKeptFrame(float alpha);
+    // Verification (GTA2DX9_DISSOLVE_VERIFY=1): how many pixels of the back buffer as drawn
+    // so far differ from the kept frame (-1 when it cannot be read back).
+    long KeptFrameDifference();
     void CycleCullMode();
     const RenderStats& Stats() const { return stats_; }
     IDirect3DDevice9* Device() const { return device_; }
@@ -205,6 +218,10 @@ private:
     IDirect3DSurface9* uiSurface_ = nullptr;
     IDirect3DSurface9* savedTarget_ = nullptr;
     bool uiClearPending_ = true;
+    IDirect3DTexture9* keptTexture_ = nullptr;   // KeepFrame's copy of the last classic frame
+    IDirect3DSurface9* keptSurface_ = nullptr;
+    bool keptValid_ = false;
+    bool keptFailed_ = false;
 
     IDirect3DVertexBuffer9* vertexBuffer_ = nullptr;
     IDirect3DIndexBuffer9* indexBuffer_ = nullptr;

@@ -531,6 +531,9 @@ Renderer::~Renderer() { Shutdown(); }
 
 void Renderer::Shutdown() {
     post_.Release();
+    if (keptSurface_) { keptSurface_->Release(); keptSurface_ = nullptr; }
+    if (keptTexture_) { keptTexture_->Release(); keptTexture_ = nullptr; }
+    keptValid_ = false;
     weather_.Release();
     water_.Release();
     ReleaseResources();
@@ -609,6 +612,9 @@ void Renderer::ReleaseWorld() {
         uiTexture_ = nullptr;
     }
     uiClearPending_ = true;
+    if (keptSurface_) { keptSurface_->Release(); keptSurface_ = nullptr; }
+    if (keptTexture_) { keptTexture_->Release(); keptTexture_ = nullptr; }
+    keptValid_ = false;
     if (vertexBuffer_) {
         vertexBuffer_->Release();
         vertexBuffer_ = nullptr;
@@ -1223,6 +1229,131 @@ bool Renderer::BeginFrame() {
     device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
                    magenta ? D3DCOLOR_XRGB(255, 0, 255) : D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
     return SUCCEEDED(device_->BeginScene());
+}
+
+void Renderer::KeepFrame() {
+    keptValid_ = false;
+    if (!device_ || remixDevice_ || keptFailed_) return;
+    IDirect3DSurface9* back = nullptr;
+    if (FAILED(device_->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back)) || !back) return;
+    D3DSURFACE_DESC bd = {};
+    back->GetDesc(&bd);
+    if (keptTexture_) {
+        D3DSURFACE_DESC kd = {};
+        keptSurface_->GetDesc(&kd);
+        if (kd.Width != bd.Width || kd.Height != bd.Height || kd.Format != bd.Format) {
+            keptSurface_->Release(); keptSurface_ = nullptr;
+            keptTexture_->Release(); keptTexture_ = nullptr;
+        }
+    }
+    if (!keptTexture_) {
+        // The back buffer's own format, so the copy is the same bytes (no conversion).
+        if (FAILED(device_->CreateTexture(bd.Width, bd.Height, 1, D3DUSAGE_RENDERTARGET, bd.Format, D3DPOOL_DEFAULT,
+                                          &keptTexture_, nullptr)) ||
+            FAILED(keptTexture_->GetSurfaceLevel(0, &keptSurface_))) {
+            if (keptTexture_) { keptTexture_->Release(); keptTexture_ = nullptr; }
+            keptSurface_ = nullptr;
+            keptFailed_ = true;
+            Trace("view dissolve: no %ux%u format %d copy target; the switch cuts as before", bd.Width, bd.Height,
+                  static_cast<int>(bd.Format));
+            back->Release();
+            return;
+        }
+    }
+    keptValid_ = SUCCEEDED(device_->StretchRect(back, nullptr, keptSurface_, nullptr, D3DTEXF_NONE));
+    back->Release();
+}
+
+void Renderer::DrawKeptFrame(float alpha) {
+    if (!device_ || !keptValid_ || !keptTexture_ || alpha <= 0.0f) return;
+    D3DSURFACE_DESC kd = {};
+    keptSurface_->GetDesc(&kd);
+    struct Composite {
+        float x, y, z, rhw;
+        float u, v;
+    };
+    const float w = static_cast<float>(kd.Width);
+    const float h = static_cast<float>(kd.Height);
+    // Pixel centres on texel centres (D3D9's half-pixel offset) with point sampling:
+    // every pixel takes exactly its own texel.
+    const Composite quad[4] = {{-0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f},
+                               {w - 0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 0.0f},
+                               {w - 0.5f, h - 0.5f, 0.0f, 1.0f, 1.0f, 1.0f},
+                               {-0.5f, h - 0.5f, 0.0f, 1.0f, 0.0f, 1.0f}};
+    const int a = alpha >= 1.0f ? 255 : static_cast<int>(alpha * 255.0f + 0.5f);
+    if (a <= 0) return;
+    device_->SetVertexShader(nullptr);
+    device_->SetPixelShader(nullptr);
+    device_->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device_->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device_->SetRenderState(D3DRS_LIGHTING, FALSE);
+    device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    device_->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+    device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device_->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    device_->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+    device_->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+    // Fully opaque: a plain copy, no blend arithmetic at all.
+    device_->SetRenderState(D3DRS_ALPHABLENDENABLE, a < 255 ? TRUE : FALSE);
+    device_->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
+    device_->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+    device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(a, 255, 255, 255));
+    device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    device_->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    device_->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+    device_->SetTexture(0, keptTexture_);
+    device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR);
+    device_->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+    device_->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+    device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    device_->SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1);
+    device_->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, quad, sizeof(Composite));
+    device_->SetTexture(0, nullptr);
+    device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    device_->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+}
+
+long Renderer::KeptFrameDifference() {
+    if (!device_ || !keptValid_ || !keptSurface_) return -1;
+    IDirect3DSurface9* back = nullptr;
+    if (FAILED(device_->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back)) || !back) return -1;
+    D3DSURFACE_DESC d = {};
+    back->GetDesc(&d);
+    IDirect3DSurface9* sysA = nullptr;
+    IDirect3DSurface9* sysB = nullptr;
+    long diff = -1;
+    if (SUCCEEDED(device_->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &sysA, nullptr)) &&
+        SUCCEEDED(device_->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &sysB, nullptr)) &&
+        SUCCEEDED(device_->GetRenderTargetData(back, sysA)) && SUCCEEDED(device_->GetRenderTargetData(keptSurface_, sysB))) {
+        D3DLOCKED_RECT ra = {}, rb = {};
+        if (SUCCEEDED(sysA->LockRect(&ra, nullptr, D3DLOCK_READONLY))) {
+            if (SUCCEEDED(sysB->LockRect(&rb, nullptr, D3DLOCK_READONLY))) {
+                diff = 0;
+                for (UINT y = 0; y < d.Height; ++y) {
+                    const uint32_t* a = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(ra.pBits) + y * ra.Pitch);
+                    const uint32_t* b = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(rb.pBits) + y * rb.Pitch);
+                    for (UINT x = 0; x < d.Width; ++x) diff += ((a[x] ^ b[x]) & 0x00FFFFFFu) != 0;
+                }
+                sysB->UnlockRect();
+            }
+            sysA->UnlockRect();
+        }
+    }
+    if (sysA) sysA->Release();
+    if (sysB) sysB->Release();
+    back->Release();
+    return diff;
 }
 
 void Renderer::EndFrame() {
