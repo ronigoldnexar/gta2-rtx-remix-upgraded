@@ -11,8 +11,9 @@ The script (assets-src/missions/wil_m/wil_le2.mis):
   3. brief 1536, a five-second fuse (149 frames), EXPLODE_SMALL at the box: run;
   4. brief 1538: a VAN (CREATE_CAR 125.5,149.5, locked to the player) with a criminal driver, an
      arrow on it; IS_CAR_WRECKED -> JOB COMPLETE 1124, +$20,000. Death or arrest fails (1125).
-The machine gun beside the Loonies' phones (pickup 76.5,39.5) is taken on foot before the phone
-(pt7_le2b: a pickup 60 blocks off after the fuse, run over waiting at a kerb); the walk is on foot
+The machine gun beside the Loonies' phones (pickup 76.5,39.5) is taken on foot right after the phone
+(pt7_le2b: a pickup 60 blocks off after the fuse, run over waiting at a kerb; before the phone its search
+circle answered RADIO ZA-ZA next door, dv_pc1/dv_pc3); the walk is on foot
 all the way (the Loonies refuse a job after a drive through their turf: 1107 in pt4, 1103 in pt7).
 Step 4 is destroy_vehicle.destroy. Milestone frames /out/m_pc_*.png (chase view), marks /out/marks.txt."""
 import math, os, sys, time
@@ -189,11 +190,6 @@ def main():
     entry = next(m for m in world.db["missions"] if m.get("mission") == MISSION)
     M.mark(f"mission {MISSION}: PIZZA CAKE! (skill destroy_vehicle)")
     t_m = time.time()
-    if not M.gun_ready():
-        M.mark("the machine gun beside the phone first")
-        M.set_avoid_phones(world, keep=None)
-        M.fetch_gun(world, budget=600, near=(entry["x"], entry["y"]), count=2, walk_only=True)
-        say("gun before the phone:", (M.mission_state() or {}).get("weapon"))
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
     r, seen = answer(world, entry)
     if r == "no answer": r, seen = answer(world, entry)
@@ -205,6 +201,13 @@ def main():
     ax, ay = M.step_off_phone(world, entry)
     M.set_avoid_phones(world, keep=None)
     M.cruise_to(ax, ay, tol=0.5, secs=12)
+    if not M.gun_ready():
+        # the machine gun at the pickup beside the phones (76.5,39.5) AFTER the phone: fetch_gun's
+        # search circle round the pickup stepped onto RADIO ZA-ZA's phone (75.5,40.5) before the
+        # job in dv_pc1 and dv_pc3 (title 1954); with PIZZA CAKE running that phone only says 1103
+        M.mark("the machine gun beside the phones (after the phone)")
+        M.fetch_gun(world, budget=300, near=(entry["x"], entry["y"]), count=2, walk_only=True)
+        say("gun:", (M.mission_state() or {}).get("weapon"))
     try:
         r = run(world)
     except (Over, DV.JobOver) as e:

@@ -35,7 +35,15 @@ def job_check():
 
 
 CAR = {"model": None, "at": None}
-GETAWAY_LEGS = [(216.5, 181.0), (216.5, 213.0)]   # east along row 180, south down column 216
+# kmg1: the GRAHAM left in the box facing east stood on row 180, a westbound lane (traffic keeps right:
+# rows 179-180 run west, 181-182 east); the first second of the getaway was a head-on with a car in
+# that lane, drive3 re-routed back west round it, two officers reached the car and pulled him out.
+# The getaway car is now parked in the eastbound lane and the first 15 blocks are a launch: throttle
+# held, steering along the lane, no re-routing.
+GETAWAY_PARK = (197.6, 181.6)
+GETAWAY_LANE_Y = 181.6
+GETAWAY_LAUNCH_X = 211.0
+GETAWAY_LEGS = [(216.5, 187.0), (216.5, 213.0)]   # south down column 216 (southbound cells 215-216)
 
 def to_car(world):
     """back into the GRAHAM where it is now: the model read at the wheel, found in `view: cars`
@@ -158,6 +166,49 @@ def lane_in(shop, secs=30, until=None, vmax=3.0):
     return D.wait_state()
 
 
+def park_getaway():
+    """from the bank box to the eastbound lane, nose east (GETAWAY_PARK)"""
+    px, py = GETAWAY_PARK
+    BR.turn_car_toward(px, py, secs=10)
+    BR.creep_in(px, py, 1.6, 0.9, secs=12)
+    s = stop_car()
+    BR.turn_car_toward(px + 12.0, py, secs=10)
+    return stop_car()
+
+def launch(lane_y, x_end, secs=20, vmax=7.0):
+    """east along the lane with the throttle held (pure pursuit 3 blocks ahead on y = lane_y), no
+    stops: a stall (under 0.4 blocks/s for 0.7 s) is a short reverse with the wheel turned, then on"""
+    t0 = time.time(); prev = D.wait_state(); tp = time.time(); slow_since = None; thr = [False]
+    def throttle(on):
+        if on != thr[0]: xdo("keydown" if on else "keyup", "Up"); thr[0] = on
+    try:
+        while time.time() - t0 < secs:
+            time.sleep(0.07)
+            s = D.wait_state(); now = time.time()
+            if not s or not s["driving"]: return s
+            v = speed(prev, s, now - tp); prev, tp = s, now
+            BR.check()
+            if s["x"] >= x_end: return s
+            hx, hy = M.heading(s); dx, dy = s["x"] + 3.0 - s["x"], lane_y - s["y"]
+            a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+            throttle(v < vmax)
+            if v < 0.4 and time.time() - t0 > 1.0:
+                slow_since = slow_since or now
+                if now - slow_since > 0.7:
+                    throttle(False); key = "Left" if a > 0 else "Right"
+                    xdo("keydown", "Down"); xdo("keydown", key); time.sleep(0.55)
+                    xdo("keyup", "Down"); xdo("keyup", key); slow_since = None
+                    prev, tp = D.wait_state(), time.time(); continue
+            else:
+                slow_since = None
+            if abs(a) > 0.05:
+                key = "Right" if a > 0 else "Left"
+                xdo("keydown", key); time.sleep(min(0.2, abs(a) * 0.3)); xdo("keyup", key)
+    finally:
+        throttle(False)
+    return D.wait_state()
+
+
 def run(world, entry):
     # 1-2. the car and the bank box: as the job's runner
     M.mark("to the GRAHAM at 52.5,150.5")
@@ -195,7 +246,7 @@ def run(world, entry):
     # the getaway runs EAST to the avenue at columns 216-220, south on it and west along row 215 to
     # the respray tunnel at 204.5,218.6: km4 (and br10 before it) were pulled out in the jams on the
     # column-178 avenue, the route west then south
-    s = BR.turn_car_toward(206.0, 180.0); hold("space", 0.4)
+    s = park_getaway()
     s = D.wait_state(); car = (s["x"], s["y"]); remember_car()
     M.mark(f"getaway car set at {s['x']:.1f},{s['y']:.1f} heading {M.heading(s)[0]:.2f},{M.heading(s)[1]:.2f}")
     t3 = time.time()
@@ -223,14 +274,22 @@ def run(world, entry):
         if not BR.path_walk(BR.DESCEND, secs_each=5.0):
             s = D.wait_state(); say(f"descent missed at {s['x']:.1f},{s['y']:.1f}")
     s = D.wait_state()
-    if not s["driving"] and math.hypot(car[0] - s["x"], car[1] - s["y"]) < 3.0: s = BR.quick_board(car)
+    if not s["driving"] and math.hypot(car[0] - s["x"], car[1] - s["y"]) < 7.0:
+        M.cruise_to(car[0], car[1] - 1.0, tol=0.6, secs=5)       # the driver's (north) side
+        s = D.wait_state()
+        if math.hypot(car[0] - s["x"], car[1] - s["y"]) < 3.0: s = BR.quick_board(car)
     for k in range(3):
         if s and s["driving"]: break
         BR.check(); s = to_car(world)
     if not (s and s["driving"]): return "stuck: could not get back in the car"
-    hold("Up", 0.8)
     ms = BR.check()
     M.mark(f"in the getaway car (wanted {ms.get('wanted')}, carhp {ms.get('carhp')})")
+    s = D.wait_state()
+    if s["driving"] and s["x"] < GETAWAY_LAUNCH_X and abs(s["y"] - GETAWAY_LANE_Y) < 3.0:
+        s = launch(GETAWAY_LANE_Y, GETAWAY_LAUNCH_X)
+        M.mark(f"launch: at {s['x']:.1f},{s['y']:.1f} (driving {s['driving']})")
+    else:
+        hold("Up", 0.8)
 
     def heads_up():
         return BR.arrow_near(86.5, 160.5) or (M.mission_state() or {}).get("msg") in ("1655", "1666", "1668")
@@ -250,7 +309,7 @@ def run(world, entry):
         if shop == BR.SHOPS[0][0]:
             for wx, wy in GETAWAY_LEGS:
                 s = D.wait_state()
-                if not s["driving"] or (wy < 200 and s["x"] > 213) or (wy > 200 and s["y"] > 210): continue
+                if not s["driving"] or (wy < 200 and s["y"] > 185) or (wy > 200 and s["y"] > 210): continue
                 M.mark(f"getaway leg to {wx},{wy}")
                 s = BR.drive(world, wx, wy, 2.5, 120)
                 BR.check(); remember_car()

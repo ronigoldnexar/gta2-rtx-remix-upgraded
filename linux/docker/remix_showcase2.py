@@ -119,7 +119,9 @@ def car_sweep(tag, models):
     ini_set("force_car_model", -1); time.sleep(1.2)
 
 mark("script start")
-s = D.wait_state(); say("start:", T.words(s))
+s = D.wait_state(timeout=float(E("SHOW_START_WAIT", "600")))   # under Remix the first 'view: player' line can come minutes after the level
+if not s: mark("no player state"); sys.exit(1)
+say("start:", T.words(s))
 START = (round(s["x"], 1), round(s["y"], 1))
 SP = spots()
 tods = [t for t in E("SHOW_TODS", "noon,golden,dusk,night,wet").split(",") if t]

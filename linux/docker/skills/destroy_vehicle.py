@@ -155,8 +155,14 @@ def drive_toward(world, x, y, tol, budget, view_switch=None):
     drove on in a burning car for 20 s and blew up with it)"""
     s = D.wait_state()
     if not s["driving"]:
-        s = M.any_car2(world, budget=60)
-        if not s["driving"]: return s
+        # only a parked car near by: a kerb wait for a passing one stands on the road edge
+        # (dv_pc2: run over at 4.5,103.5 by a car at 4 blocks/s a second into the wait, the
+        # pt7_le2b death again). No car: walk (the walker keeps to the pavements)
+        if s["parked"] and s["pd"] < 10 and not M.bad_car(s["px"], s["py"]):
+            s = M.enter_car3(world, s["px"], s["py"], budget=40)
+        if not (s and s["driving"]):
+            s = D.wait_state()
+            return M.walk3(world, x, y, None, tol=max(tol, 6.0), budget=min(90, 10 + math.hypot(x - s["x"], y - s["y"]) * 0.8))
     ms = M.mission_state() or {}
     if own_car_burning(s, ms):
         ev("our car burns: out"); return M.bail_clear(world, s)

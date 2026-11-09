@@ -4408,13 +4408,13 @@
   },
   {
    "name": "street_lamp",
-   "nodes": 8,
-   "meshes": 8,
-   "vertices": 22522,
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 4184,
    "animations": [],
    "textures": [
-    "street_lamp_1.tga",
-    "street_lamp_3.tga"
+    "street_lamp_0.tga",
+    "street_lamp_1.tga"
    ],
    "skins": 0,
    "forward": "",

@@ -7,6 +7,8 @@
 #include <cstring>
 
 #include "shaders/visuals_gen.h"
+#include "shaders/weather_gen.h"
+#include "weather_fx.h"
 
 namespace gta2 {
 
@@ -138,6 +140,8 @@ void PostFx::ReleaseTargets() {
     SafeRelease(blackTex_);
     SafeRelease(whiteTex_);
     SafeRelease(maskSurf_); SafeRelease(maskTex_);
+    SafeRelease(wetSurf_); SafeRelease(wetTex_); SafeRelease(psWet_);
+    wetFailed_ = false;
     SafeRelease(psShadowmask_);
     SafeRelease(stateBlock_);
     SafeRelease(vsShadowWorld_); SafeRelease(vsShadowModel_); SafeRelease(vsQuad_); SafeRelease(vsLight_);
@@ -487,6 +491,8 @@ void PostFx::SetSky(const Vec3& zenith, const Vec3& horizon, float day) {
     frame_.skyTint = (white * 0.55f + hue * 0.45f) * 1.04f;
     frame_.groundTint = Vec3{1.0f, 0.93f, 0.84f} * (0.80f + 0.06f * day);
     frame_.day = day;
+    skyZenith_ = zenith;
+    skyHorizon_ = horizon;
 }
 
 void PostFx::StartRecording() {
@@ -1054,6 +1060,52 @@ void PostFx::Resolve() {
         }
     }
 
+    // Wet roads (weather_fx.h, QB-43): the lit frame darkened where it is wet and given a
+    // screen-space reflection on the faces that look up, into a target of its own that
+    // then stands for the lit frame in the bloom and the final pass.
+    IDirect3DTexture9* litOut = litTex_;
+    const WeatherState& weather = WeatherNow();
+    if (weather.active && weather.wetRoads && weather.wet > 0.01f && puddles_ && !wetFailed_) {
+        if (!wetTex_) {
+            if (FAILED(device_->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, hdrFormat_, D3DPOOL_DEFAULT, &wetTex_, nullptr)) ||
+                FAILED(wetTex_->GetSurfaceLevel(0, &wetSurf_)) || FAILED(device_->CreatePixelShader(k_ps_wet, &psWet_))) {
+                SafeRelease(wetSurf_); SafeRelease(wetTex_); SafeRelease(psWet_);
+                wetFailed_ = true;
+                RendererTrace("weather: could not create the wet-road target or shader; wet roads stay off");
+            } else {
+                RendererTrace("weather: wet-road pass ready (%dx%d)", w, h);
+            }
+        }
+        if (wetTex_) {
+            SetTarget(wetSurf_, w, h);
+            device_->SetPixelShader(psWet_);
+            sampler(4, litTex_, true);
+            sampler(1, depthTex_, false);
+            device_->SetTexture(2, puddles_);
+            device_->SetSamplerState(2, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+            device_->SetSamplerState(2, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+            device_->SetSamplerState(2, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+            device_->SetSamplerState(2, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            device_->SetSamplerState(2, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+            const Vec3 upV = Normalize(XformDir(view_, Vec3{0.0f, 1.0f, 0.0f}));
+            float c[8][4] = {};
+            for (int k = 0; k < 4; ++k) { c[0][k] = proj[k]; c[1][k] = screen[k]; }
+            c[2][0] = upV.x; c[2][1] = upV.y; c[2][2] = upV.z; c[2][3] = std::min(1.0f, weather.wet) * frame_.blend;
+            // view -> world: row-vector points times invView_; the x and z columns.
+            for (int r = 0; r < 4; ++r) { c[3][r] = invView_.m[r][0]; c[4][r] = invView_.m[r][2]; }
+            c[5][0] = skyHorizon_.x; c[5][1] = skyHorizon_.y; c[5][2] = skyHorizon_.z;
+            c[5][3] = static_cast<float>(std::fmod(weather.seconds, 512.0));
+            c[6][0] = skyZenith_.x; c[6][1] = skyZenith_.y; c[6][2] = skyZenith_.z; c[6][3] = weather.reflection;
+            c[7][0] = frame_.fogStart; c[7][1] = 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart);
+            // More of the street under water the wetter it is.
+            c[7][2] = 0.78f - 0.22f * std::min(1.0f, weather.wet); c[7][3] = weather.rain;
+            device_->SetPixelShaderConstantF(0, &c[0][0], 8);
+            DrawQuad(w, h);
+            device_->SetTexture(2, nullptr);
+            litOut = wetTex_;
+        }
+    }
+
     // Bloom: bright pass to a quarter, blurred there; the high tier adds an eighth.
     const bool bloom = cfg.bloom && cfg.bloomStrength > 0.0f;
     const bool bloom2 = bloom && q >= 2;
@@ -1063,7 +1115,7 @@ void PostFx::Resolve() {
         const float thr = cfg.bloomThreshold * (hdrFormat_ == D3DFMT_A8R8G8B8 ? 0.9f : 1.0f);
         const float br[4] = {thr, 0.25f, 1.0f / w, 1.0f / h};
         device_->SetPixelShaderConstantF(0, br, 1);
-        sampler(4, litTex_, true);
+        sampler(4, litOut, true);
         DrawQuad(qw, qh);
         device_->SetPixelShader(psBlur_);
         auto blurPass = [&](IDirect3DTexture9* src, IDirect3DSurface9* dst, int tw, int th, float dx, float dy) {
@@ -1089,7 +1141,7 @@ void PostFx::Resolve() {
         savedTarget_->GetDesc(&bd);
         SetTarget(savedTarget_, static_cast<int>(bd.Width), static_cast<int>(bd.Height));
         device_->SetPixelShader(psFinal_);
-        sampler(4, litTex_, false);
+        sampler(4, litOut, false);
         sampler(1, bloom ? static_cast<IDirect3DBaseTexture9*>(bloomTex_[0]) : blackTex_, true);
         // debug 1: the raw scene, 2: the shadow mask, 3: the shadow atlas
         sampler(2, cfg.debug == 2 && shadows ? static_cast<IDirect3DBaseTexture9*>(maskTex_) : (cfg.debug == 3 && shadows ? static_cast<IDirect3DBaseTexture9*>(shadowTex_) : sceneTex_), false);

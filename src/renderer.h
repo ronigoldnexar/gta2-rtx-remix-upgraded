@@ -17,6 +17,7 @@
 #include "post_fx.h"
 #include "water.h"
 #include "sky.h"
+#include "weather_fx.h"
 #include "world_mesh.h"
 
 namespace gta2 {
@@ -229,6 +230,7 @@ private:
     WorldShading shading_;
     Sky sky_;
     PostFx post_;
+    WeatherFx weather_;   // rain streaks and the wet-road pass's puddles (weather_fx.h)
     WaterFx water_;   // the street views' water shader (water.h)
     bool remixDevice_ = false;
 };
