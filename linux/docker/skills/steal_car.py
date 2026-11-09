@@ -72,8 +72,17 @@ def model_name(i):
 
 # ---------------------------------------------------------------- what the cars line says
 
-def car_by_id(cid):
-    return next((c for c in M.cars() if c["id"] == cid), None)
+LAST = {}     # id -> (wall time, the car as last seen)
+def car_by_id(cid, max_age=None):
+    """the car from the latest cars line; that line holds only the nearest 20 cars within 30
+    blocks, so a target drops out of it in busy streets (sos2 'lost' a standing taxi 15 blocks
+    off twice). With max_age (wall seconds) the last sighting stands in, marked stale"""
+    c = next((c for c in M.cars() if c["id"] == cid), None)
+    if c:
+        LAST[cid] = (time.time(), c); return c
+    if max_age and cid in LAST and time.time() - LAST[cid][0] < max_age:
+        c = dict(LAST[cid][1]); c["stale"] = True; return c
+    return None
 
 def usable(c, ids):
     return (c["model"] in ids and c["driver"] != "P" and c["hp"] > M.CAR_HP_FIRE and c["fire"] == 0
@@ -127,6 +136,21 @@ def leave_wrong(s, why):
     say(f"steal_car: in a {model_name(s.get('cmodel', -1))} ({why}); out again")
     return M.leave_car()
 
+def pick_door(c, others, k, carrier=None):
+    """the door point to stand at: the one with the most room from other cars (a burning one
+    counts double), the other on alternate tries"""
+    pts = doors(c)
+    def room(p):
+        r = 99.0
+        for o in others:
+            dd = math.hypot(o["x"] - p[0], o["y"] - p[1])
+            if o["fire"] or o["hp"] <= M.CAR_HP_FIRE: dd *= 0.5
+            r = min(r, dd)
+        if carrier: r = min(r, math.hypot(carrier[0] - p[0], carrier[1] - p[1]))
+        return r
+    pts.sort(key=room, reverse=True)
+    return pts[k % 2]
+
 def jack(c0, ids, budget=30.0, carrier=None):
     """on foot: into the car `c0` (tracked by its id) by its doors; returns the state"""
     t0 = time.time(); k = 0; cid = c0["id"]
@@ -137,15 +161,15 @@ def jack(c0, ids, budget=30.0, carrier=None):
         if s["driving"]:
             if in_model(s, ids): return s
             s = leave_wrong(s, "a wrong car at the door"); continue
-        c = car_by_id(cid)
+        c = car_by_id(cid, max_age=6.0)
         if not c or not usable(c, ids): say("steal_car: the target is gone (out of the line, burning, or taken)"); return s
         d = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
-        if d > WALK_MAX + 4: say(f"steal_car: the target drove off ({d:.0f} blocks)"); return s
+        reach = (2 * WALK_MAX + 4) if c["v"] < STAND_V else (WALK_MAX + 4)
+        if d > reach: say(f"steal_car: the target is {d:.0f} blocks off"); return s
         lead = min(0.6, d / 4.0) if c["v"] > STAND_V else 0.0
         cc = dict(c); cc["x"] += c["hx"] * c["v"] * lead; cc["y"] += c["hy"] * c["v"] * lead
-        dp = doors(cc)[k % 2]
-        if carrier and math.hypot(dp[0] - carrier[0], dp[1] - carrier[1]) < 1.6:
-            dp = doors(cc)[(k + 1) % 2]      # the door on the carrier's side: the other one
+        others = [o for o in M.cars() if o["id"] != cid and o["driver"] != "P"]
+        dp = pick_door(cc, others, k, carrier)
         dd = math.hypot(dp[0] - s["x"], dp[1] - s["y"])
         if dd > 4.0 and c["v"] < STAND_V:
             path = M.route3(WORLD[0], int(s["x"]), int(s["y"]), M.ped_level(s), int(dp[0]), int(dp[1]))
@@ -164,10 +188,15 @@ def jack(c0, ids, budget=30.0, carrier=None):
             if s["driving"]: continue
         c = car_by_id(cid) or c
         d = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
-        if d > 2.1:
-            # Return enters the NEAREST car: only with the target at hand (dcc3, sos1: the carrier
-            # or a passing car otherwise)
-            say(f"steal_car: not at the door yet ({d:.1f} from the target); no Return"); continue
+        near_o = min([math.hypot(o["x"] - s["x"], o["y"] - s["y"]) for o in M.cars() if o["id"] != cid and o["driver"] != "P"] or [99.0])
+        if d > 2.1 or near_o < d + 0.3:
+            # Return enters the NEAREST car: only with the target at hand and nearer than any other
+            # (dcc3, sos1, sos2: the carrier or a passing car otherwise; sos2 died beside its
+            # burning carrier, which stood between him and the taxi)
+            k += 1; STATS["door_moves"] = STATS.get("door_moves", 0) + 1
+            say(f"steal_car: not at the door ({d:.1f} from the target, another car {near_o:.1f}); the other door")
+            if STATS["door_moves"] % 6 == 5: time.sleep(1.0)
+            continue
         face(c["x"], c["y"])
         STATS["jack_tries"] += 1; k += 1
         say(f"steal_car: Return at {s['x']:.1f},{s['y']:.1f} for the {model_name(c['model'])} at {c['x']:.1f},{c['y']:.1f} (v {c['v']:.1f}, driver {c['driver']}), try {k}")
@@ -188,7 +217,7 @@ def lane_wait(c, s, secs=6.0):
     M.cruise_to(px, py, tol=0.4, secs=min(3.0, abs(lat) / 1.5 + 0.6))
     t0 = time.time()
     while time.time() - t0 < secs:
-        c2 = car_by_id(c["id"]); s = D.wait_state()
+        c2 = car_by_id(c["id"], max_age=3.0); s = D.wait_state()
         if not c2 or s["driving"]: return False
         d = math.hypot(c2["x"] - s["x"], c2["y"] - s["y"])
         if d < 3.2 and c2["v"] < STAND_V: return True
@@ -210,12 +239,9 @@ def follow(c0, ids, drive, budget=90.0):
     while time.time() - t0 < budget:
         s = D.wait_state()
         if not (s and s["driving"]): return False
-        c = car_by_id(cid)
+        c = car_by_id(cid, max_age=10.0)
         if not c or not usable(c, ids):
-            lost += 1
-            if lost > 3: say("steal_car: lost the target while following"); return False
-            time.sleep(0.4); continue
-        lost = 0
+            say("steal_car: lost the target while following"); return False
         d = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
         if d < 7.0 and c["v"] < STAND_V: return True
         if d < CARRIER_GAP + 1.5:
@@ -226,10 +252,10 @@ def follow(c0, ids, drive, budget=90.0):
         gx, gy = c["x"] - c["hx"] * CARRIER_GAP, c["y"] - c["hy"] * CARRIER_GAP
         STATS["follow_legs"] += 1
         def stop_when(cid=cid):
-            s2 = D.wait_state(); c2 = car_by_id(cid)
+            s2 = D.wait_state(); c2 = car_by_id(cid, max_age=10.0)
             if not c2 or not s2: return True
             d2 = math.hypot(c2["x"] - s2["x"], c2["y"] - s2["y"])
-            if d2 < 7.0 and c2["v"] < STAND_V: return True
+            if d2 < 7.0 and c2["v"] < STAND_V and not c2.get("stale"): return True
             return math.hypot(c2["x"] - gx, c2["y"] - gy) > 6.0      # it moved on: a new goal
         drive(WORLD[0], gx, gy, tol=2.5, budget=12 if d < 25 else 25, until=stop_when)
     return False
@@ -252,7 +278,7 @@ def ambush_in_car(c0, ids, secs=10.0):
     say(f"steal_car: the {model_name(c0['model'])} comes at the car ({c0['v']:.1f}); waiting in its way")
     stop_car(); t0 = time.time()
     while time.time() - t0 < secs:
-        s = D.wait_state(); c = car_by_id(c0["id"])
+        s = D.wait_state(); c = car_by_id(c0["id"], max_age=3.0)
         if not c or not s or not usable(c, ids): return False
         d = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
         ahead, lat = rel(c, s)

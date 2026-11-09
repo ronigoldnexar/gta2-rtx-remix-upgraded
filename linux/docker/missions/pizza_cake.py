@@ -30,6 +30,10 @@ TITLE, BRIEF0 = "1955", "1531"
 VAN_BRIEF = "1538"
 REFUSALS = ("1097", "1096", "1098", "1102", "1104", "1107")
 BUSY = ("1093", "1103", "1113")              # "already on a <gang> job"
+# dv_pc1: the walk from the gun pickup (76.5,39.5) to the phone was straightened into a diagonal
+# across RADIO ZA-ZA's phone (75.5,40.5) and that job started (1954). The phone is approached
+# from the south-east instead: straight down x = 76.5, then a nudge onto it
+APPROACH = (76.5, 42.5)
 
 VIEW = ["classic"]
 VIEW_SLEEP = [1.7]
@@ -97,7 +101,8 @@ def job_arrow():
 def answer(world, entry):
     before = M.mission_state(); m0 = before["msg"] if before else ""
     M.arrows_baseline()
-    s = M.walk3(world, entry["x"], entry["y"], None, tol=0.35, budget=600)
+    s = M.walk3(world, APPROACH[0], APPROACH[1], None, tol=0.4, budget=600)
+    s = nudge_to(entry["x"], entry["y"], tol=0.25, tries=20)
     if s and math.hypot(entry["x"] - s["x"], entry["y"] - s["y"]) > 1.2 and os.environ.get("WARP_OK", "1") == "1":
         lvl = M.top_level(world, entry["x"], entry["y"])
         say(f"phone not reached on foot (level {lvl}); developer warp (reported)")

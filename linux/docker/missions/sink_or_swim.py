@@ -70,7 +70,10 @@ def over():
     if any(k in FAIL for k in SEEN): return "failed"
     ms = M.mission_state() or {}
     if ms.get("health", 1) == 0 or ms.get("death", 0) != 0: return "dead"
+    if LIVES0[0] is not None and ms.get("lives", LIVES0[0]) < LIVES0[0]: return "dead"   # sos2: the 0.5 s samples missed health 0
     return None
+
+LIVES0 = [None]
 
 def check():
     o = over()
@@ -93,9 +96,49 @@ if DRIVER == "calm":
     except Exception as e:
         say(f"calm_drive not available ({e}); the shared driver"); _calm = None
 
-def drive(w, x, y, tol=2.0, budget=240, until=None, slow=True, precious=True):
+STUCK_SECS = 40.0
+def _drive1(w, x, y, tol, budget, until, slow, precious):
     if _calm: return _calm(w, x, y, tol=tol, budget=budget, slow=slow, precious=precious, until=until)
     return M.drive3(w, x, y, tol=tol, budget=budget, slow=slow, precious=precious, until=until)
+
+def unstick():
+    """sos4: the taxi stood nose to a wall on a pavement with a standing car 2-3 blocks behind;
+    calm_drive refused every reverse (tail not clear) for minutes. Short steered reverses
+    (0.35 s, slow: a bump at that speed costs little), toward the side with more room"""
+    STATS_U[0] += 1
+    s0 = D.wait_state()
+    for k in range(4):
+        side = "Left" if k % 2 == 0 else "Right"
+        xdo("keydown", "Down"); xdo("keydown", side); time.sleep(0.35); xdo("keyup", "Down"); xdo("keyup", side)
+        time.sleep(0.4)
+        s = D.wait_state()
+        if s and math.hypot(s["x"] - s0["x"], s["y"] - s0["y"]) > 1.0: break
+    s = D.wait_state()
+    ev(f"unstuck: {math.hypot(s['x'] - s0['x'], s['y'] - s0['y']):.1f} blocks back (carhp {carhp()})")
+    return s
+STATS_U = [0]
+
+def drive(w, x, y, tol=2.0, budget=240, until=None, slow=True, precious=True):
+    """the leg's driver with a watchdog: no progress for STUCK_SECS -> unstick, drive on"""
+    t0 = time.time(); s = D.wait_state()
+    while time.time() - t0 < budget:
+        hist = [(time.time(), s["x"], s["y"])] if s else []
+        flag = [False]
+        def watch():
+            if until and until(): return True
+            s2 = D.wait_state(); now = time.time()
+            if not s2: return False
+            hist.append((now, s2["x"], s2["y"]))
+            while len(hist) > 2 and now - hist[1][0] > STUCK_SECS: hist.pop(0)
+            if now - hist[0][0] > STUCK_SECS and math.hypot(s2["x"] - hist[0][1], s2["y"] - hist[0][2]) < 1.0:
+                flag[0] = True; return True
+            return False
+        s = _drive1(w, x, y, tol, max(10, budget - (time.time() - t0)), watch, slow, precious)
+        if not flag[0]: return s
+        if not (s and s["driving"]): return s
+        say(f"drive: no progress for {STUCK_SECS:.0f}s at {s['x']:.1f},{s['y']:.1f}; unsticking")
+        s = unstick()
+    return s
 
 def drive_skill(w, x, y, tol=2.0, budget=60, until=None):
     """the carrier's driver for the skill: not precious (the carrier is anybody's car)"""
@@ -167,6 +210,10 @@ def crane():
         s = back_in_taxi()
         s = drive(world, CRANE_ARROW[0], CRANE_ARROW[1], tol=2.0, budget=420)
         if s and s["driving"] and math.hypot(CRANE_ARROW[0] - s["x"], CRANE_ARROW[1] - s["y"]) < 4: break
+    s = D.wait_state()
+    if not (s and s["driving"] and math.hypot(CRANE_ARROW[0] - s["x"], CRANE_ARROW[1] - s["y"]) < 8):
+        # sos3: the taxi burned 165 blocks short and the steps below ran on foot far from the crane
+        return over() or f"the taxi did not reach the crane (at {s['x']:.0f},{s['y']:.0f}, carhp {carhp()})"
     ok, s = P.creep_box(x, y, w, h, P.money(), secs=50)
     s = D.wait_state()
     say(f"crane box: creep {ok}, at {s['x']:.2f},{s['y']:.2f}, inside {M.inside_box(s, x, y, w, h)}")
@@ -208,6 +255,16 @@ def play():
     entry = next(m for m in world.db["missions"] if m.get("mission") == "ste_se1")
     wrong = {k for k, m in P.TITLES.items() if m.get("mission") != "ste_se1"}
     M.mark("mission ste_se1: SINK OR SWIM! (missions/sink_or_swim.py, skills/steal_car.py)")
+    s = D.wait_state()
+    if os.environ.get("SOS_WARP_PHONE", "0") == "1" and math.hypot(PHONE[0] - s["x"], PHONE[1] - s["y"]) > 40:
+        # the 145-block trip from the district start to this phone is the shared driver's, not this
+        # job (sos1/sos2: 14 minutes and more); with SOS_WARP_PHONE=1 the developer scene warp puts
+        # him on the street 8 blocks from the phone (reported in the marks; run with
+        # scene_key=F11 and GTA2DX9_SCENE_NO_CAR=1). The job itself is played from the phone on
+        near = M.street_cell_near(world, PHONE[0] - 8, PHONE[1] + 3, radius=8)
+        if near:
+            P.set_view("classic"); M.scene_warp(near[0], near[1], near[2], "SOS_WARP_PHONE: to the street by the SRS phone; the job starts at the phone")
+            P.set_view("third"); RESULT["events"].append(f"phone warp to {near}")
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
     ok, key = P.answer(entry)
     say("answered:", ok, key); M.shot("sos_phone")
@@ -215,13 +272,18 @@ def play():
     if not ok and "2957" not in SEEN and "2272" not in SEEN: return "phone not answered"
     if set(SEEN) & wrong: return f"wrong job started ({sorted(set(SEEN) & wrong)})"
     RESULT["stage"] = "phone"; ev(f"phone answered (messages {SEEN[-4:]})")
+    LIVES0[0] = (M.mission_state() or {}).get("lives")
     ax, ay = M.step_off_phone(world, entry)
     M.set_avoid_phones(world, keep=None)
     M.cruise_to(ax, ay, tol=0.5, secs=10)
     # the skill: a taxi (STYPECAB), from traffic (the script asks the game for more of them)
     t0 = time.time()
     s = D.wait_state()
-    search = SC.ring_points(world, s["x"], s["y"], r=18) + SC.ring_points(world, s["x"], s["y"], r=35)
+    # the ring round the phone, then toward operative 1 (a taxi found there costs no extra leg)
+    search = SC.ring_points(world, s["x"], s["y"], r=18)
+    for px, py in ((215, 175), (205, 150), (195, 125)):
+        c = M.street_cell_near(world, px, py, radius=8)
+        if c: search.append((c[0], c[1]))
     s = SC.steal_car(world, "STYPECAB", search=search, budget=900, drive=drive_skill, check=check)
     RESULT["steal"] = dict(SC.STATS)
     if not s: return "no taxi"

@@ -168,6 +168,19 @@ def patch_offset_at(a, b, ca, cb, r, search):
     return best
 
 
+def ink(img, cx, cy, r):
+    """pixels around (cx, cy) that stand out from the ring of ground around them: how much
+    of the frame an object covers (its sprite, or its 3D body seen from the camera)"""
+    H, W = img.shape[:2]
+    R = int(r * 1.7)
+    if cx - R < 0 or cy - R < 0 or cx + R > W or cy + R > H: return None
+    box = img[cy - R:cy + R, cx - R:cx + R]
+    yy, xx = np.mgrid[-R:R, -R:R]
+    inner = (np.abs(xx) < r) & (np.abs(yy) < r)
+    bg = np.median(box[~inner], axis=0)
+    return int((np.abs(box[inner] - bg).max(1) > 40).sum())
+
+
 def day_seconds(epoch):
     return epoch % 86400.0   # the renderer's log stamps are UTC wall time, as the container's clock
 
@@ -183,7 +196,8 @@ def timeline(lines):
         elif s.startswith("view: player x="):
             p = player_of(s)
             if p: out.append((t, None, "player", {"player": (p["x"], p["y"], p["z"], "")}))
-    return out
+    clock = frame_clock(lines)   # the player line has no frame number: from the others' clock
+    return [(t, f if f is not None else (round(frame_at(clock, t)) if clock else None), k, o) for t, f, k, o in out]
 
 
 def objects_at_time(tl, t):
@@ -256,6 +270,7 @@ def project(cam, W, H, x, y, z, zref):
     return W / 2 + (x - (x0 + x1) / 2) * s * k, H / 2 + (y - (y0 + y1) / 2) * s * k, s
 
 
+NCC_MIN = 0.5      # below this the 3D body and the sprite do not look alike enough to locate
 GRAB_DELAY = 0.1   # x11grab's first frame comes about this long after ffmpeg starts
 
 
@@ -321,6 +336,9 @@ def check_frames(run, lines, tl, ev, tag, sheet_rows):
         if m:
             ncc, ox, oy = m
             row.update(ncc=round(ncc, 3), off_px=(ox, oy), off_tiles=round(math.hypot(ox, oy) / s, 3))
+        ia, ib = ink(a, int(xa), int(ya), r), ink(b, int(xb), int(yb), r)
+        if ia and ib is not None:
+            row.update(ink_classic=ia, ink_3d=ib, size_ratio=round(ib / ia, 2))
         rows.append(row)
     out["objects"] = rows
     keep = band & ~object_mask(H, W, pa) & ~object_mask(H, W, pb)
@@ -461,10 +479,19 @@ def verdicts(rep):
         g = f["global_shift_px"]
         v.append((f"3D world registered on the classic frame ({tag})", abs(g["dx"]) <= 2 and abs(g["dy"]) <= 2,
                   f"shift {g['dx']},{g['dy']} px, terrain mean |diff| {f['terrain']['mean_abs']}"))
-        offs = [o["off_tiles"] for o in f["objects"] if "off_tiles" in o and o.get("ncc", 0) > 0.3]
-        if offs:
-            v.append((f"3D bodies drawn where the game's sprites are ({tag})", float(np.median(offs)) <= 0.15,
-                      f"{len(offs)} of {len(f['objects'])} objects matched, median offset {np.median(offs):.3f} tiles, worst {max(offs):.3f}"))
+        objs = f["objects"]
+        offs = [o["off_tiles"] for o in objs if "off_tiles" in o and o.get("ncc", 0) >= NCC_MIN]
+        if objs:
+            v.append((f"3D bodies drawn where the game's sprites are ({tag})", bool(offs) and float(np.median(offs)) <= 0.15,
+                      f"{len(offs)} of {len(objs)} objects look alike (gradient NCC >= {NCC_MIN}); "
+                      + (f"median offset {np.median(offs):.3f} tiles, worst {max(offs):.3f}" if offs else "no position to compare")
+                      + "; unlike: " + (", ".join(f"{o['id']} (NCC {o.get('ncc')})" for o in objs if o.get("ncc", 0) < NCC_MIN) or "none")))
+            for kind in ("player", "ped", "car"):
+                rs = [o["size_ratio"] for o in objs if "size_ratio" in o and o["id"].startswith(kind)]
+                if rs:
+                    v.append((f"{kind}: 3D body covers as much of the top-down frame as the sprite ({tag})",
+                              0.5 <= float(np.median(rs)) <= 2.0,
+                              f"3D/sprite covered pixels, median {np.median(rs):.2f} over {len(rs)}"))
     w = rep["walks"]
     base = w.get("classic") or {}
     for view in ("third", "first", "classic2"):

@@ -35,6 +35,7 @@ def job_check():
 
 
 CAR = {"model": None, "at": None}
+GETAWAY_LEGS = [(216.5, 181.0), (216.5, 213.0)]   # east along row 180, south down column 216
 
 def to_car(world):
     """back into the GRAHAM where it is now: the model read at the wheel, found in `view: cars`
@@ -120,7 +121,10 @@ def run(world, entry):
     say(f"guards: {[(p['id'], p['x'], p['y'], p['z'], p['hp']) for p in gs]}; carhp {ms.get('carhp')}")
     if not gs: return "stuck: no guards"
     M.shot("br_bank")
-    s = BR.turn_car_toward(184.0, 179.6); hold("space", 0.4)
+    # the getaway runs EAST to the avenue at columns 216-220, south on it and west along row 215 to
+    # the respray tunnel at 204.5,218.6: km4 (and br10 before it) were pulled out in the jams on the
+    # column-178 avenue, the route west then south
+    s = BR.turn_car_toward(206.0, 180.0); hold("space", 0.4)
     s = D.wait_state(); car = (s["x"], s["y"]); remember_car()
     M.mark(f"getaway car set at {s['x']:.1f},{s['y']:.1f} heading {M.heading(s)[0]:.2f},{M.heading(s)[1]:.2f}")
     t3 = time.time()
@@ -172,6 +176,14 @@ def run(world, entry):
         BR.FP["until"] = -1
         M.mark(f"to the respray at {shop} (try {k + 1})")
         pre = (tunnel[0], tunnel[1] - 2.5 if shop[1] > tunnel[1] else tunnel[1] + 2.5)
+        if shop == BR.SHOPS[0][0]:
+            for wx, wy in GETAWAY_LEGS:
+                s = D.wait_state()
+                if not s["driving"] or s["y"] > wy - 3: continue
+                M.mark(f"getaway leg to {wx},{wy}")
+                s = BR.drive(world, wx, wy, 2.5, 120)
+                BR.check(); remember_car()
+            if not s["driving"]: continue
         s = BR.drive(world, pre[0], pre[1], 1.5, 360)
         BR.check(); remember_car()
         if not s["driving"]: continue
