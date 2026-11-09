@@ -7,7 +7,7 @@
 #       bash /work/run_game_remix_gpu.sh <seconds> [keys script]
 # TREX_PATCHED=1 uses the lavapipe-patched .trex/d3d9.dll (not needed on a GPU);
 # TREX_DLL=<file in /work> replaces the server DLL (e.g. d3d9_trex_rayquery_optional.dll);
-# RTX_EXTRA names the rtx.conf additions (default /work/rtx_gpu.conf.extra).
+# REMIX_COLD=1: start with no shader cache and do not save one back (a first-launch test); RTX_EXTRA names the rtx.conf additions (default /work/rtx_gpu.conf.extra).
 ARCH=win64; SECS=${1:-300}; REMIX=1; KEYS=${2:-}
 export WINEPREFIX=/tmp/wp WINEARCH=$ARCH WINEDEBUG=${WINEDEBUG:--all}
 export VK_ICD_FILENAMES=${ICD_JSON:-/usr/share/vulkan/icd.d/nvidia_icd.json}
@@ -59,7 +59,7 @@ if [ -n "$SWAP_LEVEL" ] && [ "$SWAP_LEVEL" != wil ]; then bash /work/swap_level.
 [ "${DUMP_TILES:-0}" = 1 ] && sed -i 's/^dump_tiles=0/dump_tiles=1/' "$G/gta2dx9.ini"
 [ -n "${EFFECTS_SED:-}" ] && [ -f "$G/gta2dx9_effects.ini" ] && sed -i "$EFFECTS_SED" "$G/gta2dx9_effects.ini" && echo "== effects ini edited"   # EFFECTS_SED: a sed script over the synthetic-lights ini (e.g. the [Car lamps] section of a night preset)
 [ -f "${SETTINGS_EXTRA:-/nonexistent}" ] && cat "$SETTINGS_EXTRA" >> "$G/gta2dx9_settings.ini"; [ -n "${SETTINGS_SED:-}" ] && sed -i "$SETTINGS_SED" "$G/gta2dx9_settings.ini" && grep -n "StartHour\|Paused" "$G/gta2dx9_settings.ini" | head -3   # e.g. a [camera] section for a benchmark
-if [ "$REMIX" = 1 ]; then [ -d /work/remix_user_settings ] && mkdir -p /tmp/wp/drive_c/users/root/AppData/Local/NVIDIA/RTXRemix && cp -r /work/remix_user_settings /tmp/wp/drive_c/users/root/AppData/Local/NVIDIA/RTXRemix/user_settings && echo "== remix user settings seeded"; cp -r /remix/. "$G"/; [ -d /work/remix_cache ] && cp -rn /work/remix_cache/. "$G"/ 2>/dev/null && echo "== remix cache restored: $(find /work/remix_cache -type f | wc -l) files"; cp /release/.trex/bridge.conf "$G/.trex/" 2>/dev/null; [ -f /work/bridge.conf.extra ] && cat /work/bridge.conf.extra >> "$G/.trex/bridge.conf"; [ -f "${RTX_EXTRA:-/work/rtx_gpu.conf.extra}" ] && cat "${RTX_EXTRA:-/work/rtx_gpu.conf.extra}" >> "$G/rtx.conf"; [ "${TREX_PATCHED:-0}" = 1 ] && [ -f /work/d3d9_trex_patched.dll ] && cp /work/d3d9_trex_patched.dll "$G/.trex/d3d9.dll"; [ -n "${TREX_DLL:-}" ] && cp "/work/$TREX_DLL" "$G/.trex/d3d9.dll" && echo "server dll: $TREX_DLL"; fi
+if [ "$REMIX" = 1 ]; then [ -d /work/remix_user_settings ] && mkdir -p /tmp/wp/drive_c/users/root/AppData/Local/NVIDIA/RTXRemix && cp -r /work/remix_user_settings /tmp/wp/drive_c/users/root/AppData/Local/NVIDIA/RTXRemix/user_settings && echo "== remix user settings seeded"; cp -r /remix/. "$G"/; [ "${REMIX_COLD:-0}" != 1 ] && [ -d /work/remix_cache ] && cp -rn /work/remix_cache/. "$G"/ 2>/dev/null && echo "== remix cache restored: $(find /work/remix_cache -type f | wc -l) files"; cp /release/.trex/bridge.conf "$G/.trex/" 2>/dev/null; [ -f /work/bridge.conf.extra ] && cat /work/bridge.conf.extra >> "$G/.trex/bridge.conf"; [ -f "${RTX_EXTRA:-/work/rtx_gpu.conf.extra}" ] && cat "${RTX_EXTRA:-/work/rtx_gpu.conf.extra}" >> "$G/rtx.conf"; [ "${TREX_PATCHED:-0}" = 1 ] && [ -f /work/d3d9_trex_patched.dll ] && cp /work/d3d9_trex_patched.dll "$G/.trex/d3d9.dll"; [ -n "${TREX_DLL:-}" ] && cp "/work/$TREX_DLL" "$G/.trex/d3d9.dll" && echo "server dll: $TREX_DLL"; fi
 MODS_HD_SRC=${MODS_HD_SRC:-/package/rtx-remix/mods/gta2hd}   # MODS_HD_SRC: another layer folder to install as gta2hd (e.g. /work/remix_probe/gta2hd, /package/rtx-remix/mods/gta2hd_new)
 [ "${MODS_HD:-0}" = 1 ] && [ -d "$MODS_HD_SRC" ] && mkdir -p "$G/rtx-remix/mods/gta2hd" && cp -r "$MODS_HD_SRC"/. "$G/rtx-remix/mods/gta2hd/" && echo "== gta2hd material mod installed from $MODS_HD_SRC ($(ls "$G/rtx-remix/mods/gta2hd/textures" | wc -l) textures, $(grep -c "over \"mat_" "$G/rtx-remix/mods/gta2hd/mod.usda") materials)"   # MODS_HD=1 with -v repo/package:/package:ro
 if [ "$REMIX" = 0 ]; then rm -f "$G/d3d9.dll"; fi
@@ -69,17 +69,53 @@ echo "== registry:"; wine reg query 'HKLM\SOFTWARE\DMA Design Ltd\GTA2\Screen' 2
 mkdir -p /out; rm -f /out/shot_*.png
 cd "$G"
 export WINEDLLOVERRIDES="d3d9=n,b;d3ddll,dmavideo,dmaglide,gta2dx9,gta2dx9_vid=n"
-ffmpeg -y -loglevel error -f x11grab -framerate 15 -video_size ${W}x${H} -i :99 -t "$SECS" -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p /out/game.mp4 &
+# REMIX-PIPELINE (9 Nov): Remix compiles its shaders on first run and draws black / purple frames under a "Compiling shaders (N remaining)"
+# box meanwhile. remix_shaders_wait.py therefore watches the box (log: 'remix: shaders ready after N s', /out/remix_shaders.txt)
+# until the picture is up and the box has gone (the keys scripts call `remix_shaders_wait.py recheck` before their first shot); SECS then counts from that moment (a cold cache costs minutes, a warm one seconds), and
+# game.mp4 is trimmed to start there (game_full.mp4 keeps the compile minutes). REMIX_GATE=0 turns the gate off.
+# The run ends when the keys script ends (END_ON_KEYS=1, default; a short tail KEYS_TAIL=3 s), not at SECS; SECS is the cap.
+# MOTION_WATCHDOG=1: also end it when the picture has not moved for MOTION_WINDOW s (60; mean frame difference under MOTION_FLOOR 0.15).
+T0=$(date +%s.%N); echo "$T0" > /out/.t0; rm -f /out/.shaders_ready /out/.keys_done /out/remix_shaders.txt /out/remix_shaders.log
+GATE=${REMIX_GATE:-1}; CAP=${REMIX_SHADER_CAP:-600}
+RS=$(date +%s.%N)
+ffmpeg -y -loglevel error -f x11grab -framerate 15 -video_size ${W}x${H} -i :99 -t "$((SECS + CAP + 60))" -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p /out/game_full.mp4 &
 REC=$!
 ( wine gta2.exe > /out/game.stdout 2>&1; echo "gta2.exe exited $?" >> /out/game.stdout ) &
-if [ -n "$KEYS" ]; then ( bash "$KEYS" > /out/keys.log 2>&1 ) & fi
-for i in $(seq 1 $((SECS / 5))); do
-  sleep 5
-  ffmpeg -y -loglevel error -f x11grab -video_size ${W}x${H} -i :99 -frames:v 1 /out/shot_$(printf %03d $((i*5))).png
-  [ $((i % 6)) = 0 ] && { echo "t=$((i*5))s"; xwininfo -root -tree | grep -v "has no name\|Default IME" | grep "(" | head -6; }
+# REMIX_GATE=1 (default, "soft"): the gate watches in parallel and the keys script starts at once (it gets to the level, which keeps the front end's
+# attract / intro movie from playing: an idle front end during a long compile crashed in binkw32.dll, 9 Nov) and itself calls `remix_shaders_wait.py recheck`
+# before its first view shot. REMIX_GATE=hold: the keys script is not started until the shaders are ready (only for a script that is safe to start late).
+if [ "$GATE" = hold ]; then GP=; ( python3 /work/remix_shaders_wait.py gate "$CAP" | tee -a /out/remix_shaders.log; [ -n "$KEYS" ] && bash "$KEYS" > /out/keys.log 2>&1; echo "keys script ended $(date +%s.%N)" > /out/.keys_done ) &
+else
+  [ "$GATE" = 1 ] && ( python3 /work/remix_shaders_wait.py gate "$CAP" | tee -a /out/remix_shaders.log ) &
+  if [ -n "$KEYS" ]; then ( bash "$KEYS" > /out/keys.log 2>&1; echo "keys script ended $(date +%s.%N)" > /out/.keys_done ) & fi
+fi
+DEADLINE=$(python3 -c "print($T0 + $SECS)"); EXTENDED=0; LASTMOVE=$(date +%s); PREV=; LASTN=
+while :; do
+  sleep 1; NOW=$(date +%s.%N)
+  # SECS counts from the shaders-ready moment: extend the deadline once by the compile time
+  if [ $EXTENDED = 0 ] && [ -f /out/.shaders_ready ]; then EXTENDED=1; DEADLINE=$(python3 -c "print($DEADLINE + $(cat /out/.shaders_ready) - $T0)"); fi
+  [ "$(python3 -c "print(int($NOW > $DEADLINE))")" = 1 ] && { echo "run length reached"; break; }
+  if [ -f /out/.keys_done ] && [ "${END_ON_KEYS:-1}" = 1 ]; then sleep "${KEYS_TAIL:-3}"; echo "keys script done: ending the run after a ${KEYS_TAIL:-3} s tail"; break; fi
+  N=$(python3 -c "print(int(($NOW - $T0)))")
+  if [ $((N % ${SHOTS_EVERY:-5})) = 0 ] && [ "$N" != "$LASTN" ]; then LASTN=$N
+    ffmpeg -y -loglevel error -f x11grab -video_size ${W}x${H} -i :99 -frames:v 1 /out/shot_$(printf %03d $N).png
+    [ $((N % 30)) = 0 ] && { echo "t=${N}s"; xwininfo -root -tree | grep -v "has no name\|Default IME" | grep "(" | head -6; }
+    if [ "${MOTION_WATCHDOG:-0}" = 1 ]; then
+      CUR=/out/shot_$(printf %03d $N).png
+      if [ -n "$PREV" ] && D=$(ffmpeg -loglevel error -i "$PREV" -i "$CUR" -lavfi "blend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null | sed -n 's/.*YAVG=//p' | head -1) && [ -n "$D" ]; then
+        [ "$(python3 -c "print(int($D > ${MOTION_FLOOR:-0.15}))")" = 1 ] && LASTMOVE=$(date +%s)
+        [ $(( $(date +%s) - LASTMOVE )) -ge ${MOTION_WINDOW:-60} ] && { echo "motion watchdog: picture still for ${MOTION_WINDOW:-60} s: ending the run"; break; }
+      fi; PREV=$CUR
+    fi
+  fi
 done
+END=$(date +%s.%N)
+kill -INT $REC 2>/dev/null; wait $REC 2>/dev/null
+# the played segment: from shaders-ready (or the start) to the end; the recorded file is trimmed to it
+SS=0; [ -f /out/.shaders_ready ] && SS=$(python3 -c "print(max(0, $(cat /out/.shaders_ready) - $RS))")
+ffmpeg -y -loglevel error -ss "$SS" -i /out/game_full.mp4 -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -movflags +faststart /out/game.mp4 2>/dev/null && echo "recording: game.mp4 trimmed from ${SS} s, $(ffprobe -v error -show_entries format=duration -of csv=p=0 /out/game.mp4) s long (run $(python3 -c "print(round($END - $T0))") s, keys script $( [ -f /out/.keys_done ] && echo ended || echo "not finished"))" | tee -a /out/remix_shaders.txt
 wait $REC 2>/dev/null
-cp "$G/gta2dx9.log" /out/ 2>/dev/null; cp -r "$G/rtx-remix/logs" /out/remix-logs 2>/dev/null; cp -r "$G/Screenshots" /out/remix-screenshots 2>/dev/null; [ -d "$G/rtx-remix/captures" ] && mkdir -p /out/remix-captures && (cd "$G/rtx-remix/captures" && find . -name "*.usd*" -o -name "*.txt" | head -50 | xargs -r -I{} cp --parents {} /out/remix-captures/) 2>/dev/null; [ -d "$G/rtx-remix/captures" ] && find "$G/rtx-remix/captures" -type f | sed "s#$G/##" > /out/remix-captures-files.txt; cp "$G/.trex/"*.log /out/ 2>/dev/null; cp "$G"/*.log /out/ 2>/dev/null; cp "$G/rtx.conf" /out/rtx.conf.used 2>/dev/null; (cd "$G" && ls -la *.dxvk-cache *.remix-pipeline-cache* .trex/*.dxvk-cache .trex/*cache* 2>/dev/null > /out/remix-cache-files.txt); [ -d /work/remix_cache ] && cp "$G"/*.dxvk-cache "$G"/*.remix-pipeline-cache* /work/remix_cache/ 2>/dev/null; [ -d /work/remix_cache ] && cp "$G"/.trex/*cache* /work/remix_cache/ 2>/dev/null; [ -d /work/remix_cache ] && for d in $(cat /out/remix-cache-files.txt 2>/dev/null); do [ -d "$G/$d" ] && cp -r "$G/$d" /work/remix_cache/ 2>/dev/null; [ -f "$G/$d" ] && mkdir -p "/work/remix_cache/$(dirname "$d")" && cp "$G/$d" "/work/remix_cache/$d" 2>/dev/null; done; cp -r /tmp/wp/drive_c/users/root/AppData/Local/NVIDIA/RTXRemix/user_settings /out/remix-user-settings 2>/dev/null; [ -d /work/remix_user_settings ] && true; dmesg 2>/dev/null | grep -i "segfault\|NvRemix" | tail -5 > /out/dmesg.txt
+cp "$G/gta2dx9.log" /out/ 2>/dev/null; cp -r "$G/rtx-remix/logs" /out/remix-logs 2>/dev/null; cp -r "$G/Screenshots" /out/remix-screenshots 2>/dev/null; [ -d "$G/rtx-remix/captures" ] && mkdir -p /out/remix-captures && (cd "$G/rtx-remix/captures" && find . -name "*.usd*" -o -name "*.txt" | head -50 | xargs -r -I{} cp --parents {} /out/remix-captures/) 2>/dev/null; [ -d "$G/rtx-remix/captures" ] && find "$G/rtx-remix/captures" -type f | sed "s#$G/##" > /out/remix-captures-files.txt; cp "$G/.trex/"*.log /out/ 2>/dev/null; cp "$G"/*.log /out/ 2>/dev/null; cp "$G/rtx.conf" /out/rtx.conf.used 2>/dev/null; (cd "$G" && ls -la *.dxvk-cache *.remix-pipeline-cache* .trex/*.dxvk-cache .trex/*cache* 2>/dev/null > /out/remix-cache-files.txt); [ "${REMIX_COLD:-0}" != 1 ] && [ -d /work/remix_cache ] && cp "$G"/*.dxvk-cache "$G"/*.remix-pipeline-cache* /work/remix_cache/ 2>/dev/null; [ "${REMIX_COLD:-0}" != 1 ] && [ -d /work/remix_cache ] && cp "$G"/.trex/*cache* /work/remix_cache/ 2>/dev/null; [ "${REMIX_COLD:-0}" != 1 ] && [ -d /work/remix_cache ] && for d in $(cat /out/remix-cache-files.txt 2>/dev/null); do [ -d "$G/$d" ] && cp -r "$G/$d" /work/remix_cache/ 2>/dev/null; [ -f "$G/$d" ] && mkdir -p "/work/remix_cache/$(dirname "$d")" && cp "$G/$d" "/work/remix_cache/$d" 2>/dev/null; done; cp -r /tmp/wp/drive_c/users/root/AppData/Local/NVIDIA/RTXRemix/user_settings /out/remix-user-settings 2>/dev/null; [ -d /work/remix_user_settings ] && true; dmesg 2>/dev/null | grep -i "segfault\|NvRemix" | tail -5 > /out/dmesg.txt
 cp -r "$G/gta2dx9_tiles" /out/ 2>/dev/null
 find "$G" /tmp/wp/drive_c/users -maxdepth 3 -name "RtxOptions.md" -exec cp {} /out/ \; 2>/dev/null   # DXVK_DOCUMENTATION_WRITE_RTX_OPTIONS_MD=1: the runtime's own option reference
 wine reg query "HKCU\\Software\\DMA Design Ltd" /s > /out/registry.txt 2>/dev/null; wine reg query "HKLM\\Software\\DMA Design Ltd" /s >> /out/registry.txt 2>/dev/null

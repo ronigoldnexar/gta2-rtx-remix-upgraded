@@ -47,20 +47,39 @@ echo "== registry:"; wine reg query 'HKLM\SOFTWARE\DMA Design Ltd\GTA2\Screen' 2
 mkdir -p /out; rm -f /out/shot_*.png
 cd "$G"
 export WINEDLLOVERRIDES="d3d9=n,b;d3ddll,dmavideo,dmaglide,gta2dx9,gta2dx9_vid=n"
-if [ "${FPS:-15}" = 0 ]; then sleep "$SECS" & else ffmpeg -y -loglevel error -f x11grab -framerate ${FPS:-15} -video_size ${W}x${H} -i :99 -t "$SECS" -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p /out/game.mp4 & fi   # FPS=0: no video, screenshots only
+# REMIX-PIPELINE (9 Nov): the recording ends with the keys script (END_ON_KEYS=1, default; tail KEYS_TAIL=3 s), not at SECS: SECS is a cap.
+# The 12:43 demo ran SECS=2400 while its script stopped driving the player long before: 20 minutes of frozen camera. A keys script that
+# ends (or touches /out/.keys_done itself) closes the file; MOTION_WATCHDOG=1 also ends it when the picture has not moved for
+# MOTION_WINDOW s (60; mean frame difference between shots under MOTION_FLOOR 0.15), for a script that hangs instead of ending.
+# The log gets 'recording: ... s' (achieved length, why it ended); END_ON_KEYS=0 restores the old fixed length.
+T0=$(date +%s.%N); rm -f /out/.keys_done
+if [ "${FPS:-15}" = 0 ]; then sleep "$SECS" & else ffmpeg -y -loglevel error -f x11grab -framerate ${FPS:-15} -video_size ${W}x${H} -i :99 -t "$SECS" -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -movflags +frag_keyframe+empty_moov+default_base_moof /out/game_raw.mp4 & fi   # FPS=0: no video, screenshots only
 REC=$!
 ( vglrun -d "$VGL_DISPLAY" wine gta2.exe > /out/game.stdout 2>&1; echo "gta2.exe exited $?" >> /out/game.stdout ) &
-if [ -n "$KEYS" ]; then ( bash "$KEYS" > /out/keys.log 2>&1 ) & fi
-EV=${SHOTS_EVERY:-5}
-for i in $(seq 1 $((SECS / EV))); do
-  sleep "$EV"
-  ffmpeg -y -loglevel error -f x11grab -video_size ${W}x${H} -i :99 -frames:v 1 /out/shot_$(printf %03d $((i*EV))).png
-  [ $((i % 6)) = 0 ] && { echo "t=$((i*5))s"; xwininfo -root -tree | grep -v "has no name\|Default IME" | grep "(" | head -6; }
-  # a keys script that has finished its work touches /out/.keys_done: end the run
-  # now (the recording is closed properly) instead of holding the slot to SECS
-  if [ -f /out/.keys_done ]; then echo "keys script done at t=$((i*EV))s: ending the run"; kill -TERM $REC 2>/dev/null; break; fi
+if [ -n "$KEYS" ]; then ( bash "$KEYS" > /out/keys.log 2>&1; echo "keys script ended $(date +%s.%N)" > /out/.keys_done ) & fi
+EV=${SHOTS_EVERY:-5}; WHY="run length $SECS s reached"; LASTMOVE=$(date +%s); PREV=; LASTN=
+while :; do
+  sleep 1; NOW=$(date +%s.%N); N=$(python3 -c "print(int($NOW - $T0))")
+  [ "$N" -ge "$SECS" ] && break
+  # a keys script that has finished its work (or touched /out/.keys_done): end the run after a short tail, closing the recording properly
+  if [ -f /out/.keys_done ] && [ "${END_ON_KEYS:-1}" = 1 ]; then sleep "${KEYS_TAIL:-3}"; WHY="keys script ended"; echo "keys script done at t=${N}s: ending the run after a ${KEYS_TAIL:-3} s tail"; break; fi
+  if [ $((N % EV)) = 0 ] && [ "$N" != "$LASTN" ]; then LASTN=$N
+    CUR=/out/shot_$(printf %03d $N).png
+    ffmpeg -y -loglevel error -f x11grab -video_size ${W}x${H} -i :99 -frames:v 1 "$CUR"
+    [ $((N % 30)) = 0 ] && { echo "t=${N}s"; xwininfo -root -tree | grep -v "has no name\|Default IME" | grep "(" | head -6; }
+    if [ "${MOTION_WATCHDOG:-0}" = 1 ]; then
+      if [ -n "$PREV" ] && D=$(ffmpeg -loglevel error -i "$PREV" -i "$CUR" -lavfi "blend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null | sed -n 's/.*YAVG=//p' | head -1) && [ -n "$D" ]; then
+        [ "$(python3 -c "print(int($D > ${MOTION_FLOOR:-0.15}))")" = 1 ] && LASTMOVE=$(date +%s)
+        [ $(( $(date +%s) - LASTMOVE )) -ge ${MOTION_WINDOW:-60} ] && { WHY="motion watchdog: picture still for ${MOTION_WINDOW:-60} s"; echo "$WHY: ending the run"; break; }
+      fi; PREV=$CUR
+    fi
+  fi
 done
+END=$(date +%s.%N)
+kill -INT $REC 2>/dev/null
 wait $REC 2>/dev/null
+[ -f /out/game_raw.mp4 ] && ffmpeg -y -loglevel error -i /out/game_raw.mp4 -c copy -movflags +faststart /out/game.mp4 2>/dev/null && rm -f /out/game_raw.mp4   # faststart remux (the raw file is fragmented so a killed recorder still leaves a playable file)
+echo "recording: $(python3 -c "print(round($END - $T0))") s of run; game.mp4 $(ffprobe -v error -show_entries format=duration -of csv=p=0 /out/game.mp4 2>/dev/null) s; ended by: $WHY" | tee -a /out/recording.txt
 cp "$G/gta2dx9.log" /out/ 2>/dev/null; cp -r "$G/rtx-remix/logs" /out/remix-logs 2>/dev/null
 cp -r "$G/gta2dx9_tiles" /out/ 2>/dev/null
 wine reg query "HKCU\\Software\\DMA Design Ltd" /s > /out/registry.txt 2>/dev/null; wine reg query "HKLM\\Software\\DMA Design Ltd" /s >> /out/registry.txt 2>/dev/null

@@ -96,6 +96,16 @@ camera`); `waiting for the player` 0, FAULT 0 in both runs, and he walked on aft
 
 `remix_l4.sh` does not add these mounts by itself yet; pass `-v "$PWD/gamerun/nv_cache/nv:/root/.nv" -v "$PWD/gamerun/nv_cache/cache:/root/.cache"` as its extra docker flags (the files are root-owned: read them with sudo).
 
+## Recordings end with the keys script (REMIX-PIPELINE, 9 Nov)
+
+`run_game_gpu.sh` and `run_game_remix_gpu.sh` treat `SECS` as a cap. A keys script that exits (the harness writes `/out/.keys_done`) ends the
+run after `KEYS_TAIL` seconds (3), the recorder is stopped cleanly, the mp4 is remuxed with faststart (`+frag` while recording, so a killed
+recorder still leaves a playable file) and the log states `recording: N s of run; game.mp4 M s; ended by: ...` (`out/<run>/recording.txt`).
+`END_ON_KEYS=0` restores the fixed length. `MOTION_WATCHDOG=1` also ends it when the mean frame difference between shots stays under
+`MOTION_FLOOR` (0.15) for `MOTION_WINDOW` s (60): for a script that hangs instead of ending. The 12:43 demo (SECS=2400, script exhausted
+long before) is exactly this case; its tail was a parked camera. A demo's `SECS` can stay generous: the file is as long as the played script.
+Remix runs also wait for the shader compile first (docs/remix-gpu-l4.md, "The shader-compile gate"); `slot.sh` takes `PRIO` and `SLOT_NAME`.
+
 ## Fidelity check
 
 Old path vs fast path, one copy each, same scenario: identical asset loads (186 models, 231 mapped object sprites, 818 HD tiles), all nine view screenshots in both, same frame-stage profile (game 7.0 vs 8.5 ms, wait 23.6 vs 21.3 ms), 0 faults in both. The fast run logged more sprite-stage hitch lines (the renderer's 300-line budget was reached; the old run logged 58 after the level). Two diagnostics isolate it: the fast path with the intro left on (`out/tp_diag_intro`) and the fast path without the bind mounts (`out/tp_diag_nomount`) both show the same 300 lines, so neither the intro skip nor the mounts causes them; they track the host's load from the other streams' containers (every fast run above ran beside two to four other game containers, the old-path run ran last with the host quieter). A quiet-host A/B is the one check not done.

@@ -135,6 +135,34 @@ third person → first person on foot → classic, sun shadows, Rocketbox pedest
 frames in the level, 0 faults) and `deliverables/rtx_remix_path_traced_sheet.png` (classic vs
 first person on the same plaza). Cut with `gamerun/remix_sheet.py`.
 
+## The shader-compile gate (REMIX-PIPELINE, 9 Nov)
+
+The first minutes of a Remix start on a cold cache are black or purple: the runtime shows "Compiling shaders (N remaining)" in a box at the
+bottom-left of the picture and "will not render properly until compilation is finished". The runtime's log (`remix-dxvk.log`) does not mention
+it, so the harness reads the picture: `gamerun/remix_shaders_wait.py` (stdlib + ffmpeg, runs in the container) grabs the bottom-left
+368 x 81 px of the screen every 2 s and looks for the box's constant 1 px grey (87,87,87) frame, and grabs the picture's centre (HUD excluded) to
+see whether the world is drawn. Ready = box gone for 4 polls and the centre held at daylight brightness for 3 polls (6 s) or at any non-black level
+for 12 polls (24 s, a night scene: the game starts at 02:00 in the Remix runs, so the classic frame is dim and red-lit by neon, which is correct).
+
+- `run_game_remix_gpu.sh` runs the gate in parallel with the game and the keys script (`REMIX_GATE=1`, default). The keys script is *not* held at the
+  front end: an idle front end during a 4-minute compile plays the attract/intro movie, and Bink crashed the game (`binkw32.dll` page fault,
+  first test run, 9 Nov). The keys scripts get to the level and call `python3 /work/remix_shaders_wait.py recheck 300` before their first view shot
+  (`keys_remix_gpu.sh`, `keys_remix_playtest.sh` do; put the same line in any new Remix keys script). `REMIX_GATE=hold` holds the keys script
+  until ready (for a script that is safe to start late), `REMIX_GATE=0` turns the gate off. Cap `REMIX_SHADER_CAP` (600 s): at the cap the log says
+  `remix: shaders NOT ready` and the script goes on.
+- Both log `remix: shaders ready after N s (compiled on screen | overlay never seen: warm cache; mode gate|recheck)` to stdout and
+  `out/<run>/remix_shaders.txt` (`remix_shaders.log` has the box up/gone times). The earliest ready writes `/out/.shaders_ready`.
+- `SECS` counts from that moment (the deadline is extended by the wait); `game_full.mp4` is the whole recording, `game.mp4` starts at
+  shaders-ready; the run ends when the keys script ends (docs/throughput.md, "Recordings end with the keys script").
+- `REMIX_COLD=1` (as `-e REMIX_COLD=1`) starts without the restored DXVK cache and saves none back: a first-launch test.
+  `REMIX_NVCACHE=1` (`remix_l4.sh`, `playtest_remix.sh`) mounts `gamerun/nv_cache` so the NVIDIA driver's shader cache survives the container.
+- Measured, GPU 5 (L4), cold container, `keys_remix_gpu.sh`: box up at ~20 s, gone at ~165-220 s, ready at 192 / 202 / 223 s (three runs), first
+  recorded frame a lit scene, FAULT 0. A run with `REMIX_NVCACHE=1` compiled on screen for 246 s once and not at all (ready at 17 s, front end
+  first frame) another time: `gamerun/nv_cache` is shared by every agent's run and had grown to 182 MB, so the driver's cache is not a reliable
+  warm start; the gate handles either outcome.
+- The black for ~5 s right after the first view shot is the keys script's own F12 (Remix screenshot), not the compile.
+- Not a time-of-day defect: the dark blue/purple classic frames while the box is up are the unfinished shader set.
+
 ## Open
 - **Black stretches of 1-7 s in the ground views** (run 7: about half of the third/first-person
   segment, none in classic). They coincide with the renderer's sprite stage at 49 ms average
