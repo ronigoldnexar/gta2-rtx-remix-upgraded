@@ -423,7 +423,7 @@ Defect pm11-classic-to-third-switch-camera-rolls-and-lands-behind-wall-player-hi
   for 3 s after a switch (shown pose, the view's own pose, the angle from the look point, the heading step).
 - Probe `gamerun/keys_fc2_sw.sh` (bil start, walk into a V press, four switches, 9 s clips): him more than 30 degrees
   off the view axis in 72 of 164 move frames before (`fc2_sw2_a0`), 18 after (`fc2_sw3_a1`, all in the first
-  quarter of the moves, where the classic camera's wide view still holds him); largest heading step 76.7 -> 10.6
+  35 % of a move, where the classic camera's wide view still holds him); largest heading step 76.7 -> 10.6
   degrees a frame. Measured from the `view move` lines against the `cam: third ... at=` position.
 - Still: mid-move the held camera can sit a hand from the yard's wall (half the picture one wall, him in the
   other half): the hold's position, not changed here.
