@@ -402,10 +402,10 @@
    "severity": 4,
    "frequency": 2,
    "modern": "Ragdoll death with blend to rest; WASTED as a slow-motion desaturated beat on the body, then a fade to the hospital and a walk-out.",
-   "ours": "Lying clips chosen by cause (good), but WASTED is drawn with the camera on a wall or the empty street: the body is not framed (qa3_army_wasted_third.png); respawn is a cut.",
+   "ours": "QB-17/18 (docs/beats.md): WASTED is a framed beat - the camera leaves the chase for a crane over where he fell (orbit and push-in, pulled clear of walls and railings), letterbox, a drained red cast, the game's words re-set as a title, then a fade to black by 2.1 s that hides the respawn cut and a fade-in at the hospital. Verified on real deaths (drowning, third and first person: qb17_wasted4). No slow motion (the game steps once per frame) and no walk-out; the body framing relies on the lying clips.",
    "evidence": [
-    "qa3_army_wasted_third.png",
-    "frames/wasted_wall.png"
+    "qb17_wasted4/qa_w0_third_00.png",
+    "qb17_wasted4/qa_w0_third_after.png"
    ],
    "owner_subsystem": "camera + ped",
    "owner_files": [
@@ -415,7 +415,7 @@
     "dll/src/model_store.cpp",
     "tools/gen_ped_clips.py"
    ],
-   "status": "frame",
+   "status": "partly",
    "feel": "fun, fluid",
    "note": "",
    "score": 46,
@@ -428,11 +428,11 @@
    "severity": 4,
    "frequency": 2,
    "modern": "A short framed beat: slow motion, orbit or push-in on the player, letterbox, the title, music sting, then a fade.",
-   "ours": "The 2D title over whatever the chase camera points at; JOB COMPLETE shows the mission text box and the player standing (pt_wil4_jobcomplete.png).",
+   "ours": "QB-17/18 (docs/beats.md): WASTED, BUSTED and JOB COMPLETE are framed beats - camera move (crane over the body / eye level on the arrest / low hero shot in front of him, orbiting), letterbox to 2.39:1, a cast per beat (red, blue with beacon edges, warm), the game's own words as a large title (its part-15 text dropped), a music sting hook ([beats] sting_* .wav or BeatsSetStingHook). Verified: real arrests (qb17_beats6), real deaths (qb17_wasted4), JOB COMPLETE through the game's own message call (qb17_beats4, devtools force_big_message). No slow motion; no stings shipped.",
    "evidence": [
-    "frames/job_complete.png",
-    "frames/wasted_wall.png",
-    "frames/busted_empty.png"
+    "qb17_beats4/qa_c_third_02.png",
+    "qb17_beats6/qa_b0_third_00.png",
+    "qb17_wasted4/qa_w0_third_00.png"
    ],
    "owner_subsystem": "camera + presentation",
    "owner_files": [
@@ -442,7 +442,7 @@
     "dll/src/hud_pass.cpp",
     "dll/src/overlay.cpp"
    ],
-   "status": "frame",
+   "status": "partly",
    "feel": "fun, magical",
    "note": "",
    "score": 46,
