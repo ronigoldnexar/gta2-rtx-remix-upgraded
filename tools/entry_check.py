@@ -71,7 +71,7 @@ def main():
     out = []
     for a, b, st in eps:
         kind = "ENTER" if st == 3 else "EXIT"
-        lo, hi = a - (12 if st == 3 else 0), b + 30
+        lo, hi = a - (12 if st == 3 else 0), b + (60 if st == 4 else 30)   # an exit: its door shut too (kShut, ~1.2 s)
         out.append(f"\n=== {kind} frames {a}-{b} (listing {lo}-{hi}) ===")
         out.append(" frame  st fr act  clip@t      drawn(x,z)        step   v    sink  mode  t    door  contact(limb:w/err)  flags")
         prev = None

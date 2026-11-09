@@ -176,6 +176,15 @@ struct Key {
     bool operator<(const Key& o) const { return sprite != o.sprite ? sprite < o.sprite : art < o.art; }
 };
 std::map<Key, Built> g_cache;
+// ANIM-ENTRY-EXIT: each car object's last measured artwork and the frame it was last drawn
+// with. While the game plays a car's door animation its sprite is a new texture every frame;
+// since PERF-4 builds car artwork on a worker, those frames' artwork is often not ready (or
+// not measurable) on the frame it is first drawn, and the car was skipped: the whole 3D car
+// vanished for ~15 frames as someone walked up to it and popped back with the door open (runs
+// aee_g2front/g3rear). The body does not change with the door frames: the last good one
+// stands in, for up to 3 s. Entries in g_cache live while used (evicted after 300 unused
+// frames), and both maps are cleared together on a device release.
+std::map<uintptr_t, std::pair<Built*, uint32_t>> g_lastBuilt;
 IDirect3DDevice9* g_device = nullptr;
 
 struct Steer {
@@ -1250,6 +1259,7 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
     }
     body.name = model.name + "#nodoor"; door.name = model.name + "#door";
     size_t doorTris = 0;
+    size_t clippedTris = 0;
     for (size_t n = 0; n < model.nodes.size(); ++n) {
         const int mi = model.nodes[n].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
@@ -1273,6 +1283,68 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
             const bool lateral = nl > 1e-9f && std::fabs(nrm.x) / nl > 0.45f;
             const bool isDoor = lateral && static_cast<float>(side) * cx > 0.5f * halfW && cy > 0.10f * roof && cy < 0.95f * roof &&
                                 cz > zRear && cz < zFront;
+            // ANIM-ENTRY-EXIT: the image-to-3D shells have long thin triangles whose centroid lies
+            // on the door while a corner reaches the sill, the wheel arch or the road. Swung whole
+            // with the door they hung below it as black shards that crossed the person getting out
+            // (aee_base1, aee_v1b); left on the body the door had holes the arm behind showed
+            // through (aee_i2front); corners pulled onto the box left gaps too (aee_j2front). Such
+            // a triangle is clipped to the door's box (1.5 cm margin, car frame): the door gets
+            // exactly its part inside, the body keeps it whole (shut, the two coincide).
+            if (isDoor) {
+                const float m = 0.015f, sgn = static_cast<float>(side);
+                auto inside = [&](const gta2::Vec3& p) {
+                    return sgn * p.x >= 0.5f * halfW - m && p.y >= 0.10f * roof - m && p.y <= 0.95f * roof + m &&
+                           p.z >= zRear - m && p.z <= zFront + m;
+                };
+                if (!(inside(q[0]) && inside(q[1]) && inside(q[2]))) {
+                    struct CV { gta2::Vec3 p; ModelVertex v; };
+                    std::vector<CV> poly, next;
+                    for (int c = 0; c < 3; ++c) poly.push_back({q[c], src.vertices[src.indices[t + static_cast<size_t>(c)]]});
+                    // Planes as (signed distance >= 0 inside): sgn*x - (0.5 hw - m), y - lo, hi - y, z - zr, zf - z.
+                    auto dist = [&](int plane, const gta2::Vec3& p) {
+                        switch (plane) {
+                            case 0: return sgn * p.x - (0.5f * halfW - m);
+                            case 1: return p.y - (0.10f * roof - m);
+                            case 2: return (0.95f * roof + m) - p.y;
+                            case 3: return p.z - (zRear - m);
+                            default: return (zFront + m) - p.z;
+                        }
+                    };
+                    auto lerpV = [](const ModelVertex& a, const ModelVertex& b, float k) {
+                        ModelVertex r;
+                        r.x = a.x + (b.x - a.x) * k; r.y = a.y + (b.y - a.y) * k; r.z = a.z + (b.z - a.z) * k;
+                        r.nx = a.nx + (b.nx - a.nx) * k; r.ny = a.ny + (b.ny - a.ny) * k; r.nz = a.nz + (b.nz - a.nz) * k;
+                        r.u = a.u + (b.u - a.u) * k; r.v = a.v + (b.v - a.v) * k;
+                        return r;
+                    };
+                    for (int plane = 0; plane < 5 && poly.size() >= 3; ++plane) {
+                        next.clear();
+                        for (size_t i = 0; i < poly.size(); ++i) {
+                            const CV& A = poly[i];
+                            const CV& B = poly[(i + 1) % poly.size()];
+                            const float da = dist(plane, A.p), dbb = dist(plane, B.p);
+                            if (da >= 0.0f) next.push_back(A);
+                            if ((da >= 0.0f) != (dbb >= 0.0f)) {
+                                const float k = da / (da - dbb);
+                                next.push_back({A.p + (B.p - A.p) * k, lerpV(A.v, B.v, k)});
+                            }
+                        }
+                        poly.swap(next);
+                    }
+                    if (poly.size() >= 3) {
+                        const uint32_t base = static_cast<uint32_t>(dd.vertices.size());
+                        for (const CV& cv : poly) dd.vertices.push_back(cv.v);
+                        for (size_t i = 1; i + 1 < poly.size(); ++i) {
+                            dd.indices.push_back(base); dd.indices.push_back(base + static_cast<uint32_t>(i));
+                            dd.indices.push_back(base + static_cast<uint32_t>(i + 1));
+                            ++doorTris;
+                        }
+                        ++clippedTris;
+                    }
+                    db.indices.push_back(src.indices[t]); db.indices.push_back(src.indices[t + 1]); db.indices.push_back(src.indices[t + 2]);
+                    continue;
+                }
+            }
             ModelMesh& dst = isDoor ? dd : db;
             dst.indices.push_back(src.indices[t]); dst.indices.push_back(src.indices[t + 1]); dst.indices.push_back(src.indices[t + 2]);
             if (isDoor) ++doorTris;
@@ -1306,6 +1378,7 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
             mesh.indices.push_back(base + mesh.indices[t]);
         }
     }
+    if (clippedTris) Log("car bodies: door of %s, side %d: %zu triangles clipped to the door's outline", model.name.c_str(), side, clippedTris);
     *doorTrisOut = doorTris;
 }
 
@@ -2402,6 +2475,7 @@ void CarBodiesReleaseDevice() {
         ReleaseBuffers(&e.second);
     }
     g_cache.clear();
+    g_lastBuilt.clear();
     if (g_glow) { g_glow->Release(); g_glow = nullptr; }
     VehicleFxReleaseDevice();
     for (IDirect3DTexture9*& t : g_beaconGlow) {
@@ -2543,8 +2617,31 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             static int slowArtLogged = 0;
             if (ms > 8.0 && slowArtLogged < 60) { ++slowArtLogged; Log("car bodies: the sprite artwork of a car took %.1f ms to fetch (sprite %d)", ms, use.sprite); }
         }
-        if (!art) continue;
-        Built* b = Measured(device, use, art, frame);
+        // While its door is busy (a ped at it, or a boarding driving it) the car keeps the body
+        // measured before the door started: the door-animation frames' artwork is not ready, not
+        // measurable, or (aee_k2front) measured in another palette, which painted the car orange
+        // for 8 frames. A respray or a dent happens with the door idle and is measured as before.
+        int busySide = 0; float busyTarget = 0.0f, busyRate = 0.0f;
+        const bool doorBusy = use.doorPed || BoardingDoor(use.object, &busySide, &busyTarget, &busyRate);
+        auto last = g_lastBuilt.find(use.object);
+        const bool haveLast = last != g_lastBuilt.end() && frame - last->second.second < 90 && last->second.first->measured;
+        Built* b = nullptr;
+        if (doorBusy && haveLast) {
+            b = last->second.first;
+        } else {
+            b = art ? Measured(device, use, art, frame) : nullptr;
+            if (b && !doorBusy) {
+                g_lastBuilt[use.object] = {b, frame};
+            } else if (!b && haveLast) {
+                b = last->second.first;
+                static int logged = 0;
+                if (logged++ < 20) Log("car bodies: sprite %d's artwork not ready (%s); its last measured body stands in", use.sprite, art ? "unmeasured" : "building");
+            }
+        }
+        if (b && haveLast && b == last->second.first) { b->used = frame; last->second.second = frame; }
+        if (g_lastBuilt.size() > 512) {
+            for (auto it = g_lastBuilt.begin(); it != g_lastBuilt.end();) it = frame - it->second.second > 90 ? g_lastBuilt.erase(it) : std::next(it);
+        }
         if (!b) continue;
         const gta2::Mat4 carToWorld = Mul(CarToLocal(use), use.objectToWorld);
         if (g_logNoses && frame % 15 == 0) {

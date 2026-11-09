@@ -7732,12 +7732,21 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             bi.frame = sprite.pedFrame % 158u; bi.gameX = cx; bi.gameZ = cz; bi.groundY = cy;
             bi.drawnX = track.dx; bi.drawnZ = track.dz; bi.heading = track.heading;
             bi.ghost = boardGhosts.count(sprite.object) != 0; bi.dt = dt; bi.now = g_carFrame;
+            bi.jacking = track.jacking;
+            if (track.jacking) {
+                bi.driverIn = true;
+                for (const JackThrow& j : g_jackThrows)
+                    if (j.frame >= track.carStateFrame && (j.x - cx) * (j.x - cx) + (j.z - cz) * (j.z - cz) < 1.3f * 1.3f) bi.driverIn = false;
+            }
             boarding = BoardingUpdate(bi, &boardOut);
             if (boarding) {
                 track.dx = boardOut.x; track.dz = boardOut.z; track.vx = boardOut.vx; track.vz = boardOut.vz;
                 track.heading = boardOut.heading; track.twist = 0.0f; track.turnRate = 0.0f;
                 track.staggerX = track.staggerZ = 0.0f;
-                if (boardOut.action) {
+                if (boardOut.action == 5 && track.jacking) {
+                    // QB-14: jack_pull keeps its own timing (held until the driver is out).
+                    if (track.action != 5) { track.action = 5; track.actionReverse = false; track.actionTime = 0.5f; track.actionWeight = 1.0f; }
+                } else if (boardOut.action) {
                     track.action = boardOut.action; track.actionReverse = false;
                     track.actionTime = boardOut.clipT; track.actionWeight = 1.0f;
                 }
@@ -8303,7 +8312,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     actionT = (std::min)((std::max)(track.actionTime, 0.0f), len - 0.001f);
                     actionT = std::floor(actionT * 30.0f) / 30.0f;
                 }
-                if (boarding && boardOut.action && actionClip && track.action == boardOut.action) {
+                if (boarding && boardOut.action && actionClip && track.action == boardOut.action && !(track.action == 5 && track.jacking)) {
                     // The plan's own time on the clip, at full weight from its first frame
                     // (an exit starts seated, not standing).
                     track.actionTime = boardOut.clipT;

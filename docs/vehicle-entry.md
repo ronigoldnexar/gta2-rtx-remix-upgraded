@@ -1,5 +1,9 @@
 # Getting into and out of a car (ANIM-VEHICLE-ENTRY, 9 Nov 2026)
 
+The first pass (ANIM-VEHICLE-ENTRY, below) was built on `night-skills-2026-11-09` and reached
+`camera-modes` with MERGE-RECONCILE-3 (`3ab8cfe`). ANIM-ENTRY-EXIT finished the act on top of it; see the
+last section, "ANIM-ENTRY-EXIT: on camera-modes, the door shut after an exit, clean doors".
+
 Objective: entering and exiting vehicles play the complete action in the street views (third person):
 door open, body in, settle, and the reverse, with hands and feet on the car, and no disappearing,
 teleporting or sliding.
@@ -111,3 +115,90 @@ Frame-by-frame (30 fps, side camera; sheets `out/ent_v10/deliver/sheet_exit_30fp
   jack clip is on `camera-modes`, not on this branch).
 - The checker's GONE at the end of each entry is the plan ending with the door shut and the figure
   inside the body: verified in the frames, not by a visibility test.
+
+## ANIM-ENTRY-EXIT: on camera-modes, the door shut after an exit, clean doors (9 Nov 2026)
+
+The module was first ported by hand onto `camera-modes` `c8c3dd8` (before MERGE-RECONCILE-3) and run
+there (baseline `aee_base1`: 0 pops in 4 episodes, as on night-skills). From 30 fps frames of a van (068)
+and a 1950s sedan (013 Minx) seen from behind the door, ahead of it and from the player's chase camera:
+
+| Seen | Cause | Now |
+|---|---|---|
+| Long black shards hang from the open door to the road and sweep through the figure (on the Minx across his face) | `BuildDoorSplit` takes a triangle into the door by its centroid; the image-to-3D shells' long thin triangles reach the sill, the wheel arch or the road | those triangles stay in the door with their outlying corners pulled onto the door's box (1.5 cm margin, in the car's frame). A first try left them on the body: no shards, but the Minx door (150 -> 106 triangles) had holes and his arm showed through them (`aee_i2front`). Defect `door-split-black-shards-below-open-door` |
+| **The whole car vanished for ~15 frames as he walked up to it**, back with the door already open (camera-modes `ceb9ff9` only) | since PERF-4 (car artwork on a worker) the game's door-animation sprite, a new texture every frame, is often not ready or not measurable when first drawn, and `CarBodiesDraw` skipped the car; the plan then lost its car too and the figure vanished at the sill | each car object's last measured body stands in for up to 3 s (`g_lastBuilt`, cleared with the cache); log `its last measured body stands in`. Defect `car-vanishes-during-door-animation` |
+| His forearm through the closing door's outer face as he pulls it shut (front view) | the elbow was bent out to the hand's side, i.e. through the door | hands that hold the door from inside bend the elbow in and down, into the cab |
+| The door left open after an exit, swinging shut on its own after he walks off | the previous pass dropped the hold (a hand on the open door yanked him back) | **`kShut`** phase: he stands clear of the door's swing, turns a quarter toward the car's front, the hand on the door's side takes its rear edge at handle height and shoves (door at 1.5/s while held, 0.6-1.6 cm contact on the van), lets go once it swings out of reach, the door carries on at 2.2/s to shut; then he steps back onto the game's spot (0.35 s). Position and legs stay the renderer's follow plus an eased offset, so the legs step it. If the game walks him off, everything lets go (0.12 s) |
+| His chest, then his face, pass through the open door's rear edge as he rises and as it shuts | the game puts him 0.21 block from the hinge of a 0.25 door: inside its swing | the exit ends at a clear spot (`ClearSpot`: 6 cm outside the hull, 7 cm behind the open door's rear edge, at most 0.09 off the game's spot), moving back along the car before moving out; the shut starts from the same spot (no jump) |
+| Turning squarely to the door edge was a 150 degree turn and back; the turning legs read as a walk round the door | | a quarter turn (half way from facing out to facing the car's front) |
+| The far hand on the van's door frame above his head (a wave) | grip at 0.34 while still seated | at chest height (0.29 less half the sink), on the rear pillar |
+| His hand and forearm through the door's outer face as it starts to open (Minx) | the inside-handle target 6 cm inside the footprint (which takes in the mirrors) is outside a rounded body's skin | hands on the door's inside 2.5 cm deeper (`HandInside`) |
+| Getting in, the door's rear edge swept through his chest as he pulled it, and he stepped into the opening through the door's end | the step back with the door was 4.5/5 cm; the path into the opening was a straight line across the 33 degree door's end (the wedge's mouth is ~12 cm) | a bigger step back (6/7 cm) and a curve through the middle of the wedge between door and body |
+| A runner reaching the door popped (speed 1.8 -> 1.0 block/s in a frame, 013) | the climb's entry curve capped the incoming speed at 1 block/s | cap 1.8 block/s |
+| Hand on the Minx's roof edge floated over its rounded crown | grip at 0.98 of the roof height | 0.93 |
+
+**Carjacking (QB-14, camera-modes only).** The plan now knows a jack (`BoardingIn::jacking`): `jack_pull`
+keeps its own timing (the plan no longer overwrites the clip time), the door opens to 45 degrees, the
+roof-edge hand is left to the clip (both hands go into the doorway), and the climb waits at the open
+door (at most 1.5 s) until the driver is seen thrown out, so the jacker never steps into the opening
+through him. Code path only: no jack was filmed in this pass.
+
+**Verification aids.** `GTA2DX9_BOARDING_CAM=2` holds the camera ahead of the door (front quarter: the
+door's swing and the figure behind it are both seen); both cameras now stay through the shut. Probe
+`linux/docker/aee_probe.py` + `keys_aee_probe.sh` (mirrored in `gamerun/`) = `entry_probe.py` plus
+`ENTRY_XY` (the warp point: 164.5,147.6 the 068 van, 120.5,152.5 the 013 Minx) and `ENTRY_PAUSE`
+(seconds to stand still after the exit, so the shut is filmed). `tools/entry_check.py` lists 60 frames
+after an exit (the shut).
+
+```
+GTA2_GPU=5 CPUSET=50-59 CPUS=3 STAGE=<stage> FPS=0 GTA2_DIRECT_KEYS=1 \
+  INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/; s/^nav_map=.*/nav_map=0/' \
+  gamerun/entry_grun.sh <run> 130 keys_aee_probe.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_PED_FRAMES=1 \
+  -e GTA2DX9_LOG_FIGURES=1 -e GTA2DX9_BOARDING_CAM=2 -e ENTRY_ORBIT=0 -e ENTRY_PAUSE=2 -e ENTRY_XY=120.5,152.5
+python3 tools/entry_check.py out/<run>/gta2dx9.log
+```
+
+**Results, final build** (camera-modes `ceb9ff9` + this change; runs `aee_l1van` behind the door,
+`aee_l2front` ahead of it, `aee_l3rear` behind it, `aee_l4chase` the player's chase camera; L4, private
+stage; 8 entries and 8 exits at real speed, 0 faults): **0 pops, 0 slides, 0 GONE** in 16 episodes (the
+first port, before these fixes, had 1 pop: the runner; this base before the stand-in, 4-6 pops and 10-15
+slides per run where the car and the plan vanished). Hands at full weight on target: 369 frames, median
+0.000 block, 80 % within 2 cm, p95 0.043, max 0.053; feet: 1026 frames, median 0.000, 97 % within 2 cm,
+p95 0.016, max 0.039. The car is drawn, in its own colour, on every frame of every door animation (30
+stand-in frames logged). Sheets and clip (local, not in git): `~/gta2-linux/deliverables/anim_entry_exit/`
+(`exit_sedan_front_30fps.png`, `enter_sedan_rear_30fps.png`, `entry_exit_30fps.mp4`, 22 s).
+
+Frame by frame (30 fps, video frame numbers of the bursts):
+
+- **Exit**, Minx, ahead of the door (`aee_l2front/b_exit_0.mp4`): 18-20 the chase view, 21 the
+  verification camera cuts in (not the act); 21-34 the door swings open toward this camera and covers
+  him as the door-side leg goes over the sill and down to the road (feet seen under the door from 29);
+  35-40 he rises behind the door's rear edge (that edge, saw-toothed where the door is cut from the
+  shell, is between the camera and him); 41-45 standing clear of it, the quarter turn; 46-57 the near hand
+  shoves the door's edge and lets go, the door swings shut, shut at 58; 58-77 small steps back onto his
+  spot, idle. No jump between frames.
+- **Entry**, Minx, behind the door (`aee_l3rear/b_enter_0.mp4`): 24-33 running up and slowing, the near
+  hand going to the handle; 34-39 hand on the handle, the door swings open; 40-53 a step back with it,
+  then into the opening through the wedge, ducking, the far hand to the roof edge, the inner foot over
+  the sill (the door's cut edge between this outside camera and him at 48-53 is occlusion: the trace has
+  him inside the door line); 54-63 seated, the outer leg in, the door open; 64-73 the hand on the
+  armrest pulls it shut; 74 on: shut, nothing outside it. No jump between frames, nothing vanishes in view.
+- **Entry**, Minx, ahead of the door (`aee_l2front/b_enter_0.mp4`): 30-45 running up along the car toward
+  the camera, reaching; 44-46 the door starts to swing toward the camera; 46-55 into the opening, ducking
+  under the roof; 56-63 seated behind the open door (nothing of him through it); 64-77 the door shuts.
+
+**Still not right (honest list).**
+- Hands: the outside handle trails the swinging door by 4-5 cm for ~5 frames (the eased tether), the
+  armrest grab is 2-5 cm short for ~3 frames, the van's shove 2.6-3.6 cm short for 5 frames (the edge at
+  the arm's limit after the step back). Feet over the sill 2-4 cm off their arc for ~6 frames.
+- The van's high cab floor: knees high on the sill for a few frames of the exit, feet in the air for one
+  or two (the dark cab hides the floor they rest on).
+- Two frames of hairline seams along the door's top edge as it shuts over him (light through the cut),
+  and the door's outline is saw-toothed where it is cut out of the one-piece shell (seen when the open
+  door's rear edge is in front of him).
+- The door-animation fix holds the body measured before the door moved: a car dented or resprayed
+  while its door is busy shows it once the door is idle (within ~1 s).
+- With the door at 33 degrees the way into a narrow car is tight: the figure passes within about a
+  centimetre of the door line; from outside, the door covers him (as it would).
+- Not filmed: a jack (code path above), a passenger, trucks and buses (the plan scales with the car,
+  `063_truck_cab` and `069_u_jerk_truck` doors were split in the runs but not entered), first person
+  (the own figure is hidden).

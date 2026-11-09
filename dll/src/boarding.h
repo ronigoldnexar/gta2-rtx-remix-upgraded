@@ -16,8 +16,10 @@
 //        by its inside handle; the figure is kept (a "ghost" of the last sprite)
 //        after the game stops drawing him until the door is shut;
 //   out: from the seat, the door pushed open by its inside handle, the outer foot
-//        over the sill to the ground, a hand on the roof edge, standing up out of
-//        the opening and onto the game's own position by 0.8 s, then free.
+//        over the sill to the ground, a hand on the door frame, standing up out of
+//        the opening to a spot clear of the door's swing by 0.8 s; then (ANIM-ENTRY-
+//        EXIT) a quarter turn, the near hand shoves the door shut by its rear edge,
+//        and a step back onto the game's own position, the legs the renderer's.
 //
 // Contact is by two-bone IK (model_store ModelSetLimbTarget): hands on the door
 // handle, the door's top edge and the roof edge, feet on the sill path, the
@@ -53,6 +55,8 @@ struct BoardingIn {
     float drawnX = 0.0f, drawnZ = 0.0f, heading = 0.0f;   // the renderer's figure before this module
     float right = 1.0f;         // which way the figure's own right lies: +1 (x = cos h, z = -sin h)
     bool ghost = false;         // drawn from the last sprite after the game hid him
+    bool jacking = false;       // QB-14: boarding a car with a driver (the jack_pull clip keeps its own timing)
+    bool driverIn = false;      // QB-14: ... and the driver not yet seen thrown out (the plan waits at the open door)
     float dt = 1.0f / 30.0f;
     uint32_t now = 0;
 };
@@ -83,7 +87,7 @@ void BoardingEndFrame(uint32_t now);
 // A world point (dir false) or direction (dir true) into the space of a model drawn with
 // `world` (row vectors, p_world = p_model * world): for the IK targets.
 void BoardingWorldToModel(const gta2::Mat4& world, const gta2::Vec3& p, bool dir, float out[3]);
-// Verification aid, off by default: with GTA2DX9_BOARDING_CAM=1 the street-view camera is
+// Verification aid, off by default: with GTA2DX9_BOARDING_CAM=1 (2: ahead of the door) the street-view camera is
 // held beside the door the player is using, for 1.5 s after each boarding frame.
 bool BoardingDebugCamera(gta2::Vec3* eye, float* yaw, float* pitch);
 // [devtools]-style switch (GTA2DX9_BOARDING=0 turns the module off; default on).
