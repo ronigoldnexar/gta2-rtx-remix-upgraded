@@ -394,6 +394,7 @@ public:
         }
         street_.resize(style.TileCount() + 2);
         apron_.resize(style.TileCount() + 2);
+        board_.resize(style.TileCount() + 2);
     }
 
     // While set, AddPlainQuad (floor, side, seal) goes to a street-only group: 1 the fill
@@ -403,7 +404,16 @@ public:
 
     // While set, a lid that AddFaceUv emits is left out of the street views (see the
     // overhead decals in BuildWorldMesh); the classic view draws it as before.
-    void SetStreetHidden(bool on) { streetHidden_ = on; }
+    void SetStreetHidden(bool on) { streetHidden_ = on; lastHiddenValid_ = false; }
+    // The lid quad the last SetStreetHidden block emitted (corners in winding order), and
+    // taking the flag back off it when the caller decides to keep it after all.
+    bool LastHiddenLid(std::array<Vertex, 4>* quad) const { if (lastHiddenValid_) *quad = lastHiddenLid_; return lastHiddenValid_; }
+    void UnhideLastLid() {
+        if (!lastHiddenValid_) return;
+        streetHiddenQuads_[lastHiddenKeyed_][static_cast<size_t>(lastHiddenTile_)].pop_back();
+        --streetHiddenCount_;
+        lastHiddenValid_ = false;
+    }
     int StreetHiddenCount() const { return streetHiddenCount_; }
 
     // A quad with no tile behind it, for the black seal under the world. The
@@ -459,7 +469,8 @@ public:
         // floors read neighbours' faces raw, so guard the slot here rather
         // than corrupt the heap. (Residential crashed on exactly this.)
         if (slot < 0 || static_cast<size_t>(slot) >= perTile_[0].size()) return;
-        std::vector<Vertex>& out = streetMode_ == 2 ? apron_[static_cast<size_t>(slot)]
+        std::vector<Vertex>& out = streetMode_ == 3 ? board_[static_cast<size_t>(slot)]
+                                 : streetMode_ == 2 ? apron_[static_cast<size_t>(slot)]
                                  : streetMode_ == 1 ? street_[static_cast<size_t>(slot)]
                                                     : perTile_[0][static_cast<size_t>(slot)];
         for (int i = 0; i < 4; ++i) {
@@ -551,6 +562,8 @@ public:
         if (streetHidden_ && normal.y > 0.5f) {
             if (streetHiddenQuads_[keyed].empty()) for (auto& q : streetHiddenQuads_) q.resize(perTile_[0].size());
             streetHiddenQuads_[keyed][tile].push_back(static_cast<uint32_t>(out.size() / 4));
+            lastHiddenKeyed_ = keyed;
+            lastHiddenTile_ = tile;
             ++streetHiddenCount_;
         }
         static const int kForward[4] = {0, 1, 2, 3};
@@ -563,6 +576,10 @@ public:
                                  corners[slot].z + surface.z * push,
                                  surface.x, surface.y, surface.z,
                                  (*texcoords)[slot].u, (*texcoords)[slot].v});
+        }
+        if (streetHidden_ && normal.y > 0.5f) {
+            for (int i = 0; i < 4; ++i) lastHiddenLid_[static_cast<size_t>(i)] = out[out.size() - 4 + static_cast<size_t>(i)];
+            lastHiddenValid_ = true;
         }
     }
 
@@ -620,14 +637,16 @@ public:
             }
         }
         // Last, so every batch before them is exactly what it was without the fill.
-        for (int group = 0; group < 2; ++group)
+        for (int group = 0; group < 3; ++group)
         for (size_t tile = 0; tile < street_.size(); ++tile) {
-            const std::vector<Vertex>& quads = group == 0 ? street_[tile] : apron_[tile];
+            const std::vector<Vertex>& quads = group == 0 ? street_[tile] : group == 1 ? apron_[tile] : board_[tile];
             if (quads.empty()) continue;
             TileBatch batch;
             batch.tile = static_cast<int>(tile);
             batch.streetOnly = true;
             batch.wrapUv = group == 1;
+            batch.needsAlphaTest = group == 2 && tile < static_cast<size_t>(style_.TileCount()) &&
+                                   style_.GetTile(static_cast<int>(tile)).hasTransparency;
             batch.vertexStart = static_cast<uint32_t>(out->vertices.size());
             batch.vertexCount = static_cast<uint32_t>(quads.size());
             batch.indexStart = static_cast<uint32_t>(out->indices.size());
@@ -666,6 +685,10 @@ public:
 private:
     bool streetHidden_ = false;
     int streetHiddenCount_ = 0;
+    bool lastHiddenValid_ = false;
+    int lastHiddenKeyed_ = 0, lastHiddenTile_ = 0;
+    std::array<Vertex, 4> lastHiddenLid_ = {};
+    std::vector<std::vector<Vertex>> board_;    // [tile], upright boards, street views only, alpha tested
     std::vector<std::vector<uint32_t>> streetHiddenQuads_[2];   // [ColourKeyed][tile]: quad numbers left out of the street views
     const RailingShape& RailingOf(int tile) {
         if (railingShapes_.empty()) {
@@ -2353,7 +2376,75 @@ OverheadDecals FindOverheadDecals(const Map& map, const Style& style) {
     return d;
 }
 OverheadDecalStats g_overheadStats;
+
+// Upright boards (pm16): a rooftop sign is painted on the see-through lid of a 45-degree
+// slope block (types 41-44), the board drawn in perspective for a camera looking down:
+// Industrial's REVERSE sign at (43..45,101), level 3, its lettering in the half of the
+// tile at the slope's high edge and nothing under it. From the street that lid is a
+// tilted slab over the courtyard, seen from below mirrored and smeared. The street views
+// leave the lid out (TileBatch::streetIndices) and stand the picture up instead: a
+// vertical board in the plane of the high edge, from the slope's low height to its high
+// one, the texture as the lid had it (rotated about the high edge, so it reads the same
+// way from the side the lid faced), alpha tested and one-sided: these boards stand over open
+// air (the REVERSE sign spans an alley between two walls), and a plain back drawn for
+// them hung as a bare slab over the courtyard. A lid is a board when, along
+// its slope from the high edge, the rows start with a solid band (80 % of the width or
+// more, at least 30 % of the length) and the rows past it are empty (15 % or less) for
+// at least 30 % of the length: a roof crest's scallops or a railing on a ramp are not.
+bool BoardProfile(const Tile& art, const Uv& h0, const Uv& h1, const Uv& l0, const Uv& l1, float* bandLength) {
+    if (art.pixels.size() != static_cast<size_t>(kTilePixels) || !art.hasTransparency) return false;
+    constexpr int kRows = 32, kCols = 32;
+    float cover[kRows];
+    for (int r = 0; r < kRows; ++r) {
+        const float t = (r + 0.5f) / kRows;
+        int opaque = 0;
+        for (int c = 0; c < kCols; ++c) {
+            const float sv = (c + 0.5f) / kCols;
+            const float u = (h0.u + (h1.u - h0.u) * sv) * (1.0f - t) + (l0.u + (l1.u - l0.u) * sv) * t;
+            const float v = (h0.v + (h1.v - h0.v) * sv) * (1.0f - t) + (l0.v + (l1.v - l0.v) * sv) * t;
+            const int px = (std::min)(kTileSize - 1, (std::max)(0, static_cast<int>(u * kTileSize)));
+            const int py = (std::min)(kTileSize - 1, (std::max)(0, static_cast<int>(v * kTileSize)));
+            if (art.pixels[static_cast<size_t>(py) * kTileSize + px] >> 24) ++opaque;
+        }
+        cover[r] = static_cast<float>(opaque) / kCols;
+    }
+    int band = 0;
+    while (band < kRows && cover[band] >= 0.8f) ++band;
+    if (band < kRows * 3 / 10) return false;
+    int empty = 0;
+    for (int r = band; r < kRows; ++r) if (cover[r] <= 0.15f) ++empty;
+    *bandLength = static_cast<float>(band) / kRows;
+    return empty >= kRows * 3 / 10;
+}
+
+// The board for a hidden lid quad (corners in winding order): the high edge stays, the
+// low edge swings down under it. Returns false if the quad has no clear high edge.
+bool UprightBoard(const std::array<Vertex, 4>& q, std::array<Vec3, 4>* corners, std::array<Uv, 4>* uv, Vec3* normal,
+                  Uv* h0, Uv* h1, Uv* l0, Uv* l1) {
+    float lo = q[0].y, hi = q[0].y;
+    for (const Vertex& v : q) { lo = (std::min)(lo, v.y); hi = (std::max)(hi, v.y); }
+    if (hi - lo < 0.5f) return false;
+    for (int i = 0; i < 4; ++i) {
+        const Vertex& a = q[static_cast<size_t>(i)];
+        const Vertex& b = q[static_cast<size_t>((i + 1) % 4)];
+        if (std::fabs(a.y - hi) > 0.05f || std::fabs(b.y - hi) > 0.05f) continue;
+        const Vertex& bLow = q[static_cast<size_t>((i + 2) % 4)];   // under b
+        const Vertex& aLow = q[static_cast<size_t>((i + 3) % 4)];   // under a
+        if (std::fabs(aLow.y - lo) > 0.05f || std::fabs(bLow.y - lo) > 0.05f) return false;
+        *corners = {{{a.x, a.y, a.z}, {b.x, b.y, b.z}, {b.x, lo, b.z}, {a.x, lo, a.z}}};
+        *uv = {{{a.u, a.v}, {b.u, b.v}, {bLow.u, bLow.v}, {aLow.u, aLow.v}}};
+        *h0 = {a.u, a.v}; *h1 = {b.u, b.v}; *l0 = {aLow.u, aLow.v}; *l1 = {bLow.u, bLow.v};
+        const float len = std::sqrt(a.nx * a.nx + a.nz * a.nz);
+        if (len < 1e-3f) return false;
+        *normal = {a.nx / len, 0.0f, a.nz / len};
+        return true;
+    }
+    return false;
+}
+int g_boards = 0;
 }  // namespace
+
+int LastUprightBoards() { return g_boards; }
 
 OverheadDecalStats LastOverheadDecalStats() { return g_overheadStats; }
 
@@ -2369,6 +2460,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     MeshBuilder builder(style);
     if (const char* e = std::getenv("GTA2DX9_STREET_FILL")) g_streetFill = e[0] != '0';
     const OverheadDecals decals = g_streetFill ? FindOverheadDecals(map, style) : OverheadDecals{};
+    int boards = 0;
     for (int y = 0; y < kMapHeight; ++y) {
         for (int x = 0; x < kMapWidth; ++x) {
             const Column& column = map.ColumnAt(x, y);
@@ -2380,13 +2472,35 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                 const bool decal = decals.tiles > 0 && block.lid && static_cast<size_t>(block.lid.Tile()) < decals.tile.size() &&
                                    decals.tile[static_cast<size_t>(block.lid.Tile())] && LoneFlatLid(map, x, y, level) &&
                                    WallMounted(map, x, y, level);
-                builder.SetStreetHidden(decal);
+                const int type = block.SlopeType();
+                const bool boardCandidate = g_streetFill && !decal && type >= 41 && type <= 44 && block.lid &&
+                                            block.lid.IsFlat() && block.lid.Tile() < style.TileCount() &&
+                                            style.GetTile(block.lid.Tile()).hasTransparency;
+                builder.SetStreetHidden(decal || boardCandidate);
                 AddBlock(&builder, block, resolved[block.SlopeType() & (kSlopeTypeCount - 1)], cuts, x, y, level);
+                if (boardCandidate) {
+                    std::array<Vertex, 4> quad;
+                    std::array<Vec3, 4> corners;
+                    std::array<Uv, 4> uv;
+                    Vec3 normal;
+                    Uv h0, h1, l0, l1;
+                    float band = 0.0f;   // the solid band's share of the slope (BoardProfile)
+                    if (builder.LastHiddenLid(&quad) && UprightBoard(quad, &corners, &uv, &normal, &h0, &h1, &l0, &l1) &&
+                        BoardProfile(style.GetTile(block.lid.Tile()), h0, h1, l0, l1, &band)) {
+                        builder.SetStreetMode(3);
+                        builder.AddPlainQuad(block.lid.Tile(), corners, normal, uv);
+                        builder.SetStreetMode(0);
+                        ++boards;
+                    } else {
+                        builder.UnhideLastLid();
+                    }
+                }
                 builder.SetStreetHidden(false);
             }
         }
     }
-    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount()};
+    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards};
+    g_boards = boards;
     AddImplicitFloors(&builder, map);
     AddHiddenSurfaces(&builder, map);
     if (g_riverbedDepth > 0.0f) AddRiverbed(&builder, map, style, g_riverbedDepth);

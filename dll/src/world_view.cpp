@@ -1504,7 +1504,8 @@ bool WorldView::EnsureWorldLoaded() {
         Log("street fill (street views only): %s, %d risers, %d floors, %d ground cells, %d overhang ceilings, %d base sides re-dressed, %d ramp sides, %d deck undersides, apron tile %d at %.1f",
             gta2::StreetFill() ? "on" : "off (GTA2DX9_STREET_FILL=0)", f.risers, f.floors, f.ground, f.ceilings, f.baseSides, f.rampSides, f.decks, f.apronTile, f.apronHeight);
         const gta2::OverheadDecalStats od = gta2::LastOverheadDecalStats();
-        Log("overhead decals (left out of the street views): %d tile(s), %d lid(s)", od.tiles, od.lids);
+        Log("overhead decals (left out of the street views): %d tile(s), %d lid(s); %d sloped sign lid(s) stood up as boards",
+            od.tiles, od.lids, gta2::LastUprightBoards());
         const gta2::RailingStats r = gta2::LastRailingStats();
         Log("railings (QB-11): %s, %d tile(s), %d panel(s) from %d flat quads, %d triangles",
             gta2::RailingModels() ? "modelled" : "off (flat panels)", r.tiles, r.panels, r.quadsReplaced, r.triangles);

@@ -317,6 +317,40 @@ used for these runs: under the lamp at (166,161), the facade at (171,159) and th
 sheet and both streaks are gone. ste awning poses (FIX-WORLD-2's): `out/fw3_pm6_ste` against their `out/fwb_fix4_ste`: the 9g awning
 is still drawn (that one is not counted wall-mounted), and nothing else changed.
 
+## Sloped sign lids stood up as boards (FIX-WORLD-3, 9 Nov 2026)
+
+Defect pm16 `pm16-bil-third-rooftop-reverse-sign-slab-overhangs-wall-mirrored-smeared`. Industrial's
+"GET STUCK IN REVERSE" sign (bil 681/702/703 at (43..45,101), level 3) is painted on the see-through lid
+of a 45-degree slope block (type 41), the board drawn in perspective for a camera looking down. The
+lettering fills the half of the tile at the slope's high edge, and below it there is nothing. The block
+spans the alley between two church walls, over slope-63 fill and the pavement. From the start courtyard
+the lid was a tilted slab over the wall tops, seen from below: mirrored, smeared, with a ragged lower
+edge.
+
+The street views leave the lid out, using the same `TileBatch::streetIndices` as the overhead decals.
+In its place they draw an upright board: a vertical quad in the plane of the high edge, from the slope's
+low height to its high one, with the lid's texture rotated about that edge. It reads the same way as the
+lid did, from the side the lid faced. It is one-sided and alpha tested (`board_`, a street-only group,
+the only street group that alpha-tests).
+
+- **Which lids qualify (`BoardProfile`).** Sampled along the slope from the high edge, the rows must
+  start with a solid band (80 % of the width or more, at least 30 % of the length), and the rows past
+  it must be empty (15 % or less) for at least 30 % of the length. Roof crests, ramp railings and
+  scallops fail the test.
+- **Counts.** bil 3 (the sign), ste 5 (486, a board on a white truss), wil 105 (121, 434, 111, 92:
+  planked hoardings of the same construction).
+- **A plain back was tried and dropped.** These boards stand over open air, and the back hung as a bare
+  slab over the courtyard. From behind, a board now shows nothing.
+- **Left as they are.** The slope's two see-through end triangles (W/E 703, flat side faces) still show
+  as small wedges at the board's ends.
+
+**Classic view.** The mesh hash is unchanged (bil 1d2767964eba1223, ste fc908f869418d987, wil
+b9a234d14d489bf7).
+
+**Frames.** `out/fw3_pm16_base` (HEAD) against `out/fw3_pm16_fix`, poses `gamerun/fw3_poses_bil.txt`.
+In the courtyard views the slab is gone. From the alley to the south, the sign stands upright and reads
+correctly. wil hoarding at (78,157..161): `out/fw3_pm16w_base` and `out/fw3_pm16w_fix`.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder

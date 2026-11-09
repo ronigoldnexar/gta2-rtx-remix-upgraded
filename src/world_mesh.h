@@ -156,6 +156,8 @@ StreetFillCounts LastStreetFillCounts();
 // see FindOverheadDecals in world_mesh.cpp): how many tiles qualify and how many lids.
 struct OverheadDecalStats { int tiles = 0, lids = 0; };
 OverheadDecalStats LastOverheadDecalStats();
+// Sloped see-through lids the street views stand up as boards (UprightBoard in world_mesh.cpp).
+int LastUprightBoards();
 
 // How many blocks one repeat of a water tile's texture spans.
 //
