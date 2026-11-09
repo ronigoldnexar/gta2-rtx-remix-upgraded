@@ -12500,6 +12500,12 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         static int left = 1;
         static bool heroFirst = false;   // FIX-PERF-VSWITCH: the player's avatar before the rest
         if (!heroFirst) { heroFirst = true; ModelsWarmFirst(ModelForPedestrian()); }
+        {
+            // FIX-PERF-3: the car models' own paint (identity.cpp, ~12 ms a model, ~1 s for all) measured
+            // on its low-priority thread from 5 s of classic view on, not at the first street frame with cars.
+            static int classicFrames = 0;
+            if (CurrentViewMode() == ViewMode::Classic && ++classicFrames == 150) ModelsOwnPaintAhead();
+        }
         if (left > 0) {
             // The classic view has most of its frame to spare: the warm-up goes four
             // times faster there (all of it in ~4 s of a level instead of ~18).

@@ -7,7 +7,9 @@
 #include <cmath>
 #include <cstring>
 #include <deque>
+#include <initializer_list>
 #include <map>
+#include <mutex>
 #include <set>
 #include <unordered_map>
 #include <tuple>
@@ -89,6 +91,18 @@ double CarNowMs() {
     LARGE_INTEGER t; QueryPerformanceCounter(&t);
     return 1000.0 * static_cast<double>(t.QuadPart) / static_cast<double>(g_carFreq.QuadPart);
 }
+// FIX-PERF-3: the model-drawn cars' time by part (ms, this call), for the hitch detail's "car parts" line:
+// which first-use derivation (glass, cab, hood, bonnet, wheels, doors, buffers) a slow cars stage paid for.
+enum CarPart { kPartIdentity, kPartCabin, kPartWear, kPartHood, kPartWheels, kPartFeel, kPartDoor, kPartGlass,
+               kPartHull, kPartSeatBonnet, kPartBonnetDraw, kPartCab, kPartGlassInside, kPartLamps, kPartCount };
+const char* const kCarPartNames[kPartCount] = {"identity", "cabin", "wear", "hood", "wheels", "feel", "door", "glass",
+                                               "hull draws", "seat bonnet", "bonnet draw", "cab interior", "glass inside", "lamps"};
+double g_carParts[kPartCount] = {};
+struct CarPartTimer {
+    int part; double t0;
+    explicit CarPartTimer(int p) : part(p), t0(CarNowMs()) {}
+    ~CarPartTimer() { g_carParts[part] += CarNowMs() - t0; }
+};
 
 struct Rgb { float r, g, b; };
 
@@ -955,6 +969,90 @@ const HoodCopy& HoodModelFor(const Model& model, const gta2::Mat4& fit, float yC
     return copy;
 }
 
+// FIX-PERF-3: the dashboard numbers of the hood copy without the copy. On the plain renderer the seat
+// draws the seat bonnet (BonnetSurfaceFor) or, for a flat front, only the cab, and the hood copy was
+// built (all of the hull clipped, its near-black faces sampled, a model registered: ~30 ms for the 063
+// cab, again at each 0.04 step the eye crosses: six in the seat view's first 0.2 s) only for its dash top and width. The same faces count
+// (seen from the eye, not near black where not paint), but only those within the dash's band are
+// tested, so this is a pass over the vertices. model is null: nothing to draw.
+std::map<HoodKey, HoodCopy> g_hoodDashes;
+const HoodCopy& HoodDashFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut, float eyeX) {
+    const HoodKey key{&model, static_cast<int>(std::floor(yCut * 25.0f)), static_cast<int>(std::floor(zCut * 25.0f)),
+                      static_cast<int>(std::floor(eyeX * 25.0f))};
+    auto full = g_hoods.find(key);
+    if (full != g_hoods.end()) return full->second;
+    auto it = g_hoodDashes.find(key);
+    if (it != g_hoodDashes.end()) return it->second;
+    if (g_hoodDashes.size() > 96) g_hoodDashes.clear();
+    const double t0 = CarNowMs();
+    float dashTop = -1.0f, dashX0 = 1e9f, dashX1 = -1e9f;
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    const bool dropDark = g_hoodDropDark && 0.30f * model.paintRgb[0] + 0.59f * model.paintRgb[1] + 0.11f * model.paintRgb[2] >= 50.0f;
+    size_t tested = 0;
+    for (size_t n = 0; n < model.nodes.size() && n < worlds.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& src = model.meshes[static_cast<size_t>(mi)];
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        const bool paintTex = src.texture.find("_paint") != std::string::npos;
+        for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
+            gta2::Vec3 q[3];
+            bool inBand = false;
+            for (int c = 0; c < 3; ++c) {
+                const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                q[c] = PointBy(toCar, v.x, v.y, v.z);
+                inBand = inBand || (q[c].z >= zCut - 0.01f && q[c].z <= zCut + 0.08f);
+            }
+            if (!inBand) continue;
+            // as HoodModelFor: seen from the eye
+            gta2::Vec3 nrm{0.0f, 0.0f, 0.0f};
+            for (int c = 0; c < 3; ++c) {
+                const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                nrm.x += v.nx * toCar.m[0][0] + v.ny * toCar.m[1][0] + v.nz * toCar.m[2][0];
+                nrm.y += v.nx * toCar.m[0][1] + v.ny * toCar.m[1][1] + v.nz * toCar.m[2][1];
+                nrm.z += v.nx * toCar.m[0][2] + v.ny * toCar.m[1][2] + v.nz * toCar.m[2][2];
+            }
+            const float nl = std::sqrt(gta2::Dot(nrm, nrm));
+            const gta2::Vec3 centre{(q[0].x + q[1].x + q[2].x) / 3.0f, (q[0].y + q[1].y + q[2].y) / 3.0f, (q[0].z + q[1].z + q[2].z) / 3.0f};
+            const gta2::Vec3 toEye{eyeX - centre.x, yCut + 0.035f - centre.y, zCut - 0.10f - centre.z};
+            if (!(nl > 1e-9f && nrm.y / nl > -0.2f && gta2::Dot(nrm, toEye) > 0.0f)) continue;
+            ++tested;
+            // and not near black where it is not paint
+            if (dropDark) {
+                float lum = 0.0f, cover = 0.0f;
+                int got = 0;
+                for (int c = 0; c < 4; ++c) {
+                    float u = 0.0f, v = 0.0f;
+                    if (c < 3) { const ModelVertex& mv = src.vertices[src.indices[t + static_cast<size_t>(c)]]; u = mv.u; v = mv.v; }
+                    else {
+                        for (int k = 0; k < 3; ++k) { const ModelVertex& mv = src.vertices[src.indices[t + static_cast<size_t>(k)]]; u += mv.u / 3.0f; v += mv.v / 3.0f; }
+                    }
+                    float l = 0.0f, a = 0.0f;
+                    if (ModelTextureSample(src.texture, u, v, &l, &a)) { lum += l; cover += paintTex ? a : 255.0f - a; ++got; }
+                }
+                if (got && lum / got < 16.0f && cover / got < 128.0f) continue;
+            }
+            for (int c = 0; c < 3; ++c) {
+                if (q[c].z < zCut - 0.01f || q[c].z > zCut + 0.08f) continue;
+                dashTop = (std::max)(dashTop, (std::min)(q[c].y, yCut - 0.008f));
+                dashX0 = (std::min)(dashX0, q[c].x); dashX1 = (std::max)(dashX1, q[c].x);
+            }
+        }
+    }
+    HoodCopy& copy = g_hoodDashes[key];
+    copy.model = nullptr;
+    copy.dash = dashTop > 0.0f && dashX1 > dashX0;
+    copy.dashTop = dashTop; copy.dashX0 = dashX0; copy.dashX1 = dashX1;
+    static int logged = 0;
+    if (logged < 60) {
+        ++logged;
+        Log("car bodies: hood dash of %s for the driver's seat (no copy drawn): %zu faces at the cut (y < %.2f, z > %.2f), dashboard %s top %.3f x %.2f..%.2f, %.1f ms",
+            model.name.c_str(), tested, yCut, zCut, copy.dash ? "at" : "none,", dashTop, copy.dash ? dashX0 : 0.0f, copy.dash ? dashX1 : 0.0f, CarNowMs() - t0);
+    }
+    return copy;
+}
+
 // The driver's cab of a tall or long model (truck, bus, van, fire truck), in the
 // car's own frame after the fit (blocks; y up from the road, +z the nose): where
 // the hood ends and the windscreen starts, the hood's top (the deck) and the
@@ -1173,7 +1271,9 @@ struct BonnetSurface {
 // (was 64: an 8x8 texel cell of an image-to-3D atlas took in the black gaps between its islands).
 struct RgbMap { int n = 0; std::vector<float> rgb, a, rgbA; };
 std::map<std::string, RgbMap> g_rgbMaps;
+std::mutex g_rgbLock;   // FIX-PERF-3: the seat bonnet is built on the wear thread too (never erased: pointers stay)
 const RgbMap* RgbFor(const std::string& file) {
+    std::lock_guard<std::mutex> lock(g_rgbLock);
     auto it = g_rgbMaps.find(file);
     if (it != g_rgbMaps.end()) return it->second.n ? &it->second : nullptr;
     RgbMap& m = g_rgbMaps[file];
@@ -1217,16 +1317,17 @@ struct BonnetSurfKey {
 };
 std::map<BonnetSurfKey, BonnetSurface> g_bonnetSurfs;
 int g_fpBonnet = 1;   // [devtools] fp_bonnet=0: the hood copy from the seat instead (A/B checks)
+int g_hoodDash = 1;   // [devtools] hood_dash=0: the full hood copy built for its dash as before FIX-PERF-3 (A/B checks)
 
-const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit, float windscreen, float ceiling) {
-    const BonnetSurfKey key{&model, static_cast<int>(std::lround(std::fabs(fit.m[0][0] + fit.m[2][0]) * 100.0f)),
-                            static_cast<int>(std::lround(fit.m[1][1] * 100.0f)),
-                            static_cast<int>(std::lround(std::fabs(fit.m[2][2] + fit.m[0][2]) * 100.0f)),
-                            static_cast<int>(std::lround(windscreen * 100.0f))};
-    auto it = g_bonnetSurfs.find(key);
-    if (it != g_bonnetSurfs.end()) return it->second;
-    if (g_bonnetSurfs.size() > 64) g_bonnetSurfs.clear();
-    BonnetSurface& s = g_bonnetSurfs[key];
+BonnetSurfKey BonnetSurfKeyFor(const Model& model, const gta2::Mat4& fit, float windscreen) {
+    return BonnetSurfKey{&model, static_cast<int>(std::lround(std::fabs(fit.m[0][0] + fit.m[2][0]) * 100.0f)),
+                         static_cast<int>(std::lround(fit.m[1][1] * 100.0f)),
+                         static_cast<int>(std::lround(std::fabs(fit.m[2][2] + fit.m[0][2]) * 100.0f)),
+                         static_cast<int>(std::lround(windscreen * 100.0f))};
+}
+// The surface itself: reads only the model (immutable once loaded) and RgbFor (locked), so the wear thread
+// can build it ahead of the first frame in the seat (FIX-PERF-3; 45 ms for the 063 cab on the render thread).
+void BuildBonnetSurface(const Model& model, const gta2::Mat4& fit, float windscreen, float ceiling, BonnetSurface& s) {
     const double t0 = CarNowMs();
     std::vector<gta2::Mat4> worlds;
     ModelRestNodeWorlds(model, &worlds);
@@ -1255,7 +1356,7 @@ const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit,
     }
     if (tris.size() < 16 || maxZ < zStart + 0.05f || maxX - minX < 0.1f) {
         Log("car bodies: seat bonnet of %s: nothing ahead of the windscreen %+.2f (%zu faces); the hood copy stands in", model.name.c_str(), windscreen, tris.size());
-        return s;
+        return;
     }
     // The highest point of the hull at (x, z) at or under the ceiling, -1 for none.
     std::vector<const Tri*> row;
@@ -1351,7 +1452,7 @@ const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit,
     if (R < 3) {
         Log("car bodies: seat bonnet of %s: %d rows ahead of the windscreen %+.2f; the hood copy stands in", model.name.c_str(), R, windscreen);
         s.z.clear(); s.xl.clear(); s.xr.clear(); s.rgb.clear(); s.cov.clear();
-        return s;
+        return;
     }
     // A 3x3 median (a generated shell's lone spikes and pits), then two 1-2-1 passes each way.
     auto at = [&](std::vector<float>& g, int r, int c) -> float& {
@@ -1398,6 +1499,16 @@ const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit,
     s.valid = true;
     Log("car bodies: seat bonnet of %s: %d x %d from %+.2f to %+.2f, x %.2f..%.2f at the windscreen, under %.3f (%zu faces, %.1f ms)",
         model.name.c_str(), R, kCols, s.z.front(), s.z.back(), s.xl.front(), s.xr.front(), ceiling, tris.size(), CarNowMs() - t0);
+    return;
+}
+
+const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit, float windscreen, float ceiling) {
+    const BonnetSurfKey key = BonnetSurfKeyFor(model, fit, windscreen);
+    auto it = g_bonnetSurfs.find(key);
+    if (it != g_bonnetSurfs.end()) return it->second;
+    if (g_bonnetSurfs.size() > 64) g_bonnetSurfs.clear();
+    BonnetSurface& s = g_bonnetSurfs[key];
+    BuildBonnetSurface(model, fit, windscreen, ceiling, s);
     return s;
 }
 
@@ -2062,6 +2173,9 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
 struct WearJob {
     bool door = false;
     bool wheels = false;                // a wheel split (VEHICLE-FEEL); `door` is false then
+    bool bonnet = false;                // FIX-PERF-3: the seat bonnet of the player's car, ahead of the seat view
+    BonnetSurfKey bkey{};
+    float windscreen = 0, ceiling = 0;
     WheelKey wkey{};
     const Model* model = nullptr;
     int step = 0;                       // dent
@@ -2080,6 +2194,7 @@ struct WearResult {
     std::vector<gta2::Vec3> centres;
     std::vector<float> radii;
     bool shell = false;
+    BonnetSurface bonnet;
 };
 CRITICAL_SECTION g_wearLock;
 HANDLE g_wearWake = nullptr;
@@ -2091,6 +2206,7 @@ std::vector<WearResult*> g_wearDone;               // under g_wearLock
 std::set<DentKey> g_dentAsked;
 std::set<DoorKey> g_doorAsked;
 std::set<WheelKey> g_wheelAsked;
+std::set<BonnetSurfKey> g_bonnetAsked;   // FIX-PERF-3: seat bonnets on the worker
 size_t g_wheelBytes = 0;
 int g_wheelLate = 0;
 // Wheel splits are per (model, dent step, sprite footprint); past this much memory no
@@ -2114,15 +2230,29 @@ constexpr size_t kDoorSplitBytes = 64u << 20;
 // with the previous step or the shut door.
 std::set<const Model*> g_wearShown;
 uint32_t g_wearShowFrame = 0;
-int g_wearShownThisFrame = 0;
-bool WearMayShow(const Model* copy, uint32_t frame) {
-    if (g_wearShown.count(copy)) return true;
-    if (frame != g_wearShowFrame) { g_wearShowFrame = frame; g_wearShownThisFrame = 0; }
-    if (g_wearShownThisFrame >= 1) return false;
-    ++g_wearShownThisFrame;
-    g_wearShown.insert(copy);
+int g_wearBuffersLeft = 0;
+// FIX-PERF-3: one copy a frame was not enough: a wheel split is a hull and four wheels of up to 21 meshes
+// each (008 Bug), and the first V of the owner's demo created 33-58 vertex buffers a frame for them
+// (demo_rc3t f673-674). A copy (with its siblings) goes on screen once all its buffers exist, made at
+// most kWearBuffersPerFrame meshes a frame; the car is drawn as it was until then.
+constexpr int kWearBuffersPerFrame = 4;
+bool WearMayShow(const Model* const* copies, size_t n, uint32_t frame) {
+    bool shown = true;
+    for (size_t i = 0; i < n; ++i) shown = shown && (!copies[i] || g_wearShown.count(copies[i]));
+    if (shown) return true;
+    if (frame != g_wearShowFrame) { g_wearShowFrame = frame; g_wearBuffersLeft = kWearBuffersPerFrame; }
+    if (g_wearBuffersLeft <= 0 || !g_device) return false;
+    for (size_t i = 0; i < n; ++i) {
+        if (!copies[i]) continue;
+        int made = 0;
+        const bool ready = ModelPrepareBuffers(g_device, *copies[i], g_wearBuffersLeft, &made);
+        g_wearBuffersLeft -= made;
+        if (!ready) return false;
+    }
+    for (size_t i = 0; i < n; ++i) if (copies[i]) g_wearShown.insert(copies[i]);
     return true;
 }
+bool WearMayShow(std::initializer_list<const Model*> copies, uint32_t frame) { return WearMayShow(copies.begin(), copies.size(), frame); }
 uint32_t g_wearFrame = 0;   // the cars stage's frame, for WearMayShow
 
 size_t ModelBytes(const Model& m) {
@@ -2143,7 +2273,10 @@ DWORD WINAPI WearThread(void*) {
         WearResult* r = new WearResult;
         r->job = job;
         const double t0 = CarNowMs();
-        if (job.wheels) BuildWheelSplit(*job.model, job.fit, job.zFront, job.zRear, job.halfW, job.roof, job.wkey.shellMode, &r->a, &r->wheels, &r->centres, &r->radii, &r->shell, &r->rings);
+        if (job.bonnet) {
+            BuildBonnetSurface(*job.model, job.fit, job.windscreen, job.ceiling, r->bonnet);
+            ModelTextureSampleWarm(*job.model);   // the hood dash's texture samples (HoodDashFor)
+        } else if (job.wheels) BuildWheelSplit(*job.model, job.fit, job.zFront, job.zRear, job.halfW, job.roof, job.wkey.shellMode, &r->a, &r->wheels, &r->centres, &r->radii, &r->shell, &r->rings);
         else if (!job.door) r->a = BuildDented(*job.model, job.step, &r->count);
         else BuildDoorSplit(*job.model, job.fit, job.side, job.zFront, job.zRear, job.roof, job.halfW, &r->a, &r->b, &r->count);
         r->ms = CarNowMs() - t0;
@@ -2203,7 +2336,14 @@ void WearCollect() {
         WearResult* r = done[i];
         ++g_wearCollected;
         g_wearWorkMs += r->ms;
-        if (r->job.wheels) {
+        if (r->job.bonnet) {
+            g_bonnetAsked.erase(r->job.bkey);
+            if (!g_bonnetSurfs.count(r->job.bkey)) {
+                if (g_bonnetSurfs.size() > 64) g_bonnetSurfs.clear();
+                g_bonnetSurfs[r->job.bkey] = std::move(r->bonnet);
+            }
+            Log("car bodies: seat bonnet of %s made ahead of the seat view (worker %.1f ms, with its texture samples)", r->job.model->name.c_str(), r->ms);
+        } else if (r->job.wheels) {
             size_t bytes = ModelBytes(r->a);
             for (const Model& m : r->wheels) bytes += ModelBytes(m);
             for (const Model& m : r->rings) bytes += ModelBytes(m);
@@ -2258,6 +2398,22 @@ void WearCollect() {
     }
 }
 
+// FIX-PERF-3: the seat bonnet of the car the player drives, built on the worker while he drives in the
+// chase view, so the first frame from the driver's seat finds it (it was 45 ms on the render thread there).
+void SeatBonnetAhead(const Model& model, const gta2::Mat4& fit, float windscreen, float ceiling) {
+    const BonnetSurfKey key = BonnetSurfKeyFor(model, fit, windscreen);
+    if (g_bonnetSurfs.count(key) || g_bonnetAsked.count(key) || !WearStart()) return;
+    g_bonnetAsked.insert(key);
+    WearJob job;
+    job.bonnet = true;
+    job.bkey = key;
+    job.model = &model;
+    job.fit = fit;
+    job.windscreen = windscreen;
+    job.ceiling = ceiling;
+    WearPush(job, true);
+}
+
 // The four dent steps of a model, queued ahead of need the first time it is drawn.
 void DentQueueAhead(const Model& model) {
     if (!g_wearStarted || !g_dentQueued.insert(&model).second) return;
@@ -2277,7 +2433,7 @@ void DentQueueAhead(const Model& model) {
 const Model* DentReady(const Model& model, int step) {
     const DentKey key{&model, step};
     auto it = g_dents.find(key);
-    if (it != g_dents.end()) return WearMayShow(it->second, g_wearFrame) ? it->second : nullptr;
+    if (it != g_dents.end()) return WearMayShow({it->second}, g_wearFrame) ? it->second : nullptr;
     if (!WearStart()) {
         // No thread: build here, as before PERF-3.
         size_t moved = 0;
@@ -2322,8 +2478,7 @@ bool DoorReady(const Model& model, const gta2::Mat4& fit, int side, float zFront
     auto it = g_doorSplits.find(key);
     if (it != g_doorSplits.end()) {
         // Both halves count as one copy on screen (the door half is a few hundred triangles).
-        if (!WearMayShow(it->second.body, g_wearFrame)) return false;
-        g_wearShown.insert(it->second.door);
+        if (!WearMayShow({it->second.body, it->second.door}, g_wearFrame)) return false;
         *out = it->second;
         return true;
     }
@@ -2355,8 +2510,12 @@ bool WheelReady(const Model& model, const gta2::Mat4& fit, float zF, float zR, f
     auto it = g_wheelSplits.find(key);
     if (it != g_wheelSplits.end()) {
         if (!it->second.hull) return false;
-        if (!WearMayShow(it->second.hull, g_wearFrame)) return false;
-        for (int w = 0; w < it->second.n; ++w) g_wearShown.insert(it->second.wheel[w]);
+        // the hull, the wheels and (VEHICLE-ART-6) a shell's tyre rings: all their buffers before any is shown
+        const WheelSplit& ws = it->second;
+        const Model* parts[1 + 2 * kMaxWheels] = {ws.hull};
+        size_t np = 1;
+        for (int w = 0; w < ws.n && w < kMaxWheels; ++w) { parts[np++] = ws.wheel[w]; parts[np++] = ws.ring[w]; }
+        if (!WearMayShow(parts, np, g_wearFrame)) return false;
         *out = it->second;
         return true;
     }
@@ -2900,6 +3059,7 @@ int CarBodiesWheelContacts(const void* object, float* x, float* z, float* r, flo
 
 int CarBodiesBuilt() { return g_built; }
 const double* CarBodiesStats() { return g_carStats; }
+int CarBodiesPartStats(const double** ms, const char* const** names) { *ms = g_carParts; *names = kCarPartNames; return kPartCount; }
 int CarBodiesDrawn() { return g_drawn; }
 
 // ---------------------------------------------------------------------------
@@ -3290,6 +3450,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     g_built = 0;
     g_drawn = 0;
     for (double& v : g_carStats) v = 0.0;
+    for (double& v : g_carParts) v = 0.0;
     g_wearFrame = frame;
     {
         const double tw = CarNowMs();
@@ -3373,6 +3534,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
         g_hoodDropDark = GetPrivateProfileIntA("devtools", "hood_drop_dark", 1, g_devIni) != 0;
         g_fpBonnet = GetPrivateProfileIntA("devtools", "fp_bonnet", 1, g_devIni);
+        g_hoodDash = GetPrivateProfileIntA("devtools", "hood_dash", 1, g_devIni);
         {
             char fp[64] = {};
             GetPrivateProfileStringA("devtools", "force_car_paint", "", fp, sizeof(fp), g_devIni);
@@ -3527,7 +3689,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         vref.paintMean = b->paintMasked && !forcedPaint;
         for (int k = 0; k < 3; ++k) vref.paintBright[k] = vref.paintMean ? (&b->measure.paint.r)[k] : vref.paint[k];
         IdentitySetPaintFloor(g_paintLumFloor);
+        const double tIdent = CarNowMs();
         const IdentityRecord& ident = IdentityForVehicle(use.object, vref, use.driven);
+        g_carParts[kPartIdentity] += CarNowMs() - tIdent;
         if (const Model* model = ident.model) {
             const float modelLen = (std::max)(model->Length(), 0.01f), modelWid = (std::max)(model->Width(), 0.01f);
             const bool sideways = modelWid > modelLen * 1.3f;   // modelled along x rather than z
@@ -3574,6 +3738,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 carMaterial.Ambient = {amb, amb, amb, 1.0f};
             }
             {
+                CarPartTimer partTimer(kPartCabin);
                 const float roof = model->Height() * sy;
                 const float cy = 0.5f * b->measure.h;
                 Cabin cabin{0.62f * roof, roof, (b->measure.cabinFront - cy) * b->scale, 0.5f * b->bodyWidth, frame,
@@ -3635,8 +3800,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     lastStep = dentStep; lastFire = fireStage;
                 }
             }
+            const double tWear = CarNowMs();
             if (!WreckModelNumber(modelNumber)) DentQueueAhead(*model);
             const Model* worn = dentStep > 0 && !WreckModelNumber(modelNumber) ? DentedModelFor(*model, dentStep) : model;
+            g_carParts[kPartWear] += CarNowMs() - tWear;
             if ((dentStep > 0 || fireStage >= 3) && !ident.wreck) {
                 const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                 if (ModelSoftPaintActive()) {
@@ -3659,6 +3826,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (carMaterialSet) device->SetMaterial(&carMaterial);
             const Model* drawn = worn;
             const HoodCopy* hood = nullptr;
+            const BonnetSurface* seatBonnet = nullptr;
             if (cpuCut) {
                 const Cabin& cab = g_cabins[use.object];
                 static int seatLogged = 0, seatModel = -1;
@@ -3667,8 +3835,32 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     Log("car bodies: driver's seat of model %d: eye x=%.3f y=%.3f z=%.3f, deck %.3f, roof %.3f, windscreen %+.3f",
                         modelNumber, eyeLocalX, eyeLocalY, eyeLocalZ, cab.deck, cab.roof, cab.windscreen);
                 }
-                hood = &HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f, eyeLocalX);
-                drawn = hood->model;
+                // FIX-FP: the seat's bonnet as a clean surface (BonnetSurfaceFor) on the plain renderer
+                // (FIX-PERF-3: decided before the hood, which is then only measured for its dash).
+                const bool flatSeat = g_cabInterior && !WreckModelNumber(modelNumber) && CabClassFor(modelNumber, cab.flat) == CabClass::Bus;
+                if (!flatSeat && g_fpBonnet && !RemixApiAvailable() && !WreckModelNumber(modelNumber)) {
+                    CarPartTimer partTimer(kPartSeatBonnet);
+                    const float top = BonnetTopFor(*worn, fit, cab.windscreen);
+                    if (top > 0.02f) {
+                        const BonnetSurface& bs = BonnetSurfaceFor(*worn, fit, cab.windscreen, top + 0.005f);
+                        if (bs.valid) seatBonnet = &bs;
+                    }
+                }
+                CarPartTimer partTimer(kPartHood);
+                if ((seatBonnet || flatSeat) && g_hoodDash) {
+                    // The hood copy would not be drawn (the bonnet, or the cab alone): its dash only.
+                    hood = &HoodDashFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f, eyeLocalX);
+                } else {
+                    hood = &HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f, eyeLocalX);
+                    drawn = hood->model;
+                }
+            } else if (use.driven && g_fpBonnet && !RemixApiAvailable() && !WreckModelNumber(modelNumber) &&
+                       !(g_cabInterior && CabClassFor(modelNumber, g_cabins[use.object].flat) == CabClass::Bus)) {
+                // FIX-PERF-3: at the wheel in another view: the seat's bonnet made ahead on the worker.
+                CarPartTimer partTimer(kPartSeatBonnet);
+                const Cabin& cab = g_cabins[use.object];
+                const float top = BonnetTopFor(*worn, fit, cab.windscreen);
+                if (top > 0.02f) SeatBonnetAhead(*worn, fit, cab.windscreen, top + 0.005f);
             }
             // VEHICLE-FEEL: the sprung body and the turning wheels (see vehicle_fx.h).
             const float roofH = model->Height() * sy;
@@ -3680,8 +3872,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             bool haveWheels = false;
             if (feelOn && !wreckModel && !cpuCut && modelNumber != 54 && modelNumber != 17) {
                 const float ex = carToWorld.m[3][0] - eye.x, ez = carToWorld.m[3][2] - eye.z;
-                if (ex * ex + ez * ez < 22.0f * 22.0f || use.driven)
+                if (ex * ex + ez * ez < 22.0f * 22.0f || use.driven) {
+                    CarPartTimer partTimer(kPartWheels);
                     haveWheels = WheelReady(*worn, fit, axleF, axleR, 0.5f * b->bodyWidth, roofH, &wheels);
+                }
             }
             VehicleFxCar fxCar;
             fxCar.object = use.object;
@@ -3715,7 +3909,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     }
                 }
             }
+            const double tFeel = CarNowMs();
             const VehicleFeel& feel = VehicleFxUpdate(fxCar, frame);
+            g_carParts[kPartFeel] += CarNowMs() - tFeel;
             // The drawn footprint: the model's bounds through the fit, in the car frame.
             CarFoot foot;
             {
@@ -3881,6 +4077,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 }
             }
             // The door: swings open while someone boards or leaves, shuts after.
+            const double tDoor = CarNowMs();
             DoorState& ds = g_doors[use.object];
             const float dt = (std::min)(5u, (std::max)(1u, frame - ds.frame)) / 30.0f;
             ds.frame = frame;
@@ -3971,6 +4168,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // Open-top bodies need none (he shows over the door tops).
             // VEHICLE-GLASS: a closed body with its glass found draws real windows (car_glass.h): its
             // glass texels cut from the hull, a cabin behind them, the glass after the figures.
+            g_carParts[kPartDoor] += CarNowMs() - tDoor;
+            const double tGlass = CarNowMs();
             const float glassDx = carToWorld.m[3][0] - eye.x, glassDz = carToWorld.m[3][2] - eye.z;
             const float glassDist = std::sqrt(glassDx * glassDx + glassDz * glassDz);
             // A seated car whose rear screen was not found keeps FIX-SEATED's band, so the driver still
@@ -3988,7 +4187,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             for (const ModelMesh& gm : model->meshes) ownGlass = ownGlass || gm.texture.find("_glass") != std::string::npos;
             const bool glassy = g_driverGlass && !glassCut && !ownGlass && !use.own && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
                                 !RemixApiAvailable() && BoardingCarSeated(use.object);
+            g_carParts[kPartGlass] += CarNowMs() - tGlass;
             auto drawHull = [&](const Model& m, const gta2::Mat4& place) {
+                CarPartTimer partTimer(kPartHull);
                 if (!glassy) { ModelDraw(device, m, place, nullptr, 0.0f); return; }
                 const float roofY = model->Height() * sy;
                 const float zA = (b->measure.cabinRear - 0.5f * b->measure.h) * b->scale, zB = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
@@ -4161,22 +4362,16 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 // slab past the dashboard; the cab's dashboard is all there is ahead of the glass.
                 const bool flatCab = hood && g_cabInterior && !WreckModelNumber(modelNumber) &&
                                      CabClassFor(modelNumber, g_cabins[use.object].flat) == CabClass::Bus;
-                // FIX-FP: the seat's bonnet as a clean surface (BonnetSurfaceFor) on the plain renderer.
-                const BonnetSurface* seatBonnet = nullptr;
-                if (hood && !flatCab && g_fpBonnet && !RemixApiAvailable() && !WreckModelNumber(modelNumber)) {
-                    const Cabin& cab = g_cabins[use.object];
-                    const float top = BonnetTopFor(*worn, fit, cab.windscreen);
-                    if (top > 0.02f) {
-                        const BonnetSurface& bs = BonnetSurfaceFor(*worn, fit, cab.windscreen, top + 0.005f);
-                        if (bs.valid) seatBonnet = &bs;
-                    }
-                }
-                if (seatBonnet) {
+                // FIX-FP: the seat's bonnet (seatBonnet, found with the hood above).
+                if (seatBonnet && !flatCab) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                     const float one[3] = {1.0f, 1.0f, 1.0f};
                     const float cowl = hood->dash ? hood->dashTop : eyeLocalY - 0.045f;
-                    DrawBonnet(device, posed, *seatBonnet, eyeLocalZ + 0.10f, (std::min)(cowl, eyeLocalY - 0.045f), eyeLocalY - 0.04f,
-                               keepOwnPaint ? one : tint, dull, carMaterial, material);
+                    {
+                        CarPartTimer partTimer(kPartBonnetDraw);
+                        DrawBonnet(device, posed, *seatBonnet, eyeLocalZ + 0.10f, (std::min)(cowl, eyeLocalY - 0.045f), eyeLocalY - 0.04f,
+                                   keepOwnPaint ? one : tint, dull, carMaterial, material);
+                    }
                     if (IdentityProbeOn()) {
                         // FIX-CAR-IDENTITY-2: the seat's bonnet as the player's car in first person for the parity
                         // check (tools/identity_parity.py): the outline of its rows ahead of the cut, on screen.
@@ -4229,13 +4424,14 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                             Log("car bodies: cab interior of model %d: %s class, dash top %.3f (eye %.3f), x %.2f..%.2f", modelNumber,
                                 CabClassName(cp.cls), cp.dashTop, eyeLocalY, cp.dashX0, cp.dashX1);
                         }
+                        CarPartTimer partTimer(kPartCab);
                         DrawCabInterior(device, posed, cp, material);
                     } else {
                         DrawDash(device, posed, *hood, eyeLocalZ + 0.10f, paint, material);
                     }
                 }
             }
-            if (glassCut) CarGlassDrawInterior(device, *model, Mul(fit, posed), g_lampDark);
+            if (glassCut) { CarPartTimer partTimer(kPartGlassInside); CarGlassDrawInterior(device, *model, Mul(fit, posed), g_lampDark); }
             CarGlassEndCut();
             g_carStats[2] += CarNowMs() - tm;
             g_carStats[6] += 1;
@@ -4243,7 +4439,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             ModelSetPaintTint(nullptr);
             if (carMaterialSet) device->SetMaterial(&material);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+            const double tLamps = CarNowMs();
             DrawLamps(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, WreckModelNumber(modelNumber), feel.on ? &feel : nullptr);
+            g_carParts[kPartLamps] += CarNowMs() - tLamps;
             if (!WreckModelNumber(modelNumber)) {
                 GTA2_TRY {
                     DrawBeacons(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber);

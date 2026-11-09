@@ -102,6 +102,8 @@ int CarBodiesDrawn();
 // The last call's time, ms: [0] measuring artwork, [1] building sprite bodies,
 // [2] drawing models, [3] drawing sprite bodies; [4..7] the matching counts.
 const double* CarBodiesStats();
+// FIX-PERF-3: the model-drawn cars' time by part in the last call (ms) and the parts' names; returns the count.
+int CarBodiesPartStats(const double** ms, const char* const** names);
 
 // FIX-CAR-RENDER: the luminance floor of a car's live paint, a fraction of white
 // ([renderer] car_paint_floor_percent, default 30; 0 off): a near-black repaint keeps

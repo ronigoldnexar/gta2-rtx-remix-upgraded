@@ -3532,6 +3532,14 @@ void WorldView::RenderFrame() {
                 const double* c = CarBodiesStats();
                 Log("%s detail @%d: car bodies: measured %.0f (%.1f ms) built %.0f (%.1f ms) model draws %.0f (%.1f ms) sprite bodies %.0f (%.1f ms)",
                     what, frameCount_, c[4], c[0], c[5], c[1], c[6], c[2], c[7], c[3]);
+                const double* parts = nullptr;
+                const char* const* partNames = nullptr;
+                const int nParts = CarBodiesPartStats(&parts, &partNames);
+                char line[512];
+                int len = 0;
+                for (int i = 0; i < nParts && len < 400; ++i)
+                    if (parts[i] >= 1.0) len += snprintf(line + len, sizeof(line) - static_cast<size_t>(len), " %s %.1f", partNames[i], parts[i]);
+                if (len > 0) Log("%s detail @%d: car parts (ms):%s", what, frameCount_, line);
             }
         }
         if (FrameLogEnabled()) {

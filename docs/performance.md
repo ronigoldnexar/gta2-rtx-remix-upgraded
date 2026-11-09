@@ -999,3 +999,104 @@ The first-V cluster of E (68-261 ms) did not recur there, but it depends on how 
 on which cars are on screen, so it is not fixed, only less likely. Filed as follow-ups:
 wheel-split/dent buffers and seat-view builds made ahead in the classic view or on the wear thread,
 and a ghost frame that draws the real street scene (every program the first V needs).
+
+## First-use stalls at the street-view switches (9 Nov 2026, FIX-PERF-3)
+
+Work orders `perf-first-drivers-seat-view-builds-hood-and-seat-bonnet-on-render-thread-145ms` and
+`perf-first-v-wheel-split-buffers-and-uncovered-gl-programs-stall-100-260ms`. The owner demo take v3
+(`demo_rc3t`, stage afb3cb6, host load ~60) had one 1072 ms frame (`cars` 1043.6) at the first V, a
+236/168 ms pair after it, and 184 ms at the first frame in the driver's seat.
+
+**Measurement.** `keys_owner_demo.sh` through `gamerun/rec_grun.sh` (30 fps, `CPUS=8` on cores no other
+container was pinned to, GPU 5, a private copy of the warm `nv_cache_rec`), `GTA2DX9_FRAME_LOG`,
+`GTA2DX9_STATE_EVERY=3`. Before and after differ only in `gta2dx9.dll` (same stage, ini, keys, cache).
+The windows are the 90 frames (3 s) from the first classic -> third switch and from the first switch
+to the driver's seat while driving (`view`/`driving` columns of `frames.tsv`).
+
+**Where the time went** (the new `car parts (ms)` hitch-detail line splits the cars stage by part):
+
+1. **The own-paint lock convoy (the 0.9-1.0 s frame).** `ModelOwnPaint` (identity.cpp asks it for every
+   car) starts a low-priority thread at the first car that measures every car model's paint (~12 ms
+   each). The thread held the lock for the whole of each measurement and took it straight back for the
+   next model, so the render thread asking for the second car on screen waited behind all ~80 models:
+   `demo_rc3t` f671 (the log shows `own paint measured` for models 000..083 in order inside that frame,
+   then the 063 the frame wanted), `fxp3_base1` f624 934 ms. Now the measurement runs outside the lock
+   (two threads may measure one model; the first result stored wins, the numbers are the same), and the
+   thread starts after 5 s of classic view (`ModelsOwnPaintAhead`, live_geometry's warm-up block), so all
+   83 are measured long before a V (`fxp3_fix1`: 000..083 in 0.95 s, 14 s before the first V).
+2. **The driver's seat (91-184 ms).** The seat bonnet (`BonnetSurfaceFor`, the clean bonnet seen from the
+   seat) took 45-147 ms for the 063 truck cab (most of it reading the body textures for its colours), and
+   the hood copy (`HoodModelFor`) ~30 ms, again for each 0.04-block step the eye crossed while it settled
+   (six in the first 0.2 s). On the plain renderer the copy is not drawn when the seat bonnet is (nor for a
+   flat front's cab): only its dash line is used. Now:
+   - the bonnet is built on the wear thread while the player drives in another view (`SeatBonnetAhead`,
+     a `bonnet` job; `RgbFor` and `LumaFor` are locked for it), log `seat bonnet of <model> made ahead of
+     the seat view (worker N ms, with its texture samples)`;
+   - the hood is measured for its dash only (`HoodDashFor`: the same faces, only those in the dash band
+     tested; 1.5-1.8 ms), log `hood dash of <model> ... N ms`. Under Remix, or when no bonnet can be made,
+     the copy is built and drawn as before. `[devtools] hood_dash=0` restores the copy for A/B checks.
+   - Same-cut check (`fxp3_dash1`, `gamerun/keys_fxp3_dash.sh`: seated in the scene car, still, models 63,
+     0, 8, 68, `hood_dash` 0/1/0/1): where both ways measured the same cut they agree to three decimals
+     (000 Romero y<0.28 z>0.15: top 0.268, x -0.20..0.23; 063 y<0.52 z>0.23: 0.508, x -0.30..0.30), and the
+     cockpit third of the frame differs by 0-38 pixels between adjacent 0/1 shots.
+3. **Wear copies' buffers.** A dent, wheel or door copy went on screen one copy a frame, but a wheel split
+   is a hull and four wheels of up to 21 meshes each (008 Bug): 33-58 vertex buffers in a frame at the
+   first V (`demo_rc3t` f673-674, `fxp3_base1` f631). Now a copy (with its siblings) goes on screen once
+   all its mesh buffers exist, made at most 4 a frame (`ModelPrepareBuffers`); until then the car is drawn
+   as it was (whole, or the previous dent step).
+
+**Before and after** (same session conditions; `python3 tools/frame_table.py out/<run>`):
+
+| run | DLL | frames | > 50 ms | > 100 ms | worst | p99 | cars worst | first V: worst / cars / model buffers max | driver's seat: worst / cars |
+|---|---|---|---|---|---|---|---|---|---|
+| `demo_rc3t` (DEMO-RECAPTURE-2, load ~60) | stage afb3cb6 | 5212 | 117 | 7 | 1072 | 54.6 | 1043.6 | 1072 / 1043.6 / 40 | 184 / 174.4 |
+| `fxp3_base1` (load ~26-30) | 0fcd9d8 | 5736 | 51 | 2 | 934 | 48.9 | 919.4 | 934 / 919.4 / 40 | 155 / 144.0 |
+| `fxp3_fix1` (load 47-52 at 70-150 s) | 0fcd9d8 + this | 5369 | 90 | **0** | **61** | 52.3 | **14.6** | **33 / 14.6 / 4** | **33 / 7.5** |
+| `fxp3_base2` (load ~40; 240 s limit hit in the drive's last beat) | 0f15f27 | 6881 | 13 | 2 | 1002 | 42.4 | 988.0 | 1002 / 988.0 / 10 | 167 / 156.8 |
+| `fxp3_fix2` (load 43-48) | 0f15f27 + this (rebased build) | 6340 | **8** | **0** | **61** | 45.5 | **14.1** | **36 / 13.6 / 4** | **51 / 9.8** |
+| `fxp3_fix3` (load 45-71) | 5af1890 + this (rebased build) | 5584 | 109 | **0** | **67** | 52.9 | **24.1** | **61 / 11.6 / 4** | **41 / 9.7** |
+| `fxp3_fix4` | 8b61d70 + this | 5699 | **2** | **0** | **52** | 37.0 | **14.1** | **33 / 14.1 / 4** | **33 / 7.1** |
+| `fxp3_fix5` (load 50-58) | fb518e1 + this | 5750 | 19 | **0** | **88** | 44.2 | **17.7** | **41 / 14.4 / 4** | **33 / 9.7** |
+| `fxp3_fix6` (load 45-53) | 44b3243 + this | 5149 | **2** | **0** | **65** | 39.0 | **13.9** | **37 / 13.9 / 4** | **45 / 9.2** |
+| `fxp3_fix7` (the pushed build, load 52-61; 260 s limit hit in the last drive) | 3c87b70 + this | 7385 | 19 | **0** | **83** | 47.4 | **18.5** | **33 / 18.5 / 4** | **46 / 6.5** |
+
+The frames over 50 ms left in the fix runs: at the level start the ghost street frame (FIX-PERF-VSWITCH,
+on purpose inside the load stall: 58-61 ms, `present`/`pre`) and the modern HUD's made-ahead steps
+(`ui` 41 ms, f135 of `fxp3_fix2`); the rest are single `present` frames of 30-54 ms with nothing created
+(`cars` 2-5 ms). In `fxp3_fix1` 90 such frames came in two bursts at 70-90 s and 140-160 s of the take,
+the minutes the governor logged load 52 and 47 (`/tmp/gta2-governor.log` 22:20-22:21): host contention,
+not the renderer (the same DLL had 8 in `fxp3_fix2`). The 51 ms frame in `fxp3_fix2`'s seat window is one
+of those (`present` 36, `cars` 3.9, no texture or buffer created). `fxp3_fix3` ran at load 45-71 (107 of its 109 such
+frames in third person at 65-90 s); its 61 ms first-V frame (f655) has 39 ms of the sprites stage outside
+every sub-stage mark and nothing created: unexplained, most likely the thread descheduled at that load. `fxp3_fix5`'s 50-88 ms frames are the level start
+(ghost frame 71 + 88 ms, inside the load) and frames where every phase grows at once (`game` 24, `world` 21,
+`peds` 18 in f1613-1614 at load 57): CPU starvation, not a first use. `fxp3_fix7` (3c87b70) has four first-person frames at 231 s with the
+`peds` stage at 36-55 ms and nothing created while `cars` and `world` stay at 2-5 ms: not first use and
+not this change's code; left for the pedestrian/first-person owners (no hitch detail that late in the log).
+
+**Against the acceptance.** First V and the first driver's seat: worst frame 33-36 and 33-51 ms (was
+934-1072 and 155-184); `cars` worst 14.1-14.6 ms after the load (was 919-1044); car copy buffers at most
+4 a frame (was 40). Not met as written: `vb_created` still reaches 30-48 in single frames of the first
+V's three seconds. Those are the posed pedestrians' skin buffers (`skin_buffers` column, `SkinBufferFor`:
+the crowd's first poses past the 40 spares made in classic), and those frames run at the 33 ms cap, so
+they cost nothing visible; more spares would trade 32-bit address space for a counter. `present` under
+20 ms holds at the switches except in the contention bursts above.
+
+**Classic view.** Untouched: the only classic-side change starts a CPU thread after 5 s of play. vreg on
+the fix stage (`vreg_fxp3_1` against goldens afb3cb6): PASS 31 of 31, `spawn_classic` 0 changed tiles,
+2670-5712 pixels from the three goldens (which differ from each other by 1399-7542: the animated street).
+
+**The level-load frame (3.1-3.6 s, investigated, not changed).** `demo_rc3t` f68: 3356 ms = `game` 1321
+(GTA2's own level load) + `pre` 1888 (`pre_load`: our world load, which creates 3337 textures in that
+frame, `tex_created`: the HD tile set). It is one frame behind the game's own loading screen; moving the
+tile creation into play would put it back into the frames this work removed stalls from. The ghost
+street frame and the HUD's made-ahead steps follow it within 2 s (above).
+
+**Still open.**
+- Skin buffer creation at the first V (above): harmless at the cap, but the first frames still lock 30+
+  new dynamic buffers; raising `kSkinSpares` (model_store.cpp) would move them into the classic view.
+- A first person entered directly (getting into a car while already in first person) still builds the
+  seat bonnet on the render thread (the ahead job starts when the player drives in another view);
+  the boarding target could queue it.
+- With a cold NVIDIA shader cache the GL program builds of FIX-PERF-2's notes remain (not measured here;
+  every run above used the warm recording cache).

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <array>
 #include <deque>
+#include <mutex>
 #include <map>
 #include <tuple>
 #include <unordered_set>
@@ -2626,6 +2627,26 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
     return &b;
 }
 
+// FIX-PERF-3: the rigid buffers of a model's drawn meshes made now, at most `budget` new ones; *made gets
+// how many were. True when every one exists (or failed for good: drawn from memory then, as ModelDraw does).
+bool ModelPrepareBuffers(IDirect3DDevice9* device, const Model& model, int budget, int* made) {
+    int n = 0;
+    bool all = true;
+    for (const ModelNode& node : model.nodes) {
+        const int mi = node.mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& mesh = model.meshes[static_cast<size_t>(mi)];
+        if (mesh.indices.size() < 3) continue;
+        auto it = g_buffers.find(&mesh);
+        if (it != g_buffers.end() && (it->second.vb || it->second.failed)) continue;
+        if (n >= budget) { all = false; break; }
+        BuffersFor(device, mesh, false, mesh.vertices.data(), 0);
+        ++n;
+    }
+    if (made) *made = n;
+    return all;
+}
+
 // New poses skinned this frame, and the most a frame may skin (PERF-2: a crowd in
 // Residential needed up to 14 new poses in one frame, 18 ms). Past the budget a
 // figure takes the cached pose of the same model and clips nearest in time, a few
@@ -2708,7 +2729,9 @@ void ModelSetSoftPaintMasks(bool on) { g_softPaintSetting = on; }
 namespace {
 struct LumaMap { int w = 0, h = 0; std::vector<uint8_t> luma, mask; };
 std::map<std::string, LumaMap> g_lumaMaps;
+std::mutex g_lumaLock;   // FIX-PERF-3: warmed on the car wear thread too (never erased: pointers stay)
 const LumaMap* LumaFor(const std::string& file) {
+    std::lock_guard<std::mutex> lock(g_lumaLock);
     auto it = g_lumaMaps.find(file);
     if (it != g_lumaMaps.end()) return it->second.w ? &it->second : nullptr;
     LumaMap& m = g_lumaMaps[file];
@@ -2739,6 +2762,10 @@ const LumaMap* LumaFor(const std::string& file) {
     return &m;
 }
 }  // namespace
+
+void ModelTextureSampleWarm(const Model& model) {
+    for (const ModelMesh& mesh : model.meshes) LumaFor(mesh.texture);
+}
 
 bool ModelTextureSample(const std::string& file, float u, float v, float* luma, float* alpha) {
     const LumaMap* m = LumaFor(file);
@@ -3461,16 +3488,29 @@ void StartOwnPaintThread() {
 
 bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
     // The rest of the cars measured ahead from the first car on (not at load: nothing competes with
-    // the game's start; the frontend's keys landed in the attract demo twice when it did).
+    // the game's start; the frontend's keys landed in the attract demo twice when it did). FIX-PERF-3:
+    // the classic view starts it a few seconds into a level too (ModelsOwnPaintAhead).
     StartOwnPaintThread();
     struct Own { bool ok; float rgb[3]; float mean[3]; };
     static std::map<const Model*, Own> s_own;
     struct Guard { CRITICAL_SECTION* cs; ~Guard() { LeaveCriticalSection(cs); } };
     CRITICAL_SECTION* cs = OwnPaintLock();
-    EnterCriticalSection(cs);
-    Guard guard{cs};
-    auto it = s_own.find(&model);
-    if (it == s_own.end()) {
+    {
+        EnterCriticalSection(cs);
+        Guard guard{cs};
+        auto it = s_own.find(&model);
+        if (it != s_own.end()) {
+            for (int k = 0; k < 3; ++k) rgb[k] = it->second.rgb[k];
+            if (mean) for (int k = 0; k < 3; ++k) mean[k] = it->second.mean[k];
+            return it->second.ok;
+        }
+    }
+    // FIX-PERF-3: measured outside the lock. The worker held it across each model's measurement and
+    // took it straight back for the next, so the render thread asking for one car waited behind the
+    // whole list: 1044 ms in one frame of the owner's demo (demo_rc3t f671, every car model measured
+    // in order while the frame waited for 063). Two threads may now measure the same model at once;
+    // the first result stored wins and both are the same numbers.
+    {
         const DWORD t0 = GetTickCount();
         Own own{false, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}};
         std::map<std::string, std::vector<const ModelMesh*>> byFile;
@@ -3515,15 +3555,22 @@ bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
             for (int l = 0; l < 256; ++l) { const double* bin = &bins[static_cast<size_t>(l) * 4]; all[0] += bin[1]; all[1] += bin[2]; all[2] += bin[3]; }
             for (int k = 0; k < 3 && own.ok; ++k) own.mean[k] = (std::max)(8.0f, static_cast<float>(all[k] / static_cast<double>(n)));
         }
-        it = s_own.emplace(&model, own).first;
-        Log("models: %s: own paint %s %.0f,%.0f,%.0f mean %.0f,%.0f,%.0f (%zu texels of %zu paint texture%s, %lu ms)", model.name.c_str(),
-            own.ok ? "measured" : "unmeasured, kept", own.rgb[0], own.rgb[1], own.rgb[2], own.mean[0], own.mean[1], own.mean[2], n, byFile.size(), byFile.size() == 1 ? "" : "s",
-            static_cast<unsigned long>(GetTickCount() - t0));
+        EnterCriticalSection(cs);
+        Guard guard{cs};
+        auto it = s_own.find(&model);
+        const bool first = it == s_own.end();
+        if (first) it = s_own.emplace(&model, own).first;
+        if (first)
+            Log("models: %s: own paint %s %.0f,%.0f,%.0f mean %.0f,%.0f,%.0f (%zu texels of %zu paint texture%s, %lu ms)", model.name.c_str(),
+                own.ok ? "measured" : "unmeasured, kept", own.rgb[0], own.rgb[1], own.rgb[2], own.mean[0], own.mean[1], own.mean[2], n, byFile.size(), byFile.size() == 1 ? "" : "s",
+                static_cast<unsigned long>(GetTickCount() - t0));
+        for (int k = 0; k < 3; ++k) rgb[k] = it->second.rgb[k];
+        if (mean) for (int k = 0; k < 3; ++k) mean[k] = it->second.mean[k];
+        return it->second.ok;
     }
-    for (int k = 0; k < 3; ++k) rgb[k] = it->second.rgb[k];
-    if (mean) for (int k = 0; k < 3; ++k) mean[k] = it->second.mean[k];
-    return it->second.ok;
 }
+
+void ModelsOwnPaintAhead() { StartOwnPaintThread(); }
 
 void ModelsReleaseDevice() {
     // The player copies first; one that fell back to the shared texture is not its own.

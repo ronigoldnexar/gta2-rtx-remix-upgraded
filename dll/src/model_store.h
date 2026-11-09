@@ -141,6 +141,9 @@ bool ModelIsKnown(const Model* model);
 // dynamicBuffers: its meshes are drawn from dynamic default-pool buffers (for a
 // model made while the game runs, whose first draw is mid-frame; see BuffersFor).
 const Model* ModelRegisterDerived(Model&& model, bool dynamicBuffers = false);
+// FIX-PERF-3: the rigid buffers of `model`'s drawn meshes made ahead of its first draw, at most `budget` new
+// ones this call (*made: how many); true when all exist. Spreads a derived copy's buffers over frames.
+bool ModelPrepareBuffers(IDirect3DDevice9* device, const Model& model, int budget, int* made = nullptr);
 // The world matrix of every node in the rest pose.
 void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out);
 // The model for a car sprite number, or null; the pedestrian model, or null.
@@ -156,6 +159,9 @@ void ModelSetPaintTint(const float* rgb);
 // the shipped files; cached. False (rgb = paintRgb) when it has no paint meshes. identity.cpp divides by it.
 // mean (optional): the plain mean of the same texels (for a sprite paint measured from its remap's texels).
 bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3] = nullptr);
+// FIX-PERF-3: every car model's own paint measured on a low-priority thread from now on (once a session;
+// the classic view calls it a few seconds into a level, so the first street frame with cars waits for none).
+void ModelsOwnPaintAhead();
 // FIX-CAR-RENDER: soft car paint masks (renderer.car_paint_soft_mask, default on; never
 // under Remix): car "_paint" textures get a coverage alpha and are drawn in one pass,
 // texel * lerp(1, tint, coverage). Set before the first car texture is read.
@@ -165,6 +171,8 @@ bool ModelSoftPaintActive();
 // A model texture's mean luminance and alpha (0..255) around (u, v), from a 64x64
 // CPU copy read from its file (no device needed); false when it cannot be read.
 bool ModelTextureSample(const std::string& file, float u, float v, float* luma, float* alpha);
+// FIX-PERF-3: the samples of every texture of `model` made now (any thread), not at the first sample.
+void ModelTextureSampleWarm(const Model& model);
 // A twist of the upper body about the model's up axis at "Bip01 Spine1",
 // radians, applied to every pose drawn until it is set back to 0: the aim
 // turned off the walk. Quantise it (it keys the pose cache).
