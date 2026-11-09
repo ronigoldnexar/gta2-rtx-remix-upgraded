@@ -2480,6 +2480,41 @@ bool MapTreesEnabled() {
 
 MapTreeStats LastMapTreeStats() { return g_mapTreeStats; }
 
+namespace {
+int g_grateUndersides = 0;
+// A fine mesh: nearly all of the tile's see-through texels sit in holes of a few texels (a
+// grating, chain-link, a perforated plate: Industrial 84, 88, 290, 569, 570, 834, 847, 848),
+// not in the large openings of a girder lattice or the gaps between planks.
+bool FineMeshTile(const Tile& tile) {
+    const int n = 64;
+    if (tile.pixels.size() < static_cast<size_t>(n * n)) return false;
+    std::vector<uint8_t> open(static_cast<size_t>(n * n));
+    int total = 0;
+    for (int i = 0; i < n * n; ++i) { open[static_cast<size_t>(i)] = (tile.pixels[static_cast<size_t>(i)] >> 24) < 128; total += open[static_cast<size_t>(i)]; }
+    if (total < n * n / 10) return false;
+    int inSmall = 0;
+    std::vector<int> stack;
+    for (int start = 0; start < n * n; ++start) {
+        if (!open[static_cast<size_t>(start)]) continue;
+        int size = 0;
+        stack.assign(1, start);
+        open[static_cast<size_t>(start)] = 0;
+        while (!stack.empty()) {
+            const int c = stack.back();
+            stack.pop_back();
+            ++size;
+            const int x = c % n, y = c / n;
+            const int next[4] = {x > 0 ? c - 1 : -1, x + 1 < n ? c + 1 : -1, y > 0 ? c - n : -1, y + 1 < n ? c + n : -1};
+            for (int k : next) if (k >= 0 && open[static_cast<size_t>(k)]) { open[static_cast<size_t>(k)] = 0; stack.push_back(k); }
+        }
+        if (size <= 6) inSmall += size;
+    }
+    return inSmall * 10 >= total * 9;
+}
+}  // namespace
+
+int LastGrateUndersides() { return g_grateUndersides; }
+
 std::vector<MapTree> FindMapTrees(const Map& map) {
     std::vector<MapTree> trees;
     if (map.Empty()) return trees;
@@ -2594,6 +2629,36 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     if (g_streetFill) {
         AddStreetFill(&builder, map, style, resolved.data());
         AddApron(&builder, map, style);
+        // Walkable see-through gratings (defect pm36): a deck's edge strip or a catwalk of
+        // fine mesh (a flat lid with a ground type) is in plain view from the street under
+        // it, where its magnified mesh read as a sky checker ceiling with the car driving
+        // over it seen from beneath. It gets an underside of its own tile, drawn opaque and
+        // faced down: a metal plate from below, the same see-through grating from above
+        // (the underside is culled there). Street views only.
+        g_grateUndersides = 0;
+        std::vector<int8_t> fine(static_cast<size_t>(style.TileCount()), -1);
+        builder.SetStreetMode(1);
+        for (int y = 0; y < kMapHeight; ++y) {
+            for (int x = 0; x < kMapWidth; ++x) {
+                const Column& column = map.ColumnAt(x, y);
+                for (size_t i = 0; i < column.blocks.size(); ++i) {
+                    if (column.blocks[i] >= map.BlockCount()) continue;
+                    const Block& block = map.BlockAt(column.blocks[i]);
+                    const int tile = block.lid.Tile();
+                    if (!block.lid || !block.lid.IsFlat() || block.SlopeType() != 0 || block.GroundType() == 0 || tile >= style.TileCount()) continue;
+                    int8_t& f = fine[static_cast<size_t>(tile)];
+                    if (f < 0) f = FineMeshTile(style.GetTile(tile)) ? 1 : 0;
+                    if (!f) continue;
+                    const int level = column.offset + static_cast<int>(i);
+                    const float xWest = static_cast<float>(x), xEast = xWest + 1.0f;
+                    const float zSouth = static_cast<float>(kMapHeight - y - 1), zNorth = zSouth + 1.0f;
+                    const float h = static_cast<float>(level + 1) - 0.01f;
+                    builder.AddSideQuad(tile, {{{xWest, h, zSouth}, {xEast, h, zSouth}, {xEast, h, zNorth}, {xWest, h, zNorth}}}, {0.0f, -1.0f, 0.0f});
+                    ++g_grateUndersides;
+                }
+            }
+        }
+        builder.SetStreetMode(0);
     }
     if (g_seal) {
         // One quad, face up, below everything and reaching well past the map on

@@ -175,6 +175,8 @@ std::vector<MapTree> FindMapTrees(const Map& map);
 bool MapTreesEnabled();
 struct MapTreeStats { int trees = 0, faces = 0; };
 MapTreeStats LastMapTreeStats();
+// Walkable see-through gratings given an opaque underside in the street views (defect pm36).
+int LastGrateUndersides();
 
 // How many blocks one repeat of a water tile's texture spans.
 //

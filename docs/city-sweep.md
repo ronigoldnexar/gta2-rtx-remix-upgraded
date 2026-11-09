@@ -431,6 +431,19 @@ branch webs onto the lawn through the sun shadows (pm23).
 - Fixed poses: `gamerun/fw5_run.sh <name> <lvl> <stage> <poses>` (fw4_run.sh on `GTA2_GPU`, default 5,
   with STATE_EVERY=3), poses `gamerun/fw5_poses_{ste,wil,bil}_trees.txt`.
 
+## Grating undersides (FIX-WORLD-5, 9 Nov 2026; defect pm36)
+
+The Industrial "chain-link ceiling" (pm36, the bridge at (49..51, 94..97) by the spawn) is not a fence side
+emitted flat: it is the bridge's edge strip, a walkable see-through grating lid (tile 88, ground type set) one
+block over the pavement, with the mesh fascia 545 on its sides. Every underside the street fill adds skips
+see-through lids, so from the pavement the magnified mesh read as a sky checker ceiling, and a car driving over
+the strip was seen from beneath through it. A walkable see-through lid whose tile is a fine mesh (at least 90%
+of its see-through texels in holes of 6 texels or fewer: 84, 88, 290, 569, 570, 834, 847, 848 in Industrial;
+planks, girder lattices and tree crowns fail it) gets an underside of its own tile in the street-only group,
+drawn opaque and faced down 0.01 under the lid: a dark metal plate from below, the same see-through grating
+from above. Industrial 911, Residential 844, Downtown 0 (log line `map trees ...; grating undersides: N`).
+Classic hashes unchanged. Poses: `gamerun/fw5_poses_bil_pm36.txt`, `fw5_poses_ste_grate.txt`.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder
