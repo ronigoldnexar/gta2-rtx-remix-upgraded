@@ -10,6 +10,16 @@
 set -e
 cd "$(dirname "$0")/../.."
 R=$PWD; W=/tmp/gta2-restage-worktree; W_LOG=/tmp/gta2-restage-build.log; C=$R/stage_candidate
+# The candidate is cut from THIS checkout's HEAD. If the shared checkout lags the pushed branch, the stage silently
+# misses the newest fixes (9 Nov 18:30: a restage meant to ship e93b53c was cut from a HEAD two commits behind it).
+# Refuse in that case; run /mnt/gta2/autounify.sh (fast-forwards the shared checkout) and restage again.
+if git fetch -q fork 2>/dev/null && git rev-parse -q --verify fork/camera-modes >/dev/null 2>&1; then
+  BEHIND=$(git rev-list --count HEAD..fork/camera-modes)
+  if [ "$BEHIND" -gt 0 ] && [ -z "$RESTAGE_ALLOW_BEHIND" ]; then
+    echo "restage refused: HEAD $(git rev-parse --short HEAD) is $BEHIND commit(s) behind fork/camera-modes ($(git rev-parse --short fork/camera-modes)); run /mnt/gta2/autounify.sh first (or RESTAGE_ALLOW_BEHIND=1 to stage this HEAD on purpose)"
+    exit 1
+  fi
+fi
 git worktree remove --force "$W" 2>/dev/null || true
 git worktree add -f --detach "$W" HEAD >/dev/null
 ( cd "$W" && flock /tmp/gta2-build.lock nice -n 10 make -j4 dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll > "$W_LOG" 2>&1 ) || { tail -20 "$W_LOG"; exit 1; }
