@@ -96,6 +96,8 @@ public:
 
     void BeginFrame();
     void Quad(unsigned flags, const void* texture, const float* vertices, uint8_t shade);
+    // The next Quad is a digit of the game's score pop (hud_pass.h HudPassTakeScorePop).
+    void MarkScorePop(bool pop) { scorePop_ = pop; }
     void Triangle(unsigned flags, const void* texture, const float* vertices, uint8_t shade);
     void FlatRect(const float* vertices, uint32_t colour);
     void Line(int x1, int y1, int x2, int y2, uint32_t colour);
@@ -194,6 +196,7 @@ private:
     int windowHeight_ = 0;
     // Draws dropped this frame because the artwork they asked for was not there.
     int missingArtwork_ = 0;
+    bool scorePop_ = false;
     int missingLogged_ = 0;
     int traceFrames_ = 0;
     size_t lastSignature_ = 0;

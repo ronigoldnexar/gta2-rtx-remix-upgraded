@@ -1185,6 +1185,35 @@ __declspec(dllexport) void* __stdcall gbh_LoadImage(void* spec) {
 // (FUN_004be060) is the only producer of world sprites. Those are placed as real
 // 3D geometry from the world coordinates the game itself computed; the rest is
 // genuine 2D and goes to the screen-space pass.
+namespace {
+// GTA2DX9_LOG_SCREEN_QUADS=1: each call site of the 2D stream outside the HUD pass and the object
+// draw (return address, flags, the quad's box, its texture's size), once per site. A probe.
+void ProbeScreenQuad(const void* ret, unsigned flags, const void* texture, const float* v) {
+    static int on = -1;
+    if (on < 0) { char buf[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_LOG_SCREEN_QUADS", buf, sizeof buf) && buf[0] == '1'; }
+    if (!on || !v || gta2dx9::HudPassActive()) return;
+    const TextureRecord* record = static_cast<const TextureRecord*>(texture);
+    float x0 = v[0], x1 = v[0], y0 = v[1], y1 = v[1];
+    if (!(flags & gta2dx9::quad_flags::kExpandFromTexture)) {
+        for (int i = 1; i < 4; ++i) {
+            const float* c = v + i * 8;
+            x0 = (std::min)(x0, c[0]); x1 = (std::max)(x1, c[0]); y0 = (std::min)(y0, c[1]); y1 = (std::max)(y1, c[1]);
+        }
+    }
+    static uint64_t seen[128];
+    static int count = 0, big = 0;
+    const uint64_t key = (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ret)) << 32) | (flags & 0xFFFFFF);
+    bool known = false;
+    for (int i = 0; i < count; ++i) known = known || seen[i] == key;
+    const bool tall = y1 - y0 > 40.0f && big < 60;
+    if (known && !tall) return;
+    if (!known && count < 128) seen[count++] = key;
+    if (tall) ++big;
+    gta2dx9::Log("screen quad: site %p flags %06X box %.0f-%.0f x %.0f-%.0f texture %dx%d z %.3f%s", ret, flags & 0xFFFFFF, x0, x1, y0, y1,
+                 record ? record->width : -1, record ? record->height : -1, v[2], tall ? " (tall)" : "");
+}
+}  // namespace
+
 __declspec(dllexport) void __stdcall gbh_DrawQuad(unsigned flags, void* texture, float* vertices,
                                                   unsigned char shade) {
     gta2dx9::FrameLogHookScope frameLogScope;
@@ -1202,6 +1231,11 @@ __declspec(dllexport) void __stdcall gbh_DrawQuad(unsigned flags, void* texture,
         if (lamps && gta2dx9::SyntheticCarLampsReplaceQuads()) return;
         g_world.Live().AddSprite(flags, texture, vertices, 4, lamps);
         return;
+    }
+    ProbeScreenQuad(_ReturnAddress(), flags, texture, vertices);
+    if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == gta2dx9::kScreenSpriteReturn) {
+        const bool pop = gta2dx9::HudPassTakeScorePop();
+        g_world.GetOverlay().MarkScorePop(pop && !gta2dx9::HudPassActive());
     }
     g_world.GetOverlay().Quad(flags, texture, vertices, shade);
 }
@@ -1225,6 +1259,11 @@ __declspec(dllexport) void __stdcall gbh_DrawQuadClipped(unsigned flags, void* t
         if (lamps && gta2dx9::SyntheticCarLampsReplaceQuads()) return;
         g_world.Live().AddSprite(flags, texture, vertices, 4, lamps);
         return;
+    }
+    ProbeScreenQuad(_ReturnAddress(), flags, texture, vertices);
+    if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == gta2dx9::kScreenSpriteReturn) {
+        const bool pop = gta2dx9::HudPassTakeScorePop();
+        g_world.GetOverlay().MarkScorePop(pop && !gta2dx9::HudPassActive());
     }
     g_world.GetOverlay().Quad(flags, texture, vertices, shade);
 }

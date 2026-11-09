@@ -5990,6 +5990,29 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
 
     Vertex out[4];
     if (!ReadCorners(vertices, corners, texture, game::kSpriteVertexArray, out)) return;
+    {
+        // GTA2DX9_LOG_SPRITE_KINDS=1: each kind of sprite the street views receive (object base,
+        // number, quad flags, world size), once per kind. A probe, off by default.
+        static int probe = -1;
+        if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_SPRITE_KINDS", buf, sizeof buf) && buf[0] == '1'; }
+        if (probe && corners == 4) {
+            static std::set<long long> seen;
+            const uint8_t* obj = static_cast<const uint8_t*>(GameObjectBeingDrawn());
+            int base = -1; unsigned num = 0;
+            GTA2_TRY {
+                if (obj) { base = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase); num = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber); }
+            } GTA2_EXCEPT { base = -2; }
+            const TextureRecord* rec = static_cast<const TextureRecord*>(texture);
+            const int tw = rec ? rec->width : 0, th = rec ? rec->height : 0;
+            const long long key = (static_cast<long long>(base + 4) << 52) | (static_cast<long long>(num) << 36) | (static_cast<long long>(flags & 0xFFFF) << 20) |
+                                  (static_cast<long long>(tw & 0x3FF) << 10) | (th & 0x3FF);
+            if (seen.size() < 600 && seen.insert(key).second) {
+                const float sx = std::hypot(out[1].x - out[0].x, out[1].z - out[0].z), sz = std::hypot(out[3].x - out[0].x, out[3].z - out[0].z);
+                Log("sprite kind: base %d number %u flags %06X texture %dx%d size %.2fx%.2f at %.1f,%.1f,%.1f effect=%d", base, num, flags & 0xFFFFFF,
+                    tw, th, sx, sz, out[0].x, out[0].y, out[0].z, TextureIsEffect(texture) ? 1 : 0);
+            }
+        }
+    }
 
     // A car's lamps, laid on its body.
     //

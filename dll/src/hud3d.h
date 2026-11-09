@@ -23,6 +23,12 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
 // of 28 bytes each (x, y, z, rhw floats; ARGB colour; u, v texels), in the game's own screen
 // coordinates. True: the modern HUD shows this part itself, so the draw is dropped.
 bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, int count);
+// FIX-HUD-2 (pm50, feel4): what becomes of a digit of the game's score pop (the number that zooms
+// up and fades over a kill or a payout, laid out on the game's top-down camera). 0: drawn as the
+// game drew it (the classic view, always); 1: dropped (a street view with the modern HUD up, whose
+// "+$n" pop rises from the car instead); 2: drawn no taller than a tenth of the screen (a street
+// view with the game's HUD).
+int Hud3dScorePop();
 
 // Whether the modern HUD is the one on screen this frame.
 bool Hud3dActive();

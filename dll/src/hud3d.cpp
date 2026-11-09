@@ -1780,6 +1780,16 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
         ++g_markerSwallowed;
         return true;
     }
+    // FIX-HUD-2 (pm9-fp-wasted / pm10-third-wasted): while WASTED or BUSTED holds a street view the
+    // screen belongs to the beat (letterbox, wash, title) and the HUD is none at all. The modern HUD
+    // steps aside then and he is often no longer readable as a player (dead, cuffed), so g_active
+    // goes off and the game's own corner parts came back: its weapon and ammo, respect bars, wanted
+    // heads and hearts, half under the letterbox bars. Never in the classic view, where the beat
+    // never runs (it ends at once there).
+    if (g_street && (part == 1 || part == 4 || part == 5 || part == 6 || part == 11)) {
+        const BeatKind kind = Beat().kind;
+        if (kind == BeatKind::Wasted || kind == BeatKind::Busted) return true;
+    }
     if (!g_active) return false;
     switch (part) {
         case 1:    // score, lives, multiplier, weapon and ammo
@@ -1799,6 +1809,22 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
         default:
             return false;
     }
+}
+
+int Hud3dScorePop() {
+    if (!StreetPresentation()) return 0;
+    const int verdict = g_active ? 1 : 2;
+    static int quads[3] = {0, 0, 0};
+    static DWORD last = 0;
+    ++quads[verdict];
+    const DWORD now = GetTickCount();
+    if (now - last > 1000) {
+        last = now;
+        Log("hud3d: score pop in a street view: %d glyph quads dropped (the modern HUD's +$ pop carries it), %d held to a tenth of the screen",
+            quads[1], quads[2]);
+        quads[1] = quads[2] = 0;
+    }
+    return verdict;
 }
 
 void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Map& map, bool worldLoaded) {
@@ -1895,7 +1921,11 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     // frame after `want` turns on (this frame's were already drawn), so ours appears then, at
     // full strength; when it turns off the game's parts come back next frame, so ours is drawn
     // this last frame (its parts were swallowed) and is gone the next. Never both, never neither.
-    const float fadeWant = 1.0f - 0.92f * beatHide;
+    // A death beat (WASTED, BUSTED) hides it entirely: the game's corner parts are gone then too
+    // (Hud3dSwallow), so a faint panel at the screen's edge would be the only HUD left (pm10).
+    const bool deathBeat = street && (Beat().kind == BeatKind::Wasted || Beat().kind == BeatKind::Busted);
+    const float hideFactor = deathBeat ? 1.0f : 0.92f;
+    const float fadeWant = 1.0f - hideFactor * beatHide;
     if (want && !wasActive) {
         an.fade = 0.0f;
         an.cutIn = true;
@@ -1915,7 +1945,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         an.lastHealth = -1;
     }
 
-    markerFade += ((markersWant ? 1.0f - 0.92f * beatHide : 0.0f) - markerFade) * (1.0f - std::exp(-dt * 8.0f));
+    markerFade += ((markersWant ? 1.0f - hideFactor * beatHide : 0.0f) - markerFade) * (1.0f - std::exp(-dt * 8.0f));
     if (!markersWant && markerFade < 0.01f) markerFade = 0.0f;
     const bool markersShown = markerFade > 0.01f && v.valid;
 

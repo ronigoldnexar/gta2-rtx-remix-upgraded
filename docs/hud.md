@@ -82,6 +82,12 @@ One renderer at every frame (FIX-HUD, 9 Nov 2026):
 over targets (world-anchored), the zone name (placed, see the plates above), the big messages ("JOB COMPLETE"), the pause
 screen, the respect bars.
 
+During a WASTED or BUSTED beat in a street view (FIX-HUD-2, 9 Nov 2026; pm9-fp-wasted-death-cam / pm10-third-wasted) the HUD is
+none at all: the modern HUD fades fully out (a job-complete beat still leaves 8%), and the game's corner parts 1, 4, 5 (the
+respect bars), 6 and 11 are swallowed whether or not the modern HUD is active. He is usually no longer readable as the player
+then (`player not found`), so the modern HUD went inactive and the game's weapon, ammo and respect bars came back, half under
+the letterbox bars. The beat's own title, wash and bars are drawn by `DrawBeat`; part 15 (the game's message) was already swallowed.
+
 The hook: one line at the top of `Overlay::PushTriangleFan` (`dll/src/overlay.cpp`, marked
 `MODERN HUD`), which is where every 2D draw of the game is classified as HUD and by part.
 `src/renderer.cpp` is not touched (the sprite classification is in the overlay, not there).
@@ -211,6 +217,18 @@ back from the device's view and projection when the street views drew the object
   small punch on arrival and fade over 1.6 s. In first person a pop that would start within
   0.8 block of the eye starts 1.2 blocks ahead of it instead. The game's own 2D texts (the
   weapon name, the score digits over a victim) still show.
+- **The game's score pop in the street views (FIX-HUD-2, 9 Nov 2026; pm50-bil-third-score-pop-100-giant-translucent-green-billboard-over-street,
+  feel4-reward-text-balloons-over-truck-in-third).** The green digits the game zooms up over a kill or a payout are not a HUD part
+  and not a world sprite: the object code at `0x004B9424` draws each digit (font sprite `0xA3` + digit, translucent, scaled by the
+  pop's +0x34, faded by +0x36) through the shared screen-sprite routine `FUN_004CBA50` (return `0x004CBDA0`, also used by the
+  front end and HUD parts 2/13), laid out on the game's top-down camera. In 0.4 s a digit grows from ~50 to over 300 of 480
+  game pixels (run fh2_jack_b5, probe `GTA2DX9_LOG_SCREEN_QUADS=1`): over a 3D view that was a screen-filling translucent
+  green slab not even placed on the car. `hud_pass.cpp` points that one call at a stub that raises a flag (`HudPassTakeScorePop`);
+  `Overlay::Quad` asks `Hud3dScorePop`: in a street view with the modern HUD up the digit is dropped (the `+$n` pop above rises
+  from the car instead), in a street view with the game's HUD (`modern=0`, a pause, a death beat) it is held to a tenth of the
+  screen's height about the screen's middle line; the classic view draws it as the game does. Log: `hud3d: score pop in a
+  street view: n glyph quads dropped ..., m held ...` (at most once a second); `hud pass: installed (... score pop told apart)`.
+  Other callers of the routine (front end 0x453705/0x453753, 0x4582EE, the HUD's markers) are untouched.
 - `GTA2DX9_PICKUP_LABELS=0` turns the layer off. Log every 2 s: `hud3d: world layer: pickups
   drawn=N (nearest D from the eye) labelled=L (peak, frames with a label) pops money= weapon=`.
 

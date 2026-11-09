@@ -36,4 +36,12 @@ bool HideStageArrow();
 void SetHideStageArrow(bool on);
 bool HideStageArrowAvailable();
 
+// The score pop's digits (the numbers that zoom up and fade over a kill or a payout, drawn by
+// the object code outside the HUD pass): true for the quad the screen-sprite routine is drawing
+// for one, and clears the mark. Called for each quad that routine draws (return 0x004CBDA0).
+constexpr unsigned kScreenSpriteReturn = 0x004CBDA0;
+bool HudPassTakeScorePop();
+// At the start of a frame: a pop the routine drew nothing for (off screen) leaves no mark behind.
+void HudPassClearScorePop();
+
 }  // namespace gta2dx9

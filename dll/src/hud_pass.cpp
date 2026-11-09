@@ -323,6 +323,42 @@ bool InstallParts() {
     return true;
 }
 
+// The score pop (FIX-HUD-2, pm50 / feel4). The digits that zoom up and fade over a kill or a
+// payout are drawn outside the HUD pass, by the object code at 0x004B9424 (its pop objects:
+// font sprites from 0xA3, translucent, scaled by +0x34 and faded by +0x36), through the shared
+// screen-sprite routine FUN_004CBA50 that the HUD's markers and the front end also use. Laid
+// out on the game's top-down camera they are 2D quads that grow past the screen in 0.4 s; in
+// a street view they are not where the view shows the car. The call is pointed at a stub that
+// raises a flag and jumps on; the flag is taken by the one quad that routine draws.
+ASM_USED static volatile uint8_t s_scorePop ASM_NAME("_s_scorePop") = 0;
+constexpr uintptr_t kScorePopCall = 0x004B9424;
+constexpr uintptr_t kScreenSprite = 0x004CBA50;
+bool g_scorePopInstalled = false;
+
+bool InstallScorePop() {
+    const uint8_t* site = reinterpret_cast<const uint8_t*>(kScorePopCall);
+    int32_t rel = 0;
+    memcpy(&rel, site + 1, sizeof(rel));
+    if (site[0] != 0xE8 || kScorePopCall + 5 + static_cast<uintptr_t>(rel) != kScreenSprite) return false;
+    uint8_t* stub = static_cast<uint8_t*>(VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    if (!stub) return false;
+    //   mov byte ptr [s_scorePop], 1     C6 05 <&s_scorePop> 01
+    //   jmp FUN_004CBA50                 E9 <rel32>
+    const uint32_t flag = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&s_scorePop));
+    stub[0] = 0xC6; stub[1] = 0x05; memcpy(stub + 2, &flag, 4); stub[6] = 1;
+    stub[7] = 0xE9;
+    const int32_t back = RelTo(reinterpret_cast<uintptr_t>(stub + 7), kScreenSprite);
+    memcpy(stub + 8, &back, 4);
+    FlushInstructionCache(GetCurrentProcess(), stub, 16);
+    uint8_t* patch = reinterpret_cast<uint8_t*>(kScorePopCall);
+    DWORD previous = 0;
+    if (!VirtualProtect(patch, 5, PAGE_EXECUTE_READWRITE, &previous)) return false;
+    const int32_t to = RelTo(kScorePopCall, reinterpret_cast<uintptr_t>(stub));
+    memcpy(patch + 1, &to, 4);
+    VirtualProtect(patch, 5, previous, &previous);
+    return true;
+}
+
 }  // namespace
 
 namespace gta2dx9 {
@@ -349,12 +385,21 @@ void HudPassInstall() {
     g_partsKnown = InstallParts();
     g_arrowHideInstalled = InstallArrowHide();
     g_messageHideInstalled = InstallMessageHide();
+    g_scorePopInstalled = InstallScorePop();
     FlushInstructionCache(GetCurrentProcess(), nullptr, 0);
-    Log("hud pass: installed (%s; stage-end arrow switch %s, its message switch %s)",
+    Log("hud pass: installed (%s; stage-end arrow switch %s, its message switch %s, score pop %s)",
         g_partsKnown ? "parts told apart" : "parts not told apart - one HUD for placement",
         g_arrowHideInstalled ? "ready" : "unavailable",
-        g_messageHideInstalled ? "ready" : "unavailable");
+        g_messageHideInstalled ? "ready" : "unavailable",
+        g_scorePopInstalled ? "told apart" : "not told apart");
 }
+
+bool HudPassTakeScorePop() {
+    const bool pop = s_scorePop != 0;
+    s_scorePop = 0;
+    return pop;
+}
+void HudPassClearScorePop() { s_scorePop = 0; }
 
 bool HideStageArrow() { return s_hideStageArrow != 0; }
 void SetHideStageArrow(bool on) { s_hideStageArrow = on ? 1 : 0; }

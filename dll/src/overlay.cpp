@@ -107,6 +107,8 @@ void Overlay::TraceNextFrames(int frames) {
 }
 
 void Overlay::BeginFrame() {
+    HudPassClearScorePop();
+    scorePop_ = false;
     vertices_.clear();
     draws_.clear();
     missingArtwork_ = 0;
@@ -190,6 +192,24 @@ void Overlay::Quad(unsigned flags, const void* texture, const float* v, uint8_t 
             corners[i].v = src[kUvV];
             corners[i].colour =
                 vertexColour ? *reinterpret_cast<const uint32_t*>(&src[kDiffuse]) : flat;
+        }
+    }
+    if (scorePop_) {
+        // FIX-HUD-2: a digit of the game's score pop. See Hud3dScorePop; the classic view keeps it as drawn.
+        scorePop_ = false;
+        const int verdict = Hud3dScorePop();
+        if (verdict == 1) return;
+        if (verdict == 2) {
+            float y0 = corners[0].y, y1 = corners[0].y, cy = 0.0f;
+            for (const Vertex& c : corners) { y0 = (std::min)(y0, c.y); y1 = (std::max)(y1, c.y); cy += c.y * 0.25f; }
+            const float cap = 0.10f * static_cast<float>(gameHeight_);
+            if (y1 - y0 > cap) {
+                // Each digit is its own quad: shrunk about the screen's middle line (where the game's
+                // camera keeps him and the number is centred), so the digits stay together.
+                const float k = cap / (y1 - y0);
+                const float mx = static_cast<float>(gameWidth_) * 0.5f;
+                for (Vertex& c : corners) { c.x = mx + (c.x - mx) * k; c.y = cy + (c.y - cy) * k; }
+            }
         }
     }
     PushTriangleFan(corners, 4, texture, -1, StyleFor(flags));
