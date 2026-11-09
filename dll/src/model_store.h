@@ -195,6 +195,11 @@ void ModelClearLimbTargets();
 bool ModelLimbResidual(int limb, float out[3]);
 // Bytes of model textures created so far (managed pool), and how many.
 size_t ModelsTextureBytes(int* count);
+// IDENTITY-SYSTEM: a texture factor (0..2, x2 stage) over the nodes whose name starts with
+// `nodePrefix` in the next draws (null: off), and the mean colour of such a node's texture
+// (its opaque texels), so a caller can take the texture to a colour (factor = want / mean).
+void ModelSetNodeTint(const char* nodePrefix, const float* rgb);
+bool ModelNodeTextureMean(IDirect3DDevice9* device, const Model& model, const char* nodePrefix, float rgb[3]);
 const Model* ModelForPedestrian();
 // One of the pedestrian models, chosen by a seed (the same seed always gives
 // the same model, so a pedestrian keeps his look); null when there are none.

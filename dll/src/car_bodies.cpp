@@ -17,6 +17,8 @@
 #include "compat.h"
 #include "log.h"
 #include "model_store.h"
+#include "identity.h"   // IDENTITY-SYSTEM
+#include "view_modes.h"
 #include "remix_api.h"
 #include "synthetic_lights.h"
 #include "texture_store.h"
@@ -2775,13 +2777,29 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
 
         // A hand-made model for this vehicle: placed on the sprite's footprint,
         // its painted parts in the car's own colour.
-        // A burnt-out car keeps its model number but the game swaps its sprite for
-        // one of the ten wreck sprites (65..74): those are CARI models 72..81.
-        const int modelNumber = (use.sprite >= 65 && use.sprite <= 74) ? 72 + (use.sprite - 65)
+        // IDENTITY-SYSTEM: model and paint are the vehicle's identity record (identity.cpp),
+        // derived from what the classic view draws: the game's model number (a burnt-out car's
+        // wreck sprite 65..74 standing for CARI 72..81) and the paint measured from its sprite.
+        const bool forcedModel = !g_wreckTest && ((g_forceModel >= 0 && !use.own) ||
+                                                  (g_forceOwnModel >= 0 && !WreckModelNumber(g_forceOwnModel) && use.own));
+        const int modelNumber = (use.sprite >= 65 && use.sprite <= 74) ? IdentityVehicleModelNumber(use.model, use.sprite)
                                 : g_wreckTest ? 72 + (use.sprite % 10)
                                 : (g_forceModel >= 0 && !use.own) ? g_forceModel
                                 : (g_forceOwnModel >= 0 && !WreckModelNumber(g_forceOwnModel) && use.own) ? g_forceOwnModel : use.model;
-        if (const Model* model = ModelForVehicle(modelNumber, use.sprite)) {
+        SpriteRef vref;
+        vref.carModel = modelNumber;
+        vref.carSprite = use.sprite;
+        const bool forcedPaint = g_forceCarPaint[0] >= 0;   // devtools force_car_paint (a livery keeps its own)
+        // A model forced by the devtools keeps its own paint, unless a paint is forced too.
+        vref.forcedModel = forcedModel && !forcedPaint && !(use.sprite >= 65 && use.sprite <= 74);
+        {
+            vref.paint[0] = forcedPaint ? static_cast<float>(g_forceCarPaint[0]) : b->paint.r;
+            vref.paint[1] = forcedPaint ? static_cast<float>(g_forceCarPaint[1]) : b->paint.g;
+            vref.paint[2] = forcedPaint ? static_cast<float>(g_forceCarPaint[2]) : b->paint.b;
+        }
+        IdentitySetPaintFloor(g_paintLumFloor);
+        const IdentityRecord& ident = IdentityForVehicle(use.object, vref);
+        if (const Model* model = ident.model) {
             const float modelLen = (std::max)(model->Length(), 0.01f), modelWid = (std::max)(model->Width(), 0.01f);
             const bool sideways = modelWid > modelLen * 1.3f;   // modelled along x rather than z
             const float along = sideways ? modelWid : modelLen, across = sideways ? modelLen : modelWid;
@@ -2807,27 +2825,16 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             }
             fit.m[3][1] = -model->boundsMin.y * sy;
             fit.m[3][3] = 1.0f;
-            // The car's paint over the model's own: what its painted textures are multiplied by.
-            // Not for a livery (cop car, taxi, ambulance, fire truck, buses, the
-            // service vans, the army's): its model is painted in the livery, which a
-            // remap would recolour (REMIX-3: under Remix the tint is applied too,
-            // rtx.enableMultiStageTextureFactorBlending). Nor for a model forced by
-            // the devtools: the paint measured is then another car's sprite's.
-            const bool forcedPaint = g_forceCarPaint[0] >= 0 && !LiveryModel(modelNumber);   // devtools force_car_paint
-            const bool keepOwnPaint = !forcedPaint && (LiveryModel(modelNumber) || (g_forceModel >= 0 && !use.own) || (g_forceOwnModel >= 0 && use.own));
-            // FIX-CAR-RENDER (pm3-dark-vehicle-bodies): a near-black remap multiplied the paint
-            // to almost nothing (under 10/255 in daylight). The live paint's luminance is held
-            // at a floor (hue kept), and a dark body gets a broader, stronger sheen below.
-            const float live[3] = {forcedPaint ? static_cast<float>(g_forceCarPaint[0]) : b->paint.r,
-                                   forcedPaint ? static_cast<float>(g_forceCarPaint[1]) : b->paint.g,
-                                   forcedPaint ? static_cast<float>(g_forceCarPaint[2]) : b->paint.b};
-            const float paintLum = 0.30f * live[0] + 0.59f * live[1] + 0.11f * live[2];
-            const float lift = keepOwnPaint || paintLum >= g_paintLumFloor ? 1.0f
-                               : (std::min)(4.0f, g_paintLumFloor / (std::max)(paintLum, 8.0f));
-            const float tint[3] = {keepOwnPaint ? 1.0f : lift * live[0] / model->paintRgb[0],
-                                   keepOwnPaint ? 1.0f : lift * live[1] / model->paintRgb[1],
-                                   keepOwnPaint ? 1.0f : lift * live[2] / model->paintRgb[2]};
-            const float darkness = keepOwnPaint || g_paintLumFloor <= 0.0f ? 0.0f : (std::max)(0.0f, (std::min)(1.0f, (100.0f - paintLum) / 70.0f));
+            // The car's paint over the model's own (the record's): what its painted textures are
+            // multiplied by. Not for a livery (cop car, taxi, ambulance, fire truck, buses, the
+            // service vans, the army's): its model is painted in the livery, which a remap would
+            // recolour (REMIX-3: under Remix the tint is applied too,
+            // rtx.enableMultiStageTextureFactorBlending). Nor for a model forced by the devtools.
+            // FIX-CAR-RENDER (pm3-dark-vehicle-bodies): a near-black paint is held at a luminance
+            // floor (hue kept), and a dark body gets a broader, stronger sheen below.
+            const bool keepOwnPaint = ident.livery;
+            const float* tint = ident.paintTint;
+            const float darkness = ident.darkness;
             D3DMATERIAL9 carMaterial = material;
             if (darkness > 0.0f) {
                 // A sky-tinted sheen (added after the texture, so a dark albedo cannot swallow it).
@@ -3211,6 +3218,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 device->SetRenderState(D3DRS_ZWRITEENABLE, zw);
                 device->SetRenderState(D3DRS_BLENDFACTOR, factor);
             };
+            if (IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: every car on screen, the player's as "mycar"
+                IdentityProbeModel(device, use.driven ? "mycar" : "car", reinterpret_cast<const void*>(use.object), ident, *model,
+                                   Mul(fit, posed).m, static_cast<int>(CurrentViewMode()));
             if (ds.open > 0.02f && haveSplit) {
                 const float halfW = 0.5f * b->bodyWidth;
                 drawHull(*split.body, Mul(fit, posed));

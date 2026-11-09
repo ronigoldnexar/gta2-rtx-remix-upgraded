@@ -1,0 +1,396 @@
+// IDENTITY-SYSTEM: see identity.h and docs/identity-system.md.
+#include "identity.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d9.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <unordered_map>
+
+#include "log.h"
+#include "model_store.h"
+
+namespace gta2dx9 {
+namespace {
+
+bool g_crowdVariety = true;
+float g_paintFloor = 77.0f;
+uint32_t g_frame = 0;
+
+uint32_t Mix(uint32_t x) {
+    x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
+    return x;
+}
+
+struct Fnv {
+    uint32_t h = 2166136261u;
+    void Bytes(const void* p, size_t n) { const uint8_t* b = static_cast<const uint8_t*>(p); for (size_t i = 0; i < n; ++i) { h ^= b[i]; h *= 16777619u; } }
+    void Int(int v) { Bytes(&v, sizeof v); }
+    void Float(float v) { Int(static_cast<int>(std::lround(v * 64.0f))); }   // 1/64: float noise never splits a record
+    void Str(const char* s) { if (s) Bytes(s, strlen(s)); Int(0); }
+};
+
+uint32_t Fingerprint(const IdentityRecord& r) {
+    Fnv f;
+    f.Int(static_cast<int>(r.kind));
+    f.Int(static_cast<int>(r.seed));
+    f.Int(r.ref.remap); f.Int(r.ref.body); f.Int(r.ref.carModel); f.Int(r.ref.carSprite);
+    for (float c : r.ref.paint) f.Int(static_cast<int>(std::lround(c)));
+    f.Int(r.ref.forcedModel ? 1 : 0);
+    f.Str(r.model ? r.model->name.c_str() : "-");
+    f.Int(r.zoned); f.Int(r.zoneHair); f.Int(r.tinted); f.Int(r.clothes); f.Int(r.livery);
+    for (const auto& z : r.zone) for (float c : z) f.Float(c);
+    for (float c : r.tint) f.Float(c);
+    for (float c : r.paintTint) f.Float(c);
+    f.Float(r.height); f.Float(r.width); f.Float(r.darkness);
+    return f.h;
+}
+
+// ---- People ------------------------------------------------------------------------
+
+// The crowd's variety, from the record's seed (was CrowdLookFor in live_geometry.cpp, seeded by
+// the sprite object's address): a build (height +-6%, width +-5%), a shade of a zoned outfit
+// (+-12%), and for a civilian without zones three times in four an everyday clothes colour.
+void CrowdVariety(IdentityRecord* r) {
+    if (!g_crowdVariety || !r->model) return;
+    const Model& model = *r->model;
+    const int remap = r->ref.remap;
+    const uint32_t h = Mix(r->seed ^ 0x9e3779b9u);
+    r->height = 0.94f + 0.12f * static_cast<float>(h & 255) / 255.0f;
+    r->width = 0.95f + 0.10f * static_cast<float>((h >> 8) & 255) / 255.0f;
+    const bool civilian = remap < 0 || remap == 15 || (remap >= 18 && remap != 22);
+    const float shade = 0.88f + 0.24f * static_cast<float>((h >> 24) & 255) / 255.0f;
+    if (r->zoned) {
+        for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) r->zone[z][k] = (std::min)(2.0f, r->zone[z][k] * shade);
+        return;
+    }
+    if (civilian && model.splitPaint && !model.pedZones && ((h >> 16) & 3) != 0 && !r->tinted) {
+        static const uint8_t kClothes[][3] = {
+            {38, 52, 92},    {60, 62, 66},   {28, 28, 32},   {196, 178, 140}, {92, 100, 58},  {118, 32, 44},
+            {70, 104, 150},  {214, 212, 204}, {128, 130, 134}, {110, 76, 50},  {36, 80, 52},   {200, 160, 50},
+            {40, 120, 124},  {176, 46, 40},  {210, 140, 160}, {140, 176, 210}, {160, 146, 104}, {90, 60, 110},
+            {230, 120, 60},  {84, 40, 34},
+        };
+        constexpr uint32_t kN = sizeof(kClothes) / sizeof(kClothes[0]);
+        const uint8_t* c = kClothes[(h >> 18) % kN];
+        for (int k = 0; k < 3; ++k) {
+            const float ratio = static_cast<float>(c[k]) / (std::max)(8.0f, model.paintRgb[k]);
+            r->tint[k] = (std::max)(0.3f, (std::min)(2.0f, 1.0f + (ratio - 1.0f) * 0.85f));
+        }
+        r->tinted = true;
+        r->clothes = true;
+    }
+}
+
+// The colours the classic view's sprite shows on the torso and the legs, as the 3D avatar
+// renders them with this record (texture reference x tint).
+void Shown(IdentityRecord* r) {
+    if (!r->model) return;
+    const Model& m = *r->model;
+    for (int k = 0; k < 3; ++k) {
+        if (r->zoned) {
+            r->shownTop[k] = r->zone[0][k] * m.zoneRef;
+            r->shownBottom[k] = r->zone[1][k] * m.zoneRef;
+        } else if (r->tinted) {
+            r->shownTop[k] = r->shownBottom[k] = (std::min)(255.0f, r->tint[k] * m.paintRgb[k]);
+        } else {
+            const bool known = m.zoneRgb[0][0] + m.zoneRgb[0][1] + m.zoneRgb[0][2] >= 1.0f;
+            r->shownTop[k] = known ? m.zoneRgb[0][k] : m.paintRgb[k];
+            r->shownBottom[k] = known ? m.zoneRgb[1][k] : m.paintRgb[k];
+        }
+    }
+}
+
+void LogPerson(const char* what, uintptr_t cacheKey, const IdentityRecord& r, bool changed) {
+    Log("identity: %s%s key %d remap %d body %d -> %s%s%s build %.2fx%.2f top %.0f,%.0f,%.0f bottom %.0f,%.0f,%.0f fp %08x",
+        what, changed ? " CHANGED" : "", static_cast<int>(r.seed), r.ref.remap, r.ref.body, r.model ? r.model->name.c_str() : "(none)",
+        r.zoned ? " zoned" : "", r.clothes ? " clothes" : r.tinted ? " tinted" : "", r.height, r.width, r.shownTop[0], r.shownTop[1],
+        r.shownTop[2], r.shownBottom[0], r.shownBottom[1], r.shownBottom[2], r.fingerprint);
+    (void)cacheKey;
+}
+
+// The type of person the sprite says he is, and from it the avatar and its colours.
+IdentityRecord DerivePed(uint32_t seed, int remap, int body) {
+    IdentityRecord r;
+    r.kind = IdKind::Ped;
+    r.seed = seed;
+    r.ref.remap = remap;
+    r.ref.body = body;
+    const Model* hero = ModelForPedestrian();
+    // The avatar within his type, dealt by his seed; never the hero's (the hero is his alone,
+    // whatever the manifest's pools say).
+    const Model* m = ModelForPedestrian(seed, remap);
+    for (uint32_t k = 1; m && m == hero && k < 8; ++k) m = ModelForPedestrian(seed + k * 0x9e3779b9u, remap);
+    for (uint32_t k = 1; m && m == hero && k < 16; ++k) m = ModelForPedestrian(seed + k * 0x85ebca6bu);
+    r.model = m;
+    if (!m) return r;
+    float typeScale = 1.0f, typeWidth = 1.0f;
+    PedTypeBuild(remap, &typeScale, &typeWidth);   // ASSET-PEDS-2: the Hulks are bigger
+    r.tinted = PedRemapTint(remap, *m, r.tint);
+    bool hair = false;
+    if (m->pedZones && PedZoneTints(remap, *m, r.zone, &hair)) { r.zoned = true; r.zoneHair = hair; r.tinted = false; }
+    CrowdVariety(&r);
+    r.height *= typeScale;
+    r.width *= typeWidth;
+    Shown(&r);
+    r.fingerprint = Fingerprint(r);
+    return r;
+}
+
+IdentityRecord DerivePlayer() {
+    IdentityRecord r;
+    r.kind = IdKind::Player;
+    r.seed = 0;
+    // A developer remap override ([devtools] ped_remap_override) dresses him as that type too
+    // (the showcase's subject); otherwise he is the protagonist: remap 25, the manifest's avatar.
+    const int over = PedRemapEffective(-1, 0);
+    r.ref.remap = over >= 0 ? over : 25;
+    r.model = over >= 0 ? ModelForPedestrian(0u, over) : ModelForPedestrian();
+    if (!r.model) return r;
+    bool hair = false;
+    if (over >= 0) r.tinted = PedRemapTint(over, *r.model, r.tint);
+    if (r.model->pedZones && PedZoneTints(r.ref.remap, *r.model, r.zone, &hair)) { r.zoned = true; r.zoneHair = hair; r.tinted = false; }
+    Shown(&r);
+    r.fingerprint = Fingerprint(r);
+    return r;
+}
+
+struct PedEntry { IdentityRecord rec; int pedId = -1, palette = -2; unsigned body = 0; uint32_t seen = 0; };
+std::unordered_map<uintptr_t, PedEntry> g_peds;
+IdentityRecord g_player;
+uint32_t g_playerInputs = 0xFFFFFFFFu;
+int g_pedLogged = 0;
+
+// ---- Vehicles ----------------------------------------------------------------------
+
+bool Livery(int m) {
+    // The models painted in a livery, which a remap would recolour (REMIX-3): bank van 4, bus 11,
+    // cop 12, fire truck 17, army jeep 22, hot-dog / ice-cream vans 23-27 and 85, medicar 34,
+    // taxis 51 / 56, SWAT 52, tank 54, trains 59-61, TV van 67, special agent 84, karma bus 86.
+    switch (m) {
+        case 4: case 11: case 12: case 17: case 22: case 23: case 24: case 25: case 26: case 27:
+        case 34: case 51: case 52: case 54: case 56: case 59: case 60: case 61: case 67:
+        case 84: case 85: case 86: return true;
+        default: return false;
+    }
+}
+
+IdentityRecord DeriveVehicle(const SpriteRef& ref) {
+    IdentityRecord r;
+    r.kind = IdKind::Vehicle;
+    r.ref = ref;
+    r.model = ModelForVehicle(ref.carModel, ref.carSprite);
+    r.livery = Livery(ref.carModel) || ref.forcedModel;
+    const float* live = ref.paint;
+    const float lum = 0.30f * live[0] + 0.59f * live[1] + 0.11f * live[2];
+    // FIX-CAR-RENDER (pm3-dark-vehicle-bodies): a near-black paint is held at a luminance
+    // floor (hue kept), and a dark body gets a broader, stronger sheen.
+    const float lift = r.livery || lum >= g_paintFloor ? 1.0f : (std::min)(4.0f, g_paintFloor / (std::max)(lum, 8.0f));
+    r.darkness = r.livery || g_paintFloor <= 0.0f ? 0.0f : (std::max)(0.0f, (std::min)(1.0f, (100.0f - lum) / 70.0f));
+    for (int k = 0; k < 3; ++k) {
+        const float own = r.model ? r.model->paintRgb[k] : 235.0f;
+        r.paintTint[k] = r.livery ? 1.0f : lift * live[k] / own;
+        r.shownTop[k] = r.shownBottom[k] = r.livery ? own : (std::min)(255.0f, lift * live[k]);
+    }
+    r.fingerprint = Fingerprint(r);
+    return r;
+}
+
+struct CarEntry { IdentityRecord rec; uint32_t seen = 0; };
+std::unordered_map<uintptr_t, CarEntry> g_cars;
+std::unordered_map<uint32_t, int> g_carLogged;   // fingerprint -> times logged
+
+// ---- Probe -------------------------------------------------------------------------
+int g_probe = -1, g_probeEvery = 15;
+
+}  // namespace
+
+void IdentitySetCrowdVariety(bool on) {
+    if (g_crowdVariety != on) { g_crowdVariety = on; g_peds.clear(); }
+}
+void IdentitySetPaintFloor(float floor) {
+    if (g_paintFloor != floor) { g_paintFloor = floor; g_cars.clear(); }
+}
+
+const Model* IdentityHeroModel() { return ModelForPedestrian(); }
+
+const IdentityRecord& IdentityForPlayer() {
+    // Inputs: the devtools override and the hero model (a reload of the models re-derives).
+    const uint32_t inputs = static_cast<uint32_t>(PedRemapEffective(-1, 0) + 7) * 2654435761u ^
+                            static_cast<uint32_t>(reinterpret_cast<uintptr_t>(ModelForPedestrian()));
+    if (inputs != g_playerInputs) {
+        const bool changed = g_playerInputs != 0xFFFFFFFFu;
+        const uint32_t before = g_player.fingerprint;
+        g_player = DerivePlayer();
+        g_playerInputs = inputs;
+        if (!changed || before != g_player.fingerprint) LogPerson("player", 0, g_player, changed);
+    }
+    return g_player;
+}
+
+const IdentityRecord& IdentityForPed(uintptr_t cacheKey, int pedId, int palette, unsigned spriteFrame) {
+    PedEntry& e = g_peds[cacheKey];
+    const unsigned body = spriteFrame / 158u;
+    if (e.seen == 0 || e.pedId != pedId || e.palette != palette || e.body != body) {
+        const bool changed = e.seen != 0 && e.pedId == pedId;
+        int remap = PedRemapForPalette(palette);
+        // The seed: the game's ped id. Without it, the sprite's type alone (no address, ever).
+        const uint32_t seed = pedId >= 0 ? static_cast<uint32_t>(pedId) : Mix(static_cast<uint32_t>(remap + 1) * 977u + body);
+        remap = PedRemapEffective(remap, seed);
+        // No remap palette: the peds the game draws from their own sprite sets rather than a
+        // remap of the common body (DMA: EMERG_GRAPHIC = SWAT, FBI; GANG_GRAPHIC = Zaibatsu).
+        if (remap < 0) {
+            static bool logged[8] = {};
+            if (body < 8 && !logged[body]) {
+                logged[body] = true;
+                Log("models: pedestrian without a remap palette on body %u (frame %u, palette %d) -> %s", body, spriteFrame, palette,
+                    body >= 2 ? "police type (SWAT/FBI)" : body == 1 ? "zaibatsu type" : "plain list");
+            }
+            if (body >= 2) remap = PedRemapHasType(53) ? 53 : 0;
+            else if (body == 1) remap = 8;
+        }
+        const uint32_t before = e.rec.fingerprint;
+        e.rec = DerivePed(seed, remap, static_cast<int>(body));
+        e.pedId = pedId; e.palette = palette; e.body = body;
+        if ((g_pedLogged < 200 && !changed) || (changed && before != e.rec.fingerprint && g_pedLogged < 400)) {
+            ++g_pedLogged;
+            LogPerson("ped", cacheKey, e.rec, changed);
+        }
+    }
+    e.seen = g_frame | 1u;
+    return e.rec;
+}
+
+int IdentityVehicleModelNumber(int gameModel, int sprite) {
+    return (sprite >= 65 && sprite <= 74) ? 72 + (sprite - 65) : gameModel;
+}
+
+const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& ref) {
+    CarEntry& e = g_cars[cacheKey];
+    const SpriteRef& o = e.rec.ref;
+    const bool same = e.seen != 0 && o.carModel == ref.carModel && o.carSprite == ref.carSprite && o.forcedModel == ref.forcedModel &&
+                      std::lround(o.paint[0]) == std::lround(ref.paint[0]) && std::lround(o.paint[1]) == std::lround(ref.paint[1]) &&
+                      std::lround(o.paint[2]) == std::lround(ref.paint[2]);
+    if (!same) {
+        const bool changed = e.seen != 0;
+        e.rec = DeriveVehicle(ref);
+        int& n = g_carLogged[e.rec.fingerprint];
+        if (n++ == 0 && g_carLogged.size() < 400) {
+            const IdentityRecord& r = e.rec;
+            Log("identity: vehicle%s model %d sprite %d paint %.0f,%.0f,%.0f -> %s%s tint %.2f,%.2f,%.2f shown %.0f,%.0f,%.0f fp %08x",
+                changed ? " CHANGED" : "", ref.carModel, ref.carSprite, ref.paint[0], ref.paint[1], ref.paint[2],
+                r.model ? r.model->name.c_str() : "(built from sprite)", r.livery ? " livery" : "", r.paintTint[0], r.paintTint[1],
+                r.paintTint[2], r.shownTop[0], r.shownTop[1], r.shownTop[2], r.fingerprint);
+        }
+    }
+    e.seen = g_frame | 1u;
+    return e.rec;
+}
+
+void IdentityBeginFrame(uint32_t frame) {
+    g_frame = frame;
+    if (frame % 300u != 0) return;
+    for (auto it = g_peds.begin(); it != g_peds.end();) it = frame - it->second.seen > 900u ? g_peds.erase(it) : std::next(it);
+    for (auto it = g_cars.begin(); it != g_cars.end();) it = frame - it->second.seen > 900u ? g_cars.erase(it) : std::next(it);
+}
+
+bool IdentityProbeOn() {
+    if (g_probe < 0) {
+        char v[16] = {};
+        g_probe = GetEnvironmentVariableA("GTA2DX9_IDENTITY_PROBE", v, sizeof v) && v[0] == '1' ? 1 : 0;
+        if (GetEnvironmentVariableA("GTA2DX9_IDENTITY_PROBE_EVERY", v, sizeof v)) g_probeEvery = (std::max)(1, atoi(v));
+        if (g_probe) Log("identity: probe on, every %d frames", g_probeEvery);
+    }
+    return g_probe == 1;
+}
+
+// One line per (what, object, view) per probe interval (GTA2DX9_IDENTITY_PROBE_EVERY frames at
+// 30 fps, by the wall clock: the classic view runs no frame hook of the 3D path).
+bool ProbeDue(const char* what, const void* object, int view) {
+    static std::unordered_map<uint64_t, DWORD> last;
+    const DWORD now = GetTickCount(), every = static_cast<DWORD>(g_probeEvery) * 33u;
+    const uint64_t key = (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(object)) << 8) ^ (static_cast<uint64_t>(what[0]) << 2) ^
+                         (static_cast<uint64_t>(strlen(what)) << 4) ^ static_cast<uint64_t>(view);
+    auto it = last.find(key);
+    if (it != last.end() && now - it->second < every) return false;
+    if (last.size() > 4096) last.clear();
+    last[key] = now;
+    return true;
+}
+
+void IdentityProbeRect(const char* what, const void* object, const IdentityRecord& r, int view, float x0, float y0, float x1, float y1) {
+    if (!IdentityProbeOn() || !ProbeDue(what, object, view)) return;
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    const unsigned long long ms = ((static_cast<unsigned long long>(ft.dwHighDateTime) << 32 | ft.dwLowDateTime) - 116444736000000000ULL) / 10000ULL;
+    Log("identity probe: %s view %d frame %u t %u.%03u obj %08x rect %.0f %.0f %.0f %.0f fp %08x model %s shown %.0f,%.0f,%.0f %.0f,%.0f,%.0f", what, view, g_frame,
+        static_cast<unsigned>(ms / 1000ULL), static_cast<unsigned>(ms % 1000ULL), static_cast<unsigned>(reinterpret_cast<uintptr_t>(object)), x0, y0, x1, y1, r.fingerprint, r.model ? r.model->name.c_str() : "-", r.shownTop[0], r.shownTop[1], r.shownTop[2], r.shownBottom[0],
+        r.shownBottom[1], r.shownBottom[2]);
+}
+
+namespace {
+const void* g_probePlayer = nullptr;
+const void* g_probeCar = nullptr;
+IdentityRecord g_probeCarRec;
+bool g_probeCarRecValid = false;
+}  // namespace
+
+void IdentityProbeSetSubjects(const void* playerObject, const void* playerCarObject, const IdentityRecord* playerCar) {
+    g_probePlayer = playerObject;
+    g_probeCar = playerCarObject;
+    if (playerCar) { g_probeCarRec = *playerCar; g_probeCarRecValid = true; }
+    else if (!playerCarObject) g_probeCarRecValid = false;
+}
+
+void IdentityProbeModel(IDirect3DDevice9* device, const char* what, const void* object, const IdentityRecord& rec, const Model& model,
+                        const float world[4][4], int view) {
+    if (!IdentityProbeOn()) return;
+    if (strcmp(what, "mycar") == 0) { g_probeCarRec = rec; g_probeCarRecValid = true; }   // the classic sprite's line names it too
+    if (!device) return;
+    D3DMATRIX v, p;
+    D3DVIEWPORT9 vp;
+    if (FAILED(device->GetTransform(D3DTS_VIEW, &v)) || FAILED(device->GetTransform(D3DTS_PROJECTION, &p)) || FAILED(device->GetViewport(&vp))) return;
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    int in = 0;
+    for (int c = 0; c < 8; ++c) {
+        const float l[4] = {(c & 1) ? model.boundsMax.x : model.boundsMin.x, (c & 2) ? model.boundsMax.y : model.boundsMin.y,
+                            (c & 4) ? model.boundsMax.z : model.boundsMin.z, 1.0f};
+        float w4[4], e4[4], c4[4];
+        for (int j = 0; j < 4; ++j) w4[j] = l[0] * world[0][j] + l[1] * world[1][j] + l[2] * world[2][j] + l[3] * world[3][j];
+        for (int j = 0; j < 4; ++j) e4[j] = w4[0] * v.m[0][j] + w4[1] * v.m[1][j] + w4[2] * v.m[2][j] + w4[3] * v.m[3][j];
+        for (int j = 0; j < 4; ++j) c4[j] = e4[0] * p.m[0][j] + e4[1] * p.m[1][j] + e4[2] * p.m[2][j] + e4[3] * p.m[3][j];
+        if (c4[3] <= 1e-4f) continue;   // behind the eye
+        ++in;
+        const float sx = vp.X + (c4[0] / c4[3] * 0.5f + 0.5f) * vp.Width, sy = vp.Y + (0.5f - c4[1] / c4[3] * 0.5f) * vp.Height;
+        x0 = (std::min)(x0, sx); y0 = (std::min)(y0, sy); x1 = (std::max)(x1, sx); y1 = (std::max)(y1, sy);
+    }
+    if (in < 8) return;   // partly behind the eye: no honest rectangle
+    IdentityProbeRect(what, object, rec, view, x0, y0, x1, y1);
+}
+
+const IdentityRecord* IdentityLookupVehicle(uintptr_t cacheKey) {
+    const auto it = g_cars.find(cacheKey);
+    return it == g_cars.end() ? nullptr : &it->second.rec;
+}
+
+void IdentityProbeSprite(const void* object, bool isCar, const float* vertices, int corners) {
+    if (!object || !vertices || corners < 3 || !IdentityProbeOn()) return;
+    const bool player = object == g_probePlayer, mine = object == g_probeCar;
+    if (!player && !mine && !isCar) return;
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    for (int i = 0; i < corners; ++i) {
+        const float* v = vertices + i * 8;   // 0x20 bytes a vertex
+        x0 = (std::min)(x0, v[0]); y0 = (std::min)(y0, v[1]); x1 = (std::max)(x1, v[0]); y1 = (std::max)(y1, v[1]);
+    }
+    static const IdentityRecord kNone;
+    if (player) { IdentityProbeRect("player", object, IdentityForPlayer(), 0, x0, y0, x1, y1); return; }
+    const IdentityRecord* rec = IdentityLookupVehicle(reinterpret_cast<uintptr_t>(object));
+    if (mine && !rec && g_probeCarRecValid) rec = &g_probeCarRec;
+    IdentityProbeRect(mine ? "mycar" : "car", object, rec ? *rec : kNone, 0, x0, y0, x1, y1);
+}
+
+}  // namespace gta2dx9

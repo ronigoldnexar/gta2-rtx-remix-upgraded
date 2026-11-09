@@ -557,6 +557,7 @@ private:
         // base) and the game's state words, for the figure's own clips. See DrawPedFigures.
         unsigned pedFrame = 0;
         int32_t pedState = -1, pedSub = 0, pedPending = 0;
+        int32_t pedId = -1;   // IDENTITY-SYSTEM: the game's ped id (Ped +0x200), the identity record's seed
         // What last hurt him (game::kPedDamageCause: 1 car, 3 run over, 4 explosion, ...),
         // for the death pose; 0 unknown.
         int32_t pedCause = 0;

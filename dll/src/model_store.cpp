@@ -1239,6 +1239,53 @@ void ModelSetZoneTints(const float* top, const float* bottom, const float* hair)
         for (int k = 0; k < 3; ++k) g_zoneTint[z][k] = src[z] ? (std::max)(0.0f, (std::min)(2.0f, src[z][k])) : 1.0f;
 }
 
+// IDENTITY-SYSTEM: see model_store.h.
+bool g_nodeTintOn = false;
+char g_nodeTintPrefix[32] = {};
+float g_nodeTint[3] = {1.0f, 1.0f, 1.0f};
+void ModelSetNodeTint(const char* nodePrefix, const float* rgb) {
+    g_nodeTintOn = nodePrefix && *nodePrefix && rgb;
+    if (!g_nodeTintOn) return;
+    snprintf(g_nodeTintPrefix, sizeof g_nodeTintPrefix, "%s", nodePrefix);
+    for (int k = 0; k < 3; ++k) g_nodeTint[k] = (std::max)(0.0f, (std::min)(2.0f, rgb[k]));
+}
+bool ModelNodeTextureMean(IDirect3DDevice9* device, const Model& model, const char* nodePrefix, float rgb[3]) {
+    static std::map<std::string, std::array<float, 4>> s_means;   // texture -> mean rgb, valid
+    for (size_t i = 0; i < model.nodes.size(); ++i) {
+        const int mi = model.nodes[i].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        if (strncmp(model.nodes[i].name, nodePrefix, strlen(nodePrefix)) != 0) continue;
+        const std::string& file = model.meshes[mi].texture;
+        auto it = s_means.find(file);
+        if (it == s_means.end()) {
+            std::array<float, 4> m = {0.0f, 0.0f, 0.0f, 0.0f};
+            if (IDirect3DTexture9* tex = TextureFor(device, file)) {
+                D3DSURFACE_DESC desc;
+                D3DLOCKED_RECT locked;
+                if (SUCCEEDED(tex->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
+                    SUCCEEDED(tex->LockRect(0, &locked, nullptr, D3DLOCK_READONLY))) {
+                    double sum[3] = {0, 0, 0}; double n = 0;
+                    for (UINT y = 0; y < desc.Height; ++y) {
+                        const uint32_t* row = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(locked.pBits) + y * locked.Pitch);
+                        for (UINT x = 0; x < desc.Width; ++x) {
+                            if ((row[x] >> 24) < 128) continue;
+                            sum[0] += (row[x] >> 16) & 255; sum[1] += (row[x] >> 8) & 255; sum[2] += row[x] & 255; n += 1;
+                        }
+                    }
+                    tex->UnlockRect(0);
+                    if (n > 0) m = {static_cast<float>(sum[0] / n), static_cast<float>(sum[1] / n), static_cast<float>(sum[2] / n), 1.0f};
+                }
+            }
+            it = s_means.emplace(file, m).first;
+            Log("models: %s node %s texture %s mean %.0f,%.0f,%.0f", model.name.c_str(), nodePrefix, file.c_str(), m[0], m[1], m[2]);
+        }
+        if (it->second[3] <= 0.0f) return false;
+        for (int k = 0; k < 3; ++k) rgb[k] = it->second[k];
+        return true;
+    }
+    return false;
+}
+
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
     if (rgb) for (int i = 0; i < 3; ++i) g_paintTint[i] = (std::max)(0.0f, (std::min)(2.0f, rgb[i]));
@@ -1928,6 +1975,22 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             bound = texture;
             first = false;
         }
+        // IDENTITY-SYSTEM: the nodes named by ModelSetNodeTint (the first-person sleeves) in the
+        // player record's shirt colour, a factor over their own texture.
+        if (g_nodeTintOn) {
+            if (strncmp(model.nodes[i].name, g_nodeTintPrefix, strlen(g_nodeTintPrefix)) == 0) {
+                const DWORD t = 0xFF000000u | (static_cast<DWORD>(g_nodeTint[0] * 127.5f) << 16) |
+                                (static_cast<DWORD>(g_nodeTint[1] * 127.5f) << 8) | static_cast<DWORD>(g_nodeTint[2] * 127.5f);
+                device->SetRenderState(D3DRS_TEXTUREFACTOR, t);
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
+                device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+                device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+                device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+                device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            } else {
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            }
+        } else
         // ASSET-PEDS: a zoned pedestrian's top, bottom and hair, each its own factor.
         if (g_zoneOn && model.pedZones) {
             const char* nn = model.nodes[i].name;
@@ -2021,7 +2084,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         device->SetIndices(nullptr);
     }
     if (softStages) ResetSoftStages(device);
-    if (g_paintTintOn || (g_zoneOn && model.pedZones)) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    if (g_paintTintOn || g_nodeTintOn || (g_zoneOn && model.pedZones)) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     QueryPerformanceCounter(&t2);
     g_modelStats[2] += ModelMs(t0, t2);
     ++g_drawn;

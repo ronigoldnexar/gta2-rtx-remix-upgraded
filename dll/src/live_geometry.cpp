@@ -32,6 +32,7 @@
 #include "view_modes.h"
 #include "vehicle_fx.h"
 #include "model_store.h"
+#include "identity.h"     // IDENTITY-SYSTEM: every figure's and car's look
 #include "ragdoll.h"
 #include "weapon_rig.h"   // ANIM-WEAPONS
 #include "map_objects.h"
@@ -249,39 +250,7 @@ uint32_t CrowdHash(uint32_t x) {
     x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
     return x;
 }
-// One person's look, fixed by his object: a build (height +-6%, width +-5%) and,
-// for a civilian (no uniform, no gang colours) three times in four, clothes of an
-// everyday colour: the avatar's "_paint" half multiplied toward it (most of the
-// way, so the cloth's own shading and the second garment's contrast remain).
-struct CrowdLook { float height = 1.0f, width = 1.0f; bool clothes = false; float tint[3] = {1.0f, 1.0f, 1.0f}; float shade = 1.0f; };
-CrowdLook CrowdLookFor(uint32_t seed, const Model& model, int remap, bool player) {
-    CrowdLook look;
-    if (!g_crowdVariety || player) return look;
-    const uint32_t h = CrowdHash(seed ^ 0x9e3779b9u);
-    look.height = 0.94f + 0.12f * static_cast<float>(h & 255) / 255.0f;
-    look.width = 0.95f + 0.10f * static_cast<float>((h >> 8) & 255) / 255.0f;
-    // The remaps the manifest gives a uniform or gang colours: 0-14, 16, 17, 22.
-    const bool civilian = remap < 0 || remap == 15 || (remap >= 18 && remap != 22);
-    // ASSET-PEDS: a zoned avatar wears his remap's own outfit (the sprite's colours);
-    // the crowd's variety is then a shade of it (+-12%), not another colour.
-    look.shade = 0.88f + 0.24f * static_cast<float>((h >> 24) & 255) / 255.0f;
-    if (civilian && model.splitPaint && !model.pedZones && ((h >> 16) & 3) != 0) {
-        static const uint8_t kClothes[][3] = {
-            {38, 52, 92},    {60, 62, 66},   {28, 28, 32},   {196, 178, 140}, {92, 100, 58},  {118, 32, 44},
-            {70, 104, 150},  {214, 212, 204}, {128, 130, 134}, {110, 76, 50},  {36, 80, 52},   {200, 160, 50},
-            {40, 120, 124},  {176, 46, 40},  {210, 140, 160}, {140, 176, 210}, {160, 146, 104}, {90, 60, 110},
-            {230, 120, 60},  {84, 40, 34},
-        };
-        constexpr uint32_t kN = sizeof(kClothes) / sizeof(kClothes[0]);
-        const uint8_t* c = kClothes[(h >> 18) % kN];
-        for (int k = 0; k < 3; ++k) {
-            const float ratio = static_cast<float>(c[k]) / (std::max)(8.0f, model.paintRgb[k]);
-            look.tint[k] = (std::max)(0.3f, (std::min)(2.0f, 1.0f + (ratio - 1.0f) * 0.85f));
-        }
-        look.clothes = true;
-    }
-    return look;
-}
+// The crowd's look (build, clothes) is the identity record's (identity.cpp CrowdVariety).
 bool g_fxUpright = true;    // effect artwork faced to a street-level camera; bullets as streaks
 // Where small effect artwork (a muzzle flash, a bullet, a spark) was drawn last
 // frame: a figure standing in the attack state next to one is shooting, which
@@ -4218,6 +4187,7 @@ void CrowdLoad(const char* iniPath) {
     char buf[8] = {};
     const bool off = GetEnvironmentVariableA("GTA2DX9_CROWD", buf, sizeof buf) && buf[0] == '0';
     g_crowdVariety = !off && GetPrivateProfileIntA("crowd", "variety", 1, iniPath) != 0;
+    IdentitySetCrowdVariety(g_crowdVariety);
     g_crowdLookAt = !off && GetPrivateProfileIntA("crowd", "look_at", 1, iniPath) != 0;
     const int range = static_cast<int>(GetPrivateProfileIntA("crowd", "look_range", 5, iniPath));
     g_crowdLookRange = static_cast<float>((std::max)(1, (std::min)(12, range)));
@@ -5002,7 +4972,37 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
 }
 
+// IDENTITY-SYSTEM parity probe: its subjects, the player's sprite object and his car's (read only).
+void IdentityProbeRefreshSubjects() {
+    if (!IdentityProbeOn()) return;
+    static DWORD last = 0;
+    const DWORD now = GetTickCount();
+    if (last && now - last < 100) return;
+    last = now;
+    // (the classic view clears g_playerObject: his sprite from the located ped, as view_modes.cpp does)
+    const void* carSprite = nullptr;
+    const void* pedSprite = g_playerObject;
+    if (const uint8_t* me = static_cast<const uint8_t*>(LocatedPlayerPed())) {
+        GTA2_TRY {
+            const uint8_t* car = game::PlausiblePointer(me) ? *reinterpret_cast<const uint8_t* const*>(me + game::kPedVehicle) : nullptr;
+            if (game::PlausiblePointer(car)) carSprite = *reinterpret_cast<const void* const*>(car + 0x50);   // Car +0x50 sprite (world_view.cpp)
+            if (!pedSprite && game::PlausiblePointer(me)) {
+                const uint8_t* physics = *reinterpret_cast<const uint8_t* const*>(me + game::kPedPhysics);
+                if (game::PlausiblePointer(physics)) pedSprite = *reinterpret_cast<const void* const*>(physics + game::kPhysicsSprite);
+            }
+        } GTA2_EXCEPT { carSprite = nullptr; }
+    }
+    IdentityProbeSetSubjects(pedSprite, carSprite, nullptr);
+}
+
 void LiveGeometry::BeginFrame() {
+    // IDENTITY-SYSTEM: the records' frame, and the parity probe's subjects (the player's sprite
+    // object and his car's), in every view (the classic one included: the probe only reads).
+    {
+        static uint32_t identityFrame = 0;
+        IdentityBeginFrame(++identityFrame);
+        IdentityProbeRefreshSubjects();
+    }
     // Pop log: a car body seen this frame that was not seen last frame is a
     // car that came into existence or into the game's window.
     for (const auto& seen : carSeenNow_) {
@@ -5333,6 +5333,15 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     // A pedestrian blown apart: the limbs are on the ground, so the body is not.
     // See gibs.cpp.
     if (GibsHideCurrentSprite()) return;
+    if (IdentityProbeOn() && CurrentViewMode() == ViewMode::Classic) {   // IDENTITY-SYSTEM parity probe (reads only)
+        const void* probeObject = GameObjectBeingDrawn();
+        bool probeCar = false;
+        GTA2_TRY {
+            probeCar = probeObject && *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(probeObject) + game::kSpriteObjectBase) == game::kSpriteBaseCar;
+        } GTA2_EXCEPT { probeCar = false; }
+        IdentityProbeRefreshSubjects();
+        if (!lamps) IdentityProbeSprite(probeObject, probeCar, vertices, corners);
+    }
 
     // The player's own sprite, and his car's, from his own eyes: every quad
     // the game draws for them, the lamp quad included. See SetHiddenObjects.
@@ -5751,6 +5760,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                                      : nullptr;
             if (game::PlausiblePointer(ped)) {
                 placed.pedState = *reinterpret_cast<const int32_t*>(ped + game::kPedState);
+                placed.pedId = *reinterpret_cast<const int32_t*>(ped + 0x200);   // IDENTITY-SYSTEM (world_view.cpp kPedId)
                 placed.pedSub = *reinterpret_cast<const int32_t*>(ped + game::kPedSubState);
                 placed.pedPending = *reinterpret_cast<const int32_t*>(ped + game::kPedStatePending);
                 placed.pedCause = *reinterpret_cast<const int32_t*>(ped + game::kPedDamageCause);
@@ -6120,12 +6130,10 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
             if (g_carSeatsNow.size() < 256 && game::PlausiblePointer(seatCar))
                 g_carSeatsNow.push_back({body->objectToWorld.m[3][0], body->objectToWorld.m[3][2], game::VehicleHasDriver(seatCar)});
         }
-        if (const Model* model = ModelForCar(sprite)) {
-            carModels_.push_back({model, FitModel(*model, body->local, body->corners, body->objectToWorld, 0.0f),
-                                  reinterpret_cast<uintptr_t>(object)});
-            body->hidden = true;
-            return;
-        }
+        // IDENTITY-SYSTEM: no second resolver. A car named by sprite in the manifest (cars.by_sprite)
+        // used to be drawn here as that model with no paint; every car now goes through
+        // CarBodiesDraw and its identity record (ModelForVehicle falls back to by_sprite there),
+        // so it wears the sprite's paint like every other car.
         // Far cars keep the dome: see kCarBodyLodBlocks.
         const float ddx = body->objectToWorld.m[3][0] - lastEye_.x, ddy = body->objectToWorld.m[3][1] - lastEye_.y,
                     ddz = body->objectToWorld.m[3][2] - lastEye_.z;
@@ -7291,7 +7299,24 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetFVF(kWorldFvf);
     ModelDraw(device, *model, place, nullptr, 0.0f);
+    // IDENTITY-SYSTEM: the sleeves are the player record's shirt (the colour his third-person
+    // avatar's shirt renders with), whatever the generator baked into their texture.
+    {
+        const IdentityRecord& hero = IdentityForPlayer();
+        float mean[3];
+        const Model* anyArm = armR ? armR : armL;
+        if (anyArm && hero.model && ModelNodeTextureMean(device, *anyArm, "sleeve", mean)) {
+            float k[3];
+            for (int c = 0; c < 3; ++c) k[c] = hero.shownTop[c] / (std::max)(mean[c], 8.0f);
+            ModelSetNodeTint("sleeve", k);
+            static bool logged = false;
+            if (!logged) { logged = true; Log("identity: first-person sleeves %.0f,%.0f,%.0f -> the player's shirt %.0f,%.0f,%.0f (fp %08x)", mean[0], mean[1], mean[2],
+                                              hero.shownTop[0], hero.shownTop[1], hero.shownTop[2], hero.fingerprint); }
+        }
+    }
     if (armR) ModelDraw(device, *armR, handAt(0.0f, 0.0f, 0.0f, false), nullptr, 0.0f);
+    if (armR && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: the sleeves on screen
+        IdentityProbeModel(device, "sleeve", nullptr, IdentityForPlayer(), *armR, handAt(0.0f, 0.0f, 0.0f, false).m, 2);
     if (armL) ModelDraw(device, *armL, handAt(fore[0], fore[1], fore[2], false), nullptr, 0.0f);
     if (weapon == kWpnDual) {
         gta2::Mat4 other = place;
@@ -7304,6 +7329,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             ModelDraw(device, *armDual, h, nullptr, 0.0f);
         }
     }
+    ModelSetNodeTint(nullptr, nullptr);
+    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     {
         static bool armsLogged = false;
         if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? "fp_arm_right" : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
@@ -7394,6 +7421,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     g_figuresNow.clear();
     g_aimPeds.clear();
     g_aimPedsFrame = g_carFrame;
+    // IDENTITY-SYSTEM: the player's ped id this frame, so his figure is his record even on a
+    // frame where the object match misses (identity.h).
+    int playerPedId = -1;
+    if (const uint8_t* me = static_cast<const uint8_t*>(LocatedPlayerPed())) {
+        GTA2_TRY {
+            if (game::PlausiblePointer(me)) playerPedId = *reinterpret_cast<const int32_t*>(me + 0x200);
+        } GTA2_EXCEPT { playerPedId = -1; }
+    }
     // QB-27: the cars drawn this frame, for the ragdolls (the car that hit him, its pace).
     if (g_groundModels && RagdollEnabled()) {
         for (const CarBodyUse& use : carBodies_) {
@@ -8392,42 +8427,25 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
 
         if (g_groundModels) {
-            // Which of the people he is: fixed by his object, so he keeps his look.
-            // (the protagonist: always the manifest's default, unless a developer remap
-            // override is on: then he is drawn as that type too, the showcase's subject)
-            const Model* model = (ownPed && PedRemapEffective(-1, 0) < 0)
-                                     ? ModelForPedestrian()
-                                     : nullptr;
-            // His type (police, gang, medic, a civilian outfit) is the remap the
-            // game drew his sprite with: the texture's palette gives it back.
-            int remap = -1;
-            if (!model) {
-                const TextureRecord* rec = static_cast<const TextureRecord*>(sprite.texture);
-                remap = PedRemapEffective(rec ? PedRemapForPalette(rec->palette) : -1, static_cast<uint32_t>(sprite.object >> 4));
-                // No remap palette: the peds the game draws from their own sprite sets
-                // rather than a remap of the common body (DMA: EMERG_GRAPHIC = SWAT, FBI;
-                // GANG_GRAPHIC = Zaibatsu). The body is the frame's block of 158; they drew
-                // as random civilians before (a33_pol4: SWAT shooting in plain clothes).
-                if (remap < 0) {
-                    const unsigned body = sprite.pedFrame / 158u;
-                    static bool logged[8] = {};
-                    if (body < 8 && !logged[body]) {
-                        logged[body] = true;
-                        Log("models: pedestrian without a remap palette on body %u (frame %u, palette %d) -> %s", body, sprite.pedFrame,
-                            rec ? rec->palette : -1, body >= 2 ? "police type (SWAT/FBI)" : body == 1 ? "zaibatsu type" : "plain list");
-                    }
-                    if (body >= 2) remap = PedRemapHasType(53) ? 53 : 0;   // SWAT/FBI kit (ASSET-PEDS), else the police
-                    else if (body == 1) remap = 8;   // the suits
-                }
-                model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4), remap);
-            }
+            // IDENTITY-SYSTEM: who he is, and so his avatar, build and colours, is his identity
+            // record (identity.cpp): the player's own, dedicated record, or a pedestrian's derived
+            // from the palette the classic view draws his sprite with and the game's ped id.
+            // Nothing here picks a model or a colour. The player is his record by the object
+            // match (and the boarding ghost) or by the game's ped id, so a frame where the
+            // object match misses cannot hand him a crowd avatar.
+            const bool heroFigure = ownPed || (sprite.pedId >= 0 && sprite.pedId == playerPedId);
+            const IdentityRecord& ident = heroFigure ? IdentityForPlayer()
+                : IdentityForPed(sprite.object, sprite.pedId,
+                                 sprite.texture ? static_cast<const TextureRecord*>(sprite.texture)->palette : -1, sprite.pedFrame);
+            const Model* model = ident.model;
+            const int remap = ident.ref.remap;
             // FIX-AVATAR-IDENTITY: which avatar the player's figure wears, whenever it changes
             // (one avatar, remap 25's outfit, in every street view and run: the classic sprite's).
-            if (ownPed && model) {
+            if (heroFigure && model) {
                 static const Model* s_heroLogged = nullptr;
                 if (model != s_heroLogged) {
                     s_heroLogged = model;
-                    Log("player avatar: %s (remap %d%s)", model->name.c_str(), remap < 0 ? 25 : remap, remap < 0 ? ", the protagonist" : ", developer override");
+                    Log("player avatar: %s (remap %d%s)", model->name.c_str(), remap, remap == 25 ? ", the protagonist" : ", developer override");
                 }
             }
             // Behind the camera he is not drawn at all (his track above still
@@ -8450,11 +8468,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (model) {
                 // The character, at his pace, where the figure would stand, facing
                 // his drawn heading, upright, leaning a little into a turn.
-                // CROWD: his own build and clothes (CrowdLookFor).
-                const bool ownFigure = ownPed;   // (ownPed: the boarding ghost of the player too)
-                const CrowdLook look = CrowdLookFor(static_cast<uint32_t>(sprite.object >> 4), *model, remap, ownFigure);
-                float typeScale = 1.0f, typeWidth = 1.0f;
-                if (!ownFigure) PedTypeBuild(remap, &typeScale, &typeWidth);   // ASSET-PEDS-2: the Hulks are bigger
+                // CROWD: his own build and clothes (his identity record).
+                const bool ownFigure = heroFigure;   // (ownPed: the boarding ghost of the player too)
+                // His build (crowd variety x his type's, ASSET-PEDS-2: the Hulks are bigger): the record's.
+                const float typeScale = 1.0f, typeWidth = 1.0f;
+                struct { float height, width; } look{ident.height, ident.width};
                 const float scale = kPedHeight * look.height * typeScale / (std::max)(model->Height(), 0.01f);
                 const float paceFactor = (std::min)(track.drawnSpeed / 1.5f, 1.0f);
                 float roll = -track.turnRate * paceFactor * 0.03f;
@@ -8985,23 +9003,19 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // A gang member's colours: his clothing (the "_paint" half of a
                 // split body texture) multiplied by the remap's colour over the
                 // avatar's own; the two halves are alpha-tested back together.
-                float tint[3];
-                bool tinted = PedRemapTint(remap, *model, tint);
-                if (!tinted && look.clothes) { for (int k = 0; k < 3; ++k) tint[k] = look.tint[k]; tinted = true; }
-                // ASSET-PEDS: a zoned avatar's shirt, trousers (and hair) in his remap's
-                // sprite colours; the protagonist is remap 25 (the default player ped).
-                float zones[3][3];
-                bool zoneHair = false;
-                const bool zoned = model->pedZones && PedZoneTints(ownFigure && remap < 0 ? 25 : remap, *model, zones, &zoneHair);
+                // IDENTITY-SYSTEM: his colours are the record's: a zoned avatar's shirt, trousers
+                // (and hair) in his remap's sprite colours (ASSET-PEDS; the protagonist is remap 25),
+                // or one clothing tint over the "_paint" half (a type's colour, or a civilian's
+                // everyday clothes), the two halves alpha-tested back together.
+                float tint[3] = {ident.tint[0], ident.tint[1], ident.tint[2]};
+                bool tinted = ident.tinted;
+                const bool zoned = ident.zoned;
                 if (zoned) {
-                    tinted = false;
-                    if (!ownFigure)
-                        for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) zones[z][k] = (std::min)(2.0f, zones[z][k] * look.shade);
-                    ModelSetZoneTints(zones[0], zones[1], zoneHair ? zones[2] : nullptr);
+                    ModelSetZoneTints(ident.zone[0], ident.zone[1], ident.zoneHair ? ident.zone[2] : nullptr);
                     ++g_crowdCount[4];
                 }
                 ++g_crowdCount[0];
-                if (look.clothes) ++g_crowdCount[1];
+                if (ident.clothes) ++g_crowdCount[1];
                 if (track.lookingAtPlayer) ++g_crowdCount[2];
                 else if (std::fabs(track.headYaw) > 0.2f) ++g_crowdCount[3];
                 if (tinted) ModelSetPaintTint(tint);
@@ -9071,6 +9085,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                if (heroFigure && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: his figure on screen
+                    IdentityProbeModel(device, "player", reinterpret_cast<const void*>(sprite.object), ident, *model, world.m, static_cast<int>(CurrentViewMode()));
                 if (ragdoll) RagdollDone();
                 if (boardIk) {
                     // What the hands could not reach goes back to the plan (a lean toward it next frame).
