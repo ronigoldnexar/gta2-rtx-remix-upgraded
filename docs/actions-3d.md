@@ -992,3 +992,92 @@ strips with `linux/docker/qb20_strip.py`.
 - A stop has no root motion (the game stops at once), so the stop's remaining steps slide the feet a little
   (up to about one walking cycle, 0.1-0.3 block).
 - Remix not tested; the women's clips seen in log only (the player is male).
+
+## Weapon handling (9 Nov 2026, ANIM-WEAPONS)
+
+Builds on QB-29 (reload clips) and QB-6 (aim camera). Before this pass the hands only went where
+the hand-authored clips put them: the support hand an open palm in the air beside the gun, the long
+guns laid on whatever line the two hands made (low, across the forearm), no fingers closed on anything,
+and the recoil a 4-9 degree flick of the arms in the clip.
+
+**The gun is the master** (`dll/src/weapon_rig.cpp/.h`, run as model_store's pose hook after the clips,
+so the skin, the weapon draw and QB-29's magazine all see the result):
+
+- **Placed from the body, per class and mode**, at the weapon models' real geometry (`tools/gen_weapons.py`:
+  origin the pistol grip, bore, stock heel, fore grip/fore-end, magazine well, slide/charging handle, tube):
+  pistol on the eye line 0.34 m out in a two-handed grip; machine gun, silenced MG, shotgun, electro gun
+  with the stock's heel in the right shoulder pocket and the body bladed 8 degrees more than the clip;
+  the launcher's tube on top of the right shoulder; the flamethrower at the hip. Carry (low ready): the
+  long gun pivoted down 38 degrees and in 18 about the stock in the shoulder; the launcher tipped up;
+  the flamethrower lower. The pistol carry and the dual pistols stay on the clip's hands.
+- **Hands on the gun:** two-bone IK per arm (elbows down and out), the wrist turned so the fingers wrap
+  the grip (60 % of the turn given to the forearm's roll, not the wrist), the right hand high on the
+  pistol grip, the left on the real fore grip (MG, launcher, flamethrower: palm on its side), under the
+  fore-end (shotgun, silenced MG, electro gun: palm up), or over the right hand's fingers (pistol).
+- **Fingers:** closed round the grip (68/85/40 degrees per joint), the trigger finger straight along the
+  frame until he fires (then on the trigger for 0.45 s), the support hand wrapped, the thumbs in.
+- **Head:** down the sights (a long gun: cheek on the stock, rolled 9 degrees); during a reload it
+  watches the magazine well and comes up at the end.
+- **Recoil moves the character:** a spring per figure (per weapon frequency and damping), an impulse
+  per shot (the game's own shot: `track.muzzleFrame`). It drives the gun back and the muzzle up about
+  the grip with a random lateral jitter, the chest pitched back about Spine1, the right shoulder driven
+  back (the upper body turned), the head nodding, and the whole figure pushed back along the line of
+  fire (`weaponrig::Shove`). Per weapon (gun back m / muzzle deg / chest deg / shoulder deg / figure m):
+  pistol 0.035/10/2.5/2/0.012, MG 0.028/4.5/2.2/4/0.007 per shot (bursts stack), silenced MG
+  0.018/3/1.5/2.5/0.004, shotgun 0.065/14/7/10/0.04, launcher 0.05/5/6/7/0.045, flamethrower a
+  slight shudder. The arms follow the gun through the IK, so they flex with the kick.
+- **Reload (QB-29's clips and times, `kReloads`):** the gun pulled in and canted toward the left hand;
+  the left hand on the magazine until the drop, handed to the clip for the trip to the pouch, brought
+  back by IK into the real magazine well (pistol and silenced MG: the bottom of the grip; MG: the
+  drum), then onto the slide / charging handle, a 7 cm pull and release at the rack, and back to the
+  fore grip. The shotgun model is a side-by-side double: no magazine drops any more (`kReloads`
+  shotgun drop -1), it is broken open (muzzle down 32 degrees), two shells go into the breech by hand,
+  and it snaps shut at the insert time. The launcher: tube brought down in front of the belly, the
+  rocket pushed into the rear of the tube.
+- **Transitions:** mode changes (carry, aim, reload) blend the gun frame and the hand targets over
+  0.18 s; the rig fades in over 0.1 s and out over 0.15 s (hit reactions, punches, the throw keep
+  their clips).
+- **Switches and probes:** `GTA2DX9_WEAPON_RIG=0` (the clips alone, as before). `GTA2DX9_RIG_TEST_FILE`
+  names a file "yaw period [off]": the player's drawn figure turned on the spot by yaw degrees (the
+  camera stays: side and front views), a synthetic shot every period seconds, `off`=1 the rig off for
+  an A/B in the same run. Log: `weapon rig: skeleton ok`, `begin`, `shot`, and a `pose` line every 90
+  poses with how far each hand ended up from its target (metres) and the recoil state.
+- **Units:** the avatars are about 2 m to a model unit (0.9 units tall); the hook works in metres
+  (positions scaled by the arm's length against 0.53 m) and the weapon geometry in blocks times the
+  figure's model units per block.
+
+Probes: `gamerun/aw_rig_probe.py` + `keys_aw_rig.sh` (forced clip and weapon on the player at the
+plaza 159.5,139.5, stills at four yaws, an A/B still with the rig off, 15 fps bursts of firing and of
+the reload), `gamerun/aw_play_probe.py` + `keys_aw_play.sh` (game-driven: pickups, Z stops, the fire key,
+release for the reload), `gamerun/aw_sheet.py` (sheets), `gamerun/aw_grun.sh` (grun on GPU
+`$GTA2_GPU`); mirrored in `linux/docker/`. Note: the old showcase spot (166.5,19.5) now leaves the
+player under cover in the game, so his sprite (and figure) are not drawn there.
+
+### Status (ANIM-WEAPONS)
+
+Runs `aw_r3`..`aw_r6` (forced clip + weapon on the player, plaza 159.5,139.5, the rig's showcase yaw,
+close camera via `SETTINGS_EXTRA=/work/aw_settings_close.ini`), private stage (this build + the
+QB-20 avatars with the QB-29 clips), GPU 7, host load 10-30 (runs paused by the governor at times).
+Frames in `out/aw_r6` (local): `qa_aw_<weapon>_aim_y90/y150` (rig on), `..._off_y90` (rig off, the
+same moment), bursts `b_<weapon>_aim_fire_y90.mp4`, `b_<weapon>_aim_reload_y90/y150.mp4`.
+
+| item | status | evidence |
+|---|---|---|
+| hands on the grips | verified: the `pose` log puts both wrists on their targets (0.000 m) for pistol, MG, shotgun in aim and carry; frames show closed hands on the grip and fore grip / fore-end where the rig-off frame of the same moment has an open palm in the air | aw_r6 log, `qa_aw_*_aim_y150` vs `_off_y90` |
+| pistol | verified: two-handed, the left wrapped over the right, at the eye line | aw_r6 `pistol_aim_y90/y150` |
+| MG, silenced MG, shotgun | verified: stock in the shoulder, level at the eye line, head bowed onto the stock (cheek weld), support hand on the fore grip / under the fore-end | aw_r6 `mg/shotgun/silenced_aim_y90` |
+| launcher | verified: tube on the right shoulder, grip hands below it | aw_r6 `launcher_aim_y90/y150` |
+| flamethrower | verified, weakest stance: at the hip, level; the left forearm reaches across the chest to the fore grip | aw_r6 `flame_aim_y90/y150` |
+| dual pistols | arms out, a pistol in each hand (rig: wrists only, the guns ride on the hands) | aw_r6 `dual_aim_*` |
+| trigger finger | index straight along the frame when not firing (seen on the shotgun); on the trigger within 0.45 s of a shot (log state only, too small to see) | aw_r5 hands crop |
+| recoil through the body | verified: shotgun, every shot: muzzle up ~14 deg, chest back, head off the stock, settles in ~0.25 s; MG: a held shoulder stance with a small climb and shudder per shot | aw_r6 `b_shotgun_aim_fire_y90`, `b_mg_aim_fire_y90` |
+| figure pushed back | by the spring (shotgun 4 cm, launcher 4.5 cm, pistol 1.2 cm at the peak); not measured in pixels | code + spring maths |
+| reload, MG / pistol | verified: gun in and canted, head down on it, the left hand off to fetch, into the well, over the top for the handle / slide, head up again | aw_r5 `b_mg_aim_reload_y150`, aw_r6 `b_pistol_aim_reload_y150` |
+| reload, shotgun (break-open) | verified: muzzle dropped, hand at the breech, snapped shut, back to the shoulder | aw_r6 `b_shotgun_aim_reload_y90` |
+| reload, launcher | weak: from the front the tube is end-on, the rocket going into the rear is hidden; the fetch over the shoulder reads | aw_r6 `b_launcher_aim_reload_y150` |
+| faults | 0 in aw_r4..r6 (aw_r3's one fault was this pass's: the hook ran on the weapon model with the human's indices; fixed) | logs |
+| game-driven (real pickups, fire key, release) | verified by log on QB-29's probe (`gamerun/qb29_reload.py`, run aw_q1): 58 player shots, the rig took them as recoil impulses (`weapon rig: shot`), the MG and pistol reloads started on the spent magazines and ran their events (out 0.37 / in 0.97 s; out 0.30 / in 0.80 s), 0 FAULT. In frames only from behind: the chase camera swings behind a shooter, so the gun is hidden by the body (as QB-29 found); the side-on detail is the showcase's | aw_q1 log, `qa_r_*_reload_third_*` |
+| `aw_play_probe.py` | not usable yet: after its pickup warps the game does not hand the player's sprite to the renderer (`player seen -1`), so nothing is drawn; with the close camera, QB-6's aim framing also pulls the camera inside the near fade. Left for a fix of the probe | aw_p1, aw_p2 |
+| NPC shooters | same code path (rig keyed by object); not filmed | - |
+| first person | unchanged (the view model is QB-29's / SHOOT-ANIM's) | - |
+| Remix | not tested | - |
