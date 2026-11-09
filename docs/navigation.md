@@ -522,7 +522,8 @@ in `dll/src/world_view.cpp` (`transitionTarget0_`, `transitionSeconds_`). The cl
   0.55/0.41 block and 12/8 frames pitched past 25 degrees down before (`fc5_all_base`), 0.94/0.94 and none after
   (`fc5_all_v3`); nearest surface to the lens 0.12 before, 0.25 after (`fc5_all_v4`). V at speed in the van:
   the van in frame throughout and the cockpit level about 20 frames after the press (before: the van left the
-  frame and the cockpit arrived about 100 frames later; `fc5_vfp6`).
+  frame and the cockpit arrived about 40 frames after the press, rolled some 20 degrees in the turn that followed;
+  `fc5_all_base` against `fc5_vfp6`, `fc5_final3`).
 - Still: a full turn on the spot in a corner still changes his size about 1.6-2x as the boom shortens round the
   corner (the acceptance asks for 30 %); walking into a corner pocket the mesh cap still drops the boom to 0 in one frame
   and the camera looks down over his head for under a second (`cam: figure cut`, as on HEAD); the first time in a
