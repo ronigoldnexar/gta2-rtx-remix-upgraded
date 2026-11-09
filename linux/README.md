@@ -250,3 +250,5 @@ it loads both DLLs the way `gta2.exe` does (`LoadLibrary`, then `GetProcAddress`
 for every name the game resolves), checks that the plugin block covers
 `+0x485E0`, and exits non-zero if anything is missing. The GitHub Actions
 workflow runs the same on Ubuntu for every push, beside the MSVC build.
+
+`make check` order: `tools/check_ini_sections.py` on `package/gta2dx9.ini` (always runs), then the two Wine checks. On a host without Wine (`wine` not on the PATH; override with `WINE=`) both check tools are still built (so a link break shows) and the Wine steps print a `SKIP:` line instead of failing. `sehcheck.cpp` supplies its own `gta2dx9::Log` and `FrameLogNote` stand-ins because it links `compat.cpp` alone; if `compat.cpp` starts calling another DLL function, add a stand-in there. Run it as `flock /tmp/gta2-build.lock nice -n 10 make -j8 check` in a private worktree. `linux/docker/restage.sh` runs it on the candidate worktree and refuses the stage if it fails.

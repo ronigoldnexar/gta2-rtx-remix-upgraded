@@ -80,8 +80,11 @@ linux/build/sehcheck.exe: linux/sehcheck.cpp dll/src/compat.cpp dll/src/compat.h
 
 check: stage linux/build/loadcheck.exe linux/build/sehcheck.exe
 	python3 tools/check_ini_sections.py package/gta2dx9.ini
-	cd stage && $(WINE) ../linux/build/loadcheck.exe
-	$(WINE) linux/build/sehcheck.exe
+	@if command -v $(WINE) >/dev/null 2>&1; then \
+	  ( cd stage && $(WINE) ../linux/build/loadcheck.exe ) && $(WINE) linux/build/sehcheck.exe; \
+	else \
+	  echo "SKIP: load check and SEH check need Wine ('$(WINE)' not on PATH); both tools linked, ini check ran"; \
+	fi
 
 clean:
 	rm -rf dll/build vid/build stage linux/build

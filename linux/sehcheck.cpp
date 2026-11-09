@@ -2,7 +2,21 @@
 // carries on: reads through a null pointer and a wild pointer inside GTA2_TRY,
 // then does real work after. Exit code 0 when both faults were caught.
 #include <cstdio>
+#include <cstdarg>
 #include "compat.h"
+#include "frame_log.h"
+#include "log.h"
+
+// compat.cpp logs through the DLL's logger and frame-log counters; this tool
+// links compat.cpp alone, so it supplies stand-ins (keeps the link independent
+// of whatever else the DLL's logging pulls in).
+namespace gta2dx9 {
+void Log(const char* format, ...) {
+    va_list ap; va_start(ap, format); vfprintf(stderr, format, ap); va_end(ap);
+    fputc('\n', stderr);
+}
+void FrameLogNote(FrameCounter, int) {}
+}
 
 static volatile int* g_null = nullptr;
 static volatile int* g_wild = reinterpret_cast<volatile int*>(0x7FFE5000);

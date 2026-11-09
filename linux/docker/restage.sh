@@ -13,6 +13,8 @@ R=$PWD; W=/tmp/gta2-restage-worktree; W_LOG=/tmp/gta2-restage-build.log; C=$R/st
 git worktree remove --force "$W" 2>/dev/null || true
 git worktree add -f --detach "$W" HEAD >/dev/null
 ( cd "$W" && flock /tmp/gta2-build.lock nice -n 10 make -j4 dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll > "$W_LOG" 2>&1 ) || { tail -20 "$W_LOG"; exit 1; }
+# repository checks (ini sections, check tools link; load/SEH checks run under Wine, SKIP without it) on the candidate worktree
+( cd "$W" && flock /tmp/gta2-build.lock nice -n 10 make -j4 check >> "$W_LOG" 2>&1 ) || { tail -20 "$W_LOG"; echo "restage refused: make check failed on the candidate"; exit 1; }
 rm -rf /home/roni_goldshmidt/gta2-linux/repo/stage_candidate; mkdir -p "$C"
 cp "$W/dll/build/gta2dx9.dll" "$C/gta2dx9.dll"; cp "$W/dll/build/gta2dx9.dll" "$C/d3ddll.dll"
 cp "$W/vid/build/gta2dx9_vid.dll" "$C/gta2dx9_vid.dll"; cp "$W/vid/build/gta2dx9_vid.dll" "$C/Dmavideo.dll"; cp "$W/vid/build/gta2dx9_vid.dll" "$C/DMAGlide.dll"
