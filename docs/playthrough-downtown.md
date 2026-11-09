@@ -761,10 +761,27 @@ phone dais was used in km2 and km5).
 | km3 | **both down** in 9 game-s | failed | respray rolled in (wanted 2 -> 0, carhp 32000); on the 197-block safehouse drive the GRAHAM was pinned at 96.3,202.1 and took 6 000 in 4 s, burned and was wrecked |
 | km4 | **both down** in 26 game-s | failed | getaway west then south: pressed in a jam at 181.3,206.0 with an officer 1.6 blocks off, pulled out and arrested (as br10 at 178.4,208.2) |
 | km5 | **both down** in 9 game-s (6 s wall) | failed | back in the car 5 s after the last guard; pulled out 0.3 s after boarding by a passer-by (1666) as the two stars came, then arrested |
+| km6 | **both down** in 9 game-s | failed | east getaway, but leg 1 was skipped by a wrong test and the drive came along row 216; the Up-held roll-in could not turn into the one-cell bay, swung into the BOMB bay at 202 (money 5040 -> 41: a car bomb, no respray, wanted still 2) and the turn's reverse pulses backed him into an officer (1666, arrest) |
+| km7 | - | no job | the job runner's phone step: after the reported warp onto the dais the phone said 1093 (refused); not counted |
+| km8 | **both down** in 9 game-s | failed | ran with KILLMARK-GETAWAY's getaway rework of the glue (lane launch, bay lane-in); out of the car on the second respray try at 197.7,213.5, then 1125 |
 
 Frames (chase view): `out/km1/m_km_bank_engage.png`, `out/km*/m_km_bank_first_down.png` (the first
 guard falling), `out/km*/m_br_guards.png` (both guards down on the walk, the player standing over
 them); marks and the skill's lines (`kill_marked: ...`) in `out/km*/marks.txt` and `keys.log`.
+
+### Status after part 11
+
+- **The skill: 7 of 7 sessions with both marked guards down** (km1-km6, km8), 6-32 s after leaving the
+  car, 25-40 rounds, wanted level 0 at the last kill (the two stars come from the script afterwards),
+  Hiroshi never hit, every fight frame in the chase view.
+- **The job: 0 of 7 JOB COMPLETE.** Every loss came after the skill returned: the two-star getaway to
+  the respray (pull-outs at the car, at the tunnel and in jams; a wrong bay; a wrecked car on the
+  safehouse drive). The old runner had 2 of 4 on the same getaway. The acceptance criterion (2 of 3 to
+  JOB COMPLETE) is **not met**. The getaway in `bank_robbery_km.py` is now KILLMARK-GETAWAY's (kmg*
+  sessions); the wanted-level side belongs to SKILL-POLICE (`skills/shake_police.py`).
+- For other jobs: `kill_marked(world, select=..., spare=...)` with no other arguments covers street-level
+  targets. Pass `approach`/`level` for targets on a terrace, `count` for a counter step, and `check`
+  for the job's own failure test.
 
 ## Wave M, SKILL-ROOFTOP (9 Nov 2026): rooftop access on foot, `skills/rooftop_access.py`
 
