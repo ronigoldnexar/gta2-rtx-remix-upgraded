@@ -125,6 +125,28 @@ each. Queue waits were 5-25 minutes, because the governor's 8-CPU thresholds pau
 | ...+b648111 (ASSET-BUILDINGS, photo tiles), `repo/stage` art | the same booth FAIL only | the DLL change alone draws nothing new (no `photo/` folder in the stage) |
 | same, workspace `assets/` art (`VREG_ART=assets`: what the next restage ships) | FAIL 4 (`m37_chase` roof tile softer and smudged, `lights23_chase`, `spawn_first`), WARN 3 (`policehq_chase`, `spawn_third`, `spawn_classic`: the plaza paving is smoother **in the classic view**) | the photo tiles change the look, including the classic view: for the ASSET-BUILDINGS owner and a reviewer to accept or not before the restage |
 
+## Reseed of 9 Nov 2026 (QA-RESEED, goldens `48a9b58`)
+
+The goldens of `16fcaf8` predated the day's accepted work. One capture of `48a9b58` against them:
+PASS 22, WARN 4, FAIL 5 (not the 30 of 31 first reported; the classic and most scene shots held).
+Every pair was looked at (sheets in `out/vreg_48a9b58_1109_142048/vreg_report/`, not in git):
+
+| Shot | Difference | Verdict |
+|---|---|---|
+| `spawn_classic` | none (0 tiles) | the classic view is byte-for-byte as before |
+| `spawn_third` (FAIL, 125) | the chase camera sits behind the player, who is now drawn full figure; the old golden had a far orbit | accepted: f4b5544 (boom as a rate-limited state), 48a9b58 |
+| `spawn_first` (FAIL, 73) | smaller phone booth, an orange objective arrow with distance, a passing pedestrian beside the eye in 2 of 5 captures | accepted: aa7d383 (booth), af1dc60 (objective markers); the pedestrian is crowd (294fdc2, 36b4ce8), not a fixed element |
+| `spawn_portrait_front` (FAIL, 48) | the player wears a dark shirt and jeans instead of the striped shirt and shorts; the mailbox is a post box | accepted: 36b4ce8, ceb9ff9 (ped outfits), fd2d678 (post box) |
+| `lights23_chase` (FAIL, 37), `lights23_street` (WARN) | road paint re-authored (clean lane dashes, readable SLOW text, crosswalks), asphalt tone-matched across tiles | accepted: 89a990c, c69c620 |
+| `cityinfo_chase`, `policehq_chase` (WARN) | objective arrow and distance label added; lamp posts moved to the kerb; paving tone | accepted: af1dc60, c2bdb0c, b648111 (street views only since 9edb1cf) |
+| `m37_chase` (FAIL, 47), `m37_street` (WARN) | the roof and brick wall are softer, lower contrast, with paler mortar than the plain HD tile | **looks wrong**: defect `pm-photo-tiles-roof-and-brick-softer-than-plain-hd` filed in `defects/open/` (photo tiles of b648111/8861319) |
+| all other shots | PASS, 0-7 tiles, with the objective arrow in frame | no change |
+
+The goldens in force are now `goldens/48a9b58`: **5 clean captures** of that build (155 samples), leave-one-out
+**0 WARN/FAIL of 155**. A fresh capture of the same build against them is PASS 31 of 31 (WARN 0, FAIL 0, no SKIP). The m37 shots are seeded
+as they look today (the soft roof): when the defect is fixed, reseed those two shots on purpose.
+`goldens/16fcaf8_v4` is kept beside it. Use `vreg.sh seed <rev> 5` for the next reseed.
+
 Findings:
 
 - **After a developer warp the player's own figure is not drawn in the 3D views.** The
