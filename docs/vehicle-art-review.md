@@ -324,3 +324,26 @@ seal, and the 063's sealed-beam lens. It writes them into the generated glb as a
   round the new lamp from the side. The 018 is a 1930s pontoon body, while its sprite is a finned 1950s
   sedan: that identity miss needs a regenerated or authored body. The grilles are unchanged. 042 and 039 were
   not done (they can use the same tool).
+
+## VEHICLE-ART-6: 051 Taxi Xpress (item 10, the 051 half; the 056 half was VEHICLE-ART-2's authored taxi)
+
+`tools/vehicle_art/fix_051_taxi.py` repaints the generated texture in object space. It UV-rasterises the glb so that
+each texel knows its point and normal on the body, then:
+- **Belt band:** side-facing texels at y 0.200-0.242 are redrawn as two clean rows of black and white squares.
+- **Patches and blotches:** the rear doors' "QR code" patches and the bonnet blotch go back to the body's yellow
+  (flat). The roof's broken squares go back to yellow with their own shading.
+- **Centre stripe:** a chequered stripe, the sprite's (|x| < 0.042, 3 squares across), runs over the flat tops
+  (normal y > 0.82): bonnet, roof round the sign, and boot.
+- **Boot lid:** TRELLIS stood it up behind the rear window as a torn fin up to roof height (the before frames
+  show an open boot). There is no other boot top under it, so its vertices fold down onto the boot line (0.255).
+  The faces that end up facing down are turned over, and its texels are painted as body with the stripe.
+
+The vertex count is unchanged (7230). 051 had not been resplit, so the whole import (mesh, `_0`, `_0_paint`) is
+replaced. Run the tool on the original glb (backup in `<workspace>/backup_va6/src`), not on its own output.
+- Frames (same spot, own car stopped, regression camera, forced model, same DLL): out/va6_taxia (before) and
+  out/va6_taxib (after), poses front34, eye, side, rear34, high and far. 0 FAULT.
+- Still short: faint ghosts of the old front-door blobs and a few dark spots beside the bonnet stripe; a small
+  stub at the C-pillar where the fin met the roof; the folded lid is flat paint, with no shut line. Under Remix the
+  changed texture has a new hash, so any gta2hd prim keyed on the old 051 texture no longer applies (FIX-REMIX-IDENTITY).
+- 036 Schmidt and 056 Taxi (VEHICLE-ART-2's authored bodies), checked in out/va6_taxi1: the 036 canopy is clean
+  glass with no sprite lines, and the 056 band is straight. Their lamps are plain dark domes (not done).
