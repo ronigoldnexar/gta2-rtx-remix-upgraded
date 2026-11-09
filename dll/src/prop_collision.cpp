@@ -268,7 +268,26 @@ bool PropCollisionSolidObject(const char* name) {
 void PropCollisionAddObject(const Model* model, float x, float y, float z, float yaw, float scale) {
     if (model) AddShapes(&g_objectsNext, model, x, y, z, yaw, scale, -1);
 }
-void PropCollisionObjectsDone() { g_objects.swap(g_objectsNext); g_objectsNext.clear(); }
+namespace {
+// The game's pickups drawn last pass (renderer frame): whatever stands on one is not solid,
+// since the game collects a pickup on overlap (defect fixhud-street-view-weapon-pickup-solid-
+// cannot-collect: a lamp post placed by rule on the bil spawn's machine gun held him off it).
+struct PickupAt { float x, y, z; };
+std::vector<PickupAt> g_pickups, g_pickupsNext;
+bool OverPickup(const CollisionShape& s) {
+    const float reach = (s.hb < 0.0f ? s.ha : (std::max)(s.ha, s.hb)) + 0.3f;
+    for (const PickupAt& p : g_pickups)
+        if (std::fabs(p.x - s.cx) < reach && std::fabs(p.z - s.cz) < reach && p.y > s.y0 - 0.6f && p.y < s.y1 + 0.6f) return true;
+    return false;
+}
+}  // namespace
+void PropCollisionNotePickup(float x, float y, float z) {
+    if (g_pickupsNext.size() < 256) g_pickupsNext.push_back({x, y, z});
+}
+void PropCollisionObjectsDone() {
+    g_objects.swap(g_objectsNext); g_objectsNext.clear();
+    g_pickups.swap(g_pickupsNext); g_pickupsNext.clear();
+}
 
 int PropPushableAt(float baseX, float baseY, float baseZ, float radius, float height, float* dx, float* dz, float* dyaw) {
     const uint32_t key = KeyOf(baseX, baseZ) & 0x7FFFFFFF;
@@ -358,6 +377,7 @@ bool ResolveBody(float* x, float* z, float y, float fx, float fz, bool firstPers
                 const bool bodyBand = y + kBodyHeight > s.y0 && y + 0.05f < s.y1;
                 const bool eyeBand = firstPerson && y + kEyeHeight > s.y0 - 0.05f && y + kEyeHeight < s.y1 + 0.1f;
                 if (!bodyBand && !eyeBand) continue;
+                if (OverPickup(s)) continue;   // the game collects it on overlap
                 float ox = 0.0f, oz = 0.0f, d = 0.0f;
                 bool hit = bodyBand && Penetration(s, px, pz, bodyRadius, &ox, &oz, &d);
                 if (eyeBand) {
@@ -473,7 +493,12 @@ void PropCollisionLogNear(float x, float z, float y) {
             // Game frame (x east, y south) for the probes.
             n += snprintf(line + n, sizeof line - n, " %s@%.2f,%.2f/%.2f", s.kind ? s.kind : "?", s.cx, static_cast<float>(gta2::kMapHeight) - s.cz,
                           s.hb < 0.0f ? s.ha : (std::max)(s.ha, s.hb));
+            if (OverPickup(s) && n < static_cast<int>(sizeof line) - 16) n += snprintf(line + n, sizeof line - n, "(over a pickup)");
         }
+    }
+    for (const PickupAt& p : g_pickups) {
+        if (std::fabs(p.x - x) > 5.0f || std::fabs(p.z - z) > 5.0f || n >= static_cast<int>(sizeof line) - 64) continue;
+        n += snprintf(line + n, sizeof line - n, " pickup@%.2f,%.2f,%.2f", p.x, static_cast<float>(gta2::kMapHeight) - p.z, p.y);
     }
     Log("%s", line);
 }

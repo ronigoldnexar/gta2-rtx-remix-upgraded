@@ -46,6 +46,9 @@ void PropCollisionAddPlaced(const Model* model, float x, float y, float z, float
 // name, PropCollisionSolidObject), by its draw placement like a prop.
 bool PropCollisionSolidObject(const char* modelName);
 void PropCollisionAddObject(const Model* model, float x, float y, float z, float yaw, float scale);
+// A game pickup drawn this pass (renderer frame): no shape over it is solid (the game
+// collects a pickup when the player overlaps it).
+void PropCollisionNotePickup(float x, float y, float z);
 // The start of the objects' pass: what the last pass added becomes the objects' list.
 void PropCollisionObjectsDone();
 

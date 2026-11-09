@@ -297,6 +297,12 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
                                          cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1],
                                          cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2],
                                          footR, (std::max)(0.3f, model.Height() * scale)});
+        } else if (PropCollisionEnabled()) {
+            // A pickup: nothing placed over it is solid (the game collects it on overlap).
+            const gta2::Mat4& w = s.objectToWorld;
+            PropCollisionNotePickup(cx * w.m[0][0] + cy * w.m[1][0] + cz * w.m[2][0] + w.m[3][0],
+                                    cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1],
+                                    cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2]);
         }
         {
             // World position of the quad's centre; nothing drawn behind the camera.

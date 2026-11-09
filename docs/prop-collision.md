@@ -140,3 +140,16 @@ material prims until the Remix mod is rebuilt (`linux/docker/build_remix_mod.sh`
 already treats `__glass` models as smooth glass); thin posts are still slid round, not braced against; the
 map's own tree blocks are untouched.
 
+
+## Pickups and covered lamp cells (FIX-FIGURE-4, 9 Nov)
+
+Defect fixhud-street-view-weapon-pickup-solid-cannot-collect: the hero stopped short of the bil spawn's
+machine gun in the 3D views. The pickup was never solid; a placed lamp post was. Its cell, the alley mouth
+under the LIVE SHOW gantry, is covered, and the lamp rules read the column's top block (level 7, the gantry)
+as the floor. So they found no wall beside the cell and left the post in the middle of the one-block alley,
+on the only way through. Now the rules read the walkable floor's level under an overhang, and a post in a
+one-block alley goes into the corner against a side wall. Separately, the game's pickups drawn each pass are
+noted (`PropCollisionNotePickup`), and no prop shape within reach of one is solid: the game collects a
+pickup on overlap. `GTA2DX9_LOG_PROPS_NEAR=1` lists the pickups near him (`pickup@x,y,z`) and tags a shape
+`(over a pickup)`. Verified out/fig4_pk5 (third) and fig4_pk6f (first): weapon none -> machine_gun(4) on the
+walk; vreg classic 0 px.

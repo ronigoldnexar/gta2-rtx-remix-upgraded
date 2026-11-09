@@ -407,6 +407,7 @@ private:
     // pm-fp-respawn-eye-pressed-into-facade: after a respawn or level cut the first-person
     // view turns from a wall within half a block toward the most open side.
     float fpRespawnPending_ = 0.0f;         // seconds left to look for the first on-foot frame
+    bool resetByModeSwitch_ = false;        // the last Reset was a V switch, not a respawn or a warp
     float fpRespawnLeft_ = 0.0f;            // turn still to sweep (nav: on the view yaw)
     float fpRespawnRate_ = 0.0f;            // radians a second of that sweep
     float fpRespawnOffset_ = 0.0f;          // without nav: added to the heading the view follows

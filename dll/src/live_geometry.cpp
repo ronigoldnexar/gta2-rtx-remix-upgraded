@@ -4599,6 +4599,12 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 const int cx = static_cast<int>(std::floor(at.x)), cz = static_cast<int>(std::floor(at.z));
                 int t, g, l;
                 if (!ground_->SurfaceAt(at.x, at.z, at.y + 0.5f, &floor) || !lidOf(cx, cz, &t, &g, &l)) { posts.push_back(post); continue; }
+                // A cell under an overhang (a sign gantry, a bridge, a building's upper floor): the
+                // column's top block is the roof, not the pavement the post stands on. The rules
+                // read the walkable floor's level (bil spawn: the alley mouth under the LIVE SHOW
+                // gantry read as level 7, found no wall beside it and left the post mid-alley,
+                // where it shut the only way through to the machine gun pickup).
+                if (l > static_cast<int>(std::lround(floor)) + 1) l = static_cast<int>(std::lround(floor));
                 auto clampIn = [](float v, int c) { return (std::min)(c + 0.85f, (std::max)(c + 0.15f, v)); };
                 if (g == 1) {
                     // Over the roadway: the kerb of a pavement neighbour at this level, on its road side.
@@ -4630,6 +4636,13 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 }
                 post.x = edgeDx ? cx + 0.5f + edgeDx * 0.42f : clampIn(at.x, cx);
                 post.z = edgeDz ? cz + 0.5f + edgeDz * 0.42f : clampIn(at.z, cz);
+                // A one-block alley (buildings on both sides across the chosen edge): the post
+                // goes into the corner against a side wall, not mid-passage where it would shut
+                // the only way through.
+                if (edgeDz && higher(cx + 1, cz, l) && higher(cx - 1, cz, l))
+                    post.x = cx + 0.5f + (at.x < cx + 0.5f ? -0.42f : 0.42f);
+                else if (edgeDx && higher(cx, cz + 1, l) && higher(cx, cz - 1, l))
+                    post.z = cz + 0.5f + (at.z < cz + 0.5f ? -0.42f : 0.42f);
                 if (std::fabs(post.x - at.x) + std::fabs(post.z - at.z) > 0.02f) ++moved;
                 posts.push_back(post);
             }

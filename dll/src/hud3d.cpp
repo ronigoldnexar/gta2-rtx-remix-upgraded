@@ -919,8 +919,12 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             }
             wx = ox + hx * hi; wy = oy; wz = oz + hz * hi;
         }
+        // Off the view, the reticle is hidden, never held where it last was nor clamped to an
+        // edge (defect pm37: it sat under the minimap while the line ran out of the picture).
         float sx, sy;
-        if (LiveWorldToScreen(wx, wy, wz, &sx, &sy) && sx > -0.2f && sx < 1.2f && sy > -0.2f && sy < 1.2f) {
+        if (!LiveWorldToScreen(wx, wy, wz, &sx, &sy) || sx < 0.03f || sx > 0.97f || sy < 0.03f || sy > 0.97f) {
+            h.reticleKnown = false;
+        } else {
             sx *= W; sy *= H;
             if (!h.reticleKnown || std::hypot(sx - h.rx, sy - h.ry) > 0.4f * H) { h.rx = sx; h.ry = sy; }
             else {

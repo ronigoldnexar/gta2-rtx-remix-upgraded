@@ -1700,6 +1700,7 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
     }
     if (mode != lastMode_) {
         Reset();
+        resetByModeSwitch_ = true;
         lastMode_ = mode;
     }
     if (mode == ViewMode::Classic || !player.valid) {
@@ -1729,6 +1730,7 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
         }
         status_ = "waiting for the player to be found";
         settled_ = false;
+        resetByModeSwitch_ = false;   // found again after this: a respawn
         camera->SetRoll(0.0f);
         g_navHeadingKnown = false;
         return false;
@@ -2001,7 +2003,12 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         lastYaw_ = headingYaw;
         floorSettled_ = false;
         settled_ = true;
-        fpRespawnPending_ = 2.0f;
+        // The open-side sweep below is for a respawn or a warp only. A V switch keeps his
+        // heading: without nav the sweep was a view-only offset, so the first-person view
+        // looked 90 degrees away from his firing line (defect pm37: the reticle parked at
+        // the screen edge after a V round trip that ended facing a wall).
+        fpRespawnPending_ = resetByModeSwitch_ && !jumped ? 0.0f : 2.0f;
+        resetByModeSwitch_ = false;
         fpRespawnLeft_ = fpRespawnOffset_ = 0.0f;
         g_look = ViewLook{};
         eyeX_ = px;
