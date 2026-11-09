@@ -401,6 +401,11 @@ public:
     // TileBatch::streetOnly.
     void SetStreetMode(int mode) { streetMode_ = mode; }
 
+    // While set, a lid that AddFaceUv emits is left out of the street views (see the
+    // overhead decals in BuildWorldMesh); the classic view draws it as before.
+    void SetStreetHidden(bool on) { streetHidden_ = on; }
+    int StreetHiddenCount() const { return streetHiddenCount_; }
+
     // A quad with no tile behind it, for the black seal under the world. The
     // corners are given anticlockwise seen from the side the normal points at,
     // and the winding is worked out the same way AddFaceUv does it.
@@ -541,7 +546,13 @@ public:
             surface = {cross.x * sign / length, cross.y * sign / length, cross.z * sign / length};
         }
 
-        std::vector<Vertex>& out = perTile_[ColourKeyed(face, panelBack)][tile];
+        const int keyed = ColourKeyed(face, panelBack) ? 1 : 0;
+        std::vector<Vertex>& out = perTile_[keyed][tile];
+        if (streetHidden_ && normal.y > 0.5f) {
+            if (streetHiddenQuads_[keyed].empty()) for (auto& q : streetHiddenQuads_) q.resize(perTile_[0].size());
+            streetHiddenQuads_[keyed][tile].push_back(static_cast<uint32_t>(out.size() / 4));
+            ++streetHiddenCount_;
+        }
         static const int kForward[4] = {0, 1, 2, 3};
         static const int kReverse[4] = {0, 3, 2, 1};
         const int* order = reversed ? kReverse : kForward;
@@ -629,9 +640,33 @@ public:
             batch.indexCount = static_cast<uint32_t>(out->indices.size()) - batch.indexStart;
             out->batches.push_back(batch);
         }
+        // The overhead decals (after everything, so no classic range moves): each batch
+        // that holds some gets a street-view index list without them.
+        if (streetHiddenCount_ == 0) return;
+        const size_t classicBatches = out->batches.size();
+        for (size_t b = 0; b < classicBatches; ++b) {
+            TileBatch& batch = out->batches[b];
+            if (batch.streetOnly || batch.tile < 0 || batch.tile >= static_cast<int>(perTile_[0].size())) continue;
+            const int keyed = batch.doubleSided ? 1 : 0;
+            const std::vector<uint32_t>& hidden = streetHiddenQuads_[keyed][static_cast<size_t>(batch.tile)];
+            if (hidden.empty()) continue;
+            const std::set<uint32_t> skip(hidden.begin(), hidden.end());
+            const uint32_t quadCount = static_cast<uint32_t>(perTile_[keyed][static_cast<size_t>(batch.tile)].size() / 4);
+            batch.streetIndices = true;
+            batch.streetIndexStart = static_cast<uint32_t>(out->indices.size());
+            for (uint32_t i = 0; i < batch.indexCount; ++i) {
+                const uint32_t quad = i / 6;
+                if (quad < quadCount && skip.count(quad)) continue;
+                out->indices.push_back(out->indices[batch.indexStart + i]);
+            }
+            batch.streetIndexCount = static_cast<uint32_t>(out->indices.size()) - batch.streetIndexStart;
+        }
     }
 
 private:
+    bool streetHidden_ = false;
+    int streetHiddenCount_ = 0;
+    std::vector<std::vector<uint32_t>> streetHiddenQuads_[2];   // [ColourKeyed][tile]: quad numbers left out of the street views
     const RailingShape& RailingOf(int tile) {
         if (railingShapes_.empty()) {
             railingShapes_.resize(perTile_[0].size());
@@ -2249,6 +2284,79 @@ void SetWaterUvBlocks(float blocks) {
 }
 float WaterUvBlocks() { return g_waterUvBlocks; }
 
+namespace {
+// Overhead decals (pm6): GTA2 draws what hangs over a pavement - a wall lamp on its
+// bracket, the end of a wire on its insulator, a pipe run - as a see-through lid one
+// level up, a picture seen from above. From a street camera that picture is a plane
+// edge-on at head height: a black zig-zag hanging in front of the facade. A lid is
+// such a decal when it is alone in its block (see-through, no side faces, no slope,
+// over a stored block: Downtown's lamps hang over the pavement's own block) and mounted on a wall (a neighbour at that level shows a
+// solid face towards it); a tile is a decal tile when it is mostly empty (under 20 %
+// opaque), used so at least 10 times and wall-mounted in at least 90 % of its lone uses
+// (Downtown 203 and 737 the lamps, 150 and 285 the insulators; the elevated railway's
+// lone track lids are mostly not wall-mounted and stay). The street views leave those
+// lids out (TileBatch::streetIndices): drawn only from above they still hung as a
+// streak whenever the chase camera was a little over them. The classic view draws
+// them as before.
+struct OverheadDecals {
+    std::vector<uint8_t> tile;
+    int tiles = 0;
+};
+const Block* BlockAtLevel(const Map& map, int x, int y, int level) {
+    if (x < 0 || y < 0 || x >= kMapWidth || y >= kMapHeight || level < 0) return nullptr;
+    const Column& column = map.ColumnAt(x, y);
+    const int i = level - column.offset;
+    if (i < 0 || i >= static_cast<int>(column.blocks.size()) || column.blocks[static_cast<size_t>(i)] >= map.BlockCount()) return nullptr;
+    return &map.BlockAt(column.blocks[static_cast<size_t>(i)]);
+}
+bool LoneFlatLid(const Map& map, int x, int y, int level) {
+    const Block* block = BlockAtLevel(map, x, y, level);
+    if (!block || !block->lid || !block->lid.IsFlat() || block->SlopeType() != 0) return false;
+    if (block->left || block->right || block->top || block->bottom) return false;
+    return BlockAtLevel(map, x, y, level - 1) != nullptr;   // hung over something stored: the pavement, or air
+}
+bool WallMounted(const Map& map, int x, int y, int level) {
+    const Block* n;
+    auto solidFace = [](const Face& f) { return f && !f.IsFlat(); };
+    return ((n = BlockAtLevel(map, x - 1, y, level)) && solidFace(n->right)) ||
+           ((n = BlockAtLevel(map, x + 1, y, level)) && solidFace(n->left)) ||
+           ((n = BlockAtLevel(map, x, y - 1, level)) && solidFace(n->bottom)) ||
+           ((n = BlockAtLevel(map, x, y + 1, level)) && solidFace(n->top));
+}
+OverheadDecals FindOverheadDecals(const Map& map, const Style& style) {
+    OverheadDecals d;
+    const size_t n = static_cast<size_t>(style.TileCount());
+    std::vector<int> lone(n, 0), mounted(n, 0);
+    for (int y = 0; y < kMapHeight; ++y)
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            for (size_t i = 0; i < column.blocks.size(); ++i) {
+                const int level = column.offset + static_cast<int>(i);
+                if (!LoneFlatLid(map, x, y, level)) continue;
+                const size_t t = static_cast<size_t>(BlockAtLevel(map, x, y, level)->lid.Tile());
+                if (t >= n) continue;
+                ++lone[t];
+                if (WallMounted(map, x, y, level)) ++mounted[t];
+            }
+        }
+    d.tile.assign(n, 0);
+    for (size_t t = 0; t < n; ++t) {
+        if (lone[t] < 10 || mounted[t] * 10 < lone[t] * 9) continue;
+        const Tile& art = style.GetTile(static_cast<int>(t));
+        if (art.pixels.empty()) continue;
+        size_t opaque = 0;
+        for (uint32_t p : art.pixels) if (p >> 24) ++opaque;
+        if (opaque * 5 >= art.pixels.size()) continue;
+        d.tile[t] = 1;
+        ++d.tiles;
+    }
+    return d;
+}
+OverheadDecalStats g_overheadStats;
+}  // namespace
+
+OverheadDecalStats LastOverheadDecalStats() { return g_overheadStats; }
+
 void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                     const PartialCuts& cuts, WorldMesh* out) {
     // Prefer the game's own slope descriptors; fall back to deriving them when
@@ -2259,6 +2367,8 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     g_railingStats = RailingStats{};
     if (const char* e = std::getenv("GTA2DX9_RAILINGS")) g_railingModels = e[0] != '0';
     MeshBuilder builder(style);
+    if (const char* e = std::getenv("GTA2DX9_STREET_FILL")) g_streetFill = e[0] != '0';
+    const OverheadDecals decals = g_streetFill ? FindOverheadDecals(map, style) : OverheadDecals{};
     for (int y = 0; y < kMapHeight; ++y) {
         for (int x = 0; x < kMapWidth; ++x) {
             const Column& column = map.ColumnAt(x, y);
@@ -2266,11 +2376,17 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                 const uint32_t index = column.blocks[i];
                 if (index >= map.BlockCount()) continue;
                 const Block& block = map.BlockAt(index);
-                AddBlock(&builder, block, resolved[block.SlopeType() & (kSlopeTypeCount - 1)], cuts,
-                         x, y, column.offset + static_cast<int>(i));
+                const int level = column.offset + static_cast<int>(i);
+                const bool decal = decals.tiles > 0 && block.lid && static_cast<size_t>(block.lid.Tile()) < decals.tile.size() &&
+                                   decals.tile[static_cast<size_t>(block.lid.Tile())] && LoneFlatLid(map, x, y, level) &&
+                                   WallMounted(map, x, y, level);
+                builder.SetStreetHidden(decal);
+                AddBlock(&builder, block, resolved[block.SlopeType() & (kSlopeTypeCount - 1)], cuts, x, y, level);
+                builder.SetStreetHidden(false);
             }
         }
     }
+    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount()};
     AddImplicitFloors(&builder, map);
     AddHiddenSurfaces(&builder, map);
     if (g_riverbedDepth > 0.0f) AddRiverbed(&builder, map, style, g_riverbedDepth);

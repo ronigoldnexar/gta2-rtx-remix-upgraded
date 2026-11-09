@@ -283,6 +283,40 @@ Seen, not changed here: the elevated railway west of the spawn (flat see-through
 levels 4-5, e.g. (210,147..149)) shows a chequer of dark squares and sky from the street in HEAD and
 in this build. It is the track and the rail prop, not a road deck.
 
+## Overhead decals left out of the street views (FIX-WORLD-3, 9 Nov 2026)
+
+Defect pm6 `pm6-facade-black-scribble-streaks-float-on-walls`. GTA2 draws what hangs over a pavement as a
+see-through lid one level up, a picture for a camera looking down: a wall lamp on its bracket (Downtown
+203, 737), the end of a wire on its insulator (150, 285), a pipe elbow (885). From a street camera that
+picture is a plane seen edge-on at head height. The lamp at (166,161) hung as a black sheet with
+lights in it right overhead, and from a few blocks away each one was a black zig-zag in front of the
+facade. These lamps sit directly on the pavement's own block, not over air.
+
+`FindOverheadDecals` (`src/world_mesh.cpp`): a lid counts as a decal when it is the only thing in its
+block (see-through, no side faces, no slope, over a stored block) and mounted on a wall (a neighbour
+at that level shows a solid face towards it). A tile counts as a decal tile when under 20 % of its
+pixels are opaque, it is used at least 10 times, and at least 90 % of its lone uses are wall-mounted.
+The street views leave those lids out; the classic view draws them as before:
+
+- Each tile batch that holds some gets a second index list without them (`TileBatch::streetIndices`).
+- That list is appended after every other index, so the classic batches, their ranges, vertices and
+  indices are unchanged. The renderer uses it only while a street view shows.
+
+Drawing them from above only was tried first. It still left a streak whenever the chase camera was a
+little above the lamps (eye 3.4 against lids at 3.0).
+
+Tiles left out: wil 150, 203, 285, 737, 751, 885 (1267 lids); ste 252, 887 (375 lids: the semicircle
+awning of 9g and a chain-link grille); bil 239, 545, 546, 596, 892, 893 (595 lids: wires, a grille and a
+drainpipe). The elevated railway's lone track lids (ste 891/892) are mostly not wall-mounted and stay.
+
+**Classic view.** The mesh hash, now taken over the classic batches' own ranges (equal to the old tool's
+on HEAD), is unchanged: bil 1d2767964eba1223, ste fc908f869418d987, wil b9a234d14d489bf7.
+
+**Frames.** `out/fw3_pm6_base` (HEAD) against `out/fw3_pm6_fix`, poses `gamerun/fw3_poses_wil.txt` as
+used for these runs: under the lamp at (166,161), the facade at (171,159) and the pm6_067 view. The lamp
+sheet and both streaks are gone. ste awning poses (FIX-WORLD-2's): `out/fw3_pm6_ste` against their `out/fwb_fix4_ste`: the 9g awning
+is still drawn (that one is not counted wall-mounted), and nothing else changed.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder

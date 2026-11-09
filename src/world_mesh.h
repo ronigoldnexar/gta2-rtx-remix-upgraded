@@ -49,6 +49,13 @@ struct TileBatch {
     // Texture coordinates run past 0..1 (one repeat per block) and want WRAP addressing:
     // the apron past the map's edge (AddApron in world_mesh.cpp). Street views only.
     bool wrapUv = false;
+    // The street views draw this batch from streetIndexStart/streetIndexCount instead of
+    // indexStart/indexCount: the same triangles less the overhead decals
+    // (FindOverheadDecals in world_mesh.cpp).
+    // Appended after every other index, so the classic view's ranges are unchanged.
+    bool streetIndices = false;
+    uint32_t streetIndexStart = 0;
+    uint32_t streetIndexCount = 0;
 };
 
 struct WorldMesh {
@@ -144,6 +151,11 @@ void SetStreetFill(bool on);
 bool StreetFill();
 struct StreetFillCounts { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0, decks = 0; };
 StreetFillCounts LastStreetFillCounts();
+
+// The overhead decals the street views leave out (lamp brackets, wire ends:
+// see FindOverheadDecals in world_mesh.cpp): how many tiles qualify and how many lids.
+struct OverheadDecalStats { int tiles = 0, lids = 0; };
+OverheadDecalStats LastOverheadDecalStats();
 
 // How many blocks one repeat of a water tile's texture spans.
 //

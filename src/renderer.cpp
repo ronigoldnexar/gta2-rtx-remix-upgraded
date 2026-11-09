@@ -1526,8 +1526,13 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
             device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
         }
-        device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
-                                      batch.indexStart, batch.indexCount / 3);
+        // The street views leave the overhead decals out (world_mesh.h, TileBatch::streetIndices).
+        const bool streetRange = streetView_ && batch.streetIndices;
+        const uint32_t first = streetRange ? batch.streetIndexStart : batch.indexStart;
+        const uint32_t count = streetRange ? batch.streetIndexCount : batch.indexCount;
+        if (count >= 3)
+            device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
+                                          first, count / 3);
         if (batch.wrapUv) {
             device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
             device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
