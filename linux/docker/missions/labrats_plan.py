@@ -27,7 +27,7 @@ covers the quarter; the job's verdict from the game's words. Frames /out/m_lp_*.
 Run (keys script missions/keys_labrats_plan.sh):
   SWAP_LEVEL=ste GTA2_SPEED=2 GTA2_DIRECT_KEYS=1 FPS=0 gamerun/grun.sh <name> 2400 missions/keys_labrats_plan.sh
 """
-import json, math, os, subprocess, sys, time
+import json, math, os, re, subprocess, sys, time
 sys.path.insert(0, "/work")
 sys.argv = sys.argv[:1]
 os.environ["DISTRICT"] = "ste"
@@ -65,6 +65,18 @@ class Over(Exception):
 
 def ev(what):
     RESULT["events"].append(f"{time.strftime('%H:%M:%S')} {what}"); M.mark(what)
+
+
+def messages_since(off):
+    try:
+        with open(D.LOG, "rb") as f:
+            f.seek(off); data = f.read().decode("latin-1")
+    except OSError:
+        return []
+    out = []
+    for k in re.findall(r"view: mission [^\n]*?msg=(\S+)", data):
+        if not out or out[-1] != k: out.append(k)
+    return out
 
 
 def check():
@@ -174,9 +186,34 @@ def fight(**kw):
         raise
 
 
+def warp_keep_car(x, y, level, why):
+    """mission_lib.scene_warp without its last step (it gets out of the scene's car): the developer
+    scene warp leaves him in a car, which the run-over rounds use. Marked WARP like the shared one"""
+    t = open(M.INI, encoding="latin-1").read()
+    km = re.search(r"(?m)^scene_key=(\S+)", t)
+    key = km.group(1) if km else "F11"
+    open(M.INI, "w", encoding="latin-1").write(re.sub(r"(?m)^scene_xy=.*$", f"scene_xy={x},{y},{level}", t))
+    for attempt in range(4):
+        off0 = M.log_size(); tap(key, 0.3); time.sleep(2.5)
+        new = M.devtools_lines(off0)
+        if new and "ignored" not in new[-1] and "refused" not in new[-1]: break
+        time.sleep(1.0)
+    time.sleep(1.5); s = D.wait_state()
+    M.mark(f"WARP to {x},{y},{level} ({why}) -> at {s['x']:.1f},{s['y']:.1f} z={s['z']:.2f} driving={s['driving']}")
+    return s
+
+
 def to_village():
     s = D.wait_state()
     if in_zone(s["x"], s["y"]) and not s["driving"]: return s
+    if os.environ.get("LP_WARP_VILLAGE_FIRST", "0") == "1":
+        # mb1_lp1-ra11: one honest drive up of eight (the others burned, drowned or wandered): the trip
+        # is the shared driver's, not this job's; the warp keeps the scene's car for the run-over rounds
+        s = D.wait_state()
+        if s["driving"]: M.leave_car()
+        P.set_view("classic")
+        warp_keep_car(233.6, 30.5, 2, "LP_WARP_VILLAGE_FIRST: The Village road; the trip there is not this job's skill")
+        P.set_view("third"); RESULT["events"].append("village warp (first)")
     for k in range(6):
         check(); s = D.wait_state()
         if in_zone(s["x"], s["y"]): break
@@ -210,7 +247,7 @@ def to_village():
         s = D.wait_state()
         if in_zone(s["x"], s["y"]): break
     s = D.wait_state()
-    if s["driving"]:
+    if s["driving"] and not (in_zone(s["x"], s["y"]) and os.environ.get("LP_CAR", "1") == "1"):
         hold("space", 0.4); M.leave_car()
     P.set_view("third")
     return D.wait_state()
@@ -224,9 +261,17 @@ def play():
     warp_near_phone()
     set_respect()
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
+    off0 = M.log_size()
     ok, key = P.answer(entry)
     M.set_avoid_phones(world, keep=None)
     ms = M.mission_state() or {}
+    # mb1_ra12: the GRAN'PA phone one block south answered (its brief 2392, never 2351/2353) and a
+    # whole session fought for a job that was not running: confirm the title in the log since the answer
+    time.sleep(2.0)
+    seen = messages_since(off0)
+    ev(f"messages since the answer: {seen[:8]}")
+    if not (set(seen) & TITLE):
+        return f"wrong job or none (messages {seen[:6]})"
     M.shot("m_lp_phone")
     started = P.TITLES.get(key)
     ev(f"phone: {ok} {key} msg {ms.get('msg')}")

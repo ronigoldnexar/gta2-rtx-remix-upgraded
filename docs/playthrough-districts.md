@@ -715,7 +715,7 @@ which also edits `science_friction.py`, so I left it to them. I dropped ARMORED 
 its two Miuras are `SET_CAR_BULLETPROOF/ROCKETPROOF/FLAMEPROOF`, so the destroy skill's gun can't
 touch them.
 
-**Result so far: 0 JOB COMPLETE in 11 sessions.** LABRAT'S PLAN is started in every session since
+**Result: 0 JOB COMPLETE in 14 sessions; paused.** LABRAT'S PLAN is started in every session since
 `mb1_ra4`. The fight in The Village reaches about 30 kills before Zaibatsu return fire kills the player.
 REDNECK ATTACK has never been reached.
 
@@ -746,6 +746,27 @@ Developer aids, each written to `marks.txt`:
 | `mb1_ra8` | Village, about 45 skill "down" lines | Zaibatsu return fire: health 100 to 0 in 3 s at close range. |
 | `mb1_ra9` | Village, 14 | Beaten at 0.3 blocks. The fight now keeps 5 blocks off, and the car comes first. |
 | `mb1_ra10` | Village, about 30 | The car was shot to burning within seconds of the first run-over, then the fight on foot was lost at 1.7 blocks (health 10). |
+| `mb1_ra11` | not in Village | Died in the car at full health at 135,23, far off the legs. One honest drive up in eight. Added `LP_WARP_VILLAGE_FIRST=1`, a marked warp straight to The Village road. |
+| `mb1_ra12` | wrong job | The GRAN'PA phone one block south answered (its brief 2392; never 2351/2353), so about 54 kills counted for nothing. The runner now confirms 2959/2351 in the log after the answer. |
+| `mb1_ra13` | Village, 3 run over | The run-over car was shot to burning and exploded as he got out. |
+
+Why it is paused:
+- In no session did the game show brief 2356 (20 left), even when the skill logged about 45 kills. So
+  the bonus count never got past 27 of 47. Many logged "down" peds don't count: some are civilians
+  tagged Zaibatsu, and some are kills that don't count as the player's.
+- Once their respect falls, The Village's Zaibatsu shoot from VTYPEs and in groups. They kill him on
+  foot at 0.3-2 blocks, or burn the run-over car within 10-60 s.
+- The job's own help is the Scientist with the crack-shot machine gun who joins at 202.5,232.5. The phone
+  warp leaves him behind. Only an honest drive brings him along, and the shared driver gets there once
+  in eight tries.
+
+Next steps:
+- An honest drive that keeps the companion (the group boards the player's car).
+- A long-range firing spot on The Village's edge, the gunfight skill's `fire_spots`.
+- The flamethrower generator (`gen33`, 207.5,24.5, level 3).
+- Health between rounds: the two power-up generators beside the machine gun (222.5 / 223.5, 34.5) are
+  picked up, but it is not yet confirmed which power-ups they are.
+- REDNECK ATTACK still needs LABRAT'S PLAN passed first.
 
 Notes for other runners:
 - Zaibatsu turn hostile as their respect drops, and they fire from inside VTYPEs and on foot in groups.
