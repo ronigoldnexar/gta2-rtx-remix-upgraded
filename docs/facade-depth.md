@@ -100,13 +100,26 @@ seen in frame:**
 - Spot 1 (228.5,137.2) looked down a sunlit pavement along a plain wall: no visible change
   (its windows are above the frame).
 
-**Run qb25_D (displace_in 0.04; factors 1, 0, 1.75 = the old 0.07, 1):** queued at commit time; results in the next commit.
+**Run qb25_D (displace_in 0.04, sharper bevel; factors 1, 0, 1.75 = the old 0.07, 1), seen in
+frame.** The warps landed at other headings than in qb25_C (and the stage now draws the modern
+HUD), so D is compared within itself, frame for frame:
+- Rectangular windows in brick (spot 2, first person, 14:00): at 0.04 the sashes sit behind the
+  frame with a thin dark reveal and no pale smear; at x1.75 (0.07) deeper and, with the sharper
+  bevel, also without the bands seen in qb25_C. 0.04 is kept as the shipped value: it reads as a
+  real reveal without stretching the art.
+- Arched-window wall (spot 0, chase view, 14:00): the windows are recessed at 0.04 with dark
+  reveals, but the reveal edges are ragged: the frame/glazing-bar mask is snapped to the 64 px
+  art and its steps show under parallax. Defect, open: smooth or drop the frame level inside
+  arched and many-barred windows. The x1.75 frame of this pose looks nearly flat, unlike spot 2;
+  not explained (possibly the renderer's temporal accumulation after the live push).
+- Game and Remix logs of qb25_D were not copied out by the time of this note; faults unchecked
+  for D (qb25_B and qb25_C: 0).
 
 Earlier whole-session A/B (qb25_A package layer vs qb25_B facade layer at 0.07, the
 `keys_remix_vis.sh` take) is not a valid comparison: the warps landed at different poses in
 the two sessions; it is kept only as the no-fault check above.
 
-Not verified: Bus Terminal (bil) and Industrial (ste) facades under Remix (the tiles are in
+Not verified: the ragged arched-window reveals above (open defect); Bus Terminal (bil) and Industrial (ste) facades under Remix (the tiles are in
 the layer; only Downtown was taken); motion (swimming) of the parallax while walking; the
 frame cost of 450 more/deeper POM materials (the frame log was not on); night.
 
