@@ -7876,6 +7876,24 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         rs = rs * rs * (3.0f - 2.0f * rs);
         if (ri.rackT >= 0.0f && reloadT >= ri.rackT && reloadT < ri.rackT + 0.12f) rack = 1.0f - (reloadT - ri.rackT) / 0.12f;
     }
+    {
+        // FIX-FIGURE-5 feel27: the reload's pose eased at most 1/0.3 a second either way. A reload
+        // cut short (a late round off the game's ammunition word after the trigger is let go, or
+        // the weapon word flickering) dropped `rs` to 0 in one frame: the gun swung down, rolled and
+        // lost its arms for ~4 frames, then snapped back. Now any start or stop takes >= 9 frames.
+        static float rsVis = 0.0f;
+        static DWORD rsTick = 0;
+        const DWORD nowT = GetTickCount();
+        const float dtv = rsTick ? (std::min)(0.1f, static_cast<float>(nowT - rsTick) / 1000.0f) : 0.0f;
+        rsTick = nowT;
+        const float stepV = dtv / 0.3f;
+        if (reloadT < 0.0f && rsVis > 0.0f && rs == 0.0f) {
+            static uint32_t abortLog = 0;
+            if (abortLog < 20 && rsVis > 0.2f) { ++abortLog; Log("reload: first person pose eased out from %.2f (reload cut short)", rsVis); }
+        }
+        rsVis += (std::max)(-stepV, (std::min)(stepV, rs - rsVis));
+        rs = rsVis;
+    }
     // FIX-FP-2: the switch's dip (drop 0..1: down out of the view, the muzzle tipped down), and the
     // fists' guard: both hands low either side of the view, a slow breath in them.
     const float breath = fists ? 0.003f * std::sin(static_cast<float>(vmNow % 3600u) * (6.2831853f / 3600.0f)) : 0.0f;
