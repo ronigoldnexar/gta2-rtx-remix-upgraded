@@ -33,6 +33,10 @@ models = parse(os.environ.get("MODELS", "0-8,10-14,16-19,21-42,44-71,82-86"))
 T.Q.set_view("third", settle=1.5)
 T.warp(x, y, why="vehicle review sheet")
 time.sleep(1.0)
+s = D.wait_state()
+if math.hypot(s["x"] - x, s["y"] - y) > 2.5:
+    T.mark(f"RESULT warp did not land: at {s['x']:.1f},{s['y']:.1f}, wanted {x},{y}; no frames taken")
+    sys.exit(2)
 T.Q.set_view("third", settle=1.5)
 D.calibrate_turn()
 s = D.wait_state()
@@ -60,6 +64,9 @@ for n in models:
     if math.hypot(s["x"] - x, s["y"] - y) > 2.5:
         say("re-warp: player at", round(s["x"], 1), round(s["y"], 1))
         T.warp(x, y, why="vehicle review (after a respawn)"); time.sleep(1.0)
+        s = D.wait_state()
+        if math.hypot(s["x"] - x, s["y"] - y) > 2.5:
+            T.mark(f"RESULT re-warp did not land before model {n}: at {s['x']:.1f},{s['y']:.1f}"); sys.exit(2)
         T.Q.set_view("third", settle=1.5); face()
         s = D.wait_state(); ref = (s["x"], s["y"])
     elif math.hypot(s["x"] - ref[0], s["y"] - ref[1]) > 1.0 or abs(D.angle_to(s, fx_, fy_)) > 0.4:

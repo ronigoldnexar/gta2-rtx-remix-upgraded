@@ -35,6 +35,7 @@ mountpoint -q "$G/gta2dx9_textures_hd" 2>/dev/null || { rm -rf "$G/gta2dx9_textu
 if [ -n "$SWAP_LEVEL" ] && [ "$SWAP_LEVEL" != wil ]; then bash /work/swap_level.sh "$G" "$SWAP_LEVEL" || { echo "run aborted: the level swap did not take"; exit 3; }; fi
 [ "${GTA2_INTRO:-1}" = 0 ] && sed -i "s/^intro=1/intro=0/" "$G/gta2dx9.ini"   # GTA2_INTRO=0: skip the intro movie (saves ~25 s per run)
 [ -n "$INI_SED" ] && sed -i "$INI_SED" "$G/gta2dx9.ini"   # INI_SED: a sed script over the ini, for turning a documented key off in one run
+[ -n "$KEYS" ] && [ -f "$KEYS" ] && KSED=$(sed -n 's/^# *ini-sed: *//p' "$KEYS" | paste -sd';') && [ -n "$KSED" ] && sed -i "$KSED" "$G/gta2dx9.ini" && echo "== ini-sed from $(basename "$KEYS"): $KSED"   # a keys script declares the ini it needs (e.g. the devtools scene key, read once at start) in '# ini-sed:' lines
 [ "${DUMP_TILES:-0}" = 1 ] && sed -i 's/^dump_tiles=0/dump_tiles=1/' "$G/gta2dx9.ini"
 [ -f "${SETTINGS_EXTRA:-/nonexistent}" ] && cat "$SETTINGS_EXTRA" >> "$G/gta2dx9_settings.ini"; [ -n "${SETTINGS_SED:-}" ] && sed -i "$SETTINGS_SED" "$G/gta2dx9_settings.ini"   # SETTINGS_SED: the saved settings file overrides the ini (FpsCap, StartHour...)
 if [ "$REMIX" = 1 ]; then cp -r /remix/. "$G"/; cp /release/.trex/bridge.conf "$G/.trex/" 2>/dev/null; [ -f /work/bridge.conf.extra ] && cat /work/bridge.conf.extra >> "$G/.trex/bridge.conf"; [ -f /work/rtx.conf.extra ] && cat /work/rtx.conf.extra >> "$G/rtx.conf"; [ -f /work/d3d9_trex_patched.dll ] && cp /work/d3d9_trex_patched.dll "$G/.trex/d3d9.dll"; fi

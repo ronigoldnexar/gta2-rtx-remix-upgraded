@@ -39,6 +39,12 @@ def retarget(x, y, level=None):
     t = re.sub(r"(?m)^scene_xy=.*$", f"scene_xy={val}", t)
     open(INI, "w", encoding="latin-1").write(t)
 
+def ini_scene_key():
+    """the scene key the game was started with (the prefix ini; scene_key is not re-read)"""
+    try: m = re.search(r"(?m)^scene_key=(\S*)", open(INI, encoding="latin-1").read())
+    except OSError: return ""
+    return m.group(1) if m else ""
+
 def devtools_lines():
     return [l for l in Q.log_text(60000).splitlines() if "devtools:" in l]
 
@@ -58,10 +64,19 @@ def warp(x, y, level=None, why=""):
     Q.set_view("classic", settle=1.0)
     retarget(x, y, level)
     s = s0
+    bound = ini_scene_key()
+    if not bound:
+        say("warp REFUSED: [devtools] scene_key is empty in the run's ini (the DLL reads it once at start); "
+            "add '# ini-sed: s/^scene_key=.*/scene_key=F11/' to the keys script or INI_SED on grun.sh")
+        mark(f"WARP UNAVAILABLE to {x},{y} ({why}): scene_key unbound")
+        return D.wait_state()
+    if bound.upper() != SCENE_KEY.upper():
+        say(f"warp: SCENE_KEY {SCENE_KEY} differs from the ini's scene_key={bound}; pressing {bound}")
+    key = bound
     for attempt in range(4):
-        n0 = len(devtools_lines())
-        tap(SCENE_KEY, 0.3); time.sleep(2.5)
-        new = devtools_lines()[n0:]
+        off0 = M.log_size()   # by byte offset: a 60 KB window is ~2 s of a busy log, so a count in it misreads
+        tap(key, 0.3); time.sleep(2.5)
+        new = M.devtools_lines(off0)
         s = D.wait_state()
         if new and "ignored" not in new[-1]:
             break

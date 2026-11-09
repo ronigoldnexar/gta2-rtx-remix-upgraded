@@ -225,3 +225,62 @@ shards on the closed cars at damage 0 (pt-fp-cab-jagular-xk-torn-black-shards fi
   `out/vr_traffic_r8`, before/after sheet `out/vr_review/round8_before_after.png` (0 FAULT, all five `faces +z`). The files
   are in `repo/assets/models` and the cars archive is repacked in `release_cars_r8/`; `repo/stage` needs the next
   `restage.sh` to pick them up.
+
+## VEHICLE-VERIFY: 063 Truck Cab (97309c4), 068 Van (c152690), 013 Minx (2104027) in gameplay
+
+### Harness fix (why vehicle QA was blocked)
+`[devtools] scene_key` is empty in `package/gta2dx9.ini` and so in every stage ini. The DLL reads it once at start
+(`dll/src/dllmain.cpp`), so a scene-warp press is ignored unless the run sets the key. The earlier review run did this
+with an INI_SED on the command line that was never written down; `out/vcheck_new` went without it ("no devtools line
+(key not seen)" x4, then frames from the church). It was not the restage's ini merge: the key has been empty since
+a89b092. Fixes:
+- `linux/docker/run_game.sh` / `run_game_gpu.sh` apply `# ini-sed:` lines found in the keys script, so a keys script
+  carries the ini it needs. `keys_vr_traffic.sh`, `keys_vr_seat.sh` and `keys_vr_walk.sh` declare `scene_key=F11`,
+  `warp_key=F9` and `nav_map=0`, and export `SCENE_KEY=F11`.
+- `tour_lib.warp` presses the key the run's ini actually binds, refuses with a clear log line when none is bound, and
+  detects the devtools line by log byte offset (the old 60 KB window count misreads on a busy log, see mission_lib).
+- `vr_traffic.py` stops (`RESULT warp did not land`) instead of photographing the wrong street.
+- `vr_seat.py` warms up the first forced model (the first seat frame used to show the scene car).
+Verified: 7 runs in a row (out/vverify_tr2, _btr2, _seat1, _bseat1, _seat2, _bseat2, _m68tr, _m68seat): every
+warp landed at its first press, 0 FAULT.
+
+### Method: like for like
+The 15:00 `vr_traffic1` frames are NOT a valid "before": camera, props and traffic have changed since (the fence, the
+lane the queue uses), and comparing against them would repeat the rejected sheet's distance mismatch. Instead:
+two private stages that differ ONLY in the three models' files. `stage_vverify` is a hard-link copy of the live
+repo/stage (models 17:16); `stage_vverify_before` swaps in the `013_minx*`, `063_truck_cab*` and `068_van*` files
+from `stage_vr` (Nov 8 meshes). Same DLL, ini, spot (164.5,149.2 facing 180,149.4), script and GPU, run back to back.
+- Sheets: `out/vverify_review/ba_013_minx.png`, `ba_063_truck_cab.png`, `ba_068_van.png`
+  (`tools/vehicle_review/vr_before_after.py`), and `out/vverify_review/after_live/sheet_013_068.png` (`vr_sheet.py`).
+- Limits: `force_car_model` draws forced cars in neutral 235 paint (white); traffic cars draw in game paint
+  (see the 063 and 068 chase cells, which are real unforced scene cars). `force_own_car_model` changes only the seat
+  view, so "own chase" is valid only where the scene car happened to be the model under test (063 both stages, 068
+  authored); the rest are marked n/a. Third-person "close" frames catch the queue 3-4 blocks out at this spot, so the
+  eye-height frames are the close-up evidence. The live stage DLL predates VEHICLE-GLASS 33c34be (no `car_glass` in
+  its ini), so every window seen here is the old opaque glass.
+
+### Verdicts
+- **063 Truck Cab: a player will notice.** Before: a smeared green image-to-3D lump with a muddy grille, blob lamps
+  and stub wheels. After: a crisp chrome bar grille, rounded fenders, a bumper and a plate. From the chase camera
+  (the most common view): stacks with perforated heat shields, fifth wheel, rear fenders and tail lamps, in the game's
+  navy paint. Short of AAA: the headlamps are blank grey domes (vv-063-truck-cab-headlamps-blank-grey-domes), the
+  paint is flat with no clearcoat, the tyres and the underside go black with no tread or sidewall visible, there is
+  no contact shadow, the bumper edge has a pale-blue rim (vv-carkit-chrome-and-glass-edges-pale-blue-outline), and
+  the plate is a black box.
+- **013 Minx: a player will notice.** Before: a copper shell with a smeared face and a shredded bonnet seen from the
+  seat. After: a clean early-60s coupe with the sprite's dark roof, whitewall tyres, hubcaps, chrome spear and
+  framed screens, and a smooth bonnet from the seat. Short of AAA: stair-stepped grille slats that read as a broken
+  texture at eye height (vv-013-minx-grille-slats-stair-stepped-texture), pale-blue outlines on every chrome and
+  glass edge, mottled paint noise, and opaque dark glass with no interior (a restage with 33c34be should change that;
+  unverified).
+- **068 Van: a player will NOT notice. The change is not in the game.** The manifest maps model 68 to 067_tv_van
+  (91f7442), so before and after are the same VW-style bus at every framing (log `-> 067_tv_van`)
+  (vv-068-authored-van-never-drawn-manifest-maps-68-to-067). With only that map entry changed, the authored van is
+  a real step up and closer to the sprite: forward-control box, ribbed roof, shut lines, twin rear doors, arches with
+  hubcaps, and glass with the driver visible through it. Short of AAA even then: flat slab tail lamps, almost no rear
+  bumper, plain black tyres, blotchy paint noise, no contact shadow. Whether 68 uses its own mesh is the
+  coordinator's decision.
+- Fleet-wide, unchanged by these commits: no contact shadow; flat, non-specular paint (no clearcoat or reflections
+  that move with the camera).
+- Classic: no renderer code changed (harness, tools and docs only), so the classic view is untouched by
+  construction; no frame diff was run.

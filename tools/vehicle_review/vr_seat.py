@@ -36,6 +36,7 @@ if not (s and s["driving"]):
 WAIT = float(os.environ.get("VR_WAIT", "2.5"))
 models = parse(os.environ.get("MODELS", "0-8,10-14,16-19,21-42,44-71,82-86"))
 T.view("third"); time.sleep(1.0)
+setkey("force_own_car_model", models[0]); time.sleep(WAIT + 2.0)   # warm-up: the first forced model shows ~2 s late (re-read lag), so the first frames held the scene car
 for m in models:
     s = D.wait_state()
     if not (s and s["driving"]):
