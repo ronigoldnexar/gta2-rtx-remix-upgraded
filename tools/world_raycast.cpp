@@ -183,8 +183,8 @@ bool LoadScene(const char* mapPath, const char* stylePath, Scene* scene) {
     }
     scene->Build(mesh);
     const gta2::StreetFillCounts f = gta2::LastStreetFillCounts();
-    fprintf(stderr, "mesh: %zu triangles, %zu batches; street fill %d risers %d floors %d ground %d ceilings %d base sides %d ramp sides\n",
-            scene->tris.size(), scene->batches.size(), f.risers, f.floors, f.ground, f.ceilings, f.baseSides, f.rampSides);
+    fprintf(stderr, "mesh: %zu triangles, %zu batches; street fill %d risers %d floors %d ground %d ceilings (lattice %d open %d raised) %d base sides %d ramp sides %d diagonal undersides\n",
+            scene->tris.size(), scene->batches.size(), f.risers, f.floors, f.ground, f.ceilings, f.latticeCeilingsSkipped, f.latticeCeilingsRaised, f.baseSides, f.rampSides, f.diagonalUndersides);
     return true;
 }
 

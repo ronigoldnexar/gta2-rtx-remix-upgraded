@@ -155,7 +155,7 @@ bool WorldSeal();
 // the bottom. Read when the mesh is built.
 void SetStreetFill(bool on);
 bool StreetFill();
-struct StreetFillCounts { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0, decks = 0; };
+struct StreetFillCounts { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0, decks = 0, latticeCeilingsSkipped = 0, latticeCeilingsRaised = 0, diagonalUndersides = 0; };
 StreetFillCounts LastStreetFillCounts();
 
 // The overhead decals the street views leave out (lamp brackets, wire ends:

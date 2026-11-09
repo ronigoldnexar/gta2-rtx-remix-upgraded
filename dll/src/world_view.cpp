@@ -1513,8 +1513,8 @@ bool WorldView::EnsureWorldLoaded() {
         gta2::WorldSeal() ? "sealed" : "OPEN (the sky shows through any gap)");
     {
         const gta2::StreetFillCounts f = gta2::LastStreetFillCounts();
-        Log("street fill (street views only): %s, %d risers, %d floors, %d ground cells, %d overhang ceilings, %d base sides re-dressed, %d ramp sides, %d deck undersides, apron tile %d at %.1f",
-            gta2::StreetFill() ? "on" : "off (GTA2DX9_STREET_FILL=0)", f.risers, f.floors, f.ground, f.ceilings, f.baseSides, f.rampSides, f.decks, f.apronTile, f.apronHeight);
+        Log("street fill (street views only): %s, %d risers, %d floors, %d ground cells, %d overhang ceilings (lattice: %d left open, %d raised to the deck above), %d base sides re-dressed, %d ramp sides, %d deck undersides, %d diagonal undersides, apron tile %d at %.1f",
+            gta2::StreetFill() ? "on" : "off (GTA2DX9_STREET_FILL=0)", f.risers, f.floors, f.ground, f.ceilings, f.latticeCeilingsSkipped, f.latticeCeilingsRaised, f.baseSides, f.rampSides, f.decks, f.diagonalUndersides, f.apronTile, f.apronHeight);
         const gta2::OverheadDecalStats od = gta2::LastOverheadDecalStats();
         Log("overhead decals (left out of the street views): %d tile(s), %d lid(s); %d sloped sign lid(s) stood up as boards",
             od.tiles, od.lids, gta2::LastUprightBoards());

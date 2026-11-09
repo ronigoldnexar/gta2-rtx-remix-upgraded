@@ -1850,7 +1850,7 @@ int GroundTileNear(const Map& map, int x, int y, int level) {
     return 0;
 }
 
-struct StreetFillStats { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0, decks = 0; };
+struct StreetFillStats { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0, decks = 0, latticeSkipped = 0, latticeDecks = 0, diagUndersides = 0; };
 StreetFillStats g_streetFillStats;
 
 // Ceilings (9g, 9h): a building that overhangs the street - an arcade, a passage,
@@ -1887,6 +1887,18 @@ void AddOverhangCeilings(MeshBuilder* builder, const Map& map, const Style& styl
         }
         return best ? best : DeckUndersideTile(block);
     };
+    // A lattice (feel26 / pm43: the Downtown girder gantries, sides of tile 559 with 85 % of
+    // the texels colour-keyed; Residential 111/112 sign gantries and 52 iron fences, Industrial 590-592): with no solid wall,
+    // DeckUndersideTile's pick is the girder tile itself, and this quad is drawn opaque, so its
+    // keyed texels (black in the HD copy) hung over the junctions as a black faceted slab.
+    // Ordinary walls key a few texels at most (under 15 %).
+    auto latticeTile = [&](int tile) {
+        if (tile <= 0 || tile >= style.TileCount()) return false;
+        int open = 0;
+        const Tile& art = style.GetTile(tile);
+        for (uint32_t px : art.pixels) open += (px >> 24) == 0;
+        return open * 4 > static_cast<int>(art.pixels.size());
+    };
     for (int y = 0; y < kMapHeight; ++y) {
         for (int x = 0; x < kMapWidth; ++x) {
             const Column& column = map.ColumnAt(x, y);
@@ -1920,9 +1932,23 @@ void AddOverhangCeilings(MeshBuilder* builder, const Map& map, const Style& styl
                     closed = other && (other->lid || other->SlopeType() != 0 || HasRealSide(*other));
                 }
                 if (closed && block->SlopeType() == 0 && (HasRealSide(*block) || solidLid) && !doneByB) {
-                    const int tile = ceilingTile(*block);
+                    int tile = ceilingTile(*block);
+                    int ceilingLevel = level;
+                    if (latticeTile(tile)) {
+                        // Seen through the lattice from below: the underside of the first solid
+                        // lid above (an elevated deck), or nothing when the lattice is open to
+                        // the sky.
+                        tile = 0;
+                        for (int l = level; l <= top; ++l) {
+                            const Block* up = solid.At(x, y, l);
+                            if (up && up->lid && !up->lid.IsFlat() && up->SlopeType() == 0 && !latticeTile(up->lid.Tile())) {
+                                tile = up->lid.Tile(); ceilingLevel = l; break;
+                            }
+                        }
+                        if (tile > 0) ++stats->latticeDecks; else ++stats->latticeSkipped;
+                    }
                     if (tile > 0) {
-                        const float h = static_cast<float>(level);
+                        const float h = static_cast<float>(ceilingLevel);
                         builder->AddSideQuad(tile, {{{xWest, h, zSouth}, {xEast, h, zSouth}, {xEast, h, zNorth}, {xWest, h, zNorth}}}, {0.0f, -1.0f, 0.0f});
                         ++stats->ceilings;
                     }
@@ -2076,6 +2102,43 @@ void AddRampSides(MeshBuilder* builder, const Map& map, const Style& style, cons
 // underside's tile: the wall the bridge's ends and abutments show most (the stone of the
 // ramps), voted over the whole connected deck so a bridge is one material, else the
 // deck's own side, else its lid. Hidden from above by the lid itself.
+// Diagonal undersides (pm35): a diagonal block (slope 45-48) with a solid lid over open air
+// (the Residential footbridge at (200..210, 150..157) level 4: lidded cells with a classic
+// underside from AddHiddenSurfaces (b), flanked by diagonal half cells whose cut wall is the
+// bridge's edge). (b) skips slopes, so from the pavement the square undersides met only at
+// their corners and the sky showed through every half cell: four or five flat teal blades
+// stacked in the air. The half cell gets the triangle of its lid, faced down, at its base.
+void AddDiagonalUndersides(MeshBuilder* builder, const Map& map, const Style& style, StreetFillStats* stats) {
+    for (int y = 0; y < kMapHeight; ++y) {
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            for (size_t i = 1; i < column.blocks.size(); ++i) {
+                if (column.blocks[i] >= map.BlockCount() || column.blocks[i - 1] >= map.BlockCount()) continue;
+                const Block& block = map.BlockAt(column.blocks[i]);
+                const Block& below = map.BlockAt(column.blocks[i - 1]);
+                const int slope = block.SlopeType();
+                if (slope < 45 || slope > 48 || !block.lid || block.lid.IsFlat()) continue;
+                if (below.lid || below.left || below.right || below.top || below.bottom || below.SlopeType() != 0) continue;
+                const int tile = block.lid.Tile();
+                if (tile >= style.TileCount() || style.GetTile(tile).hasTransparency) continue;
+                const float h = static_cast<float>(column.offset + static_cast<int>(i));
+                const float xWest = static_cast<float>(x), xEast = xWest + 1.0f;
+                const float zSouth = static_cast<float>(kMapHeight - y - 1), zNorth = zSouth + 1.0f;
+                const Vec3 nw{xWest, h, zNorth}, ne{xEast, h, zNorth}, se{xEast, h, zSouth}, sw{xWest, h, zSouth};
+                std::array<Vec3, 4> tri;
+                switch (slope) {   // the lid's triangle (AddDiagonalBlock)
+                    case 45: tri = {{ne, se, sw, ne}}; break;
+                    case 46: tri = {{nw, se, sw, nw}}; break;
+                    case 47: tri = {{nw, ne, se, nw}}; break;
+                    default: tri = {{sw, nw, ne, sw}}; break;
+                }
+                builder->AddSideQuad(tile, tri, {0.0f, -1.0f, 0.0f});
+                ++stats->diagUndersides;
+            }
+        }
+    }
+}
+
 void AddPassageDecks(MeshBuilder* builder, const Map& map, const Style& style, const StreetSolid& solid,
                      StreetFillStats* stats) {
     static const int kSideDx[4] = {-1, 1, 0, 0};
@@ -2233,6 +2296,7 @@ void AddStreetFill(MeshBuilder* builder, const Map& map, const Style& style, con
     AddBaseSideCovers(builder, map, style, solid, &stats);
     AddRampSides(builder, map, style, solid, slopes, &stats);
     AddPassageDecks(builder, map, style, solid, &stats);
+    AddDiagonalUndersides(builder, map, style, &stats);
     builder->SetStreetMode(0);
     g_streetFillStats = stats;
 }
@@ -2303,7 +2367,8 @@ bool StreetFill() { return g_streetFill; }
 StreetFillCounts LastStreetFillCounts() {
     return StreetFillCounts{g_streetFillStats.risers, g_streetFillStats.floors, g_streetFillStats.ground,
                             g_streetFillStats.apronTile, g_streetFillStats.apronHeight, g_streetFillStats.ceilings,
-                            g_streetFillStats.baseSides, g_streetFillStats.rampSides, g_streetFillStats.decks};
+                            g_streetFillStats.baseSides, g_streetFillStats.rampSides, g_streetFillStats.decks,
+                            g_streetFillStats.latticeSkipped, g_streetFillStats.latticeDecks, g_streetFillStats.diagUndersides};
 }
 
 void SetRiverbedDepth(float blocks) {

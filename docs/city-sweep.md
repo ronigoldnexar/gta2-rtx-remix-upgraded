@@ -444,6 +444,28 @@ drawn opaque and faced down 0.01 under the lid: a dark metal plate from below, t
 from above. Industrial 911, Residential 844, Downtown 0 (log line `map trees ...; grating undersides: N`).
 Classic hashes unchanged. Poses: `gamerun/fw5_poses_bil_pm36.txt`, `fw5_poses_ste_grate.txt`.
 
+## Lattice gantries get no opaque ceiling (FIX-WORLD-6, 9 Nov 2026; defects feel26 + pm43); diagonal undersides (pm35)
+
+The black "crumpled slab" over the Downtown junctions (feel26, pm43) is not a model and not inverted
+normals: it is the street fill's overhang ceiling (`AddOverhangCeilings`, FIX-WORLD-2) under a girder gantry.
+The gantry is a run of blocks at level 3 whose sides are girder tile 559 (85% of the texels colour-keyed) under a
+see-through lattice lid. With no solid wall the ceiling took `DeckUndersideTile`, the first non-flat side, i.e. the
+girder tile itself, and the street-only ceiling is drawn opaque, so the keyed texels (black in the HD copy, the
+"crumpled facets" with the oval notch are the HD 559's RGB) hung one block over the road. The same rule put a dark
+slab under every Residential sign gantry (111/112) and iron fence (52), and under the Industrial gantries (590-592, 909).
+Now a ceiling whose tile is a lattice (over 25% of the texels keyed; ordinary walls key under 15%) moves up under
+the first solid lid in the column (an elevated deck keeps an underside) or, with none, is left out: looking up
+through the lattice shows the girders and the sky. Downtown 720 left open / 2 raised, Residential 724 / 0,
+Industrial 776 / 0 (log line `street fill ... overhang ceilings (lattice: N left open, M raised ...)`).
+Street-only group: classic mesh hashes unchanged (wil b9a234d14d489bf7, ste fc908f869418d987, bil 1d2767964eba1223).
+
+pm35's "teal roof as stacked blades with sky between" (Residential, the filer's eye (208.03, 157.66, h 2.43) looking
+west) is a different face: a diagonal footbridge at level 4 from (200,150) to (210,157), lidded cells (845, with the
+classic underside from `AddHiddenSurfaces` (b)) flanked by diagonal half cells (slope 46/47, lid 841, cut wall 271).
+(b) skips slopes, so the square undersides met only at their corners and the sky showed through every half cell.
+`AddDiagonalUndersides` (street-only) gives a diagonal block with a solid lid over open air the triangle of its lid,
+faced down at its base: Downtown 3, Residential 33, Industrial 57 (log `... N diagonal undersides`).
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder
