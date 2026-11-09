@@ -153,6 +153,12 @@ def answer(world, entry):
         if ms and ms["msg"] != m0 and ms["msg"] not in ("", "svdone") and not (ms["msg"].isdigit() and 1600 <= int(ms["msg"]) <= 1615):
             if ms["msg"] not in seen: seen.append(ms["msg"])
             if ms["msg"] == TITLE or ms["msg"] == "1650": return "answered", seen
+            if ms["msg"] in ("1093", "1103", "1113"):
+                # "already on a job" (km7, kmg4: after the warp onto the dais the title went by
+                # unseen and the phone then said 1093): the job IS running if the script's arrow
+                # points at the GRAHAM
+                time.sleep(1.0); o = M.objective()
+                if o and math.hypot(o[0] - CAR0[0], o[1] - CAR0[1]) < 3.0: return "answered", seen
             if ms["msg"] in REFUSALS: return "refused", seen
         if time.time() - t0 > 6 and not seen:
             s = D.wait_state()

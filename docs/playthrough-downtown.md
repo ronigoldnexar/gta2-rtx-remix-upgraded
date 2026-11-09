@@ -673,3 +673,133 @@ details, the skill's options and every session are in `docs/skill-gunfight.md`.
 | gf_wm9 | dead: 60 health lost on a walk to the plaza before the fight loop (fixed: the fight starts at brief 1464, bounded steps) |
 
 **2 of 3 consecutive sessions (gf_wm7-9) reached JOB COMPLETE in the chase view**, with no warp.
+
+## Part 12 (9 Nov 2026, Wave M, KILLMARK-GETAWAY): the BANK ROBBERY getaway
+
+Part 11 left BANK ROBBERY with the guards down in every session and no JOB COMPLETE: the job was lost
+in the two-star getaway from the bank to the respray. KILLMARK-GETAWAY reworked that leg in the job glue
+`gamerun/missions/bank_robbery_km.py` (mirrored in `linux/docker/missions/`). The `kill_marked` skill,
+the phone, the drive to the bank and the safehouse leg are unchanged. One fix in
+`missions/bank_robbery.py`: the phone step now counts 1093/1103/1113 ("already on a job") as answered
+when the script's arrow points at the GRAHAM. km7 and kmg4 had lost the session that way after the warp
+onto the dais.
+
+### What lost the getaway (logs of km6, kmg1, kmg2, kmg5, kmg6, km8)
+
+- **The respray is one of four bays.** `wil.mis` puts four one-cell drive-through shops under one roof at
+  row 221: machine gun at 200.5, **bomb at 202.5**, respray (`CAR_SHOP 10`) at 204.5 and oil slick at
+  206.5. The block at row 160 has the same layout: 82.5, 84.5, 86.5 (respray), 88.5. km6 came along row
+  216 at speed and turned into the bays. It ended up in the 202 bay and paid $5,000 for a car bomb (money
+  5040 -> 41, wanted still 2), so nothing was left for the respray. The turn's reverse pulses then backed
+  him out into an officer (1666, arrest).
+- **Any stop with two stars is an arrest.** The script sets the stars 2-5 s after the second guard falls
+  (Hiroshi's `GOTO_AREA_ON_FOOT` one cell away, then `ALTER_WANTED_LEVEL_NO_DROP`), wherever the player is.
+  - kmg1: the GRAHAM was left facing east on row 180, which is a westbound lane (traffic keeps right:
+    rows 179-180 run west, 181-182 east). A head-on with a car in that lane made `drive3` re-route, and
+    he was pulled out 5 s in.
+  - kmg5: `drive3` slowed for the turn into the column-216 avenue after a knock, and an officer had him
+    out at 217.4,184.6.
+  - kmg2: the drive to a point in front of the bay on the eastbound row 215 was 69 blocks (west on row
+    213 to the junction at column 186 and back) with a queue. He was arrested 1 s after the stop to turn in.
+- **Bay entry.** km8 (intermediate code) stood 50 s at 202.8,215.2 with the throttle off: the code
+  coasted while turning, and a stopped car does not steer. kmg6 left the path at 206.8,213.0 at full speed
+  heading west; the turn into the bay overshot to x 202, swung back onto the pavement beside the bay, and
+  `lane_in` ran out of time.
+
+### The getaway now
+
+1. **Parked in the eastbound lane.** Once the guards are in `view: peds`, `park_getaway` drives the
+   GRAHAM forward out of the bank box to 197.6,181.6, nose east, at walking pace. After the fight he walks
+   to the driver's (north) side and boards with Return.
+2. **Launch, then one hand-placed path to the bay, with no stops** (`launch`, `follow_path`). The path:
+   - east on row 181;
+   - right into the southbound cells 215-216 of the column-216 avenue;
+   - right into the westbound row 213;
+   - across the median at row 214 onto the 204 bay's centre line.
+
+   `follow_path` steers by pure pursuit 2.2-3 blocks ahead with the throttle held. The speed is capped at
+   6 blocks/s (wall clock), 3 near a turn and 3.5 over the last 7 blocks. Well over the cap it brakes
+   (one 0.1 s tap at most every 0.5 s)    A stall (under 0.4 blocks/s for 0.5 s) gets a 0.6 s reverse with the wheel turned.
+   Speed is measured over 0.4 s (`Speedo`): the state line comes every 5 frames, and two reads of the same
+   line had given a speed of 0 and a false stall. If he ends up more than 4.5 blocks off the path, the
+   old `drive3` legs take over.
+3. **Down the bay's line** (`lane_in`). Pure pursuit on x = 204.5 with a short look-ahead. The throttle
+   stays on while turning, at up to 1.2 blocks/s. A stall gets a reverse with the wheel turned. Off the
+   line past the bay's mouth means the wrong bay: he backs straight out.
+4. **Only the GRAHAM** (`board_graham`, `in_graham`). After every boarding the mission line's `carmodel`
+   must be 18. Otherwise he gets out and boards the GRAHAM, found by model in `view: cars`. In kmg11 a
+   model-56 car was queued beside the GRAHAM in the lane; Return put him in it, he resprayed it, and the
+   script went on asking for the GRAHAM (1658).
+5. **The fight** (glue argument only): `close=3.2` instead of 2.2. Each 0.5 s walking step in range carries
+   him 1-2 blocks; from 2.2 he ended up on top of the second guard (kmg16: 0.3 blocks), where his rounds
+   miss and the guard's do not. `kill_marked.path_walk` also retries a missed approach point once, from
+   1.2 blocks back along the leg (kmg14: the walker stood pressed against the foot of the flight at
+   193.3,177.9).
+6. The safehouse leg is unchanged (`BR.drive` to 76.9,203.0, then `creep_in`).
+
+`follow_path` + `lane_in` were checked offline against a toy car model at turn rates of 1.5-4 rad/s
+before the game runs. Without braking at the end the model car overshot at 1.5 and 2.5 rad/s; with
+braking and the 7-block/3.5 cap it entered at x 204.4-204.5 at every rate. A 4.5 cap sent it into the
+wrong bay at 1.5 rad/s.
+
+### Sessions
+
+`kmg*`: fresh games, `GTA2_SPEED=2`, `GTA2_DIRECT_KEYS=1` (driving and fighting in the chase view),
+`FPS=0`, `GTA2DX9_STATE_EVERY=5`, private stage (hard link of the gated `repo/stage`), devtools F9/F10.
+The host was overloaded for much of the time (load 30-127) and the governor paused runs; a paused run
+resumes where it was.
+
+| session | code | guards | job | what happened |
+|---|---|---|---|---|
+| kmg1 | aligned bay entry | down (45 s, stairs) | failed | car left facing east on a westbound lane; head-on, re-route, pulled out 5 s into the getaway |
+| kmg2 | + lane parking (first try), bay from row 215 | down | failed | the parking pulses put the car on the bank forecourt; 69-block drive to the bay front, arrested 1 s after the stop to turn in |
+| **kmg3** | + launch, bay from row 213, no stop | down | **JOB COMPLETE** (+$20,000) | launch to 211.1,181.6; `drive3` to the bay front; into the 204 bay without stopping; respray 4 s later (wanted 2 -> 0, money 5140 -> 140); safehouse |
+| kmg4 | same | - | no job | the walk to the phone ran out of time while the container was paused; warp; phone 1093, then treated as a refusal (fixed in `bank_robbery.py`) |
+| kmg5 | + stall recovery in `lane_in` | down | failed | launch fine; `drive3` slowed for the turn into the avenue after a knock; pulled out at 217.4,184.6 |
+| kmg6 | + `follow_path` bank -> bay front | down | failed | bank to the bay front in 16 s; the turn into the bay at full speed overshot, then `lane_in` timed out against the pillar beside the bay |
+| **kmg7** | **final** (path into the bay's line, braking, `Speedo`) | down | **JOB COMPLETE** (+$20,000, 621 s) | in the car 11 s after the last guard; bank to the bay's line in 13 s; respray 2 s later; safehouse at 04:16 |
+| kmg8 | final | **died**: 1 down, then shot dead by the second guard at 4.5 blocks (health 100 -> 0 in 1 s) | failed | lost in the fight, before the getaway: the stair approach missed a point and the router brought him up beside the guards |
+| kmg9 | final-1 | down | failed | bank to the bay front in 11 s; a police car rammed him twice at 205.7,214.9 on the slow last stretch (10 blocks at 2.2) and stopped him; arrested 3 s after the first hit |
+| **kmg10** | + slow stretch 7 blocks at 3.0, quicker stall reaction | down (144 s, stairs) | **JOB COMPLETE** (373 s) | bank to the bay's line in 12 s, respray 1 s later, safehouse |
+| kmg11 | same | down | failed | boarded a model-56 car queued beside the GRAHAM and resprayed it (wanted 0); the script asked for the GRAHAM (1658); ran out of tries (fixed: `board_graham`) |
+| **kmg12** | + `board_graham` | down (5 s) | **JOB COMPLETE** (258 s) | bank to the bay in 12 s, respray 2 s later (wanted 2 -> 0, carhp 32000), safehouse |
+| kmg13 | same | down (138 s, stairs) | failed | bank to resprayed in 15 s (cop points 1600 -> 0); on the unchanged 129-block safehouse drive, collisions in `drive3` raised a new one-star level (cop points 600) and an officer 0.3 blocks off pulled him out at 159.4,193.1 |
+| kmg14 | same | **died**: stair approach stuck at 193.3,177.9, 123 s, then shot by the second guard | failed | lost in the fight |
+| kmg15 | + `path_walk` retry | down (6 s) | failed | brake taps every loop on a lagging speed took the car from 5 to about 1 block/s at 207.4,213.6; an officer on foot pulled him out at 205.2,216.0 |
+| kmg16 | + one brake tap per 0.5 s, last stretch at 3.5 | **died**: on top of the second guard (0.3 blocks) | failed | lost in the fight |
+| **kmg17** | **final** (+ `close=3.2`) | down (12 s) | **JOB COMPLETE** (315 s, money 20042) | bank to the bay's line in 11 s, respray 2 s later, safehouse |
+| kmg18 | final | down (6 s) | failed | a police car had stopped at row 211-213; its two officers, on foot beside the path, pulled him out at 208.3,213.6 as he slowed for the bay |
+| **kmg19** | final | down (13 s) | **JOB COMPLETE** (249 s, money 20050) | bank to the bay's line in 11 s, respray 2 s later (wanted 2 -> 0), safehouse |
+
+Frames (chase view; not in git):
+- `out/kmg7/shot_240.png`: the GRAHAM on the column-216 avenue, two stars.
+- `out/kmg19/shot_160.png`: crossing the median into the respray bay, two stars.
+- `m_br_respray_in.png`, `m_br_resprayed.png`, `m_br_garage.png`, `m_br_end.png` (JOB COMPLETE) in
+  `out/kmg17/`, `out/kmg19/` (also `out/kmg3/`, `kmg7/`, `kmg10/`, `kmg12/`).
+
+No `FAULT` in the kmg17 or kmg19 logs. Under the bay's and the garage's roofs the chase camera
+is pressed against the roof (frames of the ceiling or the floor): that is the renderer's chase camera
+under a low roof, not the runner.
+
+### Status after part 12
+
+- **BANK ROBBERY: JOB COMPLETE in 2 of 3 sessions on the final code** (kmg17, kmg19). kmg18 was lost on
+  the getaway path to two officers on foot beside it. The acceptance criterion (2 of 3 to JOB COMPLETE,
+  frames in the chase view) is met on the final code. Over the whole series it is 6 of 18 sessions with
+  a job: kmg3, 7, 10, 12, 17 and 19.
+- **The getaway from the bank to the bay**, on the path code (kmg7 onward): the bay was reached in 7 of
+  the 10 sessions that started it. Those were kmg7, 10, 11, 12, 13, 17 and 19; kmg11 was in the wrong
+  car. The other 3 were arrested on the way (kmg9, 15, 18). The run from the bank to the bay's line takes
+  11-13 s, and the respray follows 1-2 s later.
+- **Still open:**
+  - Officers on foot or police cars on the path's last stretch (kmg9, kmg15, kmg18): any speed under
+    about 2.5 blocks/s near an officer is an arrest.
+  - The unchanged safehouse drive can pick up a new wanted level from `drive3` collisions (kmg13).
+  - The stair approach still misses about half the time from the lane parking, and the router's climb
+    that follows is slower (up to 144 s). With `close=3.2` and the retry, 3 of 3 fights were won (kmg17-19).
+- What other job runners can reuse from `bank_robbery_km.py`:
+  - `follow_path(points, slow_end=...)`: a no-stop drive along hand-placed points.
+  - `lane_in(shop)`: a one-cell drive-through bay entered along its line.
+  - `board_graham`: board the job's car by model.
+
+  Not yet moved into a shared module.
