@@ -123,6 +123,8 @@ struct Capture {
 
 uint32_t g_frame = 1;                 // bumped at the end of each Hud3dRender
 uint32_t g_partSeen[19] = {};         // the frame each part last drew in
+float g_part10MinY = 1e9f;             // top of the game's subtitle/portrait block (game y) in frame g_part10Frame
+uint32_t g_part10Frame = 0;
 Capture g_weaponIcon, g_portrait;
 Capture g_weaponBuild, g_portraitBuild;
 bool g_active = false;                // the modern HUD is on screen (decides the swallowing)
@@ -689,7 +691,7 @@ struct Anim {
     Capture briefPortrait;
     float time = 0;
     float zoom = 34.0f;          // blocks across the mini-map
-    float lift = 0.0f;           // 0..1: the mini-map raised above the game's own subtitle box
+    float lift = 0.0f;           // pixels the mini-map is raised above the game's own subtitle box (eased)
 };
 Anim g_anim;
 
@@ -1330,8 +1332,19 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     // brief's text is not ours to show) the map and the bar under it slide up out of its band
     // (pm-hud-minimap-covers-subtitle-and-portrait: the panel ate the first word and the portrait).
     const bool gameBrief = !g_briefResolved && g_partSeen[10] + 2 >= g_frame;
-    an.lift += ((gameBrief ? 1.0f : 0.0f) - an.lift) * (1.0f - std::exp(-dt * 10.0f));
-    const float lift = an.lift * 84.0f * u;
+    float wantLift = 0.0f;
+    if (gameBrief) {
+        // At least two lines' worth; more when the game's block is taller (a four-line brief
+        // starts higher: its first word sat behind the map, pm21).
+        wantLift = 84.0f * u;
+        if (g_part10Frame + 2 >= g_frame && g_part10MinY < 1e8f) {
+            const float blockTop = g_part10MinY * (H / 480.0f);
+            const float mapBottom = H - margin;   // the bar under the map
+            wantLift = (std::max)(wantLift, mapBottom - blockTop + 10.0f * u);
+        }
+    }
+    an.lift += (wantLift - an.lift) * (1.0f - std::exp(-dt * 10.0f));
+    const float lift = an.lift;
     const ImVec2 m0(margin, H - margin - barH - 6 * u - mapH - lift), m1(margin + mapW, H - margin - barH - 6 * u - lift);
     float yaw = 0, pitch = 0;
     ViewCameraAngles(&yaw, &pitch);
@@ -1626,7 +1639,14 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
             for (int i = 1; i < count; ++i) { minX = (std::min)(minX, k[i].x); maxX = (std::max)(maxX, k[i].x); }
             if (maxX - minX >= 24.0f) Note(&g_weaponIcon, texture, k, count);   // not a digit of the score (12x22)
         }
-        else if (part == 10) Note(&g_portrait, texture, k, count);
+        else if (part == 10) {
+            Note(&g_portrait, texture, k, count);
+            // The top of the game's subtitle block this frame (game y, 480 tall), so the
+            // mini-map can rise above the whole block, not a fixed two lines
+            // (pm21-third-fp-raised-minimap-still-clips-first-word-of-subtitle).
+            if (g_part10Frame != g_frame) { g_part10Frame = g_frame; g_part10MinY = 1e9f; }
+            for (int i = 0; i < count; ++i) g_part10MinY = (std::min)(g_part10MinY, k[i].y);
+        }
     }
     // QB-17/18: during a beat its title is drawn here, in the beat's own treatment.
     // (Never in the classic view, which keeps the game's HUD as it draws it.)
