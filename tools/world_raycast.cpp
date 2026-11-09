@@ -14,6 +14,11 @@
 //   world_raycast scanup <map.gmp> <style.sty> [step]
 //       The same eyes, rays above the horizon: counts those that reach the sky through
 //       a culled back face (the eye sees the sky through a building's open shell).
+//   world_raycast fan <map.gmp> <style.sty> <x> <y> <z> <h0> <h1> <hstep> <p0> <p1> <pstep>
+//       A heading/pitch grid of rays from one eye (the "ray" coordinates); prints those that
+//       do not end on a front face (sky, seal or a culled face: a hole). FAN_TILE=<n> prints
+//       the rays that land on tile n instead, FAN_ALL=1 prints every ray, FAN_VERBOSE=1 every
+//       triangle on each printed ray (what is behind what).
 //   world_raycast leaks <map.gmp> <style.sty> <x> <y> <eye height>
 //       The leaking rays of one scan eye and every triangle each one passes.
 //   world_raycast scan <map.gmp> <style.sty> [step] [mode]
@@ -355,6 +360,47 @@ int main(int argc, char** argv) {
         printf("hit %d t %.2f at %.2f %.2f %.2f", (int)r.hit, r.t, o[0] + d[0] * r.t, o[1] + d[1] * r.t, o[2] + d[2] * r.t);
         if (r.tri >= 0) { const Tri& t = scene.tris[r.tri]; printf(" tile %d vn %.1f %.1f %.1f ds %d street %d", scene.batches[t.batch].tile, t.vn[0], t.vn[1], t.vn[2], (int)scene.batches[t.batch].doubleSided, (int)scene.batches[t.batch].streetOnly); }
         printf("\n");
+        return 0;
+    }
+    if (!strcmp(argv[1], "fan") && argc >= 13) {
+        // fan <map> <style> <x> <h> <z> <h0> <h1> <hstep> <p0> <p1> <pstep>: the rays of a
+        // heading/pitch grid from one eye that do not end on a front face (what shows sky).
+        const float o[3] = {(float)atof(argv[4]), (float)atof(argv[5]), (float)atof(argv[6])};
+        const float h0 = (float)atof(argv[7]), h1 = (float)atof(argv[8]), hs = (float)atof(argv[9]);
+        const float p0 = (float)atof(argv[10]), p1 = (float)atof(argv[11]), ps = (float)atof(argv[12]);
+        int bad = 0;
+        for (float h = h0; h <= h1 + 1e-4f; h += hs) {
+            for (float p = p0; p <= p1 + 1e-4f; p += ps) {
+                float d[3]; Dir(h, p, d);
+                const Scene::Result r = scene.Cast(o, d, 400.0f);
+                if (getenv("FAN_TILE") && r.tri >= 0 && scene.batches[scene.tris[r.tri].batch].tile == atoi(getenv("FAN_TILE"))) {
+                    printf("tile h %.2f p %.2f t %.2f\n", h, p, r.t); continue; }
+                if (r.hit == kFront && !getenv("FAN_ALL")) continue;
+                // Below the skyline every non-front ray is a hole (the sky or the seal shows).
+                ++bad;
+                printf("h %.2f p %.2f: hit %d culled %d", h, p, (int)r.hit, (int)r.culled);
+                if (r.tri >= 0) { const Tri& t = scene.tris[r.tri]; printf(" t %.2f at %.2f %.2f %.2f tile %d vn %.2f %.2f %.2f",
+                    r.t, o[0] + d[0] * r.t, o[1] + d[1] * r.t, o[2] + d[2] * r.t, scene.batches[t.batch].tile, t.vn[0], t.vn[1], t.vn[2]); }
+                printf("\n");
+                if (getenv("FAN_VERBOSE")) {   // every triangle on the way, nearest first
+                    std::vector<std::pair<float, int>> on;
+                    for (size_t i = 0; i < scene.tris.size(); ++i) {
+                        const float tt = Scene::Intersect(scene.tris[i], o, d);
+                        if (tt > 0 && tt < 60) on.push_back({tt, (int)i});
+                    }
+                    std::sort(on.begin(), on.end());
+                    for (auto& e : on) {
+                        const Tri& t = scene.tris[e.second];
+                        const float dn = t.vn[0] * d[0] + t.vn[1] * d[1] + t.vn[2] * d[2];
+                        printf("    t %.2f at map (%.2f,%.2f) h %.2f tile %d vn %.2f %.2f %.2f %s%s%s\n", e.first, o[0] + d[0] * e.first,
+                               gta2::kMapHeight - (o[2] + d[2] * e.first), o[1] + d[1] * e.first, scene.batches[t.batch].tile,
+                               t.vn[0], t.vn[1], t.vn[2], dn > 0 ? "BACK" : "front", scene.batches[t.batch].doubleSided ? " ds" : "",
+                               scene.batches[t.batch].streetOnly ? " street" : "");
+                    }
+                }
+            }
+        }
+        printf("fan: %d rays through a culled face\n", bad);
         return 0;
     }
     if (!strcmp(argv[1], "leaks") && argc >= 7) {

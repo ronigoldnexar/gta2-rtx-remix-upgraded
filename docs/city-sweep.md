@@ -380,6 +380,27 @@ them in the street views, which is a side effect of this change.
 **Frames.** Fixed poses at the boards (`gamerun/fw3_poses_bil.txt` as used for this run):
 `out/fw3_pm21_base` (HEAD) and `out/fw3_pm21_fix`.
 
+## Spawn slabs, the tower slits and the graffiti (FIX-WORLD-4, 9 Nov 2026)
+
+I re-checked five open street-view defects at their spots on HEAD be4ccc0 and made no mesh change:
+
+- **pm13** (bil courtyard, the pale tilted slab over the rose window): the GET STUCK IN REVERSE lid. 374fb8d already stands it up.
+  Fixed poses against the filer's d2bbf01: `out/fw4_old_bil3` and `out/fw4_base_bil3`.
+- **ptm14** (ste spawn at night, the green slab and the white column): the brick face 566 of (117,123..124) level 2,
+  lit only by the player's headlights while the car is jammed against it. Under it the base was open in d2bbf01.
+  The base sides of 2cc716a close it: scan (106..128, 112..136) gives 0 leaks with the street fill and 97 without.
+  HEAD in the filer's situation: `out/fw4_head_pm14n`.
+- **pm28** (bil, the pale strip on the round tower): the tower is two ring bodies (rows 98-100 and 106-108)
+  joined by a level-6 bridge, with one-cell open passages between them. The stitched pattern was the wire-end lids (893)
+  over those passages, which c0111d9 leaves out. The pale slits that remain are real openings onto fogged distance.
+- **tri whirl and pm11** (ste spawn): both are the teal graffiti, tile 355, seen from about a block.
+  It is the W face of (116,124) level 2, and the builder puts it on the wall plane x=117, on the 566 flat panel.
+  Moving it a block back hid it, so the fix is art (a sharp photo-set copy), not geometry.
+
+`tools/world_raycast fan` (a heading/pitch grid from one eye; FAN_TILE, FAN_ALL, FAN_VERBOSE) is what told these apart.
+The fixed-pose runner `gamerun/fw4_run.sh <name> <lvl> <stage> <poses>` (and `fw4_run_n.sh` with HOUR=21.5) is the FIX-WORLD-3 one with a poses argument.
+Note that the `face=` vector on the log's `view: player` line is in world x/z: the game's y is flipped.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder
