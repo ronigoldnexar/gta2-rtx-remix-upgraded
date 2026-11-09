@@ -401,6 +401,36 @@ I re-checked five open street-view defects at their spots on HEAD be4ccc0 and ma
 The fixed-pose runner `gamerun/fw4_run.sh <name> <lvl> <stage> <poses>` (and `fw4_run_n.sh` with HOUR=21.5) is the FIX-WORLD-3 one with a poses argument.
 The `face=` vector on the log's `view: player` line is in game coordinates (x east, y south), like the position on the same line.
 
+## The map's trees stood up as tree models (FIX-WORLD-5, 9 Nov 2026; defects pm8, pm23)
+
+GTA2 builds a tree out of map blocks, drawn for a camera straight above: a 2x2 group of lidless
+corner ramps (slope types 49 NW, 50 NE, 51 SW, 52 SE, lid 1023) whose see-through cut faces (the
+branch tile with the flat bit) rise to a peak over the group's middle, on a 2x2 of see-through flat
+lids one level lower (the crown seen from above: four rotations of one quarter-crown tile meeting at
+the trunk). The lawn tiles under them carry a painted shadow of the crown. Residential has 360 of
+them (branch tile 530 over crown 526), Downtown 72 (849 over 856, the church park), Industrial 119
+(220 over 219, whose pyramids also carry two sloped see-through walls each). From the street that is
+a black, see-through, spiky pyramid over a flat sheet of branches, and the sheet threw crisp black
+branch webs onto the lawn through the sun shadows (pm23).
+
+- `gta2::FindMapTrees` (world_mesh.cpp) finds them structurally (the four slope types in a 2x2 at one
+  level, lidless, flat cut faces); every other 2x2 of those slopes has a solid cut face (hip roofs).
+- `BuildWorldMesh` leaves every face of the pyramid cells and the crown lid under each out of the
+  street views (`MeshBuilder::SetStreetHiddenAll`, the triangles included, through
+  `TileBatch::streetIndices`). Classic mesh hashes (mesh_hash2) unchanged: bil 1d2767964eba1223,
+  ste fc908f869418d987, wil b9a234d14d489bf7.
+- `LiveGeometry::DrawProps` stands a park-tree model (tree1..3) at each group's middle, its top at the
+  pyramid's peak and its trunk on the ground under the crown (about 2 blocks tall, a 1.8-block crown:
+  the classic tree's size), out to 100 blocks and outside the street furniture's budget.
+- The sun-shadow copy of the world (post_fx.cpp) and the camera's mesh collision (eye_collision.cpp)
+  now take each batch's street range, so a face the street views leave out casts no shadow and stops
+  no camera (this also takes the overhead decals out of both, and the decals were in the shadow copy
+  twice).
+- `GTA2DX9_MAP_TREES=0` keeps the map's blocks and places no models (A/B). Log: `map trees: N of the
+  map's tree block groups drawn as tree models in the street views`.
+- Fixed poses: `gamerun/fw5_run.sh <name> <lvl> <stage> <poses>` (fw4_run.sh on `GTA2_GPU`, default 5,
+  with STATE_EVERY=3), poses `gamerun/fw5_poses_{ste,wil,bil}_trees.txt`.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder

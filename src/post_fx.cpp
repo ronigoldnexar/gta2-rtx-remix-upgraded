@@ -370,7 +370,19 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
     const float ox = std::floor(lo[0]), oz = std::floor(lo[2]);
     chunksX_ = std::max(1, static_cast<int>(std::ceil((hi[0] - ox) / kChunk)) + 1);
     chunksZ_ = std::max(1, static_cast<int>(std::ceil((hi[2] - oz) / kChunk)) + 1);
-    const size_t triCount = mesh.indices.size() / 3;
+    // The street views' triangles: each batch's street range where it has one (the overhead
+    // decals and the map's tree blocks left out: world_mesh.h, TileBatch::streetIndices), so a
+    // face the street views do not draw casts no shadow either (defect pm23: the tree crowns'
+    // flat lids threw black branch webs on the lawns), and no face is in the copy twice.
+    std::vector<uint32_t> streetIdx;
+    streetIdx.reserve(mesh.indices.size());
+    for (const TileBatch& b : mesh.batches) {
+        const uint32_t first = b.streetIndices ? b.streetIndexStart : b.indexStart;
+        const uint32_t count = b.streetIndices ? b.streetIndexCount : b.indexCount;
+        if (static_cast<size_t>(first) + count > mesh.indices.size()) continue;
+        streetIdx.insert(streetIdx.end(), mesh.indices.begin() + first, mesh.indices.begin() + first + count);
+    }
+    const size_t triCount = streetIdx.size() / 3;
     // Two sets of chunks: the solid triangles (drawn without a texture fetch), then the
     // cutout ones (fences, grilles: the alpha atlas). Each set is in chunk order, so the
     // chunks a cascade touches still merge into runs.
@@ -379,12 +391,12 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
     std::vector<uint32_t> perChunk(nChunks * 2 + 1, 0);
     size_t cutoutTris = 0;
     for (size_t t = 0; t < triCount; ++t) {
-        const Vertex& a = mesh.vertices[mesh.indices[t * 3]];
-        const Vertex& b = mesh.vertices[mesh.indices[t * 3 + 1]];
-        const Vertex& c = mesh.vertices[mesh.indices[t * 3 + 2]];
+        const Vertex& a = mesh.vertices[streetIdx[t * 3]];
+        const Vertex& b = mesh.vertices[streetIdx[t * 3 + 1]];
+        const Vertex& c = mesh.vertices[streetIdx[t * 3 + 2]];
         const int cx = std::min(chunksX_ - 1, std::max(0, static_cast<int>(((a.x + b.x + c.x) / 3.0f - ox) / kChunk)));
         const int cz = std::min(chunksZ_ - 1, std::max(0, static_cast<int>(((a.z + b.z + c.z) / 3.0f - oz) / kChunk)));
-        const bool cut = cutVertex[mesh.indices[t * 3]] != 0;
+        const bool cut = cutVertex[streetIdx[t * 3]] != 0;
         cutoutTris += cut ? 1 : 0;
         chunkOf[t] = (cut ? static_cast<int>(nChunks) : 0) + cz * chunksX_ + cx;
         ++perChunk[static_cast<size_t>(chunkOf[t])];
@@ -397,11 +409,11 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
         run += perChunk[i] * 3;
         for (int k = 0; k < 3; ++k) { chunks_[i].lo[k] = 1e9f; chunks_[i].hi[k] = -1e9f; }
     }
-    std::vector<uint32_t> sorted(mesh.indices.size());
+    std::vector<uint32_t> sorted(streetIdx.size());
     for (size_t t = 0; t < triCount; ++t) {
         Chunk& ch = chunks_[static_cast<size_t>(chunkOf[t])];
         for (int k = 0; k < 3; ++k) {
-            const uint32_t idx = mesh.indices[t * 3 + k];
+            const uint32_t idx = streetIdx[t * 3 + k];
             sorted[ch.start + ch.count++] = idx;
             const Vertex& v = mesh.vertices[idx];
             ch.lo[0] = std::min(ch.lo[0], v.x); ch.lo[1] = std::min(ch.lo[1], v.y); ch.lo[2] = std::min(ch.lo[2], v.z);

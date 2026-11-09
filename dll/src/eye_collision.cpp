@@ -120,7 +120,11 @@ void Build(const gta2::WorldMesh& mesh, const gta2::Style& style) {
     struct Box { int16_t x0, z0, x1, z1; };
     std::vector<Box> boxes;
     for (const gta2::TileBatch& batch : mesh.batches) {
-        for (uint32_t i = batch.indexStart; i + 2 < batch.indexStart + batch.indexCount; i += 3) {
+        // The street views' range (world_mesh.h, TileBatch::streetIndices): a face they leave out
+        // (an overhead decal, a map tree's blocks, now a tree model) holds no camera back.
+        const uint32_t first = batch.streetIndices ? batch.streetIndexStart : batch.indexStart;
+        const uint32_t count = batch.streetIndices ? batch.streetIndexCount : batch.indexCount;
+        for (uint32_t i = first; i + 2 < first + count; i += 3) {
             Tri t;
             t.v[0] = mesh.indices[i]; t.v[1] = mesh.indices[i + 1]; t.v[2] = mesh.indices[i + 2];
             const Vec3& a = g_pos[t.v[0]]; const Vec3& b = g_pos[t.v[1]]; const Vec3& c = g_pos[t.v[2]];

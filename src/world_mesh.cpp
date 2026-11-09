@@ -415,6 +415,9 @@ public:
         lastHiddenValid_ = false;
     }
     int StreetHiddenCount() const { return streetHiddenCount_; }
+    // While set, every face AddFaceUv or AddTriangle emits (walls and ramp cuts too, not only
+    // lids) is left out of the street views: the map's tree blocks (FindMapTrees).
+    void SetStreetHiddenAll(bool on) { streetHideAll_ = on; }
 
     // A quad with no tile behind it, for the black seal under the world. The
     // corners are given anticlockwise seen from the side the normal points at,
@@ -559,7 +562,7 @@ public:
 
         const int keyed = ColourKeyed(face, panelBack) ? 1 : 0;
         std::vector<Vertex>& out = perTile_[keyed][tile];
-        if (streetHidden_ && normal.y > 0.5f) {
+        if (streetHideAll_ || (streetHidden_ && normal.y > 0.5f)) {
             if (streetHiddenQuads_[keyed].empty()) for (auto& q : streetHiddenQuads_) q.resize(perTile_[0].size());
             streetHiddenQuads_[keyed][tile].push_back(static_cast<uint32_t>(out.size() / 4));
             lastHiddenKeyed_ = keyed;
@@ -609,7 +612,13 @@ public:
         static const int kReverse[3] = {0, 2, 1};
         const int* order = flip ? kReverse : kForward;
         // Kept apart from the quads so each can be indexed by its own stride.
-        std::vector<Vertex>& out = perTileTriangle_[ColourKeyed(face, false)][tile];
+        const int keyed = ColourKeyed(face, false);
+        std::vector<Vertex>& out = perTileTriangle_[keyed][tile];
+        if (streetHideAll_) {
+            if (streetHiddenTris_[keyed].empty()) for (auto& q : streetHiddenTris_) q.resize(perTile_[0].size());
+            streetHiddenTris_[keyed][tile].push_back(static_cast<uint32_t>(out.size() / 3));
+            ++streetHiddenCount_;
+        }
         for (int i = 0; i < 3; ++i) {
             const int slot = order[i];
             out.push_back(Vertex{corners[slot].x, corners[slot].y, corners[slot].z, normal.x,
@@ -667,15 +676,20 @@ public:
             TileBatch& batch = out->batches[b];
             if (batch.streetOnly || batch.tile < 0 || batch.tile >= static_cast<int>(perTile_[0].size())) continue;
             const int keyed = batch.doubleSided ? 1 : 0;
-            const std::vector<uint32_t>& hidden = streetHiddenQuads_[keyed][static_cast<size_t>(batch.tile)];
-            if (hidden.empty()) continue;
+            static const std::vector<uint32_t> kNone;
+            const std::vector<uint32_t>& hidden = streetHiddenQuads_[keyed].empty() ? kNone : streetHiddenQuads_[keyed][static_cast<size_t>(batch.tile)];
+            const std::vector<uint32_t>& hiddenTris = streetHiddenTris_[keyed].empty() ? kNone : streetHiddenTris_[keyed][static_cast<size_t>(batch.tile)];
+            if (hidden.empty() && hiddenTris.empty()) continue;
             const std::set<uint32_t> skip(hidden.begin(), hidden.end());
+            const std::set<uint32_t> skipTri(hiddenTris.begin(), hiddenTris.end());
             const uint32_t quadCount = static_cast<uint32_t>(perTile_[keyed][static_cast<size_t>(batch.tile)].size() / 4);
             batch.streetIndices = true;
             batch.streetIndexStart = static_cast<uint32_t>(out->indices.size());
             for (uint32_t i = 0; i < batch.indexCount; ++i) {
                 const uint32_t quad = i / 6;
                 if (quad < quadCount && skip.count(quad)) continue;
+                // FlattenOne puts the triangles after the quads, three indices each.
+                if (quad >= quadCount && skipTri.count((i - quadCount * 6) / 3)) continue;
                 out->indices.push_back(out->indices[batch.indexStart + i]);
             }
             batch.streetIndexCount = static_cast<uint32_t>(out->indices.size()) - batch.streetIndexStart;
@@ -684,7 +698,9 @@ public:
 
 private:
     bool streetHidden_ = false;
+    bool streetHideAll_ = false;
     int streetHiddenCount_ = 0;
+    std::vector<std::vector<uint32_t>> streetHiddenTris_[2];    // [ColourKeyed][tile]: triangle numbers left out of the street views
     bool lastHiddenValid_ = false;
     int lastHiddenKeyed_ = 0, lastHiddenTile_ = 0;
     std::array<Vertex, 4> lastHiddenLid_ = {};
@@ -2448,6 +2464,52 @@ int LastUprightBoards() { return g_boards; }
 
 OverheadDecalStats LastOverheadDecalStats() { return g_overheadStats; }
 
+namespace {
+MapTreeStats g_mapTreeStats;
+// The canopy under a tree's pyramid cell: a see-through flat lid and nothing else.
+bool TreeCanopy(const Block* b) {
+    return b && b->lid && b->lid.IsFlat() && !b->left && !b->right && !b->top && !b->bottom && b->SlopeType() == 0;
+}
+}  // namespace
+
+bool MapTreesEnabled() {
+    static int on = -1;
+    if (on < 0) { const char* e = std::getenv("GTA2DX9_MAP_TREES"); on = (e && e[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
+
+MapTreeStats LastMapTreeStats() { return g_mapTreeStats; }
+
+std::vector<MapTree> FindMapTrees(const Map& map) {
+    std::vector<MapTree> trees;
+    if (map.Empty()) return trees;
+    // In the three districts: Residential 360 (branch tile 530 over crown 526), Downtown 72
+    // (849 over 856), Industrial 119 (220 over 219); every other 2x2 of these four slope
+    // types has a solid cut face (hip roofs) and is left alone.
+    for (int y = 0; y + 1 < kMapHeight; ++y) {
+        for (int x = 0; x + 1 < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            for (size_t i = 0; i < column.blocks.size(); ++i) {
+                const int level = column.offset + static_cast<int>(i);
+                const Block* nw = BlockAtLevel(map, x, y, level);
+                if (!nw || nw->SlopeType() != 49) continue;
+                const Block* ne = BlockAtLevel(map, x + 1, y, level);
+                const Block* sw = BlockAtLevel(map, x, y + 1, level);
+                const Block* se = BlockAtLevel(map, x + 1, y + 1, level);
+                if (!ne || !sw || !se || ne->SlopeType() != 50 || sw->SlopeType() != 51 || se->SlopeType() != 52) continue;
+                // Lidless (the peak shape), and the cut faces see-through: the west face for
+                // 49 and 51, the east one for 50 and 52 (AddCornerRampBlock).
+                bool tree = true;
+                for (const Block* b : {nw, ne, sw, se}) if (b->lid.Tile() != 0x3FF) tree = false;
+                if (!tree || !nw->left.IsFlat() || !sw->left.IsFlat() || !ne->right.IsFlat() || !se->right.IsFlat() ||
+                    !nw->left || !sw->left || !ne->right || !se->right) continue;
+                trees.push_back(MapTree{x, y, level});
+            }
+        }
+    }
+    return trees;
+}
+
 void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                     const PartialCuts& cuts, WorldMesh* out) {
     // Prefer the game's own slope descriptors; fall back to deriving them when
@@ -2461,6 +2523,23 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     if (const char* e = std::getenv("GTA2DX9_STREET_FILL")) g_streetFill = e[0] != '0';
     const OverheadDecals decals = g_streetFill ? FindOverheadDecals(map, style) : OverheadDecals{};
     int boards = 0;
+    // The map's trees (FindMapTrees): 1 a pyramid cell (every face out of the street views),
+    // 2 the canopy lid under one (its lid out).
+    std::vector<uint8_t> treeCell;
+    const std::vector<MapTree> trees = MapTreesEnabled() ? FindMapTrees(map) : std::vector<MapTree>{};
+    auto treeSlot = [](int x, int y, int level) { return (static_cast<size_t>(level) * kMapHeight + static_cast<size_t>(y)) * kMapWidth + static_cast<size_t>(x); };
+    if (!trees.empty()) {
+        treeCell.assign(static_cast<size_t>(kMapWidth) * kMapHeight * 9, 0);
+        for (const MapTree& t : trees) {
+            for (int k = 0; k < 4; ++k) {
+                const int cx = t.x + (k & 1), cy = t.y + (k >> 1);
+                if (t.level < 0 || t.level > 8) continue;
+                treeCell[treeSlot(cx, cy, t.level)] = 1;
+                if (t.level >= 1 && TreeCanopy(BlockAtLevel(map, cx, cy, t.level - 1))) treeCell[treeSlot(cx, cy, t.level - 1)] = 2;
+            }
+        }
+    }
+    int treeFaces = 0;
     for (int y = 0; y < kMapHeight; ++y) {
         for (int x = 0; x < kMapWidth; ++x) {
             const Column& column = map.ColumnAt(x, y);
@@ -2476,8 +2555,13 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                 const bool boardCandidate = g_streetFill && !decal && type >= 41 && type <= 44 && block.lid &&
                                             block.lid.IsFlat() && block.lid.Tile() < style.TileCount() &&
                                             style.GetTile(block.lid.Tile()).hasTransparency;
-                builder.SetStreetHidden(decal || boardCandidate);
+                const uint8_t treePart = treeCell.empty() || level < 0 || level > 8 ? 0 : treeCell[treeSlot(x, y, level)];
+                builder.SetStreetHidden(decal || boardCandidate || treePart == 2);
+                builder.SetStreetHiddenAll(treePart == 1);
+                const int hiddenBefore = builder.StreetHiddenCount();
                 AddBlock(&builder, block, resolved[block.SlopeType() & (kSlopeTypeCount - 1)], cuts, x, y, level);
+                builder.SetStreetHiddenAll(false);
+                if (treePart) treeFaces += builder.StreetHiddenCount() - hiddenBefore;
                 if (boardCandidate) {
                     std::array<Vertex, 4> quad;
                     std::array<Vec3, 4> corners;
@@ -2499,7 +2583,8 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
             }
         }
     }
-    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards};
+    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - treeFaces};
+    g_mapTreeStats = MapTreeStats{static_cast<int>(trees.size()), treeFaces};
     g_boards = boards;
     AddImplicitFloors(&builder, map);
     AddHiddenSurfaces(&builder, map);

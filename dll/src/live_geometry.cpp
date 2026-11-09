@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "../../src/gta2_map.h"
+#include "../../src/world_mesh.h"   // FindMapTrees
 #include <windows.h>
 #include <mmsystem.h>   // QB-29: the reload clicks (waveOut)
 #include "../../src/renderer.h"
@@ -4530,7 +4531,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     const bool anyEnv = signStop || signOneWay || busShelter || meter || mailbox || containers[0] || crane || roofAc || roofVent || waterTower || rail;
     if (!lamp && !bin && !bench && !hydrant && !anyTree && !anyEnv) return;
 
-    struct Placed { const Model* model; float x, y, z, yaw, scale; float d2; };
+    struct Placed { const Model* model; float x, y, z, yaw, scale; float d2; bool mapTree = false; };
     std::vector<Placed> placed;
     // 48 blocks, a quarter into the fog (18-130), where a lamp is a few pixels tall: the
     // edge where props appear is no longer seen while driving (PERF-2; was 36 with a budget
@@ -4910,6 +4911,44 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             }
         }
     }
+    // The map's own trees (defects pm8 / pm23, gta2::FindMapTrees): the street views leave
+    // the game's tree blocks out (a black spiky pyramid of branch tiles over a flat sheet of
+    // branches, the crown as seen from above) and a tree model stands at the middle of each
+    // 2x2 group instead, its top at the pyramid's peak and its trunk on the ground under the
+    // crown: as tall as the classic tree is high and about as wide. Out to most of the way
+    // into the fog (the blocks they replace show from that far) and outside the budget, so a
+    // tree never comes and goes as other props crowd it out.
+    if (anyTree && gta2::MapTreesEnabled()) {
+        constexpr float kMapTreeRadius = 100.0f;
+        static const void* s_treesMap = nullptr;
+        static std::vector<gta2::MapTree> s_mapTrees;
+        if (s_treesMap != map) {
+            s_mapTrees = gta2::FindMapTrees(*map);
+            s_treesMap = map;
+            Log("map trees: %zu of the map's tree block groups drawn as tree models in the street views", s_mapTrees.size());
+        }
+        for (const gta2::MapTree& t : s_mapTrees) {
+            const float px = static_cast<float>(t.x + 1), pz = static_cast<float>(gta2::kMapHeight - 1 - t.y);
+            const float dx = px - eye.x, dz = pz - eye.z;
+            const float d2 = dx * dx + dz * dz;
+            if (d2 > kMapTreeRadius * kMapTreeRadius) continue;
+            const float peak = static_cast<float>(t.level + 1);
+            // The ground under the crown (below the crown's own lid, at height t.level).
+            float ground = -1.0f;
+            for (int k = 0; k < 4; ++k) {
+                float f = 0.0f;
+                if (ground_->SurfaceAt(px + ((k & 1) ? 0.3f : -0.3f), pz + ((k & 2) ? 0.3f : -0.3f), static_cast<float>(t.level) - 0.05f, &f))
+                    ground = (std::max)(ground, f);
+            }
+            if (ground < 0.0f) ground = peak - 2.0f;
+            const uint32_t h = (static_cast<uint32_t>(t.x) * 73856093u) ^ (static_cast<uint32_t>(t.y) * 19349663u) ^ (static_cast<uint32_t>(t.level) * 83492791u);
+            const Model* tree = trees[(h >> 5) % 3];
+            if (!tree) tree = trees[0] ? trees[0] : (trees[1] ? trees[1] : trees[2]);
+            const float height = (std::min)(3.4f, (std::max)(1.2f, peak - ground)) * (0.94f + static_cast<float>((h >> 9) & 7) / 7.0f * 0.1f);
+            const float yaw = static_cast<float>((h >> 12) & 1023) / 1024.0f * 6.2832f;
+            placed.push_back({tree, px, ground, pz, yaw, height / (std::max)(tree->Height(), 0.1f), d2, true});
+        }
+    }
     if (anyEnv && (g_treeStatFrames % 300) == 299) {
         int counts[16] = {};
         const Model* kinds[16] = {signStop, signOneWay, busShelter, meter, mailbox, containers[0], containers[1], containers[2], containers[3], crane, roofAc, roofVent, waterTower, rail, nullptr, nullptr};
@@ -5005,7 +5044,16 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     }
     if (placed.empty()) { propFootprints_.clear(); contactProps_.clear(); return; }
     std::sort(placed.begin(), placed.end(), [](const Placed& a, const Placed& b) { return a.d2 < b.d2; });
-    if (placed.size() > static_cast<size_t>(kBudget)) placed.resize(kBudget);
+    if (placed.size() > static_cast<size_t>(kBudget)) {
+        // The budget is the street furniture's; the map's trees stay (see the placement scan).
+        size_t kept = 0, others = 0;
+        for (size_t i = 0; i < placed.size(); ++i) {
+            if (!placed[i].mapTree && others >= static_cast<size_t>(kBudget)) continue;
+            if (!placed[i].mapTree) ++others;
+            placed[kept++] = placed[i];
+        }
+        placed.resize(kept);
+    }
     propFootprints_.clear();
     for (const Placed& p : placed) {
         if (p.model == lamp || p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) continue;

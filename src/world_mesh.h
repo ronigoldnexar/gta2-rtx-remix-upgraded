@@ -159,6 +159,23 @@ OverheadDecalStats LastOverheadDecalStats();
 // Sloped see-through lids the street views stand up as boards (UprightBoard in world_mesh.cpp).
 int LastUprightBoards();
 
+// The map's own trees (defects pm8 / pm23): GTA2 draws a tree as a 2x2 group of lidless
+// corner ramps (slope types 49 NW, 50 NE, 51 SW, 52 SE) whose see-through cut faces (the
+// branch tile, flat bit set) rise to a peak over the group's middle, standing on a 2x2 of
+// see-through flat lids one level down (the crown seen from above). From above that is a
+// tree; from the street it is a black spiky pyramid over a flat sheet of branches. The
+// street views leave both out (FindMapTrees decides which, BuildWorldMesh hides them through
+// TileBatch::streetIndices, so the classic view is unchanged) and stand a tree model there
+// (LiveGeometry::DrawProps). x, y: the group's north-west cell (map coordinates); level:
+// the pyramid's level (its base at height `level`, its peak at `level + 1`). The trunk
+// stands at the group's middle: world x = x + 1, world z = kMapHeight - 1 - y.
+// GTA2DX9_MAP_TREES=0 keeps the map's own blocks in the street views and places no models.
+struct MapTree { int x = 0, y = 0, level = 0; };
+std::vector<MapTree> FindMapTrees(const Map& map);
+bool MapTreesEnabled();
+struct MapTreeStats { int trees = 0, faces = 0; };
+MapTreeStats LastMapTreeStats();
+
 // How many blocks one repeat of a water tile's texture spans.
 //
 // GTA2 lays each water tile on its block like any other lid: one whole tile per
