@@ -4,7 +4,9 @@ Quality-bar row QB-37 ("a flat turquoise textured plane"). The water tiles
 (608-619, the game's animated water group) get a small shader-model-3 surface in
 the third- and first-person views. The classic view is unchanged (the renderer
 only uses it when the street shading is on), and so is an RTX Remix device (Remix
-lights and path-traces the water itself; the fixed-function draw is what it hashes).
+lights and path-traces the water itself; the fixed-function draw is what it hashes, and the
+gta2hd layer gives those hashes a smooth water material: `tools/remix_water.py`,
+docs/remix-materials.md "Water under Remix").
 
 Code: `src/water.h`, `src/water.cpp`, `src/shaders/water.hlsl` (compiled into
 `src/shaders/water_gen.h` by `tools/build_water_shader.sh`, Wine 9's d3dcompiler in

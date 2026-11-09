@@ -7,6 +7,23 @@ over "RootNode"
 {
     over "Looks"
     {
+        over "mat_A00D8B41035A6C7F"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom color3f inputs:diffuse_color_constant = (0.0612, 0.1779, 0.1119)
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom float inputs:metallic_constant = 0
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
         over "mat_00123D03565007B8"
         {
             over "Shader"
@@ -2522,18 +2539,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/09819CCD262606B3.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/09819CCD262606B3.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/09819CCD262606B3.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_099C82A0E961E14B"
         {
@@ -6104,18 +6119,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/16F81A9BFDEA476A.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/16F81A9BFDEA476A.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/16F81A9BFDEA476A.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_17093DDE5B8BED4E"
         {
@@ -10631,18 +10644,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/286B0360296EF1B4.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/286B0360296EF1B4.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/286B0360296EF1B4.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_28824A09DD2919CA"
         {
@@ -11579,18 +11590,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/2C6A716E94671BAD.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/2C6A716E94671BAD.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/2C6A716E94671BAD.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_2C6E9BE6B392977E"
         {
@@ -14325,18 +14334,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/3773430DCE2C0AB6.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/3773430DCE2C0AB6.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/3773430DCE2C0AB6.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_377DE466EB052E7C"
         {
@@ -15758,18 +15765,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/3C7DA31E99A902B8.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/3C7DA31E99A902B8.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/3C7DA31E99A902B8.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_3C8A36AC8A4E0FB4"
         {
@@ -18696,18 +18701,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/460BFB35F09AA0FB.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/460BFB35F09AA0FB.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/460BFB35F09AA0FB.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_4614896AFB96AC81"
         {
@@ -19088,18 +19091,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/46E7E8983036BCED.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/46E7E8983036BCED.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/46E7E8983036BCED.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_46F6C685D8898F47"
         {
@@ -23737,18 +23738,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/567BCEF9972E8993.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/567BCEF9972E8993.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/567BCEF9972E8993.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_5692D48043D6FAF8"
         {
@@ -25296,18 +25295,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/5C5E8722D4B71F0A.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/5C5E8722D4B71F0A.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/5C5E8722D4B71F0A.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_5C8478B2138C98FC"
         {
@@ -25369,18 +25366,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/5C98A2920ADB26FB.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/5C98A2920ADB26FB.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/5C98A2920ADB26FB.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_5CC28486EC75C4C7"
         {
@@ -26247,18 +26242,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/5F1054B77D547D2F.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/5F1054B77D547D2F.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/5F1054B77D547D2F.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_5F2CD420AEDF9ACD"
         {
@@ -27029,18 +27022,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/6288BC90D4AC6B31.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/6288BC90D4AC6B31.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/6288BC90D4AC6B31.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_628B47E3F3A10D7F"
         {
@@ -27526,18 +27517,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/63C08CF404873E89.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/63C08CF404873E89.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/63C08CF404873E89.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_63CB0A21332E69A3"
         {
@@ -33814,18 +33803,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/7AD4405D52BA83A6.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/7AD4405D52BA83A6.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/7AD4405D52BA83A6.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_7AF34A162866B2FD"
         {
@@ -35295,18 +35282,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/7FB5DCFEB0FE1FB7.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/7FB5DCFEB0FE1FB7.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/7FB5DCFEB0FE1FB7.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_7FBE81D33D13E647"
         {
@@ -36097,18 +36082,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/820DD29365832322.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/820DD29365832322.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/820DD29365832322.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_821034BA3850CF48"
         {
@@ -37492,18 +37475,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/8678DC64B95EB8B3.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/8678DC64B95EB8B3.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/8678DC64B95EB8B3.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_868A65133E981D22"
         {
@@ -39396,18 +39377,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/8D051F1C93A441CE.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/8D051F1C93A441CE.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/8D051F1C93A441CE.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_8D05CD84753D21C9"
         {
@@ -41431,18 +41410,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/93EDB8DBB63477D4.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/93EDB8DBB63477D4.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/93EDB8DBB63477D4.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_93F328260FFAD50F"
         {
@@ -45007,18 +44984,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/A02BD41CCB737651.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/A02BD41CCB737651.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/A02BD41CCB737651.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_A037A2B8428DA385"
         {
@@ -45767,18 +45742,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/A2D5D8BCED7994CB.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/A2D5D8BCED7994CB.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/A2D5D8BCED7994CB.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_A2D9EC44A5F9096F"
         {
@@ -49745,18 +49718,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/B0EF02794A111DD6.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/B0EF02794A111DD6.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/B0EF02794A111DD6.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_B13F7FCEA8337CD4"
         {
@@ -50950,18 +50921,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/B7723F17BD68FB19.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/B7723F17BD68FB19.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/B7723F17BD68FB19.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_B78507F88C79E3E2"
         {
@@ -52873,18 +52842,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/BF0C0FB43FD04958.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/BF0C0FB43FD04958.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/BF0C0FB43FD04958.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_BF33050DC753966A"
         {
@@ -55503,18 +55470,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/C8A11009E60143E0.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/C8A11009E60143E0.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/C8A11009E60143E0.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_C8A38D7908D68BCD"
         {
@@ -58093,18 +58058,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/D21AA4E2E4BDDAE4.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/D21AA4E2E4BDDAE4.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/D21AA4E2E4BDDAE4.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_D232D39B70A88D2D"
         {
@@ -58804,18 +58767,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/D4D3362862F076D0.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/D4D3362862F076D0.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/D4D3362862F076D0.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_D4D845C6D973DA26"
         {
@@ -60719,18 +60680,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/DC9FCF4DDC1DF6FB.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/DC9FCF4DDC1DF6FB.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/DC9FCF4DDC1DF6FB.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_DCAABA0E936DFB78"
         {
@@ -61606,18 +61565,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/E01424E8ABD43AEF.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/E01424E8ABD43AEF.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/E01424E8ABD43AEF.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_E03B9CCB8839F847"
         {
@@ -62359,18 +62316,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/E2E8761E6B9BC17C.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/E2E8761E6B9BC17C.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/E2E8761E6B9BC17C.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_E332BCF967C5BC85"
         {
@@ -62785,18 +62740,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/E4AC2E2D48E6B191.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/E4AC2E2D48E6B191.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/E4AC2E2D48E6B191.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_E4BAD4EB6639E8B1"
         {
@@ -62921,18 +62874,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/E514CF02BF57F946.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/E514CF02BF57F946.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/E514CF02BF57F946.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_E55C504AD1BC988F"
         {
@@ -66372,18 +66323,16 @@ over "RootNode"
                 custom asset inputs:diffuse_texture = @./textures/F2D77E4615053FC7.a.rtex.dds@ (
                     colorSpace = "sRGB"
                 )
-                custom asset inputs:normalmap_texture = @./textures/F2D77E4615053FC7.n.rtex.dds@ (
-                    colorSpace = "raw"
-                )
-                custom asset inputs:reflectionroughness_texture = @./textures/F2D77E4615053FC7.r.rtex.dds@ (
+                custom asset inputs:normalmap_texture = @./textures/water_ripple.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
-                custom bool inputs:use_legacy_alpha_state = 1
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
                 token outputs:out
             }
         }
+
 
         over "mat_F2F01275DA61ECFD"
         {

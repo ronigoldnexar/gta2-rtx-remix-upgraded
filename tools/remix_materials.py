@@ -335,6 +335,28 @@ MATERIAL = '''        over "mat_{h}"
             }}
         }}
 '''
+# FIX-REMIX: the water tiles (pbr.json "water": true, tools/remix_water.py): the tile's
+# colour, a smooth dielectric and one shared tileable ripple normal, no roughness map.
+WATER = '''        over "mat_{h}"
+        {{
+            over "Shader"
+            {{
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @{mdl}.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "{mdl}"
+                custom asset inputs:diffuse_texture = @./textures/{h}.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:normalmap_texture = @./textures/{ripple}@ (
+                    colorSpace = "raw"
+                )
+                custom float inputs:metallic_constant = 0
+                custom float inputs:reflection_roughness_constant = 0.08
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }}
+        }}
+'''
 # Neon and lit signs (tools/remix_emissive.py writes the mask): the strokes glow.
 EMISSIVE = '''
                 custom asset inputs:emissive_mask_texture = @./textures/{h}.e.rtex.dds@ (
@@ -365,6 +387,8 @@ def write_usda(mod_dir, out_name="mod.usda"):
     info_path = os.path.join(mod_dir, "pbr.json")
     info = json.load(open(info_path)) if os.path.exists(info_path) else {}
     def prim(h):
+        if info.get(h, {}).get("water") and "water_ripple.n.rtex.dds" in have:
+            return WATER.format(h=h, mdl=MDL, ripple="water_ripple.n.rtex.dds")
         text = MATERIAL.format(
             h=h, mdl=MDL,
             metal=METAL.format(h=h) if f"{h}.m.rtex.dds" in have else "",

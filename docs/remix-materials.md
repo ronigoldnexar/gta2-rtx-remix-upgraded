@@ -699,6 +699,32 @@ posts; `cmp/cmp_0.png`). Not done: the orange facade lights (map lamps half a ti
 no post) still wash the corner facades with no fixture drawn; the script's camera headings differ
 between runs, so the before/after pairs are the same mark, not the same framing.
 
+## Water under Remix: one smooth water material for the basin, the apron and the seal (FIX-REMIX, 9 Nov 2026)
+
+Defect `pt-remix-water-matte-no-reflection`: the harbour was a flat matte teal and the open sea a flat
+navy plane with a hard seam between them. The gta2hd layer classified the HD water tiles (608-619, the
+game's animated water; 11 HD files per district, 34 distinct top-mip hashes) like any city surface:
+roughness 0.8 with a roughness map from their busy wave highlights. The navy "sea" was the renderer's
+black seal quad under the world (`SealTileIndex`, 64 px of 0xFF000000, Remix hash `A00D8B41035A6C7F`),
+reaching 512 blocks past the map.
+
+`tools/remix_water.py <mod> --hd assets/textures_hd/{wil,ste,bil}` marks those hashes `"water": true` in
+`pbr.json`, writes one tileable ripple normal map (`textures/water_ripple.n.rtex.dds`, 512 px BC5
+octahedral, seeded, procedural: no game art) and rewrites the water prims in `mod.usda` and
+`mod_wet.usda` in place (they also hold the car and sign prims, which a regeneration would drop):
+the tile's own albedo, the ripple normal, roughness 0.08, metallic 0. The seal gets the same material
+with the water tiles' mean colour as a constant. `remix_materials.py write_usda` emits the same water
+prim for hashes marked `water`, so a regenerated layer keeps them. The ripple file lives beside the
+other mod textures (not in git, packed by `tools/pack_release.py remix`); rerun the tool to recreate it.
+Since FIX-WORLD's apron (d2bbf01) the street views continue each map edge as the border's water tile,
+which takes the water material by hash.
+
+Runs (`gamerun/playtest_remix.sh <name> 560 wil "18.2,13" "203.5,237.5,4"`, the roof west of the basin;
+the after runs add `-v <mod>:/fxmod:ro -e MODS_HD_SRC=/fxmod/gta2hd`): `out/fxr_water_before` (matte basin,
+navy plane, seam), `out/fxr_water_after` (sky and quay reflected, Fresnel brightening to the horizon at
+18:12 and 13:00, basin and sea one surface; side by side in `cmp/`), `out/fxr_water_after2` (the same on
+top of the apron). Left: a thin dotted line where the map's water meets what lies past the edge.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every
