@@ -859,3 +859,27 @@ s, ok = RA.climb(world, tx, ty, tl)                             # any raised poi
 
 Open items: Industrial's Zaibatsu phones (`bil_ze1`/`bil_ze2`) have no router route (check in game); the
 CLI hands over only to the Downtown session (`mission_play_districts` for ste/bil needs the same hand-off).
+
+## Wave M, SKILL-CRUSHER (9 Nov 2026): crusher and crane, `skills/crusher_crane.py`
+
+COP CAR CRUSH (`wil_ze1`) played by `missions/cop_car_crush.py`, which chains the Wave M modules:
+`rooftop_access` (the Zaibatsu terrace phone on foot), `deliver_intact.board` (the Cop Car),
+`horn_pickup.pickup` (Shady at the Avalon station) and `crusher_crane.crush` (the crusher leg and the
+crane). Details, API and the hook rule: `docs/skill-crusher.md`.
+
+The crane lifts a car standing under its hook, 2.5 blocks from the tower along the crane's rotation
+(Downtown crane1: 177.0,11.5). The module reaches the yard by the fragile drive to a lane mouth only,
+then creeps straight up an open lane (south through the yard gate) to the hook, gets out and walks
+back down the lane. That replaces the shared crusher-pad step that pressed the car round the yard
+walls until it burned (rf4, rf7).
+
+| session | outcome | crane step |
+|---|---|---|
+| ccc1 | not a test (a 16-minute governor pause spent the climb's wall-time budget) | - |
+| ccc2 | failed: the Cop Car pinned against a stopped car at 144,35 on the crusher leg, alight | not reached (pin guard added) |
+| **ccc3** | **JOB COMPLETE**, game-s 759 | the car arrived alight (16336); second hook candidate, crushed at once |
+| **ccc4** | **JOB COMPLETE**, game-s 879 | gate scraped on the first creep; second candidate, taken in 4 s |
+| **ccc5** | **JOB COMPLETE**, game-s 666 | first try, 0.06 from the hook, no damage |
+
+**3 of 3 sessions since the pin guard reached JOB COMPLETE**, all in a fresh game, no warp, chase-view
+frames (`out/ccc5/m_ccc_crane_hook.png`, `m_ccc_end.png`; not in git).
