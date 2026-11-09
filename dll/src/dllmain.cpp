@@ -316,6 +316,7 @@ void LoadConfig() {
     // 3D cars in the ground views (car_bodies.h): off until the models are verified.
     gta2dx9::SetCarModels3d(GetPrivateProfileIntA("renderer", "car_models3d", 0, ini) != 0);
     gta2dx9::SetCarLamps(GetPrivateProfileIntA("renderer", "car_lamps", 1, ini));
+    gta2dx9::SetContactShadows(GetPrivateProfileIntA("renderer", "contact_shadows", 70, ini));
     gta2dx9::SetCarBodies(GetPrivateProfileIntA("renderer", "car_bodies",
                                                 gta2dx9::kDefaultCarBodies ? 1 : 0, ini) != 0);
     gta2dx9::SetCarBodyHeight(

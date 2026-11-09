@@ -4795,7 +4795,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                      }),
                      placed.end());
     }
-    if (placed.empty()) { propFootprints_.clear(); return; }
+    if (placed.empty()) { propFootprints_.clear(); contactProps_.clear(); return; }
     std::sort(placed.begin(), placed.end(), [](const Placed& a, const Placed& b) { return a.d2 < b.d2; });
     if (placed.size() > static_cast<size_t>(kBudget)) placed.resize(kBudget);
     propFootprints_.clear();
@@ -4803,6 +4803,18 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         if (p.model == lamp || p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) continue;
         const float r = (std::min)(0.6f, (std::max)(0.12f, 0.5f * p.scale * (std::max)(p.model->Length(), p.model->Width())));
         propFootprints_.push_back({p.x, p.y, p.z, r, (std::max)(0.3f, p.model->Height() * p.scale)});
+    }
+    // The contact shadows' props: centred on the model's own footprint (its bounds' middle,
+    // turned with it), not its origin, which on some models is off to one side.
+    contactProps_.clear();
+    for (const Placed& p : placed) {
+        if (p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) continue;
+        const float mx = 0.5f * (p.model->boundsMin.x + p.model->boundsMax.x) * p.scale;
+        const float mz = 0.5f * (p.model->boundsMin.z + p.model->boundsMax.z) * p.scale;
+        const float c = std::cos(p.yaw), sn = std::sin(p.yaw);
+        const float r = p.model == lamp ? 0.10f
+                                        : (std::min)(0.6f, (std::max)(0.10f, 0.5f * p.scale * (std::max)(p.model->Length(), p.model->Width())));
+        contactProps_.push_back({p.x + mx * c + mz * sn, p.y, p.z - mx * sn + mz * c, r, 0.0f});
     }
 
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
@@ -5024,6 +5036,7 @@ void LiveGeometry::BeginFrame() {
     }
     carModels_.clear();
     carBodies_.clear();
+    contactCars_.clear();
     g_doorPeds.swap(g_doorPedsNow);
     g_doorPedsNow.clear();
     g_carSeats.swap(g_carSeatsNow);
@@ -6134,6 +6147,21 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
         // used to be drawn here as that model with no paint; every car now goes through
         // CarBodiesDraw and its identity record (ModelForVehicle falls back to by_sprite there),
         // so it wears the sprite's paint like every other car.
+        if (contactCars_.size() < 160) {
+            // pm-no-contact-shadows: the sprite quad is the car's footprint on the road.
+            ContactCar cc;
+            const gta2::Mat4& m = body->objectToWorld;
+            float ys = 0.0f;
+            for (int i = 0; i < 4; ++i) {
+                const float lx = body->local[i].x, ly = body->local[i].y, lz = body->local[i].z;
+                cc.x[i] = lx * m.m[0][0] + ly * m.m[1][0] + lz * m.m[2][0] + m.m[3][0];
+                ys += lx * m.m[0][1] + ly * m.m[1][1] + lz * m.m[2][1] + m.m[3][1];
+                cc.z[i] = lx * m.m[0][2] + ly * m.m[1][2] + lz * m.m[2][2] + m.m[3][2];
+            }
+            cc.y = ys * 0.25f;
+            cc.own = object == g_hiddenObjects[1];
+            contactCars_.push_back(cc);
+        }
         // Far cars keep the dome: see kCarBodyLodBlocks.
         const float ddx = body->objectToWorld.m[3][0] - lastEye_.x, ddy = body->objectToWorld.m[3][1] - lastEye_.y,
                     ddz = body->objectToWorld.m[3][2] - lastEye_.z;
@@ -7415,6 +7443,158 @@ void FigureColours(uintptr_t object, DWORD* skin, DWORD* hair, DWORD* shirt, DWO
 }
 
 }  // namespace
+
+// pm-no-contact-shadows-cars-peds-props-float (FIX-FIGURE-2): the street views drew no shadow under
+// anything, so cars, peds and props stood on the road as if pasted on. The plain renderer's cheap
+// answer: a soft dark contact patch on the ground under each car (its sprite footprint, a little
+// wider), each ped on his feet and each placed prop, drawn after them with the depth test on and no
+// depth write, so their bodies hide it and only the ground round their feet darkens. Black blended by
+// its alpha (dest * (1 - a)), so it darkens what is there and never paints a colour. Not under Remix (which
+// traces real shadows) nor in the classic view. [renderer] contact_shadows (percent opacity, 0 off).
+int g_contactShadows = 70;
+void SetContactShadows(int percent) { g_contactShadows = (std::max)(0, (std::min)(percent, 100)); }
+namespace {
+IDirect3DTexture9* g_contactTexture = nullptr;
+IDirect3DDevice9* g_contactDevice = nullptr;
+IDirect3DTexture9* ContactTexture(IDirect3DDevice9* device) {
+    if (g_contactTexture && g_contactDevice == device) return g_contactTexture;
+    if (g_contactTexture) { g_contactTexture->Release(); g_contactTexture = nullptr; }
+    g_contactDevice = device;
+    constexpr int kSize = 64;
+    IDirect3DTexture9* made = nullptr;
+    if (FAILED(device->CreateTexture(kSize, kSize, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &made, nullptr)) || !made) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (FAILED(made->LockRect(0, &lr, nullptr, 0))) { made->Release(); return nullptr; }
+    for (int y = 0; y < kSize; ++y) {
+        uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+        for (int x = 0; x < kSize; ++x) {
+            // A rounded square (a superellipse, power 3): a car's patch keeps its corners
+            // under the wheels; a ped's or a prop's is near enough round. Dark in the middle,
+            // a long soft falloff to nothing at the edge.
+            const float u = std::fabs((x + 0.5f) / kSize * 2.0f - 1.0f), v = std::fabs((y + 0.5f) / kSize * 2.0f - 1.0f);
+            const float d = std::pow(u * u * u + v * v * v, 1.0f / 3.0f);
+            // Full to 0.55 of the way out, then a smooth fall to nothing: the part that shows
+            // round a body is its edge, so the edge must carry the darkness.
+            float a = 1.0f - (std::max)(0.0f, (std::min)(1.0f, (d - 0.55f) / 0.45f));
+            a = a * a * (3.0f - 2.0f * a);
+            row[x] = (static_cast<uint32_t>(a * 255.0f + 0.5f) << 24);
+        }
+    }
+    made->UnlockRect(0);
+    g_contactTexture = made;
+    return made;
+}
+}  // namespace
+
+void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
+    if (g_contactShadows <= 0 || CurrentViewMode() == ViewMode::Classic || RemixApiAvailable()) return;
+    IDirect3DTexture9* texture = ContactTexture(device);
+    if (!texture) return;
+    struct V { float x, y, z, u, v; };
+    std::vector<V> verts;
+    verts.reserve(256);
+    // Fainter when the sky's sun is down (the sky the picture shows, as the car lamps use).
+    const float day = 0.55f + 0.45f * (std::max)(0.0f, (std::min)(1.0f, (gta2::SkyConfig().sunElevationDeg + 4.0f) / 24.0f));
+    const float eyeX = lastEye_.x, eyeZ = lastEye_.z;
+    auto nearEye = [&](float x, float z) { return (x - eyeX) * (x - eyeX) + (z - eyeZ) * (z - eyeZ) < 45.0f * 45.0f; };
+    // A quad on the ground: centre, half axes a (along) and b (across), at height y.
+    auto quad = [&](float cx, float y, float cz, float ax, float az, float bx, float bz) {
+        const V q[4] = {{cx - ax - bx, y, cz - az - bz, 0, 0}, {cx + ax - bx, y, cz + az - bz, 1, 0},
+                        {cx + ax + bx, y, cz + az + bz, 1, 1}, {cx - ax + bx, y, cz - az + bz, 0, 1}};
+        verts.push_back(q[0]); verts.push_back(q[1]); verts.push_back(q[2]);
+        verts.push_back(q[0]); verts.push_back(q[2]); verts.push_back(q[3]);
+    };
+    const bool firstPerson = CurrentViewMode() == ViewMode::FirstPerson;
+    int cars = 0, peds = 0, props = 0;
+    for (const ContactCar& c : contactCars_) {
+        if (c.own && firstPerson) continue;   // seen from the seat: the cockpit is over it
+        const float cx = (c.x[0] + c.x[1] + c.x[2] + c.x[3]) * 0.25f, cz = (c.z[0] + c.z[1] + c.z[2] + c.z[3]) * 0.25f;
+        if (!nearEye(cx, cz)) continue;
+        // Half edges 0->1 and 1->2, a little past the body (the wheels stand at its edge).
+        const float ax = (c.x[1] - c.x[0]) * 0.5f * 1.18f, az = (c.z[1] - c.z[0]) * 0.5f * 1.18f;
+        const float bx = (c.x[2] - c.x[1]) * 0.5f * 1.35f, bz = (c.z[2] - c.z[1]) * 0.5f * 1.35f;
+        quad(cx, c.y + 0.018f, cz, ax, az, bx, bz);
+        ++cars;
+    }
+    for (const Sprite& sprite : sprites_) {
+        if (!sprite.pedestrian || sprite.ghost || sprite.boardUi || sprite.corners != 4 || sprite.hidden || sprite.climbing ||
+            sprite.corpse)
+            continue;
+        const gta2::Mat4& m = sprite.objectToWorld;
+        if (!nearEye(m.m[3][0], m.m[3][2])) continue;
+        constexpr float r = 0.21f;   // a figure is ~0.46 block across the shoulders
+        quad(m.m[3][0], m.m[3][1] + 0.016f, m.m[3][2], r, 0.0f, 0.0f, r);
+        ++peds;
+    }
+    for (const PropFootprint& p : contactProps_) {
+        if (!nearEye(p.x, p.z)) continue;
+        const float r = p.radius * 1.15f;
+        quad(p.x, p.y + 0.016f, p.z, r, 0.0f, 0.0f, r);
+        ++props;
+    }
+    if (verts.empty()) return;
+    LARGE_INTEGER t0, t1, freq;
+    QueryPerformanceCounter(&t0);
+    static int logs = 0;
+    if (logs < 6 && (++logs, true))
+        Log("contact shadows: %d cars, %d peds, %d props (opacity %d%%, day %.2f)", cars, peds, props, g_contactShadows, day);
+
+    IDirect3DStateBlock9* saved = nullptr;
+    device->CreateStateBlock(D3DSBT_ALL, &saved);
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    device->SetTransform(D3DTS_WORLD, &identity);
+    device->SetVertexShader(nullptr);
+    device->SetPixelShader(nullptr);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
+    device->SetRenderState(D3DRS_LIGHTING, FALSE);
+    device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device->SetRenderState(D3DRS_ZENABLE, TRUE);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    // Black over the ground by the patch's alpha: dest * (1 - a), it only darkens.
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device->SetRenderState(D3DRS_TEXTUREFACTOR,
+                           D3DCOLOR_ARGB(static_cast<int>(g_contactShadows * 2.55f * day + 0.5f), 0, 0, 0));
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+    device->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+    device->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+    device->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    device->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
+    device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    device->SetTexture(0, texture);
+    const HRESULT hr = device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(), sizeof(V));
+    static int hrLogs = 0;
+    if (FAILED(hr) && hrLogs < 5) { ++hrLogs; Log("contact shadows: draw failed 0x%08lx", static_cast<unsigned long>(hr)); }
+    if (saved) { saved->Apply(); saved->Release(); }
+    // What it costs: the CPU side of the pass (gather, state block, one draw), logged every 300 frames.
+    QueryPerformanceCounter(&t1);
+    QueryPerformanceFrequency(&freq);
+    static double sumMs = 0.0, worstMs = 0.0;
+    static int frames = 0, quads = 0;
+    const double ms = static_cast<double>(t1.QuadPart - t0.QuadPart) * 1000.0 / static_cast<double>(freq.QuadPart);
+    sumMs += ms; worstMs = (std::max)(worstMs, ms); quads += static_cast<int>(verts.size() / 6);
+    if (++frames >= 300) {
+        Log("contact shadows: %.3f ms avg, %.3f worst over %d frames, %.1f patches a frame", sumMs / frames, worstMs, frames,
+            static_cast<double>(quads) / frames);
+        sumMs = worstMs = 0.0; frames = quads = 0;
+    }
+}
 
 void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     g_figuresLast.swap(g_figuresNow);
@@ -11316,6 +11496,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             }
         }
     }
+    if (g_groundModels) DrawContactShadows(device);
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));

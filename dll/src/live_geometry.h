@@ -130,6 +130,8 @@ bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy);
 void SetUprightPeds(bool on);
 // Lamps on the 3D car bodies: 0 none, 1 when dark (plus brake lamps), 2 always.
 void SetCarLamps(int mode);
+// Street views, plain renderer: the soft contact shadow under cars, peds and props, percent opacity (0 off).
+void SetContactShadows(int percent);
 bool UprightPeds();
 // ... and, instead of a billboard, a small three-dimensional figure that walks:
 // head, body, arms and legs, the limbs swinging with the pedestrian's speed.
@@ -602,6 +604,12 @@ private:
     std::vector<std::pair<uintptr_t, float>> carSeenPrev_, carSeenNow_;   // (object, distance from the eye)   // car objects with a body last frame / this frame, for the pop log
     int carPops_ = 0, carPopsNear_ = 0; float carPopDist_ = 0.0f;
     std::vector<PropFootprint> propFootprints_;   // the props drawn last frame, see DrawProps
+    // pm-no-contact-shadows (FIX-FIGURE-2): each car's footprint on the ground this frame
+    // (four corners x/z, the ground's y), for DrawContactShadows.
+    struct ContactCar { float x[4], z[4], y; bool own; };
+    std::vector<ContactCar> contactCars_;
+    std::vector<PropFootprint> contactProps_;   // the placed props' footprints, centred on the model (DrawProps)
+    void DrawContactShadows(IDirect3DDevice9* device);
 public:
     const std::vector<PropFootprint>& PlacedProps() const { return propFootprints_; }
 private:
