@@ -399,7 +399,7 @@ I re-checked five open street-view defects at their spots on HEAD be4ccc0 and ma
 
 `tools/world_raycast fan` (a heading/pitch grid from one eye; FAN_TILE, FAN_ALL, FAN_VERBOSE) is what told these apart.
 The fixed-pose runner `gamerun/fw4_run.sh <name> <lvl> <stage> <poses>` (and `fw4_run_n.sh` with HOUR=21.5) is the FIX-WORLD-3 one with a poses argument.
-Note that the `face=` vector on the log's `view: player` line is in world x/z: the game's y is flipped.
+The `face=` vector on the log's `view: player` line is in game coordinates (x east, y south), like the position on the same line.
 
 ## Found and fixed on the way
 
