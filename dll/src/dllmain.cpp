@@ -41,6 +41,7 @@
 #include "time_of_day.h"
 #include "voice_over.h"
 #include "audio3d.h"
+#include "city_ai.h"
 #include "cache_warmup.h"
 #include "world_view.h"
 #include "../../src/sky.h"
@@ -893,6 +894,8 @@ __declspec(dllexport) void __stdcall gbh_InitDLL(void* system) {
             char audioIni[MAX_PATH];
             PathBesideGame("gta2dx9.ini", audioIni, sizeof(audioIni));
             gta2dx9::Audio3DInstall(audioIni);
+            // Pedestrians react to gunfire, cars and fires at street-view distances.
+            gta2dx9::CityAiInstall(audioIni);
         }
         // The game's Options button opens our panel; GTA2 Manager.exe does nothing here.
         gta2dx9::OptionsButtonInstall();

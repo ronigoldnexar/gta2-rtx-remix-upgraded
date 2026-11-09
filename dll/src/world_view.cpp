@@ -2,6 +2,7 @@
 #include "regress_cam.h"
 #include "density.h"
 #include "boarding.h"
+#include "city_ai.h"
 
 #include "car_bodies.h"
 #include "map_objects.h"
@@ -688,6 +689,8 @@ void WorldView::MatchGameViewToFrame() {
     // The game's car and people budgets grow with that window (density.cpp);
     // the classic view gets them back as shipped.
     DensityUpdate(ground && g_spawnOffscreenActive, g_viewPlayer.valid, g_viewPlayer.x, g_viewPlayer.y);
+    // Pedestrian reactions sized for the street views, and the ai: census (city_ai.cpp).
+    CityAiUpdate(ground, g_viewPlayer.ped, g_viewPlayer.valid, g_viewPlayer.x, g_viewPlayer.y);
 }
 
 const PlayerState& ViewPlayer() { return g_viewPlayer; }
