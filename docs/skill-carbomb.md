@@ -83,10 +83,10 @@ Frames: `m_cb_bj<n>_incar/_block/_run/_blast.png`, `m_cb_complete_*.png`. Marks 
 ## Run
 
 ```
-SWAP_LEVEL=ste GTA2_SPEED=2 GTA2_DIRECT_KEYS=1 FPS=0 \
+SWAP_LEVEL=ste GTA2_SPEED=1 GTA2_DIRECT_KEYS=1 FPS=0 \
 INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/' \
-gamerun/grun.sh <name> 1500 missions/keys_blow_job_cb.sh -e DISTRICT=ste -e WARP_OK=0 \
-    -e CB_WARP_PHONE=1 -e GTA2DX9_SCENE_NO_CAR=1
+gamerun/grun.sh <name> 2400 missions/keys_blow_job_cb.sh -e DISTRICT=ste -e WARP_OK=0 \
+    -e CB_WARP_PHONE=1 -e GTA2DX9_SCENE_NO_CAR=1 -e CB_DRIVER=old -e GTA2DX9_STATE_EVERY=3
 ```
 
 `CB_WARP_PHONE=1` is a developer shortcut for the approach only, the same as SINK OR SWIM's
@@ -115,3 +115,26 @@ in the chase view) and `FPS=0`. cb1-cb7 ran at `GTA2_SPEED=2`, cb8 on at `GTA2_S
 | cb16 | **stage 1 done and survived**; second Pickup driven to the barricade | the via points up column 61 and round the junction 61,23 cost 14000 carhp; the car burned and the skill refused to re-board it at 2787 | runner: drop those two points; skill: refuse only under carhp 900 |
 | cb17 | **stage 1 done and survived** | beaten to death during the lie-low at the escape's end by two cops on foot (wanted 1, health in steps of 10) | skill: `evade()`: toward the next car, away from cops within 7 blocks, instead of standing still |
 | **cb18** | **JOB COMPLETE, survived.** Stage 1 parked/armed/done at 247 game s; evade toward the second Pickup; boarded at 290 s; 10 via points (30391 carhp at the barricade); out on the left side, ran the left-door route north; **2999 Mission Complete at 478 game s, +$30,000, saved, lives 5, health 96**; frame `m_m_cb_complete_0.png` | - | (final code) |
+| cb19 | **stage 1 done and survived** | during `evade()` two cops caught him (health 100 -> 20) and arrested him (6158, a 123-block jump); the skill missed the arrest and tried doors at the empty spawn | skill: 6158 busted and 6156 dead end the job (detection only, play unchanged) |
+| **cb20** | **JOB COMPLETE, survived.** Stage 1 done at 222 game s, evade, second Pickup driven along the via points (a hit on the way: 16484 at the barricade), parked, armed, out on the left side, ran north; **2999 at 503 game s, +$30,000, saved, lives 5, health 72**; frame `m_m_cb_complete_0.png` | - | - |
+
+### Result
+
+**Acceptance: 2 of 3 sessions with the final code (cb18, cb19, cb20) reached JOB COMPLETE**
+(cb18 and cb20, both survived; cb19 was arrested after stage 1). With cb12 (earlier code, Mission
+Complete and saved, then killed by the barricade blast) the skill has paid out BLOW JOB three
+times. Every frame of these sessions is a chase-view frame (`GTA2_DIRECT_KEYS=1`).
+
+What is verified, and what is not:
+- Verified in the game: pre-rigged car jobs (board by `tcar`, park in a thin block via a line-up,
+  arm, both-door escape, the script's blast points avoided, the verdict from the message keys)
+  on both BLOW JOB stages.
+- Not yet run: `rig()` (the bomb-shop jobs wil_ym1, wil_zm1, ste_rm2), SCIENCE FRICTION ste_ze1
+  (same loop, keys in the table above; the Pickup at 24,41.5 is guarded by hostile Rednecks
+  there), GREATEST HITS, KARMA ASSASSINS.
+- Weak points: the wanted level after a blast. Cops on foot catch him on the walk to the next car
+  (cb11 and cb19 arrested, cb15 and cb17 beaten), and `evade()` reduces this but does not remove
+  it. The shared driver's damage on long legs is the other: the via points are per job.
+- The phone approach is a developer warp (`CB_WARP_PHONE=1`, marked `WARP` in marks.txt). The
+  runs used `GTA2_SPEED=1`, `CB_DRIVER=old` (drive3 without the smooth driver) and
+  `GTA2DX9_STATE_EVERY=3` (a position line every 3 frames, needed by the escape's steering).

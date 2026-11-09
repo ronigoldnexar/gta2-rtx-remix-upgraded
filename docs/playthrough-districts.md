@@ -728,3 +728,28 @@ played from there. This is a dev shortcut for the approach only, reported as suc
 | sos8 | **yes, 356 s** (one Return; `intercepts` spun 432 times with no road cell ahead of the target: fixed) | - | the wrong job: the walk to the phone ended on FAKE TRUCE's phone one cell east (235.5,202.5) and its brief 2300 ("collect the old Factory Bus") was up; the title check passed because FAKE TRUCE's title never showed. Stopped; the runner now approaches along rows 203-204 from the west, stops 1.5 short at 234.5,204 and nudges north, and requires SINK OR SWIM's own 2957/2272 |
 | **sos9** | **yes, 533 s**: followed a standing taxi 20 blocks off, out of the carrier 2.2 from it, one Return | operatives 1-4 aboard with the tuned runner (cap 1.6, the op-2 ramp-top stop and 2.7-block back-out): 32000 -> 29967 -> 26772 -> 26099 -> 20814; two parked ambulances at the hospital (34, counted as police by calm_drive) held the leg-4 start for 3 minutes (fixed: for this job only the police's own models count); the crane leg (231 blocks) to 19723; crept into the 3 x 3 box (196.3,246.5), out | **JOB COMPLETE**: 2287 "get out", the crane dropped the taxi, 2288 "Efficient and effective work ... $30,000" and 2999 within 7 s; money 1000 -> 31707, multiplier x2. Frames `out/sos9/m_sos_taxi.png` ... `m_sos_op4_aboard.png`, `m_sos_cranebox.png`, `shot_1430.png` (the 2288 brief), `m_sos_end.png`, all in the chase view |
 | **sos10** | **yes, 624 s**: two ambushes, one wrong entry caught and left, then a standing taxi at 202.5,174.2, one Return | operatives 1-4 aboard: 32000 -> 31014 -> 22056 -> 20065 -> 18100 (the hospital ambulances no longer held it); crane leg 232 blocks; crept into the box (196.1,246.5), out | **JOB COMPLETE**: 2287, 2999 at game 2398 s; money -> 31550, multiplier x2 (frame `out/sos10/shot_1350.png`, chase view, crane arm overhead) |
+## BLOW JOB through the car-bomb skill, 9 Nov 2026 (SKILL-CARBOMB, `cb*`)
+
+**Skill module:** `gamerun/skills/car_bomb.py` (mirrored in `linux/docker/skills/`), for the 7
+`car_bomb` jobs. **Proof job:** BLOW JOB! (`ste_re1`, both stages), runner
+`gamerun/missions/blow_job_cb.py`, keys `missions/keys_blow_job_cb.sh`. The details, the API and
+all 20 sessions are in `docs/skill-carbomb.md`.
+
+- **2 of 3 sessions with the final code reached JOB COMPLETE:** cb18 (2999 at 478 game s) and cb20
+  (2999 at 503 game s), both +$30,000, saved, and both survived. cb19 was arrested after stage 1.
+  cb12, on earlier code, also paid out and saved, then died in the barricade blast.
+- The frames are in the chase view (`GTA2_DIRECT_KEYS=1`), for example `m_m_cb_complete_0.png`
+  in each session.
+- The fixes that got there:
+  - **Via points.** Each stage carries road points, because the router's way cuts the corner at
+    61,23 into a wall.
+  - **Stage 1 entered from the west.** The car faces east, so the door is on the side away from
+    the trailer.
+  - **Escape planned before arming.** There is a route for each door, scored by clearance at the
+    end of the fuse; the side he lands on picks the route.
+  - **Steering.** Short turn pulses on a position line every 3 frames.
+  - **Escape ends.** Routes do not end on a road.
+  - **Wanted level.** He moves away from the cops toward the next car instead of standing still.
+- Settings: `SWAP_LEVEL=ste GTA2_SPEED=1 GTA2_DIRECT_KEYS=1 FPS=0 CB_WARP_PHONE=1 CB_DRIVER=old
+  GTA2DX9_STATE_EVERY=3`. The approach to the phone is the developer scene warp, marked in the
+  marks.
