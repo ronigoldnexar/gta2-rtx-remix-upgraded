@@ -171,6 +171,55 @@ mean and the dark-pixel count (luminance < 60) of an 80x70 box around the player
   into the classic view draws the classic presentation from the V press on, and has no step at
   arrival.
 
+## The switch as one camera move (FIX-SMOOTH-SWITCH, 9 Nov 2026)
+
+The owner rejected the dissolve above ("an animation effect I don't want; I want a smooth camera
+transition"), and the cut it replaced. `[camera] switch_dissolve_percent` is now 0 (a fallback
+only; `tools/merge_stage_ini.py` treats a stage's old 45 as a retired default, not an override).
+
+- **Measured first** (dissolve 0, build 51918f7, wil 159.5,139.5, lossless 30 fps over two V
+  cycles, `gamerun/keys_ss.sh`, 4 CPUs): the identity work had not removed the jump. On the frame
+  after a later press, with the camera barely started, the whole frame changed by 12.1/255 and the
+  80x70 player box went from 262 to 689 dark pixels: the sprite became a small figure in a black
+  contact-shadow blob, the ground went to the photo tiles, the mini-map and a second score block
+  appeared. The way back (first person -> classic) jumped 55/255 on its first frame: the classic
+  presentation came back at once (props and the street-only wall fill gone, the game's HUD), and
+  the path's building lift put the camera 0.75 blocks up in one frame.
+- **What the picture shows follows the camera, not the key** (`StreetPresentation`,
+  world_view.h). V only starts the move. The content that is one thing or the other (the game's
+  sprites or the figures and models, props, the street-only fill, the eye caps, the modern HUD,
+  car bodies with height) changes over at half the move's eased progress, where the camera moves
+  fastest; both directions. The ground's material cross-fades from the plain HD tile to its
+  photo copy on the same triangles over 0.3..0.7 of the progress (`Renderer::SetStreetView`,
+  two texture stages; no screen overlay, so nothing is doubled). Contact shadows fade in after
+  the change-over. The game's objective arrows are hidden while the camera moves (they are laid
+  out for the classic camera). Sky, fog, sun and far lamps were already eased.
+- **The path.** The lift out of buildings is eased (look-ahead along the path, at most 3
+  blocks/s, from 0 at the start) instead of added in quarter-block steps per cell. The height
+  goes geometrically between the two ends (the picture changes with the height's ratio), so the
+  climb out of first person no longer tears past a wall a metre away. The chase camera's wall
+  clearance (`eyecol::Clear`) is applied only within 3 blocks of the destination and blended in
+  by the distance: over the whole move it snapped the camera next to the destination whenever a
+  rail crossed the line to it (a two-frame close-up of the stairs in the middle of the first move).
+- **Result** (build of this change, run `ss_n4_c4`): a later classic -> third press, whole-frame
+  change per frame 0.04, 8.8, 13.3, 15.8, 16.8, 17.5, 17.7 ... 16.4 ... 20-28 as the camera nears
+  the player, easing to 11.5; no spike at the press or at the change-over. Player box at the
+  press 261, 251, 253, 258, 264 dark pixels (was 262 -> 689), then the camera moves off the sprite.
+  The first press: moving frames 10-21/255, box 262/257/279, no jump; the TUTORIAL banner stays
+  one HUD element (no ghost). The way back starts on the pose last shown and rises continuously;
+  its largest frame changes (40-52) are the eye cresting the courtyard roof, a real occlusion
+  change, not a cut.
+- **Classic unchanged.** Settled classic, 30 s at 5 fps, static pixels, old DLL (51918f7) vs new:
+  wil 0 pixels differ (visuals on, and off), new visuals on vs off 0 in wil, bil and ste. bil and
+  ste first showed 12 and 1 pixels on the player sprite between old and new; the old DLL run on
+  the same assets as the new one gives 0 (bil), so those came from a car-model restage between the
+  two stage copies, not from this change.
+- **Still short.** The first V of a session still holds the picture three times (0.4, 0.43, 0.23 s
+  at 4 CPUs) while sprites and models upload: assigned/first-v-press-freezes-game-up-to-9s-world-upload
+  (FIX-PERF-VSWITCH). The figures and models still appear in one frame at the change-over (during
+  the fastest part of the move, not cross-faded). The way back from first person climbs a wall face
+  at street level.
+
 ## Limits
 
 - The world is not frozen, so the two frames of a moment are 0.65-1.25 s apart. Objects are

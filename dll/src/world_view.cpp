@@ -113,6 +113,11 @@ float g_classicCarHeight = kDefaultCarBodyHeight;
 float g_classicCarShoulder = 0.7f;
 bool g_classicCarWheels = kDefaultCarWheels;
 bool g_viewActive = false;
+// FIX-SMOOTH-SWITCH: the presentation, set by WorldView::ApplyTransition (see StreetPresentation).
+bool g_presentStreet = false;
+float g_presentMix = 0.0f;
+float g_presentExtras = 0.0f;
+bool g_viewMoving = false;
 // How far from the eye the street views add the map's own lamps, in tiles, and how many at most.
 constexpr float kFarLampRadius = 36.0f;
 constexpr int kFarLampCap = 120;
@@ -706,6 +711,10 @@ void WorldView::MatchGameViewToFrame() {
 const PlayerState& ViewPlayer() { return g_viewPlayer; }
 const char* ViewCameraStatus() { return g_viewStatus; }
 bool ViewCameraActive() { return g_viewActive; }
+bool StreetPresentation() { return g_presentStreet; }
+float StreetPresentationMix() { return g_presentMix; }
+float StreetExtrasWeight() { return g_presentExtras; }
+bool ViewCameraMoving() { return g_viewMoving; }
 void ViewCameraAngles(float* yawDegrees, float* pitchDegrees) {
     *yawDegrees = g_viewYaw;
     *pitchDegrees = g_viewPitch;
@@ -2264,16 +2273,6 @@ void WorldView::UpdateCamera() {
         }
         if (placed) viewLostFrames_ = 0;
         if (placed) {
-            if (!viewActive_) {
-                // Cars as bodies with height, for a camera that is not above them.
-                // The top-down numbers come back when the view does.
-                g_classicCarHeight = CarBodyHeight();
-                g_classicCarShoulder = CarDomeShoulder();
-                g_classicCarWheels = CarWheels();
-                SetCarBodyHeight(ViewModes().groundCarHeight);
-                SetCarDomeShoulder(ViewModes().groundCarShoulder);
-                if (ViewModes().groundCarWheels) SetCarWheels(true, kDefaultCarWheelMaxAngle);
-            }
             g_viewActive = true;
             viewActive_ = true;
             g_viewYaw = viewSolver_.yawDegrees;
@@ -2285,24 +2284,9 @@ void WorldView::UpdateCamera() {
             // top-down camera and have no place in this view; left where the
             // game put them.
             SetHudCameraMap(HudCameraMap{});
-            // From his own eyes he is not in the picture, nor is the car he is
-            // in; behind him, both are.
-            // (QB-17/18: a beat's camera stands outside him, so he is drawn through it.)
-            const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody && !BeatActive();
-            SetHiddenObjects(hide ? player.pedSprite : nullptr,
-                             hide && player.inVehicle ? player.vehicleSprite : nullptr);
-            // REMIX-3D-QUALITY: under Remix his figure is still drawn from his eyes, with
-            // textures Remix keeps out of the eye's rays, so he casts the shadow his
-            // sprite casts in the classic view (on foot; in a car the game draws no ped).
-            SetOwnFigureShadowOnly(hide && !player.inVehicle && RemixApiAvailable() && OwnFigureShadowAllowed() &&
-                                   ViewModes().uprightPeds && ViewModes().groundPedFigures &&
-                                   ViewModes().groundModels && ModelsAvailable());
-            SetPlayerObject(player.pedSprite);
-            SetPlayerPed(player.ped);
-            SetPlayerPosition(player.x, player.z, static_cast<float>(gta2::kMapHeight) - player.y, player.valid);
-            SetUprightPeds(ViewModes().uprightPeds);
-            SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
-            SetGroundModels(ViewModes().groundModels && ModelsAvailable());
+            // What the picture shows (figures, models, the player's own body hidden from
+            // his eyes, car bodies with height) follows the camera's move, not the key:
+            // ApplyTransition -> ApplyPresentation (FIX-SMOOTH-SWITCH).
             ApplyTransition(viewDt, mode);
             return;
         }
@@ -2311,19 +2295,11 @@ void WorldView::UpdateCamera() {
             camera_.SetOrientation(0.0f, classicPitch_);
             camera_.SetFovY(classicFov_);
             camera_.SetRoll(0.0f);
-            SetCarBodyHeight(g_classicCarHeight);
-            SetCarDomeShoulder(g_classicCarShoulder);
-            SetCarWheels(g_classicCarWheels, kDefaultCarWheelMaxAngle);
         }
         g_viewActive = false;
-        SetHiddenObjects(nullptr, nullptr);
-        SetOwnFigureShadowOnly(false);
-        SetPlayerObject(nullptr);
-        SetPlayerPed(nullptr);
-        SetPlayerPosition(0.0f, 0.0f, 0.0f, false);
-        SetUprightPeds(false);
-        SetPedFigures(false);
-        SetGroundModels(false);
+        // The street presentation stays up while the camera rises out of a street view,
+        // and is handed back to the classic one part way up (ApplyPresentation, called
+        // from ApplyTransition at the end of the classic camera below).
     }
 
     const float k = g_cameraSmoothing;
@@ -2395,7 +2371,12 @@ void WorldView::UpdateCamera() {
     if (game::VisibleExtent(&extent)) {
         visibleTiles_ = extent.Height();
     }
-    if (visibleTiles_ <= 0.01f) return;
+    if (visibleTiles_ <= 0.01f) {
+        // No game camera to frame (between levels): the classic presentation, as before.
+        g_presentStreet = false; g_presentMix = 0.0f; g_presentExtras = 0.0f;
+        ApplyPresentation(ViewMode::Classic);
+        return;
+    }
 
     // The game's zoom is eased the same way, but the view never shows noticeably
     // more than the game has drawn, whichever way it is going.
@@ -2444,6 +2425,61 @@ void WorldView::UpdateCamera() {
     SetHudCameraMap(map);
 }
 
+// What the picture presents, applied once a frame after the camera is placed
+// (FIX-SMOOTH-SWITCH; the settings are those the street views always used, moved here
+// from the moment the solver placed the camera, which was the V press itself).
+void WorldView::ApplyPresentation(ViewMode mode) {
+    const bool street = g_presentStreet;
+    if (street != presentedStreet_) {
+        if (street) {
+            // Cars as bodies with height, for a camera that is not above them.
+            // The top-down numbers come back with the classic presentation.
+            g_classicCarHeight = CarBodyHeight();
+            g_classicCarShoulder = CarDomeShoulder();
+            g_classicCarWheels = CarWheels();
+            SetCarBodyHeight(ViewModes().groundCarHeight);
+            SetCarDomeShoulder(ViewModes().groundCarShoulder);
+            if (ViewModes().groundCarWheels) SetCarWheels(true, kDefaultCarWheelMaxAngle);
+        } else {
+            SetCarBodyHeight(g_classicCarHeight);
+            SetCarDomeShoulder(g_classicCarShoulder);
+            SetCarWheels(g_classicCarWheels, kDefaultCarWheelMaxAngle);
+        }
+        presentedStreet_ = street;
+        Log("view: presentation %s (frame %d, move %.3f, %s)", street ? "street" : "classic", frameCount_, transitionT_,
+            ViewModeName(mode));
+    }
+    if (street) {
+        const PlayerState& player = g_viewPlayer;
+        // From his own eyes he is not in the picture, nor is the car he is
+        // in; behind him, both are.
+        // (QB-17/18: a beat's camera stands outside him, so he is drawn through it.)
+        const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody && !BeatActive();
+        SetHiddenObjects(hide ? player.pedSprite : nullptr, hide && player.inVehicle ? player.vehicleSprite : nullptr);
+        // REMIX-3D-QUALITY: under Remix his figure is still drawn from his eyes, with
+        // textures Remix keeps out of the eye's rays, so he casts the shadow his
+        // sprite casts in the classic view (on foot; in a car the game draws no ped).
+        SetOwnFigureShadowOnly(hide && !player.inVehicle && RemixApiAvailable() && OwnFigureShadowAllowed() &&
+                               ViewModes().uprightPeds && ViewModes().groundPedFigures && ViewModes().groundModels &&
+                               ModelsAvailable());
+        SetPlayerObject(player.pedSprite);
+        SetPlayerPed(player.ped);
+        SetPlayerPosition(player.x, player.z, static_cast<float>(gta2::kMapHeight) - player.y, player.valid);
+        SetUprightPeds(ViewModes().uprightPeds);
+        SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
+        SetGroundModels(ViewModes().groundModels && ModelsAvailable());
+    } else {
+        SetHiddenObjects(nullptr, nullptr);
+        SetOwnFigureShadowOnly(false);
+        SetPlayerObject(nullptr);
+        SetPlayerPed(nullptr);
+        SetPlayerPosition(0.0f, 0.0f, 0.0f, false);
+        SetUprightPeds(false);
+        SetPedFigures(false);
+        SetGroundModels(false);
+    }
+}
+
 // The move between views.
 //
 // Every frame the view in force has set camera_ to where it wants the camera;
@@ -2468,6 +2504,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         if (lastPoseValid_ && vm.transitionSeconds > 0.01f) {
             transitionFrom_ = lastPose_;
             transitionT_ = 0.0f;
+            transitionLift_ = 0.0f;
             transitionToClassic_ = mode == ViewMode::Classic;
             transitionFromClassic_ = lastViewMode_ == ViewMode::Classic;
             // The last frame drawn was the settled classic view and the renderer kept it:
@@ -2491,19 +2528,70 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         const float e = t * t * (3.0f - 2.0f * t);
         const gta2::Vec3& a = transitionFrom_.position;
         const gta2::Vec3& b = target.position;
-        gta2::Vec3 p = a + (b - a) * e;
         const gta2::Vec3 span = b - a;
         const float length = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
-        // The arc: a sine bump along the way, scaled by the distance.
-        p.y += std::sin(e * 3.14159265f) * length * vm.transitionArc;
+        // FIX-SMOOTH-SWITCH: between the classic camera (high above) and a street camera (by
+        // the player) the height goes in proportion, not in equal steps: the picture changes
+        // with the height's ratio, so equal steps swept a street-level picture past at many
+        // times the rate of the high one (on the way up from first person, a wall a metre
+        // away tore past at 40-55/255 a frame). Above a floor a block under the lower end,
+        // the height runs geometrically with the eased progress; across and along, as before.
+        const float floorY = (std::min)(a.y, b.y) - 1.0f;
+        const float ha = a.y - floorY, hb = b.y - floorY;   // both >= 1
+        const auto pathAt = [&](float ee) {
+            gta2::Vec3 q = a + (b - a) * ee;
+            q.y = floorY + ha * std::pow(hb / ha, ee);
+            // The arc: a sine bump along the way, scaled by the distance.
+            q.y += std::sin(ee * 3.14159265f) * length * vm.transitionArc;
+            return q;
+        };
+        gta2::Vec3 p = pathAt(e);
         // Out of any building the path crosses - by a storey at most, so a short
         // move past a wall never becomes a flight over the city.
-        for (int lift = 0; lift < 6 && Blocked(p.x, p.y, p.z); ++lift) p.y += 0.25f;
+        // FIX-SMOOTH-SWITCH: the lift is eased, never stepped. It was added whole on the
+        // frame it was needed, in quarter-block steps per cell, so a move that began
+        // where the cells read 'blocked' (a first-person eye under a sign or beside a
+        // wall) jumped up to 1.5 blocks on its first frame, and a path crossing cells
+        // hopped. Now: the most the path needs over the next stretch of the move (looking
+        // ahead, so it rises before it reaches a roof), approached at no more than
+        // kLiftRate blocks a second from 0 at the start of the move (whose first pose is
+        // the one last shown, which needs none).
+        {
+            constexpr float kLiftRate = 3.0f;
+            const auto liftAt = [&](float ee) {
+                const gta2::Vec3 q = pathAt(ee);
+                float l = 0.0f;
+                for (int i = 0; i < 6 && Blocked(q.x, q.y + l, q.z); ++i) l += 0.25f;
+                return l;
+            };
+            float need = 0.0f;
+            for (int k = 0; k <= 3; ++k) need = (std::max)(need, liftAt((std::min)(1.0f, e + 0.05f * static_cast<float>(k))));
+            // Arriving, the lift goes with the arc: none is left on the destination's own pose.
+            need *= (std::min)(1.0f, (1.0f - e) / 0.15f);
+            const float step = kLiftRate * (std::max)(dt, 1.0f / 120.0f);
+            if (transitionLift_ == 0.0f && need > 0.0f && e < 0.02f)
+                Log("view: move path lift: %.2f blocks needed at the start, eased in at %.1f blocks/s", need, kLiftRate);
+            transitionLift_ += (std::max)(-step, (std::min)(step, need - transitionLift_));
+            p.y += transitionLift_;
+        }
         // FIX-OCCLUSION: nor through a wall the cells do not see (a diagonal, a partial block):
         // on the way into a street view the camera is never on the far side of a surface from
         // where it is going, nor nearer one than the near plane allows.
         if (!transitionToClassic_ && eyecol::Ready()) {
-            eyecol::Clear(b, &p, 0.15f);
+            // FIX-SMOOTH-SWITCH: only near the destination, and blended in by the distance. Over
+            // the whole move it cast from the destination (the chase eye by the player) up to the
+            // camera high on the path, and anything across that line (a stair rail, a sign) put
+            // the camera next to the destination for the frames it stayed crossed: a flash of a
+            // close-up in the middle of the flight (first V, wil 159.5,139.5, frames 72-73).
+            // Within 3 blocks it takes over smoothly; at 1.5 blocks and nearer it is whole.
+            const gta2::Vec3 toB = p - b;
+            const float db = std::sqrt(toB.x * toB.x + toB.y * toB.y + toB.z * toB.z);
+            if (db < 3.0f) {
+                gta2::Vec3 c = p;
+                eyecol::Clear(b, &c, 0.15f);
+                const float u = (std::min)(1.0f, (std::max)(0.0f, (3.0f - db) / 1.5f));
+                p = p + (c - p) * (u * u * (3.0f - 2.0f * u));
+            }
             // Still in a closed block (the path dives through a roof the destination is under):
             // the camera waits where it was last shown, outside, until the path leaves it.
             if (lastPoseValid_ && eyecol::InsideSolid(p) && !eyecol::InsideSolid(lastPose_.position)) p = lastPose_.position;
@@ -2568,11 +2656,37 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         camera_.SetRoll(shown.roll);
         camera_.SetFovY(shown.fov);
         // The HUD's world-anchored parts only line up with the classic camera
-        // once it is there; while the camera travels, nothing of the player's
-        // own body is hidden either, since the eye is not yet in his head.
+        // once it is there.
         if (transitionToClassic_) SetHudCameraMap(HudCameraMap{});
-        if (mode == ViewMode::FirstPerson && t < 0.8f) SetHiddenObjects(nullptr, nullptr);
     }
+    // FIX-SMOOTH-SWITCH: what the picture presents follows the camera, not the key.
+    // s is how far the camera has gone from the classic pose towards a street pose
+    // (the move's own eased progress). The content that can only be one thing or the
+    // other (the game's sprites or the figures and models, the street-only fill, the
+    // modern HUD) changes over at s = 0.5, where the eased camera moves fastest, so the
+    // press itself changes nothing but the camera; the ground's material cross-fades on
+    // the same geometry over s 0.3..0.7, and the contact shadows come in after the
+    // change-over. A move between two street views (third <-> first) is street throughout.
+    {
+        float s = mode == ViewMode::Classic ? 0.0f : 1.0f;
+        if (transitionT_ < 1.0f && (transitionFromClassic_ || transitionToClassic_)) {
+            const float t = transitionT_;
+            const float e = t * t * (3.0f - 2.0f * t);
+            s = transitionToClassic_ ? 1.0f - e : e;
+        }
+        const auto ramp = [](float a, float b, float x) {
+            const float u = (std::min)(1.0f, (std::max)(0.0f, (x - a) / (b - a)));
+            return u * u * (3.0f - 2.0f * u);
+        };
+        g_presentStreet = s >= 0.5f;
+        g_presentMix = ramp(0.3f, 0.7f, s);
+        g_presentExtras = g_presentStreet ? ramp(0.5f, 0.85f, s) : 0.0f;
+        g_viewMoving = transitionT_ < 1.0f;
+    }
+    ApplyPresentation(mode);
+    // While the camera travels into first person nothing of the player's own body is
+    // hidden either, since the eye is not yet in his head.
+    if (transitionT_ < 1.0f && mode == ViewMode::FirstPerson && transitionT_ < 0.8f) SetHiddenObjects(nullptr, nullptr);
     // FIX-OCCLUSION safety net, every street view (the first-person eye has already been kept
     // 0.24 clear; the chase camera solves its own boom): never closer to a surface than the
     // near plane's corners (0.09 at the widest field of view), so no wall is ever cut open.
@@ -2811,7 +2925,7 @@ void WorldView::GhostStreetFrame() {
         QueryPerformanceFrequency(&frequency);
         renderer_.DrawSky(cam, sky, colours, 1.0f, static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart));
     }
-    renderer_.SetStreetView(true);
+    renderer_.SetStreetView(true, 1.0f);   // the photo set, as a settled street view binds it
     renderer_.DrawWorld(cam);
     if (IDirect3DDevice9* device = renderer_.Device()) {
         const gta2::Mat4 view = cam.ViewMatrix();
@@ -2960,25 +3074,28 @@ void WorldView::RenderFrame() {
         // in the classic view.
         DrawSkyAndShading();
         QueryPerformanceCounter(&skyStamp);
-        // Photo-material tiles only while a street view shows (skyBlend_ is 0 whenever
-        // the classic view is settled): classic keeps the plain HD set unchanged.
+        // Photo-material tiles only while the street presentation shows (always classic
+        // when the classic view is settled): classic keeps the plain HD set unchanged.
+        // During a move the ground's material cross-fades from one set to the other on
+        // the same geometry (StreetPresentationMix), and the street-only fill comes and
+        // goes with the presentation (FIX-SMOOTH-SWITCH; it switched at the V press before).
         {
-            const bool street = worldUploaded_ && skyBlend_ > 0.001f;
+            const bool street = worldUploaded_ && g_presentStreet;
             // The tile set switch (plain HD set in classic, photo/road set in the street views),
             // logged with its frame so a classic A/B can tell a move's tail from the settled view.
             static int lastStreet = -1;
             if (static_cast<int>(street) != lastStreet) {
-                Log("view: tile set %s (frame %d, sky blend %.4f)", street ? "street (photo/road)" : "classic (plain HD)",
-                    frameCount_, skyBlend_);
+                Log("view: tile set %s (frame %d, sky blend %.4f, material mix %.3f)", street ? "street (photo/road)" : "classic (plain HD)",
+                    frameCount_, skyBlend_, g_presentMix);
                 lastStreet = street ? 1 : 0;
             }
-            renderer_.SetStreetView(street);
+            renderer_.SetStreetView(street, worldUploaded_ ? g_presentMix : 0.0f);
         }
         renderer_.DrawWorld(camera_);
         // FIX-OCCLUSION: should the eye still be in a block, the block is closed round it
         // (back sides of the faces near the eye, depth-hidden from outside). Street views only,
         // never under Remix (its own geometry rules) nor in the classic view.
-        if (worldUploaded_ && skyBlend_ > 0.001f && CurrentViewMode() != ViewMode::Classic && !renderer_.IsRemixDevice() &&
+        if (worldUploaded_ && g_presentStreet && !renderer_.IsRemixDevice() &&
             renderer_.Device()) {
             DWORD cull = D3DCULL_CCW;
             renderer_.Device()->GetRenderState(D3DRS_CULLMODE, &cull);
@@ -3042,8 +3159,8 @@ void WorldView::RenderFrame() {
         stamp[5] = lightTimer[3];
         // A settled classic frame is kept for the dissolve above (a copy; this frame is
         // presented exactly as drawn). Any other frame drops the copy.
-        if (worldUploaded_ && CurrentViewMode() == ViewMode::Classic && !g_viewActive && transitionT_ >= 1.0f &&
-            skyBlend_ <= 0.0f && !DebugMenuVisible()) {
+        if (worldUploaded_ && ViewModes().switchDissolve > 0.001f && CurrentViewMode() == ViewMode::Classic && !g_viewActive &&
+            transitionT_ >= 1.0f && skyBlend_ <= 0.0f && !DebugMenuVisible()) {
             renderer_.KeepFrame();
             keptClassicAt_ = frameCount_;
         } else if (renderer_.HasKeptFrame() && !dissolveActive_) {

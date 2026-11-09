@@ -430,6 +430,9 @@ void SetPlayerWeapon(int weapon, int ammo) { g_playerWeapon = weapon; g_playerAm
 int PlayerWeapon() { return g_playerWeapon; }
 void SetCarLamps(int mode) { g_carLamps = mode; }
 bool UprightPeds() { return g_uprightPeds; }
+// FIX-SMOOTH-SWITCH (world_view.cpp): the presentation follows the camera's move, not the key.
+bool StreetPresentation();
+float StreetExtrasWeight();
 namespace { bool g_pedFigures = false; }
 void SetPedFigures(bool on) { g_pedFigures = on; }
 bool PedFigures() { return g_pedFigures; }
@@ -7762,7 +7765,10 @@ IDirect3DTexture9* ContactTexture(IDirect3DDevice9* device) {
 }  // namespace
 
 void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
-    if (g_contactShadows <= 0 || CurrentViewMode() == ViewMode::Classic || RemixApiAvailable()) return;
+    // With the street presentation (FIX-SMOOTH-SWITCH: through a move between the views it
+    // follows the camera), faded in by StreetExtrasWeight after the figures have taken over.
+    const float extras = StreetExtrasWeight();
+    if (g_contactShadows <= 0 || !StreetPresentation() || extras <= 0.0f || RemixApiAvailable()) return;
     IDirect3DTexture9* texture = ContactTexture(device);
     if (!texture) return;
     struct V { float x, y, z, u, v; };
@@ -7838,7 +7844,7 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
     device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
     device->SetRenderState(D3DRS_TEXTUREFACTOR,
-                           D3DCOLOR_ARGB(static_cast<int>(g_contactShadows * 2.55f * day + 0.5f), 0, 0, 0));
+                           D3DCOLOR_ARGB(static_cast<int>(g_contactShadows * 2.55f * day * extras + 0.5f), 0, 0, 0));
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
@@ -10144,7 +10150,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         g_viewForward = {std::sin(camera.Yaw()) * cp, std::sin(camera.Pitch()), std::cos(camera.Yaw()) * cp};
     }
     SetViewFrustum(camera, width, height);
-    g_viewActiveForPops = CurrentViewMode() != ViewMode::Classic;
+    g_viewActiveForPops = StreetPresentation();
     ++g_carFrame;
     g_carMaterialsThisFrame = 0;
     lastEye_ = camera.Position();

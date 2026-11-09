@@ -44,6 +44,22 @@ bool SpawnOffscreenActive();
 const PlayerState& ViewPlayer();
 const char* ViewCameraStatus();
 bool ViewCameraActive();
+// What the picture presents (FIX-SMOOTH-SWITCH): the street views' content (figures,
+// models, props, the street-only fill, the modern HUD, contact shadows) or the classic
+// view's (the game's sprites, the plain HD tiles, the game's HUD). It follows the
+// camera's progress through a move between the views, not the V key: the press only
+// starts the camera, and the content changes over in the fastest part of the move.
+// Equal to "a street view is the current view" whenever no move is in progress.
+bool StreetPresentation();
+// 0..1, how far the ground's material has gone over to the street set during a move
+// (0 classic, 1 street); the tile set cross-fades on the same geometry by it.
+float StreetPresentationMix();
+// 0..1, the weight of the street-only shading extras that fade in after the content
+// has changed over (contact shadows); 1 in a settled street view, 0 in classic.
+float StreetExtrasWeight();
+// A move between the views is in progress (the camera is neither the settled classic
+// camera nor a settled street camera).
+bool ViewCameraMoving();
 void ViewCameraAngles(float* yawDegrees, float* pitchDegrees);
 float ViewPlayerSpeed();
 
@@ -275,7 +291,12 @@ private:
     bool dissolveActive_ = false;
     float dissolveT0_ = -1.0f;
     int viewLostFrames_ = 0;       // frames a ground view has gone without the player
+    // FIX-SMOOTH-SWITCH: the presentation last applied (see StreetPresentation), so the
+    // car body numbers swap once per change.
+    bool presentedStreet_ = false;
+    float transitionLift_ = 0.0f;  // the eased lift of the move's path out of buildings (blocks)
     void ApplyTransition(float dt, ViewMode mode);
+    void ApplyPresentation(ViewMode mode);
     void DrawSkyAndShading();
     // FIX-PERF-VSWITCH: one street frame drawn where nothing shows, in the classic view.
     void GhostStreetFrame();

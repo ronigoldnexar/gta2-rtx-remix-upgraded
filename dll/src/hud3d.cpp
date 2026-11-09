@@ -1711,7 +1711,10 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
     // as pink/green/violet outlines. They go whenever a street view is up, whatever the modern
     // HUD's state (modern=0, the pause screen, a frame the values could not be read);
     // DrawObjectiveMarkers shows the same slots through the 3D camera. Never in the classic view.
-    if ((part == 2 || part == 13) && g_cfg.markers && g_street && CurrentViewMode() != ViewMode::Classic && ViewCameraActive()) {
+    // FIX-SMOOTH-SWITCH: also through a move between the views, where they would slide over
+    // a world the camera no longer frames the game's way (they come back with the settled
+    // classic camera).
+    if ((part == 2 || part == 13) && g_cfg.markers && (g_street || ViewCameraMoving())) {
         ++g_markerSwallowed;
         return true;
     }
@@ -1741,7 +1744,10 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         g_cfg.modern = !g_cfg.modern;
         Log("hud3d: toggle key: %s HUD", g_cfg.modern ? "modern" : "classic");
     }
-    const bool street = worldLoaded && ViewCameraActive() && CurrentViewMode() != ViewMode::Classic;
+    // The street presentation, which follows the camera through a move between the views
+    // rather than the V key (FIX-SMOOTH-SWITCH; world_view.h StreetPresentation): the
+    // modern HUD takes over from the game's where the figures take over from the sprites.
+    const bool street = worldLoaded && StreetPresentation();
     if (!street) Prewarm(device, width, height, map, worldLoaded);
     Values v = street && (g_cfg.modern || g_cfg.markers) ? ReadValues() : Values{};
     g_street = street;

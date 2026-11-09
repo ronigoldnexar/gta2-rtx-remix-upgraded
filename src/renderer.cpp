@@ -1526,6 +1526,45 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
             device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
         }
+        // FIX-SMOOTH-SWITCH: part way through a move between the classic and a street view,
+        // the tile's plain HD texture and its photo-material copy cross-fade on the same
+        // triangles (stage 1 lerps by the texture factor's alpha), then the sun's lighting
+        // is applied as it is to either alone. Only while 0 < photoMix_ < 1, so neither
+        // settled view draws anything differently; not on water or lit-window tiles, which
+        // use the extra stages themselves and take the set BoundTileTexture picks.
+        IDirect3DTexture9* const photoBlend =
+            (photoMix_ > 0.0f && photoMix_ < 1.0f && !water && !glow) ? PhotoTileTexture(batch.tile) : nullptr;
+        if (photoBlend) {
+            device_->SetTexture(0, textures_[batch.tile]);
+            device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+            device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+            device_->SetTexture(1, photoBlend);
+            device_->SetTextureStageState(1, D3DTSS_TEXCOORDINDEX, 0);
+            device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_BLENDFACTORALPHA);
+            device_->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+            device_->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_CURRENT);
+            device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_BLENDFACTORALPHA);
+            device_->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+            device_->SetTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+            static const D3DSAMPLERSTATETYPE kCopy[] = {D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MINFILTER, D3DSAMP_MAGFILTER,
+                                                        D3DSAMP_MIPFILTER, D3DSAMP_MAXANISOTROPY};
+            for (D3DSAMPLERSTATETYPE k : kCopy) {
+                DWORD v = 0;
+                if (SUCCEEDED(device_->GetSamplerState(0, k, &v))) device_->SetSamplerState(1, k, v);
+            }
+            const int a = static_cast<int>(photoMix_ * 255.0f + 0.5f);
+            device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_RGBA(255, 255, 255, a));
+            if (shading_.sun) {
+                device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_MODULATE);
+                device_->SetTextureStageState(2, D3DTSS_COLORARG1, D3DTA_CURRENT);
+                device_->SetTextureStageState(2, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+                device_->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+                device_->SetTextureStageState(2, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+                device_->SetTextureStageState(3, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            } else {
+                device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            }
+        }
         // The street views leave the overhead decals out (world_mesh.h, TileBatch::streetIndices).
         const bool streetRange = streetView_ && batch.streetIndices;
         const uint32_t first = streetRange ? batch.streetIndexStart : batch.indexStart;
@@ -1533,6 +1572,15 @@ void Renderer::DrawWorld(const Camera& camera) {
         if (count >= 3)
             device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
                                           first, count / 3);
+        if (photoBlend) {
+            device_->SetTextureStageState(0, D3DTSS_COLOROP, shading_.sun ? D3DTOP_MODULATE : D3DTOP_SELECTARG1);
+            device_->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+            for (DWORD stage = 1; stage <= 2; ++stage) {
+                device_->SetTextureStageState(stage, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                device_->SetTextureStageState(stage, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+            }
+            device_->SetTexture(1, nullptr);
+        }
         if (batch.wrapUv) {
             device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
             device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
@@ -1623,12 +1671,14 @@ bool Renderer::BeginGhostFrame() {
     device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0);
     ghostShading_ = shading_;
     ghostStreet_ = streetView_;
+    ghostPhotoMix_ = photoMix_;
     return true;
 }
 
 void Renderer::EndGhostFrame() {
     if (!ghostState_) return;
     streetView_ = ghostStreet_;
+    photoMix_ = ghostPhotoMix_;
     shading_ = ghostShading_;
     device_->SetRenderTarget(0, ghostSavedRt_);
     device_->SetDepthStencilSurface(ghostSavedDepth_);

@@ -129,7 +129,15 @@ public:
     // classic view keeps the plain HD set, byte-for-byte as before the photo set
     // existed (and the one Remix's hashes are keyed on). The caller says each
     // frame whether a street view is showing.
-    void SetStreetView(bool on) { streetView_ = on; }
+    // on: the street presentation (its street-only fill drawn); photoMix: how far the
+    // ground's material has gone from the plain HD set (0) to the photo set (1). Between
+    // the two, DrawWorld cross-fades a tile's two textures on the same triangles
+    // (FIX-SMOOTH-SWITCH, the camera move between the views). The settled classic view
+    // is (false, 0): exactly the draws it had before.
+    void SetStreetView(bool on, float photoMix) {
+        streetView_ = on;
+        photoMix_ = photoMix < 0.0f ? 0.0f : (photoMix > 1.0f ? 1.0f : photoMix);
+    }
     // The clock the street-level water effect scrolls by (seconds); any
     // monotonic clock, the sky's is used.
     void SetWaterClock(double seconds) { waterClock_ = seconds; }
@@ -223,6 +231,7 @@ private:
     IDirect3DStateBlock9* ghostState_ = nullptr;
     WorldShading ghostShading_;
     bool ghostStreet_ = false;
+    float ghostPhotoMix_ = 0.0f;   // FIX-SMOOTH-SWITCH: the material mix, restored with streetView_
     void ApplyFixedFunctionState();
     void ReleaseResources();
 
@@ -261,10 +270,17 @@ private:
     std::vector<IDirect3DTexture9*> photoTextures_;
     std::vector<uint8_t> tileAnimated_;
     bool streetView_ = false;
+    float photoMix_ = 0.0f;
     IDirect3DTexture9* LoadPhotoTileTexture(int tile);
+    IDirect3DTexture9* PhotoTileTexture(int tile) const {
+        return tile < static_cast<int>(photoTextures_.size()) && photoTextures_[tile] && !tileAnimated_[tile] ? photoTextures_[tile]
+                                                                                                              : nullptr;
+    }
+    // The one texture a tile is drawn with where no cross-fade is done: the photo set
+    // from half way through the material's change-over.
     IDirect3DTexture9* BoundTileTexture(int tile) const {
-        if (streetView_ && tile < static_cast<int>(photoTextures_.size()) && photoTextures_[tile] && !tileAnimated_[tile])
-            return photoTextures_[tile];
+        if (photoMix_ >= 0.5f)
+            if (IDirect3DTexture9* photo = PhotoTileTexture(tile)) return photo;
         return textures_[tile];
     }
     std::vector<uint8_t> waterTile_;   // per tile: 1 when it is the water surface

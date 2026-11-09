@@ -194,7 +194,7 @@ void LoadConfig() {
         vm.turnRateCar = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_car", 90, ini));
         vm.navMap = GetPrivateProfileIntA("camera", "nav_map", 1, ini) != 0;
         {
-            const int d = GetPrivateProfileIntA("camera", "switch_dissolve_percent", 45, ini);
+            const int d = GetPrivateProfileIntA("camera", "switch_dissolve_percent", 0, ini);
             vm.switchDissolve = static_cast<float>(d < 0 ? 0 : (d > 100 ? 100 : d)) / 100.0f;
         }
         vm.navTurnSign = GetPrivateProfileIntA("camera", "nav_turn_sign", 1, ini) < 0 ? -1 : 1;
