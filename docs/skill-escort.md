@@ -75,16 +75,17 @@ when the boarding beats the on-foot pick, and `wait_board` calls it whenever the
 | gr4 | **GET ZITZAKI complete (921 s) with the escort flow**; BANK ROBBERY failed (432 s) | not reached | `wait_board` in the box, the doctor aboard 40 s later on the job's signal; the doctor was not tracked (the gang filter above), so the garage leg ran without the aboard watch (fixed: occupation 18 pick, `adopt_aboard`) |
 | gr5 | **GET ZITZAKI complete with the escort flow** (doctor leg 3 min; the session was paused 25 min by the CPU governor); BANK ROBBERY failed (176 s: guards down in 4 s, then out of the car on the way to the respray with wanted 2 and a cop 11 blocks off; briefs 1666, 1668, 1125: pulled out / arrested) | not reached | **the doctor picked on foot** (ped 409, `gang/yakuza` remap 13 occupation 18, 0.6 from the car) and **seen aboard by the skill's own test** 1 s later; `drive`'s aboard watch ran the whole 3-min garage leg with no false alarm; JOB COMPLETE |
 | gr6 | **GET ZITZAKI complete** (887 s, doctor ped 317 picked on foot 0.3 from the car), **BANK ROBBERY complete** (422 s) | yellow phone answered; **in a Medicar** after 339 s (one seen, jacked from a carrier). The jack gave wanted 1; 15 s into the drive a cop pulled him out (state 8) and, out of the Medicar, the script removed the box arrow (brief 1373), which deliver took for the box: `wait_board` then waited 180 s for a Gama Rei the script never created (`escort: timeout`) | fixed: a respray when wanted after the jack; the hospital box counts only with brief 1374 or the Medicar inside the 3 x 2 block, else back into the Medicar and again |
+| gr7 | **GET ZITZAKI complete** (684 s, doctor ped 310 picked 0.6 from the car); BANK ROBBERY failed (210 s) | not reached | BANK ROBBERY's own escort held: Hiroshi (ped 585, occupation 18, `gang/yakuza`) walked out after the guards and rode in the Graham (`m18`) to the respray; at the shop door (204.1,219.5) he and the player were both out of the car within 0.3 s and 1125 followed (gr2 failed at the same door). The script points its arrow at the shop at 86.5,160.5; the runner uses the one at 204.5,221.5 (gr1 completed through it too). For the BANK ROBBERY runner's owner |
 
 BANK ROBBERY's runner (`missions/bank_robbery.py`, not this stream's) is the bottleneck of the chain:
-4 complete in 10 sessions over the two days (br7, br9, gr1, gr6); in this stream's sessions 2 of 6.
+4 complete in 11 sessions over the two days (br7, br9, gr1, gr6); in this stream's sessions 2 of 7.
 
 ## Verified vs untested
 
 - Verified in game: the respect chain opens the yellow phone (gr1); `wait_board` keeps the car still
   in the box until the job signals the passenger aboard, and GET ZITZAKI completes with it (gr4);
   the occupation-18 pick, the skill's own aboard test and `drive`'s aboard watch over a whole leg,
-  GET ZITZAKI complete (gr5). GET ZITZAKI on the escort flow: 3 of 3 sessions complete (gr4, gr5, gr6).
+  GET ZITZAKI complete (gr5). GET ZITZAKI on the escort flow: 4 of 4 sessions complete (gr4-gr7; the doctor picked and tracked by the skill in gr5, gr6, gr7).
 - Verified offline (a synthetic renderer log in the gr4 line format): pick, `adopt_aboard`,
   `aboard`, `threats`, `threat_cars`, out-of-window is not death.
 - Untested in game: `drive`'s threat pace and its stop-and-reboard path, `bring_car`, `lead`, `defend`, the
