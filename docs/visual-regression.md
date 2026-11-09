@@ -215,3 +215,22 @@ leave-one-out **0 WARN/FAIL of 93**. The check run re-diffed against them: PASS 
 with the soft roof (defect `pm-photo-tiles-roof-and-brick-softer-than-plain-hd` is open); reseed them when it is fixed.
 Shots: `spawn_classic`, `spawn_third`, `spawn_first`, `spawn_portrait_front`, and `chase`/`street`/`high` for policehq,
 cityinfo, bank, lights23, yakuza1, raised_w03, m37, restart1, loonie (31). The older `48a9b58` goldens are kept.
+
+## Reseed of 9 Nov 2026, third (QA-RESEED-3, goldens `afb3cb6`)
+
+Captured from the live stage built from `afb3cb6` (3 captures, GPU 4). One check against the `e93b53c` goldens: PASS 23,
+WARN 4, FAIL 4, 0 faults; the other two captures gave the same 8 shots (tile counts within 2). Every changed pair was
+looked at (sheets not in git). `spawn_classic` was identical (0 tiles). Nothing was refused.
+
+| Shot | Difference | Explained by |
+|---|---|---|
+| `spawn_classic` | none | classic is byte-for-byte unchanged |
+| `spawn_third` (FAIL, 125) | the camera now stands off and looks at the whole hero on level ground, with the staircase, the sign and sky in frame; the old golden had him cut off at the bottom edge | 814fa7e, 270cd8f (FIX-CAMERA-3/4: whole figure, boom solved against the mesh, swings round before it rises) |
+| `spawn_first` (FAIL, 20-22) | his fists at the bottom edge; the lamp post beside the booth is gone; a passer-by in the booth's doorway in some captures (crowd, not fixed) | aec5a8c (FIX-FP-2 fists), 3fe51b5 (props), crowd |
+| `spawn_portrait_front` (WARN, 8-10) | a tree model top right instead of the dark pyramid; the minimap is rotated | b0d1d3f (FIX-WORLD-5 map trees); the minimap follows the boom swing of 270cd8f (not verified further) |
+| `restart1_chase` (FAIL, 29), `restart1_street` (FAIL, 19) | the pyramid trees are rounded leafy tree models; the street view's sky has white cloud puffs in place of grey-brown smudges | b0d1d3f, 211bd69 (volumetric canopies), 50e3a57 (white clouds) |
+| `lights23_chase/_street/_high` (WARN, 9-14) | crosswalk and asphalt tone, cloud tone at the top of the street shot, a passer-by | 211bd69 (road paint classes), 50e3a57 |
+
+The night-light commits (d57f211, c836ec7) do not show: the clock is held at 12:30. Goldens in force: `goldens/afb3cb6`
+(3 captures, 93 samples, leave-one-out 0 WARN/FAIL of 93); a re-diff of capture 1 against them: PASS 31 of 31. The m37 shots
+still carry the soft roof (defect `pm-photo-tiles-roof-and-brick-softer-than-plain-hd`). `goldens/e93b53c` is kept.
