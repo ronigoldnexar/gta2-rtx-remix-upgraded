@@ -11,37 +11,28 @@ release/
 
 # Local shortcuts
 *.lnk
-
 # Extracted game sprites and AI working files (not for publishing)
 car_sprites/
 ped_sheets/
 pending_lights/
-
 dll/src_backup_before_lights/
 dll/src/*-1.cpp
 dll/src/*-1.h
-
 # Linux build
 stage/
 linux/build/
-
 # Generated high-resolution tile sets (hundreds of MB): regenerate with tools/upscale_textures.py
 assets/textures_hd/
 tools/__pycache__/
-
 # Generated Remix material textures (~190 MB of DDS): regenerate with tools/remix_materials.py; shipped as a release asset
 package/rtx-remix/mods/gta2hd/textures/
-
 # Generated car models (~280 MB of TGA): regenerate with tools/make_car_manifest.py + tools/import_assets.py; shipped as a release asset
 assets/models/0[0-9][0-9]_*
-
 # Imported Rocketbox avatars (MIT, ~280 MB of mesh+TGA for 41 people): regenerate with tools/import_assets.py; shipped as a release asset
 assets/models/human_*
-
 # Every Remix material layer's textures (the 64 px keyed layer too)
 package/rtx-remix/mods/*/textures/
 linux/docker/nv_cache_gl/
-
-# build outputs that must never be committed (merge of night-skills-2026-11-09)
 stage_candidate/
+stage_*/
 __pycache__/

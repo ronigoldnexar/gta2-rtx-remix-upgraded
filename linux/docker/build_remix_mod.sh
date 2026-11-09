@@ -24,6 +24,9 @@ nice python3 repo/tools/remix_materials.py - "$MOD" --dds-tiles repo/assets/text
 [ -d "$UPSCALED" ] && nice python3 repo/tools/remix_emissive.py game/data "$MOD" repo/assets/textures_hd "$UPSCALED" | head -3
 nice python3 repo/tools/remix_model_materials.py "$MODELS" "$MOD"
 python3 repo/tools/remix_materials.py - "$MOD" --wet-layer
+# QB-25: facade depth (recessed windows/doors, sills) for the wall tiles, from the committed grounding
+# boxes (tools/facade_boxes.json, docs/facade-depth.md); patches those prims in mod.usda and mod_wet.usda
+[ "${FACADE:-1}" = 1 ] && nice python3 repo/tools/facade_depth.py build game/data repo/assets/textures_hd "$MOD" repo/tools/facade_boxes.json | tail -5
 du -sh "$MOD"; ls "$MOD/textures" | wc -l
 # (an absolute path for the archive: with "$OLDPWD/deliverables" the 8 Nov rebuild wrote
 # no deliverables/remix_mod_gta2hd.zip)

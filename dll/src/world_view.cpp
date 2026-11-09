@@ -18,6 +18,7 @@
 #include "../../src/world_mesh.h"
 #include "debug_overlay.h"
 #include "hud3d.h"
+#include "regress_cam.h"
 #include "frame_limiter.h"
 #include "frame_log.h"
 #include "game_access.h"
@@ -2351,6 +2352,9 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     }
     lastPose_ = shown;
     lastPoseValid_ = true;
+    // The visual regression harness's fixed camera (regress_cam.h; off unless
+    // GTA2DX9_REGRESS_CAM is set): the street views only, the classic view stays the game's.
+    if (mode != ViewMode::Classic && transitionT_ >= 1.0f) RegressCameraOverride(&camera_);
 }
 
 // The game's zoom has to come from the camera struct, not from the visible tile
@@ -2473,7 +2477,8 @@ void WorldView::DrawSkyAndShading() {
     LARGE_INTEGER counter, frequency;
     QueryPerformanceCounter(&counter);
     QueryPerformanceFrequency(&frequency);
-    const double seconds = static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
+    // RegressClock: held still for the visual regression harness (regress_cam.h), else as is.
+    const double seconds = RegressClock(static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart));
     renderer_.SetWaterClock(seconds);
     renderer_.DrawSky(camera_, sky, colours, blend, seconds);
 }

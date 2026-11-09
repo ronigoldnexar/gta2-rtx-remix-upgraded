@@ -9052,7 +9052,7 @@
    "name": "003_pacifier",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 10084,
+   "vertices": 10230,
    "animations": [],
    "textures": [
     "003_pacifier_0.tga",
@@ -9067,7 +9067,7 @@
    "name": "004_g4_bank_van",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 12938,
+   "vertices": 8368,
    "animations": [],
    "textures": [
     "004_g4_bank_van_0.tga",
@@ -9082,7 +9082,7 @@
    "name": "005_beamer",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 6556,
+   "vertices": 14904,
    "animations": [],
    "textures": [
     "005_beamer_0.tga",
@@ -9297,7 +9297,7 @@
    "name": "019_gt_a1",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 6826,
+   "vertices": 15378,
    "animations": [],
    "textures": [
     "019_gt_a1_0.tga",
@@ -9327,7 +9327,7 @@
    "name": "022_armed_land_roamer",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 14828,
+   "vertices": 15044,
    "animations": [],
    "textures": [
     "022_armed_land_roamer_0.tga",
@@ -9831,7 +9831,7 @@
    "name": "052_swat_van",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 10330,
+   "vertices": 11212,
    "animations": [],
    "textures": [
     "052_swat_van_0.tga",
@@ -10174,7 +10174,7 @@
    "name": "071_rumbler",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 8378,
+   "vertices": 7576,
    "animations": [],
    "textures": [
     "071_rumbler_0.tga",
