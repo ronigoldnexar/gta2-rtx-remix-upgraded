@@ -463,9 +463,29 @@ private:
     float shownX_ = 0.0f, shownY_ = 0.0f, shownZ_ = 0.0f;
     bool fpEyeKnown_ = false;
     bool lastFpInVehicle_ = false;
+    // FIX-FP-ENTRY: into and out of a car the eye rides the boarding plan's head (outside the
+    // body) and moves between it and the seat in a timed, eased glide (fpGlide*: the offset at
+    // its start, seconds into it, its length).
+    bool fpRiding_ = false;
+    int fpRideMode_ = 0;
+    float fpRidePitch_ = 0.0f;
+    gta2::Vec3 fpSeatFix_{0.0f, 0.0f, 0.0f};
+    float fpGlideX_ = 0.0f, fpGlideY_ = 0.0f, fpGlideZ_ = 0.0f, fpGlideT_ = 0.0f, fpGlideDur_ = 0.0f;
     const char* status_ = "classic";
     ViewMode lastMode_ = ViewMode::Classic;
 };
+
+// FIX-FP-ENTRY (pfeel32): the seat eye rides the drawn body's whole pose. The camera publishes the eye it
+// computed at the wheel before this correction (world); car_bodies, drawing the player's car, answers with
+// where that eye sits in the posed body (the seat point it keeps in the car's own frame) minus it; the
+// camera adds the answer next frame. On a kerb the body tilts 25 degrees about its wheels; the eye stayed
+// level and dropped through the dashboard (the arms then hung over a black slab).
+bool FirstPersonSeatEyeRaw(gta2::Vec3* eye);
+void SetFirstPersonSeatCorrection(const gta2::Vec3& delta);
+
+// FIX-FP-ENTRY: whether the first-person eye rides the boarding plan into and out of a car
+// (GTA2DX9_FP_BOARD_EYE=0: off, the old 0.12 s glide).
+bool FirstPersonBoardEyeOn();
 
 // QB-6: aiming in the street views. Updated once a frame by the camera solver from the
 // player's ped: armed (on foot, a gun in his hands, standing), his shots (his weapon's

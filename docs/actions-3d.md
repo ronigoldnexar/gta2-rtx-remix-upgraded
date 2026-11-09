@@ -1083,3 +1083,41 @@ same moment), bursts `b_<weapon>_aim_fire_y90.mp4`, `b_<weapon>_aim_reload_y90/y
 | NPC shooters | same code path (rig keyed by object); not filmed | - |
 | first person | unchanged (the view model is QB-29's / SHOOT-ANIM's) | - |
 | Remix | not tested | - |
+
+## First-person entry, exit and the driver's arms (9 Nov 2026, FIX-FP-ENTRY)
+
+feel15 (first-person jack), feel11 (first-person exit), pfeel32 (arms under a cabin roll), pm10 (arm proportions).
+
+- **The eye rides the boarding plan.** From the player's eyes his sprite used to be dropped at capture, so no
+  boarding plan ran in first person: the eye stood at the game's spot (in the lane during a jack, cars through
+  the lens) and cut to the cockpit. On the plain renderer his sprite is now kept as `planOnly` (never drawn,
+  no contact shadow; `live_geometry.cpp` `OwnPlanOnly`), the plan runs, and `BoardingPlayerEye` (boarding.h) hands
+  the camera the plan's figure: approach, the hold at a yanked-open door while the driver is hauled out, the climb;
+  out over the sill, the turn and the shove that shuts the door. The eye is that figure's head (foot eye height
+  less the sink, at most 0.16), kept 0.14 block outside the boarded car's footprint, its yaw the figure's heading
+  (out of the car: 60 % / 80 % of the way round toward the car, so the door is seen shutting), a 10 degree glance
+  down while climbing in or out. The pm3 car clearance skips the boarded car. A plan whose car is more than 1.5
+  blocks from his game position (a guess at a passing car) is not ridden.
+- **Into and out of the seat**: the hand-over is a timed, eased glide (0.6 s in, 0.5 s out, longer for a long
+  hand-over so no frame moves more than ~0.25 block) instead of the 0.12 s decay that read as a cut; a late step
+  of the seat eye (the cab measured a frame after the hand-over) is absorbed into it. Leaving, his car stays
+  drawn as from the seat (hidden object 1: the cut hull and cab) for 14 frames (`world_view.cpp`), so the eye
+  never sits inside a whole body (which drew nothing: the car vanished at the exit).
+- **The seat eye follows the posed body** (`view_modes.h` `FirstPersonSeatEyeRaw` / `SetFirstPersonSeatCorrection`):
+  car_bodies learns the eye's point in the car's own frame while the body is level and answers each frame with
+  where that point is in the posed body; the camera adds the difference (eased, at most 0.3 block). On a kerb the
+  body tilted 25 degrees about its wheels while the eye stayed level and dropped through the dashboard (pfeel32:
+  the hands hung over a black slab).
+- **Hands on the wheel** (`cab_interior.cpp` DrawCabHands): each forearm points from its grip on the rim to a
+  shoulder fixed by the seat eye (2 fists to the side, 2.5 under, 1 behind), the grip's axis along the rim the
+  same way round for the whole turn. Before, the forearm lay along the rim's tangent with a sign flip at the top,
+  so at full lock one arm was a stick across the dash and the other pointed at the roof.
+- **Arm model** (`tools/gen_weapons.py` `_forearm`, all three `fp_arm_*`): the bare forearm was ~12 fists long
+  (a thin tube, its sleeve never in frame); now ~3.3 fists from wrist to elbow, swelling to the muscle and
+  narrowing to an elbow, then the upper arm out and down inside the hero's dark short sleeve (hem, cloth wider
+  than the arm) leaving the frame. The sleeve's colour is still the identity record's shirt (`ModelSetNodeTint`).
+  Regenerated with `python3 tools/gen_weapons.py <dir>` then `tools/import_assets.py` on a manifest of the three
+  arm entries (a python with trimesh: `gen3d/venv`).
+- A/B switch: `GTA2DX9_FP_BOARD_EYE=0` (no plan in first person, the old glide, no seat correction).
+- Log lines: `view: fp ride on|off (mode m t s)`, `view: fp seat glide in|out D blocks over T s`,
+  `car bodies: fp seat eye follows the tilted body D (level L)`.

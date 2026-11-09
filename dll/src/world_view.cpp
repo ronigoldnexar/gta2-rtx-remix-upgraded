@@ -2476,7 +2476,16 @@ void WorldView::ApplyPresentation(ViewMode mode) {
         // in; behind him, both are.
         // (QB-17/18: a beat's camera stands outside him, so he is drawn through it.)
         const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody && !BeatActive();
-        SetHiddenObjects(hide ? player.pedSprite : nullptr, hide && player.inVehicle ? player.vehicleSprite : nullptr);
+        // FIX-FP-ENTRY (feel11): for the first half second out of a car in first person the eye glides
+        // out of the seat through the door; his car stays drawn as from the seat (the cut hull, the cab)
+        // until then, so the eye is never inside a whole body (which drew nothing: the car vanished).
+        static const void* lastCarSprite = nullptr;
+        static int framesOut = 1000;
+        if (player.inVehicle && player.vehicleSprite) { lastCarSprite = player.vehicleSprite; framesOut = 0; }
+        else if (framesOut < 1000) ++framesOut;
+        const void* heldCar = hide && player.inVehicle ? player.vehicleSprite
+                              : (hide && FirstPersonBoardEyeOn() && framesOut <= 14 ? lastCarSprite : nullptr);
+        SetHiddenObjects(hide ? player.pedSprite : nullptr, heldCar);
         // REMIX-3D-QUALITY: under Remix his figure is still drawn from his eyes, with
         // textures Remix keeps out of the eye's rays, so he casts the shadow his
         // sprite casts in the classic view (on foot; in a car the game draws no ped).

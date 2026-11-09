@@ -14,6 +14,7 @@
 
 #include "../../src/gta2_map.h"
 #include "beats.h"
+#include "boarding.h"
 #include "car_bodies.h"
 #include "compat.h"
 #include "game_access.h"
@@ -56,6 +57,17 @@ double Now() {
     return static_cast<double>(c.QuadPart) * toSeconds;
 }
 
+// FIX-FP-ENTRY (pfeel32): the seat eye's raw position and car_bodies' answer (view_modes.h).
+struct FpSeat { bool valid = false; gta2::Vec3 raw{}; gta2::Vec3 delta{}; double rawAt = 0.0, deltaAt = 0.0; };
+FpSeat g_fpSeat;
+// FIX-FP-ENTRY: an ease in and out over 0..1.
+float Smooth01(float x) { x = x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); return x * x * (3.0f - 2.0f * x); }
+// GTA2DX9_FP_BOARD_EYE=0: the old first-person entry/exit (the eye at the game's spot, a 0.12 s glide).
+bool FpSeatGlideOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_FP_BOARD_EYE", v, sizeof v) && v[0] == '0' ? 0 : 1; }
+    return on != 0;
+}
 float WrapAngle(float a) {
     while (a > kPi) a -= 2.0f * kPi;
     while (a < -kPi) a += 2.0f * kPi;
@@ -1527,6 +1539,7 @@ void ViewCameraSolver::Reset() {
     lastPitchKnown_ = false;
     fpEyeKnown_ = false;
     fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
+    fpGlideDur_ = 0.0f; fpRiding_ = false; fpRideMode_ = 0;
     boomKnown_ = false;
     snapEye_ = true;
 }
@@ -2040,6 +2053,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         lastPitchKnown_ = false;
         fpEyeKnown_ = false;
         fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
+    fpGlideDur_ = 0.0f; fpRiding_ = false; fpRideMode_ = 0;
         extraLength_ = extraHeight_ = bodyHeight_ = 0.0f;
         framingKnown_ = false;
         boomKnown_ = false;
@@ -2165,6 +2179,66 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         // Sideways is the heading turned a quarter: (-hz, hx) is the car's left.
         gta2::Vec3 eye{px + hx * ahead - hz * seat, baseY + eyeHeight, pz + hz * ahead + hx * seat};
+        // FIX-FP-ENTRY (feel15, feel11): getting into or out of a car, the eye is the boarding plan's
+        // head (the figure the chase view shows: to the door, held there while a driver is hauled out,
+        // the climb; out over the sill, the turn and the shove that shuts the door), kept outside the
+        // car's body until the game has him in the seat; from there it glides into the seat (below).
+        // Before, it stood at the game's spot (in the lane, cars through the lens) and cut to the seat.
+        BoardingEye ride;
+        // (only a plan on the car he is at: a boarding that guessed a car in passing traffic drove off
+        // with the eye, 4 blocks in a second, run fpentry_d)
+        const bool riding = !inVehicle && !deathCam && BoardingPlayerEye(&ride) &&
+                            std::hypot(ride.carX - px, ride.carZ - pz) < 1.5f && std::hypot(ride.x - px, ride.z - pz) < 1.2f;
+        float rideCarX = 0.0f, rideCarZ = 0.0f;
+        if (riding) {
+            const float rhx = std::sin(ride.heading), rhz = std::cos(ride.heading);
+            // the head ducks with the sink, but never below a seated head's height
+            const float sinkEye = (std::min)(ride.sink, 0.16f);
+            eye = {ride.x + rhx * 0.03f, ride.groundY + s.fpEyeFoot - sinkEye, ride.z + rhz * 0.03f};
+            rideCarX = ride.carX; rideCarZ = ride.carZ;
+            // outside the body he is boarding: 0.14 beyond (0.06 pressed the eye to the panel) the nearest side of its footprint
+            if (CameraCarsOn()) {
+                const CameraCar* best = nullptr;
+                float bestD = 0.6f;
+                for (const CameraCar& c : LiveCameraCars()) {
+                    const float cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]), cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
+                    const float d = std::hypot(cx - ride.carX, cz - ride.carZ);
+                    if (d < bestD) { bestD = d; best = &c; }
+                }
+                if (best) {
+                    constexpr float kRideClear = 0.14f;
+                    const float depth = CarFootprintDepth(*best, eye.x, eye.z);
+                    if (depth > -kRideClear) {
+                        // out along the nearest edge's outward normal
+                        float area = 0.0f;
+                        for (int i = 0; i < 4; ++i) { const int j = (i + 1) & 3; area += best->x[i] * best->z[j] - best->x[j] * best->z[i]; }
+                        const float wind = area >= 0.0f ? 1.0f : -1.0f;
+                        float dmin = 1e9f, nx = 0.0f, nz = 0.0f;
+                        for (int i = 0; i < 4; ++i) {
+                            const int j = (i + 1) & 3;
+                            const float ex = best->x[j] - best->x[i], ez = best->z[j] - best->z[i], el = std::hypot(ex, ez);
+                            if (el < 1e-4f) continue;
+                            const float d = wind * (ex * (eye.z - best->z[i]) - ez * (eye.x - best->x[i])) / el;
+                            if (d < dmin) { dmin = d; nx = wind * ez / el; nz = -wind * ex / el; }   // outward
+                        }
+                        const float push = dmin + kRideClear;
+                        const float ox = eye.x + nx * push, oz = eye.z + nz * push;
+                        if (!(q.blocked && q.blocked(q.context, ox, eye.y, oz))) { eye.x = ox; eye.z = oz; }
+                    }
+                }
+            }
+        }
+        if (riding != fpRiding_) {
+            // onto the plan or off it: a short glide (0.35 s); in or out of the seat: below
+            if (fpEyeKnown_ && inVehicle == lastFpInVehicle_) {
+                fpGlideX_ = shownX_ - eye.x; fpGlideY_ = shownY_ - eye.y; fpGlideZ_ = shownZ_ - eye.z;
+                fpGlideT_ = 0.0f; fpGlideDur_ = 0.35f;
+                fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
+            }
+            Log("view: fp ride %s (mode %d t %.2f)", riding ? "on" : "off", riding ? ride.mode : fpRideMode_, riding ? ride.t : 0.0f);
+        }
+        fpRiding_ = riding;
+        fpRideMode_ = riding ? ride.mode : 0;
         // Out of a bin or a parking meter the game let him stand in (on leaving
         // a car at the kerb): a small step sideways, never through a wall.
         if (!inVehicle && q.propPush) {
@@ -2302,7 +2376,20 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // The view heading lags the game's: a rate cap and a short ease, so an
         // about-face is a half-second sweep rather than a two-frame whirl. At
         // the wheel it also leans a little toward where the car is going.
-        if (!inVehicle && g_navActive) {
+        if (riding) {
+            // FIX-FP-ENTRY: his head turns with the plan's figure (to the door, into the seat, out and round)
+            const float omega = 2.0f / 0.18f;
+            // out of the car the figure faces away from it; his eyes keep the door in view: part way
+            // round toward the car while he climbs out, onto it while he shuts the door
+            float target = WrapAngle(ride.heading);
+            if (ride.mode >= 3) {
+                const float toCar = std::atan2(ride.carX - eye.x, ride.carZ - eye.z);
+                target = WrapAngle(target + WrapAngle(toCar - target) * (ride.mode == 3 ? 0.6f : 0.8f));
+            }
+            SpringTurn(&fpYaw_, &fpYawVel_, target, omega, 400.0f * kDegToRad, dt);
+            g_fpViewYaw = fpYaw_;
+            look.yaw = 0.0f;
+        } else if (!inVehicle && g_navActive) {
             // The view is its own: the keys turn it (in the poll) and the mouse
             // adds to it; the pedestrian is steered to follow it, so what the
             // game does with his heading never swings the picture.
@@ -2326,6 +2413,12 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         float yaw = WrapAngle(fpYaw_ + look.yaw);
         float pitch = look.pitch;
+        {
+            // FIX-FP-ENTRY: a glance down at the sill and the door while getting in or out, eased
+            const float want = riding && ride.mode >= 2 ? -10.0f * kDegToRad : 0.0f;
+            fpRidePitch_ += (want - fpRidePitch_) * (1.0f - std::exp(-dt / 0.2f));
+            pitch += fpRidePitch_;
+        }
         float roll = 0.0f;
 
         if (!inVehicle && s.fpHeadBob > 0.0f) {
@@ -2410,6 +2503,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     const float depth = CarFootprintDepth(c, eye.x, eye.z);
                     if (depth <= -kCarClear) continue;
                     if (CarFootprintDepth(c, px, pz) > -0.02f) continue;          // he is in it (boarding)
+                    if (riding && std::hypot(0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]) - rideCarX,
+                                             0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]) - rideCarZ) < 0.6f) continue;   // the one he boards
                     float nx = eye.x, nz = eye.z;
                     // back toward his centre, in eighths
                     bool clear = false;
@@ -2449,6 +2544,19 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             roll -= carRoll_ * ride;     // the body's roll is left side down +, the camera's leaning right +
             eye.y += carHeave_ * ride;
         }
+        if (inVehicle && FpSeatGlideOn()) {
+            // FIX-FP-ENTRY (pfeel32): the body's whole pose (a kerb's tilt included), measured by car_bodies
+            // against last frame's raw eye (see FirstPersonSeatEyeRaw), eased in over a few frames.
+            g_fpSeat.valid = true; g_fpSeat.raw = eye; g_fpSeat.rawAt = Now();
+            gta2::Vec3 want{0.0f, 0.0f, 0.0f};
+            if (Now() - g_fpSeat.deltaAt < 0.2) want = g_fpSeat.delta;
+            const float k = 1.0f - std::exp(-dt / 0.05f);
+            fpSeatFix_.x += (want.x - fpSeatFix_.x) * k; fpSeatFix_.y += (want.y - fpSeatFix_.y) * k; fpSeatFix_.z += (want.z - fpSeatFix_.z) * k;
+            eye.x += fpSeatFix_.x; eye.y += fpSeatFix_.y; eye.z += fpSeatFix_.z;
+        } else {
+            g_fpSeat.valid = false;
+            fpSeatFix_ = {0.0f, 0.0f, 0.0f};
+        }
         if (inVehicle && s.fpLean > 0.0f) {
             // The nose dips under braking and lifts under power; the head leans
             // into a turn.
@@ -2485,10 +2593,26 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             if (fpEyeKnown_) {
                 const float ex = fpRawX_ + velX_ * dt, ez = fpRawZ_ + velZ_ * dt;
                 const float off = std::sqrt((eye.x - ex) * (eye.x - ex) + (eye.y - fpRawY_) * (eye.y - fpRawY_) + (eye.z - ez) * (eye.z - ez));
-                if ((inVehicle != lastFpInVehicle_ || off > 0.25f) && off < 6.0f) {
-                    fpOffX_ = shownX_ - eye.x;
-                    fpOffY_ = shownY_ - eye.y;
-                    fpOffZ_ = shownZ_ - eye.z;
+                if (inVehicle != lastFpInVehicle_ && off < 6.0f && FpSeatGlideOn()) {
+                    // FIX-FP-ENTRY: into the seat (from the door, where the ride left the eye) over 0.6 s,
+                    // out of it over 0.5 s, eased at both ends; the old 0.12 s decay read as a cut.
+                    fpGlideX_ = shownX_ - eye.x; fpGlideY_ = shownY_ - eye.y; fpGlideZ_ = shownZ_ - eye.z;
+                    fpGlideT_ = 0.0f; fpGlideDur_ = inVehicle ? 0.6f : 0.5f;
+                    // a long way (a hand-over far from where he was shown): no frame steps more than ~0.25 block
+                    fpGlideDur_ = (std::max)(fpGlideDur_, off * 1.5f / (0.25f * 30.0f));
+                    fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
+                    Log("view: fp seat glide %s %.2f blocks over %.1f s", inVehicle ? "in" : "out", off, fpGlideDur_);
+                } else if (fpGlideDur_ > 0.0f && off > 0.03f && off < 1.0f && inVehicle == lastFpInVehicle_) {
+                    // a late step of the seat's own eye (the cab measured a frame or two after the hand-over):
+                    // absorbed into the glide, which keeps the eye where it is shown
+                    const float left = 1.0f - Smooth01(fpGlideT_ / fpGlideDur_);
+                    const float jx = shownX_ - eye.x - fpOffX_, jy = shownY_ - eye.y - fpOffY_, jz = shownZ_ - eye.z - fpOffZ_;
+                    if (left > 0.25f) { fpGlideX_ = jx / left; fpGlideY_ = jy / left; fpGlideZ_ = jz / left; }
+                    else { fpGlideX_ = jx; fpGlideY_ = jy; fpGlideZ_ = jz; fpGlideT_ = 0.0f; fpGlideDur_ = 0.3f; }
+                } else if ((inVehicle != lastFpInVehicle_ || off > 0.25f) && off < 6.0f) {
+                    fpOffX_ = shownX_ - eye.x - fpGlideX_ * (fpGlideDur_ > 0.0f ? 1.0f - Smooth01(fpGlideT_ / fpGlideDur_) : 0.0f);
+                    fpOffY_ = shownY_ - eye.y - fpGlideY_ * (fpGlideDur_ > 0.0f ? 1.0f - Smooth01(fpGlideT_ / fpGlideDur_) : 0.0f);
+                    fpOffZ_ = shownZ_ - eye.z - fpGlideZ_ * (fpGlideDur_ > 0.0f ? 1.0f - Smooth01(fpGlideT_ / fpGlideDur_) : 0.0f);
                 }
             }
             fpRawX_ = eye.x; fpRawY_ = eye.y; fpRawZ_ = eye.z;
@@ -2496,6 +2620,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             lastFpInVehicle_ = inVehicle;
             const float k = std::exp(-dt / 0.12f);
             fpOffX_ *= k; fpOffY_ *= k; fpOffZ_ *= k;
+            if (fpGlideDur_ > 0.0f) {
+                fpGlideT_ += dt;
+                if (fpGlideT_ >= fpGlideDur_) {
+                    fpGlideDur_ = 0.0f;
+                    fpGlideX_ = fpGlideY_ = fpGlideZ_ = 0.0f;
+                }
+            }
+            const float glideLeft = fpGlideDur_ > 0.0f ? 1.0f - Smooth01(fpGlideT_ / fpGlideDur_) : 0.0f;
+            // (the glide is carried in fpOff for the wall test below, then taken out again)
+            const float gX = fpGlideX_ * glideLeft, gY = fpGlideY_ * glideLeft, gZ = fpGlideZ_ * glideLeft;
+            fpOffX_ += gX; fpOffY_ += gY; fpOffZ_ += gZ;
+            const float preX = fpOffX_, preY = fpOffY_, preZ = fpOffZ_;
             gta2::Vec3 shown{eye.x + fpOffX_, eye.y + fpOffY_, eye.z + fpOffZ_};
             // The glide must not pass through a wall: from the seat out to where it is shown.
             if (q.blocked && (std::fabs(fpOffX_) + std::fabs(fpOffY_) + std::fabs(fpOffZ_)) > 0.02f) {
@@ -2508,6 +2644,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                         break;
                     }
                 }
+            }
+            {
+                // the glide's share back out of the decaying offset, as far as the wall test let it go
+                const float pre = std::fabs(preX) + std::fabs(preY) + std::fabs(preZ);
+                const float r = pre > 1e-5f ? (std::fabs(fpOffX_) + std::fabs(fpOffY_) + std::fabs(fpOffZ_)) / pre : 1.0f;
+                fpOffX_ -= gX * r; fpOffY_ -= gY * r; fpOffZ_ -= gZ * r;
+                if (r < 0.999f) { fpGlideX_ *= r; fpGlideY_ *= r; fpGlideZ_ *= r; }
             }
             eye = shown;
             // BLOCKER fp-camera-sees-through-wall (FIX-OCCLUSION): the tests above ask the map's
@@ -3745,5 +3888,13 @@ void ViewModePushRemixOptions(bool viewActive) {
         Log("view: Remix motion blur %s", want ? "on" : "off");
     }
 }
+
+bool FirstPersonSeatEyeRaw(gta2::Vec3* eye) {
+    if (!g_fpSeat.valid || Now() - g_fpSeat.rawAt > 0.2) return false;
+    *eye = g_fpSeat.raw;
+    return true;
+}
+void SetFirstPersonSeatCorrection(const gta2::Vec3& delta) { g_fpSeat.delta = delta; g_fpSeat.deltaAt = Now(); }
+bool FirstPersonBoardEyeOn() { return FpSeatGlideOn(); }
 
 }  // namespace gta2dx9

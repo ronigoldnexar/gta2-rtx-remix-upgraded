@@ -261,17 +261,33 @@ def molotov():
 # First-person arms (the view model's hands): same model space as the weapons,
 # blocks, +z ahead, +y up, +x right. The right hand closes round a grip at the
 # origin (a pistol grip 0.010 x 0.026 x 0.013); its forearm runs back and down
-# toward the eye, bare to the dark short sleeve at the elbow. The left: "fp_arm_left"
+# toward the eye, bare to the elbow, the upper arm in the dark short sleeve. The left: "fp_arm_left"
 # cups a fore grip from below (its palm under the origin, fingers up the right
 # side, thumb up the left), the forearm back and to the left; "fp_arm_left_cup"
 # wraps the right fist from the left for a two-handed pistol hold.
 def _forearm(skin, sleeve, hand_end, wrist, elbow, r):
-    """Hand to wrist, the bare forearm, and the edge of the player's dark
-    short-sleeved shirt at the elbow (as his figure wears it in the other views)."""
-    a = np.array(wrist, np.float32); b = np.array(elbow, np.float32)
+    """Hand to wrist, the bare forearm, the elbow and the player's dark short sleeve over the upper arm.
+    FIX-FP-ENTRY (pm10): `elbow` gives only the forearm's direction. The forearm is a real one, about
+    3.3 fists from wrist to elbow (it ran 12 fists, a thin tube with the sleeve never in frame); it swells
+    from the wrist to the muscle and narrows to the elbow; the upper arm goes on out and down from the
+    elbow inside the short sleeve (a hem, the cloth wider than the arm) and leaves the frame."""
+    a = np.array(wrist, np.float32); e0 = np.array(elbow, np.float32)
+    d = (e0 - a) / np.linalg.norm(e0 - a)
+    fore = 0.040
+    b = a + d * fore
     tube_between(skin, hand_end, wrist, r * 1.05, r, 10)
-    tube_between(skin, a, a + (b - a) * 0.80, r, r * 1.35, 10)
-    tube_between(sleeve, a + (b - a) * 0.74, b, r * 1.75, r * 1.95, 12)
+    m = a + d * fore * 0.55                                    # the forearm's muscle
+    tube_between(skin, a, m, r, r * 1.45, 10)
+    tube_between(skin, m, b, r * 1.45, r * 1.25, 10)
+    blob(skin, tuple(b), (r * 1.3, r * 1.3, r * 1.3), segments=10, rings=6)   # the elbow
+    # the upper arm: bent at the elbow, out to the hand's side and down (the shoulder is under the eye)
+    out = np.array([1.0 if wrist[0] >= 0 else -1.0, 0.0, 0.0], np.float32)
+    u = d + out * 0.35 + np.array([0, -0.30, 0], np.float32)
+    u /= np.linalg.norm(u)
+    hem = b + u * 0.006
+    tube_between(skin, b, hem + u * 0.004, r * 1.3, r * 1.45, 10)
+    tube_between(sleeve, hem, hem + u * 0.004, r * 2.05, r * 2.15, 12)   # the hem
+    tube_between(sleeve, hem + u * 0.004, b + u * 0.200, r * 2.0, r * 2.3, 12)
 
 
 def fp_arm(side):

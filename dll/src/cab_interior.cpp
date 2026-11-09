@@ -367,24 +367,59 @@ void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const 
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+    // FIX-FP-ENTRY (pfeel32): each forearm points from its grip on the rim back to a shoulder fixed
+    // by the seat's eye (car frame), so the arm follows the driver's body, not the rim: a grip at the
+    // wheel's top under full lock, a cabin rolled 25 degrees on a kerb, kept the forearm aimed at the
+    // shoulder. Before, the forearm lay along the rim's tangent (flipped by sign at the top), so at
+    // lock one arm became a long stick across the dash and the other a stub pointing at the roof.
+    // The arm is the rigid view model: never stretched; where the shoulder is nearer than the
+    // forearm the sleeve runs past it, behind the eye.
+    const Vec3 eyeW = toWorldP(Vec3{p.eyeX, p.eyeY, p.eyeZ});
+    const Vec3 carRight = toWorldV(Vec3{1.0f, 0.0f, 0.0f}), carUp = toWorldV(Vec3{0.0f, 1.0f, 0.0f}),
+               carFwd = toWorldV(Vec3{0.0f, 0.0f, 1.0f});
+    // the model's forearm, grip to elbow (tools/gen_weapons.py fp_arm right: wrist .0045,-.021,-.024, elbow .030,-.070,-.160)
+    const Vec3 dmR = gta2::Normalize(Vec3{0.0255f, -0.049f, -0.136f});
     for (int h = 0; h < 2; ++h) {
-        const float phi = (h == 0 ? 0.80f : kPi - 0.80f) + hold;   // ten to two (the fist sits a little under its grip point)
+        const float phi0 = h == 0 ? 0.80f : kPi - 0.80f;
+        const float phi = phi0 + hold;   // ten to two (the fist sits a little under its grip point)
         const Vec3 radial = across * std::cos(phi) + up * std::sin(phi);
-        Vec3 tangent = up * std::cos(phi) - across * std::sin(phi);
-        if (gta2::Dot(tangent, up) < 0.0f) tangent = tangent * -1.0f;   // the grip's +y up the rim, the forearm under it
         const Vec3 grip = toWorldP(w.c + radial * w.R);
-        const Vec3 Y = toWorldV(tangent), out = toWorldV(radial);
-        Vec3 Z = toWorldV(w.axis);
-        Vec3 X = gta2::Normalize(gta2::Cross(Y, Z));
-        const bool mirror = gta2::Dot(X, out) < 0.0f;   // the hand whose +x points in is a left hand
-        if (mirror) X = X * -1.0f;
-        // Turned about the grip so the forearm runs out to the side as well as back and down
-        // (elbows out: the arms come in from the frame's lower corners, not up from under the rim).
+        // which hand: the old rule at the straight-ahead grip (once per hand, so no flip with the turn)
+        bool mirror;
         {
-            const float t = 0.55f, ct = std::cos(t), st2 = std::sin(t);
-            const Vec3 X2 = X * ct + Z * st2, Z2 = Z * ct - X * st2;
-            X = X2; Z = Z2;
+            const Vec3 r0 = across * std::cos(phi0) + up * std::sin(phi0);
+            Vec3 t0 = up * std::cos(phi0) - across * std::sin(phi0);
+            if (gta2::Dot(t0, up) < 0.0f) t0 = t0 * -1.0f;
+            const Vec3 Y0 = toWorldV(t0), Z0 = toWorldV(w.axis);
+            mirror = gta2::Dot(gta2::Normalize(gta2::Cross(Y0, Z0)), toWorldV(r0)) < 0.0f;
         }
+        // the grip's +y along the rim, the same way round for the whole turn (toward the top at ten to two)
+        Vec3 tangent = up * std::cos(phi) - across * std::sin(phi);
+        if (h == 1) tangent = tangent * -1.0f;
+        // the shoulder: beside the eye on the hand's side, below and a little behind it
+        const float sideSign = gta2::Dot(grip - eyeW, carRight) >= 0.0f ? 1.0f : -1.0f;
+        // sized by the fist (0.0124 k, a real ~0.1 m): shoulders 2 fists either side of the eye, 2.5 under it, 1 behind
+        const float fist = 0.0124f * k;
+        const Vec3 shoulder = eyeW + carRight * (sideSign * 2.0f * fist) - carUp * (2.5f * fist) - carFwd * fist;
+        Vec3 d = shoulder - grip;
+        if (gta2::Dot(d, d) < 1e-10f) d = carFwd * -1.0f;
+        d = gta2::Normalize(d);
+        const Vec3 tW = toWorldV(tangent);
+        Vec3 t2 = tW - d * gta2::Dot(tW, d);
+        if (gta2::Dot(t2, t2) < 1e-8f) t2 = carUp - d * gta2::Dot(carUp, d);
+        t2 = gta2::Normalize(t2);
+        const Vec3 b2 = gta2::Cross(d, t2);
+        // the model's own frame: forearm, grip axis (+y) square to it, their cross
+        const Vec3 dm = mirror ? Vec3{-dmR.x, dmR.y, dmR.z} : dmR;
+        Vec3 ym = Vec3{0.0f, 1.0f, 0.0f} - dm * dm.y;
+        ym = gta2::Normalize(ym);
+        const Vec3 bm = gta2::Cross(dm, ym);
+        // a model axis e goes to sum_i (M_i . e) W_i
+        auto image = [&](const Vec3& e) {
+            return d * gta2::Dot(dm, e) + t2 * gta2::Dot(ym, e) + b2 * gta2::Dot(bm, e);
+        };
+        Vec3 X = image(Vec3{1.0f, 0.0f, 0.0f}), Y = image(Vec3{0.0f, 1.0f, 0.0f}), Z = image(Vec3{0.0f, 0.0f, 1.0f});
+        if (mirror) X = X * -1.0f;   // the right hand's model, mirrored for the left
         gta2::Mat4 m;
         for (int c = 0; c < 3; ++c) {
             m.m[0][c] = (&X.x)[c] * k; m.m[1][c] = (&Y.x)[c] * k; m.m[2][c] = (&Z.x)[c] * k;

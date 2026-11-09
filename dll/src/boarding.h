@@ -83,6 +83,19 @@ struct BoardingOut {
     float rate = 1.0f;          // FIX-JACK-SEAT: how fast the plan's clock runs this frame (>1: catching up with the game)
     bool held = false;          // FIX-JACK-SEAT: held at the yanked-open door while the game holds him there (a jack)
 };
+// FIX-FP-ENTRY: the player's own boarding as last planned (getting in or out; not seated), for the
+// first-person eye to ride: the figure's feet (world), the ground, the sink, the heading, the act
+// (1 approach, 2 climb, 3 exit, 4 the door shut after an exit), its clock, the car's centre.
+struct BoardingEye {
+    float x = 0.0f, z = 0.0f, groundY = 0.0f, sink = 0.0f, heading = 0.0f;
+    int mode = 0;
+    float t = 0.0f;
+    int side = 1;
+    bool held = false;
+    float carX = 0.0f, carZ = 0.0f, doorOpen = 0.0f;
+    uintptr_t car = 0;
+};
+bool BoardingPlayerEye(BoardingEye* eye);
 // Per figure, every frame, after the renderer has placed it and before it is posed.
 // True while a boarding plays: the figure is drawn from `out`.
 bool BoardingUpdate(const BoardingIn& in, BoardingOut* out);

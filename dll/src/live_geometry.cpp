@@ -446,6 +446,14 @@ void SetPedFigures(bool on) { g_pedFigures = on; }
 bool PedFigures() { return g_pedFigures; }
 namespace { bool g_groundModels = false; }
 void SetGroundModels(bool on) { g_groundModels = on; }
+// FIX-FP-ENTRY: from his eyes (plain renderer, figures on) his sprite is kept, never drawn, so his
+// boarding plan runs and the first-person eye can ride it (view_modes, BoardingPlayerEye).
+// GTA2DX9_FP_BOARD_EYE=0 turns it off (A/B).
+bool OwnPlanOnly() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_FP_BOARD_EYE", v, sizeof v) && v[0] == '0' ? 0 : 1; }
+    return on && !g_ownShadowOnly && g_groundModels && (g_hiddenObjects[0] || g_hiddenObjects[1]) && BoardingEnabled();
+}
 bool GroundModels() { return g_groundModels; }
 
 namespace {
@@ -6002,7 +6010,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
         }
         // (under Remix with the figures, his sprite is kept, never drawn, for his
         // figure's shadow: see SetOwnFigureShadowOnly)
-        if (object && object == g_hiddenObjects[0] && !g_ownShadowOnly) return;
+        if (object && object == g_hiddenObjects[0] && !g_ownShadowOnly && !OwnPlanOnly()) return;
         if (object && object == g_hiddenObjects[1]) {
             if (!(g_groundModels && g_carModels3d) || lamps) return;
             ownCar = true;
@@ -6376,6 +6384,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     placed.plain = GameObjectIsPowerUp();
     placed.object = reinterpret_cast<uintptr_t>(GameObjectBeingDrawn());
     placed.shadowOnly = g_ownShadowOnly && placed.object && reinterpret_cast<const void*>(placed.object) == g_hiddenObjects[0];
+    placed.planOnly = !placed.shadowOnly && OwnPlanOnly() && placed.object && reinterpret_cast<const void*>(placed.object) == g_hiddenObjects[0];
     // A pedestrian lying on the road, dead or knocked down: see the car loop in Draw.
     placed.corpse = GameObjectIsCorpse();
     if (g_logPedFrames) GTA2_TRY {
@@ -8347,7 +8356,7 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
     }
     for (const Sprite& sprite : sprites_) {
         if (!sprite.pedestrian || sprite.ghost || sprite.boardUi || sprite.corners != 4 || sprite.hidden || sprite.climbing ||
-            sprite.corpse)
+            sprite.corpse || sprite.planOnly)
             continue;
         const gta2::Mat4& m = sprite.objectToWorld;
         if (!nearEye(m.m[3][0], m.m[3][2])) continue;
@@ -8548,6 +8557,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             Sprite& g = sprites_.back();
             g.hidden = false; g.ghost = false; g.boardUi = false;
             g.object = object;
+            g.planOnly = OwnPlanOnly() && BoardingIsPlayer(object);   // FIX-FP-ENTRY: his own, from his eyes: plan only
             float sx, sy, sz;
             if (BoardingSeatSpot(object, &sx, &sy, &sz)) {   // seated: carried with the car
                 g.objectToWorld.m[3][0] = sx; g.objectToWorld.m[3][1] = sy; g.objectToWorld.m[3][2] = sz;
@@ -9378,6 +9388,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // From his own eyes (first person) his seated figure is not drawn: the cab is (cab_interior).
         // (g_hiddenObjects[1]: the car he is in, hidden from his eyes; a beat's camera draws both.)
         if (seatedNow && g_hiddenObjects[1] && BoardingIsPlayer(sprite.object)) continue;
+        if (sprite.planOnly) continue;   // FIX-FP-ENTRY: his own from his eyes: the plan ran, nothing is drawn
         const float legHeading = track.heading - track.twist;
         // CROWD: where his head turns ([crowd] look_at). Toward the player when the
         // player is within look_range and in front of him (twice as far while the
@@ -11266,6 +11277,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         watchPed(sprite);
         if (sprite.ghost) continue;
         if (sprite.shadowOnly) continue;   // his own, from his eyes: the figure only, unseen
+        if (sprite.planOnly) continue;     // FIX-FP-ENTRY: his own, from his eyes: never drawn
         if (g_ghostSwitch[kGhostHidePeds] && sprite.pedestrian) continue;
         if (sprite.hidden && !sprite.lamp && sprite.shell >= 0 &&
             sprite.shell < static_cast<int>(shellWarm.size()) && shellWarm[sprite.shell]) {

@@ -585,6 +585,9 @@ private:
         // drawn, only kept so his figure is drawn with the player-model textures
         // (unseen by the eye, in the shadows). See SetOwnFigureShadowOnly.
         bool shadowOnly = false;
+        // FIX-FP-ENTRY: his own, from his eyes on the plain renderer: kept only so his boarding
+        // plan runs (the first-person eye rides it into and out of a car); never drawn.
+        bool planOnly = false;
         // A pedestrian on his feet: lifted clear of a car he is over. See Draw.
         bool pedestrian = false;
         // ... that is, or just was, getting into or out of a car: left where it is.

@@ -3843,6 +3843,43 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 } else posed = Mul(feel.pose, carToWorld);
             }
             posed = Mul(posed, sepMove);
+            if (use.own) {
+                // FIX-FP-ENTRY (pfeel32): where the first-person eye sits in this posed body. The seat point
+                // (the raw eye in the car's frame) is learned while the body is level and kept while it tilts;
+                // the camera is told how far the posed seat point is from its raw eye (view_modes.h).
+                static float refX = 0.0f, refY = 0.0f, refZ = 0.0f;
+                static uintptr_t refCar = 0;
+                static int refFrames = 0;
+                gta2::Vec3 raw;
+                if (FirstPersonSeatEyeRaw(&raw)) {
+                    const float* r = posed.m[0]; const float* u = posed.m[1]; const float* f = posed.m[2];
+                    const float rl = r[0] * r[0] + r[1] * r[1] + r[2] * r[2], ul = u[0] * u[0] + u[1] * u[1] + u[2] * u[2],
+                                fl = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+                    const float dx = raw.x - posed.m[3][0], dy = raw.y - posed.m[3][1], dz = raw.z - posed.m[3][2];
+                    if (rl > 1e-8f && ul > 1e-8f && fl > 1e-8f) {
+                        const float lx = (dx * r[0] + dy * r[1] + dz * r[2]) / rl, ly = (dx * u[0] + dy * u[1] + dz * u[2]) / ul,
+                                    lz = (dx * f[0] + dy * f[1] + dz * f[2]) / fl;
+                        const float level = u[1] / std::sqrt(ul);   // 1: upright
+                        if (refCar != use.object) { refCar = use.object; refFrames = 0; }
+                        if (level > 0.995f) {
+                            const float k = refFrames < 5 ? 1.0f : 0.1f;
+                            refX += (lx - refX) * k; refY += (ly - refY) * k; refZ += (lz - refZ) * k;
+                            ++refFrames;
+                        }
+                        if (refFrames > 0) {
+                            const gta2::Vec3 seat{refX * r[0] + refY * u[0] + refZ * f[0] + posed.m[3][0],
+                                                  refX * r[1] + refY * u[1] + refZ * f[1] + posed.m[3][1],
+                                                  refX * r[2] + refY * u[2] + refZ * f[2] + posed.m[3][2]};
+                            gta2::Vec3 d{seat.x - raw.x, seat.y - raw.y, seat.z - raw.z};
+                            const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                            if (len > 0.3f) d = gta2::Vec3{d.x * 0.3f / len, d.y * 0.3f / len, d.z * 0.3f / len};
+                            SetFirstPersonSeatCorrection(d);
+                            static int logs = 0;
+                            if (len > 0.03f && logs < 30) { ++logs; Log("car bodies: fp seat eye follows the tilted body %.3f (level %.3f)", len, level); }
+                        }
+                    }
+                }
+            }
             // The door: swings open while someone boards or leaves, shuts after.
             DoorState& ds = g_doors[use.object];
             const float dt = (std::min)(5u, (std::max)(1u, frame - ds.frame)) / 30.0f;

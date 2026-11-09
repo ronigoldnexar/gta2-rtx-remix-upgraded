@@ -94,6 +94,7 @@ struct Board {
     bool footFromSet = false;
     float sink0 = 0.0f;        // the climb's sink as it ended
     float headYaw = 0.0f;      // eased
+    float groundY = 0.0f;      // FIX-FP-ENTRY: the ground under him, for the first-person eye
 };
 std::map<uintptr_t, Board> g_boards;
 // GTA2DX9_BOARDING_CAM=1 (verification only): the player's last boarding, for a fixed side camera.
@@ -385,6 +386,7 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
     const float startX = prevOk ? b.px : in.drawnX, startZ = prevOk ? b.pz : in.drawnZ;
     b.seen = in.now;
     g_now = in.now;
+    b.groundY = in.groundY;
     if (in.own) b.player = true;
     if (in.jacking) b.jacking = true;
     // A new figure's first frame comes with the renderer's capped catch-up step (0.2 s).
@@ -959,6 +961,26 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
             b.limbW[3], c.m.m[3][0], c.m.m[3][2], hw, c.zFront, c.zRear, c.roof, in.ghost ? 1 : 0, out->x, out->z, out->heading, std::sqrt(b.ax * b.ax + b.az * b.az));
     }
     return true;
+}
+
+bool BoardingPlayerEye(BoardingEye* eye) {
+    if (!BoardingEnabled() || !eye) return false;
+    for (const auto& e : g_boards) {
+        const Board& b = e.second;
+        if (!b.player || b.ended || g_now - b.seen > 3) continue;
+        if (b.mode != kApproach && b.mode != kClimb && b.mode != kExit && b.mode != kShut) continue;
+        auto c = g_cars.find(b.car);
+        if (c == g_cars.end() || g_now - c->second.frame > 6) continue;
+        const Car& car = c->second;
+        eye->x = b.out.x; eye->z = b.out.z; eye->groundY = b.groundY; eye->sink = b.out.sink; eye->heading = b.out.heading;
+        eye->mode = b.mode == kApproach ? 1 : b.mode == kClimb ? 2 : b.mode == kExit ? 3 : 4;
+        eye->t = b.t; eye->side = b.side; eye->held = b.out.held;
+        eye->carX = car.m.m[3][0]; eye->carZ = car.m.m[3][2];
+        eye->car = b.car;
+        eye->doorOpen = car.doorSide == b.side ? car.doorOpen : 0.0f;
+        return true;
+    }
+    return false;
 }
 
 bool BoardingLimb(uintptr_t ped, int limb, gta2::Vec3* target, gta2::Vec3* pole, float* weight) {

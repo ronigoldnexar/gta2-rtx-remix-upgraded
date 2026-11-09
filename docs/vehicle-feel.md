@@ -159,6 +159,8 @@ model (VEHICLE-PHYSICS above) and changes what is drawn and what the camera does
 - **First person rides the body** (`[camera] first_body_ride`, 100 %): the eye takes the drawn
   pitch, roll and heave; the cut cockpit body takes the same share (it was a third, QB-5), so the
   bonnet holds still under the eye while the street tilts.
+  FIX-FP-ENTRY (pfeel32): the eye's position also follows the body's whole pose, a kerb's tilt included
+  (`docs/actions-3d.md`, "First-person entry, exit and the driver's arms").
 
 Measured (`tools/body_motion_telemetry.py`, peaks in the `feel_probe` drive and crash bursts, same
 command as the defect, `fv_before1` HEAD vs `fv_after2`):
