@@ -730,3 +730,103 @@ by this (cars still come into being 20-26 blocks out, in the haze). Not tested i
 Industrial, under Remix, in the play container (dedicated CPUs, where the controller should hold
 a higher level), or at high wanted levels (the game halves the dummy cap above three stars and the
 pool guard covers police and roadblocks, but no run reached them).
+
+## Sprite stage 2.6 -> 7.7 ms on the Residential cab drive (9 Nov 2026, PERF-BISECT)
+
+FIX-FIGURE measured the sprite stage of `gamerun/keys_ff_cab.sh` (Residential, forced taxi) at
+2.6 ms on a81174f and 7.7 ms on bc4f494, in every view (car-3d-pipeline.md, FIX-FIGURE). That
+pair compared more than code. What was found, and the one code cause, fixed:
+
+**How it was measured.** Every DLL in the range was built in a private worktree and swapped into
+one private copy of the stage, so models, tiles and ini were the same for all of them. The drive
+was `gamerun/keys_pb_cab.sh` (`SWAP_LEVEL=ste`, `force_own_car_model=56`, GPU 3, `FPS=0`, fps cap
+30, `GTA2_DIRECT_KEYS=1`), with `GTA2DX9_FRAME_LOG` for the sprite stage's sub-stages a frame
+(`setup loop skid issue cars props objects peds effects`; the stage total is `whole` minus the
+other columns). `keys_pb_cab.sh` is `keys_ff_cab.sh` with a fixed car entry. In `keys_ff_cab.sh`,
+F10 races the last Return of `to_level.sh`, the one that walks the player into the spawn car. If
+F10 lands first, the scene key moves him on foot to `scene_xy` (164.5,149.5), and the run films a
+standing scene, not a drive. That happened in about half the runs; FIX-FIGURE's base run drove
+382 of its 391 state samples, the tip runs 115. The copy drops F10 and waits for `driving` in the
+log, tapping Return again if needed.
+
+**What differed between the two measurements.**
+
+1. *Not the same stage.* a81174f is not on camera-modes. It is on `anim-audit-on-camera-modes`,
+   two commits above 16fcaf8, and its run used that agent's stage: 1895 model files, no
+   `[density]` block, `[visuals] enabled=0`. The tip runs used a copy of `repo/stage`. There,
+   `restage.sh` (`tools/merge_stage_ini.py`) keeps the stage's own override `[visuals] enabled=1`,
+   although the committed `package/gta2dx9.ini` says 0. The same a81174f DLL measured 3.6 ms on the
+   old stage and 4.2 ms on today's.
+2. *[visuals] post: about 1.2 ms.* `EndWorldShading` -> `post_.Resolve()` runs inside the sprite
+   stage, after the last sub-stage mark. With visuals on, the sub-stages add up to 1.0-1.3 ms less
+   than the stage total; with `enabled=0` they add up to it (9.13 vs 9.23 ms).
+3. *QB-9 density (above), on camera-modes since 3ab8cfe:* about twice the live pedestrians (the
+   `view: peds` census: about 30 with 16fcaf8/a81174f, 62-66 with bc4f494, same ini; older DLLs
+   ignore `[density]`) and up to 36 ambient cars. The peds sub-stage follows the skinned count
+   (posing). Cost per figure is unchanged, so this is the cost the QB-9 section already reports.
+4. *The code regression: c2bdb0c's prop overlap fade, +1.7 to +2.0 ms.* Props sub-stage, first
+   person, median / 10th percentile:
+
+   | build (today's stage) | props ms |
+   |---|---|
+   | 16fcaf8 | 0.88 / 0.81 |
+   | 47c8641 (c2bdb0c's parent) | 0.90 / 0.80 |
+   | c2bdb0c | 2.88 / 2.61 |
+   | bc4f494 | 2.68 / 1.56 |
+   | bc4f494, `GTA2DX9_PROP_OVERLAP_FADE=0` | 0.94 / 0.81 |
+
+   Prop draw counts are unchanged (`props drawn:` about 230-260 draws a frame either way), so the
+   cost is CPU work in `LiveGeometry::DrawProps`. The new `overlapAlpha` runs for every prop in
+   range (about 190) against every figure spot of two frames (`g_figuresNow` + `g_figuresLast`,
+   which doubled with QB-9) and every car rectangle, each test a `std::hypot`. It also ran before
+   the frustum cull, so props beside the picture paid for it too. That is tens of thousands of
+   hypot calls a frame, and slow ones in this mingw/Wine build: about 2 ms.
+
+**Fix (PERF-BISECT, `live_geometry.cpp`, `DrawProps`).** Each overlap test now rejects on a
+squared distance (eye: r + 0.5, a person: r + 0.3) or on one axis (car rectangle: r + 0.15), the
+reach past which its `smooth01` is already 1. The hypot runs only for the few close pairs. The
+overlap test also moved after the frustum cull. The fade's output is unchanged: the skipped cases
+returned exactly 1, and a prop outside the frustum is not drawn either way. The `hidden` count in
+the `props: overlap fade` line now counts props in the picture only. The classic view never runs
+`DrawProps`.
+
+Same drive (`keys_pb_cab.sh`), today's stage, first person, unfixed tip d2bbf01 vs the fix:
+
+| run | props median / mean | sprite stage avg (`frame times`) |
+|---|---|---|
+| d2bbf01 det1 / det2 | 2.66 / 3.51, 2.86 / 4.18 | 14.3, 16.5 |
+| fix det1 / det2 | 1.07 / 1.42, 0.97 / 1.45 | 10.3, 12.4 |
+
+The fade's cost grows with the crowd. With the old stage's settings (`[visuals] enabled=0`,
+`GTA2DX9_DENSITY=0`), the unfixed tip's props median is 1.36 ms and the fix's 0.81 ms.
+
+**Where the drive stands.** Same drive, first-person median / whole-run average of the sprite
+stage:
+
+| build, stage settings | sprite stage |
+|---|---|
+| a81174f on its own stage (visuals off, no density): FIX-FIGURE's 2.6 ms baseline | 2.18 / 3.29 |
+| 16fcaf8 on today's stage (visuals on; this DLL predates density) | 2.81 / 4.57 |
+| fixed tip, visuals off, `GTA2DX9_DENSITY=0` | 3.47 / 4.66 |
+| unfixed tip d2bbf01, same | 3.37 / 4.93 |
+| fixed tip, today's stage (visuals on, QB-9 density) | 8.4-9.2 / 10.3-12.4 |
+| unfixed tip, today's stage | 10.8-12.3 / 14.3-16.5 |
+
+So the code regression in FIX-FIGURE's range is gone. Under the old settings the fixed tip is
+within about 1.3 ms of the a81174f-era stage. That remainder is spread over today's assets and
+later features (more prop models: props 0.94 vs 0.66 ms; zoned avatars: peds cost more per
+figure), not one cause. On today's stage most of the sprite stage is the crowd and traffic QB-9
+asked for (peds 2-4 ms, and the cars sub-stage 2-6 ms while driving among up to 36 ambient cars)
+plus the 1.2 ms visuals post. Both are deliberate, and the density controller steps the budget
+down when frames run late. Whether the shared stage should keep `[visuals] enabled=1` while the
+committed ini says 0 is for the visuals and play-page owners to decide. Anyone comparing frame
+times should take both runs from the same stage copy and check `driving` in the log.
+
+Cars: the cars sub-stage at the tip (2-6 ms while driving on today's stage) is traffic, not a
+regression after bc4f494. With fixed traffic (visuals off, `GTA2DX9_DENSITY=0`, same drive) it is
+1.33 ms at bc4f494 and 0.77-1.12 ms at the tip. The visual-regression capture of the fix
+(`tools/vreg/vreg.sh stage`) matches the unfixed tip's: the same `raised_w03_high` FAIL (22 tiles)
+and `bank_chase` WARN (8) against the 16fcaf8 goldens, from later visual commits. The fix's one
+extra WARN, `spawn_first`, is a passer-by in the shot. Runs: `out/pb_*` (`det` = the
+fixed car entry); scripts `gamerun/pb_grun.sh` (grun.sh on `GTA2_GPU`) and
+`gamerun/keys_pb_cab.sh`.

@@ -4874,11 +4874,23 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         const float top = p.y + p.model->Height() * p.scale;
         float alpha = 1.0f;
         // The eye: never inside, gone within 0.2 block of the prop's rim.
-        if (eye.y > p.y - 0.3f && eye.y < top + 0.3f)
-            alpha = (std::min)(alpha, smooth01((std::hypot(eye.x - p.x, eye.z - p.z) - r - 0.2f) / 0.3f));
+        // PERF-BISECT: every test below is a distance that only matters inside a small reach
+        // (smooth01 is 1 past it), so each one first rejects on a squared distance or on one
+        // axis without the hypot: this runs for every prop in range against every figure spot
+        // of two frames and every car, tens of thousands of (slow, mingw) hypot calls a frame with
+        // the QB-9 crowd, which took the props stage from 0.9 to 2.7 ms (docs/performance.md,
+        // PERF-BISECT).
+        if (eye.y > p.y - 0.3f && eye.y < top + 0.3f) {
+            const float ex = eye.x - p.x, ez = eye.z - p.z, reach = r + 0.5f;
+            if (ex * ex + ez * ez < reach * reach)
+                alpha = (std::min)(alpha, smooth01((std::hypot(ex, ez) - r - 0.2f) / 0.3f));
+        }
         // People (a figure's body is about 0.15 block across the shoulders' half), the player included.
+        const float personReach = r + 0.3f, personReach2 = personReach * personReach;
         auto person = [&](float x, float z) {
-            const float d = std::hypot(x - p.x, z - p.z) - r - 0.15f;
+            const float dx = x - p.x, dz = z - p.z;
+            if (dx * dx + dz * dz >= personReach2) return;   // d >= 0.15: smooth01 gives 1
+            const float d = std::hypot(dx, dz) - r - 0.15f;
             alpha = (std::min)(alpha, smooth01((d + 0.05f) / 0.2f));
         };
         for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast})
@@ -4888,6 +4900,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         for (const CarRect& c : carRects) {
             const float vx = p.x - c.cx, vz = p.z - c.cz;
             const float qa = std::fabs(vx * c.ax + vz * c.az) - c.ha, qb = std::fabs(vx * c.bx + vz * c.bz) - c.hb;
+            if (qa >= r + 0.15f || qb >= r + 0.15f) continue;   // out >= max(qa, qb): smooth01 gives 1
             const float out = std::hypot((std::max)(qa, 0.0f), (std::max)(qb, 0.0f)) + (std::min)((std::max)(qa, qb), 0.0f);
             alpha = (std::min)(alpha, smooth01((out - r + 0.05f) / 0.2f));
         }
@@ -4897,8 +4910,6 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     std::vector<FadedProp> faded;
     int hiddenNow = 0;
     for (const Placed& p : placed) {
-        const float overlap = overlapAlpha(p);
-        if (overlap <= 0.02f) { ++hiddenNow; continue; }
         {
             // Beside the picture (PERF-2): the model's bounding sphere, from its foot point up.
             // Still counted above (budget, footprints), only not drawn.
@@ -4907,6 +4918,10 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                                                        p.model->Length() * p.model->Length());
             if (OutsideViewFrustum(p.x, p.y + 0.5f * h, p.z, r + 0.25f)) continue;
         }
+        // The overlap fade after the frustum test: a prop beside the picture is not drawn
+        // either way, so it needs no fade (the 'hidden' count is of props in the picture).
+        const float overlap = overlapAlpha(p);
+        if (overlap <= 0.02f) { ++hiddenNow; continue; }
         {
             int tris = 0, draws = 0;
             for (const ModelMesh& mm : p.model->meshes) { tris += static_cast<int>(mm.indices.size() / 3); ++draws; }
