@@ -1072,7 +1072,6 @@ bool WorldView::EnsureWorldLoaded() {
     }
     CarBodiesSetInfo(style.CarInfos());
     CarArtPrecache(stylePath.c_str());   // PERF-4: every car sprite's artwork, made on a worker
-    CarArtPrecache(stylePath.c_str());   // PERF-4: every car sprite's artwork, made on a worker
     {
         // Which tiles are grass, for the park trees of the street views: a
         // green-dominant tile with little blue (the water tiles are a teal
