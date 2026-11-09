@@ -628,3 +628,39 @@ Still wrong (honest list):
   the next `restage.sh` picks them up). The other 53 models were judged recognisable enough on the identity sheet;
   next candidates by eye: 021 Garbage Truck (orange tank vs the sprite's ribbed brown hopper), 029 Dementia
   (Isetta egg vs the sprite's longer one-box body), 069 U-Jerk Truck.
+
+## Round 10: four more identity regenerations (9 Nov 2026, ASSET-VEHICLES-10)
+
+Same pipeline and `tools/vehicle_identity_sheet.py` as round 9; GPU 2 under `flock /tmp/gta2-gen-gpu2.lock`. Targets: the
+next three the sheet ranked worst (021, 029, 069) and a retry of 003. Scripts: `tools/vehicle_r10/` (`concepts_r10.py` =
+the briefs, `r10_jobs.py`, `fit_r10.py`, `picks.json`; they run from `gen3d/` outside git like the earlier rounds).
+36 SDXL concepts (4 models x 3 wordings x 3 seeds, `concept/r10try`), 16 TRELLIS candidates, picks by eye.
+
+| Model | Sprite shows | Shipped before | Round 10 brief -> pick | Total |
+|---|---|---|---|---|
+| 003 Pacifier | boxy rectangular hull, two hatch rings side by side, rear stacks | Saracen-style, hull narrowing to a point | V-100 Commando / rectangular riot truck -> `r10C102_s2` | 0.837 |
+| 021 Garbage Truck | brown cab, long open rear hopper with a black ribbed grille | orange tank body, green cab | 1950s refuse truck, ribbed hopper, rusty brown -> `r10A101` | 0.906 |
+| 029 Dementia | Isetta egg, long tan fabric roof | white Isetta with a small roof | Isetta with a long canvas roof, cream/copper -> `r10A103` | 0.939 |
+| 069 U-Jerk Truck | tan cab, dark slatted box over the bed | 1930s open flatbed, grey cab | Model AA, tan cab, slatted bed -> `r10B101` | 0.770 |
+
+Rejected on sight: 003 `r10B102` (stubby box with a ramp nose and a long gun), `C101` (cab-over box, doors hang open);
+021 `C101`/`C102` (open tipper, the hopper reads as a dump truck); 029 `C101` (open side window hole), `C102` (all copper but
+no roof panel); 069 `B102`/`B102_s2` (concept was a REAR view: TRELLIS made the box face the front, the nose check cannot
+catch it because it compares against the same rear view; do not feed a rear-view concept), `A101` (light wooden bed).
+
+In game (private stage `stage_av10` = `stage_av` with the four models swapped in; `gamerun/av_grun.sh`, `GTA2_GPU=2`,
+`keys_car_models_sheet.sh`, `MODELS=3,21,29,69`, same env as round 9, run `av10_ingame`): the four load (`models: 003_pacifier
+... 0.75 x 0.79 x 1.33 blocks, faces +z`, 021 `0.56 x 0.81 x 1.34`, 029 `0.41 x 0.44 x 0.69`, 069 `0.50 x 0.58 x 0.88`), 0 `FAULT`,
+no model/texture read errors; each shows up in the third-person scene and drives nose first (frames `drv_model_NNN.png`,
+`drv_fp_model_NNN.png`). Sheets: `out/asset_vehicles/vehicle_identity_r10_sheet.png` (sprite | old | new) and
+`vehicle_identity_r10_ingame.png` (third-person crops).
+
+Still wrong:
+- 003 still has one roof turret with a gun, where the sprite has two plain hatch rings and no weapon; the plan view is now a
+  rectangle with a hatch ring, the cab is a truck cab rather than the sprite's low glazed front.
+- 021: the roof grille is nearly black from above (reads as a dark slab, not the sprite's tan bins); the hopper is boxy.
+- 029: the paint is cream with a dark brown roof; the runtime remap tints it, the sprite's tan roof panel is not matched.
+- 069: the bed is slatted wood, not the sprite's black louvred box; the cab is rounder.
+- Remix PBR maps are not regenerated for these four; no path-traced frames. Not restaged: the next `restage.sh` takes the
+  models from `assets/models` (the four `.mesh` and `_0`/`_0_paint` textures were replaced there with `cp --remove-destination`).
+  Models stay out of git.
