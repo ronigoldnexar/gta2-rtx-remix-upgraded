@@ -222,4 +222,6 @@ shards on the closed cars at damage 0 (pt-fp-cab-jagular-xk-torn-black-shards fi
   (68 models x 3 frames). GPU 4, stage `stage_vr` (= repo/stage at ac0e16a). `out/vr_walk1`/`vr_walk2` were aborted
   runner iterations (the parked-car fields; the warp finds no parked car at the carriageway).
 - Round-8 copy fix: `stage_vr8` = `stage_vr` with the five round-8 meshes from `stage_carera`; after frames in
-  `out/vr_traffic_r8` (see the defect's READY line).
+  `out/vr_traffic_r8`, before/after sheet `out/vr_review/round8_before_after.png` (0 FAULT, all five `faces +z`). The files
+  are in `repo/assets/models` and the cars archive is repacked in `release_cars_r8/`; `repo/stage` needs the next
+  `restage.sh` to pick them up.
