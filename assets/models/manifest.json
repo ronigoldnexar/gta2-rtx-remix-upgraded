@@ -964,15 +964,34 @@
   },
   {
    "name": "008_bug",
-   "glb": "cars/models3d/008_bug.glb",
+   "glb": "cars/vehicle_art2/008_bug.glb",
    "scale": 1.0,
    "paint_rgb": [
-    144.6,
-    110.6,
-    98.7
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/008_bug/seal.png",
+    "chrome": "cars/vehicle_art2/008_bug/chrome.png",
+    "underbody": "cars/vehicle_art2/008_bug/underbody.png",
+    "paint_body": "cars/vehicle_art2/008_bug/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/008_bug/interior_dark.png",
+    "paint_fender_f": "cars/vehicle_art2/008_bug/paint_fender_f.png",
+    "paint_fender_r": "cars/vehicle_art2/008_bug/paint_fender_r.png",
+    "running_board_rubber": "cars/vehicle_art2/008_bug/running_board_rubber.png",
+    "chrome_disc": "cars/vehicle_art2/008_bug/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/008_bug/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/008_bug/lamp_tail.png",
+    "lamp_amber": "cars/vehicle_art2/008_bug/lamp_amber.png",
+    "seat": "cars/vehicle_art2/008_bug/seat.png",
+    "tyre_side": "cars/vehicle_art2/008_bug/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/008_bug/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/008_bug/paint_wheel.png",
+    "glass": "cars/vehicle_art2/008_bug/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_008.py"
   },
   {
    "name": "010_bulwark",
@@ -7321,13 +7340,28 @@
   },
   {
    "name": "008_bug",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 14210,
+   "nodes": 21,
+   "meshes": 17,
+   "vertices": 15601,
    "animations": [],
    "textures": [
-    "008_bug_0.tga",
-    "008_bug_0_paint.tga"
+    "008_bug_chrome.tga",
+    "008_bug_chrome_disc.tga",
+    "008_bug_glass.tga",
+    "008_bug_interior_dark.tga",
+    "008_bug_lamp_amber.tga",
+    "008_bug_lamp_head.tga",
+    "008_bug_lamp_tail.tga",
+    "008_bug_paint_body_paint.tga",
+    "008_bug_paint_fender_f_paint.tga",
+    "008_bug_paint_fender_r_paint.tga",
+    "008_bug_paint_wheel_paint.tga",
+    "008_bug_running_board_rubber.tga",
+    "008_bug_seal.tga",
+    "008_bug_seat.tga",
+    "008_bug_tyre_side.tga",
+    "008_bug_tyre_tread.tga",
+    "008_bug_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
