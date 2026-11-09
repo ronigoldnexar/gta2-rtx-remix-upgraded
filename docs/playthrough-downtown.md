@@ -824,12 +824,38 @@ warps off. It changes none of the shared libraries.
 | rf3 | up and down clean (a governor pause of 9 wall-minutes = 17 game-s at the last flight) | stopped | run over by traffic crossing to the Cop Car at 208,43.5; hospital respawn |
 | rf4 | up and down clean, 6 flights, 1 retry; phone answered at game-second 119 | stopped (car burned) | Shady aboard and the yard box passed. The shared crusher-pad step then pressed the Cop Car around the crusher yard (175-185 x 14-16) from carhp 22000 until it caught fire |
 | **rf5** | up 3 flights in 119 game-s, 0 retries; phone at 154 s; back on the street at 188 s | **JOB COMPLETE** (+$20,000, multiplier 2, message 1124, game-second 930, 0 faults) | Cop Car at 196 s, Shady aboard at 435 s. The car caught fire 160 blocks from the yard and was driven on; parked at the pad and crushed. Frame `out/rf5/m_wil_ze1_crusher0.png`: JOB COMPLETE in the chase view |
+| rf6 | up and down clean (6 flights, 1 retry), street at game-second 196 | BUSTED | arrested at the Zarelli Cop Station (209.6,43.8) seconds after taking the Cop Car (cop points 600, "punched down while wanted") |
+| rf7 | up and down clean, phone at 128 s, street at 171 s | JOB FAILED | Shady aboard at 486 s; the car caught fire 180 blocks from the yard, and the crusher-pad step finished it in the yard (as in rf4) |
 
 Frames (chase view, not in git): `out/rf1/m_rooftop_terrace.png` (on the terrace beside the phone,
 with the HUD's "Answer the phone"), `out/rf2/m_wil_ze1_street.png` (back on the street after the
 descent), and `m_wil_ze1_*` for the job's steps.
 
-**Rooftop access: 5 of 5 sessions climbed to the terrace phone and answered the right job without a
-warp. 4 of 4 came back down on foot after the step-off fix (rf1's descent ran before it).** Every job
-failure so far came after the roof, in the shared drive, police and crusher steps of
-`mission_play_wil.run_plan`. Those steps belong to the crusher/crane, police, and traffic skills.
+**Rooftop access: 7 of 7 sessions climbed to the terrace phone and answered COP CAR CRUSH (not the
+neighbour) without a warp. 6 of 6 came back down on foot after the step-off fix (rf1's descent ran before
+it).** Climb time from the level start: 119-137 game seconds; 0-1 flight retries per session; no false
+learned blocks after the flight fix.
+
+**Job: 1 of 6 sessions with the final code reached JOB COMPLETE (rf5).** The acceptance bar of 2 of 3 is
+not met with the shared plan runner. Every loss came after the roof, in shared steps of
+`mission_play_wil.run_plan` and `mission_lib.drive3`:
+- the crusher-yard parking step burned the Cop Car (rf4, rf7);
+- busted around the stolen Cop Car (rf2, rf6);
+- run over crossing to the car (rf3).
+
+Those steps belong to the crusher/crane, police and car-handling streams. SKILL-CRUSHER's
+`missions/cop_car_crush.py` now chains this skill with `deliver_intact`, `horn_pickup` and
+`crusher_crane` for the same job.
+
+### Using the skill in another job runner
+
+```python
+from skills import rooftop_access as RA
+RA.D, RA.M, RA.P, RA.world, RA.say = D, M, P, world, D.say    # the session's modules
+ok, ms, info = RA.answer_roof_phone(world, entry, P.answer)     # climb, answer; info["launch"] = launch cell
+s, down = RA.descend(world, toward=(x, y))                      # back to the street toward the next target
+s, ok = RA.climb(world, tx, ty, tl)                             # any raised point (a LOCATE box at z >= 4)
+```
+
+Open items: Industrial's Zaibatsu phones (`bil_ze1`/`bil_ze2`) have no router route (check in game); the
+CLI hands over only to the Downtown session (`mission_play_districts` for ste/bil needs the same hand-off).
