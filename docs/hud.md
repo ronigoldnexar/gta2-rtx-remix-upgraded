@@ -189,3 +189,17 @@ each 2 s window; the rocket launcher (154.5,129.5) labelled ROCKET LAUNCHER, and
 it the green ROCKET LAUNCHER pop rose from the pickup's spot beside the game's own text.
 Untested: the money pop in play (no kill or paid event in the probe; it is the same drawing path
 as the weapon pop), a token's label in play (none near the probe's spots), Remix.
+
+## Objective markers in the street views (defect pt-2d-arrows-float-over-3d-figure, 9 Nov 2026)
+
+The game's target arrows (its 17 HUD arrow slots, parts 2 and 13) are flat sprites laid out round
+the player for the top-down camera; in third person they hovered on the figure's chest and in first
+person they sat mid-screen. With `[hud] objective_markers=1` (the default) the modern HUD swallows
+those two parts in the street views and draws each live slot through the 3D camera instead
+(`DrawObjectiveMarkers`, dll/src/hud3d.cpp): a diamond over the target with its distance in metres
+(a block is two metres) when it is on screen, pushed above the figure's screen box when it would sit
+on him, or a chevron on an ellipse inside the screen edge pointing round the camera toward it when
+off screen or behind. Kind 5 (a place to go: the job's own and the gang arrows) is yellow and always
+shown; other kinds (a phone, a car, a person) are cyan and shown within 20 blocks. `objective_markers=0`
+keeps the game's sprites. The classic view always draws the game's own arrows, byte for byte.
+Verified in out/tri_hud1 (s_04_third_walk, s_11_first_walk, s_01_classic_walk).

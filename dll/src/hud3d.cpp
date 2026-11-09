@@ -63,6 +63,7 @@ struct Config {
     bool loaded = false;
     bool modern = true;     // [hud] modern
     bool minimap = true;    // [hud] minimap
+    bool markers = true;    // [hud] objective_markers: the game's target arrows as 3D-projected markers
     int toggleKey = 0;      // [hud] toggle_key, 0 none
     float scale = 1.0f;     // [hud] scale_pct / 100
     bool test = false;      // GTA2DX9_HUD_TEST=1: [hud] modern/test_health/test_clock re-read live
@@ -87,6 +88,7 @@ void LoadConfig() {
     if (ini && ini[0]) {
         g_cfg.modern = GetPrivateProfileIntA("hud", "modern", 1, ini) != 0;
         g_cfg.minimap = GetPrivateProfileIntA("hud", "minimap", 1, ini) != 0;
+        g_cfg.markers = GetPrivateProfileIntA("hud", "objective_markers", 1, ini) != 0;
         const int pct = GetPrivateProfileIntA("hud", "scale_pct", 100, ini);
         g_cfg.scale = static_cast<float>((std::max)(50, (std::min)(200, pct))) / 100.0f;
         char key[16] = {};
@@ -252,7 +254,7 @@ constexpr uintptr_t kHudArrows = 0x1F18;
 constexpr uintptr_t kMessageKey = 0x005E9808;
 constexpr uintptr_t kAddTimer = 0x004C9310;   // HUD counters' "add a clock" (this, seconds)
 
-struct Arrow { int type; float x, y; };
+struct Arrow { int type; float x, y; int kind = 0; float z = 0.0f; };
 
 struct Values {
     bool valid = false;
@@ -308,8 +310,9 @@ Values ReadValues() {
                 const int32_t kind = *reinterpret_cast<const int32_t*>(slot + 0x40);
                 const int32_t fx = *reinterpret_cast<const int32_t*>(slot + 0x44);
                 const int32_t fy = *reinterpret_cast<const int32_t*>(slot + 0x48);
+                const int32_t fz = *reinterpret_cast<const int32_t*>(slot + 0x4C);
                 if ((type == 0 && kind == 0) || (fx == 0 && fy == 0)) continue;
-                v.arrows.push_back({type, fx / 16384.0f, fy / 16384.0f});
+                v.arrows.push_back({type, fx / 16384.0f, fy / 16384.0f, kind, fz / 16384.0f});
             }
         }
     } GTA2_EXCEPT {
@@ -981,12 +984,82 @@ void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
     }
 }
 
+// The game's target arrows (its 17 HUD arrow slots), seen through the street view's own
+// camera: a diamond and the distance over the target when it is on screen, a chevron on the
+// screen's edge pointing round the camera toward it when not. The game draws these as flat
+// sprites round the player laid out for the top-down camera (parts 2 and 13, swallowed above);
+// kind 5 is a place to go (the job's own and the gang arrows), anything else an object
+// (a phone, a car, a person) shown only when it is near.
+void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, float A) {
+    if (!g_cfg.markers || v.arrows.empty()) return;
+    const float u = g_u;
+    const PlayerState& p = ViewPlayer();
+    float yawDeg = 0.0f, pitchDeg = 0.0f;
+    ViewCameraAngles(&yawDeg, &pitchDeg);
+    const float yaw = yawDeg * 3.14159265f / 180.0f;
+    // The player's figure on screen (third person), so a marker never sits on him.
+    float fx0 = 0, fy0 = 0, fx1 = 0, fy1 = 0;
+    bool figure = false;
+    if (CurrentViewMode() == ViewMode::ThirdPerson) {
+        float ax, ay, bx, by;
+        const float pz = static_cast<float>(gta2::kMapHeight) - p.y;
+        if (LiveWorldToScreen(p.x, p.z, pz, &ax, &ay) && LiveWorldToScreen(p.x, p.z + 0.65f, pz, &bx, &by)) {
+            const float h = std::fabs(ay - by) * H, cx = 0.5f * (ax + bx) * W;
+            fx0 = cx - 0.45f * h; fx1 = cx + 0.45f * h; fy0 = by * H - 0.15f * h; fy1 = ay * H;
+            figure = h > 4.0f;
+        }
+    }
+    const float edge = 34.0f * u;
+    for (const Arrow& ar : v.arrows) {
+        const bool place = ar.kind == 5;
+        const float dist = std::hypot(ar.x - v.x, ar.y - v.y);
+        if (!place && dist > 20.0f) continue;
+        if (dist < 0.8f) continue;   // standing on it
+        const ImU32 col = place ? kYellow : kCyan;
+        const float wx = ar.x, wy = ar.z + (place ? 1.1f : 0.8f), wz = static_cast<float>(gta2::kMapHeight) - ar.y;
+        float sx, sy;
+        const bool proj = LiveWorldToScreen(wx, wy, wz, &sx, &sy);
+        const bool on = proj && sx > 0.04f && sx < 0.96f && sy > 0.06f && sy < 0.94f;
+        if (on) {
+            ImVec2 c(sx * W, sy * H);
+            if (figure && c.x > fx0 && c.x < fx1 && c.y > fy0 && c.y < fy1) c.y = fy0 - 14.0f * u;
+            const float r = (place ? 9.0f : 6.0f) * u;
+            const ImVec2 d[4] = {ImVec2(c.x, c.y - r), ImVec2(c.x + r * 0.75f, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r * 0.75f, c.y)};
+            dl->AddConvexPolyFilled(d, 4, Fade(kShadow, A * 0.6f));
+            const ImVec2 i[4] = {ImVec2(c.x, c.y - r * 0.78f), ImVec2(c.x + r * 0.56f, c.y), ImVec2(c.x, c.y + r * 0.78f), ImVec2(c.x - r * 0.56f, c.y)};
+            dl->AddConvexPolyFilled(i, 4, Fade(col, A * 0.95f));
+            if (place) {
+                char t[24];
+                snprintf(t, sizeof t, "%.0fm", dist * 2.0f);   // a block is two metres
+                const ImVec2 ts = Measure(g_fonts.label, g_fonts.labelPx, t);
+                Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(c.x - ts.x * 0.5f, c.y + r + 2.0f * u), kWhite, t, A * 0.9f);
+            }
+            continue;
+        }
+        if (!place) continue;
+        // Off screen (or behind the eye): the bearing from the camera's heading, laid on an
+        // ellipse inside the screen's edge; ahead is up, behind is down.
+        const float dx = wx - p.x, dz = wz - (static_cast<float>(gta2::kMapHeight) - p.y);
+        const float fx = std::sin(yaw), fz = std::cos(yaw);
+        const float ahead = dx * fx + dz * fz, side = dx * fz - dz * fx;
+        const float b = std::atan2(side, ahead);   // 0 ahead, + to the right
+        const ImVec2 c(W * 0.5f + std::sin(b) * (W * 0.5f - edge), H * 0.5f - std::cos(b) * (H * 0.5f - edge));
+        const float r = 11.0f * u, ca = std::cos(b), sa = std::sin(b);
+        auto rot = [&](float x, float y) { return ImVec2(c.x + x * ca - y * sa, c.y + x * sa + y * ca); };
+        const ImVec2 sh[3] = {rot(0, -r * 1.15f), rot(r * 0.95f, r * 0.8f), rot(-r * 0.95f, r * 0.8f)};
+        dl->AddConvexPolyFilled(sh, 3, Fade(kShadow, A * 0.6f));
+        const ImVec2 tri[3] = {rot(0, -r), rot(r * 0.8f, r * 0.65f), rot(-r * 0.8f, r * 0.65f)};
+        dl->AddConvexPolyFilled(tri, 3, Fade(kYellow, A * 0.95f));
+    }
+}
+
 void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, float H, float dt) {
     Anim& an = g_anim;
     const float A = an.fade;
     const float u = g_u;
     const float margin = 28.0f * u;
     DrawAimLayer(dl, A, W, H);   // QB-6
+    DrawObjectiveMarkers(dl, v, W, H, A);
 
     // Money, ticking up (or down) to the game's value; the gain pops above it.
     if (v.money >= 0) {
@@ -1425,6 +1498,11 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
             return true;
         case 10:   // the talking head, when the brief's text is ours to show
             return g_briefResolved;
+        case 2:    // the marker over a target and
+        case 13:   // the arrows pointing at targets: laid out for the top-down camera, they
+                   // hovered on the figure's chest (third person) or mid-screen (first);
+                   // DrawObjectiveMarkers shows the same slots through the 3D camera
+            return g_cfg.markers;
         default:
             return false;
     }
