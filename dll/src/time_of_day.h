@@ -80,6 +80,11 @@ struct TimeOfDaySettings {
     float nightMaxExposure = 2.5f;
     float daySkyFill = 3.0f;
     float nightSkyFill = 1.0f;
+
+    // Under Remix at night: a dim warm light carried just above the player, as a
+    // fraction of a map lamp's strength (0 = off). GTA2's constant ambient lit every
+    // surface; a path tracer has none, so a covered pocket no lamp reaches was black.
+    float playerFill = 0.25f;
 };
 
 TimeOfDaySettings& TimeOfDay();

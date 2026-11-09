@@ -497,6 +497,7 @@ void LoadConfig() {
     tod.daySkyFill = GetPrivateProfileIntA("timeofday", "remix_day_sky_fill_tenths", 30, ini) / 10.0f;
     tod.nightSkyFill =
         GetPrivateProfileIntA("timeofday", "remix_night_sky_fill_tenths", 10, ini) / 10.0f;
+    tod.playerFill = GetPrivateProfileIntA("timeofday", "remix_player_fill_percent", 25, ini) / 100.0f;
     gta2dx9::TimeOfDayReset();
 
     // The sky of the street-level views. See sky.h and the [sky] section.

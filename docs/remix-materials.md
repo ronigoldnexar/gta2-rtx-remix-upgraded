@@ -723,6 +723,27 @@ day look (sun 50.0 deg): exposure cap 6.00, sky fill 3.00`):
 at 10:00, frame mean luminance: 0.053 as shipped, 0.083 with sky fill 3, 0.090 with cap 8, 0.137
 with fill 3 and cap 6). The time-of-day overlays (`rtx_tod_*.conf.extra`) stay as they were.
 
+## Covered pockets at night: the player's fill light (FIX-REMIX-2, 9 Nov 2026)
+
+Defect `pt-remix-enclosed-spot-pitch-black-no-ambient`: the Zaibatsu phone terrace (bil 64,189.5, a
+mission phone) is a covered pocket that no lamp, sky or moon reaches, and GTA2's constant ambient (every
+surface lit) has no path-traced equivalent, so at 22:30 the 3D views were black but for the HUD. A
+live probe (`out/fr2_pocket1`) ruled out the global knobs: exposure cap 5, surface moonlight x4, night
+sky x5 and sky fill 4 each moved the pocket's lower half from 0.037 to at most 0.046, while an open
+street responded normally. The strongest-lights log shows 159 lamps within reach and none getting in;
+the phone there is not a booth model (no `code_phone` drawn), so a booth light would not help.
+**Fix:** under Remix, from the lamps' on hour to their off hour, a dim warm sphere 0.6 tiles above the
+player (`PlayerFillSubmit`, `live_geometry.cpp`; light source "player fill"), at
+`[timeofday] remix_player_fill_percent=25` of a map lamp (0 = off).
+
+Runs (the filer's command, `bil "17.5,22.5"`, four points): `out/fr2_pk_base1` (the sun and day-look
+fixes, no fill) against `out/fr2_pk_fix3` (fill 25 %). The pocket at 22:30, lower-half mean luminance
+0.043 -> 0.079 (minimum 0.039 -> 0.069): walls, paving and the bench readable in third and first person.
+The other points stay night streets (22:30 lower-half means 0.119/0.102/0.337 -> 0.110/0.147/0.271,
+within the camera-heading noise of these runs). Frames are matched to the marks by the runner's
+`shot_*.png` timestamps: in `fr2_pk_fix3` the encoder dropped frames and `game.mp4` time drifted from
+the wall clock, so `remix_frames.py dump` picked the wrong frames there.
+
 ## Street-lamp pools under the posts (FIX-REMIX, 9 Nov 2026)
 
 Defect `pt-remix-lamp-posts-cast-no-light`: at night every lamp-post lantern glowed and nothing

@@ -12139,7 +12139,31 @@ void LiveGeometry::ReleaseResources() {
 }  // namespace gta2dx9
 
 namespace gta2dx9 {
+// The player's night fill under Remix (FIX-REMIX-2, pt-remix-enclosed-spot-pitch-black-
+// no-ambient): a dim warm sphere just above the player, by the street lamps' clock, so a
+// covered pocket that no lamp, sky or moon reaches (the Zaibatsu phone terrace, bil
+// 64,189.5) shows its walls and floor. GTA2 lit every surface with a constant ambient;
+// this stands in for it only where the player is. [timeofday] remix_player_fill_percent.
+void PlayerFillSubmit() {
+    const float strength = TimeOfDay().playerFill;
+    if (!g_playerPosValid || strength <= 0.0f || !RemixApiAvailable()) return;
+    DaylightGate gate;
+    gate.enabled = true;
+    const float night = DaylightGateFactor(gate);
+    if (night <= 0.0f) return;
+    RemixLightDesc d;
+    d.pos[0] = g_playerPosX; d.pos[1] = g_playerPosY + 0.6f; d.pos[2] = g_playerPosZ;
+    d.rgb[0] = 1.0f; d.rgb[1] = 0.88f; d.rgb[2] = 0.72f;
+    d.intensity = strength * night;
+    d.radius = 3.0f;
+    d.emitterRadius = 0.05f;
+    d.source = kLightSourcePlayerFill;
+    d.explicitId = 0x504C4159464C4C31ull;
+    LightsSubmitExtra(d);
+}
+
 void ShotLightsSubmit() {
+    PlayerFillSubmit();
     for (size_t i = 0; i < g_shotLights.size();) {
         if (g_carFrame - g_shotLights[i].frame > 1) { g_shotLights[i] = g_shotLights.back(); g_shotLights.pop_back(); continue; }
         LightsSubmitExtra(g_shotLights[i].desc);
