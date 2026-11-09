@@ -319,15 +319,42 @@ def run(world):
     t1 = time.time()
     while time.time() - t1 < 15 and DI.box_arrow(HOSP_BOX) != "up": time.sleep(0.5)
 
+    # gr6: the ambulance jack gives wanted 1, and a cop pulled him out 15 s into the drive: a
+    # respray first (clears the wanted level; money is no object after the green jobs)
+    for k in range(2):
+        ms = M.mission_state() or {}
+        if ms.get("wanted", 0) <= 0 or not in_medicar(): break
+        sh = DI.nearest_shop(D.wait_state(), DI.SHOPS["wil"])
+        M.mark(f"wanted {ms.get('wanted')} after the Medicar: respray at {sh[1]}")
+        DI.respray(world, sh[1], sh[2], check=check, view_switch=view_switch)
+        M.mark(f"after the respray: wanted {(M.mission_state() or {}).get('wanted')}")
+
     # 2. into the hospital box
     FP["until"] = 0.0
     gama = ES.Escort("Gama Rei", pick=lambda p: p["remap"] == 13 and p["occ"] == SCRIPT_OCC and p["car"] is None, near=GAMA_AT, radius=3.5)
-    r = DI.deliver(world, HOSP_BOX, car=None, check=check, view_switch=view_switch, budget=600,
-                   done=lambda: DI.box_arrow(HOSP_BOX) in ("cleared", "moved") or (M.mission_state() or {}).get("msg") == "1374",
-                   label="the hospital box")
-    say("hospital box:", r)
-    if r in ("complete", "failed", "dead"): return r
-    if r.startswith("stuck"): return r
+    # gr6: out of the Medicar the script removes the box arrow too (brief 1373), and deliver took
+    # that for the box: in the box only with brief 1374 or the Medicar inside the 3 x 2 block
+    def at_hospital():
+        if (M.mission_state() or {}).get("msg") == "1374": return True
+        s = D.state()
+        return bool(in_medicar() and s and M.inside_box(s, HOSP_BOX[0], HOSP_BOX[1], HOSP_BOX[2], HOSP_BOX[3])
+                    and DI.box_arrow(HOSP_BOX) != "up")
+    r = "stuck: the hospital box not reached"
+    for k in range(4):
+        if not in_medicar():
+            xy = medicar_xy()
+            M.mark(f"back into the Medicar at {xy}")
+            if xy is None: return "stuck: the Medicar lost"
+            s = M.enter_car3(world, xy[0], xy[1], budget=90)
+            time.sleep(2.0); check()
+            if not in_medicar(): continue
+        r = DI.deliver(world, HOSP_BOX, car=medicar_xy(), check=check, view_switch=view_switch, budget=600,
+                       done=at_hospital, label="the hospital box")
+        say("hospital box:", r, "at the box" if at_hospital() else "NOT at the box")
+        if r in ("complete", "failed", "dead"): return r
+        if at_hospital(): break
+    if not at_hospital() and (M.mission_state() or {}).get("msg") not in ("1374",) and not gama.acquire(secs=6):
+        return r if r.startswith("stuck") else "stuck: the hospital box not reached"
     chase_shot("hospital")
 
     # 3. Gama Rei boards
