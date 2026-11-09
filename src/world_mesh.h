@@ -142,7 +142,7 @@ bool WorldSeal();
 // the bottom. Read when the mesh is built.
 void SetStreetFill(bool on);
 bool StreetFill();
-struct StreetFillCounts { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0; };
+struct StreetFillCounts { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0, decks = 0; };
 StreetFillCounts LastStreetFillCounts();
 
 // How many blocks one repeat of a water tile's texture spans.

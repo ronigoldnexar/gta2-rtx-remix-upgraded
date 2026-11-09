@@ -1773,7 +1773,7 @@ int GroundTileNear(const Map& map, int x, int y, int level) {
     return 0;
 }
 
-struct StreetFillStats { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0; };
+struct StreetFillStats { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0, decks = 0; };
 StreetFillStats g_streetFillStats;
 
 // Ceilings (9g, 9h): a building that overhangs the street - an arcade, a passage,
@@ -1975,8 +1975,85 @@ void AddRampSides(MeshBuilder* builder, const Map& map, const Style& style, cons
                         case 2: corners = {{{xEast, l + top0, zNorth}, {xWest, l + top1, zNorth}, {xWest, l + bot1, zNorth}, {xEast, l + bot0, zNorth}}}; normal = {0.0f, 0.0f, 1.0f}; break;
                         default: corners = {{{xWest, l + top0, zSouth}, {xEast, l + top1, zSouth}, {xEast, l + bot1, zSouth}, {xWest, l + bot0, zSouth}}}; normal = {0.0f, 0.0f, -1.0f}; break;
                     }
-                    builder->AddSideQuad(tile, corners, normal);
+                    // The texture at wall scale, cropped to the trapezium, not the whole tile
+                    // squeezed into it: a ramp's low piece is an eighth of a level high, and the
+                    // stone of the Residential flyover ramp (210..217,140) read as streaks (pm12).
+                    const std::array<Uv, 4> uv = {{{0.0f, 1.0f - top0}, {1.0f, 1.0f - top1}, {1.0f, 1.0f - bot1}, {0.0f, 1.0f - bot0}}};
+                    builder->AddPlainQuad(tile, corners, normal, uv);
                     ++stats->rampSides;
+                }
+            }
+        }
+    }
+}
+
+// Flyover decks (pm12): a road bridge over a street is stored as a lidded road block
+// one level above the street's own lidded block (Residential (218..225,140..141): road
+// at level 2 over the street at level 1, see-through girders on its sides). The block's
+// volume is the clearance the traffic under it drives through, so the deck is nothing
+// but the lid at its top - one-sided, culled from below. From the street the cars on
+// the bridge rode on air inside the lattice. Every such deck - a solid lid, no slope,
+// directly over a block that has a lid or a ramp of its own, open on some side - gets
+// the lid's underside at the same height, faced down (AddHiddenSurfaces (b) is the deck
+// over an empty block, AddOverhangCeilings the closed storey over the pavement). The
+// underside's tile: the wall the bridge's ends and abutments show most (the stone of the
+// ramps), voted over the whole connected deck so a bridge is one material, else the
+// deck's own side, else its lid. Hidden from above by the lid itself.
+void AddPassageDecks(MeshBuilder* builder, const Map& map, const Style& style, const StreetSolid& solid,
+                     StreetFillStats* stats) {
+    static const int kSideDx[4] = {-1, 1, 0, 0};
+    static const int kSideDy[4] = {0, 0, -1, 1};
+    auto isDeck = [&](int x, int y, int level) {
+        const Block* block = solid.At(x, y, level);
+        if (!block || !block->lid || block->lid.IsFlat() || block->SlopeType() != 0 ||
+            block->lid.Tile() >= style.TileCount() || solid.Water(*block))
+            return false;
+        const Block* below = solid.At(x, y, level - 1);
+        if (!below || !(below->lid || below->SlopeType() != 0)) return false;
+        int walls = 0;
+        for (int side = 0; side < 4; ++side) if (RealTile(style, SideFace(*block, side))) ++walls;
+        return walls < 4;
+    };
+    std::vector<uint8_t> done(static_cast<size_t>(kMapWidth) * kMapHeight * kMapLevels, 0);
+    auto key = [](int x, int y, int level) { return (static_cast<size_t>(level) * kMapHeight + y) * kMapWidth + x; };
+    for (int level = 1; level < kMapLevels; ++level) {
+        for (int y = 0; y < kMapHeight; ++y) {
+            for (int x = 0; x < kMapWidth; ++x) {
+                if (done[key(x, y, level)] || !isDeck(x, y, level)) continue;
+                // The connected deck at this level, and the vote for its tile.
+                std::vector<std::pair<int, int>> cells, stack = {{x, y}};
+                std::map<int, int> votes;
+                done[key(x, y, level)] = 1;
+                auto vote = [&](const Block& b) {
+                    for (int side = 0; side < 4; ++side)
+                        if (RealTile(style, SideFace(b, side))) ++votes[SideFace(b, side).Tile()];
+                };
+                while (!stack.empty()) {
+                    const auto c = stack.back();
+                    stack.pop_back();
+                    cells.push_back(c);
+                    vote(*solid.At(c.first, c.second, level));
+                    for (int side = 0; side < 4; ++side) {
+                        const int nx = c.first + kSideDx[side], ny = c.second + kSideDy[side];
+                        if (nx < 0 || ny < 0 || nx >= kMapWidth || ny >= kMapHeight) continue;
+                        if (isDeck(nx, ny, level)) {
+                            if (!done[key(nx, ny, level)]) { done[key(nx, ny, level)] = 1; stack.push_back({nx, ny}); }
+                        } else if (const Block* other = solid.At(nx, ny, level)) {
+                            vote(*other);   // the abutment or the ramp that meets the deck
+                        }
+                    }
+                }
+                int tile = 0, best = 0;
+                for (const auto& kv : votes) if (kv.second > best) { tile = kv.first; best = kv.second; }
+                for (const auto& c : cells) {
+                    const Block& block = *solid.At(c.first, c.second, level);
+                    const int t = tile ? tile : DeckUndersideTile(block);
+                    if (t <= 0 || t >= style.TileCount()) continue;
+                    const float xWest = static_cast<float>(c.first), xEast = xWest + 1.0f;
+                    const float zSouth = static_cast<float>(kMapHeight - c.second - 1), zNorth = zSouth + 1.0f;
+                    const float h = static_cast<float>(level + 1);
+                    builder->AddSideQuad(t, {{{xWest, h, zSouth}, {xEast, h, zSouth}, {xEast, h, zNorth}, {xWest, h, zNorth}}}, {0.0f, -1.0f, 0.0f});
+                    ++stats->decks;
                 }
             }
         }
@@ -2078,6 +2155,7 @@ void AddStreetFill(MeshBuilder* builder, const Map& map, const Style& style, con
     AddOverhangCeilings(builder, map, style, solid, &stats);
     AddBaseSideCovers(builder, map, style, solid, &stats);
     AddRampSides(builder, map, style, solid, slopes, &stats);
+    AddPassageDecks(builder, map, style, solid, &stats);
     builder->SetStreetMode(0);
     g_streetFillStats = stats;
 }
@@ -2148,7 +2226,7 @@ bool StreetFill() { return g_streetFill; }
 StreetFillCounts LastStreetFillCounts() {
     return StreetFillCounts{g_streetFillStats.risers, g_streetFillStats.floors, g_streetFillStats.ground,
                             g_streetFillStats.apronTile, g_streetFillStats.apronHeight, g_streetFillStats.ceilings,
-                            g_streetFillStats.baseSides, g_streetFillStats.rampSides};
+                            g_streetFillStats.baseSides, g_streetFillStats.rampSides, g_streetFillStats.decks};
 }
 
 void SetRiverbedDepth(float blocks) {

@@ -245,6 +245,44 @@ d2bbf01's mesh built with the same slope table (bil b84bef1cb84cea02, ste 7e024d
 2564b3d46d8fd811). Street-only part: bil 339 batches / 14.6k triangles -> 378 / 24.3k, ste 280 / 14.3k
 -> 335 / 21.3k, wil 319 / 10.2k -> 373 / 18.2k.
 
+## Flyover decks and ramp-side texture scale (FIX-WORLD-3, 9 Nov 2026)
+
+Defect pm12 `pm12-ste-elevated-road-has-no-deck-vehicles-float-in-lattice`. Residential has road
+flyovers stored as a lidded road block one level above the street's own lidded block: (202..203,
+151..156), reached by the ramp (202..203,148..149) and its abutment (202..203,150), and (218..225,
+140..141) between the ramps (210..217,140..141) and (227..234,140..141). Their sides are the see-through
+truss tiles (110/112, flat). The block's volume is the clearance the traffic below drives through,
+so the deck is nothing but the lid at the top, one-sided and culled from below: from the street the
+cars on a flyover rode on air inside the truss, and the sky showed through it. `AddHiddenSurfaces`
+(b) only covers a lid over an *empty* block, `AddOverhangCeilings` a storey over an open cell.
+
+`AddPassageDecks` (street fill, same batches and `GTA2DX9_STREET_FILL=0` switch): every solid lid
+on an unsloped block that sits directly on a block with a lid or a ramp of its own, and is not
+walled on all four sides, gets its underside at the lid's height, faced down. The tile is voted
+over the connected deck at that level (the deck blocks' and the abutting blocks' solid walls), so a
+bridge is one material: the ramps' stone (556) on both Residential flyovers. Counts: bil 996, ste
+1266, wil 156; most are road-on-field embankments where the underside sits inside the solid and is
+never seen (about 1k quads per district). The trusses stay where the map has them, under the deck:
+moving them up to parapet height would change faces the classic view draws.
+
+`AddRampSides` mapped the whole 0..1 tile onto each closing trapezium, so a ramp piece an eighth of
+a level high carried the whole wall tile squeezed into it (the "smeared, vertically streaked" ramp
+face). The v coordinate now follows the height (v = 1 - height within the level), the texture at
+wall scale cropped to the trapezium.
+
+**Classic view.** `/tmp`-built `mesh_hash` (non-street batches, their ranges, vertices and indices)
+is identical to HEAD 91f7442: bil 1d2767964eba1223, ste fc908f869418d987, wil b9a234d14d489bf7.
+
+**Frames.** Fixed regression-camera poses, clock at 12:30 (`gamerun/fw3_run.sh`, poses
+`gamerun/fw3_poses_ste.txt`): `out/fw3_base_ste`, `out/fw3_base2_ste` (HEAD) against
+`out/fw3_fix1_ste`, `out/fw3_fix2_ste`. Under (220.5,143.5) and beside (204.5,154.0) the flyovers HEAD
+shows sky through the truss; this build shows a stone deck. Warp-and-look run with traffic:
+`out/fw3_deck_fix` (`gamerun/keys_fw3_deck.sh`).
+
+Seen, not changed here: the elevated railway west of the spawn (flat see-through track lids at
+levels 4-5, e.g. (210,147..149)) shows a chequer of dark squares and sky from the street in HEAD and
+in this build. It is the track and the rail prop, not a road deck.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder
