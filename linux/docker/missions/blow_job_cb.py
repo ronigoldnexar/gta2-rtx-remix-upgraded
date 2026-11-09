@@ -69,7 +69,9 @@ def to_phone(entry):
         # 18.5,100 -> 18.5,78): the warp puts him on the street there
         near = M.street_cell_near(world, 18.5, 82.0, radius=8)
         if near:
+            P.set_view("classic")        # the scene key acts in the classic view (sink_or_swim.py does the same)
             M.scene_warp(near[0], near[1], near[2], "CB_WARP_PHONE: the street south of the Rednecks' phone; the job starts at the phone")
+            P.set_view("third")
             RESULT["events"].append(f"phone warp to {near}")
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
     ok, key = P.answer(entry)

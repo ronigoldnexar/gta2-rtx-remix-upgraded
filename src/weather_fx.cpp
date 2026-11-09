@@ -97,8 +97,9 @@ void WeatherAdjustShading(WorldShading* s, float blend) {
 void WeatherAdjustSky(SkyColours* c, SkySettings* settings) {
     if (!c || !g_now.active) return;
     const float oc = g_overcast, rain = g_now.rain;
-    c->zenith = Grey(c->zenith, 0.85f * oc) * (1.0f - 0.30f * rain);
-    c->horizon = Grey(c->horizon, 0.70f * oc) * (1.0f - 0.18f * rain);
+    // A cloud deck is grey, not white: the dome darkens with the cover as well as greying.
+    c->zenith = Grey(c->zenith, 0.85f * oc) * (1.0f - 0.22f * oc - 0.25f * rain);
+    c->horizon = Grey(c->horizon, 0.70f * oc) * (1.0f - 0.12f * oc - 0.15f * rain);
     c->fog = FogTint(c->fog);
     // In a fog bank the whole dome is the fog.
     c->horizon = Lerp(c->horizon, c->fog, g_fogHere);
@@ -187,11 +188,12 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
     const float t = static_cast<float>(std::fmod(w.seconds, 3600.0));
     const float windX = w.windDir[0] * w.wind * 3.5f, windZ = w.windDir[1] * w.wind * 3.5f;
     Vec3 dir = Normalize(Vec3{windX, -speed, windZ});
-    const float len = 0.42f + 0.25f * w.wind;
+    const float len = 0.55f + 0.25f * w.wind;
     // Lit by the scene's light, never brighter than the street at night.
     const float light = std::min(1.1f, std::max(0.22f, (shading.ambient.x + shading.ambient.y + shading.ambient.z) / 3.0f +
                                                           0.5f * (shading.sunColour.x + shading.sunColour.y + shading.sunColour.z) / 3.0f));
-    const Vec3 tint = Vec3{0.78f, 0.81f, 0.86f} * light;
+    // Brighter than the air behind them: a streak is light caught by a falling drop.
+    const Vec3 tint = Vec3{0.80f, 0.84f, 0.90f} * (light * 1.25f + 0.08f);
     auto wrap = [](float v, float L) { return v - L * std::floor(v / L + 0.5f); };
 
     verts_.clear();
@@ -213,8 +215,8 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
         Vec3 side = Cross(dir, toEye);
         const float sl = std::sqrt(Dot(side, side));
         if (sl < 1e-4f) continue;
-        side = side * (std::max(0.006f, dist * 0.0019f) / sl);
-        const float a = (0.20f + 0.16f * w.rain) * fade * g_blend;
+        side = side * (std::max(0.009f, dist * 0.0030f) / sl);
+        const float a = (0.30f + 0.25f * w.rain) * fade * g_blend;
         const DWORD cBottom = D3DCOLOR_ARGB(static_cast<int>(a * 255.0f), static_cast<int>(std::min(1.0f, tint.x) * 255.0f),
                                             static_cast<int>(std::min(1.0f, tint.y) * 255.0f), static_cast<int>(std::min(1.0f, tint.z) * 255.0f));
         const DWORD cTop = cBottom & 0x00FFFFFFu;   // the tail fades out

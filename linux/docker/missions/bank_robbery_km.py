@@ -43,7 +43,7 @@ CAR = {"model": None, "at": None}
 GETAWAY_PARK = (197.6, 181.6)
 GETAWAY_LANE_Y = 181.6
 GETAWAY_LAUNCH_X = 211.0
-GETAWAY_LEGS = [(216.5, 187.0), (216.5, 213.0)]   # south down column 216 (southbound cells 215-216)
+GETAWAY_LEGS = [(216.5, 187.0)]   # into the column-216 avenue southbound (cells 215-216); then the bay leg
 
 def to_car(world):
     """back into the GRAHAM where it is now: the model read at the wheel, found in `view: cars`
@@ -108,8 +108,14 @@ def roll_in(x, y, secs=25, until=None):
 # front of it, turn there, then a straight run down the bay's centre line.
 BAYS = {(204.5, 221.5): +1, (86.5, 160.5): -1}     # shop -> direction along y into the bay
 
+# kmg2: the drive to a point in front of the 204 bay on the eastbound row 215 was 69 blocks (west on
+# row 213 to the junction at column 186 and back), in a queue, and the officers had him 1 s after the
+# turn-in stop. The 204 bay is now approached on the westbound row 213, the leg off the column-216
+# avenue, and turned into without a stop (the bay's line crosses the median at row 214).
+BAY_PRE = {(204.5, 221.5): (206.8, 213.0), (86.5, 160.5): (86.5, 166.5)}
+
 def bay_pre(shop):
-    d = BAYS[shop]; return (shop[0], shop[1] - d * 6.0)
+    return BAY_PRE[shop]
 
 def speed(prev, s, dt):
     return math.hypot(s["x"] - prev["x"], s["y"] - prev["y"]) / max(dt, 1e-3)
@@ -154,10 +160,11 @@ def lane_in(shop, secs=30, until=None, vmax=3.0):
             if (ty - sy) * d > 1.0: ty = sy + d * 1.0
             hx, hy = M.heading(s); dx, dy = lx - s["x"], ty - s["y"]
             a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
-            if abs(a) > 1.0 and (s["y"] - mouth) * d < 0:
+            if abs(a) > 1.2 and (s["y"] - mouth) * d < 0:
                 throttle(False); stop_car(); BR.turn_car_toward(lx, sy, secs=8)
                 prev, tp = D.wait_state(), time.time(); continue
-            throttle(abs(a) < 0.45 and v < vmax)
+            # lined up: up to vmax; turning: keep rolling slowly (a stopped car does not steer)
+            throttle(v < (vmax if abs(a) < 0.45 else 1.2))
             if abs(a) > 0.05:
                 key = "Right" if a > 0 else "Left"
                 xdo("keydown", key); time.sleep(min(0.18, abs(a) * 0.3)); xdo("keyup", key)
@@ -167,13 +174,16 @@ def lane_in(shop, secs=30, until=None, vmax=3.0):
 
 
 def park_getaway():
-    """from the bank box to the eastbound lane, nose east (GETAWAY_PARK)"""
+    """from the bank box into the eastbound lane, nose east (GETAWAY_PARK): forward along the
+    lane's line at a walking pace (kmg2: reverse/forward pulses toward the point put the car at
+    195.9,175.2 on the bank's forecourt)"""
     px, py = GETAWAY_PARK
-    BR.turn_car_toward(px, py, secs=10)
-    BR.creep_in(px, py, 1.6, 0.9, secs=12)
+    s = D.wait_state()
+    if M.heading(s)[0] < 0.2: BR.turn_car_toward(px + 6.0, py, secs=10)
+    launch(py, px, secs=12, vmax=1.8)
     s = stop_car()
-    BR.turn_car_toward(px + 12.0, py, secs=10)
-    return stop_car()
+    if M.heading(s)[0] < 0.9: BR.turn_car_toward(px + 12.0, py, secs=8); s = stop_car()
+    return s
 
 def launch(lane_y, x_end, secs=20, vmax=7.0):
     """east along the lane with the throttle held (pure pursuit 3 blocks ahead on y = lane_y), no
@@ -314,18 +324,17 @@ def run(world, entry):
                 s = BR.drive(world, wx, wy, 2.5, 120)
                 BR.check(); remember_car()
             if not s["driving"]: continue
-        s = BR.drive(world, pre[0], pre[1], 1.2, 360)
+        s = BR.drive(world, pre[0], pre[1], 1.5, 360)
         BR.check(); remember_car()
         if not s["driving"]: continue
         t6 = time.time()
-        while time.time() - t6 < 12 and not heads_up() and not safe_up():
+        while time.time() - t6 < 3 and not heads_up() and not safe_up():
             BR.check(); time.sleep(0.5)
         if safe_up(): sprayed = True; break
         ms = BR.check()
         M.mark(f"into the respray shop {shop} (wanted {ms.get('wanted')}, money {ms.get('money')}, carhp {ms.get('carhp')}): rolling in")
-        s = stop_car(); BR.turn_car_toward(shop[0], shop[1], secs=12)
         s = D.wait_state()
-        M.mark(f"lined up at {s['x']:.1f},{s['y']:.1f} heading {M.heading(s)[0]:.2f},{M.heading(s)[1]:.2f}: down the bay")
+        M.mark(f"no stop: from {s['x']:.1f},{s['y']:.1f} heading {M.heading(s)[0]:.2f},{M.heading(s)[1]:.2f} down the bay's line")
         s = lane_in(shop, secs=25, until=safe_up)
         M.shot("br_respray_in")
         t6 = time.time()

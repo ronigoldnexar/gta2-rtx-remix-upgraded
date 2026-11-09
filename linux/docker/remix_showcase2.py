@@ -25,6 +25,8 @@ E = os.environ.get
 TAG = E("SHOW_TAG", "wil")
 SETTLE = float(E("SHOW_SETTLE", "6"))
 HOURS = {"noon": 12.5, "golden": 17.4, "dusk": 18.35, "night": 22.5, "wet": 22.5}
+for _kv in filter(None, E("SHOW_HOURS", "").split(",")):   # e.g. noon=14.0
+    _k, _v = _kv.split("="); HOURS[_k] = float(_v)
 SKIP = {"rtx.graphicsPreset", "rtx.upscalerType", "rtx.taauPreset", "rtx.resolutionScale",
         "rtx.sharpening.sharpness", "rtx.dlssPreset", "rtx.dlfg.enable", "rtx.isReflexEnabled",
         "rtx.faultNotice.enable", "rtx.screenshot.hotkey", "rtx.shader.blockUntilPrewarmed",
@@ -98,14 +100,20 @@ def goto(name, xy):
     return s
 
 def scene_car():
+    """bring a parked car to the player: at SHOW_CAR_XY if set, else where he stands; if the
+    renderer reports no parked car within reach, warp to the nearest parked car it logs"""
+    xy = [float(c) for c in E("SHOW_CAR_XY", "").split(",") if c]
     s = D.wait_state()
-    s = warp(round(s["x"], 1), round(s["y"], 1), None, why="the scene car")
+    if not xy: xy = [round(s["x"], 1), round(s["y"], 1)]
+    s = warp(xy[0], xy[1], int(xy[2]) if len(xy) > 2 else None, why="the scene car")
     for attempt in range(3):
-        last = (T.devtools_lines() or [""])[-1]
-        if "no parked car" not in last: break
+        time.sleep(1.0)
+        recent = " ".join((T.devtools_lines() or [""])[-3:])
+        if "no parked car" not in recent: mark("scene car brought"); return s
         s = D.wait_state()
         if not s or not s.get("parked"): break
         s = warp(round(s["px"], 1), round(s["py"], 1), None, why=f"the nearest parked car (try {attempt + 1})")
+    mark("scene car: none found")
     return s
 
 def car_sweep(tag, models):
@@ -138,6 +146,17 @@ while time.time() - t0 < float(E("SHOW_WARM", "240")):
     elif i % 2 == 0: goto(*SP[0])
     i += 1
 mark("warm end")
+
+# 1b. sun probe: the same spot and heading, before any live push and after (12:30, 14:00, 15:30)
+if E("SHOW_PROBE", "1") == "1":
+    goto(*SP[0]); view("third"); hold("Left", 0.5)
+    for h in (12.5, 14.0, 15.5):
+        hour(h, settle=4.0); mark(f"probe_{h:g}_nopush_third")
+        view("classic"); time.sleep(1.5); mark(f"probe_{h:g}_nopush_classic"); view("third")
+    hour(12.5, settle=3.0); push(state(TOD["noon"]), "probe: play+noon"); mark("probe_12.5_todnoon_third")
+    hour(14.0, settle=4.0); mark("probe_14_todnoon_third")
+    push(state(), "probe: play only"); mark("probe_14_playonly_third")
+    hour(15.5, settle=4.0); mark("probe_15.5_playonly_third")
 
 # 2. the hours at each spot
 for tod in tods:

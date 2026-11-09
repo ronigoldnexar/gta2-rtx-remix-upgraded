@@ -19,13 +19,17 @@ float4 cToWorldZ   : register(c4);   // view -> world z
 float4 cHorizon    : register(c5);   // sky at the horizon; w: seconds (wrapped)
 float4 cZenith     : register(c6);   // sky overhead; w: reflection strength
 float4 cWet        : register(c7);   // fog start, 1/(fog end - start), puddle threshold, rain (ripples)
+// Numbers the march uses, as a uniform: Wine 9's compiler writes a fresh def for every
+// literal in every unrolled step and the shader ran past ps_3_0's 224 constants.
+float4 cK          : register(c8);   // 0.5, 1, 0, 1e6
+float4 cK2         : register(c9);   // 1.5 (hit thickness, in steps), 0.15 (plus blocks), 1.25 (step growth), 0.05 (near)
 
 sampler2D sLit    : register(s4);
 sampler2D sDepth  : register(s1);
 sampler2D sPuddle : register(s2);
 
 // step() as arithmetic: this compiler has no comparisons in shader model 3 yet.
-float St(float edge, float x) { return saturate((x - edge) * 1.0e6); }
+float St(float edge, float x) { return saturate((x - edge) * cK.w); }
 
 float LinearZ(float d) { return cProj.y / (d - cProj.x); }
 float3 ViewPos(float2 uv, float d) {
@@ -48,14 +52,14 @@ float3 ViewNormal(float2 uv, float3 p) {
 // hit (the ray just went behind a surface, by less than this step's length) wins.
 #define MARCH_STEP                                                                          \
     q += r * stepLen;                                                                       \
-    suv = float2(0.5 + 0.5 * q.x / (q.z * cProj.z), 0.5 - 0.5 * q.y / (q.z * cProj.w));     \
+    suv = cK.xx + cK.xx * float2(q.x / (q.z * cProj.z), -q.y / (q.z * cProj.w));            \
     sz = LinearZ(DepthAt(suv));                                                             \
-    inside = St(0.0, suv.x) * St(suv.x, 1.0) * St(0.0, suv.y) * St(suv.y, 1.0) * St(0.05, q.z); \
-    hit = inside * St(sz, q.z) * St(q.z - sz, stepLen * 1.5 + 0.15) * (1.0 - found);   \
-    hitUv = lerp(hitUv, suv, hit);                                                          \
+    edge4 = saturate(float4(suv, cK.yy - suv) * cK.w);                                      \
+    inside = edge4.x * edge4.y * edge4.z * edge4.w * St(cK2.w, q.z);                        \
+    hit = inside * St(sz, q.z) * St(q.z - sz, stepLen * cK2.x + cK2.y) * (cK.y - found);   \
+    hitUv += (suv - hitUv) * hit;                                                           \
     found = max(found, hit);                                                                \
-    gone = max(gone, 1.0 - inside);                                                         \
-    stepLen *= 1.25;
+    stepLen *= cK2.z;
 
 float4 ps_wet(QuadOut i) : COLOR0 {
     float4 lit = tex2Dlod(sLit, float4(i.uv, 0, 0));
@@ -85,13 +89,12 @@ float4 ps_wet(QuadOut i) : COLOR0 {
     float3 v = normalize(p);
     float3 r = reflect(v, n);
     float3 q = p + n * 0.03;
-    float stepLen = 0.12 + p.z * 0.015;
+    float stepLen = 0.15 + p.z * 0.03;
     float2 suv = i.uv, hitUv = i.uv;
-    float sz = 0, inside = 1, hit = 0, found = 0, gone = 0;
-    MARCH_STEP MARCH_STEP MARCH_STEP MARCH_STEP
-    MARCH_STEP MARCH_STEP MARCH_STEP MARCH_STEP
-    MARCH_STEP MARCH_STEP MARCH_STEP MARCH_STEP
-    MARCH_STEP MARCH_STEP MARCH_STEP MARCH_STEP
+    float sz = 0, inside = 1, hit = 0, found = 0;
+    float4 edge4 = 0;
+    MARCH_STEP MARCH_STEP MARCH_STEP MARCH_STEP MARCH_STEP
+    MARCH_STEP MARCH_STEP MARCH_STEP MARCH_STEP MARCH_STEP
 
     float2 e = min(hitUv, 1.0 - hitUv);
     float edge = saturate(e.x * 10.0) * saturate(e.y * 10.0);

@@ -1067,11 +1067,14 @@ void PostFx::Resolve() {
     const WeatherState& weather = WeatherNow();
     if (weather.active && weather.wetRoads && weather.wet > 0.01f && puddles_ && !wetFailed_) {
         if (!wetTex_) {
-            if (FAILED(device_->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, hdrFormat_, D3DPOOL_DEFAULT, &wetTex_, nullptr)) ||
-                FAILED(wetTex_->GetSurfaceLevel(0, &wetSurf_)) || FAILED(device_->CreatePixelShader(k_ps_wet, &psWet_))) {
+            const HRESULT ht = device_->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, hdrFormat_, D3DPOOL_DEFAULT, &wetTex_, nullptr);
+            const HRESULT hs = SUCCEEDED(ht) ? wetTex_->GetSurfaceLevel(0, &wetSurf_) : E_FAIL;
+            const HRESULT hp = device_->CreatePixelShader(k_ps_wet, &psWet_);
+            if (FAILED(ht) || FAILED(hs) || FAILED(hp)) {
                 SafeRelease(wetSurf_); SafeRelease(wetTex_); SafeRelease(psWet_);
                 wetFailed_ = true;
-                RendererTrace("weather: could not create the wet-road target or shader; wet roads stay off");
+                RendererTrace("weather: could not create the wet-road target (0x%08lx, 0x%08lx) or shader (0x%08lx); wet roads stay off",
+                              static_cast<unsigned long>(ht), static_cast<unsigned long>(hs), static_cast<unsigned long>(hp));
             } else {
                 RendererTrace("weather: wet-road pass ready (%dx%d)", w, h);
             }
@@ -1088,7 +1091,7 @@ void PostFx::Resolve() {
             device_->SetSamplerState(2, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
             device_->SetSamplerState(2, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
             const Vec3 upV = Normalize(XformDir(view_, Vec3{0.0f, 1.0f, 0.0f}));
-            float c[8][4] = {};
+            float c[10][4] = {};
             for (int k = 0; k < 4; ++k) { c[0][k] = proj[k]; c[1][k] = screen[k]; }
             c[2][0] = upV.x; c[2][1] = upV.y; c[2][2] = upV.z; c[2][3] = std::min(1.0f, weather.wet) * frame_.blend;
             // view -> world: row-vector points times invView_; the x and z columns.
@@ -1099,7 +1102,9 @@ void PostFx::Resolve() {
             c[7][0] = frame_.fogStart; c[7][1] = 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart);
             // More of the street under water the wetter it is.
             c[7][2] = 0.78f - 0.22f * std::min(1.0f, weather.wet); c[7][3] = weather.rain;
-            device_->SetPixelShaderConstantF(0, &c[0][0], 8);
+            c[8][0] = 0.5f; c[8][1] = 1.0f; c[8][2] = 0.0f; c[8][3] = 1.0e6f;
+            c[9][0] = 1.5f; c[9][1] = 0.15f; c[9][2] = 1.25f; c[9][3] = 0.05f;
+            device_->SetPixelShaderConstantF(0, &c[0][0], 10);
             DrawQuad(w, h);
             device_->SetTexture(2, nullptr);
             litOut = wetTex_;

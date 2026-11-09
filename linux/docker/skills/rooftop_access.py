@@ -128,15 +128,35 @@ def _here(world):
     if not s: return None, None
     return s, (int(s["x"]), int(s["y"]), stand_level(world, int(s["x"]), int(s["y"]), M.ped_level(s)) or M.ped_level(s))
 
+class GameClock:
+    """seconds of play since start: the wall clock, but never more than the game's own clock
+    (the renderer's frame counter, 256-frame granular) plus a margin. The CPU governor freezes the
+    whole container when the host's load passes 20; with a wall-time budget ccc1 spent its whole
+    climb (991 s) in a 16-minute pause after 17 game seconds"""
+    MARGIN = 12.0
+
+    def __init__(self):
+        self.t0 = time.time(); self.f0 = M.frames_rendered()
+
+    def __call__(self):
+        wall = time.time() - self.t0
+        game = D.game_seconds(M.frames_rendered() - self.f0) / max(1.0, getattr(D, "SPEED", 1.0))   # wall-equivalent at GTA2_SPEED
+        return min(wall, game + self.MARGIN)
+
+    def paused(self, since_wall, since_game):
+        """True when a stretch that took since_wall wall seconds advanced the game far less"""
+        return (time.time() - since_wall) > 3 * max(10.0, self() - since_game) and time.time() - since_wall > 60
+
+
 def _no_warps():
     old = os.environ.get("WARP_OK", "1"); os.environ["WARP_OK"] = "0"; return old
 
 def climb(world, tx, ty, tl, budget=600, tol=0.6, learn=True):
     """walk to cell (tx,ty) at lid level tl by stairs and ramps, flight by flight, no warp.
     Returns (state, reached)"""
-    old = _no_warps(); t0 = time.time(); fails = {}; best_level = None
+    old = _no_warps(); clk = GameClock(); fails = {}; best_level = None
     try:
-        while time.time() - t0 < budget:
+        while clk() < budget:
             s, here = _here(world)
             if not s: return s, False
             if s["driving"]:
@@ -155,7 +175,7 @@ def climb(world, tx, ty, tl, budget=600, tol=0.6, learn=True):
             _say(f"climb: {len(path)} cells, {len(fl)} flights from {here} to {tx},{ty} L{tl}: "
                  + ", ".join(f"{path[a][:2]}L{la}->{path[b][:2]}L{lb}" for a, b, la, lb in fl))
             if not fl:
-                s = M.walk3(world, tx + 0.5, ty + 0.5, tl, tol=tol, budget=max(30, budget - (time.time() - t0)))
+                s = M.walk3(world, tx + 0.5, ty + 0.5, tl, tol=tol, budget=max(30, budget - clk()))
                 if s and math.hypot(tx + 0.5 - s["x"], ty + 0.5 - s["y"]) < tol + 0.3 and M.ped_level(s) == tl: return s, True
                 fails["flat"] = fails.get("flat", 0) + 1
                 if fails["flat"] >= 3: return s, False
@@ -165,11 +185,17 @@ def climb(world, tx, ty, tl, budget=600, tol=0.6, learn=True):
             top = path[b]
             key = (path[a], top)
             seg_budget = 60 + 1.6 * (b + 1)
+            w0, g0 = time.time(), clk()
             s = M.walk3(world, top[0] + 0.5, top[1] + 0.5, top[2], tol=0.6, budget=seg_budget)
             if s and M.ped_level(s) == top[2] and math.hypot(top[0] + 0.5 - s["x"], top[1] + 0.5 - s["y"]) < 1.3:
                 STATS["flights"] += 1
                 best_level = top[2] if best_level is None else max(best_level, top[2])
                 M.mark(f"rooftop: flight {path[a][:2]} L{la} -> {top[:2]} L{lb} climbed (z {s['z']:.2f})")
+                continue
+            if clk.paused(w0, g0):
+                # the container was frozen during the flight: not a failure of the flight
+                STATS["pauses"] = STATS.get("pauses", 0) + 1
+                M.mark(f"rooftop: flight {path[a][:2]}->{top[:2]} spanned a pause ({time.time()-w0:.0f} wall-s, {clk()-g0:.0f} game-s); not counted")
                 continue
             fails[key] = fails.get(key, 0) + 1; STATS["flight_retries"] += 1
             lvl = M.ped_level(s) if s else None
@@ -214,7 +240,7 @@ def descend(world, toward=None, budget=300):
 def answer_roof_phone(world, entry, answer_fn, budget=900):
     """climb to the phone's launch cell, then the session's answer (step on, title, step off
     and on), warps off. Returns (ok, ms_or_key, info)"""
-    t0 = time.time()
+    t0 = time.time(); clk = GameClock()
     s, here = _here(world)
     if not s: return False, None, {"why": "no state"}
     tl = phone_level(world, entry)
@@ -226,11 +252,11 @@ def answer_roof_phone(world, entry, answer_fn, budget=900):
     lx, ly, ll, path = lc
     M.mark(f"rooftop: phone {entry['x']},{entry['y']} L{tl}: launch cell {lx},{ly} L{ll}, {len(path)} cells, {len(flights(path, world))} flights")
     s, ok = climb(world, lx, ly, ll, budget=budget * 0.8, tol=0.45)
-    info = {"launch": (lx, ly, ll), "climb_s": round(time.time() - t0), "reached": ok, "z": s["z"] if s else None}
+    info = {"launch": (lx, ly, ll), "climb_s": round(clk()), "climb_wall_s": round(time.time() - t0), "reached": ok, "z": s["z"] if s else None}
     if not ok:
-        M.mark(f"rooftop: launch cell not reached ({time.time()-t0:.0f}s, at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f})" if s else "rooftop: no state")
+        M.mark(f"rooftop: launch cell not reached ({clk():.0f} game-s, at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f})" if s else "rooftop: no state")
         return False, None, info
-    M.mark(f"rooftop: on the terrace at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f} after {time.time()-t0:.0f}s, no warp")
+    M.mark(f"rooftop: on the terrace at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f} after {clk():.0f} game-s, no warp")
     M.shot("rooftop_terrace")
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
     old = _no_warps()
@@ -238,7 +264,7 @@ def answer_roof_phone(world, entry, answer_fn, budget=900):
         ok, ms = answer_fn(entry)
     finally:
         os.environ["WARP_OK"] = old
-    info["answer_s"] = round(time.time() - t0)
+    info["answer_s"] = round(clk())
     return ok, ms, info
 
 # ---------------------------------------------------------------- the CLI: a real job

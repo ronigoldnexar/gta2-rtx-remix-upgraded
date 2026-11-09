@@ -102,7 +102,10 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         l.coneDeg = d.coneAngleDeg;
         // Headlamp beams reach down the road, softer: at x0.6 a beam read as a blown yellow-white
         // bar on the asphalt at night (out/vp2_look, tier_night_high).
-        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity *= 0.3f; }
+        // Head lamps and sirens carry Remix radiances (10, synthetic_lights.cpp): 0.12 + 0.25 * 10
+        // times 0.3 still left two overlapping beams a blown white-yellow pool across the road at
+        // night (QB-35, out/qb35_look1 t_w_third_night_clear). A beam is now 0.22 at most.
+        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity = 0.22f * (d.intensity < 4.0f ? d.intensity / 4.0f : 1.0f); }
         out->push_back(l);
     }
 }

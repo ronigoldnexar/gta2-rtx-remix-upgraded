@@ -1,6 +1,6 @@
 // Weather and time of day for the plain renderer (QB-35, QB-43; docs/weather.md).
 //
-// The [weather] section of gta2dx9.ini, re-read every two seconds while the game runs
+// The [weather] section of gta2dx9.ini, re-read every second while the game runs
 // (so a script, or a player with an editor open, can bring the rain in and move the
 // clock), and the per-frame state the renderer draws from (src/weather_fx.h): the
 // rain, cloud and fog eased toward their settings, the roads wetting under the rain
@@ -50,7 +50,7 @@ struct Settings {
 };
 
 char g_ini[MAX_PATH] = "";
-unsigned g_polls = 0;
+LARGE_INTEGER g_lastRead = {};
 Settings g_set;
 bool g_haveSet = false;
 LARGE_INTEGER g_freq = {}, g_last = {};
@@ -199,12 +199,16 @@ void Poll() {
     if (!g_ini[0]) {
         QueryPerformanceFrequency(&g_freq);
         g_last = now;
+        g_lastRead = now;
         g_seed ^= static_cast<uint32_t>(now.QuadPart);
         GetModuleFileNameA(nullptr, g_ini, MAX_PATH);
         char* slash = strrchr(g_ini, '\\');
         if (slash) strcpy(slash + 1, "gta2dx9.ini"); else strcpy(g_ini, "gta2dx9.ini");
         ReadSettings();
-    } else if ((++g_polls % 60u) == 0u) {
+    } else if (g_freq.QuadPart && now.QuadPart - g_lastRead.QuadPart >= g_freq.QuadPart) {
+        // Once a second by the clock, not by frames: at a low frame rate a frame count
+        // left a scripted change unread for several seconds.
+        g_lastRead = now;
         ReadSettings();
     }
     double dt = g_freq.QuadPart ? static_cast<double>(now.QuadPart - g_last.QuadPart) / static_cast<double>(g_freq.QuadPart) : 0.0;

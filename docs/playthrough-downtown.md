@@ -689,10 +689,15 @@ drive.
 |---|---|---|---|
 | **dl_zz1** | first version | **JOB COMPLETE** (956 s from level start; +$20,000, multiplier 2) | The phone was reached on foot. The first drive to the hospital took 255 blocks of the router's path, at the smooth driver's normal pace: a bug restored the caps in the wrong order, so `SMOOTH_SLOW_CAP` was 22000 (fixed). The approach point taken from the route's last cells (north of the box) left the car pressed against the forecourt's kerb for two minutes. Once in the box (arrow kind 0) the horn worked and the doctor boarded (1639, carhp 18300). The garage was entered from the south and the game parked the car. |
 | dl_zz2 | + open-side approach | stuck (doctor never boarded) | Each of the eight approaches from the east got into the box (51.3,178.3, arrow kind 0). Each time the skill waited for the arrow to disappear and then backed out. Fixed with `box_arrow`. |
-| **dl_zz3** | + `box_arrow` (final code) | **JOB COMPLETE** (1039 s; +$20,000) | Hospital box from the east, creep, "the game has it" (carhp 29973). Doctor aboard 6 s later. The garage drive was 130 blocks of the shared router's route for a 30-block crow line, with 7 hits; carhp 23650 at the door. Garage from the south, park, 1124. |
+| **dl_zz3** | + `box_arrow` | **JOB COMPLETE** (1039 s; +$20,000) | Hospital box from the east, creep, "the game has it" (carhp 29973). Doctor aboard 6 s later. The garage drive was 130 blocks of the shared router's route for a 30-block crow line, with 7 hits; carhp 23650 at the door. Garage from the south, park, 1124. |
+| dl_zz4 | same | stuck (doctor never boarded) | The car was in the box with the arrow cleared, then rolled out after a 0.3 s handbrake tap. The skill was still in its 45 s park wait, so the horn came too late. Its 2-block `drive3` back to the approach point then re-planned itself 50 blocks away from 53.1,177.9. Fixed: the creep returns only once the car has stopped inside (handbrake 0.7 s, brake tap, position checked again); within 6 blocks of the box, on its open side, it creeps directly and skips `drive3`; `park_wait=0` for a box that is not a park. |
+| dl_zz5 | + those fixes | stuck (ran out of time 8 blocks from the garage) | The hospital part was clean: in the box in 26 s of creep, doctor aboard 6 s later. The garage leg spent its whole 420 s budget in one `drive3` call on the 130-block route, in traffic, with 13 hits. Fixed: one `drive3` call is capped at 240 s (`DRIVE_CALL`) and the leg then re-plans; the garage leg gets 800 s and 8 tries. |
+| **dl_zz6** | + `DRIVE_CALL` (latest code) | **JOB COMPLETE** (900 s; +$20,000) | The first drive to the hospital was pushed 30 blocks west by traffic and stopped at the 420 s leg budget. The horn step's re-delivery drove back (two calls). Creep, "the game has it" in 12 s, doctor aboard 6 s later. Garage in 96 s (carhp 24785), park, 1124. |
 
-**Result: 2 of 3 sessions reached JOB COMPLETE** (dl_zz1, dl_zz3). The frames are in the chase view:
-`out/dl_zz3/m_zz_hospital.png`, `m_zz_doctor.png` (the Miura in the forecourt, brief "Bring Doctor
+**Result: the first three sessions reached JOB COMPLETE 2 of 3 times (dl_zz1, dl_zz3). Over all six
+sessions it is 3 of 6 (dl_zz1, dl_zz3, dl_zz6).** Each failure found a defect in the skill, fixed
+before the next session. dl_zz6 is the latest code; the confirmation session on it is listed below. The frames are in the chase view:
+`out/dl_zz3/m_zz_hospital.png` and `out/dl_zz6/m_zz_*.png`, `m_zz_doctor.png` (the Miura in the forecourt, brief "Bring Doctor
 ZitZaki directly to the new J-Lab") and `m_zz_garage.png` (JOB COMPLETE at the garage door). dl_zz1 has
 the same names. The frames are not in git.
 
@@ -711,7 +716,7 @@ Open items:
 - Respray shops for `ste` and `bil` are not listed yet.
 - The respray detour has not run in a session yet: no car fell below 17500 on a leg it could save.
 - The shared car router still chooses long detours, which the skill cannot change: 255 blocks for a
-  60-block crow line to the hospital in dl_zz1, 130 for 30 to the garage in dl_zz3. These detours cost
+  60-block crow line to the hospital in dl_zz1, 130 for 30 to the garage (dl_zz3; this one is real: row 194 is solid and the garage driveway is reached from row 211). These detours cost
   most of the car damage.
 
 ## Part 11 (9 Nov 2026, Wave M, SKILL-KILLMARK): the kill-marked skill on BANK ROBBERY
@@ -800,13 +805,13 @@ warps off. It changes none of the shared libraries.
 | rf2 | up 3 flights, phone, down 3 flights, back on the street at game-second 145; 0 retries | BUSTED | wanted level 1 in the Cop Car; the driver stopped behind a parked car at 85,74 and a cop arrested him |
 | rf3 | up and down clean (a governor pause of 9 wall-minutes = 17 game-s at the last flight) | stopped | run over by traffic crossing to the Cop Car at 208,43.5; hospital respawn |
 | rf4 | up and down clean, 6 flights, 1 retry; phone answered at game-second 119 | stopped (car burned) | Shady aboard and the yard box passed. The shared crusher-pad step then pressed the Cop Car around the crusher yard (175-185 x 14-16) from carhp 22000 until it caught fire |
-| rf5 | see below | | |
+| **rf5** | up 3 flights in 119 game-s, 0 retries; phone at 154 s; back on the street at 188 s | **JOB COMPLETE** (+$20,000, multiplier 2, message 1124, game-second 930, 0 faults) | Cop Car at 196 s, Shady aboard at 435 s. The car caught fire 160 blocks from the yard and was driven on; parked at the pad and crushed. Frame `out/rf5/m_wil_ze1_crusher0.png`: JOB COMPLETE in the chase view |
 
 Frames (chase view, not in git): `out/rf1/m_rooftop_terrace.png` (on the terrace beside the phone,
 with the HUD's "Answer the phone"), `out/rf2/m_wil_ze1_street.png` (back on the street after the
 descent), and `m_wil_ze1_*` for the job's steps.
 
 **Rooftop access: 5 of 5 sessions climbed to the terrace phone and answered the right job without a
-warp, and 4 of 5 came back down on foot. The fifth descent ran before the step-off fix.** Every job
+warp. 4 of 4 came back down on foot after the step-off fix (rf1's descent ran before it).** Every job
 failure so far came after the roof, in the shared drive, police and crusher steps of
 `mission_play_wil.run_plan`. Those steps belong to the crusher/crane, police, and traffic skills.

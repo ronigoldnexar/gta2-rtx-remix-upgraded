@@ -150,7 +150,7 @@ def horn_for_doctor(world, secs=150):
             # outside the 3 x 1 box (the script puts its arrow back and says 1648): in again
             say(f"horn: outside the 3 x 1 box at {s['x']:.2f},{s['y']:.2f} (arrow {o}): back in")
             DI.deliver(world, HOSPITAL, car=CAR0, check=check, view_switch=None, budget=120, tries=2,
-                       done=lambda: DI.box_arrow(HOSPITAL) == "cleared" or doctor_aboard(), label="the hospital box")
+                       done=lambda: DI.box_arrow(HOSPITAL) == "cleared" or doctor_aboard(), label="the hospital box", park_wait=0)
         DI.keys_off()
         if k < 20: M.horn(2)
         k += 1
@@ -177,7 +177,7 @@ def run(world):
 
     # 2. deliver intact to the hospital's 3 x 1 horn box (the arrow goes when the car is in it)
     r = DI.deliver(world, HOSPITAL, car=CAR0, check=check, view_switch=view_switch, budget=420,
-                   done=lambda: DI.box_arrow(HOSPITAL) == "cleared" or doctor_aboard(), label="the hospital box")
+                   done=lambda: DI.box_arrow(HOSPITAL) == "cleared" or doctor_aboard(), label="the hospital box", park_wait=0)
     say("hospital:", r)
     if r in ("complete", "failed", "dead"): return r
     chase_shot("hospital")
@@ -190,7 +190,9 @@ def run(world):
     chase_shot("doctor")
 
     # 4. deliver intact to the J-Lab garage; the game parks it and says JOB COMPLETE
-    r = DI.deliver(world, GARAGE, car=CAR0, check=check, view_switch=view_switch, budget=420,
+    # 130 blocks of road for 30 as the crow flies (row 194 is solid; the garage's driveway is
+    # reached from row 211): dl_zz5 ran out of a 420 s budget 8 blocks from the door
+    r = DI.deliver(world, GARAGE, car=CAR0, check=check, view_switch=view_switch, budget=800, tries=8,
                    park_wait=45, label="the J-Lab garage")
     say("garage:", r)
     chase_shot("garage")

@@ -36,16 +36,17 @@ def main():
     spots = [(164.5, 149.5), (122.5, 155.5), (124.5, 212.5)]
     spot = spots[int(os.environ.get("WX_SPOT", "0"))]
     warp(*spot, None, why="weather spot")
+    time.sleep(2.0)
     HOURS = [("day", 1000), ("golden", 1720), ("blue", 1825), ("night", 2230)]
     WX = [("clear", dict()), ("rain", dict(rain=100, cloud=100, wet=100, wind=40)), ("fog", dict(fog=90, cloud=60))]
     for v in ("third", "first"):
-        view(v); time.sleep(2.0)
+        view(v); time.sleep(4.0)
         if v == "first": T.clear_of_cars()
         for hname, hh in HOURS:
-            setk("weather", "hour_hhmm", hh)
+            setk("weather", "hour_hhmm", hh); time.sleep(0.4)
             for wname, kw in WX:
                 if v == "first" and wname == "fog": continue
-                weather(**kw); time.sleep(3.4); shot(f"w_{v}_{hname}_{wname}")
+                weather(**kw); time.sleep(2.6); shot(f"w_{v}_{hname}_{wname}")
     # The roads drying after the rain stops (no forced wetness), at night in the chase view.
     view("third"); time.sleep(1.5)
     setk("weather", "fade_seconds", 4); weather(rain=100, cloud=100, wet=-1, wind=60)
@@ -53,7 +54,7 @@ def main():
     weather(rain=0, cloud=30, wet=-1)
     for i in range(3): time.sleep(5.0); shot(f"w_drying_{i}")
     # Off again: the frame as it was.
-    setk("weather", "enabled", 0); time.sleep(3.4); shot("w_off_after")
+    setk("weather", "enabled", 0); time.sleep(2.6); shot("w_off_after")
     view("classic"); time.sleep(1.5); shot("w_classic_after")
     open("/out/.keys_done", "w").close()
 

@@ -40,6 +40,7 @@ REPAIR_HP = int(os.environ.get("DELIVER_REPAIR_HP", "17500"))   # below this (fi
 FIRE_LIFE = 28.0       # game seconds a burning car lasts, roughly (pt7-pt9: 25-35 s)
 SHOP_DETOUR = 1.6      # a respray is taken when it is at most this many times nearer than the goal
 CARE_STEPS = ((26000, 2.6), (22000, 2.0), (18000, 1.6))   # carhp -> speed cap of the fragile drive
+DRIVE_CALL = 240.0    # one drive3 call at most this long, then the leg re-plans (dl_zz5 spent 420 s in one)
 EVENTS = []            # (wall time, event) for the job's doc
 
 
@@ -165,7 +166,13 @@ def creep_into(box, secs=50, done=None, check=None):
         if check: check()
         if done and done(): return s
         if _box_inside(s, box):
-            hold("space", 0.3); return s
+            # stopped inside, not rolling through: dl_zz4's Miura was in the hospital box with
+            # the arrow cleared, rolled out after a 0.3 s handbrake and the horn came too late
+            hold("space", 0.7); hold("Down", 0.15); time.sleep(0.5)
+            s2 = D.wait_state()
+            if s2 and _box_inside(s2, box): return s2
+            say(f"deliver: rolled out of the box to {s2['x']:.2f},{s2['y']:.2f}; in again")
+            continue
         hx, hy = M.heading(s); dx, dy = x - s["x"], y - s["y"]
         a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
         if abs(a) > 0.5 and math.hypot(dx, dy) > 0.8:
@@ -275,11 +282,20 @@ def deliver(world, box, car=None, approach=None, done=None, check=None, view_swi
             # the drive: to the approach point (a narrow strip) or the box itself
             ap = approach or (approach_point(world, s, box) if min(w, h) < 1.6 else None)
             M.CAR_AVOID.clear()
-            if ap:
-                s = M.drive3(world, ap[0], ap[1], tol=1.2, budget=max(60, budget - (time.time() - t0)),
+            side = None
+            if min(w, h) < 1.6:
+                try: side = open_side(world, box, M.ped_level(s))
+                except Exception: side = None
+            on_open = side is None or ((s["x"] - x) * side[1][0] + (s["y"] - y) * side[1][1]) > -0.2
+            if math.hypot(x - s["x"], y - s["y"]) < 6.0 and on_open:
+                # already at the box: the creep only (dl_zz4: a 2-block drive3 back to the approach
+                # point re-routed itself 50 blocks away from 53.1,177.9)
+                pass
+            elif ap:
+                s = M.drive3(world, ap[0], ap[1], tol=1.2, budget=min(DRIVE_CALL, max(60, budget - (time.time() - t0))),
                              view_switch=view_switch, slow=True, precious=True, until=reacted)
             else:
-                s = M.drive3(world, x, y, tol=max(0.6, min(w, h) * 0.45), budget=max(60, budget - (time.time() - t0)),
+                s = M.drive3(world, x, y, tol=max(0.6, min(w, h) * 0.45), budget=min(DRIVE_CALL, max(60, budget - (time.time() - t0))),
                              view_switch=view_switch, slow=True, precious=True, until=reacted)
             if check: check()
             if reacted(): keys_off(); break
