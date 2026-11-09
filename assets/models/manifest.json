@@ -1433,15 +1433,42 @@
   },
   {
    "name": "040_maurice",
-   "glb": "cars/models3d/040_maurice.glb",
+   "glb": "cars/vehicle_art2/040_maurice.glb",
    "scale": 1.0,
    "paint_rgb": [
-    139.6,
-    105.2,
-    89.6
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "chrome": "cars/vehicle_art2/040_maurice/chrome.png",
+    "seal": "cars/vehicle_art2/040_maurice/seal.png",
+    "underbody": "cars/vehicle_art2/040_maurice/underbody.png",
+    "paint_body": "cars/vehicle_art2/040_maurice/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/040_maurice/interior_dark.png",
+    "paint_fender_f": "cars/vehicle_art2/040_maurice/paint_fender_f.png",
+    "paint_fender_r": "cars/vehicle_art2/040_maurice/paint_fender_r.png",
+    "running_board_rubber": "cars/vehicle_art2/040_maurice/running_board_rubber.png",
+    "chrome_disc": "cars/vehicle_art2/040_maurice/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/040_maurice/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/040_maurice/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/040_maurice/lamp_tail.png",
+    "grille": "cars/vehicle_art2/040_maurice/grille.png",
+    "plate": "cars/vehicle_art2/040_maurice/plate.png",
+    "seat": "cars/vehicle_art2/040_maurice/seat.png",
+    "tyre_side": "cars/vehicle_art2/040_maurice/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/040_maurice/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/040_maurice/paint_wheel.png",
+    "glass": "cars/vehicle_art2/040_maurice/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_040.py",
+   "driver_seat": [
+    0.076,
+    0.128,
+    0.008,
+    0.3054
+   ]
   },
   {
    "name": "041_pickup",

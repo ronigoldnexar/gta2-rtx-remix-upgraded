@@ -3845,7 +3845,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             bool glassCut = false;
             for (const ModelMesh& gm : model->meshes) glassCut = glassCut || (glassCar && CarGlassCutMask(gm.texture) != nullptr);
             if (!glassCut) CarGlassEndCut();   // out of range, or no cabin to show through it
-            const bool glassy = g_driverGlass && !glassCut && !use.own && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
+            // FIX-CAR-TEX (pm70): an authored body models its own glass and cabin ("_glass" meshes, drawn
+            // translucent with the seated driver behind them); FIX-SEATED's 40 % band would ghost its whole
+            // glasshouse, roof pillars and all (the 040 Maurice's roof read as a see-through bubble).
+            bool ownGlass = false;
+            for (const ModelMesh& gm : model->meshes) ownGlass = ownGlass || gm.texture.find("_glass") != std::string::npos;
+            const bool glassy = g_driverGlass && !glassCut && !ownGlass && !use.own && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
                                 !RemixApiAvailable() && BoardingCarSeated(use.object);
             auto drawHull = [&](const Model& m, const gta2::Mat4& place) {
                 if (!glassy) { ModelDraw(device, m, place, nullptr, 0.0f); return; }

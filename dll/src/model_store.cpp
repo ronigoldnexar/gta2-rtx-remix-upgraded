@@ -809,6 +809,19 @@ void SoftenPaintMask(uint8_t* px, int w, int h) {
         sat.push_back((mx - mn) / (std::max)(mx, 1.0f));
     }
     if (cr.size() < 64) return;
+    // FIX-CAR-TEX (pm70): a paint half made neutral by tools/car_paint_resplit.py (every lit paint
+    // texel exactly grey, r == g == b) was already selected by the body's own hue; widening it by
+    // chroma similarity to grey took every pale texel of the atlas (window glass, chrome, the plate,
+    // white rims) into the tint: green glass with ragged island edges on the 040 Maurice. Such a mask
+    // is only softened at its border (the blur below), never widened.
+    size_t lit = 0, grey = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const uint8_t* p = px + i * 4;
+        if (p[3] < 128 || (p[0] < 16 && p[1] < 16 && p[2] < 16)) continue;
+        ++lit;
+        if (p[0] == p[1] && p[1] == p[2]) ++grey;
+    }
+    const bool neutralised = lit >= 64 && grey * 100 >= lit * 98;
     auto median = [](std::vector<float>& v) { std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end()); return v[v.size() / 2]; };
     const float ref[3] = {median(cr), median(cg), median(cb)};
     const bool coloured = median(sat) >= 0.2f;
@@ -832,7 +845,7 @@ void SoftenPaintMask(uint8_t* px, int w, int h) {
         } else {
             wl = SmoothStep(55.0f, 105.0f, mx);
         }
-        m[i] = (std::max)(p[3] >= 128 ? 1.0f : 0.0f, wc * wl);
+        m[i] = (std::max)(p[3] >= 128 ? 1.0f : 0.0f, neutralised ? 0.0f : wc * wl);
     }
     for (int pass = 0; pass < 2; ++pass) {
         for (int y = 0; y < h; ++y)

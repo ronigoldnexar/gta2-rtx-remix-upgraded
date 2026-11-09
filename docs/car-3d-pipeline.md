@@ -887,3 +887,73 @@ charts on the image-to-3D bodies; the windows of 063 and other bodies whose glas
 body-coloured soot; no smoke or ember decals after the fire dies; under Remix the charred textures are new hashes with
 no PBR replacement (roughness from the default material); the stand-ins are one model per class, so two parked wrecks
 of a class look alike.
+
+## pm70: neutral paint and the soft mask; the 040 Maurice authored (9 Nov 2026, FIX-CAR-TEX)
+
+Defect pm70-bil-third-green-sedan-body-texture-smeared-ragged-window-cutouts-garbled-plate: the player's green
+040 Maurice in third person looked melted. The rear window and boot had torn outlines, the paint tone was patchy, and
+the plate showed garbled glyphs.
+
+**Two causes: a regression and the art.**
+- Regression, from 2927aea (FIX-CAR-IDENTITY's `tools/car_paint_resplit.py`) meeting e9c7464 (the soft paint
+  mask above). The resplit makes a generated car's paint texels exactly grey (r = g = b). `SoftenPaintMask` then
+  takes its "uncoloured" branch, which widens the mask to every texel whose chroma is near grey and bright enough.
+  On a generated atlas that is the window glass the generator painted white, the chrome, the plate, and white trim
+  and rims. All of it took the live tint, so the 040's white rear window became a pale green patch whose ragged
+  island edges showed against the body. Offline sweep with the DLL's exact formula over all 44 resplit cars (rest
+  half, max > 150, saturation < 0.15): 254,267 of 254,478 pale non-paint texels were tinted (100 %).
+- Pre-existing art: the 040's image-to-3D atlas (`cars/models3d/040_maurice.glb`, 3,908 faces, 1024 texture shipped
+  at 512) has torn, texel-ragged window and panel islands, a white lower rear panel, maroon patches of another hue,
+  and a garbled plate, both before and after the resplit (atlas sheets in the resolution). No mask can make those
+  outlines straight.
+
+**Changes.**
+- `dll/src/model_store.cpp` `SoftenPaintMask`: a paint half whose lit texels are 98 %+ exactly grey (the resplit
+  output, and the authored bodies' neutral paint) is no longer widened by chroma. Its binary mask is only softened
+  at the border by the existing blur. After the fix, 6,373 of the 254,478 texels are tinted (3 %, the blur's
+  one-texel border). Coloured paint halves (not resplit) take the old path unchanged.
+- The 040 Maurice is an authored carkit body: `tools/vehicle_art2/car_040.py`, a rounded early-1950s two-door
+  saloon read from sprite 35. It has separate front wings with the headlamps in their noses, bulged rear wings, a
+  split windscreen with a chrome centre bar, a two-door side with a B-pillar, a small rear window, a slatted grille,
+  blade bumpers with over-riders, a boot handle, and a real "M040" plate (box geometry, its own texture). It also
+  has an interior (seats, dash, wheel) behind lilac-tinted glass (the sprite's window colour) and neutral 235 paint
+  tinted by the live paint. 19.4k vertices, 27.7k triangles. Built with `build.py <out> 040`. Manifest entry:
+  `cars/vehicle_art2/040_maurice.glb` with `material_textures`, `generator`, and `driver_seat` (from
+  `tools/vehicle_art/seat_anchor.py`, which now lists the 040's seat). The glb, its textures and the imported
+  models are not in git.
+- `dll/src/car_bodies.cpp`: FIX-SEATED's translucent glasshouse band (the 40 % hull from belt to 0.90 of the roof,
+  for a sealed generated hull with a seated driver) no longer applies to a body with its own `_glass` meshes.
+  VEHICLE-GLASS leaves authored bodies alone ("has its own glass"), so the band ghosted their whole cabin, roof
+  pillars included. Seen on the player's 040 (`out/fct_pm70_car2`: seats and driver visible through a see-through
+  roof). The same applied to every authored car with a seated driver (008, 036, 056).
+- `tools/car_plate_clean.py`: a review tool that finds a generated car's baked plate (dark glyph strokes on a pale
+  field, at an end of the body, plate-sized) and repaints it as a clean plate in the plate's own 3D frame. Writes
+  need `--only`: on the fleet `--dry-run --sheet` it also fired on a tail lamp (071) and chrome (011, 017, 018, 034,
+  038, 041, 069). True plates were found on 014, 021, 044, 045 and 053. Not applied to any shipped car: the text
+  orientation in game is unverified (014's text looked mirrored in its atlas).
+
+Verified in game (private stage = this commit's DLL + the authored 040, GPU 1):
+- `gamerun/keys_pm70.sh` on bil, the player's own 040 from the F10 scene. Before: `out/pm70_bil`. After:
+  `out/fct_pm70_car3` (`pm_*_1t_stop`, `2t_stop`, `3t_stop`, `2t_left`). Smooth panels; straight window outlines;
+  a solid roof; a legible "M040" plate; red tail lamps; a chrome bumper. The first-person bonnet is the car's
+  green (was a dark maroon slab). 0 FAULT.
+- Traffic showcase (`va2_show.py`, every car forced to 040 in the pm70 green): `out/fct_car1`.
+- Mask A/B on the same models: `out/fct_old1` (pre-resplit textures), `fct_new1` (HEAD), `fct_fix1` (mask fix).
+  The traffic poses drift with the cars, so the class claim rests on the offline texel sweep above.
+- Classic: `tools/vreg/vreg.sh stage` gave `spawn_classic` PASS with 0 tiles changed (`out/vreg_fct1`). Its one
+  FAIL (restart1_chase, a map tree) and four WARNs (shadow and road tiles) contain no car.
+
+Still short of a shipping AAA frame:
+- The authored 040 is fixed-function lit with baked occlusion. There is no environment reflection on the paint,
+  and the glass reflection is a texture streak.
+- The panel gaps are painted lines, not geometry.
+- From the chase camera the rear glass reads near-opaque dark lilac. The seated driver shows through the side
+  glass, but hardly through the rear window.
+- The headlamps are plain discs without a reflector bowl or lens fluting.
+- The wheels are the kit's generic steel wheels.
+- The sprite's width (2.34 m) makes it wider than a real Minor.
+- Under Remix it has no PBR replacement (new texture hashes) and was not path traced.
+- The 43 other generated cars keep their generator atlases. The mask fix stops the green glass and chrome, but
+  their torn island outlines and white "glass" are art. Per-car authoring (VEHICLE_PRIORITY) is the real fix.
+- Pale *body* panels that the resplit left in the rest half (the old 040's white rear panel) are untinted again,
+  as they were before 2927aea.
