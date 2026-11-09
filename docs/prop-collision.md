@@ -95,3 +95,48 @@ the line) and third person (a fixed side camera, GTA2DX9_REGRESS_CAM), positions
 Still short of the bar: the other rule props were sized at 2 m a block too (parking meter 0.635 block = 2.5 m,
 stop/one-way signs 1.0-1.08 block = 4 m, hydrant 0.4 = 1.6 m, bin 0.45 = 1.75 m); the lamp's shaft is the
 14-sided lathe of PROPS-SLIM (smooth now that it is lit, faceted at the base up close).
+
+## Second street-prop pass: real sizes, glass, the booth (FIX-PROPS-3, 9 Nov 2026)
+
+- **Every rule prop at the figures' scale** (0.263 block a metre, an adult 0.46 block; the FIX-PROPS-2
+  list): `tools/gen_env2.py` authors the stop sign (75 cm octagon, centre 2.1 m, 2.5 m overall), the one-way
+  plate (90 x 30 cm at 2.2 m), the parking meter (1.37 m, a 17 x 12 cm head on a 1.0 m post) and the bus
+  shelter (3.4 m long, 1.4 m deep, 2.4 m to the roof, seat at 45 cm, BUS plate at 2.6 m) at their real size
+  (`MPB = 0.263`); `DrawProps` scales the scanned props to 95 cm (bin, was 1.75 m), 80 cm (hydrant, was
+  1.6 m) and a bench 90 cm to the top of its back (was 2.9 m long). Posts have smooth radial normals.
+- **Lamp base**: the PROPS-SLIM lathe goes round in 28 steps (was 14; the cross-bar 12, was 6), 2 720
+  triangles; the atlas is byte-identical, so its Remix material hash is unchanged.
+- **Collision follows the drawn size**: the footprints are still taken from the mesh (scaled), with the
+  sign and meter band cut to the bottom 0.25 block (at their real size the plate and the meter's head come
+  down into the old 0.5 band: the post alone is solid, r 0.008 / 0.016); the shelter's hand-made pieces in
+  `FootprintOf` are the new posts, back and end panes, seat and sign post.
+- **Glass** (defects pm6-bus-shelter-glass-opaque-flat-pale-blue-pane, demo-phone-booth-flat-translucent-blue-
+  placeholder-box): a rule prop's panes are its `<name>__glass` model (the booth's convention in
+  map_objects.cpp), drawn by `DrawProps` after every opaque prop, farthest first, blended by the texture's
+  alpha (about 0.13 clear glass with a faint broad sheen and a little grime at the foot: smooth gradients only,
+  the booth's one-texel diagonal streaks on a 64 px sheet stair-stepped into a zigzag), no depth writes, and
+  with a Blinn sun glint (`PropLightingBegin(device, true)`). `bus_shelter__glass` is new; the booth's
+  `code_phone*__glass` texture is the same sheet.
+- **The booth** (`tools/gen_code_objects.py`): map objects now take the sun and ambient as the props do
+  (`PropLightingBegin` in `MapObjectsDraw`; spinning pickups and the `__lit` companions stay unlit), its
+  paint is a shade deeper (36,84,160), and the PHONE sign box's ends are the roof's dark blue (the unlit
+  near-white ends read as a floating white tab).
+- Shared lighting: `PropLightingBegin/End` (live_geometry.h) replace the inline block of FIX-PROPS-2;
+  `GTA2DX9_PROP_LIGHT=0` still draws both unlit.
+- **Park-tree leaves** (`tools/gen_trees.py fill_transparent`): the leaf sheet was drawn on (0,0,0,0) and its
+  blurred alpha gave the black round every leaf a little coverage; the props are alpha-tested at a low
+  reference and model textures have one mip level, so a canopy a few blocks off sampled that black fringe.
+  Every texel that is not fully opaque now carries the leaves' own colour (pull-push fill); alpha, meshes and
+  bark are unchanged, only `tree_0N_1.tga` differ.
+- **Not the props**: the black spiky pyramids of pm8-ste-trees-render-black-spike-shards / pm23 are the
+  map's own tree blocks (sloped leaf tiles in the world mesh): runs fp3_ste_after (ste spawn, no tree prop
+  within 30 blocks, the pyramids on the ridge) and fp3_hyd_wil (the church park's pyramids, block-aligned).
+  The world renderer owns them. The red "flat cutout" of pm6 was the 1.6 m hydrant drawn unlit before
+  a062ae0; the "blue rounded slab" of pm-mailbox report3 is the pre-a062ae0 mailbox.
+
+Still short of the bar: the glass is alpha-blended with a fixed-function sun glint, no reflection of the
+street; under Remix the new `bus_shelter__glass` and the booth's re-made glass and frame textures have no
+material prims until the Remix mod is rebuilt (`linux/docker/build_remix_mod.sh`: `remix_model_pbr.py`
+already treats `__glass` models as smooth glass); thin posts are still slid round, not braced against; the
+map's own tree blocks are untouched.
+

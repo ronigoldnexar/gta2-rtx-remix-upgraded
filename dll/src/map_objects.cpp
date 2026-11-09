@@ -240,6 +240,13 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
     g_objectObstacles.clear();
     PropCollisionObjectsDone();   // FIX-COLLISION: the last pass's solid objects
     CaptureView(device);
+    // FIX-PROPS-3 (demo-phone-booth-flat-translucent-blue-placeholder-box): the standing objects
+    // take the world's sun and ambient like the street props (PropLightingBegin), so the phone
+    // booth's frame has a sunlit and a shaded side instead of one flat saturated blue; the
+    // spinning pickups and the glowing companions stay unlit.
+    DWORD savedArg2 = D3DTA_CURRENT;
+    device->GetTextureStageState(0, D3DTSS_COLORARG2, &savedArg2);
+    const bool lit = PropLightingBegin(device);
     g_pickups.clear();
     ++g_pickupsFrame;
     g_fadedNow.clear();
@@ -414,9 +421,10 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             if (glassF != g_glassOf.end()) g_fadedNow.push_back({glassF->second, out, nullptr, 0.0f, alpha * 0.6f});
             continue;
         }
+        if (lit) device->SetRenderState(D3DRS_LIGHTING, spinning ? FALSE : TRUE);
         ModelDraw(device, model, out, spin, spinT);
-        auto lit = g_litOf.find(&model);
-        if (lit != g_litOf.end()) g_litNow.push_back({lit->second, out});
+        auto litF = g_litOf.find(&model);
+        if (litF != g_litOf.end()) g_litNow.push_back({litF->second, out});
         auto glass = g_glassOf.find(&model);
         if (glass != g_glassOf.end()) g_glassNow.push_back({glass->second, out});
     }
@@ -427,7 +435,9 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         device->GetTextureStageState(0, D3DTSS_COLOROP, &colorOp);
         device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
         device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        if (lit) device->SetRenderState(D3DRS_LIGHTING, FALSE);
         for (const Deferred& d : g_litNow) ModelDraw(device, *d.model, d.out, nullptr, 0.0f);
+        if (lit) device->SetRenderState(D3DRS_LIGHTING, TRUE);
         device->SetTextureStageState(0, D3DTSS_COLOROP, colorOp);
         g_litNow.clear();
     }
@@ -449,7 +459,9 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
         device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
         device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        if (lit) PropLightingBegin(device, true);   // the panes catch the sun (FIX-PROPS-3)
         for (const Deferred& d : g_glassNow) ModelDraw(device, *d.model, d.out, nullptr, 0.0f);
+        if (lit) PropLightingBegin(device, false);
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
         device->SetRenderState(D3DRS_ALPHATESTENABLE, test);
         device->SetRenderState(D3DRS_ZWRITEENABLE, zwrite);
@@ -503,5 +515,9 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         if (((++fadeLogFrame) % 150) == 1) Log("objects: near fade: %d object(s) see-through this frame, the nearest at alpha %.2f", g_fadedLast, g_fadedNow.back().alpha);
         g_fadedNow.clear();
     }
+    if (lit) PropLightingEnd(device);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, savedArg2);
 }
 }  // namespace gta2dx9

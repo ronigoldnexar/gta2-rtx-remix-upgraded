@@ -127,6 +127,13 @@ void SetEnvCells(const std::vector<EnvCell>& rail, const std::vector<EnvCell>& b
 // frame (set at the top of LiveGeometry::Draw): what the ground views need not
 // draw at all.
 bool BehindView(float x, float y, float z, float margin);
+// FIX-PROPS-3: the street props' and map objects' lighting (the world's sun and ambient,
+// world_view.cpp DrawSkyAndShading; plain renderer only, not under Remix nor with
+// GTA2DX9_PROP_LIGHT=0). Begin returns false and changes nothing when the props are
+// drawn unlit; End undoes what Begin set. With `glass`, a sun highlight too (the
+// translucent passes: shelter and booth panes).
+bool PropLightingBegin(IDirect3DDevice9* device, bool glass = false);
+void PropLightingEnd(IDirect3DDevice9* device);
 // True when a sphere (world units, the renderer's frame) lies wholly outside the
 // current view frustum's four side planes (PERF-2: props, map objects and people
 // outside the picture are not drawn; they were drawn whenever they were in front).

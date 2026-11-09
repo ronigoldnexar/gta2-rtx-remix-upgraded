@@ -152,8 +152,8 @@ def build_token(im, radius=0.23, thick=0.045):
     return scene_with([("coin", coin), ("rim", rim_m)]), scene_with([("glow", glow_ring(tuple(min(255, c + 30) for c in colour), 0.20, 0.235))])
 
 
-BOOTH_BLUE = (46, 104, 196)      # the sprite's booth blue
-BOOTH_DARK = (24, 52, 110)
+BOOTH_BLUE = (36, 84, 160)       # the sprite's booth blue, a shade deeper as painted steel (the sprite's 46,104,196 lit flat read as plastic)
+BOOTH_DARK = (20, 42, 90)
 
 
 def blue_steel(rgb=BOOTH_BLUE, w=128, h=128, seed=21):
@@ -204,16 +204,24 @@ def sign_texture(text="PHONE", w=256, h=64):
     return im
 
 
-def glass_texture():
-    """Tinted glass, translucent (drawn in the glass pass), with two faint reflection streaks."""
-    w = h = 64
-    a = np.zeros((h, w, 4), np.uint8)
-    a[..., 0], a[..., 1], a[..., 2], a[..., 3] = 165, 205, 228, 70
-    for k in (14, 22):
-        for y in range(h):
-            x = (k + y // 2) % w
-            a[y, x:x + 3, :3] = 235; a[y, x:x + 3, 3] = 120
-    return Image.fromarray(a, "RGBA")
+def glass_texture(size=128):
+    """Clear tinted glass, translucent (drawn in the glass pass): alpha about 0.13, a soft
+    broad sheen and a little grime at the foot of the pane. Smooth gradients only: the
+    first one's one-texel diagonal streaks on a 64 px sheet stair-stepped into a zigzag
+    that read as a pasted picture (demo-phone-booth-flat-translucent-blue-placeholder-box)."""
+    y, x = np.mgrid[0:size, 0:size].astype(np.float32) / size
+    a = np.full((size, size), 34.0, np.float32)
+    rgb = np.zeros((size, size, 3), np.float32) + np.array((150, 182, 196), np.float32)
+    for c, w, k in ((0.30, 0.12, 30.0), (0.56, 0.035, 22.0)):
+        d = (x + 0.6 * y) / 1.6 - c
+        band = np.exp(-(d / w) ** 2)
+        a += k * band
+        rgb += (240.0 - rgb) * 0.45 * band[..., None]
+    grime = np.clip((y - 0.84) / 0.16, 0.0, 1.0) ** 2
+    a += grime * 30.0
+    rgb = rgb * (1.0 - 0.3 * grime[..., None]) + np.array((96, 92, 80), np.float32) * 0.3 * grime[..., None]
+    out = np.concatenate([np.clip(rgb, 0, 255), np.clip(a, 0, 255)[..., None]], 2)
+    return Image.fromarray(out.astype(np.uint8), "RGBA")
 
 
 def handset_parts(D_back, colour):
@@ -295,7 +303,9 @@ def build_phone(im, ring=0):
     ends.quad((sx0, sy0, sz0), (sx0, sy1, sz0), (sx1, sy1, sz0), (sx1, sy0, sz0))
     ends.quad((sx1, sy0, sz1), (sx1, sy1, sz1), (sx0, sy1, sz1), (sx0, sy0, sz1))
     ends.quad((sx0, sy1, sz1), (sx1, sy1, sz1), (sx1, sy1, sz0), (sx0, sy1, sz0))
-    ends_m = ends.mesh(mat(flat((200, 230, 255)), 0.0, 0.6, name="sign_rim"))
+    # the sign box's ends and top: the roof's dark blue (an unlit near-white read as a
+    # floating white tab from the side, demo of 9 Nov)
+    ends_m = ends.mesh(mat(flat((34, 62, 124)), 0.0, 0.6, name="sign_rim"))
     hs_colour = [(26, 26, 30), (150, 30, 20), (255, 70, 40)][ring]
     lit = scene_with([("sign", sign_m), ("sign_rim", ends_m), ("handset", handset_parts(W - 0.006, hs_colour))])
     # glass: the side panes above the kick panels, and the back either side of the spine

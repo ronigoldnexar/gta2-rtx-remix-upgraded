@@ -68,14 +68,16 @@ const Footprint& FootprintOf(const Model* model, float scale) {
     const size_t hash = name.find('#');
     if (hash != std::string::npos) name.resize(hash);
     if (name == "bus_shelter") {
-        // tools/gen_env2.py build_bus_shelter: open toward -x (the road), the back glass
-        // along +x, one end glass at +z, the seat, the corner posts and the stop's sign post.
-        for (float z : {-0.42f, 0.42f})
-            for (float x : {-0.18f, 0.18f}) fp.pieces.push_back({x, z, 0.02f, 0.0f, true});
-        fp.pieces.push_back({0.175f, 0.0f, 0.012f, 0.42f, false});
-        fp.pieces.push_back({0.0f, 0.405f, 0.18f, 0.012f, false});
-        fp.pieces.push_back({0.04f, 0.0f, 0.10f, 0.36f, false});
-        fp.pieces.push_back({-0.22f, -0.52f, 0.015f, 0.0f, true});
+        // tools/gen_env2.py build_bus_shelter (FIX-PROPS-3, at the figures' scale: 3.4 m long,
+        // 1.4 m deep): open toward -x (the road), the back glass along +x, the end glass at +z
+        // (bus_shelter__glass), the seat along the back, the five posts and the stop's sign post.
+        constexpr float X = 0.184f, Z = 0.447f;
+        for (float z : {-Z, Z})
+            for (float x : {-X, X}) fp.pieces.push_back({x, z, 0.016f, 0.0f, true});
+        fp.pieces.push_back({X, 0.0f, 0.012f, Z, false});
+        fp.pieces.push_back({0.0f, Z, X, 0.012f, false});
+        fp.pieces.push_back({0.121f, 0.0f, 0.053f, 0.263f, false});
+        fp.pieces.push_back({-0.244f, -0.547f, 0.012f, 0.0f, true});
     } else if (name == "crane") {
         for (float x : {-0.45f, 0.45f})
             for (float z : {-0.35f, 0.35f}) fp.pieces.push_back({x, z, 0.05f, 0.05f, false});
@@ -83,7 +85,10 @@ const Footprint& FootprintOf(const Model* model, float scale) {
         // The vertices in the body's band (the bottom 0.5 block in the world; a tree's
         // trunk below its crown: the bottom 0.3), in the model's own frame.
         const bool tree = StartsWith(name, "tree");
-        const float band = (tree ? 0.3f : 0.5f) / (std::max)(scale, 0.05f);
+        // A sign's or a meter's post only (FIX-PROPS-3: at their real size the plate or the
+        // meter's head comes down into a 0.5 block band; it is above a figure's waist).
+        const bool post = StartsWith(name, "sign_") || name == "parking_meter";
+        const float band = (tree ? 0.3f : (post ? 0.25f : 0.5f)) / (std::max)(scale, 0.05f);
         std::vector<gta2::Mat4> worlds;
         ModelRestNodeWorlds(*model, &worlds);
         float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;

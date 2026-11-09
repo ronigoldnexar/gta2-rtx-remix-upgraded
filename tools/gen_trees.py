@@ -33,7 +33,38 @@ def leaf_sheet(seed, tint, size=512, n=3200):
     # soften the alpha edge a touch so the cutout is not jagged at 512
     a = img.split()[3].filter(ImageFilter.GaussianBlur(0.6))
     img.putalpha(a)
-    return img
+    return fill_transparent(img)
+
+def fill_transparent(img):
+    """Every texel that is not fully opaque gets the colour of the leaves around it (FIX-PROPS-3,
+    defect pm8-ste-trees-render-black-spike-shards). The sheet was drawn on (0,0,0,0) and the
+    blurred alpha gave the black around every leaf a little coverage: the renderer alpha-tests
+    the props at a low reference and the model textures have no mip levels, so a canopy seen
+    from a few blocks sampled mostly that black fringe and read as black shards. Pull-push:
+    the colour weighted by alpha, blurred wider and wider, fills the gaps; alpha is unchanged."""
+    arr = np.asarray(img, np.float32)
+    rgb, a = arr[..., :3], arr[..., 3:] / 255.0
+    size = img.size[0]
+
+    def resize(x, n):   # each channel of a float array to n x n (box down, bilinear up)
+        filt = Image.BOX if n < x.shape[0] else Image.BILINEAR
+        return np.stack([np.asarray(Image.fromarray(x[..., k], 'F').resize((n, n), filt), np.float32)
+                         for k in range(x.shape[-1])], -1)
+    # push: the premultiplied colour and the coverage down to 1 x 1
+    levels = [(rgb * a, a)]
+    while levels[-1][1].shape[0] > 1:
+        c, w = levels[-1]; n = c.shape[0] // 2
+        levels.append((resize(c, n), resize(w, n)))
+    # pull: each level's colour where it has coverage, else the coarser level's
+    colour = levels[-1][0] / np.maximum(levels[-1][1], 1e-6)
+    for c, w in reversed(levels[:-1]):
+        up = resize(colour, c.shape[0])
+        own = c / np.maximum(w, 1e-6)
+        colour = np.where(w > 1e-3, own, up)
+    out = rgb.copy()
+    hole = a[..., 0] < 0.999
+    out[hole] = colour[hole]
+    return Image.fromarray(np.concatenate([np.clip(out, 0, 255), arr[..., 3:]], -1).astype(np.uint8), 'RGBA')
 
 def bark_sheet(seed, size=256):
     rng = np.random.default_rng(seed)

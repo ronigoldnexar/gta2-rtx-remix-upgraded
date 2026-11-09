@@ -100,11 +100,18 @@ def plate(part, w, h, y_centre, z, thick=0.012, u_flip=False, back=None, back_gr
     (back if back is not None else part).quad((x1 + g, y0 - g, z + thick), (x1 + g, y1 + g, z + thick), (x0 - g, y1 + g, z + thick), (x0 - g, y0 - g, z + thick), (0, 0), (0, 1), (1, 1), (1, 0))  # back
 
 
-def post(part, r, y0, y1, x=0.0, z=0.0, segments=10):
+def post(part, r, y0, y1, x=0.0, z=0.0, segments=16):
+    """A round post with smooth (radial) normals, so lit it reads as a tube, not facets."""
     ring = [(x + r * math.cos(2 * math.pi * s / segments), z + r * math.sin(2 * math.pi * s / segments)) for s in range(segments + 1)]
     for s in range(segments):
         (ax, az), (bx, bz) = ring[s], ring[s + 1]
-        part.quad((ax, y0, az), (ax, y1, az), (bx, y1, bz), (bx, y0, bz), (0, 1), (0, 0), (0.3, 0), (0.3, 1))
+        b = len(part.v)
+        na = np.array(((ax - x) / r, 0.0, (az - z) / r), np.float32)
+        nb = np.array(((bx - x) / r, 0.0, (bz - z) / r), np.float32)
+        part.v += [np.array(q, np.float32) for q in ((ax, y0, az), (ax, y1, az), (bx, y1, bz), (bx, y0, bz))]
+        part.n += [na, na, nb, nb]
+        part.uv += [(0, 1), (0, 0), (0.3, 0), (0.3, 1)]
+        part.f += [[b, b + 1, b + 2], [b, b + 2, b + 3]]   # the winding Part.quad gave it
     # cap
     for s in range(segments):
         (ax, az), (bx, bz) = ring[s], ring[s + 1]
@@ -271,17 +278,28 @@ def wood(size=128, seed=7):
 
 # --- builders -----------------------------------------------------------------
 
+# Scale. An adult figure is 0.46 block (live_geometry.cpp kPedHeight), so a metre is
+# about 0.263 block: every rule prop here is authored at its real size on that scale
+# (FIX-PROPS-3; they were made at 2 m a block, so a meter stood 2.5 m and a stop sign 4 m).
+MPB = 0.263   # blocks per metre
+
+
 def build_sign_stop():
+    """A stop sign: a 75 cm octagon on a 6 cm galvanised post, its centre 2.1 m up (2.5 m overall)."""
     p_post, p_plate, p_back = G.Part(), G.Part(), G.Part()
-    post(p_post, 0.013, 0.0, 1.08)
-    plate(p_plate, 0.3, 0.3, 0.92, -0.013, back=p_back, back_grow=0.006)
+    size, yc = 0.75 * MPB, 2.1 * MPB
+    z0, thick = -0.006, 0.004
+    post(p_post, 0.03 * MPB, 0.0, yc + 0.4 * size)
+    plate(p_plate, size, size, yc, z0, thick=thick, back=p_back, back_grow=0.002)
     # The plate's edge: an octagonal band between the face and the back, so from an angle
     # behind it the face's red rim no longer shows past the back (defect pm17).
-    r, yc, z0, z1 = 0.3 * 0.48 * 0.99, 0.92, -0.013, -0.001
+    r, z1 = size * 0.48 * 0.99, z0 + thick
     for i in range(8):
         a0, a1 = math.radians(22.5 + 45 * i), math.radians(22.5 + 45 * (i + 1))
         xa, ya, xb, yb = r * math.cos(a0), yc + r * math.sin(a0), r * math.cos(a1), yc + r * math.sin(a1)
         p_post.quad((xa, ya, z0), (xb, yb, z0), (xb, yb, z1), (xa, ya, z1))
+    # the clamp strap on the post behind the plate
+    G.box_part(p_post, -0.012, 0.012, yc - 0.012, yc + 0.012, z1, z1 + 0.012)
     return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
                          # The face mirrored (see plate()); the back is plain metal.
                          ("plate", p_plate.mesh(mat(stop_face().transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "plate"))),
@@ -289,46 +307,105 @@ def build_sign_stop():
 
 
 def build_sign_oneway():
-    # Two parts: the front shows its picture mirrored, the back (seen from the other side)
-    # as drawn, so the front gets the picture mirrored: "ONE WAY" reads left to right from
-    # both sides (see plate()).
+    """A one-way plate, 90 x 30 cm, its centre 2.2 m up on a 6 cm post.
+    Two parts: the front shows its picture mirrored, the back (seen from the other side)
+    as drawn, so the front gets the picture mirrored: "ONE WAY" reads left to right from
+    both sides (see plate())."""
     p_post, p_plate, p_back = G.Part(), G.Part(), G.Part()
-    post(p_post, 0.013, 0.0, 1.0)
-    plate(p_plate, 0.4, 0.15, 0.9, -0.013, back=p_back)
+    w, h, yc = 0.9 * MPB, 0.3 * MPB, 2.2 * MPB
+    post(p_post, 0.03 * MPB, 0.0, yc + h / 2 + 0.01)
+    plate(p_plate, w, h, yc, -0.006, thick=0.004, back=p_back)
     face = oneway_face()
     return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
                          ("plate", p_plate.mesh(mat(face.transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "plate"))),
                          ("plate_back", p_back.mesh(mat(face, 0.1, 0.5, "plate_back")))])
 
 
+# The bus shelter (FIX-PROPS-3): 3.4 m long, 1.4 m deep, 2.5 m to the roof's edge, open to
+# the road (-x), glazed at the back (+x) and at one end (+z). The glass is its own model,
+# bus_shelter__glass, drawn translucent after every opaque prop (DrawProps).
+SH_X, SH_Z, SH_H = 0.70 * MPB, 1.70 * MPB, 2.40 * MPB     # half depth, half length, post height
+SH_P = 0.04 * MPB                                          # half a post (8 cm square)
+SH_G0, SH_G1 = 0.10 * MPB, 2.25 * MPB                      # the glass's bottom and top
+
+
+def glass_sheet(size=128, tint=(150, 182, 196), alpha=34, seed=5):
+    """Clear tinted glass: mostly see-through (alpha about 0.13), a soft broad sheen across
+    it and a little grime toward the bottom edge. Smooth gradients only: a hard one-texel
+    streak on a 64 px sheet stair-stepped into a zigzag (the booth's panes, demo 9 Nov)."""
+    y, x = np.mgrid[0:size, 0:size].astype(np.float32) / size
+    a = np.full((size, size), float(alpha), np.float32)
+    rgb = np.zeros((size, size, 3), np.float32) + np.array(tint, np.float32)
+    for c, w, k in ((0.32, 0.12, 30.0), (0.55, 0.035, 22.0)):   # two diagonal sheens, faint, soft-edged
+        d = (x + 0.6 * y) / 1.6 - c
+        band = np.exp(-(d / w) ** 2)
+        a += k * band
+        rgb += (240.0 - rgb) * 0.45 * band[..., None]
+    grime = np.clip((y - 0.82) / 0.18, 0.0, 1.0) ** 2           # v grows downward in the picture
+    rng = np.random.default_rng(seed)
+    low = np.array(Image.fromarray((rng.uniform(0, 255, (8, 8))).astype(np.uint8)).resize((size, size), Image.BICUBIC), np.float32) / 255.0
+    a += grime * (24.0 + 16.0 * low)
+    rgb = rgb * (1.0 - 0.35 * grime[..., None]) + np.array((96, 92, 80), np.float32) * 0.35 * grime[..., None]
+    out = np.concatenate([np.clip(rgb, 0, 255), np.clip(a, 0, 255)[..., None]], 2)
+    return Image.fromarray(out.astype(np.uint8), "RGBA")
+
+
 def build_bus_shelter():
-    frame, glass, roof, bench, sign = G.Part(), G.Part(), G.Part(), G.Part(), G.Part()
-    # Posts at the four corners, back wall along +x side (the shelter faces -x: the road).
-    for z in (-0.42, 0.42):
-        for x in (-0.18, 0.18):
-            G.box_part(frame, x - 0.015, x + 0.015, 0.0, 0.9, z - 0.015, z + 0.015)
-    G.box_part(roof, -0.24, 0.24, 0.9, 0.93, -0.48, 0.48)                     # roof slab
-    G.box_part(frame, -0.24, 0.24, 0.93, 0.96, -0.48, 0.48)                   # roof edge trim
-    G.box_part(glass, 0.17, 0.18, 0.06, 0.88, -0.4, 0.4)                      # back glass
-    G.box_part(glass, -0.17, 0.17, 0.06, 0.88, 0.4, 0.41)                     # one end glass
-    G.box_part(bench, -0.06, 0.14, 0.22, 0.25, -0.36, 0.36)                   # seat
-    for z in (-0.32, 0.32):
-        G.box_part(bench, -0.03, 0.11, 0.0, 0.22, z - 0.015, z + 0.015)
-    post(sign, 0.01, 0.0, 1.05, x=-0.22, z=-0.52)
+    frame, roof, trim, bench, sign, legs = G.Part(), G.Part(), G.Part(), G.Part(), G.Part(), G.Part()
+    X, Z, H, P = SH_X, SH_Z, SH_H, SH_P
+    # Posts at the four corners and one at the middle of the back.
+    for z in (-Z, Z):
+        for x in (-X, X):
+            G.box_part(frame, x - P, x + P, 0.0, H, z - P, z + P)
+    G.box_part(frame, X - P, X + P, 0.0, H, -P, P)
+    # The glazing frame: rails along the bottom and the top of the back and the end pane.
+    r = 0.015 * MPB
+    for y0 in (SH_G0 - 2 * r, SH_G1):
+        G.box_part(frame, X - r, X + r, y0, y0 + 2 * r, -Z, Z)
+        G.box_part(frame, -X, X, y0, y0 + 2 * r, Z - r, Z + r)
+    # The roof: a mustard canopy with an overhang, a teal fascia round its edge.
+    G.box_part(roof, -X - 0.06, X + 0.03, H, H + 0.012, -Z - 0.035, Z + 0.035)
+    G.box_part(trim, -X - 0.064, X + 0.034, H - 0.008, H + 0.016, -Z - 0.039, -Z - 0.033)
+    G.box_part(trim, -X - 0.064, X + 0.034, H - 0.008, H + 0.016, Z + 0.033, Z + 0.039)
+    G.box_part(trim, -X - 0.066, -X - 0.058, H - 0.008, H + 0.016, -Z - 0.039, Z + 0.039)
+    # The bench along the back: seat 45 cm up, 2 m long, on two legs.
+    sy, bz = 0.45 * MPB, 1.0 * MPB
+    G.box_part(bench, X - P - 0.40 * MPB, X - P, sy - 0.012, sy, -bz, bz)
+    G.box_part(bench, X - P - 0.02, X - P, sy, sy + 0.30 * MPB, -bz, bz)          # the back rest
+    for z in (-0.8 * MPB, 0.8 * MPB):
+        G.box_part(legs, X - P - 0.34 * MPB, X - P - 0.30 * MPB, 0.0, sy - 0.012, z - 0.006, z + 0.006)
+    # The BUS sign on its own post at the front corner, toward the oncoming traffic.
+    sx, sz = -X - 0.06, -Z - 0.10
+    post(sign, 0.03 * MPB, 0.0, 2.75 * MPB, x=sx, z=sz)
     plate_sign, plate_sign_back = G.Part(), G.Part()
-    plate(plate_sign, 0.26, 0.13, 0.97, -0.53 - 0.01, back=plate_sign_back)
-    # the sign plate faces -z here; the shelter's road side is -x, so turn the plate about its post
+    pw, ph = 0.45 * MPB, 0.22 * MPB
+    plate(plate_sign, pw, ph, 2.62 * MPB, -0.006, thick=0.004, back=plate_sign_back)
+    # the plate faces -z here; the shelter's road side is -x, so turn it about the y axis
+    # and stand it at the post
     for part in (plate_sign, plate_sign_back):
-        part.v = [np.array(q, np.float32) for q in rot_y([tuple(v) for v in part.v], 90, cx=-0.28, cz=-0.62)]
+        part.v = [np.array(q, np.float32) + np.array((sx, 0, sz), np.float32) for q in rot_y([tuple(v) for v in part.v], 90)]
         part.n = [np.array(q, np.float32) for q in rot_y([tuple(n) for n in part.n], 90)]
-    return G.scene_with([("frame", frame.mesh(mat(noisy(TEAL, amount=8), 0.6, 0.5, "frame"))),
-                         ("roof", roof.mesh(mat(noisy(MUSTARD, amount=8), 0.2, 0.6, "roof"))),
-                         ("glass", glass.mesh(mat(noisy((150, 180, 190), amount=4), 0.1, 0.15, "glass"))),
+    return G.scene_with([("frame", frame.mesh(mat(paint(TEAL), 0.6, 0.45, "frame"))),
+                         ("roof", roof.mesh(mat(paint(MUSTARD), 0.3, 0.55, "roof"))),
+                         ("trim", trim.mesh(mat(paint(TEAL_LIGHT), 0.6, 0.45, "trim"))),
                          ("bench", bench.mesh(mat(wood(), 0.0, 0.8, "bench"))),
+                         ("legs", legs.mesh(mat(noisy(DARK, amount=4), 0.7, 0.45, "legs"))),
                          ("signpost", sign.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
                          # front mirrored, back as drawn: "BUS" reads left to right from both sides (see plate())
                          ("sign", plate_sign.mesh(mat(bus_face().transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "sign"))),
                          ("sign_back", plate_sign_back.mesh(mat(bus_face(), 0.1, 0.5, "sign_back")))])
+
+
+def build_bus_shelter_glass():
+    """The shelter's panes (pm6-bus-shelter-glass-opaque-flat-pale-blue-pane): the back in two
+    panes either side of the middle post, and the end pane, 6 mm sheets."""
+    X, Z, P = SH_X, SH_Z, SH_P
+    g = G.Part()
+    t = 0.003
+    for z0, z1 in ((-Z + P, -P), (P, Z - P)):
+        G.box_part(g, X - t, X + t, SH_G0, SH_G1, z0, z1)
+    G.box_part(g, -X + P, X - P, SH_G0, SH_G1, Z - t, Z + t)
+    return G.scene_with([("glass", g.mesh(mat(glass_sheet(), 0.0, 0.05, "glass")))])
 
 
 def meter_dial(size=128):
@@ -350,20 +427,29 @@ def meter_dial(size=128):
 
 
 def build_parking_meter():
-    """A 1950s parking meter: a steel post on a flange, a collar, a chrome head with a
-    rounded top and a dial window on both faces (toward the kerb and the pavement)."""
+    """A 1950s parking meter at its real size (FIX-PROPS-3): a 5 cm steel post 1.0 m tall on a
+    flange, a collar, and a chrome head 17 x 12 cm with a rounded top and a dial window on both
+    faces (toward the kerb and the pavement); 1.37 m overall, a figure's chest."""
     p, head, face, trim = G.Part(), G.Part(), G.Part(), G.Part()
-    post(p, 0.012, 0.0, 0.47)
-    G.cylinder_part(trim, lambda t: 0.03, 0.0, 0.012, segments=10, rings=1)       # flange
-    G.cylinder_part(trim, lambda t: 0.02 - 0.006 * t, 0.47, 0.50, segments=10, rings=1)   # collar
-    W, D, y0, y1 = 0.042, 0.03, 0.50, 0.60
+    py = 1.0 * MPB
+    post(p, 0.025 * MPB, 0.0, py)
+    G.cylinder_part(trim, lambda t: 0.06 * MPB, 0.0, 0.01, segments=16, rings=1)       # flange
+    G.cylinder_part(trim, lambda t: (0.045 - 0.012 * t) * MPB, py, py + 0.06 * MPB, segments=16, rings=1)   # collar
+    W, D, y0, y1 = 0.085 * MPB, 0.06 * MPB, py + 0.06 * MPB, py + 0.29 * MPB
     G.box_part(head, -W, W, y0, y1, -D, D)
-    seg = 8
-    for k in range(seg):   # the rounded top: a half cylinder across x
+    seg = 12
+    for k in range(seg):   # the rounded top: a half cylinder across x, smooth normals
         a0, a1 = math.pi * k / seg, math.pi * (k + 1) / seg
         xa, ya = -W * math.cos(a0), y1 + W * 0.8 * math.sin(a0)
         xb, yb = -W * math.cos(a1), y1 + W * 0.8 * math.sin(a1)
-        head.quad((xa, ya, D), (xb, yb, D), (xb, yb, -D), (xa, ya, -D), (0, 0), (0, 1), (1, 1), (1, 0))
+        b = len(head.v)
+        for q in ((xa, ya, D), (xb, yb, D), (xb, yb, -D), (xa, ya, -D)):
+            head.v.append(np.array(q, np.float32))
+            nx, ny = q[0] / W, (q[1] - y1) / (0.8 * W)
+            L = math.hypot(nx, ny) or 1.0
+            head.n.append(np.array((nx / L, ny / L, 0.0), np.float32))
+        head.uv += [(0, 0), (0, 1), (1, 1), (1, 0)]
+        head.f += [[b, b + 1, b + 2], [b, b + 2, b + 3]]
         for z, sgn in ((D, 1), (-D, -1)):   # the end caps of the dome
             b = len(head.v)
             pts = [(0.0, y1, z), (xa, ya, z), (xb, yb, z)] if sgn > 0 else [(0.0, y1, z), (xb, yb, z), (xa, ya, z)]
@@ -371,7 +457,7 @@ def build_parking_meter():
             head.n += [np.array((0, 0, sgn), np.float32)] * 3
             head.uv += [(0.5, 0.5)] * 3
             head.f += [[b, b + 1, b + 2]]
-    plate(face, 0.074, 0.12, 0.575, -D - 0.002, thick=2 * D + 0.004)
+    plate(face, 2 * W * 0.88, (y1 - y0) * 0.9, 0.5 * (y0 + y1) + 0.01 * MPB, -D - 0.0015, thick=2 * D + 0.003)
     return G.scene_with([("post", p.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
                          ("trim", trim.mesh(mat(noisy(DARK, amount=4), 0.7, 0.45, "trim"))),
                          ("head", head.mesh(mat(noisy(CHROME, amount=5), 0.85, 0.3, "head"))),
@@ -522,6 +608,7 @@ SPEC = {
     "sign_stop": build_sign_stop,
     "sign_oneway": build_sign_oneway,
     "bus_shelter": build_bus_shelter,
+    "bus_shelter__glass": build_bus_shelter_glass,
     "parking_meter": build_parking_meter,
     "mailbox": build_mailbox,
     "container_1": lambda: build_container((150, 48, 36), 1),

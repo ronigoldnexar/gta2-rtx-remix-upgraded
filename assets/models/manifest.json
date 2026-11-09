@@ -694,6 +694,13 @@
    "_licence": "procedural (tools/gen_env2.py), no third-party content"
   },
   {
+   "name": "bus_shelter__glass",
+   "glb": "env2/bus_shelter__glass.glb",
+   "scale": 1.0,
+   "texture_max": 512,
+   "forward": "+z"
+  },
+  {
    "name": "parking_meter",
    "glb": "env2/parking_meter.glb",
    "scale": 1.0,
@@ -5431,7 +5438,7 @@
    "name": "street_lamp",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 4184,
+   "vertices": 7376,
    "animations": [],
    "textures": [
     "street_lamp_0.tga",
@@ -6842,13 +6849,14 @@
   },
   {
    "name": "sign_stop",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 78,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 176,
    "animations": [],
    "textures": [
     "sign_stop_0.tga",
-    "sign_stop_1.tga"
+    "sign_stop_1.tga",
+    "sign_stop_2.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6857,13 +6865,14 @@
   },
   {
    "name": "sign_oneway",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 78,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 120,
    "animations": [],
    "textures": [
     "sign_oneway_0.tga",
-    "sign_oneway_1.tga"
+    "sign_oneway_1.tga",
+    "sign_oneway_2.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6872,9 +6881,9 @@
   },
   {
    "name": "bus_shelter",
-   "nodes": 6,
-   "meshes": 6,
-   "vertices": 342,
+   "nodes": 8,
+   "meshes": 8,
+   "vertices": 528,
    "animations": [],
    "textures": [
     "bus_shelter_0.tga",
@@ -6882,7 +6891,23 @@
     "bus_shelter_2.tga",
     "bus_shelter_3.tga",
     "bus_shelter_4.tga",
-    "bus_shelter_5.tga"
+    "bus_shelter_5.tga",
+    "bus_shelter_6.tga",
+    "bus_shelter_7.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "bus_shelter__glass",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 72,
+   "animations": [],
+   "textures": [
+    "bus_shelter__glass_0.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6893,7 +6918,7 @@
    "name": "parking_meter",
    "nodes": 4,
    "meshes": 4,
-   "vertices": 322,
+   "vertices": 488,
    "animations": [],
    "textures": [
     "parking_meter_0.tga",

@@ -1075,12 +1075,13 @@ def build_lamp(src):
     prof += [(prof[-1][0], stem), (roof[0][0], stem)] + roof
     if prof[-1][1] > 0.002:
         prof.append((prof[-1][0], 0.0))
-    charts = [Lathe(O, Y, prof, 14, (0.0, 0.0, 0.75, 1.0), ref=(1, 0, 0), nodes=[pk])]
+    # 28 around (FIX-PROPS-3: 14 left the flared base visibly faceted up close, lit)
+    charts = [Lathe(O, Y, prof, 28, (0.0, 0.0, 0.75, 1.0), ref=(1, 0, 0), nodes=[pk])]
     acen = np.array([0.0, (ay0 + ay1) / 2, 0.0])
     aenv = envelope(P, acen, (1, 0, 0), -ax, ax, ds=0.01, q=90.0, mask=armk | (postk & (np.abs(P[:, 1] - acen[1]) < 0.04)))
     aprof = fit_profile(aenv, 8)
     aprof = [(aprof[0][0], 0.0)] + aprof + [(aprof[-1][0], 0.0)]
-    charts.append(Lathe(acen, (1, 0, 0), aprof, 6, (0.76, 0.05, 1.0, 1.0), ref=(0, 1, 0), nodes=[pk]))
+    charts.append(Lathe(acen, (1, 0, 0), aprof, 12, (0.76, 0.05, 1.0, 1.0), ref=(0, 1, 0), nodes=[pk]))
     # The corner posts: each from the scan's frame vertices at its foot (on the
     # dish rim) to those at the glass's top edge (under the roof's brim).
     patch = (496, 496, 512, 512)
@@ -1123,7 +1124,7 @@ def build_lamp(src):
 SLIM_PROPS = {   # rule-prop model -> (builder, triangle budget)
     "fire_hydrant": (build_hydrant, 1500),
     "trash_can": (build_bin, 800),
-    "street_lamp": (build_lamp, 1800),
+    "street_lamp": (build_lamp, 3200),
 }
 
 

@@ -4393,6 +4393,67 @@ void LiveGeometry::DrawCarModels(IDirect3DDevice9* device) {
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
 }
 
+bool PropLightingBegin(IDirect3DDevice9* device, bool glass) {
+    // Defect pm20-third-street-lamp-poles-chunky-flat-black-lathe-no-texture: the props were
+    // drawn as bare texels, so a dark painted lamp post was one flat near-black silhouette and
+    // no prop had a sunlit side. They take the sun the world's faces take (world_view.cpp
+    // DrawSkyAndShading: the same direction, sun colour and ambient), so a shaft, a dome or a
+    // box reads round or square the way the buildings beside it do. Plain renderer only (Remix
+    // lights the scene itself); GTA2DX9_PROP_LIGHT=0 draws them unlit as before.
+    static int s_propLight = -1;
+    if (s_propLight < 0) {
+        char v[8] = {};
+        s_propLight = (GetEnvironmentVariableA("GTA2DX9_PROP_LIGHT", v, sizeof v) && v[0] == '0') ? 0 : 1;
+        Log("props: %s", s_propLight ? "lit by the world's sun (GTA2DX9_PROP_LIGHT)" : "unlit (GTA2DX9_PROP_LIGHT=0)");
+    }
+    const gta2::SkySettings& sky = gta2::SkyConfig();
+    if (!s_propLight || !sky.enabled || RemixApiAvailable()) return false;
+    float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
+    if (sky.followClock) TimeOfDayAngles(&elevation, &azimuth);
+    const gta2::SkyColours colours = gta2::ComputeSkyColours(elevation, azimuth);
+    const float ambient = sky.ambient * (0.35f + 0.65f * colours.day);
+    const float sunScale = sky.sunLight * colours.day;
+    D3DLIGHT9 sun = {};
+    sun.Type = D3DLIGHT_DIRECTIONAL;
+    sun.Diffuse = {colours.sunColour.x * sunScale, colours.sunColour.y * sunScale, colours.sunColour.z * sunScale, 1.0f};
+    sun.Specular = sun.Diffuse;
+    sun.Direction = {-colours.sunDir.x, -colours.sunDir.y, -colours.sunDir.z};
+    device->SetLight(0, &sun);
+    device->LightEnable(0, TRUE);
+    D3DMATERIAL9 material = {};
+    material.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
+    material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
+    if (glass) {
+        // FIX-PROPS-3: a glint of the sun on a pane (Blinn, added after the texture).
+        material.Specular = {0.9f, 0.9f, 0.9f, 1.0f};
+        material.Power = 60.0f;
+    }
+    device->SetMaterial(&material);
+    auto byte = [](float v) { return static_cast<DWORD>((std::min)(255.0f, (std::max)(0.0f, v * 255.0f + 0.5f))); };
+    device->SetRenderState(D3DRS_AMBIENT, (byte(ambient * colours.ambient.x) << 16) | (byte(ambient * colours.ambient.y) << 8) |
+                                          byte(ambient * colours.ambient.z));
+    device->SetRenderState(D3DRS_LIGHTING, TRUE);
+    device->SetRenderState(D3DRS_SPECULARENABLE, glass ? TRUE : FALSE);
+    device->SetRenderState(D3DRS_LOCALVIEWER, TRUE);
+    device->SetRenderState(D3DRS_NORMALIZENORMALS, TRUE);   // the props are scaled
+    device->SetRenderState(D3DRS_COLORVERTEX, FALSE);
+    device->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, D3DMCS_MATERIAL);
+    device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
+    device->SetRenderState(D3DRS_SPECULARMATERIALSOURCE, D3DMCS_MATERIAL);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    return true;
+}
+
+void PropLightingEnd(IDirect3DDevice9* device) {
+    device->LightEnable(0, FALSE);
+    device->SetRenderState(D3DRS_LIGHTING, FALSE);
+    device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
+    device->SetRenderState(D3DRS_NORMALIZENORMALS, FALSE);
+    device->SetRenderState(D3DRS_COLORVERTEX, TRUE);
+}
+
 // Street furniture and plants, placed by rule rather than by hand so every
 // district gets them: a lamp post at each of the map's own lamps; on the
 // pavement cells of street-level columns against a building a bin, a bench
@@ -4711,9 +4772,13 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 }
                 if (!wallDx && !wallDz) continue;
                 const uint32_t pick = h % 23;
-                if (pick == 0 && bin) { model = bin; scale = 0.45f / (std::max)(bin->Height(), 0.1f); }
-                else if (pick == 1 && bench && (h & 64)) { model = bench; scale = 0.75f / (std::max)((std::max)(bench->Length(), bench->Width()), 0.1f); }
-                else if (pick == 2 && hydrant) { model = hydrant; scale = 0.4f / (std::max)(hydrant->Height(), 0.1f); }
+                // At the figures' scale (FIX-PROPS-3: an adult is 0.46 block, a metre about 0.263):
+                // a 95 cm litter bin, a bench 90 cm to the top of its back (the scan's own 1.2 m
+                // length then), an 80 cm hydrant. (They were sized at 2 m a block: a 1.75 m bin,
+                // a 2.9 m long, 2.2 m tall bench and a 1.6 m hydrant.)
+                if (pick == 0 && bin) { model = bin; scale = 0.25f / (std::max)(bin->Height(), 0.1f); }
+                else if (pick == 1 && bench && (h & 64)) { model = bench; scale = 0.237f / (std::max)(bench->Height(), 0.1f); }
+                else if (pick == 2 && hydrant) { model = hydrant; scale = 0.21f / (std::max)(hydrant->Height(), 0.1f); }
                 else if (pick == 3 && mailbox && (h & 128)) { model = mailbox; scale = 1.0f; }
                 if (!model) continue;
                 ox = wallDx * 0.34f;
@@ -4917,53 +4982,10 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
 
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-    // Defect pm20-third-street-lamp-poles-chunky-flat-black-lathe-no-texture: the props were
-    // drawn as bare texels, so a dark painted lamp post was one flat near-black silhouette and
-    // no prop had a sunlit side. They take the sun the world's faces take (world_view.cpp
-    // DrawSkyAndShading: the same direction, sun colour and ambient), so a shaft, a dome or a
-    // box reads round or square the way the buildings beside it do. Plain renderer only (Remix
-    // lights the scene itself); GTA2DX9_PROP_LIGHT=0 draws them unlit as before.
-    static int s_propLight = -1;
-    if (s_propLight < 0) {
-        char v[8] = {};
-        s_propLight = (GetEnvironmentVariableA("GTA2DX9_PROP_LIGHT", v, sizeof v) && v[0] == '0') ? 0 : 1;
-        Log("props: %s", s_propLight ? "lit by the world's sun (GTA2DX9_PROP_LIGHT)" : "unlit (GTA2DX9_PROP_LIGHT=0)");
-    }
+    // Lit by the world's sun (PropLightingBegin, defect pm20).
     DWORD savedArg2 = D3DTA_CURRENT;
     device->GetTextureStageState(0, D3DTSS_COLORARG2, &savedArg2);
-    bool propsLit = false;
-    {
-        const gta2::SkySettings& sky = gta2::SkyConfig();
-        if (s_propLight && sky.enabled && !RemixApiAvailable()) {
-            float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
-            if (sky.followClock) TimeOfDayAngles(&elevation, &azimuth);
-            const gta2::SkyColours colours = gta2::ComputeSkyColours(elevation, azimuth);
-            const float ambient = sky.ambient * (0.35f + 0.65f * colours.day);
-            const float sunScale = sky.sunLight * colours.day;
-            D3DLIGHT9 sun = {};
-            sun.Type = D3DLIGHT_DIRECTIONAL;
-            sun.Diffuse = {colours.sunColour.x * sunScale, colours.sunColour.y * sunScale, colours.sunColour.z * sunScale, 1.0f};
-            sun.Direction = {-colours.sunDir.x, -colours.sunDir.y, -colours.sunDir.z};
-            device->SetLight(0, &sun);
-            device->LightEnable(0, TRUE);
-            D3DMATERIAL9 material = {};
-            material.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
-            material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
-            device->SetMaterial(&material);
-            auto byte = [](float v) { return static_cast<DWORD>((std::min)(255.0f, (std::max)(0.0f, v * 255.0f + 0.5f))); };
-            device->SetRenderState(D3DRS_AMBIENT, (byte(ambient * colours.ambient.x) << 16) | (byte(ambient * colours.ambient.y) << 8) |
-                                                  byte(ambient * colours.ambient.z));
-            device->SetRenderState(D3DRS_LIGHTING, TRUE);
-            device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
-            device->SetRenderState(D3DRS_NORMALIZENORMALS, TRUE);   // the props are scaled
-            device->SetRenderState(D3DRS_COLORVERTEX, FALSE);
-            device->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, D3DMCS_MATERIAL);
-            device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
-            device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-            device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
-            propsLit = true;
-        }
-    }
+    const bool propsLit = PropLightingBegin(device);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);   // leaves are cutouts
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     device->SetFVF(kWorldFvf);
@@ -5086,6 +5108,17 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             it = s_fadeFrame - it->second.second > 60 ? s_fadeState.erase(it) : std::next(it);
     struct FadedProp { const Model* model; gta2::Mat4 m; float alpha; };
     std::vector<FadedProp> faded;
+    // A prop's translucent companion ("<name>__glass", e.g. the bus shelter's panes), looked up once.
+    struct Pane { const Model* model; gta2::Mat4 m; float d2; };
+    std::vector<Pane> panes;
+    static std::map<const Model*, const Model*> s_glassOf;
+    auto glassOf = [](const Model* model) -> const Model* {
+        auto it = s_glassOf.find(model);
+        if (it != s_glassOf.end()) return it->second;
+        const Model* g = ModelByName((model->name + "__glass").c_str());
+        s_glassOf[model] = g;
+        return g;
+    };
     int hiddenNow = 0;
     for (const Placed& p : placed) {
         {
@@ -5137,6 +5170,40 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         m.m[3][0] = p.x; m.m[3][1] = p.y - p.model->boundsMin.y * p.scale; m.m[3][2] = p.z; m.m[3][3] = 1.0f;
         if (overlap < 0.98f) { faded.push_back({p.model, m, overlap}); continue; }
         ModelDraw(device, *p.model, m, nullptr, 0.0f);
+        if (const Model* g = glassOf(p.model)) panes.push_back({g, m, p.d2});
+    }
+    if (!panes.empty()) {
+        // FIX-PROPS-3 (pm6-bus-shelter-glass-opaque-flat-pale-blue-pane): a prop's panes are its
+        // "<name>__glass" model, drawn here after every opaque prop, blended by the texture's
+        // alpha (clear glass, about a quarter), without depth writes and farthest first, with a
+        // sun glint when the props are lit: the bench and the street show through the shelter.
+        DWORD blend = FALSE, test = TRUE, zwrite = TRUE, src = D3DBLEND_ONE, dst = D3DBLEND_ZERO;
+        DWORD alphaOp = D3DTOP_SELECTARG1, alphaArg1 = D3DTA_TEXTURE;
+        device->GetRenderState(D3DRS_ALPHABLENDENABLE, &blend);
+        device->GetRenderState(D3DRS_ALPHATESTENABLE, &test);
+        device->GetRenderState(D3DRS_ZWRITEENABLE, &zwrite);
+        device->GetRenderState(D3DRS_SRCBLEND, &src);
+        device->GetRenderState(D3DRS_DESTBLEND, &dst);
+        device->GetTextureStageState(0, D3DTSS_ALPHAOP, &alphaOp);
+        device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &alphaArg1);
+        if (propsLit) PropLightingBegin(device, true);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        std::sort(panes.begin(), panes.end(), [](const Pane& a, const Pane& b) { return a.d2 > b.d2; });
+        for (const Pane& g : panes) ModelDraw(device, *g.model, g.m, nullptr, 0.0f);
+        if (propsLit) PropLightingBegin(device, false);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, test);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, zwrite);
+        device->SetRenderState(D3DRS_SRCBLEND, src);
+        device->SetRenderState(D3DRS_DESTBLEND, dst);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg1);
     }
     if (!faded.empty()) {
         // Last and see-through (texture alpha times the fade), no depth writes, as the
@@ -5195,12 +5262,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         s_propFrames = 0; s_inRange = s_drawn = s_tris = s_draws = 0; s_maxDrawn = s_maxTris = 0;
         for (double& k : s_kind) k = 0;
     }
-    if (propsLit) {
-        device->LightEnable(0, FALSE);
-        device->SetRenderState(D3DRS_LIGHTING, FALSE);
-        device->SetRenderState(D3DRS_NORMALIZENORMALS, FALSE);
-        device->SetRenderState(D3DRS_COLORVERTEX, TRUE);
-    }
+    if (propsLit) PropLightingEnd(device);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, savedArg2);
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
 }
