@@ -383,6 +383,105 @@ during the sweep. Then pick the variant that reads best, set it as the default i
 `synthetic_lights.cpp`, and build `out/lightbar_sheet.png` against REMIX-3's `remix3_i`
 night frames (before, night) and a before-day take on `stage_remix3`.
 
+## Showcase pass: path-traced frames across districts and hours (REMIX-SHOWCASE, 9 Nov 2026)
+
+**What this is.** Four RTX Remix sessions on the L4 (GPU 0, `gamerun/remix_l4.sh`, the **play preset**
+`rtx_play.conf.extra` at start: Medium, TAA-U at full resolution, sharpening 0.2, no motion blur,
+vignette or chromatic aberration). Each hour's time-of-day overlay (`rtx_tod_<hour>.conf.extra`) is pushed
+live over the play preset, as REMIX-POST describes. Stage: hard-link copy of the shared `repo/stage`
+(committed HEAD `5545d72` when the sessions ran). Every frame below is path traced: sampled soft shadows,
+emissive neon lighting the walls, wet reflections. The 29 chosen frames (1280x720, cut from each run's
+`game.mp4`) are in `out/remix_showcase/`, with the contact sheet `out/remix_showcase_sheet.png`.
+Neither is in git (game art). All the frames of a run are in `out/rshow_<run>/frames/`, with per-hour sheets
+in `out/rshow_<run>/sheets/`.
+
+| run | district | start config | hours (game clock) | spots |
+|---|---|---|---|---|
+| `rshow_wil` | Downtown | play, `Paused=1 StartHour=12.5 ClearSky=1`, car lamps by day (`EFFECTS_SED`) | 12:30, 17:24, 18:21, 22:30, wet 22:30 | spawn 159.5,139.5; plaza 198.5,188.5; street 171,123 |
+| `rshow_ste` | Residential (`SWAP_LEVEL=ste`) | as `rshow_wil` | same (cut short in the wet part, see below) | spawn; 107.5,67.5 (Rednecks); 126.5,127.5 |
+| `rshow_bil` | Industrial (`SWAP_LEVEL=bil`) | as `rshow_wil` but `ClearSky=0` (clouds on) | same | spawn; 126.5,119.5; 100.5,132.5 |
+| `rshow_day` | Downtown | play, `Paused=1 StartHour=14`, no other settings overrides (lightbar2b_a's sunny set-up) | 14:00, 16:48, 22:30 | as `rshow_wil` |
+
+**What the frames show** (numbers are the files in `out/remix_showcase/`):
+
+* **Neon and emissive signs as light sources** (01, 02, 09, 10, 11, 17, 20, 21, 27). The JESUS SAVES sign in
+  Downtown and the LOVE FASHION signs in Industrial light the walls, the stairs and the paving in their own colour.
+  The red booth sign at the Downtown spawn throws a red pool across the square (01). The signs stay readable and
+  do not blow out, both at night and in daylight (17).
+* **Wet streets** (`rtx_tod_wet`: roughness scale 0.45, rain 0.5) are the strongest set: lamp and window
+  reflections in the paving and the road (06-08), red neon smeared on the wet flagstones (09, 20, 21), the
+  cop car's paint reflecting the street lamps (23).
+* **Night** (`rtx_tod_night`): window glow on the Downtown facades with the street receding into dark (03, 04),
+  car headlamps and lamp pools (05, 26, 29), traffic-light lenses lighting the pavement (`rshow_wil` warm-up).
+* **Golden hour** (`rtx_tod_golden`, 17:24, clouds on, Industrial) is the best daytime look: low warm sun on the
+  brick, back-lit clouds, a long-shadowed street in first person (14-16).
+* **Daylight and PBR paint** (12, 13, 17-19): sun with hard shadows across the Downtown plaza at 14:00. The cop
+  car's clear-coat with its white livery, and the old saloon's chrome and white-wall tyres, under an overcast
+  noon in Industrial.
+* **Beacons** (24, 25): with `force_sirens=1` the cop car's bar shows separate red and blue bulbs and the
+  ambulance red and white, lighting the road round the car at night. This adds to LIGHTBAR-2B: the night part now
+  ran with warm shaders, so criterion 1 (coloured bulbs, no white core at night) is **seen** on the cop car and
+  the ambulance in Industrial. The alternation between frames is visible in `out/rshow_bil/frames/*night_car_012_*`.
+  The fire truck (`*night_car_017_*`) shows its red bulb, but the car is in shadow and the amber cannot be told
+  apart in those frames.
+* **Post presets.** The play preset is what every frame uses. The showcase preset (`rtx_post_showcase.conf.extra`:
+  vignette 0.35, motion blur while turning) was pushed live at night in `rshow_wil` and `rshow_bil`
+  (`*_show_*` frames). Its vignette is visible, but the motion blur is not visible in the 15 fps recording. It adds
+  nothing a still frame shows, so no showcase-preset frame is in the chosen set.
+* **Frame cost** (the runs' own `frame times` lines, GPU 0 shared with GL game runs, Medium preset):
+  present 10-21 ms average, about 45 ms a frame in total with the game's sprite and UI passes, worst 60 ms.
+  This was not measured on a free GPU. No `FAULT` in any run.
+
+**Found on the way (not fixed: not this stream's files):**
+
+* **Flat, sunless daytime in sessions started with the REMIX-3/REMIX-POST settings.** Every 12:30 and 17:24 frame
+  of `rshow_wil` and `rshow_ste` is shadowless and blue-grey, at the plaza as well as in narrow streets. The
+  same holds for REMIX-VERIFY's `rv_post_ab` noon frames (before and after alike). The sun probe added to the take
+  (`probe_*` marks: 12:30, 14:00 and 15:30, with no live push and with each push) shows it before any live push.
+  So **the time-of-day overlays are not the cause**, and neither is the quality preset (`rv_post_ab` ran at Low).
+  `ClearSky=1` is not the cause either: the settings default is already a clear sky (`lightbar2b_a` and
+  `rshow_day` log "clouds off" and have the sun). The one setting that the sunless runs share and the sunny ones
+  (`lightbar2b_a`, `rshow_day`) lack is `EFFECTS_SED` (car lamps on by day). That is a correlation over five runs,
+  not a bisected cause. In `rshow_day` too, several daytime frames are in building shadow or caught mid-way
+  through a view change. Next step for the lighting owner: one session with and one without `EFFECTS_SED`,
+  same spot, 14:00. With clouds on (`rshow_bil`) the overcast sky lights the street brightly either way, which is
+  why Industrial's day frames are usable.
+* **The day starts too late for "dusk".** At 18:21 (`rtx_tod_dusk`) the sky is already night in every district,
+  so the dusk overlay reads as an early night. An earlier hour (e.g. 17:50) should give the violet dusk; not tried.
+* **The first-person switch sometimes fails right after a warp** ("set_view: could not reach first from
+  classic", 2-5 times a run). The frame is then the classic camera's high view (aerial city frames in
+  `rshow_day/sheets/noon.png`). The take keeps going. Owner: navigation/camera (`qa_lib.set_view`).
+* **`remix_keys_lib.sh to_level` only recognises Downtown's map line** (`map wil.gmp is played`). With
+  `SWAP_LEVEL` it pressed Return for four minutes after the level was up (`rshow_ste`). `keys_remix_showcase2.sh`
+  overrides it with a version that waits for the swapped district's map line.
+* **Residential under Remix**: several wall tiles look low resolution next to Downtown and Industrial (the mural
+  at the spawn, the Rednecks block). That set is the weakest of the three districts. Not investigated.
+* **Do not edit a key script while a run executes it.** bash reads scripts as it goes; overwriting
+  `keys_remix_showcase2.sh` in place during `rshow_ste` made the rest of that run execute garbage. Replace a
+  script with `mv` (new inode), never in place.
+
+**Not verified / not done:** the fire truck's amber beacons; a police chase (beacons only via `force_sirens` on a
+parked car); 1440p capture (the runner records 1280x720 at 15 fps, CRF 20); frame cost on a free GPU; the cause
+of the sunless runs (above). Residential's wet part and the showcase-preset part were cut off by the session
+length (the governor paused `rshow_ste` and `rshow_day` for up to 8 minutes, and a paused run keeps its wall-clock
+deadline).
+
+**Reproducing.** `linux/docker/remix_showcase2.py` (the take), `keys_remix_showcase2.sh` (to the level, then
+the take), and the launchers `remix_showcase2_launch.sh` / `remix_showcase2_launch_day.sh` (copy all four to
+`gamerun/`; the launchers are `gamerun/rshow_launch.sh` / `rshow_launch_day.sh` there):
+
+    CLEARSKY=0 gamerun/rshow_launch.sh rshow_bil 1700 bil bil "start;b24:126.5,119.5,2;b09:100.5,132.5,2"
+    gamerun/rshow_launch_day.sh rshow_day 1500 "" wilday "start;plaza:198.5,188.5,2;street:171,123,2" \
+      -e SHOW_CAR_XY=164.5,149.5 -e SHOW_HOURS=noon=14.0,golden=16.8 -e SHOW_TODS=noon,golden,night
+    python3 gamerun/remix_frames.py dump out/<run> <game.mp4 duration> out/<run>/frames '^(s_|probe_)'
+
+The take: a 240 s warm-up that cycles views and hours (shader compilation ends about 150 s into it; the
+`warm_*` frames show it), the sun probe, then for each hour and spot first person and the chase view, then the
+scene car as cop car / ambulance / fire truck with `force_sirens` at night and by day, then the showcase
+preset at night. Env: `SHOW_SPOTS`, `SHOW_TODS`, `SHOW_HOURS`, `SHOW_CARS`, `SHOW_CAR_XY`, `SHOW_WARM`,
+`SHOW_PROBE`. The take ends well before the session does. Once the `end remix showcase2` mark appears, stop the
+recorder inside the container (`pkill -INT -f x11grab`) and copy `gta2dx9.log` out; that frees the GPU early.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every
