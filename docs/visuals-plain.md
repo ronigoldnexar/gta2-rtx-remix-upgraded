@@ -96,26 +96,3 @@ shadow / post ms from timestamp queries, caster and world draws, lights).
 ## Costs
 
 (Filled in from the measurement runs below.)
-
-## Contact shadows under cars and pedestrians (FIX-REMIX, 9 Nov 2026)
-
-Defect `pm-no-contact-shadows-cars-peds-props-float`: nothing in the street views was grounded. Why the sun
-shadows did not help: they belong to this visuals pass, which ships `[visuals] enabled=0` (the log says
-`visuals: off`), so `shadows=1` never runs; turning the pass on by default is this pass's owner's call once the
-sun shadows are verified, and is not part of the fix.
-
-In scope and done: a cheap contact shadow, independent of the visuals pass. `vehicle_fx.cpp` draws, in the
-street views' FX pass after the skid marks, one soft dark rounded quad per car (its footprint x1.45 across,
-x1.2 along, on the road the map has under the car's centre, in the car's own plane) and per pedestrian figure
-(0.11-block radius under his feet; a lying body gets an oblong one; none for a swimmer). Cars queue theirs in
-`VehicleFxUpdate`, the figures from `DrawPedFigures` through `VehicleFxQueueContactShadow` (drawn on the next
-pass, a frame later). Unfogged and faded out between 24 and 40 blocks instead (a fogged black quad turns to
-haze). Plain renderer only (Remix traces real shadows) and street views only (the FX pass runs with the 3D
-models); the classic view does not draw it. Log: `contact shadows: N drawn this frame` every 900 frames.
-
-Not done: the shadows do not follow the sun (they are an ambient contact patch), props have none, and cars,
-peds and props are not casters in the sun cascades.
-
-Runs (`gamerun/pm_grun.sh <name> 150 keys_pm3.sh`, Downtown): `out/fxr_shadow_before`, `out/fxr_shadow_after3`
-(`cmp/`); frame times over the run (17 samples each, 30 fps cap): game 3.8 / world 2.6 / sprites 6.4 ms before,
-3.7 / 2.6 / 6.5 ms after (the final build).

@@ -105,12 +105,6 @@ float VehicleFxFirstRide();
 const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame);
 // A head-lamp pool for this car this frame (called by the lamps when they are lit).
 void VehicleFxQueueHeadlamps(const gta2::Mat4& carToWorld, float length, float width);
-// A soft contact shadow on the ground (FIX-REMIX): centre on the ground, unit right and
-// forward along it, half extents in blocks, darkness 0..1, the frame it was placed in.
-// Cars queue theirs in VehicleFxUpdate; the pedestrian figures call it as they are drawn
-// (after VehicleFxDraw: theirs are drawn on the next pass). Plain renderer, street views.
-void VehicleFxQueueContactShadow(const gta2::Vec3& centre, const gta2::Vec3& right, const gta2::Vec3& forward,
-                                 float halfWidth, float halfLength, float alpha, uint32_t frame);
 // A wreck model's resting pose: each lost corner (bit 0 front-left, 1 front-right,
 // 2 rear-left, 3 rear-right) sits on its hub. Car frame -> car frame.
 gta2::Mat4 VehicleFxWreckPose(int lostCorners, float length, float width, float wheelRadius);

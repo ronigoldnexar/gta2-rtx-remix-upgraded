@@ -300,18 +300,6 @@ std::vector<Part> g_parts;
 struct Cone { gta2::Mat4 carToWorld; float length, width; };
 std::vector<Cone> g_cones;
 
-// FIX-REMIX (defect pm-no-contact-shadows-cars-peds-props-float): a soft contact shadow
-// under every car and every pedestrian figure in the street views of the plain renderer -
-// where the body meets the road, so nothing reads as pasted on. A darkening of the road,
-// not a cast shadow: the sun-shadow cascades are the visuals pass ([visuals], off by
-// default). Never under Remix (it traces real shadows) and never in the classic view (the
-// pass only runs with the 3D models).
-struct Blob { gta2::Vec3 c, right, fwd; float halfW, halfL, alpha; uint32_t frame; };
-std::vector<Blob> g_blobs;
-bool g_blobsOn = true;
-IDirect3DTexture9* g_blobTex = nullptr;
-int g_blobsDrawn = 0;
-
 // ---- textures ------------------------------------------------------------------
 IDirect3DDevice9* g_device = nullptr;
 IDirect3DTexture9* g_puffTex = nullptr;
@@ -563,12 +551,6 @@ gta2::Mat4 VehicleFxWreckPose(int lost, float length, float width, float wheelRa
     return Mul(Mul(RotX(pitch), RotZ(-roll)), Translate(0.0f, heave, 0.0f));
 }
 
-void VehicleFxQueueContactShadow(const gta2::Vec3& centre, const gta2::Vec3& right, const gta2::Vec3& forward,
-                                 float halfWidth, float halfLength, float alpha, uint32_t frame) {
-    if (!g_blobsOn || g_blobs.size() >= 512) return;
-    g_blobs.push_back(Blob{centre, right, forward, halfWidth, halfLength, alpha, frame});
-}
-
 void VehicleFxQueueHeadlamps(const gta2::Mat4& carToWorld, float length, float width) {
     if (!g_on || static_cast<int>(g_cones.size()) >= 64) return;
     g_cones.push_back(Cone{carToWorld, length, width});
@@ -588,19 +570,6 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     const float now = static_cast<float>(frame) * kStep;
     if (frame > g_newestFrame || g_newestFrame - frame > 1000) g_newestFrame = frame;
     if (st.frame == frame && st.born) return feel;   // drawn twice this frame (a mirror, a second pass)
-    // The contact shadow (FIX-REMIX): the footprint a little past the body, on the road.
-    {
-        gta2::Vec3 c = Point(w, 0.0f, 0.0f, 0.0f);
-        // On the road the map has there (the frame's origin can sit a little off it).
-        float floor = c.y;
-        if (g_ground && g_ground->Ready() && g_ground->SurfaceAt(c.x, c.z, c.y + 0.5f, &floor)) {
-            static int said = 0;
-            if (said < 4) { ++said; Log("contact shadows: car at %.2f,%.2f,%.2f, road %.3f", c.x, c.y, c.z, floor); }
-            c.y = floor;
-        }
-        VehicleFxQueueContactShadow(gta2::Vec3{c.x + up.x * 0.012f, c.y + up.y * 0.012f, c.z + up.z * 0.012f}, r, f,
-                                    0.5f * car.width * 1.45f, 0.5f * car.length * 1.20f, 0.72f, frame);
-    }
     const bool fresh = !st.born || frame - st.frame > 10 || frame < st.frame ||
                        (x - st.x) * (x - st.x) + (z - st.z) * (z - st.z) > 2.25f;   // a respawn or a warp
     if (fresh) {
@@ -1274,50 +1243,6 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         g_index.insert(g_index.end(), t, t + 6);
     }
     Flush(device, g_stripTex);
-    // Contact shadows (FIX-REMIX): dark, soft, unfogged (a fogged black quad turns to haze),
-    // faded out with distance instead. Plain renderer only.
-    if (!g_blobTex) {
-        g_blobTex = MakeTexture(device, 64, 64, [](float u, float v) {
-            // A rounded rectangle (a superellipse), dense under the body, soft at its rim.
-            const float x = std::fabs(u - 0.5f) * 2.0f, y = std::fabs(v - 0.5f) * 2.0f;
-            const float d = std::pow(std::pow(x, 4.0f) + std::pow(y, 4.0f), 0.25f);
-            const float a = 1.0f - Smooth((d - 0.35f) / 0.65f);
-            return Argb(a, 1.0f, 1.0f, 1.0f);
-        });
-    }
-    if (g_blobsOn && !remix && g_blobTex && !g_blobs.empty()) {
-        DWORD fogOn = FALSE;
-        device->GetRenderState(D3DRS_FOGENABLE, &fogOn);
-        device->SetRenderState(D3DRS_FOGENABLE, FALSE);
-        int drawn = 0;
-        for (const Blob& b : g_blobs) {
-            if (b.frame + 1 < frame || b.frame > frame) continue;
-            const float dx = b.c.x - eye.x, dz = b.c.z - eye.z;
-            const float d = std::sqrt(dx * dx + dz * dz);
-            const float a = b.alpha * (1.0f - Smooth((d - 24.0f) / 16.0f));
-            if (a <= 0.01f || g_verts.size() + 4 > 65532) continue;
-            const DWORD col = Colour(0.0f, 0.0f, 0.0f, a);
-            const uint16_t base = static_cast<uint16_t>(g_verts.size());
-            const float sx[4] = {-1, 1, 1, -1}, sz[4] = {-1, -1, 1, 1};
-            const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-            for (int k = 0; k < 4; ++k) {
-                const float px = b.c.x + b.right.x * sx[k] * b.halfW + b.fwd.x * sz[k] * b.halfL;
-                const float py = b.c.y + b.right.y * sx[k] * b.halfW + b.fwd.y * sz[k] * b.halfL;
-                const float pz = b.c.z + b.right.z * sx[k] * b.halfW + b.fwd.z * sz[k] * b.halfL;
-                g_verts.push_back(FxVertex{px, py, pz, col, uv[k][0], uv[k][1]});
-            }
-            const uint16_t t[6] = {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2), base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)};
-            g_index.insert(g_index.end(), t, t + 6);
-            ++drawn;
-        }
-        Flush(device, g_blobTex);
-        device->SetRenderState(D3DRS_FOGENABLE, fogOn);
-        g_blobsDrawn = drawn;
-        static uint32_t logged = 0;
-        if (frame - logged > 900) { logged = frame; Log("contact shadows: %d drawn this frame", drawn); }
-    }
-    // The cars queue theirs before this pass, the figures after it (drawn on the next one).
-    g_blobs.clear();
     mark[nm++] = NowMs();
 
     // Head-lamp pools on the road (plain renderer: under Remix the lamps are lights).
@@ -1448,7 +1373,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
 }
 
 void VehicleFxReleaseDevice() {
-    for (IDirect3DTexture9** t : {&g_puffTex, &g_glowTex, &g_stripTex, &g_coneTex, &g_shardTex, &g_blobTex}) {
+    for (IDirect3DTexture9** t : {&g_puffTex, &g_glowTex, &g_stripTex, &g_coneTex, &g_shardTex}) {
         if (*t) { (*t)->Release(); *t = nullptr; }
     }
     if (g_vb) { g_vb->Release(); g_vb = nullptr; }
