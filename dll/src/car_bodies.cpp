@@ -2470,6 +2470,7 @@ void CarBodiesSetLamps(int mode, bool dark) {
 }
 
 void CarBodiesReleaseDevice() {
+    CabInteriorReleaseDevice();
     for (auto& e : g_cache) {
         if (e.second.atlas) e.second.atlas->Release();
         ReleaseBuffers(&e.second);
@@ -3054,6 +3055,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         cp.steer = feel.on ? feel.steer : 0.0f;
                         cp.speed = feel.speed;
                         cp.night = g_lampDark;
+                        cp.taxi = modelNumber == 51 || modelNumber == 56;   // Taxi Xpress, Taxi
                         static int cabLogged = -1;
                         if (cabLogged != modelNumber) {
                             cabLogged = modelNumber;

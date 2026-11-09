@@ -14,9 +14,85 @@ using gta2::Vec3;
 constexpr float kPi = 3.14159265f;
 
 // The parts by surface: each is one draw with its own material.
-enum Mat { kDash, kDashDark, kTrim, kHeader, kWheel, kGaugeFace, kGaugeRim, kNeedle, kGlass, kMatCount };
+enum Mat { kDash, kDashDark, kTrim, kHeader, kWheel, kGaugeFace, kGaugeRim, kNeedle, kGlass, kPanel, kMeter, kMatCount };
 
-struct V { float x, y, z, nx, ny, nz; };
+struct V { float x, y, z, nx, ny, nz, u, v; };
+
+// FIX-FIGURE (pm2-fp-cockpit-flat-untextured-placeholder-boxes): a texture per surface,
+// made here (no art files): vinyl grain on the dash, fine-grained plastic, brushed
+// trim, headliner cloth, a stitched leather wheel, gauge faces with a tick ring.
+// Planar UVs from the car-frame position (a tile every kUvTile blocks), so the
+// grain stays put on the dash; discs and the wheel's torus map their own.
+constexpr float kUvTile = 0.025f;
+IDirect3DDevice9* g_texDevice = nullptr;
+IDirect3DTexture9* g_tex[16] = {};
+
+uint32_t Hash(uint32_t x, uint32_t y, uint32_t seed) {
+    uint32_t h = x * 374761393u + y * 668265263u + seed * 2246822519u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return h ^ (h >> 16);
+}
+float Noise01(int x, int y, uint32_t seed) { return (Hash(static_cast<uint32_t>(x) & 63u, static_cast<uint32_t>(y) & 63u, seed) & 0xFFFF) / 65535.0f; }
+// A smoothed value noise at `cell` texels, tiling over 64.
+float Smooth(int x, int y, int cell, uint32_t seed) {
+    const int cx = x / cell, cy = y / cell, n = 64 / cell;
+    const float fx = (x % cell) / static_cast<float>(cell), fy = (y % cell) / static_cast<float>(cell);
+    auto at = [&](int i, int j) { return (Hash(static_cast<uint32_t>((i % n + n) % n), static_cast<uint32_t>((j % n + n) % n), seed) & 0xFFFF) / 65535.0f; };
+    const float sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const float a = at(cx, cy) + (at(cx + 1, cy) - at(cx, cy)) * sx;
+    const float b = at(cx, cy + 1) + (at(cx + 1, cy + 1) - at(cx, cy + 1)) * sx;
+    return a + (b - a) * sy;
+}
+// Brightness 0..1 of texel (x, y) of surface `kind` (multiplies the material colour).
+float Texel(int kind, int x, int y) {
+    switch (kind) {
+        case 0: {   // vinyl: pebbled grain, a little mottle
+            const float g = 0.5f * Smooth(x, y, 2, 11) + 0.3f * Smooth(x, y, 4, 12) + 0.2f * Smooth(x, y, 16, 13);
+            return 0.62f + 0.55f * g;
+        }
+        case 1: return 0.86f + 0.16f * Smooth(x, y, 2, 21) + 0.04f * Noise01(x, y, 22);                 // plastic
+        case 2: return 0.82f + 0.12f * Smooth(x, y / 16, 1, 31) + 0.10f * Noise01(x, y, 32);             // brushed (streaks along u)
+        case 3: return ((x + y) % 4 < 2 ? 0.90f : 0.98f) + 0.06f * Smooth(x, y, 8, 41);                   // headliner weave
+        case 4: {   // leather: grain, a stitched seam every 16 texels across
+            const float g = 0.82f + 0.22f * Smooth(x, y, 2, 51);
+            return (y % 16 == 0 && (x % 4) < 2) ? g * 0.55f : g;
+        }
+        case 5: {   // gauge face: the disc's UV (0..1); a tick ring and a darker centre
+            const float dx = (x + 0.5f) / 64.0f - 0.5f, dy = (y + 0.5f) / 64.0f - 0.5f;
+            const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
+            const float ang = std::atan2(dy, dx) * 180.0f / kPi;
+            const float rel = std::fmod(ang + 360.0f + 45.0f, 360.0f);   // the dial's 270 degrees
+            const bool onArc = rel < 270.0f;
+            const bool major = onArc && std::fmod(rel, 27.0f) < 3.5f, minor = onArc && std::fmod(rel, 13.5f) < 1.8f;
+            if (r > 0.70f && r < 0.92f && major) return 0.10f;
+            if (r > 0.80f && r < 0.92f && minor) return 0.25f;
+            if (r < 0.14f) return 0.20f;   // the hub cap
+            return r > 0.94f ? 0.75f : 1.0f;
+        }
+        default: return 1.0f;
+    }
+}
+IDirect3DTexture9* SurfaceTexture(IDirect3DDevice9* device, int kind) {
+    if (device != g_texDevice) { CabInteriorReleaseDevice(); g_texDevice = device; }
+    if (kind < 0 || kind >= 16) return nullptr;
+    if (g_tex[kind]) return g_tex[kind];
+    IDirect3DTexture9* t = nullptr;
+    if (FAILED(device->CreateTexture(64, 64, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &t, nullptr)) || !t) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (SUCCEEDED(t->LockRect(0, &lr, nullptr, 0))) {
+        for (int y = 0; y < 64; ++y) {
+            uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+            for (int x = 0; x < 64; ++x) {
+                const float b = (std::max)(0.0f, (std::min)(1.0f, Texel(kind, x, y)));
+                const uint32_t c = static_cast<uint32_t>(b * 255.0f + 0.5f);
+                row[x] = 0xFF000000u | (c << 16) | (c << 8) | c;
+            }
+        }
+        t->UnlockRect(0);
+    }
+    g_tex[kind] = t;
+    return t;
+}
 
 struct Builder {
     std::vector<V> tris[kMatCount];
@@ -26,16 +102,34 @@ struct Builder {
         Vec3 n = gta2::Normalize(gta2::Cross(b - a, c - a));
         const Vec3 centre = (a + b + c) * (1.0f / 3.0f);
         if (gta2::Dot(n, eye - centre) < 0.0f) n = n * -1.0f;
-        tris[m].push_back({a.x, a.y, a.z, n.x, n.y, n.z});
-        tris[m].push_back({b.x, b.y, b.z, n.x, n.y, n.z});
-        tris[m].push_back({c.x, c.y, c.z, n.x, n.y, n.z});
+        // Planar UV on the plane the face is most nearly in.
+        const float ax = std::fabs(n.x), ay = std::fabs(n.y), az = std::fabs(n.z);
+        auto uv = [&](const Vec3& p, float* u, float* v) {
+            if (ay >= ax && ay >= az) { *u = p.x / kUvTile; *v = p.z / kUvTile; }
+            else if (ax >= az) { *u = p.z / kUvTile; *v = p.y / kUvTile; }
+            else { *u = p.x / kUvTile; *v = p.y / kUvTile; }
+        };
+        float u[3], v[3];
+        uv(a, &u[0], &v[0]); uv(b, &u[1], &v[1]); uv(c, &u[2], &v[2]);
+        tris[m].push_back({a.x, a.y, a.z, n.x, n.y, n.z, u[0], v[0]});
+        tris[m].push_back({b.x, b.y, b.z, n.x, n.y, n.z, u[1], v[1]});
+        tris[m].push_back({c.x, c.y, c.z, n.x, n.y, n.z, u[2], v[2]});
+    }
+    // A triangle with its own UVs (discs: the gauge faces).
+    void TriUv(int m, const Vec3& a, const Vec3& b, const Vec3& c, const float* uv) {
+        Vec3 n = gta2::Normalize(gta2::Cross(b - a, c - a));
+        if (gta2::Dot(n, eye - (a + b + c) * (1.0f / 3.0f)) < 0.0f) n = n * -1.0f;
+        tris[m].push_back({a.x, a.y, a.z, n.x, n.y, n.z, uv[0], uv[1]});
+        tris[m].push_back({b.x, b.y, b.z, n.x, n.y, n.z, uv[2], uv[3]});
+        tris[m].push_back({c.x, c.y, c.z, n.x, n.y, n.z, uv[4], uv[5]});
     }
     void Quad(int m, const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d) { Tri(m, a, b, c); Tri(m, a, c, d); }
     // A disc about `c` in the plane of (u, v) (unit vectors).
     void Disc(int m, const Vec3& c, const Vec3& u, const Vec3& v, float r, int seg = 18) {
         for (int i = 0; i < seg; ++i) {
             const float a0 = 2.0f * kPi * i / seg, a1 = 2.0f * kPi * (i + 1) / seg;
-            Tri(m, c, c + u * (r * std::cos(a0)) + v * (r * std::sin(a0)), c + u * (r * std::cos(a1)) + v * (r * std::sin(a1)));
+            const float uv[6] = {0.5f, 0.5f, 0.5f + 0.5f * std::cos(a0), 0.5f - 0.5f * std::sin(a0), 0.5f + 0.5f * std::cos(a1), 0.5f - 0.5f * std::sin(a1)};
+            TriUv(m, c, c + u * (r * std::cos(a0)) + v * (r * std::sin(a0)), c + u * (r * std::cos(a1)) + v * (r * std::sin(a1)), uv);
         }
     }
     // A torus (the wheel rim) about `c`: in-plane axes u, v, axis w; smooth normals.
@@ -51,7 +145,9 @@ struct Builder {
                 Vec3 n[4];
                 const Vec3 p[4] = {at(i, j, &n[0]), at(i + 1, j, &n[1]), at(i + 1, j + 1, &n[2]), at(i, j + 1, &n[3])};
                 const int order[6] = {0, 1, 2, 0, 2, 3};
-                for (int k : order) tris[m].push_back({p[k].x, p[k].y, p[k].z, n[k].x, n[k].y, n[k].z});
+                const float tu[4] = {16.0f * i / segU, 16.0f * (i + 1) / segU, 16.0f * (i + 1) / segU, 16.0f * i / segU};
+                const float tv[4] = {static_cast<float>(j) / segV, static_cast<float>(j) / segV, static_cast<float>(j + 1) / segV, static_cast<float>(j + 1) / segV};
+                for (int k : order) tris[m].push_back({p[k].x, p[k].y, p[k].z, n[k].x, n[k].y, n[k].z, tu[k], tv[k]});
             }
     }
     // A bar of square section from a to b (spokes, the mirror stem).
@@ -71,7 +167,7 @@ struct Builder {
 };
 
 struct Style {
-    float dash[3], dashDark[3], trim[3], header[3], wheel[3];
+    float dash[3], dashDark[3], trim[3], header[3], wheel[3], panel[3];
     float wheelR, wheelRake, wheelTube;   // blocks, radians from upright, blocks
     float binnacleHalf;                   // half width of the cluster
     int gauges;
@@ -84,6 +180,17 @@ Style StyleFor(CabClass c, const float paint[3]) {
     Style s{};
     auto set = [](float* d, float r, float g, float b) { d[0] = r; d[1] = g; d[2] = b; };
     switch (c) {
+        case CabClass::Sports:
+            // Black leather and brushed aluminium, a small thick-rimmed wheel, three dials.
+            set(s.dash, 0.20f, 0.17f, 0.15f);
+            set(s.dashDark, 0.07f, 0.07f, 0.07f);
+            set(s.trim, 0.62f, 0.62f, 0.64f);
+            set(s.header, 0.16f, 0.15f, 0.15f);
+            set(s.wheel, 0.10f, 0.08f, 0.07f);
+            s.wheelR = 0.016f; s.wheelRake = 18.0f * kPi / 180.0f; s.wheelTube = 0.0022f;
+            s.binnacleHalf = 0.024f; s.gauges = 3;
+            s.headerAngle = 24.0f; s.mirrorW = 0.020f; s.mirrorH = 0.0065f; s.sideMirrorH = 0.0055f;
+            break;
         case CabClass::Car:
             // A dark vinyl top with a touch of the body colour (the painted metal dash of the old cars).
             for (int k = 0; k < 3; ++k) s.dash[k] = 0.16f + 0.22f * paint[k];
@@ -126,14 +233,27 @@ Style StyleFor(CabClass c, const float paint[3]) {
             s.headerAngle = 28.5f; s.mirrorW = 0.034f; s.mirrorH = 0.009f; s.sideMirrorH = 0.018f;
             break;
     }
+    // The centre stack and the glovebox lid: the dash's dark shade lifted toward the trim.
+    for (int k = 0; k < 3; ++k) s.panel[k] = 0.6f * s.dashDark[k] + 0.4f * s.trim[k];
     return s;
 }
 
 }  // namespace
 
+void CabInteriorReleaseDevice() {
+    for (IDirect3DTexture9*& t : g_tex) { if (t) t->Release(); t = nullptr; }
+    g_texDevice = nullptr;
+}
+
 CabClass CabClassFor(int m, bool flatFront) {
     if (flatFront) return CabClass::Bus;
     switch (m) {
+        // The sports cars and roadsters (CARI order): Aniston BD4, Shark, GT-A1, Miara,
+        // Arachnid, Stinger, Meteor (both), Hachura, Michelli Roadster, Trance-Am, Z-Type,
+        // Rumbler, Jagular XK, Furore GT, the special agent car.
+        case 2: case 18: case 19: case 37: case 44: case 46: case 47: case 48: case 49: case 53: case 62: case 70:
+        case 71: case 82: case 83: case 84:
+            return CabClass::Sports;
         case 11: case 86: case 6: case 59: case 60: case 61:
             return CabClass::Bus;
         case 7: case 17: case 21: case 54: case 55: case 58: case 63: case 64: case 65: case 66: case 69:
@@ -149,6 +269,7 @@ CabClass CabClassFor(int m, bool flatFront) {
 const char* CabClassName(CabClass c) {
     switch (c) {
         case CabClass::Car: return "car";
+        case CabClass::Sports: return "sports";
         case CabClass::Van: return "van";
         case CabClass::Truck: return "truck";
         case CabClass::Bus: return "bus";
@@ -239,7 +360,10 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     {
         const float R = st.wheelR, rake = st.wheelRake;
         const float dTop = dRear - 0.008f;
-        const Vec3 rimTop = P(ex, dTop, 0.011f);
+        // FIX-FIGURE: the rim's top higher than QB-31's 0.011 (the hub and spokes sat
+        // under the bottom of the view; only an arc showed): the gauges seen through
+        // the wheel's upper half, the hub just over the dash's rear edge.
+        const Vec3 rimTop = P(ex, dTop, 0.011f + 0.6f * R);
         const Vec3 up{0.0f, std::cos(rake), -std::sin(rake)};      // in the wheel's plane, toward its top
         const Vec3 axis{0.0f, std::sin(rake), std::cos(rake)};     // its column, away from the driver
         const Vec3 across{1.0f, 0.0f, 0.0f};
@@ -248,12 +372,47 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         const float cs = std::cos(turn), sn = std::sin(turn);
         const Vec3 u = across * cs + up * sn, v = up * cs - across * sn;
         b.Torus(kWheel, c, u, v, axis, R, st.wheelTube);
-        // Three spokes (left, right, down) to a hub.
-        for (float a : {0.0f, kPi, 1.5f * kPi}) {
+        // Three spokes (left and right, a little drooped, and down) to a hub with a horn pad.
+        for (float a : {-0.22f, kPi + 0.22f, 1.5f * kPi}) {
             const Vec3 dir = u * std::cos(a) + v * std::sin(a);
-            b.Bar(kWheel, c + dir * (0.24f * R) + axis * 0.0015f, c + dir * (R - st.wheelTube), st.wheelTube * 0.6f);
+            b.Bar(kGaugeRim, c + dir * (0.28f * R) + axis * 0.0015f, c + dir * (R - st.wheelTube), st.wheelTube * 0.40f);
         }
-        b.Disc(kTrim, c - axis * 0.0008f, u, v, 0.20f * R, 12);
+        b.Disc(kWheel, c - axis * 0.0006f, u, v, 0.34f * R, 16);
+        b.Disc(kTrim, c - axis * 0.0010f, u, v, 0.12f * R, 10);
+    }
+    // FIX-FIGURE: the centre stack (radio slot, vents) and the glovebox lid on the dash's
+    // rear face, and a taxi's fare meter on the dash top.
+    {
+        const float cx0 = -0.022f, cx1 = 0.022f;
+        const float hA = -0.012f, hB = -0.060f, dA = dRear - 0.0055f, dB = dRear - 0.0075f;
+        b.Quad(kPanel, P(cx0, dA, hA), P(cx1, dA, hA), P(cx1, dB, hB), P(cx0, dB, hB));
+        auto onFace = [&](float h) { return dA + (dB - dA) * (h - hA) / (hB - hA) - 0.0004f; };
+        for (int k = 0; k < 2; ++k) {   // two vents side by side, then the radio
+            const float a = k ? 0.002f : -0.018f, c2 = k ? 0.018f : -0.002f;
+            b.Quad(kDashDark, P(a, onFace(-0.015f), -0.015f), P(c2, onFace(-0.015f), -0.015f), P(c2, onFace(-0.024f), -0.024f), P(a, onFace(-0.024f), -0.024f));
+        }
+        b.Quad(kTrim, P(-0.016f, onFace(-0.029f), -0.029f), P(0.016f, onFace(-0.029f), -0.029f), P(0.016f, onFace(-0.036f), -0.036f), P(-0.016f, onFace(-0.036f), -0.036f));
+        // The glovebox: on the passenger's side.
+        const float gx0 = -side * 0.06f, gx1 = -side * (std::min)(0.16f, std::fabs(side > 0 ? x0 : x1) - 0.02f);
+        if (std::fabs(gx1) > std::fabs(gx0) + 0.02f) {
+            const float ga = -0.016f, gb = -0.034f;
+            b.Quad(kPanel, P(gx0, onFace(ga), ga), P(gx1, onFace(ga), ga), P(gx1, onFace(gb), gb), P(gx0, onFace(gb), gb));
+            const float gm = 0.5f * (gx0 + gx1);
+            b.Quad(kTrim, P(gm - 0.006f, onFace(ga - 0.003f) - 0.0003f, ga - 0.003f), P(gm + 0.006f, onFace(ga - 0.003f) - 0.0003f, ga - 0.003f),
+                   P(gm + 0.006f, onFace(ga - 0.005f) - 0.0003f, ga - 0.005f), P(gm - 0.006f, onFace(ga - 0.005f) - 0.0003f, ga - 0.005f));
+        }
+        if (p.taxi) {
+            const float mx = ex * 0.40f, md = dCrest - 0.002f, mw = 0.0055f, mh = 0.0040f, mdp = 0.0045f;
+            const Vec3 f0 = P(mx - mw, md - mdp, hCrest), f1 = P(mx + mw, md - mdp, hCrest), f2 = P(mx + mw, md - mdp, hCrest + mh), f3 = P(mx - mw, md - mdp, hCrest + mh);
+            const Vec3 k0 = P(mx - mw, md, hCrest), k1 = P(mx + mw, md, hCrest), k2 = P(mx + mw, md, hCrest + mh), k3 = P(mx - mw, md, hCrest + mh);
+            b.Quad(kDashDark, f0, f1, f2, f3);
+            b.Quad(kDashDark, f3, f2, k2, k3);
+            b.Quad(kDashDark, f0, f3, k3, k0);
+            b.Quad(kDashDark, f1, f2, k2, k1);
+            const Vec3 off{0.0f, 0.0f, -0.0004f};
+            b.Quad(kMeter, P(mx - mw * 0.7f, md - mdp, hCrest + mh * 0.45f) + off, P(mx + mw * 0.7f, md - mdp, hCrest + mh * 0.45f) + off,
+                   P(mx + mw * 0.7f, md - mdp, hCrest + mh * 0.80f) + off, P(mx - mw * 0.7f, md - mdp, hCrest + mh * 0.80f) + off);
+        }
     }
     // 4. The windscreen header across the top of the view and the rear-view mirror under it.
     const float tanH = std::tan(st.headerAngle * kPi / 180.0f);
@@ -303,6 +462,18 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         const Vec3 arm0{px + side * w * 0.5f, top + 0.006f, ez + dc + 0.006f};
         b.Bar(kTrim, arm0, mc - mv * (h2 * 0.5f), 0.0009f);
         if (tall) b.Bar(kTrim, Vec3{arm0.x, top + 0.024f, arm0.z + 0.003f}, mc + mv * (h2 * 0.5f), 0.0008f);
+        // FIX-FIGURE: the passenger's A-pillar, from the far dash corner to the header (a
+        // pillar of some thickness: inner face, and the face toward the eye).
+        // The seat is compressed (the dash a hand ahead): at its true reach the far pillar
+        // stood outside the view; kept within ~45 degrees of the nose, at the frame's edge.
+        const float reach2 = (std::min)(std::fabs((side > 0 ? x0 : x1) - ex), 0.95f * dc);
+        const float qx = ex - side * reach2, w2p = 0.012f;
+        const Vec3 g0{qx, top, ez + dc}, g1{qx - side * w2p, top, ez + dc + 0.006f};
+        const Vec3 u0{qx + side * 0.004f, ey + hHeader + 0.002f, ez + dH}, u1{qx - side * (w2p - 0.004f), ey + hHeader + 0.002f, ez + dH + 0.006f};
+        b.Quad(kTrim, g0, g1, u1, u0);
+        b.Quad(kHeader, g0, u0, u0 + Vec3{-side * 0.004f, 0.0f, -0.004f}, g0 + Vec3{-side * 0.004f, 0.0f, -0.004f});
+        // The driver's pillar gets the same inner face.
+        b.Quad(kHeader, f0, t0, t0 + Vec3{side * 0.004f, 0.0f, -0.004f}, f0 + Vec3{side * 0.004f, 0.0f, -0.004f});
     }
 
     // To the world, and draw: one call per surface.
@@ -317,13 +488,23 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     device->SetTexture(0, nullptr);
-    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL);
+    DWORD addrU = 0, addrV = 0, minF = 0, magF = 0;
+    device->GetSamplerState(0, D3DSAMP_ADDRESSU, &addrU);
+    device->GetSamplerState(0, D3DSAMP_ADDRESSV, &addrV);
+    device->GetSamplerState(0, D3DSAMP_MINFILTER, &minF);
+    device->GetSamplerState(0, D3DSAMP_MAGFILTER, &magF);
+    device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+    device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+    device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
     const float needle[3] = {0.85f, 0.22f, 0.10f};
     const float face[3] = {0.80f, 0.78f, 0.68f};
     const float rim[3] = {0.55f, 0.56f, 0.58f};
@@ -338,10 +519,12 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             const Vec3 n = gta2::Normalize(Vec3{q.nx * carToWorld.m[0][0] + q.ny * carToWorld.m[1][0] + q.nz * carToWorld.m[2][0],
                                                 q.nx * carToWorld.m[0][1] + q.ny * carToWorld.m[1][1] + q.nz * carToWorld.m[2][1],
                                                 q.nx * carToWorld.m[0][2] + q.ny * carToWorld.m[1][2] + q.nz * carToWorld.m[2][2]});
-            q = {w.x, w.y, w.z, n.x, n.y, n.z};
+            q = {w.x, w.y, w.z, n.x, n.y, n.z, q.u, q.v};
         }
+        const float meter[3] = {0.95f, 0.18f, 0.10f};
         const float* c = m == kDash ? st.dash : m == kDashDark ? st.dashDark : m == kTrim ? st.trim : m == kHeader ? st.header
-                       : m == kWheel ? st.wheel : m == kGaugeFace ? face : m == kGaugeRim ? rim : m == kNeedle ? needle : glass;
+                       : m == kWheel ? st.wheel : m == kGaugeFace ? face : m == kGaugeRim ? rim : m == kNeedle ? needle
+                       : m == kPanel ? st.panel : m == kMeter ? meter : glass;
         D3DMATERIAL9 mat = restore;
         mat.Diffuse = {c[0], c[1], c[2], 1.0f};
         mat.Ambient = mat.Diffuse;
@@ -351,9 +534,17 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         if (m == kGaugeFace && p.night) mat.Emissive = {0.45f, 0.40f, 0.28f, 1.0f};
         if (m == kNeedle && p.night) mat.Emissive = {0.6f, 0.15f, 0.05f, 1.0f};
         if (m == kGlass) mat.Emissive = {0.22f, 0.25f, 0.30f, 1.0f};
+        if (m == kMeter) mat.Emissive = {0.55f, 0.08f, 0.04f, 1.0f};   // the fare's red digits glow
         device->SetMaterial(&mat);
+        static const int kKind[kMatCount] = {0, 1, 2, 3, 4, 5, 2, 15, 15, 1, 15};
+        device->SetTexture(0, SurfaceTexture(device, kKind[m]));
         device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(t.size() / 3), t.data(), sizeof(V));
     }
+    device->SetTexture(0, nullptr);
+    device->SetSamplerState(0, D3DSAMP_ADDRESSU, addrU);
+    device->SetSamplerState(0, D3DSAMP_ADDRESSV, addrV);
+    device->SetSamplerState(0, D3DSAMP_MINFILTER, minF);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, magF);
     device->SetMaterial(&restore);
     device->SetRenderState(D3DRS_CLIPPLANEENABLE, clip);
     device->SetRenderState(D3DRS_CULLMODE, cull);

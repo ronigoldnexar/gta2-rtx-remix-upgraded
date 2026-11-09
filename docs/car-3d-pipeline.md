@@ -292,6 +292,27 @@ Earlier runs (`qa_qb31a` to `qa_qb31c`) are the iterations described above.
 Untested: RTX Remix (the cab is drawn the same way as `DrawDash`: untextured, lit, fixed
 function), the lit gauges at night, and wreck models (no cab at 72+).
 
+### Textured cab, wheel hub and spokes, both pillars, sports and taxi (FIX-FIGURE, defect pm2-fp-cockpit-flat-untextured-placeholder-boxes)
+
+- Every cab surface has a 64x64 texture made at run time (`SurfaceTexture`, no art files): pebbled vinyl
+  on the dash, fine-grained plastic, brushed trim, headliner weave, stitched leather on the wheel, and gauge
+  faces with a 270-degree tick ring. Planar UVs from the car-frame position (a tile every 0.025 block); the
+  texture is modulated by the lit material colour. `CabInteriorReleaseDevice` frees the textures with the car bodies.
+- The wheel's rim top is raised by 0.6 x its radius, so the hub (a horn pad), the three metal spokes (left and
+  right drooped, and down) and the gauges through the wheel's upper half are in view; before, only the top arc showed.
+- The passenger's A-pillar, kept within about 45 degrees of the nose (the seat is compressed, so at its true reach it
+  was outside the view), and an inner pillar face on both sides. Centre stack (vents, radio) and glovebox on the dash's
+  rear face (mostly below the view).
+- `CabClass::Sports` (Aniston BD4, Shark, GT-A1, Miara, Arachnid, Stinger, Meteor, Hachura, Michelli Roadster,
+  Trance-Am, Z-Type, Rumbler, Jagular XK, Furore GT, special agent car): dark leather dash, aluminium trim, a small
+  thick-rimmed wheel, three dials. A taxi (models 51, 56) has a fare meter with red digits on the dash.
+- The hood is still the car's own body copy in its own paint (`HoodModelFor`). The torn black shards seen on the Arachnid
+  hood are a separate defect (pt-fp-cab-jagular-xk-torn-black-shards).
+- Verified: out/ff_cab_base3 (HEAD a81174f) vs out/ff_cab_fix1 (Arachnid, sports) and out/ff_cab_taxi4 (forced taxi,
+  `force_own_car_model=56`), `compare_1280x220.png`, 0 FAULT. Frame cost: on the same script, the tip without this change
+  measured 7.7 ms sprite-stage average and with it 6.4 ms, so the change is within run-to-run noise. Both are well above
+  a81174f's 2.6 ms, a regression from other commits (not the weapon rig: 7.8 ms with `GTA2DX9_WEAPON_RIG=0`).
+
 ## Clean albedo pass (8 Nov 2026, CAR-QUALITY-4)
 
 The user saw the cars as "completely worn out" and the police car with "lighting

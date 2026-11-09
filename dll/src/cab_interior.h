@@ -25,7 +25,7 @@
 
 namespace gta2dx9 {
 
-enum class CabClass { Car, Van, Truck, Bus };
+enum class CabClass { Car, Van, Truck, Bus, Sports };
 
 // The class of a CARI model number (0..71); a flat-fronted body (bus, train,
 // cab-over) is a bus whatever its number.
@@ -41,8 +41,11 @@ struct CabInteriorParams {
     float steer = 0;                             // front wheels, radians
     float speed = 0;                             // blocks/s along the nose
     bool night = false;                          // gauges lit
+    bool taxi = false;                           // a fare meter on the dash (FIX-FIGURE)
 };
 
+// Releases the surface textures (device reset or loss).
+void CabInteriorReleaseDevice();
 void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const CabInteriorParams& p,
                      const D3DMATERIAL9& restore);
 
