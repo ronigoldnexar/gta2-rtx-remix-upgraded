@@ -233,7 +233,10 @@ def _build_one(args):
         # plain concrete); organic ground and road lids keep the shipped HD tile
         rgba[..., :3] = np.asarray(Image.open(e).convert("RGB").resize(rgba.shape[:2][::-1], Image.LANCZOS)).astype(np.float32) / 255.0
     res = transfer(rgba, cls, cc0)
-    if res is None: return t, "skip"
+    if res is None:
+        d0 = os.path.join(out_dir, "tile_%04d.dds" % t)
+        if os.path.exists(d0): os.unlink(d0)      # a corrected-to-skip tile must not keep an old photo tile
+        return t, "skip"
     alpha_raw = (rgba[..., 3] * 255 + 0.5).astype(np.uint8)
     has_alpha = alpha_raw.min() < 255
     rgb = Image.fromarray((res[..., :3] * 255 + 0.5).astype(np.uint8))
@@ -256,6 +259,10 @@ def _build_one(args):
 def cmd_build(a):
     from multiprocessing import Pool
     labels = json.load(open(a.labels))
+    if a.fixes:     # hand corrections: {style: {tile: class}}; a tile fixed to "skip" loses its photo tile
+        for t, c in json.load(open(a.fixes)).get(a.style, {}).items():
+            if c not in MATERIALS: raise SystemExit("fixes: unknown class %r for tile %s" % (c, t))
+            if str(t) in labels: labels[str(t)] = dict(labels[str(t)], cls=c) if isinstance(labels[str(t)], dict) else c
     os.makedirs(a.out, exist_ok=True)
     road = set(json.load(open(a.usage))[a.style].get("road", [])) if a.usage else set()
     want = [int(x) for x in a.tiles.split(",")] if a.tiles else sorted(map(int, labels))
@@ -305,6 +312,7 @@ if __name__ == "__main__":
     s.add_argument("--tiles", default="", help="only these tiles (re-classified even when present)")
     s = sub.add_parser("build"); s.add_argument("hd"); s.add_argument("labels"); s.add_argument("cc0"); s.add_argument("out")
     s.add_argument("--tiles", default=""); s.add_argument("--jobs", type=int, default=4)
+    s.add_argument("--fixes", default="", help="JSON {style: {tile: class}} of hand-corrected labels (tools/photo_label_fixes.json)")
     s.add_argument("--esrgan", default="", help="ESRGAN upscale dir (tile_NNNN.tga) to use as the base colour")
     s.add_argument("--usage", default="", help="usage.json: road lids keep the HD base"); s.add_argument("--style", default="wil")
     s = sub.add_parser("sheet"); s.add_argument("tiles_dir"); s.add_argument("hd"); s.add_argument("photo"); s.add_argument("png")

@@ -105,3 +105,28 @@ Not verified / still wrong:
 - The two runs' headings differ slightly (the turn-to-face is timing dependent), so the A/B
   frames are not pixel-aligned.
 - Props (3D models in `assets/models`) are untouched by this pass.
+
+## Update: Residential and Industrial checked, labels corrected (ASSET-BUILDINGS-2, 9 Nov 2026)
+
+Which dir is which: the in-game intro text at the `bil` spots reads "Industrial District", so
+**`bil` = Industrial (811 tiles) and `ste` = Residential (750)**; the counts in the Status section
+above were attributed the other way round.
+
+Looked at in game (plain GL renderer, L4, private stage, `linux/docker/ab_facades.py`, six wall-facing
+spots per district from `ab_spots.py`, third and first person, `photo_tiles=0` vs `1`): both sets load
+(`photo tiles: 750 ... \photo\ste`, `811 ... \photo\bil`), `hd tiles` all loaded, 0 faults. Pavements,
+roads and ashlar/brick walls read as in Downtown. Headings still differ slightly between runs, so the
+A/B frames are not pixel-aligned (same caveat as before).
+
+Labels: the classifier used `concrete` as its catch-all. Reviewing the tiles by class on contact sheets
+showed dark steel plates, pipes, corrugated and blue/green painted metal, plank floors and fences, brick
+walls, grass lids, plaster panels and road lids all tagged concrete or wood, plus posters/graffiti that
+should be left alone. `tools/photo_label_fixes.json` holds the hand corrections (`ste` 202, `bil` 217
+tiles; `{style: {tile: class}}`); `photoreal_tiles.py build --fixes tools/photo_label_fixes.json
+--tiles <those tiles>` applies them (a tile fixed to `skip` has its photo tile removed, so the renderer
+falls back to the HD tile). Result: Residential 725 and Industrial 802 photo tiles (25 and 9 corrected to
+skip). Tile-level before/after (HD | old label | fixed label) confirms the change is where expected, e.g. blue
+planked metal gets metal grain instead of concrete pores, plaster panels get plaster. The effect stays
+subtle by design (grain only). The corrected tiles are in the local `assets/textures_hd/photo/` and ship in
+the textures archive; they are not committed. Labels not reviewed: `paving`, `stone`, `brick`, `asphalt`
+and `skip` lists.
