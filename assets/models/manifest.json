@@ -1715,15 +1715,14 @@
   },
   {
    "name": "063_truck_cab",
-   "glb": "cars/models3d/063_truck_cab.glb",
+   "glb": "cars/models_art/063_truck_cab.glb",
    "scale": 1.0,
    "paint_rgb": [
-    85.6,
-    66.9,
-    59.5
+    235.0,
+    235.0,
+    235.0
    ],
-   "texture_max": 512,
-   "paint_split": true
+   "texture_max": 1024
   },
   {
    "name": "064_truck_cab_sx",
@@ -8304,12 +8303,14 @@
   },
   {
    "name": "063_truck_cab",
-   "nodes": 1,
-   "meshes": 1,
-   "vertices": 5956,
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 15006,
    "animations": [],
    "textures": [
-    "063_truck_cab_0.tga"
+    "063_truck_cab_0.tga",
+    "063_truck_cab_2_paint.tga",
+    "063_truck_cab_4.tga"
    ],
    "skins": 0,
    "forward": "",
