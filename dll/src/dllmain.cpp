@@ -412,6 +412,12 @@ void LoadConfig() {
         char dir[MAX_PATH];
         PathBesideGame("gta2dx9_textures_hd", dir, sizeof(dir));
         gta2::SetHdTextureDir(dir);
+        // Photo-material versions of the tiles (tools/photoreal_tiles.py) in its photo\ subfolder.
+        if (GetPrivateProfileIntA("renderer", "photo_tiles", 1, ini) != 0) {
+            char photo[MAX_PATH];
+            snprintf(photo, sizeof(photo), "%s\\photo", dir);
+            gta2::SetPhotoTextureDir(photo);
+        }
         gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
         gta2::SetWaterEffect(GetPrivateProfileIntA("renderer", "water_effect", 1, ini) != 0);
         gta2::SetWindowGlow(GetPrivateProfileIntA("renderer", "window_glow", 1, ini) != 0);

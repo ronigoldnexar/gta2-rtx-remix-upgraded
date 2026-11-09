@@ -203,3 +203,13 @@ Walks, runs, fast runs, starts, stops, idles and fidgets from the Rocketbox anim
 fetched into `assets-src/humans/rocketbox/anim_loco/`, men's clips on the male avatars and women's on the
 female ones, retargeted on import (rotations and root motion only; `tools/locomotion_meta.py`). See
 docs/actions-3d.md "QB-20/21/39".
+
+## Photo-material tiles (ASSET-BUILDINGS)
+
+`tools/photoreal_tiles.py` adds the surface of real photo-scanned materials to the HD tiles
+(`assets/textures_hd/photo/<style>/`, not in git: it embeds the game's art and ships in the
+textures archive). Materials from ambientCG (ambientcg.com), CC0 1.0: Plaster001,
+PaintedPlaster017, Concrete031, Concrete034, Concrete044A, PaintedMetal004, PaintedMetal009,
+Metal012, Wood067, Marble012, Asphalt026B, Ground054, Grass004, Gravel022 (2K JPG colour and
+displacement; fetched by `photoreal_tiles.py fetch`). The material classes come from
+Qwen3-VL-8B-Instruct (Apache-2.0), run offline. See docs/photoreal-tiles.md.

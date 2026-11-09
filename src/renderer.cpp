@@ -127,6 +127,10 @@ int g_anisotropy = 0;   // 0: 8 on a GPU, 1 on a software renderer; else the lev
 void SetAnisotropy(int level) { g_anisotropy = level < 0 ? 0 : (level > 16 ? 16 : level); }
 bool g_softwareGl = false;
 void SetHdTextureDir(const char* dir) { g_hdTextureDir = dir ? dir : ""; }
+// The photo-material set (tools/photoreal_tiles.py), one folder per style like the HD set;
+// tried before it, never on an RTX Remix device (the Remix layer is keyed by the HD set's hashes).
+std::string g_photoTextureDir;
+void SetPhotoTextureDir(const char* dir) { g_photoTextureDir = dir ? dir : ""; }
 void SetTileDumpDir(const char* dir) { g_tileDumpDir = dir ? dir : ""; }
 bool g_waterEffect = true;
 void SetWaterEffect(bool on) { g_waterEffect = on; }
@@ -648,6 +652,8 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     const std::string hdDir = g_hdTextureDir.empty() ? "" : g_hdTextureDir + "\\" + g_tileStyle;
     const std::string dumpDir = g_tileDumpDir.empty() ? "" : g_tileDumpDir + "\\" + g_tileStyle;
     hdDir_ = hdDir;
+    photoDir_ = (g_photoTextureDir.empty() || remixDevice_) ? "" : g_photoTextureDir + "\\" + g_tileStyle;
+    photoTiles_ = 0;
     tileByContent_.clear();
     for (int i = 0; i < style.TileCount(); ++i) {
         const Tile& t = style.GetTile(i);
@@ -785,6 +791,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     if (hdTiles_ > 0 || hdFailed_ > 0) {
         Trace("hd tiles: %d loaded (%d block-compressed DDS with mips, cap %d px), %d failed, of %zu tile textures",
               hdTiles_, hdDdsTiles_, g_hdTileMax, hdFailed_, textures_.size());
+        Trace("photo tiles: %d of them from %s", photoTiles_, photoDir_.empty() ? "(off)" : photoDir_.c_str());
     }
     post_.BuildWorld(mesh, style, vertexBuffer_);
     return true;
@@ -793,6 +800,9 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
 IDirect3DTexture9* Renderer::LoadHdTileTexture(int tile) {
     if (hdDir_.empty()) return nullptr;
     DdsImage dds;
+    if (!photoDir_.empty() && ReadDds(photoDir_ + "\\" + TileDdsFileName(tile), &dds)) {
+        if (IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax)) { ++photoTiles_; return texture; }
+    }
     if (!ReadDds(hdDir_ + "\\" + TileDdsFileName(tile), &dds)) return nullptr;
     IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax);
     if (!texture) ++hdFailed_;
