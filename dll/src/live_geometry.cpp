@@ -6745,6 +6745,20 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             if (g_carFrame - g_fpShotFrame >= 2) g_fpShotFrame = g_carFrame;
         }
     }
+    {
+        // QB-16: his figure is not drawn here, so it left no FigureSpot: the eye stands
+        // in for it (where he is, the way he looks, his last shot from his ammunition
+        // word or a flash ahead), so the man he shoots reacts in this view too.
+        static int32_t lastAmmo = -1;
+        static uint32_t shotFrame = 0;
+        if (g_playerWeapon > 0 && lastAmmo >= 0 && g_playerAmmo < lastAmmo) shotFrame = g_carFrame;
+        if (g_fpShotFrame == g_carFrame) shotFrame = g_carFrame;
+        lastAmmo = g_playerWeapon > 0 ? g_playerAmmo : -1;
+        const float fl = std::sqrt(f.x * f.x + f.z * f.z);
+        if (g_playerPosValid && fl > 1e-3f)
+            g_figuresNow.push_back({reinterpret_cast<uintptr_t>(g_playerObject), g_playerPosX, g_playerPosZ, false, false, shotFrame,
+                                    f.x / fl, f.z / fl, g_playerWeapon > 0 ? g_playerWeapon : kWpnPistol});
+    }
     // The game's word (0: bare hands, nothing drawn); without it, the weapon the
     // figure was last drawn with, shown only around a shot.
     int weapon = g_playerWeapon >= 0 && g_playerWeapon < kWpnCount ? g_playerWeapon : g_playerWeaponSeen;
@@ -7729,7 +7743,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     nearFrame = g_carFrame; nearD = 1e9f;
                 }
                 if (ownPed) { ownX = gx; ownZ = gz; ownH = track.heading; ownValid = true; }
-                else if (ownValid && !sprite.corpse) {
+                if (CurrentViewMode() == ViewMode::FirstPerson && g_playerPosValid) {   // his figure is not drawn: the eye
+                    ownX = g_playerPosX; ownZ = g_playerPosZ; ownH = std::atan2(g_viewForward.x, g_viewForward.z); ownValid = true;
+                }
+                if (!ownPed && ownValid && !sprite.corpse) {
                     const float vx = gx - ownX, vz = gz - ownZ, d = std::sqrt(vx * vx + vz * vz);
                     if (d < nearD && d > 0.3f) {
                         float a = std::atan2(vx, vz) - ownH;

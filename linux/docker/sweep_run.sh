@@ -22,7 +22,7 @@ touch /out/.keys_done
 KEYS
 # GPU: the game GPUs of the 8x L4 host (3-7, by chunk); GPU 0 is Remix's. GPU=<n> overrides.
 GPU=${GPU:-$((3 + I % 5))}
-gamerun/slot.sh sudo -n docker run --rm --gpus "\"device=$GPU\"" \
+gamerun/slot.sh sudo -n docker run --rm --gpus "\"device=$GPU\"" $(gamerun/nv_devices.sh "$GPU") \
   -e NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility -e FPS=15 --cpus=4 \
   -e INI_SED="$SED" -e GTA2_DIRECT_KEYS="${GTA2_DIRECT_KEYS:-1}" -e SWAP_LEVEL=$Dd -e GTA2DX9_CLEAR_MAGENTA=1 \
   -e SWEEP_DISTRICT=$Dd -e SWEEP_CHUNK=$CH -e SCENE_KEY=F11 -e GTA2DX9_SCENE_NO_CAR=1 -e SWEEP_PLAN=${SWEEP_PLAN:-/work/sweep_plan_$Dd.json} \

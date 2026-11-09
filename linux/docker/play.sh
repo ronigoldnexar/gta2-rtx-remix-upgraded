@@ -32,7 +32,7 @@ mkdir -p out/play-$PORT
 # fixed-function state, and compiling them made the first street-view frames of every session
 # freeze for 300-700 ms (PERF-2). With the cache kept they are read back instead.
 mkdir -p "$WORK/nv_cache_gl"
-$DOCKER run -d --name "$NAME" --gpus "\"device=${GPU:-0}\"" -e NVIDIA_DRIVER_CAPABILITIES=all --cpus=${CPUS:-7} ${PLAY_CPUSET:+--cpuset-cpus="$PLAY_CPUSET"} -e SCREEN_W=${SCREEN_W:-$([ "${PLAY_RES:-}" = low ] && echo 960 || echo 1280)} -e SCREEN_H=${SCREEN_H:-$([ "${PLAY_RES:-}" = low ] && echo 540 || echo 720)} \
+$DOCKER run -d --name "$NAME" --gpus "\"device=${GPU:-0}\"" $("$WORK/nv_devices.sh" "${GPU:-0}") -e NVIDIA_DRIVER_CAPABILITIES=all --cpus=${CPUS:-7} ${PLAY_CPUSET:+--cpuset-cpus="$PLAY_CPUSET"} -e SCREEN_W=${SCREEN_W:-$([ "${PLAY_RES:-}" = low ] && echo 960 || echo 1280)} -e SCREEN_H=${SCREEN_H:-$([ "${PLAY_RES:-}" = low ] && echo 540 || echo 720)} \
   -p "${PLAY_BIND:-127.0.0.1}:$PORT:$PORT" ${PLAY_VNC:+-p 127.0.0.1:$PLAY_VNC:5900} -e PLAY_PORT=$PORT -e PLAY_MOUSE="${PLAY_MOUSE:-0}" ${GTA2DX9_LOG_CAMERA:+-e GTA2DX9_LOG_CAMERA=$GTA2DX9_LOG_CAMERA} ${PLAY_FRAME_LOG:+-e 'GTA2DX9_FRAME_LOG=Z:\out\frames.tsv' -e GTA2DX9_STATE_EVERY=5} -e PLAY_PASSWORD="${PLAY_PASSWORD:-}" -e PLAY_DEVTOOLS="${PLAY_DEVTOOLS:-0}" -e PLAY_X11VNC="${PLAY_X11VNC:-}" -e PLAY_VNC_NICE="${PLAY_VNC_NICE:-0}" -e PLAY_AUDIO="${PLAY_AUDIO:-1}" \
   -e SWAP_LEVEL="${SWAP_LEVEL:-}" -e INI_SED="${INI_SED:-}" -e SETTINGS_SED="${SETTINGS_SED:-}" -e MODS_HD="${MODS_HD:-1}" -e PLAY_RTX_PRESET="${PLAY_RTX_PRESET:-rtx_play.conf.extra}" \
   -v "$WORK:/work" -v "$PWD/game:/game:ro" -v "$REL:/release:ro" -v "$STAGE:/stage:ro" -v "$RMX:/remix:ro" -v "$PKG:/package:ro" -v "$PWD/out/play-$PORT:/out" \
