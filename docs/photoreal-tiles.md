@@ -130,3 +130,30 @@ planked metal gets metal grain instead of concrete pores, plaster panels get pla
 subtle by design (grain only). The corrected tiles are in the local `assets/textures_hd/photo/` and ship in
 the textures archive; they are not committed. Labels not reviewed: `paving`, `stone`, `brick`, `asphalt`
 and `skip` lists.
+
+## Window glass the upscale turned into glyphs (FIX-REMIX, 9 Nov 2026)
+
+Defect `pt-police-station-window-glass-artefacts`: the Downtown police station's arched windows (wil tiles
+704 and 705, x 199-201, y 171-177) were a muddy dark gradient scattered with cyan "glyph" blobs and
+streaks. The 64 px art dithers its dark glass with a few light texels; Real-ESRGAN and the SD tile pass grew
+the dither into shapes, and the photo set starts from the HD tile and keeps its glass, so both carried them.
+
+`tools/fix_window_glass.py` finds the panes (dark texels plus the teal blobs on them, lightly closed, holes
+taken in only when they look like glass, short gaps across a pane bridged so the stone pillar between two
+panes stays stone) and repaints each: a dark glass gradient with a dull sky at the head, a soft diagonal
+sheen, one mullion and one transom, a darker rim against the stone. A pane running off the tile's top
+continues the gradient of the window above and has no transom. Outside the panes nothing changes.
+
+- Plain renderer: `fix <photo/wil/tile_0704.dds> <out>` and the same for 0705, written into
+  `assets/textures_hd/photo/wil/` (unlinked first: those files are hard-linked into every stage). The HD set
+  itself is never rewritten (the Remix layer's keys).
+- Remix: `pbr <assets/textures_hd/wil/tile_0704.dds> package/rtx-remix/mods/gta2hd` runs the repainted tile
+  through the layer's own map maker and writes `<hash>.{a,n,r,h,m}g.rtex.dds` beside the tile's maps;
+  `usda <mod> 27C431EAEC34DB64 E9521A60228584F9` points the two prims at them (the glyphs were in the
+  normal and height maps as well, as relief).
+- `scan <dir>` is the guard for other tiles: panes that are near black with many small teal flecks. It still
+  flags neon signs and stained glass (wil 742/763/767 "JESUS SAVES", ste 59x, ...), so its list is for review,
+  not for `fix` in bulk; only 704/705 were repainted.
+
+Runs: plain `gamerun/entry_grun.sh <name> 150 keys_pt_pass.sh` (drive north from the warp car):
+`out/fxr_station_before` vs `out/fxr_station_after` (`cmp/`); Remix `out/fxr_station_remix` (13:00, 197.5,174.5).
