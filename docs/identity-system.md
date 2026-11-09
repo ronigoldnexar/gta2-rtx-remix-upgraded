@@ -477,3 +477,36 @@ Results (this build, private stage `stage_fcid2`):
   `012_cop_car_0(_paint).tga`, `034_medicar_0(_paint).tga`. The cars archive needs repacking and their Remix prims
   rebuilding (`docs/remix-materials.md`, last section).
 - 057 T-Rex's green sprite draws near-black in third person: not investigated.
+
+## 7. Under Remix: the semi-truck red-orange in classic, brown in third person (FIX-REMIX-IDENTITY, 9 Nov 2026)
+
+Defect `pt-remix-first-truck-classic-red-orange-cab-third-brown-maroon` (wil 164.5,149.5 at 13:00, filed on c836ec7).
+
+**Remix was consuming the record; the record was brown.** The filer's log (`out/ptrmx7_wil`) has, at the classic and
+third-person marks, `identity: vehicle obj 43d4f980 model 63 sprite 57 paint 97,67,63 -> 063_truck_cab tint
+0.48,0.33,0.31 shown 98,68,63`. Vehicles were not left out of the Remix wiring: the 063 paint half
+(`063_truck_cab_2_paint.tga`) has no layer prim, so it is drawn with the `BakedTint` copy of the record's tint (the
+plain renderer's stage-1 factor in a texture). The cause was the brighter-half rule of the time: for the cab's sprite
+(sprite 57, remap 28) the rows outside CARI's window rows are the black fifth wheel and chassis, and the bright
+red-orange roof lies between the window rows. An offline emulation of that rule over `assets-src/cars/sprites`
+reproduces every 063 record in the log to the unit (remap 28 97,67,63; remap 24 98,71,57; remap 05 59,75,60).
+
+**Fixed by section 6** (c8ba78f, after the filer's stage): the paint is the mean of the texels the remap recolours,
+matched against the model's plain mean. The same truck's record is now `paint 121,63,48 -> tint 0.95,0.49,0.38`
+(`out/rid_truckD`, log `car body: sprite 57 paint from its remap texels ... 121,63,48 (brighter-half rule 97,67,63)`).
+
+**Verified path traced** (`out/rid_truckD`: GPU 4, Ultra preset `rtx_premix_max.conf.extra`, the filer's point at
+13:00, `GTA2DX9_IDENTITY_PROBE=1`): the remap-28 cab (obj 43d4f5fc) in classic and third person within 25 s. The
+paint (saturated pixels, brighter half) of the classic sprite's body against the third-person door panel:
+
+| | classic | third person | delta-E |
+|---|---|---|---|
+| before (the filer's frames, c836ec7) | 104,61,47 (L 31, hue 43, chroma 24) | 79,61,55 (L 27, hue 44, chroma 10) | 14.7 |
+| HEAD (`rid_truckD`) | 109,63,52 (L 32, hue 39, chroma 24) | 100,64,56 (L 31, hue 38, chroma 18) | 5.8 |
+
+Classic view: not touched (no code change; the record feeds only the 3D bodies).
+**Still short:** the 3D cab is 25 % less saturated than the sprite (chroma 18 against 24: the clear coat's sky
+reflection). This truck was not in the first-person frames of the run, and at 19:30 it was a far-field speck: no honest
+dusk or night number for it. Two things were tried and dropped: a painted-roof rule for the old brighter-half
+measure (156 of 668 sprites changed, none worse offline, but after section 6 it only moves the dark-paint floor test,
+untested), and a global hue-cluster rule (87 sprites worse).
