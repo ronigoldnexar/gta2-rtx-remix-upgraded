@@ -982,8 +982,10 @@ details, the skill's options and every session are in `docs/skill-gunfight.md`.
 | **gf_wm7** | **JOB COMPLETE** (1124, +$40,000): three down in 17 game-s at health 100; `out/gf_wm7/shot_475.png` |
 | **gf_wm8** | **JOB COMPLETE**: three down in 8 game-s at health 100; `out/gf_wm8/m_wm_end.png` |
 | gf_wm9 | dead: 60 health lost on a walk to the plaza before the fight loop (fixed: the fight starts at brief 1464, bounded steps) |
+| **gf_wm10** | **JOB COMPLETE** with the gf_wm9 fix (+$40,000); two hitmen died when their car blew up, and the blast took health to 10; `out/gf_wm10/m_wm_end.png` |
 
-**2 of 3 consecutive sessions (gf_wm7-9) reached JOB COMPLETE in the chase view**, with no warp.
+**2 of 3 consecutive sessions (gf_wm7-9) reached JOB COMPLETE in the chase view** (3 of 4 counting
+gf_wm10), with no warp.
 
 ## Wave M, SKILL-DESTROY (9 Nov 2026): PIZZA CAKE with the destroy-a-vehicle skill, `skills/destroy_vehicle.py`
 
