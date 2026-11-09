@@ -1784,20 +1784,14 @@
   },
   {
    "name": "068_van",
-   "glb": "cars/models_proc/068_van.glb",
+   "glb": "cars/models_art/068_van.glb",
    "scale": 1.0,
    "paint_rgb": [
-    137.9,
-    107.2,
-    94.2
+    235.0,
+    235.0,
+    235.0
    ],
-   "texture_max": 512,
-   "paint_materials": [
-    "top",
-    "side",
-    "front",
-    "rear"
-   ]
+   "texture_max": 1024
   },
   {
    "name": "069_u_jerk_truck",
@@ -8393,22 +8387,14 @@
   },
   {
    "name": "068_van",
-   "nodes": 15,
-   "meshes": 11,
-   "vertices": 7074,
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 14840,
    "animations": [],
    "textures": [
-    "068_van_0_paint.tga",
-    "068_van_10.tga",
-    "068_van_1_paint.tga",
+    "068_van_0.tga",
     "068_van_2_paint.tga",
-    "068_van_3_paint.tga",
-    "068_van_4.tga",
-    "068_van_5.tga",
-    "068_van_6.tga",
-    "068_van_7.tga",
-    "068_van_8.tga",
-    "068_van_9.tga"
+    "068_van_4.tga"
    ],
    "skins": 0,
    "forward": "",
