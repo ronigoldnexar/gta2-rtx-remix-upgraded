@@ -138,6 +138,21 @@ def approach_point(world, s, box, back=4):
     return (x + (2.5 if s["x"] > x else -2.5), y)
 
 
+def box_arrow(box, r=3.0):
+    """the script's arrow for a box: 'up' (pointing at it: not there yet), 'cleared' (no mission
+    arrow, or the slot still at the box with target kind 0: REMOVE_ARROW, which the scripts do
+    the moment the car is in the box), 'moved' (on to something else), 'car' (on the mission car:
+    he is out of it). dl_zz2: the car stood in GET ZITZAKI's hospital box at 51.32,178.30 with
+    the slot at kind 0 for 8 s and the runner, waiting for the arrow to vanish, backed out."""
+    x, y = box[0], box[1]
+    o = M.objective()
+    if o is None: return "cleared"
+    near = math.hypot(o[0] - x, o[1] - y) < r
+    if o[3] == 0: return "cleared" if near else "moved"
+    if o[3] in (3, 4): return "car"
+    return "up" if near else "moved"
+
+
 def creep_into(box, secs=50, done=None, check=None):
     """nose the car into the box with short pulses, straightening toward its centre (the
     pattern of mission_play_wil.creep_in / bank_robbery.creep_in, the box's own size); the
@@ -222,8 +237,7 @@ def deliver(world, box, car=None, approach=None, done=None, check=None, view_swi
         ms = M.mission_state() or {}
         if ms.get("msg") in M.COMPLETE_KEYS or ms.get("msg") in M.FAILED_KEYS: return True
         if done is not None: return bool(done())
-        o = M.objective()
-        return o is None or (o[3] == 1 and math.hypot(o[0] - x, o[1] - y) > 3.0)
+        return box_arrow(box) in ("cleared", "moved")
 
     def finish(why):
         ms = M.mission_state() or {}

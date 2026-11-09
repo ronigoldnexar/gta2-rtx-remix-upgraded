@@ -7243,7 +7243,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
                 // QB-16: shot. Nobody mid-swing: the figure that fired in the last
-                // 0.7 s within 12 blocks with his aim nearest the line to him (within
+                // 1.5 s (a bullet flies: 0.8 s to 3 blocks, qb16_r8) within 12 blocks with his aim nearest the line to him (within
                 // 60 degrees: the drawn heading is eased) put a bullet in him. Which way the bullet came, against
                 // his own facing, picks the clip (front, back, his left or right side,
                 // hitSide 2-5) and the gun the stagger (a shotgun throws him further).
@@ -7253,7 +7253,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     float bestScore = 1e9f;
                     for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
                         for (const FigureSpot& f : *list) {
-                            if (f.object == sprite.object || !f.shotFrame || g_carFrame - f.shotFrame > 21) continue;
+                            if (f.object == sprite.object || !f.shotFrame || g_carFrame - f.shotFrame > 45) continue;
                             const float vx = cx - f.x, vz = cz - f.z;
                             const float d2 = vx * vx + vz * vz;
                             if (d2 > 12.0f * 12.0f || d2 < 1e-6f) continue;

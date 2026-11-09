@@ -3,9 +3,12 @@
 the classic bird's-eye view? Reads one run of gamerun/bev_parity.py (keys script
 keys_bev_parity.sh) and reports, with frames from both views of the same moment:
 
-  1. world freeze     - paused, the views cycled classic->third->first->classic: every
-                        logged object (player, cars, peds) must stay where it was.
-  2. classic round trip - the classic frame before and after the cycle (same paused moment).
+  1. switches        - the player stands still while the views cycle classic->third->first->
+                        classic; every logged object (player, cars, peds, every 2 frames) is
+                        tracked through each switch: no jump, and the live peds before/after.
+                        (GTA2's pause is not reachable by key in these runs, so the world moves;
+                        every frame is compared with the objects at that frame's own time.)
+  2. classic round trip - the classic camera and terrain before and after the cycle.
   3. classic vs 3D content from the classic camera - the frame 0.35 s into the move to
                         third person, while the camera is still the top-down one: terrain
                         difference, global misregistration, and per object (from the log's
@@ -28,6 +31,27 @@ PLAYER = re.compile(r"view: player x=([-\d.]+) y=([-\d.]+) z=([-\d.]+) face=([-\
 CAM = re.compile(r"cam\[(\d+)\] bounds=.*?78:([-\d.]+)/\S+ 7C:([-\d.]+)/\S+ 80:([-\d.]+)/\S+ 84:([-\d.]+)/")
 FRAME = re.compile(r"view: (?:cars|peds) frame=(\d+)")
 VIEWRECT = re.compile(r"view @(\d+): game ([\d.]+) x ([\d.]+) tiles \| frame ([\d.]+) x ([\d.]+) \| (.*)$")
+# Who patches what in gta2.exe's code (address ranges of the live-vs-disk diffs, 9.6 build),
+# and whether it reaches the game's rules. From the DLL sources named; check_memory labels
+# every diff with this and flags any it cannot place.
+PATCH_OWNERS = [
+    (0x00417600, 0x00417D00, "voice_over.cpp EngineSoundInstall: engine sample rate/volume calls", "audio"),
+    (0x0041E7F0, 0x0041E7F4, "world_view.cpp ApplyGamePatches: view half-width operand", "SPAWN/CULL WINDOW"),
+    (0x0041E8E4, 0x0041E8E8, "world_view.cpp ApplyGamePatches: view aspect operand", "SPAWN/CULL WINDOW"),
+    (0x004411B0, 0x004411BA, "gibs.cpp: ped death handler, observed then resumed", "observer"),
+    (0x00459690, 0x00459695, "intro_movie.cpp: front-end movie read", "movie"),
+    (0x0045A61F, 0x0045A624, "hud_pass.cpp: HUD draw call", "presentation"),
+    (0x004806C9, 0x004806CE, "hud_pass.cpp InstallMessageHide: stage-end message (script still advances)", "presentation"),
+    (0x00481DF0, 0x00481E63, "intro_movie.cpp: Bink surface and lock/unlock calls", "movie"),
+    (0x004B24E3, 0x004B24E9, "voice_over.cpp: radio stereo/mono store", "audio"),
+    (0x004B2B6B, 0x004B2B75, "voice_over.cpp: radio downgrade", "audio"),
+    (0x004BE060, 0x004BE066, "gibs.cpp: object draw entry, observed then resumed", "observer"),
+    (0x004C2120, 0x004C2129, "voice_over.cpp: text lookup", "audio"),
+    (0x004C8514, 0x004C8529, "hud_pass.cpp: arrow draw calls", "presentation"),
+    (0x004CA440, 0x004CA520, "hud_pass.cpp: the HUD's 19 part calls", "presentation"),
+    (0x004D0820, 0x004D0825, "debug_overlay.cpp OptionsButtonInstall: Options opens the F4 panel", "front end"),
+    (0x004D144D, 0x004D1452, "intro_movie.cpp: startup movie read", "movie"),
+]
 FOV_DEG = 40.0   # [camera] fov_tenths=400 in the shipped ini (the classic camera)
 
 
@@ -47,10 +71,6 @@ def read_log(run):
             lines.append((off, prev, m.group(5)))
         off += len(b) + 1
     return lines
-
-
-def seg(lines, a, b):
-    return [l for l in lines if a <= l[0] < b]
 
 
 def parse_objects(text):
@@ -129,15 +149,16 @@ def grad(g):
     return np.hypot(gx, gy)
 
 
-def patch_offset(a, b, cx, cy, r, search):
-    """where the patch of b around (cx, cy) best matches a (NCC of gradient magnitude)"""
+def patch_offset_at(a, b, ca, cb, r, search):
+    """where b's patch around cb best matches a around ca: (NCC of gradient magnitude, dx, dy)"""
     H, W = a.shape[:2]
-    x0, y0, x1, y1 = cx - r, cy - r, cx + r, cy + r
-    if x0 - search < 0 or y0 - search < 0 or x1 + search > W or y1 + search > H: return None
-    pa = grad(a[y0 - search:y1 + search, x0 - search:x1 + search].mean(2))
-    pb = grad(b[y0:y1, x0:x1].mean(2))
+    (xa, ya), (xb, yb) = ca, cb
+    if min(xa - r - search, ya - r - search, xb - r, yb - r) < 0: return None
+    if xa + r + search > W or ya + r + search > H or xb + r > W or yb + r > H: return None
+    pa = grad(a[ya - r - search:ya + r + search, xa - r - search:xa + r + search].mean(2))
+    pb = grad(b[yb - r:yb + r, xb - r:xb + r].mean(2))
     pb = pb - pb.mean(); nb = np.sqrt((pb * pb).sum()) + 1e-6
-    best = (-2, 0, 0)
+    best = (-2.0, 0, 0)
     for dy in range(-search, search + 1, 2):
         for dx in range(-search, search + 1, 2):
             q = pa[search + dy:search + dy + 2 * r, search + dx:search + dx + 2 * r]
@@ -147,70 +168,84 @@ def patch_offset(a, b, cx, cy, r, search):
     return best
 
 
-# ---------------------------------------------------------------- checks
-def check_freeze(lines, ev, tag):
-    """objects across the paused window of one moment"""
-    names = [e["name"] for e in ev]
-    try:
-        a = next(e for e in ev if e["name"] == "moment_start" and e.get("moment") == tag)
-        b = next(e for e in ev if e["name"] == "moment_end" and e.get("moment") == tag)
-    except StopIteration:
-        return None
-    s = seg(lines, a["log"], b["log"])
-    first, moved, gone, born = {}, {}, set(), set()
-    seen_keys = []
-    switches = sum(1 for _, _, t in s if t.startswith("view: moving the camera to"))
-    players = []
-    for _, _, text in s:
-        if text.startswith("view: player x="):
-            p = player_of(text)
-            if p: players.append(p)
-        objs = parse_objects(text)
-        if not objs: continue
-        kind = "car" if text.startswith("view: cars") else "ped"
-        seen_keys.append((kind, set(objs)))
-        for k, v in objs.items():
-            if k not in first: first[k] = v; continue
-            d = math.dist(first[k][:3], v[:3])
-            moved[k] = max(moved.get(k, 0.0), d)
-            if v[3] != first[k][3]: moved[k + " state"] = 1.0
-    for kind in ("car", "ped"):
-        sets = [ks for kk, ks in seen_keys if kk == kind]
-        if len(sets) > 1:
-            gone |= sets[0] - sets[-1]; born |= sets[-1] - sets[0]
-    pmax = max((math.dist((p["x"], p["y"], p["z"]), (players[0]["x"], players[0]["y"], players[0]["z"]))
-                for p in players), default=None)
-    frames = [int(m.group(1)) for _, _, t in s for m in [FRAME.match(t)] if m]
-    return dict(seconds=round(b["t"] - a["t"], 1), view_switches=switches, samples=len(seen_keys),
-                frames=(min(frames), max(frames)) if frames else None,
-                objects=len(first), max_move=round(max(moved.values(), default=0.0), 3),
-                moved=sorted(k for k, v in moved.items() if v > 0.01), despawned=sorted(gone), spawned=sorted(born),
-                player_samples=len(players), player_max_move=None if pmax is None else round(pmax, 3))
+def day_seconds(epoch):
+    return epoch % 86400.0   # the renderer's log stamps are UTC wall time, as the container's clock
 
 
-def camera_for(lines, upto):
-    """the last camera extent logged before byte offset `upto`"""
+def timeline(lines):
+    """[(t, frame, kind, {key: (x, y, z, extra)})] for cars, peds, and the player"""
+    out = []
+    for _, t, s in lines:
+        if s.startswith("view: cars") or s.startswith("view: peds"):
+            m = FRAME.match(s)
+            out.append((t, int(m.group(1)) if m else None, "car" if s.startswith("view: cars") else "ped",
+                        parse_objects(s)))
+        elif s.startswith("view: player x="):
+            p = player_of(s)
+            if p: out.append((t, None, "player", {"player": (p["x"], p["y"], p["z"], "")}))
+    return out
+
+
+def objects_at_time(tl, t):
+    """every object's position at wall time t, interpolated between the samples around it"""
+    res = {}
+    for kind in ("car", "ped", "player"):
+        ks = [e for e in tl if e[2] == kind]
+        before = [e for e in ks if e[0] <= t][-1:] or ks[:1]
+        after = [e for e in ks if e[0] > t][:1] or before
+        if not before: continue
+        (t0, _, _, o0), (t1, _, _, o1) = before[0], after[0]
+        w = 0.0 if t1 <= t0 else min(1.0, max(0.0, (t - t0) / (t1 - t0)))
+        for k, v in o0.items():
+            if k in o1:
+                u = o1[k]
+                res[k] = tuple(v[i] + (u[i] - v[i]) * w for i in range(3)) + (v[3],)
+            else:
+                res[k] = v
+    return res
+
+
+def camera_at(lines, t):
+    """the last camera extent the renderer logged before wall time t"""
     best = None
-    for off, _, t in lines:
-        if off >= upto: break
-        m = CAM.match(t)
+    for _, tt, s in lines:
+        if tt > t: break
+        m = CAM.match(s)
         if m: best = tuple(float(m.group(i)) for i in range(2, 6))
     return best
 
 
-def objects_at(lines, upto):
-    """the last cars/peds/player lines before `upto`"""
-    objs, player = {}, None
-    for off, _, t in lines:
-        if off >= upto: break
-        if t.startswith("view: cars") or t.startswith("view: peds"):
-            o = parse_objects(t)
-            kind = "car" if t.startswith("view: cars") else "ped"
-            objs = {k: v for k, v in objs.items() if not k.startswith(kind)}
-            objs.update(o)
-        elif t.startswith("view: player x="):
-            player = player_of(t) or player
-    return objs, player
+def check_switches(lines, tl, ev):
+    """around each view switch: did anything jump, and did the set of live objects change"""
+    out = []
+    peds_live = [(t, int(re.search(r"live=(\d+)", s).group(1))) for _, t, s in lines
+                 if s.startswith("view: peds") and "live=" in s]
+    for e in ev:
+        if e["name"] != "switch": continue
+        ts = day_seconds(e["t"])
+        nxt = [day_seconds(x["t"]) for x in ev if x["name"] in ("switch", "moment_end") and x["t"] > e["t"]]
+        tend = min(nxt) if nxt else ts + 10
+        win = [x for x in tl if ts - 3.0 <= x[0] <= ts + 3.0 and x[1] is not None]
+        tracks = {}
+        for t, f, kind, objs in win:
+            for k, v in objs.items():
+                tracks.setdefault(k, []).append((f, t, v))
+        jumps, steps_all = [], []
+        for k, tr in tracks.items():
+            tr.sort()
+            for (f0, t0, a), (f1, t1, b) in zip(tr, tr[1:]):
+                if f1 <= f0: continue
+                step = math.dist(a[:2], b[:2]) / (f1 - f0)
+                steps_all.append(step)
+                # a car at speed does ~0.4 blocks a frame; anything faster is a teleport
+                if step > 0.6: jumps.append(dict(id=k, frames=(f0, f1), step=round(step, 3), at=round(t1 - ts, 2)))
+        before = [n for t, n in peds_live if ts - 2.5 <= t < ts]
+        after = [n for t, n in peds_live if ts + 1.5 <= t < tend]
+        out.append(dict(moment=e.get("moment"), to=e.get("to"), objects=len(tracks),
+                        teleports=jumps, max_step=round(max(steps_all, default=0.0), 3),
+                        live_peds_before=int(np.median(before)) if before else None,
+                        live_peds_after=int(np.median(after)) if after else None))
+    return out
 
 
 def project(cam, W, H, x, y, z, zref):
@@ -221,7 +256,31 @@ def project(cam, W, H, x, y, z, zref):
     return W / 2 + (x - (x0 + x1) / 2) * s * k, H / 2 + (y - (y0 + y1) / 2) * s * k, s
 
 
-def check_frames(run, lines, ev, tag, sheet_rows):
+GRAB_DELAY = 0.1   # x11grab's first frame comes about this long after ffmpeg starts
+
+
+def shot_time(e):
+    return day_seconds(e.get("t_before", e["t"] - 0.3) + GRAB_DELAY)
+
+
+def place(cam, W, H, objs, zref):
+    """{key: (px, py, radius)} for every logged object inside the frame"""
+    out = {}
+    for k, v in objs.items():
+        px, py, s = project(cam, W, H, *v[:3], zref)
+        if 0 <= px < W and 0 <= py < H:
+            out[k] = (px, py, int(s * (0.55 if k.startswith("car") else 0.3)), s)
+    return out
+
+
+def object_mask(H, W, placed):
+    m = np.zeros((H, W), bool)
+    for px, py, r, _ in placed.values():
+        m[max(0, int(py) - r):int(py) + r, max(0, int(px) - r):int(px) + r] = True
+    return m
+
+
+def check_frames(run, lines, tl, ev, tag, sheet_rows):
     shots = {e["label"]: e for e in ev if e["name"] == "shot" and e["label"].startswith(tag)}
     get = lambda suffix: next((e for k, e in shots.items() if k.endswith(suffix)), None)
     c0, c3d, c4 = get("0_classic"), get("1_3d_at_classic_camera"), get("4_classic_again")
@@ -229,47 +288,54 @@ def check_frames(run, lines, ev, tag, sheet_rows):
     P = lambda e: os.path.join(run, f"bev_{e['label']}.png")
     a, b = load(P(c0)), load(P(c3d))
     H, W = a.shape[:2]
-    out = {}
+    ta, tb = shot_time(c0), shot_time(c3d)
+    cam = camera_at(lines, ta)
+    out = dict(camera_extent=cam, seconds_between=round(tb - ta, 2))
+    if not cam: return out
+    oa, ob = objects_at_time(tl, ta), objects_at_time(tl, tb)
+    zref = oa.get("player", (0, 0, 2.0))[2]
+    pa, pb = place(cam, W, H, oa, zref), place(cam, W, H, ob, zref)
+    out["px_per_tile"] = round(H / (cam[3] - cam[2]), 1)
+    band = np.zeros((H, W), bool); band[int(H * 0.12):int(H * 0.88), :] = True   # HUD rows out
+    # 1. the round trip: the classic camera back where it was, the terrain as it was
     if c4:
-        c = load(P(c4)); d = np.abs(a - c).max(2)
-        out["classic_round_trip"] = dict(identical_pixels=round(float((d == 0).mean()), 5),
-                                         mean_abs=round(float(d.mean()), 3), max_abs=int(d.max()),
-                                         pixels_over_24=int((d > 24).sum()))
+        tc = shot_time(c4); cam4 = camera_at(lines, tc)
+        c = load(P(c4)); pc = place(cam, W, H, objects_at_time(tl, tc), zref)
+        keep = band & ~object_mask(H, W, pa) & ~object_mask(H, W, pc)
+        d = np.abs(a - c).max(2)
+        dx, dy, _ = phase_shift(a, c)
+        out["classic_round_trip"] = dict(camera_before=cam, camera_after=cam4, shift_px=(dx, dy),
+                                         terrain_identical=round(float((d[keep] == 0).mean()), 4),
+                                         terrain_mean_abs=round(float(d[keep].mean()), 3),
+                                         terrain_over_24=round(float((d[keep] > 24).mean()), 4))
+    # 2. the 3D content from the classic camera against the game's own frame
     dx, dy, peak = phase_shift(a, b)
     out["global_shift_px"] = dict(dx=dx, dy=dy, peak=round(peak, 1))
-    cam = camera_for(lines, c0["log"])
-    objs, player = objects_at(lines, c0["log"])
-    out["camera_extent"] = cam
-    mask = np.zeros((H, W), bool)
     rows = []
-    if cam and player:
-        zref = player["z"]
-        items = [("player", (player["x"], player["y"], player["z"], ""))] + sorted(objs.items())
-        for k, v in items:
-            px, py, s = project(cam, W, H, *v[:3], zref)
-            if not (0 <= px < W and 0 <= py < H): continue
-            r = int(s * (0.55 if k.startswith("car") else 0.3))
-            x0, y0 = max(0, int(px) - r), max(0, int(py) - r)
-            mask[y0:int(py) + r, x0:int(px) + r] = True
-            m = patch_offset(a, b, int(px), int(py), max(r, 8), max(6, int(s * 0.35)))
-            row = dict(id=k, x=round(v[0], 2), y=round(v[1], 2), z=round(v[2], 2), px=int(px), py=int(py))
-            if m:
-                ncc, ox, oy = m
-                row.update(ncc=round(ncc, 3), off_px=(ox, oy), off_tiles=round(math.hypot(ox, oy) / s, 3))
-            rows.append(row)
-        out["px_per_tile"] = round(H / (cam[3] - cam[2]), 1)
+    for k in sorted(set(pa) & set(pb), key=lambda k: (k != "player", k)):
+        (xa, ya, r, s), (xb, yb, _, _) = pa[k], pb[k]
+        row = dict(id=k, x=round(oa[k][0], 2), y=round(oa[k][1], 2), z=round(oa[k][2], 2), px=int(xa), py=int(ya),
+                   moved_tiles=round(math.dist(oa[k][:2], ob[k][:2]), 3))
+        # b's patch at b's position, searched for in a around a's position
+        m = patch_offset_at(a, b, (int(xa), int(ya)), (int(xb), int(yb)), max(r, 8), max(6, int(s * 0.35)))
+        if m:
+            ncc, ox, oy = m
+            row.update(ncc=round(ncc, 3), off_px=(ox, oy), off_tiles=round(math.hypot(ox, oy) / s, 3))
+        rows.append(row)
     out["objects"] = rows
-    # terrain parity: away from objects, and away from the HUD's top/bottom bands
-    band = np.zeros((H, W), bool); band[int(H * 0.12):int(H * 0.88), :] = True
-    terr = band & ~mask
+    keep = band & ~object_mask(H, W, pa) & ~object_mask(H, W, pb)
     d = np.abs(a - b).mean(2)
-    out["terrain"] = dict(mean_abs=round(float(d[terr].mean()), 2),
-                          share_over_32=round(float((d[terr] > 32).mean()), 4))
-    sheet_rows.append((tag, [P(e) for e in (c0, c3d, get("2_third"), get("3_first"), c4) if e], d, rows, cam))
+    out["terrain"] = dict(mean_abs=round(float(d[keep].mean()), 2), share_over_32=round(float((d[keep] > 32).mean()), 4))
+    sheet_rows.append((tag, [P(e) for e in (c0, c3d, get("2_third"), get("3_first"), c4) if e], d,
+                       [dict(id=k, px=int(v[0]), py=int(v[1])) for k, v in pa.items()],
+                       [dict(id=k, px=int(v[0]), py=int(v[1])) for k, v in pb.items()]))
     return out
 
 
 def check_walks(lines, ev):
+    """per game frame, from consecutive player samples while a key is held: walking speed
+    (the free-walking rate is the upper part of the distribution, since a wall or a
+    pedestrian in the way only ever slows him) and turn rate; game frames per wall second"""
     clock = frame_clock(lines)
     pl = [(t, player_of(s)) for _, t, s in lines if s.startswith("view: player x=")]
     pl = [(t, p) for t, p in pl if p]
@@ -279,29 +345,27 @@ def check_walks(lines, ev):
         if e["name"] != "key_down": continue
         up = next((u for u in downs[i + 1:] if u["name"] == "key_up"), None)
         if not up: continue
-        t0, t1 = e["t"] + 0.35, up["t"]          # skip the first steps (start-up)
-        samp = [(t, p) for t, p in pl if t0 <= t <= t1]
-        if len(samp) < 3: continue
+        t0, t1 = day_seconds(e["t"]) + 0.25, day_seconds(up["t"])   # past the first step
+        samp = [(t, frame_at(clock, t), p) for t, p in pl if t0 <= t <= t1]
         view, key = e["view"], e["key"]
         rec = out.setdefault(view, dict(speed=[], turn=[], fps=[]))
-        f0, f1 = frame_at(clock, samp[0][0]), frame_at(clock, samp[-1][0])
-        if f0 is None or f1 is None or f1 - f0 < 5: continue
-        frames = f1 - f0
-        rec["fps"].append(frames / (samp[-1][0] - samp[0][0]))
-        if key == "Up":
-            dist = sum(math.dist((a["x"], a["y"]), (b["x"], b["y"])) for (_, a), (_, b) in zip(samp, samp[1:]))
-            rec["speed"].append(dist / frames)
-        else:
-            ang = 0.0
-            for (_, a), (_, b) in zip(samp, samp[1:]):
+        if len(samp) >= 2 and samp[-1][0] > samp[0][0]:
+            rec["fps"].append((samp[-1][1] - samp[0][1]) / (samp[-1][0] - samp[0][0]))
+        for (ta, fa, a), (tb, fb, b) in zip(samp, samp[1:]):
+            n = fb - fa
+            if n < 0.5: continue
+            if key == "Up":
+                rec["speed"].append(math.dist((a["x"], a["y"]), (b["x"], b["y"])) / n)
+            else:
                 d = math.atan2(b["fy"], b["fx"]) - math.atan2(a["fy"], a["fx"])
                 d = (d + math.pi) % (2 * math.pi) - math.pi
-                ang += abs(d)
-            rec["turn"].append(math.degrees(ang) / frames)
+                rec["turn"].append(abs(math.degrees(d)) / n)
     summ = {}
     for v, r in out.items():
-        summ[v] = {k: (round(float(np.median(x)), 4) if x else None) for k, x in r.items()}
-        summ[v]["segments"] = {k: len(x) for k, x in r.items()}
+        q = lambda x, p: round(float(np.percentile(x, p)), 4) if x else None
+        summ[v] = dict(speed=q(r["speed"], 80), speed_median=q(r["speed"], 50), turn=q(r["turn"], 80),
+                       turn_median=q(r["turn"], 50), fps=q(r["fps"], 50),
+                       samples=dict(speed=len(r["speed"]), turn=len(r["turn"])))
     return summ
 
 
@@ -323,8 +387,16 @@ def check_memory(run, ev):
                                        added_vs_first=sorted(set(diffs) - set(base[1])),
                                        removed_vs_first=sorted(set(base[1]) - set(diffs)))
     if base:
-        out["sites_at_first_snapshot"] = [dict(at=d["at"], n=d["n"], disk=d["disk"], live=d["live"])
-                                          for d in base[1].values()]
+        sites = []
+        for d in base[1].values():
+            at = int(d["at"], 16)
+            own = next((o for o in PATCH_OWNERS if o[0] <= at < o[1]), None)
+            sites.append(dict(at=d["at"], n=d["n"], owner=own[2] if own else "UNKNOWN", kind=own[3] if own else "UNKNOWN"))
+        out["sites_at_first_snapshot"] = sites
+        out["unknown_sites"] = [x["at"] for x in sites if x["owner"] == "UNKNOWN"]
+        kinds = {}
+        for x in sites: kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
+        out["sites_by_kind"] = kinds
     return out
 
 
@@ -352,13 +424,13 @@ def make_sheet(rows, path):
     labels = ["classic", "3D, classic camera", "third person", "first person", "classic again", "|classic - 3D|"]
     img = Image.new("RGB", (tw * 6, (th + 20) * len(rows) + 4), (20, 20, 20))
     dr = ImageDraw.Draw(img)
-    for r, (tag, paths, diff, objs, cam) in enumerate(rows):
+    for r, (tag, paths, diff, objs_a, objs_b) in enumerate(rows):
         y = r * (th + 20) + 20
         for c, p in enumerate(paths[:5]):
             im = Image.open(p).convert("RGB")
-            if c in (0, 1):   # mark where the log puts every object
+            if c in (0, 1):   # mark where the log puts every object at that frame's time
                 d = ImageDraw.Draw(im)
-                for o in objs:
+                for o in (objs_a if c == 0 else objs_b):
                     col = (255, 60, 60) if o["id"] == "player" else (60, 255, 60) if o["id"].startswith("car") else (80, 200, 255)
                     d.ellipse([o["px"] - 6, o["py"] - 6, o["px"] + 6, o["py"] + 6], outline=col, width=2)
             img.paste(im.resize((tw, th)), (c * tw, y))
@@ -372,26 +444,27 @@ def make_sheet(rows, path):
 # ---------------------------------------------------------------- report
 def verdicts(rep):
     v = []
-    for tag, f in rep["freeze"].items():
-        if not f: continue
-        ok = f["max_move"] <= 0.01 and not f["despawned"] and not f["spawned"] and (f["player_max_move"] or 0) <= 0.01
-        v.append((f"world frozen through the view cycle ({tag})", ok,
-                  f"{f['objects']} objects, {f['samples']} samples over {f['seconds']} s, {f['view_switches']} switches, "
-                  f"max move {f['max_move']} blocks, spawned {len(f['spawned'])}, despawned {len(f['despawned'])}"))
+    for sw in rep["switches"]:
+        name = f"no object jumps at the switch to {sw['to']} ({sw['moment']})"
+        v.append((name, not sw["teleports"], f"{sw['objects']} objects tracked +-3 s, largest step "
+                  f"{sw['max_step']} blocks/frame, {len(sw['teleports'])} jumps over 0.6"))
     for tag, f in rep["frames"].items():
-        if not f: continue
+        if not f or "objects" not in f: continue
         rt = f.get("classic_round_trip")
         if rt:
-            v.append((f"classic frame unchanged after classic->third->first->classic ({tag})",
-                      rt["identical_pixels"] > 0.98 and rt["pixels_over_24"] < 0.01 * 1280 * 720,
-                      f"{rt['identical_pixels'] * 100:.2f}% identical pixels, mean |diff| {rt['mean_abs']}"))
+            same_cam = rt["camera_before"] and rt["camera_after"] and max(
+                abs(x - y) for x, y in zip(rt["camera_before"], rt["camera_after"])) < 0.05
+            v.append((f"classic view one key away: camera and frame back after classic->third->first->classic ({tag})",
+                      bool(same_cam) and abs(rt["shift_px"][0]) <= 1 and abs(rt["shift_px"][1]) <= 1 and rt["terrain_over_24"] < 0.01,
+                      f"camera {rt['camera_before']} -> {rt['camera_after']}, shift {rt['shift_px']} px, terrain "
+                      f"{rt['terrain_identical'] * 100:.1f}% identical, {rt['terrain_over_24'] * 100:.2f}% differ by >24"))
         g = f["global_shift_px"]
         v.append((f"3D world registered on the classic frame ({tag})", abs(g["dx"]) <= 2 and abs(g["dy"]) <= 2,
-                  f"shift {g['dx']},{g['dy']} px"))
+                  f"shift {g['dx']},{g['dy']} px, terrain mean |diff| {f['terrain']['mean_abs']}"))
         offs = [o["off_tiles"] for o in f["objects"] if "off_tiles" in o and o.get("ncc", 0) > 0.3]
         if offs:
-            v.append((f"3D bodies on the game's sprites ({tag})", float(np.median(offs)) <= 0.15,
-                      f"{len(offs)} matched objects, median offset {np.median(offs):.3f} tiles, worst {max(offs):.3f}"))
+            v.append((f"3D bodies drawn where the game's sprites are ({tag})", float(np.median(offs)) <= 0.15,
+                      f"{len(offs)} of {len(f['objects'])} objects matched, median offset {np.median(offs):.3f} tiles, worst {max(offs):.3f}"))
     w = rep["walks"]
     base = w.get("classic") or {}
     for view in ("third", "first", "classic2"):
@@ -414,12 +487,27 @@ def verdicts(rep):
         gnd = [k for k in s if ("third" in k or "first" in k) and "error" not in s[k]]
         if cls and gnd:
             same = all(not s[k]["added_vs_first"] and not s[k]["removed_vs_first"] for k in s if "error" not in s[k])
+            v.append(("every patch in gta2.exe's code accounted for (no unknown site)", not m.get("unknown_sites"),
+                      f"{m.get('sites_by_kind')}; unknown {m.get('unknown_sites')}"))
             v.append(("gta2.exe code identical in every view", same,
                       f"{s[cls[0]]['code_patch_sites']} patched sites, same set in {len(s)} snapshots" if same else "differs, see memory"))
             vr = {k: s[k]["view_rect"] for k in s if "error" not in s[k]}
-            v.append(("game's spawn/cull window: classic as shipped", all(abs(r - 1) < 1e-3 for k in cls for r in vr[k].values()),
-                      "; ".join(f"{k}: {vr[k]}" for k in vr)))
+            # classic: the game's window widened to the frame's aspect only (spawn_offscreen=1:
+            # nothing spawns inside the margins a 16:9 frame adds); the shape stays the game's
+            widen = rep.get("frame_aspect", 16 / 9) / (4 / 3)
+            ok = all(abs(vr[k]["view_half_scale"] - widen) < 0.01 and abs(vr[k]["view_aspect"] * widen - 1) < 0.01
+                     for k in cls)
+            v.append(("game's spawn/cull window in classic: the shipped window, widened to the frame only", ok,
+                      "; ".join(f"{k}: half-width x{vr[k]['view_half_scale']}, aspect x{vr[k]['view_aspect']}" for k in cls)))
+            g = [k for k in gnd]
+            v.append(("game's spawn/cull window in the 3D views (by design, [camera] GameViewScale)", None,
+                      "; ".join(f"{k}: half-width x{vr[k]['view_half_scale']}, aspect x{vr[k]['view_aspect']}" for k in g)
+                      + ": cars and peds are created and removed over a larger, square window while a 3D view is up"))
     return v
+
+
+def status(ok):
+    return "NOTE" if ok is None else "PASS" if ok else "FAIL"
 
 
 def main():
@@ -428,25 +516,25 @@ def main():
     sheet = sys.argv[3] if len(sys.argv) > 3 else os.path.join(run, "bev_parity_sheet.png")
     ev = json.load(open(os.path.join(run, "bev_events.json")))["events"]
     lines = read_log(run)
+    tl = timeline(lines)
     tags = sorted({e["moment"] for e in ev if e["name"] == "moment_start"})
     rows = []
     rep = dict(run=os.path.basename(os.path.normpath(run)),
-               paused_with=next((e["key"] for e in ev if e["name"] == "paused"), None),
-               freeze={t: check_freeze(lines, ev, t) for t in tags},
-               frames={t: check_frames(run, lines, ev, t, rows) for t in tags},
+               switches=check_switches(lines, tl, ev),
+               frames={t: check_frames(run, lines, tl, ev, t, rows) for t in tags},
                walks=check_walks(lines, ev), memory=check_memory(run, ev), spawn=check_spawn(lines, ev),
                faults=sum(1 for _, _, t in lines if "FAULT" in t))
-    rep["verdicts"] = [dict(check=c, ok=bool(o), detail=d) for c, o, d in verdicts(rep)]
+    rep["verdicts"] = [dict(check=c, ok=o, detail=d) for c, o, d in verdicts(rep)]
     json.dump(rep, open(os.path.join(run, "bev_parity_report.json"), "w"), indent=1, default=str)
     make_sheet(rows, sheet)
     with open(md, "w") as f:
-        f.write(f"# BEV parity: {rep['run']}\n\npaused with `{rep['paused_with']}`; faults {rep['faults']}; sheet `{os.path.basename(sheet)}`\n\n")
+        f.write(f"# BEV parity: {rep['run']}\n\nfaults {rep['faults']}; sheet `{os.path.basename(sheet)}`\n\n")
         f.write("| check | result | detail |\n|---|---|---|\n")
         for r in rep["verdicts"]:
-            f.write(f"| {r['check']} | {'PASS' if r['ok'] else 'FAIL'} | {r['detail']} |\n")
-        f.write("\n```json\n" + json.dumps({k: rep[k] for k in ("walks", "spawn")}, indent=1, default=str) + "\n```\n")
+            f.write(f"| {r['check']} | {status(r['ok'])} | {r['detail']} |\n")
+        f.write("\n```json\n" + json.dumps({k: rep[k] for k in ("walks", "spawn", "switches")}, indent=1, default=str) + "\n```\n")
     for r in rep["verdicts"]:
-        print(("PASS " if r["ok"] else "FAIL ") + r["check"] + ": " + r["detail"])
+        print(status(r["ok"]), r["check"] + ": " + r["detail"])
 
 
 if __name__ == "__main__":

@@ -91,9 +91,9 @@ Style StyleFor(CabClass c, const float paint[3]) {
             set(s.trim, 0.13f, 0.13f, 0.14f);
             set(s.header, 0.62f, 0.58f, 0.52f);
             set(s.wheel, 0.08f, 0.08f, 0.09f);
-            s.wheelR = 0.040f; s.wheelRake = 25.0f * kPi / 180.0f; s.wheelTube = 0.0045f;
-            s.binnacleHalf = 0.048f; s.gauges = 2;
-            s.headerAngle = 28.5f; s.mirrorW = 0.040f; s.mirrorH = 0.012f; s.sideMirrorH = 0.014f;
+            s.wheelR = 0.019f; s.wheelRake = 25.0f * kPi / 180.0f; s.wheelTube = 0.0017f;
+            s.binnacleHalf = 0.020f; s.gauges = 2;
+            s.headerAngle = 30.0f; s.mirrorW = 0.024f; s.mirrorH = 0.0075f; s.sideMirrorH = 0.006f;
             break;
         case CabClass::Van:
             set(s.dash, 0.30f, 0.30f, 0.31f);
@@ -101,9 +101,9 @@ Style StyleFor(CabClass c, const float paint[3]) {
             set(s.trim, 0.20f, 0.20f, 0.21f);
             set(s.header, 0.55f, 0.55f, 0.53f);
             set(s.wheel, 0.10f, 0.10f, 0.11f);
-            s.wheelR = 0.044f; s.wheelRake = 38.0f * kPi / 180.0f; s.wheelTube = 0.005f;
-            s.binnacleHalf = 0.054f; s.gauges = 2;
-            s.headerAngle = 27.5f; s.mirrorW = 0.044f; s.mirrorH = 0.013f; s.sideMirrorH = 0.022f;
+            s.wheelR = 0.021f; s.wheelRake = 38.0f * kPi / 180.0f; s.wheelTube = 0.0018f;
+            s.binnacleHalf = 0.022f; s.gauges = 2;
+            s.headerAngle = 29.5f; s.mirrorW = 0.026f; s.mirrorH = 0.008f; s.sideMirrorH = 0.009f;
             break;
         case CabClass::Truck:
             set(s.dash, 0.13f, 0.12f, 0.11f);
@@ -111,9 +111,9 @@ Style StyleFor(CabClass c, const float paint[3]) {
             set(s.trim, 0.30f, 0.30f, 0.32f);
             set(s.header, 0.32f, 0.27f, 0.22f);
             set(s.wheel, 0.06f, 0.06f, 0.06f);
-            s.wheelR = 0.052f; s.wheelRake = 55.0f * kPi / 180.0f; s.wheelTube = 0.0055f;
-            s.binnacleHalf = 0.066f; s.gauges = 3;
-            s.headerAngle = 26.5f; s.mirrorW = 0.046f; s.mirrorH = 0.014f; s.sideMirrorH = 0.040f;
+            s.wheelR = 0.025f; s.wheelRake = 55.0f * kPi / 180.0f; s.wheelTube = 0.0020f;
+            s.binnacleHalf = 0.027f; s.gauges = 3;
+            s.headerAngle = 29.0f; s.mirrorW = 0.026f; s.mirrorH = 0.008f; s.sideMirrorH = 0.016f;
             break;
         case CabClass::Bus:
             set(s.dash, 0.30f, 0.34f, 0.30f);
@@ -121,9 +121,9 @@ Style StyleFor(CabClass c, const float paint[3]) {
             set(s.trim, 0.42f, 0.42f, 0.40f);
             set(s.header, 0.70f, 0.70f, 0.66f);
             set(s.wheel, 0.07f, 0.07f, 0.07f);
-            s.wheelR = 0.058f; s.wheelRake = 62.0f * kPi / 180.0f; s.wheelTube = 0.0055f;
-            s.binnacleHalf = 0.070f; s.gauges = 3;
-            s.headerAngle = 26.0f; s.mirrorW = 0.060f; s.mirrorH = 0.016f; s.sideMirrorH = 0.044f;
+            s.wheelR = 0.028f; s.wheelRake = 62.0f * kPi / 180.0f; s.wheelTube = 0.0020f;
+            s.binnacleHalf = 0.029f; s.gauges = 3;
+            s.headerAngle = 28.5f; s.mirrorW = 0.034f; s.mirrorH = 0.009f; s.sideMirrorH = 0.018f;
             break;
     }
     return s;
@@ -192,8 +192,8 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // 2. The binnacle in front of the driver: a cowl over the gauges.
     {
         const float bw = st.binnacleHalf, xa = ex - bw, xb = ex + bw;
-        const float dBack = dRear + 0.004f, dFront = dCrest + 0.006f, dNose = dc - 0.004f;
-        const float hTop = 0.019f;
+        const float dBack = dRear + 0.004f, dFront = dBack + 0.014f, dNose = dFront + 0.008f;
+        const float hTop = 0.011f;
         b.Quad(kDashDark, P(xa, dBack, hTop), P(xb, dBack, hTop), P(xb, dFront, hTop), P(xa, dFront, hTop));      // cowl top
         b.Quad(kDashDark, P(xa, dFront, hTop), P(xb, dFront, hTop), P(xb, dNose, 0.003f), P(xa, dNose, 0.003f));  // its front slope
         b.Quad(kTrim, P(xa, dBack, hTop), P(xb, dBack, hTop), P(xb, dBack + 0.001f, hTop - 0.004f), P(xa, dBack + 0.001f, hTop - 0.004f));  // the lip
@@ -202,35 +202,35 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             b.Tri(kDashDark, P(x, dFront, hTop), P(x, dNose, 0.003f), P(x, dFront, 0.0f));
         }
         // The cluster's backplate and the gauges on it, facing the eye.
-        const float dPlate = dBack + 0.012f;
-        b.Quad(kDashDark, P(xa + 0.003f, dPlate, -0.002f), P(xb - 0.003f, dPlate, -0.002f), P(xb - 0.003f, dPlate, hTop - 0.002f), P(xa + 0.003f, dPlate, hTop - 0.002f));
-        const Vec3 toEye = gta2::Normalize(b.eye - P(ex, dPlate, 0.008f));
+        const float dPlate = dBack + 0.008f;
+        b.Quad(kDashDark, P(xa + 0.001f, dPlate, -0.002f), P(xb - 0.001f, dPlate, -0.002f), P(xb - 0.001f, dPlate, hTop - 0.001f), P(xa + 0.001f, dPlate, hTop - 0.001f));
+        const Vec3 toEye = gta2::Normalize(b.eye - P(ex, dPlate, 0.006f));
         const Vec3 u = gta2::Normalize(gta2::Cross(Vec3{0.0f, 1.0f, 0.0f}, toEye));
         const Vec3 v = gta2::Normalize(gta2::Cross(toEye, u));
         const int n = st.gauges;
-        const float r = (2.0f * bw - 0.012f) / (2.0f * n) * 0.78f;
+        const float r = (std::min)(0.0036f, (2.0f * bw - 0.004f) / (2.0f * n) * 0.8f);
         const float sp = (std::min)(1.0f, std::fabs(p.speed) / 9.0f);
         for (int i = 0; i < n; ++i) {
-            const float gx = xa + 0.006f + (2.0f * bw - 0.012f) * (i + 0.5f) / n;
-            const Vec3 c = P(gx, dPlate - 0.0004f, 0.0085f);
-            b.Disc(kGaugeRim, c + toEye * 0.0002f, u, v, r * 1.12f);
-            b.Disc(kGaugeFace, c + toEye * 0.0006f, u, v, r);
+            const float gx = xa + 0.002f + (2.0f * bw - 0.004f) * (i + 0.5f) / n;
+            const Vec3 c = P(gx, dPlate - 0.0003f, 0.0062f);
+            b.Disc(kGaugeRim, c + toEye * 0.0001f, u, v, r * 1.15f);
+            b.Disc(kGaugeFace, c + toEye * 0.0003f, u, v, r);
             // Speed on the big dial (the one nearest the middle), revs on the others, fuel steady.
             const bool speedo = i == n / 2 || (n == 2 && i == 1);
             float frac = speedo ? sp : (i == 0 ? (std::min)(1.0f, 0.18f + 0.7f * sp + 0.08f * std::sin(p.speed * 3.0f)) : 0.62f);
             const float a = (225.0f - 270.0f * frac) * kPi / 180.0f;
             const Vec3 dir = u * std::cos(a) + v * std::sin(a);
-            const Vec3 base = c + toEye * 0.0010f;
+            const Vec3 base = c + toEye * 0.0005f;
             const Vec3 perp = u * -std::sin(a) + v * std::cos(a);
-            b.Tri(kNeedle, base + perp * 0.0008f, base - perp * 0.0008f, base + dir * (r * 0.85f));
+            b.Tri(kNeedle, base + perp * 0.0004f, base - perp * 0.0004f, base + dir * (r * 0.85f));
         }
     }
     // 3. The steering wheel, its rim's top just over the dash's rear edge; turned
     // with the front wheels (a few turns lock to lock).
     {
         const float R = st.wheelR, rake = st.wheelRake;
-        const float dTop = dRear - (p.cls == CabClass::Car ? 0.008f : 0.012f);
-        const Vec3 rimTop = P(ex, dTop, p.cls == CabClass::Car ? 0.010f : 0.007f);
+        const float dTop = dRear - 0.008f;
+        const Vec3 rimTop = P(ex, dTop, 0.011f);
         const Vec3 up{0.0f, std::cos(rake), -std::sin(rake)};      // in the wheel's plane, toward its top
         const Vec3 axis{0.0f, std::sin(rake), std::cos(rake)};     // its column, away from the driver
         const Vec3 across{1.0f, 0.0f, 0.0f};
@@ -242,9 +242,9 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         // Three spokes (left, right, down) to a hub.
         for (float a : {0.0f, kPi, 1.5f * kPi}) {
             const Vec3 dir = u * std::cos(a) + v * std::sin(a);
-            b.Bar(kWheel, c + dir * (0.24f * R) + axis * 0.004f, c + dir * (R - st.wheelTube), st.wheelTube * 0.6f);
+            b.Bar(kWheel, c + dir * (0.24f * R) + axis * 0.0015f, c + dir * (R - st.wheelTube), st.wheelTube * 0.6f);
         }
-        b.Disc(kTrim, c - axis * 0.002f, u, v, 0.24f * R, 12);
+        b.Disc(kTrim, c - axis * 0.0008f, u, v, 0.24f * R, 12);
     }
     // 4. The windscreen header across the top of the view and the rear-view mirror under it.
     const float tanH = std::tan(st.headerAngle * kPi / 180.0f);
@@ -258,42 +258,42 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         b.Quad(kTrim, a0, a1, a1 + Vec3{0.0f, 0.004f, 0.005f}, a0 + Vec3{0.0f, 0.004f, 0.005f});
         // The mirror: toward the middle of the car, below the header.
         const float dM = dc + 0.04f;
-        const Vec3 mc{ex * 0.30f, ey + tanH * dM * 0.62f, ez + dM};
+        const Vec3 mc{ex * 0.50f, ey + tanH * dM * 0.72f, ez + dM};
         const Vec3 toEye = gta2::Normalize(b.eye - mc);
         const Vec3 mu = gta2::Normalize(gta2::Cross(Vec3{0.0f, 1.0f, 0.0f}, toEye));
         const Vec3 mv = gta2::Normalize(gta2::Cross(toEye, mu));
         const float w = 0.5f * st.mirrorW, h = 0.5f * st.mirrorH;
         b.Quad(kTrim, mc + mu * -w + mv * -h, mc + mu * w + mv * -h, mc + mu * w + mv * h, mc + mu * -w + mv * h);
-        const float g = 0.0018f;
-        const Vec3 gc = mc + toEye * 0.0012f;
+        const float g = 0.0012f;
+        const Vec3 gc = mc + toEye * 0.0006f;
         b.Quad(kGlass, gc + mu * (g - w) + mv * (g - h), gc + mu * (w - g) + mv * (g - h), gc + mu * (w - g) + mv * (h - g), gc + mu * (g - w) + mv * (h - g));
         const Vec3 mount{mc.x, ey + tanH * (dH + 0.012f) + 0.010f, ez + dH + 0.012f};
-        b.Bar(kTrim, mc + mv * h - toEye * 0.002f, mount, 0.0018f);
+        b.Bar(kTrim, mc + mv * h - toEye * 0.001f, mount, 0.0010f);
     }
     // 5. The A-pillar on the driver's side, from the dash's corner to the header,
     // and the door mirror beyond it.
     {
         const float reach = (std::min)(std::fabs((side > 0 ? x1 : x0) - ex), 0.105f);
-        const float px = ex + side * reach, w = 0.022f;
+        const float px = ex + side * reach, w = 0.009f;
         const Vec3 f0{px, top, ez + dc}, f1{px + side * w, top, ez + dc + 0.004f};
-        const Vec3 t0{px - side * 0.004f, ey + hHeader + 0.002f, ez + dH}, t1{px + side * (w - 0.004f), ey + hHeader + 0.002f, ez + dH + 0.004f};
+        const Vec3 t0{px - side * 0.002f, ey + hHeader + 0.002f, ez + dH}, t1{px + side * (w - 0.002f), ey + hHeader + 0.002f, ez + dH + 0.004f};
         b.Quad(kTrim, f0, f1, t1, t0);
         // The door mirror: on an arm out past the pillar, its glass turned toward the eye.
         const bool tall = p.cls == CabClass::Truck || p.cls == CabClass::Bus;
         const float dSM = tall ? dc + 0.08f : dc + 0.035f;
-        const float mx = ex + side * (reach + (tall ? 0.045f : 0.030f));
-        const Vec3 mc{mx, top + (tall ? 0.022f : 0.012f), ez + dSM};
+        const float mx = ex + side * (reach + (tall ? 0.020f : 0.013f));
+        const Vec3 mc{mx, top + (tall ? 0.012f : 0.005f), ez + dSM};
         const Vec3 toEye = gta2::Normalize(b.eye - mc);
         const Vec3 mu = gta2::Normalize(gta2::Cross(Vec3{0.0f, 1.0f, 0.0f}, toEye));
         const Vec3 mv = gta2::Normalize(gta2::Cross(toEye, mu));
-        const float w2 = tall ? 0.011f : 0.013f, h2 = 0.5f * st.sideMirrorH;
+        const float w2 = tall ? 0.005f : 0.006f, h2 = 0.5f * st.sideMirrorH;
         b.Quad(kTrim, mc + mu * -w2 + mv * -h2, mc + mu * w2 + mv * -h2, mc + mu * w2 + mv * h2, mc + mu * -w2 + mv * h2);
         const Vec3 gc = mc + toEye * 0.001f;
-        const float g = 0.0016f;
+        const float g = 0.0008f;
         b.Quad(kGlass, gc + mu * (g - w2) + mv * (g - h2), gc + mu * (w2 - g) + mv * (g - h2), gc + mu * (w2 - g) + mv * (h2 - g), gc + mu * (g - w2) + mv * (h2 - g));
         const Vec3 arm0{px + side * w * 0.5f, top + 0.006f, ez + dc + 0.006f};
-        b.Bar(kTrim, arm0, mc - mv * (h2 * 0.5f), 0.0022f);
-        if (tall) b.Bar(kTrim, Vec3{arm0.x, top + 0.040f, arm0.z + 0.004f}, mc + mv * (h2 * 0.5f), 0.0018f);
+        b.Bar(kTrim, arm0, mc - mv * (h2 * 0.5f), 0.0009f);
+        if (tall) b.Bar(kTrim, Vec3{arm0.x, top + 0.024f, arm0.z + 0.003f}, mc + mv * (h2 * 0.5f), 0.0008f);
     }
 
     // To the world, and draw: one call per surface.

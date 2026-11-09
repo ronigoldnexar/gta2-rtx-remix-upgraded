@@ -34,9 +34,17 @@ JOB FAILED!) are logged and left alone.
 
 | | camera | screen | ends |
 |---|---|---|---|
-| WASTED | starts where the chase camera is, high over the body (r 1.7 -> 1.05 blocks, h 1.7 -> 0.75), craning down and in while it turns 10 deg/s round him, looking at the body | letterbox bars to 2.39:1, a drained dark-red wash and darkened edges, the game's words ("WASTED!") in red in the HUD's heavy face, a rule drawn out under it | from 3.4 s fades to black; when the game has put him back (found again > 4 blocks away: the hospital) fades in over 0.7 s on the chase camera |
+| WASTED | starts where the chase camera is, high over the body (r 1.7 -> 1.05 blocks, h 1.7 -> 0.75), craning down and in while it turns 10 deg/s round him, looking at the body | letterbox bars to 2.39:1, a drained dark-red wash and darkened edges, the game's words ("WASTED!") in red in the HUD's heavy face, a rule drawn out under it | from 1.6 s (game time) fades to black, black by 2.1 s: the game moves him about 70 frames after its message (measured on real arrests, run `qb17_beats6`). When he has been found more than 6 blocks away for 10 frames running (the hospital) it fades in over 0.7 s on the chase camera |
 | BUSTED | eye level, close (r 1.5 -> 1.0, h 0.65 -> 0.5), turning the other way: him and the officers on him | the same bars, a cold blue cast, the edges lit red/blue in turn (beacons), "BUSTED!" in blue | the same, at the police station |
 | JOB COMPLETE | swings round in front of him, low, looking a little up at him (r 1.5 -> 0.95, h 0.36), 6 deg/s | bars, a light warm cast, "JOB COMPLETE!" in yellow; the modern HUD steps two thirds aside (the money still ticks) | after 4.2 s it swings back behind him and hands over to the chase camera |
+
+The beat is anchored where he was on the frame *before* the message: on the message's own
+frame the locator can report the new body the game has already placed at the hospital or
+the station (run `qb17_beats3`: "WASTED start at 50.50,2.00,77.50", the body at 134,153),
+and the chase camera may already have jumped there; if the chase camera is more than 6
+blocks from him the beat cuts to its shot instead of sweeping across the city. The anchor's
+height is the floor the solver measured under him (a stair or a raised plaza stands above
+the game's own z), and it follows the body while it stays within 2.5 blocks.
 
 The camera is blended in polar terms about the spot where he was when the beat began: the
 angle, radius and height go from the chase camera's to the beat's, so the move swings round

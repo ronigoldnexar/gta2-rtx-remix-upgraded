@@ -1511,6 +1511,7 @@ uint32_t g_serial = 0;
 float g_yaw0 = 0.0f;       // where round him the orbit starts (polar angle about the anchor)
 float g_clearR = 1e9f;     // the radius the walls leave, eased
 float g_lastLog = -1.0f;
+bool g_cut = false;        // the chase camera was far from him at the start: cut, not blend
 
 // How far along the line from `from` to `to` is free of solid blocks (1 all of it).
 float FreeFraction(const ViewQueries& q, const gta2::Vec3& from, const gta2::Vec3& to) {
@@ -1564,7 +1565,7 @@ void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
         g_serial = 0;
         return;
     }
-    const float w = b.camera;
+    float w = b.camera;
     const Shot shot = ShotFor(b);
     const gta2::Vec3 A{b.x, b.y, b.z};
     const gta2::Vec3 T{A.x, A.y + shot.look, A.z};
@@ -1592,9 +1593,15 @@ void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
         }
         g_clearR = 1e9f;
         g_lastLog = -1.0f;
-        Log("beat cam: %s from yaw %.0f (chase at %.0f, r %.2f, h %.2f): orbit starts at %.0f, %.0f%% clear",
-            BeatName(b.kind), prefer * (180.0f / kPi), phiN * (180.0f / kPi), rn, hn, g_yaw0 * (180.0f / kPi), bestFree * 100.0f);
+        // The chase camera may already have gone to the new body the game placed at the
+        // hospital or the station (66 blocks away in qb17_beats6): no sweep across the
+        // city, the beat cuts to its shot.
+        g_cut = std::hypot(rn, hn) > 6.0f;
+        Log("beat cam: %s from yaw %.0f (chase at %.0f, r %.2f, h %.2f): orbit starts at %.0f, %.0f%% clear%s",
+            BeatName(b.kind), prefer * (180.0f / kPi), phiN * (180.0f / kPi), rn, hn, g_yaw0 * (180.0f / kPi), bestFree * 100.0f,
+            g_cut ? ", the chase camera is far: cut" : "");
     }
+    if (g_cut && b.t < 1.0f) w = 1.0f;
     if (w <= 0.001f) return;
     if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 30.0f;
     const float push = 1.0f - std::exp(-b.t / (shot.pushSecs * 0.4f));

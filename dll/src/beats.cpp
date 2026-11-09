@@ -36,7 +36,7 @@ struct Config {
     bool loaded = false;
     bool enabled = true;          // [beats] enabled
     float completeSecs = 4.2f;    // [beats] complete_ms / 1000
-    float fadeAfter = 3.4f;       // [beats] fade_after_ms / 1000: WASTED/BUSTED go to black from here
+    float fadeAfter = 1.6f;       // [beats] fade_after_ms / 1000: WASTED/BUSTED go to black from here
     float maxSecs = 12.0f;        // the longest a death/arrest beat waits for the respawn
     char sting[3][260] = {};      // [beats] sting_wasted, sting_busted, sting_complete
 };
@@ -79,7 +79,7 @@ void LoadConfig() {
     if (ini && ini[0]) {
         g_cfg.enabled = GetPrivateProfileIntA("beats", "enabled", 1, ini) != 0;
         g_cfg.completeSecs = (std::max)(1500, (std::min)(10000, static_cast<int>(GetPrivateProfileIntA("beats", "complete_ms", 4200, ini)))) / 1000.0f;
-        g_cfg.fadeAfter = (std::max)(1000, (std::min)(9000, static_cast<int>(GetPrivateProfileIntA("beats", "fade_after_ms", 3400, ini)))) / 1000.0f;
+        g_cfg.fadeAfter = (std::max)(500, (std::min)(9000, static_cast<int>(GetPrivateProfileIntA("beats", "fade_after_ms", 1600, ini)))) / 1000.0f;
         GetPrivateProfileStringA("beats", "sting_wasted", "", g_cfg.sting[0], sizeof g_cfg.sting[0], ini);
         GetPrivateProfileStringA("beats", "sting_busted", "", g_cfg.sting[1], sizeof g_cfg.sting[1], ini);
         GetPrivateProfileStringA("beats", "sting_complete", "", g_cfg.sting[2], sizeof g_cfg.sting[2], ini);
@@ -289,12 +289,14 @@ void BeatsUpdate(const PlayerState& player, bool street, float px, float py, flo
         Log("beat: %s: %s after %.1f s (moved %.1f blocks)", BeatName(b.kind), respawned ? "respawned" : "no respawn seen",
             t, moved);
     }
-    const float toBlack = Smooth(g_cfg.fadeAfter, g_cfg.fadeAfter + 0.8f, t);
+    // The game moves him about 70 frames after its message (run qb17_beats6: BUSTED at the
+    // kerb, the new body found 2.7 game seconds later), so the screen is black by then.
+    const float toBlack = Smooth(g_cfg.fadeAfter, g_cfg.fadeAfter + 0.5f, t);
     if (g_respawnAt < 0.0f) {
         b.camera = Smooth(0.0f, 0.7f, t);
         b.letterbox = Smooth(0.0f, 0.45f, t);
         b.tint = Smooth(0.0f, 0.8f, t);
-        b.title = Smooth(0.2f, 0.5f, t) * (1.0f - toBlack);
+        b.title = Smooth(0.15f, 0.4f, t) * (1.0f - toBlack);
         b.black = toBlack;
         b.hudHide = b.letterbox;
     } else {

@@ -758,3 +758,113 @@ umbrellas) — they need new Rocketbox imports, which stay out of git; no stop/s
 fidget clips (new clips in `tools/gen_ped_clips.py` mean re-importing the avatars). Untested:
 the look-at under RTX Remix (Remix down on this host), and the gunfire range doubling (the
 probe did not fire).
+
+## QB-16 (8 Nov 2026): hit reactions in real fights (shot, punched; peds and the player)
+
+Quality-bar row 16 said a shot ped "keeps walking until the game puts him down". The punch
+reaction (ACTIONS-3D-4) only fired when a figure within 0.7 block was mid-swing, so a bullet
+never moved anyone, and a reaction over a carry or an aim was cut off the next frame.
+
+**Mechanism.** `DrawPedFigures` (`dll/src/live_geometry.cpp`): every figure's health word
+(ped+0x216) is compared with last frame's. A drop with a puncher beside him is the punch
+reaction as before. A drop with nobody mid-swing is put to a shooter: each drawn figure now
+leaves its last shot frame (`muzzleFrame`: the game's own ammunition/reload words, or a
+flash beside him), its facing and its weapon in `FigureSpot`; the shooter is the figure that
+fired in the last 0.7 s within 12 blocks whose facing is within 60 degrees of the line to
+the victim (the best aligned and nearest). The bullet's direction against the victim's own
+facing picks one of four new upper-body clips (`tools/gen_ped_clips.py`, 0.6 s, one shot):
+`hit_shot_front` (thrown back at the chest, then folding over the wound, a hand to it),
+`hit_shot_back` (pitched forward, head and arms flung back), `hit_shot_l` / `hit_shot_r` (the
+struck shoulder driven back, bent away, the hand clutching it). The whole figure staggers
+along the bullet (8 cm for a pistol, 10 for a machine gun, 16 for a shotgun; out over 0.15 s,
+back over 0.6 s; the legs step it). The layer is upper body, so a running or walking man
+keeps his legs going under it. The reaction (shot or punched) is now held to its end over the
+walk, the carry and, for a bullet, the aim; a man shot as he squares up to fight (the game
+starts his swing frames the instant he is hit) takes the jolt for 0.35 s before his swing. A
+second hit restarts it. A hit that kills goes straight to the lying clip as before (a pistol
+bullet kills a pedestrian outright in GTA2; the machine gun's take 25 of a ped's health, so a
+short burst leaves him standing). Avatars from before this fall back to `hit_head`.
+`GTA2DX9_SHOT_HITS=0` turns the shot reactions off.
+
+**Log** (`GTA2DX9_LOG_PED_FRAMES=1`): `fig: shot <victim>[ (player)] by <shooter> (weapon N,
+D blocks, front|back|left|right) health a -> b`, then `ped anim: object ... action 22`. An
+unexplained drop: `fig: health ... nobody mid-swing within 0.7 or firing at him (... cause C;
+nearest shooter D blocks facing F)`. Probe aid: `GTA2DX9_LOG_NEAR_PED=1` logs the nearest
+figure to the player (`qb16: near ped d= bearing=`) three times a second, for scripts that
+turn onto someone.
+
+**Probe.** `linux/docker/qb16_hits.py` + `keys_qb16_hits.sh` (mirrored in `gamerun/`):
+pistol and machine gun pickups, then on QB-6's busy pavements it turns onto the nearest
+person, closes in and fires two 0.1 s taps (about two bullets each), with frame bursts at
+10 fps (`/out/qb16_marks.txt` holds each burst's start). `QB16_VIEW` (first) picks the view,
+`QB16_ARMY_SECS` (150) a 6-star wait for soldiers. Run:
+`STAGE=<stage> GTA2_DIRECT_KEYS=1 INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 480 keys_qb16_hits.sh -e GTA2DX9_LOG_PED_FRAMES=1 -e SCENE_KEY=F11 -e GTA2DX9_LOG_NEAR_PED=1 -e GTA2DX9_SCENE_NO_CAR=1`.
+
+**Verified (plain renderer, Downtown, runs `qb16_r3`, `r6`, `r8`, `r9`; a heavily loaded host, so
+the governor paused most runs for minutes and each produced one or two hits).** Five real shot hits
+were logged on pedestrians who survived them, all from the player's machine gun: `fig: shot ...
+(weapon 4, 0.2 blocks, front) 50 -> 25` (r3), `0.9 blocks, back` (r6), `3.2 blocks, back` (r8, first
+person, through the eye stand-in), `1.5 blocks, left` and `3.8 blocks, back` (r9); each followed by
+`action 22` on the victim in the same frame, and QB-6's `aim: hit` line agreeing on the victim and
+the health. Frames: `out/qb16_r9/qb_st2_machine_gun_0_025..048.png` (third person, the player in the
+striped shirt firing at a man in a navy shirt 1.5 blocks away: the hit marker at frame 36, his
+shoulders turning over 36-40, then the game turns him to run). In r3 the victim squared up to punch
+0.11 s after the bullet and the swing took the layer back: fixed (the 0.35 s hold above). Seen as a
+limit: at chase-camera distance the flinch reads as a short shoulder jolt, not a big one.
+**Not verified:** the player being shot. In 4.5 min at 3, 4 and 6 stars no officer or soldier hit
+him: at 3-4 stars the police punch and arrest (his punch reactions fired: `fig: hit <player> by
+<cop> (cross) 100 -> 90`, r2/r3), and the army did not reach him at the plaza (r4-r6). The code path
+is the same (the player's figure has the same health word and track), untested. A shotgun's larger
+stagger: untested. Both machine-gun hits whose log line carries the cause word (`ped+0x290`) had cause 11, so
+the lying-clip rule that reads 11 as burnt (ACTIONS-3D-3) may give a man shot dead the burnt pose:
+for QB-17 (death) to check.
+
+## Jacking a driver (9 Nov 2026, QB-14)
+
+What the game does (probe runs `qb14_before2`, `qb14_after3`, `gamerun/qb14_probe.py`, dense
+`GTA2DX9_PEDS_EVERY=2` ped lines): the jacker boards with exactly the states of an empty car (state 3:
+sub 4 the walk and reach, frames 12-19; sub 6 the climb, frames 24-35, ~1.4 s). The driver, out of
+sight in the car until then, appears beside the door about 0.6 s into the climb in state 8 sub 0x11
+(thrown, 0.5 s, sliding ~0.45 blocks off the car), lies knocked down (sub 0x19, then 0x16, ~2.3 s),
+then gets up and walks or runs off with full health. Sometimes the game lets the driver step out
+instead (state 4 sub 7, the ordinary exit) as the jacker reaches the door. Before this pass the
+jacker played `enter_car` and the thrown driver played the `hit` stagger and then the `runover`
+lying clip (sub 0x19 is in the car knock-down range), so he flew up and over as if run down.
+
+Now (`dll/src/live_geometry.cpp`, `tools/gen_ped_clips.py`):
+
+- **Telling a jack.** Every car drawn records where it is and whether its driver word (`+0x54`) is
+  set (`g_carSeats`). A ped in state 3 at the door (reach or early climb frames 16-27) with the
+  nearest car within a block having a driver is jacking (`PedTrack::jacking`), and his `enter_car`
+  layer becomes `jack_pull` (same action 5).
+- **`jack_pull`** (upper-body layer, 1.95 s): the hand to the handle (0.30), the door yanked wide with
+  the shoulders thrown round (0.50), both hands into the doorway (0.80), the grip (0.95), the haul
+  leaning back with the fists to the chest (1.20), the fling to his left (1.40), and `enter_car`'s duck
+  (1.65, 1.95). Timed by the game: held at 0.50 until the climb starts, held at 0.95 until the driver
+  is seen coming out beside him (thrown or stepping out), then real time, faster once the game moves
+  him in (frames 32+). From a run beside a moving car (`grab_door_*`) it picks up at 0.50.
+- **The driver.** A fresh track in state 8 sub 0x11 within 1.2 blocks of a ped in state 3 is the jacked
+  driver (`PedTrack::jacked`): he is turned to face the car and plays lying clip 5, `jacked` (whole
+  body, 1.0 s: still folded as if seated with the arms reaching back for the wheel, the feet swung
+  out, two stumbling steps back with the arms windmilling, over onto his back, a bounce), held lying
+  through the knock-down; its last pose is exactly `fall`'s, so getting up is `fall` played backwards
+  like any knock-down. A driver who steps out keeps `exit_car`.
+- Logged with `GTA2DX9_LOG_PED_FRAMES=1`: `jack: <ped> boarding a car with a driver`, `jack: driver
+  <ped> thrown out` / `stepping out`.
+- Avatars imported before this pass fall back to `enter_car` and `fall`. The 41 avatars were
+  re-imported (`assets/models`, not in git; manifest report updated).
+
+### Status (QB-14)
+
+Runs `qb14_after1`..`qb14_after5` (private stage: this build plus the re-imported avatars, plain
+renderer on the L4, the host at load 15-40 with governor pauses). Remix not tried (down on this host).
+
+| item | status | evidence |
+|---|---|---|
+| player jacks a stopped car, third person | verified: `jack_pull` held at t=0.95 (hands in) until the driver was thrown at climb frame 28, then 1.51 by frame 33; frames show the reach and yank, the driver hauled out arms up, stumbling back and onto his back, lying while the player ducks in | qb14_after5 `b_jack_3.mp4`, `qb14_jack_sheet.png`, log `player figure` lines |
+| AI carjackers | same path: driver thrown out next to the boarding ped, `jacked` from the throw (two in qb14_after5, one in qb14_after1) | logs |
+| getting up after `jacked` | log only (qb14_after1: the driver back to action 0 in state 1 after the knock-down); not filmed (the player drove off) | qb14_after1 log |
+| driver steps out (state 4) | the jacker's haul is released by it (code); seen once in qb14_after3, before that release was added | qb14_after3 log |
+| jacking a moving car | not filmed: traffic at the probe kerb did not come close enough in the after runs; code path is `grab_door_*` -> `jack_pull` at 0.50 | - |
+| a passenger boarding an occupied car | untested: would show the reach and the hands-in hold, then the duck (no throw seen) | - |
+| classic top-down view | untouched (figures are drawn only in the street views) | - |

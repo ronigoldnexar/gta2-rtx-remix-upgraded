@@ -1414,7 +1414,8 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
         else if (part == 10) Note(&g_portrait, texture, k, count);
     }
     // QB-17/18: during a beat its title is drawn here, in the beat's own treatment.
-    if (part == 15 && Beat().kind != BeatKind::None) return true;
+    // (Never in the classic view, which keeps the game's HUD as it draws it.)
+    if (part == 15 && Beat().kind != BeatKind::None && CurrentViewMode() != ViewMode::Classic) return true;
     if (!g_active) return false;
     switch (part) {
         case 1:    // score, lives, multiplier, weapon and ammo

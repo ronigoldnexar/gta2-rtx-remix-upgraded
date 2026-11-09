@@ -146,13 +146,13 @@ def horn_for_doctor(world, secs=150):
             s = DI.board(world, CAR0, check=check)
             continue
         o = M.objective()
-        if not DI._box_inside(s, HOSPITAL, margin=0.05) or (o and o[3] == 1):
+        if DI.box_arrow(HOSPITAL) == "up":
             # outside the 3 x 1 box (the script puts its arrow back and says 1648): in again
             say(f"horn: outside the 3 x 1 box at {s['x']:.2f},{s['y']:.2f} (arrow {o}): back in")
             DI.deliver(world, HOSPITAL, car=CAR0, check=check, view_switch=None, budget=120, tries=2,
-                       done=lambda: M.objective() is None or doctor_aboard(), label="the hospital box")
+                       done=lambda: DI.box_arrow(HOSPITAL) == "cleared" or doctor_aboard(), label="the hospital box")
         DI.keys_off()
-        if k < 6: M.horn(2)
+        if k < 20: M.horn(2)
         k += 1
         time.sleep(2.0)
     return doctor_aboard()
@@ -177,7 +177,7 @@ def run(world):
 
     # 2. deliver intact to the hospital's 3 x 1 horn box (the arrow goes when the car is in it)
     r = DI.deliver(world, HOSPITAL, car=CAR0, check=check, view_switch=view_switch, budget=420,
-                   done=lambda: M.objective() is None or doctor_aboard(), label="the hospital box")
+                   done=lambda: DI.box_arrow(HOSPITAL) == "cleared" or doctor_aboard(), label="the hospital box")
     say("hospital:", r)
     if r in ("complete", "failed", "dead"): return r
     chase_shot("hospital")
