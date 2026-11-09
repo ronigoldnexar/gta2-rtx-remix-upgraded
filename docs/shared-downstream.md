@@ -70,9 +70,19 @@ GTA2_SPEED=2 FPS=0 GTA2_DIRECT_KEYS=1 gamerun/grun.sh sd_br<N> 1200 keys_bank_ro
 | sd_br2 | BANK ROBBERY (sp v2) | final | **complete** ($20,040) | path ended early at 216.0,200.1; the skill drove the rest to the bay and resprayed |
 | sd_ccc4 | COP CAR CRUSH | creep v1 | lost (stuck) | 0.04 outside Shady's box edge, six legs in 4 s (fixed: creep into the locate box) |
 | sd_ccc5 | COP CAR CRUSH | creep v2 (creep first) | **complete** ($20,743) | the creep from the alley mouth hit the walls (-5800); reordered: drive first |
-| sd_ccc6 | COP CAR CRUSH | final | pending | paused by the load governor at start |
+| sd_ccc6 | COP CAR CRUSH | final | not counted | the rooftop phone answer failed (1113, no title): never reached these legs |
+| sd_ccc7 | COP CAR CRUSH | final | **complete** ($20,661) | Shady boarded, crane seen lifting the car |
+| sd_br3 | BANK ROBBERY (sp v2) | final | **complete** ($20,040) | officer 0.7 from the bay door: `shake_police` broke away (back), resprayed (wanted 2 -> 0) |
+| sd_ccc8 | COP CAR CRUSH | final | **complete** ($20,001) | the stand-point drive wandered to 88.1,89.2 and was stopped; the next try reached the box |
 
-Not yet shown: COP CAR CRUSH 2 of 3 on the final horn_pickup code alone (sd_ccc1/3/5 complete on
-earlier versions of the same chain); BANK ROBBERY sp v2 third session. Untested: the respray gate
-actually firing in a session (no session since had the car below 17500 near a shop).
+**Results on the final code.** BANK ROBBERY with the respray by `shake_police`: 3 of 3 (sd_br1-3);
+the guards in the same sessions are `kill_marked`'s (SKILL-KILLMARK). COP CAR CRUSH: 2 of 3 sessions
+(sd_ccc7, sd_ccc8; sd_ccc6 lost upstream in the rooftop phone step), 2 of 2 that reached these legs.
+No `FAULT` in any of the five complete sessions' logs; frames in the chase view (`m_ccc_end`,
+`m_br_end`, `m_sp_resprayed`). Earlier versions: sd_ccc1/3/5 complete, sd_ccc2/4 lost (fixed after).
+
+Untested: the respray gate firing in a session (no session since had the car under 17500 with a shop
+near); the horn-pickup changes on stops other than Shady's box (`pickups()` in other jobs use it).
+Still open, outside these legs: fires from the frozen shared driver grinding through traffic (rp3),
+the rooftop phone answer (sd_ccc6).
 
