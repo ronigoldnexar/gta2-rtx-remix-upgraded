@@ -7757,7 +7757,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // ammunition going up (a pickup) with shots fired reloads too.
                 const ReloadInfo& ri = kReloads[track.weapon];
                 bool reloading = false;
-                if (ReloadOn() && ri.mag > 0) {
+                // feel3-rocket-launcher-hidden-idle-hands-raised (FIX-FIGURE-2): no figure reload for the
+                // launcher. A magazine of one ran clip 26 after every shot; in it the tube left the hands
+                // and an arm went up empty for ~2 s (runs ff2_rk0 vs ff2_rk0n with GTA2DX9_RELOAD=0: the
+                // tube on the shoulder throughout). The first-person view model keeps its own reload.
+                if (ReloadOn() && ri.mag > 0 && track.weapon != kWpnRocket) {
                     if (!sameGun) { track.magShots = 0; track.reloadStart = 0; }
                     if (gameShot) { ++track.magShots; track.magLastShot = g_carFrame; }
                     if (sameGun && !gameShot && sprite.pedAmmo > track.lastAmmo && track.lastAmmo >= 0 && track.magShots > 0) track.magShots = ri.mag;
