@@ -2779,6 +2779,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             const float tint[3] = {keepOwnPaint ? 1.0f : b->paint.r / model->paintRgb[0],
                                    keepOwnPaint ? 1.0f : b->paint.g / model->paintRgb[1],
                                    keepOwnPaint ? 1.0f : b->paint.b / model->paintRgb[2]};
+            D3DMATERIAL9 carMaterial = material;
             {
                 const float roof = model->Height() * sy;
                 const float cy = 0.5f * b->measure.h;
@@ -2841,10 +2842,19 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             const Model* worn = dentStep > 0 && modelNumber < 72 ? DentedModelFor(*model, dentStep) : model;
             if (dentStep > 0 || fireStage >= 3) {
                 const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
-                const float tintWorn[3] = {tint[0] * dull, tint[1] * dull, tint[2] * dull};
-                ModelSetPaintTint(tintWorn);
+                if (ModelSoftPaintActive()) {
+                    // Soft paint: the wear darkens the whole body (paint, trim and glass), not only
+                    // the paint texels (two tones on a burning car otherwise).
+                    carMaterial.Diffuse = {dull, dull, dull, 1.0f};
+                    carMaterial.Ambient = {carMaterial.Ambient.r * dull, carMaterial.Ambient.g * dull, carMaterial.Ambient.b * dull, 1.0f};
+                } else {
+                    const float tintWorn[3] = {tint[0] * dull, tint[1] * dull, tint[2] * dull};
+                    ModelSetPaintTint(tintWorn);
+                }
                 if (g_damageLogged < 40) { ++g_damageLogged; Log("car bodies: object %p damage %d (fire stage %d) -> dent step %d", reinterpret_cast<const void*>(use.object), damageWord, fireStage, dentStep); }
             }
+            const bool carMaterialSet = memcmp(&carMaterial, &material, sizeof(material)) != 0;
+            if (carMaterialSet) device->SetMaterial(&carMaterial);
             const Model* drawn = worn;
             const HoodCopy* hood = nullptr;
             if (cpuCut) {
@@ -3200,6 +3210,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             g_carStats[6] += 1;
             device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
             ModelSetPaintTint(nullptr);
+            if (carMaterialSet) device->SetMaterial(&material);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
             DrawLamps(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber >= 72, feel.on ? &feel : nullptr);
             if (modelNumber < 72) {

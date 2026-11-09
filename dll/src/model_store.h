@@ -141,6 +141,12 @@ const Model* ModelForVehicle(int modelNumber, int sprite);
 // Meshes whose texture name contains "_paint" are multiplied by this factor
 // (0..2 per channel) in ModelDraw until it is cleared with null: a car's repaint.
 void ModelSetPaintTint(const float* rgb);
+// FIX-CAR-RENDER: soft car paint masks (renderer.car_paint_soft_mask, default on; never
+// under Remix): car "_paint" textures get a coverage alpha and are drawn in one pass,
+// texel * lerp(1, tint, coverage). Set before the first car texture is read.
+void ModelSetSoftPaintMasks(bool on);
+// Whether car paint is drawn soft (known once the first car texture has been read).
+bool ModelSoftPaintActive();
 // A twist of the upper body about the model's up axis at "Bip01 Spine1",
 // radians, applied to every pose drawn until it is set back to 0: the aim
 // turned off the walk. Quantise it (it keys the pose cache).

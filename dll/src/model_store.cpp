@@ -1,6 +1,7 @@
 #include "model_store.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -12,6 +13,7 @@
 
 #include "frame_log.h"
 #include "log.h"
+#include "remix_api.h"
 
 namespace gta2dx9 {
 namespace {
@@ -30,6 +32,17 @@ std::map<int, std::string> g_carBySprite;
 std::map<int, std::string> g_carByModel;   // by the game's vehicle model number
 float g_paintTint[3] = {1.0f, 1.0f, 1.0f};
 bool g_paintTintOn = false;
+// FIX-CAR-RENDER: soft car paint masks. The importer's paint split is a binary texel mask
+// (hue/saturation threshold) drawn as two alpha-tested halves; a repaint far from the
+// model's own paint then showed as two flat tones with speckled, stair-stepped borders.
+// With soft masks on, a car's "_paint" texture gets an 8-bit coverage alpha (the binary
+// mask widened by chroma similarity, then blurred) and the car is one draw of the paint
+// half: colour = texel * lerp(1, tint, coverage). The rest half is skipped. Off under
+// Remix (which keeps the alpha-tested pair) and on devices without the TEMP stage argument.
+bool g_softPaintSetting = true;
+int g_softPaintCaps = -1;                       // -1 unknown, 0 no, 1 yes
+std::unordered_set<std::string> g_softPaintTex;  // "_paint" textures given a soft mask
+std::unordered_set<std::string> g_paintRests;    // the other half of a split texture
 
 // A JSON object of "number": "name" pairs, as the cars maps are written.
 std::map<int, std::string> NumberMap(const std::string& text, const char* key) {
@@ -694,6 +707,89 @@ std::vector<std::string> Strings(const std::string& list) {
     return out;
 }
 
+// A car model texture (the image-to-3D cars are named 0NN_...).
+bool CarTextureName(const std::string& file) {
+    return file.size() > 4 && isdigit(static_cast<unsigned char>(file[0])) && isdigit(static_cast<unsigned char>(file[1])) &&
+           isdigit(static_cast<unsigned char>(file[2])) && file[3] == '_';
+}
+
+bool SoftPaintCaps(IDirect3DDevice9* device) {
+    if (g_softPaintCaps < 0) {
+        D3DCAPS9 caps = {};
+        const bool ok = SUCCEEDED(device->GetDeviceCaps(&caps)) && (caps.PrimitiveMiscCaps & D3DPMISCCAPS_TSSARGTEMP) &&
+                        (caps.TextureOpCaps & D3DTEXOPCAPS_LERP) && caps.MaxTextureBlendStages >= 3;
+        g_softPaintCaps = ok ? 1 : 0;
+        Log("models: soft car paint masks %s (setting %d, Remix %d, TEMP %d, LERP %d, stages %lu)",
+            ok && g_softPaintSetting && !RemixApiAvailable() ? "on" : "off", g_softPaintSetting ? 1 : 0, RemixApiAvailable() ? 1 : 0,
+            (caps.PrimitiveMiscCaps & D3DPMISCCAPS_TSSARGTEMP) ? 1 : 0, (caps.TextureOpCaps & D3DTEXOPCAPS_LERP) ? 1 : 0,
+            static_cast<unsigned long>(caps.MaxTextureBlendStages));
+    }
+    return g_softPaintCaps == 1;
+}
+
+inline float SmoothStep(float a, float b, float x) {
+    float t = (x - a) / (b - a);
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Rewrites the alpha of a BGRA "_paint" picture (binary paint mask) as a soft coverage:
+// the texels whose chromaticity is near the mask's own median paint chroma (or, for a
+// coloured paint, lie along the same hue direction: its pale highlights and dark
+// shadows) join it, weighted by brightness (chroma is noise in the near-black), and the
+// result is blurred twice with a 3x3 box. tools/ prototype: docs/car-3d-pipeline.md.
+void SoftenPaintMask(uint8_t* px, int w, int h) {
+    const size_t n = static_cast<size_t>(w) * h;
+    std::vector<float> cr, cg, cb, sat;
+    cr.reserve(n / 4); cg.reserve(n / 4); cb.reserve(n / 4); sat.reserve(n / 4);
+    for (size_t i = 0; i < n; ++i) {
+        const uint8_t* p = px + i * 4;
+        if (p[3] < 128) continue;
+        const float b = p[0], g = p[1], r = p[2], s = r + g + b + 1.0f;
+        const float mx = (std::max)(r, (std::max)(g, b)), mn = (std::min)(r, (std::min)(g, b));
+        cr.push_back(r / s); cg.push_back(g / s); cb.push_back(b / s);
+        sat.push_back((mx - mn) / (std::max)(mx, 1.0f));
+    }
+    if (cr.size() < 64) return;
+    auto median = [](std::vector<float>& v) { std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end()); return v[v.size() / 2]; };
+    const float ref[3] = {median(cr), median(cg), median(cb)};
+    const bool coloured = median(sat) >= 0.2f;
+    const float third = 1.0f / 3.0f;
+    const float v[3] = {ref[0] - third, ref[1] - third, ref[2] - third};
+    const float vv = (std::max)(1e-6f, v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    std::vector<float> m(n), t(n);
+    for (size_t i = 0; i < n; ++i) {
+        const uint8_t* p = px + i * 4;
+        const float b = p[0], g = p[1], r = p[2], s = r + g + b + 1.0f;
+        const float c[3] = {r / s, g / s, b / s};
+        const float mx = (std::max)(r, (std::max)(g, b));
+        const float d = std::fabs(c[0] - ref[0]) + std::fabs(c[1] - ref[1]) + std::fabs(c[2] - ref[2]);
+        float wc = 1.0f - SmoothStep(0.06f, 0.14f, d);
+        float wl;
+        if (coloured) {
+            const float k = ((c[0] - third) * v[0] + (c[1] - third) * v[1] + (c[2] - third) * v[2]) / vv;
+            const float perp = std::fabs(c[0] - third - k * v[0]) + std::fabs(c[1] - third - k * v[1]) + std::fabs(c[2] - third - k * v[2]);
+            wc = (std::max)(wc, SmoothStep(0.1f, 0.55f, k) * (1.0f - SmoothStep(0.03f, 0.07f, perp)));
+            wl = SmoothStep(25.0f, 55.0f, mx);
+        } else {
+            wl = SmoothStep(55.0f, 105.0f, mx);
+        }
+        m[i] = (std::max)(p[3] >= 128 ? 1.0f : 0.0f, wc * wl);
+    }
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const size_t row = static_cast<size_t>(y) * w;
+                t[row + x] = (m[row + (std::max)(0, x - 1)] + m[row + x] + m[row + (std::min)(w - 1, x + 1)]) * third;
+            }
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x)
+                m[static_cast<size_t>(y) * w + x] = (t[static_cast<size_t>((std::max)(0, y - 1)) * w + x] + t[static_cast<size_t>(y) * w + x] +
+                                                    t[static_cast<size_t>((std::min)(h - 1, y + 1)) * w + x]) * third;
+    }
+    for (size_t i = 0; i < n; ++i) px[i * 4 + 3] = static_cast<uint8_t>((std::min)(255.0f, m[i] * 255.0f + 0.5f));
+}
+
 IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file) {
     if (file.empty()) return nullptr;
     auto it = g_textures.find(file);
@@ -703,6 +799,11 @@ IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file)
     if ((TakePrefetched(file, &tga) || ReadAll(g_folder + "\\" + file, &tga)) && tga.size() > 18 && tga[2] == 2 && tga[16] == 32) {
         const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
         const bool topDown = (tga[17] & 0x20) != 0;
+        if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 && g_softPaintSetting && !RemixApiAvailable() &&
+            file.size() > 10 && file.compare(file.size() - 10, 10, "_paint.tga") == 0 && CarTextureName(file) && SoftPaintCaps(device)) {
+            SoftenPaintMask(&tga[18], w, h);
+            g_softPaintTex.insert(file);
+        }
         if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 &&
             SUCCEEDED(device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) {
             g_textureBytes += static_cast<size_t>(w) * h * 4;
@@ -791,7 +892,12 @@ void ModelsLoad(const char* folder) {
             continue;
         }
         ComputeBounds(&model);
-        for (const ModelMesh& mesh : model.meshes) if (mesh.texture.find("_paint") != std::string::npos) model.splitPaint = true;
+        for (const ModelMesh& mesh : model.meshes) {
+            const size_t k = mesh.texture.find("_paint");
+            if (k == std::string::npos) continue;
+            model.splitPaint = true;
+            g_paintRests.insert(mesh.texture.substr(0, k) + mesh.texture.substr(k + 6));
+        }
         g_byName[name] = g_models.size();
         g_models.push_back(std::move(model));
         const Model& m = g_models.back();
@@ -1664,6 +1770,18 @@ const PosedCache& PoseFor(const Model& model, const PoseKey& key, const std::vec
     return p;
 }
 
+namespace {
+void ResetSoftStages(IDirect3DDevice9* device) {
+    device->SetTextureStageState(1, D3DTSS_RESULTARG, D3DTA_CURRENT);
+    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+}
+}  // namespace
+
+void ModelSetSoftPaintMasks(bool on) { g_softPaintSetting = on; }
+bool ModelSoftPaintActive() { return g_softPaintSetting && g_softPaintCaps == 1 && !RemixApiAvailable(); }
+
 void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
                const ModelAnimation* animation, float time) {
     ModelDrawBlend(device, model, placement, animation, time, nullptr, 0.0f, 0.0f);
@@ -1707,6 +1825,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
     IDirect3DTexture9* bound = nullptr;
     bool first = true;
     bool streams = false;
+    bool softStages = false;
     {
         // Once per model: the placement it is first drawn with, so a model that
         // comes out the wrong size or way up can be traced to its matrix.
@@ -1723,6 +1842,22 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
         const ModelMesh& mesh = model.meshes[mi];
         if (mesh.indices.size() < 3) continue;
+        // Soft paint: the rest half of a softened split is not drawn (the paint half is the whole surface).
+        bool softPaint = false;
+        if (!g_softPaintTex.empty() && model.splitPaint) {
+            if (mesh.texture.find("_paint") != std::string::npos) {
+                TextureFor(device, mesh.texture);
+                softPaint = g_softPaintTex.count(mesh.texture) != 0;
+            } else if (g_paintRests.count(mesh.texture)) {
+                const std::string paintTex = mesh.texture.substr(0, mesh.texture.size() - 4) + "_paint.tga";
+                TextureFor(device, paintTex);
+                if (g_softPaintTex.count(paintTex)) continue;
+            }
+        }
+        if (softStages && !softPaint) {
+            ResetSoftStages(device);
+            softStages = false;
+        }
         IDirect3DTexture9* texture = TextureFor(device, mesh.texture);
         if (first || texture != bound) {
             device->SetTexture(0, texture);
@@ -1747,6 +1882,29 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             } else {
                 device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
             }
+        } else if (softPaint) {
+            // colour = lit texel * lerp(1, 2 * factor, coverage): stage 1 puts the tinted
+            // colour in TEMP, stage 2 blends CURRENT toward it by the texture's coverage
+            // alpha. Opaque (the coverage is not a cut-out).
+            const float* tn = g_paintTintOn ? g_paintTint : nullptr;
+            const DWORD t = tn ? (0xFF000000u | (static_cast<DWORD>(tn[0] * 127.5f) << 16) |
+                                  (static_cast<DWORD>(tn[1] * 127.5f) << 8) | static_cast<DWORD>(tn[2] * 127.5f))
+                               : 0xFF808080u;
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, t);
+            device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
+            device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+            device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+            device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(1, D3DTSS_RESULTARG, D3DTA_TEMP);
+            device->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_LERP);
+            device->SetTextureStageState(2, D3DTSS_COLORARG0, D3DTA_CURRENT | D3DTA_ALPHAREPLICATE);
+            device->SetTextureStageState(2, D3DTSS_COLORARG1, D3DTA_TEMP);
+            device->SetTextureStageState(2, D3DTSS_COLORARG2, D3DTA_CURRENT);
+            device->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+            device->SetTextureStageState(2, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+            device->SetTextureStageState(3, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            softStages = true;
         } else
         // A car's paint: the second stage multiplies the painted meshes by the tint.
         if (g_paintTintOn) {
@@ -1798,6 +1956,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         device->SetStreamSource(0, nullptr, 0, 0);
         device->SetIndices(nullptr);
     }
+    if (softStages) ResetSoftStages(device);
     if (g_paintTintOn || (g_zoneOn && model.pedZones)) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     QueryPerformanceCounter(&t2);
     g_modelStats[2] += ModelMs(t0, t2);

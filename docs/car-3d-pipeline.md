@@ -723,3 +723,27 @@ Still not matching: 003's cab is a Land-Rover-style van front (the sprite has a 
 one-box van than the sprite's egg; 069's box sides look red-brown with light stripes from behind rather than black; 021's
 hopper is a plain box. Not done: Remix PBR maps for these four, path-traced frames, restage (the models are in `assets/models`
 for the next `restage.sh`; `assets/models/manifest.json` vertex counts of these four entries not refreshed). Models stay out of git.
+
+## Soft paint masks (9 Nov 2026, FIX-CAR-RENDER)
+
+Defects pm2-car-body-paint-posterised-jagged-black-patches-hanging-wheel and
+pm3-third-sedan-roof-and-rear-window-torn-posterised: a car whose live paint was far from the
+model's own (a dark remap over the pale 040 Maurice, a burning car's scorch) showed two flat tones
+with single-texel stair-steps and speckle on its flanks, roof and rear window. Cause: the importer's
+`paint_split` (`tools/import_assets.py`) is a binary texel mask from a hue/saturation threshold,
+drawn as two alpha-tested halves; only the paint half took the tint, so every texel the threshold
+missed (shaded paint, pale highlights, noise) stayed in the model's own colour beside it.
+
+Renderer fix (`dll/src/model_store.cpp`, no asset change): when a car's `0NN_*_paint.tga` is read,
+its alpha becomes an 8-bit coverage: the binary mask, widened by chroma similarity to the mask's
+median paint chroma (and, for a coloured paint, by lying along the same hue direction, which takes
+in its pale highlights and dark shadows), weighted by brightness (chroma is noise near black), then
+blurred twice with a 3x3 box. The car is then one draw of the paint half (the rest half is skipped):
+stage 1 puts lit texel x 2 x factor in TEMP, stage 2 lerps from the lit texel toward it by the
+coverage, so colour = texel x lerp(1, tint, coverage), opaque. Wear and fire (`car_bodies.cpp`)
+now darken the whole body through the material instead of the paint tint alone.
+`[renderer] car_paint_soft_mask=1` (default); 0, a device without D3DTA_TEMP/LERP, or Remix keep
+the alpha-tested pair (Remix untested with soft masks, so it is never given them). The log says
+`models: soft car paint masks on|off (...)` once. Pale parts of a model's own texture that the
+widened mask still does not take (the 040 Maurice's pale lower rear) are the model's art: a repaint
+leaves them in the model's colour, now with soft borders (ASSET-VEHICLES, issue #2).
