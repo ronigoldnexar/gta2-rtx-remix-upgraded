@@ -4,7 +4,10 @@
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <set>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 namespace gta2 {
 namespace {
@@ -185,6 +188,192 @@ struct Vec3 {
     float x, y, z;
 };
 
+
+// --- QB-11: railings as models ------------------------------------------------
+//
+// A railing in GTA2 is a flat panel: one tile of iron bars and rails with the
+// gaps keyed out, hung on a block's edge. From the street that is a sheet of
+// cut-out paper, and the upscaled art made it worse - the park fence's spear
+// finials became dark blocky blobs with orange specks (quality bar row 11).
+//
+// So a tile whose cut-out is nothing but full-width horizontal rails and
+// vertical bars (with an optional finial on top of each bar) is rebuilt as
+// geometry on that panel instead: square bars, flat rails, and each finial a
+// four-sided lathe of the artwork's own outline, row by row. The shape is read
+// from the tile's alpha at mesh build, so it is the same in all three
+// districts without a table of tile numbers, and a tile that does not decompose
+// cleanly (lattices, X braces, hoardings, single poles) keeps its flat panel.
+// The geometry samples the tile's own opaque pixels, so it keeps the tile's
+// texture, its HD replacement and its Remix hash.
+struct RailingBar {
+    int x0 = 0, x1 = 0;          // columns, inclusive
+    int top = 0, bottom = 0;     // rows of the straight part, inclusive
+    // The finial's outline from its tip down to the bar: (row centre, half width), pixels.
+    std::vector<std::pair<float, float>> finial;
+};
+struct RailingShape {
+    bool valid = false;
+    std::vector<std::pair<int, int>> rails;   // rows, inclusive
+    std::vector<RailingBar> bars;
+    float barDepth = 4.0f, railDepth = 3.0f;  // pixels
+};
+
+// Douglas-Peucker on a (row, half width) outline: a spear keeps its tip, belly,
+// neck and collar and loses the staircase of single-pixel steps between them.
+void SimplifyOutline(const std::vector<std::pair<float, float>>& in, size_t a, size_t b,
+                     float tolerance, std::vector<bool>* keep) {
+    if (b <= a + 1) return;
+    float worst = -1.0f;
+    size_t at = a;
+    const float dy = in[b].first - in[a].first, dr = in[b].second - in[a].second;
+    const float len = std::sqrt(dy * dy + dr * dr);
+    for (size_t i = a + 1; i < b; ++i) {
+        const float d = len < 1e-6f ? std::fabs(in[i].second - in[a].second)
+                                    : std::fabs(dr * (in[i].first - in[a].first) - dy * (in[i].second - in[a].second)) / len;
+        if (d > worst) { worst = d; at = i; }
+    }
+    if (worst > tolerance) {
+        (*keep)[at] = true;
+        SimplifyOutline(in, a, at, tolerance, keep);
+        SimplifyOutline(in, at, b, tolerance, keep);
+    }
+}
+
+RailingShape AnalyseRailing(const Tile& tile) {
+    RailingShape shape;
+    if (!tile.hasTransparency || tile.pixels.size() < static_cast<size_t>(kTilePixels)) return shape;
+    constexpr int N = kTileSize;
+    auto solid = [&](int x, int y) { return (tile.pixels[static_cast<size_t>(y) * N + x] & 0xFF000000u) != 0; };
+    int opaque = 0;
+    bool full[N] = {};
+    for (int y = 0; y < N; ++y) {
+        int row = 0;
+        for (int x = 0; x < N; ++x) row += solid(x, y) ? 1 : 0;
+        full[y] = row >= N - 4;
+        opaque += row;
+    }
+    if (opaque > N * N * 3 / 4) return shape;
+    int railRows = 0;
+    for (int y = 0; y < N;) {
+        if (!full[y]) { ++y; continue; }
+        const int y0 = y;
+        while (y < N && full[y]) ++y;
+        if (y - y0 > 10) return shape;           // a wall or kerb, not a rail
+        shape.rails.push_back({y0, y - 1});
+        railRows += y - y0;
+    }
+    // Bar columns: a vertical run of opaque pixels well past what the rails give.
+    bool barColumn[N] = {};
+    for (int x = 0; x < N; ++x) {
+        int best = 0, run = 0;
+        for (int y = 0; y < N; ++y) { run = solid(x, y) ? run + 1 : 0; best = (std::max)(best, run); }
+        barColumn[x] = best >= (std::max)(12, railRows + 6);
+    }
+    std::vector<std::pair<int, int>> columns;
+    for (int x = 0; x < N;) {
+        if (!barColumn[x]) { ++x; continue; }
+        const int x0 = x;
+        while (x < N && barColumn[x]) ++x;
+        if (x - x0 > 8) return shape;
+        columns.push_back({x0, x - 1});
+    }
+    // The run of opaque pixels through a bar's centre on one row.
+    auto runAt = [&](int y, int centre, int* l, int* r) {
+        if (!solid(centre, y)) return false;
+        *l = *r = centre;
+        while (*l > 0 && solid(*l - 1, y)) --*l;
+        while (*r < N - 1 && solid(*r + 1, y)) ++*r;
+        return true;
+    };
+    std::vector<uint8_t> rebuilt(static_cast<size_t>(N) * N, 0);
+    for (const auto& rail : shape.rails)
+        for (int y = rail.first; y <= rail.second; ++y)
+            for (int x = 0; x < N; ++x) rebuilt[static_cast<size_t>(y) * N + x] = 1;
+    float widest = 1.0f;
+    for (const auto& column : columns) {
+        RailingBar bar;
+        bar.x0 = column.first;
+        bar.x1 = column.second;
+        const int centre = (bar.x0 + bar.x1) / 2;
+        // The bar's own width is the commonest run through its centre in the lower half.
+        int counts[N + 1] = {};
+        for (int y = N / 2; y < N; ++y) {
+            int l, r;
+            if (!full[y] && runAt(y, centre, &l, &r)) ++counts[r - l + 1];
+        }
+        int w = bar.x1 - bar.x0 + 1, most = 0;
+        for (int k = 1; k <= N; ++k) if (counts[k] > most) { most = counts[k]; w = k; }
+        if (w > 8) continue;
+        // Rows that belong to the straight bar; a rail row always does, and a
+        // one- or two-row blemish between good rows is forgiven.
+        int ok[N] = {};
+        for (int y = 0; y < N; ++y) {
+            int l, r;
+            ok[y] = full[y] || (runAt(y, centre, &l, &r) && r - l + 1 >= w - 1 && r - l + 1 <= w &&
+                                l >= bar.x0 - 1 && r <= bar.x1 + 1);
+        }
+        for (int y = 1; y < N - 1; ++y)
+            if (!ok[y] && ok[y - 1] && (ok[y + 1] || (y + 2 < N && !ok[y + 1] && ok[y + 2]))) ok[y] = 2;
+        int bestTop = 0, bestLen = 0;
+        for (int y = 0; y < N;) {
+            if (!ok[y]) { ++y; continue; }
+            const int y0 = y;
+            while (y < N && ok[y]) ++y;
+            if (y - y0 > bestLen) { bestLen = y - y0; bestTop = y0; }
+        }
+        if (bestLen < 8) continue;
+        bar.top = bestTop;
+        bar.bottom = bestTop + bestLen - 1;
+        // Above the bar: whatever outline continues through its centre is the finial.
+        std::vector<std::pair<float, float>> outline;
+        std::vector<std::array<int, 3>> spans;
+        for (int y = bar.top - 1; y >= 0; --y) {
+            int l, r;
+            if (!runAt(y, centre, &l, &r) && !(centre + 1 < N && runAt(y, centre + 1, &l, &r)) &&
+                !(centre > 0 && runAt(y, centre - 1, &l, &r)))
+                break;
+            if (r - l + 1 > 3 * w || full[y]) break;
+            outline.push_back({y + 0.5f, (r - l + 1) * 0.5f});
+            spans.push_back({y, l, r});
+        }
+        if (outline.size() >= 4) {
+            for (const auto& span : spans)
+                for (int x = span[1]; x <= span[2]; ++x) rebuilt[static_cast<size_t>(span[0]) * N + x] = 1;
+            std::reverse(outline.begin(), outline.end());   // tip first
+            std::vector<std::pair<float, float>> pts;
+            pts.push_back({outline.front().first - 0.5f, 0.0f});      // the point
+            pts.insert(pts.end(), outline.begin(), outline.end());
+            pts.push_back({static_cast<float>(bar.top), w * 0.5f});   // meets the bar
+            std::vector<bool> keep(pts.size(), false);
+            keep.front() = keep.back() = true;
+            SimplifyOutline(pts, 0, pts.size() - 1, 0.6f, &keep);
+            for (size_t i = 0; i < pts.size(); ++i) if (keep[i]) bar.finial.push_back(pts[i]);
+        }
+        for (int y = bar.top; y <= bar.bottom; ++y)
+            for (int x = bar.x0; x <= bar.x1; ++x) rebuilt[static_cast<size_t>(y) * N + x] = 1;
+        widest = (std::max)(widest, static_cast<float>(w));
+        shape.bars.push_back(std::move(bar));
+    }
+    // A railing has a row of bars; one or two are a pole, a frame or a sign's edge.
+    if (shape.bars.size() < 3) return shape;
+    int both = 0, either = 0;
+    for (int i = 0; i < N * N; ++i) {
+        const bool a = solid(i % N, i / N), b = rebuilt[static_cast<size_t>(i)] != 0;
+        both += (a && b) ? 1 : 0;
+        either += (a || b) ? 1 : 0;
+    }
+    if (either == 0 || both * 100 < either * 92) return shape;
+    shape.barDepth = widest;
+    float railHeight = 0.0f;
+    for (const auto& rail : shape.rails) railHeight = (std::max)(railHeight, static_cast<float>(rail.second - rail.first + 1));
+    shape.railDepth = (std::max)(1.5f, (std::min)(railHeight, 0.7f * widest));
+    shape.valid = true;
+    return shape;
+}
+
+bool g_railingModels = true;
+RailingStats g_railingStats;
+
 class MeshBuilder {
 public:
     // Two past the style's own tiles, for the seal and the riverbed - see
@@ -280,6 +469,9 @@ public:
                    bool panelBack = false) {
         const int tile = face.Tile();
         if (tile <= 0 || tile >= static_cast<int>(perTile_[0].size())) return;
+
+        // QB-11: a railing tile on a panel becomes bars and rails - see AnalyseRailing.
+        if ((face.IsFlat() || panelBack) && TryRailing(tile, corners, normal, uv)) return;
 
         const float push = (face.IsFlat() ? kFlatFaceOffset : 0.0f) + extraPush;
 
@@ -379,6 +571,13 @@ public:
         }
     }
 
+    // How many distinct tiles were built as railings (QB-11).
+    int RailingTiles() const {
+        std::set<int> tiles;
+        for (const auto& key : railingPanels_) tiles.insert(std::get<0>(key));
+        return static_cast<int>(tiles.size());
+    }
+
     // Opaque batches first, then the see-through ones, so a tile used both ways
     // is two draws sharing one texture.
     void Flatten(WorldMesh* out) const {
@@ -390,6 +589,154 @@ public:
     }
 
 private:
+    const RailingShape& RailingOf(int tile) {
+        if (railingShapes_.empty()) {
+            railingShapes_.resize(perTile_[0].size());
+            railingKnown_.assign(perTile_[0].size(), 0);
+        }
+        if (!railingKnown_[static_cast<size_t>(tile)]) {
+            railingKnown_[static_cast<size_t>(tile)] = 1;
+            if (tile < style_.TileCount()) railingShapes_[static_cast<size_t>(tile)] = AnalyseRailing(style_.GetTile(tile));
+        }
+        return railingShapes_[static_cast<size_t>(tile)];
+    }
+
+    // A quad with its normal measured from its corners and turned to face `outward`;
+    // the winding follows, as in AddFaceUv. Opaque: the railing samples only the
+    // tile's solid pixels, and its boxes are closed, so it is culled like a wall.
+    void AddSolidQuad(int tile, const std::array<Vec3, 4>& c, Vec3 outward, const std::array<Uv, 4>& uv) {
+        const Vec3 e1{c[1].x - c[0].x, c[1].y - c[0].y, c[1].z - c[0].z};
+        const Vec3 e2{c[2].x - c[0].x, c[2].y - c[0].y, c[2].z - c[0].z};
+        const Vec3 e3{c[3].x - c[0].x, c[3].y - c[0].y, c[3].z - c[0].z};
+        // A quad with a collapsed edge (a finial's point) still has an area in one of
+        // its two triangles; measure the normal from whichever is larger.
+        Vec3 n{e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x};
+        const Vec3 m{e2.y * e3.z - e2.z * e3.y, e2.z * e3.x - e2.x * e3.z, e2.x * e3.y - e2.y * e3.x};
+        if (m.x * m.x + m.y * m.y + m.z * m.z > n.x * n.x + n.y * n.y + n.z * n.z) n = m;
+        const float length = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+        if (length < 1e-9f) return;
+        const bool reversed = n.x * outward.x + n.y * outward.y + n.z * outward.z < 0.0f;
+        const float sign = reversed ? -1.0f : 1.0f;
+        n = {n.x * sign / length, n.y * sign / length, n.z * sign / length};
+        static const int kForward[4] = {0, 1, 2, 3};
+        static const int kReverse[4] = {0, 3, 2, 1};
+        const int* order = reversed ? kReverse : kForward;
+        std::vector<Vertex>& out = perTile_[0][static_cast<size_t>(tile)];
+        for (int i = 0; i < 4; ++i) {
+            const int k = order[i];
+            out.push_back(Vertex{c[k].x, c[k].y, c[k].z, n.x, n.y, n.z, uv[k].u, uv[k].v});
+        }
+        g_railingStats.triangles += 2;
+    }
+
+    bool TryRailing(int tile, const std::array<Vec3, 4>& c, Vec3 normal, const std::array<Uv, 4>& uv) {
+        if (!g_railingModels || std::fabs(normal.y) > 0.1f) return false;
+        const RailingShape& shape = RailingOf(tile);
+        if (!shape.valid) return false;
+        // Only a whole tile on a whole rectangle: a ramp-cropped or partial face keeps its panel.
+        for (const Uv& t : uv) {
+            const bool uEdge = std::fabs(t.u - kUvMin) < 1e-4f || std::fabs(t.u - kUvMax) < 1e-4f;
+            const bool vEdge = std::fabs(t.v - kUvMin) < 1e-4f || std::fabs(t.v - kUvMax) < 1e-4f;
+            if (!uEdge || !vEdge) return false;
+        }
+        const Vec3 fourth{c[1].x + c[3].x - c[0].x, c[1].y + c[3].y - c[0].y, c[1].z + c[3].z - c[0].z};
+        if (std::fabs(fourth.x - c[2].x) + std::fabs(fourth.y - c[2].y) + std::fabs(fourth.z - c[2].z) > 1e-3f) return false;
+        // The affine map from texture to panel, from corners 0, 1 and 3.
+        const float du1 = uv[1].u - uv[0].u, dv1 = uv[1].v - uv[0].v;
+        const float du3 = uv[3].u - uv[0].u, dv3 = uv[3].v - uv[0].v;
+        const float det = du1 * dv3 - dv1 * du3;
+        if (std::fabs(det) < 1e-6f) return false;
+        const Vec3 e1{c[1].x - c[0].x, c[1].y - c[0].y, c[1].z - c[0].z};
+        const Vec3 e3{c[3].x - c[0].x, c[3].y - c[0].y, c[3].z - c[0].z};
+        const Vec3 dU{(dv3 * e1.x - dv1 * e3.x) / det, (dv3 * e1.y - dv1 * e3.y) / det, (dv3 * e1.z - dv1 * e3.z) / det};
+        const Vec3 dV{(du1 * e3.x - du3 * e1.x) / det, (du1 * e3.y - du3 * e1.y) / det, (du1 * e3.z - du3 * e1.z) / det};
+
+        // One railing per panel: the two sides of a panel carry the same tile on one plane.
+        const float cx = (c[0].x + c[1].x + c[2].x + c[3].x) * 0.25f;
+        const float cy = (c[0].y + c[1].y + c[2].y + c[3].y) * 0.25f;
+        const float cz = (c[0].z + c[1].z + c[2].z + c[3].z) * 0.25f;
+        const auto key = std::make_tuple(tile, static_cast<int>(std::lround(cx * 256.0f)),
+                                         static_cast<int>(std::lround(cy * 256.0f)), static_cast<int>(std::lround(cz * 256.0f)));
+        ++g_railingStats.quadsReplaced;
+        if (!railingPanels_.insert(key).second) return true;
+        ++g_railingStats.panels;
+
+        const float nl = std::sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+        const Vec3 n{normal.x / nl, normal.y / nl, normal.z / nl};
+        const float step = (kUvMax - kUvMin) / kTileSize;     // texture per pixel
+        // A point given in tile pixels (x across, y down the artwork) and a depth in pixels off the plane.
+        auto at = [&](float px, float py, float pd) {
+            const float u = kUvMin + px * step - uv[0].u, v = kUvMin + py * step - uv[0].v;
+            const float d = pd / kTileSize;
+            return Vec3{c[0].x + u * dU.x + v * dV.x + n.x * d, c[0].y + u * dU.y + v * dV.y + n.y * d,
+                        c[0].z + u * dU.z + v * dV.z + n.z * d};
+        };
+        const Vec3 o = at(0.0f, 0.0f, 0.0f);
+        const Vec3 ax = at(1.0f, 0.0f, 0.0f), ay = at(0.0f, 1.0f, 0.0f);
+        const Vec3 xDir{ax.x - o.x, ax.y - o.y, ax.z - o.z}, yDir{ay.x - o.x, ay.y - o.y, ay.z - o.z};
+        const Vec3 nNeg{-n.x, -n.y, -n.z}, xNeg{-xDir.x, -xDir.y, -xDir.z}, yNeg{-yDir.x, -yDir.y, -yDir.z};
+        auto tex = [&](float px, float py) { return Uv{kUvMin + px * step, kUvMin + py * step}; };
+        // A box over pixels [x0,x1] x [y0,y1] (edges), depth +-h; its faces sample the
+        // texel rectangle [sx0,sx1] x [sy0,sy1] (centres), the sides a strip of it.
+        auto box = [&](float x0, float x1, float y0, float y1, float h, float sx0, float sx1, float sy0, float sy1,
+                       bool topCap, bool bottomCap, bool endCaps) {
+            const float mx = (sx0 + sx1) * 0.5f, my = (sy0 + sy1) * 0.5f;
+            const std::array<Uv, 4> face{{tex(sx0, sy0), tex(sx1, sy0), tex(sx1, sy1), tex(sx0, sy1)}};
+            const std::array<Uv, 4> side{{tex(mx, sy0), tex(mx, sy0), tex(mx, sy1), tex(mx, sy1)}};
+            const std::array<Uv, 4> cap{{tex(sx0, my), tex(sx1, my), tex(sx1, my), tex(sx0, my)}};
+            AddSolidQuad(tile, {{at(x0, y0, h), at(x1, y0, h), at(x1, y1, h), at(x0, y1, h)}}, n, face);
+            AddSolidQuad(tile, {{at(x0, y0, -h), at(x1, y0, -h), at(x1, y1, -h), at(x0, y1, -h)}}, nNeg, face);
+            if (endCaps) {
+                AddSolidQuad(tile, {{at(x0, y0, -h), at(x0, y0, h), at(x0, y1, h), at(x0, y1, -h)}}, xNeg, side);
+                AddSolidQuad(tile, {{at(x1, y0, -h), at(x1, y0, h), at(x1, y1, h), at(x1, y1, -h)}}, xDir, side);
+            }
+            if (topCap) AddSolidQuad(tile, {{at(x0, y0, -h), at(x1, y0, -h), at(x1, y0, h), at(x0, y0, h)}}, yNeg, cap);
+            if (bottomCap) AddSolidQuad(tile, {{at(x0, y1, -h), at(x1, y1, -h), at(x1, y1, h), at(x0, y1, h)}}, yDir, cap);
+        };
+        constexpr float kLast = static_cast<float>(kTileSize);
+        for (const auto& rail : shape.rails) {
+            const float y0 = static_cast<float>(rail.first), y1 = static_cast<float>(rail.second + 1);
+            box(0.0f, kLast, y0, y1, shape.railDepth * 0.5f, 0.5f, kLast - 0.5f, y0 + 0.5f, y1 - 0.5f, true, true, true);
+        }
+        for (const RailingBar& bar : shape.bars) {
+            const float x0 = static_cast<float>(bar.x0), x1 = static_cast<float>(bar.x1 + 1);
+            const float y0 = static_cast<float>(bar.top), y1 = static_cast<float>(bar.bottom + 1);
+            const float h = (std::min)(shape.barDepth, x1 - x0) * 0.5f;
+            const float sx0 = x0 + 0.5f, sx1 = (std::max)(x0 + 0.5f, x1 - 0.5f);
+            // A cap only where the bar's end shows: not under a finial, not at the tile's
+            // edge (the bar carries on into the panel above or meets the ground), not
+            // buried in a rail.
+            auto inRail = [&](int row) {
+                for (const auto& rail : shape.rails) if (row >= rail.first && row <= rail.second) return true;
+                return false;
+            };
+            box(x0, x1, y0, y1, h, sx0, sx1, y0 + 0.5f, y1 - 0.5f, bar.finial.empty() && bar.top > 0 && !inRail(bar.top),
+                bar.bottom < kTileSize - 1 && !inRail(bar.bottom), true);
+            if (bar.finial.size() < 2) continue;
+            // The finial: a square lathe of the outline, its point at the top. It samples
+            // a band of the bar's own iron rather than its pixels, which on the upscaled
+            // art are the blobs and specks this replaces.
+            const float mid = (x0 + x1) * 0.5f;
+            const float band0 = y0 + 0.5f, band1 = (std::min)(y1 - 0.5f, y0 + 6.5f);
+            for (size_t i = 0; i + 1 < bar.finial.size(); ++i) {
+                const float ya = bar.finial[i].first, ra = bar.finial[i].second;
+                const float yb = bar.finial[i + 1].first, rb = bar.finial[i + 1].second;
+                const float va = band0 + (band1 - band0) * static_cast<float>(i) / (bar.finial.size() - 1);
+                const float vb = band0 + (band1 - band0) * static_cast<float>(i + 1) / (bar.finial.size() - 1);
+                const std::array<Uv, 4> t{{tex(sx0, va), tex(sx1, va), tex(sx1, vb), tex(sx0, vb)}};
+                AddSolidQuad(tile, {{at(mid - ra, ya, ra), at(mid + ra, ya, ra), at(mid + rb, yb, rb), at(mid - rb, yb, rb)}}, n, t);
+                AddSolidQuad(tile, {{at(mid - ra, ya, -ra), at(mid + ra, ya, -ra), at(mid + rb, yb, -rb), at(mid - rb, yb, -rb)}}, nNeg, t);
+                AddSolidQuad(tile, {{at(mid - ra, ya, -ra), at(mid - ra, ya, ra), at(mid - rb, yb, rb), at(mid - rb, yb, -rb)}}, xNeg, t);
+                AddSolidQuad(tile, {{at(mid + ra, ya, -ra), at(mid + ra, ya, ra), at(mid + rb, yb, rb), at(mid + rb, yb, -rb)}}, xDir, t);
+            }
+        }
+        return true;
+    }
+
+    std::vector<RailingShape> railingShapes_;
+    std::vector<uint8_t> railingKnown_;
+    std::set<std::tuple<int, int, int, int>> railingPanels_;
+
     // Whether the game lets this quad's colour key through. It does only for a
     // flat face - each face routine ORs 0x80 into the draw flags when the face
     // word has 0x1000 (gta2.exe!FUN_0046c2c0 and its siblings, the lid in
@@ -1243,6 +1590,10 @@ void SetRiverbedDepth(float blocks) {
 }
 float RiverbedDepth() { return g_riverbedDepth; }
 
+void SetRailingModels(bool on) { g_railingModels = on; }
+bool RailingModels() { return g_railingModels; }
+RailingStats LastRailingStats() { return g_railingStats; }
+
 void SetWorldSeal(bool on) { g_seal = on; }
 bool WorldSeal() { return g_seal; }
 
@@ -1258,6 +1609,8 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     std::array<SlopeInfo, kSlopeTypeCount> resolved;
     ResolveSlopeTable(slopes, resolved.data());
 
+    g_railingStats = RailingStats{};
+    if (const char* e = std::getenv("GTA2DX9_RAILINGS")) g_railingModels = e[0] != '0';
     MeshBuilder builder(style);
     for (int y = 0; y < kMapHeight; ++y) {
         for (int x = 0; x < kMapWidth; ++x) {
@@ -1286,6 +1639,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                             {0.0f, 1.0f, 0.0f});
     }
     builder.Flatten(out);
+    g_railingStats.tiles = builder.RailingTiles();
 }
 
 }  // namespace gta2

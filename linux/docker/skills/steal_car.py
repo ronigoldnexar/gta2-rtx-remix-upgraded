@@ -262,7 +262,11 @@ def follow(c0, ids, drive, budget=90.0):
 
 def get_carrier(budget=90):
     STATS["carriers"] += 1
+    s0 = D.wait_state()
     s = M.any_car2(WORLD[0], budget=budget)
+    if s and not s["driving"] and s0 and s0["parked"] and s0["pd"] < 30:
+        # sos4/sos5: the same unreachable parked car at 243.5,185.5 took two minutes each time
+        M.BAD_CARS.append((s0["px"], s0["py"])); say(f"steal_car: the parked car at {s0['px']:.1f},{s0['py']:.1f} not entered; not again")
     return s
 
 def rel(c, s):
@@ -301,6 +305,26 @@ def intercept(c, ids, drive):
         return (2.0 < a2 < 25.0 and abs(l2) < 3.0) or (c2["v"] < STAND_V and d2 < 10.0)
     return drive(WORLD[0], cell[0], cell[1], tol=3.0, budget=25, until=stop_when)
 
+def clear_nose(s):
+    """after an ambush the stolen car stands nose to nose with the abandoned carrier (sos4: the
+    job's driver then pushed it for 90 s, 32000 -> 23000 carhp): back off a car length first,
+    straight, when nothing stands behind"""
+    hx, hy = M.heading(s)
+    ahead = []
+    for c in M.cars():
+        if c["driver"] == "P": continue
+        dx, dy = c["x"] - s["x"], c["y"] - s["y"]
+        f = dx * hx + dy * hy; l = -dx * hy + dy * hx
+        if 0.0 < f < 2.8 and abs(l) < 1.4: ahead.append((f, l))
+        if -3.0 < f < 0.0 and abs(l) < 1.3: return s          # boxed: leave it to the driver
+    if not ahead: return s
+    f, l = min(ahead)
+    say(f"steal_car: a car {f:.1f} ahead of the nose ({l:+.1f} aside): backing off straight")
+    for _ in range(3):
+        hold("Down", 0.35); time.sleep(0.3)
+    hold("space", 0.3)
+    return D.wait_state()
+
 # ---------------------------------------------------------------- the skill
 
 def ring_points(world, x, y, r=22):
@@ -332,7 +356,7 @@ def steal_car(world, models, search=None, budget=900, drive=None, check=None, vi
         if not s: return None
         if in_model(s, ids):
             M.mark(f"steal_car: in a {model_name(s['cmodel'])} at {s['x']:.1f},{s['y']:.1f} after {time.time() - t0:.0f}s {STATS}")
-            return s
+            return clear_nose(s)
         cand = targets(ids, s)
         if cand:
             d, c = cand[0]

@@ -693,10 +693,11 @@ drive.
 | dl_zz4 | same | stuck (doctor never boarded) | The car was in the box with the arrow cleared, then rolled out after a 0.3 s handbrake tap. The skill was still in its 45 s park wait, so the horn came too late. Its 2-block `drive3` back to the approach point then re-planned itself 50 blocks away from 53.1,177.9. Fixed: the creep returns only once the car has stopped inside (handbrake 0.7 s, brake tap, position checked again); within 6 blocks of the box, on its open side, it creeps directly and skips `drive3`; `park_wait=0` for a box that is not a park. |
 | dl_zz5 | + those fixes | stuck (ran out of time 8 blocks from the garage) | The hospital part was clean: in the box in 26 s of creep, doctor aboard 6 s later. The garage leg spent its whole 420 s budget in one `drive3` call on the 130-block route, in traffic, with 13 hits. Fixed: one `drive3` call is capped at 240 s (`DRIVE_CALL`) and the leg then re-plans; the garage leg gets 800 s and 8 tries. |
 | **dl_zz6** | + `DRIVE_CALL` (latest code) | **JOB COMPLETE** (900 s; +$20,000) | The first drive to the hospital was pushed 30 blocks west by traffic and stopped at the 420 s leg budget. The horn step's re-delivery drove back (two calls). Creep, "the game has it" in 12 s, doctor aboard 6 s later. Garage in 96 s (carhp 24785), park, 1124. |
+| **dl_zz7** | same (confirmation) | **JOB COMPLETE** (858 s; +$20,000) | Hospital box from the east (creep 25 s, carhp 28697), doctor aboard 6 s later. Garage in 218 s (carhp 23535), park, 1124. |
 
 **Result: the first three sessions reached JOB COMPLETE 2 of 3 times (dl_zz1, dl_zz3). Over all six
-sessions it is 3 of 6 (dl_zz1, dl_zz3, dl_zz6).** Each failure found a defect in the skill, fixed
-before the next session. dl_zz6 is the latest code; the confirmation session on it is listed below. The frames are in the chase view:
+sessions it is 4 of 7 (dl_zz1, dl_zz3, dl_zz6, dl_zz7), and 2 of 2 on the latest code (dl_zz6,
+dl_zz7).** Each failure found a defect in the skill, fixed before the next session. The frames are in the chase view:
 `out/dl_zz3/m_zz_hospital.png` and `out/dl_zz6/m_zz_*.png`, `m_zz_doctor.png` (the Miura in the forecourt, brief "Bring Doctor
 ZitZaki directly to the new J-Lab") and `m_zz_garage.png` (JOB COMPLETE at the garage door). dl_zz1 has
 the same names. The frames are not in git.
@@ -761,10 +762,27 @@ phone dais was used in km2 and km5).
 | km3 | **both down** in 9 game-s | failed | respray rolled in (wanted 2 -> 0, carhp 32000); on the 197-block safehouse drive the GRAHAM was pinned at 96.3,202.1 and took 6 000 in 4 s, burned and was wrecked |
 | km4 | **both down** in 26 game-s | failed | getaway west then south: pressed in a jam at 181.3,206.0 with an officer 1.6 blocks off, pulled out and arrested (as br10 at 178.4,208.2) |
 | km5 | **both down** in 9 game-s (6 s wall) | failed | back in the car 5 s after the last guard; pulled out 0.3 s after boarding by a passer-by (1666) as the two stars came, then arrested |
+| km6 | **both down** in 9 game-s | failed | east getaway, but leg 1 was skipped by a wrong test and the drive came along row 216; the Up-held roll-in could not turn into the one-cell bay, swung into the BOMB bay at 202 (money 5040 -> 41: a car bomb, no respray, wanted still 2) and the turn's reverse pulses backed him into an officer (1666, arrest) |
+| km7 | - | no job | the job runner's phone step: after the reported warp onto the dais the phone said 1093 (refused); not counted |
+| km8 | **both down** in 9 game-s | failed | ran with KILLMARK-GETAWAY's getaway rework of the glue (lane launch, bay lane-in); out of the car on the second respray try at 197.7,213.5, then 1125 |
 
 Frames (chase view): `out/km1/m_km_bank_engage.png`, `out/km*/m_km_bank_first_down.png` (the first
 guard falling), `out/km*/m_br_guards.png` (both guards down on the walk, the player standing over
 them); marks and the skill's lines (`kill_marked: ...`) in `out/km*/marks.txt` and `keys.log`.
+
+### Status after part 11
+
+- **The skill: 7 of 7 sessions with both marked guards down** (km1-km6, km8), 6-32 s after leaving the
+  car, 25-40 rounds, wanted level 0 at the last kill (the two stars come from the script afterwards),
+  Hiroshi never hit, every fight frame in the chase view.
+- **The job: 0 of 7 JOB COMPLETE.** Every loss came after the skill returned: the two-star getaway to
+  the respray (pull-outs at the car, at the tunnel and in jams; a wrong bay; a wrecked car on the
+  safehouse drive). The old runner had 2 of 4 on the same getaway. The acceptance criterion (2 of 3 to
+  JOB COMPLETE) is **not met**. The getaway in `bank_robbery_km.py` is now KILLMARK-GETAWAY's (kmg*
+  sessions); the wanted-level side belongs to SKILL-POLICE (`skills/shake_police.py`).
+- For other jobs: `kill_marked(world, select=..., spare=...)` with no other arguments covers street-level
+  targets. Pass `approach`/`level` for targets on a terrace, `count` for a counter step, and `check`
+  for the job's own failure test.
 
 ## Wave M, SKILL-ROOFTOP (9 Nov 2026): rooftop access on foot, `skills/rooftop_access.py`
 

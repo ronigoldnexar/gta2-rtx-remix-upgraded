@@ -65,12 +65,16 @@ def shots(prefix, n=3, gap=0.6):
 def to_phone(entry):
     s = D.wait_state()
     if os.environ.get("CB_WARP_PHONE", "0") == "1" and math.hypot(PHONE[0] - s["x"], PHONE[1] - s["y"]) > 30:
-        # the phone is fenced and approached from the south (the shared runner's waypoints
-        # 18.5,100 -> 18.5,78): the warp puts him on the street there
-        near = M.street_cell_near(world, 18.5, 82.0, radius=8)
+        # cb2: warped to 15.5,85.5, answer()'s waypoints (18.5,100 then 18.5,78) walked him back
+        # south and the walker stuck at 5,114 for minutes. 18.5,78 has no floor at level 1
+        # (rows 77-78, x 13-21); the field from row 70 to 76 at x 18 is open: warp there and
+        # walk the last 4 blocks from the south (the neighbour phone 18.5,67.5 is north)
+        wx, wy = 18.5, 72.5
+        P.APPROACH[(entry["x"], entry["y"])] = [(wx, wy)]
+        near = (wx, wy, 1)
         if near:
             P.set_view("classic")        # the scene key acts in the classic view (sink_or_swim.py does the same)
-            M.scene_warp(near[0], near[1], near[2], "CB_WARP_PHONE: the street south of the Rednecks' phone; the job starts at the phone")
+            M.scene_warp(near[0], near[1], near[2], "CB_WARP_PHONE: the field 4 blocks south of the Rednecks' phone; the job starts at the phone")
             P.set_view("third")
             RESULT["events"].append(f"phone warp to {near}")
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))

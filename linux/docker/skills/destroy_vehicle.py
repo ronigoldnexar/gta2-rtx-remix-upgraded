@@ -47,6 +47,10 @@ say, tap, hold, xdo = D.say, D.tap, D.hold, D.xdo
 
 EVENTS = []          # (wall time, text) for the runner's summary
 BURN_HP = 16000      # mission_lib.CAR_HP_FIRE: the game sets a car alight at damage 16000
+BLAST_HP = 4000      # under this a burning target is near its explosion: keep `blast` blocks off.
+                     # dv_pc4 backed off at 16000 already and its rounds from 4.5-5.6 blocks did
+                     # ~1000 hp per 100 rounds against 16000 in 10 s from 3-4 blocks
+BURN_WATCH = 6.0     # out of rounds with the target alight and standing: watch it burn from here
 
 
 def ev(text):
@@ -238,7 +242,10 @@ def destroy(world, select=None, models=None, count=1, check=None, secs=600, enga
                 no_target_since = None
             elif arrows:
                 _, tx, ty = min(arrows, key=lambda a: math.hypot(a[1] - s["x"], a[2] - s["y"]))
-                ux, uy, vs = 0.0, 0.0, 0.0
+                # its motion from the arrow samples (dv_pc4: a van standing 30 blocks off, out of the
+                # cars window, was taken for a moving one and waited for at the ambush spot)
+                tr.add([dict(id="arrow", x=tx, y=ty, hp=0)])
+                ux, uy, vs = tr.motion("arrow", span=3.0)
                 no_target_since = None
             else:
                 release()
@@ -271,14 +278,22 @@ def destroy(world, select=None, models=None, count=1, check=None, secs=600, enga
                 if d < leave_at or (stand and math.hypot(stand[0] - s["x"], stand[1] - s["y"]) < 5):
                     hold("Down", 0.4); s = M.leave_car(); ev(f"out of the car {d:.0f} blocks from the target")
                     M.ensure_view("classic"); M.select_gun(); continue
-                goal = stand if (stand and vs > 0.8) else (tx, ty)
+                goal = stand if (stand and vs > 1.5) else (tx, ty)
                 if view_switch: view_switch(s)
                 drive_toward(world, goal[0], goal[1], tol=3.0, budget=30, view_switch=view_switch)
                 continue
 
             # ---- on foot: a gun in the hand
             if not M.gun_ready(ms) and not M.select_gun():
-                release(); ev("no rounds: to a gun pickup")
+                release()
+                if burning and vs < 0.5:
+                    # dv_pc4: out of rounds with the van alight at 12136 and standing; a burning car
+                    # loses about 50 hp a game second by itself: watch it burn out from a safe
+                    # distance instead of walking off to a pickup (that run ended at the pickup)
+                    if d < BURN_WATCH: back_off(s, tx, ty, BURN_WATCH + 1.0)
+                    else: time.sleep(0.5)
+                    continue
+                ev("no rounds: to a gun pickup")
                 M.fetch_gun(world, budget=240)
                 if not M.gun_ready():
                     if ram and models is None:
@@ -292,7 +307,10 @@ def destroy(world, select=None, models=None, count=1, check=None, secs=600, enga
             # ---- far: a moving target that loops is waited for beside its track; else go to it
             if d > engage + 2:
                 release()
-                if vs > 0.8 or (tgt is None and arrows):
+                # waited for only when it is faster than a walk can catch (1.5 blocks per game
+                # second) and still far; a slow or standing car is walked (or driven) at
+                fast = vs > 1.5 and d > 20
+                if fast:
                     if ambush is None or (t_spot and time.time() - t_spot > 150 / D.SPEED):
                         sl = M.objective_slot()
                         trk = M.arrow_track(log_off, sl, 3) if sl is not None else []
@@ -300,7 +318,7 @@ def destroy(world, select=None, models=None, count=1, check=None, secs=600, enga
                         if ap:
                             ambush = ap; stand = M.stand_point(world, ap); t_spot = time.time()
                             ev(f"waiting spot {stand[0]:.1f},{stand[1]:.1f} beside its track ({len(trk)} samples)")
-                if stand and (vs > 0.8 or tgt is None):
+                if stand and fast:
                     ds = math.hypot(stand[0] - s["x"], stand[1] - s["y"])
                     if ds > 40: drive_toward(world, stand[0], stand[1], tol=3.0, budget=40, view_switch=view_switch); continue
                     if ds > 1.2: M.walk3(world, stand[0], stand[1], None, tol=0.8, budget=min(60, 8 + ds * 1.5)); continue
@@ -313,7 +331,7 @@ def destroy(world, select=None, models=None, count=1, check=None, secs=600, enga
             shot_once("engage")
             if vs > 0.8 and along > 0 and d < 4.5 and lat < 1.3:
                 xdo("keyup", "Control_L"); side_step(s, ux, uy, tx, ty); continue      # it comes at us
-            if burning and d < blast:
+            if burning and thp < BLAST_HP and d < blast:
                 xdo("keyup", "Control_L"); back_off(s, tx, ty, blast + 1.0); continue   # clear of its blast
             lead = min(1.2, 0.35 * vs)
             ax, ay = tx + ux * lead, ty + uy * lead

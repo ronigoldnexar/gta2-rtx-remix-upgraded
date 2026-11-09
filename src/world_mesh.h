@@ -162,6 +162,22 @@ constexpr int kRiverbedPad = 1;
 void SetRiverbedDepth(float blocks);
 float RiverbedDepth();
 
+// QB-11: railings as models. A railing tile on a panel (a cut-out of full-width
+// rails and a row of vertical bars, with or without finials, read from the tile's
+// own alpha) is built as square bars, flat rails and lathed finials on the
+// panel's plane instead of the flat alpha-tested quad. On by default;
+// GTA2DX9_RAILINGS=0 in the environment (read at each build) gives the flat panels
+// back. Read when the mesh is built, so a change wants a level reload.
+struct RailingStats {
+    int tiles = 0;          // distinct tiles built as railings
+    int panels = 0;         // panels built (one per plane, both sides)
+    int quadsReplaced = 0;  // flat quads not emitted (a panel's two sides)
+    int triangles = 0;      // triangles the railings added
+};
+void SetRailingModels(bool on);
+bool RailingModels();
+RailingStats LastRailingStats();
+
 // slopes may be null, in which case the ramp geometry is derived instead.
 void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                     const PartialCuts& cuts, WorldMesh* out);

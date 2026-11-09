@@ -70,7 +70,7 @@ void WeatherAdjustShading(WorldShading* s, float blend) {
     // the banks drift (a slow noise over the map, ~40 blocks across).
     const float drift = static_cast<float>(g_now.seconds * 0.02);
     const float bank = Noise2(g_eye.x / 40.0f + drift * g_now.windDir[0], g_eye.z / 40.0f + drift * g_now.windDir[1]);
-    g_fogHere = Clamp01(g_now.fog * (0.45f + 0.9f * bank));
+    g_fogHere = Clamp01(g_now.fog * (0.70f + 0.60f * bank));
     g_overcast = Clamp01(std::max(g_now.cloud, std::max(g_now.rain * 0.9f, g_fogHere * 0.6f)));
     const float oc = g_overcast, rain = g_now.rain, fog = g_fogHere;
 
@@ -80,8 +80,10 @@ void WeatherAdjustShading(WorldShading* s, float blend) {
     s->fogColour = FogTint(s->fogColour);
     // The haze pulled in: a fog bank leaves a few blocks of street, rain a few dozen.
     float start = s->fogStart, end = s->fogEnd;
-    start = start + (1.5f - start) * fog;
-    end = end + (16.0f - end) * fog;
+    // Eased so that a moderate fog already closes the view in (fog 0.5 -> end ~40 blocks).
+    const float fe = 1.0f - (1.0f - fog) * (1.0f - fog);
+    start = start + (1.0f - start) * fe;
+    end = end + (12.0f - end) * fe;
     start *= 1.0f - 0.5f * rain;
     end = end + (std::max(start + 6.0f, end * 0.55f) - end) * rain;
     s->fogStart = start;

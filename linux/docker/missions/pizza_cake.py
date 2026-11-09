@@ -171,7 +171,7 @@ def run(world):
     if not M.gun_ready(ms) and not M.select_gun():
         M.fetch_gun(world, budget=300)
     M.mark("destroy the van (skill destroy_vehicle)")
-    r = DV.destroy(world, count=1, check=check, secs=900, shot_prefix="pc_van", money0=MONEY0[0])
+    r = DV.destroy(world, count=1, check=check, secs=1200, shot_prefix="pc_van", money0=MONEY0[0])
     say("destroy:", r)
     o, ms = wait_outcome(20)
     return o if o != "running" else r
