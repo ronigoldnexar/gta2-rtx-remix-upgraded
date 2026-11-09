@@ -455,3 +455,64 @@ with a tan roof over green flanks, as the old model did); 003 Pacifier still rea
 Sheets: `out/carera/fleet_before.png`, `out/carera/fleet_after.png` (all 60 generated models, 3/4 front, offline
 render), `out/carera/car_era_sheet.png` (per model: sprite | shipped before | round 8 3/4 and side | in-game
 traffic crop), frames in `out/carera/after1/`, `out/carera/after2/`.
+
+## Round 9: identity against the sprite (9 Nov 2026, ASSET-VEHICLES)
+
+Goal: each model reads as a street-level interpretation of *that* GTA2 vehicle (silhouette, proportions,
+distinctive features, livery from its top-down sprite), not a generic car of the era. Method: an identity sheet
+of all 60 generated models beside their sprites (`tools/vehicle_identity_sheet.py`: sprite in the default paint
+and one remap | top view at the sprite's orientation, nose-down | 3/4 front | side; `out/asset_vehicles/
+identity_before.png`), judged by eye. Seven models were furthest from their sprite:
+
+| Model | Sprite shows | Shipped (round 5/6) | Round 9 brief -> pick | Total |
+|---|---|---|---|---|
+| 003 Pacifier | boxy olive armoured car, two hatch rings, rear stacks | modern MRAP with remote turret | 1956 Alvis Saracen-style armoured car -> `r9B93` | 0.871 |
+| 004 G4 Bank Van | blue armoured box, white roof, two round roof discs | navy streamlined 1930s van | 1950s Brinks-style armoured van, white roof -> `r9C91` | 0.916 |
+| 005 Beamer | rounded fastback body, big oval dark glasshouse, fender bulges | boxy 1960s BMW 2002 | 1957 BMW 507 hardtop / 503 -> `r9C91` | 0.875 |
+| 019 GT-A1 | low mid-engined racer: stripes, roof disc, rear louvres | Jaguar E-type (front-engined) | 1965-66 Ford GT40 with white stripes -> `r9A93` | 0.926 |
+| 022 Armed Land Roamer | jeep, white star on the bonnet, dark rear | Willys jeep without star | WW2 Willys with star and gun -> `r9B91` | 0.830 |
+| 052 SWAT Van | white/grey body, dark blue stripes, light bars | plain light-blue box truck | 1960s police armoured truck, white over navy, light bar -> `r9A93_s2` | 0.818 |
+| 071 Rumbler | muscle car with twin white stripes nose to tail | brown Charger, no stripes | 1969 Road Runner with twin stripes -> `r9C93` | 0.913 |
+
+Pipeline as round 8 with `r9` copies (in `gen3d/`, outside git; copies of the three scripts in
+`out/asset_vehicles/`): `concepts_r9.py --models 3,19,22,71,4,52,5 --seeds 3 --seed0 91` (3 wordings x 3 seeds,
+63 SDXL tries, `concept/r9try/`), `r9_jobs.py picks.json jobs.json --seed2` + `run_trellis.py --jobs` (25
+candidates), `fit_r9.py` (round-6 fit, nose check, scorer; `models3d_r9/fit|proof`, `r9_status.json`), picks by
+eye from `out/asset_vehicles/cand_NNN.png` (sprite | shipped | each candidate from top, 3/4, side, 3/4 rear).
+Everything on the generation GPU under `flock /tmp/gta2-gen.lock`. Old GLBs in `models3d_r9/old_shipped/`,
+picks in `models3d_r9/chosen/` and over `models3d/`. Import: a 7-entry manifest (`assets-src/manifest_r9.json`)
+imported into a temp dir and copied into `assets/models` with `cp --remove-destination` (the files had 31 hard
+links into stages); only the seven `imported` report entries of `assets/models/manifest.json` change (vertex
+counts). `paint_rgb` is measured from the sprite, so the car entries are unchanged.
+
+Rejected on sight: 003 `r9B91` (open-topped, rear tub reads as a pickup), `r9B93_s2` (tilted, black rear); 019
+`r9A91`/`_s2`/`r9C91` (dark red, roof disc lost); 022 `r9C91` (RAF roundel instead of the star), `r9C92` (gun
+breaks into spikes); 052 `r9B93` (VW bus body doubled), `r9C93` (Land Rover, too small for the 40x83 px box); 071
+`r9A93`/`_s2` (dark, stripes only on the bonnet); 004 `r9C93` (cab-over, darker sides); 005 `r9A91` (upright
+1950s saloon: right class, wrong silhouette).
+
+**In game** (private stage `stage_av` = `repo/stage` with the seven models swapped in;
+`linux/docker/av_grun.sh` = `grun.sh` pinned to `GTA2_GPU`, `keys_car_models_sheet.sh`, `MODELS=3,4,5,19,22,52,
+71,47`, `INI_SED=s/^scene_key=.*/scene_key=F11/` + `-e SCENE_KEY=F11` (without it the warp silently fails),
+`GTA2DX9_SCENE_NO_CAR=1`, `SHEET_XY=164.5,149.2 FACE_XY=180,149.4`, run `av_r9_ingame2`). Verified: all seven load
+(`models: 003_pacifier ... 0.75 x 0.91 x 1.33 blocks, faces +z` ... `071_rumbler ... 0.50 x 0.33 x 1.00`), 0
+`FAULT`, no model or texture read errors; each drives nose first in the Downtown traffic queue and is identifiable
+from the first-person frame: the GT40 by its twin stripes and roof disc, the jeep by the bonnet star, the SWAT
+truck by its roof light bar (beacons lit), the Rumbler by its stripes, the bank van by its white roof.
+Sheet: `out/asset_vehicles/vehicle_identity_r9_sheet.png` (per model: sprite | old top, 3/4 | new top, 3/4 |
+in-game crop); frames `out/av_r9_ingame2/drv_*model_NNN.png`.
+
+Still wrong (honest list):
+- 003: the new hull narrows to a pointed nose seen from above, where the sprite is a rectangle with two hatch
+  rings; it has one turret instead of two hatches. Better era and bulk than the MRAP, not yet the sprite's plan.
+- 071 and 019 bake a red/orange body; the runtime tint moves it with the remap but the queue of forced 071s in
+  game was all red, not the sprite's copper. The sprite's stripe over the 071 roof is not on the model (stripes
+  on bonnet and boot only).
+- 005 is a two-door coupe; GTA2's Beamer has four door slots (doors animate on the CARI positions anyway).
+- 052: garbled side lettering and red wheels from the concept.
+- Remix: the new textures have new hashes, so the 8 Nov car PBR maps (`REMIX-CARPROPS-PBR`) do not
+  apply to these seven until they are regenerated; no path-traced frames were taken.
+- Not done: restage of the play page and the release cars archive (both take the models from `assets/models`;
+  the next `restage.sh` picks them up). The other 53 models were judged recognisable enough on the identity sheet;
+  next candidates by eye: 021 Garbage Truck (orange tank vs the sprite's ribbed brown hopper), 029 Dementia
+  (Isetta egg vs the sprite's longer one-box body), 069 U-Jerk Truck.
