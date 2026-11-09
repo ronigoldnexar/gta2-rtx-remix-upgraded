@@ -284,7 +284,15 @@ std::vector<PedSpot> g_pedSpots;        // where the figures stood this frame (b
 // ACTIONS-3D-4: the figures drawn this frame and last (object, where, mid-swing and
 // with which fist), so a figure whose health drops can find who punched him (the
 // puncher may be drawn before or after him in a frame).
-struct FigureSpot { uintptr_t object; float x, z; bool punching, alt; };
+// QB-16: and when he last fired (muzzleFrame), which way he faces, and his weapon,
+// so a figure whose health drops with nobody mid-swing beside him can be put to a shooter.
+struct FigureSpot { uintptr_t object; float x, z; bool punching, alt; uint32_t shotFrame; float fx, fz; int weapon; };
+// QB-16: GTA2DX9_SHOT_HITS=0 turns the shot reactions off (a punch's stay).
+bool ShotHitsOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_SHOT_HITS", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
 constexpr uintptr_t kPedHealthWord = 0x216;   // int16, as world_view.cpp's peds line reads it
 std::vector<FigureSpot> g_figuresNow, g_figuresLast;
 constexpr float kSprintStrideOverRun = 1.405f;   // tools/gen_ped_clips.py: the sprint's stride over the run's
@@ -6724,6 +6732,20 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             if (g_carFrame - g_fpShotFrame >= 2) g_fpShotFrame = g_carFrame;
         }
     }
+    {
+        // QB-16: his figure is not drawn here, so it left no FigureSpot: the eye stands
+        // in for it (where he is, the way he looks, his last shot from his ammunition
+        // word or a flash ahead), so the man he shoots reacts in this view too.
+        static int32_t lastAmmo = -1;
+        static uint32_t shotFrame = 0;
+        if (g_playerWeapon > 0 && lastAmmo >= 0 && g_playerAmmo < lastAmmo) shotFrame = g_carFrame;
+        if (g_fpShotFrame == g_carFrame) shotFrame = g_carFrame;
+        lastAmmo = g_playerWeapon > 0 ? g_playerAmmo : -1;
+        const float fl = std::sqrt(f.x * f.x + f.z * f.z);
+        if (g_playerPosValid && fl > 1e-3f)
+            g_figuresNow.push_back({reinterpret_cast<uintptr_t>(g_playerObject), g_playerPosX, g_playerPosZ, false, false, shotFrame,
+                                    f.x / fl, f.z / fl, g_playerWeapon > 0 ? g_playerWeapon : kWpnPistol});
+    }
     // The game's word (0: bare hands, nothing drawn); without it, the weapon the
     // figure was last drawn with, shown only around a shot.
     int weapon = g_playerWeapon >= 0 && g_playerWeapon < kWpnCount ? g_playerWeapon : g_playerWeaponSeen;
@@ -7183,15 +7205,62 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         if (vx * vx + vz * vz < best) { best = vx * vx + vz * vz; by = &f; }
                     }
                 }
-                if (!by && (g_logFigures || g_logPedFrames))
-                    Log("fig: health %04x %d -> %d, nobody mid-swing within 0.7 (state %d sub 0x%x)", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
-                        track.lastHealth, hp, sprite.pedState, sprite.pedSub);
+                // QB-16: shot. Nobody mid-swing: the figure that fired in the last
+                // 1.5 s (a bullet flies: 0.8 s to 3 blocks, qb16_r8) within 12 blocks with his aim nearest the line to him (within
+                // 60 degrees: the drawn heading is eased) put a bullet in him. Which way the bullet came, against
+                // his own facing, picks the clip (front, back, his left or right side,
+                // hitSide 2-5) and the gun the stagger (a shotgun throws him further).
+                const FigureSpot* shooter = nullptr;
+                float missD = -1.0f, missAlong = 0.0f;   // the nearest recent shooter turned away, for the log
+                if (!by && ShotHitsOn()) {
+                    float bestScore = 1e9f;
+                    for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
+                        for (const FigureSpot& f : *list) {
+                            if (f.object == sprite.object || !f.shotFrame || g_carFrame - f.shotFrame > 45) continue;
+                            const float vx = cx - f.x, vz = cz - f.z;
+                            const float d2 = vx * vx + vz * vz;
+                            if (d2 > 12.0f * 12.0f || d2 < 1e-6f) continue;
+                            const float d = std::sqrt(d2);
+                            const float along = (vx * f.fx + vz * f.fz) / d;
+                            if (along < 0.5f) {
+                                if (missD < 0.0f || d < missD) { missD = d; missAlong = along; }
+                                continue;
+                            }
+                            const float score = d * (2.0f - along);
+                            if (score < bestScore) { bestScore = score; shooter = &f; }
+                        }
+                    }
+                }
+                if (!by && !shooter && (g_logFigures || g_logPedFrames))
+                    Log("fig: health %04x %d -> %d, nobody mid-swing within 0.7 or firing at him (state %d sub 0x%x cause %d; nearest shooter %.1f blocks facing %.2f)",
+                        static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), track.lastHealth, hp, sprite.pedState, sprite.pedSub, sprite.pedCause,
+                        missD, missAlong);
+                if (shooter) {
+                    const float vx = cx - shooter->x, vz = cz - shooter->z;
+                    const float d = (std::max)(1e-3f, std::sqrt(vx * vx + vz * vz));
+                    const float ux = vx / d, uz = vz / d;   // the bullet's way
+                    const float fwd = ux * std::sin(track.heading) + uz * std::cos(track.heading);
+                    const float right = ux * std::cos(track.heading) - uz * std::sin(track.heading);
+                    int side = fwd < -0.5f ? 2 : fwd > 0.5f ? 3 : right > 0.0f ? 4 : 5;   // front, back, his left, his right
+                    hitNow = true;
+                    track.hitFrame = g_carFrame; track.hitSide = side;
+                    track.hitDirX = ux; track.hitDirZ = uz;
+                    const int w = shooter->weapon;
+                    track.hitPush = w == kWpnShotgun ? 0.16f : (w == kWpnMg || w == kWpnSilencedMg) ? 0.10f : 0.08f;
+                    if (g_logFigures || g_logPedFrames) {
+                        static const char* const kSides[6] = {"", "", "front", "back", "left", "right"};
+                        Log("fig: shot %04x%s by %04x (weapon %d, %.1f blocks, %s) health %d -> %d state %d sub 0x%x",
+                            static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                            reinterpret_cast<const void*>(sprite.object) == g_playerObject ? " (player)" : "",
+                            static_cast<unsigned>((shooter->object >> 2) & 0xFFFF), w, d, kSides[side], track.lastHealth, hp, sprite.pedState, sprite.pedSub);
+                    }
+                }
                 if (by) {
                     const float vx = cx - by->x, vz = cz - by->z;
                     const float d = (std::max)(1e-3f, std::sqrt(vx * vx + vz * vz));
                     hitNow = true;
                     track.hitFrame = g_carFrame; track.hitSide = by->alt ? 1 : 0;
-                    track.hitDirX = vx / d; track.hitDirZ = vz / d;
+                    track.hitDirX = vx / d; track.hitDirZ = vz / d; track.hitPush = 0.07f;
                     if (g_logFigures || g_logPedFrames)
                         Log("fig: hit %04x by %04x (%s) health %d -> %d state %d sub 0x%x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
                             static_cast<unsigned>((by->object >> 2) & 0xFFFF), by->alt ? "jab" : "cross", track.lastHealth, hp, sprite.pedState, sprite.pedSub);
@@ -7206,8 +7275,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (ht < 0.15f) st = Smoothstep(0.0f, 0.15f, ht);
                 else if (ht < 0.75f) st = 1.0f - Smoothstep(0.15f, 0.75f, ht);
             }
-            track.staggerX = track.hitDirX * 0.07f * st;
-            track.staggerZ = track.hitDirZ * 0.07f * st;
+            track.staggerX = track.hitDirX * track.hitPush * st;
+            track.staggerZ = track.hitDirZ * track.hitPush * st;
         }
         // What the game has him doing, from his animation frame and state words.
         int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
@@ -7380,7 +7449,17 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // Taking a punch (ACTIONS-3D-4): over his walk, idle or carry; not while down,
         // falling, swimming or climbing (the lying clip takes over if the game knocks
         // him down: state 8 sub 0x16).
-        if (hitNow && !sprite.corpse && (wantAction == 0 || IsCarryAction(wantAction) || wantAction == 22)) wantAction = 22;
+        // QB-16: a bullet over the aim too (it takes the gun off the line for a moment),
+        // and the reaction held to its end over the walk, the carry or the aim, which
+        // would otherwise take the layer back the next frame.
+        if (hitNow && !sprite.corpse && (wantAction == 0 || IsCarryAction(wantAction) || wantAction == 22 ||
+                                         (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
+        if (!hitNow && track.action == 22 && !track.actionReverse && track.actionTime < 0.6f && !sprite.corpse &&
+            (wantAction == 0 || IsCarryAction(wantAction) || (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
+        // A man shot as he squares up (the game's swing frames start the instant he is
+        // hit, qb16_r3) takes the bullet first: his swing waits out the jolt (0.35 s).
+        if (track.action == 22 && track.hitSide >= 2 && !track.actionReverse && track.actionTime < 0.35f && !sprite.corpse &&
+            (wantAction == 1 || hitNow)) wantAction = 22;
         // Boarding a car on the move (ACTIONS-3D-4): the game carries him along with the car
         // in state 3 before the climb (sprite frames below 24). While he covers ground faster
         // than a walk he runs beside it (legs from the ground covered, heading along the
@@ -7572,7 +7651,37 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
             track.lastPX = gx; track.lastPZ = gz; track.havePrev = true;
         }
-        g_figuresNow.push_back({sprite.object, gx, gz, track.action == 1, track.punchAlt});
+        g_figuresNow.push_back({sprite.object, gx, gz, track.action == 1, track.punchAlt, track.muzzleFrame,
+                                std::sin(track.heading), std::cos(track.heading), track.weapon});
+        {
+            // QB-16 probe aid, GTA2DX9_LOG_NEAR_PED=1: three times a second, the nearest
+            // standing figure to the player's own, its distance and its bearing off his
+            // drawn facing (radians, + to his right), so a script can turn onto someone.
+            static int on = -1;
+            if (on < 0) { char v[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_LOG_NEAR_PED", v, sizeof v) && v[0] == '1'; }
+            static uint32_t nearFrame = 0;
+            static float nearD = 1e9f, nearA = 0.0f, ownX = 0.0f, ownZ = 0.0f, ownH = 0.0f;
+            static bool ownValid = false;
+            if (on) {
+                if (g_carFrame != nearFrame) {
+                    if (nearD < 10.0f && g_carFrame % 10 == 0) Log("qb16: near ped d=%.2f bearing=%.2f", nearD, nearA);
+                    nearFrame = g_carFrame; nearD = 1e9f;
+                }
+                if (ownPed) { ownX = gx; ownZ = gz; ownH = track.heading; ownValid = true; }
+                if (CurrentViewMode() == ViewMode::FirstPerson && g_playerPosValid) {   // his figure is not drawn: the eye
+                    ownX = g_playerPosX; ownZ = g_playerPosZ; ownH = std::atan2(g_viewForward.x, g_viewForward.z); ownValid = true;
+                }
+                if (!ownPed && ownValid && !sprite.corpse) {
+                    const float vx = gx - ownX, vz = gz - ownZ, d = std::sqrt(vx * vx + vz * vz);
+                    if (d < nearD && d > 0.3f) {
+                        float a = std::atan2(vx, vz) - ownH;
+                        while (a > kPi) a -= 2.0f * kPi;
+                        while (a < -kPi) a += 2.0f * kPi;
+                        nearD = d; nearA = a;
+                    }
+                }
+            }
+        }
 
         if (g_groundModels) {
             // Which of the people he is: fixed by his object, so he keeps his look.
@@ -7743,11 +7852,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (track.action == 23 && track.grabLeft) clipName = "grab_door_l";
                 if (track.action == 4 && track.lieClip > 0 && track.lieClip < 5) clipName = kLyingClips[track.lieClip];
                 if (track.action == 1 && track.punchAlt) clipName = "punch2";        // the combo's left jab
-                if (track.action == 22 && track.hitSide) clipName = "hit_head2";     // a jab turns his head the other way
+                if (track.action == 22 && track.hitSide == 1) clipName = "hit_head2";     // a jab turns his head the other way
+                static const char* const kShotClips[4] = {"hit_shot_front", "hit_shot_back", "hit_shot_l", "hit_shot_r"};   // QB-16
+                if (track.action == 22 && track.hitSide >= 2 && track.hitSide <= 5) clipName = kShotClips[track.hitSide - 2];
                 const ModelAnimation* actionClip = clipName ? model->Animation(clipName) : nullptr;
                 // Avatars imported before a clip existed fall back to the nearest older one.
                 if (!actionClip && track.action == 5) actionClip = model->Animation("getin");
                 if (!actionClip && track.action == 6) actionClip = model->Animation("getout");
+                if (!actionClip && track.action == 22) actionClip = model->Animation("hit_head");   // an avatar from before QB-16
                 if (!actionClip && track.action == 22) actionClip = model->Animation("hit");
                 if (!actionClip && track.action == 1) actionClip = model->Animation("punch");
                 if (!actionClip && track.action == 4) actionClip = model->Animation("fall");

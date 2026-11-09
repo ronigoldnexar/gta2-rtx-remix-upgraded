@@ -445,6 +445,40 @@ def main():
     hit_keys = [(0.00, {}, (0, 0, 0)), (0.07, hit1, (0, 0, 0)), (0.24, hit2, (0, 0, 0)), (0.55, {}, (0, 0, 0))]
     clips.append(clip_keys(sk, "hit_head", hit_keys, upper=True))
     clips.append(clip_keys(sk, "hit_head2", [(t, mirror(d), ro) for t, d, ro in hit_keys], upper=True))
+    # ---- Shot (QB-16, upper-body layers, 0.6 s, one shot) --------------------
+    # A bullet landing (the game's health drop with a figure that just fired at
+    # him, live_geometry.cpp): the torso jolts along the bullet in the first
+    # 0.06 s, the head lags the other way, a hand goes to the wound, then it
+    # eases back to whatever the legs and the carry layer are doing. The renderer
+    # adds a stagger of the whole figure along the shot (more for heavy guns).
+    # hit_shot_front: struck in the chest from ahead (thrown back, then folding
+    # over the wound); hit_shot_back: struck from behind (pitched forward, the
+    # head and arms flung back); hit_shot_l: struck on his left side from his
+    # left (the left shoulder driven back, bent away to his right, the left hand
+    # clutching it); hit_shot_r the mirror.
+    sf1 = {SP: [(RIGHT, 16)], SP2: [(RIGHT, 10)], HEAD: [(RIGHT, -14)],
+           R: [(RIGHT, 28), (UP, -18)], RF: [(RIGHT, 30)], L: [(RIGHT, 28), (UP, 18)], LF: [(RIGHT, 30)]}
+    sf2 = {SP: [(RIGHT, -12)], SP2: [(RIGHT, -6)], HEAD: [(RIGHT, -12)],
+           R: [(RIGHT, 30), (UP, 24)], RF: [(RIGHT, 96)], L: [(RIGHT, 24), (UP, -12)], LF: [(RIGHT, 70)]}
+    sf3 = {SP: [(RIGHT, -5)], HEAD: [(RIGHT, -5)], R: [(RIGHT, 14), (UP, 12)], RF: [(RIGHT, 50)], LF: [(RIGHT, 20)]}
+    clips.append(clip_keys(sk, "hit_shot_front", [
+        (0.00, {}, (0, 0, 0)), (0.06, sf1, (0, 0, 0)), (0.22, sf2, (0, 0, 0)), (0.40, sf3, (0, 0, 0)), (0.62, {}, (0, 0, 0)),
+    ], upper=True))
+    sb1 = {SP: [(RIGHT, -20)], SP2: [(RIGHT, -10)], HEAD: [(RIGHT, 22)],
+           R: [(RIGHT, -24), (UP, -10)], RF: [(RIGHT, 20)], L: [(RIGHT, -24), (UP, 10)], LF: [(RIGHT, 20)]}
+    sb2 = {SP: [(RIGHT, -10)], SP2: [(RIGHT, -4)], HEAD: [(RIGHT, 6)],
+           R: [(RIGHT, 10), (UP, -6)], RF: [(RIGHT, 40)], L: [(RIGHT, 10), (UP, 6)], LF: [(RIGHT, 40)]}
+    clips.append(clip_keys(sk, "hit_shot_back", [
+        (0.00, {}, (0, 0, 0)), (0.06, sb1, (0, 0, 0)), (0.26, sb2, (0, 0, 0)), (0.60, {}, (0, 0, 0)),
+    ], upper=True))
+    ss1 = {SP: [(UP, 24), (FWD, 12)], SP2: [(UP, 10), (FWD, 6)], HEAD: [(UP, -14), (FWD, -12)],
+           L: [(RIGHT, -10), (UP, 16)], LF: [(RIGHT, 24)], R: [(RIGHT, 18), (UP, -20)], RF: [(RIGHT, 30)]}
+    ss2 = {SP: [(UP, 12), (FWD, 8), (RIGHT, -8)], SP2: [(UP, 4)], HEAD: [(UP, -6), (FWD, -4)],
+           L: [(RIGHT, 22), (UP, 30)], LF: [(RIGHT, 110)], R: [(RIGHT, 12), (UP, -10)], RF: [(RIGHT, 24)]}
+    ss3 = {SP: [(UP, 4), (FWD, 3)], L: [(RIGHT, 12), (UP, 14)], LF: [(RIGHT, 50)]}
+    side_keys = [(0.00, {}, (0, 0, 0)), (0.06, ss1, (0, 0, 0)), (0.24, ss2, (0, 0, 0)), (0.42, ss3, (0, 0, 0)), (0.62, {}, (0, 0, 0))]
+    clips.append(clip_keys(sk, "hit_shot_l", side_keys, upper=True))
+    clips.append(clip_keys(sk, "hit_shot_r", [(t, mirror(d), ro) for t, d, ro in side_keys], upper=True))
 
     # ---- Cars (ACTIONS-3D-4) -----------------------------------------------
     # Upper-body layers over legs that step by the ground the game moves him

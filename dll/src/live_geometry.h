@@ -706,8 +706,9 @@ private:
         // the blow (eased out and back, the legs step it).
         uint32_t hitFrame = 0;
         int32_t lastHealth = -1;
-        int hitSide = 0;
+        int hitSide = 0;   // QB-16: 2-5 shot from his front, back, left, right
         float hitDirX = 0.0f, hitDirZ = 0.0f;
+        float hitPush = 0.07f;   // the stagger's reach (QB-16: by the gun)
         float staggerX = 0.0f, staggerZ = 0.0f;
         // Getting into / out of a car: the car's middle (the heading faces it on
         // the way in and away from it on the way out) and when the state began.

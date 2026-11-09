@@ -758,3 +758,63 @@ umbrellas) — they need new Rocketbox imports, which stay out of git; no stop/s
 fidget clips (new clips in `tools/gen_ped_clips.py` mean re-importing the avatars). Untested:
 the look-at under RTX Remix (Remix down on this host), and the gunfire range doubling (the
 probe did not fire).
+
+## QB-16 (8 Nov 2026): hit reactions in real fights (shot, punched; peds and the player)
+
+Quality-bar row 16 said a shot ped "keeps walking until the game puts him down". The punch
+reaction (ACTIONS-3D-4) only fired when a figure within 0.7 block was mid-swing, so a bullet
+never moved anyone, and a reaction over a carry or an aim was cut off the next frame.
+
+**Mechanism.** `DrawPedFigures` (`dll/src/live_geometry.cpp`): every figure's health word
+(ped+0x216) is compared with last frame's. A drop with a puncher beside him is the punch
+reaction as before. A drop with nobody mid-swing is put to a shooter: each drawn figure now
+leaves its last shot frame (`muzzleFrame`: the game's own ammunition/reload words, or a
+flash beside him), its facing and its weapon in `FigureSpot`; the shooter is the figure that
+fired in the last 0.7 s within 12 blocks whose facing is within 60 degrees of the line to
+the victim (the best aligned and nearest). The bullet's direction against the victim's own
+facing picks one of four new upper-body clips (`tools/gen_ped_clips.py`, 0.6 s, one shot):
+`hit_shot_front` (thrown back at the chest, then folding over the wound, a hand to it),
+`hit_shot_back` (pitched forward, head and arms flung back), `hit_shot_l` / `hit_shot_r` (the
+struck shoulder driven back, bent away, the hand clutching it). The whole figure staggers
+along the bullet (8 cm for a pistol, 10 for a machine gun, 16 for a shotgun; out over 0.15 s,
+back over 0.6 s; the legs step it). The layer is upper body, so a running or walking man
+keeps his legs going under it. The reaction (shot or punched) is now held to its end over the
+walk, the carry and, for a bullet, the aim; a man shot as he squares up to fight (the game
+starts his swing frames the instant he is hit) takes the jolt for 0.35 s before his swing. A
+second hit restarts it. A hit that kills goes straight to the lying clip as before (a pistol
+bullet kills a pedestrian outright in GTA2; the machine gun's take 25 of a ped's health, so a
+short burst leaves him standing). Avatars from before this fall back to `hit_head`.
+`GTA2DX9_SHOT_HITS=0` turns the shot reactions off.
+
+**Log** (`GTA2DX9_LOG_PED_FRAMES=1`): `fig: shot <victim>[ (player)] by <shooter> (weapon N,
+D blocks, front|back|left|right) health a -> b`, then `ped anim: object ... action 22`. An
+unexplained drop: `fig: health ... nobody mid-swing within 0.7 or firing at him (... cause C;
+nearest shooter D blocks facing F)`. Probe aid: `GTA2DX9_LOG_NEAR_PED=1` logs the nearest
+figure to the player (`qb16: near ped d= bearing=`) three times a second, for scripts that
+turn onto someone.
+
+**Probe.** `linux/docker/qb16_hits.py` + `keys_qb16_hits.sh` (mirrored in `gamerun/`):
+pistol and machine gun pickups, then on QB-6's busy pavements it turns onto the nearest
+person, closes in and fires two 0.1 s taps (about two bullets each), with frame bursts at
+10 fps (`/out/qb16_marks.txt` holds each burst's start). `QB16_VIEW` (first) picks the view,
+`QB16_ARMY_SECS` (150) a 6-star wait for soldiers. Run:
+`STAGE=<stage> GTA2_DIRECT_KEYS=1 INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 480 keys_qb16_hits.sh -e GTA2DX9_LOG_PED_FRAMES=1 -e SCENE_KEY=F11 -e GTA2DX9_LOG_NEAR_PED=1 -e GTA2DX9_SCENE_NO_CAR=1`.
+
+**Verified (plain renderer, Downtown, runs `qb16_r3`, `r6`, `r8`, `r9`; a heavily loaded host, so
+the governor paused most runs for minutes and each produced one or two hits).** Five real shot hits
+were logged on pedestrians who survived them, all from the player's machine gun: `fig: shot ...
+(weapon 4, 0.2 blocks, front) 50 -> 25` (r3), `0.9 blocks, back` (r6), `3.2 blocks, back` (r8, first
+person, through the eye stand-in), `1.5 blocks, left` and `3.8 blocks, back` (r9); each followed by
+`action 22` on the victim in the same frame, and QB-6's `aim: hit` line agreeing on the victim and
+the health. Frames: `out/qb16_r9/qb_st2_machine_gun_0_025..048.png` (third person, the player in the
+striped shirt firing at a man in a navy shirt 1.5 blocks away: the hit marker at frame 36, his
+shoulders turning over 36-40, then the game turns him to run). In r3 the victim squared up to punch
+0.11 s after the bullet and the swing took the layer back: fixed (the 0.35 s hold above). Seen as a
+limit: at chase-camera distance the flinch reads as a short shoulder jolt, not a big one.
+**Not verified:** the player being shot. In 4.5 min at 3, 4 and 6 stars no officer or soldier hit
+him: at 3-4 stars the police punch and arrest (his punch reactions fired: `fig: hit <player> by
+<cop> (cross) 100 -> 90`, r2/r3), and the army did not reach him at the plaza (r4-r6). The code path
+is the same (the player's figure has the same health word and track), untested. A shotgun's larger
+stagger: untested. Both machine-gun hits whose log line carries the cause word (`ped+0x290`) had cause 11, so
+the lying-clip rule that reads 11 as burnt (ACTIONS-3D-3) may give a man shot dead the burnt pose:
+for QB-17 (death) to check.
