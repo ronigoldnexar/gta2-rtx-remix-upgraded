@@ -83,6 +83,12 @@ struct Model {
     // +1 when the model faces +z, -1 when -z (the importer works it out from
     // the wheels, the manifest can say).
     float forward = 1.0f;
+    // VEHICLE-ART-4 (playfeel1): an authored car body's driver's seat, model frame (blocks, as in the
+    // .mesh: +z the nose, y up from the lowest point): the hip's distance from the centre line, the
+    // cushion's top, the hip along the car, the headliner over it. Manifest "driver_seat"
+    // (tools/vehicle_art/seat_anchor.py); without it the seat comes from the sprite (boarding.cpp).
+    bool hasDriverSeat = false;
+    float driverSeat[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     // A car model's own paint colour (0-255), as its "_paint" textures are painted:
     // the game's paint divides by it to make the tint ("paint_rgb" in the manifest).
     // Near-white by default, for models whose paint is left neutral.

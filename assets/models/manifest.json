@@ -998,7 +998,13 @@
     "paint_wheel": "cars/vehicle_art2/008_bug/paint_wheel.png",
     "glass": "cars/vehicle_art2/008_bug/glass.png"
    },
-   "generator": "tools/vehicle_art2/car_008.py"
+   "generator": "tools/vehicle_art2/car_008.py",
+   "driver_seat": [
+    0.076,
+    0.124,
+    0.032,
+    0.3084
+   ]
   },
   {
    "name": "010_bulwark",
@@ -1045,7 +1051,13 @@
     235.0,
     235.0
    ],
-   "texture_max": 1024
+   "texture_max": 1024,
+   "driver_seat": [
+    0.1,
+    0.1737,
+    -0.0737,
+    0.3546
+   ]
   },
   {
    "name": "014_eddy",
@@ -1375,7 +1387,13 @@
     "paint_wheel": "cars/vehicle_art2/036_schmidt/paint_wheel.png",
     "glass": "cars/vehicle_art2/036_schmidt/glass.png"
    },
-   "generator": "tools/vehicle_art2/car_036.py"
+   "generator": "tools/vehicle_art2/car_036.py",
+   "driver_seat": [
+    0.0,
+    0.104,
+    0.038,
+    0.2829
+   ]
   },
   {
    "name": "037_miara",
@@ -1630,7 +1648,13 @@
     "wheel_paint_dark": "cars/vehicle_art2/056_taxi/wheel_paint_dark.png",
     "glass": "cars/vehicle_art2/056_taxi/glass.png"
    },
-   "generator": "tools/vehicle_art2/car_056.py"
+   "generator": "tools/vehicle_art2/car_056.py",
+   "driver_seat": [
+    0.09,
+    0.144,
+    0.0,
+    0.3436
+   ]
   },
   {
    "name": "057_t_rex",
@@ -1728,7 +1752,13 @@
     235.0,
     235.0
    ],
-   "texture_max": 1024
+   "texture_max": 1024,
+   "driver_seat": [
+    0.1342,
+    0.3895,
+    -0.0105,
+    0.63
+   ]
   },
   {
    "name": "064_truck_cab_sx",
@@ -1797,7 +1827,13 @@
     235.0,
     235.0
    ],
-   "texture_max": 1024
+   "texture_max": 1024,
+   "driver_seat": [
+    0.1447,
+    0.2763,
+    0.2947,
+    0.5361
+   ]
   },
   {
    "name": "069_u_jerk_truck",

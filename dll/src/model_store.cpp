@@ -1273,10 +1273,21 @@ void ModelsLoad(const char* folder) {
     }
     while (at != std::string::npos && (at = text.find("\"name\"", at)) != std::string::npos && at < listEnd) {
         const std::string name = Field(text.substr(at), "name");
+        // This entry's own text, up to the next one's name (for its optional fields).
+        const size_t entryEnd = (std::min)(text.find("\"name\"", at + 6), listEnd);
+        const std::string entry = text.substr(at, entryEnd == std::string::npos ? std::string::npos : entryEnd - at);
         at += 6;
         if (name.empty() || g_byName.count(name)) continue;
         Model model;
         model.name = name;
+        {
+            const std::string seat = Field(entry, "driver_seat");
+            float v[4];
+            if (!seat.empty() && sscanf(seat.c_str(), "[%f , %f , %f , %f]", &v[0], &v[1], &v[2], &v[3]) == 4 && v[3] > v[1]) {
+                model.hasDriverSeat = true;
+                for (int k = 0; k < 4; ++k) model.driverSeat[k] = v[k];
+            }
+        }
         if (!LoadModel(g_folder + "\\" + name + ".mesh", &model)) {
             Log("models: %s.mesh could not be read", name.c_str());
             continue;
@@ -1306,6 +1317,9 @@ void ModelsLoad(const char* folder) {
         Log("models: %s: %zu nodes, %zu meshes, %zu animations, %.2f x %.2f x %.2f blocks, faces %s",
             m.name.c_str(), m.nodes.size(), m.meshes.size(), m.animations.size(), m.Width(), m.Height(), m.Length(),
             m.forward > 0 ? "+z" : "-z");
+        if (m.hasDriverSeat)
+            Log("models: %s: driver's seat x %.3f, cushion %.3f, z %+.3f, headliner %.3f (manifest)", m.name.c_str(), m.driverSeat[0],
+                m.driverSeat[1], m.driverSeat[2], m.driverSeat[3]);
     }
     // The importer's flat report says which way each model faces, when the
     // manifest said so: "imported": [{"name": ..., "forward": "+z"}, ...].

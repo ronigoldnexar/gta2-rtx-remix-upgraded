@@ -171,6 +171,26 @@ presses Return the moment it finds itself driving.
 - Probe: `gamerun/js_jack.py` / `keys_js_jack.sh` (JS_JACKS, JS_VMAX, JS_NEAR, JS_WAIT, JS_PARKED; films each
   jack until seated + drive-off + exit; never exits on finding itself driving), `keys_js_pm19.sh` (ste).
 
+**Authored bodies name their seat (VEHICLE-ART-4, 9 Nov; playfeel1).** The seat above comes from the game's
+sprite (the CARI window rows, half the half width). That fits the image-to-3D bodies, made from the sprite, but
+not an authored carkit body with its own cockpit: in the 036 Schmidt (a tandem bubble car, a central seat under a
+0.28-block canopy) the sprite's seat was the rear deck, 0.09 to the side, and the 0.14 sink cap left the hero
+standing through the canopy for the whole drive. Now:
+- `manifest.json` carries `"driver_seat": [x, y, z, roof]` for the six authored bodies (013, 063, 068, 008, 036,
+  056), model frame in blocks: the hip's distance from the centre line, the cushion's top, the hip along the car
+  (12 cm ahead of the seat back), the headliner over it. `tools/vehicle_art/seat_anchor.py <models dir> [--write
+  <manifest>]` reads the seats off the generators and casts a ray up through the `.mesh` for the headliner; add a
+  row there for every new authored body. The model store logs `models: <name>: driver's seat ...`.
+- `car_bodies.cpp` passes it through the same fit as the mesh (`BoardingPublishSeat`; log `car bodies: driver's seat
+  of <name> (manifest)` beside the sprite's guess). `boarding.cpp` then seats the hips on the cushion (a truck cab's
+  0.40 up: a negative sink lifts him), lowered only as far as the head (0.236 over the hips) needs to stay 1.5 cm
+  under the headliner, at most 0.22: the hero (0.46-0.47) is tall for the 5 m-a-block cars, so in the 036 his hips
+  go 0.09 under the cushion, hidden by the tub. The floor and pedals sit 0.09 under the cushion; the exit rises
+  from the drive's seat height instead of popping to the climb's.
+- Verified with `gamerun/va4_seats.py` / `keys_va4_seats.sh` (one car, `force_car_model` and `force_own_car_model`
+  cycled live through the bodies, third person still, turning and side shots, first person) and
+  `va4_enter.py` (enter, drive, exit bursts at a warp spot). Bodies without the entry keep the sprite's seat.
+
 **Verification aids.** `GTA2DX9_BOARDING_CAM=2` holds the camera ahead of the door (front quarter: the
 door's swing and the figure behind it are both seen); both cameras now stay through the shut. Probe
 `linux/docker/aee_probe.py` + `keys_aee_probe.sh` (mirrored in `gamerun/`) = `entry_probe.py` plus

@@ -29,6 +29,10 @@ struct Car {
     bool warm = false;
     float steer = 0.0f;        // the front wheels (BoardingPublishSteer), radians, + to the left
     bool openTop = false;      // FIX-JACK-SEAT (pm19): BoardingPublishOpenTop
+    // VEHICLE-ART-4 (playfeel1): an authored body's own seat (BoardingPublishSeat), car frame:
+    // the hip's distance from the centre line, the hip along the car, the cushion, the headliner.
+    bool hasSeat = false;
+    float seatU = 0.0f, seatZ = 0.0f, seatY = 0.0f, seatRoof = 0.0f;
 };
 std::map<uintptr_t, Car> g_cars;
 
@@ -159,11 +163,11 @@ void Swing(const Car& c, int side, float open, float x, float z, float* ox, floa
 }
 float DoorLen(const Car& c) { return (std::max)(0.12f, c.zFront - c.zRear); }
 float HandleY(const Car& c) { return (std::max)(0.19f, (std::min)(0.26f, 0.62f * c.roof)); }
-float SeatZ(const Car& c) { return c.zRear + 0.38f * DoorLen(c); }
+float SeatZ(const Car& c) { return c.hasSeat ? c.seatZ : c.zRear + 0.38f * DoorLen(c); }
 // The driver sits about 0.13 block in from the door's skin, whatever the car's width;
 // the feet in the footwell either side of that line.
 // The half width is the sprite's footprint, mirrors included; the panel is a little in from it.
-float SeatU(const Car& c) { return 0.5f * c.halfW; }
+float SeatU(const Car& c) { return c.hasSeat ? c.seatU : 0.5f * c.halfW; }
 float WellDoorU(const Car& c) { return 0.62f * c.halfW; }
 float WellFarU(const Car& c) { return 0.32f * c.halfW; }
 // Where a hand grips the roof edge over the opening: the edge itself, or (a van taller
@@ -184,7 +188,11 @@ constexpr float kFootwell = 0.12f;   // the feet ahead of the hips when seated
 // The cab floor and the seat by the vehicle's height (a van's cab floor is well off the
 // road), and how far the figure sinks to sit: its hip is 0.234 up standing (the avatars'
 // skeleton), the seat cushion about 0.10 over the floor.
-float FloorY(const Car& c) { return (std::max)(0.035f, (std::min)(0.10f, 0.18f * c.roof)); }
+float FloorY(const Car& c) {
+    // An authored body's floor: under its cushion (a truck cab's is well off the road).
+    if (c.hasSeat) return (std::max)(0.035f, (std::min)(0.40f, c.seatY - 0.09f));
+    return (std::max)(0.035f, (std::min)(0.10f, 0.18f * c.roof));
+}
 float SitSink(const Car& c) { return (std::max)(0.04f, (std::min)(0.11f, 0.234f - (FloorY(c) + 0.10f))); }
 // FIX-SEATED: at the wheel for the drive he sits lower than the climb leaves him (a driver's hip
 // is about 0.10 block over the road in a saloon, not the cushion's 0.16): low enough that his
@@ -192,8 +200,18 @@ float SitSink(const Car& c) { return (std::max)(0.04f, (std::min)(0.11f, 0.234f 
 // 0.14 (an open-top body's low "roof" is its windscreen: he shows over it, as he should).
 // FIX-JACK-SEAT (pm19): an open-top body has no roof to clear: sunk to 0.14 under its windscreen "roof" the
 // hero's head sat below the seat backs and the roadster read as driven by nobody; he sits on the cushion.
+// VEHICLE-ART-4 (playfeel1): an authored body names its cushion and the headliner over it. The hips
+// sit on the cushion (a truck cab's is 0.40 up: he is lifted, a negative sink), lowered only as far
+// as his head (0.236 over the hips for the tallest look) needs to stay 1.5 cm under the headliner:
+// the hero (0.46-0.47 tall, the cars at 5 m a block) is too tall for a bubble car or a saloon at
+// that scale (036 Schmidt: hips 0.09 under the cushion, hidden by the tub). Before, the sprite's
+// seat at the rear deck and the 0.14 cap left him standing through the 036's canopy.
 float DriveSink(const Car& c) {
-    if (c.openTop) return SitSink(c);
+    if (c.openTop && !c.hasSeat) return SitSink(c);
+    if (c.hasSeat) {
+        const float hip = (std::min)(c.seatY + 0.01f, c.seatRoof - 0.015f - (0.47f - 0.234f));
+        return (std::max)(-0.30f, (std::min)(0.22f, 0.234f - hip));
+    }
     return (std::max)(SitSink(c), (std::min)(0.14f, 0.47f - (c.roof - 0.025f)));
 }
 // The steering wheel's hub, car frame: in line with the seat, 0.085 ahead of the hips' line and
@@ -311,6 +329,14 @@ void BoardingPublishCar(uintptr_t carObject, const gta2::Mat4& carToWorld, float
     if (g_cars.size() > 256) {
         for (auto it = g_cars.begin(); it != g_cars.end();) it = frame - it->second.frame > 120 ? g_cars.erase(it) : std::next(it);
     }
+}
+
+void BoardingPublishSeat(uintptr_t carObject, bool has, float u, float z, float cushion, float roof) {
+    auto it = g_cars.find(carObject);
+    if (it == g_cars.end()) return;
+    Car& c = it->second;
+    c.hasSeat = has;
+    c.seatU = u; c.seatZ = z; c.seatY = cushion; c.seatRoof = roof;
 }
 
 void BoardingPublishOpenTop(uintptr_t carObject, bool openTop) {
@@ -793,11 +819,14 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
         // ... and clear of the door's swing (ClearSpot): the shut that follows starts there.
         float endU, endZ;
         ClearSpot(c, b.fu, b.fz, &endU, &endZ);
+        // (an authored body's seat: up from where the drive had him, a truck cab's high seat
+        // or the bubble car's deep one, not a pop to the climb's cushion)
+        const float sink0 = c.hasSeat ? DriveSink(c) : SitSink(c);
         if (t < 0.15f) {
-            u = seatU; z = seatZ; sink = SitSink(c);
+            u = seatU; z = seatZ; sink = sink0;
         } else if (t < 0.45f) {
             const float k = Smooth(0.15f, 0.45f, t);
-            u = Lerp(seatU, midU, k); z = Lerp(seatZ, midZ, k); sink = Lerp(SitSink(c), SitSink(c) * 0.75f, k);
+            u = Lerp(seatU, midU, k); z = Lerp(seatZ, midZ, k); sink = Lerp(sink0, SitSink(c) * 0.75f, k);
         } else {
             const float k = Smooth(0.45f, 0.8f, t);
             // Onto where the game will have him (it slides him out in steps; following those

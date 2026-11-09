@@ -3516,6 +3516,19 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                                    haveSplit ? ds.open : 0.0f, frame);
                 BoardingPublishSteer(use.object, feel.on ? feel.steer : 0.0f);   // FIX-SEATED: the driver's hands on the wheel
                 BoardingPublishOpenTop(use.object, CabOpenTop(modelNumber));   // FIX-JACK-SEAT (pm19)
+                // VEHICLE-ART-4 (playfeel1): an authored body's own seat, through the same fit as its mesh
+                // (the 036 Schmidt's central tandem seat under the bubble, not the sprite's rear deck).
+                const bool ownSeat = model->hasDriverSeat && !sideways;
+                const float* ms = model->driverSeat;
+                BoardingPublishSeat(use.object, ownSeat, std::fabs(ms[0]) * sx, ms[2] * sz * f, ms[1] * sy, ms[3] * sy);
+                if (ownSeat) {
+                    static std::set<const Model*> seatPubLogged;
+                    if (seatPubLogged.size() < 40 && seatPubLogged.insert(model).second) {
+                        Log("car bodies: driver's seat of %s (manifest): u %.3f z %+.3f cushion %.3f headliner %.3f (the sprite's: u %.3f z %+.3f roof %.3f)",
+                            model->name.c_str(), std::fabs(ms[0]) * sx, ms[2] * sz * f, ms[1] * sy, ms[3] * sy, 0.25f * b->bodyWidth,
+                            zf - 0.27f * b->bodyLength + 0.38f * (std::max)(0.12f, 0.27f * b->bodyLength), roofY);
+                    }
+                }
                 // The player's own car: both doors' splits built ahead, so the exit's door
                 // opens on its first frame instead of after the worker's latency.
                 if (use.driven && BoardingWarmDoors(use.object)) {

@@ -46,6 +46,10 @@ void BoardingPublishSteer(uintptr_t carObject, float steer);
 // FIX-JACK-SEAT (pm19): car_bodies, after BoardingPublishCar: an open-top body (CabOpenTop: roadster, jeep):
 // its driver sits on the cushion, head and shoulders over the seat back, not sunk to clear a roof.
 void BoardingPublishOpenTop(uintptr_t carObject, bool openTop);
+// VEHICLE-ART-4 (playfeel1): car_bodies, after BoardingPublishCar: an authored body's own driver's
+// seat (manifest "driver_seat"), car frame: the hip's distance from the centre line, the hip along
+// the car, the cushion's top and the headliner over it. has=false: the sprite's seat (as before).
+void BoardingPublishSeat(uintptr_t carObject, bool has, float u, float z, float cushion, float roof);
 // car_bodies: whether a boarding drives this car's door now; if so the side, the
 // target (0 shut, 1 open) and the rate (per second).
 bool BoardingDoor(uintptr_t carObject, int* side, float* target, float* rate);
