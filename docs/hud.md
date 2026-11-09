@@ -203,3 +203,8 @@ off screen or behind. Kind 5 (a place to go: the job's own and the gang arrows) 
 shown; other kinds (a phone, a car, a person) are cyan and shown within 20 blocks. `objective_markers=0`
 keeps the game's sprites. The classic view always draws the game's own arrows, byte for byte.
 Verified in out/tri_hud1 (s_04_third_walk, s_11_first_walk, s_01_classic_walk).
+
+While the game draws its own talking head and subtitle (part 10, bottom left, whenever the brief's text is
+not ours to show) the mini-map and the bar under it slide up 84 px out of that band and back when it is
+gone (defect pm-hud-minimap-covers-subtitle-and-portrait: the panel ate the first word and the portrait).
+Verified in out/tri_hud2 (s_02_trans_to_third, s_03_third, s_10_first; classic s_17 unchanged).

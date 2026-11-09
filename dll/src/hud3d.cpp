@@ -677,6 +677,7 @@ struct Anim {
     Capture briefPortrait;
     float time = 0;
     float zoom = 34.0f;          // blocks across the mini-map
+    float lift = 0.0f;           // 0..1: the mini-map raised above the game's own subtitle box
 };
 Anim g_anim;
 
@@ -1190,7 +1191,13 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     // The mini-map, bottom left, turned with the camera; health (and the car) under it.
     const float mapW = 260.0f * u, mapH = 160.0f * u;
     const float barH = 8.0f * u;
-    const ImVec2 m0(margin, H - margin - barH - 6 * u - mapH), m1(margin + mapW, H - margin - barH - 6 * u);
+    // While the game draws its own talking head and subtitle (part 10, bottom left, when the
+    // brief's text is not ours to show) the map and the bar under it slide up out of its band
+    // (pm-hud-minimap-covers-subtitle-and-portrait: the panel ate the first word and the portrait).
+    const bool gameBrief = !g_briefResolved && g_partSeen[10] + 2 >= g_frame;
+    an.lift += ((gameBrief ? 1.0f : 0.0f) - an.lift) * (1.0f - std::exp(-dt * 10.0f));
+    const float lift = an.lift * 84.0f * u;
+    const ImVec2 m0(margin, H - margin - barH - 6 * u - mapH - lift), m1(margin + mapW, H - margin - barH - 6 * u - lift);
     float yaw = 0, pitch = 0;
     ViewCameraAngles(&yaw, &pitch);
     const float yr = yaw * 0.017453293f;
