@@ -281,6 +281,17 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
     // where they are submitted, in synthetic_lights.cpp.
     if (t.def.source == kLightSourceGame) scale *= GameClassDaylight(t.gameClass);
 
+    // A wide coloured map light: warm white at the same luminance (see
+    // wideNeonRadius in remix_lights.h). An override's own colour wins.
+    if (t.def.source == kLightSourceGame && !t.moving && t.gameClass == kGameLightNeon &&
+        g_settings.wideNeonRadius > 0.0f && t.def.radius >= g_settings.wideNeonRadius &&
+        !(ov && ov->recolor)) {
+        static const float kWarm[3] = {1.0f, 0.80f, 0.58f};
+        const float lumaWarm = 0.2126f * kWarm[0] + 0.7152f * kWarm[1] + 0.0722f * kWarm[2];
+        const float luma = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
+        for (int i = 0; i < 3; ++i) rgb[i] = kWarm[i] * luma / lumaWarm;
+    }
+
     // Pull towards luminance rather than towards grey: mixing in white would
     // brighten as it desaturates, and every light would drift lighter as the
     // slider comes down.
@@ -401,6 +412,7 @@ bool SameSettings(const RemixLightSettings& a, const RemixLightSettings& b) {
         && a.movingScale == b.movingScale && a.referenceRadius == b.referenceRadius
         && a.radiusExponent == b.radiusExponent && a.emitterRadius == b.emitterRadius
         && a.minIntensity == b.minIntensity && a.saturation == b.saturation
+        && a.wideNeonRadius == b.wideNeonRadius
         && a.ambientFill == b.ambientFill && a.ambientFillScale == b.ambientFillScale
         && a.coneSoftness == b.coneSoftness && a.buriedLift == b.buriedLift
         && memcmp(a.gameClass, b.gameClass, sizeof(a.gameClass)) == 0;

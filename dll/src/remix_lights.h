@@ -193,6 +193,14 @@ struct RemixLightSettings {
     // desaturating does not also darken. 1 leaves the game's colours alone.
     float saturation = 1.0f;
 
+    // Wide coloured map lights (FIX-REMIX-2, pt-remix-industrial-night-mono-colour-
+    // and-black): Industrial lights its yards and plazas with saturated map lights of
+    // 3-8 tiles' reach (#008000, #0080FF, #80FFFF); in the classic view they only tint
+    // nearby sprites, but a path tracer floods a whole plaza in one hue. A saturated
+    // (neon-class) map light reaching wideNeonRadius tiles or more is lit as warm
+    // white at its own luminance; smaller neon keeps its colour, locally. 0 = off.
+    float wideNeonRadius = 3.0f;
+
     // Physical size of the emitting sphere in world units (1 unit = 1 map tile).
     // NOT the game's radius: that is the light's reach, and using it here would
     // put a glowing ball the width of the street around every lamp.

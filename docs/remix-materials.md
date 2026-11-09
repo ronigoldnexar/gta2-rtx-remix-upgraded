@@ -744,6 +744,24 @@ within the camera-heading noise of these runs). Frames are matched to the marks 
 `shot_*.png` timestamps: in `fr2_pk_fix3` the encoder dropped frames and `game.mp4` time drifted from
 the wall clock, so `remix_frames.py dump` picked the wrong frames there.
 
+## Industrial at night: wide coloured map lights as warm white (FIX-REMIX-2, 9 Nov 2026)
+
+Defect `pt-remix-industrial-night-mono-colour-and-black`: Industrial (ste) lights its yards and plazas
+with saturated map lights of 3-8 tiles' reach (`ste.gmp` LGHT: `#008000` r=8 at ground level round the
+22.5,214.5 plaza, `#0080FF` r=4 and `#80FFFF` r=2-4 at the 43.5,100.5 lamp). The classic renderer only
+tints sprites near them; a path tracer floods the whole plaza in one hue (night-vision green, cyan).
+**Fix** (`Describe`, `remix_lights.cpp`): a neon-class map light (saturated, not red-led sodium) with a
+reach of `wideNeonRadius` (3 tiles) or more is lit warm white (1.0, 0.80, 0.58) at its own luminance;
+smaller neon keeps its colour, locally; a user override's colour still wins.
+
+Runs (the filer's command, `ste "10,18.5,22"`, three points): `out/fr2_fix2_ste` (sun and day-look fixes)
+against `out/fr2_ind_fix1` (also the player fill of 7081d2b and this change), frames matched by
+`shot_*.png` timestamps. The plaza at 18:30 is warm-lit paving, kerbs, manhole and hydrant in their own
+colours (was one green); the 43.5,100.5 lamp is a warm lamp on readable brick (dominant lit hue 180 ->
+30 deg, Downtown's lamps are 30); the alley at 168.5,119.5 rose from 0.007 to 0.054 mean luminance
+(darkest frame 0.033: shapes against the sky readable, not quite the 0.04 floor). Day frames unchanged
+in hue.
+
 ## Street-lamp pools under the posts (FIX-REMIX, 9 Nov 2026)
 
 Defect `pt-remix-lamp-posts-cast-no-light`: at night every lamp-post lantern glowed and nothing
