@@ -1037,9 +1037,93 @@ def build_bin(src):
     return scene_with([("trash_can", mesh)]), dict(atlas_filled=round(float(filled), 3), floor=round(floor_y, 3))
 
 
+def build_lamp(src):
+    """PROPS-SLIM: the street lamp stands at every one of the map's lamps (up to
+    ~60 in range), and the scan's post was 30 050 triangles of cast-iron
+    ornament. The post becomes a surface of revolution about its own axis
+    (base, shaft, collar, lantern cap) plus one about the x axis for the
+    cross-bar under the lantern; the ornament's relief is baked into the atlas.
+    The glass and the bulb (560 triangles, their own materials: the glass is
+    the part Remix and the night lights read) are kept as they are."""
+    nodes = scan_nodes(src, "street_lamp_01", "\0")
+    names = list(nodes)
+    post = [n for n in names if len(nodes[n][0].faces) > 10000][0]
+    pk = names.index(post)
+    samples = scan_samples(nodes, 1_500_000, seed=7)
+    P, N = samples[0], samples[1]
+    postk = samples[3] == pk
+    v = nodes[post][0].vertices
+    top = float(v[:, 1].max())
+    O = np.array([0.0, 0.0, 0.0])
+    Y = np.array([0.0, 1.0, 0.0])
+    # The cross-bar: where the post reaches out along x at about 2.64-2.70 m.
+    arm = (np.abs(v[:, 0]) > 0.06) & (v[:, 1] > 2.5) & (v[:, 1] < 2.8)
+    ay0, ay1 = float(v[arm, 1].min()), float(v[arm, 1].max())
+    ax = float(np.abs(v[arm, 0]).max())
+    armk = postk & (np.abs(P[:, 0]) > 0.055) & (P[:, 1] > ay0 - 0.01) & (P[:, 1] < ay1 + 0.01)
+    # The lantern: between the dish under the glass and the roof over it the
+    # post is a thin stem and four corner posts (bars, at 45 + 90k degrees), so
+    # the glass stays visible (a lathe of the outer skin would wall it in).
+    glass = [nodes[n][0] for n in names if n != post and len(nodes[n][0].faces) > 300][0]
+    g0, g1 = float(glass.bounds[0][1]), float(glass.bounds[1][1])
+    rv = np.hypot(v[:, 0], v[:, 2])
+    ang = np.degrees(np.arctan2(v[:, 2], v[:, 0]))
+    stem = 0.02
+    lower = fit_profile(envelope(P, O, Y, 0.0, g0 + 0.006, ds=0.006, q=92.0, mask=postk & ~armk), 24)
+    roof = fit_profile(envelope(P, O, Y, g1 - 0.006, top, ds=0.006, q=92.0, mask=postk), 10)
+    prof = [(0.0, 0.0), (0.0, lower[0][1])] + lower[1:]
+    prof += [(prof[-1][0], stem), (roof[0][0], stem)] + roof
+    if prof[-1][1] > 0.002:
+        prof.append((prof[-1][0], 0.0))
+    charts = [Lathe(O, Y, prof, 14, (0.0, 0.0, 0.75, 1.0), ref=(1, 0, 0), nodes=[pk])]
+    acen = np.array([0.0, (ay0 + ay1) / 2, 0.0])
+    aenv = envelope(P, acen, (1, 0, 0), -ax, ax, ds=0.01, q=90.0, mask=armk | (postk & (np.abs(P[:, 1] - acen[1]) < 0.04)))
+    aprof = fit_profile(aenv, 8)
+    aprof = [(aprof[0][0], 0.0)] + aprof + [(aprof[-1][0], 0.0)]
+    charts.append(Lathe(acen, (1, 0, 0), aprof, 6, (0.76, 0.05, 1.0, 1.0), ref=(0, 1, 0), nodes=[pk]))
+    # The corner posts: each from the scan's frame vertices at its foot (on the
+    # dish rim) to those at the glass's top edge (under the roof's brim).
+    patch = (496, 496, 512, 512)
+    puv = ((patch[0] + 8) / 512, 1 - (patch[1] + 8) / 512)
+    posts = Part()
+    nposts = 0
+    for a0 in (45, 135, 225, 315):
+        near = (np.abs((ang - a0 + 180) % 360 - 180) < 6) & (rv > 0.08)
+        foot = v[near & (v[:, 1] > g0 - 0.03) & (v[:, 1] < g0 + 0.005)]
+        head = v[near & (np.abs(v[:, 1] - g1) < 0.006)]
+        if len(foot) < 3 or len(head) < 3:
+            continue
+        bar_part(posts, np.median(foot, 0), np.median(head, 0), 0.012, puv)
+        nposts += 1
+    pcol = np.median(samples[2][postk], axis=0)
+    # The bulb (inside the glass) takes its colour from a second flat patch of the
+    # atlas, so the lamp is two draws (atlas, glass) and not three.
+    bulb_n = [n for n in names if n != post and nodes[n][0] is not glass][0]
+    bk = samples[3] == names.index(bulb_n)
+    bpatch = (480, 496, 496, 512)
+    buv = ((bpatch[0] + 8) / 512, 1 - (bpatch[1] + 8) / 512)
+    atlas, filled = bake_atlas(charts, samples, 512, max_dist=0.05, relief=0.5,
+                               flats=[(patch, pcol), (bpatch, np.median(samples[2][bk], axis=0))])
+    bulb = Part()
+    bg = nodes[bulb_n][0]
+    bn = bg.vertex_normals
+    for f in bg.faces:
+        b0 = len(bulb.v)
+        for i in f:
+            bulb.v.append(np.array(bg.vertices[i], np.float32)); bulb.n.append(np.array(bn[i], np.float32)); bulb.uv.append(buv)
+        bulb.f.append([b0, b0 + 1, b0 + 2])
+    body = lathe_mesh(charts, [posts, bulb], atlas, "street_lamp")
+    body.visual.material.metallicFactor = 0.6
+    parts = [("street_lamp", body), ("street_lamp_glass", glass.copy())]
+    scene = scene_with(parts)
+    scene.apply_transform(trimesh.transformations.scale_matrix(M))
+    return scene, dict(profile_points=len(prof), arm_points=len(aprof), posts=nposts, atlas_filled=round(float(filled), 3))
+
+
 SLIM_PROPS = {   # rule-prop model -> (builder, triangle budget)
     "fire_hydrant": (build_hydrant, 1500),
     "trash_can": (build_bin, 800),
+    "street_lamp": (build_lamp, 1800),
 }
 
 
@@ -1174,7 +1258,8 @@ def winding_ok(scene):
 def scan_scene(src, name):
     """The Poly Haven scan as the game drew it before PROPS-3, in blocks, with
     its triangle count (drawn nodes only)."""
-    folder, exclude = {"fire_hydrant": ("fire_hydrant", "_aged"), "trash_can": ("metal_trash_can", "_rust")}[name]
+    folder, exclude = {"fire_hydrant": ("fire_hydrant", "_aged"), "trash_can": ("metal_trash_can", "_rust"),
+                       "street_lamp": ("street_lamp_01", "\0")}[name]
     nodes = scan_nodes(src, folder, exclude)
     scene = scene_with([(n, g.copy()) for n, (g, _) in nodes.items()])
     scene.apply_transform(trimesh.transformations.scale_matrix(M))

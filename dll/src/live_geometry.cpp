@@ -4650,6 +4650,14 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);   // leaves are cutouts
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     device->SetFVF(kWorldFvf);
+    // PROPS-SLIM: what the street furniture costs, logged every 300 drawn frames:
+    // props in range and drawn per frame, their triangles and draws, by kind.
+    static int s_propFrames = 0;
+    static double s_inRange = 0, s_drawn = 0, s_tris = 0, s_draws = 0;
+    static int s_maxDrawn = 0, s_maxTris = 0;
+    static double s_kind[6] = {};   // lamp, bin, bench, hydrant, tree, other
+    int frameDrawn = 0, frameTris = 0;
+    s_inRange += static_cast<double>(placed.size());
     for (const Placed& p : placed) {
         {
             // Beside the picture (PERF-2): the model's bounding sphere, from its foot point up.
@@ -4659,6 +4667,14 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                                                        p.model->Length() * p.model->Length());
             if (OutsideViewFrustum(p.x, p.y + 0.5f * h, p.z, r + 0.25f)) continue;
         }
+        {
+            int tris = 0, draws = 0;
+            for (const ModelMesh& mm : p.model->meshes) { tris += static_cast<int>(mm.indices.size() / 3); ++draws; }
+            ++frameDrawn; frameTris += tris; s_draws += draws;
+            const int kind = p.model == lamp ? 0 : p.model == bin ? 1 : p.model == bench ? 2 : p.model == hydrant ? 3
+                           : (p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) ? 4 : 5;
+            s_kind[kind] += 1.0;
+        }
         gta2::Mat4 m;
         const float c = std::cos(p.yaw), sn = std::sin(p.yaw);
         m.m[0][0] = c * p.scale;  m.m[0][2] = -sn * p.scale;
@@ -4666,6 +4682,17 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         m.m[2][0] = sn * p.scale; m.m[2][2] = c * p.scale;
         m.m[3][0] = p.x; m.m[3][1] = p.y - p.model->boundsMin.y * p.scale; m.m[3][2] = p.z; m.m[3][3] = 1.0f;
         ModelDraw(device, *p.model, m, nullptr, 0.0f);
+    }
+    s_drawn += frameDrawn; s_tris += frameTris;
+    s_maxDrawn = (std::max)(s_maxDrawn, frameDrawn); s_maxTris = (std::max)(s_maxTris, frameTris);
+    if (++s_propFrames == 300) {
+        const double n = s_propFrames;
+        Log("props drawn: per frame %.1f in range, %.1f drawn (max %d), %.0f triangles (max %d), %.1f draws; "
+            "drawn by kind lamp %.1f bin %.1f bench %.1f hydrant %.1f tree %.1f other %.1f",
+            s_inRange / n, s_drawn / n, s_maxDrawn, s_tris / n, s_maxTris, s_draws / n,
+            s_kind[0] / n, s_kind[1] / n, s_kind[2] / n, s_kind[3] / n, s_kind[4] / n, s_kind[5] / n);
+        s_propFrames = 0; s_inRange = s_drawn = s_tris = s_draws = 0; s_maxDrawn = s_maxTris = 0;
+        for (double& k : s_kind) k = 0;
     }
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
 }
