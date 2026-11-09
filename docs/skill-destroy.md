@@ -100,3 +100,11 @@ frames), `GTA2_DIRECT_KEYS=1`: every frame of the job is in the chase view. Fres
 | dv_pc7 | JOB FAILED (arrested) | a 30 s car leg to the waiting spot, wanted 1 after a bump, pulled out by a cop. Fix: walk under 90 blocks, out of the car when wanted |
 | dv_pc8 | timeout | on foot only: the van roamed the east side (x 168, y 149) and never came within 26 blocks in 40 game minutes. Fix: the pursuit by car in short legs stopped by the wanted level |
 | **dv_pc9** | **JOB COMPLETE** (1124, +$20,000, 365 s from the phone) | in a parked car 16 blocks from the fuse spot, five 15 s legs after the van; out 10 blocks from it as it slowed at 146,149.5, walked at it firing (282 rounds), wrecked at 3.7 blocks. Frames `m_pc_van_engage.png`, `m_pc_van_burning.png` (firing at the van, chase view), `m_pc_end.png` (JOB COMPLETE banner and the payoff brief, chase view) |
+| **dv_pc10** | **JOB COMPLETE** (193 s from the phone) | no parked car near; walking at the arrow, the van stopped at the junction 59.5,134.1, 12 blocks off: 100 rounds from 2.7-12 blocks took it 32000 -> 2345 in 5 s and it blew up. Chase-view frames as above |
+| **dv_pc11** (1x, recorded, `game.mp4`) | **JOB COMPLETE** (309 s from the phone) | a parked car 44 blocks from the van, one pursuit leg, out 13 blocks off as it stood at 59.5,115; 17 s of fire, the skill logged the wreck itself (`wrecked 243 (m68) at 59.5,115.1`) a second before JOB COMPLETE. `m_pc_end.png`: the van's explosion behind the banner, chase view |
+
+**Result: with the final code (`pursue_leg`, dv_pc9-11) PIZZA CAKE reached JOB COMPLETE in 3 of 3
+sessions, every frame of the job in the chase view.** Not yet run on the other 12 jobs: the
+module's model-count mode (`models=`, GANG CAR BANG, the frenzies) and multi-target counts
+(ARMORED CAR CLASH, OFFICER DOWN) are untested in a game; armoured targets (tanks, KARMA
+ASSASSINS' bus) need the job's own weapon first (the stall rule will see no damage).

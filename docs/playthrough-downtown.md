@@ -984,3 +984,24 @@ details, the skill's options and every session are in `docs/skill-gunfight.md`.
 | gf_wm9 | dead: 60 health lost on a walk to the plaza before the fight loop (fixed: the fight starts at brief 1464, bounded steps) |
 
 **2 of 3 consecutive sessions (gf_wm7-9) reached JOB COMPLETE in the chase view**, with no warp.
+
+## Wave M, SKILL-DESTROY (9 Nov 2026): PIZZA CAKE with the destroy-a-vehicle skill, `skills/destroy_vehicle.py`
+
+Module and runner: `gamerun/skills/destroy_vehicle.py`, `gamerun/missions/pizza_cake.py`
+(`missions/keys_pizza_cake.sh`); API, rules and every session in `docs/skill-destroy.md`.
+The van step is the skill: the target car tracked by id from `view: cars` (its arrow slot, hp,
+fire), pursued by car in 15 s `drive3` legs that stop when the police want us or the van stands
+near, then the machine gun on foot from 3-12 blocks. Eleven sessions (`dv_pc1`-`dv_pc11`, fresh
+game each, `GTA2_DIRECT_KEYS=1`); the first eight each failed at a different point that is now
+fixed: the RADIO ZA-ZA phone next door answered first (twice), run over at a kerb waiting for a
+car, firing from too far at a burning van, arrested after 30 s car legs (twice), waiting at
+spots the van never came back to (twice).
+
+| session | outcome |
+|---|---|
+| **dv_pc9** (2x) | **JOB COMPLETE** (1124, +$20,000) 365 s after the phone: pursuit by car, out 10 blocks from the slowing van, 282 rounds, wrecked; `out/dv_pc9/m_pc_van_burning.png`, `m_pc_end.png` |
+| **dv_pc10** (2x) | **JOB COMPLETE** 193 s after the phone: the van stopped 12 blocks off at 59.5,134; 100 rounds, 5 s |
+| **dv_pc11** (1x, `game.mp4`) | **JOB COMPLETE** 309 s after the phone: pursuit from 44 blocks, out 13 blocks from the standing van, 17 s of fire; `m_pc_end.png` the explosion behind the banner |
+
+**3 of 3 sessions with the final code reached JOB COMPLETE, all frames of the job in the chase
+view**, with no developer warp.
