@@ -14,7 +14,7 @@ sleep ${PREWARM_WAIT:-10}
 # Remix's welcome dialog sits over the front end: "Never Show This Again", then focus back on the game.
 xdotool mousemove 603 578 click 1; sleep 1; xdotool windowfocus --sync "$W" 2>/dev/null; xdotool windowactivate "$W" 2>/dev/null; sleep 1
 for i in 1 2 3 4 5 6 7 8; do tap Return; sleep 8; shot menu_$i; done
-python3 /work/remix_shaders_wait.py recheck 300   # the level's own shaders compile on first sight
+python3 /work/remix_shaders_wait.py views 600   # the level and each street view compile on first sight: held here, not in a shot (FIX-REMIX-NIGHT)
 echo "$(date +%T) should be in the level, classic"; shot 0_classic
 hold Up 3; shot 0_classic_walked
 tap v; echo "V -> third person"; sleep 4; shot 1_third

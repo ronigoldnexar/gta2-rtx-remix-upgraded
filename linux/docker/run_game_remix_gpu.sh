@@ -115,6 +115,18 @@ kill -INT $REC 2>/dev/null; wait $REC 2>/dev/null
 SS=0; [ -f /out/.shaders_ready ] && SS=$(python3 -c "print(max(0, $(cat /out/.shaders_ready) - $RS))")
 ffmpeg -y -loglevel error -ss "$SS" -i /out/game_full.mp4 -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -movflags +faststart /out/game.mp4 2>/dev/null && echo "recording: game.mp4 trimmed from ${SS} s, $(ffprobe -v error -show_entries format=duration -of csv=p=0 /out/game.mp4) s long (run $(python3 -c "print(round($END - $T0))") s, keys script $( [ -f /out/.keys_done ] && echo ended || echo "not finished"))" | tee -a /out/remix_shaders.txt
 wait $REC 2>/dev/null
+# FIX-REMIX-NIGHT: the longest game-thread stall after the shaders-ready moment (the stall sampler's own lines), for the
+# acceptance "no stall over 20 s after the gate says ready" and so a long Remix compile reads as one, not as a hang.
+[ -f /out/.shaders_ready ] && python3 - "$G/gta2dx9.log" "$(cat /out/.shaders_ready)" >> /out/remix_shaders.txt 2>/dev/null <<'PYEOF'
+import re, sys, time
+ready = float(sys.argv[2]); day = time.strftime("%Y-%m-%d", time.localtime(ready)); worst = 0; n = 0
+for line in open(sys.argv[1], encoding="latin-1", errors="replace"):
+    m = re.match(r"\[(\d+):(\d+):(\d+)\.(\d+)\] stall sampler: game thread idle (\d+) ms", line)
+    if not m: continue
+    t = time.mktime(time.strptime(f"{day} {m[1]}:{m[2]}:{m[3]}", "%Y-%m-%d %H:%M:%S")) + int(m[4]) / 1000
+    if t >= ready: n += 1; worst = max(worst, int(m[5]))
+print(f"remix: after ready: {n} stall samples, longest game-thread stall {worst / 1000:.1f} s")
+PYEOF
 cp "$G/gta2dx9.log" /out/ 2>/dev/null; cp -r "$G/rtx-remix/logs" /out/remix-logs 2>/dev/null; cp -r "$G/Screenshots" /out/remix-screenshots 2>/dev/null; [ -d "$G/rtx-remix/captures" ] && mkdir -p /out/remix-captures && (cd "$G/rtx-remix/captures" && find . -name "*.usd*" -o -name "*.txt" | head -50 | xargs -r -I{} cp --parents {} /out/remix-captures/) 2>/dev/null; [ -d "$G/rtx-remix/captures" ] && find "$G/rtx-remix/captures" -type f | sed "s#$G/##" > /out/remix-captures-files.txt; cp "$G/.trex/"*.log /out/ 2>/dev/null; cp "$G"/*.log /out/ 2>/dev/null; cp "$G/rtx.conf" /out/rtx.conf.used 2>/dev/null; (cd "$G" && ls -la *.dxvk-cache *.remix-pipeline-cache* .trex/*.dxvk-cache .trex/*cache* 2>/dev/null > /out/remix-cache-files.txt); [ "${REMIX_COLD:-0}" != 1 ] && [ -d /work/remix_cache ] && cp "$G"/*.dxvk-cache "$G"/*.remix-pipeline-cache* /work/remix_cache/ 2>/dev/null; [ "${REMIX_COLD:-0}" != 1 ] && [ -d /work/remix_cache ] && cp "$G"/.trex/*cache* /work/remix_cache/ 2>/dev/null; [ "${REMIX_COLD:-0}" != 1 ] && [ -d /work/remix_cache ] && for d in $(cat /out/remix-cache-files.txt 2>/dev/null); do [ -d "$G/$d" ] && cp -r "$G/$d" /work/remix_cache/ 2>/dev/null; [ -f "$G/$d" ] && mkdir -p "/work/remix_cache/$(dirname "$d")" && cp "$G/$d" "/work/remix_cache/$d" 2>/dev/null; done; cp -r /tmp/wp/drive_c/users/root/AppData/Local/NVIDIA/RTXRemix/user_settings /out/remix-user-settings 2>/dev/null; [ -d /work/remix_user_settings ] && true; dmesg 2>/dev/null | grep -i "segfault\|NvRemix" | tail -5 > /out/dmesg.txt
 cp -r "$G/gta2dx9_tiles" /out/ 2>/dev/null
 find "$G" /tmp/wp/drive_c/users -maxdepth 3 -name "RtxOptions.md" -exec cp {} /out/ \; 2>/dev/null   # DXVK_DOCUMENTATION_WRITE_RTX_OPTIONS_MD=1: the runtime's own option reference

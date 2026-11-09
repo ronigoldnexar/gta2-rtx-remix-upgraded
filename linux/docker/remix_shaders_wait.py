@@ -9,7 +9,14 @@ The box has a constant 1 px light-grey (87,87,87) frame: the top edge at y=H-81,
                      overlay has been absent for QUIET polls; writes /out/remix_shaders.txt and /out/.shaders_ready and prints
                      'remix: shaders ready after N s' (N counts from the game start: /out/.t0).
   recheck  [cap_s]   a keys script calls this in the level before its first view shot (same test).
+  views    [cap_s]   (FIX-REMIX-NIGHT) after recheck: steps the views classic -> third -> first -> classic (qa_lib.set_view) and holds each
+                     until the game thread has stopped stalling, so the street views' first-use compiles happen here and not in a shot;
+                     prints 'remix: views warmed after N s (third A s, first B s)'.
 Exit 0 = ready, 1 = cap reached (also logged: 'remix: shaders NOT ready after N s').
+FIX-REMIX-NIGHT (pt-remix-ultra-cold-cache-freeze-on-first-view-switch): "ready" also needs the game in the level (the renderer's
+'view: ... (player found' line) and a game thread that is not stalling (no new 'stall sampler: game thread idle' line for the
+last QUIET polls). The picture test alone passed on the front end ("ready after 17 s, overlay never seen") with the level, its HD
+tiles and every street-view shader still to come; a game thread idle in d3d9 Present is the Remix server compiling, not a hang.
 Env: SCREEN_W/H (1280x720), REMIX_SHADER_CAP (600), REMIX_SHADER_QUIET (4 polls of 2 s), REMIX_SHADER_GRACE (15 s)."""
 import os, subprocess, sys, time
 
@@ -35,6 +42,22 @@ def overlay_present():
     right = sum(ok(px(BOX_W - 1, r)) for r in range(6, BOX_H - 2, 6))
     return top >= 0.85 * len(range(4, BOX_W - 4, 8)) and right >= 0.85 * len(range(6, BOX_H - 2, 6))
 
+GAME_LOG = os.environ.get("GAME_LOG", "/tmp/wp/drive_c/Games/GTA2/gta2dx9.log")
+_log_pos = 0; _stalls = 0; _in_level = False
+
+def game_log_poll():
+    """reads what the renderer logged since the last poll: (in the level, stall lines so far)"""
+    global _log_pos, _stalls, _in_level
+    try:
+        with open(GAME_LOG, "rb") as f:
+            f.seek(_log_pos); chunk = f.read(); _log_pos += len(chunk)
+    except OSError:
+        return _in_level, _stalls
+    text = chunk.decode("latin-1", "replace")
+    _stalls += text.count("stall sampler: game thread idle")
+    if "(player found" in text: _in_level = True
+    return _in_level, _stalls
+
 def lit():
     """Mean (0..255) of the picture's centre, HUD excluded; None when the grab failed. A cold start passes through a dim, half-lit picture
     (mean ~14, the sun not in yet), black again for ~6 s, and only then the real scene (mean 85-90 by day); black is exactly 0."""
@@ -53,6 +76,25 @@ if os.path.exists("/out/.t0"):
     try: t0 = float(open("/out/.t0").read().strip())
     except ValueError: pass
 seen = False; first_lit = None; absent = 0; litc = 0; brightc = 0; last = None
+calm = 0; last_stalls = None; said_level = False
+HOLD = os.environ.get("REMIX_GATE") == "hold"      # the keys script waits for this gate: nothing takes the game to the level yet
+
+def views(cap):
+    """steps through the street views, each held until the game thread is calm"""
+    sys.path.insert(0, "/work")
+    import qa_lib as Q
+    t_views = time.time(); took = {}
+    for v in ("third", "first", "classic"):
+        t_v = time.time(); Q.set_view(v, settle=1.0); quiet_v = 0; prev = game_log_poll()[1]
+        while time.time() - t_v < cap and quiet_v < quiet + 1:
+            time.sleep(2); now_st = game_log_poll()[1]; m = lit()
+            quiet_v = quiet_v + 1 if (now_st == prev and m is not None and m > 2.0) else 0; prev = now_st
+        took[v] = time.time() - t_v
+    msg = (f"remix: views warmed after {time.time() - t0:.0f} s (" + ", ".join(f"{k} {v:.0f} s" for k, v in took.items()) +
+           f"; {game_log_poll()[1]} stall samples so far)")
+    print(msg, flush=True); open("/out/remix_shaders.txt", "a").write(msg + "\n")
+
+game_log_poll()
 while True:
     now = time.time()
     if now - t_start > cap:
@@ -64,15 +106,21 @@ while True:
     litc = litc + 1 if l else 0                          # any picture (a dark night scene included)
     brightc = brightc + 1 if (m is not None and m >= 30.0) else 0   # a daylight scene
     if l and first_lit is None: first_lit = now
+    in_level, st = game_log_poll()
+    calm = calm + 1 if (last_stalls is not None and st == last_stalls) else 0; last_stalls = st
+    if in_level and not said_level:
+        print(f"remix: game in the level at {now - t0:.0f} s", flush=True); said_level = True
     if o != last and o is not None:
         print(f"remix: shader overlay {'up' if o else 'gone'} at {now - t0:.0f} s", flush=True); last = o
     # gate: the picture must be up, and the overlay (which appears a few seconds after the first lit frame) quiet
     # the grace (the box appears a few seconds after the first lit frame) only matters when the box was never seen: a warm cache
     # ready: the box gone, and the picture held: 3 polls (6 s) at daylight brightness, or 12 polls (24 s) of any picture (a night scene)
-    if absent >= quiet and (brightc >= 3 or litc >= 12) and (mode != "gate" or seen or (first_lit is not None and now - first_lit >= grace)):
+    if absent >= quiet and (brightc >= 3 or litc >= 12) and (in_level or HOLD) and calm >= quiet and \
+            (mode != "gate" or seen or (first_lit is not None and now - first_lit >= grace)):
         msg = f"remix: shaders ready after {now - t0:.0f} s ({'compiled on screen' if seen else 'overlay never seen: warm cache'}; mode {mode})"
         print(msg, flush=True); open("/out/remix_shaders.txt", "a").write(msg + "\n")
         try: open("/out/.shaders_ready", "x").write(f"{now}\n")      # the earliest ready (gate or a keys script's recheck) marks the start of the played segment
         except FileExistsError: pass
+        if mode == "views": views(cap)
         sys.exit(0)
     time.sleep(2)

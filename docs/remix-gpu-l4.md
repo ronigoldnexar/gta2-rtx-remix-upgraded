@@ -163,6 +163,30 @@ for 12 polls (24 s, a night scene: the game starts at 02:00 in the Remix runs, s
 - The black for ~5 s right after the first view shot is the keys script's own F12 (Remix screenshot), not the compile.
 - Not a time-of-day defect: the dark blue/purple classic frames while the box is up are the unfinished shader set.
 
+### The gate waits for the level and the street views (FIX-REMIX-NIGHT, 9 Nov)
+
+pt-remix-ultra-cold-cache-freeze-on-first-view-switch (Ultra preset, cold caches, ptrmx6_wil1): the gate said "ready after 17 s (overlay never
+seen: warm cache)" while the game was still on the front end; the level load then held the game thread ~25 s (HD tiles and their textures across
+the bridge), and 11 s after the first switch to first person the game thread waited inside the Remix bridge client (`d3d9.dll`, called from
+model_store's texture creation) for the 64-bit server, whose log stopped at the same second: the server was busy (a first-use compile on a cold
+NVIDIA cache on a shared GPU), and with `disableTimeouts = True` / `infiniteRetries = True` in bridge.conf the window simply froze. The stall
+sampler stopped after 60 samples, so the log went silent at 49 s and the freeze read as a hang. Two later cold Ultra runs (rn_ultracold1, rn_cold2)
+did not freeze; the 5-minute server stall did not come back, so its trigger is not proven. What changed:
+
+- `remix_shaders_wait.py`: ready also needs the renderer's `(player found` line (the game is in the level; not under `REMIX_GATE=hold`) and a calm
+  game thread (no new `stall sampler: game thread idle` line for the last 4 polls). A new mode `views` (what `keys_remix_gpu.sh` and
+  `keys_remix_playtest.sh` now call instead of `recheck`) steps classic -> third -> first -> classic and holds each view until the game thread is
+  calm, so every view's first-use compile happens there and not in a shot: `remix: views warmed after N s (third A s, first B s, classic C s; ...)`.
+- `run_game_remix_gpu.sh` ends with `remix: after ready: N stall samples, longest game-thread stall X s` in `remix_shaders.txt`.
+- dllmain.cpp's stall sampler keeps going past its 60 stack samples with one short line every 5 s while the game thread is idle (`... (no stack:
+  past the sample cap)`) and `stall sampler: game thread back after N ms idle` when it returns.
+- Measured, rn_cold2 (GPU 2, `REMIX_COLD=1`, no `REMIX_NVCACHE`, `rtx_premix_max.conf.extra` = Ultra): box seen, ready after 112 s, views warmed
+  after 150 s (13 s each), after ready 1 stall sample, longest 1.7 s; every 5 s shot after ready is a lit path-traced frame in all three views at
+  13:00 and 22:30.
+- Still short: a player's own first launch has no gate. Remix compiles on first use and the window does not answer meanwhile (its compile box only
+  covers the prewarm set). A real fix needs the runtime to prewarm what our views use, or a loading screen of our own that holds input until the
+  street views are warm.
+
 ## Open
 - **Black stretches of 1-7 s in the ground views** (run 7: about half of the third/first-person
   segment, none in classic). They coincide with the renderer's sprite stage at 49 ms average

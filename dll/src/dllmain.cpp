@@ -690,11 +690,31 @@ DWORD WINAPI StallSampler(LPVOID) {
     }
     int samples = 0;
     DWORD lastSample = 0;
-    while (!g_shuttingDown && samples < 60) {
+    // FIX-REMIX-NIGHT (pt-remix-ultra-cold-cache-freeze-on-first-view-switch): after the first 60 stack
+    // samples the sampler used to stop, so a stall that went on (a Remix server compiling for minutes on a
+    // cold shader cache) left the log silent from 49 s on. Past the cap it now writes one short line every
+    // 5 s while the thread is idle, and one when it comes back, with no stack walk.
+    DWORD stallBeat = 0, longest = 0;
+    while (!g_shuttingDown) {
         Sleep(250);
         const DWORD beat = g_beat;
         const DWORD now = GetTickCount();
-        if (!beat || now - beat < 1500 || now - lastSample < 1000) continue;
+        if (stallBeat && beat != stallBeat) {
+            if (samples >= 60) Log("stall sampler: game thread back after %lu ms idle", static_cast<unsigned long>(longest));
+            stallBeat = 0;
+            longest = 0;
+        }
+        if (!beat || now - beat < 1500) continue;
+        stallBeat = beat;
+        longest = now - beat;
+        if (samples >= 60) {
+            if (now - lastSample >= 5000) {
+                lastSample = now;
+                Log("stall sampler: game thread idle %lu ms (no stack: past the sample cap)", static_cast<unsigned long>(now - beat));
+            }
+            continue;
+        }
+        if (now - lastSample < 1000) continue;
         lastSample = now;
         uintptr_t pc = 0, sp = 0;
         uintptr_t stackWords[512] = {};
