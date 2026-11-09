@@ -157,6 +157,7 @@ bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy);
 // `object` is the car's sprite object (PlayerState::vehicleSprite for the one he drives).
 struct CameraCar { float x[4], z[4], y0, y1; uintptr_t object; };
 const std::vector<CameraCar>& LiveCameraCars();
+bool NearestFigureSpot(float x, float y, float z, float skipX, float skipZ, float* sx, float* sy, float* sz, float* distance);
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 // FIX-PERF-VSWITCH: the next classic frame's sprites also issued unseen under the street fog (once).

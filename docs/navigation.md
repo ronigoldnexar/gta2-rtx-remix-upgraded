@@ -531,6 +531,75 @@ in `dll/src/world_view.cpp` (`transitionTarget0_`, `transitionSeconds_`). The cl
   cut comes in a frame late: car bodies, not the move); the cockpit's roll in a hard turn is the first-person body
   roll, not the move.
 
+## No cut at a punch, the V to the map rides the car, no figure at the lens (FIX-CAMERA-6, 9 Nov 2026)
+
+Defects pfeel3-third-punch-contact-camera-cuts-in-one-frame-to-overhead, pfeel4-third-to-classic-while-driving-
+camera-loses-van-and-climbs-facade, pm43-bil-fp-respawn-at-hospital-eye-inside-ped-face-fills-frame,
+pfeel32-v-first-to-third-parked-camera-stays-steep-60deg-car-cropped-at-bottom-edge. Code: the boom filter and the
+end of `ViewCameraSolver::Solve` (`dll/src/view_modes.cpp`), the first-person eye in the same function,
+`WorldView::ApplyTransition` (`dll/src/world_view.cpp`), the bar faces in `dll/src/eye_collision.cpp`, the lens
+cull of the figures in `dll/src/live_geometry.cpp`. The classic view is untouched (see the vreg line below).
+
+- Measuring. `GTA2DX9_LOG_CAMERA=1` now also writes one `cam: pose` line per street frame (and per frame of a
+  move): the eye, yaw, pitch, field of view, the eye's step and the pitch's step since the last frame, and where
+  his axis (on foot: feet, head, his width at the chest) or his car's footprint box lands on the screen (0..1).
+  The tables below are read off these lines (`/tmp`-style script: per 30 fps burst, the largest pitch step, the
+  largest eye step, the frames with a pitch step over 10 degrees or an eye step over 0.35 block, the frames with
+  him outside 5..95 % of the frame). Probe: `gamerun/keys_cam6.sh` (`cam6_probe.py`, CAM6_SEGS=punch,pocket,
+  spinwall,corner,vpress,parkv: punches at the plaza fence pocket, FIX-CAMERA-4's pocket, FIX-CAMERA-5's corner
+  spin and corner walks, V while driving, V first -> third with the van stopped by a wall).
+- The shown orientation turns at a capped rate (pfeel3). The frame clamp (FIX-CAMERA-3) set the yaw and the pitch
+  outright: when the boom was pulled into him at the fence the view turned 122 degrees and 26 down in one frame,
+  and with the eye over his axis the pitch swung 30 degrees a frame. Now no frame turns the shown view more than
+  280 degrees a second of pitch (9 a frame at 30 fps) or 300 of yaw, the clamp's correction included (not the mouse, not the first frame
+  of a view, not the death camera's glide). `GTA2DX9_CAM_RATE=0` turns it off. Log: `cam: turn capped`.
+- The boom eases in at a railing (pfeel3). The plaza fence is two-sided sheets (FIX-CAMERA-4) plus its 3D bars,
+  which the collision had as walls: the boom's mesh cap took the eye from 2.14 block behind him into his head in one
+  frame (2.49 block). The bars, rails and finials on a railing sheet's plane are now marked (`eye collision: ... N
+  bar faces on them`, 33150 in wil) and a sheet or a bar pulls the boom in at the boom's own rate (9 blocks a
+  second); a wall still stops it at once, unless the slower eye is in clear air (then at the same rate).
+  `GTA2DX9_CAM_SOFT_PANELS=0` cuts as before. Logs: `cam: boom eased in at a sheet`, `... at a wall edge`.
+- The V to the map rides the car (pfeel4). Into the classic view the move's start stayed where the chase eye was
+  at the press, and the orientation was a plain blend: at speed the van left the picture for about 1.2 s while the
+  view swung round onto the facades. Now the start moves with him (the player located every frame; the classic
+  camera, which leads the car at speed, when he is not found), the view looks at the car's look point as it rises (2.4 ahead of a chase eye, the nose 0.8 ahead of a
+  driver's eye) and turns to the classic orientation only over the second half of the move, and near the car the
+  rising camera keeps the mesh clearance seen from the car. `GTA2DX9_MOVE_RIDE_CLASSIC=0` restores the old move.
+- No figure at the lens (pm43). After WASTED the first-person eye was put at the hospital door with a figure
+  standing there: a face and a shirt cut by the near plane filled the frame. On foot the first-person eye now keeps
+  0.30 block (about 1.2 m) from every other drawn figure (moved straight out from it, at most 0.4 from his centre,
+  never into a wall or the mesh; a move over a quarter block glides), and the renderer leaves undrawn any figure
+  whose axis is within 0.15 block of the eye at the eye's height (in first person his own as well, in third person
+  never him). Logs: `view: fp eye: figure D from the eye, eye moved M`, `view: figure at the lens not drawn (...)`.
+- Pulled in at the wheel, the eye rises over the roof (pfeel32). With the car stopped and a building close behind,
+  the boom came to rest on the body's rear edge at roof height looking level: the roof filled the lower 60 % of the
+  frame for as long as he sat there. Pulled in (stopped or creeping), the eye now rises over the roof by most of what
+  the boom lost (at most 0.8 block, eased, as far as the cells over it are open) and tips down toward the car within
+  the 35 degree cap. `GTA2DX9_CAM_CAR_RAISE=0` turns it off. Log: `cam: car raise R (boom S short of L)`.
+- Measured (wil, `keys_cam6.sh`, 30 fps bursts; HEAD + the pose line `cam6_tp_base` against the fix builds
+  `cam6_tp_fix4`/`cam6_tp_fix5`; the takes wander, so the punch spot and the cars differ between runs):
+
+  | burst | before: max pitch step / max eye step / frames he is out | after |
+  |---|---|---|
+  | punch at the fence (punch_1) | 29.8 deg / 2.49 block / 57 (box from 0.12 corners) | 6.7 deg / 0.47 / 7 (axis box) |
+  | punch at the fence (punch_2) | 28.5 / 1.86 / 41 | 6.7 / 0.46 / 6 |
+  | FIX-CAMERA-5 corner spin (spinwall) | 1.8 / 0.20; figure height 0.25..0.58 of the frame | 4.4 / 0.19; 0.23..0.49 |
+  | FIX-CAMERA-5 corner walks | 7.9 / 0.36; 0.23..0.76 | 0.1 / 0.18; 0.17..0.23 (fix5) |
+
+  The eye's largest steps after are the boom's 9 blocks a second on 50 ms frames (the host at load 40-50). In frames
+  (base against fix4, punch_1): before, a cut from the street view to a close top-down at the fence, about 0.4 s
+  with no hero in the picture, and a cut back out; after, one continuous move in past the fence's spears to a high
+  look-down and back out. V first -> classic while driving: before, the van out of the picture for about 1.2 s
+  while the view looked at a facade; after, out for 2-3 frames as the view dives from the cab, then in frame to
+  the classic pose. First-person death and respawn at the bil hospital (`cam6_bil_fix4`): a clean forecourt, and
+  during the blast the eye stepped 0.06-0.14 off a figure 0.16-0.24 from it.
+- Still: in a pocket with a solid wall right behind him the boom still comes in over his head and the view looks
+  down steeply for about a second (now a continuous crane move, not a cut); 2 frames without him were seen at the
+  fence before the 280 degree cap. The face of pm43 was not reproduced on HEAD in two takes (the respawn was clean
+  both times): the lens cull and the eye push are checked in the log, not on that face. The arrival into the cab at
+  the end of a third -> first move still pitches 12 degrees in one frame (the roof-line arrival, FIX-CAMERA-5) and
+  the end of a classic -> third descent 10-12 degrees a frame for two frames.
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`

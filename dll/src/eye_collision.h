@@ -54,6 +54,10 @@ bool SegmentHit(const gta2::Vec3& a, const gta2::Vec3& b, float* t);
 // SegmentHit against one-sided faces (walls, lids) only, the two-sided panels ignored.
 bool SegmentHitWalls(const gta2::Vec3& a, const gta2::Vec3& b, float* t);
 
+// FIX-CAMERA-6: SegmentHitWalls without a railing's bars, rails and finials either (the faces on a railing
+// sheet's plane): what the chase boom may not pass at all, as against what it eases in at.
+bool SegmentHitSolid(const gta2::Vec3& a, const gta2::Vec3& b, float* t);
+
 // The nearest surface within maxR of p (no side rule): its distance, or maxR.
 float Nearest(const gta2::Vec3& p, float maxR);
 

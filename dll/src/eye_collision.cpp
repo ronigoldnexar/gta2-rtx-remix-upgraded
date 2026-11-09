@@ -30,6 +30,7 @@ struct Tri {
 };
 constexpr uint8_t kTwoSided = 1;
 constexpr uint8_t kPanel = 2;   // a railing's plane (never drawn): the bars as one sheet
+constexpr uint8_t kBar = 4;     // FIX-CAMERA-6: a face of a railing's bars, rails or finials (on a kPanel's plane)
 constexpr int kGrid = 256;
 
 std::vector<Vec3> g_pos;
@@ -177,8 +178,20 @@ void Build(const gta2::WorldMesh& mesh, const gta2::Style& style) {
     }
 #endif
     int panels = 0;
+    struct PanelBox { Vec3 lo, hi, p0, n; };
+    std::vector<PanelBox> panelBoxes;
     for (size_t k = 0; sheets && k + 12 <= mesh.railingPanels.size(); k += 12) {
         const float* f = &mesh.railingPanels[k];
+        {
+            PanelBox pb{{f[0], f[1], f[2]}, {f[0], f[1], f[2]}, {f[0], f[1], f[2]}, {0.0f, 0.0f, 0.0f}};
+            for (int i = 1; i < 4; ++i) {
+                pb.lo = {(std::min)(pb.lo.x, f[i * 3]), (std::min)(pb.lo.y, f[i * 3 + 1]), (std::min)(pb.lo.z, f[i * 3 + 2])};
+                pb.hi = {(std::max)(pb.hi.x, f[i * 3]), (std::max)(pb.hi.y, f[i * 3 + 1]), (std::max)(pb.hi.z, f[i * 3 + 2])};
+            }
+            const Vec3 nn = gta2::Cross(Sub(Vec3{f[3], f[4], f[5]}, pb.p0), Sub(Vec3{f[6], f[7], f[8]}, pb.p0));
+            const float nl = Len(nn);
+            if (nl > 1e-9f) { pb.n = nn * (1.0f / nl); panelBoxes.push_back(pb); }
+        }
         const uint32_t base = static_cast<uint32_t>(g_pos.size());
         for (int i = 0; i < 4; ++i) g_pos.push_back({f[i * 3], f[i * 3 + 1], f[i * 3 + 2]});
         for (const std::array<uint32_t, 3> tri : {std::array<uint32_t, 3>{0, 1, 2}, std::array<uint32_t, 3>{0, 2, 3}}) {
@@ -223,6 +236,36 @@ void Build(const gta2::WorldMesh& mesh, const gta2::Style& style) {
     }
     g_stamp.assign(g_tris.size(), 0u);
     g_query = 0;
+    // FIX-CAMERA-6 (pfeel3): the faces of a railing's bars, rails and finials (QB-11, one-sided boxes 0.08 thick
+    // on the railing's plane) are marked: the chase boom stops at a wall at once but eases in at a see-through
+    // railing (SegmentHitSolid leaves them out). Every one-sided face with all three corners within kBarSlab of a
+    // railing sheet's plane and inside its box (grown by kBarSlab) is one.
+    int bars = 0;
+    {
+        constexpr float kBarSlab = 0.15f;
+        for (const PanelBox& pb : panelBoxes) {
+            const int x0 = (std::max)(0, static_cast<int>(std::floor(pb.lo.x - kBarSlab)));
+            const int x1 = (std::min)(kGrid - 1, static_cast<int>(std::floor(pb.hi.x + kBarSlab)));
+            const int z0 = (std::max)(0, static_cast<int>(std::floor(pb.lo.z - kBarSlab)));
+            const int z1 = (std::min)(kGrid - 1, static_cast<int>(std::floor(pb.hi.z + kBarSlab)));
+            for (int z = z0; z <= z1; ++z)
+                for (int x = x0; x <= x1; ++x) {
+                    const size_t c = static_cast<size_t>(z) * kGrid + x;
+                    for (uint32_t e = g_cellStart[c]; e < g_cellStart[c + 1]; ++e) {
+                        Tri& t = g_tris[g_cellTris[e]];
+                        if (t.flags & (kTwoSided | kBar)) continue;
+                        bool on = true;
+                        for (int i = 0; i < 3 && on; ++i) {
+                            const Vec3& v = g_pos[t.v[i]];
+                            on = v.x >= pb.lo.x - kBarSlab && v.x <= pb.hi.x + kBarSlab && v.y >= pb.lo.y - kBarSlab &&
+                                 v.y <= pb.hi.y + kBarSlab && v.z >= pb.lo.z - kBarSlab && v.z <= pb.hi.z + kBarSlab &&
+                                 std::fabs(gta2::Dot(Sub(v, pb.p0), pb.n)) < kBarSlab;
+                        }
+                        if (on) { t.flags |= kBar; ++bars; }
+                    }
+                }
+        }
+    }
     // The caps' colour: each tile's mean, at 45% (the inside of a wall is in its own shadow).
     g_tileTone.assign(static_cast<size_t>((std::max)(style.TileCount(), 1)), 0xFF2A2826u);
     g_tileSeeThrough.assign(g_tileTone.size(), 0);
@@ -248,9 +291,9 @@ void Build(const gta2::WorldMesh& mesh, const gta2::Style& style) {
         Log("eye collision: off (GTA2DX9_EYE_COLLISION=0)");
     }
 #endif
-    Log("eye collision: %zu triangles of the world mesh in a %dx%d grid (%zu cell entries, %.1f MB), %d railing panels as sheets",
+    Log("eye collision: %zu triangles of the world mesh in a %dx%d grid (%zu cell entries, %.1f MB), %d railing panels as sheets, %d bar faces on them",
         g_tris.size(), kGrid, kGrid, g_cellTris.size(),
-        (g_pos.size() * sizeof(Vec3) + g_tris.size() * (sizeof(Tri) + 4) + g_cellTris.size() * 4 + g_cellStart.size() * 4) / 1048576.0, panels);
+        (g_pos.size() * sizeof(Vec3) + g_tris.size() * (sizeof(Tri) + 4) + g_cellTris.size() * 4 + g_cellStart.size() * 4) / 1048576.0, panels, bars);
 }
 
 bool Ready() { return g_ready; }
@@ -308,7 +351,7 @@ float Push(Vec3* p, float radius) {
     return Len(Sub(*p, start));
 }
 
-namespace { bool g_wallsOnly = false; }
+namespace { bool g_wallsOnly = false, g_solidOnly = false; }
 
 bool SegmentHit(const Vec3& a, const Vec3& b, float* tOut) {
     if (!g_ready) return false;
@@ -319,6 +362,7 @@ bool SegmentHit(const Vec3& a, const Vec3& b, float* tOut) {
         // move into third person went in through a lid and was inside the block for a frame).
         const Vec3 n = N(t);
         if ((t.flags & kTwoSided) && g_wallsOnly) return;
+        if ((t.flags & (kTwoSided | kBar)) && g_solidOnly) return;
         if (!(t.flags & kTwoSided) && gta2::Dot(d, n) >= 0.0f) return;   // leaving through the back: culled, and no wall
         float tt;
         if (SegTri(a, d, g_pos[t.v[0]], g_pos[t.v[1]], g_pos[t.v[2]], &tt) && tt < best) best = tt;
@@ -326,6 +370,13 @@ bool SegmentHit(const Vec3& a, const Vec3& b, float* tOut) {
     if (best > 1.0f) return false;
     *tOut = best;
     return true;
+}
+
+bool SegmentHitSolid(const Vec3& a, const Vec3& b, float* t) {
+    g_solidOnly = true;
+    const bool hit = SegmentHit(a, b, t);
+    g_solidOnly = false;
+    return hit;
 }
 
 bool SegmentHitWalls(const Vec3& a, const Vec3& b, float* t) {

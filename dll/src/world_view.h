@@ -281,6 +281,9 @@ private:
     ViewMode lastViewMode_ = ViewMode::Classic;
     bool transitionToClassic_ = false;
     bool transitionFromClassic_ = false;
+    bool transitionFromFirst_ = false;   // FIX-CAMERA-6: the move started in first person (pfeel4's aim)
+    bool transitionPlayerKnown_ = false, locatedValid_ = false;   // FIX-CAMERA-6: him at the press / this frame
+    float transitionPlayerX0_ = 0.0f, transitionPlayerZ0_ = 0.0f, locatedX_ = 0.0f, locatedZ_ = 0.0f;
     // How much of the street views' sky, fog and sun is shown: 0 in the classic
     // view, 1 in the others, eased through a move between them. See sky.h.
     float skyBlend_ = 0.0f;

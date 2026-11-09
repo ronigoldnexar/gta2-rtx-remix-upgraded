@@ -1914,6 +1914,10 @@ void WorldView::UpdateCamera() {
         const bool wantView = mode != ViewMode::Classic && worldUploaded_;
         PlayerState player;
         if (worldUploaded_) LocatePlayer(&player);
+        // FIX-CAMERA-6 (pfeel4): where he is (renderer frame), every frame and in every view, for the move into
+        // the classic view to ride him (the classic camera leads the car at speed).
+        locatedValid_ = worldUploaded_ && player.valid;
+        if (locatedValid_) { locatedX_ = player.x; locatedZ_ = static_cast<float>(gta2::kMapHeight) - player.y; }
         // FIX-COLLISION: the street props are solid in the 3D views (prop_collision.h). His
         // body is moved out of any he walked into, in the game's own position, before
         // anything here reads where he is. Never in the classic view (no 3D props there,
@@ -2547,6 +2551,9 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             transitionLift_ = 0.0f;
             transitionToClassic_ = mode == ViewMode::Classic;
             transitionFromClassic_ = lastViewMode_ == ViewMode::Classic;
+            transitionFromFirst_ = lastViewMode_ == ViewMode::FirstPerson;
+            transitionPlayerKnown_ = locatedValid_;
+            transitionPlayerX0_ = locatedX_; transitionPlayerZ0_ = locatedZ_;
             transitionTarget0_ = target.position;
             transitionTargetYaw0_ = target.yaw;
             // FIX-CAMERA-5 (feel23): between the two street views (third <-> first) the move is
@@ -2593,6 +2600,20 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             const float cd = std::cos(dh), sd = std::sin(dh);
             from.position = target.position + gta2::Vec3{v.x * cd + v.z * sd, v.y, -v.x * sd + v.z * cd};
             from.yaw = transitionFrom_.yaw + dh;
+        }
+        // FIX-CAMERA-6 (pfeel4-third-to-classic-while-driving-camera-loses-van-and-climbs-facade): into the
+        // classic view too the start rides along, by how far the classic camera (the game's, which follows the
+        // car) has gone since the press: at speed the van drove out of the picture for 1.5 s while the camera
+        // rose from where the chase eye had been. Across only (the classic height changes with the game's zoom).
+        gta2::Vec3 rideToClassic{0.0f, 0.0f, 0.0f};
+        static int rideOn = -1;
+        if (rideOn < 0) { char b2[8] = {}; rideOn = GetEnvironmentVariableA("GTA2DX9_MOVE_RIDE_CLASSIC", b2, sizeof b2) && atoi(b2) == 0 ? 0 : 1; }
+        if (transitionToClassic_ && rideOn) {
+            // him (located every frame), else the classic camera (which leads the car at speed)
+            rideToClassic = transitionPlayerKnown_ && locatedValid_
+                                ? gta2::Vec3{locatedX_ - transitionPlayerX0_, 0.0f, locatedZ_ - transitionPlayerZ0_}
+                                : gta2::Vec3{target.position.x - transitionTarget0_.x, 0.0f, target.position.z - transitionTarget0_.z};
+            from.position = transitionFrom_.position + rideToClassic;
         }
         const gta2::Vec3& a = from.position;
         const gta2::Vec3& b = target.position;
@@ -2707,6 +2728,23 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             // the camera waits where it was last shown, outside, until the path leaves it.
             if (lastPoseValid_ && eyecol::InsideSolid(p) && !eyecol::InsideSolid(lastPose_.position)) p = lastPose_.position;
         }
+        // FIX-CAMERA-6 (pfeel4): on the way up into the classic view, near where it set off (the car), the
+        // camera keeps clear of the drawn mesh as seen from the car's side: from the chase eye beside a facade
+        // the path rose along its windows and over its cornice. Blended in by the distance from the start, as
+        // the arrival's clearance above is by the distance from the destination.
+        if (transitionToClassic_ && rideOn && eyecol::Ready()) {
+            const gta2::Vec3 f0{std::sin(transitionFrom_.yaw) * std::cos(transitionFrom_.pitch), std::sin(transitionFrom_.pitch),
+                                std::cos(transitionFrom_.yaw) * std::cos(transitionFrom_.pitch)};
+            const gta2::Vec3 anchor = transitionFrom_.position + f0 * 1.2f + rideToClassic;   // over the car, a little ahead
+            const gta2::Vec3 toA = p - anchor;
+            const float da = std::sqrt(toA.x * toA.x + toA.y * toA.y + toA.z * toA.z);
+            if (da < 4.0f) {
+                gta2::Vec3 c = p;
+                eyecol::Clear(anchor, &c, 0.15f);
+                const float u = (std::min)(1.0f, (std::max)(0.0f, (4.0f - da) / 2.0f));
+                p = p + (c - p) * (u * u * (3.0f - 2.0f * u));
+            }
+        }
         // The short way round for the heading.
         float dyaw = target.yaw - from.yaw;
         while (dyaw > 3.14159265f) dyaw -= 6.2831853f;
@@ -2756,6 +2794,38 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             const float ea = ta * ta * (3.0f - 2.0f * ta);
             shown.yaw = from.yaw + (transitionAimYaw_ - from.yaw) * ea;
             shown.pitch = from.pitch + (aimPitch - from.pitch) * ea;
+        }
+        if (transitionToClassic_ && moveAim && rideOn) {
+            // FIX-CAMERA-6 (pfeel4): out of a street view the camera looks, as it rises, at the point the chase
+            // view looked at (2.4 along its view, riding with the car), and turns to the classic orientation only
+            // over the second half of the move, when it is high over the car: the plain blend swung the heading
+            // round first and looked along the facades while the car left the picture.
+            // (from the driver's eye the car is under the lens: its nose, 0.8 ahead, not the street 2.4 ahead)
+            const float kLookAhead = transitionFromFirst_ ? 0.8f : 2.4f;
+            const gta2::Vec3 f0{std::sin(transitionFrom_.yaw) * std::cos(transitionFrom_.pitch), std::sin(transitionFrom_.pitch),
+                                std::cos(transitionFrom_.yaw) * std::cos(transitionFrom_.pitch)};
+            const gta2::Vec3 look = transitionFrom_.position + f0 * kLookAhead + gta2::Vec3{0.0f, transitionFromFirst_ ? -0.25f : 0.0f, 0.0f} + rideToClassic;
+            const gta2::Vec3 to = look - p;
+            const float flat = std::sqrt(to.x * to.x + to.z * to.z);
+            float aimYaw = from.yaw, aimPitch = target.pitch;
+            if (flat > 0.05f) {
+                aimYaw = std::atan2(to.x, to.z);
+                aimPitch = std::atan2(to.y, flat);
+            }
+            // the aim's heading kept next to the start's (never the long way round)
+            float w0 = aimYaw - from.yaw;
+            while (w0 > 3.14159265f) w0 -= 6.2831853f;
+            while (w0 < -3.14159265f) w0 += 6.2831853f;
+            aimYaw = from.yaw + w0;
+            // in over the first 20 % (from the pose at the press), out to the classic pose over the last half
+            const float tin = (std::min)(1.0f, t / 0.2f), win = tin * tin * (3.0f - 2.0f * tin);
+            const float tout = (std::min)(1.0f, (std::max)(0.0f, (t - 0.5f) / 0.5f)), wout = tout * tout * (3.0f - 2.0f * tout);
+            float yA = from.yaw + (aimYaw - from.yaw) * win, pA = from.pitch + (aimPitch - from.pitch) * win;
+            float dy2 = target.yaw - yA;
+            while (dy2 > 3.14159265f) dy2 -= 6.2831853f;
+            while (dy2 < -3.14159265f) dy2 += 6.2831853f;
+            shown.yaw = yA + dy2 * wout;
+            shown.pitch = pA + (target.pitch - pA) * wout;
         }
         shown.roll = from.roll + (target.roll - from.roll) * e;
         shown.fov = from.fov + (target.fov - from.fov) * e;
@@ -2854,6 +2924,61 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
                 transitionT_, ViewModeName(mode), shown.position.x, shown.position.y, shown.position.z, shown.yaw * 57.2958f,
                 shown.pitch * 57.2958f, shown.roll * 57.2958f, off, yawStep * 57.2958f, target.position.x, target.position.y, target.position.z,
                 target.yaw * 57.2958f, target.pitch * 57.2958f);
+    }
+    {
+        // FIX-CAMERA-6: every street frame (and every frame of a move), the pose that is shown and
+        // where his figure (on foot: feet to head) or his car (its footprint box) lands on the screen,
+        // 0..1 from the left and from the top (GTA2DX9_LOG_CAMERA=1). The tables of the camera work
+        // orders (pitch steps, eye steps, the hero in frame) are read off these lines.
+        static int poseLog = -1;
+        if (poseLog < 0) { char b[8] = {}; poseLog = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", b, sizeof b) && atoi(b) ? 1 : 0; }
+        if (poseLog && (mode != ViewMode::Classic || transitionT_ < 1.0f)) {
+            const gta2::Vec3 e = camera_.Position();
+            const float cyw = camera_.Yaw(), cpt = camera_.Pitch(), fovY = camera_.FovY();
+            const float sy = std::sin(cyw), cy = std::cos(cyw), sp = std::sin(cpt), cpv = std::cos(cpt);
+            const float th = std::tan(0.5f * fovY), tw = th * (16.0f / 9.0f);
+            float hx = 0.0f, hy = 0.0f, hz = 0.0f;
+            bool inCar = false;
+            const bool have = viewSolver_.LastPlayer(&hx, &hy, &hz, &inCar);
+            float x0 = 9.0f, x1 = -9.0f, y0 = 9.0f, y1 = -9.0f;
+            bool behind = false;
+            auto add = [&](float x, float y, float z) {
+                const float dx = x - e.x, dy = y - e.y, dz = z - e.z;
+                const float zf = dx * sy * cpv + dy * sp + dz * cy * cpv;
+                if (zf < 0.02f) { behind = true; return; }
+                const float sx = 0.5f + 0.5f * (dx * cy - dz * sy) / zf / tw;
+                const float syy = 0.5f - 0.5f * (-dx * sy * sp + dy * cpv - dz * cy * sp) / zf / th;
+                x0 = (std::min)(x0, sx); x1 = (std::max)(x1, sx); y0 = (std::min)(y0, syy); y1 = (std::max)(y1, syy);
+            };
+            if (have && !inCar) {
+                // his axis, feet to the top of the head, and his width either side at the chest (seen from the eye)
+                add(hx, hy, hz);
+                add(hx, hy + 0.48f, hz);
+                const float sx = std::cos(cyw), sz = -std::sin(cyw);   // the view's right
+                add(hx + sx * 0.12f, hy + 0.3f, hz + sz * 0.12f);
+                add(hx - sx * 0.12f, hy + 0.3f, hz - sz * 0.12f);
+            } else if (have) {
+                const CameraCar* own = nullptr;
+                float best = 1e9f;
+                for (const CameraCar& c : LiveCameraCars()) {
+                    const float cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]), cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
+                    const float d = std::hypot(cx - hx, cz - hz);
+                    if (d < best && d < 1.5f) { best = d; own = &c; }
+                }
+                if (own)
+                    for (int i = 0; i < 4; ++i) { add(own->x[i], own->y0, own->z[i]); add(own->x[i], own->y1, own->z[i]); }
+            }
+            static gta2::Vec3 lastE{};
+            static float lastPitch = 0.0f;
+            static int lastFrame = -5;
+            const bool prev = lastFrame + 1 == frameCount_;
+            const float step = prev ? std::sqrt((e.x - lastE.x) * (e.x - lastE.x) + (e.y - lastE.y) * (e.y - lastE.y) + (e.z - lastE.z) * (e.z - lastE.z)) : 0.0f;
+            const float pstep = prev ? (cpt - lastPitch) * 57.2958f : 0.0f;
+            lastE = e; lastPitch = cpt; lastFrame = frameCount_;
+            Log("cam: pose f=%d %s t=%.2f eye=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f fov=%.1f step=%.3f pstep=%.1f %s=%.2f,%.2f,%.2f box=%.2f..%.2f,%.2f..%.2f%s",
+                frameCount_, ViewModeName(mode), transitionT_, e.x, e.y, e.z, cyw * 57.2958f, cpt * 57.2958f, fovY * 57.2958f, step, pstep,
+                inCar ? "car" : "hero", hx, hy, hz, x0, x1, y0, y1, behind ? " behind" : "");
+        }
     }
     lastPose_ = shown;
     lastPoseValid_ = true;

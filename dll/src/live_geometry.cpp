@@ -421,6 +421,20 @@ bool BehindView(float x, float y, float z, float margin) {
 const std::vector<AimPed>& LiveAimPeds() { return g_aimPeds; }
 uint32_t LiveAimPedsFrame() { return g_aimPedsFrame; }
 const std::vector<CameraCar>& LiveCameraCars() { return g_cameraCars; }
+// FIX-CAMERA-6: the drawn figure nearest (x, z) at about height y (last frame's g_pedSpots), not the one
+// within 0.1 of (skipX, skipZ) (the player himself, if his figure is drawn).
+bool NearestFigureSpot(float x, float y, float z, float skipX, float skipZ, float* sx, float* sy, float* sz, float* distance) {
+    float best = 1e9f;
+    bool found = false;
+    for (const PedSpot& p : g_pedSpots) {
+        if (std::fabs(p.x - skipX) < 0.1f && std::fabs(p.z - skipZ) < 0.1f) continue;
+        if (y < p.y - 0.2f || y > p.y + 0.8f) continue;
+        const float d = std::hypot(p.x - x, p.z - z);
+        if (d < best) { best = d; *sx = p.x; *sy = p.y; *sz = p.z; found = true; }
+    }
+    if (found) *distance = best;
+    return found;
+}
 bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy) {
     if (!g_viewProjValid) return false;
     const float (*m)[4] = g_viewProj;
@@ -9538,6 +9552,28 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // (his own figure from his eyes is at the eye, and its shadow falls in view)
             if (model && !sprite.shadowOnly && BehindView(gx, cy, gz, 0.6f)) continue;
             if (model && !sprite.shadowOnly && OutsideViewFrustum(gx, cy, gz, 0.75f)) continue;   // beside the picture: not drawn, track kept
+            // FIX-CAMERA-6 (pm43-bil-fp-respawn-at-hospital-eye-inside-ped-face-fills-frame): no figure at the lens.
+            // A body whose axis is within kLensClear of the eye (seen from above) at the eye's height is cut by
+            // the near plane and fills the frame from inside (after a respawn in first person a figure stood
+            // where the eye was put: a face and a shirt at an inch). It is not drawn while it is there (its track
+            // goes on, so it comes back without a jump); the eye also steps away from it (view_modes.cpp). In
+            // first person any figure, his own if its hiding missed; in third person not his own (the subject).
+            if (model && !sprite.shadowOnly && CurrentViewMode() != ViewMode::Classic && StreetPresentation() &&
+                (CurrentViewMode() == ViewMode::FirstPerson || !heroFigure)) {
+                constexpr float kLensClear = 0.15f;   // about 60 cm: the body (0.06 block half-width) within a hand of the 0.05 near plane
+                const float lx = gx - g_viewEye.x, lz = gz - g_viewEye.z;
+                if (lx * lx + lz * lz < kLensClear * kLensClear && g_viewEye.y > cy - 0.1f && g_viewEye.y < cy + kPedHeight * 1.3f + 0.1f) {
+                    static uint32_t lensFrame = 0;
+                    static int lensLogs = 0;
+                    if (lensFrame != g_carFrame && lensLogs < 60) {
+                        ++lensLogs;
+                        Log("view: figure at the lens not drawn (%s, %.2f from the eye, %s)", heroFigure ? "his own" : "a pedestrian",
+                            std::sqrt(lx * lx + lz * lz), ViewModeName(CurrentViewMode()));
+                    }
+                    lensFrame = g_carFrame;
+                    continue;
+                }
+            }
             ModelSetPlayerTextures(model && (sprite.shadowOnly ||
                                              (g_devTaggedThird && RemixApiAvailable() && CurrentViewMode() == ViewMode::ThirdPerson &&
                                               reinterpret_cast<const void*>(sprite.object) == g_playerObject)));

@@ -359,6 +359,12 @@ public:
                 gta2::Camera* camera);
     void Reset();
     const char* Status() const { return status_; }
+    // FIX-CAMERA-6: where the solver last had him (renderer frame: x, the eased floor, z) and
+    // whether at the wheel, for the per-frame pose line (GTA2DX9_LOG_CAMERA=1).
+    bool LastPlayer(float* x, float* y, float* z, bool* inVehicle) const {
+        *x = lastX_; *y = floorY_; *z = lastZ_; *inVehicle = lastInVehicle_;
+        return settled_;
+    }
 
     // Where the camera is, for the menu.
     float yawDegrees = 0.0f, pitchDegrees = 0.0f;
@@ -375,6 +381,8 @@ private:
 
     bool settled_ = false;
     bool finalYawKnown_ = false;  // third person: the orientation actually set last frame
+    bool shownPoseKnown_ = false; // FIX-CAMERA-6: third person, the yaw and pitch shown last frame (rate cap)
+    float shownYaw_ = 0.0f, shownPitch_ = 0.0f;
     float finalYaw_ = 0.0f;
     float followYaw_ = 0.0f;      // the yaw the chase camera sits at
     float followYawVel_ = 0.0f;   // its angular velocity, radians a second (the spring)
@@ -430,6 +438,7 @@ private:
     float boomClear_ = 0.0f;          // seconds since the solve last pulled the boom in
     bool boomKnown_ = false;
     float bodyLift_ = 0.0f;           // FIX-CAMERA-3: the shown eye's rise over his head when the walls pull the boom into him
+    float carRaise_ = 0.0f;           // FIX-CAMERA-6: the shown eye's rise over his own roof with the boom pulled in
     float carLift_ = 0.0f;            // FIX-CAMERA-2: the shown eye's rise over a car or wreck beside it
     bool boomInVehicle_ = false;      // the boom was last solved at the wheel (a change restarts it)
     float armDirX_ = 0.0f, armDirY_ = 0.0f, armDirZ_ = -1.0f;
