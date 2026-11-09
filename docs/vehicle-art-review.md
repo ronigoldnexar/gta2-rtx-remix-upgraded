@@ -303,3 +303,24 @@ from `stage_vr` (Nov 8 meshes). Same DLL, ini, spot (164.5,149.2 facing 180,149.
   0 FAULT in both runs.
 - Still short of a shipping frame: the cab's proportions follow the sprite rows (VEHICLE-ART-1) and were not
   re-cut. The door glass is still dark. At the chase distance the hubs are soft.
+
+## VEHICLE-ART-6: pre-war lamps on the 050 B-Type and 018 Shark (item 7)
+
+TRELLIS fused the free-standing lamps into the wings, and the bake left pale grey blobs. There was no rim, no
+lens and no reflector. `tools/vehicle_art/add_lamps.py` adds carkit lamps at the positions you give it (glb units,
+mirrored to -x). Each lamp is a short chrome bucket sunk into the blob, its rim proud of the blob's front, a dark
+seal, and the 063's sealed-beam lens. It writes them into the generated glb as a second material (image 1 and 3,
+256 px).
+- The body's mesh, UVs and texture are untouched (vertex counts: 13910 + 936 and 10674 + 936), so the resplit
+  body textures `NNN_0*.tga` (FIX-CAR-IDENTITY) and their Remix hashes stay valid. Only the `.mesh` and the new
+  `_1`/`_3` lamp textures are copied in.
+- Positions: 050 at x 0.185, y 0.222, r 0.032. 018 at x 0.124, y 0.271, r 0.034. You can measure them with an
+  orthographic front render of the glb.
+- `assets-src/cars/models3d/050_b_type.glb` and `018_shark.glb` now include the lamps. Run the tool on the
+  lamp-less originals (backups in `<workspace>/backup_va6/src`), never on its own output.
+- Frames (same spot, own car stopped, regression camera, forced model, same DLL): out/va6_lampa (before) and
+  out/va6_lampb (after), poses front34, eye, side, far and chase. 0 FAULT.
+- Still short: the 050's bonnet is still lumpy (geometry, item 6). On the 018 the octagonal blob still shows
+  round the new lamp from the side. The 018 is a 1930s pontoon body, while its sprite is a finned 1950s
+  sedan: that identity miss needs a regenerated or authored body. The grilles are unchanged. 042 and 039 were
+  not done (they can use the same tool).

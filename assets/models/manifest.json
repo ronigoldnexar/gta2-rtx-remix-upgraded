@@ -7604,13 +7604,15 @@
   },
   {
    "name": "018_shark",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 10674,
+   "nodes": 4,
+   "meshes": 4,
+   "vertices": 11610,
    "animations": [],
    "textures": [
     "018_shark_0.tga",
-    "018_shark_0_paint.tga"
+    "018_shark_0_paint.tga",
+    "018_shark_1.tga",
+    "018_shark_3.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8136,13 +8138,15 @@
   },
   {
    "name": "050_b_type",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 13910,
+   "nodes": 4,
+   "meshes": 4,
+   "vertices": 14846,
    "animations": [],
    "textures": [
     "050_b_type_0.tga",
-    "050_b_type_0_paint.tga"
+    "050_b_type_0_paint.tga",
+    "050_b_type_1.tga",
+    "050_b_type_3.tga"
    ],
    "skins": 0,
    "forward": "",
