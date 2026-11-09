@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <map>
 #include <set>
 #include <tuple>
 #include <utility>
@@ -383,7 +384,14 @@ public:
             perTile_[keyed].resize(style.TileCount() + 2);
             perTileTriangle_[keyed].resize(style.TileCount() + 2);
         }
+        street_.resize(style.TileCount() + 2);
+        apron_.resize(style.TileCount() + 2);
     }
+
+    // While set, AddPlainQuad (floor, side, seal) goes to a street-only group: 1 the fill
+    // (AddStreetFill), 2 the apron past the map's edge (AddApron, WRAP addressing). See
+    // TileBatch::streetOnly.
+    void SetStreetMode(int mode) { streetMode_ = mode; }
 
     // A quad with no tile behind it, for the black seal under the world. The
     // corners are given anticlockwise seen from the side the normal points at,
@@ -438,7 +446,9 @@ public:
         // floors read neighbours' faces raw, so guard the slot here rather
         // than corrupt the heap. (Residential crashed on exactly this.)
         if (slot < 0 || static_cast<size_t>(slot) >= perTile_[0].size()) return;
-        std::vector<Vertex>& out = perTile_[0][static_cast<size_t>(slot)];
+        std::vector<Vertex>& out = streetMode_ == 2 ? apron_[static_cast<size_t>(slot)]
+                                 : streetMode_ == 1 ? street_[static_cast<size_t>(slot)]
+                                                    : perTile_[0][static_cast<size_t>(slot)];
         for (int i = 0; i < 4; ++i) {
             const int corner = order[i];
             out.push_back(Vertex{corners[corner].x, corners[corner].y, corners[corner].z,
@@ -589,6 +599,27 @@ public:
             for (size_t tile = 0; tile < perTile_[keyed].size(); ++tile) {
                 FlattenOne(out, static_cast<int>(tile), keyed != 0);
             }
+        }
+        // Last, so every batch before them is exactly what it was without the fill.
+        for (int group = 0; group < 2; ++group)
+        for (size_t tile = 0; tile < street_.size(); ++tile) {
+            const std::vector<Vertex>& quads = group == 0 ? street_[tile] : apron_[tile];
+            if (quads.empty()) continue;
+            TileBatch batch;
+            batch.tile = static_cast<int>(tile);
+            batch.streetOnly = true;
+            batch.wrapUv = group == 1;
+            batch.vertexStart = static_cast<uint32_t>(out->vertices.size());
+            batch.vertexCount = static_cast<uint32_t>(quads.size());
+            batch.indexStart = static_cast<uint32_t>(out->indices.size());
+            for (const Vertex& v : quads) if (v.ny > 0.5f) { batch.lidFaces = true; break; }
+            out->vertices.insert(out->vertices.end(), quads.begin(), quads.end());
+            for (uint32_t quad = 0; quad < quads.size(); quad += 4) {
+                const uint32_t base = batch.vertexStart + quad;
+                out->indices.insert(out->indices.end(), {base + 0, base + 1, base + 2, base + 0, base + 2, base + 3});
+            }
+            batch.indexCount = static_cast<uint32_t>(out->indices.size()) - batch.indexStart;
+            out->batches.push_back(batch);
         }
     }
 
@@ -795,6 +826,9 @@ private:
     }
 
     const Style& style_;
+    int streetMode_ = 0;
+    std::vector<std::vector<Vertex>> street_;   // [tile], plain quads, street views only
+    std::vector<std::vector<Vertex>> apron_;    // [tile], the apron past the edge, WRAP
     // Indexed [ColourKeyed][tile].
     std::vector<std::vector<Vertex>> perTile_[2];
     std::vector<std::vector<Vertex>> perTileTriangle_[2];
@@ -1587,6 +1621,298 @@ void AddHiddenSurfaces(MeshBuilder* builder, const Map& map) {
 }
 }  // namespace
 
+namespace {
+bool g_streetFill = true;
+
+// The street views' fill (see SetStreetFill). GTA2's map is a set of shells for a
+// camera that only ever looked down: a column's implicit base and a road block's
+// lid have no sides, so wherever a walkable surface steps down to a lower one
+// without a wall face (the Industrial start roof at (44,99) is one: a field block
+// one level above the pavement under the church, no riser) a camera at street or
+// roof height looks under the higher lid, through the solid ground, and onto the
+// seal - a flat clear- or fog-coloured sheet where the street should be. The world
+// is treated as cells that are solid or air, and every face between a solid cell
+// and an air one that the map leaves open is closed; where a column has nothing at
+// all at level 0 a ground plane goes under it. Everything here is drawn in the
+// street views only (TileBatch::streetOnly), so the classic view is untouched even
+// where a riser would show at the edge of its perspective.
+class StreetSolid {
+public:
+    StreetSolid(const Map& map, const Style& style) : map_(map), style_(style) {}
+
+    const Block* At(int x, int y, int level) const {
+        if (x < 0 || y < 0 || x >= kMapWidth || y >= kMapHeight || level < 0) return nullptr;
+        const Column& column = map_.ColumnAt(x, y);
+        const int i = level - column.offset;
+        if (i < 0 || i >= static_cast<int>(column.blocks.size())) return nullptr;
+        const uint32_t index = column.blocks[static_cast<size_t>(i)];
+        return index < map_.BlockCount() ? &map_.BlockAt(index) : nullptr;
+    }
+
+    bool Water(const Block& block) const { return block.lid && style_.IsWaterTile(block.lid.Tile()); }
+
+    // A lidless road or pavement under a deck, given a lid by AddHiddenSurfaces (a).
+    bool HiddenGround(int x, int y, int level) const {
+        const Block* block = At(x, y, level);
+        if (!block || block->lid || block->SlopeType() != 0 || (block->GroundType() == 0 && block->arrows == 0)) return false;
+        const Block* above = At(x, y, level + 1);
+        const Block* below = At(x, y, level - 1);
+        const bool covered = above && (above->lid || above->left || above->right || above->top || above->bottom);
+        const bool belowIsSurface = below && (below->lid || below->SlopeType() != 0);
+        return covered && !belowIsSurface && NeighbourLidTile(map_, x, y, level + 1) != 0;
+    }
+
+    bool Solid(int x, int y, int level) const {
+        if (level < 0) return true;
+        if (x < 0 || y < 0 || x >= kMapWidth || y >= kMapHeight || level >= kMapLevels) return false;
+        if (level < map_.ColumnAt(x, y).offset) return true;
+        const Block* block = At(x, y, level);
+        if (!block) return false;
+        if (block->lid && !block->lid.IsFlat() && block->SlopeType() == 0 &&
+            block->lid.Tile() < style_.TileCount() && !Water(*block))
+            return true;
+        return HiddenGround(x, y, level);
+    }
+
+    // Solid and standing on something: a lid over air (an awning, a deck) keeps its
+    // thin edge; only ground and what is built on it gets risers.
+    bool Grounded(int x, int y, int level) const {
+        for (int l = level; l >= 0; --l) if (!Solid(x, y, l)) return false;
+        return true;
+    }
+
+private:
+    const Map& map_;
+    const Style& style_;
+};
+
+const Face& SideFace(const Block& block, int side) {
+    return side == 0 ? block.left : side == 1 ? block.right : side == 2 ? block.top : block.bottom;
+}
+
+// A solid wall tile: not a see-through face and no colour-keyed pixels (a riser is
+// drawn opaque, where a grille's key colour would show as black).
+bool RealTile(const Style& style, const Face& face) {
+    return face && !face.IsFlat() && face.Tile() < style.TileCount() && !style.GetTile(face.Tile()).hasTransparency;
+}
+
+// A wall tile for a riser on `side` of (x, y, level). In order: the face the cell's
+// own column shows on that side higher up (a building's wall continues down to the
+// street), any wall of the cell's own block or of its column below, a wall a
+// neighbouring column shows at that level or below (the retaining wall of the next
+// cell), and failing all of those the ground's own lid tile - never a neighbour's
+// facade from higher up, whose windows on a step in the ground looked wrong.
+int RiserTile(const Style& style, const StreetSolid& solid, int x, int y, int level, int side, int lidTile) {
+    for (int l = level; l < kMapLevels; ++l) {
+        if (const Block* block = solid.At(x, y, l)) if (RealTile(style, SideFace(*block, side))) return SideFace(*block, side).Tile();
+    }
+    for (int l = level; l >= 0; --l) {
+        if (const Block* block = solid.At(x, y, l)) {
+            for (int s = 0; s < 4; ++s) if (RealTile(style, SideFace(*block, s))) return SideFace(*block, s).Tile();
+        }
+    }
+    for (int radius = 1; radius <= 2; ++radius) {
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                if ((std::max)(std::abs(dx), std::abs(dy)) != radius) continue;
+                for (int l = level; l >= 0; --l) {
+                    if (const Block* block = solid.At(x + dx, y + dy, l)) {
+                        for (int s = 0; s < 4; ++s) if (RealTile(style, SideFace(*block, s))) return SideFace(*block, s).Tile();
+                    }
+                }
+            }
+        }
+    }
+    return lidTile;
+}
+
+int GroundTileNear(const Map& map, int x, int y, int level) {
+    if (const int tile = NeighbourLidTile(map, x, y, level)) return tile;
+    for (int radius = 4; radius <= 12; ++radius) {
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                if ((std::max)(std::abs(dx), std::abs(dy)) != radius) continue;
+                const int cx = x + dx, cy = y + dy;
+                if (cx < 0 || cy < 0 || cx >= kMapWidth || cy >= kMapHeight) continue;
+                const Column& column = map.ColumnAt(cx, cy);
+                for (uint32_t index : column.blocks) {
+                    if (index >= map.BlockCount()) continue;
+                    const Block& block = map.BlockAt(index);
+                    if (block.lid && !block.lid.IsFlat() && block.SlopeType() == 0) return block.lid.Tile();
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+struct StreetFillStats { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; };
+StreetFillStats g_streetFillStats;
+
+void AddStreetFill(MeshBuilder* builder, const Map& map, const Style& style) {
+    static const int kSideDx[4] = {-1, 1, 0, 0};   // left (west), right (east), top (north), bottom (south)
+    static const int kSideDy[4] = {0, 0, -1, 1};
+    static const int kOpposite[4] = {1, 0, 3, 2};
+    const StreetSolid solid(map, style);
+    StreetFillStats stats;
+    // Cells near water keep the riverbed, not a ground plane.
+    std::vector<uint8_t> wet(static_cast<size_t>(kMapWidth) * kMapHeight, 0);
+    for (int y = 0; y < kMapHeight; ++y) {
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            bool water = false;
+            for (uint32_t index : column.blocks) if (index < map.BlockCount() && solid.Water(map.BlockAt(index))) water = true;
+            if (!water) continue;
+            for (int dy = -kRiverbedPad - 1; dy <= kRiverbedPad + 1; ++dy)
+                for (int dx = -kRiverbedPad - 1; dx <= kRiverbedPad + 1; ++dx) {
+                    const int cx = x + dx, cy = y + dy;
+                    if (cx >= 0 && cy >= 0 && cx < kMapWidth && cy < kMapHeight) wet[static_cast<size_t>(cy) * kMapWidth + cx] = 1;
+                }
+        }
+    }
+    builder->SetStreetMode(1);
+    for (int y = 0; y < kMapHeight; ++y) {
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            const float xWest = static_cast<float>(x), xEast = xWest + 1.0f;
+            const float zSouth = static_cast<float>(kMapHeight - y - 1), zNorth = zSouth + 1.0f;
+
+            // The top of the implicit base where AddImplicitFloors found no tile for it.
+            if (column.offset > 0 && !solid.Solid(x, y, column.offset)) {
+                const Block* first = solid.At(x, y, column.offset);
+                const bool covered = first && (first->lid || first->SlopeType() != 0);
+                if (!covered && NeighbourLidTile(map, x, y, column.offset) == 0) {
+                    if (const int tile = GroundTileNear(map, x, y, column.offset)) {
+                        const float h = static_cast<float>(column.offset);
+                        builder->AddFloorQuad(tile, {{{xWest, h, zNorth}, {xEast, h, zNorth}, {xEast, h, zSouth}, {xWest, h, zSouth}}});
+                        ++stats.floors;
+                    }
+                }
+            }
+
+            // Nothing at the bottom of the column: a ground plane at level 0.
+            if (!wet[static_cast<size_t>(y) * kMapWidth + x] && !solid.Solid(x, y, 0)) {
+                const Block* bottom = solid.At(x, y, 0);
+                const bool covered = bottom && (bottom->lid || bottom->SlopeType() != 0);
+                if (!covered) {
+                    if (const int tile = GroundTileNear(map, x, y, 1)) {
+                        builder->AddFloorQuad(tile, {{{xWest, 0.0f, zNorth}, {xEast, 0.0f, zNorth}, {xEast, 0.0f, zSouth}, {xWest, 0.0f, zSouth}}});
+                        ++stats.ground;
+                    }
+                }
+            }
+
+            // Risers: a grounded solid cell beside an air one, with no face between.
+            for (int level = 0; level < kMapLevels; ++level) {
+                if (!solid.Solid(x, y, level) || !solid.Grounded(x, y, level)) continue;
+                const Block* block = solid.At(x, y, level);
+                for (int side = 0; side < 4; ++side) {
+                    const int nx = x + kSideDx[side], ny = y + kSideDy[side];
+                    if (solid.Solid(nx, ny, level)) continue;
+                    if (block && SideFace(*block, side)) continue;
+                    // A face of the air block next door on this plane faces away from it, into
+                    // this solid cell: our renderer culls its back, so from the air side it is
+                    // not there (Residential spawn, (116,121)). Only a see-through face, drawn
+                    // both ways, already closes the side.
+                    if (const Block* other = solid.At(nx, ny, level)) {
+                        const Face& face = SideFace(*other, kOpposite[side]);
+                        if (face && face.IsFlat()) continue;
+                    }
+                    // AddImplicitFloors already closed the side of the base here.
+                    if (level < column.offset && nx >= 0 && ny >= 0 && nx < kMapWidth && ny < kMapHeight &&
+                        map.ColumnAt(nx, ny).offset <= level &&
+                        ImplicitSideTile(map, column, side, NeighbourLidTile(map, x, y, column.offset)) != 0)
+                        continue;
+                    const int lidTile = block && block->lid ? block->lid.Tile() : NeighbourLidTile(map, x, y, level + 1);
+                    const int tile = RiserTile(style, solid, x, y, level, side, lidTile);
+                    if (tile <= 0 || tile >= style.TileCount()) continue;
+                    const float y0 = static_cast<float>(level), y1 = y0 + 1.0f;
+                    std::array<Vec3, 4> corners;
+                    Vec3 normal;
+                    switch (side) {
+                        case 0: corners = {{{xWest, y1, zNorth}, {xWest, y1, zSouth}, {xWest, y0, zSouth}, {xWest, y0, zNorth}}}; normal = {-1.0f, 0.0f, 0.0f}; break;
+                        case 1: corners = {{{xEast, y1, zSouth}, {xEast, y1, zNorth}, {xEast, y0, zNorth}, {xEast, y0, zSouth}}}; normal = {1.0f, 0.0f, 0.0f}; break;
+                        case 2: corners = {{{xEast, y1, zNorth}, {xWest, y1, zNorth}, {xWest, y0, zNorth}, {xEast, y0, zNorth}}}; normal = {0.0f, 0.0f, 1.0f}; break;
+                        default: corners = {{{xWest, y1, zSouth}, {xEast, y1, zSouth}, {xEast, y0, zSouth}, {xWest, y0, zSouth}}}; normal = {0.0f, 0.0f, -1.0f}; break;
+                    }
+                    builder->AddSideQuad(tile, corners, normal);
+                    ++stats.risers;
+                }
+            }
+        }
+    }
+    builder->SetStreetMode(0);
+    g_streetFillStats = stats;
+}
+
+// The apron (9d, the horizon): GTA2's map simply stops at its edge, so from a roof or
+// in the descent from the top-down view the city ended in a ruler-straight line with
+// the sky's skirt under it, wherever the edge was nearer than the fog's full reach
+// (the Industrial start is 44 blocks from the west edge, fog full at 130). Past every
+// edge the world goes on as flat ground for kApronReach blocks at the level and in
+// the tile the map's border shows most - water at sea level in all three districts,
+// so the city stands on a sea that the distance fog dissolves into the horizon. The
+// quads repeat their tile once per block (TileBatch::wrapUv); a water tile is drawn by
+// the water pass like the map's own water.
+constexpr float kApronReach = 640.0f;
+
+void AddApron(MeshBuilder* builder, const Map& map, const Style& style) {
+    const StreetSolid solid(map, style);
+    std::map<int, int> waterTiles, groundTiles, heights;
+    auto border = [&](int x, int y) {
+        const Column& column = map.ColumnAt(x, y);
+        for (size_t i = 0; i < column.blocks.size(); ++i) {
+            const uint32_t index = column.blocks[i];
+            if (index >= map.BlockCount()) continue;
+            const Block& block = map.BlockAt(index);
+            if (!block.lid || block.lid.IsFlat() || block.SlopeType() != 0 || block.lid.Tile() >= style.TileCount()) continue;
+            if (solid.Water(block)) ++waterTiles[block.lid.Tile()];
+            else ++groundTiles[block.lid.Tile()];
+            ++heights[column.offset + static_cast<int>(i) + 1];
+            return;
+        }
+    };
+    for (int i = 0; i < kMapWidth; ++i) { border(i, 0); border(i, kMapHeight - 1); }
+    for (int i = 1; i + 1 < kMapHeight; ++i) { border(0, i); border(kMapWidth - 1, i); }
+    auto most = [](const std::map<int, int>& m) {
+        int best = 0, count = 0;
+        for (const auto& kv : m) if (kv.second > count) { best = kv.first; count = kv.second; }
+        return best;
+    };
+    int tile = most(waterTiles);
+    float h = 1.0f;   // the water's surface: a water lid sits on level 0
+    if (tile == 0) {
+        tile = most(groundTiles);
+        h = static_cast<float>(most(heights));
+    }
+    if (tile <= 0) return;
+    const float lo = -kApronReach;
+    const float hiX = static_cast<float>(kMapWidth) + kApronReach, hiZ = static_cast<float>(kMapHeight) + kApronReach;
+    const float W = static_cast<float>(kMapWidth), H = static_cast<float>(kMapHeight);
+    // Four strips and four corners around the map, face up, one tile repeat per block.
+    const float rects[8][4] = {
+        {lo, 0.0f, 0.0f, H}, {W, 0.0f, hiX, H}, {0.0f, lo, W, 0.0f}, {0.0f, H, W, hiZ},
+        {lo, lo, 0.0f, 0.0f}, {W, lo, hiX, 0.0f}, {lo, H, 0.0f, hiZ}, {W, H, hiX, hiZ}};
+    builder->SetStreetMode(2);
+    for (const auto& r : rects) {
+        const std::array<Vec3, 4> corners = {{{r[0], h, r[3]}, {r[2], h, r[3]}, {r[2], h, r[1]}, {r[0], h, r[1]}}};
+        std::array<Uv, 4> uv;
+        for (int i = 0; i < 4; ++i) uv[i] = Uv{corners[i].x, -corners[i].z};
+        builder->AddPlainQuad(tile, corners, {0.0f, 1.0f, 0.0f}, uv);
+    }
+    builder->SetStreetMode(0);
+    g_streetFillStats.apronTile = tile;
+    g_streetFillStats.apronHeight = h;
+}
+}  // namespace
+
+void SetStreetFill(bool on) { g_streetFill = on; }
+bool StreetFill() { return g_streetFill; }
+StreetFillCounts LastStreetFillCounts() {
+    return StreetFillCounts{g_streetFillStats.risers, g_streetFillStats.floors, g_streetFillStats.ground,
+                            g_streetFillStats.apronTile, g_streetFillStats.apronHeight};
+}
+
 void SetRiverbedDepth(float blocks) {
     // Above the seal, which is kSealDepth below level 0 - a sea-level bed any
     // deeper would sit under it.
@@ -1632,6 +1958,12 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     AddImplicitFloors(&builder, map);
     AddHiddenSurfaces(&builder, map);
     if (g_riverbedDepth > 0.0f) AddRiverbed(&builder, map, style, g_riverbedDepth);
+    if (const char* e = std::getenv("GTA2DX9_STREET_FILL")) g_streetFill = e[0] != '0';
+    g_streetFillStats = StreetFillStats{};
+    if (g_streetFill) {
+        AddStreetFill(&builder, map, style);
+        AddApron(&builder, map, style);
+    }
     if (g_seal) {
         // One quad, face up, below everything and reaching well past the map on
         // every side. Winding is left to AddSealQuad; the normal is what says

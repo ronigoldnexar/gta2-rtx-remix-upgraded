@@ -186,6 +186,7 @@ void WaterFx::BuildShore(const WorldMesh& mesh, const std::vector<uint8_t>& wate
     int cells = 0;
     for (const TileBatch& b : mesh.batches) {
         if (b.tile < 0 || b.tile >= static_cast<int>(waterTile.size()) || !waterTile[static_cast<size_t>(b.tile)]) continue;
+        if (b.streetOnly) continue;   // the apron past the edge is not the map's water
         for (uint32_t k = b.indexStart; k + 2 < b.indexStart + b.indexCount && k + 2 < mesh.indices.size(); k += 3) {
             const uint32_t i0 = mesh.indices[k], i1 = mesh.indices[k + 1], i2 = mesh.indices[k + 2];
             if (i0 >= mesh.vertices.size() || i1 >= mesh.vertices.size() || i2 >= mesh.vertices.size()) continue;

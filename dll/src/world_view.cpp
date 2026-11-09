@@ -1437,6 +1437,9 @@ bool WorldView::EnsureWorldLoaded() {
         map_.BlockCount(), mesh.indices.size() / 3, mesh.batches.size(),
         gta2::WorldSeal() ? "sealed" : "OPEN (the sky shows through any gap)");
     {
+        const gta2::StreetFillCounts f = gta2::LastStreetFillCounts();
+        Log("street fill (street views only): %s, %d risers, %d floors, %d ground cells, apron tile %d at %.1f",
+            gta2::StreetFill() ? "on" : "off (GTA2DX9_STREET_FILL=0)", f.risers, f.floors, f.ground, f.apronTile, f.apronHeight);
         const gta2::RailingStats r = gta2::LastRailingStats();
         Log("railings (QB-11): %s, %d tile(s), %d panel(s) from %d flat quads, %d triangles",
             gta2::RailingModels() ? "modelled" : "off (flat panels)", r.tiles, r.panels, r.quadsReplaced, r.triangles);

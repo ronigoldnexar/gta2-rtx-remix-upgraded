@@ -41,6 +41,14 @@ struct TileBatch {
     // a closed block and nobody sees behind it. So only the see-through faces -
     // flat ones and the backs of panels, ColourKeyed - are drawn both ways.
     bool doubleSided = false;
+    // Drawn only in the street views (Renderer::SetStreetView), never in the classic
+    // top-down view: the fill that makes the city watertight from a street or a roof
+    // (AddStreetFill in world_mesh.cpp). Appended after every other batch, so the
+    // classic view's draws and vertex ranges are what they were without it.
+    bool streetOnly = false;
+    // Texture coordinates run past 0..1 (one repeat per block) and want WRAP addressing:
+    // the apron past the map's edge (AddApron in world_mesh.cpp). Street views only.
+    bool wrapUv = false;
 };
 
 struct WorldMesh {
@@ -126,6 +134,16 @@ constexpr float kSealOverhang = 512.0f;
 // change wants a level reload.
 void SetWorldSeal(bool on);
 bool WorldSeal();
+
+// The street views' fill (on by default; GTA2DX9_STREET_FILL=0 or [map] street_fill=0
+// leaves it out): risers where a solid block meets air with no face between them, so a
+// camera on a roof or in the street never looks under a lid into the implicit ground
+// and down to the seal, and a ground plane at level 0 under columns with nothing at
+// the bottom. Read when the mesh is built.
+void SetStreetFill(bool on);
+bool StreetFill();
+struct StreetFillCounts { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; };
+StreetFillCounts LastStreetFillCounts();
 
 // How many blocks one repeat of a water tile's texture spans.
 //

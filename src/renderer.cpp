@@ -769,7 +769,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         // Only tiles the map uses on walls (never as lids) can be windows.
         std::vector<uint8_t> wallOnly(textures_.size(), 0), lidUse(textures_.size(), 0);
         for (const TileBatch& b : batches_) {
-            if (b.tile < 0 || b.tile >= static_cast<int>(textures_.size())) continue;
+            if (b.tile < 0 || b.tile >= static_cast<int>(textures_.size()) || b.streetOnly) continue;
             if (b.lidFaces) lidUse[static_cast<size_t>(b.tile)] = 1; else wallOnly[static_cast<size_t>(b.tile)] = 1;
         }
         int windows = 0;
@@ -1309,6 +1309,9 @@ void Renderer::DrawWorld(const Camera& camera) {
     const bool waterShaderOn = (shading_.sun || shading_.fog) && WaterShaderEnabled() && water_.Ready();
     waterDeferred_.clear();
     for (const TileBatch& batch : batches_) {
+        // The street views' fill (world_mesh.h, TileBatch::streetOnly): never in the
+        // classic view, which keeps exactly the draws it had before the fill existed.
+        if (batch.streetOnly && !streetView_) continue;
         if (waterShaderOn && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile]) {
             waterDeferred_.push_back(&batch);
             continue;
@@ -1388,8 +1391,16 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetSamplerState(1, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
             device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
         }
+        if (batch.wrapUv) {
+            device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+            device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+        }
         device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
                                       batch.indexStart, batch.indexCount / 3);
+        if (batch.wrapUv) {
+            device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+            device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        }
         if (glow) {
             device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
             device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
@@ -1415,8 +1426,24 @@ void Renderer::DrawWorld(const Camera& camera) {
         for (const TileBatch* batch : waterDeferred_) {
             device_->SetRenderState(D3DRS_CULLMODE, batch->doubleSided ? D3DCULL_NONE : cullMode_);
             device_->SetTexture(0, BoundTileTexture(batch->tile));
+            // The apron past the map's edge (world_mesh.cpp AddApron): its tile repeats, and
+            // outside the map the shore map reads "open sea" (white border) instead of the
+            // clamped edge texel, which by a walled edge would be foam to the horizon.
+            if (batch->wrapUv) {
+                device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+                device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+                device_->SetSamplerState(2, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
+                device_->SetSamplerState(2, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
+                device_->SetSamplerState(2, D3DSAMP_BORDERCOLOR, 0xFFFFFFFFu);
+            }
             device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch->vertexStart, batch->vertexCount,
                                           batch->indexStart, batch->indexCount / 3);
+            if (batch->wrapUv) {
+                device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+                device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+                device_->SetSamplerState(2, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+                device_->SetSamplerState(2, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+            }
             stats_.drawCalls++;
             stats_.triangles += static_cast<int>(batch->indexCount / 3);
         }

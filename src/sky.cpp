@@ -13,10 +13,12 @@ namespace {
 constexpr float kPi = 3.14159265f;
 constexpr float kDomeRadius = 900.0f;      // well inside the camera's 2000 far plane
 constexpr int kDomeSegments = 36;
+// Height of the haze band over the horizon, radians (about 5 degrees): see the gradient in Draw.
+constexpr float kHazeBand = 0.09f;
 // Ring elevations in degrees, denser near the horizon where the gradient does
 // its work; the last is the zenith, the first a skirt below the horizon so the
 // fogged edge of the map meets a sky-coloured band rather than black.
-constexpr float kRingElevations[] = {-16.0f, -6.0f, 0.0f, 2.5f, 6.0f, 10.0f, 15.0f, 21.0f,
+constexpr float kRingElevations[] = {-16.0f, -6.0f, 0.0f, 1.2f, 2.5f, 4.0f, 6.0f, 10.0f, 15.0f, 21.0f,
                                      28.0f, 37.0f, 48.0f, 62.0f, 78.0f, 90.0f};
 constexpr int kRings = static_cast<int>(sizeof(kRingElevations) / sizeof(kRingElevations[0]));
 constexpr int kCloudSize = 256;
@@ -301,17 +303,22 @@ void Sky::Draw(IDirect3DDevice9* device, const Camera& camera, float aspect, con
         const Vec3& d = domeDirs_[i];
         const float el = domeElevation_[i];
         Vec3 c;
-        if (el < 0.0f) {
-            // From the horizon colour down to a slightly darker haze.
-            c = colours.fog * (1.0f - 0.18f * Clamp01(-el / 0.3f));
-        } else {
-            const float t = std::pow(Clamp01(std::sin(el)), 0.55f);
-            c = Lerp(colours.horizon, colours.zenith, t);
-        }
         const float angle = std::acos(std::max(-1.0f, std::min(1.0f, Dot(d, sun))));
         const float halo = std::exp(-angle * angle / (2.0f * haloWidth * haloWidth)) * haloGain;
         const float core = std::exp(-angle * angle / (2.0f * 0.09f * 0.09f)) * 0.9f;
-        c = c + colours.sunColour * (halo + core) * (el < 0.0f ? 0.35f : 1.0f);
+        if (el < 0.0f) {
+            // Below the horizon: the fog's own colour, so whatever shows there meets the
+            // fully fogged distance (the apron's sea, the far blocks) without a seam.
+            c = colours.fog;
+        } else {
+            const float t = std::pow(Clamp01(std::sin(el)), 0.55f);
+            c = Lerp(colours.horizon, colours.zenith, t) + colours.sunColour * (halo + core);
+            // The haze band (9d): the fogged city ends exactly in the fog colour, and the
+            // sky over it used to start at the horizon colour plus the sun's glow - up to
+            // 40 levels brighter toward the sun, so the city ended in a ruler-straight line.
+            // Over the lowest few degrees the sky now rises out of the fog colour instead.
+            c = Lerp(colours.fog, c, Smooth(0.0f, kHazeBand, el));
+        }
         DomeVertex& v = domeScratch_[i];
         v.x = d.x * kDomeRadius;
         v.y = d.y * kDomeRadius;
