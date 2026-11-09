@@ -213,6 +213,7 @@ const void* g_hiddenObjects[2] = {nullptr, nullptr};
 bool g_ownShadowOnly = false;   // see SetOwnFigureShadowOnly
 int g_devTaggedThird = 0;       // [devtools] own_tagged_third, see OwnFigureShadowAllowed
 const void* g_playerObject = nullptr;
+const void* g_playerPed = nullptr;   // see SetPlayerPed
 bool g_logPedFrames = false;
 bool g_logFigures = false;   // GTA2DX9_LOG_FIGURES=1: a line per frame per figure near the player (ACTIONS-3D-4)
 // GTA2DX9_LOG_JOINTS=1 (ANIM-BLEND-AUDIT): a "figj:" line per frame for the player's figure and
@@ -349,6 +350,7 @@ int FireSpotsNear(float x, float z, float radius, const void* carShell) {
 void SetPlayerPosition(float x, float y, float z, bool valid) {
     g_playerPosX = x; g_playerPosY = y; g_playerPosZ = z; g_playerPosValid = valid;
 }
+void SetPlayerPed(const void* ped) { g_playerPed = ped; }
 void SetPlayerObject(const void* object) {
     g_playerObject = object;
     static bool checked = false;
@@ -5578,6 +5580,30 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     // ... except his car when the cars are 3D bodies: its flat sprite goes, its
     // body is drawn round him (the eye sits in the cabin; see CarBodiesCabin).
     bool ownCar = false;
+    // FIX-FP (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): a pedestrian sprite that is not the
+    // located one but whose ped is the player's is his (see SetPlayerPed): it becomes his object for the
+    // frame, hidden from his eyes like the located one.
+    if (g_playerPed && g_playerObject) GTA2_TRY {
+        const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn());
+        if (object && object != g_playerObject && object != g_hiddenObjects[1] &&
+            *reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase) == game::kSpriteBasePed) {
+            const uint8_t* physics = *reinterpret_cast<const uint8_t* const*>(object + game::kSpriteObjectOwner);
+            const uint8_t* ped = game::PlausiblePointer(physics) ? *reinterpret_cast<const uint8_t* const*>(physics + game::kPhysicsPed) : nullptr;
+            if (ped && ped == g_playerPed) {
+                static const void* lastLogged = nullptr;
+                static int logs = 0;
+                if (lastLogged != object && logs < 40) {
+                    ++logs; lastLogged = object;
+                    Log("view: player figure re-identified: the game draws his ped %p with sprite %p, the located sprite was %p%s",
+                        g_playerPed, static_cast<const void*>(object), g_playerObject,
+                        g_hiddenObjects[0] == g_playerObject ? " (hidden from his eyes)" : "");
+                }
+                if (g_hiddenObjects[0] && g_hiddenObjects[0] == g_playerObject && !g_hiddenObjects[1]) g_hiddenObjects[0] = object;
+                g_playerObject = object;
+            }
+        }
+    } GTA2_EXCEPT {
+    }
     if (g_hiddenObjects[0] || g_hiddenObjects[1]) {
         const void* object = GameObjectBeingDrawn();
         if (object && (object == g_hiddenObjects[0] || object == g_hiddenObjects[1]) && corners == 4 &&

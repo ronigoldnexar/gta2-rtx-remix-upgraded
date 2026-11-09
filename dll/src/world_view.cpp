@@ -2298,6 +2298,7 @@ void WorldView::UpdateCamera() {
                                    ViewModes().uprightPeds && ViewModes().groundPedFigures &&
                                    ViewModes().groundModels && ModelsAvailable());
             SetPlayerObject(player.pedSprite);
+            SetPlayerPed(player.ped);
             SetPlayerPosition(player.x, player.z, static_cast<float>(gta2::kMapHeight) - player.y, player.valid);
             SetUprightPeds(ViewModes().uprightPeds);
             SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
@@ -2318,6 +2319,7 @@ void WorldView::UpdateCamera() {
         SetHiddenObjects(nullptr, nullptr);
         SetOwnFigureShadowOnly(false);
         SetPlayerObject(nullptr);
+        SetPlayerPed(nullptr);
         SetPlayerPosition(0.0f, 0.0f, 0.0f, false);
         SetUprightPeds(false);
         SetPedFigures(false);

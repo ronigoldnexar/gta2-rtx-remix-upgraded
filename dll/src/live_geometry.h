@@ -90,6 +90,11 @@ bool OwnFigureShadowAllowed();
 // The player's own pedestrian sprite object (null when not located), so he
 // keeps one look rather than one hashed from his address.
 void SetPlayerObject(const void* object);
+// FIX-FP (pm7-fp-own-head-and-shoulder): the player's ped structure as the locator found it. A
+// pedestrian sprite whose owner chain leads to this ped is his, whichever sprite object the game
+// draws him with (after a BUSTED release the located sprite was not the one drawn, and from his
+// own eyes his body was drawn as a stranger's across a third of the view).
+void SetPlayerPed(const void* ped);
 // The weapon the player holds, as the game numbers them (see PedWeapon in
 // live_geometry.cpp: 1 pistol .. 10 flamethrower), -1 when not known. Read
 // off the player's ped by world_view each frame; drives the figure's stance,
