@@ -11,6 +11,8 @@ system-memory staging texture and `UpdateTexture`) the material name is
 `mat_<xxh3_64(level 0 blocks)>`; the mip chain, the DDS header and the staging/default
 pool do not enter. For the 64 px tiles and every model texture (single-level A8R8G8B8,
 `dll/src/model_store.cpp TextureFor`) it is `xxh3_64(BGRA texels, rows top-down)` as before.
+For model textures this was confirmed in path-traced frames on 9 Nov (REMIX-HASH-VERIFY section below);
+figure bodies under Remix are drawn from baked copies that no prim names.
 
 The shipped layer is now `package/rtx-remix/mods/gta2hd` built in the DDS-keyed mode:
 
@@ -1128,3 +1130,70 @@ it needed no change. Result: `git diff` of the three tracked files is additions 
 of FIX-REMIX / FIX-REMIX-2 are byte-identical); `remix_materials.validate` reports 3222 prims, 0 problems; the old-hash prims
 of these cars stay in the layer (inert; no manifest model references them). The DDS maps are not in git (release archive only).
 
+
+## Model-material hashes verified in path-traced frames (REMIX-HASH-VERIFY, 9 Nov 2026)
+
+**Result: the model prims match the runtime for every texture the renderer draws as it is loaded.** The
+car, prop, code-object and weapon prims (including CAR-PBR's maps) apply. Figures don't: under Remix the
+renderer draws avatar bodies with textures it bakes per identity, and those hashes are in no layer.
+
+**Scheme (now confirmed in frame).** A model texture (`dll/src/model_store.cpp BaseTextureFor`: one level,
+`D3DFMT_A8R8G8B8`, managed pool, the TGA's rows written top-down) is keyed `mat_<XXH3-64 of its BGRA texels,
+rows top-down>`, as `remix_materials.remix_hash` computes it. No re-key was needed.
+
+**Positive control, one session** (`out/rhv_probe1`, GPU 0, stage of 16:55, 0 faults; sheet
+`out/rhv_sheets/probe_sheet.png`). `tools/remix_model_hash_probe.py <stage> <probe dir>` writes a flat-colour layer,
+installed as gta2hd (`MODS_HD_SRC`):
+- cyan: every HD tile, top-mip hash (the 6 Nov scheme);
+- magenta: every model TGA in the stage under the layer's scheme;
+- yellow, green, orange: the same texels hashed rows bottom-up, R/B swapped, and alpha forced to 255.
+
+The take is `keys_remix_carpbr.sh`: cars 003 and 019 at 14:00, orbit and first person. What the frames show:
+- Every street, wall and roof is cyan.
+- Cars 003 and 019, the lamp posts, hydrants, signs and parked cars are magenta. Car 019's paint half is
+  magenta times its blue tint, so the paint prim matches too and Remix keeps the texture factor.
+- No yellow, green or orange anywhere.
+- Pedestrians have magenta heads. Their bodies keep their own clothing colours.
+
+**Prim edits change the car (A/B)** (`out/rhv_ab1`, the shared layer with three prims edited; sheet
+`out/rhv_sheets/ab_sheet.png`, crop `ab_019_chrome_crop.png`):
+- Car 019's `_0` atlas prim set to metallic 1, roughness 0.05: the body renders as a mirror, with sky and
+  street reflected in it.
+- Car 003's two prims removed: the car falls back to the game texture, dark and flat, where the shared layer
+  (`out/carpbr_new1`, same take) draws it olive with its maps.
+- Car 019's paint prim with no `diffuse_texture`: it still shows the orange paint, but that could be the paint
+  tint over a default albedo. Whether Remix falls back to the game texture is **not settled**.
+
+**Why figures miss** (and why REMIX-3D-QUALITY's five schemes all "failed"). With `IdentityBakeTints()` (on
+under Remix) the renderer draws a split body through `FigurePairMerged` (rest plus paint texels, the record's
+zone tints baked in) and zone or tint parts through `BakedTint`. Each is a new texture with its own hash, one
+per avatar and tint, and no layer prim names it. Heads, hair and other unsplit parts are drawn as loaded, so
+they match. REMIX-3D-QUALITY's tagged texture copies fed those merges, so most of the copied textures never
+reached a draw. Their hash list could not hide the figure under any scheme. Filed as
+`remix-figure-baked-textures-miss-layer-prims`, with the options.
+
+**Coverage gap, filled.** The shared layer had no prims for 170 textures that today's `assets/models`
+manifest models use and the stage loads byte-identically: cars 016, 047, 048, 064 and 083 (both halves),
+`street_lamp_0`, mailboxes, stop/one-way signs, five weapons, the first-person cup arms, the bus shelter,
+and 144 avatar textures. They were built with `remix_model_materials.py repo/assets/models <scratch>`, then
+merged with `remix_layer_merge.py <scratch> package/rtx-remix/mods/gta2hd <170 hashes>`. The merge only
+adds: 3392 prims, `validate` reports 0 problems, and the 526 new DDS maps are in the release layer's
+`textures/`, not in git.
+
+Not merged:
+- the CAR-PBR determinism pair `1AA4B8C5FD5FD552` and `DC748E21E2E1BBBE` (a map exists for one of the two
+  texture owners);
+- textures that differ between `assets/models` and the stage: 008, 036 and 056 proc parts the stage does not
+  load yet;
+- the 92 stale model prims, which are inert and left in place.
+
+In game (`out/rhv_merged1`, the merged layer, 3392 materials installed, 0 faults, no missing-texture errors in
+`remix-dxvk.log`; sheet `out/rhv_sheets/merged_sheet.png`):
+- Cars 047 and 083 (new prims) render textured and lit.
+- Car 019, with its shared prims and the same take, shows matte orange paint. This is the reference for the mirror body
+  in `rhv_ab1`.
+
+The new prims' hashes follow the scheme the probe proved. There was no per-prim A/B for them.
+
+To check the gap again: `remix_model_materials.py <models> <scratch> --report r.json`,
+then diff the report's hashes against `mod.usda`.
