@@ -1043,3 +1043,28 @@ view as well, at higher resolution but the same art, which keeps the GTA2 look
 from above. A different look per view would need the renderer to upload
 different tile texels per mode (then the hashes differ and two layers can
 target them); that is a renderer change, not a Remix one, and is not done.
+
+## CAR-PBR: Remix maps for the regenerated cars (9 Nov 2026)
+
+ASSET-VEHICLES rounds 9-11 replaced the textures of 003, 004, 005, 019, 021, 022, 029, 052, 069 and 071, so their
+XXH3 hashes changed and the 8 Nov maps (REMIX-CARPROPS-PBR) no longer matched. Regenerated with the existing tools,
+no code change: `remix_model_materials.py repo/assets/models <layer> --jobs 4` (needs numpy, PIL, xxhash: host
+`python3` has none, `/mnt/gta2/ab_work/venv/bin/python` has them), under `flock /tmp/gta2-gen.lock taskset -c 0-4
+nice -n 10`, then `remix_materials.py - <layer> --wet-layer`. It touches only its own prims (hashes in
+`model_prims.txt`); model_prims went 552 -> 656 (the layer was also missing the later avatars). Each of the ten has two
+prims (atlas `_0` and `_0_paint`; the mesh names only `_0`), all new hashes, all with normal, roughness, metallic and
+emissive maps (class-derived: the image-to-3D atlases have no source materials).
+**Hard-link hazard**: a `cp -al` copy of a layer shares `mod.usda`, `mod_wet.usda`, `model_prims.txt` and `pbr.json`
+inodes and the tool rewrites them in place; copy those four for real first (the DDS files are unlinked before writing).
+The copy must be on the same filesystem as the repo.
+
+**Verified** (real Remix frames, GPU 2, `stage_av11`, `linux/docker/keys_remix_carpbr.sh` + `remix_carpbr_take.py`, layer
+mounted with `-e MODS_HD=1 -e MODS_HD_SRC=<mount>`): the layer installed (3305 materials) and the cars 003, 071, 022,
+004 (day, third person) and all five 003, 019, 071, 022, 004 (night) render with lit, textured bodies, no black or
+flat-matte body; the 071 and 004 paint shows specular highlights. Sheets: `out/carpbr/carpbr_{day,night}_sheet.png`.
+**Not proven**: the old-layer run (`carpbr_ab.png`) showed bodiless wheels for 003/004/019 in some frames and the new run
+did not, but the runs differ in timing and car order, so that is not an isolated effect of the maps; no close
+reflection crop was taken; 019 had no day third-person frame (the view switch missed). 005, 021, 029, 052, 069 have maps
+but were not filmed. The maps are not in the shared `package/` layer (release-archive material); the layer used is a
+private copy. Known unrelated defect: the avatars' police and security pistols share one texture with and without a metallic
+map, so `1AA4B8C5FD5FD552.m.rtex.dds` can be missing (layer validation reports it).
