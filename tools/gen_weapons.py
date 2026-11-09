@@ -33,12 +33,42 @@ GLASS = (120, 190, 220)
 TANK = (120, 60, 30)
 
 
+SKIN = (178, 128, 98)
+SLEEVE = (205, 205, 200)   # the player's shirt: off-white with dark stripes
+
+
 def flat(rgb, size=4):
     return Image.new("RGBA", (size, size), tuple(int(v) for v in rgb) + (255,))
 
 
-def mat(rgb, metallic=0.8, roughness=0.35, emissive=None, name="m"):
-    return PBRMaterial(name=name, baseColorTexture=flat(rgb), metallicFactor=metallic, roughnessFactor=roughness,
+def grain(rgb, kind="metal", size=32, seed=7):
+    """A small surface texture instead of a flat colour, so the parts read as
+    materials when the first-person view model puts them a hand from the eye:
+    brushed steel (fine streaks), wood (grain lines), cloth (weave), skin (soft
+    mottling). Mean colour kept at `rgb`, so the chase-camera look is the same."""
+    rng = np.random.default_rng(seed)
+    y, x = np.mgrid[0:size, 0:size].astype(np.float32) / size
+    if kind == "metal":
+        v = 0.06 * np.sin(2 * np.pi * (y * 9 + 0.3 * rng.standard_normal((size, 1)))) + 0.05 * rng.standard_normal((size, size))
+    elif kind == "wood":
+        v = 0.16 * np.sin(2 * np.pi * (x * 6 + 0.6 * np.sin(2 * np.pi * y * 1.5))) + 0.06 * rng.standard_normal((size, size))
+    elif kind == "cloth":
+        v = 0.07 * ((np.floor(x * size) + np.floor(y * size)) % 2 - 0.5) + 0.06 * rng.standard_normal((size, size))
+    elif kind == "stripes":   # the shirt: dark bands round the arm
+        v = np.where((np.floor(y * 8) % 2) == 0, -0.62, 0.0) + 0.04 * rng.standard_normal((size, size))
+    else:   # skin
+        v = 0.05 * rng.standard_normal((size, size))
+        v = (v + np.roll(v, 1, 0) + np.roll(v, 1, 1) + np.roll(v, -1, 0)) * 0.5
+    img = np.clip(np.array(rgb, np.float32)[None, None, :] * (1.0 + v[..., None]), 0, 255).astype(np.uint8)
+    a = np.full((size, size, 1), 255, np.uint8)
+    return Image.fromarray(np.concatenate([img, a], 2), "RGBA")
+
+
+def mat(rgb, metallic=0.8, roughness=0.35, emissive=None, name="m", kind=None):
+    if kind is None:
+        kind = "metal" if metallic >= 0.5 else ("wood" if rgb == WALNUT else "plain")
+    tex = flat(rgb) if kind == "plain" else grain(rgb, kind, seed=sum(rgb))
+    return PBRMaterial(name=name, baseColorTexture=tex, metallicFactor=metallic, roughnessFactor=roughness,
                        emissiveFactor=emissive)
 
 
@@ -64,16 +94,61 @@ def tube(p, c, radius, length, segments=12, r2=None):
     p.f += [[a + b for a in f] for f in q.f]
 
 
+def tube_between(p, a, b, r1, r2=None, segments=12):
+    """A tapered cylinder from point a (radius r1) to point b (radius r2), capped."""
+    a = np.array(a, np.float32); b = np.array(b, np.float32)
+    r2 = r1 if r2 is None else r2
+    axis = b - a
+    length = float(np.linalg.norm(axis))
+    q = Part()
+    cylinder_part(q, lambda t: r1 + (r2 - r1) * t, 0.0, length, segments=segments, rings=2, cap=True)
+    # +y onto the axis
+    y = axis / length
+    ref = np.array([0, 0, 1], np.float32) if abs(y[2]) < 0.9 else np.array([1, 0, 0], np.float32)
+    x = np.cross(y, ref); x /= np.linalg.norm(x)
+    z = np.cross(x, y)
+    R = np.stack([x, y, z], 1)
+    v = (R @ np.array(q.v, np.float32).T).T + a
+    n = (R @ np.array(q.n, np.float32).T).T
+    base = len(p.v)
+    p.v += list(v); p.n += list(n); p.uv += list(q.uv)
+    p.f += [[i + base for i in f] for f in q.f]
+
+
+def blob(p, c, radii, segments=10, rings=6):
+    """An ellipsoid centred at c with semi-axes `radii` (x, y, z): knuckles, palms."""
+    base = len(p.v)
+    for r in range(rings + 1):
+        th = math.pi * r / rings
+        for s in range(segments + 1):
+            ph = 2 * math.pi * s / segments
+            d = np.array([math.sin(th) * math.cos(ph), math.cos(th), math.sin(th) * math.sin(ph)], np.float32)
+            p.v.append(np.array(c, np.float32) + d * np.array(radii, np.float32))
+            nn = d / np.maximum(np.array(radii, np.float32), 1e-6)
+            p.n.append(nn / np.linalg.norm(nn))
+            p.uv.append((s / segments, r / rings))
+    for r in range(rings):
+        for s in range(segments):
+            i0 = base + r * (segments + 1) + s
+            i1 = i0 + segments + 1
+            p.f += [[i0, i0 + 1, i1], [i0 + 1, i1 + 1, i1]]
+
+
 def pistol():
     body = Part(); grip = Part(); trim = Part()
     # slide and frame along +z from the grip at the origin
     box(body, (0, 0.012, 0.018), (0.009, 0.010, 0.050))      # slide
     box(body, (0, 0.004, 0.012), (0.008, 0.007, 0.032))      # frame
     tube(body, (0, 0.012, 0.047), 0.0025, 0.012)             # barrel tip
+    for k in range(5):                                        # slide serrations at the back
+        box(trim, (0, 0.012, -0.004 + k * 0.0022), (0.0094, 0.0085, 0.0009))
+    box(trim, (0.0046, 0.0135, 0.010), (0.0006, 0.004, 0.010))   # ejection port (dark inset)
     box(trim, (0, 0.019, 0.004), (0.003, 0.003, 0.006))      # rear sight
     box(trim, (0, 0.019, 0.040), (0.002, 0.003, 0.003))      # front sight
+    box(trim, (0, 0.013, -0.009), (0.003, 0.004, 0.003))     # hammer
     box(grip, (0, -0.012, -0.004), (0.010, 0.026, 0.013))     # grip (walnut panels)
     box(body, (0, -0.002, 0.004), (0.006, 0.006, 0.010))      # trigger guard block
+    box(trim, (0, -0.0035, 0.0055), (0.002, 0.005, 0.002))   # trigger
     return scene_with([("slide", body.mesh(mat(BLUED, 0.9, 0.3, name="slide"))),
                        ("grip", grip.mesh(mat(WALNUT, 0.1, 0.6, name="grip"))),
                        ("trim", trim.mesh(mat(STEEL, 0.8, 0.4, name="trim")))]), 0.065
@@ -180,6 +255,51 @@ def molotov():
                        ("rag", rag.mesh(mat((210, 200, 180), 0.0, 0.9, name="rag")))]), 0.05
 
 
+# First-person arms (the view model's hands): same model space as the weapons,
+# blocks, +z ahead, +y up, +x right. The right hand closes round a grip at the
+# origin (a pistol grip 0.010 x 0.026 x 0.013); its forearm runs back and down
+# toward the eye, bare to the striped short sleeve at the elbow. The left: "fp_arm_left"
+# cups a fore grip from below (its palm under the origin, fingers up the right
+# side, thumb up the left), the forearm back and to the left; "fp_arm_left_cup"
+# wraps the right fist from the left for a two-handed pistol hold.
+def _forearm(skin, sleeve, hand_end, wrist, elbow, r):
+    """Hand to wrist, the bare forearm, and the edge of the player's striped
+    short-sleeved shirt at the elbow (as his figure wears it in the other views)."""
+    a = np.array(wrist, np.float32); b = np.array(elbow, np.float32)
+    tube_between(skin, hand_end, wrist, r * 1.05, r, 10)
+    tube_between(skin, a, a + (b - a) * 0.80, r, r * 1.35, 10)
+    tube_between(sleeve, a + (b - a) * 0.74, b, r * 1.75, r * 1.95, 12)
+
+
+def fp_arm(side):
+    skin = Part(); sleeve = Part()
+    if side == "right":
+        blob(skin, (0.0030, -0.0105, -0.0100), (0.0062, 0.0120, 0.0058))            # back of the hand behind the grip
+        for k, y in enumerate((-0.0045, -0.0100, -0.0155, -0.0205)):                 # fingers round the front strap
+            r = 0.0027 - 0.0002 * k
+            blob(skin, (0.0005, y, 0.0045), (0.0064, r, r * 1.1))
+        blob(skin, (0.0005, -0.0010, 0.0060), (0.0045, 0.0022, 0.0030))             # index finger on the trigger
+        tube_between(skin, (-0.0045, -0.0040, -0.0095), (-0.0062, 0.0030, 0.0030), 0.0026, 0.0021, 8)   # thumb along the left
+        _forearm(skin, sleeve, (0.0030, -0.0150, -0.0130), (0.0045, -0.0210, -0.0240), (0.0300, -0.0700, -0.1600), 0.0058)
+    elif side == "left":
+        blob(skin, (0.0000, -0.0098, 0.0000), (0.0080, 0.0038, 0.0105))            # palm under the fore grip
+        for k, z in enumerate((0.0075, 0.0025, -0.0025, -0.0075)):                  # fingers up the right side
+            blob(skin, (0.0074, -0.0035, z), (0.0026, 0.0065, 0.0023))
+        tube_between(skin, (-0.0065, -0.0085, -0.0070), (-0.0075, 0.0005, 0.0070), 0.0025, 0.0021, 8)  # thumb up the left
+        _forearm(skin, sleeve, (-0.0020, -0.0110, -0.0080), (-0.0070, -0.0150, -0.0170), (-0.0550, -0.0650, -0.1400), 0.0055)
+    else:   # the left hand cupping the right fist (pistol, two hands)
+        blob(skin, (-0.0088, -0.0140, -0.0030), (0.0040, 0.0110, 0.0085))           # palm on the left of the fist
+        for k, y in enumerate((-0.0075, -0.0130, -0.0185, -0.0235)):                 # fingers over the right hand's
+            blob(skin, (-0.0010, y, 0.0088), (0.0072, 0.0024, 0.0026))
+        tube_between(skin, (-0.0095, -0.0060, -0.0060), (-0.0068, 0.0015, 0.0105), 0.0025, 0.0020, 8)  # thumb forward along the frame
+        _forearm(skin, sleeve, (-0.0095, -0.0200, -0.0080), (-0.0140, -0.0260, -0.0180), (-0.0600, -0.0750, -0.1500), 0.0055)
+    return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin"))),
+                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="stripes")))]), 0.0
+
+
+ARMS = {"fp_arm_right": lambda: fp_arm("right"), "fp_arm_left": lambda: fp_arm("left"),
+        "fp_arm_left_cup": lambda: fp_arm("cup")}
+
 BUILDERS = {
     "pistol": pistol, "dual_pistol": pistol, "machine_gun": machine_gun, "silenced_mg": silenced_mg,
     "shotgun": shotgun, "rocket_launcher": rocket_launcher, "flamethrower": flamethrower,
@@ -197,7 +317,14 @@ def main():
         scene.export(path)
         tris = sum(len(g.faces) for g in scene.geometry.values())
         print(f"weapon_{name}: {tris} tris, {length:.3f} blocks")
-        models.append(dict(name=f"weapon_{name}", glb=f"weapons/weapon_{name}.glb", scale=1.0, texture_max=16, forward="+z",
+        models.append(dict(name=f"weapon_{name}", glb=f"weapons/weapon_{name}.glb", scale=1.0, texture_max=32, forward="+z",
+                           _licence="procedural (this repository)"))
+    for name, fn in ARMS.items():
+        scene, _ = fn()
+        scene.export(os.path.join(out, f"{name}.glb"))
+        tris = sum(len(g.faces) for g in scene.geometry.values())
+        print(f"{name}: {tris} tris")
+        models.append(dict(name=name, glb=f"weapons/{name}.glb", scale=1.0, texture_max=32, forward="+z",
                            _licence="procedural (this repository)"))
     with open(os.path.join(out, "manifest_fragment.json"), "w") as f:
         json.dump({"models": models}, f, indent=1)

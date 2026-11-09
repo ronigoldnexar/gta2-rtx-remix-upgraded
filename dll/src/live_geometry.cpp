@@ -6954,12 +6954,17 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     if (CurrentViewMode() != ViewMode::FirstPerson || !g_playerObject || g_hiddenObjects[0] != g_playerObject || !g_pedWeapons) return;
     const gta2::Vec3 eye = camera.Position();
     const gta2::Vec3 f = g_viewForward;
-    for (FxFresh& fx : g_fxFreshLast) {
-        if (fx.claimed) continue;
-        const float dx = fx.x - eye.x, dy = fx.y - eye.y, dz = fx.z - eye.z;
-        if (dx * dx + dz * dz < 1.44f && std::fabs(dy) < 0.8f && dx * f.x + dz * f.z > 0.0f) {
-            fx.claimed = true;
-            if (g_carFrame - g_fpShotFrame >= 2) g_fpShotFrame = g_carFrame;
+    // FIX-FIGURE (fp-viewmodel-box-gun-no-hands): this frame's fresh effects too
+    // (the sprites were issued before this call), so the 3D flash lands on the
+    // frame the game fires, not one later beside the game's own flash.
+    for (std::vector<FxFresh>* list : {&g_fxFreshLast, &g_fxFreshNow}) {
+        for (FxFresh& fx : *list) {
+            if (fx.claimed) continue;
+            const float dx = fx.x - eye.x, dy = fx.y - eye.y, dz = fx.z - eye.z;
+            if (dx * dx + dz * dz < 1.44f && std::fabs(dy) < 0.8f && dx * f.x + dz * f.z > 0.0f) {
+                fx.claimed = true;
+                if (g_carFrame - g_fpShotFrame >= 3) g_fpShotFrame = g_carFrame;
+            }
         }
     }
     {
@@ -6991,8 +6996,9 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     right[0] /= rl; right[2] /= rl;
     // up = cross(forward, right): the eye's up, as the particles use it.
     float up[3] = {f.y * right[2], f.z * right[0] - f.x * right[2], -f.y * right[0]};
+    // The kick: up to full in two frames, back over ~0.15 s (rise, a little roll).
     const float shotT = g_fpShotFrame ? static_cast<float>(g_carFrame - g_fpShotFrame) / 30.0f : 10.0f;
-    const float kick = (std::max)(0.0f, 1.0f - shotT / 0.12f);
+    const float kick = shotT < 0.034f ? 0.6f + 0.4f * shotT / 0.034f : (shotT > 0.25f ? 0.0f : std::exp(-(shotT - 0.034f) / 0.05f));
     const bool thrown = wi.action == 13;
     // QB-29: the reload, from the game's words for the player (the figure, whose
     // shots drive it in the other views, is not drawn here): the same magazine
@@ -7034,22 +7040,31 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         rs = rs * rs * (3.0f - 2.0f * rs);
         if (ri.rackT >= 0.0f && reloadT >= ri.rackT && reloadT < ri.rackT + 0.12f) rack = 1.0f - (reloadT - ri.rackT) / 0.12f;
     }
-    const float ahead = (wi.twoHanded ? 0.20f : 0.24f) - wi.kick * kick - 0.02f * rs - 0.02f * rack;
-    const float side = (wi.twoHanded ? 0.055f : 0.095f) - 0.015f * rs, down = (wi.twoHanded ? 0.075f : 0.085f) + (thrown ? 0.02f : 0.0f) + 0.07f * rs;
+    const float ahead = (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick - 0.02f * rs - 0.02f * rack;
+    const float side = (wi.twoHanded ? 0.055f : 0.075f) - 0.015f * rs,
+                down = (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? 0.02f : 0.0f) + 0.07f * rs - 0.006f * kick;
     float pos[3];
     for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * side - up[c] * down;
-    // The barrel along the view, tipped up by the kick, and a little inward.
+    // The barrel on the crosshair: aimed at the point 5 blocks along the view
+    // (the line of the shot), tipped up by the kick and the reload.
     float dir[3];
-    for (int c = 0; c < 3; ++c) dir[c] = (&f.x)[c] + up[c] * (0.10f * kick + 0.22f * rs) - right[c] * ((wi.twoHanded ? 0.06f : 0.10f) + 0.05f * rs);
+    {
+        float aim[3];
+        for (int c = 0; c < 3; ++c) aim[c] = (&eye.x)[c] + (&f.x)[c] * 5.0f - pos[c];
+        const float al = (std::max)(1e-4f, std::sqrt(aim[0] * aim[0] + aim[1] * aim[1] + aim[2] * aim[2]));
+        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f) + 0.22f * rs) - right[c] * 0.05f * rs;
+    }
     const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
     for (float& v : dir) v /= dl;
     float wr[3] = {dir[2], 0.0f, -dir[0]};
     const float wrl = (std::max)(1e-4f, std::sqrt(wr[0] * wr[0] + wr[2] * wr[2]));
     wr[0] /= wrl; wr[2] /= wrl;
     float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
-    if (rs > 0.0f) {
-        // Rolled about the barrel, the magazine well toward the eye.
-        const float ca = std::cos(-0.75f * rs), sa = std::sin(-0.75f * rs);
+    if (rs > 0.0f || kick > 0.0f) {
+        // Rolled about the barrel: the magazine well toward the eye on a reload,
+        // a few degrees to the right on a shot.
+        const float roll = -0.75f * rs - 0.10f * kick;
+        const float ca = std::cos(roll), sa = std::sin(roll);
         for (int c = 0; c < 3; ++c) { const float r0 = wr[c], u0 = wu[c]; wr[c] = r0 * ca + u0 * sa; wu[c] = u0 * ca - r0 * sa; }
     }
     if (reloadT >= 0.0f) {
@@ -7077,26 +7092,116 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     gta2::Mat4 place;
     for (int c = 0; c < 3; ++c) { place.m[0][c] = wr[c] * k; place.m[1][c] = wu[c] * k; place.m[2][c] = dir[c] * k; place.m[3][c] = pos[c]; }
     place.m[3][3] = 1.0f;
-    DWORD zEnable = TRUE, colorOp = 0, colorArg1 = 0, alphaTest = 0;
+    // FIX-FIGURE: the hands (tools/gen_weapons.py fp_arm_*: the right fist round
+    // the grip at the gun's origin, the left on the fore grip or cupping the
+    // fist), in the gun's frame at one size for every weapon, so they kick with it.
+    const float kHand = 1.30f;
+    auto handAt = [&](float gx, float gy, float gz, bool mirror) {
+        gta2::Mat4 m;
+        for (int c = 0; c < 3; ++c) {
+            m.m[0][c] = wr[c] * kHand * (mirror ? -1.0f : 1.0f); m.m[1][c] = wu[c] * kHand; m.m[2][c] = dir[c] * kHand;
+            m.m[3][c] = pos[c] + (wr[c] * gx + wu[c] * gy + dir[c] * gz) * k;
+        }
+        m.m[3][3] = 1.0f;
+        return m;
+    };
+    // The support hand's place on each weapon (its model's units, the fore grip).
+    float fore[3] = {0.0f, 0.0f, 0.0f};
+    const char* leftName = nullptr;
+    switch (weapon) {
+        case kWpnPistol: leftName = "fp_arm_left_cup"; break;
+        case kWpnMg: leftName = "fp_arm_left"; fore[1] = 0.000f; fore[2] = 0.090f; break;
+        case kWpnSilencedMg: leftName = "fp_arm_left"; fore[1] = 0.010f; fore[2] = 0.045f; break;
+        case kWpnShotgun: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.080f; break;
+        case kWpnRocket: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.060f; break;
+        case kWpnFlame: leftName = "fp_arm_left"; fore[1] = 0.000f; fore[2] = 0.060f; break;
+        case kWpnElectro: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.030f; break;
+        default: break;
+    }
+    const bool leftBusy = reloadT >= 0.0f && reloadT > ri.dropT && reloadT < ri.insertT + 0.1f;   // fetching the magazine
+    const Model* armR = ModelByName("fp_arm_right");
+    const Model* armL = (leftName && !leftBusy) ? ModelByName(leftName) : nullptr;
+    const Model* armDual = weapon == kWpnDual ? armR : nullptr;
+    // Lit by the sun the car bodies use (dimmer at night), the texture modulated
+    // by it, so the gun and hands have shape. The depth range squeezed to the
+    // front: they cover each other properly and the world never cuts into them.
+    DWORD zEnable = TRUE, zWrite = TRUE, zFunc = D3DCMP_LESSEQUAL, colorOp = 0, colorArg1 = 0, colorArg2 = 0, alphaTest = 0, cull = D3DCULL_CCW, lighting = FALSE;
     device->GetRenderState(D3DRS_ZENABLE, &zEnable);
+    device->GetRenderState(D3DRS_ZWRITEENABLE, &zWrite);
+    device->GetRenderState(D3DRS_ZFUNC, &zFunc);
     device->GetRenderState(D3DRS_ALPHATESTENABLE, &alphaTest);
+    device->GetRenderState(D3DRS_CULLMODE, &cull);
+    device->GetRenderState(D3DRS_LIGHTING, &lighting);
     device->GetTextureStageState(0, D3DTSS_COLOROP, &colorOp);
     device->GetTextureStageState(0, D3DTSS_COLORARG1, &colorArg1);
-    device->SetRenderState(D3DRS_ZENABLE, FALSE);
+    device->GetTextureStageState(0, D3DTSS_COLORARG2, &colorArg2);
+    D3DVIEWPORT9 vp = {};
+    const bool haveVp = SUCCEEDED(device->GetViewport(&vp));
+    if (haveVp) { D3DVIEWPORT9 vpNear = vp; vpNear.MinZ = 0.0f; vpNear.MaxZ = 0.002f; device->SetViewport(&vpNear); }
+    device->SetRenderState(D3DRS_ZENABLE, TRUE);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    {
+        const bool night = gta2::SkyConfig().sunElevationDeg < 6.0f;
+        D3DLIGHT9 sun = {};
+        sun.Type = D3DLIGHT_DIRECTIONAL;
+        const float li = night ? 0.45f : 0.80f;
+        sun.Diffuse = {li, li, li, 1.0f};
+        // From above, a little ahead and to the left of the eye: the top of the
+        // slide and the back of the hand catch it.
+        float ld[3];
+        for (int c = 0; c < 3; ++c) ld[c] = -up[c] * 0.85f + (&f.x)[c] * 0.35f + right[c] * 0.40f;
+        const float ll = std::sqrt(ld[0] * ld[0] + ld[1] * ld[1] + ld[2] * ld[2]);
+        sun.Direction = {ld[0] / ll, ld[1] / ll, ld[2] / ll};
+        device->SetLight(0, &sun);
+        device->LightEnable(0, TRUE);
+        device->LightEnable(1, FALSE);
+        D3DMATERIAL9 material = {};
+        material.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
+        material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
+        device->SetMaterial(&material);
+        device->SetRenderState(D3DRS_LIGHTING, TRUE);
+        device->SetRenderState(D3DRS_AMBIENT, night ? 0x00404048u : 0x00686868u);
+        device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
+        device->SetRenderState(D3DRS_NORMALIZENORMALS, TRUE);
+        device->SetRenderState(D3DRS_COLORVERTEX, FALSE);
+        device->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, D3DMCS_MATERIAL);
+        device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
+    }
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetFVF(kWorldFvf);
     ModelDraw(device, *model, place, nullptr, 0.0f);
+    if (armR) ModelDraw(device, *armR, handAt(0.0f, 0.0f, 0.0f, false), nullptr, 0.0f);
+    if (armL) ModelDraw(device, *armL, handAt(fore[0], fore[1], fore[2], false), nullptr, 0.0f);
     if (weapon == kWpnDual) {
         gta2::Mat4 other = place;
         for (int c = 0; c < 3; ++c) other.m[3][c] = pos[c] - right[c] * 2.0f * side;
         ModelDraw(device, *model, other, nullptr, 0.0f);
+        if (armDual) {
+            // The left gun's hand: the right's mirror, at the left gun.
+            gta2::Mat4 h = handAt(0.0f, 0.0f, 0.0f, true);
+            for (int c = 0; c < 3; ++c) h.m[3][c] = other.m[3][c];
+            ModelDraw(device, *armDual, h, nullptr, 0.0f);
+        }
     }
+    {
+        static bool armsLogged = false;
+        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? "fp_arm_right" : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
+    }
+    if (haveVp) device->SetViewport(&vp);
+    device->SetRenderState(D3DRS_LIGHTING, lighting);
     device->SetRenderState(D3DRS_ZENABLE, zEnable);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, zWrite);
+    device->SetRenderState(D3DRS_ZFUNC, zFunc);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTest);
+    device->SetRenderState(D3DRS_CULLMODE, cull);
     device->SetTextureStageState(0, D3DTSS_COLOROP, colorOp);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, colorArg1);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, colorArg2);
     device->SetTexture(0, nullptr);
     if (g_fpShotFrame == g_carFrame && !thrown) {
         float muzzle[3];
@@ -10227,6 +10332,17 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     std::map<uintptr_t, FxSeen>& fxSeen = g_fxSeen;
     const bool fxUpright = g_uprightPeds && g_fxUpright;
     const gta2::Vec3 fxEye = camera.Position();
+    // FIX-FIGURE (fp-viewmodel-box-gun-no-hands): in first person on foot the
+    // game's own flash (and a bullet's first frames) sits at the eye: seen from
+    // there it is a pixelated orange sprite at the bottom edge, a second flash
+    // beside the view model's. Effects that small within half a block of the
+    // eye are left out; the view model draws the shot.
+    const bool fxFpFoot = CurrentViewMode() == ViewMode::FirstPerson && g_playerObject && g_hiddenObjects[0] == g_playerObject;
+    auto fxAtEye = [&](const float* c, float size) {
+        if (!fxFpFoot || size >= 0.35f) return false;
+        const float dx = c[0] - fxEye.x, dz = c[2] - fxEye.z;
+        return dx * dx + dz * dz < 0.25f && std::fabs(c[1] - fxEye.y) < 0.9f;
+    };
     auto issue = [&](const std::vector<Drawable>& list, bool fx = false) {
         bool tinted = false;
         for (const Drawable& d : list) {
@@ -10282,6 +10398,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     if (flying && size > 0.16f) ShotFxSmoke(c[0], c[1] + 0.30f, c[2]);   // a bullet is 0.125
                     fxSeen[sp.object] = {c[0], c[1], c[2], g_carFrame, size, flying};
                     if (fxSeen.size() > 4096) fxSeen.clear();
+                    if (fxAtEye(c, size)) continue;
                     if (flying) {
                         // A streak from where it was to where it is, a hand wide, facing the eye.
                         const float gun = 0.30f;
@@ -10314,6 +10431,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                         continue;
                     }
                 }
+                if (fxAtEye(c, size)) continue;
                 gta2::Mat4 up = UprightPedMatrix(sp.local, sp.corners, sp.objectToWorld, fxEye);
                 if (small) {
                     // Centred at gun height rather than stood on the road.

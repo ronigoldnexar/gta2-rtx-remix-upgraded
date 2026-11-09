@@ -1666,7 +1666,7 @@
    "name": "weapon_pistol",
    "glb": "weapons/weapon_pistol.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1674,7 +1674,7 @@
    "name": "weapon_dual_pistol",
    "glb": "weapons/weapon_dual_pistol.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1682,7 +1682,7 @@
    "name": "weapon_machine_gun",
    "glb": "weapons/weapon_machine_gun.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1690,7 +1690,7 @@
    "name": "weapon_silenced_mg",
    "glb": "weapons/weapon_silenced_mg.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1698,7 +1698,7 @@
    "name": "weapon_shotgun",
    "glb": "weapons/weapon_shotgun.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1706,7 +1706,7 @@
    "name": "weapon_rocket_launcher",
    "glb": "weapons/weapon_rocket_launcher.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1714,7 +1714,7 @@
    "name": "weapon_flamethrower",
    "glb": "weapons/weapon_flamethrower.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1722,7 +1722,7 @@
    "name": "weapon_electro_gun",
    "glb": "weapons/weapon_electro_gun.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1730,7 +1730,7 @@
    "name": "weapon_grenade",
    "glb": "weapons/weapon_grenade.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -1738,7 +1738,7 @@
    "name": "weapon_molotov",
    "glb": "weapons/weapon_molotov.glb",
    "scale": 1.0,
-   "texture_max": 16,
+   "texture_max": 32,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -2853,6 +2853,30 @@
    ],
    "texture_max": 512,
    "paint_split": true
+  },
+  {
+   "name": "fp_arm_right",
+   "glb": "weapons/fp_arm_right.glb",
+   "scale": 1.0,
+   "texture_max": 32,
+   "forward": "+z",
+   "_licence": "procedural (this repository)"
+  },
+  {
+   "name": "fp_arm_left",
+   "glb": "weapons/fp_arm_left.glb",
+   "scale": 1.0,
+   "texture_max": 32,
+   "forward": "+z",
+   "_licence": "procedural (this repository)"
+  },
+  {
+   "name": "fp_arm_left_cup",
+   "glb": "weapons/fp_arm_left_cup.glb",
+   "scale": 1.0,
+   "texture_max": 32,
+   "forward": "+z",
+   "_licence": "procedural (this repository)"
   }
  ],
  "cars": {
@@ -8855,7 +8879,7 @@
    "name": "weapon_pistol",
    "nodes": 3,
    "meshes": 3,
-   "vertices": 228,
+   "vertices": 420,
    "animations": [],
    "textures": [
     "weapon_pistol_0.tga",
@@ -8871,7 +8895,7 @@
    "name": "weapon_dual_pistol",
    "nodes": 3,
    "meshes": 3,
-   "vertices": 228,
+   "vertices": 420,
    "animations": [],
    "textures": [
     "weapon_dual_pistol_0.tga",
@@ -10406,6 +10430,51 @@
    ],
    "skins": 0,
    "forward": "",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_arm_right",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 902,
+   "animations": [],
+   "textures": [
+    "fp_arm_right_0.tga",
+    "fp_arm_right_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_arm_left",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 825,
+   "animations": [],
+   "textures": [
+    "fp_arm_left_0.tga",
+    "fp_arm_left_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_arm_left_cup",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 825,
+   "animations": [],
+   "textures": [
+    "fp_arm_left_cup_0.tga",
+    "fp_arm_left_cup_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
    "stride": 0.0,
    "run_stride": 0.0
   }
