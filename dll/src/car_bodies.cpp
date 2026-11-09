@@ -13,6 +13,7 @@
 #include <tuple>
 
 #include "cab_interior.h"
+#include "car_glass.h"   // VEHICLE-GLASS
 #include "boarding.h"
 #include "compat.h"
 #include "log.h"
@@ -58,6 +59,7 @@ char g_devIni[260] = {};
 struct CarFoot {
     uintptr_t object = 0;
     float cx = 0, cy = 0, cz = 0;   // the car frame's origin, world
+    float ground = 0;               // VEHICLE-GLASS: the body's lowest point, world y
     float rx = 1, rz = 0;        // its x (across) axis, world xz, unit
     float fx = 0, fz = 1;        // its z (nose) axis, world xz, unit
     float x0 = 0, x1 = 0, z0 = 0, z1 = 0;   // the drawn footprint in the car frame
@@ -2522,6 +2524,12 @@ bool CarBodiesExtent(const void* object, float* length, float* height, float* ha
     return true;
 }
 
+bool CarBodiesGround(const void* object, float* y) {
+    for (const CarFoot& f : g_feetCur)
+        if (f.object == reinterpret_cast<uintptr_t>(object)) { *y = f.ground; return true; }
+    return false;
+}
+
 int CarBodiesBuilt() { return g_built; }
 const double* CarBodiesStats() { return g_carStats; }
 int CarBodiesDrawn() { return g_drawn; }
@@ -2861,6 +2869,7 @@ void CarBodiesSetLamps(int mode, bool dark) {
 
 void CarBodiesReleaseDevice() {
     CabInteriorReleaseDevice();
+    CarGlassReleaseDevice();
     for (auto& e : g_cache) {
         if (e.second.atlas) e.second.atlas->Release();
         ReleaseBuffers(&e.second);
@@ -3000,6 +3009,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             g_forceCarPaint[0] = r; g_forceCarPaint[1] = g; g_forceCarPaint[2] = bl;
         }
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
+        {   // VEHICLE-GLASS: the glass on/off within one session, for same-spot before/after frames.
+            const int glassKey = GetPrivateProfileIntA("devtools", "car_glass", -1, g_devIni);
+            if (glassKey >= 0) CarGlassSetEnabled(glassKey);
+        }
         g_forceSirens = GetPrivateProfileIntA("devtools", "force_sirens", 0, g_devIni);
         // [devtools] vehicle_feel=0|1 (VEHICLE-FEEL): the feel off or on while the game
         // runs, for before/after frames of one scene; absent leaves it as it is.
@@ -3332,6 +3345,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 foot.z0 = (std::min)((std::min)(zs[0], zs[1]), (std::min)(zs[2], zs[3]));
                 foot.z1 = (std::max)((std::max)(zs[0], zs[1]), (std::max)(zs[2], zs[3]));
                 foot.cx = carToWorld.m[3][0]; foot.cy = carToWorld.m[3][1]; foot.cz = carToWorld.m[3][2];
+                // VEHICLE-GLASS: where the drawn body meets the road (its lowest point through the fit), for
+                // the contact shadow; the game's sprite plane is the car's own height, inside the body.
+                foot.ground = (model->boundsMin.y * fit.m[1][1] + fit.m[3][1]) * carToWorld.m[1][1] + carToWorld.m[3][1];
                 const float rl = std::sqrt(carToWorld.m[0][0] * carToWorld.m[0][0] + carToWorld.m[0][2] * carToWorld.m[0][2]);
                 const float fl = std::sqrt(carToWorld.m[2][0] * carToWorld.m[2][0] + carToWorld.m[2][2] * carToWorld.m[2][2]);
                 if (rl > 1e-6f) { foot.rx = carToWorld.m[0][0] / rl; foot.rz = carToWorld.m[0][2] / rl; }
@@ -3505,7 +3521,19 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // windscreen's foot to the rear window's (the game's own window rows) - which is drawn
             // at 40 % with no depth written, so the figure drawn after the cars shows through it.
             // Open-top bodies need none (he shows over the door tops).
-            const bool glassy = g_driverGlass && !use.own && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
+            // VEHICLE-GLASS: a closed body with its glass found draws real windows (car_glass.h): its
+            // glass texels cut from the hull, a cabin behind them, the glass after the figures.
+            const float glassDx = carToWorld.m[3][0] - eye.x, glassDz = carToWorld.m[3][2] - eye.z;
+            const float glassDist = std::sqrt(glassDx * glassDx + glassDz * glassDz);
+            // A seated car whose rear screen was not found keeps FIX-SEATED's band, so the driver still
+            // shows from the chase camera behind it.
+            const bool glassCar = !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
+                                  CarGlassReady(device, *model) && (!BoardingCarSeated(use.object) || CarGlassHasRear(*model));
+            if (glassCar) CarGlassBeginCut(*model, glassDist);
+            bool glassCut = false;
+            for (const ModelMesh& gm : model->meshes) glassCut = glassCut || (glassCar && CarGlassCutMask(gm.texture) != nullptr);
+            if (!glassCut) CarGlassEndCut();   // out of range, or no cabin to show through it
+            const bool glassy = g_driverGlass && !glassCut && !use.own && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
                                 !RemixApiAvailable() && BoardingCarSeated(use.object);
             auto drawHull = [&](const Model& m, const gta2::Mat4& place) {
                 if (!glassy) { ModelDraw(device, m, place, nullptr, 0.0f); return; }
@@ -3689,6 +3717,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     }
                 }
             }
+            if (glassCut) CarGlassDrawInterior(device, *model, Mul(fit, posed), g_lampDark);
+            CarGlassEndCut();
             g_carStats[2] += CarNowMs() - tm;
             g_carStats[6] += 1;
             device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);

@@ -1,5 +1,6 @@
 #include "live_geometry.h"
 #include "prop_collision.h"
+#include "car_glass.h"   // VEHICLE-GLASS
 #include "boarding.h"
 
 #include <algorithm>
@@ -6415,6 +6416,7 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
             }
             cc.y = ys * 0.25f;
             cc.own = object == g_hiddenObjects[1];
+            cc.object = object;
             contactCars_.push_back(cc);
         }
         if (g_cameraCarsNow.size() < 256) {
@@ -7786,7 +7788,11 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
         // Half edges 0->1 and 1->2, a little past the body (the wheels stand at its edge).
         const float ax = (c.x[1] - c.x[0]) * 0.5f * 1.18f, az = (c.z[1] - c.z[0]) * 0.5f * 1.18f;
         const float bx = (c.x[2] - c.x[1]) * 0.5f * 1.35f, bz = (c.z[2] - c.z[1]) * 0.5f * 1.35f;
-        quad(cx, c.y + 0.018f, cz, ax, az, bx, bz);
+        // VEHICLE-GLASS: on the road under the drawn body (its lowest point), not at the sprite's plane,
+        // which is the car's own height: the patch was drawn inside the body and never showed.
+        float ground = c.y;
+        if (c.object && CarBodiesGround(c.object, &ground) && ground > c.y + 0.3f) ground = c.y;
+        quad(cx, ground + 0.012f, cz, ax, az, bx, bz);
         ++cars;
     }
     for (const Sprite& sprite : sprites_) {
@@ -11552,6 +11558,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     stageTimer.Mark();   // 6: map objects
     if (g_pedFigures) DrawPedFigures(device);
     if (g_pedFigures && g_groundModels && ModelsAvailable()) DrawViewModel(device, camera);
+    if (g_groundModels) CarGlassFlush(device);   // VEHICLE-GLASS: the cars' glass over the seated figures
     stageTimer.Mark();   // 7: pedestrians
     // Textures the models will need, created and uploaded a few per frame
     // ahead of their first appearance (see ModelsWarmTextures).

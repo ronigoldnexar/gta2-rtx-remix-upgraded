@@ -121,6 +121,11 @@ struct Model {
 // Reads the folder's manifest and every model it names. Safe to call again;
 // does nothing after the first time. `folder` is beside the game.
 void ModelsLoad(const char* folder);
+// VEHICLE-GLASS (vr-generated-bodies-hard-facets-crumpled-bonnets-close-range): the car bodies' vertex
+// normals welded across their UV seams at load (angle-weighted face normals, kept apart only over a
+// crease of `creaseDeg`), so a bonnet shades as one panel instead of a mosaic of charts. Set before
+// ModelsLoad; [renderer] car_smooth_normals=1, car_crease_deg=60.
+void ModelSetCarSmoothing(int enabled, int creaseDeg);
 bool ModelsAvailable();
 // True for every Model* the store has handed out (they never move or die); a
 // pointer that fails this came from stale or uninitialised memory and must not be used.

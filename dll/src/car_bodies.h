@@ -86,6 +86,8 @@ const char* CarBodiesDevIni();
 // world (renderer frame, the ground plane), seen this frame for the car whose
 // sprite object is `carObject`: the game's own turret sprite. Held for a second.
 void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame);
+// VEHICLE-GLASS: the world height where this frame's drawn body of `object` meets the road.
+bool CarBodiesGround(const void* object, float* y);
 int CarBodiesBuilt();
 int CarBodiesDrawn();
 // The last call's time, ms: [0] measuring artwork, [1] building sprite bodies,

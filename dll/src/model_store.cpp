@@ -1,8 +1,10 @@
 #include "model_store.h"
+#include "car_glass.h"   // VEHICLE-GLASS
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <unordered_map>
 #include <cstdio>
 #include <cstring>
 #include <array>
@@ -1010,6 +1012,86 @@ const ModelAnimation* Model::Animation(const char* name) const {
 void StartTexturePrefetch();
 void MergeProps();
 
+namespace {
+int g_carSmooth = 1;
+float g_carCreaseCos = 0.5f;
+bool IsCarModelName(const std::string& n) {
+    return n.size() > 4 && isdigit(static_cast<unsigned char>(n[0])) && isdigit(static_cast<unsigned char>(n[1])) &&
+           isdigit(static_cast<unsigned char>(n[2])) && n[3] == '_';
+}
+// Angle-weighted face normals summed over every face at the same point (the UV seams split the
+// image-to-3D bodies' vertices, ~80 % of them, each copy with its chart's own normal: 33 degrees
+// apart at the median on 050), skipping faces past the crease from the corner's own face.
+int SmoothCarNormals(ModelMesh& mesh) {
+    const size_t nv = mesh.vertices.size(), nf = mesh.indices.size() / 3;
+    if (nv < 3 || nf < 1 || mesh.skin >= 0) return 0;
+    std::unordered_map<uint64_t, uint32_t> groupOf;
+    std::vector<uint32_t> group(nv);
+    for (size_t i = 0; i < nv; ++i) {
+        const ModelVertex& v = mesh.vertices[i];
+        auto q = [](float f) { return static_cast<uint64_t>(static_cast<int64_t>(std::lround(f * 20000.0f)) & 0x1FFFFF); };
+        const uint64_t key = q(v.x) | (q(v.y) << 21) | (q(v.z) << 42);
+        auto it = groupOf.emplace(key, static_cast<uint32_t>(groupOf.size())).first;
+        group[i] = it->second;
+    }
+    std::vector<float> fn(nf * 3), fa(nf * 3);
+    std::vector<std::vector<uint32_t>> facesAt(groupOf.size());
+    for (size_t f = 0; f < nf; ++f) {
+        const ModelVertex* p[3] = {&mesh.vertices[mesh.indices[f * 3]], &mesh.vertices[mesh.indices[f * 3 + 1]], &mesh.vertices[mesh.indices[f * 3 + 2]]};
+        const float e1[3] = {p[1]->x - p[0]->x, p[1]->y - p[0]->y, p[1]->z - p[0]->z};
+        const float e2[3] = {p[2]->x - p[0]->x, p[2]->y - p[0]->y, p[2]->z - p[0]->z};
+        float n[3] = {e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]};
+        const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (l < 1e-14f) { fn[f * 3] = fn[f * 3 + 1] = fn[f * 3 + 2] = 0.0f; continue; }
+        // Keep the mesh's own facing (its stored normals), whatever the winding.
+        float on[3] = {0, 0, 0};
+        for (int c = 0; c < 3; ++c) { on[0] += p[c]->nx; on[1] += p[c]->ny; on[2] += p[c]->nz; }
+        const float s = (n[0] * on[0] + n[1] * on[1] + n[2] * on[2]) < 0.0f ? -1.0f / l : 1.0f / l;
+        for (int k = 0; k < 3; ++k) fn[f * 3 + k] = n[k] * s;
+        for (int c = 0; c < 3; ++c) {
+            const ModelVertex* a = p[c]; const ModelVertex* b = p[(c + 1) % 3]; const ModelVertex* d = p[(c + 2) % 3];
+            float u[3] = {b->x - a->x, b->y - a->y, b->z - a->z}, w[3] = {d->x - a->x, d->y - a->y, d->z - a->z};
+            const float lu = std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]), lw = std::sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]);
+            const float cs = lu > 0 && lw > 0 ? (u[0] * w[0] + u[1] * w[1] + u[2] * w[2]) / (lu * lw) : 1.0f;
+            fa[f * 3 + c] = std::acos((std::max)(-1.0f, (std::min)(1.0f, cs)));
+            facesAt[group[mesh.indices[f * 3 + c]]].push_back(static_cast<uint32_t>(f * 3 + c));
+        }
+    }
+    std::vector<float> acc(nv * 3, 0.0f);
+    for (size_t f = 0; f < nf; ++f) {
+        const float* n0 = &fn[f * 3];
+        if (n0[0] == 0 && n0[1] == 0 && n0[2] == 0) continue;
+        for (int c = 0; c < 3; ++c) {
+            const uint32_t vi = mesh.indices[f * 3 + c];
+            float sum[3] = {0, 0, 0};
+            for (uint32_t corner : facesAt[group[vi]]) {
+                const float* n1 = &fn[(corner / 3) * 3];
+                if (n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2] < g_carCreaseCos) continue;
+                for (int k = 0; k < 3; ++k) sum[k] += n1[k] * fa[corner];
+            }
+            const float l = std::sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);
+            if (l < 1e-12f) continue;
+            // The corner's normal, weighted by the corner's angle into its vertex.
+            for (int k = 0; k < 3; ++k) acc[vi * 3 + k] += sum[k] / l * fa[f * 3 + c];
+        }
+    }
+    int changed = 0;
+    for (size_t i = 0; i < nv; ++i) {
+        const float l = std::sqrt(acc[i * 3] * acc[i * 3] + acc[i * 3 + 1] * acc[i * 3 + 1] + acc[i * 3 + 2] * acc[i * 3 + 2]);
+        if (l < 1e-12f) continue;
+        ModelVertex& v = mesh.vertices[i];
+        v.nx = acc[i * 3] / l; v.ny = acc[i * 3 + 1] / l; v.nz = acc[i * 3 + 2] / l;
+        ++changed;
+    }
+    return changed;
+}
+}  // namespace
+
+void ModelSetCarSmoothing(int enabled, int creaseDeg) {
+    g_carSmooth = enabled;
+    g_carCreaseCos = std::cos((std::max)(5, (std::min)(creaseDeg, 179)) * 3.14159265f / 180.0f);
+}
+
 void ModelsLoad(const char* folder) {
     if (g_loaded) return;
     g_loaded = true;
@@ -1040,6 +1122,17 @@ void ModelsLoad(const char* folder) {
             continue;
         }
         ComputeBounds(&model);
+        // VEHICLE-ART-2's authored bodies (surface-named textures: _glass, _chrome, ...) have their
+        // own normals and creases: only the image-to-3D bodies are welded.
+        bool authored = false;
+        for (const ModelMesh& mesh : model.meshes) authored = authored || CarSurfaceFor(mesh.texture) != kCarSurfDefault;
+        if (g_carSmooth && IsCarModelName(name) && !authored) {
+            int smoothed = 0;
+            for (ModelMesh& mesh : model.meshes) smoothed += SmoothCarNormals(mesh);
+            static int smoothLogs = 0;
+            if (smoothLogs++ < 4) Log("models: %s: %d vertex normals welded across the UV seams (crease %.0f deg)", name.c_str(), smoothed,
+                                      std::acos(g_carCreaseCos) * 180.0f / 3.14159265f);
+        }
         for (const ModelMesh& mesh : model.meshes) {
             const size_t k = mesh.texture.find("_paint");
             if (k == std::string::npos) continue;
@@ -2268,6 +2361,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
                 w.m[3][0], w.m[3][1], w.m[3][2], model.nodes.size(), model.boundsMin.y, model.boundsMax.y);
         }
     }
+    CarGlassCutQueue(model, placement);   // VEHICLE-GLASS: a car hull in cut mode draws its glass later
     for (size_t i = 0; i < model.nodes.size(); ++i) {
         const int mi = model.nodes[i].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
@@ -2426,6 +2520,29 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         if (b && skinned) vb = SkinBufferFor(device, mesh, verts, posed->id);
         QueryPerformanceCounter(&t2);
         g_modelStats[1] += ModelMs(t1, t2);
+        // VEHICLE-GLASS: in cut mode the body's glass texels are alpha-tested away (the mask on the
+        // first free stage multiplies the alpha); the glass pass draws them later.
+        int glassStage = 0;
+        if (IDirect3DTexture9* glassMask = CarGlassCutMask(mesh.texture)) {
+            DWORD op1 = D3DTOP_DISABLE;
+            device->GetTextureStageState(1, D3DTSS_COLOROP, &op1);
+            glassStage = softPaint ? 3 : op1 != D3DTOP_DISABLE ? 2 : 1;
+            device->SetTexture(glassStage, glassMask);
+            device->SetTextureStageState(glassStage, D3DTSS_TEXCOORDINDEX, 0);
+            device->SetTextureStageState(glassStage, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+            device->SetTextureStageState(glassStage, D3DTSS_COLORARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(glassStage, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+            device->SetTextureStageState(glassStage, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(glassStage, D3DTSS_ALPHAARG2, D3DTA_TEXTURE);
+            device->SetTextureStageState(glassStage, D3DTSS_RESULTARG, D3DTA_CURRENT);
+            device->SetSamplerState(glassStage, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+            device->SetSamplerState(glassStage, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            device->SetSamplerState(glassStage, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+            device->SetSamplerState(glassStage, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+            device->SetSamplerState(glassStage, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+            device->SetTextureStageState(glassStage + 1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            device->SetTextureStageState(glassStage + 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+        }
         if (b && vb) {
             device->SetStreamSource(0, vb, 0, sizeof(ModelVertex));
             device->SetIndices(b->ib);
@@ -2436,6 +2553,11 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(mesh.vertices.size()),
                                            static_cast<UINT>(mesh.indices.size() / 3), mesh.indices.data(),
                                            D3DFMT_INDEX32, verts, sizeof(ModelVertex));
+        }
+        if (glassStage) {
+            device->SetTextureStageState(glassStage, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            device->SetTextureStageState(glassStage, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+            device->SetTexture(glassStage, nullptr);
         }
     }
     if (streams) {

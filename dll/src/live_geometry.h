@@ -633,7 +633,7 @@ private:
     std::vector<PropFootprint> propFootprints_;   // the props drawn last frame, see DrawProps
     // pm-no-contact-shadows (FIX-FIGURE-2): each car's footprint on the ground this frame
     // (four corners x/z, the ground's y), for DrawContactShadows.
-    struct ContactCar { float x[4], z[4], y; bool own; };
+    struct ContactCar { float x[4], z[4], y; bool own; const void* object = nullptr; };
     std::vector<ContactCar> contactCars_;
     std::vector<PropFootprint> contactProps_;   // the placed props' footprints, centred on the model (DrawProps)
     void DrawContactShadows(IDirect3DDevice9* device);

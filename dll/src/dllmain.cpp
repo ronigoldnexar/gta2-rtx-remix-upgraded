@@ -31,6 +31,7 @@
 #include "hud_pass.h"
 #include "intro_movie.h"
 #include "live_geometry.h"
+#include "car_glass.h"
 #include "frame_log.h"
 #include "log.h"
 #include "remix_api.h"
@@ -317,6 +318,8 @@ void LoadConfig() {
     gta2dx9::SetCarModels3d(GetPrivateProfileIntA("renderer", "car_models3d", 0, ini) != 0);
     gta2dx9::SetCarLamps(GetPrivateProfileIntA("renderer", "car_lamps", 1, ini));
     gta2dx9::SetContactShadows(GetPrivateProfileIntA("renderer", "contact_shadows", 70, ini));
+    gta2dx9::CarGlassSettings(GetPrivateProfileIntA("renderer", "car_glass", 1, ini), GetPrivateProfileIntA("renderer", "car_glass_alpha", 52, ini),
+                              GetPrivateProfileIntA("renderer", "car_glass_range", 40, ini));   // VEHICLE-GLASS
     gta2dx9::SetCarBodies(GetPrivateProfileIntA("renderer", "car_bodies",
                                                 gta2dx9::kDefaultCarBodies ? 1 : 0, ini) != 0);
     gta2dx9::SetCarBodyHeight(
@@ -349,6 +352,8 @@ void LoadConfig() {
         GetPrivateProfileIntA("renderer", "car_damage_percent", 140, ini) / 100.0f);
     gta2dx9::SetCarPaintFloor(
         GetPrivateProfileIntA("renderer", "car_paint_floor_percent", 30, ini) / 100.0f);
+    gta2dx9::ModelSetCarSmoothing(GetPrivateProfileIntA("renderer", "car_smooth_normals", 1, ini),
+                                  GetPrivateProfileIntA("renderer", "car_crease_deg", 60, ini));   // VEHICLE-GLASS
     gta2dx9::ModelSetSoftPaintMasks(
         GetPrivateProfileIntA("renderer", "car_paint_soft_mask", 1, ini) != 0);
     gta2dx9::SetCarGlassGloss(
