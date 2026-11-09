@@ -564,6 +564,35 @@ IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file)
 
 }  // namespace
 
+const Model::Loco* Model::LocoFor(const char* name) const {
+    for (const Loco& l : loco) if (l.name == name) return &l;
+    return nullptr;
+}
+
+float Model::Loco::PhaseAt(float t) const {
+    if (phase.empty()) return 0.0f;
+    const float x = (std::max)(0.0f, t * 15.0f);
+    const size_t i = (std::min)(static_cast<size_t>(x), phase.size() - 1);
+    const size_t j = (std::min)(i + 1, phase.size() - 1);
+    const float f = (std::min)(1.0f, x - static_cast<float>(i));
+    float a = phase[i], b = phase[j];
+    if (b - a > 0.5f) b -= 1.0f;
+    if (a - b > 0.5f) b += 1.0f;
+    float p = a + (b - a) * f;
+    return p - std::floor(p);
+}
+
+float Model::Loco::TimeAtDist(float d) const {
+    for (size_t i = 1; i < dist.size(); ++i) {
+        if (dist[i] >= d) {
+            const float span = dist[i] - dist[i - 1];
+            const float f = span > 1e-6f ? (d - dist[i - 1]) / span : 1.0f;
+            return (static_cast<float>(i - 1) + (std::max)(0.0f, (std::min)(1.0f, f))) / 15.0f;
+        }
+    }
+    return Length();
+}
+
 const ModelAnimation* Model::Animation(const char* name) const {
     for (const ModelAnimation& a : animations) if (a.name == name) return &a;
     return nullptr;
@@ -625,6 +654,29 @@ void ModelsLoad(const char* folder) {
         if (it != g_byName.end() && !stride.empty()) g_models[it->second].stride = static_cast<float>(atof(stride.c_str()));
         const std::string runStride = Field(entry, "run_stride");
         if (it != g_byName.end() && !runStride.empty()) g_models[it->second].runStride = static_cast<float>(atof(runStride.c_str()));
+        // "loco": "name:d,d,...:ph,ph,...;name:..." (tools/locomotion_meta.py)
+        const std::string loco = it != g_byName.end() ? Field(entry, "loco") : std::string();
+        for (size_t s0 = 0; s0 < loco.size();) {
+            size_t s1 = loco.find(';', s0);
+            if (s1 == std::string::npos) s1 = loco.size();
+            const std::string one = loco.substr(s0, s1 - s0);
+            s0 = s1 + 1;
+            const size_t c1 = one.find(':'), c2 = c1 == std::string::npos ? c1 : one.find(':', c1 + 1);
+            if (c2 == std::string::npos) continue;
+            Model::Loco l;
+            l.name = one.substr(0, c1);
+            auto floats = [](const std::string& list, std::vector<float>* out) {
+                for (size_t a = 0; a < list.size();) {
+                    size_t b = list.find(',', a);
+                    if (b == std::string::npos) b = list.size();
+                    if (b > a) out->push_back(static_cast<float>(atof(list.substr(a, b - a).c_str())));
+                    a = b + 1;
+                }
+            };
+            floats(one.substr(c1 + 1, c2 - c1 - 1), &l.dist);
+            floats(one.substr(c2 + 1), &l.phase);
+            if (l.dist.size() >= 2) g_models[it->second].loco.push_back(std::move(l));
+        }
         // "paint_rgb": [r, g, b]
         const size_t paint = entry.find("\"paint_rgb\"");
         if (it != g_byName.end() && paint != std::string::npos) {

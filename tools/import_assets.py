@@ -105,6 +105,9 @@ def accessor(g, binary, index):
         out = [tuple(v / 65535.0 for v in t) for t in out]
     return out
 
+_LOCO_CACHE = {}   # (clip glb, reference glb) -> locomotion_meta.tables, unscaled
+_HIP_CACHE = {}
+
 def pack_str(s, n):
     b = s.encode("utf-8")[: n - 1]
     return b + b"\0" * (n - len(b))
@@ -368,8 +371,17 @@ def import_model(entry, src_dir, out_dir):
     anims = []
     stride = [0.0]   # the ground a stripped walk covers per cycle, model units
     strides = {}     # the same per animation name (walk, run, ...), model units
-    def read_anims(gg, bb, node_map, strip_root, rename=None):
+    target_hip = next((n.get("translation", [0, 0, 0])[1] for n in nodes if n.get("name") == "Bip01"), 0.0)
+    def read_anims(gg, bb, node_map, strip_root, rename=None, retarget=False, max_len=None):
+        """retarget (QB-20, tools/locomotion_meta.py): a mocap clip from another body on the
+        same Biped skeleton keeps only its rotations and its root's motion, the root's
+        height and the ground it covers scaled by the two hip heights, so the avatar keeps
+        its own bones."""
         out = []
+        ratio = 1.0
+        if retarget:
+            src_hip = next((n.get("translation", [0, 0, 0])[1] for n in gg["nodes"] if n.get("name") == "Bip01"), 0.0)
+            ratio = target_hip / src_hip if src_hip > 1e-6 and target_hip > 1e-6 else 1.0
         for a in gg.get("animations", []):
             channels = []
             aname = rename or a.get("name", f"anim{len(out)}")
@@ -377,9 +389,15 @@ def import_model(entry, src_dir, out_dir):
                 sm = a["samplers"][ch["sampler"]]
                 times = [t[0] for t in accessor(gg, bb, sm["input"])]
                 values = accessor(gg, bb, sm["output"])
+                if max_len and times and times[-1] > max_len:   # a long capture cut to its first max_len seconds
+                    keep = max(2, sum(1 for t in times if t <= max_len))
+                    times, values = times[:keep], values[:keep]
                 path = {"translation": 0, "rotation": 1, "scale": 2}.get(ch["target"]["path"])
                 if path is None or "node" not in ch["target"]: continue
                 target = ch["target"]["node"]
+                if retarget and path == 0 and gg["nodes"][target].get("name") != strip_root: continue
+                if retarget and path == 0:
+                    values = [(v[0] * ratio, v[1] * ratio, v[2] * ratio) for v in values]
                 if node_map is not None:
                     nm = gg["nodes"][target].get("name")
                     if nm not in node_map: continue
@@ -400,7 +418,24 @@ def import_model(entry, src_dir, out_dir):
     by_name = {n.get("name"): i for i, n in enumerate(nodes)}
     for extra in entry.get("animations_from", []):
         gg, bb = load_glb(os.path.join(src_dir, extra["glb"]))
-        anims += read_anims(gg, bb, by_name, extra.get("strip_root", entry.get("strip_root")), extra.get("name"))
+        anims += read_anims(gg, bb, by_name, extra.get("strip_root", entry.get("strip_root")), extra.get("name"),
+                            extra.get("retarget", False), extra.get("max_len"))
+    # The locomotion tables (tools/locomotion_meta.py) of the retargeted clips that name a
+    # reference cycle ("ref": the clip name of the walk or run their phases are measured on).
+    loco = []
+    retargeted = {e.get("name"): e for e in entry.get("animations_from", []) if e.get("retarget")}
+    if retargeted and target_hip > 1e-6:
+        import locomotion_meta
+        for cname, e in retargeted.items():
+            if "ref" not in e or e["ref"] not in retargeted: continue
+            key = (e["glb"], retargeted[e["ref"]]["glb"])
+            if key not in _LOCO_CACHE:
+                _LOCO_CACHE[key] = locomotion_meta.tables(os.path.join(src_dir, e["glb"]), os.path.join(src_dir, key[1]))
+            d, ph = _LOCO_CACHE[key]
+            src_hip = locomotion_meta.Clip(os.path.join(src_dir, e["glb"])).hip if key not in _HIP_CACHE else _HIP_CACHE[key]
+            _HIP_CACHE[key] = src_hip
+            k = target_hip / src_hip * float(entry.get("scale", 1.0))
+            loco.append(locomotion_meta.encode(cname, [round(v * k, 4) for v in d], ph))
 
     # Every Biped-skeleton avatar gets the shared action clips (tools/gen_ped_clips.py
     # output and the Rocketbox crouch clips for the car climb) unless the entry names
@@ -493,7 +528,8 @@ def import_model(entry, src_dir, out_dir):
                 # stride: the walk's own ground per cycle (the largest of all clips when there is no walk);
                 # run_stride: the run's, 0 without a run clip.
                 stride=round(strides.get("walk", stride[0]) * scale, 4),
-                run_stride=round(strides.get("run", 0.0) * scale, 4))
+                run_stride=round(strides.get("run", 0.0) * scale, 4),
+                **({"loco": ";".join(loco)} if loco else {}))
 
 if __name__ == "__main__":
     manifest = json.load(open(sys.argv[1]))

@@ -728,6 +728,18 @@ private:
         // instead of dropped in one frame (ends of punches, exits, hits).
         const void* fadeClip = nullptr;
         float fadeT = 0.0f;
+        // QB-20/21/39: the mocap transitions over the cycle (Model::Loco tables): 0 none,
+        // 1 walk start, 2 run start, 3 walk stop, 4 run stop, 5 a fidget while standing;
+        // seconds into its clip, the ground covered since a start began (blocks), its
+        // weight; the time he has stood still and his next fidget; the forward lean of
+        // acceleration (radians, on a spring) and the pace it is measured from.
+        int trans = 0;
+        float transT = 0.0f, transDist = 0.0f, transW = 0.0f, transEnd = 0.0f;
+        float stillTime = 0.0f, fidgetAt = 0.0f;
+        int fidgetNext = 0;
+        float lean = 0.0f, leanV = 0.0f, leanSpeed = 0.0f;
+        float lodTransT = 0.0f, lodTransW = 0.0f;
+        float paceHold = 0.0f;              // his recent top leg pace, falling 2 blocks/s a second (which stop)
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
 

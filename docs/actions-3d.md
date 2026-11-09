@@ -919,3 +919,76 @@ continuous 15 fps recording, and the log's wall-clock `ragdoll: start` lines giv
 Known limits: the solver is not stepped while the body is out of view (frustum/behind culling);
 no collision with other people, props or parked cars after the first 0.6 s; a body thrown onto
 higher ground (a kerb) is held at the hit's floor height.
+
+## QB-20/21/39 (9 Nov 2026): mocap locomotion, retargeted onto the Rocketbox avatars
+
+The quality-bar rows "walk/run cycles" (QB-20), "turning in place" (QB-21) and "stopping and idle" (QB-39).
+
+### What was wrong
+- Every avatar, male or female, walked the **women's** walk (`anim/walk_neutral.glb` is Rocketbox's
+  `f_walk_neutral`), and the clip's **bone translations** were merged too, so a man's calves and thighs took the
+  female recording's lengths (0.426 instead of 0.399 for the calf, and so on).
+- No starts and no stops: the idle cross-faded into the cycle in 0.1 s; a stop settled the cycle to the
+  nearest feet-together phase and faded to one idle loop. No lean into acceleration. No idle variety.
+
+### What changed
+- **Source**: Rocketbox's own motion capture (github.com/microsoft/Microsoft-Rocketbox, `Assets/Animations`,
+  MIT, the same library and licence as the avatars): men's and women's walks (two each), run, fast run,
+  walk start/stop, run start/stop, idles and fidgets (look around, scratch head, shift a leg, touch hair,
+  waiting). Fetched into `assets-src/humans/rocketbox/anim_loco/` (`*_motextr_xy` for the moving clips,
+  `*_static` for the idles), converted with FBX2glTF.
+- **Retarget** (`tools/import_assets.py`, `"retarget": true` in `animations_from`): the clip's joint
+  rotations are copied by joint name (Biped joint frames agree across the library); its joint translations
+  are dropped, so the avatar keeps its own bones; the root's height and the ground covered are scaled by the
+  hip-height ratio (avatar / recording). Men get the men's clips, women the women's. Each avatar gets one of
+  two walks by a hash of its folder name (variety in a crowd). `"max_len"` trims a long capture (fidgets to 9 s).
+  The meshes stay the same size (3.84 MB for human_male_01, was 3.75 MB): dropping the translations paid for
+  the new clips.
+- **Locomotion tables** (`tools/locomotion_meta.py`, the manifest's `"loco"` string, `Model::Loco` in
+  `dll/src/model_store.*`): per clip at 15 Hz the ground its root covered and its foot phase on a reference
+  cycle (the phase whose left-minus-right foot and calf offsets match best, forward kinematics on the
+  recording's own bones). They line the run up with the walk and the fast run with the run (measured, not the
+  old fixed half cycle), carry the fast run's own stride, and drive the transitions.
+- **Renderer** (`dll/src/live_geometry.cpp`, the figure's locomotion block; state in `PedTrack`):
+  - *Start*: from standing, `walk_start` or `run_start` (a walk start becomes the run start if he is
+    running within 0.25 s), played at the pace of the ground he covers, between 1x and 2x real time (the game is
+    at full speed at once, the capture accelerates); the idle fades into it over 0.15 s; the cycle is held
+    on the start's own foot phase, so the last 0.25 s hands over to the walk or run in step.
+  - *Stop*: `walk_stop` or `run_stop` (by his recent top pace), entered at the frame of its walking part whose
+    feet match the cycle's, played in real time, faded into the idle over its last 0.45 s.
+  - *Fidgets*: after 5-13 s standing still (hash per person), one of four fidgets over the idle (0.6 s in,
+    0.7 s out); any movement, action or turn ends it.
+  - *Lean*: the figure tips forward with acceleration and back with deceleration (critically damped spring,
+    at most 6 degrees forward and 3 back), pivoting on the feet; none during actions other than aiming and carrying.
+  - The turn on the spot stays the procedural `turn_step` layer (see ACTIONS-3D-4): the Rocketbox library has
+    no turn clips (see below).
+  - Log: `loco: <obj> walk_start|run_start|walk_stop|run_stop|fidget|cycle/idle ...` with
+    `GTA2DX9_LOG_FIGURES=1` or `GTA2DX9_LOG_PED_FRAMES=1`; the `fig:` line gained `tr trt trw lean`.
+
+### Regenerate
+`python3 tools/make_ped_manifest.py` from `assets-src/humans/` (writes the clip lists), then
+`gen3d/venv/bin/python tools/import_assets.py assets-src/manifest.json assets/models --only <human_ names>`.
+
+### Verification (runs qb20_r1..r3, private stage, L4, 15 fps bursts)
+Probe: `linux/docker/qb20_probe.py` + `keys_qb20.sh` (items idle, side, start, tap, turn, curve);
+`STAGE=<stage> FPS=0 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/; s/^nav_map=.*/nav_map=0/' gamerun/grun.sh <run> 170 keys_qb20.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_FIGURES=1`;
+strips with `linux/docker/qb20_strip.py`.
+
+| item | result | evidence |
+|---|---|---|
+| run start, side-on | verified: quarter turn, push-off with forward lean, men's run stride, stop step, settle into idle | qb20_r2 `b_side2` (sheet `qb20_side2.png`) |
+| run from behind | verified: men's run, arms and stride; stands after the stop | qb20_r1 `b_start` |
+| start choice | log: the player's starts go walk_start -> run_start in the first frame of running | qb20_r2 log |
+| stop choice after a run | fixed after r2 (the stop always took walk_stop: the run weight had faded before the stop fired); r3: every stop after a run is run_stop (log), braking stance then upright in frames (camera unsettled after the warp) | qb20_r3 `b_side2` (sheet `qb20_r3_side2.png`) |
+| turn on the spot | the feet step (procedural turn_step, unchanged) | qb20_r1 `b_turn` |
+| fidget | log only: `loco: fidget` after 9-12 s standing, ended at 6.7 s; from behind the camera it is not clear in the frames | qb20_r1/r2 log |
+| NPCs | log: NPC walk starts, run starts, walk stops and a fidget near the player | qb20_r2 log |
+| faults | none in r1, r2, r3 | logs |
+
+### Not done / open
+- **QB-21, turning in place**: still the procedural step layer. The Rocketbox library (MIT) has no turn or
+  pivot clips. CMU mocap has turns but its licence is not CC0/MIT-class, so it was not used; adding turn clips
+  needs a licence decision by the owner (or an MIT/CC0 capture).
+- A stop has no root motion (the game stops at once), so the stop's remaining steps slide the feet a little
+  (up to about one walking cycle, 0.1-0.3 block).
+- Remix not tested; the women's clips seen in log only (the player is male).
