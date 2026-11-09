@@ -428,6 +428,40 @@ Defect pm11-classic-to-third-switch-camera-rolls-and-lands-behind-wall-player-hi
 - Still: mid-move the held camera can sit a hand from the yard's wall (half the picture one wall, him in the
   other half): the hold's position, not changed here.
 
+## The whole figure in the frame on foot; the boom against the mesh (FIX-CAMERA-3, 9 Nov 2026)
+
+Defects feel16-armed-third-hero-sinks-off-bottom-edge-while-firing, feel17-third-alley-camera-crops-hero-legs-at-hip-or-knee,
+feel17-armed-third-camera-inside-hero-screen-filled-with-blurred-cloth. Code: `ViewCameraSolver::Solve` in
+`dll/src/view_modes.cpp` (`reachTo`/`meshSolve`, the boom filter's mesh cap, `bodyLift_`, the frame clamp after the
+turn-rate cap). Third person on foot only: in a car, first person and the classic view nothing changes.
+
+- The frame clamp. The orientation is the rig's, taken from the full-length boom; when a wall pulled the eye in
+  to 0.6 block the camera kept looking out over him (pitch -11 with his feet 47 degrees down, the alley by the
+  phone box at wil 159.5,139.5), and the armed rig's look-ahead turning with him put him under the bottom edge
+  while firing. Now, from the eye that is shown, the pitch and then the yaw move only as far as keeps his feet and
+  the top of his head (0.48) inside the middle 76 % of the frame (the acceptance box is 80 %; the rest is room
+  for shake and recoil). A figure too big for the frame is centred. Not while the mouse has the camera
+  (`tpReturnDelay`), nor on the death camera. `GTA2DX9_CAM_FRAME=0` turns it off.
+- The boom against the drawn mesh. The wall solve asked the map's cells only; the iron staircase by the phone box
+  is not in them, and the camera stood behind its rail: the bars a blurred olive smear over most of the frame,
+  him hidden (the "cloth" of the feel17 report). On foot `reachTo` also ray-casts `eyecol::SegmentHit` and stops
+  0.15 short of the first surface; the arc lift over a wall uses the same test; the boom's 0.6 minimum no longer
+  pushes the shown eye through a surface the mesh puts in the way.
+- Never inside the figure: a boom pulled in under 0.4 block (flat) from his centre line, below his head plus 0.3,
+  rises over his head (cells and mesh permitting, eased 0.08 s up / 0.4 s down), and the clamp looks down at him.
+  `GTA2DX9_CAM_MESH=0` turns the mesh solve and this lift off.
+- Log (`GTA2DX9_LOG_CAMERA=1`): `cam: frame clamp pitch A -> B yaw +Y (feet F head H margin M, flat D)`,
+  `cam: over the figure lift=`, `cam: figure cut eye= at=` (a frame whose figure leaves the 80 % box); always:
+  `view: framing third on foot ... whole=N` (frames with the whole figure in the box, out of `frames`).
+- Probe `gamerun/keys_fc3.sh` (`fc3_probe.py`, FC3_SEGS=shoot,bump,pistol: the feel16 MG burst while tracking a
+  ped, the feel17 walk into the alley, the feel17 pistol burst at the stair; one step back after each warp, since
+  the game does not draw him after a devtools warp until he moves). Same build, same script: whole figure in
+  900 of 900 on-foot third-person frames with both on (`fc3_ab_on`), 207 of 1200 with both off (`fc3_ab_off`:
+  cut at the waist on the bottom edge, the stair rail over the lens).
+- Still: in a tight corner the clamp keeps him whole by looking steeply down from 0.6 block (a top-down-ish
+  shot, not a shoulder shot); the first-use hitch on a V into a street view (a 3.6 s frame in `sprites`) still
+  freezes the move high over the plaza (performance stream, not the camera's end pose).
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`

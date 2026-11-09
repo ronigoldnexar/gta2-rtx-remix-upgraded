@@ -425,6 +425,7 @@ private:
     float boom_ = 0.0f;
     float boomClear_ = 0.0f;          // seconds since the solve last pulled the boom in
     bool boomKnown_ = false;
+    float bodyLift_ = 0.0f;           // FIX-CAMERA-3: the shown eye's rise over his head when the walls pull the boom into him
     float carLift_ = 0.0f;            // FIX-CAMERA-2: the shown eye's rise over a car or wreck beside it
     bool boomInVehicle_ = false;      // the boom was last solved at the wheel (a change restarts it)
     float armDirX_ = 0.0f, armDirY_ = 0.0f, armDirZ_ = -1.0f;
@@ -449,7 +450,7 @@ private:
     float exitCarHalfLength_ = 0.0f, exitCarHalfWidth_ = 0.0f, exitCarHeight_ = 0.0f;
     // Third person on foot: frames solved and frames with his head inside the
     // picture and not behind a wall, for the log (view: framing).
-    int framingFrames_ = 0, framingHeadIn_ = 0, framingHeadSeen_ = 0;
+    int framingFrames_ = 0, framingHeadIn_ = 0, framingHeadSeen_ = 0, framingWhole_ = 0;   // whole: feet and head top inside 10..90 %
     bool lastPitchKnown_ = false;
     // First person: the eye's own glide over a discontinuity (offset added to the
     // seat or head position, decaying), and the raw and shown eyes last frame.

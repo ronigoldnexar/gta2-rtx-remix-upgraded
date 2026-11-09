@@ -1954,6 +1954,24 @@ bool CameraCarsOn() {
 }
 
 // The in-car lift cap and pitch hold (feel8): OFF with GTA2DX9_CAM_PITCHCAP=0 (A/B).
+bool CameraMeshSolveOn() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_CAM_MESH", buf, sizeof buf) && atoi(buf) == 0 ? 0 : 1;
+    }
+    return enabled != 0;
+}
+
+bool CameraFrameClampOn() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_CAM_FRAME", buf, sizeof buf) && atoi(buf) == 0 ? 0 : 1;
+    }
+    return enabled != 0;
+}
+
 bool CameraCarPitchCapOn() {
     static int enabled = -1;
     if (enabled < 0) {
@@ -2869,14 +2887,30 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
     }
     const gta2::Vec3 shownPivot{px + rescueX_, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f) + rescueY_, pz + rescueZ_};
+    // FIX-CAMERA-3 (feel17-armed-third-camera-inside-hero-screen-filled-with-blurred-cloth): on foot
+    // the boom is solved against the drawn mesh as well as the map's cells. The cells do not see the
+    // iron staircase by the phone box at wil 159.5,139.5 (nor any diagonal or partial face): the
+    // camera stood behind its rail for the whole burst, the rail's bars a blurred olive smear over
+    // 80 % of the frame and the hero hidden behind them (run fc3_a1, pistol). The first surface on
+    // the way stops the boom kMeshClear short of it, and the arc over a wall (below) clears what the
+    // mesh says too. In a car the cells alone, as before. GTA2DX9_CAM_MESH=0 turns it off (A/B).
+    const bool meshSolve = !inVehicle && eyecol::Ready() && CameraMeshSolveOn();
+    constexpr float kMeshClear = 0.15f;
     auto reachTo = [&](const gta2::Vec3& from, const gta2::Vec3& to) {
         constexpr int kSteps = 32;
+        float reach = 1.0f;
         for (int i = 1; i <= kSteps; ++i) {
             const float t = static_cast<float>(i) / kSteps;
             const gta2::Vec3 p = from + (to - from) * t;
-            if (solidAt(p.x, p.y, p.z)) return (std::max)(0.0f, static_cast<float>(i - 1) / kSteps - 0.03f);
+            if (solidAt(p.x, p.y, p.z)) { reach = (std::max)(0.0f, static_cast<float>(i - 1) / kSteps - 0.03f); break; }
         }
-        return 1.0f;
+        if (meshSolve) {
+            const gta2::Vec3 span = to - from;
+            const float len = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
+            float t = 1.0f;
+            if (len > 1e-3f && eyecol::SegmentHit(from, to, &t)) reach = (std::min)(reach, (std::max)(0.0f, t - kMeshClear / len));
+        }
+        return reach;
     };
     if (s.tpCollide && q.blocked) {
         const gta2::Vec3 span = desired - pivot;
@@ -3195,6 +3229,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             boom_ += (std::min)(gap, (std::min)(step, kBoomOut * dt));
         }
         const gta2::Vec3 dir{armDirX_, armDirY_, armDirZ_};
+        // FIX-CAMERA-3: the minimum boom does not push the shown eye through what the mesh says is
+        // in the way (the staircase's rail behind him: the 0.6 minimum put the lens among its bars).
+        // Too close to him that way is handled below (over his head, never inside the figure).
+        if (meshSolve && s.tpCollide && boom_ > 1e-3f) {
+            float t = 1.0f;
+            const gta2::Vec3 tip{shownPivot.x + dir.x * boom_, shownPivot.y + dir.y * boom_, shownPivot.z + dir.z * boom_};
+            if (eyecol::SegmentHit(shownPivot, tip, &t)) boom_ = (std::min)(boom_, (std::max)(0.0f, t * boom_ - kMeshClear));
+        }
         if (s.tpCollide) {
             eyeX_ = shownPivot.x + dir.x * boom_;
             eyeY_ = shownPivot.y + dir.y * boom_;
@@ -3267,7 +3309,37 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             frames = near10 = inside = 0;
         }
     }
+    // FIX-CAMERA-3 (feel17-armed-third-camera-inside-hero): never inside the figure. A boom the walls
+    // have pulled in to under kBodyClear (flat) from his centre line, below the top of his head plus
+    // kOverHead, goes up over his head instead (as far as the space over him is open: cells and mesh),
+    // and the framing below looks down at him. Eased on the way up and down, so it is a crane move.
+    if (!inVehicle && mode == ViewMode::ThirdPerson && s.tpCollide && meshSolve) {
+        constexpr float kBodyClear = 0.4f, kOverHead = 0.3f, kFigureTop = 0.48f;
+        const float flatD = std::hypot(eyeX_ - px, eyeZ_ - pz);
+        const float top = baseY + kFigureTop + kOverHead;
+        float want = 0.0f;
+        if (flatD < kBodyClear && eyeY_ < top) {
+            // Fully over him at the axis, nothing needed at kBodyClear.
+            const float u = 1.0f - flatD / kBodyClear;
+            want = (top - eyeY_) * (std::min)(1.0f, 1.6f * u);
+            const gta2::Vec3 from{eyeX_, eyeY_, eyeZ_}, to{eyeX_, eyeY_ + want + 0.1f, eyeZ_};
+            float t = 1.0f;
+            if (eyecol::SegmentHit(from, to, &t)) want = (std::max)(0.0f, (want + 0.1f) * t - kMeshClear);
+            for (int k = 1; k <= 4; ++k)
+                if (q.blocked && solidAt(eyeX_, eyeY_ + want * k / 4.0f + 0.07f, eyeZ_)) { want = (std::max)(0.0f, want * (k - 1) / 4.0f); break; }
+        }
+        bodyLift_ += (want - bodyLift_) * (1.0f - std::exp(-dt / (want > bodyLift_ ? 0.08f : 0.4f)));
+        if (bodyLift_ < 1e-3f) bodyLift_ = 0.0f;
+        if (cameraLogOn() && bodyLift_ > 0.0f) {
+            static int every = 0;
+            if ((++every % 10) == 1) Log("cam: over the figure lift=%.2f want=%.2f flat=%.2f", bodyLift_, want, flatD);
+        }
+    } else {
+        bodyLift_ = 0.0f;
+    }
+    eyeY_ += bodyLift_;
     gta2::Vec3 eye{eyeX_, eyeY_ + carLift_, eyeZ_};
+    eyeY_ -= bodyLift_;   // the solve's state stays the boom's
     if (shake_ > 0.001f) {
         eye.x += Wobble(shakeClock_, 11.0f) * 0.04f * shake_;
         eye.y += Wobble(shakeClock_ + 2.3, 13.0f) * 0.03f * shake_;
@@ -3319,6 +3391,58 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         finalYaw_ = camYaw;
         finalYawKnown_ = true;
+    }
+    // FIX-CAMERA-3 (feel16-armed-third-hero-sinks-off-bottom-edge-while-firing,
+    // feel17-third-alley-camera-crops-hero-legs-at-hip-or-knee): on foot the whole figure, feet to
+    // the top of the head, stays inside the frame's middle 80 % (10 %..90 % of the height and
+    // width), measured from the eye that is actually shown. The orientation above is the rig's,
+    // taken from the full-length boom (orientEye), so a pull-in that brought the eye to 0.6 block
+    // behind him kept looking out over him: pitch -11 with his feet 47 degrees down (run fc3_base17,
+    // the alley at wil 159.5,139.5), and the armed rig's look-ahead turned with him while firing put
+    // him under the bottom edge for 3 s. The clamp moves the pitch and the yaw only as far as the
+    // figure needs, so an ordinary frame is untouched; a figure too big for the frame (the eye very
+    // close) is centred. Not while the mouse has the camera (looking up at a roof is the player's
+    // choice), nor over the body (death camera). GTA2DX9_CAM_FRAME=0 turns it off (A/B).
+    if (!inVehicle && mode == ViewMode::ThirdPerson && deathMix_ < 0.01f && CameraFrameClampOn()) {
+        const gta2::Vec3 shownEye = eye;
+        const float fovNow = ((std::min)((std::min)((std::max)(s.tpFov, 20.0f), 110.0f) + chaseFovExtra, 130.0f) - 8.0f * aimMix) * kDegToRad;
+        const float tv = std::tan(0.5f * fovNow), th = tv * (16.0f / 9.0f);
+        const float mv = std::atan(0.76f * tv), mh = std::atan(0.76f * th);   // inside the 80 % box with room for the shake/recoil
+        constexpr float kFigureTop = 0.48f, kFigureRadius = 0.12f;
+        const float dx = px - shownEye.x, dz = pz - shownEye.z;
+        const float flatD = std::hypot(dx, dz);
+        if (flatD > 0.05f) {
+            // Sideways: the figure's centre line and its width inside the side margins.
+            const float bearing = std::atan2(dx, dz);
+            const float halfW = std::atan2(kFigureRadius, flatD);
+            const float side = (std::max)(0.0f, mh - halfW);
+            const float off = WrapAngle(bearing - camYaw);
+            float yawFix = 0.0f;
+            if (off > side) yawFix = off - side;
+            else if (off < -side) yawFix = off + side;
+            if (yawFix != 0.0f) {
+                camYaw = WrapAngle(camYaw + yawFix);
+                finalYaw_ = camYaw;
+            }
+            // Up and down: elevation of the feet and the head along the view's forward direction.
+            const float fwd = dx * std::sin(camYaw) + dz * std::cos(camYaw);
+            const bool mouseHasIt = look.lastMoved > 0.0 && Now() - look.lastMoved < s.tpReturnDelay;
+            if (fwd > 0.05f && !mouseHasIt) {
+                const float aFeet = std::atan2(baseY - shownEye.y, fwd);
+                const float aHead = std::atan2(baseY + kFigureTop - shownEye.y, fwd);
+                const float lo = aHead - mv, hi = aFeet + mv;   // pitch range that holds both
+                const float before = camPitch;
+                if (lo > hi) camPitch = 0.5f * (aFeet + aHead);
+                else camPitch = (std::max)(lo, (std::min)(hi, camPitch));
+                lastPitch_ = camPitch;
+                if (cameraLogOn() && (std::fabs(camPitch - before) > 0.5f * kDegToRad || yawFix != 0.0f)) {
+                    static int every = 0;
+                    if ((++every % 5) == 1)
+                        Log("cam: frame clamp pitch %.1f -> %.1f yaw %+.1f (feet %.1f head %.1f margin %.1f, flat %.2f)", before / kDegToRad,
+                            camPitch / kDegToRad, yawFix / kDegToRad, aFeet / kDegToRad, aHead / kDegToRad, mv / kDegToRad, flatD);
+                }
+            }
+        }
     }
     // Lean into the turn: a few degrees of roll with the rate of turn, at speed.
     float roll = (std::max)((std::min)(-yawRate_ * speedFrac_ * 0.35f, 1.0f), -1.0f) * 3.5f * kDegToRad * s.tpLean;
@@ -3395,12 +3519,24 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 if (solidAt(p.x, p.y, p.z)) seen = false;
             }
         }
+        // FIX-CAMERA-3: the whole figure, feet and the top of the head, inside the middle 80 % of the
+        // frame (the acceptance box of feel16/feel17), from the camera actually set.
+        const float thSet = std::tan(0.5f * camera->FovY());   // the aim framing's narrower field included
+        auto inBox = [&](const gta2::Vec3& w) {
+            const gta2::Vec3 v = w - eye;
+            const float z = v.x * sy * cpv + v.y * sp + v.z * cy * cpv;
+            const float x = v.x * cy - v.z * sy, y = -v.x * sy * sp + v.y * cpv - v.z * cy * sp;
+            return z > 0.06f && std::fabs(y / z) <= 0.8f * thSet && std::fabs(x / z) <= 0.8f * thSet * (16.0f / 9.0f);
+        };
+        const bool whole = inBox({px, baseY, pz}) && inBox({px, baseY + 0.48f, pz});
+        framingWhole_ += whole ? 1 : 0;
+        if (!whole && cameraLogOn()) Log("cam: figure cut eye=%.2f,%.2f,%.2f at=%.2f,%.2f,%.2f", eye.x, eye.y, eye.z, px, baseY, pz);
         ++framingFrames_;
         framingHeadIn_ += in ? 1 : 0;
         framingHeadSeen_ += seen ? 1 : 0;
         if (!seen && (framingFrames_ - framingHeadSeen_) % 5 == 1) Log("view: framing miss eye=%.2f,%.2f,%.2f head=%.2f,%.2f,%.2f in=%d", eye.x, eye.y, eye.z, head.x, head.y, head.z, in ? 1 : 0);
         if (framingFrames_ % 300 == 0)
-            Log("view: framing third on foot frames=%d head_in=%d head_seen=%d", framingFrames_, framingHeadIn_, framingHeadSeen_);
+            Log("view: framing third on foot frames=%d head_in=%d head_seen=%d whole=%d", framingFrames_, framingHeadIn_, framingHeadSeen_, framingWhole_);
     }
     shownX_ = eye.x;
     shownY_ = eye.y;
