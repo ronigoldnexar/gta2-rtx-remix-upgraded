@@ -77,16 +77,28 @@ def answer(world, entry):
         ok = BR.path_walk([(43.5, 149.6), (43.5, 152.4), (46.4, 152.5), (46.5, 151.4)], secs_each=6.0)
         s = D.wait_state()
         M.mark(f"up the phone dais by the ramp and row 152 ({'ok' if ok else 'missed'}), at {s['x']:.1f},{s['y']:.1f} z {s['z']:.1f}")
+    # sp12: the climb's last point (46.5,151.4) is near enough that the phone answered during it
+    # (brief 1650); BR.answer then took the GRAHAM's arrow into its baseline, stepped on again (1093)
+    # and M.objective(), which leaves baseline slots out, never showed the arrow
+    if car_arrow() or (M.mission_state() or {}).get("msg") in (BR.TITLE, "1650"):
+        M.mark("phone answered during the climb (brief 1650 / the arrow on the GRAHAM)")
+        return "answered", ["1650"]
     r, seen = _orig_answer(world, entry)
     if r == "refused" and seen and seen[-1] == "1093":
         t0 = time.time()
         while time.time() - t0 < 6:
-            o = M.objective()
-            if o and abs(o[0] - BR.CAR0[0]) < 3.0 and abs(o[1] - BR.CAR0[1]) < 3.0:
+            if car_arrow():
                 M.mark("phone: 1093 (already on the job) with the arrow on the GRAHAM: answered")
                 return "answered", seen
             time.sleep(0.5)
     return r, seen
+
+
+def car_arrow():
+    """an arrow slot (baseline or not) of kind 3/4 on the GRAHAM's spot: the job is running"""
+    for k, v in M.arrows().items():
+        if v[1] in (3, 4) and abs(v[2] - BR.CAR0[0]) < 3.0 and abs(v[3] - BR.CAR0[1]) < 3.0: return True
+    return False
 BR.answer = answer
 
 _orig_run = BR.run

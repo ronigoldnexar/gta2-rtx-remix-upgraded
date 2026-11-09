@@ -96,6 +96,56 @@ All sessions ran at `GTA2_SPEED=1`, `GTA2_DIRECT_KEYS=1`, `FPS=0` (a screenshot 
 | sp4 | + walk to the east foot of the dais first | phone (1631, then 1093) | From the east foot, the router still goes up the dais by its only ramp (column 43) and turns north past 44.5,150.5. |
 | sp5 | + hand-placed climb: ramp, row 152, then north | failed (1125) during the respray drive | The skill took over at the getaway: 204.5,221.5 by an 82-cell route. The fragile-car caps held the car to about 2 blocks/s. It was pressed on the corner of row 216 and column 204, 2.3 blocks from the entry, and an officer on foot pulled him out (busted). |
 | **sp6** | + `chase_drive` (normal pace while carhp >= 20000, a break-away when an officer on foot is within 2.3 blocks of a slow car), drive tolerance 1.6, longer creep pulses | **JOB COMPLETE** (+$20,000) | The skill took over 384 s into the job, at two stars with NO_DROP. It drove to 204.5,221.5 and crept into the tunnel with one police car 15 blocks off. The respray took the money (5060 -> 60) and repaired the car (carhp 32000); the script said 1668, then 1010 ("Excellent, Kosai! Now bring the car back to the Safehouse"). 128 s from getting into the car to clear. The runner's safehouse leg then ran: PARK, 1124. |
+| sp7 | same as sp6 | failed (1125) at the car | He got into the car with two officers 2.0 blocks away and one police car near. `shake` spent 4.5 s with the car standing while it read the shop table and made five router calls, and he was arrested before it moved. |
 | sp8 | + straight-line pick when police are within 8 blocks; the shop table read at level start | phone (1631, then 1093) | A ten-minute governor pause used up the wall-clock budget of the climb's walk, and the shared walker went up the dais its own way. |
 | sp9 | + the two dais cells beside GET ZITZAKI's phone, (44,151) and (45,150), off the router for the approach | failed (1125) 22 s into the respray drive | The phone answered. The getaway drive west along row 179 took two hits. An officer on foot came within 2.3 blocks at 176,183; the break-away came 2 s after the drive stopped (log reads), when the arrest had already started. |
-| sp7 | same as sp6 | failed (1125) at the car | He got into the car with two officers 2.0 blocks away and one police car near. `shake` spent 4.5 s with the car standing while it read the shop table and made five router calls, and he was arrested before it moved. |
+| sp10 | + break-away at once when the drive stops for an officer; officer within 3.5 blocks of a car slower than 2.0 | failed (1125) 17 s into the drive | The car took the turn off row 179 into column 178 at 2.6 blocks/s against a 1.3 target and slid into the facade at 179.3,185.1. With a police car behind it the driver waited off the throttle (no reversing), and an officer got out and punched him out. |
+| sp11 | + `D.ACCEL_BRAKE` 1.5 during chase drives (braking starts earlier for corners) | stuck: guards alive | The runner's climb to the guards got pinned at the stair foot, and its warps missed. |
+| sp12 | same | phone (1650, then 1093) | The climb's last point answered the phone (1650). `BR.answer` then put the GRAHAM's arrow into its baseline and stepped on the phone again (1093). |
+| sp13 | + after the climb: brief 1650, or a kind-3/4 arrow slot on the GRAHAM, counts as answered | failed (1125) on the respray drive | The phone fix worked. The drive lost about 10 s queueing behind a car crossing the first junction (181.5,179.5), was hit on the turn into row 216 (178.2,215.0), and an officer reached the door. |
+| sp14 | + `M.QUEUE_SECS` 1 s during chase drives (final code) | stuck: guards alive | The runner's climb was pinned at the stair foot again. |
+| sp15 | final code | stuck: guards alive | Same as sp14. |
+| **sp16** | final code | **JOB COMPLETE** (+$20,000) | The skill took over 384 s in (carhp 20400). It drove to 204.5,221.5 by the router, with no police near at the shop. The respray cleared the level (wanted 0), repaired the car to 32000 and took the money (5060 -> 82); then brief 1668, then 1010. 155 s from getting into the car to clear. The runner's safehouse leg finished with 1124. |
+| sp17 | final code | failed (1125) at the first corner | Officers were already on the getaway road. There were two break-aways: the first came 2 s after the drive stopped, because `drive3` itself takes about 2 s to return once the watched condition holds. Its forward burst carried the car into the row-179/column-178 corner at 2.7 blocks/s. The car was hit three times and pulled out. |
+| sp18 | final code | stuck: guards alive | The runner's climb was pinned at the stair foot. |
+| sp19 | final code | stuck: guards alive | Same as sp18. The bank leg failed in 5 of the last 6 sessions (sp11, sp14, sp15, sp18, sp19) but in none of sp2-sp10, which points to a recent change in the game or stage on the bank stairs. |
+
+## Result
+
+**The skill cleared the level in 2 sessions, both of which then reached JOB COMPLETE (sp6, sp16).**
+It took the wheel in 8 sessions (sp5, sp6, sp7, sp9, sp10, sp13, sp16, sp17) and cleared the level
+in those two. In the other six he was arrested on the way (busted). On the final code it is 1 of 2
+sessions that reached the getaway (sp16 complete, sp17 failed); sp14, sp15, sp18 and sp19 never reached it. **The acceptance
+of 2 of 3 consecutive sessions to JOB COMPLETE is not met.**
+
+Where it fails, and why the module alone cannot fix it:
+- **The BANK ROBBERY getaway itself.** The job raises the level to two stars, NO_DROP, at the bank.
+  Police are on the 80-cell route within seconds, and it has three right-angle turns: row 179 into
+  column 178, column 178 into row 216, and row 216 into the shop's column 204. Every arrest
+  happened where the car stalled at one of these turns: it went wide into a facade, queued behind
+  crossing traffic, or waited off the throttle with a police car behind it. All runners have this
+  problem: 4 complete in 11 sessions before this stream (br7, br9, gr1, gr6), and gr2/gr7 were
+  busted at the shop door.
+- **The shared driver** (`drive3_smooth`, frozen) takes about 2 s to return after the watched
+  condition holds, and it brakes late on a loaded host. The module already tunes what it can
+  through module globals: `ACCEL_BRAKE` 1.5 and `QUEUE_SECS` 1 during a chase drive, normal pace
+  while carhp >= 20000.
+- **The runner's bank leg** (`bank_robbery.py`, not this stream's file) failed before the getaway
+  in 5 of 19 sessions (the stair-foot pin: sp11, sp14, sp15, sp18, sp19, all late in the day) and once by an arrest at the car
+  (sp2). The phone, which failed in sp1, sp3, sp4, sp8 and sp12, was fixed in this runner.
+
+What is verified: the respray mechanics through the skill (the nearest shop by route, the creep,
+the game clearing the level, repairing the car and taking $5,000, the script moving on), the shop
+table and entry sides for all three districts (offline against the maps), and the BANK ROBBERY phone
+approach. What is untested: `evade()` in a session (SP_EVADE_FIRST was never set), the `ste` and `bil` shops in game,
+and the timed-chase and stolen-police-vehicle jobs.
+
+Next steps, for whoever takes this on: an arrest-proof getaway needs a chase-mode driver that never
+stops; that change belongs to the shared driver's owner. Two other things worth trying are leaving
+the bank before the police arrive (they come when Hiroshi is out) and a second shop with fewer
+turns from the bank. 209.5,121.5, entered from the south, is 97 cells by the router with one long
+straight north on column 218, but the getaway car is set facing west.
+
+Frames (not in git): `out/sp6/m_sp_respray_in.png`, `m_sp_resprayed.png` and `m_br_end_third.png`
+(JOB COMPLETE), and `out/sp16/m_sp_resprayed.png` (inside the tunnel, the "Excellent, Kosai! Now
+bring the car back to the Safehouse" brief, in the chase view).

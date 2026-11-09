@@ -182,6 +182,10 @@ def pick_shop(world, s, avoid=()):
 COP_CLOSE = 3.5          # an officer on foot this near a slow car pulls the player out (sp2, sp5, sp9: busted;
                          # at 2.3 the break-away came after the arrest had started)
 CHASE_SLOW_HP = 20000    # under a chase the fragile pace (slow=True) only below this carhp
+CHASE_QUEUE = float(os.environ.get("SP_CHASE_QUEUE", "1.0"))   # M.QUEUE_SECS during a chase drive (5.0)
+CHASE_BRAKE = float(os.environ.get("SP_CHASE_BRAKE", "1.5"))   # D.ACCEL_BRAKE during a chase drive (2.2):
+                         # braking for a corner starts earlier (sp10 came into the row-179/column-178
+                         # corner at 2.6 blocks/s against a 1.3 target, slid into the facade and stalled)
 
 
 def cop_close(s=None, r=COP_CLOSE):
@@ -227,6 +231,17 @@ def chase_drive(world, tx, ty, tol, budget, view_switch=None, until=None, check=
     """M.drive3 under a chase: the normal pace while carhp >= CHASE_SLOW_HP (the fragile caps made
     sp5's car a 2-blocks/s target), and the drive stopped for a break-away whenever an officer on
     foot comes within COP_CLOSE; resumed until arrived, until(), out of the car or the budget"""
+    # sp13: 10 s lost queueing behind a car crossing the first junction (QUEUE_SECS 5 game seconds
+    # before going round it) while the police closed in
+    brake0, queue0 = D.ACCEL_BRAKE, M.QUEUE_SECS
+    D.ACCEL_BRAKE = min(brake0, CHASE_BRAKE); M.QUEUE_SECS = min(queue0, CHASE_QUEUE)
+    try:
+        return _chase_drive(world, tx, ty, tol, budget, view_switch, until, check)
+    finally:
+        D.ACCEL_BRAKE, M.QUEUE_SECS = brake0, queue0
+
+
+def _chase_drive(world, tx, ty, tol, budget, view_switch, until, check):
     t0 = time.time(); breaks = 0; s = D.wait_state()
     if s and s["driving"] and threat_at_door(): breaks += 1; s = break_away(world)
     while time.time() - t0 < budget:
