@@ -7466,7 +7466,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // out of sight in the car until then, so his track is fresh. He plays "jacked"
         // (lying clip 5: hauled out of the seat, stumbling back, over onto his back)
         // from the throw on, facing the car, instead of a stagger and the run-over arc.
-        if (freshTrack && sprite.pedState == 8 && sprite.pedSub == 0x11 && !sprite.corpse) {
+        // A driver who gets out by himself (state 4: the game sometimes lets him step out
+        // as the jacker reaches the door) keeps exit_car, but still releases the jacker's haul.
+        const bool thrownOut = sprite.pedState == 8 && sprite.pedSub == 0x11;
+        if (freshTrack && (thrownOut || sprite.pedState == 4) && !sprite.corpse) {
             const DoorPed* jacker = nullptr;
             float best = 1.2f * 1.2f;
             for (const std::vector<DoorPed>* list : {&g_doorPeds, &g_doorPedsNow}) {
@@ -7483,13 +7486,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         if (ddx * ddx + ddz * ddz < bestCar) { bestCar = ddx * ddx + ddz * ddz; tx = s.x; tz = s.z; }
                     }
                 }
-                track.jacked = true; track.jackFrame = g_carFrame;
-                if ((tx - cx) * (tx - cx) + (tz - cz) * (tz - cz) > 1e-4f) track.heading = std::atan2(tx - cx, tz - cz);
+                if (thrownOut) {
+                    track.jacked = true; track.jackFrame = g_carFrame;
+                    if ((tx - cx) * (tx - cx) + (tz - cz) * (tz - cz) > 1e-4f) track.heading = std::atan2(tx - cx, tz - cz);
+                }
                 if (g_jackThrows.size() > 16) g_jackThrows.erase(g_jackThrows.begin());
                 g_jackThrows.push_back({cx, cz, g_carFrame});
                 if (g_logPedFrames)
-                    Log("jack: driver %p thrown out %.2f blocks from the boarding ped, facing the car %.2f off", reinterpret_cast<const void*>(sprite.object),
-                        std::sqrt(best), std::sqrt((tx - cx) * (tx - cx) + (tz - cz) * (tz - cz)));
+                    Log("jack: driver %p %s %.2f blocks from the boarding ped, the car %.2f off", reinterpret_cast<const void*>(sprite.object),
+                        thrownOut ? "thrown out" : "stepping out", std::sqrt(best), std::sqrt((tx - cx) * (tx - cx) + (tz - cz) * (tz - cz)));
             }
         }
         if (track.jacked) {

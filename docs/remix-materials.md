@@ -396,6 +396,28 @@ night frames (before, night) and a before-day take on `stage_remix3`.
   are dropped every frame (`LightsReconcile` clears `g_extra`), so nothing piles up.
 * Still to do once Remix runs again: rerun the acceptance command above as it is.
 
+**LIGHTBAR-2B (9 Nov 2026): first Remix frames of the beacons; criteria 2-4 partly seen, 1 and the variants still open.**
+* Take `lightbar2b_a`: the acceptance command above, unchanged, on `STAGE=stage_lightbar2` (`7cc5131`), launched
+  through `remix_l4.sh` with the `--device` fix from `68bec1e`. No fence failure: the game window
+  (`GTA2` 1280x720 in `xwininfo`, `game window ... after 2 s` in `keys.log`) came up, the level loaded, and
+  `lightbar_take.py` ran to `lightbar done`. The container's own `shot_*.png` and the frames cut from
+  `game.mp4` are path-traced (soft sun shadows, the Remix shader-compile overlay early on).
+* **Shader compilation took the whole night and variant part.** Remix compiled shaders from the front end
+  until just after `variants reset` ("Compiling shaders (1 remaining)" is still up at `night_var2`), so the
+  frames for the night cop car, ambulance and fire truck and the three `[Sirens]` variants are black. The first
+  lit frames are the cop car at night with the defaults, just after the take switches to 14:00 (`day_car_012_0`:
+  the hour takes a few frames to apply).
+* What those frames show (sheet `out/lightbar2b_sheet.png`):
+  (2) at night, red and blue pools on the road and pavement around the cop cars, and a red glow on the
+  kerb and the hydrant. The light is coloured, not white. The bulbs are small red and blue points on the roofs.
+  (3) by day the cop car's bar reads blue on the roof. (4) by day the ambulance's red bulb reads red
+  (a disc somewhat larger than the bulb), and the fire truck's amber is hard to make out in daylight. Criterion 1's
+  alternation and the variant choice need the night part with warm shaders.
+* The container stopped after the recording, before its log-copy step, so this take has no `gta2dx9.log`.
+  Criterion 5 stays verified from `lightbar2_plain`.
+* Next: rerun with `-e LEVEL_WAIT=330` (and a 900 s session) so the night part starts after shader compilation,
+  then pick the variant. The defaults stay as committed.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every

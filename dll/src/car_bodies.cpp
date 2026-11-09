@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <tuple>
 
+#include "cab_interior.h"
 #include "compat.h"
 #include "log.h"
 #include "model_store.h"
@@ -38,6 +39,7 @@ std::map<int, gta2::CarInfo> g_info;
 int g_built = 0, g_drawn = 0;
 bool g_wreckTest = false;   // [devtools] wreck_models=1: every car drawn as a wreck, to check the models
 int g_forceModel = -1;      // [devtools] force_car_model=N: every traffic car drawn as model N (re-read once a second)
+int g_cabInterior = 1;     // [devtools] cab_interior=0: QB-5's plain dashboard instead of the QB-31 cab
 int g_forceOwnModel = -1;   // [devtools] force_own_car_model=N: the player's car drawn as model N (QB-5 seat checks)
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
@@ -185,6 +187,7 @@ struct Cabin {
     float deck, roof, windscreen, halfWidth;
     uint32_t frame;
     float length, height;   // the body as drawn: blocks along it and its full height (roof gear included)
+    bool flat = false;      // QB-31: a flat front (bus, cab-over): the cab interior's class
 };
 std::map<uintptr_t, Cabin> g_cabins;
 
@@ -891,7 +894,7 @@ const HoodCopy& HoodModelFor(const Model& model, const gta2::Mat4& fit, float yC
 // cab-over truck, train) has no hood: the windscreen is at the nose and the
 // deck a little over half the cab's height. Built once per model and fit.
 struct CabShape {
-    bool valid = false;
+    bool valid = false, flat = false;
     float length = 0, height = 0, deck = 0, roof = 0, windscreen = 0;
 };
 struct CabKey {
@@ -956,6 +959,7 @@ CabShape CabShapeFor(const Model& model, const gta2::Mat4& fit, int modelNumber)
     if (cab.roof < cab.deck + 0.08f) cab.roof = cab.deck + 0.08f;
     cab.length = L;
     cab.height = H;
+    cab.flat = flat;
     cab.valid = true;
     g_cabShapes[key] = cab;
     Log("car bodies: cab of model %d (%s): %.2f x %.2f x %.2f blocks, %s front, hood %.2f long at %.2f, windscreen %+.2f, cab roof %.2f",
@@ -2516,6 +2520,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     if (g_devIni[0] && frame % 60 == 0) {
         g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
         g_forceOwnModel = GetPrivateProfileIntA("devtools", "force_own_car_model", -1, g_devIni);
+        g_cabInterior = GetPrivateProfileIntA("devtools", "cab_interior", 1, g_devIni);
         g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
         g_forceSirens = GetPrivateProfileIntA("devtools", "force_sirens", 0, g_devIni);
@@ -2657,6 +2662,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         cabin.windscreen = cab.windscreen;
                         cabin.length = (std::max)(cab.length, b->bodyLength);
                         cabin.height = cab.height;
+                        cabin.flat = cab.flat;
                     }
                 }
                 // QB-5: the eye over the bonnet (see BonnetTopFor). Only the player's car
@@ -2879,7 +2885,27 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 if (hood && hood->dash) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                     const float paint[3] = {b->paint.r / 255.0f * dull, b->paint.g / 255.0f * dull, b->paint.b / 255.0f * dull};
-                    DrawDash(device, posed, *hood, eyeLocalZ + 0.10f, paint, material);
+                    if (g_cabInterior && modelNumber < 72) {
+                        // QB-31: the cab from the seat, per vehicle class (cab_interior.h).
+                        CabInteriorParams cp;
+                        cp.cls = CabClassFor(modelNumber, g_cabins[use.object].flat);
+                        cp.eyeX = eyeLocalX; cp.eyeY = eyeLocalY; cp.eyeZ = eyeLocalZ;
+                        cp.zCut = eyeLocalZ + 0.10f;
+                        cp.dashTop = hood->dashTop; cp.dashX0 = hood->dashX0; cp.dashX1 = hood->dashX1;
+                        for (int k = 0; k < 3; ++k) cp.paint[k] = paint[k];
+                        cp.steer = feel.on ? feel.steer : 0.0f;
+                        cp.speed = feel.speed;
+                        cp.night = g_lampDark;
+                        static int cabLogged = -1;
+                        if (cabLogged != modelNumber) {
+                            cabLogged = modelNumber;
+                            Log("car bodies: cab interior of model %d: %s class, dash top %.3f (eye %.3f), x %.2f..%.2f", modelNumber,
+                                CabClassName(cp.cls), cp.dashTop, eyeLocalY, cp.dashX0, cp.dashX1);
+                        }
+                        DrawCabInterior(device, posed, cp, material);
+                    } else {
+                        DrawDash(device, posed, *hood, eyeLocalZ + 0.10f, paint, material);
+                    }
                 }
             }
             g_carStats[2] += CarNowMs() - tm;

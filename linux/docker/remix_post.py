@@ -56,7 +56,25 @@ def full(*layers):
     for l in layers: d.update(l)
     return d
 
+# The explore part's overrides. Their keys join ALLKEYS so that every later push resets them to
+# the before value or the runtime default: no preset sets rtx.tonemap.* or the froxel distance,
+# and without this the last explore step (colour grading on, contrast 1.08, saturation 1.15,
+# froxels to 80 m) stayed live through the whole before/after part (REMIX-VERIFY, run rv_post).
+TM = {"psycho17": {"rtx.tonemap.tonemapOperator": "6", "rtx.tonemap.colorGradingEnabled": "False"},
+      "agx_punchy": {"rtx.tonemap.tonemapOperator": "4", "rtx.tonemap.agx.look": "2", "rtx.tonemap.agx.saturation": "1.15",
+                     "rtx.tonemap.colorGradingEnabled": "False"},
+      "gt7": {"rtx.tonemap.tonemapOperator": "7", "rtx.tonemap.colorGradingEnabled": "False"},
+      "psycho17_grade": {"rtx.tonemap.tonemapOperator": "6", "rtx.tonemap.colorGradingEnabled": "True",
+                         "rtx.tonemap.contrast": "1.08", "rtx.tonemap.saturation": "1.15"}}
+XOVER = [("fog0", {"rtx.volumetrics.transmittanceMeasurementDistanceMeters": "2000"}),
+         ("fog180", {}),
+         ("fog60", {"rtx.volumetrics.transmittanceMeasurementDistanceMeters": "60"}),
+         ("fog60_far", {"rtx.volumetrics.transmittanceMeasurementDistanceMeters": "60", "rtx.volumetrics.froxelMaxDistanceMeters": "80"}),
+         ("bloom_wide", {"rtx.bloom.steps": "8", "rtx.bloom.burnIntensity": "0.8", "rtx.bloom.luminanceThreshold": "0.7"})]
 ALLKEYS = set(BEFORE) | set(PLAY) | set(SHOW) | {k for t in TOD.values() for k in t}
+ALLKEYS |= {k for o in TM.values() for k in o} | {k for _, o in XOVER for k in o}
+missing = sorted(k for k in ALLKEYS if k not in BEFORE and k not in DEFAULTS)
+if missing: print("remix_post: no before value or default for", missing, "- these are never reset", flush=True)
 def state(*layers):
     """every key any preset touches, with the before value (or the runtime default) underneath"""
     base = {k: BEFORE.get(k, DEFAULTS.get(k)) for k in ALLKEYS}
@@ -111,22 +129,12 @@ AFT = {n: state(PLAY, TOD[n]) for n in tods}
 
 if "explore" in parts:
     goto("street")
-    tm = {"psycho17": {"rtx.tonemap.tonemapOperator": "6", "rtx.tonemap.colorGradingEnabled": "False"},
-          "agx_punchy": {"rtx.tonemap.tonemapOperator": "4", "rtx.tonemap.agx.look": "2", "rtx.tonemap.agx.saturation": "1.15",
-                         "rtx.tonemap.colorGradingEnabled": "False"},
-          "gt7": {"rtx.tonemap.tonemapOperator": "7", "rtx.tonemap.colorGradingEnabled": "False"},
-          "psycho17_grade": {"rtx.tonemap.tonemapOperator": "6", "rtx.tonemap.colorGradingEnabled": "True",
-                             "rtx.tonemap.contrast": "1.08", "rtx.tonemap.saturation": "1.15"}}
     for tod in ("noon", "night"):
         hour(HOURS[tod])
-        for name, over in tm.items():
+        for name, over in TM.items():
             push(state(PLAY, TOD[tod], over), f"tm {name}"); mark(f"x_{tod}_tm_{name}")
     hour(HOURS["night"])
-    for name, over in [("fog0", {"rtx.volumetrics.transmittanceMeasurementDistanceMeters": "2000"}),
-                       ("fog180", {}),
-                       ("fog60", {"rtx.volumetrics.transmittanceMeasurementDistanceMeters": "60"}),
-                       ("fog60_far", {"rtx.volumetrics.transmittanceMeasurementDistanceMeters": "60", "rtx.volumetrics.froxelMaxDistanceMeters": "80"}),
-                       ("bloom_wide", {"rtx.bloom.steps": "8", "rtx.bloom.burnIntensity": "0.8", "rtx.bloom.luminanceThreshold": "0.7"})]:
+    for name, over in XOVER:
         push(state(PLAY, TOD["night"], over), f"x {name}"); mark(f"x_night_{name}")
 
 if "ab" in parts:
