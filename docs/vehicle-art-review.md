@@ -1,0 +1,225 @@
+# Vehicle art review (9 Nov 2026, VEHICLE-REVIEW)
+
+Audit of every vehicle model the 3D views draw, judged against the original GTA2 sprite (silhouette,
+proportions, colour, roof art) and against a modern realism bar (panel shapes, wheels and tyres, glass and
+frames, lights, bumpers and grilles, mirrors, paint material, interior through glass, arches, ride height,
+contact shadow). Triage only: defects are filed in `/mnt/gta2/defects/open/` for the fixer agents.
+
+## Ranked summary
+
+Of the 83 vehicle models (60 image-to-3D cars, 23 parametric: trains, trailers, wrecks, shared-sprite dummies, the van,
+the agent car), 34 score good, 30 acceptable, 19 bad. The fleet's era and identity work is mostly in: the sedans, vans,
+the truck cab, the cop car, the taxi and the sports cars read as GTA2's cars at chase distance. What breaks the realism
+bar is systematic, not per-car: opaque baked glass, hard facets on bonnets within a block, no contact shadow, and a set
+of parametric placeholders that never got a model.
+
+**Three worst vehicles** (by how often a player sees them x how wrong they are):
+
+1. **The wrecks 072-081**: flat dark pancakes with no cabin, roof, arches or tyres. After every explosion, every mission.
+   (`vr-wrecks-flat-dark-pancakes-no-car-shape`)
+2. **068 Van**, the second most frequent Downtown car: a parametric loaf with flat grey disc wheels and no panel lines,
+   while its twin 067 TV Van is a good VW bus. (`vr-van-068-parametric-flat-disc-wheels-no-panel-lines`)
+3. **083 Furore GT** and the other four round-8 regenerations (047/048 Meteor, 016 Panto, 064 SX): the shipped bodies are
+   the pre-round-8 modern/1980s ones. The CAR-ERA doc section says they were replaced; the files never reached
+   `assets/models`. (`vr-round8-era-models-never-shipped-furore-meteor-panto-sx`; copy done in this pass, restage pending)
+
+Runners-up: 050 B-Type and 018 Shark (crumpled bonnets, blob headlamps; ranks 13 and 11), 084 Special Agent Car (an
+untextured lime wedge), 056 Taxi (torn chequer band, rank 6), 069 U-Jerk Truck (drives tail-first since round 11:
+confirmation appended to pl19-jacked-truck-drawn-backwards).
+
+**Single highest-leverage fix**: the shared-sprite mapping. Point 068 at 067's mesh, 084 at 014's, the four hot-dog
+dummies at 023's (manifest entries only, no generation): it turns the second most seen car, the agents' car and four
+mission vans from placeholders into the good models that already exist, in one afternoon. Second: translucent glass with
+a dark interior box on every car (one renderer change lifts all 60 generated bodies a class).
+
+Defects filed this pass (`/mnt/gta2/defects/open/vr-*`), ranked: wrecks (2), facets and crumpled bonnets (3),
+taxi chequer (4), 068 van (5), pre-war blob lamps (6), roof sprite colour (7), 084 agent car (8), trains and trailers (9),
+036 Schmidt canopy (10), opaque glass (11, feature), hot-dog dummies (12); plus the round-8 copy (assigned, 5p) and the
+069 confirmation.
+
+## Method
+
+- Stage: a private hard-link copy of the live stage (`stage_vr` = `repo/stage` at ac0e16a, 15:00 restage,
+  the round 9-11 models included), plain renderer, L4 GPU 4, 1280x720, daylight, Downtown carriageway.
+- Traffic sweep (`gamerun/vr_traffic.py`, run `out/vr_traffic1`): `[devtools] force_car_model=N` draws every
+  traffic car as model N; the player stands in the lane so the queue comes at the chase camera nose first.
+  Frames per model: `drv_far_NNN` (within 4 blocks, chase camera), `drv_close_NNN` (within 1.5 blocks),
+  `drv_fp_NNN` / `drv_fp2_NNN` (first person on foot at eye height, 1.2 s apart).
+- Own-car sweep (`gamerun/vr_seat.py`, run `out/vr_seat1`): the scene car with `force_own_car_model=N`:
+  `t_own3_NNN` (chase camera behind the player's car, the view a driver sees most), `t_own1_NNN` (from the seat),
+  `t_own3drive_NNN` (chase camera while steering).
+- Contact sheets: `tools/vehicle_review/vr_sheet.py` -> `out/vr_review/sheet_*.png` (sprite | far | close |
+  eye | eye2 | own chase | own seat, 7 models per sheet).
+- Reference: `out/vr_review/sprites_all.png` (every x4 sprite, nose down as the game draws it).
+
+## How often a player sees each vehicle
+
+Counted from the Downtown carriageway watch (`out/noses_wil`, 9 335 drawn-car samples over 5.5 minutes,
+`GTA2DX9_LOG_CAR_NOSES=1`), plus the catalog's `traffic_districts` for the other two districts (presence only,
+no counts). Mission, police and emergency vehicles are seen on events, not in traffic.
+
+| Rank | Model | Downtown samples | Also in |
+|---|---|---|---|
+| 1 | 063 Truck Cab | 2213 | Residential |
+| 2 | 068 Van | 1110 | Residential, Industrial |
+| 3 | 013 Minx | 975 | Residential |
+| 4 | 036 Schmidt | 861 | Industrial |
+| 5 | 008 Bug | 625 | Industrial |
+| 6 | 056 Taxi | 587 | |
+| 7 | 069 U-Jerk Truck | 526 | Residential |
+| 8 | 000 Romero | 453 | Residential |
+| 9 | 038 Big Bug | 353 | Residential, Industrial |
+| 10 | 067 TV Van | 303 | Residential, Industrial |
+| 11 | 018 Shark | 288 | Residential |
+| 12 | 004 G4 Bank Van | 267 | Residential, Industrial |
+| 13 | 050 B-Type | 242 | Residential, Industrial |
+| 14 | 027 Ice-Cream Van | 197 | |
+| 15 | 012 Cop Car | 126 | every chase |
+| 16 | 002 Aniston BD4 | 104 | |
+| 17 | 053 Michelli Roadster | 70 | |
+| 18 | 001 Wellard, 005 Beamer | 18, 17 | |
+| - | Residential/Industrial only: 007, 014, 016, 021, 023, 031, 032, 033, 035, 039, 040, 044, 045, 046, 049, 051, 057, 062, 064, 071, 082, 083 | | |
+| - | Events: 017 Fire Truck, 034 Medicar, 052 SWAT Van, 084 Special Agent Car, 003 Pacifier, 054 Tank, 022 Armed Land Roamer | | |
+| - | Missions/parked only: 010, 011, 019, 028, 029, 030, 037, 041, 042, 047, 048, 058, 070, 086 | | |
+| - | Rails: 059-061 trains, 065/066 trailers; 072-081 wrecks after every explosion | | |
+
+## Per-class assessment
+
+Scores: **good** = reads as the GTA2 vehicle and holds up within a block; **acceptable** = right identity, visible
+flaws at close range; **bad** = wrong identity, placeholder body, or a flaw that reads at chase distance.
+Frames: `W` = `out/vr_walk3/drv_{door,fq,rq,far1,far3}_NNN.png` (tiled in `out/vr_review/cards/card_NNN.png`),
+`T` = `out/vr_traffic1/drv_{far,close,fp,fp2}_NNN.png` (tiled in `out/vr_review/sheet_*.png`),
+`S` = `out/vr_seat1/t_own1_NNN.png` (from the seat). Zooms of the top traffic cars: `out/vr_review/zoom/`.
+Rank = traffic frequency from the table above (D = Downtown samples).
+
+### Sedans, coupes and compacts (the bulk of traffic)
+
+| Model | Rank | Score | Identity vs sprite | What is wrong (close) | Frames |
+|---|---|---|---|---|---|
+| 000 Romero | 8 | good | Giulia-style three-box sedan, chrome spine and V-grille as the sprite | side glass an opaque baked smear (global); no contact shadow (filed) | card_000, z_door_000 |
+| 001 Wellard | 18 | acceptable | T-bird style coupe | a dark lettering ghost on the door panel, grille soft | card_001 |
+| 005 Beamer | 18 | acceptable | 507-style coupe (sprite has four door slots) | dark lumpy roof; the runner missed the door frame (car moved) | card_005, T 005 |
+| 008 Bug | 5 | acceptable | Beetle, right | bonnet is a crumpled sheet of hard facets with a baked white specular streak; from the seat the bonnet drops out of view | z_door_008, S 008 |
+| 010 Bulwark | parked | acceptable | 1950s Buick | flat planes across the bonnet, mustard blotches on cream paint | card_010 |
+| 013 Minx | 3 | acceptable | boxy 1960s saloon | mild facets on the bonnet; windows opaque; otherwise the cleanest common car | z_door_013, S 013 |
+| 014 Eddy | R/I | acceptable | 1957 Fairlane two-tone | the roof is the sprite's yellow on a red body (roof-colour defect) | card_014 |
+| 016 Panto | R/I | **bad** | 1980s Panda-style hatch, yellow roof | the pre-round-8 body: the round-8 Mini never shipped (defect filed) | card_016, T 016 |
+| 018 Shark | 11 | **bad** | 1930s pontoon-fender sedan; the sprite is a 1950s finned sedan | headlamps are grey melted blobs on the wings, grille a smudge; from the seat the blobs fill the view | card_018, S 018 |
+| 035 Benson | I | good | Mercedes Ponton, grey over black | - | card_035 |
+| 036 Schmidt | 4 | acceptable | bubble car | canopy carries the sprite's black strokes (reads cracked), lamps are blobs on stalks | z_door_036 |
+| 040 Maurice | R/I | acceptable | Morris Minor, maroon | the chrome spine is a flat white streak; facets on the bonnet | card_040 |
+| 042 A-Type | parked | **bad** | 1930s sedan (right era) | headlamps melted grey blobs with a pink blotch, grille smeared | card_042 |
+| 049 Hachura | I | good | Citroen DS, cream | - | card_049 |
+| 050 B-Type | 13 | **bad** | 1940s sedan | the whole bonnet and wings are a mosaic of creased facets, lamps blobs, grille smeared | z_door_050 |
+| 057 T-Rex | I | acceptable | Hudson Hornet style, gold | facets, soft chrome | card_057 |
+| 070 Z-Type | mission | acceptable | 1930s streamliner, copper | very smooth, low detail, faired-in lamps; fine at distance | card_070 |
+| 029 Dementia | mission | good | tan Isetta (boxier than the sprite's egg, tracked in #2) | - | card_029 |
+| 028 Dementia Limousine | D | acceptable | long tan Hudson-like sedan; the sprite is a stretched bubble car | flat facets on the bonnet | card_028 |
+
+### Sports and muscle
+
+| Model | Rank | Score | Identity vs sprite | What is wrong (close) | Frames |
+|---|---|---|---|---|---|
+| 002 Aniston BD4 | 16 | good | DB4 coupe, gold | slightly soft | card_002 |
+| 019 GT-A1 | mission | good | GT40, twin stripes, roof disc | - | card_019 |
+| 031 Jefferson | R | good | E-type roadster, open interior | - | card_031 |
+| 037 Miara | parked | good | Miura, orange | tan sprite roof panel (roof-colour defect) | card_037 |
+| 039 Morton | I | **bad** | 1930s roadster | headlamps grey melted blobs sunk in the wings, grille shell a lump | card_039 |
+| 044 Arachnid | R/I | good | Giulietta Spider, red | - | card_044 |
+| 045 Spritzer | I | good | Austin-Healey, tan, interior visible | - | card_045 |
+| 046 Stinger | R | acceptable | Corvette Stingray, near-black | baked white highlight smear on the bonnet; tan sprite roof panel | card_046 |
+| 047 Meteor | parked | **bad** | 1970s wedge with fins | pre-round-8 body (defect filed) | card_047 |
+| 048 Meteor | parked | **bad** | 1980s hatchback | pre-round-8 body (defect filed) | card_048 |
+| 053 Michelli Roadster | 17 | good | 250 California style, cream, red interior | - | card_053 |
+| 062 Trance-Am | I | acceptable | gold Firebird | tan sprite roof on a gold body; windows baked dark | card_062 |
+| 071 Rumbler | R | good | red muscle car, twin stripes | - | card_071 |
+| 082 Jagular XK | R | good | dark green XK120 | - | card_082 |
+| 083 Furore GT | I | **bad** | modern white supercar | pre-round-8 body (defect filed) | card_083, T 083 |
+
+### Vans, pickups and trucks
+
+| Model | Rank | Score | Identity vs sprite | What is wrong (close) | Frames |
+|---|---|---|---|---|---|
+| 004 G4 Bank Van | 12 | good | 1950s armoured van, white roof | - | card_004 |
+| 007 Box Truck | R | acceptable | brown box, navy cab | a cardboard box: faint grid, no panel detail, no rear door hardware | card_007 |
+| 021 Garbage Truck | R | acceptable | brown 1940s truck | the hopper is a plain box (tracked in #2) | card_021 |
+| 023 Hot Dog Van | R/I | good | orange step van, hot dog, awning | - | card_023 |
+| 024/025/026/085 Hot Dog dummies | mission | **bad** | parametric boxes / a sedan with the sprite smeared over the top | placeholder bodies (defect filed) | card_024, card_025, card_026, card_085 |
+| 027 Ice-Cream Van | 14 | acceptable | pink/white 1950s van | the cone is a lumpy melted shape | card_027 |
+| 041 Pickup | parked | good | 1948 F1 pickup, red, whitewalls | bonnet a touch lumpy | card_041 |
+| 058 Tow Truck | mission | acceptable | white cab, yellow bed and boom | cab lumpy, boom crude | card_058 |
+| 063 Truck Cab | 1 | good | green Kenworth-style conventional, chrome grille, stacks, mirrors | hubs soft; door glass a black panel | z_door_063, S 063 |
+| 064 Truck Cab SX | I | acceptable | red cab-over | the pre-round-8 body (the doc calls it a 1990s cab-over; here it reads 1950s COE); round-8 pick not shipped | card_064 |
+| 067 TV Van | 10 | good | VW split-screen bus, white over green | - | card_067 |
+| 068 Van | 2 | acceptable | parametric loaf (shares 067's sprite) | flat grey disc wheels, no door or sill lines, roof sprite smear (defect filed) | z_door_068 |
+| 069 U-Jerk Truck | 7 | acceptable, **drawn backwards** | Model AA with a black slatted box | the box faces the car's heading: in `card_069` the front-quarter frame shows the bed and the rear-quarter frame the cab, the opposite of every other model; the traffic queue (`T 069`) shows the bed toward the camera. Confirms PLAYTEST-FEEL's open report pl19-jacked-truck-drawn-backwards-grille-toward-chase-camera (round 11 dropped the `forward: -z` entry; the new mesh evidently faces -z) | card_069, T 069 |
+
+### Emergency, police, special
+
+| Model | Rank | Score | Identity vs sprite | What is wrong (close) | Frames |
+|---|---|---|---|---|---|
+| 012 Cop Car | 15 + chases | good | navy/white, door badge, light bar | - | card_012, S 012 |
+| 017 Fire Truck | events | acceptable | red 1950s pumper | cab bonnet lumpy, lights as blobs | card_017 |
+| 034 Medicar | events | good | 1950s ambulance, red cross | front slightly lumpy | card_034 |
+| 052 SWAT Van | events | acceptable | navy/white armoured truck, light bar | fake lettering on the flank, emblem blob, red hubs (tracked in #2) | card_052 |
+| 084 Special Agent Car | events | **bad** | flat-shaded lime parametric wedge with a light bar | placeholder body (defect filed) | card_084 |
+| 003 Pacifier | mission | acceptable | olive armoured van, two roof hatches | Land-Rover cab where the sprite has a low glazed front (tracked in #2) | card_003 |
+| 022 Armed Land Roamer | mission | good | Willys with the bonnet star | - | card_022 |
+| 030 Land Roamer | mission | acceptable | Land Rover with canvas | very dark green, low contrast | card_030 |
+| 054 Tank | mission | good | Patton-style tank | - | card_054 |
+| 032 Stretch Limousine | I | good | long tan Cadillac, fins | - | card_032 |
+| 033 Sports Limousine | R | good | Continental-like | - | card_033 |
+| 011 Bus | parked | good | red/cream 1950s coach | - | card_011 |
+| 086 Karma Bus | mission | good | yellow school bus | a torn seam at the front corner | card_086 |
+
+### Rail and trailers
+
+| Model | Score | What is wrong | Frames |
+|---|---|---|---|
+| 006 Box Car | acceptable | cream coach with a window band; flat shading | card_006 |
+| 055 Tanker | **bad** | a passenger coach, not a tank car; end face a flat sprite-smeared panel | card_055 |
+| 059 Train, 061 Train FB | acceptable | coaches; end faces flat with the roof sprite wrapped down | card_059, card_061 |
+| 060 Train Cab | **bad** | a beige loaf with a blotchy roof: no cab windows, no loco front | card_060 |
+| 065 Container | acceptable | ribbed box; front face sprite smear | card_065 |
+| 066 Transporter | **bad** | a plain brown loaf, no deck or ramps | card_066 |
+
+### Wrecks (072-081)
+
+All **bad**: flat dark pancakes a third of a car high, no cabin, roof line, arches or tyres (card_072, card_073, card_075,
+sheet_074_080). Seen after every explosion. Defect filed.
+
+### From the driver's seat (first person, `out/vr_seat1`)
+
+`force_own_car_model` changes only the hood copy and the cab class of the player's car (the chase camera still shows
+the scene car, a 063 Truck Cab, in every `t_own3_*` frame; those frames are not per-model evidence). The seat frames show
+each model's own bonnet under the QB-31 cab, 0 FAULT. What reads wrong across the fleet: the mirrors are black slabs
+(nothing reflected); the A-pillars are flat grey strips without a glass edge; the header band is a plain light-grey
+bar; no bonnet carries an ornament, wiper or seam line; models with high wings or lamp pods (018, 042, 050) put lumpy
+boulders in the lower half of the view (`S 018`); cars with low bonnets (008, 036) show no bonnet at all (`S 036`:
+only the dash). The open roadsters (`S 031` Jefferson) show the bonnet as a thin pink sheet with black torn triangles
+behind it: the assigned pm8-fp-bonnet-shredded-slivers-and-grey-header-bar, still reproducible on this stage. No torn
+shards on the closed cars at damage 0 (pt-fp-cab-jagular-xk-torn-black-shards fix is in this stage).
+
+### Global findings (every generated model)
+
+1. **Glass is opaque baked albedo**: no interior, no driver, no reflection; the open roadsters (031, 045, 053) look a
+   class better than every closed car for this reason alone. Defect filed.
+2. **No contact shadow**: every car floats on the road (pm-no-contact-shadows-cars-peds-props-float, assigned).
+3. **Facets and crumpled bonnets** within a block on about a third of the generated set (008, 010, 013, 038, 050,
+   058): decimation to 3-8k faces with unsmoothed normals. Defect filed.
+4. **Baked highlights** (the concept image's specular streak) on bonnets: 008, 046, 010. Covered by the facets defect.
+5. **Roof sprite colour**: a lighter sprite roof becomes a mismatched panel (014, 037, 046, 062, 016). Defect filed.
+6. **Wheels** are generally right (round, dark tyres, hub detail on 041, 004, 063, 082); the parametric bodies
+   (068, 084, dummies) have flat discs.
+7. **Paint**: the soft paint mask and the dark-paint floor (FIX-CAR-RENDER) hold: no posterised flanks and no black
+   bodies were seen in daylight; the Stinger 046 and Jagular 082 (near-black) show panel edges and a sky sheen.
+8. **Ride height and proportions** are right on nearly all (the fit's 15 % aspect cap works); 070 and 028 sit low and long
+   as their sprites do; the Big Bug's lifted stance reads.
+
+## Runs
+
+- `out/vr_traffic1` (83 models x 4 frames, 0 FAULT), `out/vr_walk3` (83 models x 5 frames, 0 FAULT), `out/vr_seat1`
+  (68 models x 3 frames). GPU 4, stage `stage_vr` (= repo/stage at ac0e16a). `out/vr_walk1`/`vr_walk2` were aborted
+  runner iterations (the parked-car fields; the warp finds no parked car at the carriageway).
+- Round-8 copy fix: `stage_vr8` = `stage_vr` with the five round-8 meshes from `stage_carera`; after frames in
+  `out/vr_traffic_r8` (see the defect's READY line).
