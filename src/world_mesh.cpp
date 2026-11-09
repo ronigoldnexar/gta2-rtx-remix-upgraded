@@ -55,24 +55,32 @@ CornerHeights RampHeights(const SlopeInfo& slope) {
     }
 }
 
-// Used only when the game's table has not been read; reproduces the same
-// families it builds at startup: 1-8 climb in two steps, 9-40 in eight,
-// 41-44 in one, in the order north, south, west, east.
+// Used only when the game's table has not been read (the offline tools:
+// tools/world_raycast.cpp, dump_block); reproduces the same families it builds at
+// startup: 1-8 climb in two steps, 9-40 in eight, 41-44 in one, in the order north,
+// south, west, east. Within a family the first type is the LOW piece (RampHeights
+// reads step from the top): Downtown's ramp at (28,45..52), types 17..24, climbs from
+// the street at level 2 north of it to the ground at level 3 south of it. Counting
+// the steps the other way made 50-85 % of the joins between ramp blocks in the three
+// districts a step (each ramp a sawtooth, open at its sides); this way 99 % join
+// (FIX-WORLD-2, 9 Nov 2026).
 SlopeInfo DeriveSlope(int slopeType) {
     SlopeInfo slope;
+    int index = -1;
     if (slopeType >= 1 && slopeType <= 8) {
         slope.direction = static_cast<uint8_t>((slopeType - 1) / 2 + 1);
         slope.steps = 2;
-        slope.step = static_cast<uint8_t>((slopeType - 1) % 2);
+        index = (slopeType - 1) % 2;
     } else if (slopeType >= 9 && slopeType <= 40) {
         slope.direction = static_cast<uint8_t>((slopeType - 9) / 8 + 1);
         slope.steps = 8;
-        slope.step = static_cast<uint8_t>((slopeType - 9) % 8);
+        index = (slopeType - 9) % 8;
     } else if (slopeType >= 41 && slopeType <= 44) {
         slope.direction = static_cast<uint8_t>(slopeType - 41 + 1);
         slope.steps = 1;
-        slope.step = 0;
+        index = 0;
     }
+    if (index >= 0) slope.step = static_cast<uint8_t>(slope.steps - 1 - index);
     return slope;
 }
 
@@ -1671,7 +1679,26 @@ public:
         if (block->lid && !block->lid.IsFlat() && block->SlopeType() == 0 &&
             block->lid.Tile() < style_.TileCount() && !Water(*block))
             return true;
+        if (SlopeSupport(x, y, level) && Solid(x, y, level - 1)) return true;   // standing on solid ground
         return HiddenGround(x, y, level);
+    }
+
+    // Slope type 63 under a ramp or a pitched roof: the block that carries the slope
+    // (the attic under a roof, the fill under a ramp). It is solid up to the slope's
+    // foot, but has no lid and usually no sides, so from beside it the eye went in under
+    // the roof and out through the roof's culled underside: the eave of a roof hung in
+    // the sky with nothing under it (9h, Downtown (164..165,138..141)). Counted solid
+    // only under a ramp or a pitched roof (types 1-44) with a solid lid, or under another
+    // such block.
+    bool SlopeSupport(int x, int y, int level) const {
+        for (int l = level; l < kMapLevels; ++l) {
+            const Block* block = At(x, y, l);
+            if (!block) return false;
+            const int type = block->SlopeType();
+            if (l > level && type >= 1 && type <= 44) return block->lid && !block->lid.IsFlat();
+            if (type != 63) return false;
+        }
+        return false;
     }
 
     // Solid and standing on something: a lid over air (an awning, a deck) keeps its
@@ -1746,10 +1773,217 @@ int GroundTileNear(const Map& map, int x, int y, int level) {
     return 0;
 }
 
-struct StreetFillStats { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; };
+struct StreetFillStats { int risers = 0, floors = 0, ground = 0, apronTile = 0; float apronHeight = 0.0f; int ceilings = 0, baseSides = 0, rampSides = 0; };
 StreetFillStats g_streetFillStats;
 
-void AddStreetFill(MeshBuilder* builder, const Map& map, const Style& style) {
+// Ceilings (9g, 9h): a building that overhangs the street - an arcade, a passage,
+// an upper storey on a wall face over a pavement - is stored as blocks with side faces
+// and one lid at the top. Nothing closes its bottom: a top-down camera never looks up.
+// From under it a street camera looked up through the open shell at the sky, at the
+// back of the roof lid (culled) and at whatever stands on the roof (a rooftop unit
+// seen from below hung in the sky as a disc). AddHiddenSurfaces (b) gives a lidded
+// block over an empty one its underside; this does the same for the lowest block of
+// any overhanging mass that ends in a roof: every block from it up to the column's top
+// has a face, a lid or a slope, the top has a lid or a slope, and the cell under it is
+// open (no lid, no slope, not the base), and the block is closed all round. Faced down.
+bool HasRealSide(const Block& block) {
+    for (const Face* face : {&block.left, &block.right, &block.top, &block.bottom})
+        if (*face && !face->IsFlat()) return true;
+    return false;
+}
+
+void AddOverhangCeilings(MeshBuilder* builder, const Map& map, const Style& style, const StreetSolid& solid,
+                         StreetFillStats* stats) {
+    // The ceiling's tile: of the walls the block shows, the one the map uses most (plain
+    // brick or stone, not the rose window or the shop sign that happens to come first).
+    std::vector<int> wallUse(static_cast<size_t>(style.TileCount()) + 1, 0);
+    for (size_t index = 0; index < map.BlockCount(); ++index) {
+        const Block& block = map.BlockAt(static_cast<uint32_t>(index));
+        for (int side = 0; side < 4; ++side)
+            if (RealTile(style, SideFace(block, side))) ++wallUse[static_cast<size_t>(SideFace(block, side).Tile())];
+    }
+    auto ceilingTile = [&](const Block& block) {
+        int best = 0, use = -1;
+        for (int side = 0; side < 4; ++side) {
+            const Face& face = SideFace(block, side);
+            if (RealTile(style, face) && wallUse[static_cast<size_t>(face.Tile())] > use) { best = face.Tile(); use = wallUse[static_cast<size_t>(face.Tile())]; }
+        }
+        return best ? best : DeckUndersideTile(block);
+    };
+    for (int y = 0; y < kMapHeight; ++y) {
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            const int top = column.offset + static_cast<int>(column.blocks.size()) - 1;
+            const Block* topBlock = solid.At(x, y, top);
+            if (!topBlock || !(topBlock->lid || topBlock->SlopeType() != 0)) continue;
+            const float xWest = static_cast<float>(x), xEast = xWest + 1.0f;
+            const float zSouth = static_cast<float>(kMapHeight - y - 1), zNorth = zSouth + 1.0f;
+            // Walk down from the roof while the mass is unbroken.
+            for (int level = top; level > column.offset; --level) {
+                const Block* block = solid.At(x, y, level);
+                if (!block || !(block->lid || block->SlopeType() != 0 || HasRealSide(*block))) break;
+                const Block* below = solid.At(x, y, level - 1);
+                if (below && (below->lid || below->SlopeType() != 0 || HasRealSide(*below))) continue;
+                if (solid.Solid(x, y, level - 1)) break;
+                // The lowest block of the mass, over open air. Ramps and partial blocks
+                // have their own undersides or none to give; a flat lid over an empty
+                // block is AddHiddenSurfaces (b)'s.
+                const bool emptyBelow = below && !below->lid && !below->left && !below->right && !below->top && !below->bottom;
+                const bool solidLid = block->lid && !block->lid.IsFlat();
+                const bool doneByB = solidLid && emptyBelow;
+                // Closed all round at that level (its own wall, or a neighbour that is solid
+                // or part of a building): a shell open on a side (Industrial (42,98), a north
+                // wall only) would show its ceiling as a slab hanging in the air.
+                bool closed = true;
+                for (int side = 0; side < 4 && closed; ++side) {
+                    if (SideFace(*block, side)) continue;
+                    const int nx = x + (side == 1) - (side == 0), ny = y + (side == 3) - (side == 2);
+                    if (solid.Solid(nx, ny, level)) continue;
+                    const Block* other = solid.At(nx, ny, level);
+                    closed = other && (other->lid || other->SlopeType() != 0 || HasRealSide(*other));
+                }
+                if (closed && block->SlopeType() == 0 && (HasRealSide(*block) || solidLid) && !doneByB) {
+                    const int tile = ceilingTile(*block);
+                    if (tile > 0) {
+                        const float h = static_cast<float>(level);
+                        builder->AddSideQuad(tile, {{{xWest, h, zSouth}, {xEast, h, zSouth}, {xEast, h, zNorth}, {xWest, h, zNorth}}}, {0.0f, -1.0f, 0.0f});
+                        ++stats->ceilings;
+                    }
+                }
+                break;
+            }
+        }
+    }
+}
+
+// Base sides over a see-through tile (9h): AddImplicitFloors dresses the side of a
+// column's implicit base with the first face the column shows on that side at any
+// height, and on a pitched roof that is the ridge's crest trim (Downtown (164,140):
+// tile 3, scallops and finials over colour-keyed nothing). Alpha-tested on a solid base
+// it read as a black hole in the wall with the trim along its bottom, and the eave of
+// the roof above seemed to float over it. The classic view keeps its quad; the street
+// views draw an opaque wall over it at the same corners (same vertices, so the same
+// depth, and drawn later under LESSEQUAL it wins): the column's own wall on that side
+// higher up, else a wall nearby (RiserTile), else the floor's tile.
+void AddBaseSideCovers(MeshBuilder* builder, const Map& map, const Style& style, const StreetSolid& solid, StreetFillStats* stats) {
+    static const int kSideDx[4] = {-1, 1, 0, 0};
+    static const int kSideDy[4] = {0, 0, -1, 1};
+    for (int y = 0; y < kMapHeight; ++y) {
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            if (column.offset == 0 || column.blocks.empty() || column.blocks[0] >= map.BlockCount()) continue;
+            const int floorTile = NeighbourLidTile(map, x, y, column.offset);
+            const float xWest = static_cast<float>(x), xEast = xWest + 1.0f;
+            const float zSouth = static_cast<float>(kMapHeight - y - 1), zNorth = zSouth + 1.0f;
+            for (int side = 0; side < 4; ++side) {
+                const int nx = x + kSideDx[side], ny = y + kSideDy[side];
+                if (nx < 0 || ny < 0 || nx >= kMapWidth || ny >= kMapHeight) continue;
+                const int low = map.ColumnAt(nx, ny).offset;
+                if (low >= column.offset) continue;
+                // The face ImplicitSideTile picks; only a see-through one is replaced.
+                const Face* picked = nullptr;
+                for (uint32_t index : column.blocks) {
+                    if (index >= map.BlockCount()) continue;
+                    const Face& face = SideFace(map.BlockAt(index), side);
+                    if (face) { picked = &face; break; }
+                }
+                if (!picked || RealTile(style, *picked)) continue;
+                for (int level = low; level < column.offset; ++level) {
+                    const int tile = RiserTile(style, solid, x, y, level, side, floorTile);
+                    if (tile <= 0 || tile >= style.TileCount() || tile == picked->Tile()) continue;
+                    const float y0 = static_cast<float>(level), y1 = y0 + 1.0f;
+                    std::array<Vec3, 4> corners;
+                    Vec3 normal;
+                    switch (side) {   // as AddImplicitFloors, corner for corner
+                        case 0: corners = {{{xWest, y1, zNorth}, {xWest, y1, zSouth}, {xWest, y0, zSouth}, {xWest, y0, zNorth}}}; normal = {-1.0f, 0.0f, 0.0f}; break;
+                        case 1: corners = {{{xEast, y1, zSouth}, {xEast, y1, zNorth}, {xEast, y0, zNorth}, {xEast, y0, zSouth}}}; normal = {1.0f, 0.0f, 0.0f}; break;
+                        case 2: corners = {{{xEast, y1, zNorth}, {xWest, y1, zNorth}, {xWest, y0, zNorth}, {xEast, y0, zNorth}}}; normal = {0.0f, 0.0f, 1.0f}; break;
+                        default: corners = {{{xWest, y1, zSouth}, {xEast, y1, zSouth}, {xEast, y0, zSouth}, {xWest, y0, zSouth}}}; normal = {0.0f, 0.0f, -1.0f}; break;
+                    }
+                    builder->AddSideQuad(tile, corners, normal);
+                    ++stats->baseSides;
+                }
+            }
+        }
+    }
+}
+
+// Ramp sides: a ramp block's side under its sloping lid is a triangle (or, mid-ramp, a
+// trapezium) that the map leaves open wherever a top-down camera never saw it. With the
+// fill under a ramp counted solid (StreetSolid::SlopeSupport) the eye went in through
+// that open side and down through the fill; before, it went under the roof of a pitched
+// building and out through its culled underside. Each open side of a ramp (types 1-44)
+// with a solid lid, standing on solid ground, whose neighbour at that level is not
+// solid is closed from the neighbour's own ramp
+// height at the shared edge (0 if it is not a ramp) up to this lid's, tiled like a riser.
+void AddRampSides(MeshBuilder* builder, const Map& map, const Style& style, const StreetSolid& solid,
+                  const SlopeInfo* slopes, StreetFillStats* stats) {
+    static const int kSideDx[4] = {-1, 1, 0, 0};
+    static const int kSideDy[4] = {0, 0, -1, 1};
+    static const int kOpposite[4] = {1, 0, 3, 2};
+    // Corner indices (CornerHeights: NW, NE, SE, SW) along each side, first then second
+    // in the order the riser corners of AddStreetFill run along that side.
+    static const int kEdge[4][2] = {{0, 3}, {2, 1}, {1, 0}, {3, 2}};
+    auto edgeHeights = [&](const Block& block, int side, float* a, float* b) {
+        const int type = block.SlopeType();
+        if (type < 1 || type > 44) { *a = *b = 0.0f; return false; }
+        const CornerHeights h = LidHeights(slopes[type]);
+        *a = h[kEdge[side][0]];
+        *b = h[kEdge[side][1]];
+        return true;
+    };
+    for (int y = 0; y < kMapHeight; ++y) {
+        for (int x = 0; x < kMapWidth; ++x) {
+            const Column& column = map.ColumnAt(x, y);
+            const float xWest = static_cast<float>(x), xEast = xWest + 1.0f;
+            const float zSouth = static_cast<float>(kMapHeight - y - 1), zNorth = zSouth + 1.0f;
+            for (size_t i = 0; i < column.blocks.size(); ++i) {
+                if (column.blocks[i] >= map.BlockCount()) continue;
+                const Block& block = map.BlockAt(column.blocks[i]);
+                const int type = block.SlopeType();
+                if (type < 1 || type > 44 || !block.lid || block.lid.IsFlat()) continue;
+                const int level = column.offset + static_cast<int>(i);
+                // A ramp standing on the ground or on its fill; a see-through or floating
+                // one (a gantry, a sign frame over the street) is seen from both sides.
+                if (level > 0 && !solid.Grounded(x, y, level - 1)) continue;
+                for (int side = 0; side < 4; ++side) {
+                    if (SideFace(block, side)) continue;
+                    float top0, top1;
+                    edgeHeights(block, side, &top0, &top1);
+                    if (top0 <= 0.0f && top1 <= 0.0f) continue;
+                    const int nx = x + kSideDx[side], ny = y + kSideDy[side];
+                    if (solid.Solid(nx, ny, level)) continue;
+                    // The neighbour's ramp along the shared edge, corner for corner: its
+                    // opposite side runs the other way along the edge.
+                    float bot0 = 0.0f, bot1 = 0.0f;
+                    if (const Block* other = solid.At(nx, ny, level)) {
+                        float o0, o1;
+                        if (edgeHeights(*other, kOpposite[side], &o0, &o1)) { bot0 = o1; bot1 = o0; }
+                    }
+                    if (top0 <= bot0 + 1e-3f && top1 <= bot1 + 1e-3f) continue;
+                    bot0 = (std::min)(bot0, top0);
+                    bot1 = (std::min)(bot1, top1);
+                    const int lidTile = block.lid ? block.lid.Tile() : NeighbourLidTile(map, x, y, level + 1);
+                    const int tile = RiserTile(style, solid, x, y, level, side, lidTile);
+                    if (tile <= 0 || tile >= style.TileCount()) continue;
+                    const float l = static_cast<float>(level);
+                    std::array<Vec3, 4> corners;
+                    Vec3 normal;
+                    switch (side) {
+                        case 0: corners = {{{xWest, l + top0, zNorth}, {xWest, l + top1, zSouth}, {xWest, l + bot1, zSouth}, {xWest, l + bot0, zNorth}}}; normal = {-1.0f, 0.0f, 0.0f}; break;
+                        case 1: corners = {{{xEast, l + top0, zSouth}, {xEast, l + top1, zNorth}, {xEast, l + bot1, zNorth}, {xEast, l + bot0, zSouth}}}; normal = {1.0f, 0.0f, 0.0f}; break;
+                        case 2: corners = {{{xEast, l + top0, zNorth}, {xWest, l + top1, zNorth}, {xWest, l + bot1, zNorth}, {xEast, l + bot0, zNorth}}}; normal = {0.0f, 0.0f, 1.0f}; break;
+                        default: corners = {{{xWest, l + top0, zSouth}, {xEast, l + top1, zSouth}, {xEast, l + bot1, zSouth}, {xWest, l + bot0, zSouth}}}; normal = {0.0f, 0.0f, -1.0f}; break;
+                    }
+                    builder->AddSideQuad(tile, corners, normal);
+                    ++stats->rampSides;
+                }
+            }
+        }
+    }
+}
+
+void AddStreetFill(MeshBuilder* builder, const Map& map, const Style& style, const SlopeInfo* slopes) {
     static const int kSideDx[4] = {-1, 1, 0, 0};   // left (west), right (east), top (north), bottom (south)
     static const int kSideDy[4] = {0, 0, -1, 1};
     static const int kOpposite[4] = {1, 0, 3, 2};
@@ -1841,6 +2075,9 @@ void AddStreetFill(MeshBuilder* builder, const Map& map, const Style& style) {
             }
         }
     }
+    AddOverhangCeilings(builder, map, style, solid, &stats);
+    AddBaseSideCovers(builder, map, style, solid, &stats);
+    AddRampSides(builder, map, style, solid, slopes, &stats);
     builder->SetStreetMode(0);
     g_streetFillStats = stats;
 }
@@ -1910,7 +2147,8 @@ void SetStreetFill(bool on) { g_streetFill = on; }
 bool StreetFill() { return g_streetFill; }
 StreetFillCounts LastStreetFillCounts() {
     return StreetFillCounts{g_streetFillStats.risers, g_streetFillStats.floors, g_streetFillStats.ground,
-                            g_streetFillStats.apronTile, g_streetFillStats.apronHeight};
+                            g_streetFillStats.apronTile, g_streetFillStats.apronHeight, g_streetFillStats.ceilings,
+                            g_streetFillStats.baseSides, g_streetFillStats.rampSides};
 }
 
 void SetRiverbedDepth(float blocks) {
@@ -1961,7 +2199,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     if (const char* e = std::getenv("GTA2DX9_STREET_FILL")) g_streetFill = e[0] != '0';
     g_streetFillStats = StreetFillStats{};
     if (g_streetFill) {
-        AddStreetFill(&builder, map, style);
+        AddStreetFill(&builder, map, style, resolved.data());
         AddApron(&builder, map, style);
     }
     if (g_seal) {

@@ -179,6 +179,72 @@ HEAD itself.
 `out/fw1_base_{bil,ste}` (HEAD c69c620) and `out/fw1_fill4_{bil,ste}` (this build), `out/fw2_base_bil`
 (HEAD again, the noise floor). Frame time, world phase in the street views: 1.42 -> 1.59 ms.
 
+## Ceilings, base-side covers, ramp sides; the ray caster's ramp table (FIX-WORLD-2, 9 Nov 2026)
+
+Defects 9h `pm9-fp-roof-pit-renders-pure-black-with-floating-roof-sliver` and 9g
+`pm8-ste-floating-checker-disc-in-sky`, then the ray caster's "remaining 7 % at the sides of ramps".
+All of it is in the street-only fill (`AddStreetFill` in `src/world_mesh.cpp`, same batches and the
+same `GTA2DX9_STREET_FILL=0` switch as the section above); the classic view's batches hash as before.
+
+**9h, the black roof pit (Downtown, eye 164.3,137.7 looking south-east).** The black "pit" was the
+side of the implicit base of (164..165,140), one level above the courtyard. `AddImplicitFloors`
+dresses a base side with the first face its column shows on that side at any height, and there that
+is the crest trim on the roof ridge two levels up (tile 3: scallops and finials over colour key). Alpha
+tested on a solid base it read as a black hole with the trim along its bottom. The street views now
+draw an opaque wall over every such base side (`AddBaseSideCovers`: the riser rule's tile), at the
+same corners, so the same depth; drawn later under the default LESSEQUAL it wins. The classic view
+keeps its quad. The "floating roof sliver" over it was the eave of the pitched roof above: the attic
+under a roof is slope-63 blocks with no faces, so the eye went in at the attic level and out through
+the roof's culled underside. Slope-63 blocks that carry a ramp or roof with a solid lid and stand on
+solid ground now count as solid (`StreetSolid::SlopeSupport`), so their open sides get risers, and the
+open triangular or trapezoid side of every grounded ramp with a solid lid is closed (`AddRampSides`),
+from the neighbour's own ramp height at the shared edge up to this lid. Counts: bil 1245, ste 744,
+wil 1049 ramp sides; risers bil 6803 -> 7713, ste 6934 -> 7354, wil 4687 -> 6141.
+
+**9g, the chequered disc (Residential, eye 116.0,123.3).** The disc is the map's own semicircular
+awning (tile 252, a see-through lid at height 3 on (116,124)) that sticks out from the foot of an
+overhanging storey over the pavement at (116,123). That storey (walls at levels 3-4, roof lid at 5,
+air below) had no underside. A top-down camera never looks up, so from under it the eye saw the
+sky, and the awning hung in it with nothing behind. The lowest block of every overhanging mass that
+ends in a roof, over an open cell and closed all round at its level (its own wall, or a neighbour
+that is solid or part of a building), gets a ceiling (`AddOverhangCeilings`; a lid over an empty
+block was already `AddHiddenSurfaces` (b)'s), tiled with the block's most-used wall tile (brick there,
+not the rose window that comes first). Counts: bil 1072, ste 1100, wil 892. A shell open on one side
+(Industrial (42,98): a north wall only at that level) gets none; there a ceiling showed as a slab
+hanging over the wall. The awning now meets a closed storey. It is still drawn: it is the game's art
+and the classic view shows it.
+
+**The ray caster's ramp leaks were its own.** Offline, `BuildWorldMesh` has no slope table from
+the game and derives one (`DeriveSlope`). That derivation counted the steps of a ramp family from the
+wrong end: the first type of a family is the low piece (Downtown's 7-degree ramp at (28,45..52),
+types 17..24, climbs from the street at level 2 north of it to the ground at level 3 south of it).
+With the old order 50-85 % of the joins between ramp blocks in the three maps were a step, so every
+offline ramp was a sawtooth open at its sides; with the corrected order 99 % join. In the game the
+table is read from gta2.exe (`slope table: 44 ramp types read from the game`), so the game never had
+those holes. A fixed camera at the old worst leak (wil eye (28,44), `out/fwb_fix2_wil`,
+`fw_p_wil_ramp_oldleak.png`) shows the ramp and no hole. The derivation is fixed (it only feeds the
+offline tools and a game whose table could not be read).
+
+**Numbers** (`tools/world_raycast.cpp`; `scan` = rays below the horizon that reach the seal, `scanup`
+(new) = rays above it that reach the sky through a culled back face, i.e. the eye saw the sky through
+a building's open shell):
+
+| district | scan, HEAD + old table (as reported) | scan, HEAD + corrected table | scan, this build | scanup, HEAD + corrected table | scanup, this build |
+|---|---|---|---|---|---|
+| Industrial (bil) | 92 | 0 | 0 | 3743 (159 eyes) | 3245 (130 eyes) |
+| Residential (ste) | 104 | 12 | 12 | 6942 (283 eyes) | 5115 (228 eyes) |
+| Downtown (wil) | 89 | 0 | 0 | 2001 (129 eyes) | 1955 (120 eyes) |
+
+What `scanup` still counts is mostly shells open on a side (the eye looks into a building with a
+wall missing and out through its roof); with ceilings under those too the counts were 2594 / 3994 /
+1485, but the ceilings showed as floating slabs. The 12 left in Residential are not ramps: the eye looks under a pier deck at the sea front ((241-244,80),
+nothing at level 0 next to the water, where the fill leaves the riverbed's room on purpose).
+
+**Classic view.** The non-street batches, their ranges, vertices and indices hash the same as HEAD
+d2bbf01's mesh built with the same slope table (bil b84bef1cb84cea02, ste 7e024dda5fbeb242, wil
+2564b3d46d8fd811). Street-only part: bil 339 batches / 14.6k triangles -> 378 / 24.3k, ste 280 / 14.3k
+-> 335 / 21.3k, wil 319 / 10.2k -> 373 / 18.2k.
+
 ## Found and fixed on the way
 
 - `SWAP_LEVEL=wil` in the run scripts deleted the Downtown mission folder

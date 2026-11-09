@@ -8,6 +8,14 @@
 //       darker with distance; a back face of a one-sided batch (culled, so the sky
 //       shows) blue; the seal under the world red; nothing at all magenta.
 //       mode "street" also counts the street-view-only fill (see world_mesh.h).
+//   world_raycast ray <map.gmp> <style.sty> <x> <y> <z> <heading> <pitch> [near]
+//       One ray (heading 0 = north, pitch up positive) from the world point x,y,z; [near]
+//       starts it that far out, as a camera's near plane would.
+//   world_raycast scanup <map.gmp> <style.sty> [step]
+//       The same eyes, rays above the horizon: counts those that reach the sky through
+//       a culled back face (the eye sees the sky through a building's open shell).
+//   world_raycast leaks <map.gmp> <style.sty> <x> <y> <eye height>
+//       The leaking rays of one scan eye and every triangle each one passes.
 //   world_raycast scan <map.gmp> <style.sty> [step] [mode]
 //       From an eye 1.7 above every walkable lid on a grid of `step` cells, rays
 //       below the horizon; prints each cell whose rays see the seal, a culled back
@@ -104,7 +112,7 @@ struct Scene {
         return back ? kBack : kFront;
     }
 
-    struct Result { Hit hit = kNone; float t = 0; int tri = -1; };
+    struct Result { Hit hit = kNone; float t = 0; int tri = -1; int culled = 0; };
 
     Result Cast(const float o[3], const float d[3], float maxT) const {
         Result best; best.t = maxT;
@@ -116,6 +124,7 @@ struct Scene {
             const Hit h = Classify(t, d, &culled);
             if (h == kBack && culled) {
                 // Culled: invisible, the ray goes on. Remember it as the cause if nothing else is hit.
+                ++best.culled;
                 return;
             }
             best.hit = h; best.t = tt; best.tri = idx;
@@ -168,7 +177,9 @@ bool LoadScene(const char* mapPath, const char* stylePath, Scene* scene) {
         mesh.batches = kept;
     }
     scene->Build(mesh);
-    fprintf(stderr, "mesh: %zu triangles, %zu batches\n", scene->tris.size(), scene->batches.size());
+    const gta2::StreetFillCounts f = gta2::LastStreetFillCounts();
+    fprintf(stderr, "mesh: %zu triangles, %zu batches; street fill %d risers %d floors %d ground %d ceilings %d base sides %d ramp sides\n",
+            scene->tris.size(), scene->batches.size(), f.risers, f.floors, f.ground, f.ceilings, f.baseSides, f.rampSides);
     return true;
 }
 
@@ -218,6 +229,54 @@ int Pano(const Scene& s, float ex, float ey, float ez, const char* out) {
 // Eye positions: 0.45 (first person) and 1.6 (chase) above every flat lid that has air
 // above it, on cells every `step`; rays below the horizon. A ray is a leak when it
 // ends on the seal or on nothing while it crosses level 0 inside the map.
+// Upward: rays above the horizon from the same eyes that end on nothing (the sky) after
+// passing through a culled back face - the eye saw the sky through a building's shell
+// (the underside of a roof, an attic with no walls). Counted per eye like the leaks.
+int ScanUp(const Scene& s, int step, int x0, int y0, int x1, int y1) {
+    long rays = 0, bad = 0, eyes = 0;
+    std::vector<std::pair<int, std::pair<int,int>>> worst;
+    for (int y = y0; y <= y1; y += step) {
+        for (int x = x0; x <= x1; x += step) {
+            const gta2::Column& col = g_map.ColumnAt(x, y);
+            for (size_t i = 0; i < col.blocks.size(); ++i) {
+                if (col.blocks[i] >= g_map.BlockCount()) continue;
+                const gta2::Block& b = g_map.BlockAt(col.blocks[i]);
+                if (!b.lid || b.lid.IsFlat() || b.SlopeType() != 0 || g_style.IsWaterTile(b.lid.Tile())) continue;
+                if (i + 1 < col.blocks.size() && col.blocks[i + 1] < g_map.BlockCount()) {
+                    const gta2::Block& a = g_map.BlockAt(col.blocks[i + 1]);
+                    if (a.lid || a.SlopeType() != 0) continue;
+                }
+                const float top = static_cast<float>(col.offset + i + 1);
+                for (float eh : {0.45f, 1.6f}) {
+                    const int el = static_cast<int>(top + eh);
+                    const int ei = el - col.offset;
+                    if (ei >= 0 && ei < static_cast<int>(col.blocks.size()) && col.blocks[ei] < g_map.BlockCount()) {
+                        const gta2::Block& eb = g_map.BlockAt(col.blocks[ei]);
+                        if (eb.lid || eb.SlopeType() != 0 || eb.left || eb.right || eb.top || eb.bottom) continue;
+                    }
+                    const float o[3] = {x + 0.5f, top + eh, static_cast<float>(gta2::kMapHeight - y - 1) + 0.5f};
+                    int count = 0;
+                    for (int h = 0; h < 360; h += 10) {
+                        for (int p = 6; p <= 66; p += 6) {
+                            float d[3]; Dir((float)h, (float)p, d);
+                            const Scene::Result r = s.Cast(o, d, 300.0f);
+                            ++rays;
+                            if (r.hit == kNone && r.culled > 0) { ++count; ++bad; }
+                        }
+                    }
+                    if (count) { ++eyes; worst.push_back({count, {x, y * 100 + (int)(eh * 10)}}); }
+                }
+            }
+        }
+    }
+    std::sort(worst.rbegin(), worst.rend());
+    printf("up rays %ld through-a-shell %ld eyes %ld\n", rays, bad, eyes);
+    const size_t shown = getenv("ALL") ? worst.size() : 25;
+    for (size_t i = 0; i < worst.size() && i < shown; ++i)
+        printf("eye (%d,%d) h+%.1f: %d rays\n", worst[i].second.first, worst[i].second.second / 100, (worst[i].second.second % 100) / 10.0f, worst[i].first);
+    return 0;
+}
+
 int ScanHoles(const Scene& s, int step, int x0, int y0, int x1, int y1) {
     struct Leak { int ex, ey; float eh; int count; float hx, hz; };
     std::vector<Leak> leaks;
@@ -288,13 +347,52 @@ int main(int argc, char** argv) {
         return Pano(scene, (float)atof(argv[4]), (float)atof(argv[5]), (float)atof(argv[6]), argv[7]);
     }
     if (!strcmp(argv[1], "ray") && argc >= 9) {
-        const float o[3] = {(float)atof(argv[4]), (float)atof(argv[5]), (float)atof(argv[6])};
+        float o[3] = {(float)atof(argv[4]), (float)atof(argv[5]), (float)atof(argv[6])};
         float d[3]; Dir((float)atof(argv[7]), (float)atof(argv[8]), d);
+        // Optional near plane: start the ray this far out (a camera clips what is nearer).
+        if (argc >= 10) { const float n = (float)atof(argv[9]); for (int k = 0; k < 3; ++k) o[k] += d[k] * n; }
         const Scene::Result r = scene.Cast(o, d, 400.0f);
         printf("hit %d t %.2f at %.2f %.2f %.2f", (int)r.hit, r.t, o[0] + d[0] * r.t, o[1] + d[1] * r.t, o[2] + d[2] * r.t);
-        if (r.tri >= 0) { const Tri& t = scene.tris[r.tri]; printf(" tile %d vn %.1f %.1f %.1f ds %d", scene.batches[t.batch].tile, t.vn[0], t.vn[1], t.vn[2], (int)scene.batches[t.batch].doubleSided); }
+        if (r.tri >= 0) { const Tri& t = scene.tris[r.tri]; printf(" tile %d vn %.1f %.1f %.1f ds %d street %d", scene.batches[t.batch].tile, t.vn[0], t.vn[1], t.vn[2], (int)scene.batches[t.batch].doubleSided, (int)scene.batches[t.batch].streetOnly); }
         printf("\n");
         return 0;
+    }
+    if (!strcmp(argv[1], "leaks") && argc >= 7) {
+        // leaks <map> <style> <x> <y> <eye height>: the leaking rays of one scan eye, with
+        // the culled faces each passed through (what the eye sees through).
+        const int x = atoi(argv[4]), y = atoi(argv[5]);
+        const float o[3] = {x + 0.5f, (float)atof(argv[6]), static_cast<float>(gta2::kMapHeight - y - 1) + 0.5f};
+        const bool up = argc >= 8 && !strcmp(argv[7], "up");
+        for (int h = 0; h < 360; h += 10) {
+            for (int p = up ? 6 : -2; up ? p <= 66 : p >= -50; p += up ? 6 : -4) {
+                float d[3]; Dir((float)h, (float)p, d);
+                const Scene::Result r = scene.Cast(o, d, 300.0f);
+                if (r.hit == kFront || r.hit == kBack) continue;
+                if (up && r.culled == 0) continue;
+                const float t0 = up ? 20.0f : o[1] / -d[1];
+                printf("h %d p %d: %s, level 0 at map (%.2f,%.2f)\n", h, p, r.hit == kSeal ? "seal" : "nothing",
+                       o[0] + d[0] * t0, gta2::kMapHeight - (o[2] + d[2] * t0));
+                // Every triangle on the way, culled or not, nearest first.
+                std::vector<std::pair<float, int>> on;
+                for (size_t i = 0; i < scene.tris.size(); ++i) {
+                    const float tt = Scene::Intersect(scene.tris[i], o, d);
+                    if (tt > 0 && tt < t0 + 2) on.push_back({tt, (int)i});
+                }
+                std::sort(on.begin(), on.end());
+                for (auto& e : on) {
+                    const Tri& t = scene.tris[e.second];
+                    const float dn = t.vn[0] * d[0] + t.vn[1] * d[1] + t.vn[2] * d[2];
+                    printf("    t %.2f at map (%.2f,%.2f) h %.2f tile %d vn %.2f %.2f %.2f %s%s\n", e.first, o[0] + d[0] * e.first,
+                           gta2::kMapHeight - (o[2] + d[2] * e.first), o[1] + d[1] * e.first, scene.batches[t.batch].tile,
+                           t.vn[0], t.vn[1], t.vn[2], dn > 0 ? "BACK" : "front", scene.batches[t.batch].doubleSided ? " ds" : "");
+                }
+            }
+        }
+        return 0;
+    }
+    if (!strcmp(argv[1], "scanup")) {
+        const int step = argc >= 5 ? atoi(argv[4]) : 4;
+        return ScanUp(scene, step, 0, 0, 255, 255);
     }
     if (!strcmp(argv[1], "scan")) {
         const int step = argc >= 5 ? atoi(argv[4]) : 4;
