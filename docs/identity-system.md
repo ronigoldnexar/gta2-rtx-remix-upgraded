@@ -565,3 +565,21 @@ The textures changed are in the cars archive (`assets/models`, not git): `057_t_
 - The TV van's hubcaps take the body tint; the T-Rex's pin-stripe and roof panel stay the generator's colours.
 - The parity tool's classic crop fails on a small dark car on bright pavement (8.1); traffic WARN lines are still crops
   (section 6.5).
+
+### 8.5 The Remix prims of the repainted and re-split textures
+
+The gta2hd layer is keyed by each model texture's XXH3 hash, so the textures changed in sections 6 and 8 had no prims.
+Built for the six pairs (`004_g4_bank_van_0`, `012_cop_car_0`, `034_medicar_0`, `057_t_rex_0`, `067_tv_van_0`,
+`014_eddy_0`, each with its `_paint` twin) into a scratch layer, from a scratch models folder holding exactly the shipped
+textures, and merged into `package/rtx-remix/mods/gta2hd` (docs/remix-materials.md, "Car textures changed by
+FIX-CAR-IDENTITY-2 and -3"):
+
+    flock /tmp/gta2-gen.lock taskset -c 0-4 nice -n 10 <venv>/python tools/remix_model_materials.py <scratch models> <scratch layer> \
+        --src <workspace>/assets-src --pattern '^(004_g4_bank_van|012_cop_car|034_medicar|057_t_rex|067_tv_van|014_eddy)_0(_paint)?\.tga$'
+    cp <scratch layer>/mod.usda <scratch layer>/mod_wet.usda      # model prims are the same in both
+    <venv>/python tools/remix_layer_merge.py <scratch layer> package/rtx-remix/mods/gta2hd <scratch layer>/model_prims.txt
+
+12 prims inserted (none replaced: the old-hash prims of these cars stay, inert), 58 map files, model_prims 787 -> 799;
+`git diff` of the three texts is additions only; `remix_materials.validate`: 3449 prims, no problems. **Not seen path
+traced**: no Remix frame of these cars was taken by this stream. The DDS maps ship in `remix_mod_gta2hd.zip` (repack).
+

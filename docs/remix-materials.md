@@ -1407,6 +1407,10 @@ For REMIX-MATERIALS (this stream does not rebuild the layer). These textures in 
 
 Details: `docs/identity-system.md` section 6.
 
+FIX-CAR-IDENTITY-3 (9 Nov 2026): these six and `057_t_rex_0`, `067_tv_van_0`, `014_eddy_0` (and their `_paint` twins,
+re-split) now have prims in `gta2hd`: 12 inserted with `remix_layer_merge.py`, additions only. Not yet seen path traced.
+Recipe: `docs/identity-system.md` section 8.5.
+
 ## The cars' smoke under Remix: dithered cut-outs (FIX-REMIX-NIGHT, 9 Nov 2026)
 
 pt-remix-night-smoke-puff-opaque-clay-lump: the "clay lump" was vehicle_fx's tyre smoke / exhaust / steam puff (its 5-lobed edge), not
