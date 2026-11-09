@@ -32,6 +32,7 @@
 #include "view_modes.h"
 #include "model_store.h"
 #include "ragdoll.h"
+#include "weapon_rig.h"   // ANIM-WEAPONS
 #include "map_objects.h"
 #include "explosion_fx.h"
 
@@ -6616,7 +6617,7 @@ const ReloadInfo kReloads[kWpnCount] = {
     {0, 0, 0, 0, 0, 0, 0},                                // electro gun (a battery: no reload)
     {0, 0, 0, 0, 0, 0, 0},                                // molotov
     {0, 0, 0, 0, 0, 0, 0},                                // grenade
-    {6, 25, 1.55f, 0.35f, 0.65f, 0.95f, 1.12f},           // shotgun
+    {6, 25, 1.55f, -1.0f, 0.65f, 0.95f, 1.12f},           // shotgun: shells into the port, nothing drops (ANIM-WEAPONS)
     {0, 0, 0, 0, 0, 0, 0},                                // flamethrower
 };
 bool IsReloadAction(int action) { return action >= 24 && action <= 26; }
@@ -7719,6 +7720,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // heavy weapons' own) with a shot just seen: the stance all the same.
                 if (wantAction == 0 && sprite.pedState == 7 && track.shotFrame && g_carFrame - track.shotFrame < 45) wantAction = 2;
             }
+            // ANIM-WEAPONS showcase: a synthetic shot on the player's figure (GTA2DX9_RIG_TEST_FILE).
+            if (ownPed && weaponrig::TestFire(g_carFrame)) shotNow = true;
             if (shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
             if (shotNow && track.weapon == kWpnNone && gameWeapon < 0) track.weapon = kWpnPistol;   // shooting with nothing named: a pistol
             if (armed && (wantAction == 0 || wantAction == 2 || wantAction == 8)) {
@@ -8245,6 +8248,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     float acc = 0.0f;
                     for (int k = 0; k < 4; ++k) acc += fit.m[r][k] * placed.m[k][c];
                     world.m[r][c] = acc;
+                }
+                if (ownFigure && weaponrig::TestYaw() != 0.0f) {
+                    // ANIM-WEAPONS showcase: the player's figure turned on the spot for the camera.
+                    const float ya = weaponrig::TestYaw() * 0.0174533f, cy2 = std::cos(ya), sy2 = std::sin(ya);
+                    for (int r = 0; r < 3; ++r) {
+                        const float x0 = world.m[r][0], z0 = world.m[r][2];
+                        world.m[r][0] = x0 * cy2 - z0 * sy2; world.m[r][2] = x0 * sy2 + z0 * cy2;
+                    }
                 }
                 // A swimmer lies in the water to his shoulders: the prone clip puts
                 // him at the surface, the figure is sunk the rest of the way.
@@ -8788,6 +8799,34 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         boardIk = true;
                     }
                 }
+                // ANIM-WEAPONS: the weapon rig (weapon_rig.h): the gun placed from the body, the
+                // hands on its grips, the fingers closed, the recoil through the body and a
+                // push of the whole figure back along the line of fire. Not while boarding IK has the hands.
+                bool rigOn = false;
+                weaponrig::End();
+                if (!ragdoll && !boardIk && g_pedWeapons && track.weapon > 0 && track.weapon < kWpnCount && !sprite.corpse && lod <= 1) {
+                    weaponrig::Inputs rin;
+                    rin.object = sprite.object;
+                    rin.weapon = track.weapon;
+                    rin.mode = actW > 0.3f ? weaponrig::ModeForAction(track.action) : weaponrig::kOff;
+                    rin.modelPerBlock = 1.0f / (std::max)(1e-4f, scale);
+                    rin.lengthBlocks = kWeapons[track.weapon].length;
+                    rin.muzzleFrame = track.muzzleFrame;
+                    rin.frame = g_carFrame;
+                    rin.dt = dt;
+                    rin.reloadT = IsReloadAction(track.action) ? track.actionTime : -1.0f;
+                    const ReloadInfo& rinfo = kReloads[track.weapon];
+                    rin.reload.len = rinfo.len; rin.reload.drop = rinfo.dropT; rin.reload.grab = rinfo.grabT;
+                    rin.reload.insert = rinfo.insertT; rin.reload.rack = rinfo.rackT;
+                    rin.closeUp = lod == 0;
+                    rigOn = weaponrig::Begin(*model, rin);
+                    if (rigOn) {
+                        float sd[3];
+                        const float sh = weaponrig::Shove(sprite.object, sd);
+                        if (sh != 0.0f) for (int c = 0; c < 3; ++c)
+                            world.m[3][c] += (sd[0] * world.m[0][c] + sd[1] * world.m[1][c] + sd[2] * world.m[2][c]) * sh;
+                    }
+                }
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                 if (ragdoll) RagdollDone();
                 if (boardIk) {
@@ -8895,7 +8934,25 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         gta2::Mat4 place;
                         float dir[3], right[3], up[3];
                         bool placed = false;
-                        if (wi.twoHanded && (reloadPose ? track.gripValid : haveL)) {
+                        gta2::Mat4 rigGun; float rigLen = 0.0f;
+                        if (rigOn && weaponrig::GunFrame(&rigGun, &rigLen)) {
+                            // ANIM-WEAPONS: the rig placed the gun (model space: rows right, up,
+                            // forward; origin the weapon model's own, its pistol grip), at the
+                            // weapon's length.
+                            const float km = rigLen / (std::max)(0.01f, WeaponSpan(*weapon));
+                            gta2::Mat4 pm;
+                            for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) pm.m[r][c] = rigGun.m[r][c] * km;
+                            for (int c = 0; c < 3; ++c) pm.m[3][c] = rigGun.m[3][c];
+                            pm.m[3][3] = 1.0f;
+                            place = mul(pm, world);
+                            for (int c = 0; c < 3; ++c) { dir[c] = place.m[2][c]; right[c] = place.m[0][c]; up[c] = place.m[1][c]; }
+                            auto norm = [](float* v) {
+                                const float l = (std::max)(1e-5f, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+                                v[0] /= l; v[1] /= l; v[2] /= l;
+                            };
+                            norm(dir); norm(right); norm(up);
+                            placed = true;
+                        } else if (wi.twoHanded && (reloadPose ? track.gripValid : haveL)) {
                             float dl;
                             if (reloadPose) {
                                 // QB-29: the left hand is off fetching a magazine: the gun
@@ -9023,6 +9080,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         }
                     }
                 }
+                weaponrig::End();
                 ModelSetTorsoTwist(0.0f);
                 ModelSetOverlay(nullptr, 0.0f, 0.0f);
                 ModelSetLayers(nullptr, nullptr, nullptr, nullptr, 0);
