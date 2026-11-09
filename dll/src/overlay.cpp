@@ -819,6 +819,47 @@ void Overlay::Flush(IDirect3DDevice9* device, int targetWidth, int targetHeight)
     device->SetFVF(kOverlayFvf);
 
     const std::vector<float> placeX = HorizontalOffsets(scaleX, offsetX);
+
+    // The street views' top plates (pm2-fp-location-banners-stack-and-clip-at-top): the game
+    // puts the zone name (part 7) and the car's name (part 8) in one slot at the top, which in
+    // first person is the cockpit's roof band, and the second over the first. There the zone
+    // name drops out from under the band, and the car's name sits under the zone name while
+    // that shows (eased, so it does not jump when the zone name goes). The classic view keeps
+    // the game's placement: Hud3dTopPlates is false there.
+    float band = 0.0f;
+    const bool plates = Hud3dTopPlates(&band);
+    float plateShift7 = 0.0f;
+    static float s_plateShift8 = 0.0f;
+    if (plates) {
+        bool zone = false;
+        float zoneY1 = -1e9f;
+        for (const Draw& draw : draws_) {
+            if (!draw.hud || draw.part != 7) continue;
+            // a plate the game has all but faded out keeps no room under it
+            for (uint32_t i = 0; i < draw.count; ++i) {
+                if ((vertices_[draw.first + i].colour >> 24) < 48) continue;
+                zone = true;
+                zoneY1 = (std::max)(zoneY1, vertices_[draw.first + i].y);
+            }
+        }
+        plateShift7 = band > 0.0f ? band + 4.0f - 7.0f : 0.0f;   // the game's rest top is y 7
+        // Under the zone plate's rest place (7..47) plus a gap, or the zone plate's lowest
+        // edge this frame if it is still sliding in lower than that.
+        const float want8 = zone ? (std::max)(47.0f, zoneY1) + 6.0f - 7.0f + plateShift7 : plateShift7;
+        s_plateShift8 += (want8 - s_plateShift8) * 0.3f;
+        if (std::fabs(want8 - s_plateShift8) < 0.5f) s_plateShift8 = want8;
+    } else {
+        s_plateShift8 = 0.0f;
+    }
+    {
+        static int s_lastPlates = -1;
+        const int state = plates ? (band > 0.0f ? 2 : 1) : 0;
+        if (state != s_lastPlates) {
+            s_lastPlates = state;
+            Log("hud: top plates %s (band bottom %.0f of 480)", state == 0 ? "as the game places them" : state == 1 ? "stacked" : "stacked under the cockpit band", band);
+        }
+    }
+    bool scissored = false;
     for (size_t drawIndex = 0; drawIndex < draws_.size(); ++drawIndex) {
         const Draw& draw = draws_[drawIndex];
         IDirect3DTexture9* texture = nullptr;
@@ -982,8 +1023,24 @@ void Overlay::Flush(IDirect3DDevice9* device, int targetWidth, int targetHeight)
             vertex.u *= invU;
             vertex.v *= invV;
         }
+        const bool plate = plates && draw.hud && (draw.part == 7 || draw.part == 8);
+        if (plate) {
+            const float dy = (draw.part == 7 ? plateShift7 : s_plateShift8) * scaleY;
+            for (Vertex& vertex : batch) vertex.y += dy;
+        }
+        // A plate sliding in or out passes under the cockpit band, not over it.
+        if (plate && band > 0.0f) {
+            const RECT clip = {0, static_cast<LONG>(band * scaleY + offsetY), targetWidth, targetHeight};
+            device->SetScissorRect(&clip);
+            device->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
+            scissored = true;
+        } else if (scissored) {
+            device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+            scissored = false;
+        }
         device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, draw.count / 3, batch.data(), sizeof(Vertex));
     }
+    if (scissored) device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
 
     // One line per frame whose draw list is not identical to the last, which is
     // exactly the frames the menu changes on - and therefore the frames the

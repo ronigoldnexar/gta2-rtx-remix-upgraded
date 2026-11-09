@@ -52,4 +52,9 @@ void CabInteriorReleaseDevice();
 void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const CabInteriorParams& p,
                      const D3DMATERIAL9& restore);
 
+// The lowest point on screen of the closed cab's roof lining in the middle third of the view,
+// as a fraction of the view's height (0 the top), from the last DrawCabInterior within ~0.25 s;
+// false when none was drawn or the car is open-topped. The HUD's top plates go under it (pm2).
+bool CabHeaderScreenBottom(float* fraction);
+
 }  // namespace gta2dx9

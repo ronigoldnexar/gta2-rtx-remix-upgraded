@@ -27,6 +27,17 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
 // Whether the modern HUD is the one on screen this frame.
 bool Hud3dActive();
 
+// While the view switch's dissolve shows the last classic frame (the game's HUD in it) over
+// the street view, the modern HUD stays off and the game's HUD on, under its own copy; it cuts
+// to the modern HUD when the dissolve ends (pm7). Set once a frame before Hud3dRender.
+void Hud3dHoldForSwitch(bool hold);
+
+// The street views' top plates (the zone name, part 7; the car's name, part 8), pm2: false in the
+// classic view (placed as the game places them). Otherwise `bandBottom` is the bottom of the
+// first-person cockpit's roof band in game pixels (480 tall; 0 when there is none), the plates
+// drop out from under it.
+bool Hud3dTopPlates(float* bandBottom);
+
 // QB-17/18: a text of the player's data\e.gxt by key ("wasted", "1124"); false when unknown.
 bool Hud3dGameText(const char* key, std::u16string* out);
 

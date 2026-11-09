@@ -285,6 +285,15 @@ const char* CabClassName(CabClass c) {
     return "?";
 }
 
+float g_headerBottom = -1.0f;      // CabHeaderScreenBottom
+unsigned long long g_headerStamp = 0;
+
+bool CabHeaderScreenBottom(float* fraction) {
+    if (g_headerBottom < 0.0f || GetTickCount64() - g_headerStamp > 250) return false;
+    if (fraction) *fraction = (std::min)(1.0f, g_headerBottom);
+    return true;
+}
+
 void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const CabInteriorParams& p,
                      const D3DMATERIAL9& restore) {
     const Style st = StyleFor(p.cls, p.paint);
@@ -505,6 +514,31 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         // The driver's pillar gets the same inner face.
         b.Quad(kHeader, f0, t0, t0 + Vec3{side * 0.004f, 0.0f, -0.004f}, f0 + Vec3{side * 0.004f, 0.0f, -0.004f});
     }
+
+    // FIX-HUD pm2: where the lining's lower edge lands on screen, for the HUD's top plates: the
+    // edge a0-a1 sampled across the middle third of the view (about +-17 degrees from the eye's
+    // line), projected through the view and projection the cab is drawn with.
+    g_headerBottom = -1.0f;
+    if (!p.openTop) {
+        D3DMATRIX view = {}, proj = {};
+        if (SUCCEEDED(device->GetTransform(D3DTS_VIEW, &view)) && SUCCEEDED(device->GetTransform(D3DTS_PROJECTION, &proj))) {
+            for (int i = -2; i <= 2; ++i) {
+                const Vec3 q{ex + 0.15f * dH * i, ey + hHeader, ez + dH};
+                const float wx = q.x * carToWorld.m[0][0] + q.y * carToWorld.m[1][0] + q.z * carToWorld.m[2][0] + carToWorld.m[3][0];
+                const float wy = q.x * carToWorld.m[0][1] + q.y * carToWorld.m[1][1] + q.z * carToWorld.m[2][1] + carToWorld.m[3][1];
+                const float wz = q.x * carToWorld.m[0][2] + q.y * carToWorld.m[1][2] + q.z * carToWorld.m[2][2] + carToWorld.m[3][2];
+                const float vx = wx * view._11 + wy * view._21 + wz * view._31 + view._41;
+                const float vy = wx * view._12 + wy * view._22 + wz * view._32 + view._42;
+                const float vz = wx * view._13 + wy * view._23 + wz * view._33 + view._43;
+                const float vw = wx * view._14 + wy * view._24 + wz * view._34 + view._44;
+                const float cy = vx * proj._12 + vy * proj._22 + vz * proj._32 + vw * proj._42;
+                const float cw = vx * proj._14 + vy * proj._24 + vz * proj._34 + vw * proj._44;
+                if (cw <= 1e-4f) continue;
+                g_headerBottom = (std::max)(g_headerBottom, 0.5f * (1.0f - cy / cw));
+            }
+        }
+    }
+    g_headerStamp = GetTickCount64();
 
     // To the world, and draw: one call per surface.
     D3DMATRIX identity = {};

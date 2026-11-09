@@ -3122,6 +3122,7 @@ void WorldView::RenderFrame() {
             renderer_.MarkDrawsAsScreenUi();
             overlay_.Flush(renderer_.Device(), renderer_.Width(), renderer_.Height());
         }
+        Hud3dHoldForSwitch(dissolveActive_);   // the kept classic frame carries the game's HUD (pm7)
         Hud3dRender(renderer_.Device(), renderer_.Width(), renderer_.Height(), map_, worldUploaded_);   // MODERN HUD (hud3d.cpp)
         // The view switch out of the classic view (BEV-PURITY). The street view's renderer
         // draws its own figures, photo tiles, sky and HUD from the very first frame of the

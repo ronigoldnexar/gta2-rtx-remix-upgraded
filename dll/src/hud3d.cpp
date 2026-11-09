@@ -24,6 +24,7 @@
 // the window's height changes: crisp at any resolution, no scaled bitmaps.
 
 #include "hud3d.h"
+#include "cab_interior.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -130,6 +131,18 @@ Capture g_weaponBuild, g_portraitBuild;
 bool g_active = false;                // the modern HUD is on screen (decides the swallowing)
 bool g_street = false;                // a street view's camera was up at the last Hud3dRender
 bool g_briefResolved = false;         // this frame's brief has text of ours
+// The brief on screen (pm15-third-two-subtitle-renderers-overlap-pixel-font-over-minimap). The
+// key buffer at 0x5E9808 is the game's last text lookup, not the subtitle it shows: a second into
+// Industrial's opening brief (3230) it reads "svscore" (the save point's text, looked up while
+// the brief is still up), which handed part 10 back to the game mid-brief and drew both
+// subtitles. So the text is told by what the game draws: the block's first glyphs (texture
+// coordinates) are a signature, bound to the key the buffer held when that signature first
+// appeared; later frames with the same signature keep that key whatever the buffer says.
+std::string g_briefKey;               // the brief the game's block shows; empty: not ours, the game draws it
+uint32_t g_briefSig = 2166136261u;    // this frame's signature so far
+int g_briefGlyphs = 0, g_briefGlyphsAll = 0;   // glyphs in it (at most 8), all small quads of part 10
+uint32_t g_briefSigFrame = 0;
+std::unordered_map<uint32_t, std::string> g_briefBySig;
 
 void Note(Capture* c, const void* texture, const Corner* k, int count) {
     if (!texture || count < 3 || count > 4) return;
@@ -256,6 +269,15 @@ constexpr uintptr_t kHudCounters = 0x7E8;
 constexpr uintptr_t kHudArrows = 0x1F18;
 constexpr uintptr_t kMessageKey = 0x005E9808;
 constexpr uintptr_t kAddTimer = 0x004C9310;   // HUD counters' "add a clock" (this, seconds)
+
+std::string ReadMessageKey() {
+    std::string key;
+    GTA2_TRY {
+        const char* buf = reinterpret_cast<const char*>(kMessageKey);
+        for (int n = 0; n < 8 && buf[n] > 0x20 && buf[n] < 0x7F; ++n) key.push_back(buf[n]);
+    } GTA2_EXCEPT { key.clear(); }
+    return key;
+}
 
 struct Arrow { int type; float x, y; int kind = 0; float z = 0.0f; };
 
@@ -441,7 +463,7 @@ void Panel(ImDrawList* dl, ImVec2 a, ImVec2 b, float alpha, ImU32 accent = 0) {
     if (accent) dl->AddRectFilled(a, ImVec2(a.x + 4.0f * g_u, b.y), Fade(accent, alpha), 6.0f * g_u, ImDrawFlags_RoundCornersLeft);
 }
 
-void DrawCapture(ImDrawList* dl, IDirect3DDevice9* device, const Capture& c, ImVec2 a, ImVec2 b, float alpha) {
+void DrawCapture(ImDrawList* dl, IDirect3DDevice9* device, const Capture& c, ImVec2 a, ImVec2 b, float alpha, ImU32 tint = IM_COL32_WHITE) {
     if (!c.texture || c.count != 4) return;
     const TextureRecord* rec = static_cast<const TextureRecord*>(c.texture);
     if (!rec->width || !rec->height) return;
@@ -453,7 +475,7 @@ void DrawCapture(ImDrawList* dl, IDirect3DDevice9* device, const Capture& c, ImV
         uv[i] = ImVec2(c.u[i] / rec->width, c.v[i] / rec->height);
     }
     dl->AddImageQuad(reinterpret_cast<ImTextureID>(tex), p[0], p[1], p[2], p[3], uv[0], uv[1], uv[2], uv[3],
-                     Fade(IM_COL32_WHITE, alpha));
+                     Fade(tint | IM_COL32_A_MASK, alpha));
 }
 
 // ---- The mini-map's picture -----------------------------------------------------------
@@ -691,6 +713,7 @@ struct Anim {
     Capture briefPortrait;
     float time = 0;
     float zoom = 34.0f;          // blocks across the mini-map
+    bool cutIn = false;          // the modern HUD comes on next frame, at full strength (pm7)
     float lift = 0.0f;           // pixels the mini-map is raised above the game's own subtitle box (eased)
 };
 Anim g_anim;
@@ -1266,28 +1289,33 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
         y += r * 2 + 10 * u;
     }
 
-    // The weapon: the game's own icon on a glass card, its name and the ammunition.
+    // The weapon: the game's own icon, its ammunition and name, right-aligned under the lives
+    // in the same shadowed type as the money and lives, with no card behind it (a glass card
+    // here read as a dirty patch on the facade behind, pm9-third-ammo-panel-translucent-box-bleeds-into-scene).
     if (v.weapon > 0) {
-        const float h = 54.0f * u, w = 200.0f * u;
-        const ImVec2 a(right - w, y), b(right, y + h);
-        Panel(dl, a, b, A);
-        const bool icon = g_weaponIcon.frame + 1 >= g_frame && g_weaponIcon.texture;
-        if (icon) {
-            const float iw = g_weaponIcon.maxX - g_weaponIcon.minX, ih = g_weaponIcon.maxY - g_weaponIcon.minY;
-            const float fit = (std::min)((h - 10 * u) / ih, 96.0f * u / iw);
-            const ImVec2 ia(a.x + 10 * u, a.y + (h - ih * fit) * 0.5f);
-            DrawCapture(dl, device, g_weaponIcon, ia, ImVec2(ia.x + iw * fit, ia.y + ih * fit), A);
-        }
+        const float h = 54.0f * u;
         char ammo[24];
         if (v.ammo < 0) snprintf(ammo, sizeof ammo, "INF");
         else snprintf(ammo, sizeof ammo, "%d", (v.ammo + 9) / 10);
         const ImVec2 as = Measure(g_fonts.heavy, g_fonts.heavyPx, ammo);
-        Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(b.x - 10 * u - as.x, a.y + 4 * u), v.ammo >= 0 && v.ammo < 50 ? kRed : kWhite, ammo, A);
         std::string name = WeaponName(v.weapon);
         for (char& c : name) c = c == '_' ? ' ' : static_cast<char>(toupper(static_cast<unsigned char>(c)));
         const ImVec2 ns = Measure(g_fonts.label, g_fonts.labelPx, name.c_str());
-        Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(b.x - 10 * u - ns.x, b.y - ns.y - 4 * u), Fade(kWhite, 0.8f), name.c_str(), A);
-        y = b.y + 10 * u;
+        Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(right - as.x, y), v.ammo >= 0 && v.ammo < 50 ? kRed : kWhite, ammo, A);
+        Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(right - ns.x, y + h - ns.y - 2 * u), Fade(kWhite, 0.8f), name.c_str(), A);
+        const bool icon = g_weaponIcon.frame + 1 >= g_frame && g_weaponIcon.texture;
+        if (icon) {
+            const float iw = g_weaponIcon.maxX - g_weaponIcon.minX, ih = g_weaponIcon.maxY - g_weaponIcon.minY;
+            const float fit = (std::min)((h - 6 * u) / ih, 96.0f * u / iw);
+            const float textW = (std::max)(as.x, ns.x);
+            const ImVec2 ia(right - textW - 12 * u - iw * fit, y + (h - ih * fit) * 0.5f);
+            const ImVec2 ib(ia.x + iw * fit, ia.y + ih * fit);
+            // the same drop shadow as the type: the icon's silhouette, dark, offset down-right
+            const float o = (std::max)(1.0f, std::round(2.0f * u));
+            DrawCapture(dl, device, g_weaponIcon, ImVec2(ia.x + o, ia.y + o), ImVec2(ib.x + o, ib.y + o), A * 0.55f, IM_COL32(0, 0, 0, 255));
+            DrawCapture(dl, device, g_weaponIcon, ia, ib, A);
+        }
+        y += h + 10 * u;
     }
 
     // The clock and the counter, top centre.
@@ -1490,8 +1518,8 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     // The brief: the speaker's portrait and the words, bottom centre, '#' words in yellow.
     {
         const bool up = g_briefResolved && g_partSeen[10] + 2 >= g_frame;
-        if (up && v.messageKey != an.briefKey) {
-            an.briefKey = v.messageKey;
+        if (up && g_briefKey != an.briefKey) {
+            an.briefKey = g_briefKey;
             BriefWords(an.briefKey, &an.brief);
         }
         if (up && g_portrait.frame + 2 >= g_frame && g_portrait.texture) an.briefPortrait = g_portrait;
@@ -1675,6 +1703,24 @@ void Prewarm(IDirect3DDevice9* device, int width, int height, const gta2::Map& m
 
 bool Hud3dActive() { return g_active; }
 
+bool g_switchHold = false;
+void Hud3dHoldForSwitch(bool hold) { g_switchHold = hold; }
+
+bool Hud3dTopPlates(float* bandBottom) {
+    if (bandBottom) *bandBottom = 0.0f;
+    if (!StreetPresentation()) return false;   // with the rest of the street presentation (FIX-SMOOTH-SWITCH)
+    // The roof lining's lower edge sits at about 45 of 480 in a closed cab (cab_interior.cpp, the
+    // header at a fixed angle from the eye). An open top (CabOpenTop) has sky there and its
+    // windscreen rail near 85: the plates keep the game's slot above the rail.
+    // The lining's edge as the cab drew it this frame (CabHeaderScreenBottom), which moves with the
+    // cab class and the car's pitch: 32-85 of 480 in a Z-Type, 0-45 in a Panto.
+    const PlayerState& p = ViewPlayer();
+    float f = 0.0f;
+    if (bandBottom && CurrentViewMode() == ViewMode::FirstPerson && p.valid && p.inVehicle && CabHeaderScreenBottom(&f))
+        *bandBottom = (std::min)(200.0f, (std::max)(0.0f, f * 480.0f + 2.0f));
+    return true;
+}
+
 bool Hud3dGameText(const char* key, std::u16string* out) {
     LoadGxt();
     const auto it = g_gxt.find(key ? key : "");
@@ -1700,6 +1746,18 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
             // (pm21-third-fp-raised-minimap-still-clips-first-word-of-subtitle).
             if (g_part10Frame != g_frame) { g_part10Frame = g_frame; g_part10MinY = 1e9f; }
             for (int i = 0; i < count; ++i) g_part10MinY = (std::min)(g_part10MinY, k[i].y);
+            // The block's first eight glyphs (small quads; the portrait is the big one) by
+            // their texture coordinates: which text it is (pm15).
+            if (g_briefSigFrame != g_frame) { g_briefSigFrame = g_frame; g_briefSig = 2166136261u; g_briefGlyphs = 0; g_briefGlyphsAll = 0; }
+            if (count >= 3 && std::fabs(k[2].x - k[0].x) < 32.0f && std::fabs(k[2].y - k[0].y) < 32.0f) {
+                ++g_briefGlyphsAll;
+                if (g_briefGlyphs < 8) {
+                    const uint32_t q[4] = {static_cast<uint32_t>(k[0].u * 4096.0f), static_cast<uint32_t>(k[0].v * 4096.0f),
+                                           static_cast<uint32_t>(k[2].u * 4096.0f), static_cast<uint32_t>(k[2].v * 4096.0f)};
+                    for (uint32_t x : q) g_briefSig = (g_briefSig ^ x) * 16777619u;
+                    ++g_briefGlyphs;
+                }
+            }
         }
     }
     // QB-17/18: during a beat its title is drawn here, in the beat's own treatment.
@@ -1726,7 +1784,14 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
         case 11:   // the clocks and counters
             return true;
         case 10:   // the talking head, when the brief's text is ours to show
-            return g_briefResolved;
+            // The key resolved at the end of the last frame; on the block's first frame, the
+            // buffer's key if the gxt has it (the brief was just looked up), so that frame is ours too.
+            if (g_briefKey.empty() && g_partSeen[10] == g_frame && g_briefSigFrame + 1 < g_frame) {
+                const std::string key = ReadMessageKey();
+                LoadGxt();
+                if (!key.empty() && g_gxt.count(key)) g_briefKey = key;
+            }
+            return !g_briefKey.empty();
         default:
             return false;
     }
@@ -1749,11 +1814,11 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     // modern HUD takes over from the game's where the figures take over from the sprites.
     const bool street = worldLoaded && StreetPresentation();
     if (!street) Prewarm(device, width, height, map, worldLoaded);
-    Values v = street && (g_cfg.modern || g_cfg.markers) ? ReadValues() : Values{};
+    Values v = (street || g_active) && (g_cfg.modern || g_cfg.markers) ? ReadValues() : Values{};
     g_street = street;
     // The pause and stats screen (part 16) is the game's alone: the modern HUD steps aside.
     const bool paused = g_partSeen[16] + 2 >= g_frame;
-    const bool want = street && g_cfg.modern && v.valid && !paused;
+    const bool want = street && g_cfg.modern && v.valid && !paused && !g_switchHold;
 
     // GTA2DX9_HUD_TEST=1: the [hud] keys modern, test_health and test_clock are re-read once a
     // second, so a script switches and pokes by editing the ini (no key the game might take).
@@ -1787,16 +1852,30 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     }
 
     // The brief is ours only when its text is known.
-    if (want) {
-        LoadGxt();
-        // Briefs have numeric keys (3230, 1619...); the buffer also holds the pause screen's
-        // and the zone names' keys ("ganga7"), which are not a talking head's words.
-        bool numeric = !v.messageKey.empty();
-        for (char c : v.messageKey) numeric = numeric && c >= '0' && c <= '9';
-        g_briefResolved = numeric && g_gxt.count(v.messageKey) != 0;
-    } else {
-        g_briefResolved = false;
+    // Which brief the game's subtitle block shows this frame (pm15): its glyph signature's key,
+    // or, for a signature not seen before, the buffer's key unless that key already belongs to
+    // another text (a stale lookup): then the block stays the game's own.
+    if (g_briefSigFrame == g_frame && g_briefGlyphs >= 4) {
+        const auto it = g_briefBySig.find(g_briefSig);
+        if (it != g_briefBySig.end()) {
+            g_briefKey = it->second;
+        } else {
+            LoadGxt();
+            std::string key = ReadMessageKey();
+            bool stale = key.empty() || !g_gxt.count(key);
+            for (const auto& e : g_briefBySig) stale = stale || e.second == key;
+            g_briefKey = stale ? std::string() : key;
+            if (g_briefBySig.size() > 256) g_briefBySig.clear();
+            g_briefBySig[g_briefSig] = g_briefKey;
+            Log("hud3d: brief: a new subtitle block (%d glyphs) bound to key '%s'%s", g_briefGlyphsAll, key.c_str(),
+                stale ? " (stale or unknown: the game draws it)" : "");
+        }
+    } else if (g_partSeen[10] + 2 < g_frame) {
+        g_briefKey.clear();
     }
+    g_briefResolved = want && !g_briefKey.empty();
+    // What this frame's game HUD pass was swallowed by (pm7-classic-to-third-switch-shows-both-huds-overlaid).
+    const bool wasActive = g_active;
     g_active = want;
     // The objective markers stand in for the game's arrows (swallowed in any street view), so
     // they are drawn with the modern HUD off too.
@@ -1808,8 +1887,24 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     an.time += dt;
     // QB-17/18: the panels step aside while a beat holds the screen.
     const float beatHide = street ? Beat().hudHide : 0.0f;
-    an.fade += ((want ? 1.0f - 0.92f * beatHide : 0.0f) - an.fade) * (1.0f - std::exp(-dt * 8.0f));
-    if (!want && an.fade < 0.01f) {
+    // The HUD cuts between the game's and ours (pm7): the game's parts are swallowed from the
+    // frame after `want` turns on (this frame's were already drawn), so ours appears then, at
+    // full strength; when it turns off the game's parts come back next frame, so ours is drawn
+    // this last frame (its parts were swallowed) and is gone the next. Never both, never neither.
+    const float fadeWant = 1.0f - 0.92f * beatHide;
+    if (want && !wasActive) {
+        an.fade = 0.0f;
+        an.cutIn = true;
+    } else if (want && an.cutIn) {
+        an.fade = fadeWant;
+        an.briefAlpha = g_briefResolved && g_partSeen[10] + 2 >= g_frame ? 1.0f : 0.0f;
+        an.cutIn = false;
+    } else if (want) {
+        an.fade += (fadeWant - an.fade) * (1.0f - std::exp(-dt * 8.0f));
+    } else if (!wasActive) {
+        an.fade = 0.0f;
+    }
+    if (!want && !wasActive && an.fade < 0.01f) {
         an.fade = 0.0f;
         an.money = -1;
         an.lastMoney = -1;
@@ -1846,9 +1941,9 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     if (want && g_frame - g_lastLog >= 60) {
         g_lastLog = g_frame;
         Log("hud3d: money=%d shown=%.0f mult=%d lives=%d health=%d wanted=%d weapon=%s(%d) ammo=%d car=%d timer=%d counter=%d "
-            "msg=%s brief=%d portrait=%.0fx%.0f icon=%.0fx%.0f arrows=%zu parts=%s%s%s%s%s",
+            "msg=%s brief=%d(%s) portrait=%.0fx%.0f icon=%.0fx%.0f arrows=%zu parts=%s%s%s%s%s",
             v.money, an.money, v.mult, v.lives, v.health, v.wanted, WeaponName(v.weapon), v.weapon, v.ammo, v.carDamage,
-            v.timerTicks, v.counter, v.messageKey.c_str(), g_briefResolved ? 1 : 0,
+            v.timerTicks, v.counter, v.messageKey.c_str(), g_briefResolved ? 1 : 0, g_briefKey.c_str(),
             g_portrait.maxX - g_portrait.minX, g_portrait.maxY - g_portrait.minY,
             g_weaponIcon.maxX - g_weaponIcon.minX, g_weaponIcon.maxY - g_weaponIcon.minY, v.arrows.size(),
             g_partSeen[1] + 1 >= g_frame ? "1" : "", g_partSeen[4] + 1 >= g_frame ? ",4" : "", g_partSeen[6] + 1 >= g_frame ? ",6" : "",

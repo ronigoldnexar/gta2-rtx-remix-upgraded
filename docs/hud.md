@@ -36,7 +36,7 @@ The classic view never shows the modern HUD; switching views fades it in and out
 | Health bar (flash on a hit, red screen-edge pulse at 30 or less) | under the map | ped `+0x216` (100 full) |
 | Car condition bar (orange from 16000, when the car burns) | beside health | car damage int16 `+0x74` (32000 explodes) |
 | Phone chip ("PHONE RINGING, n blocks" / "ANSWER THE PHONE") | right | nearest phone arrow within 10 blocks, on foot |
-| Brief card: the speaker's portrait, the words, `#`-marked words in yellow | bottom centre | the message key at `0x5E9808`, looked up in the player's `data\e.gxt` (TKEY/TDAT); the portrait is the largest quad of the game's HUD part 10, redrawn |
+| Brief card: the speaker's portrait, the words, `#`-marked words in yellow | bottom centre | the message key at `0x5E9808` (the game's last text lookup) when the game's subtitle block first shows, bound to that block's glyphs (see below), looked up in the player's `data\e.gxt` (TKEY/TDAT); the portrait is the largest quad of the game's HUD part 10, redrawn |
 
 Armour: no armour field of GTA2's is known yet, so no armour bar is drawn.
 
@@ -46,8 +46,40 @@ Armour: no armour field of GTA2's is known yet, so no armour bar is drawn.
 on screen, the overlay drops parts 1 (score, lives, multiplier, weapon), 4 (the row of icons
 centred at the top: the wanted heads), 6 (hearts), 11 (clocks and counters) and 10 (the
 talking head) - the last only when the brief's text was found in `e.gxt`, so an unknown
-message keeps the game's own box. Everything else stays the game's: the arrows and markers
-over targets (world-anchored), the zone name, the big messages ("JOB COMPLETE"), the pause
+message keeps the game's own box.
+
+One renderer at every frame (FIX-HUD, 9 Nov 2026):
+
+- The subtitle (pm15-third-two-subtitle-renderers-overlap-pixel-font-over-minimap). `0x5E9808` is the
+  game's *last text lookup*, not the subtitle on screen: a second into Industrial's opening brief (3230)
+  it reads `svscore` (the save point's text) while 3230 is still up, so the old numeric-key test handed
+  part 10 back to the game mid-brief and both subtitles drew. Now the block's first eight glyphs (their
+  texture coordinates, small quads of part 10) are a signature, bound to the buffer's key the first frame
+  that signature appears; later frames with the same signature keep that key whatever the buffer says.
+  A key already bound to another signature is a stale lookup: that block stays the game's (with the
+  mini-map lifted). On a block's first frame part 10 is swallowed if the buffer's key is in the gxt, so
+  the game's text never shows for a frame first. Log: `hud3d: brief: a new subtitle block (n glyphs)
+  bound to key 'k'`, and `brief=1(k)` on the two-second line.
+- The view switch (pm7-classic-to-third-switch-shows-both-huds-overlaid). The game's parts of a frame
+  are swallowed or not by the state at the end of the frame before, so the modern HUD no longer fades
+  in: it appears at full strength the frame after the switch (the switch frame shows the game's HUD
+  only), and on the way back it is drawn the last frame its parts were swallowed and gone the next.
+- The weapon block (pm9-third-ammo-panel-translucent-box-bleeds-into-scene) has no glass card: ammo,
+  name and the game's icon (with a dark offset copy as its shadow) right-aligned under the lives in
+  the money's shadowed type.
+- The top plates (pm2-fp-location-banners-stack-and-clip-at-top, `overlay.cpp` Flush,
+  `Hud3dTopPlates`). In the street views the zone name (part 7) and the car's name (part 8), which the
+  game puts in one slot, are stacked: the car's name under the zone plate (eased when the zone plate
+  goes; a zone plate the game has faded under alpha 48 keeps no room). In first person in a closed car both
+  drop out from under the cockpit's roof lining: `CabHeaderScreenBottom` (cab_interior.cpp) projects the
+  lining's lower edge through the view the cab is drawn with, so the plates follow the cab class and the car's
+  pitch (Z-Type ~85 of 480, Medicar ~11-50), scissored there so a sliding plate passes under the lining. An
+  open top (CabOpenTop) has sky there: the plates keep the game's slot. Log: `hud: top plates ...` on each
+  change. The classic view keeps the game's placement.
+- Street-view swallowing is decided at the end of the frame before; the switch dissolve (`switch_dissolve_percent`)
+  holds the modern HUD off (`Hud3dHoldForSwitch`, world_view.cpp) because the kept classic frame carries the
+  game's HUD: the game's live HUD sits under its own copy, and the modern HUD cuts in when the dissolve ends. Everything else stays the game's: the arrows and markers
+over targets (world-anchored), the zone name (placed, see the plates above), the big messages ("JOB COMPLETE"), the pause
 screen, the respect bars.
 
 The hook: one line at the top of `Overlay::PushTriangleFan` (`dll/src/overlay.cpp`, marked
