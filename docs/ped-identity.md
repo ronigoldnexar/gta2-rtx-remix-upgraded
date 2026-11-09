@@ -94,7 +94,15 @@ See the ASSET-PEDS comment on the issue for the verified frames.
 
 - **Verified offline:** a sheet of all 54 types, each original sprite beside its avatars,
   rendered with the renderer's tint rules.
-- **Verified in game:** see "In-game check" below.
+- **Verified in game** (run `ap_r1`, camera-modes `16fcaf8` plus this change, plain renderer,
+  Downtown plaza, third person, `gamerun/assetpeds_probe.py`):
+  - Every remap 0-53 was drawn on the player and the crowd through `GTA2DX9_PED_REMAP_FILE`,
+    three frames each. The in-game crops match the offline sheet type by type.
+  - In the natural crowd afterwards, `peds: N of N figures drawn in their sprite's outfit` on
+    every 10 s line.
+  - Log: `models: 54 pedestrian outfits`, `50 pedestrian types cover 54 remaps`, 0 `FAULT`s.
+  - Frame times were unchanged in the probe's windows: sprites 1.4-2.0 ms average, 4.0 worst.
+    The plaza is sparse (1-5 figures), so this is not a dense-crowd measurement.
 
 What still looks wrong or is not done:
 
