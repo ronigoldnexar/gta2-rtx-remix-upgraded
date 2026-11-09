@@ -114,7 +114,8 @@ composition changing: the neon sign entering the frame, not a lighting change).
 2. **No player shadow or reflection in first person on foot.** The own avatar is hidden
    (`fpHideOwnBody`); in the classic view the sprite casts one. Remix has the mechanism
    (`rtx.playerModelTextures` + `rtx.playerModel.enableInPrimarySpace=False`: hidden from the eye, in
-   shadows), but the player's avatar `human_male_01` is also 14 civilian ped types' avatar, so tagging its
+   shadows), but the player's avatar `human_male_01` was also 14 civilian ped types' avatar (since FIX-AVATAR-IDENTITY the hero,
+   now `human_male_adult_11`, is his alone: docs/ped-identity.md), so tagging its
    textures would hide those civilians too. It needs a player-only copy of the avatar's textures (a
    different hash), their hashes in the runtime's options, and the option switched per view (on in first
    person, off in third). Not done: each check is a Remix session on the shared GPU.

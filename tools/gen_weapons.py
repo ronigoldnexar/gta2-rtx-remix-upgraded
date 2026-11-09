@@ -34,7 +34,10 @@ TANK = (120, 60, 30)
 
 
 SKIN = (178, 128, 98)
-SLEEVE = (205, 205, 200)   # the player's shirt: off-white with dark stripes
+# FIX-AVATAR-IDENTITY: the player's shirt as his figure wears it in third person and as the classic
+# sprite draws it: near-black (the manifest's remap 25 top, ped_outfits[25] = 61,61,66), a short sleeve.
+# (Was off-white with dark stripes, the old human_male_01 hero: the arms changed clothes at the V press.)
+SLEEVE = (60, 60, 66)
 
 
 def flat(rgb, size=4):
@@ -258,12 +261,12 @@ def molotov():
 # First-person arms (the view model's hands): same model space as the weapons,
 # blocks, +z ahead, +y up, +x right. The right hand closes round a grip at the
 # origin (a pistol grip 0.010 x 0.026 x 0.013); its forearm runs back and down
-# toward the eye, bare to the striped short sleeve at the elbow. The left: "fp_arm_left"
+# toward the eye, bare to the dark short sleeve at the elbow. The left: "fp_arm_left"
 # cups a fore grip from below (its palm under the origin, fingers up the right
 # side, thumb up the left), the forearm back and to the left; "fp_arm_left_cup"
 # wraps the right fist from the left for a two-handed pistol hold.
 def _forearm(skin, sleeve, hand_end, wrist, elbow, r):
-    """Hand to wrist, the bare forearm, and the edge of the player's striped
+    """Hand to wrist, the bare forearm, and the edge of the player's dark
     short-sleeved shirt at the elbow (as his figure wears it in the other views)."""
     a = np.array(wrist, np.float32); b = np.array(elbow, np.float32)
     tube_between(skin, hand_end, wrist, r * 1.05, r, 10)
@@ -294,7 +297,7 @@ def fp_arm(side):
         tube_between(skin, (-0.0095, -0.0060, -0.0060), (-0.0068, 0.0015, 0.0105), 0.0025, 0.0020, 8)  # thumb forward along the frame
         _forearm(skin, sleeve, (-0.0095, -0.0200, -0.0080), (-0.0140, -0.0260, -0.0180), (-0.0600, -0.0750, -0.1500), 0.0055)
     return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin"))),
-                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="stripes")))]), 0.0
+                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth")))]), 0.0
 
 
 ARMS = {"fp_arm_right": lambda: fp_arm("right"), "fp_arm_left": lambda: fp_arm("left"),

@@ -1032,6 +1032,23 @@ void ModelsLoad(const char* folder) {
             if (next == std::string::npos || text[next] == ']') break;
         }
     }
+    // FIX-AVATAR-IDENTITY: the protagonist's avatar ("pedestrian") is his alone. A manifest that
+    // also deals it to the crowd (the plain list, a civilian type) put his face, hair and build on
+    // passers-by and, when his own figure ever fell to a pick, someone else's clothes on him.
+    // Kept out of every pick but his own type's (and a list that would be left empty).
+    if (g_byName.count(g_pedestrian)) {
+        int dropped = 0;
+        auto drop = [&](std::vector<std::string>& list) {
+            if (list.size() < 2) return;
+            const size_t before = list.size();
+            list.erase(std::remove(list.begin(), list.end(), g_pedestrian), list.end());
+            dropped += static_cast<int>(before - list.size());
+        };
+        drop(g_pedestrians);
+        for (PedType& type : g_pedTypes)
+            if (std::find(type.remaps.begin(), type.remaps.end(), 25) == type.remaps.end()) drop(type.models);
+        Log("models: player avatar '%s' (remap 25), kept out of %d crowd picks", g_pedestrian.c_str(), dropped);
+    }
     // "ped_remap_colours": [[r, g, b], ...] by remap: the sprite's clothing colour.
     {
         const size_t key = text.find("\"ped_remap_colours\"");

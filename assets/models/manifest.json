@@ -3309,7 +3309,6 @@
   "human_female_adult_04",
   "human_female_adult_02",
   "human_male_adult_16",
-  "human_male_adult_11",
   "human_male_adult_09",
   "human_female_08",
   "human_female_adult_17",
@@ -4190,8 +4189,7 @@
    "models": [
     "human_female_adult_17",
     "human_female_adult_13",
-    "human_male_adult_16",
-    "human_male_adult_11"
+    "human_male_adult_16"
    ],
    "tint": 1
   },
@@ -4203,7 +4201,6 @@
    "models": [
     "human_female_adult_13",
     "human_male_adult_16",
-    "human_male_adult_11",
     "human_male_adult_09"
    ],
    "tint": 1
@@ -4215,7 +4212,6 @@
    ],
    "models": [
     "human_male_adult_16",
-    "human_male_adult_11",
     "human_male_adult_09",
     "human_female_08"
    ],
@@ -4278,7 +4274,6 @@
    "models": [
     "human_female_adult_13",
     "human_male_adult_16",
-    "human_male_adult_11",
     "human_male_adult_09"
    ],
    "tint": 1
@@ -4290,7 +4285,6 @@
    ],
    "models": [
     "human_male_adult_16",
-    "human_male_adult_11",
     "human_male_adult_09",
     "human_female_08"
    ],
@@ -4368,7 +4362,6 @@
    ],
    "models": [
     "human_male_adult_16",
-    "human_male_adult_11",
     "human_male_adult_09",
     "human_female_08"
    ],
@@ -4380,7 +4373,6 @@
     43
    ],
    "models": [
-    "human_male_adult_11",
     "human_male_adult_09",
     "human_female_08",
     "human_female_adult_17"
@@ -4421,8 +4413,7 @@
    "models": [
     "human_female_adult_17",
     "human_female_adult_13",
-    "human_male_adult_16",
-    "human_male_adult_11"
+    "human_male_adult_16"
    ],
    "tint": 1
   },
@@ -4457,7 +4448,6 @@
     49
    ],
    "models": [
-    "human_male_adult_11",
     "human_male_adult_09",
     "human_female_08",
     "human_female_adult_17"

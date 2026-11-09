@@ -73,6 +73,39 @@ sprite means include the sprite's own shading.
 - **Log:** every 300 frames, `peds: N of M figures drawn in their sprite's outfit (ASSET-PEDS
   zones)`.
 
+## The player's avatar is his alone (FIX-AVATAR-IDENTITY, 9 Nov 2026)
+
+The owner saw the hero change clothes at the V press: a black sprite in the classic view, a white striped
+shirt and khaki shorts in the street views. Three causes, each fixed:
+
+- **The old hero.** Before PED-STAGE-INTEGRATE (`801210a`, 13:21) the manifest's `pedestrian` was
+  `human_male_01` (white striped shirt, khaki shorts). Runs and demos recorded before that, such as
+  `DEMO_live_gameplay_20261109.mp4`, show it. Since then the hero is `human_male_adult_11` with remap 25's
+  outfit: shirt 61,61,66 and trousers 53,53,62 (the sprite's near-black, `lift()`ed). On screen that is
+  58,59,68 on the torso, against the sprite's 66,66,72.
+- **Shared with the crowd.** The same avatar was also in the plain `pedestrians` list and in 9 civilian
+  types (28, 29, 30, 35, 36, 42, 43, 46, 49). Passers-by had his face, hair and build
+  (`feel3-ped-wears-identical-outfit-to-player`), and a figure of his that ever fell to a pick could
+  come out in someone else's clothes.
+  - `tools/make_ped_manifest.py` (`HERO`) leaves him out of the crowd list and out of every civilian
+    type. The rotation still deals from the full pools, so every other type keeps its avatars.
+  - The DLL enforces the same rule at load (`model_store.cpp`, after `ped_types`): the manifest's
+    `pedestrian` is dropped from every list except the type that holds remap 25, and never from a list
+    it would leave empty. The log says `models: player avatar '<name>' (remap 25), kept out of N crowd
+    picks`; N is 0 with the regenerated manifest.
+  - Whenever the player's figure changes model, the log says
+    `player avatar: <name> (remap 25, the protagonist)`.
+- **First-person sleeves.** `tools/gen_weapons.py` `SLEEVE` was off-white with dark stripes, copied from
+  the old hero. It is now the hero's shirt, 60,60,66, with the plain cloth weave. Only the three 32x32
+  `fp_arm_*_1.tga` textures change; the meshes stay as they were. The forearms stay bare, as the hero's
+  short sleeves show in third person.
+- **Seated driver.** Whatever seated figure FIX-SEATED draws goes through the boarding ghost of the player
+  (`BoardingIsPlayer` makes it `ownPed`), so it is drawn with the same avatar and outfit.
+
+The classic view is not touched: all of this is in the street-view model pick and the first-person view
+model. Remix parity note 2 (`docs/remix-3d-parity.md`) can now tag the hero's textures, because no
+civilian shares them any more.
+
 ## Regenerating
 
 ```

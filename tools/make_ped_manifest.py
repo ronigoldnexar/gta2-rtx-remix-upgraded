@@ -135,7 +135,12 @@ for v in variants:
 civ_long = ["Male_Adult_06", "Male_Adult_08", "Male_Adult_20", "Male_Adult_18", "Male_Adult_13", "Female_Adult_04", "Female_Adult_02"]
 civ_short = ["Male_Adult_16", "Male_Adult_11", "Male_Adult_09", "Female_Adult_08", "Female_Adult_17", "Female_Adult_13"]
 civ_shorts = ["Male_Adult_01", "Sports_Male_04", "Female_Adult_12"]
-civ = [names[f] for f in civ_long + civ_short + civ_shorts if f in names]
+# FIX-AVATAR-IDENTITY: the protagonist's avatar is his alone (the "player" type, remap 25, and the
+# manifest's "pedestrian"): kept out of the crowd list and every civilian type, so no passer-by shares
+# his face, hair and build (feel3-ped-wears-identical-outfit-to-player). The rotation below still
+# deals from the full pools, so the other civilian types keep the avatars they had.
+HERO = "Male_Adult_11"
+civ = [names[f] for f in civ_long + civ_short + civ_shorts if f in names and f != HERO]
 def N(*fs): return [names[f] for f in fs if f in names]
 types = [
     {"name": "police", "remaps": [0], "models": N("Police_Male_03", "Police_Male_04", "Security_Female_01"), "tint": 0},
@@ -180,7 +185,7 @@ for r in range(53):
     o = outfits[str(r)]
     pool = {"long": civ_long, "short": civ_short, "shorts": civ_shorts}[silhouette(o)]
     k = r % len(pool)
-    models = N(*(pool[k:] + pool[:k])[:4])
+    models = [x for x in N(*(pool[k:] + pool[:k])[:4]) if x != names.get(HERO)]
     types.append({"name": f"civilian_{r}", "remaps": [r], "models": models, "tint": 1})
 outfit_rows = []
 for r in range(54):
@@ -195,7 +200,7 @@ for r in range(54):
     if r == 25: top, bottom = [30, 30, 32], [24, 24, 28]  # the protagonist: black, as the sprite (lifted below)
     outfit_rows.append(lift(top) + lift(bottom) + (lift(hair, 1.0) if any(hair) else [0, 0, 0]))
 m["pedestrians"] = civ
-m["pedestrian"] = names.get("Male_Adult_11", "human_male_01")
+m["pedestrian"] = names.get(HERO, "human_male_01")
 m["ped_types"] = types
 m["ped_outfits"] = outfit_rows
 colours = json.load(open(os.path.join(here, "pedtypes", "ped_types.json")))["tint_colours"]

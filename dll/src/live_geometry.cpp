@@ -8421,6 +8421,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4), remap);
             }
+            // FIX-AVATAR-IDENTITY: which avatar the player's figure wears, whenever it changes
+            // (one avatar, remap 25's outfit, in every street view and run: the classic sprite's).
+            if (ownPed && model) {
+                static const Model* s_heroLogged = nullptr;
+                if (model != s_heroLogged) {
+                    s_heroLogged = model;
+                    Log("player avatar: %s (remap %d%s)", model->name.c_str(), remap < 0 ? 25 : remap, remap < 0 ? ", the protagonist" : ", developer override");
+                }
+            }
             // Behind the camera he is not drawn at all (his track above still
             // follows him, so he comes back without a jump). Beyond eight
             // blocks his poses are quantised twice as coarsely, so distant
