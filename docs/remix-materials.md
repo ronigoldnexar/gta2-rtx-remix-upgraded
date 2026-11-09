@@ -833,6 +833,28 @@ posts; `cmp/cmp_0.png`). Not done: the orange facade lights (map lamps half a ti
 no post) still wash the corner facades with no fixture drawn; the script's camera headings differ
 between runs, so the before/after pairs are the same mark, not the same framing.
 
+### The pools shine down: the night facades (FIX-REMIX-NIGHT, 9 Nov 2026)
+
+pt-remix-night-facades-glow-brighter-than-lamp-lit-street: at 19:30-22:30 every facade was an even warm tan, brighter than the street the
+lamps stood in. Live A/B in one session (`[devtools] remix_lights_probe=<mask>`: bit i puts the game's light class i out, 5 the far lamps,
+6 the lamp pools, 7 the lanterns on posts; out/rn_night2, rn_night4): taking out the sky fill, the moon/sun distant light, the airglow, the
+neon and white classes, the far lamps or the lanterns changed little; taking out the street class or just the **pools** left the street
+dark. The pool was a bare sphere at 4x a lamp's power; with posts every few tiles and many stood against a wall it lit the facades up to the
+eaves as hard as the road, and auto-exposure turned the sum into one even wash.
+
+The pool is now a spot pointing straight down (`[lights] PoolConeDegrees`, gta2dx9_settings.ini, default 70 = half-angle, softness 0.5;
+0 = the old sphere; F4 menu "Lamp pool cone"; `[devtools] remix_pool_cone=N` live), like a street luminaire's cut-off optic: it lights
+the pavement and the foot of the wall around its post, not the facade above. Measured at hour 22.5, wil spawn, first person facing the
+facades (out/rn_night5 t_fp3_*, mean luma 0-255): old sphere facades 88 / 82, pavement under the lamp 86, open road 55; cone 70 facades
+32 / 33, pavement under the lamp 84, open road 28; cone 55 darker everywhere (the pool shrinks). Street-class lamps with no post (33 near
+the spawn) were tried at 20 % of their power: no measurable change, so they were left as they are. Day: the street class is gated off by the
+sun, so noon frames do not change. Classic: the pools only exist while the street views are presented (FitLampsToPosts), so the classic
+Remix light set is the game's own, as before.
+
+Still short of a shipping night: the facades are now evenly dim rather than evenly bright (a far wall is lit by the bounce of many pools,
+not by a lamp of its own), the street has no lit windows or shopfronts to give the walls life, and the pool edge on the road is soft but
+wide; a real street at night has distinct pools with dark gaps between posts, which needs fewer, better-placed lamps than the map gives.
+
 ## Water under Remix: one smooth water material for the basin, the apron and the seal (FIX-REMIX, 9 Nov 2026)
 
 Defect `pt-remix-water-matte-no-reflection`: the harbour was a flat matte teal and the open sea a flat

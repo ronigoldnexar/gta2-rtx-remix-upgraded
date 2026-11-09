@@ -966,6 +966,12 @@ void DrawLighting() {
     ImGui::SliderFloat("Reference reach", &s.referenceRadius, 0.5f, 8.0f, "%.2f");
     ImGui::SetItemTooltip("The reach that lands exactly on the brightness above. 3 tiles is the "
                           "commonest radius in the shipped maps.");
+    if (ImGui::SliderFloat("Lamp pool cone", &s.poolConeDeg, 0.0f, 90.0f, s.poolConeDeg <= 0.0f ? "sphere" : "%.0f deg")) {
+        SettingsMarkDirty();
+    }
+    ImGui::SetItemTooltip("Street views: the light under a lamp-post's dish shines down in a cone of this half-angle, "
+                          "like a street luminaire, so it lights the pavement and the foot of the wall, not the whole "
+                          "facade. 0 = a sphere (lights everything around it).");
     if (ImGui::SliderFloat("Buried light lift", &s.buriedLift, 0.0f, 4.0f,
                            s.buriedLift <= 0.0f ? "off (left in the ground)" : "%.2f tiles up")) {
         SettingsMarkDirty();

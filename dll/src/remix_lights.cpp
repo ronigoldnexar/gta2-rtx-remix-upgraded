@@ -31,6 +31,8 @@ struct MapLampRecord { float pos[3]; float rgb[3]; float intensity; float radius
 std::vector<MapLampRecord> g_mapLampRecords;   // every steady lamp of the map file, decoded like the game's
 int g_farLampsLastFrame = 0;
 float g_farLampWeight = 0.0f;   // this frame's fade of the far lamps (0 when none were submitted)
+int g_probeMask = 0;              // [devtools] remix_lights_probe (see GameClassDaylight)
+int g_poolCone = -1;             // [devtools] remix_pool_cone: PoolConeDegrees, live (-1 = the setting, 0 = sphere)
 bool g_reliftPending = false;
 
 uint64_t MapLightKey(uint32_t x, uint32_t y, uint32_t z) {
@@ -415,7 +417,7 @@ bool SameSettings(const RemixLightSettings& a, const RemixLightSettings& b) {
         && a.minIntensity == b.minIntensity && a.saturation == b.saturation
         && a.wideNeonRadius == b.wideNeonRadius
         && a.ambientFill == b.ambientFill && a.ambientFillScale == b.ambientFillScale
-        && a.coneSoftness == b.coneSoftness && a.buriedLift == b.buriedLift
+        && a.coneSoftness == b.coneSoftness && a.buriedLift == b.buriedLift && a.poolConeDeg == b.poolConeDeg
         && memcmp(a.gameClass, b.gameClass, sizeof(a.gameClass)) == 0;
 }
 
@@ -554,6 +556,7 @@ void LightsSubmitMapLampsNear(const float* eye, float radius, int cap, float wei
     weight = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
     g_farLampWeight = weight;
     memcpy(g_lastEye, eye, sizeof(g_lastEye)); g_haveEye = true;
+    if ((g_probeMask >> 5) & 1) return;
     if (!g_settings.enabled || !g_settings.injectStatic || g_mapLampRecords.empty() || cap <= 0) {
         static bool said = false;
         if (!said) { said = true; Log("remix lights: far lamps off (enabled %d injectStatic %d records %u)", g_settings.enabled ? 1 : 0, g_settings.injectStatic ? 1 : 0, static_cast<unsigned>(g_mapLampRecords.size())); }
@@ -713,6 +716,10 @@ float g_classApplied[kGameLightClassCount];
 bool  g_classMoved[kGameLightClassCount];
 bool  g_classDaylightReady = false;
 
+// [devtools] remix_lights_probe=mask (FIX-REMIX-NIGHT): bit i puts the game's light class i out
+// (0 street, 1 neon, 2 white, 4 vehicle), bit 5 the far lamps, bit 6 the lamp pools, bit 7 the lanterns on
+// posts, for a live A/B of what lights a scene.
+
 float GameClassDaylight(uint8_t klass) {
     if (klass >= kGameLightClassCount) return 1.0f;
     return g_classDaylight[klass];
@@ -720,7 +727,7 @@ float GameClassDaylight(uint8_t klass) {
 
 void RefreshClassDaylight() {
     for (int i = 0; i < kGameLightClassCount; ++i) {
-        const float now = DaylightGateFactor(g_settings.gameClass[i].gate);
+        const float now = (g_probeMask >> i) & 1 ? 0.0f : DaylightGateFactor(g_settings.gameClass[i].gate);
         g_classDaylight[i] = now;
         g_classMoved[i] = !g_classDaylightReady || std::fabs(now - g_classApplied[i]) >= kGateStep;
         if (g_classMoved[i]) g_classApplied[i] = now;
@@ -802,6 +809,18 @@ void FitLampsToPosts() {
         pool.pos[1] = head.dishBottom - r - kLampPoolGap;
         pool.pos[2] = head.centre.z;
         pool.intensity = lampIntensity * kLampPoolGain * (reference / r) * (reference / r);
+        {
+            // Shining down (see poolConeDeg in remix_lights.h).
+            const float cone = g_poolCone >= 0 ? static_cast<float>(g_poolCone) : g_settings.poolConeDeg;
+            if (cone > 0.0f && cone < 180.0f) {
+                pool.spot = true;
+                pool.dir[0] = 0.0f; pool.dir[1] = -1.0f; pool.dir[2] = 0.0f;
+                pool.coneAngleDeg = cone;
+                pool.coneSoftness = 0.5f;
+            }
+        }
+        if ((g_probeMask >> 6) & 1) pool.intensity = 0.0f;   // [devtools] remix_lights_probe bit 6: the pools out
+        if ((g_probeMask >> 7) & 1) { glow.intensity = 0.0f; if (!moved) d.intensity = 0.0f; }   // bit 7: the lanterns out
         // d is not used past here (push_back may move the vector).
         if (moved) g_working.push_back(glow);
         g_working.push_back(pool);
@@ -838,6 +857,12 @@ void LightsReconcile() {
         if (off != lastOff) {
             if (lastOff >= 0 || off) { g_settings.enabled = off == 0; Log("devtools: our Remix lights %s", off ? "off" : "on"); }
             lastOff = off;
+        }
+        {
+            const int mask = GetPrivateProfileIntA("devtools", "remix_lights_probe", 0, ini);
+            if (mask != g_probeMask) { g_probeMask = mask; Log("devtools: remix lights probe mask %d", mask); }
+            const int cone = GetPrivateProfileIntA("devtools", "remix_pool_cone", -1, ini);
+            if (cone != g_poolCone) { g_poolCone = cone; Log("devtools: lamp pools in a %d deg cone", cone); }
         }
         // [devtools] remix_config=key=value|key=value: pushed to the runtime whenever the
         // line changes (A/B checks of runtime options within one session).

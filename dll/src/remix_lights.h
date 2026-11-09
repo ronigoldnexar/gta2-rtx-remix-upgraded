@@ -226,6 +226,14 @@ struct RemixLightSettings {
     // whole tile spreads them into a softer pool. Capped below anything over
     // the lamp, so it never ends up inside an overpass.
     float buriedLift = 1.0f;
+
+    // FIX-REMIX-NIGHT (pt-remix-night-facades-glow-brighter-than-lamp-lit-street): the pool under a
+    // lamp-post's dish (FitLampsToPosts) shines down in a cone of this half-angle, in degrees, like a
+    // street luminaire's cut-off optic, instead of in every direction. As a bare sphere at 4x a lamp's
+    // power, with posts every few tiles and many stood against a wall, it lit the facades up to the
+    // eaves as hard as the road and the night came out as one even warm wash, the walls brightest.
+    // 0 = the old sphere.
+    float poolConeDeg = 70.0f;
 };
 
 void LightsInit(const char* overridePath);
