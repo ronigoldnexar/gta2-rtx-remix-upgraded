@@ -342,6 +342,9 @@ bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1)
 bool ViewLineWalled(float x0, float y0, float z0, float x1, float y1, float z1) {
     return LineHits(g_devQueries.walled, x0, y0, z0, x1, y1, z1);
 }
+bool ViewPointWalled(float x, float y, float z) {
+    return g_devQueries.walled && g_devQueries.walled(g_devQueries.context, x, y, z);
+}
 
 namespace {
 // The player's weapon words last frame: a drop in the ammunition or a restart of the reload

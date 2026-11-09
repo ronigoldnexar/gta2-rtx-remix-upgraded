@@ -208,3 +208,40 @@ While the game draws its own talking head and subtitle (part 10, bottom left, wh
 not ours to show) the mini-map and the bar under it slide up 84 px out of that band and back when it is
 gone (defect pm-hud-minimap-covers-subtitle-and-portrait: the panel ate the first word and the portrait).
 Verified in out/tri_hud2 (s_02_trans_to_third, s_03_third, s_10_first; classic s_17 unchanged).
+
+### Hardening (BLOCKER-objective-arrow-magenta-outline-on-player-both-modes, 9 Nov 2026)
+
+The blocker's evidence (`DEMO_live_gameplay_20261109.mp4`, t=125 s and t=165 s: a pink/magenta
+arrow outline on the figure's chest, a green and a violet chevron at fixed screen spots) is the
+game's own target arrows: part 13 sprites, the pink job arrow and the green/violet gang arrows.
+That capture ran at 12:00 on the 8 Nov stage, before af1dc60 (its log has no `hud3d:` line).
+On a stage with af1dc60 the sprites were still drawn whenever the modern HUD was not active
+(`modern=0`, the pause screen, a frame the HUD's values could not be read), because the swallowing
+was gated on it. Now:
+
+- Parts 2 and 13 are swallowed whenever a street view's camera is up and `objective_markers=1`,
+  whatever the modern HUD's state; never in the classic view (`CurrentViewMode()` is checked live,
+  so the first classic frame after leaving a street view already has the game's arrows).
+- The markers are drawn on their own fade, also with `modern=0`.
+- The on-screen marker is a filled, shaded pin (lit left half, shaded right half, a highlight on the
+  head, a drop shadow) pointing down at the target, bobbing slowly, sized by distance (larger near),
+  with the distance above it. It faces the camera by construction (screen space).
+- It never sits on a wall: if a wall (a side face with the game's collision bit, `ViewLineWalled`)
+  is between the eye and the spot over the target, the pin is lifted over the target a block at a
+  time until the line clears (up to 9 blocks: a beacon over the roofs); if nothing clears it (a
+  far target behind the block) it is shown by the edge chevron instead, as an off-screen one. In third person the whole pin is pushed above the figure's screen box.
+- The edge chevron is shaded the same way.
+- Every two seconds in a street view the log has `hud3d: markers: view= modern= slots= frames:
+  arrows= pins= lifted= blocked= edges=; game arrow sprites swallowed=`.
+
+Verified (FIX-MARKERS, private stage = f4b5544 + this change, GPU runs at 1280x720, 0 FAULT in every run):
+`out/fixm_final` (warped to 190.5,95.5 near a ringing phone): third person, the yellow job pin "116m"
+lifted over the low wall into the sky; first person, the cyan pin on the phone; the game's arrow sprites
+swallowed every street-view frame. `out/fixm_pass2` (keys_pt_pass.sh at the spawn, walk and drive):
+the job target 104 blocks off behind the church is shown by edge chevrons only, nothing on the figure or
+a wall. `out/fixm_off1` (`modern=0`): the game's HUD kept, its target arrows gone, chevrons drawn.
+Classic: `vr_spawn_classic.png` of `out/vreg_fixm_fix` and `out/vreg_fixm_base` (HEAD without the
+change) are the same file (0 pixels differ), with the game's pink/green/violet arrows in it; the vreg
+FAIL set (spawn_third, spawn_first, portrait, lights23/m37 chase) is the same on the baseline (goldens
+older than af1dc60 and the FIX-CAMERA boom). The sheet is `out/fixm_final/fixm_evidence.png`.
+Untested: a mission target close by in plain view on foot (only the phone object was), Remix.

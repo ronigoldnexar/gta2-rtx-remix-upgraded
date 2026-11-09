@@ -126,6 +126,7 @@ uint32_t g_partSeen[19] = {};         // the frame each part last drew in
 Capture g_weaponIcon, g_portrait;
 Capture g_weaponBuild, g_portraitBuild;
 bool g_active = false;                // the modern HUD is on screen (decides the swallowing)
+bool g_street = false;                // a street view's camera was up at the last Hud3dRender
 bool g_briefResolved = false;         // this frame's brief has text of ours
 
 void Note(Capture* c, const void* texture, const Corner* k, int count) {
@@ -997,11 +998,76 @@ void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
 }
 
 // The game's target arrows (its 17 HUD arrow slots), seen through the street view's own
-// camera: a diamond and the distance over the target when it is on screen, a chevron on the
-// screen's edge pointing round the camera toward it when not. The game draws these as flat
-// sprites round the player laid out for the top-down camera (parts 2 and 13, swallowed above);
-// kind 5 is a place to go (the job's own and the gang arrows), anything else an object
-// (a phone, a car, a person) shown only when it is near.
+// camera: a filled, shaded pin pointing down at the target with the distance over it when it
+// is on screen, a chevron on the screen's edge pointing round the camera toward it when not.
+// The game draws these as flat sprites round the player laid out for the top-down camera
+// (parts 2 and 13, swallowed in Hud3dSwallow whenever a street view is up); kind 5 is a place
+// to go (the job's own and the gang arrows), anything else an object (a phone, a car, a
+// person) shown only when it is near.
+// BLOCKER-objective-arrow-magenta-outline-on-player: the pin never sits on a wall or on the
+// player. When a wall stands between the eye and the spot over the target, the pin is lifted
+// over the target until the line clears it (a beacon over the roofs); if no lift up to
+// kMarkerLiftMax clears it the target is shown by the edge chevron, as when off screen ("blocked"
+// in the log); in third person the pin is pushed above the figure's screen box.
+struct MarkerStats {
+    int arrows = 0, pins = 0, lifted = 0, blocked = 0, edges = 0;
+    bool hit = false; float hitAt[3] = {}, hitFrom[3] = {}, hitTo[3] = {};   // the nearest arrow's first wall sample
+};
+MarkerStats g_markerStats;
+int g_markerSwallowed = 0;   // the game's arrow sprites (parts 2/13) dropped since the last log
+
+ImU32 Shade(ImU32 c, float k) {   // k < 1 darker, k > 1 toward white
+    const float r = static_cast<float>((c >> IM_COL32_R_SHIFT) & 0xFF), g = static_cast<float>((c >> IM_COL32_G_SHIFT) & 0xFF),
+                b = static_cast<float>((c >> IM_COL32_B_SHIFT) & 0xFF), a = static_cast<float>((c >> IM_COL32_A_SHIFT) & 0xFF);
+    auto f = [k](float x) { return static_cast<int>((std::min)(255.0f, k <= 1.0f ? x * k : x + (255.0f - x) * (k - 1.0f))); };
+    return IM_COL32(f(r), f(g), f(b), static_cast<int>(a));
+}
+
+// A pin with its tip at `tip`, `s` pixels per unit: a head pointing down and a shaft above
+// it, the left half lit and the right half in shade, a soft drop shadow behind.
+void DrawMarkerPin(ImDrawList* dl, ImVec2 tip, float s, ImU32 col, float a) {
+    const float hw = 0.9f * s, hh = 1.0f * s, sw = 0.36f * s, sh = 1.05f * s;
+    auto P = [&](float x, float y, float o) { return ImVec2(tip.x + x + o, tip.y + y + o); };
+    const float o = (std::max)(1.5f, 0.16f * s);
+    const ImVec2 shadowHead[3] = {P(-hw * 1.08f, -hh * 1.04f, o), P(hw * 1.08f, -hh * 1.04f, o), P(0, hh * 0.08f, o)};
+    const ImVec2 shadowShaft[4] = {P(-sw * 1.15f, -hh - sh * 1.04f, o), P(sw * 1.15f, -hh - sh * 1.04f, o), P(sw * 1.15f, -hh, o), P(-sw * 1.15f, -hh, o)};
+    dl->AddConvexPolyFilled(shadowHead, 3, Fade(kShadow, a * 0.55f));
+    dl->AddConvexPolyFilled(shadowShaft, 4, Fade(kShadow, a * 0.55f));
+    const ImU32 lit = Fade(Shade(col, 1.35f), a), mid = Fade(col, a), dark = Fade(Shade(col, 0.62f), a);
+    const ImVec2 headL[3] = {P(-hw, -hh, 0), P(0, -hh, 0), P(0, 0, 0)};
+    const ImVec2 headR[3] = {P(0, -hh, 0), P(hw, -hh, 0), P(0, 0, 0)};
+    const ImVec2 shaftL[4] = {P(-sw, -hh - sh, 0), P(0, -hh - sh, 0), P(0, -hh + 0.5f, 0), P(-sw, -hh + 0.5f, 0)};
+    const ImVec2 shaftR[4] = {P(0, -hh - sh, 0), P(sw, -hh - sh, 0), P(sw, -hh + 0.5f, 0), P(0, -hh + 0.5f, 0)};
+    dl->AddConvexPolyFilled(headL, 3, lit);
+    dl->AddConvexPolyFilled(headR, 3, dark);
+    dl->AddConvexPolyFilled(shaftL, 4, mid);
+    dl->AddConvexPolyFilled(shaftR, 4, dark);
+    // A highlight along the head's top edge, so it reads as a solid rather than a cut-out.
+    dl->AddLine(P(-hw + 0.5f, -hh + 0.5f, 0), P(hw - 0.5f, -hh + 0.5f, 0), Fade(Shade(col, 1.6f), a * 0.8f), (std::max)(1.0f, 0.1f * s));
+}
+
+constexpr float kMarkerLiftMax = 9.0f;   // blocks above the target the pin may rise to clear walls
+
+// A wall between the eye and a marker's spot: samples every quarter block, leaving out the
+// eye's own half block and the last three quarters before the spot (the target's own cell,
+// whose building faces may be stored on it).
+bool MarkerSightBlocked(const float eye[3], float x, float y, float z, float* hit) {
+    const float dx = x - eye[0], dy = y - eye[1], dz = z - eye[2];
+    const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (d < 1.3f) return false;
+    const int n = (std::min)(480, static_cast<int>(d / 0.25f) + 1);
+    for (int i = 1; i < n; ++i) {
+        const float t = static_cast<float>(i) / n, along = t * d;
+        if (along < 0.5f || d - along < 0.75f) continue;
+        const float px = eye[0] + dx * t, py = eye[1] + dy * t, pz = eye[2] + dz * t;
+        if (ViewPointWalled(px, py, pz)) {
+            if (hit) { hit[0] = px; hit[1] = py; hit[2] = pz; }
+            return true;
+        }
+    }
+    return false;
+}
+
 void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, float A) {
     if (!g_cfg.markers || v.arrows.empty()) return;
     const float u = g_u;
@@ -1009,6 +1075,8 @@ void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, flo
     float yawDeg = 0.0f, pitchDeg = 0.0f;
     ViewCameraAngles(&yawDeg, &pitchDeg);
     const float yaw = yawDeg * 3.14159265f / 180.0f;
+    float eye[3], eyeDir[3];
+    const bool haveEye = MapObjectsEye(eye, eyeDir);
     // The player's figure on screen (third person), so a marker never sits on him.
     float fx0 = 0, fy0 = 0, fx1 = 0, fy1 = 0;
     bool figure = false;
@@ -1022,33 +1090,77 @@ void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, flo
         }
     }
     const float edge = 34.0f * u;
+    const float bob = std::sin(g_anim.time * 3.2f);
+    const Arrow* nearestArrow = nullptr;
+    {
+        float nd = 1e9f;
+        for (const Arrow& ar : v.arrows) { const float d = std::hypot(ar.x - v.x, ar.y - v.y); if (d < nd) { nd = d; nearestArrow = &ar; } }
+    }
     for (const Arrow& ar : v.arrows) {
         const bool place = ar.kind == 5;
         const float dist = std::hypot(ar.x - v.x, ar.y - v.y);
         if (!place && dist > 20.0f) continue;
         if (dist < 0.8f) continue;   // standing on it
+        ++g_markerStats.arrows;
         const ImU32 col = place ? kYellow : kCyan;
-        const float wx = ar.x, wy = ar.z + (place ? 1.1f : 0.8f), wz = static_cast<float>(gta2::kMapHeight) - ar.y;
+        const float wx = ar.x, wz = static_cast<float>(gta2::kMapHeight) - ar.y;
+        float wy = ar.z + (place ? 1.1f : 0.8f);
+        // Lift the pin over any wall between the eye and it (lids alone do not count).
+        // If none clears it the pin would sit on the wall: the edge chevron shows the way instead.
+        // The answer is kept for three frames per target (a far target behind the block costs
+        // ten sight lines of up to 480 samples).
+        struct Sight { float x = -1, y = -1, lift = 0; bool hidden = false; uint32_t frame = 0; };
+        static Sight cache[24];
+        Sight* cached = nullptr;
+        for (Sight& c : cache) if (c.x == ar.x && c.y == ar.y && g_frame - c.frame < 3) { cached = &c; break; }
+        bool hidden = false;
+        float hit[3];
+        if (cached) {
+            wy += cached->lift;
+            hidden = cached->hidden;
+            if (cached->lift > 0) ++g_markerStats.lifted;
+            if (hidden) ++g_markerStats.blocked;
+        } else if (haveEye && MarkerSightBlocked(eye, wx, wy, wz, hit)) {
+            if (&ar == nearestArrow) {
+                g_markerStats.hit = true;
+                for (int k = 0; k < 3; ++k) g_markerStats.hitAt[k] = hit[k], g_markerStats.hitFrom[k] = eye[k];
+                g_markerStats.hitTo[0] = wx; g_markerStats.hitTo[1] = wy; g_markerStats.hitTo[2] = wz;
+            }
+            bool clear = false;
+            for (float lift = 1.0f; lift <= kMarkerLiftMax + 0.01f; lift += 1.0f) {
+                if (!MarkerSightBlocked(eye, wx, wy + lift, wz, nullptr)) { wy += lift; clear = true; break; }
+            }
+            if (clear) ++g_markerStats.lifted;
+            else { hidden = true; ++g_markerStats.blocked; }
+        }
+        if (!cached && haveEye) {
+            Sight* slot = &cache[0];
+            for (Sight& c : cache) if (c.frame < slot->frame) slot = &c;   // the oldest entry
+            slot->x = ar.x; slot->y = ar.y; slot->hidden = hidden; slot->frame = g_frame;
+            slot->lift = hidden ? 0.0f : wy - (ar.z + (place ? 1.1f : 0.8f));
+        }
         float sx, sy;
-        const bool proj = LiveWorldToScreen(wx, wy, wz, &sx, &sy);
-        const bool on = proj && sx > 0.04f && sx < 0.96f && sy > 0.06f && sy < 0.94f;
+        const bool proj = !hidden && LiveWorldToScreen(wx, wy, wz, &sx, &sy);
+        const bool on = proj && sx > 0.04f && sx < 0.96f && sy > 0.10f && sy < 0.94f;
         if (on) {
-            ImVec2 c(sx * W, sy * H);
-            if (figure && c.x > fx0 && c.x < fx1 && c.y > fy0 && c.y < fy1) c.y = fy0 - 14.0f * u;
-            const float r = (place ? 9.0f : 6.0f) * u;
-            const ImVec2 d[4] = {ImVec2(c.x, c.y - r), ImVec2(c.x + r * 0.75f, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r * 0.75f, c.y)};
-            dl->AddConvexPolyFilled(d, 4, Fade(kShadow, A * 0.6f));
-            const ImVec2 i[4] = {ImVec2(c.x, c.y - r * 0.78f), ImVec2(c.x + r * 0.56f, c.y), ImVec2(c.x, c.y + r * 0.78f), ImVec2(c.x - r * 0.56f, c.y)};
-            dl->AddConvexPolyFilled(i, 4, Fade(col, A * 0.95f));
+            // Bigger when near, never a speck far away.
+            const float s = u * (place ? (std::max)(15.0f, (std::min)(24.0f, 24.0f - (dist - 6.0f) * 0.15f))
+                                       : (std::max)(10.0f, (std::min)(15.0f, 15.0f - (dist - 4.0f) * 0.25f)));
+            ImVec2 tip(sx * W, sy * H + bob * 0.18f * s);
+            const float top = tip.y - 2.05f * s;
+            if (figure && tip.x + 0.9f * s > fx0 && tip.x - 0.9f * s < fx1 && tip.y > fy0 && top < fy1) tip.y = fy0 - 6.0f * u;
+            DrawMarkerPin(dl, tip, s, col, A * 0.95f);
+            ++g_markerStats.pins;
             if (place) {
                 char t[24];
                 snprintf(t, sizeof t, "%.0fm", dist * 2.0f);   // a block is two metres
                 const ImVec2 ts = Measure(g_fonts.label, g_fonts.labelPx, t);
-                Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(c.x - ts.x * 0.5f, c.y + r + 2.0f * u), kWhite, t, A * 0.9f);
+                Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(tip.x - ts.x * 0.5f, tip.y - 2.05f * s - 3.0f * u - ts.y), kWhite, t, A * 0.9f);
             }
             continue;
         }
         if (!place) continue;
+        ++g_markerStats.edges;
         // Off screen (or behind the eye): the bearing from the camera's heading, laid on an
         // ellipse inside the screen's edge; ahead is up, behind is down.
         const float dx = wx - p.x, dz = wz - (static_cast<float>(gta2::kMapHeight) - p.y);
@@ -1060,8 +1172,10 @@ void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, flo
         auto rot = [&](float x, float y) { return ImVec2(c.x + x * ca - y * sa, c.y + x * sa + y * ca); };
         const ImVec2 sh[3] = {rot(0, -r * 1.15f), rot(r * 0.95f, r * 0.8f), rot(-r * 0.95f, r * 0.8f)};
         dl->AddConvexPolyFilled(sh, 3, Fade(kShadow, A * 0.6f));
-        const ImVec2 tri[3] = {rot(0, -r), rot(r * 0.8f, r * 0.65f), rot(-r * 0.8f, r * 0.65f)};
-        dl->AddConvexPolyFilled(tri, 3, Fade(kYellow, A * 0.95f));
+        const ImVec2 triL[3] = {rot(0, -r), rot(0, r * 0.35f), rot(-r * 0.8f, r * 0.65f)};
+        const ImVec2 triR[3] = {rot(0, -r), rot(r * 0.8f, r * 0.65f), rot(0, r * 0.35f)};
+        dl->AddConvexPolyFilled(triL, 3, Fade(Shade(kYellow, 1.3f), A * 0.95f));
+        dl->AddConvexPolyFilled(triR, 3, Fade(Shade(kYellow, 0.7f), A * 0.95f));
     }
 }
 
@@ -1071,7 +1185,6 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     const float u = g_u;
     const float margin = 28.0f * u;
     DrawAimLayer(dl, A, W, H);   // QB-6
-    DrawObjectiveMarkers(dl, v, W, H, A);
 
     // Money, ticking up (or down) to the game's value; the gain pops above it.
     if (v.money >= 0) {
@@ -1507,6 +1620,16 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
     // QB-17/18: during a beat its title is drawn here, in the beat's own treatment.
     // (Never in the classic view, which keeps the game's HUD as it draws it.)
     if (part == 15 && Beat().kind != BeatKind::None && CurrentViewMode() != ViewMode::Classic) return true;
+    // The game's target arrows (part 2, the marker over a target, and part 13, the arrows
+    // pointing at targets) are laid out round the player for the top-down camera: in a street
+    // view they hovered on the figure's chest (third person) or mid-screen and on walls (first),
+    // as pink/green/violet outlines. They go whenever a street view is up, whatever the modern
+    // HUD's state (modern=0, the pause screen, a frame the values could not be read);
+    // DrawObjectiveMarkers shows the same slots through the 3D camera. Never in the classic view.
+    if ((part == 2 || part == 13) && g_cfg.markers && g_street && CurrentViewMode() != ViewMode::Classic && ViewCameraActive()) {
+        ++g_markerSwallowed;
+        return true;
+    }
     if (!g_active) return false;
     switch (part) {
         case 1:    // score, lives, multiplier, weapon and ammo
@@ -1516,11 +1639,6 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
             return true;
         case 10:   // the talking head, when the brief's text is ours to show
             return g_briefResolved;
-        case 2:    // the marker over a target and
-        case 13:   // the arrows pointing at targets: laid out for the top-down camera, they
-                   // hovered on the figure's chest (third person) or mid-screen (first);
-                   // DrawObjectiveMarkers shows the same slots through the 3D camera
-            return g_cfg.markers;
         default:
             return false;
     }
@@ -1539,7 +1657,8 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         Log("hud3d: toggle key: %s HUD", g_cfg.modern ? "modern" : "classic");
     }
     const bool street = worldLoaded && ViewCameraActive() && CurrentViewMode() != ViewMode::Classic;
-    Values v = street && g_cfg.modern ? ReadValues() : Values{};
+    Values v = street && (g_cfg.modern || g_cfg.markers) ? ReadValues() : Values{};
+    g_street = street;
     // The pause and stats screen (part 16) is the game's alone: the modern HUD steps aside.
     const bool paused = g_partSeen[16] + 2 >= g_frame;
     const bool want = street && g_cfg.modern && v.valid && !paused;
@@ -1587,6 +1706,10 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         g_briefResolved = false;
     }
     g_active = want;
+    // The objective markers stand in for the game's arrows (swallowed in any street view), so
+    // they are drawn with the modern HUD off too.
+    const bool markersWant = street && g_cfg.markers && v.valid && !paused;
+    static float markerFade = 0.0f;
     UpdateAimHud(want, static_cast<float>(width), static_cast<float>(height), dt);   // QB-6
 
     Anim& an = g_anim;
@@ -1601,17 +1724,23 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         an.lastHealth = -1;
     }
 
+    markerFade += ((markersWant ? 1.0f - 0.92f * beatHide : 0.0f) - markerFade) * (1.0f - std::exp(-dt * 8.0f));
+    if (!markersWant && markerFade < 0.01f) markerFade = 0.0f;
+    const bool markersShown = markerFade > 0.01f && v.valid;
+
     const bool beatShown = street && Beat().kind != BeatKind::None;
-    if (((an.fade > 0.01f && v.valid) || beatShown) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
+    if (((an.fade > 0.01f && v.valid) || beatShown || markersShown) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
         ImGuiContext* previous = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(g_ctx);
         if (g_fontHeight != height) BuildFonts(height);
-        if (g_cfg.minimap) BuildMap(device, map);
+        if (g_cfg.minimap && g_cfg.modern) BuildMap(device, map);
         ImGuiIO& io = ImGui::GetIO();
         io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
         io.DeltaTime = dt > 0 ? dt : 1.0f / 30.0f;
         ImGui_ImplDX9_NewFrame();
         ImGui::NewFrame();
+        if (markersShown)   // under the HUD's panels, over the world
+            DrawObjectiveMarkers(ImGui::GetForegroundDrawList(), v, static_cast<float>(width), static_cast<float>(height), markerFade);
         if (an.fade > 0.01f && v.valid)
             Draw(ImGui::GetForegroundDrawList(), device, v, static_cast<float>(width), static_cast<float>(height), dt);
         if (beatShown) DrawBeat(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height));
@@ -1632,6 +1761,29 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
             g_weaponIcon.maxX - g_weaponIcon.minX, g_weaponIcon.maxY - g_weaponIcon.minY, v.arrows.size(),
             g_partSeen[1] + 1 >= g_frame ? "1" : "", g_partSeen[4] + 1 >= g_frame ? ",4" : "", g_partSeen[6] + 1 >= g_frame ? ",6" : "",
             g_partSeen[10] + 1 >= g_frame ? ",10" : "", g_partSeen[11] + 1 >= g_frame ? ",11" : "");
+    }
+
+    // The markers every two seconds: arrows in range, pins drawn (lifted over a wall; blocked when
+    // no lift cleared it), edge chevrons, and the game's arrow sprites swallowed.
+    static uint32_t markerLog = 0;
+    if (street && g_frame - markerLog >= 60) {
+        markerLog = g_frame;
+        const Arrow* nearest = nullptr;
+        float nd = 1e9f;
+        for (const Arrow& ar : v.arrows) {
+            const float d = std::hypot(ar.x - v.x, ar.y - v.y);
+            if (d < nd) { nd = d; nearest = &ar; }
+        }
+        if (g_markerStats.hit)
+            Log("hud3d: markers: nearest's sight line %.2f,%.2f,%.2f -> %.2f,%.2f,%.2f first walled at %.2f,%.2f,%.2f",
+                g_markerStats.hitFrom[0], g_markerStats.hitFrom[1], g_markerStats.hitFrom[2], g_markerStats.hitTo[0], g_markerStats.hitTo[1], g_markerStats.hitTo[2],
+                g_markerStats.hitAt[0], g_markerStats.hitAt[1], g_markerStats.hitAt[2]);
+        Log("hud3d: markers: view=%s modern=%d slots=%zu (nearest kind %d at %.1f,%.1f,%.1f, %.1f blocks) frames: arrows=%d pins=%d lifted=%d blocked=%d edges=%d; game arrow sprites swallowed=%d",
+            CurrentViewMode() == ViewMode::FirstPerson ? "first" : "third", g_cfg.modern ? 1 : 0, v.arrows.size(),
+            nearest ? nearest->kind : -1, nearest ? nearest->x : 0.0f, nearest ? nearest->y : 0.0f, nearest ? nearest->z : 0.0f, nearest ? nd : 0.0f,
+            g_markerStats.arrows, g_markerStats.pins, g_markerStats.lifted, g_markerStats.blocked, g_markerStats.edges, g_markerSwallowed);
+        g_markerStats = MarkerStats{};
+        g_markerSwallowed = 0;
     }
 
     QueryPerformanceCounter(&t1);

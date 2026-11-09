@@ -463,6 +463,8 @@ bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1)
 // True when the straight line between two points (renderer frame) passes through a block
 // with a solid side face (a wall); lids alone (roads, decks over a passage) do not count.
 bool ViewLineWalled(float x0, float y0, float z0, float x1, float y1, float z1);
+// Whether one point is inside a block with a solid side face (ViewQueries.walled).
+bool ViewPointWalled(float x, float y, float z);
 
 // Pushes the motion blur choice to RTX Remix when it changes. Cheap to call
 // every frame: it only crosses the bridge when the answer is different.
