@@ -230,6 +230,7 @@ std::vector<DoorPed> g_doorPeds, g_doorPedsNow;
 // car; and the drivers seen thrown out beside a boarding ped (where, which frame).
 struct CarSeat { float x, z; bool driver; };
 std::vector<CarSeat> g_carSeats, g_carSeatsNow;
+std::vector<CameraCar> g_cameraCars, g_cameraCarsNow;   // FIX-CAMERA-2: LiveCameraCars
 struct JackThrow { float x, z; uint32_t frame; };
 std::vector<JackThrow> g_jackThrows;
 // Frame ranges (within one body's 158) of the punch, the aim and the hands up;
@@ -407,6 +408,7 @@ bool BehindView(float x, float y, float z, float margin) {
 }
 const std::vector<AimPed>& LiveAimPeds() { return g_aimPeds; }
 uint32_t LiveAimPedsFrame() { return g_aimPedsFrame; }
+const std::vector<CameraCar>& LiveCameraCars() { return g_cameraCars; }
 bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy) {
     if (!g_viewProjValid) return false;
     const float (*m)[4] = g_viewProj;
@@ -5146,6 +5148,8 @@ void LiveGeometry::BeginFrame() {
     g_doorPedsNow.clear();
     g_carSeats.swap(g_carSeatsNow);
     g_carSeatsNow.clear();
+    g_cameraCars.swap(g_cameraCarsNow);
+    g_cameraCarsNow.clear();
     if (g_carHd && g_carMaterial && !g_hdPrepStarted) StartHdPrepare();
     sprites_.clear();
     shells_.clear();
@@ -6278,6 +6282,24 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
             cc.y = ys * 0.25f;
             cc.own = object == g_hiddenObjects[1];
             contactCars_.push_back(cc);
+        }
+        if (g_cameraCarsNow.size() < 256) {
+            // FIX-CAMERA-2: the same footprint for the chase camera, with the body's height.
+            const gta2::Mat4& m = body->objectToWorld;
+            CameraCar cc;
+            float ys = 0.0f;
+            for (int i = 0; i < 4; ++i) {
+                const float lx = body->local[i].x, ly = body->local[i].y, lz = body->local[i].z;
+                cc.x[i] = lx * m.m[0][0] + ly * m.m[1][0] + lz * m.m[2][0] + m.m[3][0];
+                ys += lx * m.m[0][1] + ly * m.m[1][1] + lz * m.m[2][1] + m.m[3][1];
+                cc.z[i] = lx * m.m[0][2] + ly * m.m[1][2] + lz * m.m[2][2] + m.m[3][2];
+            }
+            float length = 0.0f, height = 0.0f, halfWidth = 0.0f;
+            if (!CarBodiesExtent(object, &length, &height, &halfWidth) || height < 0.1f) height = 0.5f;
+            cc.y0 = ys * 0.25f - 0.1f;
+            cc.y1 = ys * 0.25f + height;
+            cc.object = reinterpret_cast<uintptr_t>(object);
+            g_cameraCarsNow.push_back(cc);
         }
         // Far cars keep the dome: see kCarBodyLodBlocks.
         const float ddx = body->objectToWorld.m[3][0] - lastEye_.x, ddy = body->objectToWorld.m[3][1] - lastEye_.y,

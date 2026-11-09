@@ -424,6 +424,7 @@ private:
     float boom_ = 0.0f;
     float boomClear_ = 0.0f;          // seconds since the solve last pulled the boom in
     bool boomKnown_ = false;
+    float carLift_ = 0.0f;            // FIX-CAMERA-2: the shown eye's rise over a car or wreck beside it
     bool boomInVehicle_ = false;      // the boom was last solved at the wheel (a change restarts it)
     float armDirX_ = 0.0f, armDirY_ = 0.0f, armDirZ_ = -1.0f;
     float rescueX_ = 0.0f, rescueY_ = 0.0f, rescueZ_ = 0.0f;   // the pivot rescue's offset, eased for the shown camera

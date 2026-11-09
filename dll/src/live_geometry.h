@@ -135,6 +135,12 @@ const std::vector<AimPed>& LiveAimPeds();
 uint32_t LiveAimPedsFrame();   // the draw frame the list belongs to (bumped by every Draw)
 uint32_t LiveDrawFrame();
 bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy);
+// FIX-CAMERA-2 (feel7-third-chase-camera-inside-car-or-wreck-body): every car and wreck the
+// street views drew last frame, as its footprint on the road (four corners, renderer x/z,
+// in order round the quad) and its height span, for the chase camera's obstacle test.
+// `object` is the car's sprite object (PlayerState::vehicleSprite for the one he drives).
+struct CameraCar { float x[4], z[4], y0, y1; uintptr_t object; };
+const std::vector<CameraCar>& LiveCameraCars();
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
 void SetUprightPeds(bool on);

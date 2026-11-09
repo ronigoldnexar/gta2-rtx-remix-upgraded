@@ -17,6 +17,7 @@
 #include "car_bodies.h"
 #include "compat.h"
 #include "game_access.h"
+#include "live_geometry.h"
 #include "log.h"
 #include "map_objects.h"
 #include "model_store.h"
@@ -1919,6 +1920,39 @@ const Obstacle* ObstacleAt(const std::vector<Obstacle>& list, const gta2::Vec3& 
     return found;
 }
 
+// FIX-CAMERA-2: how far a point lies inside a car's footprint (seen from above), in blocks;
+// negative outside (the distance to the nearest edge's line, which is the distance to the
+// quad near its sides and an underestimate off its corners).
+float CarFootprintDepth(const CameraCar& c, float x, float z) {
+    float area = 0.0f;
+    for (int i = 0; i < 4; ++i) {
+        const int j = (i + 1) & 3;
+        area += c.x[i] * c.z[j] - c.x[j] * c.z[i];
+    }
+    const float wind = area >= 0.0f ? 1.0f : -1.0f;
+    float depth = 1e9f;
+    for (int i = 0; i < 4; ++i) {
+        const int j = (i + 1) & 3;
+        const float ex = c.x[j] - c.x[i], ez = c.z[j] - c.z[i];
+        const float el = std::hypot(ex, ez);
+        if (el < 1e-4f) continue;
+        // Inward is to the left of the edge for a counter-clockwise quad.
+        const float d = wind * (ex * (z - c.z[i]) - ez * (x - c.x[i])) / el;
+        depth = (std::min)(depth, d);
+    }
+    return depth;
+}
+
+// The cars and wrecks the chase camera keeps clear of: OFF with GTA2DX9_CAM_CARS=0 (A/B).
+bool CameraCarsOn() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_CAM_CARS", buf, sizeof buf) && atoi(buf) == 0 ? 0 : 1;
+    }
+    return enabled != 0;
+}
+
 }  // namespace
 
 void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, float dt,
@@ -3115,7 +3149,66 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 Log("cam: boom %s len=%.2f solved=%.2f want=%.2f rig=%.2f min=%.2f clear=%.2f", inVehicle ? "car" : "foot", boom_, armLen, solveLen, rigLen, minBoom, boomClear_);
         }
     }
-    gta2::Vec3 eye{eyeX_, eyeY_, eyeZ_};
+    // FIX-CAMERA-2 (feel7-third-chase-camera-inside-car-or-wreck-body): the lens never in or
+    // against another car's or a wreck's body. The boom used to pass through traffic and
+    // wrecks level with his car, and the hull's inside filled the frame for up to a second
+    // (run pl7_feel). A car is low and the chase camera only a little over the roofs, so the
+    // shown eye rises over any body within kCarNear of it (seen from above) to kCarClear over
+    // its roof, at most kCarUp blocks a second (a car coming alongside is met a few frames
+    // early, no jump), and comes down eased once it has passed. Not through the wall solve:
+    // made solid there, a car crossing behind his pulled the boom in and craned it up over
+    // his own roof at once (run fc2_drive_c1). Not the car he drives, nor one he stands in.
+    if (s.tpCollide && CameraCarsOn() && mode == ViewMode::ThirdPerson) {
+        constexpr float kCarNear = 0.55f, kCarClear = 0.2f, kCarUp = 6.0f, kCarRiseMax = 1.2f;
+        float want = 0.0f;
+        for (const CameraCar& c : LiveCameraCars()) {
+            if (inVehicle && c.object == reinterpret_cast<uintptr_t>(player.vehicleSprite)) continue;
+            if (c.y0 > eyeY_ + 0.5f || c.y1 + kCarClear < eyeY_) continue;
+            if (CarFootprintDepth(c, px, pz) > -0.1f) continue;   // he is in it or against it
+            if (CarFootprintDepth(c, eyeX_, eyeZ_) <= -kCarNear) continue;
+            want = (std::max)(want, c.y1 + kCarClear - eyeY_);
+        }
+        want = (std::min)(want, kCarRiseMax);
+        if (!boomKnown_) carLift_ = want;
+        else if (want > carLift_) carLift_ = (std::min)(want, carLift_ + kCarUp * dt);
+        else carLift_ += (want - carLift_) * (1.0f - std::exp(-dt / 0.5f));
+        if (carLift_ < 1e-3f) carLift_ = 0.0f;
+        // Not into a ceiling: the lift stops short of anything solid over the eye.
+        if (carLift_ > 0.0f && q.blocked) {
+            for (int k = 1; k <= 6; ++k) {
+                const float y = eyeY_ + carLift_ * k / 6.0f + 0.1f;
+                if (solidAt(eyeX_, y, eyeZ_)) { carLift_ = (std::max)(0.0f, carLift_ * (k - 1) / 6.0f); break; }
+            }
+        }
+        orientEye.y += carLift_;   // the shown eye too, below (eyeY_ stays the solve's state)
+    } else {
+        carLift_ = 0.0f;
+    }
+    // FIX-CAMERA-2: how near the shown eye is to another car's body (the hull at the lens),
+    // for the log: GTA2DX9_LOG_CAMERA=1 prints each near frame and a count every 900 frames
+    // (cars from LiveCameraCars, measured even with GTA2DX9_CAM_CARS=0 for the A/B).
+    if (cameraLogOn() && mode == ViewMode::ThirdPerson) {
+        static int frames = 0, near10 = 0, inside = 0;
+        float best = 9.0f;
+        for (const CameraCar& c : LiveCameraCars()) {
+            if (inVehicle && c.object == reinterpret_cast<uintptr_t>(player.vehicleSprite)) continue;
+            if (CarFootprintDepth(c, px, pz) > -0.1f) continue;
+            const float ey = eyeY_ + carLift_;
+            const float out = -CarFootprintDepth(c, eyeX_, eyeZ_);
+            const float vert = ey > c.y1 ? ey - c.y1 : (ey < c.y0 ? c.y0 - ey : 0.0f);
+            const float d = (std::max)(out, vert);
+            best = (std::min)(best, d);
+        }
+        ++frames;
+        if (best < 0.1f) ++near10;
+        if (best < 0.0f) ++inside;
+        if (best < 0.4f) Log("cam: car near d=%.2f %s", best, inVehicle ? "car" : "foot");
+        if (frames >= 900) {
+            Log("cam: car near summary: %d of %d third-person frames with another car's body within 0.1 of the eye, %d inside it", near10, frames, inside);
+            frames = near10 = inside = 0;
+        }
+    }
+    gta2::Vec3 eye{eyeX_, eyeY_ + carLift_, eyeZ_};
     if (shake_ > 0.001f) {
         eye.x += Wobble(shakeClock_, 11.0f) * 0.04f * shake_;
         eye.y += Wobble(shakeClock_ + 2.3, 13.0f) * 0.03f * shake_;

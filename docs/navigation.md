@@ -369,6 +369,27 @@ feel-armed-third-camera-collapses-to-eye-looking-down. Code: `ViewCameraSolver::
   1.44 -> 0.00 in one frame and the inside of the roof (`fixcam_wall_base` wall_1 f270), after no frame
   over 0.30 (`fixcam_wall2`).
 
+## Cars and wrecks at the chase camera's lens (FIX-CAMERA-2, 9 Nov 2026)
+
+Defect feel7-third-chase-camera-inside-car-or-wreck-body. Code: `ViewCameraSolver::Solve` ("the lens never in
+or against another car's or a wreck's body", `carLift_`), the car list `LiveCameraCars()` (`live_geometry.cpp`,
+filled with the contact-shadow footprints in `RaiseCarBody`: four corners, ground y, body height from
+`CarBodiesExtent`, one frame old).
+
+- The boom used to pass through traffic and wrecks level with him; the hull's inside or flank filled the
+  frame. Now the shown eye rises over any car or wreck whose footprint comes within 0.55 block of it (seen
+  from above) to 0.2 block over its roof, at most 6 blocks a second (0.2 a frame at 30 fps), and comes
+  down eased (0.5 s) once it has passed; at most 1.2 blocks, and never into a ceiling. The car he drives and
+  one he stands in or against are not obstacles. Third person only; the wall solve and the boom filter
+  (above) are unchanged.
+- Not through the wall solve: making cars solid there was tried first, and a car crossing behind his van
+  pulled the boom in and craned it up at once, the van's own roof filling the frame (run `fc2_drive_c1`).
+- `GTA2DX9_CAM_CARS=0` turns it off (A/B). With `GTA2DX9_LOG_CAMERA=1`: `cam: car near d=` on each
+  third-person frame with another body within 0.4 block of the eye, and `cam: car near summary` every 900.
+- Measured on `keys_pf_jack.sh` (QB14_VIEW=third, kerb in Downtown traffic, 4 jacks): off, 407 of 2700
+  third-person frames had another car's body within 0.1 block of the eye (`fc2_jack3_c0`); on, 0 of 3600
+  (`fc2_jack3_c1`), nearest 0.20.
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`
