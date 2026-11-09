@@ -268,8 +268,10 @@ CabClass CabClassFor(int m, bool flatFront) {
 
 // Open-top bodies: no roof lining. The manifest keeps no body type; this is the list the car
 // scorer uses (tools/score_car_model.py OPEN_TOP_MODELS): jeeps and roadsters.
+// FIX-FP (pm16-ste-fp-convertible-...): 44 Arachnid is a Giulietta Spider, open (docs/vehicle-art-review.md
+// card_044); with a lining it was the dark slab across the top of the view.
 bool CabOpenTop(int m) {
-    return m == 22 || m == 30 || m == 31 || m == 39 || m == 45 || m == 53;
+    return m == 22 || m == 30 || m == 31 || m == 39 || m == 44 || m == 45 || m == 53;
 }
 
 const char* CabClassName(CabClass c) {

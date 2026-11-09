@@ -1138,6 +1138,343 @@ float BonnetTopFor(const Model& model, const gta2::Mat4& fit, float windscreen) 
     return top;
 }
 
+// FIX-FP (pm8-fp-bonnet-shredded-slivers-and-grey-header-bar, pm16-ste-fp-convertible-...-spiky-bonnet):
+// the bonnet seen from the driver's seat, rebuilt as a clean surface. The hood copy (HoodModelFor)
+// is the hull cut at the eye; on the image-to-3D meshes its facing test drops a random half of the
+// bonnet's noisy triangles (holes, "shredded" maroon), and the windscreen's and A-pillars' faces
+// between the cut and the real windscreen survive as slivers standing up into the view. Here the
+// body's top is sampled instead: rows across the car from the windscreen's foot to the nose, each
+// row's outline found by bisection, the height under a ceiling (the bonnet's top, so glass and
+// pillars never rise into the view) by a ray down onto the hull, median-filtered and smoothed. The
+// surface is drawn in the paint with skirts down its sides and nose; the cowl back to the dash is
+// added at draw time (the cut moves with the eye). Built once per model and fit.
+struct BonnetSurface {
+    bool valid = false;
+    int rows = 0, cols = 0;
+    std::vector<float> z, xl, xr, h;   // per row: z, outline; per row*cols: height
+    std::vector<float> rgb, cov;       // per row*cols: the texel colour (0..1) and how much of it is paint
+};
+// A 64x64 colour copy of a model texture (its file beside the models), averaged; the alpha is
+// kept as its mean. The paint split (import_assets.py) leaves the base texture transparent where
+// its "_paint" twin is paint, so (1 - alpha) of the base is the paint's share there.
+struct RgbMap { int n = 0; std::vector<float> rgb, a; };
+std::map<std::string, RgbMap> g_rgbMaps;
+const RgbMap* RgbFor(const std::string& file) {
+    auto it = g_rgbMaps.find(file);
+    if (it != g_rgbMaps.end()) return it->second.n ? &it->second : nullptr;
+    RgbMap& m = g_rgbMaps[file];
+    const std::string path = std::string(ModelsFolder()) + "\\" + file;
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return nullptr;
+    std::vector<uint8_t> tga;
+    uint8_t buf[65536];
+    size_t got;
+    while ((got = std::fread(buf, 1, sizeof(buf), f)) > 0) tga.insert(tga.end(), buf, buf + got);
+    std::fclose(f);
+    if (tga.size() <= 18 || tga[2] != 2 || tga[16] != 32) return nullptr;
+    const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
+    if (w <= 0 || h <= 0 || tga.size() < 18u + static_cast<size_t>(w) * h * 4) return nullptr;
+    const bool topDown = (tga[17] & 0x20) != 0;
+    constexpr int kN = 64;
+    std::vector<float> sum(kN * kN * 3, 0.0f), as(kN * kN, 0.0f), cnt(kN * kN, 0.0f);
+    for (int y = 0; y < h; ++y) {
+        const uint8_t* row = &tga[18 + static_cast<size_t>(topDown ? y : (h - 1 - y)) * w * 4];
+        const int cy = y * kN / h;
+        for (int x = 0; x < w; ++x) {
+            const uint8_t* px = row + x * 4;
+            const int c = cy * kN + x * kN / w;
+            sum[c * 3] += px[2]; sum[c * 3 + 1] += px[1]; sum[c * 3 + 2] += px[0];
+            as[c] += px[3]; cnt[c] += 1.0f;
+        }
+    }
+    m.n = kN; m.rgb.resize(kN * kN * 3); m.a.resize(kN * kN);
+    for (int i = 0; i < kN * kN; ++i) {
+        const float k = cnt[i] > 0 ? 1.0f / (255.0f * cnt[i]) : 0.0f;
+        for (int c = 0; c < 3; ++c) m.rgb[i * 3 + c] = sum[i * 3 + c] * k;
+        m.a[i] = as[i] * k;
+    }
+    return &m;
+}
+struct BonnetSurfKey {
+    const Model* model; int xq, yq, zq, wq;
+    bool operator<(const BonnetSurfKey& o) const { return std::tie(model, xq, yq, zq, wq) < std::tie(o.model, o.xq, o.yq, o.zq, o.wq); }
+};
+std::map<BonnetSurfKey, BonnetSurface> g_bonnetSurfs;
+int g_fpBonnet = 1;   // [devtools] fp_bonnet=0: the hood copy from the seat instead (A/B checks)
+
+const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit, float windscreen, float ceiling) {
+    const BonnetSurfKey key{&model, static_cast<int>(std::lround(std::fabs(fit.m[0][0] + fit.m[2][0]) * 100.0f)),
+                            static_cast<int>(std::lround(fit.m[1][1] * 100.0f)),
+                            static_cast<int>(std::lround(std::fabs(fit.m[2][2] + fit.m[0][2]) * 100.0f)),
+                            static_cast<int>(std::lround(windscreen * 100.0f))};
+    auto it = g_bonnetSurfs.find(key);
+    if (it != g_bonnetSurfs.end()) return it->second;
+    if (g_bonnetSurfs.size() > 64) g_bonnetSurfs.clear();
+    BonnetSurface& s = g_bonnetSurfs[key];
+    const double t0 = CarNowMs();
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    struct Tri { gta2::Vec3 a, b, c; float z0, z1; const std::string* tex; float ua, va, ub, vb, uc, vc; };
+    std::vector<Tri> tris;
+    const float zStart = windscreen + 0.02f;
+    float minX = 1e9f, maxX = -1e9f, maxZ = -1e9f;
+    for (size_t n = 0; n < model.nodes.size() && n < worlds.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& m = model.meshes[static_cast<size_t>(mi)];
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        for (size_t t = 0; t + 2 < m.indices.size(); t += 3) {
+            Tri tr;
+            const ModelVertex& va = m.vertices[m.indices[t]];
+            const ModelVertex& vb = m.vertices[m.indices[t + 1]];
+            const ModelVertex& vc = m.vertices[m.indices[t + 2]];
+            tr.a = PointBy(toCar, va.x, va.y, va.z); tr.b = PointBy(toCar, vb.x, vb.y, vb.z); tr.c = PointBy(toCar, vc.x, vc.y, vc.z);
+            tr.z0 = (std::min)((std::min)(tr.a.z, tr.b.z), tr.c.z); tr.z1 = (std::max)((std::max)(tr.a.z, tr.b.z), tr.c.z);
+            tr.tex = &m.texture; tr.ua = va.u; tr.va = va.v; tr.ub = vb.u; tr.vb = vb.v; tr.uc = vc.u; tr.vc = vc.v;
+            if (tr.z1 < zStart - 0.01f) continue;
+            if ((std::min)((std::min)(tr.a.y, tr.b.y), tr.c.y) > ceiling) continue;
+            for (const gta2::Vec3* q : {&tr.a, &tr.b, &tr.c}) { minX = (std::min)(minX, q->x); maxX = (std::max)(maxX, q->x); maxZ = (std::max)(maxZ, q->z); }
+            tris.push_back(tr);
+        }
+    }
+    if (tris.size() < 16 || maxZ < zStart + 0.05f || maxX - minX < 0.1f) {
+        Log("car bodies: seat bonnet of %s: nothing ahead of the windscreen %+.2f (%zu faces); the hood copy stands in", model.name.c_str(), windscreen, tris.size());
+        return s;
+    }
+    // The highest point of the hull at (x, z) at or under the ceiling, -1 for none.
+    std::vector<const Tri*> row;
+    const Tri* hitTri = nullptr; float hitU = 0.0f, hitV = 0.0f;
+    auto ray = [&](float x, float z) {
+        float best = -1.0f;
+        hitTri = nullptr;
+        for (const Tri* t : row) {
+            const float d = (t->b.x - t->a.x) * (t->c.z - t->a.z) - (t->c.x - t->a.x) * (t->b.z - t->a.z);
+            if (std::fabs(d) < 1e-10f) continue;
+            const float u = ((x - t->a.x) * (t->c.z - t->a.z) - (t->c.x - t->a.x) * (z - t->a.z)) / d;
+            const float v = ((t->b.x - t->a.x) * (z - t->a.z) - (x - t->a.x) * (t->b.z - t->a.z)) / d;
+            if (u < -1e-4f || v < -1e-4f || u + v > 1.0001f) continue;
+            const float y = t->a.y + u * (t->b.y - t->a.y) + v * (t->c.y - t->a.y);
+            if (y <= ceiling + 1e-4f && y > best) { best = y; hitTri = t; hitU = u; hitV = v; }
+        }
+        return best;
+    };
+    // The colour where the last ray hit: the texel and its paint share (see RgbFor).
+    auto hitColour = [&](float out[4]) {
+        out[0] = out[1] = out[2] = 0.5f; out[3] = 1.0f;
+        if (!hitTri) return;
+        const float u = hitTri->ua + hitU * (hitTri->ub - hitTri->ua) + hitV * (hitTri->uc - hitTri->ua);
+        const float v = hitTri->va + hitU * (hitTri->vb - hitTri->va) + hitV * (hitTri->vc - hitTri->va);
+        std::string base = *hitTri->tex;
+        const size_t pp = base.find("_paint");
+        if (pp != std::string::npos) base.erase(pp, 6);
+        const RgbMap* m = RgbFor(base);
+        if (!m) return;
+        const float uu = u - std::floor(u), vv = v - std::floor(v);
+        const int i = (std::min)(m->n - 1, static_cast<int>(vv * m->n)) * m->n + (std::min)(m->n - 1, static_cast<int>(uu * m->n));
+        for (int c = 0; c < 3; ++c) out[c] = m->rgb[static_cast<size_t>(i) * 3 + c];
+        // where the base is see-through, its _paint twin's texels (the same colour) are the paint
+        // (the see-through texels keep the paint's RGB, so the average needs no correction)
+        out[3] = 1.0f - m->a[static_cast<size_t>(i)];
+    };
+    constexpr int kRows = 22, kScan = 48, kCols = 17;
+    const float zEnd = maxZ - 0.004f;
+    std::vector<float> hs;
+    for (int r = 0; r < kRows; ++r) {
+        const float z = zStart + (zEnd - zStart) * static_cast<float>(r) / (kRows - 1);
+        row.clear();
+        for (const Tri& t : tris) if (t.z0 <= z && t.z1 >= z) row.push_back(&t);
+        const float dx = (maxX - minX + 0.02f) / (kScan - 1);
+        int iL = -1, iR = -1;
+        for (int i = 0; i < kScan; ++i) if (ray(minX - 0.01f + dx * i, z) > 0.02f) { if (iL < 0) iL = i; iR = i; }
+        if (iL < 0) break;
+        auto edge = [&](int hit, int miss) {
+            float a = minX - 0.01f + dx * hit, b2 = minX - 0.01f + dx * miss;
+            if (miss < 0 || miss >= kScan) return a;
+            for (int k = 0; k < 7; ++k) { const float m = 0.5f * (a + b2); if (ray(m, z) > 0.02f) a = m; else b2 = m; }
+            return a;
+        };
+        const float xl = edge(iL, iL - 1), xr = edge(iR, iR + 1);
+        if (xr - xl < 0.06f) break;
+        float line[kCols], col[kCols][4];
+        for (int c = 0; c < kCols; ++c) {
+            // a hair inside the outline, so the edge columns hit the body rather than its silhouette
+            const float x = xl + (xr - xl) * (0.004f + 0.992f * static_cast<float>(c) / (kCols - 1));
+            line[c] = ray(x, z);
+            hitColour(col[c]);
+        }
+        // misses inside the outline (a gap in a generated shell): the nearest hit's height
+        for (int c = 0; c < kCols; ++c) {
+            if (line[c] > 0.02f) continue;
+            for (int d = 1; d < kCols; ++d) {
+                if (c - d >= 0 && line[c - d] > 0.02f) { line[c] = line[c - d]; for (int k = 0; k < 4; ++k) col[c][k] = col[c - d][k]; break; }
+                if (c + d < kCols && line[c + d] > 0.02f) { line[c] = line[c + d]; for (int k = 0; k < 4; ++k) col[c][k] = col[c + d][k]; break; }
+            }
+        }
+        s.z.push_back(z); s.xl.push_back(xl); s.xr.push_back(xr);
+        for (float v : line) hs.push_back(v);
+        for (int c = 0; c < kCols; ++c) { for (int k = 0; k < 3; ++k) s.rgb.push_back(col[c][k]); s.cov.push_back(col[c][3]); }
+    }
+    const int R = static_cast<int>(s.z.size());
+    if (R < 3) {
+        Log("car bodies: seat bonnet of %s: %d rows ahead of the windscreen %+.2f; the hood copy stands in", model.name.c_str(), R, windscreen);
+        s.z.clear(); s.xl.clear(); s.xr.clear(); s.rgb.clear(); s.cov.clear();
+        return s;
+    }
+    // A 3x3 median (a generated shell's lone spikes and pits), then two 1-2-1 passes each way.
+    auto at = [&](std::vector<float>& g, int r, int c) -> float& {
+        r = (std::max)(0, (std::min)(R - 1, r)); c = (std::max)(0, (std::min)(kCols - 1, c));
+        return g[static_cast<size_t>(r * kCols + c)];
+    };
+    std::vector<float> med(hs.size());
+    for (int r = 0; r < R; ++r)
+        for (int c = 0; c < kCols; ++c) {
+            float w[9]; int k = 0;
+            for (int i = -1; i <= 1; ++i) for (int j = -1; j <= 1; ++j) w[k++] = at(hs, r + i, c + j);
+            std::nth_element(w, w + 4, w + 9);
+            at(med, r, c) = w[4];
+        }
+    for (int pass = 0; pass < 2; ++pass) {
+        std::vector<float> tmp(med.size());
+        for (int r = 0; r < R; ++r) for (int c = 0; c < kCols; ++c) at(tmp, r, c) = 0.25f * at(med, r, c - 1) + 0.5f * at(med, r, c) + 0.25f * at(med, r, c + 1);
+        for (int r = 0; r < R; ++r) for (int c = 0; c < kCols; ++c) at(med, r, c) = 0.25f * at(tmp, r - 1, c) + 0.5f * at(tmp, r, c) + 0.25f * at(tmp, r + 1, c);
+    }
+    // and the outline smoothed along the car (no zigzag from the bisection's last step)
+    for (std::vector<float>* e : {&s.xl, &s.xr}) {
+        std::vector<float> o = *e;
+        for (int r = 1; r + 1 < R; ++r) (*e)[static_cast<size_t>(r)] = 0.25f * o[static_cast<size_t>(r - 1)] + 0.5f * o[static_cast<size_t>(r)] + 0.25f * o[static_cast<size_t>(r + 1)];
+    }
+    s.h.swap(med);
+    {
+        std::vector<float> o = s.rgb, oc = s.cov;
+        for (int r = 0; r < R; ++r)
+            for (int c = 0; c < kCols; ++c) {
+                float acc[4] = {0, 0, 0, 0}; float n = 0.0f;
+                for (int i = -1; i <= 1; ++i) for (int j = -1; j <= 1; ++j) {
+                    const int rr = r + i, cc = c + j;
+                    if (rr < 0 || rr >= R || cc < 0 || cc >= kCols) continue;
+                    const size_t q = static_cast<size_t>(rr * kCols + cc);
+                    for (int k = 0; k < 3; ++k) acc[k] += o[q * 3 + k];
+                    acc[3] += oc[q]; n += 1.0f;
+                }
+                const size_t q = static_cast<size_t>(r * kCols + c);
+                for (int k = 0; k < 3; ++k) s.rgb[q * 3 + k] = acc[k] / n;
+                s.cov[q] = acc[3] / n;
+            }
+    }
+    s.rows = R; s.cols = kCols;
+    s.valid = true;
+    Log("car bodies: seat bonnet of %s: %d x %d from %+.2f to %+.2f, x %.2f..%.2f at the windscreen, under %.3f (%zu faces, %.1f ms)",
+        model.name.c_str(), R, kCols, s.z.front(), s.z.back(), s.xl.front(), s.xr.front(), ceiling, tris.size(), CarNowMs() - t0);
+    return s;
+}
+
+// The bonnet surface from the seat in the car's frame on its springs: the cowl from the cut
+// (`zCut`, under the dash) to the first row, the rows, skirts down its sides and nose. Lit, in the
+// paint (a dark paint held at a floor, as the body is), with a sheen.
+void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const BonnetSurface& s, float zCut, float cowlTop, float maxY,
+                const float tint[3], float dull, const D3DMATERIAL9& body, const D3DMATERIAL9& restore) {
+    struct V { float x, y, z, nx, ny, nz; DWORD c; };
+    struct L { float x, y, z, nx, ny, nz; int q; };   // q: the sample whose colour it takes
+    const int C = s.cols;
+    std::vector<L> local;
+    std::vector<uint16_t> idx;
+    // rows, with the cowl row prepended when the cut lies behind the first row
+    std::vector<float> rz, rl, rr, rh;
+    std::vector<int> rsrc;   // the surface row each drawn row takes its colours from
+    if (zCut < s.z[0] - 0.005f) {
+        rz.push_back(zCut - 0.01f); rl.push_back(s.xl[0]); rr.push_back(s.xr[0]); rsrc.push_back(0);
+        for (int c = 0; c < C; ++c) rh.push_back((std::min)(s.h[static_cast<size_t>(c)], cowlTop));
+    }
+    for (int r = 0; r < s.rows; ++r) {
+        if (s.z[static_cast<size_t>(r)] < zCut - 0.01f) continue;
+        rz.push_back(s.z[static_cast<size_t>(r)]); rl.push_back(s.xl[static_cast<size_t>(r)]); rr.push_back(s.xr[static_cast<size_t>(r)]); rsrc.push_back(r);
+        for (int c = 0; c < C; ++c) rh.push_back((std::min)(s.h[static_cast<size_t>(r * C + c)], maxY));
+    }
+    const int R = static_cast<int>(rz.size());
+    if (R < 2) return;
+    auto X = [&](int r, int c) { return rl[static_cast<size_t>(r)] + (rr[static_cast<size_t>(r)] - rl[static_cast<size_t>(r)]) * static_cast<float>(c) / (C - 1); };
+    auto H = [&](int r, int c) { return rh[static_cast<size_t>(r * C + c)]; };
+    for (int r = 0; r < R; ++r)
+        for (int c = 0; c < C; ++c) {
+            const int r0 = (std::max)(0, r - 1), r1 = (std::min)(R - 1, r + 1), c0 = (std::max)(0, c - 1), c1 = (std::min)(C - 1, c + 1);
+            const gta2::Vec3 du{X(r, c1) - X(r, c0), H(r, c1) - H(r, c0), 0.0f};
+            const gta2::Vec3 dv{X(r1, c) - X(r0, c), H(r1, c) - H(r0, c), rz[static_cast<size_t>(r1)] - rz[static_cast<size_t>(r0)]};
+            gta2::Vec3 n = gta2::Cross(dv, du);
+            if (n.y < 0.0f) n = n * -1.0f;
+            n = gta2::Normalize(n);
+            local.push_back({X(r, c), H(r, c), rz[static_cast<size_t>(r)], n.x, n.y, n.z, rsrc[static_cast<size_t>(r)] * C + c});
+        }
+    for (int r = 0; r + 1 < R; ++r)
+        for (int c = 0; c + 1 < C; ++c) {
+            const uint16_t a = static_cast<uint16_t>(r * C + c), b = static_cast<uint16_t>(a + 1), d = static_cast<uint16_t>(a + C), e = static_cast<uint16_t>(d + 1);
+            idx.insert(idx.end(), {a, b, e, a, e, d});
+        }
+    // skirts: each side's edge and the nose's, 0.12 block down
+    auto skirt = [&](int r0, int c0, int r1, int c1, float nx, float nz) {
+        const uint16_t base = static_cast<uint16_t>(local.size());
+        for (const auto& rc : {std::make_pair(r0, c0), std::make_pair(r1, c1)}) {
+            const float x = X(rc.first, rc.second), y = H(rc.first, rc.second), z = rz[static_cast<size_t>(rc.first)];
+            const int q = rsrc[static_cast<size_t>(rc.first)] * C + rc.second;
+            local.push_back({x, y - 0.002f, z, nx, 0.0f, nz, q});
+            local.push_back({x, (std::max)(0.02f, y - 0.12f), z, nx, 0.0f, nz, q});
+        }
+        idx.insert(idx.end(), {base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3), base, static_cast<uint16_t>(base + 3), static_cast<uint16_t>(base + 1)});
+    };
+    for (int r = 0; r + 1 < R; ++r) { skirt(r, 0, r + 1, 0, -1.0f, 0.0f); skirt(r, C - 1, r + 1, C - 1, 1.0f, 0.0f); }
+    for (int c = 0; c + 1 < C; ++c) skirt(R - 1, c, R - 1, c + 1, 0.0f, 1.0f);
+    std::vector<V> world(local.size());
+    for (size_t i = 0; i < local.size(); ++i) {
+        const L& l = local[i];
+        const gta2::Vec3 p = PointBy(carToWorld, l.x, l.y, l.z);
+        const float nx = l.nx * carToWorld.m[0][0] + l.ny * carToWorld.m[1][0] + l.nz * carToWorld.m[2][0];
+        const float ny = l.nx * carToWorld.m[0][1] + l.ny * carToWorld.m[1][1] + l.nz * carToWorld.m[2][1];
+        const float nz = l.nx * carToWorld.m[0][2] + l.ny * carToWorld.m[1][2] + l.nz * carToWorld.m[2][2];
+        const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+        // the body's colour there: the texel, its paint share multiplied by the car's tint, the wear
+        const size_t q = static_cast<size_t>(l.q);
+        DWORD col = 0xff000000u;
+        for (int k = 0; k < 3; ++k) {
+            const float t = s.rgb[q * 3 + static_cast<size_t>(k)] * (1.0f + s.cov[q] * (tint[k] - 1.0f)) * dull;
+            col |= static_cast<DWORD>((std::max)(0.0f, (std::min)(1.0f, t)) * 255.0f + 0.5f) << (16 - 8 * k);
+        }
+        world[i] = {p.x, p.y, p.z, nl > 1e-6f ? nx / nl : 0.0f, nl > 1e-6f ? ny / nl : 1.0f, nl > 1e-6f ? nz / nl : 0.0f, col};
+    }
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    device->SetTransform(D3DTS_WORLD, &identity);
+    // The body's own material (its dark-paint sheen and wear), the colour from the vertices.
+    D3DMATERIAL9 m = body;
+    device->SetMaterial(&m);
+    DWORD colorVertex = 0, diffSrc = 0, ambSrc = 0;
+    device->GetRenderState(D3DRS_COLORVERTEX, &colorVertex);
+    device->GetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, &diffSrc);
+    device->GetRenderState(D3DRS_AMBIENTMATERIALSOURCE, &ambSrc);
+    device->SetRenderState(D3DRS_COLORVERTEX, TRUE);
+    device->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, D3DMCS_COLOR1);
+    device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_COLOR1);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device->SetTexture(0, nullptr);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE);
+    device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(world.size()), static_cast<UINT>(idx.size() / 3), idx.data(),
+                                   D3DFMT_INDEX16, world.data(), sizeof(V));
+    device->SetRenderState(D3DRS_COLORVERTEX, colorVertex);
+    device->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, diffSrc);
+    device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, ambSrc);
+    device->SetMaterial(&restore);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+}
+
 // Dents. The game keeps a damage word per vehicle (int16 at +0x74: 0 fresh, rising
 // with every knock, on fire from 16000, burning hard from 25000, exploding at 32000;
 // docs/actions-3d.md "Vehicle fields") and paints dents into the sprite; a
@@ -2654,6 +2991,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_driverGlass = GetPrivateProfileIntA("devtools", "driver_glass", 1, g_devIni);
         g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
         g_hoodDropDark = GetPrivateProfileIntA("devtools", "hood_drop_dark", 1, g_devIni) != 0;
+        g_fpBonnet = GetPrivateProfileIntA("devtools", "fp_bonnet", 1, g_devIni);
         {
             char fp[64] = {};
             GetPrivateProfileStringA("devtools", "force_car_paint", "", fp, sizeof(fp), g_devIni);
@@ -3299,7 +3637,25 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 // slab past the dashboard; the cab's dashboard is all there is ahead of the glass.
                 const bool flatCab = hood && g_cabInterior && !WreckModelNumber(modelNumber) &&
                                      CabClassFor(modelNumber, g_cabins[use.object].flat) == CabClass::Bus;
-                if (!flatCab) drawHull(*drawn, Mul(fit, posed));
+                // FIX-FP: the seat's bonnet as a clean surface (BonnetSurfaceFor) on the plain renderer.
+                const BonnetSurface* seatBonnet = nullptr;
+                if (hood && !flatCab && g_fpBonnet && !RemixApiAvailable() && !WreckModelNumber(modelNumber)) {
+                    const Cabin& cab = g_cabins[use.object];
+                    const float top = BonnetTopFor(*worn, fit, cab.windscreen);
+                    if (top > 0.02f) {
+                        const BonnetSurface& bs = BonnetSurfaceFor(*worn, fit, cab.windscreen, top + 0.005f);
+                        if (bs.valid) seatBonnet = &bs;
+                    }
+                }
+                if (seatBonnet) {
+                    const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
+                    const float one[3] = {1.0f, 1.0f, 1.0f};
+                    const float cowl = hood->dash ? hood->dashTop : eyeLocalY - 0.045f;
+                    DrawBonnet(device, posed, *seatBonnet, eyeLocalZ + 0.10f, (std::min)(cowl, eyeLocalY - 0.045f), eyeLocalY - 0.04f,
+                               keepOwnPaint ? one : tint, dull, carMaterial, material);
+                } else if (!flatCab) {
+                    drawHull(*drawn, Mul(fit, posed));
+                }
                 if (hood && (hood->dash || (g_cabInterior && !WreckModelNumber(modelNumber)))) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                     const float paint[3] = {b->paint.r / 255.0f * dull, b->paint.g / 255.0f * dull, b->paint.b / 255.0f * dull};
