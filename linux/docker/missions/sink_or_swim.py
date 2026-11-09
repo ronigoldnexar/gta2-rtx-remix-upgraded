@@ -88,11 +88,17 @@ def ev(what):
 # ---------------------------------------------------------------- driving
 
 DRIVER = os.environ.get("SOS_DRIVER", "smooth")
+# A burning car is driven on while carhp/100 s > the way left + BURN_MARGIN (the drivers' rule).
+# sos3 measured the burn: 16541 -> 7831 in 244 game s with hits, about 36 carhp a game second, so
+# hp/100 is three times too pessimistic; sos3 left its taxi alight at 7786 with 165 blocks to the
+# crane (about 100 s at the cap) and ~200 s of fire left. The job fails only when the taxi is wrecked
+M.BURN_MARGIN = float(os.environ.get("SOS_BURN_MARGIN", "-120"))
 _calm = None
 if DRIVER == "calm":
     try:
         import missions.russian_sailors as RS        # its calm_drive (no blind reversing)
         RS.world = world; _calm = RS.calm_drive
+        RS.CALM_CAP = float(os.environ.get("SOS_CAP", "1.6"))
     except Exception as e:
         say(f"calm_drive not available ({e}); the shared driver"); _calm = None
 
@@ -161,12 +167,30 @@ def back_in_taxi():
         else: s = P.enter_parked(tx, ty, budget=90, why="the taxi")
     return D.wait_state()
 
+# Operative 2 stands on a dead-end deck at level 2 (x 38-50, y 114-116) reached by a ramp from the
+# east along rows 117-118 (x 44-51). The shared stop put the taxi in the middle of the deck and the way
+# out was a turn on it: 3900 (sos3) and 5000 (sos6) of carhp, every bump against its walls. The stop
+# here is at the ramp top inside his LOCATE box (x 39.5-47.5, y 112.5-116.5), facing north; after he
+# boards, the taxi reverses straight onto the ramp top before the next leg turns east down the ramp.
+STOPS = {1: (42.6, 116.1)}
+# the parked car at 243.5,185.5 (east of the phone) cannot be entered: sos4, sos5 and sos7 each spent
+# minutes at its doors while looking for a carrier
+M.BAD_CARS.append((243.5, 185.5))
+EXIT_BACK = {1: 1.0}
+
+def back_out(secs):
+    s0 = D.wait_state()
+    for _ in range(int(secs / 0.33 + 0.5)):
+        hold("Down", 0.33); time.sleep(0.25)
+    hold("space", 0.3); s = D.wait_state()
+    say(f"back out: {math.hypot(s['x'] - s0['x'], s['y'] - s0['y']):.1f} blocks, now {s['x']:.1f},{s['y']:.1f} (carhp {carhp()})")
+
 def pickup(i):
     x, y, w, h = PICKUPS[i]
     s = D.wait_state()
     o = M.objective()
     if o and math.hypot(o[0] - x, o[1] - y) < 6: x, y = o[0], o[1]      # the arrow is on the man himself
-    sp = P.dealer_stop(x, y, s) or (x, y)
+    sp = STOPS.get(i) or P.dealer_stop(x, y, s) or (x, y)
     ev(f"operative {i+1}: by taxi to {sp[0]:.1f},{sp[1]:.1f} (he stands at {x:.1f},{y:.1f}; carhp {carhp()})")
     for leg in range(4):
         check()
@@ -200,6 +224,7 @@ def pickup(i):
     ev(f"operative {i+1}: {'aboard' if ok else 'NOT aboard'} after {time.time() - t0:.0f}s (carhp {carhp()})")
     if ok:
         RESULT["pickups"] = i + 1; time.sleep(1.0); M.shot(f"sos_op{i+1}_aboard")
+        if i in EXIT_BACK: back_out(EXIT_BACK[i])
     return ok
 
 def crane():
@@ -279,9 +304,11 @@ def play():
     # the skill: a taxi (STYPECAB), from traffic (the script asks the game for more of them)
     t0 = time.time()
     s = D.wait_state()
-    # the ring round the phone, then toward operative 1 (a taxi found there costs no extra leg)
-    search = SC.ring_points(world, s["x"], s["y"], r=18)
-    for px, py in ((215, 175), (205, 150), (195, 125)):
+    # roads west and north of the phone, toward operative 1 (a taxi found there costs no extra leg).
+    # Not the ring east of the phone: sos7 died at 254,187 under the railway (a level crossing) while
+    # touring there in a carrier, and the parked car at 243.5,185.5 cannot be entered
+    search = []
+    for px, py in ((222, 206), (205, 213), (185, 214), (215, 175), (205, 150), (195, 125)):
         c = M.street_cell_near(world, px, py, radius=8)
         if c: search.append((c[0], c[1]))
     s = SC.steal_car(world, "STYPECAB", search=search, budget=900, drive=drive_skill, check=check)

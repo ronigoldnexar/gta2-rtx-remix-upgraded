@@ -655,3 +655,64 @@ a re-route, the stall and press back-offs and the gridlock back-away are blind h
 4. Shared fixes wanted (not made, libs frozen): `enter_parked` should not warp by default near a road
    (F9 takes passing cars); the smooth driver's three-point turn and back-offs should check `car_behind`
    and the map behind the tail; `answer()` should know the Russians' neighbouring phones.
+
+## SINK OR SWIM, 9 Nov 2026 (SKILL-STEALCAR, `sos*`): the steal-a-given-model skill
+
+**Skill module:** `gamerun/skills/steal_car.py` (mirrored in `linux/docker/skills/`), for the 26
+`steal_model` jobs of `docs/missions-catalogue.md`. **Proof job:** SINK OR SWIM! (`ste_se1`, the SRS
+Scientists' green phone 234.5,202.5 in file `ste`), runner `gamerun/missions/sink_or_swim.py`, keys
+script `missions/keys_sink_or_swim.sh`. Settings: `SWAP_LEVEL=ste GTA2_SPEED=2 GTA2_DIRECT_KEYS=1 FPS=0`,
+shared `repo/stage`, plain renderer, `-e DISTRICT=ste -e WARP_OK=0`; from sos3 on also
+`SOS_WARP_PHONE=1 GTA2DX9_SCENE_NO_CAR=1` with `scene_key=F11` (below), from sos4 on `SOS_DRIVER=calm`.
+
+### The job (ste_se1.mis)
+
+`SET_RECYCLE_MODEL_WANTED (STYPECAB)`, brief 2272 "Steal a Taxi"; `IS_CHARACTER_IN_MODEL(p1, STYPECAB)`
+(model 51; the other taxi body, `TAXI` 56, does not count) gives 2276 and stores the car (wrecked =
+2275/2998). Then **four** Z-Operatives in turn (the catalogue said three): 193.5,110.5, 43.5,114.5
+(z 3), 104.5,140.5, 34.5,215.5, each `LOCATE_CHARACTER_BY_CAR` 8 x 3 (8 x 4), horn (2278) and he
+boards (2279/2281/2283/2285, next 2280/2282/2284); 2286 the SE dock crane (arrow 197.5,245.5), the
+taxi in `IS_CAR_IN_BLOCK(197.5,247.5, 3 x 3)` with the player out, the crane drops it,
+`HAS_CAR_JUST_SUNK` -> 2288, 2999, $30,000. About 600 blocks of driving in one car.
+
+### What the skill does
+
+- The model enum is the script's car list (`MODELS`, 0-70 matched against logged models: 36 Messer,
+  51 the job's taxi, 70 Z-Type, 48 Stratos-B, 11 bus, 12 cop car); `model_ids("TAXI_ANY")` etc.
+- Targets come from the renderer's `view: cars` line (id, model, position, heading, speed, carhp,
+  fire, driver) and are **tracked by id**. That line holds only the nearest 20 cars within 30
+  blocks, so a target drops out of it in busy streets (sos2 "lost" a standing taxi 15 blocks off):
+  the last sighting stands in for up to 6-10 s.
+- **Return enters the nearest car**, not the one meant: dcc3 got its borrowed car back three times
+  with the Z-Type 1.4 blocks off, sos1 twice, sos2 died beside its burning carrier while Return kept
+  choosing it. The skill stands at the target's door with the most room (burning cars count
+  double), and presses Return only with the target within 2.1 and nearer than any other car by 0.3.
+- Moving targets: a ped never catches a car from behind (sos1). The skill **ambushes**: in a car,
+  with the target coming at it (2-30 blocks ahead in its lane), it stops in the way and waits; GTA2
+  traffic brakes for it (sos4: the taxi stopped 2.9 blocks off, out, one Return). On foot it steps
+  into the lane ahead. A target driving away is followed when near (a gap of 3.2, out only when it
+  stands) or intercepted 14 blocks ahead when far; nothing in sight: a tour of search points
+  (`drive(..., until=a target appears)`), on foot a walk toward them or any car as the carrier.
+- Interface: `steal_car(world, models, search=None, budget=900, drive=None, check=None)`; `drive`
+  is the job's own driver (the carrier is driven by the shared `M.drive3`), `check()` ends it
+  (the job failed, a life lost). `STATS` counts sightings, Returns, wrong entries, ambushes.
+
+### The phone trip
+
+From the district start (113.5,124.7) to this phone is 145 blocks; sos1 and sos2 drove it with
+the shared runner in 14 minutes (two borrowed cars burned). From sos3 on, `SOS_WARP_PHONE=1` puts
+him with the developer scene warp on the street 9 blocks west of the phone (225.5,204.5), marked
+`WARP ... SOS_WARP_PHONE` in `marks.txt`; the phone is walked to and answered and the whole job is
+played from there. This is a dev shortcut for the approach only, reported as such.
+
+### Sessions
+
+| session | taxi (skill) | after | stopped because |
+|---|---|---|---|
+| sos1 | no: two Returns 2.5 and 15 blocks from a moving taxi put him back into the carrier (Messer) | - | stopped by me: the skill rewritten (no Return unless at the door; ambush) |
+| sos2 | no: the oncoming taxi stopped for the waiting carrier (ambush works), but Return chose the carrier; the carrier burned and killed him (lives 4 -> 3) | - | death: the job is over (the runner missed it: lives now checked) |
+| sos3 | **yes, 425 s**: a standing taxi 15.6 off, its driver's door, one Return (frame `m_sos_taxi.png`: the driver on the road, brief 2276) | **all four operatives aboard** (carhp 32000 -> 27498 -> 23594 -> 19369 -> 7831, alight on leg 4) | the taxi burned 165 blocks short of the crane (shared smooth driver: about 40 carhp a block) |
+| sos4 | **yes, 622 s**: in-car ambush of an oncoming taxi, one Return | the taxi stood nose to nose with the abandoned carrier and the job's driver pushed it for 90 s (32000 -> 23000; fixed in the skill: `clear_nose` backs off first) | then wedged nose-first against a wall on a pavement with a standing car behind; calm_drive refuses every reverse (fixed in the runner: a 40 s no-progress watchdog and short steered reverses) |
+| sos5 | no: the carrier search walked to the same unreachable parked car at 243.5,185.5 for five minutes (sos4 had too) | - | stopped by me (fixed in the skill: a parked car not entered is not tried again) |
+| sos6 | **yes, 137 s**: the car taken as the carrier from the kerb was itself a STYPECAB | operatives 1-2 aboard with `calm_drive` (cap 1.8): 32000 -> 29940 -> 24395; operative 2's dead-end deck cost about 5000 on the way out | 17855 on the operative-3 leg, stuck behind a police car (calm stops 3 blocks from one) with the old burn rule ahead; stopped by me |
+| sos7 | no taxi yet after 7 min (two seen moving away; the unreachable parked car again, now listed as bad) | - | **died** in a carrier stopped under the railway at 254,187 while touring the ring east of the phone (the frame before: the carrier on the crossing; then the respawn and JOB FAILED, "How pathetic"). The tour is now west and north of the phone only |
