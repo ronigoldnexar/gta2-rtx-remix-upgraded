@@ -4492,6 +4492,68 @@ bool PropLightingBegin(IDirect3DDevice9* device, bool glass) {
     return true;
 }
 
+// Defect ptm14-night-pedestrians-and-sprites-fully-lit-against-dark-city: the figures were drawn as bare
+// texels (COLOROP SELECTARG1 TEXTURE), so at night the people kept noon colours against the dark street.
+// Their light is the world's (world_view.cpp DrawSkyAndShading: ambient falling to 0.35 with the
+// daylight, the sun's term by day) at this hour over the same at the configured day sun, per colour,
+// capped at 1: by day exactly 1 (the figures look as they always did), at night the ratio the
+// walls fall by. 1 with the sky off, a fixed sun (follow_clock=0) or under Remix (it lights them).
+// GTA2DX9_FIGURE_NIGHT=0 turns it off.
+bool FigureTimeOfDayLight(float out[3]) {
+    out[0] = out[1] = out[2] = 1.0f;
+    static int s_on = -1;
+    if (s_on < 0) {
+        char v[8] = {};
+        s_on = (GetEnvironmentVariableA("GTA2DX9_FIGURE_NIGHT", v, sizeof v) && v[0] == '0') ? 0 : 1;
+        Log("figures: %s", s_on ? "lit by the time of day like the world (GTA2DX9_FIGURE_NIGHT)" : "unlit at every hour (GTA2DX9_FIGURE_NIGHT=0)");
+    }
+    const gta2::SkySettings& sky = gta2::SkyConfig();
+    if (!s_on || !sky.enabled || !sky.followClock || RemixApiAvailable()) return false;
+    float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
+    TimeOfDayAngles(&elevation, &azimuth);
+    const gta2::SkyColours now = gta2::ComputeSkyColours(elevation, azimuth);
+    const gta2::SkyColours day = gta2::ComputeSkyColours(sky.sunElevationDeg, sky.sunAzimuthDeg);
+    auto light = [&](const gta2::SkyColours& c, int k) {
+        const float amb = sky.ambient * (0.35f + 0.65f * c.day) * (&c.ambient.x)[k];
+        return amb + 0.5f * sky.sunLight * c.day * (&c.sunColour.x)[k];   // a body's sides: half the sun's term
+    };
+    bool dim = false;
+    for (int k = 0; k < 3; ++k) {
+        const float ref = light(day, k);
+        out[k] = ref > 1e-4f ? (std::min)(1.0f, (std::max)(0.05f, light(now, k) / ref)) : 1.0f;
+        dim = dim || out[k] < 0.995f;
+    }
+    static int s_logged = 0;
+    if (dim && s_logged < 3 && ++s_logged)
+        Log("figures: time of day light %.2f,%.2f,%.2f (sun %.1f deg, day %.2f)", out[0], out[1], out[2], elevation, now.day);
+    return dim;
+}
+
+// Stage 0 for a figure or its weapon: the texture as is, or modulated by FigureTimeOfDayLight
+// through the fixed-function ambient (no lights: the world's light reaches them as a level).
+void FigureLightBegin(IDirect3DDevice9* device, bool lit, const float light[3]) {
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    if (!lit) {
+        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        device->SetRenderState(D3DRS_LIGHTING, FALSE);
+        return;
+    }
+    for (DWORD i = 0; i < 4; ++i) device->LightEnable(i, FALSE);
+    D3DMATERIAL9 material = {};
+    material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
+    material.Diffuse = {0.0f, 0.0f, 0.0f, 1.0f};
+    device->SetMaterial(&material);
+    auto byte = [](float v) { return static_cast<DWORD>((std::min)(255.0f, (std::max)(0.0f, v * 255.0f + 0.5f))); };
+    device->SetRenderState(D3DRS_AMBIENT, (byte(light[0]) << 16) | (byte(light[1]) << 8) | byte(light[2]));
+    device->SetRenderState(D3DRS_LIGHTING, TRUE);
+    device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
+    device->SetRenderState(D3DRS_COLORVERTEX, FALSE);
+    device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
+    device->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, D3DMCS_MATERIAL);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+}
+
 void PropLightingEnd(IDirect3DDevice9* device) {
     device->LightEnable(0, FALSE);
     device->SetRenderState(D3DRS_LIGHTING, FALSE);
@@ -8169,6 +8231,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     device->SetFVF(kFigFvf);
+    float figLight[3];
+    const bool figLit = FigureTimeOfDayLight(figLight);   // ptm14
 
     constexpr float kPi = 3.14159265f;
     // CROWD: last frame's counts, every ten seconds of drawing.
@@ -9776,8 +9840,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (actAlone) { locoA = actionClip; locoTA = actionT; locoB = nullptr; locoW = 0.0f; layers = 0; }
                 ModelSetOverlay(actAlone ? nullptr : actionClip, actionT, actAlone ? 0.0f : actW);
                 ModelSetLayers(model, layerClip, layerT, layerW, layers);
-                device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-                device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+                FigureLightBegin(device, figLit, figLight);   // ptm14: the hour's light
                 device->SetFVF(kWorldFvf);
                 // A gang member's colours: his clothing (the "_paint" half of a
                 // split body texture) multiplied by the remap's colour over the
@@ -10073,8 +10136,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                     place.m[2][0], place.m[2][1], place.m[2][2], place.m[3][0], place.m[3][1], place.m[3][2],
                                     handWorld.m[3][0], handWorld.m[3][1], handWorld.m[3][2], gx, cy, gz, weapon->Length());
                             }
-                            device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-                            device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+                            FigureLightBegin(device, figLit, figLight);
                             ModelDraw(device, *weapon, place, nullptr, 0.0f);
                             if ((track.action == 10 || track.action == 15) && haveL) {
                                 // The second pistol, in the left hand: the mirror of the right's hold.
@@ -10159,6 +10221,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     device->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg1);
                 }
                 device->SetFVF(kFigFvf);
+                if (figLit) {
+                    device->SetRenderState(D3DRS_LIGHTING, FALSE);
+                    device->SetRenderState(D3DRS_COLORVERTEX, TRUE);
+                    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+                }
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
                 device->SetTexture(0, nullptr);
                 ++drawn;
