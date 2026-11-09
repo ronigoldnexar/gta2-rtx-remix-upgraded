@@ -4562,7 +4562,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             if (topLevel > eyeLevel + 2 || topLevel < eyeLevel - 6) continue;         // street level only
             const int ground = top.GroundType();
             const uint32_t h = (static_cast<uint32_t>(cx) * 73856093u) ^ (static_cast<uint32_t>(mapY) * 19349663u);
-            const float yaw = static_cast<float>((h >> 8) & 1023) / 1024.0f * 6.2832f;
+            float yaw = static_cast<float>((h >> 8) & 1023) / 1024.0f * 6.2832f;
             const Model* model = nullptr;
             float scale = 1.0f;
             float ox = 0.0f, oz = 0.0f;
@@ -4710,6 +4710,14 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 if (!model) continue;
                 ox = wallDx * 0.34f;
                 oz = wallDz * 0.34f;
+                if (model == mailbox) {
+                    // Back to the wall, its front (the model's -z) to the pavement, close in
+                    // (defect pm-mailbox-prop-oversized-blue-box-on-legs: a random turn left
+                    // it askew against the wall, its door to the bricks half the time).
+                    yaw = std::atan2(static_cast<float>(wallDx), static_cast<float>(wallDz));
+                    ox = wallDx * 0.40f;
+                    oz = wallDz * 0.40f;
+                }
             }
             if (!model) continue;
             float floor = static_cast<float>(topLevel);
@@ -4901,6 +4909,53 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
 
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    // Defect pm20-third-street-lamp-poles-chunky-flat-black-lathe-no-texture: the props were
+    // drawn as bare texels, so a dark painted lamp post was one flat near-black silhouette and
+    // no prop had a sunlit side. They take the sun the world's faces take (world_view.cpp
+    // DrawSkyAndShading: the same direction, sun colour and ambient), so a shaft, a dome or a
+    // box reads round or square the way the buildings beside it do. Plain renderer only (Remix
+    // lights the scene itself); GTA2DX9_PROP_LIGHT=0 draws them unlit as before.
+    static int s_propLight = -1;
+    if (s_propLight < 0) {
+        char v[8] = {};
+        s_propLight = (GetEnvironmentVariableA("GTA2DX9_PROP_LIGHT", v, sizeof v) && v[0] == '0') ? 0 : 1;
+        Log("props: %s", s_propLight ? "lit by the world's sun (GTA2DX9_PROP_LIGHT)" : "unlit (GTA2DX9_PROP_LIGHT=0)");
+    }
+    DWORD savedArg2 = D3DTA_CURRENT;
+    device->GetTextureStageState(0, D3DTSS_COLORARG2, &savedArg2);
+    bool propsLit = false;
+    {
+        const gta2::SkySettings& sky = gta2::SkyConfig();
+        if (s_propLight && sky.enabled && !RemixApiAvailable()) {
+            float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
+            if (sky.followClock) TimeOfDayAngles(&elevation, &azimuth);
+            const gta2::SkyColours colours = gta2::ComputeSkyColours(elevation, azimuth);
+            const float ambient = sky.ambient * (0.35f + 0.65f * colours.day);
+            const float sunScale = sky.sunLight * colours.day;
+            D3DLIGHT9 sun = {};
+            sun.Type = D3DLIGHT_DIRECTIONAL;
+            sun.Diffuse = {colours.sunColour.x * sunScale, colours.sunColour.y * sunScale, colours.sunColour.z * sunScale, 1.0f};
+            sun.Direction = {-colours.sunDir.x, -colours.sunDir.y, -colours.sunDir.z};
+            device->SetLight(0, &sun);
+            device->LightEnable(0, TRUE);
+            D3DMATERIAL9 material = {};
+            material.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
+            material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
+            device->SetMaterial(&material);
+            auto byte = [](float v) { return static_cast<DWORD>((std::min)(255.0f, (std::max)(0.0f, v * 255.0f + 0.5f))); };
+            device->SetRenderState(D3DRS_AMBIENT, (byte(ambient * colours.ambient.x) << 16) | (byte(ambient * colours.ambient.y) << 8) |
+                                                  byte(ambient * colours.ambient.z));
+            device->SetRenderState(D3DRS_LIGHTING, TRUE);
+            device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
+            device->SetRenderState(D3DRS_NORMALIZENORMALS, TRUE);   // the props are scaled
+            device->SetRenderState(D3DRS_COLORVERTEX, FALSE);
+            device->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, D3DMCS_MATERIAL);
+            device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
+            device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+            device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+            propsLit = true;
+        }
+    }
     device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);   // leaves are cutouts
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     device->SetFVF(kWorldFvf);
@@ -4946,6 +5001,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         for (const CarModelUse& use : carModels_)
             if (use.model) addRect(use.placement, use.model->boundsMin.x, use.model->boundsMax.x, use.model->boundsMin.z, use.model->boundsMax.z);
     }
+    const bool chaseLine = s_overlapFade && g_playerPosValid && CurrentViewMode() == ViewMode::ThirdPerson;
     auto smooth01 = [](float t) { t = (std::min)(1.0f, (std::max)(0.0f, t)); return t * t * (3.0f - 2.0f * t); };
     auto overlapAlpha = [&](const Placed& p) -> float {
         if (!s_overlapFade) return 1.0f;
@@ -4988,6 +5044,22 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             for (const FigureSpot& f : *list)
                 if (!collide || !g_playerObject || f.object != reinterpret_cast<uintptr_t>(g_playerObject)) person(f.x, f.z);
         if (!collide && g_playerPosValid && std::fabs(g_playerPosY - p.y) < 1.5f) person(g_playerPosX, g_playerPosZ);
+        // The chase camera's line to the hero (defect pm20: a lamp post between the camera and
+        // the figure cut him in two): a thin pole (lamp, sign, meter) that stands across the
+        // line from the eye to his chest, between them, goes; the fade state below makes it
+        // a short fade, and it comes back when the line clears.
+        if (chaseLine && (p.model == lamp || p.model == signStop || p.model == signOneWay || p.model == meter)) {
+            const float sx = g_playerPosX - eye.x, sz = g_playerPosZ - eye.z;
+            const float len2 = sx * sx + sz * sz;
+            if (len2 > 0.04f) {
+                const float t = ((p.x - eye.x) * sx + (p.z - eye.z) * sz) / len2;
+                if (t > 0.02f && t < 0.97f) {
+                    const float qx = eye.x + sx * t - p.x, qz = eye.z + sz * t - p.z;
+                    const float lineY = eye.y + (g_playerPosY + 0.3f - eye.y) * t;
+                    if (qx * qx + qz * qz < (r + 0.07f) * (r + 0.07f) && lineY < top && lineY > p.y) alpha = 0.0f;
+                }
+            }
+        }
         // Car bodies: the distance from the prop to the body's rectangle.
         for (const CarRect& c : carRects) {
             const float vx = p.x - c.cx, vz = p.z - c.cz;
@@ -4998,6 +5070,12 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         }
         return alpha;
     };
+    // Per-placement fade state for the overlap fade (alpha, last frame seen), see below.
+    static std::unordered_map<uint64_t, std::pair<float, uint32_t>> s_fadeState;
+    static uint32_t s_fadeFrame = 0;
+    if ((++s_fadeFrame % 300) == 0)
+        for (auto it = s_fadeState.begin(); it != s_fadeState.end();)
+            it = s_fadeFrame - it->second.second > 60 ? s_fadeState.erase(it) : std::next(it);
     struct FadedProp { const Model* model; gta2::Mat4 m; float alpha; };
     std::vector<FadedProp> faded;
     int hiddenNow = 0;
@@ -5012,7 +5090,28 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         }
         // The overlap fade after the frustum test: a prop beside the picture is not drawn
         // either way, so it needs no fade (the 'hidden' count is of props in the picture).
-        const float overlap = overlapAlpha(p);
+        // Defect pm16-wil-third-translucent-blue-ghost-mailbox-beside-fallen-ped: the spatial
+        // fade alone held a prop at a partial alpha for as long as a body stayed in its band
+        // (a shot ped knocked into a mailbox left a 40% ghost for seconds). The overlap now
+        // only decides fully out or fully in; the prop's own fade state then goes there over
+        // about six frames, so a see-through prop is only ever seen in passing.
+        float overlap = overlapAlpha(p);
+        if (s_overlapFade) {
+            const uint64_t key = (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(p.model)) << 40) ^
+                                 (static_cast<uint64_t>(static_cast<uint32_t>(static_cast<int>(std::floor(p.x * 32.0f)) & 0xFFFFF)) << 20) ^
+                                 static_cast<uint64_t>(static_cast<uint32_t>(static_cast<int>(std::floor(p.z * 32.0f)) & 0xFFFFF));
+            const float target = overlap < 0.5f ? 0.0f : 1.0f;
+            auto it = s_fadeState.find(key);
+            if (it == s_fadeState.end() || s_fadeFrame - it->second.second > 30) {
+                s_fadeState[key] = {target, s_fadeFrame};   // first seen (or back in view): no fade-in
+                overlap = target;
+            } else {
+                float& a = it->second.first;
+                a = target > a ? (std::min)(target, a + 0.17f) : (std::max)(target, a - 0.17f);
+                it->second.second = s_fadeFrame;
+                overlap = a;
+            }
+        }
         if (overlap <= 0.02f) { ++hiddenNow; continue; }
         {
             int tris = 0, draws = 0;
@@ -5088,6 +5187,13 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         s_propFrames = 0; s_inRange = s_drawn = s_tris = s_draws = 0; s_maxDrawn = s_maxTris = 0;
         for (double& k : s_kind) k = 0;
     }
+    if (propsLit) {
+        device->LightEnable(0, FALSE);
+        device->SetRenderState(D3DRS_LIGHTING, FALSE);
+        device->SetRenderState(D3DRS_NORMALIZENORMALS, FALSE);
+        device->SetRenderState(D3DRS_COLORVERTEX, TRUE);
+    }
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, savedArg2);
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
 }
 

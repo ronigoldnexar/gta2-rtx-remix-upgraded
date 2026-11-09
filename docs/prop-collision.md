@@ -62,3 +62,36 @@ the line) and third person (a fixed side camera, GTA2DX9_REGRESS_CAM), positions
 - The game's own kickable objects (cones, tyres, boxes) keep the game's own behaviour.
 - Close up in first person the bench, mailbox and shelter glass textures are low resolution
   (an art limit, not collision).
+
+## Fade, light and scale of the street props (FIX-PROPS-2, 9 Nov 2026)
+
+- **No ghosts** (defect pm16-wil-third-translucent-blue-ghost-mailbox-beside-fallen-ped): the overlap fade
+  above only decides *out* or *in* now (overlap alpha under 0.5 is out); each placement keeps its own fade
+  state (`s_fadeState` in `DrawProps`) that moves there by 0.17 a frame, so a prop is see-through only for
+  the six frames of a fade. Before, a body that stayed in the fade band (a ped knocked into a mailbox, the
+  eye 0.4 block from one) held the prop at 40% for as long as it stayed: run `fp2_fade_before2`
+  (`GTA2DX9_PROP_COLLIDE=0`, eye 0.43 block from the mailbox at 124.9,138.5) logged "300 prop-frames
+  see-through" per 300 frames and showed the blue ghost; the same spot after (`fp2_after1`) shows no prop
+  and no ghost.
+- **The chase camera's line** (defect pm20): in third person a lamp post, sign or meter that stands
+  across the line from the eye to the hero's chest, between them, fades out the same way.
+- **Lit** (defect pm20): the props were drawn as bare texels (`D3DTOP_SELECTARG1`), so the dark cast-iron
+  lamp was a flat black silhouette and no prop had a sunlit side. `DrawProps` now lights them with the
+  sun the world's faces get (world_view.cpp `DrawSkyAndShading`: the sky's sun direction, sun colour times
+  `sunLight`, ambient times the daylight), plain renderer only (not under Remix). `GTA2DX9_PROP_LIGHT=0`
+  draws them unlit as before. Log line `props: lit by the world's sun`.
+- **Mailbox at the figures' scale** (defect pm-mailbox-prop-oversized-blue-box-on-legs, second report): an
+  adult is 0.46 block (`kPedHeight`), so a block is about 3.9 m at the figures' scale, not 2 m; the 0.55-block
+  box stood 2.2 m. `build_mailbox` is now 0.305 block (1.2 m), 0.134 x 0.136 footprint, with smooth dome
+  normals; `DrawProps` turns it back to the wall (front to the pavement, 0.40 block from the cell centre)
+  instead of a random yaw. Its body texture is a smooth painted steel (`paint()`), and the material is named
+  `steel`: `import_assets.py` copies a material named `body` to a `_paint` TGA once and never again, so the
+  mailbox had kept the 6 Nov noisy body texture through every regeneration (`mailbox_0_paint.tga`, removed).
+- **Stop sign back** (defect pm17-wil-third-sign-panel-blank-white-slab): dark painted steel (62,65,70) with a
+  brighter rolled rim, strap and bolts, instead of light galvanised grey (150) that read as a white slab in
+  the sun; an octagonal edge band between face and back, so from an angle behind it the face's red rim no
+  longer shows past the back; the back is 0.006 larger than the face.
+
+Still short of the bar: the other rule props were sized at 2 m a block too (parking meter 0.635 block = 2.5 m,
+stop/one-way signs 1.0-1.08 block = 4 m, hydrant 0.4 = 1.6 m, bin 0.45 = 1.75 m); the lamp's shaft is the
+14-sided lathe of PROPS-SLIM (smooth now that it is lit, faceted at the base up close).

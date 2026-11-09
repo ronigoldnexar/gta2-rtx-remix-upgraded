@@ -190,7 +190,9 @@ junction, one-way signs and parking meters along the kerb, mailboxes against bui
 shelters beside the map's bus-stop zones, containers and cranes along quays (a lid with
 water beside it), rail on the track tiles reached from the "trak" zones (style tiles 572 in
 Industrial, 553/562/563/565 in Residential; Downtown has no elevated rail), roof units and
-water towers on flat roofs above the street. Regenerate:
+water towers on flat roofs above the street. Sizes are at the figures' scale (an adult 0.46 block, so
+1 m is about 0.26 block; the mailbox is 0.305 block, see docs/prop-collision.md); never name a material
+`body` or `paint` here (import_assets.py treats it as car paint and keeps its first `_paint` copy). Regenerate:
 
     python3 tools/gen_env2.py ../assets-src/env2 --sheet out/env2_models_sheet.png
     python3 tools/import_assets.py ../assets-src/manifest.json assets/models --only sign_stop,sign_oneway,bus_shelter,parking_meter,mailbox,container_1,container_2,container_3,container_4,crane,roof_ac,roof_vent,water_tower,rail

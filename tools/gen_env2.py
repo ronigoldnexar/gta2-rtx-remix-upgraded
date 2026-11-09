@@ -77,7 +77,7 @@ def tilted_box(part, x0, x1, y0, y1, z0, z1, pitch_deg, pivot):
         part.quad(*[R(p) for p in f])
 
 
-def plate(part, w, h, y_centre, z, thick=0.012, u_flip=False, back=None):
+def plate(part, w, h, y_centre, z, thick=0.012, u_flip=False, back=None, back_grow=0.0):
     """A vertical plate facing -z (the viewer on the pavement). The back face goes into
     `back` when given (a part of its own, so it can carry a plain metal texture: a
     stop sign seen from behind must not read STOP mirrored), else into `part` with the
@@ -94,7 +94,10 @@ def plate(part, w, h, y_centre, z, thick=0.012, u_flip=False, back=None):
     x0, x1 = -w / 2, w / 2
     y0, y1 = y_centre - h / 2, y_centre + h / 2
     part.quad((x0, y0, z), (x0, y1, z), (x1, y1, z), (x1, y0, z), (1, 0), (1, 1), (0, 1), (0, 0))                 # front (-z), read from -z
-    (back if back is not None else part).quad((x1, y0, z + thick), (x1, y1, z + thick), (x0, y1, z + thick), (x0, y0, z + thick), (0, 0), (0, 1), (1, 1), (1, 0))  # back
+    # back_grow: the back a little larger than the front, so seen from behind it covers the
+    # front picture's edge (the stop sign's red rim showed as stray pixels past the back).
+    g = back_grow
+    (back if back is not None else part).quad((x1 + g, y0 - g, z + thick), (x1 + g, y1 + g, z + thick), (x0 - g, y1 + g, z + thick), (x0 - g, y0 - g, z + thick), (0, 0), (0, 1), (1, 1), (1, 0))  # back
 
 
 def post(part, r, y0, y1, x=0.0, z=0.0, segments=10):
@@ -127,22 +130,24 @@ def stop_face(size=256):
 
 
 def stop_back(size=256):
-    """The back of a stop plate: bare galvanised steel in the same octagon (same alpha
-    cut-out as the face), a darker rim and the bracket strap where it meets the post."""
+    """The back of a stop plate: painted dark grey steel in the same octagon (same alpha
+    cut-out as the face), a darker rim, the bracket strap where it meets the post and its
+    bolts. (Defect pm17-wil-third-sign-panel-blank-white-slab: the light galvanised grey,
+    150, read as a blank white slab in the sun.)"""
     im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     c = size / 2; r = size * 0.48
     oct_pts = [(c + r * math.cos(math.radians(22.5 + 45 * i)), c + r * math.sin(math.radians(22.5 + 45 * i))) for i in range(8)]
-    d.polygon(oct_pts, fill=(150, 154, 158, 255), outline=(104, 108, 112, 255), width=max(2, size // 40))
+    d.polygon(oct_pts, fill=(62, 65, 70, 255), outline=(120, 124, 130, 255), width=max(3, size // 32))   # a brighter rolled rim
     rng = np.random.default_rng(3)
     a = np.array(im, np.float32)
-    a[..., :3] += rng.uniform(-7, 7, (size, size, 1)) * (a[..., 3:4] > 0)
+    a[..., :3] += rng.uniform(-4, 4, (size, size, 1)) * (a[..., 3:4] > 0)
     im = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGBA")
     d = ImageDraw.Draw(im)
-    s = size // 22
-    d.rectangle((c - s, c - r * 0.85, c + s, c + r * 0.85), fill=(96, 100, 104, 255))   # bracket strap
+    s = size // 18
+    d.rectangle((c - s, c - r * 0.85, c + s, c + r * 0.85), fill=(40, 42, 46, 255))   # bracket strap
     for y in (c - r * 0.6, c + r * 0.6):
-        d.ellipse((c - s * 0.8, y - s * 0.8, c + s * 0.8, y + s * 0.8), fill=(70, 72, 76, 255))   # bolts
+        d.ellipse((c - s * 0.7, y - s * 0.7, c + s * 0.7, y + s * 0.7), fill=(118, 120, 124, 255))   # bolt heads
     return im
 
 
@@ -179,17 +184,32 @@ def meter_face(size=128):
     return im
 
 
-def mail_face(size=(192, 256)):
-    im = noisy((34, 74, 146), size=256, amount=2).resize(size)   # the body's matt blue
+def paint(rgb, size=64):
+    """Painted steel: the colour with a faint large-scale mottle, no per-pixel speckle."""
+    rng = np.random.default_rng(7)
+    low = rng.uniform(-1, 1, (4, 4)).astype(np.float32)
+    mottle = np.array(Image.fromarray(((low + 1) * 127.5).astype(np.uint8)).resize((size, size), Image.BICUBIC), np.float32) / 127.5 - 1
+    base = np.array(rgb, np.float32)[None, None, :] * (1.0 + 0.04 * mottle[:, :, None])
+    a = np.full((size, size, 1), 255, np.float32)
+    return Image.fromarray(np.clip(np.concatenate([base, a], 2), 0, 255).astype(np.uint8), "RGBA")
+
+
+def mail_face(size=(240, 256)):
+    """The collection box's front door: the body's paint, a dark door seam inset from the edge,
+    the MAIL stencil with a round emblem above it and a lock plate at the bottom."""
+    im = paint((30, 66, 138), size=256).resize(size)
     d = ImageDraw.Draw(im)
-    f = font(size[0] // 4)
+    W, H = size
+    white, seam = (236, 238, 242, 255), (14, 26, 52, 255)
+    d.rectangle((W * 0.06, H * 0.05, W * 0.94, H * 0.95), outline=seam, width=max(2, W // 80))
+    f = font(W // 5)
     tw = d.textlength("MAIL", font=f)
-    d.text((size[0] / 2 - tw / 2, size[1] * 0.40), "MAIL", font=f, fill=(240, 240, 245, 255))
-    # a white stencilled eagle-ish emblem above the word: a circle and a bar
-    cx, cy, r = size[0] / 2, size[1] * 0.22, size[0] * 0.13
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(240, 240, 245, 255), width=max(2, size[0] // 48))
-    d.rectangle((cx - r * 0.7, cy - r * 0.15, cx + r * 0.7, cy + r * 0.15), fill=(240, 240, 245, 255))
-    d.rectangle((size[0] * 0.15, size[1] * 0.62, size[0] * 0.85, size[1] * 0.64), fill=(240, 240, 245, 255))
+    d.text((W / 2 - tw / 2, H * 0.44), "MAIL", font=f, fill=white)
+    cx, cy, r = W / 2, H * 0.27, W * 0.11
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=white, width=max(3, W // 50))
+    d.rectangle((cx - r * 0.65, cy - r * 0.14, cx + r * 0.65, cy + r * 0.14), fill=white)
+    d.rectangle((W * 0.2, H * 0.70, W * 0.8, H * 0.715), fill=white)
+    d.rectangle((W * 0.44, H * 0.80, W * 0.56, H * 0.88), fill=(150, 156, 164, 255), outline=seam)   # the lock plate
     return im
 
 
@@ -254,7 +274,14 @@ def wood(size=128, seed=7):
 def build_sign_stop():
     p_post, p_plate, p_back = G.Part(), G.Part(), G.Part()
     post(p_post, 0.013, 0.0, 1.08)
-    plate(p_plate, 0.3, 0.3, 0.92, -0.013, back=p_back)
+    plate(p_plate, 0.3, 0.3, 0.92, -0.013, back=p_back, back_grow=0.006)
+    # The plate's edge: an octagonal band between the face and the back, so from an angle
+    # behind it the face's red rim no longer shows past the back (defect pm17).
+    r, yc, z0, z1 = 0.3 * 0.48 * 0.99, 0.92, -0.013, -0.001
+    for i in range(8):
+        a0, a1 = math.radians(22.5 + 45 * i), math.radians(22.5 + 45 * (i + 1))
+        xa, ya, xb, yb = r * math.cos(a0), yc + r * math.sin(a0), r * math.cos(a1), yc + r * math.sin(a1)
+        p_post.quad((xa, ya, z0), (xb, yb, z0), (xb, yb, z1), (xa, ya, z1))
     return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
                          # The face mirrored (see plate()); the back is plain metal.
                          ("plate", p_plate.mesh(mat(stop_face().transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "plate"))),
@@ -352,19 +379,27 @@ def build_parking_meter():
 
 
 def build_mailbox():
-    """A US-style collection box, 0.55 block (1.1 m) tall: a matt blue body with a rounded
-    top and a dark pull-down slot, standing on a solid pedestal and foot plate of its own
-    (defect pm-mailbox-prop-oversized-blue-box-on-legs: the old one stood on four detached
-    sticks and carried a noisy texture)."""
+    """A US-style collection box at the figures' scale: an adult is 0.46 block (live_geometry.cpp
+    kPedHeight, so 1 m is about 0.26 block), and the box is 1.2 m tall, 0.52 m wide: 0.305 block,
+    a little above a figure's hip. A matt blue painted-steel body with a rounded top, a dark
+    pull-down slot under it, the door seam and MAIL stencil on the front, standing on a short
+    pedestal and foot plate of its own. Front at -z (the DLL turns it away from the wall).
+    (Defect pm-mailbox-prop-oversized-blue-box-on-legs: the first one stood on four detached
+    sticks; the second, 0.55 block, was sized at 2 m a block and stood 2.2 m beside the figures.)"""
     body, base, slot, front = G.Part(), G.Part(), G.Part(), G.Part()
-    W, D, Y0, Y1 = 0.11, 0.1, 0.12, 0.44    # half width (x), half depth (z), body bottom, dome spring line
+    W, D, Y0, Y1 = 0.067, 0.064, 0.06, 0.238   # half width (x), half depth (z), body bottom, dome spring line
     G.box_part(body, -W, W, Y0, Y1, -D, D)
-    seg = 10
+    seg = 12
     for s_ in range(seg):   # the rounded top: a half cylinder along z, with end caps
         a0, a1 = math.pi * s_ / seg, math.pi * (s_ + 1) / seg
         xa, ya = -W * math.cos(a0), Y1 + W * math.sin(a0)
         xb, yb = -W * math.cos(a1), Y1 + W * math.sin(a1)
-        body.quad((xa, ya, D), (xb, yb, D), (xb, yb, -D), (xa, ya, -D), (0, 0), (0, 1), (1, 1), (1, 0))
+        k = len(body.v)
+        for q in ((xa, ya, D), (xb, yb, D), (xb, yb, -D), (xa, ya, -D)):   # smooth normals on the dome
+            body.v.append(np.array(q, np.float32))
+            body.n.append(np.array((q[0] / W, (q[1] - Y1) / W, 0.0), np.float32))
+        body.uv += [(0, 0), (0, 1), (1, 1), (1, 0)]
+        body.f += [[k, k + 1, k + 2], [k, k + 2, k + 3]]
         for z, sgn in ((D, 1), (-D, -1)):
             k = len(body.v)
             pts = [(0.0, Y1, z), (xa, ya, z), (xb, yb, z)] if sgn > 0 else [(0.0, Y1, z), (xb, yb, z), (xa, ya, z)]
@@ -373,17 +408,17 @@ def build_mailbox():
             body.uv += [(0.5, 0.5)] * 3
             body.f += [[k, k + 1, k + 2]]
     # the pedestal the body sits on (meets it at Y0) and the foot plate under it
-    G.box_part(base, -0.075, 0.075, 0.025, Y0, -0.065, 0.065)
-    G.box_part(base, -0.1, 0.1, 0.0, 0.025, -0.09, 0.09)
-    # the pull-down slot handle across the front, under the dome
-    G.box_part(slot, -0.075, 0.075, 0.385, 0.425, -D - 0.012, -D)
-    plate(front, 0.17, 0.2, 0.25, -D - 0.002, thick=0.0)
-    blue = (34, 74, 146)
-    return G.scene_with([("body", body.mesh(mat(noisy(blue, amount=2), 0.15, 0.75, "body"))),
+    G.box_part(base, -0.048, 0.048, 0.012, Y0, -0.044, 0.044)
+    G.box_part(base, -0.062, 0.062, 0.0, 0.012, -0.058, 0.058)
+    # the pull-down slot: a dark lip proud of the front, under the dome
+    G.box_part(slot, -0.046, 0.046, 0.206, 0.224, -D - 0.008, -D)
+    plate(front, 2 * W - 0.008, Y1 - Y0 - 0.044, 0.5 * (Y0 + Y1) - 0.012, -D - 0.0015, thick=0.0)
+    blue = (30, 66, 138)
+    return G.scene_with([("body", body.mesh(mat(paint(blue), 0.35, 0.55, "steel"))),
                          ("base", base.mesh(mat(noisy(DARK, amount=3), 0.5, 0.6, "base"))),
-                         ("slot", slot.mesh(mat(noisy((52, 60, 72), amount=2), 0.6, 0.4, "slot"))),
+                         ("slot", slot.mesh(mat(noisy((40, 46, 56), amount=2), 0.6, 0.4, "slot"))),
                          ("front", front.mesh(mat(mail_face().transpose(Image.FLIP_LEFT_RIGHT),   # plate() front: mirrored picture reads right
-                     0.15, 0.75, "front")))])
+                     0.35, 0.55, "front")))])
 
 
 def build_container(rgb, seed):
