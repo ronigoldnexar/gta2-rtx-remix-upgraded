@@ -227,6 +227,71 @@ inner-wing faces can still show past the dash on some generated models (model 46
 With a forced model on a long footprint (the Schmidt on the van) the eye can sit high
 enough that the short bonnet falls out of view. That case comes only from the devtools key.
 
+## The cab from the driver's seat, per vehicle class (9 Nov 2026, QB-31)
+
+Quality-bar row 31: in first person the van's cab was a dark featureless slab across the
+bottom of the view and the truck showed a small green nub for a hood. The slab was QB-5's
+dashboard (`DrawDash`): one flat panel in a darker shade of the paint, from the hood copy's
+cut back toward the eye. The new `dll/src/cab_interior.cpp` draws a cab in its place,
+in the car's own frame around the eye, untextured and lit by the scene's lights:
+
+- **Dashboard**: a shaped top (from the windscreen's foot up to a crest, back to a rolled
+  edge toward the driver) with dark defroster slots along the glass.
+- **Instrument binnacle** in front of the driver: a plate tilted up toward the eye with
+  2 gauges (car, van) or 3 (truck, bus), a visor over its far half. The speedometer
+  needle follows the car's speed (`VehicleFeel::speed`), the rev needle rises with it,
+  and the faces glow at night (`g_lampDark`). The eye looks down on the dash at about 25 to
+  35 degrees, so gauges under an overhanging cowl were hidden (run `qa_qb31b`). The plate
+  now faces the eye.
+- **Steering wheel**: a rim (torus), three spokes and a hub. The top of the rim sits just
+  over the dash's rear edge, at the bottom of the view. It turns with the front wheels
+  (6 x `VehicleFeel::steer`, clamped to 2.6 rad).
+- **Windscreen header** across the top of the view, with a **rear-view mirror** under it
+  toward the middle of the car, the **near A-pillar** at the edge of the view, and the
+  **door mirror** on an arm beyond it.
+- **Per class** (`CabClassFor`: a table of CARI numbers, and any flat-fronted body from
+  `CabShapeFor` counts as a bus):
+
+| class | models (examples) | dash | wheel radius / rake | gauges | door mirror |
+|---|---|---|---|---|---|
+| car | everything else | dark vinyl, a touch of the paint | 0.019 / 25 deg | 2 | small |
+| van | 3, 4, 22-27, 30, 34, 35, 38, 41, 52, 67, 68, 85 | grey plastic | 0.021 / 38 deg | 2 | medium |
+| truck | 7, 17, 21, 54, 55, 58, 63-66, 69 | brown-black | 0.025 / 55 deg | 3 | tall west-coast |
+| bus | 6, 11, 59-61, 86; flat fronts | grey-green | 0.028 / 62 deg, almost flat | 3 | tall |
+
+Sizes are in blocks around the eye. The dash stands 0.10 ahead of the eye, so they are
+roughly a tenth of the real size in metres: the parts keep the angles they have in a real
+cab.
+
+- The dash line is the hood copy's (`HoodCopy::dashTop`), but never more than 0.047 under
+  the eye. On bodies whose bonnet falls away from the cut (the van 68) or where the eye sits
+  high over the bonnet (the Schmidt, QB-5's `BonnetTopFor`), the dash otherwise dropped out
+  of the view and the road showed where it should be (runs `qa_qb31b`, `qa_qb31c`). Every
+  class now frames the same way. When the copy keeps nothing just ahead of the cut, the cab
+  is still drawn, at the body's width.
+- **Flat fronts** (class bus): the hood copy is not drawn. From the seat it was only the
+  front panel under the windscreen, a dark slab past the dashboard.
+- The plain renderer clips the own car a hand under the eye (user clip plane). The cab is
+  drawn with that plane off, because the header and mirrors sit above it, and the state is
+  restored afterwards.
+- `[devtools] cab_interior=0` falls back to QB-5's plain dashboard, for before/after frames.
+  It is re-read once a second and documented in `package/gta2dx9.ini`.
+
+Checks: `gamerun/qa_qb31.py` (workspace). It enters the scene car in first person, draws the
+player's car as each model in `QB31_MODELS` (`force_own_car_model`) and takes a frame of each.
+Models in `QB31_BEFORE` get a second frame with `cab_interior=0`. Models in `QB31_DRIVE`
+get a frame while steering and accelerating.
+
+Verified on the plain renderer (L4 GPU container, 1280x720), run `qa_qb31d`, with the
+scene car drawn as the Minx 13 (while steering), the Schmidt 36, the van 68, the G4 bank van 4,
+the truck cab 63, the garbage truck 21, the bus 11 and the GT-A1 19. Every frame shows the
+dash, the gauges, the top of the wheel, the header, the rear-view mirror and the near pillar.
+The wheel turns and the speedometer needle rises in the steering frames, and no `FAULT`
+appears in the log. Before/after: the van 68 and the truck 63 with `cab_interior=0`.
+Earlier runs (`qa_qb31a` to `qa_qb31c`) are the iterations described above.
+Untested: RTX Remix (the cab is drawn the same way as `DrawDash`: untextured, lit, fixed
+function), the lit gauges at night, and wreck models (no cab at 72+).
+
 ## Clean albedo pass (8 Nov 2026, CAR-QUALITY-4)
 
 The user saw the cars as "completely worn out" and the police car with "lighting
