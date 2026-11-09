@@ -85,8 +85,19 @@ void Poll() {
 }
 
 void ProvideLights(std::vector<gta2::VisualLight>* out) {
+    // debug=32: one sample of the list per 20 s while the pass runs (the lamp-pool tuning read it).
+    static DWORD lastDump = 0;
+    const DWORD nowTick = GetTickCount();
+    const bool dump = gta2::VisualsConfig().debug == 32 && nowTick - lastDump > 20000u;
+    if (dump) lastDump = nowTick;
+    int dumped = 0;
     for (const RemixTrackedLight& t : LightsTracked()) {
         const RemixLightDesc& d = t.def;
+        if (dump && dumped < 8 && (d.source == kLightSourceGame || dumped < 3)) {
+            ++dumped;
+            Log("visuals: light src %d at %.2f %.2f %.2f r %.2f i %.2f rgb %.2f %.2f %.2f spot %d", d.source, d.pos[0], d.pos[1],
+                d.pos[2], d.radius, d.intensity, d.rgb[0], d.rgb[1], d.rgb[2], d.spot ? 1 : 0);
+        }
         if (d.intensity < 0.02f || d.radius <= 0.0f) continue;
         // Short-lived sparks and bullets would flicker; flames and muzzle flashes stay.
         if (d.source == kLightSourceBullet || d.source == kLightSourceSpark || d.source == kLightSourceCigarette) continue;
@@ -102,8 +113,22 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         l.coneDeg = d.coneAngleDeg;
         // Headlamp beams reach down the road, softer: at x0.6 a beam read as a blown yellow-white
         // bar on the asphalt at night (out/vp2_look, tier_night_high).
-        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity *= 0.3f; }
+        // Head lamps and sirens carry Remix radiances (10, synthetic_lights.cpp): 0.12 + 0.25 * 10
+        // times 0.3 still left two overlapping beams a blown white-yellow pool across the road at
+        // night (QB-35, out/qb35_look1 t_w_third_night_clear). A beam is now 0.22 at most.
+        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity = 0.22f * (d.intensity < 4.0f ? d.intensity / 4.0f : 1.0f); }
         out->push_back(l);
+        // A pool under each of the map's lamps (QB-35): a GTA2 lamp sits 1.5-3 blocks over the
+        // street, and with the soft falloff above only ~3 % of it reached the pavement, so the
+        // night had no lamp pools. A second, shorter light a block under the lamp head lays a
+        // pool on the ground and the foot of the walls beside it.
+        if (d.source == kLightSourceGame && !l.spot && d.radius >= 2.5f) {
+            gta2::VisualLight pool = l;
+            pool.pos[1] -= 1.0f;
+            pool.radius = 3.6f;
+            pool.intensity = 0.30f * (d.intensity < 1.5f ? d.intensity : 1.5f);
+            out->push_back(pool);
+        }
     }
 }
 

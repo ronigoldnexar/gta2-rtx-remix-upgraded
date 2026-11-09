@@ -439,6 +439,7 @@ Renderer::~Renderer() { Shutdown(); }
 
 void Renderer::Shutdown() {
     post_.Release();
+    weather_.Release();
     ReleaseResources();
     batches_.clear();
     if (device_) {
@@ -601,6 +602,7 @@ bool Renderer::Initialize(HWND window, int width, int height, std::string* error
     Trace("device created on attempt %d", deviceAttempts_);
     remixDevice_ = g_remixD3D9;
     post_.Init(device_, width_, height_, remixDevice_);
+    weather_.Init(device_, remixDevice_);
     SetSkyRemix(remixDevice_);
     return true;
 }
@@ -1262,21 +1264,34 @@ void Renderer::DrawSky(const Camera& camera, const SkySettings& settings, const 
                        double seconds) {
     if (!device_ || !vertexBuffer_ || blend <= 0.0f) return;
     sky_.SetHdr(post_.Active());
-    sky_.Draw(device_, camera, static_cast<float>(width_) / static_cast<float>(height_), settings, colours, blend,
+    // Weather (weather_fx.h): an overcast or foggy sky; the camera for the rain.
+    SkySettings skySettings = settings;
+    SkyColours skyColours = colours;
+    WeatherAdjustSky(&skyColours, &skySettings);
+    weather_.SetCamera(camera.ViewMatrix(), camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)), camera.Position());
+    sky_.Draw(device_, camera, static_cast<float>(width_) / static_cast<float>(height_), skySettings, skyColours, blend,
               seconds);
-    if (post_.Active()) post_.SetSky(colours.zenith, colours.horizon, colours.day);
+    if (post_.Active()) post_.SetSky(skyColours.zenith, skyColours.horizon, skyColours.day);
     stats_.drawCalls += 3;
 }
 
 // The street views' light, and with [visuals] on the post's targets for the frame.
-void Renderer::SetWorldShading(const WorldShading& shading) {
+void Renderer::SetWorldShading(const WorldShading& incoming) {
+    // Weather (weather_fx.h) on the street views' light; the post's transition weight
+    // below is still read from the fog as the view set it.
+    WeatherPoll();
+    WorldShading shading = incoming;
+    if (!remixDevice_ && incoming.fog) {
+        const float sf = SkyConfig().fogStart;
+        WeatherAdjustShading(&shading, std::min(1.0f, std::max(0.0f, 1.0f - (incoming.fogStart - sf) / std::max(1.0f, 600.0f - sf))));
+    }
     shading_ = shading;
     VisualsPoll();
     if (!shading.fog || !device_ || !vertexBuffer_ || !post_.Available() || !VisualsConfig().enabled) return;
     const SkySettings& sky = SkyConfig();
     // The transition's weight, from how far the fog has eased in (world_view.cpp,
     // DrawSkyAndShading: start = configured + (600 - configured) * (1 - blend)).
-    float blend = 1.0f - (shading.fogStart - sky.fogStart) / std::max(1.0f, 600.0f - sky.fogStart);
+    float blend = 1.0f - (incoming.fogStart - sky.fogStart) / std::max(1.0f, 600.0f - sky.fogStart);
     blend = std::min(1.0f, std::max(0.0f, blend));
     const VisualsSettings& v = VisualsConfig();
     // A harder sun and a softer ambient: with shadows to take the sun away again,
@@ -1301,7 +1316,11 @@ void Renderer::SetWorldShading(const WorldShading& shading) {
 
 void Renderer::EndWorldShading() {
     if (!device_) return;
-    if (post_.Active()) post_.Resolve();
+    weather_.DrawRain(shading_);
+    if (post_.Active()) {
+        post_.SetPuddles(WeatherNow().wetRoads && WeatherNow().wet > 0.01f ? weather_.Puddles() : nullptr);
+        post_.Resolve();
+    }
     device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
     device_->LightEnable(0, FALSE);
     device_->SetRenderState(D3DRS_LIGHTING, FALSE);

@@ -109,6 +109,8 @@ public:
     // The sky's colours for the hemisphere term (Renderer::DrawSky).
     void SetSky(const Vec3& zenith, const Vec3& horizon, float day);
     void StartRecording();
+    // The puddle map for the wet-road pass (weather_fx.h); not owned.
+    void SetPuddles(IDirect3DTexture9* puddles) { puddles_ = puddles; }
     // Shadows, AO, composite, lights, bloom, tonemap onto the saved back buffer.
     void Resolve();
     const PostStats& Stats() const { return stats_; }
@@ -186,6 +188,12 @@ private:
     IDirect3DTexture9* blackTex_ = nullptr;
     IDirect3DTexture9* whiteTex_ = nullptr;
     IDirect3DTexture9* maskTex_ = nullptr;  IDirect3DSurface9* maskSurf_ = nullptr;
+    // Wet roads (weather_fx.h): made on first use, while it rains.
+    IDirect3DTexture9* wetTex_ = nullptr;   IDirect3DSurface9* wetSurf_ = nullptr;
+    IDirect3DPixelShader9* psWet_ = nullptr;
+    IDirect3DTexture9* puddles_ = nullptr;
+    bool wetFailed_ = false;
+    Vec3 skyZenith_{0.35f, 0.55f, 0.85f}, skyHorizon_{0.70f, 0.78f, 0.88f};
     IDirect3DSurface9* savedTarget_ = nullptr;
     IDirect3DSurface9* savedDepth_ = nullptr;
     IDirect3DStateBlock9* stateBlock_ = nullptr;
