@@ -88,7 +88,9 @@ M = dict(
     under=Mat("chassis", "rest", (0.06, 0.06, 0.065), rough=0.7, ao=0.6),
     black=Mat("black_trim", "rest", (0.075, 0.075, 0.08), rough=0.55, ao=0.7),
     rubber=Mat("rubber_seal", "rest", (0.05, 0.05, 0.05), rough=0.8, ao=0.5),
-    grille=Mat("grille_mesh", "rest", (0.05, 0.05, 0.055), rough=0.6, shader=grille_shader, ao=0.4),
+    # VEHICLE-ART-5 (vv-013): no painted wires behind the bars (a 2 cm hard-edged stripe aliased into stair
+    # steps at the bake's texel size); the slats are geometry (gbar below), the mesh behind them plain dark.
+    grille=Mat("grille_mesh", "rest", (0.035, 0.035, 0.04), rough=0.6, ao=0.4),
     head=Mat("headlamp_lens", "rest", (0.93, 0.95, 0.97), rough=0.05, emit=(1.0, 0.95, 0.85), shader=headlamp_shader, env=0.45, ao=0.2),
     tail=Mat("taillamp_lens", "rest", (0.62, 0.05, 0.04), rough=0.1, emit=(1.0, 0.08, 0.04), ao=0.3),
     amber=Mat("marker_lamp", "rest", (0.95, 0.55, 0.10), rough=0.1, emit=(1.0, 0.55, 0.1), ao=0.3),
@@ -196,12 +198,21 @@ def build_minx():
         P.append(revolve(f"mirror{sx}", M["chrome"], [(0.0001, -0.025), (0.05, -0.015), (0.055, 0.0), (0.05, 0.006)], mc, (0, 0, -1), R=12))
         P.append(revolve(f"mirror_glass{sx}", M["mirror"], [(0.05, 0.005), (0.0001, 0.007)], mc, (0, 0, -1), R=12))
     # grille between the headlamps, bumpers, plate
-    P.append(rbox("grille_frame", M["chrome"], (-0.52, 0.48, ZF - 0.14), (0.52, 0.70, ZF - 0.05), r=0.025, R=16))
-    P.append(box("grille_mesh", M["grille"], (-0.47, 0.51, ZF - 0.10), (0.47, 0.67, ZF - 0.035)))
-    for i in range(3):
-        y = 0.545 + i * 0.045
-        P.append(box(f"gbar{i}", M["chrome"], (-0.47, y - 0.007, ZF - 0.04), (0.47, y + 0.007, ZF - 0.025)))
-    P.append(rbox("badge", M["chrome"], (-0.05, 0.56, ZF - 0.03), (0.05, 0.62, ZF - 0.012), r=0.01, R=8))
+    # VEHICLE-ART-5 (vv-013): the grille follows the nose. The nose's plan curve (zshift) pulls its sides
+    # back 5 cm at the grille's ends while the grille was flat boxes, so the prow buried their middle
+    # and the bars showed as stair-stepped wedges. Now a dark pane conformed to the nose with a chrome
+    # rim, five chrome slats and a centre bar laid on it, and the badge on the slats.
+    P += window("grille_mesh", M["grille"], M["chrome"], body, (0.0, 0.59, ZF + 0.3), (1, 0, 0), (0, 1, 0), 0.47, 0.085,
+                (0, 0, -1), n=8.0, nu=24, nv=6, offset=0.003, frame_r=0.014)
+    xs = np.linspace(-0.45, 0.45, 19)
+    for i in range(5):
+        y = 0.533 + i * 0.029
+        pts = conform(body, np.array([[x, y, ZF + 0.3] for x in xs]), (0, 0, -1), 0.010)[0]
+        P.append(tube(f"gbar{i}", M["chrome"], pts, 0.0058, R=8))
+    pts = conform(body, np.array([[0.0, y, ZF + 0.3] for y in np.linspace(0.515, 0.665, 6)]), (0, 0, -1), 0.012)[0]
+    P.append(tube("gbar_mid", M["chrome"], pts, 0.008, R=8))
+    bc = conform(body, np.array([[0.0, 0.59, ZF + 0.3]]), (0, 0, -1), 0.0)[0][0]
+    P.append(rbox("badge", M["chrome"], (-0.05, 0.56, bc[2] + 0.010), (0.05, 0.62, bc[2] + 0.024), r=0.01, R=8))
     def bumper(zc, back):
         s = -1 if back else 1
         b = body_loft("bump", M["chrome"], [
