@@ -186,6 +186,13 @@ Frame by frame (30 fps, video frame numbers of the bursts):
   the camera, reaching; 44-46 the door starts to swing toward the camera; 46-55 into the opening, ducking
   under the roof; 56-63 seated behind the open door (nothing of him through it); 64-77 the door shuts.
 
+**PLAYTEST-FEEL acceptance** (`keys_feel_probe2.sh`, `FEEL_SEGS=enter,exit`, run `aee_feel1`; the parent
+`d933eaf` on the same probe: `aee_feel0`): in the exit burst the door swings out (f14-23), he comes out of
+the seat at door height (f27-31, never at roof height), stands beside it, shoves it shut (f44-46, shut at
+f50) and nothing is left on the ground (to f98). Frame times on the same probe, this change against its
+parent: sprites 5.82 vs 6.00 ms, game 2.66 vs 2.72 ms (no cost); 0 faults in both. The seated driver seen
+through the windows while driving is a separate order, not done here.
+
 **Still not right (honest list).**
 - Hands: the outside handle trails the swinging door by 4-5 cm for ~5 frames (the eased tether), the
   armrest grab is 2-5 cm short for ~3 frames, the van's shove 2.6-3.6 cm short for 5 frames (the edge at
