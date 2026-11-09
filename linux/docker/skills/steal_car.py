@@ -296,7 +296,10 @@ def intercept(c, ids, drive):
     """a target driving away far off: a road point 14 blocks ahead of it, watched"""
     STATS["intercepts"] = STATS.get("intercepts", 0) + 1
     cell = M.street_cell_near(WORLD[0], c["x"] + c["hx"] * 14.0, c["y"] + c["hy"] * 14.0, radius=5)
-    if not cell: return D.wait_state()
+    if not cell:
+        # (sos8: 432 intercepts in a tight loop with no road cell ahead of the target): its own
+        # position instead, and a breath
+        cell = (c["x"], c["y"]); time.sleep(0.5)
     say(f"steal_car: the {model_name(c['model'])} drives away ({c['v']:.1f}); to {cell[0]:.0f},{cell[1]:.0f} ahead of it")
     def stop_when(cid=c["id"]):
         s2 = D.wait_state(); c2 = car_by_id(cid)

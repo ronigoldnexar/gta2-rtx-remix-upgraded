@@ -291,11 +291,18 @@ def play():
             P.set_view("classic"); M.scene_warp(near[0], near[1], near[2], "SOS_WARP_PHONE: to the street by the SRS phone; the job starts at the phone")
             P.set_view("third"); RESULT["events"].append(f"phone warp to {near}")
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
+    # FAKE TRUCE's phone is the next cell east (235.5,202.5) on the same pavement strip (x 233-236,
+    # row 202): along rows 203-204 from the west (pavement), stop 1.5 short at 234.5,204, nudge north
+    P.APPROACH[(entry["x"], entry["y"])] = ((229.5, 204.5), (234.5, 203.6))
     ok, key = P.answer(entry)
     say("answered:", ok, key); M.shot("sos_phone")
     poll_msgs()
     if not ok and "2957" not in SEEN and "2272" not in SEEN: return "phone not answered"
     if set(SEEN) & wrong: return f"wrong job started ({sorted(set(SEEN) & wrong)})"
+    if "2272" not in SEEN and "2957" not in SEEN:
+        # sos8: the walk ended on the neighbouring phone (235.5,202.5) and FAKE TRUCE started (its
+        # first brief 2300; its title key never showed, so the title check passed)
+        return f"wrong job started (messages {SEEN[-4:]}, not SINK OR SWIM's 2957/2272)"
     RESULT["stage"] = "phone"; ev(f"phone answered (messages {SEEN[-4:]})")
     LIVES0[0] = (M.mission_state() or {}).get("lives")
     ax, ay = M.step_off_phone(world, entry)
