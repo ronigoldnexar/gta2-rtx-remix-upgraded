@@ -1,0 +1,81 @@
+# The "advanced" path-tracing preset (REMIX-ADVANCED, 9 Nov 2026): the play preset
+# (rtx_play.conf.extra) with the integrator, sampling and denoiser raised to the highest
+# settings this runtime runs under Wine on the L4. Appended to rtx.conf with
+# RTX_EXTRA=/work/rtx_advanced.conf.extra; self-contained (repeats rtx_play.conf.extra).
+# Measured before/after and frame cost: docs/remix-materials.md, "Advanced preset".
+#
+# Wine: no DLSS/NGX, frame generation or Reflex.
+rtx.dlfg.enable = False
+rtx.isReflexEnabled = False
+rtx.dlssPreset = 0
+rtx.faultNotice.enable = False
+rtx.screenshot.hotkey = F12
+rtx.shader.blockUntilPrewarmed = False
+rtx.gpuStallTimeoutSeconds = 600
+# Quality: Custom (4), so the values below are not overwritten by a preset's own table
+# (the Auto preset reads the L4 as Turing and picks Low; play uses Medium).
+rtx.graphicsPreset = 4
+rtx.upscalerType = 3
+rtx.taauPreset = 4
+rtx.resolutionScale = 1.0
+rtx.sharpening.sharpness = 0.2
+# --- Global illumination -------------------------------------------------------------
+# The runtime's default indirect mode is the Neural Radiance Cache (2). Under Wine the NRC
+# SDK does not initialise ("Could not initialize SDK API") and the runtime silently falls
+# back to 0 = importance sampled, its noisiest reference mode: every Remix frame before this
+# preset had plain importance-sampled GI. 1 = ReSTIR GI: reservoir resampling of the
+# indirect paths, temporal + spatial reuse - the multi-bounce bounce light and glossy
+# reflections converge instead of being blurred out of noise by the denoiser.
+rtx.integrateIndirectMode = 1
+rtx.restirGI.useTemporalReuse = True
+rtx.restirGI.useSpatialReuse = True
+rtx.restirGI.useBoilingFilter = True
+rtx.restirGI.useFinalVisibility = True
+# Longer paths: up to 6 indirect bounces (default 4), the first bounce rarely cut.
+rtx.pathMinBounces = 1
+rtx.pathMaxBounces = 6
+rtx.russianRoulette1stBounceMinContinueProbability = 0.8
+# Indirect rays see emissive particles (fire, muzzle flash light the street in bounces).
+rtx.enableUnorderedEmissiveParticlesInIndirectRays = True
+# Denoise direct and indirect separately (the high-quality NRD path).
+rtx.denoiseDirectAndIndirectLightingSeparately = True
+# --- Direct lighting (RTXDI) -----------------------------------------------------------
+# ~2 000 map lamps, neon and car lamps in Downtown: more candidates per pixel and more
+# spatial reuse, so the right lamp wins and the shadows of many small lights are clean.
+rtx.di.initialSampleCount = 8
+rtx.di.spatialSamples = 4
+rtx.di.disocclusionSamples = 6
+# --- Reflections / PSR -------------------------------------------------------------------
+rtx.enablePSRR = True
+rtx.enablePSTR = True
+rtx.psrrMaxBounces = 10
+# Parallax (POM) surfaces keep their relief in reflections and in bounce light.
+rtx.displacement.enableIndirectLighting = True
+rtx.displacement.enableReSTIRGI = True
+# --- Sun: physical disc, soft penumbrae -------------------------------------------------
+# 0 = physical (half the 0.545 deg disc). The time-of-day overlays set their own value.
+rtx.atmosphere.sunShadowSoftnessDeg = 0
+# --- Volumetrics: twice the froxel resolution (lamp cones, sun shafts, neon halos) -----
+rtx.volumetrics.enable = True
+rtx.volumetrics.froxelGridResolutionScale = 4
+rtx.volumetrics.initialRISSampleCount = 48
+# --- Textures: a slightly sharper texture LOD under TAA-U (full resolution) ------------
+rtx.nativeMipBias = -0.5
+# --- Post (as play) --------------------------------------------------------------------
+rtx.autoExposure.maxExposure = 2.5
+rtx.autoExposure.darkAdaptTau = 2.5
+rtx.autoExposure.lightAdaptTau = 0.8
+rtx.bloom.enable = True
+rtx.bloom.steps = 6
+rtx.bloom.luminanceThreshold = 0.9
+rtx.bloom.burnIntensity = 0.55
+rtx.fireflyFilteringLuminanceThreshold = 400
+rtx.postfx.enableMotionBlur = False
+rtx.postfx.enableChromaticAberration = False
+rtx.postfx.enableVignette = False
+rtx.legacyMaterial.roughnessConstant = 0.75
+rtx.legacyMaterial.metallicConstant = 0.05
+rtx.ignoreGameDirectionalLights = True
+rtx.fallbackLightMode = 0
+rtx.atmosphere.surfaceMoonBrightness = 3
+rtx.atmosphere.nightSkyBrightness = 0.008

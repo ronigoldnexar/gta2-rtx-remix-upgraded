@@ -482,6 +482,108 @@ preset at night. Env: `SHOW_SPOTS`, `SHOW_TODS`, `SHOW_HOURS`, `SHOW_CARS`, `SHO
 `SHOW_PROBE`. The take ends well before the session does. Once the `end remix showcase2` mark appears, stop the
 recorder inside the container (`pkill -INT -f x11grab`) and copy `gta2dx9.log` out; that frees the GPU early.
 
+## Advanced preset: ReSTIR GI, longer paths, sharper sampling (REMIX-ADVANCED, 9 Nov 2026)
+
+**The finding.** The runtime's default indirect integrator (`rtx.integrateIndirectMode = 2`, the Neural
+Radiance Cache) does not start under Wine: `remix-dxvk.log` has `[RTX Neural Radiance Cache] Could not
+initialize SDK API ... Switching to importance sampled indirect illumination mode`, then `Integrate Indirect
+Mode: Importance Sampled - activated` about 9 s after `Neural Radiance Cache - activated` (seen in
+`rshow_wil` and again in `radv_before`). Importance sampled is the runtime's *reference* mode, "not
+recommended for general use as it provides the noisiest output" (RtxOptions.md). So **every Remix frame
+before this pass had the noisiest GI the runtime has**, and the denoiser smeared it: the play and showcase
+presets never set the integrator. `rtx.graphicsPreset` 2 (Medium) does not change that.
+
+**The preset** (`linux/docker/rtx_advanced.conf.extra`, self-contained like `rtx_play.conf.extra`; copy to
+`gamerun/` and start with `RTX_EXTRA=/work/rtx_advanced.conf.extra`):
+
+| option | play | advanced | why |
+|---|---|---|---|
+| rtx.graphicsPreset | 2 Medium | 4 Custom | the values below are not overwritten by a preset table |
+| rtx.integrateIndirectMode | (2 NRC -> falls back to 0) | **1 ReSTIR GI** | reservoir reuse of indirect paths, temporal + spatial |
+| rtx.pathMaxBounces / pathMinBounces | 4 / 1 (defaults) | 6 / 1 | longer bounce light in streets and under arcades |
+| rtx.russianRoulette1stBounceMinContinueProbability | 0.6 | 0.8 | the first bounce is rarely cut |
+| rtx.di.initialSampleCount / spatialSamples / disocclusionSamples | 4 / 2 / 4 | 8 / 4 / 6 | ~2 000 map lamps + neon + car lamps: the right light wins per pixel |
+| rtx.denoiseDirectAndIndirectLightingSeparately | (default True) | True (explicit) | high-quality NRD path |
+| rtx.enableUnorderedEmissiveParticlesInIndirectRays | False | True | fire and flashes light the street in bounces |
+| rtx.displacement.enableIndirectLighting / enableReSTIRGI | default | True (explicit) | parallax relief kept in bounce light |
+| rtx.volumetrics.froxelGridResolutionScale / initialRISSampleCount | 8 / 32 | 4 / 48 | twice the froxel resolution: lamp cones, sun shafts, neon halos |
+| rtx.atmosphere.sunShadowSoftnessDeg | 0 | 0 (physical disc; the time-of-day overlays set their own) | |
+| rtx.nativeMipBias | 0 | -0.5 | slightly sharper textures under TAA-U at full resolution |
+| post (exposure, bloom, no blur/CA/vignette, materials, lights) | | as play | |
+
+**Before/after at matched spots** (two sessions on GPU 0, the same take `linux/docker/remix_adv.py` with
+`keys_remix_adv.sh`, launcher `remix_adv_launch.sh`; Downtown, start 12:30 paused, the five time-of-day
+overlays pushed live, spawn / plaza 198.5,188.5 / street 171,123, first person and chase view; frames by mark
+name from `game.mp4`; stage `stage_remixadv` = hard-link copy of `repo/stage` (DLL of 8 Nov 18:53), so both
+sessions ran the same DLL and only the start preset differs). Sessions `out/radv_before` (play preset) and
+`out/radv_after` (advanced); paired sheets `out/radv_ab/ab_<hour>.png` and the 1:1 crop
+`out/radv_ab/crop_wet_plaza.png` (local, not in git: game art).
+
+* **Seen better with the advanced preset:** the wet plaza (chase view, nearly the same camera): the paving keeps
+  its parallax relief and separate lamp glints on each wet flagstone, the van's tail lamps reflect as defined
+  red streaks and its tyres read; with the play preset the same surface is a smeared, blurred sheen (the
+  denoiser averaging importance-sampled noise). At night the street lamp pool on the road (street spot) and the
+  facade facing the plaza read with soft bounce light. Red neon at the spawn spills less flatly over the stairs.
+* **Not matched well:** the warp leaves the player's heading as the previous spot left it, so several pairs
+  (noon plaza first person, noon start) look in different directions; only the wet/night plaza chase views and
+  the night start first-person view are near-identical cameras. A heading-locked warp would fix the take.
+* **Not judged:** noon. The after session's first noon block came out sunless (below: a separate bug, not the
+  preset); its later noon frames at the plaza (`gi_after_noon_*`) have full sun and hard shadows.
+* The live switch of `rtx.integrateIndirectMode` (pushed through `[devtools] remix_config`) is accepted
+  ("(set)") but the runtime logs no new "Integrate Indirect Mode" line, and the camera drifted between the
+  captures, so the in-session A/B (`gi_*` frames) proves nothing: set the integrator at start.
+
+**Frame cost** (`GTA2DX9_FRAME_LOG`, 20 s still + 10 s turning in the chase view at the plaza, cost = frame
+minus the 30 fps cap's wait; `linux/docker/remix_adv_frametimes.py out/radv_before out/radv_after`). GPU 0 was
+shared with other agents' GL game containers and, in parts, another Remix session, so the numbers carry a few
+ms of noise either way:
+
+| window | play p50 / p90 / p99 ms | advanced p50 / p90 / p99 ms |
+|---|---|---|
+| noon, still | 46.8 / 73.6 / 109.0 | 49.2 / 70.7 / 91.1 |
+| noon, turning | 48.0 / 74.1 / 106.6 | 45.2 / 61.4 / 78.9 |
+| night, still | 47.0 / 72.8 / 110.2 | 58.5 / 76.8 / 92.3 |
+| night, turning | 45.2 / 63.8 / 85.7 | 61.6 / 77.5 / 87.4 |
+
+By day the cost is the same within the noise; at night (many lights, ReSTIR GI reusing them) the median is
+about 12-16 ms higher (~17 fps against ~21), the tail no worse. Both are GPU bound: the CPU waits in Present by
+day and in the pedestrian draw at night (the first stall point after the frame is queued), not in our code
+(game 1.1 ms, world 0.4 ms). On the L4 neither preset holds 30 fps at 1280x720; the advanced preset is the
+better picture at the same frame rate by day and ~20 % slower at night. Recommendation: advanced for
+showcase captures and stills now; for play, keep the play preset until a free-GPU measurement, but add
+`rtx.integrateIndirectMode = 1` to it (the GI fix alone is the largest part of the quality gain; its cost was
+not measured separately).
+
+**Sunless daytime: still open, two causes ruled out.** REMIX-SHOWCASE's flat, shadowless noon frames
+appear in these sessions too, intermittently, with the same DLL and either preset: the after session's
+whole first noon block (09:34-09:35) is lit by the sky alone, the same spot 5 minutes later
+(`gi_after_noon_*`) has full sun; the before session's warm-up noon frames `warm_5/10_noon` are flat, its
+take frames sunny. Two hypotheses were tested and **refuted**:
+
+1. *The sun push made at the front end is lost at the level load* (with `Paused=1` the angle never moves
+   again). The time-of-day push happens before the level in every run (`time of day: driving ...` before
+   `remix lights: district`), sunny ones included, and `radv_after` shows full sun after 180 s at 12:30
+   with no clock change.
+2. *A clock jump from night straight to day drops the sun.* The jump test (`ADV_JUMP=1`: 22:30 -> 13:00
+   three times at the plaza, frames 4 s and 10 s later) with the stock DLL (`out/radv_jump_old`) has sun
+   within 4 s after both real jumps; a DLL that re-pushes the angle every 2 s with a 0.01 deg dither
+   (`out/radv_jump_fix`) is no better (sunless start and first jump, sun from the second). The change was
+   not committed.
+
+What the flat frames share: they come in the first minutes of a session (shader permutations or the
+light tables may still be building, the runtime's "Compiling shaders" box is not always on screen) or right
+after a long live push of overlay options. Next step: log `rtx.atmosphere.sunElevation` as the runtime
+reports it (devtools read-back) next to the frame, and run a 10-minute still at 13:00 to see whether the
+sun appears by itself. Side finding: the take's `set_hour_tenths` writes 1.2 s apart are sometimes merged
+by the devtools ini reader (the 13.2 "nudge" and one 22.5 never reached the clock: `devtools: clock set to`
+lines), so a take must wait about 2 s between clock writes.
+
+**Not done / still open:** a free-GPU frame-cost measurement; the play preset with only
+`integrateIndirectMode = 1` (cost of the GI fix alone); a heading-locked warp for exact camera matches;
+the taxi chequer-as-chrome material (`tools/remix_model_pbr.py` `car_trim_maps`: the chequer bands are
+bright, neutral, busy and fill < 60 % of their window, so they pass the chrome test; a structure-tensor
+isotropy test caught only part of them offline, not shipped); 1440p capture.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every
