@@ -703,3 +703,58 @@ and `docs/skill-truck-trailer.md`.
   no job (da2). zh2 looks reachable only by passing zh1. The truck runner moves to OPERATION Z (the
   yellow phone's first job, four cars into the Village garage, the fourth a Cop Car brought on a
   transporter and lifted off by the crane), written but not yet run.
+
+## LABRAT'S PLAN and REDNECK ATTACK, 9 Nov 2026 (MISSIONS-BATCH1, `mb1_*`): not complete yet
+
+Wave M, MISSIONS-BATCH1. Jobs: `ste_sm1` LABRAT'S PLAN (kill 47 Zaibatsu in The Village; the gunfight
+skill) and its follow-up `ste_sm3` REDNECK ATTACK (hold three generators for 120 s), which a fresh
+session can only get after LABRAT'S PLAN on the same phone. Runners: `gamerun/missions/labrats_plan.py`
+and `gamerun/missions/redneck_attack.py` (it plays LABRAT'S PLAN first, then answers the phone again).
+Copies are in `linux/docker/missions/`. SCIENCE FRICTION was claimed at the same minute by MISSIONS-BATCH3,
+which also edits `science_friction.py`, so I left it to them. I dropped ARMORED CAR CLASH (`wil_zh1`):
+its two Miuras are `SET_CAR_BULLETPROOF/ROCKETPROOF/FLAMEPROOF`, so the destroy skill's gun can't
+touch them.
+
+**Result so far: 0 JOB COMPLETE in 11 sessions.** LABRAT'S PLAN is started in every session since
+`mb1_ra4`. The fight in The Village reaches about 30 kills before Zaibatsu return fire kills the player.
+REDNECK ATTACK has never been reached.
+
+What the script wants (`assets-src/missions/ste_m/ste_sm1.mis`): yellow phone 206.5,227.5 (the
+GRAN'PA phone is one block south). Brief 2351 and an arrow to The Village. In zone `m18` (from the
+`ste.gmp` zone table: x 162-255, y 0-57, the raised level-2 quarter) it starts
+`START_BONUS_CHECK(m18, no limit, 47, CHAR, BY_ANY_WEAPON, zaibgang)` (brief 2353). At 30, 20 and 10
+left, a hitman comes in a VTYPE. Passed: 2999.
+
+Developer aids, each written to `marks.txt`:
+- SRS Scientists respect is set to 60 with `skills/gang_respect.exe`, because the yellow phone needs 2
+  bars. It is applied only after the gang table is live and read back: `mb1_ra3` set it before the level
+  filled the table, and the phone refused (2791).
+- `LP_WARP_PHONE=1` warps to the road north of the phone. The 140-block trip from the district start
+  cost 14 minutes in `mb1_lp1`.
+- `LP_WARP_VILLAGE=1` warps to The Village road, but only after two honest drives fail.
+
+| Session | Furthest point | What ended it, and the fix |
+|---|---|---|
+| `mb1_lp1` | job started (2959/2351) | The router's way north ran along column 250, and the car fell into the water channel at 249.5,82.8 (lives 5 to 4 at health 100). Fix: the only ramp up is rows 58-59 (slope x 232-239), so the runner now drives explicit legs and keeps that strip off the car router. |
+| `mb1_ra1` | Village, 3 kills | 100 rounds gave 3 kills, and the refill pickup at 229.5,68.5 can't be reached. Fix: run-over rounds (`mission_lib.run_over`, remap 8), plus the Village machine-gun generator at 221.5,34.5 (respawns every 1800 frames). |
+| `mb1_ra2` | not in Village | The borrowed car burned at 183,178, and the runner logged "in The Village" without checking. Fix: it now checks the zone and retries. |
+| `mb1_ra3` | phone refused | Respect was set too early (see above). |
+| `mb1_ra4` | not in Village | Two cars burned, then the walk to the ramp climbed a roof (z 8) and he fell. Fix: no on-foot fallback. Two of the legs were off-road (south of row 24 the Village road is x 233-234). |
+| `mb1_ra5` | phone not reached | The warp spot east of the phone is walled off from its field (column 208 and row 220). Fix: warp to the road north of the phone and walk straight south. |
+| `mb1_ra6` | Village, no gun and no car | `any_car2` waits for traffic that doesn't come on the raised level. Fix: the Village generator and empty-car boarding. |
+| `mb1_ra7` | Village, 7 kills | Honest drive. The gunfight skill's jump check ("moved 20 blocks at once") read its own walk to the gun generator as an arrest, with lives still at 5. The runner now trusts the job's own state over that check. |
+| `mb1_ra8` | Village, about 45 skill "down" lines | Zaibatsu return fire: health 100 to 0 in 3 s at close range. |
+| `mb1_ra9` | Village, 14 | Beaten at 0.3 blocks. The fight now keeps 5 blocks off, and the car comes first. |
+| `mb1_ra10` | Village, about 30 | The car was shot to burning within seconds of the first run-over, then the fight on foot was lost at 1.7 blocks (health 10). |
+
+Notes for other runners:
+- Zaibatsu turn hostile as their respect drops, and they fire from inside VTYPEs and on foot in groups.
+  On-foot fights in a crowd lose to that at the current gunfight settings.
+- The skill's "down" count is higher than the game's count, because not every Zaibatsu-gang ped counts
+  for the bonus.
+- The gunfight skill's jump check (`skills/gunfight.py`, "moved N blocks at once") fires on the skill's
+  own refill walk to a pickup that `M.GUN_PICKUPS` sends it to. That is for the skill's owner to look at;
+  my runner works around it.
+
+Frames: the fight in the chase view is in `out/mb1_ra1/m_gf_lp1_firing.png`, `out/mb1_ra8/m_gf_lp6_firing.png`
+and `out/mb1_ra10/m_m_lp_round*.png` (not in git).
