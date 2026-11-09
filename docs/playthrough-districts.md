@@ -658,6 +658,15 @@ a re-route, the stall and press back-offs and the gridlock back-away are blind h
 
 ## SINK OR SWIM, 9 Nov 2026 (SKILL-STEALCAR, `sos*`): the steal-a-given-model skill
 
+**Status: JOB COMPLETE in sos9 and sos10** (two consecutive sessions on the final runner; of the
+last three, sos8 started the neighbouring phone's job, fixed before sos9): **2 of 3**. The skill took
+the job's taxi in 6 of the 10 sessions (sos3, 4, 6, 8, 9, 10; 137-624 s), with one Return each time
+since the door rule (sos3 on). Reproduce (from the workspace, plain renderer):
+
+    SWAP_LEVEL=ste GTA2_SPEED=2 GTA2_DIRECT_KEYS=1 FPS=0 INI_SED='s/^scene_key=.*/scene_key=F11/' \
+      gamerun/grun.sh sosN 2700 missions/keys_sink_or_swim.sh -e GTA2DX9_STATE_EVERY=5 -e DISTRICT=ste \
+      -e WARP_OK=0 -e SOS_WARP_PHONE=1 -e GTA2DX9_SCENE_NO_CAR=1 -e SOS_DRIVER=calm
+
 **Skill module:** `gamerun/skills/steal_car.py` (mirrored in `linux/docker/skills/`), for the 26
 `steal_model` jobs of `docs/missions-catalogue.md`. **Proof job:** SINK OR SWIM! (`ste_se1`, the SRS
 Scientists' green phone 234.5,202.5 in file `ste`), runner `gamerun/missions/sink_or_swim.py`, keys
@@ -718,3 +727,4 @@ played from there. This is a dev shortcut for the approach only, reported as suc
 | sos7 | no taxi yet after 7 min (two seen moving away; the unreachable parked car again, now listed as bad) | - | **died** in a carrier stopped under the railway at 254,187 while touring the ring east of the phone (the frame before: the carrier on the crossing; then the respawn and JOB FAILED, "How pathetic"). The tour is now west and north of the phone only |
 | sos8 | **yes, 356 s** (one Return; `intercepts` spun 432 times with no road cell ahead of the target: fixed) | - | the wrong job: the walk to the phone ended on FAKE TRUCE's phone one cell east (235.5,202.5) and its brief 2300 ("collect the old Factory Bus") was up; the title check passed because FAKE TRUCE's title never showed. Stopped; the runner now approaches along rows 203-204 from the west, stops 1.5 short at 234.5,204 and nudges north, and requires SINK OR SWIM's own 2957/2272 |
 | **sos9** | **yes, 533 s**: followed a standing taxi 20 blocks off, out of the carrier 2.2 from it, one Return | operatives 1-4 aboard with the tuned runner (cap 1.6, the op-2 ramp-top stop and 2.7-block back-out): 32000 -> 29967 -> 26772 -> 26099 -> 20814; two parked ambulances at the hospital (34, counted as police by calm_drive) held the leg-4 start for 3 minutes (fixed: for this job only the police's own models count); the crane leg (231 blocks) to 19723; crept into the 3 x 3 box (196.3,246.5), out | **JOB COMPLETE**: 2287 "get out", the crane dropped the taxi, 2288 "Efficient and effective work ... $30,000" and 2999 within 7 s; money 1000 -> 31707, multiplier x2. Frames `out/sos9/m_sos_taxi.png` ... `m_sos_op4_aboard.png`, `m_sos_cranebox.png`, `shot_1430.png` (the 2288 brief), `m_sos_end.png`, all in the chase view |
+| **sos10** | **yes, 624 s**: two ambushes, one wrong entry caught and left, then a standing taxi at 202.5,174.2, one Return | operatives 1-4 aboard: 32000 -> 31014 -> 22056 -> 20065 -> 18100 (the hospital ambulances no longer held it); crane leg 232 blocks; crept into the box (196.1,246.5), out | **JOB COMPLETE**: 2287, 2999 at game 2398 s; money -> 31550, multiplier x2 (frame `out/sos10/shot_1350.png`, chase view, crane arm overhead) |
