@@ -105,13 +105,26 @@ def in_line(s, tx, ty, px, py, width=0.9):
 
 # ------------------------------------------------------------------ moving
 
-def path_walk(points, secs_each=6.0):
-    """straight cruise legs through hand-placed points (no router); False at the first miss"""
-    for k, (x, y) in enumerate(points):
+def path_walk(points, secs_each=6.0, retries=1):
+    """straight cruise legs through hand-placed points (no router); a miss is retried once from 1.2
+    blocks back along the leg (KILLMARK-GETAWAY, kmg14: the walker slowed at the first stair point and
+    then stood pressed against the foot of the flight at 193.3,177.9; the router's climb that followed
+    brought him up beside the guards and the second one shot him). False at a miss after the retries"""
+    k = 0
+    while k < len(points):
+        x, y = points[k]
         s, ok = M.cruise_to(x, y, tol=0.45 if k < len(points) - 1 else 0.35, secs=secs_each, stop=(k == len(points) - 1))
-        if not ok:
-            xdo("keyup", "Up"); say(f"kill_marked: approach missed {x},{y} (at {s['x']:.2f},{s['y']:.2f} z {s['z']:.2f})")
-            return False
+        if ok:
+            k += 1; continue
+        xdo("keyup", "Up"); say(f"kill_marked: approach missed {x},{y} (at {s['x']:.2f},{s['y']:.2f} z {s['z']:.2f})")
+        if retries <= 0: return False
+        retries -= 1
+        d = math.hypot(x - s["x"], y - s["y"]) or 1.0
+        bx, by = s["x"] + (s["x"] - x) / d * 1.2, s["y"] + (s["y"] - y) / d * 1.2
+        if k > 0:
+            px, py = points[k - 1]; bx, by = (bx + px) / 2.0, (by + py) / 2.0
+        M.cruise_to(bx, by, tol=0.4, secs=3.0)
+        say(f"kill_marked: approach backed off to {bx:.1f},{by:.1f}, again")
     xdo("keyup", "Up")
     return True
 
