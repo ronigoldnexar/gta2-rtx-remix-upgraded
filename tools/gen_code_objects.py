@@ -217,68 +217,77 @@ def glass_texture():
 
 
 def handset_parts(D_back, colour):
-    """The handset hanging on the right of the unit and its coiled cord."""
+    """The handset hanging on the right of the unit (+z): a 0.22 m handle with
+    ear and mouth pieces."""
     p = Part()
-    x0 = D_back - 0.05
-    box_part(p, x0, x0 + 0.022, 0.30, 0.43, 0.080, 0.100)      # the handle
-    box_part(p, x0 - 0.008, x0 + 0.03, 0.405, 0.44, 0.074, 0.108)   # ear piece
-    box_part(p, x0 - 0.008, x0 + 0.03, 0.29, 0.325, 0.074, 0.108)   # mouth piece
+    x0 = D_back - 0.022
+    box_part(p, x0, x0 + 0.010, 0.305, 0.362, 0.036, 0.044)          # the handle
+    box_part(p, x0 - 0.004, x0 + 0.014, 0.352, 0.368, 0.033, 0.047)  # ear piece
+    box_part(p, x0 - 0.004, x0 + 0.014, 0.299, 0.315, 0.033, 0.047)  # mouth piece
     return p.mesh(mat(flat(colour), 0.1, 0.5, name="handset"))
 
 
 def build_phone(im, ring=0):
-    """A GTA2 pay phone booth, from the sprite's plan: a blue steel hood half a
-    block square, open on the sprite's left (-x), the phone on the back wall
-    (+x) with the handset on its right (the sprite's frames 511/512 light the
+    """A GTA2 pay phone booth at human scale (QB-36). The renderer's person is
+    0.46 blocks (1.75 m), so a metre is 0.263 blocks: the booth is 0.95 m
+    square (0.25 blocks), 2.24 m to the roof (0.59), its PHONE sign box 0.65 m
+    long and 0.17 m tall on top (2.47 m overall). Drawn at this authored size
+    ("objects_anim": "authored"), not stretched onto the sprite's 0.50-block
+    quad, which made a 1.9 m wide booth with a 1.4 m sign.
+
+    From the sprite's plan: open on the sprite's left (-x), the phone on the
+    back wall (+x) with the handset on its right (frames 511/512 light the
     handset red when the phone rings). Corner posts, blue kick panels, glass
     side panes (a separate translucent model), a roof with a lit PHONE sign
     box (a separate unlit model, so it reads at night), a concrete plinth.
-    0.62 blocks to the roof: a person (0.46) stands well inside it.
 
     Returns (main, lit, glass) scenes."""
-    W, D, H = 0.25, 0.235, 0.60       # half width (x), half depth (z), roof height
+    W, D, H = 0.125, 0.125, 0.59      # half width (x), half depth (z), roof height
+    P = 0.010                         # half a corner post (7.6 cm square)
+    K0, K1, R1, T0 = 0.015, 0.17, 0.185, 0.52   # plinth top, kick panel top, rail top, header bottom
     steel = mat(blue_steel(), 0.55, 0.4, name="booth_steel")
     dark = mat(blue_steel(BOOTH_DARK, seed=3), 0.55, 0.45, name="booth_dark")
     chrome = mat(flat((168, 172, 178)), 0.9, 0.25, name="chrome")
     frame = Part()
     for x in (-W, W):
         for z in (-D, D):
-            box_part(frame, x - 0.018, x + 0.018, 0.03, H, z - 0.018, z + 0.018)
-    # side kick panels and rails (z = +-D), the back wall full height (x = +W), front header
+            box_part(frame, x - P, x + P, K0, H, z - P, z + P)
+    # side kick panels and rails (z = +-D), the back wall (x = +W), front header
     for z in (-D, D):
-        box_part(frame, -W, W, 0.03, 0.17, z - 0.008, z + 0.008)
-        box_part(frame, -W, W, 0.17, 0.19, z - 0.014, z + 0.014)
-        box_part(frame, -W, W, 0.52, H, z - 0.012, z + 0.012)
+        box_part(frame, -W, W, K0, K1, z - 0.004, z + 0.004)
+        box_part(frame, -W, W, K1, R1, z - 0.007, z + 0.007)
+        box_part(frame, -W, W, T0, H, z - 0.006, z + 0.006)
     # the back (+x): kick panel and rail like the sides, glass either side of a steel
-    # spine that carries the phone
-    box_part(frame, W - 0.012, W, 0.03, 0.17, -D, D)
-    box_part(frame, W - 0.016, W + 0.004, 0.17, 0.19, -D, D)
-    box_part(frame, W - 0.012, W, 0.52, H, -D, D)
-    box_part(frame, W - 0.012, W, 0.19, 0.52, -0.095, 0.095)
-    box_part(frame, -W - 0.004, -W + 0.012, 0.52, H, -D, D)
+    # spine (0.34 m) that carries the phone
+    box_part(frame, W - 0.006, W, K0, K1, -D, D)
+    box_part(frame, W - 0.008, W + 0.002, K1, R1, -D, D)
+    box_part(frame, W - 0.006, W, T0, H, -D, D)
+    box_part(frame, W - 0.006, W, R1, T0, -0.045, 0.045)
+    box_part(frame, -W - 0.002, -W + 0.006, T0, H, -D, D)
     frame_m = frame.mesh(steel)
     roof = Part()
-    box_part(roof, -W - 0.025, W + 0.025, H, H + 0.03, -D - 0.025, D + 0.025)
+    box_part(roof, -W - 0.012, W + 0.012, H, H + 0.015, -D - 0.012, D + 0.012)
     roof_m = roof.mesh(dark)
-    plinth = Part(); box_part(plinth, -W - 0.01, W + 0.01, 0.0, 0.03, -D - 0.01, D + 0.01)
+    plinth = Part(); box_part(plinth, -W - 0.006, W + 0.006, 0.0, K0, -D - 0.006, D + 0.006)
     plinth_m = plinth.mesh(mat(flat((128, 126, 120)), 0.0, 0.85, name="plinth"))
-    # the phone unit: a chrome box on the back wall, keypad facing the opening (-x)
+    # the phone unit (23 x 50 x 11 cm, face 1.03-1.52 m up): a chrome box on the
+    # back wall, keypad facing the opening (-x)
     unit = Part()
-    ux0, ux1 = W - 0.012 - 0.055, W - 0.012
-    uz0, uz1 = -0.075, 0.075
-    uy0, uy1 = 0.25, 0.47
+    ux0, ux1 = W - 0.006 - 0.030, W - 0.006
+    uz0, uz1 = -0.030, 0.030
+    uy0, uy1 = 0.27, 0.40
     unit.quad((ux0, uy0, uz1), (ux0, uy1, uz1), (ux0, uy1, uz0), (ux0, uy0, uz0), (1, 0), (1, 1), (0, 1), (0, 0))  # face (-x)
-    box_sides = Part(); box_part(box_sides, ux0 + 0.002, ux1, uy0, uy1, uz0, uz1)
+    box_sides = Part(); box_part(box_sides, ux0 + 0.001, ux1, uy0, uy1, uz0, uz1)
     unit_m = unit.mesh(mat(keypad_texture(), 0.7, 0.3, name="keypad"))
     unit_box = box_sides.mesh(chrome)
-    shelf = Part(); box_part(shelf, W - 0.10, W - 0.012, 0.24, 0.255, -0.11, 0.11)   # the directory shelf
-    box_part(shelf, W - 0.085, W - 0.02, 0.255, 0.275, -0.10, -0.02)              # the directory
+    shelf = Part(); box_part(shelf, W - 0.058, W - 0.006, 0.243, 0.250, -0.060, 0.060)   # the directory shelf
+    box_part(shelf, W - 0.050, W - 0.012, 0.250, 0.262, -0.055, -0.012)             # the directory
     shelf_m = shelf.mesh(mat(flat((60, 62, 68)), 0.6, 0.5, name="shelf"))
     main = scene_with([("plinth", plinth_m), ("frame", frame_m), ("roof", roof_m), ("unit", unit_box), ("keypad", unit_m), ("shelf", shelf_m)])
     # lit: the roof sign box (PHONE on its long faces, toward -x and +x) and the handset
     sign = Part()
-    sy0, sy1 = H + 0.03, H + 0.10
-    sx0, sx1, sz0, sz1 = -0.03, 0.03, -0.18, 0.18
+    sy0, sy1 = H + 0.015, H + 0.060
+    sx0, sx1, sz0, sz1 = -0.016, 0.016, -0.085, 0.085
     sign.quad((sx0, sy0, sz1), (sx0, sy1, sz1), (sx0, sy1, sz0), (sx0, sy0, sz0), (0, 0), (0, 1), (1, 1), (1, 0))
     sign.quad((sx1, sy0, sz0), (sx1, sy1, sz0), (sx1, sy1, sz1), (sx1, sy0, sz1), (0, 0), (0, 1), (1, 1), (1, 0))
     sign_m = sign.mesh(mat(sign_texture(), 0.0, 0.6, name="sign"))
@@ -288,13 +297,13 @@ def build_phone(im, ring=0):
     ends.quad((sx0, sy1, sz1), (sx1, sy1, sz1), (sx1, sy1, sz0), (sx0, sy1, sz0))
     ends_m = ends.mesh(mat(flat((200, 230, 255)), 0.0, 0.6, name="sign_rim"))
     hs_colour = [(26, 26, 30), (150, 30, 20), (255, 70, 40)][ring]
-    lit = scene_with([("sign", sign_m), ("sign_rim", ends_m), ("handset", handset_parts(W - 0.012, hs_colour))])
-    # glass: the side panes above the kick panels and a pane over the back wall's upper half is steel, so sides only
+    lit = scene_with([("sign", sign_m), ("sign_rim", ends_m), ("handset", handset_parts(W - 0.006, hs_colour))])
+    # glass: the side panes above the kick panels, and the back either side of the spine
     glass = Part()
     for z in (-D, D):
-        box_part(glass, -W + 0.018, W - 0.018, 0.19, 0.52, z - 0.004, z + 0.004)
-    for z0, z1 in ((-D + 0.018, -0.095), (0.095, D - 0.018)):
-        box_part(glass, W - 0.008, W - 0.002, 0.19, 0.52, z0, z1)
+        box_part(glass, -W + P, W - P, R1, T0, z - 0.002, z + 0.002)
+    for z0, z1 in ((-D + P, -0.045), (0.045, D - P)):
+        box_part(glass, W - 0.004, W - 0.001, R1, T0, z0, z1)
     glass_s = scene_with([("glass", glass.mesh(mat(glass_texture(), 0.1, 0.05, name="glass")))])
     return main, lit, glass_s
 
@@ -510,7 +519,7 @@ def main():
     im = load(src, PHONE[0])
     for k, (fr, name) in enumerate(zip(PHONE, PHONE_NAMES)):
         main_m, lit, glass = build_phone(im, k)
-        jobs.append((name, [fr], main_m, {"__lit": lit, "__glass": glass}, load(src, fr), ""))
+        jobs.append((name, [fr], main_m, {"__lit": lit, "__glass": glass}, load(src, fr), "authored"))
     for frame, (colour, slot) in LIGHTS.items():
         housing, lit = build_light(colour, slot)
         jobs.append((LIGHT_NAMES[frame], [frame], housing, {"__lit": lit}, load(src, frame), ""))

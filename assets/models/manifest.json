@@ -3506,7 +3506,10 @@
   "4:139": "spin",
   "4:140": "spin",
   "4:141": "spin",
-  "4:0": "rotor"
+  "4:0": "rotor",
+  "4:510": "authored",
+  "4:511": "authored",
+  "4:512": "authored"
  },
  "ped_types": [
   {

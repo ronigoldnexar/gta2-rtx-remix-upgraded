@@ -28,7 +28,7 @@ double NowSeconds() {
 namespace {
 bool g_loaded = false;
 std::map<uint32_t, const Model*> g_byKey;   // (base << 16 | number) -> model
-std::map<uint32_t, int> g_animByKey;        // 1 spin + float (pickups), 2 rotor
+std::map<uint32_t, int> g_animByKey;        // 1 spin + float (pickups), 2 rotor, 3 authored size (booth)
 std::map<const Model*, int> g_animByModel;
 std::map<uint32_t, float> g_yawByKey;       // extra yaw, degrees, from the manifest ("objects_yaw")
 // Companion models drawn with a model's placement (PROPS-2): "<name>__lit" unlit,
@@ -90,7 +90,9 @@ void LoadOnce() {
     readMap("objects_yaw", [&](uint32_t key, const std::string& v) { g_yawByKey[key] = static_cast<float>(atof(v.c_str())); });
     // "objects_anim": {"4:26": "spin"}: a pickup turns slowly about its axis and
     // floats a hand above the ground, the way the game's own frames suggest.
-    readMap("objects_anim", [&](uint32_t key, const std::string& v) { g_animByKey[key] = v == "spin" ? 1 : v == "rotor" ? 2 : 0; });
+    // "authored": a standing object drawn at its size in blocks, not stretched onto the
+    // sprite's quad (QB-36: the phone booth's 0.50-block quad made a 1.9 m booth).
+    readMap("objects_anim", [&](uint32_t key, const std::string& v) { g_animByKey[key] = v == "spin" ? 1 : v == "rotor" ? 2 : v == "authored" ? 3 : 0; });
     for (const auto& kv : g_animByKey) {
         auto it = g_byKey.find(kv.first);
         if (it != g_byKey.end()) g_animByModel[it->second] = kv.second;
@@ -164,7 +166,11 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         // sprite extent it grew and shrank as the game cycled its turning frames.
         auto animIt = g_animByModel.find(&model);
         const bool spinning = animIt != g_animByModel.end() && animIt->second == 1;
-        const float scale = spinning ? 1.0f : longer / modelLong;
+        const bool authored = animIt != g_animByModel.end() && animIt->second == 3;
+        const float scale = (spinning || authored) ? 1.0f : longer / modelLong;
+        // The clearance radius: the quad's half edge, or the model's own half extent
+        // when it is drawn at its authored size.
+        const float footR = (std::min)(0.6f, (std::max)(0.12f, authored ? 0.5f * modelLong : 0.5f * longer));
         const float f = model.forward;
         gta2::Mat4 fit;
         fit.m[0][0] = dirZ * scale * f;  fit.m[0][1] = 0.0f;  fit.m[0][2] = -dirX * scale * f;
@@ -181,7 +187,7 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             g_objectObstacles.push_back({cx * w.m[0][0] + cy * w.m[1][0] + cz * w.m[2][0] + w.m[3][0],
                                          cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1],
                                          cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2],
-                                         (std::min)(0.6f, (std::max)(0.12f, 0.5f * longer)), (std::max)(0.3f, model.Height() * scale)});
+                                         footR, (std::max)(0.3f, model.Height() * scale)});
         }
         {
             // World position of the quad's centre; nothing drawn behind the camera.
@@ -206,7 +212,7 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
                 const float wx = cx * w.m[0][0] + cy * w.m[1][0] + cz * w.m[2][0] + w.m[3][0];
                 const float wy = cx * w.m[0][1] + cy * w.m[1][1] + cz * w.m[2][1] + w.m[3][1];
                 const float wz = cx * w.m[0][2] + cy * w.m[1][2] + cz * w.m[2][2] + w.m[3][2];
-                g_objectFootprints.push_back({wx, wy, wz, (std::min)(0.6f, (std::max)(0.12f, 0.5f * longer)), (std::max)(0.3f, model.Height() * scale)});
+                g_objectFootprints.push_back({wx, wy, wz, footR, (std::max)(0.3f, model.Height() * scale)});
             }
         }
         {
