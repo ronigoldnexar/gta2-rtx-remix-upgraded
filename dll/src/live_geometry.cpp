@@ -207,6 +207,9 @@ namespace {
 const void* g_hiddenObjects[2] = {nullptr, nullptr};
 const void* g_playerObject = nullptr;
 bool g_logPedFrames = false;
+// ANIM-COMBAT: a blow the player gave or took landed this frame (1 a kick, 0.7 a
+// punch), for the street-view camera's nudge (view_modes.cpp MeleeImpactTake).
+float g_meleeImpact = 0.0f;
 bool g_logFigures = false;   // GTA2DX9_LOG_FIGURES=1: a line per frame per figure near the player (ACTIONS-3D-4)
 // Pedestrians getting into or out of a car (ped state 3/4) seen last frame,
 // with the vehicle they are boarding: the car's door swings for them. Last
@@ -294,8 +297,37 @@ std::vector<PedSpot> g_pedSpots;        // where the figures stood this frame (b
 // puncher may be drawn before or after him in a frame).
 // QB-16: and when he last fired (muzzleFrame), which way he faces, and his weapon,
 // so a figure whose health drops with nobody mid-swing beside him can be put to a shooter.
-struct FigureSpot { uintptr_t object; float x, z; bool punching, alt; uint32_t shotFrame; float fx, fz; int weapon; };
+struct FigureSpot { uintptr_t object; float x, z; bool punching, alt; uint32_t shotFrame; float fx, fz; int weapon; unsigned pedFrame = 0; float actT = 0.0f;
+                    int strike = 0; bool down = false; };
+// ANIM-COMBAT: each strike clip's contact key, seconds (tools/gen_ped_clips.py: the
+// right cross's fist at full reach, the jab's, the kick's foot, the stomp's heel), the
+// hit-stop it gives (frames at 30 a second, both figures held), how far the blow
+// pushes the man it lands on (blocks; 0.46 is a man's height), and how far the
+// striker's body travels into it (a weight shift onto the front foot).
+constexpr float kStrikeContact[4] = {0.36f, 0.32f, 0.32f, 0.36f};
+constexpr int kStrikeStop[4] = {2, 2, 3, 3};
+constexpr float kStrikePush[4] = {0.07f, 0.045f, 0.13f, 0.03f};
+constexpr float kStrikeLunge[4] = {0.035f, 0.022f, 0.0f, 0.0f};
+// GTA2DX9_COMBAT_FX=0: the strikes and reactions as before ANIM-COMBAT (no kick, no
+// contact sync, no hit-stop); GTA2DX9_KICKS=0 keeps the rest but throws no kicks.
+bool CombatFxOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_COMBAT_FX", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
+bool KicksOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_KICKS", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0 && CombatFxOn();
+}
 // QB-16: GTA2DX9_SHOT_HITS=0 turns the shot reactions off (a punch's stay).
+// ANIM-COMBAT: GTA2DX9_LOG_COMBAT=1, a line per frame for every figure mid-swing or
+// whose health changes (the game's frame, the clip time), for timing the contact.
+bool LogCombat() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_LOG_COMBAT", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+    return on != 0;
+}
 bool ShotHitsOn() {
     static int on = -1;
     if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_SHOT_HITS", v, sizeof v) && v[0] == '0') ? 0 : 1; }
@@ -7332,28 +7364,110 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             static_cast<unsigned>((shooter->object >> 2) & 0xFFFF), w, d, kSides[side], track.lastHealth, hp, sprite.pedState, sprite.pedSub);
                     }
                 }
-                if (by) {
+                if (by && CombatFxOn()) {
+                    // ANIM-COMBAT: the blow, timed to the striker's clip. The game takes the
+                    // damage 0.00-0.07 s after the first frame of a swing (NPCs from frame
+                    // 123-124, the player from 115; 40 hits in 20 older runs), long before the
+                    // clip's fist is out. His clip before its contact key: it runs there over
+                    // at most 4 frames (the wind-up snaps through) and the reaction waits for
+                    // it; at or past it (the follow-through): the reaction now. Both then hold
+                    // still for the hit-stop. The game takes its damage over several frames for one blow
+                    // (50 -> 40 -> 30 -> 20 in 70 ms, a34_after7): one blow, one reaction.
+                    PedTrack* st = nullptr;
+                    { const auto it = pedTracks_.find(by->object); if (it != pedTracks_.end() && it->second.action == 1) st = &it->second; }
+                    const int strike = st ? st->strike : (by->alt ? 1 : 0);
+                    const uint32_t swing = st ? st->swingFrame : 0u;
+                    const bool sameBlow = track.blowBy == by->object && track.blowSwing == swing &&
+                                          (track.pendingHitFrame || (track.hitFrame && g_carFrame - track.hitFrame < 20));
+                    const float vx = cx - by->x, vz = cz - by->z;
+                    const float d = (std::max)(1e-3f, std::sqrt(vx * vx + vz * vz));
+                    if (!sameBlow) {
+                        const float lead = st ? kStrikeContact[strike] - st->actionTime : -1.0f;
+                        int wait = 0;
+                        if (st && lead > 0.0f) {
+                            wait = (std::min)(4, (std::max)(1, static_cast<int>(std::ceil(lead * 30.0f))));
+                            st->catchUpLeft = wait;
+                        }
+                        track.blowBy = by->object; track.blowSwing = swing;
+                        track.pendingSide = strike == 2 ? 6 : strike == 3 ? 7 : strike == 1 ? 1 : 0;
+                        track.pendingDirX = vx / d; track.pendingDirZ = vz / d; track.pendingPush = kStrikePush[strike];
+                        // No hit-stop for the striker deep in his recovery: his fist is long gone.
+                        track.pendingStop = kStrikeStop[strike];
+                        if (st && lead < -0.25f) st = nullptr;
+                        if (wait) track.pendingHitFrame = g_carFrame + static_cast<uint32_t>(wait);
+                        else { track.pendingHitFrame = g_carFrame; }
+                        if (st) st->hitStopFrames = track.pendingStop;   // given at the contact (below)
+                    }
+                    if (g_logFigures || g_logPedFrames || LogCombat())
+                        Log("fig: hit %04x by %04x (%s, his frame %u t %.2f%s) health %d -> %d state %d sub 0x%x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                            static_cast<unsigned>((by->object >> 2) & 0xFFFF), strike == 2 ? "kick" : strike == 3 ? "stomp" : strike == 1 ? "jab" : "cross",
+                            by->pedFrame % 158u, by->actT, sameBlow ? ", same blow" : track.pendingHitFrame > g_carFrame ? ", waits for his contact" : "",
+                            track.lastHealth, hp, sprite.pedState, sprite.pedSub);
+                } else if (by) {
                     const float vx = cx - by->x, vz = cz - by->z;
                     const float d = (std::max)(1e-3f, std::sqrt(vx * vx + vz * vz));
                     hitNow = true;
                     track.hitFrame = g_carFrame; track.hitSide = by->alt ? 1 : 0;
                     track.hitDirX = vx / d; track.hitDirZ = vz / d; track.hitPush = 0.07f;
-                    if (g_logFigures || g_logPedFrames)
-                        Log("fig: hit %04x by %04x (%s) health %d -> %d state %d sub 0x%x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
-                            static_cast<unsigned>((by->object >> 2) & 0xFFFF), by->alt ? "jab" : "cross", track.lastHealth, hp, sprite.pedState, sprite.pedSub);
+                    if (g_logFigures || g_logPedFrames || LogCombat())
+                        Log("fig: hit %04x by %04x (%s, his frame %u t %.2f) health %d -> %d state %d sub 0x%x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                            static_cast<unsigned>((by->object >> 2) & 0xFFFF), by->alt ? "jab" : "cross", by->pedFrame % 158u, by->actT,
+                            track.lastHealth, hp, sprite.pedState, sprite.pedSub);
                 }
             }
             track.lastHealth = hp;
         }
+        if (track.pendingHitFrame && g_carFrame >= track.pendingHitFrame) {
+            // ANIM-COMBAT: the striker's contact: the reaction starts, both hold still.
+            track.pendingHitFrame = 0;
+            {
+                hitNow = !sprite.corpse;   // a man the blow killed still takes its push and falls away from it
+                track.hitFrame = g_carFrame; track.hitSide = track.pendingSide;
+                track.hitDirX = track.pendingDirX; track.hitDirZ = track.pendingDirZ; track.hitPush = track.pendingPush;
+                track.hitStopUntil = g_carFrame + static_cast<uint32_t>(track.pendingStop);
+                const auto it = pedTracks_.find(track.blowBy);
+                if (it != pedTracks_.end() && it->second.hitStopFrames) {
+                    it->second.hitStopUntil = g_carFrame + static_cast<uint32_t>(it->second.hitStopFrames);
+                    it->second.hitStopFrames = 0;
+                }
+                if (track.blowBy == reinterpret_cast<uintptr_t>(g_playerObject) || sprite.object == reinterpret_cast<uintptr_t>(g_playerObject))
+                    g_meleeImpact = (std::max)(g_meleeImpact, track.hitSide >= 6 ? 1.0f : 0.7f);
+                if (g_logFigures || g_logPedFrames || LogCombat())
+                    Log("fig: contact %04x by %04x side %d push %.3f stop %d", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                        static_cast<unsigned>((track.blowBy >> 2) & 0xFFFF), track.hitSide, track.hitPush, track.pendingStop);
+            }
+        }
         {
             float st = 0.0f;
-            if (track.hitFrame) {
+            if (track.hitFrame && CombatFxOn() && (track.hitSide <= 1 || track.hitSide >= 6)) {
+                // ANIM-COMBAT: an impulse, not an ease: held through the hit-stop, then thrown
+                // out fast (an ease-out over 0.12 s: most of the push in the first frames),
+                // caught and walked back over 0.6 s.
+                const float stop = track.hitStopUntil > track.hitFrame ? static_cast<float>(track.hitStopUntil - track.hitFrame) / 30.0f : 0.0f;
+                const float ht = static_cast<float>(g_carFrame - track.hitFrame) / 30.0f - stop;
+                if (ht < 0.0f) st = 0.15f;
+                else if (ht < 0.12f) { const float u = 1.0f - ht / 0.12f; st = 0.15f + 0.85f * (1.0f - u * u * u); }
+                else if (ht < 0.72f) st = 1.0f - Smoothstep(0.12f, 0.72f, ht);
+            } else if (track.hitFrame) {
                 const float ht = static_cast<float>(g_carFrame - track.hitFrame) / 30.0f;
                 if (ht < 0.15f) st = Smoothstep(0.0f, 0.15f, ht);
                 else if (ht < 0.75f) st = 1.0f - Smoothstep(0.15f, 0.75f, ht);
             }
             track.staggerX = track.hitDirX * track.hitPush * st;
             track.staggerZ = track.hitDirZ * track.hitPush * st;
+        }
+        {
+            // ANIM-COMBAT: the striker's weight into the blow: his body travels a few
+            // centimetres along his facing up to the contact key and back after it (the
+            // legs step it). Kicks and stomps carry their own root motion.
+            float lw = 0.0f;
+            if (track.action == 1 && CombatFxOn() && track.strike < 2) {
+                const float c = kStrikeContact[track.strike], t = track.actionTime;
+                if (t < c) lw = Smoothstep(c - 0.16f, c, t);
+                else lw = 1.0f - Smoothstep(c + 0.08f, c + 0.40f, t);
+            }
+            track.lungeX = std::sin(track.heading) * kStrikeLunge[track.strike & 3] * lw;
+            track.lungeZ = std::cos(track.heading) * kStrikeLunge[track.strike & 3] * lw;
         }
         // What the game has him doing, from his animation frame and state words.
         int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
@@ -7546,8 +7660,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // over or struck by a car (cause 1/3, or the car knock-down sub-states
         // 0x18-0x1A), else onto his back or his front by his own seed.
         if (wantAction == 4 && track.action != 4 && track.jacked) {
-            track.lieClip = 5;
+            track.lieClip = 5; track.blowDown = false;
         } else if (wantAction == 4 && track.action != 4) {
+            track.blowDown = false;
             const int32_t cause = sprite.pedCause;
             const bool carHit = cause == game::kDamageCarHit || cause == game::kDamageRunOver ||
                                 (sprite.pedState == 8 && sprite.pedSub >= 0x18 && sprite.pedSub <= 0x1A);
@@ -7555,7 +7670,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if ((track.burnSeen && g_carFrame - track.burnSeen < 90) || cause == 11) track.lieClip = 4;
             else if (cause == game::kDamageExplosion) track.lieClip = 3;
             else if (carHit) track.lieClip = 2;
-            else track.lieClip = ((static_cast<uint32_t>(sprite.object >> 4) * 2654435761u) >> 20) % 3 == 0 ? 1 : 0;
+            else if (CombatFxOn() && track.hitFrame && g_carFrame - track.hitFrame < 30 && (track.hitSide <= 1 || track.hitSide == 6)) {
+                // ANIM-COMBAT: knocked down by a blow: away from it, onto his back when it
+                // came from in front, onto his front from behind; a ragdoll thrown along the
+                // blow (QB-27's solver, kind 3) where ragdolls are on, else that lying clip.
+                track.lieClip = track.hitDirX * std::sin(track.heading) + track.hitDirZ * std::cos(track.heading) < 0.0f ? 0 : 1;
+                track.blowDown = true;
+                RagdollNoteBlow(sprite.object, track.hitDirX, track.hitDirZ, track.hitSide == 6 ? 1.3f : track.hitSide == 1 ? 0.7f : 0.9f, g_carFrame);
+            } else track.lieClip = ((static_cast<uint32_t>(sprite.object >> 4) * 2654435761u) >> 20) % 3 == 0 ? 1 : 0;
             if (g_logPedFrames) {
                 Log("ped anim: down %p cause %d state %d sub 0x%x -> lying clip %d", reinterpret_cast<const void*>(sprite.object),
                     cause, sprite.pedState, sprite.pedSub, track.lieClip);
@@ -7572,13 +7694,20 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // and the reaction held to its end over the walk, the carry or the aim, which
         // would otherwise take the layer back the next frame.
         if (hitNow && !sprite.corpse && (wantAction == 0 || IsCarryAction(wantAction) || wantAction == 22 ||
-                                         (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
+                                         (track.hitSide >= 2 && track.hitSide <= 5 && IsAimAction(wantAction)))) wantAction = 22;
         if (!hitNow && track.action == 22 && !track.actionReverse && track.actionTime < 0.6f && !sprite.corpse &&
-            (wantAction == 0 || IsCarryAction(wantAction) || (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
+            (wantAction == 0 || IsCarryAction(wantAction) || (track.hitSide >= 2 && track.hitSide <= 5 && IsAimAction(wantAction)))) wantAction = 22;
         // A man shot as he squares up (the game's swing frames start the instant he is
         // hit, qb16_r3) takes the bullet first: his swing waits out the jolt (0.35 s).
-        if (track.action == 22 && track.hitSide >= 2 && !track.actionReverse && track.actionTime < 0.35f && !sprite.corpse &&
+        if (track.action == 22 && track.hitSide >= 2 && track.hitSide <= 5 && !track.actionReverse && track.actionTime < 0.35f && !sprite.corpse &&
             (wantAction == 1 || hitNow)) wantAction = 22;
+        // ANIM-COMBAT: the same for a blow taken mid-swing (two men trading punches): the
+        // blow interrupts his own swing for 0.35 s; the game's swing then carries on.
+        if (CombatFxOn() && !sprite.corpse && (track.hitSide <= 1 || track.hitSide == 6) && wantAction == 1 &&
+            ((hitNow && track.action != 4) || (track.action == 22 && !track.actionReverse && track.actionTime < 0.35f))) wantAction = 22;
+        // ANIM-COMBAT: knocked down (or killed) by a blow still on its way: he goes down
+        // at the striker's contact, at most 4 frames on, not before the fist arrives.
+        if (CombatFxOn() && track.pendingHitFrame && wantAction == 4 && track.action != 4) wantAction = track.action == 22 ? 22 : 0;
         // Boarding a car on the move (ACTIONS-3D-4): the game carries him along with the car
         // in state 3 before the climb (sprite frames below 24). While he covers ground faster
         // than a walk he runs beside it (legs from the ground covered, heading along the
@@ -7610,6 +7739,41 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 wantAction = fa;
             }
         }
+        // ANIM-COMBAT: a swing starts (or the game repeats it): which strike. The combo
+        // runs cross, jab, kick (the kick only standing: the legs are the strike); a man
+        // on the ground just ahead takes a stomp. He turns onto the man he swings at.
+        auto startSwing = [&](bool continuing) {
+            track.combo = continuing ? track.combo + 1 : 0;
+            track.swingFrame = g_carFrame;
+            track.lastPunchT = 0.0f;
+            track.catchUpLeft = 0;
+            const FigureSpot* tgt = nullptr;
+            float best = 0.6f * 0.6f;
+            const float hs = std::sin(track.heading), hc = std::cos(track.heading);
+            for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
+                for (const FigureSpot& f : *list) {
+                    if (f.object == sprite.object) continue;
+                    const float vx = f.x - cx, vz = f.z - cz;
+                    const float d2 = vx * vx + vz * vz;
+                    if (d2 >= best || d2 < 1e-6f) continue;
+                    if ((vx * hs + vz * hc) / std::sqrt(d2) < 0.5f) continue;
+                    best = d2; tgt = &f;
+                }
+            }
+            int s = track.combo % 3 == 1 ? 1 : 0;
+            if (KicksOn()) {
+                if (tgt && tgt->down && best < 0.45f * 0.45f) s = 3;
+                else if (track.combo % 3 == 2 && track.legSpeed < 0.25f && !(tgt && tgt->down)) s = 2;
+            }
+            track.strike = s;
+            track.punchAlt = s == 1;
+            track.strikeTgt = tgt != nullptr;
+            if (tgt) { track.strikeTgtX = tgt->x; track.strikeTgtZ = tgt->z; }
+            if (g_logFigures || g_logPedFrames || LogCombat())
+                Log("fig: swing %04x %s (combo %d, leg pace %.2f, target %04x at %.2f%s)", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                    s == 2 ? "kick" : s == 3 ? "stomp" : s == 1 ? "jab" : "cross", track.combo, track.legSpeed,
+                    tgt ? static_cast<unsigned>((tgt->object >> 2) & 0xFFFF) : 0u, tgt ? std::sqrt(best) : 0.0f, tgt && tgt->down ? " down" : "");
+        };
         if (wantAction == 4 && track.action != 4) {
             track.action = 4; track.actionTime = 0.0f; track.actionReverse = false;
         } else if (wantAction != 4 && track.action == 4 && !track.actionReverse) {
@@ -7623,11 +7787,20 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // fist; otherwise he leads with the right cross.
                 track.punchAlt = track.lastPunchFrame && g_carFrame - track.lastPunchFrame < 36 ? !track.punchAlt : false;
                 track.lastPunchT = 0.0f;
+                if (CombatFxOn()) startSwing(track.lastPunchFrame && g_carFrame - track.lastPunchFrame < 36);
+                else track.strike = track.punchAlt ? 1 : 0;
             }
             const bool pullIn = wantAction == 5 && track.action == 23;
             track.action = wantAction; track.actionTime = pullIn ? (track.jacking ? 0.5f : 0.65f) : 0.0f; track.actionReverse = false;
         } else if (hitNow && track.action == 22) {
             track.actionTime = 0.0f;   // hit again: the snap again
+        }
+        if (hitNow && track.action == 22 && CombatFxOn() && (track.hitSide <= 1 || track.hitSide >= 6)) {
+            // ANIM-COMBAT: a blow lands all at once: the reaction starts at its impact key
+            // (the head already snapped, the body already folded), at nearly full weight,
+            // and holds there through the hit-stop.
+            track.actionTime = track.hitSide == 6 ? 0.06f : 0.07f;
+            track.actionWeight = (std::max)(track.actionWeight, 0.85f);
         }
         if (g_logPedFrames && track.action != track.lastLoggedAction) {
             track.lastLoggedAction = track.action;
@@ -7654,6 +7827,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (arrested && g_arrestWalk.car && bustSecs > kBustHandsSecs) {
                 // Led away: facing the police car.
                 target = std::atan2(g_arrestWalk.carX - (track.dx + g_arrestWalk.ox), g_arrestWalk.carZ - (track.dz + g_arrestWalk.oz));
+            }
+            if (CombatFxOn() && track.action == 1 && track.strikeTgt && track.actionTime < kStrikeContact[track.strike & 3] + 0.2f) {
+                // ANIM-COMBAT: the strike tracks the man it is thrown at (within 45 degrees
+                // of the game's facing): the fist or foot meets him, not the air beside him.
+                const float ax = track.strikeTgtX - track.dx, az = track.strikeTgtZ - track.dz;
+                if (ax * ax + az * az > 0.0025f) {
+                    const float tt = std::atan2(ax, az);
+                    float off = tt - target;
+                    while (off > kPi) off -= 2.0f * kPi;
+                    while (off < -kPi) off += 2.0f * kPi;
+                    if (std::fabs(off) < 0.8f) target = tt;
+                }
             }
             float diff = target - track.heading;
             while (diff > kPi) diff -= 2.0f * kPi;
@@ -7752,8 +7937,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         const float hx = std::sin(legHeading), hz = std::cos(legHeading);
         // Where the figure stands: the drawn position, at the sprite's height.
-        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX,
-                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ;
+        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX + track.lungeX,
+                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ + track.lungeZ;
         fx = hx;
         fz = hz;
         // ACTIONS-3D-4: the ground the drawn figure covered since last frame, signed
@@ -7772,7 +7957,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             track.lastPX = gx; track.lastPZ = gz; track.havePrev = true;
         }
         g_figuresNow.push_back({sprite.object, gx, gz, track.action == 1, track.punchAlt, track.muzzleFrame,
-                                std::sin(track.heading), std::cos(track.heading), track.weapon});
+                                std::sin(track.heading), std::cos(track.heading), track.weapon, sprite.pedFrame, track.actionTime,
+                                track.strike, track.action == 4 && !track.actionReverse});   // down, alive or not: a stomp, not a kick over him
         {
             // QB-16 probe aid, GTA2DX9_LOG_NEAR_PED=1: three times a second, the nearest
             // standing figure to the player's own, its distance and its bearing off his
@@ -8116,6 +8302,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (track.action == 4 && track.lieClip > 0 && track.lieClip < 6) clipName = kLyingClips[track.lieClip];
                 if (track.action == 1 && track.punchAlt) clipName = "punch2";        // the combo's left jab
                 if (track.action == 22 && track.hitSide == 1) clipName = "hit_head2";     // a jab turns his head the other way
+                if (track.action == 22 && track.hitSide == 6) clipName = "hit_body";      // ANIM-COMBAT: a kick in the belly
+                if (track.action == 22 && track.hitSide == 7) clipName = "hit_head";
+                if (track.action == 1 && track.strike == 2) clipName = "kick";             // ANIM-COMBAT
+                if (track.action == 1 && track.strike == 3) clipName = "stomp";
                 static const char* const kShotClips[4] = {"hit_shot_front", "hit_shot_back", "hit_shot_l", "hit_shot_r"};   // QB-16
                 if (track.action == 22 && track.hitSide >= 2 && track.hitSide <= 5) clipName = kShotClips[track.hitSide - 2];
                 const ModelAnimation* actionClip = clipName ? model->Animation(clipName) : nullptr;
@@ -8123,6 +8313,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (!actionClip && track.action == 5 && track.jacking) actionClip = model->Animation("enter_car");   // before QB-14
                 if (!actionClip && track.action == 5) actionClip = model->Animation("getin");
                 if (!actionClip && track.action == 6) actionClip = model->Animation("getout");
+                if (!actionClip && track.action == 1 && track.strike >= 2) {   // an avatar from before ANIM-COMBAT
+                    track.strike = 0; track.punchAlt = false; actionClip = model->Animation("punch");
+                }
+                const bool strikeLegs = track.action == 1 && track.strike >= 2 && actionClip;   // a kick: the legs are the clip's
                 if (!actionClip && track.action == 22) actionClip = model->Animation("hit_head");   // an avatar from before QB-16
                 if (!actionClip && track.action == 22) actionClip = model->Animation("hit");
                 if (!actionClip && track.action == 1) actionClip = model->Animation("punch");
@@ -8159,6 +8353,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             const unsigned f5 = sprite.pedFrame % 158u;
                             if (sprite.pedState == 3 && f5 < 32u) track.actionTime = (std::min)(track.actionTime + dt, 0.65f);
                             else track.actionTime += dt * 1.6f;
+                        } else if (CombatFxOn() && (track.action == 1 || track.action == 22) && g_carFrame < track.hitStopUntil) {
+                            // ANIM-COMBAT: the hit-stop: the striker's fist and the man's snapped
+                            // head stay where the blow met for a few frames.
+                        } else if (CombatFxOn() && track.action == 1 && track.catchUpLeft > 0) {
+                            // The game's blow came during the wind-up: on to the contact key over
+                            // the frames left (a snappier strike, not a fist landing late).
+                            const float c = kStrikeContact[track.strike & 3];
+                            track.actionTime += (std::max)(dt, (c - track.actionTime) / static_cast<float>(track.catchUpLeft));
+                            if (--track.catchUpLeft == 0 && track.actionTime < c) track.actionTime = c;
                         } else {
                             track.actionTime += dt;
                         }
@@ -8168,16 +8371,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         // first build's punches off at 0.4 s.
                         const unsigned pf = sprite.pedFrame % 158u, lpf = track.lastPedFrame % 158u;
                         if (track.action == 1 && wantAction == 1 && pf <= 116u && pf >= 115u && lpf > 116u &&
-                            track.actionTime > 0.5f) {
+                            track.actionTime > (CombatFxOn() && track.strike >= 2 ? 0.66f : 0.5f)) {
                             track.actionTime = 0.0f;   // the game started the swing again: the other fist
                             track.punchAlt = !track.punchAlt;
                             track.lastPunchT = 0.0f;
+                            if (CombatFxOn()) startSwing(true);
                         }
                         if (track.action == 1) {
                             // The strike key (0.33 s): logged with the figure it would reach (within
                             // half a block, 60 degrees either side), for the checks; whether it
                             // landed is the game's (the victim's health, see hitNow).
-                            if (track.lastPunchT < 0.33f && track.actionTime >= 0.33f) {
+                            const float strikeKey = CombatFxOn() ? kStrikeContact[track.strike & 3] : 0.33f;   // ANIM-COMBAT
+                            if (track.lastPunchT < strikeKey && track.actionTime >= strikeKey) {
                                 const FigureSpot* victim = nullptr;
                                 float best = 0.5f * 0.5f;
                                 for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
@@ -8194,7 +8399,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 }
                                 if (g_logFigures || g_logPedFrames)
                                     Log("fig: punch %04x %s lands on %04x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
-                                        track.punchAlt ? "jab" : "cross", victim ? static_cast<unsigned>((victim->object >> 2) & 0xFFFF) : 0u);
+                                        track.strike == 2 ? "kick" : track.strike == 3 ? "stomp" : track.punchAlt ? "jab" : "cross",
+                                        victim ? static_cast<unsigned>((victim->object >> 2) & 0xFFFF) : 0u);
                             }
                             track.lastPunchT = track.actionTime;
                             track.lastPunchFrame = g_carFrame;
@@ -8214,6 +8420,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     actionT = (std::min)((std::max)(track.actionTime, 0.0f), len - 0.001f);
                     actionT = std::floor(actionT * 30.0f) / 30.0f;
                 }
+                if (LogCombat() && (track.action == 1 || track.action == 22 || sprite.pedHealth != track.combatLogHp ||
+                                    (sprite.pedFrame % 158u) >= 115u && (sprite.pedFrame % 158u) <= 130u)) {
+                    Log("cb: %04x f%u st%d/%x hp%d act %d t%.3f alt%d at %.2f,%.2f h%.2f", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                        sprite.pedFrame % 158u, sprite.pedState, sprite.pedSub, sprite.pedHealth, track.action, track.actionTime,
+                        track.punchAlt ? 1 : 0, gx, gz, track.heading);
+                    track.combatLogHp = sprite.pedHealth;
+                }
                 track.lastPedFrame = sprite.pedFrame;
                 static unsigned lyingLogs = 0;
                 if (g_logPedFrames && track.action == 4 && lyingLogs < 400 && (++lyingLogs % 5) == 0) {
@@ -8232,7 +8445,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const float fadeIn = track.action == 4 ? 0.1f : (track.action == 1 || track.action == 22 || IsAimAction(track.action)) ? 0.05f : 0.15f;
                 track.actionWeight += (wantWeight - track.actionWeight) * (std::min)(1.0f, dt / (actionClip ? fadeIn : 0.15f));
                 if (actionClip) track.fadeClip = nullptr;
-                bool actUpper = IsUpperLayer(track.action);
+                bool actUpper = IsUpperLayer(track.action) && !strikeLegs;
                 if (!actionClip && track.fadeClip && track.actionWeight > 0.06f && ModelIsKnown(model)) {
                     // The ended action's last pose, fading over the locomotion.
                     actionClip = static_cast<const ModelAnimation*>(track.fadeClip);
@@ -8352,7 +8565,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 ModelSetHeadTurn(lod <= 1 ? std::floor(track.headYaw / headStep + 0.5f) * headStep : 0.0f);
                 // QB-27: run over (lying clip 2) or blown off his feet (3): a ragdoll
                 // seeded from this pose drives the skeleton while he is down.
-                const bool ragdoll = RagdollFigure(sprite.object, track.lieClip == 2 ? 1 : track.lieClip == 3 ? 2 : 0,
+                const bool ragdoll = RagdollFigure(sprite.object, track.lieClip == 2 ? 1 : track.lieClip == 3 ? 2 : track.blowDown ? 3 : 0,
                                                    track.action == 4 && !track.actionReverse && !track.waterFrame, *model, world,
                                                    gx, cy, gz, track.heading, dt, g_carFrame, locoA, locoTA, locoB, locoTB, locoW);
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
@@ -10619,4 +10832,7 @@ const char* WeaponName(int weapon) {
     return weapon > 0 && weapon < kWpnCount ? kWeapons[weapon].name : (weapon == 0 ? "none" : "?");
 }
 uint32_t LiveDrawFrame() { return g_carFrame; }
+// ANIM-COMBAT: the blow the player gave or took this frame, taken once (view_modes.cpp).
+float MeleeImpactTake() { const float v = g_meleeImpact; g_meleeImpact = 0.0f; return v; }
+
 }  // namespace gta2dx9

@@ -710,6 +710,30 @@ private:
         float hitDirX = 0.0f, hitDirZ = 0.0f;
         float hitPush = 0.07f;   // the stagger's reach (QB-16: by the gun)
         float staggerX = 0.0f, staggerZ = 0.0f;
+        int32_t combatLogHp = -2;   // ANIM-COMBAT: GTA2DX9_LOG_COMBAT's last logged health
+        // ANIM-COMBAT: the strike this swing throws (0 right cross, 1 left jab, 2 front
+        // kick, 3 stomp on a man down), how many swings into the combo and when it began;
+        // the hit-stop (his clip holds still until that frame); the clip running fast to
+        // its contact key (catchUpLeft frames left) when the game's blow came early; a
+        // reaction waiting for the striker's contact (the frame it starts and the blow);
+        // the blow last taken (striker, his swing) so the game's repeated damage ticks of
+        // one blow are one reaction; and the striker's lunge into the blow.
+        int strike = 0;
+        int combo = 0;
+        uint32_t swingFrame = 0;
+        uint32_t hitStopUntil = 0;
+        int catchUpLeft = 0;
+        uint32_t pendingHitFrame = 0;
+        int pendingSide = 0;
+        float pendingDirX = 0.0f, pendingDirZ = 0.0f, pendingPush = 0.0f;
+        int pendingStop = 0;
+        uintptr_t blowBy = 0;
+        uint32_t blowSwing = 0;
+        int hitStopFrames = 0;
+        float lungeX = 0.0f, lungeZ = 0.0f;
+        bool blowDown = false;   // down from a blow: a kind-3 ragdoll (ragdoll.cpp)
+        bool strikeTgt = false;
+        float strikeTgtX = 0.0f, strikeTgtZ = 0.0f;
         // Getting into / out of a car: the car's middle (the heading faces it on
         // the way in and away from it on the way out) and when the state began.
         bool carKnown = false;
@@ -899,5 +923,9 @@ const LiveGeometry::Conform& SpriteConformCounts();
 // loop, remembered skid strips, issuing sprites and smoke, and the cars' domes. For the log.
 constexpr int kDrawStages = 9;   // see g_drawStageMs in live_geometry.cpp
 const double* LiveDrawStageMs();
+
+// ANIM-COMBAT: 1 when a kick the player gave or took landed since the last call, 0.7 a
+// punch, else 0 (the street-view camera's nudge, view_modes.cpp).
+float MeleeImpactTake();
 
 }  // namespace gta2dx9

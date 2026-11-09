@@ -445,6 +445,55 @@ def main():
     hit_keys = [(0.00, {}, (0, 0, 0)), (0.07, hit1, (0, 0, 0)), (0.24, hit2, (0, 0, 0)), (0.55, {}, (0, 0, 0))]
     clips.append(clip_keys(sk, "hit_head", hit_keys, upper=True))
     clips.append(clip_keys(sk, "hit_head2", [(t, mirror(d), ro) for t, d, ro in hit_keys], upper=True))
+
+    # ---- Kicks (ANIM-COMBAT, 9 Nov 2026) --------------------------------------
+    # GTA2 has one attack, the fist swing; the renderer draws every third swing of a
+    # combo thrown standing as a kick, and a swing at a man on the ground as a stomp.
+    # Both are whole-body clips (the legs are the strike, so no walk underneath) with
+    # the contact at a known key (KICK_CONTACT / STOMP_CONTACT below, mirrored in
+    # live_geometry.cpp kStrikeContact): the renderer slides the clip so that key
+    # meets the game's damage tick, holds it there for the hit-stop, then plays on.
+    # Thigh +RIGHT lifts the knee forward, calf -RIGHT bends the knee; Spine +RIGHT
+    # leans back; the root offset is (his left, up, forward) in metres.
+    def fighter(torso, l, r, legs, head=None):
+        d = fists(torso, l, r, head)
+        rt, rc, lt, lc = legs
+        d[RT] = [(RIGHT, rt)]; d[RC] = [(RIGHT, rc)]; d[LT] = [(RIGHT, lt)]; d[LC] = [(RIGHT, lc)]
+        return d
+    stance_legs = (-4, -10, 10, -14)                     # left foot ahead, knees soft
+    guard_full = fighter({SP: [(UP, -6)]}, g_l, g_r, stance_legs)
+    # Front kick to the body: chamber (knee up to the hip, the foot tucked, a lean
+    # back to balance it), the snap out with the hips driving forward, the foot at
+    # belly height a leg's length ahead (0.30-0.40: contact), rechamber, the foot
+    # set down a half step forward, back to the guard.
+    clips.append(clip_keys(sk, "kick", [
+        (0.00, guard_full, (0, -0.02, 0)),
+        (0.16, fighter({SP: [(RIGHT, 6), (UP, -4)], SP2: [(RIGHT, 3)]}, (60, -24, 108), (44, -6, 100), (74, -100, 8, -18)), (0, -0.04, -0.03)),
+        (0.30, fighter({SP: [(RIGHT, 16), (UP, 6)], SP2: [(RIGHT, 6)]}, (58, -18, 104), (-8, -38, 30), (88, -6, 4, -10), [(RIGHT, -8)]), (0, -0.01, 0.05)),
+        (0.40, fighter({SP: [(RIGHT, 15), (UP, 6)], SP2: [(RIGHT, 6)]}, (58, -18, 104), (-6, -36, 34), (86, -8, 4, -10), [(RIGHT, -8)]), (0, -0.01, 0.06)),
+        (0.56, fighter({SP: [(RIGHT, 7)], SP2: [(RIGHT, 3)]}, (58, -20, 104), (34, -4, 90), (66, -92, 8, -16)), (0, -0.04, 0.03)),
+        (0.74, fighter({SP: [(UP, -4)]}, g_l, g_r, (14, -24, -2, -6)), (0, -0.03, 0.06)),
+        (0.95, guard_full, (0, -0.02, 0.0)),
+    ]))
+    # Stomp on a man on the ground: the knee comes up high with the torso over it
+    # and the arms out for balance, the heel driven down onto him just ahead
+    # (0.34-0.44: contact), a little bounce, the foot back beside the other.
+    clips.append(clip_keys(sk, "stomp", [
+        (0.00, guard_full, (0, -0.02, 0)),
+        (0.22, fighter({SP: [(RIGHT, -10)], SP2: [(RIGHT, -4)]}, (40, 40, 60), (40, -40, 60), (88, -104, 6, -16), [(RIGHT, -16)]), (0, -0.03, -0.02)),
+        (0.34, fighter({SP: [(RIGHT, -20)], SP2: [(RIGHT, -8)]}, (30, 48, 50), (30, -48, 50), (42, -22, 14, -26), [(RIGHT, -26)]), (0, -0.08, 0.04)),
+        (0.44, fighter({SP: [(RIGHT, -18)], SP2: [(RIGHT, -7)]}, (34, 44, 54), (34, -44, 54), (40, -26, 14, -28), [(RIGHT, -24)]), (0, -0.09, 0.04)),
+        (0.62, fighter({SP: [(RIGHT, -8)]}, (50, 10, 90), (44, -6, 96), (30, -60, 10, -16), [(RIGHT, -10)]), (0, -0.04, 0.02)),
+        (0.85, guard_full, (0, -0.02, 0.0)),
+    ]))
+    # Taking a kick in the belly (upper layer, 0.75 s): the body folds over the
+    # blow at once, both forearms come in to the stomach, the head drops; then he
+    # straightens over half a second. The renderer pushes him back twice as far as
+    # a punch does.
+    gut1 = fists({SP: [(RIGHT, -26), (UP, 4)], SP2: [(RIGHT, -12)]}, (30, -30, 100), (30, 30, 100), [(RIGHT, -16)])
+    gut2 = fists({SP: [(RIGHT, -20), (UP, 2)], SP2: [(RIGHT, -9)]}, (34, -28, 96), (34, 28, 96), [(RIGHT, -12)])
+    clips.append(clip_keys(sk, "hit_body", [(0.00, {}, (0, 0, 0)), (0.06, gut1, (0, 0, 0)), (0.30, gut2, (0, 0, 0)),
+                                            (0.75, {}, (0, 0, 0))], upper=True))
     # ---- Shot (QB-16, upper-body layers, 0.6 s, one shot) --------------------
     # A bullet landing (the game's health drop with a figure that just fired at
     # him, live_geometry.cpp): the torso jolts along the bullet in the first

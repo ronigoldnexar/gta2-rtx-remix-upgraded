@@ -27,8 +27,11 @@ bool RagdollEnabled();
 // A car body drawn this frame: its four corners in the world (x, y, z each).
 void RagdollNoteCar(uintptr_t object, const float corners[4][3], uint32_t frame);
 // A blast seen this frame (the scorch it leaves): centre and size in blocks.
+// ANIM-COMBAT: the blow (a punch or a kick) that is putting a man down: its way (unit)
+// and speed, blocks a second, for the throw of a kind-3 ragdoll.
+void RagdollNoteBlow(uintptr_t ped, float dx, float dz, float speed, uint32_t frame);
 void RagdollNoteBlast(float x, float y, float z, float size, uint32_t frame);
-// One figure's frame. `kind` is what put him down (1 a car, 2 a blast, 0
+// One figure's frame. `kind` is what put him down (1 a car, 2 a blast, 3 a blow, 0
 // neither: no ragdoll), `down` whether he is down now (lying, not getting up).
 // The pose pair is what the caller is about to draw (the seed). Returns true
 // when the ragdoll drives this draw: the model_store pose hook is set until

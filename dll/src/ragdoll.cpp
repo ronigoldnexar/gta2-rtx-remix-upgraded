@@ -208,6 +208,9 @@ struct CarNote {
 std::map<uintptr_t, CarNote> g_cars;
 struct BlastNote { float x, y, z, size; uint32_t frame; };
 std::vector<BlastNote> g_blasts;
+// ANIM-COMBAT: a blow that put a man down (kind 3): its way and its speed, by man.
+struct BlowNote { float dx, dz, speed; uint32_t frame; };
+std::map<uintptr_t, BlowNote> g_blows;
 
 const Body* g_hookBody = nullptr;
 
@@ -416,6 +419,16 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
         }
         lift = sp * 0.30f * (std::min)(1.0f, sp / 2.5f);   // at speed, up onto the bonnet
         upper = 0.45f;                                       // the upper body lags: he folds over the bonnet
+    } else if (kind == 3) {
+        // ANIM-COMBAT: knocked down by a punch or a kick: thrown along the blow, the upper
+        // body first (the head and chest take it, the feet stay planted and trip him), a
+        // little lift; a kick throws harder than a fist.
+        const auto it = g_blows.find(ped);
+        float dx = -hx, dz = -hz, sp = 0.9f;
+        if (it != g_blows.end()) { dx = it->second.dx; dz = it->second.dz; sp = it->second.speed; }
+        vx = dx * sp; vz = dz * sp;
+        lift = sp * 0.12f;
+        upper = 1.7f;
     } else {
         // Away from the blast, the nearest within three blocks in the last second.
         const BlastNote* best = nullptr;
@@ -452,7 +465,7 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
     if (logged < 200) {
         ++logged;
         Log("ragdoll: start %p (%s) %s at %.2f,%.2f,%.2f throw %.2f,%.2f up %.2f car %p%s", reinterpret_cast<const void*>(ped),
-            model.name.c_str(), kind == 1 ? "run over" : "blast", gx, gy, gz, vx, vz, lift,
+            model.name.c_str(), kind == 1 ? "run over" : kind == 3 ? "blow" : "blast", gx, gy, gz, vx, vz, lift,
             reinterpret_cast<const void*>(b.car), b.walls ? "" : " (no wall checks: his spot reads solid)");
     }
     return true;
@@ -701,6 +714,11 @@ void RagdollNoteCar(uintptr_t object, const float corners[4][3], uint32_t frame)
     c.frame = frame;
 }
 
+void RagdollNoteBlow(uintptr_t ped, float dx, float dz, float speed, uint32_t frame) {
+    if (g_blows.size() > 64) g_blows.clear();
+    g_blows[ped] = {dx, dz, speed, frame};
+}
+
 void RagdollNoteBlast(float x, float y, float z, float size, uint32_t frame) {
     if (g_blasts.size() >= 16) g_blasts.erase(g_blasts.begin());
     g_blasts.push_back({x, y, z, size, frame});
@@ -733,7 +751,7 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
     if (found != g_bodies.end() && found->second.release > 0.0f) { g_bodies.erase(found); found = g_bodies.end(); }
     if (found != g_bodies.end() && found->second.model != &model) { g_bodies.erase(found); found = g_bodies.end(); }
     if (found == g_bodies.end()) {
-        if (kind != 1 && kind != 2) return false;
+        if (kind != 1 && kind != 2 && kind != 3) return false;
         const Rig& rig = RigFor(model);
         if (!rig.ok) return false;
         Body body;

@@ -992,3 +992,69 @@ strips with `linux/docker/qb20_strip.py`.
 - A stop has no root motion (the game stops at once), so the stop's remaining steps slide the feet a little
   (up to about one walking cycle, 0.1-0.3 block).
 - Remix not tested; the women's clips seen in log only (the player is male).
+
+## ANIM-COMBAT (9 Nov 2026): contact timing, hit-stop, kicks, blows that throw
+
+Quality-bar rows 15/16 (punching, getting hit). What read as fake: the victim flinched while the
+striker's fist was still at his chin.
+
+**Why: when the game deals the damage.** In 40 punch hits across 20 older runs (`fig: hit` against the
+striker's `ped anim: ... action 1 (frame N)` line) the game takes the health 0.00-0.07 s after the
+first frame of a swing: NPCs from sprite frame 123-124, the player from 115. One blow ticks for several
+frames (50 -> 40 -> 30 -> 20 in 70 ms). The clips put the fist out at 0.36 s (cross) / 0.32 s (jab),
+so the reaction came a third of a second before the punch.
+
+**Now (`dll/src/live_geometry.cpp`, `DrawPedFigures`; switch `GTA2DX9_COMBAT_FX=0` restores the old
+behaviour, `GTA2DX9_KICKS=0` only the kicks).**
+- Contact sync: a health drop with a striker mid-swing is one blow per swing (repeat ticks are
+  "same blow"). If the striker's clip is before its contact key (`kStrikeContact`: cross 0.36, jab
+  0.32, kick 0.32, stomp 0.36), the rest of the wind-up runs in at most 4 frames and the victim's
+  reaction waits for that frame; at or past the key the reaction is immediate. A knock-down (or
+  death) that arrives with the blow is held up the same 1-4 frames, so nobody falls before the fist.
+- Hit-stop: at contact the striker's clip and the victim's reaction hold for 2 frames (punches) or 3
+  (kicks, stomps). The reaction starts at its impact key (head already snapped / body folded) at 85 %+
+  weight instead of easing in from neutral.
+- Stagger as an impulse: held through the hit-stop, then 85 % of the push in 0.12 s (ease-out), walked
+  back over 0.6 s; push by strike: jab 4.5 cm, cross 7, kick 13, stomp 3 (blocks x 100).
+- The striker leans in: a lunge along his facing up to the contact key (cross 3.5 cm, jab 2.2) and
+  back; he turns onto the man he swings at (within 45 degrees of the game's facing) until just after
+  contact.
+- Strike choice per swing (`fig: swing` in the log): the combo runs cross, jab, kick; the kick only
+  when standing (leg pace < 0.25 blocks/s; the legs are the strike). A swing at a man on the ground
+  within 0.45 block is a stomp (dead or knocked down), never a kick over him. A blow taken mid-swing
+  interrupts his own swing for 0.35 s.
+- Knocked down by a blow: away from it (onto the back from the front, the front from behind), as a
+  QB-27 ragdoll of the new kind 3 (`RagdollNoteBlow`, `ragdoll.cpp`): thrown along the blow at 0.7 / 0.9
+  / 1.3 blocks/s (jab / cross / kick), upper body first, small lift.
+- Camera: a blow the player gives or takes nudges the street-view camera (`view_modes.cpp`,
+  `MeleeImpactTake`; at most about 0.3 degrees in first person).
+- Clips (`tools/gen_ped_clips.py`): `kick` (whole body, 0.95 s: chamber, front kick at belly height
+  0.96 m ahead, rechamber, step down), `stomp` (0.85 s: knee high, heel down 0.5 m ahead), `hit_body`
+  (upper layer, 0.75 s: folds over a kick in the belly). The 41 avatars must be re-imported for them
+  (avatars without them fall back to the punch and `hit_head`).
+
+**Log** (`GTA2DX9_LOG_COMBAT=1`, also with `GTA2DX9_LOG_PED_FRAMES=1`): `fig: swing <striker> cross|jab|kick|stomp
+(combo n, leg pace, target)`, `fig: hit <victim> by <striker> (strike, his frame F t T[, waits for his contact |
+, same blow]) health a -> b`, `fig: contact <victim> by <striker> side S push P stop N`, and `cb:` lines (frame,
+state, health, action, clip time, position, heading) for every figure mid-swing or whose health changes.
+
+**Probe.** `linux/docker/combat_probe.py` + `keys_combat.sh` (mirrored in `gamerun/`): `COMBAT_MODE=walk`
+walks the player into the nearest person with the key held (bursts at 15 fps); `COMBAT_MODE=cops` (default)
+sets `force_wanted=2` and punches back at anyone within reach. Sheet: `linux/docker/combat_sheet.py <run>
+<png>` (frames from each `fig: contact`, timed by each PNG's write time: x11grab on a loaded host drops and
+bunches frames, so index/fps drifted by seconds). Run:
+`STAGE=<stage> FPS=0 GTA2_DIRECT_KEYS=1 INI_SED='s/^scene_key=.*/scene_key=F10/; s/^warp_key=.*/warp_key=F9/' gamerun/grun.sh <run> 600 keys_combat.sh -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_LOG_COMBAT=1 -e GTA2DX9_LOG_NEAR_PED=1 -e COMBAT_MODE=walk`.
+
+| item | status | evidence |
+|---|---|---|
+| contact sync, NPC cross on NPC | verified in the log: damage at the striker's t 0.10, his clip 0.10 -> 0.165 -> 0.23 -> 0.295 -> 0.36 in 4 frames, `contact` on the 0.36 frame, both held 2 frames (striker at 0.360, victim at 0.070), then on. No usable frames (the run's view never left classic at host load 78) | `out/combat_r2` log |
+| player jab | verified: log (damage at the swing restart, frame 115; 4-frame catch-up; contact one frame after the fist's key; victim killed and down) and frames: guard up while closing, arm out on the contact frame, she goes down; from the chase camera behind him his body hides most of her | `out/combat_r1/combat_jab_sheet.png` |
+| kick | verified in frames (r1): knee chambers, leg out at hip height, rechamber, step down. It was thrown at a body already on the ground (the first build left corpses out of the stomp rule): fixed after, not re-filmed | `out/combat_r1/combat_kick_sheet.png`; clip poses `out/combat_r1/combat_clips_fk.png` |
+| stomp, `hit_body`, ragdoll on a blow, camera nudge | built, not seen in a run (no stomp or kick contact landed in r1/r2; the r1 victim's fall was hidden behind the player) | - |
+| first person | the player's figure is not drawn there and leaves no swing flag, so a man he punches in first person gets no reaction (as before) | - |
+
+What still reads as fake: the wind-up of a landed punch is compressed into 4 frames (the game gives no
+warning before its damage tick), so landed punches look snappier than misses; a hit-stop of 2 frames is
+barely visible at the chase camera's distance; the kick and stomp are procedural key poses, stiffer than
+mocap; the kick cannot track a moving target (the legs are the clip's); the victim's flinch is an
+upper-body layer, so a man hit while walking keeps walking under it.

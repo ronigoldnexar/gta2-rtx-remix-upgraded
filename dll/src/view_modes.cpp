@@ -1,4 +1,5 @@
 #include "view_modes.h"
+#include "live_geometry.h"
 
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
@@ -1952,6 +1953,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     if (s.impactShake > 0.0f && rawDrop > 3.0f && speed < reference) {
         shake_ = (std::min)(shake_ + (rawDrop - 3.0f) / 8.0f * s.impactShake, 1.5f);
     }
+    // ANIM-COMBAT: a blow the player lands or takes nudges the camera (at most about
+    // 0.3 degrees in first person, a few millimetres of eye in the chase view).
+    shake_ = (std::max)(shake_, 0.12f * MeleeImpactTake());
     shake_ *= std::exp(-dt / 0.22f);
     shakeClock_ += dt;
 
