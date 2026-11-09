@@ -43,6 +43,9 @@ void BoardingPublishCar(uintptr_t carObject, const gta2::Mat4& carToWorld, float
 // car_bodies, every frame after BoardingPublishCar: the front wheels' steer (radians, + to the
 // car's left), for the seated driver's hands on the wheel.
 void BoardingPublishSteer(uintptr_t carObject, float steer);
+// FIX-JACK-SEAT (pm19): car_bodies, after BoardingPublishCar: an open-top body (CabOpenTop: roadster, jeep):
+// its driver sits on the cushion, head and shoulders over the seat back, not sunk to clear a roof.
+void BoardingPublishOpenTop(uintptr_t carObject, bool openTop);
 // car_bodies: whether a boarding drives this car's door now; if so the side, the
 // target (0 shut, 1 open) and the rate (per second).
 bool BoardingDoor(uintptr_t carObject, int* side, float* target, float* rate);
@@ -73,6 +76,8 @@ struct BoardingOut {
     float clipW = 1.0f;         // the action clip's weight (seated: a little of enter_car's fold over the idle)
     bool seated = false;        // FIX-SEATED: at the wheel for the drive (no stepping legs; hidden in first person)
     float headYaw = 0.0f;       // seated: the head turned into the turn (radians, + to his right)
+    float rate = 1.0f;          // FIX-JACK-SEAT: how fast the plan's clock runs this frame (>1: catching up with the game)
+    bool held = false;          // FIX-JACK-SEAT: held at the yanked-open door while the game holds him there (a jack)
 };
 // Per figure, every frame, after the renderer has placed it and before it is posed.
 // True while a boarding plays: the figure is drawn from `out`.
@@ -103,6 +108,11 @@ bool BoardingBusy(uintptr_t ped);
 bool BoardingCarSeated(uintptr_t carObject);
 // A seated ped's spot (world, the seat's floor point under his hips), for his ghost sprite.
 bool BoardingSeatSpot(uintptr_t ped, float* x, float* y, float* z);
+// FIX-JACK-SEAT (feel7): a jacked driver's way out, `age` seconds after the game threw him (it places
+// him beside the car at once, inside the open door's swing): from his seat over the sill, back round the
+// door's rear edge and out behind it (0-0.55 s), then onto the game's spot (gameX/Z) by 0.9 s. The car is
+// the drawn one nearest carX/Z. False once he is the game's again (or no car is drawn there).
+bool BoardingJackVictim(float gameX, float gameZ, float carX, float carZ, float age, uint32_t now, float* x, float* z, float* sink);
 // Once a frame, after the figures: forgets boardings that ended or were abandoned.
 void BoardingEndFrame(uint32_t now);
 // A world point (dir false) or direction (dir true) into the space of a model drawn with

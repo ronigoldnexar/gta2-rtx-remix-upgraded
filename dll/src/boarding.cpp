@@ -28,6 +28,7 @@ struct Car {
     float lastX = 0.0f, lastZ = 0.0f;
     bool warm = false;
     float steer = 0.0f;        // the front wheels (BoardingPublishSteer), radians, + to the left
+    bool openTop = false;      // FIX-JACK-SEAT (pm19): BoardingPublishOpenTop
 };
 std::map<uintptr_t, Car> g_cars;
 
@@ -83,6 +84,7 @@ struct Board {
     float bu = 0.0f, bz = 0.0f; bool haveBase = false;   // kShut: the filtered game spot (car frame)
     float shutH0 = 99.0f;                                // kShut: his heading as it began
     float held = 0.0f;         // QB-14: seconds the climb waited for the driver
+    float rush = 0.0f;         // FIX-JACK-SEAT: the climb's clock rate once the game has him inside (0: not yet)
     // kSeated: the feet's targets as the climb left them (car frame), eased onto the pedals
     float footFrom[2][3] = {};
     bool footFromSet = false;
@@ -188,7 +190,12 @@ float SitSink(const Car& c) { return (std::max)(0.04f, (std::min)(0.11f, 0.234f 
 // is about 0.10 block over the road in a saloon, not the cushion's 0.16): low enough that his
 // head (0.46 standing, 0.47 for the tallest look) clears the roof's inside by 2.5 cm, at most
 // 0.14 (an open-top body's low "roof" is its windscreen: he shows over it, as he should).
-float DriveSink(const Car& c) { return (std::max)(SitSink(c), (std::min)(0.14f, 0.47f - (c.roof - 0.025f))); }
+// FIX-JACK-SEAT (pm19): an open-top body has no roof to clear: sunk to 0.14 under its windscreen "roof" the
+// hero's head sat below the seat backs and the roadster read as driven by nobody; he sits on the cushion.
+float DriveSink(const Car& c) {
+    if (c.openTop) return SitSink(c);
+    return (std::max)(SitSink(c), (std::min)(0.14f, 0.47f - (c.roof - 0.025f)));
+}
 // The steering wheel's hub, car frame: in line with the seat, 0.085 ahead of the hips' line and
 // 0.06 under the shoulder (0.34 standing, less the sink): the hands reach it with the elbows bent
 // (the arm is 0.124 to the wrist). Its rim 0.032 (a 0.3 m wheel at 4.8 m a block), raked 25 deg.
@@ -304,6 +311,11 @@ void BoardingPublishCar(uintptr_t carObject, const gta2::Mat4& carToWorld, float
     if (g_cars.size() > 256) {
         for (auto it = g_cars.begin(); it != g_cars.end();) it = frame - it->second.frame > 120 ? g_cars.erase(it) : std::next(it);
     }
+}
+
+void BoardingPublishOpenTop(uintptr_t carObject, bool openTop) {
+    auto it = g_cars.find(carObject);
+    if (it != g_cars.end()) it->second.openTop = openTop;
 }
 
 void BoardingPublishSteer(uintptr_t carObject, float steer) {
@@ -579,6 +591,15 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
         // Walking to the door: the game places him; the hand on the door's side
         // reaches for the handle once he is within an arm of it.
         usePlanPos = false;
+        // FIX-JACK-SEAT: the side he is on now (the game walks him round the back to the door it
+        // chose: the near door, opened as he came, stayed open on the wrong side of a truck).
+        {
+            float lx, ly, lz;
+            ToLocal(c, in.gameX, in.groundY, in.gameZ, &lx, &ly, &lz);
+            b.side = lx >= 0.0f ? 1 : -1;
+        }
+        const int s = b.side;
+        const float open = c.doorSide == s ? c.doorOpen : 0.0f;
         const gta2::Vec3 handle = DoorPoint(c, s, open, 0.93f, hy, 0.015f);
         const float dx = handle.x - in.drawnX, dz = handle.z - in.drawnZ;
         const float d = std::sqrt(dx * dx + dz * dz);
@@ -597,10 +618,30 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
         return false;   // position and clips stay the renderer's; only the hand (BoardingLimb)
     }
 
-    // QB-14: a jacker waits at the door he has yanked open until the driver is out of it
-    // (at most 1.5 s), so he never steps into the opening through him.
-    if (b.mode == kClimb && b.jacking && in.driverIn && b.t >= 0.45f && b.held < 1.5f) b.held += dt;
-    else b.t += dt;
+    // QB-14: a jacker waits at the door he has yanked open until the driver is out of it,
+    // so he never steps into the opening through him. FIX-JACK-SEAT (feel14): for as long as
+    // the game keeps him there (a jammed or creeping car holds him at the door for seconds;
+    // with the old 1.5 s cap the figure sat down in a seat the driver still filled), until the
+    // game starts moving him in (frames 32+) or stops drawing him; 10 s at most.
+    // FIX-JACK-SEAT (feel13): once the game stops drawing him he is in its car - often already
+    // driving off - so the rest of the climb (the step in, the sit, the door pulled shut) is
+    // played inside 0.6 s (0.4 s on the move) instead of the plan's own 2.1 s, which left a
+    // standing figure carried along beside the car with its door open.
+    out->held = false;
+    out->rate = 1.0f;
+    if (b.mode == kClimb && in.ghost && b.t < 2.1f && b.rush <= 0.0f) {
+        b.rush = (std::max)(1.0f, (2.1f - b.t) / (c.speed > 0.3f ? 0.4f : 0.6f));
+        if (g_log || in.own) Log("board: f=%u ped=%04x in per the game at t=%.2f: the rest at x%.1f (car %.2f b/s)", in.now,
+                       static_cast<unsigned>((in.ped >> 2) & 0xFFFF), b.t, b.rush, c.speed);
+    }
+    const float rate = b.mode == kClimb && b.rush > 0.0f ? b.rush : 1.0f;
+    const bool gameHolds = in.state == 3 && !in.ghost && in.frame < 32;
+    if (b.mode == kClimb && b.jacking && in.driverIn && gameHolds && b.t >= 0.45f && b.held < 10.0f) {
+        b.held += dt; out->held = true;
+    } else {
+        b.t += dt * rate;
+    }
+    out->rate = rate;
     const float t = b.t;
     const float rx = sf;   // u to x
 
@@ -661,7 +702,7 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
         // The door: open to 33 degrees and left open while he gets in; pulled shut from
         // 1.45 by its armrest (1.6 a second: shut at 1.8).
         b.doorTarget = t < 1.45f ? (b.jacking ? kDoorOpen : kDoorEnter) : 0.0f;
-        b.doorRate = t < 1.45f ? 2.5f : 1.6f;
+        b.doorRate = (t < 1.45f ? 2.5f : 1.6f) * rate;
         // The clip (enter_car, 1.3 s: reach 0.35, pull 0.65, duck 0.95, folded 1.3).
         out->action = 5;
         out->clipT = t < 0.2f ? 0.15f + t : t < 0.5f ? 0.35f + (t - 0.2f) * 1.0f
@@ -924,7 +965,9 @@ bool BoardingWantsGhost(uintptr_t ped, uint32_t now) {
         auto c = g_cars.find(b.car);
         return c != g_cars.end() && now - c->second.frame <= 2;   // (not b.seen: the classic view draws no figures)
     }
-    return b.mode == kClimb && !b.ended && b.t > 0.3f && now - b.seen <= 2;
+    // (from 0.1 s: a jack the game finishes while the plan still holds at the door must not
+    // drop the figure for the frames the catch-up needs)
+    return b.mode == kClimb && !b.ended && b.t > 0.1f && now - b.seen <= 2;
 }
 
 bool BoardingSeat(uintptr_t ped, uintptr_t car, uint32_t now) {
@@ -984,6 +1027,47 @@ bool BoardingSeatSpot(uintptr_t ped, float* x, float* y, float* z) {
     if (c == g_cars.end()) return false;
     const gta2::Vec3 p = CarPoint(c->second, it->second.side, SeatU(c->second), 0.0f, SeatZ(c->second));
     *x = p.x; *y = p.y; *z = p.z;
+    return true;
+}
+
+bool BoardingJackVictim(float gameX, float gameZ, float carX, float carZ, float age, uint32_t now, float* x, float* z, float* sink) {
+    if (!BoardingEnabled() || age < 0.0f || age >= 0.9f) return false;
+    const Car* c = nullptr;
+    float bd = 0.7f * 0.7f;
+    for (const auto& e : g_cars) {
+        if (now - e.second.frame > 3) continue;
+        const float dx = e.second.m.m[3][0] - carX, dz = e.second.m.m[3][2] - carZ;
+        if (dx * dx + dz * dz < bd) { bd = dx * dx + dz * dz; c = &e.second; }
+    }
+    if (!c) return false;
+    float lx, ly, lz;
+    ToLocal(*c, gameX, c->m.m[3][1], gameZ, &lx, &ly, &lz);
+    const int s = c->doorOpen > 0.05f ? c->doorSide : (lx >= 0.0f ? 1 : -1);
+    const float hw = c->halfW, Ld = DoorLen(*c);
+    // The open door's rear edge (car frame, u outward), as car_bodies swings it.
+    float ex, ez;
+    Swing(*c, s, (std::max)(c->doorOpen, 0.3f), static_cast<float>(s) * c->halfW, c->zFront - Ld, &ex, &ez);
+    const float edgeU = ex * static_cast<float>(s);
+    // Waypoints: the seat, the sill at the door frame's rear, then back along the body, between it
+    // and the jacker (who stands at the open door's edge, 0.06 out and 0.07 behind its handle), to
+    // behind him: 0.14 out of the body, 0.28 behind the door's edge.
+    (void)edgeU;
+    const float u0 = SeatU(*c), z0 = SeatZ(*c);
+    const float u1 = hw + 0.03f, z1 = (std::min)(z0, c->zRear + 0.04f);
+    const float u2 = hw + 0.14f, z2 = (std::min)(c->zRear - 0.18f, ez - 0.28f);
+    float u, zz, sk;
+    if (age < 0.25f) {
+        const float k = Smooth(0.0f, 0.25f, age);
+        u = Lerp(u0, u1, k); zz = Lerp(z0, z1, k); sk = Lerp(SitSink(*c), 0.04f, k);
+    } else {
+        const float k = Smooth(0.25f, 0.55f, age);
+        u = Lerp(u1, u2, k); zz = Lerp(z1, z2, Smooth(0.25f, 0.45f, age)); sk = Lerp(0.04f, 0.0f, k);
+    }
+    const gta2::Vec3 p = CarPoint(*c, s, u, 0.0f, zz);
+    const float g = Smooth(0.55f, 0.9f, age);
+    *x = Lerp(p.x, gameX, g); *z = Lerp(p.z, gameZ, g); *sink = sk * (1.0f - g);
+    if (g_log) Log("board: jacked driver age=%.2f side=%d u=%.3f z=%.3f edge=%.3f,%.3f open=%.2f pos=%.3f,%.3f game=%.3f,%.3f",
+                   age, s, u, zz, edgeU, ez, c->doorOpen, *x, *z, gameX, gameZ);
     return true;
 }
 

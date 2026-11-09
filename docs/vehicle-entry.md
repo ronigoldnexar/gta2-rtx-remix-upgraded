@@ -142,6 +142,35 @@ roof-edge hand is left to the clip (both hands go into the doorway), and the cli
 door (at most 1.5 s) until the driver is seen thrown out, so the jacker never steps into the opening
 through him. Code path only: no jack was filmed in this pass.
 
+**Jack and seat pass (FIX-JACK-SEAT, 9 Nov; feel14, feel13, feel7, pm19).** What the game does (logs of
+`feel14_jack`, `pl13_drv`, `js_fix*`): the jacker stands at the door in state 3 sub 6 until the driver is
+thrown (state 8 sub 0x11), then climbs in (frames 32-35) and is seated (state 10, his sprite gone). That
+hold is the game's own and frame-locked: 1-2 s at 30 fps, 4-10 s in the scripted runs, where the game ran at
+6-10 fps during jacks (the sprites pass jumps from ~5 to 30-70 ms, a stall sampler shows the game thread
+waiting in wined3d; a performance item, not fixed here). feel14's "never seated" was the probe: `pl13_drive.py`
+presses Return the moment it finds itself driving.
+- **The hold follows the game** (`boarding.cpp`): the plan waits at the yanked-open door for as long as the
+  game keeps him there (driver not yet out, frames < 32, still drawn; 10 s cap), not 1.5 s; with the cap the
+  figure sat down in a seat the driver still filled. Meanwhile `jack_pull` tugs (0.95 -> 1.12 -> 0.95, 0.7 s,
+  from 0.4 s into the hold) instead of one frozen grip.
+- **Catch-up once he is in** (feel13): the first frame the game stops drawing him (the boarding ghost), the
+  rest of the climb, the sit and the door pull run at the rate that finishes them in 0.6 s (0.4 s on the move;
+  `BoardingOut::rate`, also applied to `jack_pull`). Before, the plan's own 2.1 s left a standing figure
+  carried beside a car the game already drove, door open. The climb's ghost starts at t 0.1 (was 0.3).
+- **The door on the side he boards**: the approach takes his side from the game's position every frame (the
+  game walks him round the back of a truck to the street-side door); car_bodies shuts a door open on the other
+  side before opening the boarding's (a kerb-side door, opened by the proximity rule as he came, stayed open
+  through the drive-off); the player's own car opens no door for a passer-by matched only by proximity.
+- **The victim's way out** (feel7, `BoardingJackVictim`): from his seat (sunk) over the sill at the door
+  frame's rear, back along the body between it and the jacker, to 0.14 out and 0.28 behind the open door's
+  edge (0-0.55 s), then onto the game's spot by 0.9 s, playing `jacked` throughout.
+- **Seated from the start** (pm19): a level that starts him at the wheel (ste) never showed him on foot, so
+  nothing was seated; a passer-by's quad without texture stands in (his look is `IdentityForPlayer`). An
+  open-top body (`CabOpenTop`, `BoardingPublishOpenTop`) seats him on the cushion (`SitSink`), not sunk to
+  clear a roof (head below the seat backs: an empty-looking roadster).
+- Probe: `gamerun/js_jack.py` / `keys_js_jack.sh` (JS_JACKS, JS_VMAX, JS_NEAR, JS_WAIT, JS_PARKED; films each
+  jack until seated + drive-off + exit; never exits on finding itself driving), `keys_js_pm19.sh` (ste).
+
 **Verification aids.** `GTA2DX9_BOARDING_CAM=2` holds the camera ahead of the door (front quarter: the
 door's swing and the figure behind it are both seen); both cameras now stay through the shut. Probe
 `linux/docker/aee_probe.py` + `keys_aee_probe.sh` (mirrored in `gamerun/`) = `entry_probe.py` plus

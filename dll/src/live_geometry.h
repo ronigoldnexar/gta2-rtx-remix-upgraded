@@ -763,8 +763,14 @@ private:
         // QB-14 jacking: boarding a car with a driver at the wheel (jack_pull for the
         // enter_car layer); the driver thrown out of it (lying clip 5, "jacked") and when.
         bool jacking = false;
+        // FIX-JACK-SEAT: the boarding plan's clock rate this frame (it catches up once the game has him
+        // in) and whether it holds him at the yanked door (jack_pull tugs meanwhile), seconds of the tug
+        float boardRate = 1.0f;
+        bool boardHeld = false;
+        float tugT = 0.0f;
         bool jacked = false;
         uint32_t jackFrame = 0;
+        float jackCarX = 0.0f, jackCarZ = 0.0f;   // FIX-JACK-SEAT: the jacked car's spot at the throw (his way out of it)
         float carSpeed = 0.0f;              // that car's own pace, blocks a second, eased: moving or parked
         uint32_t carSeenFrame = 0;
         // The clip an action ended on and where, faded out over the locomotion

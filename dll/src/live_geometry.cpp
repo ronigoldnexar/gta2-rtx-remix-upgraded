@@ -6528,6 +6528,10 @@ void LiveGeometry::RaiseCarBody(Sprite* body) {
                     const float d2 = ddx * ddx + ddz * ddz;
                     const bool match = dp.vehicle ? dp.vehicle == reinterpret_cast<uintptr_t>(car) : d2 < best;
                     if (!match) continue;
+                    // FIX-JACK-SEAT: the car the player drives opens no door for a passer-by who only
+                    // happens to be near it (a ped walking to another car beside it held its far door
+                    // open through a whole drive-off); its own boarding drives its door.
+                    if (!dp.vehicle && use.driven) continue;
                     best = d2; use.doorPed = true; use.doorPedX = dp.x; use.doorPedZ = dp.z;
                     if (dp.vehicle) break;
                 }
@@ -8094,6 +8098,25 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         const bool playerDriving = game::PlausiblePointer(located) &&
                                    game::PlausiblePointer(*reinterpret_cast<const uint8_t* const*>(located + game::kPedVehicle));
         int seatTrace = -1;   // the trace: -1 not tried, 0 no driven car body, 1 seated, 2 a boarding plays
+        // FIX-JACK-SEAT (pm19): a level that starts him at the wheel (ste) never shows him on foot, so
+        // there was no sprite to seat and the car drove empty. His figure is his identity record
+        // (IdentityForPlayer), not his sprite's art: a passer-by's quad stands in (no texture, so it
+        // is never drawn flat), keyed by his ped. His real sprite replaces it the first time he is out.
+        if (!ownSprite_.first && !playerOnFoot && playerDriving) {
+            for (size_t i = 0; i < boardRealSprites; ++i) {
+                const Sprite& sp = sprites_[i];
+                if (!sp.pedestrian || sp.hidden || sp.ghost || sp.boardUi || sp.corpse || sp.corners != 4) continue;
+                Sprite t = sp;
+                t.texture = nullptr;
+                t.object = reinterpret_cast<uintptr_t>(located) & ~static_cast<uintptr_t>(3);
+                t.pedState = 10; t.pedSub = 10; t.pedFrame = 0; t.pedId = -1;
+                t.pedAmmo = t.pedReload = -1; t.pedWeaponObject = 0; t.pedHealth = -1;
+                ownSprite_ = {g_carFrame, t};
+                if (g_logFigures) Log("seat: no sprite of him on foot yet (started at the wheel): a stand-in keyed %p",
+                                      reinterpret_cast<const void*>(t.object));
+                break;
+            }
+        }
         // (not while his climb plays: the game stops naming him a moment into it)
         if (ownSprite_.first && !playerOnFoot && playerDriving && !BoardingBusy(ownSprite_.second.object)) {
             const uintptr_t key = seatKey(ownSprite_.second.object);
@@ -8639,7 +8662,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
                 if (thrownOut) {
-                    track.jacked = true; track.jackFrame = g_carFrame;
+                    track.jacked = true; track.jackFrame = g_carFrame; track.jackCarX = tx; track.jackCarZ = tz;
                     if ((tx - cx) * (tx - cx) + (tz - cz) * (tz - cz) > 1e-4f) track.heading = std::atan2(tx - cx, tz - cz);
                 }
                 if (g_jackThrows.size() > 16) g_jackThrows.erase(g_jackThrows.begin());
@@ -8824,6 +8847,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     if (j.frame >= track.carStateFrame && (j.x - cx) * (j.x - cx) + (j.z - cz) * (j.z - cz) < 1.3f * 1.3f) bi.driverIn = false;
             }
             boarding = BoardingUpdate(bi, &boardOut);
+            track.boardRate = boarding ? boardOut.rate : 1.0f;
+            track.boardHeld = boarding && boardOut.held;
             if (boarding) {
                 track.dx = boardOut.x; track.dz = boardOut.z; track.vx = boardOut.vx; track.vz = boardOut.vz;
                 track.heading = boardOut.heading; track.twist = 0.0f; track.turnRate = 0.0f;
@@ -8837,7 +8862,19 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
             }
         }
-        const float boardSink = boarding ? boardOut.sink : 0.0f;
+        // FIX-JACK-SEAT (feel7): the thrown driver comes out of his seat through the door opening
+        // and round the open door's rear edge (boarding.h BoardingJackVictim), not from where the game
+        // teleports him (beside the car, inside the door's swing), then rejoins the game's spot.
+        float victimSink = 0.0f;
+        if (track.jacked && !boarding && BoardingEnabled() && g_groundModels) {
+            const float age = static_cast<float>(g_carFrame - track.jackFrame) / 30.0f;
+            float vx, vz;
+            if (BoardingJackVictim(cx, cz, track.jackCarX, track.jackCarZ, age, g_carFrame, &vx, &vz, &victimSink)) {
+                track.dx = vx; track.dz = vz; track.vx = track.vz = 0.0f;
+                track.staggerX = track.staggerZ = 0.0f;
+            }
+        }
+        const float boardSink = boarding ? boardOut.sink : victimSink;
         const bool seatedNow = boarding && boardOut.seated;   // FIX-SEATED: at the wheel
         // From his own eyes (first person) his seated figure is not drawn: the cab is (cab_interior).
         // (g_hiddenObjects[1]: the car he is in, hidden from his eyes; a beat's camera draws both.)
@@ -9346,9 +9383,23 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             bool out = false;
                             for (const JackThrow& j : g_jackThrows)
                                 if (j.frame >= track.carStateFrame && (j.x - cx) * (j.x - cx) + (j.z - cz) * (j.z - cz) < 1.3f * 1.3f) out = true;
-                            if (sprite.pedState == 3 && f5 < 24u) track.actionTime = (std::min)(track.actionTime + dt, 0.5f);
-                            else if (sprite.pedState == 3 && f5 < 32u && !out) track.actionTime = (std::min)(track.actionTime + dt, 0.95f);
-                            else track.actionTime += dt * (sprite.pedState == 3 && f5 >= 32u ? 1.6f : 1.0f);
+                            // FIX-JACK-SEAT (feel14): a hold of seconds (the game keeps him at the door of a
+                            // jammed or creeping car) is not one frozen grip: from 0.4 s into it he tugs, the haul
+                            // begun and given up again (0.95 -> 1.12 -> 0.95, 0.7 s a tug). Once the game has
+                            // him in, the clip runs at the plan's catch-up rate.
+                            const bool ghostNow = boardGhosts.count(sprite.object) != 0;
+                            if (track.boardHeld && !out && track.actionTime >= 0.9f) {
+                                track.tugT += dt;
+                                const float ph = track.tugT > 0.4f ? std::fmod(track.tugT - 0.4f, 0.7f) / 0.7f : 0.0f;
+                                track.actionTime = 0.95f + 0.17f * std::sin(ph * kPi);
+                            } else if (!ghostNow && sprite.pedState == 3 && f5 < 24u) {
+                                track.actionTime = (std::min)(track.actionTime + dt, 0.5f);
+                            } else if (!ghostNow && sprite.pedState == 3 && f5 < 32u && !out) {
+                                track.actionTime = (std::min)(track.actionTime + dt, 0.95f);
+                            } else {
+                                if (track.tugT > 0.0f) { track.actionTime = (std::max)(track.actionTime, 0.95f); track.tugT = 0.0f; }
+                                track.actionTime += dt * (sprite.pedState == 3 && f5 >= 32u ? 1.6f : 1.0f) * (std::max)(1.0f, track.boardRate);
+                            }
                         } else if (track.action == 5) {
                             const unsigned f5 = sprite.pedFrame % 158u;
                             if (sprite.pedState == 3 && f5 < 32u) track.actionTime = (std::min)(track.actionTime + dt, 0.65f);

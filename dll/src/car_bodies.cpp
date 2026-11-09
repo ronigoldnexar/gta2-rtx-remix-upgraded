@@ -3469,6 +3469,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 int bSide = 0; float bTarget = 0.0f;
                 if (BoardingDoor(use.object, &bSide, &bTarget, &doorRate)) {
                     if (ds.open < 0.02f || bSide == ds.side) { ds.side = bSide; target = bTarget; }
+                    // FIX-JACK-SEAT: the other side's door (opened for a passer-by near the car) shuts
+                    // first; then the boarding's side opens. It kept the far door open through a jack.
+                    else { target = 0.0f; doorRate = 3.0f; }
                 } else {
                     doorRate = 0.0f;
                 }
@@ -3500,6 +3503,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 BoardingPublishCar(use.object, posed, halfW, zf, zf - 0.27f * b->bodyLength, roofY, ds.side,
                                    haveSplit ? ds.open : 0.0f, frame);
                 BoardingPublishSteer(use.object, feel.on ? feel.steer : 0.0f);   // FIX-SEATED: the driver's hands on the wheel
+                BoardingPublishOpenTop(use.object, CabOpenTop(modelNumber));   // FIX-JACK-SEAT (pm19)
                 // The player's own car: both doors' splits built ahead, so the exit's door
                 // opens on its first frame instead of after the worker's latency.
                 if (use.driven && BoardingWarmDoors(use.object)) {
