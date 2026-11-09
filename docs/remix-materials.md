@@ -1373,3 +1373,22 @@ For REMIX-MATERIALS (this stream does not rebuild the layer). These textures in 
 - `034_medicar_0.tga`, `034_medicar_0_paint.tga`: the top and the tail repainted cream from the sprite
 
 Details: `docs/identity-system.md` section 6.
+
+## The cars' smoke under Remix: dithered cut-outs (FIX-REMIX-NIGHT, 9 Nov 2026)
+
+pt-remix-night-smoke-puff-opaque-clay-lump: the "clay lump" was vehicle_fx's tyre smoke / exhaust / steam puff (its 5-lobed edge), not
+the game's sprites or the burning-car smoke. The puff is alpha-blended with its opacity (0.2-0.34) in the vertex colour and a soft texture
+alpha of 1 at the core. Under this Remix runtime a blended texel's colour comes out scaled by its texture alpha: the puffs were dark rings of
+grain round a lit core, a hard tan lump under a lamp. Same-session A/B (`[devtools] spawn_smoke=1` puts a puff column a block east of the
+player; `remix_puff_levels=0` draws it the old way; out/rn_night4..9): the opacity moved into the texture gave soft but black puffs at noon
+and night, whether the textures were in `rtx.particleTextures` or not, with `approximateParticleLighting`, `enableEmissiveBlendModeTranslation`
+or `enableStochasticAlphaBlend` on or off, and with up-facing vertex normals. Opaque texels are lit correctly.
+
+So under Remix (vehicle_fx.cpp, `remix` path only) a puff is a dithered cut-out: 8 opacity steps x 4 noise seeds of a 128 px texture whose
+covered share of texels is the opacity, drawn alpha-tested with up-facing normals; the seed cycles per frame and per puff so the grain moves
+and the temporal filter averages it. The plain renderer's draw is unchanged. Verified (Ultra, path traced, out/rn_night9 t_S_*): at noon white
+smoke with the kerb and fence through it, at 22:30 dim, lamp-tinted smoke, no silhouette; the old path in the same session: dark opaque rings.
+
+Still short of shipping: in a still frame the puff is visibly grainy (sand rather than vapour), denser than real tyre smoke where many puffs
+stack, and it has no self-shadowing or soft volume; the AAA answer is Remix's own volumetric/particle system fed with an emitter, not
+billboards. The burning-car smoke (live_geometry.cpp) and the blast smoke (explosion_fx.cpp) take the same blended path and were not changed.

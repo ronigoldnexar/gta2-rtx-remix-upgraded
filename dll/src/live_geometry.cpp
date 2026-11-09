@@ -12613,6 +12613,32 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     // Dark smoke off each flame, then everything already rising.
     // The smoke rate is per burning car, not per flame sprite: a car on fire shows many flame
     // sprites at once, and a puff for each of them piled up hundreds of quads.
+    // [devtools] spawn_smoke=1: the cars' smoke a block east of the player (FIX-REMIX-NIGHT: a puff
+    // where a probe can film it, at any hour); remix_puff_levels=0 draws it the old way under Remix.
+    {
+        static int probe = 0, probeAt = 0;
+        if (--probeAt <= 0 && !g_fireIniPath.empty()) {
+            probeAt = 30;
+            probe = GetPrivateProfileIntA("devtools", "spawn_smoke", 0, g_fireIniPath.c_str());
+            static int levels = -1;
+            const int want = GetPrivateProfileIntA("devtools", "remix_puff_levels", 1, g_fireIniPath.c_str());
+            if (want != levels) {
+                if (levels >= 0 || want != 1) Log("devtools: remix puff opacity textures %s", want ? "on" : "off");
+                levels = want;
+                VehicleFxSetPuffLevels(want != 0);
+            }
+        }
+        static int said = 0;
+        if (probe != said) {
+            said = probe;
+            Log("devtools: spawn_smoke %d at %.2f,%.2f,%.2f (player %s)", probe, g_playerPosX, g_playerPosY, g_playerPosZ,
+                g_playerPosValid ? "known" : "NOT known");
+        }
+        if (probe > 0 && g_playerPosValid) {
+            // The cars' smoke (vehicle_fx: tyre smoke and steam), a block east.
+            VehicleFxProbeSmoke(gta2::Vec3{g_playerPosX + 1.0f, g_playerPosY + 0.05f, g_playerPosZ}, g_playerPosY);
+        }
+    }
     if (g_fire.smoke && !fireSpots.empty()) {
         std::vector<const void*> cars;
         for (const FireSpot& spot : fireSpots) {

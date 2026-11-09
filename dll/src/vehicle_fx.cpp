@@ -315,6 +315,29 @@ IDirect3DTexture9* g_glowTex = nullptr;
 IDirect3DTexture9* g_stripTex = nullptr;
 IDirect3DTexture9* g_coneTex = nullptr;
 IDirect3DTexture9* g_shardTex = nullptr;
+// FIX-REMIX-NIGHT (pt-remix-night-smoke-puff-opaque-clay-lump): under Remix the puffs' opacity
+// (0.2-0.34, in the vertex colour's alpha) was lost, and a blended texel's colour came out scaled by its
+// texture alpha: each puff was a dark ring of grain round a lit core where the texture is opaque (a
+// hard tan lump under a lamp at night). With the opacity moved into the texture (out/rn_night4..7) the
+// puffs were soft but black, tagged as particles or not, with or without Remix's emissive-blend or
+// stochastic-alpha options. What Remix does light correctly is an opaque texel. So under Remix a puff
+// is a dithered cut-out: per opacity step a texture whose covered share of texels is the opacity, drawn
+// alpha-tested; the spin of each puff and the runtime's temporal filter turn the grain into
+// translucency. The plain renderer is unchanged.
+constexpr int kPuffLevels = 8;
+constexpr float kPuffLevelStep = 0.045f;    // level k holds opacity (k + 1) * step: 0.045 .. 0.36
+constexpr int kPuffDitherSize = 128;
+constexpr int kPuffSeeds = 4;           // noise patterns per step, cycled by frame: the grain moves and the temporal filter averages it
+IDirect3DTexture9* g_puffLevelTex[kPuffLevels * kPuffSeeds] = {};
+bool g_puffLevelsOn = true;   // [devtools] remix_puff_levels=0: the old way, for a before/after in one session
+float PuffTexel(float u, float v) {
+    const float dx = u - 0.5f, dy = v - 0.5f;
+    const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
+    const float ang = std::atan2(dy, dx);
+    const float lump = 0.88f + 0.12f * std::sin(ang * 5.0f + 1.3f) * std::sin(ang * 3.0f);
+    float a = Clamp(1.0f - r / lump, 0.0f, 1.0f);
+    return a * a * (3.0f - 2.0f * a);
+}
 
 template <typename F>
 IDirect3DTexture9* MakeTexture(IDirect3DDevice9* device, int w, int h, F texel) {
@@ -353,15 +376,7 @@ bool EnsureTextures(IDirect3DDevice9* device) {
     if (g_puffTex && g_glowTex && g_stripTex && g_coneTex && g_shardTex) return true;
     if (!g_puffTex) {
         // A soft puff with a little lumpiness, so overlapping puffs do not read as discs.
-        g_puffTex = MakeTexture(device, 64, 64, [](float u, float v) {
-            const float dx = u - 0.5f, dy = v - 0.5f;
-            const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
-            const float ang = std::atan2(dy, dx);
-            const float lump = 0.88f + 0.12f * std::sin(ang * 5.0f + 1.3f) * std::sin(ang * 3.0f);
-            float a = Clamp(1.0f - r / lump, 0.0f, 1.0f);
-            a = a * a * (3.0f - 2.0f * a);
-            return Argb(a, 1.0f, 1.0f, 1.0f);
-        });
+        g_puffTex = MakeTexture(device, 64, 64, [](float u, float v) { return Argb(PuffTexel(u, v), 1.0f, 1.0f, 1.0f); });
     }
     else if (!g_glowTex) {
         g_glowTex = MakeTexture(device, 32, 32, [](float u, float v) {
@@ -1163,6 +1178,52 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     return feel;
 }
 
+namespace {
+struct PuffQuad { gta2::Vec3 c, a, b; DWORD colour; DWORD opaque; int level; int seed; };   // opaque: alpha 1, the opacity in the level texture
+std::vector<PuffQuad> g_puffQuads;
+
+// The dithered steps of the puff (see g_puffLevelTex), managed, one a frame like EnsureTextures.
+bool PuffLevelsReady(IDirect3DDevice9* device) {
+    static bool failed = false;
+    constexpr int kCount = kPuffLevels * kPuffSeeds;
+    if (g_puffLevelTex[kCount - 1]) return true;
+    if (failed) return false;
+    for (int i = 0; i < kCount; ++i) {
+        if (g_puffLevelTex[i]) continue;
+        const int k = i % kPuffLevels, seed = i / kPuffLevels;
+        IDirect3DTexture9* tex = nullptr;
+        constexpr int N = kPuffDitherSize;
+        if (FAILED(device->CreateTexture(N, N, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr))) { failed = true; return false; }
+        D3DLOCKED_RECT lr;
+        if (SUCCEEDED(tex->LockRect(0, &lr, nullptr, 0))) {
+            const float level = (k + 1) * kPuffLevelStep;
+            for (int y = 0; y < N; ++y) {
+                uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+                for (int x = 0; x < N; ++x) {
+                    // Covered or not: the opacity as the share of covered texels (one noise per seed for
+                    // every step, so a thicker step covers what a thinner one does and more).
+                    const float cover = PuffTexel((x + 0.5f) / N, (y + 0.5f) / N) * level;
+                    row[x] = cover > Hash2(x + seed * 977, y + seed * 631) ? Argb(1.0f, 1.0f, 1.0f, 1.0f) : Argb(0.0f, 1.0f, 1.0f, 1.0f);
+                }
+            }
+            tex->UnlockRect(0);
+        }
+        g_puffLevelTex[i] = tex;
+        if (i < kCount - 1) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+void VehicleFxSetPuffLevels(bool on) { g_puffLevelsOn = on; }
+
+// [devtools] spawn_smoke (FIX-REMIX-NIGHT): a tyre-smoke puff and a steam puff at `at`, every frame it is called.
+void VehicleFxProbeSmoke(const gta2::Vec3& at, float groundY) {
+    EmitSmoke(at, groundY, gta2::Vec3{0.0f, 0.0f, 0.0f}, 1.0f, false);
+    EmitEngineSmoke(gta2::Vec3{at.x + 0.6f, at.y, at.z}, groundY, gta2::Vec3{0.0f, 0.0f, 0.0f}, 0.0f);
+}
+
 void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t frame, bool remix) {
     ReadEnv();
     const double t0 = NowMs();
@@ -1370,9 +1431,58 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         const float alpha = p.a * Smooth(t / 0.12f) * (1.0f - Smooth((t - 0.35f) / 0.65f)) * nearK;
         if (alpha < 0.004f) continue;
         const float grey = p.r + (1.0f - p.r) * 0.3f * t;
-        Quad(c, a, b, Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], alpha));
+        const int level = static_cast<int>(Clamp(std::floor(alpha / kPuffLevelStep + 0.5f) - 1.0f, 0.0f, kPuffLevels - 1.0f));
+        const int seed = static_cast<int>((frame + g_puffQuads.size()) % kPuffSeeds);
+        g_puffQuads.push_back({c, a, b, Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], alpha),
+                               Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], 1.0f), level, seed});
     }
-    Flush(device, g_puffTex);
+    if (remix && g_puffLevelsOn && PuffLevelsReady(device)) {
+        // One batch per opacity step, the opacity in the texture (see g_puffLevelTex).
+        // With normals: a camera-facing quad with none gets its normal from its winding, level with the
+        // ground, and in the path tracer it took almost no sun or lamp light (black puffs at noon). A puff
+        // is lit like a cloud: from above, a little towards the eye.
+        struct LitVertex { float x, y, z, nx, ny, nz; DWORD color; float u, v; };
+        static std::vector<LitVertex> lit;
+        static std::vector<uint16_t> idx;
+        device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHAREF, 128u);
+        device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
+        device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+        for (int k = 0; k < kPuffLevels * kPuffSeeds; ++k) {
+            lit.clear(); idx.clear();
+            for (const PuffQuad& q : g_puffQuads) {
+                if (q.level + kPuffLevels * q.seed != k || lit.size() + 4 > 65532) continue;
+                gta2::Vec3 n = gta2::Normalize(gta2::Normalize(eye - q.c) * 0.35f + worldUp);
+                const uint16_t base = static_cast<uint16_t>(lit.size());
+                const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+                const float sg[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
+                for (int v = 0; v < 4; ++v)
+                    lit.push_back({q.c.x + sg[v][0] * q.a.x + sg[v][1] * q.b.x, q.c.y + sg[v][0] * q.a.y + sg[v][1] * q.b.y,
+                                   q.c.z + sg[v][0] * q.a.z + sg[v][1] * q.b.z, n.x, n.y, n.z, q.opaque, uv[v][0], uv[v][1]});
+                const uint16_t t[6] = {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2), base,
+                                       static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)};
+                idx.insert(idx.end(), t, t + 6);
+            }
+            if (idx.empty()) continue;
+            device->SetTexture(0, g_puffLevelTex[k]);
+            device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(lit.size()), static_cast<UINT>(idx.size() / 3),
+                                           idx.data(), D3DFMT_INDEX16, lit.data(), sizeof(LitVertex));
+        }
+        device->SetFVF(kFxFvf);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        if (g_smooth) {
+            device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        }
+    } else {
+        for (const PuffQuad& q : g_puffQuads) Quad(q.c, q.a, q.b, q.colour);
+        Flush(device, g_puffTex);
+    }
+    g_puffQuads.clear();
     mark[nm++] = NowMs();
 
     // Debris: tumbling shards of panel, trim and glass.
@@ -1440,6 +1550,9 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
 void VehicleFxReleaseDevice() {
     for (IDirect3DTexture9** t : {&g_puffTex, &g_glowTex, &g_stripTex, &g_coneTex, &g_shardTex}) {
         if (*t) { (*t)->Release(); *t = nullptr; }
+    }
+    for (IDirect3DTexture9*& t : g_puffLevelTex) {
+        if (t) { t->Release(); t = nullptr; }
     }
     if (g_vb) { g_vb->Release(); g_vb = nullptr; }
     if (g_ib) { g_ib->Release(); g_ib = nullptr; }
