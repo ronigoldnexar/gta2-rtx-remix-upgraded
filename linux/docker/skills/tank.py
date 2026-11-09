@@ -266,6 +266,21 @@ def turn_at(s, tx, ty, slice_s=0.45, creep=True, back=False):
     return a
 
 
+JACKER_TYPES = ("cop", "swat", "fbi", "army", "soldier")
+
+
+def jackers(s, within=3.0):
+    """the nearest police / army ped on foot within `within` blocks (they drag the player out of a
+    tank that stands), or None"""
+    best = None
+    for p in M.peds():
+        if p["car"] is not None or not M.ped_alive(p): continue
+        if not any(p["type"].startswith(k) for k in JACKER_TYPES): continue
+        d = math.hypot(p["x"] - s["x"], p["y"] - s["y"])
+        if d < within and abs(p["z"] - s["z"]) < 1.2 and (best is None or d < best[0]): best = (d, p)
+    return best[1] if best else None
+
+
 def roam_points(world, s, r=18):
     pts = []
     for ang in range(0, 360, 45):
@@ -347,6 +362,16 @@ def fight(world, kind="cars", count=20, secs=60.0, check=None, models=None, sele
             s = D.wait_state(); ms = M.mission_state() or {}
             if not in_tank(s, ms): ev("out of the tank"); return "out"
             tally(s)
+            cop = jackers(s)
+            if cop:
+                # police on foot beside a standing tank pull the player out (tk6: wanted 1, two
+                # cops a block off, out and shot at 04:24:33, the frenzy over): keep rolling
+                STATS["evasions"] = STATS.get("evasions", 0) + 1
+                if STATS["evasions"] % 10 == 1: ev(f"{cop['type']} {cop['id']} on foot {math.hypot(cop['x'] - s['x'], cop['y'] - s['y']):.1f} off: rolling")
+                a = angle_to(s, cop["x"], cop["y"])
+                back = abs(a) > 1.8          # behind: back over him
+                turn_at(s, cop["x"], cop["y"], slice_s=0.5, creep=True, back=back)
+                continue
             b = pick(s, cands_of(s))
             if shoot_if_aimed(s, b):
                 d = b[1]

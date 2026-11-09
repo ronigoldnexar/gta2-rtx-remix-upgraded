@@ -77,9 +77,17 @@ missions/keys_tank_frenzy.sh -e TANK_FRENZY=wil_kf08`.
 | tk3 | taps, burning cars excluded, miss-skip | yes | 8 (HUD agrees) | 30 | failed | 87 rolling turn pulses: turning eats the minute |
 | tk4 | + distance cone, turn cost 8, crowd bonus, reach 13 | yes | 8 | 34 | failed | 97 turns; the hull turns ~0.6 rad/s |
 | tk5 | patrol to the busy roads, fire on the move | yes | 3 | 7 | failed | the tank is too slow to reach the traffic within the clock |
-| tk6 | tk4's turning (turn_max 1.2) + a short patrol by the yard | | | | | |
+| tk6 | tk4's turning (turn_max 1.2) + a short patrol by the yard | yes | 4 | 6 | out: busted | wanted 1 from the wrecks; two cops a block off pulled him out of the standing tank and shot him (04:24:33) |
+| tk7 | + police defence: a cop/army ped on foot within 3 blocks keeps the tank rolling at him | yes | 9 | 22 | failed | best so far; no bust |
 
-Status: the skill gets a tank (every frenzy session tk1-tk5 got in; probes tkp1/tkp2 lost theirs to the double Return before the one-Return entry), drives
-it, and fights with it (up to 8 cars in the minute, by our count and by the game's). The frenzy's
+Status (after tk7): the skill gets a tank (every frenzy session tk1-tk5 got in; probes tkp1/tkp2 lost theirs to the double Return before the one-Return entry), drives
+it, and fights with it (up to 9 cars in the minute by our count; the count matched the game's HUD counter in tk3). The frenzy's
 20 in 60 s has **not** been passed, so no session reached its extra life. The phone jobs need
 respect and the other districts, and were not attempted.
+
+What would raise the rate (not done): the traffic by the yard (road x 8-11) gives about one target
+in reach every 6-7 s, and the busier roads are out of reach within the clock. Waiting at the
+junction y 148-150 facing the oncoming lane (no turning) and firing into the queue that forms behind
+the first wreck is the next thing to try. The turret keys, if GTA2 has any, would remove the
+turning cost. ste_kf02 and bil_kf02 give 120 s for 20 and 30 cars, so they are likelier passes for
+this skill as it is (other districts: `SWAP_LEVEL`).
