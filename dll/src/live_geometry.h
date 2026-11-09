@@ -740,6 +740,14 @@ private:
         float lean = 0.0f, leanV = 0.0f, leanSpeed = 0.0f;
         float lodTransT = 0.0f, lodTransW = 0.0f;
         float paceHold = 0.0f;              // his recent top leg pace, falling 2 blocks/s a second (which stop)
+        // ANIM-BLEND-AUDIT: the start/stop/fidget drawn last frame (clip, time, weight) and one
+        // cut short, fading out from where it stopped over 0.25 s.
+        const void* transDrawnClip = nullptr;
+        float transDrawnT = 0.0f, transDrawnW = 0.0f;
+        const void* transFadeClip = nullptr;
+        float transFadeT = 0.0f, transFadeW = 0.0f, transFadeK = 0.0f;   // its weight when cut, and 1 -> 0
+        float transAge = 0.0f;              // real seconds since the start/stop/fidget began
+        float cycleVis = 1.0f;              // how much of the moving cycle shows (0 while a start comes in)
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
 
