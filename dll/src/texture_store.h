@@ -176,6 +176,9 @@ bool SpriteOpaqueBounds(const void* record, int* x0, int* x1, int* y0, int* y1, 
 // (no device texture, no readback): what a measurement wants. False when the
 // record has no pixels or its palette is not registered yet.
 bool SpriteImageFor(const void* record, std::vector<uint32_t>* out, int* width, int* height);
+// The same artwork in another palette of the car sprite: its own when drawn in a remap (*remapped true),
+// else its first remap. The texels that differ are the paint. False when unknown or the sprite has no remap.
+bool CarSpriteOtherImageFor(const void* record, int sprite, std::vector<uint32_t>* out, bool* remapped);
 void ForgetDeviceTexture(const void* record);
 void ReleaseDeviceTextures();
 // True once, when the frame table filled up and wants emptying: the caller releases the

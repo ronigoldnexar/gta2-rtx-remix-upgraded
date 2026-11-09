@@ -177,6 +177,7 @@ struct Built {
     bool buffersTried = false;
     // What any hand-made model of this car needs: its paint and its footprint.
     Rgb paint{128, 128, 128};
+    bool paintMasked = false;   // paint = the mean of the remap's texels (else MeasureSprite's brighter half)
     float bodyLength = 1.0f, bodyWidth = 0.5f;   // tiles
     float scale = 1.0f / 64.0f;                  // tiles per sprite pixel
     bool measured = false;
@@ -1163,7 +1164,9 @@ struct BonnetSurface {
 // A 64x64 colour copy of a model texture (its file beside the models), averaged; the alpha is
 // kept as its mean. The paint split (import_assets.py) leaves the base texture transparent where
 // its "_paint" twin is paint, so (1 - alpha) of the base is the paint's share there.
-struct RgbMap { int n = 0; std::vector<float> rgb, a; };
+// FIX-CAR-IDENTITY-2: rgbA, the colour of each cell's opaque texels (weighted by alpha), and 256 cells across
+// (was 64: an 8x8 texel cell of an image-to-3D atlas took in the black gaps between its islands).
+struct RgbMap { int n = 0; std::vector<float> rgb, a, rgbA; };
 std::map<std::string, RgbMap> g_rgbMaps;
 const RgbMap* RgbFor(const std::string& file) {
     auto it = g_rgbMaps.find(file);
@@ -1181,8 +1184,8 @@ const RgbMap* RgbFor(const std::string& file) {
     const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
     if (w <= 0 || h <= 0 || tga.size() < 18u + static_cast<size_t>(w) * h * 4) return nullptr;
     const bool topDown = (tga[17] & 0x20) != 0;
-    constexpr int kN = 64;
-    std::vector<float> sum(kN * kN * 3, 0.0f), as(kN * kN, 0.0f), cnt(kN * kN, 0.0f);
+    constexpr int kN = 256;
+    std::vector<float> sum(kN * kN * 3, 0.0f), as(kN * kN, 0.0f), cnt(kN * kN, 0.0f), suma(kN * kN * 3, 0.0f);
     for (int y = 0; y < h; ++y) {
         const uint8_t* row = &tga[18 + static_cast<size_t>(topDown ? y : (h - 1 - y)) * w * 4];
         const int cy = y * kN / h;
@@ -1190,13 +1193,15 @@ const RgbMap* RgbFor(const std::string& file) {
             const uint8_t* px = row + x * 4;
             const int c = cy * kN + x * kN / w;
             sum[c * 3] += px[2]; sum[c * 3 + 1] += px[1]; sum[c * 3 + 2] += px[0];
+            suma[c * 3] += px[2] * px[3]; suma[c * 3 + 1] += px[1] * px[3]; suma[c * 3 + 2] += px[0] * px[3];
             as[c] += px[3]; cnt[c] += 1.0f;
         }
     }
-    m.n = kN; m.rgb.resize(kN * kN * 3); m.a.resize(kN * kN);
+    m.n = kN; m.rgb.resize(kN * kN * 3); m.a.resize(kN * kN); m.rgbA.resize(kN * kN * 3);
     for (int i = 0; i < kN * kN; ++i) {
         const float k = cnt[i] > 0 ? 1.0f / (255.0f * cnt[i]) : 0.0f;
         for (int c = 0; c < 3; ++c) m.rgb[i * 3 + c] = sum[i * 3 + c] * k;
+        for (int c = 0; c < 3; ++c) m.rgbA[i * 3 + c] = as[i] > 0.0f ? suma[i * 3 + c] / (255.0f * as[i]) : m.rgb[i * 3 + c];
         m.a[i] = as[i] * k;
     }
     return &m;
@@ -1277,16 +1282,27 @@ const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit,
         if (!m) return;
         const float uu = u - std::floor(u), vv = v - std::floor(v);
         const int i = (std::min)(m->n - 1, static_cast<int>(vv * m->n)) * m->n + (std::min)(m->n - 1, static_cast<int>(uu * m->n));
-        for (int c = 0; c < 3; ++c) out[c] = m->rgb[static_cast<size_t>(i) * 3 + c];
-        // where the base is see-through, its _paint twin's texels (the same colour) are the paint
-        // (the see-through texels keep the paint's RGB, so the average needs no correction)
+        // where the base is see-through, its _paint twin's texels are the paint
         out[3] = 1.0f - m->a[static_cast<size_t>(i)];
         // FIX-CABIN-DOME: a hit on the "_paint" texture is paint by its own alpha. On the split
         // image-to-3D bodies that is exactly 1 - the base's alpha (no change); the authored carkit
         // bodies (063, 013, 068) import an opaque base twin of their paint, so the share above came
         // out 0 and the bonnet drew untinted in the neutral 235: a pale dome filling the seat view.
-        if (pp != std::string::npos)
-            if (const RgbMap* pm = RgbFor(*hitTri->tex)) out[3] = pm->a[static_cast<size_t>(i)];
+        std::string twin = base;
+        const size_t dot = twin.rfind('.');
+        twin.insert(dot == std::string::npos ? twin.size() : dot, "_paint");
+        const RgbMap* pm = RgbFor(twin);
+        if (pp != std::string::npos && pm) out[3] = pm->a[static_cast<size_t>(i)];
+        // FIX-CAR-IDENTITY-2 (the first-person bonnet that read dark maroon on a car whose body was right):
+        // the colour is the base's opaque texels and the paint twin's own texels, mixed by the paint share.
+        // The base's see-through texels do not hold the paint: tools/car_paint_resplit.py leaves the
+        // generator's old colour there (its paint is the neutral twin), so the bonnet was that old colour
+        // times the tint (teal x red = maroon).
+        for (int c = 0; c < 3; ++c) {
+            const float rest = m->rgbA[static_cast<size_t>(i) * 3 + c];
+            const float paint = pm ? pm->rgbA[static_cast<size_t>(i) * 3 + c] : rest;
+            out[c] = rest * (1.0f - out[3]) + paint * out[3];
+        }
     };
     constexpr int kRows = 22, kScan = 48, kCols = 17;
     const float zEnd = maxZ - 0.004f;
@@ -2371,6 +2387,47 @@ Built* Measured(IDirect3DDevice9* device, const CarBodyUse& use, IDirect3DTextur
     }
     b.scale = PixelScale(use, h);
     b.paint = b.measure.paint;
+    if (decoded) {
+        // FIX-CAR-IDENTITY-2 (feel25, pm40): the paint is the texels the game's remaps recolour (the sprite
+        // decoded in another of its palettes: the texels that change). Their mean is the body colour the
+        // classic view shows. The brighter half of each row (MeasureSprite's rule, kept for a sprite with no
+        // remap) took in the sprite's painted highlight: the Minx's deep red body measured 189,109,108 and
+        // the 3D car came out salmon pink. Of those texels the saturated ones are the body's colour ramp
+        // (a remap also moves pale trim: the bank van's roof panels, a highlight); they are the paint when
+        // they are at least 30 % of them, else (a white, silver or grey car) all of them. Saturated in
+        // either palette, so the same texels count whichever palette the car is drawn in.
+        std::vector<uint32_t> other;
+        bool remapped = false;
+        if (CarSpriteOtherImageFor(use.texture, use.sprite, &other, &remapped) && other.size() == b.px.size()) {
+            double all[3] = {0, 0, 0}, sat[3] = {0, 0, 0};
+            int n = 0, ns = 0, opaque = 0;
+            for (size_t i = 0; i < other.size(); ++i) {
+                const uint32_t c = b.px[i], o = other[i];
+                if ((c >> 24) < 128) continue;
+                ++opaque;
+                if ((c & 0xFFFFFFu) == (o & 0xFFFFFFu)) continue;
+                const int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, bl = c & 0xFF;
+                const int ro = (o >> 16) & 0xFF, go = (o >> 8) & 0xFF, bo = o & 0xFF;
+                const int mx = (std::max)({r, g, bl}), mn = (std::min)({r, g, bl});
+                const int mxo = (std::max)({ro, go, bo}), mno = (std::min)({ro, go, bo});
+                all[0] += r; all[1] += g; all[2] += bl; ++n;
+                // saturated in either palette: the same texels whichever palette the car is drawn in
+                if ((mx > 0 && (mx - mn) >= 0.3f * mx) || (mxo > 0 && (mxo - mno) >= 0.3f * mxo)) { sat[0] += r; sat[1] += g; sat[2] += bl; ++ns; }
+            }
+            if (n >= 16) {
+                const bool useSat = ns >= 16 && ns * 10 >= n * 3;
+                const double* sum = useSat ? sat : all;
+                const double cnt = useSat ? ns : n;
+                b.paintMasked = true;
+                b.paint = Rgb{static_cast<float>(sum[0] / cnt), static_cast<float>(sum[1] / cnt), static_cast<float>(sum[2] / cnt)};
+            }
+            static int logged = 0;
+            if (logged++ < 60)
+                Log("car body: sprite %d paint from its remap texels (%d of %d opaque, %d saturated, %s): %.0f,%.0f,%.0f (brighter-half rule %.0f,%.0f,%.0f)",
+                    use.sprite, n, opaque, ns, remapped ? "drawn in a remap" : "own palette", b.paint.r, b.paint.g, b.paint.b,
+                    b.measure.paint.r, b.measure.paint.g, b.measure.paint.b);
+        }
+    }
     const gta2::CarInfo* info = g_info.count(use.sprite) ? &g_info[use.sprite] : nullptr;
     b.bodyLength = (info && info->height > 4 ? info->height : (b.measure.bottom - b.measure.top + 1)) * b.scale;
     b.bodyWidth = (info && info->width > 4 ? info->width : 2.0f * b.measure.maxHalfW) * b.scale;
@@ -3177,6 +3234,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             vref.paint[1] = forcedPaint ? static_cast<float>(g_forceCarPaint[1]) : b->paint.g;
             vref.paint[2] = forcedPaint ? static_cast<float>(g_forceCarPaint[2]) : b->paint.b;
         }
+        vref.paintMean = b->paintMasked && !forcedPaint;
+        for (int k = 0; k < 3; ++k) vref.paintBright[k] = vref.paintMean ? (&b->measure.paint.r)[k] : vref.paint[k];
         IdentitySetPaintFloor(g_paintLumFloor);
         const IdentityRecord& ident = IdentityForVehicle(use.object, vref, use.driven);
         if (const Model* model = ident.model) {
@@ -3736,6 +3795,24 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     const float cowl = hood->dash ? hood->dashTop : eyeLocalY - 0.045f;
                     DrawBonnet(device, posed, *seatBonnet, eyeLocalZ + 0.10f, (std::min)(cowl, eyeLocalY - 0.045f), eyeLocalY - 0.04f,
                                keepOwnPaint ? one : tint, dull, carMaterial, material);
+                    if (IdentityProbeOn()) {
+                        // FIX-CAR-IDENTITY-2: the seat's bonnet as the player's car in first person for the parity
+                        // check (tools/identity_parity.py): the outline of its rows ahead of the cut, on screen.
+                        std::vector<float> pts;
+                        const BonnetSurface& sb = *seatBonnet;
+                        // the far part only: the near rows lie behind the dash and wheel in the picture
+                        const float zFar = sb.rows ? sb.z[static_cast<size_t>(sb.rows - 1)] : 0.0f;
+                        const float zFrom = eyeLocalZ + 0.10f + 0.45f * (std::max)(0.0f, zFar - (eyeLocalZ + 0.10f));
+                        for (int r = 0; r < sb.rows; ++r) {
+                            if (sb.z[static_cast<size_t>(r)] < zFrom) continue;
+                            for (float x : {sb.xl[static_cast<size_t>(r)], sb.xr[static_cast<size_t>(r)]}) {
+                                const float hh = (std::min)(sb.h[static_cast<size_t>(r * sb.cols + sb.cols / 2)], eyeLocalY - 0.04f);
+                                const gta2::Vec3 w = PointBy(posed, x, hh, sb.z[static_cast<size_t>(r)]);
+                                pts.insert(pts.end(), {w.x, w.y, w.z});
+                            }
+                        }
+                        IdentityProbePoints(device, "mycar", reinterpret_cast<const void*>(use.object), ident, pts.data(), static_cast<int>(pts.size() / 3), 2);
+                    }
                 } else if (!flatCab) {
                     drawHull(*drawn, Mul(fit, posed));
                 }

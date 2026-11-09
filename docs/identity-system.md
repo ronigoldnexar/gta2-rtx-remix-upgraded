@@ -345,3 +345,132 @@ the Maurice itself: its generated texture's body sat in the untinted half (5.2, 
 The `identity: vehicle CHANGED model` lines of the report were other cars: the game re-uses sprite objects for new
 cars within seconds (a 150 s Downtown run logged dozens of `CHANGED model a->b` on recycled objects), and the record
 re-derives correctly for each.
+
+## 6. The sprite's paint from its remap texels, liveries, the seat bonnet, the parity check (FIX-CAR-IDENTITY-2, 9 Nov 2026)
+
+Work orders pm40 (2u, ste bank vans), feel25 (2w, wil Minx), pm24 (2o, police), pm29 (2p, ambulance), the first-person
+bonnet that read dark maroon on a car whose body was right, and the parity tool.
+
+### 6.1 The sprite's paint: the texels the game's remaps recolour (feel25)
+
+`MeasureSprite`'s paint, the mean of the brighter half of each hood/boot row, took in the highlight the sprite artist
+painted on the body. The wil Minx in remap 26 has a deep red body (the remap's texels: 133,65,65) and measured
+189,109,108; the 3D car took that as its paint and came out salmon pink. Now (`car_bodies.cpp` `Measured`,
+`texture_store.cpp` `CarSpriteOtherImageFor`) the drawn sprite is decoded a second time in another of its palettes (its own
+palette if it is drawn in a remap, else its first remap: CARI lists them). The texels whose colour differs are the paint:
+a remap recolours exactly the paint ramp. The paint is their mean, or the mean of the saturated ones (saturation >= 0.3 in
+either palette) when those are at least 30 % of them: the remap also moves pale trim (the bank van's roof panels). A car
+with no remap keeps the brighter-half rule. The model's own paint (`ModelOwnPaint`) is measured by the same rule on its
+side: the plain mean of its paint texels when the sprite's is a mean, the brighter half otherwise. The luminance floor
+(`car_paint_floor_percent`) is still tested on the brighter-half value it was tuned on. Log:
+`car body: sprite S paint from its remap texels (n of m opaque, k saturated, drawn in a remap | own palette): r,g,b
+(brighter-half rule r,g,b)` and `models: <name>: own paint measured r,g,b mean r,g,b`.
+
+Measured on the style's sprites (`assets-src/cars/sprites`, default against each remap): Minx remap 26 133,65,65 (was
+~166,95,96); bank van default 59,82,115 and remap 36 70,99,85.
+
+### 6.2 The G4 bank van is a painted car, not a livery (pm40)
+
+The bank van (model 4) was in `Livery`: drawn untinted, in the generator's navy, while ste draws its sprite in remap 36
+(dark green, pale mint roof). It is a painted car now. Its texture pair was re-split by its body's hue with
+`tools/car_paint_resplit.py <models> --only 004 --min-sat 0.3` (the saturated navy body is the neutral paint half; the
+pale roof panels and the white band stay in the untinted rest), and the record tints the body to the sprite's measured
+paint like any other car: navy in its own palette (`tint 0.52,0.72,1.01`), green in remap 36 (`tint 0.61,0.87,0.74`).
+
+Other liveries the game remaps (from the style's sprites): bus 11 (the stripe), cop 12 and SWAT 52 (blue to green in
+remap 36), TV van 67 (whole body, six remaps), 84 (yellow to dark grey). They stay liveries: the TV van's generated art
+is two-tone (sage upper, cream lower, tan roof) and 84's authored atlas is painted saturated yellow, so neither can be
+tinted to the sprite. Seen in ste traffic: a light blue TV van in classic is khaki in third person (`fci2_tr1`, parity
+WARN). Those need new art (VEHICLE-ART), then the same treatment as 004.
+
+### 6.3 Police and ambulance tops repainted from the sprite (pm24, pm29)
+
+`tools/car_livery_project.py <models> <name> --sprite <the default sprite>` locates every texel of a livery model's
+texture pair on the mesh (triangles rasterised in UV space: position and normal per texel). A texel facing up
+(`--min-up`) above the beltline (`--belt`) takes the sprite's colour at the same point of the footprint (model x across,
+z along, onto the sprite's opaque box, nose at the bottom; orientation checked on the cop's light bar), plus its own fine
+detail (luminance minus a blur, x0.6), where its blurred colour differs from the sprite's by more than `--tol` (70):
+what already agrees (the ambulance's roof cross, the shield) stays. `--ends tail|nose|both` does the end faces from the
+sprite's end rows (lamps and dark glass excluded; the nose catches the windscreen, so only `tail` was used). `--preview`
+writes the top seen from above before | after | the sprite, and the end views.
+
+| Model | Command | Result |
+|---|---|---|
+| 012 cop car | `--min-up 0.15` | 19 875 texels: the roof, bonnet and boot navy -> white with blue at the flanks, like the sprite |
+| 034 medicar | `--ends tail` | 26 195 texels: the near-black rear deck, boot and rear panel -> cream |
+
+### 6.4 The first-person bonnet (dark maroon on a car whose body was right)
+
+The seat's bonnet (`BonnetSurfaceFor`) samples the body's colour where its rays hit, from `RgbFor`: a 64x64 average of
+the base texture, its paint share `1 - alpha`, the colour assumed to be the paint's ("the see-through texels keep the
+paint's RGB"). Since `car_paint_resplit.py` that is false: a re-split base keeps the generator's old colour under its
+see-through texels and the neutral paint is only in the `_paint` twin, so the bonnet was the old colour times the tint
+(on 044 Arachnid's bonnet: 62,32,33, dark maroon, for a sprite paint of 51,47,59). Also an 8x8-texel cell of an
+image-to-3D atlas takes in the black gaps between islands. Now `RgbFor` keeps each cell's alpha-weighted colour at 256
+cells across, and the hit colour is the base's opaque colour and the paint twin's own colour mixed by the share: 74,70,85
+on the same bonnet (offline, same texture and tint), blue on the blue Arachnid in `fci2_idp_ste1` (`idp_car_3first`).
+
+### 6.5 The parity check, per build (the owner's acceptance item 3)
+
+`tools/identity_parity.py` measured nothing useful for cars: classic crops sat beside the sprite and third-person crops
+read a car's dark rear (delta-E 30+ on cars that matched by eye). Fixed:
+
+- **Classic rectangles** are the game's 640x480 screen, which the renderer draws as the centre of the frame at the render
+  height's scale (`x' = W/2 + (x - 320) H/480`, `y' = y H/480`), not stretched to the width. Fitted on parked cars.
+- **The probe's rectangle at the shot's moment**: interpolated between the probe lines either side of it (a moving car's
+  nearest line was up to a second off); the traffic script logs the grab's start (`t0=`).
+- **The dominant colour of a car**: k-means (k=4) in Lab, the largest cluster by count x (1 + chroma/25), near-black
+  pixels (shadow, tyres, glass interior) dropped unless they are most of it. People keep IDENTITY-SYSTEM's rule.
+- **The measure**: "paint delta", CIE76 with lightness at half weight (the 3D sun and sheen move lightness the sprite
+  bakes in), limit 25, and the hue difference (limit 25 degrees) when both colours have chroma >= 15.
+- **The first-person bonnet is probed** (`IdentityProbePoints`: the far rows of the seat's bonnet, as `mycar` view 2).
+- **Traffic**: `gamerun/keys_fci2_traffic.sh` (he stands at the spawn, V cycles with shots in each view, `ROUNDS`)
+  compares every car seen big enough in classic and again in third / first by its probe object, and reports per class
+  (car, van, truck, bus, police, taxi, emergency, authored).
+
+Run it per build (one slot each, ~2.5 min):
+
+```
+# the player and his car (warp to the nearest parked car, enter), same moment in the three views
+GTA2_DIRECT_KEYS=1 PRIO=1 FPS=0 STAGE=<stage> GTA2_GPU=<n> [SWAP_LEVEL=ste|bil] INI_SED='s/^warp_key=.*/warp_key=F9/' \
+  gamerun/grun.sh idp_<n> 150 keys_identity_parity.sh -e GTA2DX9_IDENTITY_PROBE=1 -e SETTINGS_EXTRA=/work/bev_parity.settings
+# traffic: one vehicle per class as it passes
+GTA2_DIRECT_KEYS=1 PRIO=1 FPS=0 STAGE=<stage> GTA2_GPU=<n> SWAP_LEVEL=ste INI_SED='s/^force_wanted=.*/force_wanted=1/' \
+  gamerun/grun.sh tr_<n> 170 keys_fci2_traffic.sh -e ROUNDS=16 -e GTA2DX9_IDENTITY_PROBE=1 -e GTA2DX9_IDENTITY_PROBE_EVERY=5
+/mnt/gta2/gta2-linux/vreg/venv/bin/python tools/identity_parity.py out/idp_<n> out/tr_<n> --report r.md --sheet s.png
+```
+
+The keys scripts live in `gamerun/` (not in git); `linux/docker/keys_fci2_traffic.sh` is the tracked copy. The exit
+status is the number of failures of the player and his car (the deterministic subjects). Traffic mismatches are WARN
+lines (`--traffic-strict` counts them): the probe logs a car every few frames, and right after a V press the camera is
+still settling, so a rectangle can sit off its car; the tool calibrates the probe-to-picture latency per view and run
+(the offset at which the rectangles hold the most car), but read every WARN on the sheet before believing it. A third-
+person crop of a car in a shadowed street reads dark; the paint delta weighs lightness at half, so a dark grey car
+against a mid grey sprite passes. Occlusion (a car behind a building inside its rectangle) is not detected. The warp is
+not deterministic: a session where he is not seated reports "not found in the classic frame"; run another.
+
+Results (this build, private stage `stage_fcid2`):
+
+| Session | Subject | Classic | Third | First | Result |
+|---|---|---|---|---|---|
+| `fci2_idp_wil1` | player | 20,13,4 | 33,31,29 | (no body on foot) | 4.8 pass |
+| `fci2_idp_wil1` | his car, 068 van (authored) | 105,101,83 | 80,80,69 | (not probed before this build) | 6.2 pass |
+| `fci2_idp_ste1` | player | 20,13,4 | 15,16,16 | | 4.8 pass |
+| `fci2_idp_ste1` | his car, 044 Arachnid | 35,76,103 | 53,105,149 | bonnet 29,27,26 (crop was the dash; narrowed after) | 11.2 pass |
+| `fci2_tr1` (ste traffic) | 012 cop car c0c8 | 188,212,228 | 185,209,232 | | 3.8 pass |
+| `fci2_tr1` | 048 Meteor, 044 Arachnid | | | | 13.3-17.7 pass |
+| `fci2_tr1` | 067 TV van | 79,120,142 | khaki/black | | WARN, real (art: 6.2) |
+| `fci2_tr1` | 057 T-Rex | 30,98,66 | near-black | | WARN (not investigated) |
+| `fci2_tr2` (ste traffic) | 7 sedans (5 models), a truck, the bank van c1f4 | | | | 10.9-24.1 pass; one ambulance WARN with its rectangle off the car |
+
+### 6.6 Still short
+
+- The remaining liveries the game remaps (TV van 67, 84; bus 11's stripe, cop/SWAT remap 36) need art before they can
+  follow the sprite; the TV van is the visible one in ste.
+- The repainted tops are the sprite's low-resolution colour with the model's fine detail: right colours, not AAA
+  surfaces (no crisp panel lines where the generator's were dark, the cop's door shield and the ambulance's cross kept
+  only where they already agreed). The cop's end faces were left (the sprite's end rows carry the light bar's colours).
+- The textures changed in the cars archive (`assets/models`, not git): `004_g4_bank_van_0(_paint).tga`,
+  `012_cop_car_0(_paint).tga`, `034_medicar_0(_paint).tga`. The cars archive needs repacking and their Remix prims
+  rebuilding (`docs/remix-materials.md`, last section).
+- 057 T-Rex's green sprite draws near-black in third person: not investigated.

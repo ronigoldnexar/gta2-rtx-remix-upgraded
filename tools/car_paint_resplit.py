@@ -65,7 +65,11 @@ def main():
     out = a.out or a.models
     only = {s.strip().zfill(3) for s in a.only.split(",") if s.strip()}
     # The livery models are drawn untinted (identity.cpp Livery): their paint keeps its colours.
-    livery = {4, 11, 12, 17, 22, 23, 24, 25, 26, 27, 34, 51, 52, 54, 56, 59, 60, 61, 67, 84, 85, 86}
+    # Not the G4 bank van (4) since FIX-CAR-IDENTITY-2 (pm40): the game remaps its body (ste draws it green over the
+    # style's navy), so it is a painted car; re-split with --only 004 --min-sat 0.3 (its saturated navy body; the pale
+    # roof panels and white band stay in the rest). The TV van (67) and 84 are remapped too, but their generated art is
+    # two-tone / painted yellow: they need new art, not a split (docs/identity-system.md 6).
+    livery = {11, 12, 17, 22, 23, 24, 25, 26, 27, 34, 51, 52, 54, 56, 59, 60, 61, 67, 84, 85, 86}
     pairs = sorted(glob.glob(os.path.join(a.models, "[0-9][0-9][0-9]_*_paint.tga")))
     n = 0
     for pp in pairs:

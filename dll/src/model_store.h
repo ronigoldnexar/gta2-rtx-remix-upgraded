@@ -154,7 +154,8 @@ const Model* ModelForVehicle(int modelNumber, int sprite);
 void ModelSetPaintTint(const float* rgb);
 // FIX-CAR-IDENTITY: a car model's own paint (0-255), the mean of the texels its "_paint" meshes cover in
 // the shipped files; cached. False (rgb = paintRgb) when it has no paint meshes. identity.cpp divides by it.
-bool ModelOwnPaint(const Model& model, float rgb[3]);
+// mean (optional): the plain mean of the same texels (for a sprite paint measured from its remap's texels).
+bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3] = nullptr);
 // FIX-CAR-RENDER: soft car paint masks (renderer.car_paint_soft_mask, default on; never
 // under Remix): car "_paint" textures get a coverage alpha and are drawn in one pass,
 // texel * lerp(1, tint, coverage). Set before the first car texture is read.

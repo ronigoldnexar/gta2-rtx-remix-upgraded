@@ -42,7 +42,7 @@ uint32_t Fingerprint(const IdentityRecord& r) {
     f.Int(static_cast<int>(r.seed));
     f.Int(r.ref.remap); f.Int(r.ref.body); f.Int(r.ref.carModel); f.Int(r.ref.carSprite);
     for (float c : r.ref.paint) f.Int(static_cast<int>(std::lround(c)));
-    f.Int(r.ref.forcedModel ? 1 : 0);
+    f.Int(r.ref.forcedModel ? 1 : 0); f.Int(r.ref.paintMean ? 1 : 0);
     f.Str(r.model ? r.model->name.c_str() : "-");
     f.Int(r.zoned); f.Int(r.zoneHair); f.Int(r.tinted); f.Int(r.clothes); f.Int(r.livery);
     for (const auto& z : r.zone) for (float c : z) f.Float(c);
@@ -171,11 +171,15 @@ int g_pedLogged = 0;
 // ---- Vehicles ----------------------------------------------------------------------
 
 bool Livery(int m) {
-    // The models painted in a livery, which a remap would recolour (REMIX-3): bank van 4, bus 11,
+    // The models painted in a livery, which a remap would recolour (REMIX-3): bus 11,
     // cop 12, fire truck 17, army jeep 22, hot-dog / ice-cream vans 23-27 and 85, medicar 34,
     // taxis 51 / 56, SWAT 52, tank 54, trains 59-61, TV van 67, special agent 84, karma bus 86.
     switch (m) {
-        case 4: case 11: case 12: case 17: case 22: case 23: case 24: case 25: case 26: case 27:
+        // FIX-CAR-IDENTITY-2 (pm40): not the G4 bank van (4) any more. The game remaps its body (ste draws it
+        // green over the style's navy), so it is a painted car: its paint half is the saturated body only
+        // (tools/car_paint_resplit.py --only 004 --min-sat 0.3: the pale roof panels and white band stay
+        // in the rest), tinted to the sprite's measured body colour like any other car.
+        case 11: case 12: case 17: case 22: case 23: case 24: case 25: case 26: case 27:
         case 34: case 51: case 52: case 54: case 56: case 59: case 60: case 61: case 67:
         case 84: case 85: case 86: return true;
         default: return false;
@@ -189,7 +193,10 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     r.model = ModelForVehicle(ref.carModel, ref.carSprite);
     r.livery = Livery(ref.carModel) || ref.forcedModel;
     const float* live = ref.paint;
-    const float lum = 0.30f * live[0] + 0.59f * live[1] + 0.11f * live[2];
+    // The floor is tested on the brighter-half paint it was tuned on (the same value as `live` unless the
+    // paint is the remap texels' mean, which is darker by the sprite's shading).
+    const float* bright = ref.paintMean ? ref.paintBright : live;
+    const float lum = 0.30f * bright[0] + 0.59f * bright[1] + 0.11f * bright[2];
     // FIX-CAR-RENDER (pm3-dark-vehicle-bodies): a near-black paint is held at a luminance
     // floor (hue kept), and a dark body gets a broader, stronger sheen.
     const float lift = r.livery || lum >= g_paintFloor ? 1.0f : (std::min)(4.0f, g_paintFloor / (std::max)(lum, 8.0f));
@@ -198,7 +205,14 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     // (ModelOwnPaint), not the 235 default every car had: tint = live / own makes the body's mean
     // paint the sprite's, for generated and authored bodies alike.
     float ownPaint[3] = {235.0f, 235.0f, 235.0f};
-    if (r.model) ModelOwnPaint(*r.model, ownPaint);
+    // FIX-CAR-IDENTITY-2 (feel25): measured by the same rule on both sides. The sprite's paint from its
+    // remap's texels is their plain mean, so the model's is the plain mean of its paint texels; a sprite
+    // with no remap keeps the brighter-half rule on both.
+    if (r.model) {
+        float brighter[3], mean[3];
+        ModelOwnPaint(*r.model, brighter, mean);
+        for (int k = 0; k < 3; ++k) ownPaint[k] = ref.paintMean ? mean[k] : brighter[k];
+    }
     for (int k = 0; k < 3; ++k) {
         const float own = ownPaint[k];
         r.paintTint[k] = r.livery ? 1.0f : lift * live[k] / own;
@@ -480,6 +494,32 @@ void IdentityProbeModel(IDirect3DDevice9* device, const char* what, const void* 
         x0 = (std::min)(x0, sx); y0 = (std::min)(y0, sy); x1 = (std::max)(x1, sx); y1 = (std::max)(y1, sy);
     }
     if (in < 8) return;   // partly behind the eye: no honest rectangle
+    IdentityProbeRect(what, object, rec, view, x0, y0, x1, y1);
+}
+
+void IdentityProbePoints(IDirect3DDevice9* device, const char* what, const void* object, const IdentityRecord& rec, const float* xyz, int n, int view) {
+    // FIX-CAR-IDENTITY-2: world points (no world transform) to a screen rectangle, clipped to the viewport (the
+    // first-person bonnet runs off the frame's bottom edge); at least three points in front of the eye.
+    if (!IdentityProbeOn() || !device || !xyz || n < 3) return;
+    D3DMATRIX v, p;
+    D3DVIEWPORT9 vp;
+    if (FAILED(device->GetTransform(D3DTS_VIEW, &v)) || FAILED(device->GetTransform(D3DTS_PROJECTION, &p)) || FAILED(device->GetViewport(&vp))) return;
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    int in = 0;
+    for (int i = 0; i < n; ++i) {
+        const float w4[4] = {xyz[i * 3], xyz[i * 3 + 1], xyz[i * 3 + 2], 1.0f};
+        float e4[4], c4[4];
+        for (int j = 0; j < 4; ++j) e4[j] = w4[0] * v.m[0][j] + w4[1] * v.m[1][j] + w4[2] * v.m[2][j] + w4[3] * v.m[3][j];
+        for (int j = 0; j < 4; ++j) c4[j] = e4[0] * p.m[0][j] + e4[1] * p.m[1][j] + e4[2] * p.m[2][j] + e4[3] * p.m[3][j];
+        if (c4[3] <= 1e-4f) continue;
+        ++in;
+        const float sx = vp.X + (c4[0] / c4[3] * 0.5f + 0.5f) * vp.Width, sy = vp.Y + (0.5f - c4[1] / c4[3] * 0.5f) * vp.Height;
+        x0 = (std::min)(x0, sx); y0 = (std::min)(y0, sy); x1 = (std::max)(x1, sx); y1 = (std::max)(y1, sy);
+    }
+    if (in < 3) return;
+    x0 = (std::max)(x0, static_cast<float>(vp.X)); y0 = (std::max)(y0, static_cast<float>(vp.Y));
+    x1 = (std::min)(x1, static_cast<float>(vp.X + vp.Width)); y1 = (std::min)(y1, static_cast<float>(vp.Y + vp.Height));
+    if (x1 - x0 < 4.0f || y1 - y0 < 4.0f) return;
     IdentityProbeRect(what, object, rec, view, x0, y0, x1, y1);
 }
 

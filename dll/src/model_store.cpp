@@ -3446,11 +3446,11 @@ void StartOwnPaintThread() {
     }
 }
 
-bool ModelOwnPaint(const Model& model, float rgb[3]) {
+bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
     // The rest of the cars measured ahead from the first car on (not at load: nothing competes with
     // the game's start; the frontend's keys landed in the attract demo twice when it did).
     StartOwnPaintThread();
-    struct Own { bool ok; float rgb[3]; };
+    struct Own { bool ok; float rgb[3]; float mean[3]; };
     static std::map<const Model*, Own> s_own;
     struct Guard { CRITICAL_SECTION* cs; ~Guard() { LeaveCriticalSection(cs); } };
     CRITICAL_SECTION* cs = OwnPaintLock();
@@ -3459,7 +3459,7 @@ bool ModelOwnPaint(const Model& model, float rgb[3]) {
     auto it = s_own.find(&model);
     if (it == s_own.end()) {
         const DWORD t0 = GetTickCount();
-        Own own{false, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}};
+        Own own{false, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}};
         std::map<std::string, std::vector<const ModelMesh*>> byFile;
         for (const ModelMesh& mesh : model.meshes)
             if (mesh.texture.find("_paint") != std::string::npos) byFile[mesh.texture].push_back(&mesh);
@@ -3496,13 +3496,19 @@ bool ModelOwnPaint(const Model& model, float rgb[3]) {
             }
             own.ok = c > 0.0;
             for (int k = 0; k < 3 && own.ok; ++k) own.rgb[k] = (std::max)(8.0f, static_cast<float>(sum[k] / c));
+            // FIX-CAR-IDENTITY-2 (feel25): and the mean of all of them, the rule for a sprite whose paint is
+            // measured from its remap's texels (car_bodies.cpp): the whole painted body against the whole.
+            double all[3] = {0, 0, 0};
+            for (int l = 0; l < 256; ++l) { const double* bin = &bins[static_cast<size_t>(l) * 4]; all[0] += bin[1]; all[1] += bin[2]; all[2] += bin[3]; }
+            for (int k = 0; k < 3 && own.ok; ++k) own.mean[k] = (std::max)(8.0f, static_cast<float>(all[k] / static_cast<double>(n)));
         }
         it = s_own.emplace(&model, own).first;
-        Log("models: %s: own paint %s %.0f,%.0f,%.0f (%zu texels of %zu paint texture%s, %lu ms)", model.name.c_str(),
-            own.ok ? "measured" : "unmeasured, kept", own.rgb[0], own.rgb[1], own.rgb[2], n, byFile.size(), byFile.size() == 1 ? "" : "s",
+        Log("models: %s: own paint %s %.0f,%.0f,%.0f mean %.0f,%.0f,%.0f (%zu texels of %zu paint texture%s, %lu ms)", model.name.c_str(),
+            own.ok ? "measured" : "unmeasured, kept", own.rgb[0], own.rgb[1], own.rgb[2], own.mean[0], own.mean[1], own.mean[2], n, byFile.size(), byFile.size() == 1 ? "" : "s",
             static_cast<unsigned long>(GetTickCount() - t0));
     }
     for (int k = 0; k < 3; ++k) rgb[k] = it->second.rgb[k];
+    if (mean) for (int k = 0; k < 3; ++k) mean[k] = it->second.mean[k];
     return it->second.ok;
 }
 

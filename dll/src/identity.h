@@ -32,6 +32,8 @@ struct SpriteRef {
     float paint[3] = {0, 0, 0};   // vehicle: the paint measured from that sprite's art
     bool forcedModel = false;     // vehicle: a devtools model override (keeps the model's own paint)
     int wholeModel = -1;          // vehicle: the game's model number when it is not a wreck (-1 a wreck or unread)
+    float paintBright[3] = {0, 0, 0};   // vehicle: the brighter-half rule's paint (the luminance floor's test)
+    bool paintMean = false;       // vehicle: paint is the mean of the sprite's paint texels (the remap's), not the brighter half
 };
 
 struct IdentityRecord {
@@ -107,6 +109,9 @@ void IdentityProbeModel(IDirect3DDevice9* device, const char* what, const void* 
                         const float world[4][4], int view);
 // The classic view: a sprite quad the game draws for `object` (screen-space vertices, stride
 // 0x20, x and y first). Logged for the player and for every car (`isCar`).
+// World points (xyz triples, no world transform) to a screen rectangle clipped to the viewport (FIX-CAR-IDENTITY-2:
+// the first-person bonnet).
+void IdentityProbePoints(IDirect3DDevice9* device, const char* what, const void* object, const IdentityRecord& rec, const float* xyz, int n, int view);
 void IdentityProbeSprite(const void* object, bool isCar, const float* vertices, int corners);
 // The record a vehicle's sprite object last had (null: never drawn in 3D this session).
 const IdentityRecord* IdentityLookupVehicle(uintptr_t cacheKey);

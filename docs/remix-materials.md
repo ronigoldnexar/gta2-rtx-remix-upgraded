@@ -1339,3 +1339,15 @@ re-imported with `import_assets.py`.
 (77 s and 48 s of CPU under the gen lock.) `remix_layer_merge.py --tiles` also carries the `.h`/`.w` maps and the
 `pbr.json` entries and leaves `model_prims.txt` alone. `build_remix_mod.sh` gets the same result for a full rebuild once
 it passes `--gmp-dir game/data` (it does now). The DDS maps embed the game's art: release archive `remix_mod_gta2hd.zip` only.
+
+## Car textures changed by FIX-CAR-IDENTITY-2 (9 Nov 2026): prims to rebuild
+
+For REMIX-MATERIALS (this stream does not rebuild the layer). These textures in `assets/models` changed, so their prims in
+`gta2hd` (keyed by the old hashes) no longer apply until rebuilt and merged (`remix_model_materials.py`, then
+`remix_layer_merge.py`):
+
+- `004_g4_bank_van_0.tga`, `004_g4_bank_van_0_paint.tga`: re-split (the bank van is a painted car now; it had no prim before either)
+- `012_cop_car_0.tga`, `012_cop_car_0_paint.tga`: the top repainted white from the sprite (`tools/car_livery_project.py`)
+- `034_medicar_0.tga`, `034_medicar_0_paint.tga`: the top and the tail repainted cream from the sprite
+
+Details: `docs/identity-system.md` section 6.

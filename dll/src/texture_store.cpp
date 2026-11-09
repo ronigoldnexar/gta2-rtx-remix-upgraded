@@ -1418,6 +1418,35 @@ bool SpriteImageFor(const void* handle, std::vector<uint32_t>* out, int* width, 
     return true;
 }
 
+// FIX-CAR-IDENTITY-2 (pm40, feel25): the same artwork decoded in another palette of the car sprite.
+// Drawn in a remap: in the sprite's own palette (CARI's first, the style's colours before any remap),
+// *remapped = true. Drawn in its own palette: in its first remap, *remapped = false. The texels whose
+// colour differs between the two are the paint (a remap recolours exactly the paint ramp). False when
+// the sprite or palette is unknown or the sprite has no remap. Read only: the classic draw is untouched.
+bool CarSpriteOtherImageFor(const void* handle, int sprite, std::vector<uint32_t>* out, bool* remapped) {
+    const TextureRecord* record = static_cast<const TextureRecord*>(handle);
+    if (!record || !record->pixels || !record->width || !record->height) return false;
+    const CarSpriteArt* found = nullptr;
+    for (const CarSpriteArt& art : g_carSprites) {
+        if (art.sprite == sprite) { found = &art; break; }
+    }
+    if (!found || found->palettes.empty()) return false;
+    int other = -1;
+    if (found->palettes[0] != record->palette) { other = found->palettes[0]; *remapped = true; }
+    else if (found->palettes.size() > 1) { other = found->palettes[1]; *remapped = false; }
+    if (other < 0) return false;
+    const uint32_t* palette = PaletteColours(other);
+    if (!palette) return false;
+    out->assign(static_cast<size_t>(record->width) * record->height, 0u);
+    const uint8_t* indices = static_cast<const uint8_t*>(record->pixels);
+    for (int y = 0; y < record->height; ++y) {
+        const uint8_t* row = indices + static_cast<size_t>(y) * kPageStride;
+        uint32_t* dst = out->data() + static_cast<size_t>(y) * record->width;
+        for (int x = 0; x < record->width; ++x) dst[x] = row[x] ? (palette[row[x]] | 0xFF000000u) : 0u;
+    }
+    return true;
+}
+
 bool ResolveTileImage(int tileNumber, uint32_t* out) {
     const TextureRecord* record = static_cast<const TextureRecord*>(game::TextureForTile(tileNumber));
     if (!record || !record->pixels) return false;
