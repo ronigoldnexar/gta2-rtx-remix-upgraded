@@ -1,4 +1,5 @@
 #include "live_geometry.h"
+#include "boarding.h"
 
 #include <algorithm>
 #include <cmath>
@@ -6783,6 +6784,28 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         if (now != last) { last = now; Log("ped anim: corpses:%s", now.empty() ? " none" : now.c_str()); }
     }
+    // ANIM-VEHICLE-ENTRY (boarding.h): a ped the game stopped drawing halfway into a car
+    // is drawn on from his last sprite until the door is shut behind him.
+    const size_t boardRealSprites = sprites_.size();
+    std::set<uintptr_t> boardGhosts;
+    if (g_groundModels && BoardingEnabled()) {
+        BoardingSetLog(g_logFigures);
+        for (auto it = boardSprites_.begin(); it != boardSprites_.end();) {
+            if (g_carFrame - it->second.first > 90) { it = boardSprites_.erase(it); continue; }
+            bool present = false;
+            for (size_t i = 0; i < boardRealSprites && !present; ++i) {
+                const Sprite& sp = sprites_[i];
+                present = sp.object == it->first && sp.pedestrian && !sp.hidden && !sp.ghost && !sp.boardUi && sp.corners == 4;
+            }
+            if (!present && BoardingWantsGhost(it->first, g_carFrame)) {
+                sprites_.push_back(it->second.second);
+                Sprite& g = sprites_.back();
+                g.hidden = false; g.ghost = false; g.boardUi = false;
+                boardGhosts.insert(it->first);
+            }
+            ++it;
+        }
+    }
     for (const Sprite& sprite : sprites_) {
         // On his feet, or - with the models, which have clips for it - on the
         // ground (dead, knocked down) or climbing into or out of a car.
@@ -7021,7 +7044,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         // What the game has him doing, from his animation frame and state words.
         int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
-        const bool ownPed = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+        // (the player's boarding ghost too: the game no longer names him once he is in the car)
+        const bool ownPed = sprite.object && (reinterpret_cast<const void*>(sprite.object) == g_playerObject ||
+                                              (boardGhosts.count(sprite.object) && BoardingIsPlayer(sprite.object)));
         bool shotNow = false;
         {
             // The weapon: the player's from the game; a stranger's from his frames
@@ -7264,6 +7289,29 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
             track.twist += (twistTarget - track.twist) * (std::min)(1.0f, dt / 0.12f);
         }
+        // ANIM-VEHICLE-ENTRY: getting in or out of a car is the boarding plan's (boarding.h):
+        // where the figure stands, how low (seated), which way it faces, the clip and time.
+        BoardingOut boardOut;
+        bool boarding = false;
+        if (g_groundModels && !sprite.corpse && BoardingEnabled()) {
+            if (sprite.pedState == 3 && !boardGhosts.count(sprite.object)) boardSprites_[sprite.object] = {g_carFrame, sprite};
+            BoardingIn bi;
+            bi.ped = sprite.object; bi.own = ownPed; bi.state = sprite.pedState; bi.sub = sprite.pedSub;
+            bi.frame = sprite.pedFrame % 158u; bi.gameX = cx; bi.gameZ = cz; bi.groundY = cy;
+            bi.drawnX = track.dx; bi.drawnZ = track.dz; bi.heading = track.heading;
+            bi.ghost = boardGhosts.count(sprite.object) != 0; bi.dt = dt; bi.now = g_carFrame;
+            boarding = BoardingUpdate(bi, &boardOut);
+            if (boarding) {
+                track.dx = boardOut.x; track.dz = boardOut.z; track.vx = boardOut.vx; track.vz = boardOut.vz;
+                track.heading = boardOut.heading; track.twist = 0.0f; track.turnRate = 0.0f;
+                track.staggerX = track.staggerZ = 0.0f;
+                if (boardOut.action) {
+                    track.action = boardOut.action; track.actionReverse = false;
+                    track.actionTime = boardOut.clipT; track.actionWeight = 1.0f;
+                }
+            }
+        }
+        const float boardSink = boarding ? boardOut.sink : 0.0f;
         const float legHeading = track.heading - track.twist;
         // CROWD: where his head turns ([crowd] look_at). Toward the player when the
         // player is within look_range and in front of him (twice as far while the
@@ -7354,8 +7402,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // Which of the people he is: fixed by his object, so he keeps his look.
             // (the protagonist: always the manifest's default, unless a developer remap
             // override is on: then he is drawn as that type too, the showcase's subject)
-            const Model* model = (sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject &&
-                                  PedRemapEffective(-1, 0) < 0)
+            const Model* model = (ownPed && PedRemapEffective(-1, 0) < 0)
                                      ? ModelForPedestrian()
                                      : nullptr;
             // His type (police, gang, medic, a civilian outfit) is the remap the
@@ -7402,7 +7449,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // The character, at his pace, where the figure would stand, facing
                 // his drawn heading, upright, leaning a little into a turn.
                 // CROWD: his own build and clothes (CrowdLookFor).
-                const bool ownFigure = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+                const bool ownFigure = ownPed;   // (ownPed: the boarding ghost of the player too)
                 const CrowdLook look = CrowdLookFor(static_cast<uint32_t>(sprite.object >> 4), *model, remap, ownFigure);
                 const float scale = kPedHeight * look.height / (std::max)(model->Height(), 0.01f);
                 const float paceFactor = (std::min)(track.drawnSpeed / 1.5f, 1.0f);
@@ -7431,7 +7478,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 placed.m[0][0] = hz * cr;  placed.m[0][1] = sr;  placed.m[0][2] = -hx * cr;
                 placed.m[1][0] = -hz * sr * cp + hx * sp; placed.m[1][1] = cr * cp;  placed.m[1][2] = hx * sr * cp + hz * sp;
                 placed.m[2][0] = hx * cp + hz * sr * sp;  placed.m[2][1] = -cr * sp; placed.m[2][2] = hz * cp - hx * sr * sp;
-                placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f; placed.m[3][2] = gz;
+                placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f - boardSink; placed.m[3][2] = gz;
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * look.width * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
@@ -7772,6 +7819,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     actionT = (std::min)((std::max)(track.actionTime, 0.0f), len - 0.001f);
                     actionT = std::floor(actionT * 30.0f) / 30.0f;
                 }
+                if (boarding && boardOut.action && actionClip && track.action == boardOut.action) {
+                    // The plan's own time on the clip, at full weight from its first frame
+                    // (an exit starts seated, not standing).
+                    track.actionTime = boardOut.clipT;
+                    actionT = std::floor((std::min)(boardOut.clipT, actionClip->length - 0.001f) * 30.0f) / 30.0f;
+                    track.actionWeight = 1.0f;
+                }
                 track.lastPedFrame = sprite.pedFrame;
                 static unsigned lyingLogs = 0;
                 if (g_logPedFrames && track.action == 4 && lyingLogs < 400 && (++lyingLogs % 5) == 0) {
@@ -7937,7 +7991,51 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // CROWD: the head turn, in 6 degree steps near, 12 further, none far.
                 const float headStep = lod == 0 ? 0.105f : 0.21f;
                 ModelSetHeadTurn(lod <= 1 ? std::floor(track.headYaw / headStep + 0.5f) * headStep : 0.0f);
+                // ANIM-VEHICLE-ENTRY: hands and feet onto the car (boarding.h), by IK in model space.
+                bool boardIk = false;
+                ModelClearLimbTargets();
+                if (lod == 0 && g_groundModels) {
+                    for (int limb = 0; limb < 4; ++limb) {
+                        gta2::Vec3 bt, bp; float bw = 0.0f;
+                        if (!BoardingLimb(sprite.object, limb, &bt, &bp, &bw)) continue;
+                        float tm[3], pm[3];
+                        BoardingWorldToModel(world, bt, false, tm);
+                        BoardingWorldToModel(world, bp, true, pm);
+                        ModelSetLimbTarget(limb, tm, pm, std::floor(bw * 16.0f + 0.5f) / 16.0f);
+                        boardIk = true;
+                    }
+                }
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                if (boardIk) {
+                    // What the hands could not reach goes back to the plan (a lean toward it next frame).
+                    for (int limb = 0; limb < 2; ++limb) {
+                        float r[3];
+                        if (!ModelLimbResidual(limb, r)) continue;
+                        const gta2::Vec3 rw{r[0] * world.m[0][0] + r[1] * world.m[1][0] + r[2] * world.m[2][0],
+                                            r[0] * world.m[0][1] + r[1] * world.m[1][1] + r[2] * world.m[2][1],
+                                            r[0] * world.m[0][2] + r[1] * world.m[1][2] + r[2] * world.m[2][2]};
+                        BoardingReportResidual(sprite.object, limb, rw);
+                    }
+                }
+                if (boardIk && g_logFigures) {
+                    // Contact: where each driven hand or foot was drawn against its target, blocks.
+                    static const char* const kEnds[4] = {"Bip01 L Hand", "Bip01 R Hand", "Bip01 L Foot", "Bip01 R Foot"};
+                    char buf[256]; int n = 0;
+                    for (int limb = 0; limb < 4; ++limb) {
+                        gta2::Vec3 bt, bp; float bw = 0.0f;
+                        gta2::Mat4 nm;
+                        if (!BoardingLimb(sprite.object, limb, &bt, &bp, &bw)) continue;
+                        if (!ModelNodeWorld(*model, kEnds[limb], locoA, locoTA, locoB, locoTB, locoW, &nm)) continue;
+                        const float px = nm.m[3][0], py = nm.m[3][1], pz = nm.m[3][2];
+                        const float wx = px * world.m[0][0] + py * world.m[1][0] + pz * world.m[2][0] + world.m[3][0];
+                        const float wy = px * world.m[0][1] + py * world.m[1][1] + pz * world.m[2][1] + world.m[3][1];
+                        const float wz = px * world.m[0][2] + py * world.m[1][2] + pz * world.m[2][2] + world.m[3][2];
+                        const float e = std::sqrt((wx - bt.x) * (wx - bt.x) + (wy - bt.y) * (wy - bt.y) + (wz - bt.z) * (wz - bt.z));
+                        n += snprintf(buf + n, sizeof buf - n, " %d:w%.2f err%.3f y%.3f", limb, bw, e, wy - cy);
+                    }
+                    Log("board contact: f=%u o=%04x%s model %s", g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), buf,
+                        model->name.c_str());
+                }
                 if (g_logJoints) {
                     char layerText[200] = "-";
                     for (int k = 0, at = 0; k < layers && at < 160; ++k)
@@ -8097,6 +8195,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 ModelSetTorsoTwist(0.0f);
                 ModelSetOverlay(nullptr, 0.0f, 0.0f);
                 ModelSetLayers(nullptr, nullptr, nullptr, nullptr, 0);
+                ModelClearLimbTargets();
                 if (g_logFigures) {
                     // GTA2DX9_LOG_FIGURES=1 (ACTIONS-3D-4): the player's figure and everyone within
                     // 1.5 blocks of him, every frame: where the game has him and where he is drawn,
@@ -8155,6 +8254,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 sizeof(FigVertex));
         ++drawn;
     }
+    if (sprites_.size() > boardRealSprites) sprites_.resize(boardRealSprites);   // the boarding ghosts
+    BoardingEndFrame(g_carFrame);
     // Ranks by distance for the next frame's level of detail: the nearest
     // eight people seen this frame are posed in full.
     {

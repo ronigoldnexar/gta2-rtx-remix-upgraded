@@ -725,6 +725,9 @@ private:
         float cycleVis = 1.0f;              // how much of the moving cycle shows (0 while a start comes in)
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
+    // ANIM-VEHICLE-ENTRY: the last sprite of each ped boarding a car (state 3) and its
+    // frame, drawn on as a ghost after the game stops drawing him (boarding.h).
+    std::map<uintptr_t, std::pair<uint32_t, Sprite>> boardSprites_;
 
     // One car's dome: the car's own sprite, drawn a second time as a grid that
     // swells from nothing at its edges to a rounded top, so that the body has

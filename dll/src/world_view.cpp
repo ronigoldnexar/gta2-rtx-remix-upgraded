@@ -1,6 +1,7 @@
 #include "world_view.h"
 #include "regress_cam.h"
 #include "density.h"
+#include "boarding.h"
 
 #include "car_bodies.h"
 #include "map_objects.h"
@@ -2352,6 +2353,13 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     // The visual regression harness's fixed camera (regress_cam.h; off unless
     // GTA2DX9_REGRESS_CAM is set): the street views only, the classic view stays the game's.
     if (mode != ViewMode::Classic && transitionT_ >= 1.0f) RegressCameraOverride(&camera_);
+    // ANIM-VEHICLE-ENTRY verification aid (GTA2DX9_BOARDING_CAM=1, off by default): beside the door.
+    gta2::Vec3 boardEye; float boardYaw = 0.0f, boardPitch = 0.0f;
+    if (mode != ViewMode::Classic && BoardingDebugCamera(&boardEye, &boardYaw, &boardPitch)) {
+        camera_.SetPosition(boardEye);
+        camera_.SetOrientation(boardYaw, boardPitch);
+        camera_.SetRoll(0.0f);
+    }
 }
 
 // The game's zoom has to come from the camera struct, not from the visible tile

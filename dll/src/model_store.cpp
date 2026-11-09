@@ -324,6 +324,126 @@ static void TurnAboutUp(gta2::Mat4& M, float radians) {
     M.m[3][0] += px - (px * c - pz * sn);
     M.m[3][2] += pz - (px * sn + pz * c);
 }
+// ANIM-VEHICLE-ENTRY: two-bone limb IK over the composed pose (see ModelSetLimbTarget).
+// Limbs 0 left arm, 1 right arm, 2 left leg, 3 right leg; targets and poles in model space.
+struct LimbIk { bool on = false; float t[3] = {}; float pole[3] = {}; float w = 0.0f; };
+static LimbIk g_limbIk[4];
+static uint64_t g_limbIkKey = 0;   // a hash of the quantised targets (the pose cache key)
+static float g_limbResidual[4][3] = {};   // the part of each target out of reach last pose (model space)
+struct LimbChain { int a = -1, b = -1, c = -1; std::vector<int> subA, subB, subC; };
+static std::map<const Model*, std::array<LimbChain, 4>> g_limbChains;
+static const std::array<LimbChain, 4>& LimbChainsFor(const Model& model) {
+    auto it = g_limbChains.find(&model);
+    if (it != g_limbChains.end()) return it->second;
+    static const char* const kNames[4][3] = {{"Bip01 L UpperArm", "Bip01 L Forearm", "Bip01 L Hand"},
+                                             {"Bip01 R UpperArm", "Bip01 R Forearm", "Bip01 R Hand"},
+                                             {"Bip01 L Thigh", "Bip01 L Calf", "Bip01 L Foot"},
+                                             {"Bip01 R Thigh", "Bip01 R Calf", "Bip01 R Foot"}};
+    std::array<LimbChain, 4> chains;
+    const int n = static_cast<int>(model.nodes.size());
+    auto find = [&](const char* name) { for (int i = 0; i < n; ++i) if (strcmp(model.nodes[i].name, name) == 0) return i; return -1; };
+    auto under = [&](int root, std::vector<int>* out) {
+        for (int i = 0; i < n; ++i) {
+            for (int k = i, guard = 0; k >= 0 && k < n && guard < 64; k = model.nodes[k].parent, ++guard) {
+                if (k == root) { out->push_back(i); break; }
+            }
+        }
+    };
+    for (int l = 0; l < 4; ++l) {
+        LimbChain& c = chains[l];
+        c.a = find(kNames[l][0]); c.b = find(kNames[l][1]); c.c = find(kNames[l][2]);
+        if (c.a < 0 || c.b < 0 || c.c < 0) { c.a = -1; continue; }
+        under(c.a, &c.subA); under(c.b, &c.subB); under(c.c, &c.subC);
+    }
+    return g_limbChains.emplace(&model, chains).first->second;
+}
+// Rotates the nodes `sub` of `w` by the rotation taking direction u onto v, about `pivot`.
+static void RotateNodes(std::vector<gta2::Mat4>* w, const std::vector<int>& sub, const gta2::Vec3& pivot,
+                        gta2::Vec3 u, gta2::Vec3 v) {
+    u = gta2::Normalize(u); v = gta2::Normalize(v);
+    gta2::Vec3 axis = gta2::Cross(u, v);
+    const float sn = std::sqrt(gta2::Dot(axis, axis)), cs = gta2::Dot(u, v);
+    if (sn < 1e-6f) return;
+    axis = axis * (1.0f / sn);
+    const float k = 1.0f - cs;
+    // Rodrigues, as a matrix R applied to column vectors: v' = R v.
+    const float x = axis.x, y = axis.y, z = axis.z;
+    const float R[3][3] = {{cs + x * x * k, x * y * k - z * sn, x * z * k + y * sn},
+                           {y * x * k + z * sn, cs + y * y * k, y * z * k - x * sn},
+                           {z * x * k - y * sn, z * y * k + x * sn, cs + z * z * k}};
+    auto rot = [&](float* p) {
+        const float a = p[0], b = p[1], c = p[2];
+        p[0] = R[0][0] * a + R[0][1] * b + R[0][2] * c;
+        p[1] = R[1][0] * a + R[1][1] * b + R[1][2] * c;
+        p[2] = R[2][0] * a + R[2][1] * b + R[2][2] * c;
+    };
+    for (int i : sub) {
+        gta2::Mat4& M = (*w)[i];
+        for (int r = 0; r < 3; ++r) rot(M.m[r]);
+        float p[3] = {M.m[3][0] - pivot.x, M.m[3][1] - pivot.y, M.m[3][2] - pivot.z};
+        rot(p);
+        M.m[3][0] = pivot.x + p[0]; M.m[3][1] = pivot.y + p[1]; M.m[3][2] = pivot.z + p[2];
+    }
+}
+static void ApplyLimbIk(const Model& model, std::vector<gta2::Mat4>* w) {
+    for (auto& r : g_limbResidual) r[0] = r[1] = r[2] = 0.0f;
+    bool any = false;
+    for (const LimbIk& l : g_limbIk) any = any || (l.on && l.w > 1e-3f);
+    if (!any) return;
+    const std::array<LimbChain, 4>& chains = LimbChainsFor(model);
+    auto pos = [&](int i) { const gta2::Mat4& M = (*w)[i]; return gta2::Vec3{M.m[3][0], M.m[3][1], M.m[3][2]}; };
+    for (int l = 0; l < 4; ++l) {
+        const LimbIk& ik = g_limbIk[l];
+        const LimbChain& ch = chains[l];
+        if (!ik.on || ik.w <= 1e-3f || ch.a < 0) continue;
+        // The end joint keeps the orientation the clip gave it (a foot stays flat,
+        // a hand keeps its grip): remembered here, put back after the two turns.
+        std::vector<gta2::Mat4> endRows;
+        endRows.reserve(ch.subC.size());
+        for (int i : ch.subC) endRows.push_back((*w)[i]);
+        const gta2::Vec3 cOld = pos(ch.c);
+        const gta2::Vec3 A = pos(ch.a), B = pos(ch.b), C = cOld;
+        const float wgt = (std::min)(1.0f, ik.w);
+        const gta2::Vec3 T{C.x + (ik.t[0] - C.x) * wgt, C.y + (ik.t[1] - C.y) * wgt, C.z + (ik.t[2] - C.z) * wgt};
+        const gta2::Vec3 AB = B - A, BC = C - B, AT = T - A;
+        const float la = std::sqrt(gta2::Dot(AB, AB)), lb = std::sqrt(gta2::Dot(BC, BC));
+        {
+            static std::set<std::pair<const Model*, int>> logged;
+            if (logged.size() < 16 && logged.insert({&model, l}).second)
+                Log("limb ik: %s limb %d upper %.3f lower %.3f (model height %.3f) root %.3f,%.3f,%.3f", model.name.c_str(), l, la, lb,
+                    model.Height(), A.x, A.y, A.z);
+        }
+        float d = std::sqrt(gta2::Dot(AT, AT));
+        if (la < 1e-5f || lb < 1e-5f || d < 1e-5f) continue;
+        const gta2::Vec3 nrm = AT * (1.0f / d);
+        d = (std::max)(std::fabs(la - lb) * 1.02f + 1e-4f, (std::min)(d, (la + lb) * 0.999f));
+        // The bend: toward the pole, else the way the clip already bends it.
+        gta2::Vec3 pole{ik.pole[0], ik.pole[1], ik.pole[2]};
+        if (gta2::Dot(pole, pole) < 1e-8f) pole = AB;
+        gta2::Vec3 bend = pole - nrm * gta2::Dot(pole, nrm);
+        if (gta2::Dot(bend, bend) < 1e-10f) bend = AB - nrm * gta2::Dot(AB, nrm);
+        if (gta2::Dot(bend, bend) < 1e-10f) continue;
+        bend = gta2::Normalize(bend);
+        const float cosA = (std::max)(-1.0f, (std::min)(1.0f, (la * la + d * d - lb * lb) / (2.0f * la * d)));
+        const float sinA = std::sqrt((std::max)(0.0f, 1.0f - cosA * cosA));
+        const gta2::Vec3 Bn = A + nrm * (la * cosA) + bend * (la * sinA);
+        const gta2::Vec3 Tn = A + nrm * d;
+        g_limbResidual[l][0] = T.x - Tn.x; g_limbResidual[l][1] = T.y - Tn.y; g_limbResidual[l][2] = T.z - Tn.z;
+        RotateNodes(w, ch.subA, A, AB, Bn - A);
+        const gta2::Vec3 C1 = pos(ch.c);
+        RotateNodes(w, ch.subB, Bn, C1 - Bn, Tn - Bn);
+        // The end joint and what hangs off it: moved with it, turned back to its own.
+        const gta2::Vec3 cNew = pos(ch.c);
+        for (size_t k = 0; k < ch.subC.size(); ++k) {
+            gta2::Mat4& M = (*w)[ch.subC[k]];
+            const gta2::Mat4& O = endRows[k];
+            for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) M.m[r][c] = O.m[r][c];
+            M.m[3][0] = O.m[3][0] + (cNew.x - cOld.x);
+            M.m[3][1] = O.m[3][1] + (cNew.y - cOld.y);
+            M.m[3][2] = O.m[3][2] + (cNew.z - cOld.z);
+        }
+    }
+}
 // The overlay: a third clip blended over the pair (see ModelSetOverlay).
 static const ModelAnimation* g_overlay = nullptr;
 static float g_overlayTime = 0.0f, g_overlayWeight = 0.0f;
@@ -451,6 +571,7 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
             done[i] = true;
         }
     }
+    ApplyLimbIk(model, out);
 }
 
 void NodeWorlds(const Model& model, const ModelAnimation* animation, float time, std::vector<gta2::Mat4>* out) {
@@ -935,6 +1056,35 @@ void ModelSetLayers(const Model* model, const ModelAnimation* const* clips, cons
 }
 float ModelTorsoTwist() { return g_torsoTwist; }
 void ModelSetHeadTurn(float radians) { g_headTurn = radians; }
+static void LimbIkRekey() {
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&](int32_t v) { h ^= static_cast<uint32_t>(v); h *= 1099511628211ull; };
+    for (const LimbIk& l : g_limbIk) {
+        if (!l.on || l.w <= 1e-3f) { mix(0); continue; }
+        mix(1);
+        for (int k = 0; k < 3; ++k) mix(static_cast<int32_t>(std::floor(l.t[k] * 400.0f + 0.5f)));
+        for (int k = 0; k < 3; ++k) mix(static_cast<int32_t>(std::floor(l.pole[k] * 50.0f + 0.5f)));
+        mix(static_cast<int32_t>(std::floor(l.w * 64.0f + 0.5f)));
+    }
+    g_limbIkKey = h;
+}
+void ModelSetLimbTarget(int limb, const float* target, const float* pole, float weight) {
+    if (limb < 0 || limb > 3) return;
+    LimbIk& l = g_limbIk[limb];
+    if (!target || weight <= 1e-3f) { l.on = false; l.w = 0.0f; LimbIkRekey(); return; }
+    l.on = true; l.w = weight;
+    for (int k = 0; k < 3; ++k) { l.t[k] = target[k]; l.pole[k] = pole ? pole[k] : 0.0f; }
+    LimbIkRekey();
+}
+bool ModelLimbResidual(int limb, float out[3]) {
+    if (limb < 0 || limb > 3 || !g_limbIk[limb].on) return false;
+    for (int k = 0; k < 3; ++k) out[k] = g_limbResidual[limb][k];
+    return true;
+}
+void ModelClearLimbTargets() {
+    for (LimbIk& l : g_limbIk) { l.on = false; l.w = 0.0f; }
+    g_limbIkKey = 0;
+}
 
 void ModelSetZoneTints(const float* top, const float* bottom, const float* hair) {
     g_zoneOn = top != nullptr && bottom != nullptr;
@@ -1192,8 +1342,9 @@ struct PoseKey {
             if (layer[k] != o.layer[k] || std::fabs(layerT[k] - o.layerT[k]) >= 1e-4f || std::fabs(layerW[k] - o.layerW[k]) >= 1e-3f) return false;
         return true;
     }
+    uint64_t ik = 0;   // ANIM-VEHICLE-ENTRY: the limb targets (LimbIkRekey)
     bool operator==(const PoseKey& o) const {
-        return model == o.model && LayersEqual(o) && animation == o.animation && second == o.second && overlay == o.overlay &&
+        return model == o.model && ik == o.ik && LayersEqual(o) && animation == o.animation && second == o.second && overlay == o.overlay &&
                std::fabs(overlayTime - o.overlayTime) < 1e-4f && std::fabs(overlayWeight - o.overlayWeight) < 1e-3f &&
                std::fabs(time - o.time) < 1e-4f &&
                std::fabs(secondTime - o.secondTime) < 1e-4f && std::fabs(weight - o.weight) < 1e-3f &&
@@ -1428,6 +1579,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.weight = weight;
         key.twist = g_torsoTwist;
         key.head = g_headTurn;
+        key.ik = g_limbIkKey;
         key.overlay = g_overlay;
         key.overlayTime = g_overlay ? g_overlayTime : 0.0f;
         key.overlayWeight = g_overlay ? g_overlayWeight : 0.0f;

@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <tuple>
 
+#include "boarding.h"
 #include "compat.h"
 #include "log.h"
 #include "model_store.h"
@@ -1710,6 +1711,7 @@ TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof
 // How far each car's door stands open (0 shut, 1 fully), by sprite object.
 struct DoorState { float open = 0.0f; int side = 1; uint32_t frame = 0; DoorSplit last{nullptr, nullptr}; int lastSide = 0; };
 std::map<uintptr_t, DoorState> g_doors;
+std::map<uintptr_t, int> g_doorWarm;   // ANIM-VEHICLE-ENTRY: door splits built ahead for the driven car (bit 1 left, 2 right)
 int g_damageLogged = 0;
 
 Built* Measured(IDirect3DDevice9* device, const CarBodyUse& use, IDirect3DTexture9* art, uint32_t frame) {
@@ -2617,7 +2619,18 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 ds.side = lateral >= 0.0f ? 1 : -1;
             }
             if (g_forceDoor != 0 && ds.open < 0.02f) ds.side = g_forceDoor > 0 ? 1 : -1;
-            const float target = (use.doorPed || g_forceDoor != 0) ? 1.0f : 0.0f;
+            float target = (use.doorPed || g_forceDoor != 0) ? 1.0f : 0.0f;
+            // ANIM-VEHICLE-ENTRY: a boarding figure drives the door (boarding.h): its side,
+            // how far and how fast, so it opens before a leaving figure passes through it.
+            float doorRate = 0.0f;
+            {
+                int bSide = 0; float bTarget = 0.0f;
+                if (BoardingDoor(use.object, &bSide, &bTarget, &doorRate)) {
+                    if (ds.open < 0.02f || bSide == ds.side) { ds.side = bSide; target = bTarget; }
+                } else {
+                    doorRate = 0.0f;
+                }
+            }
             // The split comes from the worker (DoorReady): until it is there the door
             // stays shut, and a split made for an earlier dent step stands in for the
             // current one rather than shutting a door that is already open.
@@ -2636,8 +2649,27 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 if (haveSplit) { ds.last = split; ds.lastSide = ds.side; }
                 else if (ds.last.body && ds.lastSide == ds.side && ModelIsKnown(ds.last.body)) { split = ds.last; haveSplit = true; }
             }
-            if (target > ds.open) { if (haveSplit) ds.open = (std::min)(1.0f, ds.open + dt * 2.5f); }
-            else ds.open = (std::max)(0.0f, ds.open - dt * 1.7f);
+            if (target > ds.open) { if (haveSplit) ds.open = (std::min)(target, ds.open + dt * (doorRate > 0.0f ? doorRate : 2.5f)); }
+            else ds.open = (std::max)(target, ds.open - dt * (doorRate > 0.0f ? doorRate : 1.7f));
+            if (!cpuCut && modelNumber < 72) {
+                const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
+                float zf = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
+                zf = (std::min)(zf, 0.42f * b->bodyLength);
+                BoardingPublishCar(use.object, posed, halfW, zf, zf - 0.27f * b->bodyLength, roofY, ds.side,
+                                   haveSplit ? ds.open : 0.0f, frame);
+                // The player's own car: both doors' splits built ahead, so the exit's door
+                // opens on its first frame instead of after the worker's latency.
+                if (use.driven && BoardingWarmDoors(use.object)) {
+                    const Model* doorSource = g_doorBytes > kDoorSplitBytes ? model : worn;
+                    DoorSplit warm{nullptr, nullptr};
+                    for (int side = -1; side <= 1; side += 2) {
+                        if (side == ds.side && haveSplit) continue;
+                        auto& done = g_doorWarm[use.object];
+                        if (done & (side > 0 ? 2 : 1)) continue;
+                        if (DoorReady(*doorSource, fit, side, zf, zf - 0.27f * b->bodyLength, roofY, halfW, &warm)) done |= side > 0 ? 2 : 1;
+                    }
+                }
+            }
             if (ds.open > 0.02f && haveSplit) {
                 const float halfW = 0.5f * b->bodyWidth;
                 ModelDraw(device, *split.body, Mul(fit, posed), nullptr, 0.0f);

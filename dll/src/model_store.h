@@ -166,6 +166,16 @@ void ModelSetOverlay(const ModelAnimation* clip, float time, float weight);
 // skipped; count 0 (or a null model) clears. Part of the pose cache key; clear it after the draw.
 constexpr int kModelLayers = 6;
 void ModelSetLayers(const Model* model, const ModelAnimation* const* clips, const float* times, const float* weights, int count);
+// ANIM-VEHICLE-ENTRY: two-bone IK over every pose drawn or queried until cleared:
+// limb 0 left arm, 1 right arm (the hand onto `target`), 2 left leg, 3 right leg (the
+// foot), in model space, the elbow or knee bent toward `pole` (a direction; null: the
+// way the clip bends it), blended in by `weight` (0..1; null target or 0 clears that
+// limb). The end joint keeps the clip's orientation. Part of the pose cache key.
+void ModelSetLimbTarget(int limb, const float* target, const float* pole, float weight);
+void ModelClearLimbTargets();
+// What of a limb's target the last pose could not reach (target minus where the end
+// joint got to, model space); false when that limb has no target.
+bool ModelLimbResidual(int limb, float out[3]);
 // Bytes of model textures created so far (managed pool), and how many.
 size_t ModelsTextureBytes(int* count);
 const Model* ModelForPedestrian();
