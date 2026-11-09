@@ -1392,6 +1392,15 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
 
 // Every frame's camera yaw against the game's heading, when GTA2DX9_LOG_CAMERA=1
 // is in the environment: for measuring the turn rate from a test session.
+static bool cameraLogOn() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", buf, sizeof buf) && atoi(buf) ? 1 : 0;
+    }
+    return enabled != 0;
+}
+
 static void LogCameraFrame(const char* view, float camYaw, float headingYaw, float dt,
                            const gta2::Vec3* eye = nullptr, float px = 0.0f, float pz = 0.0f, float extra = 0.0f) {
     static int enabled = -1;
@@ -1490,6 +1499,8 @@ void ViewCameraSolver::Reset() {
     lastPitchKnown_ = false;
     fpEyeKnown_ = false;
     fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
+    boomKnown_ = false;
+    snapEye_ = true;
 }
 
 // A critically damped spring on an angle: `yaw` chases `target` with velocity
@@ -1923,6 +1934,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
         extraLength_ = extraHeight_ = bodyHeight_ = 0.0f;
         framingKnown_ = false;
+        boomKnown_ = false;
+        snapEye_ = true;   // a warp or a level cut: the first frame is the solved rig, not his head
     }
     // In or out of a car, or thrown out of one by a blast: not a cut, a glide.
     if (inVehicle != lastInVehicle_) blend_ = 1.0f;
@@ -2268,6 +2281,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         g_navHeading = headingYaw;
         g_navInVehicle = inVehicle;
         g_navHeadingKnown = player.facingKnown;
+        boomKnown_ = false;   // third person starts its boom afresh from where the eye is
+        snapEye_ = false;
         status_ = inVehicle ? "first person, at the wheel" : (g_navActive ? "first person, on foot (keys turn the view)" : "first person, on foot");
         return;
     }
@@ -2546,6 +2561,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const float cp = std::cos(orbitPitch), sp = std::sin(orbitPitch);
     gta2::Vec3 desired{px - std::sin(yaw) * distance * cp + sx * shoulder, baseY + height + distance * sp,
                        pz - std::cos(yaw) * distance * cp + sz * shoulder};
+    const gta2::Vec3 rigEye = desired;   // before any wall moves it (the boom filter below)
 
     // Not through a wall: walk from just above his head (or the vehicle's roof)
     // out to where the camera wants to be and stop short of the first solid block.
@@ -2587,6 +2603,22 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             }
         }
     }
+    // The rescue's step (0.25-1 block up or toward the nose) is eased for the shown camera
+    // (FIX-CAMERA: a car grinding a wall hopped the picture half a block in one frame as its
+    // centre went in and out of the wall's block, run fixcam_wall4); the solve uses the
+    // raw pivot.
+    {
+        const gta2::Vec3 lift{pivot.x - px, pivot.y - (baseY + (std::max)(0.6f, bodyHeight_ + 0.1f)), pivot.z - pz};
+        if (!boomKnown_) {
+            rescueX_ = lift.x; rescueY_ = lift.y; rescueZ_ = lift.z;
+        } else {
+            const float k = 1.0f - std::exp(-dt / 0.2f);
+            rescueX_ += (lift.x - rescueX_) * k;
+            rescueY_ += (lift.y - rescueY_) * k;
+            rescueZ_ += (lift.z - rescueZ_) * k;
+        }
+    }
+    const gta2::Vec3 shownPivot{px + rescueX_, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f) + rescueY_, pz + rescueZ_};
     auto reachTo = [&](const gta2::Vec3& from, const gta2::Vec3& to) {
         constexpr int kSteps = 32;
         for (int i = 1; i <= kSteps; ++i) {
@@ -2622,7 +2654,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             liftAngle_ += (0.0f - liftAngle_) * (1.0f - std::exp(-dt / 0.6f));
         } else if (spanLength > 1e-3f && spanFlat > 1e-3f) {
             const float a0 = std::atan2(span.y, spanFlat);
-            const float aMax = (std::max)(a0, 75.0f * kDegToRad);
+            // On foot at most 45 degrees (FIX-CAMERA): at 75 the camera hung over him looking
+            // straight down at the paving while he stood with his back to a wall (feel probe
+            // punch bursts); past 45 the boom shortens instead (the boom filter below).
+            const float aMax = (std::max)(a0, (inVehicle ? 75.0f : 45.0f) * kDegToRad);
             auto at = [&](float a) {
                 return gta2::Vec3{pivot.x + span.x / spanFlat * std::cos(a) * spanLength, pivot.y + std::sin(a) * spanLength,
                                   pivot.z + span.z / spanFlat * std::cos(a) * spanLength};
@@ -2643,42 +2678,12 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         const float reach = reachTo(pivot, desired);
         desired = pivot + (desired - pivot) * reach;
-        if (!inVehicle && wantLift <= 0.0f) {
-            // Pulled in toward him by a wall the arc could not clear (his back to a tall
-            // building, just out of a car against a shop front): a camera within a stride
-            // of his head sees the wall and not him (QA3 qa_crash_11). It cranes up over
-            // him instead, as high as is open (up to 1.2 blocks), and the framing below
-            // looks down at him.
-            const float nearDist = std::sqrt((desired.x - pivot.x) * (desired.x - pivot.x) + (desired.y - pivot.y) * (desired.y - pivot.y) +
-                                         (desired.z - pivot.z) * (desired.z - pivot.z));
-            const float want = (std::min)(1.2f, (std::max)(0.0f, (1.0f - nearDist) * 1.3f));
-            float rise = 0.0f;
-            for (float h = 0.1f; h <= want + 1e-3f; h += 0.1f) {
-                if (solidAt(desired.x, desired.y + h + 0.07f, desired.z)) break;
-                rise = h;
-            }
-            if (want > 0.3f && rise < 0.5f * want) {
-                // No room above either (an arcade, a tall building's face with a ledge
-                // over him): swing round him to the nearest side that is open at a
-                // useful distance, as a wall slides a modern chase camera along it.
-                const gta2::Vec3 full = span;
-                for (int k = 1; k <= 4; ++k) {
-                    bool found = false;
-                    for (int sign = -1; sign <= 1 && !found; sign += 2) {
-                        const float a = sign * 30.0f * k * kDegToRad, ca = std::cos(a), sa = std::sin(a);
-                        const gta2::Vec3 to{pivot.x + full.x * ca + full.z * sa, pivot.y + full.y, pivot.z - full.x * sa + full.z * ca};
-                        const float r = reachTo(pivot, to);
-                        if (r * spanLength >= 1.2f) {
-                            desired = pivot + (to - pivot) * r;
-                            rise = 0.0f;
-                            found = true;
-                        }
-                    }
-                    if (found) break;
-                }
-            }
-            desired.y += rise;
-        }
+        // Pulled in toward him by a wall the arc could not clear: the camera stays on
+        // the boom's line, shortened (the boom filter below), looking where the rig looks.
+        // It used to crane up to 1.2 blocks over him and swing 30-120 degrees round him
+        // within a frame or two, and the framing below then looked down at the paving
+        // (feel-armed-third-camera-collapses-to-eye-looking-down, chase-cam-foot-snap-cuts):
+        // on the boom's line his head stays where the rig puts it in the picture.
     }
     // And never under the floor it is over.
     if (q.floorAt) {
@@ -2782,6 +2787,23 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // The camera moves with him first, so that at a steady speed it never
     // trails, and is then eased onto where it wants to be: a swing or a pull-in
     // is spread over a few frames, straight-line motion is not.
+    // How long the solve lets the boom be this frame (the boom filter below compares
+    // it with the rig's own length to tell a pull-in from the eye's ordinary lag).
+    const float solveLen = std::sqrt((desired.x - pivot.x) * (desired.x - pivot.x) + (desired.y - pivot.y) * (desired.y - pivot.y) +
+                                     (desired.z - pivot.z) * (desired.z - pivot.z));
+    if (snapEye_) {
+        // The first frame after a warp, a respawn or a level cut: the eye on the solved
+        // rig at once. It used to start on his head (py + 1) and ease out from there, so
+        // the first frames looked down at the paving from inside him
+        // (feel-armed-third-camera-collapses-to-eye-looking-down).
+        eyeX_ = desired.x;
+        eyeY_ = desired.y;
+        eyeZ_ = desired.z;
+        velX_ = velZ_ = 0.0f;
+        lastPitchKnown_ = false;
+        finalYawKnown_ = false;
+        snapEye_ = false;
+    }
     eyeX_ += velX_ * dt;
     eyeZ_ += velZ_ * dt;
     // Just after a discontinuity (in or out of a car, thrown, down) the ease is
@@ -2850,6 +2872,85 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         eyeZ_ = e.z;
     }
 
+    // FIX-CAMERA: the boom filter. The solve above says where the camera may be (eyeX_,
+    // its state, kept as it was); what is shown sits on the same line from the pivot at
+    // boom_, a length with a capped rate. A pull-in shortens it at most kBoomIn blocks a
+    // second (the solve used to move the eye 0.7 block toward his head in one frame and
+    // straight back out the next: chase-cam-foot-snap-cuts, cam: third back=0.68 ->
+    // 0.07 -> 0.00); it lengthens only once the solve has left it alone for kBoomHold
+    // seconds, then eased at most kBoomOut a second (a car grinding along a wall, its
+    // heading wobbling, pumped the boom a block every two seconds:
+    // pt-chase-camera-pumps-against-wall). Never shorter than half a block or so from his
+    // head on foot, and outside the car's own body at the wheel (the eye once sat inside
+    // the van's roof). The camera's orientation is the rig's along that line: a pull-in
+    // slides the camera along the boom and turns nothing, as a spring arm does.
+    gta2::Vec3 orientEye{eyeX_, eyeY_, eyeZ_};
+    {
+        constexpr float kBoomIn = 9.0f, kBoomOut = 2.2f, kBoomHold = 0.3f;
+        const gta2::Vec3 solved{eyeX_, eyeY_, eyeZ_};
+        const gta2::Vec3 arm = solved - pivot;
+        const float armLen = std::sqrt(arm.x * arm.x + arm.y * arm.y + arm.z * arm.z);
+        const gta2::Vec3 rigArm = rigEye - pivot;
+        const float rigLen = std::sqrt(rigArm.x * rigArm.x + rigArm.y * rigArm.y + rigArm.z * rigArm.z);
+        // The boom's direction: the solved eye's, turned toward at a capped rate (4 rad/s:
+        // the shown yaw is capped at the turn rate anyway, so no turn is slowed, but a prop
+        // clearance or a corner that lifts the solved eye no longer swings a short boom over
+        // his head in one frame, run fixcam_feel3). Pulled in to under 0.35 block, the solved
+        // eye's direction from the pivot is noise (the eye height jumped half a block a frame,
+        // run fixcam_wall1): the boom turns toward the rig's own direction instead, slower.
+        if (!boomKnown_ || inVehicle != boomInVehicle_) {
+            const gta2::Vec3 d = armLen > 0.05f ? arm : rigArm;
+            const float l = (std::max)(std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z), 1e-4f);
+            armDirX_ = d.x / l;
+            armDirY_ = d.y / l;
+            armDirZ_ = d.z / l;
+        } else if (armLen > 0.35f || rigLen > 1e-3f) {
+            const bool own = armLen > 0.35f;
+            const gta2::Vec3 want = own ? gta2::Vec3{arm.x / armLen, arm.y / armLen, arm.z / armLen}
+                                        : gta2::Vec3{rigArm.x / rigLen, rigArm.y / rigLen, rigArm.z / rigLen};
+            const float c = (std::max)(-1.0f, (std::min)(1.0f, armDirX_ * want.x + armDirY_ * want.y + armDirZ_ * want.z));
+            const float angle = std::acos(c);
+            const float t = angle > 1e-4f ? (std::min)(1.0f, (own ? 4.0f : 2.5f) * dt / angle) : 1.0f;
+            const float nx = armDirX_ + (want.x - armDirX_) * t, ny = armDirY_ + (want.y - armDirY_) * t, nz = armDirZ_ + (want.z - armDirZ_) * t;
+            const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+            if (nl > 1e-4f) { armDirX_ = nx / nl; armDirY_ = ny / nl; armDirZ_ = nz / nl; }
+        }
+        float halfLen = 0.6f;
+        if (inVehicle && exitCar_ == player.vehicle && exitCarHalfLength_ > 0.1f) halfLen = exitCarHalfLength_;
+        const float minBoom = (std::min)(inVehicle ? halfLen + 0.15f : 0.6f, (std::max)(rigLen, 0.1f));
+        const float target = (std::max)(armLen, minBoom);
+        const bool pulled = solveLen < rigLen - 0.15f || armLen < (std::min)(solveLen, boom_) - 0.15f;
+        boomClear_ = pulled ? 0.0f : boomClear_ + dt;
+        if (!boomKnown_ || inVehicle != boomInVehicle_) {
+            // Afresh (third person entered, a warp) or the frame he got in or out: from
+            // where the eye is, so the hand-over is continuous.
+            boom_ = (std::max)(armLen, minBoom);
+            boomKnown_ = true;
+            boomInVehicle_ = inVehicle;
+            boomClear_ = 0.0f;
+        } else if (target < boom_) {
+            boom_ = (std::max)(target, boom_ - kBoomIn * dt);
+        } else if (boomClear_ >= kBoomHold || !pulled) {
+            // Lengthening: at once by a hair (the rig breathing with speed), eased and
+            // capped for a release after a pull-in.
+            const float gap = target - boom_;
+            const float step = boomClear_ >= kBoomHold ? (std::max)(0.25f * dt, gap * (1.0f - std::exp(-dt / 0.3f))) : 0.25f * dt;
+            boom_ += (std::min)(gap, (std::min)(step, kBoomOut * dt));
+        }
+        const gta2::Vec3 dir{armDirX_, armDirY_, armDirZ_};
+        if (s.tpCollide) {
+            eyeX_ = shownPivot.x + dir.x * boom_;
+            eyeY_ = shownPivot.y + dir.y * boom_;
+            eyeZ_ = shownPivot.z + dir.z * boom_;
+            const float full = (std::max)(rigLen, boom_);
+            orientEye = {shownPivot.x + dir.x * full, shownPivot.y + dir.y * full, shownPivot.z + dir.z * full};
+        }
+        if (cameraLogOn()) {
+            static int every = 0;
+            if (pulled || (++every % 15) == 0)
+                Log("cam: boom %s len=%.2f solved=%.2f want=%.2f rig=%.2f min=%.2f clear=%.2f", inVehicle ? "car" : "foot", boom_, armLen, solveLen, rigLen, minBoom, boomClear_);
+        }
+    }
     gta2::Vec3 eye{eyeX_, eyeY_, eyeZ_};
     if (shake_ > 0.001f) {
         eye.x += Wobble(shakeClock_, 11.0f) * 0.04f * shake_;
@@ -2860,14 +2961,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // not the wall beyond (on foot; at 0.4 block or less, 80 % of the way).
     gta2::Vec3 aim = lookAt;
     if (!inVehicle) {
-        const float nearDist = std::hypot(eye.x - px, eye.z - pz);
+        const float nearDist = std::hypot(orientEye.x - px, orientEye.z - pz);
         const float mix = 0.8f * (std::min)(1.0f, (std::max)(0.0f, (1.1f - nearDist) / 0.7f));
         if (mix > 0.0f) {
             const gta2::Vec3 chest{px, baseY + 0.25f, pz};
             aim = lookAt + (chest - lookAt) * mix;
         }
     }
-    const gta2::Vec3 dir = aim - eye;
+    const gta2::Vec3 dir = aim - orientEye;   // the rig's orientation (FIX-CAMERA boom filter above)
     const float flat = std::hypot(dir.x, dir.z);
     float camYaw = flat > 1e-5f ? std::atan2(dir.x, dir.z) : yaw;
     float camPitch = std::atan2(dir.y, (std::max)(flat, 1e-5f));

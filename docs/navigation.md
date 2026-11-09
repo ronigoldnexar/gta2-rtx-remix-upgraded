@@ -291,9 +291,8 @@ keys_camprops.sh -e GTA2DX9_LOG_CAMERA=1 -e GTA2DX9_SCENE_NO_CAR=1`; sheet
   at once; the pivot was then moved up to 0.9 block *in front of him* and the camera looked down at
   the paving ahead (before: all four headings at the QA3 exit spot, map 118.24,156.84, framed paving
   and no player). On foot the march now ignores his own cell. Pulled in within a block of his head
-  by a wall the arc cannot clear, the camera cranes straight up over him (as high as is open, up to
-  1.2 blocks); with no room above it swings round him (30, 60, 90, 120 degrees either way) to the
-  nearest side that is open 1.2 blocks out. Close in (under 1.1 block), the point looked at comes
+  by a wall the arc cannot clear, the camera *used to* crane straight up over him and swing round
+  him 30-120 degrees; both are gone since FIX-CAMERA (below): it stays on the boom's line. Close in (under 1.1 block), the point looked at comes
   back from ahead of him toward his chest (up to 80 %), so the frame holds him and not the wall.
 - **First person by a post or a car** (QA3 3). The "lamp post" bar of `qa_crash_10` is the Truck
   Cab's exhaust stack: the frame before it (`qa_crash_09`) shows the stack beside the eye, and the
@@ -338,6 +337,36 @@ loaded host, `GTA2_DIRECT_KEYS=1`; sheet `out/camera_props_sheet.png`, local):
   outside its box, so its side fills the frame when he faces it but no part of it sits a hand from
   the eye. Not reproduced: the QA3 Truck Cab stack itself, and a lamp post (none within 1.5 blocks
   of the QA3 spot). The park trees are not covered (no accessor).
+
+## The boom as a state (FIX-CAMERA, 9 Nov 2026)
+
+Defects chase-cam-foot-snap-cuts, pt-chase-camera-pumps-against-wall, pt-third-exit-car-camera-overhead,
+feel-armed-third-camera-collapses-to-eye-looking-down. Code: `ViewCameraSolver::Solve`, "the boom filter"
+(`boom_`, `boomClear_`, `armDir*_` in `dll/src/view_modes.h`).
+
+- The wall solve (pivot march, arc lift, overhead, second pass on the eased eye) still says how long the
+  boom *may* be. What is shown sits on that line from the pivot at `boom_`, a length with a capped rate:
+  it shortens at most 9 blocks a second (0.3 a frame at 30 fps) and lengthens only after the solve has
+  left it alone for 0.3 s, then eased (0.3 s) and at most 2.2 blocks a second. Before, the solve moved
+  the eye from 2.2 blocks to his head in one frame and back out the next (`cam: third back=2.18 -> 0.01`),
+  and a car grinding a wall pumped the boom a block every two seconds.
+- Never shorter than 0.6 block from his head on foot, and outside the car's own body at the wheel (its
+  half length + 0.15 from the body centre): the eye no longer ends up inside the van's roof.
+- The orientation is the rig's along the boom (a spring arm): a pull-in slides the camera toward his
+  head and turns nothing, so his head stays where the rig puts it in the frame. The crane up over him
+  and the 30-120 degree swing round him when pulled in close are removed (they changed the view by tens
+  of degrees within a frame or two and looked down at the paving).
+- Pulled in to under 0.35 block the boom's direction turns toward the rig's own at 2.5 rad/s instead of
+  following the solved eye (whose direction from the pivot is noise there).
+- After a warp, a respawn or a level cut the first frame puts the eye straight onto the solved rig (it
+  used to start on his head and ease out: the armed-warp case framed the paving for 2.7 s).
+- In or out of a car the boom restarts from where the eye is, so the hand-over stays continuous.
+- Log (`GTA2DX9_LOG_CAMERA=1`): `cam: boom foot|car len= solved= want= rig= min= clear=` on every pulled
+  frame and every 15th otherwise, next to the `cam: third ... back=` lines.
+- Measured (feel probe foot/punch/gun, Downtown plaza and railed enclosure, 30 fps): one-frame `back`
+  changes over 0.35 block 13 before (`fixcam_feel_base`), 0 after; a car held against a wall: before
+  1.44 -> 0.00 in one frame and the inside of the roof (`fixcam_wall_base` wall_1 f270), after no frame
+  over 0.30 (`fixcam_wall2`).
 
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 

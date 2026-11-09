@@ -390,6 +390,18 @@ private:
     float extraLength_ = 0.0f, extraHeight_ = 0.0f, bodyHeight_ = 0.0f;
     bool framingKnown_ = false;
     float liftAngle_ = 0.0f;   // the chase camera swung up over a wall behind it, radians, eased
+    // FIX-CAMERA (chase-cam-foot-snap-cuts, pt-chase-camera-pumps-against-wall): the
+    // third-person boom as a state. The collision solve says how long the boom may be;
+    // the shown camera sits on that boom's direction at boom_, which shortens at a
+    // capped rate and lengthens only after the line has been clear for a moment, so a
+    // ray that flickers blocked/clear never cuts or pumps the picture.
+    float boom_ = 0.0f;
+    float boomClear_ = 0.0f;          // seconds since the solve last pulled the boom in
+    bool boomKnown_ = false;
+    bool boomInVehicle_ = false;      // the boom was last solved at the wheel (a change restarts it)
+    float armDirX_ = 0.0f, armDirY_ = 0.0f, armDirZ_ = -1.0f;
+    float rescueX_ = 0.0f, rescueY_ = 0.0f, rescueZ_ = 0.0f;   // the pivot rescue's offset, eased for the shown camera
+    bool snapEye_ = true;             // after a reset: the eye straight onto the solved rig
     // A blend after a discontinuity that is not a cut (in or out of a car, thrown
     // by a blast, down and up again): 1 just after it, 0 once settled. The eye
     // then eases more slowly and may lag further, so the move is a glide.
