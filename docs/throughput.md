@@ -169,3 +169,43 @@ The script now sizes itself from `nproc`: LOAD_HIGH = max(22, 1.15 x nproc), LOA
 the player's set is the top three CPUs (`PLAY_CPUSET`, 93-95 here), the scripted set everything below it, and a
 container that a launcher pinned to its own CPU set is left alone. Crontab env (`LOAD_HIGH`, `LOAD_LOW`,
 `PLAY_CPUSET`) still overrides. On the 8-CPU host the behaviour is unchanged.
+
+## Recordings for people (9 Nov, FIX-PERF-2)
+
+A video the owner or anyone else will watch must show the game as a player sees it on the play page.
+Two things in the scripted path made recordings judder that the play page never had
+(`docs/performance.md` "The jerky demo"):
+
+1. **CPU quota.** At `--cpus=1.5` the game and the 30 fps x11grab share one quota and frames come in
+   ~100 ms steps (`demo_v6`: 561 frames over 50 ms). `grun.sh` defaults to `CPUS=8` since 9 Nov 19:25.
+2. **The NVIDIA GL shader cache.** wined3d makes a GL program for every new fixed-function state, and
+   the driver compiles each one the first time a draw needs it: 50-850 ms stalls at the first V, the
+   first person view and the driver's seat. `play.sh` mounts `gamerun/nv_cache_gl`, so a player pays
+   that once; `grun.sh` mounts nothing, so every scripted capture paid all of them again. With the
+   cache kept, the owner's demo went from 57 to 9-13 frames over 50 ms.
+
+Use the wrapper (it changes nothing in `grun.sh`; every other grun variable passes through):
+
+```
+GTA2_DIRECT_KEYS=1 GTA2_GPU=<n> REC_CPUSET=<8 idle cores> [STAGE=<dir>] \
+  gamerun/rec_grun.sh <run> <secs> <keys script> [-e ...]
+```
+
+`rec_grun.sh` sets `CPUS=8`, `FPS=30`, `PRIO=1`, `CPUSET=$REC_CPUSET`, and mounts
+`gamerun/nv_cache_rec` (seeded once from the play page's `gamerun/nv_cache_gl`; `REC_NVCACHE=<dir>`
+for another) as `__GL_SHADER_DISK_CACHE_PATH`. Pick `REC_CPUSET` from cores no other container is
+pinned to (`docker inspect -f '{{.HostConfig.CpusetCpus}}'` on the running ones). A new driver, a new
+GPU model, or a renderer change that adds fixed-function states needs one throwaway run first to
+warm the cache; the second run is the one to publish.
+
+The state logging the runners steer by (`GTA2DX9_STATE_EVERY=3`, `GTA2DX9_PEDS_EVERY=3`,
+`GTA2DX9_LOG_PED_FRAMES=1`) is not a cause: the same script with the logging at its defaults had the
+same number of slow frames (55 vs 57), and the log is written off the render thread now (0.03 ms a
+frame on average, see the `log cost` line).
+
+Judge a recording by frames, not by the count of `hitch` lines before 9 Nov 20:10: those also
+counted three breakdown lines per slow sprites stage and frames that made their budget. Now
+`hitch @N: frame` is one line per frame that missed its budget; `tools/run_stats.py` and the CHECK
+line count those. The measure is the per-frame log: run with `-e 'GTA2DX9_FRAME_LOG=Z:\out\frames.tsv'`
+and `python3 tools/frame_table.py out/<run> [-v]` (frames over 40/50/100/250 ms after the level load,
+p99, phase averages and worsts, per view; `-v` lists every frame over 50 ms with its three largest phases).

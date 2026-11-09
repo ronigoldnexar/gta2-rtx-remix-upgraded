@@ -147,6 +147,9 @@ bool FrameLogEnabled() {
                 QueryPerformanceFrequency(&f);
                 g_toMs = 1000.0 / static_cast<double>(f.QuadPart);
                 QueryPerformanceCounter(&g_t0);
+                // t_ms against GetTickCount, the clock of WINEDEBUG=+timestamp (FIX-PERF-2: lining
+                // wined3d's shader compiles up with the frames they stalled)
+                Log("frame log: t_ms 0 is GetTickCount %lu", static_cast<unsigned long>(GetTickCount()));
                 fprintf(g_file,
                         "frame\tt_ms\twhole\tgame\tpre\tlights\tsky\tworld\tspr_setup\tspr_loop\tspr_skid\tspr_issue\t"
                         "cars\tprops\tobjects\tpeds\teffects\tui\tlightsdraw\tpresent\twait\t"

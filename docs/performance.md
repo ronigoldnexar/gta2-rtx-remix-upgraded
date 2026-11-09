@@ -930,3 +930,72 @@ each at the same spot (`keys_bevpurity.sh BP_NOV=1 BP_CLASSIC=8`, `tools/classic
 - The ghost frame costs the level start 0.2-0.9 s of driver time (within the 1 s allowed).
 - The burst captures (`keys_bevpurity.sh`'s ffv1 recording) make the settled street view itself
   run at 100-200 ms a frame on a 3-CPU container. That is the host, not the switch.
+
+## The jerky demo (9 Nov 2026, FIX-PERF-2, owner blocker)
+
+The owner watched `DEMO_classic_to_3d_realtime_v6` and called it jerky (`demo_v6`: present worst
+332 ms, "1284 hitches"). The question was whether the game was ever juddery, or only the recordings.
+
+**Measurement.** `keys_owner_demo.sh` (the owner's content: classic opening, third-person walk, first
+person, a punch, a natural jack, chase drive, driver's seat, classic while driving, out, steps),
+`--cpus=8` on a CPU set of its own (80-87), GPU 7, 30 fps recording, `GTA2DX9_FRAME_LOG` on.
+Frames after the level load (`tools/frame_table.py`). A and B are stage 8297aab; C and E are this
+change on 814fa7e.
+
+| run | logging | NV shader cache | frames | `hitch @` lines | frames > 50 ms | > 100 ms | worst | p99 | present avg/worst |
+|---|---|---|---|---|---|---|---|---|---|
+| `demo_v6` (operator, `--cpus=1.5`) | 3 | cold | - | 1164 | 561\* | 64\* | 1047 | - | -/78 |
+| `fperf2_A_log15` | defaults (15/10) | cold | 6944 | 1243 | 55 | 23 | 870 | 41.4 | 1.7/843 |
+| `fperf2_B_log3` | 3/3 + ped frames | cold | 6384 | 898 | 57 | 20 | 663 | 46.7 | 1.3/489 |
+| `fperf2_C_fix_nv1` | 3/3 + ped frames | warm | 5308 | 893 (old count) | 9 | 5 | 220 | 33.3 | 0.16/154 |
+| `fperf2_E_accept` (`rec_grun.sh`) | 3/3 + ped frames | warm | 5585 | **14** | 13 | 5 | 261 | 41.4 | 1.8/253 |
+| `fperf2_F_final` (`rec_grun.sh`, its cache's 2nd run, final DLL) | 3/3 + ped frames | warm | 6579 | **8** | **6** | **0** | **99** | 33.3 | 0.3/46 |
+
+\* from the hitch lines (`demo_v6` has no frame log), level-load frame left out.
+
+**Where the judder came from.**
+
+1. **Capture configuration, CPU (most of it for `keys_video.sh` captures).** At `--cpus=1.5` the game
+   and the recorder shared one quota: 561 frames over 50 ms in `demo_v6`, 36 in the same script at
+   `CPUS=8` (`demo_smooth`, operator 19:25). `grun.sh` defaults to 8 since then.
+2. **Capture configuration, shader cache (most of what was left).** The present stalls (the
+   wined3d command thread falling behind, `present` waits on it) line up with GL program builds:
+   `fperf2_D_trace` (`WINEDEBUG=+timestamp,trace+d3d_shader`, `frame log: t_ms 0 is GetTickCount`
+   in gta2dx9.log lines the two clocks up) saw 278 programs in the run, 136 of them in the 10 s
+   after the first V. The play page keeps the NVIDIA cache (`play.sh`); scripted captures did not.
+   With it kept, 57 -> 9-13 frames over 50 ms and present worst 489-843 -> 154-253 ms.
+   `gamerun/rec_grun.sh` is the recording command now (`docs/throughput.md` "Recordings for people").
+3. **Instrumentation: not a cause.** Logging at the defaults vs every 3 frames: 55 vs 57 frames over
+   50 ms. The "1234 hitches" of `dh_final` counted three breakdown lines per slow sprites stage and
+   frames that made their budget (334 frame lines, 47 over 50 ms). Still, `Log()` flushed every line
+   with a `write()` on the render thread, so it now hands lines to a writer thread (15 ms; `FAULT`
+   lines and call stacks are written at once; `GTA2DX9_LOG_SYNC=1` restores the old way). The
+   `log cost` line every 256 frames: `Log()` 0.03 ms a frame on average, the state lines
+   (`view: player/peds/cars`, every 3 frames) 0.02-0.11 ms a frame on average, 0.5 ms worst.
+   `hitch @N: frame` is now written once per frame that missed its budget; a slow sprites stage
+   inside a frame that made it is `slow sprites @N`, and breakdowns are `... detail @N`.
+4. **The game (what a player with a warm cache still sees).** In `fperf2_E_accept` (186 s of play):
+   - level start, 2 frames of 143 + 158 ms: the ghost street frame (FIX-PERF-VSWITCH), on purpose
+     inside the level's own loading stall, right after the 3 s load frame;
+   - the first V: 3-4 frames (68, 261, 100 ms): 14-41 new vertex buffers a frame (the cars'
+     wheel splits and dented copies registered for the first street frames) and the GL programs
+     the ghost frame does not cover;
+   - the first frame in the driver's seat: 91-145 ms in `cars` (the hood copy, seat bonnet and cab
+     interior of that model built on the render thread, `car bodies: seat bonnet ... 44.8 ms`);
+   - the game's own step: 56 and 88 ms once each (`game`, nothing of ours in the frame);
+   - 4 single frames of 52-78 ms (`present`).
+   With a COLD cache (a first session on a new machine, or a new driver) the first V, first
+   person and driver's seat still cost 0.2-0.9 s each: the ghost frame's ~110 programs are a
+   fraction of the ~280 a session builds.
+
+**Classic view.** No drawing changed. HEAD (814fa7e) vs this change, 40 classic frames each at the
+spawn (`keys_bevpurity.sh BP_NOV=1 BP_CLASSIC=8`, `tools/classic_ab.py`, runs `fperf2_cls_base` /
+`fperf2_cls_fix`): 96.4 % of pixels static in both, 0 differ.
+
+**Short of the acceptance** ("no frame over ~50 ms"): the final capture (`fperf2_F_final`, 224 s, the
+second run on the recording cache) has 6 frames over 50 ms and none over 100: three at the level start
+(54, 54, 86 ms), two game steps (51, 55 ms) and the first frame in the driver's seat (99 ms, `cars` 89).
+The first-V cluster of E (68-261 ms) did not recur there, but it depends on how warm the cache is and
+on which cars are on screen, so it is not fixed, only less likely. Filed as follow-ups:
+wheel-split/dent buffers and seat-view builds made ahead in the classic view or on the wear thread,
+and a ghost frame that draws the real street scene (every program the first V needs).

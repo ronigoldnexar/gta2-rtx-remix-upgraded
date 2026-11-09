@@ -61,6 +61,9 @@ struct FrameTimer {
 FrameTimer g_frameTimer;
 double g_solverMs = 0.0;
 double g_camLocateMs = 0.0, g_camProbesMs = 0.0;   // UpdateCamera: the player locator; the state lines and probes   // the chase/first-person camera solver's share of UpdateCamera (frame log)
+double g_scriptLinesMs = 0.0;   // FIX-PERF-2: the state lines (view: player/peds/cars) this frame
+struct LogCostSummary { long calls = 0, bytes = 0; double sum = 0.0, worst = 0.0, linesSum = 0.0, linesWorst = 0.0; };
+LogCostSummary g_logCost;
 double QpcMs(LARGE_INTEGER a, LARGE_INTEGER b) {
     static double toMs = 0.0;
     if (toMs == 0.0) {
@@ -1953,6 +1956,8 @@ void WorldView::UpdateCamera() {
             stateEvery = GetEnvironmentVariableA("GTA2DX9_STATE_EVERY", buf, sizeof buf) ? atoi(buf) : 15;
             if (stateEvery < 1 || stateEvery > 60) stateEvery = 15;
         }
+        LARGE_INTEGER scriptLines0;
+        QueryPerformanceCounter(&scriptLines0);
         if (worldUploaded_ && player.valid && (frameCount_ % stateEvery) == 0) {
             float vx = 0.0f, vy = 0.0f, vd = 0.0f, px = 0.0f, py = 0.0f, pd = 0.0f;
             bool driven = false, parkedDriven = false;
@@ -1986,6 +1991,9 @@ void WorldView::UpdateCamera() {
                 car ? *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(carPtr) + 0x84) : -1,
                 FireSpotsNear(player.x, player.y, 1.6f, player.inVehicle ? player.vehicleSprite : nullptr));
         }
+        LARGE_INTEGER scriptLines1;
+        QueryPerformanceCounter(&scriptLines1);
+        g_scriptLinesMs = QpcMs(scriptLines0, scriptLines1);
         // The mission state, twice a second, for a script playing the game:
         // money and the score keeper's multiplier/lives/death reason (the save
         // slot object at [[0x5EB4FC]+0x38]), the police manager's wanted level
@@ -2088,7 +2096,13 @@ void WorldView::UpdateCamera() {
                 }
             }
         }
-        if (worldUploaded_ && player.valid) LogPedsAndCars(player, frameCount_);
+        if (worldUploaded_ && player.valid) {
+            LARGE_INTEGER p0, p1;
+            QueryPerformanceCounter(&p0);
+            LogPedsAndCars(player, frameCount_);
+            QueryPerformanceCounter(&p1);
+            g_scriptLinesMs += QpcMs(p0, p1);
+        }
         if (worldUploaded_ && player.valid && (frameCount_ % 15) == 7) {
             int money = GameSaveMoney();
             int mult = -1, lives = -1, death = -1, wanted = -1, health = -1, carDamage = -1, carModel = -1, frame = -1;
@@ -3267,24 +3281,31 @@ void WorldView::RenderFrame() {
         ++t.frames;
         // Two budgets: a slow present (the driver, the host) is common and
         // would use up the log; an expensive sprites stage is ours to explain.
+        // FIX-PERF-2: "hitch @N: frame" is written only for a frame that missed its
+        // budget (work or the game's step over kHitchMs, or the whole frame over 50 ms),
+        // once a frame, so counting "hitch @" counts frames a viewer could see
+        // (qa_lib's CHECK, sweep_detect, run_stats). An expensive sprites stage inside
+        // a frame that still made its budget is "slow sprites @N" instead, and the
+        // breakdown lines of either are "hitch detail @N" / "slow sprites detail @N".
         const bool ours = ms[3] > 12.0;
-        if ((work > kHitchMs || ms[0] > kHitchMs || whole > 50.0 || ours) &&
-            (ours ? t.hitchLoggedOurs < 300 : t.hitchLogged < 400)) {
+        const bool over = work > kHitchMs || ms[0] > kHitchMs || whole > 50.0;
+        if ((over || ours) && (ours ? t.hitchLoggedOurs < 300 : t.hitchLogged < 400)) {
             if (ours) ++t.hitchLoggedOurs; else ++t.hitchLogged;
-            Log("hitch @%d: frame %.1f ms | game %.1f lights %.1f world %.1f sprites %.1f ui %.1f "
+            const char* what = over ? "hitch" : "slow sprites";
+            Log("%s @%d: frame %.1f ms | game %.1f lights %.1f world %.1f sprites %.1f ui %.1f "
                 "lightsdraw %.1f present %.1f wait %.1f",
-                frameCount_, whole, ms[0], ms[1], ms[2], ms[3], ms[4], ms[5], ms[6], ms[7]);
+                what, frameCount_, whole, ms[0], ms[1], ms[2], ms[3], ms[4], ms[5], ms[6], ms[7]);
             if (ms[3] > 12.0) {
                 const double* d = LiveDrawStageMs();
-                Log("hitch @%d: sprites stage was setup %.1f loop %.1f skidmemory %.1f issue %.1f cars %.1f props %.1f "
+                Log("%s detail @%d: sprites stage was setup %.1f loop %.1f skidmemory %.1f issue %.1f cars %.1f props %.1f "
                     "objects %.1f peds %.1f rest %.1f",
-                    frameCount_, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8]);
+                    what, frameCount_, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8]);
                 const double* m = ModelDrawStats();
-                Log("hitch @%d: models: %.0f draws (%.0f skinned) %.1f ms, of which posing %.1f, buffer fills %.1f",
-                    frameCount_, m[3], m[4], m[2], m[0], m[1]);
+                Log("%s detail @%d: models: %.0f draws (%.0f skinned) %.1f ms, of which posing %.1f, buffer fills %.1f",
+                    what, frameCount_, m[3], m[4], m[2], m[0], m[1]);
                 const double* c = CarBodiesStats();
-                Log("hitch @%d: car bodies: measured %.0f (%.1f ms) built %.0f (%.1f ms) model draws %.0f (%.1f ms) sprite bodies %.0f (%.1f ms)",
-                    frameCount_, c[4], c[0], c[5], c[1], c[6], c[2], c[7], c[3]);
+                Log("%s detail @%d: car bodies: measured %.0f (%.1f ms) built %.0f (%.1f ms) model draws %.0f (%.1f ms) sprite bodies %.0f (%.1f ms)",
+                    what, frameCount_, c[4], c[0], c[5], c[1], c[6], c[2], c[7], c[3]);
             }
         }
         if (FrameLogEnabled()) {
@@ -3331,7 +3352,27 @@ void WorldView::RenderFrame() {
             r.camProbes = g_camProbesMs;
             FrameLogEndFrame(static_cast<uint32_t>(frameCount_), r);
         }
+        {
+            // FIX-PERF-2: what the log costs the render thread (every Log() call, its
+            // formatting and hand-off to the writer thread) and the scripted runners'
+            // state lines (view: player / peds / cars: reading the game and building
+            // the text), per frame, summarised with the frame times below.
+            LogCost lc;
+            LogCostTake(&lc);
+            g_logCost.calls += lc.calls;
+            g_logCost.bytes += lc.bytes;
+            g_logCost.sum += lc.ms;
+            g_logCost.worst = (std::max)(g_logCost.worst, lc.ms);
+            g_logCost.linesSum += g_scriptLinesMs;
+            g_logCost.linesWorst = (std::max)(g_logCost.linesWorst, g_scriptLinesMs);
+            g_scriptLinesMs = 0.0;
+        }
         if (t.frames >= 256) {
+            Log("log cost, avg/worst ms a frame over %d frames | Log() %.3f/%.3f (%ld lines, %ld KB) "
+                "state lines %.3f/%.3f",
+                t.frames, g_logCost.sum / t.frames, g_logCost.worst, g_logCost.calls, g_logCost.bytes / 1024,
+                g_logCost.linesSum / t.frames, g_logCost.linesWorst);
+            g_logCost = LogCostSummary{};
             Log("frame times, avg/worst ms over %d frames | game %.1f/%.1f lights %.1f/%.1f world %.1f/%.1f "
                 "sprites %.1f/%.1f ui %.1f/%.1f lightsdraw %.1f/%.1f present %.1f/%.1f wait %.1f/%.1f",
                 t.frames, t.sum[0] / t.frames, t.worst[0], t.sum[1] / t.frames, t.worst[1],

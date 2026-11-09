@@ -16,7 +16,7 @@ for d in sys.argv[1:]:
         if lvl and msg.startswith("frame times"):
             v = dict(re.findall(r"(\w+) ([\d.]+)/([\d.]+)", msg) and [(k, (float(a), float(b))) for k, a, b in re.findall(r"(\w+) ([\d.]+)/([\d.]+)", msg)])
             rows.append(v)
-        if lvl and msg.startswith("hitch"):
+        if lvl and msg.startswith("hitch @"):   # frames over budget; not "hitch detail @" / "slow sprites @"
             mm = re.match(r"hitch @(\d+)", msg); hit.add(mm.group(1) if mm else msg[:30])
         if "FAULT" in msg: fault += 1
     lt = (lvl - att).total_seconds() if att and lvl else None
