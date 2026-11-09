@@ -194,8 +194,13 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     // floor (hue kept), and a dark body gets a broader, stronger sheen.
     const float lift = r.livery || lum >= g_paintFloor ? 1.0f : (std::min)(4.0f, g_paintFloor / (std::max)(lum, 8.0f));
     r.darkness = r.livery || g_paintFloor <= 0.0f ? 0.0f : (std::max)(0.0f, (std::min)(1.0f, (100.0f - lum) / 70.0f));
+    // FIX-CAR-IDENTITY (2g): the model's own paint is measured from its paint texels
+    // (ModelOwnPaint), not the 235 default every car had: tint = live / own makes the body's mean
+    // paint the sprite's, for generated and authored bodies alike.
+    float ownPaint[3] = {235.0f, 235.0f, 235.0f};
+    if (r.model) ModelOwnPaint(*r.model, ownPaint);
     for (int k = 0; k < 3; ++k) {
-        const float own = r.model ? r.model->paintRgb[k] : 235.0f;
+        const float own = ownPaint[k];
         r.paintTint[k] = r.livery ? 1.0f : lift * live[k] / own;
         r.shownTop[k] = r.shownBottom[k] = r.livery ? own : (std::min)(255.0f, lift * live[k]);
     }
@@ -225,7 +230,18 @@ IdentityRecord DeriveWreck(const SpriteRef& ref, int whole) {
     return r;
 }
 
-struct CarEntry { IdentityRecord rec; uint32_t seen = 0; int whole = -1; };
+// FIX-CAR-IDENTITY (feel9, pm33): the paint is measured from the sprite art the classic view draws, and
+// that art changes for a frame or two at a wall hit, a door, a lamp or a dent; each re-measure used to
+// re-derive the record (a new tint: the body's colour popped, and a `CHANGED` line per pop). A car keeps
+// the paint it has until another one has held, within kPaintHoldTol, for kPaintHoldFrames frames (a
+// respray): a flash never reaches the body. A new model, sprite or wreck state (the game re-used the
+// object for another car, the car blew up) re-derives at once.
+constexpr float kPaintHoldTol = 14.0f;
+constexpr uint32_t kPaintHoldFrames = 45;
+struct CarEntry { IdentityRecord rec; uint32_t seen = 0; int whole = -1; float cand[3] = {0, 0, 0}; uint32_t candSince = 0; bool candOn = false; };
+float PaintDiff(const float* a, const float* b) {
+    return (std::max)({std::fabs(a[0] - b[0]), std::fabs(a[1] - b[1]), std::fabs(a[2] - b[2])});
+}
 std::unordered_map<uintptr_t, CarEntry> g_cars;
 std::unordered_map<uint32_t, int> g_carLogged;   // fingerprint -> times logged
 
@@ -340,7 +356,7 @@ int IdentityVehicleModelNumber(int gameModel, int sprite) {
     return (sprite >= 65 && sprite <= 74) ? 72 + (sprite - 65) : gameModel;
 }
 
-const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& ref) {
+const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& ref, bool driven) {
     CarEntry& e = g_cars[cacheKey];
     const bool wreck = ref.carModel >= 72 && ref.carModel <= 81;
     // The whole car this vehicle was: its own model while it is one (the wreck class must match,
@@ -352,19 +368,32 @@ const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& re
                       : (!ref.forcedModel && e.whole >= 0 && IdentityWreckClassOf(e.whole) == ref.carModel) ? e.whole
                       : IdentityWreckStandIn(ref.carModel);
     const SpriteRef& o = e.rec.ref;
-    const bool same = e.seen != 0 && o.carModel == ref.carModel && o.carSprite == ref.carSprite && o.forcedModel == ref.forcedModel &&
-                      e.rec.wreck == wreck && (!wreck || e.rec.wreckOf == whole || e.rec.wreckOf < 0) &&
-                      std::lround(o.paint[0]) == std::lround(ref.paint[0]) && std::lround(o.paint[1]) == std::lround(ref.paint[1]) &&
-                      std::lround(o.paint[2]) == std::lround(ref.paint[2]);
-    if (!same) {
+    const bool sameCar = e.seen != 0 && o.carModel == ref.carModel && o.carSprite == ref.carSprite && o.forcedModel == ref.forcedModel &&
+                         e.rec.wreck == wreck && (!wreck || e.rec.wreckOf == whole || e.rec.wreckOf < 0);
+    bool derive = !sameCar;
+    if (sameCar) {
+        if (PaintDiff(o.paint, ref.paint) <= kPaintHoldTol) {
+            e.candOn = false;   // the paint it has (a re-measure within the tolerance changes nothing)
+        } else if (!e.candOn || PaintDiff(e.cand, ref.paint) > kPaintHoldTol) {
+            e.candOn = true; e.candSince = g_frame;
+            for (int k = 0; k < 3; ++k) e.cand[k] = ref.paint[k];
+        } else if (g_frame - e.candSince >= kPaintHoldFrames) {
+            derive = true;   // held long enough: a respray, not a flash
+        }
+    }
+    if (derive) {
         const bool changed = e.seen != 0;
+        const int oldModel = o.carModel;
         e.rec = wreck && whole >= 0 ? DeriveWreck(ref, whole) : DeriveVehicle(ref);
+        e.candOn = false;
         int& n = g_carLogged[e.rec.fingerprint];
-        if (n++ == 0 && g_carLogged.size() < 400) {
+        if ((n++ == 0 && g_carLogged.size() < 400) || (driven && changed)) {
             const IdentityRecord& r = e.rec;
-            Log("identity: vehicle%s model %d sprite %d paint %.0f,%.0f,%.0f -> %s%s%s tint %.2f,%.2f,%.2f shown %.0f,%.0f,%.0f fp %08x",
-                changed ? " CHANGED" : "", ref.carModel, ref.carSprite, ref.paint[0], ref.paint[1], ref.paint[2],
-                r.model ? r.model->name.c_str() : "(built from sprite)", r.livery ? " livery" : "",
+            char what[48] = "";
+            if (changed) snprintf(what, sizeof what, oldModel != ref.carModel ? " CHANGED model %d->%d" : " CHANGED paint", oldModel, ref.carModel);
+            Log("identity: vehicle%s obj %08x%s model %d sprite %d paint %.0f,%.0f,%.0f -> %s%s%s tint %.2f,%.2f,%.2f shown %.0f,%.0f,%.0f fp %08x",
+                what, static_cast<unsigned>(cacheKey), driven ? " (the player's)" : "", ref.carModel, ref.carSprite, ref.paint[0], ref.paint[1],
+                ref.paint[2], r.model ? r.model->name.c_str() : "(built from sprite)", r.livery ? " livery" : "",
                 !r.wreck ? "" : r.wreckOf == e.whole ? " (wreck of this car's own model)" : " (wreck: the class's stand-in)", r.paintTint[0], r.paintTint[1],
                 r.paintTint[2], r.shownTop[0], r.shownTop[1], r.shownTop[2], r.fingerprint);
         }

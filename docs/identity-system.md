@@ -269,3 +269,48 @@ both halves one opaque whole-car material, with PBR maps), which a runtime copy 
 textures the check lists as "no prim" (20 textures of 10 models today: `003_pacifier`, `004_g4_bank_van`, `005_beamer`,
 `019_gt_a1`, `021_garbage_truck`, `022_armed_land_roamer`, `029_dementia`, `052_swat_van`, `069_u_jerk_truck`,
 `071_rumbler`; none stale) can be path traced in halves until the layer is rebuilt.
+
+## 5. The player's car: one object, the sprite's paint (FIX-CAR-IDENTITY, 9 Nov 2026)
+
+Work orders pm33 (2s), pm17 + pf18-car-colour + pm22 (2g), pf18-jacked-truck (2i), feel9 (10d).
+
+### 5.1 What was wrong
+
+1. **Every car's own paint was 235.** `DeriveVehicle` made the tint `live / model->paintRgb`, and
+   `model_store.cpp` reads `paint_rgb` only from the manifest's `imported` report entries, which never carry it.
+   A generated body whose paint half is painted ~90-200 in its own hue was drawn at texel x live / 235:
+   about half the sprite's brightness with the texture's hue mixed in (violet -> wine red, silver -> brown,
+   green -> near black). The manifest's `models` entries' `paint_rgb` is not a safe source either: it is the
+   default sprite's paint, 20-120 off the texels for most cars (VEHICLE-ART-3, `va3_paint_check`).
+2. **The record re-derived on every paint re-measure.** The paint is measured from the sprite art the
+   classic view draws; that art changes for a frame or a few at a wall hit, a door, a lamp or a dent. Each
+   change re-derived the record: a new tint (the body's colour popped, feel9) and a `CHANGED` line.
+3. **The door-busy stand-in body was keyed by the sprite object alone.** The game re-uses a car's sprite
+   object for another car within seconds (a 150 s Downtown run: dozens of `CHANGED model a->b` on recycled
+   objects). With a ped at the new car's door, the previous car's measured body and paint stood in for up to 90 frames.
+
+### 5.2 What changed
+
+| Piece | Where | What |
+|---|---|---|
+| The model's own paint, measured | `model_store.cpp` `ModelOwnPaint` | The texels a car model's `_paint` meshes cover (their triangles rasterised in UV space with `RasterUv`, alpha >= 128 in the shipped file, before any soft mask), reduced by the sprite's own rule (`MeasureSprite`: the mean of the brighter half). Cached per model; measured on a low-priority thread from the first car on (not at load). Log: `models: <name>: own paint measured r,g,b (<n> texels ...)`. |
+| The tint | `identity.cpp` `DeriveVehicle` | `tint = lift x live / own`, `own` from `ModelOwnPaint`. The body's paint half now has the sprite's measured paint on average, for generated and authored bodies alike (authored neutral bodies measure 184-207, not 235: their baked shading). Liveries and wrecks unchanged (no tint). |
+| The paint hold | `identity.cpp` `IdentityForVehicle` | A car keeps its paint until another has held within 14 (per channel) for 45 frames (a respray). A new model, sprite or wreck state re-derives at once. |
+| The log | same | `identity: vehicle [CHANGED model a->b \| CHANGED paint] obj <hex> [(the player's)] ...`: every change of the player's car is logged with its object. |
+| The stand-in | `car_bodies.cpp` `g_lastBuilt` | Keyed by object and checked against the sprite and model it was measured for. |
+| The paint half of a generated car | `tools/car_paint_resplit.py` (run on the cars archive, `assets/models`) | `import_assets.py` split each image-to-3D texture by a colour distance to the manifest's `paint_rgb` (the default sprite's paint). The generator rarely painted the body that colour: the 082 Jagular's body is sage green and its paint half was the whitewall tyres; 044's paint half held 15 % of its body. The tint could only recolour that half, so the 3D car kept the generator's colour whatever the sprite showed. The tool re-splits every generated pair by the body's own dominant hue (count-weighted hue histogram of the coloured, lit texels of both halves; the texels within 30 degrees, saturation >= 0.10, max >= 26 are the paint; an old paint texel of another hue goes back to the rest in its own colour), and makes the paint neutral: its luminance, scaled so the brighter half is 215 (the authored bodies' convention). The live tint then gives the body the sprite's measured paint with the generator's shading. Liveries (drawn untinted), authored atlases and wrecks are skipped; a second run changes nothing. 44 pairs changed. |
+
+### 5.3 pm33 (the driven car "changes model"): what it was
+
+The player's car never changed model. With the identity probe on (`out/fci_pm33a`, keys_pm33.sh, bil): 132 probe
+lines of the player's car in classic, third and first person, one object, one model (`040_maurice`), one
+fingerprint, through a crash (damage 382 -> 19 327 -> 25 000, burning). The "orange muscle car" of the report's
+frame 044 is the parked 082 Jagular the Maurice lands on after driving off the level-4 roof (player z 4.00 -> 2.01):
+for ~1.5 s after the impact (`view: car impact 3.41 blocks/s lost`, `camera clearance ... safety net moved 7 frames`)
+there is no projected rectangle of the player's car in third person, and the first one after has corners far off
+screen: the chase camera's eye is inside the Maurice's hull (back faces culled, so it is invisible) and the view
+shows the car it hit. That is the chase camera (stream #4), not identity. The "silver sedan" two seconds later is
+the Maurice itself: its generated texture's body sat in the untinted half (5.2, the re-split).
+The `identity: vehicle CHANGED model` lines of the report were other cars: the game re-uses sprite objects for new
+cars within seconds (a 150 s Downtown run logged dozens of `CHANGED model a->b` on recycled objects), and the record
+re-derives correctly for each.

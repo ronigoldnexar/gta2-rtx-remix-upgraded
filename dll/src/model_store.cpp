@@ -3108,6 +3108,108 @@ const ModelAnimation* ModelSpinAnimation(const Model& model, const char* nodeSub
     return &m.animations.back();
 }
 
+// FIX-CAR-IDENTITY (pm17 / pf18 / pm22, rank 2g): a car model's own paint, measured from what it
+// is drawn with, by the rule the sprite's paint is measured by (car_bodies.cpp MeasureSprite: the mean
+// of the brighter half of the opaque texels, the lit metal, not the outlines, grilles or wheel wells):
+// the mean of the brighter half of the texels its "_paint" meshes cover (their triangles rasterised in
+// UV space, alpha >= 128 in the file as shipped, before any soft mask). The identity record divides the
+// sprite's measured paint by it, so the body's mean paint is the sprite's for every car: an
+// image-to-3D body painted ~125 in its own hue is not halved toward black any more, and an authored
+// body painted neutral 235 measures ~235 and keeps its look. "paint_rgb" was never read for cars
+// (only the "imported" entries are parsed) and is not a safe source either (va3_paint_check: 20-120
+// off the texels for most cars). Cached per model; the file is read once, the first time a car of
+// that model is resolved. False when the model has no paint meshes (it keeps paintRgb).
+namespace {
+CRITICAL_SECTION g_ownPaintLock;
+volatile LONG g_ownPaintLockInit = 0;
+CRITICAL_SECTION* OwnPaintLock() {
+    // Created once, before any second thread can ask (StartOwnPaintThread runs on the render thread).
+    if (InterlockedCompareExchange(&g_ownPaintLockInit, 1, 0) == 0) InitializeCriticalSection(&g_ownPaintLock);
+    return &g_ownPaintLock;
+}
+std::vector<const Model*> g_ownPaintList;   // fixed before the thread starts (g_models grows later: derived models)
+DWORD WINAPI OwnPaintThread(void*) {
+    // Every car model's own paint ahead of its first car (10-40 ms a model off the render thread).
+    for (const Model* m : g_ownPaintList) {
+        float rgb[3];
+        ModelOwnPaint(*m, rgb);
+    }
+    return 0;
+}
+}  // namespace
+
+void StartOwnPaintThread() {
+    static bool started = false;
+    if (started || g_models.empty()) return;
+    started = true;
+    OwnPaintLock();
+    for (const Model& m : g_models) if (IsCarModelName(m.name)) g_ownPaintList.push_back(&m);
+    if (HANDLE thread = CreateThread(nullptr, 0, OwnPaintThread, nullptr, 0, nullptr)) {
+        SetThreadPriority(thread, THREAD_PRIORITY_LOWEST);
+        CloseHandle(thread);
+    }
+}
+
+bool ModelOwnPaint(const Model& model, float rgb[3]) {
+    // The rest of the cars measured ahead from the first car on (not at load: nothing competes with
+    // the game's start; the frontend's keys landed in the attract demo twice when it did).
+    StartOwnPaintThread();
+    struct Own { bool ok; float rgb[3]; };
+    static std::map<const Model*, Own> s_own;
+    struct Guard { CRITICAL_SECTION* cs; ~Guard() { LeaveCriticalSection(cs); } };
+    CRITICAL_SECTION* cs = OwnPaintLock();
+    EnterCriticalSection(cs);
+    Guard guard{cs};
+    auto it = s_own.find(&model);
+    if (it == s_own.end()) {
+        const DWORD t0 = GetTickCount();
+        Own own{false, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}};
+        std::map<std::string, std::vector<const ModelMesh*>> byFile;
+        for (const ModelMesh& mesh : model.meshes)
+            if (mesh.texture.find("_paint") != std::string::npos) byFile[mesh.texture].push_back(&mesh);
+        // Per luminance level: the texel count and the colour sums (the brighter half from these).
+        std::vector<double> bins(256 * 4, 0.0);
+        size_t n = 0;
+        for (const auto& f : byFile) {
+            std::vector<uint8_t> tga;
+            if (!ReadAll(g_folder + "\\" + f.first, &tga) || tga.size() <= 18 || tga[2] != 2 || tga[16] != 32) continue;
+            const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
+            const size_t idLen = tga[0];
+            if (w <= 0 || h <= 0 || tga.size() < 18u + idLen + static_cast<size_t>(w) * h * 4) continue;
+            const bool topDown = (tga[17] & 0x20) != 0;
+            std::vector<uint8_t> cover(static_cast<size_t>(w) * h, 0);
+            for (const ModelMesh* mesh : f.second) RasterUv(&cover, w, h, *mesh, 1);
+            for (int y = 0; y < h; ++y) {
+                const uint8_t* row = &tga[18 + idLen + static_cast<size_t>(topDown ? y : h - 1 - y) * w * 4];
+                for (int x = 0; x < w; ++x) {
+                    if (!cover[static_cast<size_t>(y) * w + x] || row[x * 4 + 3] < 128) continue;
+                    const int r = row[x * 4 + 2], g = row[x * 4 + 1], b = row[x * 4 + 0];   // BGRA
+                    const int l = (std::min)(255, (r * 77 + g * 151 + b * 28) >> 8);
+                    double* bin = &bins[static_cast<size_t>(l) * 4];
+                    bin[0] += 1.0; bin[1] += r; bin[2] += g; bin[3] += b;
+                    ++n;
+                }
+            }
+        }
+        if (n >= 64) {
+            // The brighter half: from the top level down until half the texels are in.
+            double c = 0.0, sum[3] = {0, 0, 0};
+            for (int l = 255; l >= 0 && c < 0.5 * static_cast<double>(n); --l) {
+                const double* bin = &bins[static_cast<size_t>(l) * 4];
+                c += bin[0]; sum[0] += bin[1]; sum[1] += bin[2]; sum[2] += bin[3];
+            }
+            own.ok = c > 0.0;
+            for (int k = 0; k < 3 && own.ok; ++k) own.rgb[k] = (std::max)(8.0f, static_cast<float>(sum[k] / c));
+        }
+        it = s_own.emplace(&model, own).first;
+        Log("models: %s: own paint %s %.0f,%.0f,%.0f (%zu texels of %zu paint texture%s, %lu ms)", model.name.c_str(),
+            own.ok ? "measured" : "unmeasured, kept", own.rgb[0], own.rgb[1], own.rgb[2], n, byFile.size(), byFile.size() == 1 ? "" : "s",
+            static_cast<unsigned long>(GetTickCount() - t0));
+    }
+    for (int k = 0; k < 3; ++k) rgb[k] = it->second.rgb[k];
+    return it->second.ok;
+}
+
 void ModelsReleaseDevice() {
     // The player copies first; one that fell back to the shared texture is not its own.
     for (auto& t : g_playerCopies) {

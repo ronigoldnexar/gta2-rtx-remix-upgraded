@@ -213,7 +213,11 @@ std::map<Key, Built> g_cache;
 // aee_g2front/g3rear). The body does not change with the door frames: the last good one
 // stands in, for up to 3 s. Entries in g_cache live while used (evicted after 300 unused
 // frames), and both maps are cleared together on a device release.
-std::map<uintptr_t, std::pair<Built*, uint32_t>> g_lastBuilt;
+// FIX-CAR-IDENTITY (pm33): the last body measured per sprite object, with the sprite and model it was
+// measured for: the game re-uses a sprite object for another car within seconds, and the stand-in must
+// never lend one car's body and paint to the next (a ped at the new car's door would have kept it).
+struct LastBuilt { Built* first = nullptr; uint32_t second = 0; int sprite = -1, model = -1; };
+std::map<uintptr_t, LastBuilt> g_lastBuilt;
 IDirect3DDevice9* g_device = nullptr;
 
 struct Steer {
@@ -3054,14 +3058,15 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         int busySide = 0; float busyTarget = 0.0f, busyRate = 0.0f;
         const bool doorBusy = use.doorPed || BoardingDoor(use.object, &busySide, &busyTarget, &busyRate);
         auto last = g_lastBuilt.find(use.object);
-        const bool haveLast = last != g_lastBuilt.end() && frame - last->second.second < 90 && last->second.first->measured;
+        const bool haveLast = last != g_lastBuilt.end() && frame - last->second.second < 90 && last->second.first->measured &&
+                              last->second.sprite == use.sprite && last->second.model == use.model;
         Built* b = nullptr;
         if (doorBusy && haveLast) {
             b = last->second.first;
         } else {
             b = art ? Measured(device, use, art, frame) : nullptr;
             if (b && !doorBusy) {
-                g_lastBuilt[use.object] = {b, frame};
+                g_lastBuilt[use.object] = {b, frame, use.sprite, use.model};
             } else if (!b && haveLast) {
                 b = last->second.first;
                 static int logged = 0;
@@ -3158,7 +3163,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             vref.paint[2] = forcedPaint ? static_cast<float>(g_forceCarPaint[2]) : b->paint.b;
         }
         IdentitySetPaintFloor(g_paintLumFloor);
-        const IdentityRecord& ident = IdentityForVehicle(use.object, vref);
+        const IdentityRecord& ident = IdentityForVehicle(use.object, vref, use.driven);
         if (const Model* model = ident.model) {
             const float modelLen = (std::max)(model->Length(), 0.01f), modelWid = (std::max)(model->Width(), 0.01f);
             const bool sideways = modelWid > modelLen * 1.3f;   // modelled along x rather than z

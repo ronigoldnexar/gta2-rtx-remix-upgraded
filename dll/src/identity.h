@@ -70,7 +70,7 @@ const IdentityRecord& IdentityForPlayer();
 // sprite with (its TextureRecord's; -1 unknown), `spriteFrame` his sprite frame.
 const IdentityRecord& IdentityForPed(uintptr_t cacheKey, int pedId, int palette, unsigned spriteFrame);
 // A vehicle: `cacheKey` the sprite object (cache only).
-const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& ref);
+const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& ref, bool driven = false);
 // The car model number the classic view's sprite stands for: a burnt-out car keeps its model
 // number but the game swaps its sprite for one of the ten wreck sprites 65..74 (CARI 72..81).
 int IdentityVehicleModelNumber(int gameModel, int sprite);
