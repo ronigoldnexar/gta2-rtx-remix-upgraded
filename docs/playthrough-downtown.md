@@ -905,7 +905,7 @@ reached.** Speed 2, fresh game, no warp, frames in the chase view (`out/zh1/m_ho
 `out/zh4/m_zz_end_third.png`; not in git). The same module is in SKILL-CRUSHER's COP CAR CRUSH (Shady,
 ccc3-ccc5, 3 of 3 complete).
 
-### ROOFTOP-PROVE (9 Nov 2026): COP CAR CRUSH to JOB COMPLETE with the climb, and three skill fixes
+## Wave M, ROOFTOP-PROVE (9 Nov 2026): COP CAR CRUSH with the on-foot climb, `skills/rooftop_access.py` fixes
 
 The proof job was COP CAR CRUSH (`wil_ze1`, Zaibatsu HQ level-4 terrace). The runner was
 `missions/cop_car_crush.py` (SKILL-CRUSHER's). It calls `skills/rooftop_access` for the phone,
