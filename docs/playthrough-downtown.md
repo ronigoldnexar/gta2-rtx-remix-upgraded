@@ -955,3 +955,32 @@ other failure was the Cop Car catching fire on a drive, in `deliver_intact` / `c
 streams). At `GTA2_SPEED=2` the burning car lost the job in 4 of the 11 (rp1, rp3, rp6, rp8).
 Frames, chase view, not in git:
 `out/rp*/m_rooftop_terrace.png` (the terrace beside the phone), `out/rp5/m_ccc_end.png` (JOB COMPLETE).
+
+## Wave M, SKILL-GUNFIGHT (9 Nov 2026): WHO'S MAD? complete with the on-foot gunfight skill
+
+`gamerun/skills/gunfight.py` (mirrored in `linux/docker/skills/`) is the `combat_on_foot` skill: armed
+men who move, come in cars and shoot back (22 jobs). It was proven on **WHO'S MAD?** (`wil_lm1`,
+Loonies, yellow phone 10.5,46.5) by `gamerun/missions/whos_mad.py` and `keys_whos_mad.sh`. The
+details, the skill's options and every session are in `docs/skill-gunfight.md`.
+
+- **The yellow phone needs Loonies respect >= 2 bars, and a fresh game has 0.**
+  `skills/gang_respect.exe` (source `gang_respect.c`) sets it to 60 in the game's gang table
+  (`[0x5EB898]`, 10 x 0x144 bytes, respect byte at +0x11C, read from the HUD's respect bars). This is
+  a developer aid, written to the marks of every session. Nothing else in the job is helped.
+- **Neighbouring phone.** The machine-gun generator beside the phone (11.5,47.5) answers the DESTROY
+  J-LAB! phone next to it (gf_wm1). The runner takes the gun at 41.5,48.5 and approaches the phone from
+  the west.
+- **The meeting box (128.5,195.5) is in a walled yard.** gf_wm5 fired 270 rounds into its west wall.
+  The skill checks its line of fire on the map, and the fight is held on the open plaza south of the
+  yard.
+- **The three hitmen** show as `gang/zaibatsu` in VTYPEs (model 70), with arrows only while on screen.
+  They circle the block, stop when on screen, and get out to shoot.
+
+| session | outcome |
+|---|---|
+| gf_wm1-6 | refused (J-Lab phone), stopped (selector), arrested (7075), dead (blind walk), dead (wall), 2 of 3 down; each fixed in turn |
+| **gf_wm7** | **JOB COMPLETE** (1124, +$40,000): three down in 17 game-s at health 100; `out/gf_wm7/shot_475.png` |
+| **gf_wm8** | **JOB COMPLETE**: three down in 8 game-s at health 100; `out/gf_wm8/m_wm_end.png` |
+| gf_wm9 | dead: 60 health lost on a walk to the plaza before the fight loop (fixed: the fight starts at brief 1464, bounded steps) |
+
+**2 of 3 consecutive sessions (gf_wm7-9) reached JOB COMPLETE in the chase view**, with no warp.
