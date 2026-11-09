@@ -97,6 +97,40 @@ void UpdateSky(const LARGE_INTEGER& now) {
     g_skyState = want;
 }
 
+// The day and night looks under Remix (FIX-REMIX-2, pt-remix-day-shade-black-no-sky-
+// bounce): the exposure cap that keeps the night a night (2.5) left every street in
+// building shade near black by day, and the sky's diffuse fill is weak next to the sun.
+// So the cap and the sky fill are pushed per time of day: a day value while the sun is
+// up, the night value once it is down, switched with a degree of hysteresis so a sun on
+// the horizon does not flip them every frame. A value of 0 leaves the option alone.
+int g_dayState = -1;   // -1 unknown, 0 night, 1 day
+
+void PushFloat(const char* key, float value) {
+    char text[32];
+    _snprintf(text, sizeof(text) - 1, "%.3f", value);
+    text[sizeof(text) - 1] = '\0';
+    RemixSetConfig(key, text);
+}
+
+void UpdateDayLook(float elevation) {
+    if (!RemixApiAvailable() || !RemixApiHasAtmosphere()) {
+        g_dayState = -1;
+        return;
+    }
+    const TimeOfDaySettings& s = g_settings;
+    int want = g_dayState;
+    if (g_dayState != 1 && elevation > s.dayLookAboveDeg + 0.5f) want = 1;
+    if (g_dayState != 0 && elevation < s.dayLookAboveDeg - 0.5f) want = 0;
+    if (want == g_dayState) return;
+    g_dayState = want;
+    const float exposure = want ? s.dayMaxExposure : s.nightMaxExposure;
+    const float fill = want ? s.daySkyFill : s.nightSkyFill;
+    if (exposure > 0.0f) PushFloat("rtx.autoExposure.maxExposure", exposure);
+    if (fill > 0.0f) PushFloat("rtx.atmosphere.skyIndirectRadianceScale", fill);
+    Log("time of day: %s look (sun %.1f deg): exposure cap %.2f, sky fill %.2f", want ? "day" : "night",
+        elevation, exposure, fill);
+}
+
 }  // namespace
 
 bool TimeOfDayClearSkyOk() { return g_skyOk; }
@@ -192,6 +226,7 @@ void TimeOfDayUpdate() {
     }
 
     TimeOfDaySunAt(g_hour, g_settings, &g_elevation, &g_rotation);
+    UpdateDayLook(g_elevation);
 
     if (!RemixApiAvailable()) {
         g_pushed = false;

@@ -71,6 +71,15 @@ struct TimeOfDaySettings {
     // are switched off (rtx.atmosphere.cloudEnabled) so the day is a clear bright
     // one all the time; off leaves them as Remix has them.
     bool clearSky = true;
+
+    // Remix's exposure cap (rtx.autoExposure.maxExposure) and diffuse sky fill
+    // (rtx.atmosphere.skyIndirectRadianceScale) by day and by night, pushed when the
+    // sun crosses dayLookAboveDeg. 0 leaves the option to rtx.conf.
+    float dayLookAboveDeg = 0.0f;
+    float dayMaxExposure = 6.0f;
+    float nightMaxExposure = 2.5f;
+    float daySkyFill = 3.0f;
+    float nightSkyFill = 1.0f;
 };
 
 TimeOfDaySettings& TimeOfDay();

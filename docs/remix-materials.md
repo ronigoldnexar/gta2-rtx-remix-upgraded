@@ -703,6 +703,24 @@ Evidence (Downtown, `gamerun/playtest_remix.sh`, start 05:30, clock paused):
   at 0 (mean luminance 0.162/0.161 at the plaza, 0.242/0.242 at the junction), and the fixed run's
   23:30 frames sit at the same levels. The night is unchanged by this.
 
+## Day and night looks: exposure cap and sky fill by the clock (FIX-REMIX-2, 9 Nov 2026)
+
+Defect `pt-remix-day-shade-black-no-sky-bounce`: by day, streets in building shade were near
+black (0.04-0.07 mean luminance in Industrial at 10:00), because the play preset's exposure cap
+(`rtx.autoExposure.maxExposure = 2.5`, set for the night) also held by day and the sky's diffuse
+fill is weak next to the sun. The DLL now pushes a day and a night look when the sun crosses the
+horizon (0 deg, 0.5 deg hysteresis; `UpdateDayLook`, `time_of_day.cpp`; log line `time of day:
+day look (sun 50.0 deg): exposure cap 6.00, sky fill 3.00`):
+
+| sun | `rtx.autoExposure.maxExposure` | `rtx.atmosphere.skyIndirectRadianceScale` | ini (`[timeofday]`, tenths) |
+|---|---|---|---|
+| above the horizon (day) | 6.0 | 3.0 | `remix_day_max_exposure_tenths=60`, `remix_day_sky_fill_tenths=30` |
+| below (dusk, night) | 2.5 (the REMIX-3 night) | 1.0 (runtime default) | `remix_night_max_exposure_tenths=25`, `remix_night_sky_fill_tenths=10` |
+
+0 leaves an option to rtx.conf. Both options apply live (`out/fr2_shade1`, Industrial 168.5,119.5
+at 10:00, frame mean luminance: 0.053 as shipped, 0.083 with sky fill 3, 0.090 with cap 8, 0.137
+with fill 3 and cap 6). The time-of-day overlays (`rtx_tod_*.conf.extra`) stay as they were.
+
 ## Street-lamp pools under the posts (FIX-REMIX, 9 Nov 2026)
 
 Defect `pt-remix-lamp-posts-cast-no-light`: at night every lamp-post lantern glowed and nothing

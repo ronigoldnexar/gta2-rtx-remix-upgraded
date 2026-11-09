@@ -483,6 +483,15 @@ void LoadConfig() {
         static_cast<float>(lightsOff / 100) + static_cast<float>(lightsOff % 100) / 60.0f;
     tod.lightsOnHour =
         static_cast<float>(lightsOn / 100) + static_cast<float>(lightsOn % 100) / 60.0f;
+    // Under Remix: the exposure cap and the sky fill by day and by night (tenths; 0
+    // leaves the option to rtx.conf), switched when the sun crosses the horizon.
+    tod.dayMaxExposure =
+        GetPrivateProfileIntA("timeofday", "remix_day_max_exposure_tenths", 60, ini) / 10.0f;
+    tod.nightMaxExposure =
+        GetPrivateProfileIntA("timeofday", "remix_night_max_exposure_tenths", 25, ini) / 10.0f;
+    tod.daySkyFill = GetPrivateProfileIntA("timeofday", "remix_day_sky_fill_tenths", 30, ini) / 10.0f;
+    tod.nightSkyFill =
+        GetPrivateProfileIntA("timeofday", "remix_night_sky_fill_tenths", 10, ini) / 10.0f;
     gta2dx9::TimeOfDayReset();
 
     // The sky of the street-level views. See sky.h and the [sky] section.
