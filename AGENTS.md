@@ -33,6 +33,8 @@ docker run --rm --cpus=8 -v $PWD/../gamerun:/work -v $PWD/../game:/game:ro \
 # Videos: linux/docker/videos_server.sh serves deliverables/web (faststart mp4 + index) on port 8081.
 # QA scenarios: [STAGE=<dir>] gamerun/qa_run.sh <name> <seconds> [wall|backforth|fight|crash|respawn4|long]
 # City sweep:   [STAGE=<dir>] gamerun/sweep_queue.sh wil:0/5 ... ; tools/sweep_detect.py
+# Visual regression (run before committing anything the 3D views draw; docs/visual-regression.md):
+#   GTA2_GPU=<n> tools/vreg/vreg.sh stage <your private stage>   |   tools/vreg/vreg.sh check <rev>
 ```
 
 Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,

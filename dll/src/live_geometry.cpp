@@ -1,4 +1,5 @@
 #include "live_geometry.h"
+#include "boarding.h"
 
 #include <algorithm>
 #include <cmath>
@@ -208,6 +209,10 @@ const void* g_hiddenObjects[2] = {nullptr, nullptr};
 const void* g_playerObject = nullptr;
 bool g_logPedFrames = false;
 bool g_logFigures = false;   // GTA2DX9_LOG_FIGURES=1: a line per frame per figure near the player (ACTIONS-3D-4)
+// GTA2DX9_LOG_JOINTS=1 (ANIM-BLEND-AUDIT): a "figj:" line per frame for the player's figure and
+// everyone within 1.5 blocks: the posed feet, pelvis, head and hands in the world, the state
+// words and the blend weights, for tools/anim_audit.py (foot skate, pops, teleports, sinking).
+bool g_logJoints = false;
 // Pedestrians getting into or out of a car (ped state 3/4) seen last frame,
 // with the vehicle they are boarding: the car's door swings for them. Last
 // frame's list is read when the cars are collected, because a frame's
@@ -235,7 +240,7 @@ bool g_crowdVariety = true, g_crowdLookAt = true;
 float g_crowdLookRange = 5.0f;
 float g_crowdPlayerX = 0.0f, g_crowdPlayerZ = 0.0f;
 uint32_t g_crowdPlayerFrame = 0, g_crowdPlayerShot = 0;
-int g_crowdCount[4] = {};   // this frame: drawn, own clothes, looking at the player, glancing
+int g_crowdCount[5] = {};   // this frame: drawn, own clothes, looking at the player, glancing, in sprite outfits (ASSET-PEDS)
 float g_crowdNearD2 = 1e9f, g_crowdNearRel = 0.0f;   // this frame: the nearest other figure to the player (log)
 int g_crowdWin[4] = {};   // over the log's ten seconds: figure-frames in range, passed over (one in four), behind him, looking
 uint32_t CrowdHash(uint32_t x) {
@@ -246,7 +251,7 @@ uint32_t CrowdHash(uint32_t x) {
 // for a civilian (no uniform, no gang colours) three times in four, clothes of an
 // everyday colour: the avatar's "_paint" half multiplied toward it (most of the
 // way, so the cloth's own shading and the second garment's contrast remain).
-struct CrowdLook { float height = 1.0f, width = 1.0f; bool clothes = false; float tint[3] = {1.0f, 1.0f, 1.0f}; };
+struct CrowdLook { float height = 1.0f, width = 1.0f; bool clothes = false; float tint[3] = {1.0f, 1.0f, 1.0f}; float shade = 1.0f; };
 CrowdLook CrowdLookFor(uint32_t seed, const Model& model, int remap, bool player) {
     CrowdLook look;
     if (!g_crowdVariety || player) return look;
@@ -255,7 +260,10 @@ CrowdLook CrowdLookFor(uint32_t seed, const Model& model, int remap, bool player
     look.width = 0.95f + 0.10f * static_cast<float>((h >> 8) & 255) / 255.0f;
     // The remaps the manifest gives a uniform or gang colours: 0-14, 16, 17, 22.
     const bool civilian = remap < 0 || remap == 15 || (remap >= 18 && remap != 22);
-    if (civilian && model.splitPaint && ((h >> 16) & 3) != 0) {
+    // ASSET-PEDS: a zoned avatar wears his remap's own outfit (the sprite's colours);
+    // the crowd's variety is then a shade of it (+-12%), not another colour.
+    look.shade = 0.88f + 0.24f * static_cast<float>((h >> 24) & 255) / 255.0f;
+    if (civilian && model.splitPaint && !model.pedZones && ((h >> 16) & 3) != 0) {
         static const uint8_t kClothes[][3] = {
             {38, 52, 92},    {60, 62, 66},   {28, 28, 32},   {196, 178, 140}, {92, 100, 58},  {118, 32, 44},
             {70, 104, 150},  {214, 212, 204}, {128, 130, 134}, {110, 76, 50},  {36, 80, 52},   {200, 160, 50},
@@ -347,7 +355,8 @@ void SetPlayerObject(const void* object) {
     g_playerObject = object;
     static bool checked = false;
     if (!checked) { checked = true; char buf[8] = {}; g_logPedFrames = GetEnvironmentVariableA("GTA2DX9_LOG_PED_FRAMES", buf, sizeof buf) && buf[0] == '1';
-                    g_logFigures = GetEnvironmentVariableA("GTA2DX9_LOG_FIGURES", buf, sizeof buf) && buf[0] == '1'; }
+                    g_logFigures = GetEnvironmentVariableA("GTA2DX9_LOG_FIGURES", buf, sizeof buf) && buf[0] == '1';
+                    g_logJoints = GetEnvironmentVariableA("GTA2DX9_LOG_JOINTS", buf, sizeof buf) && buf[0] == '1'; }
 }
 // The people's pop log (see DrawPedFigures, BeginFrame), street views only.
 int g_pedPops = 0, g_pedPopsInView = 0, g_pedPopsNear = 0;
@@ -7024,6 +7033,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             Log("crowd: %d figures drawn, %d in clothes of their own, %d looking at the player, %d glancing; nearest %.1f blocks at %.0f deg (player seen %d frames ago)",
                 g_crowdCount[0], g_crowdCount[1], g_crowdCount[2], g_crowdCount[3], std::sqrt(g_crowdNearD2), g_crowdNearRel * 57.3f,
                 g_crowdPlayerFrame ? static_cast<int>(g_carFrame - g_crowdPlayerFrame) : -1);
+            Log("peds: %d of %d figures drawn in their sprite's outfit (ASSET-PEDS zones)", g_crowdCount[4], g_crowdCount[0]);
             Log("crowd: last 300 frames: %d figure-frames within look_range, %d passed over, %d with the player behind them, %d looking",
                 g_crowdWin[0], g_crowdWin[1], g_crowdWin[2], g_crowdWin[3]);
             for (int& c : g_crowdWin) c = 0;
@@ -7045,6 +7055,28 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             now += buf;
         }
         if (now != last) { last = now; Log("ped anim: corpses:%s", now.empty() ? " none" : now.c_str()); }
+    }
+    // ANIM-VEHICLE-ENTRY (boarding.h): a ped the game stopped drawing halfway into a car
+    // is drawn on from his last sprite until the door is shut behind him.
+    const size_t boardRealSprites = sprites_.size();
+    std::set<uintptr_t> boardGhosts;
+    if (g_groundModels && BoardingEnabled()) {
+        BoardingSetLog(g_logFigures);
+        for (auto it = boardSprites_.begin(); it != boardSprites_.end();) {
+            if (g_carFrame - it->second.first > 90) { it = boardSprites_.erase(it); continue; }
+            bool present = false;
+            for (size_t i = 0; i < boardRealSprites && !present; ++i) {
+                const Sprite& sp = sprites_[i];
+                present = sp.object == it->first && sp.pedestrian && !sp.hidden && !sp.ghost && !sp.boardUi && sp.corners == 4;
+            }
+            if (!present && BoardingWantsGhost(it->first, g_carFrame)) {
+                sprites_.push_back(it->second.second);
+                Sprite& g = sprites_.back();
+                g.hidden = false; g.ghost = false; g.boardUi = false;
+                boardGhosts.insert(it->first);
+            }
+            ++it;
+        }
     }
     for (const Sprite& sprite : sprites_) {
         // On his feet, or - with the models, which have clips for it - on the
@@ -7357,7 +7389,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         // What the game has him doing, from his animation frame and state words.
         int wantAction = PedActionFor(sprite.corpse, sprite.pedFrame, sprite.pedState, sprite.pedSub);
-        const bool ownPed = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+        // (the player's boarding ghost too: the game no longer names him once he is in the car)
+        const bool ownPed = sprite.object && (reinterpret_cast<const void*>(sprite.object) == g_playerObject ||
+                                              (boardGhosts.count(sprite.object) && BoardingIsPlayer(sprite.object)));
         bool shotNow = false;
         {
             // The weapon: the player's from the game; a stranger's from his frames
@@ -7687,6 +7721,29 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
             track.twist += (twistTarget - track.twist) * (std::min)(1.0f, dt / 0.12f);
         }
+        // ANIM-VEHICLE-ENTRY: getting in or out of a car is the boarding plan's (boarding.h):
+        // where the figure stands, how low (seated), which way it faces, the clip and time.
+        BoardingOut boardOut;
+        bool boarding = false;
+        if (g_groundModels && !sprite.corpse && BoardingEnabled()) {
+            if (sprite.pedState == 3 && !boardGhosts.count(sprite.object)) boardSprites_[sprite.object] = {g_carFrame, sprite};
+            BoardingIn bi;
+            bi.ped = sprite.object; bi.own = ownPed; bi.state = sprite.pedState; bi.sub = sprite.pedSub;
+            bi.frame = sprite.pedFrame % 158u; bi.gameX = cx; bi.gameZ = cz; bi.groundY = cy;
+            bi.drawnX = track.dx; bi.drawnZ = track.dz; bi.heading = track.heading;
+            bi.ghost = boardGhosts.count(sprite.object) != 0; bi.dt = dt; bi.now = g_carFrame;
+            boarding = BoardingUpdate(bi, &boardOut);
+            if (boarding) {
+                track.dx = boardOut.x; track.dz = boardOut.z; track.vx = boardOut.vx; track.vz = boardOut.vz;
+                track.heading = boardOut.heading; track.twist = 0.0f; track.turnRate = 0.0f;
+                track.staggerX = track.staggerZ = 0.0f;
+                if (boardOut.action) {
+                    track.action = boardOut.action; track.actionReverse = false;
+                    track.actionTime = boardOut.clipT; track.actionWeight = 1.0f;
+                }
+            }
+        }
+        const float boardSink = boarding ? boardOut.sink : 0.0f;
         const float legHeading = track.heading - track.twist;
         // CROWD: where his head turns ([crowd] look_at). Toward the player when the
         // player is within look_range and in front of him (twice as far while the
@@ -7807,8 +7864,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // Which of the people he is: fixed by his object, so he keeps his look.
             // (the protagonist: always the manifest's default, unless a developer remap
             // override is on: then he is drawn as that type too, the showcase's subject)
-            const Model* model = (sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject &&
-                                  PedRemapEffective(-1, 0) < 0)
+            const Model* model = (ownPed && PedRemapEffective(-1, 0) < 0)
                                      ? ModelForPedestrian()
                                      : nullptr;
             // His type (police, gang, medic, a civilian outfit) is the remap the
@@ -7829,7 +7885,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         Log("models: pedestrian without a remap palette on body %u (frame %u, palette %d) -> %s", body, sprite.pedFrame,
                             rec ? rec->palette : -1, body >= 2 ? "police type (SWAT/FBI)" : body == 1 ? "zaibatsu type" : "plain list");
                     }
-                    if (body >= 2) remap = 0;        // the police avatars: dark uniform and kit
+                    if (body >= 2) remap = PedRemapHasType(53) ? 53 : 0;   // SWAT/FBI kit (ASSET-PEDS), else the police
                     else if (body == 1) remap = 8;   // the suits
                 }
                 model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4), remap);
@@ -7855,7 +7911,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // The character, at his pace, where the figure would stand, facing
                 // his drawn heading, upright, leaning a little into a turn.
                 // CROWD: his own build and clothes (CrowdLookFor).
-                const bool ownFigure = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
+                const bool ownFigure = ownPed;   // (ownPed: the boarding ghost of the player too)
                 const CrowdLook look = CrowdLookFor(static_cast<uint32_t>(sprite.object >> 4), *model, remap, ownFigure);
                 const float scale = kPedHeight * look.height / (std::max)(model->Height(), 0.01f);
                 const float paceFactor = (std::min)(track.drawnSpeed / 1.5f, 1.0f);
@@ -7863,12 +7919,28 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (roll > 0.1f) roll = 0.1f;
                 if (roll < -0.1f) roll = -0.1f;
                 const float cr = std::cos(roll), sr = std::sin(roll);
-                // Rows: right, up, forward; right and up turned about forward by the roll.
+                // QB-20: the lean of acceleration, forward into a start and back into a
+                // stop, from the change of his leg pace, on a critically damped spring
+                // (about 0.15 s), at most 6 degrees forward and 3 back.
+                {
+                    const float accel = (track.legSpeed - track.leanSpeed) / (std::max)(dt, 1e-3f);
+                    track.leanSpeed = track.legSpeed;
+                    float want = accel * (accel > 0.0f ? 0.035f : 0.02f);
+                    want = (std::max)(-0.05f, (std::min)(0.105f, want));
+                    if (track.action != 0 && track.action != 2 && !IsCarryAction(track.action)) want = 0.0f;
+                    const float w0 = 14.0f, h = (std::min)(dt, 0.05f);
+                    track.leanV += (w0 * w0 * (want - track.lean) - 2.0f * w0 * track.leanV) * h;
+                    track.lean += track.leanV * h;
+                    track.lean = (std::max)(-0.06f, (std::min)(0.11f, track.lean));
+                }
+                const float cp = std::cos(track.lean), sp = std::sin(track.lean);
+                // Rows: right, up, forward; right and up turned about forward by the roll,
+                // then up and forward tipped about right by the lean (the feet stay put).
                 gta2::Mat4 placed = m;
                 placed.m[0][0] = hz * cr;  placed.m[0][1] = sr;  placed.m[0][2] = -hx * cr;
-                placed.m[1][0] = -hz * sr; placed.m[1][1] = cr;  placed.m[1][2] = hx * sr;
-                placed.m[2][0] = hx;       placed.m[2][1] = 0.0f; placed.m[2][2] = hz;
-                placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f; placed.m[3][2] = gz;
+                placed.m[1][0] = -hz * sr * cp + hx * sp; placed.m[1][1] = cr * cp;  placed.m[1][2] = hx * sr * cp + hz * sp;
+                placed.m[2][0] = hx * cp + hz * sr * sp;  placed.m[2][1] = -cr * sp; placed.m[2][2] = hz * cp - hx * sr * sp;
+                placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f - boardSink; placed.m[3][2] = gz;
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * look.width * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
@@ -7902,19 +7974,33 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // (the sprint's stride is the run's x1.4, so at the player's 1.9 blocks a
                 // second the legs cycle 2.5 times a second, not 3.6); idle when still,
                 // with hysteresis so a figure creeping at the threshold does not flicker.
-                const ModelAnimation* sprint = model->Animation("sprint");
+                // QB-20: the mocap fast run is the sprint where the avatar has it (its own
+                // stride and phase from the loco tables); the procedural one otherwise.
+                const ModelAnimation* sprint = model->Animation("run_fast");
+                const Model::Loco* locoFast = sprint ? model->LocoFor("run_fast") : nullptr;
+                if (!locoFast) sprint = model->Animation("sprint");
+                const Model::Loco* locoRun = model->LocoFor("run");
+                // Where the run's first frame sits on the walk cycle (the old clips: half a cycle on).
+                const float runPh0 = locoRun && !locoRun->phase.empty() ? locoRun->phase[0] : 0.5f;
+                const float fastPh0 = locoFast && !locoFast->phase.empty() ? locoFast->phase[0] : 0.0f;
+                const float sprintOverRun = locoFast && model->runStride > 0.0f && locoFast->Length() > 0.01f
+                    ? locoFast->Covered() * (sprint->length / locoFast->Length()) / model->runStride : kSprintStrideOverRun;
                 const ModelAnimation* turnStep = model->Animation("turn_step");
                 if (track.legSpeed > 0.08f) track.moveOn = true;
                 else if (track.legSpeed < 0.04f) track.moveOn = false;
                 const bool wasMoving = track.walkWeight > 0.5f;
-                track.walkWeight += ((track.moveOn ? 1.0f : 0.0f) - track.walkWeight) * (std::min)(1.0f, dt / (track.moveOn ? 0.1f : 0.2f));
+                // ANIM-BLEND-AUDIT: a linear ramp (0.2 s in, 0.25 s out), drawn through a smoothstep
+                // (walkW below), in place of an exponential ease whose first frame took a third of
+                // the change (a one-frame jump of the legs from the idle into the cycle).
+                if (track.moveOn) track.walkWeight = (std::min)(1.0f, track.walkWeight + dt / 0.2f);
+                else track.walkWeight = (std::max)(0.0f, track.walkWeight - dt / 0.25f);
                 const float runTarget = run && model->runStride > 0.0f ? Smoothstep(0.6f, 0.9f, track.legSpeed) : 0.0f;
                 track.runWeight += (runTarget - track.runWeight) * (std::min)(1.0f, dt / 0.2f);
                 const float sprintTarget = sprint && run && model->runStride > 0.0f ? Smoothstep(1.2f, 1.7f, track.legSpeed) : 0.0f;
                 track.sprintWeight += (sprintTarget - track.sprintWeight) * (std::min)(1.0f, dt / 0.2f);
                 const float walkCycle = model->stride > 0.0f ? model->stride * scale : 0.7f;
                 const float runCycle = model->runStride > 0.0f ? model->runStride * scale : walkCycle * 1.4f;
-                const float fastCycle = runCycle + (runCycle * kSprintStrideOverRun - runCycle) * track.sprintWeight;
+                const float fastCycle = runCycle + (runCycle * sprintOverRun - runCycle) * track.sprintWeight;
                 const float cycleLen = walkCycle + (fastCycle - walkCycle) * track.runWeight;
                 if (track.moveOn) {
                     track.settleTo = -1.0f;
@@ -7950,15 +8036,158 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     track.turnCycle -= std::floor(track.turnCycle);
                     track.turnWeight += ((turnOn ? 1.0f : 0.0f) - track.turnWeight) * (std::min)(1.0f, dt / (turnOn ? 0.08f : 0.15f));
                 }
+                // QB-20/39: mocap starts, stops and fidgets (Rocketbox motion capture,
+                // retargeted on import; the tables are Model::Loco). A start is driven by
+                // the ground he covers (or real time, whichever is ahead) and holds the
+                // cycle on the phase its feet are at, so it hands over to the walk or run
+                // without a skip; a stop is entered at the frame whose feet match the
+                // cycle's, in its walking part, and plays out in real time into the idle;
+                // after 5-13 s standing still he fidgets (looks round, scratches, shifts).
+                const ModelAnimation* transClip = nullptr;
+                const Model::Loco* transLoco = nullptr;
+                {
+                    static const char* const kTrans[6] = {nullptr, "walk_start", "run_start", "walk_stop", "run_stop", nullptr};
+                    static const char* const kFidgets[4] = {"fidget1", "fidget2", "fidget3", "fidget4"};
+                    const int lastTrans = track.trans;
+                    track.paceHold = (std::max)(track.legSpeed, track.paceHold - 2.0f * dt);
+                    const bool free = track.action == 0 && lod < 2;
+                    const bool moving = track.moveOn;
+                    if (track.trans == 5 && (moving || !free || track.turnWeight > 0.05f)) track.trans = 0;
+                    if ((track.trans == 3 || track.trans == 4) && (moving || !free)) track.trans = 0;
+                    // ANIM-BLEND-AUDIT: the starts are forward clips: walking backwards (Down) is
+                    // the cycle played backwards, never a start (its feet slid back 25 cm a frame).
+                    const bool backward = track.stepFwd < -0.002f;
+                    if ((track.trans == 1 || track.trans == 2) && (!moving || !free || backward)) track.trans = 0;
+                    if (moving && !wasMoving && free && !backward && track.trans == 0 && track.walkWeight < 0.6f) {
+                        const int k = (std::max)(track.legSpeed, track.speed) > 0.75f ? 2 : 1;
+                        if (model->Animation(kTrans[k]) && model->LocoFor(kTrans[k])) {
+                            track.trans = k; track.transT = 0.0f; track.transDist = 0.0f;
+                        }
+                    }
+                    if (!moving && wasMoving && free && (track.trans == 0 || track.trans == 1 || track.trans == 2)) {
+                        const int k = (track.runWeight > 0.5f || track.paceHold > 0.75f) ? 4 : 3;
+                        const Model::Loco* l = model->LocoFor(kTrans[k]);
+                        if (model->Animation(kTrans[k]) && l && l->phase.size() == l->dist.size() && l->dist.size() > 6) {
+                            // The walking part: until its pace falls under 60 % of its first.
+                            const float v0 = l->dist[3] - l->dist[0];
+                            size_t decel = 3;
+                            while (decel + 3 < l->dist.size() && l->dist[decel + 3] - l->dist[decel] > 0.6f * v0) ++decel;
+                            // His feet on the clip's reference cycle (the run's for a run stop).
+                            float c = track.cycle - (k == 4 ? runPh0 : 0.0f);
+                            c -= std::floor(c);
+                            size_t best = 0; float bestD = 2.0f;
+                            for (size_t i = 0; i <= decel; ++i) {
+                                float d = std::fabs(l->phase[i] - c);
+                                d = (std::min)(d, 1.0f - d);
+                                if (d < bestD - 0.02f || (d < 0.05f && d <= bestD + 0.02f)) { bestD = (std::min)(d, bestD); best = i; }
+                            }
+                            track.trans = k; track.transT = static_cast<float>(best) / 15.0f;
+                            track.settleTo = -1.0f;
+                        } else {
+                            track.trans = 0;
+                        }
+                    }
+                    // Standing still: count, and fidget now and then.
+                    if (!moving && free && track.trans == 0 && track.walkWeight < 0.05f && track.turnWeight < 0.05f) {
+                        if (track.fidgetAt <= 0.0f) {
+                            const uint32_t h = static_cast<uint32_t>(sprite.object >> 4) * 2654435761u;
+                            track.fidgetAt = 5.0f + static_cast<float>((h >> 8) % 800u) / 100.0f;
+                            track.fidgetNext = static_cast<int>((h >> 20) % 4u);
+                        }
+                        track.stillTime += dt;
+                        if (track.stillTime > track.fidgetAt) {
+                            const char* name = kFidgets[track.fidgetNext % 4];
+                            ++track.fidgetNext;
+                            if (model->Animation(name)) { track.trans = 5; track.transT = 0.0f; track.transEnd = (std::min)(model->Animation(name)->length, 9.0f); }
+                            track.stillTime = 0.0f;
+                            track.fidgetAt = 7.0f + static_cast<float>((static_cast<uint32_t>(sprite.object >> 4) * 40503u + track.fidgetNext * 977u) % 900u) / 100.0f;
+                        }
+                    } else if (track.trans != 5) {
+                        track.stillTime = 0.0f;
+                    }
+                    if (track.trans == 5) {
+                        transClip = model->Animation(kFidgets[(track.fidgetNext + 3) % 4]);
+                        track.transT += dt;
+                        if (!transClip || track.transT >= track.transEnd) { track.trans = 0; transClip = nullptr; }
+                        else track.transW = Smoothstep(0.0f, 0.6f, track.transT) * (1.0f - Smoothstep(track.transEnd - 0.7f, track.transEnd, track.transT));
+                    } else if (track.trans >= 1 && track.trans <= 4) {
+                        transClip = model->Animation(kTrans[track.trans]);
+                        transLoco = model->LocoFor(kTrans[track.trans]);
+                        if (!transClip || !transLoco) track.trans = 0;
+                    }
+                    // The pace is still easing in on a start's first frames: a walk start that
+                    // finds him at a run within its first 0.25 s becomes the run start.
+                    if (track.trans == 1 && track.transT < 0.25f && (std::max)(track.legSpeed, track.speed) > 0.75f &&
+                        model->Animation("run_start") && model->LocoFor("run_start")) {
+                        track.trans = 2; transClip = model->Animation("run_start"); transLoco = model->LocoFor("run_start");
+                    }
+                    if (track.trans == 1 || track.trans == 2) {
+                        // The game is at full pace at once, the capture accelerates: played at
+                        // the pace of the ground he covers, but no faster than twice real time
+                        // (a push-off seen, at the cost of a little slide) nor slower than real time.
+                        // (ANIM-BLEND-AUDIT measured the slide: 6 cm a frame on average, 22 at worst;
+                        // four times made it worse, 18 on average: the start's feet are not where
+                        // the game's pace needs them at any speed of the clip.)
+                        const float before = transLoco->TimeAtDist(track.transDist / scale);
+                        track.transDist += (std::max)(0.0f, track.stepFwd);
+                        const float byDist = transLoco->TimeAtDist(track.transDist / scale) - before;
+                        const float advance = (std::max)(dt, (std::min)(2.0f * dt, byDist));
+                        track.transT += advance;
+                        const float rate = advance / (std::max)(dt, 1e-4f);   // clip seconds per real second, 1..2
+                        const float len = (std::min)(transLoco->Length(), transClip->length);
+                        if (track.transT >= len) { track.trans = 0; transClip = nullptr; }
+                        else {
+                            // The cycle follows the start's feet, so the hand-over meets it in step.
+                            float c = transLoco->PhaseAt(track.transT) + (track.trans == 2 ? runPh0 : 0.0f);
+                            track.cycle = c - std::floor(c);
+                            // The start alone until its last quarter second, then the cycle; the quarter
+                            // second in real time at the pace it is played (ANIM-BLEND-AUDIT: it was 0.25 s
+                            // of clip, which at twice the pace is four frames).
+                            track.transW = Smoothstep(0.0f, 0.25f, (len - track.transT) / rate);
+                        }
+                    } else if (track.trans == 3 || track.trans == 4) {
+                        track.transT += dt;
+                        const float len = transClip->length;
+                        if (track.transT >= len) { track.trans = 0; transClip = nullptr; track.stillTime = 0.0f; }
+                        else track.transW = 1.0f - Smoothstep(len - 0.45f, len, track.transT);   // into the idle
+                    }
+                    if (!track.trans) track.transW = 0.0f;
+                    // ANIM-BLEND-AUDIT: a start, stop or fidget that ended while still drawn
+                    // (cut short: he moved, stopped, turned or acted) fades out from the pose it
+                    // stopped at over 0.25 s instead of vanishing (see the locomotion mix below).
+                    // (a weaker one never replaces a stronger one still fading: a stop cut by a walk
+                    // start that turns into a run start a frame later keeps the stop's fade)
+                    const float fadeNow = track.transFadeClip ? track.transFadeW * Smoothstep(0.0f, 1.0f, track.transFadeK) : 0.0f;
+                    if (track.trans != lastTrans && lastTrans != 0 && track.transDrawnClip && track.transDrawnW > 0.05f &&
+                        track.transDrawnW >= fadeNow) {
+                        track.transFadeClip = track.transDrawnClip; track.transFadeT = track.transDrawnT;
+                        track.transFadeW = track.transDrawnW; track.transFadeK = 1.0f;
+                    }
+                    // (a walk start that becomes a run start is one start: its entry carries on)
+                    track.transAge = track.trans != lastTrans && !(lastTrans == 1 && track.trans == 2) ? dt : track.transAge + dt;
+                    if (track.transFadeClip) {
+                        track.transFadeK -= dt / 0.25f;
+                        if (track.transFadeK <= 0.0f) { track.transFadeClip = nullptr; track.transFadeK = 0.0f; }
+                    }
+                    if (track.trans != lastTrans && (g_logFigures || g_logPedFrames)) {
+                        static unsigned transLogs = 0;
+                        if (transLogs++ < 400)
+                            Log("loco: %04x %s t=%.2f leg=%.2f cyc=%.3f own=%d", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                                track.trans == 0 ? "cycle/idle" : track.trans == 5 ? "fidget" : kTrans[track.trans], track.transT,
+                                track.legSpeed, track.cycle, ownPed ? 1 : 0);
+                    }
+                }
                 float u = std::floor(track.cycle * cycleSteps) / cycleSteps;   // quantised: shared poses
                 float idleTime = idle ? std::floor((static_cast<float>(g_carFrame) / 30.0f * track.idleRate +
                                                     track.idleOffset) * idleSteps) / idleSteps
                                       : 0.0f;
-                float walkW = std::floor(track.walkWeight * 8.0f + 0.5f) / 8.0f;
+                float walkW = std::floor(Smoothstep(0.0f, 1.0f, track.walkWeight) * 8.0f + 0.5f) / 8.0f;
                 float runW = std::floor(track.runWeight * 8.0f + 0.5f) / 8.0f;
                 float sprintW = std::floor(track.sprintWeight * 8.0f + 0.5f) / 8.0f;
                 float turnW = std::floor(track.turnWeight * 8.0f + 0.5f) / 8.0f;
                 float turnT = turnStep ? std::floor(track.turnCycle * 16.0f) / 16.0f * turnStep->length : 0.0f;
+                float transT = std::floor(track.transT * 30.0f) / 30.0f;
+                float transW = std::floor(track.transW * 8.0f + 0.5f) / 8.0f;
                 // The action layer: its clip advances in real time (one-shots hold
                 // their last pose, the fall holds lying; a knock-down plays back out),
                 // and is faded in over the walk or idle, then out again when it is over.
@@ -8072,6 +8301,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     actionT = (std::min)((std::max)(track.actionTime, 0.0f), len - 0.001f);
                     actionT = std::floor(actionT * 30.0f) / 30.0f;
                 }
+                if (boarding && boardOut.action && actionClip && track.action == boardOut.action) {
+                    // The plan's own time on the clip, at full weight from its first frame
+                    // (an exit starts seated, not standing).
+                    track.actionTime = boardOut.clipT;
+                    actionT = std::floor((std::min)(boardOut.clipT, actionClip->length - 0.001f) * 30.0f) / 30.0f;
+                    track.actionWeight = 1.0f;
+                }
                 track.lastPedFrame = sprite.pedFrame;
                 static unsigned lyingLogs = 0;
                 if (g_logPedFrames && track.action == 4 && lyingLogs < 400 && (++lyingLogs % 5) == 0) {
@@ -8102,6 +8338,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (lod == 2) {
                     // The idle key; a body lying on the ground stays lying.
                     u = 0.0f; idleTime = 0.0f; walkW = 0.0f; runW = 0.0f; sprintW = 0.0f; turnW = 0.0f; turnT = 0.0f;
+                    transClip = nullptr; transW = 0.0f;
                     if (track.action == 4 && actionClip) { actW = 1.0f; actionT = (std::max)(0.0f, actionClip->length - 0.001f); }
                     else { actW = 0.0f; actionClip = nullptr; }
                 } else if (lod == 1) {
@@ -8112,7 +8349,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         track.lodU = u; track.lodIdleT = idleTime; track.lodWalkW = walkW; track.lodRunW = runW;
                         track.lodActT = actionT; track.lodActW = actW;
                         track.lodSprintW = sprintW; track.lodTurnW = turnW; track.lodTurnT = turnT;
+                        track.lodTransT = transT; track.lodTransW = transW;
                     } else {
+                        transT = track.lodTransT; transW = track.lodTransW;
                         u = track.lodU; idleTime = track.lodIdleT; walkW = track.lodWalkW; runW = track.lodRunW;
                         actionT = track.lodActT; actW = actionClip ? track.lodActW : 0.0f;
                         sprintW = track.lodSprintW; turnW = track.lodTurnW; turnT = track.lodTurnT;
@@ -8122,36 +8361,74 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // The run (and the sprint made from it) put the same foot forward half a
                 // cycle after the walk does: played half a cycle on, so a walk/run blend
                 // moves both legs the same way instead of cancelling them out.
-                const float runU = u + 0.5f - std::floor(u + 0.5f);
+                // QB-20: with the mocap tables the offsets are measured (the run's first frame
+                // on the walk, the fast run's on the run) instead of assumed.
+                const float runU = u - runPh0 - std::floor(u - runPh0);
                 const float runTime = run ? runU * run->length : 0.0f;
-                const float sprintTime = sprint ? runU * sprint->length : 0.0f;
-                // The locomotion pair (A at tA blended toward B at tB by w):
-                //   still: idle, or idle under the turn step while turning on the spot;
-                //   moving: walk, walk->run, run->sprint, faded in from the idle.
+                const float fastU = runU - fastPh0 - std::floor(runU - fastPh0);
+                const float sprintTime = sprint ? (locoFast ? fastU : runU) * sprint->length : 0.0f;
+                // ANIM-BLEND-AUDIT: the locomotion as one continuous mix of clips (the pair
+                // below plus model_store's ModelSetLayers), in place of a pair that swapped clips
+                // when a weight crossed a line: the walk dropped the frame the sprint came in, the
+                // idle->moving fade swapped walk for run at runW 0.5, the turn step vanished when
+                // he moved, and a start, stop or fidget cut short vanished in one frame (pops of
+                // 20-50 cm at the hands and feet in docs/anim-audit.md). In order:
+                //   the moving cycle: walk -> run by runW, the sprint over it by sprintW x runW;
+                //   the idle over that by 1 - walkW; the turn step over the idle by turnW;
+                //   the start, stop or fidget over all of it by its weight (a start comes out of
+                //   the mix over its first 0.2 s, a stop goes into its clip over its first 0.25 s);
+                //   a start/stop/fidget cut short, fading out from where it stopped over 0.25 s.
+                // Every weight eases, so no frame jumps; weights stay in eighths for the pose cache.
+                auto q8 = [](float w) { return std::floor(w * 8.0f + 0.5f) / 8.0f; };
                 const ModelAnimation* locoA = idle; float locoTA = idleTime;
                 const ModelAnimation* locoB = nullptr; float locoTB = 0.0f, locoW = 0.0f;
+                const ModelAnimation* layerClip[kModelLayers] = {};
+                float layerT[kModelLayers] = {}, layerW[kModelLayers] = {};
+                int layers = 0;
+                auto layer = [&](const ModelAnimation* c, float t, float w) {
+                    w = q8((std::min)(1.0f, w));
+                    if (c && w > 0.001f && layers < kModelLayers) { layerClip[layers] = c; layerT[layers] = t; layerW[layers] = w; ++layers; }
+                };
                 {
-                    const ModelAnimation* mA = walk; float mTA = walkTime;
-                    const ModelAnimation* mB = nullptr; float mTB = 0.0f, mW = 0.0f;
-                    if (run && runW > 0.001f) {
-                        if (sprint && sprintW > 0.001f) { mA = run; mTA = runTime; mB = sprint; mTB = sprintTime; mW = sprintW; }
-                        else { mB = run; mTB = runTime; mW = runW; }
+                    // While a start comes in, the cycle stays behind the idle (the start sets the
+                    // cycle's phase from its own feet, which jumps): the start rises out of the idle
+                    // and hands to the cycle at its end, as the pair did. Eased, so a start cut short
+                    // brings the cycle back over 0.2 s.
+                    const bool inStart = (track.trans == 1 || track.trans == 2) && transClip;
+                    const float cycleTarget = inStart ? Smoothstep(0.0f, 0.2f, track.transAge) : 1.0f;
+                    track.cycleVis += (std::max)(-dt / 0.2f, (std::min)(dt / 0.2f, cycleTarget - track.cycleVis));
+                    if (lod != 0) track.cycleVis = cycleTarget;
+                    const float moveW = walkW * track.cycleVis;
+                    if (walk && moveW > 0.001f) {
+                        locoA = walk; locoTA = walkTime;
+                        if (run && runW > 0.001f) { locoB = run; locoTB = runTime; locoW = runW; }
+                        if (sprint && run) layer(sprint, sprintTime, sprintW * runW);
+                        if (moveW < 0.999f) layer(idle, idleTime, 1.0f - moveW);
                     }
-                    if (walkW >= 0.999f) {
-                        locoA = mA; locoTA = mTA; locoB = mB; locoTB = mTB; locoW = mW;
-                    } else if (walkW > 0.001f) {
-                        // Fading in or out: the idle toward whichever moving clip leads.
-                        locoB = mW > 0.5f ? mB : mA; locoTB = mW > 0.5f ? mTB : mTA; locoW = walkW;
-                    } else if (turnStep && turnW > 0.001f) {
-                        locoB = turnStep; locoTB = turnT; locoW = turnW;
+                    if (turnStep) layer(turnStep, turnT, turnW);
+                    float transDrawn = 0.0f, tt = 0.0f;
+                    if (transClip && transW > 0.001f) {
+                        tt = (std::min)(transT, transClip->length - 0.001f);
+                        float w = transW;
+                        // (in real time: a start's clip can run at twice its pace)
+                        if (track.trans == 1 || track.trans == 2) w *= Smoothstep(0.0f, 0.2f, track.transAge);
+                        else if (track.trans == 3 || track.trans == 4) w *= Smoothstep(0.0f, 0.25f, track.transAge);
+                        transDrawn = q8(w);
+                        layer(transClip, tt, w);
                     }
+                    if (lod == 0 && track.transFadeClip && track.transFadeK > 0.001f)
+                        layer(static_cast<const ModelAnimation*>(track.transFadeClip), track.transFadeT,
+                              track.transFadeW * Smoothstep(0.0f, 1.0f, track.transFadeK));
+                    track.transDrawnClip = transDrawn > 0.001f ? transClip : nullptr;
+                    track.transDrawnT = tt; track.transDrawnW = transDrawn;
                 }
                 // The action as an overlay on the pair (model_store ModelSetOverlay): an
                 // upper-body layer leaves the legs to the locomotion at any weight; a whole-
                 // body clip at full weight is drawn alone (one cached pose for a body lying).
                 const bool actAlone = actionClip && actW > 0.999f && !actUpper;
-                if (actAlone) { locoA = actionClip; locoTA = actionT; locoB = nullptr; locoW = 0.0f; }
+                if (actAlone) { locoA = actionClip; locoTA = actionT; locoB = nullptr; locoW = 0.0f; layers = 0; }
                 ModelSetOverlay(actAlone ? nullptr : actionClip, actionT, actAlone ? 0.0f : actW);
+                ModelSetLayers(model, layerClip, layerT, layerW, layers);
                 device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
                 device->SetFVF(kWorldFvf);
@@ -8161,12 +8438,24 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 float tint[3];
                 bool tinted = PedRemapTint(remap, *model, tint);
                 if (!tinted && look.clothes) { for (int k = 0; k < 3; ++k) tint[k] = look.tint[k]; tinted = true; }
+                // ASSET-PEDS: a zoned avatar's shirt, trousers (and hair) in his remap's
+                // sprite colours; the protagonist is remap 25 (the default player ped).
+                float zones[3][3];
+                bool zoneHair = false;
+                const bool zoned = model->pedZones && PedZoneTints(ownFigure && remap < 0 ? 25 : remap, *model, zones, &zoneHair);
+                if (zoned) {
+                    tinted = false;
+                    if (!ownFigure)
+                        for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) zones[z][k] = (std::min)(2.0f, zones[z][k] * look.shade);
+                    ModelSetZoneTints(zones[0], zones[1], zoneHair ? zones[2] : nullptr);
+                    ++g_crowdCount[4];
+                }
                 ++g_crowdCount[0];
                 if (look.clothes) ++g_crowdCount[1];
                 if (track.lookingAtPlayer) ++g_crowdCount[2];
                 else if (std::fabs(track.headYaw) > 0.2f) ++g_crowdCount[3];
                 if (tinted) ModelSetPaintTint(tint);
-                if (tinted || model->splitPaint) {
+                if (tinted || zoned || model->splitPaint) {
                     // The test must read the texture's alpha, which is where the
                     // split lives; the pass's own alpha stage may be set to the
                     // vertex colour.
@@ -8189,11 +8478,89 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const bool ragdoll = RagdollFigure(sprite.object, track.lieClip == 2 ? 1 : track.lieClip == 3 ? 2 : 0,
                                                    track.action == 4 && !track.actionReverse && !track.waterFrame, *model, world,
                                                    gx, cy, gz, track.heading, dt, g_carFrame, locoA, locoTA, locoB, locoTB, locoW);
+                // ANIM-VEHICLE-ENTRY: hands and feet onto the car (boarding.h), by IK in model space.
+                bool boardIk = false;
+                ModelClearLimbTargets();
+                if (lod == 0 && g_groundModels) {
+                    for (int limb = 0; limb < 4; ++limb) {
+                        gta2::Vec3 bt, bp; float bw = 0.0f;
+                        if (!BoardingLimb(sprite.object, limb, &bt, &bp, &bw)) continue;
+                        float tm[3], pm[3];
+                        BoardingWorldToModel(world, bt, false, tm);
+                        BoardingWorldToModel(world, bp, true, pm);
+                        ModelSetLimbTarget(limb, tm, pm, std::floor(bw * 16.0f + 0.5f) / 16.0f);
+                        boardIk = true;
+                    }
+                }
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                 if (ragdoll) RagdollDone();
+                if (boardIk) {
+                    // What the hands could not reach goes back to the plan (a lean toward it next frame).
+                    for (int limb = 0; limb < 2; ++limb) {
+                        float r[3];
+                        if (!ModelLimbResidual(limb, r)) continue;
+                        const gta2::Vec3 rw{r[0] * world.m[0][0] + r[1] * world.m[1][0] + r[2] * world.m[2][0],
+                                            r[0] * world.m[0][1] + r[1] * world.m[1][1] + r[2] * world.m[2][1],
+                                            r[0] * world.m[0][2] + r[1] * world.m[1][2] + r[2] * world.m[2][2]};
+                        BoardingReportResidual(sprite.object, limb, rw);
+                    }
+                }
+                if (boardIk && g_logFigures) {
+                    // Contact: where each driven hand or foot was drawn against its target, blocks.
+                    static const char* const kEnds[4] = {"Bip01 L Hand", "Bip01 R Hand", "Bip01 L Foot", "Bip01 R Foot"};
+                    char buf[256]; int n = 0;
+                    for (int limb = 0; limb < 4; ++limb) {
+                        gta2::Vec3 bt, bp; float bw = 0.0f;
+                        gta2::Mat4 nm;
+                        if (!BoardingLimb(sprite.object, limb, &bt, &bp, &bw)) continue;
+                        if (!ModelNodeWorld(*model, kEnds[limb], locoA, locoTA, locoB, locoTB, locoW, &nm)) continue;
+                        const float px = nm.m[3][0], py = nm.m[3][1], pz = nm.m[3][2];
+                        const float wx = px * world.m[0][0] + py * world.m[1][0] + pz * world.m[2][0] + world.m[3][0];
+                        const float wy = px * world.m[0][1] + py * world.m[1][1] + pz * world.m[2][1] + world.m[3][1];
+                        const float wz = px * world.m[0][2] + py * world.m[1][2] + pz * world.m[2][2] + world.m[3][2];
+                        const float e = std::sqrt((wx - bt.x) * (wx - bt.x) + (wy - bt.y) * (wy - bt.y) + (wz - bt.z) * (wz - bt.z));
+                        n += snprintf(buf + n, sizeof buf - n, " %d:w%.2f err%.3f y%.3f", limb, bw, e, wy - cy);
+                    }
+                    Log("board contact: f=%u o=%04x%s model %s", g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), buf,
+                        model->name.c_str());
+                }
+                if (g_logJoints) {
+                    char layerText[200] = "-";
+                    for (int k = 0, at = 0; k < layers && at < 160; ++k)
+                        at += snprintf(layerText + at, sizeof layerText - at, "%s%s:%.2f", k ? "|" : "", layerClip[k]->name.c_str(), layerW[k]);
+                    // ANIM-BLEND-AUDIT: the joints as drawn (the same pair, overlay and twist),
+                    // in the world, for the audit's foot-skate, pop and teleport measures.
+                    const float pdx = cx - g_playerPosX, pdz = cz - g_playerPosZ;
+                    if (ownPed || (g_playerPosValid && pdx * pdx + pdz * pdz < 2.25f)) {
+                        static const char* const kJoints[6] = {"Bip01 L Foot", "Bip01 R Foot", "Bip01 Pelvis", "Bip01 Head",
+                                                               "Bip01 L Hand", "Bip01 R Hand"};
+                        float jp[6][3] = {};
+                        for (int j = 0; j < 6; ++j) {
+                            gta2::Mat4 node;
+                            if (!ModelNodeWorld(*model, kJoints[j], locoA, locoTA, locoB, locoTB, locoW, &node)) continue;
+                            for (int c = 0; c < 3; ++c)
+                                jp[j][c] = node.m[3][0] * world.m[0][c] + node.m[3][1] * world.m[1][c] + node.m[3][2] * world.m[2][c] + world.m[3][c];
+                        }
+                        Log("figj: f=%u o=%04x own=%d st=%d sub=0x%x act=%d at=%.3f aw=%.2f tr=%d trt=%.2f trw=%.2f ww=%.2f rw=%.2f lod=%d "
+                            "hd=%.3f game=%.3f,%.3f drawn=%.3f,%.3f gy=%.3f "
+                            "lf=%.3f,%.3f,%.3f rf=%.3f,%.3f,%.3f pv=%.3f,%.3f,%.3f he=%.3f,%.3f,%.3f lh=%.3f,%.3f,%.3f rh=%.3f,%.3f,%.3f "
+                            "A=%s B=%s w=%.2f O=%s rag=%d L=%s",
+                            g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), ownPed ? 1 : 0, sprite.pedState, sprite.pedSub,
+                            track.action, track.actionTime, actW, track.trans, transT, transW, walkW, runW, lod,
+                            track.heading, cx, cz, gx, gz, cy,
+                            jp[0][0], jp[0][1], jp[0][2], jp[1][0], jp[1][1], jp[1][2], jp[2][0], jp[2][1], jp[2][2],
+                            jp[3][0], jp[3][1], jp[3][2], jp[4][0], jp[4][1], jp[4][2], jp[5][0], jp[5][1], jp[5][2],
+                            locoA ? locoA->name.c_str() : "-", locoB ? locoB->name.c_str() : "-", locoW,
+                            (!actAlone && actionClip) ? actionClip->name.c_str() : "-", ragdoll ? 1 : 0, layerText);
+                    }
+                }
                 ModelSetHeadTurn(0.0f);
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
+                    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                }
+                if (zoned) {
+                    ModelSetZoneTints(nullptr, nullptr, nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
                 }
                 // The weapon in his hands while he aims or throws: its own model
@@ -8362,16 +8729,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 ModelSetTorsoTwist(0.0f);
                 ModelSetOverlay(nullptr, 0.0f, 0.0f);
+                ModelSetLayers(nullptr, nullptr, nullptr, nullptr, 0);
+                ModelClearLimbTargets();
                 if (g_logFigures) {
                     // GTA2DX9_LOG_FIGURES=1 (ACTIONS-3D-4): the player's figure and everyone within
                     // 1.5 blocks of him, every frame: where the game has him and where he is drawn,
                     // the state words, the clip and the locomotion weights, for the slide checks.
                     const float pdx = cx - g_playerPosX, pdz = cz - g_playerPosZ;
                     if (ownPed || (g_playerPosValid && pdx * pdx + pdz * pdz < 2.25f)) {
-                        Log("fig: f=%u o=%04x own=%d game=%.3f,%.3f drawn=%.3f,%.3f v=%.2f st=%d sub=0x%x fr=%u act=%d t=%.2f aw=%.2f cyc=%.3f ww=%.2f rw=%.2f hd=%.2f leg=%.2f fwd=%.4f sw=%.2f tw=%.2f clip=%s",
+                        Log("fig: f=%u o=%04x own=%d game=%.3f,%.3f drawn=%.3f,%.3f v=%.2f st=%d sub=0x%x fr=%u act=%d t=%.2f aw=%.2f cyc=%.3f ww=%.2f rw=%.2f hd=%.2f leg=%.2f fwd=%.4f sw=%.2f tw=%.2f tr=%d trt=%.2f trw=%.2f lean=%.3f clip=%s",
                             g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), ownPed ? 1 : 0, cx, cz, gx, gz, track.drawnSpeed,
                             sprite.pedState, sprite.pedSub, sprite.pedFrame % 158u, track.action, track.actionTime, actW, track.cycle,
-                            walkW, runW, track.heading, track.legSpeed, track.stepFwd, sprintW, turnW,
+                            walkW, runW, track.heading, track.legSpeed, track.stepFwd, sprintW, turnW, track.trans, transT, transW, track.lean,
                             actionClip ? actionClip->name.c_str() : "-");
                     }
                 }
@@ -8420,6 +8789,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 sizeof(FigVertex));
         ++drawn;
     }
+    if (sprites_.size() > boardRealSprites) sprites_.resize(boardRealSprites);   // the boarding ghosts
+    BoardingEndFrame(g_carFrame);
     // Ranks by distance for the next frame's level of detail: the nearest
     // eight people seen this frame are posed in full.
     {

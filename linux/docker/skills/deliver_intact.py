@@ -38,6 +38,7 @@ say, tap, hold, xdo = D.say, D.tap, D.hold, D.xdo
 SHOPS = {"wil": [((204.5, 221.5), (204.5, 218.6)), ((86.5, 160.5), (86.5, 163.4))]}
 REPAIR_HP = int(os.environ.get("DELIVER_REPAIR_HP", "17500"))   # below this (fire at 16000) a near shop is worth it
 FIRE_LIFE = 28.0       # game seconds a burning car lasts, roughly (pt7-pt9: 25-35 s)
+RESPRAY_COST = int(os.environ.get("SP_RESPRAY_COST", "5000"))   # a shop does nothing below this (pt8_respray2, br7)
 SHOP_DETOUR = 1.6      # a respray is taken when it is at most this many times nearer than the goal
 CARE_STEPS = ((26000, 2.6), (22000, 2.0), (18000, 1.6))   # carhp -> speed cap of the fragile drive
 DRIVE_CALL = 240.0    # one drive3 call at most this long, then the leg re-plans (dl_zz5 spent 420 s in one)
@@ -274,7 +275,13 @@ def deliver(world, box, car=None, approach=None, done=None, check=None, view_swi
             burning = ms.get("carfire", -1) > 0 or (0 <= hp < 16000)
             dgoal = math.hypot(x - s["x"], y - s["y"])
             sh = nearest_shop(s, shops)
-            if sh and repaired < 2 and (burning or 0 <= hp < REPAIR_HP) and sh[0] * SHOP_DETOUR < dgoal + 10 \
+            # rp6/rp8 (COP CAR CRUSH, $15-20 on hand): the 65-block detour to a shop that cannot
+            # work at that money took the Cop Car from 14000 to 2000 and set it alight; with less
+            # than RESPRAY_COST the leg goes on to the goal at the fragile pace instead
+            money = ms.get("money", 0)
+            if sh and money < RESPRAY_COST and (burning or 0 <= hp < REPAIR_HP) and not repaired:
+                repaired = 2; _ev(f"no respray: money {money} < {RESPRAY_COST} (carhp {hp})")
+            if sh and money >= RESPRAY_COST and repaired < 2 and (burning or 0 <= hp < REPAIR_HP) and sh[0] * SHOP_DETOUR < dgoal + 10 \
                     and (not burning or sh[0] / 2.2 < FIRE_LIFE + 10):
                 repaired += 1
                 respray(world, sh[1], sh[2], check=check, view_switch=view_switch)

@@ -63,6 +63,9 @@ int  GetAlphaRef();
 // makes those on a GPU from a dump. A dump folder set makes UploadWorld write
 // every tile it uses there as tile_NNNN.tga, once per world. Empty disables.
 void SetHdTextureDir(const char* dir);
+// Photo-material tiles (tools/photoreal_tiles.py), loaded before the HD folder's, per style
+// subfolder; ignored on an RTX Remix device. Empty disables.
+void SetPhotoTextureDir(const char* dir);
 void SetTileDumpDir(const char* dir);
 // Tile numbers are per style file (wil.sty, bil.sty, ste.sty), so both folders
 // hold one subfolder per style, named by this: the style file's name without
@@ -206,6 +209,8 @@ private:
     // and shown with tile N's high-resolution artwork (UpdateTileTexture).
     std::map<uint64_t, int> tileByContent_;
     std::string hdDir_;                // the style's HD folder, "" when none
+    std::string photoDir_;             // the style's photo-material folder, "" when off
+    int photoTiles_ = 0;
     std::vector<uint8_t> waterTile_;   // per tile: 1 when it is the water surface
     // Window tiles of the street views: a glow texture per tile (the room's
     // light behind the glass, black elsewhere), added over the wall when the

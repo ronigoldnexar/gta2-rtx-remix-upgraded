@@ -661,3 +661,72 @@ runs show the cars in their paint (`out/p42_a3_wil/shot_085.png`).
 Still open: pedestrians' and objects' new sprite frames are still built on the render thread and
 would take the same worker (recognition by the ped remap palettes); Remix's handling of the dynamic
 car textures is untested.
+
+## Traffic and pedestrian density in the street views (9 Nov 2026, QB-9-DENSITY)
+
+QB-9 ("boulevards nearly empty", no driven car past the busiest Downtown kerb in 150 s) and the
+people half of QB-42. Code: `dll/src/density.cpp` (hooked from `WorldView::MatchGameViewToFrame`),
+ini `[density]`, report `tools/density_report.py`, scenario `linux/docker/keys_qb9_density2.sh`
+(Downtown start, third person standing 30 s, then `drive_road.py`: classic, third, first, classic).
+Same DLL before and after: `GTA2DX9_DENSITY=0` turns everything off.
+
+**Why the streets were empty.** The street views scale the game's spawn window 2.6x and make it
+square (PLAY-PERF above), but gta2.exe's budgets stayed sized for the top-down screen (names from
+the CriminalRETeam/gta2_re 10.5 reimplementation, each site checked byte for byte in 9.6):
+
+- Ambient ("recycled") traffic is capped at **16 cars** (imm8 compares at 0x420C9F (< 15),
+  0x420D3F (< 16), 0x4B34FE and 0x4B4A88 (== 16)). While driving, the census sat at 16/16.
+- A pedestrian is placed only while the window holds fewer than **zone ped_density / 25** people
+  (0x441042: `imul 0x51EB851F; sar edx,3`; Downtown 200 -> 8) and fewer than **50** dummies exist
+  (PedManager+0 at [0x5E5BC0]).
+- The traffic spawner takes its car density from the zone **the player stands in**, not the road
+  (TrafficSpawner field_10_zone). Downtown's script sets the church-plaza start zone to 0 cars, so
+  on foot there the spawner never ran (pacing threshold stuck at its reset 1000) and ambient
+  traffic was 0-1 for the whole stand, on every road in view.
+
+**What changed (street views only; the classic view gets every byte back).** Traffic cap 36
+(`traffic_cap`), ped divisor 25 -> 6.25 (`ped_density_scale=4`), dummy cap 80 (`ped_cap`), and a
+zone the player stands in with 0 cars gets 400 (`zone_car_density`; each spawn point still checks
+its own zone and needs an arrowed lane). Two guards: the ped pool (200, and gta2.exe's
+`Pool::Allocate` does not check for empty) must keep 40 free or the game's budgets return; and the
+budgets come in four levels, stock to configured, that follow the frame rate (over 15% of frames
+later than 1.15 periods in 2 s: down a level; under 5% for two windows: up).
+
+**Census** (`density:` log line every 300 frames; ranges over the segment):
+
+| | before (`qb9_b3`, `qb9_b4`) | after, full budgets (`qb9_a3`, `qb9_a4`, `qb9_a5`) |
+|---|---|---|
+| on foot, plaza, third person: ambient traffic | 1 | 14-18 (zone fill) |
+| driving, street views: ambient traffic / cap | 16 / 16 | 36 / 36 |
+| driving: driven cars within 16 blocks (census samples) | 3-14, median 9 (`qb9_before2`, `qb9_b3`) | 2-23, median 16 (`qb9_after1`, `qb9_a3`) |
+| people in the game's window | 4-17 | 18-35 |
+| ped pool free at peak | 184+ | 153+ (of 200) |
+| classic view after a street view | stock caps (16, 50, /25) | same: caps back to 16, 50, /25 |
+
+No `FAULT` in any run.
+
+**Frame cost** (`tools/density_report.py`, per-frame log; work = whole - wait, ms). The host was
+shared with 20-odd agents: load 10-40 across these runs, and the CPU governor paused containers
+mid-run, so the classic segments (identical code in both builds) are the yardstick for load.
+
+| segment | before `qb9_b4` (load ~10) | after full `qb9_a5` (load ~13) |
+|---|---|---|
+| classic on foot, work med/p95 | 2.7 / 15.0 | 3.3 / 12.9 |
+| third person driving, work med/p95, frames > 33 ms | 8.7 / 50.8, 7.8% | 13.8 / 69.3, 15.4% |
+| first person driving, work med/p95, frames > 33 ms | 9.3 / 35.0, 5.5% | 21.8 / 65.0, 25.0% |
+| skinned figures a frame (third / first, driving) | 2.1 / 3.4 | 10.3 / 10.7 |
+| draw calls a frame (third, driving) | 1282 | 1399 |
+| ped stage median (third on foot) | 1.4 | 5.5 |
+
+The full budgets do cost frame time - mostly posing and drawing four times the people - which is
+why the levels follow the frame rate. In `qb9_a6` (load ~20, where even the classic view had 13%
+of frames over 33 ms) the controller went 3 -> 0 in three windows (83-100% late) and the street
+views ran at the game's own budgets. On this shared host the game's own budgets already run a
+median 8.6% late frames per 2 s window in the street views, which is why the band is 5-15%.
+
+Not done / untested: QB-45 (street clutter between the rule-placed props) is untouched - it needs
+new clutter models and edits to the prop rules in `live_geometry.cpp`. QB-42's pop-in is unchanged
+by this (cars still come into being 20-26 blocks out, in the haze). Not tested in Residential or
+Industrial, under Remix, in the play container (dedicated CPUs, where the controller should hold
+a higher level), or at high wanted levels (the game halves the dummy cap above three stars and the
+pool guard covers police and roadblocks, but no run reached them).

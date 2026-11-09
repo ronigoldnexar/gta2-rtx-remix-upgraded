@@ -90,11 +90,31 @@ struct Model {
     // Whether any mesh uses a "_paint" texture (a split body/paint texture that
     // needs alpha testing to look whole, tinted or not).
     bool splitPaint = false;
+    // ASSET-PEDS: a pedestrian whose clothes come in tintable zones (importer
+    // "ped_zones": nodes "...#pt" the top, "...#pb" the bottom, their texture neutral
+    // grey at zoneRef), the zones' own colours (top, bottom, hair; 0 = unknown).
+    bool pedZones = false;
+    float zoneRef = 128.0f;
+    float zoneRgb[3][3] = {};
     // The ground the walk animation covers per cycle, in model units (its
     // root motion was stripped on import); 0 when unknown.
     float stride = 0.0f;
     // The same for the run cycle ("run_stride"); 0 when the model has no run clip.
     float runStride = 0.0f;
+    // QB-20: the mocap locomotion clips' tables (the manifest's "loco", written by
+    // tools/locomotion_meta.py): per clip, sampled 15 times a second, the ground its
+    // stripped root motion covered (model units) and its foot phase on its reference
+    // cycle (the walk for walking clips and the run, the run for running ones).
+    struct Loco {
+        std::string name;
+        std::vector<float> dist, phase;
+        float Length() const { return dist.empty() ? 0.0f : static_cast<float>(dist.size() - 1) / 15.0f; }
+        float Covered() const { return dist.empty() ? 0.0f : dist.back(); }
+        float PhaseAt(float t) const;      // interpolated on the circle
+        float TimeAtDist(float d) const;   // the first time the clip has covered d
+    };
+    std::vector<Loco> loco;
+    const Loco* LocoFor(const char* name) const;
     const ModelAnimation* Animation(const char* name) const;
 };
 
@@ -146,6 +166,24 @@ void ModelPoseWorlds(const Model& model, const ModelAnimation* animation, float 
 // pose cache key, so quantise the time and weight. ACTIONS-3D-4: the action layer
 // over the locomotion pair (idle/walk/run/sprint/turn_step).
 void ModelSetOverlay(const ModelAnimation* clip, float time, float weight);
+// ANIM-BLEND-AUDIT: up to kModelLayers more clips blended over the pair (after it, before
+// the overlay) when `model` is drawn or its nodes asked for: in order, each written over a
+// copy of the pose so far and blended in by its weight (pose = lerp(pose, clip at time, w)),
+// so a chain of them makes any mix of clips with continuous weights (the locomotion:
+// walk/run/sprint/idle/turn/start/stop/fidget, see DrawPedFigures). Clips with weight 0 are
+// skipped; count 0 (or a null model) clears. Part of the pose cache key; clear it after the draw.
+constexpr int kModelLayers = 6;
+void ModelSetLayers(const Model* model, const ModelAnimation* const* clips, const float* times, const float* weights, int count);
+// ANIM-VEHICLE-ENTRY: two-bone IK over every pose drawn or queried until cleared:
+// limb 0 left arm, 1 right arm (the hand onto `target`), 2 left leg, 3 right leg (the
+// foot), in model space, the elbow or knee bent toward `pole` (a direction; null: the
+// way the clip bends it), blended in by `weight` (0..1; null target or 0 clears that
+// limb). The end joint keeps the clip's orientation. Part of the pose cache key.
+void ModelSetLimbTarget(int limb, const float* target, const float* pole, float weight);
+void ModelClearLimbTargets();
+// What of a limb's target the last pose could not reach (target minus where the end
+// joint got to, model space); false when that limb has no target.
+bool ModelLimbResidual(int limb, float out[3]);
 // Bytes of model textures created so far (managed pool), and how many.
 size_t ModelsTextureBytes(int* count);
 const Model* ModelForPedestrian();
@@ -168,6 +206,17 @@ int PedRemapEffective(int remap, uint32_t seed);
 // remap's own colour, and the tint for this model (the remap colour over the
 // model's measured clothing colour, "paint_rgb"); false when not tinted.
 bool PedRemapTint(int remap, const Model& model, float rgb[3]);
+// ASSET-PEDS: the tints of a zoned avatar's top, bottom and hair for a remap's
+// outfit (the manifest's "ped_outfits", read from the sprite's palettes), as
+// multipliers (0..2) for ModelSetZoneTints; a zone the outfit leaves open keeps
+// the avatar's own colour, the hair stays untinted (hairTint false). False when
+// the model has no zones or the remap's type is not tinted.
+bool PedZoneTints(int remap, const Model& model, float tints[3][3], bool* hairTint);
+bool PedRemapHasType(int remap);   // a ped type lists this remap (53: the SWAT/FBI body)
+// Meshes of a zoned avatar drawn with these factors (top, bottom; hair on the
+// hair cards, "_opacity" textures) until cleared with nullptr; overrides the
+// paint tint for those meshes.
+void ModelSetZoneTints(const float* top, const float* bottom, const float* hair);
 // Street furniture by role: "lamp", "hydrant", "bin", "bench", "shrub"; null
 // when the manifest names none.
 const Model* ModelForProp(const char* role);

@@ -728,8 +728,31 @@ private:
         // instead of dropped in one frame (ends of punches, exits, hits).
         const void* fadeClip = nullptr;
         float fadeT = 0.0f;
+        // QB-20/21/39: the mocap transitions over the cycle (Model::Loco tables): 0 none,
+        // 1 walk start, 2 run start, 3 walk stop, 4 run stop, 5 a fidget while standing;
+        // seconds into its clip, the ground covered since a start began (blocks), its
+        // weight; the time he has stood still and his next fidget; the forward lean of
+        // acceleration (radians, on a spring) and the pace it is measured from.
+        int trans = 0;
+        float transT = 0.0f, transDist = 0.0f, transW = 0.0f, transEnd = 0.0f;
+        float stillTime = 0.0f, fidgetAt = 0.0f;
+        int fidgetNext = 0;
+        float lean = 0.0f, leanV = 0.0f, leanSpeed = 0.0f;
+        float lodTransT = 0.0f, lodTransW = 0.0f;
+        float paceHold = 0.0f;              // his recent top leg pace, falling 2 blocks/s a second (which stop)
+        // ANIM-BLEND-AUDIT: the start/stop/fidget drawn last frame (clip, time, weight) and one
+        // cut short, fading out from where it stopped over 0.25 s.
+        const void* transDrawnClip = nullptr;
+        float transDrawnT = 0.0f, transDrawnW = 0.0f;
+        const void* transFadeClip = nullptr;
+        float transFadeT = 0.0f, transFadeW = 0.0f, transFadeK = 0.0f;   // its weight when cut, and 1 -> 0
+        float transAge = 0.0f;              // real seconds since the start/stop/fidget began
+        float cycleVis = 1.0f;              // how much of the moving cycle shows (0 while a start comes in)
     };
     std::map<uintptr_t, PedTrack> pedTracks_;
+    // ANIM-VEHICLE-ENTRY: the last sprite of each ped boarding a car (state 3) and its
+    // frame, drawn on as a ghost after the game stops drawing him (boarding.h).
+    std::map<uintptr_t, std::pair<uint32_t, Sprite>> boardSprites_;
 
     // One car's dome: the car's own sprite, drawn a second time as a grid that
     // swells from nothing at its edges to a rounded top, so that the body has

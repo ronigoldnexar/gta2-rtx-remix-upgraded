@@ -1,4 +1,8 @@
 #include "world_view.h"
+#include "regress_cam.h"
+#include "density.h"
+#include "boarding.h"
+#include "city_ai.h"
 
 #include "beats.h"
 #include "car_bodies.h"
@@ -684,6 +688,11 @@ void WorldView::MatchGameViewToFrame() {
     // when looking along the short axis, and popped into clear air.
     g_viewAspect = ground ? static_cast<int32_t>(0x4000 * widen + 0.5f)
                           : static_cast<int32_t>(game::kViewAspectStock / widen + 0.5f);
+    // The game's car and people budgets grow with that window (density.cpp);
+    // the classic view gets them back as shipped.
+    DensityUpdate(ground && g_spawnOffscreenActive, g_viewPlayer.valid, g_viewPlayer.x, g_viewPlayer.y);
+    // Pedestrian reactions sized for the street views, and the ai: census (city_ai.cpp).
+    CityAiUpdate(ground, g_viewPlayer.ped, g_viewPlayer.valid, g_viewPlayer.x, g_viewPlayer.y);
 }
 
 const PlayerState& ViewPlayer() { return g_viewPlayer; }
@@ -2355,6 +2364,13 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     // The visual regression harness's fixed camera (regress_cam.h; off unless
     // GTA2DX9_REGRESS_CAM is set): the street views only, the classic view stays the game's.
     if (mode != ViewMode::Classic && transitionT_ >= 1.0f) RegressCameraOverride(&camera_);
+    // ANIM-VEHICLE-ENTRY verification aid (GTA2DX9_BOARDING_CAM=1, off by default): beside the door.
+    gta2::Vec3 boardEye; float boardYaw = 0.0f, boardPitch = 0.0f;
+    if (mode != ViewMode::Classic && BoardingDebugCamera(&boardEye, &boardYaw, &boardPitch)) {
+        camera_.SetPosition(boardEye);
+        camera_.SetOrientation(boardYaw, boardPitch);
+        camera_.SetRoll(0.0f);
+    }
 }
 
 // The game's zoom has to come from the camera struct, not from the visible tile
@@ -2576,10 +2592,20 @@ void WorldView::RenderFrame() {
     // was lit for a dozen blocks and dark beyond. The map's steady lamps within
     // reach of the eye fill the rest, nearest first, up to a budget that keeps
     // the direct-light sampling honest (see RemixSetLightSampling).
-    if (g_viewActive && CurrentViewMode() != ViewMode::Classic) {
+    // They come and go with the camera move, weighted by the same blend as the sky
+    // (skyBlend_: 0 -> 1 as the eye comes down from the classic view, 1 -> 0 as it
+    // goes back up), so V does not switch a hundred lights on or off in one frame;
+    // on the way back they now fade over the move rather than vanishing at the key
+    // press. skyBlend_ is 0 whenever the classic view is settled, so the classic
+    // view's light set is unchanged (REMIX-3D-PARITY).
+    // GTA2DX9_FAR_LAMP_FADE=0 puts back the old switch (all at once, only while a 3D
+    // view is the current one), for a before/after run.
+    static int farFade = -1;
+    if (farFade < 0) { char buf[8] = {}; farFade = GetEnvironmentVariableA("GTA2DX9_FAR_LAMP_FADE", buf, sizeof buf) && buf[0] == '0' ? 0 : 1; }
+    if (farFade ? (worldUploaded_ && skyBlend_ > 0.001f) : (g_viewActive && CurrentViewMode() != ViewMode::Classic)) {
         const gta2::Vec3& eye = camera_.Position();
         const float e[3] = {eye.x, eye.y, eye.z};
-        LightsSubmitMapLampsNear(e, kFarLampRadius, kFarLampCap);
+        LightsSubmitMapLampsNear(e, kFarLampRadius, kFarLampCap, farFade ? skyBlend_ : 1.0f);
     }
 
     // The game lists this frame's lights during its own world pass, which runs

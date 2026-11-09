@@ -105,9 +105,151 @@ def accessor(g, binary, index):
         out = [tuple(v / 65535.0 for v in t) for t in out]
     return out
 
+_LOCO_CACHE = {}   # (clip glb, reference glb) -> locomotion_meta.tables, unscaled
+_HIP_CACHE = {}
+
 def pack_str(s, n):
     b = s.encode("utf-8")[: n - 1]
     return b + b"\0" * (n - len(b))
+
+# ASSET-PEDS: a pedestrian's clothes in two zones the renderer tints apart, the top
+# (torso and arms) and the bottom (hips and legs), so a GTA2 ped type's shirt and
+# trousers both come out in the sprite's own colours. A body triangle's zone is the
+# bone class that carries most of its weight; feet (shoes), head and hands are left
+# alone. The clothing texels (not skin, by the classic RGB rule) go to a "_paint" copy
+# made neutral grey with its own shading kept (mean PED_ZONE_REF per zone), so the
+# tint is simply the wanted colour over PED_ZONE_REF; the original zone colours are
+# reported as zone_rgb_t/_b (and the hair's as zone_rgb_h) for an untinted draw.
+PED_ZONE_REF = 128.0
+
+def ped_joint_class(name):
+    n = (name or "").lower()
+    if any(k in n for k in ("foot", "toe", "head", "ponytail", "hair")): return -1
+    if any(k in n for k in ("thigh", "calf", "pelvis")): return 1
+    if any(k in n for k in ("spine", "neck", "clavicle", "upperarm", "forearm", "hand", "finger")): return 0
+    return 1 if n.strip() in ("bip01",) else -1
+
+def ped_tri_zone(skins, joint_class):
+    acc = {-1: 0.0, 0: 0.0, 1: 0.0}
+    for joints, weights in skins:
+        for j, w in zip(joints, weights):
+            acc[joint_class.get(j, -1)] += w
+    return max(acc, key=acc.get)
+
+def ped_island_zones(idx, skins, joint_class):
+    """A zone per vertex from its UV island (the triangles joined by shared vertices: one
+    garment piece), the island's zone the area-free majority of its triangles' zones, so a
+    shirt's tails or a coat's skirt (weighted to the thighs) stay with the top."""
+    parent = list(range(len(skins)))
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]; a = parent[a]
+        return a
+    tris = [idx[k:k + 3] for k in range(0, len(idx) - 2, 3)]
+    for t in tris:
+        ra = find(t[0])
+        for v in t[1:]:
+            rb = find(v)
+            if rb != ra: parent[rb] = ra
+    votes = {}
+    for t in tris:
+        z = ped_tri_zone([skins[i] for i in t], joint_class)
+        c = votes.setdefault(find(t[0]), {-1: 0, 0: 0, 1: 0}); c[z] += 1
+    zone_of = {root: max(c, key=c.get) for root, c in votes.items()}
+    return [zone_of.get(find(i), -1) for i in range(len(skins))]
+
+def ped_zone_split(entry, g, binary, tex_by_material, overrides, src_dir, out_dir):
+    import numpy as np
+    from PIL import Image, ImageDraw
+    nodes = g.get("nodes", [])
+    joint_class = {}
+    for sk in g.get("skins", [])[:1]:
+        for k, j in enumerate(sk["joints"]): joint_class[k] = ped_joint_class(nodes[j].get("name", ""))
+    tmax = int(entry.get("texture_max", 1024))
+    split, rgb = {}, [None, None, None]
+    # the avatar's skin tone: the median chromaticity of the face texture's skin texels
+    skin_ref = None
+    for mi, mat in enumerate(g.get("materials", [])):
+        if (mat.get("name") or "").endswith("_head") and mi in tex_by_material:
+            try:
+                h = np.asarray(Image.open(os.path.join(out_dir, tex_by_material[mi])).convert("RGB")).astype(np.float32)
+                hr, hg, hb = h[..., 0], h[..., 1], h[..., 2]
+                hm = (hr > 80) & (hg > 35) & (hb > 15) & (hr > hg) & (hr > hb) & (hr - hb > 25)
+                if hm.sum() > 64:
+                    hs = np.maximum(h.sum(axis=2), 1.0)[hm]
+                    skin_ref = np.array([np.median(hr[hm] / hs), np.median(hg[hm] / hs)], np.float32)
+            except OSError:
+                pass
+    for mat_name in entry.get("tint_clothing", []):
+        for mi, mat in enumerate(g.get("materials", [])):
+            if mat.get("name") != mat_name or mi not in tex_by_material: continue
+            tag = tex_by_material[mi]
+            src = os.path.join(src_dir, overrides[mat_name]) if mat_name in overrides else os.path.join(out_dir, tag)
+            im = Image.open(src).convert("RGBA")
+            if max(im.size) > tmax:
+                f = tmax / max(im.size); im = im.resize((max(1, int(im.size[0] * f)), max(1, int(im.size[1] * f))))
+            W, H = im.size
+            # texel zones: the material's triangles drawn in UV space, 1 top, 2 bottom, 3 other
+            zmap = Image.new("L", (W, H), 0); dz = ImageDraw.Draw(zmap)
+            for m in g.get("meshes", []):
+                for prim in m["primitives"]:
+                    if prim.get("material", -1) != mi or "JOINTS_0" not in prim["attributes"]: continue
+                    uv = accessor(g, binary, prim["attributes"]["TEXCOORD_0"])
+                    J = accessor(g, binary, prim["attributes"]["JOINTS_0"]); Wt = accessor(g, binary, prim["attributes"]["WEIGHTS_0"])
+                    idx = [i[0] for i in accessor(g, binary, prim["indices"])]
+                    vz = ped_island_zones(idx, [(J[i], Wt[i]) for i in range(len(uv))], joint_class)
+                    for k in range(0, len(idx) - 2, 3):
+                        t = idx[k:k + 3]
+                        z = vz[t[0]]
+                        val = {0: 1, 1: 2}.get(z, 3)
+                        pts = [(uv[i][0] * W, uv[i][1] * H) for i in t]
+                        dz.polygon(pts, fill=val, outline=val)
+            Z = np.asarray(zmap)
+            a = np.asarray(im).astype(np.float32)
+            r_, g_, b_ = a[..., 0], a[..., 1], a[..., 2]
+            mx = a[..., :3].max(axis=2); mn = a[..., :3].min(axis=2)
+            skin = (r_ > 80) & (g_ > 35) & (b_ > 15) & ((mx - mn) > 12) & (np.abs(r_ - g_) > 12) & (r_ > g_) & (r_ > b_) & (r_ - b_ > 25)
+            if skin_ref is not None:
+                # and near the face's own chromaticity: a red shirt passes the RGB rule, not this
+                ssum = np.maximum(a[..., :3].sum(axis=2), 1.0)
+                chroma = np.stack([r_ / ssum, g_ / ssum], axis=-1)
+                skin &= np.abs(chroma - skin_ref).max(axis=-1) < 0.06
+            for keep in entry.get("zone_keep_rgb", []):   # a garment that must not be tinted (a vest's print, a belt)
+                skin |= (np.abs(a[..., :3] - np.array(keep[:3], np.float32)).max(axis=2) < keep[3])
+            cloth = ~skin & (a[..., 3] > 0) & ((Z == 1) | (Z == 2))
+            if cloth.sum() < 0.05 * cloth.size:
+                print(f"  ped_zones: {tag}: only {int(cloth.sum())} clothing texels, not split"); continue
+            L = 0.299 * r_ + 0.587 * g_ + 0.114 * b_
+            grey = np.zeros_like(L)
+            for zi, zv in ((0, 1), (1, 2)):
+                sel = cloth & (Z == zv)
+                if sel.sum() < 64: continue
+                lz = L[sel]; top = a[..., :3][sel][lz >= np.median(lz)]
+                rgb[zi] = [round(float(v), 1) for v in top.mean(axis=0)]
+                # the shading kept, its contrast eased a little so a print or stripe
+                # does not dominate a recoloured shirt
+                mean = float(lz.mean())
+                rel = np.clip(L / max(mean, 4.0), 0.0, 3.0)
+                rel = 1.0 + (rel - 1.0) * float(entry.get("zone_contrast", 0.75))
+                grey = np.where(sel, np.clip(rel * PED_ZONE_REF, 0, 255), grey)
+            paint = np.zeros_like(a); paint[..., 0] = paint[..., 1] = paint[..., 2] = grey
+            paint[..., 3] = np.where(cloth, 255, 0)
+            rest = a.copy(); rest[..., 3] = np.where(cloth, 0, 255)
+            paint_tag = tag[:-4] + "_paint.tga"
+            write_tga(Image.fromarray(paint.astype(np.uint8), "RGBA"), os.path.join(out_dir, paint_tag), tmax)
+            write_tga(Image.fromarray(rest.astype(np.uint8), "RGBA"), os.path.join(out_dir, tag), tmax)
+            split[tag] = paint_tag
+            print(f"  ped_zones: {tag}: {int(cloth.sum())} clothing texels (top {int((cloth & (Z == 1)).sum())}, bottom {int((cloth & (Z == 2)).sum())}); top {rgb[0]} bottom {rgb[1]}")
+    # the hair: the mean of the opaque texels of the hair-card texture
+    for mi, mat in enumerate(g.get("materials", [])):
+        if "opacity" in (mat.get("name") or "") and mi in tex_by_material:
+            try:
+                h = np.asarray(Image.open(os.path.join(out_dir, tex_by_material[mi])).convert("RGBA")).astype(np.float32)
+                sel = h[..., 3] > 128
+                if sel.sum() > 16: rgb[2] = [round(float(v), 1) for v in h[..., :3][sel].mean(axis=0)]
+            except OSError:
+                pass
+    return split, {"joint_class": joint_class, "rgb": rgb if split else None}
 
 def import_model(entry, src_dir, out_dir):
     g, binary = load_glb(os.path.join(src_dir, entry["glb"]))
@@ -258,7 +400,9 @@ def import_model(entry, src_dir, out_dir):
     # original, and the renderer tints the paint half with a pedestrian type's
     # colour (a gang's, a uniform's). The clothing's own mean colour is written
     # back as paint_rgb, so the tint is the remap colour over it.
-    for mat_name in entry.get("tint_clothing", []):
+    zone_split, zone_info = ped_zone_split(entry, g, binary, tex_by_material, overrides, src_dir, out_dir) \
+        if entry.get("ped_zones") else ({}, {})
+    for mat_name in ([] if entry.get("ped_zones") else entry.get("tint_clothing", [])):
         for mi, mat in enumerate(g.get("materials", [])):
             if mat.get("name") != mat_name or mi not in tex_by_material: continue
             tag = tex_by_material[mi]
@@ -325,11 +469,15 @@ def import_model(entry, src_dir, out_dir):
         return pieces
 
     meshes = []           # (vertices, indices, texture)
+    mesh_zone = {}        # ASSET-PEDS: our mesh index -> "t"/"b" for a ped's clothing zones
     mesh_groups = []      # per glTF mesh: the list of our mesh indices
     for m in g.get("meshes", []):
         group = []
         for prim in m["primitives"]:
             if prim.get("mode", 4) != 4: continue
+            # "materials_exclude": primitives of these materials are left out (a prisoner's hard hat)
+            if (g.get("materials", [{}] * (prim.get("material", 0) + 1))[prim.get("material", 0)].get("name") if "material" in prim else None) \
+                    in entry.get("materials_exclude", []): continue
             pos = accessor(g, binary, prim["attributes"]["POSITION"])
             nrm = accessor(g, binary, prim["attributes"]["NORMAL"]) if "NORMAL" in prim["attributes"] else [(0, 1, 0)] * len(pos)
             uv = accessor(g, binary, prim["attributes"]["TEXCOORD_0"]) if "TEXCOORD_0" in prim["attributes"] else [(0, 0)] * len(pos)
@@ -349,6 +497,22 @@ def import_model(entry, src_dir, out_dir):
                 if tex in split_tags:
                     group.append(len(meshes))
                     meshes.append((pv, pi, split_tags[tex]))
+                if tex in zone_split and skinw is not None:
+                    # ASSET-PEDS: the clothing half twice, the top's triangles and the
+                    # bottom's (by UV island, as the texture was split), each its own
+                    # mesh so the renderer tints them apart.
+                    vz = ped_island_zones(pi, [v[8] for v in pv], zone_info["joint_class"])
+                    for zone, zi in (("t", 0), ("b", 1)):
+                        tri = [pi[k:k + 3] for k in range(0, len(pi) - 2, 3) if vz[pi[k]] == zi]
+                        if not tri: continue
+                        # only the vertices the zone uses (each is skinned on its own every pose)
+                        used = {}; zv = []; zi_ = []
+                        for t in tri:
+                            for i in t:
+                                if i not in used: used[i] = len(zv); zv.append(pv[i])
+                                zi_.append(used[i])
+                        group.append(len(meshes)); mesh_zone[len(meshes)] = zone
+                        meshes.append((zv, zi_, zone_split[tex]))
         mesh_groups.append(group)
     # Which skin a mesh uses comes from the node that carries it.
     mesh_skin = {}
@@ -368,8 +532,17 @@ def import_model(entry, src_dir, out_dir):
     anims = []
     stride = [0.0]   # the ground a stripped walk covers per cycle, model units
     strides = {}     # the same per animation name (walk, run, ...), model units
-    def read_anims(gg, bb, node_map, strip_root, rename=None):
+    target_hip = next((n.get("translation", [0, 0, 0])[1] for n in nodes if n.get("name") == "Bip01"), 0.0)
+    def read_anims(gg, bb, node_map, strip_root, rename=None, retarget=False, max_len=None):
+        """retarget (QB-20, tools/locomotion_meta.py): a mocap clip from another body on the
+        same Biped skeleton keeps only its rotations and its root's motion, the root's
+        height and the ground it covers scaled by the two hip heights, so the avatar keeps
+        its own bones."""
         out = []
+        ratio = 1.0
+        if retarget:
+            src_hip = next((n.get("translation", [0, 0, 0])[1] for n in gg["nodes"] if n.get("name") == "Bip01"), 0.0)
+            ratio = target_hip / src_hip if src_hip > 1e-6 and target_hip > 1e-6 else 1.0
         for a in gg.get("animations", []):
             channels = []
             aname = rename or a.get("name", f"anim{len(out)}")
@@ -377,9 +550,15 @@ def import_model(entry, src_dir, out_dir):
                 sm = a["samplers"][ch["sampler"]]
                 times = [t[0] for t in accessor(gg, bb, sm["input"])]
                 values = accessor(gg, bb, sm["output"])
+                if max_len and times and times[-1] > max_len:   # a long capture cut to its first max_len seconds
+                    keep = max(2, sum(1 for t in times if t <= max_len))
+                    times, values = times[:keep], values[:keep]
                 path = {"translation": 0, "rotation": 1, "scale": 2}.get(ch["target"]["path"])
                 if path is None or "node" not in ch["target"]: continue
                 target = ch["target"]["node"]
+                if retarget and path == 0 and gg["nodes"][target].get("name") != strip_root: continue
+                if retarget and path == 0:
+                    values = [(v[0] * ratio, v[1] * ratio, v[2] * ratio) for v in values]
                 if node_map is not None:
                     nm = gg["nodes"][target].get("name")
                     if nm not in node_map: continue
@@ -400,7 +579,24 @@ def import_model(entry, src_dir, out_dir):
     by_name = {n.get("name"): i for i, n in enumerate(nodes)}
     for extra in entry.get("animations_from", []):
         gg, bb = load_glb(os.path.join(src_dir, extra["glb"]))
-        anims += read_anims(gg, bb, by_name, extra.get("strip_root", entry.get("strip_root")), extra.get("name"))
+        anims += read_anims(gg, bb, by_name, extra.get("strip_root", entry.get("strip_root")), extra.get("name"),
+                            extra.get("retarget", False), extra.get("max_len"))
+    # The locomotion tables (tools/locomotion_meta.py) of the retargeted clips that name a
+    # reference cycle ("ref": the clip name of the walk or run their phases are measured on).
+    loco = []
+    retargeted = {e.get("name"): e for e in entry.get("animations_from", []) if e.get("retarget")}
+    if retargeted and target_hip > 1e-6:
+        import locomotion_meta
+        for cname, e in retargeted.items():
+            if "ref" not in e or e["ref"] not in retargeted: continue
+            key = (e["glb"], retargeted[e["ref"]]["glb"])
+            if key not in _LOCO_CACHE:
+                _LOCO_CACHE[key] = locomotion_meta.tables(os.path.join(src_dir, e["glb"]), os.path.join(src_dir, key[1]))
+            d, ph = _LOCO_CACHE[key]
+            src_hip = locomotion_meta.Clip(os.path.join(src_dir, e["glb"])).hip if key not in _HIP_CACHE else _HIP_CACHE[key]
+            _HIP_CACHE[key] = src_hip
+            k = target_hip / src_hip * float(entry.get("scale", 1.0))
+            loco.append(locomotion_meta.encode(cname, [round(v * k, 4) for v in d], ph))
 
     # Every Biped-skeleton avatar gets the shared action clips (tools/gen_ped_clips.py
     # output and the Rocketbox crouch clips for the car climb) unless the entry names
@@ -444,7 +640,10 @@ def import_model(entry, src_dir, out_dir):
         group = mesh_groups[n["mesh"]] if "mesh" in n and n["mesh"] < len(mesh_groups) and node_wanted(n) else []
         out_nodes.append((n.get("name", f"node{i}"), parent[i], t, r, sc, group[0] if group else -1))
         for extra in group[1:]:
-            extras.append((n.get("name", f"node{i}") + "+", i, [0, 0, 0], [0, 0, 0, 1], [1, 1, 1], extra))
+            # a clothing zone's mesh is marked in its node's name ("#pt" top, "#pb" bottom)
+            ename = n.get("name", f"node{i}") + "+"
+            if extra in mesh_zone: ename = ename[:26] + "#p" + mesh_zone[extra]
+            extras.append((ename, i, [0, 0, 0], [0, 0, 0, 1], [1, 1, 1], extra))
     out_nodes += extras
     with open(os.path.join(out_dir, f"{name}.mesh"), "wb") as f:
         f.write(b"GMSH" + struct.pack("<IIIII", 2, len(out_nodes), len(meshes), len(anims), len(skins)))
@@ -493,7 +692,10 @@ def import_model(entry, src_dir, out_dir):
                 # stride: the walk's own ground per cycle (the largest of all clips when there is no walk);
                 # run_stride: the run's, 0 without a run clip.
                 stride=round(strides.get("walk", stride[0]) * scale, 4),
-                run_stride=round(strides.get("run", 0.0) * scale, 4))
+                run_stride=round(strides.get("run", 0.0) * scale, 4),
+                **({"loco": ";".join(loco)} if loco else {}),
+                **({"ped_zones": 1, "zone_ref": PED_ZONE_REF, "zone_rgb_t": zone_info["rgb"][0], "zone_rgb_b": zone_info["rgb"][1],
+                    "zone_rgb_h": zone_info["rgb"][2]} if zone_info.get("rgb") else {}))
 
 if __name__ == "__main__":
     manifest = json.load(open(sys.argv[1]))
@@ -524,6 +726,6 @@ if __name__ == "__main__":
                "pedestrians": manifest.get("pedestrians", []),
                "props": manifest.get("props", {}), "objects": manifest.get("objects", {}),
                "objects_yaw": manifest.get("objects_yaw", {}), "objects_anim": manifest.get("objects_anim", {}),
-               "ped_types": manifest.get("ped_types", []), "ped_remap_colours": manifest.get("ped_remap_colours", []),
+               "ped_types": manifest.get("ped_types", []), "ped_remap_colours": manifest.get("ped_remap_colours", []), "ped_outfits": manifest.get("ped_outfits", []),
                "imported": report},
               open(os.path.join(out_dir, "manifest.json"), "w"), indent=1)

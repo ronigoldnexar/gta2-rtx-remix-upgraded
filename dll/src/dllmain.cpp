@@ -27,6 +27,7 @@
 #include "frame_limiter.h"
 #include "game_access.h"
 #include "gibs.h"
+#include "density.h"
 #include "hud_pass.h"
 #include "intro_movie.h"
 #include "live_geometry.h"
@@ -39,6 +40,8 @@
 #include "texture_store.h"
 #include "time_of_day.h"
 #include "voice_over.h"
+#include "audio3d.h"
+#include "city_ai.h"
 #include "cache_warmup.h"
 #include "world_view.h"
 #include "../../src/sky.h"
@@ -279,6 +282,19 @@ void LoadConfig() {
                                                      gta2dx9::kDefaultSpawnOffscreen ? 1 : 0, ini)
                                != 0);
 
+    // Traffic and people in the street views (density.cpp). GTA2DX9_DENSITY=0 in
+    // the environment turns all three off, for before/after measurements.
+    {
+        char env[8] = {};
+        const bool off = GetEnvironmentVariableA("GTA2DX9_DENSITY", env, sizeof env) && env[0] == '0';
+        gta2dx9::SetDensity(
+            off ? 0 : GetPrivateProfileIntA("density", "traffic_cap", gta2dx9::kDefaultTrafficCap, ini),
+            off ? 0 : GetPrivateProfileIntA("density", "ped_density_scale", gta2dx9::kDefaultPedDensityScale, ini),
+            off ? 0 : GetPrivateProfileIntA("density", "ped_cap", gta2dx9::kDefaultPedCap, ini));
+        gta2dx9::SetZoneCarDensity(
+            off ? 0 : GetPrivateProfileIntA("density", "zone_car_density", gta2dx9::kDefaultZoneCarDensity, ini));
+    }
+
     // Blood pools under bodies, which GTA2 keeps behind a debug flag.
     gta2dx9::SetBlood(
         GetPrivateProfileIntA("renderer", "blood", gta2dx9::kDefaultBlood ? 1 : 0, ini) != 0);
@@ -397,6 +413,12 @@ void LoadConfig() {
         char dir[MAX_PATH];
         PathBesideGame("gta2dx9_textures_hd", dir, sizeof(dir));
         gta2::SetHdTextureDir(dir);
+        // Photo-material versions of the tiles (tools/photoreal_tiles.py) in its photo\ subfolder.
+        if (GetPrivateProfileIntA("renderer", "photo_tiles", 1, ini) != 0) {
+            char photo[MAX_PATH];
+            snprintf(photo, sizeof(photo), "%s\\photo", dir);
+            gta2::SetPhotoTextureDir(photo);
+        }
         gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
         gta2::SetWaterEffect(GetPrivateProfileIntA("renderer", "water_effect", 1, ini) != 0);
         gta2::SetWaterShader(GetPrivateProfileIntA("renderer", "water_shader", 1, ini) != 0);
@@ -871,6 +893,14 @@ __declspec(dllexport) void __stdcall gbh_InitDLL(void* system) {
         gta2dx9::EngineSoundInstall();
         // Radio stations stay in stereo at any distance, unless the menu switches the effect on.
         gta2dx9::RadioInstall();
+        // In the street views every sound is placed relative to our camera, not the game's top-down one.
+        {
+            char audioIni[MAX_PATH];
+            PathBesideGame("gta2dx9.ini", audioIni, sizeof(audioIni));
+            gta2dx9::Audio3DInstall(audioIni);
+            // Pedestrians react to gunfire, cars and fires at street-view distances.
+            gta2dx9::CityAiInstall(audioIni);
+        }
         // The game's Options button opens our panel; GTA2 Manager.exe does nothing here.
         gta2dx9::OptionsButtonInstall();
         // Reads last session's files into memory in the background, so cars do not stall on a cold disk.
