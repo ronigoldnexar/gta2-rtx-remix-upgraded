@@ -384,4 +384,74 @@ Van r5A51_s2 0.893 -> 0.866 (1950s armoured box), 070 Z-Type r5A51 0.894 -> 0.90
 Considered and kept after a look: 011 014 035 036 047 063 064 069 083 (a higher-scoring candidate was not cleaner,
 or had a dark far side, or a wrong body). Sheets: `out/car_quality_sheet_r6.png` (all 60, v1 | shipped from five
 views), `out/car_ingame_sheet_r6.png` (the 19 changed models, chase camera before/after + first person).
-Open: 083 Furore GT and 047/048 Meteor are still modern bodies; the runtime paint tint recolours per remap.
+Open: 083 Furore GT and 047/048 Meteor are still modern bodies (replaced in round 8 below); the runtime paint tint recolours per remap.
+
+## Round 8: one era for the whole fleet (9 Nov 2026, CAR-ERA)
+
+Goal: the fleet reads as one 1950s-60s set (`assets-src/cars/design_language.md`: "nothing after ~1972 in
+spirit"). A sheet of all 60 generated models from the 3/4 front view (`out/carera/fleet_before.png`) showed five
+outliers: 047 Meteor (a 1970s wedge with fins), 048 Meteor (a 1980s hatchback), 083 Furore GT (a modern white
+supercar), 064 Truck Cab SX (a 1990s cab-over) and 016 Panto (a 1980s Panda-style hatch). The rest of the fleet
+fits; 003 Pacifier (an armoured car that reads as a modern MRAP) is left open, because a military vehicle of the
+period is hard to tell from a modern one at chase distance. Scripts are in `gen3d/` (outside git), on the
+generation GPU (`CUDA_VISIBLE_DEVICES=2`, `flock /tmp/gta2-gen.lock`).
+
+1. **Concepts** (`gen3d/concepts_r8.py`, a copy of `concepts_r7.py` with new briefs; tries in
+   `concept/r8try/`, checks `concept/r8_qc.json`). The CAR-QUALITY-7 Meteor briefs (1969-70 Mustang/Challenger
+   muscle cars) gave long sedans that do not fit the short wedge sprite, so the Meteor became a **1960s Italian
+   mid-engine coupe**: 047 = "1967 Alfa Romeo 33 Stradale ... ducktail spoiler" (A) / a generic 1960s mid-engine
+   coupe (B) / a Dino 206 (C); 048 (the "engine on show" variant) = a Ferrari 330 P4 / Ford GT40 with the rear
+   deck open. 064 = a 1958 Kenworth bubble-nose / 1950s cab-over / 1959 Mack cab-over; 016 = a 1960 Austin Mini /
+   1960s tiny two-box saloon / Fiat 850. The 083 concepts from round 7 (`concept/r7try/`, a Ferrari 275 GTB and a
+   Cobra Daytona with the white centre stripe) were already right and were used as they are. 12 tries per model
+   (3 wordings x 4 seeds).
+2. **TRELLIS** (`gen3d/r8_jobs.py <picks> <jobs> --seed2`, picks in `gen3d/r8/picks*.json`: a concept dir and
+   key per pick, the first pick also with TRELLIS seed 2): 19 candidates, about 25 s each on the L4.
+3. **Fit and score** (`gen3d/fit_r8.py --models 47,48,83,64,16`: the round-6 fit with `--balance-vertical
+   --roof-norm`, the concept-based nose check, the round-6 scorer; fits and five-view proofs in
+   `models3d_r8/fit/`, `models3d_r8/proof/`, scores `models3d_r8/r8_status.json`).
+4. **Pick by eye, score as tie-break**, copied to `models3d_r8/chosen/` and over `models3d/`; the shipped
+   GLBs before this round are in `models3d_r8/old_shipped/`. Then `make_car_manifest.py` (unchanged output: same
+   names) and `import_assets.py ... --only <names>` for the five models only.
+
+| Model | Old (round-6 total) | New pick | Total | Reads as |
+|---|---|---|---|---|
+| 047 Meteor | 1970s wedge with fins, 0.870 | `r8B82` | 0.906 | 1960s Italian mid-engine bubble coupe with small fins |
+| 048 Meteor | 1980s hatchback, 0.894 | `r8A83_s2` | 0.896 | 330 P4-style racer, louvred engine deck |
+| 083 Furore GT | modern white supercar, 0.879 | `r8pA71` | 0.911 | Ferrari 275 GTB-style coupe, white centre stripe |
+| 064 Truck Cab SX | 1990s cab-over, 0.870 | `r8C83_s2` | 0.916 | 1960s Mack-style tractor, chrome grille, stacks |
+| 016 Panto | 1980s Panda-style hatch, 0.878 | `r8A82` | 0.873 | 1960 Mini, even green paint |
+
+Rejected on sight: 048 `r8A83`/`r8C83` (black ground plane under the car), 048 `r8A81` (floating debris, race
+roundel), 047 `r8A82`/`_s2` (dark smears on the rear flanks), 016 `r8A84` (0.943, but pink glass and a
+yellow-to-green smear along the flank), 064 `r8C82` (tail-first, turned). The 016 pick scores 0.005 below the old
+model and was taken for its era and clean paint.
+
+Two traps met on the way, worth knowing for the next round:
+- `assets-src/manifest.json` is older than the committed `assets/models/manifest.json` (the street lamp and the
+  avatars' `paint_rgb` were changed only in the latter), and `import_assets.py` rewrites the out-dir manifest from
+  the source one even with `--only`. Restore the committed manifest after an import (`git show
+  HEAD:assets/models/manifest.json`); the car entries need no change when the names stay the same.
+- `repo/assets/models` files can be hard-linked into a leftover `stage_candidate/` (or a private `cp -al` stage):
+  `import_assets.py` writes in place and changes every link. Import into a temp dir and copy with `cp
+  --remove-destination`, or check `find -samefile` first.
+
+**In game** (private stage `stage_carera` = `repo/stage` with the five models swapped in; `gamerun/grun.sh` +
+`keys_car_models_sheet.sh`, `MODELS=64,16,47,48,83,10,12`, `GTA2DX9_SCENE_NO_CAR=1`, `SHEET_XY=164.5,149.2
+FACE_XY=180,149.4`, runs `carera_after` and `carera_after2`). Verified: all five load (`models: 047_meteor ...
+0.50 x 0.31 x 0.98 blocks, faces +z`, no model or texture read errors, no `FAULT`); the wheel split finds four wheels
+on the CARI axles (047: axles 0.24/-0.21 = CARI); every model drives nose first in the traffic queue on the
+Downtown carriageway, the 064 tractors in the far lanes, 016 Minis, 047 and 048 coupes in the near lane, and an 083
+ran the player over (the WASTED frame shows its stripe and wire wheels from a metre away). The `force_car_model`
+key is re-read about once a second, so each `drv_model_NNN` frame can still show the previous model; the
+first-person `drv_fp_model_NNN` frames, taken a second later, are the reliable ones. Not done: an in-game "before"
+run of the same spot (the offline before/after render stands in for it), a Remix take of the five, the release
+cars archive (`tools/pack_release.py ... cars`) and the restage of the play page, which take the models from
+`assets/models`.
+
+Open: the projected sprite roof keeps the sprite's paint where it is lighter than the body (the 016 Mini drives
+with a tan roof over green flanks, as the old model did); 003 Pacifier still reads as a modern armoured car.
+
+Sheets: `out/carera/fleet_before.png`, `out/carera/fleet_after.png` (all 60 generated models, 3/4 front, offline
+render), `out/carera/car_era_sheet.png` (per model: sprite | shipped before | round 8 3/4 and side | in-game
+traffic crop), frames in `out/carera/after1/`, `out/carera/after2/`.
