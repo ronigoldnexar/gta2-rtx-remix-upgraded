@@ -49,6 +49,8 @@ say, tap, hold, xdo = D.say, D.tap, D.hold, D.xdo
 SOUND_HORN = {"2278", "1638", "3526"}  # "Sound the horn" (Residential, Downtown, Industrial)
 STAND_MIN = 2.2       # blocks from the man: never on his feet, never on his group
 STAND_MAX = 4.2       # ... and near enough that the walk to the door is short
+CREEP_NEAR = 3.0      # after the drive, a box centre nearer than this is crept into straight (sd_ccc4)
+WANDER = 4.0          # the stand-point drive is stopped when it gets this much farther from the box (sd_ccc2)
 BOX_MARGIN = 0.7      # a stand point is this far inside the locate box's edge
 HORN_SECS = 40.0      # horn this long (wall s at speed 1) for the script to take it
 BOARD_SECS = 150.0    # wait this long for them to board (wall s at speed 1)
@@ -281,11 +283,29 @@ def pickup(world, stop, msgs, car=None, check=None, view_switch=None, shops=None
         if not sp:
             _ev(f"{stop.name}: no stand point in the box; the box centre's edge"); sp = (stop.x, stop.y + stop.h / 2 - BOX_MARGIN)
         _ev(f"{stop.name}: stand point {sp[0]:.1f},{sp[1]:.1f} ({math.hypot(sp[0] - man_xy(stop)[0], sp[1] - man_xy(stop)[1]):.1f} from him)")
-        s = _drive_to(world, sp, until=lambda: horned() or aboard() or (in_box() and near(sp, 1.2)),
+        # the drive (the router knows the alley walls round a box), stopped when it wanders: sd_ccc2,
+        # 4 blocks from Shady's box, stalled at once, re-routed 95 blocks round and pressed the Cop
+        # Car on walls and traffic from 26283 to a fire
+        d0 = math.hypot(stop.x - s["x"], stop.y - s["y"])
+        def wandered():
+            q = D.state()
+            return bool(q) and math.hypot(stop.x - q["x"], stop.y - q["y"]) > max(d0 + WANDER, 8.0)
+        s = _drive_to(world, sp, until=lambda: horned() or aboard() or (in_box() and near(sp, 1.2)) or wandered(),
                       check=check, budget=90, view_switch=view_switch)
         stop_dead()
         s = D.wait_state()
         if in_car(s) and (M.inside_box(s, stop.x, stop.y, stop.w, stop.h) or told() or horned()): break
+        if in_car(s) and wandered(): _ev(f"{stop.name}: the drive wandered off to {s['x']:.1f},{s['y']:.1f}: stopped")
+        if in_car(s) and math.hypot(stop.x - s["x"], stop.y - s["y"]) < CREEP_NEAR:
+            # the last short way straight in (deliver_intact's pulses, no router): sd_ccc4 stopped
+            # 0.04 outside the box edge and the six legs ran out in 4 s, each drive "arrived" at
+            # once; the creep's target is the locate box itself (it handbrakes inside with a margin)
+            s = DI.creep_into((stop.x, stop.y, stop.w, stop.h), secs=_scale(20),
+                              done=lambda: horned() or aboard(), check=check)
+            stop_dead(); s = D.wait_state()
+            if in_car(s) and (M.inside_box(s, stop.x, stop.y, stop.w, stop.h) or told() or horned() or aboard()):
+                _ev(f"{stop.name}: crept the last {math.hypot(stop.x - s['x'], stop.y - s['y']):.1f} into the box"); break
+            _ev(f"{stop.name}: the creep missed (at {s['x']:.2f},{s['y']:.2f})")
         tried.append(sp)
     else:
         return "stuck: the box not reached"

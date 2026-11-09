@@ -1,115 +1,76 @@
 #!/usr/bin/env python3
-"""BANK ROBBERY! (wil_ye2) with the shake-the-police skill (SKILL-POLICE, Wave M).
+"""BANK ROBBERY! (wil_ye2) with the respray step done by the shake-the-police skill (SKILL-POLICE).
 
     python3 /work/missions/bank_robbery_sp.py      (inside the container, after to_level.sh)
 
-The job is missions/bank_robbery.py, imported unchanged (phone, GRAHAM, bank, guards, getaway,
-safehouse). Only its step 5, the respray the script asks for after Hiroshi is out
-(`ALTER_WANTED_LEVEL_NO_DROP (p1, 2)`, then `CHECK_HEADS_GREATER`), is handed to
-skills/shake_police.shake: the first time that runner drives toward one of its two hand-placed
-shops, the skill takes over (nearest respray by the car router from the district table, entry side
-from the map, creep, wait for the game; another shop after a miss) and returns when the level is
-gone or the script moved on (the arrow on the safehouse / brief 1661, 1662, 1010). The runner then
-sees the safehouse arrow and goes on to step 6 as before.
+v2 (SHARED-DOWNSTREAM, 9 Nov): built on missions/bank_robbery_km.py, the runner that reached JOB
+COMPLETE in 2 of 3 (kmg17, kmg19): phone, GRAHAM, bank box, the getaway car parked in the eastbound
+lane, the guards by skills/kill_marked, the launch and the one hand-placed path from the bank to the
+204 bay driven without stops (follow_path). v1 (sp1-sp19) drove the getaway with the shared drive3,
+which stops at corners and queues in traffic: busted at the getaway's right-angle turns in 6 of 19
+sessions, and its BR stair climb pinned at 193.4,177.2 in 5 of the last 6.
 
-SP_EVADE_FIRST=<secs> (default 0): drive skills/shake_police.evade for that long before the
-respray (the level is NO_DROP here, so this only exercises the evasion legs under a real chase)."""
-import os, sys, time
+The respray itself is the skill's: where bank_robbery_km would roll into a bay (its lane_in), the
+runner calls skills/shake_police.shake instead (nearest shop by the router, police-close fast pick,
+break-away from an officer at the door, another shop after a miss), with the job's rolling bay
+entry (bank_robbery_km.lane_in) as the skill's `enter` for the two bays it knows, the skill's pulse
+creep for any other. It returns when the level is gone or the script moved on (safehouse arrow /
+brief 1661, 1662, 1010), and bank_robbery_km goes on to the safehouse.
+Marks `shake_police ...`; frames sp_*, km_*, br_*."""
+import sys, time
 sys.path.insert(0, "/work")
 sys.path.insert(0, "/work/missions")
 import drive_lib as D
 import mission_lib as M
-import bank_robbery as BR
+from missions import bank_robbery as BR
+from missions import bank_robbery_km as KM
 from skills import shake_police as SP
 
-TUNNELS = {tuple(t) for _, t in BR.SHOPS}
-_orig_drive = BR.drive
-STATE = {"taken": False, "result": None}
+STATE = {"world": None, "calls": 0, "result": None, "cleared": False}
+_orig_lane_in = KM.lane_in
 
 
 def safe_up():
     return BR.arrow_near(*BR.SAFE, r=4.0) or (M.mission_state() or {}).get("msg") in ("1661", "1662", "1010")
 
 
-def drive(world, x, y, tol, budget, **kw):
-    if (x, y) not in TUNNELS or STATE["taken"]:
-        return _orig_drive(world, x, y, tol, budget, **kw)
-    STATE["taken"] = True
-    M.mark(f"shake_police takes the respray step (wanted {SP.wanted()}, runner's shop entry {x},{y})")
-    M.ensure_view("third"); M.shot("sp_getaway")
-    ev = float(os.environ.get("SP_EVADE_FIRST", "0") or 0)
-    if ev > 0:
-        SP.evade(world, ev, check=BR.check, view_switch=BR.view_switch, until=safe_up)
-    r = SP.shake(world, check=BR.check, view_switch=BR.view_switch, done=safe_up, tries=4, budget=600)
+def enter(shop, secs, done, check):
+    """the skill's way into the tunnel: the job's rolling entry for the bays it has measured"""
+    key = (shop.x, shop.y)
+    if key in KM.BAYS:
+        return _orig_lane_in(key, secs=secs, until=done)
+    return SP._creep(shop, secs, done, check)
+
+
+def lane_in(shop, secs=30, until=None, vmax=3.0):
+    """bank_robbery_km's bay entry, handed to the skill: shake_police.shake from here"""
+    world = STATE["world"]
+    if world is None or STATE["cleared"]:
+        return _orig_lane_in(shop, secs=secs, until=until, vmax=vmax)
+    STATE["calls"] += 1
+    M.mark(f"shake_police takes the respray step (call {STATE['calls']}, wanted {SP.wanted()}, at the {shop} bay)")
+    M.shot("sp_getaway")
+    r = SP.shake(world, check=BR.check, view_switch=BR.view_switch, done=safe_up, tries=4, budget=480,
+                 enter=enter, first=shop)
     STATE["result"] = r
+    if r == "clear": STATE["cleared"] = True
     M.mark(f"shake_police: {r}")
-    s = D.wait_state()
-    if r != "clear":
-        # hand back: the runner's own loop tries its shops (marked, so the session says so)
-        M.mark("shake_police did not clear the level: the runner's own respray loop continues")
-        STATE["taken"] = False
-    return s
+    return D.wait_state()
 
 
-BR.drive = drive
+KM.lane_in = lane_in
 
-_orig_answer = BR.answer
-def answer(world, entry):
-    """BR.answer, except that "already on a Yakuza job" (1093) with the script's arrow on the
-    GRAHAM is the job this phone just started (sp1: the walker's unstick stepped on the phone
-    again after the title, and BR.answer called 1093 a refusal; docs/playthrough-downtown.md)"""
-    # from the east: the dais (cells 43-46 x 150-151, level 2) carries GET ZITZAKI's phone at
-    # 44.5,150.5 next to this one; sp1/sp3 came round from the west and the walker's unstick moves
-    # answered it (brief 1631), then this phone said 1093
-    # sp4: from the east foot the walker still went round by the ramp and cut north past it.
-    # The ramp is column 43 (rows 150-151, rising south from row 149 to the dais at row 152):
-    # up it, east along row 152 (the far side from 44.5,150.5), then north onto 46.5,151.3
-    # sp8: a ten-minute governor pause ran out the walk's wall-clock budget and the walker went up
-    # its own way again. Now the two dais cells beside GET ZITZAKI's phone are off the router for
-    # the approach (every route then runs along row 152), and the walk is retried after a pause
-    for c in ((44, 151), (45, 150)): M.AVOID.add(c)
-    for k in range(4):
-        s = D.wait_state()
-        if not s or s["driving"] or (abs(s["x"] - 43.5) < 1.0 and abs(s["y"] - 148.7) < 1.0): break
-        M.walk3(world, 43.5, 148.7, 1, tol=0.4, budget=300)
-    s = D.wait_state()
-    if s and not s["driving"] and abs(s["x"] - 43.5) < 1.5 and abs(s["y"] - 148.7) < 1.5:
-        ok = BR.path_walk([(43.5, 149.6), (43.5, 152.4), (46.4, 152.5), (46.5, 151.4)], secs_each=6.0)
-        s = D.wait_state()
-        M.mark(f"up the phone dais by the ramp and row 152 ({'ok' if ok else 'missed'}), at {s['x']:.1f},{s['y']:.1f} z {s['z']:.1f}")
-    # sp12: the climb's last point (46.5,151.4) is near enough that the phone answered during it
-    # (brief 1650); BR.answer then took the GRAHAM's arrow into its baseline, stepped on again (1093)
-    # and M.objective(), which leaves baseline slots out, never showed the arrow
-    if car_arrow() or (M.mission_state() or {}).get("msg") in (BR.TITLE, "1650"):
-        M.mark("phone answered during the climb (brief 1650 / the arrow on the GRAHAM)")
-        return "answered", ["1650"]
-    r, seen = _orig_answer(world, entry)
-    if r == "refused" and seen and seen[-1] == "1093":
-        t0 = time.time()
-        while time.time() - t0 < 6:
-            if car_arrow():
-                M.mark("phone: 1093 (already on the job) with the arrow on the GRAHAM: answered")
-                return "answered", seen
-            time.sleep(0.5)
-    return r, seen
-
-
-def car_arrow():
-    """an arrow slot (baseline or not) of kind 3/4 on the GRAHAM's spot: the job is running"""
-    for k, v in M.arrows().items():
-        if v[1] in (3, 4) and abs(v[2] - BR.CAR0[0]) < 3.0 and abs(v[3] - BR.CAR0[1]) < 3.0: return True
-    return False
-BR.answer = answer
-
-_orig_run = BR.run
+_orig_run = KM.run
 def run(world, entry):
-    """BR.run with the respray table read off the map first (not at the getaway, police at the door)"""
+    """KM.run with the world kept for the skill and the respray table read off the map first
+    (not at the getaway, police at the door)"""
+    STATE["world"] = world
     t0 = time.time(); n = len(SP.shops(world))
     D.say(f"police: {n} respray entries in {getattr(world, 'district', '?')} ({time.time() - t0:.1f} s)")
     return _orig_run(world, entry)
-BR.run = run
+KM.run = run
 
 if __name__ == "__main__":
     t0 = time.time()
-    BR.main()
+    KM.main()
     M.mark(f"shake_police result {STATE['result']} ({time.time() - t0:.0f}s); events {len(SP.EVENTS)}")

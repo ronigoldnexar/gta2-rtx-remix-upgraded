@@ -298,9 +298,12 @@ def _creep(shop, secs, done, check):
     return D.wait_state()
 
 
-def respray(world, shop, check=None, view_switch=None, done=None, secs=40, budget=360):
+def respray(world, shop, check=None, view_switch=None, done=None, secs=40, budget=360, enter=None):
     """one respray: drive to the shop's entry point, creep in, wait for the game. True when the
-    shop worked (wanted 0 from > 0, carhp up to >= 30000 from below, the money taken, or done())"""
+    shop worked (wanted 0 from > 0, carhp up to >= 30000 from below, the money taken, or done()).
+    enter(shop, secs, done, check): the job's own way into the tunnel instead of the pulse creep
+    (BANK ROBBERY: bank_robbery_km.lane_in, a rolling entry along the bay's centre line; pulses at
+    2 stars are a car standing still, and the officers board it: sp2, sp5, sp9, kmg9)"""
     ms0 = M.mission_state() or {}
     w0, hp0, m0 = ms0.get("wanted", 0), ms0.get("carhp", -1), ms0.get("money", 0)
     _ev(f"to the respray {shop.x},{shop.y} (remap {shop.remap}; wanted {w0}, carhp {hp0}, money {m0})")
@@ -323,7 +326,7 @@ def respray(world, shop, check=None, view_switch=None, done=None, secs=40, budge
     if math.hypot(shop.entry[0] - s["x"], shop.entry[1] - s["y"]) > 4.0:
         _ev(f"entry not reached ({s['x']:.1f},{s['y']:.1f})"); return False
     _ev(f"into the shop {shop.x},{shop.y} (wanted {wanted()}, police {police_near(s)[:3]})")
-    _creep(shop, secs, worked, check)
+    (enter or _creep)(shop, secs, worked, check)
     M.shot("sp_respray_in")
     t0 = time.time()
     while time.time() - t0 < 20 / SPEED and not worked():
@@ -387,7 +390,8 @@ def evade(world, secs, check=None, view_switch=None, until=None):
     return "time"
 
 
-def shake(world, check=None, view_switch=None, done=None, tries=4, budget=900, evade_ok=False, evade_secs=90):
+def shake(world, check=None, view_switch=None, done=None, tries=4, budget=900, evade_ok=False, evade_secs=90,
+          enter=None, first=None):
     """lose the wanted level: resprays nearest-first (a missed shop is skipped next time); with
     less than RESPRAY_COST, or `evade_ok` after the resprays failed, `evade()` until the level
     drops (a NO_DROP level never does). `done()` is the job's own "cleared" test (its next brief or
@@ -407,9 +411,14 @@ def shake(world, check=None, view_switch=None, done=None, tries=4, budget=900, e
         if money < RESPRAY_COST: _ev(f"no respray (money {money})"); break
         nc, no, dmin, _ = police_near(s, 12.0, 8.0)
         if threat_at_door(): break_away(world); s = D.wait_state()
-        sh = pick_shop_fast(world, s, avoid=missed) if dmin < 8.0 else pick_shop(world, s, avoid=missed)
+        # first=(x, y): the shop the job's own drive brought the car to, tried first without the
+        # router (the car is at its mouth; five router calls are seconds standing still at 2 stars)
+        sh = next((c for c in shops(world) if (c.x, c.y) == tuple(first)), None) if (first and k == 0) else None
+        if sh is not None: _ev(f"at the job's shop {sh.x},{sh.y}: that one first")
+        if sh is None:
+            sh = pick_shop_fast(world, s, avoid=missed) if dmin < 8.0 else pick_shop(world, s, avoid=missed)
         if sh is None: break
-        if respray(world, sh, check=check, view_switch=view_switch, done=done): break
+        if respray(world, sh, check=check, view_switch=view_switch, done=done, enter=enter): break
         missed.append((sh.x, sh.y)) if k >= 1 else None   # the first miss gets a second go at the same shop
     # the game may take a moment to move the script on after the respray
     t1 = time.time()
