@@ -733,6 +733,28 @@ bool WorldView::Blocked(float x, float y, float z) const {
     return solid(block.left) || solid(block.right) || solid(block.top) || solid(block.bottom);
 }
 
+// Blocked without the lid rule and with the game's own collision bit: only a side face the
+// game stops peds and cars at (bit 10 of the face word) counts. Under a deck the blocks at
+// head height carry the deck's lid and decorative faces (arches, undersides) while the
+// passage is walkable, and Blocked called all of it solid (pm-pickup-label-floats-on-wall-and-
+// in-air: the line from the eye to a pickup in plain view read as walled, runs tri_label5/6).
+bool WorldView::Walled(float x, float y, float z) const {
+    if (map_.Empty()) return false;
+    const float mapY = static_cast<float>(gta2::kMapHeight) - z;
+    const int bx = static_cast<int>(std::floor(x));
+    const int by = static_cast<int>(std::floor(mapY));
+    if (bx < 0 || bx >= gta2::kMapWidth || by < 0 || by >= gta2::kMapHeight) return false;
+    const int level = static_cast<int>(std::floor(y));
+    const gta2::Column& column = map_.ColumnAt(bx, by);
+    const int i = level - static_cast<int>(column.offset);
+    if (i < 0 || i >= static_cast<int>(column.blocks.size())) return false;
+    const uint32_t index = column.blocks[static_cast<size_t>(i)];
+    if (index >= map_.BlockCount()) return false;
+    const gta2::Block& block = map_.BlockAt(index);
+    auto solid = [](const gta2::Face& f) { return f && f.IsWall() && !f.IsFlat(); };
+    return solid(block.left) || solid(block.right) || solid(block.top) || solid(block.bottom);
+}
+
 // A flat face is a zero-thickness panel on the block's edge: left on the west
 // plane x = bx, right on the east plane, top on the north plane, bottom on the
 // south (the mesh builder's corners). A camera inside such a block but a few
@@ -2106,6 +2128,7 @@ void WorldView::UpdateCamera() {
         queries.context = this;
         queries.floorAt = &WorldView::FloorThunk;
         queries.blocked = &WorldView::BlockedThunk;
+        queries.walled = &WorldView::WalledThunk;
         queries.panelDistance = &WorldView::PanelThunk;
         queries.groundAt = &WorldView::GroundThunk;
         queries.propPush = &WorldView::PropThunk;

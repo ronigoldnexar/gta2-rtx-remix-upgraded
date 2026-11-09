@@ -510,8 +510,10 @@ void BuildMap(IDirect3DDevice9* device, const gta2::Map& map) {
 // out with distance. A money gain floats "+$n" up from the player (in first person, a little
 // ahead of the eye) and fades; a weapon picked up (its ammo rising) floats its name up from
 // the pickup he walked over (else from him). The pickups and the projection come from
-// map_objects.cpp, read back from the frame the street views drew. Labels are not tested
-// against walls: one behind a building within the range still shows (kept short for that).
+// map_objects.cpp, read back from the frame the street views drew. A label whose pickup
+// is behind a wall (the line from the eye to it crosses a block with a solid side face,
+// ViewLineWalled; lids alone do not count, or a pickup under a deck would lose its label)
+// is not drawn (pm-pickup-label-floats-on-wall-and-in-air: "MACHINE GUN" hung on a facade).
 
 std::string Thousands(long long v);   // below, with the money counter
 
@@ -614,10 +616,14 @@ void DrawWorldLayer(ImDrawList* dl, const Values& v, float A, float W, float H, 
         for (const PickupSpot& p : MapObjectPickups())
             if (p.eyeDistance > kLabelNear && p.eyeDistance < kLabelFar) order.push_back(&p);
         std::sort(order.begin(), order.end(), [](const PickupSpot* a, const PickupSpot* b) { return a->eyeDistance > b->eyeDistance; });
+        float eye[3], eyeDir[3];
+        const bool haveEye = MapObjectsEye(eye, eyeDir);
         for (const PickupSpot* p : order) {
             float sx, sy;
             if (!MapObjectsProject(p->x, p->y + 0.22f, p->z, &sx, &sy)) continue;
             if (sx < -0.05f || sx > 1.05f || sy < -0.05f || sy > 1.05f) continue;
+            // Behind a wall: the pickup itself is hidden by the depth test, so no label either.
+            if (haveEye && ViewLineWalled(eye[0], eye[1], eye[2], p->x, p->y + 0.15f, p->z)) continue;
             const float nearA = (std::min)(1.0f, (p->eyeDistance - kLabelNear) / 0.35f);
             const float farA = p->eyeDistance < kLabelFull ? 1.0f : 1.0f - (p->eyeDistance - kLabelFull) / (kLabelFar - kLabelFull);
             const float a = A * (std::max)(0.0f, (std::min)(nearA, farA));
@@ -653,9 +659,14 @@ void DrawWorldLayer(ImDrawList* dl, const Values& v, float A, float W, float H, 
     if (w.clock - w.lastLog >= 2.0) {
         w.lastLog = w.clock;
         float nearest = 99.0f;
-        for (const PickupSpot& p : MapObjectPickups()) nearest = (std::min)(nearest, p.eyeDistance);
-        Log("hud3d: world layer: pickups drawn=%zu (nearest %.2f from the eye) labelled=%d (peak %d, %d frames with a label) pops money=%d weapon=%d live=%zu",
-            MapObjectPickups().size(), nearest, labelled, w.labelledPeak, w.labelFrames, w.moneyPops, w.weaponPops, w.pops.size());
+        const PickupSpot* nearSpot = nullptr;
+        for (const PickupSpot& p : MapObjectPickups()) if (p.eyeDistance < nearest) { nearest = p.eyeDistance; nearSpot = &p; }
+        float eye[3], eyeDir[3];
+        const bool haveEye = MapObjectsEye(eye, eyeDir);
+        const int nearBlocked = (nearSpot && haveEye) ? (ViewLineWalled(eye[0], eye[1], eye[2], nearSpot->x, nearSpot->y + 0.15f, nearSpot->z) ? 1 : 0) : -1;
+        Log("hud3d: world layer: pickups drawn=%zu (nearest %.2f from the eye: %s at %.1f,%.2f,%.1f, wall between %d) labelled=%d (peak %d, %d frames with a label) pops money=%d weapon=%d live=%zu",
+            MapObjectPickups().size(), nearest, nearSpot ? nearSpot->label : "-", nearSpot ? nearSpot->x : 0.0f, nearSpot ? nearSpot->y : 0.0f, nearSpot ? nearSpot->z : 0.0f, nearBlocked,
+            labelled, w.labelledPeak, w.labelFrames, w.moneyPops, w.weaponPops, w.pops.size());
         w.labelledPeak = 0;
         w.labelFrames = 0;
     }

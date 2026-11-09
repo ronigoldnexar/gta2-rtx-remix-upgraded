@@ -311,6 +311,8 @@ struct ViewQueries {
     bool (*floorAt)(void* context, float x, float z, float ceiling, float* y) = nullptr;
     // Whether a point is inside a solid block.
     bool (*blocked)(void* context, float x, float y, float z) = nullptr;
+    // Whether a point is inside a block with a solid side face (a wall; lids alone do not count).
+    bool (*walled)(void* context, float x, float y, float z) = nullptr;
     // The distance from a point to the nearest flat panel (fence, railing) of
     // the block it is in; false when there is none.
     bool (*panelDistance)(void* context, float x, float y, float z, float* distance) = nullptr;
@@ -439,6 +441,9 @@ const AimState& ViewAim();
 // True when the straight line between two points (renderer frame) passes through a solid
 // block of the map, by the camera's own world queries; false when they are unknown.
 bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1);
+// True when the straight line between two points (renderer frame) passes through a block
+// with a solid side face (a wall); lids alone (roads, decks over a passage) do not count.
+bool ViewLineWalled(float x0, float y0, float z0, float x1, float y1, float z1);
 
 // Pushes the motion blur choice to RTX Remix when it changes. Cheap to call
 // every frame: it only crosses the bridge when the answer is different.

@@ -20,6 +20,7 @@ struct Face {
     uint16_t raw = 0;
 
     int Tile() const { return raw & 0x03FF; }
+    bool IsWall() const { return (raw & 0x0400) != 0; }   // the game's own collision bit: peds and cars stop at it
     bool IsFlat() const { return (raw & 0x1000) != 0; }
     bool IsFlipped() const { return (raw & 0x2000) != 0; }
     int Rotation() const { return (raw >> 14) & 3; }  // quarter turns

@@ -321,17 +321,25 @@ void ViewModeSetQueries(const ViewQueries& queries) { g_devQueries = queries; }
 AimState g_aim;
 const AimState& ViewAim() { return g_aim; }
 
-bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1) {
-    if (!g_devQueries.blocked) return false;
+namespace {
+bool LineHits(bool (*test)(void*, float, float, float), float x0, float y0, float z0, float x1, float y1, float z1) {
+    if (!test) return false;
     const float d = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0));
     const int steps = (std::max)(2, (std::min)(64, static_cast<int>(d / 0.2f)));
     // The first and last fifth of a block are the shooter's and the target's own cells.
     for (int i = 1; i < steps; ++i) {
         const float t = static_cast<float>(i) / steps;
         if (t * d < 0.2f || (1.0f - t) * d < 0.2f) continue;
-        if (g_devQueries.blocked(g_devQueries.context, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t)) return true;
+        if (test(g_devQueries.context, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t)) return true;
     }
     return false;
+}
+}  // namespace
+bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1) {
+    return LineHits(g_devQueries.blocked, x0, y0, z0, x1, y1, z1);
+}
+bool ViewLineWalled(float x0, float y0, float z0, float x1, float y1, float z1) {
+    return LineHits(g_devQueries.walled, x0, y0, z0, x1, y1, z1);
 }
 
 namespace {

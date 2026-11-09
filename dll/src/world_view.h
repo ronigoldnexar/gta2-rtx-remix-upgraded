@@ -154,6 +154,9 @@ private:
     // whether a point is inside a solid block. Renderer coordinates.
     bool FloorAt(float x, float z, float ceiling, float* y) const;
     bool Blocked(float x, float y, float z) const;
+    // Whether a point is inside a block with a solid (non-flat) side face: a wall. A
+    // lid-only block (a road, a deck over a walkable passage) is not a wall.
+    bool Walled(float x, float y, float z) const;
     // The distance from a point to the nearest flat panel (fence, railing,
     // grille) of the block it is in; false when the block has none.
     bool PanelDistance(float x, float y, float z, float* distance) const;
@@ -162,6 +165,9 @@ private:
     }
     static bool BlockedThunk(void* context, float x, float y, float z) {
         return static_cast<const WorldView*>(context)->Blocked(x, y, z);
+    }
+    static bool WalledThunk(void* context, float x, float y, float z) {
+        return static_cast<const WorldView*>(context)->Walled(x, y, z);
     }
     static bool PanelThunk(void* context, float x, float y, float z, float* distance) {
         return static_cast<const WorldView*>(context)->PanelDistance(x, y, z, distance);
