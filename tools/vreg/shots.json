@@ -1,5 +1,5 @@
 {
- "comment": "tools/vreg: fixed camera shots in Downtown (wil). eye/at offsets from the point in blocks (x east, y south, z up from the point's level). Changing a pose or point invalidates its goldens: reseed.",
+ "comment": "tools/vreg: fixed camera shots in Downtown (wil). eye/at offsets from the point in blocks (x east, y south, z up from the point's level). Changing a pose or point invalidates its goldens: reseed. 'figure': a close look at the player standing at the point (his own figure: textures, clothes, model).",
  "district": "wil",
  "points": [
   {
@@ -149,6 +149,20 @@
       0
      ],
      "fov": 60
+    },
+    {
+     "name": "figure",
+     "eye": [
+      1.3,
+      1.3,
+      1.35
+     ],
+     "at": [
+      0,
+      0,
+      0.75
+     ],
+     "fov": 50
     }
    ]
   },
@@ -199,6 +213,20 @@
       0
      ],
      "fov": 60
+    },
+    {
+     "name": "figure",
+     "eye": [
+      1.3,
+      1.3,
+      1.35
+     ],
+     "at": [
+      0,
+      0,
+      0.75
+     ],
+     "fov": 50
     }
    ]
   },
@@ -399,6 +427,20 @@
       0
      ],
      "fov": 60
+    },
+    {
+     "name": "figure",
+     "eye": [
+      1.3,
+      1.3,
+      1.35
+     ],
+     "at": [
+      0,
+      0,
+      0.75
+     ],
+     "fov": 50
     }
    ]
   },

@@ -3,7 +3,7 @@
 # One capture run through the queue (runq.sh: a game slot, the load and memory gates) on GPU
 # $GTA2_GPU (default 0), 1280x720, no video. Output: out/<run name>/vr_*.png, vreg.jsonl, gta2dx9.log.
 set -e
-NAME=$1; ST=$(cd "$2" && pwd); SECS=${3:-900}
+NAME=$1; ST=$(cd "$2" && pwd); SECS=${3:-2400}   # wall clock, paused time included (cpu_governor.sh pauses runs); the run ends when the capture is done
 HERE=$(cd "$(dirname "$0")" && pwd); R=$(cd "$HERE/../.." && pwd); ROOT=${GTA2_ROOT:-$(cd "$R/.." && pwd)}   # the workspace (game/, gamerun/, out/); GTA2_ROOT when run from a /tmp worktree
 GPU=${GTA2_GPU:-0}
 # a CPU set of its own (runq pins a run without one to GAME_CPUSET, 0-4 by default: on a big host

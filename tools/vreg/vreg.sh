@@ -25,7 +25,7 @@ G=${VREG_GOLDEN:-$VH/goldens/current}
 stamp() { date -u +%m%d_%H%M%S; }
 
 capture() {   # capture <run name> <stage dir>: run the capture, check it completed
-  "$HERE/run_capture.sh" "$1" "$2" "${VREG_SECONDS:-900}" || true
+  "$HERE/run_capture.sh" "$1" "$2" "${VREG_SECONDS:-2400}" || true
   if [ ! -f "$ROOT/out/$1/.vreg_done" ]; then
     echo "vreg: capture $1 did not complete (see out/$1/keys.log, out/$1.run.log)"; return 2; fi
 }

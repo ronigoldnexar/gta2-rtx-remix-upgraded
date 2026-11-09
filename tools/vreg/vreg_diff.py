@@ -31,29 +31,48 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 W, H, TX, TY = 320, 180, 16, 9                    # reduced frame and tile grid (20x20 tiles)
-FLOOR = {"pix": 0.045, "mean": 0.035}            # never flag below these (0..1 units)
-MARGIN = {"pix": 0.015, "mean": 0.012}
+FLOOR = {"pix": 0.045, "mean": 0.035, "detail": 0.30}   # never flag below these (0..1 units; detail: relative)
+MARGIN = {"pix": 0.015, "mean": 0.012, "detail": 0.08}
 NOISE_K = 1.25
 WARN_FRAC, FAIL_FRAC = 0.05, 0.12                # of the 144 tiles: 8 / 18 tiles
 
 
+_cache = {}
+
+
 def load(path):
+    """the frame reduced to 320x180, and its fine detail per tile (mean |Laplacian| of the 640x360
+    grey image, 16x9 tiles): texture sharpness and grain, which the reduction averages away"""
+    if path in _cache: return _cache[path]
     im = Image.open(path).convert("RGB")
-    return np.asarray(im.resize((W, H), Image.BOX), dtype=np.float32) / 255.0
+    a = np.asarray(im.resize((W, H), Image.BOX), dtype=np.float32) / 255.0
+    g = np.asarray(im.convert("L").resize((2 * W, 2 * H), Image.BOX), dtype=np.float32) / 255.0
+    lap = np.abs(4 * g[1:-1, 1:-1] - g[:-2, 1:-1] - g[2:, 1:-1] - g[1:-1, :-2] - g[1:-1, 2:])
+    lap = np.pad(lap, 1)
+    det = lap.reshape(TY, 2 * H // TY, TX, 2 * W // TX).mean(axis=(1, 3))
+    _cache[path] = r = Frame(a, det)
+    return r
+
+
+class Frame:
+    def __init__(self, a, det): self.a, self.det = a, det
 
 
 def tiles(a):
     return a.reshape(TY, H // TY, TX, W // TX, 3).transpose(0, 2, 1, 3, 4)   # ty, tx, 20, 20, 3
 
 
-def dist(a, b):
-    ta, tb = tiles(a), tiles(b)
+def dist(fa, fb):
+    ta, tb = tiles(fa.a), tiles(fb.a)
     pix = np.abs(ta - tb).mean(axis=(2, 3, 4))
     mean = np.abs(ta.mean(axis=(2, 3)) - tb.mean(axis=(2, 3))).max(axis=2)
-    return {"pix": pix, "mean": mean}
+    # relative change of the fine detail; flat tiles (sky, shade) do not count
+    detail = np.abs(fa.det - fb.det) / (np.maximum(fa.det, fb.det) + 0.02)
+    return {"pix": pix, "mean": mean, "detail": detail}
 
 
-def stats(a):
+def stats(f):
+    a = f.a
     lum = a @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
     chroma = a.max(axis=2) - a.min(axis=2)
     magenta = (a[..., 0] > 0.85) & (a[..., 2] > 0.85) & (a[..., 1] < 0.2)
@@ -85,23 +104,24 @@ def seed(args):
     runs = args.runs
     if len(runs) < 2:
         print("seed: at least two runs of the same build are needed to learn the noise (three is better)")
-    shots = None
-    for r in runs:
-        s = set(shots_of(r))
-        shots = s if shots is None else shots & s
+    # every shot that at least two runs have (one run is enough with a single run); each shot keeps
+    # the samples of the runs that took it, so shots added to the list later can join a golden set
+    have = {r: set(shots_of(r)) for r in runs}
+    shots = {s for r in runs for s in have[r] if sum(s in have[q] for q in runs) >= min(2, len(runs))}
     os.makedirs(args.golden, exist_ok=True)
     manifest = dict(rev=args.rev, note=args.note, made=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
                     runs=[os.path.abspath(r) for r in runs], grid=[TX, TY], size=[W, H], shots={})
     noise = {}
     for shot in sorted(shots):
         samples = []
-        for i, r in enumerate(runs):
+        srcs = [r for r in runs if shot in have[r]]
+        for i, r in enumerate(srcs):
             dst = os.path.join(args.golden, f"{shot}.{i}.png")
             shutil.copyfile(os.path.join(r, f"vr_{shot}.png"), dst)
             samples.append(load(dst))
-        rec = records(runs[0]).get(shot, {})
-        lands = [records(r).get(shot, {}).get("at") for r in runs]
-        n = {"pix": np.zeros((TY, TX), np.float32), "mean": np.zeros((TY, TX), np.float32)}
+        rec = records(srcs[0]).get(shot, {})
+        lands = [records(r).get(shot, {}).get("at") for r in srcs]
+        n = {k: np.zeros((TY, TX), np.float32) for k in FLOOR}
         for i in range(len(samples)):
             others = [dist(samples[i], samples[j]) for j in range(len(samples)) if j != i]
             if not others: continue
@@ -114,16 +134,16 @@ def seed(args):
                                        noise_tiles_over_floor=int(sum((n[k] * NOISE_K + MARGIN[k] > FLOOR[k]).sum() for k in n)))
     json.dump(manifest, open(os.path.join(args.golden, "manifest.json"), "w"), indent=1)
     json.dump(noise, open(os.path.join(args.golden, "noise.json"), "w"))
-    print(f"seeded {len(shots)} shots x {len(runs)} samples into {args.golden}")
+    print(f"seeded {len(shots)} shots ({sum(manifest['shots'][s]['samples'] for s in shots)} samples from {len(runs)} runs) into {args.golden}")
     # self-check: every sample against the others must pass
     bad = 0
     if len(runs) < 2: return
-    for i, r in enumerate(runs):
-        for shot in sorted(shots):
+    for shot in sorted(shots):
+        for i, r in enumerate([q for q in runs if shot in have[q]]):
             res = judge_shot(args.golden, manifest, noise, shot, os.path.join(r, f"vr_{shot}.png"), None, exclude=i)
             if res["verdict"] in ("FAIL", "WARN"):
                 bad += 1; print(f"  self-check: sample {i} {shot}: {res['verdict']} {res['why']}")
-    print(f"self-check (leave-one-out): {bad} WARN/FAIL of {len(shots) * len(runs)}")
+    print(f"self-check (leave-one-out): {bad} WARN/FAIL of {sum(manifest['shots'][s]['samples'] for s in shots)}")
 
 
 # ---------------------------------------------------------------- check
@@ -142,10 +162,10 @@ def judge_shot(gdir, manifest, noise, shot, run_png, run_rec, exclude=None):
         res.update(verdict="SKIP", why="no golden sample to compare with"); return res
     golds = [load(os.path.join(gdir, f"{shot}.{i}.png")) for i in idx]
     ds = [dist(run, g) for g in golds]
-    d = {k: np.min([x[k] for x in ds], axis=0) for k in ("pix", "mean")}
+    d = {k: np.min([x[k] for x in ds], axis=0) for k in FLOOR}
     nz = noise.get(shot, {})
     changed = np.zeros((TY, TX), bool)
-    for k in ("pix", "mean"):
+    for k in FLOOR:
         n = np.array(nz.get(k, np.zeros((TY, TX))), np.float32)
         thr = np.maximum(FLOOR[k], NOISE_K * n + MARGIN[k])
         changed |= d[k] > thr

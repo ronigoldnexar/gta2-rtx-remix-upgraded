@@ -11,6 +11,8 @@
 #     (inject_hook.py), so older commits can be captured from the same poses;
 #   - the stage dir: hard links of the shared repo/stage (models, HD tiles, ini) with the
 #     DLLs replaced by rename (new inodes: nothing is written through to repo/stage).
+#     VREG_ART=assets takes the models and HD tiles from repo/assets instead, as restage.sh's
+#     candidate does: a preview of what the next restage would put on the play page.
 # Prints the stage dir on success. A built rev is cached: an existing <stage>/.vreg_rev equal to
 # the full hash is reused.
 set -e
@@ -30,13 +32,21 @@ fi
 python3 "$HERE/inject_hook.py" "$W" "$R" >&2
 ( cd "$W" && flock /tmp/gta2-build.lock nice -n 10 make -j8 dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll ) > "$W.build.log" 2>&1 \
   || { tail -30 "$W.build.log" >&2; echo "build of $REV failed (log $W.build.log)" >&2; exit 1; }
-python3 - "$ROOT/repo/stage" "$ST" "$W" "$FULL" <<'PY'
+python3 - "$ROOT/repo/stage" "$ST" "$W" "$FULL" "${VREG_ART:-stage}" "$ROOT/repo/assets" <<'PY'
 import os, shutil, sys
-src, st, w, full = sys.argv[1:]
+src, st, w, full, art, assets = sys.argv[1:]
 if not os.path.isdir(st):
     tmp = st + ".tmp"
     if os.path.isdir(tmp): shutil.rmtree(tmp)
-    shutil.copytree(src, tmp, copy_function=os.link, symlinks=True)
+    if art == "assets":
+        # as restage.sh builds its candidate: the ini etc. from repo/stage, the models and HD tiles
+        # from the workspace's assets/ (the art the next restage would ship). Hard links only.
+        shutil.copytree(src, tmp, copy_function=os.link, symlinks=True,
+                        ignore=lambda d, n: ["gta2dx9_models", "gta2dx9_textures_hd"] if os.path.abspath(d) == os.path.abspath(src) else [])
+        shutil.copytree(os.path.join(assets, "models"), os.path.join(tmp, "gta2dx9_models"), copy_function=os.link, symlinks=True)
+        shutil.copytree(os.path.join(assets, "textures_hd"), os.path.join(tmp, "gta2dx9_textures_hd"), copy_function=os.link, symlinks=True)
+    else:
+        shutil.copytree(src, tmp, copy_function=os.link, symlinks=True)
     os.rename(tmp, st)
 def put(built, name):
     t = os.path.join(st, "." + name + ".new")
