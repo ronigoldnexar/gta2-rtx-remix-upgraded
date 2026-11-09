@@ -640,6 +640,7 @@ public:
 
     void Flatten(WorldMesh* out) const {
         out->roadLidTiles.assign(roadLids_.begin(), roadLids_.end());
+        out->railingPanels = railingPlanes_;
         for (int keyed = 0; keyed < 2; ++keyed) {
             for (size_t tile = 0; tile < perTile_[keyed].size(); ++tile) {
                 FlattenOne(out, static_cast<int>(tile), keyed != 0);
@@ -777,6 +778,7 @@ private:
         ++g_railingStats.quadsReplaced;
         if (!railingPanels_.insert(key).second) return true;
         ++g_railingStats.panels;
+        for (const Vec3& k : c) railingPlanes_.insert(railingPlanes_.end(), {k.x, k.y, k.z});
 
         const float nl = std::sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
         const Vec3 n{normal.x / nl, normal.y / nl, normal.z / nl};
@@ -853,6 +855,7 @@ private:
     std::vector<RailingShape> railingShapes_;
     std::vector<uint8_t> railingKnown_;
     std::set<std::tuple<int, int, int, int>> railingPanels_;
+    std::vector<float> railingPlanes_;
 
     // Whether the game lets this quad's colour key through. It does only for a
     // flat face - each face routine ORs 0x80 into the draw flags when the face

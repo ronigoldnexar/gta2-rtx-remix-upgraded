@@ -43,6 +43,10 @@ bool Ready();
 // distance moved (0 when nothing was near).
 float Push(gta2::Vec3* p, float radius);
 
+// Push against the railings' sheets only (WorldMesh::railingPanels): a wider berth for the
+// chase camera than the general surfaces get, the bars' spear tops being thick near the lens.
+float PushPanels(gta2::Vec3* p, float radius);
+
 // The first surface the segment a->b crosses from its front (a one-sided face) or from
 // either side (a two-sided one). *t is the fraction along a->b.
 bool SegmentHit(const gta2::Vec3& a, const gta2::Vec3& b, float* t);

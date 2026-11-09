@@ -1965,6 +1965,16 @@ bool CameraMeshSolveOn() {
     return enabled != 0;
 }
 
+// FIX-CAMERA-4: GTA2DX9_CAM_SWING=0 turns the on-foot boom swing off (A/B).
+bool CameraSwingOn() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_CAM_SWING", buf, sizeof buf) && atoi(buf) == 0 ? 0 : 1;
+    }
+    return enabled != 0;
+}
+
 bool CameraFrameClampOn() {
     static int enabled = -1;
     if (enabled < 0) {
@@ -2919,6 +2929,64 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         return reach;
     };
+    // FIX-CAMERA-4: on foot, round what stands behind him before over it. With a railing, a
+    // stair or a wall corner close behind him the boom could only shorten, then crane up over
+    // his head and look down at the paving (feel25: the plaza fence corner; pm26: the spawn
+    // staircase; the near top-down shot FIX-CAMERA-3 left in tight corners). When the line
+    // behind him reaches less than kSwingGood of the rig's length, the boom turns about him
+    // (the smallest yaw, 15 degree steps up to 90, the side it already swung to first) to
+    // where it reaches that far, eased, and back as the way behind him opens. The frame clamp
+    // turns the view onto him from wherever the eye ends up. The lift over a wall below still
+    // applies when no swing clears. GTA2DX9_CAM_SWING=0 turns it off (A/B).
+    if (!boomKnown_ || inVehicle) swingAngle_ = 0.0f;
+    if (s.tpCollide && q.blocked && !inVehicle && meshSolve && CameraSwingOn()) {
+        const gta2::Vec3 span0 = desired - pivot;
+        const float len0 = std::sqrt(span0.x * span0.x + span0.y * span0.y + span0.z * span0.z);
+        auto turned = [&](float a) {
+            const float c = std::cos(a), sn = std::sin(a);
+            return gta2::Vec3{pivot.x + span0.x * c - span0.z * sn, desired.y, pivot.z + span0.x * sn + span0.z * c};
+        };
+        float wantSwing = 0.0f;
+        if (len0 > 0.8f) {
+            constexpr float kSwingGood = 0.6f;
+            const float good = (std::max)(0.9f, kSwingGood * len0);
+            if (reachTo(pivot, desired) * len0 < good) {
+                const float first = swingAngle_ < 0.0f ? -1.0f : 1.0f;
+                bool found = false;
+                for (int k = 1; k <= 6 && !found; ++k) {
+                    for (const float sg : {first, -first}) {
+                        const float a = sg * static_cast<float>(k) * (15.0f * kDegToRad);
+                        if (reachTo(pivot, turned(a)) * len0 >= good) { wantSwing = a; found = true; break; }
+                    }
+                }
+                if (!found) {
+                    // A pocket (wall, railing and a lamp post round him: the owner demo's punch, run
+                    // fc4_demo2, where the boom fell to 0.03 and the lens sat in his head for 2.6 s):
+                    // the way that reaches furthest, out to 165 degrees, the side it is on unless the
+                    // other is clearly better; none better than where it is: hold.
+                    float bestA = swingAngle_, bestR = reachTo(pivot, turned(swingAngle_)) * len0 + 0.25f;
+                    for (int k = 0; k <= 11; ++k) {
+                        for (const float sg : {first, -first}) {
+                            const float a = sg * static_cast<float>(k) * (15.0f * kDegToRad);
+                            const float r = reachTo(pivot, turned(a)) * len0 - (sg != first && k > 0 ? 0.2f : 0.0f);
+                            if (r > bestR) { bestR = r; bestA = a; }
+                        }
+                    }
+                    wantSwing = bestA;
+                }
+            }
+        }
+        const float tau = std::fabs(wantSwing) > std::fabs(swingAngle_) ? 0.25f : 0.6f;
+        swingAngle_ += (wantSwing - swingAngle_) * (1.0f - std::exp(-dt / tau));
+        if (std::fabs(swingAngle_) < 1e-3f) swingAngle_ = 0.0f;
+        if (swingAngle_ != 0.0f) desired = turned(swingAngle_);
+        if (cameraLogOn() && (swingAngle_ != 0.0f || wantSwing != 0.0f)) {
+            static int every = 0;
+            if ((++every % 10) == 1) Log("cam: swing %.1f want %.1f deg", swingAngle_ / kDegToRad, wantSwing / kDegToRad);
+        }
+    } else {
+        swingAngle_ = 0.0f;
+    }
     if (s.tpCollide && q.blocked) {
         const gta2::Vec3 span = desired - pivot;
         const float spanLength = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
@@ -2993,7 +3061,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // sees nothing but its texels (the whole frame goes to black bars and
     // holes). Then it goes on through to the far side, and if that is solid,
     // stops short of the panel instead.
-    if (q.panelDistance) {
+    // On foot with the mesh solve, not this: a railing is a sheet there (eye_collision.cpp,
+    // WorldMesh::railingPanels) and a flat panel a two-sided face, so the boom already stops
+    // short of either; going on through put the camera behind the plaza fence looking through
+    // its bars for 9 s (feel25).
+    if (q.panelDistance && !meshSolve) {
         constexpr float kClear = 0.35f;
         float d = 0.0f;
         if (q.panelDistance(q.context, desired.x, desired.y, desired.z, &d) && d < kClear) {
@@ -3248,6 +3320,19 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             eyeX_ = shownPivot.x + dir.x * boom_;
             eyeY_ = shownPivot.y + dir.y * boom_;
             eyeZ_ = shownPivot.z + dir.z * boom_;
+            // FIX-CAMERA-4: a railing's bars are thick near the lens (the plaza fence's spear tops
+            // a dark band over a quarter of the frame at 0.12, run fc4_fence4): kRailClear off its
+            // sheet sideways (0.3 still left the corner post over a quarter of the frame, fc4_fence5), never
+            // through anything on the way.
+            if (meshSolve && CameraSwingOn()) {
+                constexpr float kRailClear = 0.45f;
+                gta2::Vec3 e{eyeX_, eyeY_, eyeZ_};
+                float t = 1.0f;
+                if (eyecol::PushPanels(&e, kRailClear) > 1e-4f && !eyecol::SegmentHit(shownPivot, e, &t) &&
+                    !(q.blocked && solidAt(e.x, e.y, e.z))) {
+                    eyeX_ = e.x; eyeY_ = e.y; eyeZ_ = e.z;
+                }
+            }
             const float full = (std::max)(rigLen, boom_);
             orientEye = {shownPivot.x + dir.x * full, shownPivot.y + dir.y * full, shownPivot.z + dir.z * full};
         }
@@ -3323,7 +3408,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     if (!inVehicle && mode == ViewMode::ThirdPerson && s.tpCollide && meshSolve) {
         constexpr float kBodyClear = 0.4f, kOverHead = 0.3f, kFigureTop = 0.48f;
         const float flatD = std::hypot(eyeX_ - px, eyeZ_ - pz);
-        const float top = baseY + kFigureTop + kOverHead;
+        // FIX-CAMERA-4: nearer his axis, higher (up to 0.4 more at the axis): an eye just at
+        // head+0.3 over him looked level over his head with him under the frame (fc4_demo2).
+        const float top = baseY + kFigureTop + kOverHead + 0.4f * (std::max)(0.0f, 1.0f - flatD / kBodyClear);
         float want = 0.0f;
         if (flatD < kBodyClear && eyeY_ < top) {
             // Fully over him at the axis, nothing needed at kBodyClear.

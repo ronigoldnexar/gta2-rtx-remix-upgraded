@@ -29,6 +29,7 @@ struct Tri {
     uint16_t tile;
 };
 constexpr uint8_t kTwoSided = 1;
+constexpr uint8_t kPanel = 2;   // a railing's plane (never drawn): the bars as one sheet
 constexpr int kGrid = 256;
 
 std::vector<Vec3> g_pos;
@@ -163,6 +164,54 @@ void Build(const gta2::WorldMesh& mesh, const gta2::Style& style) {
             boxes.push_back(bx);
         }
     }
+    // The railings' planes (WorldMesh::railingPanels): the bars and rails have gaps a ray or a
+    // sphere slips through, and the eye went among them (pm26 fence) or the boom through them,
+    // leaving the third-person camera behind the plaza fence looking through it for 9 s
+    // (feel25). For the camera a railing is a sheet, from either side.
+    // GTA2DX9_RAILING_SHEETS=0: without them, as before (for a before/after run).
+    bool sheets = true;
+#ifndef EYECOL_NATIVE
+    {
+        char v[8] = {};
+        if (GetEnvironmentVariableA("GTA2DX9_RAILING_SHEETS", v, sizeof v) && v[0] == '0') sheets = false;
+    }
+#endif
+    int panels = 0;
+    for (size_t k = 0; sheets && k + 12 <= mesh.railingPanels.size(); k += 12) {
+        const float* f = &mesh.railingPanels[k];
+        const uint32_t base = static_cast<uint32_t>(g_pos.size());
+        for (int i = 0; i < 4; ++i) g_pos.push_back({f[i * 3], f[i * 3 + 1], f[i * 3 + 2]});
+        for (const std::array<uint32_t, 3> tri : {std::array<uint32_t, 3>{0, 1, 2}, std::array<uint32_t, 3>{0, 2, 3}}) {
+            Tri t;
+            for (int i = 0; i < 3; ++i) t.v[i] = base + tri[static_cast<size_t>(i)];
+            const Vec3& a = g_pos[t.v[0]]; const Vec3& b = g_pos[t.v[1]]; const Vec3& c = g_pos[t.v[2]];
+            Vec3 n = gta2::Cross(Sub(b, a), Sub(c, a));
+            const float len = Len(n);
+            if (len < 1e-9f) continue;
+            n = n * (1.0f / len);
+            t.n[0] = static_cast<int8_t>(std::lround(n.x * 127.0f));
+            t.n[1] = static_cast<int8_t>(std::lround(n.y * 127.0f));
+            t.n[2] = static_cast<int8_t>(std::lround(n.z * 127.0f));
+            t.flags = kTwoSided | kPanel;
+            t.tile = 0;
+            const float lx = (std::min)({a.x, b.x, c.x}), hx = (std::max)({a.x, b.x, c.x});
+            const float lz = (std::min)({a.z, b.z, c.z}), hz = (std::max)({a.z, b.z, c.z});
+            const auto last = [](float lo, float hi) {
+                const float cc = std::ceil(hi) - 1.0f;
+                return static_cast<int>(hi > lo && cc >= std::floor(lo) ? cc : std::floor(hi));
+            };
+            Box bx{static_cast<int16_t>((std::max)(0, static_cast<int>(std::floor(lx)))),
+                   static_cast<int16_t>((std::max)(0, static_cast<int>(std::floor(lz)))),
+                   static_cast<int16_t>((std::min)(kGrid - 1, last(lx, hx))),
+                   static_cast<int16_t>((std::min)(kGrid - 1, last(lz, hz)))};
+            if (bx.x0 > bx.x1 || bx.z0 > bx.z1) continue;
+            for (int z = bx.z0; z <= bx.z1; ++z)
+                for (int x = bx.x0; x <= bx.x1; ++x) ++counts[static_cast<size_t>(z) * kGrid + x];
+            g_tris.push_back(t);
+            boxes.push_back(bx);
+        }
+        ++panels;
+    }
     g_cellStart.assign(static_cast<size_t>(kGrid) * kGrid + 1, 0);
     for (size_t c = 0; c < counts.size(); ++c) g_cellStart[c + 1] = g_cellStart[c] + counts[c];
     g_cellTris.assign(g_cellStart.back(), 0);
@@ -199,12 +248,21 @@ void Build(const gta2::WorldMesh& mesh, const gta2::Style& style) {
         Log("eye collision: off (GTA2DX9_EYE_COLLISION=0)");
     }
 #endif
-    Log("eye collision: %zu triangles of the world mesh in a %dx%d grid (%zu cell entries, %.1f MB)", g_tris.size(), kGrid,
-        kGrid, g_cellTris.size(),
-        (g_pos.size() * sizeof(Vec3) + g_tris.size() * (sizeof(Tri) + 4) + g_cellTris.size() * 4 + g_cellStart.size() * 4) / 1048576.0);
+    Log("eye collision: %zu triangles of the world mesh in a %dx%d grid (%zu cell entries, %.1f MB), %d railing panels as sheets",
+        g_tris.size(), kGrid, kGrid, g_cellTris.size(),
+        (g_pos.size() * sizeof(Vec3) + g_tris.size() * (sizeof(Tri) + 4) + g_cellTris.size() * 4 + g_cellStart.size() * 4) / 1048576.0, panels);
 }
 
 bool Ready() { return g_ready; }
+
+namespace { bool g_panelsOnly = false; }
+
+float PushPanels(Vec3* p, float radius) {
+    g_panelsOnly = true;
+    const float moved = Push(p, radius);
+    g_panelsOnly = false;
+    return moved;
+}
 
 float Push(Vec3* p, float radius) {
     if (!g_ready) return 0.0f;
@@ -217,6 +275,7 @@ float Push(Vec3* p, float radius) {
         ForTris(p->x - radius, p->z - radius, p->x + radius, p->z + radius, [&](const Tri& t) {
             // Flat floors count too: the floor under him is 0.43 below the eye, out of reach, but
             // the top of a low wall or a planter at eye height is not.
+            if (g_panelsOnly && !(t.flags & kPanel)) return;
             const Vec3& a = g_pos[t.v[0]]; const Vec3& b = g_pos[t.v[1]]; const Vec3& c = g_pos[t.v[2]];
             if (p->y < (std::min)({a.y, b.y, c.y}) - radius || p->y > (std::max)({a.y, b.y, c.y}) + radius) return;
             const Vec3 n = N(t);

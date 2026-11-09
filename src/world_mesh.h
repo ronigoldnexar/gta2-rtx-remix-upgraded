@@ -65,6 +65,12 @@ struct WorldMesh {
     // Tiles used as the lid of a road block (ground type 1): the street views' tone match
     // (renderer.cpp, tone_match) evens out their asphalt.
     std::vector<int> roadLidTiles;
+    // The plane of every railing built as bars (QB-11), four corners each: never drawn. The
+    // bars have gaps a ray slips through, so the street cameras' clearance (eye_collision.cpp)
+    // takes the panel as one solid sheet: no eye or boom ends up among the bars or behind
+    // the railing looking through it (feel25, pm26 fence). 12 floats a panel: x,y,z of its
+    // corners in order round the quad.
+    std::vector<float> railingPanels;
 };
 
 // One entry of gta2.exe's slope descriptor table at 0x00662DB0, twelve bytes

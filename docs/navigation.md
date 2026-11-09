@@ -462,6 +462,32 @@ turn-rate cap). Third person on foot only: in a car, first person and the classi
   shot, not a shoulder shot); the first-use hitch on a V into a street view (a 3.6 s frame in `sprites`) still
   freezes the move high over the plaza (performance stream, not the camera's end pose).
 
+## Railings as sheets for the camera; the boom swings round before it rises (FIX-CAMERA-4, 9 Nov 2026)
+
+Defects feel25-third-camera-pressed-into-iron-fence-9s-punch-and-knockdown-never-visible,
+pm26-wil-fp-eye-inside-iron-fence-black-bars, pm26-wil-third-first-v-hero-cut-off-by-bottom-edge. Code:
+`src/world_mesh.*` (`WorldMesh::railingPanels`), `dll/src/eye_collision.cpp` (the sheets, `PushPanels`),
+`ViewCameraSolver::Solve` in `dll/src/view_modes.cpp` (`swingAngle_`, the panel step, `kRailClear`).
+Nothing is drawn differently: the classic view and every draw call are as before.
+
+- Railings as sheets. QB-11 builds a railing tile as bars and rails; a ray or the eye's sphere slips between
+  the bars. The mesh builder now also records each railing panel's plane (12 floats, never drawn) and the eye
+  collision bins it as a two-sided face: the boom's ray-cast, the first-person `eyecol::Clear` and the safety
+  net treat a railing as one solid sheet. 233 panels in wil (log: `eye collision: ... N railing panels as
+  sheets`). `GTA2DX9_RAILING_SHEETS=0` leaves them out.
+- The cell-based panel step (a camera within 0.35 of a railing's cell panel went on through to the far side,
+  the design from before the bars were modelled) is skipped on foot with the mesh solve: it is what put the
+  camera behind the plaza fence corner (wil 167,148) looking through its posts for 9 s in the owner demo.
+- The swing. On foot, when the line behind him reaches less than max(0.9, 0.6 x rig length), the boom turns
+  about him (15 degree steps up to 90, the side it already swung to first, eased 0.25 s out / 0.6 s back) to
+  the smallest yaw that reaches that far; the lift arc over a wall still applies after it. At the plaza fence
+  corner the camera goes round the corner instead of collapsing over his head; on the first V at the wil spawn
+  it swings 60 degrees round the iron staircase instead of looking steeply down over its rail.
+  `GTA2DX9_CAM_SWING=0` turns the swing and the railing berth off. Log: `cam: swing S want W deg`.
+- Railing berth: the shown eye is kept 0.45 off a railing sheet sideways (`eyecol::PushPanels`; at 0.12 the
+  spear tops were a dark band over a quarter of the frame), never through anything on the way.
+- Probe `gamerun/keys_fc4.sh` (`fc4_probe.py`, FC4_X/FC4_Y, default the fence corner at 167.4,147.8).
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`
