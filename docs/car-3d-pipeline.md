@@ -777,3 +777,51 @@ background, and from the seat they read as torn black shards past the dash (046 
 Open: the XK's bonnet centre is still missing from the seat (two green fender ribbons), with or
 without the dark-face drop: its faces fail the facing test (vertex normals), model 082 for
 ASSET-VEHICLES. No sweep of every model from the seat was made.
+
+## Authored bodies: 036 Schmidt, 008 Bug, 056 Taxi (9 Nov 2026, VEHICLE-ART-2)
+
+The owner judged the 3D cars "really poor"; the review (`docs/vehicle-art-review.md`) ranks 036, 008 and 056 fourth to
+sixth by how often they are on screen in Downtown. Their image-to-3D shells (lumpy 5-8k face hulls, one baked
+texture: the Schmidt with no canopy and an open hole into the seats, a faceted Bug bonnet, a torn chequer blotch on the
+Taxi) were replaced by bodies modelled in code, `tools/vehicle_art2/` (VEHICLE-ART-1 does 063/068/013 the same way in
+`tools/vehicle_art/`).
+
+- `carkit.py`: every panel is a parametric surface S(u, v) with analytic-quality normals (smooth, no facets);
+  triangles are cut exactly along material regions given as signed distance functions in (u, v), so a window, seal,
+  rub strip or chequer band has a smooth edge on the shell. Wheels are surfaces of revolution (tyre with sidewall bulge
+  and tread texture, rim, domed hub cap, whitewall on the taxi) at marker nodes `wheel_fl/fr/rl/rr` (the renderer's
+  wheel split turns and steers them). Lamps (fluted lens in a chrome bezel), tube bumpers and over-riders, a dark
+  interior shell with seats behind the glass, wheel-well liners. Ambient occlusion is ray cast per texel (open3d) into
+  the paint textures. All textures are generated (no game or third-party art).
+- `car_036.py`: a tandem bubble car (KR200 idiom) from the sprite: front deck with a chrome spine and two lamps, a glass
+  teardrop canopy with a hoop between the seats and a spine, tail fins with red lamps. `car_008.py`: a Beetle with
+  separate fenders sweeping into running boards, lamps in the front fenders, blade bumpers, a chrome strip and handle
+  down the front lid, engine-lid louvres, a small rear window. `car_056.py`: a 1950s four-door cab in the sprite's cab
+  yellow with the sprite's roof (a chequer strip down the middle, the TAXI sign box on it), a straight chequer band
+  along each side, paired lamps either side of a chrome grille, wraparound bumpers, whitewalls.
+- Paint: the tinted cars (036, 008) paint a neutral 235 base and carry `paint_rgb` 235 in the manifest. The renderer's
+  tint is live paint / model paint, and the model paint is 235 for every car today (`model_store.cpp` reads
+  `paint_rgb` only from the "imported" report entries, which do not carry it; noted on
+  `assigned/pm17-ste-player-car-violet-in-classic-wine-red-in-3d.md`), so these bodies show exactly the sprite's live
+  colour, and stay right if that parse is ever fixed. The taxi is a livery (untinted).
+- Renderer (`model_store.cpp` `CarSurfaceFor`, car textures only): a texture named `*_glass*` is drawn blended
+  (src alpha), z-write off, after the rest of the body; `*_chrome*` gets a tight bright highlight (power 60);
+  tyres, seals, underbody, interior, seats and rubber a dull one. Image-to-3D cars have no such names and draw as before.
+- Build: `gen3d/venv/bin/python tools/vehicle_art2/build.py <out> 036 008 056 --preview` writes the glb + material
+  PNGs and imports them into `<out>/models` (copy into `assets/models` with `cp --remove-destination`; models stay out
+  of git; sources in `assets-src/cars/vehicle_art2/`). `make_car_manifest.py` now keeps any entry with a
+  `generator` as it is. 14.5k / 15.6k / 18.5k vertices, 14-19 meshes each.
+- In game: `tools/vehicle_art2/show.py` (copy of `gamerun/va2_show.py`, keys `keys_va2_show.sh`): at the Downtown
+  carriageway, every traffic car forced to the model in the sprite's default paint, the regression camera
+  (`GTA2DX9_REGRESS_CAM`) set to front 3/4, side, rear 3/4, eye height, close, high and chase poses around the nearest
+  car. Runs `out/va2_show_b3` (before, HEAD 46164d3 with the old models) and `out/va2_show_n3` / `n4` (after); sheets
+  `out/va2_review/before_after_NNN.png`, offline previews `out/va2_review/preview_NNN.png`. 0 FAULT, no model or
+  texture read errors; the wheel split finds the four marker wheels.
+
+Still short of a shipping AAA frame (honest list): fixed-function vertex lighting with no environment reflection
+(the paint has a highlight but no sky reflection; chrome and glass reflections are baked); window glass is a flat
+tint with baked streaks, the cabin behind it is a dark shell with box seats; no panel gaps in geometry (painted lines);
+the Schmidt's fins read a little like horns from the rear 3/4; the open door's inner face is black (the door split
+copies the outer skin); the Bug and Schmidt are about 10 % lower than a person-scaled real car (footprint at 5 m a
+block); no Remix PBR for the new textures (new hashes) and no path-traced frames; the first-person seat view with
+these bodies was not filmed (force_own_car_model) in this pass.

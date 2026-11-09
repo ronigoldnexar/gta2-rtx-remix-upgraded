@@ -717,6 +717,23 @@ bool CarTextureName(const std::string& file) {
            isdigit(static_cast<unsigned char>(file[2])) && file[3] == '_';
 }
 
+// VEHICLE-ART-2: the parametric car bodies (tools/vehicle_art2/carkit.py) name each texture
+// after its surface: "_glass" is drawn blended over the rest (the body's glass meshes come last
+// in the file), "_chrome" gets a tight bright highlight, rubber, seals, underbody and the cab's
+// trim a dull one. Only car textures (a "NNN_" name); everything else draws as before.
+enum CarSurface { kCarSurfDefault = 0, kCarSurfGlass, kCarSurfChrome, kCarSurfMatte };
+int CarSurfaceFor(const std::string& file) {
+    if (!CarTextureName(file)) return kCarSurfDefault;
+    if (file.find("_glass") != std::string::npos) return kCarSurfGlass;
+    if (file.find("_chrome") != std::string::npos) return kCarSurfChrome;
+    if (file.find("_tyre") != std::string::npos || file.find("_seal") != std::string::npos ||
+        file.find("_underbody") != std::string::npos || file.find("_interior") != std::string::npos ||
+        file.find("_seat") != std::string::npos || file.find("_whitewall") != std::string::npos ||
+        file.find("_rubber") != std::string::npos)
+        return kCarSurfMatte;
+    return kCarSurfDefault;
+}
+
 bool SoftPaintCaps(IDirect3DDevice9* device) {
     if (g_softPaintCaps < 0) {
         D3DCAPS9 caps = {};
@@ -2196,6 +2213,10 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
     bool first = true;
     bool streams = false;
     bool softStages = false;
+    int carSurf = kCarSurfDefault;
+    bool carSurfSaved = false;
+    D3DMATERIAL9 carSurfMaterial = {};
+    DWORD carSurfState[5] = {};
     {
         // Once per model: the placement it is first drawn with, so a model that
         // comes out the wrong size or way up can be traced to its matrix.
@@ -2230,6 +2251,33 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         }
         // IDENTITY-SYSTEM: a figure's split pair under the bake (Remix): the rest mesh carries both halves.
         if (FigurePairPaintSkipped(model, mesh)) continue;
+        // VEHICLE-ART-2: a parametric car's glass, chrome and rubber (see CarSurfaceFor).
+        {
+            const int surf = CarSurfaceFor(mesh.texture);
+            if (surf != carSurf) {
+                if (!carSurfSaved) {
+                    device->GetMaterial(&carSurfMaterial);
+                    device->GetRenderState(D3DRS_ALPHABLENDENABLE, &carSurfState[0]);
+                    device->GetRenderState(D3DRS_SRCBLEND, &carSurfState[1]);
+                    device->GetRenderState(D3DRS_DESTBLEND, &carSurfState[2]);
+                    device->GetRenderState(D3DRS_ZWRITEENABLE, &carSurfState[3]);
+                    device->GetRenderState(D3DRS_ALPHATESTENABLE, &carSurfState[4]);
+                    carSurfSaved = true;
+                }
+                D3DMATERIAL9 m = carSurfMaterial;
+                if (surf == kCarSurfGlass) { m.Specular = {1.0f, 1.0f, 1.0f, 1.0f}; m.Power = 90.0f; }
+                else if (surf == kCarSurfChrome) { m.Specular = {1.0f, 1.0f, 1.0f, 1.0f}; m.Power = 60.0f; }
+                else if (surf == kCarSurfMatte) { m.Specular = {0.06f, 0.06f, 0.06f, 1.0f}; m.Power = 8.0f; }
+                device->SetMaterial(&m);
+                const bool glass = surf == kCarSurfGlass;
+                device->SetRenderState(D3DRS_ALPHABLENDENABLE, glass ? TRUE : carSurfState[0]);
+                device->SetRenderState(D3DRS_SRCBLEND, glass ? D3DBLEND_SRCALPHA : carSurfState[1]);
+                device->SetRenderState(D3DRS_DESTBLEND, glass ? D3DBLEND_INVSRCALPHA : carSurfState[2]);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, glass ? FALSE : carSurfState[3]);
+                device->SetRenderState(D3DRS_ALPHATESTENABLE, glass ? FALSE : carSurfState[4]);
+                carSurf = surf;
+            }
+        }
         IDirect3DTexture9* merged = FigurePairMerged(device, model, mesh);
         IDirect3DTexture9* texture = merged ? merged : TextureFor(device, mesh.texture);
         if (first || texture != bound) {
@@ -2354,6 +2402,14 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         // Leave the device as the UP draws elsewhere expect it: no stream bound.
         device->SetStreamSource(0, nullptr, 0, 0);
         device->SetIndices(nullptr);
+    }
+    if (carSurfSaved) {
+        device->SetMaterial(&carSurfMaterial);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, carSurfState[0]);
+        device->SetRenderState(D3DRS_SRCBLEND, carSurfState[1]);
+        device->SetRenderState(D3DRS_DESTBLEND, carSurfState[2]);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, carSurfState[3]);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, carSurfState[4]);
     }
     if (softStages) ResetSoftStages(device);
     if (g_paintTintOn || g_nodeTintOn || (g_zoneOn && model.pedZones)) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);

@@ -1325,15 +1325,32 @@
   },
   {
    "name": "036_schmidt",
-   "glb": "cars/models3d/036_schmidt.glb",
+   "glb": "cars/vehicle_art2/036_schmidt.glb",
    "scale": 1.0,
    "paint_rgb": [
-    125.5,
-    95.8,
-    82.3
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "chrome": "cars/vehicle_art2/036_schmidt/chrome.png",
+    "underbody": "cars/vehicle_art2/036_schmidt/underbody.png",
+    "paint_body": "cars/vehicle_art2/036_schmidt/paint_body.png",
+    "paint_frame": "cars/vehicle_art2/036_schmidt/paint_frame.png",
+    "seal": "cars/vehicle_art2/036_schmidt/seal.png",
+    "lamp_tail": "cars/vehicle_art2/036_schmidt/lamp_tail.png",
+    "chrome_disc": "cars/vehicle_art2/036_schmidt/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/036_schmidt/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/036_schmidt/lamp_amber.png",
+    "interior_dark": "cars/vehicle_art2/036_schmidt/interior_dark.png",
+    "seat": "cars/vehicle_art2/036_schmidt/seat.png",
+    "tyre_side": "cars/vehicle_art2/036_schmidt/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/036_schmidt/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/036_schmidt/paint_wheel.png",
+    "glass": "cars/vehicle_art2/036_schmidt/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_036.py"
   },
   {
    "name": "037_miara",
@@ -7774,13 +7791,26 @@
   },
   {
    "name": "036_schmidt",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 12896,
+   "nodes": 19,
+   "meshes": 15,
+   "vertices": 14454,
    "animations": [],
    "textures": [
-    "036_schmidt_0.tga",
-    "036_schmidt_0_paint.tga"
+    "036_schmidt_chrome.tga",
+    "036_schmidt_chrome_disc.tga",
+    "036_schmidt_glass.tga",
+    "036_schmidt_interior_dark.tga",
+    "036_schmidt_lamp_amber.tga",
+    "036_schmidt_lamp_head.tga",
+    "036_schmidt_lamp_tail.tga",
+    "036_schmidt_paint_body_paint.tga",
+    "036_schmidt_paint_frame_paint.tga",
+    "036_schmidt_paint_wheel_paint.tga",
+    "036_schmidt_seal.tga",
+    "036_schmidt_seat.tga",
+    "036_schmidt_tyre_side.tga",
+    "036_schmidt_tyre_tread.tga",
+    "036_schmidt_underbody.tga"
    ],
    "skins": 0,
    "forward": "",

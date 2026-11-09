@@ -76,6 +76,9 @@ def main():
     kept = [e for e in manifest.get("models", []) if not re.match(r"^\d{3}_", e.get("name", ""))]
     # hand-set per-model keys survive a rebuild (069 U-Jerk Truck: "forward": "-z", its GLB's nose is at -z)
     carry = {e["name"]: {k: e[k] for k in ("forward",) if k in e} for e in manifest.get("models", []) if "name" in e}
+    # authored cars (tools/vehicle_art*: an entry with a "generator") are kept as they are, never
+    # replaced by an image-to-3D or parametric glb of the same number
+    authored = {e["name"]: e for e in manifest.get("models", []) if "name" in e and e.get("generator")}
     cars = manifest.get("cars", {})
     cars.pop("default", None)
     by_model = {}
@@ -109,6 +112,9 @@ def main():
             rows = (h - car["windows_px"]["rear_y"], h - car["windows_px"]["front_y"])
             cabin = (min(rows), max(rows))
         paint = measure_paint(os.path.join(src, "cars", default["file"]), cabin) if default else [200, 200, 200]
+        if stem in authored:
+            entries.append(authored[stem]); by_model[str(number)] = stem
+            continue
         entry = {"name": stem, "glb": f"cars/{used_dir}/{stem}.glb", "scale": 1.0, "paint_rgb": paint, "texture_max": 512}
         if used_dir == override_dir:
             # one baked texture: the importer splits the paint out of it by colour
