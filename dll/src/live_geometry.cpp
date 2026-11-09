@@ -259,6 +259,7 @@ uint32_t CrowdHash(uint32_t x) {
 }
 // The crowd's look (build, clothes) is the identity record's (identity.cpp CrowdVariety).
 bool g_fxUpright = true;    // effect artwork faced to a street-level camera; bullets as streaks
+bool g_gameBlend = true;    // FIX-FX-2: the game's translucent/additive artwork blended in the street views (GTA2DX9_GAME_BLEND=0: off)
 // Where small effect artwork (a muzzle flash, a bullet, a spark) was drawn last
 // frame: a figure standing in the attack state next to one is shooting, which
 // the game's own frames do not say (the gun stance shares frames 53-60 with the
@@ -1049,6 +1050,48 @@ float PuffFacing(float x, float y, float z, float size, float angle, D3DMATRIX* 
     const float k = (d / (std::max)(0.05f, size) - 0.5f) / 1.5f;
     const float t = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
     return t * t * (3.0f - 2.0f * t);
+}
+// FIX-FX-2 (pm10): the game's own translucent and additive artwork that the effect classifier
+// does not take (base 8 at flags 0x2180 / 0x2280, the vertex alpha 0x50-0xF0: the blast's ring
+// of fire on the ground, number 342, and small puffs and glints). The sprite capture dropped the
+// game's blend flags, so these were drawn as opaque cut-outs: the ring a point-sampled red disc
+// with a black stepped rim. In the street views the big ones keep their shape with the game's
+// blend (smoothed), the small ones become soft puffs of the artwork's mean colour at the game's
+// opacity. The classic view is not touched. (The black and white "flowers" of pm10 were not
+// these: they were vehicle_fx.cpp's blast debris, see its shard atlas.)
+bool GameBlendOn() {
+    static int on = -1;
+    if (on < 0) { char buf[8] = {}; on = !(GetEnvironmentVariableA("GTA2DX9_GAME_BLEND", buf, sizeof buf) && buf[0] == '0'); }
+    return on != 0 && g_gameBlend;
+}
+struct GamePuff { float x, y, z, size, angle; uint8_t r, g, b; float a; bool additive; };
+std::vector<GamePuff> g_gamePuffs;
+// Mean colour of a texture's covered texels (alpha > 0), cached per texture.
+uint32_t TextureMeanColour(IDirect3DTexture9* tex) {
+    static std::map<IDirect3DTexture9*, uint32_t> cache;
+    const auto it = cache.find(tex);
+    if (it != cache.end()) return it->second;
+    uint32_t mean = 0x808080u;
+    D3DSURFACE_DESC desc;
+    D3DLOCKED_RECT lr;
+    if (tex && SUCCEEDED(tex->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
+        SUCCEEDED(tex->LockRect(0, &lr, nullptr, D3DLOCK_READONLY))) {
+        double r = 0, g = 0, b = 0, w = 0;
+        for (UINT y = 0; y < desc.Height; ++y) {
+            const uint32_t* row = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(lr.pBits) + y * lr.Pitch);
+            for (UINT x = 0; x < desc.Width; ++x) {
+                const uint32_t c = row[x];
+                const double a = (c >> 24) / 255.0;
+                if (a <= 0.0) continue;
+                r += a * ((c >> 16) & 255); g += a * ((c >> 8) & 255); b += a * (c & 255); w += a;
+            }
+        }
+        tex->UnlockRect(0);
+        if (w > 0) mean = (static_cast<uint32_t>(r / w) << 16) | (static_cast<uint32_t>(g / w) << 8) | static_cast<uint32_t>(b / w);
+    }
+    if (cache.size() > 512) cache.clear();
+    cache[tex] = mean;
+    return mean;
 }
 IDirect3DTexture9* g_flameTexture = nullptr;
 // A burnt mark on the ground where something blew up. Kept for a minute, fading very slowly.
@@ -1890,6 +1933,72 @@ void DrawTyreSmoke(IDirect3DDevice9* device, bool blending, DWORD alphaRef) {
         }
     }
     if (g_skid.smoke) DrawPuffList(device, g_puffs, blending, alphaRef, g_skid.smokeGlow);
+}
+
+// FIX-FX-2 (pm10): this frame's game puffs (see GamePuff), facing the eye, then forgotten.
+void DrawGamePuffs(IDirect3DDevice9* device) {
+    if (g_gamePuffs.empty()) return;
+    IDirect3DTexture9* soft = SmokeTexture(device);
+    IDirect3DTexture9* glow = SmokeGlowTexture(device);
+    if (!soft || !glow) { g_gamePuffs.clear(); return; }
+    struct SmokeVertex { float x, y, z, nx, ny, nz, u, v; };
+    static const uint16_t indices[6] = {0, 1, 2, 0, 2, 3};
+    static const SmokeVertex quad[4] = {
+        {-0.5f, 0, -0.5f, 0, 1, 0, 0, 1},
+        {0.5f, 0, -0.5f, 0, 1, 0, 1, 1},
+        {0.5f, 0, 0.5f, 0, 1, 0, 1, 0},
+        {-0.5f, 0, 0.5f, 0, 1, 0, 0, 0},
+    };
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool add = pass == 1;
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, add ? FALSE : TRUE);
+        device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
+        device->SetRenderState(D3DRS_ALPHAREF, 1u);
+        device->SetRenderState(D3DRS_SRCBLEND, add ? D3DBLEND_ONE : D3DBLEND_SRCALPHA);
+        device->SetRenderState(D3DRS_DESTBLEND, add ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, add ? D3DTOP_SELECTARG1 : D3DTOP_MODULATE);
+        device->SetTexture(0, add ? glow : soft);
+        for (const GamePuff& p : g_gamePuffs) {
+            if (p.additive != add) continue;
+            D3DMATRIX world;
+            const float facing = PuffFacing(p.x, p.y, p.z, p.size, p.angle, &world);
+            const float a = p.a * facing;
+            if (a < 0.004f) continue;
+            device->SetTransform(D3DTS_WORLD, &world);
+            if (add) {
+                auto ch = [&](uint8_t c) { return static_cast<int>((std::min)(1.0f, c / 255.0f * a) * 255.0f + 0.5f); };
+                device->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, ch(p.r), ch(p.g), ch(p.b)));
+            } else {
+                // Lit like the rest of the smoke (dim at night); a bright, fire-coloured
+                // puff keeps more of its own colour (it is the fire's light in it).
+                const float lum = (0.3f * p.r + 0.59f * p.g + 0.11f * p.b) / 255.0f;
+                auto ch = [&](uint8_t c, int k) {
+                    const float shade = g_puffShade[k] + (1.0f - g_puffShade[k]) * lum;
+                    return static_cast<int>((std::min)(1.0f, c / 255.0f * shade) * 255.0f + 0.5f);
+                };
+                device->SetRenderState(D3DRS_TEXTUREFACTOR,
+                                       D3DCOLOR_ARGB(static_cast<int>((std::min)(1.0f, a) * 255.0f + 0.5f), ch(p.r, 0), ch(p.g, 1), ch(p.b, 2)));
+            }
+            device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 4, 2, indices, D3DFMT_INDEX16, quad, sizeof(SmokeVertex));
+        }
+    }
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    g_gamePuffs.clear();
 }
 
 // The smoke off burning cars, drawn after the fire it comes from.
@@ -5796,6 +5905,25 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
         return;
     }
 
+    // FIX-FX-2 (pm10): GTA2DX9_LOG_FX=1 also lists the game's draw flags and vertex colour of
+    // every distinct non-car, non-ped sprite (base, number, flags), once each.
+    {
+        static int probe = -1;
+        if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_FX", buf, sizeof buf) && buf[0] == '1'; }
+        if (probe) GTA2_TRY {
+            const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn());
+            const int32_t base = object ? *reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase) : -1;
+            const unsigned num = object ? *reinterpret_cast<const uint16_t*>(object + game::kSpriteObjectNumber) : 0u;
+            if (base != game::kSpriteBaseCar && base != game::kSpriteBasePed) {
+                static std::set<long long> seen;
+                const long long key = (static_cast<long long>(base) << 40) ^ (static_cast<long long>(num) << 20) ^ flags;
+                if (seen.size() < 600 && seen.insert(key).second) {
+                    const uint32_t c = *reinterpret_cast<const uint32_t*>(&vertices[4]);
+                    Log("fx flags: base %d number %u flags %x diffuse %08x", base, num, flags, c);
+                }
+            }
+        } GTA2_EXCEPT {}
+    }
     // A pedestrian blown apart: the limbs are on the ground, so the body is not.
     // See gibs.cpp.
     if (GibsHideCurrentSprite()) return;
@@ -6172,6 +6300,8 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     Sprite placed;
     placed.texture = texture;
     if (!Place(out, corners, centre, tilted ? &groundUp : nullptr, &placed)) return;
+    placed.gameFlags = flags;
+    placed.gameDiffuse = (flags & quad_flags::kVertexColour) ? *reinterpret_cast<const uint32_t*>(&vertices[4]) : 0xFFFFFFFFu;
 
     // Which game object this is, written into the quad itself.
     //
@@ -10805,7 +10935,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
     }
     stageTimer.Mark();   // 0: setup
-    std::vector<Drawable> plain, effects, skids, boarders;
+    std::vector<Drawable> plain, effects, skids, boarders, gameAdd, gameBlend;
     plain.reserve(sprites_.size());
     g_fxSpotsLast.swap(g_fxSpotsNow);
     g_fxSpotsNow.clear();
@@ -11364,6 +11494,59 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             if ((std::max)(d2(w0, w1), d2(w0, w3)) < 0.16f * 0.16f) {
                 g_fxSpotsNow.push_back({0.5f * (w0[0] + w3[0]) + 0.5f * (w1[0] - w0[0]), 0.5f * (w0[1] + w3[1]),
                                         0.5f * (w0[2] + w3[2]) + 0.5f * (w1[2] - w0[2])});
+            }
+        }
+        // FIX-FX-2 (pm10): street views: the game's own blend for its translucent and additive
+        // artwork (see GamePuff). Classic keeps drawing every one of them as it always has.
+        if (g_uprightPeds && g_fxUpright && GameBlendOn() && !effect && sprite.corners == 4 && !sprite.pedestrian &&
+            !sprite.corpse && !sprite.lamp && !sprite.plain && !bloodDecal && !hdLogo) {
+            const unsigned gf = sprite.gameFlags;
+            const unsigned va = sprite.gameDiffuse >> 24;
+            const bool additive = (gf & quad_flags::kAdditive) != 0;
+            const bool blended = !additive && (gf & 0x180u) && (gf & quad_flags::kVertexColour) && va < 0xF0u;
+            if (additive || blended) {
+                const float (*m)[4] = sprite.objectToWorld.m;
+                auto wp = [&](const Vertex& v, float* o) {
+                    for (int j = 0; j < 3; ++j) o[j] = v.x * m[0][j] + v.y * m[1][j] + v.z * m[2][j] + m[3][j];
+                };
+                float w0[3], w1[3], w3[3], c[3] = {0, 0, 0};
+                wp(sprite.local[0], w0); wp(sprite.local[1], w1); wp(sprite.local[3], w3);
+                for (int i = 0; i < 4; ++i) { float w[3]; wp(sprite.local[i], w); for (int j = 0; j < 3; ++j) c[j] += 0.25f * w[j]; }
+                auto dl = [](const float* a, const float* b) {
+                    return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+                };
+                const float size = (std::max)(dl(w0, w1), dl(w0, w3));
+                const float alpha = (gf & quad_flags::kVertexColour) ? va / 255.0f : 1.0f;
+                const uint32_t vrgb = (gf & quad_flags::kVertexColour) ? (sprite.gameDiffuse & 0xFFFFFFu) : 0xFFFFFFu;
+                {
+                    static std::set<long long> logged;
+                    const long long key = (static_cast<long long>(reinterpret_cast<uintptr_t>(sprite.texture)) << 16) ^ gf;
+                    if (logged.size() < 60 && logged.insert(key).second)
+                        Log("game blend: texture %p flags %x alpha %u size %.2f -> %s", sprite.texture, gf, va, size,
+                            size > 0.6f ? (additive ? "additive quad" : "translucent quad") : (additive ? "soft glow puff" : "soft puff"));
+                }
+                if (size > 0.6f) {
+                    // A big one (the blast's ring of fire on the ground) keeps its own shape,
+                    // smoothed, with the game's blend: an additive ring's dark middle adds nothing.
+                    uint32_t col;
+                    if (additive) {
+                        auto ch = [&](int sh) { return static_cast<uint32_t>(((vrgb >> sh) & 255u) * alpha + 0.5f) << sh; };
+                        col = 0xFF000000u | ch(16) | ch(8) | ch(0);
+                        gameAdd.push_back({&sprite, texture, true, col});
+                    } else {
+                        col = (static_cast<uint32_t>(alpha * 255.0f + 0.5f) << 24) | vrgb;
+                        gameBlend.push_back({&sprite, texture, true, col});
+                    }
+                    continue;
+                }
+                const uint32_t mean = TextureMeanColour(texture);
+                auto mul = [&](int sh) { return static_cast<uint8_t>(((mean >> sh) & 255u) * ((vrgb >> sh) & 255u) / 255u); };
+                const float angle = static_cast<float>((sprite.object >> 4) & 1023u) * 0.0061f;
+                // The soft texture covers less than the solid flower: a little bigger and
+                // denser than the game's 0x50 so the puff reads at the same weight.
+                g_gamePuffs.push_back({c[0], c[1], c[2], size * 1.35f, angle, mul(16), mul(8), mul(0),
+                                       (std::min)(0.85f, alpha * (additive ? 1.0f : 1.6f)), additive});
+                continue;
             }
         }
         (effect ? effects : plain).push_back({&sprite, texture, enlarged, effect ? blastDim : 0u, bloodDecal});
@@ -12240,6 +12423,30 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
         device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
     }
+    // FIX-FX-2 (pm10): the game's big translucent / additive artwork in the street views, with
+    // the game's own blend (see GamePuff); depth tested, not written.
+    if (!gameAdd.empty() || !gameBlend.empty()) {
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+        device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
+        device->SetRenderState(D3DRS_ALPHAREF, 1u);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        if (!gameBlend.empty()) {
+            device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+            device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+            issue(gameBlend);
+        }
+        if (!gameAdd.empty()) {
+            device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+            device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+            issue(gameAdd);
+        }
+        device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blending ? TRUE : FALSE);
+        device->SetRenderState(D3DRS_ALPHAREF, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    }
     // Dark smoke off each flame, then everything already rising.
     // The smoke rate is per burning car, not per flame sprite: a car on fire shows many flame
     // sprites at once, and a puff for each of them piled up hundreds of quads.
@@ -12289,6 +12496,12 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    if (fxUpright) {
+        DrawGamePuffs(device);   // FIX-FX-2 (pm10)
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, blending ? TRUE : FALSE);
+        device->SetRenderState(D3DRS_ALPHAREF, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+        device->SetFVF(kWorldFvf);
+    }
     if (fxUpright) {
         // QB-19: fireball, flash, shock ring, sparks and the smoke column of every blast.
         { const gta2::Vec3 eyeNow = camera.Position(); ExplosionFxSetEye(eyeNow.x, eyeNow.y, eyeNow.z); }

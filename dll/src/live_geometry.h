@@ -618,6 +618,10 @@ private:
         // A map object (cone, bin, phone box...) drawn as this model instead of
         // its flat sprite in the street-level views. See map_objects.h.
         const struct Model* objectModel = nullptr;
+        // FIX-FX-2 (pm10): the game's draw flags (0x200 additive, 0x100/0x80 blended by the
+        // vertex alpha, 0x2000 vertex colour) and the first vertex's diffuse.
+        unsigned gameFlags = 0;
+        uint32_t gameDiffuse = 0xFFFFFFFFu;
     };
 public:
     using SpriteType = Sprite;   // for the skid memory in live_geometry.cpp

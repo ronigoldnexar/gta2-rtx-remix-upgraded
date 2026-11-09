@@ -201,10 +201,14 @@ bool Sky::Ensure(IDirect3DDevice9* device) {
                     // time through the alpha, so the texture holds the raw
                     // field in A and a lit/shaded brightness in RGB: thicker
                     // cloud is a little greyer underneath.
+                    // FIX-FX-2 (pm6 12d): the thick middle a little shaded and toward the sky's
+                    // blue-grey, never a neutral grey darker than the sky behind it: that grey
+                    // over a blue sky read as brown smudges, dirt rather than cloud.
                     const float thick = Clamp01((n - 0.45f) / 0.35f);
-                    const float bright = 1.0f - 0.28f * thick * thick;
-                    const DWORD b = static_cast<DWORD>(bright * 255.0f + 0.5f);
-                    row[x] = (static_cast<DWORD>(Clamp01(n) * 255.0f + 0.5f) << 24) | (b << 16) | (b << 8) | b;
+                    const float shade = 0.13f * thick * thick;
+                    const auto ch = [](float v) { return static_cast<DWORD>(Clamp01(v) * 255.0f + 0.5f); };
+                    row[x] = (static_cast<DWORD>(Clamp01(n) * 255.0f + 0.5f) << 24) | (ch(1.0f - shade * 1.25f) << 16) |
+                             (ch(1.0f - shade * 1.0f) << 8) | ch(1.0f - shade * 0.55f);
                 }
             }
             clouds_->UnlockRect(0);

@@ -180,6 +180,8 @@ struct Particle {
     float r, g, b, a;
     float groundY;
     uint8_t kind;
+    uint8_t cell = 0;   // debris: which shard of the atlas
+    bool hot = false;   // debris: a burning bit, glowing for its first second
 };
 std::vector<Particle> g_particles;
 
@@ -256,13 +258,16 @@ void EmitDebris(const gta2::Vec3& at, float groundY, const float paint[3], int c
         const float ang = Rand(0.0f, 2.0f * kPi), sp = Rand(0.8f, 2.6f) * power;
         p.vx = std::cos(ang) * sp; p.vz = std::sin(ang) * sp; p.vy = Rand(1.5f, 3.8f) * power;
         p.life = Rand(5.0f, 9.0f);
-        p.size0 = p.size1 = Rand(0.03f, 0.075f);
+        // FIX-FX-2 (pm10): fragments a hand or two across (0.05-0.12 block), not plates half a metre wide.
+        p.size0 = p.size1 = Rand(0.018f, 0.045f);
         p.rot = Rand(0.0f, 2.0f * kPi); p.rotV = Rand(-9.0f, 9.0f);
+        p.cell = static_cast<uint8_t>(Rand() * 3.999f);
+        p.hot = Rand() < 0.3f;
         // Panels in the car's (scorched) paint, the rest dark metal and glass.
         const float k = Rand();
-        if (k < 0.55f) { const float d = Rand(0.35f, 0.6f); p.r = paint[0] * d; p.g = paint[1] * d; p.b = paint[2] * d; }
-        else if (k < 0.85f) { p.r = p.g = p.b = Rand(0.10f, 0.22f); }
-        else { p.r = 0.55f; p.g = 0.62f; p.b = 0.66f; }
+        if (k < 0.55f) { const float d = Rand(0.45f, 0.7f); p.r = paint[0] * d; p.g = paint[1] * d; p.b = paint[2] * d; }
+        else if (k < 0.85f) { p.r = p.g = p.b = Rand(0.24f, 0.36f); }
+        else { p.r = 0.50f; p.g = 0.56f; p.b = 0.60f; }
         p.a = 1.0f;
         p.groundY = groundY;
         Emit(p);
@@ -389,14 +394,39 @@ bool EnsureTextures(IDirect3DDevice9* device) {
         });
     }
     else if (!g_shardTex) {
-        // A jagged shard: a seven-sided polygon with uneven corners, hard-edged.
-        g_shardTex = MakeTexture(device, 32, 32, [](float u, float v) {
-            const float dx = u - 0.5f, dy = v - 0.5f;
-            const float ang = std::atan2(dy, dx);
-            const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
-            const float lim = 0.62f + 0.30f * std::fabs(std::sin(ang * 3.5f + 0.7f));
-            const float a = r < lim ? 1.0f : 0.0f;
-            const float shade = 0.80f + 0.20f * (dx - dy);
+        // FIX-FX-2 (pm10): four irregular shards in a 2x2 atlas - bent panel, trim strip, glass
+        // splinter, torn corner - each a convex polygon of 4-5 uneven corners, with a lit edge
+        // and a darker fold across it. The single seven-pointed shard before was radially
+        // symmetric: at a street-level camera a shower of them read as black and white flowers.
+        g_shardTex = MakeTexture(device, 64, 64, [](float u, float v) {
+            static const float kPoly[4][5][2] = {
+                {{-0.95f, -0.40f}, {0.20f, -0.85f}, {0.90f, -0.10f}, {0.35f, 0.80f}, {-0.70f, 0.55f}},
+                {{-0.95f, -0.25f}, {0.95f, -0.45f}, {0.85f, -0.05f}, {-0.80f, 0.30f}, {-0.80f, 0.30f}},
+                {{-0.15f, -0.95f}, {0.55f, 0.10f}, {0.10f, 0.95f}, {-0.45f, 0.20f}, {-0.45f, 0.20f}},
+                {{-0.80f, -0.80f}, {0.75f, -0.60f}, {0.15f, 0.85f}, {-0.60f, 0.40f}, {-0.60f, 0.40f}},
+            };
+            const int cell = (v < 0.5f ? 0 : 2) + (u < 0.5f ? 0 : 1);
+            // 10 % margin: the cells are sampled bilinearly and must not bleed into each other.
+            const float x = ((u < 0.5f ? u : u - 0.5f) * 4.0f - 1.0f) * 1.12f, y = ((v < 0.5f ? v : v - 0.5f) * 4.0f - 1.0f) * 1.12f;
+            // Signed distance inside a convex polygon: the least of the edge distances, measured
+            // toward the interior whichever way the corners wind.
+            const float (*P)[2] = kPoly[cell];
+            float cross = 0.0f;
+            for (int i = 0; i < 5; ++i) cross += P[i][0] * P[(i + 1) % 5][1] - P[i][1] * P[(i + 1) % 5][0];
+            const float wind = cross > 0.0f ? -1.0f : 1.0f;
+            float inside = 1e9f;
+            for (int i = 0; i < 5; ++i) {
+                const float* a = P[i]; const float* b = P[(i + 1) % 5];
+                const float ex = b[0] - a[0], ey = b[1] - a[1];
+                const float el = std::sqrt(ex * ex + ey * ey);
+                if (el < 1e-4f) continue;
+                inside = (std::min)(inside, wind * ((x - a[0]) * ey - (y - a[1]) * ex) / el);
+            }
+            const float a = Clamp(inside * 16.0f + 0.5f, 0.0f, 1.0f);
+            // A bevel lit from the top left, a fold across the middle.
+            const float rim = Clamp(1.0f - inside * 8.0f, 0.0f, 1.0f);
+            const float fold = (x * 0.6f + y * 0.8f) > 0.1f ? 0.82f : 1.0f;
+            const float shade = Clamp((0.86f + 0.14f * (-x - y) * 0.5f) * fold + 0.25f * rim * (y < 0.0f ? 1.0f : 0.2f), 0.0f, 1.0f);
             return Argb(a, shade, shade, shade);
         });
     }
@@ -428,6 +458,15 @@ void Quad(const gta2::Vec3& c, const gta2::Vec3& a, const gta2::Vec3& b, DWORD c
     }
     const uint16_t t[6] = {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2), base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)};
     g_index.insert(g_index.end(), t, t + 6);
+}
+
+// A quad showing one cell of a 2x2 atlas (the debris shards).
+void QuadCell(const gta2::Vec3& c, const gta2::Vec3& a, const gta2::Vec3& b, DWORD col, int cell) {
+    const size_t first = g_verts.size();
+    Quad(c, a, b, col);
+    if (g_verts.size() == first) return;
+    const float u0 = (cell & 1) ? 0.5f : 0.0f, v0 = (cell & 2) ? 0.5f : 0.0f;
+    for (size_t i = first; i < g_verts.size(); ++i) { g_verts[i].u = u0 + g_verts[i].u * 0.5f; g_verts[i].v = v0 + g_verts[i].v * 0.5f; }
 }
 
 // Every effect is quads, so they draw from one dynamic vertex buffer (written with
@@ -1354,7 +1393,13 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         const float cs = std::cos(p.rot) * p.size0, sn = std::sin(p.rot) * p.size0;
         const gta2::Vec3 a = right * cs + up * sn, b = (up * cs - right * sn) * squash;
         const float fade = p.life - p.age < 1.0f ? (p.life - p.age) : 1.0f;
-        Quad(c, a, b, Colour(p.r, p.g, p.b, fade));
+        // FIX-FX-2 (pm10): lit like the smoke (the scene's light), brighter when a face turns
+        // to the eye (the squash is that turn), and a burning bit glows for its first second.
+        const float glint = 0.55f + 0.45f * squash * squash;
+        const float heat = p.hot ? Clamp(1.0f - p.age / 1.1f, 0.0f, 1.0f) : 0.0f;
+        const float hr = p.r * shade[0] * glint + 0.95f * heat, hg = p.g * shade[1] * glint + 0.42f * heat,
+                    hb = p.b * shade[2] * glint + 0.10f * heat;
+        QuadCell(c, a, b, Colour(hr, hg, hb, fade), p.cell);
     }
     Flush(device, g_shardTex);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);

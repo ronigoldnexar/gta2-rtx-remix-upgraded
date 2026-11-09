@@ -82,9 +82,17 @@ What is not verified:
 
 ## Open
 
-- The small dark lobed scraps that fly off an exploding car are not part of this module. They are
-  car debris from `vehicle_fx.cpp` and the game's own debris sprites. They read as flat cut-outs
-  and are the next thing to fix in this row.
+- Fixed (FIX-FX-2, pm10, 9 Nov): the small dark lobed scraps ("black and white flowers") were
+  `vehicle_fx.cpp`'s blast debris: one radially symmetric seven-pointed shard texture, unlit, in
+  the car's paint x 0.35-0.6 or near-black. Proved by a run with this module off
+  (`GTA2DX9_EXPLOSION_FX=0`: the flowers stayed) and the game's base-8 sprites hidden (they stayed).
+  The debris is now a 2x2 atlas of irregular shards (panel, trim strip, splinter, torn corner),
+  a third the size, lit by the scene's light with a glint as it turns, 30 % of it glowing hot for
+  its first second. The game's own translucent/additive artwork (flags 0x2180/0x2280: the blast's
+  ring of fire on the ground, number 342) had been drawn as an opaque, point-sampled cut-out (a red
+  disc with a black stepped rim); in the street views it now keeps the game's blend, smoothed
+  (`live_geometry.cpp` GamePuff; `GTA2DX9_GAME_BLEND=0` turns it off). `GTA2DX9_LOG_FX=1` also logs
+  the game's draw flags per sprite number (`fx flags:`).
 - The ground light is a decal on the road only. Walls are lit only when `[visuals]` lights are on,
   which needs a provider hook in `visuals.cpp` (VISUALS-PLAIN owns that file).
   `ExplosionFxLight()` already returns the light it would need.
