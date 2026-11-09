@@ -2360,6 +2360,51 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 eye.z = nz;
             }
         }
+        // FIX-FP (pm3-fp-eye-inside-passing-car-black-blue-body): nor a hand from a car. The wall
+        // solves above and the drawn-mesh clearance below know the map, not the traffic: walking
+        // into a parked car or with one brushing past, the eye (ahead of his centre) went 0.1-0.3
+        // block from the hull, which filled half the frame as a dark wall of paint. On foot the eye
+        // keeps kCarClear from every car's footprint (LiveCameraCars, the chase camera's boxes, which
+        // the 3D bodies overhang by up to a tenth of a block): pulled back toward his centre, then
+        // straight out from the car if his centre itself is that close, never into a wall.
+        if (!inVehicle && CameraCarsOn()) {
+            constexpr float kCarClear = 0.30f;
+            for (int pass = 0; pass < 2; ++pass) {
+                for (const CameraCar& c : LiveCameraCars()) {
+                    if (c.y0 > eye.y + 0.1f || c.y1 + 0.15f < eye.y) continue;   // under or over it
+                    const float depth = CarFootprintDepth(c, eye.x, eye.z);
+                    if (depth <= -kCarClear) continue;
+                    if (CarFootprintDepth(c, px, pz) > -0.02f) continue;          // he is in it (boarding)
+                    float nx = eye.x, nz = eye.z;
+                    // back toward his centre, in eighths
+                    bool clear = false;
+                    for (int k = 1; k <= 8; ++k) {
+                        const float t = static_cast<float>(k) / 8.0f;
+                        const float tx = eye.x + (px - eye.x) * t, tz = eye.z + (pz - eye.z) * t;
+                        nx = tx; nz = tz;
+                        if (CarFootprintDepth(c, tx, tz) <= -kCarClear) { clear = true; break; }
+                    }
+                    if (!clear) {
+                        // still too near at his centre: out from the car's middle by what is missing
+                        const float cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]), cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
+                        float dx = nx - cx, dz = nz - cz;
+                        const float dl = std::hypot(dx, dz);
+                        if (dl > 1e-4f) {
+                            const float need = kCarClear + CarFootprintDepth(c, nx, nz);
+                            nx += dx / dl * need; nz += dz / dl * need;
+                        }
+                    }
+                    if (eyeWall(nx, eye.y, nz) || std::hypot(nx - eye.x, nz - eye.z) < 0.002f) continue;
+                    static int carLogs = 0;
+                    if (carLogs < 30) {
+                        ++carLogs;
+                        Log("view: fp eye: car %08x %.2f from the eye, eye moved %.2f (%s)", static_cast<unsigned>(c.object), -depth,
+                            std::hypot(nx - eye.x, nz - eye.z), clear ? "back" : "out");
+                    }
+                    eye.x = nx; eye.z = nz;
+                }
+            }
+        }
         if (inVehicle && s.fpBodyRide > 0.0f) {
             // FIX-VEHICLES: the eye sits in the sprung body: it dips with the nose
             // under braking, tips back on a launch, leans with the roll and rises and
