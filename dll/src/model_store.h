@@ -90,6 +90,12 @@ struct Model {
     // Whether any mesh uses a "_paint" texture (a split body/paint texture that
     // needs alpha testing to look whole, tinted or not).
     bool splitPaint = false;
+    // ASSET-PEDS: a pedestrian whose clothes come in tintable zones (importer
+    // "ped_zones": nodes "...#pt" the top, "...#pb" the bottom, their texture neutral
+    // grey at zoneRef), the zones' own colours (top, bottom, hair; 0 = unknown).
+    bool pedZones = false;
+    float zoneRef = 128.0f;
+    float zoneRgb[3][3] = {};
     // The ground the walk animation covers per cycle, in model units (its
     // root motion was stripped on import); 0 when unknown.
     float stride = 0.0f;
@@ -174,6 +180,17 @@ int PedRemapEffective(int remap, uint32_t seed);
 // remap's own colour, and the tint for this model (the remap colour over the
 // model's measured clothing colour, "paint_rgb"); false when not tinted.
 bool PedRemapTint(int remap, const Model& model, float rgb[3]);
+// ASSET-PEDS: the tints of a zoned avatar's top, bottom and hair for a remap's
+// outfit (the manifest's "ped_outfits", read from the sprite's palettes), as
+// multipliers (0..2) for ModelSetZoneTints; a zone the outfit leaves open keeps
+// the avatar's own colour, the hair stays untinted (hairTint false). False when
+// the model has no zones or the remap's type is not tinted.
+bool PedZoneTints(int remap, const Model& model, float tints[3][3], bool* hairTint);
+bool PedRemapHasType(int remap);   // a ped type lists this remap (53: the SWAT/FBI body)
+// Meshes of a zoned avatar drawn with these factors (top, bottom; hair on the
+// hair cards, "_opacity" textures) until cleared with nullptr; overrides the
+// paint tint for those meshes.
+void ModelSetZoneTints(const float* top, const float* bottom, const float* hair);
 // Street furniture by role: "lamp", "hydrant", "bin", "bench", "shrub"; null
 // when the manifest names none.
 const Model* ModelForProp(const char* role);

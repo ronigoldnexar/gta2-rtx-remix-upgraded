@@ -31,7 +31,10 @@ Adults Male 02/05/08/11/16 and Female 02/06/10/13 (civilians); Professions Polic
 Police_Female_01, Military_Male_01/02 and Military_Female_01, Fire_Male_01/02 and Fire_Female_01,
 Medical_Male_01/02 and Medical_Female_01/02, Business_Male_01-03 and Business_Female_01,
 Construction_Male_01/02, Security_Male_01, Sports_Male_01 and Sports_Female_01 (`human_<folder>`
-in lower case).
+in lower case). Since 9 Nov 2026 (ASSET-PEDS, `docs/ped-identity.md`) 59, also from the same MIT
+library: Adults Male 06/09/12/18/20 and Female 04/12/17; Professions Police_Male_04,
+Security_Female_01, Business_Male_04-07, Medical_Male_04, Sports_Male_04, Fire_Male_03 and
+Construction_Male_05.
 
 ### Pedestrian types
 
@@ -42,14 +45,16 @@ mafia, 11 Loony, 12 Elvis, 13 Yakuza, 14 fireman, 16 medic, 17 mugger, 22 prison
 player and the rest civilian outfits by colour. The renderer recovers the remap from the physical
 palette the game registered the ped's texture with (the style's PALX for the PALB `ped_remap`
 slots, `Style::PedRemapPalette`), and the manifest's `ped_types` says which avatars each remap
-draws: uniforms for police, army, firemen, medics (and lab coats for scientists), suits for the
-Zaibatsu, work clothes for the rednecks, and for the colour gangs casual avatars whose clothing is
-tinted to the gang's colour (`ped_remap_colours`). The tint works like the cars' repaint: the
-importer's `tint_clothing` splits the body texture into skin and clothing (`_paint`), measures the
-clothing's own colour (`paint_rgb`), and the renderer multiplies the clothing half by the remap
-colour over it. Civilian outfits pick the four avatars whose clothing colour is nearest the
-outfit's. SWAT and the roadblock soldiers use other sprite sets (`EMERG_GRAPHIC`, remap -1), not
-a remap, and are not told apart yet.
+draws. Since ASSET-PEDS (9 Nov 2026, `docs/ped-identity.md`) every type wears its sprite's own
+outfit: `tools/ped_sprite_outfits.py` reads each remap's shirt, forearm, trouser, shin, hair and
+skin colours from the style's palettes (`assets-src/humans/pedtypes/outfits.json`), the avatar is
+chosen for the sprite's silhouette (short sleeves, shorts, a shaved head, a uniform, a suit), and
+the importer's `ped_zones` splits a casual avatar's clothes into a top and a bottom zone (by the
+bone weights of each UV island) made neutral grey, which the renderer tints to the manifest's
+`ped_outfits` (top, bottom and, where the sprite says so, hair). Uniforms and suits that already
+match (police, army, Zaibatsu, Yakuza, SWAT) keep their own textures. The SWAT/FBI sprite set
+(`EMERG_GRAPHIC`, no remap) is drawn as type 53 (tactical kit), the Zaibatsu set (`GANG_GRAPHIC`)
+as remap 8.
 
 Each has the library's `walk_neutral` and `idle_breathe` animations merged in by joint name (the
 skeleton is the same Bip01 rig in every avatar; the walk's root motion is stripped and its ground

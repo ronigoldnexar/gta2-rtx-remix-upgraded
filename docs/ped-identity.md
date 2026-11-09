@@ -1,0 +1,121 @@
+# Pedestrians as the GTA2 originals (ASSET-PEDS, 9 Nov 2026)
+
+Goal: every pedestrian type in the street views is a photoreal person, yet you can still tell
+which GTA2 type it is from the sprite. That means the same gang, the same clothing colours,
+the same sleeves and shorts, the same hair where the sprite shows it, and a uniform where the
+game has one. This builds on CROWD (`56eaab5`: own builds, heads that follow the player).
+
+## What GTA2 actually says about a ped
+
+All the remapped types share one sprite body (frames 0-157 of the ped sprites). DMA's types are
+53 remap palettes of that body. The SWAT/FBI and Zaibatsu types instead use their own sprite
+sets: `EMERG_GRAPHIC` (frames 316-473) and `GANG_GRAPHIC` (158-315). The body's palette
+indices map to body parts, which I found by colour-coding the indices on the full-body frames:
+
+| indices | part |
+|---|---|
+| 74-86 | torso (shirt) |
+| 224-232 | forearms (a sleeve, or bare skin = short sleeves) |
+| 206-212 | thighs (trousers) |
+| 215-223 | shins (trousers, or bare skin = shorts) |
+| 240-247 | hair (skin-coloured = shaved: Krishna) |
+| 176-182 | skin |
+| 192-196 | shoes |
+
+`tools/ped_sprite_outfits.py <wil.sty> assets-src/humans/pedtypes/outfits.json` reads every
+remap's colour per part. Each colour is the pixel-count-weighted mean over the 158 frames. The
+script also sets three flags: `short_sleeves`, `shorts` and `bald`. The gang and police palettes
+are very dark in the style (police torso [14,23,28]). `make_ped_manifest.py`'s `lift()` raises
+near-black colours just enough for the hue to read, and adds 10% to every colour, because the
+sprite means include the sprite's own shading.
+
+## How an avatar wears it
+
+- **Avatars.** There are 59 Rocketbox avatars (MIT). This pass added 18; they are listed in
+  `assets/README.md`. Each type's avatars are picked for the sprite's silhouette:
+  - Krishnas are shaved-head men (Business_Male_04/07).
+  - Medics wear green scrubs (Medical_Male_04).
+  - Russians wear a red henley.
+  - Loonies wear a tracksuit.
+  - Prisoners wear coveralls; the construction avatars' hard hats are dropped with the new
+    importer option `materials_exclude`.
+  - The player (remap 25, black) is Male_Adult_11.
+  - Remap 26, the "naked dummy", wears swimwear.
+  - SWAT/FBI wear tactical kit: the body is drawn as type 53.
+  - Civilians draw from three pools by silhouette: long sleeves, short sleeves, shorts.
+- **Clothing zones** (`tools/import_assets.py`, entry key `ped_zones`):
+  - Each body triangle gets a zone from the bone class that carries most of its weight:
+    spine, arms and hands are the top; pelvis, thighs and calves are the bottom; feet and head
+    are left alone.
+  - The zone is then voted per UV island (one garment piece), so shirt tails and lab-coat
+    skirts stay with the top.
+  - Skin texels use the classic RGB rule, and must also sit within 0.06 rg-chromaticity of the
+    avatar's own face. Without that second test, red shirts read as skin.
+  - The clothing texels go to a `_paint` copy made neutral grey. The shading is kept with its
+    contrast eased by `zone_contrast` (0.75), and each zone's mean is 128 (`zone_ref`).
+  - The top and bottom triangles become their own meshes, marked `#pt` / `#pb` in the node
+    name. Each keeps only the vertices it uses.
+  - The import report gives each zone's original colour (`zone_rgb_t/_b`) and the hair cards'
+    mean colour (`zone_rgb_h`).
+- **Outfits** (`ped_outfits` in the manifest): per remap, nine numbers: top RGB, bottom RGB and
+  hair RGB (0 means keep the avatar's own). Hair is only given where the sprite shows a
+  non-default hair colour: red or blonde rednecks, the blonde, ginger and grey civilians.
+- **Renderer** (`dll/src/model_store.cpp`, `PedZoneTints` / `ModelSetZoneTints`):
+  - For a zoned avatar whose type has `"tint": 1`, the `#pt` meshes are multiplied by
+    top / 128 and the `#pb` meshes by bottom / 128, using the same fixed-function `TFACTOR`
+    `MODULATE2X` stage as the cars' repaint. The hair cards (`_opacity`) are multiplied by
+    hair / the avatar's own hair colour.
+  - CROWD's random everyday colours are off for zoned avatars. A ±12% shade per ped
+    (`CrowdLook::shade`) keeps a crowd of one remap from looking cloned.
+  - The player is never shaded.
+  - Uniforms and suits that already match their sprite keep their own textures with no zones:
+    police, army, Zaibatsu, Yakuza and SWAT.
+- **Log:** every 300 frames, `peds: N of M figures drawn in their sprite's outfit (ASSET-PEDS
+  zones)`.
+
+## Regenerating
+
+```
+python3 tools/ped_sprite_outfits.py game/data/wil.sty assets-src/humans/pedtypes/outfits.json
+bash assets-src/humans/fetch_rocketbox_pro.sh Professions Police_Male_04 Security_Female_01 Business_Male_04 \
+     Business_Male_05 Business_Male_06 Business_Male_07 Medical_Male_04 Sports_Male_04 Fire_Male_03 Construction_Male_05
+bash assets-src/humans/fetch_rocketbox_pro.sh Adults Male_Adult_06 Male_Adult_09 Male_Adult_12 Male_Adult_18 \
+     Male_Adult_20 Female_Adult_17 Female_Adult_12 Female_Adult_04
+python3 assets-src/humans/make_ped_manifest.py            # copy of tools/make_ped_manifest.py
+python3 tools/import_assets.py assets-src/manifest.json assets/models --only <human_ names>
+```
+
+The comparison sheet is `tools/ped_identity/compare_sheet.py <models dir> <out prefix> [remaps]`. It renders each
+avatar with nvdiffrast on the GPU and applies the zone tints exactly as the DLL does.
+
+## Status
+
+See the ASSET-PEDS comment on the issue for the verified frames.
+
+- **Verified offline:** a sheet of all 54 types, each original sprite beside its avatars,
+  rendered with the renderer's tint rules.
+- **Verified in game:** see "In-game check" below.
+
+What still looks wrong or is not done:
+
+- **Coloured police remaps (1-3: green, red, yellow).** These keep the black uniform. The
+  sprite tints the shirt; those remaps are not seen in single-player Downtown.
+- **Shaded colours.** Colours are means of shaded sprite pixels, so a few civilians come out a
+  shade darker than the sprite reads at a glance (dark purple and burgundy shirts).
+- **Pattern under the tint.** An argyle sweater or a patterned blouse keeps its pattern in the
+  new colour.
+- **Krishna.** The torso colour is a mix of the sprite's torso and forearm colours, which gives
+  a saffron-brown shirt. There is no robe geometry in the library.
+- **Elvis.** No pompadour: the library has no such hair.
+- **Hulks (23/24).** No bigger build and no green skin.
+- **Hair tint** only reaches the hair cards, not hair painted into the head texture. The red
+  and blonde rednecks therefore differ little on the short-haired avatars.
+- **Remix:** untested. The tint uses the same `TFACTOR` stage as the cars' repaint.
+- **SDXL/TRELLIS:** not used. Generated meshes come without a skeleton. The rigged MIT Rocketbox
+  avatars, recoloured from the sprite palettes, are both more photoreal and closer to the
+  sprites.
+
+**Staging hazard.** Zoned avatars carry neutral-grey clothing textures. A DLL without
+`PedZoneTints` (anything before this commit) would draw them grey. So the new
+`gta2dx9_models_people` set and this DLL must be staged together. Do not copy the avatars into
+`repo/assets/models` ahead of the code.

@@ -67,6 +67,10 @@ struct PedType {
 std::vector<PedType> g_pedTypes;
 int g_pedTypeByRemap[64];                 // index into g_pedTypes, -1 none
 float g_pedRemapColour[64][3];            // the remap's clothing colour (0-255), 0 when unknown
+float g_pedOutfit[64][9];                 // ASSET-PEDS: top, bottom, hair (0-255) by remap, 0 = keep the avatar's
+bool g_zoneOn = false;
+float g_zoneTint[3][3] = {};
+bool g_zoneHair = false;
 std::map<int, int> g_pedRemapByPalette;   // physical palette -> remap, from the loaded style
 std::map<std::string, std::string> g_props;
 std::vector<gta2::Vec3> g_mapLamps;
@@ -672,6 +676,25 @@ void ModelsLoad(const char* folder) {
             floats(one.substr(c2 + 1), &l.phase);
             if (l.dist.size() >= 2) g_models[it->second].loco.push_back(std::move(l));
         }
+        // ASSET-PEDS: "ped_zones": 1, "zone_ref": 128, "zone_rgb_t"/"_b"/"_h": [r, g, b] (or null)
+        if (it != g_byName.end() && Field(entry, "ped_zones") == "1") {
+            Model& zm = g_models[it->second];
+            zm.pedZones = true;
+            const std::string ref = Field(entry, "zone_ref");
+            if (!ref.empty()) zm.zoneRef = (std::max)(8.0f, static_cast<float>(atof(ref.c_str())));
+            const char* keys[3] = {"\"zone_rgb_t\"", "\"zone_rgb_b\"", "\"zone_rgb_h\""};
+            for (int z = 0; z < 3; ++z) {
+                const size_t kz = entry.find(keys[z]);
+                if (kz == std::string::npos) continue;
+                const size_t colon = entry.find(':', kz);
+                const size_t open = colon == std::string::npos ? colon : entry.find_first_not_of(" \t\r\n", colon + 1);
+                if (open == std::string::npos || entry[open] != '[') continue;   // null: unknown
+                float v[3] = {0, 0, 0};
+                if (sscanf(entry.c_str() + open, "[%f,%f,%f", &v[0], &v[1], &v[2]) == 3 ||
+                    sscanf(entry.c_str() + open, "[ %f , %f , %f", &v[0], &v[1], &v[2]) == 3)
+                    for (int k = 0; k < 3; ++k) zm.zoneRgb[z][k] = v[k];
+            }
+        }
         // "paint_rgb": [r, g, b]
         const size_t paint = entry.find("\"paint_rgb\"");
         if (it != g_byName.end() && paint != std::string::npos) {
@@ -762,6 +785,34 @@ void ModelsLoad(const char* folder) {
             }
         }
     }
+    // ASSET-PEDS: "ped_outfits": [[top r g b, bottom r g b, hair r g b], ...] by remap
+    // (tools/make_ped_manifest.py, from the sprite palettes); zeros keep the avatar's.
+    for (int i = 0; i < 64; ++i) for (int k = 0; k < 9; ++k) g_pedOutfit[i][k] = 0.0f;
+    {
+        const size_t key = text.find("\"ped_outfits\"");
+        int remap = 0;
+        size_t at = key == std::string::npos ? std::string::npos : text.find('[', key);
+        while (at != std::string::npos && remap < 64) {
+            const size_t open = text.find('[', at + 1);
+            if (open == std::string::npos) break;
+            const size_t close = text.find(']', open);
+            if (close == std::string::npos) break;
+            const std::string row = text.substr(open + 1, close - open - 1);
+            int k = 0;
+            for (size_t p = 0; p < row.size() && k < 9;) {
+                const size_t q = row.find(',', p);
+                const std::string num = row.substr(p, q == std::string::npos ? std::string::npos : q - p);
+                g_pedOutfit[remap][k++] = static_cast<float>(atof(num.c_str()));
+                if (q == std::string::npos) break;
+                p = q + 1;
+            }
+            ++remap;
+            at = close;
+            const size_t next = text.find_first_not_of(" \t\r\n,", at + 1);
+            if (next == std::string::npos || text[next] == ']') break;
+        }
+        if (remap) Log("models: %d pedestrian outfits (ASSET-PEDS zones)", remap);
+    }
     if (!g_pedTypes.empty()) {
         int mapped = 0;
         for (int i = 0; i < 64; ++i) if (g_pedTypeByRemap[i] >= 0) ++mapped;
@@ -841,6 +892,15 @@ void ModelSetOverlay(const ModelAnimation* clip, float time, float weight) {
 }
 float ModelTorsoTwist() { return g_torsoTwist; }
 void ModelSetHeadTurn(float radians) { g_headTurn = radians; }
+
+void ModelSetZoneTints(const float* top, const float* bottom, const float* hair) {
+    g_zoneOn = top != nullptr && bottom != nullptr;
+    g_zoneHair = g_zoneOn && hair != nullptr;
+    if (!g_zoneOn) return;
+    const float* src[3] = {top, bottom, hair};
+    for (int z = 0; z < 3; ++z)
+        for (int k = 0; k < 3; ++k) g_zoneTint[z][k] = src[z] ? (std::max)(0.0f, (std::min)(2.0f, src[z][k])) : 1.0f;
+}
 
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
@@ -994,6 +1054,23 @@ bool PedRemapTint(int remap, const Model& model, float rgb[3]) {
     const float* c = g_pedRemapColour[remap];
     if (c[0] + c[1] + c[2] < 1.0f) return false;
     for (int k = 0; k < 3; ++k) rgb[k] = (std::max)(0.0f, (std::min)(2.0f, c[k] / (std::max)(8.0f, model.paintRgb[k])));
+    return true;
+}
+
+bool PedRemapHasType(int remap) { return remap >= 0 && remap < 64 && g_pedTypeByRemap[remap] >= 0; }
+
+bool PedZoneTints(int remap, const Model& model, float tints[3][3], bool* hairTint) {
+    if (hairTint) *hairTint = false;
+    if (!model.pedZones || remap < 0 || remap >= 64 || g_pedTypeByRemap[remap] < 0) return false;
+    if (!g_pedTypes[g_pedTypeByRemap[remap]].tint) return false;
+    const float* o = g_pedOutfit[remap];
+    for (int z = 0; z < 2; ++z) {
+        const float* want = o[z * 3] + o[z * 3 + 1] + o[z * 3 + 2] >= 1.0f ? o + z * 3 : model.zoneRgb[z];
+        for (int k = 0; k < 3; ++k) tints[z][k] = (std::max)(0.0f, (std::min)(2.0f, want[k] / (std::max)(8.0f, model.zoneRef)));
+    }
+    const bool hair = o[6] + o[7] + o[8] >= 1.0f && model.zoneRgb[2][0] + model.zoneRgb[2][1] + model.zoneRgb[2][2] >= 1.0f;
+    for (int k = 0; k < 3; ++k) tints[2][k] = hair ? (std::max)(0.0f, (std::min)(2.0f, o[6 + k] / (std::max)(8.0f, model.zoneRgb[2][k]))) : 1.0f;
+    if (hairTint) *hairTint = hair;
     return true;
 }
 
@@ -1333,6 +1410,25 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             bound = texture;
             first = false;
         }
+        // ASSET-PEDS: a zoned pedestrian's top, bottom and hair, each its own factor.
+        if (g_zoneOn && model.pedZones) {
+            const char* nn = model.nodes[i].name;
+            const int zone = strstr(nn, "#pt") ? 0 : strstr(nn, "#pb") ? 1
+                           : (g_zoneHair && mesh.texture.find("_opacity") != std::string::npos) ? 2 : -1;
+            if (zone >= 0) {
+                const float* zt = g_zoneTint[zone];
+                const DWORD t = 0xFF000000u | (static_cast<DWORD>(zt[0] * 127.5f) << 16) |
+                                (static_cast<DWORD>(zt[1] * 127.5f) << 8) | static_cast<DWORD>(zt[2] * 127.5f);
+                device->SetRenderState(D3DRS_TEXTUREFACTOR, t);
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
+                device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+                device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+                device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+                device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            } else {
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            }
+        } else
         // A car's paint: the second stage multiplies the painted meshes by the tint.
         if (g_paintTintOn) {
             const bool paint = mesh.texture.find("_paint") != std::string::npos;
@@ -1383,7 +1479,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         device->SetStreamSource(0, nullptr, 0, 0);
         device->SetIndices(nullptr);
     }
-    if (g_paintTintOn) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    if (g_paintTintOn || (g_zoneOn && model.pedZones)) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     QueryPerformanceCounter(&t2);
     g_modelStats[2] += ModelMs(t0, t2);
     ++g_drawn;

@@ -92,49 +92,84 @@ for f in folders:
     new_models.append(e)
 m["models"] = [e for e in m["models"] if not e["name"].startswith("human_")] + new_models
 
-civ = [names[f] for f in folders if f.startswith(("Male_Adult", "Female_Adult"))]   # Sports_* are swimwear, left out
+# ASSET-PEDS (9 Nov 2026): every ped type drawn as the GTA2 original reads. The
+# outfit of each remap is read from the game's own sprite palettes
+# (tools/ped_sprite_outfits.py -> pedtypes/outfits.json: torso, forearms, thighs,
+# shins, hair, skin), the avatar is chosen for the sprite's silhouette (short
+# sleeves, shorts, a shaved head, a uniform, a suit) and the renderer tints the
+# avatar's two clothing zones (top, bottom; tools/import_assets.py ped_zones) and,
+# where the sprite says so, the hair, to the sprite's colours. Uniforms, suits and
+# kit that already match the sprite keep their own textures (no zones).
+NO_ZONES = ("Military_", "Police_", "Security_", "Sports_Male_01", "Sports_Female_01", "Business_Male_01", "Business_Male_02", "Business_Male_03",
+            "Business_Male_05", "Business_Female_01", "Female_Adult_06", "Female_Adult_10", "Construction_Male_01")
+for e, f in zip(new_models, folders):
+    if not f.startswith(NO_ZONES): e["ped_zones"] = 1
+    # the prisoners wear the construction coveralls: without the hard hat
+    if f.startswith("Construction_Male_0") and f != "Construction_Male_01":
+        e["materials_exclude"] = [k for k in e["material_textures"] if k.endswith("_helmet")]
+civ_long = ["Male_Adult_06", "Male_Adult_08", "Male_Adult_20", "Male_Adult_18", "Male_Adult_13", "Female_Adult_04", "Female_Adult_02"]
+civ_short = ["Male_Adult_16", "Male_Adult_11", "Male_Adult_09", "Female_Adult_08", "Female_Adult_17", "Female_Adult_13"]
+civ_shorts = ["Male_Adult_01", "Sports_Male_04", "Female_Adult_12"]
+civ = [names[f] for f in civ_long + civ_short + civ_shorts if f in names]
 def N(*fs): return [names[f] for f in fs if f in names]
 types = [
-    {"name": "police", "remaps": [0, 1, 2, 3], "models": N("Police_Male_01", "Police_Male_02", "Police_Male_03", "Police_Female_01"), "tint": 0},
+    {"name": "police", "remaps": [0, 1, 2, 3], "models": N("Police_Male_03", "Police_Male_04", "Security_Female_01"), "tint": 0},
     {"name": "army", "remaps": [4], "models": N("Military_Male_01", "Military_Male_02", "Military_Female_01"), "tint": 0},
-    {"name": "redneck", "remaps": [5, 6], "models": N("Construction_Male_01", "Construction_Male_02"), "tint": 0},
-    {"name": "scientist", "remaps": [7], "models": N("Medical_Male_01", "Medical_Female_01"), "tint": 0},
-    {"name": "zaibatsu", "remaps": [8], "models": N("Business_Male_01", "Business_Male_02", "Business_Male_03", "Business_Female_01"), "tint": 0},
-    {"name": "krishna", "remaps": [9], "models": N("Male_Adult_02", "Female_Adult_06", "Male_Adult_11"), "tint": 1},
-    {"name": "russian", "remaps": [10], "models": N("Security_Male_01", "Male_Adult_02", "Male_Adult_05"), "tint": 1},
-    {"name": "loony", "remaps": [11], "models": N("Male_Adult_08", "Male_Adult_11", "Female_Adult_02"), "tint": 1},
-    {"name": "elvis", "remaps": [12], "models": N("Male_Adult_16"), "tint": 1},
-    {"name": "yakuza", "remaps": [13], "models": N("Business_Male_02", "Business_Male_03", "Security_Male_01"), "tint": 1},
-    {"name": "fireman", "remaps": [14], "models": N("Fire_Male_01", "Fire_Male_02", "Fire_Female_01"), "tint": 0},
-    {"name": "medic", "remaps": [16], "models": N("Medical_Male_02", "Medical_Female_02"), "tint": 0},
-    {"name": "mugger", "remaps": [17], "models": N("Male_Adult_05", "Male_Adult_02"), "tint": 1},
-    {"name": "prisoner", "remaps": [22], "models": N("Male_Adult_11", "Male_Adult_05"), "tint": 1},
+    {"name": "redneck", "remaps": [5, 6], "models": N("Male_Adult_16", "Male_Adult_09", "Male_Adult_11"), "tint": 1},
+    {"name": "scientist", "remaps": [7], "models": N("Medical_Male_01", "Medical_Female_02"), "tint": 1},
+    {"name": "zaibatsu", "remaps": [8], "models": N("Business_Male_01", "Business_Male_03", "Business_Female_01"), "tint": 0},
+    {"name": "krishna", "remaps": [9], "models": N("Business_Male_07", "Business_Male_04"), "tint": 1},
+    {"name": "russian", "remaps": [10], "models": N("Male_Adult_06", "Male_Adult_20"), "tint": 1},
+    {"name": "loony", "remaps": [11], "models": N("Male_Adult_10", "Male_Adult_08", "Female_Adult_17"), "tint": 1},
+    {"name": "elvis", "remaps": [12], "models": N("Business_Male_06", "Male_Adult_16"), "tint": 1},
+    {"name": "yakuza", "remaps": [13], "models": N("Business_Male_02", "Business_Male_05"), "tint": 0},
+    {"name": "fireman", "remaps": [14], "models": N("Fire_Male_02", "Fire_Male_03", "Fire_Female_01"), "tint": 1},
+    {"name": "medic", "remaps": [16], "models": N("Medical_Male_04", "Medical_Female_01"), "tint": 1},
+    {"name": "mugger", "remaps": [17], "models": N("Male_Adult_18", "Male_Adult_10"), "tint": 1},
+    {"name": "prisoner", "remaps": [22], "models": N("Construction_Male_05", "Construction_Male_02"), "tint": 1},
+    {"name": "player", "remaps": [25], "models": N("Male_Adult_11"), "tint": 1},
+    {"name": "naked", "remaps": [26], "models": N("Sports_Male_01", "Sports_Female_01"), "tint": 0},
+    # 53: not a remap, the EMERG_GRAPHIC body (SWAT, FBI) the renderer maps here
+    {"name": "swat", "remaps": [53], "models": N("Police_Male_02", "Police_Female_01"), "tint": 0},
 ]
-# Civilian outfits (15, 18-21, 23-52 minus the player 25): the avatars whose
-# clothing colour is nearest the outfit's shirt colour, three each, untinted.
-# Colours from the outfit names in DMA's remap table.
-shirt = {15: (60, 150, 70), 18: (40, 60, 160), 19: (120, 160, 210), 20: (200, 200, 200), 21: (190, 190, 170), 23: (90, 90, 90), 24: (60, 140, 60),
-         26: (220, 170, 140), 27: (70, 110, 170), 28: (225, 225, 225), 29: (180, 150, 210), 30: (220, 100, 100), 31: (220, 100, 100), 32: (60, 90, 180),
-         33: (220, 200, 60), 34: (190, 140, 210), 35: (140, 30, 40), 36: (40, 90, 50), 37: (130, 90, 60), 38: (130, 90, 60), 39: (90, 40, 110),
-         40: (90, 40, 110), 41: (120, 30, 50), 42: (120, 30, 50), 43: (170, 70, 90), 44: (80, 190, 190), 45: (230, 210, 70), 46: (40, 90, 50),
-         47: (190, 190, 190), 48: (130, 150, 170), 49: (190, 150, 210), 50: (130, 60, 170), 51: (120, 140, 110), 52: (230, 130, 170)}
-# the avatars' own clothing colours, measured by a previous import when present
-measured = {}
-try:
-    for e in json.load(open(os.path.join(src, "..", "repo", "assets", "models", "manifest.json")))["models"]:
-        if e["name"].startswith("human_") and "paint_rgb" in e: measured[e["name"]] = tuple(e["paint_rgb"])
-except Exception: pass
-for r, col in shirt.items():
-    if measured:
-        ranked = sorted(civ, key=lambda n: sum((a - b) ** 2 for a, b in zip(measured.get(n, (128, 128, 128)), col)))
-        models = ranked[:4]
-    else:
-        models = civ
-    types.append({"name": f"civilian_{r}", "remaps": [r], "models": models, "tint": 0})
+outfits = json.load(open(os.path.join(here, "pedtypes", "outfits.json")))
+def lift(c, gain=1.1):
+    """A sprite colour (the mean of its shaded texels) as cloth albedo: a little
+    brighter, and the near-black gang palettes raised so their hue still reads."""
+    v = max(max(c), 1)
+    k = gain if v >= 100 else max(gain, min(3.0, (40 + 0.8 * v) / v))
+    return [min(255, round(x * k)) for x in c]
+def mix(a, b, t): return [round(x * (1 - t) + y * t) for x, y in zip(a, b)]
+def silhouette(o):
+    return "shorts" if o["shorts"] else "short" if o["short_sleeves"] else "long"
+default_hair = ([72, 44, 10], [35, 21, 1], [35, 21, 4], [59, 22, 0], [49, 29, 6])
+typed = {r for t in types for r in t["remaps"]}
+for r in range(53):
+    if r in typed: continue
+    o = outfits[str(r)]
+    pool = {"long": civ_long, "short": civ_short, "shorts": civ_shorts}[silhouette(o)]
+    k = r % len(pool)
+    models = N(*(pool[k:] + pool[:k])[:4])
+    types.append({"name": f"civilian_{r}", "remaps": [r], "models": models, "tint": 1})
+outfit_rows = []
+for r in range(54):
+    o = outfits.get(str(r))
+    if not o: outfit_rows.append([0] * 9); continue
+    top, bottom = o["top"], o["thigh"]
+    if r == 9:  top = mix(top, o["forearm"], 0.5)        # Krishna: the robe's saffron is on the arms
+    if r == 12: top = mix(top, o["forearm"], 0.5)        # Elvis: pale sleeves over a mauve jacket
+    if r == 14: bottom = o["shin"]                       # firemen: the orange suit all the way down
+    hair = o["hair"] if (r in (5, 6) or o["hair"] not in default_hair and r not in range(0, 5) and r != 9) else [0, 0, 0]
+    if r == 25: top, bottom = [30, 30, 32], [24, 24, 28]  # the protagonist: black, as the sprite (lifted below)
+    outfit_rows.append(lift(top) + lift(bottom) + (lift(hair, 1.0) if any(hair) else [0, 0, 0]))
 m["pedestrians"] = civ
-m["pedestrian"] = "human_male_01"
+m["pedestrian"] = names.get("Male_Adult_11", "human_male_01")
 m["ped_types"] = types
+m["ped_outfits"] = outfit_rows
 colours = json.load(open(os.path.join(here, "pedtypes", "ped_types.json")))["tint_colours"]
 m["ped_remap_colours"] = [colours.get(str(r), [0, 0, 0]) for r in range(53)]
 json.dump(m, open(manifest_path, "w"), indent=1)
-print(len(new_models), "avatars;", len(types), "types;", len(civ), "civilians", "measured" if measured else "unmeasured")
+print(len(new_models), "avatars;", len(types), "types;", len(civ), "civilians;", sum(1 for e in new_models if e.get("ped_zones")), "with clothing zones")
+# Left out of the tinted pools: Female_Adult_01 (a pink blouse partly read as skin), Male_Adult_02 (a beige sweater the skin test cannot tell
+# from his skin, so it stays untinted), Female_Adult_06/10 (religious dress, not recoloured),
+# Construction_Male_01 (a welding mask), the swimwear (the "naked" remap 26 only).

@@ -224,7 +224,7 @@ bool g_crowdVariety = true, g_crowdLookAt = true;
 float g_crowdLookRange = 5.0f;
 float g_crowdPlayerX = 0.0f, g_crowdPlayerZ = 0.0f;
 uint32_t g_crowdPlayerFrame = 0, g_crowdPlayerShot = 0;
-int g_crowdCount[4] = {};   // this frame: drawn, own clothes, looking at the player, glancing
+int g_crowdCount[5] = {};   // this frame: drawn, own clothes, looking at the player, glancing, in sprite outfits (ASSET-PEDS)
 float g_crowdNearD2 = 1e9f, g_crowdNearRel = 0.0f;   // this frame: the nearest other figure to the player (log)
 int g_crowdWin[4] = {};   // over the log's ten seconds: figure-frames in range, passed over (one in four), behind him, looking
 uint32_t CrowdHash(uint32_t x) {
@@ -235,7 +235,7 @@ uint32_t CrowdHash(uint32_t x) {
 // for a civilian (no uniform, no gang colours) three times in four, clothes of an
 // everyday colour: the avatar's "_paint" half multiplied toward it (most of the
 // way, so the cloth's own shading and the second garment's contrast remain).
-struct CrowdLook { float height = 1.0f, width = 1.0f; bool clothes = false; float tint[3] = {1.0f, 1.0f, 1.0f}; };
+struct CrowdLook { float height = 1.0f, width = 1.0f; bool clothes = false; float tint[3] = {1.0f, 1.0f, 1.0f}; float shade = 1.0f; };
 CrowdLook CrowdLookFor(uint32_t seed, const Model& model, int remap, bool player) {
     CrowdLook look;
     if (!g_crowdVariety || player) return look;
@@ -244,7 +244,10 @@ CrowdLook CrowdLookFor(uint32_t seed, const Model& model, int remap, bool player
     look.width = 0.95f + 0.10f * static_cast<float>((h >> 8) & 255) / 255.0f;
     // The remaps the manifest gives a uniform or gang colours: 0-14, 16, 17, 22.
     const bool civilian = remap < 0 || remap == 15 || (remap >= 18 && remap != 22);
-    if (civilian && model.splitPaint && ((h >> 16) & 3) != 0) {
+    // ASSET-PEDS: a zoned avatar wears his remap's own outfit (the sprite's colours);
+    // the crowd's variety is then a shade of it (+-12%), not another colour.
+    look.shade = 0.88f + 0.24f * static_cast<float>((h >> 24) & 255) / 255.0f;
+    if (civilian && model.splitPaint && !model.pedZones && ((h >> 16) & 3) != 0) {
         static const uint8_t kClothes[][3] = {
             {38, 52, 92},    {60, 62, 66},   {28, 28, 32},   {196, 178, 140}, {92, 100, 58},  {118, 32, 44},
             {70, 104, 150},  {214, 212, 204}, {128, 130, 134}, {110, 76, 50},  {36, 80, 52},   {200, 160, 50},
@@ -6752,6 +6755,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             Log("crowd: %d figures drawn, %d in clothes of their own, %d looking at the player, %d glancing; nearest %.1f blocks at %.0f deg (player seen %d frames ago)",
                 g_crowdCount[0], g_crowdCount[1], g_crowdCount[2], g_crowdCount[3], std::sqrt(g_crowdNearD2), g_crowdNearRel * 57.3f,
                 g_crowdPlayerFrame ? static_cast<int>(g_carFrame - g_crowdPlayerFrame) : -1);
+            Log("peds: %d of %d figures drawn in their sprite's outfit (ASSET-PEDS zones)", g_crowdCount[4], g_crowdCount[0]);
             Log("crowd: last 300 frames: %d figure-frames within look_range, %d passed over, %d with the player behind them, %d looking",
                 g_crowdWin[0], g_crowdWin[1], g_crowdWin[2], g_crowdWin[3]);
             for (int& c : g_crowdWin) c = 0;
@@ -7367,7 +7371,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         Log("models: pedestrian without a remap palette on body %u (frame %u, palette %d) -> %s", body, sprite.pedFrame,
                             rec ? rec->palette : -1, body >= 2 ? "police type (SWAT/FBI)" : body == 1 ? "zaibatsu type" : "plain list");
                     }
-                    if (body >= 2) remap = 0;        // the police avatars: dark uniform and kit
+                    if (body >= 2) remap = PedRemapHasType(53) ? 53 : 0;   // SWAT/FBI kit (ASSET-PEDS), else the police
                     else if (body == 1) remap = 8;   // the suits
                 }
                 model = ModelForPedestrian(static_cast<uint32_t>(sprite.object >> 4), remap);
@@ -7845,12 +7849,24 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 float tint[3];
                 bool tinted = PedRemapTint(remap, *model, tint);
                 if (!tinted && look.clothes) { for (int k = 0; k < 3; ++k) tint[k] = look.tint[k]; tinted = true; }
+                // ASSET-PEDS: a zoned avatar's shirt, trousers (and hair) in his remap's
+                // sprite colours; the protagonist is remap 25 (the default player ped).
+                float zones[3][3];
+                bool zoneHair = false;
+                const bool zoned = model->pedZones && PedZoneTints(ownFigure && remap < 0 ? 25 : remap, *model, zones, &zoneHair);
+                if (zoned) {
+                    tinted = false;
+                    if (!ownFigure)
+                        for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) zones[z][k] = (std::min)(2.0f, zones[z][k] * look.shade);
+                    ModelSetZoneTints(zones[0], zones[1], zoneHair ? zones[2] : nullptr);
+                    ++g_crowdCount[4];
+                }
                 ++g_crowdCount[0];
                 if (look.clothes) ++g_crowdCount[1];
                 if (track.lookingAtPlayer) ++g_crowdCount[2];
                 else if (std::fabs(track.headYaw) > 0.2f) ++g_crowdCount[3];
                 if (tinted) ModelSetPaintTint(tint);
-                if (tinted || model->splitPaint) {
+                if (tinted || zoned || model->splitPaint) {
                     // The test must read the texture's alpha, which is where the
                     // split lives; the pass's own alpha stage may be set to the
                     // vertex colour.
@@ -7872,6 +7888,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 ModelSetHeadTurn(0.0f);
                 if (tinted) {
                     ModelSetPaintTint(nullptr);
+                    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                }
+                if (zoned) {
+                    ModelSetZoneTints(nullptr, nullptr, nullptr);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
                 }
                 // The weapon in his hands while he aims or throws: its own model
