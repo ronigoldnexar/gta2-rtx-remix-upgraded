@@ -188,3 +188,9 @@ Findings:
   was one ULP out. About 118k still pixels then differed by 1-2 levels. The filters now land
   exactly on their target within `kCameraSnap` (1e-3 tiles, about 0.1 px) (world_view.cpp).
   `GTA2DX9_LOG_CLASSIC_CAM=1` logs the inputs as hex floats every 15 frames.
+- A long warp leaves the game's own camera panning for 10-20 s; pass `-e PRE_WAIT=22` so the pre shots are settled
+  (every pre frame identical apart from traffic).
+- The same A/B, 9 Nov, also cleared three classic-side questions: rule-placed props and trees
+  (plaza 198.5,188.5: 0 differing still pixels), the player's car colour under the identity record (ste
+  scene car: no differing pixel on it), and the game's subtitle with the modern HUD on vs off
+  (`tools/keys_classic_subtitle.sh`, bil opening subtitle: every distinct subtitle crop byte-identical).
