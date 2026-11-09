@@ -8533,6 +8533,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (ownPed && weaponrig::TestFire(g_carFrame)) shotNow = true;
             if (shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
             if (shotNow && track.weapon == kWpnNone && gameWeapon < 0) track.weapon = kWpnPistol;   // shooting with nothing named: a pistol
+            // FIX-FIGURE-3 (feel12 molotov): GTA2 throws a bottle or a grenade on its punch
+            // frames (115-122), so a thrower read as punching played the punch clip and its
+            // raised arm; armed with a thrown weapon, those frames are the throw (on the
+            // ammunition's drop, below) and the low hold between throws.
+            const bool thrownWeapon = gameWeapon == kWpnMolotov || gameWeapon == kWpnGrenade;
+            if (armed && thrownWeapon && wantAction == 1) wantAction = 0;
             if (armed && (wantAction == 0 || wantAction == 2 || wantAction == 8)) {
                 // Armed, by the game's word. Attacking (the attack state, a shot
                 // beside him, the aim frames) raises the weapon's own stance, held a
@@ -8761,6 +8767,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
             const bool pullIn = wantAction == 5 && track.action == 23;
             track.action = wantAction; track.actionTime = pullIn ? (track.jacking ? 0.5f : 0.65f) : 0.0f; track.actionReverse = false;
+            // FIX-FIGURE-3 (feel12 molotov): the throw is seen once the game has let the
+            // bottle go (its ammunition drops on the press), so the clip starts at the
+            // forward swing: the hand passes the release point (0.34 s) three frames later,
+            // not a third of a second after the bottle left.
+            if (wantAction == 13) track.actionTime = 0.24f;
         } else if (hitNow && track.action == 22) {
             track.actionTime = 0.0f;   // hit again: the snap again
         }
@@ -9667,6 +9678,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     rin.reload.len = rinfo.len; rin.reload.drop = rinfo.dropT; rin.reload.grab = rinfo.grabT;
                     rin.reload.insert = rinfo.insertT; rin.reload.rack = rinfo.rackT;
                     rin.closeUp = lod == 0;
+                    rin.throwing = track.action == 13;
                     rigOn = weaponrig::Begin(*model, rin);
                     if (rigOn) {
                         float sd[3];
@@ -9675,6 +9687,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             world.m[3][c] += (sd[0] * world.m[0][c] + sd[1] * world.m[1][c] + sd[2] * world.m[2][c]) * sh;
                     }
                 }
+                // FIX-FIGURE-3: the player's weapon rig gate, logged when it changes (GTA2DX9_LOG_PED_FRAMES=1).
+                static uint32_t lastGate = 0xFFFFFFFFu;
+                const uint32_t gate = (static_cast<uint32_t>(track.weapon) & 0xFF) | ((static_cast<uint32_t>(track.action) & 0xFF) << 8) |
+                                      (ragdoll ? 1u << 16 : 0u) | (boardIk ? 1u << 17 : 0u) | (rigOn ? 1u << 18 : 0u) | (static_cast<uint32_t>(lod) << 19);
+                if (g_logPedFrames && heroFigure && gate != lastGate && (lastGate = gate, true))
+                    Log("rig gate: f=%u o=%04x wpn=%d act=%d actW=%.2f rag=%d board=%d lod=%d corpse=%d on=%d model %s",
+                        g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), track.weapon, track.action, actW,
+                        ragdoll ? 1 : 0, boardIk ? 1 : 0, lod, sprite.corpse ? 1 : 0, rigOn ? 1 : 0, model->name.c_str());
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                 if (heroFigure && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: his figure on screen
                     IdentityProbeModel(device, "player", reinterpret_cast<const void*>(sprite.object), ident, *model, world.m, static_cast<int>(CurrentViewMode()));
@@ -9785,8 +9805,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         gta2::Mat4 place;
                         float dir[3], right[3], up[3];
                         bool placed = false;
+                        int placedBy = 0;   // 1 the rig, 2 along the hands, 3 in the right hand
                         gta2::Mat4 rigGun; float rigLen = 0.0f;
                         if (rigOn && weaponrig::GunFrame(&rigGun, &rigLen)) {
+                            placedBy = 1;
                             // ANIM-WEAPONS: the rig placed the gun (model space: rows right, up,
                             // forward; origin the weapon model's own, its pistol grip), at the
                             // weapon's length.
@@ -9804,6 +9826,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             norm(dir); norm(right); norm(up);
                             placed = true;
                         } else if (wi.twoHanded && (reloadPose ? track.gripValid : haveL)) {
+                            placedBy = 2;
                             float dl;
                             if (reloadPose) {
                                 // QB-29: the left hand is off fetching a magazine: the gun
@@ -9896,6 +9919,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 for (int c = 0; c < 3; ++c) muzzle[c] = place.m[3][c] + place.m[2][c] * weapon->boundsMax.z;
                             }
                             track.muzzleX = muzzle[0]; track.muzzleY = muzzle[1]; track.muzzleZ = muzzle[2];
+                            if (g_logPedFrames && heroFigure && track.muzzleFrame == g_carFrame)
+                                Log("rig gun: f=%u wpn=%d act=%d by=%d src=%d muzzle=%.3f,%.3f,%.3f shot=%d", g_carFrame, track.weapon, track.action,
+                                    placedBy ? placedBy : 3, weaponrig::GunSource(), muzzle[0], muzzle[1], muzzle[2], track.muzzleFrame == g_carFrame ? 1 : 0);
                             if (reloadPose && track.weapon > 0 && track.weapon < kWpnCount) {
                                 // QB-29: the reload's events as its clip passes them: the spent
                                 // magazine drops from the grip, the fresh one rides in the left
@@ -11259,6 +11285,24 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         const float dx = c[0] - fxEye.x, dz = c[2] - fxEye.z;
         return dx * dx + dz * dz < 0.25f && std::fabs(c[1] - fxEye.y) < 0.9f;
     };
+    // FIX-FIGURE-3 (feel9): the game's own flash (sprites of 0.25 block: a column
+    // stood on his spot) and a bullet's first frames beside a figure that holds a gun
+    // drawn in the street views: his flash is drawn at the weapon model's muzzle
+    // (ShotFxMuzzle), so the game's sprites within a short reach of him are left out
+    // while he fires (and a fresh small one by any armed figure); a bullet further
+    // out is the streak.
+    auto fxAtShooter = [&](const float* c, bool fresh) {
+        for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
+            for (const FigureSpot& f : *list) {
+                if (f.weapon <= 0 || f.punching) continue;
+                const float dx = c[0] - f.x, dz = c[2] - f.z;
+                const bool recent = f.shotFrame && g_carFrame - f.shotFrame <= 6u;
+                const float reach = recent ? 1.0f : 0.7f;
+                if (dx * dx + dz * dz < reach * reach && (recent || fresh)) return true;
+            }
+        }
+        return false;
+    };
     auto issue = [&](const std::vector<Drawable>& list, bool fx = false) {
         bool tinted = false;
         for (const Drawable& d : list) {
@@ -11317,6 +11361,12 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     fxSeen[sp.object] = {c[0], c[1], c[2], g_carFrame, size, flying};
                     if (fxSeen.size() > 4096) fxSeen.clear();
                     if (fxAtEye(c, size)) continue;
+                    // FIX-FIGURE-3 (feel9): the game's own flash and a bullet's first frames
+                    // beside a figure that holds a gun drawn in the street views: its flash is
+                    // drawn at the weapon model's muzzle (ShotFxMuzzle), so the game's sprite
+                    // (an orange glow by the hip, a flat red square) is left out within a
+                    // short reach of him; a bullet further out is the streak below.
+                    if (fxAtShooter(c, fresh)) continue;
                     if (flying) {
                         // A streak from where it was to where it is, a hand wide, facing the eye.
                         const float gun = 0.30f;
@@ -11350,6 +11400,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     }
                 }
                 if (fxAtEye(c, size)) continue;
+                if (size < 0.3f && fxAtShooter(c, false)) continue;   // the game's flash at a shooter (above)
                 gta2::Mat4 up = UprightPedMatrix(sp.local, sp.corners, sp.objectToWorld, fxEye);
                 if (small) {
                     // Centred at gun height rather than stood on the road.

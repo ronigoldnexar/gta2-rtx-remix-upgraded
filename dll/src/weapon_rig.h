@@ -47,6 +47,7 @@ struct Inputs {
     float reloadT = -1.0f;     // seconds into the reload clip, -1 none
     ReloadTimes reload;
     bool closeUp = true;       // lod 0: fingers and head too
+    bool throwing = false;     // the throw clip runs (a thrown weapon's kCarry is otherwise the low hold)
 };
 
 // The mode an action clip calls for (live_geometry's action numbers).
@@ -67,6 +68,7 @@ float Shove(uintptr_t object, float dir[3]);
 // and the gun's length in model units. False when the rig does not place this
 // weapon (dual pistols and the one-handed carry ride on the hand, see
 // DrawPedFigures).
+int GunSource();   // the last GunFrame's: 0 none, 1 the hook ran, 2 the pose cache's
 bool GunFrame(gta2::Mat4* out, float* lengthModel);
 
 // The showcase (GTA2DX9_RIG_TEST_FILE names a file holding "yaw_degrees

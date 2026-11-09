@@ -349,6 +349,7 @@ struct Ctx {
     float lenM = 0.5f;
     float mpb = 3.8f;          // model units per block
     bool closeUp = true;
+    bool throwing = false;
     Params p{};
     // out
     bool gunValid = false;
@@ -356,6 +357,15 @@ struct Ctx {
 };
 Ctx g_ctx;
 bool g_hookOn = false;
+// FIX-FIGURE-3: the gun frame each posed key placed. A figure whose pose comes back
+// out of model_store's pose cache (the same key as a frame before: a still aim, a
+// pose shared within the budget) is drawn without the hook running, so the gun the
+// hook placed for that key is looked up here (the nearest-pose budget reuse matches
+// the hook key too, so it is within 0.12 s of the clip); without it the weapon fell
+// back to the old in-hand attach for that frame while the arms were the rig's.
+uint64_t g_curKey = 0;
+std::unordered_map<uint64_t, Mat4> g_gunByKey;
+int g_gunSource = 0;   // the last GunFrame: 0 none, 1 the hook, 2 the cache
 
 // A gun frame and where the hands go on it.
 struct Hold {
@@ -417,6 +427,16 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
     auto yawInAt = [&](float deg, const Vec3& pv) { turn(Toward(g.f, g.r * -1.0f, deg * kDeg), pv); };
     auto cantAt = [&](float deg, const Vec3& pv) { turn(Toward(g.u, g.r, deg * kDeg), pv); };   // top toward his right
     const int cls = c.cls;
+    if (cls == cThrow && mode == kCarry && !c.throwing) {
+        // FIX-FIGURE-3 (feel12 molotov): a grenade or a bottle carried low in the right
+        // hand by the thigh (the carry clip it shares with the pistol holds it up by
+        // the ear); the bottle rides in the hand. The throw itself is the clip's.
+        g.rw = shR - U * 0.50f + F * 0.10f + R * 0.03f;
+        g.rx = Nrm(F * 0.35f - U * 0.94f);
+        g.ry = R * -1.0f;
+        g.rW = 1.0f;
+        return g;
+    }
     if (mode == kOff || cls == cNone || cls == cThrow) return g;
     if (cls == cDual) {
         if (mode != kAim) return g;
@@ -429,7 +449,12 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
         g.look = eye + F * 4.0f; g.lookW = 0.5f;
         return g;
     }
-    if (cls == cPistol && mode == kCarry) return g;   // one-handed low ready: the clip's
+    // FIX-FIGURE-3 (feel11, feel18): the pistol's carry is the rig's too. The avatars'
+    // own carry clip holds it up by the ear (high ready), and with the old in-hand
+    // attach it dangled from the fingertips on the walk; now a one-handed low ready:
+    // the grip in the right palm by the thigh, the muzzle forward and down, the left
+    // hand the clip's.
+    const bool pistolLow = cls == cPistol && mode == kCarry;
     g.gun = true;
     const bool longGun = cls == cRifle || cls == cShotgun;
     // ---- the gun in the aim (the base of the carry and the reload too) ----
@@ -443,6 +468,7 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
     if (mode == kCarry) {
         // Low ready: the stock stays in the shoulder, the muzzle down and in.
         if (longGun) { pitchAt(-38.0f, butt); yawInAt(18.0f, butt); }
+        else if (pistolLow) { g.o = shR - U * 0.47f + F * 0.16f + R * 0.015f; pitchAt(-48.0f, g.o); yawInAt(6.0f, g.o); }
         else if (cls == cLauncher) pitchAt(6.0f, butt);
         else if (cls == cFlame) pitchAt(-20.0f, g.o);
     } else if (mode == kReload) {
@@ -479,6 +505,7 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
         supW = P - u * 0.035f - f * 0.06f - r * 0.025f; supX = Nrm(f * 0.8f + r * 0.45f + u * 0.2f); supY = Nrm(u * 0.9f + r * 0.35f);
     }
     g.lw = supW; g.lx = supX; g.ly = supY; g.lW = 1.0f;
+    if (pistolLow) { g.lW = 0.0f; g.lGrip = 0.0f; }
     // The head down the sights (a long gun: the cheek on the stock).
     g.look = (cls == cPistol || longGun) ? at(0.0f, geo.bore) + f * 4.0f + u * 0.05f : eye + F * 4.0f;
     g.lookW = mode == kAim ? 0.8f : 0.0f;
@@ -765,6 +792,9 @@ bool Begin(const Model& model, const Inputs& in) {
         st.rng = st.rng * 1664525u + 1013904223u + static_cast<uint32_t>(in.object);
         st.side = static_cast<float>((st.rng >> 9) & 0xFFFF) / 32767.5f - 1.0f;
         st.sinceShot = 0.0f;
+        // FIX-FIGURE-3: the game fires on the key press, so a shot from the carry is
+        // already in the aim (no 0.18 s raise with the flash leaving a lowered gun).
+        if (in.mode == kAim && st.mode != kAim) { st.prevMode = kAim; st.mode = kAim; st.blend = 1.0f; st.weight = 1.0f; }
         static int logged = 0;
         if (logged < 40) { ++logged; Log("weapon rig: shot %p weapon %d mode %d", reinterpret_cast<const void*>(in.object), in.weapon, in.mode); }
     }
@@ -803,6 +833,7 @@ bool Begin(const Model& model, const Inputs& in) {
     c.lenM = in.lengthBlocks * in.modelPerBlock;
     c.mpb = in.modelPerBlock;
     c.closeUp = in.closeUp;
+    c.throwing = in.throwing;
     c.p = p;
     c.gunValid = false;
     // The pose cache key: this figure (bits 24-62) and what the hook reads.
@@ -812,9 +843,10 @@ bool Begin(const Model& model, const Inputs& in) {
     mix(static_cast<uint32_t>(c.blend * 16.0f)); mix(static_cast<uint32_t>(c.weight * 10.0f));
     mix(static_cast<uint32_t>(static_cast<int>(c.x * 20.0f) + 64)); mix(static_cast<uint32_t>(static_cast<int>(c.side * 4.0f) + 8));
     mix(c.trigger ? 1u : 0u); mix(static_cast<uint32_t>(static_cast<int>(c.reloadT * 30.0f) + 4));
-    mix(c.closeUp ? 1u : 0u);
+    mix(c.closeUp ? 1u : 0u); mix(c.throwing ? 1u : 0u);
     const uint64_t key = (1ull << 63) | ((static_cast<uint64_t>(in.object >> 2) & 0x7FFFFFFFFFull) << 24) | (hsh & 0xFFFFFFu);
     ModelSetPoseHook(&Hook, &g_ctx, key | 1u);
+    g_curKey = key | 1u;
     {
         static int logged = 0;
         if (logged < 12) { ++logged; Log("weapon rig: begin %p weapon %d mode %d weight %.2f", reinterpret_cast<const void*>(in.object), in.weapon, c.mode, c.weight); }
@@ -846,11 +878,24 @@ float Shove(uintptr_t object, float dir[3]) {
 }
 
 bool GunFrame(Mat4* out, float* lengthModel) {
-    if (!g_hookOn || !g_ctx.gunValid) return false;
-    *out = g_ctx.gun;
+    g_gunSource = 0;
+    if (!g_hookOn) return false;
+    if (g_ctx.gunValid) {
+        g_gunSource = 1;
+        if (g_gunByKey.size() > 4096) g_gunByKey.clear();
+        g_gunByKey[g_curKey] = g_ctx.gun;
+        *out = g_ctx.gun;
+    } else {
+        const auto it = g_gunByKey.find(g_curKey);   // the pose came from the cache: the hook did not run
+        if (it == g_gunByKey.end()) return false;
+        *out = it->second;
+        g_gunSource = 2;
+    }
     *lengthModel = g_ctx.lenM;
     return true;
 }
+
+int GunSource() { return g_gunSource; }
 
 float TestYaw() { return g_testYaw; }
 bool TestFire(uint32_t frame) {
