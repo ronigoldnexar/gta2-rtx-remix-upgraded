@@ -34,6 +34,8 @@ import drive_lib as D
 import mission_lib as M
 import mission_play_districts as P          # starts the session: level, views, world
 from skills import destroy_vehicle as DV
+from skills import gunfight as G
+from skills import shake_police as SP
 from missions import b2_common as B
 
 say, tap, hold, xdo = D.say, D.tap, D.hold, D.xdo
@@ -47,16 +49,24 @@ ZAIB_ZONES = [(115, 0, 140, 85), (79, 0, 36, 17), (99, 17, 16, 8)]
 METEOR, ZTYPE = 48, 70
 ROCKET_WID = 5
 ROCKET_GEN = (229.5, 68.5)
+# b2_gcb14: the walker's route crossed the raised station plaza at 116-125 x 120-137 (level 2) and he
+# died on the tracks at 120.1,132.5 with the escort crowding him: kept off it
+M.BLOCKED.update({(x, y) for x in range(115, 127) for y in range(120, 138)})
+M.BLOCKED.update({(x, y) for x in range(134, 160) for y in range(19, 32)})   # the bridge at x 135-138 and the deck edge (b2_gcb15)
 M.GUN_PICKUPS["ste"] = [(4.5, 83.5, 2)]    # b2_gcb7: nothing was picked up at the rocket generator 229.5,68.5 (z 3: a roof)
-FAIL = {"2998", "2164", "2168"}     # NOT 615x: DECLARE_GANG_ONE_DEATH_BASE_BRIEF (p1, 6150) is the "you killed a
-                                    # gang member" brief (b2_gcb6 read 6151 after running over a Scientist as a failure)
+FAIL = {"2998", "2164", "2168"} | {str(k) for k in range(6150, 6160)}
+# 615x: DECLARE_GANG_ONE_DEATH_BASE_BRIEF (p1, 6150), the Rednecks' line after the player dies or is
+# arrested on their job (b2_gcb6/12 died, then 6151; b2_gcb13 was arrested after a rocket, then 6156)
 STAGES = [
     dict(name="meteors", zones=SCI_ZONES, model=METEOR, start="2161", passed="2163",
          arrow=(227.5, 217.5),
          patrol=[(227.5, 210.5), (200.5, 222.5), (175.5, 200.5), (160.5, 230.5), (235.5, 240.5), (190.5, 175.5), (140.5, 190.5)]),
+    # the hunt on the ground roads of the zone's south part (rows 62-77, x 160-250): b2_gcb15 walked
+    # off the bridge pavement at 142.6,25.6 into the water on a patrol leg to 150,20 (the village
+    # itself is a level-2 deck edged by water)
     dict(name="ztypes", zones=ZAIB_ZONES, model=ZTYPE, start="2165", passed="2167",
-         arrow=(199.0, 25.5),
-         patrol=[(199.5, 30.5), (170.5, 45.5), (215.5, 60.5), (150.5, 20.5), (235.5, 25.5), (180.5, 70.5), (130.5, 50.5)]),
+         arrow=(199.5, 64.5),
+         patrol=[(199.5, 63.5), (172.5, 63.5), (228.5, 63.5), (215.5, 76.5), (185.5, 76.5), (240.5, 72.5)]),
 ]
 
 
@@ -72,7 +82,21 @@ CUR = {"passed": None}
 TRAVEL = os.environ.get("B2_GCB_TRAVEL", "walk")
 
 
+FROZEN = {"t": 0.0, "fr": -1, "since": None}
+
+
+def frozen():
+    """the renderer's frame count has not moved for a minute (b2_gcb17: gta2.exe crashed under Wine at
+    the WASTED screen and the runner walked a frozen game for 9 minutes)"""
+    now = time.time()
+    if now - FROZEN["t"] < 20: return False
+    FROZEN["t"] = now; fr = M.frames_rendered()
+    if fr != FROZEN["fr"]: FROZEN["fr"] = fr; FROZEN["since"] = now; return False
+    return FROZEN["since"] is not None and now - FROZEN["since"] > 60
+
+
 def check():
+    if frozen(): raise Over("game frozen (gta2.exe stopped drawing)")
     keys = MSG.keys()
     if "2999" in keys or "1124" in keys: raise Over("complete")
     if any(k in FAIL for k in keys): raise Over("failed")
@@ -103,6 +127,30 @@ def select_rocket():
 STATS = dict(rockets_fired=0, wrecks=0, by_rocket=0, by_gun=0, pickups=0)
 
 
+def lie_low(secs=90, why=""):
+    """on foot, away from the police until the wanted level is gone (b2_gcb13: arrested beside a cop
+    car after the second Meteor): legs to a road point on the far side from the police seen"""
+    t0 = time.time(); n = 0
+    while time.time() - t0 < secs / D.SPEED:
+        check()
+        ms = M.mission_state() or {}
+        s = D.wait_state()
+        nc, no, dmin, cen = SP.police_near(s, 30.0, 20.0)
+        if ms.get("wanted", 0) == 0 and (nc + no == 0 or dmin > 18):
+            if n: R.ev(f"lie low: clear after {time.time() - t0:.0f}s ({n} legs)")
+            return True
+        p = SP._road_point_away(world, s, cen or (s["x"] + 1, s["y"]), rmin=15, rmax=30)
+        n += 1
+        if n == 1: R.ev(f"lie low ({why}): wanted {ms.get('wanted')}, police {nc} cars {no} officers nearest {dmin:.0f}")
+        if p: M.walk3(world, p[0], p[1], None, tol=2.0, budget=12)
+        else: time.sleep(1.0)
+    return False
+
+
+SAID = [0.0]
+SKIP = {}      # target id -> time until which it is not chased (no shot found at it)
+
+
 def rocket_engage(tgt_model, zones, secs=60):
     """on foot, rockets in hand: walk at the nearest target of the model and tap the trigger once
     when it is 5-8 blocks off and the walk's own facing points at it (b2_gcb7: four rockets fired
@@ -114,10 +162,27 @@ def rocket_engage(tgt_model, zones, secs=60):
         s = D.wait_state()
         if s["driving"]: return False
         ms = M.mission_state() or {}
+        if ms.get("wanted", 0) > 0 and SP.police_near(s, 25.0, 18.0)[2] < 25:
+            # b2_gcb19: a missed rocket at a moving Meteor raised the wanted level and a cop on foot
+            # shot him from 100 to 10 while the hunt went on. Only with police near: b2_gcb22 kept
+            # wanted 1 for 17 minutes with nobody after him and the hunt stood still
+            lie_low(90, "wanted, police near"); continue
         if rockets(ms) <= 0 and not select_rocket(): return False
-        ts = DV.targets(models={tgt_model})
+        # a burning car (fire, or under the 16000 the game sets them alight at) blows up by itself
+        # within seconds: never a target, and kept 7 blocks off (b2_gcb23: a rocket at a Meteor on
+        # 1739 hp from 6 blocks, its blast took him from 96 to 0)
+        for b in M.cars():
+            if (b["fire"] > 0 or 0 < b["hp"] < 16000) and b["driver"] != "P" and math.hypot(b["x"] - s["x"], b["y"] - s["y"]) < 7:
+                DV.back_off(s, b["x"], b["y"], 8.0); s = D.wait_state()
+        ts = [c for c in DV.targets(models={tgt_model}) if SKIP.get(c["id"], 0) < time.time()
+              and c["fire"] == 0 and c["hp"] >= 16000]
         if not ts: return False
         c = min(ts, key=lambda c: math.hypot(c["x"] - s["x"], c["y"] - s["y"]))
+        if time.time() - t0 > 40 / D.SPEED:
+            # b2_gcb16: 9 minutes round one Meteor with no shot taken (no reason logged): give it up a while
+            SKIP[c["id"]] = time.time() + 90 / D.SPEED
+            R.ev(f"no shot at {c['id']} in 40 s (d {math.hypot(c['x'] - s['x'], c['y'] - s['y']):.1f}): skipped for 90 s")
+            return False
         d = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
         if d > 14:
             M.walk3(world, c["x"], c["y"], None, tol=10.0, budget=min(20, 4 + d)); continue
@@ -125,12 +190,28 @@ def rocket_engage(tgt_model, zones, secs=60):
             DV.back_off(s, c["x"], c["y"], 7.0); continue
         lead = min(2.0, 0.6 * c["v"])
         ax, ay = c["x"] + c["hx"] * lead, c["y"] + c["hy"] * lead
-        # a slice of walking at it keeps the facing true
+        # the gcb15 way (5 Meteors in 12 minutes): a slice of walking at it keeps the facing true,
+        # the rocket goes off while walking when the walk's facing points at it
         M._aim_walk(ax, ay, fire=False, walk=True, secs=0.35)
         s = D.wait_state()
         d = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
-        if not (4.5 <= d <= 8.5) or abs(D.angle_to(s, ax, ay)) > 0.12 or time.time() - last_fire < 1.5 / D.SPEED:
+        if time.time() - SAID[0] > 5:
+            SAID[0] = time.time()
+            say(f"rocket_engage: {c['id']} d {d:.1f} angle {D.angle_to(s, ax, ay):.2f} v {c['v']:.1f} clear {G.clear_shot(world, s, c['x'], c['y'])}")
+        if c["v"] > 1.0 or not (4.5 <= d <= 8.5) or abs(D.angle_to(s, ax, ay)) > 0.12 or time.time() - last_fire < 2.5 / D.SPEED:
             continue
+        # nobody of ours in the line of fire (a rocket into an escort a block away killed him, b2_gcb17):
+        # hold the shot and keep walking
+        if any(p["hp"] > 0 and p["car"] is None
+               and 0.2 < ((p["x"] - s["x"]) * (c["x"] - s["x"]) + (p["y"] - s["y"]) * (c["y"] - s["y"])) / d < d - 1.0
+               and abs(((p["x"] - s["x"]) * (c["y"] - s["y"]) - (p["y"] - s["y"]) * (c["x"] - s["x"])) / d) < 0.8
+               for p in M.peds()):
+            continue
+        nc, no, dmin, _ = SP.police_near(s, 20.0, 14.0)
+        if nc + no:
+            lie_low(60, "police near the target"); continue
+        if not G.clear_shot(world, s, c["x"], c["y"]):
+            M.walk3(world, c["x"], c["y"], None, tol=5.0, budget=6); continue
         hp0 = c["hp"]; n0 = rockets()
         xdo("keydown", "Up"); xdo("keydown", "Control_L"); time.sleep(0.12); xdo("keyup", "Control_L"); xdo("keyup", "Up")
         last_fire = time.time(); STATS["rockets_fired"] += 1
@@ -141,13 +222,17 @@ def rocket_engage(tgt_model, zones, secs=60):
             STATS["wrecks"] += 1; STATS["by_rocket"] += 1
             R.ev(f"rocket hit {c['id']} (m{c['model']}) at {c['x']:.1f},{c['y']:.1f} (hp {q['hp'] if q else 'gone'})")
             M.shot(f"gcb_wreck_{STATS['wrecks']}")
+            time.sleep(1.0)
+            if (M.mission_state() or {}).get("wanted", 0) > 0: lie_low(40, "after the hit")
             return True
     return False
 
 
 def target_visible(model, zones):
     s = D.wait_state()
-    return any(math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < 22 for c in DV.targets(models={model}))
+    return any(math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < 22 and SKIP.get(c["id"], 0) < time.time()
+               and c["fire"] == 0 and c["hp"] >= 16000
+               for c in DV.targets(models={model}))
 
 
 def into_car():
@@ -186,6 +271,7 @@ def stage(st):
     while time.time() - t0 < 1500:
         check()
         s = D.wait_state()
+        if (M.mission_state() or {}).get("wanted", 0) > 0 and SP.police_near(s, 25.0, 18.0)[2] < 25: lie_low(90, "wanted, police near")
         if target_visible(st["model"], st["zones"]):
             if s["driving"]:
                 hold("Down", 0.5); M.leave_car(); M.ensure_view("third")
@@ -241,7 +327,7 @@ def face(x, y, tol=0.12, tries=10):
     return False
 
 
-def careful_walk(pts, tol=0.3, secs=40, look=0.8):
+def careful_walk(pts, tol=0.3, secs=60, look=0.6):
     """segment by segment with Up held and pure-pursuit steering on a point `look` blocks ahead ON
     the segment, so a sideways drift turns into a heading error at once (b2_gcb4 drifted off the
     one-block jetty steering at the far end point; b2_gcb8 stepped in pulses after turns on the
@@ -264,7 +350,7 @@ def careful_walk(pts, tol=0.3, secs=40, look=0.8):
                 la = min(L, max(0.0, tp) + look)
                 lx, ly = p0[0] + ux * la, p0[1] + uy * la
                 a = D.angle_to(s, lx, ly)
-                if abs(lat) > 0.28 and L > 1.5:
+                if abs(lat) > 0.2 and L > 1.5:
                     if up: xdo("keyup", "Up"); up = False
                     lx, ly = p0[0] + ux * min(L, max(0.0, tp) + 0.3), p0[1] + uy * min(L, max(0.0, tp) + 0.3)
                     face(lx, ly, tol=0.1, tries=4)
@@ -275,8 +361,8 @@ def careful_walk(pts, tol=0.3, secs=40, look=0.8):
                 if not up: xdo("keydown", "Up"); up = True
                 if abs(a) > 0.06:
                     key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
-                    xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.08)); xdo("keyup", key)
-                time.sleep(0.05)
+                    xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.06)); xdo("keyup", key)
+                time.sleep(0.04)
         finally:
             if up: xdo("keyup", "Up")
         s = D.wait_state(); p0 = (x, y)
@@ -290,18 +376,30 @@ def to_phone(entry):
     if math.hypot(road[0] - s["x"], road[1] - s["y"]) > 30:
         if os.environ.get("B2_WARP_PHONE", "1") == "1":
             P.set_view("classic")
-            for _ in range(4):
+            for _ in range(5):
                 s2 = M.scene_warp(road[0], road[1], road[2], "B2_WARP_PHONE: the road south of the Rednecks' red phone; the job starts at the phone")
+                # b2_gcb9: the container was paused by the governor right after the warp key and the
+                # warp line was read against a stale position: look again after a settle
+                time.sleep(3.0); s2 = D.wait_state()
                 if s2 and math.hypot(s2["x"] - road[0], s2["y"] - road[1]) < 8: break
                 time.sleep(2.0)
             R.ev(f"phone warp to {road}")
         else:
             M.walk3(world, road[0], road[1], None, tol=1.5, budget=600)
+    s = D.wait_state()
+    if math.hypot(road[0] - s["x"], road[1] - s["y"]) > 8:
+        return False, f"not at the road below the phone ({s['x']:.1f},{s['y']:.1f})"
     M.set_avoid_phones(world, keep=PHONE)
     careful_walk(JETTY)
     P.nudge_to(PHONE[0], PHONE[1], tol=0.12, tries=16)
     t0 = time.time()
-    while time.time() - t0 < 8 and not MSG.saw({"2955", "2160"}): time.sleep(0.5)
+    while time.time() - t0 < 8 and not MSG.saw({"2955", "2160"}): time.sleep(0.2)
+    if MSG.saw({"2955", "2160"}):
+        # straight back over the jetty, still in the classic view: the job's Redneck and his group of
+        # six spawn at 11.5,2.5 and crowd round their new leader; b2_gcb10 spent 7 s on view changes
+        # first and they pushed him off the jetty at 6.4,9 (frames shot_150/155)
+        M.mark("phone answered: back over the jetty ahead of the Redneck escort")
+        careful_walk(list(reversed(JETTY))[1:] + [(4.5, 22.5)])
     P.set_view("third")
     M.set_avoid_phones(world, keep=None)
     return MSG.saw({"2955", "2160"}), (MSG.keys() or [""])[-1]
@@ -321,8 +419,6 @@ def play():
     ms = M.mission_state() or {}
     M.LIVES0[0] = ms.get("lives")
     R.ev(f"weapon {ms.get('weapon')} wid {ms.get('wid')} ammo {ms.get('ammo')}")
-    careful_walk(list(reversed(JETTY))[1:] + [(4.5, 22.5)])     # back over the jetty to the road
-    P.set_view("third")
     for st in STAGES:
         try:
             r = stage(st)
