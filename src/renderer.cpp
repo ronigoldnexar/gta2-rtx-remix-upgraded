@@ -131,6 +131,8 @@ void SetHdTextureDir(const char* dir) { g_hdTextureDir = dir ? dir : ""; }
 // tried before it, never on an RTX Remix device (the Remix layer is keyed by the HD set's hashes).
 std::string g_photoTextureDir;
 void SetPhotoTextureDir(const char* dir) { g_photoTextureDir = dir ? dir : ""; }
+std::string g_roadTextureDir;
+void SetRoadTextureDir(const char* dir) { g_roadTextureDir = dir ? dir : ""; }
 void SetTileDumpDir(const char* dir) { g_tileDumpDir = dir ? dir : ""; }
 bool g_waterEffect = true;
 void SetWaterEffect(bool on) { g_waterEffect = on; }
@@ -661,6 +663,8 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     hdDir_ = hdDir;
     photoDir_ = (g_photoTextureDir.empty() || remixDevice_) ? "" : g_photoTextureDir + "\\" + g_tileStyle;
     photoTiles_ = 0;
+    roadDir_ = (g_roadTextureDir.empty() || remixDevice_) ? "" : g_roadTextureDir + "\\" + g_tileStyle;
+    roadTiles_ = 0;
     for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
     photoTextures_.assign(textures_.size(), nullptr);
     tileAnimated_.assign(textures_.size(), 0);
@@ -804,6 +808,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         Trace("hd tiles: %d loaded (%d block-compressed DDS with mips, cap %d px), %d failed, of %zu tile textures",
               hdTiles_, hdDdsTiles_, g_hdTileMax, hdFailed_, textures_.size());
         Trace("photo tiles: %d of them from %s", photoTiles_, photoDir_.empty() ? "(off)" : photoDir_.c_str());
+        Trace("road-marking tiles: %d of them from %s (street views only)", roadTiles_, roadDir_.empty() ? "(off)" : roadDir_.c_str());
     }
     post_.BuildWorld(mesh, style, vertexBuffer_);
     return true;
@@ -819,8 +824,12 @@ IDirect3DTexture9* Renderer::LoadHdTileTexture(int tile) {
 }
 
 IDirect3DTexture9* Renderer::LoadPhotoTileTexture(int tile) {
-    if (photoDir_.empty()) return nullptr;
     DdsImage dds;
+    // The re-authored road markings first (clean paint over the photo asphalt), then the photo set.
+    if (!roadDir_.empty() && ReadDds(roadDir_ + "\\" + TileDdsFileName(tile), &dds)) {
+        if (IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax)) { ++roadTiles_; return texture; }
+    }
+    if (photoDir_.empty()) return nullptr;
     if (!ReadDds(photoDir_ + "\\" + TileDdsFileName(tile), &dds)) return nullptr;
     IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax);
     if (texture) ++photoTiles_;

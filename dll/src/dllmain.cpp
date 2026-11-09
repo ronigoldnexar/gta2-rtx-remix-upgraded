@@ -419,6 +419,12 @@ void LoadConfig() {
             snprintf(photo, sizeof(photo), "%s\\photo", dir);
             gta2::SetPhotoTextureDir(photo);
         }
+        // Road markings re-authored over the photo asphalt (tools/reauthor_road_markings.py) in roads\.
+        if (GetPrivateProfileIntA("renderer", "road_markings", 1, ini) != 0) {
+            char roads[MAX_PATH];
+            snprintf(roads, sizeof(roads), "%s\\roads", dir);
+            gta2::SetRoadTextureDir(roads);
+        }
         gta2::SetHdTileMaxSize(GetPrivateProfileIntA("renderer", "hd_tile_max", 512, ini));
         gta2::SetWaterEffect(GetPrivateProfileIntA("renderer", "water_effect", 1, ini) != 0);
         gta2::SetWaterShader(GetPrivateProfileIntA("renderer", "water_shader", 1, ini) != 0);

@@ -66,6 +66,9 @@ void SetHdTextureDir(const char* dir);
 // Photo-material tiles (tools/photoreal_tiles.py), loaded before the HD folder's, per style
 // subfolder; ignored on an RTX Remix device. Empty disables.
 void SetPhotoTextureDir(const char* dir);
+// Re-authored road-marking tiles (tools/reauthor_road_markings.py over the photo set), per
+// style; street views only like the photo tiles, and loaded before them.
+void SetRoadTextureDir(const char* dir);
 void SetTileDumpDir(const char* dir);
 // Tile numbers are per style file (wil.sty, bil.sty, ste.sty), so both folders
 // hold one subfolder per style, named by this: the style file's name without
@@ -216,6 +219,8 @@ private:
     std::string hdDir_;                // the style's HD folder, "" when none
     std::string photoDir_;             // the style's photo-material folder, "" when off
     int photoTiles_ = 0;
+    std::string roadDir_;              // the style's re-authored road-marking folder, "" when off
+    int roadTiles_ = 0;
     // Per tile: the photo-material variant, bound instead of textures_[tile] while
     // streetView_ (never for an animated tile, whose slot points at its frames).
     std::vector<IDirect3DTexture9*> photoTextures_;

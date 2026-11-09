@@ -107,6 +107,23 @@ Before/after sheets (64 px original, the HD tile it replaces, the re-authored ti
 rebuilt (`linux/docker/build_remix_mod.sh`), those tiles draw in Remix with the
 runtime's default material instead of their PBR maps.
 
+### Street-view road set (FIX-PROPS, 9 Nov 2026)
+
+The 60 re-authored tiles above were taken back out of `assets/textures_hd/<style>` (the Remix
+layer keys its materials by those files' hashes, so they stay as shipped), and the photo set
+(`photo/`, tools/photoreal_tiles.py) kept the upscalers' zebra noise on its road lids. The paint
+now ships as a set of its own, `assets/textures_hd/roads/<style>/` (staged as
+`gta2dx9_textures_hd\roads\`): `reauthor_road_markings.py` run with the **photo** tiles as the
+base, so the asphalt under the paint is the photo asphalt of the neighbouring tiles:
+
+    reauthor_road_markings.py game/data <style> qb24/orig/<style> assets/textures_hd/photo/<style> <out>/<style>
+
+(wil 19, bil 13, ste 24 tiles; the four road tiles the photo set does not have, wil 685, bil 765,
+ste 696 and 813, are QB-24's plain-HD versions.) The renderer binds them in the street views only,
+before the photo tile, never on a Remix device; the classic view keeps the plain HD tile
+(`[renderer] road_markings`, default 1). Sheets: `qb24/roads_sheets/re_<style>.png` in the
+working folder. Defect pm-road-lane-dashes-dark-gaps-and-garbled-road-text.
+
 ## Cutouts
 
 GTA2's alpha is one bit at 64 px. Scaled up nearest, a chain-link fence or a railing
