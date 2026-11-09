@@ -45,7 +45,7 @@ if [ "$AUDIO" = true ]; then python3 "$AUDIO_PY" web "$PLAY_PORT" >/tmp/websocki
 else websockify --web /usr/share/novnc "$PLAY_PORT" localhost:5900 >/tmp/websockify.log 2>&1 & fi
 echo "== browser: http://localhost:$PLAY_PORT/  (vnc on :5900 inside the container)"
 
-if [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1); else wineboot -i >/dev/null 2>&1; fi
+if [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1; wineserver -w); else wineboot -i >/dev/null 2>&1; fi   # wineserver -w: the game must not start inside the headless boot's driverless desktop (no window)
 G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 cp -r /game/. "$G"/; mkdir -p "$G/player"
 cp -r /release/. "$G"/
@@ -62,7 +62,9 @@ if [ "$REMIX" = 1 ]; then
   cp -r /remix/. "$G"/; [ -d /work/remix_cache ] && cp -rn /work/remix_cache/. "$G"/ 2>/dev/null
   cp /release/.trex/bridge.conf "$G/.trex/" 2>/dev/null; [ -f /work/bridge.conf.extra ] && cat /work/bridge.conf.extra >> "$G/.trex/bridge.conf"
   [ -f "${RTX_EXTRA:-/work/rtx_gpu.conf.extra}" ] && cat "${RTX_EXTRA:-/work/rtx_gpu.conf.extra}" >> "$G/rtx.conf"
-  [ -f /work/rtx_showcase.conf.extra ] && cat /work/rtx_showcase.conf.extra >> "$G/rtx.conf"
+  # The page's look: the play preset (no motion blur, vignette or chromatic aberration; slow exposure; REMIX-VERIFY).
+  # PLAY_RTX_PRESET=rtx_showcase.conf.extra for the showcase look.
+  [ -f "/work/${PLAY_RTX_PRESET:-rtx_play.conf.extra}" ] && cat "/work/${PLAY_RTX_PRESET:-rtx_play.conf.extra}" >> "$G/rtx.conf"
   MODS_HD_SRC=${MODS_HD_SRC:-/package/rtx-remix/mods/gta2hd}
   [ "${MODS_HD:-1}" = 1 ] && [ -d "$MODS_HD_SRC" ] && mkdir -p "$G/rtx-remix/mods/gta2hd" && cp -r "$MODS_HD_SRC"/. "$G/rtx-remix/mods/gta2hd/"
 else
