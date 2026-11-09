@@ -92,4 +92,9 @@ int CarBodiesDrawn();
 // [2] drawing models, [3] drawing sprite bodies; [4..7] the matching counts.
 const double* CarBodiesStats();
 
+// FIX-CAR-RENDER: the luminance floor of a car's live paint, a fraction of white
+// ([renderer] car_paint_floor_percent, default 30; 0 off): a near-black repaint keeps
+// enough albedo to show its shading, and a dark body gets a broader, sky-tinted sheen.
+void SetCarPaintFloor(float fraction);
+
 }  // namespace gta2dx9

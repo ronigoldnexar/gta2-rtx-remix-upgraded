@@ -747,3 +747,16 @@ the alpha-tested pair (Remix untested with soft masks, so it is never given them
 `models: soft car paint masks on|off (...)` once. Pale parts of a model's own texture that the
 widened mask still does not take (the 040 Maurice's pale lower rear) are the model's art: a repaint
 leaves them in the model's colour, now with soft borders (ASSET-VEHICLES, issue #2).
+
+### Dark paint floor (pm3-dark-vehicle-bodies-flat-black-unlit)
+
+A near-black remap (box trucks, dark sedans) multiplied the paint to almost nothing: the side of a
+box truck measured 3.5-8.4 mean luminance (0-255) in daylight, a hole in the frame. `car_bodies.cpp`
+now holds the live paint's luminance at a floor before it becomes the tint (hue kept;
+`[renderer] car_paint_floor_percent=30`, 0 off) and gives a dark body a broader, sky-tinted
+specular (power 26 -> 12, specular up to 0.95/1.0/1.1 in blue) and a little more ambient (up to
+1.3x), scaled by how far the paint is under 100/255. Liveries keep their own paint. QA probe:
+`[devtools] force_car_paint=R,G,B` paints every non-livery car (also the models `force_car_model`
+draws). Measured with `force_car_model=7 force_car_paint=18,18,22`, keys_pm4.sh in Industrial: box
+side 3.5 / 8.4 before (floor 0, binary mask), 25.1 / 28.2 after, panel edges and a roof highlight
+visible (runs `out/fixcar_dark_b6`, `out/fixcar_dark_a4`).

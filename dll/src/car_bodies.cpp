@@ -42,6 +42,8 @@ bool g_wreckTest = false;   // [devtools] wreck_models=1: every car drawn as a w
 int g_forceModel = -1;      // [devtools] force_car_model=N: every traffic car drawn as model N (re-read once a second)
 int g_cabInterior = 1;     // [devtools] cab_interior=0: QB-5's plain dashboard instead of the QB-31 cab
 int g_forceOwnModel = -1;   // [devtools] force_own_car_model=N: the player's car drawn as model N (QB-5 seat checks)
+int g_forceCarPaint[3] = {-1, -1, -1};   // [devtools] force_car_paint=R,G,B: every non-livery car's live paint (QA of dark paint)
+float g_paintLumFloor = 77.0f;   // [renderer] car_paint_floor_percent (default 30 of white; 0 off)
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
@@ -2621,6 +2623,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_forceOwnModel = GetPrivateProfileIntA("devtools", "force_own_car_model", -1, g_devIni);
         g_cabInterior = GetPrivateProfileIntA("devtools", "cab_interior", 1, g_devIni);
         g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
+        {
+            char fp[64] = {};
+            GetPrivateProfileStringA("devtools", "force_car_paint", "", fp, sizeof(fp), g_devIni);
+            int r = -1, g = -1, bl = -1;
+            if (sscanf(fp, "%d,%d,%d", &r, &g, &bl) != 3) r = g = bl = -1;
+            g_forceCarPaint[0] = r; g_forceCarPaint[1] = g; g_forceCarPaint[2] = bl;
+        }
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
         g_forceSirens = GetPrivateProfileIntA("devtools", "force_sirens", 0, g_devIni);
         // [devtools] vehicle_feel=0|1 (VEHICLE-FEEL): the feel off or on while the game
@@ -2775,11 +2784,30 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // remap would recolour (REMIX-3: under Remix the tint is applied too,
             // rtx.enableMultiStageTextureFactorBlending). Nor for a model forced by
             // the devtools: the paint measured is then another car's sprite's.
-            const bool keepOwnPaint = LiveryModel(modelNumber) || (g_forceModel >= 0 && !use.own) || (g_forceOwnModel >= 0 && use.own);
-            const float tint[3] = {keepOwnPaint ? 1.0f : b->paint.r / model->paintRgb[0],
-                                   keepOwnPaint ? 1.0f : b->paint.g / model->paintRgb[1],
-                                   keepOwnPaint ? 1.0f : b->paint.b / model->paintRgb[2]};
+            const bool forcedPaint = g_forceCarPaint[0] >= 0 && !LiveryModel(modelNumber);   // devtools force_car_paint
+            const bool keepOwnPaint = !forcedPaint && (LiveryModel(modelNumber) || (g_forceModel >= 0 && !use.own) || (g_forceOwnModel >= 0 && use.own));
+            // FIX-CAR-RENDER (pm3-dark-vehicle-bodies): a near-black remap multiplied the paint
+            // to almost nothing (under 10/255 in daylight). The live paint's luminance is held
+            // at a floor (hue kept), and a dark body gets a broader, stronger sheen below.
+            const float live[3] = {forcedPaint ? static_cast<float>(g_forceCarPaint[0]) : b->paint.r,
+                                   forcedPaint ? static_cast<float>(g_forceCarPaint[1]) : b->paint.g,
+                                   forcedPaint ? static_cast<float>(g_forceCarPaint[2]) : b->paint.b};
+            const float paintLum = 0.30f * live[0] + 0.59f * live[1] + 0.11f * live[2];
+            const float lift = keepOwnPaint || paintLum >= g_paintLumFloor ? 1.0f
+                               : (std::min)(4.0f, g_paintLumFloor / (std::max)(paintLum, 8.0f));
+            const float tint[3] = {keepOwnPaint ? 1.0f : lift * live[0] / model->paintRgb[0],
+                                   keepOwnPaint ? 1.0f : lift * live[1] / model->paintRgb[1],
+                                   keepOwnPaint ? 1.0f : lift * live[2] / model->paintRgb[2]};
+            const float darkness = keepOwnPaint || g_paintLumFloor <= 0.0f ? 0.0f : (std::max)(0.0f, (std::min)(1.0f, (100.0f - paintLum) / 70.0f));
             D3DMATERIAL9 carMaterial = material;
+            if (darkness > 0.0f) {
+                // A sky-tinted sheen (added after the texture, so a dark albedo cannot swallow it).
+                carMaterial.Specular = {0.6f + 0.35f * darkness, 0.6f + 0.40f * darkness, 0.6f + 0.50f * darkness, 1.0f};
+                carMaterial.Power = 26.0f - 14.0f * darkness;
+                // and more of the sky on the faces turned from the sun.
+                const float amb = 1.0f + 0.3f * darkness;
+                carMaterial.Ambient = {amb, amb, amb, 1.0f};
+            }
             {
                 const float roof = model->Height() * sy;
                 const float cy = 0.5f * b->measure.h;
@@ -3357,5 +3385,7 @@ void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t fr
         for (auto it = g_turretAims.begin(); it != g_turretAims.end();) it = (frame - it->second.frame > 300) ? g_turretAims.erase(it) : std::next(it);
     }
 }
+
+void SetCarPaintFloor(float fraction) { g_paintLumFloor = fraction < 0.0f ? 0.0f : (fraction > 0.5f ? 0.5f : fraction) * 255.0f; }
 
 }  // namespace gta2dx9
