@@ -33,6 +33,7 @@ from skills import crusher_crane as CC
 from skills import deliver_intact as DI
 from skills import destroy_vehicle as DV
 from missions import b2_common as B
+from skills import shake_police as SP
 
 say, tap, hold, xdo = D.say, D.tap, D.hold, D.xdo
 JOB = "wil_lh1"
@@ -181,6 +182,40 @@ def kill_crew(st, host, secs=400):
     return MSG.saw(st["killed"])
 
 
+def run_down(st, host, secs=300):
+    """from the taxi: run the crew down instead of stepping out among them (b2_tx1: out of the taxi
+    beside two officers, 100 -> 0 in 1.5 s). First away from any police (evade), then each crew
+    member who comes at the car (their objective is to kill the player) is driven at, aiming two
+    blocks past him so the car goes through him. Ends on the script's 'killed' message."""
+    t0 = time.time(); legs = 0
+    while time.time() - t0 < secs / D.SPEED:
+        check()
+        if MSG.saw(st["killed"]): return True
+        s = D.wait_state()
+        if not s["driving"]: return False
+        nc, no, dmin, cen = SP.police_near(s, 25.0, 16.0)
+        if (M.mission_state() or {}).get("wanted", 0) > 0 and nc + no:
+            SP.evade(world, 20, check=check, view_switch=view_switch,
+                     until=lambda: SP.police_near(D.wait_state(), 30.0, 20.0)[0] + SP.police_near(D.wait_state(), 30.0, 20.0)[1] == 0)
+            continue
+        crew = [p for p in M.peds() if p["id"] in host and p["hp"] > 0]
+        if not crew:
+            time.sleep(0.5); continue
+        p = min(crew, key=lambda q: math.hypot(q["x"] - s["x"], q["y"] - s["y"]))
+        d = math.hypot(p["x"] - s["x"], p["y"] - s["y"])
+        if d > 30:
+            time.sleep(0.5); continue
+        ux, uy = (p["x"] - s["x"]) / max(d, 0.1), (p["y"] - s["y"]) / max(d, 0.1)
+        if d < 3.0:
+            # too close to build speed: back off a little, then come at him
+            hold("Down", 0.6); continue
+        legs += 1
+        if legs % 4 == 1: R.ev(f"{st['name']}: driving at {p['id']} ({p['type']}) {d:.1f} off")
+        M.drive3(world, p["x"] + ux * 2.0, p["y"] + uy * 2.0, tol=1.0, budget=5, view_switch=None,
+                 until=lambda: MSG.saw(st["killed"]))
+    return MSG.saw(st["killed"])
+
+
 def phone(entry):
     s = D.wait_state()
     if os.environ.get("B2_WARP_PHONE", "1") == "1" and math.hypot(PHONE[0] - s["x"], PHONE[1] - s["y"]) > 30:
@@ -241,8 +276,11 @@ def play():
             host, drv = crew_ids()
             R.ev(f"{st['name']}: crew {sorted(host)} (driver {drv['id'] if drv else None} {drv['type'] if drv else ''} at "
                  f"{(round(drv['x'], 1), round(drv['y'], 1)) if drv else None})")
-            hold("Down", 0.4); M.leave_car(); set_view("third")
-            if not kill_crew(st, host): return f"{st['name']}: crew not killed"
+            if not run_down(st, host):
+                s = D.wait_state()
+                if s["driving"]: hold("Down", 0.4); M.leave_car()
+                set_view("third")
+                if not kill_crew(st, host): return f"{st['name']}: crew not killed"
         R.ev(f"{st['name']}: crew dead ({MSG.keys()[-3:]})"); M.shot(f"tx_{st['name']}_killed")
         for k in range(3):
             check()
