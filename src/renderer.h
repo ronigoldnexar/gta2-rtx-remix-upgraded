@@ -120,6 +120,11 @@ public:
         return tile >= 0 && tile < static_cast<int>(textures_.size()) && textures_[tile] != nullptr;
     }
     void UpdateTileTexture(int tile, const uint32_t* pixels);
+    // The photo-material tiles (photo_tiles) belong to the street views only: the
+    // classic view keeps the plain HD set, byte-for-byte as before the photo set
+    // existed (and the one Remix's hashes are keyed on). The caller says each
+    // frame whether a street view is showing.
+    void SetStreetView(bool on) { streetView_ = on; }
     // The clock the street-level water effect scrolls by (seconds); any
     // monotonic clock, the sky's is used.
     void SetWaterClock(double seconds) { waterClock_ = seconds; }
@@ -211,6 +216,17 @@ private:
     std::string hdDir_;                // the style's HD folder, "" when none
     std::string photoDir_;             // the style's photo-material folder, "" when off
     int photoTiles_ = 0;
+    // Per tile: the photo-material variant, bound instead of textures_[tile] while
+    // streetView_ (never for an animated tile, whose slot points at its frames).
+    std::vector<IDirect3DTexture9*> photoTextures_;
+    std::vector<uint8_t> tileAnimated_;
+    bool streetView_ = false;
+    IDirect3DTexture9* LoadPhotoTileTexture(int tile);
+    IDirect3DTexture9* BoundTileTexture(int tile) const {
+        if (streetView_ && tile < static_cast<int>(photoTextures_.size()) && photoTextures_[tile] && !tileAnimated_[tile])
+            return photoTextures_[tile];
+        return textures_[tile];
+    }
     std::vector<uint8_t> waterTile_;   // per tile: 1 when it is the water surface
     // Window tiles of the street views: a glow texture per tile (the room's
     // light behind the glass, black elsewhere), added over the wall when the

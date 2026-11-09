@@ -2624,6 +2624,9 @@ void WorldView::RenderFrame() {
         // in the classic view.
         DrawSkyAndShading();
         QueryPerformanceCounter(&skyStamp);
+        // Photo-material tiles only while a street view shows (skyBlend_ is 0 whenever
+        // the classic view is settled): classic keeps the plain HD set unchanged.
+        renderer_.SetStreetView(worldUploaded_ && skyBlend_ > 0.001f);
         renderer_.DrawWorld(camera_);
         renderer_.WarmTileTextures(CurrentViewMode() == ViewMode::Classic ? 24 : 6);   // nothing once every tile has been drawn with
         QueryPerformanceCounter(&stamp[2]);

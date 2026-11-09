@@ -477,6 +477,9 @@ void Renderer::ReleaseResources() {
         if (!ownedByFrames) texture->Release();
     }
     textures_.clear();
+    for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
+    photoTextures_.clear();
+    tileAnimated_.clear();
     for (auto& frame : tileFrames_) {
         if (frame.second) frame.second->Release();
     }
@@ -658,6 +661,9 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     hdDir_ = hdDir;
     photoDir_ = (g_photoTextureDir.empty() || remixDevice_) ? "" : g_photoTextureDir + "\\" + g_tileStyle;
     photoTiles_ = 0;
+    for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
+    photoTextures_.assign(textures_.size(), nullptr);
+    tileAnimated_.assign(textures_.size(), 0);
     tileByContent_.clear();
     for (int i = 0; i < style.TileCount(); ++i) {
         const Tile& t = style.GetTile(i);
@@ -703,6 +709,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
             int w = 0, h = 0;
             if (IDirect3DTexture9* texture = LoadHdTileTexture(batch.tile)) {
                 textures_[batch.tile] = texture;
+                photoTextures_[batch.tile] = LoadPhotoTileTexture(batch.tile);
                 ++hdTiles_;
                 ++hdDdsTiles_;
                 continue;
@@ -805,17 +812,24 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
 IDirect3DTexture9* Renderer::LoadHdTileTexture(int tile) {
     if (hdDir_.empty()) return nullptr;
     DdsImage dds;
-    if (!photoDir_.empty() && ReadDds(photoDir_ + "\\" + TileDdsFileName(tile), &dds)) {
-        if (IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax)) { ++photoTiles_; return texture; }
-    }
     if (!ReadDds(hdDir_ + "\\" + TileDdsFileName(tile), &dds)) return nullptr;
     IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax);
     if (!texture) ++hdFailed_;
     return texture;
 }
 
+IDirect3DTexture9* Renderer::LoadPhotoTileTexture(int tile) {
+    if (photoDir_.empty()) return nullptr;
+    DdsImage dds;
+    if (!ReadDds(photoDir_ + "\\" + TileDdsFileName(tile), &dds)) return nullptr;
+    IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax);
+    if (texture) ++photoTiles_;
+    return texture;
+}
+
 void Renderer::UpdateTileTexture(int tile, const uint32_t* pixels) {
     if (!HasTileTexture(tile) || !pixels) return;
+    if (tile < static_cast<int>(tileAnimated_.size())) tileAnimated_[tile] = 1;
 
     // GTA2 animates a tile - fans, screens, water, traffic lights - by changing
     // the artwork behind a fixed tile number. Writing the new frame into the
@@ -1155,7 +1169,7 @@ void Renderer::DrawWorld(const Camera& camera) {
             doubleSided = batch.doubleSided;
             device_->SetRenderState(D3DRS_CULLMODE, doubleSided ? D3DCULL_NONE : cullMode_);
         }
-        device_->SetTexture(0, textures_[batch.tile]);
+        device_->SetTexture(0, BoundTileTexture(batch.tile));
         // The fixed-function ripple, when the shader surface is off or unavailable.
         const bool water = !waterShaderOn && g_waterEffect && (shading_.sun || shading_.fog) && waterNoise_ && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile];
         if (water) {
@@ -1241,7 +1255,7 @@ void Renderer::DrawWorld(const Camera& camera) {
                      camera.Position(), shading_, waterClock_);
         for (const TileBatch* batch : waterDeferred_) {
             device_->SetRenderState(D3DRS_CULLMODE, batch->doubleSided ? D3DCULL_NONE : cullMode_);
-            device_->SetTexture(0, textures_[batch->tile]);
+            device_->SetTexture(0, BoundTileTexture(batch->tile));
             device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch->vertexStart, batch->vertexCount,
                                           batch->indexStart, batch->indexCount / 3);
             stats_.drawCalls++;
@@ -1290,6 +1304,10 @@ int Renderer::WarmTileTextures(int perFrame) {
             device_->SetTexture(0, t);
             device_->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(V));
             ++done;
+        }
+        if (warmCursor_ < photoTextures_.size() && photoTextures_[warmCursor_]) {
+            device_->SetTexture(0, photoTextures_[warmCursor_]);
+            device_->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(V));
         }
         ++warmCursor_;
     }
