@@ -440,6 +440,7 @@ Renderer::~Renderer() { Shutdown(); }
 void Renderer::Shutdown() {
     post_.Release();
     weather_.Release();
+    water_.Release();
     ReleaseResources();
     batches_.clear();
     if (device_) {
@@ -603,6 +604,7 @@ bool Renderer::Initialize(HWND window, int width, int height, std::string* error
     remixDevice_ = g_remixD3D9;
     post_.Init(device_, width_, height_, remixDevice_);
     weather_.Init(device_, remixDevice_);
+    water_.Init(device_, remixDevice_);
     SetSkyRemix(remixDevice_);
     return true;
 }
@@ -679,6 +681,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         Trace("windows: %d wall tiles glow from inside when the sun is low", windows);
     }
     if (!waterNoise_) waterNoise_ = MakeWaterNoise(device_);
+    water_.BuildShore(mesh, waterTile_);
     if (!dumpDir.empty()) {
         CreateDirectoryA(g_tileDumpDir.c_str(), nullptr);
         CreateDirectoryA(dumpDir.c_str(), nullptr);
@@ -1118,7 +1121,15 @@ void Renderer::DrawWorld(const Camera& camera) {
     device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
 
+    // Water batches for the shader surface (water.h), drawn together after the loop:
+    // one switch to the shaders and back per frame instead of one per water tile.
+    const bool waterShaderOn = (shading_.sun || shading_.fog) && WaterShaderEnabled() && water_.Ready();
+    waterDeferred_.clear();
     for (const TileBatch& batch : batches_) {
+        if (waterShaderOn && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile]) {
+            waterDeferred_.push_back(&batch);
+            continue;
+        }
         if (batch.needsAlphaTest != alphaTestEnabled) {
             alphaTestEnabled = batch.needsAlphaTest;
             const bool blending = g_alphaMode == AlphaMode::Blend;
@@ -1135,7 +1146,8 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetRenderState(D3DRS_CULLMODE, doubleSided ? D3DCULL_NONE : cullMode_);
         }
         device_->SetTexture(0, textures_[batch.tile]);
-        const bool water = g_waterEffect && (shading_.sun || shading_.fog) && waterNoise_ && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile];
+        // The fixed-function ripple, when the shader surface is off or unavailable.
+        const bool water = !waterShaderOn && g_waterEffect && (shading_.sun || shading_.fog) && waterNoise_ && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile];
         if (water) {
             // Two layers of noise drifting across each other, signed-added so the
             // surface sparkles and darkens with the ripples, then pulled a
@@ -1212,6 +1224,26 @@ void Renderer::DrawWorld(const Camera& camera) {
         stats_.triangles += static_cast<int>(batch.indexCount / 3);
     }
     if (doubleSided) device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
+    if (!waterDeferred_.empty()) {
+        device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        water_.Begin(camera.ViewMatrix(), camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)),
+                     camera.Position(), shading_, waterClock_);
+        for (const TileBatch* batch : waterDeferred_) {
+            device_->SetRenderState(D3DRS_CULLMODE, batch->doubleSided ? D3DCULL_NONE : cullMode_);
+            device_->SetTexture(0, textures_[batch->tile]);
+            device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch->vertexStart, batch->vertexCount,
+                                          batch->indexStart, batch->indexCount / 3);
+            stats_.drawCalls++;
+            stats_.triangles += static_cast<int>(batch->indexCount / 3);
+        }
+        water_.End();
+        device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
+        // Leave the alpha state as the loop left it, for the live geometry after.
+        const bool blending = g_alphaMode == AlphaMode::Blend;
+        device_->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTestEnabled ? TRUE : FALSE);
+        device_->SetRenderState(D3DRS_ALPHABLENDENABLE, (blending && alphaTestEnabled) ? TRUE : FALSE);
+    }
     if (shading_.sun) {
         device_->LightEnable(0, FALSE);
         device_->SetRenderState(D3DRS_LIGHTING, FALSE);
@@ -1272,6 +1304,7 @@ void Renderer::DrawSky(const Camera& camera, const SkySettings& settings, const 
     sky_.Draw(device_, camera, static_cast<float>(width_) / static_cast<float>(height_), skySettings, skyColours, blend,
               seconds);
     if (post_.Active()) post_.SetSky(skyColours.zenith, skyColours.horizon, skyColours.day);
+    water_.SetSky(skyColours.zenith, skyColours.horizon);
     stats_.drawCalls += 3;
 }
 

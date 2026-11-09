@@ -15,6 +15,7 @@
 #include "camera.h"
 #include "gta2_style.h"
 #include "post_fx.h"
+#include "water.h"
 #include "sky.h"
 #include "weather_fx.h"
 #include "world_mesh.h"
@@ -230,6 +231,8 @@ private:
     Sky sky_;
     PostFx post_;
     WeatherFx weather_;   // rain streaks and the wet-road pass's puddles (weather_fx.h)
+    WaterFx water_;   // the street views' water shader (water.h)
+    std::vector<const TileBatch*> waterDeferred_;   // this frame's water batches for water_
     bool remixDevice_ = false;
 };
 
