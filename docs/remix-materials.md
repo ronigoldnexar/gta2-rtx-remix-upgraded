@@ -744,6 +744,39 @@ within the camera-heading noise of these runs). Frames are matched to the marks 
 `shot_*.png` timestamps: in `fr2_pk_fix3` the encoder dropped frames and `game.mp4` time drifted from
 the wall clock, so `remix_frames.py dump` picked the wrong frames there.
 
+## The player fill off the hero's head: hair at dusk and night (FIX-REMIX-IDENTITY, 9 Nov 2026)
+
+Defect `pt-remix-hero-hair-turns-to-bald-scalp-at-dusk-and-night`: in third person under Remix the hero's short
+dark hair read as a bare, skin-toned scalp at 19:30 and 23:00 and as hair at 13:00. **Cause:** not the hair's
+material (the head texture `human_male_adult_11_m001_head.tga`, layer prim `mat_EE56F5A8CF593B96`: hair albedo
+22,13,7, roughness 0.84, the same at every hour) but the night fill above (7081d2b): 0.6 tiles above the feet is
+0.14 above the hero's crown (he is 0.46 tall), so from the lamps' hour on the crown took ~18x the ground's
+irradiance and the dark hair's specular sheen came out as a bright skin-coloured cap. **Fix**
+(`PlayerFillSubmit`): in the street views the sphere slides from that spot toward the eye by up to 0.9 tiles (the
+chase camera's boom is collision-solved, so that segment is open space in the pocket). First person (the eye
+within 0.5 tiles of the old spot; the crown is not in view) and the classic view keep the old spot: with the
+sphere at the eye the first-person hands were twice as bright at night (`rid_hairC`, lower-band p99 luma 80 -> 159). `GTA2DX9_FILL_TOWARD_EYE=<tiles>` (0 = the old spot) for A/B; the log
+says `remix: player fill: 0.90 tiles toward the eye ...`.
+
+Runs (GPU 4, Ultra preset `rtx_premix_max.conf.extra`, wil 110.5,120.5 heading 0, hours 13/19.5/23, same DLL):
+`out/rid_hairA` (`GTA2DX9_FILL_TOWARD_EYE=0`) against `out/rid_hairC` (default). Crown / skin luminance on
+the same head (hand-placed patches on the `third_0` frames; bald reads >= 1):
+
+| | 13:00 | 19:30 | 23:00 |
+|---|---|---|---|
+| old spot (`rid_hairA`) | 0.26 | 1.15 | 2.45 |
+| toward the eye (`rid_hairC`) | 0.28 | 0.59 | 0.52 |
+
+The covered pocket the fill was made for (bil 64,189.5 at 22:30, the same DLL, `out/rid_pk_t0` with
+`GTA2DX9_FILL_TOWARD_EYE=0` against `out/rid_pk_t09`): third-person lower-half mean luminance over four headings
+0.070 -> 0.076 (min 0.065 -> 0.068); first person keeps the old spot (0.075). The classic view at the bil spawn at
+22:30 with the fill lit (the runs' `level_classic` frames, before any warp): mean |difference| 0.71 / 255, p99 6,
+mean luma 6.51 against 6.53, path-tracing noise. Plain renderer: vreg `spawn_classic` 0 px (`out/rid_vreg1`;
+its four street FAILs are the same on `qr3_afb3cb6_1`, the base without this change).
+**Still short:** at night the hair now reads as hair, a dark cap darker than the face (crown / skin 0.5-0.6 against
+0.28 at noon): the crown still takes more of the night light than the face does. The hero is also lit by the
+world only now, so in the darker spots he is a dark silhouette (by design, as the street around him).
+
 ## Industrial at night: wide coloured map lights as warm white (FIX-REMIX-2, 9 Nov 2026)
 
 Defect `pt-remix-industrial-night-mono-colour-and-black`: Industrial (ste) lights its yards and plazas

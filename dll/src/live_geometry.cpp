@@ -12929,7 +12929,14 @@ namespace gta2dx9 {
 // covered pocket that no lamp, sky or moon reaches (the Zaibatsu phone terrace, bil
 // 64,189.5) shows its walls and floor. GTA2 lit every surface with a constant ambient;
 // this stands in for it only where the player is. [timeofday] remix_player_fill_percent.
+// How far (tiles) the street views' fill sits from its old spot toward the eye; GTA2DX9_FILL_TOWARD_EYE (0 = old spot, A/B).
+float g_fillTowardEye = -1.0f;
 void PlayerFillSubmit() {
+    if (g_fillTowardEye < 0.0f) {
+        char v[16] = {};
+        g_fillTowardEye = GetEnvironmentVariableA("GTA2DX9_FILL_TOWARD_EYE", v, sizeof v) ? static_cast<float>(atof(v)) : 0.9f;
+        Log("remix: player fill: %.2f tiles toward the eye in the street views (classic keeps it 0.6 above the player)", g_fillTowardEye);
+    }
     const float strength = TimeOfDay().playerFill;
     if (!g_playerPosValid || strength <= 0.0f || !RemixApiAvailable()) return;
     DaylightGate gate;
@@ -12938,6 +12945,22 @@ void PlayerFillSubmit() {
     if (night <= 0.0f) return;
     RemixLightDesc d;
     d.pos[0] = g_playerPosX; d.pos[1] = g_playerPosY + 0.6f; d.pos[2] = g_playerPosZ;
+    // FIX-REMIX-IDENTITY (pt-remix-hero-hair-turns-to-bald-scalp-at-dusk-and-night): 0.6 above the feet is
+    // 0.14 above the hero's scalp (he is 0.46 tall), so the crown took ~18x the ground's light and the dark
+    // hair's specular sheen read as a bare, skin-toned scalp from the lamps' hour on. In the street views the
+    // sphere slides from there toward the eye, up to 0.9 tiles: the camera's boom is collision-solved, so
+    // that segment is open space in the pocket the player is in, and the figure, the floor under it and the
+    // walls round it are then at similar distances (an ambient-like fill, no hot spot on the head). First
+    // person (the eye within 0.5 of the old spot: the scalp is not in view) and the classic view keep the old
+    // spot, as verified for the pocket (classic unchanged).
+    if (StreetPresentation() && g_fillTowardEye > 0.0f) {
+        const float dx = g_viewEye.x - d.pos[0], dy = g_viewEye.y - d.pos[1], dz = g_viewEye.z - d.pos[2];
+        const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (len > 0.5f && len < 12.0f) {
+            const float k = (std::min)(1.0f, g_fillTowardEye / len);
+            d.pos[0] += dx * k; d.pos[1] += dy * k; d.pos[2] += dz * k;
+        }
+    }
     d.rgb[0] = 1.0f; d.rgb[1] = 0.88f; d.rgb[2] = 0.72f;
     d.intensity = strength * night;
     d.radius = 3.0f;
