@@ -45,6 +45,28 @@ int g_forceOwnModel = -1;   // [devtools] force_own_car_model=N: the player's ca
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
+// FIX-VEHICLES (car-bodies-interpenetrate-in-traffic): each car's drawn footprint (its
+// model's bounds after the fit, in the car's frame, placed by the game) is kept for the next
+// frame; a car whose footprint overlaps another's is drawn moved apart by its share of the
+// overlap (the game's placement and boxes untouched). GTA2DX9_LOG_CAR_OVERLAP=1 logs the
+// pairs; [renderer] car_separation=0 turns it off.
+struct CarFoot {
+    uintptr_t object = 0;
+    float cx = 0, cy = 0, cz = 0;   // the car frame's origin, world
+    float rx = 1, rz = 0;        // its x (across) axis, world xz, unit
+    float fx = 0, fz = 1;        // its z (nose) axis, world xz, unit
+    float x0 = 0, x1 = 0, z0 = 0, z1 = 0;   // the drawn footprint in the car frame
+    float boxHalfL = 0, boxHalfW = 0;       // the game's box (the sprite's footprint)
+    bool pinned = false;         // never moved (the player's car seen from the seat)
+    bool linked = false;         // a train carriage, a tractor or its trailer: they overlap at the coupling by design
+};
+std::vector<CarFoot> g_feetPrev, g_feetCur;
+uint32_t g_feetFrame = 0;
+struct CarPush { float x = 0, z = 0; uint32_t frame = 0; };
+std::unordered_map<uintptr_t, CarPush> g_push;
+std::set<std::pair<int, int>> g_fitLogged;   // (model, sprite) whose overhang is logged
+int g_logOverlap = -1;
+int g_separate = 1;
 int g_logNoses = -1;        // GTA2DX9_LOG_CAR_NOSES=1: a line per drawn car every 15 frames, for tools/check_car_noses.py
 // Where the cars stage's time went in the last call: measuring artwork, building
 // bodies, drawing models, drawing sprite-built bodies (ms), and the counts.
@@ -2612,6 +2634,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     VehicleFxSetDark(g_lampDark);
     const bool feelOn = VehicleFxEnabled();
     if (g_logNoses < 0) { char v[8] = {}; g_logNoses = GetEnvironmentVariableA("GTA2DX9_LOG_CAR_NOSES", v, sizeof v) ? atoi(v) : 0; }
+    if (g_logOverlap < 0) { char v[8] = {}; g_logOverlap = GetEnvironmentVariableA("GTA2DX9_LOG_CAR_OVERLAP", v, sizeof v) ? atoi(v) : 0; }
+    if (g_devIni[0] && frame % 60 == 0) {
+        const int sep = GetPrivateProfileIntA("renderer", "car_separation", 1, g_devIni);
+        if (sep != g_separate) Log("car bodies: separation %s (%s)", sep ? "on" : "off", g_devIni);
+        g_separate = sep;
+    }
+    if (frame != g_feetFrame) { g_feetPrev.swap(g_feetCur); g_feetCur.clear(); g_feetFrame = frame; }
     for (const CarBodyUse& use : cars) {
         bool effect = false;
         const double ta = CarNowMs();
@@ -2875,6 +2904,103 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 }
             }
             const VehicleFeel& feel = VehicleFxUpdate(fxCar, frame);
+            // The drawn footprint: the model's bounds through the fit, in the car frame.
+            CarFoot foot;
+            {
+                float xs[4], zs[4];
+                const gta2::Vec3& lo = model->boundsMin; const gta2::Vec3& hi = model->boundsMax;
+                for (int k = 0; k < 4; ++k) {
+                    const float px_ = (k & 1) ? hi.x : lo.x, pz_ = (k & 2) ? hi.z : lo.z;
+                    xs[k] = px_ * fit.m[0][0] + pz_ * fit.m[2][0] + fit.m[3][0];
+                    zs[k] = px_ * fit.m[0][2] + pz_ * fit.m[2][2] + fit.m[3][2];
+                }
+                foot.object = use.object;
+                foot.x0 = (std::min)((std::min)(xs[0], xs[1]), (std::min)(xs[2], xs[3]));
+                foot.x1 = (std::max)((std::max)(xs[0], xs[1]), (std::max)(xs[2], xs[3]));
+                foot.z0 = (std::min)((std::min)(zs[0], zs[1]), (std::min)(zs[2], zs[3]));
+                foot.z1 = (std::max)((std::max)(zs[0], zs[1]), (std::max)(zs[2], zs[3]));
+                foot.cx = carToWorld.m[3][0]; foot.cy = carToWorld.m[3][1]; foot.cz = carToWorld.m[3][2];
+                const float rl = std::sqrt(carToWorld.m[0][0] * carToWorld.m[0][0] + carToWorld.m[0][2] * carToWorld.m[0][2]);
+                const float fl = std::sqrt(carToWorld.m[2][0] * carToWorld.m[2][0] + carToWorld.m[2][2] * carToWorld.m[2][2]);
+                if (rl > 1e-6f) { foot.rx = carToWorld.m[0][0] / rl; foot.rz = carToWorld.m[0][2] / rl; }
+                if (fl > 1e-6f) { foot.fx = carToWorld.m[2][0] / fl; foot.fz = carToWorld.m[2][2] / fl; }
+                foot.boxHalfL = 0.5f * b->bodyLength; foot.boxHalfW = 0.5f * b->bodyWidth;
+                foot.pinned = cpuCut;
+                // GTA2's train (59-61) runs as cars overlapping by 0.41 block at each
+                // coupling (fv_ov_after1); a truck cab (63, 64) and its trailer (55 tanker,
+                // 65 container, 66 transporter) overlap at the hitch.
+                foot.linked = (modelNumber >= 59 && modelNumber <= 61) || modelNumber == 63 || modelNumber == 64 ||
+                              modelNumber == 55 || modelNumber == 65 || modelNumber == 66;
+                g_feetCur.push_back(foot);
+                if (g_fitLogged.insert({modelNumber, use.sprite}).second && g_fitLogged.size() < 400)
+                    Log("car fit: model %d sprite %d: drawn %.3f x %.3f (front %+.3f, back %+.3f, sides %+.3f %+.3f) over the game's box %.3f x %.3f blocks",
+                        modelNumber, use.sprite, foot.z1 - foot.z0, foot.x1 - foot.x0, foot.z1 - foot.boxHalfL, -foot.z0 - foot.boxHalfL,
+                        -foot.x0 - foot.boxHalfW, foot.x1 - foot.boxHalfW, b->bodyLength, b->bodyWidth);
+            }
+            // Separation: against last frame's footprints of the cars near this one, the
+            // least push that clears each overlap (2D separating axes), this car taking half
+            // (all of it against the pinned own car, none when pinned itself); eased, capped.
+            gta2::Mat4 sepMove = gta2::Identity();
+            if ((g_separate || g_logOverlap > 0) && !wreckModel) {
+                float tx = 0.0f, tz = 0.0f;
+                auto centre = [](const CarFoot& c, float* x, float* z, float* hx, float* hz) {
+                    const float lx = 0.5f * (c.x0 + c.x1), lz = 0.5f * (c.z0 + c.z1);
+                    *x = c.cx + c.rx * lx + c.fx * lz; *z = c.cz + c.rz * lx + c.fz * lz;
+                    *hx = 0.5f * (c.x1 - c.x0); *hz = 0.5f * (c.z1 - c.z0);
+                };
+                float ax_, az_, ahx, ahz;
+                centre(foot, &ax_, &az_, &ahx, &ahz);
+                for (const CarFoot& o : g_feetPrev) {
+                    if (o.object == use.object || (foot.linked && o.linked)) continue;
+                    // Another level: the elevated train over the street, a car on a ramp or bridge
+                    // above (fv_ov_dense0: cars "inside" the train overhead by 0.5 block in plan).
+                    if (std::fabs(foot.cy - o.cy) > 0.45f) continue;
+                    float bx_, bz_, bhx, bhz;
+                    centre(o, &bx_, &bz_, &bhx, &bhz);
+                    const float dx = ax_ - bx_, dz = az_ - bz_;
+                    if (dx * dx + dz * dz > 9.0f) continue;
+                    const float axes[4][2] = {{foot.rx, foot.rz}, {foot.fx, foot.fz}, {o.rx, o.rz}, {o.fx, o.fz}};
+                    float best = 1e9f, nx = 0.0f, nz = 0.0f;
+                    for (const auto& n : axes) {
+                        const float ra = ahx * std::fabs(foot.rx * n[0] + foot.rz * n[1]) + ahz * std::fabs(foot.fx * n[0] + foot.fz * n[1]);
+                        const float rb = bhx * std::fabs(o.rx * n[0] + o.rz * n[1]) + bhz * std::fabs(o.fx * n[0] + o.fz * n[1]);
+                        const float d = dx * n[0] + dz * n[1];
+                        const float pen = ra + rb - std::fabs(d);
+                        if (pen <= 0.0f) { best = 0.0f; break; }
+                        if (pen < best) { best = pen; nx = d >= 0.0f ? n[0] : -n[0]; nz = d >= 0.0f ? n[1] : -n[1]; }
+                    }
+                    if (best <= 0.0f || best > 1e8f) continue;
+                    const float share = !g_separate || foot.pinned || foot.linked ? 0.0f : (o.pinned || o.linked) ? 1.0f : 0.5f;
+                    tx += nx * best * share; tz += nz * best * share;
+                    if (g_logOverlap > 0 && frame % 15 == 0) {
+                        // The game's own boxes, for comparison: how much of it they overlap themselves.
+                        float gbest = 1e9f;
+                        for (const auto& n : axes) {
+                            const float ra = foot.boxHalfW * std::fabs(foot.rx * n[0] + foot.rz * n[1]) + foot.boxHalfL * std::fabs(foot.fx * n[0] + foot.fz * n[1]);
+                            const float rb = o.boxHalfW * std::fabs(o.rx * n[0] + o.rz * n[1]) + o.boxHalfL * std::fabs(o.fx * n[0] + o.fz * n[1]);
+                            const float d = (foot.cx - o.cx) * n[0] + (foot.cz - o.cz) * n[1];
+                            gbest = (std::min)(gbest, ra + rb - std::fabs(d));
+                        }
+                        // What is left on screen with both cars' current pushes (last frame's eased values).
+                        const auto pa = g_push.find(use.object), pb = g_push.find(o.object);
+                        const float sa = pa != g_push.end() && frame - pa->second.frame < 3 ? pa->second.x * nx + pa->second.z * nz : 0.0f;
+                        const float sb = pb != g_push.end() && frame - pb->second.frame < 3 ? pb->second.x * nx + pb->second.z * nz : 0.0f;
+                        Log("car overlap: %08x (model %d) with %08x: drawn %.3f blocks, game boxes %.3f, push %.3f,%.3f, left on screen %.3f",
+                            static_cast<unsigned>(use.object), modelNumber, static_cast<unsigned>(o.object), best, gbest, nx * best * share, nz * best * share,
+                            (std::max)(0.0f, best - sa + sb));
+                    }
+                }
+                const float tl = std::sqrt(tx * tx + tz * tz);
+                if (tl > 0.35f) { tx *= 0.35f / tl; tz *= 0.35f / tl; }
+                CarPush& ps = g_push[use.object];
+                if (frame - ps.frame > 10) { ps.x = tx; ps.z = tz; }
+                const float kE = (std::min)(1.0f, static_cast<float>((std::max)(1u, frame - ps.frame)) / 3.0f);
+                ps.x += (tx - ps.x) * kE; ps.z += (tz - ps.z) * kE;
+                ps.frame = frame;
+                sepMove.m[3][0] = ps.x; sepMove.m[3][2] = ps.z;
+                if (g_push.size() > 512)
+                    for (auto it = g_push.begin(); it != g_push.end();) it = frame - it->second.frame > 90 ? g_push.erase(it) : std::next(it);
+            }
             gta2::Mat4 posed = carToWorld;
             if (feel.on) {
                 if (wreckModel) posed = Mul(VehicleFxWreckPose(WreckLostCorners(*model), b->bodyLength, b->bodyWidth, 0.075f), carToWorld);
@@ -2894,6 +3020,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     posed = Mul(soft, carToWorld);
                 } else posed = Mul(feel.pose, carToWorld);
             }
+            posed = Mul(posed, sepMove);
             // The door: swings open while someone boards or leaves, shuts after.
             DoorState& ds = g_doors[use.object];
             const float dt = (std::min)(5u, (std::max)(1u, frame - ds.frame)) / 30.0f;
@@ -3027,7 +3154,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     m.m[3][0] = c.x - (c.x * m.m[0][0] + c.y * m.m[1][0] + c.z * m.m[2][0]);
                     m.m[3][1] = c.y - (c.x * m.m[0][1] + c.y * m.m[1][1] + c.z * m.m[2][1]) + feel.wheelLift[corner];
                     m.m[3][2] = c.z - (c.x * m.m[0][2] + c.y * m.m[1][2] + c.z * m.m[2][2]);
-                    ModelDraw(device, *wheels.wheel[w], Mul(Mul(fit, m), carToWorld), nullptr, 0.0f);
+                    ModelDraw(device, *wheels.wheel[w], Mul(Mul(Mul(fit, m), carToWorld), sepMove), nullptr, 0.0f);
                 }
             } else {
                 // QB-31: from the seat of a flat-fronted body (bus, cab-over, train) the hood copy

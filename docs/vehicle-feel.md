@@ -173,3 +173,23 @@ command as the defect, `fv_before1` HEAD vs `fv_after2`):
 
 Frames: `out/fv_sheets/brake_sheet.png`, `turns_sheet.png`, `crash_sheet.png`, `a_first.png`
 (local; built by `tools/body_motion_sheet.py`, each tile labelled with its logged pitch and roll).
+
+### Overlapping bodies (FIX-VEHICLES, defect `car-bodies-interpenetrate-in-traffic`, partial)
+
+- Measured (`car fit:` log line, once per model and sprite): every model's drawn footprint equals the
+  game's box (the sprite's length and width) to 0.02 block; the 3D models do not overhang. Overlap on
+  screen is the game's own boxes overlapping (GTA2's 2D sprites hide it).
+- `car_bodies.cpp` keeps each car's drawn footprint for the next frame; a car whose footprint overlaps
+  another on the same level (within 0.45 block in height) is drawn moved by the least separating push
+  (2D separating axes), half each, eased over ~3 frames, at most 0.35 block. The player's car seen from
+  the seat stays put; train carriages (59-61), truck cabs (63, 64) and trailers (55, 65, 66) stay coupled
+  with each other and take no push from other cars. `[renderer] car_separation` (first `[renderer]`
+  block), `GTA2DX9_LOG_CAR_OVERLAP=1` logs pairs every 15 frames: the overlap, the game boxes' overlap,
+  the push, and what is left on screen.
+- Seen in runs `fv_ov_*`: the big overlaps (0.35-0.6 block) were cars under the elevated train (now
+  skipped by the height test) and the train's own couplings (0.41, skipped); ordinary traffic overlapped
+  by at most 0.03 block in six runs (twice with the car density tripled), pushed apart to <0.01 left.
+  The filer's quarter-car overlap in a queue did not recur in those runs: untested on a large overlap.
+- Wine reads only the first of two sections with the same name: keys in the second `[renderer]`
+  block of gta2dx9.ini (`spawn_offscreen`, `blood`, `gibs`, `ragdoll`, `intro`, ...) fall back to their
+  code defaults on Linux (seen here: `car_separation=0` there had no effect).
