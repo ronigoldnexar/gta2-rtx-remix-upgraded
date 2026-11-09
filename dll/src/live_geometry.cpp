@@ -30,6 +30,7 @@
 #include "texture_store.h"
 #include "time_of_day.h"
 #include "view_modes.h"
+#include "vehicle_fx.h"
 #include "model_store.h"
 #include "ragdoll.h"
 #include "weapon_rig.h"   // ANIM-WEAPONS
@@ -711,7 +712,14 @@ struct SmoothEntry {
 std::map<IDirect3DTexture9*, SmoothEntry> g_smoothTextures;
 IDirect3DDevice9* g_smoothDevice = nullptr;
 
+std::map<IDirect3DTexture9*, SmoothEntry> g_smoothEffects;   // fire/explosion artwork, see SmoothEffectTexture
+
 void ReleaseSmoothTextures() {
+    for (auto& entry : g_smoothEffects) {
+        if (entry.second.smooth) entry.second.smooth->Release();
+        if (entry.second.source) entry.second.source->Release();
+    }
+    g_smoothEffects.clear();
     for (auto& entry : g_smoothTextures) {
         if (entry.second.smooth) entry.second.smooth->Release();
         if (entry.second.source) entry.second.source->Release();
@@ -859,6 +867,111 @@ IDirect3DTexture9* SmoothSpriteTexture(IDirect3DDevice9* device, IDirect3DTextur
         }
     }
     g_smoothTextures[source] = entry;
+    return entry.smooth ? entry.smooth : source;
+}
+
+
+// Fire and explosion artwork (additive glow, 16-64 px) is magnified to a large part of the screen
+// in the ground views: even bilinear leaves each texel a visible block. A soft copy, 8x larger
+// (at most 256 px a side), bicubic and then blurred a little, so the edges and the hot core grade
+// smoothly. Colour and alpha are filtered alike (the additive blend reads only the colour). Used
+// by the ground views only; the classic view draws the game's own sprite.
+IDirect3DTexture9* SmoothEffectTexture(IDirect3DDevice9* device, IDirect3DTexture9* source) {
+    if (!source) return source;
+    if (g_smoothDevice != device) {
+        ReleaseSmoothTextures();
+        g_smoothDevice = device;
+    }
+    const auto found = g_smoothEffects.find(source);
+    if (found != g_smoothEffects.end()) return found->second.smooth ? found->second.smooth : source;
+    if (g_smoothEffects.size() >= kSmoothCacheMax) ReleaseSmoothTextures();
+    SmoothEntry entry;
+    entry.source = source;
+    source->AddRef();
+    D3DSURFACE_DESC desc;
+    if (SUCCEEDED(source->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
+        desc.Width >= 4 && desc.Height >= 4 && desc.Width <= 128 && desc.Height <= 128) {
+        const int w = static_cast<int>(desc.Width), h = static_cast<int>(desc.Height);
+        int f = 8;
+        while (f > 1 && (w * f > 256 || h * f > 256)) f /= 2;
+        std::vector<uint32_t> px(static_cast<size_t>(w) * h);
+        D3DLOCKED_RECT locked;
+        bool read = false;
+        if (SUCCEEDED(source->LockRect(0, &locked, nullptr, D3DLOCK_READONLY))) {
+            for (int y = 0; y < h; ++y)
+                memcpy(&px[static_cast<size_t>(y) * w], static_cast<const uint8_t*>(locked.pBits) + y * locked.Pitch, static_cast<size_t>(w) * 4);
+            source->UnlockRect(0);
+            read = true;
+        }
+        if (read && f > 1) {
+            const int W = w * f, H = h * f;
+            std::vector<float> ch(static_cast<size_t>(W) * H * 4), tmp(ch.size());
+            for (int y = 0; y < H; ++y) {
+                const float sy = (y + 0.5f) / f - 0.5f;
+                const int y0 = static_cast<int>(std::floor(sy));
+                for (int x = 0; x < W; ++x) {
+                    const float sx = (x + 0.5f) / f - 0.5f;
+                    const int x0 = static_cast<int>(std::floor(sx));
+                    float acc[4] = {0, 0, 0, 0};
+                    for (int j = -1; j <= 2; ++j) {
+                        const int yy = (std::max)(0, (std::min)(h - 1, y0 + j));
+                        const float wy = CubicWeight(sy - (y0 + j));
+                        for (int i = -1; i <= 2; ++i) {
+                            const int xx = (std::max)(0, (std::min)(w - 1, x0 + i));
+                            const float wgt = wy * CubicWeight(sx - (x0 + i));
+                            const uint32_t c = px[static_cast<size_t>(yy) * w + xx];
+                            acc[0] += ((c >> 16) & 255) * wgt; acc[1] += ((c >> 8) & 255) * wgt;
+                            acc[2] += (c & 255) * wgt; acc[3] += (c >> 24) * wgt;
+                        }
+                    }
+                    for (int k = 0; k < 4; ++k) ch[(static_cast<size_t>(y) * W + x) * 4 + k] = acc[k];
+                }
+            }
+            // Two separable box blurs (a tent), about half a source texel wide.
+            const int rad = (std::max)(1, f / 2);
+            for (int pass = 0; pass < 2; ++pass) {
+                for (int y = 0; y < H; ++y)
+                    for (int x = 0; x < W; ++x)
+                        for (int k = 0; k < 4; ++k) {
+                            float a = 0; int n = 0;
+                            for (int d = -rad; d <= rad; ++d) {
+                                const int xx = x + d; if (xx < 0 || xx >= W) continue;
+                                a += ch[(static_cast<size_t>(y) * W + xx) * 4 + k]; ++n;
+                            }
+                            tmp[(static_cast<size_t>(y) * W + x) * 4 + k] = a / n;
+                        }
+                for (int y = 0; y < H; ++y)
+                    for (int x = 0; x < W; ++x)
+                        for (int k = 0; k < 4; ++k) {
+                            float a = 0; int n = 0;
+                            for (int d = -rad; d <= rad; ++d) {
+                                const int yy = y + d; if (yy < 0 || yy >= H) continue;
+                                a += tmp[(static_cast<size_t>(yy) * W + x) * 4 + k]; ++n;
+                            }
+                            ch[(static_cast<size_t>(y) * W + x) * 4 + k] = a / n;
+                        }
+            }
+            IDirect3DTexture9* made = nullptr;
+            if (SUCCEEDED(device->CreateTexture(W, H, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &made, nullptr))) {
+                D3DLOCKED_RECT out;
+                if (SUCCEEDED(made->LockRect(0, &out, nullptr, 0))) {
+                    auto q = [](float v) { return static_cast<uint32_t>((std::max)(0.0f, (std::min)(255.0f, v)) + 0.5f); };
+                    for (int y = 0; y < H; ++y) {
+                        uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(out.pBits) + y * out.Pitch);
+                        for (int x = 0; x < W; ++x) {
+                            const float* c = &ch[(static_cast<size_t>(y) * W + x) * 4];
+                            row[x] = (q(c[3]) << 24) | (q(c[0]) << 16) | (q(c[1]) << 8) | q(c[2]);
+                        }
+                    }
+                    made->UnlockRect(0);
+                    entry.smooth = made;
+                } else {
+                    made->Release();
+                }
+            }
+        }
+    }
+    g_smoothEffects[source] = entry;
     return entry.smooth ? entry.smooth : source;
 }
 
@@ -10064,6 +10177,11 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             enlarged = smoothed != texture;
             texture = smoothed;
         }
+        if (effect && g_uprightPeds && g_spriteSmooth) {
+            IDirect3DTexture9* softFx = SmoothEffectTexture(device, texture);
+            enlarged = softFx != texture;
+            texture = softFx;
+        }
         watchPedSmooth(sprite, enlarged);
         // Diagnostic: what exactly does the game draw on a car? Every distinct piece of artwork that
         // is not a pedestrian and lies within a tile of a car shell, whatever the roof rules below
@@ -10525,6 +10643,8 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     auto issue = [&](const std::vector<Drawable>& list, bool fx = false) {
         bool tinted = false;
         for (const Drawable& d : list) {
+            // Ground views: the fire/explosion art is magnified hard, so it is bilinear (the classic view keeps point sampling).
+            const bool smoothFx = fx && g_uprightPeds;
             D3DMATRIX world;
             if (fx && fxUpright && d.sprite->corners == 4 && !d.blood && !d.sprite->pedestrian) {
                 const Sprite& sp = *d.sprite;
@@ -10637,9 +10757,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
                     tinted = false;
                 }
-                if (d.enlarged != linear) {
-                    device->SetSamplerState(0, D3DSAMP_MAGFILTER, d.enlarged ? D3DTEXF_LINEAR : D3DTEXF_POINT);
-                    linear = d.enlarged;
+                if ((d.enlarged || smoothFx) != linear) {
+                    device->SetSamplerState(0, D3DSAMP_MAGFILTER, (d.enlarged || smoothFx) ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+                    device->SetSamplerState(0, D3DSAMP_MINFILTER, (d.enlarged || smoothFx) ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+                    linear = d.enlarged || smoothFx;
                 }
                 if (d.texture != bound) { device->SetTexture(0, d.texture); bound = d.texture; }
                 device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 4, 2, kQuadIndices, D3DFMT_INDEX16, d.sprite->local, sizeof(Vertex));
@@ -10677,9 +10798,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
                 tinted = false;
             }
-            if (d.enlarged != linear) {
-                device->SetSamplerState(0, D3DSAMP_MAGFILTER, d.enlarged ? D3DTEXF_LINEAR : D3DTEXF_POINT);
-                linear = d.enlarged;
+            if ((d.enlarged || smoothFx) != linear) {
+                device->SetSamplerState(0, D3DSAMP_MAGFILTER, (d.enlarged || smoothFx) ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+                device->SetSamplerState(0, D3DSAMP_MINFILTER, (d.enlarged || smoothFx) ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+                linear = d.enlarged || smoothFx;
             }
             if (d.texture != bound) {
                 device->SetTexture(0, d.texture);
@@ -10695,6 +10817,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
         if (linear) {
             device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+            device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
             linear = false;
         }
     };
@@ -10891,6 +11014,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             const gta2::SkySettings& sky = gta2::SkyConfig();
             CarBodiesSetLamps(g_carLamps, sky.sunElevationDeg < 6.0f);
         }
+        VehicleFxSetSmooth(g_uprightPeds);
         CarBodiesDraw(device, carBodies_, g_carFrame, camera.Position());
     }
     stageTimer.Mark();   // 4: cars
@@ -11172,6 +11296,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     if (fxUpright) {
         // QB-19: fireball, flash, shock ring, sparks and the smoke column of every blast.
+        { const gta2::Vec3 eyeNow = camera.Position(); ExplosionFxSetEye(eyeNow.x, eyeNow.y, eyeNow.z); }
         ExplosionFxDraw(device, g_viewForward, kWorldFvf);
         device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, blending ? TRUE : FALSE);

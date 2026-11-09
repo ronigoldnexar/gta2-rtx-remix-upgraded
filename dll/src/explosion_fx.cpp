@@ -317,6 +317,9 @@ void Step(float dt) {
     }
 }
 
+float g_eye[3] = {0, 0, 0};
+bool g_eyeSet = false;
+
 struct PV { float x, y, z; DWORD c; float u, v; };
 
 DWORD Colour(float r, float g, float b, float a) {
@@ -353,6 +356,7 @@ struct Batch {
 }  // namespace
 
 ExplosionSettings& ExplosionFx() { return g_set; }
+void ExplosionFxSetEye(float x, float y, float z) { g_eye[0] = x; g_eye[1] = y; g_eye[2] = z; g_eyeSet = true; }
 
 void ExplosionFxLoad(const char* iniPath) {
     if (iniPath && *iniPath) {
@@ -450,11 +454,18 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         }
         // The flash: a glow over the blast.
         const float flash = g_set.flash * (0.8f * std::exp(-age / 0.10f) + 0.18f * Clamp01(1.0f - age / 1.4f));
-        if (flash > 0.01f) {
+        float flashK = 1.0f;
+        if (g_eyeSet) {
+            const float s0 = 2.2f * b.k;
+            const float dx = b.x - g_eye[0], dy = b.y + 0.55f * b.k - g_eye[1], dz = b.z - g_eye[2];
+            const float t = Clamp01((std::sqrt(dx * dx + dy * dy + dz * dz) / s0 - 0.4f) / 1.2f);
+            flashK = 0.25f + 0.75f * t * t * (3.0f - 2.0f * t);
+        }
+        if (flash * flashK > 0.01f) {
             const float c[3] = {b.x, b.y + 0.55f * b.k, b.z};
             const float s = 2.2f * b.k * (0.7f + 0.3f * Clamp01(age / 0.15f));
             const float a[3] = {rx * s, 0.0f, rz * s}, bb[3] = {ux * s, uy * s, uz * s};
-            glow.Quad(c, a, bb, Colour(flash, flash * 0.78f, flash * 0.5f, 1.0f), 0, 1);
+            glow.Quad(c, a, bb, Colour(flash * flashK, flash * flashK * 0.78f, flash * flashK * 0.5f, 1.0f), 0, 1);
         }
     }
 
@@ -465,6 +476,16 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
     std::sort(soft.begin(), soft.end(), [&](const Particle* a, const Particle* b) {
         return a->x * f.x + a->y * f.y + a->z * f.z > b->x * f.x + b->y * f.y + b->z * f.z;
     });
+    // A particle the eye is in or beside (first person at the wheel of a burning car) would fill the
+    // frame with one flat quad: it fades out over the last stretch of its approach. 1 at 1.8 sizes
+    // away or more, 0 inside half a size.
+    auto nearFade = [&](const Particle& p, float size) {
+        if (!g_eyeSet) return 1.0f;
+        const float dx = p.x - g_eye[0], dy = p.y - g_eye[1], dz = p.z - g_eye[2];
+        const float d = std::sqrt(dx * dx + dy * dy + dz * dz) / (std::max)(0.05f, size);
+        const float t = Clamp01((d - 0.5f) / 1.3f);
+        return t * t * (3.0f - 2.0f * t);
+    };
     auto billboard = [&](Batch& batch, const Particle& p, float size, DWORD colour, bool keepUp) {
         const float roll = p.roll + p.spin * p.age;
         const float cr = std::cos(roll) * size, sr = std::sin(roll) * size;
@@ -481,7 +502,7 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         const float grow = 1.0f - (1.0f - t) * (1.0f - t);
         const float size = 0.5f * (p.size0 + (p.size1 - p.size0) * grow);
         const float in = Clamp01(p.age / 0.45f);
-        float alpha = p.a * in * std::pow(1.0f - t, 1.4f);
+        float alpha = p.a * in * std::pow(1.0f - t, 1.4f) * nearFade(p, size);
         if (alpha < 0.01f) continue;
         // Fire light on the underside of fresh smoke, fading as it rises and cools.
         const float warm = p.glow * Clamp01(1.0f - p.age / 1.2f);
@@ -496,10 +517,11 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
             if (t < 0.05f) { const float s = t / 0.05f; r = 1.0f; g = 0.95f - 0.2f * s; b = 0.75f - 0.45f * s; }
             else if (t < 0.35f) { const float s = (t - 0.05f) / 0.30f; r = 1.0f; g = 0.75f - 0.33f * s; b = 0.30f - 0.21f * s; }
             else { const float s = (t - 0.35f) / 0.65f; r = 1.0f - 0.45f * s; g = 0.42f - 0.3f * s; b = 0.09f - 0.07f * s; }
-            const float level = p.a * Clamp01(p.age / 0.03f) * std::pow(1.0f - t, 1.3f) * (0.88f + 0.12f * std::sin(p.age * 23.0f + p.roll * 4.0f));
-            if (level < 0.01f) continue;
+            float level = p.a * Clamp01(p.age / 0.03f) * std::pow(1.0f - t, 1.3f) * (0.88f + 0.12f * std::sin(p.age * 23.0f + p.roll * 4.0f));
             const float grow = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
             const float size = 0.5f * (p.size0 + (p.size1 - p.size0) * grow);
+            level *= nearFade(p, size);
+            if (level < 0.01f) continue;
             billboard(fire, p, size, Colour(r * level, g * level, b * level, 1.0f), true);
         } else if (p.kind == kSpark || p.kind == kBit) {
             const float level = p.kind == kBit ? (1.0f - t * t) : (1.0f - t);

@@ -80,6 +80,8 @@ bool VehicleFxEnabled();
 void VehicleFxSetPhysics(int mode);
 // Night: head lamps, exhaust puffs (car_bodies.cpp passes its lamp state).
 void VehicleFxSetDark(bool dark);
+// Ground views: the smoke, sparks and glow textures are magnified, so sample them bilinearly.
+void VehicleFxSetSmooth(bool on);
 // FIX-VEHICLES: the drawn lean over the springs', percent ([renderer] car_body_pitch,
 // car_body_roll; defaults 220 and 170). The model and its telemetry are unchanged.
 void VehicleFxSetLean(int pitchPercent, int rollPercent);

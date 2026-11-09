@@ -43,6 +43,8 @@ void ExplosionFxNote(float x, float groundY, float z, float size);
 
 // Steps and draws everything alive. `forward` is the camera's view direction; fvf is
 // restored on the way out. Leaves blending on, z-write on, alpha test off.
+// The camera's eye, so particles close to it fade out instead of filling the view.
+void ExplosionFxSetEye(float x, float y, float z);
 void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& forward, DWORD fvf);
 
 // The strongest light the blasts cast right now: where, its colour (may exceed 1) and

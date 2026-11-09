@@ -521,6 +521,8 @@ void VehicleFxSetPhysics(int mode) {
     g_physics = mode != 0;
 }
 void VehicleFxSetDark(bool dark) { g_dark = dark; }
+static bool g_smooth = false;
+void VehicleFxSetSmooth(bool on) { g_smooth = on; }
 void VehicleFxSetLean(int pitchPercent, int rollPercent) {
     const float p = Clamp(pitchPercent / 100.0f, 0.0f, 4.0f), r = Clamp(rollPercent / 100.0f, 0.0f, 4.0f);
     if (p != g_pitchGain || r != g_rollGain) Log("vehicle feel: drawn lean pitch %d%%, roll %d%%", pitchPercent, rollPercent);
@@ -1215,6 +1217,10 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
     device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    if (g_smooth) {
+        device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    }
     device->SetFVF(kFxFvf);
     DWORD fogColour = 0;
     device->GetRenderState(D3DRS_FOGCOLOR, &fogColour);
@@ -1341,6 +1347,10 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
     device->SetTexture(0, nullptr);
+    if (g_smooth) {
+        device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    }
 
     g_lastMs = g_updateMs + (NowMs() - t0);
     static int slowLogged = 0;
