@@ -36,3 +36,11 @@ Only the core, tables and widgets translation units are compiled — see
 `../build.bat`. The Win32 backend is used for its display size and keyboard
 plumbing only; the mouse is polled instead, because the panel is drawn into a
 topmost `WS_EX_NOACTIVATE` window that never becomes the focused one.
+
+## `xxhash/`
+
+`xxhash.h` 0.8 (Yann Collet, BSD 2-Clause licence, notice at the top of the file),
+the same copy the Remix runtime builds with (`dxvk-remix/src/util/xxHash`). Used
+header-only (`XXH_INLINE_ALL`) by `model_store.cpp` to compute the hash Remix gives
+a texture (`XXH3_64bits` of mip 0's bytes, `d3d9_common_texture.cpp`), so the
+renderer can tag its own textures in a Remix hash set at run time.

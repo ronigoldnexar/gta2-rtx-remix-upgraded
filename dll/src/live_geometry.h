@@ -77,6 +77,16 @@ void SetGhostSwitch(int which, bool on);
 // Up to two game objects whose sprites are not drawn at all this frame: the
 // player's own pedestrian and his car, from his own eyes. Null clears one.
 void SetHiddenObjects(const void* first, const void* second);
+// REMIX-3D-QUALITY: while on, the first of the hidden objects (the player, from his
+// own eyes) is not dropped but drawn as his figure with textures Remix keeps out of
+// primary rays (rtx.playerModelTextures): no body in the picture, a shadow on the
+// street as his sprite casts in the classic view. Only meaningful under Remix with
+// the figures and models on; world_view decides.
+void SetOwnFigureShadowOnly(bool on);
+bool OwnFigureShadowOnly();
+// [remix] own_shadow_first_person (default on): whether world_view may turn it on.
+void SetOwnFigureShadowAllowed(bool allowed);
+bool OwnFigureShadowAllowed();
 // The player's own pedestrian sprite object (null when not located), so he
 // keeps one look rather than one hashed from his address.
 void SetPlayerObject(const void* object);
@@ -545,6 +555,10 @@ private:
         // A car's flat body, left out when its dome is drawn from hand-made
         // artwork, which would otherwise have the low-resolution sprite under it.
         bool hidden = false;
+        // REMIX-3D-QUALITY: the player's own sprite in first person under Remix: never
+        // drawn, only kept so his figure is drawn with the player-model textures
+        // (unseen by the eye, in the shadows). See SetOwnFigureShadowOnly.
+        bool shadowOnly = false;
         // A pedestrian on his feet: lifted clear of a car he is over. See Draw.
         bool pedestrian = false;
         // ... that is, or just was, getting into or out of a car: left where it is.

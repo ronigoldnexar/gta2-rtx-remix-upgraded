@@ -358,6 +358,7 @@ void LoadConfig() {
         GetPrivateProfileIntA("remix", "di_initial_samples", 16, ini),
         GetPrivateProfileIntA("remix", "di_spatial_samples", 3, ini),
         GetPrivateProfileIntA("remix", "di_disocclusion_samples", 8, ini));
+    gta2dx9::SetOwnFigureShadowAllowed(GetPrivateProfileIntA("remix", "own_shadow_first_person", 0, ini) != 0);
     gta2dx9::SetCarPaintGloss(
         GetPrivateProfileIntA("renderer", "car_paint_gloss_percent", 100, ini) / 100.0f);
     for (int sprite = 0; sprite < 80; ++sprite) {

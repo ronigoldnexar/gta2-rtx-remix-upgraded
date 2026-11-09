@@ -16,6 +16,9 @@
 #include "log.h"
 #include "remix_api.h"
 
+#define XXH_INLINE_ALL
+#include "../deps/xxhash/xxhash.h"
+
 namespace gta2dx9 {
 namespace {
 
@@ -791,7 +794,7 @@ void SoftenPaintMask(uint8_t* px, int w, int h) {
     for (size_t i = 0; i < n; ++i) px[i * 4 + 3] = static_cast<uint8_t>((std::min)(255.0f, m[i] * 255.0f + 0.5f));
 }
 
-IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file) {
+IDirect3DTexture9* BaseTextureFor(IDirect3DDevice9* device, const std::string& file) {
     if (file.empty()) return nullptr;
     auto it = g_textures.find(file);
     if (it != g_textures.end()) return it->second;
@@ -822,6 +825,96 @@ IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file)
     if (!texture) Log("models: texture %s could not be read", file.c_str());
     g_textures[file] = texture;
     return texture;
+}
+
+// REMIX-3D-QUALITY: the player's own figure in first person under Remix.
+//
+// From his own eyes he is not drawn (fpHideOwnBody), so under Remix he cast no
+// shadow and had no reflection, where in the classic view his sprite does. Remix
+// has the mechanism: an instance whose texture is in rtx.playerModelTextures gets
+// the player-model ray mask - not seen by primary rays (rtx.playerModel.
+// enableInPrimarySpace, off by default) but in shadows (enablePrimaryShadows, on).
+// His avatar is also many civilians' avatar, so tagging its textures would hide
+// them too: while the flag below is on, every model texture is swapped for a copy
+// that differs in one bit of the first texel (invisible, but another hash), and
+// the copies' hashes are what is tagged. The hash is Remix's own: XXH3_64bits of
+// mip 0's bytes (dxvk-remix d3d9_common_texture.cpp), packed rows as uploaded.
+bool g_playerTextures = false;
+std::map<std::string, IDirect3DTexture9*> g_playerCopies;
+std::vector<uint64_t> g_playerHashes;
+
+void PushPlayerHashes() {
+    std::string list;
+    char one[24];
+    for (uint64_t h : g_playerHashes) {
+        snprintf(one, sizeof(one), "0x%016llX", static_cast<unsigned long long>(h));
+        if (!list.empty()) list += ", ";
+        list += one;
+    }
+    const bool ok = RemixSetConfig("rtx.playerModelTextures", list.c_str());
+    Log("remix: own figure: %zu player-model texture%s tagged (%s), last %s", g_playerHashes.size(),
+        g_playerHashes.size() == 1 ? "" : "s", ok ? "taken" : "REFUSED", one);
+}
+
+IDirect3DTexture9* PlayerCopyFor(IDirect3DDevice9* device, const std::string& file, IDirect3DTexture9* base) {
+    auto it = g_playerCopies.find(file);
+    if (it != g_playerCopies.end()) return it->second;
+    IDirect3DTexture9* copy = nullptr;
+    D3DSURFACE_DESC desc;
+    if (base && SUCCEEDED(base->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
+        SUCCEEDED(device->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &copy, nullptr))) {
+        const size_t row = static_cast<size_t>(desc.Width) * 4;
+        std::vector<uint8_t> pixels(row * desc.Height);
+        D3DLOCKED_RECT src, dst;
+        bool done = false;
+        if (SUCCEEDED(base->LockRect(0, &src, nullptr, D3DLOCK_READONLY))) {
+            for (UINT y = 0; y < desc.Height; ++y)
+                memcpy(&pixels[y * row], static_cast<const uint8_t*>(src.pBits) + y * src.Pitch, row);
+            base->UnlockRect(0);
+            pixels[0] ^= 1u;   // blue's lowest bit of the first texel
+            if (SUCCEEDED(copy->LockRect(0, &dst, nullptr, 0))) {
+                for (UINT y = 0; y < desc.Height; ++y)
+                    memcpy(static_cast<uint8_t*>(dst.pBits) + y * dst.Pitch, &pixels[y * row], row);
+                copy->UnlockRect(0);
+                done = true;
+            }
+        }
+        if (done) {
+            g_playerHashes.push_back(XXH3_64bits(pixels.data(), pixels.size()));
+            {
+                // Other ways the runtime could key this texture, logged for a QA check that tries
+                // each under rtx.hideInstanceTextures (REMIX-3D-QUALITY, r3dq_7): XXH64, rows
+                // bottom-up, red and blue swapped, and the empty texture (hashed before the fill).
+                std::vector<uint8_t> alt(pixels.size());
+                for (UINT y = 0; y < desc.Height; ++y) memcpy(&alt[y * row], &pixels[(desc.Height - 1 - y) * row], row);
+                const uint64_t flipped = XXH3_64bits(alt.data(), alt.size());
+                for (size_t k = 0; k + 3 < pixels.size(); k += 4) {
+                    alt[k] = pixels[k + 2]; alt[k + 1] = pixels[k + 1]; alt[k + 2] = pixels[k]; alt[k + 3] = pixels[k + 3];
+                }
+                const uint64_t swapped = XXH3_64bits(alt.data(), alt.size());
+                std::fill(alt.begin(), alt.end(), 0);
+                const uint64_t empty = XXH3_64bits(alt.data(), alt.size());
+                Log("remix: own figure hash candidates %s %ux%u: xxh3 0x%016llX xxh64 0x%016llX flipped 0x%016llX swapped 0x%016llX empty 0x%016llX",
+                    file.c_str(), desc.Width, desc.Height, static_cast<unsigned long long>(g_playerHashes.back()),
+                    static_cast<unsigned long long>(XXH64(pixels.data(), pixels.size(), 0)), static_cast<unsigned long long>(flipped),
+                    static_cast<unsigned long long>(swapped), static_cast<unsigned long long>(empty));
+            }
+            PushPlayerHashes();
+        } else {
+            copy->Release();
+            copy = nullptr;
+        }
+    }
+    if (!copy) Log("remix: own figure: no player copy of %s (drawn with the shared texture)", file.c_str());
+    g_playerCopies[file] = copy ? copy : base;
+    if (copy) g_textureBytes += static_cast<size_t>(desc.Width) * desc.Height * 4;
+    return g_playerCopies[file];
+}
+
+IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file) {
+    IDirect3DTexture9* base = BaseTextureFor(device, file);
+    if (!g_playerTextures || !base) return base;
+    return PlayerCopyFor(device, file, base);
 }
 
 }  // namespace
@@ -1449,6 +1542,8 @@ IDirect3DTexture9* FigurePairMerged(IDirect3DDevice9* device, const Model& model
                            paintFile.c_str(), q[0] / 64.0f, q[1] / 64.0f, q[2] / 64.0f, q[3] / 64.0f, q[4] / 64.0f, q[5] / 64.0f, out ? "ok" : "failed");
     return out;
 }
+
+void ModelSetPlayerTextures(bool on) { g_playerTextures = on; }
 
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
@@ -2423,6 +2518,12 @@ const ModelAnimation* ModelSpinAnimation(const Model& model, const char* nodeSub
 }
 
 void ModelsReleaseDevice() {
+    // The player copies first; one that fell back to the shared texture is not its own.
+    for (auto& t : g_playerCopies) {
+        auto shared = g_textures.find(t.first);
+        if (t.second && (shared == g_textures.end() || shared->second != t.second)) t.second->Release();
+    }
+    g_playerCopies.clear();
     for (auto& t : g_textures) if (t.second) t.second->Release();
     g_textures.clear();
     for (auto& b : g_skinBuffers) if (b.second.vb) b.second.vb->Release();

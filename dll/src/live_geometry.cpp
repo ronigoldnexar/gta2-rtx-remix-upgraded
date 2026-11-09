@@ -209,6 +209,8 @@ void SetSpriteSmooth(bool on) { g_spriteSmooth = on; }
 namespace { bool g_ghostSwitch[kGhostSwitchCount] = {}; }
 namespace {
 const void* g_hiddenObjects[2] = {nullptr, nullptr};
+bool g_ownShadowOnly = false;   // see SetOwnFigureShadowOnly
+int g_devTaggedThird = 0;       // [devtools] own_tagged_third, see OwnFigureShadowAllowed
 const void* g_playerObject = nullptr;
 bool g_logPedFrames = false;
 bool g_logFigures = false;   // GTA2DX9_LOG_FIGURES=1: a line per frame per figure near the player (ACTIONS-3D-4)
@@ -298,6 +300,28 @@ bool g_uprightPeds = false;
 void SetHiddenObjects(const void* first, const void* second) {
     g_hiddenObjects[0] = first;
     g_hiddenObjects[1] = second;
+}
+void SetOwnFigureShadowOnly(bool on) { g_ownShadowOnly = on; }
+bool OwnFigureShadowOnly() { return g_ownShadowOnly; }
+namespace { bool g_ownShadowAllowed = false; }   // [remix] own_shadow_first_person, off: unverified (docs/remix-3d-quality.md)
+void SetOwnFigureShadowAllowed(bool allowed) { g_ownShadowAllowed = allowed; }
+bool OwnFigureShadowAllowed() {
+    // [devtools] own_shadow_first_person=0/1 overrides the [remix] key for an A/B in one
+    // session (-1 or unset: the [remix] key), re-read once a second.
+    static int dev = -1;
+    static uint32_t calls = 0;   // once a frame, from world_view
+    if (CarBodiesDevIni()[0] && (calls++ % 30u) == 0) {
+        const int v = GetPrivateProfileIntA("devtools", "own_shadow_first_person", -1, CarBodiesDevIni());
+        if (v != dev) Log("devtools: own_shadow_first_person %d", v);
+        dev = v;
+        // A QA check of the mechanism where the body and the ground under it are both in the
+        // picture: [devtools] own_tagged_third=1 draws his figure in third person with the
+        // player-model textures too, so Remix should show his shadow and not him.
+        const int t = GetPrivateProfileIntA("devtools", "own_tagged_third", 0, CarBodiesDevIni());
+        if (t != g_devTaggedThird) Log("devtools: own_tagged_third %d", t);
+        g_devTaggedThird = t;
+    }
+    return dev >= 0 ? dev != 0 : g_ownShadowAllowed;
 }
 std::vector<uint8_t> g_grassTiles;
 int g_treeStatGrass = 0, g_treeStatPlaced = 0, g_treeStatFrames = 0;
@@ -5389,7 +5413,9 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
                 g_fireSpotsLast.push_back({cx, cy, cz, object});
             }
         }
-        if (object && object == g_hiddenObjects[0]) return;
+        // (under Remix with the figures, his sprite is kept, never drawn, for his
+        // figure's shadow: see SetOwnFigureShadowOnly)
+        if (object && object == g_hiddenObjects[0] && !g_ownShadowOnly) return;
         if (object && object == g_hiddenObjects[1]) {
             if (!(g_groundModels && g_carModels3d) || lamps) return;
             ownCar = true;
@@ -5734,6 +5760,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     }
     placed.plain = GameObjectIsPowerUp();
     placed.object = reinterpret_cast<uintptr_t>(GameObjectBeingDrawn());
+    placed.shadowOnly = g_ownShadowOnly && placed.object && reinterpret_cast<const void*>(placed.object) == g_hiddenObjects[0];
     // A pedestrian lying on the road, dead or knocked down: see the car loop in Draw.
     placed.corpse = GameObjectIsCorpse();
     if (g_logPedFrames) GTA2_TRY {
@@ -7811,6 +7838,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
     }
     for (const Sprite& sprite : sprites_) {
+        ModelSetPlayerTextures(false);   // on only for his own figure, below
         // On his feet, or - with the models, which have clips for it - on the
         // ground (dead, knocked down) or climbing into or out of a car.
         const bool withModel = g_groundModels;
@@ -8648,8 +8676,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // blocks his poses are quantised twice as coarsely, so distant
             // people share cached poses and cost no skinning of their own.
             if (!sprite.corpse) g_pedSpots.push_back({gx, cy, gz});
-            if (model && BehindView(gx, cy, gz, 0.6f)) continue;
-            if (model && OutsideViewFrustum(gx, cy, gz, 0.75f)) continue;   // beside the picture: not drawn, track kept
+            // (his own figure from his eyes is at the eye, and its shadow falls in view)
+            if (model && !sprite.shadowOnly && BehindView(gx, cy, gz, 0.6f)) continue;
+            if (model && !sprite.shadowOnly && OutsideViewFrustum(gx, cy, gz, 0.75f)) continue;   // beside the picture: not drawn, track kept
+            ModelSetPlayerTextures(model && (sprite.shadowOnly ||
+                                             (g_devTaggedThird && RemixApiAvailable() && CurrentViewMode() == ViewMode::ThirdPerson &&
+                                              reinterpret_cast<const void*>(sprite.object) == g_playerObject)));
             const float eyeDx = gx - g_viewEye.x, eyeDz = gz - g_viewEye.z;
             const float eyeD2 = eyeDx * eyeDx + eyeDz * eyeDz;
             const bool farAway = eyeD2 > 64.0f;
@@ -9599,6 +9631,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 sizeof(FigVertex));
         ++drawn;
     }
+    ModelSetPlayerTextures(false);
     if (sprites_.size() > boardRealSprites) sprites_.resize(boardRealSprites);   // the boarding ghosts
     BoardingEndFrame(g_carFrame);
     // Ranks by distance for the next frame's level of detail: the nearest
@@ -10228,6 +10261,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     for (const Sprite& sprite : sprites_) {
         watchPed(sprite);
         if (sprite.ghost) continue;
+        if (sprite.shadowOnly) continue;   // his own, from his eyes: the figure only, unseen
         if (g_ghostSwitch[kGhostHidePeds] && sprite.pedestrian) continue;
         if (sprite.hidden && !sprite.lamp && sprite.shell >= 0 &&
             sprite.shell < static_cast<int>(shellWarm.size()) && shellWarm[sprite.shell]) {

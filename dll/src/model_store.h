@@ -160,6 +160,10 @@ float ModelTorsoTwist();
 // top of the clip and the torso twist, until set back to 0. Quantise it (it
 // keys the pose cache).
 void ModelSetHeadTurn(float radians);
+// REMIX-3D-QUALITY: while on, model draws bind a per-texture copy whose Remix hash
+// is in rtx.playerModelTextures (hidden from the eye, still casting shadows); for
+// the player's own figure in first person under Remix. Set it back to false.
+void ModelSetPlayerTextures(bool on);
 // QB-27: a hook run on the node matrices of every pose built until cleared (a
 // ragdoll writes its own); `key` tells the pose cache which pose it is (0: none).
 using ModelPoseHookFn = void (*)(const Model& model, std::vector<gta2::Mat4>* worlds, void* context);

@@ -2242,6 +2242,12 @@ void WorldView::UpdateCamera() {
             const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody && !BeatActive();
             SetHiddenObjects(hide ? player.pedSprite : nullptr,
                              hide && player.inVehicle ? player.vehicleSprite : nullptr);
+            // REMIX-3D-QUALITY: under Remix his figure is still drawn from his eyes, with
+            // textures Remix keeps out of the eye's rays, so he casts the shadow his
+            // sprite casts in the classic view (on foot; in a car the game draws no ped).
+            SetOwnFigureShadowOnly(hide && !player.inVehicle && RemixApiAvailable() && OwnFigureShadowAllowed() &&
+                                   ViewModes().uprightPeds && ViewModes().groundPedFigures &&
+                                   ViewModes().groundModels && ModelsAvailable());
             SetPlayerObject(player.pedSprite);
             SetPlayerPosition(player.x, player.z, static_cast<float>(gta2::kMapHeight) - player.y, player.valid);
             SetUprightPeds(ViewModes().uprightPeds);
@@ -2261,6 +2267,7 @@ void WorldView::UpdateCamera() {
         }
         g_viewActive = false;
         SetHiddenObjects(nullptr, nullptr);
+        SetOwnFigureShadowOnly(false);
         SetPlayerObject(nullptr);
         SetPlayerPosition(0.0f, 0.0f, 0.0f, false);
         SetUprightPeds(false);
