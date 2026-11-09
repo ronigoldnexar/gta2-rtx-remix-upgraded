@@ -3739,7 +3739,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         cp.dashTop = hood->dash ? hood->dashTop : eyeLocalY - 0.043f;
                         cp.dashX0 = hood->dash ? hood->dashX0 : -0.9f * halfW;
                         cp.dashX1 = hood->dash ? hood->dashX1 : 0.9f * halfW;
-                        for (int k = 0; k < 3; ++k) cp.paint[k] = paint[k];
+                        // FIX-FP-2 (pm30): the dash in the colour the car shows (its identity record's
+                        // shown paint, as the classic sprite and the third-person body); b->paint is
+                        // the neutral 235 every car carries at run time.
+                        for (int k = 0; k < 3; ++k)
+                            cp.paint[k] = (ident.shownTop[0] + ident.shownTop[1] + ident.shownTop[2] > 1.0f ? ident.shownTop[k] / 255.0f : paint[k] / dull) * dull;
                         cp.steer = feel.on ? feel.steer : 0.0f;
                         cp.speed = feel.speed;
                         cp.night = g_lampDark;

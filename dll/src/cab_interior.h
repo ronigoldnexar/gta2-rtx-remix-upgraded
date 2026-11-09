@@ -45,6 +45,7 @@ struct CabInteriorParams {
     bool night = false;                          // gauges lit
     bool openTop = false;                        // no roof lining (FIX-COCKPIT-2)
     bool taxi = false;                           // a fare meter on the dash (FIX-FIGURE)
+    bool hands = true;                           // the driver's hands on the wheel (FIX-FP-2)
 };
 
 // Releases the surface textures (device reset or loss).

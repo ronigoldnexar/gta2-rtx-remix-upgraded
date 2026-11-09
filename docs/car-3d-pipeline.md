@@ -313,6 +313,32 @@ function), the lit gauges at night, and wreck models (no cab at 72+).
   measured 7.7 ms sprite-stage average and with it 6.4 ms, so the change is within run-to-run noise. Both are well above
   a81174f's 2.6 ms, a regression from other commits (not the weapon rig: 7.8 ms with `GTA2DX9_WEAPON_RIG=0`).
 
+### Lit cab to the bottom edge, column, door card, hands on the wheel (FIX-FP-2, pm30 sedan/garbage truck, pm19 first-person half)
+
+- The playtest saw the lower third of the Maurice 040's view as one flat black polygon and the garbage truck 21's
+  wheel as a black ring over a brown slab with a black bar at the frame's bottom. Cause: the dash's face toward the
+  driver (the rolled edge and the face under it) was `dashDark` 0.07 and turned away from the sun, so it drew
+  near-black, and it ended 0.08 block under the dash line. Probe `gamerun/fixfp2_cab.py` (vr_seat's seating, then
+  `force_own_car_model` 40, 21, 36, 68, 11, 18, 56) showed the same band in every class at 814fa7e (run fixfp2_cab1).
+- The car, van and truck dash top is now painted metal in the body's own colour (the identity record's `shownTop`,
+  the colour the classic sprite and the third-person body show; `b->paint` is the neutral 235 every car carries),
+  held between luminance 0.24 and 0.40, with the smooth plastic grain instead of the vinyl. No shade is under 0.16.
+- The face toward the driver: a trim seam under the rolled edge, the lower dash in the dash's own colour (on the
+  centre stack's plane), a padded roll, and a knee panel sloping away to 0.28 block under the dash line (past the
+  bottom of the view, kept ahead of the 0.05 near plane).
+- Every cab part has a fill term (emissive 0.22 x its colour by day, 0.10 at night): the faces turned from the sun
+  keep their shade and texture.
+- The wheel has a column from behind the hub into the binnacle's foot, with a shroud.
+- The driver's door card (sill, vinyl card, armrest, handle) beside and behind the dash at the A-pillar's reach. It
+  only reaches the frame's lower corner.
+- Hands (`DrawCabHands`): the view model's `fp_arm_right` fist on each side of the rim (the left one mirrored) at ten
+  to two, turned about the grip so the forearms come in from the frame's lower corners; they turn with the wheel up to
+  +-0.7 rad and slide past that. A fist is 26 x the wheel radius per model unit (about a sixth of the wheel across).
+  Sleeves take the player's shirt colour as on foot. `CabInteriorParams::hands` turns them off.
+- Verified (plain renderer, L4, 1280x720): runs fixfp2_cab4/cab5 vs fixfp2_cab1, frames `t_cab_<model>_still/_left/_drive`.
+  Untested: night (the fill drops to 0.10), RTX Remix, the real Maurice's own paint (the probe's car is the scene's
+  truck cab 63, so the forced models show its light grey), and the filer's own `keys_pm30.sh` on bil.
+
 ## Clean albedo pass (8 Nov 2026, CAR-QUALITY-4)
 
 The user saw the cars as "completely worn out" and the police car with "lighting

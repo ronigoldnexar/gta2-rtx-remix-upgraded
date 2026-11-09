@@ -6,6 +6,10 @@
 #include <cstdint>
 #include <vector>
 
+#include "identity.h"
+#include "log.h"
+#include "model_store.h"
+
 namespace gta2dx9 {
 namespace {
 
@@ -14,7 +18,7 @@ using gta2::Vec3;
 constexpr float kPi = 3.14159265f;
 
 // The parts by surface: each is one draw with its own material.
-enum Mat { kDash, kDashDark, kTrim, kHeader, kWheel, kGaugeFace, kGaugeRim, kNeedle, kGlass, kPanel, kMeter, kGlassLow, kMatCount };
+enum Mat { kDash, kDashDark, kTrim, kHeader, kWheel, kGaugeFace, kGaugeRim, kNeedle, kGlass, kPanel, kMeter, kGlassLow, kLower, kMatCount };
 
 struct V { float x, y, z, nx, ny, nz, u, v; };
 
@@ -26,6 +30,9 @@ struct V { float x, y, z, nx, ny, nz, u, v; };
 constexpr float kUvTile = 0.025f;
 IDirect3DDevice9* g_texDevice = nullptr;
 IDirect3DTexture9* g_tex[16] = {};
+// FIX-FP-2 (pm19 first-person half): the wheel as last built, car frame, for the hands on it.
+struct WheelPose { bool valid; Vec3 c, u, v, axis; float R, tube, turn; };
+WheelPose g_wheel{};
 
 uint32_t Hash(uint32_t x, uint32_t y, uint32_t seed) {
     uint32_t h = x * 374761393u + y * 668265263u + seed * 2246822519u;
@@ -48,7 +55,7 @@ float Texel(int kind, int x, int y) {
     switch (kind) {
         case 0: {   // vinyl: pebbled grain, a little mottle
             const float g = 0.5f * Smooth(x, y, 2, 11) + 0.3f * Smooth(x, y, 4, 12) + 0.2f * Smooth(x, y, 16, 13);
-            return 0.62f + 0.55f * g;
+            return 0.74f + 0.34f * g;
         }
         case 1: return 0.86f + 0.16f * Smooth(x, y, 2, 21) + 0.04f * Noise01(x, y, 22);                 // plastic
         case 2: return 0.82f + 0.12f * Smooth(x, y / 16, 1, 31) + 0.10f * Noise01(x, y, 32);             // brushed (streaks along u)
@@ -167,7 +174,7 @@ struct Builder {
 };
 
 struct Style {
-    float dash[3], dashDark[3], trim[3], header[3], wheel[3], panel[3];
+    float dash[3], dashDark[3], trim[3], header[3], wheel[3], panel[3], lower[3];
     float wheelR, wheelRake, wheelTube;   // blocks, radians from upright, blocks
     float binnacleHalf;                   // half width of the cluster
     int gauges;
@@ -233,8 +240,29 @@ Style StyleFor(CabClass c, const float paint[3]) {
             s.headerAngle = 28.5f; s.mirrorW = 0.034f; s.mirrorH = 0.009f; s.sideMirrorH = 0.018f;
             break;
     }
+    // FIX-FP-2 (pm30-bil-fp-sedan-cockpit-lower-third-flat-black-void): the car, van and truck
+    // dash top is painted metal in the body's own colour (the colour the classic view shows,
+    // held between a dark and a light floor so a black or white car still has a shaded dash),
+    // and no shade is near-black: at 0.07 the dash's face toward the driver, which fills the
+    // bottom of the view, read as a hole (under the cab's fill light, below, it still lands darkest).
+    if (c == CabClass::Car || c == CabClass::Van || c == CabClass::Truck) {
+        const float lum = 0.30f * paint[0] + 0.59f * paint[1] + 0.11f * paint[2];
+        const float want = (std::max)(0.24f, (std::min)(0.40f, lum));
+        const float k0 = lum > 1e-3f ? want / lum : 0.0f;
+        for (int k = 0; k < 3; ++k) {
+            const float painted = lum > 1e-3f ? (std::min)(1.0f, paint[k] * k0) : want;
+            s.dash[k] = 0.70f * painted + 0.30f * s.dash[k];
+        }
+    }
+    for (int k = 0; k < 3; ++k) {
+        s.dashDark[k] = (std::max)(s.dashDark[k], 0.16f + 0.25f * (s.dash[k] - 0.16f));
+        s.trim[k] = (std::max)(s.trim[k], 0.20f);
+        s.wheel[k] = (std::max)(s.wheel[k], 0.12f);
+    }
     // The centre stack and the glovebox lid: the dash's dark shade lifted toward the trim.
     for (int k = 0; k < 3; ++k) s.panel[k] = 0.6f * s.dashDark[k] + 0.4f * s.trim[k];
+    // The lower dash and the door card: the dash's colour, darker (vinyl).
+    for (int k = 0; k < 3; ++k) s.lower[k] = 0.55f * s.dash[k] + 0.45f * s.dashDark[k];
     return s;
 }
 
@@ -294,9 +322,87 @@ bool CabHeaderScreenBottom(float* fraction) {
     return true;
 }
 
+// FIX-FP-2 (pm19-convertible-driver-absent-third-and-fp, the first-person half): the driver's
+// hands on the wheel built just before (g_wheel), at ten to two, turning with it (the grip slides
+// past +-0.7 rad, the way hands shuffle on a rim). The view model's right fist (tools/gen_weapons.py
+// fp_arm_right: closed round a grip along +y at the origin, the forearm back and down toward the
+// eye, the shirt's sleeve at the elbow) on each side, mirrored for the left; sleeves in the
+// player's shirt colour as on foot. Sized to the rim: a fist about a quarter of the wheel across.
+void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const CabInteriorParams& p, const D3DMATERIAL9& restore) {
+    if (!g_wheel.valid || !p.hands) return;
+    const Model* arm = ModelByName("fp_arm_right");
+    if (!arm) return;
+    auto toWorldP = [&](const Vec3& q) {
+        return Vec3{q.x * carToWorld.m[0][0] + q.y * carToWorld.m[1][0] + q.z * carToWorld.m[2][0] + carToWorld.m[3][0],
+                    q.x * carToWorld.m[0][1] + q.y * carToWorld.m[1][1] + q.z * carToWorld.m[2][1] + carToWorld.m[3][1],
+                    q.x * carToWorld.m[0][2] + q.y * carToWorld.m[1][2] + q.z * carToWorld.m[2][2] + carToWorld.m[3][2]};
+    };
+    auto toWorldV = [&](const Vec3& q) {
+        return gta2::Normalize(Vec3{q.x * carToWorld.m[0][0] + q.y * carToWorld.m[1][0] + q.z * carToWorld.m[2][0],
+                                    q.x * carToWorld.m[0][1] + q.y * carToWorld.m[1][1] + q.z * carToWorld.m[2][1],
+                                    q.x * carToWorld.m[0][2] + q.y * carToWorld.m[1][2] + q.z * carToWorld.m[2][2]});
+    };
+    const WheelPose& w = g_wheel;
+    // The unturned frame: u, v are the turned rim's; back out the turn, then let the grip follow
+    // part of it.
+    const float cs = std::cos(w.turn), sn = std::sin(w.turn);
+    const Vec3 across = w.u * cs - w.v * sn, up = w.u * sn + w.v * cs;
+    const float hold = (std::max)(-0.7f, (std::min)(0.7f, w.turn));
+    const float k = 26.0f * w.R;   // the fist (0.0124 model units across) about a sixth of the wheel
+    const IdentityRecord& hero = IdentityForPlayer();
+    float mean[3];
+    if (hero.model && ModelNodeTextureMean(device, *arm, "sleeve", mean)) {
+        float t[3];
+        for (int c = 0; c < 3; ++c) t[c] = hero.shownTop[c] / (std::max)(mean[c], 8.0f);
+        ModelSetNodeTint("sleeve", t);
+    }
+    D3DMATERIAL9 mat = restore;
+    mat.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
+    mat.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
+    mat.Specular = {0.0f, 0.0f, 0.0f, 0.0f};
+    const float fill = p.night ? 0.12f : 0.30f;
+    mat.Emissive = {fill, fill, fill, 1.0f};
+    device->SetMaterial(&mat);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+    for (int h = 0; h < 2; ++h) {
+        const float phi = (h == 0 ? 0.80f : kPi - 0.80f) + hold;   // ten to two (the fist sits a little under its grip point)
+        const Vec3 radial = across * std::cos(phi) + up * std::sin(phi);
+        Vec3 tangent = up * std::cos(phi) - across * std::sin(phi);
+        if (gta2::Dot(tangent, up) < 0.0f) tangent = tangent * -1.0f;   // the grip's +y up the rim, the forearm under it
+        const Vec3 grip = toWorldP(w.c + radial * w.R);
+        const Vec3 Y = toWorldV(tangent), out = toWorldV(radial);
+        Vec3 Z = toWorldV(w.axis);
+        Vec3 X = gta2::Normalize(gta2::Cross(Y, Z));
+        const bool mirror = gta2::Dot(X, out) < 0.0f;   // the hand whose +x points in is a left hand
+        if (mirror) X = X * -1.0f;
+        // Turned about the grip so the forearm runs out to the side as well as back and down
+        // (elbows out: the arms come in from the frame's lower corners, not up from under the rim).
+        {
+            const float t = 0.55f, ct = std::cos(t), st2 = std::sin(t);
+            const Vec3 X2 = X * ct + Z * st2, Z2 = Z * ct - X * st2;
+            X = X2; Z = Z2;
+        }
+        gta2::Mat4 m;
+        for (int c = 0; c < 3; ++c) {
+            m.m[0][c] = (&X.x)[c] * k; m.m[1][c] = (&Y.x)[c] * k; m.m[2][c] = (&Z.x)[c] * k;
+            m.m[3][c] = (&grip.x)[c];
+        }
+        m.m[3][3] = 1.0f;
+        ModelDraw(device, *arm, m, nullptr, 0.0f);
+    }
+    ModelSetNodeTint(nullptr, nullptr);
+    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    static bool logged = false;
+    if (!logged) { logged = true; Log("cab: hands on the wheel (fp_arm_right x2, fist %.3f of the rim's %.3f)", 0.0124f * k, 2.0f * w.R); }
+}
+
 void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const CabInteriorParams& p,
                      const D3DMATERIAL9& restore) {
     const Style st = StyleFor(p.cls, p.paint);
+    g_wheel.valid = false;
     Builder b;
     b.eye = {p.eyeX, p.eyeY, p.eyeZ};
     const float ex = p.eyeX, ey = p.eyeY, ez = p.eyeZ;
@@ -318,8 +424,17 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     const float hCrest = p.cls == CabClass::Car ? 0.004f : 0.006f;
     b.Quad(kDash, P(x0, dc + 0.004f, 0.0f), P(x1, dc + 0.004f, 0.0f), P(x1, dCrest, hCrest), P(x0, dCrest, hCrest));
     b.Quad(kDash, P(x0, dCrest, hCrest), P(x1, dCrest, hCrest), P(x1, dRear, 0.002f), P(x0, dRear, 0.002f));
-    b.Quad(kDashDark, P(x0, dRear, 0.002f), P(x1, dRear, 0.002f), P(x1, dRear - 0.006f, -0.012f), P(x0, dRear - 0.006f, -0.012f));
-    b.Quad(kDashDark, P(x0, dRear - 0.006f, -0.012f), P(x1, dRear - 0.006f, -0.012f), P(x1, dRear - 0.008f, -0.08f), P(x0, dRear - 0.008f, -0.08f));
+    b.Quad(kLower, P(x0, dRear, 0.002f), P(x1, dRear, 0.002f), P(x1, dRear - 0.006f, -0.012f), P(x0, dRear - 0.006f, -0.012f));
+    // FIX-FP-2 (pm30): the face toward the driver, down past the bottom of the view: a trim seam
+    // under the rolled edge, the lower dash in the dash's own colour (the centre stack's plane),
+    // then the knee panel sloping away under it (kept ahead of the near plane, 0.05).
+    // Before, one near-black face ended 0.08 under the dash line: a black band, and in a tall
+    // cab the frame's bottom edge under it (pm30 garbage truck).
+    b.Quad(kTrim, P(x0, dRear - 0.0062f, -0.012f), P(x1, dRear - 0.0062f, -0.012f), P(x1, dRear - 0.0065f, -0.0155f), P(x0, dRear - 0.0065f, -0.0155f));
+    b.Quad(kLower, P(x0, dRear - 0.006f, -0.015f), P(x1, dRear - 0.006f, -0.015f), P(x1, dRear - 0.008f, -0.08f), P(x0, dRear - 0.008f, -0.08f));
+    b.Quad(kLower, P(x0, dRear - 0.008f, -0.08f), P(x1, dRear - 0.008f, -0.08f), P(x1, dRear + 0.014f, -0.28f), P(x0, dRear + 0.014f, -0.28f));
+    // The knee panel's upper edge: a darker roll across, so the two faces read as a padded edge.
+    b.Quad(kDashDark, P(x0, dRear - 0.0083f, -0.076f), P(x1, dRear - 0.0083f, -0.076f), P(x1, dRear - 0.0080f, -0.088f), P(x0, dRear - 0.0080f, -0.088f));
     // The defroster vents along the windscreen: dark slots on the slope.
     {
         const float va = dc - 0.003f, vb = dc - 0.009f;
@@ -396,6 +511,12 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         }
         b.Disc(kWheel, c - axis * 0.0006f, u, v, 0.34f * R, 16);
         b.Disc(kTrim, c - axis * 0.0010f, u, v, 0.12f * R, 10);
+        // FIX-FP-2 (pm30 garbage truck: "a wheel not attached to anything"): the column, from
+        // behind the hub down into the binnacle's foot, with a shroud where it meets the dash.
+        const Vec3 colEnd = P(ex, dRear + 0.022f, -0.004f);
+        b.Bar(kDashDark, c + axis * 0.0008f, colEnd, 0.10f * R + 0.0006f);
+        b.Bar(kDashDark, c + (colEnd - c) * 0.55f, colEnd, 0.16f * R + 0.0008f);
+        g_wheel = {true, c, u, v, axis, R, st.wheelTube, turn};
     }
     // FIX-FIGURE: the centre stack (radio slot, vents) and the glovebox lid on the dash's
     // rear face, and a taxi's fare meter on the dash top.
@@ -515,6 +636,22 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         b.Quad(kHeader, f0, t0, t0 + Vec3{side * 0.004f, 0.0f, -0.004f}, f0 + Vec3{side * 0.004f, 0.0f, -0.004f});
     }
 
+    // FIX-FP-2 (pm30): the driver's door card under the window line, beside and behind the
+    // dash: the sill, the card in the lower dash's vinyl and an armrest. In the frame's lower
+    // corner on the driver's side (the seat is compressed: kept at the A-pillar's reach).
+    {
+        const float reach = (std::min)(std::fabs((side > 0 ? x1 : x0) - ex), 0.105f);
+        const float dx = ex + side * (reach + 0.006f);
+        const float dF = dc, dB = -0.08f, hSill = 0.004f;
+        auto D = [&](float d, float h, float in) { return Vec3{dx - side * in, top + h, ez + d}; };
+        b.Quad(kTrim, D(dF, hSill, 0.0f), D(dB, hSill, 0.0f), D(dB, hSill, 0.014f), D(dF, hSill, 0.014f));            // the sill
+        b.Quad(kLower, D(dF, hSill, 0.014f), D(dB, hSill, 0.014f), D(dB, -0.30f, 0.010f), D(dF, -0.30f, 0.010f));     // the card
+        const float aT = -0.055f, aB = -0.070f, aF = 0.045f, aBk = -0.06f;
+        b.Quad(kDashDark, D(aF, aT, 0.014f), D(aBk, aT, 0.014f), D(aBk, aT, 0.030f), D(aF, aT, 0.030f));             // armrest top
+        b.Quad(kDashDark, D(aF, aT, 0.030f), D(aBk, aT, 0.030f), D(aBk, aB, 0.028f), D(aF, aB, 0.028f));             // its face
+        b.Quad(kTrim, D(0.030f, -0.030f, 0.0145f), D(0.012f, -0.030f, 0.0145f), D(0.012f, -0.037f, 0.0145f), D(0.030f, -0.037f, 0.0145f));   // the handle
+    }
+
     // FIX-HUD pm2: where the lining's lower edge lands on screen, for the HUD's top plates: the
     // edge a0-a1 sampled across the middle third of the view (about +-17 degrees from the eye's
     // line), projected through the view and projection the cab is drawn with.
@@ -589,24 +726,34 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         const float meter[3] = {0.95f, 0.18f, 0.10f};
         const float* c = m == kDash ? st.dash : m == kDashDark ? st.dashDark : m == kTrim ? st.trim : m == kHeader ? st.header
                        : m == kWheel ? st.wheel : m == kGaugeFace ? face : m == kGaugeRim ? rim : m == kNeedle ? needle
-                       : m == kPanel ? st.panel : m == kMeter ? meter : m == kGlassLow ? glassLow : glass;
+                       : m == kPanel ? st.panel : m == kMeter ? meter : m == kGlassLow ? glassLow : m == kLower ? st.lower : glass;
         D3DMATERIAL9 mat = restore;
         mat.Diffuse = {c[0], c[1], c[2], 1.0f};
         mat.Ambient = mat.Diffuse;
         mat.Specular = {0.0f, 0.0f, 0.0f, 0.0f};
         mat.Emissive = {0.0f, 0.0f, 0.0f, 0.0f};
         // Lit gauges at night; the mirrors' glass always gives back some of the sky.
+        // FIX-FP-2 (pm30): the cab's own fill (light through the glass, off the seats): the faces
+        // turned from the sun (the dash's face toward the driver, the door card) keep their shade
+        // and texture instead of going black under the scene's ambient alone.
+        {
+            const float fill = p.night ? 0.10f : 0.22f;
+            mat.Emissive = {c[0] * fill, c[1] * fill, c[2] * fill, 1.0f};
+        }
         if (m == kGaugeFace && p.night) mat.Emissive = {0.45f, 0.40f, 0.28f, 1.0f};
         if (m == kNeedle && p.night) mat.Emissive = {0.6f, 0.15f, 0.05f, 1.0f};
         if (m == kGlassLow) mat.Emissive = {0.07f, 0.07f, 0.075f, 1.0f};
         if (m == kGlass) mat.Emissive = {0.22f, 0.25f, 0.30f, 1.0f};
         if (m == kMeter) mat.Emissive = {0.55f, 0.08f, 0.04f, 1.0f};   // the fare's red digits glow
         device->SetMaterial(&mat);
-        static const int kKind[kMatCount] = {0, 1, 2, 3, 4, 5, 2, 15, 15, 1, 15, 15};
-        device->SetTexture(0, SurfaceTexture(device, kKind[m]));
+        static const int kKind[kMatCount] = {0, 1, 2, 3, 4, 5, 2, 15, 15, 1, 15, 15, 0};
+        // A painted metal dash top (car, van, truck) is smooth: the plastic grain, not the vinyl.
+        const bool paintedDash = m == kDash && (p.cls == CabClass::Car || p.cls == CabClass::Van || p.cls == CabClass::Truck);
+        device->SetTexture(0, SurfaceTexture(device, paintedDash ? 1 : kKind[m]));
         device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(t.size() / 3), t.data(), sizeof(V));
     }
     device->SetTexture(0, nullptr);
+    DrawCabHands(device, carToWorld, p, restore);
     device->SetSamplerState(0, D3DSAMP_ADDRESSU, addrU);
     device->SetSamplerState(0, D3DSAMP_ADDRESSV, addrV);
     device->SetSamplerState(0, D3DSAMP_MINFILTER, minF);

@@ -7575,7 +7575,12 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         // word or a flash ahead), so the man he shoots reacts in this view too.
         static int32_t lastAmmo = -1;
         static uint32_t shotFrame = 0;
-        if (g_playerWeapon > 0 && lastAmmo >= 0 && g_playerAmmo < lastAmmo) shotFrame = g_carFrame;
+        if (g_playerWeapon > 0 && lastAmmo >= 0 && g_playerAmmo < lastAmmo) {
+            shotFrame = g_carFrame;
+            // FIX-FP-2 (feel17: no kick between shots): the game's own shot (its ammunition word
+            // dropped) kicks the view model too, not only a flash sprite found ahead of the eye.
+            if (g_carFrame - g_fpShotFrame >= 3) g_fpShotFrame = g_carFrame;
+        }
         if (g_fpShotFrame == g_carFrame) shotFrame = g_carFrame;
         lastAmmo = g_playerWeapon > 0 ? g_playerAmmo : -1;
         const float fl = std::sqrt(f.x * f.x + f.z * f.z);
@@ -7587,8 +7592,45 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // figure was last drawn with, shown only around a shot.
     int weapon = g_playerWeapon >= 0 && g_playerWeapon < kWpnCount ? g_playerWeapon : g_playerWeaponSeen;
     if (g_playerWeapon < 0 && weapon <= 0 && g_fpShotFrame && g_carFrame - g_fpShotFrame < 90) weapon = kWpnPistol;
-    if (weapon <= 0 || weapon >= kWpnCount) return;
-    if (g_playerWeapon < 0 && (!g_fpShotFrame || g_carFrame - g_fpShotFrame > 150)) return;
+    // FIX-FP-2 (feel17-fp-pistol-empty / feel21-first-weapon-switch): what the hands hold. The
+    // game's bare hands (weapon 0: the pistol ran dry, or Z/X past the last gun) are two fists, not
+    // an empty view; unknown (no word from the game, no shot lately) stays empty as before.
+    int want = (weapon > 0 && weapon < kWpnCount) ? weapon : (g_playerWeapon == 0 ? 0 : -1);
+    if (want > 0 && g_playerWeapon < 0 && (!g_fpShotFrame || g_carFrame - g_fpShotFrame > 150)) want = -1;
+    // A switch is a holster and a draw (~0.3 s): the old weapon dips out of the bottom of the
+    // view, the new one rises into place, instead of a one-frame swap. A fresh first-person
+    // view (nothing drawn for a while) starts with the weapon up.
+    static int vmShown = -1;
+    static DWORD vmSwitch = 0;
+    static bool vmSwapped = false;
+    static uint32_t vmLastFrame = 0;
+    const DWORD vmNow = GetTickCount();
+    const DWORD kHalf = 150;   // ms down, the same up
+    if (g_carFrame - vmLastFrame > 6) { vmShown = want; vmSwitch = 0; }
+    vmLastFrame = g_carFrame;
+    if (want != vmShown && !vmSwitch) {
+        vmSwitch = vmNow; vmSwapped = false;
+        static int switchLogged = 0;
+        if (switchLogged < 40) { ++switchLogged; Log("view model: switch %s -> %s (holster and draw)", vmShown > 0 ? kWeapons[vmShown].name : vmShown == 0 ? "fists" : "nothing",
+                                                     want > 0 ? kWeapons[want].name : want == 0 ? "fists" : "nothing"); }
+    }
+    float drop = 0.0f;
+    if (vmSwitch) {
+        DWORD t = vmNow - vmSwitch;
+        if (vmSwapped && want != vmShown && t < 2 * kHalf) {
+            // Another weapon asked for while this one rises: back down from where it is.
+            const DWORD back = t > kHalf ? 2 * kHalf - t : kHalf;
+            vmSwitch = vmNow - back; vmSwapped = false; t = back;
+        }
+        if (t >= kHalf && !vmSwapped) { vmShown = want; vmSwapped = true; }
+        if (t < kHalf) drop = static_cast<float>(t) / kHalf;
+        else if (t < 2 * kHalf) drop = 1.0f - static_cast<float>(t - kHalf) / kHalf;
+        else { vmSwitch = 0; drop = 0.0f; }
+        drop = drop * drop * (3.0f - 2.0f * drop);
+    }
+    if (vmShown < 0) return;
+    const bool fists = vmShown == 0;
+    weapon = fists ? kWpnPistol : vmShown;   // the fists take the pistol's frame (hands only)
     const WeaponInfo& wi = kWeapons[weapon];
     const Model* model = ModelByName(wi.model);
     if (!model) return;
@@ -7642,9 +7684,25 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         rs = rs * rs * (3.0f - 2.0f * rs);
         if (ri.rackT >= 0.0f && reloadT >= ri.rackT && reloadT < ri.rackT + 0.12f) rack = 1.0f - (reloadT - ri.rackT) / 0.12f;
     }
-    const float ahead = (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick - 0.02f * rs - 0.02f * rack;
-    const float side = (wi.twoHanded ? 0.055f : 0.075f) - 0.015f * rs,
-                down = (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? 0.02f : 0.0f) + 0.07f * rs - 0.006f * kick;
+    // FIX-FP-2: the switch's dip (drop 0..1: down out of the view, the muzzle tipped down), and the
+    // fists' guard: both hands low either side of the view, a slow breath in them.
+    const float breath = fists ? 0.003f * std::sin(static_cast<float>(vmNow % 3600u) * (6.2831853f / 3600.0f)) : 0.0f;
+    // The punch: the game's punch frames (115..122 of the player's sprite, hidden in this view)
+    // throw the right fist out and back, the left on alternate punches.
+    float jab = 0.0f;
+    static int jabSide = 0;
+    if (fists && g_playerObject) {
+        static bool wasPunching = false;
+        const unsigned pf = *reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(g_playerObject) + game::kSpriteObjectNumber) % 158u;
+        const bool punching = pf >= 115 && pf <= 122;
+        if (punching && !wasPunching) jabSide ^= 1;
+        wasPunching = punching;
+        if (punching) jab = std::sin(static_cast<float>(pf - 115) / 7.0f * 3.14159265f);
+    }
+    const float jabR = jabSide == 0 ? jab : 0.0f, jabL = jabSide == 1 ? jab : 0.0f;
+    const float ahead = (fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - 0.02f * rs - 0.02f * rack - 0.03f * drop;
+    const float side = (fists ? 0.060f - 0.02f * jabR : (wi.twoHanded ? 0.055f : 0.075f)) - 0.015f * rs,
+                down = (fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? 0.02f : 0.0f) - 0.006f * kick) + 0.07f * rs + 0.12f * drop;
     float pos[3];
     for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * side - up[c] * down;
     // The barrel on the crosshair: aimed at the point 5 blocks along the view
@@ -7654,7 +7712,9 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         float aim[3];
         for (int c = 0; c < 3; ++c) aim[c] = (&eye.x)[c] + (&f.x)[c] * 5.0f - pos[c];
         const float al = (std::max)(1e-4f, std::sqrt(aim[0] * aim[0] + aim[1] * aim[1] + aim[2] * aim[2]));
-        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f) + 0.22f * rs) - right[c] * 0.05f * rs;
+        // The fists in a guard: tipped forward (the knuckles' tops toward the eye) and turned in.
+        const float tip = fists ? -0.55f : 0.0f, turnIn = fists ? 0.25f : 0.0f;
+        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f) + 0.22f * rs - 0.9f * drop + tip) - right[c] * (0.05f * rs + turnIn);
     }
     const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
     for (float& v : dir) v /= dl;
@@ -7720,10 +7780,11 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         case kWpnElectro: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.030f; break;
         default: break;
     }
+    if (fists) leftName = nullptr;   // the left fist is the right's mirror (as the second pistol's hand)
     const bool leftBusy = reloadT >= 0.0f && reloadT > ri.dropT && reloadT < ri.insertT + 0.1f;   // fetching the magazine
     const Model* armR = ModelByName("fp_arm_right");
     const Model* armL = (leftName && !leftBusy) ? ModelByName(leftName) : nullptr;
-    const Model* armDual = weapon == kWpnDual ? armR : nullptr;
+    const Model* armDual = (weapon == kWpnDual || fists) ? armR : nullptr;
     // Lit by the sun the car bodies use (dimmer at night), the texture modulated
     // by it, so the gun and hands have shape. The depth range squeezed to the
     // front: they cover each other properly and the world never cuts into them.
@@ -7776,7 +7837,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetFVF(kWorldFvf);
-    ModelDraw(device, *model, place, nullptr, 0.0f);
+    if (!fists) ModelDraw(device, *model, place, nullptr, 0.0f);
     // IDENTITY-SYSTEM: the sleeves are the player record's shirt (the colour his third-person
     // avatar's shirt renders with), whatever the generator baked into their texture.
     {
@@ -7796,13 +7857,21 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     if (armR && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: the sleeves on screen
         IdentityProbeModel(device, "sleeve", nullptr, IdentityForPlayer(), *armR, handAt(0.0f, 0.0f, 0.0f, false).m, 2);
     if (armL) ModelDraw(device, *armL, handAt(fore[0], fore[1], fore[2], false), nullptr, 0.0f);
-    if (weapon == kWpnDual) {
+    if (weapon == kWpnDual || fists) {
         gta2::Mat4 other = place;
-        for (int c = 0; c < 3; ++c) other.m[3][c] = pos[c] - right[c] * 2.0f * side;
-        ModelDraw(device, *model, other, nullptr, 0.0f);
+        for (int c = 0; c < 3; ++c) other.m[3][c] = pos[c] - right[c] * 2.0f * side + (fists ? (&f.x)[c] * 0.05f * jabL + right[c] * 0.02f * jabL + up[c] * 0.012f * jabL : 0.0f);
+        if (!fists) ModelDraw(device, *model, other, nullptr, 0.0f);
         if (armDual) {
             // The left gun's hand: the right's mirror, at the left gun.
-            gta2::Mat4 h = handAt(0.0f, 0.0f, 0.0f, true);
+            gta2::Mat4 h = handAt(0.0f, 0.0f, 0.0f, !fists);
+            if (fists) {
+                // FIX-FP-2: the left fist is the right's reflection across the view's middle
+                // (turned in toward the centre as the right is; a reflection makes it a left hand).
+                for (int r = 0; r < 3; ++r) {
+                    const float d = h.m[r][0] * right[0] + h.m[r][1] * right[1] + h.m[r][2] * right[2];
+                    for (int c = 0; c < 3; ++c) h.m[r][c] -= 2.0f * d * right[c];
+                }
+            }
             for (int c = 0; c < 3; ++c) h.m[3][c] = other.m[3][c];
             ModelDraw(device, *armDual, h, nullptr, 0.0f);
         }
@@ -7827,7 +7896,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(0, D3DTSS_COLORARG1, colorArg1);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, colorArg2);
     device->SetTexture(0, nullptr);
-    if (g_fpShotFrame == g_carFrame && !thrown) {
+    if (g_fpShotFrame == g_carFrame && !thrown && !fists && drop <= 0.0f) {
         float muzzle[3];
         for (int c = 0; c < 3; ++c) muzzle[c] = pos[c] + dir[c] * model->boundsMax.z * k;
         ShotFxMuzzle(weapon, muzzle, dir, wr, wu, true);
