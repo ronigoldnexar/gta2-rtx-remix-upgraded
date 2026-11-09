@@ -18,7 +18,9 @@ was drawn at scale 0.91 (0.55 m roof overhang onto the 0.50 quad).
   shelf and handset resized to match. Same parts, same triangle counts (242 + 46 lit + 48 glass).
 - `objects_anim` value `"authored"` (manifest, `4:510-512`): the renderer draws the model at
   scale 1 (its authored size in blocks) instead of stretching it onto the quad, and uses the
-X
+  model's own half extent for the camera obstacle and the first-person push-out (and for the
+  QB-49 near fade on the `56b2f9d` line, which the verified build had; this branch's tip at
+  commit time does not carry QB-49).
 - Meshes re-imported with `tools/import_assets.py` (only the nine `code_phone*` meshes changed;
   the textures are byte-identical). The manifest entries were added by hand: the assets-src
   manifest has drifted from the committed one, so a full import would rewrite unrelated entries.
