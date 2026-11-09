@@ -233,3 +233,5 @@ PaintedPlaster017, Concrete031, Concrete034, Concrete044A, PaintedMetal004, Pain
 Metal012, Wood067, Marble012, Asphalt026B, Ground054, Grass004, Gravel022 (2K JPG colour and
 displacement; fetched by `photoreal_tiles.py fetch`). The material classes come from
 Qwen3-VL-8B-Instruct (Apache-2.0), run offline. See docs/photoreal-tiles.md.
+After a `build`, `tools/railing_metal_tiles.py assets/textures_hd assets/textures_hd/photo` rewrites the
+near-black Downtown spear fence (wil 635) as dark grey painted iron (pm5; no third-party input).

@@ -63,3 +63,16 @@ rings the map edge; a later cut could keep the flat panel for panels the street 
 - Lattices, X-braced girder rails, ornamental scrollwork (wil 536), balustrades on stone (wil 3) and
   the bridge rails (wil 88/194) keep their flat panels.
 - Remix: the geometry uses the tile's hash, so its replacement material applies; no Remix frame taken.
+
+## The fence's colour in the street views (FIX-WORLD-3, pm5)
+
+Defect `pm5-iron-fence-renders-solid-black-blocks`. Filmed again on HEAD 91f7442 with fixed poses
+(`out/fw3_pm5_base`, poses `gamerun/fw3_poses_wil.txt` along the park fence at y=147): the model is
+fine (bars, rails, finials and gaps resolved at 5 m, no stair-stepping), but it read as a black
+silhouette. The bars measured 15/255 because wil 635's HD art averages 18/255 over its opaque texels,
+with orange specks on the finials. `tools/railing_metal_tiles.py` writes the photo-set copy of the tile
+(street views only; classic and Remix keep the HD tile): dark grey painted iron at a mean of 58/255.
+The art's own luminance is kept as relief, the colour is a cool neutral grey and the alpha is unchanged.
+Run on the fix stage (`out/fw3_pm5_fix`), the bars measure 46-53/255 and the finials' bevels and the
+rails catch the light. Classic frames right after load are identical in the centre crop. No specular
+term was added: the world shader has none and the defect's luminance bar is met without one.
