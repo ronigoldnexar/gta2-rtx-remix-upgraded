@@ -108,6 +108,11 @@ def seed(args):
     # the samples of the runs that took it, so shots added to the list later can join a golden set
     have = {r: set(shots_of(r)) for r in runs}
     shots = {s for r in runs for s in have[r] if sum(s in have[q] for q in runs) >= min(2, len(runs))}
+    if args.shots:   # only the shots the current list takes (a pose renamed or dropped leaves old frames behind)
+        lst = json.load(open(args.shots))
+        names = ({"spawn_classic", "spawn_third", "spawn_first"} | {f"spawn_{q['name']}" for q in lst.get("spawn_poses", [])}
+                 | {f"{p['name']}_{q['name']}" for p in lst["points"] for q in p["poses"]})
+        shots &= names
     os.makedirs(args.golden, exist_ok=True)
     manifest = dict(rev=args.rev, note=args.note, made=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
                     runs=[os.path.abspath(r) for r in runs], grid=[TX, TY], size=[W, H], shots={})
@@ -250,6 +255,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("seed"); s.add_argument("golden"); s.add_argument("runs", nargs="+")
     s.add_argument("--rev", default="?"); s.add_argument("--note", default="")
+    s.add_argument("--shots", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "shots.json"),
+                   help="the shot list whose shots are seeded (default tools/vreg/shots.json; '' for every shot)")
     c = sub.add_parser("check"); c.add_argument("golden"); c.add_argument("run")
     c.add_argument("--out"); c.add_argument("--label", default="")
     a = ap.parse_args()

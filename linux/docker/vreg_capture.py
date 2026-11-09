@@ -62,9 +62,27 @@ s = D.wait_state(40)
 say("start:", T.words(s) if s else "no state")
 time.sleep(3.0)                          # traffic and people spawned around the start
 grab("spawn_classic"); record("spawn_classic")
+sx, sy, sz = (s["x"], s["y"], s["z"]) if s else (0.0, 0.0, 0.0)
+
+
+def pose_line(px, py, pz, pose):
+    e, a = pose["eye"], pose["at"]
+    return ("cam " + " ".join(f"{v:.3f}" for v in (px + e[0], py + e[1], pz + e[2], px + a[0], py + a[1], pz + a[2]))
+            + f" {pose.get('fov', 60)}")
+
+
 for v in ("third", "first"):
     Q.set_view(v, settle=SETTLE + 1.5)
     grab(f"spawn_{v}"); record(f"spawn_{v}")
+    if v == "third":
+        # the player close up where he starts (after a warp his figure is not drawn)
+        for pose in SHOTS.get("spawn_poses", []):
+            n0 = len(Q.log_text())
+            cam(pose_line(sx, sy, sz, pose))
+            seen = wait_log("regress: camera fixed", n0)
+            time.sleep(SETTLE)
+            grab(f"spawn_{pose['name']}"); record(f"spawn_{pose['name']}", cam_seen=seen)
+        cam("off"); time.sleep(0.6)
 
 for p in SHOTS["points"]:
     try:
@@ -75,10 +93,8 @@ for p in SHOTS["points"]:
     landed = bool(s) and abs(s["x"] - p["x"]) + abs(s["y"] - p["y"]) < 3
     Q.set_view("third", settle=1.0)
     for pose in p["poses"]:
-        e, a = pose["eye"], pose["at"]
         n0 = len(Q.log_text())
-        cam("cam " + " ".join(f"{v:.3f}" for v in (p["x"] + e[0], p["y"] + e[1], p["z"] + e[2], p["x"] + a[0], p["y"] + a[1], p["z"] + a[2]))
-            + f" {pose.get('fov', 60)}")
+        cam(pose_line(p["x"], p["y"], p["z"], pose))
         seen = wait_log("regress: camera fixed", n0)
         time.sleep(SETTLE)
         name = f"{p['name']}_{pose['name']}"
