@@ -7814,6 +7814,9 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? "fp_arm_right" : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
     }
     if (haveVp) device->SetViewport(&vp);
+    // FIX-REMIX-3: the hands' light off again (it was left on; under Remix an enabled D3D9 light
+    // can be taken into the scene by any later draw).
+    device->LightEnable(0, FALSE);
     device->SetRenderState(D3DRS_LIGHTING, lighting);
     device->SetRenderState(D3DRS_ZENABLE, zEnable);
     device->SetRenderState(D3DRS_ZWRITEENABLE, zWrite);

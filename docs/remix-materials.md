@@ -762,6 +762,52 @@ colours (was one green); the 43.5,100.5 lamp is a warm lamp on readable brick (d
 (darkest frame 0.033: shapes against the sky readable, not quite the 0.04 floor). Day frames unchanged
 in hue.
 
+## One classic light state per game time: the round trip, the twilight, the paused clock (FIX-REMIX-3, 9 Nov 2026)
+
+Defects `pt-remix-classic-lit-state-flips-after-3d-roundtrip` and `remix-sun-moves-with-clock-paused`.
+
+**The round trip.** The classic view came back from the 3D views brighter at the same spot and the same game time
+(`out/fr3_lab1`, Wil spawn at 04:00, no walking: mean luma 15.4 before the first V, 31.8 after). Toggling Remix's
+conversion of the game's D3D9 lights live (`rtx.ignoreGameDirectionalLights` / `PointLights` / `SpotLights` through
+`[devtools] remix_config`) changed nothing, so it was not a fixed-function light left on. The log showed the light
+set: 28 lights before the first V, 60-62 in classic after it. `FitLampsToPosts` (`remix_lights.cpp`) fits each game
+lamp to its drawn post and adds a pool light under it (gain 4). It runs once the first street frame has placed the
+posts, and the posts stay placed, so from the first V on the classic view had every lamp plus its pool. It now runs
+only while the picture presents the street views (`StreetPresentation()`): the classic view keeps the game's own lamps
+at every visit, as before the first V. Same spot, before and after the round trip:
+
+| run | game time | classic before / after the V round trip (mean luma) | shadow-mask pixels differing |
+|---|---|---|---|
+| `out/fr3_lab1` (before the fix) | 04:00 running | 15.4 / 31.8 | - |
+| `out/fr3_night1` | 02:00 paused | 27.3 / 26.3 (0.96) | 2.9 % (walking peds) |
+| `out/fr3_noon3` | 12:00 paused | 125.5 / 127.7 (1.02) | 2.6 % |
+| `out/fr3_rx4` (the filers' take, then a second trip where the walk ended) | 05:15 running | 69.9 / 69.9 (1.00) | 0.3 % |
+
+The classic light set is back to 28 lights after the trip (`out/fr3_night1` log); the street views keep their 45
+pools. The filers' own pair (`view_0_classic` / `view_3_classic_again` of `keys_remix_gpu.sh`) cannot be equal: the
+walk in the 3D views ends in another place (the open plaza by JESUS SAVES), and with the shipped clock (02:00, a game
+minute per real second) the sun has risen from -14.6 to -8.5 deg between the two frames. Remix's atmosphere already
+casts long sun shadows at about -8 deg, before the clock's 06:00 sunrise (`out/fr3_rx4`, log `time of day: sun pushed`).
+
+The first-person view model also left D3D9 light 0 enabled after drawing the hands (`live_geometry.cpp`); it is now
+switched off again. With the player unarmed that path did not run in these takes.
+
+**The twilight.** The day and night looks (exposure cap 2.5 -> 6.0, sky fill 1.0 -> 3.0, previous section) switched
+in one frame when the sun crossed 0 deg: with the shipped clock that is a 2.4x jump in the whole picture a few minutes
+into every level. They now ramp (smoothstep) over 6 deg either side of `dayLookAboveDeg`, pushed in 2 % steps, logged
+as `time of day: night|twilight|day look (sun E deg, day T): exposure cap X, sky fill Y` at the ends and every quarter
+of the ramp. Untested in a frame across the ramp (the takes above start at night or at a held noon).
+
+**Pushes, logged.** Every sun push is logged (`time of day: sun pushed: elevation E, rotation R (clock HH.HH,
+paused|running)`, at most one per 2 deg or 30 s). The whole preset (sun, look, clouds) is pushed again at the ini load
+and when a level's world has loaded (`time of day: level loaded: the preset is pushed again`), whatever the view.
+
+**The paused clock** (`remix-sun-moves-with-clock-paused`). With `[timeofday] Paused=1` the sun stays put: in
+`out/fr3_noon3` (12:00) and `out/fr3_night1` (02:00) the log has one sun push, no other, and the same classic frame 60 s
+apart differs on 0.5 % / 1.2 % of shadow-mask pixels (moving peds and cars), mean luma 125.5 / 125.6 and 27.3 / 25.9.
+The filer's `r3dq_4` take (a roof at 10:00, with a `[devtools] set_hour_tenths` set, then 14:00) was not re-run; its
+log had no pushes logged, so it cannot tell whether its clock moved. Run it again with this build's log to settle it.
+
 ## Street-lamp pools under the posts (FIX-REMIX, 9 Nov 2026)
 
 Defect `pt-remix-lamp-posts-cast-no-light`: at night every lamp-post lantern glowed and nothing

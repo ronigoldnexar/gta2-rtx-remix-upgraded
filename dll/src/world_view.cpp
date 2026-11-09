@@ -1526,6 +1526,9 @@ bool WorldView::EnsureWorldLoaded() {
     }
     loadedMapObject_ = mapObject;
     worldUploaded_ = true;
+    // FIX-REMIX-3: the level's light state from the clock, pushed now whatever the view
+    // (pt-remix-classic-lit-state-flips-after-3d-roundtrip); a no-op without Remix.
+    TimeOfDayRepush("level loaded");
     ghostAt_ = -1;   // FIX-PERF-VSWITCH: this level's street frame, drawn unseen (GhostStreetFrame)
     ghostWait_ = 0;
     return true;

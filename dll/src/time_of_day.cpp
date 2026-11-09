@@ -28,6 +28,9 @@ LARGE_INTEGER g_frequency = {};
 LARGE_INTEGER g_lastTick = {};
 LARGE_INTEGER g_lastPush = {};
 bool g_haveTick = false;
+bool g_forcePush = false;      // set by TimeOfDayReset: push everything on the next frame
+float g_loggedElevation = 1e9f;
+LARGE_INTEGER g_lastPushLog = {};
 
 // Last values actually sent, so an unchanged sky costs nothing.
 float g_sentElevation = 1e9f;
@@ -100,10 +103,20 @@ void UpdateSky(const LARGE_INTEGER& now) {
 // The day and night looks under Remix (FIX-REMIX-2, pt-remix-day-shade-black-no-sky-
 // bounce): the exposure cap that keeps the night a night (2.5) left every street in
 // building shade near black by day, and the sky's diffuse fill is weak next to the sun.
-// So the cap and the sky fill are pushed per time of day: a day value while the sun is
-// up, the night value once it is down, switched with a degree of hysteresis so a sun on
-// the horizon does not flip them every frame. A value of 0 leaves the option alone.
-int g_dayState = -1;   // -1 unknown, 0 night, 1 day
+// So the cap and the sky fill follow the time of day: the night values while the sun is
+// well down, the day values once it is up.
+//
+// FIX-REMIX-3 (pt-remix-classic-lit-state-flips-after-3d-roundtrip): they used to switch
+// in one frame when the sun crossed dayLookAboveDeg. The shipped clock starts at 02:00 and
+// runs a game minute a second, so a few minutes into every level the whole picture jumped
+// 2.5x in brightness in one frame (33 -> 115 mean luma in the filer's run), which read as
+// the classic view's lighting flipping after a trip to the 3D views. Now they ramp across
+// the twilight: smoothstep over kDayLookBandDeg either side of dayLookAboveDeg, pushed
+// whenever a value has moved by a step the eye cannot see, and each push is logged.
+constexpr float kDayLookBandDeg = 6.0f;
+float g_dayT = -1.0f;            // 0 night .. 1 day, last pushed; -1 unknown (push now)
+float g_loggedDayT = -1.0f;
+int g_dayState = -1;             // -1 unknown, 0 night, 1 day: for the log only
 
 void PushFloat(const char* key, float value) {
     char text[32];
@@ -114,21 +127,30 @@ void PushFloat(const char* key, float value) {
 
 void UpdateDayLook(float elevation) {
     if (!RemixApiAvailable() || !RemixApiHasAtmosphere()) {
+        g_dayT = -1.0f;
         g_dayState = -1;
         return;
     }
     const TimeOfDaySettings& s = g_settings;
-    int want = g_dayState;
-    if (g_dayState != 1 && elevation > s.dayLookAboveDeg + 0.5f) want = 1;
-    if (g_dayState != 0 && elevation < s.dayLookAboveDeg - 0.5f) want = 0;
-    if (want == g_dayState) return;
-    g_dayState = want;
-    const float exposure = want ? s.dayMaxExposure : s.nightMaxExposure;
-    const float fill = want ? s.daySkyFill : s.nightSkyFill;
-    if (exposure > 0.0f) PushFloat("rtx.autoExposure.maxExposure", exposure);
-    if (fill > 0.0f) PushFloat("rtx.atmosphere.skyIndirectRadianceScale", fill);
-    Log("time of day: %s look (sun %.1f deg): exposure cap %.2f, sky fill %.2f", want ? "day" : "night",
-        elevation, exposure, fill);
+    float t = (elevation - (s.dayLookAboveDeg - kDayLookBandDeg)) / (2.0f * kDayLookBandDeg);
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    t = t * t * (3.0f - 2.0f * t);
+    // 1/50 of the ramp is a 2 % step of the exposure cap: below what the eye picks out.
+    if (g_dayT >= 0.0f && std::fabs(t - g_dayT) < 0.02f && !(t == 0.0f && g_dayT != 0.0f) && !(t == 1.0f && g_dayT != 1.0f))
+        return;
+    const bool first = g_dayT < 0.0f;
+    g_dayT = t;
+    const float exposure = s.nightMaxExposure + (s.dayMaxExposure - s.nightMaxExposure) * t;
+    const float fill = s.nightSkyFill + (s.daySkyFill - s.nightSkyFill) * t;
+    if (s.dayMaxExposure > 0.0f && s.nightMaxExposure > 0.0f) PushFloat("rtx.autoExposure.maxExposure", exposure);
+    if (s.daySkyFill > 0.0f && s.nightSkyFill > 0.0f) PushFloat("rtx.atmosphere.skyIndirectRadianceScale", fill);
+    const int state = t >= 1.0f ? 1 : (t <= 0.0f ? 0 : 2);
+    if (first || state != g_dayState || std::fabs(t - g_loggedDayT) >= 0.25f) {
+        Log("time of day: %s look (sun %.1f deg, day %.2f): exposure cap %.2f, sky fill %.2f%s",
+            state == 1 ? "day" : (state == 0 ? "night" : "twilight"), elevation, t, exposure, fill, first ? " (first push)" : "");
+        g_loggedDayT = t;
+    }
+    g_dayState = state;
 }
 
 }  // namespace
@@ -145,7 +167,34 @@ void TimeOfDaySetHour(float hour) {
     g_hour = hour;
 }
 
-void TimeOfDayReset() { TimeOfDaySetHour(g_settings.startHour); }
+// A level start (and the ini load) resets the clock. Every value this file sends to
+// Remix is sent only when it changes, so a value Remix dropped or replaced (the
+// runtime's own defaults at a level load, a push made before the runtime answered)
+// would stay wrong until the sun moved far enough or crossed the horizon: the
+// classic view then ran on Remix's own exposure cap and sky fill until something
+// else happened to re-send them (FIX-REMIX-3, pt-remix-classic-lit-state-flips-
+// after-3d-roundtrip). So a reset forgets what was sent and the next frame pushes
+// the clock's whole preset (sun, day/night look, clouds), whatever the view.
+void TimeOfDayRepush(const char* why) {
+    g_sentElevation = 1e9f;
+    g_sentRotation = 1e9f;
+    g_dayT = -1.0f;
+    g_skyKnown = false;
+    g_forcePush = true;
+    Log("time of day: %s: the preset is pushed again (clock %05.2f, %s)", why ? why : "repush", g_hour,
+        g_settings.paused ? "paused" : "running");
+}
+
+void TimeOfDayReset() {
+    TimeOfDaySetHour(g_settings.startHour);
+    g_sentElevation = 1e9f;
+    g_sentRotation = 1e9f;
+    g_dayT = -1.0f;
+    g_skyKnown = false;
+    g_forcePush = true;
+    Log("time of day: clock reset to %05.2f (%s, %.1f game minutes per real second); the preset is pushed again",
+        g_settings.startHour, g_settings.paused ? "paused" : "running", g_settings.minutesPerSecond);
+}
 
 // Where the sun is, from the standard solar position equations.
 //
@@ -240,7 +289,7 @@ void TimeOfDayUpdate() {
     }
 
     const double sincePush = Seconds(g_lastPush, now) * 1000.0;
-    const bool due = sincePush >= g_settings.pushIntervalMs;
+    const bool due = g_forcePush || sincePush >= g_settings.pushIntervalMs;
     const bool moved = std::fabs(g_elevation - g_sentElevation) > 0.005f ||
                        std::fabs(g_rotation - g_sentRotation) > 0.005f;
     if (!due || !moved) return;
@@ -250,6 +299,15 @@ void TimeOfDayUpdate() {
     const bool okRotation = Push("rtx.atmosphere.sunRotation", g_rotation);
     g_pushed = okElevation && okRotation;
     if (g_pushed) {
+        // One line per 2 degrees of sun movement, per reset and at least every 30 s
+        // while it moves, so a run's log says which sun every frame was lit by.
+        if (g_forcePush || std::fabs(g_elevation - g_loggedElevation) >= 2.0f || Seconds(g_lastPushLog, now) >= 30.0) {
+            Log("time of day: sun pushed: elevation %.2f, rotation %.2f (clock %05.2f, %s%s)", g_elevation, g_rotation,
+                g_hour, g_settings.paused ? "paused" : "running", g_forcePush ? ", after a reset" : "");
+            g_loggedElevation = g_elevation;
+            g_lastPushLog = now;
+        }
+        g_forcePush = false;
         g_sentElevation = g_elevation;
         g_sentRotation = g_rotation;
         ++g_pushes;

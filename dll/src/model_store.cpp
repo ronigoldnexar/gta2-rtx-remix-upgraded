@@ -1792,7 +1792,20 @@ bool FigurePairPaintSkipped(const Model& model, const ModelMesh& mesh) {
     return false;
 }
 
+bool LayerPrimFor(IDirect3DDevice9* device, const std::string& file);
+struct FigureZoneSplit;
+const FigureZoneSplit* FigureZoneSplitFor(IDirect3DDevice9* device, const Model& model, const ModelMesh& mesh);
+IDirect3DTexture9* FigurePairMergedBake(IDirect3DDevice9* device, const Model& model, const ModelMesh& mesh);
 IDirect3DTexture9* FigurePairMerged(IDirect3DDevice9* device, const Model& model, const ModelMesh& mesh) {
+    if (!g_bakeTints || !g_paintRests.count(mesh.texture)) return nullptr;
+    // FIX-REMIX-3: the layer's pair prim, tinted per zone - when the zones could be split (else the bake).
+    if (LayerPrimFor(device, mesh.texture)) {
+        const bool tinted = (g_zoneOn && model.pedZones) || g_paintTintOn;
+        if (!tinted || FigureZoneSplitFor(device, model, mesh)) return nullptr;
+    }
+    return FigurePairMergedBake(device, model, mesh);
+}
+IDirect3DTexture9* FigurePairMergedBake(IDirect3DDevice9* device, const Model& model, const ModelMesh& mesh) {
     if (!g_bakeTints || !g_paintRests.count(mesh.texture)) return nullptr;
     const std::string paintFile = mesh.texture.substr(0, mesh.texture.size() - 4) + "_paint.tga";
     // The tints: per zone (top, bottom) for a zoned avatar, one for a tinted one, none for an untinted split.
@@ -1862,6 +1875,229 @@ IDirect3DTexture9* FigurePairMerged(IDirect3DDevice9* device, const Model& model
     if (logged++ < 40) Log("models: identity figure pair merged for Remix: %s + %s, top x %.2f,%.2f,%.2f bottom x %.2f,%.2f,%.2f -> %s", mesh.texture.c_str(),
                            paintFile.c_str(), q[0] / 64.0f, q[1] / 64.0f, q[2] / 64.0f, q[3] / 64.0f, q[4] / 64.0f, q[5] / 64.0f, out ? "ok" : "failed");
     return out;
+}
+
+// FIX-REMIX-3 (remix-figure-baked-textures-miss-layer-prims): the merged and tint-baked copies above
+// are new textures with new hashes, so the gta2hd layer's prims (keyed on the textures as uploaded:
+// XXH3-64 of mip 0, model_store BaseTextureFor) never replaced them and every figure path traced with
+// the legacy material: flat roughness, no cloth or skin normals. The layer's pair prim for a figure
+// (tools/remix_model_materials.py) already carries the whole body: albedo = the rest texels plus the
+// untinted paint texels, opaque, and the maps per texel. So where the layer has a prim for a figure's
+// rest texture, the rest mesh is drawn with that texture, unmodified, and the record's tints go on as
+// the stage-1 texture factor (which Remix applies: rtx.enableMultiStageTextureFactorBlending, proven on
+// car paint), each zone in its own draw over its own triangles (the paint meshes' triangles, matched by
+// UV): skin and hair untinted, the top in the shirt's tint, the bottom in the trousers'. The draws cover
+// disjoint triangles, so Remix still sees one draw per surface (the duplicate rule that hid the clothing).
+// The merged bake stays for a texture without a prim (no layer installed, a model the layer lacks).
+// The plain renderer never comes here (g_bakeTints is on only under the Remix API).
+// GTA2DX9_REMIX_LAYER_TINT=0 keeps the merged bake everywhere (A/B).
+namespace {
+std::unordered_set<uint64_t> g_layerPrims;
+bool g_layerPrimsRead = false;
+int g_layerTint = -1;
+
+void ReadLayerPrims() {
+    g_layerPrimsRead = true;
+    char env[8] = {};
+    g_layerTint = GetEnvironmentVariableA("GTA2DX9_REMIX_LAYER_TINT", env, sizeof env) && env[0] == '0' ? 0 : 1;
+    // The layer's own material list: every `over "mat_<16 hex digits>"` prim in mod.usda (the file Remix reads;
+    // model_prims.txt is only the build tool's list of its own prims, and a probe layer has none).
+    char path[MAX_PATH] = "";
+    GetModuleFileNameA(nullptr, path, MAX_PATH);
+    char* slash = strrchr(path, '\\');
+    strcpy(slash ? slash + 1 : path, "rtx-remix\\mods\\gta2hd\\mod.usda");
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        Log("models: Remix layer: no %s, figures keep the merged bake (no layer materials)", path);
+        return;
+    }
+    std::string text;
+    char chunk[65536];
+    size_t n;
+    while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) text.append(chunk, n);
+    fclose(f);
+    for (size_t at = text.find("\"mat_"); at != std::string::npos; at = text.find("\"mat_", at + 5)) {
+        if (at + 5 + 16 >= text.size() || text[at + 5 + 16] != '"') continue;
+        const std::string hex = text.substr(at + 5, 16);
+        char* end = nullptr;
+        const unsigned long long h = strtoull(hex.c_str(), &end, 16);
+        if (end == hex.c_str() + 16) g_layerPrims.insert(static_cast<uint64_t>(h));
+    }
+    Log("models: Remix layer: %zu material prims (%s); figures with a prim are drawn with their own texture and the "
+        "record's tints as a factor%s", g_layerPrims.size(), path, g_layerTint ? "" : " - OFF (GTA2DX9_REMIX_LAYER_TINT=0)");
+}
+}  // namespace
+
+bool LayerPrimFor(IDirect3DDevice9* device, const std::string& file) {
+    if (!g_bakeTints) return false;
+    if (!g_layerPrimsRead) ReadLayerPrims();
+    if (!g_layerTint || g_layerPrims.empty()) return false;
+    static std::map<std::string, bool> s_known;
+    auto it = s_known.find(file);
+    if (it != s_known.end()) return it->second;
+    bool yes = false;
+    uint64_t h = 0;
+    IDirect3DTexture9* t = BaseTextureFor(device, file);
+    D3DSURFACE_DESC desc;
+    D3DLOCKED_RECT lr;
+    if (t && SUCCEEDED(t->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
+        SUCCEEDED(t->LockRect(0, &lr, nullptr, D3DLOCK_READONLY))) {
+        const size_t row = static_cast<size_t>(desc.Width) * 4;
+        std::vector<uint8_t> pixels(row * desc.Height);
+        for (UINT y = 0; y < desc.Height; ++y) memcpy(&pixels[y * row], static_cast<const uint8_t*>(lr.pBits) + y * lr.Pitch, row);
+        t->UnlockRect(0);
+        h = XXH3_64bits(pixels.data(), pixels.size());
+        yes = g_layerPrims.count(h) != 0;
+    }
+    s_known[file] = yes;
+    static int logged = 0;
+    if (logged++ < 60) Log("models: Remix layer prim for %s (0x%016llX): %s", file.c_str(), static_cast<unsigned long long>(h),
+                           yes ? "yes, layer material + tint factor" : "no, merged bake");
+    return yes;
+}
+
+// The rest mesh's triangles grouped by what their texels are: [skin: the rest's own texels only][top cloth, or the
+// one paint tint][bottom cloth][mixed]. Which paint mesh (zone) a triangle belongs to is matched by its UVs (the paint
+// half shares the rest's UV layout); whether it is cloth is read from the texels it covers, because a paint mesh
+// covers whole limbs (hands included) and the cloth / skin edge runs through its triangles: a triangle whose texels
+// are nearly all one kind (98 %) takes that bucket, one that straddles an edge takes the kind covering more of it
+// (or, as an A/B, the "mixed" bucket drawn with the per-texel merged bake). out/fr3_noon1: with whole paint
+// triangles tinted, hands came out in the shirt's colour.
+struct FigureZoneSplit {
+    IDirect3DIndexBuffer9* ib = nullptr;
+    std::vector<uint32_t> idx;
+    UINT start[4] = {0, 0, 0, 0}, count[4] = {0, 0, 0, 0};   // in triangles
+    bool failed = false;
+};
+
+const FigureZoneSplit* FigureZoneSplitFor(IDirect3DDevice9* device, const Model& model, const ModelMesh& mesh) {
+    static std::map<std::pair<const Model*, const ModelMesh*>, FigureZoneSplit> s_splits;
+    static IDirect3DDevice9* s_device = nullptr;
+    if (s_device != device) {
+        for (auto& e : s_splits) if (e.second.ib) e.second.ib->Release();
+        s_splits.clear();
+        s_device = device;
+    }
+    auto found = s_splits.find({&model, &mesh});
+    if (found != s_splits.end()) return found->second.failed ? nullptr : &found->second;
+    FigureZoneSplit& z = s_splits[{&model, &mesh}];
+    const std::string paintFile = mesh.texture.substr(0, mesh.texture.size() - 4) + "_paint.tga";
+    const bool zones = model.pedZones;
+    using Key = std::array<int32_t, 6>;
+    auto keyOf = [](const ModelMesh& m, size_t t) {
+        std::array<std::pair<int32_t, int32_t>, 3> uv;
+        for (int k = 0; k < 3; ++k) {
+            const ModelVertex& v = m.vertices[m.indices[t + k]];
+            uv[k] = {static_cast<int32_t>(std::lround(v.u * 8192.0f)), static_cast<int32_t>(std::lround(v.v * 8192.0f))};
+        }
+        std::sort(uv.begin(), uv.end());
+        return Key{uv[0].first, uv[0].second, uv[1].first, uv[1].second, uv[2].first, uv[2].second};
+    };
+    std::map<Key, uint8_t> zoneOf;
+    for (const ModelNode& node : model.nodes) {
+        if (node.mesh < 0 || node.mesh >= static_cast<int>(model.meshes.size())) continue;
+        const ModelMesh& pm = model.meshes[node.mesh];
+        if (pm.texture != paintFile) continue;
+        const uint8_t zone = zones && strstr(node.name, "#pb") ? 2 : 1;
+        for (size_t t = 0; t + 2 < pm.indices.size(); t += 3) zoneOf.emplace(keyOf(pm, t), zone);
+    }
+    // The two halves' alpha (opaque: >= 128), as uploaded.
+    auto alphaOf = [&](const std::string& file, int* w, int* h) {
+        std::vector<uint8_t> a;
+        IDirect3DTexture9* t = BaseTextureFor(device, file);
+        D3DSURFACE_DESC d;
+        D3DLOCKED_RECT lr;
+        if (t && SUCCEEDED(t->GetLevelDesc(0, &d)) && d.Format == D3DFMT_A8R8G8B8 && SUCCEEDED(t->LockRect(0, &lr, nullptr, D3DLOCK_READONLY))) {
+            *w = static_cast<int>(d.Width); *h = static_cast<int>(d.Height);
+            a.resize(static_cast<size_t>(*w) * *h);
+            for (int y = 0; y < *h; ++y) {
+                const uint32_t* r = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(lr.pBits) + y * lr.Pitch);
+                for (int x = 0; x < *w; ++x) a[static_cast<size_t>(y) * *w + x] = (r[x] >> 24) >= 128;
+            }
+            t->UnlockRect(0);
+        }
+        return a;
+    };
+    int rw = 0, rh = 0, pw = 0, ph = 0;
+    const std::vector<uint8_t> restA = alphaOf(mesh.texture, &rw, &rh), paintA = alphaOf(paintFile, &pw, &ph);
+    const bool texels = !restA.empty() && rw == pw && rh == ph;
+    // Cloth and skin texels under a triangle (UV space; its centroid when it covers no texel centre).
+    auto census = [&](size_t t, int* skin, int* cloth) {
+        *skin = *cloth = 0;
+        if (!texels) return;
+        float px[3], py[3];
+        for (int k = 0; k < 3; ++k) {
+            const ModelVertex& v = mesh.vertices[mesh.indices[t + k]];
+            px[k] = (v.u - std::floor(v.u)) * rw; py[k] = (v.v - std::floor(v.v)) * rh;
+        }
+        auto at = [&](int x, int y) {
+            x = (std::max)(0, (std::min)(rw - 1, x)); y = (std::max)(0, (std::min)(rh - 1, y));
+            const size_t i = static_cast<size_t>(y) * rw + x;
+            if (paintA[i] && !restA[i]) ++*cloth; else if (restA[i]) ++*skin;
+        };
+        const float d = (py[1] - py[2]) * (px[0] - px[2]) + (px[2] - px[1]) * (py[0] - py[2]);
+        if (std::fabs(d) > 1e-6f) {
+            const int x0 = static_cast<int>(std::floor((std::min)({px[0], px[1], px[2]})));
+            const int x1 = static_cast<int>(std::ceil((std::max)({px[0], px[1], px[2]})));
+            const int y0 = static_cast<int>(std::floor((std::min)({py[0], py[1], py[2]})));
+            const int y1 = static_cast<int>(std::ceil((std::max)({py[0], py[1], py[2]})));
+            for (int y = y0; y <= y1; ++y)
+                for (int x = x0; x <= x1; ++x) {
+                    const float cx = x + 0.5f, cy = y + 0.5f;
+                    const float a = ((py[1] - py[2]) * (cx - px[2]) + (px[2] - px[1]) * (cy - py[2])) / d;
+                    const float b = ((py[2] - py[0]) * (cx - px[2]) + (px[0] - px[2]) * (cy - py[2])) / d;
+                    if (a >= -0.02f && b >= -0.02f && 1.0f - a - b >= -0.02f) at(x, y);
+                }
+        }
+        if (*skin + *cloth == 0) at(static_cast<int>((px[0] + px[1] + px[2]) / 3.0f), static_cast<int>((py[0] + py[1] + py[2]) / 3.0f));
+    };
+    // A triangle on a cloth / skin edge, or one holding an untinted detail inside the cloth (a zip, a print), takes
+    // the prim and the tint of the kind that covers more of it: one material over the whole figure. Drawn instead
+    // with the merged bake (GTA2DX9_REMIX_FIGURE_EDGES=bake) its colours are exact per texel, but its legacy material
+    // next to the prim's made a visible patchwork of triangles on busy clothes (out/fr3_noon2, a grey hoodie).
+    static int edgeBakeEnv = -1;
+    if (edgeBakeEnv < 0) { char v[16] = {}; edgeBakeEnv = GetEnvironmentVariableA("GTA2DX9_REMIX_FIGURE_EDGES", v, sizeof v) && !strcmp(v, "bake") ? 1 : 0; }
+    const bool edgeBake = edgeBakeEnv == 1;
+    std::vector<uint32_t> bucket[4];
+    for (size_t t = 0; t + 2 < mesh.indices.size(); t += 3) {
+        auto it = zoneOf.find(keyOf(mesh, t));
+        int b = it == zoneOf.end() ? 0 : it->second;
+        if (b != 0 && texels) {
+            int skin = 0, cloth = 0;
+            census(t, &skin, &cloth);
+            const int all = skin + cloth;
+            if (all > 0 && skin * 50 <= all) b = it->second;          // cloth (98 %)
+            else if (all > 0 && cloth * 50 <= all) b = 0;             // skin under a paint triangle (hands, neck)
+            else if (!edgeBake) b = cloth >= skin ? it->second : 0;   // straddles an edge: the kind that covers more of it
+            else b = 3;                                               // straddles an edge: the merged bake (A/B)
+        } else if (b != 0) {
+            b = 3;   // no texels to read: the bake, which is exact
+        }
+        bucket[b].insert(bucket[b].end(), mesh.indices.begin() + t, mesh.indices.begin() + t + 3);
+    }
+    UINT at = 0;
+    for (int b = 0; b < 4; ++b) {
+        z.start[b] = at;
+        z.count[b] = static_cast<UINT>(bucket[b].size() / 3);
+        at += z.count[b];
+        z.idx.insert(z.idx.end(), bucket[b].begin(), bucket[b].end());
+    }
+    const UINT bytes = static_cast<UINT>(z.idx.size() * sizeof(uint32_t));
+    void* data = nullptr;
+    if (bytes && SUCCEEDED(device->CreateIndexBuffer(bytes, D3DUSAGE_WRITEONLY, D3DFMT_INDEX32, D3DPOOL_MANAGED, &z.ib, nullptr)) &&
+        SUCCEEDED(z.ib->Lock(0, bytes, &data, 0)) && data) {
+        memcpy(data, z.idx.data(), bytes);
+        z.ib->Unlock();
+    } else if (z.ib) {
+        z.ib->Release();
+        z.ib = nullptr;
+    }
+    static int logged = 0;
+    if (logged++ < 60) Log("models: figure zones for Remix: %s %s: %u skin, %u %s, %u bottom, %u on a cloth/skin edge (merged bake) "
+                           "triangles (%zu paint triangles matched)", model.name.c_str(), mesh.texture.c_str(), z.count[0], z.count[1],
+                           zones ? "top" : "tinted", z.count[2], z.count[3], zoneOf.size());
+    if (zoneOf.empty() || !z.ib) z.failed = true;   // nothing matched, or no buffer: the merged bake instead
+    return z.failed ? nullptr : &z;
 }
 
 void ModelSetPlayerTextures(bool on) { g_playerTextures = on; }
@@ -2623,7 +2859,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             const char* nn = model.nodes[i].name;
             const int zone = strstr(nn, "#pt") ? 0 : strstr(nn, "#pb") ? 1
                            : (g_zoneHair && mesh.texture.find("_opacity") != std::string::npos) ? 2 : -1;
-            IDirect3DTexture9* baked = zone >= 0 && g_bakeTints ? BakedTint(device, mesh.texture, g_zoneTint[zone]) : nullptr;
+            IDirect3DTexture9* baked = zone >= 0 && g_bakeTints && !LayerPrimFor(device, mesh.texture) ? BakedTint(device, mesh.texture, g_zoneTint[zone]) : nullptr;
             if (baked) {
                 device->SetTexture(0, baked);
                 bound = baked;
@@ -2668,7 +2904,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         // A car's paint: the second stage multiplies the painted meshes by the tint.
         if (g_paintTintOn) {
             const bool paint = mesh.texture.find("_paint") != std::string::npos;
-            IDirect3DTexture9* baked = paint && g_bakeTints ? BakedTint(device, mesh.texture, g_paintTint) : nullptr;
+            IDirect3DTexture9* baked = paint && g_bakeTints && !LayerPrimFor(device, mesh.texture) ? BakedTint(device, mesh.texture, g_paintTint) : nullptr;
             if (baked) {
                 device->SetTexture(0, baked);
                 bound = baked;
@@ -2726,7 +2962,46 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             device->SetTextureStageState(glassStage + 1, D3DTSS_COLOROP, D3DTOP_DISABLE);
             device->SetTextureStageState(glassStage + 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
         }
-        if (b && vb) {
+        // FIX-REMIX-3: a figure's rest mesh under Remix with the layer's pair prim: one draw per zone.
+        const FigureZoneSplit* split = nullptr;
+        if (g_bakeTints && !merged && g_paintRests.count(mesh.texture) && ((g_zoneOn && model.pedZones) || g_paintTintOn) &&
+            LayerPrimFor(device, mesh.texture))
+            split = FigureZoneSplitFor(device, model, mesh);
+        if (split && split->ib && b && vb) {
+            device->SetStreamSource(0, vb, 0, sizeof(ModelVertex));
+            device->SetIndices(split->ib);
+            for (int zb = 0; zb < 4; ++zb) {
+                if (!split->count[zb]) continue;
+                if (zb == 3) {
+                    // The edge triangles: the merged bake (its own hash, the legacy material), exact per texel.
+                    IDirect3DTexture9* bake = FigurePairMergedBake(device, model, mesh);
+                    if (!bake) continue;
+                    device->SetTexture(0, bake);
+                    bound = bake;
+                    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                    device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(mesh.vertices.size()), split->start[zb] * 3,
+                                                 split->count[zb]);
+                    continue;
+                }
+                const float* zt = zb == 0 ? nullptr : (g_zoneOn && model.pedZones) ? g_zoneTint[zb - 1] : g_paintTint;
+                if (zt) {
+                    const DWORD t = 0xFF000000u | (static_cast<DWORD>(zt[0] * 127.5f) << 16) |
+                                    (static_cast<DWORD>(zt[1] * 127.5f) << 8) | static_cast<DWORD>(zt[2] * 127.5f);
+                    device->SetRenderState(D3DRS_TEXTUREFACTOR, t);
+                    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
+                    device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+                    device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+                    device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+                    device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+                } else {
+                    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                }
+                device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(mesh.vertices.size()), split->start[zb] * 3,
+                                             split->count[zb]);
+            }
+            device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            streams = true;
+        } else if (b && vb) {
             device->SetStreamSource(0, vb, 0, sizeof(ModelVertex));
             device->SetIndices(b->ib);
             device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(mesh.vertices.size()), 0,

@@ -5,6 +5,7 @@
 #include "model_store.h"
 #include "remix_api.h"
 #include "time_of_day.h"
+#include "world_view.h"   // StreetPresentation (FIX-REMIX-3)
 
 #include "../../src/gta2_map.h"
 
@@ -729,6 +730,14 @@ void RefreshClassDaylight() {
 
 void FitLampsToPosts() {
     g_lampPoolsLastFrame = 0;
+    // FIX-REMIX-3 (pt-remix-classic-lit-state-flips-after-3d-roundtrip): only while the picture
+    // presents the street views, where the posts are drawn. The posts are placed by the first
+    // street frame and stay placed, so this used to fit the lamps and add their pools in the
+    // classic view too, from the first V on: the classic light set went from the game's lamps
+    // (28 lights at the Wil spawn) to lamps plus pools at 4x (60), and the same classic frame
+    // came back twice as bright after a trip to the 3D views (out/fr3_lab1: mean luma 15 -> 32).
+    // The classic view keeps the game's own lamps at every visit, as before the first V.
+    if (!StreetPresentation()) return;
     if (!g_ground || !g_ground->Ready()) return;
     const Model* lamp = ModelForProp("lamp");
     if (!lamp) return;

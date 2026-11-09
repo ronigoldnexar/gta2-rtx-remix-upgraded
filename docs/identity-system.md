@@ -131,6 +131,37 @@ albedo file exists, and that the albedo is not flat grey. Missing prims are list
 grey on its own: Remix then uses the game texture. But it means no PBR. The grey-clay figure
 (`pt-remix-third-figure-single-tone-grey-clay-no-albedo`) is checked against this list; see section 4.
 
+**Figures under Remix with the gta2hd layer: the layer's materials, the record's tints as a factor (FIX-REMIX-3,
+9 Nov).** The merged bake above gives every figure the right colours, but each bake is a new texture with a new hash,
+so no prim of the layer replaced it: under Remix every body path traced with the legacy material (flat roughness, no
+cloth or skin normals; `remix-figure-baked-textures-miss-layer-prims`, probe `out/rhv_probe1`). The layer's pair prim
+for a body (`tools/remix_model_materials.py`) already holds the whole body: albedo = the rest texels plus the
+untinted paint texels (neutral grey 127, measured on four avatars: no texel is opaque in both halves), opaque, with
+the normal and roughness maps per texel. So now (`model_store.cpp` `LayerPrimFor`, `FigureZoneSplitFor`):
+
+- At the first figure draw under the bake the DLL reads the installed layer's prim hashes from
+  `rtx-remix/mods/gta2hd/mod.usda` (every `mat_<16 hex>`; log `models: Remix layer: N material prims`), and hashes each
+  figure texture the way Remix does (XXH3-64 of mip 0 as uploaded; log `Remix layer prim for <tga> (0x...): yes|no`).
+- A body whose rest texture has a prim is drawn with that texture, unmodified, so the prim keys. The record's tints go
+  on as the stage-1 texture factor (`MODULATE2X`, as the plain renderer), which Remix applies
+  (`rtx.enableMultiStageTextureFactorBlending`).
+- One factor per draw cannot follow a per-texel cloth edge, so the body's triangles are split by what their texels
+  are: skin (the rest's own texels, untinted), top cloth, bottom cloth (zone from the `#pt` / `#pb` mesh with the same
+  UVs), each drawn with its own factor over its own triangles (disjoint, so Remix still sees one draw per surface).
+  A triangle on an edge, or holding an untinted detail inside the cloth (a zip, a print), takes the kind covering more
+  of it (log `figure zones for Remix: ... N skin, N top, N bottom`). Tinting whole paint-mesh triangles was wrong: the
+  paint meshes cover whole limbs, and the hands came out in the shirt's colour (`out/fr3_noon1`).
+  `GTA2DX9_REMIX_FIGURE_EDGES=bake` draws the edge triangles with the merged bake instead (exact per texel, but its
+  legacy material next to the prim's showed as a patchwork on busy clothes, `out/fr3_noon2`).
+- Hair and other tinted zone meshes with a prim take the factor too; without a prim they keep the tint bake.
+- No layer, or a texture without a prim: the merged bake, as before. `GTA2DX9_REMIX_LAYER_TINT=0` forces the bake.
+
+Verified: the probe layer of `tools/remix_model_hash_probe.py` (`--only '^human_'`, installed as gta2hd): before
+(`out/fr3_probe1`) bodies kept their own colours; after (`out/fr3_probe2`) the hero's arms and the pedestrians' bodies
+are magenta like the heads. With the real layer (`out/fr3_noon3`, noon): the hero has skin forearms and hands, a dark
+shirt and trousers. Edge-triangle colours are exact only to the triangle: a sleeve hem follows the mesh's triangles, not
+the texels.
+
 ### 2.5 The cross-mode parity check
 
 `tools/identity_parity.py` with a keys script `linux/docker/keys_identity_parity.sh`. It runs per build from a

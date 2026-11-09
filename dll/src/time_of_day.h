@@ -95,6 +95,11 @@ void TimeOfDayUpdate();
 // Back to startHour. Called when a level begins, so every run starts at 2 am.
 void TimeOfDayReset();
 
+// FIX-REMIX-3: forget what was sent to Remix so the next frame pushes the clock's whole preset
+// (sun, day/night look, clouds) again, the hour untouched; logged with `why`. Called when a
+// level's world has loaded, whatever the view.
+void TimeOfDayRepush(const char* why);
+
 // The clock, 0 .. 24.
 float TimeOfDayHour();
 void  TimeOfDaySetHour(float hour);
