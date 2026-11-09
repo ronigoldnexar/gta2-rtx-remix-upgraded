@@ -7350,18 +7350,119 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     std::set<uintptr_t> boardGhosts;
     if (g_groundModels && BoardingEnabled()) {
         BoardingSetLog(g_logFigures);
-        for (auto it = boardSprites_.begin(); it != boardSprites_.end();) {
-            if (g_carFrame - it->second.first > 90) { it = boardSprites_.erase(it); continue; }
-            bool present = false;
-            for (size_t i = 0; i < boardRealSprites && !present; ++i) {
-                const Sprite& sp = sprites_[i];
-                present = sp.object == it->first && sp.pedestrian && !sp.hidden && !sp.ghost && !sp.boardUi && sp.corners == 4;
+        // FIX-SEATED: a ped seated at the wheel is drawn for the whole drive from his last sprite.
+        // Once he is in, the game hands his sprite object to someone else (a passer-by walked
+        // with the player's object a second after he sat down, seatp_fix7), so the seated figure
+        // gets a key of its own: the object with its low bit set (never a real object, aligned;
+        // the same >> 4 seed, so the same look). His own sprite back (an exit) ends it.
+        auto seatKey = [](uintptr_t object) { return object | 1u; };
+        auto inVehicle = [&](uintptr_t key) {
+            const uint8_t* ped = nullptr;
+            if (BoardingIsPlayer(key)) ped = static_cast<const uint8_t*>(LocatedPlayerPed());
+            if (!ped) {
+                const auto found = boardPeds_.find(key);
+                if (found != boardPeds_.end()) ped = reinterpret_cast<const uint8_t*>(found->second);
             }
-            if (!present && BoardingWantsGhost(it->first, g_carFrame)) {
-                sprites_.push_back(it->second.second);
-                Sprite& g = sprites_.back();
-                g.hidden = false; g.ghost = false; g.boardUi = false;
-                boardGhosts.insert(it->first);
+            if (!game::PlausiblePointer(ped)) return false;
+            return game::PlausiblePointer(*reinterpret_cast<const uint8_t* const*>(ped + game::kPedVehicle));
+        };
+        auto realSprite = [&](uintptr_t object, const Sprite** out) {
+            for (size_t i = 0; i < boardRealSprites; ++i) {
+                const Sprite& sp = sprites_[i];
+                if (sp.object == object && sp.pedestrian && !sp.hidden && !sp.ghost && !sp.boardUi && sp.corners == 4) {
+                    if (out) *out = &sp;
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto pushGhost = [&](uintptr_t object, const Sprite& from) {
+            sprites_.push_back(from);
+            Sprite& g = sprites_.back();
+            g.hidden = false; g.ghost = false; g.boardUi = false;
+            g.object = object;
+            float sx, sy, sz;
+            if (BoardingSeatSpot(object, &sx, &sy, &sz)) {   // seated: carried with the car
+                g.objectToWorld.m[3][0] = sx; g.objectToWorld.m[3][1] = sy; g.objectToWorld.m[3][2] = sz;
+            }
+            boardGhosts.insert(object);
+        };
+        // The player's last sprite on foot (the game names it only while he is out of a car).
+        if (g_playerObject) {
+            const Sprite* own = nullptr;
+            if (realSprite(reinterpret_cast<uintptr_t>(g_playerObject), &own)) ownSprite_ = {g_carFrame, *own};
+        }
+        const Sprite* ownNow = nullptr;   // (not while the climb's last sprites still come: state 3)
+        const bool playerOnFoot = g_playerObject && realSprite(reinterpret_cast<uintptr_t>(g_playerObject), &ownNow) && ownNow->pedState != 3;
+        // A boarding that has just sat down moves to its seat key.
+        std::vector<uintptr_t> sat;
+        for (const auto& e : boardSprites_) {
+            float sx, sy, sz;
+            if (!(e.first & 1u) && BoardingSeatSpot(e.first, &sx, &sy, &sz)) sat.push_back(e.first);
+        }
+        for (uintptr_t object : sat) {
+            const uintptr_t key = seatKey(object);
+            BoardingRekey(object, key);
+            boardSprites_[key] = boardSprites_[object];
+            boardSprites_[key].second.object = key;
+            boardSprites_.erase(object);
+            const auto ped = boardPeds_.find(object);
+            if (ped != boardPeds_.end()) boardPeds_[key] = ped->second;
+            const auto track = pedTracks_.find(object);
+            if (track != pedTracks_.end()) pedTracks_[key] = track->second;
+            if (g_logFigures) Log("seat: %04x seated, kept as %p", static_cast<unsigned>((object >> 2) & 0xFFFF), reinterpret_cast<const void*>(key));
+        }
+        // The player at the wheel with no boarding behind it (the scene key seats him, a mission
+        // starts him in a car), or a boarding that guessed a car parked beside his: seated in the
+        // car he drives.
+        const uint8_t* located = static_cast<const uint8_t*>(LocatedPlayerPed());
+        const bool playerDriving = game::PlausiblePointer(located) &&
+                                   game::PlausiblePointer(*reinterpret_cast<const uint8_t* const*>(located + game::kPedVehicle));
+        int seatTrace = -1;   // the trace: -1 not tried, 0 no driven car body, 1 seated, 2 a boarding plays
+        // (not while his climb plays: the game stops naming him a moment into it)
+        if (ownSprite_.first && !playerOnFoot && playerDriving && !BoardingBusy(ownSprite_.second.object)) {
+            const uintptr_t key = seatKey(ownSprite_.second.object);
+            seatTrace = 0;
+            for (const CarBodyUse& use : carBodies_) {
+                if (!use.driven) continue;
+                seatTrace = BoardingSeat(key, use.object, g_carFrame) ? 1 : 2;
+                if (seatTrace == 1 && !boardSprites_.count(key)) {
+                    boardSprites_[key] = {g_carFrame, ownSprite_.second};
+                    boardSprites_[key].second.object = key;
+                }
+                break;
+            }
+        }
+        if (g_logFigures && (g_carFrame % 30u) == 0)
+            Log("seat trace: f=%u player=%04x (game %d) onfoot=%d own=%u driving=%d bodies=%zu try=%d",
+                g_carFrame, static_cast<unsigned>((ownSprite_.second.object >> 2) & 0xFFFF), g_playerObject ? 1 : 0,
+                playerOnFoot ? 1 : 0, ownSprite_.first, playerDriving ? 1 : 0, carBodies_.size(), seatTrace);
+        for (auto it = boardSprites_.begin(); it != boardSprites_.end();) {
+            const uintptr_t key = it->first;
+            const bool wanted = BoardingWantsGhost(key, g_carFrame);
+            if (g_carFrame - it->second.first > 90 && !wanted) { boardPeds_.erase(key); it = boardSprites_.erase(it); continue; }
+            if (key & 1u) {
+                // Seated: while the game has him in a car and does not draw him (his own sprite back:
+                // getting out, thrown out - the player's by name, anyone else's getting out by his old object).
+                // Anyone the game draws getting out (state 4) or thrown (state 8: a jack) at his seat is
+                // him (the game may give him a new sprite object for it, seatp_fix9: 2.5 s of two figures).
+                bool out = BoardingIsPlayer(key) && playerOnFoot;
+                float sx, sy, sz;
+                if (!out && BoardingSeatSpot(key, &sx, &sy, &sz)) {
+                    for (size_t i = 0; i < boardRealSprites && !out; ++i) {
+                        const Sprite& sp = sprites_[i];
+                        if (!sp.pedestrian || sp.hidden || sp.ghost || sp.corners != 4 || (sp.pedState != 4 && sp.pedState != 8)) continue;
+                        const float dx = sp.objectToWorld.m[3][0] - sx, dz = sp.objectToWorld.m[3][2] - sz;
+                        out = dx * dx + dz * dz < 0.7f * 0.7f;
+                    }
+                }
+                if (out || !inVehicle(key)) {
+                    if (g_logFigures) Log("seat: %p let go (%s)", reinterpret_cast<const void*>(key), out ? "his sprite is back" : "not in a vehicle");
+                    BoardingForget(key); boardPeds_.erase(key); it = boardSprites_.erase(it); continue;
+                }
+                if (wanted) { it->second.first = g_carFrame; pushGhost(key, it->second.second); }
+            } else if (wanted && !realSprite(key, nullptr)) {
+                pushGhost(key, it->second.second);   // the climb's last part, after the game stopped drawing him
             }
             ++it;
         }
@@ -8020,7 +8121,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         BoardingOut boardOut;
         bool boarding = false;
         if (g_groundModels && !sprite.corpse && BoardingEnabled()) {
-            if (sprite.pedState == 3 && !boardGhosts.count(sprite.object)) boardSprites_[sprite.object] = {g_carFrame, sprite};
+            if (sprite.pedState == 3 && !boardGhosts.count(sprite.object)) {
+                boardSprites_[sprite.object] = {g_carFrame, sprite};
+                // FIX-SEATED: his ped, for "still in the car?" once the game stops drawing him
+                const uint8_t* so = reinterpret_cast<const uint8_t*>(sprite.object);
+                const uint8_t* physics = game::PlausiblePointer(so) ? *reinterpret_cast<const uint8_t* const*>(so + game::kSpriteObjectOwner) : nullptr;
+                const uint8_t* ped = game::PlausiblePointer(physics) ? *reinterpret_cast<const uint8_t* const*>(physics + game::kPhysicsPed) : nullptr;
+                if (game::PlausiblePointer(ped)) boardPeds_[sprite.object] = reinterpret_cast<uintptr_t>(ped);
+            }
             BoardingIn bi;
             bi.ped = sprite.object; bi.own = ownPed; bi.state = sprite.pedState; bi.sub = sprite.pedSub;
             bi.frame = sprite.pedFrame % 158u; bi.gameX = cx; bi.gameZ = cz; bi.groundY = cy;
@@ -8047,6 +8155,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
         }
         const float boardSink = boarding ? boardOut.sink : 0.0f;
+        const bool seatedNow = boarding && boardOut.seated;   // FIX-SEATED: at the wheel
+        // From his own eyes (first person) his seated figure is not drawn: the cab is (cab_interior).
+        // (g_hiddenObjects[1]: the car he is in, hidden from his eyes; a beat's camera draws both.)
+        if (seatedNow && g_hiddenObjects[1] && BoardingIsPlayer(sprite.object)) continue;
         const float legHeading = track.heading - track.twist;
         // CROWD: where his head turns ([crowd] look_at). Toward the player when the
         // player is within look_range and in front of him (twice as far while the
@@ -8105,6 +8217,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     if (g_carFrame < track.glanceUntil) headTarget = track.glanceYaw;
                 }
             }
+            if (seatedNow) headTarget = boardOut.headYaw;   // FIX-SEATED: into the turn
             float step = (headTarget - track.headYaw) * (std::min)(1.0f, dt / 0.25f);
             const float cap = 4.0f * dt;
             step = (std::max)(-cap, (std::min)(cap, step));
@@ -8130,6 +8243,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 track.legSpeed += (md / dt - track.legSpeed) * (std::min)(1.0f, dt / 0.1f);
             }
             track.lastPX = gx; track.lastPZ = gz; track.havePrev = true;
+            // FIX-SEATED: carried by the car, not walking: the legs stay still at any speed.
+            if (seatedNow) { track.stepFwd = 0.0f; track.legSpeed = 0.0f; track.drawnSpeed = 0.0f; track.speed = 0.0f; }
         }
         g_figuresNow.push_back({sprite.object, gx, gz, track.action == 1, track.punchAlt, track.muzzleFrame,
                                 std::sin(track.heading), std::cos(track.heading), track.weapon});
@@ -8619,7 +8734,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     // (an exit starts seated, not standing).
                     track.actionTime = boardOut.clipT;
                     actionT = std::floor((std::min)(boardOut.clipT, actionClip->length - 0.001f) * 30.0f) / 30.0f;
-                    track.actionWeight = 1.0f;
+                    track.actionWeight = boardOut.clipW;   // 1 but seated (FIX-SEATED)
                 }
                 track.lastPedFrame = sprite.pedFrame;
                 static unsigned lyingLogs = 0;

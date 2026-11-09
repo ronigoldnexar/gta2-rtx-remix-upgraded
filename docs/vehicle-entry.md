@@ -209,3 +209,71 @@ through the windows while driving is a separate order, not done here.
 - Not filmed: a jack (code path above), a passenger, trucks and buses (the plan scales with the car,
   `063_truck_cab` and `069_u_jerk_truck` doors were split in the runs but not entered), first person
   (the own figure is hidden).
+
+## FIX-SEATED: the driver drawn at the wheel for the whole drive (9 Nov 2026)
+
+Defect `feel-driver-not-drawn-seated-in-car` (board item 2b): in third person every drive showed an empty
+cockpit. ANIM-ENTRY-EXIT (47c8641) drew the figure as a "ghost" of his last sprite only until the door shut
+behind him (`BoardingWantsGhost`: `kClimb` until `t > 2.1`, then `ended`); after that the game draws no
+sprite for a ped in a car, so nothing was drawn. Three more things kept him out of sight once that was fixed:
+
+- **The game reuses his sprite object.** About a second after he sits down, the player's sprite object is
+  handed to a passer-by walking elsewhere (`seatp_fix7`: "player sprite" in state 0, 20 blocks away). A
+  seat keyed by that object was reset by the stranger. The seated figure now has a key of its own: the
+  object with its low bit set (never a real object; the same `>> 4` seed, so the same look and build).
+- **The player's name goes while he drives** (`g_playerObject` is null in a car), and a scene warp or a
+  mission start puts him at the wheel with no boarding at all. The renderer keeps his last sprite on foot
+  and seats him in the car marked `driven` (`BoardingSeat`), and moves him there if a boarding guessed the
+  car parked beside his.
+- **The car models are sealed hulls with painted windows.** A seated figure in a closed car could not be
+  seen. A closed car with someone seated in it, seen from outside, is now drawn with clip planes in its own
+  frame. Everything is opaque except the glasshouse: from 0.60 to 0.90 of the roof height, between the
+  windscreen's foot and the rear window (the game's own window rows, `measure.cabinFront/Rear`). That band
+  is drawn at 40 % with no depth write, so the figure drawn after the cars shows through it. Open tops
+  (`CabOpenTop`) need none. Not under Remix, which ignores clip planes (there the hull stays sealed).
+  `[devtools] driver_glass=0` turns it off.
+
+The pose (`boarding.cpp`, mode `kSeated`): hips on the seat (`SeatU`, `SeatZ`), facing the nose, sunk to
+`DriveSink` (his head 2.5 cm under the roof's inside, at most 0.14 sink). Both hands go by IK to the wheel's
+rim at ten to two: hub 0.085 ahead of the hips and 0.06 under the shoulder, rim 0.032, raked 25 degrees.
+The rim turns with the front wheels (`BoardingPublishSteer`, 3:1, at most 100 degrees). The feet go to the
+pedals (0.17 ahead) and the head turns into the turn. The enter_car fold eases to 15 % (upright against the
+seat back) and the legs never step (the renderer's ground-driven cycle is zeroed while seated). From the
+climb's end everything eases in over 0.5 s.
+
+**Hidden in first person** (`g_hiddenObjects[1]`, the car he is in, hidden from his eyes); the cab
+(`cab_interior.cpp`) is the view there.
+
+**Let go** when his own sprite comes back. For anyone, that is any pedestrian the game draws getting out
+(state 4) or thrown (state 8, a jack) within 0.7 block of the seat; the game may give him a new object for
+the exit, and in `seatp_fix9` the old rule left two figures for 2.5 s. The seat is also let go when the
+game no longer has him in a vehicle, or when the car is not drawn for 6 frames (first person draws the own
+car as a hood copy; the seat comes back from `BoardingSeat` when the chase view returns).
+
+**Verified** (private stage at this commit, 30 fps bursts, `gamerun/seat_probe.py`: the parked Minx at
+120.5,152.5, boarding by F9 + Return, parked orbit, drive with turns, first person, exit; and the
+PLAYTEST-FEEL probe, `FEEL_SEGS=enter,drive`). The runs on the base stage (HEAD d2bbf01) are `seatp_base1`,
+`seat_base1` and `seato_base5`; the fix runs are `seatp_fix10`, `seato_fix10` (`force_car_model=53`, the
+open-top roadster) and `seat_fix10`. All have 0 faults.
+- Minx, parked, camera orbiting to the side: before, an opaque pale window band with nobody in it; after,
+  head, shoulders and an upright torso through the side glass, facing forward (`seatp_fix8` b_parked_orbit 6.5 s).
+- Minx drive with turns: seated for the whole drive. In the turns he is seen through the side windows and
+  never lags the car. From straight behind only the top of his head shows over the low rear window.
+- Roadster: seated in the left (driver's) seat, upright, arms forward to the wheel, solid body. Exit: the
+  door opens, he climbs out, and the seat behind him is empty from the exit's first frame.
+- Van 068 (feel probe `drive_third`): the windowless rear doors stay opaque, and in the turn he shows
+  through the side windows. Before, the van was opaque all round.
+- First person: only the cab, no own figure in view.
+- Classic view: `tools/vreg/vreg.sh stage` gives the same verdicts on the base and fix stages (29 PASS;
+  the bank_chase WARN and raised_w03_high FAIL are on HEAD as well). Diffed byte by byte, `vr_spawn_classic`
+  matches except for one randomly coloured game sprite and the animated HUD icon (run-to-run game
+  randomness).
+
+**Untested / not right yet.** A jack (the code lets go on a thrown ped at the seat; not filmed).
+Passengers (an NPC who boards by the far door sits on that side; not filmed). NPC drivers seen getting in
+are seated by the same path (`seat_fix10`: one NPC seated, let go when his car left the view), but traffic
+drivers the player never saw get in are still not drawn (no sprite to draw them from). Hands at the wheel
+are only checked in the IK contact trace (0.000 error) and through glass; the models' own wheels are not
+where `kWheelAhead` puts the rim. When the game stops drawing him 1 frame into the climb (before the ghost
+starts at 0.3 s), he appears seated without the climb (pre-existing). Pillars inside the glass band are
+40 % translucent too. Remix: no glass band.

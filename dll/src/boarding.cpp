@@ -27,10 +27,12 @@ struct Car {
     float speed = 0.0f;        // blocks a second, eased
     float lastX = 0.0f, lastZ = 0.0f;
     bool warm = false;
+    float steer = 0.0f;        // the front wheels (BoardingPublishSteer), radians, + to the left
 };
 std::map<uintptr_t, Car> g_cars;
 
-enum Mode { kNone = 0, kApproach, kClimb, kExit, kShut };   // kShut: after an exit, a hand swings the door shut
+enum Mode { kNone = 0, kApproach, kClimb, kExit, kShut, kSeated };   // kShut: after an exit, a hand swings the door shut
+                                                                    // kSeated (FIX-SEATED): at the wheel, for the drive
 
 struct Board {
     int mode = kNone;
@@ -81,6 +83,11 @@ struct Board {
     float bu = 0.0f, bz = 0.0f; bool haveBase = false;   // kShut: the filtered game spot (car frame)
     float shutH0 = 99.0f;                                // kShut: his heading as it began
     float held = 0.0f;         // QB-14: seconds the climb waited for the driver
+    // kSeated: the feet's targets as the climb left them (car frame), eased onto the pedals
+    float footFrom[2][3] = {};
+    bool footFromSet = false;
+    float sink0 = 0.0f;        // the climb's sink as it ended
+    float headYaw = 0.0f;      // eased
 };
 std::map<uintptr_t, Board> g_boards;
 // GTA2DX9_BOARDING_CAM=1 (verification only): the player's last boarding, for a fixed side camera.
@@ -177,6 +184,16 @@ constexpr float kFootwell = 0.12f;   // the feet ahead of the hips when seated
 // skeleton), the seat cushion about 0.10 over the floor.
 float FloorY(const Car& c) { return (std::max)(0.035f, (std::min)(0.10f, 0.18f * c.roof)); }
 float SitSink(const Car& c) { return (std::max)(0.04f, (std::min)(0.11f, 0.234f - (FloorY(c) + 0.10f))); }
+// FIX-SEATED: at the wheel for the drive he sits lower than the climb leaves him (a driver's hip
+// is about 0.10 block over the road in a saloon, not the cushion's 0.16): low enough that his
+// head (0.46 standing, 0.47 for the tallest look) clears the roof's inside by 2.5 cm, at most
+// 0.14 (an open-top body's low "roof" is its windscreen: he shows over it, as he should).
+float DriveSink(const Car& c) { return (std::max)(SitSink(c), (std::min)(0.14f, 0.47f - (c.roof - 0.025f))); }
+// The steering wheel's hub, car frame: in line with the seat, 0.085 ahead of the hips' line and
+// 0.06 under the shoulder (0.34 standing, less the sink): the hands reach it with the elbows bent
+// (the arm is 0.124 to the wrist). Its rim 0.032 (a 0.3 m wheel at 4.8 m a block), raked 25 deg.
+constexpr float kWheelAhead = 0.085f, kWheelUnder = 0.06f, kWheelR = 0.032f, kWheelRake = 0.44f;
+constexpr float kPedalAhead = 0.17f;   // seated: the feet on the pedals, ahead of the hips
 
 // A point on the door, given as a fraction along it from the hinge (0) to the rear
 // edge (1), a height, and how far out of its outer skin (negative: inside), world.
@@ -289,6 +306,11 @@ void BoardingPublishCar(uintptr_t carObject, const gta2::Mat4& carToWorld, float
     }
 }
 
+void BoardingPublishSteer(uintptr_t carObject, float steer) {
+    auto it = g_cars.find(carObject);
+    if (it != g_cars.end()) it->second.steer = steer;
+}
+
 bool BoardingDoor(uintptr_t carObject, int* side, float* target, float* rate) {
     if (!BoardingEnabled()) return false;
     for (auto& e : g_boards) {
@@ -311,9 +333,11 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
     const uint32_t gap = b.seen ? in.now - b.seen : 0;
     // A boarding left for a while (the ped gone, or drawn again after a gap) is over;
     // so is a finished one once the game starts the other act (in after out, out after in).
-    if (b.mode != kNone && gap > 8) b = Board{};
+    if (b.mode != kNone && b.mode != kSeated && gap > 8) b = Board{};   // (seated: kept while his car is drawn, see below)
     if ((b.ended && ((b.mode == kExit && in.state == 3) || (b.mode == kClimb && in.state == 4))) ||
-        (b.mode == kShut && (in.state == 3 || in.state == 4))) {
+        (b.mode == kShut && (in.state == 3 || in.state == 4)) ||
+        (b.mode == kSeated && !in.ghost && in.state != 3)) {   // seated, and the game draws him again: an exit (planned below
+                                                               // from kNone), a jack, a dive (state 3: the climb's last sprites)
         const float px = b.px, pz = b.pz; const bool hp = b.havePrev;
         b = Board{}; b.px = px; b.pz = pz; b.havePrev = hp;
     }
@@ -411,6 +435,57 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
     out->clipT = 0.0f;
     b.doorOwn = true;
 
+    if (b.mode == kSeated) {
+        // ---- At the wheel (FIX-SEATED) -----------------------------------------
+        // Hips on the seat, facing the car's nose, sunk to DriveSink; both hands on the wheel's
+        // rim at ten to two, turned with the front wheels; the feet on the pedals; the head
+        // into the turn. From the climb's end everything eases over 0.5 s (the hands come off
+        // the clip onto the rim, the feet slide from the footwell to the pedals, he settles).
+        b.t += dt;
+        const float k = Smooth(0.0f, 0.5f, b.t);
+        const float sink = Lerp(b.sink0, DriveSink(c), k);
+        const float seatU = SeatU(c);
+        const gta2::Vec3 p = CarPoint(c, s, seatU, 0.0f, seatZ);
+        const float h = HeadingOfLocal(c, 0.0f, 1.0f);
+        const gta2::Vec3 fwd = fwdOf(h), right = rightOf(h);
+        // The wheel turns with the front wheels (+ to the car's left: the rim's top goes left),
+        // about 3:1 (a hand never crosses the top), at most 100 degrees.
+        const float wheelA = (std::max)(-1.75f, (std::min)(1.75f, -3.0f * c.steer));
+        const float shoulderY = 0.34f - sink;
+        const gta2::Vec3 hub = CarPoint(c, s, seatU, shoulderY - kWheelUnder, seatZ + kWheelAhead);
+        const gta2::Vec3 rimUp = up * std::cos(kWheelRake) - fwd * std::sin(kWheelRake);
+        for (int limb = 0; limb < 2; ++limb) {
+            const float a = (limb == 1 ? 1.05f : -1.05f) + wheelA;   // 60 degrees either side of the top
+            const gta2::Vec3 grip = hub + right * (kWheelR * std::sin(a)) + rimUp * (kWheelR * std::cos(a));
+            const gta2::Vec3 r = right * (limb == 1 ? 1.0f : -1.0f);
+            SetLimb(b, limb, grip, gta2::Normalize(r * 0.7f - up * 0.7f - fwd * 0.15f), Smooth(0.1f, 0.5f, b.t));
+        }
+        // Feet: the one on the door's side by the door, the other toward the middle.
+        for (int f = 0; f < 2; ++f) {
+            const int limb = 2 + f;
+            const bool doorSide = gta2::Dot(right * (limb == 3 ? 1.0f : -1.0f), outward) > 0.0f;
+            gta2::Vec3 pedal = CarPoint(c, s, doorSide ? WellDoorU(c) * 0.9f : WellFarU(c), FloorY(c), seatZ + kPedalAhead);
+            if (b.footFromSet && k < 1.0f) {
+                const gta2::Vec3 from = ToWorld(c, b.footFrom[f][0], b.footFrom[f][1], b.footFrom[f][2]);
+                pedal = from + (pedal - from) * k;
+            }
+            SetLimb(b, limb, pedal, kneePole(h), 1.0f);
+        }
+        b.headYaw += ((std::max)(-0.5f, (std::min)(0.5f, -0.6f * c.steer * 3.0f)) - b.headYaw) * (std::min)(1.0f, dt / 0.3f);
+        out->x = p.x; out->z = p.z; out->sink = sink; out->heading = h;
+        out->action = 5; out->clipT = 1.3f;             // enter_car's fold (seated) ...
+        out->clipW = Lerp(1.0f, 0.15f, k);              // ... eased off to a slight lean: upright against the seat back
+        out->seated = true; out->headYaw = b.headYaw;
+        out->vx = b.haveOut ? (out->x - b.lastOutX) / dt : 0.0f;
+        out->vz = b.haveOut ? (out->z - b.lastOutZ) / dt : 0.0f;
+        b.lastOutX = out->x; b.lastOutZ = out->z; b.haveOut = true;
+        b.out = *out;
+        b.px = out->x; b.pz = out->z; b.havePrev = true;
+        if (g_log && (in.now % 15u) == 0)
+            Log("board: f=%u ped=%04x seated t=%.2f side=%d sink=%.3f roof=%.3f steer=%.2f wheel=%.2f head=%.2f pos=%.3f,%.3f hd=%.2f",
+                in.now, static_cast<unsigned>((in.ped >> 2) & 0xFFFF), b.t, s, sink, c.roof, c.steer, wheelA, b.headYaw, out->x, out->z, h);
+        return true;
+    }
     if (b.mode == kShut) {
         // ---- Shutting the door behind him --------------------------------------
         // Standing up out of the seat leaves him inside the door's swing (0.21 from the
@@ -645,7 +720,17 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
                 SetLimb(b, outer, Arc(plant, wellOut, Clamp01((t - 1.0f) / 0.3f), 0.07f + FloorY(c)), kp, Smooth(0.85f, 0.9f, t));
             }
         }
-        if (t > 2.1f) { b.ended = true; b.doorOwn = false; }
+        if (t > 2.1f) {
+            // FIX-SEATED: in his seat for the drive (it was `ended` here, and the ghost with it:
+            // the cockpit stayed empty until he got out again).
+            b.mode = kSeated; b.t = 0.0f; b.doorOwn = false; b.sink0 = sink; b.footFromSet = false;
+            for (int f = 0; f < 2; ++f) {
+                if (!b.limbOn[2 + f]) continue;
+                float lx, ly, lz;
+                ToLocal(c, b.limbT[2 + f].x, b.limbT[2 + f].y, b.limbT[2 + f].z, &lx, &ly, &lz);
+                b.footFrom[f][0] = lx; b.footFrom[f][1] = ly; b.footFrom[f][2] = lz; b.footFromSet = true;
+            }
+        }
     } else {
         // ---- Out -------------------------------------------------------------
         // 0.00-0.30 the door pushed open from inside; 0.10-0.40 the outer foot over the
@@ -834,13 +919,84 @@ bool BoardingWantsGhost(uintptr_t ped, uint32_t now) {
     auto it = g_boards.find(ped);
     if (it == g_boards.end()) return false;
     const Board& b = it->second;
+    if (b.mode == kSeated) {
+        // seated: for as long as his car is drawn as a body (car_bodies publishes it each frame)
+        auto c = g_cars.find(b.car);
+        return c != g_cars.end() && now - c->second.frame <= 2;   // (not b.seen: the classic view draws no figures)
+    }
     return b.mode == kClimb && !b.ended && b.t > 0.3f && now - b.seen <= 2;
+}
+
+bool BoardingSeat(uintptr_t ped, uintptr_t car, uint32_t now) {
+    if (!BoardingEnabled()) return false;
+    auto cf = g_cars.find(car);
+    if (cf == g_cars.end() || now - cf->second.frame > 1) return false;
+    auto it = g_boards.find(ped);
+    if (it != g_boards.end()) {
+        const Board& b = it->second;
+        if (b.mode == kSeated) {
+            // the game has him in another car than the boarding guessed (two parked side by side):
+            // his seat follows the car he drives
+            if (b.car != car) { it->second.car = car; it->second.side = 1; }
+            return true;
+        }
+        if (b.mode != kNone && !b.ended) return false;   // a boarding (or an exit) still plays
+    }
+    Board b;
+    b.mode = kSeated; b.car = car; b.player = true; b.t = 1.0f;   // settled at once
+    b.side = 1;   // the driver's door (the player boards by it, aee runs: side=1)
+    b.sink0 = DriveSink(cf->second);
+    b.seen = now - 1;
+    g_boards[ped] = b;
+    if (g_log) Log("board: ped=%04x seated in %p without a boarding (f=%u)", static_cast<unsigned>((ped >> 2) & 0xFFFF),
+                   reinterpret_cast<const void*>(car), now);
+    return true;
+}
+
+void BoardingRekey(uintptr_t from, uintptr_t to) {
+    auto it = g_boards.find(from);
+    if (it == g_boards.end() || from == to) return;
+    const Board b = it->second;
+    g_boards.erase(it);
+    g_boards[to] = b;
+}
+
+void BoardingForget(uintptr_t ped) { g_boards.erase(ped); }
+
+bool BoardingBusy(uintptr_t ped) {
+    auto it = g_boards.find(ped);
+    if (it == g_boards.end()) return false;
+    const Board& b = it->second;
+    return b.mode != kNone && b.mode != kSeated && !b.ended && g_now - b.seen <= 8;
+}
+
+bool BoardingCarSeated(uintptr_t carObject) {
+    if (!BoardingEnabled()) return false;
+    for (const auto& e : g_boards)
+        if (e.second.mode == kSeated && e.second.car == carObject && g_now - e.second.seen <= 3) return true;
+    return false;
+}
+
+bool BoardingSeatSpot(uintptr_t ped, float* x, float* y, float* z) {
+    auto it = g_boards.find(ped);
+    if (it == g_boards.end() || it->second.mode != kSeated) return false;
+    auto c = g_cars.find(it->second.car);
+    if (c == g_cars.end()) return false;
+    const gta2::Vec3 p = CarPoint(c->second, it->second.side, SeatU(c->second), 0.0f, SeatZ(c->second));
+    *x = p.x; *y = p.y; *z = p.z;
+    return true;
 }
 
 void BoardingEndFrame(uint32_t now) {
     for (auto it = g_boards.begin(); it != g_boards.end();) {
         Board& b = it->second;
-        const bool stale = now - b.seen > 60;
+        bool stale = now - b.seen > 60;
+        if (b.mode == kSeated) {   // seated: for as long as his car is drawn (not after a spell in the classic view)
+            auto c = g_cars.find(b.car);
+            stale = c == g_cars.end() || now - c->second.frame > 6;
+            if (stale && g_log) Log("board: ped=%04x seat let go: car %p %s", static_cast<unsigned>((it->first >> 2) & 0xFFFF),
+                                    reinterpret_cast<const void*>(b.car), c == g_cars.end() ? "gone" : "not drawn");
+        }
         if (stale || (b.mode == kNone && now - b.seen > 2)) { it = g_boards.erase(it); continue; }
         if (b.ended && !(b.doorOwn && b.doorTarget > 0.5f)) {
             // A finished exit keeps shutting its door for a moment, then is forgotten.

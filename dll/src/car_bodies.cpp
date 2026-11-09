@@ -41,6 +41,7 @@ int g_built = 0, g_drawn = 0;
 bool g_wreckTest = false;   // [devtools] wreck_models=1: every car drawn as a wreck, to check the models
 int g_forceModel = -1;      // [devtools] force_car_model=N: every traffic car drawn as model N (re-read once a second)
 int g_cabInterior = 1;     // [devtools] cab_interior=0: QB-5's plain dashboard instead of the QB-31 cab
+int g_driverGlass = 1;     // [devtools] driver_glass=0: FIX-SEATED's see-through window band off
 int g_forceOwnModel = -1;   // [devtools] force_own_car_model=N: the player's car drawn as model N (QB-5 seat checks)
 int g_forceCarPaint[3] = {-1, -1, -1};   // [devtools] force_car_paint=R,G,B: every non-livery car's live paint (QA of dark paint)
 float g_paintLumFloor = 77.0f;   // [renderer] car_paint_floor_percent (default 30 of white; 0 off)
@@ -2648,6 +2649,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_forceModel = GetPrivateProfileIntA("devtools", "force_car_model", -1, g_devIni);
         g_forceOwnModel = GetPrivateProfileIntA("devtools", "force_own_car_model", -1, g_devIni);
         g_cabInterior = GetPrivateProfileIntA("devtools", "cab_interior", 1, g_devIni);
+        g_driverGlass = GetPrivateProfileIntA("devtools", "driver_glass", 1, g_devIni);
         g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
         g_hoodDropDark = GetPrivateProfileIntA("devtools", "hood_drop_dark", 1, g_devIni) != 0;
         {
@@ -3136,6 +3138,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 zf = (std::min)(zf, 0.42f * b->bodyLength);
                 BoardingPublishCar(use.object, posed, halfW, zf, zf - 0.27f * b->bodyLength, roofY, ds.side,
                                    haveSplit ? ds.open : 0.0f, frame);
+                BoardingPublishSteer(use.object, feel.on ? feel.steer : 0.0f);   // FIX-SEATED: the driver's hands on the wheel
                 // The player's own car: both doors' splits built ahead, so the exit's door
                 // opens on its first frame instead of after the worker's latency.
                 if (use.driven && BoardingWarmDoors(use.object)) {
@@ -3149,9 +3152,68 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     }
                 }
             }
+            // FIX-SEATED: the models are sealed hulls with painted windows, so a driver seated in
+            // one (boarding.h kSeated) was hidden. A closed car with a seated figure, seen from
+            // outside (not the first-person own car; not under Remix, which ignores clip planes),
+            // is drawn with clip planes in its own frame: opaque everywhere but the glasshouse - the
+            // band from the belt line (0.60 of the roof) to the glass's top (0.90), from the
+            // windscreen's foot to the rear window's (the game's own window rows) - which is drawn
+            // at 40 % with no depth written, so the figure drawn after the cars shows through it.
+            // Open-top bodies need none (he shows over the door tops).
+            const bool glassy = g_driverGlass && !use.own && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
+                                !RemixApiAvailable() && BoardingCarSeated(use.object);
+            auto drawHull = [&](const Model& m, const gta2::Mat4& place) {
+                if (!glassy) { ModelDraw(device, m, place, nullptr, 0.0f); return; }
+                const float roofY = model->Height() * sy;
+                const float zA = (b->measure.cabinRear - 0.5f * b->measure.h) * b->scale, zB = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
+                const float zLo = (std::min)(zA, zB) - 0.02f, zHi = (std::max)(zA, zB) + 0.02f;
+                // A plane across the car's axis `row` (1 up, 2 forward) at `h` along it, keeping sign * (t - h) >= 0.
+                bool ok = true;
+                auto plane = [&](int row, float h, float sign, float out[4]) {
+                    const float ax = posed.m[row][0], ay = posed.m[row][1], az = posed.m[row][2];
+                    const float al = std::sqrt(ax * ax + ay * ay + az * az);
+                    if (al < 1e-6f) { ok = false; return; }
+                    const float px = posed.m[3][0] + ax * h, py = posed.m[3][1] + ay * h, pz = posed.m[3][2] + az * h;
+                    out[0] = sign * ax / al; out[1] = sign * ay / al; out[2] = sign * az / al;
+                    out[3] = -(out[0] * px + out[1] * py + out[2] * pz);
+                };
+                float outside[4][4], band[4][4];
+                plane(1, 0.60f * roofY, -1.0f, outside[0]); plane(1, 0.90f * roofY, 1.0f, outside[1]);
+                plane(2, zLo, -1.0f, outside[2]);           plane(2, zHi, 1.0f, outside[3]);
+                plane(1, 0.60f * roofY, 1.0f, band[0]);     plane(1, 0.90f * roofY, -1.0f, band[1]);
+                plane(2, zLo, 1.0f, band[2]);               plane(2, zHi, -1.0f, band[3]);
+                if (!ok) { ModelDraw(device, m, place, nullptr, 0.0f); return; }
+                // Opaque: below the belt, above the glass, behind the rear window, ahead of the windscreen
+                // (overlapping where they meet: the same surface twice at equal depth).
+                for (int k = 0; k < 4; ++k) {
+                    device->SetClipPlane(0, outside[k]);
+                    device->SetRenderState(D3DRS_CLIPPLANEENABLE, 1u);
+                    ModelDraw(device, m, place, nullptr, 0.0f);
+                }
+                DWORD blend = 0, src = 0, dst = 0, zw = 0, factor = 0;
+                device->GetRenderState(D3DRS_ALPHABLENDENABLE, &blend);
+                device->GetRenderState(D3DRS_SRCBLEND, &src);
+                device->GetRenderState(D3DRS_DESTBLEND, &dst);
+                device->GetRenderState(D3DRS_ZWRITEENABLE, &zw);
+                device->GetRenderState(D3DRS_BLENDFACTOR, &factor);
+                for (int k = 0; k < 4; ++k) device->SetClipPlane(k, band[k]);
+                device->SetRenderState(D3DRS_CLIPPLANEENABLE, 15u);
+                device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+                device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_BLENDFACTOR);
+                device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVBLENDFACTOR);
+                device->SetRenderState(D3DRS_BLENDFACTOR, 0x66666666u);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+                ModelDraw(device, m, place, nullptr, 0.0f);
+                device->SetRenderState(D3DRS_CLIPPLANEENABLE, 0u);
+                device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
+                device->SetRenderState(D3DRS_SRCBLEND, src);
+                device->SetRenderState(D3DRS_DESTBLEND, dst);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, zw);
+                device->SetRenderState(D3DRS_BLENDFACTOR, factor);
+            };
             if (ds.open > 0.02f && haveSplit) {
                 const float halfW = 0.5f * b->bodyWidth;
-                ModelDraw(device, *split.body, Mul(fit, posed), nullptr, 0.0f);
+                drawHull(*split.body, Mul(fit, posed));
                 // Swing about the vertical through the door's front edge, outward.
                 const float theta = -static_cast<float>(ds.side) * ds.open * (60.0f * kPi / 180.0f);
                 const float cs = std::cos(theta), sn = std::sin(theta);
@@ -3159,7 +3221,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 gta2::Mat4 hinge;
                 hinge.m[0][0] = cs; hinge.m[0][2] = -sn; hinge.m[1][1] = 1.0f; hinge.m[2][0] = sn; hinge.m[2][2] = cs;
                 hinge.m[3][0] = hx - (hx * cs + hz * sn); hinge.m[3][2] = hz - (-hx * sn + hz * cs); hinge.m[3][3] = 1.0f;
-                ModelDraw(device, *split.door, Mul(Mul(fit, hinge), posed), nullptr, 0.0f);
+                ModelDraw(device, *split.door, Mul(Mul(fit, hinge), posed), nullptr, 0.0f);   // (swung: its own frame)
             } else if ((modelNumber == 54 || modelNumber == 17) && !cpuCut) {
                 // The turret turned to the game's aim (see TurretSplitFor); without an
                 // aim seen in the last second it stays straight ahead.
@@ -3187,12 +3249,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         Log("car bodies: model %d turret turned %.0f deg (object %p)", modelNumber, yaw * 180.0f / kPi, reinterpret_cast<const void*>(use.object));
                     }
                 } else {
-                    ModelDraw(device, *drawn, Mul(fit, posed), nullptr, 0.0f);
+                    drawHull(*drawn, Mul(fit, posed));
                 }
             } else if (haveWheels) {
                 // The hull on its springs, the wheels on the road: each about its own axle,
                 // the front pair steered.
-                ModelDraw(device, *wheels.hull, Mul(fit, posed), nullptr, 0.0f);
+                drawHull(*wheels.hull, Mul(fit, posed));
                 for (int w = 0; w < wheels.n; ++w) {
                     const gta2::Vec3& c = wheels.centre[w];
                     gta2::Mat4 spin = gta2::Identity();
@@ -3227,7 +3289,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 // slab past the dashboard; the cab's dashboard is all there is ahead of the glass.
                 const bool flatCab = hood && g_cabInterior && !WreckModelNumber(modelNumber) &&
                                      CabClassFor(modelNumber, g_cabins[use.object].flat) == CabClass::Bus;
-                if (!flatCab) ModelDraw(device, *drawn, Mul(fit, posed), nullptr, 0.0f);
+                if (!flatCab) drawHull(*drawn, Mul(fit, posed));
                 if (hood && (hood->dash || (g_cabInterior && !WreckModelNumber(modelNumber)))) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                     const float paint[3] = {b->paint.r / 255.0f * dull, b->paint.g / 255.0f * dull, b->paint.b / 255.0f * dull};

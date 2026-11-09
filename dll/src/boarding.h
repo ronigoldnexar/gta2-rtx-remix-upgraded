@@ -40,6 +40,9 @@ namespace gta2dx9 {
 // along z, the roof height, and the driver's door's state (side +-1, open 0..1).
 void BoardingPublishCar(uintptr_t carObject, const gta2::Mat4& carToWorld, float halfW, float zFront, float zRear,
                         float roof, int doorSide, float doorOpen, uint32_t frame);
+// car_bodies, every frame after BoardingPublishCar: the front wheels' steer (radians, + to the
+// car's left), for the seated driver's hands on the wheel.
+void BoardingPublishSteer(uintptr_t carObject, float steer);
 // car_bodies: whether a boarding drives this car's door now; if so the side, the
 // target (0 shut, 1 open) and the rate (per second).
 bool BoardingDoor(uintptr_t carObject, int* side, float* target, float* rate);
@@ -67,6 +70,9 @@ struct BoardingOut {
     int action = 0;             // the action clip to play: 5 enter_car, 6 exit_car
     float clipT = 0.0f;         // seconds into it, at full weight
     float vx = 0.0f, vz = 0.0f; // the figure's velocity (world, per second), for the hand-off back to the renderer
+    float clipW = 1.0f;         // the action clip's weight (seated: a little of enter_car's fold over the idle)
+    bool seated = false;        // FIX-SEATED: at the wheel for the drive (no stepping legs; hidden in first person)
+    float headYaw = 0.0f;       // seated: the head turned into the turn (radians, + to his right)
 };
 // Per figure, every frame, after the renderer has placed it and before it is posed.
 // True while a boarding plays: the figure is drawn from `out`.
@@ -80,8 +86,23 @@ void BoardingReportResidual(uintptr_t ped, int limb, const gta2::Vec3& residual)
 // Whether this ped's boarding is the player's (his ghost keeps his avatar).
 bool BoardingIsPlayer(uintptr_t ped);
 // Whether the figure of this ped is still to be drawn though the game no longer draws
-// him (boarding: until the door is shut behind him).
+// him (boarding: until the door is shut behind him; then, FIX-SEATED, seated at the
+// wheel for as long as the car is drawn).
 bool BoardingWantsGhost(uintptr_t ped, uint32_t now);
+// FIX-SEATED: puts a ped the game has at the wheel of `car` (published this frame) in its
+// driver's seat when no boarding brought him there (a scene warp, a start in the car).
+// True when the ped is seated (now or already); false while a boarding still plays.
+bool BoardingSeat(uintptr_t ped, uintptr_t car, uint32_t now);
+// FIX-SEATED: moves a seated ped's state to another key (the renderer gives the seated figure a
+// key of its own: the game reuses a ped's sprite object for someone else once he is in a car).
+void BoardingRekey(uintptr_t from, uintptr_t to);
+void BoardingForget(uintptr_t ped);
+// Whether a boarding (approach, climb, exit, door shut) is playing for this ped now.
+bool BoardingBusy(uintptr_t ped);
+// car_bodies: whether a figure is seated in this car (its window band is drawn see-through).
+bool BoardingCarSeated(uintptr_t carObject);
+// A seated ped's spot (world, the seat's floor point under his hips), for his ghost sprite.
+bool BoardingSeatSpot(uintptr_t ped, float* x, float* y, float* z);
 // Once a frame, after the figures: forgets boardings that ended or were abandoned.
 void BoardingEndFrame(uint32_t now);
 // A world point (dir false) or direction (dir true) into the space of a model drawn with

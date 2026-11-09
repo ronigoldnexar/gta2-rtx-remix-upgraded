@@ -753,6 +753,12 @@ private:
     // ANIM-VEHICLE-ENTRY: the last sprite of each ped boarding a car (state 3) and its
     // frame, drawn on as a ghost after the game stops drawing him (boarding.h).
     std::map<uintptr_t, std::pair<uint32_t, Sprite>> boardSprites_;
+    // FIX-SEATED: the player's last real sprite (any state), for his seated ghost when no
+    // boarding brought him into the car (a scene warp, a start at the wheel).
+    std::pair<uint32_t, Sprite> ownSprite_{0u, Sprite{}};
+    // FIX-SEATED: each boarding sprite object's ped (resolved while the game still drew him: the
+    // sprite object's owner chain is not kept while he sits in the car).
+    std::map<uintptr_t, uintptr_t> boardPeds_;
 
     // One car's dome: the car's own sprite, drawn a second time as a grid that
     // swells from nothing at its edges to a rounded top, so that the body has
