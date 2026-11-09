@@ -731,6 +731,17 @@ Industrial, under Remix, in the play container (dedicated CPUs, where the contro
 a higher level), or at high wanted levels (the game halves the dummy cap above three stars and the
 pool guard covers police and roadblocks, but no run reached them).
 
+**Crash fix (CRASH-BISECT, 9 Nov):** `gta2.exe+0x25486` reading `0x4C` (MISSIONS-BATCH2 GANG CAR BANG
+in Residential, 2 of 2 sessions; FIX-CAR-RENDER once) came from this change. Two of the four traffic
+sites, SpawnTrafficCar `0x4B34FC` and MakeTrafficForCurrCamera `0x4B4A86`, are `cmp count,cap; je`:
+equality, not `<`. When the level stepped down (36 -> 22 -> 16) with more cars alive than the new
+cap, or the view went back to classic, the count never met the cap again and ambient traffic grew
+without limit (census: 36/36, then 59/16, 90/16, 148/16, 160/16) until the vehicle pool (`Pool<Car,
+306>` at `[0x5E4CA0]`, free list through `+0x4C`, Allocate `0x425480` unchecked) ran dry. Now the
+written cap never goes below the live recycled count (the stock byte goes back only once the surplus
+has drained to 16), and a vehicle-pool guard joins the ped one: under 40 of 306 free, the game's
+own budgets until over 60 are free. The census line gains `free_cars=`.
+
 ## Sprite stage 2.6 -> 7.7 ms on the Residential cab drive (9 Nov 2026, PERF-BISECT)
 
 FIX-FIGURE measured the sprite stage of `gamerun/keys_ff_cab.sh` (Residential, forced taxi) at

@@ -58,6 +58,8 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
   `GTA2DX9_SCENE_NO_CAR=1` (warp to the point, not to a car), `GTA2DX9_LOG_VEHICLES=1`
   (vehicle list for finding an ambulance, a cop car, the train), `GTA2DX9_LOG_PED_FRAMES=1`
   (`npc shot` lines). `linux/docker/qa3_probe.py` frames the ambulance and police gunfire.
+- Scripted runners that steer or aim from the `view: player` line: pass `-e GTA2DX9_STATE_EVERY=3`
+  (the default 15 frames leaves facing and position half a second stale; docs/actions-3d.md).
 
 ## Conventions
 

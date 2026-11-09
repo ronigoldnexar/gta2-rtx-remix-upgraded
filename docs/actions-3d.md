@@ -185,7 +185,9 @@ player's car at a given damage (`GTA2DX9_PROBE_CARDMG=N`, probe only) to see the
 few hits.
 
 `GTA2DX9_STATE_EVERY=N` (environment) logs the `view: player` line every N frames instead of
-15, for a script driving fast.
+15, for a script driving fast. Every scripted runner that steers, aims or walks from that line should pass
+`-e GTA2DX9_STATE_EVERY=3` (MISSIONS-BATCH2: at the default 15 the facing and position are half a
+second stale; lateral error on a jetty walk 0.45 -> 0.1 block, rockets on target).
 
 ## Actions pass (8 Nov 2026, ACTIONS-3D)
 

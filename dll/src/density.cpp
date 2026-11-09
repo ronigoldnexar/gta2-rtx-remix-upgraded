@@ -24,7 +24,10 @@
 // matched against the 9.6 binary byte for byte at each site below.
 //
 // Each site is checked before it is written and keeps its original byte; in the
-// classic view every byte goes back, so the top-down game is exactly as shipped.
+// classic view every byte goes back, so the top-down game is exactly as shipped -
+// except that the traffic cap goes back only once the street view's extra cars
+// have drained to the stock 16 (an equality check below the live count would
+// never stop the spawner again: see DensityUpdate).
 #include "density.h"
 
 #include <windows.h>
@@ -115,6 +118,26 @@ int FreePeds() {
     return n;
 }
 
+// The vehicle pool (Pool<Car, 306>, built at 0x426DB0): free list head at +0,
+// linked through each car's +0x4C. Its Allocate (0x425480) does not check for an
+// empty list either - gta2.exe+0x25486 reading 0x4C is that - so the raised
+// traffic budget stands down while fewer than kCarHeadroomLow are free.
+constexpr int kCarPoolSize = 0x132;
+constexpr int kCarHeadroomLow = 40;
+constexpr int kCarHeadroomHigh = 60;
+int g_lastFreeCars = -1;
+
+int FreeCars() {
+    uint8_t* pool = *reinterpret_cast<uint8_t**>(game::kVehiclePoolPtr);
+    if (!game::PlausiblePointer(pool)) return -1;
+    int n = 0;
+    for (uint8_t* p = *reinterpret_cast<uint8_t**>(pool); p && n <= kCarPoolSize; ++n) {
+        if (!game::PlausiblePointer(p)) return -1;
+        p = *reinterpret_cast<uint8_t**>(p + game::kVehicleNext);
+    }
+    return n;
+}
+
 bool g_pedCapWritten = false;
 int16_t g_pedCapOriginal = 50;
 bool g_checked = false;
@@ -164,6 +187,14 @@ uint8_t* PedManager() {
 uint8_t* CarManager() {
     uint8_t* m = *reinterpret_cast<uint8_t**>(kCarManagerPtr);
     return game::PlausiblePointer(m) ? m : nullptr;
+}
+
+// Recycled (ambient) cars alive: the sum every traffic site compares, -1 unknown.
+int LiveTraffic() {
+    uint8_t* cm = CarManager();
+    if (!cm) return -1;
+    return *reinterpret_cast<int32_t*>(cm + kCarManagerRecycled) +
+           *reinterpret_cast<int32_t*>(cm + kCarManagerProtoRecycled);
 }
 
 int LevelPedCap();
@@ -289,12 +320,12 @@ void Census(bool ground, bool playerValid, float px, float py) {
         zoneCar = *reinterpret_cast<const uint16_t*>(zone + 0x0);
         zonePed = *reinterpret_cast<const int16_t*>(zone + 0xA);
     }
-    Log("density: view=%s level=%d free_peds=%d zone_filled=%d zone_car=%d zone_ped=%d traffic=%d/%d pace=%d/%d block=%d dummies=%d/%d peds_in_window=%d ped_shift=%d vehicles=%d "
+    Log("density: view=%s level=%d free_peds=%d zone_filled=%d zone_car=%d zone_ped=%d traffic=%d/%d pace=%d/%d block=%d dummies=%d/%d peds_in_window=%d ped_shift=%d free_cars=%d vehicles=%d "
         "driven=%d driven_within8=%d driven_within16=%d",
         ground ? "street" : (g_headroomHold ? "held" : "classic"), g_level, g_lastFree, g_zoneWritten ? 1 : 0, zoneCar, zonePed, traffic,
         g_trafficSites[1].patched ? *reinterpret_cast<const uint8_t*>(g_trafficSites[1].at)
                                   : kStockTrafficCap,
-        counter, threshold, block, dummies, dummyCap, inWindow, *reinterpret_cast<const uint8_t*>(g_pedShiftSite.at), live,
+        counter, threshold, block, dummies, dummyCap, inWindow, *reinterpret_cast<const uint8_t*>(g_pedShiftSite.at), g_lastFreeCars, live,
         driven, near8, near16);
 }
 
@@ -407,23 +438,34 @@ void DensityUpdate(bool ground, bool playerValid, float px, float py) {
         if (anyBad)
             for (ImmSite& s : g_trafficSites) s.bad = true;
     }
-    // Headroom in the ped pool decides whether the raised budgets may stand.
+    // Headroom in the ped and vehicle pools decides whether the raised budgets may stand.
     const int freePeds = FreePeds();
+    const int freeCars = FreeCars();
     g_lastFree = freePeds;
-    if (freePeds < 0) {
+    g_lastFreeCars = freeCars;
+    if (freePeds < 0 || freeCars < 0) {
         g_headroomHold = true;   // cannot tell: the game's own budgets
-    } else if (!g_headroomHold && freePeds < kPedHeadroomLow) {
+    } else if (!g_headroomHold && (freePeds < kPedHeadroomLow || freeCars < kCarHeadroomLow)) {
         g_headroomHold = true;
-        Log("density: %d of %d people free - the game's own budgets until %d are", freePeds, kPedPoolSize,
-            kPedHeadroomHigh);
-    } else if (g_headroomHold && freePeds > kPedHeadroomHigh) {
+        Log("density: %d of %d people, %d of %d cars free - the game's own budgets until %d and %d are",
+            freePeds, kPedPoolSize, freeCars, kCarPoolSize, kPedHeadroomHigh, kCarHeadroomHigh);
+    } else if (g_headroomHold && freePeds > kPedHeadroomHigh && freeCars > kCarHeadroomHigh) {
         g_headroomHold = false;
-        Log("density: %d of %d people free - raised budgets again", freePeds, kPedPoolSize);
+        Log("density: %d of %d people, %d of %d cars free - raised budgets again", freePeds, kPedPoolSize,
+            freeCars, kCarPoolSize);
     }
     FollowFrameRate(ground);
     ground = ground && !g_headroomHold;
-    const int trafficCap = LevelTrafficCap();
-    const bool traffic = ground && trafficCap > kStockTrafficCap;
+    // The spawner's two checks (0x4B34FC, 0x4B4A86) are `cmp count, cap; je`:
+    // equality. A cap written below the cars already alive (the level stepping
+    // down from 36 with 36 out, a pool hold, or the view going back to classic)
+    // is never met again and traffic runs on until the vehicle pool is empty
+    // (gta2.exe+0x25486). So the written cap never goes below the live count,
+    // and the stock byte goes back only once the surplus has drained to it.
+    int trafficCap = ground ? LevelTrafficCap() : kStockTrafficCap;
+    const int live = LiveTraffic();
+    if (live > trafficCap) trafficCap = live > 127 ? 127 : live;   // imm8 is sign-extended
+    const bool traffic = trafficCap > kStockTrafficCap;
     for (ImmSite& s : g_trafficSites)
         SetSite(&s, traffic, static_cast<uint8_t>(trafficCap + s.offsetFromCap));
     const int shift = PedShiftFor(LevelPedScale());
