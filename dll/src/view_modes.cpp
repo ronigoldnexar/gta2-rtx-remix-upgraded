@@ -2938,7 +2938,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // where it reaches that far, eased, and back as the way behind him opens. The frame clamp
     // turns the view onto him from wherever the eye ends up. The lift over a wall below still
     // applies when no swing clears. GTA2DX9_CAM_SWING=0 turns it off (A/B).
-    if (!boomKnown_ || inVehicle) swingAngle_ = 0.0f;
+    if (!boomKnown_ || inVehicle) { swingAngle_ = 0.0f; swingRigKnown_ = false; }
     if (s.tpCollide && q.blocked && !inVehicle && meshSolve && CameraSwingOn()) {
         const gta2::Vec3 span0 = desired - pivot;
         const float len0 = std::sqrt(span0.x * span0.x + span0.y * span0.y + span0.z * span0.z);
@@ -2977,15 +2977,64 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             }
         }
         const float tau = std::fabs(wantSwing) > std::fabs(swingAngle_) ? 0.25f : 0.6f;
-        swingAngle_ += (wantSwing - swingAngle_) * (1.0f - std::exp(-dt / tau));
+        // FIX-CAMERA-5 (feel24-third-armed-turn-to-target-camera-swings-through-wall-...): the swing
+        // is an offset from the rig, and the armed rig turns with him at up to 240 degrees a second
+        // (QB-6). Eased over 0.25 s, the offset lagged a turn toward a wall by 60 degrees: the boom
+        // went into the wall's corner and the filter pulled it from 1.5 to 0.6 block in five frames
+        // (the hero 2.5 times bigger, seen from above: run fc5_all_base, wil 163.5,137.5). Now a swing
+        // that is wanted may take up the rig's own turn at once: anywhere between following the rig
+        // and holding its heading in the world is no motion of the picture beyond what the rig makes
+        // anyway, so the camera holds still while the rig turns toward the wall, and only the rest
+        // is eased. GTA2DX9_CAM_SWING_HOLD=0 restores the plain ease (A/B).
+        const float rigYaw = std::atan2(span0.x, span0.z);
+        float dRig = 0.0f;
+        if (swingRigKnown_) dRig = WrapAngle(rigYaw - swingRigYaw_);
+        swingRigYaw_ = rigYaw;
+        swingRigKnown_ = true;
+        static int holdOn = -1;
+        if (holdOn < 0) { char b[8] = {}; holdOn = GetEnvironmentVariableA("GTA2DX9_CAM_SWING_HOLD", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        bool held = false, waiting = false;
+        if (holdOn && len0 > 0.8f && std::fabs(dRig) < 0.6f) {
+            // turned(a) puts the boom at the rig's heading minus a: the camera's heading held in the
+            // world is the swing plus the rig's turn this frame.
+            // The swing kept within +-180 (the same heading), and the path checked below is the one
+            // the ease takes from there (a hold wrapped on its own had the ease go the long way round,
+            // through the walls it was holding off: run fc5_all_v2).
+            swingAngle_ = WrapAngle(swingAngle_);
+            const float hold = swingAngle_ + dRig;
+            const float good = (std::max)(0.9f, 0.6f * len0);
+            // The way the swing would go from there to what it wants (the eased path, sampled every
+            // 15 degrees or less): through a wall (a corner he spins in: the armed rig follows a full
+            // turn) the camera does not go, it waits where it is and he turns in the picture; it
+            // follows once the way round is open (or what it holds closes in, below).
+            const float span = wantSwing - hold;
+            const int n = static_cast<int>(std::fabs(span) / (15.0f * kDegToRad)) + 1;
+            bool blocked = false;
+            for (int k = 1; k <= n && !blocked; ++k)
+                blocked = reachTo(pivot, turned(hold + span * static_cast<float>(k) / n)) * len0 < good;
+            if (blocked && reachTo(pivot, turned(hold)) * len0 >= 0.9f * good) {
+                wantSwing = hold;
+                swingAngle_ = hold;
+                held = waiting = true;
+            } else {
+                // Anywhere between following the rig and holding the world heading is no motion
+                // beyond the rig's own: the swing may take that up at once, only the rest is eased.
+                const float lo = (std::min)(swingAngle_, swingAngle_ + dRig), hi = (std::max)(swingAngle_, swingAngle_ + dRig);
+                const float base = (std::max)(lo, (std::min)(hi, wantSwing));
+                swingAngle_ = base + (wantSwing - base) * (1.0f - std::exp(-dt / tau));
+                held = true;
+            }
+        }
+        if (!held) swingAngle_ += (wantSwing - swingAngle_) * (1.0f - std::exp(-dt / tau));
         if (std::fabs(swingAngle_) < 1e-3f) swingAngle_ = 0.0f;
         if (swingAngle_ != 0.0f) desired = turned(swingAngle_);
         if (cameraLogOn() && (swingAngle_ != 0.0f || wantSwing != 0.0f)) {
             static int every = 0;
-            if ((++every % 10) == 1) Log("cam: swing %.1f want %.1f deg", swingAngle_ / kDegToRad, wantSwing / kDegToRad);
+            if ((++every % 10) == 1) Log("cam: swing %.1f want %.1f deg%s", swingAngle_ / kDegToRad, wantSwing / kDegToRad, waiting ? " (holding: the way round is walled)" : "");
         }
     } else {
         swingAngle_ = 0.0f;
+        swingRigKnown_ = false;
     }
     if (s.tpCollide && q.blocked) {
         const gta2::Vec3 span = desired - pivot;
@@ -3331,6 +3380,27 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 if (eyecol::PushPanels(&e, kRailClear) > 1e-4f && !eyecol::SegmentHit(shownPivot, e, &t) &&
                     !(q.blocked && solidAt(e.x, e.y, e.z))) {
                     eyeX_ = e.x; eyeY_ = e.y; eyeZ_ = e.z;
+                }
+            }
+            // FIX-CAMERA-5 (pm15-third-camera-flush-with-wall-corner-half-frame-blur-player-sliced): the
+            // boom stops kMeshClear short of what is on its own line, but a wall beside that line (a
+            // corner he walks round, the side of an alley) could come to a hair from the lens: half
+            // the frame one blurred wall plane, a hard edge through him. The shown eye keeps
+            // kSideClear off every surface, never through anything on the way from his head.
+            // GTA2DX9_CAM_SIDE=0 turns it off (A/B).
+            static int sideOn = -1;
+            if (sideOn < 0) { char b[8] = {}; sideOn = GetEnvironmentVariableA("GTA2DX9_CAM_SIDE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+            if (meshSolve && sideOn) {
+                constexpr float kSideClear = 0.25f;
+                gta2::Vec3 e{eyeX_, eyeY_, eyeZ_};
+                float t = 1.0f;
+                const float moved = eyecol::Push(&e, kSideClear);
+                if (moved > 1e-4f && !eyecol::SegmentHit(shownPivot, e, &t) && !(q.blocked && solidAt(e.x, e.y, e.z))) {
+                    eyeX_ = e.x; eyeY_ = e.y; eyeZ_ = e.z;
+                    if (cameraLogOn()) {
+                        static int every = 0;
+                        if ((++every % 15) == 1) Log("cam: side berth moved %.2f", moved);
+                    }
                 }
             }
             const float full = (std::max)(rigLen, boom_);

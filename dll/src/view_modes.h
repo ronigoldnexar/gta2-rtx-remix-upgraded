@@ -419,6 +419,8 @@ private:
     bool framingKnown_ = false;
     float liftAngle_ = 0.0f;   // the chase camera swung up over a wall behind it, radians, eased
     float swingAngle_ = 0.0f;  // on foot: the boom swung round (yaw) what stands behind him, radians, eased
+    float swingRigYaw_ = 0.0f;   // FIX-CAMERA-5: the rig's boom heading last frame (the swing may hold the world heading)
+    bool swingRigKnown_ = false;
     // FIX-CAMERA (chase-cam-foot-snap-cuts, pt-chase-camera-pumps-against-wall): the
     // third-person boom as a state. The collision solve says how long the boom may be;
     // the shown camera sits on that boom's direction at boom_, which shortens at a

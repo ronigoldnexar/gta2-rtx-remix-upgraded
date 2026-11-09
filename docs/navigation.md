@@ -488,6 +488,48 @@ Nothing is drawn differently: the classic view and every draw call are as before
   spear tops were a dark band over a quarter of the frame), never through anything on the way.
 - Probe `gamerun/keys_fc4.sh` (`fc4_probe.py`, FC4_X/FC4_Y, default the fence corner at 167.4,147.8).
 
+## The swing holds its heading; a side berth; the V move rides the car (FIX-CAMERA-5, 9 Nov 2026)
+
+Defects feel24-third-armed-turn-to-target-camera-swings-through-wall-hero-lost-1p6s-returns-cropped,
+feel23-v-third-to-first-while-driving-camera-trails-3s-van-drives-off-then-cockpit-arrives-tilted,
+pm15-third-camera-flush-with-wall-corner-half-frame-blur-player-sliced. Code: `ViewCameraSolver::Solve` in
+`dll/src/view_modes.cpp` (the swing, `swingRigYaw_`; the side berth in the boom filter) and `WorldView::ApplyTransition`
+in `dll/src/world_view.cpp` (`transitionTarget0_`, `transitionSeconds_`). The classic view is untouched
+(tools/vreg classic shot: 0 changed tiles).
+
+- The swing holds its heading. The armed rig turns with him at up to 240 degrees a second (QB-6), and the swing
+  (FIX-CAMERA-4) was an offset from the rig eased over 0.25 s: on a turn on the spot by a wall corner the camera
+  was dragged into the corner and the boom filter pulled it from 1.5 to 0.6 block in five frames (him 2.5 times
+  bigger, seen steeply from above). Now, on foot, when the way the swing would go from the camera's present
+  heading to the one the rig wants crosses a walled sector (sampled every 15 degrees with the boom's reach), the
+  camera holds its heading in the world and he turns in the picture; it follows once the way round is open.
+  Otherwise the swing may take up the rig's own turn at once (anywhere between following the rig and holding still
+  is no extra motion) and eases only the rest. `GTA2DX9_CAM_SWING_HOLD=0` restores the plain ease. Log:
+  `cam: swing S want W deg (holding: the way round is walled)`.
+- Side berth. The boom stops 0.15 short of what is on its own line; a wall beside the line could still come to a
+  hair from the lens at a corner. The shown eye on foot is now kept 0.25 off every surface (`eyecol::Push`), never
+  through anything on the way from his head. `GTA2DX9_CAM_SIDE=0` turns it off. Log: `cam: side berth moved D`.
+- The V move rides its destination. The move's start was a world point fixed at the key press: in a car at speed
+  the van drove out of the picture while the camera eased off that point, and the cockpit came 3 s later. The start
+  pose is now carried with the destination (moved with it, and between the two street views turned with its
+  heading), so the move happens in the car's (or his) frame. Between third and first person the move takes 0.8 s
+  (it was 1.4). Into first person at the wheel the move ends where the eye passes below the roof line of the car
+  the destination sits in (`LiveCameraCars`): flown on down it showed the dash's black top, and a level approach
+  from behind crossed a van's closed cargo box for twelve dark frames. Log: `view: moving the camera to M over S s
+  (anchor=...)`, `view: move into the cab: arrived at t=T`.
+- Probe `gamerun/keys_fc5.sh` (`fc5_probe.py`, FC5_SEGS=spinwall,turnplaza,vdesc,vact,vfp,cornerwalk; 30 fps bursts).
+  Pistol, three fast turns on the spot by the wall corners at wil 163.5,137.5 and 157.5,144.5: shortest boom
+  0.55/0.41 block and 12/8 frames pitched past 25 degrees down before (`fc5_all_base`), 0.94/0.94 and none after
+  (`fc5_all_v3`); nearest surface to the lens 0.12 before, 0.25 after (`fc5_all_v4`). V at speed in the van:
+  the van in frame throughout and the cockpit level about 20 frames after the press (before: the van left the
+  frame and the cockpit arrived about 100 frames later; `fc5_vfp6`).
+- Still: a full turn on the spot in a corner still changes his size about 1.6-2x as the boom shortens round the
+  corner (the acceptance asks for 30 %); walking into a corner pocket the mesh cap still drops the boom to 0 in one frame
+  and the camera looks down over his head for under a second (`cam: figure cut`, as on HEAD); the first time in a
+  session the first-person view is entered in a given car, its first two frames are black (the seat view's roof
+  cut comes in a frame late: car bodies, not the move); the cockpit's roll in a hard turn is the first-person body
+  roll, not the move.
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`

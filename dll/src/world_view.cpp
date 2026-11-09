@@ -30,6 +30,7 @@
 #include "compat.h"
 #include "game_save.h"
 #include "eye_collision.h"
+#include "live_geometry.h"
 #include "light_bench.h"
 #include "log.h"
 #include "remix_api.h"
@@ -2526,13 +2527,21 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             transitionLift_ = 0.0f;
             transitionToClassic_ = mode == ViewMode::Classic;
             transitionFromClassic_ = lastViewMode_ == ViewMode::Classic;
+            transitionTarget0_ = target.position;
+            transitionTargetYaw0_ = target.yaw;
+            // FIX-CAMERA-5 (feel23): between the two street views (third <-> first) the move is
+            // short (the classic -> third move is the reference for how a switch should feel); a
+            // 1.4 s glide from the chase eye into the cab at speed left the player with neither view.
+            transitionSeconds_ = (!transitionToClassic_ && !transitionFromClassic_) ? (std::min)(vm.transitionSeconds, 0.8f)
+                                                                                    : vm.transitionSeconds;
             // The last frame drawn was the settled classic view and the renderer kept it:
             // the move opens on that frame and dissolves it away (RenderFrame).
             dissolveActive_ = transitionFromClassic_ && vm.switchDissolve > 0.001f && renderer_.HasKeptFrame() &&
                               keptClassicAt_ == frameCount_ - 1;
             dissolveT0_ = -1.0f;
             Log("view dissolve: %s", dissolveActive_ ? "from the last classic frame" : "none (no kept classic frame)");
-            Log("view: moving the camera to %s over %.1f s", ViewModeName(mode), vm.transitionSeconds);
+            Log("view: moving the camera to %s over %.1f s (anchor=%s)", ViewModeName(mode), transitionSeconds_,
+                transitionToClassic_ ? "world" : (transitionFromClassic_ ? "destination" : "destination+heading"));
         }
         lastViewMode_ = mode;
     }
@@ -2541,11 +2550,31 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     skyBlend_ = mode == ViewMode::Classic ? 0.0f : 1.0f;
     if (transitionT_ < 1.0f) {
         if (dt > 0.25f) dt = 1.0f / 30.0f;
-        transitionT_ = (std::min)(1.0f, transitionT_ + dt / (std::max)(vm.transitionSeconds, 0.05f));
+        transitionT_ = (std::min)(1.0f, transitionT_ + dt / (std::max)(transitionSeconds_, 0.05f));
         // Smoothstep: the camera starts and arrives gently.
         const float t = transitionT_;
         const float e = t * t * (3.0f - 2.0f * t);
-        const gta2::Vec3& a = transitionFrom_.position;
+        // FIX-CAMERA-5 (feel23-v-third-to-first-while-driving-...): the start pose rides the
+        // destination. It was a world point fixed at the key press: in a car doing 1-2 blocks a
+        // second the van drove out of the picture while the camera eased off that point, and the
+        // cockpit swung in from behind 3 s later. Now the start is moved with the destination
+        // (the driver's eye, the chase eye, the hero) and, between the two street views, turned
+        // with its heading, so the whole move happens in the car's (or his) own frame. Into the
+        // classic view the start stays where it was (the classic camera is the game's).
+        CameraPose from = transitionFrom_;
+        if (!transitionToClassic_) {
+            float dh = 0.0f;
+            if (!transitionFromClassic_) {
+                dh = target.yaw - transitionTargetYaw0_;
+                while (dh > 3.14159265f) dh -= 6.2831853f;
+                while (dh < -3.14159265f) dh += 6.2831853f;
+            }
+            const gta2::Vec3 v = transitionFrom_.position - transitionTarget0_;
+            const float cd = std::cos(dh), sd = std::sin(dh);
+            from.position = target.position + gta2::Vec3{v.x * cd + v.z * sd, v.y, -v.x * sd + v.z * cd};
+            from.yaw = transitionFrom_.yaw + dh;
+        }
+        const gta2::Vec3& a = from.position;
         const gta2::Vec3& b = target.position;
         const gta2::Vec3 span = b - a;
         const float length = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
@@ -2557,6 +2586,9 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         // the height runs geometrically with the eased progress; across and along, as before.
         const float floorY = (std::min)(a.y, b.y) - 1.0f;
         const float ha = a.y - floorY, hb = b.y - floorY;   // both >= 1
+        // FIX-CAMERA-5 (feel23): from the chase camera into first person (see below: the move ends on
+        // the cab's roof line).
+        const bool intoEye = !transitionFromClassic_ && !transitionToClassic_ && mode == ViewMode::FirstPerson;
         const auto pathAt = [&](float ee) {
             gta2::Vec3 q = a + (b - a) * ee;
             q.y = floorY + ha * std::pow(hb / ha, ee);
@@ -2593,6 +2625,46 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             transitionLift_ += (std::max)(-step, (std::min)(step, need - transitionLift_));
             p.y += transitionLift_;
         }
+        // FIX-CAMERA-5 (feel23): into first person at the wheel, the move ends where the eye passes
+        // below the roof of the car the destination sits in. Flown on down into the cab it showed the
+        // top of the dash as a black slab (two frames, run fc5_all_v1); come in level from behind it
+        // crossed a van's closed cargo box (twelve dark frames, run fc5_rebased). The car is the body
+        // whose footprint holds the destination at its height (LiveCameraCars, one frame old).
+        bool arriveNow = false;
+        if (intoEye) {
+            const auto depth = [](const CameraCar& c, float x, float z) {
+                float area = 0.0f;
+                for (int i = 0; i < 4; ++i) { const int j = (i + 1) & 3; area += c.x[i] * c.z[j] - c.x[j] * c.z[i]; }
+                const float wind = area >= 0.0f ? 1.0f : -1.0f;
+                float d = 1e9f;
+                for (int i = 0; i < 4; ++i) {
+                    const int j = (i + 1) & 3;
+                    const float ex = c.x[j] - c.x[i], ez = c.z[j] - c.z[i];
+                    const float el = std::hypot(ex, ez);
+                    if (el < 1e-4f) continue;
+                    d = (std::min)(d, wind * (ex * (z - c.z[i]) - ez * (x - c.x[i])) / el);
+                }
+                return d;
+            };
+            // The list is a frame old: at speed the footprint trails the car by a tenth of a block or
+            // more, and the driver's eye sits near its front, so the body nearest the destination is
+            // taken (within 0.4), and the eye counts as over it within 0.3 of its edge.
+            const CameraCar* own = nullptr;
+            float best = -0.4f;
+            for (const CameraCar& c : LiveCameraCars()) {
+                if (b.y < c.y0 - 0.1f || b.y > c.y1 + 0.3f) continue;
+                const float d = depth(c, b.x, b.z);
+                if (d > best) { best = d; own = &c; }
+            }
+            if (own && depth(*own, p.x, p.z) > -0.3f && p.y < own->y1 + 0.3f) arriveNow = true;
+            static int logged = 0;
+            if (transitionT_ <= dt / (std::max)(transitionSeconds_, 0.05f) + 1e-4f && logged < 40) {
+                ++logged;
+                Log("view: move into the cab: %s (destination %.2f inside its footprint, roof %.2f)", own ? "the car found" : "no car under the destination",
+                    own ? best : 0.0f, own ? own->y1 : 0.0f);
+            }
+            if (arriveNow) Log("view: move into the cab: arrived at t=%.2f (the eye passed the roof line)", transitionT_);
+        }
         // FIX-OCCLUSION: nor through a wall the cells do not see (a diagonal, a partial block):
         // on the way into a street view the camera is never on the far side of a surface from
         // where it is going, nor nearer one than the near plane allows.
@@ -2616,12 +2688,12 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             if (lastPoseValid_ && eyecol::InsideSolid(p) && !eyecol::InsideSolid(lastPose_.position)) p = lastPose_.position;
         }
         // The short way round for the heading.
-        float dyaw = target.yaw - transitionFrom_.yaw;
+        float dyaw = target.yaw - from.yaw;
         while (dyaw > 3.14159265f) dyaw -= 6.2831853f;
         while (dyaw < -3.14159265f) dyaw += 6.2831853f;
         shown.position = p;
-        shown.yaw = transitionFrom_.yaw + dyaw * e;
-        shown.pitch = transitionFrom_.pitch + (target.pitch - transitionFrom_.pitch) * e;
+        shown.yaw = from.yaw + dyaw * e;
+        shown.pitch = from.pitch + (target.pitch - from.pitch) * e;
         static int moveAim = -1;
         if (moveAim < 0) { char b2[8] = {}; moveAim = GetEnvironmentVariableA("GTA2DX9_MOVE_AIM", b2, sizeof b2) && atoi(b2) == 0 ? 0 : 1; }
         if (!transitionToClassic_ && moveAim) {
@@ -2652,8 +2724,8 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             float d = aimYaw - transitionAimYaw_;
             while (d > 3.14159265f) d -= 6.2831853f;
             while (d < -3.14159265f) d += 6.2831853f;
-            transitionAimYaw_ = transitionT_ <= dt / (std::max)(vm.transitionSeconds, 0.05f) + 1e-4f
-                                    ? transitionFrom_.yaw + [&] { float w = aimYaw - transitionFrom_.yaw;
+            transitionAimYaw_ = transitionT_ <= dt / (std::max)(transitionSeconds_, 0.05f) + 1e-4f
+                                    ? from.yaw + [&] { float w = aimYaw - from.yaw;
                                                                   while (w > 3.14159265f) w -= 6.2831853f;
                                                                   while (w < -3.14159265f) w += 6.2831853f;
                                                                   return w; }()
@@ -2662,14 +2734,18 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             // held where it is for most of it, so the position's ease is no guide).
             const float ta = (std::min)(1.0f, t / 0.6f);
             const float ea = ta * ta * (3.0f - 2.0f * ta);
-            shown.yaw = transitionFrom_.yaw + (transitionAimYaw_ - transitionFrom_.yaw) * ea;
-            shown.pitch = transitionFrom_.pitch + (aimPitch - transitionFrom_.pitch) * ea;
+            shown.yaw = from.yaw + (transitionAimYaw_ - from.yaw) * ea;
+            shown.pitch = from.pitch + (aimPitch - from.pitch) * ea;
         }
-        shown.roll = transitionFrom_.roll + (target.roll - transitionFrom_.roll) * e;
-        shown.fov = transitionFrom_.fov + (target.fov - transitionFrom_.fov) * e;
+        shown.roll = from.roll + (target.roll - from.roll) * e;
+        shown.fov = from.fov + (target.fov - from.fov) * e;
         // The sky comes up as the eye comes down, and goes as it rises.
         if (transitionToClassic_) skyBlend_ = 1.0f - e;
         else if (transitionFromClassic_) skyBlend_ = e;
+        if (arriveNow) {
+            shown = target;
+            transitionT_ = 1.0f;
+        }
         camera_.SetPosition(shown.position);
         camera_.SetOrientation(shown.yaw, shown.pitch);
         camera_.SetRoll(shown.roll);
@@ -2740,7 +2816,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         if (logEnv < 0) { char b[8] = {}; logEnv = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", b, sizeof b) && atoi(b) ? 1 : 0; }
         static float since = 99.0f;
         static int n = 0;
-        if (transitionT_ < 1.0f && transitionT_ <= dt / (std::max)(vm.transitionSeconds, 0.05f) + 1e-4f) since = 0.0f;
+        if (transitionT_ < 1.0f && transitionT_ <= dt / (std::max)(transitionSeconds_, 0.05f) + 1e-4f) since = 0.0f;
         since += dt;
         // How far the shown view points from the destination's look point (2.4 along its view).
         const gta2::Vec3 tf{std::sin(target.yaw) * std::cos(target.pitch), std::sin(target.pitch), std::cos(target.yaw) * std::cos(target.pitch)};

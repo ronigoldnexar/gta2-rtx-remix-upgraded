@@ -295,6 +295,12 @@ private:
     // car body numbers swap once per change.
     bool presentedStreet_ = false;
     float transitionLift_ = 0.0f;  // the eased lift of the move's path out of buildings (blocks)
+    // FIX-CAMERA-5 (feel23): the move rides its destination. The destination's pose when the move
+    // began; the start pose is carried along with it (moved, and between street views turned, by
+    // the destination's motion since), so a V in a moving car is a move inside the car's frame.
+    gta2::Vec3 transitionTarget0_{};
+    float transitionTargetYaw0_ = 0.0f;
+    float transitionSeconds_ = 1.4f;   // this move's length (shorter between the two street views)
     void ApplyTransition(float dt, ViewMode mode);
     void ApplyPresentation(ViewMode mode);
     void DrawSkyAndShading();
