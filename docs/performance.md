@@ -841,3 +841,92 @@ and `bank_chase` WARN (8) against the 16fcaf8 goldens, from later visual commits
 extra WARN, `spawn_first`, is a passer-by in the shot. Runs: `out/pb_*` (`det` = the
 fixed car entry); scripts `gamerun/pb_grun.sh` (grun.sh on `GTA2_GPU`) and
 `gamerun/keys_pb_cab.sh`.
+
+## The first V of a session (9 Nov 2026, FIX-PERF-VSWITCH)
+
+Defect `first-v-press-freezes-game-up-to-9s-world-upload`: the first switch from the classic view
+to a street view froze the game for 0.5-9 s (`hitch @237: frame 8798 ms, world 7899` in BEV-PURITY's
+`bp_a_vis1`). The 8.8 s run was an extreme. The game ran in a 1.5-CPU container next to two
+30 fps captures, so frames came in whole 100 ms CPU-quota periods. Even the settled street view
+ran at 100-300 ms a frame there. The measurements below use the same keys scripts at `CPUS=3`.
+
+**Where the time went.** Four things, all first uses at the switch:
+
+1. **GL programs.** wined3d builds a GLSL program for each new fixed-function state and for each
+   shader the first time a draw uses it. The street views' first frames use about 110 that the
+   classic view never does: sky, lit and fogged world, water, post passes, shadows, lit figures,
+   tinted paint, sprites under fog. With the NVIDIA shader disk cache warm, HEAD's switch cost
+   371 ms instead of 0.8-2.3 s (`vsw_glcb1` vs `vsw_glcb2`).
+   `WINEDEBUG=+timestamp,trace+d3d_shader` counts them (`Compiling shader object`).
+2. **The model warm-up.** It ran in manifest order (every car texture before any person), so the
+   people were still cold at the V: 170-280 ms per avatar on first draw. Its 8 ms budget also
+   counted only the time to *queue* uploads, so the driver thread's backlog grew through the
+   classic view. Whichever frame next waited on the driver paid for all of it.
+3. **The first lock of a new dynamic vertex buffer** (a figure's posed skin) waits for everything
+   queued: 285 ms for the first person drawn (`vsw_probe3`, `model first draw:` line).
+4. **The modern HUD's setup** (gxt, ImGui fonts, mini-map): 180-590 ms (`ui` in the hitch line),
+   and the post targets (~100 ms, `world`).
+
+**What changed.**
+
+- `model_store.cpp`: the warm-up is a list of steps, one model at a time (its textures, then its
+  buffers). Order: street furniture and objects, then people (the player's avatar first,
+  `ModelsWarmFirst`), then cars. An event query after each batch holds the next batch until the
+  driver has finished the last, plus a byte budget (12 MB a frame in classic, 3 MB in a street
+  view). 40 spare skin buffers are made and written once after the people (`SkinBufferFor` takes
+  any spare at least as large). The reader thread now softens car paint masks. Log lines:
+  `models: warm-up: <group> ready, N s after it began`, and `model first draw: <name> ms (pose,
+  buffers, new textures)` for any first draw over 4 ms.
+- `live_geometry.cpp`: no warm-up step in a street view's first 120 frames. Once a level, on the
+  frame after the ghost frame below, the classic frame's sprites are issued a second time under
+  the street fog, with colour, depth and stencil writes off (`live: this frame's N sprites issued
+  unseen`).
+- `hud3d.cpp`: texts, context and fonts, mini-map, font texture and one invisible ImGui frame are
+  made in the classic view, one step every other frame from 2 s into a level
+  (`hud3d: made ahead in the classic view: step N`).
+- `world_view.cpp` / `renderer.cpp`: `GhostStreetFrame`, once a level on its second classic frame
+  (inside the level's own loading stall). One street frame is drawn into a render target and
+  depth surface of its own, with every device state captured before and applied after: sky,
+  street shading, world with its street fill, post passes and shadows, a prop, the avatar (zone
+  tints), a car (paint tint). It runs after the classic frame is complete and kept for the
+  dissolve. `GTA2DX9_GHOST_FRAME=0` turns it off. `GTA2DX9_GHOST_VERIFY=1` logs how many pixels of
+  the presented classic frame differ after it (0 in `vsw_shtrace1`, `vsw_a3c_3`).
+
+**Before and after** (`CPUS=3`, GPU, 30 fps recording; frames of 100 ms or more from the V on):
+
+| run | keys | first-V frames ≥100 ms | level-start stall* |
+|---|---|---|---|
+| `vsw_b3c_1` HEAD | keys_bevpurity.sh | 486, 717, 1106, 161, 196, 525, 193, 183 ... | 3.95 s |
+| `vsw_a3c_5` fix | keys_bevpurity.sh | 110, 467, 367, 105, 130 | 4.42 s |
+| `vsw_pt_b` HEAD | keys_pt_pass.sh (V 2.5 s into the level) | 449, 132, 455, 137, 103 | 3.64 s |
+| `vsw_pt_a` fix | keys_pt_pass.sh | 274, 225 | 4.56 s |
+| `vsw_glcb2` HEAD, driver shader cache warm | keys_bevpurity.sh | 371 | 3.73 s |
+| `vsw_glcw_a` fix, driver shader cache warm | keys_bevpurity.sh | none (frames 65-100 ms are frame-cap `wait`) | 3.94 s |
+
+\* The hitch lines' frame times of 50 ms or more in the first 60 frames after the world upload
+(`d3d: hd tiles:`), summed. Most of it is the game's own level load (3.1-3.5 s in one frame).
+
+At `CPUS=1.5` (`vsw_before1`, HEAD) the same V cost 4392 + 1002 + 2345 ms.
+
+The 30 fps recording across the V in `keys_pt_pass.sh` holds one picture for 1067 ms with HEAD
+and 667 ms with the fix (longest run of identical frames starting during the camera move; part of
+the 667 ms may be the dissolve's slowest first frames).
+
+**Classic view.** The ghost frame draws only into its own targets, and the sprite replay writes
+no colour, depth or stencil. With `GTA2DX9_GHOST_VERIFY=1` the frame that runs it compares its
+back buffer with its own pre-ghost copy: 0 pixels differ. HEAD vs the fix, 40 classic frames
+each at the same spot (`keys_bevpurity.sh BP_NOV=1 BP_CLASSIC=8`, `tools/classic_ab.py`):
+96.1 % of pixels static in both, 0 differ.
+
+**Still open.**
+
+- With a cold driver shader cache (every scripted run, and a fresh install) about 29 GL programs
+  are still built in the first three street frames: 12 byte-identical "sprite under fog" programs
+  and 7 "tinted figure under fog" ones. Their keys depend on what is on screen, so a fixed grid
+  of states matched only 9 of them (tried and removed). Two to four frames of 200-470 ms remain
+  at `CPUS=3`. The play page keeps the driver's cache on the host (`linux/docker/play.sh`), so
+  there only the first session after an install pays this. Replaying more of the sprite pass,
+  or reusing one cached program for state keys that generate the same GLSL, would close it.
+- The ghost frame costs the level start 0.2-0.9 s of driver time (within the 1 s allowed).
+- The burst captures (`keys_bevpurity.sh`'s ffv1 recording) make the settled street view itself
+  run at 100-200 ms a frame on a 3-CPU container. That is the host, not the switch.

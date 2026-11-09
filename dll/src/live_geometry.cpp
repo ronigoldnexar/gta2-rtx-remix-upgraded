@@ -298,6 +298,7 @@ int g_carLamps = 1;         // [renderer] car_lamps: 0 none, 1 when dark + brake
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
 gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
 bool g_uprightPeds = false;
+bool g_ghostSpritesWanted = false;   // FIX-PERF-VSWITCH: see the second issue(plain) in Draw
 }
 void SetHiddenObjects(const void* first, const void* second) {
     g_hiddenObjects[0] = first;
@@ -421,6 +422,7 @@ bool LiveWorldToScreen(float x, float y, float z, float* sx, float* sy) {
     return true;
 }
 void SetUprightPeds(bool on) { g_uprightPeds = on; }
+void LiveGeometryGhostSprites() { g_ghostSpritesWanted = true; }
 void SetPlayerWeapon(int weapon, int ammo) { g_playerWeapon = weapon; g_playerAmmo = ammo; }
 int PlayerWeapon() { return g_playerWeapon; }
 void SetCarLamps(int mode) { g_carLamps = mode; }
@@ -11472,6 +11474,40 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     }
 
     issue(plain);
+    // FIX-PERF-VSWITCH: once a level (asked for by WorldView::GhostStreetFrame), this classic
+    // frame's sprites issued a second time under the street views' fog, with colour, depth and
+    // stencil writes off, so the driver has the GL programs the street views' sprite pass needs
+    // before the first V (out/vsw_shtrace1: most of the programs still built after it were these).
+    // Nothing reaches the picture; every state is captured before and put back after.
+    if (g_ghostSpritesWanted && CurrentViewMode() == ViewMode::Classic && !plain.empty()) {
+        g_ghostSpritesWanted = false;
+        IDirect3DStateBlock9* saved = nullptr;
+        if (SUCCEEDED(device->CreateStateBlock(D3DSBT_ALL, &saved)) && saved) {
+            saved->Capture();
+            const int drawnBefore = drops_.drawn;
+            device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+            device->SetRenderState(D3DRS_ZENABLE, FALSE);
+            device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+            device->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+            const gta2::SkySettings& sky = gta2::SkyConfig();
+            const auto bits = [](float v) { DWORD d; memcpy(&d, &v, sizeof d); return d; };
+            device->SetRenderState(D3DRS_FOGENABLE, TRUE);
+            device->SetRenderState(D3DRS_FOGCOLOR, D3DCOLOR_XRGB(180, 196, 218));
+            device->SetRenderState(D3DRS_FOGVERTEXMODE, D3DFOG_NONE);
+            device->SetRenderState(D3DRS_FOGTABLEMODE, D3DFOG_LINEAR);
+            device->SetRenderState(D3DRS_FOGSTART, bits(sky.fogStart));
+            device->SetRenderState(D3DRS_FOGEND, bits(sky.fogEnd));
+            device->SetRenderState(D3DRS_RANGEFOGENABLE, FALSE);
+            device->SetRenderState(D3DRS_LIGHTING, FALSE);
+            bound = nullptr;
+            issue(plain);
+            bound = nullptr;
+            drops_.drawn = drawnBefore;
+            saved->Apply();
+            saved->Release();
+            Log("live: this frame's %zu sprites issued unseen under the street fog, for the first V", plain.size());
+        }
+    }
     stageTimer.Mark();   // 3: the game's own quads issued
     if (g_groundModels) {
         DrawCarModels(device);
@@ -11495,11 +11531,18 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     // ahead of their first appearance (see ModelsWarmTextures).
     if (ModelsAvailable()) {
         static int left = 1;
+        static bool heroFirst = false;   // FIX-PERF-VSWITCH: the player's avatar before the rest
+        if (!heroFirst) { heroFirst = true; ModelsWarmFirst(ModelForPedestrian()); }
         if (left > 0) {
             // The classic view has most of its frame to spare: the warm-up goes four
             // times faster there (all of it in ~4 s of a level instead of ~18).
             const bool classic = CurrentViewMode() == ViewMode::Classic;
-            left = classic ? ModelsWarmTextures(device, 16, 8.0) : ModelsWarmTextures(device, 2, 2.0);
+            // FIX-PERF-VSWITCH: none in a street view's first four seconds (the first frames of the
+            // switch build what the classic view never needed; a warm-up step there only adds to them).
+            static int streetFrames = 0;
+            streetFrames = classic ? 0 : streetFrames + 1;
+            if (classic) left = ModelsWarmTextures(device, 16, 8.0);
+            else if (streetFrames > 120) left = ModelsWarmTextures(device, 2, 2.0);
             if (left == 0) Log("models: every texture created and uploaded ahead of use");
         }
     }

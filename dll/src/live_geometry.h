@@ -143,6 +143,8 @@ struct CameraCar { float x[4], z[4], y0, y1; uintptr_t object; };
 const std::vector<CameraCar>& LiveCameraCars();
 // Pedestrians on their feet are stood up as billboards facing the camera, for
 // a camera that is not above them. Off draws them flat on the road as always.
+// FIX-PERF-VSWITCH: the next classic frame's sprites also issued unseen under the street fog (once).
+void LiveGeometryGhostSprites();
 void SetUprightPeds(bool on);
 // Lamps on the 3D car bodies: 0 none, 1 when dark (plus brake lamps), 2 always.
 void SetCarLamps(int mode);

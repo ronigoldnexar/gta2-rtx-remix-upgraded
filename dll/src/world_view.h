@@ -276,6 +276,10 @@ private:
     int viewLostFrames_ = 0;       // frames a ground view has gone without the player
     void ApplyTransition(float dt, ViewMode mode);
     void DrawSkyAndShading();
+    // FIX-PERF-VSWITCH: one street frame drawn where nothing shows, in the classic view.
+    void GhostStreetFrame();
+    int ghostAt_ = -1;   // the frame it ran (-1 not yet; again with each level)
+    int ghostWait_ = 0;  // classic frames of this level so far
     double viewTime_ = 0.0;
     float classicPitch_ = -1.5708f;
     float classicFov_ = 0.6981f;

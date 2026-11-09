@@ -1512,6 +1512,8 @@ bool WorldView::EnsureWorldLoaded() {
     }
     loadedMapObject_ = mapObject;
     worldUploaded_ = true;
+    ghostAt_ = -1;   // FIX-PERF-VSWITCH: this level's street frame, drawn unseen (GhostStreetFrame)
+    ghostWait_ = 0;
     return true;
 }
 
@@ -2693,6 +2695,75 @@ void WorldView::DrawSkyAndShading() {
     renderer_.DrawSky(camera_, sky, colours, blend, seconds);
 }
 
+// FIX-PERF-VSWITCH: the first V of a session froze the game for 0.5-9 s (defect
+// first-v-press-freezes-game-up-to-9s-world-upload). Most of it was not the uploads: wined3d makes a
+// GL program for each new fixed-function state and for each shader the first time a draw uses it,
+// and the street views' first frames use dozens the classic view never does (the sky, the lit and
+// fogged world, water, the post passes and shadows, lit figures, tinted paint): with the driver's
+// shader cache warm the same switch cost 371 ms instead of 0.8-2.3 s (out/vsw_glcb1 vs vsw_glcb2).
+// So, once, on the second frame of a level (inside the level's own loading stall: drawn 3 s into play
+// it was a 0.8 s classic hitch, out/vsw_a3c_2), the classic view draws one street frame - sky, shading,
+// world with its street fill, post passes, a prop, the avatar, a car and the sprite pass's states -
+// into targets of its own
+// that are never shown, every device state captured before and put back after. The classic
+// frame itself is already complete (and kept for the dissolve) when this runs; what is presented
+// is unchanged. GTA2DX9_GHOST_FRAME=0 turns it off for a before/after run.
+void WorldView::GhostStreetFrame() {
+    LARGE_INTEGER a, b, f;
+    QueryPerformanceCounter(&a);
+    const gta2::SkySettings& sky = gta2::SkyConfig();
+    const bool street = sky.enabled && !RemixApiHasAtmosphere();
+    gta2::Camera cam = camera_;
+    const gta2::Vec3 over = camera_.Position();
+    cam.SetPosition(gta2::Vec3{over.x, 3.0f, over.z - 4.0f});
+    cam.SetOrientation(0.0f, -0.30f);
+    cam.SetFovY(1.1f);
+    cam.SetRoll(0.0f);
+    if (!renderer_.BeginGhostFrame()) return;
+    if (street) {
+        float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
+        if (sky.followClock) TimeOfDayAngles(&elevation, &azimuth);
+        const gta2::SkyColours colours = gta2::ComputeSkyColours(elevation, azimuth);
+        gta2::WorldShading shading;
+        shading.fog = true;
+        shading.fogColour = colours.fog;
+        shading.fogStart = sky.fogStart;
+        shading.fogEnd = sky.fogEnd;
+        shading.sun = sky.sunLight > 0.001f || sky.ambient < 0.999f;
+        shading.sunDir = colours.sunDir;
+        const float ambient = sky.ambient * (0.35f + 0.65f * colours.day);
+        shading.ambient = gta2::Vec3{ambient * colours.ambient.x, ambient * colours.ambient.y, ambient * colours.ambient.z};
+        shading.sunColour = colours.sunColour * (sky.sunLight * colours.day);
+        renderer_.SetWorldShading(shading);
+        LARGE_INTEGER counter, frequency;
+        QueryPerformanceCounter(&counter);
+        QueryPerformanceFrequency(&frequency);
+        renderer_.DrawSky(cam, sky, colours, 1.0f, static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart));
+    }
+    renderer_.SetStreetView(true);
+    renderer_.DrawWorld(cam);
+    if (IDirect3DDevice9* device = renderer_.Device()) {
+        const gta2::Mat4 view = cam.ViewMatrix();
+        const gta2::Mat4 proj = cam.ProjectionMatrix(static_cast<float>(renderer_.Width()) / static_cast<float>((std::max)(1, renderer_.Height())));
+        D3DMATRIX m;
+        memcpy(&m, view.m, sizeof m);
+        device->SetTransform(D3DTS_VIEW, &m);
+        memcpy(&m, proj.m, sizeof m);
+        device->SetTransform(D3DTS_PROJECTION, &m);
+        gta2::Mat4 at = {};
+        at.m[0][0] = at.m[1][1] = at.m[2][2] = 0.5f;
+        at.m[3][0] = over.x; at.m[3][1] = 2.0f; at.m[3][2] = over.z; at.m[3][3] = 1.0f;
+        ModelsGhostDraws(device, at);
+    }
+    if (street) renderer_.EndWorldShading();
+    renderer_.EndGhostFrame();
+    LiveGeometryGhostSprites();   // and the sprite pass, in the next classic frame's own draw
+    QueryPerformanceCounter(&b);
+    QueryPerformanceFrequency(&f);
+    Log("view: street frame drawn unseen in the classic view (frame %d, %.1f ms queued), for the first V",
+        frameCount_, 1000.0 * static_cast<double>(b.QuadPart - a.QuadPart) / static_cast<double>(f.QuadPart));
+}
+
 void WorldView::RenderFrame() {
     LARGE_INTEGER entryStamp;
     QueryPerformanceCounter(&entryStamp);
@@ -2906,6 +2977,25 @@ void WorldView::RenderFrame() {
             keptClassicAt_ = frameCount_;
         } else if (renderer_.HasKeptFrame() && !dissolveActive_) {
             renderer_.DropKeptFrame();
+        }
+        // FIX-PERF-VSWITCH: the street views' GL programs, built while the classic view is up
+        // (GhostStreetFrame). Once a level, on its second frame.
+        if (ghostAt_ < 0 && worldUploaded_ && CurrentViewMode() == ViewMode::Classic && !g_viewActive && skyBlend_ <= 0.0f &&
+            transitionT_ >= 1.0f && !renderer_.IsRemixDevice()) {
+            static int ghostOff = -1;
+            if (ghostOff < 0) { char buf[8] = {}; ghostOff = GetEnvironmentVariableA("GTA2DX9_GHOST_FRAME", buf, sizeof buf) && buf[0] == '0' ? 1 : 0; }
+            if (ghostOff) ghostAt_ = frameCount_;
+            else if (++ghostWait_ >= 2) {   // inside the level's own loading stall, not in play
+                GhostStreetFrame();
+                ghostAt_ = frameCount_;
+                // GTA2DX9_GHOST_VERIFY=1: this frame's back buffer against its own copy taken just before
+                // the street frame (KeepFrame above): the classic picture must be untouched.
+                char buf[8] = {};
+                if (GetEnvironmentVariableA("GTA2DX9_GHOST_VERIFY", buf, sizeof buf) && buf[0] == '1')
+                    Log("view: street frame unseen: %ld pixels of the classic frame differ after it (kept copy %s)",
+                        renderer_.HasKeptFrame() && keptClassicAt_ == frameCount_ ? renderer_.KeptFrameDifference() : -1L,
+                        renderer_.HasKeptFrame() && keptClassicAt_ == frameCount_ ? "this frame" : "missing");
+            }
         }
         renderer_.EndFrame();
         QueryPerformanceCounter(&stamp[6]);

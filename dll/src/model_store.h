@@ -295,6 +295,11 @@ const double* ModelDrawStats();
 // been used yet (no visible draw), so a model's first appearance costs nothing
 // extra. Returns how many are still to do; call every frame until it is 0.
 int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double budgetMs = 2.0);
+// Puts a model's textures and buffers at the front of that warm-up (the player's avatar).
+void ModelsWarmFirst(const Model* model);
+// Draws a prop, the avatar and a car once under the caller's states, into targets nothing shows,
+// so the driver has their GL programs before the first street view (FIX-PERF-VSWITCH).
+void ModelsGhostDraws(IDirect3DDevice9* device, const gta2::Mat4& at);
 // Binds a texture in a draw that writes no pixels, for the driver to upload it.
 void WarmTexture(IDirect3DDevice9* device, IDirect3DTexture9* texture);
 void ModelsBeginFrame();

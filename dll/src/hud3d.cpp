@@ -1617,6 +1617,60 @@ void DrawBeat(ImDrawList* dl, float W, float H) {
     if (b.black > 0.0f) dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Fade(IM_COL32(0, 0, 0, 255), b.black));
 }
 
+// FIX-PERF-VSWITCH: what the modern HUD builds on its first street frame (the game's texts, the
+// ImGui context and its fonts, the mini-map, the font texture and the GL program its draws need)
+// made in the classic view instead, a piece a frame from two seconds into a level: 180-590 ms of
+// the first V's frame (out/vsw_before1 "ui 586", out/vsw_glcb2 "ui 181"). Nothing is drawn: the
+// one ImGui frame below is rendered with colour writes off, under the backend's own state block.
+int g_prewarmStep = 0;
+int g_prewarmFrames = 0;
+void Prewarm(IDirect3DDevice9* device, int width, int height, const gta2::Map& map, bool worldLoaded) {
+    if (g_prewarmStep > 4 || !device || width <= 0 || height <= 0 || !worldLoaded) return;
+    if (!g_cfg.modern && !g_cfg.markers) { g_prewarmStep = 5; return; }
+    if (++g_prewarmFrames < 60 || (g_prewarmFrames & 1)) return;   // every other frame from ~2 s in
+    LARGE_INTEGER a, b, f;
+    QueryPerformanceCounter(&a);
+    const int step = g_prewarmStep++;
+    if (step == 0) {
+        LoadGxt();
+    } else if (step == 1) {
+        if (!EnsureContext(device, height)) { g_prewarmStep = 5; return; }
+    } else if (step == 2) {
+        if (g_cfg.minimap && g_cfg.modern) BuildMap(device, map);
+    } else if (step == 3 || step == 4) {
+        // The font texture (step 3), then one invisible frame through the backend (step 4).
+        ImGuiContext* previous = ImGui::GetCurrentContext();
+        ImGui::SetCurrentContext(g_ctx);
+        if (g_fontHeight != height) BuildFonts(height);
+        ImGuiIO& io = ImGui::GetIO();
+        io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
+        io.DeltaTime = 1.0f / 30.0f;
+        ImGui_ImplDX9_NewFrame();
+        ImGui::NewFrame();
+        if (step == 4) {
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            dl->AddRectFilled(ImVec2(0, 0), ImVec2(4, 4), IM_COL32(0, 0, 0, 255));
+            if (g_fonts.text) dl->AddText(g_fonts.text, g_fonts.textPx, ImVec2(0, 0), IM_COL32(255, 255, 255, 255), "0");
+            if (g_mapTex) dl->AddImage(reinterpret_cast<ImTextureID>(g_mapTex), ImVec2(0, 0), ImVec2(4, 4));
+        }
+        ImGui::EndFrame();
+        ImGui::Render();
+        if (step == 4) {
+            DWORD colorWrite = 0xF;
+            device->GetRenderState(D3DRS_COLORWRITEENABLE, &colorWrite);
+            device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+            ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+            device->SetRenderState(D3DRS_COLORWRITEENABLE, colorWrite);
+        }
+        ImGui::SetCurrentContext(previous);
+    }
+    QueryPerformanceCounter(&b);
+    QueryPerformanceFrequency(&f);
+    Log("hud3d: made ahead in the classic view: step %d (%s) %.1f ms", step,
+        step == 0 ? "texts" : step == 1 ? "context and fonts" : step == 2 ? "mini-map" : step == 3 ? "font texture" : "first draw",
+        1000.0 * static_cast<double>(b.QuadPart - a.QuadPart) / static_cast<double>(f.QuadPart));
+}
+
 }  // namespace
 
 bool Hud3dActive() { return g_active; }
@@ -1688,6 +1742,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         Log("hud3d: toggle key: %s HUD", g_cfg.modern ? "modern" : "classic");
     }
     const bool street = worldLoaded && ViewCameraActive() && CurrentViewMode() != ViewMode::Classic;
+    if (!street) Prewarm(device, width, height, map, worldLoaded);
     Values v = street && (g_cfg.modern || g_cfg.markers) ? ReadValues() : Values{};
     g_street = street;
     // The pause and stats screen (part 16) is the game's alone: the modern HUD steps aside.

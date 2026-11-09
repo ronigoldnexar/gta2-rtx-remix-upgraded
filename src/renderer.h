@@ -136,6 +136,13 @@ public:
     int TileTextureCount() const { return static_cast<int>(textures_.size()); }
     // Uploads up to perFrame not-yet-drawn tile textures (no visible draw); returns how many remain.
     int WarmTileTextures(int perFrame);
+    // FIX-PERF-VSWITCH: a street frame drawn where nothing shows, so the driver builds the GL
+    // programs the street views need (wined3d makes one per fixed-function state and one per
+    // shader, on first use: most of the first V's freeze) while the classic view is up.
+    // BeginGhostFrame points the device at targets of its own with every state captured;
+    // EndGhostFrame puts back the targets, the states, the street flag and the shading.
+    bool BeginGhostFrame();
+    void EndGhostFrame();
 
     bool HasWorld() const { return vertexBuffer_ != nullptr; }
     // How many tiles of the current world came from the high-resolution folder.
@@ -209,6 +216,13 @@ public:
     bool IsRemixDevice() const { return remixDevice_; }
 
 private:
+    IDirect3DSurface9* ghostRt_ = nullptr;
+    IDirect3DSurface9* ghostDepth_ = nullptr;
+    IDirect3DSurface9* ghostSavedRt_ = nullptr;
+    IDirect3DSurface9* ghostSavedDepth_ = nullptr;
+    IDirect3DStateBlock9* ghostState_ = nullptr;
+    WorldShading ghostShading_;
+    bool ghostStreet_ = false;
     void ApplyFixedFunctionState();
     void ReleaseResources();
 

@@ -124,6 +124,10 @@ std::map<std::string, std::vector<uint8_t>> g_prefetched;
 size_t g_prefetchedBytes = 0;
 std::vector<std::string> g_prefetchList;   // read in this order; fixed once the thread starts
 volatile LONG g_prefetchStarted = 0;
+volatile LONG g_prefetchSoften = 0;           // FIX-PERF-VSWITCH: the reader softens car paint masks
+std::set<std::string> g_prefetchSoftened;     // files the reader softened (under g_prefetchLock)
+bool CarTextureName(const std::string& file);
+void SoftenPaintMask(uint8_t* px, int w, int h);
 
 DWORD WINAPI PrefetchThread(void*) {
     for (const std::string& file : g_prefetchList) {
@@ -136,16 +140,29 @@ DWORD WINAPI PrefetchThread(void*) {
         }
         std::vector<uint8_t> data;
         if (!ReadAll(g_folder + "\\" + file, &data)) continue;
+        // FIX-PERF-VSWITCH: a car's soft paint mask is worked out here rather than on the render
+        // thread (SoftenPaintMask is tens of ms a picture), once the render thread has said it
+        // applies (g_prefetchSoften: the setting, the device's stages, no Remix).
+        bool softened = false;
+        if (g_prefetchSoften && data.size() > 18 && data[2] == 2 && data[16] == 32 && file.size() > 10 &&
+            file.compare(file.size() - 10, 10, "_paint.tga") == 0 && CarTextureName(file)) {
+            const int w = data[12] | (data[13] << 8), h = data[14] | (data[15] << 8);
+            if (w > 0 && h > 0 && data.size() >= 18u + static_cast<size_t>(w) * h * 4) {
+                SoftenPaintMask(&data[18], w, h);
+                softened = true;
+            }
+        }
         EnterCriticalSection(&g_prefetchLock);
         g_prefetchedBytes += data.size();
         g_prefetched[file] = std::move(data);
+        if (softened) g_prefetchSoftened.insert(file);
         LeaveCriticalSection(&g_prefetchLock);
     }
     return 0;
 }
 
 // The prefetched file, moved out; false when the reader has not got to it (or never will).
-bool TakePrefetched(const std::string& file, std::vector<uint8_t>* out) {
+bool TakePrefetched(const std::string& file, std::vector<uint8_t>* out, bool* softened = nullptr) {
     if (!g_prefetchStarted) return false;
     EnterCriticalSection(&g_prefetchLock);
     auto it = g_prefetched.find(file);
@@ -154,6 +171,7 @@ bool TakePrefetched(const std::string& file, std::vector<uint8_t>* out) {
         g_prefetchedBytes -= it->second.size();
         out->swap(it->second);
         g_prefetched.erase(it);
+        if (softened) *softened = g_prefetchSoftened.erase(file) != 0;
     }
     LeaveCriticalSection(&g_prefetchLock);
     return found;
@@ -811,18 +829,37 @@ void SoftenPaintMask(uint8_t* px, int w, int h) {
     for (size_t i = 0; i < n; ++i) px[i * 4 + 3] = static_cast<uint8_t>((std::min)(255.0f, m[i] * 255.0f + 0.5f));
 }
 
+double g_texNewMs = 0.0;
+int g_texNew = 0;
+bool g_modelGhost = false;   // FIX-PERF-VSWITCH: ModelsGhostDraws is drawing (no logs, no stats)
+IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::string& file);
 IDirect3DTexture9* BaseTextureFor(IDirect3DDevice9* device, const std::string& file) {
     if (file.empty()) return nullptr;
     auto it = g_textures.find(file);
     if (it != g_textures.end()) return it->second;
+    LARGE_INTEGER a, b;
+    QueryPerformanceCounter(&a);
+    IDirect3DTexture9* t = BaseTextureForImpl(device, file);
+    QueryPerformanceCounter(&b);
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    g_texNewMs += 1000.0 * static_cast<double>(b.QuadPart - a.QuadPart) / static_cast<double>(f.QuadPart);
+    ++g_texNew;
+    return t;
+}
+IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::string& file) {
     IDirect3DTexture9* texture = nullptr;
     std::vector<uint8_t> tga;
-    if ((TakePrefetched(file, &tga) || ReadAll(g_folder + "\\" + file, &tga)) && tga.size() > 18 && tga[2] == 2 && tga[16] == 32) {
+    bool softened = false;
+    if (!TakePrefetched(file, &tga, &softened)) { tga.clear(); softened = false; }
+    const bool softWanted = g_softPaintSetting && !RemixApiAvailable() && file.size() > 10 &&
+                            file.compare(file.size() - 10, 10, "_paint.tga") == 0 && CarTextureName(file) && SoftPaintCaps(device);
+    if (softened && !softWanted) { tga.clear(); softened = false; }   // the reader's guess no longer holds: the file as it is
+    if ((!tga.empty() || ReadAll(g_folder + "\\" + file, &tga)) && tga.size() > 18 && tga[2] == 2 && tga[16] == 32) {
         const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
         const bool topDown = (tga[17] & 0x20) != 0;
-        if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 && g_softPaintSetting && !RemixApiAvailable() &&
-            file.size() > 10 && file.compare(file.size() - 10, 10, "_paint.tga") == 0 && CarTextureName(file) && SoftPaintCaps(device)) {
-            SoftenPaintMask(&tga[18], w, h);
+        if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 && softWanted) {
+            if (!softened) SoftenPaintMask(&tga[18], w, h);
             g_softPaintTex.insert(file);
         }
         if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 &&
@@ -1974,7 +2011,7 @@ IDirect3DVertexBuffer9* SkinBufferFor(IDirect3DDevice9* device, const ModelMesh&
     }
     IDirect3DVertexBuffer9* vb = nullptr;
     const UINT vbytes = static_cast<UINT>(mesh.vertices.size() * sizeof(ModelVertex));
-    auto spare = g_skinFree.find(vbytes);
+    auto spare = g_skinFree.lower_bound(vbytes);   // the same size, or a larger one (the spares made ahead are the largest)
     if (spare != g_skinFree.end()) {
         vb = spare->second;
         g_skinFree.erase(spare);
@@ -2180,6 +2217,8 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
     if (!second || weight <= 1e-3f) { second = nullptr; secondTime = 0.0f; weight = 0.0f; }
     LARGE_INTEGER t0, t1, t2;
     QueryPerformanceCounter(&t0);
+    const double probeTex0 = g_texNewMs, probeFill0 = g_modelStats[1];
+    const int probeTexN0 = g_texNew;
     std::vector<gta2::Mat4> worlds;
     NodeWorldsBlend(model, animation, time, second, secondTime, weight, &worlds);
     // The posed meshes, from the cache when this pose was skinned before.
@@ -2206,6 +2245,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         posed = &PoseFor(model, key, worlds);
     }
     QueryPerformanceCounter(&t1);
+    const LARGE_INTEGER tPosed = t1;
     g_modelStats[0] += ModelMs(t0, t1);
     g_modelStats[3] += 1.0;
     if (model.skinned) g_modelStats[4] += 1.0;
@@ -2221,7 +2261,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         // Once per model: the placement it is first drawn with, so a model that
         // comes out the wrong size or way up can be traced to its matrix.
         static std::set<const Model*> logged;
-        if (logged.size() < 96 && logged.insert(&model).second) {
+        if (!g_modelGhost && logged.size() < 96 && logged.insert(&model).second) {
             const gta2::Mat4& w = placement;
             Log("model draw: %s rows (%.3f %.3f %.3f) (%.3f %.3f %.3f) (%.3f %.3f %.3f) at %.2f,%.2f,%.2f nodes %zu bounds %.2f..%.2f y",
                 model.name.c_str(), w.m[0][0], w.m[0][1], w.m[0][2], w.m[1][0], w.m[1][1], w.m[1][2], w.m[2][0], w.m[2][1], w.m[2][2],
@@ -2416,6 +2456,16 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
     QueryPerformanceCounter(&t2);
     g_modelStats[2] += ModelMs(t0, t2);
     ++g_drawn;
+    {
+        // FIX-PERF-VSWITCH: what a model's first draw cost (its textures, buffers and any wait on the
+        // driver's queue), once per model, for the first-switch hitch.
+        static std::set<const Model*> timed;
+        if (!g_modelGhost && timed.size() < 160 && timed.insert(&model).second) {
+            const double ms = ModelMs(t0, t2);
+            if (ms > 4.0) Log("model first draw: %s %.1f ms (pose %.1f, buffers %.1f, %d new textures %.1f ms)", model.name.c_str(), ms,
+                              ModelMs(t0, tPosed), g_modelStats[1] - probeFill0, g_texNew - probeTexN0, g_texNewMs - probeTex0);
+        }
+    }
 }
 
 // A model's vertex and index buffers, created, filled and drawn once with
@@ -2456,17 +2506,65 @@ void WarmModelBuffers(IDirect3DDevice9* device, const Model& model) {
     device->SetRenderState(D3DRS_ZENABLE, zEnable);
 }
 
-size_t g_warmModelCursor = 0;
+size_t g_warmModelCursor = 0;   // unused since FIX-PERF-VSWITCH (kept for ModelsReleaseDevice)
+
+// FIX-PERF-VSWITCH: the warm-up as an ordered list of steps, a model at a time (its textures,
+// then its buffers), in the order the street views need them: the street furniture and map
+// objects first (all of them are in the first street frame), then the people (the crowd round
+// the player is), then the cars (the traffic arrives over seconds). Before, every texture of
+// every model came first in manifest order (the 70 cars before the people), then every
+// model's buffers: 30-40 s of a level, so the first V usually found the people cold.
+struct WarmStep {
+    uint32_t model;      // index into g_models
+    int8_t kind;         // 0 texture (file), 1 the model's buffers, 2 spare skin buffers
+    std::string file;
+};
+std::vector<WarmStep> g_warmSteps;
+size_t g_warmStep = 0;
+std::vector<uint32_t> g_warmBumped;      // models asked for first (ModelsWarmFirst), not yet queued
+IDirect3DQuery9* g_warmQuery = nullptr;  // the last batch's end, so the next waits for the driver
+bool g_warmQueryPending = false;
+LARGE_INTEGER g_warmStart = {};
+int g_warmDoneTextures = 0;
+size_t g_warmDoneBytes = 0;
+UINT g_skinSpareBytes = 0;               // the largest skinned mesh's vertex bytes (spare skin buffers)
+int g_skinSpares = 0;
+
+int WarmGroup(const Model& m) {
+    const std::string& n = m.name;
+    if (!n.empty() && n[0] >= '0' && n[0] <= '9') return 2;   // 0NN_* cars
+    if (n.compare(0, 5, "human") == 0 || n.compare(0, 9, "character") == 0 || m.skinned) return 1;
+    return 0;
+}
+
+void AppendModelSteps(uint32_t index, std::vector<char>* queued) {
+    if (index >= g_models.size() || (*queued)[index]) return;
+    (*queued)[index] = 1;
+    const Model& m = g_models[index];
+    for (const ModelMesh& mesh : m.meshes)
+        if (!mesh.texture.empty()) g_warmSteps.push_back({index, 0, mesh.texture});
+    g_warmSteps.push_back({index, 1, std::string()});
+}
 
 void BuildWarmList() {
-    if (!g_warmList.empty()) return;
-    for (const Model& m : g_models) {
-        for (const ModelMesh& mesh : m.meshes) {
-            if (!mesh.texture.empty() && std::find(g_warmList.begin(), g_warmList.end(), mesh.texture) == g_warmList.end()) {
-                g_warmList.push_back(mesh.texture);
+    if (!g_warmSteps.empty() || g_models.empty()) return;
+    std::vector<char> queued(g_models.size(), 0);
+    for (int group = 0; group < 3; ++group) {
+        for (uint32_t i = 0; i < g_models.size(); ++i) {
+            if (WarmGroup(g_models[i]) != group) continue;
+            AppendModelSteps(i, &queued);
+            if (group == 1 && g_models[i].skinned) {
+                for (const ModelMesh& mesh : g_models[i].meshes)
+                    if (mesh.skin >= 0) g_skinSpareBytes = (std::max)(g_skinSpareBytes, static_cast<UINT>(mesh.vertices.size() * sizeof(ModelVertex)));
             }
         }
+        // The spare skin buffers once the people's own resources are up (before the cars).
+        if (group == 1 && g_skinSpareBytes) g_warmSteps.push_back({0, 2, std::string()});
     }
+    // The texture files in the same order for the reader thread, each once.
+    std::set<std::string> seen;
+    for (const WarmStep& st : g_warmSteps)
+        if (st.kind == 0 && seen.insert(st.file).second) g_warmList.push_back(st.file);
 }
 
 void StartTexturePrefetch() {
@@ -2484,34 +2582,166 @@ void StartTexturePrefetch() {
     }
 }
 
-// Every model texture created and uploaded, then every model's buffers, ahead of
-// their first use. Bounded by time rather than by count (PERF-2: two textures a frame
-// cost 5 ms typically and up to 98 ms in one frame): items are taken while the frame's
-// warm-up has used less than budgetMs, at most `perFrame` textures, and a texture
-// whose file the reader thread has not delivered yet waits for a later frame.
+void ModelsWarmFirst(const Model* model) {
+    if (!model || !g_loaded) return;
+    for (uint32_t i = 0; i < g_models.size(); ++i)
+        if (&g_models[i] == model) { g_warmBumped.push_back(i); return; }
+}
+
+// Spare skin buffers, made and written once ahead of the first street frame: the first lock of a
+// new dynamic buffer waits for everything the driver has queued (285 ms for the first person drawn
+// at the first V, out/vsw_probe3), so the crowd's first poses take these instead (SkinBufferFor).
+constexpr int kSkinSpares = 40;
+void MakeSkinSpares(IDirect3DDevice9* device, int count) {
+    if (!g_skinSpareBytes) return;
+    std::vector<uint8_t> zero(g_skinSpareBytes, 0);
+    for (int k = 0; k < count && g_skinSpares < kSkinSpares; ++k) {
+        IDirect3DVertexBuffer9* vb = nullptr;
+        if (FAILED(device->CreateVertexBuffer(g_skinSpareBytes, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &vb, nullptr)) || !vb) {
+            g_skinSpares = kSkinSpares;
+            return;
+        }
+        void* data = nullptr;
+        if (SUCCEEDED(vb->Lock(0, g_skinSpareBytes, &data, D3DLOCK_DISCARD)) && data) {
+            memcpy(data, zero.data(), g_skinSpareBytes);
+            vb->Unlock();
+        }
+        g_skinFree.emplace(g_skinSpareBytes, vb);
+        ++g_skinSpares;
+    }
+}
+
+// FIX-PERF-VSWITCH: a street prop, the player's avatar (zone tints) and a car (paint tint, soft
+// paint when on) drawn once with the caller's states (the ghost street frame's lighting and fog,
+// world_view.cpp), so the driver builds the GL programs those draws need before the first V.
+// The caller has pointed the device at targets nothing shows.
+void ModelsGhostDraws(IDirect3DDevice9* device, const gta2::Mat4& at) {
+    if (!device || !g_loaded || g_models.empty()) return;
+    g_modelGhost = true;
+    const double stats[6] = {g_modelStats[0], g_modelStats[1], g_modelStats[2], g_modelStats[3], g_modelStats[4], g_modelStats[5]};
+    const int drawn = g_drawn;
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    if (const Model* lamp = ModelForProp("lamp")) ModelDraw(device, *lamp, at, nullptr, 0.0f);
+    if (const Model* hero = ModelForPedestrian()) {
+        const float top[3] = {1.0f, 1.0f, 1.0f}, bottom[3] = {1.0f, 1.0f, 1.0f}, hair[3] = {1.0f, 1.0f, 1.0f};
+        ModelSetZoneTints(top, bottom, hair);
+        ModelDraw(device, *hero, at, hero->animations.empty() ? nullptr : &hero->animations.front(), 0.0f);
+        ModelSetZoneTints(nullptr, nullptr, nullptr);
+        ModelDraw(device, *hero, at, hero->animations.empty() ? nullptr : &hero->animations.front(), 0.0f);
+    }
+    for (const Model& m : g_models) {
+        if (WarmGroup(m) != 2) continue;
+        const float paint[3] = {1.0f, 1.0f, 1.0f};
+        ModelSetPaintTint(paint);
+        ModelDraw(device, m, at, nullptr, 0.0f);
+        ModelSetPaintTint(nullptr);
+        ModelDraw(device, m, at, nullptr, 0.0f);
+        break;
+    }
+    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    for (int i = 0; i < 6; ++i) g_modelStats[i] = stats[i];
+    g_drawn = drawn;
+    g_modelGhost = false;
+}
+
+// Every model texture created and uploaded, and every model's buffers, ahead of their first use,
+// a model at a time in the order above. Bounded by time rather than by count (PERF-2: two
+// textures a frame cost 5 ms typically and up to 98 ms in one frame): steps are taken while the
+// frame's warm-up has used less than budgetMs, at most `perFrame` textures and a byte budget,
+// and a texture whose file the reader thread has not delivered yet waits for a later frame.
+// FIX-PERF-VSWITCH: and never ahead of the driver. The budget counted only the time to queue the
+// work, not the driver's time to do it; the queue grew through the classic view and whatever
+// frame next waited on the driver paid for all of it (the first V). An event query after each
+// batch holds the next batch until the driver has finished the last.
 int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double kWarmBudgetMs) {
     if (!device || !g_loaded) return 0;
     BuildWarmList();
+    if (!g_prefetchSoften && g_softPaintSetting && !RemixApiAvailable() && SoftPaintCaps(device)) InterlockedExchange(&g_prefetchSoften, 1);
+    const int remaining = static_cast<int>(g_warmSteps.size() - (std::min)(g_warmStep, g_warmSteps.size())) +
+                          static_cast<int>(g_warmBumped.size());
+    if (remaining == 0) return 0;
+    if (!g_warmStart.QuadPart) QueryPerformanceCounter(&g_warmStart);
+    if (g_warmQueryPending && g_warmQuery) {
+        const HRESULT r = g_warmQuery->GetData(nullptr, 0, 0);
+        if (r == S_FALSE) return remaining;   // the driver is still on the last batch
+        g_warmQueryPending = false;
+    }
+    // A model asked for first: its steps go in front of the queue (each step is idempotent, so
+    // the ones met again later in the queue cost a map lookup).
+    if (!g_warmBumped.empty()) {
+        std::vector<WarmStep> front;
+        for (uint32_t i : g_warmBumped) {
+            const Model& m = g_models[i];
+            for (const ModelMesh& mesh : m.meshes)
+                if (!mesh.texture.empty() && !g_textures.count(mesh.texture)) front.push_back({i, 0, mesh.texture});
+            front.push_back({i, 1, std::string()});
+        }
+        g_warmBumped.clear();
+        g_warmSteps.insert(g_warmSteps.begin() + static_cast<std::ptrdiff_t>((std::min)(g_warmStep, g_warmSteps.size())), front.begin(), front.end());
+    }
+    const size_t byteBudget = perFrame >= 8 ? (12u << 20) : (3u << 20);
     LARGE_INTEGER t0, now;
     QueryPerformanceCounter(&t0);
     int done = 0;
-    while (g_warmCursor < g_warmList.size() && done < perFrame) {
-        const std::string& file = g_warmList[g_warmCursor];
-        if (!g_textures.count(file) && !PrefetchReady(file)) break;   // the reader's next; not this frame
-        WarmTexture(device, TextureFor(device, file));
-        ++g_warmCursor;
-        ++done;
+    size_t bytes = 0;
+    bool issued = false;
+    while (g_warmStep < g_warmSteps.size() && done < perFrame && bytes < byteBudget) {
+        const WarmStep& st = g_warmSteps[g_warmStep];
+        if (st.kind == 0) {
+            if (!g_textures.count(st.file)) {
+                if (!PrefetchReady(st.file)) break;   // the reader's next; not this frame
+                IDirect3DTexture9* tex = TextureFor(device, st.file);
+                WarmTexture(device, tex);
+                D3DSURFACE_DESC desc = {};
+                if (tex && SUCCEEDED(tex->GetLevelDesc(0, &desc))) bytes += static_cast<size_t>(desc.Width) * desc.Height * 4;
+                ++done;
+                ++g_warmDoneTextures;
+                issued = true;
+            }
+        } else if (st.kind == 1) {
+            const Model& m = g_models[st.model];
+            bool cold = false;
+            for (const ModelMesh& mesh : m.meshes)
+                if (mesh.indices.size() >= 3 && !g_buffers.count(&mesh)) { cold = true; break; }
+            if (cold) {
+                WarmModelBuffers(device, m);
+                for (const ModelMesh& mesh : m.meshes) bytes += mesh.vertices.size() * sizeof(ModelVertex) + mesh.indices.size() * 4;
+                issued = true;
+            }
+        } else {
+            if (g_skinSpares < kSkinSpares) {
+                MakeSkinSpares(device, 8);
+                bytes += static_cast<size_t>(g_skinSpareBytes) * 8;
+                issued = true;
+                if (g_skinSpares < kSkinSpares) { QueryPerformanceCounter(&now); if (ModelMs(t0, now) > kWarmBudgetMs) break; continue; }
+            }
+        }
+        ++g_warmStep;
         QueryPerformanceCounter(&now);
         if (ModelMs(t0, now) > kWarmBudgetMs) break;
     }
-    // Then the meshes, while the budget lasts (at least one a frame once the textures are done).
-    while (g_warmCursor >= g_warmList.size() && g_warmModelCursor < g_models.size()) {
-        WarmModelBuffers(device, g_models[g_warmModelCursor]);
-        ++g_warmModelCursor;
-        QueryPerformanceCounter(&now);
-        if (ModelMs(t0, now) > kWarmBudgetMs) break;
+    g_warmDoneBytes += bytes;
+    if (issued) {
+        if (!g_warmQuery && FAILED(device->CreateQuery(D3DQUERYTYPE_EVENT, &g_warmQuery))) g_warmQuery = nullptr;
+        if (g_warmQuery && SUCCEEDED(g_warmQuery->Issue(D3DISSUE_END))) g_warmQueryPending = true;
     }
-    return static_cast<int>(g_warmList.size() - g_warmCursor) + static_cast<int>(g_models.size() - g_warmModelCursor);
+    const int left = static_cast<int>(g_warmSteps.size() - (std::min)(g_warmStep, g_warmSteps.size()));
+    // Progress, a line per group finished and at the end: how far the warm-up was at the first V.
+    static int lastGroup = 0;
+    int group = 3;   // the lowest group with steps still to do
+    for (size_t k = g_warmStep; k < g_warmSteps.size() && group > lastGroup; ++k) group = (std::min)(group, WarmGroup(g_models[g_warmSteps[k].model]));
+    if (group > lastGroup) {
+        QueryPerformanceCounter(&now);
+        static const char* kNames[] = {"street furniture and objects", "people", "cars"};
+        for (int g = lastGroup; g < group && g < 3; ++g)
+            Log("models: warm-up: %s ready, %.1f s after it began (%d textures, %zu MB so far)", kNames[g], ModelMs(g_warmStart, now) / 1000.0,
+                g_warmDoneTextures, g_warmDoneBytes >> 20);
+        lastGroup = group;
+    }
+    return left;
 }
 
 bool ModelNodeWorld(const Model& model, const char* name, const ModelAnimation* animation, float time,
@@ -2588,6 +2818,10 @@ void ModelsReleaseDevice() {
     g_skinFree.clear();
     g_warmCursor = 0;
     g_warmModelCursor = 0;
+    g_warmStep = 0;
+    g_skinSpares = 0;
+    if (g_warmQuery) { g_warmQuery->Release(); g_warmQuery = nullptr; }
+    g_warmQueryPending = false;
     for (auto& b : g_buffers) {
         if (b.second.vb) b.second.vb->Release();
         if (b.second.ib) b.second.ib->Release();

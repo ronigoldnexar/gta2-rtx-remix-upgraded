@@ -1605,6 +1605,42 @@ void Renderer::DrawWorld(const Camera& camera) {
 // spikes of the first minute). This binds up to `perFrame` of them in a draw
 // that writes no pixels, so the uploads happen a few per frame in the first
 // seconds after a level loads instead. Returns what is still to do.
+bool Renderer::BeginGhostFrame() {
+    if (!device_ || !vertexBuffer_ || remixDevice_ || ghostState_) return false;
+    if (FAILED(device_->CreateRenderTarget(width_, height_, D3DFMT_A8R8G8B8, D3DMULTISAMPLE_NONE, 0, FALSE, &ghostRt_, nullptr)) ||
+        FAILED(device_->CreateDepthStencilSurface(width_, height_, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, TRUE, &ghostDepth_, nullptr)) ||
+        FAILED(device_->CreateStateBlock(D3DSBT_ALL, &ghostState_))) {
+        if (ghostRt_) { ghostRt_->Release(); ghostRt_ = nullptr; }
+        if (ghostDepth_) { ghostDepth_->Release(); ghostDepth_ = nullptr; }
+        ghostState_ = nullptr;
+        return false;
+    }
+    ghostState_->Capture();
+    device_->GetRenderTarget(0, &ghostSavedRt_);
+    device_->GetDepthStencilSurface(&ghostSavedDepth_);
+    device_->SetRenderTarget(0, ghostRt_);
+    device_->SetDepthStencilSurface(ghostDepth_);
+    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0);
+    ghostShading_ = shading_;
+    ghostStreet_ = streetView_;
+    return true;
+}
+
+void Renderer::EndGhostFrame() {
+    if (!ghostState_) return;
+    streetView_ = ghostStreet_;
+    shading_ = ghostShading_;
+    device_->SetRenderTarget(0, ghostSavedRt_);
+    device_->SetDepthStencilSurface(ghostSavedDepth_);
+    ghostState_->Apply();
+    ghostState_->Release();
+    ghostState_ = nullptr;
+    if (ghostSavedRt_) { ghostSavedRt_->Release(); ghostSavedRt_ = nullptr; }
+    if (ghostSavedDepth_) { ghostSavedDepth_->Release(); ghostSavedDepth_ = nullptr; }
+    ghostRt_->Release(); ghostRt_ = nullptr;
+    ghostDepth_->Release(); ghostDepth_ = nullptr;
+}
+
 int Renderer::WarmTileTextures(int perFrame) {
     if (device_ && vertexBuffer_) sky_.Warm(device_);   // nothing once built
     if (!device_ || warmCursor_ >= textures_.size()) return 0;
