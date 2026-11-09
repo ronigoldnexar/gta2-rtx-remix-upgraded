@@ -45,11 +45,17 @@ void ExplosionFxNote(float x, float groundY, float z, float size);
 // restored on the way out. Leaves blending on, z-write on, alpha test off.
 // The camera's eye, so particles close to it fade out instead of filling the view.
 void ExplosionFxSetEye(float x, float y, float z);
+// The eye last set (FIX-FX-2: the fire light dims round it); false when no street view drew lately.
+bool ExplosionFxEye(float eye[3]);
 void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& forward, DWORD fvf);
 
 // The strongest light the blasts cast right now: where, its colour (may exceed 1) and
 // reach in tiles. False when nothing is lit.
 bool ExplosionFxLight(float pos[3], float rgb[3], float* range);
+
+// How fresh a blast within `radius` of (x, z) is: 1 at the bang, 0 two seconds on (FIX-FX-2:
+// the fire lights there are the blast's own and are held down while this module's flash plays).
+float ExplosionFxBlastShare(float x, float z, float radius);
 
 // Blasts noted and particles alive, for the log.
 int ExplosionFxBlasts();

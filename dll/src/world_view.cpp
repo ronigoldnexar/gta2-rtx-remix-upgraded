@@ -2485,6 +2485,15 @@ void WorldView::ApplyPresentation(ViewMode mode) {
         SetPlayerObject(player.pedSprite);
         SetPlayerPed(player.ped);
         SetPlayerPosition(player.x, player.z, static_cast<float>(gta2::kMapHeight) - player.y, player.valid);
+        {
+            // FIX-FX-2 (fire-fx 3d): his car alight, for the bonnet flames in first person.
+            int dmg = 0, hp = 0, fire = 0;
+            float hx = 0.0f, hy = 0.0f;
+            const bool burning = mode == ViewMode::FirstPerson && !BeatActive() && player.valid && player.inVehicle &&
+                                 player.vehicle && ReadVehicleCondition(player.vehicle, &dmg, &hp, &fire) && fire >= 1 &&
+                                 VehicleFacing(player.vehicle, &hx, &hy);
+            SetOwnCarFire(burning, player.x, player.z, static_cast<float>(gta2::kMapHeight) - player.y, hx, -hy, fire);
+        }
         SetUprightPeds(ViewModes().uprightPeds);
         SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
         SetGroundModels(ViewModes().groundModels && ModelsAvailable());
@@ -2494,6 +2503,7 @@ void WorldView::ApplyPresentation(ViewMode mode) {
         SetPlayerObject(nullptr);
         SetPlayerPed(nullptr);
         SetPlayerPosition(0.0f, 0.0f, 0.0f, false);
+        SetOwnCarFire(false, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0);
         SetUprightPeds(false);
         SetPedFigures(false);
         SetGroundModels(false);

@@ -1500,7 +1500,12 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         const gta2::Vec3 up = gta2::Cross(toEye, right);
         // Tumbling: the shard foreshortens as it turns.
         const float squash = 0.35f + 0.65f * std::fabs(std::cos(p.rot * 0.7f));
-        const float cs = std::cos(p.rot) * p.size0, sn = std::sin(p.rot) * p.size0;
+        // FIX-FX-2: a shard flying past the eye (the death camera a block off the blast) was a
+        // plate a fifth of the screen wide: it shrinks away inside half a block of the eye.
+        const gta2::Vec3 toE = eye - c;
+        const float nearK = Clamp((std::sqrt(gta2::Dot(toE, toE)) - 0.10f) / 0.40f, 0.0f, 1.0f);
+        if (nearK < 0.05f) continue;
+        const float cs = std::cos(p.rot) * p.size0 * nearK, sn = std::sin(p.rot) * p.size0 * nearK;
         const gta2::Vec3 a = right * cs + up * sn, b = (up * cs - right * sn) * squash;
         const float fade = p.life - p.age < 1.0f ? (p.life - p.age) : 1.0f;
         // FIX-FX-2 (pm10): lit like the smoke (the scene's light), brighter when a face turns

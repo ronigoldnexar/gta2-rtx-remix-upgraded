@@ -353,6 +353,12 @@ int FireSpotsNear(float x, float z, float radius, const void* carShell) {
 void SetPlayerPosition(float x, float y, float z, bool valid) {
     g_playerPosX = x; g_playerPosY = y; g_playerPosZ = z; g_playerPosValid = valid;
 }
+struct OwnCarFire { bool on = false; float x = 0, y = 0, z = 0, dx = 0, dz = 1; int stage = 0; };
+OwnCarFire g_ownFire;
+void SetOwnCarFire(bool on, float x, float y, float z, float dirX, float dirZ, int stage) {
+    const float l = std::sqrt(dirX * dirX + dirZ * dirZ);
+    g_ownFire = {on && l > 1e-4f, x, y, z, l > 1e-4f ? dirX / l : 0.0f, l > 1e-4f ? dirZ / l : 1.0f, stage};
+}
 void SetPlayerPed(const void* ped) { g_playerPed = ped; }
 void SetPlayerObject(const void* object) {
     g_playerObject = object;
@@ -6031,6 +6037,9 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
             return;
         }
         if (object && object == lastObject_ && lastSprite_ < sprites_.size() && corners == 4) {
+            // FIX-FX-2 (pm6 12e): see AddCarLamps: not under a 3D model, in the plain renderer.
+            const Sprite& under = sprites_[lastSprite_];
+            if (under.hidden && under.shell < 0 && g_groundModels && g_carModels3d && !RemixApiAvailable()) return;
             Sprite placed = sprites_[lastSprite_];
             placed.hidden = false;
             placed.texture = texture;
@@ -7104,6 +7113,11 @@ void LiveGeometry::BuildCarDoors(const Sprite& body, CarShell* shell, const void
 void LiveGeometry::AddCarLamps(const Sprite& body) {
     const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn());
     if (!object || body.corners != 4) return;
+    // FIX-FX-2 (pm6 12e): a 3D car model stands in for this body (hidden, no dome): its lamps are
+    // car_bodies.cpp's glows on the model. These quads lie at the flat sprite's level, under the
+    // model, and showed as orange-red dashes on the road behind the car. Plain renderer only
+    // (under Remix the lamp quads are the lamp lights' meshes).
+    if (body.hidden && body.shell < 0 && g_groundModels && g_carModels3d && !RemixApiAvailable()) return;
     if (*reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase) != game::kSpriteBaseCar) {
         return;
     }
@@ -11700,6 +11714,37 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                                         0.5f * (w0[2] + w3[2]) + 0.5f * (w1[2] - w0[2])});
             }
         }
+        // FIX-FX-2 (fire-fx 3d): the burst the game lays on the ground at a car blast (code-object
+        // sprites 325-326, flag 0x80, an opaque cut-out the effect classifier does not take) was a
+        // pixel-stepped orange blob lying flat under a first-person death camera. In the street
+        // views it is a soft glow of its own colour under the volumetric fireball (explosion_fx).
+        if (g_uprightPeds && g_fxUpright && GameBlendOn() && !effect && sprite.corners == 4 && sprite.object &&
+            !sprite.pedestrian && !sprite.corpse && !sprite.lamp) {
+            unsigned num = 0;
+            int base = -1;
+            GTA2_TRY {
+                const uint8_t* obj = reinterpret_cast<const uint8_t*>(sprite.object);
+                base = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase);
+                num = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber);
+            } GTA2_EXCEPT { base = -1; }
+            if (base == 8 && (num == 325 || num == 326)) {
+                const float (*m)[4] = sprite.objectToWorld.m;
+                float c[3] = {0, 0, 0}, w0[3], w1[3], w3[3];
+                auto wp = [&](const Vertex& v, float* o) {
+                    for (int j = 0; j < 3; ++j) o[j] = v.x * m[0][j] + v.y * m[1][j] + v.z * m[2][j] + m[3][j];
+                };
+                wp(sprite.local[0], w0); wp(sprite.local[1], w1); wp(sprite.local[3], w3);
+                for (int i = 0; i < 4; ++i) { float w[3]; wp(sprite.local[i], w); for (int j = 0; j < 3; ++j) c[j] += 0.25f * w[j]; }
+                auto dl = [](const float* a, const float* b) {
+                    return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+                };
+                const float size = (std::max)(0.2f, (std::max)(dl(w0, w1), dl(w0, w3)));
+                const uint32_t mean = TextureMeanColour(texture);
+                g_gamePuffs.push_back({c[0], c[1] + 0.25f * size, c[2], size * 1.5f, 0.0f, static_cast<uint8_t>((mean >> 16) & 255),
+                                       static_cast<uint8_t>((mean >> 8) & 255), static_cast<uint8_t>(mean & 255), 0.45f, true});
+                continue;
+            }
+        }
         // FIX-FX-2 (pm10): street views: the game's own blend for its translucent and additive
         // artwork (see GamePuff). Classic keeps drawing every one of them as it always has.
         if (g_uprightPeds && g_fxUpright && GameBlendOn() && !effect && sprite.corners == 4 && !sprite.pedestrian &&
@@ -12693,6 +12738,21 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             const FireSpot& at = *mine[static_cast<size_t>(SkidRand() * static_cast<float>(mine.size())) % mine.size()];
             SpawnFireSmoke(at.x, at.y, at.z, at.size);
         }
+    }
+    // FIX-FX-2 (fire-fx 3d): first person at the wheel of a burning car: the game's flames on it are
+    // round the eye (left out there, fxAtEye) or under a bonnet the cab hides, so the burning car
+    // showed nothing at all. Tongues and smoke come off the bonnet's front edge, two spots across
+    // it, where they rise into the bottom of the windscreen.
+    if (g_ownFire.on && g_fire.flames && fxUpright && CurrentViewMode() == ViewMode::FirstPerson) {
+        const float fwd = 0.52f, up = 0.22f, side = 0.16f;
+        const float rx = g_ownFire.dz, rz = -g_ownFire.dx;
+        const float share = g_ownFire.stage >= 2 ? 0.9f : 0.6f;
+        for (int k = -1; k <= 1; k += 2) {
+            SpawnFlames(g_ownFire.x + g_ownFire.dx * fwd + rx * side * k, g_ownFire.y + up,
+                        g_ownFire.z + g_ownFire.dz * fwd + rz * side * k, 0.55f, share);
+        }
+        if (g_fire.smoke && SkidRand() < 0.5f)
+            SpawnFireSmoke(g_ownFire.x + g_ownFire.dx * (fwd + 0.1f), g_ownFire.y + up + 0.1f, g_ownFire.z + g_ownFire.dz * (fwd + 0.1f), 0.5f);
     }
     if (g_fire.flames && !fireSpots.empty()) {
         // The rate is per burning car, shared out over the spots the game shows flame at.

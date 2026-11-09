@@ -113,6 +113,10 @@ int FireSpotsNear(float x, float z, float radius, const void* carShell);
 // Where the player stands this frame (renderer coordinates), for keeping the
 // rule-placed street furniture out from under his feet; valid=false clears it.
 void SetPlayerPosition(float x, float y, float z, bool valid);
+// FIX-FX-2 (fire-fx 3d): the player's own car is on fire (the game's car-fire stage) and the
+// view is first person: flames are emitted at the bonnet edge, which the cab shows (renderer
+// coordinates; dirX/dirZ the car's heading). on=false clears it.
+void SetOwnCarFire(bool on, float x, float y, float z, float dirX, float dirZ, int stage);
 // A street prop's footprint on the ground, for the camera's clearance queries.
 struct PropFootprint { float x, y, z, radius, height; };
 // Per style tile: 1 when the tile is grass, for the park trees of the street

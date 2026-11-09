@@ -18,6 +18,7 @@
 
 #include "log.h"
 #include "remix_lights.h"
+#include "explosion_fx.h"
 
 #include "../../src/post_fx.h"
 #include "../../src/sky.h"
@@ -121,9 +122,26 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         l.rgb[0] = 1.0f; l.rgb[1] = 0.52f; l.rgb[2] = 0.18f;
         const float size = b.weight < 6.0f ? b.weight / 6.0f : 1.0f;
         const float flicker = 0.86f + 0.08f * std::sin(secs * 7.3f + i * 1.7f) + 0.06f * std::sin(secs * 13.1f + i * 0.9f);
-        l.intensity = (0.55f + 0.45f * size) * flicker;
+        // FIX-FX-2 (fire-fx 3d): stronger, and more of it by day: the pool beside a burning car was
+        // faint on dark asphalt (the light sum is still bounded, so it tints, never clips).
+        l.intensity = (0.70f + 0.50f * size) * flicker;
+        // ... but not round an eye inside the blaze (first person at the wheel, the death camera a
+        // block off a blast): there the summed fire lights turned the whole sunlit street cream.
+        {
+            float eye[3];
+            if (ExplosionFxEye(eye)) {
+                const float dx = l.pos[0] - eye[0], dy = l.pos[1] - eye[1], dz = l.pos[2] - eye[2];
+                float k = (std::sqrt(dx * dx + dy * dy + dz * dz) - 0.8f) / 2.2f;
+                k = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+                l.intensity *= 0.3f + 0.7f * k * k * (3.0f - 2.0f * k);
+            }
+            // A blast's own fire lights: a dozen at once, on top of explosion_fx's flash and ground
+            // light; by day their sum doubled every sunlit surface round it (the death camera's
+            // cream frame). Held to a quarter while the blast is fresh.
+            l.intensity *= 1.0f - 0.75f * ExplosionFxBlastShare(l.pos[0], l.pos[2], 3.0f);
+        }
         l.radius = 3.4f;
-        l.day = 0.45f;
+        l.day = 0.65f;
         out->push_back(l);
     }
     for (const RemixTrackedLight& t : LightsTracked()) {

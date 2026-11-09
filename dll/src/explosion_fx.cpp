@@ -359,7 +359,13 @@ struct Batch {
 }  // namespace
 
 ExplosionSettings& ExplosionFx() { return g_set; }
-void ExplosionFxSetEye(float x, float y, float z) { g_eye[0] = x; g_eye[1] = y; g_eye[2] = z; g_eyeSet = true; }
+double g_eyeAt = -10.0;
+void ExplosionFxSetEye(float x, float y, float z) { g_eye[0] = x; g_eye[1] = y; g_eye[2] = z; g_eyeSet = true; g_eyeAt = Now(); }
+bool ExplosionFxEye(float eye[3]) {
+    if (!g_eyeSet || Now() - g_eyeAt > 0.25) return false;
+    eye[0] = g_eye[0]; eye[1] = g_eye[1]; eye[2] = g_eye[2];
+    return true;
+}
 
 void ExplosionFxLoad(const char* iniPath) {
     if (iniPath && *iniPath) {
@@ -449,7 +455,9 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
             const float t = Clamp01((std::sqrt(dx * dx + dy * dy + dz * dz) / s0 - 0.4f) / 1.2f);
             flashK = 0.25f + 0.75f * t * t * (3.0f - 2.0f * t);
         }
-        const float light = g_set.flash * 0.30f * FlashLevel(age) * (0.4f + 0.6f * flashK);
+        // FIX-FX-2 (fire-fx 3d): a fifth of it with the eye at the heart (was 0.55): from the
+        // driver's seat or a death camera beside the car the ground light was most of the frame.
+        const float light = g_set.flash * 0.30f * FlashLevel(age) * (0.2f + 0.8f * flashK * flashK);
         if (light > 0.01f) {
             const float c[3] = {b.x, b.y + 0.035f, b.z};
             const float s = 3.6f * b.k;
@@ -526,6 +534,16 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
             const float grow = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
             const float size = 0.5f * (p.size0 + (p.size1 - p.size0) * grow);
             level *= nearFade(p, size);
+            // FIX-FX-2 (fire-fx 3d): the eye close to the fireball (first person at the wheel, the
+            // death camera a block or two off): its dozens of overlapping billows summed to a white
+            // sheet over 70 % of the frame. Each billow dims to a third as the eye comes within
+            // three of its full sizes, so the ball stays a ball with the street round it.
+            if (g_eyeSet) {
+                const float dx = p.x - g_eye[0], dy = p.y - g_eye[1], dz = p.z - g_eye[2];
+                const float reach = 3.0f * (std::max)(0.2f, p.size1);
+                const float u = Clamp01((std::sqrt(dx * dx + dy * dy + dz * dz) - 0.35f * reach) / (0.65f * reach));
+                level *= 0.33f + 0.67f * u * u * (3.0f - 2.0f * u);
+            }
             if (level < 0.01f) continue;
             billboard(fire, p, size, Colour(r * level, g * level, b * level, 1.0f), true);
         } else if (p.kind == kSpark || p.kind == kBit) {
@@ -608,6 +626,18 @@ bool ExplosionFxLight(float pos[3], float rgb[3], float* range) {
     best = best < 0.7f ? best : 0.7f;
     rgb[0] = best; rgb[1] = best * 0.58f; rgb[2] = best * 0.24f;
     return true;
+}
+
+float ExplosionFxBlastShare(float x, float z, float radius) {
+    if (!g_set.enabled || g_blasts.empty()) return 0.0f;
+    const double now = Now();
+    float best = 0.0f;
+    for (const Blast& b : g_blasts) {
+        const float dx = b.x - x, dz = b.z - z;
+        if (dx * dx + dz * dz > radius * radius) continue;
+        best = (std::max)(best, Clamp01(1.0f - static_cast<float>(now - b.born) / 2.0f));
+    }
+    return best;
 }
 
 int ExplosionFxBlasts() { return static_cast<int>(g_blasts.size()); }
