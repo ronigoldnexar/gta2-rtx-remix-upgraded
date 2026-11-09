@@ -2,6 +2,7 @@
 
 #include "ground.h"
 #include "log.h"
+#include "model_store.h"
 #include "remix_api.h"
 #include "time_of_day.h"
 
@@ -104,10 +105,32 @@ void LiftOutOfGround(float x, float* y, float z) {
     *y = lifted;
 }
 
+// The street lamps of the ground views stand on a post (DrawProps, LampPostScale)
+// whose lantern is drawn opaque, as everything through D3D9 is to Remix: the map
+// puts the lamp at the bulb, inside the glass, and the glass, the dish under it and
+// the roof over it shut the light in. The glass glowed and nothing under the lamp
+// was lit (defect pt-remix-lamp-posts-cast-no-light). So for a map lamp with a post
+// under it the lamp's own sphere is shrunk to fit inside the glass (the lantern
+// still glows), and a second sphere just under the dish lights the post, the
+// pavement and the road: the pool. Its sphere is smaller than the lamps' default
+// emitter, and Remix's radiance is per area of the emitter, so it burns hotter by
+// the area ratio to give the power a lamp of the default size gives.
+// Where DrawProps moved the post off the lamp to a kerb or a wall (MapLampPosts),
+// the lamp itself is put out and the glow and the pool both go to the moved lantern.
+constexpr float kLampPoolEmitter = 0.05f;          // tiles; less on a short post
+constexpr float kLampPoolGap = 0.01f;              // between the dish and the sphere
+// The pool's power over a default-size lamp's: it hangs 1-3 tiles over the paving where
+// the facade lamps sit half a tile from their wall, and at 1x (fxr_lamp_after) the post
+// was lit and the paving under it barely.
+constexpr float kLampPoolGain = 4.0f;
+int g_lampPoolsLastFrame = 0;
+
+std::vector<RemixLightDesc>            g_working;     // forward: FitLampsToPosts works on this frame's set
+void FitLampsToPosts();
+
 std::vector<RemixTrackedLight>         g_tracked;
 std::vector<RemixLightDesc>            g_pending;     // this frame's list, as the game gave it
 std::vector<RemixLightDesc>            g_extra;       // this frame's invented lights
-std::vector<RemixLightDesc>            g_working;     // the two above, merged
 std::map<uint64_t, RemixLightOverride> g_overrides;   // ordered: the menu lists these
 
 RemixLightStats g_stats;
@@ -551,8 +574,8 @@ void LightsSubmitMapLampsNear(const float* eye, float radius, int cap, float wei
     static uint32_t logged = 0;
     if ((g_frame & 255u) == 0 && g_frame != logged) {
         logged = g_frame;
-        Log("remix lights: far lamps %d within %.0f tiles of eye %.1f,%.1f,%.1f (game listed %u map lamps)",
-            g_farLampsLastFrame, radius, eye[0], eye[1], eye[2], static_cast<unsigned>(g_listedMapKeys.size()));
+        Log("remix lights: far lamps %d within %.0f tiles of eye %.1f,%.1f,%.1f (game listed %u map lamps; %d lamp pools under posts)",
+            g_farLampsLastFrame, radius, eye[0], eye[1], eye[2], static_cast<unsigned>(g_listedMapKeys.size()), g_lampPoolsLastFrame);
     }
 }
 
@@ -691,6 +714,79 @@ void RefreshClassDaylight() {
     g_classDaylightReady = true;
 }
 
+void FitLampsToPosts() {
+    g_lampPoolsLastFrame = 0;
+    if (!g_ground || !g_ground->Ready()) return;
+    const Model* lamp = ModelForProp("lamp");
+    if (!lamp) return;
+    // Which post stands for which lamp: MapLampPosts() runs parallel to MapLamps(), with
+    // the post moved to the kerb or a wall (FIX-PROPS) or NaN where none is drawn. Empty
+    // until DrawProps has placed them: no pools before that, so a pool never jumps.
+    const std::vector<gta2::Vec3>& lamps = MapLamps();
+    const std::vector<gta2::Vec3>& posts = MapLampPosts();
+    if (lamps.empty() || posts.size() != lamps.size()) return;
+    static std::unordered_map<uint64_t, size_t> s_index;
+    static const gta2::Vec3* s_indexed = nullptr;
+    static size_t s_indexedCount = 0;
+    if (s_indexed != lamps.data() || s_indexedCount != lamps.size()) {
+        s_index.clear();
+        for (size_t i = 0; i < lamps.size(); ++i) {
+            const float at[3] = {lamps[i].x, lamps[i].y, lamps[i].z};
+            uint64_t key = 0;
+            if (MapLightKeyOf(at, &key)) s_index.emplace(key, i);
+        }
+        s_indexed = lamps.data();
+        s_indexedCount = lamps.size();
+    }
+    const float reference = g_settings.emitterRadius > 0.0f ? g_settings.emitterRadius : 0.15f;
+    const size_t count = g_working.size();
+    for (size_t i = 0; i < count; ++i) {
+        RemixLightDesc& d = g_working[i];
+        if (d.source != kLightSourceGame || d.spot || d.explicitId) continue;
+        uint64_t key = 0;
+        if (!MapLightKeyOf(d.pos, &key)) continue;
+        const auto found = s_index.find(key);
+        if (found == s_index.end()) continue;
+        const gta2::Vec3& post = posts[found->second];
+        if (std::isnan(post.x)) continue;
+        // The floor DrawProps stands the post on.
+        float floor = 0.0f;
+        if (!g_ground->SurfaceAt(post.x, post.z, d.pos[1] + 0.5f, &floor)) continue;
+        LampHead head;
+        if (!LampPostHead(*lamp, gta2::Vec3{post.x, d.pos[1], post.z}, floor, &head)) continue;
+        const float lampIntensity = d.intensity;
+        // The glow in the glass. The lamp keeps its place (its identity is its position,
+        // and a light seen to move turns into a car's); where the post was moved off it,
+        // the lamp is put out and a copy glows in the moved lantern instead.
+        const float off = std::sqrt((d.pos[0] - head.centre.x) * (d.pos[0] - head.centre.x) +
+                                    (d.pos[1] - head.centre.y) * (d.pos[1] - head.centre.y) +
+                                    (d.pos[2] - head.centre.z) * (d.pos[2] - head.centre.z));
+        RemixLightDesc glow = d;
+        const bool moved = off > 0.5f * head.glassRadius;
+        glow.emitterRadius = (std::max)(0.005f, 0.8f * (moved ? 0.6f * head.glassRadius : head.glassRadius - off));
+        // Its power kept: the same radiance from a smaller sphere would dim the glass.
+        glow.intensity = lampIntensity * (reference / glow.emitterRadius) * (reference / glow.emitterRadius);
+        if (moved) {
+            glow.pos[0] = head.centre.x; glow.pos[1] = head.centre.y; glow.pos[2] = head.centre.z;
+            d.intensity = 0.0f;   // under minIntensity: tracked, not drawn
+        } else {
+            d.emitterRadius = glow.emitterRadius;
+            d.intensity = glow.intensity;
+        }
+        RemixLightDesc pool = glow;
+        const float r = (std::min)(kLampPoolEmitter, 0.5f * head.glassRadius);
+        pool.emitterRadius = r;
+        pool.pos[0] = head.centre.x;
+        pool.pos[1] = head.dishBottom - r - kLampPoolGap;
+        pool.pos[2] = head.centre.z;
+        pool.intensity = lampIntensity * kLampPoolGain * (reference / r) * (reference / r);
+        // d is not used past here (push_back may move the vector).
+        if (moved) g_working.push_back(glow);
+        g_working.push_back(pool);
+        ++g_lampPoolsLastFrame;
+    }
+}
+
 }  // namespace
 
 void LightsReconcile() {
@@ -769,6 +865,7 @@ void LightsReconcile() {
     g_working.insert(g_working.end(), g_pending.begin(), g_pending.end());
     g_working.insert(g_working.end(), g_extra.begin(), g_extra.end());
     g_extra.clear();
+    FitLampsToPosts();
 
     g_stats.submittedLastFrame = static_cast<int>(g_working.size());
     g_stats.suppressedByClass = 0;

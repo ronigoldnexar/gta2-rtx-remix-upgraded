@@ -236,6 +236,14 @@ const std::vector<gta2::Vec3>& MapLamps();
 // Empty until DrawProps has run on the level; callers fall back to MapLamps().
 void SetMapLampPosts(const std::vector<gta2::Vec3>& posts);
 const std::vector<gta2::Vec3>& MapLampPosts();
+// The lamp post under a map lamp at `at` whose floor is at `floor`: false when no post
+// stands there (the lamp is not 0.3..3.5 above the floor), else the post's scale.
+// DrawProps places the posts by this; the Remix lights fit the lamp's light to it.
+bool LampPostScale(const Model& lamp, float lampY, float floor, float* scale);
+// Where that post's lantern is, renderer frame: the glass's centre and radius, and
+// the bottom of the dish under the glass. False when no post stands there.
+struct LampHead { gta2::Vec3 centre; float glassRadius = 0.0f; float dishBottom = 0.0f; };
+bool LampPostHead(const Model& lamp, const gta2::Vec3& at, float floor, LampHead* out);
 
 // Draws a model with `placement` (row-vector D3D convention: the model's own
 // space into the world), posed by `animation` at `time` seconds (null for the

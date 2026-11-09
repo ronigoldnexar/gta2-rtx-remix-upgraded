@@ -1212,6 +1212,73 @@ const std::vector<gta2::Vec3>& MapLamps() { return g_mapLamps; }
 void SetMapLampPosts(const std::vector<gta2::Vec3>& posts) { g_mapLampPosts = posts; }
 const std::vector<gta2::Vec3>& MapLampPosts() { return g_mapLampPosts; }
 
+bool LampPostScale(const Model& lamp, float lampY, float floor, float* scale) {
+    // A GTA2 street lamp sits well above the road; the post stands under it, its
+    // top a little over the lamp (the lamp is the bulb inside the lantern).
+    const float above = lampY - floor;
+    if (above > 3.5f || above < 0.3f) return false;
+    *scale = (above + 0.3f) / (std::max)(lamp.Height(), 0.1f);
+    return true;
+}
+
+bool LampPostHead(const Model& lamp, const gta2::Vec3& at, float floor, LampHead* out) {
+    // The lantern of the lamp model, in its own space, measured once. tools/gen_objects.py
+    // build_lamp writes the post (with the dish, roof and bulb on its atlas) and then the
+    // glass: two meshes, the glass the second. Anything else has no lantern to speak of.
+    struct Lantern { bool valid = false; float cx = 0, cy = 0, cz = 0, radius = 0, dishBottom = 0; };
+    static const Model* s_model = nullptr;
+    static Lantern s_lantern;
+    if (s_model != &lamp) {
+        s_model = &lamp;
+        s_lantern = Lantern();
+        std::vector<gta2::Mat4> worlds;
+        NodeWorlds(lamp, nullptr, 0.0f, &worlds);
+        auto posed = [&](int meshIndex, std::vector<gta2::Vec3>* pts) {
+            for (size_t i = 0; i < lamp.nodes.size(); ++i) {
+                if (lamp.nodes[i].mesh != meshIndex || lamp.meshes[meshIndex].skin >= 0) continue;
+                const gta2::Mat4& w = worlds[i];
+                for (const ModelVertex& v : lamp.meshes[meshIndex].vertices) {
+                    pts->push_back({v.x * w.m[0][0] + v.y * w.m[1][0] + v.z * w.m[2][0] + w.m[3][0],
+                                    v.x * w.m[0][1] + v.y * w.m[1][1] + v.z * w.m[2][1] + w.m[3][1],
+                                    v.x * w.m[0][2] + v.y * w.m[1][2] + v.z * w.m[2][2] + w.m[3][2]});
+                }
+            }
+        };
+        std::vector<gta2::Vec3> glass, post;
+        if (lamp.meshes.size() == 2) { posed(1, &glass); posed(0, &post); }
+        if (!glass.empty() && !post.empty()) {
+            gta2::Vec3 lo = glass[0], hi = glass[0];
+            for (const gta2::Vec3& p : glass) {
+                lo = {(std::min)(lo.x, p.x), (std::min)(lo.y, p.y), (std::min)(lo.z, p.z)};
+                hi = {(std::max)(hi.x, p.x), (std::max)(hi.y, p.y), (std::max)(hi.z, p.z)};
+            }
+            Lantern l;
+            l.cx = 0.5f * (lo.x + hi.x); l.cy = 0.5f * (lo.y + hi.y); l.cz = 0.5f * (lo.z + hi.z);
+            l.radius = 0.5f * (std::min)(hi.x - lo.x, hi.z - lo.z);
+            // The dish the glass stands on: the post's widest part just under the glass.
+            l.dishBottom = lo.y;
+            const float band = 0.1f * lamp.Height();
+            for (const gta2::Vec3& p : post) {
+                if (p.y < lo.y - band || p.y > lo.y) continue;
+                if (std::hypot(p.x - l.cx, p.z - l.cz) < 0.5f * l.radius) continue;
+                l.dishBottom = (std::min)(l.dishBottom, p.y);
+            }
+            l.valid = l.radius > 0.0f;
+            s_lantern = l;
+            Log("lamp post: lantern glass %.3f across at %.2f of %.2f, dish from %.2f", 2.0f * l.radius, l.cy,
+                lamp.Height(), l.dishBottom);
+        }
+    }
+    float scale = 0.0f;
+    if (!s_lantern.valid || !LampPostScale(lamp, at.y, floor, &scale)) return false;
+    // The draw: yaw 0 (DrawProps), the foot on the floor.
+    const float base = floor - lamp.boundsMin.y * scale;
+    out->centre = {at.x + s_lantern.cx * scale, base + s_lantern.cy * scale, at.z + s_lantern.cz * scale};
+    out->glassRadius = s_lantern.radius * scale;
+    out->dishBottom = base + s_lantern.dishBottom * scale;
+    return true;
+}
+
 const Model* ModelForPedestrian() {
     auto it = g_byName.find(g_pedestrian);
     return it == g_byName.end() ? nullptr : &g_models[it->second];

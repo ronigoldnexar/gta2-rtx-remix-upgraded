@@ -674,6 +674,31 @@ the taxi chequer-as-chrome material (`tools/remix_model_pbr.py` `car_trim_maps`:
 bright, neutral, busy and fill < 60 % of their window, so they pass the chrome test; a structure-tensor
 isotropy test caught only part of them offline, not shipped); 1440p capture.
 
+## Street-lamp pools under the posts (FIX-REMIX, 9 Nov 2026)
+
+Defect `pt-remix-lamp-posts-cast-no-light`: at night every lamp-post lantern glowed and nothing
+under it was lit. The map puts the lamp at the bulb, and the post DrawProps stands under it
+(`LampPostScale`, `model_store.cpp`) has its lantern there: glass, dish under it, roof over it,
+all drawn opaque through D3D9, so to Remix the 0.15-tile lamp sphere sat boxed in (the glass is
+0.08 tiles across on a 1.8-tile post).
+
+`FitLampsToPosts` (`remix_lights.cpp`), for every map lamp with a post under it (game-listed and
+far lamps alike): the lamp's own sphere shrinks to fit inside the glass, its power kept (radiance
+times the area ratio), so the lantern still glows; and a second sphere, 0.05 tiles or less,
+hangs just under the dish (`LampPostHead` measures the lantern from the model) with 4x a default
+lamp's power (`kLampPoolGain`), gated by the clock like the lamp. It lights the post from above,
+the pavement and the road. Where DrawProps has moved the post off the lamp to the kerb or a wall
+(`MapLampPosts`, FIX-PROPS), the lamp itself is put out and the glow and the pool go to the moved
+lantern. Log: `lamp post: lantern glass ...` once, and `N lamp pools under
+posts` on the far-lamps line.
+
+Runs (`gamerun/playtest_remix.sh`, Downtown, 21:30, junction 120.5,152.5 and plaza 164.5,149.5):
+`out/fxr_lamp_before` (HEAD 43eebf0: lit lanterns, dark paving), `out/fxr_lamp_after` (pool at 1x:
+post lit, paving barely), `out/fxr_lamp_after2` (4x: pools on the median, kerb and road around the
+posts; `cmp/cmp_0.png`). Not done: the orange facade lights (map lamps half a tile from a wall,
+no post) still wash the corner facades with no fixture drawn; the script's camera headings differ
+between runs, so the before/after pairs are the same mark, not the same framing.
+
 ## Full PBR maps for the HD tiles (VISUALS-REMIX, 8 Nov 2026)
 
 Why the Remix picture read as dated next to the upstream GTA2 RTX Remix videos: every

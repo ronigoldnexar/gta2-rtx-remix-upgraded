@@ -4423,9 +4423,11 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             if (d2 > kRadius * kRadius) continue;
             float floor = at.y;
             if (!ground_->SurfaceAt(post.x, post.z, at.y + 0.5f, &floor)) continue;
-            // A GTA2 street lamp sits well above the road; the post stands under it.
-            if (at.y - floor > 3.5f || at.y - floor < 0.3f) continue;
-            placed.push_back({lamp, post.x, floor, post.z, 0.0f, (at.y - floor + 0.3f) / (std::max)(lamp->Height(), 0.1f), d2});
+            // A GTA2 street lamp sits well above the road; the post stands under it
+            // (LampPostScale, shared with the Remix lights, which fit the lamp to its lantern).
+            float postScale = 0.0f;
+            if (!LampPostScale(*lamp, at.y, floor, &postScale)) continue;
+            placed.push_back({lamp, post.x, floor, post.z, 0.0f, postScale, d2});
         }
     }
     // The cells.
