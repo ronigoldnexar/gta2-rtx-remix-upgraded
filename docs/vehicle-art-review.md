@@ -284,3 +284,22 @@ from `stage_vr` (Nov 8 meshes). Same DLL, ini, spot (164.5,149.2 facing 180,149.
   that move with the camera).
 - Classic: no renderer code changed (harness, tools and docs only), so the classic view is untouched by
   construction; no frame diff was run.
+
+## VEHICLE-ART-6: 063 Truck Cab lamps, mudflaps, carkit chrome (9 Nov 2026)
+
+- **Headlamps (vv-063):** they were grey domes with concentric shading, read as hubcaps. Now each is a sealed
+  beam (`sealed_beam_shader` in `tools/vehicle_art/m063_truck_cab.py`): a silvered reflector annulus behind a
+  prism grid, a dark bulb shield with a chrome cap, and a dark seal at the rim. The glass is flatter and sits under
+  a proud chrome bezel. Its env reflection drops to 0.12 so the sky does not wash the pattern out. Its glTF
+  material name is still `headlamp_lens`, so it is still lit at night.
+- **Mudflaps (pm120):** the "black rod from the bumper to the road" was the 2 cm flap seen edge-on, hanging to
+  16 cm off the road. It is now a rounded 4 cm slab that ends 30 cm up.
+- **Pale-blue chrome and glass edge (vv-carkit):** `carkit.sky_env` baked a saturated zenith (0.50, 0.66, 0.92).
+  Every rounded top edge mirrored it, so bumpers, rims and frames carried a blue line. The zenith is now a hazy
+  (0.62, 0.66, 0.72), and the horizon is 0.88. Only rebuilt models pick this up: 063 now; 013 and 068 at their
+  next rebuild. `tools/vehicle_art2` has its own carkit, which is not changed.
+- Frames (same spot, own car stopped, regression camera, the old model's files vs the new ones, same DLL):
+  out/va6_063a (before) and out/va6_063b (after), poses front34, eye, side, rearside, rear34, far and chase.
+  0 FAULT in both runs.
+- Still short of a shipping frame: the cab's proportions follow the sprite rows (VEHICLE-ART-1) and were not
+  re-cut. The door glass is still dark. At the chase distance the hubs are soft.

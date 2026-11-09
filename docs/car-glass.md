@@ -132,6 +132,8 @@ Not done / short of a shipping bar:
   The band's clip planes now use that cabin roof too. The 063 cab's model height includes its stacks, which
   put 0.9 of it above the roof, so the whole roof was drawn see-through. `[devtools] band_interior=0` gives the
   old drawing for A/B. Log: `band box <model>: half width .., z .., cabin roof .. of ..`.
+  VEHICLE-ART-6: the box is no longer one flat tone. The walls are lighter towards the headlining and darker at
+  the belt, the floor is darkest, and the back wall (the seat backs) is a touch warmer.
 - **Contact patch on the road surface** (`live_geometry.cpp` DrawContactShadows). The car patch was at the body's
   lowest point. A car with a wheel up a kerb has that point under the pavement, so the depth test buried
   the patch. The patch now lies on the map's surface: the highest of the centre and the four corners from

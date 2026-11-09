@@ -119,6 +119,33 @@ def headlamp_shader(pos, nrm, part, col):
     return col * k[:, None]
 
 
+def sealed_beam_shader(pos, nrm, part, col):
+    """VEHICLE-ART-6 (vv-063): a 1950s sealed-beam lamp seen by day: a silvered parabolic reflector behind
+    clear prism glass (a square grid of lens cells), the bulb's dark shield and chrome cap in the middle, a
+    dark rubber seal where the glass meets the bezel. The flat grey dome read as a hubcap."""
+    c = np.asarray(part.tag["center"]); d = pos - c
+    r0 = part.tag["r"]
+    x, y = d[:, 0] / r0, d[:, 1] / r0
+    rr = np.sqrt(x ** 2 + y ** 2)
+    # the reflector: bright annulus (it mirrors the sky round the bulb), darker towards the rim and centre
+    b = 0.50 + 0.42 * np.exp(-((rr - 0.52) / 0.24) ** 2) + 0.10 * np.clip(y, 0, 1)
+    # prism cells: thin dark lines on a 0.17 r grid inside the glass's clear area
+    cell = 0.17
+    gx = np.abs(((x / cell) % 1.0) - 0.5) > 0.40
+    gy = np.abs(((y / cell) % 1.0) - 0.5) > 0.40
+    b = np.where((gx | gy) & (rr < 0.86), b * 0.74, b)
+    # bulb shield (dark disc) with a bright chrome cap ring round it
+    b = np.where(rr < 0.11, 0.30, b)
+    b = np.where((rr >= 0.11) & (rr < 0.16), 0.98, b)
+    # the seal at the rim
+    b = np.where(rr > 0.90, 0.16, b)
+    tint = np.array([0.90, 0.92, 0.95])
+    out = b[:, None] * tint[None, :]
+    # a warm cast in the reflector's hot ring (the filament's colour)
+    out[:, 0] += 0.04 * np.exp(-((rr - 0.30) / 0.10) ** 2)
+    return out.clip(0, 1)
+
+
 def tank_shader(pos, nrm, part, col):
     z = pos[:, 2]
     out = col.copy()
@@ -178,6 +205,8 @@ M = dict(
     tank=Mat("chrome_tank", "rest", (0.80, 0.81, 0.83), rough=0.14, metal=1.0, env=0.8, ao=0.55, shader=tank_shader, glbname="chrome"),
     shield=Mat("chrome_shield", "rest", (0.78, 0.79, 0.80), rough=0.2, metal=1.0, env=0.75, ao=0.5, shader=shield_shader, glbname="chrome"),
     head=Mat("headlamp_lens", "rest", (0.93, 0.95, 0.97), rough=0.05, emit=(1.0, 0.95, 0.85), shader=headlamp_shader, env=0.45, ao=0.2),
+    beam=Mat("headlamp_beam", "rest", (0.93, 0.95, 0.97), rough=0.05, emit=(1.0, 0.95, 0.85), shader=sealed_beam_shader, env=0.12, ao=0.1,
+             glbname="headlamp_lens"),
     tail=Mat("taillamp_lens", "rest", (0.62, 0.05, 0.04), rough=0.1, emit=(1.0, 0.08, 0.04), ao=0.3),
     amber=Mat("marker_lamp", "rest", (0.95, 0.55, 0.10), rough=0.1, emit=(1.0, 0.55, 0.1), ao=0.3),
     interior=Mat("interior", "rest", (0.20, 0.17, 0.14), rough=0.85, ao=0.9),
@@ -318,8 +347,11 @@ def build_truck():
         c = np.array([0.80 * sx, 1.22, 1.62])
         P.append(revolve(f"hl_bucket{sx}", M["chrome"], [(0.02, -0.17), (0.09, -0.15), (0.13, -0.08), (0.145, -0.01), (0.15, 0.0),
                                                          (0.135, 0.012)], c, (0, 0, 1), R=24))
-        P.append(revolve(f"hl_lens{sx}", M["head"], [(0.135, 0.010), (0.09, 0.022), (0.0001, 0.028)], c, (0, 0, 1), R=24,
+        # VEHICLE-ART-6: a sealed-beam lens (flatter glass, prism grid, reflector, bulb cap) under a proud chrome bezel
+        P.append(revolve(f"hl_lens{sx}", M["beam"], [(0.135, 0.010), (0.11, 0.018), (0.06, 0.023), (0.0001, 0.025)], c, (0, 0, 1), R=32,
                          tag=dict(center=list(c), r=0.135)))
+        P.append(revolve(f"hl_bezel{sx}", M["chrome"], [(0.122, 0.016), (0.130, 0.027), (0.146, 0.026), (0.156, 0.012), (0.152, -0.004)], c,
+                         (0, 0, 1), R=32))
         P.append(tube(f"hl_stalk{sx}", M["chrome"], [c + [-0.20 * sx, -0.06, -0.12], c + [-0.05 * sx, -0.02, -0.10]], 0.025, R=6))
         tc = np.array([0.86 * sx, 1.13, 1.40])
         P.append(revolve(f"turn{sx}", M["amber"], [(0.0001, 0.0), (0.045, 0.0), (0.04, 0.03), (0.0001, 0.045)], tc, (0, 1, 0), R=12))
@@ -332,7 +364,8 @@ def build_truck():
     P.append(box("deck_plate", M["steel"], (-0.43, 0.88, -1.85), (0.43, 0.93, -1.40)))
     P.append(box("rear_xmember", M["under"], (-0.62, 0.58, ZR + 0.02), (0.62, 0.80, ZR + 0.12)))
     for sx in (1, -1):
-        P.append(box(f"flap{sx}", M["rubber"], (min(0.64 * sx, 1.15 * sx), 0.16, -1.83), (max(0.64 * sx, 1.15 * sx), 0.86, -1.81)))
+        # pm120: the 2 cm flap down to 16 cm off the road read as a black rod edge-on: 4 cm thick, ending 30 cm up
+        P.append(rbox(f"flap{sx}", M["rubber"], (min(0.64 * sx, 1.15 * sx), 0.30, -1.84), (max(0.64 * sx, 1.15 * sx), 0.86, -1.80), r=0.012, R=8))
         P.append(box(f"flap_bar{sx}", M["chrome"], (min(0.62 * sx, 1.16 * sx), 0.86, -1.84), (max(0.62 * sx, 1.16 * sx), 0.90, -1.79)))
         P.append(tube(f"flap_hanger{sx}", M["under"], [[0.40 * sx, 0.84, -1.82], [0.90 * sx, 0.88, -1.82]], 0.025, R=6))
         P.append(rbox(f"tail{sx}", M["tail"], (min(0.86 * sx, 1.06 * sx), 0.92, -1.86), (max(0.86 * sx, 1.06 * sx), 1.00, -1.80), r=0.012, R=8))

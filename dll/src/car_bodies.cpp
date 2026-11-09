@@ -1834,11 +1834,13 @@ struct WheelKey {
     bool operator<(const WheelKey& o) const { return std::tie(model, zf, zr, hw, shellMode) < std::tie(o.model, o.zf, o.zr, o.hw, o.shellMode); }
 };
 int g_shellWheels = 1;
+int g_forceSteerDeg = 0;   // VEHICLE-ART-6 [devtools] force_steer_deg=N: every car's front wheels at N degrees (probe frames of a stopped car)
 constexpr int kMaxWheels = 6;
 struct WheelSplit {
     const Model* hull = nullptr;   // null: the model has no wheels to cut (drawn whole)
     int n = 0;
     const Model* wheel[kMaxWheels] = {};
+    const Model* ring[kMaxWheels] = {};   // VEHICLE-ART-6: a shell's tyre ring (steers, never spins); null for marker bodies
     gta2::Vec3 centre[kMaxWheels];
     float radius[kMaxWheels] = {};
     bool shell = false;   // a marker-less shell's hubs: they spin in the hull's own frame (see BuildWheelSplit)
@@ -1849,9 +1851,54 @@ WheelKey WheelKeyFor(const Model& model, float zF, float zR, float halfW) {
                     g_shellWheels};
 }
 
+// VEHICLE-ART-6: a shell texture's paint share and opaque luminance at 128 x 128 cells, for the
+// worker thread only (BuildWheelSplit; RgbFor's cache belongs to the render thread). The split
+// image-to-3D bodies leave the base texture see-through where its "_paint" twin is paint.
+struct ShellTexels { int n = 0; std::vector<float> paint, lum; };
+const ShellTexels* ShellTexelsFor(const std::string& texture) {
+    static std::map<std::string, ShellTexels> cache;
+    std::string base = texture;
+    const size_t pp = base.find("_paint");
+    if (pp != std::string::npos) base.erase(pp, 6);
+    auto it = cache.find(base);
+    if (it != cache.end()) return it->second.n ? &it->second : nullptr;
+    if (cache.size() > 64) cache.clear();
+    ShellTexels& m = cache[base];
+    FILE* f = std::fopen((std::string(ModelsFolder()) + "\\" + base).c_str(), "rb");
+    if (!f) return nullptr;
+    std::vector<uint8_t> tga;
+    uint8_t buf[65536];
+    size_t got;
+    while ((got = std::fread(buf, 1, sizeof(buf), f)) > 0) tga.insert(tga.end(), buf, buf + got);
+    std::fclose(f);
+    if (tga.size() <= 18 || tga[2] != 2 || tga[16] != 32) return nullptr;
+    const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
+    if (w <= 0 || h <= 0 || tga.size() < 18u + static_cast<size_t>(w) * h * 4) return nullptr;
+    const bool topDown = (tga[17] & 0x20) != 0;
+    constexpr int kN = 128;
+    std::vector<float> as(kN * kN, 0.0f), ls(kN * kN, 0.0f), cnt(kN * kN, 0.0f);
+    for (int y = 0; y < h; ++y) {
+        const uint8_t* row = &tga[18 + static_cast<size_t>(topDown ? y : (h - 1 - y)) * w * 4];
+        const int cy = y * kN / h;
+        for (int x = 0; x < w; ++x) {
+            const uint8_t* px = row + x * 4;
+            const int c = cy * kN + x * kN / w;
+            as[c] += px[3];
+            ls[c] += (0.2126f * px[2] + 0.7152f * px[1] + 0.0722f * px[0]) * px[3];
+            cnt[c] += 1.0f;
+        }
+    }
+    m.n = kN; m.paint.resize(kN * kN); m.lum.resize(kN * kN);
+    for (int i = 0; i < kN * kN; ++i) {
+        m.paint[i] = cnt[i] > 0 ? 1.0f - as[i] / (255.0f * cnt[i]) : 1.0f;
+        m.lum[i] = as[i] > 0 ? ls[i] / (255.0f * as[i]) : 0.5f;
+    }
+    return &m;
+}
+
 void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float zR, float halfW, float roof, int shellMode,
                      Model* hullOut, std::vector<Model>* wheelsOut, std::vector<gta2::Vec3>* centresOut, std::vector<float>* radiiOut,
-                     bool* shellOut) {
+                     bool* shellOut, std::vector<Model>* ringsOut) {
     std::vector<gta2::Mat4> worlds;
     ModelRestNodeWorlds(model, &worlds);
     struct Wheel { gta2::Vec3 c; float r; float xin; };
@@ -1914,7 +1961,7 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
     hull.splitPaint = model.splitPaint;
     hull.meshes.resize(model.meshes.size());
     hull.name = model.name + "#nowheels";
-    std::vector<Model> parts(wheels.size());
+    std::vector<Model> parts(wheels.size()), rings(wheels.size());
     for (size_t w = 0; w < parts.size(); ++w) {
         Model& m = parts[w];
         m.nodes = model.nodes; m.forward = model.forward;
@@ -1923,6 +1970,8 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
         m.splitPaint = model.splitPaint;
         m.meshes.resize(model.meshes.size());
         m.name = model.name + "#wheel" + std::to_string(w);
+        rings[w] = m;
+        rings[w].name = model.name + "#ring" + std::to_string(w);
     }
     for (size_t n = 0; n < model.nodes.size(); ++n) {
         const int mi = model.nodes[n].mesh;
@@ -1931,32 +1980,59 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
         ModelMesh& hm = hull.meshes[static_cast<size_t>(mi)];
         hm.vertices = src.vertices; hm.texture = src.texture; hm.skin = -1;
         for (Model& m : parts) { m.meshes[static_cast<size_t>(mi)].vertices = src.vertices; m.meshes[static_cast<size_t>(mi)].texture = src.texture; m.meshes[static_cast<size_t>(mi)].skin = -1; }
+        if (shell) for (Model& m : rings) { m.meshes[static_cast<size_t>(mi)].vertices = src.vertices; m.meshes[static_cast<size_t>(mi)].texture = src.texture; m.meshes[static_cast<size_t>(mi)].skin = -1; }
         const gta2::Mat4 toCar = Mul(worlds[n], fit);
         std::vector<gta2::Vec3> q(src.vertices.size());
         for (size_t i = 0; i < src.vertices.size(); ++i) q[i] = PointBy(toCar, src.vertices[i].x, src.vertices[i].y, src.vertices[i].z);
+        const ShellTexels* tex = shell ? ShellTexelsFor(src.texture) : nullptr;
         for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
             int owner = -1;
+            bool ringFace = false;
             for (size_t w = 0; w < wheels.size() && owner < 0; ++w) {
                 const Wheel& wh = wheels[w];
                 const float side = wh.c.x >= 0.0f ? 1.0f : -1.0f;
-                const float rr = (shell ? 0.50f : 1.06f) * wh.r;
+                // VEHICLE-ART-6: a shell's wheel is its tyre and hub: the faces in the disc that are not
+                // body paint (the arch lips and fender skirts that crossed the guessed circle are paint
+                // and stay on the hull), so the front pair steers again (4201906 spun only the hubs).
+                const float rr = (shell ? 0.98f : 1.06f) * wh.r;
                 bool in = true;
+                float dmax = 0.0f;
                 for (int c = 0; c < 3 && in; ++c) {
                     const gta2::Vec3& p = q[src.indices[t + static_cast<size_t>(c)]];
                     const float dy = p.y - wh.c.y, dz = p.z - wh.c.z;
-                    in = side * p.x > wh.xin && dy * dy + dz * dz < rr * rr;
+                    const float d2 = dy * dy + dz * dz;
+                    dmax = (std::max)(dmax, d2);
+                    in = side * p.x > wh.xin && d2 < rr * rr;
+                }
+                if (in && shell && dmax > 0.25f * wh.r * wh.r) {
+                    // outside the hub: tyre only (not paint, and dark unless it is the whitewall/hubcap ring)
+                    float paint = 0.0f, lum = 0.0f;
+                    if (tex) {
+                        for (int c = 0; c < 4; ++c) {
+                            float u = 0.0f, v = 0.0f;
+                            if (c < 3) { u = src.vertices[src.indices[t + c]].u; v = src.vertices[src.indices[t + c]].v; }
+                            else for (int k = 0; k < 3; ++k) { u += src.vertices[src.indices[t + k]].u / 3.0f; v += src.vertices[src.indices[t + k]].v / 3.0f; }
+                            const float uu = u - std::floor(u), vv = v - std::floor(v);
+                            const int i = (std::min)(tex->n - 1, static_cast<int>(vv * tex->n)) * tex->n + (std::min)(tex->n - 1, static_cast<int>(uu * tex->n));
+                            paint += 0.25f * tex->paint[static_cast<size_t>(i)];
+                            lum += 0.25f * tex->lum[static_cast<size_t>(i)];
+                        }
+                    }
+                    const bool ring = dmax < 0.64f * wh.r * wh.r;   // within 0.8 r: hubcap / whitewall
+                    in = tex && paint < 0.35f && (lum < 0.30f || ring);
+                    ringFace = in;
                 }
                 if (in) owner = static_cast<int>(w);
             }
-            ModelMesh& dst = owner < 0 ? hm : parts[static_cast<size_t>(owner)].meshes[static_cast<size_t>(mi)];
+            ModelMesh& dst = owner < 0 ? hm : (ringFace ? rings : parts)[static_cast<size_t>(owner)].meshes[static_cast<size_t>(mi)];
             dst.indices.push_back(src.indices[t]); dst.indices.push_back(src.indices[t + 1]); dst.indices.push_back(src.indices[t + 2]);
             if (shell && owner >= 0) { hm.indices.push_back(src.indices[t]); hm.indices.push_back(src.indices[t + 1]); hm.indices.push_back(src.indices[t + 2]); }
         }
     }
     // Each wheel keeps only the vertices it uses; a wheel with nothing in it is dropped.
-    for (size_t w = 0; w < parts.size(); ++w) {
+    auto compact = [](Model& m) {
         size_t tris = 0;
-        for (ModelMesh& mesh : parts[w].meshes) {
+        for (ModelMesh& mesh : m.meshes) {
             if (mesh.indices.empty()) { mesh.vertices.clear(); continue; }
             std::vector<uint32_t> remap(mesh.vertices.size(), UINT32_MAX);
             std::vector<ModelVertex> used;
@@ -1967,7 +2043,13 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
             mesh.vertices.swap(used);
             tris += mesh.indices.size() / 3;
         }
-        if (tris < 4) continue;
+        return tris;
+    };
+    for (size_t w = 0; w < parts.size(); ++w) {
+        const size_t tris = compact(parts[w]);
+        const size_t ringTris = shell ? compact(rings[w]) : 0;
+        if (tris + ringTris < 4) continue;
+        ringsOut->push_back(std::move(rings[w]));
         wheelsOut->push_back(std::move(parts[w]));
         centresOut->push_back(wheels[w].c);
         radiiOut->push_back(wheels[w].r);
@@ -1994,6 +2076,7 @@ struct WearResult {
     size_t count = 0;                   // vertices moved | door triangles
     double ms = 0.0;
     std::vector<Model> wheels;          // a wheel split: the hull is `a`
+    std::vector<Model> rings;           // VEHICLE-ART-6: a shell's tyre rings, one per wheel (may be empty)
     std::vector<gta2::Vec3> centres;
     std::vector<float> radii;
     bool shell = false;
@@ -2060,7 +2143,7 @@ DWORD WINAPI WearThread(void*) {
         WearResult* r = new WearResult;
         r->job = job;
         const double t0 = CarNowMs();
-        if (job.wheels) BuildWheelSplit(*job.model, job.fit, job.zFront, job.zRear, job.halfW, job.roof, job.wkey.shellMode, &r->a, &r->wheels, &r->centres, &r->radii, &r->shell);
+        if (job.wheels) BuildWheelSplit(*job.model, job.fit, job.zFront, job.zRear, job.halfW, job.roof, job.wkey.shellMode, &r->a, &r->wheels, &r->centres, &r->radii, &r->shell, &r->rings);
         else if (!job.door) r->a = BuildDented(*job.model, job.step, &r->count);
         else BuildDoorSplit(*job.model, job.fit, job.side, job.zFront, job.zRear, job.roof, job.halfW, &r->a, &r->b, &r->count);
         r->ms = CarNowMs() - t0;
@@ -2123,6 +2206,7 @@ void WearCollect() {
         if (r->job.wheels) {
             size_t bytes = ModelBytes(r->a);
             for (const Model& m : r->wheels) bytes += ModelBytes(m);
+            for (const Model& m : r->rings) bytes += ModelBytes(m);
             WheelSplit split;
             if (!r->wheels.empty()) {
                 g_wheelBytes += bytes;
@@ -2131,6 +2215,11 @@ void WearCollect() {
                 split.shell = r->shell;
                 for (size_t w = 0; w < r->wheels.size() && w < static_cast<size_t>(kMaxWheels); ++w) {
                     split.wheel[w] = ModelRegisterDerived(std::move(r->wheels[w]), true);
+                    if (r->shell && w < r->rings.size()) {
+                        size_t rt = 0;
+                        for (const ModelMesh& mm : r->rings[w].meshes) rt += mm.indices.size();
+                        if (rt) split.ring[w] = ModelRegisterDerived(std::move(r->rings[w]), true);
+                    }
                     split.centre[w] = r->centres[w];
                     split.radius[w] = r->radii[w];
                     ++split.n;
@@ -2140,7 +2229,7 @@ void WearCollect() {
             g_wheelAsked.erase(r->job.wkey);
             if (g_wearCollected <= 400)
                 Log("car bodies: wheel split of %s: %d wheels%s, radius %.3f, axles at %.2f/%.2f (CARI %.2f/%.2f), track %.2f (worker %.1f ms, %.1f MB of wheel splits)",
-                    r->job.model->name.c_str(), split.n, split.shell ? " (shell: hubs only)" : "", split.n ? split.radius[0] : 0.0f, split.n ? split.centre[0].z : 0.0f,
+                    r->job.model->name.c_str(), split.n, split.shell ? " (shell: tyres and hubs, steered)" : "", split.n ? split.radius[0] : 0.0f, split.n ? split.centre[0].z : 0.0f,
                     split.n ? split.centre[split.n - 1].z : 0.0f, r->job.zFront, r->job.zRear, split.n ? std::fabs(split.centre[0].x) * 2.0f : 0.0f,
                     r->ms, static_cast<double>(g_wheelBytes) / (1 << 20));
         } else if (!r->job.door) {
@@ -2688,7 +2777,16 @@ void DrawBandInterior(IDirect3DDevice9* device, const gta2::Mat4& posed, float h
         const int order[6] = {0, 1, 2, 0, 2, 3}, rev[6] = {0, 2, 1, 0, 3, 2};
         for (int k = 0; k < 6; ++k) {
             const float* p = c[faces[f][flip ? rev[k] : order[k]]];
-            verts[n++] = {p[0], p[1], p[2], colour};
+            // VEHICLE-ART-6: not one flat tone: the walls lighter towards the headlining (light from the
+            // windows), the floor darkest, the back wall (seat backs) a touch warmer than the sides.
+            float k0 = f == 4 ? 0.55f : (p[1] > 0.5f * (y0 + y1) ? 1.45f : 0.75f);
+            const bool back = f == 0;
+            auto ch = [&](int sh, float warm) {
+                const float v = static_cast<float>((colour >> sh) & 0xFF) * k0 * warm;
+                return static_cast<uint32_t>((std::min)(255.0f, v));
+            };
+            const uint32_t col = 0xFF000000u | (ch(16, back ? 1.18f : 1.0f) << 16) | (ch(8, back ? 1.05f : 1.0f) << 8) | ch(0, back ? 0.92f : 1.0f);
+            verts[n++] = {p[0], p[1], p[2], col};
         }
     }
     DWORD lighting, cull, fvf, aTest, aBlend, zw, c0op, c0a1, a0op, a0a1, c1op, a1op, spec;
@@ -3271,6 +3369,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_bandInterior = GetPrivateProfileIntA("devtools", "band_interior", 1, g_devIni);
         g_tyreContactDev = GetPrivateProfileIntA("devtools", "tyre_shadows", 1, g_devIni);
         g_shellWheels = GetPrivateProfileIntA("devtools", "shell_wheels", 1, g_devIni);
+        g_forceSteerDeg = GetPrivateProfileIntA("devtools", "force_steer_deg", 0, g_devIni);
         g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
         g_hoodDropDark = GetPrivateProfileIntA("devtools", "hood_drop_dark", 1, g_devIni) != 0;
         g_fpBonnet = GetPrivateProfileIntA("devtools", "fp_bonnet", 1, g_devIni);
@@ -3969,17 +4068,37 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     const float cs = std::cos(feel.spin), sn = std::sin(feel.spin);
                     spin.m[1][1] = cs; spin.m[1][2] = sn; spin.m[2][1] = -sn; spin.m[2][2] = cs;
                     if (wheels.shell) {
-                        // A shell's hub: spin only, about its centre, with the hull (its tyre and arch are the hull's).
-                        spin.m[3][0] = (c.x >= 0.0f ? 1.0f : -1.0f) * 0.004f;
-                        spin.m[3][1] = c.y - (c.y * cs - c.z * sn);
-                        spin.m[3][2] = c.z - (c.y * sn + c.z * cs);
-                        ModelDraw(device, *wheels.wheel[w], Mul(Mul(fit, spin), posed), nullptr, 0.0f);
+                        // A shell's tyre and hub (its copy stays in the hull, so nothing opens): spin about
+                        // its centre and, VEHICLE-ART-6, the front pair steers about its upright again,
+                        // in the hull's own frame a hair outboard.
+                        const float st = c.z > 0.0f ? (g_forceSteerDeg ? static_cast<float>(g_forceSteerDeg) * kPi / 180.0f : feel.steer) : 0.0f;
+                        gta2::Mat4 m = spin;
+                        if (st != 0.0f) {
+                            gta2::Mat4 steer = gta2::Identity();
+                            const float cst = std::cos(st), snt = std::sin(st);
+                            steer.m[0][0] = cst; steer.m[0][2] = snt; steer.m[2][0] = -snt; steer.m[2][2] = cst;
+                            m = Mul(spin, steer);
+                        }
+                        m.m[3][0] = c.x - (c.x * m.m[0][0] + c.y * m.m[1][0] + c.z * m.m[2][0]) + (c.x >= 0.0f ? 1.0f : -1.0f) * 0.004f;
+                        m.m[3][1] = c.y - (c.x * m.m[0][1] + c.y * m.m[1][1] + c.z * m.m[2][1]);
+                        m.m[3][2] = c.z - (c.x * m.m[0][2] + c.y * m.m[1][2] + c.z * m.m[2][2]);
+                        ModelDraw(device, *wheels.wheel[w], Mul(Mul(fit, m), posed), nullptr, 0.0f);
+                        if (wheels.ring[w] && st != 0.0f) {
+                            // the tyre ring steers only: an image-to-3D tyre has no tread to show a spin, and a
+                            // spun ring would swing the dark arch pieces caught in it round the wheel
+                            gta2::Mat4 r = gta2::Identity();
+                            const float cst = std::cos(st), snt = std::sin(st);
+                            r.m[0][0] = cst; r.m[0][2] = snt; r.m[2][0] = -snt; r.m[2][2] = cst;
+                            r.m[3][0] = c.x - (c.x * cst - c.z * snt) + (c.x >= 0.0f ? 1.0f : -1.0f) * 0.004f;
+                            r.m[3][2] = c.z - (c.x * snt + c.z * cst);
+                            ModelDraw(device, *wheels.ring[w], Mul(Mul(fit, r), posed), nullptr, 0.0f);
+                        }
                         continue;
                     }
                     // VEHICLE-PHYSICS: each corner's own lift (kerb strike, off the
                     // ground), camber and toe (a bent corner) on top of spin and steer.
                     const int corner = (c.z >= 0.0f ? 0 : 2) + (c.x >= 0.0f ? 1 : 0);
-                    const float steerA = (c.z > 0.0f ? feel.steer : 0.0f) + feel.wheelToe[corner];
+                    const float steerA = (c.z > 0.0f ? (g_forceSteerDeg ? static_cast<float>(g_forceSteerDeg) * kPi / 180.0f : feel.steer) : 0.0f) + feel.wheelToe[corner];
                     gta2::Mat4 steer = gta2::Identity();
                     if (steerA != 0.0f) {
                         const float cst = std::cos(steerA), snt = std::sin(steerA);

@@ -313,7 +313,10 @@ def sky_env(nrm, view_up=-0.12):
     v = h + np.array([[0, view_up, 0]]); v /= np.linalg.norm(v, axis=1, keepdims=True)
     r = 2 * np.sum(n * v, 1, keepdims=True) * n - v
     ry = r[:, 1:2]
-    zen = np.array([0.50, 0.66, 0.92]); hor = np.array([0.93, 0.95, 0.97]); bld = np.array([0.42, 0.40, 0.38])
+    # VEHICLE-ART-6 (vv-carkit pale-blue outline): the zenith was a saturated sky blue (0.50, 0.66, 0.92); every
+    # rounded top edge of chrome or glass (normal ~45 deg up) mirrors it, so bumpers, rims and window frames
+    # carried a constant pale-blue line in any light and under any sky. A hazy city zenith, near the horizon's tone.
+    zen = np.array([0.62, 0.66, 0.72]); hor = np.array([0.88, 0.89, 0.90]); bld = np.array([0.42, 0.40, 0.38])
     road = np.array([0.10, 0.10, 0.10]); near = np.array([0.20, 0.19, 0.18])
     up = np.clip(ry, 0, 1)
     sky = hor + (zen - hor) * np.clip((up - 0.12) / 0.6, 0, 1)

@@ -211,5 +211,27 @@ hull's, so nothing tears away from it. Parametric bodies and wrecks (marker node
 Same-spot A/B frames: `gamerun/va5_own.py` (the player's own car stopped at the street warp, forced to each
 model, regression-camera poses).
 Known limits:
-- A shell's front wheels no longer visibly steer.
+- A shell's front wheels no longer visibly steer (fixed by VEHICLE-ART-6, below).
 - The kerb-strike lift and the camber of a bent corner are not shown on shells.
+
+## VEHICLE-ART-6 (9 Nov 2026): a shell's front tyres steer again
+
+A shell's wheel is now its hub and its tyre, with no paint. The faces inside 0.98 r of the guessed circle are
+split by what their texels are. The importer leaves the base texture see-through where its `_paint` twin is
+paint, so the paint share is `1 - alpha`; `ShellTexelsFor` reads it on the worker at 128 x 128 cells.
+- **Hub:** the faces within 0.5 r, as before. They spin, and the front pair also steers.
+- **Tyre ring:** the faces between 0.5 r and 0.98 r that are not paint (share under 0.35) and are dark
+  (luminance under 0.30), or lie within 0.8 r (whitewall, hubcap). The ring steers only and never spins: an
+  image-to-3D tyre has no tread to show a spin, and a spun ring swung the dark arch pieces caught in it round
+  the wheel. It is drawn only while the wheel is turned.
+- **Hull:** the arch lips and fender skirts that crossed the circle are paint, so they stay on the hull. Both
+  copies are also kept in the hull, so a turned wheel never opens a hole.
+
+The carkit bodies (063, 013, 068) have no `wheel_*` nodes either, so they take this path as well. The log
+line now reads `(shell: tyres and hubs, steered)`.
+
+For A/B, `[devtools] force_steer_deg=N` turns every car's front wheels to N degrees, so you can film a stopped
+car (`gamerun/va6_own.py`, a copy of va5_own.py that takes `VA6_SETS="label:key=v,key=v|..."`). Frames: 050,
+027, 019 and 063 at 0, +25 and -25 degrees. At 0 degrees nothing is out of place (the 027's spun shard is gone).
+At +-25 degrees the front tyre and hub turn and the rear ones stay put.
+Limit: on the 027 van a dark arch piece caught in the ring swings out a little with the tyre at full lock.
