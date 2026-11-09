@@ -1780,6 +1780,53 @@ void ResetSoftStages(IDirect3DDevice9* device) {
 }  // namespace
 
 void ModelSetSoftPaintMasks(bool on) { g_softPaintSetting = on; }
+
+// FIX-CAR-RENDER: a 64x64 luminance map (box mean, 0..255) and paint-mask map of a
+// model texture, read from its file on the CPU (no device), cached for the process.
+namespace {
+struct LumaMap { int w = 0, h = 0; std::vector<uint8_t> luma, mask; };
+std::map<std::string, LumaMap> g_lumaMaps;
+const LumaMap* LumaFor(const std::string& file) {
+    auto it = g_lumaMaps.find(file);
+    if (it != g_lumaMaps.end()) return it->second.w ? &it->second : nullptr;
+    LumaMap& m = g_lumaMaps[file];
+    std::vector<uint8_t> tga;
+    if (!ReadAll(g_folder + "\\" + file, &tga) || tga.size() <= 18 || tga[2] != 2 || tga[16] != 32) return nullptr;
+    const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
+    if (w <= 0 || h <= 0 || tga.size() < 18u + static_cast<size_t>(w) * h * 4) return nullptr;
+    const bool topDown = (tga[17] & 0x20) != 0;
+    constexpr int kN = 64;
+    std::vector<float> sum(kN * kN, 0.0f), msum(kN * kN, 0.0f), cnt(kN * kN, 0.0f);
+    for (int y = 0; y < h; ++y) {
+        const int src = topDown ? y : (h - 1 - y);
+        const uint8_t* row = &tga[18 + static_cast<size_t>(src) * w * 4];
+        const int cy = y * kN / h;
+        for (int x = 0; x < w; ++x) {
+            const uint8_t* px = row + x * 4;
+            const int c = cy * kN + x * kN / w;
+            sum[c] += 0.114f * px[0] + 0.587f * px[1] + 0.299f * px[2];
+            msum[c] += px[3];
+            cnt[c] += 1.0f;
+        }
+    }
+    m.w = kN; m.h = kN; m.luma.resize(kN * kN); m.mask.resize(kN * kN);
+    for (int i = 0; i < kN * kN; ++i) {
+        m.luma[i] = static_cast<uint8_t>(cnt[i] > 0 ? sum[i] / cnt[i] : 0);
+        m.mask[i] = static_cast<uint8_t>(cnt[i] > 0 ? msum[i] / cnt[i] : 0);
+    }
+    return &m;
+}
+}  // namespace
+
+bool ModelTextureSample(const std::string& file, float u, float v, float* luma, float* alpha) {
+    const LumaMap* m = LumaFor(file);
+    if (!m) return false;
+    u -= std::floor(u); v -= std::floor(v);
+    const int x = (std::min)(m->w - 1, static_cast<int>(u * m->w)), y = (std::min)(m->h - 1, static_cast<int>(v * m->h));
+    if (luma) *luma = m->luma[static_cast<size_t>(y) * m->w + x];
+    if (alpha) *alpha = m->mask[static_cast<size_t>(y) * m->w + x];
+    return true;
+}
 bool ModelSoftPaintActive() { return g_softPaintSetting && g_softPaintCaps == 1 && !RemixApiAvailable(); }
 
 void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,

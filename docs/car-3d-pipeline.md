@@ -760,3 +760,20 @@ specular (power 26 -> 12, specular up to 0.95/1.0/1.1 in blue) and a little more
 draws). Measured with `force_car_model=7 force_car_paint=18,18,22`, keys_pm4.sh in Industrial: box
 side 3.5 / 8.4 before (floor 0, binary mask), 25.1 / 28.2 after, panel edges and a roof highlight
 visible (runs `out/fixcar_dark_b6`, `out/fixcar_dark_a4`).
+
+### Models 82-86 are cars, not wrecks; near-black faces dropped from the seat (pt-fp-cab-jagular-xk-torn-black-shards)
+
+`car_bodies.cpp` took every CARI model number from 72 up for a burnt-out wreck (`modelNumber < 72` /
+`>= 72`). Only 72..81 are wrecks; 82..86 (Jagular XK, Furore GT, the special agent car, ...) are
+whole cars, so they got no cab from the driver's seat, no eye over the bonnet, no dents, wheel split
+or doors. `WreckModelNumber()` now tests 72..81. With it the XK from the seat has the sports cab
+(log `cab interior of model 82: sports class`), its wheels turn and it dents.
+The seat's hood copy also drops faces whose texture is near black (mean under 16/255 around the
+face's UVs, from a 64x64 CPU copy of the texture, `ModelTextureSample`) where it is not paint:
+an image-to-3D shell maps its inner wings, cowl and engine-bay walls onto the atlas's black
+background, and from the seat they read as torn black shards past the dash (046 Stinger: 5040 of
+15394 triangles of its dented copy; 082: 514 of 8104). Not for a model whose own paint is dark
+(paint_rgb luminance under 50). `[devtools] hood_drop_dark=0` keeps them for A/B checks.
+Open: the XK's bonnet centre is still missing from the seat (two green fender ribbons), with or
+without the dark-face drop: its faces fail the facing test (vertex normals), model 082 for
+ASSET-VEHICLES. No sweep of every model from the seat was made.

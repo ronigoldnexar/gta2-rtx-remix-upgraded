@@ -786,6 +786,11 @@ inline gta2::Vec3 PointBy(const gta2::Mat4& m, float x, float y, float z) {
             x * m.m[0][2] + y * m.m[1][2] + z * m.m[2][2] + m.m[3][2]};
 }
 
+// The ten burnt-out wrecks are CARI models 72..81; 82..86 (Jagular XK, Furore GT, the special
+// agent car, ...) are whole cars. FIX-CAR-RENDER: "< 72" took those five for wrecks: no cab from
+// the seat, no dents, wheels or doors (pt-fp-cab-jagular-xk-torn-black-shards).
+inline bool WreckModelNumber(int m) { return m >= 72 && m <= 81; }
+bool g_hoodDropDark = true;   // [devtools] hood_drop_dark=0 keeps the seat copy's near-black faces (A/B checks)
 const HoodCopy& HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut, float eyeX) {
     // 0.04-block steps: the eye bobs and leans a little, the cache stays small.
     const HoodKey key{&model, static_cast<int>(std::floor(yCut * 25.0f)), static_cast<int>(std::floor(zCut * 25.0f)),
@@ -804,7 +809,8 @@ const HoodCopy& HoodModelFor(const Model& model, const gta2::Mat4& fit, float yC
     for (int k = 0; k < 3; ++k) hood.paintRgb[k] = model.paintRgb[k];
     hood.splitPaint = model.splitPaint;
     hood.meshes.resize(model.meshes.size());
-    size_t kept = 0, all = 0;
+    size_t kept = 0, all = 0, darkDropped = 0;
+    const bool dropDark = g_hoodDropDark && 0.30f * model.paintRgb[0] + 0.59f * model.paintRgb[1] + 0.11f * model.paintRgb[2] >= 50.0f;
     for (size_t n = 0; n < model.nodes.size(); ++n) {
         const int mi = model.nodes[n].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
@@ -876,6 +882,26 @@ const HoodCopy& HoodModelFor(const Model& model, const gta2::Mat4& fit, float yC
             const gta2::Vec3 toEye{eyeX - centre.x, yCut + 0.035f - centre.y, zCut - 0.10f - centre.z};
             const bool seen = nl > 1e-9f && nrm.y / nl > -0.2f && gta2::Dot(nrm, toEye) > 0.0f;
             if (!seen) continue;
+            // FIX-CAR-RENDER (pt-fp-cab-jagular-xk-torn-black-shards): an image-to-3D shell maps its
+            // inner wings, cowl and engine-bay walls onto the atlas's black background; from the seat
+            // those faces read as torn black shards past the dash. A face whose texture is near black
+            // where it is not paint is dropped from the seat's copy (not for a dark-painted model,
+            // whose black is its paint).
+            if (dropDark) {
+                float lum = 0.0f, cover = 0.0f;
+                int got = 0;
+                const bool paintTex = src.texture.find("_paint") != std::string::npos;
+                for (int c = 0; c < 4; ++c) {
+                    float u = 0.0f, v = 0.0f;
+                    if (c < 3) { const ModelVertex& mv = src.vertices[src.indices[t + static_cast<size_t>(c)]]; u = mv.u; v = mv.v; }
+                    else {
+                        for (int k = 0; k < 3; ++k) { const ModelVertex& mv = src.vertices[src.indices[t + static_cast<size_t>(k)]]; u += mv.u / 3.0f; v += mv.v / 3.0f; }
+                    }
+                    float l = 0.0f, a = 0.0f;
+                    if (ModelTextureSample(src.texture, u, v, &l, &a)) { lum += l; cover += paintTex ? a : 255.0f - a; ++got; }
+                }
+                if (got && lum / got < 16.0f && cover / got < 128.0f) { ++darkDropped; continue; }
+            }
             // The dashboard's top and width: what is kept just ahead of the cut.
             for (int c = 0; c < 3; ++c) {
                 if (q[c].z < zCut - 0.01f || q[c].z > zCut + 0.08f) continue;
@@ -909,8 +935,8 @@ const HoodCopy& HoodModelFor(const Model& model, const gta2::Mat4& fit, float yC
     copy.model = stored;
     copy.dash = dashTop > 0.0f && dashX1 > dashX0;
     copy.dashTop = dashTop; copy.dashX0 = dashX0; copy.dashX1 = dashX1;
-    Log("car bodies: hood copy of %s for the driver's seat: %zu of %zu triangles (y < %.2f, z > %.2f), dashboard %s top %.3f x %.2f..%.2f",
-        model.name.c_str(), kept, all, yCut, zCut, copy.dash ? "at" : "none,", dashTop, copy.dash ? dashX0 : 0.0f, copy.dash ? dashX1 : 0.0f);
+    Log("car bodies: hood copy of %s for the driver's seat: %zu of %zu triangles (y < %.2f, z > %.2f; %zu near-black dropped), dashboard %s top %.3f x %.2f..%.2f",
+        model.name.c_str(), kept, all, yCut, zCut, darkDropped, copy.dash ? "at" : "none,", dashTop, copy.dash ? dashX0 : 0.0f, copy.dash ? dashX1 : 0.0f);
     return copy;
 }
 
@@ -2623,6 +2649,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_forceOwnModel = GetPrivateProfileIntA("devtools", "force_own_car_model", -1, g_devIni);
         g_cabInterior = GetPrivateProfileIntA("devtools", "cab_interior", 1, g_devIni);
         g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
+        g_hoodDropDark = GetPrivateProfileIntA("devtools", "hood_drop_dark", 1, g_devIni) != 0;
         {
             char fp[64] = {};
             GetPrivateProfileStringA("devtools", "force_car_paint", "", fp, sizeof(fp), g_devIni);
@@ -2751,7 +2778,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         const int modelNumber = (use.sprite >= 65 && use.sprite <= 74) ? 72 + (use.sprite - 65)
                                 : g_wreckTest ? 72 + (use.sprite % 10)
                                 : (g_forceModel >= 0 && !use.own) ? g_forceModel
-                                : (g_forceOwnModel >= 0 && g_forceOwnModel < 72 && use.own) ? g_forceOwnModel : use.model;
+                                : (g_forceOwnModel >= 0 && !WreckModelNumber(g_forceOwnModel) && use.own) ? g_forceOwnModel : use.model;
         if (const Model* model = ModelForVehicle(modelNumber, use.sprite)) {
             const float modelLen = (std::max)(model->Length(), 0.01f), modelWid = (std::max)(model->Width(), 0.01f);
             const bool sideways = modelWid > modelLen * 1.3f;   // modelled along x rather than z
@@ -2815,7 +2842,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                             b->bodyLength, roof};
                 // A tall or long body (taller than a sedan's roof by a quarter, or a
                 // third longer): the driver's cab from the model's own profile.
-                if ((roof > 0.45f || b->bodyLength > 1.3f) && modelNumber < 72) {
+                if ((roof > 0.45f || b->bodyLength > 1.3f) && !WreckModelNumber(modelNumber)) {
                     const CabShape cab = CabShapeFor(*model, fit, modelNumber);
                     if (cab.valid) {
                         cabin.deck = cab.deck;
@@ -2828,7 +2855,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 }
                 // QB-5: the eye over the bonnet (see BonnetTopFor). Only the player's car
                 // is measured (the eye sits in no other), only for whole models.
-                if (use.own && modelNumber < 72) {
+                if (use.own && !WreckModelNumber(modelNumber)) {
                     const float bonnet = BonnetTopFor(*model, fit, cabin.windscreen);
                     // eye = deck + 0.62 (roof - deck); the cut is 0.035 under it: a deck
                     // 0.03 over the bonnet leaves the bonnet whole under the cut.
@@ -2866,8 +2893,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     lastStep = dentStep; lastFire = fireStage;
                 }
             }
-            if (modelNumber < 72) DentQueueAhead(*model);
-            const Model* worn = dentStep > 0 && modelNumber < 72 ? DentedModelFor(*model, dentStep) : model;
+            if (!WreckModelNumber(modelNumber)) DentQueueAhead(*model);
+            const Model* worn = dentStep > 0 && !WreckModelNumber(modelNumber) ? DentedModelFor(*model, dentStep) : model;
             if (dentStep > 0 || fireStage >= 3) {
                 const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                 if (ModelSoftPaintActive()) {
@@ -2898,7 +2925,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             }
             // VEHICLE-FEEL: the sprung body and the turning wheels (see vehicle_fx.h).
             const float roofH = model->Height() * sy;
-            const bool wreckModel = modelNumber >= 72;
+            const bool wreckModel = WreckModelNumber(modelNumber);
             // The CARI axles along the body (b->wheelZ is only set for the sprite-built bodies).
             const float axleF = (b->measure.wheelFront - 0.5f * b->measure.h) * b->scale;
             const float axleR = (b->measure.wheelRear - 0.5f * b->measure.h) * b->scale;
@@ -3089,7 +3116,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             DoorSplit split{nullptr, nullptr};
             bool haveSplit = false;
             float zFront = 0.0f;
-            if (!cpuCut && modelNumber < 72 && (target > 0.0f || ds.open > 0.02f)) {
+            if (!cpuCut && !WreckModelNumber(modelNumber) && (target > 0.0f || ds.open > 0.02f)) {
                 const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
                 zFront = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
                 zFront = (std::min)(zFront, 0.42f * b->bodyLength);
@@ -3103,7 +3130,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             }
             if (target > ds.open) { if (haveSplit) ds.open = (std::min)(target, ds.open + dt * (doorRate > 0.0f ? doorRate : 2.5f)); }
             else ds.open = (std::max)(target, ds.open - dt * (doorRate > 0.0f ? doorRate : 1.7f));
-            if (!cpuCut && modelNumber < 72) {
+            if (!cpuCut && !WreckModelNumber(modelNumber)) {
                 const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
                 float zf = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
                 zf = (std::min)(zf, 0.42f * b->bodyLength);
@@ -3198,13 +3225,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 // QB-31: from the seat of a flat-fronted body (bus, cab-over, train) the hood copy
                 // is only the front panel under the windscreen, seen through the cut as a dark
                 // slab past the dashboard; the cab's dashboard is all there is ahead of the glass.
-                const bool flatCab = hood && g_cabInterior && modelNumber < 72 &&
+                const bool flatCab = hood && g_cabInterior && !WreckModelNumber(modelNumber) &&
                                      CabClassFor(modelNumber, g_cabins[use.object].flat) == CabClass::Bus;
                 if (!flatCab) ModelDraw(device, *drawn, Mul(fit, posed), nullptr, 0.0f);
-                if (hood && (hood->dash || (g_cabInterior && modelNumber < 72))) {
+                if (hood && (hood->dash || (g_cabInterior && !WreckModelNumber(modelNumber)))) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                     const float paint[3] = {b->paint.r / 255.0f * dull, b->paint.g / 255.0f * dull, b->paint.b / 255.0f * dull};
-                    if (g_cabInterior && modelNumber < 72) {
+                    if (g_cabInterior && !WreckModelNumber(modelNumber)) {
                         // QB-31: the cab from the seat, per vehicle class (cab_interior.h).
                         CabInteriorParams cp;
                         cp.cls = CabClassFor(modelNumber, g_cabins[use.object].flat);
@@ -3240,8 +3267,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             ModelSetPaintTint(nullptr);
             if (carMaterialSet) device->SetMaterial(&material);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
-            DrawLamps(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber >= 72, feel.on ? &feel : nullptr);
-            if (modelNumber < 72) {
+            DrawLamps(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, WreckModelNumber(modelNumber), feel.on ? &feel : nullptr);
+            if (!WreckModelNumber(modelNumber)) {
                 GTA2_TRY {
                     DrawBeacons(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber);
                 } GTA2_EXCEPT {

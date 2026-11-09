@@ -147,6 +147,9 @@ void ModelSetPaintTint(const float* rgb);
 void ModelSetSoftPaintMasks(bool on);
 // Whether car paint is drawn soft (known once the first car texture has been read).
 bool ModelSoftPaintActive();
+// A model texture's mean luminance and alpha (0..255) around (u, v), from a 64x64
+// CPU copy read from its file (no device needed); false when it cannot be read.
+bool ModelTextureSample(const std::string& file, float u, float v, float* luma, float* alpha);
 // A twist of the upper body about the model's up axis at "Bip01 Spine1",
 // radians, applied to every pose drawn until it is set back to 0: the aim
 // turned off the walk. Quantise it (it keys the pose cache).
