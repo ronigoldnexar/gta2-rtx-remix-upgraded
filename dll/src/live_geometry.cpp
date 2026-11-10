@@ -11557,6 +11557,45 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     if (heroFigure) g_ownLensFrame = g_carFrame;   // FIX-FIGURE-10 pfl23: the view model stands in for him
                     if (kdKeep) kdSkipDraw = true; else continue;
                 }
+                // FIX-CAMERA-17 (qav26-wil-third-walking-past-standing-peds-the-chase-boom-sits-inside-them-...): in third
+                // person a pedestrian standing close to the chase lens, nearer it than the hero, is heads and shoulders
+                // filling most of the frame (two at the wil kerb, the hero lost behind them). Not drawn while within
+                // kPedLensNear of the lens (seen from above), or across the line from the lens to him within a block
+                // of the lens; held 12 frames after the last reason (no flicker at the edge). GTA2DX9_CAM_PED_LENS=0
+                // or [camera] chase_hide_near_peds=0 turns it off (A/B).
+                static int pedLensOn = -1;
+                if (pedLensOn < 0) { char b[8] = {}; pedLensOn = GetEnvironmentVariableA("GTA2DX9_CAM_PED_LENS", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                if (pedLensOn && ViewModes().chaseHideNearPeds && CurrentViewMode() == ViewMode::ThirdPerson && !heroFigure && g_playerPosValid) {
+                    constexpr float kPedLensNear = 0.6f, kPedLine = 0.22f, kPedLineReach = 1.0f;
+                    const float dL = std::sqrt(lx * lx + lz * lz);
+                    const float hx = g_playerPosX - g_viewEye.x, hz = g_playerPosZ - g_viewEye.z;
+                    const float dH = std::sqrt(hx * hx + hz * hz);
+                    const char* why = nullptr;
+                    if (dL < kPedLensNear && dL < dH - 0.1f) why = "at the lens";
+                    else if (dH > 0.2f && dL < kPedLineReach && dL < dH - 0.2f) {
+                        const float along = (lx * hx + lz * hz) / dH, off = std::fabs(lx * hz - lz * hx) / dH;
+                        if (along > 0.0f && off < kPedLine) why = "across the line to him";
+                    }
+                    static std::map<uintptr_t, uint32_t> s_pedLensHeld;
+                    if (why) {
+                        s_pedLensHeld[sprite.object] = g_carFrame;
+                        if (s_pedLensHeld.size() > 128)
+                            for (auto it = s_pedLensHeld.begin(); it != s_pedLensHeld.end();) it = g_carFrame - it->second > 60 ? s_pedLensHeld.erase(it) : std::next(it);
+                    } else {
+                        const auto it = s_pedLensHeld.find(sprite.object);
+                        if (it != s_pedLensHeld.end() && g_carFrame - it->second <= 12) why = "held";
+                    }
+                    if (why) {
+                        static uint32_t pedLensFrame = 0;
+                        static int pedLensLogs = 0;
+                        if (pedLensFrame != g_carFrame && pedLensLogs < 200) {
+                            ++pedLensLogs;
+                            Log("view: pedestrian by the chase lens not drawn (%s, %.2f from the eye, hero %.2f)", why, dL, dH);
+                        }
+                        pedLensFrame = g_carFrame;
+                        continue;
+                    }
+                }
                 // FIX-FIGURE-9 (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): in first person a stranger at
                 // his shoulder (within 0.42 block, beside the eye: more than 35 degrees off the line of sight, or level
                 // with the eye or behind it) is a head and a shirt cut by the frame's edge, filling a third of the

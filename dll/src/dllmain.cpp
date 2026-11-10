@@ -206,6 +206,8 @@ void LoadConfig() {
         vm.turnSpeed = static_cast<float>(GetPrivateProfileIntA("camera", "turn_speed", 100, ini));
         vm.turnRateFoot = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_foot", 120, ini));
         vm.turnRateCar = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_car", 90, ini));
+        vm.turnBudget = static_cast<float>(GetPrivateProfileIntA("camera", "turn_budget", 8, ini));   // FIX-CAMERA-17
+        vm.chaseHideNearPeds = GetPrivateProfileIntA("camera", "chase_hide_near_peds", 1, ini) != 0;   // FIX-CAMERA-17
         vm.navMap = GetPrivateProfileIntA("camera", "nav_map", 1, ini) != 0;
         gta2dx9::CockpitModeLoad(ini);   // FIX-COCKPIT-BODY: [camera] dashcam*, fp_driver_body
         {

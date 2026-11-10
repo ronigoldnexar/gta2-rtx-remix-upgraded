@@ -2661,11 +2661,62 @@ void WorldView::ApplyPresentation(ViewMode mode) {
 // kMoveTurn degrees a second (8 a frame at 30 fps) from the one shown last frame, through the move and the
 // frames after it until it has caught up with the view's own. Never in the classic view (the game's camera, byte for
 // byte). GTA2DX9_MOVE_TURN_CAP=0 turns it off (A/B).
+namespace {
+// FIX-CAMERA-17 (owner10nov-B10): what the world-mesh clearance cannot see. eyecol holds the static map mesh only
+// (its Nearest returns its search radius, 0.6, when no map face is nearer: the constant 0.600 of the owner's log);
+// the street objects (phone boxes, bins, lights: MapObjectObstacles), the cars and wrecks drawn last frame
+// (LiveCameraCars) and the people drawn last frame (LiveAimPeds, him left out) are measured here: the distance from
+// p to each one's body (a cylinder for an object or a person, the footprint box for a car), 0 when inside it.
+struct DynamicClear { float prop = 9.0f, car = 9.0f, ped = 9.0f; };
+float BoxGap(float y, float y0, float y1) { return y < y0 ? y0 - y : (y > y1 ? y - y1 : 0.0f); }
+DynamicClear DynamicClearance(const gta2::Vec3& p, const void* ownPed, const void* ownCar) {
+    DynamicClear r;
+    for (const PropFootprint& o : MapObjectObstacles()) {
+        if (std::fabs(o.x - p.x) > 3.0f || std::fabs(o.z - p.z) > 3.0f) continue;
+        const float flat = (std::max)(0.0f, std::hypot(p.x - o.x, p.z - o.z) - o.radius * 1.42f);
+        const float v = BoxGap(p.y, o.y, o.y + o.height);
+        r.prop = (std::min)(r.prop, std::sqrt(flat * flat + v * v));
+    }
+    for (const CameraCar& c : LiveCameraCars()) {
+        if (ownCar && c.object == reinterpret_cast<uintptr_t>(ownCar)) continue;
+        const float cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]), cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
+        if (std::fabs(cx - p.x) > 6.0f || std::fabs(cz - p.z) > 6.0f) continue;
+        // outside the quad: the distance to its nearest edge; inside: 0
+        bool inside = true;
+        float flat = 1e9f;
+        float area = 0.0f;
+        for (int i = 0; i < 4; ++i) { const int j = (i + 1) & 3; area += c.x[i] * c.z[j] - c.x[j] * c.z[i]; }
+        for (int i = 0; i < 4; ++i) {
+            const int j = (i + 1) & 3;
+            const float ex = c.x[j] - c.x[i], ez = c.z[j] - c.z[i];
+            const float cross = ex * (p.z - c.z[i]) - ez * (p.x - c.x[i]);
+            if (cross * area < 0.0f) inside = false;
+            const float l2 = ex * ex + ez * ez;
+            float t = l2 > 1e-8f ? ((p.x - c.x[i]) * ex + (p.z - c.z[i]) * ez) / l2 : 0.0f;
+            t = (std::max)(0.0f, (std::min)(1.0f, t));
+            flat = (std::min)(flat, std::hypot(p.x - (c.x[i] + ex * t), p.z - (c.z[i] + ez * t)));
+        }
+        if (inside) flat = 0.0f;
+        const float v = BoxGap(p.y, c.y0, c.y1);
+        r.car = (std::min)(r.car, std::sqrt(flat * flat + v * v));
+    }
+    for (const AimPed& a : LiveAimPeds()) {
+        if (a.corpse || (ownPed && a.object == reinterpret_cast<uintptr_t>(ownPed))) continue;
+        if (std::fabs(a.x - p.x) > 3.0f || std::fabs(a.z - p.z) > 3.0f) continue;
+        const float flat = (std::max)(0.0f, std::hypot(p.x - a.x, p.z - a.z) - 0.12f);
+        const float v = BoxGap(p.y, a.y, a.y + 0.5f);
+        r.ped = (std::min)(r.ped, std::sqrt(flat * flat + v * v));
+    }
+    return r;
+}
+}  // namespace
+
 void WorldView::MoveTurnCap(CameraPose* pose, float dt, ViewMode mode) {
     static int on = -1;
     if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_MOVE_TURN_CAP", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
     if (!on || mode == ViewMode::Classic || !lastPoseValid_) return;
-    constexpr float kMoveTurn = 240.0f * 0.0174533f;
+    // FIX-CAMERA-17: the turn budget's rate when one is set (8 a frame = 240 a second, the old constant, by default)
+    const float kMoveTurn = (CameraTurnBudgetDeg() > 0.0f ? CameraTurnBudgetDeg() * 30.0f : 240.0f) * 0.0174533f;
     const float cap = kMoveTurn * (std::min)((std::max)(dt, 1.0f / 120.0f), 1.0f / 20.0f);
     float dy = pose->yaw - lastPose_.yaw;
     while (dy > 3.14159265f) dy -= 6.2831853f;
@@ -2673,7 +2724,11 @@ void WorldView::MoveTurnCap(CameraPose* pose, float dt, ViewMode mode) {
     const float dp = pose->pitch - lastPose_.pitch;
     if (std::fabs(dy) <= cap && std::fabs(dp) <= cap) return;
     static int every = 0;
-    if ((++every % 5) == 1) Log("view: move turn capped: yaw %+.1f pitch %+.1f deg this frame", dy * 57.2958f, dp * 57.2958f);
+    // FIX-CAMERA-17: the numbers are what the move still wants to turn from the frame shown last (the gap), not this
+    // frame's turn, which is the cap (the owner's -159.7/-121.5/-81.5/-41.5 were one gap closing 8 degrees a frame,
+    // logged every 5th frame).
+    if ((++every % 5) == 1)
+        Log("view: move turn capped: yaw %+.1f pitch %+.1f deg still to turn (this frame at most %.1f)", dy * 57.2958f, dp * 57.2958f, cap * 57.2958f);
     pose->yaw = lastPose_.yaw + (std::max)(-cap, (std::min)(cap, dy));
     pose->pitch = lastPose_.pitch + (std::max)(-cap, (std::min)(cap, dp));
 }
@@ -3209,13 +3264,82 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         if (nearNow < clearMin) { clearMin = nearNow; clearAt = p; }
         ++clearFrames;
         if (netMove > 0.0f) { ++netFrames; netMax = (std::max)(netMax, netMove); }
+        // FIX-CAMERA-17: the street objects, the cars and the people too (DynamicClearance above): the nearest each
+        // came to the lens over the second, and the frames the lens was inside one (0.0 = inside its body).
+        static float propMin = 9.0f, carMin = 9.0f, pedMin = 9.0f;
+        static int insideFrames = 0;
+        {
+            const DynamicClear dc = DynamicClearance(p, g_viewPlayer.pedSprite, g_viewPlayer.inVehicle ? g_viewPlayer.vehicleSprite : nullptr);
+            propMin = (std::min)(propMin, dc.prop);
+            carMin = (std::min)(carMin, dc.car);
+            pedMin = (std::min)(pedMin, dc.ped);
+            if (dc.prop <= 0.0f || dc.car <= 0.0f || dc.ped <= 0.0f) ++insideFrames;
+        }
         clearClock += dt;
         if (clearClock >= 1.0f) {
-            Log("view: camera clearance (%s%s): nearest surface %.3f at %.2f,%.2f,%.2f over %d frames, safety net moved %d frames (max %.3f)",
+            Log("view: camera clearance (%s%s): nearest surface %.3f at %.2f,%.2f,%.2f over %d frames, safety net moved %d frames (max %.3f); "
+                "map mesh only, searched to 0.6 (0.600 = no map face within 0.6); street object %.2f car %.2f person %.2f (9 = none within 3), "
+                "lens inside one %d frames",
                 ViewModeName(mode), transitionT_ < 1.0f ? ", moving" : "", clearMin, clearAt.x, clearAt.y, clearAt.z, clearFrames,
-                netFrames, netMax);
+                netFrames, netMax, propMin, carMin, pedMin, insideFrames);
             clearMin = 99.0f; clearClock = 0.0f; netMax = 0.0f; clearFrames = netFrames = 0;
+            propMin = carMin = pedMin = 9.0f; insideFrames = 0;
         }
+    }
+    // FIX-CAMERA-17 (owner10nov-B10): the turn budget. In third person on foot the picture never turns more than
+    // [camera] turn_budget degrees (yaw, and pitch, each; at 30 fps, scaled by the frame time) from the frame shown
+    // last; every frame whose camera wanted more is logged ('view: turn over budget'), the counter the operator reads
+    // (it should stay at 0: the solver itself turns within the budget, see view_modes.cpp). Not across a cut (the
+    // lens moved 0.6 block or more in a frame: a warp, a respawn, the swing's cut round a pocket; logged as 'view:
+    // camera cut'), nor while the mouse turns the camera (the player's flick).
+    // GTA2DX9_CAM_TURN_BUDGET=0 (or turn_budget=0) turns it off (A/B).
+    {
+        static bool havePrev = false;
+        static float prevYaw = 0.0f, prevPitch = 0.0f;
+        static gta2::Vec3 prevPos{};
+        static int prevFrame = -5;
+        static long overLogs = 0;
+        const float budget = CameraTurnBudgetDeg();
+        const bool onFoot3 = mode == ViewMode::ThirdPerson && !(g_viewPlayer.valid && g_viewPlayer.inVehicle);
+        if (budget > 0.0f && onFoot3 && havePrev && prevFrame + 1 == frameCount_) {
+            const gta2::Vec3 e = camera_.Position();
+            const float jump = std::sqrt((e.x - prevPos.x) * (e.x - prevPos.x) + (e.y - prevPos.y) * (e.y - prevPos.y) + (e.z - prevPos.z) * (e.z - prevPos.z));
+            LARGE_INTEGER c, f;
+            QueryPerformanceCounter(&c);
+            QueryPerformanceFrequency(&f);
+            const double nowS = static_cast<double>(c.QuadPart) / static_cast<double>(f.QuadPart);
+            const bool mouse = LookOffsets().lastMoved > 0.0 && nowS - LookOffsets().lastMoved < 0.3;
+            if (jump >= 0.6f && !mouse) {
+                // a cut (the swing round a pocket with no way open, a warp, a respawn): the lens jumped, the picture did
+                // not turn; counted apart
+                static long cuts = 0;
+                ++cuts;
+                if (cuts <= 500) Log("view: camera cut (not a turn): the lens moved %.2f in one frame (%ld so far)", jump, cuts);
+            }
+            if (jump < 0.6f && !mouse) {
+                const float cap = budget * 0.0174533f * (std::min)(1.5f, (std::max)(0.25f, dt * 30.0f));
+                float dy = camera_.Yaw() - prevYaw;
+                while (dy > 3.14159265f) dy -= 6.2831853f;
+                while (dy < -3.14159265f) dy += 6.2831853f;
+                const float dp = camera_.Pitch() - prevPitch;
+                if (std::fabs(dy) > cap || std::fabs(dp) > cap) {
+                    const float ny = prevYaw + (std::max)(-cap, (std::min)(cap, dy));
+                    const float np = prevPitch + (std::max)(-cap, (std::min)(cap, dp));
+                    ++overLogs;
+                    if (overLogs <= 3000 || (overLogs % 30) == 0)
+                        Log("view: turn over budget: wanted yaw %+.1f pitch %+.1f deg this frame, budget %.1f (dt %.3f), shown %+.1f %+.1f (%ld so far)",
+                            dy * 57.2958f, dp * 57.2958f, cap * 57.2958f, dt, (ny - prevYaw) * 57.2958f, (np - prevPitch) * 57.2958f, overLogs);
+                    camera_.SetOrientation(ny, np);
+                    shown.yaw = ny;
+                    shown.pitch = np;
+                }
+            }
+        }
+        havePrev = mode != ViewMode::Classic;
+        prevYaw = camera_.Yaw();
+        prevPitch = camera_.Pitch();
+        prevPos = camera_.Position();
+        prevFrame = frameCount_;
     }
     {
         // FIX-CAMERA-2 (pm11): the shown pose against the view's own for 3 s after a switch
@@ -3292,10 +3416,16 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             const bool prev = lastFrame + 1 == frameCount_;
             const float step = prev ? std::sqrt((e.x - lastE.x) * (e.x - lastE.x) + (e.y - lastE.y) * (e.y - lastE.y) + (e.z - lastE.z) * (e.z - lastE.z)) : 0.0f;
             const float pstep = prev ? (cpt - lastPitch) * 57.2958f : 0.0f;
+            // FIX-CAMERA-17: the yaw turned since the last frame too (ystep, at the line's end)
+            static float lastYawPose = 0.0f;
+            float ystep = prev ? cyw - lastYawPose : 0.0f;
+            while (ystep > 3.14159265f) ystep -= 6.2831853f;
+            while (ystep < -3.14159265f) ystep += 6.2831853f;
+            lastYawPose = cyw;
             lastE = e; lastPitch = cpt; lastFrame = frameCount_;
-            Log("cam: pose f=%d %s t=%.2f eye=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f fov=%.1f step=%.3f pstep=%.1f %s=%.2f,%.2f,%.2f box=%.2f..%.2f,%.2f..%.2f%s roll=%.1f",
+            Log("cam: pose f=%d %s t=%.2f eye=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f fov=%.1f step=%.3f pstep=%.1f %s=%.2f,%.2f,%.2f box=%.2f..%.2f,%.2f..%.2f%s roll=%.1f ystep=%.1f",
                 frameCount_, ViewModeName(mode), transitionT_, e.x, e.y, e.z, cyw * 57.2958f, cpt * 57.2958f, fovY * 57.2958f, step, pstep,
-                inCar ? "car" : "hero", hx, hy, hz, x0, x1, y0, y1, behind ? " behind" : "", camera_.Roll() * 57.2958f);
+                inCar ? "car" : "hero", hx, hy, hz, x0, x1, y0, y1, behind ? " behind" : "", camera_.Roll() * 57.2958f, ystep * 57.2958f);
         }
     }
     lastPose_ = shown;

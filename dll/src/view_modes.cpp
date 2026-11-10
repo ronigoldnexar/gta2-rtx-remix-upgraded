@@ -1407,6 +1407,12 @@ void ViewHoldPlayerInput() {
 
 ViewModeSettings& ViewModes() { return g_settings; }
 ViewLook& LookOffsets() { return g_look; }
+float CameraTurnBudgetDeg() {
+    static float env = -2.0f;
+    if (env < -1.0f) { char b[16] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_TURN_BUDGET", b, sizeof b) ? static_cast<float>(atof(b)) : -1.0f; }
+    const float v = env >= 0.0f ? env : ViewModes().turnBudget;
+    return v > 0.0f ? (std::max)(1.0f, v) : 0.0f;
+}
 
 ViewMode CurrentViewMode() {
     const int m = g_settings.mode;
@@ -4119,11 +4125,27 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // turns there fast (kSwingFast; the shown boom's direction is still capped at 4 rad/s below) and the boom
         // eases in at a see-through sheet instead of cutting (the boom filter, swingClearing): the distance
         // holds while the camera goes round. GTA2DX9_CAM_SWING_FIRST=0 restores HEAD (A/B).
+        // FIX-CAMERA-17 (owner10nov-B10): under the turn budget (CameraTurnBudgetDeg) the fast swing turns at most
+        // three quarters of the budget's rate (a 360 deg/s swing showed as 10-degree frames for half a second), never
+        // cuts (the 'neither way round is open' cut turned the picture 110-177 degrees in one frame: beside the wil
+        // phone box at the iron stair, and on the kerb between the wall and the railing at 164.5,147.6, where it cut
+        // back and forth every 0.3-6 s: run cam17_b0), and for 1 s after a fast swing it does not start one the other
+        // way round unless the line where it is has collapsed (the ping-pong). The boom still eases in at a sheet
+        // while it goes round (swingClearing), and the eye collision keeps the lens out of the walls.
+        const float budgetDeg = CameraTurnBudgetDeg();
+        swingDwell_ = (std::max)(0.0f, swingDwell_ - dt);
+        sinceSwingCut_ = (std::min)(sinceSwingCut_ + dt, 60.0f);
         if (!waiting && len0 > 0.8f && CameraSwingFirstOn()) {
-            constexpr float kSwingFast = 360.0f * kDegToRad;
+            const float kSwingFast = budgetDeg > 0.0f ? (std::min)(360.0f, 0.75f * budgetDeg * 30.0f) * kDegToRad : 360.0f * kDegToRad;
             const float good = (std::max)(0.9f, 0.6f * len0);
             const float rest = WrapAngle(wantSwing - swingAngle_);
-            if (std::fabs(rest) > 3.0f * kDegToRad && reachTo(pivot, turned(swingAtStart)) * len0 < good &&
+            const float reachHere = reachTo(pivot, turned(swingAtStart)) * len0;
+            const bool reversing = budgetDeg > 0.0f && swingDwell_ > 0.0f && rest * swingDwellDir_ < 0.0f && reachHere >= 0.35f * good;
+            if (reversing && cameraLogOn()) {
+                static int every = 0;
+                if ((++every % 10) == 1) Log("cam: swing first held: a swing the other way within 1 s of the last (rest %.1f deg)", rest / kDegToRad);
+            }
+            if (!reversing && std::fabs(rest) > 3.0f * kDegToRad && reachHere < good &&
                 reachTo(pivot, turned(wantSwing)) * len0 >= good) {
                 // The way round: the short one unless a heading on it reaches under half the boom and the long
                 // one's do not (run cam10_p14h: the short way round crossed the staircase, the lens 0.08 over its
@@ -4145,11 +4167,21 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 // swing through the staircase that ends with the lens in his head.
                 // Only when the line where it is has collapsed (at the plaza fence a corner walk's line reaching
                 // 0.5 of good went round smoothly on HEAD and was cut needlessly: run cam10_r6on cornerwalk_1).
-                const bool cut = reachTo(pivot, turned(swingAtStart)) * len0 < 0.35f * good && shortMin * len0 < 0.5f * good &&
-                                 longMin * len0 < 0.5f * good && std::fabs(rest) > 30.0f * kDegToRad;
-                const float step = cut ? std::fabs(dir) : (std::min)(std::fabs(dir), kSwingFast * dt);
+                // FIX-CAMERA-17: under the turn budget at most one cut in kCutGap seconds (on the kerb between the wall and
+                // the railing it cut 116 -> -30, then -13 -> 105 0.3 s later: run cam17_b0); in between the swing goes
+                // round at its budgeted rate. (Without the cut a pocket's swing dragged the boom across the rail and the
+                // lens fell onto his axis: runs cam17_f2..f4.)
+                constexpr float kCutGap = 2.0f;
+                const bool cutWanted = reachTo(pivot, turned(swingAtStart)) * len0 < 0.35f * good && shortMin * len0 < 0.5f * good &&
+                                       longMin * len0 < 0.5f * good && std::fabs(rest) > 30.0f * kDegToRad;
+                const bool cut = cutWanted && (budgetDeg <= 0.0f || sinceSwingCut_ >= kCutGap);
+                if (cut) sinceSwingCut_ = 0.0f;
+                else if (cutWanted && cameraLogOn()) Log("cam: swing first: cut wanted %.1f s after the last, swung instead", sinceSwingCut_);
+                const float step = cut ? std::fabs(dir) : (std::min)(std::fabs(dir), kSwingFast * (std::min)(dt, 1.0f / 20.0f));
                 const float before = swingAngle_;
                 swingAngle_ += dir > 0.0f ? step : -step;
+                swingDwell_ = 1.0f;
+                swingDwellDir_ = dir > 0.0f ? 1.0f : -1.0f;
                 if (cut) {
                     swingCut = true;
                     if (cameraLogOn()) Log("cam: swing first: neither way round is open, cut %.1f -> %.1f deg", before / kDegToRad,
@@ -4957,6 +4989,24 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                                 nb->z, nb->r, nb->y0, nb->y1, lens.y);
                 }
             }
+            // FIX-CAMERA-17: under the turn budget an object only BETWEEN the lens and him does not shorten the boom:
+            // it fades as a foreground occluder (map_objects.cpp, FIX-CAMERA-12), and the shortening put the lens on
+            // his shoulder beside the wil phone box (boom 0.30, the frame clamp flipping the pitch -11/-38 every
+            // frame, the hero off the frame's edge: run cam17_f1). Only a lens that would stand in the object's widened
+            // cylinder stops short of it, and only from 0.6 out; nearer him the berth below moves the lens aside.
+            if (enter > 0.0f && CameraTurnBudgetDeg() > 0.0f) {
+                const gta2::Vec3 lensP{shownPivot.x + armDirX_ * boom_, shownPivot.y + armDirY_ * boom_, shownPivot.z + armDirZ_ * boom_};
+                const bool lensIn = ObstacleAt(obstacles, lensP, kPropLens, false) != nullptr;
+                if (!lensIn || enter < 0.6f) {
+                    if (cameraLogOn()) {
+                        static int every = 0;
+                        if ((++every % 10) == 1)
+                            Log("cam: prop on the boom at %.2f kept len=%.2f (%s; object at %.2f,%.2f)", enter, boom_,
+                                lensIn ? "at him: the berth moves the lens aside" : "between the lens and him: it fades", hit->x, hit->z);
+                    }
+                    enter = -1.0f;
+                }
+            }
             if (enter > 0.0f) {
                 const float want = (std::max)(0.3f, enter - 0.05f);
                 // FIX-CAMERA-16: past a tree's trunk over about 0.3 s (4 blocks/s), not kBoomIn's 0.1 s: while the lens
@@ -4964,7 +5014,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 const float rateIn = hit && hit->tree ? 4.0f : kBoomIn;
                 const float slow = boomAtStart > 0.0f ? (std::max)(want, boomAtStart - rateIn * dt) : want;
                 const gta2::Vec3 at{shownPivot.x + armDirX_ * slow, shownPivot.y + armDirY_ * slow, shownPivot.z + armDirZ_ * slow};
-                boom_ = (std::min)(boom_, ObstacleAt(obstacles, at, kPropLens, false) ? want : slow);
+                // FIX-CAMERA-17: under the turn budget the shortening is eased all the way unless the eased lens would
+                // be inside the object itself (its cylinder, not the 0.12 widening): the snap to `want` was a jump of
+                // the lens of up to a block in a frame beside the phone box, which the frame clamp turned into yaw.
+                const float snapMargin = CameraTurnBudgetDeg() > 0.0f ? 0.0f : kPropLens;
+                boom_ = (std::min)(boom_, ObstacleAt(obstacles, at, snapMargin, false) ? want : slow);
                 if (cameraLogOn()) Log("cam: prop on the boom at %.2f: len=%.2f (object at %.2f,%.2f r %.2f, %.2f..%.2f)", enter, boom_, hit->x, hit->z,
                                        hit->r, hit->y0, hit->y1);
             }
@@ -4979,6 +5033,12 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // FIX-CAMERA-10 (pmt2): and a berth off the street objects: a lens beside the phone box (not on the line to
             // him) still had its blue panes down a frame edge (run cam10_pmt2b, flamethrower fire_walk_01). Inside an
             // object's widened cylinder below its roof, the lens moves straight out from its axis, never through the mesh.
+            // FIX-CAMERA-17: under the turn budget the berth is an offset eased toward what it wants at kBerthRate
+            // blocks a second both ways (propBerthX_/Z_), at once only while the lens is inside the object's body
+            // itself: the snap out of the widened cylinder was a lens jump each frame he turned by the phone box.
+            const bool berthEase = CameraTurnBudgetDeg() > 0.0f;
+            float berthWantX = 0.0f, berthWantZ = 0.0f;
+            bool berthSnap = false;
             if (meshSolve && !obstacles.empty()) {
                 static int propBerthOn = -1;
                 if (propBerthOn < 0) { char b[8] = {}; propBerthOn = GetEnvironmentVariableA("GTA2DX9_CAM_PROP_BOOM", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
@@ -4993,11 +5053,36 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     const gta2::Vec3 out{o->x + ox / len * rim, e.y, o->z + oz / len * rim};
                     float t = 1.0f;
                     if (!eyecol::SegmentHit(shownPivot, out, &t) && !ObstacleAt(obstacles, out, kPropBerth, false)) {
-                        eyeX_ = out.x;
-                        eyeZ_ = out.z;
-                        if (cameraLogOn()) Log("cam: prop berth moved %.2f (object at %.2f,%.2f)", rim - len, o->x, o->z);
+                        if (berthEase) {
+                            berthWantX = out.x - e.x;
+                            berthWantZ = out.z - e.z;
+                            berthSnap = len < o->r;
+                        } else {
+                            eyeX_ = out.x;
+                            eyeZ_ = out.z;
+                        }
+                        if (cameraLogOn()) Log("cam: prop berth moved %.2f (object at %.2f,%.2f)%s", rim - len, o->x, o->z,
+                                               berthEase ? (berthSnap ? " at once (inside it)" : " eased") : "");
                     }
                 }
+            }
+            if (berthEase) {
+                constexpr float kBerthRate = 2.5f;
+                if (berthSnap || !boomKnown_) { propBerthX_ = berthWantX; propBerthZ_ = berthWantZ; }
+                else {
+                    const float dx = berthWantX - propBerthX_, dz = berthWantZ - propBerthZ_, d = std::hypot(dx, dz);
+                    const float k = d > kBerthRate * dt ? kBerthRate * dt / d : 1.0f;
+                    propBerthX_ += dx * k;
+                    propBerthZ_ += dz * k;
+                }
+                if (propBerthX_ != 0.0f || propBerthZ_ != 0.0f) {
+                    const gta2::Vec3 to{eyeX_ + propBerthX_, eyeY_, eyeZ_ + propBerthZ_};
+                    float t = 1.0f;
+                    if (!eyecol::SegmentHit(shownPivot, to, &t)) { eyeX_ = to.x; eyeZ_ = to.z; }
+                    else propBerthX_ = propBerthZ_ = 0.0f;
+                }
+            } else {
+                propBerthX_ = propBerthZ_ = 0.0f;
             }
             if (swingEase && meshSolve && q.floorAt) {
                 float under = 0.0f;
@@ -5326,7 +5411,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         constexpr float kFigureTop = 0.48f, kFigureRadius = 0.12f;
         const float dx = px - shownEye.x, dz = pz - shownEye.z;
         const float flatD = std::hypot(dx, dz);
-        if (flatD > 0.05f) {
+        // FIX-CAMERA-17: under the turn budget, from within 0.3 block of his axis (seen from above: the lens over him)
+        // the bearing to him is noise and the yaw is left as it is, fully applied again from 0.5; and the pitch part
+        // runs down to the axis (it used to switch off under 0.05 and the view sawed between -62 and -11 degrees).
+        const bool budgetClamp = CameraTurnBudgetDeg() > 0.0f;
+        if (flatD > (budgetClamp ? 0.005f : 0.05f)) {
             // Sideways: the figure's centre line and its width inside the side margins.
             const float bearing = std::atan2(dx, dz);
             const float halfW = std::atan2(kFigureRadius, flatD);
@@ -5335,12 +5424,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             float yawFix = 0.0f;
             if (off > side) yawFix = off - side;
             else if (off < -side) yawFix = off + side;
+            if (budgetClamp) yawFix *= (std::min)(1.0f, (std::max)(0.0f, (flatD - 0.3f) / 0.2f));
             if (yawFix != 0.0f) {
                 camYaw = WrapAngle(camYaw + yawFix);
                 finalYaw_ = camYaw;
             }
             // Up and down: elevation of the feet and the head along the view's forward direction.
-            const float fwd = dx * std::sin(camYaw) + dz * std::cos(camYaw);
+            const float fwdRaw = dx * std::sin(camYaw) + dz * std::cos(camYaw);
+            const float fwd = budgetClamp && fwdRaw > -0.3f ? (std::max)(fwdRaw, 0.08f) : fwdRaw;
             const bool mouseHasIt = look.lastMoved > 0.0 && Now() - look.lastMoved < s.tpReturnDelay;
             if (fwd > 0.05f && !mouseHasIt) {
                 const float aFeet = std::atan2(baseY - shownEye.y, fwd);
@@ -5512,7 +5603,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 char b[16] = {};
                 footPitchRate = GetEnvironmentVariableA("GTA2DX9_CAM_FOOT_PITCH_RATE", b, sizeof b) && atof(b) > 1.0 ? static_cast<float>(atof(b)) : 280.0f;
             }
-            const float maxP = (inVehicle ? 280.0f : footPitchRate) * kDegToRad * step, maxY = 300.0f * kDegToRad * step;
+            // FIX-CAMERA-17: on foot under the turn budget, yaw and pitch each at most the budget's rate (8 a frame at
+            // 30 fps by default, against 10 of yaw and 9.3 of pitch before).
+            const float budgetRate = inVehicle ? 0.0f : CameraTurnBudgetDeg() * 30.0f;   // on foot (the in-car chase keeps its rates)
+            const float maxP = (budgetRate > 0.0f ? (std::min)(budgetRate, inVehicle ? 280.0f : footPitchRate) : (inVehicle ? 280.0f : footPitchRate)) * kDegToRad * step,
+                        maxY = (budgetRate > 0.0f ? (std::min)(budgetRate, 300.0f) : 300.0f) * kDegToRad * step;
             const float dp = camPitch - shownPitch_, dy = WrapAngle(camYaw - shownYaw_);
             if (std::fabs(dp) > maxP || std::fabs(dy) > maxY) {
                 if (cameraLogOn()) {

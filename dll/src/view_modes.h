@@ -77,6 +77,12 @@ struct ViewModeSettings {
     float turnSpeed = 100.0f;
     float turnRateFoot = 120.0f;    // the orbit camera on foot (mouse orbit and the re-centre)
     float turnRateCar = 90.0f;      // the chase camera at the wheel
+    // FIX-CAMERA-17 (owner10nov-B10): the most the third-person picture turns in one frame, degrees at 30 fps
+    // (scaled by the frame time), yaw and pitch each; 0 = no budget (as before). [camera] turn_budget.
+    float turnBudget = 8.0f;
+    // FIX-CAMERA-17 (qav26): in third person a pedestrian standing close to the lens (or across the line to him
+    // within a block of it), nearer the lens than he is, is not drawn. [camera] chase_hide_near_peds.
+    bool chaseHideNearPeds = true;
     float fpCarRate = 240.0f;       // first person at the wheel: fixed to the car, this is only a safety cap
     float fpFollowRate = 150.0f;    // first person on foot when the view follows the heading
     // First person: the view heading eases onto the game's over this long
@@ -235,6 +241,9 @@ struct ViewModeSettings {
 };
 
 ViewModeSettings& ViewModes();
+// FIX-CAMERA-17: the turn budget in force, degrees a frame at 30 fps (ViewModeSettings::turnBudget, or
+// GTA2DX9_CAM_TURN_BUDGET when set; 0 = off: the swing cut, the fast swing and the 300 deg/s cap as before).
+float CameraTurnBudgetDeg();
 ViewMode CurrentViewMode();
 void SetViewMode(ViewMode mode);
 void CycleViewMode();
@@ -440,6 +449,10 @@ private:
     float swingAngle_ = 0.0f;  // on foot: the boom swung round (yaw) what stands behind him, radians, eased
     float swingRigYaw_ = 0.0f;   // FIX-CAMERA-5: the rig's boom heading last frame (the swing may hold the world heading)
     bool swingRigKnown_ = false;
+    float swingDwell_ = 0.0f;      // FIX-CAMERA-17: seconds since a fast swing within which none starts the other way
+    float swingDwellDir_ = 0.0f;   // FIX-CAMERA-17: that swing's direction (+1/-1)
+    float sinceSwingCut_ = 60.0f;  // FIX-CAMERA-17: seconds since the swing last cut round (one cut in 2 s under the budget)
+    float propBerthX_ = 0.0f, propBerthZ_ = 0.0f;   // FIX-CAMERA-17: the eased lens offset out of a street object's berth
     float swingClearHold_ = 0.0f;  // FIX-CAMERA-10: seconds the shown boom may still ease in at a sheet after a fast swing
     // FIX-CAMERA (chase-cam-foot-snap-cuts, pt-chase-camera-pumps-against-wall): the
     // third-person boom as a state. The collision solve says how long the boom may be;

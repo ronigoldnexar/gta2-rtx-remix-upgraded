@@ -1377,3 +1377,59 @@ flat front still makes a bus, never a tank). Adding a vehicle means one table en
   `SHC_IMAGE` set to a plain Ubuntu 25.10 Wine 10 image (`linux/docker/Dockerfile.shc-wine10`: `apt-get install wine
   wine32:i386 wine64`), because gta2-wine2510 is not on the 8x L4 host. That image reproduces HEAD's
   `visuals_gen.h` byte for byte from the unchanged HLSL.
+
+## The third-person turn budget; no swing cut ping-pong; the boom past a phone box; peds at the lens (FIX-CAMERA-17, 10 Nov 2026)
+
+Owner, playtest 2 (RTX 5090): "standing near a phone booth can cause camera jitter; jitter also occurs when a large
+vehicle passes by" (work order owner10nov-B10, plan section B10), and qav26 (standing peds fill the chase lens).
+
+- **What the owner's log lines meant.** `view: camera clearance (...): nearest surface 0.600` is the world-mesh probe's
+  own search radius: `eyecol::Nearest(p, 0.6)` returns 0.6 when no face of the static map mesh is nearer, and that mesh
+  holds no street objects, cars or people, so the line could never see a phone box or a bus; "safety net moved 0
+  frames" is the 0.12 near-plane push, which only acts inside 0.12 of a map face. The line now also reports the nearest
+  street object (MapObjectObstacles), car or wreck (LiveCameraCars, his own excluded) and person (LiveAimPeds, him
+  excluded) and the frames the lens was inside one: `street object A car B person C (9 = none within 3), lens inside one
+  N frames`. `view: move turn capped: yaw -159.7` was never a 160-degree frame: it is what a view move still had to turn
+  after a jump of its target, logged every fifth frame while the 8-degree-a-frame cap closed it (-159.7, -121.5, -81.5,
+  -41.5 are 40 degrees = 5 frames apart); the line now says "still to turn (this frame at most 8.0)".
+- **What did jump** (probe `gamerun/cam17_probe.py`, `keys_cam17.sh`, CAM17_SEGS=booth,bus,lane; `force_car_model=11`
+  draws every traffic car as the bus; GTA2DX9_LOG_CAMERA=1, the `cam: pose` line now ends in `ystep=`, the yaw turned
+  since the last frame). Run cam17_b0 (HEAD): the largest per-frame yaw 139.2 degrees, 34 frames over 8. Every frame over
+  20 degrees was FIX-CAMERA-10's `cam: swing first: neither way round is open, cut` (the boom cut round him to the open
+  side in one frame): by the wil plaza phone box, which stands at the iron stair (map 158.5,138.5), and on the kerb at
+  164.5,147.6 between the wall and the railing, where it cut 116 -> -30 and 0.3 s later -13 -> 105, then -15 -> -150.
+  Between the cuts the 360-degree-a-second fast swing showed as 10-degree frames for half a second.
+- **The turn budget** (`[camera] turn_budget`, degrees a frame at 30 fps, default 8 = 240/s; `GTA2DX9_CAM_TURN_BUDGET`
+  overrides, 0 = all of the below off). In third person on foot: the solver's final rate cap is the budget (was 300 deg/s
+  of yaw, 280 of pitch); the fast swing turns at most three quarters of it; the swing's cut happens at most once in 2 s
+  (between, it swings: `cam: swing first: cut wanted N s after the last, swung instead`), and for 1 s after a fast swing
+  none starts the other way unless the line where it is has collapsed (`cam: swing first held`); after all of the camera,
+  world_view checks the shown pose against the frame before and logs every frame whose camera wanted more than the
+  budget (`view: turn over budget`), showing it at the budget; a frame whose lens moved 0.6 block or more is a cut, not
+  a turn (`view: camera cut (not a turn)`). The frame clamp leaves the yaw alone from within 0.3 block of his axis (seen
+  from above the bearing to him is noise: it asked for 87-136 degrees a frame) and keeps its pitch part down to the axis
+  (it switched off under 0.05 and the pitch sawed between -62 and -11).
+- **Past a phone box** (FIX-CAMERA-10's prop boom, under the budget): an object only between the lens and him no longer
+  shortens the boom (it fades as a foreground occluder, FIX-CAMERA-12): the shortening put the lens on his shoulder at
+  0.30 with the pitch flipping every frame (run cam17_f1). A lens that would stand in the object's widened cylinder still
+  stops short of it from 0.6 out; nearer him the berth moves the lens aside, eased at 2.5 blocks/s as an offset
+  (`cam: prop berth moved ... eased`), at once only inside the object's body itself.
+- **Measured** (same probe, same spots, the scripted walk loops differ run to run): HEAD cam17_b0 / fix cam17_f5:
+  largest per-frame yaw 139.2 / 8.0 outside the one cut frame (11.5, logged as a cut); frames over 8 degrees 34 / 1;
+  swing cuts 5 / 1; yaw reversals over 2 degrees 7 / 3; `turn over budget` 0; the clearance line varies (29 / 38
+  distinct world-mesh values over 2 min, street object down to 0.12-0.15, person 0.13-0.18); lens inside a street object,
+  car or person 0 frames in both; hero off the frame (pose box) 1 / 4 frames. Intermediate builds without the cut
+  (cam17_f2-f4) put 35-81 frames off the frame in the pockets (the slow swing dragged the boom across the rail onto his
+  axis), which is why the cut stays, rate-limited. Bus pass: standing in the kerb lane at 165.5,149.45 (traffic halts at
+  him, the boom over the road): buses to 0.22 block of the lens, lens inside 0 frames, largest yaw 1.0 and pitch 4.6
+  degrees a frame with the budget on (cam17_f6) and off (cam17_b1) alike: a passing bus did not shake the camera in this
+  repro; the owner's jitter reproduced as the pocket cuts above.
+- **Pedestrians at the lens** (qav26, `dll/src/live_geometry.cpp` beside FIX-CAMERA-6's lens rule): in third person a
+  pedestrian nearer the lens than he is, within 0.6 block of it (seen from above) or across the line to him within a
+  block of it (0.22 off the line), is not drawn, held 12 frames after the last reason; `view: pedestrian by the chase
+  lens not drawn (...)`. `[camera] chase_hide_near_peds=0` or `GTA2DX9_CAM_PED_LENS=0` draws them (A/B).
+  Filer's repro on a HEAD stage (`qa_run.sh qav26c17`, both spots, four weathers): 200 hides in the log (133 at the
+  lens, 43 across the line), people to 0.23 block of the lens, and none of the 40 third-person frames has a figure
+  filling the lens. The order's 8-heading check at a standing crowd was not run separately.
+- Short of a shipping frame: a pocket with no way open still cuts (at most every 2 s); a hidden pedestrian pops rather
+  than dithers out; vehicles between the lens and him are not faded.
