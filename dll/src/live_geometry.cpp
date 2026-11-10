@@ -76,8 +76,15 @@ struct DriverHands {
     float k = 1.0f, curl = 1.0f, tilt = 0.35f;
     float holeOff[2][3] = {};
     bool holeOk[2] = {false, false};
+    // FIX-COCKPIT-BODY-2 (Remix look-down, cb2_rmx1 t_cb_013_down): the head shrunk into its own joint left a
+    // pinched skin cone just under the eye; the raster near plane hid it, the path tracer shows it filling the bottom
+    // of a look-down. The shrunk head is moved to the neck's base and the neck shrunk into its base ([devtools] fp_neck_pct, 5)
+    // (the cone becomes a collar's opening). GTA2DX9_FP_HEAD_TO_NECK=0: the head shrunk into its own joint as 5c0ee78.
+    int head = -1, neck = -1;
+    std::vector<int> headTree;
 };
 DriverHands g_driverHands;
+float g_neckShrink = 0.05f;   // FIX-COCKPIT-BODY-2: [devtools] fp_neck_pct (5)
 namespace {
 gta2::Vec3 NodeAt(const std::vector<gta2::Mat4>& W, int n) { const gta2::Mat4& M = W[static_cast<size_t>(n)]; return {M.m[3][0], M.m[3][1], M.m[3][2]}; }
 gta2::Vec3 RowOf(const gta2::Mat4& M, int r) { return {M.m[r][0], M.m[r][1], M.m[r][2]}; }
@@ -136,6 +143,18 @@ void DriverGripHook(const Model& model, std::vector<gta2::Mat4>* W, DriverHands&
 void DriverHandsHook(const Model& model, std::vector<gta2::Mat4>* W, void* context) {
     DriverHands& d = *static_cast<DriverHands*>(context);
     if (&model != d.model || W->size() != model.nodes.size()) return;
+    static const bool headToNeck = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_HEAD_TO_NECK", b, sizeof b) && b[0] == '0'); }();
+    if (headToNeck && d.head >= 0 && d.neck >= 0) {
+        const gta2::Vec3 to = NodeAt(*W, d.neck), from = NodeAt(*W, d.head);
+        for (int n : d.headTree) {
+            gta2::Mat4& M = (*W)[static_cast<size_t>(n)];
+            M.m[3][0] = to.x + (M.m[3][0] - from.x) * 0.02f; M.m[3][1] = to.y + (M.m[3][1] - from.y) * 0.02f; M.m[3][2] = to.z + (M.m[3][2] - from.z) * 0.02f;
+            for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) M.m[r][c] *= (n == d.head ? 1.0f : 0.02f);
+        }
+        // and the neck itself shortened into its base: its skin was the pale mound filling a look-down under Remix (cb2_rmx2)
+        gta2::Mat4& Nk = (*W)[static_cast<size_t>(d.neck)];
+        for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) Nk.m[r][c] *= g_neckShrink;
+    }
     if (d.gripOn) { DriverGripHook(model, W, d); return; }
     weaponrig::CurlFists(model, W, 1.0f);
     for (int h = 0; h < 2; ++h) {
@@ -11714,6 +11733,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                     if (strcmp(model->nodes[i].name, kMid[h][1]) == 0) d.tip[h] = static_cast<int>(i);
                                 }
                                 d.ua[h] = A.ua[h]; d.fa[h] = A.fa[h];
+                                if (h == 0) {
+                                    d.head = A.head;
+                                    for (size_t i = 0; i < model->nodes.size(); ++i) if (strcmp(model->nodes[i].name, "Bip01 Neck") == 0) d.neck = static_cast<int>(i);
+                                    for (size_t i = 0; i < model->nodes.size() && d.head >= 0; ++i) if (isUnder(static_cast<int>(i), d.head)) d.headTree.push_back(static_cast<int>(i));
+                                }
                                 for (size_t i = 0; i < model->nodes.size() && d.ua[h] >= 0 && d.fa[h] >= 0 && d.hand[h] >= 0; ++i) {
                                     const int n = static_cast<int>(i);
                                     if (isUnder(n, d.hand[h])) continue;
@@ -11732,6 +11756,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             gripTilt = GetPrivateProfileIntA("devtools", "fp_grip_tilt", 90, CarBodiesDevIni());
                             gripCurl = GetPrivateProfileIntA("devtools", "fp_grip_curl", 80, CarBodiesDevIni());
                             handScalePct = GetPrivateProfileIntA("devtools", "fp_hand_scale", 100, CarBodiesDevIni());
+                            g_neckShrink = (std::max)(1, (std::min)(100, static_cast<int>(GetPrivateProfileIntA("devtools", "fp_neck_pct", 5, CarBodiesDevIni())))) / 100.0f;
                             CabSetGripAngle(GetPrivateProfileIntA("devtools", "fp_grip_deg", gripEnv ? 30 : 17, CarBodiesDevIni()) * 3.14159265f / 180.0f);
                         }
                         g_driverHands.gripOn = gripEnv;

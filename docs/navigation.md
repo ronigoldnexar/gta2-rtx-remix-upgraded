@@ -1020,6 +1020,13 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
   both edges and the lining across the top; cb2_v4 shows only the bonnet and the road). `GTA2DX9_DASHCAM_FRAME=1`
   draws the frame as 5c0ee78 did. A first-person near pass for the arms cut when looking far down is designed (not
   built) in `defects/assigned/owner-fp-cockpit-no-driver-body-and-wheel-counter-rotates.FIX-COCKPIT-BODY-2-NEAR-PASS-DESIGN.md`.
+- **His head and neck from his eyes under Remix (FIX-COCKPIT-BODY-2).** Remix does not cut at the raster's 0.05
+  near plane, so a look-down shows the upper arms whole to the shoulders, but the head shrunk into its own joint
+  left a pinched skin cone just under the eye that filled the bottom of the frame (run cb2_rmx1). The shrunk head
+  now goes to the neck's base and the neck shrinks into it (`[devtools] fp_neck_pct`, 5): a V-neck collar at the
+  bottom of the look-down (cb2_rmx4). `GTA2DX9_FP_HEAD_TO_NECK=0` is the 5c0ee78 head. The Remix check of the cockpit
+  and the dashcam: `defects/assigned/owner-fp-cockpit-no-driver-body-and-wheel-counter-rotates.REMIX-NOTE-FIX-COCKPIT-BODY-2.md`
+  (launcher `gamerun/cb2_remix.sh` = playtest_remix.sh with `RKEYS=keys_cb2_remix.sh`).
 - **What still falls short of the bar.** The renderer's near plane is 0.05 block (about 25 cm at the cab's scale):
   his shoulders are always behind it, so looking steeply down (past ~45 degrees) the upper arms end in a flat cut
   where they cross it; a real fix is a separate first-person pass with its own near plane (cab and body together),
