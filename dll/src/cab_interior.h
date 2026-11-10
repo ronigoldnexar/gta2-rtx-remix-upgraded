@@ -71,6 +71,10 @@ void CabNoteDriverBody();
 bool CabDriverBodyRecent();
 // FIX-COCKPIT-BODY-2: where the body's hands hold the rim, radians above its horizontal (0.52: ten to two).
 void CabSetGripAngle(float radians);
+// FIX-DRIVER-GEOM-2: live_geometry, placing his arms at the wheel: how far ahead of the eye (along the car's forward,
+// blocks) the wrist that takes grip `grip` was put this frame. The cab's grip arc ends where a wrist came nearer than
+// the 0.05 near plane allows (the fist cut open, a see-through ball: demo2_dep1, dg2_dgh1 042).
+void CabReportWristFwd(int grip, float fwd);
 
 // Under Remix (and [devtools] remix_cab_albedo != 0) the surfaces' colours go into their textures,
 // the only albedo Remix reads (FIX-REMIX-NIGHT-2). Off: the plain renderer's material colours.

@@ -369,6 +369,8 @@ bool CabLastDriverPose(CabDriverPose* out) {
 }
 void CabNoteDriverBody() { g_bodyStamp = GetTickCount64(); }
 float g_gripPhi = 0.52f;   // FIX-COCKPIT-BODY-2: the body's grips above the rim's horizontal (radians; 5c0ee78: 0.30)
+namespace { float g_wristFwd[2] = {1.0f, 1.0f}; ULONGLONG g_wristStamp[2] = {0, 0}; }
+void CabReportWristFwd(int grip, float fwd) { if (grip == 0 || grip == 1) { g_wristFwd[grip] = fwd; g_wristStamp[grip] = GetTickCount64(); } }
 void CabSetGripAngle(float radians) { g_gripPhi = (std::max)(0.0f, (std::min)(1.2f, radians)); }
 bool CabDriverBodyRecent() { return g_bodyStamp && GetTickCount64() - g_bodyStamp < 250; }
 
@@ -618,7 +620,33 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         const Vec3 up{0.0f, std::cos(rake), -std::sin(rake)};      // in the wheel's plane, toward its top
         const Vec3 axis{0.0f, std::sin(rake), std::cos(rake)};     // its column, away from the driver
         const Vec3 across{1.0f, 0.0f, 0.0f};
-        const Vec3 c = rimTop - up * R;
+        // FIX-DRIVER-GEOM-2 (dg2_dgh2): on a cab whose wheel sits close to the eye (the 042: both wrists 0.050..0.052 ahead
+        // of the eye at ten to two, against the 0.05 near plane) the fists were cut open and read as pale see-through
+        // shapes. The wheel (rim, hub, column) is moved along its column, away from the driver, by what the seat needs:
+        // learned while both hands are at home from where live_geometry put his wrists (CabReportWristFwd), eased, at most
+        // kPushMax; a new seat starts again from none. The van (0.060) and the fire truck (0.057) need little or nothing.
+        // GTA2DX9_FP_GRIP_NEAR_OLD=1: no push (A/B).
+        static float wheelPush = 0.0f;
+        static ULONGLONG pushStamp = 0;
+        static bool handsHome = false;   // last frame's grips both at home, not moving (set below)
+        {
+            static const bool pushOff = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_GRIP_NEAR_OLD", b, sizeof b) && b[0] == '1'; }();
+            constexpr float kWristWant = 0.058f, kPushMax = 0.012f;
+            const ULONGLONG now = GetTickCount64();
+            if (!p.warm) {
+                if (!pushStamp || now - pushStamp > 500) wheelPush = 0.0f;
+                pushStamp = now;
+                const float sc = std::sqrt(carToWorld.m[2][0] * carToWorld.m[2][0] + carToWorld.m[2][1] * carToWorld.m[2][1] + carToWorld.m[2][2] * carToWorld.m[2][2]);
+                if (!pushOff && handsHome && sc > 1e-6f && now - g_wristStamp[0] < 200 && now - g_wristStamp[1] < 200) {
+                    const float f = (std::min)(g_wristFwd[0], g_wristFwd[1]);
+                    const float want = (std::max)(0.0f, (std::min)(kPushMax, wheelPush + (kWristWant - f) / sc));
+                    wheelPush += (want - wheelPush) * 0.25f;
+                    static float loggedPush = 0.0f;
+                    if (std::fabs(wheelPush - loggedPush) > 0.002f) { loggedPush = wheelPush; Log("cab: wheel moved %.4f along its column (wrist %.3f from the eye)", wheelPush, f); }
+                }
+            }
+        }
+        const Vec3 c = rimTop - up * R + axis * wheelPush;
         // FIX-SEAT-ENTRY (pfeel41 f11-24): the wheel turns with the front wheels as the driver would
         // turn it, not with every flicker of the game's heading. The steer the bodies measure (the
         // heading change over the distance a frame) jumps by a tenth of a radian on a straight road;
@@ -709,10 +737,32 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             static int regrips = 0;
             const ULONGLONG gnow = GetTickCount64();
             const float gdt = gripStamp ? (std::min)(0.1f, static_cast<float>(gnow - gripStamp) / 1000.0f) : 0.0f;
+            // FIX-DRIVER-GEOM-2: each hand's own arc end, lowered for this seat where its wrist was drawn within kWristMin of
+            // the eye (a sports wheel close to the eye: the 042's fist at 1.0 rad cut open with its wrist at 0.047, dg2_dgh1)
+            constexpr float kWristMin = 0.0495f;
+            static float handHigh[2] = {kHigh, kHigh};
             if (!gripStamp || gnow - gripStamp > 500) {   // a new seat (or after a gap): both hands at home
                 gripOff[0] = kHome - turn; gripOff[1] = kPi - kHome - turn; move[0] = move[1] = GripMove{};
+                handHigh[0] = handHigh[1] = kHigh;
             }
             gripStamp = gnow;
+            // FIX-DRIVER-GEOM-2 (demo2_dep1, pmab1/pfl71 re-open): on a raked wheel (a van's, a truck's) the rim's top is the
+            // stretch nearest the eye: a hand held at 1.05 rad, or one lifted radially outward mid-regrip, put its wrist at
+            // 0.050 from the eye (dg2_rep1 'arms as drawn'), on the 0.05 near plane: the fist was cut open and read as a huge
+            // see-through palm. Each hand's arc now ends where its grip would come nearer the eye (along the car's forward)
+            // than its home grip by more than kNearer (world blocks), and a regrip lifts the hand along the column, away from
+            // the eye. GTA2DX9_FP_GRIP_NEAR_OLD=1: a0dcb09's fixed arc and radial lift (A/B).
+            static const bool nearOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_GRIP_NEAR_OLD", b, sizeof b) && b[0] == '1'; }();
+            constexpr float kNearer = 0.003f;
+            float high = kHigh;
+            if (!nearOld) {
+                auto fwdOf = [&](float a) { return gta2::Dot(W(c + (across * std::cos(a) + up * std::sin(a)) * R) - g_driver.eye, g_driver.fwd); };
+                const float f0 = fwdOf(kHome);
+                for (float a = kHome; a <= kHigh + 1e-4f; a += 0.025f) { if (fwdOf(a) < f0 - kNearer) break; high = a; }
+                high = (std::max)(kHome + 0.10f, high);
+                static float lastHigh = -1.0f;
+                if (std::fabs(high - lastHigh) > 0.04f) { lastHigh = high; Log("cab: grip arc %.2f..%.2f rad (rim top nearer the eye)", kLow, high); }
+            }
             for (int h = 0; h < 2; ++h) {
                 const float home = h == 0 ? kHome : kPi - kHome;
                 auto side = [&](float a) { return h == 0 ? a : kPi - a; };   // an angle on this hand's side, as seen from hand 0's
@@ -728,18 +778,24 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
                     if (k >= 1.0f) { move[h].on = false; move[h].since = 0.0f; gripOff[h] = home - turn; phi = home; lift = 0.0f; }
                 } else {
                     const float a = side(phi);
-                    const bool out = a < kLow || a > kHigh;
+                    if (!nearOld && gnow - g_wristStamp[h] < 200 && g_wristFwd[h] < kWristMin && a > kHome + 0.06f && a - 0.06f < handHigh[h]) {
+                        handHigh[h] = (std::max)(kHome + 0.06f, a - 0.06f);
+                        static int nearLogs = 0;
+                        if (nearLogs < 30) { ++nearLogs; Log("cab: hand %d wrist %.3f from the eye at %.2f rad: its arc ends at %.2f", h, g_wristFwd[h], a, handHigh[h]); }
+                    }
+                    const float hi = nearOld ? high : (std::min)(high, handHigh[h]);
+                    const bool out = a < kLow || a > hi;
                     const bool away = std::fabs(turn) < 0.20f && std::fabs(a - kHome) > 0.30f;
                     const bool free = !move[1 - h].on && move[h].since > kRest;
                     if ((out || away) && free) {   // let go, take the rim again at home
                         move[h].on = true; move[h].t = 0.0f;
-                        move[h].from = side((std::max)(kLow, (std::min)(kHigh, a)));
+                        move[h].from = side((std::max)(kLow, (std::min)(hi, a)));
                         phi = move[h].from;
                         ++regrips;
                         static int regripLogs = 0;
                         if (regripLogs < 60) { ++regripLogs; Log("cab: regrip hand %d at %.2f rad (turn %.2f, %s), %d so far", h, a, turn, out ? "out of its arc" : "back home", regrips); }
                     } else if (out) {   // waiting for the other hand: held at its arc's end
-                        const float held = side((std::max)(kLow, (std::min)(kHigh, a)));
+                        const float held = side((std::max)(kLow, (std::min)(hi, a)));
                         gripOff[h] = held - turn; phi = held;
                     }
                 }
@@ -753,9 +809,11 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
                 const Vec3 radial = across * std::cos(phi) + up * std::sin(phi);
                 // mid-move the hand rides a little off the rim, outward only (toward the eye it met the 0.05 near plane on a
                 // van's flat wheel and was cut open, see-through: dg_pfl71)
-                g_driver.grip[h] = W(c + radial * (R * (1.0f + 0.12f * lift)));
+                g_driver.grip[h] = nearOld ? W(c + radial * (R * (1.0f + 0.12f * lift)))
+                                           : W(c + radial * R + axis * (0.6f * st.wheelTube * lift));
                 g_driver.rimTangent[h] = WV(up * std::cos(phi) - across * std::sin(phi));
             }
+            handsHome = !move[0].on && !move[1].on && std::fabs(gripOff[0] + turn - kHome) < 0.05f && std::fabs(kPi - (gripOff[1] + turn) - kHome) < 0.05f;
             {   // FIX-DRIVER-GEOM (pfl71): which side grip 0 belongs to, from its home on the rim, not where it is now
                 const Vec3 h0 = W(c + (across * std::cos(kHome) + up * std::sin(kHome)) * R), h1 = W(c + (across * std::cos(kPi - kHome) + up * std::sin(kPi - kHome)) * R);
                 g_driver.grip0Right = gta2::Dot(h0 - h1, g_driver.right) > 0.0f;

@@ -12135,6 +12135,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                     wrist = fpPose.grip[g] - ow;
                                 }
                             }
+                            CabReportWristFwd(g, gta2::Dot(wrist - fpPose.eye, fpPose.fwd));   // FIX-DRIVER-GEOM-2: the grip arc's near limit
                             const gta2::Vec3 pole = gta2::Normalize(fpPose.right * (onRight ? 1.0f : -1.0f) - U * 0.35f);   // elbows out
                             float tm[3], pm[3];
                             BoardingWorldToModel(Wn, wrist, false, tm);

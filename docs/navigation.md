@@ -1218,3 +1218,31 @@ went to the frame's bottom edge (A-Type 042) or down over the gauges.
   shows him on this probe without touching the car draw. Short of AAA: he is seen over the truck's roof from up to
   45 degrees, small at the far edge of the roof; a moving car that stops beside him is craned over only once
   measured still (~1 s); a truck crossing slowly at under 0.6 b/s still counts as standing.
+
+### No see-through fists at full lock or on a wheel near the eye (FIX-DRIVER-GEOM-2, 10 Nov 2026)
+
+The owner demo's dependency run (pfl71 recipe on the a0dcb09 stage: the 068 van driven into a wall twice, then a held
+Left and Right against it) showed both fists as tan, balled, see-through shapes with the rim and gauges visible
+through them during the held turn. Reproduced on HEAD 05c78dc (run dg2_rep1, 6 fps strip): the hand moving or held
+at its arc's end on the rim's top. The steer was not the cause (the rim went to -1.75 on the held Left and +1.75 on the
+held Right, as it should); `cockpit: arms as drawn` put that wrist 0.050 ahead of the eye, on the 0.05 near plane:
+the fist was cut open. Two things took it there on a raked wheel (van, truck): the rim's top is its stretch nearest
+the eye, and a0dcb09's regrip lifted the hand radially outward, which at the top is toward the driver. On the 042
+A-Type (a steep wheel close to the eye) both wrists sat at 0.050..0.052 even at ten to two, and a hand at 1.0 rad
+was a pale ball (dg2_dgh1).
+
+- Each hand's arc ends where its grip would come nearer the eye (along the car's forward) than its home grip by
+  more than 0.003 block (`cab: grip arc 0.30..0.65` on the 068, 0.70 on the 017, unchanged 1.04 on the 042).
+- A regrip lifts the hand along the column, away from the eye, not radially.
+- live_geometry reports where each wrist was put (`CabReportWristFwd`); a hand whose wrist came within 0.0495 of
+  the eye above its home ends its arc there for the seat (`cab: hand N wrist ... its arc ends at`).
+- The wheel (rim, hub, column) moves along its column, away from the driver, by what the seat needs to put the
+  nearer wrist 0.058 ahead of the eye at home, learned while both hands are at home, eased, at most 0.012
+  (`cab: wheel moved`): 0.0077 on the 042, 0 on the 068, 0.002 on the 017.
+- `GTA2DX9_FP_GRIP_NEAR_OLD=1`: a0dcb09's arc, radial lift and no wheel move (A/B).
+
+Verified: dg2_fix3 (the demo2_dep recipe, 162 samples at 6 fps through both impacts and the held turns: both hands
+opaque and on the rim in every sample), dg2_dgh3 (dghands probe: locks 0/+-8/+-17 and wall crashes on 042, 068,
+017). Not this change: with `[visuals] enabled=1` the post pass's shadow mask/AO reads the dash behind his forearm,
+so a forearm crossing the dash's top edge shows a faint band of the dash's shading (gone with visuals off, run
+dg2_nv1); filed for the visuals owner. The 017 draws no cab at +8 degrees of forced steer (filed separately).
