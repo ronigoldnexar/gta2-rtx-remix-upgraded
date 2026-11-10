@@ -475,8 +475,25 @@ are read from each style. Font characters: sprite `FontFirst(f) + c - 33` (FONB 
   game's sprite, lost ones as a dim dark silhouette, the last one blinking (not growing: a size pulse
   would resample it) at 30 or less; the ammunition in font 1 grey (red under 5), the weapon's name in
   font 1 gold under it, the game's icon left of them.
+- Untested: a money value with thousands (the 3-pixel group gap), the gain pop, low ammunition in red, INF,
+  the low-health blink, 1080p (3x, Scale3x) and other `scale_pct` values; Industrial/Residential under Remix.
 - Still Barlow (the game has no glyphs for these in this style): the clock and counter chip, the phone
   chip, the brief card's words, the beat titles, the pickup labels, the "N" on the map. The game's clock
   digits (user 163-172, silver, 17x25) could carry the clock next.
 - `game_font=0` is the old typeface; `game_font_smooth=0` plain whole pixels (the classic look, blockier
   at 1440p).
+
+Verified (FIX-HUD-5, 10 Nov 2026, frames opened; L4 host, plain GL unless said):
+- 720p, bil spawn with the machine gun (fh5_b1, `gamerun/keys_fh5_mg.sh`, the same state in both views: $0,
+  multiplier 1, lives 5, health 100, 15 rounds): the classic frame and the third-person frame show the same
+  `$0`, red `x1`, green `x5`, five hearts and grey `15`, glyph for glyph the same art and colours (classic at
+  the game's 1.5x nearest, ours at 2x Scale2x, crisp, whole-pixel edges, alpha 0/255 only).
+- 720p, wil spawn (fh5_w1, `gamerun/keys_fh5_hud.sh`): classic, third and first person agree.
+- 2560x1440 (fh5_q2, `SCREEN_W=2560 SCREEN_H=1440`): 4x glyphs, sharp at 1:1, the bevel's colours exact.
+- Remix (fh5_rx1, `gamerun/rn_remix.sh` + `PROBE=rn_fh5_hud.py`, wil noon, GPU 4): third and first person, the
+  glyphs crisp over the path-traced frame, drawn as UI in their own colours (no Remix lighting on them),
+  readable over the bright facade in first person.
+- Classic: vreg `spawn_classic` PASS, 0 tiles (vreg_stage_fixhud5_1110_215116); the street shots change in
+  the HUD's regions only.
+- Probe: `GTA2DX9_HUD_LOG_GLYPHS=1` logs each distinct textured quad of HUD parts 1, 6 and 11 (texture size,
+  physical palette, texel rect, quad, colour) in any view: how the table above was measured.
