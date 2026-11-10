@@ -31,7 +31,8 @@ The classic view never shows the modern HUD; switching views fades it in and out
 | Wanted: six stars, the earned ones filled and pulsing | under that | ped cop points int16 `+0x20A` (stars at 600/1600/3000/5000/8000/12000) |
 | Weapon card: the game's own icon, name, ammo (red under 5) | top right | ped weapon object `+0x170` (type `+0x1C`, ammo `+0`, shown /10; -1 = INF); the icon is the largest quad of the game's HUD part 1, redrawn |
 | Clock (mm:ss, blinks red under 10 s) and counter | top centre | HUD object `[0x672F40]+0x7E8`: four 12-byte slots, `+0` clock in ticks (30 a second, < 0 none), `+4` pointer to a counter's value |
-| Mini-map turned with the camera, player arrow, north | bottom left | the level's columns (top lid by ground type: road, pavement, field, roofs by height) |
+| Mini-map: a disc turned with the camera, player arrow, north on the rim (FIX-HUD-4) | bottom left | the level's columns (top lid by ground type: road, pavement, field, roofs by height), drawn as vectors |
+| Gang respect: three meters, the gang's emblem and a split track (FIX-HUD-4) | top left | gang pool `[0x5EB898]`, 0x144 a gang: name `+2`, the player's respect int8 `+0x11C` (-100..100, a bar is 20) |
 | Objective blips (yellow, pulsing; a chevron on the rim when off the map) and phones (cyan) | on the map | HUD arrow slots `[0x672F40]+0x1F18` (17 of 0x7C: type `+0x20`, target `+0x44/+0x48` 18.14 fixed); types 1-4 are phones |
 | Health bar (flash on a hit, red screen-edge pulse at 30 or less) | under the map | ped `+0x216` (100 full) |
 | Car condition bar (orange from 16000, when the car burns) | beside health | car damage int16 `+0x74` (32000 explodes) |
@@ -44,7 +45,7 @@ Armour: no armour field of GTA2's is known yet, so no armour bar is drawn.
 
 `hud_pass.cpp` already tells the 19 calls of the game's HUD draw apart. With the modern HUD
 on screen, the overlay drops parts 1 (score, lives, multiplier, weapon), 4 (the row of icons
-centred at the top: the wanted heads), 6 (hearts), 11 (clocks and counters) and 10 (the
+centred at the top: the wanted heads), 5 (the gang respect bars, FIX-HUD-4, when the gang pool read), 6 (hearts), 11 (clocks and counters) and 10 (the
 talking head) - the last only when the brief's text was found in `e.gxt`, so an unknown
 message keeps the game's own box.
 
@@ -80,7 +81,7 @@ One renderer at every frame (FIX-HUD, 9 Nov 2026):
   holds the modern HUD off (`Hud3dHoldForSwitch`, world_view.cpp) because the kept classic frame carries the
   game's HUD: the game's live HUD sits under its own copy, and the modern HUD cuts in when the dissolve ends. Everything else stays the game's: the arrows and markers
 over targets (world-anchored), the zone name (placed, see the plates above), the big messages ("JOB COMPLETE"), the pause
-screen, the respect bars.
+screen.
 
 During a WASTED or BUSTED beat in a street view (FIX-HUD-2, 9 Nov 2026; pm9-fp-wasted-death-cam / pm10-third-wasted) the HUD is
 none at all: the modern HUD fades fully out (a job-complete beat still leaves 8%), and the game's corner parts 1, 4, 5 (the
@@ -311,3 +312,66 @@ change) are the same file (0 pixels differ), with the game's pink/green/violet a
 FAIL set (spawn_third, spawn_first, portrait, lights23/m37 chase) is the same on the baseline (goldens
 older than af1dc60 and the FIX-CAMERA boom). The sheet is `out/fixm_final/fixm_evidence.png`.
 Untested: a mission target close by in plain view on foot (only the phone object was), Remix.
+
+## FIX-HUD-4: the round mini-map and the respect meters (owner playtest, 10 Nov 2026)
+
+The owner played on an RTX 5090 under Remix at 2560x1440 and asked for two things: "increase the
+resolution of the nice map located in the bottom-left corner, and change its shape from square to
+circular" and "the three bars in the top-left corner appear to have too low a resolution relative to
+the overall look" (`OWNER-PLAYTEST-10nov-seven-findings` items 6 and 7).
+
+**The mini-map** was a 256x256 texture, one texel per map cell, magnified about 7.6x at 720p (15x at
+1440p) with bilinear filtering: every cell a soft square, the roads' edges blurred. Now (`BuildMap`,
+`DrawMapDisc`, `ClipDisc` in `dll/src/hud3d.cpp`):
+
+- Once per level each cell gets a tone (the old picture's classes: road, pavement, low roofs, field,
+  roofs and decks lighter by height; a field one green at any height); one-cell speckle (a cell with no
+  side neighbour of its own tone and five of eight neighbours of one other tone, never a road) is merged
+  into its surroundings; each tone's cells are merged into maximal rectangles (Downtown: 4780 over the
+  commonest tone, which is the disc's fill). No texture is kept (the 256 KB managed texture is gone).
+- Each frame the rectangles near the player are turned with the camera and drawn as screen-space
+  polygons with ImGui's one-pixel anti-aliased edges, each grown by 0.6 px so neighbours overlap (no
+  seam); those that cross the rim are cut exactly to the circle (`ClipDisc`: the polygon's inside edges
+  and the rim between where it leaves and comes back, a 96th of a turn a step). Every edge is resolved at
+  the output resolution: there is no texel density to run out of at 1440p or 4K.
+- The disc is 200 units across (200 px at 720p, 400 at 1440p) at the old square's scale (260 units over
+  34 blocks on foot, 64 in a car: 7.6 px a block at 720p, 15.3 at 1440p); the player sits 18 % of the
+  radius below the centre, so more of the street ahead shows. A thin warm rim over a dark one, north as
+  a chip on the rim, the player arrow outlined. Objective blips off the disc sit on the rim as a yellow
+  chevron along the line from the player to the target; phones off the disc are not drawn; the pulse
+  ring is not drawn where it would cross the rim. The lift over the game's own subtitle (above) moves the
+  whole disc and the bars under it.
+- Colours: the HUD's ImGui backend raises every vertex colour to the power 2.2 (a Remix sRGB patch in
+  `imgui_impl_dx9.cpp`: kGreen 92,204,96 shows as 27,156,29 under plain GL and under Remix alike), while
+  the old map was a texture and was shown as written; the tones go in as their 1/2.2 power, so the disc
+  shows the old map's colours.
+- Cost: that same backend patch called `powf` three times a vertex each frame; it is a 256-entry table of
+  the same values now (the bytes sent are unchanged), which took the submit of the HUD from 0.83 to
+  0.14 ms a frame with the disc's ~2600 vertices. The whole modern HUD: 0.52-0.54 ms a frame on foot
+  (base 0.30, run on the same host; `hud3d: modern HUD ... ms` lines), of which the disc's geometry is
+  ~0.11 ms (`hud3d: respect meters ... ms a frame: map respect render` every two seconds).
+
+**The three bars top left** are the game's gang respect meters (HUD part 5, `FUN_004C74F0`: the
+gang's emblem sprite, a gradient tube with a marker and the phone tabs under it, about 77x16 game
+pixels, scaled 1.5x at 720p and 3x at 1440p), which the modern HUD had left to the game. With the modern
+HUD up, part 5 is now swallowed (only once ours were drawn: if the gang pool cannot be read the game's
+stay) and `DrawRespect` draws each gang the game lists, in the pool's order (Downtown: Yakuza,
+Zaibatsu, Loonies, as the game stacks them):
+
+- the emblem: the Yakuza's yen sign and the Zaibatsu's Z in the money's heavy italic with its black edge,
+  the Loonies' winking smiley as vector circles and strokes (Rednecks R, SRS S, Krishna K, Russians RM;
+  an unknown name a ? in a colour by the gang's colour byte `+0x138`);
+- a pill track split at its middle (respect 0) into five bars a side (a bar is 20 respect, as the
+  game's), filled from the middle out in the gang's colour (Yakuza violet, Zaibatsu teal, Loonies green)
+  to the right, red to the left (they hate you), with a bright cap at the fill's end;
+- three pips under the track at 0, 2 and 4 bars, green, yellow and red: the respect the green, yellow and
+  red phones ask for (`docs/missions.md`), lit once reached.
+
+The weapon icon and the speaker's portrait are still the game's own sprites (redrawn, scaled): the
+last two pieces of game art in the modern HUD.
+
+Developer aids: `GTA2DX9_HUD_TEST=1` re-reads `[hud] test_respect=a,b,c` (the player's respect with the
+first three gangs in use, set once per change); `GTA2DX9_HUD_GANG_DUMP=1` logs each gang record's bytes
+once. Probe: `gamerun/keys_fh4_hud.sh` (wil spawn: classic, third still/turned/walked, first still/turned,
+classic; respect poked to 60,-40,100 then 20,0,-100) with
+`INI_SED='s/^\[hud\]/[hud]\ntest_respect=0,0,0/' -e GTA2DX9_HUD_TEST=1`; `SCREEN_W=2560 SCREEN_H=1440` for 1440p.

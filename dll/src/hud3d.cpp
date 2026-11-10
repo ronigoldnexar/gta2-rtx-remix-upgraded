@@ -282,7 +282,15 @@ std::string ReadMessageKey() {
 
 struct Arrow { int type; float x, y; int kind = 0; float z = 0.0f; };
 
+// A gang the game shows a respect bar for (part 5, FUN_004C74F0): the gang pool [0x5EB898],
+// 10 gangs of 0x144 bytes; +0 non-zero for a slot in use, +2 the name ("yakuzagang", "zaibatsugang",
+// "looniegang" in Downtown, in the order the game draws them, top down), +0x11C the player's
+// respect, a signed byte -100..100 (a bar of the game's meter is 20), +0x138 its HUD colour.
+constexpr uintptr_t kGangPool = 0x005EB898;
+struct Gang { char name[17]; int respect; int colour; };
+
 struct Values {
+    std::vector<Gang> gangs;
     bool valid = false;
     bool inVehicle = false;
     int money = -1, mult = -1, lives = -1, health = -1, wanted = 0;
@@ -329,6 +337,37 @@ Values ReadValues() {
                 if (ticks >= 0 && v.timerTicks < 0) v.timerTicks = ticks;
                 else if (ticks < 0 && value && game::PlausiblePointer(value) && v.counter < 0) v.counter = *value;
             }
+            const uint8_t* arrows = reinterpret_cast<const uint8_t*>(hud + kHudArrows);
+            (void)arrows;
+        }
+        const uintptr_t pool = *reinterpret_cast<const uintptr_t*>(kGangPool);
+        if (pool > 0x10000) {
+            for (int i = 0; i < 10 && v.gangs.size() < 6; ++i) {
+                const uint8_t* g = reinterpret_cast<const uint8_t*>(pool + i * 0x144);
+                if (!g[0]) continue;
+                Gang gang = {};
+                int n = 0;
+                for (; n < 16 && g[2 + n] >= 0x20 && g[2 + n] < 0x7F; ++n) gang.name[n] = static_cast<char>(g[2 + n]);   // "yakuzagang"
+                // (Industrial's Rednecks read back unprintable in docs/missions-batch2.md: kept, styled by colour.)
+                gang.respect = static_cast<int8_t>(g[0x11C]);
+                gang.colour = g[0x138];
+                v.gangs.push_back(gang);
+                static bool dumped[10] = {};
+                if (!dumped[i] && GetEnvironmentVariableA("GTA2DX9_HUD_GANG_DUMP", nullptr, 0)) {
+                    dumped[i] = true;
+                    std::string hex, txt;
+                    for (int k = 0; k < 0x144; ++k) {
+                        char h[4];
+                        snprintf(h, sizeof h, "%02x", g[k]);
+                        hex += h;
+                        txt.push_back(g[k] >= 0x20 && g[k] < 0x7F ? static_cast<char>(g[k]) : '.');
+                    }
+                    Log("hud3d: gang %d raw %s", i, hex.c_str());
+                    Log("hud3d: gang %d txt %s", i, txt.c_str());
+                }
+            }
+        }
+        if (hud > 0x10000) {
             const uint8_t* arrows = reinterpret_cast<const uint8_t*>(hud + kHudArrows);
             for (int i = 0; i < 17; ++i) {
                 const uint8_t* slot = arrows + i * 0x7C;
@@ -480,26 +519,50 @@ void DrawCapture(ImDrawList* dl, IDirect3DDevice9* device, const Capture& c, ImV
 }
 
 // ---- The mini-map's picture -----------------------------------------------------------
+//
+// FIX-HUD-4 (owner playtest 10 Nov, item 6: "increase the resolution of the nice map ... and
+// change its shape from square to circular"). The map was one texel per cell (256x256),
+// magnified ~8x at 720p (~15x at 1440p) and bilinear-filtered: every cell a soft square.
+// Now the level's cells are classed once per level into tones (road, pavement, field, roofs
+// by height) and each tone's cells merged into maximal rectangles; every frame the rectangles
+// inside the inset are drawn as screen-space polygons through the camera's turn, with ImGui's
+// one-pixel anti-aliased edges, and clipped exactly to the circle. So an edge is resolved at
+// the output resolution whatever the window (no texture, no texel density to run out of).
 
-IDirect3DTexture9* g_mapTex = nullptr;
+constexpr int kMapTones = 6 * 5;   // base class x height lift
+struct MapRect { uint16_t x0, y0, x1, y1; uint8_t tone; };
+std::vector<MapRect> g_mapRects;   // sorted by tone (roads last: drawn on top)
+ImU32 g_mapToneCol[kMapTones] = {};
+int g_mapBaseTone = 0;             // the commonest tone: the circle's fill, not in g_mapRects
 const void* g_mapKey = nullptr;
 size_t g_mapBlocks = 0;
+int g_mapCellsRoad = 0;
+int g_mapSmoothed = 0;
 
-void BuildMap(IDirect3DDevice9* device, const gta2::Map& map) {
+void BuildMap(IDirect3DDevice9* /*device*/, const gta2::Map& map) {
     const void* key = map.Empty() ? nullptr : &map.ColumnAt(0, 0);
     if (!key) return;
-    if (g_mapTex && key == g_mapKey && map.BlockCount() == g_mapBlocks) return;
-    if (!g_mapTex && FAILED(device->CreateTexture(gta2::kMapWidth, gta2::kMapHeight, 1, 0, D3DFMT_A8R8G8B8,
-                                                   D3DPOOL_MANAGED, &g_mapTex, nullptr))) {
-        g_mapTex = nullptr;
-        return;
+    if (key == g_mapKey && map.BlockCount() == g_mapBlocks) return;
+    // The tones of the old picture (pavement/park/roof tones kept), ABGR for ImGui.
+    static const uint32_t kBase[6] = {0x0C0F14, 0x5E6676, 0x353B47, 0x2A2F3A, 0x1F3326, 0x1A1E27};
+    for (int t = 0; t < kMapTones; ++t) {
+        const uint32_t c = kBase[t / 5];
+        const int lift = (t % 5) * 5;   // taller buildings a shade lighter
+        const int r = (std::min)(255, static_cast<int>((c >> 16) & 0xFF) + lift);
+        const int g = (std::min)(255, static_cast<int>((c >> 8) & 0xFF) + lift);
+        const int b = (std::min)(255, static_cast<int>(c & 0xFF) + lift);
+        // The HUD's vertex colours reach the screen squared by the display path (measured: kGreen
+        // 92,204,96 shows as 27,156,29 under plain GL and Remix alike, the old map's texels as
+        // written), so the tones go in as their 1/2.2 power: the old picture's colours on screen.
+        auto lin = [](int x) { return static_cast<int>(std::lround(255.0 * std::pow(x / 255.0, 1.0 / 2.2))); };
+        g_mapToneCol[t] = IM_COL32(lin(r), lin(g), lin(b), 255);
     }
-    D3DLOCKED_RECT lr;
-    if (FAILED(g_mapTex->LockRect(0, &lr, nullptr, 0))) return;
+    const int W = gta2::kMapWidth, H = gta2::kMapHeight;
+    std::vector<uint8_t> tone(static_cast<size_t>(W) * H);
+    int counts[kMapTones] = {};
     int roads = 0;
-    for (int y = 0; y < gta2::kMapHeight; ++y) {
-        uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
-        for (int x = 0; x < gta2::kMapWidth; ++x) {
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
             const gta2::Column& col = map.ColumnAt(x, y);
             int type = -1, level = 0;
             for (int i = static_cast<int>(col.blocks.size()) - 1; i >= 0; --i) {
@@ -511,22 +574,199 @@ void BuildMap(IDirect3DDevice9* device, const gta2::Map& map) {
                 level = col.offset + i;
                 break;
             }
-            uint32_t c = 0xFF0C0F14;                              // nothing: the edge of the world
-            if (type == 1) { c = 0xFF5E6676; ++roads; }           // road
-            else if (type == 2) c = level <= 2 ? 0xFF353B47 : 0xFF2A2F3A;   // pavement / low roofs
-            else if (type == 3) c = 0xFF1F3326;                   // field, park
-            else if (type == 0) c = 0xFF1A1E27;                   // a lid of air: roofs, decks
-            if (type >= 0 && level >= 4 && type != 1) {
-                const int lift = (std::min)(level - 3, 4) * 5;     // taller buildings a shade lighter
-                c += (lift << 16) | (lift << 8) | lift;
-            }
-            row[x] = c;
+            int base = 0;                                         // nothing: the edge of the world
+            if (type == 1) { base = 1; ++roads; }                 // road
+            else if (type == 2) base = level <= 2 ? 2 : 3;        // pavement / low roofs
+            else if (type == 3) base = 4;                         // field, park
+            else if (type == 0) base = 5;                         // a lid of air: roofs, decks
+            // Roofs and decks a shade lighter the taller; a field is one green at any height (its
+            // lifted squares read as noise at the disc's sharpness).
+            const int lift = (type >= 0 && level >= 4 && type != 1 && type != 3) ? (std::min)(level - 3, 4) : 0;
+            const uint8_t t = static_cast<uint8_t>(base * 5 + lift);
+            tone[static_cast<size_t>(y) * W + x] = t;
+            ++counts[t];
         }
     }
-    g_mapTex->UnlockRect(0);
+    // One-cell speckle (a lamp, a tree's top, a roof vent: no side neighbour of its own tone) is
+    // merged into its surroundings where five or more of its eight neighbours share one tone;
+    // paths one cell wide are kept, roads are never changed or grown.
+    int changed = 0;
+    for (int pass = 0; pass < 2; ++pass) {
+        std::vector<uint8_t> smooth = tone;
+        for (int y = 1; y + 1 < H; ++y) {
+            for (int x = 1; x + 1 < W; ++x) {
+                const uint8_t t = tone[static_cast<size_t>(y) * W + x];
+                if (t / 5 == 1) continue;
+                // A cell with a same-tone side neighbour is part of a path or a block: kept.
+                if (tone[static_cast<size_t>(y - 1) * W + x] == t || tone[static_cast<size_t>(y + 1) * W + x] == t ||
+                    tone[static_cast<size_t>(y) * W + x - 1] == t || tone[static_cast<size_t>(y) * W + x + 1] == t) continue;
+                int best = -1, bestN = 0;
+                uint8_t seen[8]; int n[8] = {}, k = 0;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        if (!dx && !dy) continue;
+                        const uint8_t q = tone[static_cast<size_t>(y + dy) * W + x + dx];
+                        int j = 0;
+                        while (j < k && seen[j] != q) ++j;
+                        if (j == k) { seen[k] = q; ++k; }
+                        if (++n[j] > bestN) { bestN = n[j]; best = q; }
+                    }
+                if (bestN >= 5 && best != t && best / 5 != 1) {
+                    --counts[t]; ++counts[best];
+                    smooth[static_cast<size_t>(y) * W + x] = static_cast<uint8_t>(best);
+                    ++changed;
+                }
+            }
+        }
+        tone.swap(smooth);
+    }
+    g_mapSmoothed = changed;
+    g_mapBaseTone = 0;
+    for (int t = 1; t < kMapTones; ++t) if (counts[t] > counts[g_mapBaseTone]) g_mapBaseTone = t;
+    // Greedy maximal rectangles per tone: a run along x, grown down while the whole run matches.
+    std::vector<uint8_t> used(tone.size(), 0);
+    g_mapRects.clear();
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            const size_t i = static_cast<size_t>(y) * W + x;
+            if (used[i]) continue;
+            const uint8_t t = tone[i];
+            int x1 = x + 1;
+            while (x1 < W && !used[static_cast<size_t>(y) * W + x1] && tone[static_cast<size_t>(y) * W + x1] == t) ++x1;
+            int y1 = y + 1;
+            for (; y1 < H; ++y1) {
+                bool ok = true;
+                for (int xx = x; xx < x1 && ok; ++xx) {
+                    const size_t j = static_cast<size_t>(y1) * W + xx;
+                    ok = !used[j] && tone[j] == t;
+                }
+                if (!ok) break;
+            }
+            for (int yy = y; yy < y1; ++yy)
+                for (int xx = x; xx < x1; ++xx) used[static_cast<size_t>(yy) * W + xx] = 1;
+            if (t != g_mapBaseTone)
+                g_mapRects.push_back({static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(x1), static_cast<uint16_t>(y1), t});
+        }
+    }
+    // Draw order: the dark classes first, the road network last (on top).
+    auto rank = [](uint8_t t) { const int b = t / 5; return b == 1 ? 100 : b == 0 ? 0 : 10 + b * 5 + t % 5; };
+    std::stable_sort(g_mapRects.begin(), g_mapRects.end(), [&](const MapRect& p, const MapRect& q) { return rank(p.tone) < rank(q.tone); });
     g_mapKey = key;
     g_mapBlocks = map.BlockCount();
-    Log("hud3d: mini-map built from the level (%d road cells)", roads);
+    g_mapCellsRoad = roads;
+    Log("hud3d: mini-map built from the level (%d road cells, %d speckle cells merged; %zu rectangles over the base tone %d)", roads, g_mapSmoothed, g_mapRects.size(), g_mapBaseTone);
+}
+
+// A convex polygon (clockwise on screen: increasing angle, y down) cut to the disc of radius R
+// round c: its edges inside the disc, and where it leaves the disc the rim from that point on to
+// where it comes back, in steps of `step` radians. Exact at the rim whatever the polygon's size
+// (a Sutherland-Hodgman pass against a 96-gon cost ~0.2 ms a frame). Returns the point count.
+int ClipDisc(const ImVec2* in, int n, ImVec2 c, float R, float step, ImVec2* out, int cap) {
+    const float R2 = R * R;
+    auto inside = [&](ImVec2 p) { const float dx = p.x - c.x, dy = p.y - c.y; return dx * dx + dy * dy <= R2; };
+    int k = 0;
+    bool anyIn = false, anyCross = false;
+    float exitAngle = 0.0f;
+    bool pendingExit = false, firstEntryNeeded = false;
+    float firstEntryAngle = 0.0f;
+    int firstExitSlot = -1;
+    auto arc = [&](float a0, float a1) {   // the rim from a0 forward (increasing angle) to a1
+        float span = a1 - a0;
+        while (span < 0) span += 6.2831853f;
+        while (span >= 6.2831853f) span -= 6.2831853f;
+        for (float t = step; t < span && k < cap; t += step) out[k++] = ImVec2(c.x + std::cos(a0 + t) * R, c.y + std::sin(a0 + t) * R);
+    };
+    for (int i = 0; i < n; ++i) {
+        const ImVec2 p = in[i], q = in[(i + 1) % n];
+        const bool pin = inside(p), qin = inside(q);
+        if (pin) { anyIn = true; if (k < cap) out[k++] = p; }
+        // Intersections of p->q with the circle: |p + t (q - p) - c|^2 = R^2, 0 < t < 1.
+        const float dx = q.x - p.x, dy = q.y - p.y, fx = p.x - c.x, fy = p.y - c.y;
+        const float A = dx * dx + dy * dy, B = 2 * (fx * dx + fy * dy), C = fx * fx + fy * fy - R2;
+        const float disc = B * B - 4 * A * C;
+        if (A < 1e-9f || disc <= 0) continue;
+        const float sq = std::sqrt(disc);
+        const float t0 = (-B - sq) / (2 * A), t1 = (-B + sq) / (2 * A);
+        // Entering at t0 (outside -> inside), leaving at t1.
+        const float ts[2] = {t0, t1};
+        for (int j = 0; j < 2; ++j) {
+            const float t = ts[j];
+            if (t <= 0.0f || t >= 1.0f) continue;
+            anyCross = true;
+            const ImVec2 x(p.x + dx * t, p.y + dy * t);
+            const float ang = std::atan2(x.y - c.y, x.x - c.x);
+            if (j == 0) {   // entering
+                if (pendingExit) arc(exitAngle, ang);
+                else if (!firstEntryNeeded && firstExitSlot < 0) { firstEntryNeeded = true; firstEntryAngle = ang; }
+                pendingExit = false;
+                if (k < cap) out[k++] = x;
+            } else {        // leaving
+                if (k < cap) out[k++] = x;
+                exitAngle = ang;
+                pendingExit = true;
+                if (firstExitSlot < 0) firstExitSlot = k;
+            }
+        }
+        (void)qin;
+    }
+    // The polygon's walk began outside: the last exit joins the first entry over the rim.
+    if (pendingExit && firstEntryNeeded) arc(exitAngle, firstEntryAngle);
+    if (!anyIn && !anyCross) {
+        // Disjoint, or the polygon holds the whole disc (its centre inside every edge).
+        bool holds = true;
+        for (int i = 0; i < n && holds; ++i) {
+            const ImVec2 p = in[i], q = in[(i + 1) % n];
+            holds = (q.x - p.x) * (c.y - p.y) - (q.y - p.y) * (c.x - p.x) >= 0;
+        }
+        if (!holds) return 0;
+        k = 0;
+        for (float t = 0; t < 6.2831853f && k < cap; t += step) out[k++] = ImVec2(c.x + std::cos(t) * R, c.y + std::sin(t) * R);
+    }
+    return k;
+}
+
+// The level inside a circle of radius R (pixels) round the screen point c; the player at game
+// (px,py) drawn at the screen point pc, the camera's turn (cs,sn), `scale` pixels a block.
+struct MapDrawStats { int rects = 0, clipped = 0, frames = 0; long long ticks = 0, respectTicks = 0, renderTicks = 0, vtx = 0, cmds = 0; int renders = 0; };
+MapDrawStats g_mapStats;
+MapDrawStats DrawMapDisc(ImDrawList* dl, ImVec2 c, float R, ImVec2 pc, float px, float py, float cs, float sn, float scale, float alpha) {
+    MapDrawStats st;
+    constexpr int kSeg = 96;
+    ImVec2 circ[kSeg];
+    for (int i = 0; i < kSeg; ++i) {   // clockwise on screen (y down): increasing angle
+        const float a = i * (6.2831853f / kSeg);
+        circ[i] = ImVec2(c.x + std::cos(a) * R, c.y + std::sin(a) * R);
+    }
+    dl->AddConvexPolyFilled(circ, kSeg, Fade(g_mapToneCol[g_mapBaseTone], alpha));
+    const float worldR = (R + std::hypot(pc.x - c.x, pc.y - c.y)) / scale + 1.5f;
+    const float e = 0.6f / scale;   // half a pixel and a bit: same-tone neighbours overlap, no seam
+    const float in2 = (R - 1.0f) * (R - 1.0f);
+    ImVec2 poly[4], out[kSeg + 8];
+    for (const MapRect& r : g_mapRects) {
+        // Nearest point of the rectangle to the player, against the disc's radius in blocks.
+        const float nx = (std::max)(static_cast<float>(r.x0), (std::min)(px, static_cast<float>(r.x1)));
+        const float ny = (std::max)(static_cast<float>(r.y0), (std::min)(py, static_cast<float>(r.y1)));
+        if ((nx - px) * (nx - px) + (ny - py) * (ny - py) > worldR * worldR) continue;
+        const float gx[4] = {r.x0 - e, r.x1 + e, r.x1 + e, r.x0 - e};
+        const float gy[4] = {r.y0 - e, r.y0 - e, r.y1 + e, r.y1 + e};
+        bool inside = true;
+        for (int i = 0; i < 4; ++i) {
+            const float dx = gx[i] - px, dy = gy[i] - py;
+            const float rr = dx * cs + dy * sn, f = dx * sn - dy * cs;
+            poly[i] = ImVec2(pc.x + rr * scale, pc.y - f * scale);
+            const float ox = poly[i].x - c.x, oy = poly[i].y - c.y;
+            inside = inside && ox * ox + oy * oy <= in2;
+        }
+        // Clockwise on screen.
+        const float area = (poly[1].x - poly[0].x) * (poly[2].y - poly[0].y) - (poly[1].y - poly[0].y) * (poly[2].x - poly[0].x);
+        if (area < 0) std::swap(poly[1], poly[3]);
+        const ImU32 col = Fade(g_mapToneCol[r.tone], alpha);
+        ++st.rects;
+        if (inside) { dl->AddConvexPolyFilled(poly, 4, col); continue; }
+        const int n = ClipDisc(poly, 4, c, R, 6.2831853f / kSeg, out, kSeg + 8);
+        if (n >= 3) { dl->AddConvexPolyFilled(out, n, col); ++st.clipped; }
+    }
+    return st;
 }
 
 // ---- QB-50: pickup labels and score pops in the world ----------------------------------
@@ -1281,6 +1521,107 @@ float BeatBarPx(float W, float H) {
     return barFull * (1.0f - (1.0f - b.letterbox) * (1.0f - b.letterbox));
 }
 
+// ---- FIX-HUD-4: the gang respect meters (the game's part 5), top left --------------------
+//
+// Owner playtest 10 Nov, item 7: "the three bars in the top-left corner appear to have too low a
+// resolution relative to the overall look". They were the game's own respect meters (HUD part 5,
+// FUN_004C74F0: an emblem sprite and a gradient tube per gang, 77x16 game pixels, scaled 3x at
+// 1440p), which the modern HUD left to the game. Now part 5 is swallowed with the modern HUD up
+// and each gang's meter is drawn here from the gang pool: the gang's emblem as a vector/type
+// glyph, a pill track split at its middle (respect 0) into five bars a side (a bar is 20), the
+// fill from the middle out in the gang's colour (red to the left: they hate you), and three
+// pips under it at 0, 2 and 4 bars, the respect the green, yellow and red phones ask for, lit
+// once reached.
+
+struct GangStyle { const char* glyph; ImU32 emblem, bar; bool smiley; };
+GangStyle StyleOf(const Gang& g) {
+    std::string n;
+    for (const char* c = g.name; *c; ++c) n.push_back(static_cast<char>(tolower(static_cast<unsigned char>(*c))));
+    auto has = [&](const char* k) { return n.find(k) != std::string::npos; };
+    if (has("zaib")) return {"Z", IM_COL32(255, 214, 40, 255), IM_COL32(76, 150, 160, 255), false};
+    if (has("yak")) return {"\xC2\xA5", IM_COL32(196, 210, 236, 255), IM_COL32(112, 84, 240, 255), false};
+    if (has("loon")) return {"", IM_COL32(255, 222, 50, 255), IM_COL32(70, 214, 70, 255), true};
+    if (has("redn")) return {"R", IM_COL32(222, 140, 64, 255), IM_COL32(204, 112, 48, 255), false};
+    if (has("srs") || has("sci")) return {"S", IM_COL32(220, 232, 244, 255), IM_COL32(150, 176, 210, 255), false};
+    if (has("krish") || has("hare")) return {"K", IM_COL32(255, 168, 48, 255), IM_COL32(240, 140, 40, 255), false};
+    if (has("russ") || has("mafia")) return {"RM", IM_COL32(236, 70, 60, 255), IM_COL32(200, 48, 48, 255), false};
+    // Unknown or unprintable: by the game's colour byte, a neutral emblem.
+    static const ImU32 kByColour[8] = {IM_COL32(204, 112, 48, 255), IM_COL32(112, 84, 240, 255), IM_COL32(70, 214, 70, 255),
+                                       IM_COL32(76, 150, 160, 255), IM_COL32(200, 48, 48, 255), IM_COL32(240, 140, 40, 255),
+                                       IM_COL32(150, 176, 210, 255), IM_COL32(200, 200, 200, 255)};
+    const ImU32 c = kByColour[g.colour & 7];
+    return {"?", Mix(c, kWhite, 0.4f), c, false};
+}
+
+void Smiley(ImDrawList* dl, ImVec2 c, float r, ImU32 face, float A) {
+    dl->AddCircleFilled(c, r + 1.6f * g_u, Fade(kShadow, A), 32);
+    dl->AddCircleFilled(c, r, Fade(face, A), 32);
+    dl->AddCircleFilled(ImVec2(c.x - r * 0.35f, c.y - r * 0.28f), r * 0.13f, Fade(IM_COL32(30, 24, 10, 255), A), 12);
+    // A wink, as the game's Loonies emblem.
+    dl->AddLine(ImVec2(c.x + r * 0.18f, c.y - r * 0.26f), ImVec2(c.x + r * 0.52f, c.y - r * 0.30f), Fade(IM_COL32(30, 24, 10, 255), A), (std::max)(1.0f, r * 0.16f));
+    dl->PathArcTo(c, r * 0.58f, 0.35f, 2.79f, 16);
+    dl->PathStroke(Fade(IM_COL32(30, 24, 10, 255), A), 0, (std::max)(1.0f, r * 0.17f));
+}
+
+int g_respectDrawn = 0;
+void DrawRespect(ImDrawList* dl, const Values& v, float A) {
+    const float u = g_u;
+    const float margin = 28.0f * u;
+    const float rowH = 30.0f * u, emblemW = 30.0f * u, barW = 150.0f * u, barH = 11.0f * u;
+    float y = margin;
+    g_respectDrawn = 0;
+    for (const Gang& g : v.gangs) {
+        if (g_respectDrawn >= 3) break;
+        const GangStyle st = StyleOf(g);
+        const float cy = y + rowH * 0.5f;
+        // The emblem.
+        const ImVec2 ec(margin + emblemW * 0.5f, cy);
+        if (st.smiley) {
+            Smiley(dl, ec, 11.0f * u, st.emblem, A);
+        } else {
+            const ImVec2 sz = Measure(g_fonts.heavy, g_fonts.heavyPx, st.glyph);
+            Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(ec.x - sz.x * 0.5f, cy - sz.y * 0.5f), st.emblem, st.glyph, A);
+        }
+        // The track: a dark pill with a light edge.
+        const float x0 = margin + emblemW + 8.0f * u, x1 = x0 + barW, xm = (x0 + x1) * 0.5f;
+        const ImVec2 a(x0, cy - barH * 0.5f), b(x1, cy + barH * 0.5f);
+        dl->AddRectFilled(ImVec2(a.x - 1.5f * u, a.y - 1.5f * u), ImVec2(b.x + 1.5f * u, b.y + 1.5f * u), Fade(IM_COL32(0, 0, 0, 170), A), barH);
+        dl->AddRectFilled(a, b, Fade(IM_COL32(18, 20, 28, 220), A), barH * 0.5f);
+        // The fill, from the middle out; a lighter top half for a little body.
+        const float frac = (std::max)(-1.0f, (std::min)(1.0f, g.respect / 100.0f));
+        const float inset = 1.5f * u;
+        if (std::fabs(frac) > 0.004f) {
+            const float half = (x1 - x0) * 0.5f - inset;
+            const float fx = xm + frac * half;
+            const ImU32 col = frac > 0 ? st.bar : kRed;
+            const ImVec2 fa(frac > 0 ? xm : fx, a.y + inset), fb(frac > 0 ? fx : xm, b.y - inset);
+            const ImDrawFlags round = frac > 0 ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersLeft;
+            dl->AddRectFilled(fa, fb, Fade(col, A), (barH - 2 * inset) * 0.5f, round);
+            dl->AddRectFilled(fa, ImVec2(fb.x, (fa.y + fb.y) * 0.5f), Fade(Mix(col, kWhite, 0.35f), A * 0.55f), (barH - 2 * inset) * 0.5f,
+                              frac > 0 ? ImDrawFlags_RoundCornersTopRight : ImDrawFlags_RoundCornersTopLeft);
+            // The edge of the fill: a bright cap, as the game's marker.
+            dl->AddLine(ImVec2(fx, a.y + inset), ImVec2(fx, b.y - inset), Fade(Mix(col, kWhite, 0.6f), A), 2.0f * u);
+        }
+        // Five bars a side: thin separators, and the middle mark.
+        for (int i = 1; i < 10; ++i) {
+            const float x = x0 + (x1 - x0) * i / 10.0f;
+            if (i == 5) dl->AddLine(ImVec2(x, a.y - 2.5f * u), ImVec2(x, b.y + 2.5f * u), Fade(kWhite, A * 0.85f), 1.6f * u);
+            else dl->AddLine(ImVec2(x, a.y + 2.0f * u), ImVec2(x, b.y - 2.0f * u), Fade(IM_COL32(0, 0, 0, 150), A), 1.0f * u);
+        }
+        dl->AddRect(a, b, Fade(IM_COL32(244, 240, 228, 70), A), barH * 0.5f, 0, 1.0f * u);
+        // The phones' tiers under the track: 0, 2 and 4 bars (green, yellow, red jobs).
+        static const ImU32 kTier[3] = {IM_COL32(92, 220, 96, 255), IM_COL32(255, 196, 40, 255), IM_COL32(240, 64, 52, 255)};
+        for (int t = 0; t < 3; ++t) {
+            const float x = xm + (x1 - xm - inset) * (t * 40) / 100.0f;
+            const bool lit = g.respect >= t * 40;
+            const ImVec2 p0(x - 4.0f * u, b.y + 3.0f * u), p1(x + 4.0f * u, b.y + 3.0f * u), p2(x, b.y + 7.5f * u);
+            dl->AddTriangleFilled(p0, p1, p2, Fade(lit ? kTier[t] : IM_COL32(60, 62, 70, 255), A * (lit ? 1.0f : 0.8f)));
+        }
+        y += rowH;
+        ++g_respectDrawn;
+    }
+}
+
 void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, float H, float dt) {
     // FIX-HUD-3 (pmq10, pm10): what the panels draw from here on is moved inside the letterbox
     // picture below while the bars slide in (the money and stars half under the top bar, the
@@ -1291,6 +1632,13 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     const float margin = 28.0f * u;
     DrawAimLayer(dl, A, W, H);   // QB-6
     const int panelVtx0 = dl->VtxBuffer.Size, panelCmd0 = dl->CmdBuffer.Size;
+    {
+        LARGE_INTEGER q0, q1;
+        QueryPerformanceCounter(&q0);
+        DrawRespect(dl, v, A);   // FIX-HUD-4: the game's part 5, redrawn
+        QueryPerformanceCounter(&q1);
+        g_mapStats.respectTicks += q1.QuadPart - q0.QuadPart;
+    }
 
     // Money, ticking up (or down) to the game's value; the gain pops above it.
     if (v.money >= 0) {
@@ -1424,7 +1772,10 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     }
 
     // The mini-map, bottom left, turned with the camera; health (and the car) under it.
-    const float mapW = 260.0f * u, mapH = 160.0f * u;
+    // FIX-HUD-4: a disc (owner, 10 Nov: "change its shape from square to circular"), drawn as
+    // vectors (DrawMapDisc); the same pixels a block as the old 260-wide square.
+    const float mapD = 200.0f * u;
+    const float mapW = mapD, mapH = mapD;
     const float barH = 8.0f * u;
     // While the game draws its own talking head and subtitle (part 10, bottom left, when the
     // brief's text is not ours to show) the map and the bar under it slide up out of its band
@@ -1443,85 +1794,93 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     }
     an.lift += (wantLift - an.lift) * (1.0f - std::exp(-dt * 10.0f));
     const float lift = an.lift;
-    const ImVec2 m0(margin, H - margin - barH - 6 * u - mapH - lift), m1(margin + mapW, H - margin - barH - 6 * u - lift);
+    const ImVec2 m0(margin, H - margin - barH - 8 * u - mapH - lift), m1(margin + mapW, H - margin - barH - 8 * u - lift);
     float yaw = 0, pitch = 0;
     ViewCameraAngles(&yaw, &pitch);
     const float yr = yaw * 0.017453293f;
     const float cs = std::cos(yr), sn = std::sin(yr);
     // game offset -> map screen offset: right = (cos, sin), forward = (sin, -cos)
-    const ImVec2 mc((m0.x + m1.x) * 0.5f, m0.y + mapH * 0.62f);
+    const ImVec2 mc((m0.x + m1.x) * 0.5f, (m0.y + m1.y) * 0.5f);   // the disc's centre
+    const float R = mapD * 0.5f;
+    // The player a little below the centre: more of the street ahead.
+    const ImVec2 pc(mc.x, mc.y + R * 0.18f);
     const float wantZoom = v.inVehicle ? 64.0f : 34.0f;
     an.zoom += (wantZoom - an.zoom) * (1.0f - std::exp(-dt * 1.5f));
-    const float scale = mapW / an.zoom;   // pixels per block
+    const float scale = 260.0f * u / an.zoom;   // pixels per block (as the old 260-wide square)
     auto toScreen = [&](float gx, float gy) {
         const float dx = gx - v.x, dy = gy - v.y;
         const float r = dx * cs + dy * sn, f = dx * sn - dy * cs;
-        return ImVec2(mc.x + r * scale, mc.y - f * scale);
+        return ImVec2(pc.x + r * scale, pc.y - f * scale);
     };
     if (g_cfg.minimap) {
-        dl->AddRectFilled(ImVec2(m0.x - 3 * u, m0.y - 3 * u), ImVec2(m1.x + 3 * u, m1.y + 3 * u), Fade(IM_COL32(0, 0, 0, 170), A), 6 * u);
-        if (g_mapTex) {
-            ImVec2 uv[4];
-            const ImVec2 corner[4] = {m0, ImVec2(m1.x, m0.y), m1, ImVec2(m0.x, m1.y)};
-            for (int i = 0; i < 4; ++i) {
-                const float r = (corner[i].x - mc.x) / scale, f = -(corner[i].y - mc.y) / scale;
-                const float gx = v.x + r * cs + f * sn, gy = v.y + r * sn - f * cs;
-                uv[i] = ImVec2(gx / gta2::kMapWidth, gy / gta2::kMapHeight);
-            }
-            dl->AddImageQuad(reinterpret_cast<ImTextureID>(g_mapTex), corner[0], corner[1], corner[2], corner[3],
-                             uv[0], uv[1], uv[2], uv[3], Fade(IM_COL32_WHITE, A * 0.92f));
-        }
-        dl->PushClipRect(m0, m1, true);
+        // A soft shadow round the disc, then the map, then a thin rim.
+        dl->AddCircleFilled(ImVec2(mc.x, mc.y + 2 * u), R + 4 * u, Fade(IM_COL32(0, 0, 0, 120), A), 96);
+        LARGE_INTEGER q0, q1;
+        QueryPerformanceCounter(&q0);
+        const MapDrawStats ms = DrawMapDisc(dl, mc, R, pc, v.x, v.y, cs, sn, scale, A);
+        QueryPerformanceCounter(&q1);
+        g_mapStats.ticks += q1.QuadPart - q0.QuadPart;
+        g_mapStats.rects += ms.rects; g_mapStats.clipped += ms.clipped; ++g_mapStats.frames;
         // Blips: phones small and cyan, the job's own arrows yellow and larger; off the map
-        // they sit on its edge as a chevron.
+        // they sit on its rim as a chevron.
+        const float inner = R - 10 * u;
         for (const Arrow& ar : v.arrows) {
             const bool phone = ar.type >= 1 && ar.type <= 4;
             ImVec2 p = toScreen(ar.x, ar.y);
-            const ImVec2 inner(m0.x + 9 * u, m0.y + 9 * u), outer(m1.x - 9 * u, m1.y - 9 * u);
-            const bool off = p.x < inner.x || p.x > outer.x || p.y < inner.y || p.y > outer.y;
+            float dx = p.x - mc.x, dy = p.y - mc.y;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            const bool off = d > inner;
             if (off && phone) continue;
             if (off) {
-                const float dx = p.x - mc.x, dy = p.y - mc.y;
-                const float t = (std::min)({dx > 0 ? (outer.x - mc.x) / dx : dx < 0 ? (inner.x - mc.x) / dx : 1e9f,
-                                            dy > 0 ? (outer.y - mc.y) / dy : dy < 0 ? (inner.y - mc.y) / dy : 1e9f});
-                p = ImVec2(mc.x + dx * t, mc.y + dy * t);
-                const float ang = std::atan2(dy, dx);
+                // Along the line from the player to the target, where it leaves the disc.
+                float ux = p.x - pc.x, uy = p.y - pc.y;
+                const float ul = std::sqrt(ux * ux + uy * uy) + 1e-4f;
+                ux /= ul; uy /= ul;
+                const float ox = pc.x - mc.x, oy = pc.y - mc.y;
+                const float bq = ox * ux + oy * uy, cq = ox * ox + oy * oy - inner * inner;
+                const float t = -bq + std::sqrt((std::max)(0.0f, bq * bq - cq));
+                p = ImVec2(pc.x + ux * t, pc.y + uy * t);
+                const float ang = std::atan2(uy, ux);
                 const float r = 9 * u;
-                dl->AddTriangleFilled(ImVec2(p.x + std::cos(ang) * r, p.y + std::sin(ang) * r),
-                                      ImVec2(p.x + std::cos(ang + 2.4f) * r, p.y + std::sin(ang + 2.4f) * r),
-                                      ImVec2(p.x + std::cos(ang - 2.4f) * r, p.y + std::sin(ang - 2.4f) * r), Fade(kYellow, A));
+                const ImVec2 t0(p.x + std::cos(ang) * r, p.y + std::sin(ang) * r);
+                const ImVec2 t1(p.x + std::cos(ang + 2.4f) * r, p.y + std::sin(ang + 2.4f) * r);
+                const ImVec2 t2(p.x + std::cos(ang - 2.4f) * r, p.y + std::sin(ang - 2.4f) * r);
+                dl->AddTriangleFilled(t0, t1, t2, Fade(kYellow, A));
+                dl->AddTriangle(t0, t1, t2, Fade(kShadow, A * 0.8f), 1.0f * u);
                 continue;
             }
             const float r = (phone ? 4.0f : 6.5f) * u;
             dl->AddCircleFilled(p, r + 1.5f * u, Fade(kShadow, A));
             dl->AddCircleFilled(p, r, Fade(phone ? kCyan : kYellow, A));
-            if (!phone) dl->AddCircle(p, r + (3.0f + 4.0f * std::fmod(an.time, 1.0f)) * u, Fade(kYellow, A * (1.0f - std::fmod(an.time, 1.0f))), 20, 1.5f * u);
+            if (!phone) {
+                const float ring = r + (3.0f + 4.0f * std::fmod(an.time, 1.0f)) * u;
+                if (d + ring < R) dl->AddCircle(p, ring, Fade(kYellow, A * (1.0f - std::fmod(an.time, 1.0f))), 24, 1.5f * u);
+            }
         }
         // The player: an arrow along his heading, as the camera sees it.
         const float heading = std::atan2(v.dirX, -v.dirY);
         const float a = heading - yr;
         const float r = 9.0f * u;
         const ImVec2 fwd(std::sin(a), -std::cos(a)), side(std::cos(a), std::sin(a));
-        const ImVec2 tip(mc.x + fwd.x * r, mc.y + fwd.y * r);
-        const ImVec2 l(mc.x - fwd.x * r * 0.7f - side.x * r * 0.75f, mc.y - fwd.y * r * 0.7f - side.y * r * 0.75f);
-        const ImVec2 rr(mc.x - fwd.x * r * 0.7f + side.x * r * 0.75f, mc.y - fwd.y * r * 0.7f + side.y * r * 0.75f);
-        const ImVec2 back(mc.x - fwd.x * r * 0.3f, mc.y - fwd.y * r * 0.3f);
+        const ImVec2 tip(pc.x + fwd.x * r, pc.y + fwd.y * r);
+        const ImVec2 l(pc.x - fwd.x * r * 0.7f - side.x * r * 0.75f, pc.y - fwd.y * r * 0.7f - side.y * r * 0.75f);
+        const ImVec2 rr(pc.x - fwd.x * r * 0.7f + side.x * r * 0.75f, pc.y - fwd.y * r * 0.7f + side.y * r * 0.75f);
+        const ImVec2 back(pc.x - fwd.x * r * 0.3f, pc.y - fwd.y * r * 0.3f);
+        const ImVec2 arrow[4] = {tip, rr, back, l};
+        dl->AddPolyline(arrow, 4, Fade(kShadow, A), ImDrawFlags_Closed, 2.4f * u);
         dl->AddTriangleFilled(tip, l, back, Fade(kWhite, A));
         dl->AddTriangleFilled(tip, back, rr, Fade(kWhite, A));
-        dl->AddLine(tip, l, Fade(kShadow, A), 1.2f * u);
-        dl->AddLine(tip, rr, Fade(kShadow, A), 1.2f * u);
-        // North, on the rim.
+        // The rim, then north on it.
+        dl->AddCircle(mc, R, Fade(IM_COL32(0, 0, 0, 200), A), 96, 3.0f * u);
+        dl->AddCircle(mc, R - 1.0f * u, Fade(IM_COL32(244, 240, 228, 150), A), 96, 1.2f * u);
         {
             const float dx = -sn, dy = -cs;   // game north (0,-1) on the map: r = -sin, f = cos
-            const float t = (std::min)(std::fabs((mapW * 0.5f - 12 * u) / (std::fabs(dx) + 1e-4f)),
-                                       std::fabs((dy < 0 ? (mc.y - m0.y - 12 * u) : (m1.y - mc.y - 12 * u)) / (std::fabs(dy) + 1e-4f)));
-            const ImVec2 np(mc.x + dx * t, mc.y + dy * t);
-            dl->AddCircleFilled(np, 8 * u, Fade(IM_COL32(20, 22, 28, 230), A));
+            const ImVec2 np(mc.x + dx * R, mc.y + dy * R);
+            dl->AddCircleFilled(np, 8.5f * u, Fade(IM_COL32(20, 22, 28, 240), A), 24);
+            dl->AddCircle(np, 8.5f * u, Fade(IM_COL32(244, 240, 228, 150), A), 24, 1.0f * u);
             const ImVec2 ns = Measure(g_fonts.label, g_fonts.labelPx * 0.8f, "N");
             dl->AddText(g_fonts.label, g_fonts.labelPx * 0.8f, ImVec2(np.x - ns.x * 0.5f, np.y - ns.y * 0.5f), Fade(kWhite, A), "N");
         }
-        dl->PopClipRect();
-        dl->AddRect(ImVec2(m0.x - 1, m0.y - 1), ImVec2(m1.x + 1, m1.y + 1), Fade(IM_COL32(255, 255, 255, 60), A), 4 * u, 0, 1.0f * u);
     }
 
     // Health (and armour, if the game ever tells us) under the map; the car's condition beside.
@@ -1781,7 +2140,6 @@ void Prewarm(IDirect3DDevice9* device, int width, int height, const gta2::Map& m
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             dl->AddRectFilled(ImVec2(0, 0), ImVec2(4, 4), IM_COL32(0, 0, 0, 255));
             if (g_fonts.text) dl->AddText(g_fonts.text, g_fonts.textPx, ImVec2(0, 0), IM_COL32(255, 255, 255, 255), "0");
-            if (g_mapTex) dl->AddImage(reinterpret_cast<ImTextureID>(g_mapTex), ImVec2(0, 0), ImVec2(4, 4));
         }
         ImGui::EndFrame();
         ImGui::Render();
@@ -1895,6 +2253,8 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
         case 6:    // the hearts
         case 11:   // the clocks and counters
             return true;
+        case 5:    // the gang respect meters (FIX-HUD-4), when ours were drawn
+            return g_respectDrawn > 0;
         case 10:   // the talking head, when the brief's text is ours to show
             // The key resolved at the end of the last frame; on the block's first frame, the
             // buffer's key if the gxt has it (the brief was just looked up), so that frame is ours too.
@@ -1960,6 +2320,26 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         if (health != lastHealth) { pokeHealth = health >= 0; lastHealth = health; }
         const int clock = GetPrivateProfileIntA("hud", "test_clock", 0, ini);
         if (clock != lastClock) { pokeClock = clock > lastClock; lastClock = clock; }
+        // FIX-HUD-4: test_respect=a,b,c sets the player's respect with the first three gangs in use.
+        static char lastRespect[64] = {};
+        char respect[64] = {};
+        GetPrivateProfileStringA("hud", "test_respect", "", respect, sizeof respect, ini);
+        if (respect[0] && strcmp(respect, lastRespect) != 0) {
+            int r[3] = {0, 0, 0};
+            const int n = sscanf(respect, "%d,%d,%d", &r[0], &r[1], &r[2]);
+            int set = 0;
+            GTA2_TRY {
+                const uintptr_t pool = *reinterpret_cast<const uintptr_t*>(kGangPool);
+                for (int i = 0; pool > 0x10000 && i < 10 && set < n; ++i) {
+                    uint8_t* g = reinterpret_cast<uint8_t*>(pool + i * 0x144);
+                    if (!g[0]) continue;
+                    g[0x11C] = static_cast<uint8_t>(static_cast<int8_t>((std::max)(-100, (std::min)(100, r[set]))));
+                    ++set;
+                }
+            } GTA2_EXCEPT {}
+            Log("hud3d: test: respect %s set on %d gangs", respect, set);
+        }
+        strncpy(lastRespect, respect, sizeof lastRespect - 1);
     }
     if (g_cfg.test && want) {
         if (pokeHealth) {
@@ -2065,7 +2445,18 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         if (beatShown) DrawBeat(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height));
         ImGui::EndFrame();
         ImGui::Render();
+        LARGE_INTEGER q0, q1;
+        QueryPerformanceCounter(&q0);
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+        QueryPerformanceCounter(&q1);
+        g_mapStats.renderTicks += q1.QuadPart - q0.QuadPart;
+        if (ImDrawData* dd = ImGui::GetDrawData()) {
+            g_mapStats.vtx += dd->TotalVtxCount;
+            int cmds = 0;
+            for (int i = 0; i < dd->CmdListsCount; ++i) cmds += dd->CmdLists[i]->CmdBuffer.Size;
+            g_mapStats.cmds += cmds;
+            ++g_mapStats.renders;
+        }
         ImGui::SetCurrentContext(previous);
     }
 
@@ -2080,6 +2471,23 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
             g_weaponIcon.maxX - g_weaponIcon.minX, g_weaponIcon.maxY - g_weaponIcon.minY, v.arrows.size(),
             g_partSeen[1] + 1 >= g_frame ? "1" : "", g_partSeen[4] + 1 >= g_frame ? ",4" : "", g_partSeen[6] + 1 >= g_frame ? ",6" : "",
             g_partSeen[10] + 1 >= g_frame ? ",10" : "", g_partSeen[11] + 1 >= g_frame ? ",11" : "");
+    }
+
+    // FIX-HUD-4: the respect meters and the mini-map's geometry every two seconds.
+    static uint32_t respectLog = 0;
+    if (want && g_frame - respectLog >= 60) {
+        respectLog = g_frame;
+        char gl[256] = {};
+        int off = 0;
+        for (const Gang& g : v.gangs)
+            off += snprintf(gl + off, sizeof gl - off > 0 ? sizeof gl - off : 0, " %s:%d(c%d)", g.name[0] ? g.name : "?", g.respect, g.colour);
+        const double f = g_mapStats.frames ? static_cast<double>(g_mapStats.frames) : 1.0;
+        const double msPer = 1000.0 / static_cast<double>(g_qpf.QuadPart) / f;
+        Log("hud3d: respect meters drawn=%d gangs:%s | mini-map rects=%.0f clipped=%.0f a frame (%d frames); ms a frame: map %.3f respect %.3f render %.3f (%lld vertices, %lld draw commands a frame)",
+            g_respectDrawn, gl, g_mapStats.rects / f, g_mapStats.clipped / f, g_mapStats.frames,
+            g_mapStats.ticks * msPer, g_mapStats.respectTicks * msPer, g_mapStats.renderTicks * msPer,
+            g_mapStats.renders ? g_mapStats.vtx / g_mapStats.renders : 0, g_mapStats.renders ? g_mapStats.cmds / g_mapStats.renders : 0);
+        g_mapStats = MapDrawStats{};
     }
 
     // The markers every two seconds: arrows in range, pins drawn (lifted over a wall; blocked when

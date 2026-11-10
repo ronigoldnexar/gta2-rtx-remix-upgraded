@@ -230,10 +230,18 @@ void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data)
             vtx_dst->col = IMGUI_COL_TO_DX9_ARGB(vtx_src->col);
 
             // < xoxor4d :: sRGB
+            // (FIX-HUD-4: the same powf values from a 256-entry table made once, so the bytes are
+            // unchanged; three powf a vertex cost ~1 ms a frame with the round mini-map's vertices.)
+            static float s_gamma[256];
+            static bool s_gammaMade = false;
+            if (!s_gammaMade) {
+                for (int g = 0; g < 256; ++g) s_gamma[g] = powf(static_cast<float>(g) / 255.0f, 2.2f);
+                s_gammaMade = true;
+            }
             vtx_dst->col = D3DCOLOR_COLORVALUE(
-                powf(static_cast<float>((vtx_dst->col >> 16) & 0xFF) / 255.0f, 2.2f),
-                powf(static_cast<float>((vtx_dst->col >> 8) & 0xFF) / 255.0f, 2.2f),
-                powf(static_cast<float>((vtx_dst->col >> 0) & 0xFF) / 255.0f, 2.2f),
+                s_gamma[(vtx_dst->col >> 16) & 0xFF],
+                s_gamma[(vtx_dst->col >> 8) & 0xFF],
+                s_gamma[(vtx_dst->col >> 0) & 0xFF],
                 static_cast<float>((vtx_dst->col >> 24) & 0xFF) / 255.0f);
             // end >
 
