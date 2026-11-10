@@ -201,7 +201,7 @@ def _drive_to(world, pt, until, check=None, budget=420, view_switch=None):
     saved = (M.CARE_HP, M.CARE_CAP, M.SMOOTH_SLOW_CAP)
     try:
         if cap: M.SMOOTH_SLOW_CAP = cap; M.CARE_HP = 32001; M.CARE_CAP = cap
-        M.CAR_AVOID.clear()
+        M.CAR_AVOID.clear(); M.CAR_AVOID.update(DI.AVOID_EXTRA)
         return M.drive3(world, pt[0], pt[1], tol=0.9, budget=budget, view_switch=view_switch, slow=True,
                         precious=True, until=until)
     finally:
@@ -216,7 +216,24 @@ def stop_dead(secs=0.4):
 
 # ------------------------------------------------------------------ the stop
 
+def keep_off_man(stop, r=1):
+    """MISSIONS-BATCH2: the cells round the man kept off the car router while the car comes to him
+    (mb2_ccc5: drive3's last leg ran Shady over at 97.5,89.5, 1125 JOB FAILED with the Cop Car at 25800)"""
+    mx, my = man_xy(stop)
+    DI.AVOID_EXTRA.clear()
+    if os.environ.get("HP_KEEP_OFF_MAN", "1") == "1":
+        DI.AVOID_EXTRA.update((int(mx) + i, int(my) + j) for i in range(-r, r + 1) for j in range(-r, r + 1))
+
+
 def pickup(world, stop, msgs, car=None, check=None, view_switch=None, shops=None, budget=900):
+    keep_off_man(stop)
+    try:
+        return _pickup(world, stop, msgs, car=car, check=check, view_switch=view_switch, shops=shops, budget=budget)
+    finally:
+        DI.AVOID_EXTRA.clear()
+
+
+def _pickup(world, stop, msgs, car=None, check=None, view_switch=None, shops=None, budget=900):
     """the whole stop (module docstring). Returns 'aboard' or the job's end / a reason"""
     t0 = time.time()
     m0 = msgs.mark()
@@ -378,7 +395,7 @@ def pickup(world, stop, msgs, car=None, check=None, view_switch=None, shops=None
                     _ev(f"{stop.name}: no progress for {now - t_prog:.0f}s ({len(g)} on foot, farthest {far:.1f}): car to {sp[0]:.1f},{sp[1]:.1f}")
                     saved = M.SMOOTH_SLOW_CAP; M.SMOOTH_SLOW_CAP = min(saved, 1.6)
                     try:
-                        M.CAR_AVOID.clear()
+                        M.CAR_AVOID.clear(); M.CAR_AVOID.update(DI.AVOID_EXTRA)
                         M.drive3(world, sp[0], sp[1], tol=0.8, budget=30, view_switch=view_switch, slow=True, precious=True,
                                  until=aboard)
                     finally:

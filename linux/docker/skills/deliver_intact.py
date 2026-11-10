@@ -47,6 +47,7 @@ CHASE_LEG_VMAX = float(os.environ.get("DI_CHASE_LEG_VMAX", "2.4"))  # game block
 CHASE_LEG_STATS = {"legs": 0, "arrived": 0, "lost": 0, "pinned": 0, "other": 0}
 DRIVE_CALL = 240.0    # one drive3 call at most this long, then the leg re-plans (dl_zz5 spent 420 s in one)
 EVENTS = []            # (wall time, event) for the job's doc
+AVOID_EXTRA = set()    # MISSIONS-BATCH2: cells the car router keeps off for the caller (a passenger-to-be on foot)
 
 
 def _ev(what):
@@ -209,7 +210,7 @@ def respray(world, shop, tunnel, check=None, view_switch=None, secs=40):
     or the wanted level gone; True when repaired"""
     hp0 = car_hp(); w0 = (M.mission_state() or {}).get("wanted", 0)
     _ev(f"to the respray {shop} (carhp {hp0}, wanted {w0})")
-    M.CAR_AVOID.clear()
+    M.CAR_AVOID.clear(); M.CAR_AVOID.update(AVOID_EXTRA)
     s = M.drive3(world, tunnel[0], tunnel[1], tol=0.8, budget=240, view_switch=view_switch, slow=True, precious=True)
     if check: check()
     if not (s and s["driving"]): return False
@@ -311,7 +312,7 @@ def deliver(world, box, car=None, approach=None, done=None, check=None, view_swi
                 continue
             # the drive: to the approach point (a narrow strip) or the box itself
             ap = approach or (approach_point(world, s, box) if min(w, h) < 1.6 else None)
-            M.CAR_AVOID.clear()
+            M.CAR_AVOID.clear(); M.CAR_AVOID.update(AVOID_EXTRA)
             side = None
             if min(w, h) < 1.6:
                 try: side = open_side(world, box, M.ped_level(s))
