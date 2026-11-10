@@ -91479,5 +91479,24 @@ over "RootNode"
                 token outputs:out
             }
         }
+        over "mat_59AE1281DB36B5CA"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/59AE1281DB36B5CA.a.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom asset inputs:normalmap_texture = @./textures/59AE1281DB36B5CA.n.rtex.dds@ (
+                    colorSpace = "raw"
+                )
+                custom float inputs:metallic_constant = 0.050
+                custom float inputs:reflection_roughness_constant = 0.220
+                custom bool inputs:use_legacy_alpha_state = 1
+                token outputs:out
+            }
+        }
     }
 }

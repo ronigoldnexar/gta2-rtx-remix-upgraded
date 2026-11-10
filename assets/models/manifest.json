@@ -2449,7 +2449,8 @@
     "tyre_tread": "cars/vehicle_art2/066_transporter/tyre_tread.png",
     "wheel_steel": "cars/vehicle_art2/066_transporter/wheel_steel.png",
     "steel_bright": "cars/vehicle_art2/066_transporter/steel_bright.png",
-    "underbody": "cars/vehicle_art2/066_transporter/underbody.png"
+    "underbody": "cars/vehicle_art2/066_transporter/underbody.png",
+    "deck_wood": "cars/vehicle_art2/066_transporter/deck_wood.png"
    },
    "generator": "tools/vehicle_art2/car_066.py"
   },
@@ -4034,7 +4035,7 @@
    "3": "003_pacifier",
    "4": "004_g4_bank_van",
    "5": "005_beamer",
-   "6": "006_box_car",
+   "6": "059_train",
    "7": "007_box_truck",
    "8": "008_bug",
    "10": "010_bulwark",

@@ -23,9 +23,10 @@ LOW, UP = 1.15, 2.75
 def build():
     car = Car(NAME)
     car.preview_tint = SPRITE
-    # decks: grated plates between side channels
-    car.box("grating", (-HW + 0.10, LOW - 0.04, Z0 + 0.4), (HW - 0.10, LOW, 2.6))
-    car.box("grating", (-HW + 0.10, UP - 0.04, Z0 + 0.1), (HW - 0.10, UP, Z1 - 0.2))
+    # decks between side channels. VEHICLE-ART-20 (qav27): wooden planks along the trailer, the sprite's brown deck
+    # (they were dark steel grating, which drew a near-black slab with a faint grid against the classic's planks)
+    car.box("deck_wood", (-HW + 0.10, LOW - 0.04, Z0 + 0.4), (HW - 0.10, LOW, 2.6))
+    car.box("deck_wood", (-HW + 0.10, UP - 0.04, Z0 + 0.1), (HW - 0.10, UP, Z1 - 0.2))
     for side in (1, -1):
         x = side * HW
         for y in (LOW, UP):
@@ -52,7 +53,29 @@ def build():
     common_materials(car)
     car.materials["paint_frame"] = tex_paint(PAINT, 64, seed=66)
     car.materials["grating"] = tex_grating(128, (60, 58, 56), cells=20)
+    car.materials["deck_wood"] = tex_deck_planks()
     return car
+
+
+def tex_deck_planks(size=256, planks=11, seed=66):
+    """VEHICLE-ART-20: weathered brown planks running along the deck (u along the trailer, v across it), a dark gap
+    between planks, grain and a few darker boards; colours from the classic sprite's deck (brown 120,84,52 lit)."""
+    rng = np.random.default_rng(seed)
+    vv, uu = np.mgrid[0:size, 0:size] / float(size)
+    k = np.floor(vv * planks).astype(int)
+    f = (vv * planks) % 1.0
+    tone = rng.uniform(0.78, 1.12, planks)[k]
+    off = rng.uniform(0, 50, planks)[k]
+    grain = 0.5 + 0.5 * np.sin(uu * 90 + off + 3.0 * np.sin(uu * 7 + off) + f * 5)
+    fine = rng.normal(0, 1, (size, size)) * 0.04
+    v = (0.80 + 0.14 * grain + fine) * tone
+    v = np.where((f < 0.07) | (f > 0.95), 0.30, v)          # the gap between boards
+    v = np.where((f >= 0.07) & (f < 0.13), v * 0.85, v)      # a worn edge
+    # butt joints: boards end at staggered places along the deck
+    joint = (np.abs(((uu * 3.0 + rng.uniform(0, 1, planks)[k]) % 1.0) - 0.5) > 0.493)
+    v = np.where(joint, 0.35, v)
+    rgb = np.array([118.0, 82.0, 52.0])[None, None] * v[..., None]
+    return Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8))
 
 
 if __name__ == "__main__":

@@ -987,3 +987,57 @@ truck-scaled `POSES_EXTRA` t* poses for 064), private stage `stage_va19` (16c259
   a paint texture with its low frequencies flattened leaves them unchanged (out/va19_mot2); `[visuals] ssao=0` removes
   them (out/va19_mot3). The half-resolution AO (src/post_fx.cpp, ssao8/12 + ao_blur, ao_strength_percent 75) breaks up
   on large smooth panels. A fleet-wide fix belongs in that pass (normal-aware blur or a cap on gently curved surfaces).
+
+## VEHICLE-ART-20 (10 Nov 2026): the holes are the opening door; coach and stake trailer
+
+Probes: `gamerun/va11_own.py` parked (EXIT=1) at wil 198.5,188.2, the parked car forced to each model, fixed
+regression-camera poses (`lside` beside the door, `rear34`, `high`), sets `d0` (door shut), `a0` (every car's door
+open, `door_arch_clear=0`, the old span) and `a1` (door open, the new span): before and after in ONE run at the same
+poses (`out/va20_dsF`, 28 models; `out/va20_G` on the rebased build). Pitfalls: `force_car_door=1` opens the side
+the `lside` pose faces (-1 the far side; the side never changes while the door is held open); `va11_own.py`'s setkey
+inserts a missing key after the FIRST literal `[devtools]` in the file, which in the stage ini is a comment: put the
+key under the real header first or the toggle is dead (`out/va20_dsD`: a0 = a1). With `force_car_model` every car
+keeps its own sprite's cabin measure, so the door span differs per car (a forced 040 opened 0.09..0.46 on the van).
+A 28-model forced sweep with every door open and two spans built 239 door splits (244 MB) and hit the 3.9 GB memory
+ceiling at 19:52 (street views off for the rest of that session): frames after it (models 037-068 in va20_dsF) are
+not evidence. Keep such sweeps to ~15 models.
+
+- **owner10nov-3 "vehicles with holes in ordinary play": what they are.** An offline scan of every shipped car mesh
+  (`tools/vehicle_art/hole_scan.py`, 72 poses per model at 1-3 blocks: alpha-test holes where both halves of a paint
+  pair are under 128, nearest and bilinear, and faces seen from their lit back side) finds no alpha holes on any closed
+  model; the back-face count is dominated by open sheets by design (fenders, pans, tyres wound inward) and is a lead
+  list, not a verdict. The holes a player sees are made at run time when a door opens (a ped boards or leaves any car,
+  traffic included: qav29). The door box ran 0.27 of the body back from the sprite's windscreen foot (front edge capped
+  at 0.42 of the length), so on most bodies it reached into an arch: the wing's rear, the arch lip and part of a tyre
+  were cut out with the door, swung out as torn slivers and left a hole over the wheel (in `out/va20_dsF` a0: 001
+  Wellard half the rear tyre on the swung door; 002 BD4 and 056 Taxi a wheel chunk on the door; 000, 005, 013, 019, 031,
+  051 arch debris under the swung door; the 068 van's and the 063/069 trucks' doors over the front wheel).
+  Fixed in `dll/src/car_bodies.cpp` (door span helper shared by the split, the boarding publish and the warm-ahead):
+  the tyres are found on the mesh (`MeshWheelZFor`: vertices under 6 % of the roof at the sides, front and rear
+  groups; the CARI axles missed shells' wheels by 5-6 cm), the door ends 1.3 tyre radii plus 1 cm from each axle
+  (radius: the larger of the feel's and 0.22 of the height), keeps its length where it fits, its place where less
+  than 0.6 of it fits, and is at most 0.30 block (1.1 m). The log prints `door span of <model>` once per model.
+  `[devtools] door_arch_clear=0` restores the old span (A/B). After (a1, same poses): tyres and arches whole on all
+  21 valid models; the door opening ends ahead of the rear arch and behind the front one.
+- **qav29 (crushed sedan and taxi with flat dark slabs, hollow roof).** Not damage geometry: the filer's own log has
+  door splits of `032_stretch_limousine` on both sides at the frame's second (span z -0.02..0.46 = 0.48 block): the
+  limo's two doors, each a 1.8 m flat panel of a low-poly shell, swung out on both sides (one beside the taxi), and the
+  hole they left made the roof a thin canopy. The 0.30-block cap makes them front doors of a normal size.
+- **qaexp20 (tan bus-bodied coach with road tyres).** The coach is model 6, `006_box_car` (the filer's log: model 6
+  sprite 6 in the train with 059 coaches and the 060 cab), a parametric bus-like loaf with road wheels. Manifest only:
+  `by_model 6 -> 059_train`, VEHICLE-ART-7's authored cream coach on bogies (the 006 and 059 sprites are both cream
+  rail cars).
+- **qav27 (stake trailer's deck black with a faint grid).** The trailer is `066_transporter` (log: model 66 sprite 60).
+  Its decks were dark steel grating (60,58,56 at 35 %/100 %), which drew near-black; the classic sprite shows brown
+  planks. `tools/vehicle_art2/car_066.py`: both decks are `deck_wood` (11 weathered brown planks along the trailer, dark
+  gaps, staggered butt joints, 118,82,52 at full tone); the folded ramps stay grating. Rebuild deterministic (every other
+  file byte-identical); `066_transporter.mesh` + `066_transporter_deck_wood.tga` in repo/assets/models (backup
+  `backup_va20/models_066`). Remix: one lone prim 59AE1281DB36B5CA (additions only, `remix_car_prim_check` 0 missing for
+  066), DDS in `layer_deploy/VEHICLE-ART-20`.
+- Classic view: vreg on the private stage, `spawn_classic` PASS 0 changed tiles (out/vreg_stage_va20c_1110_195654;
+  the 3D shots' changed tiles are all the HUD's new minimap and hearts, FIX-HUD-4, against older goldens).
+- Still short of a shipping-AAA frame: the swung door of an image-to-3D shell is a skin with no thickness and the opening
+  shows a hollow shell (the dim cabin box helps only from the side); the kit bodies' door edges show rows of small black
+  teeth along both the opening and the swung door (040 Maurice, not the span: unchanged a0/a1; not identified yet: the
+  offline replica of the split shows none, so they are drawn by a later pass, e.g. the sun-shadow map on the thin edge);
+  the 040's wing still loses a thin crescent to the door; door spans of forced models follow the wrong sprite's cabin.
