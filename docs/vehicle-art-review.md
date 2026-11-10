@@ -1041,3 +1041,66 @@ not evidence. Keep such sweeps to ~15 models.
   teeth along both the opening and the swung door (040 Maurice, not the span: unchanged a0/a1; not identified yet: the
   offline replica of the split shows none, so they are drawn by a later pass, e.g. the sun-shadow map on the thin edge);
   the 040's wing still loses a thin crescent to the door; door spans of forced models follow the wrong sprite's cabin.
+
+## VEHICLE-ART-21 (10 Nov 2026): the black-box cabin is the seated band; 070 Z-Type and 041 Pickup authored
+
+Probes: QA-VISUAL pass 50's own repro (`gamerun/keys_qa_qav50.sh` = `to_level.sh` + `va5_own.py`: wil 164.5,147.6,
+noon, plain GL, the player's car parked and forced to each model, fixed regression-camera poses side / front34 / rear34 /
+eye / wheel / high, `VA5_KEY` toggled per pose in one session). A forced model is drawn untinted (identity.cpp
+`r.livery = ... || ref.forcedModel`), so these frames judge shape and finish, not paint colour: a neutral kit body shows
+white, an image-to-3D shell its baked texture colour (the filer's "041 silver from above, black from the side" is that
+texture under the sun, not two paints).
+
+- **qav50 71 Rumbler / 83 Furore GT "flat black box standing on the body": the FIX-SEATED band, not a body box.**
+  Offline renders of both shipped meshes (`tools/vehicle_art/mesh_preview.py`) show a normal raked greenhouse;
+  `car_glass` 1/0 gave identical frames (out/qa_va21ab1). The log has `band box 071_rumbler ...`: both models have
+  glass and a cabin (1620 / 1168 glass texels) but no rear screen (`rear screen 0`: the bakes paint it as body), and a
+  seated car whose rear screen was not found kept FIX-SEATED's band. That draws the hull between 0.60 and 0.90 of the
+  cabin roof at 40 % over VEHICLE-ART-5's opaque dark band box (straight-ended, flat-topped), with only the top tenth of
+  the roof opaque: the black slab with the roof a faint shell behind it, on the player's car and every traffic car
+  with a driver. `car_bodies.cpp`: a car whose glass was found now always takes the glass (as under Remix since
+  VEHICLE-GLASS-4); `[devtools] glass_rear_gate=1` restores the old gate. `car_glass.cpp` logs the rear-screen texels
+  and, for a body with under 200 glass texels, `painted windows kept (FIX-SEATED band when seated)`.
+  Verified out/qa_va21ab2 (gate 0 vs 1, same session) and out/qa_va21ab3 (rebased build, dd489cab): 071 and 083 draw a
+  raked hardtop in body paint, side glass with the cabin behind it, no slab, and from above the dark flank blotches are
+  gone. 041's cab is glazed instead of banded. Control 051 is unchanged. The driver shows low through the windscreen
+  (071 hair, 083 torso). No driver shows from straight behind: the rear screen is painted on these bakes, which was the
+  band's purpose. Pane outlines follow the baked mask (ragged).
+- **070 Z-Type authored (`tools/vehicle_art2/car_070.py`; qav50 "crumpled body, ghost canopy").** The shell had 0 glass
+  texels (log line above), so a seated 070 always drew the band. That was the translucent grey canopy with the interior,
+  a second arch and the driver ghosting through it, over lumpy image-to-3D wings and bonnet. The kit body is built on
+  VEHICLE-ART-9's 018 Shark surface, read from the sprite nose down (2.66 x 5.0 m, axles +24/-18 px): the shark shear
+  is removed for an upright narrow waterfall grille with a thin chrome prow strip, the sprite's chrome bonnet strip
+  ends in an arrow ornament, the pontoon swells are stronger at both axles, the lamps are faired into the wing noses,
+  the glasshouse is short and two-door (door glass, rear quarter light, windscreen), the teardrop fastback carries a
+  small rear light, there is a boot handle, lamps on the tail, wraparound bumpers with over-riders, whitewalls, and
+  benches, dash and wheel inside. Neutral 235 paint (tinted by the identity record), kit glass. Driver seat
+  [0.084, 0.140, -0.016, 0.295].
+- **041 Pickup authored (`tools/vehicle_art2/car_041.py`; qav50 "torn black pixel-stepped patches").** The patches
+  are baked into the shell's atlas (offline preview: the black door blotch and the ragged grille surround), so no
+  render setting cures them. The kit body uses VEHICLE-ART-9's 058 Tow Truck cab recipe, read from the sprite nose down
+  (2.66 x 5.0 m, axles +18/-19 px, cab 18-33 px from the nose): a bonnet over the front wheels between pontoon wings
+  with the headlamps in their noses, a wide bar grille in a chrome surround, a heavy bumper, a rounded two-seat cab with
+  side glass, windscreen and a small rear light, mirrors on arms. The bed has a floor of dark planks along its length
+  (the sprite's slats), painted sides with a rolled top rail and chrome stake pockets (the sprite's light dots), a front
+  board, a tailgate with a chrome strip, rounded wheel tubs, running boards, tail lamps on the corners and a rear
+  bumper. Driver seat [0.088, 0.200, 0.036, 0.373]. The first build hung the rear fender below the bed side as a thin
+  bright arc (out/qa_va21z2). The tub now ends above the side's foot (out/qa_va21z3).
+- Verified (frames opened): out/qa_va21z1 / qa_va21z2 (070 at all six poses: smooth uniformly shaded panels, a clean
+  grille, lamps and glass, no canopy ghost; before = out/qa_qav50 own_*_070_1) and out/qa_va21z3 (041 side / rear34 /
+  front34 / eye: one finish from every pose, no patches, a glazed cab, a planked bed). Offline: `car_mesh_orient` fix
+  applied by build.py; `hole_scan.py` 070 max 20 % / 041 max 20 % back-face pixels. These are the wheel-well liners seen
+  through the arches from the front at eye height and the floor pan, as on the shipped kit bodies (018 max 12 %,
+  058 10 %, the same shoulder seam line on 058). Neither model shows alpha holes. Classic view: vreg stage
+  spawn_classic PASS 0 changed tiles (out/va21a; the 3D shots' changed tiles are the new HUD against older goldens).
+- Not verified: the paint-parity gate (`keys_paint_parity.sh` run out/va21pp1: the car was not framed, the state line
+  put it at 130,195.8, away from the warp; SKIP "no car found"), so the sprite colour on these two bodies in traffic is
+  untested. They follow the tint path every neutral-235 kit body uses. Also untested: Remix (no prims for the new
+  textures: every 070 / 041 texture is new and draws from its base texture), night, moving traffic, first person
+  (FIX-COCKPIT-CAB-5's cab tables have no entry for the new interiors).
+- Still short of a shipping-AAA frame: the kit glass is dark, so no cabin or driver reads through it by day (every kit
+  body); 070's wings are swells of one body section, not separate pontoons with a valley to a narrow bonnet, so it
+  reads more 1940s fastback than 1936 Zephyr; 041's bed sides are flat slabs with box edges; the 071 / 083 bakes keep
+  their image-to-3D facets, dents and ragged pane outlines (authoring them is the remaining cure).
+- Model files: `070_z_type*` and `041_pickup*` in repo/assets/models (the shells' 34 files backed up in
+  `/mnt/gta2/gta2-linux/backup_va21/models`): NEEDS A RESTAGE.

@@ -64,7 +64,9 @@ SEATS = {
     "010_bulwark": ((0.45, 0.72, 0.20), 5.0),  # VEHICLE-ART-12: front bench x +-1.02, top 0.72, back -0.08..0.06
     "034_medicar": ((0.45, 0.72, 0.20), 5.0),  # VEHICLE-ART-18: front bench x +-1.02, top 0.72, back -0.08..0.06
     "044_arachnid": ((0.36, 0.52, -0.60), 5.0),  # VEHICLE-ART-18: buckets x +-0.36, top 0.52, back -0.86..-0.72 (open cockpit)
-    "086_karma_bus": ((0.82, 1.05, 2.22), 5.0),  # VEHICLE-ART-18: driver seat x -1.10..-0.55, top 1.05, back 1.98..2.10
+    "086_karma_bus": ((0.82, 1.05, 2.22), 5.0),
+    "070_z_type": ((0.42, 0.70, -0.08), 5.0),
+    "041_pickup": ((0.44, 1.00, 0.18), 5.0),     # VEHICLE-ART-21: bench x +-0.88, top 1.00, back -0.06..0.06     # VEHICLE-ART-21: front bench x +-0.84, top 0.70, back -0.34..-0.20  # VEHICLE-ART-18: driver seat x -1.10..-0.55, top 1.05, back 1.98..2.10
 }
 
 
