@@ -9867,7 +9867,16 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
     QueryPerformanceCounter(&t0);
     static int logs = 0;
     if (logs < 6 && (++logs, true))
-        Log("contact shadows: %d cars (%d tyres), %d peds, %d props (opacity %d%%, day %.2f)", cars, tyres, peds, props, g_contactShadows, day);
+    {
+        DWORD fogOn = 0, fs = 0, fe = 0;
+        device->GetRenderState(D3DRS_FOGENABLE, &fogOn);
+        device->GetRenderState(D3DRS_FOGSTART, &fs);
+        device->GetRenderState(D3DRS_FOGEND, &fe);
+        float fsf = 0.0f, fef = 0.0f;
+        memcpy(&fsf, &fs, 4); memcpy(&fef, &fe, 4);
+        Log("contact shadows: %d cars (%d tyres), %d peds, %d props (opacity %d%%, day %.2f, fog %s %.1f-%.1f)", cars, tyres, peds, props,
+            g_contactShadows, day, fogOn ? "on" : "off", fsf, fef);
+    }
 
     IDirect3DStateBlock9* saved = nullptr;
     device->CreateStateBlock(D3DSBT_ALL, &saved);
@@ -9878,7 +9887,24 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
     device->SetPixelShader(nullptr);
     device->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
     device->SetRenderState(D3DRS_LIGHTING, FALSE);
-    device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    // FIX-WORLD-16 qav64 (fog: shadow blobs ignore fog): the patches were drawn with the fog off, so at
+    // fog 50-90 a distant car's or lamp post's patch stayed pitch black after the object had faded and
+    // hung as a black dash in the haze. The world pass leaves the street views' fog on (its colour, linear
+    // table start/end, renderer.cpp DrawWorld) for the live geometry; kept on here, the patch's black is
+    // fogged toward the fog colour at its depth, and blended by its alpha over the fogged ground that is
+    // exactly the fogged shadowed ground: a(F f) + (1 - a)(g(1 - f) + F f) = g(1 - a)(1 - f) + F f.
+    // Inside fog_start (18 blocks at fog 0) f is 0 and the patch is what it was. [devtools]
+    // contact_shadow_fog=0 = the old pass (fog off), re-read once a second, for a same-spot A/B.
+    {
+        static int devFog = 1;
+        static uint32_t calls = 0;
+        if (CarBodiesDevIni()[0] && (calls++ % 30u) == 0) {
+            const int v = GetPrivateProfileIntA("devtools", "contact_shadow_fog", 1, CarBodiesDevIni());
+            if (v != devFog) Log("devtools: contact_shadow_fog %d", v);
+            devFog = v;
+        }
+        if (!devFog) device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    }
     device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
     device->SetRenderState(D3DRS_ZENABLE, TRUE);
     device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);

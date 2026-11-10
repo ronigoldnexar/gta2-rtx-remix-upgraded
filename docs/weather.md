@@ -174,3 +174,31 @@ the floor (a grate, a deck, a gantry) and it keeps the wet darkening but no mirr
 diff out/qa_fw15c: only the walking peds differ outside the grates). `[visuals] debug=256` = the test off (live A/B). To
 stay at r31 the sky test re-reads the depth at the end instead of holding a temporary through the march. Residual: a
 floor point whose projected point falls in a grate hole (17%) still mirrors, so a few pale specks remain far off.
+
+## FIX-WORLD-16: contact shadows take the fog (qav64, 10 Nov 2026)
+
+The contact-shadow pass (`dll/src/live_geometry.cpp` `DrawContactShadows`: the soft patches under cars, tyres,
+peds and placed props such as lamp posts, signs and shelters) set `D3DRS_FOGENABLE FALSE`. With `fog_percent`
+50-90 the fog end comes in to 12-40 blocks, so a distant object faded into the haze while its patch stayed at
+full black and hung as a dash above the road (QA-VISUAL v64). The pass now keeps the fog the world pass leaves
+on for the live geometry (its colour and linear table start/end). The patch's black is fogged toward the fog
+colour at its depth and then blended by its alpha over the already-fogged ground, which works out to exactly the
+fogged, shadowed ground: `a(F f) + (1 - a)(g(1 - f) + F f) = g(1 - a)(1 - f) + F f`. Where the object is fully
+fogged (f = 1) its patch disappears. Inside the fog start (18 blocks at fog 0) f = 0, so near patches are unchanged.
+Remix draws no contact patches (`RemixApiAvailable()` returns early; it traces real shadows), so that path has
+nothing to change.
+
+- A/B: `[devtools] contact_shadow_fog=0` brings back the old pass (fog off), re-read once a second. The first
+  `contact shadows:` log lines now carry `fog on|off start-end`.
+- Probe: `gamerun/fw16_q64.py` (`keys_qa_fw16q64.sh`): the qav64c spot, wil 164.5,149.5, 11:00 paused, cloud
+  30; fog 0/50/90 in third person and 0/90 in first, each shot with the key at 0 and then 1. Its ini writer looks
+  for `[devtools]` at the start of a line, because the stage ini carries `; [devtools] car_coat=...` in a comment
+  and `weather_look.setk` would write the key into that comment's section (the first run's toggle never reached
+  the DLL).
+- Verified (run fw16b, frames opened): at fog 90 the old pass leaves black dashes above the road down the street
+  in third person and at the vanishing point in first person. The new pass leaves none, and the bus shelter's
+  patch fades with the shelter. At fog 0 the crop under the van ahead is unchanged; the only differences in the
+  frame are the passing car, peds and clouds. vreg `spawn_classic` PASS, 0 tiles changed.
+- Not verified: night fog, rain plus fog (same code path, not framed), and a Remix take (no patches drawn there).
+  Patches between 18 and 45 blocks at fog 0 now fade slightly (f up to about 0.25), which is the correct
+  composite with the fogged ground; the old pass left them a little too dark there.
