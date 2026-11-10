@@ -965,6 +965,16 @@ truck-scaled `POSES_EXTRA` t* poses for 064), private stage `stage_va19` (16c259
   rear-left angle): one whole truck, the back is paint with the lip and ribs, no bar, no slabs, no shards. Textures
   12.6 MB when drawn (the 063's set) against the shell's 2.3 MB. Short of AAA: the cab is the 063's single-curvature
   shell; hood and lip are smooth lofts without stamped seams; the roof lights are boxes, not cast housings.
+- **064 paint gate.** With the 063's coat the 064's red record read +25 % L* (FAIL, out/va19_gate1_paint.md; its broad
+  sunlit hood and the roof lip add lit lid area, the 063 is +20 %). A darker coat overall changed nothing
+  (out/va19_gate2_paint.md: the renderer measures each body's own paint and normalises the tint); the up-facing hood and
+  lip texels now carry a 14 % deeper coat: red +24 % WARN, 0 FAIL (out/va19_gate3_paint.md, beside the 063's +20 %).
+  054 in the gate (livery class, own colours): 44,57,21 against the sprite's 49,64,21, -12 % L* WARN.
+- **002 Aniston BD4: tried and withdrawn.** A kit body from car_082's surface (fastback, long creased bonnet, wide low
+  grille) was built and filmed against the shipped shell at the same six poses (out/va19_002b shell, out/va19_002a kit):
+  in game the shell reads as a detailed DB4 (grille, chrome, plates, proportions) and the kit body as a smoother toy
+  car. Not shipped; the shell stays (backup_va19/models_002 = the shipped files). The 002 needs a dedicated authoring
+  pass with its grille, plates and door gaps before it beats the shell.
 - **Plates (qaexp11): no change.** At the same close rear pose, parked (out/va19_plate2) and as the player's own car
   (out/va19_plate3), the shipped plate files read left to right ("RM 000", "MX 613"); the same files mirrored read
   backwards. The shipped `*_plate.tga` are right for the current meshes (u runs along -x on the -z face).
