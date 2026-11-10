@@ -15,6 +15,8 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
+#include <initializer_list>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -34,17 +36,23 @@ std::vector<MapLampRecord> g_mapLampRecords;   // every steady lamp of the map f
 int g_farLampsLastFrame = 0;
 float g_farLampWeight = 0.0f;   // this frame's fade of the far lamps (0 when none were submitted)
 int g_probeMask = 0;              // [devtools] remix_lights_probe (see GameClassDaylight)
-int g_trafficLiftMilli = 0;       // [devtools] remix_traffic_lift_milli (FIX-REMIX-NIGHT-5)
+int g_trafficLiftMilli = 650;     // [devtools] remix_traffic_lift_milli (FIX-REMIX-NIGHT-5; default 650 since FIX-REMIX-NIGHT-6, frn6_p6)
 int g_lowBounceWarm = 1;          // [devtools] remix_low_bounce_warm (FIX-REMIX-NIGHT-5)
 int g_wideNeonTenths = -1;       // [devtools] remix_wide_neon_tenths (-1 = the setting wideNeonRadius, 0 = off)
 int g_poolCone = -1;             // [devtools] remix_pool_cone: PoolConeDegrees, live (-1 = the setting, 0 = sphere)
 int g_nightFillMilli = -1;       // [devtools] remix_night_fill_milli: NightSkyFill x1000, live (-1 = the setting)
 int g_dayFillMilli = -1;        // [devtools] remix_day_fill_milli: DayBounceFill x1000, live (-1 = the setting, 0 = off)
 int g_sodiumWhite = 1;          // [devtools] remix_sodium_white=0: sodium map lights keep #FF8000 in the street views (A/B)
+int g_windowPct = 100;           // [devtools] remix_window_pct: lit-window room lights, % of default (0 = off; FIX-REMIX-NIGHT-6)
+int g_windowOutMilli = 250;
+int g_gantryPct = 100;           // [devtools] remix_gantry_pct: the wil gantry signal lenses' night glow, % (0 = off; FIX-REMIX-NIGHT-6)      // [devtools] remix_window_out_milli: how far in front of the pane they hang (tiles x1000)
 int g_trafficOld = 0;            // [devtools] remix_traffic_old=1: the junction signals as before (A/B)
 int g_trafficPct = 35;           // [devtools] remix_traffic_pct: a signal's light at night, % of the old
 int g_trafficDayPct = 10;        // [devtools] remix_traffic_day_pct: by day, % of the night's
 int g_signLights = 1;
+int g_signWall = 1;              // [devtools] remix_sign_wall: a sign light on a wall shines away from it (FIX-REMIX-NIGHT-6)
+int g_signRedPct = 35;           // [devtools] remix_sign_red_pct: share of the sign's own colour kept by the warm-white rule (frn6_p7)
+
 int g_duskFillDeg = -1;          // [devtools] remix_dusk_fill_deg: DuskFillDegrees, live (-1 = the setting, 0 = off)            // [devtools] remix_sign_lights=0: red/pink map lights as sodium lamps again (A/B)
 bool g_reliftPending = false;
 
@@ -282,6 +290,86 @@ bool SodiumLike(const float* rgb) {
 // Where a tracked light goes, its colour and the factor its colour is scaled by
 // (everything Apply describes to Remix but the emitter shape). Shared with the
 // strongest-lights log.
+// FIX-REMIX-NIGHT-6 (pt-remix-night-red-neon-sign-floods-courtyard-saturated-red, triage pass 194 residual): the map
+// puts a sign's light in front of the sign (wil JESUS SAVES: the letters are the flat faces 742/743 on the y = 139
+// plane, its #FF0000 r 5 light 1.5 tiles south of them at 160.01,140.50,3.5). Once the wide-sign rule made that light
+// warm white it lit the letters themselves white from the front, and they read pale pink-white over their red
+// emission (triage tri14_rxw). A sign or neon map light with a lit-sign face (the curated emissive sign tiles of
+// tools/remix_emissive.py, ids only) within kSignWallReach is turned into a half-space lamp shining away from that
+// sign (out and a little down, 80 deg either side): the street in front is lit as before, the letters only by their
+// own emission. The light also moves kSignWallOut further from the sign. [devtools] remix_sign_wall=0: as before.
+constexpr float kSignWallReach = 2.0f;
+constexpr float kSignWallOut = 0.12f;
+struct SignTiles { const char* style; std::initializer_list<int> tiles; };
+const SignTiles kSignTiles[] = {
+    {"wil", {566, 574, 728, 729, 730, 739, 742, 743, 754, 756, 759, 760, 761, 763, 764, 767, 782, 825, 826, 827}},
+    {"bil", {384, 385, 386, 387, 389, 390, 392, 394, 395, 396, 397, 398, 399, 400, 401, 402, 403, 404, 405, 406, 407, 408,
+             409, 410, 411, 412, 413, 414, 415}},
+    {"ste", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30, 31, 345, 347, 363,
+             372, 374}},
+};
+bool IsSignTile(int tile) {
+    for (const SignTiles& s : kSignTiles) {
+        if (strcmp(s.style, g_sceneName) != 0) continue;
+        for (int t : s.tiles) if (t == tile) return true;
+    }
+    return false;
+}
+bool SignWallNormal(const RemixTrackedLight& t, float* normal) {
+    if (!g_signWall || t.def.source != kLightSourceGame || t.moving || !StreetPresentation()) return false;
+    if (!(t.gameClass == kGameLightNeon || (g_signLights && t.gameClass == kGameLightStreet && !SodiumLike(t.def.rgb)))) return false;
+    const gta2::Map* map = g_ground && g_ground->Ready() ? g_ground->MapData() : nullptr;
+    if (!map) return false;
+    const float gx = t.def.pos[0], gy = static_cast<float>(gta2::kMapHeight) - t.def.pos[2];
+    const int level = static_cast<int>(std::floor(t.def.pos[1]));
+    normal[0] = normal[1] = normal[2] = 0.0f;
+    float best = kSignWallReach;
+    const int cx = static_cast<int>(std::floor(gx)), cy = static_cast<int>(std::floor(gy));
+    auto sign = [](const gta2::Face& f) { return f && IsSignTile(f.Tile()); };
+    for (int lv = level - 1; lv <= level + 1; ++lv) {
+        auto at = [&](int x, int y) -> const gta2::Block* {
+            if (x < 0 || y < 0 || x >= gta2::kMapWidth || y >= gta2::kMapHeight) return nullptr;
+            const gta2::Column& c = map->ColumnAt(x, y);
+            const int i = lv - c.offset;
+            if (i < 0 || i >= static_cast<int>(c.blocks.size()) || c.blocks[static_cast<size_t>(i)] >= map->BlockCount()) return nullptr;
+            return &map->BlockAt(c.blocks[static_cast<size_t>(i)]);
+        };
+        // Sign faces on the planes x = cx+1+k / cx-k and y = cy+1+k / cy-k, within a tile either side across.
+        for (int k = 0; k <= 1; ++k) {
+            for (int side = -1; side <= 1; ++side) {
+                for (int e = 0; e < 2; ++e) {
+                    const int p = e == 0 ? cx + 1 + k : cx - k;
+                    const float dx = std::fabs(static_cast<float>(p) - gx), across = side == 0 ? 0.0f : std::fabs(cy + 0.5f + side - gy) - 0.5f;
+                    const float d = std::sqrt(dx * dx + (across > 0.0f ? across * across : 0.0f));
+                    if (d >= best) continue;
+                    const gta2::Block* west = at(p - 1, cy + side);
+                    const gta2::Block* east = at(p, cy + side);
+                    if ((west && sign(west->right)) || (east && sign(east->left))) { best = d; normal[0] = e == 0 ? -1.0f : 1.0f; normal[2] = 0.0f; }
+                }
+                for (int e = 0; e < 2; ++e) {
+                    const int p = e == 0 ? cy + 1 + k : cy - k;
+                    const float dy = std::fabs(static_cast<float>(p) - gy), across = side == 0 ? 0.0f : std::fabs(cx + 0.5f + side - gx) - 0.5f;
+                    const float d = std::sqrt(dy * dy + (across > 0.0f ? across * across : 0.0f));
+                    if (d >= best) continue;
+                    const gta2::Block* north = at(cx + side, p - 1);   // its bottom (south) face is on the plane
+                    const gta2::Block* south = at(cx + side, p);       // its top (north) face is on the plane
+                    // The normal points from the sign to the light: a sign south of it (game +y) -> north, renderer +Z.
+                    if ((north && sign(north->bottom)) || (south && sign(south->top))) { best = d; normal[0] = 0.0f; normal[2] = e == 0 ? 1.0f : -1.0f; }
+                }
+            }
+        }
+    }
+    {
+        static int logged = 0;
+        if (logged < 24 && (normal[0] != 0.0f || normal[2] != 0.0f)) {
+            ++logged;
+            Log("remix lights: sign light at %.2f,%.2f,%.2f (game %.2f,%.2f) faces away from its sign %.2f tile off, normal %.0f,%.0f",
+                t.def.pos[0], t.def.pos[1], t.def.pos[2], gx, gy, best, normal[0], normal[2]);
+        }
+    }
+    return normal[0] != 0.0f || normal[2] != 0.0f;
+}
+
 void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOut) {
     const RemixLightOverride* ov = LightsFindOverride(t.key);
     const bool identified = t.key != 0 && t.key == g_identify;
@@ -292,6 +380,10 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
     for (int i = 0; i < 3; ++i) {
         pos[i] += ov ? ov->offset[i] : 0.0f;
         rgb[i] = (ov && ov->recolor) ? ov->color[i] : t.def.rgb[i];
+    }
+    {
+        float n[3];
+        if (SignWallNormal(t, n)) { pos[0] += n[0] * kSignWallOut; pos[2] += n[2] * kSignWallOut; }
     }
 
     // The game's radius is the light's reach, not its size. Feeding it to the
@@ -326,7 +418,11 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
         static const float kWarm[3] = {1.0f, 0.80f, 0.58f};
         const float lumaWarm = 0.2126f * kWarm[0] + 0.7152f * kWarm[1] + 0.0722f * kWarm[2];
         const float luma = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
-        for (int i = 0; i < 3; ++i) rgb[i] = kWarm[i] * luma / lumaWarm;
+        // [devtools] remix_sign_red_pct (FIX-REMIX-NIGHT-6): keep this share of the sign's own colour (same luminance).
+        const float keep = static_cast<float>(g_signRedPct < 0 ? 0 : (g_signRedPct > 100 ? 100 : g_signRedPct)) / 100.0f;
+        float own[3];
+        for (int i = 0; i < 3; ++i) own[i] = rgb[i];
+        for (int i = 0; i < 3; ++i) rgb[i] = (1.0f - keep) * kWarm[i] * luma / lumaWarm + keep * own[i];
     }
 
     // FIX-REMIX-NIGHT-4 (pt-remix-night-wall-flat-pure-orange-wash-blue-channel-zero): the map's sodium
@@ -417,6 +513,13 @@ void Apply(RemixTrackedLight& t) {
         sphere.shaping_value.direction = remixapi_Float3D{0.0f, -1.0f, 0.0f};
         sphere.shaping_value.coneAngleDegrees = 75.0f;
         sphere.shaping_value.coneSoftness = 0.5f;
+        sphere.shaping_value.focusExponent = 0.0f;
+    } else if (float n[3]; SignWallNormal(t, n)) {
+        // Away from the wall the sign hangs on, a little down, 80 degrees either side (see SignWallNormal).
+        sphere.shaping_hasvalue = 1;
+        sphere.shaping_value.direction = ToRemix(std::array<float, 3>{n[0] * 0.94f, -0.34f, n[2] * 0.94f}.data());
+        sphere.shaping_value.coneAngleDegrees = 80.0f;
+        sphere.shaping_value.coneSoftness = 0.3f;
         sphere.shaping_value.focusExponent = 0.0f;
     } else if (t.def.spot) {
         sphere.shaping_hasvalue = 1;
@@ -683,6 +786,220 @@ void LightsSetMapLightRecords(const std::vector<uint8_t>& lght) {
         static_cast<unsigned>(g_mapLampRecords.size()), blinking);
 }
 
+namespace {
+// --- Lit windows (FIX-REMIX-NIGHT-6, ptrmx25) --------------------------------
+//
+// The districts' lit-window wall tiles (amber or warm panes painted into the art: ste 961/962/983, the
+// pale yellow panes on the blue offices 493/505-508, wil's strip windows 100/125/127, bil 243/246...)
+// glowed under Remix by their albedo alone and lit nothing: the wall under the sill, the ledge and the
+// pavement stayed as dark as a blank wall (defect ptrmx25). Each such face now gets a small warm room
+// light hung just in front of the pane band, shaped down and out (a window lights the wall below it
+// and the pavement, not the eaves), at night only (the street lamps' clock), in the street views only
+// (weighted by the same sky blend as the far lamps, so the classic view gets none) and only on a Remix
+// device (the plain renderer reads the tracked list: it must not gain lights). Nearest first, capped,
+// so a facade of windows is a row of small pools, not a flood.
+// The tile list was picked by eye from a warm-pane scan of the HD tiles (tile ids and the pane band's
+// height only, no art): v is the pane band's centre from the top of the tile, share the lit fraction.
+struct LitWindowTile { const char* style; int tile; float v; float share; };
+const LitWindowTile kLitWindowTiles[] = {
+    {"ste", 276, 0.41f, 0.05f}, {"ste", 281, 0.58f, 0.10f}, {"ste", 311, 0.61f, 0.06f}, {"ste", 480, 0.42f, 0.04f},
+    {"ste", 493, 0.16f, 0.19f}, {"ste", 505, 0.13f, 0.09f}, {"ste", 506, 0.72f, 0.17f}, {"ste", 507, 0.73f, 0.09f},
+    {"ste", 508, 0.16f, 0.14f}, {"ste", 961, 0.30f, 0.22f}, {"ste", 962, 0.30f, 0.23f}, {"ste", 983, 0.28f, 0.09f},
+    {"wil", 100, 0.59f, 0.05f}, {"wil", 125, 0.61f, 0.14f}, {"wil", 127, 0.58f, 0.07f}, {"wil", 498, 0.45f, 0.07f},
+    {"wil", 810, 0.42f, 0.05f}, {"wil", 815, 0.58f, 0.12f},
+    {"bil", 243, 0.23f, 0.12f}, {"bil", 246, 0.25f, 0.13f}, {"bil", 293, 0.42f, 0.08f}, {"bil", 788, 0.42f, 0.05f},
+    {"bil", 793, 0.58f, 0.11f},
+};
+struct WindowLight { float pos[3]; float dir[3]; float share; float centre[3]; uint64_t id; bool lamp = false; };
+std::vector<WindowLight> g_windowLights;     // every lit-window face of the district, renderer frame
+const gta2::Map* g_windowMap = nullptr;
+size_t g_windowMapBlocks = 0;
+char g_windowScene[64] = "";
+int g_windowOutBuilt = -1;
+int g_windowsLastFrame = 0;
+constexpr float kWindowRadius = 18.0f;       // tiles from the eye
+constexpr int kWindowCap = 40;
+
+const gta2::Block* BlockAtLevel(const gta2::Map& map, int x, int y, int z) {
+    if (x < 0 || y < 0 || x >= gta2::kMapWidth || y >= gta2::kMapHeight) return nullptr;
+    const gta2::Column& c = map.ColumnAt(x, y);
+    const int i = z - c.offset;
+    if (i < 0 || i >= static_cast<int>(c.blocks.size())) return nullptr;
+    const uint32_t b = c.blocks[static_cast<size_t>(i)];
+    return b < map.BlockCount() ? &map.BlockAt(b) : nullptr;
+}
+
+void BuildWindowLights() {
+    const gta2::Map* map = g_ground && g_ground->Ready() ? g_ground->MapData() : nullptr;
+    if (!map) return;
+    if (map == g_windowMap && map->BlockCount() == g_windowMapBlocks && g_windowOutBuilt == g_windowOutMilli &&
+        strcmp(g_windowScene, g_sceneName) == 0) return;
+    g_windowMap = map; g_windowMapBlocks = map->BlockCount(); g_windowOutBuilt = g_windowOutMilli;
+    strncpy(g_windowScene, g_sceneName, sizeof(g_windowScene) - 1);
+    g_windowLights.clear();
+    const LitWindowTile* byTile[1024] = {};
+    for (const LitWindowTile& t : kLitWindowTiles) {
+        if (strcmp(t.style, g_sceneName) == 0 && t.tile > 0 && t.tile < 1024) byTile[t.tile] = &t;
+    }
+    const float out = static_cast<float>(g_windowOutMilli) / 1000.0f;
+    int skippedHidden = 0;
+    for (int y = 0; y < gta2::kMapHeight; ++y) {
+        for (int x = 0; x < gta2::kMapWidth; ++x) {
+            const gta2::Column& c = map->ColumnAt(x, y);
+            for (size_t i = 0; i < c.blocks.size(); ++i) {
+                if (c.blocks[i] >= map->BlockCount()) continue;
+                const gta2::Block& b = map->BlockAt(c.blocks[i]);
+                const int z = c.offset + static_cast<int>(i);
+                // left (-x), right (+x), top (north: game -y, renderer +Z), bottom (game +y, renderer -Z)
+                const gta2::Face faces[4] = {b.left, b.right, b.top, b.bottom};
+                static const int kDx[4] = {-1, 1, 0, 0}, kDy[4] = {0, 0, -1, 1}, kOpp[4] = {1, 0, 3, 2};
+                for (int k = 0; k < 4; ++k) {
+                    const int tile = faces[k].Tile();
+                    if (!tile || !byTile[tile]) continue;
+                    // A pane that faces a solid neighbour (one with a lid at this level, or its own face back
+                    // against this one) is inside the block mass: nobody sees it, and a light there would
+                    // glow through the seam.
+                    const gta2::Block* nb = BlockAtLevel(*map, x + kDx[k], y + kDy[k], z);
+                    if (nb) {
+                        const gta2::Face nf[4] = {nb->left, nb->right, nb->top, nb->bottom};
+                        if (nb->lid || nf[kOpp[k]]) { ++skippedHidden; continue; }
+                    }
+                    const LitWindowTile& t = *byTile[tile];
+                    float v = t.v;
+                    if (faces[k].Rotation() == 2) v = 1.0f - v; else if (faces[k].Rotation() & 1) v = 0.5f;
+                    // The face's centre in the renderer frame: +X east, +Y up, +Z = 256 - game y.
+                    float cx = x + 0.5f, cz = static_cast<float>(gta2::kMapHeight) - (y + 0.5f), nx = 0.0f, nz = 0.0f;
+                    if (k == 0) { cx = static_cast<float>(x); nx = -1.0f; }
+                    if (k == 1) { cx = static_cast<float>(x + 1); nx = 1.0f; }
+                    if (k == 2) { cz = static_cast<float>(gta2::kMapHeight - y); nz = 1.0f; }
+                    if (k == 3) { cz = static_cast<float>(gta2::kMapHeight - y - 1); nz = -1.0f; }
+                    const float cy = static_cast<float>(z) + 1.0f - v;
+                    WindowLight w;
+                    w.centre[0] = cx; w.centre[1] = cy; w.centre[2] = cz;
+                    w.pos[0] = cx + nx * out; w.pos[1] = cy - 0.05f; w.pos[2] = cz + nz * out;
+                    // Down and out: 56 degrees below the outward horizontal.
+                    w.dir[0] = nx * 0.56f; w.dir[1] = -0.83f; w.dir[2] = nz * 0.56f;
+                    w.share = t.share;
+                    w.id = 0x57494E0000000000ULL ^ (static_cast<uint64_t>(x) << 24) ^ (static_cast<uint64_t>(y) << 12) ^
+                           (static_cast<uint64_t>(z) << 4) ^ static_cast<uint64_t>(k) ^ (g_sceneSalt & 0xFF00000000ULL);
+                    g_windowLights.push_back(w);
+                }
+            }
+        }
+    }
+    // FIX-REMIX-NIGHT-6 (ptrmx22, lit-lens half): Downtown's gantry signal slabs (slope 53/54, both side panels flat,
+    // the east one wil tile 753, the game's round teal lamp; FIX-WORLD-8 f4494c6 draws it in the street views as a
+    // 0.17-block plate at the slab's middle, top 0.98 over the level) get a dim lamp of the lens's own teal at night,
+    // just east of the lens: the lens reads lit and the bar and the road under it take a faint glow. The game runs no
+    // phase for this tile and lists no light there, so the colour is fixed. Positions are read from the same map the
+    // same way world_mesh's SignalSlab does (GTA2DX9_SIGNAL_HEADS=0 puts the plates back and leaves these where the
+    // lens was drawn small). [devtools] remix_gantry_pct (0 off).
+    int gantries = 0;
+    if (strcmp(g_sceneName, "wil") == 0) {
+        for (int y = 0; y < gta2::kMapHeight; ++y) {
+            for (int x = 0; x < gta2::kMapWidth; ++x) {
+                const gta2::Column& c = map->ColumnAt(x, y);
+                for (size_t i = 0; i < c.blocks.size(); ++i) {
+                    if (c.blocks[i] >= map->BlockCount()) continue;
+                    const gta2::Block& b = map->BlockAt(c.blocks[i]);
+                    const int type = b.SlopeType();
+                    if ((type != 53 && type != 54) || !b.left || !b.right || !b.left.IsFlat() || !b.right.IsFlat() ||
+                        b.right.Tile() != 753) continue;
+                    const int z = c.offset + static_cast<int>(i);
+                    WindowLight w;
+                    w.lamp = true;
+                    w.centre[0] = static_cast<float>(x) + (type == 54 ? 0.87f : 0.13f);
+                    w.centre[1] = static_cast<float>(z) + 0.90f;
+                    w.centre[2] = static_cast<float>(gta2::kMapHeight) - (y + 0.5f);
+                    memcpy(w.pos, w.centre, sizeof(w.pos));
+                    w.pos[0] += 0.07f;   // in front of the east (lens) face
+                    w.dir[0] = 1.0f; w.dir[1] = 0.0f; w.dir[2] = 0.0f;
+                    w.share = 0.15f;
+                    w.id = 0x47414E0000000000ULL ^ (static_cast<uint64_t>(x) << 24) ^ (static_cast<uint64_t>(y) << 12) ^
+                           (static_cast<uint64_t>(z) << 4);
+                    g_windowLights.push_back(w);
+                    ++gantries;
+                }
+            }
+        }
+    }
+    Log("remix lights: %d gantry signal lenses lit at night in '%s'", gantries, g_sceneName);
+    Log("remix lights: %u lit-window faces in '%s' (%d facing a solid neighbour skipped), out %.2f tile",
+        static_cast<unsigned>(g_windowLights.size()), g_sceneName, skippedHidden, out);
+}
+
+void SubmitWindowLightsNear(const float* eye, float weight) {
+    g_windowsLastFrame = 0;
+    if ((g_windowPct <= 0 && g_gantryPct <= 0) || weight <= 0.0f || ((g_probeMask >> 9) & 1) || !RemixApi()) return;
+    if (!g_settings.enabled || !g_settings.injectStatic) return;
+    BuildWindowLights();
+    if (g_windowLights.empty()) return;
+    DaylightGate gate;
+    gate.enabled = true;
+    const float night = DaylightGateFactor(gate);
+    if (night <= 0.001f) return;
+    struct Near { float d2; const WindowLight* w; };
+    std::vector<Near> found;
+    const float r2 = kWindowRadius * kWindowRadius;
+    for (const WindowLight& w : g_windowLights) {
+        const float dx = w.centre[0] - eye[0], dy = w.centre[1] - eye[1], dz = w.centre[2] - eye[2];
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 <= r2) found.push_back({d2, &w});
+    }
+    if (found.size() > static_cast<size_t>(kWindowCap)) {
+        std::nth_element(found.begin(), found.begin() + kWindowCap, found.end(),
+                         [](const Near& a, const Near& b) { return a.d2 < b.d2; });
+        found.resize(kWindowCap);
+    }
+    // A warm tungsten room light; the lit fraction of the tile scales it (a strip of panes gives less than a
+    // whole shopfront), bounded so the brightest tile is 1.3x and the dimmest 0.5x of the 0.15-share one.
+    static const float kRoom[3] = {1.0f, 0.71f, 0.42f};
+    const float pct = static_cast<float>(g_windowPct) / 100.0f;
+    for (const Near& n : found) {
+        float share = n.w->share / 0.15f;
+        share = share < 0.5f ? 0.5f : (share > 1.3f ? 1.3f : share);
+        RemixLightDesc d;
+        memcpy(d.pos, n.w->pos, sizeof(d.pos));
+        const float level0 = std::floor(night * weight * 32.0f + 0.5f) / 32.0f;
+        if (n.w->lamp) {
+            // The gantry lens: its own teal, a small dim sphere a few centimetres off the plate.
+            static const float kTeal[3] = {0.45f, 1.0f, 0.90f};
+            if (g_gantryPct <= 0) continue;
+            memcpy(d.rgb, kTeal, sizeof(d.rgb));
+            d.intensity = 0.09f * static_cast<float>(g_gantryPct) / 100.0f * level0;   // frn6_p3: 0.06 lit the lens G 21->55 of 255
+            d.radius = 2.0f;
+            d.emitterRadius = 0.035f;
+            d.source = kLightSourceWindow;
+            d.explicitId = n.w->id;
+            if (d.intensity > 0.0005f) g_extra.push_back(d);
+            continue;
+        }
+        if (g_windowPct <= 0) continue;
+        memcpy(d.rgb, kRoom, sizeof(d.rgb));
+        // Quantised so the per-frame blend does not redefine 40 lights every frame.
+        const float level = std::floor(night * weight * 32.0f + 0.5f) / 32.0f;
+        d.intensity = 0.45f * share * pct * level;   // frn6_p1: 0.25 lit the ledges +0.04 luma, 0.62 +0.09; 0.45 between
+        d.radius = 2.0f;
+        d.emitterRadius = 0.12f;
+        d.spot = true;
+        memcpy(d.dir, n.w->dir, sizeof(d.dir));
+        d.coneAngleDeg = 80.0f;
+        d.coneSoftness = 0.5f;
+        d.source = kLightSourceWindow;
+        d.explicitId = n.w->id;
+        if (d.intensity > 0.0005f) g_extra.push_back(d);
+    }
+    g_windowsLastFrame = static_cast<int>(found.size());
+    static uint32_t logged = 0;
+    if ((g_frame & 255u) == 0 && g_frame != logged) {
+        logged = g_frame;
+        Log("remix lights: %d lit-window lights within %.0f tiles (night %.2f, blend %.2f, %d%%)", g_windowsLastFrame,
+            kWindowRadius, night, weight, g_windowPct);
+    }
+}
+
+}  // namespace
+
 float g_lastEye[3] = {0, 0, 0};
 bool g_haveEye = false;
 
@@ -691,6 +1008,7 @@ void LightsSubmitMapLampsNear(const float* eye, float radius, int cap, float wei
     weight = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
     g_farLampWeight = weight;
     memcpy(g_lastEye, eye, sizeof(g_lastEye)); g_haveEye = true;
+    SubmitWindowLightsNear(eye, weight);   // FIX-REMIX-NIGHT-6: lit windows (own probe bit 9, key remix_window_pct)
     if ((g_probeMask >> 5) & 1) return;
     if (!g_settings.enabled || !g_settings.injectStatic || g_mapLampRecords.empty() || cap <= 0) {
         static bool said = false;
@@ -814,6 +1132,7 @@ const char* LightSourceName(uint8_t source) {
         case kLightSourceFlame: return "flamethrower";
         case kLightSourceSiren: return "siren";
         case kLightSourcePlayerFill: return "player fill";
+        case kLightSourceWindow: return "window";
         default: return "?";
     }
 }
@@ -1033,7 +1352,7 @@ void LightsReconcile() {
             }
             const int lbw = GetPrivateProfileIntA("devtools", "remix_low_bounce_warm", 1, ini);
             if (lbw != g_lowBounceWarm) { g_lowBounceWarm = lbw; Log("devtools: low-sun golden bounce %s", lbw ? "on" : "off"); }
-            const int tl = GetPrivateProfileIntA("devtools", "remix_traffic_lift_milli", 0, ini);
+            const int tl = GetPrivateProfileIntA("devtools", "remix_traffic_lift_milli", 650, ini);
             if (tl != g_trafficLiftMilli) { g_trafficLiftMilli = tl; g_reliftPending = true; Log("devtools: junction signals lifted %d/1000 tile", tl); }
             static int lastPuff = -1;
             const int puff = GetPrivateProfileIntA("devtools", "remix_puff_mode", 1, ini);
@@ -1045,6 +1364,20 @@ void LightsReconcile() {
             if (sodium != g_sodiumWhite) { g_sodiumWhite = sodium; g_reliftPending = true; Log("devtools: sodium lamps as amber white %s", sodium ? "on" : "off"); }
             const int dayFill = GetPrivateProfileIntA("devtools", "remix_day_fill_milli", -1, ini);
             if (dayFill != g_dayFillMilli) { g_dayFillMilli = dayFill; Log("devtools: day bounce fill %d/1000 (-1: the setting %.3f)", dayFill, g_settings.dayBounceFill); }
+            const int win = GetPrivateProfileIntA("devtools", "remix_window_pct", 100, ini);
+            const int winOut = GetPrivateProfileIntA("devtools", "remix_window_out_milli", 250, ini);
+            const int gp = GetPrivateProfileIntA("devtools", "remix_gantry_pct", 100, ini);
+            if (gp != g_gantryPct) { g_gantryPct = gp; Log("devtools: gantry signal lens glow %d%% (0 off)", gp); }
+            if (win != g_windowPct || winOut != g_windowOutMilli) {
+                g_windowPct = win; g_windowOutMilli = winOut;
+                Log("devtools: lit-window room lights %d%% (0 off), %d/1000 tile in front of the pane", win, winOut);
+            }
+            const int sw = GetPrivateProfileIntA("devtools", "remix_sign_wall", 1, ini);
+            const int sr = GetPrivateProfileIntA("devtools", "remix_sign_red_pct", 35, ini);
+            if (sw != g_signWall || sr != g_signRedPct) {
+                g_signWall = sw; g_signRedPct = sr; g_reliftPending = true;
+                Log("devtools: sign lights on a wall %s, %d%% of their own colour kept", sw ? "shine away from it" : "as before", sr);
+            }
             const int signs = GetPrivateProfileIntA("devtools", "remix_sign_lights", 1, ini);
             if (signs != g_signLights) { g_signLights = signs; g_reliftPending = true; Log("devtools: red/pink map lights as signs %s", signs ? "on" : "off"); }
         }

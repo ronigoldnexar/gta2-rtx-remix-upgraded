@@ -48,6 +48,7 @@ enum LightSource : uint8_t {
     kLightSourceFlame,
     kLightSourceSiren,
     kLightSourcePlayerFill,
+    kLightSourceWindow,       // FIX-REMIX-NIGHT-6: the room light behind a lit window tile (street views, night)
     kLightSourceCount
 };
 

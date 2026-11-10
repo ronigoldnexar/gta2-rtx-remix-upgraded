@@ -138,3 +138,42 @@ model's lamp lenses, the same at emitter size 100 % and 45 %: a material (lens e
 Still short of a shipping frame: the puffs are cut-outs (a cloud of shaded wisps, not translucent smoke: Remix's
 translucent particle path rendered them black, NIGHT); shaded vertical facades at low sun stay blue (the bounce
 fill comes from straight above); the headlamp lens discs blow to flat white; the red crossing pool at ste 108,117.4.
+
+## FIX-REMIX-NIGHT-6 (10 Nov): lit windows, the gantry lenses, sign lights that spare their own letters
+
+Play config (`rtx_play.conf.extra`), GPU 0, private stages, paused clock, same-session `[devtools]` toggles; probes
+`gamerun/frn6_probe1..8.py` with `gamerun/rn4_keys.sh`. Labelling note: under Remix the devtools re-read AND the
+denoiser's history lag a toggle by 10-20 s of wall time; label frames from the DLL log's `devtools:` lines and read the
+light-dependent patch over the whole sequence (it steps between two levels), not the probe's marks.
+
+| change | where | gate | A/B key |
+|---|---|---|---|
+| Lit-window room lights: every wall face whose tile is a lit-window tile (warm panes in the art, picked from a scan of the HD tiles: ste 276/281/311/480/493/505-508/961/962/983, wil 100/125/127/498/810/815, bil 243/246/293/788/793; tile ids and the pane band's height only) gets a small warm (1, 0.71, 0.42) spot 0.25 tile in front of the pane band, aimed down and out (80 deg), nearest 40 within 18 tiles of the eye; faces against a solid neighbour are skipped (ste: 1137 faces) | `remix_lights.cpp` `BuildWindowLights`, `SubmitWindowLightsNear` (called from `LightsSubmitMapLampsNear`) | Remix device, street views (the far lamps' sky blend), night (the lamps' clock) | `remix_window_pct` (0 off), `remix_window_out_milli`, probe bit 9 |
+| Gantry signal lenses (wil, the 12 slope-53/54 slabs with tile 753 that FIX-WORLD-8 draws as a 0.17-block plate): a dim teal (0.45, 1, 0.9) sphere 0.07 tile in front of each lens at night; the tile is static decoration (no phase), so one fixed colour | same | same | `remix_gantry_pct` (0 off) |
+| Sign lights spare their sign: a sign or neon map light with a curated lit-sign face (tools/remix_emissive.py's SIGNS ids) within 2 tiles is a half-space lamp shining away from that sign (80 deg, 0.12 tile further off) | `Describe`, `Apply`, `SignWallNormal` | street views, map lights | `remix_sign_wall=0`, `remix_sign_red_pct` |
+
+Classic: `tools/vreg/vreg.sh stage` on the build, spawn_classic 0 changed tiles (out/vreg_frn6_a); the plain renderer
+gets none of these lights (window/gantry lights are submitted only with a Remix device; the sign shaping is in the
+Remix light description only).
+| Junction signal light lifted to head height on the post by default (`remix_traffic_lift_milli` 650; it was 0) | `Describe` | street views, shaped signals | `remix_traffic_lift_milli=0` |
+| A wide sign light keeps 35 % of its own colour under the warm-white sign rule (default 0 before) | `Describe` | street views | `remix_sign_red_pct=0` |
+
+Evidence (luma 0..1 of the PNG; frames by mtime against the DLL's devtools lines):
+
+| check | before (key off) | after (default) |
+|---|---|---|
+| ste 206.5,227.5 22:00, lit tower from the west (frn6_p8, rebased build frn6_p9): ledge band under the windows / lower facade / p95 | 0.122 / 0.141 / 0.244 | 0.189 / 0.193 / 0.345 (warm, under the panes; no blown area) |
+| same, street camera at 211.5,226.5: ledge / lower facade / paving at the block's foot | 0.119 / 0.133 / 0.140 | 0.167 / 0.191 / 0.202 |
+| same two cameras at 17:30 and at 12:00 (frn6_p8, frn6_p1) | | identical to the key off (the lamps' clock is 0) |
+| wil gantry lens at 115.87,172.5 under the beam, 21:30/22:30 (frn6_p3, frn6_p5): lens patch green mean | 21 of 255 (dark teal) | 41-62 (lit teal lens, ribs readable), unchanged at 16:30 |
+| ste 108.0,117.4 22:00 crossing from above (frn6_p6, three 24 s cycles; frn6_p9): traffic class out / lift 0 / lift 650 | | none / a hot red, green or amber-white double spot on the stripes in every phase (p99 0.69-0.79) / a soft even tint over 4-6 stripes (p99 0.45-0.50) |
+| wil SAVES stair 22:30 (frn6_p7), stair wall right of the sign: mean rgb, chroma | (41,42,38) 0.29 with the sphere | (58,56,48) 0.33 faced away; (71-75,52-54,45-47) 0.34-0.37 with the 35 % red share: a red tint, under the 0.6 bar |
+
+Not changed by any light: the SAVES letters' white speckle (tiles 742/743's albedo texels outside the emissive mask: a
+material ask, note beside the neon order), and the first-person siren disc, which stays with every one of our lights
+off (frn6_p2 shot_225/230): it is car_bodies.cpp DrawBeacons' Remix bulb quads (note beside the siren order).
+
+Still short of a shipping frame: the window light is one spot per pane tile, so a facade reads as evenly warm ledges
+rather than individual rooms (no per-window variation, no curtains, no unlit rooms); the lit windows themselves are
+still albedo, not emissive (they do not bloom); the gantry lens is a teal lamp with one fixed colour (the tile has no
+phase); the lifted signal pool is a soft blob of signal colour, not a lens throw; the SAVES letters stay speckled.
