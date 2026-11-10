@@ -963,7 +963,10 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         glass->masks[stem] = std::move(g);
     }
     glass->glassTexels = totalGlass;
-    if (totalGlass < 200 || ss.zMax <= ss.zMin) { glass->state = -1; return; }
+    if (totalGlass < 200 || ss.zMax <= ss.zMin) {   // VEHICLE-ART-21: say so (070 Z-Type kept the band silently)
+        Log("car glass: %s: %d glass texels: painted windows kept (FIX-SEATED band when seated)", model->name.c_str(), totalGlass);
+        glass->state = -1; return;
+    }
     // The cabin: a shell just inside the side glass, from the dash (ahead of the side windows'
     // front) to the parcel shelf, floor at 0.30 of the roof, the headliner at the glass's top.
     const float cx = 0.5f * (minX + maxX);
@@ -1072,8 +1075,8 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         box(cx - halfW * 0.98f, cx + halfW * 0.98f, floorY + 0.10f * H, belt + 0.02f * H, zf - 0.07f * L, zf - 0.005f * L, false,
             0xFF161514u, 0xFF201E1Cu, 0xFF161514u);
     }
-    Log("car glass: %s: %d glass texels in %zu texture(s), cabin z %.3f..%.3f, half width %.3f, floor %.3f, headliner %.3f (roof %.3f)",
-        model->name.c_str(), totalGlass, glass->masks.size(), zr, zf, halfW, floorY, ceil, top);
+    Log("car glass: %s: %d glass texels in %zu texture(s), cabin z %.3f..%.3f, half width %.3f, floor %.3f, headliner %.3f (roof %.3f), rear screen %d",
+        model->name.c_str(), totalGlass, glass->masks.size(), zr, zf, halfW, floorY, ceil, top, glass->rearTexels);
     if (glass->hasSeat)
         Log("car glass: %s: driver's seat (front seat) u %.3f cushion %.3f z %+.3f headliner %.3f", model->name.c_str(),
             glass->seat[0], glass->seat[1], glass->seat[2], glass->seat[3]);

@@ -58,6 +58,7 @@ int g_driverGlass = 1;     // [devtools] driver_glass=0: FIX-SEATED's see-throug
 int g_tyreContactDev = 1;  // [devtools] tyre_shadows=0: no tyre contact patches (A/B)
 int g_glassSeat = 1;      // FIX-DRIVER-GEOM [devtools] glass_seat=0: a generated body's driver on the sprite's seat (pfl74 A/B)
 int g_bandInterior = 1;    // [devtools] band_interior=0: no dark cabin behind that band (feel20 A/B)
+int g_glassRearGate = 0;   // VEHICLE-ART-21 [devtools] glass_rear_gate=1: a seated car needs a rear screen for glass (old; qav50)
 int g_forceOwnModel = -1;   // [devtools] force_own_car_model=N: the player's car drawn as model N (QB-5 seat checks)
 int g_forceCarPaint[3] = {-1, -1, -1};   // [devtools] force_car_paint=R,G,B: every non-livery car's live paint (QA of dark paint)
 int g_forceCarPaintBright[3] = {-1, -1, -1};   // ...=R,G,B,r,g,b: and its brighter-half paint (the dark floor's test)
@@ -4106,6 +4107,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_cabInterior = GetPrivateProfileIntA("devtools", "cab_interior", 1, g_devIni);
         g_driverGlass = GetPrivateProfileIntA("devtools", "driver_glass", 1, g_devIni);
         g_bandInterior = GetPrivateProfileIntA("devtools", "band_interior", 1, g_devIni);
+        g_glassRearGate = GetPrivateProfileIntA("devtools", "glass_rear_gate", 0, g_devIni);
         g_glassSeat = GetPrivateProfileIntA("devtools", "glass_seat", 1, g_devIni);
         g_tyreContactDev = GetPrivateProfileIntA("devtools", "tyre_shadows", 1, g_devIni);
         g_shellWheels = GetPrivateProfileIntA("devtools", "shell_wheels", 1, g_devIni);
@@ -5072,12 +5074,16 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             const double tGlass = CarNowMs();
             const float glassDx = carToWorld.m[3][0] - eye.x, glassDz = carToWorld.m[3][2] - eye.z;
             const float glassDist = std::sqrt(glassDx * glassDx + glassDz * glassDz);
-            // A seated car whose rear screen was not found keeps FIX-SEATED's band, so the driver still
-            // shows from the chase camera behind it.
+            // A seated car whose rear screen was not found kept FIX-SEATED's band, so the driver still
+            // showed from the chase camera behind it. VEHICLE-ART-21 (qav50): that band draws the whole upper
+            // hull at 40 % over an opaque dark box, which read as a flat black slab standing on the 071 Rumbler
+            // and 083 Furore GT (no rear screen in their bakes) in every view of a driven or traffic car. A car
+            // with its glass found now always takes the glass (as under Remix since VEHICLE-GLASS-4): the driver
+            // shows through the side glass and the windscreen. [devtools] glass_rear_gate=1: the old gate (A/B).
             // VEHICLE-GLASS-3: a game open-top whose generated body has a hard top (030) takes glass too.
             const bool glassCar = !cpuCut && !clipped && !WreckModelNumber(modelNumber) &&
                                   CarGlassReady(device, *model) && (!CabOpenTop(modelNumber) || CarGlassClosedRoof(*model)) &&
-                                  (!BoardingCarSeated(use.object) || CarGlassHasRear(*model));
+                                  (!g_glassRearGate || !BoardingCarSeated(use.object) || CarGlassHasRear(*model));
             if (glassCar) CarGlassBeginCut(*model, glassDist);
             bool glassCut = false;
             for (const ModelMesh& gm : model->meshes) glassCut = glassCut || (glassCar && CarGlassCutMask(gm.texture) != nullptr);
