@@ -72,6 +72,15 @@ int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's ex
 int g_doorInterior = 1;    // [devtools] door_interior=0: no cab interior drawn behind an open door (A/B)
 int g_seatedSep = 0;      // [devtools] seated_sep=1: a seated driver pushed out of his car like a ped on foot (the old way, pmt6 A/B)
 int g_forceOwnLift = 0;   // [devtools] force_own_lift=N: the driven car drawn N/100 block higher (tri11 probe)
+int g_fpSeatLock = 1;     // [devtools] fp_seat_lock=0 / GTA2DX9_FP_SEAT_LOCK=0: FIX-INCAR-1's same-frame body-to-eye lock off (tri11 A/B)
+// FIX-FP-ENTRY's learned seat point (the first-person eye in the driven body's posed frame), per driven car.
+struct SeatRef { float x = 0.0f, y = 0.0f, z = 0.0f; uintptr_t car = 0; int frames = 0; };
+SeatRef g_seatRef;
+static int FpSeatLockDefault() {
+    static int v = -1;
+    if (v < 0) { char b[8] = {}; v = GetEnvironmentVariableA("GTA2DX9_FP_SEAT_LOCK", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    return v;
+}
 int g_fpSeatFreeze = 1;   // [devtools] fp_seat_freeze=0: FIX-SEAT-ENTRY-4's once-learned seat point off (tri11 A/B)
 int g_doorTopCut = 1;      // [devtools] door_top_cut=0: FIX-SEAT-ENTRY-4's cut of the shoulder faces across the door's top off (A/B)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
@@ -3846,6 +3855,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
         g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
+        g_fpSeatLock = GetPrivateProfileIntA("devtools", "fp_seat_lock", FpSeatLockDefault(), g_devIni);
         g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
         g_seatedSep = GetPrivateProfileIntA("devtools", "seated_sep", 0, g_devIni);
         {   // VEHICLE-GLASS: the glass on/off within one session, for same-spot before/after frames.
@@ -3984,6 +3994,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             eyeLocalZ = fl > 1e-8f ? (dx * fx + dy * fy + dz * fz) / fl : 0.0f;
             const float rl = rx * rx + ry * ry + rz * rz;
             eyeLocalX = rl > 1e-8f ? (dx * rx + dy * ry + dz * rz) / rl : 0.0f;
+            // FIX-INCAR-1 (tri11, pfl25): with the seat lock (below) the eye is at the learned seat point of the posed
+            // body every frame, so the cuts of the hood dash, the bonnet and the dash are made there, not at the eye
+            // measured in the unposed frame (that moved with the body's pose and the seat correction, and the hood dash
+            // rebuilt on a dent step at a hit was cut ~15 degrees low for half a second: run cam9_p28a f63-f64).
+            if (g_fpSeatLock && use.own && g_seatRef.car == use.object && g_seatRef.frames >= 5 && CurrentViewMode() == ViewMode::FirstPerson) {
+                eyeLocalX = g_seatRef.x; eyeLocalY = g_seatRef.y; eyeLocalZ = g_seatRef.z;
+            }
         }
         if (inside && use.own && !RemixApiAvailable()) {
             const float ux = carToWorld.m[1][0], uy = carToWorld.m[1][1], uz = carToWorld.m[1][2];
@@ -4461,9 +4478,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 // FIX-FP-ENTRY (pfeel32): where the first-person eye sits in this posed body. The seat point
                 // (the raw eye in the car's frame) is learned while the body is level and kept while it tilts;
                 // the camera is told how far the posed seat point is from its raw eye (view_modes.h).
-                static float refX = 0.0f, refY = 0.0f, refZ = 0.0f;
-                static uintptr_t refCar = 0;
-                static int refFrames = 0;
+                float& refX = g_seatRef.x; float& refY = g_seatRef.y; float& refZ = g_seatRef.z;
+                uintptr_t& refCar = g_seatRef.car;
+                int& refFrames = g_seatRef.frames;
                 gta2::Vec3 raw;
                 if (FirstPersonSeatEyeRaw(&raw)) {
                     const float* r = posed.m[0]; const float* u = posed.m[1]; const float* f = posed.m[2];
@@ -4495,11 +4512,63 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                             const float maxLen = g_fpSeatFreeze ? 0.5f : 0.3f;
                             if (len > maxLen) d = gta2::Vec3{d.x * maxLen / len, d.y * maxLen / len, d.z * maxLen / len};
                             SetFirstPersonSeatCorrection(d);
+                            // FIX-INCAR-1 (tri11): the correction reaches the eye a frame late and eased, and over a kerb
+                            // ridden in reverse the body and the eye separated by up to 0.5 block in a frame (the game
+                            // lifting the car onto the kerb's lid, the eye on its eased floor; the terrain fit pitching
+                            // the body 20 degrees): the wheel, the hands and the dash left the frame for ~5 s (run
+                            // tri14_plates f1284-f1400). What is left this frame (the shown eye against the posed seat)
+                            // moves the drawn own body so its seat is at the eye: the cockpit is where the eye is in
+                            // every frame; the eye still glides to the body (above), so the shift stays a transient.
+                            // [devtools] fp_seat_lock=0 (or GTA2DX9_FP_SEAT_LOCK=0): as before (A/B).
+                            if (cpuCut && g_fpSeatLock && refFrames >= 5 && CurrentViewMode() == ViewMode::FirstPerson) {
+                                // The drawn body's tilt beyond the eye's: riding a kerb in reverse the posed body stood
+                                // 20 degrees off upright in 1.2 s cycles (level 0.937, run incar1_t11a 06:05:11-16) while
+                                // the eye took 2 (VehicleFxPlayerMotion's sprung pitch and roll; the eye never takes the
+                                // game's own tilt of the car): the body is turned about the seat point toward upright by
+                                // the excess, so the cockpit keeps its place round the eye and the street tilts instead.
+                                float tiltDeg = 0.0f;
+                                {
+                                    const float px = posed.m[1][0], py = posed.m[1][1], pz = posed.m[1][2];
+                                    const float qx = 0.0f, qy = 1.0f, qz = 0.0f;   // the eye stands upright but for the sprung pitch and roll it takes
+                                    const float pl = std::sqrt(px * px + py * py + pz * pz), ql = std::sqrt(qx * qx + qy * qy + qz * qz);
+                                    if (pl > 1e-6f && ql > 1e-6f) {
+                                        const float ax = px / pl, ay = py / pl, az = pz / pl, bx = qx / ql, by = qy / ql, bz = qz / ql;
+                                        float kx = ay * bz - az * by, ky = az * bx - ax * bz, kz = ax * by - ay * bx;
+                                        const float sn = std::sqrt(kx * kx + ky * ky + kz * kz), cs = ax * bx + ay * by + az * bz;
+                                        const float theta = std::atan2(sn, cs);
+                                        VehicleFxMotion vm;
+                                        const float allowed = VehicleFxPlayerMotion(&vm) ? std::sqrt(vm.pitch * vm.pitch + vm.roll * vm.roll) : 0.0f;
+                                        const float phi = theta - allowed;
+                                        if (sn > 1e-6f && phi > 0.0035f) {
+                                            tiltDeg = phi * 57.29578f;
+                                            kx /= sn; ky /= sn; kz /= sn;
+                                            const float c = std::cos(phi), si = std::sin(phi), t = 1.0f - c;
+                                            const float rc[3][3] = {{c + t * kx * kx, t * kx * ky - si * kz, t * kx * kz + si * ky},
+                                                                    {t * kx * ky + si * kz, c + t * ky * ky, t * ky * kz - si * kx},
+                                                                    {t * kx * kz - si * ky, t * ky * kz + si * kx, c + t * kz * kz}};
+                                            gta2::Mat4 R = gta2::Identity();
+                                            for (int i2 = 0; i2 < 3; ++i2)
+                                                for (int j2 = 0; j2 < 3; ++j2) R.m[i2][j2] = rc[j2][i2];
+                                            gta2::Mat4 toSeat = gta2::Identity(), back = gta2::Identity();
+                                            toSeat.m[3][0] = -seat.x; toSeat.m[3][1] = -seat.y; toSeat.m[3][2] = -seat.z;
+                                            back.m[3][0] = seat.x; back.m[3][1] = seat.y; back.m[3][2] = seat.z;
+                                            posed = Mul(Mul(Mul(posed, toSeat), R), back);
+                                        }
+                                    }
+                                }
+                                gta2::Vec3 rs{eye.x - seat.x, eye.y - seat.y, eye.z - seat.z};
+                                const float rl2 = std::sqrt(rs.x * rs.x + rs.y * rs.y + rs.z * rs.z);
+                                if (rl2 > 0.6f) rs = gta2::Vec3{rs.x * 0.6f / rl2, rs.y * 0.6f / rl2, rs.z * 0.6f / rl2};
+                                posed.m[3][0] += rs.x; posed.m[3][1] += rs.y; posed.m[3][2] += rs.z;
+                                static int logLock = -1;
+                                if (logLock < 0) { char v[8] = {}; logLock = GetEnvironmentVariableA("GTA2DX9_LOG_SEAT", v, sizeof v) ? atoi(v) : 0; }
+                                if (logLock) Log("seat lock: f=%u body moved %.3f,%.3f,%.3f (len %.3f) to the eye, tilt %.1f deg beyond the eye's taken out", frame, rs.x, rs.y, rs.z, rl2, tiltDeg);
+                            }
                             static int logSeatD = -1;
                             if (logSeatD < 0) { char v[8] = {}; logSeatD = GetEnvironmentVariableA("GTA2DX9_LOG_SEAT", v, sizeof v) ? atoi(v) : 0; }
                             if (logSeatD)
-                                Log("seat pose: f=%u level=%.4f heave=%.3f delta=%.3f,%.3f,%.3f (len %.3f) ref=%.3f,%.3f,%.3f frames %d",
-                                    frame, level, posed.m[3][1] - carToWorld.m[3][1], d.x, d.y, d.z, len, refX, refY, refZ, refFrames);
+                                Log("seat pose: f=%u level=%.4f (unposed %.4f) heave=%.3f delta=%.3f,%.3f,%.3f (len %.3f) ref=%.3f,%.3f,%.3f frames %d",
+                                    frame, level, carToWorld.m[1][1] / (std::max)(1e-6f, std::sqrt(carToWorld.m[1][0] * carToWorld.m[1][0] + carToWorld.m[1][1] * carToWorld.m[1][1] + carToWorld.m[1][2] * carToWorld.m[1][2])), posed.m[3][1] - carToWorld.m[3][1], d.x, d.y, d.z, len, refX, refY, refZ, refFrames);
                             static int logs = 0;
                             if (len > 0.03f && logs < 30) { ++logs; Log("car bodies: fp seat eye follows the tilted body %.3f (level %.3f)", len, level); }
                         }
@@ -5143,6 +5212,7 @@ void CarBodiesSetDevIni(const char* ini) {
     g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
     g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
+    g_fpSeatLock = GetPrivateProfileIntA("devtools", "fp_seat_lock", FpSeatLockDefault(), g_devIni);
     g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
     g_seatedSep = GetPrivateProfileIntA("devtools", "seated_sep", 0, g_devIni);
 }

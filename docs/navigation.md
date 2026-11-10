@@ -807,3 +807,26 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   from 0.2 block instead of from inside. A lamp post 0.63 block from the eye showed at the left
   edge (not faded, see above).
 - No `FAULT` in any run.
+
+## The reversing turn aside, earlier; the cockpit held round the eye (FIX-INCAR-1, 10 Nov 2026)
+
+- **pfl28, the car boom's turn aside (view_modes.cpp, 8372ddd).** FIX-CAMERA-9's turn tested 1.2 s ahead but the
+  look-ahead was capped at 2 blocks (0.7 s at full reversing speed), and the arc over the wall counted as a way out
+  while the car closed on it, so the turn tripped ~0.5 s before impact with the boom already collapsed (triage
+  tri15_p28). Now: look-ahead to 3.6 blocks; the arc is no way while backing (> 0.3 block/s) or once turned (the
+  turn holds until the line behind keeps the pull, so the drive-off no longer swings back over the roof); the eye
+  turns about the car with the boom (it eased along the chord through the car); the view's yaw cap admits the
+  turn's own step (capped at the car rate the car slid off the frame edge); the side it turned to is kept while
+  it reaches half the pull (an angled reverse flipped sides and crossed the blocked line behind); 140 deg/s.
+  `GTA2DX9_CAM_CAR_SWING_EARLY=0` restores FIX-CAMERA-9's turn. Probe: `gamerun/keys_incar1_rev.sh`
+  (`INI_SED='s/^scene_xy=.*/scene_xy=179.5,181.5/'`, wil: the scene car 4.5 blocks east of a building face, a
+  straight and an angled full-throttle reverse into it, 30 fps bursts).
+- **tri11 / pfl25, the first-person cockpit (car_bodies.cpp).** The seat correction (FIX-FP-ENTRY) moves the eye
+  to the posed body's seat a frame late and eased. Riding a kerb or a slope the game stands the car's sprite up to
+  25 degrees (unposed level 0.90) and lifts it up to 0.5 block in a frame, while the eye takes only the sprung
+  pitch and roll: wheel, hands and dash left the frame. Now, in first person at the wheel, the drawn own body is
+  turned about the seat point by its tilt beyond the eye's (VehicleFxPlayerMotion) and moved so its seat is at
+  this frame's eye (at most 0.6 block): the cockpit keeps its place round the eye every frame and the street tilts.
+  The hood dash, bonnet and dash cuts are made at the learned seat point, not at the eye measured in the unposed
+  frame (that moved with the pose and the correction: the hood dash rebuilt on a dent step at a hit was cut low).
+  `[devtools] fp_seat_lock=0` (or `GTA2DX9_FP_SEAT_LOCK=0`) for A/B; `GTA2DX9_LOG_SEAT=1` logs `seat lock:` per frame.
