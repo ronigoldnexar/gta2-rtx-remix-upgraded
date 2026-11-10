@@ -403,3 +403,39 @@ own red hue (446 of the 531 pale side texels in the glasshouse are within the pa
 take them without taking paint; a geometric fill (hull enclosed by pane and frame) is the next step. 071's rear screen
 is still not found (near-black on a rear face: the belt rule is side-only). The cabin is boxes. prx6's own spot (bil
 night, parked 071) not re-taken.
+
+## 10. VEHICLE-GLASS-5 (10 Nov 2026): the mirror fill (prx6's 071 window corner)
+
+### 10.1 One side's window copied onto the other (mask class rule, `MirrorFill` / twin `mirror_fill`)
+
+The bodies are symmetric, their bakes are not. 071 Rumbler's left window is found up to the A pillar; on the right the
+front quarter is baked in the paint's own red hue (446 of the 531 pale texels within the paint tolerance), which no
+colour rule takes without taking paint. The rule, after `DropPaintComponents`: cells over the side faces of the
+glasshouse (1/48 of the length, 1/16 of 0.60-0.90 of the roof height); a cell is glass when at least 0.6 of its texels
+(and 2) are. Sources are glass cells with glass (or no texel) directly above and below, in an 8-connected group at least
+4 rows tall and 12 cells big, so a trim strip one side's mask took (001's chrome belt) is never copied. The rule runs only
+when the two sides' glass cells overlap (IoU >= 0.5): 003's camo flanks (IoU 0.00) and 007's cab (0.02) disagree, and a
+mirror would copy each side's error to the other. A side glasshouse texel that is not livery becomes glass when the cell
+at its station and height on the other side is a source; the result is closed by 2 texels inside the side glasshouse
+(the two sides' UV rasters do not line up texel for texel). `GTA2DX9_GLASS_MIRROR=0` turns it off for a session; the
+twin's `--nomirror`.
+
+Tried first and dropped: a convex-hull fill of each side window (twin `hull=1`, off): it filled the pillars between the
+006 box car's twelve windows (+3005 texels) and 002's sills, and missed 071's corner (no glass on that side to hull).
+
+Fleet (offline twin, all 83 meshes, against b714fd5's rules): 17 bodies change, none lose a texel: 071 924 -> 1063
+(its right window's front quarter), 049 2765 -> 3077 (the rear side windows baked dark red), 032 2400 -> 2712 (the third
+side window), 002 +106, 033 +106, 047 +96, 083 +88, 035 +88, 037 +128, 048 +62, 064 +43, 054 +41, 019 +30, 067 +18,
+001 +17, 068 +13, 016 +5.
+
+Evidence (Remix, Ultra preset, GPU 6, `gamerun/rglass_run.sh` window-height poses, own car forced, 13:00 and 21:00):
+run vg5_rx1 against VEHICLE-GLASS-4's vg4_rx2 (same poses). 071 (black): the right window's front quarter, a pale stepped
+bake before, now shows the cabin seat and the street through the glass; at 21:00 the window is one dark pane with the
+seat behind it, no pale blob. 049's rear side windows (baked dark red) are glass; 032's third side window is glass with
+the facade reflection. DLL masks (`GTA2DX9_GLASS_DUMP`) = the twin: 071 identical, 049 one texel apart, 032 the same
+count. Run vg5_rx2: the same after the rebase onto 1569a1d. Classic: vreg stage spawn_classic PASS, 0 tiles
+(spawn_first's 24 tiles are the first-person fists of other commits).
+
+Still short of the bar on 071: a pale band along the top of each window (above where either side's mask reaches) and
+the baked B-pillar-like slab in the middle of the right window stay hull; the outline is ragged. 071's rear screen is
+still not found. The filer's own spot (bil, parked 071, 5:30) is section 10.2.

@@ -194,6 +194,129 @@ def on_belt(black, paint, valid, h, z, nx, minZ, L, P):
     return res & black, res
 
 
+def convex_hull(pts):
+    """Andrew's monotone chain; pts (n, 2); counter-clockwise, no repeated end point."""
+    P = sorted(set(map(tuple, pts)))
+    if len(P) < 3: return P
+    def cross(o, a, b): return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lo, hi = [], []
+    for p in P:
+        while len(lo) >= 2 and cross(lo[-2], lo[-1], p) <= 0: lo.pop()
+        lo.append(p)
+    for p in reversed(P):
+        while len(hi) >= 2 and cross(hi[-2], hi[-1], p) <= 0: hi.pop()
+        hi.append(p)
+    return lo[:-1] + hi[:-1]
+
+
+def hull_fill(g, band, livery, valid, h, z, nx, minZ, L, P):
+    """VEHICLE-GLASS-5: a side window's opening is near-convex; the bake paints part of it in the paint's own hue (071
+    Rumbler: the front quarter of each window, 446 of 531 pale texels within the paint tolerance), which no colour rule
+    can take without taking paint. Per side, the found side glass is grouped in cells (1/12 of 0.60-0.90 of the roof
+    height, 1/48 of the length, 4-connected); a group of at least HULL_MIN texels fills the side texels of the
+    glasshouse inside its convex hull in (length, height), quantised to the texel grid, when the group already covers
+    HULL_SOLID of what the hull holds (a window wrapped around a pillar, or two windows joined by a drip, has a hull far
+    larger than itself and is left alone). Never a livery texel."""
+    NH, NZ = 12, 48
+    sidef = valid & band & (np.abs(nx) > 0.4)
+    hb = np.clip(((h - 0.60) / 0.30 * NH).astype(int), 0, NH - 1)
+    zb = np.clip(((z - minZ) / L * NZ).astype(int), 0, NZ - 1)
+    sd = (nx > 0).astype(int)
+    # quantised coordinates: 1/96 of the length, 1/48 of 0.60-0.90
+    qz = np.round((z - minZ) / L * 96).astype(int); qh = np.round((h - 0.60) / 0.30 * 48).astype(int)
+    out = g.copy()
+    for s in (0, 1):
+        gs = g & sidef & (sd == s)
+        if gs.sum() < P.get("hull_min", 120): continue
+        cell = np.zeros((NH, NZ), bool); cell[hb[gs], zb[gs]] = True
+        # 4-connected cell groups
+        lab = np.zeros((NH, NZ), int); n = 0
+        for a in range(NH):
+            for b in range(NZ):
+                if not cell[a, b] or lab[a, b]: continue
+                n += 1; st = [(a, b)]; lab[a, b] = n
+                while st:
+                    x, y = st.pop()
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        u, w = x + dx, y + dy
+                        if 0 <= u < NH and 0 <= w < NZ and cell[u, w] and not lab[u, w]:
+                            lab[u, w] = n; st.append((u, w))
+        tl = lab[hb, zb]
+        elig = sidef & (sd == s) & ~livery
+        for c in range(1, n + 1):
+            mem = gs & (tl == c)
+            if mem.sum() < P.get("hull_min", 120): continue
+            hull = convex_hull(np.stack([qz[mem], qh[mem]], 1))
+            if len(hull) < 3: continue
+            ins = elig.copy()
+            for k in range(len(hull)):
+                (ax, ay), (bx, by) = hull[k], hull[(k + 1) % len(hull)]
+                ins &= (bx - ax) * (qh - ay) - (by - ay) * (qz - ax) >= 0
+            if mem.sum() < P.get("hull_solid", 0.70) * (ins | mem).sum(): continue
+            out |= ins
+    return out
+
+
+def mirror_fill(g, band, livery, valid, h, z, nx, minZ, L, P):
+    """VEHICLE-GLASS-5 (DLL MirrorFill, docs/car-glass.md 10.1): the bodies are symmetric, the bakes are not: 071
+    Rumbler's left window is found to the A pillar, its right one stops a quarter short (that corner is baked in the paint's
+    own hue, which no colour rule can take without taking paint). Cells over the side faces of the glasshouse (1/48 of the
+    length, 1/16 of 0.60-0.90 of the roof height); a cell is glass when at least 0.6 of its texels (and 2) are. Sources:
+    glass cells with glass (or no texel) above and below, in an 8-connected group at least 4 rows tall and 12 cells big
+    (never a trim strip: 001's chrome belt). Only when the two sides' glass cells overlap (IoU 0.5; 003's camo sides:
+    0.00). A side glasshouse texel, not livery, becomes glass when the cell at its station and height on the OTHER side
+    is a source; then a closing of 2 inside the side glasshouse."""
+    NZ, NH = P.get("mirror_nz", 48), P.get("mirror_nh", 16)
+    sidef = valid & band & (np.abs(nx) > 0.4)
+    qz = np.clip(((z - minZ) / L * NZ).astype(int), 0, NZ - 1)
+    qh = np.clip(((h - 0.60) / 0.30 * NH).astype(int), 0, NH - 1)
+    sd = (nx > 0).astype(int)
+    cnt = np.zeros((2, NH, NZ)); gc = np.zeros((2, NH, NZ))
+    np.add.at(cnt, (sd[sidef], qh[sidef], qz[sidef]), 1)
+    np.add.at(gc, (sd[sidef], qh[sidef], qz[sidef]), g[sidef].astype(float))
+    gcell = (gc >= 2) & (gc >= P.get("mirror_frac", 0.6) * cnt)
+    ncell = gcell | (cnt == 0)   # glass or no texel there (a UV seam)
+    core = gcell.copy()
+    nb = ((-1, 0), (1, 0))   # a source cell with glass (or no texel) above and below it: never a thin strip (001's chrome belt)
+    for dh, dz in nb:
+        sh = np.zeros_like(ncell)
+        a0, a1 = max(0, dh), NH + min(0, dh); b0, b1 = max(0, dz), NZ + min(0, dz)
+        sh[:, a0 - dh:a1 - dh, b0 - dz:b1 - dz] = ncell[:, a0:a1, b0:b1]
+        core &= sh
+    # sources: cells of a window, an 8-connected group of glass cells at least MIRROR_ROWS rows tall and MIRROR_CELLS
+    # cells big (a trim strip copied by the bake into one side's mask is 1-3 rows: 001's chrome belt)
+    for s_ in (0, 1):
+        lab = np.zeros((NH, NZ), int); n = 0
+        for a in range(NH):
+            for b in range(NZ):
+                if not core[s_, a, b] or lab[a, b]: continue
+                n += 1; st = [(a, b)]; lab[a, b] = n; mem = []
+                while st:
+                    x, y = st.pop(); mem.append((x, y))
+                    for dx in (-1, 0, 1):
+                        for dy in (-1, 0, 1):
+                            u, w = x + dx, y + dy
+                            if 0 <= u < NH and 0 <= w < NZ and core[s_, u, w] and not lab[u, w]:
+                                lab[u, w] = n; st.append((u, w))
+                rows = len(set(x for x, _ in mem))
+                if rows < P.get("mirror_rows", 4) or len(mem) < P.get("mirror_cells", 12):
+                    for x, y in mem: core[s_, x, y] = False
+    inter = (gcell[0] & gcell[1]).sum(); uni = (gcell[0] | gcell[1]).sum()
+    iou = inter / max(uni, 1)
+    if os.environ.get("MIRROR_DEBUG"): print("mirror iou %.2f (%d cells)" % (iou, uni))
+    if iou < P.get("mirror_iou", 0.5): return g   # the two sides disagree (003's camo): a mirror would copy errors
+    add = sidef & ~livery & ~g & core[1 - sd, qh, qz]
+    out = g | add
+    if add.any() and P.get("mirror_close", 1):
+        # close the copied glass with the found glass (2 texels, side glasshouse only): the two sides' UV rasters do not
+        # line up texel for texel, so the copy alone is ragged where it meets the pane
+        c = out.copy()
+        for _ in range(2): c = dilate(c)
+        for _ in range(2): c = erode(c)
+        out |= c & sidef & ~livery
+    return out
+
+
 def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX, W, P):
     h = (pos[:, 1] - minY) / H
     side = np.zeros(0, int)
@@ -351,6 +474,10 @@ def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX,
         g = (g & ~flagged) | rest
         lab, drop = paint_comps(g)
     g &= ~drop[lab]
+    if P.get("hull", 0):
+        g = hull_fill(g, band, livery, valid, h, z, nx, minZ, L, P)
+    if P.get("mirror", 1):
+        g = mirror_fill(g, band, livery, valid, h, z, nx, minZ, L, P)
     return {"g": g, "band": band, "strict": strict, "plike": paintLike, "valid": valid, "pos": pos, "nrm": nrm, "clusters": clusters,
             "rear": int((g & (nz < -0.35) & (z < z0 + 0.05 * L)).sum())}
 
@@ -399,13 +526,15 @@ if __name__ == "__main__":
     ap.add_argument("--sheet"); ap.add_argument("--dump")
     ap.add_argument("--nodeep", action="store_true", help="without VEHICLE-GLASS-3's deep growth")
     ap.add_argument("--nobelt", action="store_true", help="without VEHICLE-GLASS-4's black-window-on-the-belt rule")
+    ap.add_argument("--nomirror", action="store_true", help="without VEHICLE-GLASS-5's mirror fill of each side window")
     ap.add_argument("--nooff", action="store_true", help="without VEHICLE-GLASS-3's off-hue rule")
     ap.add_argument("--old", action="store_true", help="the 33c34be heuristic (before VEHICLE-GLASS-2's class fixes)")
     a = ap.parse_args()
-    params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0} if a.old else {}
+    params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0, "mirror": 0} if a.old else {}
     if a.nooff: params["offhue"] = 0
     if a.nodeep: params["deep"] = 0
     if a.nobelt: params["belt"] = 0
+    if a.nomirror: params["mirror"] = 0
     for name in a.names:
         r = build(a.models, name, params)
         if not r: print(name, "no glass (no roof/too small)"); continue

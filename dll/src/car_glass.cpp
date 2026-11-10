@@ -84,6 +84,7 @@ std::map<const ModelMesh*, CutIb> g_cutIb;                 // under Remix: a mes
 // VEHICLE-GLASS-3: the hull and the panes split along the window's outline (car_glass_split.h) instead of
 // whole triangles voted pane or hull (a sawtooth on dense meshes, baked triangles left on coarse ones).
 int g_rearGate = 0;                                        // GTA2DX9_GLASS_REAR_GATE=1: under Remix too, a seated car needs a rear screen (old)
+int g_mirrorOn = 1;                                        // GTA2DX9_GLASS_MIRROR=0: no mirror fill of the side windows (VEHICLE-GLASS-5)
 int g_beltOn = 1;                                          // GTA2DX9_GLASS_BELT=0: no near-black windows on the belt (VEHICLE-GLASS-4)
 int g_splitOn = 1;                                         // GTA2DX9_GLASS_SPLIT=0: the whole-triangle vote
 std::map<const ModelMesh*, GlassSplit> g_split;
@@ -261,6 +262,89 @@ Mask KeepComponents(const Mask& m, int minSize) {
             for (int a : pts) out[a] = 1;
     }
     return out;
+}
+
+// VEHICLE-GLASS-5: the bodies are symmetric, the bakes are not: 071 Rumbler's left window is found to the A pillar, its
+// right one stops a quarter short (that corner is baked in the paint's own hue: no colour rule can take it without
+// taking paint). Cells over the side faces of the glasshouse (1/48 of the length, 1/16 of 0.60-0.90 of the roof); a
+// cell is glass when at least 0.6 of its texels (and 2) are. Sources: glass cells with glass (or no texel) above and
+// below, in an 8-connected group at least 4 rows tall and 12 cells big (never a trim strip: 001's chrome belt). Only
+// when the two sides' glass cells overlap (IoU 0.5: 003's camo sides disagree, 0.00). A side glasshouse texel, not
+// livery, becomes glass when the cell at its station and height on the OTHER side is a source; the result is closed
+// by 2 texels inside the side glasshouse. The twin is tools/car_glass_mask.py mirror_fill.
+void MirrorFill(Mask& g, const Mask& band, const Mask& livery, const std::vector<uint8_t>& valid, const std::vector<float>& pos,
+                const std::vector<float>& nrm, float minY, float H, float minZ, float L) {
+    constexpr int NZ = 48, NH = 16;
+    std::vector<int> cell(kR * kR, -1);
+    int cnt[2][NH][NZ], gc[2][NH][NZ];
+    std::memset(cnt, 0, sizeof cnt); std::memset(gc, 0, sizeof gc);
+    for (int i = 0; i < kR * kR; ++i) {
+        if (!valid[i] || !band[i] || std::fabs(nrm[i * 3]) <= 0.4f) continue;
+        const int qz = (std::max)(0, (std::min)(NZ - 1, static_cast<int>((pos[i * 3 + 2] - minZ) / L * NZ)));
+        const int qh = (std::max)(0, (std::min)(NH - 1, static_cast<int>(((pos[i * 3 + 1] - minY) / H - 0.60f) / 0.30f * NH)));
+        const int sd = nrm[i * 3] > 0.0f ? 1 : 0;
+        cell[i] = (sd * NH + qh) * NZ + qz;
+        ++cnt[sd][qh][qz];
+        if (g[i]) ++gc[sd][qh][qz];
+    }
+    bool gcell[2][NH][NZ], core[2][NH][NZ];
+    int inter = 0, uni = 0;
+    for (int s = 0; s < 2; ++s)
+        for (int a = 0; a < NH; ++a)
+            for (int b = 0; b < NZ; ++b) gcell[s][a][b] = gc[s][a][b] >= 2 && gc[s][a][b] >= 0.6f * cnt[s][a][b];
+    for (int a = 0; a < NH; ++a)
+        for (int b = 0; b < NZ; ++b) {
+            inter += gcell[0][a][b] && gcell[1][a][b];
+            uni += gcell[0][a][b] || gcell[1][a][b];
+        }
+    if (uni == 0 || inter < 0.5f * uni) return;
+    auto ok = [&](int s, int a, int b) { return a < 0 || a >= NH || gcell[s][a][b] || cnt[s][a][b] == 0; };
+    for (int s = 0; s < 2; ++s)
+        for (int a = 0; a < NH; ++a)
+            for (int b = 0; b < NZ; ++b)
+                core[s][a][b] = gcell[s][a][b] && (a > 0 && ok(s, a - 1, b)) && (a + 1 < NH && ok(s, a + 1, b));
+    for (int s = 0; s < 2; ++s) {   // sources: 8-connected groups at least 4 rows tall and 12 cells big
+        int lab[NH][NZ];
+        std::memset(lab, 0, sizeof lab);
+        int n = 0;
+        for (int a = 0; a < NH; ++a)
+            for (int b = 0; b < NZ; ++b) {
+                if (!core[s][a][b] || lab[a][b]) continue;
+                ++n;
+                std::vector<std::pair<int, int>> st{{a, b}}, mem;
+                lab[a][b] = n;
+                bool rows[NH] = {};
+                while (!st.empty()) {
+                    const auto c = st.back(); st.pop_back();
+                    mem.push_back(c); rows[c.first] = true;
+                    for (int dx = -1; dx <= 1; ++dx)
+                        for (int dy = -1; dy <= 1; ++dy) {
+                            const int u = c.first + dx, w = c.second + dy;
+                            if (u >= 0 && u < NH && w >= 0 && w < NZ && core[s][u][w] && !lab[u][w]) { lab[u][w] = n; st.push_back({u, w}); }
+                        }
+                }
+                int nr = 0;
+                for (bool r : rows) nr += r;
+                if (nr < 4 || mem.size() < 12)
+                    for (const auto& c : mem) core[s][c.first][c.second] = false;
+            }
+    }
+    Mask out = g, side(kR * kR, 0);
+    bool added = false;
+    for (int i = 0; i < kR * kR; ++i) {
+        if (cell[i] < 0) continue;
+        if (!livery[i]) side[i] = 1;
+        if (g[i] || livery[i]) continue;
+        const int sd = cell[i] / (NH * NZ), rest = cell[i] % (NH * NZ);
+        if (core[1 - sd][rest / NZ][rest % NZ]) { out[i] = 1; added = true; }
+    }
+    if (added) {
+        Mask c = out;
+        for (int k = 0; k < 2; ++k) c = Dilate(c);
+        for (int k = 0; k < 2; ++k) c = Erode(c);
+        for (int i = 0; i < kR * kR; ++i) if (c[i] && side[i]) out[i] = 1;
+    }
+    g.swap(out);
 }
 
 // VEHICLE-GLASS-4: a near-black side texel is a window, not tyre-black trim, when it sits on the paint belt at its
@@ -683,7 +767,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         Mask g(kR * kR, 0), band(kR * kR, 0), paintLike(kR * kR, 0), strict(kR * kR, 0);
         // VEHICLE-GLASS-4 (BeltBlack below): per side texel between 0.40 and 0.90 of the roof, paint / near-black
         // for the belt cells, and the glasshouse's near-black texels the tyre-black rule would drop.
-        Mask beltPaint(kR * kR, 0), beltBlack(kR * kR, 0), blackCand(kR * kR, 0);
+        Mask beltPaint(kR * kR, 0), beltBlack(kR * kR, 0), blackCand(kR * kR, 0), liveryM(kR * kR, 0);
         for (int i = 0; i < kR * kR; ++i) {
             if (!valid[i]) continue;
             const float h = (pos[i * 3 + 1] - minY) / H, z = pos[i * 3 + 2];
@@ -743,6 +827,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
             }
             if (!inBand) continue;
             band[i] = 1;
+            liveryM[i] = livery ? 1 : 0;
             const bool liveryScreen = !sideW && sat > 0.55f && vv > 0.25f;
             if (nearPaint || livery || (rearScreen && !sky && ((ny < 0.15f && !(vv < 0.55f * paintVal)) || !(vv < 0.9f * paintVal || vv < 0.35f))))
                 strict[i] = 1;
@@ -808,6 +893,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
             }
         }
         DropPaintComponents(g, rgb);
+        if (g_mirrorOn) MirrorFill(g, band, liveryM, valid, pos, nrm, minY, H, minZ, L);
         int count = 0;
         for (int i = 0; i < kR * kR; ++i) {
             g[i] = g[i] ? 255 : 0;
@@ -1145,6 +1231,7 @@ void CarGlassSettings(int enabled, int alphaPercent, int rangeBlocks) {
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_REMIX", v, sizeof v) && v[0] == '0') g_remixOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_SPLIT", v, sizeof v) && v[0] == '0') g_splitOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_BELT", v, sizeof v) && v[0] == '0') g_beltOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_MIRROR", v, sizeof v) && v[0] == '0') g_mirrorOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_REAR_GATE", v, sizeof v) && v[0] == '1') g_rearGate = 1;
     g_alpha = (std::max)(0.05f, (std::min)(1.0f, alphaPercent / 100.0f));
     g_range = static_cast<float>((std::max)(1, rangeBlocks));
