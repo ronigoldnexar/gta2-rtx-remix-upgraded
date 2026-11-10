@@ -1250,6 +1250,22 @@ went to the frame's bottom edge (A-Type 042) or down over the gauges.
   or beyond the pocket's reach (half the car's length + 0.75): cam16_pk4 0/0/0/0 with the crane engaged. The pocket
   each run reaches varies. At the wheel the tree fade's line runs to the car (cam16_pk1: the game drove the car through a park
   tree's trunk, which cut it in two).
+- qaexp8 (ste: riding the elevated train the 3D views lost him: camera on the platform, classic fallback, floor and
+  girder close-ups). Aboard a train the game keeps no player ped (`player not found` for the whole ride) and its own
+  camera rides the train. LocatePlayer now returns him as the train's rider: when the normal lookups fail and the
+  game's camera is on a train (vehicle models 59-61, within 3 blocks) that he was beside when last found (4 blocks,
+  20 s), that carriage is his vehicle (as a car he drives: placement, facing, sprite; no ped), kept while it is a live
+  train within 18 blocks of the game's camera (which leads a train at 8 b/s by ~10 and zooms out), never another
+  carriage; while riding, a passer-by at the camera is not taken for him. The position and height come from the
+  train's body as drawn the frame before (log once a second: `view: train ride: body drawn at ..., placement ...`).
+  Logs: `view: the player rides train <ptr> ...`, `view: the train ride ends (...)`, source `rider of a train at the
+  camera`. `GTA2DX9_CAM_TRAIN_RIDE=0` turns it off (A/B). Probe gamerun/keys_qa_cam16_train.sh + cam16_train.py (ste:
+  warp onto the east platform, settle, Return every 3 s until aboard: the train runs a loop and is not always there;
+  then third / first / classic / third). Runs cam16_tr5/tr6: followed from boarding to the end of filming (~45 s,
+  two corners at speed), third person behind and above the carriages, first person the cab (dash, hands, the line
+  ahead through the window). Still short: where the line runs into a tunnel (the train's body at z 2 or 1 under the
+  park, The Village) the chase eye stays above the tunnel's roof (a lawn frame) or in its wall for a moment: the
+  in-car boom does not dive into a tunnel after the car.
 - qav18 (bil south edge under the truss deck, and the alley at 240.5,4.5: "hero not drawn in any of 8 headings") and
   the hidden hero in qav5's own recipe were the warp artefact of FIX-CAMERA-15's qaexp5: the filers' third-person
   frames were all taken before the game's camera had scrolled to him (bounds reached him 13-45 s after the warp),

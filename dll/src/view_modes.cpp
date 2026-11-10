@@ -297,6 +297,53 @@ uintptr_t DrivenCarAtCamera(float camX, float camY) {
     return best;
 }
 
+// FIX-CAMERA-16 (qaexp8-ste-third-first-riding-a-train-the-3d-views-lose-the-player): aboard a train the game keeps
+// no player ped (the player struct is gone for the ride) and its camera rides the train. The train (models 59-61:
+// the cab and its carriages) the game's camera is on, within 3 blocks (the camera leads a moving vehicle), nearest.
+uintptr_t TrainAtCamera(float camX, float camY, float* dist) {
+    uintptr_t best = 0;
+    float bestDist = 3.0f;
+    int guard = 0;
+    for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024;
+         v = game::NextInList(v, game::kVehicleNext), ++guard) {
+        int32_t model = 0;
+        if (!ReadAt(reinterpret_cast<uintptr_t>(v) + game::kVehicleModel, &model) || model < 59 || model > 61) continue;
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+        if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &x, &y, &z)) continue;
+        const float d = std::hypot(x - camX, y - camY);
+        if (d < bestDist) {
+            bestDist = d;
+            best = reinterpret_cast<uintptr_t>(v);
+        }
+    }
+    if (dist) *dist = bestDist;
+    return best;
+}
+// The train `train` is still in the vehicle list (a train model); its distance from (camX, camY).
+bool TrainStillLive(uintptr_t train, float camX, float camY, float* dist) {
+    int guard = 0;
+    for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024;
+         v = game::NextInList(v, game::kVehicleNext), ++guard) {
+        if (reinterpret_cast<uintptr_t>(v) != train) continue;
+        int32_t model = 0;
+        if (!ReadAt(train + game::kVehicleModel, &model) || model < 59 || model > 61) return false;
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+        if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &x, &y, &z)) return false;
+        *dist = std::hypot(x - camX, y - camY);
+        return true;
+    }
+    return false;
+}
+// Where LocatePlayer last found him (game frame) and when; the train he rides.
+float g_foundX = -1.0f, g_foundY = -1.0f;
+double g_foundAt = -1.0;
+uintptr_t g_rideTrain = 0;
+int RideTrainOn() {
+    static int on = -1;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_CAM_TRAIN_RIDE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    return on;
+}
+
 }  // namespace
 
 bool NearestVehicle(float x, float y, float within, bool parkedOnly, float* vx, float* vy, float* distance,
@@ -1523,7 +1570,7 @@ bool LocatePlayer(PlayerState* out) {
         }
     }
 
-    if (!ped) {
+    if (!ped && !(g_rideTrain && RideTrainOn())) {   // FIX-CAMERA-16: riding a train, no passer-by at the camera is him
         float camX = 0.0f, camY = 0.0f;
         game::CameraPosition(&camX, &camY);
         if (g_nearPed && g_nearPedDist < 1.0f && PedSignature(reinterpret_cast<uintptr_t>(g_nearPed))) {
@@ -1537,7 +1584,56 @@ bool LocatePlayer(PlayerState* out) {
             }
         }
     }
+    if (!ped && RideTrainOn()) {
+        // FIX-CAMERA-16: lost beside a train the game's camera now rides (or already riding it): he is its rider. The
+        // train is the vehicle to follow, as a car he drives (its placement, facing and sprite); no ped.
+        float camX = 0.0f, camY = 0.0f, d = 9.0f;
+        game::CameraPosition(&camX, &camY);
+        // Riding: the boarded carriage while it is a live train within 18 blocks of the game's camera (which leads a
+        // train at 8 b/s by ~10 and zooms out: runs cam16_tr1 at 3, cam16_tr4 at 8 lost it); never another carriage.
+        float rd = 99.0f;
+        const bool keep = g_rideTrain && TrainStillLive(g_rideTrain, camX, camY, &rd) && rd < 18.0f;
+        if (g_rideTrain && !keep) { Log("view: the train ride ends (train %08X %s)", static_cast<unsigned>(g_rideTrain), rd < 99.0f ? "away from the camera" : "gone"); g_rideTrain = 0; }
+        const uintptr_t train = keep ? g_rideTrain : TrainAtCamera(camX, camY, &d);
+        float tx = 0.0f, ty = 0.0f, tz = 0.0f;
+        const uint8_t* tb = reinterpret_cast<const uint8_t*>(train);
+        if (train && game::ReadPlacement(tb, game::kVehiclePlacementPtr, &tx, &ty, &tz)) {
+            const bool boarding = g_foundAt > 0.0 && Now() - g_foundAt < 20.0 && std::hypot(tx - g_foundX, ty - g_foundY) < 4.0f;
+            if (train == g_rideTrain || boarding) {
+                if (train != g_rideTrain) Log("view: the player rides train %08X (lost %.1f s ago %.1f blocks from it): following it", static_cast<unsigned>(train),
+                                              Now() - g_foundAt, std::hypot(tx - g_foundX, ty - g_foundY));
+                g_rideTrain = train;
+                out->inVehicle = true;
+                out->vehicle = tb;
+                out->vehicleSprite = game::Placement(tb, game::kVehiclePlacementPtr);
+                out->x = tx; out->y = ty; out->z = tz;
+                float fx = 0.0f, fy = 0.0f;
+                if (game::ReadFacing(tb, game::kVehiclePlacementPtr, &fx, &fy) && std::hypot(fx, fy) > 1e-4f) {
+                    const float l = std::hypot(fx, fy);
+                    out->dirX = fx / l; out->dirY = fy / l; out->facingKnown = true;
+                }
+                // The train's placement height is not where its body is drawn (z 2.0 and 1.0 on the deck at 3: run
+                // cam16_tr5, the chase eye under the deck filming lawn; memory vehicles-line-train-positions): the body
+                // drawn last frame for its sprite, when there is one, is the train.
+                for (const CameraCar& c : LiveCameraCars()) {
+                    if (c.object != reinterpret_cast<uintptr_t>(out->vehicleSprite)) continue;
+                    const float cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]), cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
+                    static double lastLog = -1.0;
+                    if (Now() - lastLog > 1.0) {
+                        lastLog = Now();
+                        Log("view: train ride: body drawn at %.2f,%.2f z %.2f, placement %.2f,%.2f z %.2f", cx, static_cast<float>(gta2::kMapHeight) - cz, c.y0, tx, ty, tz);
+                    }
+                    out->x = cx; out->y = static_cast<float>(gta2::kMapHeight) - cz; out->z = c.y0;
+                    break;
+                }
+                out->source = "rider of a train at the camera";
+                out->valid = tx >= -1.0f && tx <= gta2::kMapWidth + 1.0f && ty >= -1.0f && ty <= gta2::kMapHeight + 1.0f;
+                return out->valid;
+            }
+        }
+    }
     if (!ped) return false;
+    g_rideTrain = 0;
     if (!atTheWheel && PedSignature(ped)) {
         g_lastPlayerPed = ped;
         const uint32_t was = g_lastPlayerPedId;
@@ -1618,6 +1714,7 @@ bool LocatePlayer(PlayerState* out) {
         }
     }
     out->valid = true;
+    g_foundX = x; g_foundY = y; g_foundAt = Now();   // FIX-CAMERA-16: for the train rider
     return true;
 }
 
