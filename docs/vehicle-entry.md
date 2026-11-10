@@ -398,3 +398,26 @@ height): the caps in that margin went with the door.
   and floor are dark and the post pass darkens the concave box further); the swung door's inner face is
   the outer skin re-wound (no door card, window frame or trim); other bodies with a lip or ribs were not
   filmed; dusk/night and Remix untested.
+
+## FIX-SEAT-ENTRY-4: the first-person seat point kept (tri11, 10 Nov 2026)
+
+tri11 (first person, a sustained reverse): after about 1.5 s of Down the wheel, hands and dash left
+the view and stayed gone after the stop, the bonnet filling the lower screen. `GTA2DX9_LOG_SEAT=1`
+(run with the camera log) showed the gate fine throughout (eye inside the box, own flag set) but the
+eye sinking in the body's frame from 0.40 to 0.10-0.25 of a block and staying there: the car had
+reversed into an obstacle and its drawn body stood lifted on it, level, while the camera eye stays at
+the game's floor. FIX-FP-ENTRY's seat correction (car_bodies tells the camera how far the posed seat
+point is from its raw eye) is meant to lift the eye with the body, but its seat point kept re-learning
+from the raw eye whenever the body was level (10 % a frame): the lifted body taught it the low seat and
+the correction decayed to nothing in a second (log: 0.485 -> 0.18).
+
+- `fp_seat_freeze` ([devtools], default 1, live): the seat point is learned over the first 30 level
+  frames in a car and then kept; the correction may reach 0.5 of a block. 0 is the old learning.
+- `force_own_lift` ([devtools], default 0, live): the driven car drawn N/100 block higher, the probe.
+- Probe: `gamerun/keys_fse4_lift.sh` (ste, seated by F10/Return retries, first person; lift 0.20 with
+  the seat point kept, then `fp_seat_freeze=0`, then no lift; `seat gate:` / `seat pose:` lines).
+  The scripted reverse (`keys_fse4_rev.sh`, a copy of keys_fh3_plates with seating retries) reaches
+  the obstacle only on some runs (traffic changes the path).
+- Still short: the natural repro was not reached again on the fixed build (2 of 5 scripted reverses
+  hit the obstacle, both before the fix); a body lifted at the moment of seating still teaches a low
+  seat; the cockpit hands are the view model's (FIX-FIGURE-9).

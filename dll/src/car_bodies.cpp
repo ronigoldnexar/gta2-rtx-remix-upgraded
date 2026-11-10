@@ -65,6 +65,8 @@ float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's exact door outline off (A/B)
 int g_doorInterior = 1;    // [devtools] door_interior=0: no cab interior drawn behind an open door (A/B)
+int g_forceOwnLift = 0;   // [devtools] force_own_lift=N: the driven car drawn N/100 block higher (tri11 probe)
+int g_fpSeatFreeze = 1;   // [devtools] fp_seat_freeze=0: FIX-SEAT-ENTRY-4's once-learned seat point off (tri11 A/B)
 int g_doorTopCut = 1;      // [devtools] door_top_cut=0: FIX-SEAT-ENTRY-4's cut of the shoulder faces across the door's top off (A/B)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
@@ -3788,6 +3790,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
         g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
+        g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
+        g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
         {   // VEHICLE-GLASS: the glass on/off within one session, for same-spot before/after frames.
             const int glassKey = GetPrivateProfileIntA("devtools", "car_glass", -1, g_devIni);
             if (glassKey >= 0) CarGlassSetEnabled(glassKey);
@@ -3851,7 +3855,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             for (auto it = g_lastBuilt.begin(); it != g_lastBuilt.end();) it = frame - it->second.second > 90 ? g_lastBuilt.erase(it) : std::next(it);
         }
         if (!b) continue;
-        const gta2::Mat4 carToWorld = Mul(CarToLocal(use), use.objectToWorld);
+        gta2::Mat4 carToWorldM = Mul(CarToLocal(use), use.objectToWorld);
+        // FIX-SEAT-ENTRY-4 (tri11 probe): [devtools] force_own_lift=N raises the driven car's drawn body N
+        // hundredths of a block (a body standing on what it reversed into), for same-spot seat checks.
+        if (g_forceOwnLift && use.driven) carToWorldM.m[3][1] += 0.01f * static_cast<float>(g_forceOwnLift);
+        const gta2::Mat4 carToWorld = carToWorldM;
         if (g_logNoses && frame % 15 == 0) {
             // The placement's nose (+z of the car frame) in the world, before any
             // model's own `forward`; the checker pairs consecutive samples of one
@@ -4395,7 +4403,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                                     lz = (dx * f[0] + dy * f[1] + dz * f[2]) / fl;
                         const float level = u[1] / std::sqrt(ul);   // 1: upright
                         if (refCar != use.object) { refCar = use.object; refFrames = 0; }
-                        if (level > 0.995f) {
+                        // FIX-SEAT-ENTRY-4 (tri11): the seat point is learned once per car (30 level frames) and then
+                        // kept. Learned on, it followed the raw eye whenever the body was level: a body standing
+                        // lifted on what it reversed into (the drawn hull 0.15-0.3 block over the game's floor,
+                        // level, held after the stop) taught it the low seat, the correction decayed to nothing in a
+                        // second and the eye stayed under the dash, the wheel and hands out of view, the bonnet
+                        // filling it. [devtools] fp_seat_freeze=0: the old learning.
+                        if (level > 0.995f && !(g_fpSeatFreeze && refFrames >= 30)) {
                             const float k = refFrames < 5 ? 1.0f : 0.1f;
                             refX += (lx - refX) * k; refY += (ly - refY) * k; refZ += (lz - refZ) * k;
                             ++refFrames;
@@ -4406,8 +4420,14 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                                                   refX * r[2] + refY * u[2] + refZ * f[2] + posed.m[3][2]};
                             gta2::Vec3 d{seat.x - raw.x, seat.y - raw.y, seat.z - raw.z};
                             const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-                            if (len > 0.3f) d = gta2::Vec3{d.x * 0.3f / len, d.y * 0.3f / len, d.z * 0.3f / len};
+                            const float maxLen = g_fpSeatFreeze ? 0.5f : 0.3f;
+                            if (len > maxLen) d = gta2::Vec3{d.x * maxLen / len, d.y * maxLen / len, d.z * maxLen / len};
                             SetFirstPersonSeatCorrection(d);
+                            static int logSeatD = -1;
+                            if (logSeatD < 0) { char v[8] = {}; logSeatD = GetEnvironmentVariableA("GTA2DX9_LOG_SEAT", v, sizeof v) ? atoi(v) : 0; }
+                            if (logSeatD)
+                                Log("seat pose: f=%u level=%.4f heave=%.3f delta=%.3f,%.3f,%.3f (len %.3f) ref=%.3f,%.3f,%.3f frames %d",
+                                    frame, level, posed.m[3][1] - carToWorld.m[3][1], d.x, d.y, d.z, len, refX, refY, refZ, refFrames);
                             static int logs = 0;
                             if (len > 0.03f && logs < 30) { ++logs; Log("car bodies: fp seat eye follows the tilted body %.3f (level %.3f)", len, level); }
                         }
@@ -5050,6 +5070,8 @@ void CarBodiesSetDevIni(const char* ini) {
     g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
     g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
+    g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
+    g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
 }
 const char* CarBodiesDevIni() { return g_devIni; }
 void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame) {
