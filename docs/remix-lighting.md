@@ -370,3 +370,41 @@ under the car is the synthetic fire light. Still open.
 Still short of a shipping frame: the burning van's plume does not show from the eye-height pose under Remix (fx6_r6..r9,
 cause not found: not the particle pool, not the texture build); dense plumes stack into a dark ball with a visible lumpy outline (the steep opacity
 response); no self-shadowing or volume; Remix's own volumetrics fed with an emitter would be the AAA answer.
+
+## FIX-FX-7 (10 Nov): flames on a burning car drawn as a 3D body; no bead column in the plain renderer
+
+**Flames on a burning 3D car (fire-fx 3d2).** FX-6 found that a burning car showed no flame tongues and no fire plume
+in any renderer. The cause: the fire-spot code in `LiveGeometry::Draw` tests the game's flame sprites (code object
+8:402-407, laid over the engine) against `roofs`, which is built from the dome shells (`shells_`). A car drawn as a 3D
+body has no dome shell, so `roofs` was empty for every car within the 3D-body distance. The flames were drawn as flat
+sprites inside the bonnet, and `SpawnFlames` / `SpawnFireSmoke` never ran. The warm ground pool came from the synthetic
+fire light (`g_fireSpotsLast`), which is published before that test.
+
+| Change | Where | Switch |
+|---|---|---|
+| A flame sprite over a drawn 3D body (its footprint from `CarBodiesFootprints`, 1.25x its half extents + 0.05) is a fire spot of that car. Its height comes from the cabin (`CarBodiesCabin`: the bonnet ahead of the windscreen's base, the roof behind it), else 0.8 of `CarBodiesExtent`'s height. The game sprite and its layers stand with their foot 0.12 into the body (they hovered a hand over the roof, fx7_f2). Tongues and smoke spawn 0.08 over the top. The dome-shell cars are unchanged | `live_geometry.cpp` (`fireFeet`, `overCar`, `overTop`) | `GTA2DX9_FIRE_BODIES=0`: the old way |
+
+Probe: `gamerun/keys_fx6_fire.sh` (fx6_fire.py), parked 068 van at wil 198.5,188.5, force_burn, fixed cameras (needs
+`-e 'GTA2DX9_REGRESS_CAM=Z:\tmp\va2_cam.txt'`, otherwise every pose is the chase view). POSES
+`third:-1.2:1.3:0.85|eye:0.9:-1.0:0.40|eyefar:2.2:-2.6:0.45`. Night in the plain renderer needs
+`INI_SED='/^\[weather\]/,/^\[/ s/^enabled=0/enabled=1/'` plus `SETTINGS_SED` StartHour=22 Paused=1 (`set_hour_tenths`
+alone leaves the plain picture in daylight).
+
+| Run | Frames (opened) |
+|---|---|
+| fx7_f3 (13:00) | third: flames rise out of the van's roof with a dark smoke plume above. Eye-height 1.3 blocks off: the fire on the roof at the top of the frame and an orange glow through the side glass. Eye-height 3.4 blocks off: the fire on the roof and the warm pool under the van |
+| fx7_n5 (22:00) | the same at night: an orange fire on the roof in all three poses, a grey plume against the night sky, the pool on the ground kept |
+| fx7_n4old (22:00, `GTA2DX9_FIRE_BODIES=0`) | no flame anywhere on the van, only a pale veil (the old picture) |
+
+Still open: (1) at night, the cab's side window of the burning 068 van shows a pale lit blob. It is present with
+`GTA2DX9_FIRE_BODIES=0` too, and moving vehicle_fx's engine smoke out of the cab did not remove it (tried, not
+shipped), so it is most likely the cab interior lit by the fire light. (2) Remix take on the live rig: see the work
+order. (3) The game's flame sprite is a single billboard over the middle of the body. Flames licking out of the
+bonnet seams and wheel arches, as a shipping game would show them, would need emitters on the model.
+
+**No bead column in the plain renderer (qav38 / qav52).** The game's tiny smoke specks (code object 8/322, under 0.06
+block) are drawn 1.35x as soft discs (`g_gamePuffs`). In the street views that is still a 3-8 px bead, and an emitter's
+stream reads as a ruler-straight dotted column (bil 150.5,200.5: 8 of 8 third-person headings, QA-VISUAL v52). FX-5
+(05e2eb1e) left them out under Remix only. The plain renderer's street views now leave them out too. Classic never
+reaches this branch. `[devtools] remix_game_specks=1` draws them in both renderers (live A/B).
+`GTA2DX9_GAME_SPECKS_OLD=1` brings them back in the plain renderer only.

@@ -14166,6 +14166,15 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
         w.enlarged = enlargedNow ? 1 : 0;
     };
+    // FIX-FX-7 (fire-fx 3d2: a burning car under a 3D model showed no flame tongues and no smoke column in any
+    // renderer): a car drawn as a 3D body has no dome shell, so `roofs` is empty and the game's flame sprites
+    // (code object 8:402-407, laid over the engine) never reached the fire-spot code below. The drawn bodies'
+    // footprints stand in: a flame over one is a fire spot of that car, lifted onto its bonnet or roof.
+    // GTA2DX9_FIRE_BODIES=0: the old way (no fire spots over a 3D body).
+    static const bool s_fireBodies = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FIRE_BODIES", b, sizeof b) && b[0] == '0'); }();
+    const bool fireBodies = s_fireBodies && g_groundModels && !carBodies_.empty();
+    CarFootprint fireFeet[96];
+    int fireFeetN = -1;   // read at the first effect sprite that needs them
     for (const Sprite& sprite : sprites_) {
         // FIX-SPRITES-1: this sprite's fate, settled when the iteration ends (any continue): see
         // Drops::received. Counts only; nothing here changes what is drawn.
@@ -14551,7 +14560,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 }
             }
         }
-        if (effect && g_fire.onTop && sprite.corners == 4 && !roofs.empty()) {
+        if (effect && g_fire.onTop && sprite.corners == 4 && (!roofs.empty() || fireBodies)) {
             const float (*sm)[4] = sprite.objectToWorld.m;
             auto toWorld = [&](const Vertex& v, float* out) {
                 for (int j = 0; j < 3; ++j) out[j] = v.x * sm[0][j] + v.y * sm[1][j] + v.z * sm[2][j] + sm[3][j];
@@ -14576,7 +14585,36 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     break;
                 }
             }
-            if (over) {
+            const void* overCar = over ? static_cast<const void*>(over->shell) : nullptr;
+            float overTop = over ? over->apexY : 0.0f;
+            if (!over && fireBodies) {
+                if (fireFeetN < 0) fireFeetN = CarBodiesFootprints(fireFeet, 96);
+                for (int k = 0; k < fireFeetN; ++k) {
+                    const CarFootprint& f = fireFeet[k];
+                    const float dx = cw[0] - f.cx, dz = cw[2] - f.cz;
+                    const float across = dx * f.rx + dz * f.rz, along = dx * f.fx + dz * f.fz;
+                    // A little more than the body, as for a roof: a flame on the car's edge is its fire too.
+                    if (std::fabs(across) > f.hx * 1.25f + 0.05f || std::fabs(along) > f.hz * 1.25f + 0.05f) continue;
+                    float deck = 0.0f, roofY = 0.0f, screen = 0.0f, halfW = 0.0f;
+                    const void* obj = reinterpret_cast<const void*>(f.object);
+                    if (CarBodiesCabin(obj, &deck, &roofY, &screen, &halfW)) {
+                        // Ahead of the windscreen's base the flame stands on the bonnet, behind it on the roof.
+                        overTop = f.cy + (along > screen ? deck : roofY);
+                    } else {
+                        float len = 0.0f, height = 0.0f, hw = 0.0f;
+                        overTop = f.cy + (CarBodiesExtent(obj, &len, &height, &hw) ? height * 0.8f : 0.5f);
+                    }
+                    overCar = obj;
+                    static int bodyLogged = 0;
+                    if (bodyLogged < 24) {
+                        ++bodyLogged;
+                        Log("fire: flame over 3D body %p (along %.2f of %.2f, across %.2f of %.2f), stands at %.2f (flame at %.2f)",
+                            obj, along, f.hz, across, f.hx, overTop, cw[1]);
+                    }
+                    break;
+                }
+            }
+            if (overCar) {
                 float w0[3], w1[3], w3[3];
                 toWorld(sprite.local[0], w0);
                 toWorld(sprite.local[1], w1);
@@ -14587,7 +14625,9 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 };
                 const float baseSize = (std::max)(dist(w0, w1), dist(w0, w3));
                 const bool flame = baseSize <= g_fire.maxSize;
-                const float need = (std::max)(0.0f, over->apexY + 0.05f - cw[1]);
+                // Over a 3D body the flame's foot is sunk a little into the bonnet or roof (the body hides it), so the
+                // fire rises out of the car rather than hovering a hand over its roof (fx7_f2).
+                const float need = (std::max)(0.0f, overTop + (over ? 0.05f : -0.12f) - cw[1]);
                 // Scaled through the matrix, about the quad's middle: the vertices are what Remix
                 // keys a mesh on, and a flicker that rewrote them was a new mesh every frame.
                 auto scaleAbout = [&](Sprite& sp, float k) {
@@ -14608,7 +14648,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     const float flick = 1.0f + g_fire.flicker * 0.5f *
                                                    std::sin(static_cast<float>(fxTime) * g_fire.flickerHz + phase);
                     scaleAbout(base, g_fire.sizeScale * flick);
-                    fireSpots.push_back({cw[0], cw[1] + need, cw[2], baseSize * g_fire.sizeScale, over->shell});
+                    // The tongues and the smoke rise from just over a 3D body's top: spawned at the sunk foot, a smoke
+                    // puff stood inside the cab and showed through the side glass as a pale blob (fx7_n2).
+                    const float spotY = over ? cw[1] + need : (std::max)(cw[1], overTop + 0.08f);
+                    fireSpots.push_back({cw[0], spotY, cw[2], baseSize * g_fire.sizeScale, overCar});
                 }
                 {
                     uint32_t dim = 0;
@@ -14777,7 +14820,13 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 // block, flags a180) rise from the shooter's ground point; under Remix each path-traces as a lit bead,
                 // so a second of them is a dotted column. In the street views under Remix the specks under 0.06 block
                 // are left out (the muzzle flash and its smoke carry a shot). [devtools] remix_game_specks=1: the old way.
-                if (size < 0.06f && !g_remixGameSpecks && RemixApiAvailable() && CurrentViewMode() != ViewMode::Classic) continue;
+                // FIX-FX-7 (qav38/qav52: the same ruler-straight column of ~20 pale beads in the PLAIN renderer, bil
+                // 150.5,200.5, 8 of 8 third-person headings): drawn 1.35x as a soft disc, a 0.02-block speck is still a
+                // 3-8 px bead in the street views (classic draws it sub-pixel), so they are left out in the plain
+                // renderer's street views as well. GTA2DX9_GAME_SPECKS_OLD=1: the plain renderer draws them again (A/B).
+                static const bool s_specksOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_GAME_SPECKS_OLD", b, sizeof b) && b[0] == '1'; }();
+                if (size < 0.06f && !g_remixGameSpecks && (RemixApiAvailable() || !s_specksOld) &&
+                    CurrentViewMode() != ViewMode::Classic) continue;
                 g_gamePuffs.push_back({c[0], c[1], c[2], size * 1.35f, angle, mul(16), mul(8), mul(0),
                                        (std::min)(0.85f, alpha * (additive ? 1.0f : 1.6f)), additive});
                 continue;
