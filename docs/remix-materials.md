@@ -150,6 +150,17 @@ live through the Remix API, changed nothing in a running session; only set at st
 they apply. The attribution between the two rests on the fallback's rule (no lights at all),
 not on a run with one of them alone.
 
+**The harness default carries them too (FIX-REMIX-RETURN, 10 Nov).** `gamerun/remix_l4.sh`
+without `RTX_EXTRA` appends `rtx_gpu.conf.extra` to the upstream release's rtx.conf, which
+had neither line, so its takes showed the light above: street views floodlit at night (centre
+luma 62-66 against 34-49 as shipped) and the classic view daylit for ~6 s after every V back
+from them (luma 125-129 against 55, hard roof shadows), until Remix let the unseen distant
+light go. That was filed as a classic regression (pt-remix-classic-daylight-flash); with
+`rtx_play.conf.extra` or the two lines added to `rtx_gpu.conf.extra` (now there) the same
+HEAD DLL keeps the return at night (every shot within 12 % of the classic before the visit).
+Our own lights retire on time: the lamp pools on the presentation-classic frame, the far lamps
+over the next ~1.5 s with the sky blend. Judge any Remix look on a config that has both lines.
+
 **The other lights** (`remix3_a`, `remix3_d`, `remix3_i`): traffic-light lenses throw red,
 amber and green pools at night and at dusk; the JESUS SAVES neon and the lit windows read
 at night without blowing out; machine-gun shots light the paving round the shooter;

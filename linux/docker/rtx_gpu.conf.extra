@@ -16,3 +16,12 @@ rtx.gpuStallTimeoutSeconds = 600
 # rtx.useNewGuiInputMethod = False  -- NOT usable: the old input path crashes the
 # game (binkw32/page faults a few seconds in). A compositing window manager
 # (COMPOSITOR=1 in run_game_remix_gpu.sh) makes the overlay transparent instead.
+# As shipped (package/rtx.conf, rtx_play.conf.extra): the D3D9 directional light the
+# street views set for their fixed-function shading is NOT a light under Remix
+# (converted, it is a full-strength sun by day and by night, docs/remix-materials.md
+# "The floodlit night"), and no fallback sun in a frame with no lights. Without these
+# two, takes on this default showed the street views floodlit at night and the classic
+# view daylit for ~6 s after every return from them (FIX-REMIX-RETURN, 10 Nov), a look
+# no player gets.
+rtx.ignoreGameDirectionalLights = True
+rtx.fallbackLightMode = 0
