@@ -1096,3 +1096,106 @@ pads fought first with no shots at cars, no walk while a burning car is within 7
 cars and men at the pads. Next: a blast radius check on the walk paths, not only at the station; the
 flamethrower generator (207.5,24.5, level 3); the hitmen's cars from a distance with the rocket
 launcher if one can be found in the zone. REDNECK ATTACK still waits on it.
+
+## MISSIONS-BATCH3, 10 Nov 2026 (`mb3l_*`): LABRAT'S PLAN not met (0 of 12, furthest 27 of 47); its limit is a job timer
+
+Successor of MISSIONS-BATCH2. Fresh sessions on a private stage (`cp -al` of repo/stage, e0b69de DLLs),
+`GTA2_SPEED=2 FPS=0 GTA2_DIRECT_KEYS=1`, GPU 4, chase view; host load 35-62. Runner and skill Python only
+(commits 9cfa96a, 1d3f9cf and the BANK change below): no renderer file changed, so the classic view is
+byte-for-byte by construction. Session command:
+
+    SWAP_LEVEL=ste GTA2_SPEED=2 GTA2_DIRECT_KEYS=1 FPS=0 PRIO=1 GTA2_GPU=4 STAGE=<private stage> \
+      INI_SED='s/^scene_key=.*/scene_key=F11/' gamerun/grun.sh mb3l_lpN 3000 missions/keys_labrats_plan.sh \
+      -e WARP_OK=0 -e LP_WARP_PHONE=1 -e LP_WARP_VILLAGE=1 -e LP_WARP_VILLAGE_FIRST=1 -e GTA2DX9_STATE_EVERY=3 -e LP_SECS=2400
+
+### What the deaths were (read from the logs with `missions/death_trace.py`)
+
+`death_trace.py out/<run>/gta2dx9.log` prints, for every life lost, the last seconds: health, position and z,
+weapon and rounds, the live peds within 7 blocks (state 7 sub 11 = shooting) and burning cars. Applied to
+MISSIONS-BATCH2's ten sessions:
+- mb2_lp6 and mb2_lp8, which BATCH2 put on car blasts, were **gunfire**: two or three Zaibatsu at 1-4 blocks,
+  health 100 -> 0 in 1.5 game s (lp8: 100, 70, 20, 0 a quarter-second apart); the burning cars were 6 and 10
+  blocks off and had not exploded (car hp 14577 / 3799, no blast line).
+- mb2_lp1, lp2, lp4 fired **no round** at the end (ammo unchanged): lp1's 'no clear shot' at a man 0.5-1.1
+  blocks off (the map line check fails beside a pad or kerb face), then the low-health back-off walked away
+  with his back turned; lp4 walked into the pads' men with 16 rounds.
+
+### The job's real limit: 65535 frames
+
+`ste_sm1.mis` starts the bonus with `START_BONUS_CHECK(m18, 65535, 47, ...)`. 65535 is a frame count, not
+"no limit": about 2184 game seconds (36 game minutes) after the player first enters The Village,
+`HAS_BONUS_FAILED` fires and the job fails (2364, 2998). **mb3l_lp8 hit it**: JOB FAILED at 26 counted with
+health 100 and lives 5, 2127 game s after the bonus began (end frame `out/mb3l_lp8/m_m_lp_end2.png`:
+"Mission Failed!", the player on the machine-gun pad, Zaibatsu bodies on the road). So the job needs 47
+counted kills in ~36 minutes, **1.3 a minute, with no death and no arrest**.
+
+### Sessions
+
+| session | code | counted | rate (/min in The Village) | ended by |
+|---|---|---|---|---|
+| mb3l_lp1 | retreat-and-shoot 4.0, near-shot, back-off firing | 5 | - | fell off the raised level backpedalling at a man on a level-3 roof (z 3.85 -> 3 -> 2 -> 0, health 100) |
+| mb3l_lp2 | same | 4 | - | the gun empty in a station fight 25 blocks from the pads, killed unarmed; the skill's refill then drove 200 blocks south (the death unseen) |
+| mb3l_lp3 | + Village gun only, station rules | 0 | - | the job started (2793 + the Village arrow) but the sampled messages missed 2351: rejected |
+| mb3l_lp4 | same | 9 | 0.8 | the round ended on 31 rounds with a man 3.8 off; the station's burning-car wait stood still while two men at 1.6 shot him |
+| mb3l_lp5 | same (stopped by me) | 4 | 0.4 | two whole rounds stepping from one slow-burning car (blast radius 8): stopped, outdated code |
+| mb3l_lp6 | + aim gate 0.15 | 10 | 1.4 | as lp4 (it started in the same second as the fix and ran the old file) |
+| mb3l_lp7 | + held walk to the phone | 0 | - | answered the GRAN'PA phone (2392): the walk pressed against the wall south of 205,224 and the unstick put him on the neighbour |
+| mb3l_lp8 | + corridor answer, rocket launcher | **26** | 0.7 | **the 65535-frame timer** (JOB FAILED at health 100); 2 min lost waiting by men in parked cars |
+| mb3l_lp9 | + loadout | 0 | - | fell through the hole at columns 204-205 of the Village level (205.2,17.7: cruise unstick) |
+| mb3l_lp10 | + ground guard v1 | 5 | - | ended with 6165, lives unchanged, after a step-away loop (4584 refused goals); the runner did not see it (stopped by me) |
+| mb3l_lp11 | final | 23 | **2.3** | ran the magazine to 3 among three Zaibatsu at 1.4-3.5 blocks, killed walking to the gun pad |
+| mb3l_lp12 | final | **27** | 1.5 | health 20 with the health pad not respawned (1800 frames); 50 rounds at a man 3-4 blocks off took him 50 -> 25 |
+
+0 `FAULT` lines in all twelve logs. No JOB COMPLETE, so no complete frame to open. Frames opened:
+`out/mb3l_lp8/m_m_lp_end2.png` (above), `out/mb3l_lp8/m_gf_lp21_first_down.png` (chase view, a Zaibatsu
+down with the +$51 pop, the HUD COUNT 22).
+
+### Runner changes (labrats_plan.py, gunfight.py; the gunfight options are env-gated, off for other jobs)
+
+- **The phone** (lp1, lp3, lp7 stuck or wrong): the map has a wall on the south side of 205,224 and 205,225;
+  the only way from the field north of the phone is the column-204 corridor (rows 224-226), then east along
+  row 227 into the phone cell 206,227 (the GRAN'PA phone's cell is open to its south). `step_answer` walks
+  that (`PHONE_STEPS`); lp8-lp12 answered first time, 17-34 game s. A 2793 with the job's arrow on The
+  Village counts as started.
+- **Loadout** before The Village: the machine-gun generators by the phone (gen18 202.5,226.5; gen21
+  219.5,221.5), armour (gen22), then the **rocket launcher** at gen24 230.5,203.5 (COLLECT_02: the pickup
+  models run pistol, machine gun, rocket launcher, ...; 5-15 rockets, ammo shown x10). `GF_HEAVY`: a rocket
+  at men on foot 5-9.5 blocks off with nothing nearer in the line, the machine gun nearer. lp8: one rocket,
+  two kills. The gen2 rocket launcher near The Village (229.5,68.5) is a crane power-up, not reachable.
+- **The Village's holes**: its level 2 has cells with no ground (columns 204-205 rows 5-19, 215-220 rows
+  16-19, ...). The router avoids them; `cruise_to`'s straight walk and its blind 0.6 s backward unstick do not
+  (lp1, lp9 fell at health 100). In the runner's process cruise_to is wrapped (a goal with no ground refused,
+  a line over a hole by the router, the unstick looks behind); gunfight `GF_GROUND` (no straight walk at a
+  target over a hole; `step_away` tries other headings), `safe_back` before every retreat.
+- **No blind waits under fire**: `threat()` keeps a round going and stops the station's waits while a hostile
+  is within 6; the station fight only near the pads or a close man, ending near an empty magazine; the gun
+  list is the Village generator only. Blast radius 8 -> 5. Zaibatsu off the Village level ignored. Men only in
+  parked cars count as none in sight (rounds end after 12 s). `GF_BACK_R` 4.0, `GF_NEAR_CLEAR` 1.8,
+  `GF_BACKOFF_FIRE` (hurt: retreat firing), `GF_CARMEN_R` 2.5 with a cooldown, `GF_AIM_GATE` 0.09.
+- **Job end seen**: the job's HUD counter gone once up, or a 40-block jump, ends the job; 6165 is an arrest key.
+
+### What still loses it (the exact remaining loss)
+
+The best rate (lp11, 2.3 a minute) is above the 1.3 the timer needs, so the count is now reachable; what ends
+the sessions is death at 1.5-2.3 kills a minute: (1) **accuracy**: 50-70 machine-gun rounds per counted
+kill, even at 3-4 blocks (lp12: 50 rounds, one hit), so the magazine runs out among the men (lp11);
+(2) **health supply**: one health pad (223.5,34.5) on an 1800-frame respawn, and the Zaibatsu gather at the
+pads; (3) the occasional loss of minutes (burning-car step-aways, cars with men in them). Next: aim from a
+standing stop (no fire while walking), the flamethrower / armour / health pads on the level-3 roof
+(207.5,24.5-26.5) as a second station, and the Scientist with the crack-shot machine gun the job gives at
+202.5,232.5 (the phone warp leaves him behind; an honest drive brings him).
+
+REDNECK ATTACK (`ste_sm3`) needs LABRAT'S PLAN passed in the same session; its runner now warps back to the
+phone and answers by the corridor (redneck_attack.py), but it was not reached.
+
+### BANK ROBBERY residual (item 3): two sessions, no change shipped on by default
+
+`bank_robbery_km.door_enter` got an option `BR_DOOR_CLEAR=1` (off by default): before Return it waits up to
+8 game s for any other car nearer than the GRAHAM to move on, then tries the GRAHAM's other flank. mb3l_km1
+(same command as MISSION-GETAWAY's km runner, GPU 4, `-e GTA2DX9_STATE_EVERY=3`): **JOB COMPLETE** in 238 s
+of job time (frame opened: `out/mb3l_km1/m_br_end_third.png`, JOB COMPLETE! and the $20,000 brief in the
+third-person view); the boarding was clean, the option not exercised. mb3l_km2: the guards and the climb won,
+the GRAHAM resprayed, then shot alight on the drive (wanted 2 at the respray); at the re-boarding the option
+found a police car (model 12) and a model-68 van nearer on both flanks, pressed Return anyway, boarded a
+model-69 car, failed (1125). The option is unproven, so it stays off; BANK ROBBERY's standing (2 of 3
+consecutive, MISSIONS-BATCH2) is unchanged. 0 `FAULT` in both logs.

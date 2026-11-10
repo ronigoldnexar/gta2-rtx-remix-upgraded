@@ -206,6 +206,26 @@ def door_enter(world, at):
     M.mark(f"door_enter: the GRAHAM at {c['x']:.1f},{c['y']:.1f} heading {hx:.2f},{hy:.2f}; its door {dx:.1f},{dy:.1f}")
     M.walk3(world, dx, dy, None, tol=0.8, budget=40)
     s, ok = step_to(dx, dy, tol=0.35, tries=12)
+    if os.environ.get("BR_DOOR_CLEAR", "0") == "1":     # off by default: unproven (mb3l_km2)
+        # MISSIONS-BATCH3: the game takes the nearest car's door on Return. MISSIONS-BATCH2's remaining
+        # BANK ROBBERY loss (km3, km4, km7, km13, km17): a car stopped against the GRAHAM's door side or
+        # behind it was nearer. Wait for it to move on (queued traffic), else take the GRAHAM's other
+        # flank; Return only once the GRAHAM is the nearest car (or after both tries)
+        def rival(s):
+            dg = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
+            os_ = [o for o in M.cars() if o["id"] != c["id"] and math.hypot(o["x"] - s["x"], o["y"] - s["y"]) < min(dg + 0.4, 3.0)]
+            return min(os_, key=lambda o: math.hypot(o["x"] - s["x"], o["y"] - s["y"])) if os_ else None
+        r = rival(D.wait_state())
+        t1 = time.time()
+        while r is not None and time.time() - t1 < 8.0 / max(D.SPEED, 1.0):
+            time.sleep(0.4); r = rival(D.wait_state())
+        if r is not None:
+            ox, oy = c["x"] - hy * 1.0 + hx * 0.2, c["y"] + hx * 1.0 + hy * 0.2
+            M.mark(f"door_enter: car {r['id']} (model {r['model']}) nearer than the GRAHAM by its door: the other flank {ox:.1f},{oy:.1f}")
+            M.walk3(world, ox, oy, None, tol=0.8, budget=30)
+            s, ok = step_to(ox, oy, tol=0.35, tries=12)
+            r = rival(D.wait_state())
+            if r is not None: M.mark(f"door_enter: car {r['id']} (model {r['model']}) still nearer: Return anyway")
     D.tap("Return", 0.3)
     for k in range(20):
         time.sleep(0.25); s = D.wait_state()
