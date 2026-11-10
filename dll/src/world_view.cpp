@@ -1676,8 +1676,10 @@ void FindPedPool(const void* playerPed) {
     // object, free head at +0, live head at +4, Ped[200] from +8 at a stride of 0x294)
     GTA2_TRY {
         const uintptr_t d = *reinterpret_cast<const uintptr_t*>(0x005E5BBC);
-        const intptr_t off = reinterpret_cast<intptr_t>(playerPed) - static_cast<intptr_t>(d) - 8;
-        if (game::PlausiblePointer(reinterpret_cast<const void*>(d)) && off >= 0 && off % 0x294 == 0 && off / 0x294 < 200) g_pedPoolPtr = 0x005E5BBC;
+        // unsigned: a pool above 2 GB (large-address-aware) must not turn this negative
+        const uintptr_t pp = reinterpret_cast<uintptr_t>(playerPed);
+        const uintptr_t off = pp - d - 8;
+        if (game::PlausiblePointer(reinterpret_cast<const void*>(d)) && pp >= d + 8 && off % 0x294 == 0 && off / 0x294 < 200) g_pedPoolPtr = 0x005E5BBC;
     } GTA2_EXCEPT { }
     if (g_pedPoolPtr) { Log("view: peds: ped pool at 005E5BBC"); return; }
     const uint8_t* exe = reinterpret_cast<const uint8_t*>(GetModuleHandleA(nullptr));
@@ -1698,8 +1700,9 @@ void FindPedPool(const void* playerPed) {
             Log("view: peds: pool candidate at %08X -> %08X, %d live peds", static_cast<unsigned>(a), static_cast<unsigned>(d), n);
             // a pool's peds are an array of 0x294-byte records from +8 (the player's own
             // ped among them); a chain that merely passes through him is not the pool
-            const intptr_t off = reinterpret_cast<intptr_t>(playerPed) - static_cast<intptr_t>(d) - 8;
-            if (off < 0 || off % 0x294 != 0 || off / 0x294 >= 200) continue;
+            const uintptr_t pp = reinterpret_cast<uintptr_t>(playerPed);
+            const uintptr_t off = pp - d - 8;
+            if (pp < d + 8 || off % 0x294 != 0 || off / 0x294 >= 200) continue;
             if (!g_pedPoolPtr) g_pedPoolPtr = a;
             if (++found >= 4) break;
         }

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <string>
 
+#include "game_access.h"
 #include "log.h"
 
 namespace gta2dx9 {
@@ -62,7 +63,7 @@ bool KnownReadable(uintptr_t address, size_t bytes) {
 }
 template <typename T>
 bool Read(uintptr_t address, T* out) {
-    if (address < 0x10000 || address >= 0x7FFE0000) return false;
+    if (!game::InUserSpace(address, sizeof(T))) return false;
     if (!KnownReadable(address, sizeof(T))) return false;
     bool ok = true;
     GTA2_TRY { memcpy(out, reinterpret_cast<const void*>(address), sizeof(T)); } GTA2_EXCEPT { ok = false; }

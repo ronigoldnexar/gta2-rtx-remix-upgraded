@@ -241,7 +241,7 @@ const uint8_t* ZoneAt(float x, float y) {
         reinterpret_cast<ZoneAtFn>(kGetZoneInfoAt)(map, static_cast<int32_t>(x), static_cast<int32_t>(y));
     // Zone records are 22 bytes, so only the range is checked, not the alignment.
     const uintptr_t za = reinterpret_cast<uintptr_t>(zone);
-    return za >= 0x00010000 && za < 0x7FFE0000 ? zone : nullptr;
+    return game::InUserSpace(za, 22) ? zone : nullptr;
 }
 
 uint16_t* g_zoneWritten = nullptr;   // the record holding our value, if any

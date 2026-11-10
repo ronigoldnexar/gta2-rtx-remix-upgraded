@@ -106,7 +106,7 @@ bool KnownReadable(uintptr_t address, size_t bytes) {
 }
 template <typename T>
 bool ReadAt(uintptr_t address, T* out) {
-    if (address < 0x10000 || address >= 0x7FFE0000) return false;
+    if (!game::InUserSpace(address, sizeof(T))) return false;
     if (!KnownReadable(address, sizeof(T))) return false;
     bool ok = true;
     GTA2_TRY { memcpy(out, reinterpret_cast<const void*>(address), sizeof(T)); } GTA2_EXCEPT { ok = false; }
@@ -324,7 +324,7 @@ bool VehicleFacing(const void* vehicle, float* dirX, float* dirY) {
 
 template <typename T>
 bool WriteAt(uintptr_t address, const T& value) {
-    if (address < 0x10000 || address >= 0x7FFE0000) return false;
+    if (!game::InUserSpace(address, sizeof(T))) return false;
     SIZE_T put = 0;
     return WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<LPVOID>(address), &value, sizeof(T), &put) &&
            put == sizeof(T);
@@ -1251,9 +1251,10 @@ bool LocatePlayer(PlayerState* out) {
             out->source = g_slot == Slot::Camera ? "camera" : "player object";
             if (!g_slotLogged) {
                 g_slotLogged = true;
-                Log("view: player pedestrian found through the %s at +0x%02X",
+                Log("view: player pedestrian found through the %s at +0x%02X: ped %08X (user space ends %08X)",
                     g_slot == Slot::Camera ? "camera struct" : "player object",
-                    static_cast<unsigned>(g_slotOffset));
+                    static_cast<unsigned>(g_slotOffset), static_cast<unsigned>(ped),
+                    static_cast<unsigned>(game::UserSpaceEnd()));
             }
         }
     }

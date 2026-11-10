@@ -54,6 +54,12 @@ Round-2 QA (scenarios, police/army/arrest, the city sweep, archives, fresh-clone
   `qa_run.sh` and `sweep_run.sh` default it to 1.
 - Poll loops under 8 minutes; long sessions at `GTA2_SPEED=2` with `FPS=0` when no video
   is needed.
+- **The DLL never assumes a 2 GB user space.** gta2.exe is large-address-aware (`linux/laa.sh`):
+  when the low 2 GB is full at level load the game's pools land above `0x80000000` (BLOCKER
+  10 Nov: the player was never found, the 3D views never engaged). Test a game address with
+  `game::InUserSpace(addr, bytes)` / `game::PlausiblePointer` (`dll/src/game_access.h`, bound read
+  once from `GetSystemInfo`), never a literal `0x7FFE0000`; keep addresses in `uintptr_t`
+  (no `int`/`intptr_t` differences or `< 0` tests on pointers).
 
 ### Release archives (v1.5-3d-round2)
 

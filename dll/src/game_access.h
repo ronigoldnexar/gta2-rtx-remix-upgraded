@@ -580,11 +580,33 @@ constexpr int kTrigTableEntries = (kCosTablePtr - kSinTablePtr) / 4;
 // 0..0x59F.
 constexpr uint32_t kAngleFullTurn = 0x5A0;
 
+// The end of the process's user address space, exclusive, less the top 64 KB
+// guard: 0x7FFE0000 for a plain 32-bit process, 0xFFFE0000 for gta2.exe marked
+// large-address-aware (linux/laa.sh), where the game's pools land above 2 GB
+// whenever the low 2 GB is full at level load (BLOCKER 10 Nov: the player was
+// rejected, the street views never engaged). Read once from GetSystemInfo.
+// Never test an address against a hard-coded 2 GB bound: use InUserSpace.
+inline uintptr_t UserSpaceEnd() {
+    static const uintptr_t end = [] {
+        SYSTEM_INFO si;
+        GetSystemInfo(&si);
+        const uintptr_t top = reinterpret_cast<uintptr_t>(si.lpMaximumApplicationAddress);
+        return top >= 0x7FFEFFFF ? top + 1 - 0x10000 : static_cast<uintptr_t>(0x7FFE0000);
+    }();
+    return end;
+}
+
+// Whether [address, address + bytes) lies in user space above the null page window.
+inline bool InUserSpace(uintptr_t address, uintptr_t bytes = 1) {
+    const uintptr_t end = UserSpaceEnd();
+    return address >= 0x00010000 && address < end && bytes <= end - address;
+}
+
 // A linked list read out of another process's heap is one bad pointer away from
 // taking the game down with it, and these lists are walked every frame.
 inline bool PlausiblePointer(const void* p) {
     const uintptr_t address = reinterpret_cast<uintptr_t>(p);
-    return address >= 0x00010000 && address < 0x7FFE0000 && (address & 3) == 0;
+    return InUserSpace(address, 4) && (address & 3) == 0;
 }
 
 inline uint8_t* ParticleListHead() {
