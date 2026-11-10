@@ -47,6 +47,11 @@ struct VehicleFeel {
     float wheelLift[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float wheelCamber[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float wheelToe[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    // FIX-VEHICLE-FEEL-2 (pmy1): how far the body may move against a wheel at its axle (blocks), the
+    // suspension's visible travel. The drawn pose is bounded so no axle moves further than this, and
+    // car_bodies.cpp hangs each cut wheel from the posed body, eased back to the road within it.
+    // 0: the wheels are drawn on the unposed car (the old way).
+    float wheelTravel = 0.0f;
 };
 
 // The car as car_bodies.cpp draws it.
@@ -56,6 +61,10 @@ struct VehicleFxCar {
     float length = 1.0f, width = 0.5f, roof = 0.4f;   // blocks
     float wheelbase = 0.6f;
     float wheelRadius = 0.08f;
+    // The wheels are part of the body's mesh (an image-to-3D shell keeps its tyres in the hull,
+    // or the car is drawn whole beyond 22 blocks): they tilt with it, so the body's travel at the
+    // axles is kept smaller (a tyre sinking into the road or lifting off it).
+    bool rigidWheels = true;
     int damage = 0;           // the damage word (+0x74), 0..32000
     bool wreck = false;       // drawn as a burnt-out wreck (sprites 65..74)
     bool driven = false;      // the player's car
@@ -85,6 +94,13 @@ void VehicleFxSetSmooth(bool on);
 // FIX-VEHICLES: the drawn lean over the springs', percent ([renderer] car_body_pitch,
 // car_body_roll; defaults 220 and 170). The model and its telemetry are unchanged.
 void VehicleFxSetLean(int pitchPercent, int rollPercent);
+// FIX-VEHICLE-FEEL-2: the bounded suspension pass (axle travel bound, wheels hung from the body,
+// height-scaled slower roll for tall bodies, impact kick). [devtools] vehicle_feel2=0|1 (re-read once a
+// second; -1 leaves it), GTA2DX9_VEHICLE_FEEL2=0. On by default.
+void VehicleFxSetFeel2(int mode);
+bool VehicleFxFeel2();
+// [devtools] force_body_pitch_deg / force_body_roll_deg (0 = off): every live car's drawn lean, for A/B frames.
+void VehicleFxForceLean(int pitchDeg, int rollDeg);
 // The player's car as last drawn (FIX-VEHICLES), for the camera: the drawn pitch (nose
 // down +) and roll, the heave, and the speed lost to impacts since the last call
 // (blocks/s, consumed by the call). False when the player has no car drawn in the

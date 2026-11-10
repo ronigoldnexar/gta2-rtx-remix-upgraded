@@ -272,3 +272,58 @@ behind it moves by less than 10 % (`tools/fx3_leak.py`):
 A real shadow edge still crosses a moving car in a few frames, as it should; the road ahead and behind
 show the same edge (pass n2: the van leaves a building's shadow into sun over 8 frames).
 Not changed: the light levels do not follow the time of day (they never did).
+
+## FIX-VEHICLE-FEEL-2 (10 Nov 2026): the lean bounded by the wheels, cut wheels hung from the body
+
+Orders: pmy1 (wheels detached from a tilted body on a kerb), feel10 (a jacked truck cab lurched ~8 degrees on
+pull-away), pfeel40 half (b) (brake pitch), pfeel60 (corner roll, car hit), feel8 (wall ram). Code: `vehicle_fx.cpp`
+(the pose block at the end of `VehicleFxUpdate`, the roll spring), `car_bodies.cpp` (the parametric wheel draw).
+`[devtools] vehicle_feel2=0|1` (default 1, re-read every 2 s) or `GTA2DX9_VEHICLE_FEEL2=0` gives the old pose for
+same-session A/B.
+
+- **The body pitches about the middle of the wheelbase**, not a quarter ahead: the nose dips and the tail lifts alike.
+  The forward pivot moved the rear axle by ~0.07 block at the 7 degree cap, so the rear wheel hung below the sill.
+- **The drawn pose is bounded by the wheels' travel.** It is scaled (roll, pitch and heave together) until no axle
+  moves more than the visible suspension travel against its wheel: half a wheel radius (0.022-0.05 block) where the
+  wheels are cut (parametric bodies), 0.3 of it (0.015-0.035) where the tyres are part of the mesh (image-to-3D and
+  carkit shells, and any car beyond 22 blocks). A tall body (roof over width above 0.95) gets up to 35 % less.
+  `VehicleFeel::wheelTravel` carries the bound to the draw.
+- **Cut wheels hang from the posed body** (`car_bodies.cpp`, the parametric branch): each wheel takes the body's
+  pose, then is eased back toward the road by at most the travel. It rolls and pitches with its arch and stays on
+  the road. Shells already drew their hub and tyre in the hull's frame.
+- **Tall bodies roll less and slower**: the drawn roll is up to 35 % smaller, the roll mode up to 35 % slower. Outside
+  0.35 s after a hit, the drawn roll cannot swing faster than ~43 deg/s (a tall cab ~23).
+- `[devtools] force_body_pitch_deg` / `force_body_roll_deg` (0 = off): every live car drawn at that lean, before the
+  bound, for fixed-pose frames of a stopped car (`gamerun/va6_own.py` with
+  `VA6_SETS='p0:vehicle_feel2=0,force_body_pitch_deg=7,...|p1:vehicle_feel2=1,...'`).
+- Telemetry: with `GTA2DX9_LOG_VEHICLE_FEEL=1`, every 90 frames
+  `vehicle feel: player car dims L= W= roof= wb= r= rigid= tall= travel= feel2= model roll= pitch=`.
+
+Measured (same session, feel2 0 then 1; `gamerun/vf2_probe.py`, `keys_vf2.sh` with `VF2_AB=vehicle_feel2=0,1`; runs
+`vf2_ab1`, `vf2_ab2`; drawn peaks in degrees):
+
+| | feel2=0 (HEAD) | feel2=1 |
+|---|---|---|
+| truck cab 063, pull-away with steer | roll 8.0 (cap), pitch -7.0 | roll 3.1, pitch 3.4 |
+| truck cab 063, right turn | roll -8.0 | roll -2.2 to -3.1 |
+| truck cab 063, brake | pitch 7.0, roll 8.0 | pitch 3.0-4.8 |
+| small car (L 0.82), first-person brake | pitch 6.5 | pitch 5.6 |
+| van 068, hard left | roll 5.4 | roll stays under the 7.2 bound (both feel2=1 passes hit traffic; untested clean) |
+| van 068, wall ram | pitch 7.0, shake 1.24 (5.9 blocks/s lost) | not reached (the van was boxed in both feel2=1 passes) |
+
+Frames (fixed poses, run `vf2_lean1`, a stopped car at 7 degrees pitch and 8 degrees roll): on 036 and 056 (cut
+wheels) the old pose lifts the tail clear of the rear wheel, leaving a gap under the arch. The new one keeps the
+wheel in its arch and on the road. On the 068 van and 063 cab (shells), the old pitch lifts the rear tyre off the
+road and the old roll sinks the near tyres into it. Both are much smaller with feel2 on.
+
+Findings that are not the body:
+- feel8: in the wall ram the chase camera is pressed onto the van's roof at the wall (`vf2_ab2` `b_ram_0.mp4`
+  2.8-5.2 s), so the logged 7 degree kick and the 1.24 camera shake never show the body. That is the camera's
+  framing at a wall (FIX-CAMERA).
+- pfeel60: the van rolls visibly into the left turn on HEAD (roof line tilted, `vf2_ab2` `b_corner_0.mp4` 4.0-4.4 s).
+  The rigid body did not reproduce at this spot.
+- pfeel40: the third-person camera ignores the body's pitch (only first person rides it). The hook request is in the
+  order for FIX-CAMERA-7B.
+
+Limits: on a shell, an 8 degree roll still sinks the near tyres a little (the tyres are in the mesh). The drawn lean
+of shells is about half the old one at its peak.

@@ -31,6 +31,11 @@ bool g_physics = true;   // VEHICLE-PHYSICS: the load-transfer model (0: the fir
 // the body as rigid), so the picture leans more than the model: [renderer]
 // car_body_pitch / car_body_roll, re-read with the devtools keys.
 float g_pitchGain = 2.2f, g_rollGain = 1.7f;
+// FIX-VEHICLE-FEEL-2: the bounded suspension pass ([devtools] vehicle_feel2, GTA2DX9_VEHICLE_FEEL2).
+bool g_feel2 = true;
+// [devtools] force_body_pitch_deg / force_body_roll_deg: every live car drawn at this lean (before the
+// wheels' bound), for same-spot frames of a stopped car (pmy1 wheels-in-arches check). 0 = off.
+float g_forcePitch = 0.0f, g_forceRoll = 0.0f;
 // The player's car, for the camera (VehicleFxPlayerMotion).
 VehicleFxMotion g_player;
 uint32_t g_newestFrame = 0;   // the newest frame VehicleFxUpdate saw
@@ -166,6 +171,7 @@ struct CarState {
     bool skidOn[4] = {};
     gta2::Vec3 skidLast[4];
     float sparkT = 0;
+    float drawRoll = 0;                    // FIX-VEHICLE-FEEL-2: last drawn roll (the manoeuvre's slew limit)
     VehicleFeel feel;
 };
 std::unordered_map<uintptr_t, CarState> g_cars;
@@ -555,6 +561,8 @@ void ReadEnv() {
     v[0] = 0;
     if (GetEnvironmentVariableA("GTA2DX9_VEHICLE_PHYSICS", v, sizeof v) && v[0] == '0') g_physics = false;
     v[0] = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_VEHICLE_FEEL2", v, sizeof v) && v[0] == '0') g_feel2 = false;
+    v[0] = 0;
     g_logFeel = GetEnvironmentVariableA("GTA2DX9_LOG_VEHICLE_FEEL", v, sizeof v) ? atoi(v) : 0;
     g_particles.reserve(kMaxParticles);
     g_skids.reserve(kMaxSkids);
@@ -578,6 +586,18 @@ void VehicleFxSetPhysics(int mode) {
     g_physics = mode != 0;
 }
 void VehicleFxSetDark(bool dark) { g_dark = dark; }
+void VehicleFxSetFeel2(int mode) {
+    ReadEnv();
+    if (mode < 0) return;
+    if ((mode != 0) != g_feel2) Log("vehicle feel: bounded suspension (feel2) %s", mode ? "on" : "off");
+    g_feel2 = mode != 0;
+}
+bool VehicleFxFeel2() { ReadEnv(); return g_feel2; }
+void VehicleFxForceLean(int pitchDeg, int rollDeg) {
+    const float p = static_cast<float>(pitchDeg) * kPi / 180.0f, r = static_cast<float>(rollDeg) * kPi / 180.0f;
+    if (p != g_forcePitch || r != g_forceRoll) Log("vehicle feel: forced lean pitch %d, roll %d degrees", pitchDeg, rollDeg);
+    g_forcePitch = p; g_forceRoll = r;
+}
 static bool g_smooth = false;
 void VehicleFxSetSmooth(bool on) { g_smooth = on; }
 void VehicleFxSetLean(int pitchPercent, int rollPercent) {
@@ -880,7 +900,10 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
         // falls from ~0.6 of critical (a small overshoot, settled in ~0.4 s) to ~0.3
         // as the car is beaten.
         const float zeta = 0.60f * (1.0f - 0.5f * wear);
-        st.roll.Step(rollTarget, rideHz * 1.20f, zeta, dt);
+        // FIX-VEHICLE-FEEL-2 (feel10): a tall body rolls on a slower mode (its roll inertia grows with
+        // the height squared), so it leans in over ~0.5 s instead of snapping over.
+        const float tallHz = g_feel2 ? 1.0f - 0.35f * Smooth((car.roof / (std::max)(0.2f, car.width) - 0.95f) / 0.45f) : 1.0f;
+        st.roll.Step(rollTarget, rideHz * 1.20f * tallHz, zeta, dt);
         st.pitch.Step(pitchTarget, rideHz * 1.10f, zeta, dt);
         st.heave.Step(heaveTarget, rideHz, zeta * 0.85f, dt);
         st.shoveX.Step(0.0f, 4.0f, 0.30f, dt);
@@ -1149,15 +1172,56 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
     // the middle a few degrees moved the tail by a few pixels. The drawn angles are the
     // model's times [renderer] car_body_pitch / car_body_roll, at most 7 and 8 degrees
     // (an impact's kick included).
-    const float pivotY = 0.30f * car.roof, pivotZ = 0.25f * car.length;
+    //
+    // FIX-VEHICLE-FEEL-2 (feel2, on by default): the lean is bounded by what the wheels allow. The
+    // angles about a point a quarter ahead moved the rear axle by ~0.07 block at the 7 degree cap
+    // (pmy1: the rear wheel hung below the sill, the front one stood outside its arch). Now the body
+    // pitches about the middle of the wheelbase (nose dips and tail lifts alike) and the pose is
+    // scaled down until no axle moves more than the suspension's visible travel against its wheel:
+    // half a wheel radius where the wheels are cut and hung from the body (car_bodies.cpp eases each
+    // back onto the road within that travel), 0.3 of it where the tyres are part of the body's mesh (a
+    // shell: they tilt with it, so the bound is how far a tyre may sink into or lift off the road).
+    // A tall body (a van, a truck cab) rolls less and slower, and outside a hit the drawn roll cannot
+    // swing faster than a heavy body would (feel10: a jacked cab lurched over and back in a second).
+    float pivotY = 0.30f * car.roof, pivotZ = 0.25f * car.length;
     gta2::Mat4 pose = gta2::Identity();
-    const float drawRoll = Clamp(st.roll.x * g_rollGain, -0.14f, 0.14f);
-    const float drawPitch = Clamp(st.pitch.x * g_pitchGain, -0.122f, 0.122f);
+    const float tall = Smooth((car.roof / (std::max)(0.2f, car.width) - 0.95f) / 0.45f);
+    float drawRoll = Clamp(st.roll.x * g_rollGain * (g_feel2 ? 1.0f - 0.35f * tall : 1.0f), -0.14f, 0.14f);
+    float drawPitch = Clamp(st.pitch.x * g_pitchGain, -0.122f, 0.122f);
+    float drawHeave = st.heave.x;
+    if (g_forcePitch != 0.0f || g_forceRoll != 0.0f) { drawPitch = g_forcePitch; drawRoll = g_forceRoll; st.drawRoll = drawRoll; }
+    float wheelTravel = 0.0f;
+    if (live && g_feel2) {
+        if (st.sinceHit > 0.35f && g_forcePitch == 0.0f && g_forceRoll == 0.0f) {
+            const float slew = (0.75f - 0.35f * tall) * dt;   // rad a step: ~43 deg/s, a tall cab ~23
+            drawRoll = Clamp(drawRoll, st.drawRoll - slew, st.drawRoll + slew);
+        }
+        st.drawRoll = drawRoll;
+        pivotZ = 0.0f;
+        wheelTravel = car.rigidWheels ? Clamp(0.30f * car.wheelRadius, 0.015f, 0.035f) : Clamp(0.50f * car.wheelRadius, 0.022f, 0.050f);
+        wheelTravel *= 1.0f - 0.35f * tall;   // a tall cab's tyres are in its mesh too: <5 degrees of roll
+        const float wx = 0.42f * car.width, wz = 0.5f * (std::max)(0.25f, car.wheelbase), wy = car.wheelRadius;
+        auto worst = [&](float rl, float pt, float hv) {
+            const gta2::Mat4 m = Mul(Mul(Mul(Translate(0.0f, -pivotY, 0.0f), RotZ(rl)), RotX(pt)), Translate(0.0f, pivotY + hv, 0.0f));
+            float d = 0.0f;
+            for (int i = 0; i < 4; ++i) {
+                const float px = (i & 1) ? wx : -wx, pz = i < 2 ? wz : -wz;
+                d = (std::max)(d, std::fabs(px * m.m[0][1] + wy * m.m[1][1] + pz * m.m[2][1] + m.m[3][1] - wy));
+            }
+            return d;
+        };
+        const float d = worst(drawRoll, drawPitch, drawHeave);
+        if (d > wheelTravel) {
+            const float k = wheelTravel / d;
+            drawRoll *= k; drawPitch *= k; drawHeave *= k;
+        }
+    } else if (live) st.drawRoll = drawRoll;
     if (live) {
         pose = Mul(Mul(Mul(Translate(0.0f, -pivotY, -pivotZ), RotZ(drawRoll)), RotX(drawPitch)),
-                   Translate(g_physics ? st.shoveX.x : 0.0f, pivotY + st.heave.x, pivotZ + (g_physics ? st.shoveZ.x : 0.0f)));
+                   Translate(g_physics ? st.shoveX.x : 0.0f, pivotY + drawHeave, pivotZ + (g_physics ? st.shoveZ.x : 0.0f)));
     }
     feel.pose = pose;
+    feel.wheelTravel = wheelTravel;
     feel.steer = st.steer;
     feel.spin = st.spin;
     feel.brake = st.brake;
@@ -1167,12 +1231,16 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
         g_player.frame = frame;
         g_player.pitch = live ? drawPitch : 0.0f;
         g_player.roll = live ? drawRoll : 0.0f;
-        g_player.heave = live ? st.heave.x : 0.0f;
+        g_player.heave = live ? drawHeave : 0.0f;
     }
     if (g_logFeel > 0 && car.driven && frame % 3 == 0) {
         Log("vehicle feel: player car v=%.2f lat=%.2f yawr=%.2f aF=%.1f aL=%.1f jolt=%.0f roll=%.1f pitch=%.1f heave=%.3f steer=%.2f brake=%.2f rev=%.2f dmg=%d ground=%d%d%d%d",
             vF, vL, st.yawRate, st.aF, st.aL, jolt, drawRoll * 180.0f / kPi, drawPitch * 180.0f / kPi, st.heave.x, st.steer, st.brake, st.reverse, car.damage,
             st.ground[0], st.ground[1], st.ground[2], st.ground[3]);
+        if (frame % 90 == 0)
+            Log("vehicle feel: player car dims L=%.2f W=%.2f roof=%.2f wb=%.2f r=%.3f rigid=%d tall=%.2f travel=%.3f feel2=%d model roll=%.1f pitch=%.1f",
+                car.length, car.width, car.roof, car.wheelbase, car.wheelRadius, car.rigidWheels ? 1 : 0, tall, wheelTravel, g_feel2 ? 1 : 0,
+                st.roll.x * 180.0f / kPi, st.pitch.x * 180.0f / kPi);
         if (g_physics && live)
             Log("vehicle physics: player car load=%.2f %.2f %.2f %.2f use=%.2f %.2f %.2f %.2f slip=%.2f %.2f %.2f %.2f carried=%.2f,%.2f g "
                 "shove=%.3f,%.3f lift=%.3f %.3f %.3f %.3f camber=%.1f %.1f %.1f %.1f corners=%.0f %.0f %.0f %.0f wear=%.2f ride=%.2fHz defl=%.4f",

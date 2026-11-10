@@ -3585,6 +3585,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         const int feelKey = GetPrivateProfileIntA("devtools", "vehicle_feel", -1, g_devIni);
         if (feelKey >= 0) { VehicleFxSetEnabled(feelKey != 0); g_feelIniSet = true; }
         VehicleFxSetPhysics(GetPrivateProfileIntA("devtools", "vehicle_physics", -1, g_devIni));
+        VehicleFxSetFeel2(GetPrivateProfileIntA("devtools", "vehicle_feel2", -1, g_devIni));
+        VehicleFxForceLean(GetPrivateProfileIntA("devtools", "force_body_pitch_deg", 0, g_devIni),
+                           GetPrivateProfileIntA("devtools", "force_body_roll_deg", 0, g_devIni));
         VehicleFxSetLean(GetPrivateProfileIntA("renderer", "car_body_pitch", 220, g_devIni),
                          GetPrivateProfileIntA("renderer", "car_body_roll", 170, g_devIni));
     }
@@ -3970,6 +3973,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             fxCar.length = b->bodyLength; fxCar.width = b->bodyWidth; fxCar.roof = roofH;
             fxCar.wheelbase = (std::max)(axleF - axleR, 0.3f * b->bodyLength);
             fxCar.wheelRadius = haveWheels && wheels.n ? wheels.radius[0] : (std::max)(0.055f, (std::min)(0.13f, 0.21f * roofH));
+            fxCar.rigidWheels = !(haveWheels && !wheels.shell);   // FIX-VEHICLE-FEEL-2: cut wheels hang from the body
             fxCar.damage = use.damage;
             fxCar.wreck = wreckModel;
             fxCar.driven = use.driven;
@@ -4441,7 +4445,21 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     m.m[3][0] = c.x - (c.x * m.m[0][0] + c.y * m.m[1][0] + c.z * m.m[2][0]);
                     m.m[3][1] = c.y - (c.x * m.m[0][1] + c.y * m.m[1][1] + c.z * m.m[2][1]) + feel.wheelLift[corner];
                     m.m[3][2] = c.z - (c.x * m.m[0][2] + c.y * m.m[1][2] + c.z * m.m[2][2]);
-                    ModelDraw(device, *wheels.wheel[w], Mul(Mul(Mul(fit, m), carToWorld), sepMove), nullptr, 0.0f);
+                    // FIX-VEHICLE-FEEL-2 (pmy1): the wheel hangs from the posed body (it rolls and pitches with
+                    // it, under its arch) and its spring takes it back toward the road, at most the travel
+                    // the pose was bounded by: on a kerb or in a hard stop it never stands outside its arch
+                    // or hangs below the sill, and it stays on the road.
+                    gta2::Mat4 hang = carToWorld;
+                    if (feel.wheelTravel > 0.0f) {
+                        const gta2::Mat4& P = feel.pose;
+                        const float arch = c.x * P.m[0][1] + c.y * P.m[1][1] + c.z * P.m[2][1] + P.m[3][1];
+                        const float lim = feel.wheelTravel + 0.004f;
+                        const float dy = (std::max)(-lim, (std::min)(lim, c.y + feel.wheelLift[corner] - arch));
+                        gta2::Mat4 drop = gta2::Identity();
+                        drop.m[3][1] = dy;
+                        hang = Mul(Mul(P, drop), carToWorld);
+                    }
+                    ModelDraw(device, *wheels.wheel[w], Mul(Mul(Mul(fit, m), hang), sepMove), nullptr, 0.0f);
                 }
             } else {
                 // QB-31: from the seat of a flat-fronted body (bus, cab-over, train) the hood copy
