@@ -9822,7 +9822,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     // their feet this frame (the game's positions) and the car bodies drawn, for the figures'
     // draw-only separation below. GTA2DX9_NO_FIGURE_SEP=1 turns it off (A/B).
     static const bool sepOff = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_NO_FIGURE_SEP", b, sizeof b) && b[0] == '1'; }();
-    struct SepPed { uintptr_t object; float x, y, z; bool player; float fx = 0.0f, fz = 0.0f, speed = 0.0f; };
+    struct SepPed { uintptr_t object; float x, y, z; bool player; float fx = 0.0f, fz = 0.0f, speed = 0.0f;
+                    float ux = 0.0f, uz = 0.0f; bool movable = false; };   // FIX-FIGURE-16: its point before its own separation
     static std::vector<SepPed> sepPeds;
     sepPeds.clear();
     static CarFootprint sepCars[96];
@@ -9838,9 +9839,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // points still met as drawn (fig7_p: 5 of 8 close pairs left).
             float px = sprite.objectToWorld.m[3][0], pz = sprite.objectToWorld.m[3][2];
             const auto tr = pedTracks_.find(sprite.object);
-            if (tr != pedTracks_.end() && g_carFrame - tr->second.sepSeenFrame <= 2) { px = tr->second.sepDrawnX; pz = tr->second.sepDrawnZ; }
+            float ux = px, uz = pz;
+            bool movable = false;
+            if (tr != pedTracks_.end() && g_carFrame - tr->second.sepSeenFrame <= 2) {
+                px = tr->second.sepDrawnX; pz = tr->second.sepDrawnZ;
+                ux = px - tr->second.sepX; uz = pz - tr->second.sepZ; movable = tr->second.sepMovableLast;
+            }
             sepPeds.push_back({sprite.object, px, sprite.objectToWorld.m[3][1], pz,
                                sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject});
+            sepPeds.back().ux = ux; sepPeds.back().uz = uz; sepPeds.back().movable = movable;
             if (tr != pedTracks_.end()) {   // FIX-KNOCKDOWN-4 (pm24): his facing and pace, for the single-file spacing
                 sepPeds.back().fx = std::sin(tr->second.heading); sepPeds.back().fz = std::cos(tr->second.heading);
                 sepPeds.back().speed = tr->second.drawnSpeed;
@@ -11184,6 +11191,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const float selfFx = std::sin(track.heading), selfFz = std::cos(track.heading);
                 const bool selfWalks = fileOn && track.drawnSpeed > 0.4f;
                 float fileBack = 0.0f;
+                static int pairOld = -1;   // FIX-FIGURE-16 (pm24), see below
+                if (pairOld < 0) { char v[8] = {}; pairOld = (GetEnvironmentVariableA("GTA2DX9_SEP_PAIR_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
                 for (const SepPed& o : sepPeds) {
                     if (o.object == sprite.object || std::fabs(o.y - cy) > 0.4f) continue;
                     float dx = selfX - o.x, dz = selfZ - o.z;
@@ -11198,6 +11207,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         }
                         if (-along > 0.6f * d) continue;   // he leads: the follower yields
                     }
+                    // FIX-FIGURE-16 (pm24): the push is measured between the two figures' points BEFORE their separation,
+                    // half each when both can move (all of it when the other cannot). Measured from his own unmoved point to
+                    // the other's already-moved one at half each it settled at (d + 0.28) / 3: a pair the game walks 0.02
+                    // apart was drawn 0.09-0.10 apart, shoulders inside each other (fig16_file2). GTA2DX9_SEP_PAIR_OLD=1.
+                    if (!pairOld && !o.player) { dx = selfX - (o.movable ? o.ux : o.x); dz = selfZ - (o.movable ? o.uz : o.z); d2 = dx * dx + dz * dz; }
                     if (d2 >= kBody * kBody) continue;
                     float d = std::sqrt(d2);
                     if (d < 1e-4f) {
@@ -11207,12 +11221,27 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         dx = std::cos(a) * (sprite.object < o.object ? 1.0f : -1.0f); dz = std::sin(a) * (sprite.object < o.object ? 1.0f : -1.0f);
                         d = 1.0f;
                     }
-                    const float share = o.player ? 1.0f : 0.5f;
+                    const float share = o.player || (!pairOld && !o.movable) ? 1.0f : 0.5f;
                     sx += dx / d * (kBody - (d < 1.0f ? d : 0.0f)) * share;
                     sz += dz / d * (kBody - (d < 1.0f ? d : 0.0f)) * share;
                 }
                 // the file's yield: the leader he is furthest inside of counts (not their sum), at most 0.3
                 fileBack = (std::min)(fileBack, 0.3f);
+                // FIX-FIGURE-16 (pm24): never back into someone behind him: the yield drove a follower 0.18-0.23 from a
+                // standing or crossing figure (by the game) to 0.03-0.07 from it as drawn (fig16_file2 f=1139/1140).
+                if (fileBack > 0.0f && !pairOld) {
+                    for (const SepPed& o : sepPeds) {
+                        if (o.object == sprite.object || std::fabs(o.y - cy) > 0.4f) continue;
+                        const float ox = o.x - selfX, oz = o.z - selfZ;
+                        if (ox * selfFx + oz * selfFz > 0.0f) continue;   // ahead of him: the leaders
+                        while (fileBack > 0.0f) {
+                            const float bx = ox + selfFx * fileBack, bz = oz + selfFz * fileBack;
+                            if (bx * bx + bz * bz >= kBody * kBody) break;
+                            fileBack -= 0.02f;
+                        }
+                        if (fileBack < 0.0f) fileBack = 0.0f;
+                    }
+                }
                 const float fileX = -selfFx * fileBack, fileZ = -selfFz * fileBack;
                 float sl = std::sqrt(sx * sx + sz * sz);
                 if (sl > 0.2f) { sx *= 0.2f / sl; sz *= 0.2f / sl; }
@@ -11284,6 +11313,26 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const float tl = std::sqrt(sx * sx + sz * sz);
                 const float cap = inCar ? 0.6f : eyePush ? 0.42f : fileBack > 0.0f ? 0.3f : 0.2f;
                 if (tl > cap) { sx *= cap / tl; sz *= cap / tl; }
+                // FIX-FIGURE-16 (pm24): never into a third person. Pushed off one neighbour or dropped back in a file, a
+                // figure was drawn inside another the game had kept apart (fig16_file3: game 0.115 -> drawn 0.022, 0.145 ->
+                // 0.056). The offset is halved (up to four times) while it would put him closer than a body to anyone,
+                // and closer than he is by the unmoved points. Not out of a car body or the eye (those must clear).
+                if (!pairOld && !inCar && !eyePush && (sx != 0.0f || sz != 0.0f)) {
+                    for (int tries = 0; tries < 4; ++tries) {
+                        bool worse = false;
+                        for (const SepPed& o : sepPeds) {
+                            if (o.object == sprite.object || std::fabs(o.y - cy) > 0.4f) continue;
+                            const float px = selfX + sx - o.x, pz = selfZ + sz - o.z;
+                            const float dp2 = px * px + pz * pz;
+                            if (dp2 >= kBody * kBody) continue;
+                            const float ux = selfX - (o.movable ? o.ux : o.x), uz = selfZ - (o.movable ? o.uz : o.z);
+                            if (dp2 < 0.8f * (ux * ux + uz * uz)) { worse = true; break; }
+                        }
+                        if (!worse) break;
+                        sx *= 0.5f; sz *= 0.5f;
+                        if (tries == 3) { sx = 0.0f; sz = 0.0f; }
+                    }
+                }
                 if (g_logPedFrames && !inCar && tl > 0.02f && (g_carFrame % 15 == 0 || std::fabs(track.sepX) + std::fabs(track.sepZ) < 0.005f))
                     Log("figure sep: f=%u %08x from a neighbour by %.3f", g_carFrame, static_cast<unsigned>(sprite.object), tl);
             }
@@ -11351,7 +11400,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
             {
                 const float rx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX, rz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ;
-                track.sepDrawnX = rx + track.sepX; track.sepDrawnZ = rz + track.sepZ; track.sepSeenFrame = g_carFrame;
+                track.sepDrawnX = rx + track.sepX; track.sepDrawnZ = rz + track.sepZ; track.sepSeenFrame = g_carFrame; track.sepMovableLast = sepMovable;
                 if (!sprite.corpse && sprite.pedState != 3 && sprite.pedState != 4) { sepSeen.push_back({rx, rz, rx + track.sepX, rz + track.sepZ, cy, sepMovable, sprite.object, sprite.pedState, playerSprite}); sepSeen.back().fx = std::sin(track.heading); sepSeen.back().fz = std::cos(track.heading); sepSeen.back().speed = track.drawnSpeed; }
             }
         }
@@ -12611,6 +12660,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     rin.reload.insert = rinfo.insertT; rin.reload.rack = rinfo.rackT;
                     rin.closeUp = lod == 0;
                     rin.throwing = track.action == 13;
+                    rin.throwT = track.action == 13 ? track.actionTime : -1.0f;   // FIX-FIGURE-16
                     rigOn = weaponrig::Begin(*model, rin);
                     if (rigOn) {
                         float sd[3];

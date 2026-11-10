@@ -50,6 +50,7 @@ struct Inputs {
     ReloadTimes reload;
     bool closeUp = true;       // lod 0: fingers and head too
     bool throwing = false;     // the throw clip runs (a thrown weapon's kCarry is otherwise the low hold)
+    float throwT = -1.0f;      // FIX-FIGURE-16: seconds into the throw clip (-1 none)
 };
 
 // The mode an action clip calls for (live_geometry's action numbers).

@@ -1910,6 +1910,26 @@ brush stagger's reach). The leader keeps his place. A/B `GTA2DX9_FILE_SEP=0`.
 Measure: the 300-frame `figure sep:` line adds `in file closer than 0.16: N by the game, M drawn`. kd4_gang1 (wil
 Loonie street, 64-66 people): 3/2/3 by the game, 1/0/1 drawn; kd4_pm24a (keys_pm24.sh): no file pair formed. Not
 caught on camera yet (a warp hides figures until the game's camera arrives: the gang bursts framed a wall).
+## FIX-FIGURE-16 (10 Nov 2026): pm24 separation residuals, the overarm bottle
+Separation (`DrawPedFigures`), measured on fixed-camera films of real files (`gamerun/keys_fig16_file.sh`,
+fig16_file.py: finds two walkers within F_D heading the same way in the `view: peds` list and points the regress
+camera behind them; G_SPOTS 49.5,23.5 and 80.5,36.5 = the wil loony files):
+- The pair push is measured between the two figures' points BEFORE their separation (half each when both can move,
+  all of it when the other cannot). From his own unmoved point to the other's already-moved one at half each it
+  settled at (d + 0.28) / 3: a pair the game walks 0.02 apart was drawn 0.09-0.10 apart, shoulders inside each other.
+- The file yield never backs a follower into someone behind him, and no push is kept that puts a figure closer than a
+  body (0.14) to anyone he was further from by the unmoved points (halved up to four times, else dropped): the yield
+  and the pushes had drawn people the game kept 0.12-0.23 apart 0.02-0.07 apart.
+- A/B `GTA2DX9_SEP_PAIR_OLD=1` (all three). Measure (300-frame `figure sep:` sums): closer than 0.10 drawn / by the
+  game: fig16_file2 (before) 32/69, fig16_file4 (after) 10/142; in file closer than 0.16: 4/19 -> 7/61.
+
+Overarm throw (`weapon_rig.cpp` HoldFor, cThrow): the right wrist IK follows keys on the throw clip's time (live_geometry
+passes `throwT`): from the low hold up and behind the head (0.20), over the shoulder (0.28), ahead and high at the
+release (0.34, FIGURE-15's bottle release), through and down across the body (0.44), back to the hold (0.62); the free
+arm forward for balance on the wind-up. A/B `GTA2DX9_THROW_OVERARM=0` (the clip's underarm lob). fig16_mo1 backR:
+the hand with the bottle up behind the head for the wind-up; at a 10 fps game the release and follow-through fall
+between frames (not yet seen on film).
+
 ## FIX-ENTRY-1 (10 Nov 2026): what the game needs for an entry, the Return trace, `enter_key`
 
 Filing `ped-state-7-blocks-vehicle-entry` (S1, the 5090 operator): Return beside a parked car (0.59) with a

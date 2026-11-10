@@ -827,6 +827,7 @@ private:
         int sepAxis = 0;      // 0: across the car (out of a flank), 1: along it (out of an end)
         float sepSign = 1.0f;
         float sepDrawnX = 0.0f, sepDrawnZ = 0.0f;   // FIX-FIGURE-7: where it was drawn last (the others separate from this)
+        bool sepMovableLast = false;                // FIX-FIGURE-16 (pm24): whether the separation moved it last frame
         uint32_t sepSeenFrame = 0;
         // FIX-ACTIONS-3 (pfl15): a punch that knocked him down (the game sets the knock-down in the
         // frame the health drops): the blow's reaction first (punchDownFrame), then the fall onto his

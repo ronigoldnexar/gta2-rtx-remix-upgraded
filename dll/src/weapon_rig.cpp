@@ -357,6 +357,7 @@ struct Ctx {
     float mpb = 3.8f;          // model units per block
     bool closeUp = true;
     bool throwing = false;
+    float throwT = -1.0f;
     Params p{};
     // out
     bool gunValid = false;
@@ -401,6 +402,14 @@ struct Geo {
     float rackZ, rackY;         // the slide or charging handle (rackZ > 1: none)
 };
 int g_pistolStance = 1;   // FIX-FIGURE-8 (pfl16): 1 arms out along the aim line, 0 the old eye-line hold (test file A/B)
+
+// FIX-FIGURE-16 (FIGURE-15's short-of-AAA list): the bottle thrown overarm. The clip's underarm lob read as no throw
+// at all from the chase camera (no wind-up behind the head). GTA2DX9_THROW_OVERARM=0: the clip's lob.
+bool ThrowOverarmOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_THROW_OVERARM", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
 
 bool MgStanceOld() {
     static int on = -1;
@@ -465,6 +474,39 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
         g.ly = R;
         g.lW = 0.8f;
         g.lGrip = 0.0f;
+        if (c.throwT >= 0.0f) {
+            // FIX-FIGURE-16: the throwing hand on an overarm path, keyed on the clip's time (the bottle leaves the hand at
+            // 0.34, live_geometry's release): from the low hold up and back behind the head (0.20), over the shoulder
+            // (0.28), out ahead and high at the release (0.34), through and down across the body, back to the hold.
+            // Offsets from the right shoulder in metres (an arm reaches ~0.53).
+            struct Key { float t, u, f, r, wu, wf; };   // wu/wf: where the fingers point (up / forward)
+            static const Key keys[] = {
+                {0.00f, -0.48f, 0.10f, 0.03f, -0.94f, 0.35f},
+                {0.12f, -0.05f, -0.16f, 0.06f, 0.40f, -0.90f},
+                {0.20f, 0.14f, -0.22f, 0.04f, 0.95f, -0.30f},
+                {0.28f, 0.24f, 0.06f, 0.00f, 0.60f, 0.80f},
+                {0.34f, 0.12f, 0.40f, -0.02f, 0.05f, 1.00f},
+                {0.44f, -0.20f, 0.36f, -0.16f, -0.70f, 0.70f},
+                {0.62f, -0.46f, 0.12f, -0.02f, -0.94f, 0.35f},
+            };
+            const int n = static_cast<int>(sizeof keys / sizeof keys[0]);
+            const float t = (std::min)(c.throwT, keys[n - 1].t);
+            int i = 0;
+            while (i < n - 2 && t > keys[i + 1].t) ++i;
+            float a = (t - keys[i].t) / (keys[i + 1].t - keys[i].t);
+            a = (std::max)(0.0f, (std::min)(1.0f, a));
+            a = a * a * (3.0f - 2.0f * a);
+            auto lerp = [a](float x, float y) { return x + (y - x) * a; };
+            const Key& k0 = keys[i]; const Key& k1 = keys[i + 1];
+            g.rw = shR + U * lerp(k0.u, k1.u) + F * lerp(k0.f, k1.f) + R * lerp(k0.r, k1.r);
+            g.rx = Nrm(U * lerp(k0.wu, k1.wu) + F * lerp(k0.wf, k1.wf));
+            g.ry = R * -1.0f;
+            g.rW = 1.0f;
+            // the free arm forward for balance on the wind-up, back on the follow-through
+            const float bal = t < 0.30f ? 1.0f : (std::max)(0.0f, 1.0f - (t - 0.30f) / 0.20f);
+            g.lw = shL + (U * -0.20f + F * 0.30f - R * 0.05f) * bal + (U * -0.46f - R * 0.10f - F * 0.04f) * (1.0f - bal);
+            g.lx = Nrm(F * bal + U * -0.95f * (1.0f - bal) + U * -0.3f * bal);
+        }
         return g;
     }
     if (mode == kOff || cls == cNone || cls == cThrow) return g;
@@ -898,6 +940,7 @@ bool Begin(const Model& model, const Inputs& in) {
     c.mpb = in.modelPerBlock;
     c.closeUp = in.closeUp;
     c.throwing = in.throwing;
+    c.throwT = in.throwing && ThrowOverarmOn() ? std::floor(in.throwT * 30.0f) / 30.0f : -1.0f;
     c.p = p;
     c.gunValid = false;
     // The pose cache key: this figure (bits 24-62) and what the hook reads.
@@ -907,7 +950,7 @@ bool Begin(const Model& model, const Inputs& in) {
     mix(static_cast<uint32_t>(c.blend * 16.0f)); mix(static_cast<uint32_t>(c.weight * 10.0f));
     mix(static_cast<uint32_t>(static_cast<int>(c.x * 20.0f) + 64)); mix(static_cast<uint32_t>(static_cast<int>(c.side * 4.0f) + 8));
     mix(c.trigger ? 1u : 0u); mix(static_cast<uint32_t>(static_cast<int>(c.reloadT * 30.0f) + 4));
-    mix(c.closeUp ? 1u : 0u); mix(c.throwing ? 1u : 0u);
+    mix(c.closeUp ? 1u : 0u); mix(c.throwing ? 1u : 0u); mix(static_cast<uint32_t>(static_cast<int>(c.throwT * 30.0f) + 2));
     mix(static_cast<uint32_t>(g_pistolStance));   // the test file's A/B switch
     const uint64_t key = (1ull << 63) | ((static_cast<uint64_t>(in.object >> 2) & 0x7FFFFFFFFFull) << 24) | (hsh & 0xFFFFFFu);
     ModelSetPoseHook(&Hook, &g_ctx, key | 1u);
