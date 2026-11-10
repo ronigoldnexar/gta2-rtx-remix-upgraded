@@ -651,6 +651,19 @@ cull of the figures in `dll/src/live_geometry.cpp`. The classic view is untouche
   the solved pose (`view: found again after the classic fallback: cut to ...`). `GTA2DX9_RESPAWN_CUT=0`
   restores the descent. A V into classic clears the flag (a later V is a V move as before).
 - The `cam: pose` line now ends with `roll=<deg>` (the drawn camera roll).
+- **pfl14** (on foot at the wil iron staircase, 159.5,139.5: the boom lunges in and the view looks 50-60 degrees
+  down; the "roll" in the report is that pitch's perspective, `roll=` stays 0 in every run). Not fixed; three causes
+  found in the per-frame log (`GTA2DX9_LOG_CAMERA=2`: `cam: swingv`, `cam: sheet ease test`): (1) the stair's rail
+  sheet 0.2-0.45 from his centre crosses the boom's line as he steps and turns, and every crossing pulls the boom
+  in at kBoomIn (9 blocks/s); (2) the stair's map cells are solid where the drawn stair is air, so the solve reads
+  reach 0 at his feet; (3) the staircase body is a real wall to a large swing, and the 280 deg/s pitch cap cranes
+  -11 -> -60 in five frames. Knobs added, all OFF by default (HEAD behaviour): `GTA2DX9_CAM_SHEET_EASE=1` (a sheet
+  with the lens 0.45+ beyond it pulls in at 2.5 blocks/s), `GTA2DX9_CAM_LEAN_SHEET=2` (skip sheets within 0.45 of
+  him), `GTA2DX9_CAM_FOOT_CELL_MESH=1` (on foot a solid cell is asked of the mesh, as 7B does at the wheel),
+  `GTA2DX9_CAM_FOOT_PITCH_RATE=<deg/s>`. With all four on, 6 of 10 runs had max 2-frame distance change 8-18% and
+  pitch <5 degrees (filer's acceptance), but run cam8_p14H held the lens beyond the rail sheet filming the stair's
+  treads with him hidden for ~10 frames (treads seen from below are no wall to `SegmentHitSolid`), worse than the
+  lunge. A shipping fix needs the stair as a solid volume to the boom (or the treads two-sided in eye_collision).
 - Probes: `gamerun/keys_cam8_bust.sh` (machine gun in the wil crowd, `force_wanted=6` set live, waits for the
   beat's `respawned` line, then walks on) and `gamerun/keys_cam8_resp.sh` (F11 scene warps in third person
   between a far spot and the station door / pole corner: the rig re-arms on a 60-block jump without the

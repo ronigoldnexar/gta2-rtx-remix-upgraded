@@ -1432,6 +1432,11 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
 
 // Every frame's camera yaw against the game's heading, when GTA2DX9_LOG_CAMERA=1
 // is in the environment: for measuring the turn rate from a test session.
+static bool cameraLogVerbose() {   // FIX-CAMERA-8: GTA2DX9_LOG_CAMERA=2 adds per-frame swing/boom lines
+    static int v = -1;
+    if (v < 0) { char buf[8] = {}; v = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", buf, sizeof buf) && atoi(buf) >= 2 ? 1 : 0; }
+    return v != 0;
+}
 static bool cameraLogOn() {
     static int enabled = -1;
     if (enabled < 0) {
@@ -3050,12 +3055,19 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     static int carMeshOn = -1;
     if (carMeshOn < 0) { char b[8] = {}; carMeshOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_MESH", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
     const bool carMesh = inVehicle && carMeshOn && eyecol::Ready();
+    // FIX-CAMERA-8 (pfl14): on foot in third person too, a cell the map calls solid is asked of the mesh. The iron
+    // staircase at the wil plaza (159.5,139.5) has cells solid where the drawn stair is air: the solve's line out of
+    // him read reach 0 there (run cam8_p14q) and the boom was pulled into his head with the mesh clear all the way.
+    // OFF by default (GTA2DX9_CAM_FOOT_CELL_MESH=1 turns it on): not yet shown safe beyond the plaza probe.
+    static int footCellMeshOn = -1;
+    if (footCellMeshOn < 0) { char b[8] = {}; footCellMeshOn = GetEnvironmentVariableA("GTA2DX9_CAM_FOOT_CELL_MESH", b, sizeof b) && atoi(b) == 1 ? 1 : 0; }
+    const bool footCellMesh = !inVehicle && footCellMeshOn && mode == ViewMode::ThirdPerson && eyecol::Ready() && CameraMeshSolveOn();
     auto solidAt = [&](float x, float y, float z) {
         if (!inVehicle && static_cast<int>(std::floor(x)) == ownX && static_cast<int>(std::floor(z)) == ownZ &&
             static_cast<int>(std::floor(y)) == ownY)
             return false;
         if (!q.blocked(q.context, x, y, z)) return false;
-        if (carMesh) {
+        if (carMesh || footCellMesh) {
             const gta2::Vec3 p{x, y, z};
             if (eyecol::Nearest(p, 0.2f) >= 0.2f && !eyecol::InsideSolid(p)) return false;
         }
@@ -3114,12 +3126,21 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // help: run cam7b_p3 punch_1 still slid the lens through the finials for 3 frames with it on).
     struct LeanSkip {
         bool on = false;
-        explicit LeanSkip(bool want) : on(want) { if (on) eyecol::SetNearSoftSkip(0.25f); }
+        explicit LeanSkip(bool want, float r) : on(want) { if (on) eyecol::SetNearSoftSkip(r); }
         ~LeanSkip() { if (on) eyecol::SetNearSoftSkip(0.0f); }
     };
     static int leanSheetOn = -1;
-    if (leanSheetOn < 0) { char b[8] = {}; leanSheetOn = GetEnvironmentVariableA("GTA2DX9_CAM_LEAN_SHEET", b, sizeof b) && atoi(b) == 1 ? 1 : 0; }
-    const LeanSkip leanSkip(meshSolve && leanSheetOn && mode == ViewMode::ThirdPerson);
+    // FIX-CAMERA-8 (pfl14): still OFF by default; GTA2DX9_CAM_LEAN_SHEET=1 is FIX-CAMERA-7's 0.25, =2 skips sheets
+    // within 0.45 of him (the wil iron staircase's rail, 0.2-0.43 from his centre, pulls the boom into his head:
+    // runs cam8_p14a..n); not shipped for the same reason as the sheet ease (cam8_p14H).
+    static float leanSheetR = -1.0f;
+    if (leanSheetOn < 0) {
+        char b[8] = {};
+        const int v = GetEnvironmentVariableA("GTA2DX9_CAM_LEAN_SHEET", b, sizeof b) ? atoi(b) : 0;
+        leanSheetOn = v != 0 ? 1 : 0;
+        leanSheetR = v == 1 ? 0.25f : 0.45f;
+    }
+    const LeanSkip leanSkip(meshSolve && leanSheetOn && mode == ViewMode::ThirdPerson, leanSheetR);
     auto reachTo = [&](const gta2::Vec3& from, const gta2::Vec3& to) {
         constexpr int kSteps = 32;
         float reach = 1.0f;
@@ -3257,6 +3278,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         if (std::fabs(swingAngle_) < 1e-3f) swingAngle_ = 0.0f;
         if (swingAngle_ != 0.0f) desired = turned(swingAngle_);
+        if (cameraLogVerbose())
+            Log("cam: swingv %.1f want %.1f rig %.1f dRig %.1f len0 %.2f reach %.2f%s%s", swingAngle_ / kDegToRad, wantSwing / kDegToRad,
+                rigYaw / kDegToRad, dRig / kDegToRad, len0, reachTo(pivot, desired), held ? " held" : "", waiting ? " waiting" : "");
         if (cameraLogOn() && (swingAngle_ != 0.0f || wantSwing != 0.0f)) {
             static int every = 0;
             if ((++every % 10) == 1) Log("cam: swing %.1f want %.1f deg%s", swingAngle_ / kDegToRad, wantSwing / kDegToRad, waiting ? " (holding: the way round is walled)" : "");
@@ -3572,6 +3596,51 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         const bool pulled = solveLen < rigLen - 0.15f || armLen < (std::min)(solveLen, boom_) - 0.15f;
         boomClear_ = pulled ? 0.0f : boomClear_ + dt;
         const float boomAtStart = boomKnown_ && inVehicle == boomInVehicle_ ? boom_ : -1.0f;   // FIX-CAMERA-6: one rate a frame
+        // FIX-CAMERA-8 (pfl14-third-on-foot-plaza-camera-lunge-and-roll): a see-through sheet he stands against
+        // (the iron staircase's rail at the wil plaza, 0.2-0.45 from his centre) is crossed by the boom's line on
+        // and off as he steps and turns; each crossing pulled the boom in at kBoomIn (9 blocks/s: 2.1 -> 0.06 in 7
+        // frames, run cam8_p14a; 1.15 -> 0.55 in 2 frames on a one-frame crossing, cam8_p14b), it grew back at
+        // kBoomOut after a hold, and the view lunged in and looked down 50-60 degrees over him (the "roll" in the
+        // report is that pitch's perspective: the camera's roll stayed 0). With nothing solid on the shown line
+        // out to the boom's length, and a sheet on it (if any) with the lens at least kLensPast beyond it (the
+        // rail is see-through; runs cam8_p14e/z: sheets 0.95-1.33 from him, the lens 0.5-0.9 past), the boom comes in at
+        // kSheetIn instead: a crossing of a frame or two costs a few centimetres, a lasting one is a glide over
+        // half a second or more while the swing finds the open side. A wall, or a sheet nearer the lens, still
+        // pulls it in at once. OFF by default: GTA2DX9_CAM_SHEET_EASE=1 turns it on. Not shipped: at the iron staircase it
+        // held the lens beyond the stair's rail sheet while the solve wanted 0.3, filming the treads with him hidden
+        // behind them for ~10 frames (run cam8_p14H): the treads seen from below are no wall to SegmentHitSolid.
+        float inRate = kBoomIn;
+        {
+            static int sheetEaseOn = -1;
+            if (sheetEaseOn < 0) { char b[8] = {}; sheetEaseOn = GetEnvironmentVariableA("GTA2DX9_CAM_SHEET_EASE", b, sizeof b) && atoi(b) == 1 ? 1 : 0; }
+            constexpr float kSheetIn = 2.5f, kLensPast = 0.45f;
+            if (sheetEaseOn && meshSolve && s.tpCollide && boomAtStart > 1e-3f) {
+                const gta2::Vec3 tip{shownPivot.x + armDirX_ * boomAtStart, shownPivot.y + armDirY_ * boomAtStart,
+                                     shownPivot.z + armDirZ_ * boomAtStart};
+                float ta = 1.0f, tw = 1.0f;
+                const bool hitAny = eyecol::SegmentHit(shownPivot, tip, &ta);
+                // solid: a wall or a solid cell on the line short of the lens (the lens itself near a surface is
+                // the berth's and the near fade's business, not a reason to cut)
+                const float upTo = (std::max)(0.0f, 1.0f - 0.15f / boomAtStart);
+                const bool meshWall = eyecol::SegmentHitSolid(shownPivot, tip, &tw) && tw < upTo;
+                // The mesh only: the cells' false walls (the iron staircase's cells at wil 159.5,139.5, solid where
+                // the drawn stair is air: run cam8_p14k) vetoed every crossing; on foot the boom is the mesh's.
+                const bool cellWall = false;
+                const bool solid = meshWall;
+                if (cameraLogVerbose() && (solid || hitAny))
+                    Log("cam: sheet ease test: mesh wall %d at %.2f, cell wall %d, sheet %d at %.2f, boom %.2f", meshWall ? 1 : 0,
+                        tw * boomAtStart, cellWall ? 1 : 0, hitAny ? 1 : 0, ta * boomAtStart, boomAtStart);
+                if (!solid && (!hitAny || ta * boomAtStart <= boomAtStart - kLensPast)) {
+                    inRate = kSheetIn;
+                    if (cameraLogVerbose()) Log("cam: sheet ease (%s)", hitAny ? "a sheet by him" : "clear line");
+                } else if (!solid && hitAny) {
+                    // The lens closing on the sheet it is beyond: across it at 12 % of the boom a frame (run cam8_p14C:
+                    // 1.46 -> 0.87 in two frames at kBoomIn), still a move of a few frames, not a cut.
+                    inRate = (std::min)(kBoomIn, (std::max)(kSheetIn, 3.6f * boomAtStart));
+                    if (cameraLogVerbose()) Log("cam: sheet ease (crossing at the lens)");
+                }
+            }
+        }
         if (!boomKnown_ || inVehicle != boomInVehicle_) {
             // Afresh (third person entered, a warp) or the frame he got in or out: from
             // where the eye is, so the hand-over is continuous.
@@ -3580,7 +3649,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             boomInVehicle_ = inVehicle;
             boomClear_ = 0.0f;
         } else if (target < boom_) {
-            boom_ = (std::max)(target, boom_ - kBoomIn * dt);
+            boom_ = (std::max)(target, boom_ - inRate * dt);
         } else if (boomClear_ >= kBoomHold || !pulled) {
             // Lengthening: at once by a hair (the rig breathing with speed), eased and
             // capped for a release after a pull-in.
@@ -3628,7 +3697,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 const float want = (std::max)(0.0f, ta * boom0 - kMeshClear);
                 if (!softPanels) boom_ = (std::min)(boom_, want);
                 else if (want < boom_) {
-                    boom_ = boomAtStart > 0.0f ? (std::min)(boom_, (std::max)(want, boomAtStart - kBoomIn * dt)) : want;
+                    boom_ = boomAtStart > 0.0f ? (std::min)(boom_, (std::max)(want, boomAtStart - inRate * dt)) : want;
                     if (cameraLogOn()) {
                         static int every = 0;
                         if ((++every % 10) == 1) Log("cam: boom eased in at a sheet: len=%.2f sheet at %.2f", boom_, ta * boom0);
@@ -3925,7 +3994,15 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         const float step = (std::min)(dt, 1.0f / 20.0f);
         const bool mouseTurning = look.lastMoved > 0.0 && Now() - look.lastMoved < 0.3;   // a flick is the player's
         if (rateOn && shownPoseKnown_ && deathMix_ < 0.01f && !mouseTurning) {
-            const float maxP = 280.0f * kDegToRad * step, maxY = 300.0f * kDegToRad * step;
+            // FIX-CAMERA-8 (pfl14): GTA2DX9_CAM_FOOT_PITCH_RATE=<deg/s> sets the on-foot pitch cap (default 280, FIX-
+            // CAMERA-6's; 19 degrees every two frames when a wall cuts the boom, runs cam8_p14a/f/q). At 140 the
+            // crane meets pfl14's 10-degree acceptance but his feet stay off the bottom edge longer (cam8_p14G/H).
+            static float footPitchRate = -1.0f;
+            if (footPitchRate < 0.0f) {
+                char b[16] = {};
+                footPitchRate = GetEnvironmentVariableA("GTA2DX9_CAM_FOOT_PITCH_RATE", b, sizeof b) && atof(b) > 1.0 ? static_cast<float>(atof(b)) : 280.0f;
+            }
+            const float maxP = (inVehicle ? 280.0f : footPitchRate) * kDegToRad * step, maxY = 300.0f * kDegToRad * step;
             const float dp = camPitch - shownPitch_, dy = WrapAngle(camYaw - shownYaw_);
             if (std::fabs(dp) > maxP || std::fabs(dy) > maxY) {
                 if (cameraLogOn()) {
