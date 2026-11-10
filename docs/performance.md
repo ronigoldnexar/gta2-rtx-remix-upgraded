@@ -1176,3 +1176,22 @@ Proof that it works: `[devtools] stall_dump_test=1` (off by default) makes a tes
 section for 10 s while the game thread waits for it. The plain run (`fdl1_dumptest`) logged
 `lock on the game thread's stack (word 30) at 759EB364: owner thread 636 (stall-dump test)` and all 15
 threads by name.
+
+Five Remix ste sessions with the dump in place (the filer's command on GPU 6, `fdl1_rx1` .. `fdl1_rx5`,
+build e6d2f29 on c4fc56a): no freeze, no stall dump, 0 FAULT; each ran 430-460 s past the level start
+through the classic, third and first person views and the two warps. The only swallowed faults were
+three in our own `ReadDword` probe at start-up. Nothing here proves the freeze gone: since 9 Nov 14:00
+it hit about 9 of 200 Remix runs whose log was kept (none of about 113 before), so five clean sessions
+are what one would expect either way. The next freeze writes the dump; read it like this:
+- a `futex entry` list and an `ecx ... reads -1` line: the bucket the game thread spins on;
+- a thread whose pc is inside `RtlWaitOnAddress` / `RtlWakeAddress*` (ntdll `+0x33F80`..`+0x34500` on
+  the Wine 10.0 of `gta2-remix-gpu2`) is the holder; its ebp chain names the caller;
+- no thread there and a `guarded fault` in ntdll just before: a guard resumed a thread out of the
+  futex code and left the lock held;
+- neither: the lock word was overwritten (a stray write), look at the `wear`/`own paint`/job threads.
+What the game thread was doing: in our DLL the only path to `RtlWakeAddressAll` is libstdc++'s
+static-local guard (`__cxa_guard_release` -> `__gthr_win32_cond_broadcast` -> `WakeAllConditionVariable`,
+84 guarded statics); the bridge's SRW lock releases are the other way in. The bridge client starts no
+thread of its own (it imports neither `CreateThread` nor `_beginthreadex`).
+Classic unchanged: `tools/vreg/vreg.sh stage` on the same stage (`vreg_fdl1_a`): `spawn_classic` PASS with 0
+changed tiles. The one FAIL (`yakuza1_street`) is the window panes reflecting the sky (3131445), not this change.
