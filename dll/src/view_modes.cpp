@@ -1590,6 +1590,7 @@ float FreeFraction(const ViewQueries& q, const gta2::Vec3& from, const gta2::Vec
     // railing, a fence or a sign (flat panels, see-through for the chase camera, but a
     // beat's shot through one is a shot of the railing).
     bool out = false;
+    float cellFree = 1.0f;
     for (int i = 1; i <= steps; ++i) {
         const float t = static_cast<float>(i) / steps;
         const float x = from.x + (to.x - from.x) * t, y = from.y + (to.y - from.y) * t, z = from.z + (to.z - from.z) * t;
@@ -1597,9 +1598,42 @@ float FreeFraction(const ViewQueries& q, const gta2::Vec3& from, const gta2::Vec
         const bool solid = q.blocked(q.context, x, y, z) ||
                            (out && q.panelDistance && q.panelDistance(q.context, x, y, z, &panel) && panel < 0.04f);
         if (!solid) out = true;
-        else if (out) return static_cast<float>(i - 1) / steps;
+        else if (out) { cellFree = static_cast<float>(i - 1) / steps; break; }
     }
-    return 1.0f;
+    // FIX-CAMERA-9 (pm9-fp-wasted-death-cam / pm10-third-wasted-...-camera-in-truck): the cells do not see the drawn
+    // mesh's partial faces (the iron staircase's rail at the wil spawn yard: the shot framed through its sheet, ~60 %
+    // of the frame dark rail, run fh3_beat1) nor the vehicles (the WASTED shot stood inside a truck parked by the
+    // body). The line also stops at the first surface the mesh draws and at a car body's box, skipping the car the
+    // body lies in (died at the wheel). GTA2DX9_BEAT_CAM_MESH=0 restores the cells only (A/B).
+    static int meshOn = -1;
+    if (meshOn < 0) { char b[8] = {}; meshOn = GetEnvironmentVariableA("GTA2DX9_BEAT_CAM_MESH", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    if (!meshOn) return cellFree;
+    float free = cellFree;
+    if (eyecol::Ready()) {
+        float t = 1.0f;
+        if (eyecol::SegmentHit(from, to, &t)) free = (std::min)(free, (std::max)(0.0f, t - 0.12f / (std::max)(d, 0.12f)));
+    }
+    auto inside = [](const CameraCar& c, float x, float y, float z) {
+        if (y < c.y0 - 0.02f || y > c.y1 + 0.08f) return false;
+        float sgn = 0.0f;
+        for (int k = 0; k < 4; ++k) {
+            const int j = (k + 1) & 3;
+            const float cr = (c.x[j] - c.x[k]) * (z - c.z[k]) - (c.z[j] - c.z[k]) * (x - c.x[k]);
+            if (sgn == 0.0f) sgn = cr >= 0.0f ? 1.0f : -1.0f;
+            else if (cr * sgn < 0.0f) return false;
+        }
+        return true;
+    };
+    for (const CameraCar& c : LiveCameraCars()) {
+        if (inside(c, from.x, from.y, from.z) || inside(c, from.x, c.y0 + 0.05f, from.z)) continue;   // the car he lies in
+        for (int i = 1; i <= steps; ++i) {
+            const float t = static_cast<float>(i) / steps;
+            if (t >= free) break;
+            const float x = from.x + (to.x - from.x) * t, y = from.y + (to.y - from.y) * t, z = from.z + (to.z - from.z) * t;
+            if (inside(c, x, y, z)) { free = (std::max)(0.0f, static_cast<float>(i - 1) / steps - 0.12f / (std::max)(d, 0.12f)); break; }
+        }
+    }
+    return free;
 }
 
 struct Shot { float r0, r1, h0, h1, look, orbitDeg, fovDeg, pushSecs; };
