@@ -705,3 +705,33 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   damage flash and b0's 068 an explosion glare, not from the models). It is for Remix, where the asset's glass is
   what draws: `013_minx_0.tga` and `068_van_0.tga` are re-baked (new hashes; neither had a prim) and still need the
   glass prim.
+
+## VEHICLE-ART-15 (10 Nov 2026)
+
+- **012 Cop Car authored (`tools/vehicle_art2/car_012.py`; prmx 'police car door and flank livery chunky green-white
+  pixel smear').** A plain-GL take first (`out/va15_cop_b0`, parked own car forced to 12, EXIT=1, wil 198.5,188.2) showed
+  the smear is the asset's, not Remix's: the image-to-3D shell's atlas (`012_cop_car_0.tga`) carries a green-grey roof
+  with stair-stepped blue blotches, a mottled bonnet and a white/blue pixel door. 012 is a livery (identity.cpp
+  `Livery`: drawn untinted), so the kit body carries its own colours. Read from the x4 sprite nose down (the kit's
+  convention: 008/036/040/057): a long bonnet with a centre crease (the sprite's split panel) ending in a dark grille
+  notch, a raked screen, a long roof with the light bar, a short boot; white roof and bonnet/boot centres, navy wings,
+  flanks and shoulders (the sprite's navy wing tips), a chrome belt moulding, white door panels on both doors with a
+  gold CITY shield and star on the front door and POLICE on the rear door. The door panel is cut out of the shell and
+  laid back as two pieces (`paint_door_r` / `paint_door_l`) with their own UVs (t by height: the lower side crowds its
+  top 15 cm into v 0.496..0.5), so the lettering reads the right way round from outside on both sides at 600 px/m
+  drawing resolution. Light bar at -0.25 m (DrawBeacons' along -0.05 x length) with the red dome on -x and the blue
+  on +x where the renderer puts its glows (force_sirens=1 frames: each glow over its own dome); grey siren block,
+  driver's A-pillar spotlight, round lamps proud of the nose panel, twin round tail lamps, plate PD 012. Driver seat
+  [0.09, 0.14, 0.04, 0.308]. `car_mesh_orient.py check`: ok (0 inside-out). Before `out/va15_cop_b0`, after
+  `out/va15_cop_a2` (poses side/front34/rear34/eye/far/chase/high + `door` = 2.5 m beside the doors at 0.9 m; set s =
+  force_sirens=1); `out/va15_cop_a1` = the first build (domes on the wrong sides of the glows, the belt moulding a
+  16 cm grey band from the same v crowding).
+  - Beacon note (car_bodies.cpp, not this seat): the sprite has the red dome on the car's left and blue on its right
+    (nose down: blue image-left); DrawBeacons puts red on the other side, and the model follows the glows.
+  - Still short of AAA: a boxy three-box body (reads more 1960s than the catalog's early-1950s Mainline at front34);
+    slab flanks with no wing creases or chrome spear; the grille a flat bar box; no interior radio/shotgun rack.
+  - Remix: all 012 textures are new (no prims): `012_cop_car_paint_body_paint`, `_paint_top_paint`,
+    `_paint_door_r_paint`, `_paint_door_l_paint`, `_paint_wheel_paint`, `_beacon_red`, `_beacon_blue`, `_siren`,
+    `_plate`, `_trim_dark`, `_glass`, `_chrome`, `_chrome_disc`, `_grille`, `_lamp_head`, `_lamp_tail`, `_lamp_amber`,
+    `_seal`, `_seat`, `_interior_dark`, `_tyre_side`, `_tyre_tread`, `_underbody`; the old `012_cop_car_0*..12` are
+    gone (backups `/mnt/gta2/gta2-linux/backup_va15/models_012`).
