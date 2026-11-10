@@ -102,7 +102,8 @@ The host has 8 CPUs and one L4. Load 60+ came from 20 agents each running a game
 (The 9 Nov program host has 96 CPUs and eight L4s: the governor, slots and load limits scale with `nproc`,
 see docs/throughput.md "Governor"; the per-agent rules below still apply, read "8 CPUs" as "the host's CPUs".)
 - Game runs: only through `gamerun/slot.sh` (4 slots at 1.5 CPUs; runq refuses to start a run while the 1-minute
-  load is above 12, while MemAvailable is under 6 GB, or while `/tmp/gta2-load-hold` exists; each game session
+  load is above 1.5 x nproc (12 on 8 CPUs, 144 on the 96-CPU program host, where a load of 30-40 is normal: never skip a
+  run for it), while MemAvailable is under 6 GB, or while `/tmp/gta2-load-hold` exists; each game session
   takes ~2.2 GB RAM, a Remix run ~2 GB, SDXL ~8 GB, TRELLIS ~6 GB on a 31 GB host). One run at a time per agent. Short runs (set the run
   length to what the check needs, never a default 10 minutes).
 - Builds: `flock /tmp/gta2-build.lock nice -n 10 make -j4` (never -j8 while other agents work).
