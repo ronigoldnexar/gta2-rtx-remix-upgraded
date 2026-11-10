@@ -220,7 +220,17 @@ def board_graham(world, s):
         if not (s and s["driving"]): return s
         ok = in_graham()
         if ok is not False: return s
-        M.mark(f"wrong car (model {(M.mission_state() or {}).get('carmodel')}): out, to the GRAHAM")
+        model = (M.mission_state() or {}).get('carmodel')
+        M.mark(f"wrong car (model {model}): out, to the GRAHAM")
+        if os.environ.get("BR_CLEAR_WRONG", "1") == "1" and model not in SP.POLICE_MODELS:
+            # MISSIONS-BATCH2 (mb2_km13: five boardings of the same model-69 car stopped 0.8 off the
+            # GRAHAM's door, at 198.7,180.5): the car he is in is the one in the way; move it 3 blocks
+            # off (away from the GRAHAM, forward or back) before he gets out
+            s2 = D.wait_state(); at = CAR["at"] or BR.CAR0
+            hx, hy = M.heading(s2)
+            key = "Down" if (at[0] - s2["x"]) * hx + (at[1] - s2["y"]) * hy > 0 else "Up"
+            hold(key, 1.4 / max(D.SPEED, 1.0)); time.sleep(0.5)
+            s2 = D.wait_state(); M.mark(f"wrong car moved off ({key}) to {s2['x']:.1f},{s2['y']:.1f}")
         M.leave_car(); time.sleep(0.6); s = to_car(world, check=False)
     return s
 

@@ -986,3 +986,107 @@ Not tested: `chase_path`/`overtake`/`PinGuard` in other districts and jobs (SWAT
 and the other `wanted_evasion` jobs have no live runner on this code); `evade()` with chase_path; LABRAT'S PLAN
 (MISSIONS-BATCH1's loss is the Zaibatsu fight and the game's kill count, not a getaway). Speeds in `follow_path`
 and `launch` are per wall second tuned at `GTA2_SPEED=2`; `chase_path` scales with the speed.
+
+## MISSIONS-BATCH2, 10 Nov 2026 (`mb2_*`): COP CAR CRUSH 2 of 3, BANK ROBBERY 2 of 3, LABRAT'S PLAN to 28 of 47
+
+Took over the four parked notes (SKILL-KILLMARK, SKILL-POLICE, SKILL-ROOFTOP, MISSIONS-BATCH1) after
+MISSION-GETAWAY. Sessions: fresh games, `GTA2_SPEED=2 FPS=0 GTA2_DIRECT_KEYS=1` (km13/km14 at speed 1),
+private stage (`cp -al` of repo/stage, 126258a DLLs), chase view, host load 30-60. Commands as in the
+section above (`-e GTA2DX9_STATE_EVERY=3` for the km runs from km7; LABRAT: `SWAP_LEVEL=ste ... grun.sh
+<name> 3000 missions/keys_labrats_plan.sh -e WARP_OK=0 -e LP_WARP_PHONE=1 -e LP_WARP_VILLAGE=1
+-e LP_WARP_VILLAGE_FIRST=1`). Runner and skill Python only; no renderer file changed.
+
+### COP CAR CRUSH (wil_ze1): met, 2 of 3 consecutive
+
+| session | code | result | where it was won or lost |
+|---|---|---|---|
+| mb2_ccc1 | step answer, chase legs v1 | **complete** (597 game s) | the first chase leg stalled 3 times from the parking spot (-3700); later legs fine |
+| mb2_ccc2 | same | stopped by me after the start | (the v1 start stall again; restarted on v2) |
+| **mb2_ccc3** | + drive3 pull-out | **complete** (461 s) | Shady's leg 184 blocks in 60 game s (-1700), crane leg 245 blocks in 94 s (-1060) |
+| **mb2_ccc4** | same | **complete** (529 s) | |
+| mb2_ccc5 | same | failed (1125) | drive3's last 18 blocks ran Shady over at 97.5,89.5 (Cop Car at 25800) |
+| **mb2_ccc6** | + keep off Shady | **complete** (495 s) | |
+
+- The phone (mg_ccc5 stuck short of it, mg_ccc6 answered WHEELER-DEALING two cells north):
+  `cop_car_crush.step_answer` steps from the launch cell onto the phone with aimed short steps
+  (`P.nudge_to`: no router, no sideways unstick), off east and on again when silent. 6 of 6 answered.
+- The wear (mg_ccc2/ccc4: many 300-600 carhp knocks on 120-160-block drive3 legs): `deliver_intact`
+  `DI_CHASE_LEG=1` (set by `cop_car_crush.py`, off elsewhere) drives a leg over 22 blocks with
+  `shake_police.chase_path` at 2.4 blocks/s after a drive3 pull-out of 8 blocks (chase_path from a
+  standstill stalled at the parking spot), drive3 for the last 18. Pin guard on both. Job time
+  1000+ -> 460-600 game s; the respray before the crane was not needed (the player has $0-30 there).
+- `horn_pickup.pickup` keeps the 3x3 cells round the man off the car router (`DI.AVOID_EXTRA`,
+  re-added after every `CAR_AVOID` reset; `HP_KEEP_OFF_MAN=0` turns it off).
+- 0 `FAULT` in the logs kept (ccc1, ccc4, ccc5, ccc6; ccc3's log was lost when I stopped its container
+  before the copy). JOB COMPLETE frames opened: `out/mb2_ccc3/m_ccc_end.png` (banner, chase view),
+  `out/mb2_ccc4/m_ccc_end.png` (the $20,000 brief).
+
+### BANK ROBBERY (wil_ye2): 2 of 3 consecutive on the final code (km15, km16; km17 lost)
+
+| session | result | where it was won or lost |
+|---|---|---|
+| mb2_km1 | **complete** | |
+| mb2_km2 | stuck: guards | the climb pinned at the girder (chase view), the skill never reached the walk |
+| mb2_km3 | failed | after the guards: boarded a police car beside the GRAHAM, out, arrested |
+| mb2_km4 | failed | launch skipped after 3 wrong-car boardings; drive3 jammed among standing cars at the bank |
+| mb2_km5 | **complete** | |
+| mb2_km6 | stuck: guards | climb missed in both views (cruise_to 0.4 short of the gap point) |
+| mb2_km7 | failed | wrong car twice (models 53, 36), then 1125 |
+| mb2_km8 | **complete** | |
+| mb2_km9 | stuck: guards | the classic retry walked back to the first point and lost the line |
+| mb2_km10 | error | my door_enter bug (NameError), fixed |
+| mb2_km11 | failed | out of the car on the drive to the bank (88,127), never back |
+| mb2_km12 | failed | pulled out at the end of follow_path by the bay (206,215), a police car boarded |
+| mb2_km13 (speed 1) | failed | five boardings of a model-69 car stopped 0.8 off the GRAHAM's door |
+| mb2_km14 (speed 1) | failed | after a launch on foot the walker pinned, mission_lib's own warp, 1125 |
+| **mb2_km15** | **complete** | |
+| **mb2_km16** | **complete** | |
+| mb2_km17 | failed | three wrong-car boardings (36, 63, 63), then arrested |
+
+- **The guard fight** (mg_sp4, mg_sp5, mg_km20 died in it): 13 of 13 fights won since, both guards down
+  in 1-3 s each time the walk was reached. `kill_marked`: retreat and shoot (`backpedal`: Down with the
+  trigger held, aim corrected) at a target within 1.7 (`KM_BACK_R`); the 'no damage' reaction not before
+  7 wall s (`KM_STALL_MIN`; it fired 5 s in under load, the peds line's hp lagging) and, with a target
+  within 4, a step back firing instead of the cruise to a fire spot with his back turned, whose sideways
+  unstick put him on top of the second guard. The stall path itself was not triggered in these sessions.
+- **The climb** fails in the chase view in most sessions (6 of 16 up there: km1, km8, km12, km14-16;
+  GETAWAY had 16 of 19 on the same DLL): the walker stops 0.38 from the girder (193.20,177.50), the renderer-side collider of the
+  open defect `mg-wil-bank-stair-girder-collider-blocks-entry`. `step_to` (aimed short steps through
+  `GAP_PTS`) does not get past it either. The job retries the climb in the classic view (no 3D collider
+  there; marked `climb: ... again in the classic view (renderer-side defect)`), from where he stands; the
+  fight is back in the chase view. Up by that retry in 6 of 9 (km3, km4, km5, km7, km10, km13). FIX-COLLISION-2 had not landed on
+  camera-modes by 02:30 (last `prop_collision.cpp` change 560b3b4): the 19-of-19 recheck is still owed.
+- **What still loses it:** boarding the wrong car at the GRAHAM (km3, km4, km7, km13, km17: a car stopped
+  against its door side or behind it; `door_enter` and moving the wrong car off before getting out reduce
+  but do not end it), police at the door on the bay approach (km12), the drive to the bank (km11).
+  The getaway after a clean boarding was won in every session (launch + follow_path + respray + safehouse).
+- 0 `FAULT` in all kept logs. JOB COMPLETE frames opened: `out/mb2_km1/m_br_end_third.png`,
+  `out/mb2_km16/m_br_end_third.png` (chase view).
+
+### LABRAT'S PLAN (ste_sm1): not complete; furthest 28 of 47 (MISSIONS-BATCH1: 27)
+
+Why the count stopped (MISSIONS-BATCH1's question): the renderer's HUD line carries the job's on-screen
+counter (`hud3d: ... counter=N`, N = 47 - the game's bonus count). Read each round, it rose only with
+`gang/zaibatsu` kills; the `civ/zaibatsu` peds (68 of the 133 'down' lines in mb1_ra*) never count. The
+gang members keep spawning; the count stops because he dies, not because they run out.
+
+| session | counted | ended by |
+|---|---|---|
+| mb2_lp1 | 15 | a Zaibatsu at 0.6 at the start of a round: 90 -> 0 in 6 game s |
+| mb2_lp2 | 13 | two lives in run-over cars shot alight |
+| mb2_lp3 | 18 | the machine gun empty, fought on with the dual pistol at 3 blocks |
+| mb2_lp4 | 20 | walked into three Zaibatsu on the generator pads with 16 rounds, no trigger |
+| mb2_lp5 | - | the phone gave 6146/2460/2793, no job |
+| mb2_lp6 | **28** (brief 2356) | a car shot alight by the pads blew up as he walked back |
+| mb2_lp7 | 6 | the gun pad not reached, shot waiting 5.7 from the pads |
+| mb2_lp8 | 20 (1886 game s) | a burning car near the pads (three step-aways, then the blast) |
+
+Runner changes (`labrats_plan.py`, `gunfight.py`): targets `gang` only (`LP_GANG_ONLY`); gun rounds only
+(`LP_CAR=0`); a station at the Village generators (machine gun 221.5,34.5; health 223.5,34.5 sets health
+to 100: seen 30 -> 100 in mb2_lp3's HUD line) when health < 60 or rounds < 35, hostiles near him or the
+pads fought first with no shots at cars, no walk while a burning car is within 7 of him or the pads;
+the rounds' anchors keep away from the first hitman (214.5,7.5) once 30 are left; gunfight
+`GF_BACK_R=2.2` retreat-and-shoot. Health stays 100 through most rounds now; the deaths are burning
+cars and men at the pads. Next: a blast radius check on the walk paths, not only at the station; the
+flamethrower generator (207.5,24.5, level 3); the hitmen's cars from a distance with the rocket
+launcher if one can be found in the zone. REDNECK ATTACK still waits on it.

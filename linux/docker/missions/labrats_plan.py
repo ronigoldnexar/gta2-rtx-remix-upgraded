@@ -206,6 +206,15 @@ LOW_HEALTH = int(os.environ.get("LP_LOW_HEALTH", "60"))
 LOW_AMMO = int(os.environ.get("LP_LOW_AMMO", "35"))     # mb2_lp4: back with 16 rounds, no answer to the men at the pads
 
 
+STATION_FAILED = [False]     # the last station visit did not fix the need: the rounds' done() checks health only
+
+
+def round_done():
+    ms = M.mission_state() or {}
+    if STATION_FAILED[0]: return ms.get("health", 100) < LOW_HEALTH
+    return need_station(ms)
+
+
 def need_station(ms=None):
     """MISSIONS-BATCH2: mb2_lp3 died with 18 counted fighting on with the dual pistol (the machine gun
     empty) at health 30-10; mb2_lp1 at 90 -> 0 in one round. The round ends and he goes to the
@@ -223,12 +232,13 @@ def station(secs=40):
         # mb2_lp4: three Zaibatsu stood on the pads (221.7-224.1,34.7) when he walked in with 16 rounds
         # and no trigger: 100 -> 0 in 3 s. Any hostile within 8 of the pads is fought first
         s = D.wait_state()
+        # mb2_lp7: shot 100 -> 20 standing 5.7 from the pads, the hostile counted only near the pads
         near = [p for p in M.peds() if M.ped_alive(p) and hostile(p) and p["car"] is None
-                and math.hypot(p["x"] - 222.5, p["y"] - 35.0) < 8.0]
+                and (math.hypot(p["x"] - 222.5, p["y"] - 35.0) < 8.0 or (s and math.hypot(p["x"] - s["x"], p["y"] - s["y"]) < 9.0))]
         if near and (M.gun_ready() or M.select_gun(4)):
             ev(f"station: {len(near)} hostile by the pads; fighting first")
             fight(select=hostile, spare=spare, secs=20, clear=3.0, engage=9.0, close=5.0, far=12.0,
-                  anchor=(222.5, 37.5), leash=3.0, low=50, blast=5.0, close_car=6.0, police="shoot", shot_prefix="gf_lp_pads",
+                  anchor=(222.5, 37.5), leash=3.0, low=50, blast=float(os.environ.get("LP_BLAST", "8.0")), close_car=6.0, police="shoot", shot_prefix="gf_lp_pads",
                   car_targets=False)       # mb2_lp6: shooting a VTYPE by the pads set it alight
 
     def no_fire(limit=35):
@@ -265,7 +275,8 @@ def station(secs=40):
         if ms.get("weapon") == "machine_gun": break
         tap("x", 0.15); time.sleep(0.5)
     ms = check()
-    ev(f"station: done, health {ms.get('health')}, {ms.get('weapon')} ammo {ms.get('ammo')}")
+    STATION_FAILED[0] = need_station(ms)     # mb2_lp7: the gun pad never reached, every round ended at once
+    ev(f"station: done, health {ms.get('health')}, {ms.get('weapon')} ammo {ms.get('ammo')}{' (need not met)' if STATION_FAILED[0] else ''}")
 
 
 def fight(**kw):
@@ -431,7 +442,8 @@ def play():
                 M.cruise_to(gx, VILLAGE_GUN[1], tol=0.2, secs=3); check()
             ms = M.mission_state() or {}
             ev(f"round {k}: refill at the Village generator: {M.gun_ready()} ammo {ms.get('ammo')}")
-        if os.environ.get("LP_STATION", "1") == "1" and not s["driving"] and need_station(ms):
+        if os.environ.get("LP_STATION", "1") == "1" and not s["driving"] and need_station(ms) and \
+                not (STATION_FAILED[0] and ms.get("health", 100) >= LOW_HEALTH and k % 2 == 0):
             station(); ms = check()
         if (ms.get("ammo", 0) > 0 or M.select_gun(4)) and not s["driving"]:
             c = hud_counter()
@@ -439,8 +451,8 @@ def play():
             # machine gun (his car stands while the player is on foot): the anchors beside it are dropped
             pool = ANCHORS_LATE if (c is not None and 0 <= c <= 30) else ANCHORS
             a = pool[k % len(pool)]
-            r = fight(select=hostile, spare=spare, secs=60, done=(need_station if os.environ.get("LP_STATION", "1") == "1" else None), clear=20.0, engage=9.0, close=5.0, far=24.0,
-                      anchor=a, leash=7.0, low=70, blast=5.0, close_car=6.0, police="shoot", shot_prefix=f"gf_lp{k}",
+            r = fight(select=hostile, spare=spare, secs=60, done=(round_done if os.environ.get("LP_STATION", "1") == "1" else None), clear=20.0, engage=9.0, close=5.0, far=24.0,
+                      anchor=a, leash=7.0, low=70, blast=float(os.environ.get("LP_BLAST", "8.0")), close_car=6.0, police="shoot", shot_prefix=f"gf_lp{k}",
                       car_targets=os.environ.get("LP_CAR_TARGETS", "0") == "1")   # mb2_lp6: the VTYPEs shot alight blew up beside him
             st = dict(G.STATS)
             RESULT["rounds"].append(dict(kind="gun", anchor=a, result=r, stats=st))
