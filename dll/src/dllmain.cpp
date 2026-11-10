@@ -338,6 +338,7 @@ void LoadConfig() {
             off ? 0 : GetPrivateProfileIntA("density", "ped_cap", gta2dx9::kDefaultPedCap, ini));
         gta2dx9::SetZoneCarDensity(
             off ? 0 : GetPrivateProfileIntA("density", "zone_car_density", gta2dx9::kDefaultZoneCarDensity, ini));
+        gta2dx9::SetGridHeadroom(GetPrivateProfileIntA("density", "grid_headroom", 1, ini) != 0);   // FIX-PERF-6
     }
 
     // Blood pools under bodies, which GTA2 keeps behind a debug flag.
@@ -396,6 +397,9 @@ void LoadConfig() {
     gta2dx9::CarCoatConfigure(ini);   // FIX-CAR-SHADING-1
     gta2dx9::ModelSetSoftPaintMasks(
         GetPrivateProfileIntA("renderer", "car_paint_soft_mask", 1, ini) != 0);
+    gta2dx9::SetCarCopyIdleSeconds(static_cast<int>(GetPrivateProfileIntA("renderer", "car_copy_idle_seconds", -1, ini)));   // FIX-PERF-6
+    gta2dx9::ModelSetBuffersGpuOnly(   // FIX-PERF-6
+        static_cast<int>(GetPrivateProfileIntA("renderer", "model_buffers_gpu_only", -1, ini)));
     gta2dx9::ModelSetTexturesGpuOnly(   // FIX-PERF-5
         GetPrivateProfileIntA("renderer", "model_textures_gpu_only", 1, ini) != 0);
     gta2dx9::SetCarGlassGloss(

@@ -25,6 +25,9 @@ constexpr int kDefaultPedCap = 80;
 // stopped all traffic on the roads in view. 0 leaves zones alone.
 constexpr int kDefaultZoneCarDensity = 400;
 void SetZoneCarDensity(int density);
+// FIX-PERF-6: watch the game's object-grid node pools (0x5E6684/0x5E6688) and stand the raised budgets
+// down while they run low; [density] grid_headroom (1), GTA2DX9_GRID_HEADROOM.
+void SetGridHeadroom(bool on);
 
 // 0 for any of these turns that part off (the game's own value is kept).
 void SetDensity(int trafficCap, int pedDensityScale, int pedCap);

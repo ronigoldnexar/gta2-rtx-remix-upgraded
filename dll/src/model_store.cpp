@@ -2764,6 +2764,18 @@ struct MeshBuffers {
     bool failed = false;  // creation failed once: draw from memory instead
 };
 std::map<const ModelMesh*, MeshBuffers> g_buffers;
+// FIX-PERF-6: a rigid mesh's buffers live on the GPU only (D3DPOOL_DEFAULT, write-only, filled once):
+// in D3DPOOL_MANAGED wined3d (and the RTX Remix bridge client, and the Windows runtime) keep a CPU copy
+// of every buffer inside the game's 32-bit address space, beside the mesh's own vertices in the store.
+// Same vertices, so the same Remix geometry hashes; the device is never Reset (docs/stability.md).
+// [renderer] model_buffers_gpu_only=0 (or GTA2DX9_BUF_GPU_ONLY=0): MANAGED as before; -1 (default): on only
+// outside Wine. Under Wine 9's wined3d the default-pool static buffers made the command thread slower per draw:
+// third-person frames over 50 ms 23.9 % (perf6_abW1) and 21.3-33.5 % (abX1/abX2, with the eviction) against
+// 3.6-15.4 % managed (abY1/abY2, interleaved, same build). On Windows (the 5090 box, plain or Remix) DEFAULT
+// write-only is D3D9's ordinary static-buffer path; untested there.
+bool g_bufGpuOnly = false;
+size_t g_bufGpuOnlyCount = 0;
+double g_bufGpuOnlyBytes = 0;
 
 bool FillVertices(IDirect3DVertexBuffer9* vb, const ModelVertex* verts, size_t count, DWORD flags = 0) {
     void* data = nullptr;
@@ -2852,7 +2864,7 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
         // get dynamic default-pool buffers written with DISCARD, which do not wait.
         const bool dynamic = !skinned && g_dynamicMeshes.count(&mesh) != 0;
         const DWORD usage = dynamic ? (D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY) : D3DUSAGE_WRITEONLY;
-        const D3DPOOL pool = dynamic ? D3DPOOL_DEFAULT : D3DPOOL_MANAGED;
+        const D3DPOOL pool = (dynamic || g_bufGpuOnly) ? D3DPOOL_DEFAULT : D3DPOOL_MANAGED;
         const DWORD lockFlags = dynamic ? D3DLOCK_DISCARD : 0;
         if (FAILED(device->CreateVertexBuffer(vbytes, usage, 0, pool, &b.vb, nullptr)) ||
             FAILED(device->CreateIndexBuffer(ibytes, usage, D3DFMT_INDEX32, pool, &b.ib,
@@ -2878,6 +2890,7 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
             return nullptr;
         }
         b.pose = pose;
+        if (!dynamic && pool == D3DPOOL_DEFAULT) { ++g_bufGpuOnlyCount; g_bufGpuOnlyBytes += static_cast<double>(vbytes) + ibytes; }
         FrameLogNote(kFcModelBuffers);
     } else if (skinned && b.pose != pose) {
         // The managed buffer keeps the first pose it was given; later poses come
@@ -2890,6 +2903,22 @@ MeshBuffers* BuffersFor(IDirect3DDevice9* device, const ModelMesh& mesh, bool sk
 
 // FIX-PERF-3: the rigid buffers of a model's drawn meshes made now, at most `budget` new ones; *made gets
 // how many were. True when every one exists (or failed for good: drawn from memory then, as ModelDraw does).
+// FIX-PERF-6: gives back the D3D buffers of a model's meshes (an idle derived car copy); BuffersFor makes
+// them again on the next draw. Returns the bytes released.
+double ModelReleaseBuffers(const Model& model) {
+    double bytes = 0.0;
+    for (const ModelMesh& mesh : model.meshes) {
+        auto it = g_buffers.find(&mesh);
+        if (it == g_buffers.end()) continue;
+        D3DVERTEXBUFFER_DESC vd;
+        D3DINDEXBUFFER_DESC id;
+        if (it->second.vb) { if (SUCCEEDED(it->second.vb->GetDesc(&vd))) bytes += vd.Size; it->second.vb->Release(); }
+        if (it->second.ib) { if (SUCCEEDED(it->second.ib->GetDesc(&id))) bytes += id.Size; it->second.ib->Release(); }
+        g_buffers.erase(it);
+    }
+    return bytes;
+}
+
 bool ModelPrepareBuffers(IDirect3DDevice9* device, const Model& model, int budget, int* made) {
     int n = 0;
     bool all = true;
@@ -2984,6 +3013,15 @@ void ResetSoftStages(IDirect3DDevice9* device) {
 }  // namespace
 
 void ModelSetSoftPaintMasks(bool on) { g_softPaintSetting = on; }
+void ModelSetBuffersGpuOnly(int mode) {
+    char buf[8] = {};
+    if (GetEnvironmentVariableA("GTA2DX9_BUF_GPU_ONLY", buf, sizeof buf)) mode = atoi(buf);
+    const HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    const bool wine = ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+    g_bufGpuOnly = mode < 0 ? !wine : mode != 0;
+    Log("models: model_buffers_gpu_only=%d -> %s (%s)", mode, g_bufGpuOnly ? "default pool, no CPU copy" : "managed pool",
+        wine ? "under Wine" : "not under Wine");
+}
 void ModelSetTexturesGpuOnly(bool on) {
     char buf[8] = {};
     if (GetEnvironmentVariableA("GTA2DX9_TEX_GPU_ONLY", buf, sizeof buf)) on = buf[0] != '0';
@@ -4092,6 +4130,7 @@ void ModelStoreMemGauges() {
     double texBytes = 0;
     for (auto& t : g_textures) texBytes += TextureBytes(t.second);
     MemGauge("ms.textures", static_cast<double>(g_textures.size()), texBytes);
+    MemGauge("ms.bufgpuonly", static_cast<double>(g_bufGpuOnlyCount), g_bufGpuOnlyBytes);   // FIX-PERF-6: buffers with no CPU copy
     MemGauge("ms.texgpuonly", static_cast<double>(g_texFile.size()), static_cast<double>(g_texGpuOnlyBytes));   // FIX-PERF-5: of which no CPU copy
     MemGauge("ms.skinbufs", static_cast<double>(g_skinBuffers.size() + g_skinFree.size()));
     MemGauge("ms.playercopies", static_cast<double>(g_playerCopies.size()));

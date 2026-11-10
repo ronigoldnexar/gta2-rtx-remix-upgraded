@@ -127,6 +127,36 @@ constexpr int kCarHeadroomLow = 40;
 constexpr int kCarHeadroomHigh = 60;
 int g_lastFreeCars = -1;
 
+// FIX-PERF-6 (qastress-gta2exe-null-read-0x47352): the game's object grid. Every car, person and object
+// is linked into each map block its bounding box covers, through two node pools built at 0x4471B0:
+// [0x5E6684] Pool<{object, next}, 4096> (8-byte nodes, next at +4) and [0x5E6688] Pool<{byte y, list,
+// next}, 6000> (12-byte nodes, next at +8), each with its free list's head at +0. Neither pop (0x447350,
+// 0x447370: head = head->next) checks for an empty list: gta2.exe+0x47352 reading 00000004 is the
+// 4096-node pool run dry (inserted by 0x4479D0 for each block of 0x447C00's rectangle). The raised
+// budgets put more cars and people into it, so they stand down while either pool runs low, as for the
+// ped and vehicle pools. [density] grid_headroom=0 (or GTA2DX9_GRID_HEADROOM=0) leaves it unwatched.
+constexpr uintptr_t kGridCellPoolPtr = 0x005E6684;
+constexpr uintptr_t kGridColumnPoolPtr = 0x005E6688;
+constexpr int kGridCellNodes = 4096, kGridColumnNodes = 6000;
+constexpr int kGridCellLow = 240, kGridCellHigh = 400;   // idles at 450-700 free (perf6_buf20); at 6 stars it fell 45 below a hold at 160 (perf6_want6: 107)
+constexpr int kGridColumnLow = 400, kGridColumnHigh = 600;   // idles at ~3100 free
+bool g_gridWatch = true;
+int g_lastFreeCells = -1, g_lastFreeColumns = -1, g_minFreeCells = 1 << 30, g_minFreeColumns = 1 << 30;
+
+// Free nodes on a grid pool's list (-1: cannot tell); every node must lie inside the pool's own block.
+int FreeGridNodes(uintptr_t holder, int nodes, size_t stride, size_t next) {
+    uint8_t* pool = *reinterpret_cast<uint8_t**>(holder);
+    if (!game::PlausiblePointer(pool)) return -1;
+    const uint8_t* lo = pool + 4;
+    const uint8_t* hi = lo + static_cast<size_t>(nodes) * stride;
+    int n = 0;
+    for (uint8_t* p = *reinterpret_cast<uint8_t**>(pool); p; ++n) {
+        if (n > nodes || p < lo || p >= hi || (static_cast<size_t>(p - lo) % stride) != 0) return -1;
+        p = *reinterpret_cast<uint8_t**>(p + next);
+    }
+    return n;
+}
+
 int FreeCars() {
     uint8_t* pool = *reinterpret_cast<uint8_t**>(game::kVehiclePoolPtr);
     if (!game::PlausiblePointer(pool)) return -1;
@@ -321,12 +351,13 @@ void Census(bool ground, bool playerValid, float px, float py) {
         zonePed = *reinterpret_cast<const int16_t*>(zone + 0xA);
     }
     Log("density: view=%s level=%d free_peds=%d zone_filled=%d zone_car=%d zone_ped=%d traffic=%d/%d pace=%d/%d block=%d dummies=%d/%d peds_in_window=%d ped_shift=%d free_cars=%d vehicles=%d "
-        "driven=%d driven_within8=%d driven_within16=%d",
+        "driven=%d driven_within8=%d driven_within16=%d grid_free=%d/%d grid_min=%d/%d",
         ground ? "street" : (g_headroomHold ? "held" : "classic"), g_level, g_lastFree, g_zoneWritten ? 1 : 0, zoneCar, zonePed, traffic,
         g_trafficSites[1].patched ? *reinterpret_cast<const uint8_t*>(g_trafficSites[1].at)
                                   : kStockTrafficCap,
         counter, threshold, block, dummies, dummyCap, inWindow, *reinterpret_cast<const uint8_t*>(g_pedShiftSite.at), g_lastFreeCars, live,
-        driven, near8, near16);
+        driven, near8, near16, g_lastFreeCells, g_lastFreeColumns, g_minFreeCells == (1 << 30) ? -1 : g_minFreeCells,
+        g_minFreeColumns == (1 << 30) ? -1 : g_minFreeColumns);
 }
 
 // Frame-time guard. More cars and people cost simulation and, above all, skinned
@@ -423,6 +454,14 @@ int LevelPedCap() {
 
 }  // namespace
 
+void SetGridHeadroom(bool on) {
+    char env[8] = {};
+    if (GetEnvironmentVariableA("GTA2DX9_GRID_HEADROOM", env, sizeof env)) on = env[0] != '0';
+    g_gridWatch = on;
+    Log("density: grid_headroom=%d (object grid node pools watched: the raised budgets stand down under %d/%d free)", on ? 1 : 0,
+        kGridCellLow, kGridColumnLow);
+}
+
 void SetZoneCarDensity(int density) {
     g_zoneCar = density < 0 ? 0 : (density > 1000 ? 1000 : density);
     Log("density: zone_car_density=%d (street views only)", g_zoneCar);
@@ -452,16 +491,29 @@ void DensityUpdate(bool ground, bool playerValid, float px, float py) {
     const int freeCars = FreeCars();
     g_lastFree = freePeds;
     g_lastFreeCars = freeCars;
+    // FIX-PERF-6: the object grid's two node pools (above); unwatched (or unreadable) counts as plenty.
+    int freeCells = -1, freeColumns = -1;
+    if (g_gridWatch) {
+        freeCells = FreeGridNodes(kGridCellPoolPtr, kGridCellNodes, 8, 4);
+        freeColumns = FreeGridNodes(kGridColumnPoolPtr, kGridColumnNodes, 12, 8);
+        if (freeCells >= 0 && freeCells < g_minFreeCells) g_minFreeCells = freeCells;
+        if (freeColumns >= 0 && freeColumns < g_minFreeColumns) g_minFreeColumns = freeColumns;
+    }
+    g_lastFreeCells = freeCells;
+    g_lastFreeColumns = freeColumns;
+    const bool gridLow = (freeCells >= 0 && freeCells < kGridCellLow) || (freeColumns >= 0 && freeColumns < kGridColumnLow);
+    const bool gridHigh = (freeCells < 0 || freeCells > kGridCellHigh) && (freeColumns < 0 || freeColumns > kGridColumnHigh);
     if (freePeds < 0 || freeCars < 0) {
         g_headroomHold = true;   // cannot tell: the game's own budgets
-    } else if (!g_headroomHold && (freePeds < kPedHeadroomLow || freeCars < kCarHeadroomLow)) {
+    } else if (!g_headroomHold && (freePeds < kPedHeadroomLow || freeCars < kCarHeadroomLow || gridLow)) {
         g_headroomHold = true;
-        Log("density: %d of %d people, %d of %d cars free - the game's own budgets until %d and %d are",
-            freePeds, kPedPoolSize, freeCars, kCarPoolSize, kPedHeadroomHigh, kCarHeadroomHigh);
-    } else if (g_headroomHold && freePeds > kPedHeadroomHigh && freeCars > kCarHeadroomHigh) {
+        Log("density: %d of %d people, %d of %d cars, %d of %d grid cells, %d of %d grid columns free - the game's own budgets until %d, %d, %d and %d are",
+            freePeds, kPedPoolSize, freeCars, kCarPoolSize, freeCells, kGridCellNodes, freeColumns, kGridColumnNodes,
+            kPedHeadroomHigh, kCarHeadroomHigh, kGridCellHigh, kGridColumnHigh);
+    } else if (g_headroomHold && freePeds > kPedHeadroomHigh && freeCars > kCarHeadroomHigh && gridHigh) {
         g_headroomHold = false;
-        Log("density: %d of %d people, %d of %d cars free - raised budgets again", freePeds, kPedPoolSize,
-            freeCars, kCarPoolSize);
+        Log("density: %d of %d people, %d of %d cars, %d grid cells, %d grid columns free - raised budgets again", freePeds, kPedPoolSize,
+            freeCars, kCarPoolSize, freeCells, freeColumns);
     }
     FollowFrameRate(ground);
     ground = ground && !g_headroomHold;

@@ -144,6 +144,8 @@ const Model* ModelRegisterDerived(Model&& model, bool dynamicBuffers = false);
 // FIX-PERF-3: the rigid buffers of `model`'s drawn meshes made ahead of its first draw, at most `budget` new
 // ones this call (*made: how many); true when all exist. Spreads a derived copy's buffers over frames.
 bool ModelPrepareBuffers(IDirect3DDevice9* device, const Model& model, int budget, int* made = nullptr);
+// FIX-PERF-6: releases the D3D buffers of `model`'s meshes (made again on its next draw); bytes released.
+double ModelReleaseBuffers(const Model& model);
 // The world matrix of every node in the rest pose.
 void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out);
 // The model for a car sprite number, or null; the pedestrian model, or null.
@@ -174,6 +176,8 @@ void ModelsOwnPaintAhead();
 void ModelSetSoftPaintMasks(bool on);
 // FIX-PERF-5: model textures read from files in D3DPOOL_DEFAULT (no CPU copy in the 32-bit process).
 void ModelSetTexturesGpuOnly(bool on);
+// FIX-PERF-6: rigid model buffers in D3DPOOL_DEFAULT (no CPU copy); [renderer] model_buffers_gpu_only, GTA2DX9_BUF_GPU_ONLY.
+void ModelSetBuffersGpuOnly(int mode);   // -1 auto (on outside Wine), 0 off, 1 on
 // Whether car paint is drawn soft (known once the first car texture has been read).
 bool ModelSoftPaintActive();
 // A model texture's mean luminance and alpha (0..255) around (u, v), from a 64x64

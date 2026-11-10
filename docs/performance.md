@@ -1595,3 +1595,133 @@ and hearts against the older goldens). Post-rebase walk + 3 V moves (out/spr1_e)
 `sprite fates` window unplaced=0 (e.g. `accepted=5480 shadows=4400 | received=5480 model=3239 queued=2241
 (figure=2113)`), `airborne=0 maxgap=0.000`, `raised` 4-7 (max 2.00). Still open: Remix figure holes on the owner's
 box; a car genuinely airborne (a jump, a blast) would now be logged by name, not clamped.
+
+## Car copies evicted, model buffers GPU-only, the object grid watched (10 Nov 2026, FIX-PERF-6)
+
+Same scenario as FIX-PERF-4/5 throughout: the steady third-person soak at Industrial (`keys_qa_stress3_third.sh`,
+`SOAK_SECONDS=1200`, 22 minutes of log), GPU 6 idle at the start of each run, `FPS=0`, frame log on, private
+stages of HEAD 6122943a. `perf6_base20` = HEAD; `perf6_evict20b` = HEAD + the three changes below, both memory switches on
+(buffers GPU-only, copies released after 45 s).
+
+### Model vertex and index buffers: no second copy (`model_buffers_gpu_only`)
+
+A rigid mesh's buffers were `D3DPOOL_MANAGED`: wined3d (and the Remix bridge client, and the Windows runtime) keep
+a CPU copy of every managed buffer inside the 32-bit process, while the store already holds the mesh itself. They
+are now `D3DPOOL_DEFAULT`, write-only, filled once at creation (the device is never Reset). Same vertices, so the
+same Remix geometry hashes. New gauge `ms.bufgpuonly=1498/88.4MB` (the static buffers; the derived car copies were
+already dynamic default-pool buffers). `[renderer] model_buffers_gpu_only` / `GTA2DX9_BUF_GPU_ONLY`: -1 (default) on
+outside Wine and managed under Wine (see the frame-time A/B below), 1 always, 0 never. Private commit at minute 1, where the content seen is still the same: 961 MB (HEAD) -> 887-890 MB.
+
+### Derived car copies give their buffers back when idle (`car_copy_idle_seconds`, the growth order's eviction)
+
+What still grew from minute 10 to 22 on HEAD (`mem: caches`): door splits 38 -> 55 copies (+21.5 MB of mesh),
+wheel splits 43 -> 52 (+10.5 MB), dents +3.5 MB, and their dynamic buffers (`ms.buffers` 182 -> 221 MB). A door
+split is on screen for the second a door swings; most copies sit unused after their car has gone. A copy (dent step,
+door split, wheel split) not shown for 45 s now releases its vertex and index buffers (`ModelReleaseBuffers`); when
+it is wanted again it goes back through `WearMayShow`'s budget (4 meshes a frame) and the car is drawn as before
+meanwhile (previous dent step, shut door, whole wheels), exactly as for a new copy. The meshes stay: the copies are
+pinned by address in the glass, wear and Remix caches. Gauges `cb.evicted=N/MB` (released so far) and
+`cb.reshown=N` (came back). `[renderer] car_copy_idle_seconds` / `GTA2DX9_CAR_COPY_IDLE_S`: -1 (default) 120 s outside
+Wine and off under Wine (A/B below); the soak ran it at 45 s.
+In the soak: 729 releases, 164 MB in all, 513 of them shown again later; `ms.buffers` holds at 115-128 MB.
+
+### The 22-minute table
+
+| minute | 1 | 5 | 10 | 13 | 16 | 19 | 22 |
+|---|---|---|---|---|---|---|---|
+| HEAD (perf6_base20): VmSize | 2 392 | 2 866 | 2 959 | 2 967 | 3 123 | 3 180 | 3 198 |
+| this build (perf6_evict20b): VmSize | 2 447 | 2 692 | 2 765 | 2 774 | 2 793 | 2 794 | 2 816 |
+| HEAD: private commit | 961 | 1 199 | 1 265 | 1 278 | 1 313 | 1 373 | 1 378 |
+| this build: private commit | 887 | 1 057 | 1 125 | 1 144 | 1 163 | 1 163 | 1 178 |
+| HEAD: regions | 894 | 1 022 | 1 049 | 1 064 | 1 085 | 1 112 | 1 120 |
+| this build: regions | 879 | 970 | 988 | 1 003 | 1 013 | 1 013 | 1 027 |
+| HEAD: ms.buffers MB | 92 | 158 | 182 | 184 | 197 | 220 | 221 |
+| this build: ms.buffers MB | 98 | 117 | 119 | 123 | 115 | 125 | 118 |
+
+Minute 10 -> 22: HEAD +239 MB of VmSize (+20 MB/min, in steps as new cars come into view), this build +51 MB
+(+4.3 MB/min; 2 794 MB flat from minute 15 to 20). At minute 22: 382 MB less VmSize, 200 MB less private commit,
+93 fewer regions. What is left of the slope is the derived copies' meshes (`cb.wear` 126 -> 143 MB: bounded by the
+district's car set and the 64 MB wheel/door budgets) and the sprite store's frames (bounded at 8192). 0 FAULT.
+
+### Frames over 50 ms on an idle GPU (14p3): the class is "cars in view", through wined3d's command thread
+
+The rerun the order asked for: `perf6_base20` (HEAD 6122943a, GPU 6 idle at the start, host load 25-60 on 96 CPUs):
+31 435 third-person frames, avg 41.9 ms, p99 89 ms, **19.1 % over 50 ms** (FIX-PERF-4's `fp4_third1` on the older
+HEAD: 4.0 %). An idle GPU does not help: the GPU sits at 0-30 % while the game thread and wined3d's command-stream
+thread are each near a full core (FIX-PERF-4). The slow frames have the same signature as before: the time lands in
+`sky` (23.6 ms against 4.1 in a frame under 40 ms: `BeginFrame`'s Clear is the first call that waits for the command
+thread to drain the previous frame), `cars` (12.2 against 5.6) and `peds` (8.7 against 3.8), whose dynamic-buffer
+locks wait for that thread too.
+
+What the slow frames have more of (slow minus fast, per frame): **car draws +191** (534 against 343, triangles
++237 k) and **shadow-pass draws +239** (1 039 against 800: mostly the same cars' recorded casters replayed into the
+cascades); the world (627 k triangles), props and the rest are the same. Frame time against the cars stage's draws:
+
+| car draws in the frame | 0-99 | 100-199 | 200-299 | 300-399 | 400-499 | 500-599 | 600-699 | 700+ |
+|---|---|---|---|---|---|---|---|---|
+| frames | 3 269 | 2 691 | 3 300 | 4 740 | 6 032 | 5 418 | 2 630 | 3 337 |
+| avg ms | 34.1 | 35.2 | 38.3 | 40.6 | 43.2 | 45.0 | 47.0 | 46.8 |
+| over 50 ms | 1 % | 4 % | 8 % | 16 % | 24 % | 28 % | 31 % | 31 % |
+
+Over all frames, a least-squares fit gives 24.2 ms + 5.8 us per D3D draw (3 007 draws a frame on average): each
+draw costs its command-thread time whatever its triangle count. The median frame has 429 car draws; the cars stage
+draws each car's meshes, wheels, glass and, since FIX-CAR-SHADING-1 (7d80fe74, after FIX-PERF-4's measurement), a
+second clear-coat pass over every body mesh, and the shadow pass replays the cars' meshes into each cascade. **The
+cut that would move the number** is fewer car draws per car: the coat folded into the body's own pass (one draw per
+body mesh instead of two), wheels and hull merged into one buffer per split, and the far cascade's caster replay
+limited to cars near the eye. Each changes how a car is drawn and needs fixed-pose A/B frames (`GTA2DX9_REGRESS_CAM`);
+none is in this pass. The quickest measurement for the coat seat: the same soak with `INI_SED='s/^car_coat=.*/car_coat=0/'`
+interleaved with the default, two pairs (single runs swing 19 % <-> 37 % over 50 ms with host load, see below).
+
+### gta2.exe+0x47352 (00y): the game's object grid, and a guard on the renderer's share of it
+
+`FAULT ... at 00447352 (gta2.exe+0x47352), reading 00000004, eax 0` (QA-STRESS, 6 stars at Industrial) is not a null
+pointer of ours: gta2.exe+0x47350 is a three-instruction free-list pop (`head = head->next`) and eax=0 means the list
+was empty. The pool is `[0x5E6684]` (built at 0x4471B0: 0x8004 bytes = 4 096 nodes of 8 bytes {object, next}); its
+sibling `[0x5E6688]` holds 6 000 nodes of 12 bytes. Together they are the game's object grid: 0x447C00 links an
+object into every map block its bounding rectangle covers (0x447A60 per column, 0x4479D0 per block), from the
+vehicle code and others. Neither pop checks for empty, as with the ped and vehicle pools (memory note
+gta2-pool-exhaustion-faults). The renderer hooks nothing on this path; it does raise what goes into it (density.cpp:
+traffic, dummies, people; at the fault: 106 vehicles, traffic 36/36, plus a 6-star army).
+
+Measured with the new census field `grid_free=<cells>/<columns> grid_min=<lowest seen>`: in ordinary third-person
+play at Industrial the 4 096-node pool idles at **only 450-700 free** (game's own budgets, `perf6_buf20`; raised
+budgets, `perf6_evict20b`: 470-650, lowest 352); the 6 000-node pool at ~3 100. At 6 stars (`perf6_want6`,
+`keys_qa_stress3_wanted.sh`, `force_wanted=6`, 12 minutes, 0 FAULT) it fell to 152 free, the guard held, and the
+lowest seen was **107 of 4 096**. The guard (density.cpp, as for the ped and car pools) stands the raised budgets down
+to the game's own under 240 free cells / 400 free columns and raises them again above 400 / 600 (first set at
+160/320: the pool went 45 below the hold before the despawns caught up). `[density] grid_headroom=1`,
+`GTA2DX9_GRID_HEADROOM=0` for the A/B. The game's own budgets at 6 stars are the game's own risk; the crash was 1
+in 2 runs at the raised budgets.
+
+### What the two memory switches cost in frame time under Wine, and the defaults that follow
+
+Interleaved 7-minute runs of one build (third-person soak, bil, GPU 6), X = both switches on, Y = both off
+(`GTA2DX9_BUF_GPU_ONLY=0 GTA2DX9_CAR_COPY_IDLE_S=0`), W = GPU-only buffers alone, Z = the 45 s eviction alone:
+
+| run | X1 | Y1 | X2 | Y2 | W1 | Z1 |
+|---|---|---|---|---|---|---|
+| third frames over 50 ms | 33.5 % | 15.4 % | 21.3 % | 3.6 % | 23.9 % | 36.2 % |
+| avg ms | 46.2 | 41.2 | 42.1 | 36.0 | 43.9 | 47.3 |
+| median minute, over 50 ms | 36 % | 13 % | 14 % | 3 % | 18 % | 38 % |
+| new vertex buffers a frame | 0.42 | 0.29 | 0.41 | 0.24 | 0.33 | 0.45 |
+| host 1-min load at the end | 33 | 77 | 31 | 41 | 37 | 30 |
+
+The pushed build with its Wine defaults (`perf6_finC`, both off, grid guard at 240/400): 0 FAULT, 20.0 % over 50 ms,
+avg 42.1 ms: HEAD's 19.1 % / 41.9 ms on the same scenario; the same build with the 45 s eviction forced on
+(`perf6_finA`): 24.6 % / 43.6 ms.
+
+Single minutes inside one run swing from 1 % to 96 % over 50 ms on this shared host, so one 7-minute run decides
+nothing; but both Y runs (both off) beat every run with either switch on, the eviction raises buffer creation by
+~60 % (513 of its 729 releases came back within the soak), and the slow frames carry the command-thread signature
+(`sky` 28-31 ms against 17-20 in Y). Under Wine both switches therefore default off: there the process is
+large-address-aware (4 GB) and the ceiling watchdog stands guard. On Windows (the 5090, where gta2.exe without the
+LAA bit has 2 GB and the managed copies are what filled it) both default on, the eviction at 120 s to cut the churn:
+**untested there**. For the 5090 box: the log's `models: model_buffers_gpu_only=-1 -> default pool` and
+`car bodies: car_copy_idle_seconds=-1 -> 120` lines say what was chosen; the `mem: caches` line's `ms.bufgpuonly=`
+and `cb.evicted=` / `cb.reshown=` say what it did; if the frame time drops against the previous build, set both
+keys to 0 in gta2dx9.ini and send the two logs.
+
+What this leaves for the memory order on this host: with the Wine defaults the growth is HEAD's (minute 10 -> 22
++20 MB/min, the derived car copies and their buffers, bounded by the 48/64/64 MB copy budgets and the district's
+car set); with both switches on (Windows defaults) +4.3 MB/min and 382 MB less at minute 22.

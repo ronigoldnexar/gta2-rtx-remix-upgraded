@@ -460,6 +460,8 @@ bool FireEffectsSave();
 // How strongly dents show on a car with hand-made artwork: 0 draws none, 1 is the
 // full change the game's damage art makes, the default is a little under that.
 void SetCarDamage(float strength);
+// FIX-PERF-6: seconds a derived car copy may sit off screen before its buffers go back ([renderer] car_copy_idle_seconds).
+void SetCarCopyIdleSeconds(int seconds);
 
 // One lamp delta of one car sprite, set when a district's style is loaded: its
 // pixels cropped to the rectangle they cover (alpha 0 where the delta paints

@@ -14,6 +14,7 @@
 #include <mutex>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <tuple>
 
 #include "cab_interior.h"
@@ -2496,6 +2497,18 @@ constexpr size_t kDoorSplitBytes = 64u << 20;
 // host (p3_fin4_wil). One new copy a frame goes on screen; the rest wait a frame or two
 // with the previous step or the shut door.
 std::set<const Model*> g_wearShown;
+// FIX-PERF-6 (14p, the growth order's eviction step): a derived copy (dent step, door split, wheel split)
+// that has not been on screen for g_wearIdleFrames gives its vertex and index buffers back (they are
+// rebuilt through WearMayShow's budget when it is wanted again, the car drawn as it was meanwhile:
+// previous dent step, shut door, whole wheels). Door splits show for the second a door swings, so most
+// of them sit idle; the copies are pinned by address in other caches, so the meshes themselves stay.
+// [renderer] car_copy_idle_seconds (-1 auto: 120 outside Wine, 0 under Wine), GTA2DX9_CAR_COPY_IDLE_S.
+std::unordered_map<const Model*, uint32_t> g_wearUsed;   // copy -> the last frame it was shown
+uint32_t g_wearIdleFrames = 0;   // SetCarCopyIdleSeconds
+uint32_t g_wearEvictScan = 0;
+int g_wearEvicted = 0, g_wearReshown = 0;
+double g_wearEvictedBytes = 0.0;
+std::unordered_set<const Model*> g_wearWasEvicted;
 uint32_t g_wearShowFrame = 0;
 int g_wearBuffersLeft = 0;
 // FIX-PERF-3: one copy a frame was not enough: a wheel split is a hull and four wheels of up to 21 meshes
@@ -2503,10 +2516,14 @@ int g_wearBuffersLeft = 0;
 // (demo_rc3t f673-674). A copy (with its siblings) goes on screen once all its buffers exist, made at
 // most kWearBuffersPerFrame meshes a frame; the car is drawn as it was until then.
 constexpr int kWearBuffersPerFrame = 4;
+void WearStamp(const Model* m, uint32_t frame) { if (m) g_wearUsed[m] = frame; }
 bool WearMayShow(const Model* const* copies, size_t n, uint32_t frame) {
     bool shown = true;
     for (size_t i = 0; i < n; ++i) shown = shown && (!copies[i] || g_wearShown.count(copies[i]));
-    if (shown) return true;
+    if (shown) {
+        for (size_t i = 0; i < n; ++i) WearStamp(copies[i], frame);   // FIX-PERF-6
+        return true;
+    }
     if (frame != g_wearShowFrame) { g_wearShowFrame = frame; g_wearBuffersLeft = kWearBuffersPerFrame; }
     if (g_wearBuffersLeft <= 0 || !g_device) return false;
     for (size_t i = 0; i < n; ++i) {
@@ -2516,11 +2533,31 @@ bool WearMayShow(const Model* const* copies, size_t n, uint32_t frame) {
         g_wearBuffersLeft -= made;
         if (!ready) return false;
     }
-    for (size_t i = 0; i < n; ++i) if (copies[i]) g_wearShown.insert(copies[i]);
+    for (size_t i = 0; i < n; ++i) if (copies[i]) {
+        g_wearShown.insert(copies[i]);
+        WearStamp(copies[i], frame);
+        if (g_wearWasEvicted.erase(copies[i])) ++g_wearReshown;
+    }
     return true;
 }
 bool WearMayShow(std::initializer_list<const Model*> copies, uint32_t frame) { return WearMayShow(copies.begin(), copies.size(), frame); }
 uint32_t g_wearFrame = 0;   // the cars stage's frame, for WearMayShow
+
+void WearEvictIdle(uint32_t frame) {
+    if (!g_wearIdleFrames || frame - g_wearEvictScan < 300u) return;
+    g_wearEvictScan = frame;
+    for (auto it = g_wearShown.begin(); it != g_wearShown.end();) {
+        auto u = g_wearUsed.find(*it);
+        const uint32_t last = u == g_wearUsed.end() ? 0u : u->second;
+        if (u == g_wearUsed.end()) { g_wearUsed[*it] = frame; ++it; continue; }   // never stamped: start its clock now
+        if (frame - last < g_wearIdleFrames) { ++it; continue; }
+        g_wearEvictedBytes += ModelReleaseBuffers(**it);
+        ++g_wearEvicted;
+        g_wearWasEvicted.insert(*it);
+        g_wearUsed.erase(u);
+        it = g_wearShown.erase(it);
+    }
+}
 
 size_t ModelBytes(const Model& m) {
     size_t n = sizeof(Model) + m.nodes.size() * sizeof(ModelNode);
@@ -2735,7 +2772,7 @@ const Model* DentedModelFor(const Model& model, int step) {
     if (const Model* m = DentReady(model, step)) return m;
     for (int s = step - 1; s >= 1; --s) {
         auto it = g_dents.find(DentKey{&model, s});
-        if (it != g_dents.end() && g_wearShown.count(it->second)) return it->second;
+        if (it != g_dents.end() && g_wearShown.count(it->second)) { WearStamp(it->second, g_wearFrame); return it->second; }
     }
     return &model;
 }
@@ -4038,6 +4075,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     for (double& v : g_carStats) v = 0.0;
     for (double& v : g_carParts) v = 0.0;
     g_wearFrame = frame;
+    WearEvictIdle(frame);   // FIX-PERF-6
     {
         const double tw = CarNowMs();
         WearCollect();
@@ -5810,12 +5848,28 @@ void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t fr
 void SetCarPaintFloor(float fraction) { g_paintLumFloor = fraction < 0.0f ? 0.0f : (fraction > 0.5f ? 0.5f : fraction) * 255.0f; }
 
 // FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void SetCarCopyIdleSeconds(int seconds) {
+    char env[16] = {};
+    if (GetEnvironmentVariableA("GTA2DX9_CAR_COPY_IDLE_S", env, sizeof env)) seconds = atoi(env);
+    // -1 (default): 120 s outside Wine, off under Wine. At 45 s under Wine 9 the soak gave 729 releases of which 513
+    // came back (buffer creations 0.41-0.45 a frame against 0.24-0.29), and the short interleaved runs leaned worse
+    // (docs/performance.md FIX-PERF-6); the 32-bit address space it saves matters most on Windows (untested there).
+    const HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    const bool wine = ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+    const int s = seconds < 0 ? (wine ? 0 : 120) : seconds;
+    g_wearIdleFrames = s <= 0 ? 0u : static_cast<uint32_t>(s) * 30u;
+    Log("car bodies: car_copy_idle_seconds=%d -> %d (%s; a derived car copy off screen that long gives its buffers back)", seconds, s,
+        wine ? "under Wine" : "not under Wine");
+}
+
 void CarBodiesMemGauges() {
     MemGauge("cb.dents", static_cast<double>(g_dents.size()), static_cast<double>(g_dentBytes));
     MemGauge("cb.doors", static_cast<double>(g_doorSplits.size()), static_cast<double>(g_doorBytes));
     MemGauge("cb.wheels", static_cast<double>(g_wheelSplits.size()), static_cast<double>(g_wheelBytes));
     // FIX-PERF-5: cb.wear is the SUM of the three above (dents + doors + wheels), not a pool of its own; all of
     // them are derived models registered with the model store, so their bytes are also inside ms.models.
+    MemGauge("cb.evicted", static_cast<double>(g_wearEvicted), g_wearEvictedBytes);   // FIX-PERF-6: copies whose buffers went back (total)
+    MemGauge("cb.reshown", static_cast<double>(g_wearReshown), 0.0);                   // ... and came back on screen after it
     MemGauge("cb.wear", static_cast<double>(g_dents.size() + g_doorSplits.size() + g_wheelSplits.size()), static_cast<double>(g_wearBytes));
     MemGauge("cb.cache", static_cast<double>(g_cache.size()));
     MemGauge("cb.hoods", static_cast<double>(g_hoods.size() + g_hoodDashes.size()));
