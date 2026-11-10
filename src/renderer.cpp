@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 
 namespace gta2 {
 namespace {
@@ -636,6 +637,7 @@ void Renderer::ReleaseResources() {
     textures_.clear();
     for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
     photoTextures_.clear();
+    roadTile_.clear();
     tileAnimated_.clear();
     animatedPhotoFrame_.clear();
     for (auto& frame : tileFrames_) {
@@ -784,6 +786,48 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     }
     ReleaseResources();
     batches_ = mesh.batches;
+    // FIX-TRANSITION-ART: the street lights, one group per light: the stacked pole segments at one
+    // spot, and an arm or head whose solid starts within a block of that pole's top.
+    streetPoles_ = mesh.streetPoles;
+    poleGroup_.assign(streetPoles_.size(), -1);
+    poleGroups_.clear();
+    polesOfBatch_.assign(batches_.size(), {});
+    anyPoleFaded_ = false;
+    {
+        std::map<std::pair<int, int>, int> column;
+        for (size_t i = 0; i < streetPoles_.size(); ++i) {
+            const StreetPole& p = streetPoles_[i];
+            if (p.arm) continue;
+            const auto key = std::make_pair(static_cast<int>(std::lround(p.x * 20.0f)), static_cast<int>(std::lround(p.z * 20.0f)));
+            auto it = column.find(key);
+            if (it == column.end()) {
+                it = column.emplace(key, static_cast<int>(poleGroups_.size())).first;
+                poleGroups_.push_back({p.x, p.z, p.lo, p.hi, p.r});
+            }
+            PoleGroup& g = poleGroups_[static_cast<size_t>(it->second)];
+            g.lo = (std::min)(g.lo, p.lo); g.hi = (std::max)(g.hi, p.hi); g.r = (std::max)(g.r, p.r);
+            poleGroup_[i] = it->second;
+        }
+        const size_t poleOnly = poleGroups_.size();
+        for (size_t i = 0; i < streetPoles_.size(); ++i) {
+            const StreetPole& p = streetPoles_[i];
+            if (!p.arm) continue;
+            int best = -1; float bestD = 1e9f;
+            for (size_t k = 0; k < poleOnly; ++k) {
+                const PoleGroup& g = poleGroups_[k];
+                const float d = std::hypot(g.x - p.x, g.z - p.z);
+                if (d < 1.0f + p.r && std::fabs(p.lo - g.hi) < 1.2f && d < bestD) { bestD = d; best = static_cast<int>(k); }
+            }
+            if (best < 0) { best = static_cast<int>(poleGroups_.size()); poleGroups_.push_back({p.x, p.z, p.lo, p.hi, p.r}); }
+            poleGroup_[i] = best;
+        }
+        for (size_t i = 0; i < streetPoles_.size(); ++i)
+            if (streetPoles_[i].batch >= 0 && static_cast<size_t>(streetPoles_[i].batch) < polesOfBatch_.size())
+                polesOfBatch_[static_cast<size_t>(streetPoles_[i].batch)].push_back(static_cast<int>(i));
+        for (auto& list : polesOfBatch_)
+            std::sort(list.begin(), list.end(), [&](int a, int b) { return streetPoles_[static_cast<size_t>(a)].indexStart < streetPoles_[static_cast<size_t>(b)].indexStart; });
+        Trace("street lights: %zu pole segments, arms and classic cards in %zu lights (move-occluder fade, FIX-TRANSITION-ART)", streetPoles_.size(), poleGroups_.size());
+    }
 
     const UINT vertexBytes = static_cast<UINT>(mesh.vertices.size() * sizeof(Vertex));
     if (FAILED(device_->CreateVertexBuffer(vertexBytes, D3DUSAGE_WRITEONLY, kWorldFvf,
@@ -826,6 +870,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     roadTiles_ = 0;
     for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
     photoTextures_.assign(textures_.size(), nullptr);
+    roadTile_.assign(textures_.size(), 0);
     tileAnimated_.assign(textures_.size(), 0);
     animatedPhotoFrame_.assign(textures_.size(), -1);
     tileByContent_.clear();
@@ -1065,7 +1110,13 @@ IDirect3DTexture9* Renderer::LoadPhotoTileTexture(int tile) {
     // The re-authored road markings first (clean paint over the photo asphalt), then the photo set,
     // then (only to carry the tone match) the HD tile itself.
     if (!roadDir_.empty() && ReadDds(roadDir_ + "\\" + TileDdsFileName(tile), &dds)) {
-        if (IDirect3DTexture9* texture = make(&roadTiles_)) return texture;
+        if (IDirect3DTexture9* texture = make(&roadTiles_)) {
+            if (tile >= 0) {
+                if (roadTile_.size() <= static_cast<size_t>(tile)) roadTile_.resize(static_cast<size_t>(tile) + 1, 0);
+                roadTile_[static_cast<size_t>(tile)] = 1;
+            }
+            return texture;
+        }
     }
     if (!photoDir_.empty() && ReadDds(photoDir_ + "\\" + TileDdsFileName(tile), &dds)) {
         if (IDirect3DTexture9* texture = make(&photoTiles_)) return texture;
@@ -1457,6 +1508,90 @@ void Renderer::EndFrame() {
     device_->Present(nullptr, nullptr, nullptr, nullptr);
 }
 
+// FIX-TRANSITION-ART: see Renderer::streetPoles_. The same rule as the street props' move fade
+// (live_geometry.cpp DrawProps): nearer the lens than the hero, and its nearest part wider than 4.5 %
+// of the frame's height (3.5 % to stay faded), or its width times the share of the frame its post runs
+// across over 0.003 (0.0022 to stay faded): a mast from the top edge down to the median, 1 % wide across
+// half the frame, or 2 % across a fifth of it. Either only if its post enters the middle of the frame.
+void Renderer::UpdatePoleFades(const Camera& camera) {
+    static int s_on = -1;
+    if (s_on < 0) { const char* e = getenv("GTA2DX9_MOVE_POLE_FADE"); s_on = (e && e[0] == '0') ? 0 : 1;
+                    Trace("street lights: move-occluder fade %s (GTA2DX9_MOVE_POLE_FADE)", s_on ? "on" : "off"); }
+    if (!s_on || poleGroups_.empty()) return;
+    if (!moveOccMoving_ && !anyPoleFaded_) return;
+    const float aspect = static_cast<float>(width_) / static_cast<float>((std::max)(1, height_));
+    const Mat4 view = camera.ViewMatrix(), proj = camera.ProjectionMatrix(aspect);
+    float vp[4][4];
+    for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
+        float acc = 0.0f;
+        for (int k = 0; k < 4; ++k) acc += view.m[r][k] * proj.m[k][c];
+        vp[r][c] = acc;
+    }
+    const Vec3 eye = camera.Position();
+    const float vd[3] = {view.m[0][2], view.m[1][2], view.m[2][2]};
+    const float proj22 = std::fabs(proj.m[1][1]);
+    const float heroDepth = (moveOccHero_.x - eye.x) * vd[0] + (moveOccHero_.y + 0.3f - eye.y) * vd[1] + (moveOccHero_.z - eye.z) * vd[2];
+    auto span = [&](float x, float y0, float y1, float z, float bx = 1.0f, float by = 1.0f) -> float {
+        float c[2][4];
+        for (int e = 0; e < 2; ++e) {
+            const float y = e ? y1 : y0;
+            for (int k = 0; k < 4; ++k) c[e][k] = x * vp[0][k] + y * vp[1][k] + z * vp[2][k] + vp[3][k];
+        }
+        constexpr float kW = 0.05f;
+        if (c[0][3] < kW && c[1][3] < kW) return 0.0f;
+        for (int e = 0; e < 2; ++e) {
+            if (c[e][3] >= kW) continue;
+            const float t = (kW - c[e][3]) / (c[1 - e][3] - c[e][3]);
+            for (int k = 0; k < 4; ++k) c[e][k] += (c[1 - e][k] - c[e][k]) * t;
+        }
+        const float ax = c[0][0] / c[0][3], ay = c[0][1] / c[0][3], qx = c[1][0] / c[1][3], qy = c[1][1] / c[1][3];
+        float t0 = 0.0f, t1 = 1.0f;
+        const float dx = qx - ax, dy = qy - ay;
+        const float pq[4][2] = {{-dx, ax + bx}, {dx, bx - ax}, {-dy, ay + by}, {dy, by - ay}};
+        for (const auto& e : pq) {
+            if (std::fabs(e[0]) < 1e-6f) { if (e[1] < 0.0f) return 0.0f; continue; }
+            const float r = e[1] / e[0];
+            if (e[0] < 0.0f) t0 = (std::max)(t0, r); else t1 = (std::min)(t1, r);
+            if (t0 > t1) return 0.0f;
+        }
+        return (std::max)(1e-4f, 0.5f * (std::max)(std::fabs(dx), std::fabs(dy)) * (t1 - t0));
+    };
+    bool any = false;
+    for (PoleGroup& g : poleGroups_) {
+        bool occ = false;
+        const bool held = g.alpha < 0.98f;
+        if (moveOccMoving_) {
+            const float ex = g.x - eye.x, ez = g.z - eye.z;
+            if (ex * ex + ez * ez < 100.0f) {
+                const float cy = (std::min)(g.hi, (std::max)(g.lo, eye.y));
+                const float dy = cy - eye.y;
+                const float depth = ex * vd[0] + dy * vd[1] + ez * vd[2];
+                if (depth < heroDepth && depth > -0.5f) {
+                    const float r = (std::max)(g.r, 0.03f);
+                    const float dn = (std::max)(0.02f, std::sqrt(ex * ex + dy * dy + ez * ez) - r);
+                    const float width = r * proj22 / dn;
+                    float sp = 0.0f;
+                    // Only what crosses the middle of the frame (x 20-80 %, y 10-90 %), where the move
+                    // looks; a light at the frame's edge is scenery passing by, unless it alone covers
+                    // more than 15 % of the frame's height.
+                    const bool central = width > 0.15f || span(g.x, g.lo, g.hi, g.z, 0.6f, 0.8f) > 0.0f;
+                    occ = central && width > (held ? 0.035f : 0.045f);
+                    if (central && !occ && width > 0.004f) { sp = span(g.x, g.lo, g.hi, g.z); occ = width * sp > (held ? 0.0022f : 0.003f); }
+                    if (occ && !held && poleFadeLogs_ < 200) {
+                        ++poleFadeLogs_;
+                        Trace("street lights: move occluder at %.2f,%.2f (%.2f..%.2f) faded (nearest %.2f from the lens, %.1f%% of the frame's height wide, across %.0f%% of the frame, hero %.2f ahead)",
+                              g.x, 256.0f - g.z, g.lo, g.hi, dn, 100.0f * width, 100.0f * sp, heroDepth);
+                    }
+                }
+            }
+        }
+        const float target = occ ? 0.0f : 1.0f;
+        g.alpha = target > g.alpha ? (std::min)(target, g.alpha + 0.17f) : (std::max)(target, g.alpha - 0.17f);
+        if (g.alpha < 0.999f) any = true;
+    }
+    anyPoleFaded_ = any;
+}
+
 void Renderer::DrawWorld(const Camera& camera) {
     // Nothing to draw until the game has a world loaded; the frame is still
     // cleared and presented so menus have something to sit on.
@@ -1534,6 +1669,12 @@ void Renderer::DrawWorld(const Camera& camera) {
     // one switch to the shaders and back per frame instead of one per water tile.
     const bool waterShaderOn = (shading_.sun || shading_.fog) && WaterShaderEnabled() && water_.Ready();
     waterDeferred_.clear();
+    // Both presentations while the camera moves (the classic one draws the lights' flat cards, the
+    // street one their round poles); a settled classic view never: everything is back at once there.
+    if (!remixDevice_ && (streetView_ || moveOccMoving_)) UpdatePoleFades(camera);
+    else if (anyPoleFaded_) { for (PoleGroup& g : poleGroups_) g.alpha = 1.0f; anyPoleFaded_ = false; }
+    struct FadedRange { const TileBatch* batch; uint32_t start, count; float alpha; };
+    std::vector<FadedRange> fadedPoles;
     for (const TileBatch& batch : batches_) {
         // The street views' fill (world_mesh.h, TileBatch::streetOnly): never in the
         // classic view, which keeps exactly the draws it had before the fill existed.
@@ -1652,7 +1793,7 @@ void Renderer::DrawWorld(const Camera& camera) {
         // settled view draws anything differently; not on water or lit-window tiles, which
         // use the extra stages themselves and take the set BoundTileTexture picks.
         IDirect3DTexture9* const photoBlend =
-            (photoMix_ > 0.0f && photoMix_ < 1.0f && !water && !glow) ? PhotoTileTexture(batch.tile) : nullptr;
+            (TileMix(batch.tile) > 0.0f && TileMix(batch.tile) < 1.0f && !water && !glow) ? PhotoTileTexture(batch.tile) : nullptr;
         if (photoBlend) {
             device_->SetTexture(0, textures_[batch.tile]);
             device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
@@ -1671,7 +1812,7 @@ void Renderer::DrawWorld(const Camera& camera) {
                 DWORD v = 0;
                 if (SUCCEEDED(device_->GetSamplerState(0, k, &v))) device_->SetSamplerState(1, k, v);
             }
-            const int a = static_cast<int>(photoMix_ * 255.0f + 0.5f);
+            const int a = static_cast<int>(TileMix(batch.tile) * 255.0f + 0.5f);
             device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_RGBA(255, 255, 255, a));
             if (shading_.sun) {
                 device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_MODULATE);
@@ -1688,7 +1829,23 @@ void Renderer::DrawWorld(const Camera& camera) {
         const bool streetRange = streetView_ && batch.streetIndices;
         const uint32_t first = streetRange ? batch.streetIndexStart : batch.indexStart;
         const uint32_t count = streetRange ? batch.streetIndexCount : batch.indexCount;
-        if (count >= 3)
+        const size_t batchIndex = static_cast<size_t>(&batch - batches_.data());
+        if (anyPoleFaded_ && batchIndex < polesOfBatch_.size() && !polesOfBatch_[batchIndex].empty()) {
+            // FIX-TRANSITION-ART: around the street lights that are fading or gone (UpdatePoleFades).
+            uint32_t at = first;
+            const uint32_t end = first + count;
+            for (int pi : polesOfBatch_[batchIndex]) {
+                const StreetPole& pole = streetPoles_[static_cast<size_t>(pi)];
+                const float a = poleGroups_[static_cast<size_t>(poleGroup_[static_cast<size_t>(pi)])].alpha;
+                if (a >= 0.999f || pole.indexStart < at || pole.indexStart + pole.indexCount > end) continue;
+                if (pole.indexStart > at)
+                    device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount, at, (pole.indexStart - at) / 3);
+                if (a > 0.02f) fadedPoles.push_back({&batch, pole.indexStart, pole.indexCount, a});
+                at = pole.indexStart + pole.indexCount;
+            }
+            if (end > at + 2)
+                device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount, at, (end - at) / 3);
+        } else if (count >= 3)
             device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
                                           first, count / 3);
         if (photoBlend) {
@@ -1726,6 +1883,36 @@ void Renderer::DrawWorld(const Camera& camera) {
         stats_.triangles += static_cast<int>(batch.indexCount / 3);
     }
     if (doubleSided) device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
+    if (!fadedPoles.empty()) {
+        // The fading street lights, blended over what is behind them (texture x the factor's alpha),
+        // without depth writes, last of the opaque world.
+        DWORD alphaOp = D3DTOP_SELECTARG1, alphaArg1 = D3DTA_TEXTURE, alphaArg2 = D3DTA_CURRENT, factor = 0xFFFFFFFF;
+        device_->GetTextureStageState(0, D3DTSS_ALPHAOP, &alphaOp);
+        device_->GetTextureStageState(0, D3DTSS_ALPHAARG1, &alphaArg1);
+        device_->GetTextureStageState(0, D3DTSS_ALPHAARG2, &alphaArg2);
+        device_->GetRenderState(D3DRS_TEXTUREFACTOR, &factor);
+        device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        device_->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+        device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        for (const FadedRange& f : fadedPoles) {
+            const DWORD a = static_cast<DWORD>((std::min)(1.0f, f.alpha) * 255.0f + 0.5f);
+            device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(a, 255, 255, 255));
+            device_->SetTexture(0, BoundTileTexture(f.batch->tile));
+            device_->SetRenderState(D3DRS_CULLMODE, f.batch->doubleSided ? D3DCULL_NONE : cullMode_);
+            device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, f.batch->vertexStart, f.batch->vertexCount, f.start, f.count / 3);
+        }
+        device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAOP, alphaOp);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, alphaArg1);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, alphaArg2);
+        device_->SetRenderState(D3DRS_TEXTUREFACTOR, factor);
+        device_->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+        device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    }
     if (!waterDeferred_.empty()) {
         device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
         device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
@@ -1796,6 +1983,7 @@ bool Renderer::BeginGhostFrame() {
     ghostShading_ = shading_;
     ghostStreet_ = streetView_;
     ghostPhotoMix_ = photoMix_;
+    ghostRoadMix_ = roadMix_;
     return true;
 }
 
@@ -1803,6 +1991,7 @@ void Renderer::EndGhostFrame() {
     if (!ghostState_) return;
     streetView_ = ghostStreet_;
     photoMix_ = ghostPhotoMix_;
+    roadMix_ = ghostRoadMix_;
     shading_ = ghostShading_;
     device_->SetRenderTarget(0, ghostSavedRt_);
     device_->SetDepthStencilSurface(ghostSavedDepth_);

@@ -134,9 +134,14 @@ public:
     // the two, DrawWorld cross-fades a tile's two textures on the same triangles
     // (FIX-SMOOTH-SWITCH, the camera move between the views). The settled classic view
     // is (false, 0): exactly the draws it had before.
-    void SetStreetView(bool on, float photoMix) {
+    // roadMix (FIX-TRANSITION-ART): the same for the tiles whose street copy is a re-authored
+    // road-marking tile (gta2dx9_textures_hd/roads): their plain HD art is the noisy upscale
+    // (zebra stripes as black-and-white worms), so the caller brings the clean paint in on a
+    // ramp near the classic end of the move rather than the middle. Negative: as photoMix.
+    void SetStreetView(bool on, float photoMix, float roadMix = -1.0f) {
         streetView_ = on;
         photoMix_ = photoMix < 0.0f ? 0.0f : (photoMix > 1.0f ? 1.0f : photoMix);
+        roadMix_ = roadMix < 0.0f ? photoMix_ : (roadMix > 1.0f ? 1.0f : roadMix);
     }
     // The clock the street-level water effect scrolls by (seconds); any
     // monotonic clock, the sky's is used.
@@ -232,6 +237,7 @@ private:
     WorldShading ghostShading_;
     bool ghostStreet_ = false;
     float ghostPhotoMix_ = 0.0f;   // FIX-SMOOTH-SWITCH: the material mix, restored with streetView_
+    float ghostRoadMix_ = 0.0f;
     void ApplyFixedFunctionState();
     void ReleaseResources();
 
@@ -275,7 +281,32 @@ private:
     std::vector<uint8_t> tileAnimated_;
     std::vector<int> animatedPhotoFrame_;
     bool streetView_ = false;
+    // FIX-TRANSITION-ART (pmab5-bil lamp masts): the map's street-light poles and arms (world_mesh.h
+    // StreetPole), grouped per street light (the stacked segments of one pole and its arm), with each
+    // group's alpha. While the camera moves between the views (SetMoveOccluders) a light standing
+    // nearer the lens than the hero whose post would be drawn wide, or across a large part of the
+    // frame, fades out (about six frames) and back once it no longer would or the move has ended;
+    // DrawWorld draws those batches around it and the fading ones blended after the rest.
+    // GTA2DX9_MOVE_POLE_FADE=0: off. Never on a Remix device (its draws are hashed by their ranges).
+    std::vector<StreetPole> streetPoles_;
+    std::vector<int> poleGroup_;                 // per pole: its street light
+    struct PoleGroup { float x, z, lo, hi, r; float alpha = 1.0f; };
+    std::vector<PoleGroup> poleGroups_;
+    std::vector<std::vector<int>> polesOfBatch_; // per batch: its poles, by index start
+    bool moveOccMoving_ = false;
+    Vec3 moveOccHero_{0.0f, 0.0f, 0.0f};
+    bool anyPoleFaded_ = false;
+    int poleFadeLogs_ = 0;
+    void UpdatePoleFades(const Camera& camera);
+public:
+    void SetMoveOccluders(bool moving, const Vec3& hero) { moveOccMoving_ = moving; moveOccHero_ = hero; }
+private:
     float photoMix_ = 0.0f;
+    float roadMix_ = 0.0f;              // see SetStreetView
+    std::vector<uint8_t> roadTile_;     // per tile: 1 when its street copy came from the roads set
+    float TileMix(int tile) const {
+        return (tile >= 0 && tile < static_cast<int>(roadTile_.size()) && roadTile_[static_cast<size_t>(tile)]) ? roadMix_ : photoMix_;
+    }
     IDirect3DTexture9* LoadPhotoTileTexture(int tile);
     IDirect3DTexture9* PhotoTileTexture(int tile) const {
         if (tile < 0 || tile >= static_cast<int>(photoTextures_.size())) return nullptr;
@@ -288,7 +319,7 @@ private:
     // The one texture a tile is drawn with where no cross-fade is done: the photo set
     // from half way through the material's change-over.
     IDirect3DTexture9* BoundTileTexture(int tile) const {
-        if (photoMix_ >= 0.5f)
+        if (TileMix(tile) >= 0.5f)
             if (IDirect3DTexture9* photo = PhotoTileTexture(tile)) return photo;
         return textures_[tile];
     }

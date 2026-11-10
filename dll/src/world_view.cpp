@@ -120,6 +120,16 @@ bool g_viewActive = false;
 // FIX-SMOOTH-SWITCH: the presentation, set by WorldView::ApplyTransition (see StreetPresentation).
 bool g_presentStreet = false;
 float g_presentMix = 0.0f;
+// FIX-TRANSITION-ART: the camera's progress s last applied (0 classic .. 1 street), and the s a
+// move started from. A V pressed while a move is still under way starts the next move from the
+// pose last shown: the presentation now carries on from the s it had there instead of starting
+// again from the end the old move set out from (it flipped the whole picture in one frame: the
+// game's sprites, HUD and plain tiles over a tilted camera, or the figures and props snapped in
+// at material mix 1.000 with the camera still high; pmab5 rapid V). GTA2DX9_MOVE_S_CARRY=0: A/B.
+float g_presentS = 0.0f;
+float g_moveS0 = 0.0f;
+// The re-authored road-marking tiles' own material mix (Renderer::SetStreetView roadMix).
+float g_presentRoadMix = 0.0f;
 float g_presentExtras = 0.0f;
 bool g_viewMoving = false;
 // FIX-SEAT-ENTRY-2: the seat's eye while the camera moves into the driver's seat (SeatMoveEye).
@@ -2414,7 +2424,7 @@ void WorldView::UpdateCamera() {
     }
     if (visibleTiles_ <= 0.01f) {
         // No game camera to frame (between levels): the classic presentation, as before.
-        g_presentStreet = false; g_presentMix = 0.0f; g_presentExtras = 0.0f;
+        g_presentStreet = false; g_presentMix = 0.0f; g_presentExtras = 0.0f; g_presentRoadMix = 0.0f; g_presentS = 0.0f;
         ApplyPresentation(ViewMode::Classic);
         return;
     }
@@ -2647,6 +2657,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         if (lastPoseValid_ && vm.transitionSeconds > 0.01f) {
             transitionFrom_ = lastPose_;
             transitionT_ = 0.0f;
+            g_moveS0 = g_presentS;
             transitionLift_ = 0.0f;
             transitionToClassic_ = mode == ViewMode::Classic;
             transitionFromClassic_ = lastViewMode_ == ViewMode::Classic;
@@ -3001,7 +3012,8 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         }
         shown.roll = from.roll + (target.roll - from.roll) * e;
         shown.fov = from.fov + (target.fov - from.fov) * e;
-        // The sky comes up as the eye comes down, and goes as it rises.
+        // The sky comes up as the eye comes down, and goes as it rises (from where an
+        // interrupted move left it, FIX-TRANSITION-ART: below, with the presentation).
         if (transitionToClassic_) skyBlend_ = 1.0f - e;
         else if (transitionFromClassic_) skyBlend_ = e;
         if (arriveNow) {
@@ -3040,18 +3052,45 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     // the same geometry over s 0.3..0.7, and the contact shadows come in after the
     // change-over. A move between two street views (third <-> first) is street throughout.
     {
-        float s = mode == ViewMode::Classic ? 0.0f : 1.0f;
-        if (transitionT_ < 1.0f && (transitionFromClassic_ || transitionToClassic_)) {
+        static int sCarry = -1;
+        if (sCarry < 0) {
+            char b[8] = {};
+            sCarry = GetEnvironmentVariableA("GTA2DX9_MOVE_S_CARRY", b, sizeof b) && b[0] == '0' ? 0 : 1;
+            Log("view: interrupted moves carry the presentation on from where they were %s (FIX-TRANSITION-ART; GTA2DX9_MOVE_S_CARRY)",
+                sCarry ? "on" : "off");
+        }
+        const float sEnd = mode == ViewMode::Classic ? 0.0f : 1.0f;
+        float s = sEnd;
+        if (transitionT_ < 1.0f) {
             const float t = transitionT_;
             const float e = t * t * (3.0f - 2.0f * t);
-            s = transitionToClassic_ ? 1.0f - e : e;
+            if (sCarry) {
+                // From the s the move started at (1 for a move between the two street views, 0 or 1
+                // for one from a settled view: the same as before) to the destination's.
+                s = g_moveS0 + (sEnd - g_moveS0) * e;
+                if (transitionFromClassic_ || transitionToClassic_ || g_moveS0 < 1.0f) skyBlend_ = s;
+            } else if (transitionFromClassic_ || transitionToClassic_) {
+                s = transitionToClassic_ ? 1.0f - e : e;
+            }
         }
+        g_presentS = s;
         const auto ramp = [](float a, float b, float x) {
             const float u = (std::min)(1.0f, (std::max)(0.0f, (x - a) / (b - a)));
             return u * u * (3.0f - 2.0f * u);
         };
         g_presentStreet = s >= 0.5f;
         g_presentMix = ramp(0.3f, 0.7f, s);
+        // FIX-TRANSITION-ART (pmab5 wil zebra noise): the road-marking tiles with a re-authored
+        // street copy change over near the classic end of the move, where the camera is nearly
+        // overhead and its height is close to the classic one, so the plain HD art's worm-noise
+        // stripes are never seen magnified on a tilted, lowered camera. The settled ends are
+        // unchanged (s 0: 0, s 1: 1). GTA2DX9_ROAD_MIX_EARLY=0: the ground's ramp (A/B).
+        static int roadEarly = -1;
+        if (roadEarly < 0) {
+            char b[8] = {};
+            roadEarly = GetEnvironmentVariableA("GTA2DX9_ROAD_MIX_EARLY", b, sizeof b) && b[0] == '0' ? 0 : 1;
+        }
+        g_presentRoadMix = roadEarly ? ramp(0.0f, 0.2f, s) : g_presentMix;
         g_presentExtras = g_presentStreet ? ramp(0.5f, 0.85f, s) : 0.0f;
         g_viewMoving = transitionT_ < 1.0f;
     }
@@ -3081,7 +3120,14 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             const float up = -dx * sy * sp + dy * cp - dz * cy * sp;
             const float th = std::tan(0.5f * camera_.FovY());
             const float screenY = fwd > 1e-3f ? 0.5f - 0.5f * (up / fwd) / (th > 1e-3f ? th : 1e-3f) : 2.0f;   // 0 top .. 1 bottom
-            nearHead = transitionT_ >= 0.05f && screenY > 1.0f;
+            // FIX-TRANSITION-ART: only while the eye is close to him (FIX-FIGURE-10's case, the eye ~0.9
+            // behind his head). From a high eye (a V pressed again while the camera was still up over the
+            // street) his feet under the frame's edge only mean the camera looks past him: the first-
+            // person hands were drawn over a frame seen from 3-4 blocks up. GTA2DX9_MOVE_FP_HIDE_REACH
+            // (blocks, 1.6; 0 = no limit, as before).
+            static float hideReach = -1.0f;
+            if (hideReach < 0.0f) { char b[16] = {}; hideReach = GetEnvironmentVariableA("GTA2DX9_MOVE_FP_HIDE_REACH", b, sizeof b) ? static_cast<float>(atof(b)) : 1.6f; }
+            nearHead = transitionT_ >= 0.05f && screenY > 1.0f && (hideReach <= 0.0f || d < hideReach);
             static int nearLogs = 0;
             if (nearHead && nearLogs < 20) { ++nearLogs; Log("view: move into first person: his feet at %.2f of the frame height (eye %.2f from them) at t=%.2f, his figure left out", screenY, d, transitionT_); }
         }
@@ -3544,7 +3590,11 @@ void WorldView::RenderFrame() {
                     frameCount_, skyBlend_, g_presentMix);
                 lastStreet = street ? 1 : 0;
             }
-            renderer_.SetStreetView(street, worldUploaded_ ? g_presentMix : 0.0f);
+            renderer_.SetStreetView(street, worldUploaded_ ? g_presentMix : 0.0f, worldUploaded_ ? g_presentRoadMix : 0.0f);
+            // FIX-TRANSITION-ART: the map's street lights near the lens fade while the camera moves.
+            const PlayerState& hero = g_viewPlayer;
+            renderer_.SetMoveOccluders(worldUploaded_ && g_viewMoving && hero.valid,
+                                       gta2::Vec3{hero.x, hero.z, static_cast<float>(gta2::kMapHeight) - hero.y});
         }
         renderer_.DrawWorld(camera_);
         // FIX-OCCLUSION: should the eye still be in a block, the block is closed round it

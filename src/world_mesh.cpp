@@ -408,6 +408,26 @@ public:
                                              static_cast<int>(std::lround(y * 10.0f)))).second;
     }
     std::set<std::tuple<int, int, int>> poles_;
+    // FIX-TRANSITION-ART: the street-group quads of each pole / lamp arm (WorldMesh::streetPoles).
+    struct PoleRec { int slot; uint32_t v0, v1; float x, z, lo, hi, r; bool arm; };
+    std::vector<PoleRec> poleRecs_;
+    uint32_t StreetVertexCount(int slot) const {
+        return slot >= 0 && static_cast<size_t>(slot) < street_.size() ? static_cast<uint32_t>(street_[static_cast<size_t>(slot)].size()) : 0;
+    }
+    void RecordPole(int slot, uint32_t v0, float x, float z, float lo, float hi, float r, bool arm) {
+        const uint32_t v1 = StreetVertexCount(slot);
+        if (v1 > v0) poleRecs_.push_back({slot, v0, v1, x, z, lo, hi, r, arm});
+        lastPole_ = {slot, v0, v1, x, z, lo, hi, r, arm};
+    }
+    // The classic view's pole card (the flat picture the round pole replaces in the street views): its
+    // quads, emitted between BeginCard and EndCard, keep the pole's place (WorldMesh::streetPoles, card).
+    PoleRec lastPole_{-1, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false};
+    struct CardQuad { int keyed, tile; uint32_t quad; PoleRec pole; };
+    std::vector<CardQuad> cardQuads_;
+    bool cardActive_ = false;
+    PoleRec cardPole_{-1, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false};
+    void BeginCard() { cardActive_ = lastPole_.slot >= 0; cardPole_ = lastPole_; }
+    void EndCard() { cardActive_ = false; }
 
     // While set, a lid that AddFaceUv emits is left out of the street views (see the
     // overhead decals in BuildWorldMesh); the classic view draws it as before.
@@ -581,6 +601,7 @@ public:
 
         const int keyed = ColourKeyed(face, panelBack) ? 1 : 0;
         std::vector<Vertex>& out = perTile_[keyed][tile];
+        if (cardActive_) cardQuads_.push_back({keyed, tile, static_cast<uint32_t>(out.size() / 4), cardPole_});
         if (streetHideAll_ || (streetHidden_ && normal.y > 0.5f)) {
             if (streetHiddenQuads_[keyed].empty()) for (auto& q : streetHiddenQuads_) q.resize(perTile_[0].size());
             streetHiddenQuads_[keyed][tile].push_back(static_cast<uint32_t>(out.size() / 4));
@@ -660,9 +681,27 @@ public:
     void Flatten(WorldMesh* out) const {
         out->roadLidTiles.assign(roadLids_.begin(), roadLids_.end());
         out->railingPanels = railingPlanes_;
+        out->streetPoles.clear();
         for (int keyed = 0; keyed < 2; ++keyed) {
             for (size_t tile = 0; tile < perTile_[keyed].size(); ++tile) {
                 FlattenOne(out, static_cast<int>(tile), keyed != 0);
+            }
+        }
+        // FIX-TRANSITION-ART: the pole cards' classic index ranges (FlattenOne: six indices a quad from the
+        // batch's start, quads before triangles).
+        {
+            std::map<std::pair<int, int>, size_t> batchOf;
+            for (size_t b = 0; b < out->batches.size(); ++b) batchOf[{out->batches[b].doubleSided ? 1 : 0, out->batches[b].tile}] = b;
+            for (const CardQuad& c : cardQuads_) {
+                auto it = batchOf.find({c.keyed, c.tile});
+                if (it == batchOf.end()) continue;
+                StreetPole pole;
+                pole.x = c.pole.x; pole.z = c.pole.z; pole.lo = c.pole.lo; pole.hi = c.pole.hi; pole.r = c.pole.r;
+                pole.card = true;
+                pole.indexStart = out->batches[it->second].indexStart + c.quad * 6;
+                pole.indexCount = 6;
+                pole.batch = static_cast<int>(it->second);
+                out->streetPoles.push_back(pole);
             }
         }
         // Last, so every batch before them is exactly what it was without the fill.
@@ -686,6 +725,16 @@ public:
                 out->indices.insert(out->indices.end(), {base + 0, base + 1, base + 2, base + 0, base + 2, base + 3});
             }
             batch.indexCount = static_cast<uint32_t>(out->indices.size()) - batch.indexStart;
+            if (group == 0)
+                for (const PoleRec& rec : poleRecs_) {
+                    if (rec.slot != static_cast<int>(tile)) continue;
+                    StreetPole pole;
+                    pole.x = rec.x; pole.z = rec.z; pole.lo = rec.lo; pole.hi = rec.hi; pole.r = rec.r; pole.arm = rec.arm;
+                    pole.indexStart = batch.indexStart + rec.v0 / 4 * 6;
+                    pole.indexCount = (rec.v1 - rec.v0) / 4 * 6;
+                    pole.batch = static_cast<int>(out->batches.size());
+                    out->streetPoles.push_back(pole);
+                }
             out->batches.push_back(batch);
         }
         // The overhead decals (after everything, so no classic range moves): each batch
@@ -1518,6 +1567,7 @@ bool AddLampPole(MeshBuilder* builder, const Style& style, const Face& face, con
     const float r = (std::max)(0.5f * static_cast<float>(c1 - c0) / kTileSize, 0.016f);
     const float uIn0 = (c0 + 0.5f) / kTileSize, uIn1 = (c1 - 0.5f) / kTileSize;
     constexpr int kSides = 8;
+    const uint32_t poleV0 = builder->StreetVertexCount(face.Tile());
     builder->SetStreetMode(1);
     for (int k = 0; k < kSides; ++k) {
         const float a0 = 6.2831853f * k / kSides, a1 = 6.2831853f * (k + 1) / kSides, am = 0.5f * (a0 + a1);
@@ -1546,6 +1596,7 @@ bool AddLampPole(MeshBuilder* builder, const Style& style, const Face& face, con
                                   {0.0f, 1.0f, 0.0f}, capUv);
         builder->SetStreetMode(0);
     }
+    builder->RecordPole(face.Tile(), poleV0, px, pz, lo, hi, r, false);
     ++g_lampPoleSegments;
     return true;
 }
@@ -1703,10 +1754,16 @@ bool AddLampArm(MeshBuilder* builder, const Style& style, int tile, const std::a
     LidFrame f;
     if (!art.ok || !f.Init(corners, uv)) return false;
     const float texel = 1.0f / kTileSize;
+    const uint32_t armV0 = builder->StreetVertexCount(tile);
+    float bx0 = 1e9f, bx1 = -1e9f, by0 = 1e9f, by1 = -1e9f, bz0 = 1e9f, bz1 = -1e9f;
     builder->SetStreetMode(1);
     for (const LampArmQuad& q : art.quads) {
         std::array<Vec3, 4> p;
         for (size_t i = 0; i < 4; ++i) p[i] = f.At(q.p[i][0], q.p[i][1], q.p[i][2] * texel);
+        for (const Vec3& v : p) {
+            bx0 = (std::min)(bx0, v.x); bx1 = (std::max)(bx1, v.x); by0 = (std::min)(by0, v.y); by1 = (std::max)(by1, v.y);
+            bz0 = (std::min)(bz0, v.z); bz1 = (std::max)(bz1, v.z);
+        }
         // the normal: the texel-space direction through the same map (no scale on y)
         Vec3 n{0.0f, q.n[2], 0.0f};
         if (q.n[2] == 0.0f) {
@@ -1718,6 +1775,8 @@ bool AddLampArm(MeshBuilder* builder, const Style& style, int tile, const std::a
         builder->AddPlainQuad(tile, p, n, q.uv);
     }
     builder->SetStreetMode(0);
+    if (bx1 >= bx0)
+        builder->RecordPole(tile, armV0, 0.5f * (bx0 + bx1), 0.5f * (bz0 + bz1), by0, by1, 0.5f * (std::max)(bx1 - bx0, bz1 - bz0), true);
     ++g_lampArms;
     return true;
 }
@@ -1838,11 +1897,13 @@ void AddBlock(MeshBuilder* builder, const Block& block, const SlopeInfo& slope,
     // left out of them; the classic view draws the card exactly as before.
     auto poleCard = [&](const Face& face, const std::array<Vec3, 4>& corners, const uint8_t (&table)[8]) {
         if (!g_lampPoles || ramp || hideAllBefore || !face.IsFlat()) return false;
+        builder->lastPole_.slot = -1;
         if (!AddLampPole(builder, builder->StyleRef(), face, corners, FaceUvs(face, table))) return false;
         builder->SetStreetHiddenAll(true);
+        builder->BeginCard();   // FIX-TRANSITION-ART: the card's quads (a card's back on a claimed spot: none)
         return true;
     };
-    auto poleDone = [&](bool hid) { if (hid) builder->SetStreetHiddenAll(false); };
+    auto poleDone = [&](bool hid) { if (hid) { builder->SetStreetHiddenAll(false); builder->EndCard(); } };
     if (SoloFace(block.left, block.right)) {
         streetHide(1, true);
         const bool pole = poleCard(block.left, leftCorners, kLeftFlags);

@@ -220,6 +220,69 @@ only; `tools/merge_stage_ini.py` treats a stage's old 45 as a retired default, n
   the fastest part of the move, not cross-faded). The way back from first person climbs a wall face
   at street level.
 
+## Transition artefacts: rapid V, road paint, lamp masts (FIX-TRANSITION-ART, 10 Nov 2026)
+
+Defects pmab5-wil (zebra stripes turn to noise in the tilted frames on the way back to classic) and
+pmab5-bil (two giant black masts fill the frame during the switch beside a lamp-lined median). Both
+were filmed during six rapid V taps; both also showed in single switches.
+
+- **Measured first** (build fbea4df, `gamerun/keys_fta.sh` at wil 143.5,149.5 and bil 193.4,153.6, a
+  warm-up V cycle first, then a lossless 30 fps ffv1 capture of a slow cycle, six taps 0.45 s apart and a
+  second slow cycle; `gamerun/rec_grun.sh` with the NVIDIA shader cache, one run at a time on GPU 0):
+  - A V pressed while a move was still under way started the next move with its progress `s` at the
+    old move's *start* (0 or 1), not where the camera was. The whole presentation flipped in one frame:
+    the log showed `tile set street ... material mix 1.000` straight after `classic ... mix 0.000`. The
+    game's flat sprites, its HUD and the plain tiles were drawn over a tilted camera, or the figures,
+    props and photo tiles snapped in with the eye still high. That is the tilted "classic" frame in both
+    defect pictures.
+  - The worm noise is the classic HD zebra art itself (`textures_hd/<style>` tiles 256, 264, 672, ...:
+    the upscaler drew each stripe as black-and-white worms). It is there in the settled classic view
+    too, at classic size (a stripe-hole score of 10.4k px at the wil crossing). The plain set took over
+    at s 0.5, where the camera is still tilted and low, so the worms were drawn magnified (18.9k px). The
+    street views' re-authored road tiles (`textures_hd/roads`) are clean. Mip chains are complete
+    (512, 10 levels): this is not a sampling problem.
+  - The masts are the map's own tall street lights (FIX-WORLD-10's round world-mesh poles, five
+    levels tall at the bil median; the classic presentation's flat pole cards), drawn whole beside a
+    lens that sweeps past them at their own height. The street-prop lamp (1.8 high) was never the cause.
+- **Changes** (all limited to camera moves: a settled view draws exactly what it drew):
+  1. *Carry the progress.* A new move starts from the `s` last shown (`g_moveS0`) and eases to the
+     destination's. The sky blend follows the same `s`. Between two street views `s` stays 1, as
+     before. `GTA2DX9_MOVE_S_CARRY=0`: A/B.
+  2. *Road paint near classic.* The tiles whose street copy is a re-authored road tile take their own
+     material mix, `ramp(0, 0.2, s)` instead of `ramp(0.3, 0.7, s)` (`Renderer::SetStreetView` roadMix,
+     `TileMix`). The clean paint holds until the camera is nearly overhead at classic height. The
+     classic art then cross-fades in over the move's last ~0.35 s, at the size the settled view shows
+     it. `GTA2DX9_ROAD_MIX_EARLY=0`: A/B.
+  3. *Fade street lights near the lens during a move.* The mesh records every pole segment, lamp arm
+     and classic pole card with its index range (`WorldMesh::streetPoles`). The renderer groups them per
+     light and, while the camera moves, fades a light out over about six frames when it stands nearer
+     the lens than the hero, its post enters the middle of the frame (x 20-80 %, y 10-90 %; anything
+     covering over 15 % of the frame's height by itself counts anywhere), and either its nearest part
+     is wider than 4.5 % of the frame's height or width × the share of the frame its post runs across
+     is over 0.003. (Without the middle-of-frame test, the spawn's lamp beside the chase camera faded
+     during the last frames of the move into third person: vreg `spawn_third` lost it.) It draws the batch around a
+     faded light and the fading ones blended after the opaque world, then fades them back once they no
+     longer qualify or the move ends. It never runs on a Remix device (draw ranges are hashed) and never
+     in a settled classic view. `GTA2DX9_MOVE_POLE_FADE=0`: A/B. The street props (lamp, sign, meter,
+     bin, bench, hydrant, mailbox) get the same rule in `DrawProps`; a prop it hides takes its contact
+     shadow with it (`GTA2DX9_MOVE_PROP_FADE=0`; `GTA2DX9_MOVE_OCC_LOG=1` logs the candidates).
+  4. *No first-person hands from a high eye.* With the progress carried over, a move into first person
+     could start from an eye 3-4 blocks up, and FIX-FIGURE-10's "his figure is off the picture → draw
+     the hands" rule drew them at the bottom of an overhead frame. That rule now needs the eye within
+     1.6 blocks of his feet (`GTA2DX9_MOVE_FP_HIDE_REACH`, 0 = no limit).
+- **Result** (build of this change, runs `fta_fin_n9_wil`, `fta_fin_n9_bil`; baseline
+  `fta_fin_base_wil/bil` = fbea4df): see the per-move table in the commit's issue comment. In short:
+  in wil no frame of any move shows more stripe noise than settled classic shows of itself, against
+  16-19k px for the baseline. Rapid V never flips the presentation (each change-over at mix 0.48-0.57).
+  In bil the two 5-level poles are logged and faded on every move, and no frame is covered by a mast.
+- **Still short.** The settled classic zebra tiles are the noisy upscale. Fixing them changes the
+  classic view's pixels and orphans their Remix material hashes, so that needs the owner's decision
+  (filed separately). The classic cards' edge-on hairline (FIX-WORLD-10) still shows as a dotted
+  vertical in the classic half of a tilted move. Thin, far poles still read as long dark lines in the
+  classic half, as any tall pole does from that angle. A faded light comes back over ~0.2 s after a
+  move into a street view ends. Rapid V still turns the camera's yaw by up to ~90 degrees in a frame or
+  two at the first tap (MoveTurnCap, camera stream), and a developer warp hides the hero (test set-up).
+
 ## Limits
 
 - The world is not frozen, so the two frames of a moment are 0.65-1.25 s apart. Objects are

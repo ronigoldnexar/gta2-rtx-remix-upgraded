@@ -58,7 +58,19 @@ struct TileBatch {
     uint32_t streetIndexCount = 0;
 };
 
+// FIX-TRANSITION-ART: one street light's round pole segment (AddLampPole) or its arm and head solid
+// (AddLampArm), both in a street-only batch: where it stands and its triangles' index range, so the
+// renderer can leave out (fade) a single pole while the camera moves between the views.
+struct StreetPole {
+    float x = 0.0f, z = 0.0f, lo = 0.0f, hi = 0.0f, r = 0.0f;   // centre, height range, horizontal radius
+    uint32_t indexStart = 0, indexCount = 0;
+    int batch = -1;
+    bool arm = false;
+    bool card = false;   // the classic view's flat pole card in a classic batch (one quad), not the round pole
+};
+
 struct WorldMesh {
+    std::vector<StreetPole> streetPoles;
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     std::vector<TileBatch> batches;

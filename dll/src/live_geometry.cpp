@@ -661,6 +661,7 @@ bool UprightPeds() { return g_uprightPeds; }
 // FIX-SMOOTH-SWITCH (world_view.cpp): the presentation follows the camera's move, not the key.
 bool StreetPresentation();
 float StreetExtrasWeight();
+bool ViewCameraMoving();
 namespace { bool g_pedFigures = false; }
 void SetPedFigures(bool on) { g_pedFigures = on; }
 bool PedFigures() { return g_pedFigures; }
@@ -5519,8 +5520,10 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     // The contact shadows' props: centred on the model's own footprint (its bounds' middle,
     // turned with it), not its origin, which on some models is off to one side.
     contactProps_.clear();
+    std::vector<int> contactOf(placed.size(), -1);   // FIX-TRANSITION-ART: a prop the move fade hides takes its shadow with it
     for (const Placed& p : placed) {
         if (p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) continue;
+        contactOf[static_cast<size_t>(&p - placed.data())] = static_cast<int>(contactProps_.size());
         const float mx = 0.5f * (p.model->boundsMin.x + p.model->boundsMax.x) * p.scale;
         const float mz = 0.5f * (p.model->boundsMin.z + p.model->boundsMax.z) * p.scale;
         const float c = std::cos(p.yaw), sn = std::sin(p.yaw);
@@ -5649,6 +5652,110 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         }
         return alpha;
     };
+    // FIX-TRANSITION-ART (pmab5-bil-v-switch-camera-sweeps-between-street-lamp-poles): while the
+    // camera moves between the views its path sweeps past whatever stands beside it; at a lamp-lined
+    // median two posts a block from the lens drew as giant black masts from the frame's top to its
+    // bottom for 0.3-0.5 s of every switch. During a move a thin street prop (lamp, sign, meter,
+    // bin, bench, hydrant, mailbox) that stands nearer the lens than the hero and whose nearest part
+    // would be drawn wider than kMoveOccWidth of the frame's height goes, through the same short
+    // fade state as the overlap fade (about six frames), and comes back the same way once it is
+    // narrower again or the move has ended; so does one whose width times the share of the frame its
+    // post runs across passes kMoveOccMastArea (a mast from the top edge down to the median, pmab5
+    // rapid5). Settled views are not touched.
+    // GTA2DX9_MOVE_PROP_FADE=0: off (A/B).
+    static int s_moveOcc = -1;
+    if (s_moveOcc < 0) {
+        char v[8] = {};
+        s_moveOcc = (GetEnvironmentVariableA("GTA2DX9_MOVE_PROP_FADE", v, sizeof v) && v[0] == '0') ? 0 : 1;
+        Log("props: move-occluder fade %s (FIX-TRANSITION-ART: thin props nearer than the hero fade while the camera moves between views)",
+            s_moveOcc ? "on" : "off");
+    }
+    constexpr float kMoveOccWidth = 0.045f, kMoveOccWidthHeld = 0.035f, kMoveOccMastWidth = 0.004f, kMoveOccMastArea = 0.003f;
+    const bool moving = s_moveOcc && s_overlapFade && ViewCameraMoving() && g_playerPosValid;
+    float viewDir[3] = {0.0f, 0.0f, 1.0f}, proj22 = 1.7f;
+    float vp[4][4] = {};
+    bool moveOccOk = false;
+    if (moving) {
+        D3DMATRIX mv, mp;
+        if (SUCCEEDED(device->GetTransform(D3DTS_VIEW, &mv)) && SUCCEEDED(device->GetTransform(D3DTS_PROJECTION, &mp))) {
+            viewDir[0] = mv.m[0][2]; viewDir[1] = mv.m[1][2]; viewDir[2] = mv.m[2][2];
+            proj22 = std::fabs(mp.m[1][1]);
+            moveOccOk = proj22 > 0.01f;
+            for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
+                float acc = 0.0f;
+                for (int k = 0; k < 4; ++k) acc += mv.m[r][k] * mp.m[k][c];
+                vp[r][c] = acc;
+            }
+        }
+    }
+    // How much of the frame a post from (x, y0, z) up to (x, y1, z) runs across: its on-screen
+    // length inside the frame, as a share of the frame's larger side (the segment clipped to the
+    // near side of the lens, then to the frame).
+    auto postSpan = [&](float x, float y0, float y1, float z, float bx = 1.0f, float by = 1.0f) -> float {
+        float c[2][4];
+        for (int e = 0; e < 2; ++e) {
+            const float y = e ? y1 : y0;
+            for (int k = 0; k < 4; ++k) c[e][k] = x * vp[0][k] + y * vp[1][k] + z * vp[2][k] + vp[3][k];
+        }
+        constexpr float kW = 0.05f;
+        if (c[0][3] < kW && c[1][3] < kW) return 0.0f;
+        for (int e = 0; e < 2; ++e) {
+            if (c[e][3] >= kW) continue;
+            const float t = (kW - c[e][3]) / (c[1 - e][3] - c[e][3]);
+            for (int k = 0; k < 4; ++k) c[e][k] += (c[1 - e][k] - c[e][k]) * t;
+        }
+        const float px = c[0][0] / c[0][3], py = c[0][1] / c[0][3], qx = c[1][0] / c[1][3], qy = c[1][1] / c[1][3];
+        // Liang-Barsky against the [-bx, bx] x [-by, by] box.
+        float t0 = 0.0f, t1 = 1.0f;
+        const float dx = qx - px, dy = qy - py;
+        const float pq[4][2] = {{-dx, px + bx}, {dx, bx - px}, {-dy, py + by}, {dy, by - py}};
+        for (const auto& e : pq) {
+            if (std::fabs(e[0]) < 1e-6f) { if (e[1] < 0.0f) return 0.0f; continue; }
+            const float r = e[1] / e[0];
+            if (e[0] < 0.0f) t0 = (std::max)(t0, r); else t1 = (std::min)(t1, r);
+            if (t0 > t1) return 0.0f;
+        }
+        return (std::max)(1e-4f, 0.5f * (std::max)(std::fabs(dx), std::fabs(dy)) * (t1 - t0));
+    };
+    const float heroDepth = (g_playerPosX - eye.x) * viewDir[0] + (g_playerPosY + 0.3f - eye.y) * viewDir[1] + (g_playerPosZ - eye.z) * viewDir[2];
+    static int s_moveOccLogs = 0;
+    auto moveOccluder = [&](const Placed& p, bool held) -> bool {
+        if (!moveOccOk) return false;
+        if (!(p.model == lamp || p.model == bin || p.model == bench || p.model == hydrant || p.model == mailbox ||
+              p.model == meter || p.model == signStop || p.model == signOneWay)) return false;
+        const float r = p.model == lamp ? 0.08f
+                      : (std::min)(0.6f, (std::max)(0.08f, 0.5f * p.scale * (std::max)(p.model->Length(), p.model->Width())));
+        const float top = p.y + p.model->Height() * p.scale;
+        const float cy = (std::min)(top, (std::max)(p.y, eye.y));
+        const float dx = p.x - eye.x, dy = cy - eye.y, dz = p.z - eye.z;
+        const float depth = dx * viewDir[0] + dy * viewDir[1] + dz * viewDir[2];
+        static int s_dbg = -1;
+        if (s_dbg < 0) { char v[8] = {}; s_dbg = GetEnvironmentVariableA("GTA2DX9_MOVE_OCC_LOG", v, sizeof v) && v[0] == '1' ? 1 : 0; }
+        const float dn = (std::max)(0.02f, std::sqrt(dx * dx + dy * dy + dz * dz) - r);
+        const float width = r * proj22 / dn;    // its nearest part's width, as a share of the frame's height
+        if (s_dbg && width > 0.01f && s_moveOccLogs < 2000) {
+            ++s_moveOccLogs;
+            Log("props: move occluder probe %s at %.2f,%.2f y %.2f..%.2f: depth %.2f hero %.2f width %.3f span %.2f eye %.2f,%.2f,%.2f",
+                p.model->name.c_str(), p.x, static_cast<float>(gta2::kMapHeight) - p.z, p.y, top, depth, heroDepth, width,
+                postSpan(p.x, p.y, top, p.z), eye.x, eye.y, static_cast<float>(gta2::kMapHeight) - eye.z);
+        }
+        if (depth >= heroDepth) return false;   // beyond him: scenery the move looks at
+        // Only what crosses the middle of the frame (x 20-80 %, y 10-90 %), unless it alone covers more
+        // than 15 % of the frame's height: a lamp at the frame's edge is scenery the move passes.
+        const bool central = width > 0.15f || postSpan(p.x, p.y, top, p.z, 0.6f, 0.8f) > 0.0f;
+        bool occ = central && width > (held ? kMoveOccWidthHeld : kMoveOccWidth);
+        float span = 0.0f;
+        if (central && !occ && width > kMoveOccMastWidth) {
+            span = postSpan(p.x, p.y, top, p.z);
+            occ = width * span > (held ? 0.75f * kMoveOccMastArea : kMoveOccMastArea);
+        }
+        if (occ && !held && s_moveOccLogs < 200) {
+            ++s_moveOccLogs;
+            Log("props: move occluder %s at %.2f,%.2f faded (nearest %.2f from the lens, %.1f%% of the frame's height wide, across %.0f%% of the frame, hero %.2f ahead)",
+                p.model->name.c_str(), p.x, static_cast<float>(gta2::kMapHeight) - p.z, dn, 100.0f * width, 100.0f * span, heroDepth);
+        }
+        return occ;
+    };
     // Per-placement fade state for the overlap fade (alpha, last frame seen), see below.
     static std::unordered_map<uint64_t, std::pair<float, uint32_t>> s_fadeState;
     static uint32_t s_fadeFrame = 0;
@@ -5690,8 +5797,17 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             const uint64_t key = (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(p.model)) << 40) ^
                                  (static_cast<uint64_t>(static_cast<uint32_t>(static_cast<int>(std::floor(p.x * 32.0f)) & 0xFFFFF)) << 20) ^
                                  static_cast<uint64_t>(static_cast<uint32_t>(static_cast<int>(std::floor(p.z * 32.0f)) & 0xFFFFF));
-            const float target = overlap < 0.5f ? 0.0f : 1.0f;
+            float target = overlap < 0.5f ? 0.0f : 1.0f;
             auto it = s_fadeState.find(key);
+            bool moveHidden = false;
+            if (target > 0.0f && moving) {
+                const bool held = it != s_fadeState.end() && s_fadeFrame - it->second.second <= 30 && it->second.first < 0.98f;
+                if (moveOccluder(p, held)) { target = 0.0f; moveHidden = true; }
+            }
+            if (moveHidden) {
+                const int ci = contactOf[static_cast<size_t>(&p - placed.data())];
+                if (ci >= 0) contactProps_[static_cast<size_t>(ci)].radius = 0.0f;
+            }
             if (it == s_fadeState.end() || s_fadeFrame - it->second.second > 30) {
                 s_fadeState[key] = {target, s_fadeFrame};   // first seen (or back in view): no fade-in
                 overlap = target;
@@ -8176,7 +8292,18 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // his figure leaves the picture (under the frame's bottom edge, behind the eye, or cut at the lens
     // within 0.15 of it) before it is hidden as his own: on any such frame the view model is drawn,
     // so no frame has neither his figure nor the hands and the gun.
-    const bool atLens = g_ownLensFrame && g_ownLensFrame == g_carFrame;
+    bool atLens = g_ownLensFrame && g_ownLensFrame == g_carFrame;
+    // FIX-TRANSITION-ART: only with the eye close to him (within GTA2DX9_MOVE_FP_HIDE_REACH of his feet, 1.6 blocks;
+    // world_view.cpp ApplyTransition): from an eye still high over the street on a move into his eyes (a V pressed
+    // again mid-move) he is off the picture only because the camera looks past him, and the hands and the gun were
+    // drawn at the bottom of a frame seen from 3-4 blocks up.
+    if (atLens && g_playerPosValid) {
+        static float reach = -1.0f;
+        if (reach < 0.0f) { char b[16] = {}; reach = GetEnvironmentVariableA("GTA2DX9_MOVE_FP_HIDE_REACH", b, sizeof b) ? static_cast<float>(atof(b)) : 1.6f; }
+        const gta2::Vec3 e = camera.Position();
+        const float dx = g_playerPosX - e.x, dy = g_playerPosY - e.y, dz = g_playerPosZ - e.z;
+        if (reach > 0.0f && dx * dx + dy * dy + dz * dz > reach * reach) atLens = false;
+    }
     if (CurrentViewMode() != ViewMode::FirstPerson || !g_playerObject || (g_hiddenObjects[0] != g_playerObject && !atLens) || !g_pedWeapons) return;
     const gta2::Vec3 eye = camera.Position();
     const gta2::Vec3 f = g_viewForward;
@@ -9027,7 +9154,7 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
         ++peds;
     }
     for (const PropFootprint& p : contactProps_) {
-        if (!nearEye(p.x, p.z)) continue;
+        if (p.radius <= 0.0f || !nearEye(p.x, p.z)) continue;
         const float r = p.radius * 1.15f;
         quad(p.x, p.y + 0.016f, p.z, r, 0.0f, 0.0f, r);
         ++props;
