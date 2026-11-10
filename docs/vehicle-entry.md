@@ -371,3 +371,30 @@ target's INTZ stencil, cleared each frame), and after the mask pass `post_fx` ke
 off the car it is this frame's mask; on the car it moves 20 % a frame toward it (about 10 frames to
 settle). `[visuals] car_shadow_blend=0` (live) is the exact mask for A/B. Plain renderer only (Remix
 does its own shadows). Other cars keep the exact mask (they move across the screen; a history would ghost).
+
+## FIX-SEAT-ENTRY-4: the door's top under the roof lip, a readable cabin (pfl18, 10 Nov 2026)
+
+pfl18 (first person, every walk-up van entry and exit): after c0bb1e8 the door's sides were straight,
+but from the eye beside the van the swung door's top edge and the hole's top were two complementary rows
+of teeth (frames: fixed close pose, regress camera at the wil van's door). Measured offline from the
+068 mesh (side faces turned out, in the door's length, area per height band): the side wall's skin runs
+evenly to exactly 0.95 of the roof, then a lip (1.7x a band's area) and the corrugated roof's rib end
+caps. The door box's top plane sat at 0.95 of the roof plus the 1.5 cm margin (about 2.7 % of the van's
+height): the caps in that margin went with the door.
+
+- `door_top_cut` ([devtools], default 1, live; the split cache keys on it): `BuildDoorSplit` measures the
+  side wall's area per height band and walks up from 0.6 of the roof while each band carries 60-140 % of
+  the wall's median share; where that run reaches 0.90-0.95 of the roof, the box ends at the wall's top
+  with no margin (log: `door of <model>, side <s>: top at the side wall's top`). A body whose wall ends
+  lower (a curved shoulder) keeps the old box. 0 is FIX-SEAT-ENTRY-3's box.
+- The dim cabin behind an open door is lighter by day (it is unlit: the night keeps the dark tone);
+  `door_interior=2` is the old tone for A/B.
+- `GTA2DX9_LOG_SEAT=1`: a per-frame `seat gate:` line for the driven/own car (eye inside the box, own
+  flag, the eye in the car's frame, view), for the first-person cab gate.
+- Probes: `gamerun/keys_fse4_door.sh` + `fse4_door_probe.py` (the fse3 fixed-camera probe toggling
+  `door_top_cut`), `gamerun/keys_fse4_fp.sh` + `fse4_fp_probe.py` (F9 to the wil van's door in first
+  person, Return in and out, 30 fps bursts per `door_top_cut:door_interior` pair in `FSE_TOPS`).
+- Still short: the lower doorway still reads near black from the eye at the door (the box's lower walls
+  and floor are dark and the post pass darkens the concave box further); the swung door's inner face is
+  the outer skin re-wound (no door card, window frame or trim); other bodies with a lip or ribs were not
+  filmed; dusk/night and Remix untested.
