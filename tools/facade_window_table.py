@@ -10,12 +10,19 @@ docs/facade-depth.md) now say where the glass is. This writes them as a C++ tabl
 Coordinates only (64 px tile units, rounded outward), no art."""
 import json, math, sys
 
+# Tiles whose "shop window" box is not glass the glow/sky may paint: the pane mask is the 64 px art's
+# dark-blue runs, so over a door it lays blocky sky/glow patches on the leaves (FIX-WORLD-8 pm6: the
+# Altamount arched double door read as a smeared ghost). Their photo tile paints its own glass.
+NOT_GLASS = {("wil", 538)}   # pm6-arched-doors-smeared-ghost-texture (tools/arch_door_tile.py)
+
 src, out = sys.argv[1], sys.argv[2]
 boxes = json.load(open(src))
 rows, styles, tiles = [], set(), set()
 for key in sorted(boxes, key=lambda k: (k.split(":")[0], int(k.split(":")[1]))):
     style, tile = key.split(":"); tile = int(tile)
     styles.add(style)
+    if (style, tile) in NOT_GLASS:
+        continue
     seen = set()
     for b in boxes[key]["boxes"]:
         if b["label"] not in ("window", "shop window"):

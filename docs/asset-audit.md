@@ -205,3 +205,30 @@ their rings, the ring glowing at night. Not framed in a run: the other weapon
 pickups, tokens and mission items (model renders only), the new parking meter,
 containers and crate (rule props/OBJI, model renders only). Not measured: frame
 time with the new props (the counts above are small next to the PERF-2 budget).
+
+## 10. Photo-tile fixes (FIX-WORLD-8, 10 Nov 2026)
+
+- **Black frame bars at the first-person eye** (pm12-bil-fp-wall-face-shades-to-pure-black-gradient): the residual
+  200 px black band at the bil wall (eye 41.18,97.76, 0.24 block off the y=98 wall) is the right-hand window frame
+  bar of tile 161, true black in the art (8-16/255, two texel bars 0.03-0.06 block wide; at 25 cm one fills a third
+  of the frame). Not a light term, not a mip choice (it is mip 0), not the pane (the sky reflection never reaches a
+  frame bar). `photoreal_tiles.py frames` lifts THIN true-black structures of the photo wall tiles (darker than
+  0.075, not part of a black area wider than 22 texels of 512: doorways and voids keep their look) to a dark
+  painted-wood tone (0.17, keeping the bar's own shading as grain); only wall-class tiles used more as sides than
+  as lids, no cutout tiles, tile mean above 0.20 (dark materials keep their black) and at most 20 % lifted.
+  178 bil, 287 wil, 138 ste photo tiles. bil 161's bars go 13 -> 38/255. Fixed-camera A/B at the walker's eyes
+  (same DLL, stock vs lifted photo tiles): left-third p5 0 -> 15 (e6), 0 -> 17 (e7a), 6 -> 15 (s7); the brick
+  beside the eye 33-41 in both.
+- **Arched door ghost** (pm6-arched-doors-smeared-ghost-texture): wil tile 538 (75 faces, none flipped or rotated,
+  so not the face-flag path) is the Altamount arched double door. Its 64 px art is a blurred grey-blue door with
+  streaks of light, which the HD and photo sets keep faithfully; and the facade pass had boxed the opening as a
+  "shop window", so since FIX-WORLD-7's pane sky (pm12) the 64 px glass mask laid blocky sky patches over the
+  leaves by day (the "ghost"). `tools/facade_window_table.py` now has a NOT_GLASS list (wil 538) and
+  `tools/arch_door_tile.py` redraws the opening of the photo tile at 1024 px in the art's layout and colours:
+  dark reveal, navy painted frame, fanlight with radial glazing bars over a transom, two leaves with glazed
+  upper panels (a sky gradient painted in), raised lower panels, brass pulls, the art's threshold step; the
+  wall around the arch is the photo tile itself. Paint grain from ambientCG Wood067 (CC0).
+- Both ship in the textures archive (`assets/textures_hd/photo/<style>/`, never in git); street views only,
+  never under Remix (the photo set is not loaded there; under Remix the shipped HD tile and its prims stay).
+  Regenerate: `photoreal_tiles.py frames <photo>/<st> labels_<st>.json usage.json <photo>/<st> --style <st>`
+  for bil, wil, ste, then `arch_door_tile.py <photo>/wil/tile_0538.dds <photo>/wil/tile_0538.dds`.

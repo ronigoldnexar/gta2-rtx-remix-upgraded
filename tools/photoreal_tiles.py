@@ -34,6 +34,8 @@ Remix device, whose PBR layer is keyed by the HD set's texture hashes.
     photoreal_tiles.py build    <hd dir> <labels.json> <cc0 dir> <out dir> [--esrgan dir] [--tiles a,b] [--jobs N]
     photoreal_tiles.py sheet    <64px dir> <hd dir> <photo dir> <png> --tiles a,b,c
     photoreal_tiles.py fetch    <cc0 dir>                           download the CC0 materials
+    photoreal_tiles.py frames   <photo dir> <labels.json> <usage.json> <out dir> --style bil
+                                        lift thin true-black frame bars of wall tiles (pm12)
 
 Needs numpy, scipy, Pillow; classify also torch + transformers.
 """
@@ -221,8 +223,28 @@ def cmd_classify(a):
     json.dump(out, open(a.labels, "w"), indent=0)
 
 # ----------------------------------------------------------------------------- build
-def _build_one(args):
+def write_dds(dst, rgba):
+    """rgba float 0..1 -> DXT1 (opaque) or DXT5 DDS with a full mip chain; unlinks first, so it
+    never writes through a hard link into a stage"""
     from pack_textures_dds import dds_header, encode_level
+    alpha_raw = (rgba[..., 3] * 255 + 0.5).astype(np.uint8)
+    has_alpha = alpha_raw.min() < 255
+    rgb = Image.fromarray((np.clip(rgba[..., :3], 0, 1) * 255 + 0.5).astype(np.uint8))
+    alpha = Image.fromarray(alpha_raw)
+    fmt = "DXT5" if has_alpha else "DXT1"
+    levels = []; w = h = rgb.size[0]
+    cur = rgb.copy(); cur.putalpha(alpha)
+    while True:
+        levels.append(encode_level(cur, fmt))
+        if w == 1 and h == 1: break
+        w, h = max(1, w // 2), max(1, h // 2)
+        cur = rgb.resize((w, h), Image.LANCZOS); cur.putalpha(alpha.resize((w, h), Image.BOX))
+    if os.path.exists(dst): os.unlink(dst)
+    with open(dst, "wb") as f:
+        f.write(dds_header(rgb.size[0], rgb.size[1], len(levels), fmt.encode(), len(levels[0])))
+        for lv in levels: f.write(lv)
+
+def _build_one(args):
     hd, cc0, out_dir, t, cls, esr, keep_base = args
     src = os.path.join(hd, "tile_%04d.dds" % t)
     if not os.path.exists(src): return t, "missing"
@@ -237,23 +259,7 @@ def _build_one(args):
         d0 = os.path.join(out_dir, "tile_%04d.dds" % t)
         if os.path.exists(d0): os.unlink(d0)      # a corrected-to-skip tile must not keep an old photo tile
         return t, "skip"
-    alpha_raw = (rgba[..., 3] * 255 + 0.5).astype(np.uint8)
-    has_alpha = alpha_raw.min() < 255
-    rgb = Image.fromarray((res[..., :3] * 255 + 0.5).astype(np.uint8))
-    alpha = Image.fromarray(alpha_raw)
-    fmt = "DXT5" if has_alpha else "DXT1"
-    levels = []; w = h = rgb.size[0]
-    cur = rgb.copy(); cur.putalpha(alpha)
-    while True:
-        levels.append(encode_level(cur, fmt))
-        if w == 1 and h == 1: break
-        w, h = max(1, w // 2), max(1, h // 2)
-        cur = rgb.resize((w, h), Image.LANCZOS); cur.putalpha(alpha.resize((w, h), Image.BOX))
-    dst = os.path.join(out_dir, "tile_%04d.dds" % t)
-    if os.path.exists(dst): os.unlink(dst)     # never write through a hard link into a stage
-    with open(dst, "wb") as f:
-        f.write(dds_header(rgb.size[0], rgb.size[1], len(levels), fmt.encode(), len(levels[0])))
-        for lv in levels: f.write(lv)
+    write_dds(os.path.join(out_dir, "tile_%04d.dds" % t), res)
     return t, cls
 
 def cmd_build(a):
@@ -288,6 +294,60 @@ def cmd_sheet(a):
         for x, im in enumerate(ims): W.paste(im, (x * (S + 4), y * (S + 4)))
     W.save(a.png)
 
+# ----------------------------------------------------------------------------- frames
+FRAME_FLOOR = 0.17      # luminance of a lifted frame bar (brick in these tiles is ~0.25-0.3)
+FRAME_BLACK = 0.075     # texels darker than this are candidates
+FRAME_WIDE = 22         # texels (of 512): black wider than this is a void (doorway, deep recess) and stays
+
+def frame_floor(rgba, floor=FRAME_FLOOR, black=FRAME_BLACK, wide=FRAME_WIDE):
+    """pm12: a window's frame bars are true black in the art (8-16/255). From the first-person
+    eye 10-25 cm off a wall one bar fills a third of the frame as a black band. Lift THIN black
+    structures (frame bars, sash bars, sills' shadow lines) to a dark painted-wood tone, keeping
+    their own shading as grain; black areas wider than `wide` texels (doorways, voids) keep
+    their look, and so do the rest of the tile's texels. Returns (rgba, lifted fraction)."""
+    from scipy import ndimage as ndi
+    size = rgba.shape[0]; k = size / 512.0
+    rgb = rgba[..., :3]
+    L = rgb @ np.array([0.299, 0.587, 0.114], np.float32)
+    b = (L < black) & (rgba[..., 3] > 0.5)
+    r = max(2, int(round(wide * k)))
+    yy, xx = np.mgrid[-r:r + 1, -r:r + 1]; disk = xx * xx + yy * yy <= r * r
+    # the wide black areas, regrown inside the black mask by r texels: an opening alone leaves
+    # disk-shaped blobs (and round holes once their surroundings lift); the regrowth fills a
+    # region's corners back while reaching only r texels along a thin bar that meets it
+    void = ndi.binary_dilation(ndi.binary_opening(b, disk), structure=np.ones((3, 3), bool), iterations=r, mask=b)
+    thin = b & ~void
+    m = ndi.gaussian_filter(ndi.binary_dilation(thin, iterations=2).astype(np.float32), 1.2 * k)
+    grain = np.clip(L - ndi.gaussian_filter(L, 3 * k), -0.04, 0.04)
+    paint = np.array([1.06, 1.0, 0.90], np.float32)
+    lift = np.maximum(paint * (floor + 1.5 * grain)[..., None], rgb)
+    out = rgba.copy()
+    out[..., :3] = rgb * (1 - m[..., None]) + lift * m[..., None]
+    return out, float(thin.mean())
+
+def cmd_frames(a):
+    """photo tiles of building sides: frame_floor over each wall tile of `style` (side use more
+    than lid use, a wall class, no cutout). Reads <photo dir>, writes <out dir> (may be the same)."""
+    labels = json.load(open(a.labels)); use = json.load(open(a.usage))[a.style]
+    os.makedirs(a.out, exist_ok=True)
+    walls = set(WALL) - {"glass"}
+    want = [int(x) for x in a.tiles.split(",")] if a.tiles else sorted(map(int, labels))
+    done = []
+    for t in want:
+        src = os.path.join(a.photo, "tile_%04d.dds" % t)
+        if not os.path.exists(src): continue
+        lab = labels.get(str(t)); cls = lab["cls"] if isinstance(lab, dict) else lab
+        if not a.tiles and (cls not in walls or use["side"].get(str(t), 0) <= use["lid"].get(str(t), 0)): continue
+        rgba = read_dds_rgba(src)
+        if not a.tiles and rgba[..., 3].min() < 0.5: continue        # fences, lattices: bars are see-through art
+        Lm = float((rgba[..., :3] @ np.array([0.299, 0.587, 0.114], np.float32)).mean())
+        if not a.tiles and Lm < a.min_mean: continue                   # dark materials: black is their look
+        out, frac = frame_floor(rgba, a.floor)
+        if frac < a.min_frac or (not a.tiles and frac > a.max_frac): continue   # >max: a dark pattern, not frames
+        write_dds(os.path.join(a.out, "tile_%04d.dds" % t), out)
+        done.append((t, round(frac, 4)))
+    print(json.dumps({"style": a.style, "lifted": len(done), "tiles": done}))
+
 # ----------------------------------------------------------------------------- fetch
 def cmd_fetch(a):
     import urllib.request
@@ -318,5 +378,9 @@ if __name__ == "__main__":
     s = sub.add_parser("sheet"); s.add_argument("tiles_dir"); s.add_argument("hd"); s.add_argument("photo"); s.add_argument("png")
     s.add_argument("--tiles", required=True)
     s = sub.add_parser("fetch"); s.add_argument("cc0")
+    s = sub.add_parser("frames"); s.add_argument("photo"); s.add_argument("labels"); s.add_argument("usage"); s.add_argument("out")
+    s.add_argument("--style", required=True); s.add_argument("--tiles", default="", help="only these tiles (no wall test)")
+    s.add_argument("--floor", type=float, default=FRAME_FLOOR); s.add_argument("--min-frac", type=float, default=0.002)
+    s.add_argument("--max-frac", type=float, default=0.20); s.add_argument("--min-mean", type=float, default=0.20)
     a = ap.parse_args()
     globals()["cmd_" + a.cmd](a)
