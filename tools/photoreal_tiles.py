@@ -34,6 +34,7 @@ Remix device, whose PBR layer is keyed by the HD set's texture hashes.
     photoreal_tiles.py build    <hd dir> <labels.json> <cc0 dir> <out dir> [--esrgan dir] [--tiles a,b] [--jobs N]
     photoreal_tiles.py sheet    <64px dir> <hd dir> <photo dir> <png> --tiles a,b,c
     photoreal_tiles.py fetch    <cc0 dir>                           download the CC0 materials
+    photoreal_tiles.py resharpen <photo dir> <hd dir> <out dir> --tiles a,b   restore the art-scale contrast
     photoreal_tiles.py frames   <photo dir> <labels.json> <usage.json> <out dir> --style bil
                                         lift thin true-black frame bars of wall tiles (pm12)
 
@@ -348,6 +349,38 @@ def cmd_frames(a):
         done.append((t, round(frac, 4)))
     print(json.dumps({"style": a.style, "lifted": len(done), "tiles": done}))
 
+# ----------------------------------------------------------------------------- resharpen
+def band(L, k):
+    from scipy import ndimage as ndi
+    return ndi.gaussian_filter(L, 1.5 * k, mode="wrap") - ndi.gaussian_filter(L, 10.0 * k, mode="wrap")
+
+def cmd_resharpen(a):
+    """pm-photo-tiles-roof-and-brick-softer-than-plain-hd: a photo tile built on the clean ESRGAN base can
+    carry less contrast at the art's own scale (a roof's corrugation, a wall's mortar) than the plain HD
+    tile, so in the street views it reads softer. Here each listed photo tile's own band (gaussian 1.5 to 10
+    texels of 512: the art's structure, not the fine crackle the SD upscale put into the HD set) is raised
+    until its energy matches the HD tile's band (gain at most --max-gain); nothing is taken from the HD
+    tile itself. Tiles already as sharp are left alone. Reads <photo dir>, writes <out dir>."""
+    os.makedirs(a.out, exist_ok=True)
+    done = []
+    for t in [int(x) for x in a.tiles.split(",") if x]:
+        src = os.path.join(a.photo, "tile_%04d.dds" % t); hd = os.path.join(a.hd, "tile_%04d.dds" % t)
+        if not (os.path.exists(src) and os.path.exists(hd)): continue
+        ph = read_dds_rgba(src); h = read_dds_rgba(hd)
+        if h.shape != ph.shape:
+            h = np.asarray(Image.fromarray((h * 255).astype(np.uint8)).resize(ph.shape[:2][::-1], Image.LANCZOS)).astype(np.float32) / 255
+        k = ph.shape[0] / 512.0
+        bp = band(lum(ph[..., :3]), k); bh = band(lum(h[..., :3]), k)
+        m = ph[..., 3] > 0.5
+        sp, sh = float(bp[m].std()), float(bh[m].std())
+        if sp <= 1e-4 or sp >= a.target * sh: continue
+        g = min(a.max_gain, a.target * sh / sp)
+        out = ph.copy()
+        out[..., :3] = np.clip(ph[..., :3] + ((g - 1.0) * bp)[..., None], 0, 1)
+        write_dds(os.path.join(a.out, "tile_%04d.dds" % t), out)
+        done.append((t, round(sp / sh, 3), round(g, 2)))
+    print(json.dumps({"resharpened": len(done), "tiles": done}))
+
 # ----------------------------------------------------------------------------- fetch
 def cmd_fetch(a):
     import urllib.request
@@ -378,6 +411,9 @@ if __name__ == "__main__":
     s = sub.add_parser("sheet"); s.add_argument("tiles_dir"); s.add_argument("hd"); s.add_argument("photo"); s.add_argument("png")
     s.add_argument("--tiles", required=True)
     s = sub.add_parser("fetch"); s.add_argument("cc0")
+    s = sub.add_parser("resharpen"); s.add_argument("photo"); s.add_argument("hd"); s.add_argument("out")
+    s.add_argument("--tiles", required=True); s.add_argument("--target", type=float, default=1.0)
+    s.add_argument("--max-gain", type=float, default=2.0)
     s = sub.add_parser("frames"); s.add_argument("photo"); s.add_argument("labels"); s.add_argument("usage"); s.add_argument("out")
     s.add_argument("--style", required=True); s.add_argument("--tiles", default="", help="only these tiles (no wall test)")
     s.add_argument("--floor", type=float, default=FRAME_FLOOR); s.add_argument("--min-frac", type=float, default=0.002)

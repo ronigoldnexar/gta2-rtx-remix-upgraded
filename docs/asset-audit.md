@@ -250,3 +250,19 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   showed). `tools/awning_sign_tile.py` writes a new photo tile at 1024 px: the panel in its own tone with the old
   marks gone, crisp grey arrows where the art has them, and "GARAGE ENTRANCE" / "KEEP CLEAR" in the art's two text
   blocks (DejaVu Sans Condensed Bold, rendered into the tile). Street views only; Remix keeps the HD tile.
+- **Photo tiles softer than the plain HD set** (pm-photo-tiles-roof-and-brick-softer-than-plain-hd): a scan of every
+  photo tile against its plain HD tile (edge energy of the luminance at 256 px) found 37 tiles under 0.85 (0.54-0.84;
+  graffiti 382/383, posterised on purpose by FIX-WORLD-7, and the flat bil 639 left out). The photo set is built on a
+  clean ESRGAN base, which is softer at the art's scale, while the HD set's extra edge energy is partly the SD
+  upscale's crackle, so falling back to the HD base would bring the crackle back. `photoreal_tiles.py resharpen`
+  instead raises each listed photo tile's own band (gaussian 1.5-10 texels of 512: corrugation, mortar, panel
+  edges) to the HD tile's band energy (gain 1.04-1.74), nothing taken from the HD tile. The m37 roof (wil 480,
+  corrugated metal) was labelled asphalt and its photo copy carried that material's grid: `tools/photo_label_fixes.json`
+  now gives it painted_metal and it is rebuilt on the HD base (its corrugation is real structure, as the golden showed).
+  The m37 brick (wil 405, the filer's second tile) had pale greenish mortar and flat bricks on the ESRGAN base; it is
+  rebuilt on the HD base too (saturated bricks, dark mortar gaps, as the old golden). 37 tiles changed in all
+  (wil 19 27 28 30 80 125 170 249 405 480 512 664 705 864 866 909 944; ste 39 403 448 452 545 556 720;
+  bil 16 64 95 115 153 224 379 543 660 671 800 813 887; bil 886 already matched its band).
+  Regenerate: `photoreal_tiles.py resharpen <photo>/<st> <hd>/<st> <photo>/<st> --tiles <list above>` (405, 480 by
+  `build --tiles 405,480 --fixes tools/photo_label_fixes.json` without --esrgan),
+  then `frames` again.
