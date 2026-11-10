@@ -1306,10 +1306,29 @@ down within 0.9 s (`view: peds`).
 | fixaim1_as7 | assist, event-based tap | 8/10 | 9/9 | every held press reached the game (19 of 19) |
 | fixaim1_rb2 | assist on fork HEAD 7d16bbe3, fire key first in the read | 9/9 | 9/10 | `melee: swings=19 with_target=14 contacts=18 (95%) ... no_contact=1`; the one miss: the 0.7 s bound, heading 47 degrees off as the man walked away |
 
+| fixaim1_rb4 / rb3f | 73e52e47 (pushed) | 9/10 | 10/10 | `melee: swings=10 ... contacts=10 (100%)` in first person; third's one miss `no_contact` |
+
 Every miss has its line (`aim: assist ... let go: <why>`, `melee: swing N MISS: <reason>`). Frames (rb2, timed from the
 `fig: hit` lines): third person, the hero on the victim and the victim staggering at contact; first person, the fists
 thrown at contact but the victim **not in the picture**: a body within 0.25 block is under the first-person view
 (short of a shipping frame: the victim should be seen taking the blow). Classic: vreg spawn_classic 0 tiles.
+
+**Guns (B9b), measured, not solved.** `linux/docker/fixaim1_fight.py` (keys `keys_fixaim1_fight.sh`): 3 minutes in
+third person with a gun (set_player_ammo=300), turned toward the nearest civilian to within about 20 degrees (as
+coarse as the camera-relative arrows allow), single taps; re-arms after a bust. The owner's counter at the end:
+
+| run | assist | shots | with_target | hits | on_highlighted |
+|---|---|---|---|---|---|
+| fixaim1_gun0 | off | 37 | 17 (46 %) | 4 | 1 (25 %) |
+| fixaim1_gun2 | on | 22 | 15 (68 %) | 4 | 3 (75 %) |
+| fixaim1_gun3 | on + lead (not shipped) | 29 | 28 (97 %) | 3 | 3 (100 %) |
+
+The assist turns him onto the person (within the angle of a quarter block) and the reticle brackets that person, so
+the shots now go at someone; but at 3-6 blocks against a man running from the first shot most still miss while aimed
+within 2 degrees (hits came at 1-3.3 blocks: `aim: hit ... 0.53 s after the shot, 3.3 along`). Leading him by his
+measured velocity at ~6.5 blocks a second of bullet flight (gun3) did not raise the hits and is not shipped. Open:
+the game's bullet range and spread (read the fire routine as FUN_00433D00 was read for the fist), then lead or range-gate.
+gun1 was busted 10 s in (its hits brought the police; the runner now re-arms).
 
 `melee:` (owner10nov B9a, always on, every 10 s): `melee: swings= with_target= contacts= (%) misses: nothing_in_range=
 outside_arc= no_contact= assist=`, and one `melee: swing N HIT|MISS: <reason>; nearest D block A deg off his facing`

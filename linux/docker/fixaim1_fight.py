@@ -28,8 +28,19 @@ D.calibrate_turn()
 pick(166.5, 140.5, 2, "pistol")
 T.warp(F.WEST + 6.0, F.PAV_Y, 2, why="fixaim1 fight: the pavement"); time.sleep(2.0)
 F.view_to("third", "third person for the fight"); time.sleep(10.0); F.view_to("third", "third (again)")
-t_end = time.time() + float(os.environ.get("FIGHT_SECS", "180")); taps = 0
+def weapon_now():
+    m = None
+    for m in re.finditer(r"view: mission .*? weapon=(\w+)", D.log_tail()[-20000:]): pass
+    return m.group(1) if m else "?"
+
+
+t_end = time.time() + float(os.environ.get("FIGHT_SECS", "180")); taps = 0; rearms = 0
 while time.time() < t_end:
+    if weapon_now() == "none":   # busted or wasted: the gun is gone; pick it up again and go back (the clock runs on)
+        rearms += 1; mark(f"FIGHT weapon gone (busted/wasted): re-arming {rearms}")
+        time.sleep(3.0); pick(166.5, 140.5, 2, "pistol")
+        T.warp(F.WEST + 6.0, F.PAV_Y, 2, why="fixaim1 fight: back to the pavement"); time.sleep(2.0)
+        F.view_to("third", "third after re-arming"); continue
     s = D.wait_state()
     if s["driving"]: tap("Return", 0.3); time.sleep(2); continue
     if F.current_view() != "third": F.view_to("third", "back to third")
@@ -47,7 +58,7 @@ while time.time() < t_end:
     time.sleep(0.45)
 time.sleep(11.0)   # the counter line is written every 10 s
 lines = [l for l in open(D.LOG, encoding="latin-1") if "aim: shots=" in l]
-mark(f"FIGHT taps {taps}; the owner's counter: {lines[-1].split('] ', 1)[-1].strip() if lines else 'none'}")
+mark(f"FIGHT taps {taps} rearms {rearms}; the owner's counter: {lines[-1].split('] ', 1)[-1].strip() if lines else 'none'}")
 fl = [l for l in open(D.LOG, encoding="latin-1") if "aim: fists swings=" in l]
 if fl: mark("FIGHT swing tally: " + fl[-1].split("] ", 1)[-1].strip())
 mark("end")
