@@ -443,6 +443,7 @@ private:
     float boomClear_ = 0.0f;          // seconds since the solve last pulled the boom in
     bool boomKnown_ = false;
     float bodyLift_ = 0.0f;           // FIX-CAMERA-3: the shown eye's rise over his head when the walls pull the boom into him
+    float pocket_ = 0.0f;             // FIX-CAMERA-15: the crane over a car stopped in a pocket (0..1)
     float carRaise_ = 0.0f;           // FIX-CAMERA-6: the shown eye's rise over his own roof with the boom pulled in
     float carLift_ = 0.0f;            // FIX-CAMERA-2: the shown eye's rise over a car or wreck beside it
     bool boomInVehicle_ = false;      // the boom was last solved at the wheel (a change restarts it)

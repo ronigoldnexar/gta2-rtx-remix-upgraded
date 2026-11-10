@@ -1643,6 +1643,7 @@ void ViewCameraSolver::Reset() {
     finalYawKnown_ = false;
     shownPoseKnown_ = false;
     carRaise_ = 0.0f;
+    pocket_ = 0.0f;
     floorSettled_ = false;
     status_ = "classic";
     velX_ = velZ_ = 0.0f;
@@ -4946,6 +4947,58 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                         Log("cam: car frame clamp yaw %+.1f pitch %.1f -> %.1f (box %.1f..%.1f deg, margin %.1f)", WrapAngle(camYaw - yawBefore) / kDegToRad,
                             pitchBefore / kDegToRad, camPitch / kDegToRad, offMin / kDegToRad, offMax / kDegToRad, mh / kDegToRad);
                 }
+            }
+        }
+    }
+    // FIX-CAMERA-15 (pfl28-residual-driveoff-cut-lands-on-pulled-in-boom-car-drops-past-bottom-edge-0p3s): a car
+    // stopped in a pocket (pinned at a building's corner, turning in place against it) leaves the chase eye no place
+    // behind it: the walls and the berth put the shown eye over the car's own body, 0.2-0.5 from its centre, raised a
+    // block and capped at 35 degrees down, so the car sat under the frame's bottom edge (box bottom 2-11 frame heights,
+    // runs cam14_rev12 f1059-1078, tri32_rev). When the shown eye is nearer the car's centre than its half length and
+    // a margin and the car is slow, the camera cranes up over the car (to about 0.9 + half its length over the roof,
+    // as far as the space over it is open) and looks down at it, past the 35 degree cap (to 80): the car whole in
+    // the middle of the frame. Eased in over ~0.12 s and out over ~0.5 s, so it is a crane move, not a cut.
+    // GTA2DX9_CAM_CAR_POCKET=0 turns it off (A/B).
+    {
+        static int pocketOn = -1;
+        if (pocketOn < 0) { char b[8] = {}; pocketOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_POCKET", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        const bool mouseHasIt = look.lastMoved > 0.0 && Now() - look.lastMoved < s.tpReturnDelay;
+        float want = 0.0f;
+        const float halfL = exitCarHalfLength_ > 0.1f ? exitCarHalfLength_ : 0.6f;
+        const float tall = (std::max)(exitCarHeight_, 0.3f);
+        const float flatD = std::hypot(eye.x - px, eye.z - pz);
+        if (pocketOn && inVehicle && mode == ViewMode::ThirdPerson && s.tpCollide && exitCar_ == player.vehicle && deathMix_ < 0.01f &&
+            !mouseHasIt) {
+            const float need = halfL + 0.45f;
+            const float slow = (std::min)(1.0f, (std::max)(0.0f, 2.0f - speed));
+            want = (std::min)(1.0f, (std::max)(0.0f, (need - flatD) / 0.35f)) * slow;
+        }
+        if (!(dt > 0.0f && dt < 0.25f)) pocket_ = want;
+        else pocket_ += (want - pocket_) * (1.0f - std::exp(-dt / (want > pocket_ ? 0.12f : 0.5f)));
+        if (pocket_ < 1e-3f) pocket_ = 0.0f;
+        if (pocket_ > 0.0f) {
+            const float topY = baseY + tall + 0.9f + 0.5f * halfL;
+            float lift = (std::max)(0.0f, topY - eye.y);
+            // not into a ceiling or a deck over the car: cells, then the drawn mesh
+            for (int k = 1; k <= 6 && lift > 0.0f; ++k) {
+                const float y = eye.y + lift * k / 6.0f + 0.1f;
+                if (q.blocked && solidAt(eye.x, y, eye.z)) { lift = (std::max)(0.0f, lift * (k - 1) / 6.0f); break; }
+            }
+            float t = 1.0f;
+            if (lift > 0.0f && eyecol::SegmentHitSolid(eye, gta2::Vec3{eye.x, eye.y + lift + 0.15f, eye.z}, &t))
+                lift = (std::max)(0.0f, (lift + 0.15f) * t - 0.15f);
+            eye.y += lift * pocket_;
+            const float fx = px - eye.x, fz = pz - eye.z, fl = std::hypot(fx, fz);
+            const float pitchCar = (std::max)(-80.0f * kDegToRad, std::atan2(baseY + 0.4f * tall - eye.y, (std::max)(fl, 0.05f)));
+            const float yawCar = fl > 0.25f ? std::atan2(fx, fz) : camYaw;
+            camPitch += (pitchCar - camPitch) * pocket_;
+            camYaw = WrapAngle(camYaw + WrapAngle(yawCar - camYaw) * pocket_);
+            finalYaw_ = camYaw;
+            lastPitch_ = camPitch;
+            if (cameraLogOn()) {
+                static int every = 0;
+                if ((++every % 5) == 1)
+                    Log("cam: car pocket %.2f lift %.2f flat %.2f (need %.2f) pitch %.1f", pocket_, lift, flatD, halfL + 0.45f, camPitch / kDegToRad);
             }
         }
     }

@@ -1183,3 +1183,18 @@ went to the frame's bottom edge (A-Type 042) or down over the gauges.
   blocks behind the 1.92-block truck's centre, outside it. gamerun/cam15_fire.py waits for the bounds to hold the
   player before boarding: the truck is drawn in every frame from the boarding to the drive-off. Any probe that
   warps must settle the game camera this way before filming cars or figures.
+- pfl28 residual (a car stopped in a pocket): pinned at a building's corner or turning in place against a wall, the
+  car leaves the chase eye no place behind it; the walls and the car berth put the shown eye over the car's own body
+  (0.2-0.5 from its centre), raised a block but capped at 35 degrees down, so the car sat under the frame's bottom
+  edge or out of the frame for up to 0.5 s (cam14_rev12, tri32_rev; cam15_pk2: the frame held only pavement). Now,
+  when the shown eye is nearer the car's centre than half its length plus 0.45 and the car is slow (under 2 b/s,
+  full under 1), the camera cranes up over the car (to 0.9 + half its length over the roof, as far as cells and the
+  mesh over it are open) and looks down at it past the 35 degree cap (to 80), eased in over ~0.12 s and out over
+  ~0.5 s. Log: `cam: car pocket <share> lift <l> flat <d> (need <n>) pitch <deg>`. `GTA2DX9_CAM_CAR_POCKET=0` turns it
+  off (A/B). Probe: gamerun/keys_cam15_pocket.sh (cam15_pocket.py: warp, settle the game camera, F10 scene car at
+  wil 187.5,197.5, reverse into the building behind with the wheel over, shuffle, drive off; INI_SED
+  scene_xy=186.0,200.4) and keys_cam11_rev.sh, both measured with gamerun/cam14_box.py (past-edge / over-half /
+  bottom / lens). Before (cam15_pk2) 30/22/98/39; after (cam15_pk3) 0/1/50/0; the four wall reverses (cam15_rev1)
+  0/1/17/0. The paths still wander per run (the pocket is reached at a different spot each time), so these are not
+  same-spot A/Bs. Short of AAA: in a pocket the view is a steep look-down (55-75 degrees) rather than a chase view; an
+  AAA rig would pass the lens through the building or fade it.
