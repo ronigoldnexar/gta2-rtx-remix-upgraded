@@ -306,3 +306,14 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   set is never loaded in classic or on a Remix device; the HD tiles and their Remix hashes are untouched).
 - The "streaked wall" of the same report was not the tile: it was the plain renderer's SSAO drawing 10 px vertical
   stripes on every wall (docs/visuals-plain.md, SSAO row).
+- **ptrmx28, hairline poles and black dashes in the sky** (`src/world_mesh.cpp` AddLampPole). Not a prop: the map's
+  tall street lights are a pole PICTURE on flat side faces (wil 757, ste 97, bil 577: one 3-4 texel opaque strip down
+  the middle of a see-through tile, stacked 4 levels on a cell's two flat faces; the arm and head are flat lids, wil
+  750, a level up on the cells beside it). From above that reads as a pole in perspective; in the street views each
+  card is a plane, edge-on along the avenue (a 1 px hairline past the frame top, pale under Remix), and far off the
+  alpha-tested strip drops out of the low mips so only the heads stayed: black dashes in the sky. The street views
+  now hide the card and stand an 8-sided round pole on the strip's line (the strip's width, its own texels, the
+  opaque street-only group), one per card per level (wil 721, ste 683, bil 1261 segments; a card's back on the same
+  plane shares it). A pole tile is detected from the art (one strip 1..8 texels wide, opaque on >= 90 % of rows,
+  away from the tile's edges, every other column <= 4 % opaque). Classic view: the cards as before.
+  `GTA2DX9_LAMP_POLES=0` keeps the cards (A/B); log `lamp poles (street views: ...): on, N segment(s)`.

@@ -1527,6 +1527,8 @@ bool WorldView::EnsureWorldLoaded() {
         const gta2::OverheadDecalStats od = gta2::LastOverheadDecalStats();
         Log("overhead decals (left out of the street views): %d tile(s), %d lid(s); %d sloped sign lid(s) stood up as boards",
             od.tiles, od.lids, gta2::LastUprightBoards());
+        Log("lamp poles (street views: round poles for the map's flat pole cards): %s, %d segment(s)",
+            gta2::LampPoles() ? "on" : "off (GTA2DX9_LAMP_POLES=0)", gta2::LastLampPoleSegments());
         const gta2::MapTreeStats mt = gta2::LastMapTreeStats();
         Log("map trees (street views: models): %d tree(s), %d face(s) left out; grating undersides: %d", mt.trees, mt.faces, gta2::LastGrateUndersides());
         Log("plain window backs (street views: the composed side seen through): %d face(s) left out", gta2::LastPlainPanelSides());

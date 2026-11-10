@@ -401,6 +401,13 @@ public:
     // (AddStreetFill), 2 the apron past the map's edge (AddApron, WRAP addressing). See
     // TileBatch::streetOnly.
     void SetStreetMode(int mode) { streetMode_ = mode; }
+    const Style& StyleRef() const { return style_; }
+    // One lamp pole per spot (AddLampPole): false if one already stands at x, z from height y.
+    bool ClaimPole(float x, float z, float y) {
+        return poles_.insert(std::make_tuple(static_cast<int>(std::lround(x * 200.0f)), static_cast<int>(std::lround(z * 200.0f)),
+                                             static_cast<int>(std::lround(y * 10.0f)))).second;
+    }
+    std::set<std::tuple<int, int, int>> poles_;
 
     // While set, a lid that AddFaceUv emits is left out of the street views (see the
     // overhead decals in BuildWorldMesh); the classic view draws it as before.
@@ -1439,6 +1446,94 @@ void AddPartialBlock(MeshBuilder* builder, const Block& block, int slopeType,
     }
 }
 
+// pmy3/ptrmx28 (FIX-WORLD-10): the map draws its tall street lights as a pole PICTURE on flat side faces
+// (wil 757: a 3-texel dark strip down the middle of a see-through tile, stacked 4 levels on the T and B
+// faces of one cell; the arm and head are flat lids, 750, a level up on the cells beside it). From above
+// that is a pole in perspective. In the street views each card is a flat plane: looking along the avenue
+// it is edge-on, a 1 px hairline running up past the frame (pale under Remix), and far off the alpha-
+// tested strip drops out of the low mips so the heads hang as black dashes in the sky. The street views
+// take the card out and stand a round pole on the strip's line instead (8 sides, the strip's own width,
+// its texels for colour), opaque and street-only (TileBatch::streetOnly): the classic view keeps the card.
+// GTA2DX9_LAMP_POLES=0: the cards as before (A/B).
+bool g_lampPoles = [] { const char* e = getenv("GTA2DX9_LAMP_POLES"); return !(e && e[0] == '0'); }();
+int g_lampPoleSegments = 0;
+
+// A pole tile: one opaque vertical strip (1..8 texels wide, opaque on >= 90 % of the rows) on an
+// otherwise see-through tile (every other column opaque on <= 4 % of the rows). [c0, c1) in texels.
+bool PoleStrip(const Style& style, int tile, int* c0, int* c1) {
+    static const Style* s_style = nullptr;
+    static std::vector<int16_t> s_cache;   // -1 unknown, 0 no, else c0 + 1 + 100 * c1
+    if (s_style != &style) { s_style = &style; s_cache.assign(static_cast<size_t>(style.TileCount()), -1); }
+    if (tile <= 0 || tile >= style.TileCount()) return false;
+    int16_t& c = s_cache[static_cast<size_t>(tile)];
+    if (c < 0) {
+        c = 0;
+        const Tile& art = style.GetTile(tile);
+        if (art.hasTransparency && art.pixels.size() == static_cast<size_t>(kTilePixels)) {
+            int lo = -1, hi = -1; bool ok = true;
+            for (int x = 0; x < kTileSize && ok; ++x) {
+                int opaque = 0;
+                for (int y = 0; y < kTileSize; ++y) if (art.pixels[static_cast<size_t>(y) * kTileSize + x] >> 24) ++opaque;
+                if (opaque * 10 >= kTileSize * 9) {
+                    if (lo < 0) lo = x;
+                    else if (hi != x - 1) ok = false;   // a second strip
+                    hi = x;
+                } else if (opaque * 25 > kTileSize) {
+                    ok = false;
+                }
+            }
+            // away from the tile's edges: a strip on the border is a trim or a frame, not a free-standing pole
+            if (ok && lo >= 8 && hi < kTileSize - 8 && hi - lo + 1 <= 8) c = static_cast<int16_t>(lo + 1 + 100 * (hi + 1));
+        }
+    }
+    if (c <= 0) return false;
+    *c0 = c % 100 - 1; *c1 = c / 100;
+    return true;
+}
+
+// The round pole standing on a pole card's strip (see g_lampPoles). False if the card is not one.
+bool AddLampPole(MeshBuilder* builder, const Style& style, const Face& face, const std::array<Vec3, 4>& corners,
+                 const std::array<Uv, 4>& uv) {
+    int c0 = 0, c1 = 0;
+    if (!face.IsFlat() || !PoleStrip(style, face.Tile(), &c0, &c1)) return false;
+    float lo = corners[0].y, hi = corners[0].y;
+    for (const Vec3& p : corners) { lo = (std::min)(lo, p.y); hi = (std::max)(hi, p.y); }
+    if (hi - lo < 0.9f) return false;
+    int a = -1, b = -1;   // the two bottom corners
+    for (int i = 0; i < 4; ++i) if (std::fabs(corners[static_cast<size_t>(i)].y - lo) < 0.01f) { if (a < 0) a = i; else b = i; }
+    if (a < 0 || b < 0) return false;
+    int ta = -1;          // the corner above a
+    for (int i = 0; i < 4; ++i)
+        if (i != a && std::fabs(corners[static_cast<size_t>(i)].x - corners[static_cast<size_t>(a)].x) < 0.01f &&
+            std::fabs(corners[static_cast<size_t>(i)].z - corners[static_cast<size_t>(a)].z) < 0.01f) ta = i;
+    if (ta < 0) return false;
+    const Uv ua = uv[static_cast<size_t>(a)], ub = uv[static_cast<size_t>(b)], ut = uv[static_cast<size_t>(ta)];
+    if (std::fabs(ub.u - ua.u) < 0.5f || std::fabs(ub.v - ua.v) > 0.01f || std::fabs(ut.u - ua.u) > 0.01f) return false;   // strip not upright on this face
+    const float uc = 0.5f * (c0 + c1) / kTileSize;
+    const float s = (uc - ua.u) / (ub.u - ua.u);
+    const Vec3& A = corners[static_cast<size_t>(a)];
+    const Vec3& B = corners[static_cast<size_t>(b)];
+    const float px = A.x + (B.x - A.x) * s, pz = A.z + (B.z - A.z) * s;
+    if (!builder->ClaimPole(px, pz, lo)) return true;   // a card's back on the same plane: one pole
+    const float r = (std::max)(0.5f * static_cast<float>(c1 - c0) / kTileSize, 0.016f);
+    const float uIn0 = (c0 + 0.5f) / kTileSize, uIn1 = (c1 - 0.5f) / kTileSize;
+    constexpr int kSides = 8;
+    builder->SetStreetMode(1);
+    for (int k = 0; k < kSides; ++k) {
+        const float a0 = 6.2831853f * k / kSides, a1 = 6.2831853f * (k + 1) / kSides, am = 0.5f * (a0 + a1);
+        const float x0 = px + r * std::cos(a0), z0 = pz + r * std::sin(a0), x1 = px + r * std::cos(a1), z1 = pz + r * std::sin(a1);
+        // across the strip's texels as the facet turns: its lit and shaded edges stay where the art put them
+        const float f0 = 0.5f + 0.5f * std::cos(a0), f1 = 0.5f + 0.5f * std::cos(a1);
+        const float u0 = uIn0 + (uIn1 - uIn0) * f0, u1 = uIn0 + (uIn1 - uIn0) * f1;
+        builder->AddPlainQuad(face.Tile(), {{{x0, lo, z0}, {x1, lo, z1}, {x1, hi, z1}, {x0, hi, z0}}},
+                              {std::cos(am), 0.0f, std::sin(am)},
+                              {{{u0, ua.v}, {u1, ua.v}, {u1, ut.v}, {u0, ut.v}}});
+    }
+    builder->SetStreetMode(0);
+    ++g_lampPoleSegments;
+    return true;
+}
+
 void AddBlock(MeshBuilder* builder, const Block& block, const SlopeInfo& slope,
               const PartialCuts& cuts, int bx, int by, int level) {
     if (block.lid && block.GroundType() == 1) builder->MarkRoadLid(block.lid.Tile());   // the street views' tone match
@@ -1541,24 +1636,41 @@ void AddBlock(MeshBuilder* builder, const Block& block, const SlopeInfo& slope,
         builder->SetStreetHiddenAll(on);
     };
     const bool hideAllBefore = builder->StreetHiddenAll();
+    // A pole card (AddLampPole): the round pole goes in for the street views and the card is
+    // left out of them; the classic view draws the card exactly as before.
+    auto poleCard = [&](const Face& face, const std::array<Vec3, 4>& corners, const uint8_t (&table)[8]) {
+        if (!g_lampPoles || ramp || hideAllBefore || !face.IsFlat()) return false;
+        if (!AddLampPole(builder, builder->StyleRef(), face, corners, FaceUvs(face, table))) return false;
+        builder->SetStreetHiddenAll(true);
+        return true;
+    };
+    auto poleDone = [&](bool hid) { if (hid) builder->SetStreetHiddenAll(false); };
     if (SoloFace(block.left, block.right)) {
         streetHide(1, true);
+        const bool pole = poleCard(block.left, leftCorners, kLeftFlags);
         addWall(block.left, leftCorners, kWest, kLeftFlags, leftTop, leftHeights, leftU);
+        poleDone(pole);
         if (!hideAllBefore) streetHide(1, false);
     }
     if (SoloFace(block.right, block.left)) {
         streetHide(2, true);
+        const bool pole = poleCard(block.right, rightCorners, kRightFlags);
         addWall(block.right, rightCorners, kEast, kRightFlags, rightTop, rightHeights, rightU);
+        poleDone(pole);
         if (!hideAllBefore) streetHide(2, false);
     }
     if (SoloFace(block.top, block.bottom)) {
         streetHide(4, true);
+        const bool pole = poleCard(block.top, topCorners, kTopFlags);
         addWall(block.top, topCorners, kNorth, kTopFlags, northTop, northHeights, northU);
+        poleDone(pole);
         if (!hideAllBefore) streetHide(4, false);
     }
     if (SoloFace(block.bottom, block.top)) {
         streetHide(8, true);
+        const bool pole = poleCard(block.bottom, bottomCorners, kBottomFlags);
         addWall(block.bottom, bottomCorners, kSouth, kBottomFlags, southTop, southHeights, southU);
+        poleDone(pole);
         if (!hideAllBefore) streetHide(8, false);
     }
 
@@ -1574,36 +1686,40 @@ void AddBlock(MeshBuilder* builder, const Block& block, const SlopeInfo& slope,
     // FUN_00470060 draws the left tile in left order, FUN_00470250 the right
     // tile in right order.
     if (PanelBack(block.right, block.left)) {
-        builder->AddFace(block.right,
-                         {{{xWest, yNW, zNorth},     // v0 top    (x, y)
-                           {xWest, base, zNorth},    // v1 bottom (x, y)
-                           {xWest, base, zSouth},    // v2 bottom (x, y+1)
-                           {xWest, ySW, zSouth}}},   // v3 top    (x, y+1)
-                         kEast, kRightFlags, DecalPush(block.left), true);
+        const std::array<Vec3, 4> c = {{{xWest, yNW, zNorth},     // v0 top    (x, y)
+                                        {xWest, base, zNorth},    // v1 bottom (x, y)
+                                        {xWest, base, zSouth},    // v2 bottom (x, y+1)
+                                        {xWest, ySW, zSouth}}};   // v3 top    (x, y+1)
+        const bool pole = poleCard(block.right, c, kRightFlags);
+        builder->AddFace(block.right, c, kEast, kRightFlags, DecalPush(block.left), true);
+        poleDone(pole);
     }
     if (PanelBack(block.left, block.right)) {
-        builder->AddFace(block.left,
-                         {{{xEast, base, zNorth},    // v0 bottom (x+1, y)
-                           {xEast, yNE, zNorth},     // v1 top    (x+1, y)
-                           {xEast, ySE, zSouth},     // v2 top    (x+1, y+1)
-                           {xEast, base, zSouth}}},  // v3 bottom (x+1, y+1)
-                         kWest, kLeftFlags, DecalPush(block.right), true);
+        const std::array<Vec3, 4> c = {{{xEast, base, zNorth},    // v0 bottom (x+1, y)
+                                        {xEast, yNE, zNorth},     // v1 top    (x+1, y)
+                                        {xEast, ySE, zSouth},     // v2 top    (x+1, y+1)
+                                        {xEast, base, zSouth}}};  // v3 bottom (x+1, y+1)
+        const bool pole = poleCard(block.left, c, kLeftFlags);
+        builder->AddFace(block.left, c, kWest, kLeftFlags, DecalPush(block.right), true);
+        poleDone(pole);
     }
     if (PanelBack(block.bottom, block.top)) {
-        builder->AddFace(block.bottom,
-                         {{{xWest, yNW, zNorth},     // v0 top    (x,   y)
-                           {xEast, yNE, zNorth},     // v1 top    (x+1, y)
-                           {xEast, base, zNorth},    // v2 bottom (x+1, y)
-                           {xWest, base, zNorth}}},  // v3 bottom (x,   y)
-                         kSouth, kBottomFlags, DecalPush(block.top), true);
+        const std::array<Vec3, 4> c = {{{xWest, yNW, zNorth},     // v0 top    (x,   y)
+                                        {xEast, yNE, zNorth},     // v1 top    (x+1, y)
+                                        {xEast, base, zNorth},    // v2 bottom (x+1, y)
+                                        {xWest, base, zNorth}}};  // v3 bottom (x,   y)
+        const bool pole = poleCard(block.bottom, c, kBottomFlags);
+        builder->AddFace(block.bottom, c, kSouth, kBottomFlags, DecalPush(block.top), true);
+        poleDone(pole);
     }
     if (PanelBack(block.top, block.bottom)) {
-        builder->AddFace(block.top,
-                         {{{xWest, base, zSouth},    // v0 bottom (x,   y+1)
-                           {xEast, base, zSouth},    // v1 bottom (x+1, y+1)
-                           {xEast, ySE, zSouth},     // v2 top    (x+1, y+1)
-                           {xWest, ySW, zSouth}}},   // v3 top    (x,   y+1)
-                         kNorth, kTopFlags, DecalPush(block.bottom), true);
+        const std::array<Vec3, 4> c = {{{xWest, base, zSouth},    // v0 bottom (x,   y+1)
+                                        {xEast, base, zSouth},    // v1 bottom (x+1, y+1)
+                                        {xEast, ySE, zSouth},     // v2 top    (x+1, y+1)
+                                        {xWest, ySW, zSouth}}};   // v3 top    (x,   y+1)
+        const bool pole = poleCard(block.top, c, kTopFlags);
+        builder->AddFace(block.top, c, kNorth, kTopFlags, DecalPush(block.bottom), true);
+        poleDone(pole);
     }
 }
 
@@ -2639,6 +2755,8 @@ int g_boards = 0;
 }  // namespace
 
 int LastUprightBoards() { return g_boards; }
+int LastLampPoleSegments() { return g_lampPoleSegments; }
+bool LampPoles() { return g_lampPoles; }
 
 OverheadDecalStats LastOverheadDecalStats() { return g_overheadStats; }
 
@@ -2807,6 +2925,7 @@ std::vector<MapTree> FindMapTrees(const Map& map) {
 
 void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                     const PartialCuts& cuts, WorldMesh* out) {
+    g_lampPoleSegments = 0;
     // Prefer the game's own slope descriptors; fall back to deriving them when
     // they could not be read, so a map still builds without a live game.
     std::array<SlopeInfo, kSlopeTypeCount> resolved;

@@ -164,6 +164,10 @@ struct OverheadDecalStats { int tiles = 0, lids = 0; };
 OverheadDecalStats LastOverheadDecalStats();
 // Sloped see-through lids the street views stand up as boards (UprightBoard in world_mesh.cpp).
 int LastUprightBoards();
+// FIX-WORLD-10 (ptrmx28): flat lamp-pole cards stood up as round poles for the street views (AddLampPole),
+// one per card per level; GTA2DX9_LAMP_POLES=0 keeps the cards (LampPoles() false).
+int LastLampPoleSegments();
+bool LampPoles();
 
 // The map's own trees (defects pm8 / pm23): GTA2 draws a tree as a 2x2 group of lidless
 // corner ramps (slope types 49 NW, 50 NE, 51 SW, 52 SE) whose see-through cut faces (the
