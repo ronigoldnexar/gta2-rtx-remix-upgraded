@@ -11824,8 +11824,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (fadeTest < -1) { char b[8] = {}; fadeTest = GetEnvironmentVariableA("GTA2DX9_CAM_FADE_TEST", b, sizeof b) ? atoi(b) : -1; }
                 if (fadeTest > 0 && fadeTest < 100 && !heroFigure && !fpBody && CurrentViewMode() != ViewMode::Classic) pedLensAlpha = fadeTest / 100.0f;
             }
-            if (model && !sprite.shadowOnly && BehindView(gx, cy, gz, 0.6f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }
-            if (model && !sprite.shadowOnly && !kdSkipDraw && OutsideViewFrustum(gx, cy, gz, 0.75f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }   // beside the picture: not drawn, track kept
+            // FIX-COCKPIT-CAB-5 (pfl54 fire truck 017: no hands at all for the whole first-person leg; the stand-in fists
+            // before 2a23c9f8): his body at the wheel is placed under the eye, but its origin (the seat on the floor, in a
+            // tall cab 0.68 under the eye and behind it) fell past the frustum's bottom plane by more than the 0.75 margin
+            // and it was culled every frame. The body at the wheel is not culled by these two tests.
+            // GTA2DX9_FP_BODY_CULL_OLD=1: culled as before (A/B).
+            static const bool fpCullOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_BODY_CULL_OLD", b, sizeof b) && b[0] == '1'; }();
+            const bool fpNoCull = fpBody && !fpCullOld;
+            if (model && !sprite.shadowOnly && !fpNoCull && BehindView(gx, cy, gz, 0.6f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }
+            if (model && !sprite.shadowOnly && !kdSkipDraw && !fpNoCull && OutsideViewFrustum(gx, cy, gz, 0.75f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }   // beside the picture: not drawn, track kept
             if (heroFigure && model && CurrentViewMode() == ViewMode::FirstPerson) {
                 // FIX-FIGURE-10 pfl23: his chest and head both off the picture (under its bottom edge on the
                 // move into his eyes): he is out of the frame though inside the frustum's margin.

@@ -1398,6 +1398,10 @@ flat front still makes a bus, never a tank). Adding a vehicle means one table en
     body misses shows the rim without hands. Every such frame is counted: `cab: his body not drawn N frames (M in
     all)` once a second.
   A/B: `GTA2DX9_SEAT_KEY_OLD=1` (the old keying and let-go), `GTA2DX9_FP_STANDIN=1` (fists fill any gap).
+- **Tall cabs (the 017 fire truck in pfl54): no body at the wheel for the whole first-person leg** (the stand-in fists on
+  HEAD before, triage run tri49_pfl54). The body gate was open but the figure loop culled it: its origin (the seat on the
+  floor, 0.68 under the eye and behind it) fell past the frustum's bottom plane by more than the 0.75 margin. The body at
+  the wheel no longer goes through `BehindView` / `OutsideViewFrustum`. A/B `GTA2DX9_FP_BODY_CULL_OLD=1`.
 - Probes: the filer's `gamerun/qaexp34_hunt.py` (qa_run, 3 views x 30 s, add `-e GTA2DX9_FP_BODY_LOG=1 -e
   GTA2DX9_LOG_FIGURES=1`: `cockpit: body gate` every 15 frames, `seat:` lines) and `/mnt/gta2/qa/scenarios/dgh_hands`.
   The jack beside him is traffic-dependent: most hunt runs do not hit it; read `seat:`/`jack:` lines to know if a run
