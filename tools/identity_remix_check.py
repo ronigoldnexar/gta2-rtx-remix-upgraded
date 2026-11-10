@@ -67,6 +67,10 @@ def check_texture(models, mod, usda, tex):
     out["prim"] = blk is not None
     if blk is None:
         return out
+    # FIX-CAR-IDENTITY-6: a thin-walled translucent prim (FIX-REMIX-MATERIALS-5's car glass, f6689b5) has no albedo by
+    # design: its colour is the transmittance. Not a clay prim.
+    if "AperturePBR_Translucent" in blk and "transmittance_color" in blk:
+        out["translucent"] = True; return out
     m = re.search(r"diffuse_texture = @([^@]+)@", blk)
     out["albedo_file"] = m.group(1) if m else None
     if not m:
@@ -92,6 +96,8 @@ def verdict(r):
         return "FAIL", r["error"]
     if not r["prim"]:
         return "WARN", "no prim: legacy material (game texture, no PBR)"
+    if r.get("translucent"):
+        return "ok", "translucent (thin-walled glass: transmittance, no albedo)"
     if not r.get("albedo"):
         return "FAIL", f"prim without its albedo file {r.get('albedo_file')}: flat grey under Remix"
     if "albedo_read" in r:

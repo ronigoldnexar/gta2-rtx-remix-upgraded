@@ -898,4 +898,26 @@ orientation check counts 19 failures. The sky-cast change alone (HEAD meshes) mo
 - The paint probe's warp spot drifts: `out/fci6_post1` parked the car 1.5 blocks along (y 189.62 against 188.1), in a
   building's shadow, and every body read -25..-34 % (hue still right). Read the frame before a lightness FAIL;
   `out/fci6_post2` at 188.17 matched `fci6_cast1_paint`.
-- First person on foot has no body to probe; Remix: section 11.6 when run.
+- First person on foot has no body to probe.
+
+### 11.6 Under Remix: the same record, a lighter coat (acceptance 5)
+
+One Remix take of the gate's cars (`gamerun/frm2_remix.sh` + `keys_frm2_own.sh`, wil 13:00, forced records 013 red, 018
+white, 004 van36, 000 yellow, 063 green, 068 navy, 051 livery; poses high + side) against its plain twin (`keys_qa_frm2own`
+via qa_run), the 018/004/051 meshes re-oriented. Body = the pixels in the paint's hue band (white: neutral bright):
+
+| model | sprite | plain | Remix | L* sprite / plain / Remix | dE76 plain / Remix |
+|---|---|---|---|---|---|
+| 013 red | 133,65,65 | 109,47,47 | 173,109,104 | 36 / 28 / 53 | 8 / 17 |
+| 018 white | 215,215,215 | 210,212,213 | 179,174,164 | 86 / 85 / 71 | 1 / 16 |
+| 004 van36 | 70,99,85 | 48,68,56 | 57,73,59 | 39 / 27 / 29 | 13 / 11 |
+| 000 yellow | 200,180,50 | 144,132,28 | 153,135,49 | 73 / 54 / 56 | 22 / 24 |
+| 063 green | 60,120,60 | 57,127,54 | 109,156,90 | 45 / 47 / 60 | 8 / 15 |
+| 068 navy | 35,45,95 | 36,47,104 | 76,93,144 | 20 / 22 / 40 | 4 / 21 |
+| 051 livery | 189,115,27 | 118,81,16 | 203,145,61 | 55 / 37 / 64 | 27 / 13 |
+
+The record drives the Remix material (hue kept for every body), but dark and mid paints come up +13..+20 L* with less
+chroma (the coat's sky reflection) and white comes down 15 L* warm: the gta2hd paint prims' coat/roughness, written on the
+pmx11 order for FIX-REMIX-MATERIALS-5. Close regression-camera poses with some shaded flank: a finding, not a gate.
+`tools/identity_remix_check.py --only cars` now counts a thin-walled translucent prim (the car glass since f6689b5) as
+ok rather than "prim without its albedo": 519 of 519 car textures ok.
