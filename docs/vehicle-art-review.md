@@ -651,30 +651,33 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
 
 - **Floor pan residuals (ART-13's short-of-AAA list), fleet-wide in `tools/vehicle_art/underpan.py`, no per-model
   paint:**
-  - *Cover.* Every downward-facing face of the body's lower half (geometric normal y < -0.72) is copied 1.2 mm
-    outside itself into the pan's draw group and mapped planar to a new grime region of the shared atlas
-    (`R_GRIME`). The image-to-3D shells' projected texels (black voids, sprite smears) under the arches, sills,
-    bumpers and overhangs no longer show. Left out: faces the pan already hides; tyres (face centre inside 1.03 x
-    the wheel-split disc, outboard); textures named glass/tyre/wheel/hub/rim/seat/interior/dash/lamp and the kit's
-    own `underbody`. On a shell, inside the flank round each wheel (2 x r, 0.30-0.72 x the half width) faces that
-    lean down (y < -0.35) are covered too, since the noisy well kept black shards between the covered faces
-    otherwise (0.88 x / -0.12 took flank paint beside the arches on the narrow 002, `out/va14_up_a7`). On a kit body (marker wheels) the cover takes only the painted panels (`paint_*`, not
-    wheels), stays out of the wheel bands and off floor-level faces: the kit wells, bars and leaf channels are
-    authored, and half-covered strips of them read as dark teeth/combs (`out/va14_up_a2`..`a5` 004/018).
-  - *Wider pan.* Between and beyond the wells the pan follows the body's own half width at floor level (0.96 x,
+  - *Cover (shells and carkit v1 bodies).* Every downward-facing face of the body's lower half (geometric normal
+    y < -0.72) is copied 1.2 mm outside itself into the pan's draw group and mapped planar to a new grime region of
+    the shared atlas (`R_GRIME`). The image-to-3D shells' projected texels (black voids, sprite smears) under the
+    arches, sills, bumpers and overhangs no longer show. Left out: faces the pan already hides; tyres (face centre
+    inside 1.03 x the wheel-split disc, outboard); textures named glass/tyre/wheel/hub/rim/seat/interior/dash/lamp.
+    Inside the flank round each wheel (2 x r, 0.30-0.72 x the half width) faces that lean down (y < -0.35) are
+    covered too, since the noisy well kept black shards between the covered faces otherwise (0.88 x / -0.12 took
+    flank paint beside the arches on the narrow 002, `out/va14_up_a7`).
+  - *Kit bodies (vehicle_art2, marker wheels): geometry as ART-13* (0.80 x pan with its curled lip, 3 mm, parts,
+    no cover, no arms) minus the frame rails (theirs are authored at the same height, 0.8 mm apart); only the darker
+    atlas changes. Their undersides are authored, not projected texels. Note: the flipped 004 shows sawtooth combs
+    along its own rails at the later sun angle with ART-13's files too (`out/va14_up_b1` vs `b0` an hour earlier),
+    so they are not from this pass; they are still open (kit 004 self-overlap under the sun of 06:50 UTC).
+  - *Wider pan (shells).* Between and beyond the wells the pan follows the body's own half width at floor level (0.96 x,
     clamped 0.80-0.95 x the half width) instead of a fixed 0.80, with a flat edge (ART-13's 2 cm curled lip crossed the body's own floor panels
-    once the pan reached them and read as sawteeth, `out/va14_up_a6` 004). On the shells it hangs 6 mm under the measured
-    floor (was 3), clear of the cover's 1.2 mm copies of the floor faces. The kit bodies keep 3 mm (their authored
-    chassis boxes sit just under the floor).
+    once the pan reached them and read as sawteeth, `out/va14_up_a6` 004). It hangs 6 mm under the measured floor (was 3),
+    clear of the cover's 1.2 mm copies of the floor faces.
   - *Darker.* Pan base 64 (was 92), cast parts 46 (was 64), exhaust 64, tank 70, grime 50, sills darker than the
-    centre. Suspension on the shells: a lower A-arm each side at every axle and a trailing link at the rear, tubes
+    centre. Suspension on the shells and carkit v1 bodies: a lower A-arm each side at every axle and a trailing link at the rear, tubes
     whose inboard end sits beside the tunnel (every face spans inboard of xin, no caps), so the wheel split takes
-    none. Not on the kit bodies: they carry authored chassis parts at the axles.
+    none. Not on the kit bodies.
   - Check: `underpan.py <models> <out> --all`: 64 bodies, wheel-split hits 0 on each (pan, parts and cover);
     `car_mesh_orient.py check`: 0 INSIDE-OUT. Offline: `under_view.py`.
   - In game (parked, EXIT=1, PAINT 139,98,74, `_t` upright, `_f` = vehicle_feel2=0 + force_body_roll_deg=180;
     poses front34/high/fl34/under): before `out/va14_up_b0` (the ART-13 files), after `out/va14_up_a9`
-    (the shipped files: 050 018 000 013 004 011 002 036; iterations a0..a8). Flipped: the black
+    (shells 000 013 002 011, shipped files) and `out/va14_up_a12` (kit bodies 004 050 018 036, shipped files;
+    `out/va14_up_b1` = ART-13's 004 at the same sun); iterations a0..a11. Flipped: the black
     void wells of 000/013/002 and the overhang plates are grime grey, the pan is dark grey with tunnel, rails, arms,
     axle, exhaust and tank; upright `under`: a darker sill band, otherwise unchanged.
   - Still short of AAA: the 000 Romero's wells keep a few black shards (shell faces that lean up); parts are plain

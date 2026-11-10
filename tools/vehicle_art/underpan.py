@@ -308,6 +308,10 @@ def build(meas):
     nz = 64; nx = 12
     zs = np.linspace(z0, z1, nz + 1)
     wides = np.clip(0.96 * np.interp(zs, oz, ob), wide, 0.95 * hw)
+    if meas["marker"]:
+        # the kit bodies keep ART-13's pan (0.80, curled lip): wider, it met their floor structure as sawteeth
+        # (out/va14_up_a5..a9 004); their own sills are authored paint, not projected texels
+        wides = np.full_like(zs, wide)
     halfs = np.array([wd + (narrow - wd) * well(z) for wd, z in zip(wides, zs)])
     P, N, UV = [], [], []
     for i, z in enumerate(zs):
@@ -316,8 +320,12 @@ def build(meas):
             x = s * halfs[i]
             # (VEHICLE-ART-14: flat, no curled lip: out at the sills a lip rising 2 cm crossed the body's own floor
             # panels 3 mm above the pan at a grazing angle and read as sawteeth, out/va14_up_a6 004)
-            lip = 0.0
-            endlip = 0.0
+            if meas["marker"]:
+                lip = 0.02 * k * max(0.0, (abs(s) - 0.85) / 0.15) ** 2
+                endlip = 0.02 * k * max(0.0, 1 - min(z - z0, z1 - z) / (0.03)) if min(z - z0, z1 - z) < 0.03 else 0.0
+            else:
+                lip = 0.0
+                endlip = 0.0
             P.append([x, y + lip + endlip, z]); N.append([0, -1, 0])
             # planar UV: across = the pan's own half width so the tunnel stays at the centre, along = the body
             UV.append([R_PAN[0] + (R_PAN[2] - R_PAN[0]) * np.clip(0.5 + x / (2 * wides[i]), 0, 1), R_PAN[1] + (R_PAN[3] - R_PAN[1]) * (z1 - z) / (z1 - z0)])
@@ -332,8 +340,8 @@ def build(meas):
         # hung h metres under the pan, squeezed on a low car so nothing reaches the road
         return y - min(h * k, 0.6 * (y - 0.008) * h / 0.16)
 
-    # frame rails, only between the wells (where the pan is wide); not on the kit bodies: their authored rails
-    # sit at the same height (004: 0.8 mm apart) and z-fought as sawteeth (out/va14_up_a7)
+    # frame rails, only between the wells (where the pan is wide); not on the kit bodies: their authored rails sit
+    # at the same height (004: 0.8 mm apart), a z-fight that the darker atlas made read as sawteeth (out/va14_up_a11)
     for sx in (() if meas["marker"] else (-1, 1)):
         x = sx * 0.50 * hw
         za, zb = zr + max(w["rr"] for w in meas["wheels"]) + 0.05, zf - max(w["rr"] for w in meas["wheels"]) - 0.05
@@ -495,7 +503,9 @@ def apply(src_dir, dst_dir, name, check=False):
         del m["meshes"][old]
     meas = measure(m, name)
     (V, idx), y, rows = build(meas)
-    cv = cover(m, meas, y, rows)
+    # the kit bodies (marker wheels) get no cover: their undersides are authored, and every cover rule tried
+    # (a0..a8) left sawteeth on some kit part; only the darker atlas changes for them
+    cv = None if meas["marker"] else cover(m, meas, y, rows)
     ncov = 0
     if cv is not None:
         P, N, UV, F = cv
