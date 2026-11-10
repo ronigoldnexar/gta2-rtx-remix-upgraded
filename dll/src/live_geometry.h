@@ -758,6 +758,18 @@ private:
         bool moveOn = false;
         float sprintWeight = 0.0f;
         float turnCycle = 0.0f, turnWeight = 0.0f;
+        // FIX-FIGURE-10 pfl31: standing, the legs hold a planted heading while the torso turns
+        // (the twist), and catch up in quarter-cycle steps of turn_step (one foot lifts, swings
+        // round, sets down): a turn on the spot pivots in steps, not on a turntable.
+        bool plantOn = false;
+        float plantYaw = 0.0f;              // the planted legs' heading
+        float plantStepT = -1.0f;           // seconds into the current step, -1 none
+        float plantFrom = 0.0f, plantTo = 0.0f, plantBase = 0.0f, plantRest = 0.0f;
+        int plantFoot = 0;                  // the foot of the next step (0: phase 0-0.5, 1: 0.5-1)
+        float plantDur = 0.24f;             // this step's length (s): shorter for a faster turn
+        float pivX = 0.0f, pivZ = 0.0f;     // the root's shift that keeps the planted foot put while the legs pivot
+        bool footHave = false;              // the planted foot measured this step (posed, in the world):
+        float footTX = 0.0f, footTZ = 0.0f, footMX = 0.0f, footMZ = 0.0f, footRX = 0.0f, footRZ = 0.0f, footYaw = 0.0f;   // where it was set down, last seen, the root then
         float settleTo = -1.0f;
         float lodSprintW = 0.0f, lodTurnW = 0.0f, lodTurnT = 0.0f;
         // Fists: which hand the current swing throws (false: the right cross,

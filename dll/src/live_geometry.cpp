@@ -9710,7 +9710,68 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 while (d < -kPi) d += 2.0f * kPi;
                 if (std::fabs(d) < 1.75f) twistTarget = (std::max)(-1.0f, (std::min)(1.0f, d));
             }
-            track.twist += (twistTarget - track.twist) * (std::min)(1.0f, dt / 0.12f);
+            // FIX-FIGURE-10 pfl31: standing still with no action, near: the legs stay planted and the
+            // torso takes the turn (up to 35 degrees); past 17 degrees, or a residue left when the turn
+            // stops, one foot steps round (0.24 s). Turned faster than steps can follow, the legs are
+            // dragged at 35 degrees behind. GTA2DX9_TURN_PLANT=0 for the old turntable (A/B).
+            static const bool plantEnabled = [] { char b[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_TURN_PLANT", b, sizeof b) && b[0] == '0'); }();
+            const bool plantFree = plantEnabled && g_groundModels && !sprite.corpse && sprite.pedState != 3 && sprite.pedState != 4 &&
+                (track.action == 0 || (track.action >= 14 && track.action <= 18)) && !track.moveOn && track.legSpeed < 0.06f &&
+                track.walkWeight < 0.3f && track.eyeD2 < 100.0f && track.rank < 8;
+            auto wrapPi = [](float a) { while (a > kPi) a -= 2.0f * kPi; while (a < -kPi) a += 2.0f * kPi; return a; };
+            if (plantFree && !track.plantOn) {
+                track.plantOn = true; track.plantYaw = wrapPi(track.heading - track.twist); track.plantStepT = -1.0f; track.plantRest = 0.0f;
+            } else if (!plantFree && track.plantOn) {
+                track.plantOn = false; track.plantStepT = -1.0f;   // the twist eases back to its target below
+            }
+            if (track.plantOn) {
+                // The legs' heading turns about the planted foot (the other one is in the air): the
+                // root shifts by what the turn would swing that foot through (its posed position,
+                // measured last frame, carried round by the change of heading) plus last frame's
+                // error, so its sole stays where it was set down.
+                const float kMax = 0.70f, kStep = 0.30f;
+                float err = wrapPi(track.heading - track.plantYaw);
+                const float turning = std::fabs(track.turnRate);
+                track.plantRest = turning < 0.15f ? track.plantRest + dt : 0.0f;
+                if (track.plantStepT < 0.0f && (std::fabs(err) > kStep || (std::fabs(err) > 0.10f && track.plantRest > 0.3f))) {
+                    track.plantStepT = 0.0f; track.plantFrom = track.plantYaw;
+                    track.plantDur = (std::max)(0.18f, (std::min)(0.28f, 0.30f - 0.025f * turning));
+                    track.plantBase = track.plantFoot ? 0.5f : 0.0f; track.plantFoot ^= 1; track.footHave = false;
+                }
+                const float yaw0 = track.plantYaw;
+                if (track.plantStepT >= 0.0f) {
+                    track.plantStepT += dt;
+                    const float u = (std::min)(1.0f, track.plantStepT / track.plantDur);
+                    const float us = u * u * (3.0f - 2.0f * u);
+                    // To the heading and a little on past it (a quarter of what the torso turns in a step; a
+                    // moving target), so the torso still leads the turn when the foot sets down.
+                    const float lead = (std::max)(-0.12f, (std::min)(0.12f, 0.25f * track.turnRate * track.plantDur));
+                    track.plantTo = track.heading + lead;
+                    track.plantYaw = wrapPi(track.plantFrom + wrapPi(track.plantTo - track.plantFrom) * us);
+                    if (track.footHave) {
+                        // right = (cos h, -sin h), forward = (sin h, cos h) for a legs' heading h
+                        const float vx = track.footMX - track.footRX, vz = track.footMZ - track.footRZ;
+                        const float c0 = std::cos(track.footYaw), s0 = std::sin(track.footYaw);
+                        const float a = vx * c0 - vz * s0, b = vx * s0 + vz * c0;
+                        const float c1 = std::cos(track.plantYaw), s1 = std::sin(track.plantYaw);
+                        const float wx = a * c1 + b * s1, wz = -a * s1 + b * c1;
+                        track.pivX += vx - wx + (track.footTX - track.footMX);
+                        track.pivZ += vz - wz + (track.footTZ - track.footMZ);
+                    }
+                    (void)yaw0;
+                    if (u >= 1.0f) { track.plantStepT = -1.0f; track.footHave = false; }
+                    err = wrapPi(track.heading - track.plantYaw);
+                }
+                if (err > kMax) { track.plantYaw = wrapPi(track.heading - kMax); err = kMax; }
+                if (err < -kMax) { track.plantYaw = wrapPi(track.heading + kMax); err = -kMax; }
+                track.twist = err;
+                const float pr = std::sqrt(track.pivX * track.pivX + track.pivZ * track.pivZ);
+                if (pr > 0.06f) { track.pivX *= 0.06f / pr; track.pivZ *= 0.06f / pr; }
+            } else {
+                track.twist += (twistTarget - track.twist) * (std::min)(1.0f, dt / 0.12f);
+                const float k = (std::min)(1.0f, dt / 0.2f);   // walking off: the pivot's shift is taken up by the stride
+                track.pivX -= track.pivX * k; track.pivZ -= track.pivZ * k;
+            }
         }
         // ANIM-VEHICLE-ENTRY: getting in or out of a car is the boarding plan's (boarding.h):
         // where the figure stands, how low (seated), which way it faces, the clip and time.
@@ -10179,7 +10240,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 placed.m[0][0] = hz * cr;  placed.m[0][1] = sr;  placed.m[0][2] = -hx * cr;
                 placed.m[1][0] = -hz * sr * cp + hx * sp; placed.m[1][1] = cr * cp;  placed.m[1][2] = hx * sr * cp + hz * sp;
                 placed.m[2][0] = hx * cp + hz * sr * sp;  placed.m[2][1] = -cr * sp; placed.m[2][2] = hz * cp - hx * sr * sp;
-                placed.m[3][0] = gx; placed.m[3][1] = cy - 0.01f - boardSink; placed.m[3][2] = gz;
+                placed.m[3][0] = gx + track.pivX; placed.m[3][1] = cy - 0.01f - boardSink; placed.m[3][2] = gz + track.pivZ;
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * look.width * typeWidth * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * typeWidth * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
@@ -10280,8 +10341,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // step finishes to the next feet-together phase.
                 {
                     const float turning = std::fabs(track.turnRate);
-                    const bool turnOn = turnStep && !track.moveOn && track.walkWeight < 0.5f && turning > 0.9f && track.action != 4;
-                    if (turnOn) track.turnCycle += turning * dt / 1.745f;
+                    const bool planted = track.plantOn && turnStep;   // FIX-FIGURE-10 pfl31: the planted pivot's steps
+                    const bool turnOn = planted ? track.plantStepT >= 0.0f
+                                                : turnStep && !track.moveOn && track.walkWeight < 0.5f && turning > 0.9f && track.action != 4;
+                    if (planted && turnOn) track.turnCycle = track.plantBase + 0.5f * (std::min)(1.0f, track.plantStepT / track.plantDur);
+                    else if (turnOn) track.turnCycle += turning * dt / 1.745f;
                     else if (track.turnWeight > 0.01f) {
                         const float to = std::ceil(track.turnCycle * 2.0f - 1e-3f) * 0.5f;
                         track.turnCycle = (std::min)(to, track.turnCycle + dt * 1.5f);
@@ -10954,6 +11018,17 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     Log("board contact: f=%u o=%04x%s model %s", g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), buf,
                         model->name.c_str());
                 }
+                // FIX-FIGURE-10 pfl31: the planted foot of a pivot step, as posed (see the plant above).
+                if (track.plantOn && track.plantStepT >= 0.0f && lod == 0) {
+                    gta2::Mat4 node;
+                    if (ModelNodeWorld(*model, track.plantBase < 0.25f ? "Bip01 L Foot" : "Bip01 R Foot", locoA, locoTA, locoB, locoTB, locoW, &node)) {
+                        const float fx0 = node.m[3][0] * world.m[0][0] + node.m[3][1] * world.m[1][0] + node.m[3][2] * world.m[2][0] + world.m[3][0];
+                        const float fz0 = node.m[3][0] * world.m[0][2] + node.m[3][1] * world.m[1][2] + node.m[3][2] * world.m[2][2] + world.m[3][2];
+                        if (!track.footHave) { track.footTX = fx0; track.footTZ = fz0; track.footHave = true; }
+                        track.footMX = fx0; track.footMZ = fz0; track.footRX = world.m[3][0]; track.footRZ = world.m[3][2];
+                        track.footYaw = track.plantYaw;
+                    }
+                }
                 if (g_logJoints) {
                     char layerText[200] = "-";
                     for (int k = 0, at = 0; k < layers && at < 160; ++k)
@@ -10974,14 +11049,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         Log("figj: f=%u o=%04x own=%d st=%d sub=0x%x act=%d at=%.3f aw=%.2f tr=%d trt=%.2f trw=%.2f ww=%.2f rw=%.2f lod=%d "
                             "hd=%.3f game=%.3f,%.3f drawn=%.3f,%.3f gy=%.3f "
                             "lf=%.3f,%.3f,%.3f rf=%.3f,%.3f,%.3f pv=%.3f,%.3f,%.3f he=%.3f,%.3f,%.3f lh=%.3f,%.3f,%.3f rh=%.3f,%.3f,%.3f "
-                            "A=%s B=%s w=%.2f O=%s rag=%d L=%s",
+                            "A=%s B=%s w=%.2f O=%s rag=%d L=%s pl=%d py=%.3f tw=%.3f ps=%.2f tc=%.2f tw8=%.2f tr8=%.2f",
                             g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), ownPed ? 1 : 0, sprite.pedState, sprite.pedSub,
                             track.action, track.actionTime, actW, track.trans, transT, transW, walkW, runW, lod,
                             track.heading, cx, cz, gx, gz, cy,
                             jp[0][0], jp[0][1], jp[0][2], jp[1][0], jp[1][1], jp[1][2], jp[2][0], jp[2][1], jp[2][2],
                             jp[3][0], jp[3][1], jp[3][2], jp[4][0], jp[4][1], jp[4][2], jp[5][0], jp[5][1], jp[5][2],
                             locoA ? locoA->name.c_str() : "-", locoB ? locoB->name.c_str() : "-", locoW,
-                            (!actAlone && actionClip) ? actionClip->name.c_str() : "-", ragdoll ? 1 : 0, layerText);
+                            (!actAlone && actionClip) ? actionClip->name.c_str() : "-", ragdoll ? 1 : 0, layerText,
+                            track.plantOn ? 1 : 0, track.plantYaw, track.twist, track.plantStepT, track.turnCycle, track.turnWeight, track.turnRate);
                     }
                 }
                 ModelSetHeadTurn(0.0f);

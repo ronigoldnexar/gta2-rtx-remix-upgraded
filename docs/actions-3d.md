@@ -1296,3 +1296,31 @@ the rig test file, 6.5 s at 30 fps with two taps and a held trigger. `FIG9_WEAPO
 `FIG9_PASSES="flame=90:1,0:1;molotov=90:1,90:0"` (yaw:stance per pass).
 `STAGE=<stage> GTA2_DIRECT_KEYS=1 FPS=30 PRIO=1 gamerun/grun.sh <run> 240 keys_fig9_heavy.sh -e GTA2DX9_STATE_EVERY=3
 -e GTA2DX9_LOG_PED_FRAMES=1 -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_RIG_TEST_FILE=/tmp/rigtest -e FIG9_WEAPONS=...`
+
+## FIX-FIGURE-10 (10 Nov 2026): a turn on the spot pivots on planted feet (pfl31)
+
+pfl31: in third person a turn on the spot rotated the whole figure about its root, idle pose held, soles
+sliding (a turntable). The old `turn_step` layer only ran above 0.9 rad/s of drawn turn, and even then the
+legs turned with the root, so the "planted" foot swung through 1-1.4 cm block per lift (fig10_turn3 figj).
+
+Now (live_geometry.cpp, the twist block and the turn_step layer):
+- Standing (no action or a carry, not moving, legs speed under 0.06, walk weight under 0.3, the nearest
+  eight within ten blocks), the legs hold a planted heading and the torso takes the turn as the existing
+  Spine1 twist (up to 0.70 rad; faster than that the legs are dragged).
+- Past 17 degrees of twist, or a residue over 6 degrees 0.3 s after the turn stops, one foot steps: a
+  quarter-cycle of `turn_step` (phase 0-0.5 lifts the right foot, 0.5-1 the left, alternating), 0.18-0.28 s
+  (shorter for a faster turn), the legs' heading eased to the torso's plus a small lead (a moving target).
+- During a step the legs turn about the planted foot: its posed position is measured each frame
+  (ModelNodeWorld, lod 0 only), carried round by the change of heading, and the root shifted (`pivX/pivZ`,
+  bounded to 0.06 block, taken up over 0.2 s once he walks off) so the sole stays where it was set down.
+- `GTA2DX9_TURN_PLANT=0` restores the old turntable (A/B). `figj:` lines (GTA2DX9_LOG_JOINTS=1) carry
+  `pl py tw ps tc tw8 tr8` (planted, legs yaw, twist, step time, turn cycle, turn weight, turn rate).
+
+Measured (P31=foot keys_pfl31.sh, 30 fps, the game turns him at ~4.2 rad/s): planted-foot excursion per
+lift 0.0027 block mean, 0.0041 max (fig10_turn7) against 0.0067 / 0.0092 with the plant off
+(fig10_turn7off, same build); frame by frame the planted sole holds within 0.003-0.005 block (2-3 px at the
+chase distance) through each step (fig10_turn5/7 figj). Frames: fig10_turn7 zoom_after.png (the shoulders
+turn over feet that stay on the same pixels, then a foot steps), ab_strip.png (off above, on below).
+Not done: a mocap turn clip (the Rocketbox set has none under a CC0/MIT-class licence); slow turns
+(under 1 rad/s) are covered by the 17-degree trigger but were not filmed (the probe's turn is the game's
+fixed rate).
