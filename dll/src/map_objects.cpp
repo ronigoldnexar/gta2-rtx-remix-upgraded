@@ -17,6 +17,8 @@
 #include "live_geometry.h"
 #include "model_store.h"
 #include "prop_collision.h"
+#include "view_modes.h"
+#include "world_view.h"
 
 namespace gta2dx9 {
 bool FigureTimeOfDayLight(float out[3]);   // live_geometry.cpp (ptm14): the figures' hour light, 1 by day
@@ -163,6 +165,108 @@ struct Faded { const Model* model; gta2::Mat4 out; const ModelAnimation* spin; f
 std::vector<Faded> g_fadedNow;
 int g_fadedLast = 0;
 int g_nearFade = -1;   // GTA2DX9_NEAR_FADE=0 turns the fade off (QA before/after)
+// FIX-CAMERA-12 (pmt2): the chase view's wider fade. A street object beside the chase lens
+// (the wil plaza phone box 0.2-0.4 block from it) is a camera occluder, not something to look
+// at: from its rim out to kChaseFadeFar it fades down to kChaseFadeMinAlpha (QB-49's 0.50 /
+// 0.18 left 0.3-1.0 alpha there and the box's blue panes washed a quarter of the frame). The
+// share g_chaseMix (0 first person, 1 chase) follows the eye's distance from the hero, so a move
+// between the views eases the range instead of switching it; a settled first-person view keeps
+// QB-49's values exactly. GTA2DX9_CHASE_FADE=0: QB-49's values in every view (A/B).
+constexpr float kChaseFadeFar = 1.30f, kChaseFadeMinAlpha = 0.07f;
+int g_chaseFade = -1;
+float g_chaseMix = 0.0f;
+int g_logFade = -1;          // GTA2DX9_LOG_FADE=1: one line a frame for the most faded object
+float g_logFadeMin = 1.0f, g_logFadeD = 0.0f, g_logFadeX = 0.0f, g_logFadeZ = 0.0f;
+
+float g_heroW[3] = {0.0f, 0.0f, 0.0f};
+float g_heroDepth = 0.0f;     // the hero's distance ahead of the eye, along the view
+
+// FIX-CAMERA-12 (pmt2, w03 molotov carry_front): with the boom short (1.1 block by the plaza
+// stairs) the box stands a block from the lens beside him and its frame still covers the frame's
+// right sixth at QB-49's range. In the chase view an object whose nearest corner is no farther
+// ahead than he is and whose box covers more than 2.5 % of the frame is a foreground occluder:
+// it fades with that share, to 0.15 at 9 % of the frame. 1 where it does not apply.
+float ChaseCoverAlpha(const Model& model, const gta2::Mat4& w) {
+    if (g_chaseMix <= 0.0f || !g_viewProjValid) return 1.0f;
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f, nearDepth = 1e9f;
+    int behind = 0;
+    for (int i = 0; i < 8; ++i) {
+        const float lx = (i & 1) ? model.boundsMax.x : model.boundsMin.x;
+        const float ly = (i & 2) ? model.boundsMax.y : model.boundsMin.y;
+        const float lz = (i & 4) ? model.boundsMax.z : model.boundsMin.z;
+        const float wx = lx * w.m[0][0] + ly * w.m[1][0] + lz * w.m[2][0] + w.m[3][0];
+        const float wy = lx * w.m[0][1] + ly * w.m[1][1] + lz * w.m[2][1] + w.m[3][1];
+        const float wz = lx * w.m[0][2] + ly * w.m[1][2] + lz * w.m[2][2] + w.m[3][2];
+        nearDepth = (std::min)(nearDepth, (wx - g_eye[0]) * g_viewDir[0] + (wy - g_eye[1]) * g_viewDir[1] + (wz - g_eye[2]) * g_viewDir[2]);
+        const float cx = wx * g_viewProj[0][0] + wy * g_viewProj[1][0] + wz * g_viewProj[2][0] + g_viewProj[3][0];
+        const float cy = wx * g_viewProj[0][1] + wy * g_viewProj[1][1] + wz * g_viewProj[2][1] + g_viewProj[3][1];
+        const float cw = wx * g_viewProj[0][3] + wy * g_viewProj[1][3] + wz * g_viewProj[2][3] + g_viewProj[3][3];
+        if (cw < 0.02f) { ++behind; continue; }
+        const float sx = 0.5f + 0.5f * cx / cw, sy = 0.5f - 0.5f * cy / cw;
+        x0 = (std::min)(x0, sx); x1 = (std::max)(x1, sx); y0 = (std::min)(y0, sy); y1 = (std::max)(y1, sy);
+    }
+    if (behind == 8) return 1.0f;
+    if (nearDepth > g_heroDepth) return 1.0f;   // its nearest corner beyond him: scenery, not an occluder
+    float share = 1.0f;
+    if (!behind) {
+        x0 = (std::max)(0.0f, x0); x1 = (std::min)(1.0f, x1); y0 = (std::max)(0.0f, y0); y1 = (std::min)(1.0f, y1);
+        share = (x1 > x0 && y1 > y0) ? (x1 - x0) * (y1 - y0) : 0.0f;
+    }
+    float t = (share - 0.025f) / (0.09f - 0.025f);
+    t = (std::min)(1.0f, (std::max)(0.0f, t));
+    t = t * t * (3.0f - 2.0f * t);
+    return 1.0f - (1.0f - 0.15f) * t * g_chaseMix;
+}
+
+// Per-object eased alpha in the chase view, keyed by where the object stands (map objects do not
+// move); entries not seen for a second are dropped.
+struct FadeEase { float alpha; uint32_t frame; };
+std::map<uint64_t, FadeEase> g_fadeEase;
+uint32_t g_fadeEaseFrame = 0;
+float g_fadeEaseDt = 1.0f / 30.0f;
+float g_logFinalMin = 1.0f, g_logFinalX = 0.0f, g_logFinalZ = 0.0f;
+
+float ChaseFadeEase(float x, float z, float target) {
+    const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(static_cast<int>(x * 16.0f))) << 32) |
+                         static_cast<uint32_t>(static_cast<int>(z * 16.0f));
+    auto it = g_fadeEase.find(key);
+    if (it == g_fadeEase.end() || it->second.frame + 1 < g_fadeEaseFrame) {
+        if (target < 0.999f) g_fadeEase[key] = {target, g_fadeEaseFrame};
+        return target;
+    }
+    FadeEase& e = it->second;
+    if (e.frame == g_fadeEaseFrame) return e.alpha;   // twice in a frame (a second draw of the same object)
+    const float tau = target < e.alpha ? 0.05f : 0.15f;
+    e.alpha += (target - e.alpha) * (1.0f - std::exp(-g_fadeEaseDt / tau));
+    if (std::fabs(e.alpha - target) < 0.004f) e.alpha = target;
+    e.frame = g_fadeEaseFrame;
+    const float a = e.alpha;
+    if (a >= 0.999f && target >= 0.999f) g_fadeEase.erase(it);
+    return a;
+}
+
+void UpdateChaseMix() {
+    if (g_chaseFade < 0) {
+        const char* e = getenv("GTA2DX9_CHASE_FADE");
+        g_chaseFade = (e && e[0] == '0') ? 0 : 1;
+        const char* l = getenv("GTA2DX9_LOG_FADE");
+        g_logFade = (l && l[0] == '1') ? 1 : 0;
+        Log("objects: chase-view near fade %s (FIX-CAMERA-12 pmt2: %.2f blocks, alpha down to %.2f)",
+            g_chaseFade ? "on" : "off (GTA2DX9_CHASE_FADE=0)", kChaseFadeFar, kChaseFadeMinAlpha);
+    }
+    g_chaseMix = 0.0f;
+    if (!g_chaseFade || !g_viewProjValid) return;
+    const PlayerState& p = ViewPlayer();
+    if (!p.valid) return;
+    if (CurrentViewMode() == ViewMode::FirstPerson && !ViewCameraMoving()) return;
+    // The hero in the world's frame: x east, z = 256 - the game's y (north up).
+    const float d = std::hypot(g_eye[0] - p.x, g_eye[2] - (256.0f - p.y));
+    g_heroW[0] = p.x; g_heroW[1] = p.z; g_heroW[2] = 256.0f - p.y;
+    g_heroDepth = (g_heroW[0] - g_eye[0]) * g_viewDir[0] + (g_heroW[1] + 0.25f - g_eye[1]) * g_viewDir[1] + (g_heroW[2] - g_eye[2]) * g_viewDir[2];
+    float t = (d - 0.35f) / 0.5f;
+    t = (std::min)(1.0f, (std::max)(0.0f, t));
+    g_chaseMix = t * t * (3.0f - 2.0f * t);
+}
 
 void CaptureView(IDirect3DDevice9* device) {
     D3DMATRIX v, p;
@@ -192,11 +296,15 @@ float NearFadeAlpha(float x, float footY, float z, float radius, float height) {
     const float horiz = (std::max)(0.0f, std::hypot(g_eye[0] - x, g_eye[2] - z) - radius);
     const float vert = g_eye[1] < footY ? footY - g_eye[1] : g_eye[1] > footY + height ? g_eye[1] - footY - height : 0.0f;
     const float d = std::sqrt(horiz * horiz + vert * vert);
-    if (d >= kFadeFar) return 1.0f;
-    float t = (d - kFadeNear) / (kFadeFar - kFadeNear);
+    const float fadeFar = kFadeFar + (kChaseFadeFar - kFadeFar) * g_chaseMix;
+    const float minAlpha = kFadeMinAlpha + (kChaseFadeMinAlpha - kFadeMinAlpha) * g_chaseMix;
+    if (d >= fadeFar) return 1.0f;
+    float t = (d - kFadeNear) / (fadeFar - kFadeNear);
     t = (std::min)(1.0f, (std::max)(0.0f, t));
     t = t * t * (3.0f - 2.0f * t);
-    return kFadeMinAlpha + (1.0f - kFadeMinAlpha) * t;
+    const float a = minAlpha + (1.0f - minAlpha) * t;
+    if (g_logFade > 0 && a < g_logFadeMin) { g_logFadeMin = a; g_logFadeD = d; g_logFadeX = x; g_logFadeZ = z; }
+    return a;
 }
 
 const char* PickupLabel(const Model& model) {
@@ -298,6 +406,19 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
     g_objectObstacles.clear();
     PropCollisionObjectsDone();   // FIX-COLLISION: the last pass's solid objects
     CaptureView(device);
+    UpdateChaseMix();
+    g_logFadeMin = 1.0f;
+    g_logFinalMin = 1.0f;
+    {
+        static double lastT = 0.0;
+        const double now = NowSeconds();
+        g_fadeEaseDt = lastT > 0.0 ? static_cast<float>((std::min)(0.25, (std::max)(0.001, now - lastT))) : 1.0f / 30.0f;
+        lastT = now;
+        ++g_fadeEaseFrame;
+        if ((g_fadeEaseFrame % 60) == 0)
+            for (auto it = g_fadeEase.begin(); it != g_fadeEase.end();)
+                it = it->second.frame + 30 < g_fadeEaseFrame ? g_fadeEase.erase(it) : std::next(it);
+    }
     // FIX-PROPS-3 (demo-phone-booth-flat-translucent-blue-placeholder-box): the standing objects
     // take the world's sun and ambient like the street props (PropLightingBegin), so the phone
     // booth's frame has a sunlit and a shaded side instead of one flat saturated blue; the
@@ -469,6 +590,16 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             const float footY = spinning ? out.m[3][1] + model.boundsMin.y * scale : wy;
             alpha = NearFadeAlpha(wx, footY, wz, spinning ? 0.5f * (std::max)(model.Width(), model.Length()) * scale
                                                            : (std::min)(0.6f, (std::max)(0.12f, 0.5f * longer)), h);
+            if (!spinning && g_chaseMix > 0.0f) {
+                // FIX-CAMERA-12: the foreground-occluder share (not through a move between the views,
+                // where the lens sweeps past everything), then eased per object in the chase view so
+                // neither rule steps the alpha from one frame to the next (a box corner passing the
+                // eye's plane jumped it 0.73 -> 0.15, run cam12_w3): fading out over ~0.05 s, back
+                // in over ~0.15 s. A settled first-person view takes QB-49's value as it was.
+                if (!ViewCameraMoving()) alpha = (std::min)(alpha, ChaseCoverAlpha(model, out));
+                alpha = ChaseFadeEase(wx, wz, alpha);
+            }
+            if (g_logFade > 0 && alpha < g_logFinalMin) { g_logFinalMin = alpha; g_logFinalX = wx; g_logFinalZ = wz; }
             if (spinning && s.object) {
                 // The model's centre, where it floats (its own float, not the bob).
                 const float my = out.m[3][1] + 0.5f * (model.boundsMin.y + model.boundsMax.y) * scale;
@@ -490,7 +621,10 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
                 if (signFix < 0) { const char* e = getenv("GTA2DX9_FADE_SIGN"); signFix = (e && e[0] == '0') ? 0 : 1;
                                    Log("objects: faded lit parts %s (FIX-WORLD-7 pm50)", signFix ? "nearest face only, alpha >= 0.9" : "see-through (old)"); }
                 const bool sign = signFix && !spinning;
-                g_fadedNow.push_back({litF->second, out, nullptr, 0.0f, sign ? (std::max)(alpha, 0.9f) : alpha, sign});
+                // FIX-CAMERA-12: in the chase view the sign fades with the box (nearest face only, so the
+                // lettering never shows mirrored); first person keeps it at 0.9.
+                const float signAlpha = sign ? (std::max)(alpha, 0.9f) + (alpha - (std::max)(alpha, 0.9f)) * g_chaseMix : alpha;
+                g_fadedNow.push_back({litF->second, out, nullptr, 0.0f, signAlpha, sign});
             }
             auto glassF = g_glassOf.find(&model);
             if (glassF != g_glassOf.end()) g_fadedNow.push_back({glassF->second, out, nullptr, 0.0f, alpha * 0.6f});
@@ -642,6 +776,9 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         if (((++fadeLogFrame) % 150) == 1) Log("objects: near fade: %d object(s) see-through this frame, the nearest at alpha %.2f", g_fadedLast, g_fadedNow.back().alpha);
         g_fadedNow.clear();
     }
+    if (g_logFade > 0 && (g_logFadeMin < 0.999f || g_logFinalMin < 0.999f))
+        Log("fade: alpha %.2f obj %.2f,%.2f (range rule %.2f d %.2f) eye %.2f,%.2f,%.2f mix %.2f%s", g_logFinalMin, g_logFinalX, g_logFinalZ,
+            g_logFadeMin, g_logFadeD, g_eye[0], g_eye[1], g_eye[2], g_chaseMix, ViewCameraMoving() ? " moving" : "");
     if (lit) PropLightingEnd(device);
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);

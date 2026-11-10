@@ -894,3 +894,24 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   Measured (`gamerun/keys_cam11_dry.sh`, the filer's repro: pistol, Ctrl every 0.5 s until empty, 30 fps, pose log):
   fix cam11_dry2 no change for 2.5 s after the emptying, then at most 11 % in any second (1.41x in all over ~9 s);
   frames opened across the emptying (base: pulled back within a second; fix: steady, then a slow back-off).
+
+
+## The chase view fades a street object at the lens; the death beat under a deck; the first-person exit keeps his facing (FIX-CAMERA-12, 10 Nov 2026)
+
+- **Chase-view near fade (pmt2, `dll/src/map_objects.cpp`).** QB-49's near fade (0.50 block from the
+  object's rim, down to alpha 0.18) left the wil plaza phone box (map 158.5,138.5) at alpha 0.3-1.0 when
+  the chase lens stood 0.2-1.0 block from it, and its blue frame and panes washed a sixth to a third of the
+  frame (triage pass 198: tri18_fc3 11.4 %, tri18_pmt2 shots up to 9 %). In the chase view (the share
+  follows the eye's distance from him: 0 under 0.35 block, 1 over 0.85, so a V move eases it and a settled
+  first-person view keeps QB-49's values exactly):
+  - the range is 1.30 block, down to alpha 0.07;
+  - an object whose nearest box corner is no farther ahead than he is and whose projected box covers more
+    than 2.5 % of the frame is a foreground occluder: it fades with that share, to 0.15 at 9 % (the box
+    a block from a short boom beside him, or between the lens and him); not during a move between views;
+  - the alpha is eased per object (out over ~0.05 s, back over ~0.15 s), so neither rule steps it between
+    frames (a box corner passing the eye's plane jumped it 0.73 -> 0.15 in one frame before the ease);
+  - the booth's lit PHONE sign fades with the box in the chase view (nearest face only, so never mirrored);
+    first person keeps it at 0.9.
+  `GTA2DX9_CHASE_FADE=0` restores QB-49's values in every view (A/B); `GTA2DX9_LOG_FADE=1` logs one
+  `fade: alpha A obj X,Z (range rule R d D) eye ... mix M` line a frame for the most faded object.
+  Classic draws no map-object models, so nothing of it reaches the classic view.
