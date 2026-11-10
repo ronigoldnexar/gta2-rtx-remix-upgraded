@@ -31,7 +31,14 @@ cp "$W/dll/build/gta2dx9.dll" "$C/gta2dx9.dll"; cp "$W/dll/build/gta2dx9.dll" "$
 cp "$W/vid/build/gta2dx9_vid.dll" "$C/gta2dx9_vid.dll"; cp "$W/vid/build/gta2dx9_vid.dll" "$C/Dmavideo.dll"; cp "$W/vid/build/gta2dx9_vid.dll" "$C/DMAGlide.dll"
 # ini: the committed package ini (every documented key, one section each) with the stage's deliberate overrides kept
 # (tools/merge_stage_ini.py; 9 Nov: the stage ini had gone stale, two [renderer] blocks and 71 keys missing)
-python3 "$W/tools/merge_stage_ini.py" "$W/package/gta2dx9.ini" "stage/gta2dx9.ini" "$C/gta2dx9.ini"
+# A stage value equal to the package default of the commit the stage was built from (the 'staged from' line of the live
+# restage log) is a moved default, not an override: pass that commit's package ini so the merge retires it (shift 79, 10 Nov:
+# remix_puff_mode=2, traffic_cap=36 and follow_clock=0 had kept three owner fixes off the play page).
+PREV_STG=$(grep -m1 -oE "staged from [0-9a-f]+" /mnt/gta2/restage-current.log 2>/dev/null | awk '{print $3}')
+PREV_INI=""
+if [ -n "$PREV_STG" ] && git -C "$W" show "$PREV_STG:package/gta2dx9.ini" > "$C/.prev_package.ini" 2>/dev/null; then PREV_INI="$C/.prev_package.ini"; else rm -f "$C/.prev_package.ini"; fi
+python3 "$W/tools/merge_stage_ini.py" "$W/package/gta2dx9.ini" "stage/gta2dx9.ini" "$C/gta2dx9.ini" $PREV_INI
+rm -f "$C/.prev_package.ini"
 for f in install.reg uninstall.reg; do [ -f "stage/$f" ] && cp "stage/$f" "$C/$f" || cp "$W/package/$f" "$C/$f" 2>/dev/null || true; done
 cp -al assets/models "$C/gta2dx9_models" 2>/dev/null || cp -a assets/models "$C/gta2dx9_models"
 [ -d assets/textures_hd ] && { cp -al assets/textures_hd "$C/gta2dx9_textures_hd" 2>/dev/null || cp -a assets/textures_hd "$C/gta2dx9_textures_hd"; }
