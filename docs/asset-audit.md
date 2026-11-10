@@ -460,3 +460,9 @@ classic. Proposals for the owner (not shipped; NEEDS OWNER 33):
    as they are, so the street reads as a channel instead of one teal-grey plane.
 3. Per-district grading of the whole street view (a colour LUT in post_fx per district: Downtown cooler/steel, Residential
    warmer, Industrial dirtier), leaving the tiles alone.
+- **Remix prims for the power-up token faces** (FIX-WORLD-14's open item): the 13 `token_*__lit_0.tga` faces had no prim
+  (`remix_car_prim_check.py --pattern '^token_'`: 13 missing). `remix_model_materials.py --pattern '^token_.*__lit_0\.tga$'`
+  into a scratch layer, `remix_layer_merge.py` of those 13 hashes: additions only to mod.usda / mod_wet.usda /
+  model_prims.txt (emission 3.0 like pickup_health__lit, a normal and roughness map each); the check now reports 0 missing
+  for token_*/pickup_*. The 52 DDS are in the coordinator bundle `layer_deploy/FIX-WORLD-15` (not in git). Not filmed
+  under Remix.
