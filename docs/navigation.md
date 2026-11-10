@@ -830,3 +830,22 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   The hood dash, bonnet and dash cuts are made at the learned seat point, not at the eye measured in the unposed
   frame (that moved with the pose and the correction: the hood dash rebuilt on a dent step at a hit was cut low).
   `[devtools] fp_seat_lock=0` (or `GTA2DX9_FP_SEAT_LOCK=0`) for A/B; `GTA2DX9_LOG_SEAT=1` logs `seat lock:` per frame.
+
+## The armed boom's catch-up, eased (FIX-CAMERA-11, 10 Nov 2026)
+
+- **pfl37** (third person, pistol, a passer-by: the view whipped ~100 degrees in 0.3 s, the hero left the frame and
+  returned cropped). He is not turned by the camera: the whip is the QB-6 aim follow, which while firing swings the
+  camera round behind his facing on a 0.15 s spring capped at twice `turn_rate_foot` (240 deg/s). When he fires facing
+  well off the camera (turned on the spot with the soft follow still waiting, or turned by the game's lock-on) that
+  spring closed 100-140 degrees in well under a second; the eased eye cut the chord past him and the shown view trailed
+  until he sat at the frame's edge. Now (`ViewCameraSolver::Solve`, the aim-follow branch) the catch-up is capped at
+  110 deg/s (33 degrees in any 0.3 s), accelerates at most 440 deg/s^2 (no jerk at the shot), and settles in about a
+  second (0.45 s spring). Peds are not obstacles for the boom (a passer-by never swings it); the renderer still leaves
+  a figure at the lens undrawn (FIX-CAMERA-6). `GTA2DX9_CAM_AIM_RATE=0` restores the old spring. Log (LOG_CAMERA):
+  `cam: aim follow D deg off his facing, turning R deg/s` (twice a second while over 20 degrees off).
+- Measured (probe `gamerun/keys_cam11_p37.sh`, `cam11_p37_probe.py`: pistol, plaza, warp beside a ped, third,
+  he is turned on the spot with Left/Right and fires five times at once; 30 fps bursts, `cam: pose` per frame, the
+  largest yaw change in any 0.3 s window): old spring (`GTA2DX9_CAM_AIM_RATE=0`, run cam11_p37b0) 55.5 / 65.0 / 26.6
+  degrees, his box between 0.13 and 0.86 of the frame width; fix (cam11_p37b1) 32.4 / 33.2 / 1.8, his box inside
+  0.29..0.54 in every frame (frames opened every 4th, 0.8-2.4 s of each burst). The ped's head at the lens of the
+  filer's clip was not reproduced in either run (it came from the chord the fast swing cut; the swing no longer cuts it).

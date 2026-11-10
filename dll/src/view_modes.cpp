@@ -2858,8 +2858,41 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         const bool aimRecentMouse = look.lastMoved > 0.0 && Now() - look.lastMoved < s.tpReturnDelay;
         const bool aimFollow = g_aim.aimMix > 0.5f && !aimRecentMouse && downTime_ <= 0.0f && deathMix_ < 0.01f;
         if (aimFollow) {
+            // FIX-CAMERA-11 (pfl37-third-pistol-shot-at-passing-ped-camera-whips-100deg-in-0p3s): the catch-up
+            // when he fires facing well off the camera (turned on the spot, the game's lock-on turned him) was a
+            // 0.15 s spring at 240 deg/s: a 100 degree whip in 0.3 s, the eased eye cutting the chord past him
+            // (a passer-by's head at the lens) and the shown view trailing until he left the frame. Now an eased
+            // follow: at most 110 deg/s (33 in any 0.3 s), reached over a quarter second (no jerk at the shot),
+            // settling in about a second. GTA2DX9_CAM_AIM_RATE=0 restores the old spring (A/B).
+            static int aimRateOn = -1;
+            if (aimRateOn < 0) {
+                char buf[16] = {};
+                aimRateOn = GetEnvironmentVariableA("GTA2DX9_CAM_AIM_RATE", buf, sizeof buf) && atoi(buf) == 0 ? 0 : 1;
+            }
             const float rate = 2.0f * s.turnRateFoot * scale * kDegToRad;
-            SpringTurn(&followYaw_, &followYawVel_, headingYaw, 2.0f / 0.3f, rate > 0.0f ? rate : 0.0f, dt);
+            if (aimRateOn) {
+                const float capRate = (std::min)(rate > 0.0f ? rate : 0.0f, 110.0f * kDegToRad);
+                const float velBefore = followYawVel_;
+                const float yawBefore = followYaw_;
+                SpringTurn(&followYaw_, &followYawVel_, headingYaw, 2.0f / 0.45f, capRate, dt);
+                const float maxDv = 440.0f * kDegToRad * (std::min)(dt > 0.0f ? dt : 1.0f / 30.0f, 1.0f / 30.0f);
+                if (std::fabs(followYawVel_ - velBefore) > maxDv) {
+                    // Accelerate no faster than 440 deg/s^2: redo the step with the bounded velocity.
+                    followYawVel_ = velBefore + (followYawVel_ > velBefore ? maxDv : -maxDv);
+                    const float err = WrapAngle(headingYaw - yawBefore);
+                    float step = followYawVel_ * (std::min)(dt, 1.0f / 30.0f);
+                    if ((err > 0.0f && step > err) || (err < 0.0f && step < err)) { step = err; followYawVel_ = 0.0f; }
+                    followYaw_ = WrapAngle(yawBefore + step);
+                }
+                static double aimLogT = -1.0;
+                const float errNow = WrapAngle(headingYaw - followYaw_);
+                if (cameraLogOn() && std::fabs(errNow) > 20.0f * kDegToRad && (aimLogT < 0.0 || Now() - aimLogT > 0.5)) {
+                    aimLogT = Now();
+                    Log("cam: aim follow %.1f deg off his facing, turning %.0f deg/s", errNow / kDegToRad, followYawVel_ / kDegToRad);
+                }
+            } else {
+                SpringTurn(&followYaw_, &followYawVel_, headingYaw, 2.0f / 0.3f, rate > 0.0f ? rate : 0.0f, dt);
+            }
             footFollowing_ = false;
             engageTime_ = 0.0f;
             awayTime_ = 0.0f;
