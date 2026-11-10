@@ -24,6 +24,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace gta2dx9 {
 namespace {
@@ -205,6 +207,72 @@ char* Trim(char* s) {
     return s;
 }
 
+// FIX-STABILITY-2 (settings-ini-silently-overrides-gta2dx9-ini): every value this file holds, as the
+// text the Save button writes, in the order it writes them. Save, the load-time override log and the
+// "only what the user changed" rule all read this one list.
+struct Value {
+    const char* section;
+    const char* key;
+    std::string text;
+};
+
+std::vector<Value> CurrentValues() {
+    FloatField* f;
+    BoolField* b;
+    IntField* i;
+    int nf, nb, ni;
+    Fields(&f, &nf, &b, &nb, &i, &ni);
+    std::vector<Value> out;
+    char text[64];
+    auto add = [&](const char* section, const char* key, const char* fmt, auto v) {
+        _snprintf(text, sizeof(text) - 1, fmt, v);
+        text[sizeof(text) - 1] = '\0';
+        out.push_back({section, key, text});
+    };
+    for (int n = 0; n < nb; ++n) add(b[n].section, b[n].key, "%d", *b[n].value ? 1 : 0);
+    for (int n = 0; n < nf; ++n) add(f[n].section, f[n].key, "%.5f", static_cast<double>(*f[n].value));
+    for (int n = 0; n < ni; ++n) add(i[n].section, i[n].key, "%d", *i[n].value);
+    // Things that live outside a settings struct.
+    add("render", "SpawnOffscreen", "%d", SpawnOffscreen() ? 1 : 0);
+    add("render", "Blood", "%d", Blood() ? 1 : 0);
+    add("render", "Gibs", "%d", Gibs() ? 1 : 0);
+    add("render", "GibsCar", "%d", GibsCar() ? 1 : 0);
+    add("render", "OwnCarLamps", "%d", OwnCarLamps() ? 1 : 0);
+    add("render", "SpriteConform", "%d", SpriteConform() ? 1 : 0);
+    add("render", "SpriteHeight", "%.4f", static_cast<double>(SpriteHeight()));
+    add("render", "SpriteRoll", "%.4f", static_cast<double>(SpriteRoll()));
+    add("render", "SpriteLift", "%.4f", static_cast<double>(SpriteLift()));
+    add("render", "SpriteStackStep", "%.4f", static_cast<double>(SpriteStackStep()));
+    add("render", "SpriteFeather", "%.4f", static_cast<double>(SpriteFeather()));
+    add("render", "AlphaMode", "%s", gta2::GetAlphaMode() == gta2::AlphaMode::Blend ? "blend" : "test");
+    add("render", "AlphaRef", "%d", gta2::GetAlphaRef());
+    add("render", "HudFit", "%s",
+        HudFit() == HudFitMode::Stretch ? "stretch" : HudFit() == HudFitMode::Widescreen ? "widescreen" : "fit");
+    add("render", "HideStageArrow", "%d", HideStageArrow() ? 1 : 0);
+    add("render", "FpsCap", "%.4f", static_cast<double>(FrameLimitFps()));
+    add("render", "DumpTextures", "%d", TextureDumping() ? 1 : 0);
+    add("render", "CloseHoles", "%d", CloseHoles() ? 1 : 0);
+    add("render", "CloseHoleMax", "%d", CloseHoleMax());
+    add("render", "WorldSeal", "%d", gta2::WorldSeal() ? 1 : 0);
+    add("render", "WaterUvBlocks", "%.4f", static_cast<double>(gta2::WaterUvBlocks()));
+    add("render", "RiverbedDepth", "%.4f", static_cast<double>(gta2::RiverbedDepth()));
+    const EffectSpriteMode mode = EffectSprites().mode;
+    add("render", "EffectSprites", "%s",
+        mode == EffectSpriteMode::Additive ? "additive" : (mode == EffectSpriteMode::Cutout ? "cutout" : "off"));
+    return out;
+}
+
+// What gta2dx9.ini (and the code's defaults) made of every value, before this file was first read.
+std::vector<Value> g_iniValues;
+bool g_haveIniValues = false;
+
+const Value* FindValue(const std::vector<Value>& values, const char* section, const char* key) {
+    for (const Value& v : values) {
+        if (!_stricmp(v.section, section) && !_stricmp(v.key, key)) return &v;
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 void SettingsInit(const char* path) {
@@ -219,77 +287,43 @@ bool SettingsDirty() { return g_dirty; }
 void SettingsMarkDirty() { g_dirty = true; }
 
 void SettingsSaveAll() {
-    FloatField* f;
-    BoolField* b;
-    IntField* i;
-    int nf, nb, ni;
-    Fields(&f, &nf, &b, &nb, &i, &ni);
-
+    const std::vector<Value> values = CurrentValues();
     FILE* out = fopen(g_path, "w");
     if (!out) {
         Log("settings: could not write %s", g_path);
         return;
     }
-    fprintf(out, "; GTA2 RTX Remix -- everything the F4 menu can change.\n");
+    fprintf(out, "; GTA2 RTX Remix -- what the F4 menu changed.\n");
     fprintf(out, ";\n");
-    fprintf(out, "; Written by the Save button, read at startup. Separate from gta2dx9.ini on\n");
+    fprintf(out, "; Written by the Save button, read at startup after gta2dx9.ini. Separate from it on\n");
     fprintf(out, "; purpose: deploy regenerates that one on every build, so anything saved into\n");
-    fprintf(out, "; it would be lost. Where the two overlap this file wins.\n");
+    fprintf(out, "; it would be lost. Where the two overlap this file wins, and the log says so per key\n");
+    fprintf(out, "; ('settings override: [section] Key ini=<a> settings=<b>'). Only values that differ\n");
+    fprintf(out, "; from what gta2dx9.ini and the defaults give are written, so a value you never\n");
+    fprintf(out, "; changed here keeps following gta2dx9.ini. [renderer] ignore_saved_settings=1 in\n");
+    fprintf(out, "; gta2dx9.ini skips this file.\n");
     fprintf(out, ";\n");
     fprintf(out, "; Per-light overrides are in gta2dx9_lights.ini and the effect categories in\n");
     fprintf(out, "; gta2dx9_effects.ini; the Save button writes all three.\n");
 
     const char* section = "";
-    auto heading = [&](const char* want) {
-        if (strcmp(section, want) != 0) {
-            fprintf(out, "\n[%s]\n", want);
-            section = want;
+    int written = 0, skipped = 0;
+    for (const Value& v : values) {
+        // FIX-STABILITY-2: a value equal to what the ini gives is the ini's, not the user's.
+        if (g_haveIniValues) {
+            const Value* ini = FindValue(g_iniValues, v.section, v.key);
+            if (ini && ini->text == v.text) {
+                ++skipped;
+                continue;
+            }
         }
-    };
-    for (int n = 0; n < nb; ++n) {
-        heading(b[n].section);
-        fprintf(out, "%s=%d\n", b[n].key, *b[n].value ? 1 : 0);
+        if (strcmp(section, v.section) != 0) {
+            fprintf(out, "\n[%s]\n", v.section);
+            section = v.section;
+        }
+        fprintf(out, "%s=%s\n", v.key, v.text.c_str());
+        ++written;
     }
-    for (int n = 0; n < nf; ++n) {
-        heading(f[n].section);
-        fprintf(out, "%s=%.5f\n", f[n].key, *f[n].value);
-    }
-    for (int n = 0; n < ni; ++n) {
-        heading(i[n].section);
-        fprintf(out, "%s=%d\n", i[n].key, *i[n].value);
-    }
-
-    // Things that live outside a settings struct.
-    fprintf(out, "\n[render]\n");
-    fprintf(out, "SpawnOffscreen=%d\n", SpawnOffscreen() ? 1 : 0);
-    fprintf(out, "Blood=%d\n", Blood() ? 1 : 0);
-    fprintf(out, "Gibs=%d\n", Gibs() ? 1 : 0);
-    fprintf(out, "GibsCar=%d\n", GibsCar() ? 1 : 0);
-    fprintf(out, "OwnCarLamps=%d\n", OwnCarLamps() ? 1 : 0);
-    fprintf(out, "SpriteConform=%d\n", SpriteConform() ? 1 : 0);
-    fprintf(out, "SpriteHeight=%.4f\n", SpriteHeight());
-    fprintf(out, "SpriteRoll=%.4f\n", SpriteRoll());
-    fprintf(out, "SpriteLift=%.4f\n", SpriteLift());
-    fprintf(out, "SpriteStackStep=%.4f\n", SpriteStackStep());
-    fprintf(out, "SpriteFeather=%.4f\n", SpriteFeather());
-    fprintf(out, "AlphaMode=%s\n", gta2::GetAlphaMode() == gta2::AlphaMode::Blend ? "blend" : "test");
-    fprintf(out, "AlphaRef=%d\n", gta2::GetAlphaRef());
-    fprintf(out, "HudFit=%s\n", HudFit() == HudFitMode::Stretch      ? "stretch"
-                                 : HudFit() == HudFitMode::Widescreen ? "widescreen"
-                                                                      : "fit");
-    fprintf(out, "HideStageArrow=%d\n", HideStageArrow() ? 1 : 0);
-    fprintf(out, "FpsCap=%.4f\n", FrameLimitFps());
-    fprintf(out, "DumpTextures=%d\n", TextureDumping() ? 1 : 0);
-    fprintf(out, "CloseHoles=%d\n", CloseHoles() ? 1 : 0);
-    fprintf(out, "CloseHoleMax=%d\n", CloseHoleMax());
-    fprintf(out, "WorldSeal=%d\n", gta2::WorldSeal() ? 1 : 0);
-    fprintf(out, "WaterUvBlocks=%.4f\n", gta2::WaterUvBlocks());
-    fprintf(out, "RiverbedDepth=%.4f\n", gta2::RiverbedDepth());
-    const EffectSpriteMode mode = EffectSprites().mode;
-    fprintf(out, "EffectSprites=%s\n",
-            mode == EffectSpriteMode::Additive
-                ? "additive"
-                : (mode == EffectSpriteMode::Cutout ? "cutout" : "off"));
     fclose(out);
 
     // One button, everything saved - the three files are an implementation
@@ -298,10 +332,18 @@ void SettingsSaveAll() {
     SyntheticLightsSave();
 
     g_dirty = false;
-    Log("settings: saved %s (plus light overrides and effect settings)", g_path);
+    Log("settings: saved %s: %d value(s) changed from gta2dx9.ini, %d left to it (plus light overrides and effect "
+        "settings)", g_path, written, skipped);
 }
 
 void SettingsLoadAll() {
+    // FIX-STABILITY-2: what gta2dx9.ini gave, kept from the first call (the menu's Load button calls
+    // this again), for the override lines below and for Save.
+    const std::vector<Value> before = CurrentValues();
+    if (!g_haveIniValues) {
+        g_iniValues = before;
+        g_haveIniValues = true;
+    }
     FILE* in = fopen(g_path, "r");
     if (!in) return;   // first run
 
@@ -407,7 +449,18 @@ void SettingsLoadAll() {
     }
     fclose(in);
     g_dirty = false;
-    Log("settings: loaded %s", g_path);
+    // FIX-STABILITY-2: loud, one line per key this file changed (it used to win in silence: the owner's
+    // day length, frame cap and alpha mode were this file's for four relaunches of a gta2dx9.ini fix).
+    int overrides = 0;
+    for (const Value& v : CurrentValues()) {
+        const Value* was = FindValue(before, v.section, v.key);
+        if (!was || was->text == v.text) continue;
+        ++overrides;
+        Log("settings override: [%s] %s ini=%s settings=%s (%s wins; [renderer] ignore_saved_settings=1 skips it)",
+            v.section, v.key, was->text.c_str(), v.text.c_str(), g_path);
+    }
+    Log("settings: loaded %s: %d value(s) differ from gta2dx9.ini%s", g_path, overrides,
+        overrides ? ", see the 'settings override' lines" : "");
 }
 
 }  // namespace gta2dx9

@@ -1340,7 +1340,15 @@ __declspec(dllexport) void __stdcall gbh_InitDLL(void* system) {
         // file on every build, this one is the user's own tuning.
         PathBesideGame("gta2dx9_settings.ini", path, sizeof(path));
         gta2dx9::SettingsInit(path);
-        gta2dx9::SettingsLoadAll();
+        // FIX-STABILITY-2: [renderer] ignore_saved_settings=1 makes gta2dx9.ini the whole truth for a
+        // run (a test that sets a key there tests that value); the menu's Save still writes the file.
+        char iniPath[MAX_PATH];
+        PathBesideGame("gta2dx9.ini", iniPath, sizeof(iniPath));
+        if (GetPrivateProfileIntA("renderer", "ignore_saved_settings", 0, iniPath) != 0) {
+            Log("settings: %s not read ([renderer] ignore_saved_settings=1): gta2dx9.ini wins everywhere", path);
+        } else {
+            gta2dx9::SettingsLoadAll();
+        }
         // The imported 3D models for the ground views. See model_store.h.
         PathBesideGame("gta2dx9_models", path, sizeof(path));
         gta2dx9::MemStatsLog("startup: before the models", 1);   // FIX-PERF-4
