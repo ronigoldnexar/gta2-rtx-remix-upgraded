@@ -1407,6 +1407,46 @@ flat front still makes a bus, never a tank). Adding a vehicle means one table en
   The jack beside him is traffic-dependent: most hunt runs do not hit it; read `seat:`/`jack:` lines to know if a run
   exercised it.
 
+### The open tops' drivers in their cockpits; the fire truck's late cab was the warp (FIX-COCKPIT-CAB-6, 10 Nov 2026)
+
+- qav51 (the 031 Jefferson's driver on its long bonnet, seats empty): a generated body with no manifest `driver_seat`
+  takes car_glass's cabin seat, and an open top has no cabin behind glass, so it fell back to the sprite's window
+  rows (boarding.cpp `SeatZ`), which for the 031's sprites put the hip anywhere from +0.04 (on the bonnet, forced
+  sprite 4) to -0.16 (behind the cockpit, natural sprite 25). The same for the 045 Spritzer (head on the bonnet) and
+  the 022 armed Land Roamer (sunk under its windscreen frame). Not a stale seat: `BoardingPublishSeat` runs every
+  frame from the model drawn, the forced and the natural car both took the sprite's guess.
+- Fix 1, `dll/src/seat_well.cpp`: an open top (the cab table's) with neither a manifest seat nor a glass cabin
+  finds its seat in its own mesh: the top surface rasterised 24 x 64, per row against the row's own width (the
+  bounds' mirrors made the sides vanish on the 045), the windscreen (the first row at 85 % of the height), the
+  cockpit well (the driver's band under 55 % of the height and under the doors' tops by 12 %, or under the bonnet
+  by 12 %, the jeep's flat tub), the first run of well rows within ten rows behind the windscreen (a pickup bed
+  behind a closed cab is further back). The hip is half the run behind its front (4-14 % of the length), the
+  cushion the band's low 30 %. Logged once per model: `seat well: <model>: cockpit well ...` and the
+  `driver's seat of <model> (cockpit well)` line. Offline twin of the rule: the same logic in Python matched
+  031 / 045 / 022 and found no well on 001, 030, 053, 062. `[devtools] seat_well=0` (re-read each second) or
+  `GTA2DX9_SEAT_WELL=0`: the sprite's seat.
+- Fix 2, boarding.cpp `DriveSink`: an open top's named seat with nothing over it (the headliner at the body's full
+  height: 039 Morton and 044 Arachnid from the manifest, the well's seats) seats him on the cushion; before, the
+  clamp under the body's top sank the hips 0.07-0.10 under the cushion and the 031's driver was hidden below the
+  door line from the side. Both the cab table's open top and the body's open seat are needed: the 053 Michelli
+  is "open" in the table but its body has a roof (headliner 0.94 of its height), the 036 Schmidt's bubble reaches
+  its full height but is not open; both keep the clamp. `GTA2DX9_OPEN_SEAT_ROOF_OLD=1`: as before.
+- Verified (plain GL, frames opened): the filer's repro (wil 164.5,147.6, 22:30, the hero's car forced
+  62 -> 29 -> 30 -> 31, then 45, 22, 53, 36, 44, 39; high, front 3/4 and side fixed cameras, `seat_well` 1 then 0
+  at each pose): 031, 045, 022 in the left seat at the wheel with the new seat, on the bonnet / ahead with the
+  old; 053 and 036 heads under their roofs; 044 and 039 head and shoulders over the door. A natural 031 (bil
+  44.5,89.5, the parked one the level places there, boarded with Return, no forcing) at noon and 22:30: the old
+  sprite seat had him high behind the windscreen, leaning into its frame; the new one in the seat. Traffic 031s
+  with their own drivers take the same per-model seat (same publish call), not filmed.
+- qar22 (fire truck 017: no cab for 3-5 s after V): not the cab. The filer's probe warps from the level start to
+  the truck (150 blocks) and the game camera scrolls after him at ~6 blocks a second; the game submits no
+  sprites outside its window, so no 3D body (and no cab) is drawn until it arrives (the 017's first `identity:`
+  and `cab of model 17` lines come 13-17 s after the warp in all three filer runs, as the `cam[N] bounds=` lines
+  reach him). Same probe with the game camera settled first (gamerun/fire017_settled.py, keys_fire017s.sh): the
+  first first-person frame has the header, pillars, dash, gauges and both hands (one frame of open hands closing
+  on the rim). In play the camera is always on him: no code change.
+- Classic top-down: see the vreg line in the commit.
+
 ## The third-person turn budget; no swing cut ping-pong; the boom past a phone box; peds at the lens (FIX-CAMERA-17, 10 Nov 2026)
 
 Owner, playtest 2 (RTX 5090): "standing near a phone booth can cause camera jitter; jitter also occurs when a large

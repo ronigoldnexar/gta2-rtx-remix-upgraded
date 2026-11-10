@@ -36,6 +36,7 @@
 #include "../../src/post_fx.h"   // VisualsConfig (feel29 car_shadow_blend)
 #include "../../src/weather_fx.h"   // WeatherAdjustSky (FIX-CAR-IDENTITY-6 paint sky cast)
 #include "car_coat.h"   // FIX-CAR-SHADING-1
+#include "seat_well.h"   // FIX-COCKPIT-CAB-6
 
 namespace gta2dx9 {
 bool FigureTimeOfDayLight(float out[3]);   // live_geometry.cpp (ptm14): the figures' hour light, 1 by day
@@ -5152,14 +5153,19 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 // rows put the 001 Wellard's driver on the rear deck, outside the glass). [devtools] glass_seat=0: the sprite's.
                 float glassSeat[4];
                 const bool fromGlass = g_glassSeat != 0 && !model->hasDriverSeat && CarGlassDriverSeat(*model, glassSeat);
-                const bool ownSeat = (model->hasDriverSeat || fromGlass) && !sideways;
-                const float* ms = fromGlass ? glassSeat : model->driverSeat;
+                // FIX-COCKPIT-CAB-6 (qav51): an open top with neither (031 Jefferson, 045 Spritzer, 022): the seat from its
+                // own mesh's cockpit well (seat_well.cpp), not the sprite's window rows (the 031's driver sat on its bonnet).
+                // [devtools] seat_well=0 / GTA2DX9_SEAT_WELL=0: the sprite's seat, as before.
+                float wellSeat[4];
+                const bool fromWell = !model->hasDriverSeat && !fromGlass && CabOpenTop(modelNumber) && SeatWellFor(*model, wellSeat);
+                const bool ownSeat = (model->hasDriverSeat || fromGlass || fromWell) && !sideways;
+                const float* ms = fromGlass ? glassSeat : fromWell ? wellSeat : model->driverSeat;
                 BoardingPublishSeat(use.object, ownSeat, std::fabs(ms[0]) * sx, ms[2] * sz * f, ms[1] * sy, ms[3] * sy);
                 if (ownSeat) {
                     static std::set<const Model*> seatPubLogged;
                     if (seatPubLogged.size() < 40 && seatPubLogged.insert(model).second) {
                         Log("car bodies: driver's seat of %s (%s): u %.3f z %+.3f cushion %.3f headliner %.3f (the sprite's: u %.3f z %+.3f roof %.3f)",
-                            model->name.c_str(), fromGlass ? "glass cabin" : "manifest", std::fabs(ms[0]) * sx, ms[2] * sz * f, ms[1] * sy, ms[3] * sy, 0.25f * b->bodyWidth,
+                            model->name.c_str(), fromGlass ? "glass cabin" : fromWell ? "cockpit well" : "manifest", std::fabs(ms[0]) * sx, ms[2] * sz * f, ms[1] * sy, ms[3] * sy, 0.25f * b->bodyWidth,
                             zf - 0.27f * b->bodyLength + 0.38f * (std::max)(0.12f, 0.27f * b->bodyLength), roofY);
                     }
                 }

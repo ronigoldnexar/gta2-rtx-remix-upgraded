@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <windows.h>
 #include <cstdlib>
 #include <map>
 
@@ -213,6 +214,14 @@ float SitSink(const Car& c) { return (std::max)(0.04f, (std::min)(0.11f, 0.234f 
 // seat at the rear deck and the 0.14 cap left him standing through the 036's canopy.
 float DriveSink(const Car& c) {
     if (c.openTop && !c.hasSeat) return SitSink(c);
+    // FIX-COCKPIT-CAB-6 (qav51): a named seat with nothing over it (its headliner at the body's full height: the
+    // manifest's ray up from the cushion found no roof, 039/044; the cockpit well's 022/031/045) has no roof to clear:
+    // the clamp under the body's top sank the hips 0.07-0.10 under the cushion, the head below the door line (the
+    // 031 read as driven by nobody from the side). He sits on the cushion. Both the cab table's open top and the body's
+    // own open seat: the 053 Michelli is "open" in the table but its body has a roof (headliner 0.94 of its height), the
+    // 036 Schmidt's bubble reaches its full height but is not open: both clamped as before. GTA2DX9_OPEN_SEAT_ROOF_OLD=1: as before.
+    static const bool openRoofOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_OPEN_SEAT_ROOF_OLD", b, sizeof b) && b[0] == '1'; }();
+    if (c.openTop && c.hasSeat && !openRoofOld && c.seatRoof >= 0.97f * c.roof) return (std::max)(-0.30f, (std::min)(0.22f, 0.234f - (c.seatY + 0.01f)));
     if (c.hasSeat) {
         const float hip = (std::min)(c.seatY + 0.01f, c.seatRoof - 0.015f - (0.47f - 0.234f));
         return (std::max)(-0.30f, (std::min)(0.22f, 0.234f - hip));
