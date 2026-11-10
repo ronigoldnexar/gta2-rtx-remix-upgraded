@@ -1041,3 +1041,37 @@ the same record; no Remix-specific path changed).
 
 **Not the cause.** `ms.playercopies=0` is the Remix player-texture tag cache (model_store PlayerCopyFor), empty whenever the
 own-figure texture tagging is off; it says nothing about which avatar is drawn.
+
+## 15. The "hero twin" on the 3f813097 smoke was two crowd peds of remap 17, not the hero (FIX-IDENTITY-3, 11 Nov 2026)
+
+**Filing** (coordinator shift 81, restage gate smoke of stage 3f813097, wil church plaza, third person, shot_130): a man
+lies on the ground in the "hero's exact outfit" (red zip jacket, blue trousers, white trainers, dark hair) beside a standing
+man in the same clothes, read as the hero.
+
+**Measured.** The hero in that run is NOT in red. His record (log at load and on every key line, 56 of 56 recent fresh
+sessions): `identity: player key 0 remap 25 body 0 -> human_male_adult_11 zoned ... top 61,61,66 bottom 53,53,62 fp
+ee58ea54`, a near-black outfit. The smoke video at 118-132 s, one frame a second: the camera follows the dark-grey man
+throughout (fists up, punching); at 129 s he punches a red-jacket man, who falls (ragdoll); a second red-jacket man runs in
+and stands at the frame centre; the hero walks behind him (the "grey shirt man walking between them" of the filing is the
+hero). The red-jacket men are the game's remap 17 (top 170,0,0 / bottom 22,51,90): in that run remap 17 was dealt to keys 37,
+93, 145 (`human_male_10`) and 46 (`human_male_adult_18`). Two pedestrians of one game type in one frame, the same avatar,
+build varied by CrowdVariety. Classic draws every remap-17 pedestrian with the same sprite in the same red/blue, so this is
+parity with the game, not an identity leak.
+
+**Re-run** (`qa_fid3_a`: the smoke's fight, third person, a classic shot right after each third-person shot, with
+`GTA2DX9_IDENTITY_PROBE=1`, `LOG_FIGURES=1`, `LOG_PED_FRAMES=1`): 257 `identity probe: player` lines, all `fp ee58ea54`,
+the rect at the third-person target (about 540-655 x 320-460 of 1280x720); the knocked-down ped of that run (frame 015)
+is a teal-shirt crowd ped in his own clothes; the hero is dark grey in all nine third-person frames.
+
+**The two routes to the hero's record, audited.** (1) The player pointer: the locator's ped, cross-checked against the
+game's player object `[[0x5EB4FC]+0x38]+0x2C4` (section 14). (2) Remap 25: the game's own protagonist palette. Over the
+latest 400 runs' logs the 46 `-> the player's record` lines are key 0 (the arrest/death body, 40) and key 1 (his own game
+id, 6); no other ped id. Crowd picks never deal his model: 0 `identity: ped key ... -> human_male_adult_11` lines in the
+same 400 logs (DerivePed re-deals any pick that lands on the hero's model, and the load line `kept out of 0 crowd picks`
+means the manifest pools already exclude it). No code changed for this filing.
+
+**Still short.** Crowd variety: one remap type deals few avatars (remap 17: `human_male_10` three times out of four in that
+run), so two strangers of one type can look like twins of each other in one frame, as two remap-17 sprites do in classic.
+A wider per-type pool (asset work, ASSET-PEDS) would make them read as different people while keeping the type's colours.
+How to tell the hero in a frame: grep the run's `identity: player key 0` line for his shown colours before calling a figure
+his twin.
