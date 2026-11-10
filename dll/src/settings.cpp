@@ -72,6 +72,8 @@ void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCo
     f[nf++] = {"lights", "EmitterRadius", &ls.emitterRadius};
     f[nf++] = {"lights", "MinIntensity", &ls.minIntensity};
     f[nf++] = {"lights", "AmbientFillScale", &ls.ambientFillScale};
+    f[nf++] = {"lights", "NightSkyFill", &ls.nightSkyFill};
+    f[nf++] = {"lights", "DuskFillDegrees", &ls.duskFillDeg};
     f[nf++] = {"lights", "ConeSoftness", &ls.coneSoftness};
     f[nf++] = {"lights", "BuriedLift", &ls.buriedLift};
     f[nf++] = {"lights", "PoolConeDegrees", &ls.poolConeDeg};

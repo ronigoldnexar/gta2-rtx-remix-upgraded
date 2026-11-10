@@ -359,6 +359,8 @@ void SetOwnCarFire(bool on, float x, float y, float z, float dirX, float dirZ, i
     const float l = std::sqrt(dirX * dirX + dirZ * dirZ);
     g_ownFire = {on && l > 1e-4f, x, y, z, l > 1e-4f ? dirX / l : 0.0f, l > 1e-4f ? dirZ / l : 1.0f, stage};
 }
+bool g_playerInVehicle = false;
+void SetPlayerInVehicle(bool in) { g_playerInVehicle = in; }
 void SetPlayerPed(const void* ped) { g_playerPed = ped; }
 void SetPlayerObject(const void* object) {
     g_playerObject = object;
@@ -13134,7 +13136,17 @@ void PlayerFillSubmit() {
     const float night = DaylightGateFactor(gate);
     if (night <= 0.0f) return;
     RemixLightDesc d;
-    d.pos[0] = g_playerPosX; d.pos[1] = g_playerPosY + 0.6f; d.pos[2] = g_playerPosZ;
+    // FIX-REMIX-NIGHT-2 (pt-remix-fp-cabin-flat-white-slabs-day-glow-cream-at-night): in a vehicle
+    // the sphere 0.6 over him hung inside the cab, under the roof lining: a lamp in the cabin that
+    // lit the header, pillars and dash evenly from inside at every hour after dusk. In a vehicle it
+    // goes over the roof. [devtools] remix_fill_in_cab=1: the old place (same-session A/B).
+    static int fillInCab = 0, fillAt = 0;
+    if (--fillAt <= 0) {
+        fillAt = 60;
+        if (!g_fireIniPath.empty()) fillInCab = GetPrivateProfileIntA("devtools", "remix_fill_in_cab", 0, g_fireIniPath.c_str());
+    }
+    const float lift = g_playerInVehicle && !fillInCab ? 1.6f : 0.6f;
+    d.pos[0] = g_playerPosX; d.pos[1] = g_playerPosY + lift; d.pos[2] = g_playerPosZ;
     // FIX-REMIX-IDENTITY (pt-remix-hero-hair-turns-to-bald-scalp-at-dusk-and-night): 0.6 above the feet is
     // 0.14 above the hero's scalp (he is 0.46 tall), so the crown took ~18x the ground's light and the dark
     // hair's specular sheen read as a bare, skin-toned scalp from the lamps' hour on. In the street views the
@@ -13143,7 +13155,8 @@ void PlayerFillSubmit() {
     // walls round it are then at similar distances (an ambient-like fill, no hot spot on the head). First
     // person (the eye within 0.5 of the old spot: the scalp is not in view) and the classic view keep the old
     // spot, as verified for the pocket (classic unchanged).
-    if (StreetPresentation() && g_fillTowardEye > 0.0f) {
+    // FIX-REMIX-NIGHT-2: not in a vehicle (no figure is drawn there; the fill is over the roof).
+    if (StreetPresentation() && g_fillTowardEye > 0.0f && !(g_playerInVehicle && !fillInCab)) {
         const float dx = g_viewEye.x - d.pos[0], dy = g_viewEye.y - d.pos[1], dz = g_viewEye.z - d.pos[2];
         const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (len > 0.5f && len < 12.0f) {

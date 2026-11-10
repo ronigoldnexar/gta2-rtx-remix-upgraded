@@ -33,6 +33,12 @@ int g_farLampsLastFrame = 0;
 float g_farLampWeight = 0.0f;   // this frame's fade of the far lamps (0 when none were submitted)
 int g_probeMask = 0;              // [devtools] remix_lights_probe (see GameClassDaylight)
 int g_poolCone = -1;             // [devtools] remix_pool_cone: PoolConeDegrees, live (-1 = the setting, 0 = sphere)
+int g_nightFillMilli = -1;       // [devtools] remix_night_fill_milli: NightSkyFill x1000, live (-1 = the setting)
+int g_trafficOld = 0;            // [devtools] remix_traffic_old=1: the junction signals as before (A/B)
+int g_trafficPct = 35;           // [devtools] remix_traffic_pct: a signal's light at night, % of the old
+int g_trafficDayPct = 10;        // [devtools] remix_traffic_day_pct: by day, % of the night's
+int g_signLights = 1;
+int g_duskFillDeg = -1;          // [devtools] remix_dusk_fill_deg: DuskFillDegrees, live (-1 = the setting, 0 = off)            // [devtools] remix_sign_lights=0: red/pink map lights as sodium lamps again (A/B)
 bool g_reliftPending = false;
 
 uint64_t MapLightKey(uint32_t x, uint32_t y, uint32_t z) {
@@ -254,6 +260,18 @@ void ClearAll() {
 // because Apply is the first thing that wants it.
 float GameClassDaylight(uint8_t klass);
 
+// A sodium/amber lamp's colour: red leads and green is well up and clear of blue (#FF8000,
+// #FF8040, #FF9224, #FFFF00). A pure or pinkish red (#FF0000, #FF8080) is not.
+// A junction signal drawn the street views' way (see Describe).
+bool TrafficShaped(const RemixTrackedLight& t) {
+    return !g_trafficOld && t.def.source == kLightSourceGame && !t.moving && t.gameClass == kGameLightTraffic &&
+           StreetPresentation();
+}
+
+bool SodiumLike(const float* rgb) {
+    return rgb[0] > 0.0f && rgb[1] >= 0.3f * rgb[0] && rgb[1] - rgb[2] >= 0.15f * rgb[0];
+}
+
 // Where a tracked light goes, its colour and the factor its colour is scaled by
 // (everything Apply describes to Remix but the emitter shape). Shared with the
 // strongest-lights log.
@@ -286,13 +304,34 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
 
     // A wide coloured map light: warm white at the same luminance (see
     // wideNeonRadius in remix_lights.h). An override's own colour wins.
-    if (t.def.source == kLightSourceGame && !t.moving && t.gameClass == kGameLightNeon &&
+    // FIX-REMIX-NIGHT-2 (pt-remix-night-red-neon-sign-floods-courtyard-saturated-red): in the street
+    // views a red or pink map light (#FF0000, #FF8080: r leads, g and b level) is a sign, not a sodium
+    // lamp; ClassifyGameLight's r >= g >= b test called it Street, so a radius-5 red light kept its
+    // full red over the Wil courtyard's walls and stairs. The classic view keeps the game's classes.
+    const bool signLike = t.gameClass == kGameLightNeon ||
+                          (g_signLights && t.gameClass == kGameLightStreet && StreetPresentation() && !SodiumLike(t.def.rgb));
+    if (t.def.source == kLightSourceGame && !t.moving && signLike &&
         g_settings.wideNeonRadius > 0.0f && t.def.radius >= g_settings.wideNeonRadius &&
         !(ov && ov->recolor)) {
         static const float kWarm[3] = {1.0f, 0.80f, 0.58f};
         const float lumaWarm = 0.2126f * kWarm[0] + 0.7152f * kWarm[1] + 0.0722f * kWarm[2];
         const float luma = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
         for (int i = 0; i < 3; ++i) rgb[i] = kWarm[i] * luma / lumaWarm;
+    }
+
+    // FIX-REMIX-NIGHT-2 (pt-remix-traffic-light-green-wash-slab-and-grainy-red-crosswalk-pool): in
+    // the street views a junction signal is a small lamp shining down at the road (Apply gives it the
+    // cone), not a bare sphere of pure green that washed the facade beside it flat and threw a grainy
+    // red disc on the crossing: a third of the power at night, a tenth of that by day (the lens is
+    // what reads by day), and its colour pulled a third of the way to white.
+    if (TrafficShaped(t)) {
+        DaylightGate gate;
+        gate.enabled = true;
+        const float night = DaylightGateFactor(gate);
+        const float day = static_cast<float>(g_trafficDayPct) / 100.0f;
+        scale *= static_cast<float>(g_trafficPct) / 100.0f * (day + (1.0f - day) * night);
+        const float luma = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
+        for (int i = 0; i < 3; ++i) rgb[i] = luma + (rgb[i] - luma) * 0.67f;
     }
 
     // Pull towards luminance rather than towards grey: mixing in white would
@@ -343,7 +382,14 @@ void Apply(RemixTrackedLight& t) {
     sphere.volumetricRadianceScale = 1.0f;
     // A headlight is a cone, not a bare bulb. Remix calls that shaping, and it
     // is the one thing here the game's own light model had no way to express.
-    if (t.def.spot) {
+    if (TrafficShaped(t)) {
+        // Down and out over the road, 75 degrees either side of straight down, soft edged.
+        sphere.shaping_hasvalue = 1;
+        sphere.shaping_value.direction = remixapi_Float3D{0.0f, -1.0f, 0.0f};
+        sphere.shaping_value.coneAngleDegrees = 75.0f;
+        sphere.shaping_value.coneSoftness = 0.5f;
+        sphere.shaping_value.focusExponent = 0.0f;
+    } else if (t.def.spot) {
         sphere.shaping_hasvalue = 1;
         sphere.shaping_value.direction = ToRemix(t.def.dir);
         sphere.shaping_value.coneAngleDegrees = t.def.coneAngleDeg;
@@ -382,8 +428,33 @@ void ApplyAmbientFill() {
     const remixapi_Interface* api = RemixApi();
     if (!api) return;
 
-    const float level = g_ambient * g_settings.ambientFillScale;
-    if (!g_settings.enabled || !g_settings.ambientFill || level <= 0.0f) {
+    const float level = g_settings.ambientFill ? g_ambient * g_settings.ambientFillScale : 0.0f;
+    // The night sky's fill (nightSkyFill in remix_lights.h): a moonlit sky's blue-grey, by the lamps' clock.
+    float night = 0.0f;
+    {
+        DaylightGate gate;
+        gate.enabled = true;
+        const float fill = g_nightFillMilli >= 0 ? static_cast<float>(g_nightFillMilli) / 1000.0f : g_settings.nightSkyFill;
+        // Only with Remix's sky following the clock: without it DaylightGateFactor is 1 at every hour.
+        if (fill > 0.0f && !((g_probeMask >> 8) & 1) && RemixApiHasAtmosphere()) {   // probe bit 8: the night fill out
+            float share = DaylightGateFactor(gate);
+            // FIX-REMIX-NIGHT-3 (pt-remix-dusk-props-near-black-no-sky-ambient): from the sun's DuskFillDegrees
+            // above the horizon down to the horizon the fill comes up with the dusk (smoothly, to the night's
+            // level at sunset): at 17:00 the sun is low and behind the blocks, the street's props and shaded
+            // faces had nothing but a dim sky and read as black cut-outs. 0 by day (sun higher).
+            const float start = g_duskFillDeg >= 0 ? static_cast<float>(g_duskFillDeg) : g_settings.duskFillDeg;
+            if (start > 0.0f && TimeOfDayPushed()) {
+                float elev = 90.0f;
+                TimeOfDayAngles(&elev, nullptr);
+                float t = (std::max)(0.0f, (std::min)(1.0f, (start - elev) / start));
+                t = t * t * (3.0f - 2.0f * t);
+                share = (std::max)(share, t);
+            }
+            night = fill * share;
+        }
+    }
+    static const float kMoonSky[3] = {0.78f, 0.86f, 1.0f};
+    if (!g_settings.enabled || level + night <= 0.0f) {
         DestroyHandle(g_ambientHandle);
         return;
     }
@@ -391,7 +462,7 @@ void ApplyAmbientFill() {
     remixapi_LightInfo info = {};
     info.sType = REMIXAPI_STRUCT_TYPE_LIGHT_INFO;
     info.hash = kAmbientFillId;
-    info.radiance = remixapi_Float3D{level, level, level};
+    info.radiance = remixapi_Float3D{level + night * kMoonSky[0], level + night * kMoonSky[1], level + night * kMoonSky[2]};
     info.isDynamic = 1;
 
     remixapi_LightInfoDistantEXT distant = {};
@@ -417,6 +488,7 @@ bool SameSettings(const RemixLightSettings& a, const RemixLightSettings& b) {
         && a.minIntensity == b.minIntensity && a.saturation == b.saturation
         && a.wideNeonRadius == b.wideNeonRadius
         && a.ambientFill == b.ambientFill && a.ambientFillScale == b.ambientFillScale
+        && a.nightSkyFill == b.nightSkyFill && a.duskFillDeg == b.duskFillDeg
         && a.coneSoftness == b.coneSoftness && a.buriedLift == b.buriedLift && a.poolConeDeg == b.poolConeDeg
         && memcmp(a.gameClass, b.gameClass, sizeof(a.gameClass)) == 0;
 }
@@ -803,6 +875,20 @@ void FitLampsToPosts() {
             d.intensity = glow.intensity;
         }
         RemixLightDesc pool = glow;
+        // FIX-REMIX-NIGHT-2: a lantern on a post is a white lamp whatever the map light it stands
+        // for: a saturated colour (a sign's red, a neon green) poured down by the pool at 4x flooded
+        // the paving and stairs under it in that colour. The pool is warm white at the light's own
+        // luminance; the glow in the glass and the light itself keep their colour.
+        if (g_signLights) {
+            const float* c = d.rgb;
+            const float top = (std::max)(c[0], (std::max)(c[1], c[2])), bottom = (std::min)(c[0], (std::min)(c[1], c[2]));
+            if (top > 0.0f && (top - bottom) / top >= 0.45f && !SodiumLike(c)) {
+                static const float kWarm[3] = {1.0f, 0.86f, 0.70f};
+                const float luma = 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2];
+                const float lumaWarm = 0.2126f * kWarm[0] + 0.7152f * kWarm[1] + 0.0722f * kWarm[2];
+                for (int k = 0; k < 3; ++k) pool.rgb[k] = kWarm[k] * luma / lumaWarm;
+            }
+        }
         const float r = (std::min)(kLampPoolEmitter, 0.5f * head.glassRadius);
         pool.emitterRadius = r;
         pool.pos[0] = head.centre.x;
@@ -863,6 +949,19 @@ void LightsReconcile() {
             if (mask != g_probeMask) { g_probeMask = mask; Log("devtools: remix lights probe mask %d", mask); }
             const int cone = GetPrivateProfileIntA("devtools", "remix_pool_cone", -1, ini);
             if (cone != g_poolCone) { g_poolCone = cone; Log("devtools: lamp pools in a %d deg cone", cone); }
+            const int fill = GetPrivateProfileIntA("devtools", "remix_night_fill_milli", -1, ini);
+            if (fill != g_nightFillMilli) { g_nightFillMilli = fill; Log("devtools: night sky fill %d/1000 (-1: the setting %.3f)", fill, g_settings.nightSkyFill); }
+            const int tOld = GetPrivateProfileIntA("devtools", "remix_traffic_old", 0, ini);
+            const int tPct = GetPrivateProfileIntA("devtools", "remix_traffic_pct", 35, ini);
+            const int tDay = GetPrivateProfileIntA("devtools", "remix_traffic_day_pct", 10, ini);
+            if (tOld != g_trafficOld || tPct != g_trafficPct || tDay != g_trafficDayPct) {
+                g_trafficOld = tOld; g_trafficPct = tPct; g_trafficDayPct = tDay; g_reliftPending = true;
+                Log("devtools: junction signals %s, %d%% at night, %d%% of that by day", tOld ? "as before" : "shaped", tPct, tDay);
+            }
+            const int dusk = GetPrivateProfileIntA("devtools", "remix_dusk_fill_deg", -1, ini);
+            if (dusk != g_duskFillDeg) { g_duskFillDeg = dusk; Log("devtools: dusk fill from %d deg (-1: the setting %.1f)", dusk, g_settings.duskFillDeg); }
+            const int signs = GetPrivateProfileIntA("devtools", "remix_sign_lights", 1, ini);
+            if (signs != g_signLights) { g_signLights = signs; g_reliftPending = true; Log("devtools: red/pink map lights as signs %s", signs ? "on" : "off"); }
         }
         // [devtools] remix_config=key=value|key=value: pushed to the runtime whenever the
         // line changes (A/B checks of runtime options within one session).
@@ -1058,6 +1157,13 @@ void LightsReconcile() {
     if (g_reliftPending) {
         g_reliftPending = false;
         applyAll = true;
+    }
+    // FIX-REMIX-NIGHT-2: the sign rule (Describe) differs between the classic view and the street
+    // views: describe every light again when the picture changes between them.
+    {
+        static int lastStreet = -1;
+        const int street = StreetPresentation() ? 1 : 0;
+        if (street != lastStreet) { if (lastStreet >= 0) applyAll = true; lastStreet = street; }
     }
 
     // --- Create, redefine, suppress ----------------------------------------

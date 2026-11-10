@@ -49,6 +49,10 @@ struct CabInteriorParams {
     bool warm = false;                           // FIX-SEAT-ENTRY-2: an unseen draw ahead of the seat view (no state kept)
 };
 
+// Under Remix (and [devtools] remix_cab_albedo != 0) the surfaces' colours go into their textures,
+// the only albedo Remix reads (FIX-REMIX-NIGHT-2). Off: the plain renderer's material colours.
+void CabInteriorSetRemixAlbedo(bool on);
+
 // Releases the surface textures (device reset or loss).
 void CabInteriorReleaseDevice();
 void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const CabInteriorParams& p,

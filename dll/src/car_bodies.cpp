@@ -1319,6 +1319,7 @@ struct BonnetSurfKey {
 std::map<BonnetSurfKey, BonnetSurface> g_bonnetSurfs;
 int g_fpBonnet = 1;   // [devtools] fp_bonnet=0: the hood copy from the seat instead (A/B checks)
 int g_hoodDash = 1;   // [devtools] hood_dash=0: the full hood copy built for its dash as before FIX-PERF-3 (A/B checks)
+bool g_cabRemixAlbedo = true;   // [devtools] remix_cab_albedo (FIX-REMIX-NIGHT-2)
 
 BonnetSurfKey BonnetSurfKeyFor(const Model& model, const gta2::Mat4& fit, float windscreen) {
     return BonnetSurfKey{&model, static_cast<int>(std::lround(std::fabs(fit.m[0][0] + fit.m[2][0]) * 100.0f)),
@@ -1516,8 +1517,46 @@ const BonnetSurface& BonnetSurfaceFor(const Model& model, const gta2::Mat4& fit,
 // The bonnet surface from the seat in the car's frame on its springs: the cowl from the cut
 // (`zCut`, under the dash) to the first row, the rows, skirts down its sides and nose. Lit, in the
 // paint (a dark paint held at a floor, as the body is), with a sheen.
+// FIX-REMIX-NIGHT-2: under Remix (which reads neither vertex nor material colour) the samples' colours
+// go into a small texture, a texel per sample, and the vertices carry its UVs. Cached per surface and
+// colour; released with the device.
+IDirect3DTexture9* g_bonnetTex = nullptr;
+const BonnetSurface* g_bonnetTexFor = nullptr;
+uint32_t g_bonnetTexKey = 0;
+int g_bonnetTexW = 1, g_bonnetTexH = 1;
+void BonnetTextureRelease() { if (g_bonnetTex) g_bonnetTex->Release(); g_bonnetTex = nullptr; g_bonnetTexFor = nullptr; }
+IDirect3DTexture9* BonnetTexture(IDirect3DDevice9* device, const BonnetSurface& s, const float tint[3], float dull) {
+    uint32_t key = static_cast<uint32_t>((std::max)(0.0f, (std::min)(1.0f, dull)) * 63.0f + 0.5f);
+    for (int k = 0; k < 3; ++k) key = key << 8 | static_cast<uint32_t>((std::max)(0.0f, (std::min)(2.0f, tint[k])) * 127.0f + 0.5f);
+    if (g_bonnetTex && g_bonnetTexFor == &s && g_bonnetTexKey == key) return g_bonnetTex;
+    BonnetTextureRelease();
+    int w = 1, h = 1;
+    while (w < s.cols) w <<= 1;
+    while (h < s.rows) h <<= 1;
+    IDirect3DTexture9* t = nullptr;
+    if (FAILED(device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &t, nullptr)) || !t) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (SUCCEEDED(t->LockRect(0, &lr, nullptr, 0))) {
+        for (int y = 0; y < h; ++y) {
+            uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+            for (int x = 0; x < w; ++x) {
+                const size_t q = static_cast<size_t>((std::min)(y, s.rows - 1) * s.cols + (std::min)(x, s.cols - 1));
+                uint32_t col = 0xff000000u;
+                for (int k = 0; k < 3; ++k) {
+                    const float v = s.rgb[q * 3 + static_cast<size_t>(k)] * (1.0f + s.cov[q] * (tint[k] - 1.0f)) * dull;
+                    col |= static_cast<uint32_t>((std::max)(0.0f, (std::min)(1.0f, v)) * 255.0f + 0.5f) << (16 - 8 * k);
+                }
+                row[x] = col;
+            }
+        }
+        t->UnlockRect(0);
+    }
+    g_bonnetTex = t; g_bonnetTexFor = &s; g_bonnetTexKey = key; g_bonnetTexW = w; g_bonnetTexH = h;
+    return t;
+}
+
 void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const BonnetSurface& s, float zCut, float cowlTop, float maxY,
-                const float tint[3], float dull, const D3DMATERIAL9& body, const D3DMATERIAL9& restore) {
+                const float tint[3], float dull, const D3DMATERIAL9& body, const D3DMATERIAL9& restore, bool remix = false) {
     struct V { float x, y, z, nx, ny, nz; DWORD c; };
     struct L { float x, y, z, nx, ny, nz; int q; };   // q: the sample whose colour it takes
     const int C = s.cols;
@@ -1587,6 +1626,41 @@ void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const Bo
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
     device->SetTransform(D3DTS_WORLD, &identity);
+    if (remix) {
+        IDirect3DTexture9* tex = BonnetTexture(device, s, tint, dull);
+        if (!tex) return;
+        struct VT { float x, y, z, nx, ny, nz, u, v; };
+        std::vector<VT> tv(world.size());
+        for (size_t i = 0; i < world.size(); ++i) {
+            const int q = local[i].q;
+            tv[i] = {world[i].x, world[i].y, world[i].z, world[i].nx, world[i].ny, world[i].nz,
+                     (static_cast<float>(q % s.cols) + 0.5f) / static_cast<float>(g_bonnetTexW),
+                     (static_cast<float>(q / s.cols) + 0.5f) / static_cast<float>(g_bonnetTexH)};
+        }
+        DWORD addrU = 0, addrV = 0;
+        device->GetSamplerState(0, D3DSAMP_ADDRESSU, &addrU);
+        device->GetSamplerState(0, D3DSAMP_ADDRESSV, &addrV);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        device->SetMaterial(&body);
+        device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+        device->SetTexture(0, tex);
+        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+        device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+        device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(tv.size()), static_cast<UINT>(idx.size() / 3), idx.data(),
+                                       D3DFMT_INDEX16, tv.data(), sizeof(VT));
+        device->SetTexture(0, nullptr);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSU, addrU);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSV, addrV);
+        device->SetMaterial(&restore);
+        return;
+    }
     // The body's own material (its dark-paint sheen and wear), the colour from the vertices.
     D3DMATERIAL9 m = body;
     device->SetMaterial(&m);
@@ -3399,6 +3473,7 @@ void CarBodiesSetLamps(int mode, bool dark) {
 
 void CarBodiesReleaseDevice() {
     CabInteriorReleaseDevice();
+    BonnetTextureRelease();
     CarGlassReleaseDevice();
     for (auto& e : g_cache) {
         if (e.second.atlas) e.second.atlas->Release();
@@ -3566,6 +3641,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_hoodDropDark = GetPrivateProfileIntA("devtools", "hood_drop_dark", 1, g_devIni) != 0;
         g_fpBonnet = GetPrivateProfileIntA("devtools", "fp_bonnet", 1, g_devIni);
         g_hoodDash = GetPrivateProfileIntA("devtools", "hood_dash", 1, g_devIni);
+        // FIX-REMIX-NIGHT-2: remix_cab_albedo=0 draws the cab the old way under Remix (same-session A/B).
+        g_cabRemixAlbedo = GetPrivateProfileIntA("devtools", "remix_cab_albedo", 1, g_devIni) != 0;
         {
             char fp[64] = {};
             GetPrivateProfileStringA("devtools", "force_car_paint", "", fp, sizeof(fp), g_devIni);
@@ -3879,7 +3956,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 // FIX-FP: the seat's bonnet as a clean surface (BonnetSurfaceFor) on the plain renderer
                 // (FIX-PERF-3: decided before the hood, which is then only measured for its dash).
                 const bool flatSeat = g_cabInterior && !WreckModelNumber(modelNumber) && CabClassFor(modelNumber, cab.flat) == CabClass::Bus;
-                if (!flatSeat && g_fpBonnet && !RemixApiAvailable() && !WreckModelNumber(modelNumber)) {
+                if (!flatSeat && g_fpBonnet && (!RemixApiAvailable() || g_cabRemixAlbedo) && !WreckModelNumber(modelNumber)) {
                     CarPartTimer partTimer(kPartSeatBonnet);
                     const float top = BonnetTopFor(*worn, fit, cab.windscreen);
                     if (top > 0.02f) {
@@ -3895,7 +3972,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     hood = &HoodModelFor(*worn, fit, eyeLocalY - 0.035f, eyeLocalZ + 0.10f, eyeLocalX);
                     drawn = hood->model;
                 }
-            } else if (use.driven && g_fpBonnet && !RemixApiAvailable() && !WreckModelNumber(modelNumber) &&
+            } else if (use.driven && g_fpBonnet && (!RemixApiAvailable() || g_cabRemixAlbedo) && !WreckModelNumber(modelNumber) &&
                        !(g_cabInterior && CabClassFor(modelNumber, g_cabins[use.object].flat) == CabClass::Bus)) {
                 // FIX-PERF-3: at the wheel in another view: the seat's bonnet made ahead on the worker.
                 CarPartTimer partTimer(kPartSeatBonnet);
@@ -4475,7 +4552,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     {
                         CarPartTimer partTimer(kPartBonnetDraw);
                         DrawBonnet(device, posed, *seatBonnet, eyeLocalZ + 0.10f, (std::min)(cowl, eyeLocalY - 0.045f), eyeLocalY - 0.04f,
-                                   keepOwnPaint ? one : tint, dull, carMaterial, material);
+                                   keepOwnPaint ? one : tint, dull, carMaterial, material, RemixApiAvailable());
                     }
                     if (IdentityProbeOn()) {
                         // FIX-CAR-IDENTITY-2: the seat's bonnet as the player's car in first person for the parity
@@ -4530,6 +4607,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                                 CabClassName(cp.cls), cp.dashTop, eyeLocalY, cp.dashX0, cp.dashX1);
                         }
                         CarPartTimer partTimer(kPartCab);
+                        CabInteriorSetRemixAlbedo(g_cabRemixAlbedo && RemixApiAvailable());
                         DrawCabInterior(device, posed, cp, material);
                     } else {
                         DrawDash(device, posed, *hood, eyeLocalZ + 0.10f, paint, material);

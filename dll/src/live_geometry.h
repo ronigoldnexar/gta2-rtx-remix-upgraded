@@ -117,6 +117,8 @@ void SetPlayerPosition(float x, float y, float z, bool valid);
 // view is first person: flames are emitted at the bonnet edge, which the cab shows (renderer
 // coordinates; dirX/dirZ the car's heading). on=false clears it.
 void SetOwnCarFire(bool on, float x, float y, float z, float dirX, float dirZ, int stage);
+// Whether he is in a vehicle (the Remix night fill goes over the roof, not inside the cab).
+void SetPlayerInVehicle(bool in);
 // A street prop's footprint on the ground, for the camera's clearance queries.
 struct PropFootprint { float x, y, z, radius, height; };
 // Per style tile: 1 when the tile is grass, for the park trees of the street

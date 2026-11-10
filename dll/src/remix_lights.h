@@ -215,6 +215,18 @@ struct RemixLightSettings {
     bool  ambientFill = false;
     float ambientFillScale = 1.0f;
 
+    // FIX-REMIX-NIGHT-2: the night sky's light from above. After dusk nothing lit an
+    // up-facing surface but a near-black night sky (rtx.atmosphere.nightSkyBrightness), so
+    // roofs, lids and the tops of props went pitch black, in the classic view and the street
+    // views alike, where GTA2 lit every face with its constant ambient. A soft, cool distant
+    // light straight down (60 degrees across) stands in, faded in by the street lamps' clock
+    // (0 by day): radiance per channel of the moonlit sky. 0 = off. [lights] NightSkyFill.
+    float nightSkyFill = 0.06f;
+    // FIX-REMIX-NIGHT-3: the same fill rises through the dusk, from the sun this many degrees above
+    // the horizon (0 by day) to the night's level at sunset, so props and shaded faces are not black
+    // cut-outs at 17:00. 0 = the fill by the lamps' clock only. [lights] DuskFillDegrees.
+    float duskFillDeg = 25.0f;
+
     // Softness of the headlight cone edge, 0 is a hard rim.
     float coneSoftness = 0.35f;
 

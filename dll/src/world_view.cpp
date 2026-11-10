@@ -2537,6 +2537,7 @@ void WorldView::ApplyPresentation(ViewMode mode) {
                                  VehicleFacing(player.vehicle, &hx, &hy);
             SetOwnCarFire(burning, player.x, player.z, static_cast<float>(gta2::kMapHeight) - player.y, hx, -hy, fire);
         }
+        SetPlayerInVehicle(player.inVehicle);
         SetUprightPeds(ViewModes().uprightPeds);
         SetPedFigures(ViewModes().uprightPeds && ViewModes().groundPedFigures);
         SetGroundModels(ViewModes().groundModels && ModelsAvailable());
@@ -2547,6 +2548,7 @@ void WorldView::ApplyPresentation(ViewMode mode) {
         SetPlayerPed(nullptr);
         SetPlayerPosition(0.0f, 0.0f, 0.0f, false);
         SetOwnCarFire(false, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0);
+        SetPlayerInVehicle(false);
         SetUprightPeds(false);
         SetPedFigures(false);
         SetGroundModels(false);

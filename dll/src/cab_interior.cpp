@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <vector>
 
 #include "identity.h"
@@ -98,6 +99,43 @@ IDirect3DTexture9* SurfaceTexture(IDirect3DDevice9* device, int kind) {
         t->UnlockRect(0);
     }
     g_tex[kind] = t;
+    return t;
+}
+
+// FIX-REMIX-NIGHT-2 (pt-remix-fp-cabin-flat-white-slabs-day-glow-cream-at-night): Remix reads a draw's
+// albedo from its texture only: the D3D material colour (where these surfaces carry their colour) and
+// vertex colour (rtx.ignoreAllVertexColorBakedLighting) never reach the path tracer, so the cab's grey
+// 0.74..1.0 grain textures came out a white cab (cream under the night's warm lamps). Under Remix each
+// surface draws with its grain multiplied by its colour, baked into the texture (colour quantised to
+// 1/64 so a car's paint-tinted dash makes one texture, not one per frame).
+bool g_remixAlbedo = false;      // set by the renderer: Remix is up and [devtools] remix_cab_albedo != 0
+std::map<uint32_t, IDirect3DTexture9*> g_tintTex;
+IDirect3DTexture9* SurfaceTextureTinted(IDirect3DDevice9* device, int kind, const float c[3]) {
+    if (device != g_texDevice) { CabInteriorReleaseDevice(); g_texDevice = device; }
+    if (kind < 0 || kind >= 16) return nullptr;
+    int q[3];
+    for (int k = 0; k < 3; ++k) q[k] = static_cast<int>((std::max)(0.0f, (std::min)(1.0f, c[k])) * 63.0f + 0.5f);
+    const uint32_t key = static_cast<uint32_t>(kind) << 18 | static_cast<uint32_t>(q[0]) << 12 | static_cast<uint32_t>(q[1]) << 6 | static_cast<uint32_t>(q[2]);
+    auto it = g_tintTex.find(key);
+    if (it != g_tintTex.end()) return it->second;
+    IDirect3DTexture9* t = nullptr;
+    if (FAILED(device->CreateTexture(64, 64, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &t, nullptr)) || !t) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (SUCCEEDED(t->LockRect(0, &lr, nullptr, 0))) {
+        for (int y = 0; y < 64; ++y) {
+            uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+            for (int x = 0; x < 64; ++x) {
+                const float b = (std::max)(0.0f, (std::min)(1.0f, Texel(kind, x, y)));
+                uint32_t px = 0xFF000000u;
+                for (int k = 0; k < 3; ++k)
+                    px |= static_cast<uint32_t>((std::min)(1.0f, b * q[k] / 63.0f) * 255.0f + 0.5f) << (16 - 8 * k);
+                row[x] = px;
+            }
+        }
+        t->UnlockRect(0);
+    }
+    g_tintTex[key] = t;
+    if (g_tintTex.size() == 1 || g_tintTex.size() % 32 == 0) Log("cab interior: %u colour textures for Remix", static_cast<unsigned>(g_tintTex.size()));
     return t;
 }
 
@@ -268,8 +306,12 @@ Style StyleFor(CabClass c, const float paint[3]) {
 
 }  // namespace
 
+void CabInteriorSetRemixAlbedo(bool on) { g_remixAlbedo = on; }
+
 void CabInteriorReleaseDevice() {
     for (IDirect3DTexture9*& t : g_tex) { if (t) t->Release(); t = nullptr; }
+    for (auto& kv : g_tintTex) if (kv.second) kv.second->Release();
+    g_tintTex.clear();
     g_texDevice = nullptr;
 }
 
@@ -807,7 +849,8 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         static const int kKind[kMatCount] = {0, 1, 2, 3, 4, 5, 2, 15, 15, 1, 15, 15, 0};
         // A painted metal dash top (car, van, truck) is smooth: the plastic grain, not the vinyl.
         const bool paintedDash = m == kDash && (p.cls == CabClass::Car || p.cls == CabClass::Van || p.cls == CabClass::Truck);
-        device->SetTexture(0, SurfaceTexture(device, paintedDash ? 1 : kKind[m]));
+        const int kind = paintedDash ? 1 : kKind[m];
+        device->SetTexture(0, g_remixAlbedo ? SurfaceTextureTinted(device, kind, c) : SurfaceTexture(device, kind));
         device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(t.size() / 3), t.data(), sizeof(V));
     }
     device->SetTexture(0, nullptr);
