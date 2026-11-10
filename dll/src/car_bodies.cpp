@@ -4788,7 +4788,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                                 }
                                 gta2::Vec3 rs{eye.x - seat.x, eye.y - seat.y, eye.z - seat.z};
                                 const float rl2 = std::sqrt(rs.x * rs.x + rs.y * rs.y + rs.z * rs.z);
-                                if (rl2 > 0.6f) rs = gta2::Vec3{rs.x * 0.6f / rl2, rs.y * 0.6f / rl2, rs.z * 0.6f / rl2};
+                                // FIX-COCKPIT-CAB-4 (qar7 O2i: the cab seen from under its dash for two frames at a wall impact): in the
+                                // impact frame the game moves the car up to ~0.65 block from the eased eye (cab3_dgh_hands 15:53:19.35,
+                                // 'follows the tilted body 0.647, 0.612'); the 0.6 cap left the drawn seat short of the eye, under the
+                                // dash. Cap 1.5 (GTA2DX9_FP_SEAT_LOCK_MAX=<milli> A/B; 600 = before).
+                                static const float lockMax = [] { char v[12] = {}; const int m = GetEnvironmentVariableA("GTA2DX9_FP_SEAT_LOCK_MAX", v, sizeof v) ? atoi(v) : 0;
+                                                                  return m > 0 ? m / 1000.0f : 1.5f; }();
+                                if (rl2 > lockMax) rs = gta2::Vec3{rs.x * lockMax / rl2, rs.y * lockMax / rl2, rs.z * lockMax / rl2};
                                 posed.m[3][0] += rs.x; posed.m[3][1] += rs.y; posed.m[3][2] += rs.z;
                                 static int logLock = -1;
                                 if (logLock < 0) { char v[8] = {}; logLock = GetEnvironmentVariableA("GTA2DX9_LOG_SEAT", v, sizeof v) ? atoi(v) : 0; }
