@@ -788,3 +788,15 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
     waits for the renderer fix (open BLOCKER 'player-not-found-when-game-pool-lands-above-2gb'). The kit bodies add
     texture memory (012: four 512 paint pictures): later kit bodies should keep their paint pictures to one 512 and
     flats at 16 px.
+- **000 Romero authored (`tools/vehicle_art2/car_000.py`; rank 8, the image-to-3D shell ART-14 left with black well
+  shards; its side glass carried the body paint).** Read from the sprite nose down: a long bonnet with a chrome centre
+  spine to the nose emblem, a wrap-around screen, a long roof, the sprite's big triangular back light tapering to the
+  tail with its centre bar, a short deck between small fins, four doors, a chrome shield grille between low side
+  grilles and quad lamps, slim chrome bumpers, a side spear. Neutral 235 paint tinted by the record. Driver seat
+  [0.09, 0.132, 0.02, 0.304]; `car_mesh_orient.py check` ok. Before `out/va15_000_b3`, after `out/va15_000_a0`
+  (parked, PAINT 140,40,40, poses side/front34/rear34/eye/high/door; stage = 012/013/069 authored + old 027: the level
+  entered normally). Still short of AAA: a boxier silhouette than the shell's Giulia line, dark kit glass, slab doors.
+  Remix: every 000 texture is new (`000_romero_paint_body_paint`, `_paint_trim_paint`, `_paint_wheel_paint`,
+  `_interior_liner`, `_glass`, `_chrome`, `_chrome_disc`, `_grille`, `_lamp_head`, `_lamp_tail`, `_lamp_amber`, `_plate`,
+  `_trim_dark`, `_seal`, `_seat`, `_interior_dark`, `_tyre_side`, `_tyre_tread`, `_underbody`); backups
+  `backup_va15/models_000`.

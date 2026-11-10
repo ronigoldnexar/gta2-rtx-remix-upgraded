@@ -870,15 +870,42 @@
   },
   {
    "name": "000_romero",
-   "glb": "cars/models3d/000_romero.glb",
+   "glb": "cars/vehicle_art2/000_romero.glb",
    "scale": 1.0,
    "paint_rgb": [
-    160.4,
-    124.6,
-    99.5
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/000_romero/seal.png",
+    "chrome": "cars/vehicle_art2/000_romero/chrome.png",
+    "underbody": "cars/vehicle_art2/000_romero/underbody.png",
+    "paint_body": "cars/vehicle_art2/000_romero/paint_body.png",
+    "interior_liner": "cars/vehicle_art2/000_romero/interior_liner.png",
+    "chrome_disc": "cars/vehicle_art2/000_romero/chrome_disc.png",
+    "paint_trim": "cars/vehicle_art2/000_romero/paint_trim.png",
+    "lamp_tail": "cars/vehicle_art2/000_romero/lamp_tail.png",
+    "lamp_head": "cars/vehicle_art2/000_romero/lamp_head.png",
+    "trim_dark": "cars/vehicle_art2/000_romero/trim_dark.png",
+    "plate": "cars/vehicle_art2/000_romero/plate.png",
+    "grille": "cars/vehicle_art2/000_romero/grille.png",
+    "lamp_amber": "cars/vehicle_art2/000_romero/lamp_amber.png",
+    "seat": "cars/vehicle_art2/000_romero/seat.png",
+    "interior_dark": "cars/vehicle_art2/000_romero/interior_dark.png",
+    "tyre_side": "cars/vehicle_art2/000_romero/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/000_romero/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/000_romero/paint_wheel.png",
+    "glass": "cars/vehicle_art2/000_romero/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_000.py",
+   "driver_seat": [
+    0.09,
+    0.132,
+    0.02,
+    0.304
+   ]
   },
   {
    "name": "001_wellard",
@@ -7792,13 +7819,30 @@
   },
   {
    "name": "000_romero",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 6304,
+   "nodes": 23,
+   "meshes": 19,
+   "vertices": 20654,
    "animations": [],
    "textures": [
-    "000_romero_0.tga",
-    "000_romero_0_paint.tga"
+    "000_romero_chrome.tga",
+    "000_romero_chrome_disc.tga",
+    "000_romero_glass.tga",
+    "000_romero_grille.tga",
+    "000_romero_interior_dark.tga",
+    "000_romero_interior_liner.tga",
+    "000_romero_lamp_amber.tga",
+    "000_romero_lamp_head.tga",
+    "000_romero_lamp_tail.tga",
+    "000_romero_paint_body_paint.tga",
+    "000_romero_paint_trim_paint.tga",
+    "000_romero_paint_wheel_paint.tga",
+    "000_romero_plate.tga",
+    "000_romero_seal.tga",
+    "000_romero_seat.tga",
+    "000_romero_trim_dark.tga",
+    "000_romero_tyre_side.tga",
+    "000_romero_tyre_tread.tga",
+    "000_romero_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
