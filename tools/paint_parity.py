@@ -182,7 +182,7 @@ def main():
         lines += ["", "Gate setup: the car's lit lids with the sun shadows on / off at the same moment (open sun 0.94-1.00; under 0.80 the",
                   "car stands in a world shadow and its rows measure that shade, not the paint: move the spot, BACK_SECS / WX,WY):", ""]
         for model, p, r in shade:
-            bad = r < 0.80
+            bad = bool(r < 0.80)
             fails += bad
             lines.append(f"    {model} {p}: {r:.2f}" + ("  FAIL (car in a world shadow)" if bad else "  ok"))
     else:
@@ -192,7 +192,7 @@ def main():
     print(out)
     if a.report:
         with open(a.report, "w") as f: f.write(out)
-    sys.exit(min(fails, 100))
+    sys.exit(int(min(fails, 100)))
 
 
 if __name__ == "__main__":
