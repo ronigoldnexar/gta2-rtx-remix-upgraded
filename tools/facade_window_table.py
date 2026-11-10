@@ -18,6 +18,10 @@ NOT_GLASS = {("wil", 538)}   # pm6-arched-doors-smeared-ghost-texture (tools/arc
 # flat warm glow over its whole storefront box at dusk and night: an ochre slab with black rectangles where
 # the 64 px art is not dark enough to count as pane. It stays the steel-grey front it is by day, darker.
 NOT_GLASS |= {("wil", 231)}
+# qav60 (FIX-WORLD-16): wil 428, the ground-floor wall of the green pilastered block (wil 40,168-171), is plain
+# green panels between pilasters, no glass at all; the facade pass boxed the panels as windows, so at night they
+# filled with flat beige blocks stepped at the 64 px grid. The floor above (416/418) keeps its real windows.
+NOT_GLASS |= {("wil", 428)}
 
 src, out = sys.argv[1], sys.argv[2]
 boxes = json.load(open(src))
