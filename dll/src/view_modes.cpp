@@ -1137,6 +1137,13 @@ void SteerPlayer(ViewMode mode, float dt) {
 void ViewHoldPlayerInput() {
     if (CurrentViewMode() == ViewMode::Classic) return;
     InstallNavHook(false);
+    // FIX-KNOCKDOWN-2 (kd2_r2): the hook is installed lazily, at the first knock-down; a key already down before it
+    // (the arrow he was walking on) was never seen, so it counted as "told up": no release was sent as the hold began,
+    // its real release was swallowed, and the game walked him on 3 blocks while his body lay. As a hold begins, every
+    // held key counts as down in the game, so the next buffered read tells it each went up (a no-op for a key that was up).
+    static const bool kd2 = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_KD_HOLD_RELEASE", b, sizeof b) && b[0] == '0'); }();
+    if (kd2 && !InputHeld())
+        for (int k = 0; k < kHoldCount; ++k) g_holdTold[k] = true;
     g_holdUntil = GetTickCount64() + 300;   // a frame or two without a renewal (a hitch) is not a release
 }
 

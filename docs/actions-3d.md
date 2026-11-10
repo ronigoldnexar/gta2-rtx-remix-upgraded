@@ -1640,6 +1640,14 @@ the end. Positions and previous positions are set together, so the solver takes 
 pelvis 0.030-0.034 through the roll, highest joint 0.089, no velocity after it, then up from his front. Frames opened at
 10 fps (crop on the body): on his back, turns over along the ground, lies prone, gets up. `GTA2DX9_KD_ROLL=0` restores the
 solver roll (A/B).
+The walk-back of 3 blocks (FIX-KNOCKDOWN-2, kd2_r2 #1). The game walked his ped 3 blocks along his facing at a walk's
+pace while his body lay pinned, and the get-up was placed 3.1 blocks off its spot. Cause: the DirectInput hook is
+installed lazily, at the first knock-down. The arrow he was walking on had gone down before the hook, so it counted as
+"told up": no release was sent as the hold began, and its real release was swallowed by the hold. Now, as a hold
+begins, every held key counts as down in the game, so the next buffered read tells the game each one went up (a no-op
+for a key that was already up). `view_modes.cpp` ViewHoldPlayerInput; `GTA2DX9_KD_HOLD_RELEASE=0` restores the old
+behaviour for A/B. kd2_r3: six knock-downs, every get-up placed within 0.68 block of the game's spot
+(before: kd2_r1 up to 1.0, kd2_r2 3.1). Classic kd2_c0 vs kd2_c3: 0 differing static pixels in all three windows.
 Still short: while he lies, the contact shadow stays at the game's spot, up to a body-length from the body (the shadow
 pass, not the knock-down code). The get-up is still the reversed `fall_front`.
 - The captures run 30 fps, but the game rendered about 20-25 fps on the loaded host (repeated frames in the
