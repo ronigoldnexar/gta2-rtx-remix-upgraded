@@ -782,3 +782,9 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   `_interior_shop`, `_glass_hatch`, `_glass`, `_chrome`, `_chrome_disc`, `_grille`, `_frame`, `_trim_dark`, `_plate`,
   `_seal`, `_seat`, `_interior_dark`, `_lamp_head`, `_lamp_tail`, `_lamp_amber`, `_tyre_side`, `_tyre_tread`,
   `_whitewall`, `_underbody`); backups `backup_va15/models_027`.
+  - **Withdrawn (09:25 UTC, e6d3f4a):** with the authored 027 in a stage, scripted runs flaked into 'player not
+    found' (the game's object pool placed above 2 GB, rejected by `game::PlausiblePointer`; out/va15_000_b0..b2, A/B
+    out/va15_ab27_old with the old 027 enters in 13 s). The old shell files and manifest entry are back; `car_027.py`
+    waits for the renderer fix (open BLOCKER 'player-not-found-when-game-pool-lands-above-2gb'). The kit bodies add
+    texture memory (012: four 512 paint pictures): later kit bodies should keep their paint pictures to one 512 and
+    flats at 16 px.
