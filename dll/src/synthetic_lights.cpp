@@ -1318,13 +1318,30 @@ bool g_probeRan = false;
 int  g_probeStage = 0;
 int  g_probeWaitFrames = 0;
 
+// FIX-STABILITY-1: what the probe may read. A small integer that passes PlausiblePointer
+// (0x00070300) is checked against the page table before anything touches it, and a probe that
+// still faults gives up after kProbeFaultBudget faults instead of walking on.
+constexpr int kProbeFaultBudget = 32;
+int g_probeFaults = 0;
+
+bool ProbeReadable(const void* p) {
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!p || !VirtualQuery(p, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT) return false;
+    if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) return false;
+    return (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
+                           PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+}
+
 bool ReadDword(const uint8_t* base, int offset, uint32_t* out) {
+    if (g_probeFaults >= kProbeFaultBudget) return false;
     // The tail of the window runs off the end of a smaller structure, and there
-    // is no length to check it against. Lean on the page fault.
+    // is no length to check it against. Lean on the page fault, at most
+    // kProbeFaultBudget times a probe.
     GTA2_TRY {
         *out = *reinterpret_cast<const uint32_t*>(base + offset);
         return true;
     } GTA2_EXCEPT {
+        ++g_probeFaults;
         return false;
     }
     return false;
@@ -1356,7 +1373,7 @@ void Capture(const uint8_t* entity, Snapshot* snap) {
         if (!snap->directOk[i]) continue;
         const uint8_t* child =
             reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(snap->direct[i]));
-        if (!game::PlausiblePointer(child)) continue;
+        if (!game::PlausiblePointer(child) || !ProbeReadable(child)) continue;
         bool ok = true;
         for (int c = 0; c < kChildSlots && ok; ++c) ok = ReadDword(child, c * 4, &snap->child[i][c]);
         snap->childOk[i] = ok;
@@ -1519,6 +1536,7 @@ bool SyntheticProbeHasRun() { return g_probeRan; }
 void SyntheticProbe(const char* reason) {
     if (g_probeStage == 0) {
         Log("=== structure probe (%s) : snapshot 1 ===", reason ? reason : "on demand");
+        g_probeFaults = 0;
         float camX = 0.0f, camY = 0.0f;
         game::CameraPosition(&camX, &camY);
         Log("probe: camera at %.2f, %.2f", camX, camY);
@@ -1547,7 +1565,7 @@ void SyntheticProbe(const char* reason) {
     Log("probe: camera now at %.2f, %.2f", camX, camY);
     CompareList("vehicle", g_vehicleSnap, game::VehicleListHead(), game::kVehicleNext);
     CompareList("particle", g_particleSnap, game::ParticleListHead(), game::kParticleNext);
-    Log("=== end structure probe ===");
+    Log("=== end structure probe (%d guarded read fault(s), budget %d) ===", g_probeFaults, kProbeFaultBudget);
     g_probeStage = 0;
     g_probeRan = true;
 }
@@ -1649,10 +1667,8 @@ void SyntheticLightsUpdate() {
     WalkVehicles();
     SubmitQueuedBeacons(GetTickCount());
 
-    // Once, a few seconds into a level, so an ordinary run leaves the evidence
-    // in the log without anyone having to think to ask for it. By now there is
-    // traffic moving, which is what makes the position and driver columns mean
-    // something.
+    // Frames in the level, for the periodic census below. (The structure probe
+    // used to run off this count by itself; see the end of this function.)
     static int inWorldFrames = 0;
     ++inWorldFrames;
 
@@ -1685,10 +1701,13 @@ void SyntheticLightsUpdate() {
                 t.meanHeight);
         }
     }
+    // FIX-STABILITY-1 (owner-5090-crash): the probe no longer runs by itself 400 frames into
+    // every level. Its whole method is reading through anything that might be a pointer, and on the
+    // owner's box that one automatic pass was a storm of 826 guarded faults at ReadDword
+    // (gta2dx9.dll+0x1CB6E5, the 10 Nov 08:40 build, named from its link map). The offsets it found
+    // are constants in game_access.h now; the F4 menu's "Run structure probe" still runs it.
     if (g_probeStage == 1) {
         if (--g_probeWaitFrames <= 0) SyntheticProbe(nullptr);
-    } else if (!g_probeRan && inWorldFrames > 400) {
-        SyntheticProbe("400 frames into a level");
     }
 }
 

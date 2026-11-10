@@ -12900,6 +12900,16 @@ void ActionProbes() {
             static const uint8_t* lastPed = nullptr;
             static int16_t lastPoints = 0;
             static bool lastDown = false;
+            // FIX-STABILITY-1: a ped pointer the locator kept past the ped (0x4849D5B0 through a V move on
+            // the owner's 5090: 168 guarded faults here, gta2dx9.dll+0x11D348) is checked against the page
+            // table before it is read.
+            if (wantedPed) {
+                MEMORY_BASIC_INFORMATION mbi;
+                if (!VirtualQuery(wantedPed, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
+                    (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) ||
+                    reinterpret_cast<uintptr_t>(wantedPed) + 0x280 >
+                        reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize) wantedPed = nullptr;
+            }
             if (wantedPed) {
                 const int16_t now = *reinterpret_cast<const int16_t*>(wantedPed + game::kPedCopPoints);
                 const int32_t st = *reinterpret_cast<const int32_t*>(wantedPed + game::kPedState);

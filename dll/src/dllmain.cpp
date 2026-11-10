@@ -53,6 +53,12 @@
 #include "car_bodies.h"
 #include "model_store.h"
 #include "compat.h"
+#include <csignal>
+#include <exception>
+#include <typeinfo>
+#ifndef _MSC_VER
+#include <cxxabi.h>
+#endif
 
 using gta2dx9::Log;
 
@@ -716,6 +722,17 @@ DWORD WINAPI StallSampler(LPVOID) {
         gta2dx9::GuardedFaultsReport();
         const DWORD beat = g_beat;
         const DWORD now = GetTickCount();
+        // FIX-STABILITY-1: minimised, the game thread is meant to be idle in its message loop; it is not
+        // stopped and walked (a suspend there sat inside USER32/MSCTF on the owner box) until it is back.
+        {
+            static bool heldLogged = false;
+            if (g_world.GameParked()) {
+                if (!heldLogged) Log("stall sampler: game window minimised; not sampling the game thread until it is restored");
+                heldLogged = true;
+                continue;
+            }
+            heldLogged = false;
+        }
         if (stallBeat && beat != stallBeat) {
             if (samples >= 60) Log("stall sampler: game thread back after %lu ms idle", static_cast<unsigned long>(longest));
             stallBeat = 0;
@@ -806,9 +823,183 @@ void StartStallSampler(DWORD gameThread) {
     if (HANDLE thread = CreateThread(nullptr, 0, StallSampler, nullptr, 0, nullptr)) CloseHandle(thread);
 }
 
+// ---- FIX-STABILITY-1: focus loss, minimise, and the process's last words --------------------------
+//
+// owner-5090-minimize-fatal / owner-5090-crash: on the owner's 5090 a focus change minimised GTA2's
+// window, the game thread sat in USER32 for seconds and the process ended with 0x40000015 at
+// gta2dx9.dll+0x381c50, which the link map of that build (8437686) names as
+// __gnu_cxx::__verbose_terminate_handler: a C++ exception nobody caught, std::terminate, abort. The
+// mingw DLL unwinds with DWARF tables, which stop at the first frame that is not ours (gta2.exe calling
+// gbh_EndScene, USER32 calling a window procedure), so any throw on the game thread ended the process
+// and libstdc++ wrote why to a stderr nobody reads. Now: the frame entry points catch and log it and
+// drop the frame; anything that still reaches std::terminate, abort or an unhandled exception writes a
+// FAULT line with the exception, the window state, the last window message and the device first.
+volatile LONG g_lastMessage = 0;
+volatile LONG g_lastWparam = 0;
+volatile DWORD g_lastMessageTick = 0;
+volatile LONG g_simulatingFocusLoss = 0;   // [devtools] simulate_focus_loss is sending the messages
+
+void DescribeCurrentException(char* out, size_t size) {
+    _snprintf_s(out, size, _TRUNCATE, "no exception in flight");
+    std::exception_ptr current = std::current_exception();
+    if (!current) return;
+    const char* type = "?";
+#ifndef _MSC_VER
+    if (const std::type_info* t = abi::__cxa_current_exception_type()) type = t->name();
+#endif
+    try {
+        std::rethrow_exception(current);
+    } catch (const std::exception& e) {
+        _snprintf_s(out, size, _TRUNCATE, "%s: %s", type, e.what());
+    } catch (...) {
+        _snprintf_s(out, size, _TRUNCATE, "%s (not a std::exception)", type);
+    }
+}
+
+void LogProcessState(const char* why) {
+    const HWND game = g_world.GameHwnd();
+    const HWND ours = g_world.PresentHwnd();
+    const HWND foreground = GetForegroundWindow();
+    DWORD foregroundPid = 0;
+    if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
+    const DWORD tick = g_lastMessageTick;
+    Log("FAULT: %s, thread %lu (game thread %lu): game window %p iconic=%d visible=%d, present window %p "
+        "visible=%d, foreground %p (%s), parked=%d active=%d; last game-window message %ld wparam %lx %lu ms ago; "
+        "device %s, frame %d",
+        why, GetCurrentThreadId(), g_gameThread, static_cast<void*>(game), game ? IsIconic(game) : -1,
+        game ? IsWindowVisible(game) : -1, static_cast<void*>(ours), ours ? IsWindowVisible(ours) : -1,
+        static_cast<void*>(foreground), foregroundPid == GetCurrentProcessId() ? "ours" : "another process",
+        g_world.GameParked() ? 1 : 0, g_world.GameActive() ? 1 : 0, static_cast<long>(g_lastMessage),
+        static_cast<unsigned long>(g_lastWparam), tick ? static_cast<unsigned long>(GetTickCount() - tick) : 0ul,
+        g_world.Ready() ? "up" : "not up", g_world.FrameCount());
+    LogBacktrace("FAULT: call stack");
+    gta2dx9::LogFlush();
+}
+
+std::terminate_handler g_previousTerminate = nullptr;
+void OnTerminate() {
+    char what[300];
+    DescribeCurrentException(what, sizeof(what));
+    char line[400];
+    _snprintf_s(line, sizeof(line), _TRUNCATE, "std::terminate (uncaught C++ exception: %s); the process ends now", what);
+    LogProcessState(line);
+    if (g_previousTerminate) g_previousTerminate();
+    abort();
+}
+
+void OnAbortSignal(int) {
+    LogProcessState("abort() (SIGABRT); the process ends now");
+}
+
+LPTOP_LEVEL_EXCEPTION_FILTER g_previousFilter = nullptr;
+LONG WINAPI OnUnhandledException(EXCEPTION_POINTERS* info) {
+    char line[200];
+    _snprintf_s(line, sizeof(line), _TRUNCATE, "unhandled exception %08lX at %p",
+                info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0ul,
+                info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr);
+    LogProcessState(line);
+    return g_previousFilter ? g_previousFilter(info) : EXCEPTION_CONTINUE_SEARCH;
+}
+
+#ifdef _MSC_VER
+void __cdecl OnPureCall() {
+    LogProcessState("pure virtual call; the process ends now");
+    abort();
+}
+#endif
+
+void InstallLastWords() {
+    g_previousTerminate = std::set_terminate(OnTerminate);
+    signal(SIGABRT, OnAbortSignal);
+    g_previousFilter = SetUnhandledExceptionFilter(OnUnhandledException);
+#ifdef _MSC_VER
+    _set_purecall_handler(OnPureCall);
+    // No "abort() has been called" box on the game thread: the FAULT line says it instead.
+    _set_abort_behavior(0, _WRITE_ABORT_MSG);
+#endif
+}
+
+// A C++ exception out of one of the game's calls into us: logged (the first 5, then every 100th)
+// and the frame dropped, instead of std::terminate.
+void NoteEntryException(const char* entry) {
+    static LONG count = 0;
+    const LONG n = InterlockedIncrement(&count);
+    if (n > 5 && n % 100 != 0) return;
+    char what[300];
+    DescribeCurrentException(what, sizeof(what));
+    char line[420];
+    _snprintf_s(line, sizeof(line), _TRUNCATE, "C++ exception out of %s (%s), #%ld: frame dropped, game goes on", entry,
+                what, static_cast<long>(n));
+    LogProcessState(line);
+}
+
+// [devtools] simulate_focus_loss=N: what Windows does to the game window when another window takes the
+// focus, sent N times from a thread of its own (Wine never minimises the window, so this is the only
+// way to run the path here): WM_KILLFOCUS, WM_ACTIVATEAPP 0, WM_SIZE SIZE_MINIMIZED, then 3 s later
+// WM_SIZE SIZE_RESTORED, WM_ACTIVATEAPP 1, WM_SETFOCUS; simulate_focus_loss_start_s (default 30)
+// after the level is up, simulate_focus_loss_gap_s (default 8) between cycles.
+struct FocusLossTest { int cycles, startS, gapS; };
+DWORD WINAPI FocusLossTestThread(LPVOID param) {
+    const FocusLossTest test = *static_cast<FocusLossTest*>(param);
+    delete static_cast<FocusLossTest*>(param);
+    gta2dx9::NameThisThread("focus-loss test");
+    while (!g_shuttingDown && !g_world.WorldUploaded()) Sleep(250);
+    Sleep(static_cast<DWORD>(test.startS) * 1000);
+    const HWND game = g_world.GameHwnd();
+    RECT client = {};
+    GetClientRect(game, &client);
+    auto send = [game](UINT message, WPARAM wparam, LPARAM lparam) {
+        DWORD_PTR result = 0;
+        const DWORD start = GetTickCount();
+        const LRESULT ok = SendMessageTimeoutA(game, message, wparam, lparam, SMTO_NORMAL, 5000, &result);
+        return ok ? static_cast<long>(GetTickCount() - start) : -1L;
+    };
+    for (int k = 1; k <= test.cycles && !g_shuttingDown; ++k) {
+        InterlockedExchange(&g_simulatingFocusLoss, 1);
+        Log("devtools: simulate_focus_loss %d/%d: focus lost, window minimised (frame %d)", k, test.cycles,
+            g_world.FrameCount());
+        const long a = send(WM_KILLFOCUS, 0, 0);
+        const long b = send(WM_ACTIVATEAPP, FALSE, 0);
+        const long c = send(WM_SIZE, SIZE_MINIMIZED, 0);
+        Log("devtools: simulate_focus_loss %d/%d: sent (ms, -1 = timed out) killfocus %ld activateapp %ld size %ld",
+            k, test.cycles, a, b, c);
+        Sleep(3000);
+        const long d = send(WM_SIZE, SIZE_RESTORED, MAKELPARAM(client.right, client.bottom));
+        const long e = send(WM_ACTIVATEAPP, TRUE, 0);
+        const long f = send(WM_SETFOCUS, 0, 0);
+        InterlockedExchange(&g_simulatingFocusLoss, 0);
+        Log("devtools: simulate_focus_loss %d/%d: restored, focus back (ms) size %ld activateapp %ld setfocus %ld "
+            "(frame %d)", k, test.cycles, d, e, f, g_world.FrameCount());
+        Sleep(static_cast<DWORD>(test.gapS) * 1000);
+    }
+    Log("devtools: simulate_focus_loss done, %d cycle(s)", test.cycles);
+    return 0;
+}
+
 LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    // FIX-STABILITY-1: what the minimise path needs, before anything else.
+    if (message == WM_SIZE || message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_ACTIVATEAPP ||
+        message == WM_ACTIVATE || message == WM_CLOSE || message == WM_DESTROY) {
+        g_lastMessage = static_cast<LONG>(message);
+        g_lastWparam = static_cast<LONG>(wparam);
+        g_lastMessageTick = GetTickCount();
+        const bool simulated = g_simulatingFocusLoss != 0;
+        if (message == WM_SIZE && wparam == SIZE_MINIMIZED) {
+            g_world.SetGameParked(true, "WM_SIZE SIZE_MINIMIZED", simulated);
+        } else if (message == WM_SIZE && (wparam == SIZE_RESTORED || wparam == SIZE_MAXIMIZED)) {
+            g_world.SetGameParked(false, "WM_SIZE restored");
+        } else if (message == WM_KILLFOCUS) {
+            g_world.SetGameActive(false, "WM_KILLFOCUS");
+        } else if (message == WM_ACTIVATEAPP) {
+            g_world.SetGameActive(wparam != 0, wparam ? "WM_ACTIVATEAPP 1" : "WM_ACTIVATEAPP 0");
+        } else if (message == WM_SETFOCUS) {
+            if (!IsIconic(window) || simulated) g_world.SetGameParked(false, "WM_SETFOCUS");
+            g_world.SetGameActive(true, "WM_SETFOCUS");
+        }
+    }
     // The messages that would say the game is changing its display mode or window: logged with
-    // the code that sent them, the first few times each.
+    // the code that sent them, the first few times each (focus and size: the first 200, so the
+    // tenth alt-tab of a session is still in the log).
     {
         static int seen[512] = {};
         const bool interesting =
@@ -816,7 +1007,9 @@ LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
             message == WM_DISPLAYCHANGE || message == WM_ACTIVATEAPP || message == WM_SIZE ||
             message == WM_SYSCOMMAND || message == WM_STYLECHANGED || message == WM_SHOWWINDOW ||
             message == WM_SETFOCUS || message == WM_KILLFOCUS;
-        if (interesting && message < 512 && seen[message]++ < 12) {
+        const int cap = (message == WM_SIZE || message == WM_SETFOCUS || message == WM_KILLFOCUS ||
+                         message == WM_ACTIVATEAPP) ? 200 : 12;
+        if (interesting && message < 512 && seen[message]++ < cap) {
             Log("window message %u (wparam %llx lparam %llx)", message,
                 static_cast<unsigned long long>(wparam), static_cast<unsigned long long>(lparam));
             if (message == WM_CLOSE || message == WM_DESTROY || message == WM_DISPLAYCHANGE ||
@@ -1049,6 +1242,22 @@ __declspec(dllexport) int __stdcall gbh_Init(int param) {
     }
     HookWindowClose(window);
     StartStallSampler(windowThread ? windowThread : GetCurrentThreadId());
+    {
+        // FIX-STABILITY-1: [devtools] simulate_focus_loss (see FocusLossTestThread).
+        static bool started = false;
+        char iniPath[MAX_PATH];
+        PathBesideGame("gta2dx9.ini", iniPath, sizeof(iniPath));
+        const int cycles = GetPrivateProfileIntA("devtools", "simulate_focus_loss", 0, iniPath);
+        if (!started && cycles > 0) {
+            started = true;
+            FocusLossTest* test = new FocusLossTest{
+                cycles, GetPrivateProfileIntA("devtools", "simulate_focus_loss_start_s", 30, iniPath),
+                GetPrivateProfileIntA("devtools", "simulate_focus_loss_gap_s", 8, iniPath)};
+            Log("devtools: simulate_focus_loss %d cycle(s), %d s after the level is up, %d s apart", test->cycles,
+                test->startS, test->gapS);
+            if (HANDLE thread = CreateThread(nullptr, 0, FocusLossTestThread, test, 0, nullptr)) CloseHandle(thread);
+        }
+    }
     // Plugins drawing through the original renderer's device - see
     // plugin_d3d6.cpp. Here because by now every plugin the game loads is in.
     gta2dx9::PluginD3D6Install();
@@ -1075,16 +1284,25 @@ __declspec(dllexport) void __stdcall gbh_BeginScene() {
     gta2dx9::StallDumpTestFrame();   // [devtools] stall_dump_test (thread_watch.cpp), off by default
     gta2dx9::FrameLogMarkBeginScene();
     if (Proxying() && g_p_gbh_BeginScene) { Backend<void(__stdcall*)()>(g_p_gbh_BeginScene)(); return; }
-    gta2dx9::ExplosionFxGameTick();   // FIX-FX-4: [devtools] force_blast / force_burn, outside the draw
-    g_world.BeginFrame();
+    try {
+        gta2dx9::ExplosionFxGameTick();   // FIX-FX-4: [devtools] force_blast / force_burn, outside the draw
+        g_world.BeginFrame();
+    } catch (...) {
+        NoteEntryException("gbh_BeginScene");   // FIX-STABILITY-1
+    }
 }
 
 __declspec(dllexport) void __stdcall gbh_EndScene() {
     if (Proxying() && g_p_gbh_EndScene) { Backend<void(__stdcall*)()>(g_p_gbh_EndScene)(); return; }
     // Between this frame's particle update and the next, which is when a limb
     // about to land has to be caught.
-    gta2dx9::GibsUpdate();
-    g_world.RenderFrame();
+    try {
+        gta2dx9::GibsUpdate();
+        g_world.RenderFrame();
+    } catch (...) {
+        NoteEntryException("gbh_EndScene");   // FIX-STABILITY-1
+        g_world.AbortFrame();
+    }
 }
 
 __declspec(dllexport) void __stdcall gbh_BeginLevel() {
@@ -1576,6 +1794,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         DisableThreadLibraryCalls(module);
         gta2dx9::OpenLog();
         Log("gta2dx9.dll attached to pid %lu, loaded at %p", GetCurrentProcessId(), static_cast<void*>(module));
+        InstallLastWords();   // FIX-STABILITY-1: terminate / abort / unhandled exceptions log first
         CheckOriginalBlitStores(module);
         // Before any plugin can look for the original renderer's device.
         gta2dx9::PluginD3D6Init(module);

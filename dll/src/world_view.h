@@ -136,6 +136,24 @@ public:
     }
     void RenderFrame();
 
+    // FIX-STABILITY-1 (owner-5090-minimize-fatal). The game window's focus and minimise state,
+    // fed from its window procedure (dllmain.cpp ClosingWndProc). Parked = minimised: RenderFrame
+    // draws and presents nothing (no scene, no Present, no device Reset) until the window is
+    // restored; the device and both windows stay as they are. Inactive = it lost the focus: our
+    // topmost present window leaves the topmost band so whatever took the focus is not covered by a
+    // frozen frame, and goes back on top when the game has the focus again. simulated: the devtools
+    // test sent the messages, so the window is not really iconic and IsIconic must not end the park.
+    void SetGameParked(bool parked, const char* why, bool simulated = false);
+    void SetGameActive(bool active, const char* why);
+    bool GameParked() const { return parked_; }
+    bool GameActive() const { return active_; }
+    HWND PresentHwnd() const { return window_; }
+    HWND GameHwnd() const { return gameWindow_; }
+    int FrameCount() const { return frameCount_; }
+    bool WorldUploaded() const { return worldUploaded_; }
+    // A C++ exception escaped a frame: close the scene the device may still be in.
+    void AbortFrame();
+
     // One frame of the intro movie, which the game plays without a scene of its
     // own: drawn over the screen and presented here. See intro_movie.cpp.
     void ShowMovieFrame(const void* pixels, int width, int height, int pitch) {
@@ -250,6 +268,11 @@ private:
     HWND window_ = nullptr;      // what we present into
     HWND gameWindow_ = nullptr;  // what the game owns, and its video device with it
     PresentWindow present_ = PresentWindow::Child;
+    volatile bool parked_ = false;      // FIX-STABILITY-1: see SetGameParked
+    bool parkSimulated_ = false;
+    volatile bool active_ = true;
+    int parkedFrames_ = 0;
+    DWORD parkedSince_ = 0;
     int width_ = 0;
     int height_ = 0;
     // 0 means "the desktop", resolved in Initialize.

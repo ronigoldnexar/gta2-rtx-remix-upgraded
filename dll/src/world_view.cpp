@@ -520,8 +520,20 @@ HWND g_presentGameWindow = nullptr;
 // under the cursor in its own client area: exactly what it would have been sent
 // with nothing of ours in the way. Not while the F4 menu has the mouse, which
 // reads it for itself.
+void GiveGameForeground(HWND gameWindow);
+// FIX-STABILITY-1: whether the game window is minimised or has lost the focus (WorldView::SetGameParked
+// and SetGameActive keep it), so a click on our window while it shows the paused frame brings the game
+// back instead of being refused.
+bool g_presentGameAway = false;
+
 LRESULT CALLBACK PresentWndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
-    if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+    if (message == WM_MOUSEACTIVATE) {
+        if (g_presentGameAway && g_presentGameWindow) {
+            Log("focus: click on the present window while the game is away: giving the game the foreground");
+            GiveGameForeground(g_presentGameWindow);
+        }
+        return MA_NOACTIVATE;
+    }
     const bool mouse = message >= WM_MOUSEFIRST && message <= WM_MOUSELAST
                        && message != WM_MOUSEWHEEL && message != WM_MOUSEHWHEEL;
     if (mouse && g_presentGameWindow && !DebugMenuWantsMouse()) {
@@ -1131,6 +1143,41 @@ void WorldView::Shutdown() {
     renderer_.Shutdown();
     if (ours) DestroyWindow(ours);
     Log("world view shut down, device released");
+}
+
+void WorldView::SetGameParked(bool parked, const char* why, bool simulated) {
+    if (parked == parked_) return;
+    if (parked) {
+        parked_ = true;
+        parkSimulated_ = simulated;
+        parkedFrames_ = 0;
+        parkedSince_ = GetTickCount();
+        Log("focus: game window minimised (%s%s): presenting paused at frame %d, device %p kept, no reset",
+            why, simulated ? ", simulated" : "", frameCount_, static_cast<void*>(renderer_.Device()));
+        SetGameActive(false, why);
+    } else {
+        parked_ = false;
+        Log("focus: game window restored (%s): presenting again after %lu ms, %d frame(s) skipped",
+            why, static_cast<unsigned long>(GetTickCount() - parkedSince_), parkedFrames_);
+        parkSimulated_ = false;
+    }
+    g_presentGameAway = parked_ || !active_;
+}
+
+void WorldView::SetGameActive(bool active, const char* why) {
+    if (active == active_) return;
+    active_ = active;
+    g_presentGameAway = parked_ || !active_;
+    const bool ownTopmost = window_ && window_ != gameWindow_ && present_ == PresentWindow::Topmost;
+    Log("focus: game window %s (%s)%s", active ? "has the focus" : "lost the focus", why,
+        ownTopmost ? (active ? "; present window back on top" : "; present window leaves the topmost band") : "");
+    if (!ownTopmost) return;
+    SetWindowPos(window_, active ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+void WorldView::AbortFrame() {
+    if (IDirect3DDevice9* device = renderer_.Device()) device->EndScene();
 }
 
 void WorldView::SetVisibleTileBounds(float minX, float minY, float maxX, float maxY) {
@@ -3475,11 +3522,29 @@ void WorldView::RenderFrame() {
         }
         // The game is free to reorder or resize its own children; re-stating
         // where ours belongs occasionally is cheaper than trusting it not to.
-        if ((frameCount_ & 0x3F) == 0) {
+        // FIX-STABILITY-1: not while the game has lost the focus (SetGameActive took us out of the
+        // topmost band), but notice when the foreground came back without a message saying so.
+        if ((frameCount_ & 0x3F) == 0 && !active_) {
+            DWORD foregroundPid = 0;
+            if (HWND foreground = GetForegroundWindow()) GetWindowThreadProcessId(foreground, &foregroundPid);
+            if (foregroundPid == GetCurrentProcessId()) SetGameActive(true, "the foreground is ours again");
+        }
+        if ((frameCount_ & 0x3F) == 0 && active_) {
             SetWindowPos(window_, present_ == PresentWindow::Topmost ? HWND_TOPMOST : HWND_TOP, 0, 0,
                          width_, height_,
                          SWP_NOACTIVATE | SWP_SHOWWINDOW |
                              (present_ == PresentWindow::Topmost ? SWP_NOMOVE : 0));
+        }
+    }
+
+    // FIX-STABILITY-1: minimised, nothing is drawn or presented (a swap chain on an iconic window is
+    // what the owner's 5090 died around); the window messages above are still pumped.
+    if (parked_) {
+        if (!parkSimulated_ && gameWindow_ && !IsIconic(gameWindow_)) {
+            SetGameParked(false, "the game window is not minimised any more");
+        } else {
+            ++parkedFrames_;
+            return;
         }
     }
 
