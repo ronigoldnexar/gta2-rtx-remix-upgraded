@@ -550,9 +550,9 @@ def run(world, entry):
     M.ensure_view("classic")      # the chase view with GTA2_DIRECT_KEYS=1
     up = climb_to_walk()
     if not up and os.environ.get("BR_CLIMB_CLASSIC", "1") == "1":
-        # MISSIONS-BATCH2: mb2_km2 (and mg_sp8) pinned at the stair foot by the girder's renderer-side
-        # collider (defect mg-wil-bank-stair-girder-collider-blocks-entry, FIX-COLLISION-2), which is solid
-        # only in the 3D views: the same climb once more in the classic view, the fight back in the chase view
+        # MISSIONS-BATCH2: mb2_km2 (and mg_sp8) pinned at the stair foot by the girder plate (GTA2's own
+        # object collision, FIX-COLLISION-2 b444001): the same climb once more in the classic view from where
+        # he stands (up in 6 of 9 on the old line), the fight back in the chase view
         saved = M.WALK_VIEW[0]
         M.mark("climb: not up in the chase view (the stair girder's collider); again in the classic view (the steering there held the gap line better)")
         try:
