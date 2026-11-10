@@ -3529,10 +3529,65 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
 // off the bar is dark. Drawn day and night, whatever car_lamps says.
 // `[devtools] force_sirens=1` lights them on every siren model for checks.
 int g_forceSirens = 0;
+// FIX-REMIX-NIGHT-7 (ptrx-remix-first-siren-beacon-flat-saturated-disc-floats-beside-car): under Remix no glow quads
+// at the bulbs. The three crossed additive BeaconGlowTexture quads per bulb were drawn by Remix as a wheel-sized flat
+// saturated disc with a cross through it floating beside the roof (it stayed with all our lights off: a draw, not a
+// light). The lit roof lamp is the model's lens plus the siren lights (synthetic_lights.cpp: the glow round the bulb
+// and the rotating spot). [devtools] remix_beacon_quads=1 restores the old draw (A/B); the plain renderer is untouched.
+int g_remixBeaconQuads = 0;
+// In their place, per lit bulb, one small glow cap facing the eye on the top of the model's own light bar (the
+// highest part of the body, found once per model in BeaconLampSpot), so the lamp itself reads lit and alternates.
+// [devtools] remix_beacon_cap_milli: the cap's half-size in tiles x1000 (default 22; 0 = no cap).
+int g_remixBeaconCapMilli = 22;
+struct BeaconLamp { bool ok = false; float x[2] = {}, y[2] = {}, z[2] = {}; };   // per side: -x (A, red) and +x (B)
+std::map<const Model*, BeaconLamp> g_beaconLamps;
+// The light bar's top in the model's frame: the vertices within the top 5 % of the body's height, split at the
+// band's middle into the red (-x) and blue (+x) halves (one dome a side, or the two ends of one bar). A body whose
+// top band is wide (a flat roof) has no distinct bar: no cap.
+const BeaconLamp& BeaconLampSpot(const Model* model) {
+    auto it = g_beaconLamps.find(model);
+    if (it != g_beaconLamps.end()) return it->second;
+    BeaconLamp lamp;
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(*model, &worlds);
+    const float h = model->Height(), w = model->Width(), l = model->Length();
+    const float band = model->boundsMax.y - 0.05f * h;
+    float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+    std::vector<gta2::Vec3> top;
+    for (size_t i = 0; i < model->nodes.size() && i < worlds.size(); ++i) {
+        const int mi = model->nodes[i].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model->meshes.size()) || model->meshes[mi].skin >= 0) continue;
+        const gta2::Mat4& m = worlds[i];
+        for (const ModelVertex& v : model->meshes[mi].vertices) {
+            const float y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1];
+            if (y < band) continue;
+            const float x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0];
+            const float z = v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2] + m.m[3][2];
+            x0 = (std::min)(x0, x); x1 = (std::max)(x1, x); z0 = (std::min)(z0, z); z1 = (std::max)(z1, z);
+            top.push_back({x, y, z});
+        }
+    }
+    const int n = static_cast<int>(top.size());
+    if (n >= 3 && x1 - x0 < 0.75f * w && z1 - z0 < 0.30f * l) {
+        // Each half of the bar (a dome a side, or the two ends of one bar): its vertices' mean x and z, its top.
+        const float mid = 0.5f * (x0 + x1);
+        float sx[2] = {}, sz[2] = {}, ty[2] = {-1e9f, -1e9f};
+        int cnt[2] = {};
+        for (const gta2::Vec3& v : top) {
+            const int k = v.x < mid ? 0 : 1;
+            sx[k] += v.x; sz[k] += v.z; ty[k] = (std::max)(ty[k], v.y); ++cnt[k];
+        }
+        lamp.ok = cnt[0] > 0 && cnt[1] > 0;
+        for (int k = 0; k < 2 && lamp.ok; ++k) { lamp.x[k] = sx[k] / cnt[k]; lamp.z[k] = sz[k] / cnt[k]; lamp.y[k] = ty[k]; }
+    }
+    Log("car bodies: Remix beacon cap for %s: %s (bar x %.3f..%.3f z %.3f..%.3f of %.3f x %.3f, %d vertices; caps at x %.3f / %.3f)",
+        model->name.c_str(), lamp.ok ? "on the bar" : "none (no distinct bar)", x0, x1, z0, z1, w, l, n, lamp.x[0], lamp.x[1]);
+    return g_beaconLamps.emplace(model, lamp).first->second;
+}
 int g_carWorldSunDev = -1;   // FIX-FX-3: [devtools] car_world_sun (-1: GTA2DX9_CAR_WORLD_SUN, default on)
 int g_beaconLogged = 0;
 void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length, float width,
-                 float roof, uint32_t frame, int modelNumber) {
+                 float roof, uint32_t frame, int modelNumber, const Model* model = nullptr, const gta2::Mat4* fit = nullptr) {
     DWORD colA = 0, colB = 0;
     int kindA = kSirenRed, kindB = kSirenBlue;   // SirenColour, for the lights and the Remix bulbs
     float along = 0.0f;
@@ -3584,6 +3639,61 @@ void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Ma
         SyntheticQueueBeacon(vehicle, i, c, i ? kindB : kindA, i ? bOn : aOn);
     }
     if (remix) {
+        if (!g_remixBeaconQuads) {   // FIX-REMIX-NIGHT-7: a cap on the model's bar, not quads in the air
+            if (!model || !fit || g_remixBeaconCapMilli <= 0 || !(aOn || bOn)) return;
+            const BeaconLamp& lamp = BeaconLampSpot(model);
+            if (!lamp.ok) return;
+            D3DMATRIX view;
+            if (FAILED(device->GetTransform(D3DTS_VIEW, &view))) return;
+            const float right[3] = {view._11, view._21, view._31}, up[3] = {view._12, view._22, view._32};
+            const float s = static_cast<float>(g_remixBeaconCapMilli) / 1000.0f;
+            const gta2::Mat4& f = *fit;
+            LampVertex cv[4];
+            D3DMATRIX identity = {};
+            identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+            device->SetTransform(D3DTS_WORLD, &identity);
+            device->SetRenderState(D3DRS_LIGHTING, FALSE);
+            device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+            device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+            device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+            device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+            device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+            device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+            device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+            device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+            device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+            device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+            device->SetFVF(kLampFvf);
+            for (int k = 0; k < 2; ++k) {
+                if (!(k ? bOn : aOn)) continue;
+                // Model frame: the bar's top, the red (A) half at -x and the blue (B) half at +x, then the body's fit.
+                const float mx = lamp.x[k], my = lamp.y[k] - 0.4f * s / (std::max)(1e-4f, f.m[1][1]), mz = lamp.z[k];
+                const float px = mx * f.m[0][0] + my * f.m[1][0] + mz * f.m[2][0] + f.m[3][0];
+                const float py = mx * f.m[0][1] + my * f.m[1][1] + mz * f.m[2][1] + f.m[3][1];
+                const float pz = mx * f.m[0][2] + my * f.m[1][2] + mz * f.m[2][2] + f.m[3][2];
+                float c[3];
+                for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + px * ax[j] + py * ay[j] + pz * az[j];
+                const float corners[4][2] = {{-s, -s}, {s, -s}, {s, s}, {-s, s}};
+                const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+                for (int q = 0; q < 4; ++q) {
+                    LampVertex& o = cv[q];
+                    o.x = c[0] + corners[q][0] * right[0] + corners[q][1] * up[0];
+                    o.y = c[1] + corners[q][0] * right[1] + corners[q][1] * up[1];
+                    o.z = c[2] + corners[q][0] * right[2] + corners[q][1] * up[2];
+                    o.color = 0xFFFFFFFFu; o.u = uv[q][0]; o.v = uv[q][1];
+                }
+                const uint16_t idx[6] = {0, 1, 2, 0, 2, 3};
+                device->SetTexture(0, BeaconGlowTexture(device, k ? kindB : kindA));
+                device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 4, 2, idx, D3DFMT_INDEX16, cv, sizeof(LampVertex));
+            }
+            device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+            device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+            device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+            device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+            device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+            device->SetRenderState(D3DRS_LIGHTING, TRUE);
+            return;
+        }
         // Under Remix: the bulb alone, in its own colour (BeaconGlowTexture); the halo is
         // the path tracer's (the light round the bulb and the bloom), and a 0.36 flat
         // emissive cross would be a glowing plate.
@@ -3928,6 +4038,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (glassKey >= 0) CarGlassSetEnabled(glassKey);
         }
         g_forceSirens = GetPrivateProfileIntA("devtools", "force_sirens", 0, g_devIni);
+        {
+            const int quads = GetPrivateProfileIntA("devtools", "remix_beacon_quads", 0, g_devIni);
+            if (quads != g_remixBeaconQuads) { g_remixBeaconQuads = quads; Log("devtools: Remix siren beacon glow quads %s", quads ? "on (old)" : "off"); }
+            const int cap = GetPrivateProfileIntA("devtools", "remix_beacon_cap_milli", 22, g_devIni);
+            if (cap != g_remixBeaconCapMilli) { g_remixBeaconCapMilli = cap; Log("devtools: Remix siren beacon cap %d/1000 tile", cap); }
+        }
         g_carWorldSunDev = GetPrivateProfileIntA("devtools", "car_world_sun", -1, g_devIni);
         // [devtools] vehicle_feel=0|1 (VEHICLE-FEEL): the feel off or on while the game
         // runs, for before/after frames of one scene; absent leaves it as it is.
@@ -5061,7 +5177,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             g_carParts[kPartLamps] += CarNowMs() - tLamps;
             if (!WreckModelNumber(modelNumber)) {
                 GTA2_TRY {
-                    DrawBeacons(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber);
+                    DrawBeacons(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, modelNumber, model, &fit);
                 } GTA2_EXCEPT {
                 }
             }
