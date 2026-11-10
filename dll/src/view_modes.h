@@ -119,6 +119,11 @@ struct ViewModeSettings {
     // person (at most 0.25 s), then handed to the game; while the key stays down he keeps turning onto him. The
     // reticle highlights the same person. GTA2DX9_AIM_ASSIST=0 or aim_assist=0 turns it off (A/B).
     bool aimAssist = true;
+    // FIX-AIM-2 (owner10nov B9b): a gun's target is "behind cover" only when the line to him crosses a block with a
+    // solid side face (a wall); a lid alone (a kerb step, a deck, the road under a ramp) no longer hides him from the
+    // pick and the reticle (the game's bullets went through to men the lid test called covered: fixaim1_gun2 swings
+    // 4 and 6). aim_cover_walls=0 or GTA2DX9_AIM_COVER_WALLS=0: the old lid-and-wall test (A/B).
+    bool aimCoverWalls = true;
     float navDeadband = 8.0f;       // degrees of heading error before a turn key is pressed
     float navLatency = 0.10f;       // seconds from our key press to the game's heading moving; the
                                     // controller releases that far ahead of the target
@@ -570,6 +575,7 @@ bool ViewFireDown();   // the game believes a fire key is down
 // renderer yaw of the bearing, the heading tolerance that still lands, his distance); valid=false: nobody.
 void ViewSetAimPick(bool valid, bool fists, float bearingYaw, float tolRad, float dist, uintptr_t object);
 bool ViewAimAssistOn();
+bool ViewAimCoverWallsOn();   // FIX-AIM-2: aim_cover_walls=1 and not GTA2DX9_AIM_COVER_WALLS=0
 // True when the straight line between two points (renderer frame) passes through a solid
 // block of the map, by the camera's own world queries; false when they are unknown.
 bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1);

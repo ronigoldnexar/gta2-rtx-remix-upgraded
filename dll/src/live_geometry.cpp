@@ -13698,6 +13698,15 @@ void ActionProbes() {
                     *points = game::kCopPointsForStars[wantStars];
                     lastPoints = *points;
                 }
+                // FIX-AIM-2 probe: GTA2DX9_FORCE_WANTED_MAX=0 keeps his cop points at 0 (a scripted gun gate shoots
+                // civilians for minutes; an arrest takes the gun and the pickup has not come back). Off by default.
+                static int wantedMax = -2;
+                if (wantedMax == -2) {
+                    char wb[8] = {};
+                    wantedMax = GetEnvironmentVariableA("GTA2DX9_FORCE_WANTED_MAX", wb, sizeof wb) ? atoi(wb) : -1;
+                    if (wantedMax == 0) Log("devtools: wanted held at 0 stars (GTA2DX9_FORCE_WANTED_MAX=0, ped+0x20A)");
+                }
+                if (wantedMax == 0 && *points > 0) { *points = 0; lastPoints = 0; }
                 const int stars = game::PedWantedStars(wantedPed);
                 if (stars != lastStars) {
                     const uintptr_t police = *reinterpret_cast<const uintptr_t*>(game::kPoliceManagerPtr);

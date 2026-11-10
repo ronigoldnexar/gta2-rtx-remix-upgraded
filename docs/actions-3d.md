@@ -1355,6 +1355,83 @@ swings), so the drop found "nobody mid-swing". A drop on a person within 0.9 blo
 fire press (or while it is held), bare-handed, is now his blow: `fig: hit <victim> by <player> (cross)`. Probes should
 trust `fig: hit` for the player's punches again (fixaim1_as1: 10 player `fig: hit` lines for 10 connected punches).
 
+## FIX-AIM-2 (10 Nov 2026): every gun shot classified, cover by walls only, the punched person in the first-person frame (owner10nov B9b)
+
+**Per-shot log** (`GTA2DX9_LOG_AIM=1`, `hud3d.cpp ClassifyShot`). At each shot the owner's counter counts (`aim: shots=`), one
+line: `aim: shot N weapon W third|first fire heading H at x,y reach R arc A -> TARGET <ped> d= off=` or `-> NO TARGET: <class>
+nearest-bearing <ped> d= off=`. The fire heading is the game's own facing (the bullet leaves along it). Classes, first match:
+`lost` (someone was highlighted within 0.3 s before the shot), `wall` / `lid` (the nearest-bearing person inside the arc and
+reach is behind a wall / only behind a lid by the old line test), `height` (more than 1.2 blocks up or down), `range` (in the
+arc, beyond the weapon's reach), `bearing` (in reach, all outside the arc), `nobody` (no one within reach + 4), `other`.
+Always on, every 10 s beside `aim: shots=`: `aim: no_target=N lost= wall= lid= height= range= bearing= nobody= other=
+cover_walls= assist=`. With LOG_AIM each highlighted shot's target is followed for 1 s: `aim: shot N -> HIT|MISS <ped> at D
+blocks, moving X across Y along the line (blocks/s)`, tallied as `aim: followed shots= hits= | target standing .. | target
+moving ..`.
+
+**The biggest class, closed: lids counted as cover.** FIX-AIM-1's assist-on fight (fixaim1_gun2) left 5 of 22 shots without a
+target, all 5 with the one candidate inside the arc rejected as "wall" by `ViewLineBlocked` (a solid block anywhere on the
+line, lids included), and the game's bullets hit two of those men (swings 4 and 6: be06 hit at 2.9 and 4.5 blocks).
+`aim_cover_walls=1` (`[camera]`, default; `GTA2DX9_AIM_COVER_WALLS=0` for the old test): the pick, the reticle's corridor and
+the near-ped probe line count only a block with a solid side face (`ViewLineWalled`). Only drawing and the press timing the
+assist already had use it; the game's targeting, range and damage are untouched.
+
+**The gate** (`linux/docker/fixaim2_gun.py`, keys `keys_fixaim2_gun.sh`; `GUN_VIEWS`, `GUN_BANDS`, `GUN_SHOTS`): the wil
+Downtown pavement, the gun from the plaza pickup (the machine gun, weapon 4), per view and range band (2, 4, 6 blocks, +-0.6)
+taps of the fire key at a standing civilian turned onto to within 7 degrees (inside the reticle); the verdict is the shot's
+own `aim: shot` line, a hit an `aim: hit` line within 1.2 s. Re-warps to the pavement after 12 s without a shot (the crowd
+scatters). `GTA2DX9_FORCE_WANTED_MAX=0` (new devtools probe beside `force_wanted`: his cop points held at 0) keeps the police
+from taking the gun mid-gate.
+
+| run | build | view | band (blocks) | shots | with_target | hits | note |
+|---|---|---|---|---|---|---|---|
+| fixaim2_g3 | 6122943a + this | third | 2 / 4 / 6 | 9 / 11 / 20 | 9 / 11 / 20 | 2 / 0 / 1 | targets anywhere in 12 blocks (some across the road) |
+| fixaim2_g3 | same | first | 2 / 4 / 6 | 5 / 7 / 20 | 5 / 6 / 19 | 1 / 1 / 0 | the 2 misses: `lost` (a held burst running on past the 12-degree first-person arc) |
+| fixaim2_g4, b1, b2 | same | third | 2 / 3 / 4 | 18 / 7 / 8 | 18 / 7 / 8 | 6 / 3 / 0 | |
+| fixaim2_g5, g6 | rebased on db0913d3 | first | 2 | 8 | 8 | 7 | g6: targets on the pavement strip only (`GUN_PAVEMENT_ONLY=1`, the default now): fire along the pavement, 6 of 7 hit |
+| **all** | | third | 2 / 4 / 6 | 27 / 19 / 20 | **27 / 19 / 20 (100 %)** | 8 / 0 / 1 | |
+| **all** | | first | 2 / 4 / 6 | 13 / 7 / 20 | **13 / 6 / 19 (100 / 86 / 95 %)** | 8 / 1 / 0 | |
+
+Overall 104 of 106 shots at a man inside the reticle had him highlighted (98 %); first person at 4 blocks has only 7 shots
+(6, 86 %). Two runs died to the gun being lost: the plaza machine gun does not come back after a death (g5: health 100 -> 0
+in a frame; g7 on the final rebase: the runner's back-off step (Down) took him into the road, where traffic knocked him
+down and killed him; the runner now picks pavement targets, the back-off is still its weak point), so the 20-shot count was
+not reached in every band. On the final rebase (fixaim2_g7) third person at 2 blocks: 4 of 4 highlighted, 4 hits. The hit share falls with range: 16 of 40 at 2 blocks, 1 of 26 at 4, 1 of 40 at 6.
+
+**The owner's pattern** (FIX-AIM-1's fight runner `fixaim1_fight.py`, 3 minutes, third person, assist on, both arms with
+`GTA2DX9_FORCE_WANTED_MAX=0` except fB):
+
+| run | cover | shots | with_target | no-target classes | hits | followed: standing / moving (hits) |
+|---|---|---|---|---|---|---|
+| fixaim2_fA | lids + walls (`AIM_COVER_WALLS=0`) | 38 | 17 (45 %) | wall 12, lid 5, range 4 | 4 | 4 (3) / 13 (0) |
+| fixaim2_fB2 | walls only | 28 | 28 (100 %) | - | 3 | 2 (0) / 26 (1) |
+| fixaim2_fB | walls only, police on | 10 | 10 | - | 1 | busted 6 times, the gun not re-armed |
+
+Read honestly: fA's biggest class is real cover (12 shots at one man, 7e15, behind the railing he was pressed against at
+y 147.86; the game hit him with none). fB2 never got stuck there, so most of the 45 -> 100 % is the scenario, not the lid
+rule (at most fA's 5 lid shots, and B2's ten shots through a lid were all at men running at 4-6 blocks: none hit, as none at
+that range in the open). The evidence that a lid does not stop the game's bullet is fixaim1_gun2's be06, hit twice (2.9 and
+4.5 blocks) while the old test called him covered.
+
+**Why the hits stay low (measured, not the renderer's).** Every followed target in b1/b2 was running straight away along the
+line of fire at 1.1-1.9 blocks/s (the whole crowd panics at the first shot; across the line 0.0-0.2 blocks/s), and the hits
+land 0.24-0.71 s after the shot at 1.7-4.3 blocks: the game's bullet closes at about 4 blocks/s on a fleeing man. Hits at 7-9
+blocks do happen in other runs, so it is not a hard range. A lead does not help a man running along the line (FIX-AIM-1's gun3).
+What would raise it is the game's bullet (speed, spread, lifetime), which the orders keep untouched; the machine gun's bullets
+are not drawn as sprites the renderer can follow (no 8/503-505 sprite in the shot frames), so their spread is not measured.
+
+**First-person fists: the punched person in the frame - tried, not shipped.** FIX-AIM-1's first-person frames showed the
+fists thrown and no victim. GTA2 lands a punch only on a body pressed against his, which is beside the first-person eye, where
+FIX-FIGURE-9's shoulder clear hides a stranger (fixaim1_rb3f logs the 60-line cap of `view: figure at his shoulder not drawn`).
+Tried (fixaim2_fp1B): while a fist press goes for a pick within 0.8 block, that person exempt from the shoulder clear, drawn
+0.40 ahead of the eye (at most 0.12 aside), the view tipped 8 degrees down. Screenshots 0.1/0.35/0.6 s after each tap
+(`linux/docker/fixaim2_fpgate.py`, keys `keys_fixaim2_fp.sh`, `drv_fpfirst_<n>_<k>.png`), A/B against the same build with it
+off (fixaim2_fp1A): in both arms the victim is in the frame at the strike in most swings and gone 0.25 s later, because the
+punch knocks him flat (state 8, the same frame as the health drop) at his feet, under the view, and a knocked-down figure is
+outside the draw-only separation (`sepAllowed` excludes corpses). The frames did not tell the arms apart, so nothing was shipped.
+What would: the knocked-down victim's drawn body placed ahead of the eye while he lies within 0.5 block in first person (the
+figure seat's separation code), or a glance down at him; both open.
+
+
 ## FIX-FIGURE-9 (10 Nov 2026): the molotov throw without the burn clip, the flamethrower's jet, flames beside him
 
 **Molotov: "both arms up" after a throw was the burn clip** (feel12-molotov). The "on fire" test (a fire spot

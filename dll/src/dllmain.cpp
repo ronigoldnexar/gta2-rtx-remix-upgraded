@@ -214,6 +214,7 @@ void LoadConfig() {
         vm.levelStartCut = GetPrivateProfileIntA("camera", "level_start_cut", 1, ini) != 0;   // FIX-CAMERA-18
         vm.navMap = GetPrivateProfileIntA("camera", "nav_map", 1, ini) != 0;
         vm.aimAssist = GetPrivateProfileIntA("camera", "aim_assist", 1, ini) != 0;   // FIX-AIM-1
+        vm.aimCoverWalls = GetPrivateProfileIntA("camera", "aim_cover_walls", 1, ini) != 0;   // FIX-AIM-2
         gta2dx9::CockpitModeLoad(ini);   // FIX-COCKPIT-BODY: [camera] dashcam*, fp_driver_body
         {
             const int d = GetPrivateProfileIntA("camera", "switch_dissolve_percent", 0, ini);

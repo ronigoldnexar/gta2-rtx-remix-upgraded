@@ -1638,6 +1638,11 @@ bool ViewAimAssistOn() {   // FIX-AIM-1: aim_assist=1 and not GTA2DX9_AIM_ASSIST
     if (env < 0) { char b[4] = {}; env = GetEnvironmentVariableA("GTA2DX9_AIM_ASSIST", b, sizeof b) && b[0] == '0' ? 0 : 1; }
     return env == 1 && g_settings.aimAssist;
 }
+bool ViewAimCoverWallsOn() {   // FIX-AIM-2
+    static int env = -1;
+    if (env < 0) { char b[4] = {}; env = GetEnvironmentVariableA("GTA2DX9_AIM_COVER_WALLS", b, sizeof b) && b[0] == '0' ? 0 : 1; }
+    return env == 1 && g_settings.aimCoverWalls;
+}
 
 // FIX-COCKPIT-CAB-4: the steering keys the game is told are held (view_modes.h).
 int GameSteerKeys() {   // FIX-COCKPIT-CAB-4

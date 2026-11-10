@@ -1030,8 +1030,20 @@ struct AimHud {
     int framesArmed = 0, framesShown = 0;
     double lastLog = 0.0;
     int hitLogs = 0;
+    // FIX-AIM-2 (owner10nov B9b): why a shot left with nothing highlighted, by class (the aim: noTarget line), and
+    // the person highlighted last before it (a target lost between the reticle and the press).
+    uintptr_t lastHighlighted = 0;
+    double lastHighlightedAt = -10.0;
+    int ntNobody = 0, ntRange = 0, ntBearing = 0, ntWall = 0, ntLid = 0, ntHeight = 0, ntLost = 0, ntOther = 0;
+    int shotLogs = 0;
+    // FIX-AIM-2: each shot's target followed for 1 s: his velocity across and along the line of fire (from the drawn
+    // people) and whether he was hit: the 'aim: shot N ->' outcome line (GTA2DX9_LOG_AIM=1).
+    struct Followed { int shot; uintptr_t obj; float x0, z0, hx, hz, d0; double t0; float x1 = 0, z1 = 0; double t1 = -1.0; bool hit = false; bool anyHit = false; };
+    std::vector<Followed> followed;
+    int outShots = 0, outHits = 0, outMoving = 0, outMovingHits = 0;
 };
 AimHud g_aimHud;
+
 
 float WeaponReach(int weapon) {
     switch (weapon) {
@@ -1082,6 +1094,73 @@ float AimDegOff(float heading, float dx, float dz) {
     return a * 57.29578f;
 }
 
+// FIX-AIM-2 (owner10nov B9b): what stands between his gun and a person. 0 clear, 1 a lid only (a kerb step, a deck,
+// the road under a ramp: the old test called him covered, the game's bullets reached him, fixaim1_gun2 swings 4/6),
+// 2 a wall (a block with a solid side face). AimCovered: the verdict the pick and the reticle use (aim_cover_walls=1:
+// walls only; 0: the old lid-and-wall test).
+int AimCoverOf(float x0, float y0, float z0, float x1, float y1, float z1) {
+    if (ViewLineWalled(x0, y0, z0, x1, y1, z1)) return 2;
+    return ViewLineBlocked(x0, y0, z0, x1, y1, z1) ? 1 : 0;
+}
+bool AimCovered(float x0, float y0, float z0, float x1, float y1, float z1) {
+    return ViewAimCoverWallsOn() ? ViewLineWalled(x0, y0, z0, x1, y1, z1) : ViewLineBlocked(x0, y0, z0, x1, y1, z1);
+}
+
+// FIX-AIM-2 (owner10nov B9b): one shot, what the targeting saw. The game's bullet leaves along his facing (the
+// heading the renderer reads from the game, a.headingYaw); the highlighted person is the owner counter's
+// with_target. With none: the class, from every standing person within reach + 4 blocks: 'lost' (someone was
+// highlighted within 0.3 s before the shot), 'wall' / 'lid' (the nearest-bearing person inside the arc and reach
+// is behind a wall / only a lid by the old test), 'height' (more than 1.2 blocks above or below), 'range' (inside
+// the arc but beyond the weapon's reach), 'bearing' (in reach, every one outside the arc: the smallest angle off
+// is logged), 'nobody' (no one within reach + 4). GTA2DX9_LOG_AIM=1 adds one 'aim: shot N' line per shot.
+void ClassifyShot(AimHud& h, const AimState& a, const std::vector<AimPed>& peds, int n) {
+    const bool first = CurrentViewMode() == ViewMode::FirstPerson;
+    const float reach = WeaponReach(a.weapon);
+    const float arc = ViewAimAssistOn() ? (first ? 12.0f : 30.0f) : 20.0f;
+    const float ox = a.x, oy = a.y + 0.30f, oz = a.z;
+    // The nearest by bearing among those inside the reach + 4 band.
+    const AimPed* inArc = nullptr; float inArcOff = 1e9f, inArcD = 0.0f;
+    const AimPed* any = nullptr; float anyOff = 1e9f, anyD = 0.0f;
+    bool tooHigh = false;
+    for (const AimPed& p : peds) {
+        if (p.corpse || p.health == 0) continue;
+        const float dx = p.x - ox, dz = p.z - oz, d = std::hypot(dx, dz);
+        if (d < 0.05f || d > reach + 4.0f) continue;
+        const float off = std::fabs(AimDegOff(a.headingYaw, dx, dz));
+        if (std::fabs(p.y - a.y) > 1.2f) { if (off <= arc && d <= reach) tooHigh = true; continue; }
+        if (off < anyOff && d <= reach) { anyOff = off; anyD = d; any = &p; }
+        if (off <= arc && off < inArcOff) { inArcOff = off; inArcD = d; inArc = &p; }
+    }
+    const char* cls = "target";
+    int cover = 0;
+    char who[96] = "";
+    if (h.target) {
+        const float dx = h.tx - ox, dz = h.tz - oz;
+        snprintf(who, sizeof who, "%04x d=%.2f off=%+.1f", static_cast<unsigned>((h.targetObject >> 2) & 0xFFFF), std::hypot(dx, dz),
+                 AimDegOff(a.headingYaw, dx, dz));
+    } else {
+        if (h.lastHighlighted && h.clock - h.lastHighlightedAt < 0.3) { cls = "lost"; h.ntLost += n; }
+        else if (inArc && inArcD <= reach) {
+            cover = AimCoverOf(ox, oy, oz, inArc->x, inArc->y + 0.25f, inArc->z);
+            if (cover == 2) { cls = "wall"; h.ntWall += n; }
+            else if (cover == 1) { cls = "lid"; h.ntLid += n; }
+            else { cls = "other"; h.ntOther += n; }
+        } else if (tooHigh) { cls = "height"; h.ntHeight += n; }
+        else if (inArc) { cls = "range"; h.ntRange += n; }
+        else if (any) { cls = "bearing"; h.ntBearing += n; }
+        else { cls = "nobody"; h.ntNobody += n; }
+        const AimPed* q = inArc ? inArc : any;
+        if (q) snprintf(who, sizeof who, "nearest-bearing %04x d=%.2f off=%+.1f", static_cast<unsigned>((q->object >> 2) & 0xFFFF),
+                        inArc ? inArcD : anyD, inArc ? inArcOff : anyOff);
+    }
+    if (AimLogOn() && h.shotLogs < 400) {
+        ++h.shotLogs;
+        Log("aim: shot %d weapon %d %s fire heading %.1f at %.2f,%.2f reach %.0f arc %.0f -> %s %s%s", h.shots, a.weapon, first ? "first" : "third",
+            a.headingYaw * 57.29578f, a.x, static_cast<float>(gta2::kMapHeight) - a.z, reach, arc, h.target ? "TARGET" : "NO TARGET:", h.target ? "" : cls,
+            who[0] ? (std::string(" ") + who).c_str() : "");
+    }
+}
+
 // FIX-AIM-1: the person an attack is meant for, the one the aim assist turns him onto and the reticle highlights.
 // Fists: within kFistPick blocks and 75 degrees of his facing, nearest by distance and angle. A gun: within its
 // reach, 30 degrees (12 in first person, where the view already aims), not behind a wall, smallest angle first.
@@ -1107,7 +1186,7 @@ AimPick ComputeAimPick(const AimState& a, const std::vector<AimPed>& peds) {
         if (off > arc) continue;
         const float score = (fists ? off + 40.0f * d : off + 1.5f * d) - (p.object == g_lastPick ? 12.0f : 0.0f);   // keeps the one he turns onto
         if (score >= bestScore) continue;
-        if (!fists && ViewLineBlocked(a.x, a.y + 0.30f, a.z, p.x, p.y + 0.25f, p.z)) continue;
+        if (!fists && AimCovered(a.x, a.y + 0.30f, a.z, p.x, p.y + 0.25f, p.z)) continue;
         bestScore = score;
         best.valid = true; best.object = p.object; best.x = p.x; best.y = p.y; best.z = p.z; best.d = d; best.offDeg = off;
         best.bearing = std::atan2(dx, dz);
@@ -1214,7 +1293,11 @@ void UpdateSwingLog(bool street, const AimState& a, const std::vector<AimPed>& p
                 if (std::fabs(dy) > 1.2f) why = "height";
                 else if (d > reach) why = "beyond reach";
                 else if (std::fabs(off) > arc) why = "outside arc";
-                else if (!fists && ViewLineBlocked(a.x, a.y + 0.30f, a.z, p.x, p.y + 0.25f, p.z)) why = "wall";
+                else if (!fists) {
+                    const int cov = AimCoverOf(a.x, a.y + 0.30f, a.z, p.x, p.y + 0.25f, p.z);   // FIX-AIM-2: wall vs a lid only
+                    if (cov == 2) why = "wall";
+                    else if (cov == 1) why = ViewAimCoverWallsOn() ? "ok lid" : "lid";
+                }
                 if (why[0] == 'o' && why[1] == 'k') {
                     g.hadTarget = true;
                     if (std::fabs(off) < bestOff) { bestOff = std::fabs(off); g.aimed = p.object; }
@@ -1287,7 +1370,7 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             if (perp > 0.32f + 0.03f * along) continue;
             if (std::fabs(p.y - a.y) > 1.2f) continue;
             if (along >= best) continue;
-            if (ViewLineBlocked(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
+            if (AimCovered(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
             best = along;
             h.target = true;
             h.targetObject = p.object;
@@ -1306,6 +1389,7 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
         }
     }
     if (!h.target) h.targetObject = 0;
+    else { h.lastHighlighted = h.targetObject; h.lastHighlightedAt = h.clock; }   // FIX-AIM-2 (before this frame's shot is judged)
 
     // A shot: what was highlighted as it left the gun.
     if (a.shots != h.lastShots) {
@@ -1313,6 +1397,9 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             const int n = static_cast<int>(a.shots - h.lastShots);
             h.shots += n;
             if (h.target) h.shotsWithTarget += n;
+            ClassifyShot(h, a, peds, n);   // FIX-AIM-2
+            if (h.target && AimLogOn() && h.followed.size() < 16)
+                h.followed.push_back({h.shots, h.targetObject, h.tx, h.tz, hx, hz, std::hypot(h.tx - ox, h.tz - oz), h.clock});
             h.targetAtShot = h.targetObject;
             h.shotTime = h.clock;
             if (h.target) h.recentTargets.push_back({h.targetObject, h.clock});
@@ -1359,6 +1446,7 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             bool highlighted = false;
             for (const auto& t : h.recentTargets) highlighted = highlighted || t.first == p.object;
             ++h.hits;
+            for (AimHud::Followed& f : h.followed) { f.anyHit = true; if (f.obj == p.object) f.hit = true; }   // FIX-AIM-2
             h.hitsHighlighted += highlighted ? 1 : 0;
             h.kills += kill ? 1 : 0;
             h.hitT = kill ? 0.45f : 0.25f;
@@ -1372,6 +1460,28 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             }
         }
         h.seen.swap(now);
+    }
+    // FIX-AIM-2: the followed targets: his drawn position 0.3 s after the shot (velocity), the outcome at 1.0 s.
+    if (fresh) {
+        for (AimHud::Followed& f : h.followed) {
+            if (f.t1 < 0.0 && h.clock - f.t0 >= 0.3)
+                for (const AimPed& p : peds) if (p.object == f.obj) { f.x1 = p.x; f.z1 = p.z; f.t1 = h.clock; }
+        }
+        for (auto it = h.followed.begin(); it != h.followed.end();) {
+            AimHud::Followed& f = *it;
+            if (h.clock - f.t0 < 1.0) { ++it; continue; }
+            float across = 0.0f, along = 0.0f;
+            if (f.t1 > 0.0) {
+                const float dt = static_cast<float>(f.t1 - f.t0), vx = (f.x1 - f.x0) / dt, vz = (f.z1 - f.z0) / dt;
+                along = vx * f.hx + vz * f.hz; across = vx * f.hz - vz * f.hx;
+            }
+            const bool moving = std::hypot(across, along) > 0.5f;
+            ++h.outShots; h.outHits += f.hit ? 1 : 0; h.outMoving += moving ? 1 : 0; h.outMovingHits += (moving && f.hit) ? 1 : 0;
+            Log("aim: shot %d -> %s %04x at %.2f blocks, moving %.2f across %.2f along the line (blocks/s)%s%s", f.shot, f.hit ? "HIT" : "MISS",
+                static_cast<unsigned>((f.obj >> 2) & 0xFFFF), f.d0, across, along, f.t1 < 0.0 ? " (lost from view)" : "",
+                (!f.hit && f.anyHit) ? " (someone else hit)" : "");
+            it = h.followed.erase(it);
+        }
     }
     UpdateSwingLog(street, a, peds, fresh, h.clock);   // FIX-AIM-1
     h.hitT = (std::max)(0.0f, h.hitT - dt);
@@ -1479,7 +1589,7 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             if (p.corpse || p.health == 0) continue;
             const float d2 = (p.x - ox) * (p.x - ox) + (p.z - oz) * (p.z - oz);
             if (d2 >= best || d2 < 0.3f * 0.3f || std::fabs(p.y - a.y) > 1.2f) continue;
-            if (ViewLineBlocked(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
+            if (AimCovered(ox, oy, oz, p.x, p.y + 0.25f, p.z)) continue;
             best = d2; nx = p.x; nz = p.z;
         }
         Log("aim: near %s x=%.2f y=%.2f d=%.2f reticle=%.0f,%.0f target=%d",
@@ -1490,6 +1600,13 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
         Log("aim: shots=%d with_target=%d hits=%d on_highlighted=%d (%.0f%%) kills=%d reticle_frames=%d/%d mix=%.2f",
             h.shots, h.shotsWithTarget, h.hits, h.hitsHighlighted, h.hits ? 100.0 * h.hitsHighlighted / h.hits : 0.0,
             h.kills, h.framesShown, h.framesArmed, a.aimMix);
+        if (h.outShots > 0)   // FIX-AIM-2: the followed shots' outcome, standing vs moving targets
+            Log("aim: followed shots=%d hits=%d | target standing %d hits %d | target moving (>0.5 b/s) %d hits %d", h.outShots, h.outHits,
+                h.outShots - h.outMoving, h.outHits - h.outMovingHits, h.outMoving, h.outMovingHits);
+        if (h.shots > h.shotsWithTarget)   // FIX-AIM-2: the shots with nothing highlighted, by class
+            Log("aim: no_target=%d lost=%d wall=%d lid=%d height=%d range=%d bearing=%d nobody=%d other=%d cover_walls=%d assist=%d",
+                h.shots - h.shotsWithTarget, h.ntLost, h.ntWall, h.ntLid, h.ntHeight, h.ntRange, h.ntBearing, h.ntNobody, h.ntOther,
+                ViewAimCoverWallsOn() ? 1 : 0, ViewAimAssistOn() ? 1 : 0);
     }
 }
 
