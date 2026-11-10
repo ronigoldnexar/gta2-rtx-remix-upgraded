@@ -19,6 +19,7 @@
 #include "log.h"
 #include "remix_lights.h"
 #include "explosion_fx.h"
+#include "world_view.h"   // StreetPresentation (FIX-REMIX-NIGHT-8)
 
 #include "../../src/post_fx.h"
 #include "../../src/sky.h"
@@ -175,6 +176,21 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         if (d.source == kLightSourceBullet || d.source == kLightSourceSpark || d.source == kLightSourceCigarette) continue;
         gta2::VisualLight l = {};
         for (int i = 0; i < 3; ++i) { l.pos[i] = d.pos[i]; l.rgb[i] = d.rgb[i]; l.dir[i] = d.dir[i]; }
+        // FIX-REMIX-NIGHT-8 (qav1 ste lime flood): a wide (radius >= 3) saturated sign light of the map (the neon
+        // class: greens, cyans, blues, magentas; never the sodium lamps) flooded the whole street in its colour, a
+        // #80FF00 radius-4 light at ste 99.5,96.5 turning the pavement and the people lime from dusk to dawn. In the
+        // street views it keeps 30 % of its hue over a warm white of the same luminance, as Remix's wide-neon rule
+        // does (remix_lights.cpp). GTA2DX9_WIDE_NEON_OLD=1: the game's colour, as before.
+        {
+            static const bool wideOld = [] { const char* e = getenv("GTA2DX9_WIDE_NEON_OLD"); return e && e[0] == '1'; }();
+            if (!wideOld && d.source == kLightSourceGame && !t.moving && d.radius >= 3.0f && StreetPresentation() &&
+                ClassifyGameLight(d, false) == kGameLightNeon) {
+                static const float kWarm[3] = {1.0f, 0.86f, 0.66f};
+                const float lum = 0.2126f * d.rgb[0] + 0.7152f * d.rgb[1] + 0.0722f * d.rgb[2];
+                const float wl = 0.2126f * kWarm[0] + 0.7152f * kWarm[1] + 0.0722f * kWarm[2];
+                for (int i = 0; i < 3; ++i) l.rgb[i] = 0.3f * d.rgb[i] + 0.7f * kWarm[i] * lum / wl;
+            }
+        }
         // The game's radius is a reach in tiles that Remix turns into brightness; here it
         // is a distance with a soft end, a little wider so a lamp makes a pool.
         float r = d.radius * 1.35f;

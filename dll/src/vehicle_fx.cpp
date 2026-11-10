@@ -416,10 +416,14 @@ bool EnsureTextures(IDirect3DDevice9* device) {
     else if (!g_coneTex) {
         // A head-lamp pool, u across, v along (0 at the bumper): brightest a little
         // ahead of the car, falling off with distance, soft at the sides.
+        // FIX-REMIX-NIGHT-8 (qav1 detached wedge): the pool faded in over the first tenth of its 2.6-tile reach,
+        // 0.26 tile of dark road between the bumper and the light (a wedge laid on the road ahead of the car). It
+        // now comes up within 0.05 tile of the bumper. GTA2DX9_CONE_NEAR_OLD=1: the old ramp.
+        static const float nearSpan = [] { const char* e = getenv("GTA2DX9_CONE_NEAR_OLD"); return (e && e[0] == '1') ? 0.10f : 0.02f; }();
         g_coneTex = MakeTexture(device, 64, 64, [](float u, float v) {
             const float across = std::fabs(u - 0.5f) * 2.0f;
             const float side = 1.0f - Smooth((across - 0.55f) / 0.45f);
-            const float nearRamp = Smooth(v / 0.10f);
+            const float nearRamp = Smooth(v / nearSpan);
             const float fall = std::pow(Clamp(1.0f - v, 0.0f, 1.0f), 1.6f);
             const float hot = 1.0f + 0.35f * std::exp(-across * across * 6.0f);
             const float k = Clamp(side * nearRamp * fall * hot, 0.0f, 1.0f);

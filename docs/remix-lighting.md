@@ -302,3 +302,16 @@ ambient by `FigureTimeOfDayLight` (the ptm14 factor the figures and pickups take
 under Remix; 0.26,0.28,0.33 at 22:30. `GTA2DX9_CAR_NIGHT=0` = before. bil spot 0 (keys_qav1.sh, out frn8_q0 before /
 frn8_q1 after), car region luma p50/p90: 22:30 clear 34/234 -> 17/67 (wall 45, ground 29), day rain 32/132 both.
 Headlamp quads and beams are unchanged (they are the car's own light).
+
+### Order 5 (plain renderer, `[weather] enabled`): the headlamp pool starts at the bumper; wide sign lights stop flooding
+
+- qav1 detached wedge: the plain head-lamp pool (vehicle_fx.cpp, `g_coneTex`) faded in over the first tenth of its 2.6-tile
+  reach, so 0.26 tile of dark road separated the bumper from the light. It now comes up within 0.05 tile.
+  `GTA2DX9_CONE_NEAR_OLD=1` = before. bil police car 22:30 (out frn8_q1 before / frn8_q2 after, framing differs between the
+  runs): the beam is bright at the bumper instead of fading in ahead of the nose.
+- qav1 ste lime flood: identified as the map's own light at ste 99.5,96.5,3.5, #80FF00, radius 4, full intensity (the
+  plain pass makes it a 5.4-block light plus a ground pool). In the street views a wide (radius >= 3) neon-class map light
+  (ClassifyGameLight Neon; sodium lamps never) keeps 30 % of its hue over a warm white of the same luminance, as Remix's
+  wide-neon rule does (visuals.cpp). `GTA2DX9_WIDE_NEON_OLD=1` = before. ste spot 0 (out frn8_n0 before / frn8_n1 after),
+  pavement/road box mean: 22:30 42,91,23 -> 63,87,56, dusk 44,71,23 -> 67,90,55, day fog 45,52,51 -> 45,53,52.
+  Still short: the light still reaches across the street (a bounded pool at the shop front would need the reach cut too).
