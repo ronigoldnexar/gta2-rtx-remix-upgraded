@@ -71,6 +71,23 @@ public:
     // SPRB and SPRG chunks. False when the style has none, or no such sprite.
     bool SpriteArtwork(SpriteBase base, int index, SpriteIndices* out) const;
 
+    // A sprite's artwork in its own palette as A8R8G8B8, row by row (alpha 0 where the
+    // index is 0, the transparency key). False when the style has no such sprite.
+    // fontRemap >= 0 draws it in that font remap palette instead (PALB's font_remap entries,
+    // 0-based), as the game colours its text.
+    bool SpriteImage(SpriteBase base, int index, int* width, int* height, std::vector<uint32_t>* argb,
+                     int fontRemap = -1) const;
+
+    // The fonts (FONB): how many, and where font f starts within the font base. Character c of
+    // a font is sprite FontFirst(f) + c - 33 (the fonts start at '!').
+    int FontCount() const { return static_cast<int>(fontSizes_.size()); }
+    int FontFirst(int font) const {
+        int first = 0;
+        for (int i = 0; i < font && i < FontCount(); ++i) first += fontSizes_[static_cast<size_t>(i)];
+        return first;
+    }
+    int FontSize(int font) const { return font >= 0 && font < FontCount() ? fontSizes_[static_cast<size_t>(font)] : 0; }
+
     // How many sprites a base holds.
     int SpriteCount(SpriteBase base) const { return spriteBases_[static_cast<int>(base)]; }
 
@@ -148,6 +165,7 @@ private:
     };
     bool DeltaPixels(SpriteBase base, int index, int delta, std::vector<DeltaPixel>* out) const;
     uint16_t spriteBases_[6] = {};
+    std::vector<uint16_t> fontSizes_;   // FONB: characters in each font
 };
 
 }  // namespace gta2

@@ -62,6 +62,7 @@ bool Style::Load(const std::string& path, std::string* error) {
     tilePalettes_ = 0;
     size_t delxOff = 0, delxSize = 0;
     memset(spriteBases_, 0, sizeof(spriteBases_));
+    fontSizes_.clear();
     cars_.clear();
     size_t offset = 6;
     while (offset + 8 <= data.size()) {
@@ -94,6 +95,9 @@ bool Style::Load(const std::string& path, std::string* error) {
             }
         } else if (!strcmp(tag, "SPRB") && size >= sizeof(spriteBases_)) {
             for (int i = 0; i < 6; ++i) spriteBases_[i] = ReadU16(&data[body + i * 2]);
+        } else if (!strcmp(tag, "FONB") && size >= 2) {
+            const int fonts = ReadU16(&data[body]);
+            for (int i = 0; i < fonts && static_cast<size_t>(i) * 2 + 4 <= size; ++i) fontSizes_.push_back(ReadU16(&data[body + 2 + i * 2]));
         } else if (!strcmp(tag, "DELX")) {
             delxOff = body;
             delxSize = size;
@@ -315,6 +319,37 @@ bool Style::SpriteArtwork(SpriteBase base, int index, SpriteIndices* out) const 
         memcpy(&out->indices[static_cast<size_t>(row) * e.width],
                &spriteGraphics_[page * kPageBytes + (y + row) * kPageStride + x], e.width);
     }
+    return true;
+}
+
+bool Style::SpriteImage(SpriteBase base, int index, int* width, int* height, std::vector<uint32_t>* argb,
+                        int fontRemap) const {
+    SpriteIndices art;
+    if (!argb || !SpriteArtwork(base, index, &art)) return false;
+    int first = 0;
+    for (int i = 0; i < static_cast<int>(base); ++i) first += spriteBases_[i];
+    size_t slot = static_cast<size_t>(tilePalettes_) + first + index;
+    if (fontRemap >= 0) {   // PALB: tile, sprite, car, ped, code_obj, map_obj, user, font remaps
+        if (fontRemap >= paletteBases_[7]) return false;
+        slot = 0;
+        for (int i = 0; i < 7; ++i) slot += paletteBases_[i];
+        slot += static_cast<size_t>(fontRemap);
+    }
+    if (slot >= paletteIndex_.size()) return false;
+    const uint16_t palette = paletteIndex_[slot];
+    const size_t paletteBase = static_cast<size_t>(palette / kPalettesPerPage) * kPalettePageBytes +
+                               static_cast<size_t>(palette % kPalettesPerPage) * 4;
+    argb->assign(art.indices.size(), 0);
+    for (size_t i = 0; i < art.indices.size(); ++i) {
+        const uint8_t c = art.indices[i];
+        if (!c) continue;
+        const size_t at = paletteBase + static_cast<size_t>(c) * 256;
+        if (at + 3 > palettes_.size()) continue;
+        (*argb)[i] = 0xFF000000u | (static_cast<uint32_t>(palettes_[at + 2]) << 16) |
+                     (static_cast<uint32_t>(palettes_[at + 1]) << 8) | palettes_[at];
+    }
+    if (width) *width = art.width;
+    if (height) *height = art.height;
     return true;
 }
 

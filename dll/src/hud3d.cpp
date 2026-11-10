@@ -55,6 +55,7 @@
 #include "world_view.h"
 
 #include "hud3d_font.inc"
+#include "hud_gamefont.h"
 
 namespace gta2dx9 {
 namespace {
@@ -66,6 +67,8 @@ struct Config {
     bool modern = true;     // [hud] modern
     bool minimap = true;    // [hud] minimap
     bool markers = true;    // [hud] objective_markers: the game's target arrows as 3D-projected markers
+    bool gameFont = true;   // [hud] game_font: GTA2's own glyphs for money, multiplier, lives, hearts, ammo (FIX-HUD-5, owner B13)
+    bool glyphSmooth = true; // [hud] game_font_smooth: the glyphs re-authored edge-aware (Scale2x/3x) rather than plain integer pixels
     bool hearts = true;     // [hud] hearts: the game's row of hearts (health, a heart a started 20) top right (FIX-HUD-4, owner B12)
     int toggleKey = 0;      // [hud] toggle_key, 0 none
     float scale = 1.0f;     // [hud] scale_pct / 100
@@ -93,6 +96,8 @@ void LoadConfig() {
         g_cfg.minimap = GetPrivateProfileIntA("hud", "minimap", 1, ini) != 0;
         g_cfg.markers = GetPrivateProfileIntA("hud", "objective_markers", 1, ini) != 0;
         g_cfg.hearts = GetPrivateProfileIntA("hud", "hearts", 1, ini) != 0;
+        g_cfg.gameFont = GetPrivateProfileIntA("hud", "game_font", 1, ini) != 0;
+        g_cfg.glyphSmooth = GetPrivateProfileIntA("hud", "game_font_smooth", 1, ini) != 0;
         const int pct = GetPrivateProfileIntA("hud", "scale_pct", 100, ini);
         g_cfg.scale = static_cast<float>((std::max)(50, (std::min)(200, pct))) / 100.0f;
         char key[16] = {};
@@ -425,6 +430,191 @@ Fonts g_fonts;
 int g_fontHeight = 0;
 float g_u = 1.0f;     // one unit: a pixel of a 720-line screen
 
+// ---- FIX-HUD-5 (owner request B13): GTA2's own glyphs --------------------------------------
+//
+// hud_gamefont.cpp reads the sprites the classic view draws its money, multiplier, lives, hearts
+// and ammunition with from the level's style. Here each one is re-authored at the display's size:
+// an integer factor k = round(2 * u) (2 at 720p, 4 at 1440p, 3 at 1080p), made of Scale2x/Scale3x
+// passes (edge-aware pixel-art scalers: a staircase edge becomes a cleaner diagonal, flat runs and
+// the bevel's colours stay exact, no new colours and no partial alpha) with any remaining factor as
+// whole pixels, packed into the HUD's ImGui atlas as custom rects and drawn 1:1 at whole-pixel
+// positions: nothing is filtered, at any resolution. Never written to disk.
+
+std::vector<uint32_t> Scale2x(const std::vector<uint32_t>& s, int w, int h) {
+    std::vector<uint32_t> d(static_cast<size_t>(w) * h * 4);
+    auto at = [&](int x, int y) { x = (std::max)(0, (std::min)(w - 1, x)); y = (std::max)(0, (std::min)(h - 1, y)); return s[static_cast<size_t>(y) * w + x]; };
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const uint32_t B = at(x, y - 1), D = at(x - 1, y), E = at(x, y), F = at(x + 1, y), H = at(x, y + 1);
+            uint32_t e0 = E, e1 = E, e2 = E, e3 = E;
+            if (B != H && D != F) {
+                e0 = D == B ? D : E; e1 = B == F ? F : E; e2 = D == H ? D : E; e3 = H == F ? F : E;
+            }
+            const size_t o = static_cast<size_t>(y * 2) * (w * 2) + x * 2;
+            d[o] = e0; d[o + 1] = e1; d[o + w * 2] = e2; d[o + w * 2 + 1] = e3;
+        }
+    return d;
+}
+
+std::vector<uint32_t> Scale3x(const std::vector<uint32_t>& s, int w, int h) {
+    std::vector<uint32_t> d(static_cast<size_t>(w) * h * 9);
+    auto at = [&](int x, int y) { x = (std::max)(0, (std::min)(w - 1, x)); y = (std::max)(0, (std::min)(h - 1, y)); return s[static_cast<size_t>(y) * w + x]; };
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const uint32_t A = at(x - 1, y - 1), B = at(x, y - 1), C = at(x + 1, y - 1), D = at(x - 1, y), E = at(x, y),
+                           F = at(x + 1, y), G = at(x - 1, y + 1), H = at(x, y + 1), I = at(x + 1, y + 1);
+            uint32_t e[9] = {E, E, E, E, E, E, E, E, E};
+            if (B != H && D != F) {
+                e[0] = D == B ? D : E;
+                e[1] = (D == B && E != C) || (B == F && E != A) ? B : E;
+                e[2] = B == F ? F : E;
+                e[3] = (D == B && E != G) || (D == H && E != A) ? D : E;
+                e[5] = (B == F && E != I) || (H == F && E != C) ? F : E;
+                e[6] = D == H ? D : E;
+                e[7] = (D == H && E != I) || (H == F && E != G) ? H : E;
+                e[8] = H == F ? F : E;
+            }
+            for (int j = 0; j < 3; ++j)
+                for (int i = 0; i < 3; ++i) d[static_cast<size_t>(y * 3 + j) * (w * 3) + x * 3 + i] = e[j * 3 + i];
+        }
+    return d;
+}
+
+std::vector<uint32_t> Whole(const std::vector<uint32_t>& s, int w, int h, int f) {
+    std::vector<uint32_t> d(static_cast<size_t>(w) * h * f * f);
+    for (int y = 0; y < h * f; ++y)
+        for (int x = 0; x < w * f; ++x) d[static_cast<size_t>(y) * (w * f) + x] = s[static_cast<size_t>(y / f) * w + x / f];
+    return d;
+}
+
+// The glyph at k times its size: Scale3x/Scale2x passes for the factors of 3 and 2, the rest whole pixels.
+std::vector<uint32_t> Reauthor(const GameGlyph& g, int k, bool smooth, int* w, int* h) {
+    std::vector<uint32_t> img = g.argb;
+    int cw = g.width, ch = g.height, left = k;
+    if (smooth) {
+        while (left % 3 == 0 && left > 1) { img = Scale3x(img, cw, ch); cw *= 3; ch *= 3; left /= 3; }
+        while (left % 2 == 0 && left > 1) { img = Scale2x(img, cw, ch); cw *= 2; ch *= 2; left /= 2; }
+    }
+    if (left > 1) { img = Whole(img, cw, ch, left); cw *= left; ch *= left; }
+    *w = cw; *h = ch;
+    return img;
+}
+
+constexpr int kGlyphSets = static_cast<int>(GameGlyphSet::Count);
+constexpr int kGlyphSetsN = 7;
+static_assert(kGlyphSets == kGlyphSetsN, "one factor a set");
+struct BakedGlyph { int w = 0, h = 0; ImVec2 uv0, uv1; };
+struct GameGlyphs {
+    bool on = false;
+    int k[kGlyphSetsN] = {1, 1, 1, 1, 1, 1, 1};   // each set's integer factor
+    int gen = -1;
+    BakedGlyph g[kGlyphSets][128];
+};
+GameGlyphs g_glyphs;
+struct PendingGlyph { int set = 0, c = 0, rect = -1, w = 0, h = 0; std::vector<uint32_t> img; };
+
+std::vector<PendingGlyph> QueueGameGlyphs(ImFontAtlas* atlas) {
+    std::vector<PendingGlyph> out;
+    g_glyphs = GameGlyphs{};
+    g_glyphs.gen = HudGameFontGeneration();
+    if (!g_cfg.gameFont || g_glyphs.gen <= 0) return out;
+    for (int set = 0; set < kGlyphSets; ++set) {
+        // 2 at 720p, 4 at 1440p; the weapon's name and the money pop (font 1 letters) at half that
+        const float f = set == static_cast<int>(GameGlyphSet::Label) ? 1.0f : 2.0f;
+        g_glyphs.k[set] = (std::max)(1, static_cast<int>(std::lround(f * g_u)));
+    }
+    for (int set = 0; set < kGlyphSets; ++set)
+        for (int c = 33; c < 128; ++c) {
+            const GameGlyph* src = HudGameGlyph(static_cast<GameGlyphSet>(set), static_cast<char>(c));
+            if (!src) continue;
+            PendingGlyph p;
+            p.set = set; p.c = c;
+            p.img = Reauthor(*src, g_glyphs.k[set], g_cfg.glyphSmooth, &p.w, &p.h);
+            p.rect = atlas->AddCustomRectRegular(p.w, p.h);
+            out.push_back(std::move(p));
+        }
+    return out;
+}
+
+void FinishGameGlyphs(ImFontAtlas* atlas, const std::vector<PendingGlyph>& pending) {
+    if (pending.empty()) return;
+    unsigned char* px = nullptr;
+    int tw = 0, th = 0;
+    atlas->GetTexDataAsRGBA32(&px, &tw, &th);
+    if (!px) return;
+    for (const PendingGlyph& p : pending) {
+        const ImFontAtlasCustomRect* r = atlas->GetCustomRectByIndex(p.rect);
+        if (!r || !r->IsPacked()) continue;
+        for (int y = 0; y < p.h; ++y)
+            for (int x = 0; x < p.w; ++x) {
+                const uint32_t c = p.img[static_cast<size_t>(y) * p.w + x];   // A8R8G8B8
+                unsigned char* d = px + (static_cast<size_t>(r->Y + y) * tw + r->X + x) * 4;   // R G B A
+                const unsigned a = c >> 24;
+                d[0] = a ? static_cast<unsigned char>(c >> 16) : 0;
+                d[1] = a ? static_cast<unsigned char>(c >> 8) : 0;
+                d[2] = a ? static_cast<unsigned char>(c) : 0;
+                d[3] = static_cast<unsigned char>(a);
+            }
+        BakedGlyph& b = g_glyphs.g[p.set][p.c];
+        b.w = p.w; b.h = p.h;
+        atlas->CalcCustomRectUV(r, &b.uv0, &b.uv1);
+    }
+    atlas->TexPixelsUseColors = true;   // coloured texels: the DX9 backend keeps R and B in place
+    g_glyphs.on = true;
+}
+
+bool GlyphsOn() { return g_glyphs.on; }
+const BakedGlyph* Glyph(GameGlyphSet set, char c) {
+    const unsigned u = static_cast<unsigned char>(c);
+    if (u >= 128) return nullptr;
+    const BakedGlyph& b = g_glyphs.g[static_cast<int>(set)][u];
+    return b.w > 0 ? &b : nullptr;
+}
+// The advance of a character in game pixels times k: the glyph's own width and `gap` game pixels
+// after it; ',' is a thin gap (the money's thousands, which the game's strip has no comma for) and
+// ' ' a word gap.
+float GlyphAdvance(GameGlyphSet set, char c, float gap) {
+    const float k = static_cast<float>(g_glyphs.k[static_cast<int>(set)]);
+    if (const BakedGlyph* b = Glyph(set, c)) return b->w + gap * k;
+    if (c == ',') return 3.0f * k;
+    if (c == ' ') return 5.0f * k;
+    return 0.0f;
+}
+ImVec2 GlyphMeasure(GameGlyphSet set, const char* s, float gap) {
+    float w = 0, h = 0;
+    for (const char* p = s; *p; ++p) {
+        w += GlyphAdvance(set, *p, gap);
+        if (const BakedGlyph* b = Glyph(set, *p)) h = (std::max)(h, static_cast<float>(b->h));
+    }
+    if (*s) {
+        const char last = s[strlen(s) - 1];
+        if (Glyph(set, last)) w -= gap * g_glyphs.k[static_cast<int>(set)];
+    }
+    return ImVec2(w, h);
+}
+// Drawn 1:1 at whole pixels, the glyphs' own colours (white vertex colour), with a soft dark drop
+// shadow one game pixel down-right so they read over a bright sky. `tint` multiplies (a dim copy).
+void GlyphText(ImDrawList* dl, GameGlyphSet set, ImVec2 at, const char* s, float A, float gap, bool shadow = true,
+               ImU32 tint = IM_COL32(255, 255, 255, 255)) {
+    ImTextureID tex = ImGui::GetIO().Fonts->TexID;
+    const float k = static_cast<float>(g_glyphs.k[static_cast<int>(set)]);
+    const float h = GlyphMeasure(set, s, gap).y;
+    float x = std::floor(at.x + 0.5f);
+    const float y0 = std::floor(at.y + 0.5f);
+    const int alpha = static_cast<int>(255.0f * (std::max)(0.0f, (std::min)(1.0f, A)) * ((tint >> IM_COL32_A_SHIFT) & 0xFF) / 255.0f);
+    const ImU32 col = (tint & ~IM_COL32_A_MASK) | (static_cast<ImU32>(alpha) << IM_COL32_A_SHIFT);
+    const ImU32 sh = IM_COL32(0, 0, 0, alpha * 110 / 255);
+    const float so = (std::max)(1.0f, std::floor(k * 0.5f + 0.5f));
+    for (const char* p = s; *p; ++p) {
+        if (const BakedGlyph* b = Glyph(set, *p)) {
+            const float y = y0 + (h - b->h);   // bottom-aligned (the strips' cells are one height)
+            if (shadow) dl->AddImage(tex, ImVec2(x + so, y + so), ImVec2(x + so + b->w, y + so + b->h), b->uv0, b->uv1, sh);
+            dl->AddImage(tex, ImVec2(x, y), ImVec2(x + b->w, y + b->h), b->uv0, b->uv1, col);
+        }
+        x += GlyphAdvance(set, *p, gap);
+    }
+}
+
 void BuildFonts(int height) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
@@ -447,11 +637,16 @@ void BuildFonts(int height) {
     g_fonts.text = add(kHudFontText, sizeof kHudFontText, g_fonts.textPx);
     g_fonts.titlePx = std::round(92.0f * g_u);
     g_fonts.title = add(kHudFontHeavy, sizeof kHudFontHeavy, g_fonts.titlePx);
+    const std::vector<PendingGlyph> pending = QueueGameGlyphs(io.Fonts);
     io.Fonts->Build();
+    FinishGameGlyphs(io.Fonts, pending);
     ImGui_ImplDX9_InvalidateDeviceObjects();   // the font texture is made again on NewFrame
     g_fontHeight = height;
-    Log("hud3d: fonts baked for %d lines (%.0f/%.0f/%.0f/%.0f px)", height, g_fonts.moneyPx, g_fonts.heavyPx,
-        g_fonts.labelPx, g_fonts.textPx);
+    Log("hud3d: fonts baked for %d lines (%.0f/%.0f/%.0f/%.0f px); game glyphs %s", height, g_fonts.moneyPx, g_fonts.heavyPx,
+        g_fonts.labelPx, g_fonts.textPx, g_glyphs.on ? "on" : "off (Barlow)");
+    if (g_glyphs.on)
+        Log("hud3d: game glyphs re-authored at %dx (%s, %zu glyphs, generation %d): the money, multiplier, lives, hearts and ammunition in GTA2's own type",
+            g_glyphs.k[0], g_cfg.glyphSmooth ? "edge-aware Scale2x/Scale3x" : "integer pixels", pending.size(), g_glyphs.gen);
 }
 
 bool EnsureContext(IDirect3DDevice9* device, int height) {
@@ -2119,7 +2314,31 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     }
     float y = margin;
     const float right = W - margin;
-    if (v.money >= 0) {
+    if (v.money >= 0 && GlyphsOn()) {
+        // FIX-HUD-5: the game's own gold money digits and its '$', thousands parted by a thin gap.
+        std::string m = Thousands(static_cast<long long>(std::llround(an.money)));
+        const ImVec2 sz = GlyphMeasure(GameGlyphSet::Money, m.c_str(), 1.0f);
+        GlyphText(dl, GameGlyphSet::Money, ImVec2(right - sz.x, y), m.c_str(), A, 1.0f);
+        if (an.gain > 0) {
+            // the gain pops left of it in the game's font 1 (gold), its '+' drawn in that gold
+            char g[32];
+            snprintf(g, sizeof g, "%s", Thousands(an.gainAmount).c_str());
+            const ImVec2 gs = GlyphMeasure(GameGlyphSet::Label, g, 0.0f);
+            const float t = an.gain / 2.0f;
+            const float ga = A * (std::min)(1.0f, t * 2.0f);
+            const float k = static_cast<float>(g_glyphs.k[static_cast<int>(GameGlyphSet::Label)]);
+            const float gx = std::floor(right - sz.x - gs.x - 10 * u), gy = std::floor(y + (sz.y - gs.y) * 0.5f - (1 - t) * 16 * u);
+            GlyphText(dl, GameGlyphSet::Label, ImVec2(gx, gy), g, ga, 0.0f);
+            const float pc = std::floor(gx - 5 * k), pm = std::floor(gy + gs.y * 0.5f);
+            const ImU32 gold = Fade(IM_COL32(233, 194, 64, 255), ga), edge = Fade(IM_COL32(40, 30, 8, 255), ga);
+            dl->AddRectFilled(ImVec2(pc - 3.5f * k, pm - 1.5f * k), ImVec2(pc + 3.5f * k, pm + 1.5f * k), edge);
+            dl->AddRectFilled(ImVec2(pc - 1.5f * k, pm - 3.5f * k), ImVec2(pc + 1.5f * k, pm + 3.5f * k), edge);
+            dl->AddRectFilled(ImVec2(pc - 2.5f * k, pm - 0.5f * k), ImVec2(pc + 2.5f * k, pm + 0.5f * k), gold);
+            dl->AddRectFilled(ImVec2(pc - 0.5f * k, pm - 2.5f * k), ImVec2(pc + 0.5f * k, pm + 2.5f * k), gold);
+            an.gain -= dt;
+        }
+        y += sz.y + 4 * u;
+    } else if (v.money >= 0) {
         const std::string m = Thousands(static_cast<long long>(std::llround(an.money)));
         const ImVec2 sz = Measure(g_fonts.money, g_fonts.moneyPx, m.c_str());
         const bool ticking = std::llround(an.money) != v.money;
@@ -2137,7 +2356,29 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     }
 
     // Multiplier and lives on one line under it.
-    {
+    if (GlyphsOn()) {
+        // FIX-HUD-5: as the game draws them, a red x and digits for the multiplier, a green x and
+        // digits for the lives (its two lines left of the money), here on one line right-aligned.
+        char line[32];
+        float x = right;
+        float lineH = 0;
+        if (v.lives >= 0) {
+            snprintf(line, sizeof line, "x%d", v.lives);
+            const ImVec2 s = GlyphMeasure(GameGlyphSet::Lives, line, 2.0f);
+            x -= s.x;
+            GlyphText(dl, GameGlyphSet::Lives, ImVec2(x, y), line, A, 2.0f);
+            x -= 12 * u;
+            lineH = (std::max)(lineH, s.y);
+        }
+        if (v.mult >= 0) {
+            snprintf(line, sizeof line, "x%d", v.mult);
+            const ImVec2 s = GlyphMeasure(GameGlyphSet::Mult, line, 2.0f);
+            x -= s.x;
+            GlyphText(dl, GameGlyphSet::Mult, ImVec2(x, y), line, A, 2.0f);
+            lineH = (std::max)(lineH, s.y);
+        }
+        y += lineH + 8 * u;
+    } else {
         char line[64];
         float x = right;
         if (v.lives >= 0) {
@@ -2164,7 +2405,24 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     // player's health, as the game counts them (measured in out/fh4_h1 with the game's HUD in a street
     // view: health 100 -> 5 hearts, 75 -> 4, 35 -> 2: one a started 20), lost ones a dim outline; at 30 or
     // less the last one beats (a hit flashes the health bar under the map).
-    if (v.health >= 0 && g_cfg.hearts) {
+    if (v.health >= 0 && g_cfg.hearts && GlyphsOn() && Glyph(GameGlyphSet::Heart, 'H')) {
+        // FIX-HUD-5: the game's own heart sprite; lost ones as its dark silhouette; at 30 or less
+        // the last one blinks (whole pixels: a size pulse would resample it).
+        const int full = (std::max)(0, (std::min)(5, (v.health + 19) / 20));
+        const BakedGlyph* hb = Glyph(GameGlyphSet::Heart, 'H');
+        const float step = hb->w + 3.0f * g_glyphs.k[static_cast<int>(GameGlyphSet::Heart)];
+        const bool low = v.health <= 30;
+        const float beat = low ? 0.5f + 0.5f * std::sin(an.time * 7.0f) : 0.0f;
+        for (int i = 0; i < 5; ++i) {
+            const int slot = 4 - i;
+            const bool on = slot < full;
+            const bool last = on && slot == full - 1;
+            const ImVec2 at(right - hb->w - i * step, y);
+            if (on) GlyphText(dl, GameGlyphSet::Heart, at, "H", A * (last && low ? 0.45f + 0.55f * (1.0f - beat) : 1.0f), 0.0f);
+            else GlyphText(dl, GameGlyphSet::Heart, at, "H", A * 0.45f, 0.0f, false, IM_COL32(24, 12, 12, 255));
+        }
+        y += hb->h + 8 * u;
+    } else if (v.health >= 0 && g_cfg.hearts) {
         const int full = (std::max)(0, (std::min)(5, (v.health + 19) / 20));
         const float r = 11.0f * u, step = 2.3f * r;
         const float cy = y + r;
@@ -2204,12 +2462,23 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
         char ammo[24];
         if (v.ammo < 0) snprintf(ammo, sizeof ammo, "INF");
         else snprintf(ammo, sizeof ammo, "%d", (v.ammo + 9) / 10);
-        const ImVec2 as = Measure(g_fonts.heavy, g_fonts.heavyPx, ammo);
         std::string name = WeaponName(v.weapon);
         for (char& c : name) c = c == '_' ? ' ' : static_cast<char>(toupper(static_cast<unsigned char>(c)));
-        const ImVec2 ns = Measure(g_fonts.label, g_fonts.labelPx, name.c_str());
-        Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(right - as.x, y), v.ammo >= 0 && v.ammo < 50 ? kRed : kWhite, ammo, A);
-        Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(right - ns.x, y + h - ns.y - 2 * u), Fade(kWhite, 0.8f), name.c_str(), A);
+        ImVec2 as, ns;
+        if (GlyphsOn()) {
+            // FIX-HUD-5: the ammunition in the game's font 1, grey as it draws it (red when low), the
+            // weapon's name in the same font's gold
+            const GameGlyphSet aset = v.ammo >= 0 && v.ammo < 50 ? GameGlyphSet::AmmoLow : GameGlyphSet::Ammo;
+            as = GlyphMeasure(aset, ammo, 0.0f);
+            ns = GlyphMeasure(GameGlyphSet::Label, name.c_str(), 0.0f);
+            GlyphText(dl, aset, ImVec2(right - as.x, y), ammo, A, 0.0f);
+            GlyphText(dl, GameGlyphSet::Label, ImVec2(right - ns.x, y + h - ns.y), name.c_str(), A * 0.9f, 0.0f);
+        } else {
+            as = Measure(g_fonts.heavy, g_fonts.heavyPx, ammo);
+            ns = Measure(g_fonts.label, g_fonts.labelPx, name.c_str());
+            Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(right - as.x, y), v.ammo >= 0 && v.ammo < 50 ? kRed : kWhite, ammo, A);
+            Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(right - ns.x, y + h - ns.y - 2 * u), Fade(kWhite, 0.8f), name.c_str(), A);
+        }
         const bool icon = g_weaponIcon.frame + 1 >= g_frame && g_weaponIcon.texture;
         if (icon) {
             const float iw = g_weaponIcon.maxX - g_weaponIcon.minX, ih = g_weaponIcon.maxY - g_weaponIcon.minY;
@@ -2641,7 +2910,7 @@ void Prewarm(IDirect3DDevice9* device, int width, int height, const gta2::Map& m
         // The font texture (step 3), then one invisible frame through the backend (step 4).
         ImGuiContext* previous = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(g_ctx);
-        if (g_fontHeight != height) BuildFonts(height);
+        if (g_fontHeight != height || g_glyphs.gen != HudGameFontGeneration()) BuildFonts(height);
         ImGuiIO& io = ImGui::GetIO();
         io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
         io.DeltaTime = 1.0f / 30.0f;
@@ -2726,6 +2995,22 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
             t.logged = true;
             Log("hud3d: part %d in a street view: box %.0f,%.0f-%.0f,%.0f, %d quads a frame, last text key '%s'",
                 part, t.minX, t.minY, t.maxX, t.maxY, t.quads, ReadMessageKey().c_str());
+        }
+    }
+    // GTA2DX9_HUD_LOG_GLYPHS=1 (FIX-HUD-5 probe): the game's own text quads of parts 1, 6 and 11, each
+    // distinct one logged once: its texture's size and palette, the texel rect, the quad's size and colour.
+    static int s_logGlyphs = -1;
+    if (s_logGlyphs < 0) { char b[4] = {}; s_logGlyphs = GetEnvironmentVariableA("GTA2DX9_HUD_LOG_GLYPHS", b, sizeof b) && b[0] == '1'; }
+    if (s_logGlyphs && (part == 1 || part == 6 || part == 11) && corners && texture && count >= 3) {
+        static std::vector<uint64_t> s_seen;
+        const Corner* q = static_cast<const Corner*>(corners);
+        const gta2dx9::TextureRecord* r = static_cast<const gta2dx9::TextureRecord*>(texture);
+        const uint64_t key = (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(r->pixels)) << 16) ^ (static_cast<uint64_t>(q[0].u * 1024) << 40) ^ (static_cast<uint64_t>(q[0].v * 1024) << 52) ^ r->palette ^ (static_cast<uint64_t>(part) << 60);
+        if (s_seen.size() < 200 && std::find(s_seen.begin(), s_seen.end(), key) == s_seen.end()) {
+            s_seen.push_back(key);
+            Log("hud3d: glyph part %d view %d tex %dx%d pal %d pix %p uv %.4f,%.4f-%.4f,%.4f quad %.1f,%.1f %.1fx%.1f col %08X",
+                part, static_cast<int>(CurrentViewMode()), r->width, r->height, r->palette, r->pixels, q[0].u, q[0].v, q[2].u, q[2].v,
+                q[0].x, q[0].y, q[2].x - q[0].x, q[2].y - q[0].y, q[0].colour);
         }
     }
     if (part == 9 && g_active && g_street) {
@@ -3003,7 +3288,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     if (((an.fade > 0.01f && v.valid) || beatShown || markersShown) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
         ImGuiContext* previous = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(g_ctx);
-        if (g_fontHeight != height) BuildFonts(height);
+        if (g_fontHeight != height || g_glyphs.gen != HudGameFontGeneration()) BuildFonts(height);
         if (g_cfg.minimap && g_cfg.modern) BuildMap(device, map);
         ImGuiIO& io = ImGui::GetIO();
         io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));

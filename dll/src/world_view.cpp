@@ -1,5 +1,6 @@
 #include "mem_stats.h"
 #include "world_view.h"
+#include "hud_gamefont.h"
 #include "prop_collision.h"
 #include "regress_cam.h"
 #include "density.h"
@@ -1247,6 +1248,7 @@ bool WorldView::EnsureWorldLoaded() {
         return false;
     }
     CarBodiesSetInfo(style.CarInfos());
+    HudGameFontCapture(style);   // FIX-HUD-5: GTA2's own HUD glyphs for the modern HUD (hud_gamefont.cpp)
     CarArtPrecache(stylePath.c_str());   // PERF-4: every car sprite's artwork, made on a worker
     {
         // Which tiles are grass, for the park trees of the street views: a

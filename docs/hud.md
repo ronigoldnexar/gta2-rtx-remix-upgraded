@@ -17,7 +17,9 @@ the game's own weapon icon and the speaker's own portrait.
 |---|---|---|
 | `modern` | 1 | 1: the modern HUD in third/first person; 0: the game's own HUD there too |
 | `minimap` | 1 | the mini-map |
-| `hearts` | 1 | the game's row of hearts (health) top right, as vectors (FIX-HUD-4, owner request) |
+| `hearts` | 1 | the game's row of hearts (health) top right (FIX-HUD-4, owner request; the game's own heart sprite with `game_font=1`) |
+| `game_font` | 1 | money, multiplier, lives, hearts and ammunition in GTA2's own glyphs, read from the style at load (FIX-HUD-5); 0: the Barlow typeface |
+| `game_font_smooth` | 1 | those glyphs enlarged edge-aware (Scale2x/Scale3x); 0: plain whole pixels |
 | `scale_pct` | 100 | size, 50..200 (sized for the window's height) |
 | `toggle_key` | (none) | a key that switches modern/classic while playing, e.g. `F7` |
 
@@ -427,3 +429,54 @@ other part-9 word (armour: no armour field is known) stays the game's. Log: `hud
 in a street view: health, drawn as a chip (health 40 -> 100 ...)`. Verified out/qa_fh4_q23b (third) and
 qa_fh4_q23c (first person), qaf23_a.py on the ste health pad: "HEALTH +60" where the pixel word was, gone a
 second later. Untested: armour and weapon collect words in a street view.
+
+## FIX-HUD-5: GTA2's own type for the numbers (owner request B13, 10 Nov 2026)
+
+The owner: "I would like the font and the appearance of the numbers to be similar to the originals,
+with a nostalgic feel." The modern layout stays (money top right, the multiplier and lives under it,
+the hearts, the weapon block, stars, mini-map, brief); the money, multiplier, lives, hearts and
+ammunition are now drawn with the very sprites the classic view uses.
+
+**What the classic view draws** (measured, not guessed: `GTA2DX9_HUD_LOG_GLYPHS=1` logs each distinct
+textured quad of HUD parts 1, 6 and 11 with its texture size, the physical palette and the quad; runs
+fh5_g1 on wil, fh5_g2 on bil with the machine gun). None of it is a font except the ammunition:
+
+| HUD item | Sprite (style, user base unless said) | Size | Palette |
+|---|---|---|---|
+| `$` | user 16 | 12x22 | its own (wil 125, ste 124, bil 126) |
+| money digits | user 158, a strip `0 9 8 7 6 5 4 3 2 1 0`, 20 rows a digit; the game registers a 11x20 window into it and moves the window a row a frame, so the digits roll like an odometer | 11x220 | its own |
+| multiplier | user 18 (red x) + strip user 116 | 9x10, 9x143 (13 a digit) | its own |
+| lives | user 17 (green x) + strip user 115 | same | its own |
+| hearts (part 6) | user 113 (the small one is 114) | 15x14 | its own |
+| ammunition | font 1 (25-row cells, 144 characters from `!`) | 9..14x25 | **font remap 6** (grey; PALB's font remaps, physical 268/267/269 in wil/ste/bil) |
+
+The user-sprite numbers are the same in all three districts' styles; only the palettes move by one, and
+are read from each style. Font characters: sprite `FontFirst(f) + c - 33` (FONB gives each font's size).
+
+**How it is drawn** (`dll/src/hud_gamefont.cpp`, `hud3d.cpp` "FIX-HUD-5"):
+- At level load the world view hands its freshly loaded `gta2::Style` to `HudGameFontCapture`, which cuts
+  the glyphs out (strip cells per digit; font 1 in remap 6 for the ammunition, remap 5 red for low ammo,
+  its own gold for the weapon's name and the money pop; the font's empty rows trimmed, the same for all
+  so the baseline holds) as ARGB in memory. They are the game's art: never written to disk, never in git;
+  a player's own game data is the only source. If any piece is missing or not GTA2 9.6's size, the log
+  says so and the HUD keeps Barlow.
+- `BuildFonts` re-authors each glyph at a whole factor of its size, `k = round(2 u)` (2 at 720p, 3 at
+  1080p, 4 at 1440p; the weapon's name and the pop at half that), made of Scale3x/Scale2x passes (the
+  AdvMAME/EPX pixel-art scalers: a stair-step edge becomes a clean diagonal, flat runs and the bevel's
+  colours stay exactly the game's, no new colours, alpha only 0 or 255) and any remaining factor as
+  whole pixels, packs them into the HUD's ImGui atlas as custom rects (`TexPixelsUseColors`), and the
+  HUD draws them 1:1 at whole-pixel positions: the linear sampler never blends two texels. It re-bakes
+  when the window height or the captured generation changes (a new level).
+- Each glyph gets a soft drop shadow (its silhouette, black at 43 %, half a factor down-right) so the
+  gold reads over a bright sky; the glyphs keep their own dark edge.
+- Layout: the money right-aligned at the top (thousands parted by a 3-game-pixel gap: the strip has no
+  comma), the gain pop "+n" in font 1 gold with a drawn plus left of it; the red x-multiplier and the
+  green x-lives on one line under it (the game's two lines left of the money); the five hearts as the
+  game's sprite, lost ones as a dim dark silhouette, the last one blinking (not growing: a size pulse
+  would resample it) at 30 or less; the ammunition in font 1 grey (red under 5), the weapon's name in
+  font 1 gold under it, the game's icon left of them.
+- Still Barlow (the game has no glyphs for these in this style): the clock and counter chip, the phone
+  chip, the brief card's words, the beat titles, the pickup labels, the "N" on the map. The game's clock
+  digits (user 163-172, silver, 17x25) could carry the clock next.
+- `game_font=0` is the old typeface; `game_font_smooth=0` plain whole pixels (the classic look, blockier
+  at 1440p).
