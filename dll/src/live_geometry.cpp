@@ -2371,6 +2371,14 @@ constexpr uint32_t kBustFrames = 360;      // how long after the bust the figure
 // a beat lying there (kKdLyingBeat); never longer than kKdMaxDown (then, on his back, the roll onto his front,
 // up to kKdRollMax); the get-up (the lying clip backwards)
 // at kKdRiseRate of its own pace; afterwards the draw offset onto the body is walked off (kKdWalkOff s).
+// FIX-KNOCKDOWN-3 (pf3): the get-up pinned where the body lay, the catch-up after it at most a run's pace.
+// GTA2DX9_KD_PIN_GETUP=0 = as before (A/B: the offset held, the rising figure carried along with the game's spot).
+constexpr float kKdCatchUp = 2.5f;
+bool Kd3PinGetUp() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_KD_PIN_GETUP", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on == 1;
+}
 constexpr float kKdMinDown = 1.2f, kKdLyingBeat = 0.45f, kKdMaxDown = 3.0f, kKdRiseRate = 0.8f, kKdWalkOff = 0.35f, kKdRollMax = 1.4f;
 constexpr float kBustUpSecs = 0.7f;        // getting up (the knock-down played back)
 constexpr float kBustHandsSecs = 1.3f;     // hands up until then, cuffed after
@@ -10279,7 +10287,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     track.kdGameUp = false;   // down again by the game's say
                 }
                 const float wx = track.dx + track.staggerX + track.sepX - track.kdAnchorX, wz = track.dz + track.staggerZ + track.sepZ - track.kdAnchorZ;
-                const bool walked = track.kdGameUp && !ownPed && wx * wx + wz * wz > 0.3f * 0.3f;
+                // FIX-KNOCKDOWN-3 (pf3): not before the body has landed and lain a beat (still, or 1.0 s from the impact): a get-up
+                // started mid-flight snapped him upright. The get-up is pinned where he lies (below), so waiting for
+                // the landing no longer drags the body after the game's running spot.
+                const bool landed = !Kd3PinGetUp() || !body || ri.settled || track.kdSecs >= 1.0f;
+                const bool walked = track.kdGameUp && !ownPed && wx * wx + wz * wz > 0.3f * 0.3f && landed;
                 bool up = false;
                 if (track.kdRolled) {
                     // Rolled over: up once he lies still on his front (or the roll has had its time; a roll that
@@ -10371,6 +10383,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             const float baseX = track.dx + track.staggerX + track.sepX, baseZ = track.dz + track.staggerZ + track.sepZ;
                             track.heading = th; track.twist = 0.0f;
                             track.kdOX = ox - baseX; track.kdOZ = oz - baseZ;
+                            track.kdRisePinned = false;
                             track.lieClip = ri.faceUp ? 0 : 1;
                             track.actionTime = track.kdRiseLen = rise->length;
                             track.kdFaceUp = ri.faceUp;
@@ -10884,9 +10897,19 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         // Where the figure stands: the drawn position, at the sprite's height.
         // FIX-KNOCKDOWN: the get-up drawn where the body lies (kdOX/Z, walked off once he is up).
+        // FIX-KNOCKDOWN-3 (pf3): pinned in the world while the get-up plays (the game's spot runs on); then walked
+        // off no faster than a run (kKdCatchUp), so the legs step the catch-up instead of the figure gliding.
+        if (track.kd && track.kdRising && track.action == 4 && Kd3PinGetUp()) {
+            const float baseX = track.dx + track.staggerX + track.sepX, baseZ = track.dz + track.staggerZ + track.sepZ;
+            if (!track.kdRisePinned) { track.kdRisePinned = true; track.kdPinX = baseX + track.kdOX; track.kdPinZ = baseZ + track.kdOZ; }
+            track.kdOX = track.kdPinX - baseX; track.kdOZ = track.kdPinZ - baseZ;
+        }
         if (track.kd && track.action != 4) {
             const float k = 1.0f - std::exp(-dt / kKdWalkOff);
-            track.kdOX -= track.kdOX * k; track.kdOZ -= track.kdOZ * k;
+            float sx = track.kdOX * k, sz = track.kdOZ * k;
+            const float step = std::sqrt(sx * sx + sz * sz), most = kKdCatchUp * dt;
+            if (Kd3PinGetUp() && step > most) { sx *= most / step; sz *= most / step; }
+            track.kdOX -= sx; track.kdOZ -= sz;
             if (track.kdOX * track.kdOX + track.kdOZ * track.kdOZ < 1e-5f) {
                 track.kdOX = track.kdOZ = 0.0f; track.kd = false; track.kdRising = false;
                 if (ownPed || g_logPedFrames) Log("knockdown: %p back on his feet, walking", reinterpret_cast<const void*>(sprite.object));
@@ -11141,6 +11164,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         const float mx = ri.pelvis[0] - pw[0], mz = ri.pelvis[2] - pw[2];
                         world.m[3][0] += mx; world.m[3][2] += mz;
                         track.heading += d; track.kdOX += mx; track.kdOZ += mz;
+                        if (track.kdRisePinned) { track.kdPinX += mx; track.kdPinZ += mz; }
                         if (ownPed || g_logPedFrames)
                             Log("knockdown: %p get-up placed onto the body: turned %.1f deg, moved %.2f,%.2f", reinterpret_cast<const void*>(sprite.object),
                                 d * 57.29578f, mx, mz);

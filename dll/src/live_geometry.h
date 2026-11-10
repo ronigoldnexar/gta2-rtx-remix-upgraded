@@ -809,6 +809,10 @@ private:
         float kdRollAt = -1.0f, kdChestUp = 1.0f;
         const void* kdModel = nullptr;   // the avatar drawn last frame and its signed horizontal scale (the get-up's placing)
         float kdScaleS = 0.0f;
+        // FIX-KNOCKDOWN-3 (pf3): where the get-up is drawn, pinned in the world while it plays (the game runs an
+        // NPC on meanwhile: a held offset slid the rising figure along at the game's pace, a skate).
+        bool kdRisePinned = false;
+        float kdPinX = 0.0f, kdPinZ = 0.0f;
         // FIX-FIGURE-6 (pm24 gang interpenetrating, pm3 ped inside a parked car): a draw-only offset
         // that keeps the figure out of its neighbours' bodies and out of car bodies, eased; the
         // car it is being kept out of and the side chosen on the way in (no flip at the middle).
