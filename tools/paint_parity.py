@@ -61,7 +61,7 @@ def main():
     for f in frames:
         m = rx.search(f)
         if m: have[(m.group(1), m.group(2), m.group(3))] = f
-    modes = sorted({k[2] for k in have})
+    modes = sorted({k[2] for k in have if k[2] != "noshade"})
     mode = a.mode or (modes[0] if len(modes) == 1 else "new")
     lines = [f"# Paint parity: {os.path.basename(a.run.rstrip('/'))} (mode {mode})", "",
              "| Model | Class | Paint | Sprite | 3D body | Lit lids | L* 3D vs sprite | dHue | Saturation 3D / sprite | Result |",
@@ -69,6 +69,17 @@ def main():
     fails = warns = 0
     region = None   # the painted cars' footprint on screen (same pose): where a livery or a wreck is looked for
     own_rows = []
+    shade = []   # FIX-CAR-IDENTITY-7: (model, paint, lit lids measured / with the sun shadows off)
+
+    def shade_check(model, p, sel):
+        # the probe's "noshade" frame (SHADE_CHECK=1): the same car, paint and pose with [visuals] shadows=0. In open sun the
+        # lit lids keep 0.94-1.00 of it; a world shadow on the car (since 9b9e646 a park tree's
+        # crown at the old spot) leaves 0.51-0.66: then the gate measured the shade, not the paint, and the run is not a verdict.
+        if (model, p, "noshade") not in have: return
+        lum = lambda q: q @ [0.3, 0.59, 0.11]
+        a_, b_ = lum(sel(load(have[(model, p, mode)]))), lum(sel(load(have[(model, p, "noshade")])))
+        r = a_[a_ >= np.percentile(a_, 75)].mean() / max(b_[b_ >= np.percentile(b_, 75)].mean(), 1.0)
+        shade.append((model, p, r))
     for model in sorted({k[0] for k in have}):
         if body_class(model) in ("livery", "wreck"):
             own_rows.append(model); continue
@@ -110,6 +121,7 @@ def main():
             f3 = lambda c: ",".join(str(int(round(v))) for v in c)
             lines.append(f"| {model} | {body_class(model)} | {p} | {f3(s)} | {f3(mean)} | {f3(lit)} | {lb[0]:.0f} vs {ls[0]:.0f} ({dl:+.0f} %) | "
                          f"{'-' if dh is None else f'{dh:.0f}'} | {sat:.2f} / {ssat:.2f} | {res} |")
+            shade_check(model, p, lambda im: im[mk])
     # FIX-CAR-IDENTITY-5: liveries and wrecks against their style sprite (the classic view's own picture of that model).
     f3 = lambda c: ",".join(str(int(round(v))) for v in c)
     for model in own_rows:
@@ -149,6 +161,8 @@ def main():
             if len(body) < 200:
                 lines.append(f"| {model} | {cls} | own | {f3(s)} | | | | | | FAIL (no wreck on screen) |"); fails += 1; continue
             mean = ip.dominant(body); lum = body @ [0.3, 0.59, 0.11]; lit = np.median(body[lum >= np.percentile(lum, 75)], 0)
+        y0_, y1_, x0_, x1_ = max(0, y0 - dy), y1 + dy, max(0, x0 - dx), x1 + dx
+        shade_check(model, os.path.basename(frames[0]).split("_")[3], lambda im: im[y0_:y1_, x0_:x1_].reshape(-1, 3))
         ls, lb = lab(s), lab(mean)
         dl = 100 * (lb[0] - ls[0]) / max(ls[0], 1)
         chroma = np.hypot(*ls[1:]) > 10
@@ -164,6 +178,15 @@ def main():
         sat = colorsys.rgb_to_hsv(*(mean / 255))[1]; ssat = colorsys.rgb_to_hsv(*(s / 255))[1]
         lines.append(f"| {model} | {cls} | own ({os.path.basename(sp[0])}) | {f3(s)} | {f3(mean)} | {f3(lit)} | {lb[0]:.0f} vs {ls[0]:.0f} ({dl:+.0f} %) | "
                      f"{'-' if dh is None else f'{dh:.0f}'} | {sat:.2f} / {ssat:.2f} | {res} |")
+    if shade:
+        lines += ["", "Gate setup: the car's lit lids with the sun shadows on / off at the same moment (open sun 0.94-1.00; under 0.80 the",
+                  "car stands in a world shadow and its rows measure that shade, not the paint: move the spot, BACK_SECS / WX,WY):", ""]
+        for model, p, r in shade:
+            bad = r < 0.80
+            fails += bad
+            lines.append(f"    {model} {p}: {r:.2f}" + ("  FAIL (car in a world shadow)" if bad else "  ok"))
+    else:
+        lines += ["", "Gate setup: no shadows-off frames (SHADE_CHECK=0 or an older probe): a world shadow on the car is not detected."]
     lines += ["", f"{fails} FAIL, {warns} WARN"]
     out = "\n".join(lines) + "\n"
     print(out)

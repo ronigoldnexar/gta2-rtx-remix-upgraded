@@ -921,3 +921,33 @@ chroma (the coat's sky reflection) and white comes down 15 L* warm: the gta2hd p
 pmx11 order for FIX-REMIX-MATERIALS-5. Close regression-camera poses with some shaded flank: a finding, not a gate.
 `tools/identity_remix_check.py --only cars` now counts a thin-walled translucent prim (the car glass since f6689b5) as
 ok rather than "prim without its albedo": 519 of 519 car textures ok.
+
+## 12. The gate's car stood in a tree's shadow (FIX-CAR-IDENTITY-7, 10 Nov 2026)
+
+After 7e05fe2 was staged the paint gate went from 0 FAIL (fef67f1) to 5 FAIL, with every light paint 25-44 % under its
+sprite (018 white lids 218 -> 152). It was blamed on 22677ef (VEHICLE-GLASS-2) because the stages the bisect ran on all
+carried the same car models. They did not carry the same world models, though: `tree_01..03.mesh` (9b9e646, FIX-WORLD-9's
+closed tree crowns) differ between the 8372ddd stage and the 22677ef one.
+
+- One session, HEAD stage, the same car at the same spot (`out/fci7sh_paint`): every paint shot with `[visuals] shadows=1`
+  and then `shadows=0` a few seconds later (a live ini edit). With shadows 6 FAIL; without them 0 FAIL. The frames show
+  a lumpy-edged shadow band over the car and the ground round it.
+- The car's position is the same in the 0-FAIL and the 5-FAIL runs (198.5,188.1): what changed is what stands between
+  it and the gate's fixed sun (elevation 24, azimuth 235). The same DLL with the old tree meshes (`out/fci7t_paint`) gave
+  lit lids of 219 again. No DLL commit darkened the cars. A car under a park tree is darker, and should be.
+
+The gate fix (tools only, no DLL change):
+
+- `paint_parity_probe.py` takes the parked car nearest **150.5,160.5** (an open plaza in sun; `WX`/`WY` still override),
+  not 164.5,147.6 (the park's chessboard; the scout `out/fci7sc1` measured lit lids at 0.66 of the shadows-off value
+  there and 1.00 at the new spot). `BACK_SECS` (default 0.4) is how far it reverses after the nudge forward.
+- `SHADE_CHECK=1` (the default) shoots each model's first paint once more with the sun shadows off (mode label
+  `noshade`). `paint_parity.py` compares that frame's lit lids with the measured frame's. Under 0.80 it reports a gate
+  SETUP failure ("car in a world shadow") rather than a paint verdict, so a new tree, wall or parked truck can't pass as
+  a paint regression again. The probe's `setkey` takes `section.key` (e.g. `visuals.shadows`), changes only the first
+  block of that section, and keeps the ini's CRLF line endings.
+- Gate on the HEAD stage at the new spot (`out/fci7g2_paint`): **0 FAIL, 16 WARN**, shade check 0.94-1.00 for all eight
+  models. In open sun the chromatic paints read **+10..+23 % L*** over the sprite (CI-6's park spot read about -4 %:
+  part of its sky was hidden). White is -16 % as before, and the dark paints are lifted (report only). This spot-to-spot
+  spread of about ±20 % is world lighting (sky, AO), not paint. Tuning the paint gain to one spot would be chasing it, so
+  the WARNs stay the residual of section 11.5.

@@ -9,10 +9,26 @@ from a3_lib import Q, T, D, say
 INI = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.ini"
 CAM = os.environ.get("VA2_CAM", "/tmp/va2_cam.txt")
 def setkey(k, v):
-    s = open(INI, encoding="latin-1").read()
-    if re.search(rf"(?m)^{k}=", s): s = re.sub(rf"(?m)^{k}=.*$", f"{k}={v}", s)
-    else: s = s.replace("[devtools]", f"[devtools]\n{k}={v}", 1)
-    open(INI, "w", encoding="latin-1").write(s)
+    # FIX-CAR-IDENTITY-7: "section.key" sets the key in that section's FIRST block (e.g. visuals.shadows); a bare key is [devtools]
+    sec, k = k.split(".", 1) if "." in k else ("devtools", k)
+    s = open(INI, encoding="latin-1", newline="").read()
+    a = s.find(f"[{sec}]")
+    if a < 0: s += f"\r\n[{sec}]\r\n{k}={v}\r\n"
+    else:
+        b = s.find("\n[", a + 1); b = len(s) if b < 0 else b
+        blk = s[a:b]
+        if re.search(rf"(?m)^{k}=", blk): blk = re.sub(rf"(?m)^{k}=[^\r\n]*", f"{k}={v}", blk, count=1)
+        else: blk = blk.replace(f"[{sec}]", f"[{sec}]\r\n{k}={v}", 1)
+        s = s[:a] + blk + s[b:]
+    open(INI, "w", encoding="latin-1", newline="").write(s)
+def getkey(k, default=""):
+    sec, k = k.split(".", 1) if "." in k else ("devtools", k)
+    s = open(INI, encoding="latin-1", newline="").read()
+    a = s.find(f"[{sec}]")
+    if a < 0: return default
+    b = s.find("\n[", a + 1); b = len(s) if b < 0 else b
+    m = re.search(rf"(?m)^{k}=([^\r\n]*)", s[a:b])
+    return m.group(1).strip() if m else default
 def cam(line):
     with open(CAM + ".tmp", "w") as f: f.write(line + "\n")
     os.replace(CAM + ".tmp", CAM)
@@ -36,9 +52,17 @@ if os.environ.get("PAINTS"):
 ONE = {int(x) for x in os.environ.get("ONE_PAINT_MODELS", "").split(",") if x.strip()}
 EXTRA = {int(k): v.split(",") for k, v in (x.split(":") for x in os.environ.get("EXTRA_PAINTS", "").split(";") if ":" in x)}
 POSES = {"top": (-0.08, 0.0, 5.0), "top3": (-0.6, 0.3, 3.0), "chase": (-1.7, 0.0, 0.75), "low": (-1.1, 0.25, 0.02), "under": (-0.7, 0.0, -0.05)}
-T.warp(float(os.environ.get("WX", "164.5")), float(os.environ.get("WY", "147.6")), 2, why="street"); F.into_car(); F.mark(f"driving {F.driving()}")
+# FIX-CAR-IDENTITY-7: the gate's car is the parked car nearest 150.5,160.5 (an open plaza, in sun at the gate's fixed sun:
+# lit lids 1.00 of shadows-off, out/fci7sc1 spot 4); the old 164.5,147.6 car (the park's chessboard) has stood in a park
+# tree's shadow since 9b9e646 (0.66).
+T.warp(float(os.environ.get("WX", "150.5")), float(os.environ.get("WY", "160.5")), 2, why="street"); F.into_car(); F.mark(f"driving {F.driving()}")
 Q.set_view("third", settle=1.0); time.sleep(4.0)
-F.down("Up"); time.sleep(0.6); F.up("Up"); F.down("Down"); time.sleep(0.4); F.up("Down"); time.sleep(2.5)
+# BACK_SECS: the reverse after the nudge forward (FIX-CAR-IDENTITY-7: a knob to step the car out of a shadow at WX,WY).
+F.down("Up"); time.sleep(0.6); F.up("Up"); F.down("Down"); time.sleep(float(os.environ.get("BACK_SECS", "0.4"))); F.up("Down"); time.sleep(2.5)
+# FIX-CAR-IDENTITY-7: SHADE_CHECK=1 (default) shoots each model's first paint once more with the sun shadows off
+# ([visuals] shadows=0, mode label "noshade"): tools/paint_parity.py compares its lit lids with the measured frame and
+# fails the gate SETUP when the car stands in a world shadow (a tree, a wall, a parked truck), not the paint.
+SHADE = os.environ.get("SHADE_CHECK", "1") == "1"
 for m in [x for x in os.environ.get("MODELS", "13,18,40").split(",") if x]:
     setkey("force_car_model", m); time.sleep(3.0)
     s = D.wait_state(10)
@@ -59,6 +83,14 @@ for m in [x for x in os.environ.get("MODELS", "13,18,40").split(",") if x]:
                 for k, v in kv.items(): setkey(k, v)
                 time.sleep(float(os.environ.get("SETTLE", "2.5")))
                 shot(f"pt_{pose}_{int(m):03d}_{pl}_{ml}")
+        if SHADE and pose == "top" and mp:
+            pl, pv = mp[0]
+            setkey("force_car_paint", pv)
+            for k, v in MODES[0][1].items(): setkey(k, v)
+            sh0 = getkey("visuals.shadows", "1")
+            setkey("visuals.shadows", 0); time.sleep(4.0)   # [visuals] is re-read every 2 s
+            shot(f"pt_{pose}_{int(m):03d}_{pl}_noshade")
+            setkey("visuals.shadows", sh0); time.sleep(3.0)
     cam(""); time.sleep(0.5)
 setkey("force_car_model", -1)
 F.mark("done")
