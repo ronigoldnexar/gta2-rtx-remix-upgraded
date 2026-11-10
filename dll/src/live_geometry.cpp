@@ -7692,6 +7692,11 @@ bool FlameJetOn() {
 }
 // What leaves the muzzle on a shot: the flash as a glow with a Remix light in
 // it, sparks ahead, a case out of the right side, the electro gun's arc.
+bool ReloadFixOn() {   // FIX-FIGURE-12 (pfl39): GTA2DX9_RELOAD_FIX=0 restores the old third-person reload start/stop
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_RELOAD_FIX", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on == 1;
+}
 struct SilencedMuzzle { float x, y, z; uint32_t frame; };
 std::vector<SilencedMuzzle> g_silencedMuzzles;   // FIX-FIGURE-12: this and the last frames' suppressed muzzles
 void NoteSilencedMuzzle(const float* pos) {
@@ -9516,6 +9521,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // The game has put a weapon in his hands (its weapon object, see
             // game::PedWeaponOf): the stance and the carry follow it, not the frames.
             const bool armed = gameWeapon > 0 && !sprite.corpse;
+            // FIX-FIGURE-12 (pfl39): the gun gone (the last round fired, the game's weapon word none) ends a
+            // reload under way: it played on to its end with empty hands (the mime). See the clip end below.
+            if (!armed && track.reloadStart && ReloadFixOn()) {
+                if (g_logPedFrames) Log("reload: %p ended, no weapon in his hands", reinterpret_cast<const void*>(sprite.object));
+                track.reloadStart = 0;
+            }
             // Shooting: a flash or a bullet appearing beside him while he attacks
             // (state 7; frame 139 is the firing frame measured on the player).
             const unsigned f = sprite.pedFrame % 158u;
@@ -9587,10 +9598,17 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     if (!sameGun) { track.magShots = 0; track.reloadStart = 0; }
                     if (gameShot) { ++track.magShots; track.magLastShot = g_carFrame; }
                     if (sameGun && !gameShot && sprite.pedAmmo > track.lastAmmo && track.lastAmmo >= 0 && track.magShots > 0) track.magShots = ri.mag;
-                    if (attacking) {
+                    // FIX-FIGURE-12 (pfl39): a shot cuts a reload off, the held aim frame does not. `attacking`
+                    // includes frame 139, which he holds through taps 0.65 s apart, so the 6-round reload never
+                    // started between spaced shots and the count fired after the LAST shot, with the gun at 0
+                    // rounds about to be dropped. The reload now starts 0.2 s after the magazine's last shot, not
+                    // at 0 rounds. GTA2DX9_RELOAD_FIX=0: as before.
+                    const bool cut = ReloadFixOn() ? (gameShot || shotNow) : attacking;
+                    const bool pause = ReloadFixOn() ? g_carFrame - track.magLastShot >= 6 && sprite.pedAmmo != 0 : !attacking && g_carFrame - track.magLastShot >= 9;
+                    if (cut) {
                         if (track.reloadStart && g_logPedFrames) Log("reload: %p %s cut off by a shot", reinterpret_cast<const void*>(sprite.object), kWeapons[track.weapon].name);
                         track.reloadStart = 0;
-                    } else if (!track.reloadStart && track.magShots >= ri.mag && g_carFrame - track.magLastShot >= 9 && carrying) {
+                    } else if (!track.reloadStart && track.magShots >= ri.mag && pause && carrying) {
                         track.reloadStart = g_carFrame;
                         track.magShots = 0;
                         track.reloadPrevT = -1.0f;
@@ -10226,6 +10244,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 for (size_t i = 0; i < sepSeen.size(); ++i)
                     for (size_t j = i + 1; j < sepSeen.size(); ++j) {
                         if (std::fabs(sepSeen[i].y - sepSeen[j].y) > 0.4f) continue;
+                        if (sepSeen[i].object == sepSeen[j].object) continue;   // FIX-FIGURE-12: one ped seen twice (the game's reused seat sprite) is not a pair
                         const float rdx = sepSeen[i].rx - sepSeen[j].rx, rdz = sepSeen[i].rz - sepSeen[j].rz;
                         const float gdx = sepSeen[i].gx - sepSeen[j].gx, gdz = sepSeen[i].gz - sepSeen[j].gz;
                         if (rdx * rdx + rdz * rdz < 0.01f) ++sepRawPairs;
@@ -10831,6 +10850,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         if (shotNow && IsAimAction(track.action) && track.actionTime > 0.05f) track.actionTime = 0.0f;
                         if (track.action == 13 && track.actionTime >= len) track.action = 0;   // the throw is over
                         if (oneShot && track.actionTime >= len && wantAction != track.action) track.action = 0;
+                        // FIX-FIGURE-12 (pfl39): a reload whose request ended early (no weapon in his hands) stops
+                        // here and fades out from where it is, instead of miming on to its end.
+                        if (IsReloadAction(track.action) && !track.reloadStart && wantAction != track.action && ReloadFixOn()) track.action = 0;
                         if (!oneShot && track.action != 4 && wantAction != track.action && wantAction != 4) track.action = 0;
                         if (!track.action) {
                             // Ended: faded out from where it stopped, not dropped.

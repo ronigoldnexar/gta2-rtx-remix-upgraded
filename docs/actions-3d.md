@@ -1456,3 +1456,21 @@ presses while firing the machine gun): every frame shows his figure or the gun a
   head-on (the filer's pose): a small warm puff over the hands on shot frames.
 - Not changed: end-on (the gun pointed straight at the camera) the gun is a dark block at the hands about the width
   of a hand, which is what a 0.17-block gun looks like end-on; against his dark shirt it has little contrast.
+
+### pfl39 third person: the pistol's reload between spaced shots, none once the gun is gone
+- The figure's reload (QB-29) waited for `!attacking`, and `attacking` includes the aim frame 139, which he holds
+  through taps 0.65 s apart: the 6-round reload never started between spaced shots, and the count went off after the
+  LAST shot, with the gun at 0 rounds about to be dropped; once the game's weapon word read none the weapon block no
+  longer ran, so nothing ended the clip and he mimed the reload with empty hands.
+- Now: only a shot (the ammunition or reload word, or a flash) cuts a reload off; it starts 0.2 s after the magazine's
+  last shot, never at 0 rounds; with no weapon in his hands the request ends and the clip fades out from where it is.
+  A/B: `GTA2DX9_RELOAD_FIX=0`. The first-person reload already counted shots by the ammunition word.
+- Frames: fig12_p39a (keys_pfl39.sh): `reload: ... pistol starts` 0.2 s after shot 6, `magazine out at t=0.30`, cut off by
+  shot 7. fig12_p39b (P39=first,third): see the order.
+
+### pm24 (measurement only): one ped is not a pair with himself
+- The 300-frame 'pairs closer than 0.10' count (FIGURE-7) counted a ped drawn twice in a frame as a close pair: 57 of 60
+  logged pairs in fig12_shot1 were one car occupant's reused seat sprite paired with itself. Such pairs are skipped
+  now, so the count measures real overlaps. A single-file step aside (alternate neighbours half a body to either side)
+  was tried (fig12_pm24a: it triggered off camera) and left out: two figures of equal rank in a cluster stepped the same
+  way and stayed 0.05 apart; see the order's note.
