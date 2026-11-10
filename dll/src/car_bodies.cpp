@@ -36,6 +36,7 @@
 #include "../../src/weather_fx.h"   // WeatherAdjustSky (FIX-CAR-IDENTITY-6 paint sky cast)
 
 namespace gta2dx9 {
+bool FigureTimeOfDayLight(float out[3]);   // live_geometry.cpp (ptm14): the figures' hour light, 1 by day
 namespace {
 
 constexpr float kPi = 3.14159265358979f;
@@ -3903,6 +3904,18 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     }
     const float dl = std::sqrt(dx * dx + dy * dy + dz * dz);
     sun.Direction = {dx / dl, dy / dl, dz / dl};
+    // FIX-REMIX-NIGHT-8 (qav1 night cars at daylight brightness): the bodies' sun and ambient are the hour's light the
+    // figures take (FigureTimeOfDayLight, ptm14): exactly 1 by day, with the sky off or under Remix; at night the ratio the
+    // walls fall by. GTA2DX9_CAR_NIGHT=0: the day's levels at every hour (before).
+    float carTod[3] = {1.0f, 1.0f, 1.0f};
+    {
+        static int s_carNight = -1;
+        if (s_carNight < 0) { const char* e = getenv("GTA2DX9_CAR_NIGHT"); s_carNight = (e && e[0] == '0') ? 0 : 1; }
+        if (s_carNight && FigureTimeOfDayLight(carTod)) {
+            sun.Diffuse = {0.78f * carTod[0], 0.78f * carTod[1], 0.78f * carTod[2], 1.0f};
+            sun.Specular = {0.55f * carTod[0], 0.55f * carTod[1], 0.55f * carTod[2], 1.0f};
+        }
+    }
     device->SetLight(0, &sun);
     device->LightEnable(0, TRUE);
     {
@@ -3971,7 +3984,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     material.Power = g_paintSpecPower;
     device->SetMaterial(&material);
     device->SetRenderState(D3DRS_LIGHTING, TRUE);
-    device->SetRenderState(D3DRS_AMBIENT, 0x005A5A5Au);
+    device->SetRenderState(D3DRS_AMBIENT, D3DCOLOR_XRGB(static_cast<int>(0x5A * carTod[0] + 0.5f), static_cast<int>(0x5A * carTod[1] + 0.5f),
+                                                       static_cast<int>(0x5A * carTod[2] + 0.5f)));
     device->SetRenderState(D3DRS_SPECULARENABLE, TRUE);
     device->SetRenderState(D3DRS_LOCALVIEWER, TRUE);
     device->SetRenderState(D3DRS_NORMALIZENORMALS, TRUE);

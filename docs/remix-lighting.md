@@ -293,3 +293,12 @@ eye as given to Remix).
 
 Still short: the lens is a flat white disc (material: emissive 3 over the whole lens island, no core/rim; for the
 materials seat, beside the order); the beam is one cone per lamp with no high/low beam shape.
+
+### Order 5 (plain renderer, `[weather] enabled`): car bodies take the night (qav1)
+
+The 3D car bodies were lit by their own fixed sun 0.78 and ambient 0x5A at every hour, so with the weather/time-of-day on
+a police car at 22:30 was brighter than in daylight rain. car_bodies.cpp now scales that sun (diffuse and specular) and the
+ambient by `FigureTimeOfDayLight` (the ptm14 factor the figures and pickups take): exactly 1 by day, with the sky off or
+under Remix; 0.26,0.28,0.33 at 22:30. `GTA2DX9_CAR_NIGHT=0` = before. bil spot 0 (keys_qav1.sh, out frn8_q0 before /
+frn8_q1 after), car region luma p50/p90: 22:30 clear 34/234 -> 17/67 (wall 45, ground 29), day rain 32/132 both.
+Headlamp quads and beams are unchanged (they are the car's own light).
