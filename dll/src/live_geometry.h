@@ -793,6 +793,21 @@ private:
         float brushPrevX = 0.0f, brushPrevZ = 0.0f;   // his game point last frame (a figure moving with the car is in it)
         uint32_t brushPrevFrame = 0;
         float staggerX = 0.0f, staggerZ = 0.0f;
+        // FIX-KNOCKDOWN (owner item 1): a car or a blast knocks him down; the game stands the player up
+        // again 0.37 s later, mid-fall. The drawn knock-down runs to its end instead: impact, fall and
+        // landing (the ragdoll), a beat lying down, the get-up (the lying clip that matches how the
+        // ragdoll lies, turned and placed onto it), then the walk. kdSecs: time since the impact;
+        // kdGameUp: the game has stood him up (his anchor is pinned there, the ragdoll no longer follows
+        // the game); kdOX/Z: the figure's draw offset onto where the body lies, held through the get-up,
+        // then walked off.
+        bool kd = false, kdGameUp = false, kdAlign = false, kdRising = false;
+        float kdSecs = 0.0f, kdSettledAt = -1.0f, kdOX = 0.0f, kdOZ = 0.0f, kdAnchorX = 0.0f, kdAnchorZ = 0.0f;
+        float kdRiseLen = 0.0f, kdHeadX = 0.0f, kdHeadY = 0.0f, kdHeadZ = 0.0f;
+        bool kdFaceUp = true, kdRolled = false;
+        int kdRolls = 0;
+        float kdRollAt = -1.0f, kdChestUp = 1.0f;
+        const void* kdModel = nullptr;   // the avatar drawn last frame and its signed horizontal scale (the get-up's placing)
+        float kdScaleS = 0.0f;
         // FIX-FIGURE-6 (pm24 gang interpenetrating, pm3 ped inside a parked car): a draw-only offset
         // that keeps the figure out of its neighbours' bodies and out of car bodies, eased; the
         // car it is being kept out of and the side chosen on the way in (no flip at the middle).

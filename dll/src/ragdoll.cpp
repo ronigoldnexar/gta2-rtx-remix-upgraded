@@ -195,6 +195,7 @@ struct Body {
     Mat4 lastWorld;
     float facing = 1.0f;   // the torso frame's forward times this is the way he faces
     float release = 0.0f;  // getting up: seconds left of the blend from the ragdoll back to the clips
+    bool rescale = false;  // FIX-KNOCKDOWN: velocities just set per 1/30 s (the roll): rescale on the next step
 };
 constexpr float kReleaseSecs = 0.3f;
 std::map<uintptr_t, Body> g_bodies;
@@ -464,7 +465,8 @@ void Step(Body& b, float dt, float gy, uint32_t frame) {
     const int steps = (std::max)(1, (std::min)(12, static_cast<int>(std::ceil(dt / kSub - 1e-3f))));
     const float h = dt / static_cast<float>(steps);
     // The velocities were seeded per 1/30 s; rescale to this step on the first frame.
-    if (b.age == 0.0f) {
+    if (b.age == 0.0f || b.rescale) {
+        b.rescale = false;
         const float r = h * 30.0f;
         for (Particle& p : b.q) p.prev = p.p - (p.p - p.prev) * r;
     }
@@ -667,6 +669,52 @@ bool RagdollEnabled() {
     return g_enabled == 1;
 }
 
+namespace {
+int g_kdFull = -1, g_kdHold = -1;
+void KnockdownSettings() {
+    if (g_kdFull >= 0) return;
+    g_kdFull = 1; g_kdHold = 1;
+    char path[MAX_PATH] = {};
+    HMODULE self = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(&KnockdownFullEnabled), &self) &&
+        GetModuleFileNameA(self, path, MAX_PATH)) {
+        char* slash = strrchr(path, '\\');
+        if (!slash) slash = strrchr(path, '/');
+        if (slash) {
+            strcpy(slash + 1, "gta2dx9.ini");
+            g_kdFull = GetPrivateProfileIntA("renderer", "knockdown_full", 1, path) != 0 ? 1 : 0;
+            g_kdHold = GetPrivateProfileIntA("renderer", "knockdown_hold_input", 1, path) != 0 ? 1 : 0;
+        }
+    }
+    const char* env = getenv("GTA2DX9_KNOCKDOWN");
+    if (env && *env) g_kdFull = atoi(env) != 0 ? 1 : 0;
+    Log("knockdown: full sequence %s, player keys held while down %s", g_kdFull ? "on" : "off (as before: up when the game says)",
+        g_kdHold ? "on" : "off");
+}
+}  // namespace
+
+KnockdownEye g_kdEye;
+ULONGLONG g_kdEyeTick = 0;
+void KnockdownSetEye(const KnockdownEye& eye) { g_kdEye = eye; g_kdEyeTick = GetTickCount64(); }
+bool KnockdownPlayerEye(KnockdownEye* eye) {
+    if (!g_kdEyeTick || GetTickCount64() - g_kdEyeTick > 150 || g_kdEye.weight <= 0.0f) return false;
+    if (eye) *eye = g_kdEye;
+    return true;
+}
+
+float g_kdBodyX = 0.0f, g_kdBodyZ = 0.0f;
+ULONGLONG g_kdBodyTick = 0;
+void KnockdownSetBody(float x, float z) { g_kdBodyX = x; g_kdBodyZ = z; g_kdBodyTick = GetTickCount64(); }
+bool KnockdownPlayerBody(float* x, float* z) {
+    if (!g_kdBodyTick || GetTickCount64() - g_kdBodyTick > 150) return false;
+    *x = g_kdBodyX; *z = g_kdBodyZ;
+    return true;
+}
+
+bool KnockdownFullEnabled() { KnockdownSettings(); return g_kdFull == 1; }
+bool KnockdownHoldInputEnabled() { KnockdownSettings(); return g_kdFull == 1 && g_kdHold == 1; }
+
 void RagdollNoteCar(uintptr_t object, const float corners[4][3], uint32_t frame) {
     if (!object) return;
     // The quad's two edges: from corner 0, the nearest two others (the far one is the diagonal).
@@ -720,6 +768,10 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
             // pose is blended into it over 0.3 s instead of dropped in a frame.
             b.release = kReleaseSecs;
             Log("ragdoll: #%u gets up after %.2f s (blended back to the clips over %.1f s)", b.id, b.age, kReleaseSecs);
+            // FIX-KNOCKDOWN: the get-up may place and turn the figure onto the body (a new world): the
+            // lying pose is carried into it, so the blend starts from where the body is drawn.
+            const Rig& rig = RigFor(model);
+            if (rig.ok && b.model == &model) { Drive(b, rig, model, world); b.lastWorld = world; }
         } else if (b.seen != frame) {
             b.release -= (std::min)(dt, 0.1f);
         }
@@ -754,6 +806,19 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
     }
     bool stepped = false;
     if (!b.settled && dt > 0.0f && b.seen != frame) { Step(b, (std::min)(dt, 0.1f), gy, frame); stepped = true; }
+    // FIX-KNOCKDOWN (kd_t2 #2): never far from the game's spot for him. A truck dragged the player 2.7 blocks one
+    // way while the throw carried the body the other: it lay 1.9 blocks off, out of the camera's picture, and
+    // the get-up had to walk all of that back. Past kMaxDrift the whole body is carried along (dragged).
+    {
+        constexpr float kMaxDrift = 0.9f;
+        const float dx = b.q[kPelvis].p.x - gx, dz = b.q[kPelvis].p.z - gz, d = std::sqrt(dx * dx + dz * dz);
+        if (d > kMaxDrift) {
+            const float k = (d - kMaxDrift) / d, sx = -dx * k, sz = -dz * k;
+            for (Particle& p : b.q) { p.p.x += sx; p.p.z += sz; p.prev.x += sx; p.prev.z += sz; }
+            b.startX += sx; b.startZ += sz;
+            stepped = true;
+        }
+    }
     bool turned = false;   // the placement changed (it carries the pose to model space)
     for (int r = 0; r < 4 && !turned; ++r)
         for (int c = 0; c < 3; ++c) if (std::fabs(world.m[r][c] - b.lastWorld.m[r][c]) > 1e-4f) { turned = true; break; }
@@ -766,6 +831,58 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
     b.seen = frame;
     g_hookBody = &b;
     ModelSetPoseHook(&PoseHook, &b, (static_cast<uint64_t>(b.id) << 24) | (b.gen & 0xFFFFFFu));
+    return true;
+}
+
+bool RagdollQuery(uintptr_t ped, RagdollInfo* out) {
+    auto found = g_bodies.find(ped);
+    if (found == g_bodies.end() || !out) return false;
+    const Body& b = found->second;
+    out->settled = b.settled;
+    out->releasing = b.release > 0.0f;
+    out->age = b.age;
+    out->pelvis[0] = b.q[kPelvis].p.x; out->pelvis[1] = b.q[kPelvis].p.y; out->pelvis[2] = b.q[kPelvis].p.z;
+    out->head[0] = b.q[kHead].p.x; out->head[1] = b.q[kHead].p.y; out->head[2] = b.q[kHead].p.z;
+    Vec3 side, up, fwd;
+    TorsoFrameAxes(b.q, &side, &up, &fwd);
+    out->faceUp = fwd.y * b.facing >= 0.0f;
+    out->chestUp = fwd.y * b.facing;
+    return true;
+}
+
+bool RagdollRollOver(uintptr_t ped) {
+    auto found = g_bodies.find(ped);
+    if (found == g_bodies.end()) return false;
+    Body& b = found->second;
+    if (b.release > 0.0f) return false;
+    Vec3 side, up, fwd;
+    TorsoFrameAxes(b.q, &side, &up, &fwd);
+    Vec3 axis = b.q[kHead].p - b.q[kPelvis].p;
+    axis.y = 0.0f;
+    if (Len(axis) < 1e-3f) return false;
+    axis = gta2::Normalize(axis);
+    // Over the side the chest already leans to (the shorter way over), else his right.
+    Vec3 across = gta2::Cross(Vec3{0.0f, 1.0f, 0.0f}, axis);   // horizontal, square to the body
+    const Vec3 chest = fwd * b.facing;
+    const float lean = gta2::Dot(chest, across);
+    const float dir = lean >= 0.0f ? 1.0f : -1.0f;
+    // Turn rate about the long axis (half a turn in ~0.45 s) about the line along the ground on the side
+    // he rolls to, plus a small lift so the shoulder clears the road.
+    const float omega = -8.5f * dir;   // axis x up = -across: the chest goes toward +across * dir
+    Vec3 centre = (b.q[kPelvis].p + b.q[kChest].p) * 0.5f;
+    centre = centre + across * (0.05f * dir);
+    const float h30 = 1.0f / 30.0f;
+    for (int k = 0; k < kParticles; ++k) {
+        const Vec3 r = b.q[k].p - centre;
+        Vec3 v = gta2::Cross(axis * omega, r);
+        v.y += 0.45f;
+        b.q[k].prev = b.q[k].p - v * h30;
+    }
+    b.settled = false;
+    b.still = 0.0f;
+    b.age = (std::max)(b.age, 0.61f);
+    b.rescale = true;
+    Log("ragdoll: #%u rolls over onto his front (lean %.2f)", b.id, lean);
     return true;
 }
 

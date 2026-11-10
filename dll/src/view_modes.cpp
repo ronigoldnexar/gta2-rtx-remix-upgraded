@@ -21,6 +21,7 @@
 #include "live_geometry.h"
 #include "log.h"
 #include "map_objects.h"
+#include "ragdoll.h"   // FIX-KNOCKDOWN: KnockdownPlayerEye
 #include "model_store.h"
 #include "remix_api.h"
 #include "vehicle_fx.h"
@@ -879,6 +880,19 @@ bool g_injSeen[4] = {};   // what the game has been told through buffered data s
 DWORD g_navSeq = 0;
 DWORD g_navLastStamp = 0;
 
+// FIX-KNOCKDOWN: the keys the game is not told of while the player is down (ViewHoldPlayerInput).
+const BYTE kHoldDik[] = {DIK_UP, DIK_DOWN, DIK_LEFT, DIK_RIGHT, DIK_LCONTROL, DIK_RCONTROL, DIK_RETURN, DIK_NUMPADENTER, DIK_SPACE};
+constexpr int kHoldCount = sizeof(kHoldDik) / sizeof(kHoldDik[0]);
+bool g_holdPhys[kHoldCount] = {};   // physically down, as the device last reported
+bool g_holdTold[kHoldCount] = {};   // what the game was last told
+ULONGLONG g_holdUntil = 0;
+bool g_holdLogged = false;
+bool InputHeld() { return g_holdUntil && GetTickCount64() < g_holdUntil; }
+int HoldIndexOfDik(DWORD ofs) {
+    for (int i = 0; i < kHoldCount; ++i) if (ofs == kHoldDik[i]) return i;
+    return -1;
+}
+
 int NavIndexOfDik(DWORD ofs) {
     for (int i = 0; i < 4; ++i) if (ofs == kNavDik[i]) return i;
     return -1;
@@ -894,6 +908,7 @@ HRESULT WINAPI NavGetDeviceState(IDirectInputDevice8A* self, DWORD cbData, LPVOI
         if (g_navActive) {
             for (int i = 0; i < 4; ++i) keys[kNavDik[i]] = g_inj[i] ? 0x80 : 0;
         }
+        if (InputHeld()) for (int i = 0; i < kHoldCount; ++i) keys[kHoldDik[i]] = 0;   // FIX-KNOCKDOWN
     }
     return hr;
 }
@@ -909,6 +924,7 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
     if (FAILED(hr) && hr != DI_BUFFEROVERFLOW) return hr;
     BYTE* base = reinterpret_cast<BYTE*>(dod);
     DWORD n = *inOut, w = 0;
+    const bool held = InputHeld();
     for (DWORD r = 0; r < n; ++r) {
         DIDEVICEOBJECTDATA_DX3* e = reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + r * cbObj);
         const int i = NavIndexOfDik(e->dwOfs);
@@ -918,6 +934,13 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
             g_phys[i] = (e->dwData & 0x80) != 0;
             ++g_diReads;
             if (g_navActive) continue;        // the arrow is ours: the game does not see it
+        }
+        // FIX-KNOCKDOWN: down on the ground the keys are noted, not passed on.
+        const int hk = HoldIndexOfDik(e->dwOfs);
+        if (hk >= 0) {
+            g_holdPhys[hk] = (e->dwData & 0x80) != 0;
+            if (held && !(flags & DIGDD_PEEK)) continue;
+            if (!(flags & DIGDD_PEEK)) g_holdTold[hk] = g_holdPhys[hk];
         }
         if (w != r) memmove(base + w * cbObj, e, cbObj);
         if (!(flags & DIGDD_PEEK)) reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + w * cbObj)->dwSequence = ++g_navSeq;
@@ -933,6 +956,23 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
             e->dwTimeStamp = g_navLastStamp ? g_navLastStamp : GetTickCount();
             e->dwSequence = ++g_navSeq;
             g_injSeen[i] = g_inj[i];
+            ++w;
+        }
+    }
+    // FIX-KNOCKDOWN: as the hold starts the game is told the held keys went up; as it lapses, the ones
+    // still down are pressed for it again (the arrows the camera-relative controller owns are its own).
+    if (!(flags & DIGDD_PEEK)) {
+        for (int k = 0; k < kHoldCount && w < capacity; ++k) {
+            if (g_navActive && k < 4) continue;
+            const bool want = held ? false : g_holdPhys[k];
+            if (want == g_holdTold[k]) continue;
+            DIDEVICEOBJECTDATA_DX3* e = reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + w * cbObj);
+            memset(e, 0, cbObj);
+            e->dwOfs = kHoldDik[k];
+            e->dwData = want ? 0x80 : 0;
+            e->dwTimeStamp = g_navLastStamp ? g_navLastStamp : GetTickCount();
+            e->dwSequence = ++g_navSeq;
+            g_holdTold[k] = want;
             ++w;
         }
     }
@@ -1084,6 +1124,12 @@ void SteerPlayer(ViewMode mode, float dt) {
     }
 }
 }  // namespace
+
+void ViewHoldPlayerInput() {
+    if (CurrentViewMode() == ViewMode::Classic) return;
+    InstallNavHook(false);
+    g_holdUntil = GetTickCount64() + 300;   // a frame or two without a renewal (a hitch) is not a release
+}
 
 ViewModeSettings& ViewModes() { return g_settings; }
 ViewLook& LookOffsets() { return g_look; }
@@ -1406,6 +1452,11 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
         if (!nowActive) g_navLastKeys = -1, g_navLookYaw = 0.0f;   // re-latched on the next frame on foot
         g_navActive = nowActive;
         if (g_navActive) SteerPlayer(mode, dt);
+        if (g_navActive && InputHeld()) ReleaseInjected();   // FIX-KNOCKDOWN: down, he goes nowhere
+        if (InputHeld() != g_holdLogged) {
+            g_holdLogged = !g_holdLogged;
+            Log("knockdown: player keys %s", g_holdLogged ? "held (down on the ground)" : "back to the player");
+        }
     }
 
     const bool want = worldLoaded && ours && !menuVisible && g_settings.mouseLook &&
@@ -1912,9 +1963,15 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
 
     // Into the renderer's frame: x east, y up, z north. Map rows run north to
     // south, so the row is mirrored exactly as the mesh builder mirrors it.
-    const float px = player.x;
-    const float pz = static_cast<float>(gta2::kMapHeight) - player.y;
+    float px = player.x;
+    float pz = static_cast<float>(gta2::kMapHeight) - player.y;
     const float py = player.z;
+    // FIX-KNOCKDOWN (kd_t3 #4): knocked down, the subject is his body where it lies (up to 0.9 block off the
+    // game's spot), not the spot: the chase camera framed a truck while he lay at the edge behind a post.
+    if (!player.inVehicle && CurrentViewMode() != ViewMode::Classic) {
+        float bx = 0.0f, bz = 0.0f;
+        if (KnockdownPlayerBody(&bx, &bz) && std::hypot(bx - px, bz - pz) < 1.5f) { px = bx; pz = bz; }
+    }
     // The camera's yaw convention: 0 looks north (+z), and Forward() is
     // (sin yaw, ., cos yaw). The game's facing is (dirX east, dirY south).
     const float headingYaw = player.facingKnown ? std::atan2(player.dirX, -player.dirY) : followYaw_;
@@ -2803,6 +2860,26 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             eye.y += (baseY + 0.10f - eye.y) * deathMix_;
             roll += 35.0f * kDegToRad * deathMix_;
             pitch += (8.0f * kDegToRad - pitch) * deathMix_;
+        }
+        // FIX-KNOCKDOWN (owner item 1): knocked down by a car or a blast (the game stands him up after
+        // 0.37 s, far too soon for the death camera above): the eye rides his head through the fall, lies
+        // with it, the head tipped and the gaze up at the sky on his back or down at the road on his front,
+        // and rises with the get-up.
+        KnockdownEye kde;
+        if (!inVehicle && deathMix_ < 0.5f && KnockdownPlayerEye(&kde)) {
+            const float w = kde.weight;
+            eye.x += (kde.x - eye.x) * w;
+            eye.y += (kde.y + 0.03f - eye.y) * w;
+            eye.z += (kde.z - eye.z) * w;
+            const float standEye = kde.groundY + eyeHeight;
+            const float low = w * (std::min)(1.0f, (std::max)(0.0f, (standEye - kde.y) / (std::max)(0.1f, eyeHeight - 0.08f)));
+            roll += 25.0f * kDegToRad * low;
+            pitch += ((3.0f + 35.0f * (std::max)(-1.0f, (std::min)(1.0f, kde.chestUp))) * kDegToRad - pitch) * low;   // up at the sky .. down at the road
+            static ULONGLONG lastLog = 0;
+            if (GetTickCount64() - lastLog > 250) {
+                lastLog = GetTickCount64();
+                Log("view: fp knockdown eye w=%.2f low=%.2f head y=%.2f (ground %.2f) %s", w, low, kde.y, kde.groundY, kde.faceUp ? "on his back" : "on his front");
+            }
         }
         // The kick of an impact, and the stretch of speed.
         if (shake_ > 0.001f) {

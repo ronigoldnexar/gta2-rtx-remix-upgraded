@@ -318,6 +318,10 @@ bool WarpSceneToRoad(float x, float y, float z = -1.0f);
 // the foreground window; it is warped back to the middle of `presentWindow`
 // each frame, which is how every game reads relative motion from a cursor.
 void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded);
+// FIX-KNOCKDOWN: the player is down (knocked over by a car or a blast, the drawn fall and get-up still
+// playing): the game is not told of the movement, fire, enter or jump keys while this is renewed (every
+// frame; it lapses 300 ms after the last call). Keys still held when it lapses are pressed again for it.
+void ViewHoldPlayerInput();
 
 // What the camera solver needs to know about the world, without a dependency on
 // the map classes. All in renderer coordinates: x east, y up, z north.

@@ -1486,3 +1486,77 @@ presses while firing the machine gun): every frame shows his figure or the gun a
   now, so the count measures real overlaps. A single-file step aside (alternate neighbours half a body to either side)
   was tried (fig12_pm24a: it triggered off camera) and left out: two figures of equal rank in a cluster stepped the same
   way and stayed 0.05 apart; see the order's note.
+
+## FIX-KNOCKDOWN (10 Nov 2026): the knock-down plays to its end (owner item 1)
+
+Owner report: a car hit him, he started to fall and then walked on. **Diagnosis** (log before any change,
+`out/qb27_r9`, and the first FIX-KNOCKDOWN runs): the clip player was not at fault. A car knock-down of the player is
+state 8 sub 0x18 for 11 game frames (**0.37 s**), and then the game puts him back in state 0/7. The corpse flag clears,
+`wantAction` leaves 4, the action layer plays the lying clip backwards from wherever it was (mid-air), and the QB-27
+ragdoll is blended back into the clips over 0.3 s. The result is a fall reversed before it lands. For a car hit the
+reversed clip was `runover`, a somersault back up into the air. In first person nothing showed at all: the
+eye's down camera waits for 0.8 s of state 8.
+
+**What it does now** (`live_geometry.cpp` PedTrack `kd*`, `ragdoll.cpp`, `view_modes.cpp`):
+- *Down until the body has landed.* For a car or blast knock-down (lying clip 2/3, ragdoll on), the figure stays
+  down after the game stands him up: until the ragdoll is still plus a 0.45 s lying beat, at least 1.2 s and at most
+  3.0 s from the impact. Once the game has stood him up, the body no longer follows the game's spot. An NPC the game
+  walks off more than 0.3 block gets up at once.
+- *Never far from the game's spot.* The ragdoll's pelvis is kept within 0.9 block of it. Past that the body is
+  carried, as if dragged. (kd_t2: a truck dragged the game's ped 2.7 blocks one way while the throw carried the body
+  the other way, so it lay 1.9 blocks off, out of the picture.)
+- *Rolls over, then gets up off the front.* On his back he rolls over onto his front through the solver: a turn
+  about his long axis toward the side the chest leans to, with a second try if the first leaves him on his back.
+  Then he gets up with `fall_front` played backwards at 0.8x (hands under, up, about 0.95 s). If he is still on his
+  back after both rolls, `fall` plays backwards. The clip is turned and placed onto the body. Its lying pose is
+  measured through the drawn placement on the first get-up frame, so the head lands on the head and the pelvis on
+  the pelvis (logged `get-up placed onto the body: turned N deg`; 0.0-0.1 in every run). The ragdoll's pose is
+  re-driven into that placement and blended into the clip over 0.3 s.
+- *Walks back.* The figure's draw offset onto the body (at most 0.9 block) eases back onto the game's spot over
+  about a second while the legs step it.
+- *Player's keys.* Movement, fire, enter and jump are not passed to the game while he is down and getting up
+  (DirectInput buffered and immediate reads; `knockdown: player keys held/back` in the log). Keys still held when
+  the hold lapses are pressed again for the game. Street views only.
+- *Cameras.* The subject point of both street cameras is his body (the pelvis while he lies, then the placed
+  figure), not the game's spot. First person: the eye rides the ragdoll's head down. The view tips 25 degrees and
+  the gaze follows the chest (up at the sky on his back, down at the road on his front). It rises with the get-up.
+  The fists or the gun drop out of the view and come back up. His own body is posed but not drawn from his eyes.
+- Ini: `[renderer] knockdown_full=1`, `knockdown_hold_input=1`. `GTA2DX9_KNOCKDOWN=0` gives the old behaviour (A/B).
+- Classic: not touched. The figure code does not run there, the hold refuses classic, and the camera override is
+  gated off classic.
+
+Probe: `gamerun/kd_probe.py` / `keys_kd.sh` (the QB-27 lane, `KD_VIEW=third|first`, one 30 fps recording
+`b_lane.mp4`, 7 s with no keys after each impact). Run it with `GTA2_DIRECT_KEYS=1 FPS=0 -e GTA2DX9_STATE_EVERY=3`.
+Phase frames come from `gamerun/kd_phases.py <run>` (impact, roll, get-up, standing, walking: v = frame of the
+30 fps video).
+
+| run (30 fps) | impact (throw speed) | phases (video frames) |
+|---|---|---|
+| kd_t4 third #1 | v1114, 0.80 b/s | still v1169, get-up v1184 (front), standing v1221, walking v1271 |
+| kd_t4 third #2 | v2128, 1.83 b/s, lifted 0.40 | game down 2.1 s, roll v2240, get-up v2290, standing v2330, walking v2378 |
+| kd_t4 third #3 | v2669, 1.01 b/s | still v2736, get-up v2752, standing v2788, walking v2835 |
+| kd_t4 third #4 | v3241, 0.34 b/s (slow) | still v3295, roll v3310, get-up v3353, standing v3391, walking v3428 |
+| kd_f5 first #1 | v168, 1.77 b/s, lifted 0.38 | roll v265 (rolled twice), get-up v351, standing v388, walking v436 |
+| kd_f5 first #2 | v778, 0.80 b/s | roll v850, get-up v893, standing v930, walking v978 |
+| kd_f5 first #3 | v1295, 1.02 b/s | get-up v1363, standing v1400, walking v1444 |
+| kd_f5 first #4 | v1932, 1.79 b/s, lifted 0.38 | get-up v2001, standing v2039, walking v2090 |
+
+Contact sheets: `out/kd_t4/sheets/t4e1-4.png`, `out/kd_f5/sheets/f5e1-4.png` (every 6th frame). Get-up at every
+2nd frame: `out/kd_t2/e1r.png`. The first build's 180-degree flip at the get-up: `out/kd_t1/before_fix_flip.png`.
+Pops: a per-frame image-difference trace (`kd_motion.py`) over the get-up blends of kd_t4 #1/#3 and kd_f4 #1 shows
+ramps and no lone spike. The steps found were the camera starting to follow him walking (frames opened).
+Classic: `keys_kd_classic.sh` (pm18 V-cycle A/B, F11 warp) on this build (kd_c1) and on the shared stage (kd_c0):
+0 differing pixels among those static in both runs before any 3D view (638822 px) and after two V cycles
+(681734 px).
+
+**What still falls short of the AAA bar:**
+- The get-up is the procedural `fall_front` played backwards. He tips up on fairly straight legs, and there is no
+  real hands-and-knees push or a get-up off the back. A mocap get-up pair (`getup_front`, `getup_back`) needs new
+  clips in `tools/gen_ped_clips.py` and a re-import of the 71 avatars (release archives), which this change does not do.
+- The roll is the solver's, not an authored roll: a limb can flail or a knee fold sharply (kd_t2 #1 frames 430-445).
+- The figure walks back up to 0.9 block onto the game's spot after he is up, which is a short glide at a walking
+  pace.
+- In third person the existing camera that pulls back over him (game state 8 for more than 0.8 s, kd_t4 #2) frames
+  him small while he lies.
+- The captures run 30 fps, but the game rendered about 20-25 fps on the loaded host (repeated frames in the
+  recording).

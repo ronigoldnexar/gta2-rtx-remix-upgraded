@@ -2175,6 +2175,11 @@ uint32_t g_bustFrame = 0;
 struct ArrestWalk { float ox = 0.0f, oz = 0.0f, carX = 0.0f, carZ = 0.0f; bool car = false; uint32_t frame = 0; };
 ArrestWalk g_arrestWalk;
 constexpr uint32_t kBustFrames = 360;      // how long after the bust the figure may act it out (the game moves him after 2.5-6 s)
+// FIX-KNOCKDOWN (owner item 1): the full knock-down. Down at least kKdMinDown s; once the ragdoll is still,
+// a beat lying there (kKdLyingBeat); never longer than kKdMaxDown (then, on his back, the roll onto his front,
+// up to kKdRollMax); the get-up (the lying clip backwards)
+// at kKdRiseRate of its own pace; afterwards the draw offset onto the body is walked off (kKdWalkOff s).
+constexpr float kKdMinDown = 1.2f, kKdLyingBeat = 0.45f, kKdMaxDown = 3.0f, kKdRiseRate = 0.8f, kKdWalkOff = 0.35f, kKdRollMax = 1.4f;
 constexpr float kBustUpSecs = 0.7f;        // getting up (the knock-down played back)
 constexpr float kBustHandsSecs = 1.3f;     // hands up until then, cuffed after
 // New car materials built this frame. Each is a recolour of the hand-made artwork, a file
@@ -8055,6 +8060,19 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         else { vmSwitch = 0; drop = 0.0f; }
         drop = drop * drop * (3.0f - 2.0f * drop);
     }
+    // FIX-KNOCKDOWN: knocked down, the hands and the gun go down out of the view (the holster dip) while
+    // the eye falls with his head, and come back up as he stands.
+    {
+        static float kdDrop = 0.0f;
+        static DWORD kdLast = 0;
+        const float kdt = kdLast ? (std::min)(0.1f, static_cast<float>(vmNow - kdLast) / 1000.0f) : 0.0f;
+        kdLast = vmNow;
+        KnockdownEye ke;
+        const bool kdDown = KnockdownPlayerEye(&ke) && ke.weight > 0.15f;
+        kdDrop += ((kdDown ? 1.0f : 0.0f) - kdDrop) * (std::min)(1.0f, kdt / 0.1f);
+        if (kdDrop > 0.995f) return;
+        if (kdDrop > drop) drop = kdDrop;
+    }
     if (vmShown < 0) return;
     const bool fists = vmShown == 0;
     weapon = fists ? kWpnPistol : vmShown;   // the fists take the pistol's frame (hands only)
@@ -9804,6 +9822,75 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             wantAction = bustSecs < kBustHandsSecs ? 3 : 21;
             track.weapon = kWpnNone;
         }
+        // FIX-KNOCKDOWN (owner item 1, "he starts to fall, then walks on"): a car or a blast knocks him
+        // down (lying clip 2/3, the ragdoll), and the game stands the player up again 0.37 s later
+        // (qb27_r9: state 8 sub 0x18 for 11 game frames, then state 7), long before the fall has landed;
+        // the figure then played the fall backwards from mid-air. Now he stays down until the ragdoll has
+        // landed and lain still a beat (kKdMinDown .. kKdMaxDown), then gets up (below). While he lies the
+        // game's spot is not followed (an NPC the game walks off more than 0.3 block gets up at once).
+        if (track.kd && frames >= 10) { track.kd = false; track.kdOX = track.kdOZ = 0.0f; track.kdRising = false; }
+        if (track.kd && track.action == 4 && !track.actionReverse) {
+            track.kdSecs += dt;
+            RagdollInfo ri;
+            const bool body = RagdollQuery(sprite.object, &ri) && !ri.releasing;
+            if (arrested || sprite.pedState == 3 || sprite.pedState == 4 || sprite.pedState == 10 || track.waterFrame ||
+                (!body && track.kdSecs > 0.25f)) {
+                if (g_logPedFrames || ownPed)
+                    Log("knockdown: %p back to the game's own way (state %d%s%s)", reinterpret_cast<const void*>(sprite.object),
+                        sprite.pedState, arrested ? ", arrested" : "", body ? "" : ", no ragdoll");
+                track.kd = false;
+            } else {
+                if (body && ri.settled && track.kdSettledAt < 0.0f) track.kdSettledAt = track.kdSecs;
+                if (!sprite.corpse && !track.kdGameUp) {
+                    track.kdGameUp = true;
+                    track.kdAnchorX = track.dx + track.staggerX + track.sepX;
+                    track.kdAnchorZ = track.dz + track.staggerZ + track.sepZ;
+                    if (ownPed || g_logPedFrames)
+                        Log("knockdown: %p the game stands him up %.2f s after the impact (state %d); still down: %s",
+                            reinterpret_cast<const void*>(sprite.object), track.kdSecs, sprite.pedState,
+                            body && ri.settled ? "lying still" : "the fall not over");
+                } else if (sprite.corpse && track.kdGameUp) {
+                    track.kdGameUp = false;   // down again by the game's say
+                }
+                const float wx = track.dx + track.staggerX + track.sepX - track.kdAnchorX, wz = track.dz + track.staggerZ + track.sepZ - track.kdAnchorZ;
+                const bool walked = track.kdGameUp && !ownPed && wx * wx + wz * wz > 0.3f * 0.3f;
+                bool up = false;
+                if (track.kdRolled) {
+                    // Rolled over: up once he lies still on his front (or the roll has had its time; a roll that
+                    // left him on his back is tried once more).
+                    up = (track.kdSettledAt >= 0.0f && !ri.faceUp && track.kdSecs >= track.kdSettledAt + 0.2f) ||
+                         track.kdSecs - track.kdRollAt > kKdRollMax || walked;
+                    if (up && !walked && body && ri.faceUp && track.kdRolls < 2 && !sprite.corpse && RagdollRollOver(sprite.object)) {
+                        ++track.kdRolls; track.kdRollAt = track.kdSecs; track.kdSettledAt = -1.0f; up = false;
+                        if (ownPed || g_logPedFrames) Log("knockdown: %p still on his back: rolls again", reinterpret_cast<const void*>(sprite.object));
+                    }
+                } else {
+                    const bool beat = track.kdSettledAt >= 0.0f && track.kdSecs >= (std::max)(track.kdSettledAt + kKdLyingBeat, kKdMinDown);
+                    up = beat || track.kdSecs >= kKdMaxDown || walked;
+                    // On his back: he rolls over onto his front first (people get up off their front: hands
+                    // under the shoulders, onto the knees, up), the solver turning the body.
+                    if (up && !walked && !sprite.corpse && body && ri.faceUp && RagdollRollOver(sprite.object)) {
+                        track.kdRolled = true; track.kdRolls = 1; track.kdRollAt = track.kdSecs; track.kdSettledAt = -1.0f;
+                        up = false;
+                        if (ownPed || g_logPedFrames)
+                            Log("knockdown: %p lay %.2f s on his back: rolls over onto his front", reinterpret_cast<const void*>(sprite.object), track.kdSecs);
+                    }
+                }
+                if (!sprite.corpse && !up) wantAction = 4;
+            }
+        }
+        // Knocked down again while getting up: down again, a new fall from the pose he is in.
+        if (track.kd && track.kdRising && track.action == 4 && track.actionReverse && sprite.corpse) {
+            const int32_t cause = sprite.pedCause;
+            const bool carHit = cause == game::kDamageCarHit || cause == game::kDamageRunOver ||
+                                (sprite.pedState == 8 && sprite.pedSub >= 0x18 && sprite.pedSub <= 0x1A);
+            if (carHit || cause == game::kDamageExplosion) {
+                track.lieClip = carHit ? 2 : 3;
+                track.actionReverse = false; track.actionTime = 0.0f; track.kdRising = false;
+                track.kdSecs = 0.0f; track.kdSettledAt = -1.0f; track.kdGameUp = false; track.kdRolled = false; track.kdRolls = 0; track.kdRollAt = -1.0f;
+                Log("knockdown: %p knocked down again while getting up", reinterpret_cast<const void*>(sprite.object));
+            }
+        }
         if (ownPed) {
             int fa = -1, fl = 0, fw = -1;
             ForcedAction(&fa, &fl, &fw);
@@ -9817,11 +9904,69 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         if (wantAction == 4 && track.action != 4) {
             track.action = 4; track.actionTime = 0.0f; track.actionReverse = false;
+            // FIX-KNOCKDOWN: struck by a car or blown off his feet: the full sequence (above).
+            track.kd = (track.lieClip == 2 || track.lieClip == 3) && KnockdownFullEnabled() && RagdollEnabled() && !track.waterFrame;
+            track.kdSecs = 0.0f; track.kdSettledAt = -1.0f; track.kdGameUp = false; track.kdRising = false; track.kdAlign = false;
+            track.kdRolled = false; track.kdRolls = 0; track.kdRollAt = -1.0f;
+            if (track.kd && (ownPed || g_logPedFrames))
+                Log("knockdown: %p down (%s, state %d sub 0x%x): fall, land, lie, get up", reinterpret_cast<const void*>(sprite.object),
+                    track.lieClip == 2 ? "struck by a car" : "blown off his feet", sprite.pedState, sprite.pedSub);
         } else if (wantAction != 4 && track.action == 4 && !track.actionReverse) {
             // Up again (knocked down, not dead): the fall, backwards, from where it is.
             track.actionReverse = true;
             if (track.lieClip == 5) track.lieClip = 0;   // QB-14: "jacked" ends on "fall"'s last pose
             track.actionTime = (std::min)(track.actionTime, 0.7f);
+            if (track.kd) {
+                // FIX-KNOCKDOWN: up from the way the body lies: on his back "fall" backwards, on his front
+                // "fall_front" backwards (not "runover" backwards: a somersault up into the air), the figure
+                // turned and placed so the clip's lying pose is the body's; the ragdoll is blended into it.
+                RagdollInfo ri;
+                const Model* km = static_cast<const Model*>(track.kdModel);
+                bool placed = false;
+                if (RagdollQuery(sprite.object, &ri) && km && track.kdScaleS != 0.0f) {
+                    const ModelAnimation* rise = km->Animation(ri.faceUp ? "fall" : "fall_front");
+                    int pel = -1, head = -1;
+                    for (size_t i = 0; i < km->nodes.size(); ++i) {
+                        if (strcmp(km->nodes[i].name, "Bip01 Pelvis") == 0) pel = static_cast<int>(i);
+                        if (strcmp(km->nodes[i].name, "Bip01 Head") == 0) head = static_cast<int>(i);
+                    }
+                    if (rise && pel >= 0 && head >= 0) {
+                        std::vector<gta2::Mat4> end;
+                        ModelSetLayers(nullptr, nullptr, nullptr, nullptr, 0);
+                        ModelPoseWorlds(*km, rise, rise->length, nullptr, 0.0f, 0.0f, &end);
+                        if (end.size() == km->nodes.size()) {
+                            const float pmx = end[pel].m[3][0], pmz = end[pel].m[3][2];
+                            const float alpha = std::atan2(end[head].m[3][0] - pmx, end[head].m[3][2] - pmz);
+                            const float A = std::atan2(ri.head[0] - ri.pelvis[0], ri.head[2] - ri.pelvis[2]);
+                            const float S = track.kdScaleS;
+                            const float th = A - alpha - (S < 0.0f ? kPi : 0.0f);
+                            const float shx = std::sin(th), shz = std::cos(th);
+                            const float ox = ri.pelvis[0] - S * (pmx * shz + pmz * shx), oz = ri.pelvis[2] - S * (-pmx * shx + pmz * shz);
+                            const float baseX = track.dx + track.staggerX + track.sepX, baseZ = track.dz + track.staggerZ + track.sepZ;
+                            track.heading = th; track.twist = 0.0f;
+                            track.kdOX = ox - baseX; track.kdOZ = oz - baseZ;
+                            track.lieClip = ri.faceUp ? 0 : 1;
+                            track.actionTime = track.kdRiseLen = rise->length;
+                            track.kdFaceUp = ri.faceUp;
+                            track.kdHeadX = ri.head[0]; track.kdHeadY = ri.head[1]; track.kdHeadZ = ri.head[2];
+                            track.kdChestUp = ri.chestUp;
+                            track.kdAlign = true;   // checked against the drawn placement (below, as it is built)
+                            placed = true;
+                            if (ownPed || g_logPedFrames)
+                                Log("knockdown: %p gets up after %.2f s (still for %.2f s) from his %s: %s backwards, placed %.2f,%.2f off the game's spot",
+                                    reinterpret_cast<const void*>(sprite.object), track.kdSecs,
+                                    track.kdSettledAt >= 0.0f ? track.kdSecs - track.kdSettledAt : 0.0f, ri.faceUp ? "back" : "front",
+                                    rise->name.c_str(), track.kdOX, track.kdOZ);
+                        }
+                    }
+                }
+                if (!placed) {
+                    if (track.lieClip >= 2) track.lieClip = 0;
+                    track.kdRiseLen = (std::max)(track.actionTime, 0.01f);
+                    Log("knockdown: %p gets up after %.2f s, not placed (no body or model)", reinterpret_cast<const void*>(sprite.object), track.kdSecs);
+                }
+                track.kdRising = true;
+            }
         } else if (wantAction != 0 && wantAction != 4 && track.action != wantAction && track.action != 4) {
             if (wantAction == 1) {
                 // A new swing within 1.2 s of the last continues the combo with the other
@@ -10068,7 +10213,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // From his own eyes (first person) his seated figure is not drawn: the cab is (cab_interior).
         // (g_hiddenObjects[1]: the car he is in, hidden from his eyes; a beat's camera draws both.)
         if (seatedNow && g_hiddenObjects[1] && BoardingIsPlayer(sprite.object)) continue;
-        if (sprite.planOnly) continue;   // FIX-FP-ENTRY: his own from his eyes: the plan ran, nothing is drawn
+        // FIX-FP-ENTRY: his own from his eyes: the plan ran, nothing is drawn. FIX-KNOCKDOWN: through a knock-down
+        // he goes on (posed, the ragdoll stepped, the eye on his head; his draw is skipped below).
+        if (sprite.planOnly && !(track.kd && g_groundModels && RagdollEnabled())) continue;
         const float legHeading = track.heading - track.twist;
         // CROWD: where his head turns ([crowd] look_at). Toward the player when the
         // player is within look_range and in front of him (twice as far while the
@@ -10290,8 +10437,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
         }
         // Where the figure stands: the drawn position, at the sprite's height.
-        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX + track.sepX,
-                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ + track.sepZ;
+        // FIX-KNOCKDOWN: the get-up drawn where the body lies (kdOX/Z, walked off once he is up).
+        if (track.kd && track.action != 4) {
+            const float k = 1.0f - std::exp(-dt / kKdWalkOff);
+            track.kdOX -= track.kdOX * k; track.kdOZ -= track.kdOZ * k;
+            if (track.kdOX * track.kdOX + track.kdOZ * track.kdOZ < 1e-5f) {
+                track.kdOX = track.kdOZ = 0.0f; track.kd = false; track.kdRising = false;
+                if (ownPed || g_logPedFrames) Log("knockdown: %p back on his feet, walking", reinterpret_cast<const void*>(sprite.object));
+            }
+        }
+        if (!track.kd) track.kdOX = track.kdOZ = 0.0f;
+        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX + track.sepX + track.kdOX,
+                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ + track.sepZ + track.kdOZ;
         fx = hx;
         fz = hz;
         // ACTIONS-3D-4: the ground the drawn figure covered since last frame, signed
@@ -10371,8 +10528,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // people share cached poses and cost no skinning of their own.
             if (!sprite.corpse) g_pedSpots.push_back({gx, cy, gz});
             // (his own figure from his eyes is at the eye, and its shadow falls in view)
-            if (model && !sprite.shadowOnly && BehindView(gx, cy, gz, 0.6f)) { if (heroFigure) g_ownLensFrame = g_carFrame; continue; }
-            if (model && !sprite.shadowOnly && OutsideViewFrustum(gx, cy, gz, 0.75f)) { if (heroFigure) g_ownLensFrame = g_carFrame; continue; }   // beside the picture: not drawn, track kept
+            // FIX-KNOCKDOWN (kd_f2): his own figure through a knock-down is posed (the ragdoll steps, the get-up
+            // runs, the first-person eye rides its head) even where it is not drawn: from his eyes, behind the
+            // camera, off the picture. Only its draw is skipped.
+            const bool kdKeep = heroFigure && track.kd && model;
+            bool kdSkipDraw = kdKeep && CurrentViewMode() == ViewMode::FirstPerson;   // the eye is at its head
+            if (model && !sprite.shadowOnly && BehindView(gx, cy, gz, 0.6f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }
+            if (model && !sprite.shadowOnly && !kdSkipDraw && OutsideViewFrustum(gx, cy, gz, 0.75f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }   // beside the picture: not drawn, track kept
             if (heroFigure && model && CurrentViewMode() == ViewMode::FirstPerson) {
                 // FIX-FIGURE-10 pfl23: his chest and head both off the picture (under its bottom edge on the
                 // move into his eyes): he is out of the frame though inside the frustum's margin.
@@ -10403,7 +10565,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                     lensFrame = g_carFrame;
                     if (heroFigure) g_ownLensFrame = g_carFrame;   // FIX-FIGURE-10 pfl23: the view model stands in for him
-                    continue;
+                    if (kdKeep) kdSkipDraw = true; else continue;
                 }
                 // FIX-FIGURE-9 (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): in first person a stranger at
                 // his shoulder (within 0.42 block, beside the eye: more than 35 degrees off the line of sight, or level
@@ -10483,6 +10645,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * look.width * typeWidth * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * typeWidth * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
+                track.kdModel = model; track.kdScaleS = fit.m[0][0];   // FIX-KNOCKDOWN: for placing the get-up
                 gta2::Mat4 world;
                 for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
                     float acc = 0.0f;
@@ -10495,6 +10658,46 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     for (int r = 0; r < 3; ++r) {
                         const float x0 = world.m[r][0], z0 = world.m[r][2];
                         world.m[r][0] = x0 * cy2 - z0 * sy2; world.m[r][2] = x0 * sy2 + z0 * cy2;
+                    }
+                }
+                // FIX-KNOCKDOWN: the get-up's first frame: the clip's lying pose measured through this very
+                // placement and turned and moved onto the body (head where its head is, pelvis on its pelvis).
+                if (track.kdAlign) {
+                    track.kdAlign = false;
+                    RagdollInfo ri;
+                    const ModelAnimation* rise = model->Animation(track.lieClip == 1 ? "fall_front" : "fall");
+                    int pel = -1, head = -1;
+                    for (size_t i = 0; i < model->nodes.size(); ++i) {
+                        if (strcmp(model->nodes[i].name, "Bip01 Pelvis") == 0) pel = static_cast<int>(i);
+                        if (strcmp(model->nodes[i].name, "Bip01 Head") == 0) head = static_cast<int>(i);
+                    }
+                    std::vector<gta2::Mat4> end;
+                    if (rise && pel >= 0 && head >= 0 && RagdollQuery(sprite.object, &ri)) {
+                        ModelSetLayers(nullptr, nullptr, nullptr, nullptr, 0);
+                        ModelPoseWorlds(*model, rise, rise->length, nullptr, 0.0f, 0.0f, &end);
+                    }
+                    if (end.size() == model->nodes.size()) {
+                        auto at = [&](int n, float* o) {
+                            const float x = end[n].m[3][0], y = end[n].m[3][1], z = end[n].m[3][2];
+                            for (int c = 0; c < 3; ++c) o[c] = x * world.m[0][c] + y * world.m[1][c] + z * world.m[2][c] + world.m[3][c];
+                        };
+                        float pw[3], hw[3];
+                        at(pel, pw); at(head, hw);
+                        float d = std::atan2(ri.head[0] - ri.pelvis[0], ri.head[2] - ri.pelvis[2]) - std::atan2(hw[0] - pw[0], hw[2] - pw[2]);
+                        while (d > 3.14159265f) d -= 6.2831853f;
+                        while (d < -3.14159265f) d += 6.2831853f;
+                        const float cd = std::cos(d), sd = std::sin(d);
+                        for (int r = 0; r < 3; ++r) {
+                            const float x0 = world.m[r][0], z0 = world.m[r][2];
+                            world.m[r][0] = x0 * cd + z0 * sd; world.m[r][2] = -x0 * sd + z0 * cd;
+                        }
+                        at(pel, pw);
+                        const float mx = ri.pelvis[0] - pw[0], mz = ri.pelvis[2] - pw[2];
+                        world.m[3][0] += mx; world.m[3][2] += mz;
+                        track.heading += d; track.kdOX += mx; track.kdOZ += mz;
+                        if (ownPed || g_logPedFrames)
+                            Log("knockdown: %p get-up placed onto the body: turned %.1f deg, moved %.2f,%.2f", reinterpret_cast<const void*>(sprite.object),
+                                d * 57.29578f, mx, mz);
                     }
                 }
                 // A swimmer lies in the water to his shoulders: the prone clip puts
@@ -10779,8 +10982,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     const bool oneShot = track.action == 1 || track.action == 5 || track.action == 6 || track.action == 7 || track.action == 13 ||
                                          track.action == 22 || IsReloadAction(track.action);
                     if (track.actionReverse) {
-                        track.actionTime -= dt * 1.4f;
-                        if (track.actionTime <= 0.0f) { track.action = 0; track.actionReverse = false; actionClip = nullptr; }
+                        track.actionTime -= dt * (track.kdRising ? kKdRiseRate : 1.4f);   // FIX-KNOCKDOWN: a get-up at a human pace
+                        if (track.actionTime <= 0.0f) { track.action = 0; track.actionReverse = false; actionClip = nullptr; track.kdRising = false; }
                     } else {
                         // Getting in: the reach and the pull run while the game backs him
                         // off the door (climb frames 24-31), the duck under the roof once
@@ -11052,9 +11255,38 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 ModelSetHeadTurn(lod <= 1 ? std::floor(track.headYaw / headStep + 0.5f) * headStep : 0.0f);
                 // QB-27: run over (lying clip 2) or blown off his feet (3): a ragdoll
                 // seeded from this pose drives the skeleton while he is down.
+                // FIX-KNOCKDOWN: once the game has stood him up the body no longer follows its spot (it lies).
+                const bool kdPinned = track.kd && track.kdGameUp && track.action == 4 && !track.actionReverse;
                 const bool ragdoll = RagdollFigure(sprite.object, track.lieClip == 2 ? 1 : track.lieClip == 3 ? 2 : 0,
                                                    track.action == 4 && !track.actionReverse && !track.waterFrame, *model, world,
-                                                   gx, cy, gz, track.heading, dt, g_carFrame, locoA, locoTA, locoB, locoTB, locoW);
+                                                   kdPinned ? track.kdAnchorX : gx - track.kdOX, cy, kdPinned ? track.kdAnchorZ : gz - track.kdOZ,
+                                                   track.heading, dt, g_carFrame, locoA, locoTA, locoB, locoTB, locoW);
+                // FIX-KNOCKDOWN: the player's own: the game is not told of his keys until he is up, and the
+                // first-person eye rides his head (down with the fall, up with the get-up).
+                if (heroFigure && track.kd) {
+                    // the cameras' subject: the body lying, else the figure (placed onto it, then walking back)
+                    RagdollInfo rb;
+                    if (track.action == 4 && !track.actionReverse && RagdollQuery(sprite.object, &rb) && !rb.releasing)
+                        KnockdownSetBody(rb.pelvis[0], rb.pelvis[2]);
+                    else
+                        KnockdownSetBody(gx, gz);
+                }
+                if (heroFigure && track.kd && track.action == 4) {
+                    if (KnockdownHoldInputEnabled()) ViewHoldPlayerInput();
+                    KnockdownEye ke;
+                    ke.groundY = cy;
+                    RagdollInfo ri;
+                    if (!track.actionReverse && RagdollQuery(sprite.object, &ri) && !ri.releasing) {
+                        ke.x = ri.head[0]; ke.y = ri.head[1]; ke.z = ri.head[2];
+                        ke.faceUp = ri.faceUp; ke.chestUp = ri.chestUp;
+                        ke.weight = (std::min)(1.0f, track.kdSecs / 0.1f);
+                    } else if (track.actionReverse && track.kdRiseLen > 0.0f) {
+                        ke.x = track.kdHeadX; ke.y = track.kdHeadY; ke.z = track.kdHeadZ;
+                        ke.faceUp = track.kdFaceUp; ke.chestUp = track.kdChestUp;
+                        ke.weight = Smoothstep(0.0f, 1.0f, track.actionTime / track.kdRiseLen);
+                    }
+                    if (ke.weight > 0.0f) KnockdownSetEye(ke);
+                }
                 // ANIM-VEHICLE-ENTRY: hands and feet onto the car (boarding.h), by IK in model space.
                 bool boardIk = false;
                 ModelClearLimbTargets();
@@ -11226,7 +11458,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // FIX-ACTIONS-3 (pfl15): bare-handed punches with closed fists (the clips leave the fingers open).
                 if (!rigOn && !ragdoll && !boardIk && !sprite.corpse && lod <= 1 && track.action == 1)
                     weaponrig::BeginFists(*model, sprite.object, actW);
-                ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                if (!kdSkipDraw) ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                 if (heroFigure && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: his figure on screen
                     IdentityProbeModel(device, "player", reinterpret_cast<const void*>(sprite.object), ident, *model, world.m, static_cast<int>(CurrentViewMode()));
                 if (ragdoll) RagdollDone();

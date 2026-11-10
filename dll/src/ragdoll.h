@@ -24,6 +24,11 @@ struct Model;
 struct ModelAnimation;
 
 bool RagdollEnabled();
+// FIX-KNOCKDOWN: the full knock-down (fall, lying beat, get-up) for car and blast knock-downs, and holding
+// the player's movement, fire and enter keys while it plays in the street views. [renderer] knockdown_full=1,
+// knockdown_hold_input=1 in gta2dx9.ini; GTA2DX9_KNOCKDOWN=0/1 overrides the first (A/B).
+bool KnockdownFullEnabled();
+bool KnockdownHoldInputEnabled();
 // A car body drawn this frame: its four corners in the world (x, y, z each).
 void RagdollNoteCar(uintptr_t object, const float corners[4][3], uint32_t frame);
 // A blast seen this frame (the scorch it leaves): centre and size in blocks.
@@ -37,6 +42,34 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
                    float groundY, float groundZ, float heading, float dt, uint32_t frame, const ModelAnimation* a,
                    float ta, const ModelAnimation* b, float tb, float w);
 void RagdollDone();
+// FIX-KNOCKDOWN: how a body lies (world space): still or not, seconds since the impact, the pelvis and the
+// head, and whether the chest faces up (on his back). False when the figure has no ragdoll.
+struct RagdollInfo {
+    bool settled = false, faceUp = true, releasing = false;
+    float age = 0.0f;
+    float chestUp = 1.0f;   // the chest's facing, upward part: 1 flat on his back, -1 flat on his front
+    float pelvis[3] = {0.0f, 0.0f, 0.0f}, head[3] = {0.0f, 0.0f, 0.0f};
+};
+bool RagdollQuery(uintptr_t ped, RagdollInfo* out);
+// FIX-KNOCKDOWN: a body lying on its back rolls over onto its front (to get up from there): a turn about its
+// long axis given to the joints, the solver doing the rest (the ground, the limbs, the walls).
+bool RagdollRollOver(uintptr_t ped);
+// FIX-KNOCKDOWN: the first-person eye through the player's own knock-down: his head in the world and how
+// much of the eye it takes (0 standing .. 1 the head), on his back or his front. Set by the figure's draw
+// once a frame while the sequence runs; read by the camera (stale after 150 ms).
+struct KnockdownEye {
+    float x = 0.0f, y = 0.0f, z = 0.0f, groundY = 0.0f;
+    float weight = 0.0f;
+    float chestUp = 1.0f;   // 1 on his back (the gaze up), -1 on his front (down at the road)
+    bool faceUp = true;
+};
+void KnockdownSetEye(const KnockdownEye& eye);
+bool KnockdownPlayerEye(KnockdownEye* eye);
+// FIX-KNOCKDOWN (kd_t3 #4): where his drawn body is on the ground through the whole sequence (the pelvis while
+// he lies, then the figure's placement through the get-up and the walk back onto the game's spot), for the
+// cameras' subject point: the game's spot can be most of a block from the body. Stale after 150 ms.
+void KnockdownSetBody(float x, float z);
+bool KnockdownPlayerBody(float* x, float* z);
 // Drops the ragdolls of bodies not drawn for ten seconds.
 void RagdollEndFrame(uint32_t frame);
 
