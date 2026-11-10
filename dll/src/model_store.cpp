@@ -527,8 +527,21 @@ static void BlendOver(const Model& model, const ModelAnimation* clip, float time
 void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float time, const ModelAnimation* second,
                      float secondTime, float weight, std::vector<gta2::Mat4>* out) {
     const size_t n = model.nodes.size();
-    std::vector<gta2::Vec3> t(n), s(n);
-    std::vector<std::array<float, 4>> q(n);
+    // FIX-PERF-5: the working arrays are this thread's, reused call to call (this function was ~45 % of
+    // all the DLL's allocations in play: four to ten vectors per posed figure per frame). Nothing it calls
+    // comes back here, so one set per thread is enough.
+    struct Scratch {
+        std::vector<gta2::Vec3> t, s, t2, s2;
+        std::vector<std::array<float, 4>> q, q2;
+        std::vector<char> done;
+    };
+    static thread_local Scratch scratch;
+    std::vector<gta2::Vec3>& t = scratch.t;
+    std::vector<gta2::Vec3>& s = scratch.s;
+    std::vector<std::array<float, 4>>& q = scratch.q;
+    t.resize(n);
+    s.resize(n);
+    q.resize(n);
     for (size_t i = 0; i < n; ++i) {
         t[i] = model.nodes[i].translation;
         s[i] = model.nodes[i].scale;
@@ -544,8 +557,12 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
     } else {
         SampleClip(model, animation, time, &t, &q, &s);
         if (blend) {
-            std::vector<gta2::Vec3> t2(t), s2(s);
-            std::vector<std::array<float, 4>> q2(q);
+            std::vector<gta2::Vec3>& t2 = scratch.t2;
+            std::vector<gta2::Vec3>& s2 = scratch.s2;
+            std::vector<std::array<float, 4>>& q2 = scratch.q2;
+            t2 = t;
+            s2 = s;
+            q2 = q;
             SampleClip(model, second, secondTime, &t2, &q2, &s2);
             const float w = weight, v = 1.0f - weight;
             for (size_t i = 0; i < n; ++i) {
@@ -571,8 +588,12 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
         // Written over a copy of the pose so far (a joint the overlay has no
         // channel for keeps it: an upper-body layer leaves the legs walking),
         // then blended in by its weight.
-        std::vector<gta2::Vec3> t3(t), s3(s);
-        std::vector<std::array<float, 4>> q3(q);
+        std::vector<gta2::Vec3>& t3 = scratch.t2;   // the blend above is done with these
+        std::vector<gta2::Vec3>& s3 = scratch.s2;
+        std::vector<std::array<float, 4>>& q3 = scratch.q2;
+        t3 = t;
+        s3 = s;
+        q3 = q;
         SampleClip(model, g_overlay, g_overlayTime, &t3, &q3, &s3);
         const float w = (std::min)(1.0f, g_overlayWeight), v = 1.0f - w;
         for (size_t i = 0; i < n; ++i) {
@@ -591,7 +612,8 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
     out->resize(n);
     // Parents come before children in glTF order in Kenney's kits; walk in
     // order and fall back to a second pass if not.
-    std::vector<bool> done(n, false);
+    std::vector<char>& done = scratch.done;
+    done.assign(n, 0);
     for (int pass = 0; pass < 2; ++pass) {
         for (size_t i = 0; i < n; ++i) {
             if (done[i]) continue;
@@ -3699,7 +3721,7 @@ bool ModelNodeWorld(const Model& model, const char* name, const ModelAnimation* 
     }
     if (index < 0) return false;
     if (!second || weight <= 1e-3f) { second = nullptr; secondTime = 0.0f; weight = 0.0f; }
-    std::vector<gta2::Mat4> worlds;
+    static thread_local std::vector<gta2::Mat4> worlds;   // FIX-PERF-5: reused (one matrix is copied out)
     NodeWorldsBlend(model, animation, time, second, secondTime, weight, &worlds);
     *out = worlds[static_cast<size_t>(index)];
     return true;
