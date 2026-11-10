@@ -347,3 +347,103 @@ lenses and the street-view beams are remix_lights' (FIX-REMIX-NIGHT-8).
 Now the quads are left out under a hidden 3D car model under Remix too, in the street views only. Classic is untouched.
 `[devtools] remix_flat_lamps=1` brings the old quads back (live, for a same-session A/B). Frames: out/ffx5_fl1
 (`own_h22_*_abold` vs `_abnew`, `own_h13_*`).
+
+## FIX-TRAFFIC-1 (10 Nov 2026): traffic that stops and starts - the cap measured, 36 -> 24
+
+The owner (RTX 5090, Remix, twice on 10 Nov): traffic cars "drive along and then brake sharply, over and over
+again" and "move in an unstable, jittery way". The census while he played: `cars=21.0 moving=8.5 stopped=12.5
+queued=4.0 freestop=8.5`. The operator's reading: `[density] traffic_cap=36` raises the ambient traffic above what
+GTA2's pathing was sized for (stock 16).
+
+**The census now says why a car stands** (`dll/src/city_ai.cpp`, the `ai:` line; logging only). `freestop`
+(stopped, no car within 1.6 blocks ahead) keeps its meaning and is split by the first cause that fits:
+`fs_ped` (someone on foot, the player included, within 2 blocks ahead in its lane), `fs_gap` (a car 1.6-3.5
+blocks ahead in its lane: GTA2's `DetectCarAhead` looks 3 blocks ahead, so this is a queue the 1.6-block test
+missed, and the cars behind a queued car stand further back), `fs_cross` (a car across its path within 3.5
+blocks), `fs_junction` (on, or up to 3 blocks before, a cell whose road arrows run both ways: lights and
+give-ways), `fs_mid` (none of these). New: `stops`, `hardstops` (from over 2.5 blocks/s within ~0.5 s) and
+`stopstart` (a stop under 2 s after the car got going) count stop events since the last line. Two things the
+old line counted that are not traffic: the player's own car (a stopped player car was one "free stop" for as
+long as he sat in it; `d=0.0` in the stop log), and cars standing where GTA2 created them (a car object recycled
+to a spawn point jumps there at rest). Both are now left out (`fresh=` counts the second).
+`GTA2DX9_TRAFFIC_LOG=1` logs one `ai: stop` line per free-stopped car (position, heading, cause, how long,
+road arrows, the nearest car) at most every 2 s a car; `GTA2DX9_DENSITY_LEVEL=0..3` pins `density.cpp`'s
+frame-rate budget level (on the shared host the controller otherwise moves the cap mid-run: run `ftr1_w36a`
+went 36 -> 16 and back three times). `GTA2DX9_TRAFFIC_CAP=<n>` overrides `[density] traffic_cap`.
+Tool: `tools/traffic_census.py out/<run>` (per probe segment); probe `gamerun/ftr1_probe.py` +
+`keys_ftr1.sh` (mirrored in `linux/docker/`): third person, 3 minutes standing at the level start, then
+the nearest parked car (F9) driven by the route planner (or a weaving cruise where it finds no route)
+for 2.5 minutes.
+
+**The cap table** (L4 host, HEAD a5df3568 + this census, `GTA2_DIRECT_KEYS=1`, `GTA2DX9_STATE_EVERY=3`,
+level pinned at 3, census within 20 blocks, one line a second; mean cars near the player, shares of them):
+
+| District, cap | runs | segment | cars | moving | stopped | freestop | of it: gap / junction / cross / ped / mid | stops per car-min | stop-start per car-min |
+|---|---|---|---|---|---|---|---|---|---|
+| wil 16 (stock) | ftr1_w16c, w16d | stand | 4.5 | 4.4 | 4% | 0.2 (4%) | 0.1 / 0.0 / 0.0 / 0.0 / 0.0 | 1.7 | 0.56 |
+| | | drive | 8.7 | 4.8 | 45% | 3.6 (42%) | 0.9 / 1.9 / 0.2 / 0.1 / 0.5 | 4.8 | 0.98 |
+| | | both | 6.3 | 4.6 | 28% | 1.7 (**26%**) | | 3.5 | 0.81 |
+| wil 24 | ftr1_w24d | stand | 6.4 | 6.0 | 7% | 0.4 (6%) | 0.3 / 0.0 / 0.0 / 0.0 / 0.1 | 1.7 | 0.05 |
+| | | drive | 13.4 | 7.5 | 44% | 5.6 (42%) | 2.2 / 2.4 / 0.4 / 0.2 / 0.4 | 5.5 | 1.28 |
+| | | both | 9.6 | 6.7 | 30% | 2.7 (**29%**) | | 4.1 | 0.82 |
+| wil 36 | ftr1_w36b, c, d | stand | 10.7 | 7.8 | 27% | 2.5 (23%) | 2.2 / 0.0 / 0.0 / 0.1 / 0.2 | 2.6 | 0.64 |
+| | | drive | 20.2 | 9.8 | 51% | 9.1 (45%) | 4.8 / 2.2 / 0.7 / 0.2 / 1.2 | 5.5 | 1.61 |
+| | | both | 14.8 | 8.7 | 41% | 5.3 (**36%**) | | 4.3 | 1.21 |
+| bil 16 (stock) | ftr1_b16d | stand | 4.8 | 2.7 | 43% | 1.7 (**36%**) | 0.3 / 1.1 / 0.0 / 0.1 / 0.2 | 4.2 | 0.91 |
+| bil 24 | ftr1_b24d | stand | 8.6 | 4.3 | 49% | 3.8 (44%) | 1.8 / 1.1 / 0.0 / 0.3 / 0.5 | 5.3 | 1.36 |
+| | | drive | 14.0 | 8.9 | 37% | 4.1 (29%) | 1.5 / 1.9 / 0.2 / 0.1 / 0.3 | 5.3 | 1.66 |
+| | | both | 10.6 | 6.1 | 43% | 3.9 (**37%**) | | 5.3 | 1.51 |
+| bil 36 | ftr1_b36c, d | stand | 11.1 | 3.1 | 72% | 7.1 (64%) | 5.5 / 0.7 / 0.2 / 0.3 / 0.4 | 3.2 | 0.90 |
+| | | drive | 27.4 | 5.3 | 81% | 17.8 (65%) | 13.9 / 0.6 / 2.4 / 0.7 / 0.1 | 2.4 | 1.36 |
+| | | both | 15.0 | 3.6 | 76% | 9.6 (**65%**) | | 2.8 | 1.10 |
+
+(`ftr1_b36c` ran the census before the recycled-car fix, which changes nothing it reports here: `fresh` stayed
+0.0 in every run. The bil route planner found no route from the start in `b16d` and `b36c`, so those have
+no drive segment; `b36d` and `b24d` drove the weaving cruise.)
+
+What it shows:
+
+- **Free stops scale with the cap, and they are queues.** At 36 most of the free stops are `fs_gap`: cars
+  waiting behind a car GTA2's own probe sees but the census did not (wil stand 2.2 of 2.5, bil drive 13.9 of 17.8),
+  then junction waits. A stop with nothing at all ahead (`fs_mid`) is 0.0-1.2 cars at every cap.
+- **The roads saturate in Residential.** bil at 36 has more cars near the player than at 24 (11.1 against 8.6
+  standing) but *fewer moving* (3.1 against 4.3): the junction by the start (three lanes at a red light at
+  ~48,85, `ai: stop` lines) cannot pass them and the queues back up through it (`ftr1_b36d` drive frame
+  `qa_drive_04.png`: a bumper-to-bumper jam across a crosswalk). Downtown still flows at 36 (7.8 moving
+  standing) but already queues (23% free stops against 4%).
+- **Per car, GTA2 brakes the same at every cap.** Stops per car-minute (1.7-5.5) and stop-start cycles
+  (0.05-1.6) move with the segment (driving through junctions, or standing by a plaza) much more than with the
+  cap, and hard stops are rare (0.0-0.4 per car-minute). The owner's own line, 8.5 free of 21 (40%), is the
+  stock cap's driving share at Downtown (42%). What he saw grow with the cap is how many cars stand in queues
+  in view, which the stop-start of GTA2's own car AI makes visible: VEHICLE-PHYSICS measured its traffic
+  pulling off by 4-7 blocks/s in one step and braking at 6-15 blocks/s^2, and that is the game's handling.
+- **Shipped: `traffic_cap=24`** (ini and the DLL default). Free stops within 1.5x of stock over the
+  stand + drive: Downtown 29% against 26% (1.1x), Residential 37% against 36% (1.0x; standing alone 44%
+  against 36%, 1.2x). It keeps half again as many moving cars round the player as stock (Downtown 6.7 against
+  4.6 over stand + drive, Residential 4.3 against 2.7 standing), and in Residential more than 36 did. The frame-rate
+  levels now run 16, 18, 21, 24. Industrial (ste) was not measured.
+
+**Kerb clips** (Downtown boulevard pavement, third person, 90 s for the traffic to fill, then 40 s;
+`gamerun/ftr1_kerb.py` + `keys_ftr1_kerb.sh`, `GTA2DX9_TRAFFIC_CAP` 36 vs 24, 30 fps video; 20 s cuts made
+from `game.mp4`). Census over each clip window:
+
+| Spot | cap | cars near | moving | stopped | freestop (gap / junction / mid) |
+|---|---|---|---|---|---|
+| 158.5,156.5 facing west (`ftr1_k36a` / `ftr1_k24a`) | 36 | 31.6 | 6.8 | 24.8 | 17.3 = 55% (14.4 / 2.2 / 0.2) |
+| | 24 | 18.9 | 8.4 | 10.5 | 9.2 = 48% (4.6 / 3.2 / 0.4) |
+| 150.5,156.5 facing west, junction 5-8 blocks ahead (`ftr1_k36b` / `ftr1_k24b`, rebased build) | 36 | 29.6 | 14.3 | 15.3 | 12.7 = 43% (7.1 / 4.9 / 0.2) |
+| | 24 | 18.2 | 9.1 | 9.2 | 8.4 = 46% (3.4 / 4.3 / 0.2) |
+
+At the first spot, cap 36 jams the boulevard's west junction (30+ of the 36 cars within 20 blocks, the queue
+grows through the clip to 32 stopped). Cap 24 keeps more cars moving with fewer cars present. At the second
+spot both caps flow and the shares match. In the frames I opened (sheets of 0/5/10/15 s), no car near the
+camera stops with an empty street ahead. The traffic in view is at the far junction, crossing and waiting
+at the lights, and the near eastbound lanes are mostly empty at both caps. This framing therefore does not
+show close-up flow. A better clip needs a spot facing a busy lane head-on.
+
+Not done: Industrial (ste) unmeasured. One run per cell for wil 24, bil 16 and bil 24, while runs of the
+same cell spread widely (wil 36 standing: 12-29% free stops over four runs), so the 24 numbers are a
+measurement, not a tight bound. Not seen under Remix or on the owner's box. GTA2's own lurch (traffic
+pulling off by 4-7 blocks/s in a step, braking at 6-15 blocks/s^2) is still there at every cap; smoothing
+it would mean drawing a car away from where the game has it (a drawn lag along its lane), which is not done
+here.

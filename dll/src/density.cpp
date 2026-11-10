@@ -359,6 +359,15 @@ double NowSeconds() {
 }
 
 void FollowFrameRate(bool ground) {
+    // GTA2DX9_DENSITY_LEVEL=0..3 pins the budget level (measurements: FIX-TRAFFIC-1's cap table
+    // on a shared host, where the controller otherwise moves the cap mid-run).
+    static int pinned = -2;
+    if (pinned == -2) {
+        char e[8] = {};
+        pinned = GetEnvironmentVariableA("GTA2DX9_DENSITY_LEVEL", e, sizeof e) && e[0] >= '0' && e[0] <= '3' ? e[0] - '0' : -1;
+        if (pinned >= 0) Log("density: budget level pinned at %d (GTA2DX9_DENSITY_LEVEL)", pinned);
+    }
+    if (pinned >= 0) { g_level = pinned; return; }
     static double last = 0.0;
     const double now = NowSeconds();
     const double interval = last > 0.0 ? now - last : 0.0;

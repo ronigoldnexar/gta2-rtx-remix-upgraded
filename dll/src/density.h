@@ -9,7 +9,10 @@ namespace gta2dx9 {
 // cars spread over it leave the boulevards empty. 16 or less leaves the game's
 // code as it shipped. At most 100 (the car pool holds 306, the ped pool 200 and
 // every traffic car carries a driver).
-constexpr int kDefaultTrafficCap = 36;
+// FIX-TRAFFIC-1 (10 Nov): 24, not 36. At 36 the extra cars only queued (bil: 3.1 moving
+// of 11.1 near the player against 4.3 of 8.6 at 24; free stops 64 % of the cars against 36 %
+// at the stock 16), docs/vehicle-feel.md FIX-TRAFFIC-1.
+constexpr int kDefaultTrafficCap = 24;
 // Multiplier on the per-zone pedestrian density the game spawns against: 1, 2, 4
 // or 8 (GTA2 allows zone.ped_density / 25 people in its window: 8 in Downtown).
 constexpr int kDefaultPedDensityScale = 4;

@@ -389,6 +389,7 @@ bool WriteAt(uintptr_t address, const T& value) {
 
 ViewQueries g_devQueries;
 void ViewModeSetQueries(const ViewQueries& queries) { g_devQueries = queries; }
+const ViewQueries& ViewModeQueries() { return g_devQueries; }
 
 // ---- QB-6: aiming -------------------------------------------------------------------
 AimState g_aim;

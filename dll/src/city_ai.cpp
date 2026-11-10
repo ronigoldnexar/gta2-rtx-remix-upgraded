@@ -41,6 +41,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -50,6 +51,8 @@
 #include "compat.h"
 #include "game_access.h"
 #include "log.h"
+#include "view_modes.h"
+#include "../../src/gta2_map.h"
 
 // Read by ThreatLess (assembly), so plain C names.
 extern "C" {
@@ -150,6 +153,8 @@ bool g_dodge = true;
 float g_dodgeSpeed = 2.0f, g_dodgeTime = 1.4f, g_dodgeHalfWidth = 0.75f;
 float g_fireRadius = 4.0f;
 int g_censusEvery = 15;
+// GTA2DX9_TRAFFIC_LOG=1: one `ai: stop` line per free-stopped car (at most every 2 s a car), for reading the causes.
+bool g_stopLog = false;
 float g_censusRadius = 20.0f;
 int g_maxPerFrame = 6;
 
@@ -203,6 +208,14 @@ struct CarSeen {
     float x = 0, y = 0, z = 0, vx = 0, vy = 0;
     int frame = -1000;
     bool moving = false;
+    // FIX-TRAFFIC-1 stop counter (census only): a driven car's go/stop state with hysteresis
+    // (stopped under 0.4 blocks/s, going again over 0.8), the frame it last changed, and the
+    // top speed of the last half second or so (decays 7% a frame) for "a hard stop".
+    bool halted = false;
+    int stopLoggedAt = -1000;
+    int firstSeen = 0;      // the frame it came into the 30-block window (a new car starts at rest)
+    int haltedAt = -1000;
+    float recentTop = 0.0f;
 };
 std::unordered_map<uintptr_t, CarSeen> g_cars;
 struct PedSeen {
@@ -222,6 +235,10 @@ struct Tally {
     long peds = 0, walk = 0, run = 0, stand = 0, down = 0, dead = 0, panic = 0, flee = 0;
     long cars = 0, moving = 0, stopped = 0, queued = 0, freeStop = 0, axis = 0, movingAxisN = 0, burning = 0;
     long driven = 0;
+    // FIX-TRAFFIC-1: free stops by cause (car samples), and stop events (per car, every frame).
+    long fsPed = 0, fsGap = 0, fsCross = 0, fsJunction = 0, fsMid = 0;
+    int stops = 0, hardStops = 0, shortGo = 0;
+    long fresh = 0;
     int threatFrames = 0, fleeOnsets = 0, dodges = 0, fireFlees = 0, nearMisses = 0, dodgeClear = 0, dodgeDown = 0;
     float speedSum = 0;
 } g_tally;
@@ -274,7 +291,8 @@ void Step(bool ground, const uint8_t* player, bool playerValid, float px, float 
     if (threat) ++g_tally.threatFrames;
 
     // cars: positions, velocities
-    struct Car { const uint8_t* v; float x, y, z, vx, vy, speed, hx, hy; bool driven, burning; };
+    struct Car { const uint8_t* v; float x, y, z, vx, vy, speed, hx, hy; bool driven, burning, fresh, own; CarSeen* seen; };
+    const uint8_t* ownCar = player && playerValid ? P(player, kPedCar) : nullptr;
     Car cars[96];
     int ncars = 0;
     int guard = 0;
@@ -283,11 +301,15 @@ void Step(bool ground, const uint8_t* player, bool playerValid, float px, float 
         if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &x, &y, &z)) continue;
         if (playerValid && (std::fabs(x - px) > 30.0f || std::fabs(y - py) > 30.0f)) continue;
         CarSeen& s = g_cars[reinterpret_cast<uintptr_t>(v)];
-        if (s.frame == g_frame - 1) {
+        bool fresh = s.frame != g_frame - 1;
+        if (!fresh) {
             const float vx = (x - s.x) * 30.0f, vy = (y - s.y) * 30.0f;
-            // a jump (respawn, recycle into a new car) is not motion
+            // a jump (respawn, recycle into a new car) is not motion: GTA2 reuses a car object at
+            // a spawn point, at rest, so it starts over as a new car
             if (std::fabs(vx) < 40.0f && std::fabs(vy) < 40.0f) { s.vx += (vx - s.vx) * 0.5f; s.vy += (vy - s.vy) * 0.5f; }
-        } else { s.vx = s.vy = 0; }
+            else fresh = true;
+        }
+        if (fresh) { s.vx = s.vy = 0; s.firstSeen = g_frame; s.halted = true; s.haltedAt = g_frame; s.recentTop = 0; }
         s.x = x; s.y = y; s.z = z; s.frame = g_frame;
         if (ncars >= 96) continue;
         Car& c = cars[ncars++];
@@ -298,6 +320,30 @@ void Step(bool ground, const uint8_t* player, bool playerValid, float px, float 
         c.driven = game::VehicleHasDriver(v);
         const int dmg = *reinterpret_cast<const int16_t*>(v + 0x74);
         c.burning = dmg >= 16000 && dmg <= 32000;
+        c.seen = &s;
+        // A car that came into being (or into the window) under 3 s ago and has not got going yet:
+        // GTA2 creates traffic at rest on the lane; it is not a car that braked. The player's car
+        // is not traffic.
+        c.fresh = s.halted && s.haltedAt == s.firstSeen && g_frame - s.firstSeen < 90;
+        c.own = v == ownCar;
+        // Stop events of driven cars near the player (FIX-TRAFFIC-1): go -> stop with hysteresis;
+        // a stop from over 2.5 blocks/s within the last half second is a hard one; a stop that
+        // comes less than 2 s after the car last got going is a stop-start cycle.
+        s.recentTop = (std::max)(c.speed, s.recentTop * 0.93f);
+        if (c.driven && !c.own && playerValid && std::hypot(x - px, y - py) <= g_censusRadius) {
+            if (!s.halted && c.speed < 0.4f) {
+                s.halted = true;
+                ++g_tally.stops;
+                if (s.recentTop > 2.5f) ++g_tally.hardStops;
+                if (g_frame - s.haltedAt < 60) ++g_tally.shortGo;
+                s.haltedAt = g_frame;
+            } else if (s.halted && c.speed > 0.8f) {
+                s.halted = false;
+                s.haltedAt = g_frame;
+            }
+        } else {
+            s.halted = c.speed < 0.4f;
+        }
     }
     if ((g_frame & 255) == 0 && g_cars.size() > 600) {
         for (auto it = g_cars.begin(); it != g_cars.end();) it = (g_frame - it->second.frame > 60) ? g_cars.erase(it) : std::next(it);
@@ -403,7 +449,8 @@ void Step(bool ground, const uint8_t* player, bool playerValid, float px, float 
             const Car& c = cars[i];
             if (std::hypot(c.x - px, c.y - py) > g_censusRadius) continue;
             if (c.burning) ++g_tally.burning;
-            if (!c.driven) continue;   // parked
+            if (!c.driven || c.own) continue;   // parked; the player's own
+            if (c.fresh) { ++g_tally.fresh; continue; }   // created at rest, not yet away
             ++g_tally.cars;
             ++g_tally.driven;
             if (c.speed > 0.4f) {
@@ -421,7 +468,72 @@ void Step(bool ground, const uint8_t* player, bool playerValid, float px, float 
                     const float along = rx * c.hx + ry * c.hy, lat = std::fabs(-rx * c.hy + ry * c.hx);
                     queued = along > 0.2f && along < 1.6f && lat < 0.5f;
                 }
-                if (queued) ++g_tally.queued; else ++g_tally.freeStop;
+                if (queued) { ++g_tally.queued; continue; }
+                ++g_tally.freeStop;
+                // Why (FIX-TRAFFIC-1), first match: a person on foot (or the player) within 2 blocks
+                // ahead in its lane; a car 1.6-3.5 blocks ahead in its lane (a queue the 1.6-block test
+                // misses: GTA2's probe looks ~1.75 ahead, and the cars behind a queued car stop
+                // further back); a car across its path (heading within 60 degrees of square to it,
+                // up to 3.5 ahead); on or a block before a junction (the road arrows run both ways:
+                // lights and give-ways); else mid-street with nothing seen.
+                bool cause = false;
+                int guardQ = 0;
+                for (const uint8_t* q = P(reinterpret_cast<const uint8_t*>(pool), 4); game::PlausiblePointer(q) && !cause && guardQ < 260;
+                     q = P(q, kPedNext), ++guardQ) {
+                    if (game::PlausiblePointer(P(q, kPedCar))) continue;
+                    const int qs = I32(q, game::kPedState);
+                    if (qs == kStateDead) continue;
+                    const float rx = I32(q, game::kPedX) * game::kFixedScale - c.x, ry = I32(q, game::kPedY) * game::kFixedScale - c.y;
+                    if (std::fabs(rx) > 3.0f || std::fabs(ry) > 3.0f) continue;
+                    const float along = rx * c.hx + ry * c.hy, lat = std::fabs(-rx * c.hy + ry * c.hx);
+                    cause = along > 0.0f && along < 2.0f && lat < 0.7f;
+                }
+                if (cause) { ++g_tally.fsPed; continue; }
+                bool gap = false, cross = false;
+                for (int j = 0; j < ncars; ++j) {
+                    if (j == i) continue;
+                    const float rx = cars[j].x - c.x, ry = cars[j].y - c.y;
+                    const float along = rx * c.hx + ry * c.hy, lat = std::fabs(-rx * c.hy + ry * c.hx);
+                    if (along > 0.2f && along < 3.5f && lat < 0.7f) gap = true;
+                    else if (along > -0.5f && along < 3.5f && lat < 3.0f &&
+                             std::fabs(cars[j].hx * c.hx + cars[j].hy * c.hy) < 0.5f)
+                        cross = true;
+                }
+                if (gap) { ++g_tally.fsGap; continue; }
+                if (cross) { ++g_tally.fsCross; continue; }
+                const ViewQueries& vq = ViewModeQueries();
+                bool junction = false;
+                if (vq.roadArrows) {
+                    for (int k = 0; k <= 3 && !junction; ++k) {
+                        const float ax = c.x + c.hx * static_cast<float>(k), ay = c.y + c.hy * static_cast<float>(k);
+                        const int a = vq.roadArrows(vq.context, ax, static_cast<float>(gta2::kMapHeight) - ay, c.z + 0.95f) & 0xF;
+                        junction = (a & 3) && (a & 12);
+                    }
+                }
+                if (junction) ++g_tally.fsJunction; else ++g_tally.fsMid;
+                if (g_stopLog && g_frame - c.seen->stopLoggedAt >= 60) {
+                    c.seen->stopLoggedAt = g_frame;
+                    int a[3] = {};
+                    for (int k = 0; k <= 2 && vq.roadArrows; ++k)
+                        a[k] = vq.roadArrows(vq.context, c.x + c.hx * k, static_cast<float>(gta2::kMapHeight) - (c.y + c.hy * k), c.z + 0.95f);
+                    float best = 99.0f, bAlong = 0, bLat = 0, bSpeed = 0;
+                    for (int j = 0; j < ncars; ++j) {
+                        if (j == i) continue;
+                        const float d = std::hypot(cars[j].x - c.x, cars[j].y - c.y);
+                        if (d < best) {
+                            best = d;
+                            bAlong = (cars[j].x - c.x) * c.hx + (cars[j].y - c.y) * c.hy;
+                            bLat = -(cars[j].x - c.x) * c.hy + (cars[j].y - c.y) * c.hx;
+                            bSpeed = cars[j].speed;
+                        }
+                    }
+                    Log("ai: stop frame=%d car=%08X model=%d x=%.2f y=%.2f z=%.2f d=%.1f head=%.2f,%.2f %s for=%.1fs arrows=%02X,%02X,%02X "
+                        "nearest car d=%.2f along=%.2f lat=%.2f v=%.2f dmg=%d",
+                        g_frame, static_cast<unsigned>(reinterpret_cast<uintptr_t>(c.v)), *reinterpret_cast<const int32_t*>(c.v + 0x84),
+                        c.x, c.y, c.z, std::hypot(c.x - px, c.y - py), c.hx, c.hy, junction ? "junction" : "mid",
+                        (g_frame - c.seen->haltedAt) / 30.0f, a[0], a[1], a[2], best, bAlong, bLat, bSpeed,
+                        *reinterpret_cast<const int16_t*>(c.v + 0x74));
+                }
             }
         }
         ++g_tally.samples;
@@ -430,12 +542,14 @@ void Step(bool ground, const uint8_t* player, bool playerValid, float px, float 
             const float s = static_cast<float>(t.samples);
             Log("ai: frame=%d view=%s peds=%.1f walk=%.1f run=%.1f stand=%.1f down=%.1f dead=%.1f panic=%.1f flee=%.1f "
                 "cars=%.1f moving=%.1f stopped=%.1f queued=%.1f freestop=%.1f axis=%.2f speed=%.2f burning=%.1f "
-                "threat=%d onsets=%d dodges=%d fireflees=%d nearmiss=%d dodgeclear=%d dodgedown=%d",
+                "threat=%d onsets=%d dodges=%d fireflees=%d nearmiss=%d dodgeclear=%d dodgedown=%d "
+                "fs_ped=%.1f fs_gap=%.1f fs_cross=%.1f fs_junction=%.1f fs_mid=%.1f stops=%d hardstops=%d stopstart=%d fresh=%.1f",
                 g_frame, ground ? "street" : "classic", t.peds / s, t.walk / s, t.run / s, t.stand / s, t.down / s,
                 t.dead / s, t.panic / s, t.flee / s, t.cars / s, t.moving / s, t.stopped / s, t.queued / s,
                 t.freeStop / s, t.movingAxisN ? static_cast<float>(t.axis) / t.movingAxisN : 0.0f,
                 t.moving ? t.speedSum / t.moving : 0.0f, t.burning / s, t.threatFrames, t.fleeOnsets, t.dodges,
-                t.fireFlees, t.nearMisses, t.dodgeClear, t.dodgeDown);
+                t.fireFlees, t.nearMisses, t.dodgeClear, t.dodgeDown, t.fsPed / s, t.fsGap / s, t.fsCross / s,
+                t.fsJunction / s, t.fsMid / s, t.stops, t.hardStops, t.shortGo, t.fresh / s);
             g_tally = Tally{};
         }
     }
@@ -462,6 +576,10 @@ void CityAiInstall(const char* ini) {
     g_dodgeTime = IniFloat(ini, "dodge_time", g_dodgeTime);
     g_fireRadius = IniFloat(ini, "fire_radius", g_fireRadius);
     g_censusEvery = GetPrivateProfileIntA("city_ai", "census_every", g_censusEvery, ini);
+    {
+        char tl[8] = {};
+        g_stopLog = GetEnvironmentVariableA("GTA2DX9_TRAFFIC_LOG", tl, sizeof tl) && tl[0] == '1';
+    }
     g_censusRadius = IniFloat(ini, "census_radius", g_censusRadius);
     auto clampf = [](float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); };
     g_gunRadius = clampf(g_gunRadius, 1.0f, 40.0f);

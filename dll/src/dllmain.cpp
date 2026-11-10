@@ -322,8 +322,13 @@ void LoadConfig() {
     {
         char env[8] = {};
         const bool off = GetEnvironmentVariableA("GTA2DX9_DENSITY", env, sizeof env) && env[0] == '0';
+        // GTA2DX9_TRAFFIC_CAP=<n> overrides [density] traffic_cap, for A/B runs (FIX-TRAFFIC-1).
+        int trafficCap = GetPrivateProfileIntA("density", "traffic_cap", gta2dx9::kDefaultTrafficCap, ini);
+        char capEnv[8] = {};
+        if (GetEnvironmentVariableA("GTA2DX9_TRAFFIC_CAP", capEnv, sizeof capEnv) && capEnv[0] >= '0' && capEnv[0] <= '9')
+            trafficCap = atoi(capEnv);
         gta2dx9::SetDensity(
-            off ? 0 : GetPrivateProfileIntA("density", "traffic_cap", gta2dx9::kDefaultTrafficCap, ini),
+            off ? 0 : trafficCap,
             off ? 0 : GetPrivateProfileIntA("density", "ped_density_scale", gta2dx9::kDefaultPedDensityScale, ini),
             off ? 0 : GetPrivateProfileIntA("density", "ped_cap", gta2dx9::kDefaultPedCap, ini));
         gta2dx9::SetZoneCarDensity(

@@ -375,6 +375,8 @@ struct ViewQueries {
 // The queries, kept for the developer warps (which run from the key poll, not
 // the solver). Set by the world view every frame it has a level.
 void ViewModeSetQueries(const ViewQueries& queries);
+// The last queries set (empty until a level is up): city_ai's census reads the road arrows.
+const ViewQueries& ViewModeQueries();
 
 class ViewCameraSolver {
 public:
