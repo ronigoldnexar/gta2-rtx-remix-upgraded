@@ -6936,7 +6936,11 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     if (!decal && !lying && corners == 4 && !placed.pedestrian && !placed.hidden &&
         !placed.lamp && !placed.corpse) {
         const Model* model = MapObjectModel(GameObjectBeingDrawn(), placed.local, corners, placed.objectToWorld);
-        if (model && placed.plain && model->name.compare(0, 7, "pickup_") != 0) model = nullptr;
+        // FIX-WORLD-14 (WORLD-13 order 5): the power-up tokens (token_*, 4:151-166 and 175-246) are upright
+        // medallions now, turning like the heart; GTA2DX9_TOKEN_MODELS=0 keeps their flat sprites (A/B).
+        static const bool s_tokenModels = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_TOKEN_MODELS", b, sizeof b) && b[0] == '0'); }();
+        if (model && placed.plain && model->name.compare(0, 7, "pickup_") != 0 &&
+            !(s_tokenModels && model->name.compare(0, 6, "token_") == 0)) model = nullptr;
         if (model && g_groundModels) {
             placed.objectModel = model;
             placed.hidden = true;   // the flat sprite goes; the model stands in for it

@@ -135,22 +135,30 @@ def extrude_pixels(im, height, lift=0.0, scale=PX, min_run=1):
     return part
 
 
-def build_token(im, radius=0.23, thick=0.045):
-    """A power-up token: a thick coin with the icon on both faces and a
-    coloured rim, floating; spins at run time."""
-    big = x4(im)
+def build_token(im):
+    """A power-up token (4:151-166, 175-246) as an upright medallion turning like the weapon pickups and
+    the health heart (FIX-WORLD-14, WORLD-13 order 5): the sprite's face-on frame on both faces of a
+    disc 0.30 block across a hand above the ground, a rolled rim a shade lighter than the token, over a
+    ground ring. Before it was a coin lying flat (never even drawn: power-up sprites are 'plain' and
+    took no model until live_geometry let token_ through). Spinning pickups are drawn unlit, so the
+    face keeps the sprite's own baked shading; the ring goes in the __lit companion. Returns (main, lit)."""
     colour = body_colour(im)
-    face = top_tex(big, colour)
-    p = Part()
-    cylinder_part(p, lambda t: radius, 0.10, 0.10 + thick, segments=28, rings=1, cap=True)
-    # the underside cap
-    q = Part()
-    cylinder_part(q, lambda t: radius, 0.10 + thick, 0.10 + thick + 0.0001, segments=28, rings=1, cap=False)
-    coin = p.mesh(mat(face, 0.6, 0.35, emissive=tuple(c / 255 * 0.25 for c in colour), name="coin"))
-    rim = Part()
-    cylinder_part(rim, lambda t: radius * 1.02, 0.10 - 0.002, 0.10 + thick + 0.002, segments=28, rings=1, cap=False)
-    rim_m = rim.mesh(mat(flat(tuple(min(255, c + 40) for c in colour)), 0.8, 0.3, name="rim"))
-    return scene_with([("coin", coin), ("rim", rim_m)]), scene_with([("glow", glow_ring(tuple(min(255, c + 30) for c in colour), 0.20, 0.235))])
+    a = np.array(im.convert("RGBA")).reshape(-1, 4)
+    a = a[a[:, 3] > 128][:, :3].astype(np.float32)
+    lum = a.mean(1) if len(a) else np.array([128.0])
+    rim_rgb = tuple(int(v) for v in np.median(a[lum <= np.percentile(lum, 20)], 0)) if len(a) else colour
+    R, T, YC = 0.15, 0.034, 0.25          # disc radius, thickness, centre height (blocks), as pickup_health
+    face_img = top_tex(x4(im), rim_rgb)    # the round sprite over its own dark edge colour: no keyed corners
+    disc = trimesh.creation.cylinder(radius=R, height=T, sections=40)
+    disc.apply_translation((0, YC, 0))
+    uv = np.stack([(disc.vertices[:, 0] / R) * 0.5 + 0.5, ((disc.vertices[:, 1] - YC) / R) * 0.5 + 0.5], 1)
+    disc.visual = TextureVisuals(uv=uv, material=mat(face_img, 0.15, 0.35, name="coin"))
+    rim = trimesh.creation.annulus(r_min=R * 0.97, r_max=R * 1.06, height=T * 1.25, sections=40)
+    rim.apply_translation((0, YC, 0))
+    rim.visual = TextureVisuals(uv=np.full((len(rim.vertices), 2), 0.5),
+                                material=mat(flat(tuple(min(255, c + 40) for c in colour)), 0.6, 0.3, name="rim"))
+    ring = tuple(min(255, c + 30) for c in colour)
+    return scene_with([("coin", disc), ("rim", rim)]), scene_with([("glow", glow_ring(ring, 0.20, 0.235))])
 
 
 BOOTH_BLUE = (36, 84, 160)       # the sprite's booth blue, a shade deeper as painted steel (the sprite's 46,104,196 lit flat read as plastic)

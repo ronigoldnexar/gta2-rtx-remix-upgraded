@@ -375,6 +375,16 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   baked as a ramp from its dark edge to a highlight on the crown) and the red ground ring, unlit at every hour so the
   heart reads at night; under Remix the two `__lit` textures carry emissive prims (intensity 3, like the weapon
   rings). The aim marker labels it HEALTH. 160 + 1344 triangles.
+- **Power-up tokens upright** (FIX-WORLD-14, WORLD-13's order 5): the coin tokens 4:151-166 and 175-246 (token_blue
+  ... token_skull, and token_briefcase 4:10-14) were still the game's flat sprites in the street views, a pixel blot on
+  the paving, because live_geometry let plain sprites take only pickup_* models. `build_token` now makes the
+  heart's shape: an upright disc 0.30 block across a hand above the ground with the sprite's face-on frame on both
+  faces (over its own dark edge colour, so no keyed corners), a rim a shade lighter than the token, the ground ring
+  in __lit; token_* pass the plain filter (`GTA2DX9_TOKEN_MODELS=0` = the flat sprites, A/B). The __lit companions
+  are unchanged. Frames: out/qa_fw14tok0 (before, flat) vs out/qa_fw14tok1 (wil token at 114.3,111.3, regress
+  cameras at 1.7 and 1 block, noon and 22:30: the medallion with its icon, ring and the POWER-UP label, turning);
+  vreg spawn_classic 0 tiles (out/vreg_fw14c). Not done: Remix prims for the new token textures (under Remix they
+  draw with their plain textures, no material), the face is dim at night (the icon is not in __lit as the heart is).
 - A spinning pickup faded at the lens (QB-49 / FIX-CAMERA-12 near fade) is drawn depth first, then its colour where it
   is the nearest surface: before, its back face and the disc's sides showed through its front as dark teeth.
   `GTA2DX9_FADE_SIGN=0` restores the old see-through draw for both (A/B).
