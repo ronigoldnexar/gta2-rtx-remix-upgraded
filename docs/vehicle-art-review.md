@@ -766,3 +766,19 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   `_paint_rail_paint`, `_paint_wheel_paint`, `_wing`, `_wood`, `_louvre`, `_grille`, `_glass`, `_chrome`,
   `_chrome_disc`, `_frame`, `_running_board_rubber`, `_plate`, `_lamp_head`, `_lamp_tail`, `_lamp_amber`, `_seal`,
   `_seat`, `_interior_dark`, `_tyre_side`, `_tyre_tread`, `_underbody`); backups `backup_va15/models_069`.
+- **027 Ice-Cream Van authored (`tools/vehicle_art2/car_027.py`; rated acceptable: 'the cone is a lumpy melted
+  shape').** The shell was also off-identity: a pink and white van, where the classic sprite draws a warm cream box, an
+  orange cone, a cream swirl and a tan cab. Now, read nose down: a rounded tan 1950s pickup cab (058's loft) with a split
+  screen, bar grille and pontoon wings; a tall cream box with an orange belt band, a serving hatch (translucent glass,
+  a lit cream wall and a chrome counter) under a striped orange/cream awning on each side, ICE CREAM boards that read
+  the right way round on both sides (box x-faces map image columns to height: `sign_r` / `sign_l`); on the roof a waffle
+  cone lying tip-back on its bottom line and a rippled soft-serve swirl spilling forward over the cab (squashed to 0.6
+  of its height about the roof). A livery (drawn untinted). Driver seat [0.10, 0.256, 0.043, 0.422];
+  `car_mesh_orient.py check` ok. Before `out/va15_vans_b0` (own_*_027_t; that take forced PAINT 150,150,150),
+  after `out/va15_027_a0` (no forced paint; poses side/front34/rear34/eye/far/chase/high/door). Still short of AAA:
+  the swirl reads as a smooth horn from the side (no piped-cream spiral), the awnings stand 0.55 m proud of the
+  footprint, a plain box rear. Remix: every 027 texture is new (`027_ice_cream_van_paint_cab_paint`, `_paint_box_paint`,
+  `_paint_band_paint`, `_paint_wheel_paint`, `_awning`, `_sign_r`, `_sign_l`, `_waffle`, `_icecream`, `_wafer`,
+  `_interior_shop`, `_glass_hatch`, `_glass`, `_chrome`, `_chrome_disc`, `_grille`, `_frame`, `_trim_dark`, `_plate`,
+  `_seal`, `_seat`, `_interior_dark`, `_lamp_head`, `_lamp_tail`, `_lamp_amber`, `_tyre_side`, `_tyre_tread`,
+  `_whitewall`, `_underbody`); backups `backup_va15/models_027`.
