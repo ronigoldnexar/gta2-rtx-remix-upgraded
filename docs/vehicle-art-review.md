@@ -982,3 +982,8 @@ truck-scaled `POSES_EXTRA` t* poses for 064), private stage `stage_va19` (16c259
 - **Plates (qaexp11): no change.** At the same close rear pose, parked (out/va19_plate2) and as the player's own car
   (out/va19_plate3), the shipped plate files read left to right ("RM 000", "MX 613"); the same files mirrored read
   backwards. The shipped `*_plate.tga` are right for the current meshes (u runs along -x on the -z face).
+- **Kit paint mottle in the street views (order 5): it is the SSAO, measured, not fixed.** Same-spot A/B with live
+  toggles at the 044's side pose: car_world_sun 0/1 and shadows 0/1 leave the cloudy blotches unchanged (out/va19_mot1);
+  a paint texture with its low frequencies flattened leaves them unchanged (out/va19_mot2); `[visuals] ssao=0` removes
+  them (out/va19_mot3). The half-resolution AO (src/post_fx.cpp, ssao8/12 + ao_blur, ao_strength_percent 75) breaks up
+  on large smooth panels. A fleet-wide fix belongs in that pass (normal-aware blur or a cap on gently curved surfaces).
