@@ -885,3 +885,12 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   bursts, frames 40-63 every frame opened: him whole, then the gun in hands, no head-only and no empty frame. Still: on the
   hand-over frame both are drawn once (his figure is collected before the hide is set that frame; the view model is
   drawn after it), and the in-car third -> first move keeps its own rule (FIX-CAMERA-9 pfl21).
+- **feel15, the pistol runs dry (camera half).** The last round fired, the game takes the weapon away and the QB-6
+  framing dropped to the unarmed one at once: the camera eased 1.4x further out within about a second of the last
+  shot (base cam11_dry0b: 1.53 -> 2.17 block, starting at the emptying), read as a zoom-out at the moment he runs dry.
+  Now (`UpdateAim`) standing with the weapon gone inside the 2.5 s firing window, the camera's mix holds until 2.5 s
+  after the last shot, then eases out on a 2.5 s time constant (the figure's armed state is the game's: the aim pose
+  is FIX-FIGURE's half). `GTA2DX9_CAM_DRY_HOLD=0` restores the drop. Log: `cam: weapon gone T s after the last shot`.
+  Measured (`gamerun/keys_cam11_dry.sh`, the filer's repro: pistol, Ctrl every 0.5 s until empty, 30 fps, pose log):
+  fix cam11_dry2 no change for 2.5 s after the emptying, then at most 11 % in any second (1.41x in all over ~9 s);
+  frames opened across the emptying (base: pulled back within a second; fix: steady, then a slow back-off).

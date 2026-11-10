@@ -367,6 +367,7 @@ namespace {
 uintptr_t g_aimWeaponObject = 0;
 int g_aimLastAmmo = -1, g_aimLastReload = -1;
 
+bool CameraLogOnForAim();
 void UpdateAim(const PlayerState& player, float px, float pz, float headingYaw, float dt) {
     AimState& a = g_aim;
     a.valid = player.valid;
@@ -408,8 +409,31 @@ void UpdateAim(const PlayerState& player, float px, float pz, float headingYaw, 
     g_aimLastReload = reload;
     // The framing: over the shoulder for 2.5 s after a shot, a light lean in while armed.
     const bool firing = a.armed && a.lastShot > 0.0 && Now() - a.lastShot < 2.5;
-    const float want = (CurrentViewMode() == ViewMode::ThirdPerson && a.armed) ? (firing ? 1.0f : 0.35f) : 0.0f;
-    const float tau = want > a.aimMix ? 0.18f : 0.5f;   // in quickly, out gently
+    float want = (CurrentViewMode() == ViewMode::ThirdPerson && a.armed) ? (firing ? 1.0f : 0.35f) : 0.0f;
+    float tau = want > a.aimMix ? 0.18f : 0.5f;   // in quickly, out gently
+    // FIX-CAMERA-11 (feel15-pistol-runs-dry-camera-pulls-back-and-aim-pose-stays): the last round fired, the game
+    // takes the weapon away (weapon none) and the framing dropped to the unarmed one at once: the camera eased 1.4x
+    // further out within a second of the last shot, a zoom-out at the moment he runs dry. Standing (not knocked down,
+    // dead, arrested or at a car door) with the weapon gone inside the firing window, the framing stays as it was
+    // until 2.5 s after the last shot, then eases out on a 2.5 s time constant (under 15 % a second). Only the camera's mix: the figure's armed state is
+    // the game's. GTA2DX9_CAM_DRY_HOLD=0 restores the old drop (A/B).
+    {
+        static int dryHoldOn = -1;
+        if (dryHoldOn < 0) { char b[8] = {}; dryHoldOn = GetEnvironmentVariableA("GTA2DX9_CAM_DRY_HOLD", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        static double dryUntil = 0.0, dryEaseUntil = 0.0;
+        const bool standing = state != 8 && state != 9 && state != 3 && state != 4;
+        if (dryHoldOn && CurrentViewMode() == ViewMode::ThirdPerson && standing && !a.armed && a.weapon == 0) {
+            if (dryUntil == 0.0 && a.lastShot > 0.0 && Now() - a.lastShot < 2.5 && a.aimMix > 0.05f) {
+                dryUntil = a.lastShot + 2.5;
+                dryEaseUntil = dryUntil + 8.0;
+                if (CameraLogOnForAim()) Log("cam: weapon gone %.2f s after the last shot: the aim framing (%.2f) held until 2.5 s", Now() - a.lastShot, a.aimMix);
+            }
+            if (dryUntil > 0.0 && Now() < dryUntil) { want = a.aimMix; }
+            else if (dryUntil > 0.0 && Now() < dryEaseUntil) { tau = 2.5f; }
+        } else if (a.armed || !standing) {
+            dryUntil = dryEaseUntil = 0.0;
+        }
+    }
     a.aimMix += (want - a.aimMix) * (1.0f - std::exp(-(dt > 0.0f && dt < 0.25f ? dt : 1.0f / 30.0f) / tau));
     if (a.aimMix < 0.002f) a.aimMix = 0.0f;
 }
@@ -1445,6 +1469,7 @@ static bool cameraLogOn() {
     }
     return enabled != 0;
 }
+namespace { bool CameraLogOnForAim() { return cameraLogOn(); } }   // FIX-CAMERA-11: for UpdateAim above
 
 static void LogCameraFrame(const char* view, float camYaw, float headingYaw, float dt,
                            const gta2::Vec3* eye = nullptr, float px = 0.0f, float pz = 0.0f, float extra = 0.0f) {
