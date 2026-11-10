@@ -76,3 +76,24 @@ bottom: the two Ultra sessions, the same fixed camera at 13:00).
   Neural Radiance Cache - activated` then `Importance Sampled - activated` (l. 369-370), never ReSTIR GI. On the 5090
   Ultra means NRC; on the L4 Ultra means NRC -> Importance Sampled. ReSTIR GI needs `graphicsPreset = 4` (Custom) with
   the Ultra-level values written out (2b).
+
+### 2b. ReSTIR GI as the stand-in for NRC (Custom preset with the Ultra values written out)
+
+Conf `gamerun/rp1_b2.conf.extra` = play rig + `rtx.graphicsPreset = 4` + `rtx.integrateIndirectMode = 1` +
+`enableRaytracing True`, `pathMinBounces 1`, `pathMaxBounces 4`, `useRTXDI True`, `di.initialSampleCount 4`,
+`di.spatialSamples 2`, `di.disocclusionSamples 4`, `denoiseDirectAndIndirectLightingSeparately True` (the option
+table's defaults, which this runtime prints no Ultra table to compare against; the frames below match the Ultra
+session's sun and shadows, so nothing the preset sets was lost). Run `out/rp1_b2` against `out/rp1_a` (Ultra).
+
+- **Log:** `out/rp1_b2/remix-logs/remix-dxvk.log` l. 335 `[RTX] Integrate Indirect Mode: ReSTIR GI - activated`, and no
+  NRC initialisation is attempted (no `[RTX Neural Radiance Cache]` errors). `= 2` (NRC) is NGX-family on the L4
+  (section 1) and cannot be closed here.
+- **What changed:** at night the lamp-lit tree canopies and the brick behind the fence get a smoother, more even
+  bounce fill and the lamp pool behind the fence is less hot (`out/rp1_frames/crop_2b_ultra_vs_restir_026_S1_h21.5_third_c1_0.png`);
+  by day the shaded facades sit a little darker with more contrast instead of the flat importance-sampled fill
+  (`crop_2b_ultra_vs_restir_011_S0_h13_third_c1_0.png`). Mean luminance moves 1-3 %. The sun shadows of 2a stay.
+- **Cost:** p50 63.0 / 50.2 (day), 47.8 / 50.3 ms (night) against Ultra's 55.0 / 48.3 / 46.1 / 44.6: about +2-6 ms,
+  i.e. ~20 fps instead of ~21 on the L4 at 1280x720 (single sessions on a GPU other agents share the host with).
+- Not the same thing as NRC: NRC is an infinite-bounce learned cache; ReSTIR GI is reservoir-resampled path tracing
+  at 4 bounces. Lighting and material defects are judgeable under it; NRC-specific artefacts (cache lag after a light
+  change, NRC's own noise pattern) are not.
