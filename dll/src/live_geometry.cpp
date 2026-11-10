@@ -8410,7 +8410,76 @@ void ShotFxImpacts() {
 // with the same kick on a shot (the shot: a fresh flash or bullet just ahead
 // of the eye, since the player's own sprite is not seen in this view). Drawn
 // over everything (no depth test), after the figures.
-uint32_t g_fpAmmoDropFrame = 0;   // FIX-FIGURE-15: the frame the player's ammunition word last dropped (the flamethrower spends one a frame)
+uint32_t g_fpAmmoDropFrame = 0;
+// FIX-FIGURE-15 (pfl78 molotov): his own throw, for the game's bottle sprites (code objects 4/300-311, the burning rag
+// 8/400-410): the press (the game lets the bottle go on it), the frame his throwing hand passes the release (the throw
+// clip's 0.34 s; first person the view model's release), the hand there, and the offset that carries the game's bottle
+// from the hand onto its own path. GTA2DX9_THROW_SYNC=0: the game's bottle as it is (A/B).
+uint32_t g_ownThrowFrame = 0, g_ownThrowRelease = 0;
+float g_ownThrowHand[3] = {0.0f, 0.0f, 0.0f};
+bool g_ownThrowHandValid = false;
+bool ThrowSyncOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_THROW_SYNC", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
+void NoteOwnThrow() { g_ownThrowFrame = g_carFrame; g_ownThrowRelease = 0; g_ownThrowHandValid = false; }
+// What to do with a sprite of the game's thrown bottle this frame: 0 draw as it is, 1 leave out (before the release),
+// 2 draw moved by *off (from the hand onto its path, eased out over 0.4 s from its release). Each bottle (its sprite
+// object) keeps its own offset: held fire throws one every few frames, and a new press must not reset the one in flight.
+struct ThrownBottle { float off[3]; uint32_t release; uint32_t seen; };
+std::unordered_map<uintptr_t, ThrownBottle> g_thrownBottles;
+uintptr_t g_ownThrowLastBottle = 0;   // the rag rides with the newest bottle
+std::unordered_map<uintptr_t, uint32_t> g_newBottles;   // a bottle not yet his: the frame it was first seen
+int OwnThrowSprite(int base, unsigned num, uintptr_t object, const float* at, float* off) {
+    if (!ThrowSyncOn()) return 0;
+    const bool bottle = base == 4 && num >= 300 && num <= 311, rag = base == 8 && num >= 400 && num <= 410;
+    if (!bottle && !rag) return 0;
+    const float dx = at[0] - g_playerPosX, dz = at[2] - g_playerPosZ;
+    if (dx * dx + dz * dz > 9.0f) return 0;
+    const bool recent = g_ownThrowFrame && g_carFrame - g_ownThrowFrame <= 60u;
+    if (!recent && !g_thrownBottles.empty()) g_thrownBottles.clear();
+    if (g_newBottles.size() > 64) g_newBottles.clear();
+    const uintptr_t key = bottle ? object : g_ownThrowLastBottle;
+    auto it = key ? g_thrownBottles.find(key) : g_thrownBottles.end();
+    const bool beforeRelease = recent && !g_ownThrowRelease && g_carFrame - g_ownThrowFrame < 12u;
+    if (it == g_thrownBottles.end()) {
+        if (beforeRelease) return 1;   // still in the hand
+        if (rag) return 0;
+        if (recent && g_ownThrowRelease && g_ownThrowHandValid && g_carFrame - g_ownThrowRelease <= 6u) {
+            ThrownBottle tb;
+            for (int c = 0; c < 3; ++c) tb.off[c] = g_ownThrowHand[c] - at[c];
+            tb.release = g_ownThrowRelease; tb.seen = g_carFrame;
+            it = g_thrownBottles.emplace(object, tb).first;
+            g_ownThrowLastBottle = object;
+            g_newBottles.erase(object);
+            static int n = 0;
+            if (n < 20) { ++n; Log("throw sync: f=%u bottle %d/%u %08x at %.2f,%.2f,%.2f from the hand %.2f,%.2f,%.2f (%u frames after the press)", g_carFrame, base, num,
+                                  static_cast<unsigned>(object), at[0], at[1], at[2], g_ownThrowHand[0], g_ownThrowHand[1], g_ownThrowHand[2], g_ownThrowRelease - g_ownThrowFrame); }
+        } else {
+            // A bottle near him with no throw of his noted yet: the game draws its new bottle before his press is read
+            // (fig15_mo5: one frame of a bottle over his head before the swing). Held back three frames: if it is his,
+            // the press comes and it waits for the hand; if not, it shows three frames late.
+            auto nb = g_newBottles.emplace(object, g_carFrame).first;
+            return g_carFrame - nb->second < 3u ? 1 : 0;
+        }
+    }
+    if (bottle && g_carFrame - it->second.release >= 12u) {
+        // Its carry is over; the game reuses its objects, so this may be the next bottle of a held throw.
+        const bool byHim = dx * dx + dz * dz < 1.0f;   // a new bottle starts at him; the old one is out on its way
+        if (beforeRelease && byHim) return 1;
+        if (byHim && g_ownThrowRelease > it->second.release && g_ownThrowHandValid && g_carFrame - g_ownThrowRelease <= 6u) {
+            for (int c = 0; c < 3; ++c) it->second.off[c] = g_ownThrowHand[c] - at[c];
+            it->second.release = g_ownThrowRelease;
+            g_ownThrowLastBottle = object;
+        }
+    }
+    const float u = (std::min)(1.0f, static_cast<float>(g_carFrame - it->second.release) / 12.0f);
+    const float w = 1.0f - u * u * (3.0f - 2.0f * u);
+    if (w <= 0.001f) return 0;
+    for (int c = 0; c < 3; ++c) off[c] = it->second.off[c] * w;
+    return 2;
+}   // FIX-FIGURE-15: the frame the player's ammunition word last dropped (the flamethrower spends one a frame)
 uint32_t g_ownLensFrame = 0;   // FIX-FIGURE-10 pfl23: the frame his own figure was last left out of the picture (see DrawViewModel)
 uint32_t vmLastBob_ = 0;   // FIX-FIGURE-7: the frame the view model's bob last ran (a gap resets it)
 void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
@@ -8442,7 +8511,9 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             const float dx = fx.x - eye.x, dy = fx.y - eye.y, dz = fx.z - eye.z;
             if (dx * dx + dz * dz < 1.44f && std::fabs(dy) < 0.8f && dx * f.x + dz * f.z > 0.0f) {
                 fx.claimed = true;
-                if (g_carFrame - g_fpShotFrame >= 3) { g_fpShotFrame = g_carFrame; static int n = 0; if (n < 40) { ++n; Log("view model: shot seen (flash ahead) f=%u", g_carFrame); } }
+                // FIX-FIGURE-15 (pfl78): a thrown bottle's flames ahead are not a throw (each restarted the view model's throw).
+                const bool thrownWpn = (g_playerWeapon == kWpnMolotov || g_playerWeapon == kWpnGrenade) && ThrowSyncOn();
+                if (g_carFrame - g_fpShotFrame >= 3 && !thrownWpn) { g_fpShotFrame = g_carFrame; static int n = 0; if (n < 40) { ++n; Log("view model: shot seen (flash ahead) f=%u", g_carFrame); } }
             }
         }
     }
@@ -8619,6 +8690,22 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         if (kickLog < 90 && shotT < 0.45f) { ++kickLog; Log("view model kick: t=%.3f kick=%.2f climb=%.2f flash=%.2f f=%u", shotT, kick, vmClimb, vmFlash, g_carFrame); }
     }
     const bool thrown = wi.action == 13;
+    // FIX-FIGURE-15 (pfl78 first person): a throw. The bottle stayed in the hand, pixel-still, while the game's bottle
+    // flew. Now from his throw (the ammunition drops on the press, when the game lets the bottle go): the hand thrusts
+    // forward and up (0.08 s, the release: the game's bottle is carried out of the hand from there, OwnThrowSprite),
+    // follows through down out of the view empty (to 0.30 s), stays empty to 0.55 s, and a fresh bottle comes up by
+    // 0.90 s. GTA2DX9_THROW_SYNC=0: as before.
+    float thAhead = 0.0f, thUp = 0.0f;
+    bool thHide = false;
+    if (thrown && ThrowSyncOn() && vmShotSeen && shotT < 0.90f) {
+        static uint32_t thNoted = 0;
+        if (thNoted != vmShotSeen) { thNoted = vmShotSeen; NoteOwnThrow(); }
+        auto sm = [](float u) { u = (std::max)(0.0f, (std::min)(1.0f, u)); return u * u * (3.0f - 2.0f * u); };
+        if (shotT < 0.08f) { const float u = sm(shotT / 0.08f); thAhead = 0.07f * u; thUp = 0.045f * u; }
+        else if (shotT < 0.30f) { const float u = sm((shotT - 0.08f) / 0.22f); thAhead = 0.07f + 0.03f * u; thUp = 0.045f - 0.09f * u; drop = (std::max)(drop, u); thHide = true; }
+        else if (shotT < 0.55f) { drop = 1.0f; thHide = true; }
+        else drop = (std::max)(drop, 1.0f - sm((shotT - 0.55f) / 0.35f));
+    }
     // QB-29: the reload, from the game's words for the player (the figure, whose
     // shots drive it in the other views, is not drawn here): the same magazine
     // count (kReloads) off his weapon's ammunition, timed in real seconds.
@@ -8810,7 +8897,12 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         shake[1] = 0.0010f * std::sin(tt * 53.0f + 1.3f) + 0.0005f * std::sin(tt * 89.0f);
     }
     float pos[3];
-    for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * (ahead - (flameFiring ? 0.004f : 0.0f)) + right[c] * (side + bobSide + swaySide + shake[0]) - up[c] * (down + bobDown + shake[1]);
+    for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * (ahead - (flameFiring ? 0.004f : 0.0f) + thAhead) + right[c] * (side + bobSide + swaySide + shake[0]) - up[c] * (down + bobDown + shake[1] - thUp);
+    if (thrown && ThrowSyncOn() && g_ownThrowFrame && !g_ownThrowRelease && shotT >= 0.05f && shotT < 0.30f) {   // FIX-FIGURE-15: the release
+        g_ownThrowRelease = g_carFrame;
+        for (int c = 0; c < 3; ++c) g_ownThrowHand[c] = pos[c] + (&f.x)[c] * 0.03f;
+        g_ownThrowHandValid = true;
+    }
     // The barrel on the crosshair: aimed at the point 5 blocks along the view
     // (the line of the shot), tipped up by the kick and the reload.
     float dir[3];
@@ -8994,7 +9086,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetFVF(kWorldFvf);
-    if (!fists) {
+    if (!fists && !thHide) {
         const bool pumping = pumpS > 0.0f;
         if (pumping) {
             g_pumpPose.model = model; g_pumpPose.dz = 0.045f * pumpS;
@@ -10285,6 +10377,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 } else if (track.weapon == kWpnMolotov || track.weapon == kWpnGrenade) {
                     // A throw per press: the attack state's rising edge, or the thrown thing seen.
                     const bool press = gameShot || shotNow;
+                    // FIX-FIGURE-15 (pfl78): held fire throws a bottle every few frames; a press while the throw is past its
+                    // release swings again (the clip from its forward swing), so every bottle leaves a throwing hand.
+                    if (press && track.action == 13 && track.actionTime > 0.40f && ThrowSyncOn()) {
+                        track.actionTime = 0.24f;
+                        if (ownPed) NoteOwnThrow();
+                    }
                     if (track.action == 13 || press) wantAction = 13;
                     else wantAction = carrying ? CarryFor(track.weapon) : 0;
                 } else if (g_carFrame < track.aimUntil) {
@@ -10606,7 +10704,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // bottle go (its ammunition drops on the press), so the clip starts at the
             // forward swing: the hand passes the release point (0.34 s) three frames later,
             // not a third of a second after the bottle left.
-            if (wantAction == 13) track.actionTime = 0.24f;
+            if (wantAction == 13) { track.actionTime = 0.24f; if (ownPed) NoteOwnThrow(); }   // FIX-FIGURE-15
         } else if (hitNow && track.action == 22) {
             track.actionTime = 0.0f;   // hit again: the snap again
         }
@@ -12485,6 +12583,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // sparks and case come off its muzzle on the frame of a shot.
                 const bool reloadPose = IsReloadAction(track.action);   // QB-29
                 const bool stance = IsAimAction(track.action) || track.action == 13 || IsCarryAction(track.action) || reloadPose;
+                // FIX-FIGURE-15 (pfl78): his throwing hand passes the release: the game's bottle is let out of it from here.
+                if (ownPed && track.action == 13 && track.actionTime > 0.34f && g_ownThrowFrame && !g_ownThrowRelease && g_hiddenObjects[0] != g_playerObject)
+                    g_ownThrowRelease = g_carFrame;
                 if (stance && actW > 0.3f && g_pedWeapons && track.weapon > 0 && track.weapon < kWpnCount &&
                     !(track.action == 13 && track.actionTime > 0.34f)) {
                     const WeaponInfo& wi = kWeapons[track.weapon];
@@ -12629,6 +12730,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             }
                             FigureLightBegin(device, figLit, figLight);
                             ModelDraw(device, *weapon, place, nullptr, 0.0f);
+                            if (ownPed && track.action == 13) { for (int c = 0; c < 3; ++c) g_ownThrowHand[c] = place.m[3][c]; g_ownThrowHandValid = true; }   // FIX-FIGURE-15
                             if ((track.action == 10 || track.action == 15) && haveL) {
                                 // The second pistol, in the left hand: the mirror of the right's hold.
                                 const gta2::Mat4 handLWorld = mul(handL, world);
@@ -13880,6 +13982,13 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             // fx4_mg_hide4: gone with it left out; 8/432-435 are the brass flecks, 8/503-505 the bullets).
             // In the street views the shot's debris is ShotFxMuzzle's brass case from the ejection port.
             if (base == 4 && num == 15) continue;
+            {   // FIX-FIGURE-15 (pfl78): his own bottle leaves his hand at the throw's release, not above his head at the press.
+                float off[3];
+                const float* m3 = sprite.objectToWorld.m[3];
+                const int t = OwnThrowSprite(base, num, sprite.object, m3, off);
+                if (t == 1) continue;
+                if (t == 2) for (int c = 0; c < 3; ++c) const_cast<Sprite&>(sprite).objectToWorld.m[3][c] += off[c];
+            }
             // FIX-FIGURE-14 (pfl72): first person on foot, for 15 frames after his shot, the game's impact debris
             // (8/432-435, the chips a bullet throws off what it hits) is lifted 0.30 block: the game fires at his
             // body's height, 0.30 under the eye, so at a wall a block away the shotgun's hits burst low beside the
@@ -14186,6 +14295,20 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     auto issue = [&](const std::vector<Drawable>& list, bool fx = false) {
         bool tinted = false;
         for (const Drawable& d : list) {
+            // FIX-FIGURE-15 (pfl78): the burning rag of his own bottle (8/400-410, an effect) with the bottle: left out
+            // before the release, carried from the hand after it (OwnThrowSprite).
+            if (fx && g_ownThrowFrame && g_carFrame - g_ownThrowFrame <= 40u && d.sprite && d.sprite->object && g_uprightPeds) {
+                int b8 = -1; unsigned n8 = 0;
+                GTA2_TRY {
+                    const uint8_t* obj = reinterpret_cast<const uint8_t*>(d.sprite->object);
+                    b8 = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase);
+                    n8 = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber);
+                } GTA2_EXCEPT { b8 = -1; }
+                float off[3];
+                const int t = OwnThrowSprite(b8, n8, d.sprite->object, d.sprite->objectToWorld.m[3], off);
+                if (t == 1) continue;
+                if (t == 2) for (int c = 0; c < 3; ++c) const_cast<Sprite*>(d.sprite)->objectToWorld.m[3][c] += off[c];
+            }
             // Ground views: the fire/explosion art is magnified hard, so it is bilinear (the classic view keeps point sampling).
             const bool smoothFx = fx && g_uprightPeds;
             D3DMATRIX world;

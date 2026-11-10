@@ -1816,3 +1816,25 @@ filmed the 0.7 s version).
 - A/B: `GTA2DX9_MG_STANCE_OLD=1`.
 - Short of a shipping frame: from straight behind the gun is hidden by his body (GTA5's chase camera sits over the
   right shoulder, which is a camera change); no muzzle-climb spread of the hands across a long burst.
+
+### pfl78 molotov (both views) + feel12 molotov twin: the bottle leaves the throwing hand
+
+- Seen (HEAD, fig15_mo1, wil plaza): third person the game's bottle (code objects 4/300-311 tumbling, its burning
+  rag 8/400-410) appears 0.6-0.9 block over his floor, above his head, on the press, a few frames before the throw
+  clip's arm comes forward (fig15_mo1 third 15 fps: bottle in flight frames 4-6, arm forward 6-9); held fire threw
+  a bottle every few frames with no new swing. First person the bottle in the hand never moved (fig15_mo1 first).
+- Fix (live_geometry.cpp `OwnThrowSprite`, `NoteOwnThrow`): from his press (the game lets the bottle go on it) the
+  game's bottle and rag near him are left out until his throwing hand passes the release (the throw clip's 0.34 s;
+  first person the view model's 0.05 s), then each bottle (by its sprite object) is drawn moved from the hand onto
+  its own path, the offset eased out over 0.4 s; a new bottle near him with no press read yet is held back three
+  frames (the game draws it before the press is read). Held fire: a press past the release swings again.
+- First person: a throw: the hand thrusts forward and up (0.08 s, the release), follows through down out of the
+  view empty (to 0.30 s), stays empty to 0.55 s, a fresh bottle comes up by 0.90 s. The bottle's flames ahead of
+  the eye no longer count as a throw (each restarted it).
+- Verified: fig15_mo4/mo7 third person (side fixed camera, 15-30 fps: bottle in the hand through the wind-up, at
+  the hand as the arm comes forward, then away along its path; no bottle over his head before the swing); FP
+  fig15_mo3/mo8 (thrust, empty hand, new bottle).
+- Short of a shipping frame: the throw clip is the avatar's mocap from its forward swing (no wind-up behind the
+  head, the game gives 1 frame); the bottle's arc is the game's (high); the empty FP hand is a fist, not an open
+  release; grenades use their own code-object numbers (not mapped, not tested).
+- A/B: `GTA2DX9_THROW_SYNC=0`.
