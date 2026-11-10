@@ -1632,6 +1632,15 @@ car's pass: he lies flat on the road while it passes, then gets up and walks. Cl
 stage (kd2_c0) against this build (kd2_c2) gives 0 differing static pixels before any 3D view and after the first V
 cycle. After the second cycle 228 differ; all of them are a game pedestrian sprite standing still in one run's window
 (crop opened); the tiles are identical.
-Not fixed: the solver roll still swings a leg up to his own height for a few frames (kd2_b #1 second roll).
+The played roll (FIX-KNOCKDOWN-2, triage pass 204: the solver roll flipped him through a head-down handstand). The roll
+onto his front is no longer a velocity kick into the solver. It is played over 0.7 s: the whole body turns half a turn
+about its long axis, through the middle of the torso at the height it lies, and moves 0.12 block toward the side it
+rolls to. Elbows, hands, knees and feet are drawn in toward the axis mid-roll (up to 55 %) and are back at their lengths at
+the end. Positions and previous positions are set together, so the solver takes over with no speed. kd2_r1 #2 (trace):
+pelvis 0.030-0.034 through the roll, highest joint 0.089, no velocity after it, then up from his front. Frames opened at
+10 fps (crop on the body): on his back, turns over along the ground, lies prone, gets up. `GTA2DX9_KD_ROLL=0` restores the
+solver roll (A/B).
+Still short: while he lies, the contact shadow stays at the game's spot, up to a body-length from the body (the shadow
+pass, not the knock-down code). The get-up is still the reversed `fall_front`.
 - The captures run 30 fps, but the game rendered about 20-25 fps on the loaded host (repeated frames in the
   recording).

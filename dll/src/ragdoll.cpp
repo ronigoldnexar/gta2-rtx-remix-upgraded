@@ -203,6 +203,11 @@ struct Body {
     float kickAge = 0.0f;   // age at the last deliberate push (the throw at 0, a roll): upward speed free for 0.6 s after
     int dbgWalls = 0, dbgCar = 0;   // FIX-KNOCKDOWN-2 trace: joints the walls sent back, car contacts, this frame
     float dbgDrift = 0.0f, dbgMove = 0.0f;
+    // FIX-KNOCKDOWN-2 (triage 204: the solver roll flipped him through a head-down handstand): the roll is played,
+    // not thrown: the body turned half a turn about its long axis at the height it lies, limbs drawn in mid-roll.
+    float rollLeft = 0.0f, rollDur = 0.0f, rollAngle = 0.0f;
+    Vec3 rollAxis{0.0f, 0.0f, 1.0f}, rollCentre{0.0f, 0.0f, 0.0f}, rollShift{0.0f, 0.0f, 0.0f};
+    Vec3 rollFrom[kParticles];
     int dbgShove = 0;         // other cars' shoves this frame
     float leash = 0.9f;       // how far from the game's spot he may lie: longer while a car shoves him, eased back
 };
@@ -221,6 +226,36 @@ std::vector<BlastNote> g_blasts;
 
 const Body* g_hookBody = nullptr;
 // FIX-KNOCKDOWN-2: the ground latch, the lift cap and the other cars' shove; GTA2DX9_KD_GROUND_LATCH=0 = as before (A/B).
+bool Kd2Roll() {
+    static int on = -1;
+    if (on < 0) { const char* e = getenv("GTA2DX9_KD_ROLL"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
+// The played roll, one frame: positions set (and previous positions with them: no speed of its own).
+void RollFrame(Body& b, float dt, float gy) {
+    b.rollLeft = (std::max)(0.0f, b.rollLeft - dt);
+    const float t = 1.0f - b.rollLeft / b.rollDur;
+    const float e = t * t * (3.0f - 2.0f * t);
+    const float th = b.rollAngle * e, c = std::cos(th), sn = std::sin(th);
+    const float tuck = 0.55f * std::sin(3.14159265f * t);   // limbs drawn in toward the long axis mid-roll
+    const Vec3 a = b.rollAxis;
+    for (int k = 0; k < kParticles; ++k) {
+        Vec3 r = b.rollFrom[k] - b.rollCentre;
+        const bool limb = k == kLElbow || k == kLHand || k == kRElbow || k == kRHand || k == kLKnee || k == kLFoot ||
+                          k == kRKnee || k == kRFoot;
+        if (limb) {
+            const Vec3 along = a * gta2::Dot(r, a);
+            r = along + (r - along) * (1.0f - tuck);
+        }
+        const Vec3 rr = r * c + gta2::Cross(a, r) * sn + a * (gta2::Dot(a, r) * (1.0f - c));
+        Vec3 p = b.rollCentre + b.rollShift * e + rr;
+        if (p.y < gy + kRadius[k]) p.y = gy + kRadius[k];
+        b.q[k].p = p;
+        b.q[k].prev = p;
+    }
+    b.age += dt;
+    if (b.rollLeft <= 0.0f) { b.settled = false; b.still = 0.0f; }
+}
 bool Kd2Fix() {
     static int on = -1;
     if (on < 0) { const char* e = getenv("GTA2DX9_KD_GROUND_LATCH"); on = (e && *e == '0') ? 0 : 1; }
@@ -895,7 +930,9 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
         }
     }
     bool stepped = false;
-    if (!b.settled && dt > 0.0f && b.seen != frame) { Step(b, (std::min)(dt, 0.1f), gy, frame); stepped = true; }
+    if (b.rollLeft > 0.0f) {
+        if (dt > 0.0f && b.seen != frame) { RollFrame(b, (std::min)(dt, 0.1f), gy); stepped = true; }
+    } else if (!b.settled && dt > 0.0f && b.seen != frame) { Step(b, (std::min)(dt, 0.1f), gy, frame); stepped = true; }
     // FIX-KNOCKDOWN (kd_t2 #2): never far from the game's spot for him. A truck dragged the player 2.7 blocks one
     // way while the throw carried the body the other: it lay 1.9 blocks off, out of the camera's picture, and
     // the get-up had to walk all of that back. Past kMaxDrift the whole body is carried along (dragged).
@@ -977,6 +1014,22 @@ bool RagdollRollOver(uintptr_t ped) {
     // Turn rate about the long axis (half a turn in ~0.45 s) about the line along the ground on the side
     // he rolls to, plus a small lift so the shoulder clears the road.
     const float omega = -8.5f * dir;   // axis x up = -across: the chest goes toward +across * dir
+    if (Kd2Roll()) {
+        // Played: half a turn about the line through the middle of his torso at the height it lies, over 0.7 s,
+        // moving 0.12 block toward the side he rolls to; the ground under him, never a lift.
+        Vec3 mid = (b.q[kPelvis].p + b.q[kChest].p) * 0.5f;
+        b.rollCentre = mid;
+        b.rollAxis = axis;
+        b.rollAngle = -3.14159265f * dir;
+        b.rollShift = across * (0.12f * dir);
+        b.rollDur = b.rollLeft = 0.7f;
+        for (int k = 0; k < kParticles; ++k) { b.rollFrom[k] = b.q[k].p; b.q[k].prev = b.q[k].p; }
+        b.settled = false;
+        b.still = 0.0f;
+        b.age = (std::max)(b.age, 0.61f);
+        Log("ragdoll: #%u rolls over onto his front, played over %.1f s (lean %.2f)", b.id, b.rollDur, lean);
+        return true;
+    }
     Vec3 centre = (b.q[kPelvis].p + b.q[kChest].p) * 0.5f;
     centre = centre + across * (0.05f * dir);
     const float h30 = 1.0f / 30.0f;
