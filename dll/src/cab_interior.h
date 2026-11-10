@@ -68,6 +68,8 @@ bool CabLastDriverPose(CabDriverPose* out);
 // to the body's next frame on (no double hands); they come back ~0.25 s after the body stops being drawn.
 void CabNoteDriverBody();
 bool CabDriverBodyRecent();
+// FIX-COCKPIT-BODY-2: where the body's hands hold the rim, radians above its horizontal (0.52: ten to two).
+void CabSetGripAngle(float radians);
 
 // Under Remix (and [devtools] remix_cab_albedo != 0) the surfaces' colours go into their textures,
 // the only albedo Remix reads (FIX-REMIX-NIGHT-2). Off: the plain renderer's material colours.

@@ -976,6 +976,32 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
   has a carpeted floor 0.20 under the eye and a seat cushion under his hips (looking down showed the road through
   the cab). With the body drawn the cab's floating fists (`fp_arm_right`) are not. `[camera] fp_driver_body=0` (or
   `GTA2DX9_FP_BODY=0`) leaves the body out; `GTA2DX9_FP_BODY_LOG=1` logs the gate, scale, reach and joints.
+- **The hands grip the rim (FIX-COCKPIT-BODY-2, pfl54 "two fat lumpy blobs hovering over the gauges").** The
+  body is drawn bigger than the rim's own scale so his arms reach the cab's wheel (0.61 of his size on the sedan
+  against the rim's 0.39, 0.73 against 0.58 on the van), so his hands came out as big as the rim's radius, curled
+  into fists whose knuckle line only was aimed at the grip: the rim ran through the backs of the hands. Now
+  (`DriverGripHook`, live_geometry.cpp) each hand is turned whole into a grip: the palm on the rim's outer side
+  facing the hub, the fingers round its front (the knuckle row along the rim's tangent), closed to 80 % of the
+  punch's fist (a fist with a hole), scaled about the wrist to the rim's scale (k = rim scale / body scale), the
+  upper arm and forearm thinned by k across their bones (the IK's joints stay put), and the next frame's wrist
+  target puts the closed fingers' hole on the rim. The grips sit at ten to two (0.52 rad over the rim's
+  horizontal; 5c0ee78 had a quarter to three) and go round with the rim, each held to about 100 degrees of travel
+  (past that the rim slides through the hand instead of taking it down behind the binnacle, where it floated over
+  the gauges). `GTA2DX9_FP_GRIP=0` is the 5c0ee78 fists; live `[devtools]` keys `fp_grip_tilt` (90), `fp_grip_deg`
+  (30), `fp_grip_curl` (80), `fp_hand_scale` (100; 0 = the body's own hand size). Probe `gamerun/keys_cb2grip.sh`
+  (`cb2grip_probe.py`: the sweep on the sedan, then held turns on 013/068/021). Runs cb2_g1, cb2_g2, cb2_p54a, cb2_v3.
+- **The windscreen frame per body (FIX-COCKPIT-BODY-2, pfl54 "thin flat sticks and a wide roof slab, the same on
+  every car; pillars end in the hood").** The header stood 0.02 beyond the windscreen's foot on every class (the
+  pillars leaned forward) and each A-pillar was one flat strip. Now the screen rakes per class (the header at
+  0.52 of the foot's distance on a sports car, 0.64 a car, 0.86 a van, 0.93 a truck, 0.96 a bus; at least 0.70
+  open-top), the header kept at the class's angle over the eye and the rear-view mirror scaled to keep its size
+  on screen; each pillar is a tapered post (a face toward the eye in the lining's colour, a darker side toward
+  the cabin, a rubber seal on the glass edge and the door frame's edge, a gusset at the foot), standing on the
+  cowl (a dark lip along the screen's base between the feet) and joined to the door's top rail: the passenger's
+  side now has a door sill and card from the pillar's foot back past the eye like the driver's. The van and truck
+  read as near-vertical posts at the frame's edges, the sedan's as raked posts. `GTA2DX9_FP_PILLARS_OLD=1` is the
+  5c0ee78 frame. Still short: the class sets the rake (the model's own glass is not read: the cab draws from the
+  hood copy's dash line), the header is a flat lining with no visor, the far pillar shows mostly its dark side.
 - **The seat in first person (car_bodies.cpp, boarding.cpp).** car_bodies never published the own car to boarding
   from the seat (cpuCut), so a seated figure was let go 6 frames into first person and a climb into the car never
   reached the seat once the eye glided inside. The own car is now published in first person too, except while an
@@ -989,6 +1015,11 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
   in a car; `[camera] dashcam=1` starts with it. The two looks are separate flags: the dashcam never changes the
   cockpit's drawing and the cockpit's body never draws in the dashcam. Log lines `cockpit: dashcam (key)` /
   `cockpit: cockpit (key)`.
+- **The dashcam is clean (FIX-COCKPIT-BODY-2).** The dashcam sits on the glass behind the mirror: in it the cab draws no
+  header lining, no rear-view mirror, no A-pillars and no door mirrors (cb2_v3 `t_dc_dashcam` showed thick posts at
+  both edges and the lining across the top; cb2_v4 shows only the bonnet and the road). `GTA2DX9_DASHCAM_FRAME=1`
+  draws the frame as 5c0ee78 did. A first-person near pass for the arms cut when looking far down is designed (not
+  built) in `defects/assigned/owner-fp-cockpit-no-driver-body-and-wheel-counter-rotates.FIX-COCKPIT-BODY-2-NEAR-PASS-DESIGN.md`.
 - **What still falls short of the bar.** The renderer's near plane is 0.05 block (about 25 cm at the cab's scale):
   his shoulders are always behind it, so looking steeply down (past ~45 degrees) the upper arms end in a flat cut
   where they cross it; a real fix is a separate first-person pass with its own near plane (cab and body together),

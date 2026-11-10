@@ -54,16 +54,89 @@ bool FpDriverBodyOn() {
 // FIX-COCKPIT-BODY: the driver's hands on the rim, after the arms' IK: the fingers closed (the punch's fist
 // curl) and each hand turned about its wrist so the knuckles point at its grip on the rim (the clip's wrist
 // left the fists hanging under the rim). Model space; set as the pose hook for his body's draw only.
+// FIX-COCKPIT-BODY-2 (pfl54 "two fat lumpy blobs hovering over the gauges, not gripping the wheel"): with `grip`
+// on (GTA2DX9_FP_GRIP=0 is the 5c0ee78 hook) each hand is a grip round the rim's tube: the fingers closed to
+// `curl` of the punch's fist (a fist with a hole), the hand turned whole (not only its knuckle line) so the rim
+// runs across the palm (the knuckle row along the rim's tangent, the palm facing forward on the rim's back, the
+// fingers over its outer side, tilted `tilt` toward the hub), scaled about the wrist by `k` (the rim's own scale
+// against the body's: the body is drawn bigger than the rim's scale so his arms reach the cab's wheel, and the
+// hands came out as big as the rim's radius), and the upper arm and forearm thinned by `k` across their bones
+// (their joints stay where the IK put them). `holeOff` (written by the hook) is where the closed fingers' hole
+// sits from the wrist: the next frame's wrist target puts that hole on the rim.
 struct DriverHands {
     const Model* model = nullptr;
     int hand[2] = {-1, -1}, knuckle[2] = {-1, -1};   // [0] left, [1] right
     std::vector<int> under[2];                       // every node under each hand
     float grip[2][3] = {};
+    // FIX-COCKPIT-BODY-2
+    bool gripOn = false;
+    int tip[2] = {-1, -1}, mid[2] = {-1, -1}, ua[2] = {-1, -1}, fa[2] = {-1, -1};
+    std::vector<int> upperOnly[2], foreOnly[2];      // nodes of the upper arm (not under the forearm), of the forearm (not under the hand)
+    float tan[2][3] = {}, rad[2][3] = {}, axis[2][3] = {};   // the rim at each grip (model space, unit)
+    float k = 1.0f, curl = 1.0f, tilt = 0.35f;
+    float holeOff[2][3] = {};
+    bool holeOk[2] = {false, false};
 };
 DriverHands g_driverHands;
+namespace {
+gta2::Vec3 NodeAt(const std::vector<gta2::Mat4>& W, int n) { const gta2::Mat4& M = W[static_cast<size_t>(n)]; return {M.m[3][0], M.m[3][1], M.m[3][2]}; }
+gta2::Vec3 RowOf(const gta2::Mat4& M, int r) { return {M.m[r][0], M.m[r][1], M.m[r][2]}; }
+void SetRow(gta2::Mat4& M, int r, const gta2::Vec3& v) { M.m[r][0] = v.x; M.m[r][1] = v.y; M.m[r][2] = v.z; }
+// FIX-COCKPIT-BODY-2: the grip (see DriverHands).
+void DriverGripHook(const Model& model, std::vector<gta2::Mat4>* W, DriverHands& d) {
+    weaponrig::CurlFists(model, W, d.curl);
+    auto V = [](const float* f) { return gta2::Vec3{f[0], f[1], f[2]}; };
+    for (int h = 0; h < 2; ++h) {
+        // the arms thinner across their bones (a line through the joint along the bone: v -> along + k * across)
+        if (d.ua[h] >= 0 && d.fa[h] >= 0 && d.hand[h] >= 0 && d.k < 0.999f) {
+            const gta2::Vec3 pu = NodeAt(*W, d.ua[h]), pf = NodeAt(*W, d.fa[h]), ph = NodeAt(*W, d.hand[h]);
+            auto thin = [&](gta2::Mat4& M, const gta2::Vec3& piv, const gta2::Vec3& ax) {
+                auto S = [&](const gta2::Vec3& v) { const gta2::Vec3 a = ax * gta2::Dot(v, ax); return a + (v - a) * d.k; };
+                for (int r = 0; r < 3; ++r) SetRow(M, r, S(RowOf(M, r)));
+                const gta2::Vec3 t = piv + S(RowOf(M, 3) - piv);
+                SetRow(M, 3, t);
+            };
+            const gta2::Vec3 au = gta2::Normalize(pf - pu), af = gta2::Normalize(ph - pf);
+            for (int n : d.upperOnly[h]) thin((*W)[static_cast<size_t>(n)], pu, au);
+            for (int n : d.foreOnly[h]) thin((*W)[static_cast<size_t>(n)], pf, af);
+        }
+        if (d.hand[h] < 0 || d.knuckle[h] < 0 || d.tip[h] < 0) continue;
+        const gta2::Vec3 p = NodeAt(*W, d.hand[h]), kn = NodeAt(*W, d.knuckle[h]), tp = NodeAt(*W, d.tip[h]);
+        const gta2::Vec3 a = gta2::Normalize(kn - p);
+        gta2::Vec3 pn = tp - kn; pn = pn - a * gta2::Dot(pn, a);
+        if (gta2::Dot(pn, pn) < 1e-12f) continue;
+        pn = gta2::Normalize(pn);                       // the palm's side (the closed fingers curl toward it)
+        const gta2::Vec3 b = gta2::Cross(a, pn);
+        // the target: the palm on the rim's back facing forward, tilted toward the hub; the fingers out over its outer side
+        const gta2::Vec3 T = gta2::Normalize(V(d.tan[h])), Rd = gta2::Normalize(V(d.rad[h])), N = gta2::Normalize(V(d.axis[h]));
+        const float ct = std::cos(d.tilt), st = std::sin(d.tilt);
+        const gta2::Vec3 pn1 = gta2::Normalize(N * ct - Rd * st);
+        gta2::Vec3 a1 = gta2::Normalize(Rd * ct + N * st);
+        gta2::Vec3 b1 = gta2::Cross(a1, pn1);
+        (void)T;
+        // rotation taking (a, pn, b) to (a1, pn1, b1): v -> a1 (a.v) + pn1 (pn.v) + b1 (b.v)
+        auto rot = [&](const gta2::Vec3& v) { return a1 * gta2::Dot(a, v) + pn1 * gta2::Dot(pn, v) + b1 * gta2::Dot(b, v); };
+        auto place = [&](gta2::Mat4& M) {
+            for (int r = 0; r < 3; ++r) SetRow(M, r, rot(RowOf(M, r)) * d.k);
+            SetRow(M, 3, p + rot(RowOf(M, 3) - p) * d.k);
+        };
+        place((*W)[static_cast<size_t>(d.hand[h])]);
+        for (int n : d.under[h]) place((*W)[static_cast<size_t>(n)]);
+        // the hole the closed fingers leave: between the knuckle, the middle joint and the tip, a little toward the palm
+        const gta2::Vec3 k2 = NodeAt(*W, d.knuckle[h]), t2 = NodeAt(*W, d.tip[h]);
+        const gta2::Vec3 m2 = d.mid[h] >= 0 ? NodeAt(*W, d.mid[h]) : (k2 + t2) * 0.5f;
+        const gta2::Vec3 hole = (k2 + m2 + t2) * (1.0f / 3.0f);
+        const gta2::Vec3 off = hole - p;
+        d.holeOff[h][0] = off.x; d.holeOff[h][1] = off.y; d.holeOff[h][2] = off.z;
+        d.holeOk[h] = true;
+    }
+}
+}  // namespace
+
 void DriverHandsHook(const Model& model, std::vector<gta2::Mat4>* W, void* context) {
     DriverHands& d = *static_cast<DriverHands*>(context);
     if (&model != d.model || W->size() != model.nodes.size()) return;
+    if (d.gripOn) { DriverGripHook(model, W, d); return; }
     weaponrig::CurlFists(model, W, 1.0f);
     for (int h = 0; h < 2; ++h) {
         if (d.hand[h] < 0 || d.knuckle[h] < 0) continue;
@@ -11561,7 +11634,45 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                     for (int q = model->nodes[i].parent; q >= 0; q = model->nodes[static_cast<size_t>(q)].parent)
                                         if (q == d.hand[h]) { d.under[h].push_back(static_cast<int>(i)); break; }
                             }
+                            // FIX-COCKPIT-BODY-2: the middle finger's joints and the arms' own nodes (for the grip)
+                            auto isUnder = [&](int n, int anc) {
+                                for (int q = n; q >= 0; q = model->nodes[static_cast<size_t>(q)].parent) if (q == anc) return true;
+                                return false;
+                            };
+                            static const char* const kMid[2][2] = {{"Bip01 L Finger21", "Bip01 L Finger22"}, {"Bip01 R Finger21", "Bip01 R Finger22"}};
+                            for (int h = 0; h < 2; ++h) {
+                                for (size_t i = 0; i < model->nodes.size(); ++i) {
+                                    if (strcmp(model->nodes[i].name, kMid[h][0]) == 0) d.mid[h] = static_cast<int>(i);
+                                    if (strcmp(model->nodes[i].name, kMid[h][1]) == 0) d.tip[h] = static_cast<int>(i);
+                                }
+                                d.ua[h] = A.ua[h]; d.fa[h] = A.fa[h];
+                                for (size_t i = 0; i < model->nodes.size() && d.ua[h] >= 0 && d.fa[h] >= 0 && d.hand[h] >= 0; ++i) {
+                                    const int n = static_cast<int>(i);
+                                    if (isUnder(n, d.hand[h])) continue;
+                                    if (isUnder(n, d.fa[h])) d.foreOnly[h].push_back(n);
+                                    else if (isUnder(n, d.ua[h])) d.upperOnly[h].push_back(n);
+                                }
+                            }
                             g_driverHands = d;
+                        }
+                        // FIX-COCKPIT-BODY-2: the grip's settings. GTA2DX9_FP_GRIP=0: the 5c0ee78 fists; [devtools]
+                        // fp_grip_tilt (degrees, 90: the palm on the rim's outer side facing the hub, the fingers round its front), fp_grip_deg (the grips above the rim's horizontal, 30: ten to two), fp_grip_curl (percent of the fist, 80), fp_hand_scale (percent of the
+                        // rim's scale against the body's, 100; 0 = the body's own hands), re-read every 30 frames.
+                        static const bool gripEnv = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_GRIP", b, sizeof b) && b[0] == '0'); }();
+                        static int gripTilt = 90, gripCurl = 80, handScalePct = 100;
+                        if ((g_carFrame % 30) == 0) {
+                            gripTilt = GetPrivateProfileIntA("devtools", "fp_grip_tilt", 90, CarBodiesDevIni());
+                            gripCurl = GetPrivateProfileIntA("devtools", "fp_grip_curl", 80, CarBodiesDevIni());
+                            handScalePct = GetPrivateProfileIntA("devtools", "fp_hand_scale", 100, CarBodiesDevIni());
+                            CabSetGripAngle(GetPrivateProfileIntA("devtools", "fp_grip_deg", gripEnv ? 30 : 17, CarBodiesDevIni()) * 3.14159265f / 180.0f);
+                        }
+                        g_driverHands.gripOn = gripEnv;
+                        {
+                            const float s0 = fpPose.wheelR / (0.19f * perM);   // the rim's own scale
+                            const float kk = handScalePct <= 0 ? 1.0f : (std::max)(0.45f, (std::min)(1.0f, s0 / sfp * handScalePct / 100.0f));
+                            g_driverHands.k = std::floor(kk * 50.0f + 0.5f) / 50.0f;
+                            g_driverHands.curl = (std::max)(0.3f, (std::min)(1.0f, gripCurl / 100.0f));
+                            g_driverHands.tilt = static_cast<float>(gripTilt) * 3.14159265f / 180.0f;
                         }
                         // which shoulder is on the screen's right: that hand takes the right-hand grip
                         const bool lIsRight = gta2::Dot(sh[0] - sh[1], fpPose.right) > 0.0f;
@@ -11572,7 +11683,24 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             const int g = onRight == g0Right ? 0 : 1;
                             // the wrist a palm short of the grip, toward the shoulder (the fist round the rim)
                             const gta2::Vec3 toSh = gta2::Normalize(sh[limb] - fpPose.grip[g]);
-                            const gta2::Vec3 wrist = fpPose.grip[g] + toSh * (0.05f * mPerCab) - fpPose.wheelAxis * (0.01f * mPerCab);
+                            gta2::Vec3 wrist = fpPose.grip[g] + toSh * (0.05f * mPerCab) - fpPose.wheelAxis * (0.01f * mPerCab);
+                            if (g_driverHands.gripOn) {
+                                // the rim at this grip, model space, for the hook; the wrist where the fingers' hole lands on the rim
+                                float tm2[3], rm2[3], am2[3];
+                                BoardingWorldToModel(Wn, fpPose.rimTangent[g], true, tm2);
+                                BoardingWorldToModel(Wn, gta2::Normalize(fpPose.grip[g] - fpPose.wheelCentre), true, rm2);
+                                BoardingWorldToModel(Wn, fpPose.wheelAxis, true, am2);
+                                auto unit3 = [](float* v) { const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); if (l > 1e-9f) for (int c = 0; c < 3; ++c) v[c] = std::floor(v[c] / l * 100.0f + 0.5f) / 100.0f; };
+                                unit3(tm2); unit3(rm2); unit3(am2);
+                                for (int c = 0; c < 3; ++c) { g_driverHands.tan[limb][c] = tm2[c]; g_driverHands.rad[limb][c] = rm2[c]; g_driverHands.axis[limb][c] = am2[c]; }
+                                if (g_driverHands.holeOk[limb]) {
+                                    const float* o = g_driverHands.holeOff[limb];
+                                    const gta2::Vec3 ow{o[0] * Wn.m[0][0] + o[1] * Wn.m[1][0] + o[2] * Wn.m[2][0],
+                                                        o[0] * Wn.m[0][1] + o[1] * Wn.m[1][1] + o[2] * Wn.m[2][1],
+                                                        o[0] * Wn.m[0][2] + o[1] * Wn.m[1][2] + o[2] * Wn.m[2][2]};
+                                    wrist = fpPose.grip[g] - ow;
+                                }
+                            }
                             const gta2::Vec3 pole = gta2::Normalize(fpPose.right * (onRight ? 1.0f : -1.0f) - U * 0.35f);   // elbows out
                             float tm[3], pm[3];
                             BoardingWorldToModel(Wn, wrist, false, tm);
@@ -11795,6 +11923,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     uint64_t key = 0x2D00000000000000ull;
                     for (int h = 0; h < 2; ++h)
                         for (int c = 0; c < 3; ++c) key = key * 1000003ull + static_cast<uint64_t>(static_cast<int64_t>(g_driverHands.grip[h][c] * 1000.0f));
+                    if (g_driverHands.gripOn) {   // FIX-COCKPIT-BODY-2: the grip's settings and the rim's frame at each hand
+                        key = key * 1000003ull + static_cast<uint64_t>(g_driverHands.k * 50.0f + 0.5f) * 1009ull + static_cast<uint64_t>(g_driverHands.curl * 100.0f + 0.5f) * 101ull +
+                              static_cast<uint64_t>(static_cast<int64_t>(g_driverHands.tilt * 1000.0f));
+                        for (int h = 0; h < 2; ++h)
+                            for (int c = 0; c < 3; ++c) key = key * 1000003ull + static_cast<uint64_t>(static_cast<int64_t>(g_driverHands.rad[h][c] * 100.0f) + 200) * 7ull +
+                                                                  static_cast<uint64_t>(static_cast<int64_t>(g_driverHands.axis[h][c] * 100.0f) + 200);
+                    }
                     ModelSetPoseHook(&DriverHandsHook, &g_driverHands, key | (1ull << 61));
                     ModelSetHideHead(true);
                 }

@@ -368,6 +368,8 @@ bool CabLastDriverPose(CabDriverPose* out) {
     return true;
 }
 void CabNoteDriverBody() { g_bodyStamp = GetTickCount64(); }
+float g_gripPhi = 0.52f;   // FIX-COCKPIT-BODY-2: the body's grips above the rim's horizontal (radians; 5c0ee78: 0.30)
+void CabSetGripAngle(float radians) { g_gripPhi = (std::max)(0.0f, (std::min)(1.2f, radians)); }
 bool CabDriverBodyRecent() { return g_bodyStamp && GetTickCount64() - g_bodyStamp < 250; }
 
 bool CabHeaderScreenBottom(float* fraction) {
@@ -688,7 +690,11 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             for (int h = 0; h < 2; ++h) {
                 // a quarter to three (the rim's nearest stretch on a raked wheel: his arms reach it with the
                 // elbows bent), turned with the rim (the hands go round with it, no sliding)
-                const float phi = (h == 0 ? 0.30f : kPi - 0.30f) + turn;
+                // FIX-COCKPIT-BODY-2 (pfl54): ten to two by default (g_gripPhi, [devtools] fp_grip_deg via CabSetGripAngle)
+                // and past ~100 degrees of travel a hand lets the rim slide through it rather than follow it down
+                // behind the binnacle (the rim's lower half is inside the dash: a hand there floated over the gauges, cb2_g2)
+                const float phi = h == 0 ? (std::max)(-0.2f, (std::min)(2.3f, g_gripPhi + turn))
+                                         : (std::max)(kPi - 2.3f, (std::min)(kPi + 0.2f, kPi - g_gripPhi + turn));
                 const Vec3 radial = across * std::cos(phi) + up * std::sin(phi);
                 g_driver.grip[h] = W(c + radial * R);
                 g_driver.rimTangent[h] = WV(up * std::cos(phi) - across * std::sin(phi));
@@ -741,8 +747,31 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // The mirror hangs on a stalk with a base plate screwed to the header (or the rail) at
     // the middle of the car, locked to the car's frame like the rest of the cab.
     const float tanH = std::tan(st.headerAngle * kPi / 180.0f);
-    const float dH = dc + 0.02f, hHeader = tanH * dH;   // over the eye
-    {
+    // FIX-COCKPIT-BODY-2 (pfl54 "thin flat sticks and a wide roof slab, the same on every car; the pillar feet in
+    // the hood"): the windscreen rakes per body class: its top edge (the header) nearer the eye than its foot by
+    // the class's rake (a coupe's well back over the dash, a van's and a truck's nearly over the foot), the header
+    // kept at the class's angle over the eye. GTA2DX9_FP_PILLARS_OLD=1: the 5c0ee78 frame (the header 0.02 beyond
+    // the foot on every class, flat pillar strips).
+    static const bool pillarsOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_PILLARS_OLD", b, sizeof b) && b[0] == '1'; }();
+    float rake = 1.2f;
+    if (!pillarsOld) {
+        switch (p.cls) {
+            case CabClass::Sports: rake = 0.52f; break;
+            case CabClass::Car: rake = 0.64f; break;
+            case CabClass::Van: rake = 0.86f; break;
+            case CabClass::Truck: rake = 0.93f; break;
+            case CabClass::Bus: rake = 0.96f; break;
+        }
+        if (p.openTop) rake = (std::max)(rake, 0.70f);
+    }
+    const float dH = pillarsOld ? dc + 0.02f : dc * rake, hHeader = tanH * dH;   // over the eye
+    const float nearK = pillarsOld ? 1.0f : dH / (dc + 0.02f);   // the mirror kept at its old angular size
+    // FIX-COCKPIT-BODY-2 (owner item 3, "a clean forward-facing view, like a real dashcam"): the dashcam sits on the
+    // glass behind the mirror, so it sees no header lining, no mirror and no A-pillars (cb2_v3 t_dc_dashcam: thick
+    // posts at both edges and the lining across the top). GTA2DX9_DASHCAM_FRAME=1: the 5c0ee78 dashcam (the frame drawn).
+    static const bool dashFrame = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_DASHCAM_FRAME", b, sizeof b) && b[0] == '1'; }();
+    const bool cleanDash = p.dashcam && !dashFrame;
+    if (!cleanDash) {
         const float hx0 = x0 - 0.40f, hx1 = x1 + 0.40f;
         const Vec3 a0{hx0, ey + hHeader, ez + dH}, a1{hx1, ey + hHeader, ez + dH};
         const float roofUp = p.openTop ? 0.0090f : 0.08f, roofFwd = p.openTop ? 0.0112f : 0.10f;   // the lining's, or the rail's, depth
@@ -751,7 +780,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         // A darker seal along its lower edge, where the glass meets it.
         b.Quad(kTrim, a0, a1, a1 + Vec3{0.0f, 0.004f, 0.005f}, a0 + Vec3{0.0f, 0.004f, 0.005f});
         // The mirror: at the middle of the windscreen (the car's centre line), hung from the header.
-        const float w = 0.5f * st.mirrorW, h = 0.5f * st.mirrorH;
+        const float w = 0.5f * st.mirrorW * nearK, h = 0.5f * st.mirrorH * nearK;
         const float dMount = dH + 0.006f;
         // The seat is compressed (the pillars stand a hand either side of the eye), so the car's
         // centre line is off to one side of the view; the mirror takes the middle between the pillars.
@@ -759,7 +788,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         const float pxB = ex - side * (std::min)(std::fabs((side > 0 ? x0 : x1) - ex), 0.95f * dc);
         const float mirX = 0.5f * (pxA + pxB);
         const Vec3 mount{mirX, ey + tanH * dMount + 0.0006f, ez + dMount};
-        const Vec3 mc = mount + Vec3{0.0f, -(h + 0.0075f), 0.0045f};
+        const Vec3 mc = mount + Vec3{0.0f, -(h + 0.0075f * nearK), 0.0045f * nearK};
         const Vec3 toEye = gta2::Normalize(b.eye - mc);
         const Vec3 mu = gta2::Normalize(gta2::Cross(Vec3{0.0f, 1.0f, 0.0f}, toEye));
         const Vec3 mv = gta2::Normalize(gta2::Cross(toEye, mu));
@@ -797,28 +826,67 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         const Vec3 k0 = arm0 + Vec3{out * -0.003f, -0.002f, -0.002f}, k1 = arm0 + Vec3{out * 0.003f, 0.003f, 0.002f};
         b.Quad(kTrim, Vec3{k0.x, k0.y, k0.z}, Vec3{k1.x, k0.y, k0.z}, Vec3{k1.x, k1.y, k1.z}, Vec3{k0.x, k1.y, k1.z});
     };
-    {
+    if (cleanDash) {
+        // (the dashcam: no pillars, no door mirrors)
+    } else if (pillarsOld) {
+        {
+            const float reach = (std::min)(std::fabs((side > 0 ? x1 : x0) - ex), 0.105f);
+            const float px = ex + side * reach, w = 0.009f;
+            const Vec3 f0{px, top, ez + dc}, f1{px + side * w, top, ez + dc + 0.004f};
+            const Vec3 t0{px - side * 0.002f, ey + hHeader + 0.002f, ez + dH}, t1{px + side * (w - 0.002f), ey + hHeader + 0.002f, ez + dH + 0.004f};
+            b.Quad(kTrim, f0, f1, t1, t0);
+            wingMirror(side, px + side * w * 0.5f, ez + dc + 0.006f);
+            // FIX-FIGURE: the passenger's A-pillar, from the far dash corner to the header (a
+            // pillar of some thickness: inner face, and the face toward the eye).
+            // The seat is compressed (the dash a hand ahead): at its true reach the far pillar
+            // stood outside the view; kept within ~45 degrees of the nose, at the frame's edge.
+            const float reach2 = (std::min)(std::fabs((side > 0 ? x0 : x1) - ex), 0.95f * dc);
+            const float qx = ex - side * reach2, w2p = 0.012f;
+            const Vec3 g0{qx, top, ez + dc}, g1{qx - side * w2p, top, ez + dc + 0.006f};
+            const Vec3 u0{qx + side * 0.004f, ey + hHeader + 0.002f, ez + dH}, u1{qx - side * (w2p - 0.004f), ey + hHeader + 0.002f, ez + dH + 0.006f};
+            b.Quad(kTrim, g0, g1, u1, u0);
+            b.Quad(kHeader, g0, u0, u0 + Vec3{-side * 0.004f, 0.0f, -0.004f}, g0 + Vec3{-side * 0.004f, 0.0f, -0.004f});
+            wingMirror(-side, qx - side * w2p * 0.5f, ez + dc + 0.006f);
+            // The driver's pillar gets the same inner face.
+            b.Quad(kHeader, f0, t0, t0 + Vec3{side * 0.004f, 0.0f, -0.004f}, f0 + Vec3{side * 0.004f, 0.0f, -0.004f});
+        }
+    } else {
+        // FIX-COCKPIT-BODY-2: each A-pillar a tapered post of some depth (the face toward the eye, a side face toward
+        // the cabin and a dark rubber seal along the glass), from a foot on the cowl at the windscreen's base (a
+        // gusset into the door's top rail, which runs back past the eye on both sides: the pillar stands on the
+        // door, not on the bonnet) to the header at the class's rake, leaning in a little at the top.
+        auto pillar = [&](float out, float footX, float wFoot) {
+            const float zF = ez + dc, zT = ez + dH, yF = top + 0.0015f, yT = ey + hHeader + 0.0015f;
+            const float wTop = wFoot * (0.55f + 0.45f * nearK), lean = 0.10f * (dc - dH);
+            const Vec3 fI{footX, yF, zF}, fO{footX + out * wFoot, yF, zF - 0.003f};
+            const Vec3 tI{footX - out * lean, yT, zT}, tO{footX - out * lean + out * wTop, yT, zT - 0.002f};
+            b.Quad(kHeader, fI, fO, tO, tI);                                                     // the face toward the eye
+            const Vec3 back{0.0f, -0.0010f, -0.0060f};
+            b.Quad(kDashDark, fI, tI, tI + back - Vec3{out * 0.0015f, 0.0f, 0.0f}, fI + back - Vec3{out * 0.0015f, 0.0f, 0.0f});   // its side, toward the cabin
+            const Vec3 seal{-out * 0.0018f, 0.0f, 0.0015f};
+            b.Quad(kTrim, fI, tI, tI + seal, fI + seal);                                         // the glass's rubber
+            b.Quad(kTrim, fO, tO, tO + Vec3{out * 0.0012f, 0.0f, 0.0008f}, fO + Vec3{out * 0.0012f, 0.0f, 0.0008f});   // the door frame's edge
+            // the gusset: the foot widening into the cowl and the door's top rail
+            b.Tri(kHeader, fI, fO + Vec3{out * 0.006f, -0.0005f, -0.012f}, fO);
+            b.Quad(kTrim, fI + Vec3{0.0f, 0.0f, 0.004f}, fI + Vec3{-out * 0.012f, 0.0f, 0.004f}, fI + Vec3{-out * 0.012f, 0.0025f, 0.004f}, fI + Vec3{0.0f, 0.0025f, 0.004f});
+        };
         const float reach = (std::min)(std::fabs((side > 0 ? x1 : x0) - ex), 0.105f);
-        const float px = ex + side * reach, w = 0.009f;
-        const Vec3 f0{px, top, ez + dc}, f1{px + side * w, top, ez + dc + 0.004f};
-        const Vec3 t0{px - side * 0.002f, ey + hHeader + 0.002f, ez + dH}, t1{px + side * (w - 0.002f), ey + hHeader + 0.002f, ez + dH + 0.004f};
-        b.Quad(kTrim, f0, f1, t1, t0);
-        wingMirror(side, px + side * w * 0.5f, ez + dc + 0.006f);
-        // FIX-FIGURE: the passenger's A-pillar, from the far dash corner to the header (a
-        // pillar of some thickness: inner face, and the face toward the eye).
-        // The seat is compressed (the dash a hand ahead): at its true reach the far pillar
-        // stood outside the view; kept within ~45 degrees of the nose, at the frame's edge.
+        const float px = ex + side * reach;
+        pillar(side, px, 0.013f);
+        wingMirror(side, px + side * 0.0065f, ez + dc + 0.006f);
         const float reach2 = (std::min)(std::fabs((side > 0 ? x0 : x1) - ex), 0.95f * dc);
-        const float qx = ex - side * reach2, w2p = 0.012f;
-        const Vec3 g0{qx, top, ez + dc}, g1{qx - side * w2p, top, ez + dc + 0.006f};
-        const Vec3 u0{qx + side * 0.004f, ey + hHeader + 0.002f, ez + dH}, u1{qx - side * (w2p - 0.004f), ey + hHeader + 0.002f, ez + dH + 0.006f};
-        b.Quad(kTrim, g0, g1, u1, u0);
-        b.Quad(kHeader, g0, u0, u0 + Vec3{-side * 0.004f, 0.0f, -0.004f}, g0 + Vec3{-side * 0.004f, 0.0f, -0.004f});
-        wingMirror(-side, qx - side * w2p * 0.5f, ez + dc + 0.006f);
-        // The driver's pillar gets the same inner face.
-        b.Quad(kHeader, f0, t0, t0 + Vec3{side * 0.004f, 0.0f, -0.004f}, f0 + Vec3{side * 0.004f, 0.0f, -0.004f});
+        const float qx = ex - side * reach2;
+        pillar(-side, qx, 0.015f);
+        wingMirror(-side, qx - side * 0.0075f, ez + dc + 0.006f);
+        // the passenger's door: its top rail (the sill at the window line) and card, from the pillar's foot back past the eye
+        const float qd = qx - side * 0.006f;
+        auto Q = [&](float d, float h, float in) { return Vec3{qd + side * in, top + h, ez + d}; };
+        b.Quad(kTrim, Q(dc, 0.004f, 0.0f), Q(-0.08f, 0.004f, 0.0f), Q(-0.08f, 0.004f, 0.014f), Q(dc, 0.004f, 0.014f));
+        b.Quad(kLower, Q(dc, 0.004f, 0.014f), Q(-0.08f, 0.004f, 0.014f), Q(-0.08f, -0.30f, 0.010f), Q(dc, -0.30f, 0.010f));
+        // the cowl: a dark lip along the windscreen's base between the pillars' feet, where the glass meets the dash
+        b.Quad(kTrim, Vec3{qx, top + 0.0005f, ez + dc + 0.002f}, Vec3{px, top + 0.0005f, ez + dc + 0.002f},
+               Vec3{px, top + 0.0030f, ez + dc + 0.004f}, Vec3{qx, top + 0.0030f, ez + dc + 0.004f});
     }
-
     // FIX-FP-2 (pm30): the driver's door card under the window line, beside and behind the
     // dash: the sill, the card in the lower dash's vinyl and an armrest. In the frame's lower
     // corner on the driver's side (the seat is compressed: kept at the A-pillar's reach).
@@ -859,7 +927,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // line), projected through the view and projection the cab is drawn with.
     const float keptHeaderBottom = g_headerBottom;
     g_headerBottom = -1.0f;
-    if (!p.openTop) {
+    if (!p.openTop && !cleanDash) {
         D3DMATRIX view = {}, proj = {};
         if (SUCCEEDED(device->GetTransform(D3DTS_VIEW, &view)) && SUCCEEDED(device->GetTransform(D3DTS_PROJECTION, &proj))) {
             for (int i = -2; i <= 2; ++i) {
