@@ -3027,7 +3027,35 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     ApplyPresentation(mode);
     // While the camera travels into first person nothing of the player's own body is
     // hidden either, since the eye is not yet in his head.
-    if (transitionT_ < 1.0f && mode == ViewMode::FirstPerson && transitionT_ < 0.8f) SetHiddenObjects(nullptr, nullptr);
+    // FIX-CAMERA-11 (pfl23-third-to-first-v-while-firing-camera-dives-hero-crops-no-gun-2-frames): on foot the eye
+    // came to within a hand of his head well before t = 0.8, and for ~5 frames the frame was his head and the barrel
+    // cut at the bottom edge (tri17_v23 f47-51) before the view model took over: from t ~0.46 the view is already
+    // pitched toward the eye's while the eye is still ~0.9 behind his head, and his figure sinks out of the frame's
+    // bottom (pose box top over 0.9 of the height, cam11_v23a). On foot he is left out (and the view model drawn,
+    // FIX-FIGURE-10) once his feet project below the frame's bottom edge (the figure cut by it; from t 0.05, the first frame of the move excepted).
+    // GTA2DX9_MOVE_FP_HIDE_NEAR=0 restores the t < 0.8 rule alone (A/B).
+    if (transitionT_ < 1.0f && mode == ViewMode::FirstPerson && transitionT_ < 0.8f) {
+        static int hideNearOn = -1;
+        if (hideNearOn < 0) { char b[8] = {}; hideNearOn = GetEnvironmentVariableA("GTA2DX9_MOVE_FP_HIDE_NEAR", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        const PlayerState& pl = g_viewPlayer;
+        bool nearHead = false;
+        if (hideNearOn && pl.valid && !pl.inVehicle) {
+            const gta2::Vec3 e = camera_.Position();
+            const float hx = pl.x, hy = pl.z + 0.02f, hz = static_cast<float>(gta2::kMapHeight) - pl.y;   // his feet
+            const float dx = hx - e.x, dy = hy - e.y, dz = hz - e.z;
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            const float cy = std::cos(camera_.Yaw()), sy = std::sin(camera_.Yaw());
+            const float cp = std::cos(camera_.Pitch()), sp = std::sin(camera_.Pitch());
+            const float fwd = dx * sy * cp + dy * sp + dz * cy * cp;
+            const float up = -dx * sy * sp + dy * cp - dz * cy * sp;
+            const float th = std::tan(0.5f * camera_.FovY());
+            const float screenY = fwd > 1e-3f ? 0.5f - 0.5f * (up / fwd) / (th > 1e-3f ? th : 1e-3f) : 2.0f;   // 0 top .. 1 bottom
+            nearHead = transitionT_ >= 0.05f && screenY > 1.0f;
+            static int nearLogs = 0;
+            if (nearHead && nearLogs < 20) { ++nearLogs; Log("view: move into first person: his feet at %.2f of the frame height (eye %.2f from them) at t=%.2f, his figure left out", screenY, d, transitionT_); }
+        }
+        if (!nearHead) SetHiddenObjects(nullptr, nullptr);
+    }
     // FIX-OCCLUSION safety net, every street view (the first-person eye has already been kept
     // 0.24 clear; the chase camera solves its own boom): never closer to a surface than the
     // near plane's corners (0.09 at the widest field of view), so no wall is ever cut open.

@@ -872,3 +872,16 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
     short (cam11_rev5: the view lost the car to the sky after a turn).
   - Still short: in a corner pocket the boom stays pulled in and the car can sit cut at a frame edge for about half a
     second; frames past an edge are as many as before.
+- **pfl23, third -> first V on foot while firing: the dive through him (dll/src/world_view.cpp).** During the 0.8 s
+  move into first person his figure stayed drawn until t = 0.8 (`SetHiddenObjects(nullptr, nullptr)` while the eye
+  "is not yet in his head"). From t ~0.45 the moving view already pitches toward the eye's while the eye is still
+  ~0.9 behind his head, so his figure sank out of the frame's bottom: 5-7 frames of only his head and the barrel at
+  the bottom edge before FIX-FIGURE-10's view model took over (triage tri17_v23 f47-51). Now on foot, from t 0.05,
+  his figure is left out (and so the view model drawn) as soon as his feet project below the frame's bottom edge:
+  he is whole until the hand-over. `GTA2DX9_MOVE_FP_HIDE_NEAR=0` restores the t < 0.8 rule alone. Log:
+  `view: move into first person: his feet at Y of the frame height (eye D from them) at t=T, his figure left out`.
+  Measured (FIX-FIGURE-10's `gamerun/keys_fig10_v.sh`: machine gun, plaza, two V presses while firing, 30 fps):
+  base cam11_v23b burst 0 frames 46-51 his head alone at the bottom edge, then the gun; fix cam11_v23e and (rebased build) cam11_v23g, both
+  bursts, frames 40-63 every frame opened: him whole, then the gun in hands, no head-only and no empty frame. Still: on the
+  hand-over frame both are drawn once (his figure is collected before the hide is set that frame; the view model is
+  drawn after it), and the in-car third -> first move keeps its own rule (FIX-CAMERA-9 pfl21).
