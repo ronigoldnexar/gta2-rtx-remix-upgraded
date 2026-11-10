@@ -1246,3 +1246,11 @@ opaque and on the rim in every sample), dg2_dgh3 (dghands probe: locks 0/+-8/+-1
 017). Not this change: with `[visuals] enabled=1` the post pass's shadow mask/AO reads the dash behind his forearm,
 so a forearm crossing the dash's top edge shows a faint band of the dash's shading (gone with visuals off, run
 dg2_nv1); filed for the visuals owner. The 017 draws no cab at +8 degrees of forced steer (filed separately).
+
+**Stand-in fists held back at a seat's start (FIX-DRIVER-GEOM-2, qaf3).** The cab is built before the figures in a
+frame, so on the first seat-view frames his body had not been drawn yet and the cab's stand-in fists (fp_arm_right,
+the pfl54 fat lumps) showed for a sample (V pressed 0.3 s after Return on the van; also the first cab frames of the
+cbody probe, dg2_cb1 t_cb_013_still). They are not drawn in a seat view's first 0.6 s; where his body never comes
+(no avatar, driver body off) they come back after that. `GTA2DX9_FP_STANDIN_HOLD=0`: no hold. Runs: qa_dg2_qaf3
+(tile 2 now the cab without hands while he is still boarding, tiles 3-7 his arms on the rim), dg2_cb2 (013 and 021
+cab arrival at 12 fps: his body's hands from the first cab frame).

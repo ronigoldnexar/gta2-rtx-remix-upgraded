@@ -388,6 +388,20 @@ bool CabHeaderScreenBottom(float* fraction) {
 // player's shirt colour as on foot. Sized to the rim: a fist about a quarter of the wheel across.
 void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const CabInteriorParams& p, const D3DMATERIAL9& restore) {
     if (!g_wheel.valid || !p.hands || CabDriverBodyRecent()) return;   // FIX-COCKPIT-BODY: his body's own hands
+    // FIX-DRIVER-GEOM-2 (qaf3: V pressed while boarding the van): the cab is built before the figures in a frame, so on
+    // the first seat-view frames his body has not been drawn yet and these stand-in fists (pfl54's fat faceted lumps)
+    // showed for a sample. Not in a seat view's first 0.6 s: his body takes the rim by then; after that, where his body
+    // is not drawn (no avatar, driver body off), the stand-ins as before. GTA2DX9_FP_STANDIN_HOLD=0: no hold (A/B).
+    {
+        static const bool hold = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_STANDIN_HOLD", b, sizeof b) && b[0] == '0'); }();
+        static ULONGLONG seatStart = 0, lastSeen = 0;
+        const ULONGLONG now = GetTickCount64();
+        if (!p.warm) {
+            if (!lastSeen || now - lastSeen > 500) seatStart = now;
+            lastSeen = now;
+        }
+        if (hold && now - seatStart < 600) return;
+    }
     const Model* arm = ModelByName("fp_arm_right");
     if (!arm) return;
     auto toWorldP = [&](const Vec3& q) {
