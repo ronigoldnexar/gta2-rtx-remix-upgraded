@@ -90,6 +90,31 @@ LIT_INTENSITY = 8.0         # __lit companions: booth sign, traffic-light lenses
 LIT_SMALL_INTENSITY = 3.0   # __lit pickup / token rings, the ringing handset
 BULB_INTENSITY = 12.0       # a street lamp's bulb
 
+# FIX-REMIX-MATERIALS-5 (ptrmx20 "flat pale hood stripe"): the authored carkit cars (tools/vehicle_art*, VEHICLE-ART 7-12)
+# give each part its own texture named after it (<car>_chrome.tga, _tyre_tread, _underbody ...), and their glTF materials
+# carry no measured factors: every part came out metallic 0 / roughness ~0.48, so the 018 Shark's chrome bonnet crease
+# and every bumper, hub and spear of these cars path traced as flat pale-grey plastic. The part name is the material:
+# (pattern on the texture name's end, metallic, roughness). Paint halves keep the clear coat; glass has its own class.
+CAR_PART_CLASSES = [
+    (r"_(chrome|chrome_disc|chrome_spine)\.tga$", 1.0, 0.14),
+    (r"_(steel_bright|hood_silver|shock|spring)\.tga$", 1.0, 0.24),
+    (r"_wheel_steel\.tga$", 0.9, 0.32),
+    (r"_(steel_post|tube|pin|cable|tank_band|bogie|grating)\.tga$", 0.6, 0.5),
+    (r"_tyre_tread\.tga$", 0.0, 0.92),
+    (r"_(tyre_side|seal|running_board_rubber|rubber_flap|bellows)\.tga$", 0.0, 0.82),
+    (r"_(underbody|frame|frame_dark|interior_dark|trim_dark|band_dark|door_dark|wheel_dark|grille_back|hood|hatch|engine|engine_fin|deck|slit)\.tga$", 0.0, 0.62),
+    (r"_seat\.tga$", 0.0, 0.7),
+    (r"_whitewall\.tga$", 0.0, 0.5),
+    (r"_lamp_(head|tail|amber|clear)\.tga$", 0.0, 0.06),
+]
+
+def car_part_class(tga):
+    """(metallic, roughness) for an authored car part texture, or None."""
+    if not re.match(r"^\d{3}_", tga) or tga.endswith("_paint.tga"): return None
+    for pat, m, r in CAR_PART_CLASSES:
+        if re.search(pat, tga): return m, r
+    return None
+
 # ------------------------------------------------------------------ filters --
 def _kernel(s, order=0):
     r = max(1, int(np.ceil(3 * s)))
@@ -512,6 +537,10 @@ def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False):
             emit[paint_mask] = 0; gain[paint_mask] = 0
     elif group in ("carproc",) and tga.endswith("_paint.tga"):
         metal[:] = PAINT_METALLIC; rough[:] = PAINT_ROUGHNESS
+    part = car_part_class(tga) if paint_mask is None else None
+    if part is not None:
+        metal[:] = part[0]; rough[:] = part[1]
+        source.append("part")
     # normals: the source's where it has one, else derived
     for i, m in enumerate(mats):
         if m.get("normal_img") is None: continue

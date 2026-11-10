@@ -1650,3 +1650,19 @@ through its windscreen.
 at 00:11: bus shelter, phone booth and its ring/lit/glass companions, mailbox, stop sign, pistol pickups, machine gun),
 0 after. Cars alone: 584 textures of 83 models, 2 missing before, 0 after. After VEHICLE-ART-12 (010 Bulwark authored,
 063 tanks re-detailed, 018 re-textured) 1155 textures, 9 missing, rebuilt and merged: 0.
+
+**The chalk-white car (ptrx6): Remix kept the untinted half.** Both halves of a split car carry one merged whole-car
+material (the paint texels near-white, tinted per car), and Remix keeps one of the two identical draws. It is usually
+the paint half (tinted), but not always: in `out/fm5_parts_before` the forced 010 at 22:00 was chalk white in one pose
+(the rest half kept: no tint) and red in the next. Under Remix the rest-half draw now takes the same tint factor
+(`[devtools] remix_tint_rest`, default 1), so either draw is the car's paint. `out/fm5_rest1` (010/000/018 at 22:00 and
+17:30, rest tint off/on per pose): identical frames, no regression; the white case did not occur in that session.
+
+**Authored car parts (ptrmx20's flat pale hood stripe).** The carkit cars name a texture per part (`<car>_chrome.tga`,
+`_tyre_tread`, `_underbody`, `_lamp_tail` ...) and their glTF materials carry no measured factors, so every part had
+metallic 0 / roughness ~0.48 (264 textures, 71 hashes): the 018 Shark's chrome bonnet crease, bumpers, spears and hubs
+path traced as flat pale-grey plastic. `remix_model_pbr.CAR_PART_CLASSES` sets them by name: chrome 1.0/0.14, bright
+steel 1.0/0.24, wheel steel 0.9/0.32, dark iron 0.6/0.5, tyre tread 0/0.92, rubber 0/0.82, dark underbody/interior
+0/0.62, seat 0/0.7, whitewall 0/0.5, lamp lenses 0/0.06 (no emission changed). Colour probe `out/fm5_probe1` (a layer
+copy with the 018 chrome albedo magenta, whitewall green): bumper, flank spear, door handle and hubs magenta, the
+whitewalls green, so the part prims key.

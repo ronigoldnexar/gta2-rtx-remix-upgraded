@@ -2204,6 +2204,7 @@ void ModelSetPaintTint(const float* rgb) {
 namespace {
 char g_modelDevIni[MAX_PATH] = {};
 int g_remixTintMode = 1;
+bool g_remixTintRest = true;
 DWORD g_remixTintReadAt = 0;
 }
 void ModelSetDevIni(const char* ini) {
@@ -2220,6 +2221,9 @@ static DWORD PaintFactor(const float* t) {
             const int mode = GetPrivateProfileIntA("devtools", "remix_tint_mode", 1, g_modelDevIni);
             if (mode != g_remixTintMode) Log("models: Remix paint factor mode %d", mode);
             g_remixTintMode = mode;
+            const bool rest = GetPrivateProfileIntA("devtools", "remix_tint_rest", 1, g_modelDevIni) != 0;
+            if (rest != g_remixTintRest) Log("models: Remix tint on the rest half %s", rest ? "on" : "off");
+            g_remixTintRest = rest;
         }
     }
     const int mode = remix ? g_remixTintMode : 0;
@@ -3071,6 +3075,18 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
                 // brighter than the model's own paint still gets there.
                 const DWORD t = PaintFactor(g_paintTint);
                 device->SetRenderState(D3DRS_TEXTUREFACTOR, t);
+                device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
+                device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+                device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+                device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+                device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            } else if (RemixApiAvailable() && g_remixTintRest && g_paintRests.count(mesh.texture)) {
+                // FIX-REMIX-MATERIALS-5 (ptrx6 white chalky sedan): under Remix both halves of a split pair carry
+                // one merged whole-car material, and the runtime keeps ONE of the two identical draws, not always
+                // the paint half: when it kept this rest half the car path traced in the paint texels' untinted
+                // near-white (seen in out/fm5_parts_before, the 010 at 22:00). The same factor on both draws makes
+                // either one the car's paint. [devtools] remix_tint_rest=0 for the old way.
+                device->SetRenderState(D3DRS_TEXTUREFACTOR, PaintFactor(g_paintTint));
                 device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
                 device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
                 device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
