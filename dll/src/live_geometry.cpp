@@ -4847,7 +4847,7 @@ bool PropLightingBegin(IDirect3DDevice9* device, bool glass) {
     float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
     if (sky.followClock) TimeOfDayAngles(&elevation, &azimuth);
     const gta2::SkyColours colours = gta2::ComputeSkyColours(elevation, azimuth);
-    const float ambient = sky.ambient * (0.35f + 0.65f * colours.day);
+    const float ambient = sky.ambient * gta2::AmbientDayLight(colours);
     const float sunScale = sky.sunLight * colours.day;
     D3DLIGHT9 sun = {};
     sun.Type = D3DLIGHT_DIRECTIONAL;
@@ -4904,7 +4904,7 @@ bool FigureTimeOfDayLight(float out[3]) {
     const gta2::SkyColours now = gta2::ComputeSkyColours(elevation, azimuth);
     const gta2::SkyColours day = gta2::ComputeSkyColours(sky.sunElevationDeg, sky.sunAzimuthDeg);
     auto light = [&](const gta2::SkyColours& c, int k) {
-        const float amb = sky.ambient * (0.35f + 0.65f * c.day) * (&c.ambient.x)[k];
+        const float amb = sky.ambient * gta2::AmbientDayLight(c) * (&c.ambient.x)[k];
         return amb + 0.5f * sky.sunLight * c.day * (&c.sunColour.x)[k];   // a body's sides: half the sun's term
     };
     bool dim = false;

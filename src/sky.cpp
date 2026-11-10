@@ -103,6 +103,7 @@ SkyColours RichSkyColours(float el, const Vec3& sunDir) {
     out.sunColour = Lerp(Vec3{1.0f, 0.52f, 0.20f}, Vec3{1.0f, 0.96f, 0.88f}, warm) * Smooth(-3.0f, 2.0f, el);
     out.fog = out.horizon * 0.97f;
     out.ambient = Lerp(Vec3{0.80f, 0.86f, 1.0f}, Lerp(Vec3{0.97f, 0.98f, 1.0f}, Vec3{1.0f, 0.90f, 0.80f}, std::max(golden, dusk) * 0.6f), day);
+    out.twilight = std::max(0.0f, lit - day) * (1.0f - Smooth(-2.0f, 4.0f, el));
     return out;
 }
 }  // namespace
@@ -132,7 +133,13 @@ SkyColours ComputeSkyColours(float sunElevationDeg, float sunAzimuthDeg) {
     out.fog = out.horizon * 0.97f;
     // The ambient tint: cool from the sky by day, barely tinted at night.
     out.ambient = Lerp(Vec3{0.92f, 0.94f, 1.0f}, Lerp(Vec3{0.98f, 0.985f, 1.0f}, Vec3{1.0f, 0.93f, 0.86f}, dusk * 0.5f), day);
+    out.twilight = std::max(0.0f, Smooth(-14.0f, 2.0f, sunElevationDeg) - day) * (1.0f - Smooth(-2.0f, 4.0f, sunElevationDeg));
     return out;
+}
+
+float AmbientDayLight(const SkyColours& colours) {
+    const float base = 0.35f + 0.65f * colours.day;
+    return g_skyRemix ? base : base + g_settings.twilightFill * colours.twilight;
 }
 
 Sky::~Sky() { Release(); }

@@ -88,10 +88,34 @@ The renderer notes which `d3d9` answered `Direct3DCreate9`: the renamed bridge c
 | `ao_strength_percent`, `bloom_strength_percent`, `bloom_threshold_percent`, `exposure_percent`, `saturation_percent`, `light_intensity_percent` | 75, 55, 80, 100, 110, 100 | tuning |
 | `sun_boost_percent`, `ambient_scale_percent` | 150, 84 | the world's fixed-function light while the post is on |
 | `sun_elevation_tenths`, `sun_azimuth_tenths` | -9999 | developer: move the sun live (day / dusk / night checks in one session) |
+| `twilight_fill_percent` | 60 | the sky's fill on the world through twilight (below; applies with the passes on or off, never under Remix) |
 
 Logs: a `visuals:` line every 256 street-view frames (CPU and GPU ms p50/p99, casters, lights,
 cascades); `GTA2DX9_VISUALS_LOG=<path>` writes one line per frame (CPU shadow / post ms, GPU
 shadow / post ms from timestamp queries, caster and world draws, lights).
+
+## Shaded walls at noon and at dusk (qav7, FIX-WORLD-13, 10 Nov 2026)
+
+qav7 filed ste walls turned from the sun as near-black slabs (luma ~30) beside sunlit facades of
+~116. Measured at the filer's poses (ste 90.5,170.5 and 210.5,110.5) with the passes switched live
+in one session (out/qa_fw13ab1): at noon (sun 50 deg) nothing is missing or clamped on vertical
+faces. A face turned from the sun gets the full ambient (0.8 x 0.84 = 0.66 of the texture), a sunlit
+vertical face 0.66 + 0.6 x cos 50 = 1.05, so shade/sun = 63 % on the same texture, inside the
+55-70 % the filer asked for; SSAO costs 2-5 %, the hemisphere tint 1-3 %, and with `[visuals]` off
+the wall reads 48 instead of 32. The "4x" is the art: the dark ste stone (tiles 103, 105, 109,
+luma 44-56 in the original, HD and photo sets alike) against the tan facades (173, 189: luma 100-137).
+FIX-REMIX-MATERIALS-9 reached the same verdict for the Remix twin prx10 (baked-dark wall art).
+
+The dusk half was a real lighting gap: the ambient fell with `day` (0 at -8 deg) while the dome
+stays lit to -14 deg, so at 18:30 (sun -5.7 deg, day 0.04) every wall stood at 0.25 of its texture
+under a bright violet sky. `AmbientDayLight` (src/sky.h, used by the world, the props and the
+figures) adds the sky's remaining light, `twilight = max(0, lit - day)`, faded in as the sun goes
+from 4 deg above the horizon to 2 below, times `twilight_fill_percent` (60). The ambient tint
+there is already the cool night tint, so the fill reads blue-grey. Same pose, fill 0 vs 60
+(out/qa_fw13twi2_ste, qa_fw13twi3_bil): noon unchanged (94.9 / 94.4, 79.0 / 79.6), 17:45 (sun
++2.9) +2-4 %, 18:30 +50-80 % (ste third-person shaded wall 24.5 -> 42.0, 53 % of its noon 79;
+bil 19.0 -> 34.4), 19:00 (-11.4) +7-10 %, night unchanged. Zero on an RTX Remix device
+(`g_skyRemix`); classic draws no world shading.
 
 ## Costs
 

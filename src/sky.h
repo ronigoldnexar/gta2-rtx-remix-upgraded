@@ -50,6 +50,9 @@ struct SkySettings {
     // texture's own brightness, plus the sun's contribution on a face that
     // squarely faces it. 0 sun leaves every face at ambient.
     float ambient = 0.80f;
+    // qav7 (FIX-WORLD-13): the sky's fill on the world through twilight, as a share of the
+    // ambient level (AmbientDayLight); [visuals] twilight_fill_percent, re-read live.
+    float twilightFill = 0.60f;
     float sunLight = 0.40f;
 };
 
@@ -65,8 +68,17 @@ struct SkyColours {
     Vec3 fog;
     Vec3 ambient;       // tint for the world's ambient term
     float day = 1.0f;   // 1 full daylight .. 0 night
+    float twilight = 0.0f;   // qav7: how much of the sky's own light is left once the sun is low or set (0 by day and night)
 };
 SkyColours ComputeSkyColours(float sunElevationDeg, float sunAzimuthDeg);
+
+// The level of the street views' ambient term for these colours (multiplies [sky] ambient):
+// 0.35 + 0.65 * day, plus (qav7, FIX-WORLD-13) a sky fill through twilight. The ambient used to
+// fall with the sun (day reaches 0 at -8 deg) while the dome stays lit to -14 deg, so at 18:30
+// (sun -5.7 deg) a wall turned from the sky read near black under a bright violet sky. The fill
+// is the sky's remaining light, fading in as the sun goes from 4 deg above the horizon to 2 below it,
+// so noon and full night are unchanged. Never under an RTX Remix device (Remix lights the scene).
+float AmbientDayLight(const SkyColours& colours);
 
 // With [visuals] on (post_fx.h) and no RTX Remix device, the colours above come from a
 // richer palette (a deeper day blue, a golden hour, a violet dusk, a navy night) and the

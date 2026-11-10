@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include <vector>
 
 #include "log.h"
@@ -65,6 +66,10 @@ void ReadSettings(bool first) {
     // other than -9999 moves it while the game runs, for day/dusk/night checks in one session.
     const int el = ReadInt("sun_elevation_tenths", -9999), az = ReadInt("sun_azimuth_tenths", -9999);
     gta2::SkySettings& sky = gta2::SkyConfig();
+    // qav7: the street views' sky fill through twilight (sky.h AmbientDayLight), plain renderer only.
+    const int fill = ReadInt("twilight_fill_percent", 60);
+    if (fill != static_cast<int>(sky.twilightFill * 100.0f + 0.5f) && !first) Log("visuals: twilight fill %d%%", fill);
+    sky.twilightFill = (std::max)(0, (std::min)(200, fill)) / 100.0f;
     if (el != -9999) sky.sunElevationDeg = el / 10.0f;
     if (az != -9999) sky.sunAzimuthDeg = az / 10.0f;
     if (first || memcmp(&before, &v, sizeof v) != 0 || el != -9999) {

@@ -3412,7 +3412,7 @@ void WorldView::DrawSkyAndShading() {
     // At night the sun is below the horizon and contributes nothing; the
     // ambient falls with the daylight, but never below a readable level since
     // nothing else in the raster picture gets darker at night.
-    const float dayLight = 0.35f + 0.65f * colours.day;
+    const float dayLight = gta2::AmbientDayLight(colours);
     const float ambient = 1.0f + (sky.ambient * dayLight - 1.0f) * blend;
     shading.ambient = gta2::Vec3{ambient, ambient, ambient};
     shading.ambient = gta2::Vec3{shading.ambient.x * colours.ambient.x, shading.ambient.y * colours.ambient.y,
@@ -3465,7 +3465,7 @@ void WorldView::GhostStreetFrame() {
         shading.fogEnd = sky.fogEnd;
         shading.sun = sky.sunLight > 0.001f || sky.ambient < 0.999f;
         shading.sunDir = colours.sunDir;
-        const float ambient = sky.ambient * (0.35f + 0.65f * colours.day);
+        const float ambient = sky.ambient * gta2::AmbientDayLight(colours);
         shading.ambient = gta2::Vec3{ambient * colours.ambient.x, ambient * colours.ambient.y, ambient * colours.ambient.z};
         shading.sunColour = colours.sunColour * (sky.sunLight * colours.day);
         renderer_.SetWorldShading(shading);
