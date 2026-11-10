@@ -102,10 +102,14 @@ def face(tx, ty, tol=0.25):
 
 
 def view_to(target, what):
-    """V until the renderer reports `target`; the mark carries the view it really reached"""
+    """V until the renderer reports `target` (ONE tap, then up to 3 s for the log line: a second tap
+    while the first move is still running would cycle on to the next view); the mark carries the
+    view it really reached"""
     for _ in range(4):
         if current_view() == target: break
-        tap("v", 0.25); time.sleep(0.7)
+        tap("v", 0.25)
+        t1 = time.time()
+        while time.time() - t1 < 3.0 and current_view() != target: time.sleep(0.1)
     got = current_view()
     mark(f"VIEW {got}{'' if got == target else ' (WANTED ' + target + ')'} - {what}")
     return got == target
@@ -149,10 +153,10 @@ def in_box(x, y, m=0.0):
     return BOX[0] - m < x < BOX[1] + m and BOX[2] - m < y < BOX[3] + m
 
 
-def civilians(s, within):
+def civilians(s, within, exclude=()):
     out = []
     for p in M.peds():
-        if p["car"] is not None or p["type"] != "civ" or not M.ped_alive(p): continue
+        if p["car"] is not None or p["type"] != "civ" or not M.ped_alive(p) or p["id"] in exclude: continue
         if abs(p["z"] - s["z"]) > 0.6 or not in_box(p["x"], p["y"]): continue
         d = math.hypot(p["x"] - s["x"], p["y"] - s["y"])
         if d < within: out.append((d, p))
@@ -169,7 +173,7 @@ def fig_hits():
     LW.poll(); return LW.hits
 
 
-def punch_sequence(budget=75):
+def punch_sequence(budget=75, exclude=()):
     """chase the nearest civilian on the pavement strip (Up held, the wheel pulsed), the fist
     held once within reach. A hit = his health in the game's ped pool drops, or he goes down
     (state 8: knocked over; dh_owner1 showed 50 -> 30 and state 8 sub 0x16 from one punch).
@@ -195,7 +199,7 @@ def punch_sequence(budget=75):
             if "Control_L" in keys and not first_hit:
                 for qid, q in pool.items():
                     h = seen_hp.get(qid)
-                    if (h and q["type"] == "civ" and math.hypot(q["x"] - s["x"], q["y"] - s["y"]) < 1.8
+                    if (h and q["type"] == "civ" and qid not in exclude and math.hypot(q["x"] - s["x"], q["y"] - s["y"]) < 1.8
                             and (q["hp"] < h[0] or (q["state"] == 8 and h[1] != 8))):
                         if qid != target: say(f"the blow landed on {qid}, not on {target}: he is the target now")
                         target, hp0, st0 = qid, h[0], h[1]
@@ -222,12 +226,15 @@ def punch_sequence(budget=75):
             if p is None or math.hypot(p["x"] - s["x"], p["y"] - s["y"]) > 9:
                 up("Up"); up("Control_L")
                 if first_hit: break
-                c = civilians(s, 9.0)
+                c = civilians(s, 12.0, exclude)
                 if not c:
                     if not in_box(s["x"], s["y"], 0.3):
                         step_to(min(BOX[1] - 1, max(BOX[0] + 1, s["x"])), PAV_Y, tol=0.4, secs=6)
-                    elif time.time() - idle > 5:
-                        hold(turn_key(1), 0.5); idle = time.time()
+                    elif time.time() - idle > 3:
+                        # nobody in reach: walk the strip to its far end and look again
+                        far = BOX[1] - 1.5 if s["x"] < (BOX[0] + BOX[1]) / 2 else BOX[0] + 1.5
+                        say(f"punch: nobody in reach; walking the pavement to x {far:.1f}")
+                        step_to(far, PAV_Y, tol=0.5, secs=7); idle = time.time()
                     time.sleep(0.2); target = None; continue
                 d, p = c[0]; target = p["id"]; hp0 = p["hp"]; st0 = p["state"]; idle = time.time()
                 mark(f"PUNCH target civ {target} at {p['x']:.2f},{p['y']:.2f} d={d:.2f} hp={hp0}")
@@ -244,8 +251,8 @@ def punch_sequence(budget=75):
         for k in list(keys): xdo("keyup", k)
     time.sleep(2.0)
     fh = fig_hits() - fig0
-    mark(f"PUNCH RESULT {'CONNECTED' if first_hit else 'NO HIT'}: hits seen in the ped pool {hits}, renderer 'fig: hit' lines {fh}")
-    return bool(first_hit)
+    mark(f"PUNCH RESULT {'CONNECTED' if first_hit else 'NO HIT'} on civ {target}: hits seen in the ped pool {hits}, renderer 'fig: hit' lines {fh}")
+    return target if first_hit else None
 
 
 # ------------------------------------------------------------------ into a car
@@ -305,15 +312,19 @@ def warp_car():
 
 
 # ================================================================== the take
+# The owner's 12 beats, one continuous take (docs/HANDOVER.md, order owner-demo-v2-full-sequence):
+#  1 real spawn  2 walk in classic  3 approach the road  4 ONE smooth V to third  5 punch THREE people
+#  6 get into a car  7 first person at the wheel  8 C dashcam  9 reckless driving in dashcam
+# 10 V back to classic while moving  11 exit the car  12 walk around in third person
 mark("probe start (video t counts from the keys script start = the recorder start, within a fraction of a second)")
 if not os.environ.get("SKIP_START"): D.start()
 s = D.wait_state(40)
 if not s: mark("NO PLAYER STATE"); sys.exit(1)
-mark(f"LEVEL in play, classic view: {words(s)}")
+mark(f"BEAT 1 REAL SPAWN: the level's own start, no developer warp: {words(s)}")
 D.calibrate_turn()
 
-# ---- classic opening: spawn plaza to the pavement on foot
-mark("BEAT 1 classic opening: walking from the spawn plaza to the street")
+# ---- beats 2 and 3: classic walk from the spawn plaza to the road
+mark("BEAT 2 walking in the classic top-down view (BEV), from the spawn plaza")
 t_open = time.time()
 for wp in [(158.6, 139.5), (157.3, 139.6), (156.6, 140.6), (156.5, 144.0), (156.5, 147.2), (WEST, PAV_Y)]:
     s, ok = step_to(*wp)
@@ -326,40 +337,32 @@ if not on_pavement(s):
     T.warp(WEST + 1.0, PAV_Y, 2, why="the street, opening walk failed"); DEVWARP.append("street")
     mark("DEVWARP to the pavement (opening walk failed)")
 s = D.wait_state()
-mark(f"on the pavement: {words(s)}")
+mark(f"BEAT 3 at the road: on the pavement beside the carriageway, classic view: {words(s)}")
+face(170, PAV_Y)
+s, _ = step_to(WEST + 3.0, PAV_Y, tol=0.4, secs=8)     # a few more steps along the kerb in classic
 
-# ---- third person among the people and the traffic
+# ---- beat 4: ONE smooth V move to third person (switch_dissolve_percent=0), walking
 face(170, PAV_Y)
 xdo("keydown", "Up"); time.sleep(0.3)
-view_to("third", "BEAT 2 third person, walking among people and traffic")
+view_to("third", "BEAT 4 transition to 3D: one smooth camera move, walking")
 xdo("keyup", "Up")
-s, _ = step_to(WEST + 4.0, PAV_Y, tol=0.4, secs=8)
-look("Right", 0.6, 1.2); look("Left", 1.2, 1.0); look("Right", 0.6, 0.4)
-s, _ = step_to(WEST + 7.5, PAV_Y, tol=0.4, secs=8)
+s, _ = step_to(WEST + 6.0, PAV_Y, tol=0.4, secs=8)
+look("Right", 0.6, 1.0); look("Left", 1.0, 0.8)
 
-# ---- first person, a look around
-face(170, PAV_Y)
-view_to("first", "BEAT 3 first person, look around")
-s, _ = step_to(WEST + 9.0, PAV_Y, tol=0.4, secs=6)
-face(s["x"] + 1.5, 151.5); time.sleep(1.4)      # over the kerb at the traffic
-face(s["x"] - 3.0, PAV_Y); time.sleep(1.2)      # back along the pavement
-face(s["x"] + 1.0, 145.0); time.sleep(0.8)      # the railing side
-face(170, PAV_Y); time.sleep(0.6)
-mark("first person look-around done")
+# ---- beat 5: attack a few people: at least three separate pedestrians, each hit landing
+mark("BEAT 5 attacking pedestrians: three separate targets, each confirmed by health/state in the game's ped pool")
+hit_ids = []; fig_start = fig_hits(); t5 = time.time()
+while len(hit_ids) < 3 and time.time() - t5 < 230:
+    got_id = punch_sequence(budget=70, exclude=tuple(hit_ids))
+    if got_id is not None:
+        hit_ids.append(got_id); mark(f"PUNCH {len(hit_ids)} of 3 landed on civ {got_id}")
+    else: mark("PUNCH attempt without a hit; the next civilian")
+    time.sleep(0.8)
+mark(f"BEAT 5 RESULT {len(hit_ids)} separate pedestrians hit (civ {hit_ids}), renderer 'fig: hit' lines {fig_hits() - fig_start}")
+punched = len(hit_ids)
 
-# ---- punch: third person so the blow and the reaction are seen
-view_to("classic", "passing through classic on the way back to third")
-time.sleep(1.2)
-view_to("third", "BEAT 4 third person for the fist fight")
-mark("BEAT 4 PUNCH sequence on a pedestrian")
-punched = punch_sequence(budget=80)
-if not punched:
-    mark("PUNCH retry with a second target")
-    punched = punch_sequence(budget=50)
-time.sleep(1.0)
-
-# ---- into a car
-mark("BEAT 5 getting into a car (jack at the kerb lane)")
+# ---- beat 6: into a car
+mark("BEAT 6 getting into a car (jack at the kerb lane)")
 Q.set_view("third", settle=0.3)
 got = jack(budget=110)
 how = "NATURAL jack (no developer warp)" if got else None
@@ -368,55 +371,76 @@ if not got:
     how = "DEVELOPER WARP (scene key placed a parked car beside him)" if got else None
 if not got:
     mark("CAR ENTRY FAILED"); mark("end"); sys.exit(0)
-mark(f"IN THE CAR: {how}: {words(got)}")
+mark(f"BEAT 6 IN THE CAR: {how}: {words(got)}")
 time.sleep(1.5)
 
-# ---- chase-view drive, driver's seat, classic
-if current_view() != "third": view_to("third", "chase view for the drive")
-mark("BEAT 6 drive in the chase view")
-# A loop on roads read from wil.gmp round the block west of the start: the carriageway
-# (y 149-155), the four-lane x 142-145, the y 112-116 road and x 168-174. mission_lib.drive3_smooth routes each leg along lane
-# centres with traffic gaps; one leg per view. (dh_owner2's straight-line legs ran into the
-# T-junction wall at x 175.)
+# ---- driving: legs on roads read from wil.gmp round the block west of the start
 world = M.World("wil")
-def leg(tx, ty, budget, label):
+def leg(tx, ty, budget, label, until=None):
     s0 = D.wait_state()
-    s1 = M.drive3_smooth(world, tx, ty, tol=2.0, budget=budget)
+    s1 = M.drive3_smooth(world, tx, ty, tol=2.0, budget=budget, until=until)
     for k in ("Up", "Down", "Left", "Right"): xdo("keyup", k)
     s1 = s1 or D.wait_state()
     say(f"leg {label}: {s0['x']:.1f},{s0['y']:.1f} -> {s1['x']:.1f},{s1['y']:.1f} (goal {tx},{ty}) driving={s1['driving']}")
     return s1
-# Wait at the lights like the traffic does: drive3's default (5 game s behind a standing car,
-# then round it) took dh_owner4's car onto the pavement from the westbound queue at x 146-153,
-# and a U-turn among the cars queued behind the jacked one (dh_owner5) stuck it there too.
-M.QUEUE_SECS = 30.0
+M.QUEUE_SECS = 30.0      # wait at the lights like the traffic does (dh_owner4/5: a westbound queue)
 s = D.wait_state()
-if s["chx"] > 0.5:      # jacked heading east: the loop anticlockwise from the T-junction
-    s = leg(173.5, 128.5, 45, "chase")          # east, left at the T-junction, north on x 172-174
-    view_to("first", "BEAT 7 driver's seat view while driving")
-    s = leg(155.5, 112.5, 30, "driver's seat")  # left onto the y 112-113 westbound lanes
-    view_to("classic", "BEAT 8 classic top-down while driving")
-    s = leg(142.5, 140.5, 35, "classic")        # left again, south on x 142-143
-else:                   # westbound (the kerb lane): clockwise
-    s = leg(144.5, 128.5, 50, "chase")          # west, right at x 142-145, north
-    view_to("first", "BEAT 7 driver's seat view while driving")
-    s = leg(155.5, 115.5, 30, "driver's seat")  # right onto the y 115-116 eastbound lanes
-    view_to("classic", "BEAT 8 classic top-down while driving")
-    s = leg(169.5, 140.5, 35, "classic")        # right again, south on x 168-170
+east = s["chx"] > 0.5
+L1, L2, L3 = ((173.5, 128.5), (155.5, 112.5), (142.5, 140.5)) if east else ((144.5, 128.5), (155.5, 115.5), (169.5, 140.5))
+
+# beat 7: first person at the wheel, a calm drive with a turn (hands, wheel turning with the car)
+view_to("first", "BEAT 7 first person at the wheel: hands on the rim, the wheel turns with the car")
+time.sleep(1.0)
+t7 = time.time()
+s = leg(*L1, 45, "first person, careful", until=lambda: time.time() - t7 > 16)   # 16 s of cockpit with a turn is enough to read hands and wheel
+s = D.wait_state()
+
+# beat 8: C = the dashcam (clean forward view, no wheel, hands or body)
+if s["driving"]:
+    tap("c", 0.3); time.sleep(0.8)
+    mark("BEAT 8 DASHCAM (key C): clean forward view, no wheel, no hands, no body")
+
+# beat 9: reckless driving in the dashcam: a high cap, no braking for traffic, hard swerves
+# onto the kerbs and across the lanes (cars and walls, not people)
+M.SMOOTH_CAP = M.FAST_CAP = 7.0; M.HIT_SLOW = 7.0; M.SMOOTH_EDGE_COST = 0.1
+M.traffic_ahead = lambda s_, v_: None
+SW = {"n": 0, "t": 0.0, "v_sent": False}
+def reckless_until():
+    """called every few control loops by drive3_smooth: a hard swerve every ~2.5 s"""
+    now = time.time()
+    if now - SW["t"] > 1.8:
+        SW["t"] = now; SW["n"] += 1
+        k = "Left" if SW["n"] % 2 else "Right"
+        xdo("keydown", "Up"); xdo("keydown", k)
+        if SW["n"] % 3 == 0: xdo("keydown", "space")      # a handbrake slide every third swerve
+        time.sleep(0.6); xdo("keyup", "space"); xdo("keyup", k)
+    return False
+mark("BEAT 9 RECKLESS DRIVING in the dashcam: full speed, hard swerves, traffic not given way to")
+s = leg(*L2, 40, "reckless 1", until=reckless_until)
+
+# beat 10: V = back to the classic top-down view while the car is moving
+def to_classic_moving():
+    if not SW["v_sent"]:
+        SW["v_sent"] = True; tap("v", 0.25)
+        mark("BEAT 10 V pressed: back to classic (BEV) while the car is moving")
+    return reckless_until()
+s = leg(*L3, 40, "classic while moving", until=to_classic_moving)
+time.sleep(1.0); view_to("classic", "BEAT 10 classic top-down (checked after the leg)")
 hold("Down", 1.2)
 time.sleep(0.8)
 mark(f"stopped: {words(D.wait_state())}")
 
-# ---- out and a few steps
-mark("BEAT 9 out of the car")
+# ---- beat 11: out of the car (classic view, the full get-out), beat 12: third person walk
+mark("BEAT 11 exiting the vehicle")
 for _ in range(3):
-    tap("Return", 0.3); time.sleep(2.5)
+    tap("Return", 0.3); time.sleep(3.0)
     s = D.wait_state()
     if not s["driving"]: break
-mark(f"out of the car: {words(s)}")
-view_to("third", "BEAT 10 third person, a few steps on foot")
-hold("Up", 1.5); hold("Left", 0.4); hold("Up", 1.5); time.sleep(1.5)
-mark(f"SUMMARY punch={'connected' if punched else 'NOT connected'}; car entry={how}; developer warps used: "
+mark(f"BEAT 11 out of the car: {words(s)}")
+time.sleep(1.5)
+view_to("third", "BEAT 12 third person, walking around on foot")
+hold("Up", 1.5); hold("Left", 0.4); hold("Up", 1.8); hold("Right", 0.5); hold("Up", 1.5); time.sleep(1.5)
+mark(f"SUMMARY pedestrians hit={punched}; car entry={how}; real spawn, developer warps used: "
      f"{', '.join(DEVWARP) if DEVWARP else 'none'}")
 mark("end")
 say("done")
