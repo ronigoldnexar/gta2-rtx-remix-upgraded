@@ -1554,15 +1554,44 @@
   },
   {
    "name": "034_medicar",
-   "glb": "cars/models3d/034_medicar.glb",
+   "glb": "cars/vehicle_art2/034_medicar.glb",
    "scale": 1.0,
    "paint_rgb": [
-    168.9,
-    153.2,
-    132.4
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/034_medicar/seal.png",
+    "chrome": "cars/vehicle_art2/034_medicar/chrome.png",
+    "underbody": "cars/vehicle_art2/034_medicar/underbody.png",
+    "paint_body": "cars/vehicle_art2/034_medicar/paint_body.png",
+    "paint_end": "cars/vehicle_art2/034_medicar/paint_end.png",
+    "interior_dark": "cars/vehicle_art2/034_medicar/interior_dark.png",
+    "lamp_tail": "cars/vehicle_art2/034_medicar/lamp_tail.png",
+    "grille": "cars/vehicle_art2/034_medicar/grille.png",
+    "chrome_disc": "cars/vehicle_art2/034_medicar/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/034_medicar/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/034_medicar/lamp_amber.png",
+    "rack": "cars/vehicle_art2/034_medicar/rack.png",
+    "beacon_red": "cars/vehicle_art2/034_medicar/beacon_red.png",
+    "seat": "cars/vehicle_art2/034_medicar/seat.png",
+    "sheet": "cars/vehicle_art2/034_medicar/sheet.png",
+    "blanket": "cars/vehicle_art2/034_medicar/blanket.png",
+    "tyre_side": "cars/vehicle_art2/034_medicar/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/034_medicar/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/034_medicar/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/034_medicar/paint_wheel.png",
+    "glass": "cars/vehicle_art2/034_medicar/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_034.py",
+   "driver_seat": [
+    0.09,
+    0.144,
+    0.04,
+    0.384
+   ]
   },
   {
    "name": "035_benson",
@@ -8628,13 +8657,32 @@
   },
   {
    "name": "034_medicar",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 7938,
+   "nodes": 25,
+   "meshes": 21,
+   "vertices": 26207,
    "animations": [],
    "textures": [
-    "034_medicar_0.tga",
-    "034_medicar_0_paint.tga"
+    "034_medicar_beacon_red.tga",
+    "034_medicar_blanket.tga",
+    "034_medicar_chrome.tga",
+    "034_medicar_chrome_disc.tga",
+    "034_medicar_glass.tga",
+    "034_medicar_grille.tga",
+    "034_medicar_interior_dark.tga",
+    "034_medicar_lamp_amber.tga",
+    "034_medicar_lamp_head.tga",
+    "034_medicar_lamp_tail.tga",
+    "034_medicar_paint_body_paint.tga",
+    "034_medicar_paint_end_paint.tga",
+    "034_medicar_paint_wheel_paint.tga",
+    "034_medicar_rack.tga",
+    "034_medicar_seal.tga",
+    "034_medicar_seat.tga",
+    "034_medicar_sheet.tga",
+    "034_medicar_tyre_side.tga",
+    "034_medicar_tyre_tread.tga",
+    "034_medicar_underbody.tga",
+    "034_medicar_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
