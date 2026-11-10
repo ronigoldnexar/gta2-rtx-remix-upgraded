@@ -254,7 +254,12 @@ against after:
 - f004's sage is a satin-bright mint at noon. That comes from the existing tint calibration, not from this split.
 - The sprite's hair colour for remaps 47-51 (lilac grey) is not shown on avatars with painted hair: that needs
   baked grey-hair variants.
-- **Remix:** the three pairs' texel hashes changed. Their prims come as a layer bundle. Until it is deployed,
-  they draw with the legacy material: colour right, no normal or roughness maps.
+- **Remix:** the three pairs' texel hashes changed. Their new pair prims (6 hashes: albedo = the merged halves,
+  normal and roughness from the Rocketbox sources) were built with `tools/remix_model_materials.py --pattern
+  '^human_(female_adult_04_f004|female_01_f001|male_adult_05_m009)_body(_paint)?\.tga$'` into a scratch layer and
+  merged with `tools/remix_layer_merge.py`: 12 prims inserted into `mod.usda` and `mod_wet.usda`, none replaced, and
+  `model_prims.txt` 1171 -> 1177. The old-hash prims stay and are inert. The 18 DDS files are a layer bundle
+  (`layer_deploy/ASSET-PEDS-3`). Until it is deployed, these avatars draw with the legacy material: colour right,
+  no normal or roughness maps. No path-traced frame has been taken yet.
 - **Not in git:** the textures ship in the `people` release archive, which needs repacking
   (`python3 tools/pack_release.py <out> people`).
