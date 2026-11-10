@@ -7,6 +7,7 @@
 #include <dinput.h>
 
 #include <algorithm>
+#include <map>
 #include <vector>
 #include <cmath>
 #include <cstdio>
@@ -2215,6 +2216,52 @@ float CarFootprintDepth(const CameraCar& c, float x, float z) {
     return depth;
 }
 
+// FIX-CAMERA-14 (pfl65 camera half, from FIX-CAMERA-13's unshipped patch): another car's body (not one the point's
+// foot stands in or against) across the line from the eye `e` to the point `mid`: sampled at 11 points along it,
+// inside a footprint below its roof.
+// FIX-CAMERA-15 (pfl65): how fast each listed car moves (blocks a second, eased), from its footprint's centre frame to
+// frame; updated once a frame by CarMotionUpdate. A car passing in traffic is not one to crane over.
+struct CarMotion { float cx = 0.0f, cz = 0.0f, speed = 0.0f; double seen = 0.0; };
+std::map<uintptr_t, CarMotion> g_carMotion;
+void CarMotionUpdate(float dt) {
+    const double now = Now();
+    for (const CameraCar& c : LiveCameraCars()) {
+        const float cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]), cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
+        auto it = g_carMotion.find(c.object);
+        if (it == g_carMotion.end() || now - it->second.seen > 0.5) {
+            g_carMotion[c.object] = {cx, cz, 9.0f, now};   // unknown: taken as moving until measured
+            continue;
+        }
+        CarMotion& m = it->second;
+        if (dt > 1e-4f && dt < 0.25f) {
+            const float v = std::hypot(cx - m.cx, cz - m.cz) / dt;
+            m.speed += (v - m.speed) * (1.0f - std::exp(-dt / 0.3f));
+        }
+        m.cx = cx; m.cz = cz; m.seen = now;
+    }
+    if (g_carMotion.size() > 512)
+        for (auto it = g_carMotion.begin(); it != g_carMotion.end();) it = now - it->second.seen > 2.0 ? g_carMotion.erase(it) : std::next(it);
+}
+float CarMotionSpeed(uintptr_t object) {
+    const auto it = g_carMotion.find(object);
+    return it == g_carMotion.end() ? 9.0f : it->second.speed;
+}
+
+bool CarHidesPoint(const gta2::Vec3& e, const gta2::Vec3& mid, float maxSpeed = 1e9f) {
+    for (const CameraCar& c : LiveCameraCars()) {
+        if (CarMotionSpeed(c.object) > maxSpeed) continue;
+        if (CarFootprintDepth(c, mid.x, mid.z) > -0.1f) continue;   // he is in it or against it
+        if (c.y1 < mid.y - 0.05f) continue;                          // lower than the point: seen over it
+        if (CarFootprintDepth(c, e.x, e.z) > -0.05f && e.y < c.y1) continue;   // the eye in it: the car is not drawn
+        for (int i = 1; i < 12; ++i) {
+            const float t = static_cast<float>(i) / 12.0f;
+            const gta2::Vec3 p = e + (mid - e) * t;
+            if (p.y < c.y1 && p.y > c.y0 && CarFootprintDepth(c, p.x, p.z) > 0.0f) return true;
+        }
+    }
+    return false;
+}
+
 // The cars and wrecks the chase camera keeps clear of: OFF with GTA2DX9_CAM_CARS=0 (A/B).
 bool CameraCarsOn() {
     static int enabled = -1;
@@ -4094,6 +4141,53 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     }
                 }
             }
+            // FIX-CAMERA-14 (pfl65 camera half): over a car that hides him. A jammed truck's cab between the lens and him
+            // on foot left him getting up and walking tiny and half-hidden behind its bonnet for ~3 s (run pfl65a 10.5 s);
+            // the street objects' fade is for props, and a turn round the car (FIX-CAMERA-13, cam13_kd1) found no win. When
+            // another car's body crosses the line from the eye to his chest for kRiseDwell (a car passing in traffic crosses
+            // it in less), the boom rises on its arc, same length, to the smallest lift (of the six to the on-foot 45 degree
+            // cap) whose line clears to his chest, else to his head; held kRiseKeep after, then eased down like a wall's
+            // lift. Only above a wall's own lift; the turn and the boom filter are untouched. GTA2DX9_CAM_CAR_RISE=0 (A/B).
+            if (!inVehicle && mode == ViewMode::ThirdPerson && CameraCarsOn()) {
+                static int riseOn = -1;
+                if (riseOn < 0) { char b[8] = {}; riseOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_RISE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                constexpr float kRiseDwell = 0.3f, kRiseKeep = 1.0f;
+                const gta2::Vec3 chest{px, baseY + 0.30f, pz}, head{px, baseY + 0.42f, pz};
+                // FIX-CAMERA-15: asked of the eye with the wall's lift only, not the car rise already shown: from the risen
+                // eye the car no longer hid him, the hold ran out and the lens came back down behind the cab (run cam15_occ6
+                // 8-10 s), so the rise hunted.
+                const gta2::Vec3 from = wantLift > 0.0f ? at(a0 + wantLift) : desired;
+                // FIX-CAMERA-15: only cars standing (or creeping, under kStillSpeed): CAMERA-14's rise craned over trucks
+                // passing in traffic (run cam14_rise2); a car going by hides him for a moment, as in any chase view.
+                constexpr float kStillSpeed = 0.6f;
+                CarMotionUpdate(dt);
+                const bool hides = riseOn && CarHidesPoint(from, chest, kStillSpeed);
+                carRiseT_ = hides ? carRiseT_ + dt : 0.0f;
+                if (hides && carRiseT_ >= kRiseDwell) carRiseHold_ = kRiseKeep;
+                else carRiseHold_ = (std::max)(0.0f, carRiseHold_ - dt);
+                if (carRiseHold_ > 0.0f) {
+                    float rise = -1.0f;
+                    for (const gta2::Vec3* target : {&chest, &head}) {
+                        for (int k = 0; k <= 6 && rise < 0.0f; ++k) {
+                            const float a = a0 + (aMax - a0) * k / 6.0f;
+                            const gta2::Vec3 e = at(a);
+                            if (!CarHidesPoint(e, *target, kStillSpeed) && reachTo(pivot, e) * spanLength >= minPull) rise = a - a0;
+                        }
+                        if (rise >= 0.0f) break;
+                    }
+                    if (rise < 0.0f) rise = aMax - a0;
+                    // a lift already shown is kept while held (no hunting down onto the roof between frames)
+                    rise = (std::max)(rise, hides ? 0.0f : liftAngle_);
+                    if (rise > wantLift) {
+                        if (cameraLogOn()) {
+                            static int every = 0;
+                            if ((++every % 10) == 1) Log("cam: car hides him (%.2f s): rise %.1f deg (wall lift %.1f)%s", carRiseT_, rise / kDegToRad,
+                                                         wantLift / kDegToRad, hides ? "" : " kept");
+                        }
+                        wantLift = rise;
+                    }
+                }
+            }
             // Up quickly (a wall is coming), down slowly (it has gone).
             liftAngle_ += (wantLift - liftAngle_) * (1.0f - std::exp(-dt / (wantLift > liftAngle_ ? 0.15f : 0.6f)));
             if (liftAngle_ < 1e-3f) liftAngle_ = 0.0f;
@@ -4711,6 +4805,21 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             const float vert = ey > c.y1 ? ey - c.y1 : (ey < c.y0 ? c.y0 - ey : 0.0f);
             const float d = (std::max)(out, vert);
             best = (std::min)(best, d);
+        }
+        // FIX-CAMERA-14 (pfl65): on foot, frames whose shown eye has another car's body across the line to his chest
+        {
+            static int footFrames = 0, hiddenFrames = 0;
+            if (!inVehicle) {
+                ++footFrames;
+                if (CarHidesPoint(gta2::Vec3{eyeX_, eyeY_ + carLift_, eyeZ_}, gta2::Vec3{px, baseY + 0.30f, pz})) {
+                    ++hiddenFrames;
+                    Log("cam: car hides him from the eye (lift %.1f deg)", liftAngle_ / kDegToRad);
+                }
+                if (footFrames >= 900) {
+                    Log("cam: car hide summary: %d of %d on-foot third-person frames with another car across the line to him", hiddenFrames, footFrames);
+                    footFrames = hiddenFrames = 0;
+                }
+            }
         }
         ++frames;
         if (best < 0.1f) ++near10;

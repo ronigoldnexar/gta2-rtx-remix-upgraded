@@ -1198,3 +1198,23 @@ went to the frame's bottom edge (A-Type 042) or down over the gauges.
   0/1/17/0. The paths still wander per run (the pocket is reached at a different spot each time), so these are not
   same-spot A/Bs. Short of AAA: in a pocket the view is a steep look-down (55-75 degrees) rather than a chase view; an
   AAA rig would pass the lens through the building or fade it.
+- pfl65 camera half (a parked vehicle between the lens and him on foot): the chase lens trailing him past a parked
+  truck stood behind it, and the truck hid him whole for as long as he stood there (cam15_occ9base: every sampled
+  frame for 5 s). FIX-CAMERA-14's unshipped rise (gamerun/cam14_carrise_wip.patch) is now in, changed in two ways:
+  only cars standing or creeping (under 0.6 b/s, measured per car from its footprint frame to frame,
+  `CarMotionUpdate`) count, so a car passing in traffic is not craned over; and the test is asked of the eye with
+  the wall's lift only, not of the risen eye (from the risen eye the car no longer hid him, the hold ran out and the
+  lens came back down behind the cab, cam15_occ6). When such a car crosses the line from the eye to his chest for
+  0.3 s, the boom rises on its arc (same length, up to the on-foot 45 degrees) to the smallest lift that sees his
+  chest, else his head; kept 1 s after, then eased down. Log: `cam: car hides him (<s>): rise <deg>`; with
+  GTA2DX9_LOG_CAMERA=1 also `cam: car hides him from the eye` per frame (a line test from the solve's eye, not the
+  shown one: it over-counts). `GTA2DX9_CAM_CAR_RISE=0` turns it off (A/B). Probe gamerun/keys_cam15_occl.sh
+  (cam15_occl.py: the parked Downtown fire truck at wil 5.5,26.5 drawn as the 007 box truck via INI_SED
+  force_car_model=7, him warped 0.9 beside its flank, the game camera settled, turned away from it with a
+  self-calibrating turn (feel_probe's face turns mirrored under direct keys), a step away and back so the lens
+  trails behind him across the truck). Frames (2 fps, 20 tiles): rise off, hidden in 15 of 15 tiles after the
+  swing; rise on (cam15_occ8), seen over the roof in 15 of 15. Frame times unchanged (game 2.4-2.8 ms avg vs
+  2.3-2.7). The renderer fade of the occluding car (a depth pre-pass in car_bodies.cpp) was not built: the rise
+  shows him on this probe without touching the car draw. Short of AAA: he is seen over the truck's roof from up to
+  45 degrees, small at the far edge of the roof; a moving car that stops beside him is craned over only once
+  measured still (~1 s); a truck crossing slowly at under 0.6 b/s still counts as standing.
