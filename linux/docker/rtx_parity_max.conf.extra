@@ -110,3 +110,5 @@ rtx.isReflexEnabled = False
 # FSR 3 frame generation (master ordinal 2; never set rtx.fsrfg.enable / rtx.dlfg.enable directly): it initialises
 # on the L4 (docs/remix-parity.md 2f) but see the hang note there before turning it on for long sessions.
 rtx.frameGenerationType = 0
+# Trap (order section 3): the Remix overlay eats the arrow keys; 0 is the default, pinned here.
+rtx.showUI = 0

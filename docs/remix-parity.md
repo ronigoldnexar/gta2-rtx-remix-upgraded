@@ -186,7 +186,7 @@ about +-15 ms by day, so take ~15-22 fps at 1280x720 as the L4's range under thi
 - `rtx.frameGenerationType` is the master: setting it to 2 made the runtime echo `rtx.fsrfg.enable = True` itself. Never set the slaves.
 - **New trap:** any `rtx.graphicsPreset` other than 4 (Custom) owns `rtx.integrateIndirectMode`; Ultra forces NRC, which on
   the L4 falls back to Importance Sampled. ReSTIR GI is only reachable with Custom (2a, rp1_b).
-- `rtx.showUI` was not set by these rigs and no overlay ate keys (the keys script's marks and warps all landed); the
+- `rtx.showUI = 0` (the default, 0 = don't show) is pinned at the end of the parity rig; no overlay ate keys in any session (the keys script's marks and warps all landed); the
   compositor of `run_game_remix_gpu.sh` keeps the GUI input window transparent (docs/remix-gpu-l4.md).
 - Clock: `rn_remix.sh` sets `[timeofday]` `Paused=1` / `StartHour` in `gta2dx9_settings.ini` through `SETTINGS_SED`, and the
   probe moves the hour with `[devtools] set_hour_tenths`; no `[weather] hour_hhmm` was relied on.
