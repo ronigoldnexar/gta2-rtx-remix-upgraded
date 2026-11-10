@@ -952,6 +952,10 @@ truck-scaled `POSES_EXTRA` t* poses for 064), private stage `stage_va19` (16c259
   poses (out/va19_tank0 / out/va19_tank1): saturated green camouflage with light-green patches on deck and turret and
   dark tracks, where it was a grey hull. Short of AAA: the top-down projection streaks vertically down the turret's steep
   sides, and the TRELLIS hull's lumpy geometry (crumpled side skirts) is unchanged.
+  Remix: the pair's maps are built matte (armour, not car paint): `remix_model_materials.py ... --pattern
+  '^054_tank_0(_paint)?\.tga$' --paint-roughness 0.72 --paint-metallic 0.0` (only the .r/.m maps differ from the default
+  build; the prims are the same text). With the car-paint default (roughness 0.18) the camo path-traced as a glossy
+  coat (out/va19_rx2).
 - **064 Truck Cab SX (qav17; `tools/vehicle_art/m064_truck_cab_sx.py`).** The truck in qav17's ste frames is the 064
   (the filer's log: dented copy, door split and seat of 064_truck_cab_sx alongside the van). Its image-to-3D shell drew the
   sprite's pale band across the cab back as a flat tan bar, the corner stacks as silver slabs ("torn chrome") and the two
