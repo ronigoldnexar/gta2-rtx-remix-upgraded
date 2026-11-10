@@ -3932,6 +3932,43 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
             }
         }
+        // FIX-CAMERA-10 (pmt2-wil-third-camera-inside-phone-booth-blue-panes-wash-a-quarter-of-the-frame): the shown
+        // boom against the street objects. The solve keeps the solved eye out of a phone box (clearOfObstacles), but
+        // the shown lens sits on the boom's own line at its eased length and direction, which trail the solve: as he
+        // turned by the plaza phone box the lens went into it and its blue panes and mirrored sign washed a quarter to
+        // half of the frame (evidence pmt2). The first object the shown line enters (cylinder widened by 0.12, from
+        // 0.35 out) stops the lens 0.05 short of it, eased in at the boom's rate while the slower lens is outside every
+        // object, at once otherwise. GTA2DX9_CAM_PROP_BOOM=0 turns it off (A/B).
+        if (meshSolve && s.tpCollide && boom_ > 0.4f && !obstacles.empty()) {
+            static int propBoomOn = -1;
+            if (propBoomOn < 0) { char b[8] = {}; propBoomOn = GetEnvironmentVariableA("GTA2DX9_CAM_PROP_BOOM", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+            constexpr float kPropLens = 0.12f;
+            float enter = -1.0f;
+            const Obstacle* hit = nullptr;
+            for (float d = 0.35f; propBoomOn && d <= boom_ + 0.05f; d += 0.05f) {
+                const float dd = (std::min)(d, boom_);
+                const gta2::Vec3 p{shownPivot.x + armDirX_ * dd, shownPivot.y + armDirY_ * dd, shownPivot.z + armDirZ_ * dd};
+                if ((hit = ObstacleAt(obstacles, p, kPropLens, false)) != nullptr) { enter = dd; break; }
+            }
+            if (cameraLogOn()) {
+                static int every = 0;
+                if ((++every % 30) == 1) {
+                    const gta2::Vec3 lens{shownPivot.x + armDirX_ * boom_, shownPivot.y + armDirY_ * boom_, shownPivot.z + armDirZ_ * boom_};
+                    float best = 1e9f; const Obstacle* nb = nullptr;
+                    for (const Obstacle& o : obstacles) { const float dd = std::hypot(o.x - lens.x, o.z - lens.z); if (!o.post && dd < best) { best = dd; nb = &o; } }
+                    if (nb) Log("cam: props by the boom: %d, nearest to the lens %.2f (at %.2f,%.2f r %.2f, %.2f..%.2f, lens y %.2f)", (int)obstacles.size(), best, nb->x,
+                                nb->z, nb->r, nb->y0, nb->y1, lens.y);
+                }
+            }
+            if (enter > 0.0f) {
+                const float want = (std::max)(0.3f, enter - 0.05f);
+                const float slow = boomAtStart > 0.0f ? (std::max)(want, boomAtStart - kBoomIn * dt) : want;
+                const gta2::Vec3 at{shownPivot.x + armDirX_ * slow, shownPivot.y + armDirY_ * slow, shownPivot.z + armDirZ_ * slow};
+                boom_ = (std::min)(boom_, ObstacleAt(obstacles, at, kPropLens, false) ? want : slow);
+                if (cameraLogOn()) Log("cam: prop on the boom at %.2f: len=%.2f (object at %.2f,%.2f r %.2f, %.2f..%.2f)", enter, boom_, hit->x, hit->z,
+                                       hit->r, hit->y0, hit->y1);
+            }
+        }
         if (s.tpCollide) {
             eyeX_ = shownPivot.x + dir.x * boom_;
             eyeY_ = shownPivot.y + dir.y * boom_;
@@ -3939,6 +3976,29 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // FIX-CAMERA-10: while the boom eases round a fast swing its line may pass over a staircase beside him
             // (the wil iron stair: the shown arm trails the swing across the treads, run cam10_p14n): the lens keeps
             // 0.45 over the floor beneath it there instead of skimming the treads (cam8_p14H: 0.2 over them).
+            // FIX-CAMERA-10 (pmt2): and a berth off the street objects: a lens beside the phone box (not on the line to
+            // him) still had its blue panes down a frame edge (run cam10_pmt2b, flamethrower fire_walk_01). Inside an
+            // object's widened cylinder below its roof, the lens moves straight out from its axis, never through the mesh.
+            if (meshSolve && !obstacles.empty()) {
+                static int propBerthOn = -1;
+                if (propBerthOn < 0) { char b[8] = {}; propBerthOn = GetEnvironmentVariableA("GTA2DX9_CAM_PROP_BOOM", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                constexpr float kPropBerth = 0.15f;
+                const gta2::Vec3 e{eyeX_, eyeY_, eyeZ_};
+                const Obstacle* o = propBerthOn ? ObstacleAt(obstacles, e, kPropBerth, false) : nullptr;
+                if (o && e.y < o->y1 + 0.1f) {
+                    float ox = e.x - o->x, oz = e.z - o->z;
+                    float len = std::hypot(ox, oz);
+                    if (len < 1e-3f) { ox = e.x - shownPivot.x; oz = e.z - shownPivot.z; len = (std::max)(std::hypot(ox, oz), 1e-3f); }
+                    const float rim = o->r + kPropBerth + 0.01f;
+                    const gta2::Vec3 out{o->x + ox / len * rim, e.y, o->z + oz / len * rim};
+                    float t = 1.0f;
+                    if (!eyecol::SegmentHit(shownPivot, out, &t) && !ObstacleAt(obstacles, out, kPropBerth, false)) {
+                        eyeX_ = out.x;
+                        eyeZ_ = out.z;
+                        if (cameraLogOn()) Log("cam: prop berth moved %.2f (object at %.2f,%.2f)", rim - len, o->x, o->z);
+                    }
+                }
+            }
             if (swingEase && meshSolve && q.floorAt) {
                 float under = 0.0f;
                 if (q.floorAt(q.context, eyeX_, eyeZ_, eyeY_ + 0.6f, &under) && eyeY_ < under + 0.45f) {

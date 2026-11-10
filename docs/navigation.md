@@ -751,6 +751,17 @@ launch hits a wall), `keys_pfl21.sh` (V third -> first -> classic while driving)
     bursts, pitch steps <= 2.4 deg, hero inside 5..95 % in every frame; one burst (p16b punch_1, him already on the
     stair) has a 34 % distance step, an ordinary 9 blocks/s pull-in at the stair with no pitch change. The
     intermediate builds' runs (cam10_p14*, cam10_p15*) are the iterations listed in the order file.
+- **pmt2** (third person at the wil plaza phone box: its blue panes and mirrored PHONE sign over a quarter of the
+  frame). The solve kept the solved eye out of street objects (`clearOfObstacles`), but the shown lens sits on the
+  boom's own line at its eased length and trailing direction, which nothing checked. Now the shown line stops 0.05
+  short of the first object it enters (cylinder widened by 0.12; eased at the boom's rate while the slower lens is
+  clear of every object), and a lens inside an object's widened cylinder below its roof moves straight out from its
+  axis (never through the mesh). `GTA2DX9_CAM_PROP_BOOM=0` turns both off. Logs: `cam: prop on the boom at D`,
+  `cam: prop berth moved M`, `cam: props by the boom` (once a second). The filer's keys_pt2_weapons.sh (six weapon
+  stops at the plaza), pose log against the box at 158.50,117.50: HEAD cam10_pmt2a 27 frames with the lens within
+  0.45 of its axis below the roof and 10 with the box between lens and him; fix cam10_pmt2d 2 and 0. Still: the box
+  can sit large at a frame edge seen from outside when he stands beside it, and the lens may hop 0.3 over its roof
+  (the solve's rule for a low object).
 - **pfl24** (camera "8-10 blocks away, hero 45 px"): not reproduced on HEAD. The boom is the designed 2.1 blocks
   (3.4 x 0.62), the hero 18-24 % of the frame height; the filer's 45 px was measured on the 1/3-scale sheet tiles and
   he never climbed (z=2.00 in every player line). A >= 25 % hero would need a closer on-foot default (owner's call).
