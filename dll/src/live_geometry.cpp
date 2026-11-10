@@ -11090,8 +11090,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         ModelSetLayers(nullptr, nullptr, nullptr, nullptr, 0);
                         ModelPoseWorlds(*km, rise, rise->length, nullptr, 0.0f, 0.0f, &end);
                         if (end.size() == km->nodes.size()) {
-                            const float pmx = end[pel].m[3][0], pmz = end[pel].m[3][2];
-                            const float alpha = std::atan2(end[head].m[3][0] - pmx, end[head].m[3][2] - pmz);
+                            const float mx = track.kdMirror ? -1.0f : 1.0f;   // FIX-FIGURE-17: the model's x as drawn
+                            const float pmx = mx * end[pel].m[3][0], pmz = end[pel].m[3][2];
+                            const float alpha = std::atan2(mx * end[head].m[3][0] - pmx, end[head].m[3][2] - pmz);
                             const float A = std::atan2(ri.head[0] - ri.pelvis[0], ri.head[2] - ri.pelvis[2]);
                             const float S = track.kdScaleS;
                             const float th = A - alpha - (S < 0.0f ? kPi : 0.0f);
@@ -11997,7 +11998,16 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * look.width * typeWidth * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * typeWidth * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
-                track.kdModel = model; track.kdScaleS = fit.m[0][0];   // FIX-KNOCKDOWN: for placing the get-up
+                // FIX-FIGURE-17 (fig4-third-every-figure-holds-weapon-in-left-hand-avatar-mirrored): the avatars come from
+                // right-handed glTF (a body's right at -x) and were placed in this left-handed world unconverted, so every
+                // figure was its own mirror image: the rig's "Bip01 R Hand" showed as his left, the gun in the left hand.
+                // x is negated here, in the one figure placement (the mesh, its bones and so the held weapon, the shadow
+                // and the ragdoll all go through `world`); figures are drawn without culling, so the flipped winding
+                // costs nothing. The weapon's own frame is rebuilt from the grip (a proper rotation: the gun is not
+                // mirrored). GTA2DX9_FIG_HANDED=0 draws them as before (A/B).
+                static const bool handed = [] { char b[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FIG_HANDED", b, sizeof b) && b[0] == '0'); }();
+                if (handed) fit.m[0][0] = -fit.m[0][0];
+                track.kdModel = model; track.kdScaleS = fit.m[2][2]; track.kdMirror = handed;   // FIX-KNOCKDOWN: for placing the get-up
                 gta2::Mat4 world;
                 for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
                     float acc = 0.0f;

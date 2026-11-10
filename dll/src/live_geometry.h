@@ -815,6 +815,7 @@ private:
         float kdRollAt = -1.0f, kdChestUp = 1.0f;
         const void* kdModel = nullptr;   // the avatar drawn last frame and its signed horizontal scale (the get-up's placing)
         float kdScaleS = 0.0f;
+        bool kdMirror = false;   // FIX-FIGURE-17 (fig4): the figure was drawn mirrored in x (right-handed)
         // FIX-KNOCKDOWN-3 (pf3): where the get-up is drawn, pinned in the world while it plays (the game runs an
         // NPC on meanwhile: a held offset slid the rising figure along at the game's pace, a skate).
         bool kdRisePinned = false;

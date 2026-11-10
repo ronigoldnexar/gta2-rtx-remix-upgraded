@@ -2059,3 +2059,29 @@ vehicle pointer, his state and the driver are the game's own and a Return afterw
 the same path as V and C). Ignored in a car, while boarding/leaving (state 3/4), down (8), dead (9) or seated
 (10); logs `devtools: enter_key: the game's entry objective 35 on the parked car ...`. `warp_key` is unchanged.
 Probes: `gamerun/ent1_probe.py`, `ent1_sweep.py`, `ent1_nav.py`, `ent1_f8.py` (keys_ent1*.sh; mirrored in linux/docker/).
+
+## FIX-FIGURE-17 (10 Nov 2026): fig4 (5a), every figure was its own mirror image: the gun in the left hand
+
+**Cause** (FIX-FIGURE-5's reading, confirmed in frames). The avatars and their clips come from right-handed glTF (a body's
+right at -x) and were placed in the left-handed D3D world without conversion: every skinned figure was drawn mirrored, so
+the rig's "Bip01 R Hand" showed as his left and the pistol sat in his left hand; the shirt's pockets and any logo too.
+`model->forward` negates x and z together (a turn, not a mirror), so nothing undid it.
+
+**Fix** (live_geometry.cpp DrawPedFigures, the one figure placement). x of the fit matrix is negated: the mesh, its bones,
+the held weapon, the shadow and the ragdoll all go through `world`. Figures are drawn without culling, so the flipped
+winding costs nothing; the weapon's frame is rebuilt from the grip (a proper rotation: the gun is not mirrored). The
+knock-down get-up placement (which measured the lying clip in model space with one scale for x and z) takes the model's
+x as drawn (`kdMirror`). Classic untouched (no figures there). `GTA2DX9_FIG_HANDED=0` draws them as before (A/B). Cars,
+props and the first-person arms (their own view model) are not changed.
+
+**Measured** (runs `fig17_hand0b` old, `fig17_hand1` new; `gamerun/keys_fig17_hand.sh`: pistol, the plaza, four headings,
+a classic frame and fixed regress-camera frames in front of and behind him, still and firing; frames opened). Facing the
+camera: old, the pistol hangs in the hand on screen-right (his left); new, on screen-left (his right). From behind: old
+screen-left, new screen-right, in every heading whose camera was not inside a wall (h0 front/back, h1/h2/h3 back). The
+two-handed firing stance stays centred and forward. Evidence sheets: defects/evidence/fig17/fig4_hand_old_vs_new_4headings.png,
+fig4_hand_zoom_front_back_old_new.png, fig4_fire_front_old_new.png. The classic sprite at 1:1 is ~20 px: in the
+east-facing frames the dark pistol sits forward on his right (screen-south) side, the same hand; too small to call in
+every heading.
+
+**Not checked yet**: the boarding door grab (grab_door_l/_r) and the jack side, the punch combo sides, Remix figure layer
+prims (the geometry's hash is unchanged, only the world matrix differs), crowd peds with long guns.
