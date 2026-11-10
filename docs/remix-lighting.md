@@ -225,3 +225,20 @@ or moon direction and the far facades stay dim slabs; the asphalt's own green-ye
 the sodium pools' outer ring; the beacon cap is a flat eye-facing disc (no lens refraction, no rotating reflector),
 and the cap was filmed on the 012 cop car only: on a body without a distinct top part (`car bodies: Remix beacon
 cap for <model>: none` in the log) no cap is drawn, only the siren lights; the ambulance, fire truck and SWAT van are untested.
+
+### FIX-REMIX-NIGHT-7 order 3: Downtown's rooftop sign plates floodlit at night (prx2, night half)
+
+The round atom sign the filer saw from wil 167.5,21.5 is one of the flat, double-sided sign plates standing on wil
+rooftops (tiles 62/63 the atom disc, 61 FUTURO RADIO; 24 faces, 11 not against a solid neighbour). They have no map
+light and no emissive, so at night under Remix the disc was a dead grey-brown. Each such face now gets a small warm-white
+(1, 0.88, 0.70) floodlight at night (the lamps' clock), half a tile out from its plane on its own side and 0.3 below its
+middle, aimed back at the plate (50 deg cone, 0.08 emitter), through the lit-window list (`BuildWindowLights`,
+nearest 40 within 18 tiles); street views and Remix only. `[devtools] remix_sign_flood_pct` (100; 0 = off).
+
+| check (wil 165.5,17.5 disc from a fixed camera at 167.0,21.0, 20:00; frn7_x2, then frn7_x3 on the pushed build) | off | on |
+|---|---|---|
+| disc mean RGB (patch in the disc) | 61,52,32 (luma 53) | 25 %: 71,60,35; 50 %: 78,66,37; 100 % of the 6.0 trial: 91,78,45; 200 %: 114,99,59; shipped 9.0 between |
+
+Not changed (a material item, note beside the order for FIX-REMIX-MATERIALS-7): the noon cream clipping and blur of the
+disc, and an emissive mask for the atom lines. Still short of a shipping frame: the sign is lit from outside like a
+floodlit board, not glowing; the plates on other districts are not covered.
