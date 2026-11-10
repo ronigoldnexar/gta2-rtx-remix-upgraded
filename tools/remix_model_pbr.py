@@ -102,7 +102,7 @@ CAR_PART_CLASSES = [
     (r"_(steel_post|tube|pin|cable|tank_band|bogie|grating)\.tga$", 0.6, 0.5),
     (r"_tyre_tread\.tga$", 0.0, 0.92),
     (r"_(tyre_side|seal|running_board_rubber|rubber_flap|bellows)\.tga$", 0.0, 0.82),
-    (r"_(underbody|frame|frame_dark|interior_dark|trim_dark|band_dark|door_dark|wheel_dark|grille_back|hood|hatch|engine|engine_fin|deck|slit)\.tga$", 0.0, 0.62),
+    (r"_(underbody|underpan|frame|frame_dark|interior_dark|trim_dark|band_dark|door_dark|wheel_dark|grille_back|hood|hatch|engine|engine_fin|deck|slit)\.tga$", 0.0, 0.62),
     (r"_seat\.tga$", 0.0, 0.7),
     (r"_whitewall\.tga$", 0.0, 0.5),
     (r"_lamp_(head|tail|amber|clear)\.tga$", 0.0, 0.06),

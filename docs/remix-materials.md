@@ -1666,3 +1666,11 @@ steel 1.0/0.24, wheel steel 0.9/0.32, dark iron 0.6/0.5, tyre tread 0/0.92, rubb
 0/0.62, seat 0/0.7, whitewall 0/0.5, lamp lenses 0/0.06 (no emission changed). Colour probe `out/fm5_probe1` (a layer
 copy with the 018 chrome albedo magenta, whitewall green): bumper, flank spear, door handle and hubs magenta, the
 whitewalls green, so the part prims key.
+
+**Coverage after the 06:00 imports, and the plaza slab.** A `_underpan` texture added to every car, a re-textured
+underbody and the new molotov weapon left 83 textures (5 hashes) without a prim; rebuilt (`underpan` joins the dark
+underbody part class): 1220 textures of 279 models, 0 missing. The ste plaza slab at the filer's spot is lids
+806/814/831: 831 took the CC0 asphalt micro-surface in 03e03d4, 806 has its own grain, 814 was featureless (grain RMS
+0.0026 against 0.02-0.026), so a smooth square sat in the cracked slab; 814 joins `remix_micro_tiles.json` with 831's
+class (asphalt, 0.9).
+

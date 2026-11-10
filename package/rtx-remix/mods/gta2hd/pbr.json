@@ -24599,7 +24599,7 @@
 },
 "7C6B9540ACA23AA1": {
 "cls": {
-"asphalt": 0.269,
+"asphalt": 0.234,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -24609,11 +24609,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.001,
+"veg": 0.002,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
+"micro": [
+"asphalt",
+0.9
+],
 "wet": false
 },
 "7C8035B15C7D0043": {
