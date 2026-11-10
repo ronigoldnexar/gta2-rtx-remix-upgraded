@@ -7943,6 +7943,7 @@ struct ShotParticle {
     uint8_t kind;   // 0 spark, 1 shell, 2 blood, 3 smoke, 4 glow, 5 arc, 6 magazine (QB-29)
     float floorY = -1e9f;   // kind 6: the ground it comes to rest on
     bool shown = false;     // FIX-FIGURE-6 pfeel50: drawn at least once (a 0.07 s flash outlived by a slow frame was never drawn)
+    float rot = 0.0f, spin = 0.0f;   // FIX-FIGURE-15: kind 7 (a flame tongue, FlameTexture) turned by rot + spin * age
 };
 std::vector<ShotParticle> g_shotParticles;
 // The muzzle lights, held for the frame they were seen on and the next: the
@@ -8020,6 +8021,92 @@ bool ReloadFixOn() {   // FIX-FIGURE-12 (pfl39): GTA2DX9_RELOAD_FIX=0 restores t
     if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_RELOAD_FIX", v, sizeof v) && v[0] == '0') ? 0 : 1; }
     return on == 1;
 }
+// FIX-FIGURE-15 (pfl76 first person, feel12 third person): the flamethrower's jet, one mechanism for both
+// views. A continuous stream emitted for the frame's real time (`span` seconds) from the nozzle along `dir`:
+// textured flame tongues (FlameTexture, kind 7) that leave the nozzle thin and hot and swell, redden and
+// turn as they fly, out to `reach` (the game's flames end ~2.5 blocks out; less where a wall stops the
+// line). At a wall the stream splashes: tongues fanning out over the face and a scorch glow at the end of
+// the jet (never instead of it). A small pilot glow at the nozzle. The old jet (round glow puffs every
+// other frame, first person nothing but a disc 1 block out) with GTA2DX9_FLAME_JET_OLD=1.
+bool FlameJetOld() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_FLAME_JET_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+    return on != 0;
+}
+void ShotSpawnTongue(float x, float y, float z, float vx, float vy, float vz, float life, float s0, float s1, float r, float g, float b, float a) {
+    ShotSpawn(x, y, z, vx, vy, vz, life, s0, s1, r, g, b, a, 7);
+    if (!g_shotParticles.empty() && g_shotParticles.back().kind == 7) {
+        g_shotParticles.back().rot = ShotRand() * 6.2831853f;
+        g_shotParticles.back().spin = (ShotRand() - 0.5f) * 5.0f;
+    }
+}
+void FlameJetEmit(const float* nozzle, const float* dirIn, float reach, bool wall, float span, bool firstPerson) {
+    float dir[3] = {dirIn[0], dirIn[1], dirIn[2]};
+    const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
+    for (float& v : dir) v /= dl;
+    float rt[3] = {dir[2], 0.0f, -dir[0]};
+    const float rtl = (std::max)(1e-4f, std::sqrt(rt[0] * rt[0] + rt[2] * rt[2]));
+    rt[0] /= rtl; rt[2] /= rtl;
+    const float upv[3] = {dir[1] * rt[2] - dir[2] * rt[1], dir[2] * rt[0] - dir[0] * rt[2], dir[0] * rt[1] - dir[1] * rt[0]};
+    span = (std::max)(1.0f / 60.0f, (std::min)(0.1f, span));
+    reach = (std::max)(0.25f, reach);
+    const float speed = 5.5f;
+    const float life = reach / speed;
+    // Tongues: 300 a second (first person 200, the stream is close), spread over the frame's flight so
+    // the stream is continuous at any frame rate.
+    const int n = (std::min)(24, static_cast<int>(span * (firstPerson ? 200.0f : 300.0f) + ShotRand()));   // fig15_fl6: 170 a second read as beads from the side
+    const float grow = 0.07f + 0.04f * reach;   // the size at the end of the jet (fig15_fl4: 0.26 at 2.6 out was a ball, not a jet)
+    for (int i = 0; i < n; ++i) {
+        const float sx = (ShotRand() - 0.5f) * 0.10f, sy = (ShotRand() - 0.5f) * 0.08f;
+        const float sp = speed * (0.92f + 0.16f * ShotRand());
+        const float vx = (dir[0] + rt[0] * sx + upv[0] * sy) * sp, vy = (dir[1] + rt[1] * sx + upv[1] * sy) * sp + 0.20f,
+                    vz = (dir[2] + rt[2] * sx + upv[2] * sy) * sp;
+        // Placed as if emitted over the span ending now, less the frame the draw ages them by before they are seen
+        // (fig15_fl7: emitted ahead of the nozzle, the stream started 0.2-0.4 block out of it, the gap in both views).
+        const float lead = (ShotRand() - (firstPerson ? 1.0f : 0.75f)) * span;
+        const float l = life * (0.85f + 0.2f * ShotRand());
+        const bool core = (i % 3) == 0;
+        ShotSpawnTongue(nozzle[0] + vx * lead, nozzle[1] + vy * lead, nozzle[2] + vz * lead, vx, vy, vz, l,
+                        firstPerson ? 0.018f : 0.035f, core ? grow * 0.6f : grow * (0.9f + 0.3f * ShotRand()),
+                        1.0f, core ? 0.95f : 0.80f, core ? 0.80f : 0.55f, core ? 1.0f : 0.80f);
+    }
+    // The hot root: a short white-yellow core glued to the nozzle.
+    for (int i = 0; i < 2; ++i) {
+        const float d0 = 0.02f + 0.08f * ShotRand();
+        ShotSpawn(nozzle[0] + dir[0] * d0, nozzle[1] + dir[1] * d0, nozzle[2] + dir[2] * d0, dir[0] * 1.5f, dir[1] * 1.5f, dir[2] * 1.5f,
+                  0.04f, firstPerson ? 0.012f : 0.02f, firstPerson ? 0.03f : 0.05f, 1.0f, 0.9f, 0.6f, 0.8f, 4);
+    }
+    if (wall) {
+        // The splash over the wall and the scorch glow at the end of the jet.
+        float hit[3];
+        for (int c = 0; c < 3; ++c) hit[c] = nozzle[c] + dir[c] * reach * 0.95f;
+        const int m = (std::min)(10, static_cast<int>(span * 70.0f + ShotRand()));
+        for (int i = 0; i < m; ++i) {
+            const float a = ShotRand() * 6.2831853f, sp = 0.8f + 1.2f * ShotRand();
+            const float ca = std::cos(a), sa = std::sin(a);
+            ShotSpawnTongue(hit[0], hit[1], hit[2], (rt[0] * ca + upv[0] * sa) * sp - dir[0] * 0.4f, (rt[1] * ca + upv[1] * sa) * sp * 0.7f + 0.35f,
+                            (rt[2] * ca + upv[2] * sa) * sp - dir[2] * 0.4f, 0.22f + 0.1f * ShotRand(), grow * 0.6f, grow * 1.3f, 1.0f, 0.75f, 0.5f, 0.75f);
+        }
+        if (ShotRand() < span * 20.0f)
+            ShotSpawn(hit[0] - dir[0] * 0.05f, hit[1], hit[2] - dir[2] * 0.05f, 0, 0.05f, 0, 0.15f, grow * 1.4f, grow * 1.8f, 1.0f, 0.45f, 0.10f, 0.45f, 4);
+    }
+    // A wisp of dark smoke off the tip.
+    if (ShotRand() < span * 9.0f) ShotFxSmoke(nozzle[0] + dir[0] * reach * 0.9f, nozzle[1] + dir[1] * reach * 0.9f + 0.10f, nozzle[2] + dir[2] * reach * 0.9f);
+}
+// The flame's reach from a nozzle along dir: the game's ~2.5 blocks, or the first wall (*wall).
+float FlameJetReach(const float* nozzle, const float* dir, float maxReach, bool* wall) {
+    *wall = false;
+    float lo = 0.0f, hi = maxReach;
+    auto at = [&](float d, int c) { return nozzle[c] + dir[c] * d; };
+    // Walls only (a side face): the game's flames run on over kerbs and lids (fig15_fl1: a lid 1.5 out stopped the jet).
+    if (!ViewLineWalled(nozzle[0], nozzle[1], nozzle[2], at(hi, 0), at(hi, 1), at(hi, 2))) return maxReach;
+    for (int i = 0; i < 6; ++i) {
+        const float mid = 0.5f * (lo + hi);
+        if (ViewLineWalled(nozzle[0], nozzle[1], nozzle[2], at(mid, 0), at(mid, 1), at(mid, 2))) hi = mid; else lo = mid;
+    }
+    *wall = true;
+    return (std::max)(0.25f, lo);
+}
 struct SilencedMuzzle { float x, y, z; uint32_t frame; };
 std::vector<SilencedMuzzle> g_silencedMuzzles;   // FIX-FIGURE-12: this and the last frames' suppressed muzzles
 void NoteSilencedMuzzle(const float* pos) {
@@ -8090,7 +8177,15 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
         ShotSpawn(ex, ey, ez, right[0] * vr + up[0] * vu + dir[0] * vb, right[1] * vr + up[1] * vu + dir[1] * vb,
                   right[2] * vr + up[2] * vu + dir[2] * vb, 0.7f, 0.009f, 0.009f, 0.85f, 0.7f, 0.3f, 1.0f, 1);
     }
-    if (weapon == kWpnFlame && FlameJetOn()) {
+    if (weapon == kWpnFlame && FlameJetOn() && !FlameJetOld()) {
+        // FIX-FIGURE-15: the one jet (FlameJetEmit). Called every other frame while the trigger is held in the
+        // third person (each muzzle frame), first person every frame from DrawViewModel.
+        if (!firstPerson) {
+            bool wall = false;
+            const float reach = FlameJetReach(pos, dir, 2.4f, &wall);
+            FlameJetEmit(pos, dir, reach, wall, 2.0f / 30.0f, false);
+        }
+    } else if (weapon == kWpnFlame && FlameJetOn()) {
         // FIX-FIGURE-9 (feel12 flamethrower): the stream leaves the nozzle along the barrel. The game's
         // own flame sprites near him (upright teardrops beside his hand) are left out (fxFlameAtShooter);
         // this jet carries the fire for about two blocks, where the game's fire takes over.
@@ -8188,25 +8283,34 @@ void ShotFxDraw(IDirect3DDevice9* device, float dt) {
     const float Ux = -rz * f.y, Uy = rz * f.x - rx * f.z, Uz = rx * f.y;
     struct PV { float x, y, z; DWORD color; float u, v; };
     static const uint16_t quad[6] = {0, 1, 2, 0, 2, 3};
-    std::vector<PV> add, blend;
-    std::vector<uint16_t> addIdx, blendIdx;
+    std::vector<PV> add, blend, tongue;
+    std::vector<uint16_t> addIdx, blendIdx, tongueIdx;
     for (const ShotParticle& sp : g_shotParticles) {
         const float t = sp.age / sp.life;
         const float size = sp.size0 + (sp.size1 - sp.size0) * t;
         float alpha = sp.a;
         if (sp.kind == 0 || sp.kind == 5) alpha *= 1.0f - t;
         else if (sp.kind == 4) alpha *= 1.0f - t * t;
+        else if (sp.kind == 7) alpha *= (t < 0.08f ? 0.5f + 0.5f * t / 0.08f : 1.0f) * (1.0f - t * t);   // FIX-FIGURE-15: a tongue
         else if (sp.kind == 2) alpha *= 1.0f - t;
         else if (sp.kind == 3) alpha *= (t < 0.1f ? t / 0.1f : 1.0f) * (1.0f - t) * (1.0f - t);
         else if (sp.kind == 6 && sp.life > 0.2f) alpha *= t > 0.8f ? (1.0f - t) / 0.2f : 1.0f;
-        const bool additive = sp.kind == 0 || sp.kind == 4 || sp.kind == 5;
+        const bool additive = sp.kind == 0 || sp.kind == 4 || sp.kind == 5 || sp.kind == 7;
         const float lv = additive ? alpha : 1.0f;
-        const DWORD c = D3DCOLOR_COLORVALUE(sp.r * lv, sp.g * lv, sp.b * lv, additive ? 1.0f : alpha);
-        std::vector<PV>& v = additive ? add : blend;
-        std::vector<uint16_t>& ix = additive ? addIdx : blendIdx;
+        // A tongue cools as it flies: its tint from the hot white-yellow toward the red.
+        const float cool = sp.kind == 7 ? 1.0f - 0.45f * t : 1.0f;
+        const DWORD c = D3DCOLOR_COLORVALUE(sp.r * lv, sp.g * lv * cool, sp.b * lv * cool * cool, additive ? 1.0f : alpha);
+        std::vector<PV>& v = sp.kind == 7 ? tongue : additive ? add : blend;
+        std::vector<uint16_t>& ix = sp.kind == 7 ? tongueIdx : additive ? addIdx : blendIdx;
         if (v.size() > 60000) continue;
         const uint16_t base = static_cast<uint16_t>(v.size());
         float ax = rx * size, ay = 0.0f, az = rz * size, bx = Ux * size, by = Uy * size, bz = Uz * size;
+        if (sp.kind == 7) {
+            const float an = sp.rot + sp.spin * sp.age, ca = std::cos(an), sa = std::sin(an);
+            const float nax = ax * ca + bx * sa, nay = ay * ca + by * sa, naz = az * ca + bz * sa;
+            bx = bx * ca - ax * sa; by = by * ca - ay * sa; bz = bz * ca - az * sa;
+            ax = nax; ay = nay; az = naz;
+        }
         if (sp.kind == 6) {
             // A magazine: an upright bar (a rocket: a fatter one), along its fall
             // while it falls.
@@ -8234,7 +8338,7 @@ void ShotFxDraw(IDirect3DDevice9* device, float dt) {
         v.push_back({sp.x + ax - bx, sp.y + ay - by, sp.z + az - bz, c, 1.0f, 1.0f});
         for (uint16_t q : quad) ix.push_back(static_cast<uint16_t>(base + q));
     }
-    if (add.empty() && blend.empty()) return;
+    if (add.empty() && blend.empty() && tongue.empty()) return;
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
     device->SetTransform(D3DTS_WORLD, &identity);
@@ -8262,6 +8366,16 @@ void ShotFxDraw(IDirect3DDevice9* device, float dt) {
         device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
         device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(add.size()), static_cast<UINT>(addIdx.size() / 3),
                                        addIdx.data(), D3DFMT_INDEX16, add.data(), sizeof(PV));
+    }
+    if (!tongue.empty()) {
+        if (IDirect3DTexture9* ft = FlameTexture(device)) {
+            device->SetTexture(0, ft);
+            device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+            device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+            device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(tongue.size()), static_cast<UINT>(tongueIdx.size() / 3),
+                                           tongueIdx.data(), D3DFMT_INDEX16, tongue.data(), sizeof(PV));
+            device->SetTexture(0, texture);
+        }
     }
     device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
@@ -8293,6 +8407,7 @@ void ShotFxImpacts() {
 // with the same kick on a shot (the shot: a fresh flash or bullet just ahead
 // of the eye, since the player's own sprite is not seen in this view). Drawn
 // over everything (no depth test), after the figures.
+uint32_t g_fpAmmoDropFrame = 0;   // FIX-FIGURE-15: the frame the player's ammunition word last dropped (the flamethrower spends one a frame)
 uint32_t g_ownLensFrame = 0;   // FIX-FIGURE-10 pfl23: the frame his own figure was last left out of the picture (see DrawViewModel)
 uint32_t vmLastBob_ = 0;   // FIX-FIGURE-7: the frame the view model's bob last ran (a gap resets it)
 void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
@@ -8336,6 +8451,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         static uint32_t shotFrame = 0;
         if (g_playerWeapon > 0 && lastAmmo >= 0 && g_playerAmmo < lastAmmo) {
             shotFrame = g_carFrame;
+            g_fpAmmoDropFrame = g_carFrame;
             // FIX-FP-2 (feel17: no kick between shots): the game's own shot (its ammunition word
             // dropped) kicks the view model too, not only a flash sprite found ahead of the eye.
             if (g_carFrame - g_fpShotFrame >= 3) g_fpShotFrame = g_carFrame;
@@ -8644,16 +8760,60 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // its barrel stood at 54 degrees in the frame (aimed at the crosshair from under the eye: "pointing at the sky");
     // now about 40 degrees, the stock along the bottom right.
     const bool sgHold = weapon == kWpnShotgun && !fists && !ShotgunFxOld();
-    const float side = (fist2 ? 0.066f - 0.02f * jabR : fists ? 0.060f - 0.02f * jabR : sgHold ? 0.085f : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
-                down = (fist2 ? 0.042f + breath - 0.012f * jabR - 0.25f * (std::max)(0.0f, swingR) : fists ? 0.070f + breath - 0.012f * jabR : (sgHold ? 0.068f : wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
+    // FIX-FIGURE-15 (pfl76): the flamethrower lower and nearer the middle (side 0.05, down 0.10): aimed at the reticle on
+    // the game's line of fire (near the view's middle, at body height) from the long guns' 0.055/0.075 it lay across
+    // the frame pointing left; from the hip it rises into the picture toward the crosshair.
+    const bool flHold = weapon == kWpnFlame && !fists && FlameJetOn() && !FlameJetOld();
+    const float side = (fist2 ? 0.066f - 0.02f * jabR : fists ? 0.060f - 0.02f * jabR : sgHold ? 0.085f : flHold ? 0.050f : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
+                down = (fist2 ? 0.042f + breath - 0.012f * jabR - 0.25f * (std::max)(0.0f, swingR) : fists ? 0.070f + breath - 0.012f * jabR : (sgHold ? 0.068f : flHold ? 0.100f : wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
+    // FIX-FIGURE-15 (pfl76): the flamethrower fires along the game's line of fire (his body's height, 0.30 over
+    // his floor, along his facing: the flames are 0.39 under the eye), the line the reticle sits on (hud3d),
+    // not along the eye's line 5 blocks out: the barrel pointed over the crosshair and
+    // the stream ran to the middle of the view. Held, the gun shudders a little with the pressure.
+    const bool flameFp = vmShown == kWpnFlame && FlameJetOn() && !FlameJetOld();
+    const bool flameFiring = flameFp && g_fpAmmoDropFrame && g_carFrame - g_fpAmmoDropFrame <= 4 && drop <= 0.0f;
+    static float flameAim[3] = {0.0f, 0.0f, 0.0f};
+    static uint32_t flameAimFrame = 0;
+    if (flameFp) {
+        const AimState& a = ViewAim();
+        float want[3];
+        if (a.valid) {
+            const float hx = std::sin(a.headingYaw), hz = std::cos(a.headingYaw);
+            const float ox = a.x, oy = a.y + 0.30f, oz = a.z;
+            // Out to where the game's flames end (~2.5 blocks) or the first wall: the far end of the line, so the
+            // barrel lies along it (the reticle sits on the same line nearer in). Not the reticle's own test: it
+            // counts lids, and on the wil plaza it stopped 0.6 out (fig15_fl3), which tipped the barrel 10 degrees
+            // off the line.
+            float lo = 0.0f, hi = 2.5f;
+            if (ViewLineWalled(ox, oy, oz, ox + hx * hi, oy, oz + hz * hi)) {
+                for (int i = 0; i < 6; ++i) {
+                    const float mid = 0.5f * (lo + hi);
+                    if (ViewLineWalled(ox, oy, oz, ox + hx * mid, oy, oz + hz * mid)) hi = mid; else lo = mid;
+                }
+                hi = (std::max)(lo, 0.8f);
+            }
+            want[0] = ox + hx * hi; want[1] = oy; want[2] = oz + hz * hi;
+        } else {
+            for (int c = 0; c < 3; ++c) want[c] = (&eye.x)[c] + (&f.x)[c] * 3.0f - up[c] * 0.39f;
+        }
+        const float ka = (flameAimFrame && g_carFrame - flameAimFrame < 4 && vmDt > 0.0f) ? 1.0f - std::exp(-vmDt / 0.05f) : 1.0f;
+        for (int c = 0; c < 3; ++c) flameAim[c] += (want[c] - flameAim[c]) * ka;
+        flameAimFrame = g_carFrame;
+    }
+    float shake[2] = {0.0f, 0.0f};
+    if (flameFiring) {
+        const float tt = static_cast<float>(vmNow % 100000u) / 1000.0f;
+        shake[0] = 0.0010f * std::sin(tt * 61.0f) + 0.0006f * std::sin(tt * 97.0f);
+        shake[1] = 0.0010f * std::sin(tt * 53.0f + 1.3f) + 0.0005f * std::sin(tt * 89.0f);
+    }
     float pos[3];
-    for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * (side + bobSide + swaySide) - up[c] * (down + bobDown);
+    for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * (ahead - (flameFiring ? 0.004f : 0.0f)) + right[c] * (side + bobSide + swaySide + shake[0]) - up[c] * (down + bobDown + shake[1]);
     // The barrel on the crosshair: aimed at the point 5 blocks along the view
     // (the line of the shot), tipped up by the kick and the reload.
     float dir[3];
     {
         float aim[3];
-        for (int c = 0; c < 3; ++c) aim[c] = (&eye.x)[c] + (&f.x)[c] * 5.0f - pos[c];
+        for (int c = 0; c < 3; ++c) aim[c] = (flameFp ? flameAim[c] : (&eye.x)[c] + (&f.x)[c] * 5.0f) - pos[c];
         const float al = (std::max)(1e-4f, std::sqrt(aim[0] * aim[0] + aim[1] * aim[1] + aim[2] * aim[2]));
         // The fists in a guard: tipped forward (the knuckles' tops toward the eye) and turned in.
         // FIX-FIGURE-7: the closed fist (knuckles ahead) tipped less, so its knuckles and folded thumb face the eye.
@@ -8934,6 +9094,30 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         static int muzzleLogs = 0;
         if (muzzleLogs < 12) { ++muzzleLogs; Log("view model: muzzle %s at %.3f,%.3f,%.3f (bore %.3f x k %.3f over the grip, %.3f ahead)", wi.name, muzzle[0], muzzle[1], muzzle[2], bore, k, model->boundsMax.z * k); }
         ShotFxMuzzle(weapon, muzzle, dir, wr, wu, true);
+    }
+    if (flameFp && !thrown && !fists && drop <= 0.0f) {
+        float muzzle[3];
+        for (int c = 0; c < 3; ++c) muzzle[c] = pos[c] + dir[c] * model->boundsMax.z * k + wu[c] * bore * k;
+        if (flameFiring) {
+            bool wall = false;
+            const float reach = FlameJetReach(muzzle, dir, 2.6f, &wall);
+            FlameJetEmit(muzzle, dir, reach, wall, vmDt > 0.0f ? vmDt : 1.0f / 30.0f, true);
+            static int jl = 0;
+            if (jl < 30) {
+                ++jl;
+                float ax = -1, ay = -1, nx = -1, ny = -1;
+                LiveWorldToScreen(flameAim[0], flameAim[1], flameAim[2], &ax, &ay);
+                LiveWorldToScreen(muzzle[0], muzzle[1], muzzle[2], &nx, &ny);
+                const AimState& as = ViewAim();
+                Log("flame jet: first person f=%u nozzle %.2f,%.2f,%.2f (screen %.3f,%.3f) dir %.2f,%.2f,%.2f reach %.2f%s aim %.2f,%.2f,%.2f (screen %.3f,%.3f) eye %.2f,%.2f,%.2f fwd %.2f,%.2f,%.2f him %.2f,%.2f,%.2f yaw %.3f",
+                    g_carFrame, muzzle[0], muzzle[1], muzzle[2], nx, ny, dir[0], dir[1], dir[2], reach, wall ? " (wall)" : "", flameAim[0], flameAim[1], flameAim[2], ax, ay,
+                    eye.x, eye.y, eye.z, f.x, f.y, f.z, as.x, as.y, as.z, as.headingYaw);
+            }
+        } else if (ShotRand() < 0.5f) {
+            // The pilot flame at the nozzle at rest: a small blue-white flicker.
+            ShotSpawn(muzzle[0] + dir[0] * 0.012f, muzzle[1] + dir[1] * 0.012f + 0.002f, muzzle[2] + dir[2] * 0.012f, 0.0f, 0.03f, 0.0f,
+                      0.08f, 0.006f, 0.004f, 0.55f, 0.65f, 1.0f, 0.8f, 4);
+        }
     }
 }
 
@@ -13970,7 +14154,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 if (f.weapon != kWpnFlame || !f.shotFrame || g_carFrame - f.shotFrame > 24u) continue;   // the game's flames live 13+ frames: a tap's came back mid-flight at 8
                 const float dx = c[0] - f.x, dz = c[2] - f.z;
                 const float d2 = dx * dx + dz * dz;
-                const bool out = d2 < 2.4f * 2.4f;
+                // FIX-FIGURE-15: first person 2.7 (the jet runs to 2.6; the game's dark red stream sprites at its tip
+                // read as a second flame beside the jet, fig15_fl5).
+                const float cut = fxFpFoot && !FlameJetOld() ? 2.7f : 2.4f;
+                const bool out = d2 < cut * cut;
                 static int logged = 0;
                 if (g_logPedFrames && logged < 160 && d2 < 16.0f) {
                     ++logged;

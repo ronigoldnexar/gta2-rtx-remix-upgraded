@@ -913,12 +913,20 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             wx = h.tx; wy = h.ty + 0.28f; wz = h.tz;
         } else {
             float lo = 0.0f, hi = (std::min)(reach, 8.0f);
-            if (ViewLineBlocked(ox, oy, oz, ox + hx * hi, oy, oz + hz * hi)) {
+            // FIX-FIGURE-15 (pfl76): the flamethrower's reticle at the end of its jet (live_geometry FlameJetEmit: the
+            // game's flames end ~2.5 blocks out, run over kerbs and lids, stop at a wall). The lid test stopped it 0.6
+            // out on the open wil plaza, under the nozzle, so the jet never crossed it.
+            const bool flame = a.weapon == 10;
+            if (flame) hi = 2.5f;
+            auto blocked = [&](float d) {
+                return flame ? ViewLineWalled(ox, oy, oz, ox + hx * d, oy, oz + hz * d) : ViewLineBlocked(ox, oy, oz, ox + hx * d, oy, oz + hz * d);
+            };
+            if (blocked(hi)) {
                 for (int i = 0; i < 6; ++i) {
                     const float mid = 0.5f * (lo + hi);
-                    if (ViewLineBlocked(ox, oy, oz, ox + hx * mid, oy, oz + hz * mid)) hi = mid; else lo = mid;
+                    if (blocked(mid)) hi = mid; else lo = mid;
                 }
-                hi = (std::max)(lo, 0.6f);
+                hi = (std::max)(lo, flame ? 0.8f : 0.6f);
             }
             wx = ox + hx * hi; wy = oy; wz = oz + hz * hi;
         }

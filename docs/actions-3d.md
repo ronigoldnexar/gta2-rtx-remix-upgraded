@@ -1764,3 +1764,39 @@ filmed the 0.7 s version).
 - Short of a shipping frame: no shell ejected on the pump; the stroke is the hand and fore-end, the gun does
   not cycle a shell; the debris still sprays up over the wall (the game's own chips); no smoke wisp at the muzzle.
 - A/B: `GTA2DX9_SHOTGUN_FX_OLD=1` (no refire detection, pump, hold, debris lift or puff rule; the model stays).
+
+## FIX-FIGURE-15 (10 Nov 2026): the flamethrower's jet in both views
+
+### pfl76 (first person) + feel12 flamethrower (third person): one flame jet from the nozzle along the line of fire
+
+- Seen (HEAD 05c78dc, fig15_fl0, wil plaza 159.5,139.5): in first person the held fire was one round disc about a
+  block out at the middle of the view and nothing between it and the gun; the barrel pointed at the view's middle
+  (the point 5 blocks along the eye's line) while the reticle sat lower on the game's line of fire; no movement
+  in the hands. Third person: round glow puffs, beads along the stream.
+- Causes: the first-person jet was spawned only on the frames the view model's shot clock took (every third
+  frame), its puffs flew along the eye's line (foreshortened into one disc); the game's flames (8/381-390,
+  `GTA2DX9_LOG_FX=2`) run along his facing at body height (0.30 over his floor, 0.39 under the eye) at about
+  3 blocks a second and die ~2.5 blocks out. The reticle's own line test (hud3d, lids count) stopped 0.6 out on
+  the plaza, under the nozzle.
+- One mechanism (live_geometry.cpp `FlameJetEmit`, `FlameJetReach`): a continuous stream emitted for the
+  frame's real time, textured flame tongues (FlameTexture, particle kind 7: turned at random, spinning,
+  cooling from white-yellow to red as they fly) that leave the nozzle thin and swell to ~0.17 block at the end,
+  out to 2.4-2.6 blocks or the first wall (side faces only: the game's flames run over kerbs and lids); at a
+  wall a splash of tongues over the face and a scorch glow at the end of the jet; a hot white root at the
+  nozzle; a smoke wisp off the tip. Third person: called on each muzzle frame (every other frame, 300
+  tongues a second). First person: every frame while the ammunition word drops (it drops once a frame while
+  held), 200 a second; a blue pilot flicker at the nozzle at rest.
+- First person aim: the barrel aims at the far end of the game's line of fire (along his facing at his body's
+  height, 2.5 blocks or the first wall), the same line the reticle is on; the flamethrower is held from the hip
+  (side 0.05, down 0.10) so it rises into the picture toward the crosshair; held fire shudders it a little and
+  pushes it back 0.004. The game's flame sprites within 2.7 blocks of him are left out in first person (2.4 in
+  third, as before): its dark red stream sprites at the jet's tip read as a second flame.
+- Reticle (hud3d): with the flamethrower, at the end of the jet (2.5 blocks, walls only), so the jet crosses it.
+- Verified: fig15_fl6/fl7 (FP 10 fps crops through the hold: the jet leaves the nozzle and runs through the
+  crosshair into a flame at the line's end, the ground lit by the muzzle light; third person fixed cameras
+  behind and beside him: the stream from his hands along his facing). Classic: vreg spawn_classic 0 tiles.
+- Short of a shipping frame: the end of the jet still reads as a ball from the eye (a jet seen along its
+  length); no heat haze or dripping fuel; the hero's flamethrower in third person is a small dark stub; peds
+  in the jet react only as the game makes them (fire on them).
+- A/B: `GTA2DX9_FLAME_JET_OLD=1` (FIGURE-9's puff jet, the 5-block aim, the long guns' hold, the 2.4 cut;
+  the reticle change stays); `GTA2DX9_FLAME_JET=0` (the game's flame sprites only).
