@@ -2020,6 +2020,15 @@ bool CameraMeshSolveOn() {
 }
 
 // FIX-CAMERA-4: GTA2DX9_CAM_SWING=0 turns the on-foot boom swing off (A/B).
+// FIX-CAMERA-10 (pfl14): the swing turns fast onto a clear heading and the boom eases at a sheet meanwhile.
+bool CameraSwingFirstOn() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        char buf[8] = {};
+        enabled = GetEnvironmentVariableA("GTA2DX9_CAM_SWING_FIRST", buf, sizeof buf) && atoi(buf) == 0 ? 0 : 1;
+    }
+    return enabled != 0;
+}
 bool CameraSwingOn() {
     static int enabled = -1;
     if (enabled < 0) {
@@ -3126,7 +3135,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // him read reach 0 there (run cam8_p14q) and the boom was pulled into his head with the mesh clear all the way.
     // OFF by default (GTA2DX9_CAM_FOOT_CELL_MESH=1 turns it on): not yet shown safe beyond the plaza probe.
     static int footCellMeshOn = -1;
-    if (footCellMeshOn < 0) { char b[8] = {}; footCellMeshOn = GetEnvironmentVariableA("GTA2DX9_CAM_FOOT_CELL_MESH", b, sizeof b) && atoi(b) == 1 ? 1 : 0; }
+    if (footCellMeshOn < 0) { char b[8] = {}; footCellMeshOn = GetEnvironmentVariableA("GTA2DX9_CAM_FOOT_CELL_MESH", b, sizeof b) ? (atoi(b) == 1 ? 1 : 0) : (CameraSwingFirstOn() ? 1 : 0); }
     const bool footCellMesh = !inVehicle && footCellMeshOn && mode == ViewMode::ThirdPerson && eyecol::Ready() && CameraMeshSolveOn();
     auto solidAt = [&](float x, float y, float z) {
         if (!inVehicle && static_cast<int>(std::floor(x)) == ownX && static_cast<int>(std::floor(z)) == ownZ &&
@@ -3241,6 +3250,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // turns the view onto him from wherever the eye ends up. The lift over a wall below still
     // applies when no swing clears. GTA2DX9_CAM_SWING=0 turns it off (A/B).
     if (!boomKnown_ || inVehicle) { swingAngle_ = 0.0f; swingRigKnown_ = false; }
+    bool swingClearing = false;   // FIX-CAMERA-10 (pfl14): this frame the swing turns fast onto a clear heading
+    bool swingCut = false;        // FIX-CAMERA-10: ... or cuts there (neither way round open)
+    swingClearHold_ = inVehicle ? 0.0f : (std::max)(0.0f, swingClearHold_ - dt);
     if (s.tpCollide && q.blocked && !inVehicle && meshSolve && CameraSwingOn()) {
         const gta2::Vec3 span0 = desired - pivot;
         const float len0 = std::sqrt(span0.x * span0.x + span0.y * span0.y + span0.z * span0.z);
@@ -3337,7 +3349,68 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 held = true;
             }
         }
+        const float swingAtStart = swingAngle_;
         if (!held) swingAngle_ += (wantSwing - swingAngle_) * (1.0f - std::exp(-dt / tau));
+        // FIX-CAMERA-10 (pfl14-third-on-foot-plaza-camera-lunge-and-roll): beside the wil iron staircase the
+        // stair's side (a two-sided railing face 0.2 from his centre) cuts the line behind him as he steps along it;
+        // the swing to the open side eased over 0.25 s while the boom fell in at 9 blocks/s, so the camera lunged
+        // into his head and craned to 55-60 degrees down (run cam10_p24a punch_1: solved 1.37 -> 0.07 in a frame,
+        // pitch -11 -> -59 in 6). When the heading the swing is at cannot reach and the one it wants can, it
+        // turns there fast (kSwingFast; the shown boom's direction is still capped at 4 rad/s below) and the boom
+        // eases in at a see-through sheet instead of cutting (the boom filter, swingClearing): the distance
+        // holds while the camera goes round. GTA2DX9_CAM_SWING_FIRST=0 restores HEAD (A/B).
+        if (!waiting && len0 > 0.8f && CameraSwingFirstOn()) {
+            constexpr float kSwingFast = 360.0f * kDegToRad;
+            const float good = (std::max)(0.9f, 0.6f * len0);
+            const float rest = WrapAngle(wantSwing - swingAngle_);
+            if (std::fabs(rest) > 3.0f * kDegToRad && reachTo(pivot, turned(swingAtStart)) * len0 < good &&
+                reachTo(pivot, turned(wantSwing)) * len0 >= good) {
+                // The way round: the short one unless a heading on it reaches under half the boom and the long
+                // one's do not (run cam10_p14h: the short way round crossed the staircase, the lens 0.08 over its
+                // treads).
+                auto pathMin = [&](float from, float span) {
+                    const int n = static_cast<int>(std::fabs(span) / (15.0f * kDegToRad)) + 1;
+                    float m = 1.0f;
+                    for (int k = 1; k < n; ++k) m = (std::min)(m, reachTo(pivot, turned(from + span * static_cast<float>(k) / n)));
+                    return m;
+                };
+                const float longSpan = rest > 0.0f ? rest - 2.0f * kPi : rest + 2.0f * kPi;
+                float dir = rest;
+                const float shortMin = pathMin(swingAngle_, rest), longMin = pathMin(swingAngle_, longSpan);
+                if (shortMin * len0 < 0.5f * good && longMin * len0 >= 0.5f * good) dir = longSpan;
+                if (cameraLogVerbose()) Log("cam: swing first route: short %.2f long %.2f (good %.2f)%s", shortMin * len0, longMin * len0, good,
+                                            dir != rest ? " the long way" : "");
+                // Neither way round is open (the stair beside him one way, the wall behind the other: run
+                // cam10_p15c, both 0.07): a cut to the clear heading, at the same distance and pitch, instead of a
+                // swing through the staircase that ends with the lens in his head.
+                // Only when the line where it is has collapsed (at the plaza fence a corner walk's line reaching
+                // 0.5 of good went round smoothly on HEAD and was cut needlessly: run cam10_r6on cornerwalk_1).
+                const bool cut = reachTo(pivot, turned(swingAtStart)) * len0 < 0.35f * good && shortMin * len0 < 0.5f * good &&
+                                 longMin * len0 < 0.5f * good && std::fabs(rest) > 30.0f * kDegToRad;
+                const float step = cut ? std::fabs(dir) : (std::min)(std::fabs(dir), kSwingFast * dt);
+                const float before = swingAngle_;
+                swingAngle_ += dir > 0.0f ? step : -step;
+                if (cut) {
+                    swingCut = true;
+                    if (cameraLogOn()) Log("cam: swing first: neither way round is open, cut %.1f -> %.1f deg", before / kDegToRad,
+                                           swingAngle_ / kDegToRad);
+                }
+                // The camera goes round with the swing: the eye state turns about him by this frame's step, so the
+                // ease below does not cut the chord through him (run cam10_p14u: eased along the chord, the shown
+                // boom turned 5 degrees a frame and crossed the staircase on the way).
+                {
+                    const float a = swingAngle_ - before, c = std::cos(a), sn = std::sin(a);
+                    const float ox = eyeX_ - pivot.x, oz = eyeZ_ - pivot.z;
+                    eyeX_ = pivot.x + ox * c - oz * sn;
+                    eyeZ_ = pivot.z + ox * sn + oz * c;
+                }
+                swingAngle_ = WrapAngle(swingAngle_);
+                swingClearing = true;
+                swingClearHold_ = 0.6f;
+                if (cameraLogOn()) Log("cam: swing first %.1f -> %.1f want %.1f deg", swingAtStart / kDegToRad, swingAngle_ / kDegToRad,
+                                       wantSwing / kDegToRad);
+            }
+        }
         if (rearmSwing) {
             swingAngle_ = wantSwingRearm;
             if (cameraLogOn()) Log("cam: re-armed with the swing it wants: %.1f deg", swingAngle_ / kDegToRad);
@@ -3601,6 +3674,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // it with the rig's own length to tell a pull-in from the eye's ordinary lag).
     const float solveLen = std::sqrt((desired.x - pivot.x) * (desired.x - pivot.x) + (desired.y - pivot.y) * (desired.y - pivot.y) +
                                      (desired.z - pivot.z) * (desired.z - pivot.z));
+    if (swingCut) {   // FIX-CAMERA-10: the cut round the staircase is drawn as a cut (the solved pose at once)
+        snapEye_ = true;
+        boomKnown_ = false;
+    }
     if (snapEye_) {
         // The first frame after a warp, a respawn or a level cut: the eye on the solved
         // rig at once. It used to start on his head (py + 1) and ease out from there, so
@@ -3710,6 +3787,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // his head in one frame, run fixcam_feel3). Pulled in to under 0.35 block, the solved
         // eye's direction from the pivot is noise (the eye height jumped half a block a frame,
         // run fixcam_wall1): the boom turns toward the rig's own direction instead, slower.
+        float armLag = 0.0f;   // FIX-CAMERA-10: radians the shown boom trails the solved eye's direction (after its turn)
+        bool swingEase = false;  // FIX-CAMERA-10: the boom eases in at a sheet while a fast swing goes round (below)
         if (!boomKnown_ || inVehicle != boomInVehicle_) {
             const gta2::Vec3 d = armLen > 0.05f ? arm : rigArm;
             const float l = (std::max)(std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z), 1e-4f);
@@ -3722,7 +3801,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                                         : gta2::Vec3{rigArm.x / rigLen, rigArm.y / rigLen, rigArm.z / rigLen};
             const float c = (std::max)(-1.0f, (std::min)(1.0f, armDirX_ * want.x + armDirY_ * want.y + armDirZ_ * want.z));
             const float angle = std::acos(c);
-            const float t = angle > 1e-4f ? (std::min)(1.0f, (own ? 4.0f : 2.5f) * dt / angle) : 1.0f;
+            // FIX-CAMERA-10: after a fast swing (swingClearHold_) the shown boom follows it at 7 rad/s, not 4: trailing,
+            // its line still crossed the stair's sheet and the pull-in cut once the swing had arrived (run cam10_p14b).
+            const float armRate = own ? (swingClearHold_ > 0.0f ? 7.0f : 4.0f) : 2.5f;
+            const float t = angle > 1e-4f ? (std::min)(1.0f, armRate * dt / angle) : 1.0f;
+            armLag = angle * (1.0f - t);
             const float nx = armDirX_ + (want.x - armDirX_) * t, ny = armDirY_ + (want.y - armDirY_) * t, nz = armDirZ_ + (want.z - armDirZ_) * t;
             const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
             if (nl > 1e-4f) { armDirX_ = nx / nl; armDirY_ = ny / nl; armDirZ_ = nz / nl; }
@@ -3755,7 +3838,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             static int sheetEaseOn = -1;
             if (sheetEaseOn < 0) { char b[8] = {}; sheetEaseOn = GetEnvironmentVariableA("GTA2DX9_CAM_SHEET_EASE", b, sizeof b) && atoi(b) == 1 ? 1 : 0; }
             constexpr float kSheetIn = 2.5f, kLensPast = 0.45f;
-            if (sheetEaseOn && meshSolve && s.tpCollide && boomAtStart > 1e-3f) {
+            // FIX-CAMERA-10: also while the swing turns fast onto a clear heading (swingClearing, above), with the
+            // lens kept 0.45 over the floor beneath it (cam8_p14H: 0.22 over the stair's treads, behind its rail).
+            swingEase = swingClearing || (swingClearHold_ > 0.0f && armLag > 8.0f * kDegToRad);
+            if ((sheetEaseOn || swingEase) && meshSolve && s.tpCollide && boomAtStart > 1e-3f) {
                 const gta2::Vec3 tip{shownPivot.x + armDirX_ * boomAtStart, shownPivot.y + armDirY_ * boomAtStart,
                                      shownPivot.z + armDirZ_ * boomAtStart};
                 float ta = 1.0f, tw = 1.0f;
@@ -3850,6 +3936,20 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             eyeX_ = shownPivot.x + dir.x * boom_;
             eyeY_ = shownPivot.y + dir.y * boom_;
             eyeZ_ = shownPivot.z + dir.z * boom_;
+            // FIX-CAMERA-10: while the boom eases round a fast swing its line may pass over a staircase beside him
+            // (the wil iron stair: the shown arm trails the swing across the treads, run cam10_p14n): the lens keeps
+            // 0.45 over the floor beneath it there instead of skimming the treads (cam8_p14H: 0.2 over them).
+            if (swingEase && meshSolve && q.floorAt) {
+                float under = 0.0f;
+                if (q.floorAt(q.context, eyeX_, eyeZ_, eyeY_ + 0.6f, &under) && eyeY_ < under + 0.45f) {
+                    const gta2::Vec3 up{eyeX_, under + 0.45f, eyeZ_};
+                    float t = 1.0f;
+                    if (!eyecol::SegmentHitSolid(gta2::Vec3{eyeX_, eyeY_, eyeZ_}, up, &t)) {
+                        if (cameraLogOn()) Log("cam: swing first: lens lifted %.2f over the treads", up.y - eyeY_);
+                        eyeY_ = up.y;
+                    }
+                }
+            }
             // FIX-CAMERA-4: a railing's bars are thick near the lens (the plaza fence's spear tops
             // a dark band over a quarter of the frame at 0.12, run fc4_fence4): kRailClear off its
             // sheet sideways (0.3 still left the corner post over a quarter of the frame, fc4_fence5), never

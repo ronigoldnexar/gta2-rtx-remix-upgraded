@@ -718,6 +718,43 @@ launch hits a wall), `keys_pfl21.sh` (V third -> first -> classic while driving)
   With one step after the warp: hero in the 5..95 % box on 942 of 943 armed frames over three runs (the one: feet 1 % under the edge at the
   iron stair, the on-foot boom).
 
+## The swing goes round first at the iron staircase (FIX-CAMERA-10, 10 Nov 2026)
+
+- **pfl14** (on foot at the wil iron staircase, 159.5,139.5: the boom lunged into his head and the view craned to
+  55-60 degrees down). Per-frame log on HEAD (run cam10_p24a punch_1): he stands 0.2 from the stair's side (a
+  two-sided railing face on z=116 over the ramp), the line behind him crosses it as he steps, the solve's reach falls
+  from 1.37 to 0.07 in one frame; the swing to the open side was eased over 0.25 s while the boom came in at 9
+  blocks/s, so the camera reached his head before it went round. Now (`ViewCameraSolver::Solve`, the swing and the
+  boom filter):
+  - **Swing first.** When the heading the swing is at reaches under the swing's "good" length and the heading it
+    wants reaches it, the swing turns there at up to 360 degrees a second, and the eye state turns about him by the
+    same step (the camera orbits; eased along the chord it cut through him and crossed the stair). The way round
+    is the short one unless a heading on it reaches under half the good length and the long one's do not.
+  - **A cut when neither way round is open** (the stair one way, the wall the other: both 0.07 in run cam10_p15c):
+    the solved pose at once, same distance and pitch, logged `cam: swing first: neither way round is open, cut A -> B`.
+    One or two per run at the stair foot; frames (cam10_p16a punch_1 4.6 s) show a clean cut from the west view of
+    him to the east one, whole in both.
+  - **The boom eases while it goes round.** During the fast swing, and for up to 0.6 s after while the shown boom
+    still trails the solved direction by more than 8 degrees (it then turns at 7 rad/s, not 4), a see-through sheet
+    pulls the boom in at 2.5 blocks/s (FIX-CAMERA-8's sheet ease, now on in this case only); a wall still cuts.
+    Meanwhile the lens is kept 0.45 over the floor beneath it (`cam: swing first: lens lifted`), never skimming the
+    treads (cam8_p14H was 0.2 over them).
+  - **The stair's false-wall cells.** FIX-CAMERA-8's `GTA2DX9_CAM_FOOT_CELL_MESH` is now on by default with this:
+    on foot a cell the map calls solid is asked of the mesh (air when 0.2 from every surface and in no closed block);
+    otherwise his own-cell exemption flipping at x=160.0 made every heading read blocked for a frame (cam10_p14h).
+  - `GTA2DX9_CAM_SWING_FIRST=0` restores HEAD (all of the above, the cell check included unless
+    `GTA2DX9_CAM_FOOT_CELL_MESH=1` is set). Logs: `cam: swing first A -> B want W`, `cam: swing first route: short S
+    long L` (LOG_CAMERA=2).
+  - Measured (filer's `keys_feel74.sh FEEL74_SEGS=punch2` and `keys_pfl24.sh PFL24_SEGS=punch2`, 30 fps, host load
+    30-48; per burst the largest 2-frame change of eye-to-hero distance and of pitch): HEAD cam10_p24a 47 % / 18.7
+    deg, pitch down to -59, 7 violations in one burst. Final build: runs cam10_p16a..g, 12 pfl24 bursts and 3 feel74
+    bursts, pitch steps <= 2.4 deg, hero inside 5..95 % in every frame; one burst (p16b punch_1, him already on the
+    stair) has a 34 % distance step, an ordinary 9 blocks/s pull-in at the stair with no pitch change. The
+    intermediate builds' runs (cam10_p14*, cam10_p15*) are the iterations listed in the order file.
+- **pfl24** (camera "8-10 blocks away, hero 45 px"): not reproduced on HEAD. The boom is the designed 2.1 blocks
+  (3.4 x 0.62), the hero 18-24 % of the frame height; the filer's 45 px was measured on the 1/3-scale sheet tiles and
+  he never climbed (z=2.00 in every player line). A >= 25 % hero would need a closer on-foot default (owner's call).
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`
