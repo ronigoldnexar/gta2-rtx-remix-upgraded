@@ -1817,6 +1817,47 @@ void RasterUv(std::vector<uint8_t>* map, int w, int h, const ModelMesh& mesh, ui
 }
 }  // namespace
 
+// FIX-CAR-IDENTITY-4: like RasterUv, but each texel takes how much its triangle faces up (the face normal's
+// y after the node's rest transform, 0 for faces turned sideways or down; the max where triangles share texels):
+// the weight a texel has in the car seen from above, as the game's sprite shows it.
+void RasterUvUp(std::vector<float>* map, int w, int h, const ModelMesh& mesh, const gta2::Mat4& world) {
+    for (size_t t = 0; t + 2 < mesh.indices.size(); t += 3) {
+        float px[3], py[3], p[3][3];
+        for (int k = 0; k < 3; ++k) {
+            const ModelVertex& v = mesh.vertices[mesh.indices[t + k]];
+            px[k] = v.u * w; py[k] = v.v * h;
+            for (int c = 0; c < 3; ++c) p[k][c] = v.x * world.m[0][c] + v.y * world.m[1][c] + v.z * world.m[2][c] + world.m[3][c];
+        }
+        const float ax = p[1][0] - p[0][0], ay = p[1][1] - p[0][1], az = p[1][2] - p[0][2];
+        const float bx = p[2][0] - p[0][0], by = p[2][1] - p[0][1], bz = p[2][2] - p[0][2];
+        const float nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+        const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+        if (nl < 1e-12f) continue;
+        // The winding is not trusted (mirrored nodes): the vertex normals say which side is out.
+        const ModelVertex& v0 = mesh.vertices[mesh.indices[t]];
+        const float vny = v0.nx * world.m[0][1] + v0.ny * world.m[1][1] + v0.nz * world.m[2][1];
+        float up = std::fabs(ny) / nl;
+        if (vny <= 0.0f) up = 0.0f;
+        if (up <= 0.05f) continue;
+        const int x0 = (std::max)(0, static_cast<int>(std::floor((std::min)({px[0], px[1], px[2]})))),
+                  x1 = (std::min)(w - 1, static_cast<int>(std::ceil((std::max)({px[0], px[1], px[2]}))));
+        const int y0 = (std::max)(0, static_cast<int>(std::floor((std::min)({py[0], py[1], py[2]})))),
+                  y1 = (std::min)(h - 1, static_cast<int>(std::ceil((std::max)({py[0], py[1], py[2]}))));
+        const float d = (py[1] - py[2]) * (px[0] - px[2]) + (px[2] - px[1]) * (py[0] - py[2]);
+        if (std::fabs(d) < 1e-6f) continue;
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x) {
+                const float cx = x + 0.5f, cy = y + 0.5f;
+                const float a = ((py[1] - py[2]) * (cx - px[2]) + (px[2] - px[1]) * (cy - py[2])) / d;
+                const float b = ((py[2] - py[0]) * (cx - px[2]) + (px[0] - px[2]) * (cy - py[2])) / d;
+                const float c = 1.0f - a - b;
+                const float e = -0.02f;
+                float& m = (*map)[static_cast<size_t>(y) * w + x];
+                if (a >= e && b >= e && c >= e && up > m) m = up;
+            }
+    }
+}
+
 bool FigurePairPaintSkipped(const Model& model, const ModelMesh& mesh) {
     if (!g_bakeTints || mesh.texture.size() < 11 || mesh.texture.compare(mesh.texture.size() - 10, 10, "_paint.tga") != 0) return false;
     const std::string rest = mesh.texture.substr(0, mesh.texture.size() - 10) + ".tga";
@@ -3491,12 +3532,19 @@ void StartOwnPaintThread() {
     }
 }
 
-bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
+namespace { bool OwnPaintAll(const Model& model, float rgb[3], float mean[3], float panel[3], float* top); }
+bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) { return OwnPaintAll(model, rgb, mean, nullptr, nullptr); }
+bool ModelOwnPaintPanel(const Model& model, float panel[3], float* top) {
+    float rgb[3];
+    return OwnPaintAll(model, rgb, nullptr, panel, top);
+}
+namespace {
+bool OwnPaintAll(const Model& model, float rgb[3], float mean[3], float panel[3], float* top) {
     // The rest of the cars measured ahead from the first car on (not at load: nothing competes with
     // the game's start; the frontend's keys landed in the attract demo twice when it did). FIX-PERF-3:
     // the classic view starts it a few seconds into a level too (ModelsOwnPaintAhead).
     StartOwnPaintThread();
-    struct Own { bool ok; float rgb[3]; float mean[3]; };
+    struct Own { bool ok; float rgb[3]; float mean[3]; float panel[3]; float top; };
     static std::map<const Model*, Own> s_own;
     struct Guard { CRITICAL_SECTION* cs; ~Guard() { LeaveCriticalSection(cs); } };
     CRITICAL_SECTION* cs = OwnPaintLock();
@@ -3507,6 +3555,8 @@ bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
         if (it != s_own.end()) {
             for (int k = 0; k < 3; ++k) rgb[k] = it->second.rgb[k];
             if (mean) for (int k = 0; k < 3; ++k) mean[k] = it->second.mean[k];
+            if (panel) for (int k = 0; k < 3; ++k) panel[k] = it->second.panel[k];
+            if (top) *top = it->second.top;
             return it->second.ok;
         }
     }
@@ -3517,12 +3567,23 @@ bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
     // the first result stored wins and both are the same numbers.
     {
         const DWORD t0 = GetTickCount();
-        Own own{false, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}};
+        Own own{false, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}, {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]},
+                {model.paintRgb[0], model.paintRgb[1], model.paintRgb[2]}, 255.0f};
         std::map<std::string, std::vector<const ModelMesh*>> byFile;
         for (const ModelMesh& mesh : model.meshes)
             if (mesh.texture.find("_paint") != std::string::npos) byFile[mesh.texture].push_back(&mesh);
+        // FIX-CAR-IDENTITY-4: the nodes' rest transforms (which way a paint triangle faces in the car).
+        std::vector<gta2::Mat4> worlds;
+        ModelRestNodeWorlds(model, &worlds);
+        std::map<const ModelMesh*, gta2::Mat4> meshWorld;
+        for (size_t i = 0; i < model.nodes.size() && i < worlds.size(); ++i) {
+            const int mi = model.nodes[i].mesh;
+            if (mi >= 0 && static_cast<size_t>(mi) < model.meshes.size() && !meshWorld.count(&model.meshes[static_cast<size_t>(mi)]))
+                meshWorld[&model.meshes[static_cast<size_t>(mi)]] = worlds[i];
+        }
         // Per luminance level: the texel count and the colour sums (the brighter half from these).
         std::vector<double> bins(256 * 4, 0.0);
+        std::vector<double> upBins(256 * 4, 0.0);   // the same weighted by how much each texel faces up
         size_t n = 0;
         for (const auto& f : byFile) {
             std::vector<uint8_t> tga;
@@ -3533,6 +3594,11 @@ bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
             const bool topDown = (tga[17] & 0x20) != 0;
             std::vector<uint8_t> cover(static_cast<size_t>(w) * h, 0);
             for (const ModelMesh* mesh : f.second) RasterUv(&cover, w, h, *mesh, 1);
+            std::vector<float> upMap(static_cast<size_t>(w) * h, 0.0f);
+            for (const ModelMesh* mesh : f.second) {
+                auto mw = meshWorld.find(mesh);
+                RasterUvUp(&upMap, w, h, *mesh, mw != meshWorld.end() ? mw->second : gta2::Identity());
+            }
             for (int y = 0; y < h; ++y) {
                 const uint8_t* row = &tga[18 + idLen + static_cast<size_t>(topDown ? y : h - 1 - y) * w * 4];
                 for (int x = 0; x < w; ++x) {
@@ -3541,6 +3607,11 @@ bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
                     const int l = (std::min)(255, (r * 77 + g * 151 + b * 28) >> 8);
                     double* bin = &bins[static_cast<size_t>(l) * 4];
                     bin[0] += 1.0; bin[1] += r; bin[2] += g; bin[3] += b;
+                    const double up = upMap[static_cast<size_t>(y) * w + x];
+                    if (up > 0.0) {
+                        double* ub = &upBins[static_cast<size_t>(l) * 4];
+                        ub[0] += up; ub[1] += up * r; ub[2] += up * g; ub[3] += up * b;
+                    }
                     ++n;
                 }
             }
@@ -3559,6 +3630,44 @@ bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
             double all[3] = {0, 0, 0};
             for (int l = 0; l < 256; ++l) { const double* bin = &bins[static_cast<size_t>(l) * 4]; all[0] += bin[1]; all[1] += bin[2]; all[2] += bin[3]; }
             for (int k = 0; k < 3 && own.ok; ++k) own.mean[k] = (std::max)(8.0f, static_cast<float>(all[k] / static_cast<double>(n)));
+            // FIX-CAR-IDENTITY-4 (feel25): the lit panels. An authored atlas (013, 063, 068: the opaque paint
+            // twin) covers the windows, tyres and trim too, so its mean (013: 108) sits far under its panels
+            // (~230): the tint live/mean pushed the panels past white (133,65,65 / 108 = 1.23 on red: 283,139,139
+            // clipped to 255,139,139, salmon pink). The texels at or over half the 90th-percentile level are
+            // the panels (lit and shaded), and the 97th percentile is the brightest one a tint must keep under 1.
+            int p90 = 255, p97 = 255;
+            {
+                double above = 0.0;
+                bool got90 = false, got97 = false;
+                for (int l = 255; l >= 0; --l) {
+                    above += bins[static_cast<size_t>(l) * 4];
+                    if (!got97 && above >= 0.03 * static_cast<double>(n)) { p97 = l; got97 = true; }
+                    if (!got90 && above >= 0.10 * static_cast<double>(n)) { p90 = l; got90 = true; }
+                }
+            }
+            // The panels as the car is seen from above (the game's sprite is that view): weighted by how much each
+            // texel's triangle faces up; the plain panel mean when too little of the paint faces up.
+            double pc = 0.0, ps[3] = {0, 0, 0}, uc = 0.0, us[3] = {0, 0, 0};
+            for (int l = p90 / 2; l < 256; ++l) {
+                const double* bin = &bins[static_cast<size_t>(l) * 4];
+                pc += bin[0]; ps[0] += bin[1]; ps[1] += bin[2]; ps[2] += bin[3];
+                const double* ub = &upBins[static_cast<size_t>(l) * 4];
+                uc += ub[0]; us[0] += ub[1]; us[1] += ub[2]; us[2] += ub[3];
+            }
+            if (uc >= 64.0) {
+                pc = uc; ps[0] = us[0]; ps[1] = us[1]; ps[2] = us[2];
+                // and the brightest lid level from the up-facing texels too (the sides take half the sun, they do
+                // not clip first): 040's lids are darker than its other paint textures, whose 97th percentile held
+                // the tint at 1.05 and drew a white sprite mid grey.
+                double all = 0.0, above = 0.0;
+                for (int l = 0; l < 256; ++l) all += upBins[static_cast<size_t>(l) * 4];
+                for (int l = 255; l >= 0; --l) {
+                    above += upBins[static_cast<size_t>(l) * 4];
+                    if (above >= 0.03 * all) { p97 = l; break; }
+                }
+            }
+            for (int k = 0; k < 3 && own.ok && pc > 0.0; ++k) own.panel[k] = (std::max)(8.0f, static_cast<float>(ps[k] / pc));
+            if (own.ok) own.top = static_cast<float>((std::max)(p97, 16));
         }
         EnterCriticalSection(cs);
         Guard guard{cs};
@@ -3566,14 +3675,18 @@ bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3]) {
         const bool first = it == s_own.end();
         if (first) it = s_own.emplace(&model, own).first;
         if (first)
-            Log("models: %s: own paint %s %.0f,%.0f,%.0f mean %.0f,%.0f,%.0f (%zu texels of %zu paint texture%s, %lu ms)", model.name.c_str(),
-                own.ok ? "measured" : "unmeasured, kept", own.rgb[0], own.rgb[1], own.rgb[2], own.mean[0], own.mean[1], own.mean[2], n, byFile.size(), byFile.size() == 1 ? "" : "s",
+            Log("models: %s: own paint %s %.0f,%.0f,%.0f mean %.0f,%.0f,%.0f panels %.0f,%.0f,%.0f top %.0f (%zu texels of %zu paint texture%s, %lu ms)", model.name.c_str(),
+                own.ok ? "measured" : "unmeasured, kept", own.rgb[0], own.rgb[1], own.rgb[2], own.mean[0], own.mean[1], own.mean[2],
+                own.panel[0], own.panel[1], own.panel[2], own.top, n, byFile.size(), byFile.size() == 1 ? "" : "s",
                 static_cast<unsigned long>(GetTickCount() - t0));
         for (int k = 0; k < 3; ++k) rgb[k] = it->second.rgb[k];
         if (mean) for (int k = 0; k < 3; ++k) mean[k] = it->second.mean[k];
+        if (panel) for (int k = 0; k < 3; ++k) panel[k] = it->second.panel[k];
+        if (top) *top = it->second.top;
         return it->second.ok;
     }
 }
+}  // namespace
 
 void ModelsOwnPaintAhead() { StartOwnPaintThread(); }
 

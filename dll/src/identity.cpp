@@ -21,6 +21,9 @@ namespace {
 
 bool g_crowdVariety = true;
 float g_paintFloor = 77.0f;
+int g_paintRef = 1;          // [devtools] paint_ref: 1 the panels + no clip (FIX-CAR-IDENTITY-4), 0 the c8ba78f mean rule
+float g_paintGain = 1.25f;   // the panel rule's level (car_bodies.cpp: paint_gain_percent at the lid's light)
+float g_paintLid = 0.96f;    // the light on a lid (stage 0 multiplies the texel by it before the tint: the clip test)
 uint32_t g_frame = 0;
 
 uint32_t Mix(uint32_t x) {
@@ -204,7 +207,7 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     const float lum = 0.30f * bright[0] + 0.59f * bright[1] + 0.11f * bright[2];
     // FIX-CAR-RENDER (pm3-dark-vehicle-bodies): a near-black paint is held at a luminance
     // floor (hue kept), and a dark body gets a broader, stronger sheen.
-    const float lift = r.livery || lum >= g_paintFloor ? 1.0f : (std::min)(4.0f, g_paintFloor / (std::max)(lum, 8.0f));
+    float lift = r.livery || lum >= g_paintFloor ? 1.0f : (std::min)(4.0f, g_paintFloor / (std::max)(lum, 8.0f));
     r.darkness = r.livery || g_paintFloor <= 0.0f ? 0.0f : (std::max)(0.0f, (std::min)(1.0f, (100.0f - lum) / 70.0f));
     // FIX-CAR-IDENTITY (2g): the model's own paint is measured from its paint texels
     // (ModelOwnPaint), not the 235 default every car had: tint = live / own makes the body's mean
@@ -213,15 +216,42 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     // FIX-CAR-IDENTITY-2 (feel25): measured by the same rule on both sides. The sprite's paint from its
     // remap's texels is their plain mean, so the model's is the plain mean of its paint texels; a sprite
     // with no remap keeps the brighter-half rule on both.
+    // FIX-CAR-IDENTITY-4 (feel25, rejected c8ba78f): the mean of an opaque paint atlas (013, 063, 068) takes
+    // in its windows, tyres and trim, so it sits far under the panels the tint lands on: the red Minx's
+    // 133,65,65 / 108 = 1.23,0.60,0.60 drove its ~230 panels to 283,139,139, clipped by the texture stage to
+    // 255,139,139: salmon pink on every lit face while the record said deep red. The sprite's remap texels
+    // are its body panels (lit and shaded), so the model's own reference is its panels too
+    // (ModelOwnPaintPanel), and the tint is held under the level that would push the model's brightest
+    // panel texel (its 97th percentile) past white in any channel: a saturated paint keeps its hue and
+    // saturation on lit faces and loses a little lightness instead of turning pastel.
+    float panelTop = 255.0f;
     if (r.model) {
-        float brighter[3], mean[3];
+        float brighter[3], mean[3], panel[3];
         ModelOwnPaint(*r.model, brighter, mean);
-        for (int k = 0; k < 3; ++k) ownPaint[k] = ref.paintMean ? mean[k] : brighter[k];
+        const bool havePanel = g_paintRef == 1 && ModelOwnPaintPanel(*r.model, panel, &panelTop);
+        for (int k = 0; k < 3; ++k) ownPaint[k] = ref.paintMean ? (havePanel ? panel[k] : mean[k]) : brighter[k];
+        if (!havePanel) panelTop = 255.0f;
+    }
+    // The 3D light (ambient 0.35 + the sun on the lids, the frame's shadow/AO/sky multiply) leaves a body ~0.8
+    // of its albedo seen from the classic camera: the red Minx at gain 1 drew 104,49,54 against its sprite's
+    // 133,65,65, at 1.25 130,62,68 (lit lids 180,85,93 against the sprite's bonnet 181,92,90; fci4_minx2).
+    // Only for the remap-texel paint (a mean against the panels); the brighter-half pair keeps its level.
+    const float gain = g_paintRef == 1 && ref.paintMean ? g_paintGain : 1.0f;
+    // The dark floor is a least level, not a second multiply on top of the gain (a navy sprite drew +57 % L* when
+    // both applied: fci4_paint2): the floor's lift counts the gain already given.
+    if (gain > 1.0f && lift > 1.0f) lift = (std::max)(1.0f, lift / gain);
+    float cap = 1.0f;
+    if (!r.livery && g_paintRef == 1) {
+        float most = 0.0f;
+        for (int k = 0; k < 3; ++k) most = (std::max)(most, gain * lift * live[k] / ownPaint[k]);
+        // The texture stages clip texel x light x tint: the brightest lid texel under the lid's light.
+        if (most * panelTop * g_paintLid > 250.0f) cap = 250.0f / (most * panelTop * g_paintLid);
     }
     for (int k = 0; k < 3; ++k) {
         const float own = ownPaint[k];
-        r.paintTint[k] = r.livery ? 1.0f : lift * live[k] / own;
-        r.shownTop[k] = r.shownBottom[k] = r.livery ? own : (std::min)(255.0f, lift * live[k]);
+        r.paintTint[k] = r.livery ? 1.0f : cap * gain * lift * live[k] / own;
+        // shown: the colour the lit body reads as (the gain only gives back what the 3D light takes).
+        r.shownTop[k] = r.shownBottom[k] = r.livery ? own : (std::min)(255.0f, cap * lift * live[k]);
     }
     r.fingerprint = Fingerprint(r);
     return r;
@@ -286,6 +316,9 @@ void IdentitySetCrowdVariety(bool on) {
 }
 void IdentitySetPaintFloor(float floor) {
     if (g_paintFloor != floor) { g_paintFloor = floor; g_cars.clear(); }
+}
+void IdentitySetPaintRef(int mode, float gain, float lid) {
+    if (g_paintRef != mode || g_paintGain != gain || g_paintLid != lid) { g_paintRef = mode; g_paintGain = gain; g_paintLid = lid; g_cars.clear(); }
 }
 
 const Model* IdentityHeroModel() { return ModelForPedestrian(); }

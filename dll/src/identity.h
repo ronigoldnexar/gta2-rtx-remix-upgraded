@@ -92,6 +92,7 @@ bool IdentityBakeTints();
 // Settings, from their owners' ini readers.
 void IdentitySetCrowdVariety(bool on);     // [crowd] variety
 void IdentitySetPaintFloor(float floor);   // [renderer] car_paint_floor_percent, as 0..255 luminance
+void IdentitySetPaintRef(int mode, float gain, float lid);   // [devtools] paint_ref / paint_gain_percent (FIX-CAR-IDENTITY-4 A/B)
 
 // Once a frame (records not seen for a while are let go; the probe's per-frame state).
 void IdentityBeginFrame(uint32_t frame);

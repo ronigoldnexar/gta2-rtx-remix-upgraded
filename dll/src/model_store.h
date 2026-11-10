@@ -159,6 +159,10 @@ void ModelSetPaintTint(const float* rgb);
 // the shipped files; cached. False (rgb = paintRgb) when it has no paint meshes. identity.cpp divides by it.
 // mean (optional): the plain mean of the same texels (for a sprite paint measured from its remap's texels).
 bool ModelOwnPaint(const Model& model, float rgb[3], float mean[3] = nullptr);
+// FIX-CAR-IDENTITY-4 (feel25): the model's lit body panels: the mean colour of the paint texels at or over half
+// the 90th-percentile luminance (not the windows, tyres and trim an opaque paint atlas also covers), and the
+// 97th-percentile luminance (the brightest panel level a tint must not push past white).
+bool ModelOwnPaintPanel(const Model& model, float panel[3], float* top);
 // FIX-PERF-3: every car model's own paint measured on a low-priority thread from now on (once a session;
 // the classic view calls it a few seconds into a level, so the first street frame with cars waits for none).
 void ModelsOwnPaintAhead();

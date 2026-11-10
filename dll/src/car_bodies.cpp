@@ -52,7 +52,14 @@ int g_tyreContactDev = 1;  // [devtools] tyre_shadows=0: no tyre contact patches
 int g_bandInterior = 1;    // [devtools] band_interior=0: no dark cabin behind that band (feel20 A/B)
 int g_forceOwnModel = -1;   // [devtools] force_own_car_model=N: the player's car drawn as model N (QB-5 seat checks)
 int g_forceCarPaint[3] = {-1, -1, -1};   // [devtools] force_car_paint=R,G,B: every non-livery car's live paint (QA of dark paint)
+int g_forceCarPaintBright[3] = {-1, -1, -1};   // ...=R,G,B,r,g,b: and its brighter-half paint (the dark floor's test)
 float g_paintLumFloor = 77.0f;   // [renderer] car_paint_floor_percent (default 30 of white; 0 off)
+// FIX-CAR-IDENTITY-4 (feel25): the paint's sun sheen. At 26 the lobe was broad enough to lay ~+20 of white over
+// a whole lid seen from the classic camera (half-angle ~19 deg: 0.33 x cos^26 = 0.08), a pastel wash on every
+// saturated paint; at 50 it is a highlight. [devtools] paint_spec_power for A/B.
+float g_paintSpecPower = 50.0f;
+int g_paintRefDev = 1;        // [devtools] paint_ref (FIX-CAR-IDENTITY-4 A/B)
+float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain at the lid light it was measured under
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
@@ -3597,6 +3604,18 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     sun.Direction = {dx / dl, dy / dl, dz / dl};
     device->SetLight(0, &sun);
     device->LightEnable(0, TRUE);
+    {
+        // FIX-CAR-IDENTITY-4: the paint's gain (identity.cpp DeriveVehicle) gives back what the 3D light takes
+        // from a lid seen from the classic camera. It was measured (1.25) under the fixed sun 51 degrees up,
+        // which lit a lid 0.35 ambient + 0.78 x 0.78 = 0.96; with the world's sun (FIX-FX-3, 4ecf174: 24
+        // degrees by default) a lid gets 0.67 and every body drew ~0.7 as bright as its sprite. The gain
+        // follows the lid's light so the lids keep the sprite's level at any sun (shadow and the faces'
+        // shading stay the light's). Under Remix the tint is albedo for the path tracer: no gain.
+        const bool remix = RemixApiAvailable();
+        float lid = (std::max)(0.45f, 0.353f + 0.78f * (std::max)(0.0f, -sun.Direction.y));
+        lid = std::round(lid * 50.0f) / 50.0f;   // a slowly moving clock sun does not re-derive every frame
+        IdentitySetPaintRef(g_paintRefDev, remix ? 1.0f : g_paintGainDev * 0.96f / lid, remix ? 1.0f : (std::min)(1.0f, lid));
+    }
     // QB-19: a blast nearby lights the bodies orange while it flashes (plain renderer only;
     // under Remix the fireball's emissive particles do it).
     bool blastLit = false;
@@ -3619,7 +3638,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     material.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
     material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
     material.Specular = {0.6f, 0.6f, 0.6f, 1.0f};
-    material.Power = 26.0f;
+    material.Power = g_paintSpecPower;
     device->SetMaterial(&material);
     device->SetRenderState(D3DRS_LIGHTING, TRUE);
     device->SetRenderState(D3DRS_AMBIENT, 0x005A5A5Au);
@@ -3662,10 +3681,18 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         {
             char fp[64] = {};
             GetPrivateProfileStringA("devtools", "force_car_paint", "", fp, sizeof(fp), g_devIni);
-            int r = -1, g = -1, bl = -1;
-            if (sscanf(fp, "%d,%d,%d", &r, &g, &bl) != 3) r = g = bl = -1;
+            int r = -1, g = -1, bl = -1, r2 = -1, g2 = -1, b2 = -1;
+            const int got = sscanf(fp, "%d,%d,%d,%d,%d,%d", &r, &g, &bl, &r2, &g2, &b2);
+            if (got < 3) r = g = bl = -1;
+            if (got < 6) { r2 = r; g2 = g; b2 = bl; }
             g_forceCarPaint[0] = r; g_forceCarPaint[1] = g; g_forceCarPaint[2] = bl;
+            g_forceCarPaintBright[0] = r2; g_forceCarPaintBright[1] = g2; g_forceCarPaintBright[2] = b2;
         }
+        // FIX-CAR-IDENTITY-4: the paint's reference (1 the model's panels with no clip, 0 the c8ba78f mean) for
+        // same-spot A/B frames; re-derives every car record when it changes.
+        g_paintRefDev = GetPrivateProfileIntA("devtools", "paint_ref", 1, g_devIni);
+        g_paintGainDev = static_cast<float>(GetPrivateProfileIntA("devtools", "paint_gain_percent", 125, g_devIni)) / 100.0f;
+        g_paintSpecPower = static_cast<float>((std::max)(4, static_cast<int>(GetPrivateProfileIntA("devtools", "paint_spec_power", 50, g_devIni))));
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
         {   // VEHICLE-GLASS: the glass on/off within one session, for same-spot before/after frames.
             const int glassKey = GetPrivateProfileIntA("devtools", "car_glass", -1, g_devIni);
@@ -3814,8 +3841,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             vref.paint[1] = forcedPaint ? static_cast<float>(g_forceCarPaint[1]) : b->paint.g;
             vref.paint[2] = forcedPaint ? static_cast<float>(g_forceCarPaint[2]) : b->paint.b;
         }
-        vref.paintMean = b->paintMasked && !forcedPaint;
-        for (int k = 0; k < 3; ++k) vref.paintBright[k] = vref.paintMean ? (&b->measure.paint.r)[k] : vref.paint[k];
+        // A forced paint stands for a body's mean paint (the remap rule every remapped sprite has since c8ba78f), so
+        // force_car_paint=133,65,65 on model 13 is the wil red Minx's record (FIX-CAR-IDENTITY-4's probe).
+        vref.paintMean = b->paintMasked || forcedPaint;
+        for (int k = 0; k < 3; ++k)
+            vref.paintBright[k] = forcedPaint ? static_cast<float>(g_forceCarPaintBright[k]) : vref.paintMean ? (&b->measure.paint.r)[k] : vref.paint[k];
         IdentitySetPaintFloor(g_paintLumFloor);
         const double tIdent = CarNowMs();
         const IdentityRecord& ident = IdentityForVehicle(use.object, vref, use.driven);
@@ -3860,7 +3890,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (darkness > 0.0f) {
                 // A sky-tinted sheen (added after the texture, so a dark albedo cannot swallow it).
                 carMaterial.Specular = {0.6f + 0.35f * darkness, 0.6f + 0.40f * darkness, 0.6f + 0.50f * darkness, 1.0f};
-                carMaterial.Power = 26.0f - 14.0f * darkness;
+                carMaterial.Power = material.Power + (12.0f - material.Power) * darkness;
                 // and more of the sky on the faces turned from the sun.
                 const float amb = 1.0f + 0.3f * darkness;
                 carMaterial.Ambient = {amb, amb, amb, 1.0f};

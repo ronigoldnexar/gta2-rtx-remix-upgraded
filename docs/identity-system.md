@@ -583,3 +583,88 @@ FIX-CAR-IDENTITY-2 and -3"):
 `git diff` of the three texts is additions only; `remix_materials.validate`: 3449 prims, no problems. **Not seen path
 traced**: no Remix frame of these cars was taken by this stream. The DDS maps ship in `remix_mod_gta2hd.zip` (repack).
 
+
+## 9. The paint apply: a dark saturated paint stays saturated on the lit body (FIX-CAR-IDENTITY-4, 10 Nov 2026)
+
+feel25 again (DEFECT-TRIAGE rejected c8ba78f): the record was right (`shown 133,65,65`, the red Minx sprite's mean) but
+the drawn body was salmon pink, lit bonnet 234,184,190 (saturation 0.21) against the classic 181,92,90 (0.50).
+
+### 9.1 What it was (measured, `out/fci4_minx1`, `out/fci4_minx2`)
+
+- **The tint's reference.** tint = sprite paint / the model's own paint. Since c8ba78f the model's own paint is the
+  plain mean of the texels its paint meshes cover. An authored body imports an opaque paint atlas (013, 063, 068:
+  `authored-paint-opaque-base-twin`) that covers the windows, tyres, chrome and trim too: 013's mean is 108 while its
+  panels sit at ~230. 133,65,65 / 108 = **1.23**,0.60,0.60 drove the panels to 283,139,139, clipped by the texture
+  stage to 255,139,139: pink on every lit face. The same happens to any bright paint (013 yellow: tint 1.85,1.67,0.46).
+- **The sheen.** The paint's specular exponent 26 is broad enough to lay ~+20 of white over a whole lid seen from the
+  classic camera (sun half-angle ~19 deg: 0.33 x cos^26 = 0.08): a pastel wash on top of the clip.
+- **The lids' light** (found after FIX-FX-3's 4ecf174 landed): the bodies are now lit by the world's sun (24 degrees up
+  by default) instead of a fixed sun 51 degrees up, so a lid gets 0.35 ambient + 0.78 x sin 24 = 0.67 of light instead
+  of 0.96 and every body drew ~0.7 as bright as before (same tint, `out/fci4_paint4` against `out/fci4_paint3`).
+
+### 9.2 What changed
+
+- `ModelOwnPaintPanel` (model_store.cpp, measured with the other own-paint numbers, once per model on the worker
+  thread): the **panels as the car is seen from above** — the paint texels at or over half the 90th-percentile level
+  (not windows, tyres, trim), each weighted by how much its triangle faces up after the node's rest transform (the
+  sprite is the top view) — and the 97th-percentile level of those up-facing texels (`top`). Logged as
+  `models: <name>: own paint measured ... panels r,g,b top N`.
+- `DeriveVehicle` (identity.cpp): for a remap-measured paint the reference is the panels; the tint is scaled
+  **down uniformly** when texel x lid light x tint would pass 250 in any channel on the brightest lid texel (hue and
+  saturation kept, a little lightness lost on very bright paints); a **gain** gives back what the 3D light takes from
+  a lid: 1.25 at the lid light 0.96 it was measured under (gain 1 drew the Minx 104,49,54 against its sprite's
+  133,65,65, `out/fci4_paint2`), scaled by 0.96 / the lid's actual light (car_bodies.cpp, from the sun the bodies are
+  lit by; 1.0 under Remix, where the tint is albedo for the path tracer). The dark-paint floor (FIX-CAR-RENDER) is now
+  a least level, not a second multiply on the gain. `shown` is the colour the lit body reads as (without the gain).
+- car_bodies.cpp: the paint sheen's exponent **50** (a highlight, not a wash); the dark-paint sheen still broadens
+  toward 12 with darkness.
+- Devtools for same-spot A/B (re-read every 60 frames, re-derive every car): `paint_ref` (1 new, 0 the c8ba78f mean),
+  `paint_gain_percent` (125), `paint_spec_power` (50); `force_car_paint=R,G,B[,r,g,b]` now stands for a remap-measured
+  sprite paint (mean, and the brighter half the floor tests), so `force_car_model=13` + `force_car_paint=133,65,65,189,109,108`
+  is the wil red Minx's record. Probe: `gamerun/keys_fci4_paint.sh` (`fci4_paint.py`: the player's stopped car,
+  `MODELS`, `PAINTS`, `MODES`, `POSES=top` = the classic camera); measure with the paint mask (the pixels that change
+  between two paints) as in section 9.3.
+
+### 9.3 Measured (frames opened; top pose = the classic camera)
+
+The red Minx (013 forced, paint 133,65,65), body pixels by paint mask:
+
+| Build | Body mean | Lit lids (top quarter) | Saturation (body / lids) |
+|---|---|---|---|
+| classic sprite (reference, feel25 triage) | 133,65,65 | bonnet 181,92,90 | 0.51 / 0.50 |
+| c8ba78f rule, fixed sun (`fci4_minx2`, `fci4_paint1`) | 174,93,102 / 185,98,107 | 243,136,149 | 0.47 / 0.44 |
+| this change, fixed sun (`fci4_minx2`) | 130,62,68 | 180,85,93 | 0.53 / 0.53 |
+| this change, world sun (`fci4_paint7`, final) | 118,55,60 | 160,74,82 | 0.54 |
+
+Evidence sheet: `defects/evidence/fci4_feel25_minx_classic_old_new.png`. Across hues and models (final build,
+`out/fci4_paint7`; old rule from `out/fci4_paint1`), L* of the body against the sprite paint's, hue difference:
+
+| Model | dark red | navy | black | yellow | green | white |
+|---|---|---|---|---|---|---|
+| 013 Minx (authored), old rule | +44 % | +103 % | +305 % | +6 % (hue 11) | +45 % | -6 % |
+| 013, this build | -13 % | -3 % | +8 % | -15 % | -10 % | -20 % (lids 221,228,237) |
+| 018 Shark (generated), old rule | +39 % | +101 % | +318 % | +9 % | +36 % | -3 % |
+| 018, this build | +6 % | +23 % | +65 % | -4 % | +8 % | -12 % |
+| 000 Romero (generated), this build | -7 % | +6 % | +33 % | -21 % | -5 % | -26 % |
+| 063 truck cab (authored), this build | +7 % | +24 % | +60 % | 0 % | +9 % | -8 % |
+| 040 Maurice, old rule / this build | -65 % / -26 % | -59 % / -16 % | | -58 % / -40 % | -62 % / -23 % | -56 % / -43 % |
+
+Hue within 7 degrees of the sprite for every model and paint (old rule: up to 11); saturation 0.52-0.59 against the
+sprites' 0.50-0.51 for the chromatic paints. Classic: `tools/vreg/vreg.sh stage` 31 PASS, `spawn_classic` 0 tiles.
+No `identity` share in any slow-frame `car parts (ms)` line in the six traffic sessions (`out/fci4_tr_*`); the
+own-paint measurement (now with the up-facing raster) is 13-50 ms per model on the worker thread, once.
+
+### 9.4 Still short
+
+- **Black and navy** on the generated/authored bodies other than 013 read lighter than the sprite (black +33..+65 %,
+  navy up to +24 %): the dark-paint floor (FIX-CAR-RENDER pm3: a near-black body must keep its shape in 3D) holds them
+  up on purpose. Parity says lower it; the pm3 look says keep it. Not changed here.
+- **040 Maurice** (and 036 Schmidt): the lids draw darker than the measured panels for every paint (their up-facing
+  paint texels in the drawn textures are ~75-100): a paint-split/art matter, written on the feel25 order for VEHICLE-ART.
+- **Model spread**: the generated bodies' baked light differs per model (018's roof texels sit at 255), so one sprite
+  paint lands -13..+7 % L* across 013/018/000/063. Bright paints (white, yellow) lose up to 26 % on the body mean
+  because a lid can not go past white; their lids reach the sprite's highlight.
+- The 3D red still reads a touch cooler than the sprite (hue 355 against 0: the frame's sky multiply) and the authored
+  texture's speckle shows; the sprite's painted highlights (the bright bonnet spot) are not reproduced by the light.
+- Traffic parity (`out/fci4_tr_{old,new}_{ste,wil,bil}`, before the world-sun rebase) stays noisy (crops of dark
+  street, occluded cars): read the sheets, not the WARN count.
