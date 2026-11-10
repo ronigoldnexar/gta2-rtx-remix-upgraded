@@ -1648,6 +1648,10 @@ begins, every held key counts as down in the game, so the next buffered read tel
 for a key that was already up). `view_modes.cpp` ViewHoldPlayerInput; `GTA2DX9_KD_HOLD_RELEASE=0` restores the old
 behaviour for A/B. kd2_r3: six knock-downs, every get-up placed within 0.68 block of the game's spot
 (before: kd2_r1 up to 1.0, kd2_r2 3.1). Classic kd2_c0 vs kd2_c3: 0 differing static pixels in all three windows.
+First person through the played roll (kd2_f1): the eye's gaze followed the chest with no easing, so the view swung
+from the sky to the road in 6 frames (0.2 s). The gaze is now eased over 0.25 s (`view_modes.cpp`, the knock-down eye).
+kd2_f2: the sweep takes about 18 frames (0.6 s), as one turn. `GTA2DX9_KD_GAZE_EASE=0` restores the old gaze for A/B.
+Classic kd2_c0 vs kd2_c4: 0 differing static pixels.
 Still short: while he lies, the contact shadow stays at the game's spot, up to a body-length from the body (the shadow
 pass, not the knock-down code). The get-up is still the reversed `fall_front`.
 - The captures run 30 fps, but the game rendered about 20-25 fps on the loaded host (repeated frames in the

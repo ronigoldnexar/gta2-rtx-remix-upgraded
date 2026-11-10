@@ -2926,7 +2926,20 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             const float standEye = kde.groundY + eyeHeight;
             const float low = w * (std::min)(1.0f, (std::max)(0.0f, (standEye - kde.y) / (std::max)(0.1f, eyeHeight - 0.08f)));
             roll += 25.0f * kDegToRad * low;
-            pitch += ((3.0f + 35.0f * (std::max)(-1.0f, (std::min)(1.0f, kde.chestUp))) * kDegToRad - pitch) * low;   // up at the sky .. down at the road
+            // FIX-KNOCKDOWN-2 (kd2_f1): the gaze follows the chest eased (0.25 s): the played roll turns the chest from
+            // up to down fastest at its middle, and the view swung from the sky to the road in 6 frames (0.2 s).
+            static float gaze = 0.0f;
+            static ULONGLONG gazeTick = 0;
+            static const bool gazeEase = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_KD_GAZE_EASE", b, sizeof b) && b[0] == '0'); }();
+            {
+                const ULONGLONG now = GetTickCount64();
+                const float c = (std::max)(-1.0f, (std::min)(1.0f, kde.chestUp));
+                const float gdt = gazeTick ? (std::min)(0.1f, static_cast<float>(now - gazeTick) / 1000.0f) : 0.0f;
+                if (!gazeEase || !gazeTick || now - gazeTick > 300) gaze = c;   // a new knock-down starts where the chest is
+                else gaze += (c - gaze) * (std::min)(1.0f, gdt / 0.25f);
+                gazeTick = now;
+            }
+            pitch += ((3.0f + 35.0f * gaze) * kDegToRad - pitch) * low;   // up at the sky .. down at the road
             static ULONGLONG lastLog = 0;
             if (GetTickCount64() - lastLog > 250) {
                 lastLog = GetTickCount64();
