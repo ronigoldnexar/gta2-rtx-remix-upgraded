@@ -2571,12 +2571,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 eye.x = nx; eye.z = nz;
             }
         }
+        float dbgBody = 0.0f, dbgLean = 0.0f, dbgShake = 0.0f;   // FIX-CAMERA-9: the in-car eye pitch's parts, for the log
         if (inVehicle && s.fpBodyRide > 0.0f) {
             // FIX-VEHICLES: the eye sits in the sprung body: it dips with the nose
             // under braking, tips back on a launch, leans with the roll and rises and
             // falls with the heave, by the share the cockpit is drawn with.
             const float ride = (std::min)(s.fpBodyRide, 1.0f);
             pitch -= carPitch_ * ride;   // the body's pitch is nose down +, the camera's down -
+            dbgBody = -carPitch_ * ride;
             roll -= carRoll_ * ride;     // the body's roll is left side down +, the camera's leaning right +
             eye.y += carHeave_ * ride;
         }
@@ -2596,7 +2598,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         if (inVehicle && s.fpLean > 0.0f) {
             // The nose dips under braking and lifts under power; the head leans
             // into a turn.
-            pitch += (std::max)((std::min)(forwardAccel_ / 25.0f, 1.0f), -1.0f) * 2.5f * kDegToRad * s.fpLean;
+            dbgLean = (std::max)((std::min)(forwardAccel_ / 25.0f, 1.0f), -1.0f) * 2.5f * kDegToRad * s.fpLean;
+            pitch += dbgLean;
             yawRate_ += (fpYawVel_ - yawRate_) * (1.0f - std::exp(-dt / 0.15f));
             roll += (std::max)((std::min)(yawRate_ * speedFrac_ * 0.5f, 1.0f), -1.0f) * 3.0f * kDegToRad * s.fpLean;
         }
@@ -2614,9 +2617,19 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         // The kick of an impact, and the stretch of speed.
         if (shake_ > 0.001f) {
-            yaw += Wobble(shakeClock_, 7.0f) * 2.5f * kDegToRad * shake_;
-            pitch += Wobble(shakeClock_ + 3.1, 9.0f) * 2.0f * kDegToRad * shake_;
-            roll += Wobble(shakeClock_ + 7.7, 5.0f) * 2.0f * kDegToRad * shake_;
+            // FIX-CAMERA-9 (pfl25-fp-car-collision-cockpit-dives-...): at the wheel the cockpit (dash, wheel, hands)
+            // is drawn with the car's body and does not take the shake, so the shake moves it about the frame. At a
+            // wall the shake saturates at 1.5 (2.5/2.0/2.0 degrees a unit: 3.75 of yaw and 3 of pitch, the hands and
+            // the wheel sliding off the frame with the body's own dip on top): in a car it is a shudder of at most
+            // 1.2 degrees of yaw, 1.5 of pitch and 2 of roll, dying with the shake (GTA2DX9_FP_CAR_SHAKE=0: as before).
+            static int fpCarShake = -1;
+            if (fpCarShake < 0) { char b[8] = {}; fpCarShake = GetEnvironmentVariableA("GTA2DX9_FP_CAR_SHAKE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+            const bool soft = inVehicle && fpCarShake;
+            const float k = soft ? (std::min)(shake_, 1.0f) : shake_;
+            yaw += Wobble(shakeClock_, 7.0f) * (soft ? 1.2f : 2.5f) * kDegToRad * k;
+            dbgShake = Wobble(shakeClock_ + 3.1, 9.0f) * (soft ? 1.5f : 2.0f) * kDegToRad * k;
+            pitch += dbgShake;
+            roll += Wobble(shakeClock_ + 7.7, 5.0f) * 2.0f * kDegToRad * k;
         }
         pitch = (std::min)((std::max)(pitch, -80.0f * kDegToRad), 80.0f * kDegToRad);
         const float fov = (std::min)((std::max)(s.fpFov, 30.0f), 120.0f) + s.speedFov * speedFrac_;
@@ -2720,6 +2733,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         camera->SetRoll(roll);
         camera->SetFovY((std::min)(fov, 140.0f) * kDegToRad);
         LogCameraFrame("first", yaw, headingYaw, dt, &eye, px, pz, eyeHeight);
+        if (inVehicle && cameraLogOn())
+            Log("cam: fp car pitch=%.1f body=%.1f lean=%.1f shake=%.1f (%.2f) roll=%.1f heave=%.3f seatfix=%.3f,%.3f,%.3f", pitch / kDegToRad,
+                dbgBody / kDegToRad, dbgLean / kDegToRad, dbgShake / kDegToRad, shake_, roll / kDegToRad, carHeave_, fpSeatFix_.x, fpSeatFix_.y,
+                fpSeatFix_.z);
         {
             // Once a second: where the eye is against the floor under him, for the log.
             static float logClock = 0.0f;
