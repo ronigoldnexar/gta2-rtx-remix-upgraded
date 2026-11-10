@@ -7483,6 +7483,8 @@ const WeaponInfo kWeapons[kWpnCount] = {
 // bottle or a grenade (modelled upright), which scaling by the length alone
 // blew up to three times their size.
 float WeaponSpan(const Model& m) { return (std::max)(m.Length(), (std::max)(m.Height(), m.Width())); }
+// FIX-FIGURE-10 pmt3: GTA2DX9_BOTTLE_OLD=1 keeps the old flat in-hand attach of the bottle and the grenade (A/B).
+bool BottleOldAttach() { static const bool v = GetEnvironmentVariableA("GTA2DX9_BOTTLE_OLD", nullptr, 0) > 0; return v; }
 bool IsAimAction(int action) { return action == 2 || action == 8 || action == 10 || action == 11 || action == 12; }
 // Carrying, not firing: the weapon in the hands at low ready (clips carry*,
 // tools/gen_ped_clips.py): 14 one-handed (pistol, grenade, molotov), 15 dual
@@ -8186,7 +8188,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     }
     const float ahead = (fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - 0.02f * rs - 0.02f * rack - 0.03f * drop;
     const float side = (fists ? 0.060f - 0.02f * jabR : (wi.twoHanded ? 0.055f : 0.075f)) - 0.015f * rs,
-                down = (fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? 0.02f : 0.0f) - 0.010f * kick) + 0.07f * rs + 0.12f * drop;
+                down = (fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + 0.07f * rs + 0.12f * drop;
     float pos[3];
     for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * (side + bobSide + swaySide) - up[c] * (down + bobDown);
     // The barrel on the crosshair: aimed at the point 5 blocks along the view
@@ -11210,6 +11212,31 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             };
                             norm(dir); norm(right); norm(up);
                             placed = true;
+                        }
+                        if (placed && (track.weapon == kWpnMolotov || track.weapon == kWpnGrenade) && track.action != 13 &&
+                            !BottleOldAttach()) {
+                            // FIX-FIGURE-10 pmt3: a bottle (or a grenade) is modelled upright (+y), and the in-hand
+                            // attach laid it along the fingers: a flat green slab against his thigh. Carried, it
+                            // hangs upright in his fist: the bottle's neck (the grenade's middle) in the closed
+                            // hand (the bottle's shoulder, so the neck and rag stand out above it), a little ahead of the wrist along the fingers, its axis up and tipped a
+                            // little forward, the rag above the fist. GTA2DX9_BOTTLE_OLD=1 for the old attach (A/B).
+                            const float neckY = track.weapon == kWpnMolotov ? 0.007f : 0.0f;   // the shoulder: neck and rag stand out of the fist
+                            // At the chase distance a 20 cm bottle in a fist was a 10 px chip: a full-size one (~30 cm).
+                            const float kb = k * (track.weapon == kWpnMolotov ? 1.35f : 1.0f);
+                            float fing[3] = {handWorld.m[0][0], handWorld.m[0][1], handWorld.m[0][2]};
+                            const float fl = (std::max)(1e-5f, std::sqrt(fing[0] * fing[0] + fing[1] * fing[1] + fing[2] * fing[2]));
+                            const float fwd[3] = {std::sin(track.heading), 0.0f, std::cos(track.heading)};
+                            float ax[3] = {fwd[0] * 0.18f, 1.0f, fwd[2] * 0.18f};
+                            const float al = std::sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+                            for (float& v : ax) v /= al;
+                            float rt[3] = {fwd[2], 0.0f, -fwd[0]};                       // his right
+                            float fz[3] = {rt[1] * ax[2] - rt[2] * ax[1], rt[2] * ax[0] - rt[0] * ax[2], rt[0] * ax[1] - rt[1] * ax[0]};
+                            for (int c = 0; c < 3; ++c) {
+                                place.m[0][c] = rt[c] * kb; place.m[1][c] = ax[c] * kb; place.m[2][c] = fz[c] * kb;
+                                place.m[3][c] = handWorld.m[3][c] + fing[c] / fl * 0.011f - ax[c] * neckY * kb;
+                                dir[c] = fz[c]; right[c] = rt[c]; up[c] = ax[c];
+                            }
+                            place.m[3][3] = 1.0f;
                         }
                         if (placed) {
                             static int logged = 0;

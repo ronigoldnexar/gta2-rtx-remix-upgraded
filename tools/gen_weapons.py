@@ -294,12 +294,31 @@ def grenade():
 
 
 def molotov():
-    glass = Part(); rag = Part()
-    q = Part(); cylinder_part(q, lambda t: 0.009 if t < 0.6 else 0.009 - (t - 0.6) * 0.012, -0.020, 0.020, segments=12, rings=5)
+    """FIX-FIGURE-10 pmt3: a bottle you can read at a glance: a round green body with a heel and a
+    shoulder, a round neck with a lip (it was a 4-sided grey box), a rag stuffed in the neck and
+    a strip of it hanging down the side, the fuel showing through the lower glass as a darker band.
+    Origin: where the fist closes (the upper body, under the shoulder); +y up the bottle."""
+    glass = Part(); fuel = Part(); rag = Part()
+    R = 0.0090
+    def body(t):                                   # heel, body, shoulder, neck, lip (y -0.024 .. 0.021)
+        y = -0.024 + t * 0.045
+        if y < -0.022: return R * (0.86 + 0.14 * (y + 0.024) / 0.002)
+        if y < 0.004: return R
+        if y < 0.011: return R - (R - 0.0034) * math.sin(0.5 * math.pi * (y - 0.004) / 0.007)
+        if y < 0.019: return 0.0034
+        return 0.0041                               # the lip
+    q = Part(); cylinder_part(q, body, -0.024, 0.021, segments=16, rings=22)
     glass.v += q.v; glass.n += q.n; glass.uv += q.uv; glass.f += q.f
-    box(rag, (0, 0.026, 0.000), (0.008, 0.014, 0.008))            # the rag out of the neck
-    return scene_with([("bottle", glass.mesh(mat((110, 140, 90), 0.0, 0.1, name="bottle"))),
-                       ("rag", rag.mesh(mat((210, 200, 180), 0.0, 0.9, name="rag")))]), 0.05
+    q = Part(); cylinder_part(q, lambda t: R * 1.004, -0.0215, -0.006, segments=16, rings=2, cap=False)
+    fuel.v += q.v; fuel.n += q.n; fuel.uv += q.uv; fuel.f += q.f   # the fuel line inside the lower glass
+    # the rag: a twisted wad out of the neck (tapering up, a little bent), a flap down the neck's side
+    tube_between(rag, (0.0, 0.016, 0.0), (0.0005, 0.026, 0.0003), 0.0031, 0.0040, 10)
+    tube_between(rag, (0.0005, 0.026, 0.0003), (0.0022, 0.034, -0.0006), 0.0040, 0.0018, 10)
+    tube_between(rag, (0.0034, 0.021, 0.0), (0.0052, 0.012, 0.0006), 0.0019, 0.0013, 8)
+    tube_between(rag, (0.0052, 0.012, 0.0006), (0.0060, 0.006, 0.0014), 0.0013, 0.0008, 8)
+    return scene_with([("bottle", glass.mesh(mat((62, 118, 64), 0.0, 0.08, name="bottle", kind="plain"))),
+                       ("fuel", fuel.mesh(mat((120, 84, 30), 0.0, 0.2, name="fuel", kind="plain"))),
+                       ("rag", rag.mesh(mat((196, 184, 156), 0.0, 0.95, name="rag", kind="cloth")))]), 0.058
 
 
 # First-person arms (the view model's hands): same model space as the weapons,

@@ -1345,3 +1345,21 @@ person any frame on which his own figure is left out, or has its chest and head 
 height) off the picture, draws the view model (`g_ownLensFrame`). fig10_v4 (gamerun/keys_fig10_v.sh, two V
 presses while firing the machine gun): every frame shows his figure or the gun and hands. The camera's dive
 (the hero cropped to a head at the bottom edge before the hand-over) is FIX-CAMERA-10's.
+
+### pmt3: the molotov is a bottle (model, third-person hold, first-person hold)
+
+- `tools/gen_weapons.py molotov`: a round green body with a heel and a shoulder, a round neck and lip (it was a
+  4-sided grey box on a cylinder), a rag stuffed in the neck with a strip hanging down its side, the fuel showing
+  as a darker band in the lower glass; origin where the fist closes (under the shoulder), +y up; 964 triangles,
+  span 0.058. Imported with `tools/import_assets.py` on a one-entry manifest (gen3d venv) into /tmp and copied
+  (weapon_molotov.mesh, _0/_1/_2.tga; the manifest's report entry patched by hand). Remix: weapon_molotov_0/1/2.tga
+  changed content (glass, fuel, rag; _2 is new).
+- Third person, carried (not the throw, action 13): the in-hand attach laid the upright bottle along the fingers (a
+  flat green slab against the thigh). Now it hangs upright in the fist, its shoulder in the closed hand 0.011 block
+  ahead of the wrist along the fingers, tipped 10 degrees forward, at 1.35x the weapon table's length (a ~30 cm
+  bottle; at 1.0 it was a 10 px chip at the chase distance). The grenade gets the same upright hold at its middle.
+  `GTA2DX9_BOTTLE_OLD=1` = the old attach (A/B, both views).
+- First person: the bottle 0.03 block higher in the view (it sat at the bottom edge with the fist under it and no
+  forearm), so the right hand closes round its body with the forearm running out to the lower right.
+- Probe: gamerun/keys_fig10_molotov.sh (rig-test yaw 90 side, 180 front, one throw, first person); runs
+  fig10_mol1..3. The throw itself is unchanged (FIGURE-9's), including the arm held out ~1.5 s after the release.

@@ -7691,13 +7691,14 @@
   },
   {
    "name": "weapon_molotov",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 300,
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 1980,
    "animations": [],
    "textures": [
     "weapon_molotov_0.tga",
-    "weapon_molotov_1.tga"
+    "weapon_molotov_1.tga",
+    "weapon_molotov_2.tga"
    ],
    "skins": 0,
    "forward": "+z",
