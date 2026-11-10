@@ -484,3 +484,31 @@ Evidence: runs vg5_ho0 (`GTA2DX9_GLASS_HOLES=0`) and vg5_ho1 (on), Remix Ultra, 
 poses: 035's side window had two white hull islands inside the pane (holes off); with the fill it is one continuous
 pane with the facade reflection. DLL counts 3735 -> 3844 (twin 3843, the dumps one texel apart); 033 2117 -> 2123 (dump
 identical to the twin). Classic: vreg stage spawn_classic PASS, 0 tiles (spawn_first's 24 = the fists of other commits).
+
+### 10.5 prp1: two runtime knobs tried on moving traffic (FIX-REMIX-CARS-1, 10 Nov 2026; not shipped)
+
+The probe is VG5's segment probe with three live `[devtools] remix_config` sets (`gamerun/frc1_prp1.py`, a copy of
+`vg5_prp1.py`). Run `frc1_pq1`: wil 164.5,149.5, 19:30, the Ultra play rig, GPU 2. Five rounds of 25 s segments:
+- A: default.
+- G: `rtx.pstrMaxBounces=1`.
+- H: `rtx.translucentMaterial.transmittanceColorScale=0.6`, which reaches only car glass: every translucent prim in the
+  layer is car glass.
+
+Frames were cut at 4 fps. A count of isolated bright pixels in the moving region came out at A 3.6, G 5.7 and H 3.2 per
+1000 moving pixels. That count is dominated by the lane line glittering under passing head lamps, so it does not measure
+the glass.
+
+By eye, at 2x on the taxi passing in H (segment 1, frame 46), the rear door pane still carries yellow and white
+dots. They are the car's own yellow inner faces and cabin, seen through the pane under the L4's noisy lighting. So:
+- A darker tint does not remove the sparkle; it only dims it.
+- One transmission bounce scores worse.
+
+The L4 cannot start NRC and falls back to the importance-sampled integrator, and it has no DLSS-RR (docs/remix-parity.md
+section 1). The owner's 5090 runs both, so how much of this sparkle reaches the owner is unknown from this host.
+
+Next to try:
+- An opaque glossy dark pane (AperturePBR_Opacity, roughness 0.05) for the image-to-3D bodies' far side only.
+- Or a cabin liner material that is matte and dark enough that its noisy GI cannot show as dots.
+
+Both need a same-car A/B, which only a parked own car gives. VG5 found that parked cars do not sparkle, so a deterministic
+repro of the moving case is still missing.
