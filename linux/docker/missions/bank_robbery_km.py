@@ -16,6 +16,9 @@ import drive_lib as D
 import mission_lib as M
 from missions import bank_robbery as BR
 from skills import kill_marked as K
+from skills import shake_police as SP
+
+world_ref = [None]     # the World for follow_path's overtaking (set in run)
 
 say, hold, xdo = D.say, D.hold, D.xdo
 
@@ -54,6 +57,62 @@ GETAWAY_LAUNCH_X = 211.0
 GETAWAY_PATH = [(213.5, 181.6), (216.0, 184.2), (216.0, 210.6), (213.4, 213.0), (208.0, 213.0),
                 (204.5, 216.0), (204.5, 218.0)]
 GETAWAY_LEGS = [(216.5, 187.0)]   # into the column-216 avenue southbound (cells 215-216); then the bay leg
+
+# MISSION-GETAWAY (9 Nov, mg_sp2, mg_km3): the job's CLIMB line (bank_robbery.CLIMB, 193.6,178.0 ->
+# 192.3,177.8) runs over the game's own girder object at 193.20,177.50 (`collide: near ...
+# obj_girder@193.20,177.50/0.28`, a solid map object since FIX-COLLISION) standing in the middle of
+# cell 193,177, the only way onto the flight (a wall along y 178 west of x 193); the walker stood
+# pinned against it (SKILL-POLICE's 193.4,177.2 in sp11-19; mg_sp2 pinned 50 s and shot dead by the
+# guards). A trash can stands on the flight's line at 191.14,177.50. The climb now threads the gap
+# north of the girder (y 177.85-178.15; the mailbox at 193.10,178.50 bounds it on the other side) and
+# keeps to the north half of the flight.
+# mg_fb2: from the car (199.7,180.9) the first leg to 194.4,178.15 was blocked at 197.6,179.8 twice
+# and the router's climb that followed walked into the girder again (cell centres): the walk now
+# steps onto the pavement first, square to the kerb
+# mg_km14: with path_walk's 0.45 tolerance the flight's points (y 177.8-177.85) counted as reached from
+# y 178.2, on the pavement below the wall along y 178 (x 190-193): he walked under the flight to x 190.5
+# and the leg north failed three times. The flight's points sit at y <= 177.78 and are walked with
+# a 0.3 tolerance (walk_pts): from the far side of the wall (y >= 178.085) none can be "reached"
+CLIMB_KM = [(198.3, 178.5), (196.4, 178.45), (194.4, 178.15), (193.5, 178.05), (192.8, 177.7), (192.0, 177.7), (191.3, 177.78),
+            (190.6, 177.65), (190.4, 176.4), (190.3, 175.4)]
+STAIR_TOL = 0.3
+# (mg_km5: the old last point 189.0,175.1 was 3.5 blocks from the guards; one walked up to 0.8 and shot
+# him while the walker finished the leg. The climb ends at the flight's top, 4.8 off; the skill's
+# fire spots start at 190.5,175.0)
+# mg_km4, mg_km8: the fight leaves him west of the flight's top (187.9-188.1,175.9) and the first
+# descent point was missed from there; the descent starts along the walk
+DESCEND_KM = [(189.2, 175.25), (190.3, 175.4), (190.4, 176.4), (190.6, 177.65), (191.3, 177.78), (192.0, 177.7), (192.8, 177.7),
+              (193.5, 178.05), (194.4, 178.15)]
+
+def walk_pts(points, secs_each=6.0, tol=STAIR_TOL):
+    """BR.path_walk with a tighter tolerance on the way points (the last 0.3 too)"""
+    for k, (x, y) in enumerate(points):
+        s, ok = M.cruise_to(x, y, tol=tol, secs=secs_each, stop=(k == len(points) - 1))
+        if not ok:
+            xdo("keyup", "Up"); say(f"walk_pts: missed {x},{y} (at {s['x']:.2f},{s['y']:.2f} z {s['z']:.2f})"); return False
+    xdo("keyup", "Up")
+    return True
+
+
+def climb_to_walk(tries=3):
+    """the climb to the level-2 walk by the job, before the skill: CLIMB_KM legs of up to 9 s each
+    (the skill's path_walk gives 6 s and one retry, then its router climb heads for the girder: mg_km7,
+    mg_km8, mg_fb3 pinned at 193.4,177.6 until the warp fallback, refused); a missed leg resumes from
+    the nearest point still ahead after a step back. True when on the walk's level"""
+    for k in range(tries):
+        s = D.wait_state()
+        if K.level_of_z(s["z"]) == BR.WALK_LEVEL: return True
+        # resume at the first point beyond the nearest one (the points run east to west, then north)
+        i = min(range(len(CLIMB_KM)), key=lambda j: math.hypot(CLIMB_KM[j][0] - s["x"], CLIMB_KM[j][1] - s["y"]))
+        i = min(i + 1, len(CLIMB_KM) - 1) if k else 0
+        if walk_pts(CLIMB_KM[i:], secs_each=9.0):
+            break
+        s = D.wait_state(); M.mark(f"climb: missed a leg at {s['x']:.1f},{s['y']:.1f} (try {k + 1})")
+        if K.level_of_z(s["z"]) == BR.WALK_LEVEL: return True
+        M.cruise_to(s["x"] + 0.8, s["y"] + 0.3, tol=0.4, secs=2.0)     # a step back east, off whatever held him
+    s = D.wait_state()
+    return K.level_of_z(s["z"]) == BR.WALK_LEVEL
+
 
 def to_car(world, check=True):
     """back into the GRAHAM where it is now: the model read at the wheel, found in `view: cars`
@@ -236,6 +295,16 @@ def park_getaway():
     launch(py, px, secs=12, vmax=1.8)
     s = stop_car()
     if M.heading(s)[0] < 0.9: BR.turn_car_toward(px + 12.0, py, secs=8); s = stop_car()
+    # MISSION-GETAWAY: the first pass left the car anywhere from y 176.3 (mg_km8, in the side street)
+    # to 181.5 (mg_fb3); off the lane the launch was skipped, or the walk back took 41 s. The level is
+    # still 0 here (no police yet): one more slow pass toward the lane from where it stands
+    s = D.wait_state()
+    if s and s["driving"] and abs(s["y"] - py) > 1.2 and s["x"] < 203.0:
+        M.mark(f"park: {abs(s['y'] - py):.1f} off the lane at {s['x']:.1f},{s['y']:.1f}: another pass")
+        BR.turn_car_toward(s["x"] + 5.0, py, secs=8)
+        launch(py, min(s["x"] + 3.5, 203.0), secs=10, vmax=1.8)
+        s = stop_car()
+        if M.heading(s)[0] < 0.9: BR.turn_car_toward(s["x"] + 12.0, py, secs=8); s = stop_car()
     return s
 
 def launch(lane_y, x_end, secs=20, vmax=7.0):
@@ -311,6 +380,9 @@ def follow_path(pts, secs=45, vmax=6.0, vcorner=3.0, look=3.0, tol=1.2, slow_end
             corner = seg + 1 < len(pts) - 1 and math.hypot(pts[seg + 1][0] - s["x"], pts[seg + 1][1] - s["y"]) < 4.0
             cap = vcorner if corner else vmax
             if slow_end and math.hypot(ex - s["x"], ey - s["y"]) < slow_end[0]: cap = min(cap, slow_end[1])
+            if math.hypot(ex - s["x"], ey - s["y"]) > 3.0:
+                # MISSION-GETAWAY (mg_km4): a taxi standing in the lane at the row-213 turn; round it
+                tx, ty, _blk = SP.overtake(world_ref[0], s, tx, ty) if world_ref[0] is not None else (tx, ty, None)
             hx, hy = M.heading(s); dx, dy = tx - s["x"], ty - s["y"]
             a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
             throttle(v < cap)
@@ -335,6 +407,7 @@ def follow_path(pts, secs=45, vmax=6.0, vcorner=3.0, look=3.0, tol=1.2, slow_end
 
 
 def run(world, entry):
+    world_ref[0] = world
     # 1-2. the car and the bank box: as the job's runner
     M.mark("to the GRAHAM at 52.5,150.5")
     s = M.enter_car3(world, BR.CAR0[0], BR.CAR0[1], budget=200)
@@ -353,8 +426,8 @@ def run(world, entry):
         if not s["driving"]:
             s = BR.to_mission_car(world, BR.CAR0 if k == 0 else (s.get("px", BR.CAR0[0]), s.get("py", BR.CAR0[1])))
             if not s["driving"]: continue
-        s = BR.drive(world, BR.BANK_STOP[0], BR.BANK_STOP[1], 1.2, 420,
-                     until=lambda: (M.mission_state() or {}).get("msg") == "1665" or bool(BR.guards()))
+        s = guarded_drive(world, BR.BANK_STOP[0], BR.BANK_STOP[1], 1.2, 420,
+                          until=lambda: (M.mission_state() or {}).get("msg") == "1665" or bool(BR.guards()))
         BR.check()
         s = D.wait_state()
         if s["driving"] and math.hypot(BR.BANK_STOP[0] - s["x"], BR.BANK_STOP[1] - s["y"]) < 6:
@@ -388,7 +461,9 @@ def run(world, entry):
     M.mark("kill_marked skill: the two bank guards")
     s = M.leave_car(); M.select_gun(); BR.FP["until"] = -1
     M.ensure_view("classic")      # the chase view with GTA2_DIRECT_KEYS=1
-    r = K.kill_marked(world, select=is_guard, spare=is_spare, approach=BR.CLIMB, level=BR.WALK_LEVEL,
+    up = climb_to_walk()
+    s = D.wait_state(); M.mark(f"climb by the job: {'on the walk' if up else 'not up'} at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f}")
+    r = K.kill_marked(world, select=is_guard, spare=is_spare, approach=CLIMB_KM, level=BR.WALK_LEVEL,
                       fire_spots=BR.FIRE_SPOTS, secs=150, check=job_check, engage=7.0, close=3.2,
                       stall=8.0, confirm=3.0, shot_prefix="km_bank")
     ms = BR.check()
@@ -398,7 +473,7 @@ def run(world, entry):
     # 4-6. getaway, respray, safehouse: as the job's runner (its run() from step 4 on)
     s = D.wait_state()
     if K.level_of_z(s["z"]) == BR.WALK_LEVEL:
-        if not BR.path_walk(BR.DESCEND, secs_each=5.0):
+        if not walk_pts(DESCEND_KM, secs_each=5.0):
             s = D.wait_state(); say(f"descent missed at {s['x']:.1f},{s['y']:.1f}")
     s = D.wait_state()
     if not s["driving"] and math.hypot(car[0] - s["x"], car[1] - s["y"]) < 7.0:
@@ -414,7 +489,11 @@ def run(world, entry):
     M.mark(f"in the getaway car (wanted {ms.get('wanted')}, carhp {ms.get('carhp')})")
     s = D.wait_state()
     at_bay = False
-    if s["driving"] and s["x"] < GETAWAY_LAUNCH_X and abs(s["y"] - GETAWAY_LANE_Y) < 3.0:
+    # MISSION-GETAWAY: park_getaway left the GRAHAM on the pavement at y 178.1-178.4 (mg_km2, mg_sp3:
+    # 3.2-3.5 off the lane, outside the old 3.0 box), the launch was skipped and drive3's getaway leg
+    # stalled at 214.4,181.5 with a cop at the door (mg_sp3, arrested). A car facing east anywhere
+    # from the pavement to the far lane now launches: the pursuit steers it into the lane on the way
+    if s["driving"] and s["x"] < GETAWAY_LAUNCH_X and abs(s["y"] - GETAWAY_LANE_Y) < 6.0 and M.heading(s)[0] > 0.4:
         s = launch(GETAWAY_LANE_Y, GETAWAY_LAUNCH_X - 3.0)
         M.mark(f"launch: at {s['x']:.1f},{s['y']:.1f} (driving {s['driving']}); the path to the bay")
         if s["driving"]:
@@ -480,7 +559,7 @@ def run(world, entry):
         if not s["driving"]: s = to_car(world)
         if not s["driving"]: continue
         M.mark(f"to the safehouse {BR.SAFE}")
-        s = BR.drive(world, BR.SAFE_ROAD[0], BR.SAFE_ROAD[1], 1.0, 360)
+        s = safehouse_drive(world)
         BR.check(); remember_car()
         if not s["driving"]: continue
         s = BR.creep_in(BR.SAFE[0], BR.SAFE[1], 3.0, 1.0, secs=50, until=lambda: M.objective() is None)
@@ -489,6 +568,71 @@ def run(world, entry):
         if o != "running": return o
         if M.objective() is None: o, ms = BR.wait_outcome(30); return o
     return "stuck: safehouse"
+
+
+def guarded_drive(world, x, y, tol, budget, until=None):
+    """the job's BR.drive (drive3) with shake_police.PinGuard: a car pressed and losing carhp without
+    moving is backed off and the drive resumed (mg_km10: burned against a stopped truck)"""
+    t0 = time.time(); s = D.wait_state()
+    for k in range(8):
+        left = budget - (time.time() - t0)
+        if left < 5: break
+        g = SP.PinGuard(until)
+        s = BR.drive(world, x, y, tol, left, until=g)
+        if not g.fired or not (s and s["driving"]): return s
+        M.mark(f"pinned at {s['x']:.1f},{s['y']:.1f} (carhp {(M.mission_state() or {}).get('carhp')}): back off, on")
+        SP.back_off(world)
+    return D.wait_state()
+
+
+def safehouse_drive(world, budget=360):
+    """the drive to the safehouse road point: the job's calm drive3 while the level is 0, the
+    shake_police chase rules (chase_drive: break-away from an officer at the door, no queueing, and
+    chase_path with SP_CHASE_PATH=1) while it is up. MISSION-GETAWAY: mg_km3 (and kmg13 before it)
+    picked up a new star from knocks on the 197-block drive after the respray (money 41: no second
+    respray); drive3 kept rolling past a cop 2.7 off, slowed, and he was pulled out (state 8) at
+    165.7,213.8 and arrested"""
+    from skills import shake_police as SP
+    # mg_sp6, mg_km17: right after the respray the mission line still read wanted 2 for a moment (the
+    # respray took the money, 1010 was up) and the leg started under the chase rules at full pace;
+    # the level gets up to 3 game s to read 0 first
+    t1 = time.time()
+    while time.time() - t1 < 3.0 / D.SPEED and SP.wanted() > 0: time.sleep(0.25)
+    t0 = time.time(); s = D.wait_state(); legs = 0
+    tx, ty = BR.SAFE_ROAD
+    while time.time() - t0 < budget and legs < 12:
+        BR.check(); s = D.wait_state()
+        if not (s and s["driving"]): return s
+        if math.hypot(tx - s["x"], ty - s["y"]) <= 1.0: return s
+        legs += 1; left = max(20, budget - (time.time() - t0))
+        if SP.wanted() == 0:
+            # mg_km6, mg_fb1: drive3 stalled 22 times in 12 min nosed onto the pavement at the corner
+            # near 97,200 and both runs ran out of time; no 3 blocks gained in 40 s -> chase_path
+            prog = {"best": math.hypot(tx - s["x"], ty - s["y"]), "t": time.time(), "stuck": False}
+            def watch():
+                if SP.wanted() > 0: return True
+                st = D.wait_state()
+                if st:
+                    d = math.hypot(tx - st["x"], ty - st["y"])
+                    if d < prog["best"] - 3.0: prog["best"] = d; prog["t"] = time.time()
+                if time.time() - prog["t"] > 80.0 / D.SPEED: prog["stuck"] = True; return True
+                return False
+            s = guarded_drive(world, tx, ty, 1.0, left, until=watch)
+            if SP.wanted() > 0:
+                M.mark(f"safehouse drive: wanted {SP.wanted()} at {s['x']:.1f},{s['y']:.1f}: chase rules")
+            elif prog["stuck"]:
+                M.mark(f"safehouse drive: drive3 made no headway at {s['x']:.1f},{s['y']:.1f}; chase_path")
+                # mg_km15: at the full chase pace (3.0) this unstick drive earned a star in traffic;
+                # with the level at 0 it is a calm 2.0 and 60 s, then drive3 again
+                s, why = SP.chase_path(world, tx, ty, tol=1.0, budget=min(left, 60), check=BR.check,
+                                       until=lambda: SP.wanted() > 0, vmax=2.0)
+                M.mark(f"safehouse drive: chase_path {why} at {s['x']:.1f},{s['y']:.1f}")
+        else:
+            s = SP.chase_drive(world, tx, ty, 1.0, left, view_switch=BR.view_switch, check=BR.check,
+                               until=lambda: SP.wanted() == 0)
+            if SP.wanted() == 0: M.mark(f"safehouse drive: the level is gone at {s['x']:.1f},{s['y']:.1f}")
+        remember_car()
+    return D.wait_state()
 
 
 def main():

@@ -17,7 +17,7 @@ entry (bank_robbery_km.lane_in) as the skill's `enter` for the two bays it knows
 creep for any other. It returns when the level is gone or the script moved on (safehouse arrow /
 brief 1661, 1662, 1010), and bank_robbery_km goes on to the safehouse.
 Marks `shake_police ...`; frames sp_*, km_*, br_*."""
-import sys, time
+import os, sys, time
 sys.path.insert(0, "/work")
 sys.path.insert(0, "/work/missions")
 import drive_lib as D
@@ -59,6 +59,33 @@ def lane_in(shop, secs=30, until=None, vmax=3.0):
 
 
 KM.lane_in = lane_in
+
+# SP_FROM_BANK=1 (MISSION-GETAWAY): the whole getaway from the bank is the skill's, no hand-placed
+# path: right after boarding the GRAHAM with the level up, shake_police.shake picks the shop by the
+# router and drives there with chase_path (SP_CHASE_PATH=1) or drive3. A proof that the generic
+# pursuit driver handles the getaway's three right-angle turns, for jobs with no hand-placed path.
+FROM_BANK = os.environ.get("SP_FROM_BANK", "0") == "1"
+_orig_board = KM.board_graham
+def board_graham(world, s):
+    s = _orig_board(world, s)
+    if FROM_BANK and not STATE["cleared"] and STATE["calls"] == 0 and s and s["driving"] and SP.wanted() > 0 \
+            and KM.in_graham() is not False:
+        STATE["calls"] += 1
+        M.mark(f"shake_police takes the whole getaway from the bank (wanted {SP.wanted()}, chase_path {SP.CHASE_PATH})")
+        M.shot("sp_from_bank")
+        r = SP.shake(world, check=BR.check, view_switch=BR.view_switch, done=safe_up, tries=4, budget=480, enter=enter)
+        STATE["result"] = r
+        if r == "clear": STATE["cleared"] = True
+        M.mark(f"shake_police: {r}; chase_path {SP.CP_STATS}")
+        s = D.wait_state()
+    return s
+KM.board_graham = board_graham
+_orig_launch, _orig_follow = KM.launch, KM.follow_path
+def launch(*a, **k):
+    return D.wait_state() if (FROM_BANK and STATE["cleared"]) else _orig_launch(*a, **k)
+def follow_path(*a, **k):
+    return D.wait_state() if (FROM_BANK and STATE["cleared"]) else _orig_follow(*a, **k)
+KM.launch, KM.follow_path = launch, follow_path
 
 _orig_run = KM.run
 def run(world, entry):

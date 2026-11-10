@@ -858,3 +858,131 @@ and `out/mb1_ra10/m_m_lp_round*.png` (not in git).
 the 270-block drive to the Russian zone played in full (no `SC_WARP_ZONE`), the assassins' Buicks engaged from 18 blocks
 by their on-screen arrow, health 100 -> 60, $60,000. Nine sessions in all; the three acceptance runs after the final
 runner changes failed on the drive and the convert (see `docs/missions-batch4.md`). Respect pokes stay developer aids.
+
+## The shared getaway, 9-10 Nov 2026 (MISSION-GETAWAY, `mg_*`): BANK ROBBERY 2 of 3 consecutive, getaway losses fixed by cause
+
+Four mission agents were parked with their skills working and the jobs lost afterwards, in the getaway
+nobody owned (SKILL-KILLMARK, SKILL-POLICE, SKILL-ROOFTOP, MISSIONS-BATCH1). MISSION-GETAWAY owns that
+path: driving under pursuit, losing the level, the respray, delivering the car intact. Sessions: fresh
+games, `GTA2_SPEED=2 FPS=0 GTA2_DIRECT_KEYS=1`, private stage (`cp -al` of repo/stage, 126258a-era
+DLLs), chase view.
+
+```
+STAGE=<private stage> GTA2_GPU=3 PRIO=1 GTA2_SPEED=2 FPS=0 GTA2_DIRECT_KEYS=1 \
+  gamerun/grun.sh mg_km<N> 1500 keys_bank_robbery_km.sh -e GTA2DX9_STATE_EVERY=5      # BANK ROBBERY, km runner
+  gamerun/grun.sh mg_sp<N> 1500 keys_bank_robbery_sp.sh -e GTA2DX9_STATE_EVERY=5      # respray by shake_police
+  gamerun/grun.sh mg_fb<N> 1500 keys_bank_robbery_sp.sh -e GTA2DX9_STATE_EVERY=5 -e SP_FROM_BANK=1   # whole getaway by the skill
+INI_SED='s/^scene_key=.*/scene_key=F11/; s/^warp_key=.*/warp_key=F9/' \
+  gamerun/grun.sh mg_ccc<N> 2400 missions/keys_cop_car_crush.sh -e GTA2DX9_STATE_EVERY=5   # COP CAR CRUSH
+```
+
+### Baseline before any change (22:26-23:00, 9 Nov)
+
+The parked agents' numbers were already stale: KILLMARK-GETAWAY (e4eb57b) and SHARED-DOWNSTREAM (594b4c1)
+had reworked the getaway after SKILL-KILLMARK/SKILL-POLICE stopped, and `bank_robbery_km.py` in the fork
+is their committed version (the "uncommitted rework" SKILL-KILLMARK warned about is committed; kept whole).
+
+| session | result | where |
+|---|---|---|
+| mg_km1, mg_km2 | **complete** | km2 parked off the lane, the launch was skipped, drive3 got through anyway |
+| mg_km3 | failed | after the respray: a new star from knocks on the 197-block safehouse drive, pulled out at 165.7,213.8 |
+| mg_sp1 | **complete** | |
+| mg_sp2 | failed | before the getaway: the climb pinned at the stair foot, shot by the guards |
+| mg_sp3 | failed | GRAHAM parked at y 178.4 (3.2 off the lane): launch skipped, drive3 stalled at 214.4,181.5, arrested |
+| mg_ccc1 | **complete** | |
+
+BANK ROBBERY 3 of 6, COP CAR CRUSH 1 of 1.
+
+### Causes found and what changed
+
+All in the job glue (`missions/bank_robbery_km.py`, used by the km and sp runners), the police skill
+(`skills/shake_police.py`) and the delivery skill (`skills/deliver_intact.py`). `kill_marked`,
+`rooftop_access`, `crusher_crane`, `horn_pickup` and the frozen `mission_lib`/`drive_lib` are unchanged.
+
+1. **The stair foot is blocked by the game's girder** (mg_sp2, mg_km3, mg_km7/8, mg_fb3; SKILL-POLICE's
+   "pinned at 193.4,177.2"). `collide: near ... obj_girder@193.20,177.50/0.28` stands in the middle of
+   cell 193,177, the only way onto the flight (a wall along y 178 west of x 193). The job's CLIMB line ran
+   over it. `CLIMB_KM` threads the gap north of the girder and keeps to the north half of the flight (a
+   trash can stands on its line at 191.14,177.50); the flight's points are walked with a 0.3 tolerance
+   (`walk_pts`: with 0.45, mg_km14 "reached" them from the pavement on the far side of the wall). The job
+   climbs before the skill (`climb_to_walk`, 9 s legs, resumes after a miss), so the skill's own approach
+   and its router fallback (which walks into the girder) only run when the climb failed. The climb ends at
+   the flight's top, 4.8 blocks from the guards (mg_km5: the old last point 3.5 off, a guard walked up and
+   shot him). Result: on the walk in 16 of 19 sessions. The girder footprint itself is filed as
+   `mg-wil-bank-stair-girder-collider-blocks-entry` (a 0.11-block gap is left at x 193.0).
+2. **Launch box** (mg_km2, mg_sp3, mg_km8). `park_getaway` left the GRAHAM anywhere from y 176.3 to 181.5;
+   outside 3.0 of the lane the no-stop launch was skipped and drive3 took the getaway. Now: a second slow
+   parking pass while the level is still 0, and a car facing east within 6.0 of the lane launches.
+3. **Overtaking** (mg_km4: a taxi standing in the lane at the row-213 turn, the no-stop path drove into its
+   back, stalled, two officers had him). `shake_police.overtake()`: a slow car in the lane ahead moves the
+   pursuit target one lane over (left first) to a road or pavement cell with no car on it; used by
+   `follow_path` and `chase_path`.
+4. **The safehouse leg** (mg_km3, mg_km6, mg_fb1, mg_km15, mg_km17, mg_sp6). `safehouse_drive`: drive3
+   while the level is 0, `shake_police.chase_drive` while it is up (a star from knocks happens), a
+   no-headway watchdog (3 blocks in 40 s) that hands 60 s to `chase_path` at a calm 2.0 (mg_km6/fb1: 22
+   drive3 stalls nosed onto the pavement near 97,200, both runs out of time; mg_km15: at the chase pace
+   that fallback earned a star), and a 3-game-second wait for the level to read 0 after the respray (mg_sp6,
+   mg_km17: the mission line still said 2 and the leg started in chase mode).
+5. **Pins** (mg_km10: drive3 held the GRAHAM against a stopped truck at 184.0,178.6, 30247 -> 3633 and
+   alight; mg_ccc2: -3237 carhp in 3 s standing at 130.5,40.7). `shake_police.PinGuard`, an `until()` for
+   any drive: >= 1500 carhp lost in 4 game s while moving < 0.6 block; the caller backs off (`back_off`)
+   and resumes. Used by the km runner's drives (`guarded_drive`) and by `deliver_intact.deliver`'s two
+   drive3 legs (`DI_PIN_GUARD=0` turns it off there).
+6. **A no-stop pursuit driver for any job** (`shake_police.chase_path`; SKILL-POLICE's blocker 1, "a
+   never-stop chase mode"). KILLMARK-GETAWAY's hand-placed `follow_path` generalised: the car router's route
+   cut to its corners, pure pursuit, throttle under 3.0 / 1.5 game blocks/s (straight / within 4 blocks of a
+   35-degree turn), no stops for traffic, overtaking, a stall is a reverse with the wheel turned, re-route
+   when 4.5 off the line, the leg handed back to drive3 after 3 stalls in one spot or a route that does not
+   reach the target (mg_km16/17: `car_route` returns a 1-cell stub from inside the respray bay; a 2-point
+   "route" of 129 blocks ground the car on a wall until it burned). `chase_route` routes from a road cell
+   ahead of the nose when that is no longer than 1.5 x + 12 blocks. `chase_drive` uses it while wanted > 0;
+   **on by default** (`SP_CHASE_PATH=0` is the old drive3 chase). Proof: `SP_FROM_BANK=1` (bank_robbery_sp)
+   hands the whole getaway from the bank to `shake_police.shake`, no hand-placed path: 4 of 4 legs reached
+   the shop (mg_fb1 91 blocks to 204.5,221.5 with four right-angle turns; mg_fb4/5/6 80-82 blocks to
+   209.5,121.5, a shop the hand path never used, 0 stalls, 0 re-routes), and fb4, fb5, fb6 completed.
+
+### Sessions on the changed code
+
+| session | code | result | where it was won or lost |
+|---|---|---|---|
+| mg_km9 | launch box, climb v1 | **complete** | |
+| mg_km10 | + overtake | failed | GRAHAM burned against a stopped truck on the way to the bank (-> PinGuard) |
+| mg_km11, mg_km12 | + safehouse_drive | **complete**, **complete** | |
+| mg_fb4 | SP_FROM_BANK | **complete** | chase_path 81 blocks to 209.5,121.5, respray by the skill's creep |
+| mg_km13 | + PinGuard, job climb | **complete** | |
+| mg_km14 | same | failed | climb "reached" the flight's points through the wall (-> 0.3 tolerance) |
+| mg_km15 | same | failed | safehouse: chase_path unstick at full pace earned a star, drive3 chase, boarded (-> calm fallback, chase_path default) |
+| mg_fb5, mg_fb6 | SP_FROM_BANK | **complete**, **complete** | |
+| mg_km16 | chase_path default | **complete** | |
+| mg_km17 | same | failed | stale wanted 2 after the respray, chase_path on a stub route, burned on a wall (-> route check, stall give-up, settle) |
+| mg_km18 | same | failed | run length reached on the safehouse leg (drive3 slow at 105.7,208.3, wanted 0) |
+| mg_sp4, mg_sp5 | same | failed | in the guard fight after a clean climb ("no damage for 8 s", shot) |
+| mg_sp6 | same | failed | as mg_km17 |
+| **mg_km19** | final | **complete** | |
+| mg_km20 | final | failed | in the guard fight: one down, the second ran east, shot him |
+| **mg_km21** | final | **complete** | |
+| **mg_sp7** | final | **complete** | the 3-stall give-up fired at 157.4,189.6 on the safehouse leg, drive3 finished it |
+| mg_sp8 | final | failed | climb pinned south of the girder at 193.4,177.4 |
+| mg_sp9 | final | failed | never left the GRAHAM's start (out of the car twice at 52.7,150.5) |
+
+- **BANK ROBBERY: 2 of 3 consecutive on the final code (mg_km19, mg_km21; mg_km20 lost in the fight),
+  and 3 of 3 consecutive earlier (mg_km11-13).** km runner on the changed code: 7 of 13 complete.
+- **The getaway itself:** from the bank to a cleared level, 15 of 15 sessions once the launch box, the park
+  pass and the overtake were in (7 of 10 in KILLMARK-GETAWAY's series). Safehouse leg after the respray: 11
+  of 15, the losses one each of km15/km17/sp6 (fixed) and km18 (slow drive3, mitigated, not solved).
+- **What still loses BANK ROBBERY, upstream of the getaway:** the guard fight (`kill_marked`: mg_sp4, mg_sp5,
+  mg_km20 died after reaching the walk; mg_km5 before the climb fix), the girder gap (mg_sp8), the start
+  of the drive to the bank (mg_sp9). These are the skill's and the collider's; left to their owners.
+- **COP CAR CRUSH: 2 of 4** (mg_ccc1, mg_ccc3 complete; mg_ccc2 run length reached with the Cop Car
+  burning on the crane leg, mg_ccc4 burned on the crane leg). The damage is many 300-600 carhp knocks at
+  near-zero speed around Shady's alley (104,104) and on 120-160-block drive3 legs, not one pin; the pin
+  guard never fired in ccc3/ccc4. Not solved: the next step is chase_path-style legs for the Cop Car at the
+  fragile pace, or a respray before the crane leg (the player has $3-20 there, `RESPRAY_COST` 5000).
+  mg_ccc5 (rooftop phone not answered) and mg_ccc6 (wrong phone, a car at 242.5,39.5) never reached these legs.
+- 0 `FAULT` lines in the complete sessions' logs. JOB COMPLETE frames in the chase view: `out/mg_km1/m_br_end.png`,
+  `out/mg_km19/m_br_end_third.png`, `out/mg_fb5/m_br_end.png`, `out/mg_ccc3/m_ccc_end.png` (not in git).
+
+Not tested: `chase_path`/`overtake`/`PinGuard` in other districts and jobs (SWAT VAN SWIPE, DISTRACTION ACTION
+and the other `wanted_evasion` jobs have no live runner on this code); `evade()` with chase_path; LABRAT'S PLAN
+(MISSIONS-BATCH1's loss is the Zaibatsu fight and the game's kill count, not a getaway). Speeds in `follow_path`
+and `launch` are per wall second tuned at `GTA2_SPEED=2`; `chase_path` scales with the speed.

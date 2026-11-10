@@ -228,6 +228,25 @@ def _care_cap(hp):
     return min(caps) if caps else None
 
 
+def _pin_guard(inner):
+    """MISSION-GETAWAY: drive3's until() wrapped in shake_police.PinGuard (a car losing >= 1500 carhp
+    in 4 game s while it does not move: pressed, the driver still on the throttle; mg_ccc2 lost 3237 in
+    3 s standing at 130.5,40.7 on the crane leg, mg_km10 burned against a stopped truck). The leg backs
+    off and re-plans (a `continue` of the attempt loop). DI_PIN_GUARD=0 turns it off"""
+    if os.environ.get("DI_PIN_GUARD", "1") != "1": return inner
+    try:
+        from skills import shake_police as SP
+    except Exception:
+        return inner
+    return SP.PinGuard(inner)
+
+
+def _pin_back_off(world):
+    from skills import shake_police as SP
+    _ev("pinned: back off and re-plan the leg")
+    SP.back_off(world)
+
+
 def deliver(world, box, car=None, approach=None, done=None, check=None, view_switch=None,
             shops=None, budget=900, park_wait=45, tries=5, label="the box"):
     """Drive the mission car into box = (x, y, w, h) and hand it to the game.
@@ -299,11 +318,15 @@ def deliver(world, box, car=None, approach=None, done=None, check=None, view_swi
                 # point re-routed itself 50 blocks away from 53.1,177.9)
                 pass
             elif ap:
+                pin = _pin_guard(reacted)
                 s = M.drive3(world, ap[0], ap[1], tol=1.2, budget=min(DRIVE_CALL, max(60, budget - (time.time() - t0))),
-                             view_switch=view_switch, slow=True, precious=True, until=reacted)
+                             view_switch=view_switch, slow=True, precious=True, until=pin)
+                if getattr(pin, "fired", 0) and not reacted(): _pin_back_off(world); continue
             else:
+                pin = _pin_guard(reacted)
                 s = M.drive3(world, x, y, tol=max(0.6, min(w, h) * 0.45), budget=min(DRIVE_CALL, max(60, budget - (time.time() - t0))),
-                             view_switch=view_switch, slow=True, precious=True, until=reacted)
+                             view_switch=view_switch, slow=True, precious=True, until=pin)
+                if getattr(pin, "fired", 0) and not reacted(): _pin_back_off(world); continue
             if check: check()
             if reacted(): keys_off(); break
             s = D.wait_state()

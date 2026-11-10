@@ -227,6 +227,247 @@ def break_away(world):
     return D.wait_state()
 
 
+# ---- chase_path (MISSION-GETAWAY, 9 Nov): the no-stop pursuit driver ---------------------------------
+# drive3 (frozen) brakes for corners, queues behind traffic and takes about 2 s to react after a stop
+# condition; at two stars a standing car is a boarded car (sp: busted at the BANK ROBBERY getaway's
+# three right-angle turns in 6 of 19 sessions). KILLMARK-GETAWAY's bank_robbery_km.follow_path (a
+# hand-placed polyline driven without stops) took the same getaway to the bay in 7 of 10. chase_path
+# is that driver on the car router's route instead of a hand-placed one, for any job: the route's
+# lane points cut down to its corners, pure pursuit along them, the throttle held under a straight
+# cap and a corner cap, never a stop for traffic; a stall is a short reverse with the wheel turned.
+# Speeds are game blocks per game second (follow_path's are per wall second at GTA2_SPEED=2: 6 and 3).
+# default on since mg_fb1/4/5/6 (the whole BANK ROBBERY getaway by the skill: 4 of 4 legs reached the
+# shop, 80-91 blocks, 0 re-routes) against drive3 under the chase rules (busted in 6 of 8 sp sessions,
+# mg_sp3, mg_km15); SP_CHASE_PATH=0 is the old drive3 chase
+CHASE_PATH = os.environ.get("SP_CHASE_PATH", "1") == "1"   # chase_drive uses chase_path while wanted > 0
+CP_VMAX = float(os.environ.get("SP_CP_VMAX", "3.0"))       # game blocks / game second on a straight
+CP_VCORNER = float(os.environ.get("SP_CP_VCORNER", "1.5")) # within CP_CORNER_R of a turn of 35 degrees or more
+CP_CORNER_R = 4.0
+CP_LOOK = 2.4            # pure-pursuit look-ahead along the line, blocks
+CP_OFF = 4.5             # this far off the line: route again from here
+CP_STATS = {"calls": 0, "arrived": 0, "reroutes": 0, "stalls": 0, "fallbacks": 0}
+
+
+def _corners(pts):
+    """the polyline's corner points: drop the points on a straight run (direction unchanged)"""
+    if len(pts) < 3: return list(pts)
+    out = [pts[0]]
+    for i in range(1, len(pts) - 1):
+        ax, ay = out[-1]; bx, by = pts[i]; cx, cy = pts[i + 1]
+        d1 = math.atan2(by - ay, bx - ax); d2 = math.atan2(cy - by, cx - bx)
+        if abs(math.atan2(math.sin(d2 - d1), math.cos(d2 - d1))) > 0.2: out.append(pts[i])
+    out.append(pts[-1])
+    return out
+
+
+def _turn_at(pts, k):
+    """the turn angle at vertex k (radians, 0 on a straight)"""
+    if k <= 0 or k >= len(pts) - 1: return 0.0
+    (ax, ay), (bx, by), (cx, cy) = pts[k - 1], pts[k], pts[k + 1]
+    d1 = math.atan2(by - ay, bx - ax); d2 = math.atan2(cy - by, cx - bx)
+    return abs(math.atan2(math.sin(d2 - d1), math.cos(d2 - d1)))
+
+
+def _plen(pts):
+    return sum(math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1))
+
+
+class PinGuard:
+    """an until() for any drive: True when the car has lost PIN_HP carhp in the last PIN_SECS game
+    seconds while moving under PIN_MOVE blocks: pressed against a car or a wall (contact damage) and
+    the driver still on the throttle. mg_km10: drive3 held the GRAHAM against a stopped truck at
+    184.0,178.6 for 40 s, 30247 -> 3633 and alight, 22 blocks from the bank (drive3 is frozen and
+    waits rather than reverses with a car behind). The caller backs off (`back_off`) and resumes"""
+    PIN_HP, PIN_SECS, PIN_MOVE = 1500, 4.0, 0.6
+    def __init__(self, inner=None):
+        self.h = []; self.inner = inner; self.fired = 0
+    def __call__(self):
+        if self.inner and self.inner(): return True
+        s = D.wait_state(); ms = M.mission_state() or {}
+        if not (s and s["driving"]) or ms.get("carhp") is None: return False
+        now = time.time(); self.h.append((now, s["x"], s["y"], ms["carhp"]))
+        span = self.PIN_SECS / SPEED
+        while len(self.h) > 2 and now - self.h[0][0] > span: self.h.pop(0)
+        t0, x0, y0, hp0 = self.h[0]
+        if now - t0 > span * 0.75 and hp0 - ms["carhp"] >= self.PIN_HP and math.hypot(s["x"] - x0, s["y"] - y0) < self.PIN_MOVE:
+            self.fired += 1; self.h = []
+            _ev(f"pinned at {s['x']:.1f},{s['y']:.1f}: carhp {hp0} -> {ms['carhp']} without moving")
+            return True
+        return False
+
+
+def back_off(world, secs=1.0):
+    """reverse with the wheel turned (away from the wall side when one is ahead), then a moment forward"""
+    s = D.wait_state()
+    key = "Left"
+    try:
+        hx, hy = M.heading(s); L = M.ped_level(s)
+        kl = M.node_kind(world, int(s["x"] + hy * 1.2), int(s["y"] - hx * 1.2), L)
+        if not (kl and kl[1] == 1): key = "Right"
+    except Exception:
+        pass
+    xdo("keyup", "Up"); xdo("keydown", "Down"); xdo("keydown", key); time.sleep(secs * 2.0 / max(SPEED, 0.5))
+    xdo("keyup", "Down"); xdo("keyup", key)
+    return D.wait_state()
+
+
+def overtake(world, s, gx, gy, reach=3.6, slow=1.2):
+    """the pursuit target moved one lane over when a slow or standing car is in the lane ahead.
+    mg_km4: at the row-213 turn of the BANK ROBBERY getaway a taxi stood in the lane, the no-stop
+    driver drove into its back, stalled, and two officers on foot pulled him out. Left (the
+    overtaking side in this right-hand traffic) first, then right; a side counts when the ground
+    beside the blocker and beside the target is a road or pavement cell and no other car is there.
+    Returns (gx, gy, blocker or None)"""
+    hx, hy = M.heading(s); cs = [c for c in M.cars() if c["driver"] != "P"]
+    blk = None
+    for c in cs:
+        dx, dy = c["x"] - s["x"], c["y"] - s["y"]
+        fwd = dx * hx + dy * hy; lat = -dx * hy + dy * hx
+        if 0.4 <= fwd <= reach and abs(lat) <= 0.8 and c["v"] * (c["hx"] * hx + c["hy"] * hy) < slow:
+            if blk is None or fwd < blk[0]: blk = (fwd, c)
+    if blk is None: return gx, gy, None
+    c = blk[1]; L = M.ped_level(s)
+    for side in (1.0, -1.0):                       # +1: left = (hy, -hx)
+        px, py = hy * side, -hx * side
+        bx, by = c["x"] + px * 1.05, c["y"] + py * 1.05
+        tx, ty = gx + px * 1.0, gy + py * 1.0
+        ok = True
+        for (qx, qy) in ((bx, by), (tx, ty)):
+            k = M.node_kind(world, int(qx), int(qy), L)
+            if not (k and k[0] == "flat" and k[1] in (1, 2)): ok = False; break
+        if ok and any(math.hypot(o["x"] - bx, o["y"] - by) < 0.9 for o in cs if o is not c): ok = False
+        if ok:
+            CP_STATS["overtake_ticks"] = CP_STATS.get("overtake_ticks", 0) + 1
+            return tx, ty, c
+    return gx, gy, c
+
+
+def chase_route(world, s, tx, ty):
+    """the router's car route from here to (tx, ty) as corner points ending on the target, or None.
+    The router does not know the car's heading: from the bank (GRAHAM parked nose east) its route
+    started with a U-turn into the westbound lane and went down the column-178 avenue, where km4 and
+    br10 were pulled out in the jams. A route from a road cell 3-4 blocks ahead of the nose is taken
+    instead when it is no longer than 1.5 x + 12 blocks: a car at speed under police goes on, not back"""
+    def one(st):
+        try:
+            path = M.car_route(world, st, tx, ty)
+        except Exception as e:
+            say(f"chase_path: no route ({e!r})"); return None
+        # mg_km16/mg_km17: car_route hands back whatever it has when every fallback fails (a stub
+        # short of the target); a 2-point "route" of 129 blocks led straight into the buildings and
+        # the car burned against a wall at 185.5,218.4 after 30 stalls. A route must end by the target
+        if not path or len(path) < 2 or abs(path[-1][0] - int(tx)) + abs(path[-1][1] - int(ty)) > 2:
+            return None
+        pts = M.lane_points(world, M.unjog(world, path))
+        return [(st["x"], st["y"])] + pts[1:] + [(tx, ty)]
+    base = one(s)
+    try:
+        hx, hy = M.heading(s)
+    except Exception:
+        hx = hy = None
+    best = base
+    if hx is not None and math.hypot(tx - s["x"], ty - s["y"]) > 6.0:
+        L = M.ped_level(s)
+        for d in (3.5, 2.5):
+            ax, ay = s["x"] + hx * d, s["y"] + hy * d
+            k = M.node_kind(world, int(ax), int(ay), L)
+            if not (k and k[1] == 1): continue
+            ahead = one(dict(s, x=ax, y=ay))
+            if ahead and (base is None or _plen(ahead) + d <= 1.5 * _plen(base) + 12):
+                best = [(s["x"], s["y"])] + ahead; break
+    return _corners(best) if best else None
+
+
+def chase_path(world, tx, ty, tol=1.6, budget=120, until=None, check=None, reroutes=3, vmax=None):
+    """drive to (tx, ty) on the router's route without stopping (see above). Returns (state, why):
+    why "arrived", "until", "on foot", "budget", "lost" (no route or too many re-routes: the caller
+    falls back to drive3)"""
+    CP_STATS["calls"] += 1
+    k_pulse = 2.0 / max(SPEED, 0.5)        # steering pulses were tuned at GTA2_SPEED=2 (wall seconds)
+    vmax, vcorner = (vmax or CP_VMAX) * SPEED, min(CP_VCORNER, vmax or CP_VCORNER) * SPEED      # per wall second
+    s = D.wait_state()
+    if not (s and s["driving"]): return s, "on foot"
+    pts = chase_route(world, s, tx, ty)
+    if not pts: return s, "lost"
+    _ev(f"chase_path to {tx:.1f},{ty:.1f}: {len(pts)} points, {sum(math.hypot(pts[i+1][0]-pts[i][0], pts[i+1][1]-pts[i][1]) for i in range(len(pts)-1)):.0f} blocks")
+    t0 = time.time(); hist = []; seg = 0; slow_since = None; thr = [False]; braked = 0.0; n_rr = 0; stalls = []
+    def throttle(on):
+        if on != thr[0]: xdo("keydown" if on else "keyup", "Up"); thr[0] = on
+    def proj(k, x, y):
+        (ax, ay), (bx, by) = pts[k], pts[k + 1]
+        L2 = max((bx - ax) ** 2 + (by - ay) ** 2, 1e-6)
+        t = max(0.0, min(1.0, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / L2))
+        px, py = ax + t * (bx - ax), ay + t * (by - ay)
+        return t, px, py, math.hypot(x - px, y - py)
+    try:
+        while time.time() - t0 < budget:
+            time.sleep(0.06)
+            if check: check()
+            if until and until(): return D.wait_state(), "until"
+            s = D.wait_state(); now = time.time()
+            if not s or not s["driving"]: return s, "on foot"
+            hist.append((now, s["x"], s["y"]))
+            while len(hist) > 2 and now - hist[0][0] > 0.4: hist.pop(0)
+            v = math.hypot(s["x"] - hist[0][1], s["y"] - hist[0][2]) / (now - hist[0][0]) if now - hist[0][0] > 0.15 else 1.0
+            if math.hypot(tx - s["x"], ty - s["y"]) < tol:
+                CP_STATS["arrived"] += 1; return s, "arrived"
+            while seg < len(pts) - 2 and proj(seg, s["x"], s["y"])[0] >= 0.999: seg += 1
+            if seg < len(pts) - 2 and proj(seg + 1, s["x"], s["y"])[3] < proj(seg, s["x"], s["y"])[3]: seg += 1
+            t, px, py, off = proj(seg, s["x"], s["y"])
+            if off > CP_OFF:
+                n_rr += 1; CP_STATS["reroutes"] += 1
+                if n_rr > reroutes: _ev(f"chase_path: off the line {n_rr} times, giving up at {s['x']:.1f},{s['y']:.1f}"); return s, "lost"
+                throttle(False)
+                np_ = chase_route(world, s, tx, ty)
+                if not np_: return s, "lost"
+                pts = np_; seg = 0
+                say(f"chase_path: {off:.1f} off the line at {s['x']:.1f},{s['y']:.1f}: re-routed ({len(pts)} points)")
+                continue
+            rem = CP_LOOK; k = seg; cx, cy = px, py
+            while True:
+                bx, by = pts[k + 1]; dl = math.hypot(bx - cx, by - cy)
+                if dl >= rem or k + 1 >= len(pts) - 1:
+                    f = min(1.0, rem / max(dl, 1e-6)); gx, gy = cx + f * (bx - cx), cy + f * (by - cy); break
+                rem -= dl; cx, cy = bx, by; k += 1
+            cap = vmax
+            for j in (seg + 1, seg + 2):
+                if j < len(pts) - 1 and _turn_at(pts, j) > 0.6 and \
+                        math.hypot(pts[j][0] - s["x"], pts[j][1] - s["y"]) < CP_CORNER_R:
+                    cap = vcorner; break
+            dend = math.hypot(tx - s["x"], ty - s["y"])
+            if dend < 5.0: cap = min(cap, max(vcorner, vmax * dend / 5.0))
+            if dend > 3.0:
+                gx, gy, _blk = overtake(world, s, gx, gy)
+            hx, hy = M.heading(s); dx, dy = gx - s["x"], gy - s["y"]
+            a = math.atan2(hx * dy - hy * dx, hx * dx + hy * dy)
+            throttle(v < cap)
+            if v > cap * 1.3 + 0.5 and now - braked > 0.5:
+                hold("Down", 0.1 * k_pulse / 1.0); braked = now
+            if v < 0.4 * SPEED / 2 and now - t0 > 1.0:
+                slow_since = slow_since or now
+                if now - slow_since > 0.5 * k_pulse:
+                    CP_STATS["stalls"] += 1
+                    say(f"chase_path: stall at {s['x']:.1f},{s['y']:.1f} (a {a:.2f}, seg {seg}/{len(pts) - 1}); back off")
+                    # three stalls within 1.5 blocks: this way is shut (a jam, a wall): give the leg back
+                    stalls = [p for p in stalls if math.hypot(p[0] - s["x"], p[1] - s["y"]) < 1.5] + [(s["x"], s["y"])]
+                    if len(stalls) >= 3:
+                        throttle(False); back_off(world)
+                        _ev(f"chase_path: {len(stalls)} stalls at {s['x']:.1f},{s['y']:.1f}: this way is shut")
+                        return D.wait_state(), "lost"
+                    throttle(False); key = "Left" if a > 0 else "Right"
+                    xdo("keydown", "Down"); xdo("keydown", key); time.sleep(0.6 * k_pulse)
+                    xdo("keyup", "Down"); xdo("keyup", key); slow_since = None; hist = []
+                    continue
+            else:
+                slow_since = None
+            if abs(a) > 0.05:
+                key = "Right" if a > 0 else "Left"
+                xdo("keydown", key); time.sleep(min(0.22, abs(a) * 0.3) * k_pulse); xdo("keyup", key)
+    finally:
+        throttle(False)
+    return D.wait_state(), "budget"
+
+
 def chase_drive(world, tx, ty, tol, budget, view_switch=None, until=None, check=None):
     """M.drive3 under a chase: the normal pace while carhp >= CHASE_SLOW_HP (the fragile caps made
     sp5's car a 2-blocks/s target), and the drive stopped for a break-away whenever an officer on
@@ -244,6 +485,7 @@ def chase_drive(world, tx, ty, tol, budget, view_switch=None, until=None, check=
 def _chase_drive(world, tx, ty, tol, budget, view_switch, until, check):
     t0 = time.time(); breaks = 0; s = D.wait_state()
     if s and s["driving"] and threat_at_door(): breaks += 1; s = break_away(world)
+    lost = 0
     while time.time() - t0 < budget:
         if check: check()
         if until and until(): return s
@@ -251,6 +493,12 @@ def _chase_drive(world, tx, ty, tol, budget, view_switch, until, check):
         if not (s and s["driving"]): return s
         if math.hypot(tx - s["x"], ty - s["y"]) <= tol: return s
         hp = (M.mission_state() or {}).get("carhp", 32000)
+        if CHASE_PATH and lost < 2 and wanted() > 0 and hp >= CHASE_SLOW_HP // 2:
+            s, why = chase_path(world, tx, ty, tol=tol, budget=max(10, budget - (time.time() - t0)), until=until, check=check)
+            if why in ("arrived", "until", "on foot", "budget"): return s
+            lost += 1; CP_STATS["fallbacks"] += 1
+            _ev(f"chase_path lost ({lost}); drive3 for this leg")
+            continue
         M.CAR_AVOID.clear()
         flag = {"cop": False}
         def stop():
