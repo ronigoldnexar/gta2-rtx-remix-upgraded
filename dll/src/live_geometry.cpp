@@ -2,6 +2,8 @@
 #include "prop_collision.h"
 #include "car_glass.h"   // VEHICLE-GLASS
 #include "boarding.h"
+#include "cab_interior.h"   // FIX-COCKPIT-BODY: his body at the wheel in first person
+#include "cockpit_mode.h"
 
 #include <algorithm>
 #include <cmath>
@@ -43,6 +45,55 @@
 
 namespace gta2dx9 {
 namespace {
+// FIX-COCKPIT-BODY: GTA2DX9_FP_BODY=0 leaves his body out of the first-person cockpit (A/B; the ini key is
+// [camera] fp_driver_body).
+bool FpDriverBodyOn() {
+    static const bool on = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_BODY", b, sizeof b) && b[0] == '0'); }();
+    return on;
+}
+// FIX-COCKPIT-BODY: the driver's hands on the rim, after the arms' IK: the fingers closed (the punch's fist
+// curl) and each hand turned about its wrist so the knuckles point at its grip on the rim (the clip's wrist
+// left the fists hanging under the rim). Model space; set as the pose hook for his body's draw only.
+struct DriverHands {
+    const Model* model = nullptr;
+    int hand[2] = {-1, -1}, knuckle[2] = {-1, -1};   // [0] left, [1] right
+    std::vector<int> under[2];                       // every node under each hand
+    float grip[2][3] = {};
+};
+DriverHands g_driverHands;
+void DriverHandsHook(const Model& model, std::vector<gta2::Mat4>* W, void* context) {
+    DriverHands& d = *static_cast<DriverHands*>(context);
+    if (&model != d.model || W->size() != model.nodes.size()) return;
+    weaponrig::CurlFists(model, W, 1.0f);
+    for (int h = 0; h < 2; ++h) {
+        if (d.hand[h] < 0 || d.knuckle[h] < 0) continue;
+        gta2::Mat4& H = (*W)[static_cast<size_t>(d.hand[h])];
+        const gta2::Vec3 p{H.m[3][0], H.m[3][1], H.m[3][2]};
+        const gta2::Mat4& K = (*W)[static_cast<size_t>(d.knuckle[h])];
+        const gta2::Vec3 a = gta2::Normalize(gta2::Vec3{K.m[3][0], K.m[3][1], K.m[3][2]} - p);
+        const gta2::Vec3 g{d.grip[h][0], d.grip[h][1], d.grip[h][2]};
+        const gta2::Vec3 to = g - p;
+        if (gta2::Dot(to, to) < 1e-10f) continue;
+        const gta2::Vec3 b = gta2::Normalize(to);
+        gta2::Vec3 k = gta2::Cross(a, b);
+        const float sn = std::sqrt(gta2::Dot(k, k)), cs = gta2::Dot(a, b);
+        if (sn < 1e-5f) continue;
+        k = k * (1.0f / sn);
+        auto rot = [&](const gta2::Vec3& v) {   // Rodrigues: v about k by the angle from a to b
+            return v * cs + gta2::Cross(k, v) * sn + k * (gta2::Dot(k, v) * (1.0f - cs));
+        };
+        auto turn = [&](gta2::Mat4& M) {
+            for (int r = 0; r < 3; ++r) {
+                const gta2::Vec3 v = rot(gta2::Vec3{M.m[r][0], M.m[r][1], M.m[r][2]});
+                M.m[r][0] = v.x; M.m[r][1] = v.y; M.m[r][2] = v.z;
+            }
+            const gta2::Vec3 t = p + rot(gta2::Vec3{M.m[3][0], M.m[3][1], M.m[3][2]} - p);
+            M.m[3][0] = t.x; M.m[3][1] = t.y; M.m[3][2] = t.z;
+        };
+        turn(H);
+        for (int n : d.under[h]) turn((*W)[static_cast<size_t>(n)]);
+    }
+}
 
 constexpr DWORD kWorldFvf = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1;
 constexpr int kGameVertexFloats = 8;
@@ -10210,12 +10261,32 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         const float boardSink = boarding ? boardOut.sink : victimSink;
         const bool seatedNow = boarding && boardOut.seated;   // FIX-SEATED: at the wheel
-        // From his own eyes (first person) his seated figure is not drawn: the cab is (cab_interior).
+        // From his own eyes (first person) his seated figure was not drawn: the cab is (cab_interior).
         // (g_hiddenObjects[1]: the car he is in, hidden from his eyes; a beat's camera draws both.)
-        if (seatedNow && g_hiddenObjects[1] && BoardingIsPlayer(sprite.object)) continue;
+        // FIX-COCKPIT-BODY (owner item 2, "only the hands are visible on the steering wheel, with no body"): it is
+        // drawn now, from the eye, in the cockpit look ([camera] fp_driver_body, not the dashcam): his own
+        // figure (his identity record: the same avatar and clothes as the chase view's seated driver), head
+        // left out, scaled to the cab and placed under the eye, the hands on the cab's rim (below).
+        CabDriverPose fpPose;
+        const bool fpBody = seatedNow && g_hiddenObjects[1] && BoardingIsPlayer(sprite.object) && DriverBodyEnabled() &&
+                            !DashcamHidesCockpit() && CabLastDriverPose(&fpPose) && FpDriverBodyOn();
+        static const bool gateLog = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_BODY_LOG", b, sizeof b) && b[0] == '1'; }();
+        if (gateLog && BoardingIsPlayer(sprite.object)) {
+            static uint32_t gateFrame = 0;
+            static int gateLogs = 0;
+            if (gateFrame != g_carFrame && gateLogs < 600 && (g_carFrame % 15) == 0) {
+                ++gateLogs; gateFrame = g_carFrame;
+                Log("cockpit: body gate f=%u obj=%p player=%d hidden1=%p view=%d seated=%d boarding=%d enabled=%d dashcam=%d pose=%d env=%d -> %d", g_carFrame,
+                    reinterpret_cast<const void*>(sprite.object), BoardingIsPlayer(sprite.object) ? 1 : 0, g_hiddenObjects[1],
+                    static_cast<int>(CurrentViewMode()), seatedNow ? 1 : 0, boarding ? 1 : 0, DriverBodyEnabled() ? 1 : 0, DashcamHidesCockpit() ? 1 : 0, CabLastDriverPose(nullptr) ? 1 : 0,
+                    FpDriverBodyOn() ? 1 : 0, fpBody ? 1 : 0);
+            }
+        }
+        if (seatedNow && g_hiddenObjects[1] && BoardingIsPlayer(sprite.object) && !fpBody) continue;
         // FIX-FP-ENTRY: his own from his eyes: the plan ran, nothing is drawn. FIX-KNOCKDOWN: through a knock-down
-        // he goes on (posed, the ragdoll stepped, the eye on his head; his draw is skipped below).
-        if (sprite.planOnly && !(track.kd && g_groundModels && RagdollEnabled())) continue;
+        // he goes on (posed, the ragdoll stepped, the eye on his head; his draw is skipped below). FIX-COCKPIT-BODY:
+        // and his body at the wheel.
+        if (sprite.planOnly && !fpBody && !(track.kd && g_groundModels && RagdollEnabled())) continue;
         const float legHeading = track.heading - track.twist;
         // CROWD: where his head turns ([crowd] look_at). Toward the player when the
         // player is within look_range and in front of him (twice as far while the
@@ -10551,7 +10622,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // where the eye was put: a face and a shirt at an inch). It is not drawn while it is there (its track
             // goes on, so it comes back without a jump); the eye also steps away from it (view_modes.cpp). In
             // first person any figure, his own if its hiding missed; in third person not his own (the subject).
-            if (model && !sprite.shadowOnly && CurrentViewMode() != ViewMode::Classic && StreetPresentation() &&
+            if (model && !sprite.shadowOnly && CurrentViewMode() != ViewMode::Classic && StreetPresentation() && !fpBody &&
                 (CurrentViewMode() == ViewMode::FirstPerson || !heroFigure)) {
                 constexpr float kLensClear = 0.15f;   // about 60 cm: the body (0.06 block half-width) within a hand of the 0.05 near plane
                 const float lx = gx - g_viewEye.x, lz = gz - g_viewEye.z;
@@ -11301,6 +11372,175 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         boardIk = true;
                     }
                 }
+                // FIX-COCKPIT-BODY (owner item 2): his seated figure from his own eyes. The cab is built around
+                // the eye at about a third of the world's scale (fp-seat geometry: the dash a tenth of a block
+                // ahead), so the figure is scaled about the eye to the cab, its wheel (a real rim's 0.19 m
+                // radius to the cab's), lined up with the car (its pitch and roll too) and placed with his head's
+                // joint where a head would be behind and under the eye; the head itself is left out (the near
+                // plane would cut it open). The legs keep the seat's pedal targets (model space); the hands go
+                // onto the cab's grips at ten to two, which turn with the rim, so the arms follow the wheel from
+                // the shoulders. GTA2DX9_FP_BODY=0: not drawn (the cab's floating fists, as before).
+                bool fpPlaced = false;
+                if (fpBody && lod == 0) {
+                    const gta2::Vec3 U = fpPose.up;
+                    gta2::Vec3 F = gta2::Normalize(fpPose.fwd - U * gta2::Dot(fpPose.fwd, U));
+                    const gta2::Vec3 Rr = gta2::Normalize(gta2::Cross(U, F));   // the figure's +x row, as `placed` builds it
+                    static const float bodyScale = [] {
+                        char b[16] = {};
+                        return GetEnvironmentVariableA("GTA2DX9_FP_BODY_SCALE", b, sizeof b) ? static_cast<float>(atoi(b)) / 100.0f : 1.0f;
+                    }();
+                    static const bool bodyLog = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_BODY_LOG", b, sizeof b) && b[0] == '1'; }();
+                    // The joints, once per avatar.
+                    struct ArmNodes { int head, ua[2], fa[2], hand[2]; };
+                    static std::map<const Model*, ArmNodes> armNodes;
+                    auto an = armNodes.find(model);
+                    if (an == armNodes.end()) {
+                        ArmNodes a{-1, {-1, -1}, {-1, -1}, {-1, -1}};
+                        static const char* const kN[7] = {"Bip01 Head", "Bip01 L UpperArm", "Bip01 R UpperArm", "Bip01 L Forearm",
+                                                          "Bip01 R Forearm", "Bip01 L Hand", "Bip01 R Hand"};
+                        int* slot[7] = {&a.head, &a.ua[0], &a.ua[1], &a.fa[0], &a.fa[1], &a.hand[0], &a.hand[1]};
+                        for (size_t i = 0; i < model->nodes.size(); ++i)
+                            for (int k = 0; k < 7; ++k) if (strcmp(model->nodes[i].name, kN[k]) == 0) *slot[k] = static_cast<int>(i);
+                        an = armNodes.emplace(model, a).first;
+                    }
+                    const ArmNodes& A = an->second;
+                    std::vector<gta2::Mat4> pose;
+                    if (A.head >= 0 && A.ua[0] >= 0 && A.ua[1] >= 0 && A.fa[0] >= 0 && A.fa[1] >= 0 && A.hand[0] >= 0 && A.hand[1] >= 0)
+                        ModelPoseWorlds(*model, locoA, locoTA, locoB, locoTB, locoW, &pose);
+                    if (!pose.empty()) {
+                        auto P = [&](int n) { return gta2::Vec3{pose[static_cast<size_t>(n)].m[3][0], pose[static_cast<size_t>(n)].m[3][1], pose[static_cast<size_t>(n)].m[3][2]}; };
+                        const gta2::Vec3 hM = P(A.head);
+                        float armM = 0.0f;   // the arm, shoulder to wrist, model units (the longer side)
+                        for (int k = 0; k < 2; ++k) {
+                            const gta2::Vec3 a = P(A.ua[k]) - P(A.fa[k]), b = P(A.fa[k]) - P(A.hand[k]);
+                            armM = (std::max)(armM, std::sqrt(gta2::Dot(a, a)) + std::sqrt(gta2::Dot(b, b)));
+                        }
+                        const float fullH = kPedHeight * look.height;   // blocks, a 1.8 m man
+                        const float perM = fullH / 1.8f;                 // blocks a metre at his own scale
+                        // A first guess from the rim (a real one is 0.19 m across the radius), then the scale at
+                        // which his arms reach the grips with the elbows a little bent (shoulder to grip 0.92 of
+                        // the arm and the fist), at most 0.75 of his own: the cab is drawn at about a third of the
+                        // street's scale with the wheel a little further off than a real seat has it.
+                        float sfp = (std::max)(0.2f, (std::min)(0.9f, fpPose.wheelR / (0.19f * perM) * bodyScale));
+                        gta2::Mat4 Wn;
+                        gta2::Vec3 want{}, sh[2]{};
+                        float reach = 0.0f, armW = 0.0f, mPerCab = 0.0f;
+                        for (int it = 0; it < 4; ++it) {
+                            mPerCab = perM * sfp;
+                            const gta2::Vec3 rows[3] = {Rr, U, F};
+                            for (int r = 0; r < 3; ++r)
+                                for (int c = 0; c < 3; ++c) Wn.m[r][c] = fit.m[r][r] * (&rows[r].x)[c] * sfp;
+                            for (int c = 0; c < 3; ++c) Wn.m[3][c] = fit.m[3][1] * (&U.x)[c] * sfp;
+                            Wn.m[0][3] = Wn.m[1][3] = Wn.m[2][3] = 0.0f; Wn.m[3][3] = 1.0f;
+                            auto apply = [&](const gta2::Vec3& q) {
+                                return gta2::Vec3{q.x * Wn.m[0][0] + q.y * Wn.m[1][0] + q.z * Wn.m[2][0] + Wn.m[3][0],
+                                                  q.x * Wn.m[0][1] + q.y * Wn.m[1][1] + q.z * Wn.m[2][1] + Wn.m[3][1],
+                                                  q.x * Wn.m[0][2] + q.y * Wn.m[1][2] + q.z * Wn.m[2][2] + Wn.m[3][2]};
+                            };
+                            // the head's joint (the top of the neck) 2 cm behind and 9 cm under the eyes: the
+                            // shoulders as far forward as the neck allows (they are behind the 0.05 near plane
+                            // whatever is done; the further forward, the less of the upper arm it slices)
+                            want = fpPose.eye - F * (0.02f * mPerCab) - U * (0.09f * mPerCab);
+                            const gta2::Vec3 at = apply(hM);
+                            for (int c = 0; c < 3; ++c) Wn.m[3][c] += (&want.x)[c] - (&at.x)[c];
+                            sh[0] = apply(P(A.ua[0])); sh[1] = apply(P(A.ua[1]));
+                            const float unit = std::sqrt(Wn.m[0][0] * Wn.m[0][0] + Wn.m[0][1] * Wn.m[0][1] + Wn.m[0][2] * Wn.m[0][2]);
+                            armW = armM * unit + 0.05f * mPerCab;   // + the fist's middle past the wrist
+                            reach = 0.0f;
+                            for (int k = 0; k < 2; ++k) {
+                                const gta2::Vec3 d0 = fpPose.grip[0] - sh[k], d1 = fpPose.grip[1] - sh[k];
+                                reach = (std::max)(reach, std::sqrt((std::min)(gta2::Dot(d0, d0), gta2::Dot(d1, d1))));
+                            }
+                            const float ratio = reach / (0.92f * (std::max)(armW, 1e-4f));
+                            if (std::fabs(ratio - 1.0f) < 0.02f) break;
+                            sfp = (std::max)(0.2f, (std::min)(0.75f, sfp * (std::max)(0.8f, (std::min)(1.25f, ratio))));
+                        }
+                        if (g_driverHands.model != model) {   // the hands' nodes, once per avatar
+                            DriverHands d;
+                            d.model = model;
+                            static const char* const kHand[2] = {"Bip01 L Hand", "Bip01 R Hand"};
+                            static const char* const kKnuckle[2][2] = {{"Bip01 L Finger2", "Bip01 L Finger1"}, {"Bip01 R Finger2", "Bip01 R Finger1"}};
+                            for (int h = 0; h < 2; ++h) {
+                                for (size_t i = 0; i < model->nodes.size(); ++i) if (strcmp(model->nodes[i].name, kHand[h]) == 0) d.hand[h] = static_cast<int>(i);
+                                for (int k = 0; k < 2 && d.knuckle[h] < 0; ++k)
+                                    for (size_t i = 0; i < model->nodes.size(); ++i) if (strcmp(model->nodes[i].name, kKnuckle[h][k]) == 0) d.knuckle[h] = static_cast<int>(i);
+                                for (size_t i = 0; i < model->nodes.size() && d.hand[h] >= 0; ++i)
+                                    for (int q = model->nodes[i].parent; q >= 0; q = model->nodes[static_cast<size_t>(q)].parent)
+                                        if (q == d.hand[h]) { d.under[h].push_back(static_cast<int>(i)); break; }
+                            }
+                            g_driverHands = d;
+                        }
+                        // which shoulder is on the screen's right: that hand takes the right-hand grip
+                        const bool lIsRight = gta2::Dot(sh[0] - sh[1], fpPose.right) > 0.0f;
+                        const bool g0Right = gta2::Dot(fpPose.grip[0] - fpPose.grip[1], fpPose.right) > 0.0f;
+                        float res[2] = {0.0f, 0.0f};
+                        for (int limb = 0; limb < 2; ++limb) {
+                            const bool onRight = (limb == 0) == lIsRight;
+                            const int g = onRight == g0Right ? 0 : 1;
+                            // the wrist a palm short of the grip, toward the shoulder (the fist round the rim)
+                            const gta2::Vec3 toSh = gta2::Normalize(sh[limb] - fpPose.grip[g]);
+                            const gta2::Vec3 wrist = fpPose.grip[g] + toSh * (0.05f * mPerCab) - fpPose.wheelAxis * (0.01f * mPerCab);
+                            const gta2::Vec3 pole = gta2::Normalize(fpPose.right * (onRight ? 1.0f : -1.0f) - U * 0.35f);   // elbows out
+                            float tm[3], pm[3];
+                            BoardingWorldToModel(Wn, wrist, false, tm);
+                            BoardingWorldToModel(Wn, pole, true, pm);
+                            for (float& v : tm) v = std::floor(v / 0.001f + 0.5f) * 0.001f;   // (the pose cache's key)
+                            ModelSetLimbTarget(limb, tm, pm, 1.0f);
+                            float gm[3];
+                            BoardingWorldToModel(Wn, fpPose.grip[g], false, gm);
+                            for (int c = 0; c < 3; ++c) g_driverHands.grip[limb][c] = std::floor(gm[c] / 0.001f + 0.5f) * 0.001f;
+                            const gta2::Vec3 dd = wrist - sh[limb];
+                            res[limb] = std::sqrt(gta2::Dot(dd, dd));
+                        }
+                        // the feet on the pedals (the one on the screen's right on the accelerator), the knees up and forward
+                        {
+                            const bool p0Right = gta2::Dot(fpPose.pedal[0] - fpPose.pedal[1], fpPose.right) > 0.0f;
+                            for (int foot = 0; foot < 2; ++foot) {
+                                const bool onRight = (foot == 0) == lIsRight;
+                                const gta2::Vec3 at = fpPose.pedal[onRight == p0Right ? 0 : 1] - F * (0.03f * mPerCab) + U * (0.02f * mPerCab);
+                                const gta2::Vec3 kneePole = gta2::Normalize(F + U * 0.5f);
+                                float tm[3], pm[3];
+                                BoardingWorldToModel(Wn, at, false, tm);
+                                BoardingWorldToModel(Wn, kneePole, true, pm);
+                                for (float& v : tm) v = std::floor(v / 0.001f + 0.5f) * 0.001f;
+                                ModelSetLimbTarget(2 + foot, tm, pm, 1.0f);
+                            }
+                        }
+                        world = Wn;
+                        fpPlaced = true;
+                        if (bodyLog && (g_carFrame % 30) == 0) {
+                            // where his joints are against the eye: right, up, forward (blocks)
+                            static const char* const kJ[5] = {"Bip01 L UpperArm", "Bip01 Pelvis", "Bip01 L Calf", "Bip01 L Foot", "Bip01 Spine2"};   // (before the IK)
+                            char buf[400]; int n = 0;
+                            for (int j = 0; j < 5; ++j) {
+                                for (size_t i = 0; i < model->nodes.size(); ++i) {
+                                    if (strcmp(model->nodes[i].name, kJ[j]) != 0 || i >= pose.size()) continue;
+                                    const gta2::Vec3 q = P(static_cast<int>(i));
+                                    const gta2::Vec3 w{q.x * Wn.m[0][0] + q.y * Wn.m[1][0] + q.z * Wn.m[2][0] + Wn.m[3][0],
+                                                       q.x * Wn.m[0][1] + q.y * Wn.m[1][1] + q.z * Wn.m[2][1] + Wn.m[3][1],
+                                                       q.x * Wn.m[0][2] + q.y * Wn.m[1][2] + q.z * Wn.m[2][2] + Wn.m[3][2]};
+                                    const gta2::Vec3 d = w - fpPose.eye;
+                                    n += snprintf(buf + n, sizeof buf - n, " %s %.3f,%.3f,%.3f", kJ[j] + 5, gta2::Dot(d, fpPose.right), gta2::Dot(d, U), gta2::Dot(d, F));
+                                }
+                            }
+                            Log("cockpit: body joints from the eye (r,u,f):%s dash %.3f below, wheel %.3f ahead", buf, fpPose.dashBelow,
+                                gta2::Dot(fpPose.wheelCentre - fpPose.eye, F));
+                        }
+                        static int fpBodyLogs = 0;
+                        if (fpBodyLogs < 3 || (bodyLog && (g_carFrame % 15) == 0)) {
+                            ++fpBodyLogs;
+                            Log("cockpit: driver body at the wheel (%s), scale %.2f of his own (wheel r %.3f), arm %.3f, reach %.3f (wrists %.3f %.3f), "
+                                "turn %.2f, head joint %.3f,%.3f,%.3f eye %.3f,%.3f,%.3f",
+                                model->name.c_str(), sfp, fpPose.wheelR, armW, reach, res[0], res[1], fpPose.turn, want.x, want.y, want.z,
+                                fpPose.eye.x, fpPose.eye.y, fpPose.eye.z);
+                        }
+                    }
+                }
+                if (fpBody && !fpPlaced) {   // not placed (no head or arm joints, a far pose): nothing half-placed
+                    static int missLogs = 0;
+                    if (missLogs < 5) { ++missLogs; Log("cockpit: driver body not placed (lod %d, model %s)", lod, model->name.c_str()); }
+                    continue;
+                }
                 // FIX-FIGURE-5 feel5: the punch with the body behind it. The fist clips are upper-body
                 // layers (the arms and the spine's turn), so the legs and hips stood frozen under them and
                 // the swing read as arm waving. Standing (not walking), near: the hips turn into the
@@ -11458,11 +11698,36 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // FIX-ACTIONS-3 (pfl15): bare-handed punches with closed fists (the clips leave the fingers open).
                 if (!rigOn && !ragdoll && !boardIk && !sprite.corpse && lod <= 1 && track.action == 1)
                     weaponrig::BeginFists(*model, sprite.object, actW);
+                if (fpBody) {   // FIX-COCKPIT-BODY: the hands closed round the rim (DriverHandsHook), the head left out
+                    uint64_t key = 0x2D00000000000000ull;
+                    for (int h = 0; h < 2; ++h)
+                        for (int c = 0; c < 3; ++c) key = key * 1000003ull + static_cast<uint64_t>(static_cast<int64_t>(g_driverHands.grip[h][c] * 1000.0f));
+                    ModelSetPoseHook(&DriverHandsHook, &g_driverHands, key | (1ull << 61));
+                    ModelSetHideHead(true);
+                }
                 if (!kdSkipDraw) ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                if (fpBody) {
+                    ModelSetHideHead(false); ModelSetPoseHook(nullptr, nullptr, 0); CabNoteDriverBody();
+                    static const bool armLog = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_BODY_LOG", b, sizeof b) && b[0] == '1'; }();
+                    if (armLog && (g_carFrame % 30) == 0) {
+                        char buf[300]; int n = 0;
+                        for (const char* j : {"Bip01 L UpperArm", "Bip01 L Forearm", "Bip01 L Hand", "Bip01 R UpperArm", "Bip01 R Forearm", "Bip01 R Hand"}) {
+                            gta2::Mat4 nm;
+                            if (!ModelNodeWorld(*model, j, locoA, locoTA, locoB, locoTB, locoW, &nm)) continue;
+                            const float x = nm.m[3][0], y = nm.m[3][1], z = nm.m[3][2];
+                            const gta2::Vec3 w{x * world.m[0][0] + y * world.m[1][0] + z * world.m[2][0] + world.m[3][0],
+                                               x * world.m[0][1] + y * world.m[1][1] + z * world.m[2][1] + world.m[3][1],
+                                               x * world.m[0][2] + y * world.m[1][2] + z * world.m[2][2] + world.m[3][2]};
+                            const gta2::Vec3 d = w - fpPose.eye;
+                            n += snprintf(buf + n, sizeof buf - n, " %s %.3f,%.3f,%.3f", j + 6, gta2::Dot(d, fpPose.right), gta2::Dot(d, fpPose.up), gta2::Dot(d, fpPose.fwd));
+                        }
+                        Log("cockpit: arms as drawn from the eye (r,u,f):%s", buf);
+                    }
+                }
                 if (heroFigure && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: his figure on screen
                     IdentityProbeModel(device, "player", reinterpret_cast<const void*>(sprite.object), ident, *model, world.m, static_cast<int>(CurrentViewMode()));
                 if (ragdoll) RagdollDone();
-                if (boardIk) {
+                if (boardIk && !fpBody) {   // (FIX-COCKPIT-BODY: the cab's grips are not the plan's)
                     // What the hands could not reach goes back to the plan (a lean toward it next frame).
                     for (int limb = 0; limb < 2; ++limb) {
                         float r[3];

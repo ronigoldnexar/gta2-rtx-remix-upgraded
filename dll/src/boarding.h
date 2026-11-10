@@ -123,6 +123,8 @@ void BoardingForget(uintptr_t ped);
 bool BoardingBusy(uintptr_t ped);
 // car_bodies: whether a figure is seated in this car (its window band is drawn see-through).
 bool BoardingCarSeated(uintptr_t carObject);
+// FIX-COCKPIT-BODY: whether someone is getting out of this car (an exit or the door shut after it) now.
+bool BoardingCarLeaving(uintptr_t carObject);
 // A seated ped's spot (world, the seat's floor point under his hips), for his ghost sprite.
 bool BoardingSeatSpot(uintptr_t ped, float* x, float* y, float* z);
 // FIX-JACK-SEAT (feel7): a jacked driver's way out, `age` seconds after the game threw him (it places

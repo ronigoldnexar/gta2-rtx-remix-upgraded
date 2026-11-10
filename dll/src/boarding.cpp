@@ -1135,6 +1135,13 @@ bool BoardingBusy(uintptr_t ped) {
     return b.mode != kNone && b.mode != kSeated && !b.ended && g_now - b.seen <= 8;
 }
 
+bool BoardingCarLeaving(uintptr_t carObject) {
+    if (!BoardingEnabled()) return false;
+    for (const auto& e : g_boards)
+        if ((e.second.mode == kExit || e.second.mode == kShut) && e.second.car == carObject && g_now - e.second.seen <= 30) return true;
+    return false;
+}
+
 bool BoardingCarSeated(uintptr_t carObject) {
     if (!BoardingEnabled()) return false;
     for (const auto& e : g_boards)

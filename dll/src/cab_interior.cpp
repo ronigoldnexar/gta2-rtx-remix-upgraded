@@ -34,6 +34,10 @@ IDirect3DTexture9* g_tex[16] = {};
 // FIX-FP-2 (pm19 first-person half): the wheel as last built, car frame, for the hands on it.
 struct WheelPose { bool valid; Vec3 c, u, v, axis; float R, tube, turn; };
 WheelPose g_wheel{};
+// FIX-COCKPIT-BODY: the driver's pose as the last seat-view cab built it (CabLastDriverPose), and when his
+// body was last drawn from the eye (CabNoteDriverBody).
+CabDriverPose g_driver{};
+ULONGLONG g_driverStamp = 0, g_bodyStamp = 0;
 
 uint32_t Hash(uint32_t x, uint32_t y, uint32_t seed) {
     uint32_t h = x * 374761393u + y * 668265263u + seed * 2246822519u;
@@ -358,6 +362,14 @@ const char* CabClassName(CabClass c) {
 float g_headerBottom = -1.0f;      // CabHeaderScreenBottom
 unsigned long long g_headerStamp = 0;
 
+bool CabLastDriverPose(CabDriverPose* out) {
+    if (!g_driverStamp || GetTickCount64() - g_driverStamp > 250) return false;
+    if (out) *out = g_driver;
+    return true;
+}
+void CabNoteDriverBody() { g_bodyStamp = GetTickCount64(); }
+bool CabDriverBodyRecent() { return g_bodyStamp && GetTickCount64() - g_bodyStamp < 250; }
+
 bool CabHeaderScreenBottom(float* fraction) {
     if (g_headerBottom < 0.0f || GetTickCount64() - g_headerStamp > 250) return false;
     if (fraction) *fraction = (std::min)(1.0f, g_headerBottom);
@@ -371,7 +383,7 @@ bool CabHeaderScreenBottom(float* fraction) {
 // eye, the shirt's sleeve at the elbow) on each side, mirrored for the left; sleeves in the
 // player's shirt colour as on foot. Sized to the rim: a fist about a quarter of the wheel across.
 void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const CabInteriorParams& p, const D3DMATERIAL9& restore) {
-    if (!g_wheel.valid || !p.hands) return;
+    if (!g_wheel.valid || !p.hands || CabDriverBodyRecent()) return;   // FIX-COCKPIT-BODY: his body's own hands
     const Model* arm = ModelByName("fp_arm_right");
     if (!arm) return;
     auto toWorldP = [&](const Vec3& q) {
@@ -389,7 +401,8 @@ void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const 
     // part of it.
     const float cs = std::cos(w.turn), sn = std::sin(w.turn);
     const Vec3 across = w.u * cs - w.v * sn, up = w.u * sn + w.v * cs;
-    const float hold = (std::max)(-0.7f, (std::min)(0.7f, w.turn));
+    // FIX-COCKPIT-BODY: the grips go round with the rim (the turn is at most 100 degrees), no sliding.
+    const float hold = w.turn;
     const float k = 26.0f * w.R;   // the fist (0.0124 model units across) about a sixth of the wheel
     const IdentityRecord& hero = IdentityForPlayer();
     float mean[3];
@@ -518,6 +531,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     const float dc = (std::max)(0.06f, p.zCut - ez);   // the windscreen's foot, ahead of the eye
     const float x0 = p.dashX0 - 0.01f, x1 = p.dashX1 + 0.01f;
     auto P = [&](float x, float d, float h) { return Vec3{x, top + h, ez + d}; };   // d ahead of the eye, h over the dash line
+    Vec3 pedalAt[2] = {Vec3{ex, top - 0.15f, ez + 0.05f}, Vec3{ex, top - 0.15f, ez + 0.05f}};   // FIX-COCKPIT-BODY (set below)
 
     // 1. The dashboard: from the windscreen's foot up to a crest, back to a rolled
     // edge toward the driver, then down (out of view under the wheel).
@@ -547,8 +561,9 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             b.Quad(kDashDark, P(a, va, onSlope(va)), P(c, va, onSlope(va)), P(c, vb, onSlope(vb)), P(a, vb, onSlope(vb)));
         }
     }
-    // 2. The binnacle in front of the driver: a cowl over the gauges.
-    {
+    // 2. The binnacle in front of the driver: a cowl over the gauges. (FIX-COCKPIT-BODY: not in the dashcam
+    // view, a camera on the windscreen over the dash top: the gauges stood up at the bottom of its frame.)
+    if (!p.dashcam) {
         // The cluster tilted up toward the eye at the binnacle's back, a visor over its far
         // half: from the seat the eye looks down on the dash at a steep angle (the dash
         // stands a hand ahead and under the eye), so gauges under an overhanging cowl hid.
@@ -589,8 +604,9 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         }
     }
     // 3. The steering wheel, its rim's top just over the dash's rear edge; turned
-    // with the front wheels (a few turns lock to lock).
-    {
+    // with the front wheels (a few turns lock to lock). FIX-COCKPIT-BODY (owner item 3): not in the dashcam
+    // view (nor its column, nor the hands on it).
+    if (!p.dashcam) {
         const float R = st.wheelR, rake = st.wheelRake;
         const float dTop = dRear - 0.008f;
         // FIX-FIGURE: the rim's top higher than QB-31's 0.011 (the hub and spokes sat
@@ -622,7 +638,14 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             }
             steerStamp = now;
         }
-        const float turn = (std::max)(-2.6f, (std::min)(2.6f, (p.warm ? 0.0f : shownSteer) * 6.0f));
+        // FIX-COCKPIT-BODY (owner item 2, "the steering wheel rotates opposite to the car's turns"). The steer is + to
+        // the car's left (vehicle_fx: atan(wheelbase * dyaw / ds)); a + turn takes the rim's +x end up and its top
+        // toward -x, and +x is the screen's right from the seat, so the rim's sign was right (verified with the
+        // twelve o'clock band below, run cb_rec1: a left turn takes the band left). What read as the wrong way: the
+        // rim turned up to 150 degrees with nothing on it to follow (a three-spoke hub past 90 degrees reads as
+        // turning back) while the hands slid on it, held to 40 degrees. Now at most 100 degrees, a pale band at
+        // twelve o'clock, and the hands (his body's, or the fists) go round with the rim.
+        const float turn = (std::max)(-1.75f, (std::min)(1.75f, (p.warm ? 0.0f : shownSteer) * 6.0f));
         const float cs = std::cos(turn), sn = std::sin(turn);
         const Vec3 u = across * cs + up * sn, v = up * cs - across * sn;
         b.Torus(kWheel, c, u, v, axis, R, st.wheelTube);
@@ -631,6 +654,9 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             const Vec3 dir = u * std::cos(a) + v * std::sin(a);
             b.Bar(kGaugeRim, c + dir * (0.28f * R) + axis * 0.0015f, c + dir * (R - st.wheelTube), st.wheelTube * 0.40f);
         }
+        // FIX-COCKPIT-BODY: a pale leather band at the rim's twelve o'clock, as many wheels have: which way the
+        // rim turns reads at a glance.
+        b.Bar(kGaugeRim, c + v * (R - 1.25f * st.wheelTube), c + v * (R + 1.25f * st.wheelTube), st.wheelTube * 0.75f);
         b.Disc(kWheel, c - axis * 0.0006f, u, v, 0.34f * R, 16);
         b.Disc(kTrim, c - axis * 0.0010f, u, v, 0.12f * R, 10);
         // FIX-FP-2 (pm30 garbage truck: "a wheel not attached to anything"): the column, from
@@ -639,6 +665,33 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         b.Bar(kDashDark, c + axis * 0.0008f, colEnd, 0.10f * R + 0.0006f);
         b.Bar(kDashDark, c + (colEnd - c) * 0.55f, colEnd, 0.16f * R + 0.0008f);
         g_wheel = {true, c, u, v, axis, R, st.wheelTube, turn};
+        if (!p.warm) {
+            // FIX-COCKPIT-BODY: the seat as built, world space, for his body (CabLastDriverPose).
+            auto W = [&](const Vec3& q) {
+                return Vec3{q.x * carToWorld.m[0][0] + q.y * carToWorld.m[1][0] + q.z * carToWorld.m[2][0] + carToWorld.m[3][0],
+                            q.x * carToWorld.m[0][1] + q.y * carToWorld.m[1][1] + q.z * carToWorld.m[2][1] + carToWorld.m[3][1],
+                            q.x * carToWorld.m[0][2] + q.y * carToWorld.m[1][2] + q.z * carToWorld.m[2][2] + carToWorld.m[3][2]};
+            };
+            auto WV = [&](const Vec3& q) { const Vec3 o = W(Vec3{0.0f, 0.0f, 0.0f}); return gta2::Normalize(W(q) - o); };
+            g_driver.eye = W(b.eye);
+            g_driver.right = WV(Vec3{1.0f, 0.0f, 0.0f});   // the car's +x: the screen's right from the seat
+            g_driver.up = WV(Vec3{0.0f, 1.0f, 0.0f});
+            g_driver.fwd = WV(Vec3{0.0f, 0.0f, 1.0f});
+            for (int h = 0; h < 2; ++h) {
+                // a quarter to three (the rim's nearest stretch on a raked wheel: his arms reach it with the
+                // elbows bent), turned with the rim (the hands go round with it, no sliding)
+                const float phi = (h == 0 ? 0.30f : kPi - 0.30f) + turn;
+                const Vec3 radial = across * std::cos(phi) + up * std::sin(phi);
+                g_driver.grip[h] = W(c + radial * R);
+                g_driver.rimTangent[h] = WV(up * std::cos(phi) - across * std::sin(phi));
+            }
+            g_driver.wheelCentre = W(c);
+            g_driver.wheelAxis = WV(axis);
+            g_driver.wheelR = R;
+            g_driver.turn = turn;
+            g_driver.dashBelow = ey - top;
+            g_driverStamp = GetTickCount64();
+        }
     }
     // FIX-FIGURE: the centre stack (radio slot, vents) and the glovebox lid on the dash's
     // rear face, and a taxi's fare meter on the dash top.
@@ -773,6 +826,25 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         b.Quad(kDashDark, D(aF, aT, 0.030f), D(aBk, aT, 0.030f), D(aBk, aB, 0.028f), D(aF, aB, 0.028f));             // its face
         b.Quad(kTrim, D(0.030f, -0.030f, 0.0145f), D(0.012f, -0.030f, 0.0145f), D(0.012f, -0.037f, 0.0145f), D(0.030f, -0.037f, 0.0145f));   // the handle
     }
+    // FIX-COCKPIT-BODY: the floor, the pedals and the driver's seat cushion. Looking down from the seat at his
+    // own lap showed the road through the cab (nothing was built under the dash line but the dash's face and the
+    // door card). A carpeted floor 0.20 under the eye (where his feet go), from the footwell under the dash back
+    // past the seat, two pedals in the footwell and the seat's cushion under his hips (0.14 under the eye).
+    {
+        const float hFloor = (ey - 0.20f) - top, hSeat = (ey - 0.14f) - top;
+        const float fx0 = x0 + 0.004f, fx1 = x1 - 0.004f;
+        b.Quad(kDashDark, P(fx0, dRear + 0.002f, hFloor), P(fx1, dRear + 0.002f, hFloor), P(fx1, -0.16f, hFloor), P(fx0, -0.16f, hFloor));
+        for (int k = 0; k < 2; ++k) {   // brake (inboard) and accelerator, raised a little off the floor, leaning back
+            const float px = ex - side * (k == 0 ? 0.004f : -0.016f) - side * 0.006f, pw = k == 0 ? 0.007f : 0.005f;
+            const float dF = dRear - 0.006f, dB = dRear - 0.020f;
+            b.Quad(kTrim, P(px - pw, dF, hFloor + 0.022f), P(px + pw, dF, hFloor + 0.022f), P(px + pw, dB, hFloor + 0.004f), P(px - pw, dB, hFloor + 0.004f));
+            pedalAt[k] = P(px, 0.5f * (dF + dB), hFloor + 0.013f);
+        }
+        const float sx0 = ex - 0.045f, sx1 = ex + 0.045f, sF = -0.012f, sB = -0.13f;
+        b.Quad(kLower, P(sx0, sF, hSeat), P(sx1, sF, hSeat), P(sx1, sB, hSeat - 0.006f), P(sx0, sB, hSeat - 0.006f));   // cushion
+        b.Quad(kDashDark, P(sx0, sF, hSeat), P(sx1, sF, hSeat), P(sx1, sF + 0.004f, hFloor), P(sx0, sF + 0.004f, hFloor));   // its front
+        b.Quad(kTrim, P(sx0, sF - 0.001f, hSeat + 0.001f), P(sx1, sF - 0.001f, hSeat + 0.001f), P(sx1, sF + 0.001f, hSeat - 0.004f), P(sx0, sF + 0.001f, hSeat - 0.004f));   // piping
+    }
 
     // FIX-HUD pm2: where the lining's lower edge lands on screen, for the HUD's top plates: the
     // edge a0-a1 sampled across the middle third of the view (about +-17 degrees from the eye's
@@ -878,6 +950,14 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(t.size() / 3), t.data(), sizeof(V));
     }
     device->SetTexture(0, nullptr);
+    if (!p.warm && g_wheel.valid) {   // FIX-COCKPIT-BODY: the pedals for his feet (CabLastDriverPose)
+        for (int k = 0; k < 2; ++k) {
+            const Vec3& q = pedalAt[k];
+            g_driver.pedal[k] = {q.x * carToWorld.m[0][0] + q.y * carToWorld.m[1][0] + q.z * carToWorld.m[2][0] + carToWorld.m[3][0],
+                                 q.x * carToWorld.m[0][1] + q.y * carToWorld.m[1][1] + q.z * carToWorld.m[2][1] + carToWorld.m[3][1],
+                                 q.x * carToWorld.m[0][2] + q.y * carToWorld.m[1][2] + q.z * carToWorld.m[2][2] + carToWorld.m[3][2]};
+        }
+    }
     DrawCabHands(device, carToWorld, p, restore);
     device->SetSamplerState(0, D3DSAMP_ADDRESSU, addrU);
     device->SetSamplerState(0, D3DSAMP_ADDRESSV, addrV);

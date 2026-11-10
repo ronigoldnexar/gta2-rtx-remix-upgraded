@@ -192,6 +192,9 @@ float ModelTorsoTwist();
 // top of the clip and the torso twist, until set back to 0. Quantise it (it
 // keys the pose cache).
 void ModelSetHeadTurn(float radians);
+// FIX-COCKPIT-BODY: while on, "Bip01 Head" (and every node under it) is shrunk into its joint in every pose
+// drawn or queried (his own body seen from his eyes in the driver's seat). Part of the pose cache key.
+void ModelSetHideHead(bool on);
 // REMIX-3D-QUALITY: while on, model draws bind a per-texture copy whose Remix hash
 // is in rtx.playerModelTextures (hidden from the eye, still casting shadows); for
 // the player's own figure in first person under Remix. Set it back to false.

@@ -911,6 +911,18 @@ void End() {
     g_hookOn = false;
 }
 
+void CurlFists(const Model& model, std::vector<Mat4>* worlds, float weight) {
+    if (!model.skinned || !worlds) return;
+    const Skel& s = SkelFor(model);
+    if (!s.ok || s.fing[0][1][0] < 0 || worlds->size() != model.nodes.size() || s.sub.size() != model.nodes.size()) return;
+    static const float fist[3] = {88.0f, 100.0f, 62.0f}, thumb[3] = {22.0f, 38.0f, 30.0f};
+    const float w = (std::min)(1.0f, (std::max)(0.0f, weight));
+    for (int h = 0; h < 2; ++h) {
+        for (int f = 1; f <= 4; ++f) Curl(*worlds, s, h, f, fist, w);
+        Thumb(*worlds, s, h, thumb, w);
+    }
+}
+
 bool BeginFists(const Model& model, uintptr_t object, float weight) {
     if (!Enabled() || !model.skinned || g_testOff || weight < 0.05f) return false;
     const Skel& s = SkelFor(model);

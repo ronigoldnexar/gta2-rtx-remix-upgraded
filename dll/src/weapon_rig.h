@@ -20,6 +20,8 @@
 // DrawPedFigures. Doc: docs/actions-3d.md "Weapon handling (ANIM-WEAPONS)".
 #pragma once
 
+#include <vector>
+
 #include <cstdint>
 
 #include "../../src/math3d.h"
@@ -61,6 +63,9 @@ void End();
 // FIX-ACTIONS-3 (pfl15): bare fists while a punch clip is on (no gun rigged): both hands
 // closed, blended by `weight` (the clip's). Sets the pose hook (cleared by End); false: none set.
 bool BeginFists(const Model& model, uintptr_t object, float weight);
+// FIX-COCKPIT-BODY: the same fist curl applied straight to a pose's node matrices (model space), for a
+// caller that runs its own pose hook (the driver's hands on the wheel in first person). No hook is set.
+void CurlFists(const Model& model, std::vector<gta2::Mat4>* worlds, float weight);
 
 // The figure's push back along the line of fire by the recoil, in blocks, and
 // that line in the model's own space (to put through the figure's world matrix).

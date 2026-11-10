@@ -1,4 +1,6 @@
 #include "view_modes.h"
+
+#include "cockpit_mode.h"
 #include "eye_collision.h"
 
 #define DIRECTINPUT_VERSION 0x0800
@@ -1437,6 +1439,8 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     const bool tapped = (state & 0x0001) != 0 && !altDown;
     if ((tapped || (keyDown && !keyWasDown)) && ours && !menuVisible) CycleViewMode();
     keyWasDown = keyDown;
+    // FIX-COCKPIT-BODY (owner item 3): the dashcam key, at the wheel in first person (cockpit_mode.h).
+    CockpitModePoll(ours && !menuVisible && !altDown && worldLoaded, g_navInVehicle && CurrentViewMode() == ViewMode::FirstPerson);
 
     // Camera-relative controls on foot in the street views.
     {
@@ -2842,13 +2846,26 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             g_fpSeat.valid = false;
             fpSeatFix_ = {0.0f, 0.0f, 0.0f};
         }
+        // FIX-COCKPIT-BODY (owner item 3): the dashcam: a camera on the windscreen, higher, further forward and
+        // toward the car's middle than the driver's eye (after the seat lock, which holds the driver's eye), eased
+        // over the switch (cockpit_mode.h); no head lean and no body roll in it (a level horizon).
+        const float dashcam = inVehicle ? DashcamBlend() : 0.0f;
+        if (dashcam > 0.0f) {
+            float dUp = 0.0f, dAhead = 0.0f, dCentre = 0.0f;
+            DashcamOffsets(&dUp, &dAhead, &dCentre);
+            // (-hz, hx) is the car's left, where `seat` put the eye: back toward the middle by dCentre of it
+            eye.x += (hx * dAhead + hz * seat * dCentre) * dashcam;
+            eye.z += (hz * dAhead - hx * seat * dCentre) * dashcam;
+            eye.y += dUp * dashcam;
+            if (s.fpBodyRide > 0.0f) roll += carRoll_ * (std::min)(s.fpBodyRide, 1.0f) * dashcam;   // the body's roll out
+        }
         if (inVehicle && s.fpLean > 0.0f) {
             // The nose dips under braking and lifts under power; the head leans
             // into a turn.
-            dbgLean = (std::max)((std::min)(forwardAccel_ / 25.0f, 1.0f), -1.0f) * 2.5f * kDegToRad * s.fpLean;
+            dbgLean = (std::max)((std::min)(forwardAccel_ / 25.0f, 1.0f), -1.0f) * 2.5f * kDegToRad * s.fpLean * (1.0f - dashcam);
             pitch += dbgLean;
             yawRate_ += (fpYawVel_ - yawRate_) * (1.0f - std::exp(-dt / 0.15f));
-            roll += (std::max)((std::min)(yawRate_ * speedFrac_ * 0.5f, 1.0f), -1.0f) * 3.0f * kDegToRad * s.fpLean;
+            roll += (std::max)((std::min)(yawRate_ * speedFrac_ * 0.5f, 1.0f), -1.0f) * 3.0f * kDegToRad * s.fpLean * (1.0f - dashcam);
         }
         lastYaw_ = fpYaw_;
         followYaw_ = fpYaw_;   // so a switch to the chase view starts from where the eyes look

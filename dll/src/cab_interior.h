@@ -47,7 +47,27 @@ struct CabInteriorParams {
     bool taxi = false;                           // a fare meter on the dash (FIX-FIGURE)
     bool hands = true;                           // the driver's hands on the wheel (FIX-FP-2)
     bool warm = false;                           // FIX-SEAT-ENTRY-2: an unseen draw ahead of the seat view (no state kept)
+    bool dashcam = false;                        // FIX-COCKPIT-BODY: the dashcam view: no wheel, column or hands
 };
+
+// FIX-COCKPIT-BODY (owner item 2): the driver's seat as the last drawn cab built it, world space, for his
+// own seated figure drawn from the eye (live_geometry): the eye, the car's axes (unit; right is the
+// screen's right from the seat, the car frame's +x), each hand's grip on the rim (0 left, 1 right) with the way the rim runs
+// there, the rim's radius and turn. False when no cab was drawn in the last ~0.25 s (or the last was a
+// dashcam, a warm draw, or had no wheel).
+struct CabDriverPose {
+    gta2::Vec3 eye, right, up, fwd;
+    gta2::Vec3 grip[2], rimTangent[2];
+    gta2::Vec3 wheelCentre, wheelAxis;   // the hub, and the column (away from the driver)
+    float wheelR = 0.0f, turn = 0.0f;
+    float dashBelow = 0.0f;   // the dash line under the eye (blocks)
+    gta2::Vec3 pedal[2];      // the brake and the accelerator on the floor (the accelerator on the screen's right... of the two, by `right`)
+};
+bool CabLastDriverPose(CabDriverPose* out);
+// live_geometry, after drawing his body at the wheel this frame: the cab's own hands (fp_arm_right) give way
+// to the body's next frame on (no double hands); they come back ~0.25 s after the body stops being drawn.
+void CabNoteDriverBody();
+bool CabDriverBodyRecent();
 
 // Under Remix (and [devtools] remix_cab_albedo != 0) the surfaces' colours go into their textures,
 // the only albedo Remix reads (FIX-REMIX-NIGHT-2). Off: the plain renderer's material colours.

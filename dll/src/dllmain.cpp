@@ -49,6 +49,7 @@
 #include "world_view.h"
 #include "../../src/sky.h"
 #include "view_modes.h"
+#include "cockpit_mode.h"
 #include "car_bodies.h"
 #include "model_store.h"
 #include "compat.h"
@@ -195,6 +196,7 @@ void LoadConfig() {
         vm.turnRateFoot = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_foot", 120, ini));
         vm.turnRateCar = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_car", 90, ini));
         vm.navMap = GetPrivateProfileIntA("camera", "nav_map", 1, ini) != 0;
+        gta2dx9::CockpitModeLoad(ini);   // FIX-COCKPIT-BODY: [camera] dashcam*, fp_driver_body
         {
             const int d = GetPrivateProfileIntA("camera", "switch_dissolve_percent", 0, ini);
             vm.switchDissolve = static_cast<float>(d < 0 ? 0 : (d > 100 ? 100 : d)) / 100.0f;

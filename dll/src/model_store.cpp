@@ -354,6 +354,7 @@ void SampleClip(const Model& model, const ModelAnimation* animation, float time,
 static float g_torsoTwist = 0.0f;   // see ModelSetTorsoTwist
 static float g_hip[4] = {};   // FIX-FIGURE-5: hip turn (radians) and shift (model space), see ModelSetHipShift
 static float g_headTurn = 0.0f;     // see ModelSetHeadTurn
+static bool g_hideHead = false;      // see ModelSetHideHead (FIX-COCKPIT-BODY)
 // A node's world matrix turned about the model's vertical through its own
 // origin (its children compose from it and turn with it).
 static void TurnAboutUp(gta2::Mat4& M, float radians) {
@@ -630,6 +631,12 @@ void NodeWorldsBlend(const Model& model, const ModelAnimation* animation, float 
             if (g_headTurn != 0.0f && model.nodes[i].name[0] == 'B') {
                 if (strcmp(model.nodes[i].name, "Bip01 Neck") == 0) TurnAboutUp((*out)[i], 0.4f * g_headTurn);
                 else if (strcmp(model.nodes[i].name, "Bip01 Head") == 0) TurnAboutUp((*out)[i], 0.6f * g_headTurn);
+            }
+            if (g_hideHead && model.nodes[i].name[0] == 'B' && strcmp(model.nodes[i].name, "Bip01 Head") == 0) {
+                // FIX-COCKPIT-BODY: the head (and what hangs from it: hair, a hat) shrunk into its joint, for his
+                // own figure seen from his eyes; the neck stays.
+                gta2::Mat4& M = (*out)[i];
+                for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) M.m[r][c] *= 0.02f;
             }
             done[i] = true;
         }
@@ -1649,6 +1656,7 @@ void ModelSetLayers(const Model* model, const ModelAnimation* const* clips, cons
 }
 float ModelTorsoTwist() { return g_torsoTwist; }
 void ModelSetHeadTurn(float radians) { g_headTurn = radians; }
+void ModelSetHideHead(bool on) { g_hideHead = on; }
 static void LimbIkRekey() {
     uint64_t h = 1469598103934665603ull;
     auto mix = [&](int32_t v) { h ^= static_cast<uint32_t>(v); h *= 1099511628211ull; };
@@ -2900,7 +2908,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         key.weight = weight;
         key.twist = g_torsoTwist;
         for (int k = 0; k < 4; ++k) key.hip[k] = g_hip[k];
-        key.head = g_headTurn;
+        key.head = g_headTurn + (g_hideHead ? 100.0f : 0.0f);   // (FIX-COCKPIT-BODY: a hidden head is another pose)
         key.ik = g_limbIkKey;
         key.overlay = g_overlay;
         key.overlayTime = g_overlay ? g_overlayTime : 0.0f;

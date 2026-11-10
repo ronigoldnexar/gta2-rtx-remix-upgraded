@@ -940,3 +940,55 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   every first-person exit with a boarding plan (ride modes 3 and 4) the view now keeps his facing, with at
   most a glance of under 20 degrees toward the door while he climbs out. `GTA2DX9_FP_EXIT_FACING=0` = the
   old ride turn. Log: `view: fp exit keeps his facing`.
+
+## The driver's body, the wheel's sign and the dashcam (FIX-COCKPIT-BODY, 10 Nov 2026)
+
+Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-counter-rotates.md`,
+`owner-feature-dashcam-camera-mode.md`).
+
+- **The wheel "turned the wrong way" (cab_interior.cpp).** The cab turns the rim by `6 x steer`, steer + to the
+  car's left (vehicle_fx: `atan(wheelbase * dyaw / ds)`, the sign that steers the drawn front wheels); a + turn takes
+  the rim's top toward the car's -x, the screen's left from the seat. The sign was right: with a pale band now at the
+  rim's twelve o'clock, run `cb_rec1` (sign flipped as a trial) showed the band going RIGHT on a left turn (heading
+  162 -> 47 degrees, turn -1.75), and the original sign takes it left. What read as the wrong way: the rim turned up to
+  150 degrees with nothing on it to follow (a three-spoke hub past 90 degrees reads as turning back) while the hands
+  slid on it, held to 40 degrees. Now the rim turns at most 100 degrees, carries the twelve o'clock band, and the hands
+  (his body's, or the old fists when the body is off) go round with it. `GTA2DX9_FP_ARM_LOG=1` logs the turn per frame
+  for the fists, `GTA2DX9_FP_BODY_LOG=1` for the body (compare with the `view: player` heading, `GTA2DX9_STATE_EVERY=3`).
+- **The driver's body (live_geometry.cpp, model_store.cpp, weapon_rig.cpp).** In first person at the wheel his
+  seated figure (the boarding's seated ghost, FIX-SEATED 4393335: his identity record's avatar and clothes, the
+  same figure the chase view shows at the wheel) was skipped (and flagged plan-only). It is drawn now: lined up
+  with the car's axes, the head's joint 2 cm behind and 9 cm under the eye, scaled about it to the cab (the cab is
+  drawn at about a third of the street's scale; the rim's radius against a real 0.19 m first, then per frame the
+  scale at which his shoulder-to-grip distance is 0.92 of his arm, at most 0.75 of his own size), the head subtree
+  shrunk into its joint (`ModelSetHideHead`, part of the pose cache key). The arms are the avatar's own from the
+  shoulders, two-bone IK onto the cab's grips (`CabLastDriverPose`: a quarter to three, the rim's nearest stretch,
+  turned with the rim), elbows out; a pose hook (`DriverHandsHook`) closes the fingers (`weaponrig::CurlFists`) and
+  turns each hand about the wrist so the knuckles point at the grip. The feet go onto two pedals and the cab now
+  has a carpeted floor 0.20 under the eye and a seat cushion under his hips (looking down showed the road through
+  the cab). With the body drawn the cab's floating fists (`fp_arm_right`) are not. `[camera] fp_driver_body=0` (or
+  `GTA2DX9_FP_BODY=0`) leaves the body out; `GTA2DX9_FP_BODY_LOG=1` logs the gate, scale, reach and joints.
+- **The seat in first person (car_bodies.cpp, boarding.cpp).** car_bodies never published the own car to boarding
+  from the seat (cpuCut), so a seated figure was let go 6 frames into first person and a climb into the car never
+  reached the seat once the eye glided inside. The own car is now published in first person too, except while an
+  exit plays from it (`BoardingCarLeaving`): first-person exits run as before.
+- **The dashcam (cockpit_mode.cpp, view_modes.cpp).** `[camera] dashcam_key` (default C, free in GTA2's controls)
+  switches between the cockpit and a dashcam while at the wheel in first person: no wheel, column, gauge binnacle,
+  hands or body; the eye `dashcam_up`/`dashcam_ahead` thousandths of a block higher and further forward and
+  `dashcam_centre` percent of the way to the car's middle; no head lean and no body roll (a level horizon; the
+  body's pitch and heave stay). The eye eases over 0.4 s (smoothstep) and the cockpit parts give way at the
+  switch's midpoint. The choice is kept through a view cycle and a get-out/get-in and only shows in first person
+  in a car; `[camera] dashcam=1` starts with it. The two looks are separate flags: the dashcam never changes the
+  cockpit's drawing and the cockpit's body never draws in the dashcam. Log lines `cockpit: dashcam (key)` /
+  `cockpit: cockpit (key)`.
+- **What still falls short of the bar.** The renderer's near plane is 0.05 block (about 25 cm at the cab's scale):
+  his shoulders are always behind it, so looking steeply down (past ~45 degrees) the upper arms end in a flat cut
+  where they cross it; a real fix is a separate first-person pass with its own near plane (cab and body together),
+  which also needs Remix's capture to accept it. The cab's wheel sits further ahead of the eye than a real seat has
+  it, so the body is scaled up to reach it and the hands read a little large against the rim. The hands are the
+  avatar's mesh posed by a fist curl and a wrist turn, not hand-authored grips. Remix: the body uses the ordinary
+  figure draw (unverified under path tracing in this pass).
+- Probe: `gamerun/keys_cbody.sh` (`cbody_probe.py`, copies in `linux/docker/`; F11 scene car, `CAB_MODELS` forced
+  before he gets in, out and in again so the boarding seats him; per model: still, a held left, a held right, a full
+  lock, a mouse look down; `DASHCAM=1` adds cockpit -> dashcam -> V cycle -> out/in -> cockpit). Run with
+  `GTA2_DIRECT_KEYS=1`, `GTA2DX9_SCENE_NO_CAR=1`, `GTA2DX9_STATE_EVERY=3`.

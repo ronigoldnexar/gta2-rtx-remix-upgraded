@@ -29,7 +29,7 @@ cl /nologo /std:c++17 /EHsc /O2 /W3 /MT /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
    src\dllmain.cpp src\world_view.cpp src\regress_cam.cpp src\log.cpp src\texture_store.cpp src\overlay.cpp ^
    src\live_geometry.cpp src\ground.cpp src\remix_api.cpp src\remix_lights.cpp src\debug_overlay.cpp ^
    src\synthetic_lights.cpp src\settings.cpp src\frame_limiter.cpp src\frame_log.cpp src\time_of_day.cpp ^
-   src\intro_movie.cpp src\hud_pass.cpp src\hud3d.cpp src\gibs.cpp src\light_bench.cpp src\progress_probe.cpp src\game_save.cpp src\voice_over.cpp src\cache_warmup.cpp src\plugin_d3d6.cpp src\view_modes.cpp src\eye_collision.cpp src\model_store.cpp src\identity.cpp src\car_bodies.cpp src\cab_interior.cpp src\vehicle_fx.cpp src\city_ai.cpp src\audio3d.cpp src\beats.cpp src\boarding.cpp src\density.cpp src\explosion_fx.cpp src\ragdoll.cpp src\map_objects.cpp src\visuals.cpp src\weather.cpp build\plugin_slot.obj ^
+   src\intro_movie.cpp src\hud_pass.cpp src\hud3d.cpp src\gibs.cpp src\light_bench.cpp src\progress_probe.cpp src\game_save.cpp src\voice_over.cpp src\cache_warmup.cpp src\plugin_d3d6.cpp src\view_modes.cpp src\eye_collision.cpp src\model_store.cpp src\identity.cpp src\car_bodies.cpp src\cab_interior.cpp src\cockpit_mode.cpp src\vehicle_fx.cpp src\city_ai.cpp src\audio3d.cpp src\beats.cpp src\boarding.cpp src\density.cpp src\explosion_fx.cpp src\ragdoll.cpp src\map_objects.cpp src\visuals.cpp src\weather.cpp build\plugin_slot.obj ^
    deps\imgui\imgui.cpp deps\imgui\imgui_draw.cpp deps\imgui\imgui_tables.cpp ^
    deps\imgui\imgui_widgets.cpp deps\imgui\backends\imgui_impl_dx9.cpp ^
    deps\imgui\backends\imgui_impl_win32.cpp ^

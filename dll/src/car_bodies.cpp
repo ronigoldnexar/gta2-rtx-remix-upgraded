@@ -16,6 +16,7 @@
 #include <tuple>
 
 #include "cab_interior.h"
+#include "cockpit_mode.h"
 #include "car_glass.h"   // VEHICLE-GLASS
 #include "boarding.h"
 #include "compat.h"
@@ -4814,7 +4815,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         static_cast<unsigned>(use.object), model->name.c_str(), ds.side, ds.open, target, doorRate, haveSplit ? 1 : 0,
                         use.doorPed ? 1 : 0, use.sprite, art ? 1 : 0, frame);
             }
-            if (!cpuCut && !WreckModelNumber(modelNumber)) {
+            // FIX-COCKPIT-BODY: from the seat (cpuCut, first person) too: boarding lets a seated figure go once its
+            // car has not been published for 6 frames, a climb whose car stopped being published (the eye glides
+            // inside before the plan sits him down) never reached the seat, and the seat without a boarding (a
+            // warp, a start at the wheel) needs the car published this frame; his body is drawn from the eye now
+            // (live_geometry). Not while he gets out of it: the exit plays on the car as it was, as before.
+            if ((!cpuCut || !BoardingCarLeaving(use.object)) && !WreckModelNumber(modelNumber)) {
                 const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
                 float zf = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
                 zf = (std::min)(zf, 0.42f * b->bodyLength);
@@ -5150,6 +5156,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         cp.night = g_lampDark;
                         cp.openTop = CabOpenTop(modelNumber);
                         cp.taxi = modelNumber == 51 || modelNumber == 56;   // Taxi Xpress, Taxi
+                        cp.dashcam = DashcamHidesCockpit();   // FIX-COCKPIT-BODY: the dashcam: no wheel, no hands
                         static int cabLogged = -1;
                         if (cabLogged != modelNumber) {
                             cabLogged = modelNumber;
