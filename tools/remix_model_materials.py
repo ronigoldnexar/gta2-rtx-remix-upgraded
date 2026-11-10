@@ -95,6 +95,77 @@ GLASS = '''        over "mat_{h}"
         }}
 '''
 
+# FIX-REMIX-GLASS (prx6, prxq): the renderer's own car-glass textures under Remix (dll/src/car_glass.cpp
+# RemixTextures / FixedTexture): the panes cut out of every generated body and the cabin behind them are
+# drawn with three 256x256 textures of fixed content, so three fixed hashes. No model file names them, so
+# the per-texture loop never wrote their prims and the shipped layer had none: Remix drew the panes as its
+# default opaque matte material over the pane texture's pale blue-white (flat chalk-white cards by day,
+# cream blobs under a street lamp at night) and the cabin as grey-brown legacy surfaces. Keep the colours
+# here in step with RemixTextures(); the hash is computed from them as the DLL computes it.
+FLEET_TEXTURES = (("pane", 0x50B4C2C8), ("cabin trim", 0xFF2E2A27), ("cabin headliner", 0xFF6E6862))
+# The pane: tinted thin-walled glass (smooth: AperturePBR_Translucent has no roughness, the reflection is
+# the IOR 1.5 Fresnel). Transmittance per pass ~0.55 at 1 unit of the thin wall: a street-legal dark tint,
+# so a cabin lit only through its glass reads dark at night and the sky/street reflection carries the pane.
+FLEET_GLASS = '''        over "mat_{h}"
+        {{
+            over "Shader"
+            {{
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Translucent.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Translucent"
+                custom color3f inputs:transmittance_color = ({r:.3f}, {g:.3f}, {b:.3f})
+                custom float inputs:transmittance_measurement_distance = 1
+                custom bool inputs:thin_walled = 1
+                custom float inputs:thin_wall_thickness = 1
+                custom float inputs:ior_constant = 1.5
+                token outputs:out
+            }}
+        }}
+'''
+# The cabin: matte, its colour from the legacy texture (no albedo map: the fixed texture IS the colour),
+# trim and seats a dark fabric, the headliner a lighter cloth.
+FLEET_MATTE = '''        over "mat_{h}"
+        {{
+            over "Shader"
+            {{
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom float inputs:metallic_constant = 0
+                custom float inputs:reflection_roughness_constant = {rough:.2f}
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }}
+        }}
+'''
+FLEET_GLASS_T = (0.55, 0.58, 0.60)
+
+
+def fixed_texture_hash(argb, n=256):
+    """XXH3-64 of car_glass.cpp FixedTexture(argb): BGRA texels, a 2-bit ordered ripple on the base colour."""
+    import xxhash
+    y, x = np.mgrid[0:n, 0:n]
+    d = ((x * 7 + y * 13) & 3).astype(np.uint32)
+    px = np.empty((n, n, 4), np.uint8)
+    px[..., 0] = ((argb & 0xFF) + d) & 0xFF
+    px[..., 1] = (((argb >> 8) & 0xFF) + d) & 0xFF
+    px[..., 2] = (((argb >> 16) & 0xFF) + d) & 0xFF
+    px[..., 3] = (argb >> 24) & 0xFF
+    return "%016X" % xxhash.xxh3_64_intdigest(px.tobytes())
+
+
+def fleet_entries():
+    out = []
+    for what, argb in FLEET_TEXTURES:
+        h = fixed_texture_hash(argb)
+        if what == "pane":
+            prim = FLEET_GLASS.format(h=h, r=FLEET_GLASS_T[0], g=FLEET_GLASS_T[1], b=FLEET_GLASS_T[2])
+        else:
+            prim = FLEET_MATTE.format(h=h, rough=0.80 if what == "cabin trim" else 0.90)
+        out.append({"hash": h, "file": f"(renderer) car glass {what}", "prim": prim, "sizes": {}, "kind": "fleet_glass",
+                    "source": "car_glass.cpp", "stats": {"argb": "%08X" % argb}, "gain": 0.0, "size": [256, 256]})
+    return out
+
 
 def read_mesh(path):
     """(texture, vertices[n, 8]: position, normal, uv; indices) per mesh of a GMSH file
@@ -254,6 +325,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--preview", default=None)
     ap.add_argument("--report", default=None, help="write a JSON list of the prims written (hash, file, maps, sizes)")
+    ap.add_argument("--fleet-only", action="store_true", help="only the renderer's car-glass prims (FLEET_TEXTURES), for a scratch layer + remix_layer_merge.py")
     a = ap.parse_args()
     t0 = time.time()
     pbr.PAINT_METALLIC, pbr.PAINT_ROUGHNESS = a.paint_metallic, a.paint_roughness
@@ -272,7 +344,7 @@ def main():
         for t in re.findall(rb"[\w\-]+\.tga", open(os.path.join(a.models, m), "rb").read()):
             t = t.decode(); used.add(t); used.add(t[:-4] + "_paint.tga")
             names_tex.setdefault(m, set()).update((t, t[:-4] + "_paint.tga"))
-    files = sorted(f for f in os.listdir(a.models) if re.match(a.pattern, f) and f in used)
+    files = [] if a.fleet_only else sorted(f for f in os.listdir(a.models) if re.match(a.pattern, f) and f in used)
     # only the models behind the selected textures need their sources and end masks
     meshes_sel = [m for m in meshes if names_tex.get(m, set()) & set(files)]
     have = set(files)
@@ -296,8 +368,8 @@ def main():
                 if (i + 1) % 100 == 0: print(f"  {i + 1} / {len(jobs)} units, {time.time() - t0:.0f} s", flush=True)
     else:
         results = [write_unit(j) for j in jobs]
-    entries = [e for r in results for e in r]
-    mine = {e["hash"] for e in entries}
+    entries = [e for r in results for e in r] + fleet_entries()
+    mine ={e["hash"] for e in entries}
     # Drop every prim this tool wrote before, keep the tiles and signs. Ours: the hashes in
     # <mod>/model_prims.txt (written below), and the older car prims, which had no normal
     # map and a metallic texture or the 0.2 paint constant (tile prims always have one).

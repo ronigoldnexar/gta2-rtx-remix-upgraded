@@ -90207,5 +90207,46 @@ over "RootNode"
                 token outputs:out
             }
         }
+        over "mat_00E7B4E949140568"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Translucent.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Translucent"
+                custom color3f inputs:transmittance_color = (0.550, 0.580, 0.600)
+                custom float inputs:transmittance_measurement_distance = 1
+                custom bool inputs:thin_walled = 1
+                custom float inputs:thin_wall_thickness = 1
+                custom float inputs:ior_constant = 1.5
+                token outputs:out
+            }
+        }
+        over "mat_52573041E54EEEB7"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom float inputs:metallic_constant = 0
+                custom float inputs:reflection_roughness_constant = 0.80
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
+        over "mat_92AE80C504938232"
+        {
+            over "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom float inputs:metallic_constant = 0
+                custom float inputs:reflection_roughness_constant = 0.90
+                custom bool inputs:use_legacy_alpha_state = 0
+                token outputs:out
+            }
+        }
     }
 }

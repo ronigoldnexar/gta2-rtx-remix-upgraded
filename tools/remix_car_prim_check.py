@@ -45,6 +45,13 @@ def main():
                 seen.add(tt); total += 1
                 h = rm.remix_hash(px)
                 if h not in prims: missing[n].append((tt, h))
+    # FIX-REMIX-GLASS: the renderer's own car-glass textures (no model file names them; the shipped layer
+    # missed all three for a day: chalk-white panes under Remix). Checked with the cars.
+    if re.match(a.pattern, "000_"):
+        import remix_model_materials as rmm
+        for e in rmm.fleet_entries():
+            total += 1
+            if e["hash"] not in prims: missing["(renderer car glass)"].append((e["file"], e["hash"]))
     nmiss = sum(len(v) for v in missing.values())
     for n, v in missing.items():
         print(f"{n}: " + ", ".join(f"{t} {h}" for t, h in v))

@@ -312,3 +312,48 @@ next to the sprite's.
   of his head clears the 001's thin side-glass band (the hero, 0.46 block tall, is large against cars modelled at
   5 m a block). 005 Beamer (301 glass texels) shows no driver with either seat. The other 55 generated bodies were
   not swept side-on.
+
+## 8. FIX-REMIX-GLASS (10 Nov 2026): the fleet glass prims were never in the shipped layer
+
+Defect prx6 (Remix, bil night, first person: the black muscle car's side window "flat white chalk blobs and a torn
+cut-out cabin"), and the same class in prxq (dawn, red coupe: "flat chalk-white panes"). Cause, measured:
+
+- The three renderer textures of 5.1 (pane `0x00E7B4E949140568`, cabin trim `0x52573041E54EEEB7`, headliner
+  `0x92AE80C504938232`) had prims only in VEHICLE-GLASS-2's private test layer. `remix_model_materials.py` writes
+  prims per model *file*, and no model file names these textures, so the shipped `gta2hd` layer never had them.
+  Remix drew every generated body's pane with its default opaque matte material over the pane texture's pale
+  blue-white (`0x50B4C2C8`): a flat chalk card by day, cream under a street lamp at night, a dim grey-brown plane
+  away from the lamp; the black stepped shapes inside it are the hull left where the mask found no glass (on the
+  071 Rumbler, the filer's car: 290 glass texels, its near-black baked windows are dropped by the tyre-black rule).
+  The cabin was not involved (ac922ec's lesson holds: check the draw before blaming the cabin).
+- Fix: `remix_model_materials.py` emits the three prims itself (`FLEET_TEXTURES`, hashes computed from the same
+  colours as `car_glass.cpp RemixTextures`, so a colour change there must be mirrored), on every full build;
+  `--fleet-only` for a scratch layer + `remix_layer_merge.py`. The pane is thin-walled `AperturePBR_Translucent`, IOR
+  1.5, transmittance (0.55, 0.58, 0.60) at 1 unit: a dark street tint, reflection from the Fresnel term. Trim
+  roughness 0.80, headliner 0.90, colour from the legacy texture. `remix_car_prim_check.py` now counts the three
+  renderer textures with the cars (it reported 0 missing while all three were).
+- VEHICLE-ART-16's authored 014 / 027 / 046 / 062 also lacked prims at the time (their `_glass` drew chalk too); those
+  landed meanwhile in 18accb5 (FIX-REMIX-MATERIALS-8). The takes below used a private layer with both sets.
+
+Evidence (Ultra preset `gamerun/rglass_max.conf.extra` = the play preset + `rtx.graphicsPreset = 0`, GPU 6, own car
+forced per model, window-height regress-camera poses, `gamerun/rglass_run.sh`): run rg_base2 (shipped layer) against
+rg_fix1 (this layer), same stage and poses, 21:00 / 13:00 / 05:30, models 071 black, 062 black, 016, 051, 033, 014
+(the stage's generated 014). Before: 014 and 033 panes flat chalk white day and night, 071 the filer's cream blob,
+grey plane and black steps. After: dark tinted panes with sky and building reflections, the far window and the
+street seen through, no white surface inside an unlit cabin. 051's authored glass unchanged. Run rg_fix2: the current
+car set (authored 014/046/062 with their new prims, 071) at 21:00 and 13:00.
+
+Still short of the bar (not fixed here):
+- The generated bodies' masks: the pane outline follows the bake (ragged on 014-old, partial on 071, whose side
+  windows stay baked hull except a rear patch). Lifting the tyre-black rule inside the glasshouse for dark coloured
+  paints gives 071 290 -> 1102 texels (the whole side window) but also takes 003's rear door, 007's cab back wall and
+  019's lower black flank (offline twin, fleet); not shipped. A per-z "above the paint belt" test is the next step.
+- Box cabin (seats, dash, headliner boxes; no wheel), all one trim colour under Remix.
+- prp1's night sparkle on authored glass (051 taxi) was not reproduced in these poses (wil 164.5,147.6, 21:00); untested
+  at prp1's spot.
+- The seated driver of a forced model draws outside the car in these probes (va6_own probe artefact).
+
+rg_fix2 result: authored 014 / 046 / 062 (black) dark tinted glass with sky and facade reflections at 21:00 and 13:00.
+**071 Rumbler (the filer's car) is NOT fixed:** at 13:00 its left window still shows a pale, stepped patch: the hull's
+own bake where the mask found no glass (its partial pane is glass now; the rest is the 290-texel mask's miss). prx6 stays
+open on the mask item above.
