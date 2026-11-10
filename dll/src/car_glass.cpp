@@ -82,6 +82,8 @@ struct CutIb { IDirect3DIndexBuffer9* ib = nullptr; UINT tris = 0; bool none = f
 std::map<const ModelMesh*, CutIb> g_cutIb;                 // under Remix: a mesh's triangles less its panes
 // VEHICLE-GLASS-3: the hull and the panes split along the window's outline (car_glass_split.h) instead of
 // whole triangles voted pane or hull (a sawtooth on dense meshes, baked triangles left on coarse ones).
+int g_rearGate = 0;                                        // GTA2DX9_GLASS_REAR_GATE=1: under Remix too, a seated car needs a rear screen (old)
+int g_beltOn = 1;                                          // GTA2DX9_GLASS_BELT=0: no near-black windows on the belt (VEHICLE-GLASS-4)
 int g_splitOn = 1;                                         // GTA2DX9_GLASS_SPLIT=0: the whole-triangle vote
 std::map<const ModelMesh*, GlassSplit> g_split;
 std::map<const ModelMesh*, GlassPart> g_splitPane;         // the split's pane pieces, for the glass pass
@@ -258,6 +260,66 @@ Mask KeepComponents(const Mask& m, int minSize) {
             for (int a : pts) out[a] = 1;
     }
     return out;
+}
+
+// VEHICLE-GLASS-4: a near-black side texel is a window, not tyre-black trim, when it sits on the paint belt at its
+// station along the car (071 Rumbler: near-black side windows straight over its dark red belt line; the tyre-black
+// rule dropped them, 290 of ~1100 texels found). Cells of (side, 1/24 of 0.40-0.90 of the roof height, 1/48 of the
+// length) over the side faces; a cell is paint / black when at least half of its texels (and 2) are. A black cell
+// at 0.55 of the roof or higher is accepted with a paint cell below it in its column, in a run of 3 such cells up
+// the column (019's black deck streaks are thinner) and with its mirrored cell on the other side accepted too
+// (+-1 cell: the bodies are symmetric; 003's black camo on one flank is green on the other). Rear and front faces
+// never (003's rear doors, 007's cab back wall). The twin is tools/car_glass_mask.py on_belt.
+void BeltBlack(Mask& g, const Mask& cand, const Mask& paint, const Mask& black, const std::vector<uint8_t>& valid,
+               const std::vector<float>& pos, const std::vector<float>& nrm, float minY, float H, float minZ, float L) {
+    constexpr int NH = 24, NZ = 48;
+    int cnt[2][NH][NZ] = {}, pc[2][NH][NZ] = {}, bc[2][NH][NZ] = {};   // ~28 KB on the worker's stack
+    bool acc[2][NH][NZ] = {}, keep[2][NH][NZ] = {}, mir[2][NH][NZ] = {};
+    auto cell = [&](int i, int* sd, int* hb, int* zb) {
+        if (!valid[i] || std::fabs(nrm[i * 3]) <= 0.4f) return false;
+        *hb = static_cast<int>(std::floor(((pos[i * 3 + 1] - minY) / H - 0.40f) / 0.50f * NH));
+        if (*hb < 0 || *hb >= NH) return false;
+        *zb = (std::max)(0, (std::min)(NZ - 1, static_cast<int>((pos[i * 3 + 2] - minZ) / L * NZ)));
+        *sd = nrm[i * 3] > 0.0f ? 1 : 0;
+        return true;
+    };
+    for (int i = 0; i < kR * kR; ++i) {
+        int sd, hb, zb;
+        if (!cell(i, &sd, &hb, &zb)) continue;
+        ++cnt[sd][hb][zb];
+        if (paint[i]) ++pc[sd][hb][zb];
+        if (black[i]) ++bc[sd][hb][zb];
+    }
+    for (int sd = 0; sd < 2; ++sd)
+        for (int zb = 0; zb < NZ; ++zb) {
+            bool seen = false;
+            for (int k = 0; k < NH; ++k) {
+                const bool pcell = pc[sd][k][zb] >= 2 && 2 * pc[sd][k][zb] >= cnt[sd][k][zb];
+                const bool bcell = bc[sd][k][zb] >= 2 && 2 * bc[sd][k][zb] >= cnt[sd][k][zb];
+                acc[sd][k][zb] = bcell && seen && k >= 7;   // 7 = 0.55 of the roof height
+                seen = seen || (pcell && !bcell);
+            }
+            for (int k = 0; k + 2 < NH; ++k)
+                if (acc[sd][k][zb] && acc[sd][k + 1][zb] && acc[sd][k + 2][zb])
+                    keep[sd][k][zb] = keep[sd][k + 1][zb] = keep[sd][k + 2][zb] = true;
+        }
+    for (int sd = 0; sd < 2; ++sd)   // a lone missing station between two (wraps, as the twin's np.roll)
+        for (int k = 0; k < NH; ++k)
+            for (int zb = 0; zb < NZ; ++zb)
+                acc[sd][k][zb] = keep[sd][k][zb] || (keep[sd][k][(zb + NZ - 1) % NZ] && keep[sd][k][(zb + 1) % NZ]);
+    for (int sd = 0; sd < 2; ++sd)
+        for (int k = 0; k < NH; ++k)
+            for (int zb = 0; zb < NZ; ++zb) {
+                bool m = false;
+                for (int dk = -1; dk <= 1 && !m; ++dk)
+                    for (int dz = -1; dz <= 1 && !m; ++dz) m = acc[1 - sd][(k + dk + NH) % NH][(zb + dz + NZ) % NZ];
+                mir[sd][k][zb] = m;
+            }
+    for (int i = 0; i < kR * kR; ++i) {
+        int sd, hb, zb;
+        if (!cand[i] || !cell(i, &sd, &hb, &zb)) continue;
+        if (acc[sd][hb][zb] && mir[sd][hb][zb]) g[i] = 1;
+    }
 }
 
 void HueSat(float r, float g, float b, float* hue, float* sat, float* val) {
@@ -618,17 +680,21 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         // The glasshouse: side faces under the roof, the windscreen ahead of it, the rear screen
         // behind; between the belt and nine tenths of the roof, not the roof or bonnet tops.
         Mask g(kR * kR, 0), band(kR * kR, 0), paintLike(kR * kR, 0), strict(kR * kR, 0);
+        // VEHICLE-GLASS-4 (BeltBlack below): per side texel between 0.40 and 0.90 of the roof, paint / near-black
+        // for the belt cells, and the glasshouse's near-black texels the tyre-black rule would drop.
+        Mask beltPaint(kR * kR, 0), beltBlack(kR * kR, 0), blackCand(kR * kR, 0);
         for (int i = 0; i < kR * kR; ++i) {
             if (!valid[i]) continue;
             const float h = (pos[i * 3 + 1] - minY) / H, z = pos[i * 3 + 2];
             const float nx = nrm[i * 3], ny = nrm[i * 3 + 1], nz = nrm[i * 3 + 2];
-            if (h < 0.60f || h > 0.90f || ny > 0.80f) continue;
+            const bool beltSide = std::fabs(nx) > 0.4f && h >= 0.40f && h < 0.90f;
+            if (!beltSide && (h < 0.60f || h > 0.90f || ny > 0.80f)) continue;
             const bool inRoof = z >= z0 && z <= z1;
             const bool sideW = inRoof && std::fabs(nx) > 0.4f;
             const bool screen = h > 0.64f && ((nz > 0.35f && z > z1 - 0.05f * L && z < z1 + rake) ||
                                               (nz < -0.35f && z < z0 + 0.05f * L && z > z0 - rake));
-            if (!sideW && !screen) continue;
-            band[i] = 1;
+            const bool inBand = !(h < 0.60f || h > 0.90f || ny > 0.80f) && (sideW || screen);
+            if (!inBand && !beltSide) continue;
             const float r = rgb[i * 3], gg = rgb[i * 3 + 1], b = rgb[i * 3 + 2];
             const float val = (std::max)((std::max)(r, gg), b);
             // Livery and paint bands are saturated and bright; glass is not.
@@ -670,6 +736,12 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
             // A screen carries no livery: its saturated bake (the dash's reflection) may be grown into from
             // the glass around it (012's strip), but never seeds glass (a hot-dog van's sign, 024).
             const bool livery = sideW && sat > 0.55f && vv > 0.25f;
+            if (beltSide) {
+                beltBlack[i] = val < 0.08f ? 1 : 0;
+                beltPaint[i] = (nearPaint || livery) && !beltBlack[i] ? 1 : 0;
+            }
+            if (!inBand) continue;
+            band[i] = 1;
             const bool liveryScreen = !sideW && sat > 0.55f && vv > 0.25f;
             if (nearPaint || livery || (rearScreen && !sky && ((ny < 0.15f && !(vv < 0.55f * paintVal)) || !(vv < 0.9f * paintVal || vv < 0.35f))))
                 strict[i] = 1;
@@ -677,9 +749,10 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
                 paintLike[i] = 1;
                 continue;
             }
-            if (val < 0.08f && darkPaint) continue;   // tyre-black (was 0.18: every dark glass texel of a dark car)
+            if (val < 0.08f && darkPaint) { blackCand[i] = 1; continue; }   // tyre-black (was 0.18: every dark glass texel of a dark car)
             g[i] = 1;
         }
+        if (darkPaint && g_beltOn) BeltBlack(g, blackCand, beltPaint, beltBlack, valid, pos, nrm, minY, H, minZ, L);
         g = Dilate(Erode(g));
         g = KeepComponents(g, 30);
         for (int k = 0; k < 2; ++k) g = Dilate(g);
@@ -1070,6 +1143,8 @@ void CarGlassSettings(int enabled, int alphaPercent, int rangeBlocks) {
     char v[8] = {};
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_REMIX", v, sizeof v) && v[0] == '0') g_remixOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_SPLIT", v, sizeof v) && v[0] == '0') g_splitOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_BELT", v, sizeof v) && v[0] == '0') g_beltOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_REAR_GATE", v, sizeof v) && v[0] == '1') g_rearGate = 1;
     g_alpha = (std::max)(0.05f, (std::min)(1.0f, alphaPercent / 100.0f));
     g_range = static_cast<float>((std::max)(1, rangeBlocks));
     Log("car glass: %s, alpha %.2f, range %.0f blocks", g_on ? "on" : "off", g_alpha, g_range);
@@ -1154,6 +1229,10 @@ int CarGlassMaskForTexture(const std::string& texture, std::vector<uint8_t>* out
 }
 
 bool CarGlassHasRear(const Model& base) {
+    // VEHICLE-GLASS-4: car_bodies keeps FIX-SEATED's see-through band for a seated car whose rear screen was not
+    // found, but that band is a plain-renderer clip-plane draw (never under Remix). Under Remix such a car drew
+    // neither: a driven 071 Rumbler (rear 0) kept its whole baked window. Under Remix the glass always wins.
+    if (RemixMode() && !g_rearGate) return true;
     std::lock_guard<std::mutex> lk(g_lock);
     auto it = g_models.find(&base);
     return it != g_models.end() && it->second->rearTexels >= 40;

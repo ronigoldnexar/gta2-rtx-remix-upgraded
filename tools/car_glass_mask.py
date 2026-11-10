@@ -155,6 +155,45 @@ def build(models, name, params=None):
     return res
 
 
+def on_belt(black, paint, valid, h, z, nx, minZ, L, P):
+    """VEHICLE-GLASS-4: a near-black side texel is a window, not tyre-black trim, when it sits on the paint belt at its
+    station along the car (071 Rumbler: near-black side windows straight over the red belt line; the tyre-black rule
+    dropped them, 290 of ~1100 texels found). Cells of (side, 1/24 of 0.40-0.90 of the roof height, 1/48 of the length)
+    over the side faces: a cell is paint / black when at least half of its texels (and 2) are. Accepted: a black
+    cell at 0.55 of the roof or higher with a paint cell below it in its column, in a run of 3 such cells up the
+    column (019's black deck streaks are thinner), whose mirrored cell on the other side is accepted too (+-1 cell:
+    the bodies are symmetric; 003's black camo on one flank is green on the other). Rear and front faces never
+    (003's rear doors, 007's cab back wall)."""
+    NH, NZ = 24, 48
+    hb = np.floor((h - 0.40) / 0.50 * NH).astype(int)
+    zb = np.clip(((z - minZ) / L * NZ).astype(int), 0, NZ - 1)
+    sd = (nx > 0).astype(int)
+    ok = valid & (np.abs(nx) > 0.4) & (hb >= 0) & (hb < NH)
+    cnt = np.zeros((2, NH, NZ)); pc = np.zeros((2, NH, NZ)); bc = np.zeros((2, NH, NZ))
+    np.add.at(cnt, (sd[ok], hb[ok], zb[ok]), 1)
+    np.add.at(pc, (sd[ok], hb[ok], zb[ok]), (paint & ~black)[ok].astype(float))
+    np.add.at(bc, (sd[ok], hb[ok], zb[ok]), black[ok].astype(float))
+    pcell = (pc >= 2) & (2 * pc >= cnt)
+    bcell = (bc >= 2) & (2 * bc >= cnt)
+    acc = np.zeros((2, NH, NZ), bool); seen = np.zeros((2, NZ), bool)
+    for k in range(NH):
+        acc[:, k] = bcell[:, k] & seen & (k >= 7)      # 7 = 0.55 of the roof height
+        seen |= pcell[:, k] & ~bcell[:, k]
+    keep = np.zeros_like(acc)
+    for k in range(NH - 2):
+        blk = acc[:, k] & acc[:, k + 1] & acc[:, k + 2]
+        for j in range(3): keep[:, k + j] |= blk
+    acc = keep
+    acc = acc | (np.roll(acc, 1, 2) & np.roll(acc, -1, 2))   # a lone missing station between two (wraps, as the DLL)
+    mir = acc[::-1]
+    mir = mir | np.roll(mir, 1, 1) | np.roll(mir, -1, 1)
+    mir = mir | np.roll(mir, 1, 2) | np.roll(mir, -1, 2)
+    acc &= mir
+    res = np.zeros_like(black)
+    res[ok] = acc[sd[ok], hb[ok], zb[ok]]
+    return res & black, res
+
+
 def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX, W, P):
     h = (pos[:, 1] - minY) / H
     side = np.zeros(0, int)
@@ -240,7 +279,14 @@ def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX,
     strict &= band
     paintLike = band & (strict | paintLike | liveryScreen)
     g = band & ~paintLike
-    if darkPaint: g &= ~(val < (0.08 if P.get("darkscale", 1) else 0.18))
+    beltFill = None
+    if darkPaint:
+        black = val < (0.08 if P.get("darkscale", 1) else 0.18)
+        if P.get("belt", 1) and P.get("darkscale", 1):
+            onb, wcell = on_belt(black, nearPaint | livery, valid, h, z, nx, minZ, L, P)
+            black &= ~onb
+            if P.get("beltfill", 0): beltFill = wcell & band & (val < 0.45 * paintVal) & ~livery
+        g &= ~black
     g = dilate(erode(g))
     g = keep_components(g, 30)
     for _ in range(2): g = dilate(g)
@@ -268,6 +314,10 @@ def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX,
         bridge = dark & ahead[sd, hb, zb] & behind[sd, hb, zb]
         for _ in range(P.get("deepn", 16)):
             g |= dilate(g) & bridge
+    if beltFill is not None:
+        # VEHICLE-GLASS-4: inside a window found on the belt (its accepted cells), the cabin's dark bake in the paint's
+        # own dark shade (071: dark red seats under a dark red shade cluster) is glass too, whatever the paint test says
+        g |= beltFill
     # DropPaintComponents
     def paint_comps(g):
         lab, n = components(g)
@@ -348,12 +398,14 @@ if __name__ == "__main__":
     ap.add_argument("models"); ap.add_argument("names", nargs="+")
     ap.add_argument("--sheet"); ap.add_argument("--dump")
     ap.add_argument("--nodeep", action="store_true", help="without VEHICLE-GLASS-3's deep growth")
+    ap.add_argument("--nobelt", action="store_true", help="without VEHICLE-GLASS-4's black-window-on-the-belt rule")
     ap.add_argument("--nooff", action="store_true", help="without VEHICLE-GLASS-3's off-hue rule")
     ap.add_argument("--old", action="store_true", help="the 33c34be heuristic (before VEHICLE-GLASS-2's class fixes)")
     a = ap.parse_args()
     params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0} if a.old else {}
     if a.nooff: params["offhue"] = 0
     if a.nodeep: params["deep"] = 0
+    if a.nobelt: params["belt"] = 0
     for name in a.names:
         r = build(a.models, name, params)
         if not r: print(name, "no glass (no roof/too small)"); continue

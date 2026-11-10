@@ -357,3 +357,49 @@ rg_fix2 result: authored 014 / 046 / 062 (black) dark tinted glass with sky and 
 **071 Rumbler (the filer's car) is NOT fixed:** at 13:00 its left window still shows a pale, stepped patch: the hull's
 own bake where the mask found no glass (its partial pane is glass now; the rest is the 290-texel mask's miss). prx6 stays
 open on the mask item above.
+
+## 9. VEHICLE-GLASS-4 (10 Nov 2026): near-black windows on the belt; seated cars under Remix (prx6)
+
+### 9.1 Near-black side windows over the paint belt (mask class rule, `BeltBlack` / twin `on_belt`)
+
+The 071 Rumbler bakes its side windows near-black (value < 0.08) over a dark red paint (darkest paint cluster 0.19,
+0.05, 0.04). The tyre-black rule (`val < 0.08` on a dark-paint body is never glass) dropped them: 290 glass texels, only a
+rear patch. Lifting the rule (FIX-REMIX-GLASS, section 8) found 1102 but took 003's camo rear quarter, 007's cab back
+wall and 019's black deck streaks. The rule now: cells of (side, 1/24 of 0.40-0.90 of the roof height, 1/48 of the
+length) over the side faces (|nx| > 0.4), a cell paint / black when at least half of its texels (and 2) are. A
+near-black texel in the glasshouse stays glass when its cell is black, at 0.55 of the roof or higher, has a paint cell
+below it in its column, is part of a run of 3 such cells up the column, and its mirrored cell on the other side
+(+-1 cell) is accepted too (bodies are symmetric; 003's black camo on one flank is green on the other). Front and
+rear faces are never touched (003's rear doors, 007's cab back wall).
+
+Fleet (offline twin, all 83 meshes, against 6a41782): 4 bodies change, none lose a texel:
+071 290 -> 922 (both side windows), 019 566 -> 750 (inside its own side window), 030 2444 -> 2617 (its window's
+corners), 003 1838 -> 1901 (a strip at the window's lower and rear edge). The DLL's count for 071 in the game is 922
+(run vg4_rx1), the twin's to the texel. `GTA2DX9_GLASS_BELT=0` gives the old rule for a session; the twin's
+`--nobelt`. Tried and dropped (twin `beltfill`, off): filling the dark cabin bake in the paint's dark shade inside
+accepted window columns (071's front quarter of each window is dark red seats within its dark shade cluster's
+tolerance): 071 +262 but 019 +537 and 030 +424 texels for little visible gain.
+
+### 9.2 Seated cars with no rear screen drew no glass under Remix
+
+`car_bodies.cpp` gives a seated car the glass only when its rear screen was found (`CarGlassHasRear`, 40 texels), so
+that FIX-SEATED's see-through band shows the driver from the chase camera otherwise. That band is a plain-renderer
+clip-plane draw and is never drawn under Remix, so under Remix a seated car with no rear screen got neither: its whole
+baked window, the same frame with or without the glass prims (runs rg_base2 / rg_fix2 / vg4_rx1 on the own 071 are
+identical in the window). 18 generated bodies with glass have no rear screen found: 002 016 017 019 021 023 030 031 037
+041 044 047 048 052 054 071 083 085 (every traffic car of those models with a driver). `CarGlassHasRear` now returns
+true under Remix; `GTA2DX9_GLASS_REAR_GATE=1` restores the gate.
+
+### 9.3 Evidence and what still falls short
+
+Remix, Ultra preset, GPU 7, `gamerun/rglass_run.sh` window-height poses, own car forced per model, 21:00 and 13:00:
+run vg4_rx1 (the belt rule only: the own 071 seated, so the rear gate still blocked its glass: window identical to
+FIX-REMIX-GLASS's rg_fix2) against vg4_rx2 (both changes, same poses). 071 (black): the middle and front of both side
+windows become dark tinted panes with the sky/street reflection by day (blue-grey at 13:00) and the cabin's seat back and
+B-pillar behind them at 21:00. 016: its rear side windows, baked red and white, become dark glass.
+
+Still short: 071's rear quarter of each side window stays the pale stepped bake: those texels are baked in the paint's
+own red hue (446 of the 531 pale side texels in the glasshouse are within the paint tolerance), so no colour rule can
+take them without taking paint; a geometric fill (hull enclosed by pane and frame) is the next step. 071's rear screen
+is still not found (near-black on a rear face: the belt rule is side-only). The cabin is boxes. prx6's own spot (bil
+night, parked 071) not re-taken.
