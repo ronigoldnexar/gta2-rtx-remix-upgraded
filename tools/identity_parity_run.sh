@@ -12,7 +12,7 @@
 #      0 generated, 13/63/68 authored, 18 authored carkit, 4 remapped, 51 livery, 74 wreck) in six sprite paints
 #      (the van also in its own sprite's two), from the classic camera; tools/paint_parity.py checks hue and lightness
 #      against the paint, and liveries/wrecks against their style sprite (assets-src/cars/sprites).
-# Output: out/<name>_idp and out/<name>_paint, and out/<name>_parity.md (both tables). Exit status: the number of
+# Output: out/<name>_idp and out/<name>_paint, and out/<name>_parity.md (both tables and the body orientation check). Exit status: the number of
 # failures of the two checks (0 = pass), so DEFECT-TRIAGE and the restage gate can call it as a gate.
 # The keys scripts are copied from linux/docker into gamerun/ (the /work mount) when missing (never rewritten in
 # place: a live run may be reading them).
@@ -46,9 +46,16 @@ REPORT="out/${NAME}_parity.md"
 A=$?
 "$PY" "$REPO/tools/paint_parity.py" "out/${NAME}_paint" --report "out/${NAME}_paint.md" --sprites "$WS/assets-src/cars/sprites" >/dev/null 2>&1
 B=$?
+# FIX-CAR-IDENTITY-6: every authored car body on the stage faces outward (an inside-out kit is lit on the inside of its
+# panels: ambient only on the lids, 35-45 % under its sprite whatever the paint; docs/identity-system.md section 11).
+# Static (no game run), so it covers the whole fleet, not only the sampled classes; each INSIDE-OUT body is a failure.
+"$PY" "$REPO/tools/car_mesh_orient.py" check "$STAGE/gta2dx9_models" > "out/${NAME}_orient.txt" 2>&1
+C=$?
 { echo "# Identity parity, stage $STAGE ($(cat "$STAGE/.stage_commit" 2>/dev/null || echo '?')), $(date -u +%F' '%H:%MZ)"; echo
   echo "Record and three-view colours (identity_parity.py, exit $A; sheet out/${NAME}_idp.png):"; echo
   sed 's/^/    /' "out/${NAME}_idp.md" 2>/dev/null; echo
-  cat "out/${NAME}_paint.md" 2>/dev/null; } > "$REPORT"
-echo "identity_parity_run: $REPORT (failures: record/views $A, paint $B)"
-exit $(( A + B > 100 ? 100 : A + B ))
+  cat "out/${NAME}_paint.md" 2>/dev/null; echo
+  echo "Authored car bodies facing outward (car_mesh_orient.py check, exit $C):"; echo
+  sed 's/^/    /' "out/${NAME}_orient.txt" 2>/dev/null; } > "$REPORT"
+echo "identity_parity_run: $REPORT (failures: record/views $A, paint $B, inside-out bodies $C)"
+exit $(( A + B + C > 100 ? 100 : A + B + C ))
