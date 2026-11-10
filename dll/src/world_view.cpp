@@ -2507,7 +2507,13 @@ void WorldView::ApplyPresentation(ViewMode mode) {
             const gta2::Vec3 e = camera_.Position();
             for (const CameraCar& c : LiveCameraCars()) {
                 if (c.object != reinterpret_cast<uintptr_t>(seatHeld)) continue;
-                bool in = e.y < c.y1 + 0.02f;
+                // FIX-CAMERA-9 (pfeel33-residual-fp-to-classic-one-or-two-street-frames-with-no-car-after-the-cockpit):
+                // on the rise out of the seat into the classic view the first frame's eye is just over the roof (0.15,
+                // looking 7 degrees down: the roof under the frame's bottom edge) and that frame showed the street with
+                // no car, held 0.4 s by a hitch (run cam9_v21a f1121); the car stays drawn from the seat until 0.25 over
+                // the roof, from where the roof is in the picture (f1122: 0.32 over, 11 down).
+                const float over = transitionToClassic_ && transitionFromFirst_ ? 0.25f : 0.02f;
+                bool in = e.y < c.y1 + over;
                 for (int i = 0; i < 4 && in; ++i) {
                     const int j = (i + 1) & 3, k = (i + 2) & 3;
                     const float ex = c.x[j] - c.x[i], ez = c.z[j] - c.z[i];
@@ -2849,7 +2855,16 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         if (transitionToClassic_ && rideOn && eyecol::Ready()) {
             const gta2::Vec3 f0{std::sin(transitionFrom_.yaw) * std::cos(transitionFrom_.pitch), std::sin(transitionFrom_.pitch),
                                 std::cos(transitionFrom_.yaw) * std::cos(transitionFrom_.pitch)};
-            const gta2::Vec3 anchor = transitionFrom_.position + f0 * 1.2f + rideToClassic;   // over the car, a little ahead
+            gta2::Vec3 anchor = transitionFrom_.position + f0 * 1.2f + rideToClassic;   // over the car, a little ahead
+            // FIX-CAMERA-9 (pfeel33 residual): out of the driver's seat with the car's nose at a wall the point 1.2 ahead
+            // of the eye is beyond the wall, and the clearance seen from there put the first rise frame's eye 1.37
+            // block through the wall, the street on its far side with no car (run cam9_v21c f1174, 0.3 s with a
+            // hitch). From the seat the anchor stops short of the first surface ahead of the eye.
+            if (transitionFromFirst_) {
+                const gta2::Vec3 start = transitionFrom_.position + rideToClassic;
+                float th = 1.0f;
+                if (eyecol::SegmentHit(start, anchor, &th)) anchor = start + (anchor - start) * (std::max)(0.0f, th - 0.15f / 1.2f);
+            }
             const gta2::Vec3 toA = p - anchor;
             const float da = std::sqrt(toA.x * toA.x + toA.y * toA.y + toA.z * toA.z);
             if (da < 4.0f) {
