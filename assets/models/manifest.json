@@ -7420,7 +7420,7 @@
    "name": "weapon_machine_gun",
    "nodes": 3,
    "meshes": 3,
-   "vertices": 848,
+   "vertices": 1120,
    "animations": [],
    "textures": [
     "weapon_machine_gun_0.tga",

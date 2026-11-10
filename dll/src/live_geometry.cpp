@@ -7440,7 +7440,7 @@ const WeaponInfo kWeapons[kWpnCount] = {
     {"pistol", "weapon_pistol", 2, false, 0.065f, 0.10f, 1.0f, 0.85f, 0.55f, 0.6f, true, 0.020f},
     {"dual_pistol", "weapon_pistol", 10, false, 0.065f, 0.10f, 1.0f, 0.85f, 0.55f, 0.6f, true, 0.020f},
     {"silenced_mg", "weapon_silenced_mg", 8, true, 0.17f, 0.045f, 0.9f, 0.8f, 0.6f, 0.15f, true, 0.010f},
-    {"machine_gun", "weapon_machine_gun", 8, true, 0.17f, 0.13f, 1.0f, 0.8f, 0.45f, 0.8f, true, 0.014f},
+    {"machine_gun", "weapon_machine_gun", 8, true, 0.110f, 0.13f, 1.0f, 0.8f, 0.45f, 0.8f, true, 0.014f},   // FIX-FIGURE-8: the S-Uzi, stock folded (its span, model scale 1)
     {"rocket_launcher", "weapon_rocket_launcher", 11, true, 0.26f, 0.28f, 1.0f, 0.7f, 0.4f, 1.0f, false, 0.040f},
     {"electro_gun", "weapon_electro_gun", 8, true, 0.16f, 0.12f, 0.6f, 0.85f, 1.0f, 0.7f, false, 0.0f},
     {"molotov", "weapon_molotov", 13, false, 0.05f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, 0.0f},
@@ -7930,6 +7930,17 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     weapon = fists ? kWpnPistol : vmShown;   // the fists take the pistol's frame (hands only)
     const WeaponInfo& wi = kWeapons[weapon];
     const Model* model = ModelByName(wi.model);
+    {
+        // FIX-FIGURE-8 (pm24): the weapon in the hands is the weapon the HUD names: log the game's
+        // weapon word, the renderer's weapon and the model drawn at every change.
+        static int vmLogShown = -2;
+        static int vmLogs = 0;
+        if (vmShown != vmLogShown && vmLogs < 60) {
+            ++vmLogs; vmLogShown = vmShown;
+            Log("view model: weapon id %d (game word %d) -> %s, model %s%s", vmShown, g_playerWeapon, fists ? "fists" : wi.name,
+                fists ? "fp_fist_right" : wi.model, model ? "" : " (missing)");
+        }
+    }
     if (!model) return;
     // The eye's frame.
     float right[3] = {f.z, 0.0f, -f.x};
@@ -8154,7 +8165,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     const char* leftName = nullptr;
     switch (weapon) {
         case kWpnPistol: leftName = "fp_arm_left_cup"; break;
-        case kWpnMg: leftName = "fp_arm_left"; fore[1] = 0.000f; fore[2] = 0.090f; break;
+        case kWpnMg: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.052f; break;   // FIX-FIGURE-8: the S-Uzi's handguard
         case kWpnSilencedMg: leftName = "fp_arm_left"; fore[1] = 0.010f; fore[2] = 0.045f; break;
         case kWpnShotgun: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.080f; break;
         case kWpnRocket: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.060f; break;

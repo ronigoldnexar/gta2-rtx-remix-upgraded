@@ -421,6 +421,11 @@ void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const 
                carFwd = toWorldV(Vec3{0.0f, 0.0f, 1.0f});
     // the model's forearm, grip to elbow (tools/gen_weapons.py fp_arm right: wrist .0045,-.021,-.024, elbow .030,-.070,-.160)
     const Vec3 dmR = gta2::Normalize(Vec3{0.0255f, -0.049f, -0.136f});
+    // FIX-FIGURE-8 (pfeel32) probe: GTA2DX9_FP_ARM_LOG=1 logs per frame the camera's real eye in the
+    // posed car's frame against the eye the cab was built for, the body's up axis, and each grip's
+    // distance to its shoulder (in fists).
+    static const bool armLog = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_ARM_LOG", b, sizeof b) && b[0] == '1'; }();
+    float gripShoulder[2] = {0.0f, 0.0f};
     for (int h = 0; h < 2; ++h) {
         const float phi0 = h == 0 ? 0.80f : kPi - 0.80f;
         const float phi = phi0 + hold;   // ten to two (the fist sits a little under its grip point)
@@ -444,6 +449,7 @@ void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const 
         const float fist = 0.0124f * k;
         const Vec3 shoulder = eyeW + carRight * (sideSign * 2.0f * fist) - carUp * (2.5f * fist) - carFwd * fist;
         Vec3 d = shoulder - grip;
+        gripShoulder[h] = std::sqrt(gta2::Dot(d, d)) / fist;
         if (gta2::Dot(d, d) < 1e-10f) d = carFwd * -1.0f;
         d = gta2::Normalize(d);
         const Vec3 tW = toWorldV(tangent);
@@ -472,6 +478,24 @@ void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const 
     }
     ModelSetNodeTint(nullptr, nullptr);
     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    if (armLog) {
+        D3DMATRIX v;
+        if (SUCCEEDED(device->GetTransform(D3DTS_VIEW, &v))) {
+            float c[3];
+            for (int j = 0; j < 3; ++j) c[j] = -(v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+            float l[3];
+            for (int a = 0; a < 3; ++a) {
+                const float* ax = carToWorld.m[a];
+                const float al = ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2];
+                l[a] = al > 1e-10f ? ((c[0] - carToWorld.m[3][0]) * ax[0] + (c[1] - carToWorld.m[3][1]) * ax[1] + (c[2] - carToWorld.m[3][2]) * ax[2]) / al : 0.0f;
+            }
+            const float* u = carToWorld.m[1];
+            const float level = u[1] / (std::max)(1e-6f, std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]));
+            Log("fp arm: eyeLocal %.3f,%.3f,%.3f cam %.3f,%.3f,%.3f d %.3f,%.3f,%.3f up %.3f,%.3f,%.3f level %.3f turn %.2f grip-shoulder %.2f %.2f fists",
+                p.eyeX, p.eyeY, p.eyeZ, l[0], l[1], l[2], l[0] - p.eyeX, l[1] - p.eyeY, l[2] - p.eyeZ,
+                carRight.y, carUp.y, carFwd.y, level, w.turn, gripShoulder[0], gripShoulder[1]);
+        }
+    }
     static bool logged = false;
     if (!logged) { logged = true; Log("cab: hands on the wheel (fp_arm_right x2, fist %.3f of the rim's %.3f)", 0.0124f * k, 2.0f * w.R); }
 }

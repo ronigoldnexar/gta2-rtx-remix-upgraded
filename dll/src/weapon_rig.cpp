@@ -393,11 +393,15 @@ struct Geo {
     float wellZ, wellY;         // where the magazine / shell / rocket goes in
     float rackZ, rackY;         // the slide or charging handle (rackZ > 1: none)
 };
+int g_pistolStance = 1;   // FIX-FIGURE-8 (pfl16): 1 arms out along the aim line, 0 the old eye-line hold (test file A/B)
+
 Geo GeoFor(int weapon) {
     switch (weapon) {
         case wPistol: case wDual: return {0.012f, 0.0f, 0.0f, 0, 0.0f, 0.0f, 0.0f, -0.025f, -0.004f, 0.018f};
         case wSilenced:           return {0.014f, -0.045f, 0.010f, 2, 0.050f, 0.004f, 0.012f, -0.025f, 0.030f, 0.021f};
-        case wMg:                 return {0.019f, -0.070f, 0.006f, 1, 0.090f, 0.000f, 0.040f, -0.022f, 0.030f, 0.030f};
+        // FIX-FIGURE-8 (pm24): the S-Uzi (tools/gen_weapons.py machine_gun): the left hand under the handguard,
+        // the magazine up the grip, the charging knob on the top cover, the folding stock's butt plate.
+        case wMg:                 return {0.017f, -0.078f, 0.004f, 2, 0.058f, -0.002f, 0.000f, -0.056f, 0.050f, 0.028f};
         case wElectro:            return {0.014f, -0.005f, 0.012f, 2, 0.032f, 0.002f, 0.0f, 0.0f, 9.0f, 0.0f};
         case wShotgun:            return {0.012f, -0.075f, -0.004f, 2, 0.080f, -0.002f, 0.012f, 0.018f, 9.0f, 0.0f};
         case wRocket:             return {0.030f, -0.030f, 0.010f, 1, 0.060f, 0.004f, -0.067f, 0.030f, 9.0f, 0.0f};
@@ -459,7 +463,15 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
     const bool longGun = cls == cRifle || cls == cShotgun;
     // ---- the gun in the aim (the base of the carry and the reload too) ----
     const Vec3 shoulderTop = shR + U * 0.065f - R * 0.03f;
-    if (cls == cPistol) put(0.0f, geo.bore, eye + F * 0.34f - U * 0.05f);
+    // FIX-FIGURE-8 (pfl16): the pistol out at arm's length along the aim line, the grip centred between
+    // the shoulders a hand over their height (an isosceles stance, the arms nearly straight). It was on
+    // the eye line 0.34 m ahead of the eye: forearms folded, the gun hidden behind his head from the
+    // chase camera ("a phone call").
+    // A/B: the rig test file's fourth number 0 puts it back on the eye line (GTA2DX9_RIG_TEST_FILE).
+    if (cls == cPistol) {
+        if (g_pistolStance) put(0.0f, geo.bore, (shR + shL) * 0.5f + R * 0.04f + F * 0.56f + U * 0.12f);
+        else put(0.0f, geo.bore, eye + F * 0.34f - U * 0.05f);
+    }
     else if (longGun) put(geo.buttZ, geo.buttY, pocket + U * 0.065f);
     else if (cls == cLauncher) put(geo.buttZ, geo.buttY, shoulderTop);
     else if (cls == cFlame) { g.o = shR - U * 0.30f + F * 0.22f + R * 0.02f; pitchAt(-5.0f, g.o); }
@@ -745,13 +757,14 @@ void ReadTest(uint32_t frame) {
     if (!path[0]) return;
     if (g_testRead && frame - g_testRead < 15) return;
     g_testRead = frame ? frame : 1;
-    float yaw = 0.0f, period = 0.0f; int off = 0;
+    float yaw = 0.0f, period = 0.0f; int off = 0, stance = 1;
     if (FILE* f = fopen(path, "r")) {
-        if (fscanf(f, "%f %f %d", &yaw, &period, &off) < 1) { yaw = 0.0f; period = 0.0f; off = 0; }
+        if (fscanf(f, "%f %f %d %d", &yaw, &period, &off, &stance) < 1) { yaw = 0.0f; period = 0.0f; off = 0; stance = 1; }
         fclose(f);
     }
-    if (yaw != g_testYaw || period != g_testPeriod || off != g_testOff) Log("weapon rig: test yaw %.0f fire every %.2f s rig %s", yaw, period, off ? "off" : "on");
-    g_testYaw = yaw; g_testPeriod = period; g_testOff = off;
+    if (yaw != g_testYaw || period != g_testPeriod || off != g_testOff || stance != g_pistolStance)
+        Log("weapon rig: test yaw %.0f fire every %.2f s rig %s, pistol stance %s", yaw, period, off ? "off" : "on", stance ? "arms out" : "eye line (old)");
+    g_testYaw = yaw; g_testPeriod = period; g_testOff = off; g_pistolStance = stance;
 }
 
 // FIX-ACTIONS-3 (pfl15): bare fists. The punch clips (tools/gen_ped_clips.py) key only the arms and

@@ -1146,6 +1146,32 @@ climbing or dead) is offset for the draw only (`PedTrack::sepX/sepZ`; the game's
   game, 2 drawn (one crossing, two frames); the eased version before it left 5 of 8 (fig7_p) and 27 of 53 (fig7_q, game
   positions).
 
+## FIX-FIGURE-8 (10 Nov 2026): the S-Uzi view model, the pistol at arm's length, the wheel arms under a roll
+
+- **pm24 / pm10, the machine gun is the S-Uzi** (`tools/gen_weapons.py machine_gun`): the HUD names the game's weapon 1
+  (renderer 4) "Machine Gun" with the S-Uzi icon, and the view model and third-person carry were a Thompson with a drum and
+  a wooden brick stock. Now a compact SMG: squared receiver with a top cover (`bevel_box`, chamfered edges), short barrel
+  and nut, the magazine up through an olive polymer grip, a handguard under the front, the folding stock folded (struts
+  along the receiver, the chamfered butt plate under the barrel nut; opened, its plate filled the first-person view's lower
+  right corner). Span 0.110 block = `kWeapons` length, so the model draws at scale 1 and the rig's `GeoFor(wMg)` points
+  (handguard z 0.058, magazine foot, charging knob on the cover) are on the drawn gun; the first-person left hand is under
+  the handguard (`fore` z 0.052). Remix: `weapon_machine_gun_0/1/2.tga` changed content (steel, polymer, rubber).
+  Log: `view model: weapon id N (game word W) -> name, model M` at every change of the first-person weapon.
+- **pfl16, the third-person pistol aim** (`weapon_rig.cpp HoldFor`): the grip 0.56 m ahead of the shoulders' midpoint,
+  0.12 m over them, 0.04 m to the right (arms nearly straight, an isosceles stance); it was 0.34 m ahead of the eye on its
+  line (forearms folded, the gun behind the head from the chase camera). The rig log puts the gun at 1.42 m, 0.49-0.52 m
+  ahead on the shot frames (was 1.44 m, 0.39). A/B in one session: the rig test file
+  (`GTA2DX9_RIG_TEST_FILE`, "yaw period off stance") takes a fourth number, 0 the old eye-line hold.
+  Probe: `gamerun/fig8_gun2.py` + `keys_fig8_gun2.sh` (pickups, plaza, side view by the test yaw, new then old stance,
+  from behind, the MG side-on, first person MG and pistol). Directly behind him the torso still hides the arms and most of
+  the flash: that view needs the camera's aim offset (pfl16-third-mg-fire, camera).
+- **pfeel32, the wheel arms under a roll** (`cab_interior.cpp`): `GTA2DX9_FP_ARM_LOG=1` logs per frame the camera's eye in
+  the posed car's frame against the eye the cab was built for, the body's up axis and each grip's distance to its shoulder.
+  Probe `gamerun/fig8_roll.py` (`[devtools] force_body_roll_deg` live, CRLF kept): a forced 12/25/-25 degree roll is drawn
+  bounded by the wheels (level 0.994, ~6 degrees, FIX-VEHICLE-FEEL-2), the eye stays within 0.02 of the cab's eye, both
+  fists stay on the rim (the arm model is rigid: constant forearm), no dark slab. The 20 degree roll with the dash over two
+  thirds of the frame in the old take (fpentry_c) predates the wheel bound.
+
 ## FIX-ACTIONS-3 (10 Nov 2026): the owner demo's punch and jack (pfl15)
 
 Two playtest defects on the owner demo's first two beats (pfl15, third person).

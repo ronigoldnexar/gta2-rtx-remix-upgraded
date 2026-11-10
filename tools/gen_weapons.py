@@ -157,23 +157,67 @@ def pistol():
                        ("trim", trim.mesh(mat(STEEL, 0.8, 0.4, name="trim")))]), 0.065
 
 
+def bevel_box(p, c, size, bev, axis=2):
+    """A box centred at c with full size `size` whose four edges along `axis` are chamfered by `bev`
+    (an octagonal prism): FIX-FIGURE-8 (pm10), the hard-edged brick read as a toy a hand from the eye."""
+    a = axis; i, j = [k for k in range(3) if k != a]
+    hi, hj, ha = size[i] / 2, size[j] / 2, size[a] / 2
+    b = min(bev, hi * 0.9, hj * 0.9)
+    ring = [(hi, -hj + b), (hi, hj - b), (hi - b, hj), (-hi + b, hj), (-hi, hj - b), (-hi, -hj + b), (-hi + b, -hj), (hi - b, -hj)]
+    def pt(u, w, t):
+        q = [0.0, 0.0, 0.0]; q[i] = c[i] + u; q[j] = c[j] + w; q[a] = c[a] + t; return q
+    cen = np.array(c, np.float32)
+    def quad(q0, q1, q2, q3):
+        n = np.cross(np.array(q1) - np.array(q0), np.array(q3) - np.array(q0))
+        mid = (np.array(q0) + np.array(q2)) / 2
+        if np.dot(n, mid - cen) < 0: q0, q1, q2, q3 = q3, q2, q1, q0
+        p.quad(q0, q1, q2, q3)
+    for k in range(8):
+        (u0, w0), (u1, w1) = ring[k], ring[(k + 1) % 8]
+        quad(pt(u0, w0, -ha), pt(u1, w1, -ha), pt(u1, w1, ha), pt(u0, w0, ha))
+    for t in (-ha, ha):   # the end caps: the octagon as three quads
+        r = [pt(u, w, t) for (u, w) in ring]
+        quad(r[0], r[1], r[2], r[7]); quad(r[2], r[3], r[6], r[7]); quad(r[3], r[4], r[5], r[6])
+
+
 def machine_gun():
-    """A Thompson-style submachine gun: receiver, finned barrel, drum magazine,
-    pistol grip, fore grip, wooden stock."""
-    steel = Part(); wood = Part(); brass = Part()
-    box(steel, (0, 0.016, 0.040), (0.016, 0.018, 0.090))      # receiver
-    tube(steel, (0, 0.019, 0.120), 0.0045, 0.075, r2=0.004)   # barrel
-    for k in range(5):                                          # cooling fins
-        tube(steel, (0, 0.019, 0.092 + k * 0.010), 0.0065, 0.003)
-    tube(steel, (0, 0.019, 0.160), 0.006, 0.010)               # compensator
-    tube(brass, (0, -0.004, 0.040), 0.018, 0.012, segments=20)  # drum magazine
-    box(wood, (0, -0.012, 0.000), (0.011, 0.028, 0.014))        # pistol grip
-    box(wood, (0, 0.000, 0.090), (0.012, 0.012, 0.024))         # fore grip
-    box(wood, (0, 0.006, -0.040), (0.014, 0.026, 0.060))        # stock
-    box(steel, (0, 0.027, 0.075), (0.003, 0.004, 0.004))        # front sight
+    """FIX-FIGURE-8 (pm24 / pm10): the game's machine gun is the S-Uzi (its HUD icon): a compact
+    submachine gun, the magazine up through the pistol grip, a short barrel out of a squared
+    receiver with a top cover, a polymer handguard under its front, a folding wire stock with a
+    chamfered butt plate, folded. (Was a Thompson with a drum and a wooden brick stock.)
+    Places the rig and the view model use (dll/src/weapon_rig.cpp GeoFor wMg, live_geometry.cpp
+    fore[] for kWpnMg): bore y 0.017; handguard underside z 0.058, y -0.002; magazine foot
+    z 0.0, y -0.056; charging knob z 0.050, y 0.028; the shoulder point (stock folded) z -0.078, y 0.004.
+    Span 0.110 blocks: live_geometry.cpp kWeapons machine_gun length 0.110 (drawn at model scale 1)."""
+    steel = Part(); poly = Part(); dark = Part()
+    bevel_box(steel, (0, 0.016, 0.034), (0.015, 0.018, 0.086), 0.003)          # receiver
+    bevel_box(steel, (0, 0.0262, 0.034), (0.011, 0.0028, 0.080), 0.0010)       # top cover
+    tube(steel, (0, 0.017, 0.0790), 0.0058, 0.004, segments=16)                # barrel nut
+    tube(steel, (0, 0.017, 0.0880), 0.0034, 0.016, segments=12)                # barrel
+    tube(dark, (0, 0.017, 0.0963), 0.0021, 0.0006, segments=10)                # the bore (dark muzzle)
+    box(steel, (0, 0.0300, 0.0700), (0.0025, 0.0050, 0.0030))                  # front sight post
+    box(steel, (0.0035, 0.0290, 0.0700), (0.0012, 0.0035, 0.0040))            # its guards
+    box(steel, (-0.0035, 0.0290, 0.0700), (0.0012, 0.0035, 0.0040))
+    box(steel, (0, 0.0290, 0.0020), (0.0060, 0.0030, 0.0040))                  # rear sight
+    bevel_box(dark, (0, 0.0287, 0.0500), (0.0050, 0.0030, 0.0070), 0.0012)     # charging knob on the cover
+    bevel_box(poly, (0, 0.0025, 0.0580), (0.0150, 0.0090, 0.0400), 0.0025)     # handguard under the front
+    bevel_box(poly, (0, -0.0090, 0.0000), (0.0115, 0.0340, 0.0160), 0.0030, axis=1)   # pistol grip, up into the receiver
+    bevel_box(steel, (0, -0.0420, -0.0005), (0.0080, 0.0300, 0.0110), 0.0012, axis=1)  # magazine out of the grip
+    box(dark, (0, -0.0565, -0.0005), (0.0095, 0.0020, 0.0125))                 # its base plate
+    box(steel, (0, -0.0040, 0.0140), (0.0040, 0.0020, 0.0170))                 # trigger guard (bottom)
+    box(steel, (0, 0.0005, 0.0225), (0.0040, 0.0080, 0.0020))                  # (front)
+    box(dark, (0, 0.0010, 0.0105), (0.0020, 0.0060, 0.0020))                   # trigger
+    box(dark, (0, -0.0020, -0.0110), (0.0070, 0.0060, 0.0050))                 # grip safety
+    # the folding stock, folded (as the Uzi is carried, and the HUD icon's stub): a hinge at the receiver's
+    # rear, two flat struts forward along its lower sides, the chamfered butt plate hanging under the
+    # barrel nut. Open, its butt plate filled the first-person view's lower right corner.
+    tube(steel, (0, 0.0090, -0.0110), 0.0030, 0.0030, segments=10)             # hinge
+    for x in (-0.0089, 0.0089):
+        tube_between(steel, (x, 0.0090, -0.0105), (x, 0.0040, 0.0740), 0.0014, 0.0014, 8)
+    bevel_box(dark, (0, -0.0020, 0.0790), (0.0160, 0.0200, 0.0040), 0.0035)    # butt plate (rubber), chamfered
     return scene_with([("steel", steel.mesh(mat(BLUED, 0.9, 0.3, name="steel"))),
-                       ("wood", wood.mesh(mat(WALNUT, 0.1, 0.55, name="wood"))),
-                       ("drum", brass.mesh(mat(STEEL, 0.85, 0.35, name="drum")))]), 0.17
+                       ("poly", poly.mesh(mat(OLIVE, 0.1, 0.7, name="poly", kind="skin"))),
+                       ("dark", dark.mesh(mat(RUBBER, 0.3, 0.7, name="dark")))]), 0.110
 
 
 def silenced_mg():
