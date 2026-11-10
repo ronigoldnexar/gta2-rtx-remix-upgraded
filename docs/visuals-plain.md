@@ -117,6 +117,15 @@ there is already the cool night tint, so the fill reads blue-grey. Same pose, fi
 bil 19.0 -> 34.4), 19:00 (-11.4) +7-10 %, night unchanged. Zero on an RTX Remix device
 (`g_skyRemix`); classic draws no world shading.
 
+Then the art side, as the coordinator asked once FIX-REMIX-MATERIALS-9 had lifted the dark ste
+wall art to an albedo floor in the Remix layer: `tools/photo_albedo_floor.py` scales the street
+views' photo copies of ste's darkest wall tiles to a mean luma of 70 (103, 105, 109 green stone at
+the filer's pose x1.23-1.52; 168-170 dark planks x1.26-1.42), a plain multiply that keeps the hue and
+the art's own contrast. Classic draws the HD set and Remix never loads photo/, so neither changes;
+originals in the host's `backup_fw13_photo/ste`. At the filer's spot (out/qa_fw13ab1 before,
+out/qa_fw13flr_ste after) the shaded green wall goes from a near-black 32 to a textured dark green
+41 at noon.
+
 ## Costs
 
 (Filled in from the measurement runs below.)
