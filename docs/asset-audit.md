@@ -466,3 +466,34 @@ classic. Proposals for the owner (not shipped; NEEDS OWNER 33):
   model_prims.txt (emission 3.0 like pickup_health__lit, a normal and roughness map each); the check now reports 0 missing
   for token_*/pickup_*. The 52 DDS are in the coordinator bundle `layer_deploy/FIX-WORLD-15` (not in git). Not filmed
   under Remix.
+
+## 15. Pylon lattice, a mislabelled wall and the near clip (FIX-WORLD-16, 10 Nov 2026)
+
+**qav59, bil pylon (bil 237,139: a partial block, sides 69 over 70).** The lattice is painted near black in the
+game's own art (tile 70: 12 % opaque, mean RGB 12 in the classic 64 px tile, 10 in the HD copy), so in the street
+views the sun had nothing to light. It looked like a jet-black cut-out at dawn while the lamp post beside it was lit.
+The classic view draws the same black lattice and stays as it is. In the street-view photo set
+(`assets/textures_hd/photo/bil/tile_0069.dds`, `tile_0070.dds`, written by `tools/street_ground_tiles.py steel`,
+not in git, they ship with the textures archive and reach the play page at a restage), the lattice is dark painted
+steel: luma ~60, a cool grey, lighter along each strut's rim. It keeps the HD tile's alpha (the holes) exactly; the
+HD DDS and so the Remix hashes are untouched. Tile 69's bright top box is kept.
+The first person's "black slab" came from the eye standing inside that partial block: the filer's log has
+`fp eye 237.45,2.43,116.87 ... surface 0.242`, so one of its lattice faces was seen edge-on 0.24 block from the
+lens. The renderer now clips sparse see-through lattices in first person only: keyed tiles under 30 % opaque,
+90 per district set at load, logged as `tiles: N sparse see-through lattices`. A world-space user clip plane
+0.35 block ahead of the eye applies to their batches alone (`Renderer::SetSeeThroughNearClip`, set by
+`WorldView` each frame). `[devtools] lattice_clip=<hundredths of a block>`, 0 = off, re-read once a second.
+Fences and walls that are mostly opaque are not affected, nor is any other view.
+Verified: out/qa_fw16e, a fixed camera at the filer's eye pose, 06:00, lattice_clip 0 then 35: with the clip off,
+the near face fills the frame as a girder; with it on, the near brace goes and the posts further off stay. A
+third camera 3 blocks away shows the pylons as lit grey steel. out/qa_fw16d is the filer's own repro (the walk
+diverged from the filer's and the eye did not end inside the pylon): no slab in the first person, and the pylon
+reads as steel. Not verified: a chain-link fence or grille under 30 % opaque within 0.35 block of a first-person
+eye also loses its nearest part (intended: no frame-wide black mesh, but not framed). Remix: the photo set and the
+clip are plain-GL only; Remix draws the HD lattice.
+
+**qav60, wil 428.** The ground floor of the green pilastered block at wil 39-43,168-171 (the floor above is
+416/418) is plain green panels between pilasters, but `tools/facade_boxes.json` boxed three panels as "window".
+At night the glow filled them as flat beige blocks stepped on the 64 px grid. The fix is `NOT_GLASS` in
+`tools/facade_window_table.py`, with the table regenerated (1017 boxes on 475 tiles). Verified: out/qa_fw16c,
+the filer's repro, against out/qa_qav60a.
