@@ -1324,3 +1324,24 @@ turn over feet that stay on the same pixels, then a foot steps), ab_strip.png (o
 Not done: a mocap turn clip (the Rocketbox set has none under a CC0/MIT-class licence); slow turns
 (under 1 rad/s) are covered by the 17-degree trigger but were not filmed (the probe's turn is the game's
 fixed rate).
+
+### pfl20: the first-person walk bob in step at any frame rate
+
+The FIX-FIGURE-7 hand bob was there (amp 0.5-0.8 while walking, `fpvm:` lines under GTA2DX9_LOG_JOINTS=1)
+but its phase ran on the clock at 1.9 Hz (3.8 Hz footfalls): on a CPU-starved capture (the filer's FPS=0
+run, ours at CPUS=2: the game drew ~10 frames a second) it was sampled into a slow drift with no cadence.
+Now the phase is driven by the ground covered, one cycle (two footfalls) per 0.76 block, the third-person
+run cycle at his pace, plus a little clock time while he creeps; the bob is 30 % larger (down 0.0065, side
+0.0045 block at full pace). Measured on the pfl31 walkway (gamerun/keys_fig10_fpw.sh, 30 fps, CPUS=4,
+hand-skin centroid at 640x360): HEAD fig10_fpw4b vertical about +-1.7 px; fig10_fpw4 +-4-5 px at a
+0.35-0.4 s period and a +-10 px side sway at ~0.73 s. The eye bob in step is the camera's (view_modes.cpp).
+
+### pfl23 (view-model half): no frame without his figure or the gun on V into first person
+
+On the 0.8 s move into his eyes his figure leaves the picture (under the frame's bottom edge, behind the eye,
+outside the frustum, or cut at the lens within 0.15 of it) a few frames before it is hidden as his own; the
+view model was drawn only once he was hidden: 2 (pfl23a) to ~20 (fig10_v1) frames with neither. Now in first
+person any frame on which his own figure is left out, or has its chest and head (0.55 and 0.88 of his
+height) off the picture, draws the view model (`g_ownLensFrame`). fig10_v4 (gamerun/keys_fig10_v.sh, two V
+presses while firing the machine gun): every frame shows his figure or the gun and hands. The camera's dive
+(the hero cropped to a head at the bottom edge before the hand-over) is FIX-CAMERA-10's.
