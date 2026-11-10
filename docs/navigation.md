@@ -1164,3 +1164,22 @@ went to the frame's bottom edge (A-Type 042) or down over the gauges.
   - Still short: paths wander per run, so no same-spot A/B; the filer's plaza-corner van case (tri15_p28, keys_pfl28.sh)
     is not re-reached by this probe; a cut is a cut (an AAA chase rig would blend 0.2 s), and the car in a dark pocket
     after the side cut reads small.
+
+## The beat's hand-back at the wheel in first person; warp probes and the game's camera (FIX-CAMERA-15, 10 Nov 2026)
+
+- cam14-fp-at-the-wheel-beat-hand-back-fades-in-with-no-cab-wheel-or-hands-for-0p7s: a BUSTED or WASTED beat
+  (beats.cpp) lasts 0.9 s past its hand-back: its camera share is already 0 and the first-person eye back in the
+  seat while the picture fades in from black. The own car and figure were hidden from the seat only once the beat
+  had ended (`!BeatActive()` in world_view.cpp), so for ~27 frames the car was drawn whole round the seat's eye
+  (the bare bonnet, no dash, wheel or hands), then the whole cockpit popped in. Now the beat holds the own-body
+  gate only while its camera share is above 0 (or in its first 0.5 s): from the hand-back the car is drawn from
+  the seat (`seat gate ... own=1` from the first hand-back frame, run cam15_bust2; before: own=0 for 0.9 s, run
+  cam15_bust1). Probe: gamerun/keys_cam14_bust.sh (forced BUSTED at the wheel, [devtools] force_big_message).
+  `GTA2DX9_CAM_BEAT_SEAT_HIDE=0` restores the old gate (A/B).
+- qaexp5 (third person, the Downtown fire truck at the fire station "camera inside the body for 9 s") was a probe
+  artefact, not the camera: after an F9/F10 warp the game's own top-down camera scrolls to the player at about
+  6 blocks a second (`cam[N] bounds=` lines, every 64 frames), and the game submits no sprite outside its window,
+  so no car body and no figure reach the renderer until it arrives (190 blocks: 20 s). The eye stood 1.4-1.5
+  blocks behind the 1.92-block truck's centre, outside it. gamerun/cam15_fire.py waits for the bounds to hold the
+  player before boarding: the truck is drawn in every frame from the boarding to the drive-off. Any probe that
+  warps must settle the game camera this way before filming cars or figures.

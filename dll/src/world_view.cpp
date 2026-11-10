@@ -2495,7 +2495,16 @@ void WorldView::ApplyPresentation(ViewMode mode) {
         // From his own eyes he is not in the picture, nor is the car he is
         // in; behind him, both are.
         // (QB-17/18: a beat's camera stands outside him, so he is drawn through it.)
-        const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody && !BeatActive();
+        // FIX-CAMERA-15 (cam14-fp-at-the-wheel-beat-hand-back-fades-in-with-no-cab-wheel-or-hands-for-0p7s): the
+        // beat lasts 0.9 s past its hand-back (the picture fades in from black with its camera share already 0
+        // and the eye back in the seat); keyed on BeatActive() the car was drawn whole round the seat's eye for
+        // those ~27 frames (the bare bonnet, no dash, wheel or hands, then the cockpit popped in, run cam15_bust1).
+        // From its hand-back on he is seen from his own eyes again. GTA2DX9_CAM_BEAT_SEAT_HIDE=0 restores the old
+        // gate (A/B).
+        static int beatSeatHide = -1;
+        if (beatSeatHide < 0) { char b[8] = {}; beatSeatHide = GetEnvironmentVariableA("GTA2DX9_CAM_BEAT_SEAT_HIDE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        const bool beatHoldsCamera = BeatActive() && (!beatSeatHide || Beat().camera > 0.0f || Beat().t < 0.5f);
+        const bool hide = mode == ViewMode::FirstPerson && ViewModes().fpHideOwnBody && !beatHoldsCamera;
         // FIX-FP-ENTRY (feel11): for the first half second out of a car in first person the eye glides
         // out of the seat through the door; his car stays drawn as from the seat (the cut hull, the cab)
         // until then, so the eye is never inside a whole body (which drew nothing: the car vanished).
