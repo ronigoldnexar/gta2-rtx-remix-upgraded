@@ -207,25 +207,15 @@ bool OnAllocFailure(size_t bytes, int attempt) {
     return retry;
 }
 
+std::terminate_handler g_previousTerminate = nullptr;
 void OnTerminate() {
-    // An exception nobody caught (std::bad_alloc included) used to end the process with only
-    // the C++ runtime's message on stderr: leave the reason and the counters in the log first.
-    const char* what = "unknown";
-    try {
-        std::exception_ptr e = std::current_exception();
-        if (e) std::rethrow_exception(e);
-        what = "no active exception";
-    } catch (const std::bad_alloc&) {
-        what = "std::bad_alloc";
-    } catch (const std::exception& ex) {
-        what = ex.what();
-    } catch (...) {
-    }
+    // The process is ending on an exception nobody caught (FIX-STABILITY-1's handler, installed after
+    // this one, writes the FAULT line with the exception and the window state, then calls this): the
+    // memory counters go with it, since std::bad_alloc is the exception a full address space throws.
     if (g_reserve) { VirtualFree(g_reserve, 0, MEM_RELEASE); g_reserve = nullptr; }
-    Log("FAULT: std::terminate: uncaught exception (%s); the process ends now", what);
+    MemStatsLog("at std::terminate", 1);
     LogFlush();
-    MemStatsLog("terminate", 1);
-    LogFlush();
+    if (g_previousTerminate) g_previousTerminate();
     abort();
 }
 
@@ -322,7 +312,7 @@ void MemStatsViewChange(int fromMode, int toMode) {
 bool MemoryEmergency() { return g_emergency.load() != 0; }
 
 void MemStatsInit() {
-    std::set_terminate(OnTerminate);
+    g_previousTerminate = std::set_terminate(OnTerminate);
 }
 
 }  // namespace gta2dx9

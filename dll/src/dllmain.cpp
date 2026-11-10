@@ -1802,7 +1802,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         g_self = module;
         DisableThreadLibraryCalls(module);
         gta2dx9::OpenLog();
-        gta2dx9::MemStatsInit();   // FIX-PERF-4: an uncaught exception leaves a FAULT line
+        gta2dx9::MemStatsInit();   // FIX-PERF-4: the memory counters at std::terminate (before InstallLastWords, which chains to it)
         Log("gta2dx9.dll attached to pid %lu, loaded at %p", GetCurrentProcessId(), static_cast<void*>(module));
         InstallLastWords();   // FIX-STABILITY-1: terminate / abort / unhandled exceptions log first
         CheckOriginalBlitStores(module);

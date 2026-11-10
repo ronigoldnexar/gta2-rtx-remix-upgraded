@@ -1228,8 +1228,8 @@ V switching at Industrial. gta2.exe is a 32-bit large-address-aware process: wha
   the address space on the first frame is released, a `FAULT: allocation of N bytes failed` line and the
   counters are logged, and the view is dropped to classic and held there
   (`FAULT: memory emergency: the street views are off for the rest of the session`). An exception that
-  still escapes logs `FAULT: std::terminate: uncaught exception (...)` with the counters before the
-  process ends.
+  still escapes is logged by FIX-STABILITY-1's handler (`docs/stability.md`), which then calls this one:
+  a `mem: at std::terminate` line with the counters follows its FAULT line.
 
 ### Where the address space goes (Industrial, rapid V switching, before any fix)
 
