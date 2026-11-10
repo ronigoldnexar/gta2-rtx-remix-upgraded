@@ -668,3 +668,27 @@ own-paint measurement (now with the up-facing raster) is 13-50 ms per model on t
   texture's speckle shows; the sprite's painted highlights (the bright bonnet spot) are not reproduced by the light.
 - Traffic parity (`out/fci4_tr_{old,new}_{ste,wil,bil}`, before the world-sun rebase) stays noisy (crops of dark
   street, occluded cars): read the sheets, not the WARN count.
+
+### 9.5 The per-build parity run (one command)
+
+    GTA2_GPU=<n> tools/identity_parity_run.sh <stage dir> [name]
+
+Queues two sessions on the stage through `gamerun/grun.sh` (~9 minutes of one slot) and writes `out/<name>_parity.md`;
+the exit status is the number of failures, so DEFECT-TRIAGE and the restage gate (`linux/docker/restage.sh`, after
+`stage_smoke.sh`) can call it on a candidate stage and refuse on a non-zero status:
+
+1. `keys_identity_parity.sh` (section 6.5): the player on foot and in the car the warp key seats him in, classic /
+   3D at the classic camera / third / first at the same moment; `tools/identity_parity.py`: one fingerprint per entity
+   across the views, colours against the classic sprite, the car's silhouette (IoU).
+2. `keys_paint_parity.sh` + `paint_parity_probe.py` (tracked in `linux/docker`, copied into `gamerun/` when missing): the
+   player's stopped car forced to one model per body class (`PARITY_MODELS`, default 13 authored sedan, 0 and 18
+   generated, 63 authored truck cab, 68 authored van), painted as a sprite of six colours (dark red, navy, black,
+   yellow, green, white), seen from the classic camera's pose (regression camera); `tools/paint_parity.py`: the paint
+   pixels (those that change between two paints) against the sprite paint: hue FAIL over 15 degrees, lightness WARN over
+   10 % and FAIL over 25 % for the chromatic paints; black, navy and white are reported (the dark floor and white's
+   ceiling, 9.4), never failed. This half is deterministic (forced model and paint, fixed camera): it measures the paint
+   apply itself, where the traffic probe (6.5) measures whatever passes.
+
+Liveries (cop, taxi, bus, ambulance) draw untinted and are not in the paint half: their parity is the record check in
+(1) and the traffic sessions of 6.5. Known FAILs on 10 Nov: 040 Maurice's lids (art, 9.4) if it is added to the list.
+
