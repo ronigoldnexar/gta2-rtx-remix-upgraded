@@ -11578,12 +11578,12 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.54,
-"veg": 0.931,
+"struct": 0.34,
+"veg": 0.938,
 "wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "pave",
+"ground": "corr",
 "wet": false
 },
 "3D72F7DB129B8213": {
@@ -32995,13 +32995,12 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.8,
+"struct": 0.25,
 "veg": 1.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "pave",
-"lift": true,
+"ground": "corr",
 "wet": false
 },
 "A2EDE70408EDEE7C": {

@@ -1869,3 +1869,48 @@ Under Remix the classic view sees the same prims from above. The plain renderer 
 Tile 61 (FUTURO RADIO) is not changed. The blur of the disc art is the 512 px HD tile's own resolution (a world-art item).
 Deploy the bundle together with this commit: until the plates' `.e.rtex.dds` exist, their emission has no mask and the
 whole plate would glow.
+
+## The green "lawn" is a steel roof: class corr (FIX-REMIX-MATERIALS-9, 10 Nov 2026)
+
+prxr1 filed the green slabs at wil 203.5,237.5 as a lawn that read as a corrugated roof, with dark grooves and shadow stripes
+across it. The slab is wil tile **108**, and it is a roof. Its 901 lids sit at levels 4-6 (none at street level), many on
+roof slopes (45° and ramp slopes), inside grey parapet rims on the industrial sheds. Its tile neighbours 107-124 are roof
+panels, and no map tree block (slopes 49-52) stands on it. GTA2 types it "field", as it does many roofs, so REMIX-MATERIALS
+put it in `VEG_LIFT` and lifted it to a bright lawn green. The trees and lamp on the slab are the renderer's rule props, not
+the map's own trees.
+
+The 64 px art is a box-profile sheet: 11 ribs across the 4 m tile (about 36 cm pitch), dark 2-3 px bands between
+3-4 px pans, with rust drips under the fixings. The upscaler drew each band as a pair of thin black lines. `analyse()` then
+made those lines grooves in the normal (tilt p90 29°), so path traced the roof was a field of black hairlines, each with a
+dark groove beside it. The plain street views draw the photo set's `photo/wil/tile_0108.dds`, which is the same corrugated
+green sheet with dark lines: that look is the world seat's.
+
+**Class `corr`** (`remix_pbr.CORRUGATED`: wil 108 and its edge tile 121; 111 and 123 are mostly black gutter and stay as they
+were). `remix_pbr.corrugated()` builds the layer's maps:
+- **Albedo:** a horizontal grey closing (19 texels, capped at 1.15x the local paint) fills the hairlines, the column profile
+  of the baked rib shading is divided out, and half of the upscaler's 2-12 texel leaf-vein smudge band is removed. The
+  drips and grime stay. The lawn lift is gone, so the albedo is the art's own darker paint green.
+- **Normal:** the ribs are geometry. They are raised trapezoids wherever the art has its dark bands, read from the HD
+  tile's smoothed column profile, with flanks of about 40° over about 6 texels (`CORR_GAIN`). The paint keeps only a faint
+  grain.
+- **Roughness and metal:** satin painted steel (0.40-0.72, rougher in grime) and no metal map (paint is a dielectric).
+
+Build and merge:
+
+    $P tools/remix_materials.py - <scratch>/gta2hd --dds-tiles repo/assets/textures_hd/wil --size 512 --map-size 256 \
+        --gmp-dir game/data --only-classed --classes corr --force
+    $P tools/remix_materials.py - <scratch>/gta2hd --wet-layer
+    $P tools/remix_layer_merge.py <scratch>/gta2hd <layer> <hashes> --tiles      # A2E4F888C9C6C552, 3D5D2D88FD953D80
+
+`mod.usda` is unchanged by this. `pbr.json` gets `ground: corr` for both hashes. The six DDS are in
+`layer_deploy/FIX-REMIX-MATERIALS-9/`.
+
+**Seen path traced** (GPU 4, `playtest_remix.sh` at the filer's point, REMIX_NVCACHE=1, `GTA2DX9_SCENE_NO_CAR=1`). Before
+is `fm9_corr0` (the shared layer); after is `fm9_corr1` (`MODS_HD_SRC` = the shared layer with these prims merged):
+- **10:00, third person, same pose:** before, bright lawn green crossed by dark hairlines, each with a groove shadow, plus pale
+  leaf-worm smudges. After, a clean painted sheet with soft ribs and paint mottling: no hairlines, no smudges, no stripes.
+- **17:00:** the after take's camera faced the ridge, not the before take's heading. It shows a pitched roof reading as
+  box-profile steel, with the sunlit rib flanks catching the low sun.
+
+Still short: the trees and lamp standing on a shed roof (rule props on a field-typed roof lid, props seat). The art's
+own rib pitch is uneven (5-6 px at 64 px), which an authored roof would not be.

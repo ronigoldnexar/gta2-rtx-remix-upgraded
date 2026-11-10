@@ -189,6 +189,65 @@ def micro_surface(cc0, cls, size, amp=1.0):
     gain = np.exp(amp * (0.09 * ga * g - 0.08 * grime))
     return gain.astype(np.float32), (amp * ra * hgt).astype(np.float32), (amp * grime).astype(np.float32)
 
+# FIX-REMIX-MATERIALS-9 (prxr1-remix-wil-day-third-first-lawn-slabs-read-as-corrugated-green-roof...): wil 108
+# is not a lawn: it is the green box-profile steel roof of the industrial sheds (lids at levels 4-6, many on
+# roof slopes, inside grey parapet rims; its neighbours 107-124 are roof panels; field-typed, like many roofs).
+# The game's 64 px art is 11 ribs across the tile (~36 cm pitch on a 4 m block): dark 2-3 px bands (the ribs)
+# between 3-4 px pans, with rust drips under the fixings. The upscaler drew each rib as a pair of thin black
+# lines, and analyse() made those lines grooves, so path traced the roof was a field of black hairlines with a
+# dark groove shading each (the filer's "corrugated sheet / ploughed field"). Class "corr": the albedo is the
+# paint (the hairlines closed, the baked rib shading divided out, the drips and smudges kept), the ribs are
+# real geometry in the normal (raised trapezoids where the art has its dark bands, CORR_GAIN), painted steel
+# roughness (satin, rougher in grime), no metal map (paint is a dielectric).
+CORRUGATED = {"wil": {108, 121}, "bil": set(), "ste": set()}   # 111/123 are mostly black gutter: no ribs found
+CORR_GAIN = 0.9      # rib height (0..1) to slope per texel at 512 px: ~40 deg flanks over ~6 texels
+
+def corrugated(rgba):
+    """(albedo uint8 RGBA, rib height float 0..1) for a box-profile roof tile whose ribs run along v."""
+    h, w = rgba.shape[:2]
+    S = max(h, w) / 512.0
+    rgb = rgba[..., :3].astype(np.float32) / 255.0
+    Wl = np.array([0.2126, 0.7152, 0.0722], np.float32)
+    lum = rgb @ Wl
+    hue, sat, val = hsv(rgb)
+    sheet = ((hue >= 65) & (hue < 170) & (sat > 0.2) & (lum > 0.04)).astype(np.float32)   # the green sheet, not black gutters
+    sheet = (gauss(sheet, 6.0 * S) > 0.5).astype(np.float32)        # its black hairlines and specks belong to it
+    # the hairlines: thin dark columns. A horizontal grey closing (max then min over ~9 texels) fills them.
+    r = int(round(9 * S)) or 1                    # a rib's line pair spans up to ~16 texels
+    def hmax(a): return np.max(np.stack([np.roll(a, i, 1) for i in range(-r, r + 1)]), 0)
+    def hmin(a): return np.min(np.stack([np.roll(a, i, 1) for i in range(-r, r + 1)]), 0)
+    closed = np.stack([hmin(hmax(rgb[..., c])) for c in range(3)], -1)
+    # never keep the closing's own over-brightening: no texel brighter than the unclosed paint around it
+    ref = np.stack([gauss(rgb[..., c], 6.0 * S) for c in range(3)], -1)
+    closed = np.minimum(closed, np.maximum(ref * 1.15, rgb))
+    closed = np.where(sheet[..., None] > 0, closed, rgb)
+    cl = closed @ Wl
+    # the ribs: where the art's (smoothed) column profile is darker than its median, over sheet columns
+    colw = sheet.sum(0) + 1e-3
+    col = (lum * sheet).sum(0) / colw
+    k = np.exp(-0.5 * (np.arange(-16, 17) / (4.0 * S)) ** 2); k /= k.sum()
+    colp = np.concatenate([col[-16:], col, col[:16]])
+    sm = np.convolve(colp, k, "same")[16:-16]
+    ribc = (sm < np.median(sm) - 0.004).astype(np.float32) * (sheet.mean(0) > 0.3)
+    # trapezoid: soften the flanks to ~6 texels, flat crown and pan
+    kk = np.exp(-0.5 * (np.arange(-16, 17) / (2.2 * S)) ** 2); kk /= kk.sum()
+    rp = np.concatenate([ribc[-16:], ribc, ribc[:16]])
+    ribh = np.clip(np.convolve(rp, kk, "same")[16:-16], 0, 1)
+    rib = np.tile(ribh[None, :], (h, 1)) * gauss(sheet, 1.5 * S + 0.5)
+    # the baked rib shading out of the paint: luminance over its column profile (the drips are not columnar)
+    cc = (cl * sheet).sum(0) / colw
+    ccs = np.convolve(np.concatenate([cc[-16:], cc, cc[:16]]), k, "same")[16:-16]
+    flat = float(np.median(ccs))
+    gain = np.where(sheet > 0, flat / np.maximum(ccs[None, :], 1e-3), 1.0)
+    # the upscaler's faint leaf-vein smudges: halve the 2..12 texel band of the luminance
+    L2 = cl * gain
+    band = gauss(L2, 2.0 * S) - gauss(L2, 12.0 * S)
+    L3 = np.clip(L2 - 0.5 * band * sheet, 0, 1)
+    out_rgb = closed * (L3 / np.maximum(cl, 1e-3))[..., None]
+    out = rgba.copy()
+    out[..., :3] = np.clip(np.rint(out_rgb * 255), 0, 255).astype(np.uint8)
+    return out, rib.astype(np.float32)
+
 def mural_like(rgba):
     """True for a wall tile that is mostly paint of several hues (murals, mosaics, painted
     signs): at least 12 % saturated, bright texels spread over three or more 30-degree hue bins."""
@@ -201,7 +260,7 @@ def mural_like(rgba):
     bins = np.bincount((hue[s] // 30).astype(int) % 12, minlength=12) / s.size
     return bool(s.mean() > 0.12 and (bins > 0.02).sum() >= 3)
 
-def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0, ground=None, micro=None, glass_mask=None):
+def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0, ground=None, micro=None, glass_mask=None, corr=None):
     """Maps for one texture (uint8 RGBA, any size). Returns a dict:
     normal (h, w, 3 float, DirectX tangent space), rough / rough_wet / metal / height
     (uint8 h, w; metal and height None when the texture has none), displace (float,
@@ -363,6 +422,9 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
     if micro is not None:                          # FIX-REMIX-MATERIALS-4: scan micro-surface (micro_surface)
         mh, mg = micro
         rough = np.clip(rough + 0.07 * mg - 0.025 * np.clip(mh, -2, 2), 0.55, 0.98)   # grime rougher, worn tops smoother
+    if ground == "corr":                           # FIX-REMIX-MATERIALS-9: painted steel roof, never metal or chrome
+        metal &= False; chrome &= False; metal_map = None
+        rough = gauss(np.clip(0.50 + 0.10 * (busy - 0.4) + 0.8 * grime, 0.40, 0.72), 0.6 * S + 0.2, wrap)
     if ground == "iron":                           # FIX-REMIX-MATERIALS-4: painted iron, never metal or chrome
         metal &= False; chrome &= False
         rough = gauss(np.clip(0.62 + 0.12 * (busy - 0.4) + 0.6 * grime, 0.52, 0.72), 0.6 * S + 0.2, wrap)
@@ -375,7 +437,11 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
         region = gauss(region.astype(np.float32), 1.5 * S + 0.5, wrap)          # soft edge, 0..1
         w_s = w_s * (1 - region * (1 - MURAL_GAIN[0]))
         w_g = w_g * (1 - region * (1 - MURAL_GAIN[1]))
+    if ground == "corr":                           # the ribs are geometry; the paint has only a faint grain
+        k_s = 0.0; k_g *= 0.25
     Hn = (k_s * Hs * w_s + k_g * Hg * w_g) * visf
+    if corr is not None:
+        Hn = Hn + CORR_GAIN / S * corr * 6.0 * visf
     if micro is not None:
         Hn = Hn + MICRO_GAIN / S * micro[0] * visf
     nx, ny = grad(Hn, wrap)
