@@ -30,6 +30,7 @@ float4 cToWorldY   : register(c10);  // view -> world y (height, blocks)
 float4 cK3         : register(c11);  // blur per block of ray (uv), blur cap (uv), hit fade start (share of the march), 1/(fade length)
 float4 cK4         : register(c12);  // x: 1 = the mirror on ground lids only (0 = every face that looks up), y: least blur (uv),
                                      // z: Fresnel floor (0.40 before), w: gloss in a puddle (0.85 before)
+float4 cK5         : register(c13);  // x: depth tolerance (blocks) of the cover test (qav28, 0.30; -1 = off, before)
 
 sampler2D sLit    : register(s4);
 sampler2D sDepth  : register(s1);
@@ -73,9 +74,15 @@ float3 ViewNormal(float2 uv, float3 p) {
 float4 ps_wet(WetIn i) : COLOR0 {
     float4 lit = tex2Dlod(sLit, float4(i.uv, 0, 0));
     float d = DepthAt(i.uv);
-    float sky0 = St(0.999999, d);   // the sky: left as it is (no branches in this compiler)
     d = min(d, 0.999);
     float3 p = ViewPos(i.uv, d);
+    // qav28 (FIX-WORLD-15): a floor with a surface one block above it (the Downtown plaza's pit
+    // floor under its lattice grates, a lid under a gantry deck) is covered, no open puddle: its
+    // mirror rays went up into the grate and came back as pale sky and wall blobs in every hole.
+    // The point a block above the floor, projected: a surface drawn there at that depth covers it.
+    float3 cv = p + cUp.xyz * 0.95;   // (before the normal: fewer live temporaries, r31 limit)
+    float cz = LinearZ(DepthAt(cK.xx + cK.xx * float2(cv.x / (cv.z * cProj.z), -cv.y / (cv.z * cProj.w))));
+    float open = St(cK5.x, abs(cz - cv.z));
     float3 n = ViewNormal(i.uv, p);
     float up = dot(n, cUp.xyz);
     float flat = smoothstep(0.80, 0.95, up);
@@ -85,7 +92,7 @@ float4 ps_wet(WetIn i) : COLOR0 {
     // the light darkening of a wet wall and no mirror. cK4.x = 0 (with the rest: [visuals] debug 128) = old.
     float hW = dot(float4(p, 1.0), cToWorldY);
     float ground = saturate(1.0 - (abs(frac(hW + 0.5) - 0.5) - 0.03) * 14.0);
-    flat *= lerp(1.0, ground, cK4.x);
+    flat *= lerp(1.0, ground, cK4.x) * open;
     float fog = saturate((p.z - cWet.x) * cWet.y);
     float wet = cUp.w * (1.0 - fog);
 
@@ -148,5 +155,8 @@ float4 ps_wet(WetIn i) : COLOR0 {
     float gloss = wet * flat * lerp(0.28, cK4.w, puddle) * cZenith.w * (0.5 + 0.5 * near);
     float amount = saturate(gloss * (cK4.z + (1.0 - cK4.z) * f));
     col = lerp(col, reflCol, amount);
+    // the sky: left as it is (no branches in this compiler); its test re-reads the depth here instead of
+    // holding a temporary through the march (FIX-WORLD-15: room for the cover test under the r31 limit)
+    float sky0 = St(0.999999, DepthAt(i.uv));
     return float4(lerp(col, lit.rgb, sky0), lit.a);
 }

@@ -163,3 +163,14 @@ wet pass is one full-screen draw with 10 depth taps and the streaks one `DrawPri
 - **Lamp pools (QB-35)**: not achieved, see above; night is dark away from lit windows and car
   lamps, the blue hour reads best. Next step: log `ps_light`'s inputs for one map lamp
   (`[visuals] debug=32` already dumps the provider's list).
+
+### Covered floors (qav28, FIX-WORLD-15, 10 Nov 2026)
+
+The Downtown plaza's grates (wil lattice lids 193/196 over the pit floor 608 a block lower) showed pale sky-blue and brown
+blobs in their holes whenever the pass ran: the pit floor is a ground lid at a whole block, so it took the puddle mirror,
+and its rays went up into the grate and came back as the sky fallback or a far wall. `ps_wet` now projects the point
+0.95 block above the floor pixel; when the depth drawn there is within 0.30 block of that point's depth, something covers
+the floor (a grate, a deck, a gantry) and it keeps the wet darkening but no mirror. The open street is unchanged (same-pose
+diff out/qa_fw15c: only the walking peds differ outside the grates). `[visuals] debug=256` = the test off (live A/B). To
+stay at r31 the sky test re-reads the depth at the end instead of holding a temporary through the march. Residual: a
+floor point whose projected point falls in a grate hole (17%) still mirrors, so a few pale specks remain far off.

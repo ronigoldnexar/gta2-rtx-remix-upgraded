@@ -51,23 +51,27 @@ def crisp(hd):
     img = hd.convert("RGBA").resize((SIZE, SIZE), Image.LANCZOS)
     a = np.asarray(img).astype(np.float32) / 255.0
     rgb, alpha = a[..., :3], a[..., 3]
-    # the cut-out: smooth the dithered edge, then a hard step with a one-texel ramp
-    al = np.asarray(Image.fromarray((alpha * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(2.0))).astype(np.float32) / 255.0
-    edge = np.clip((al - 0.42) / 0.16, 0.0, 1.0)
+    # the cut-out: the 64 px mask (the HD alpha is its 8x staircase) box-reduced to the art's own grid, a
+    # bicubic upscale and a ~1.5-texel smoothing so the edge follows the shape's curve, then a hard step
+    # with a one-texel ramp (FIX-WORLD-15 pmq50: the 2 px blur kept the 16 px stairs, seen from half a block)
+    a64 = Image.fromarray((alpha * 255).astype(np.uint8)).resize((64, 64), Image.BOX)
+    al = np.asarray(a64.resize((SIZE, SIZE), Image.BICUBIC).filter(ImageFilter.GaussianBlur(SIZE / 64 * 0.45))).astype(np.float32) / 255.0
+    edge = np.clip((al - 0.46) / 0.08, 0.0, 1.0)
     solid = edge > 0.5
     # palette: k-means on a 64 px-scale sample of the opaque texels
     small = np.asarray(img.resize((128, 128), Image.BOX)).astype(np.float32) / 255.0
     sample = small[..., :3][small[..., 3] > 0.6]
-    k = 9
+    k = 12
     centres, _ = kmeans(sample, k)
     d = ((rgb[..., None, :] - centres[None, None, :, :]) ** 2).sum(-1)
     lab = d.argmin(-1)
     lab = majority(lab, k, solid, passes=3)
     flat = centres[lab]
-    # a little of the spray shading back (the low frequencies of the art round the flat colour)
-    blur = np.asarray(Image.fromarray((rgb * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(6))).astype(np.float32) / 255.0
-    flatb = np.asarray(Image.fromarray((flat * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(6))).astype(np.float32) / 255.0
-    out = np.clip(flat + 0.35 * (blur - flatb), 0.0, 1.0)
+    # the spray shading back: the art's own gradients round the flat colour, down to a 3 px scale, so a
+    # region is not one flat step (a 6 px blur at 0.35 left contour bands, FIX-WORLD-15 pmq50)
+    blur = np.asarray(Image.fromarray((rgb * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(3))).astype(np.float32) / 255.0
+    flatb = np.asarray(Image.fromarray((flat * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(3))).astype(np.float32) / 255.0
+    out = np.clip(flat + 0.85 * (blur - flatb), 0.0, 1.0)
     # one-texel anti-aliasing of the colour boundaries
     out = np.asarray(Image.fromarray((out * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.7))).astype(np.float32) / 255.0
     # the colour under the transparent texels: the nearest solid colour (no dark halo in the mips)

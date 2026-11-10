@@ -1258,7 +1258,7 @@ void PostFx::Resolve() {
             device_->SetSamplerState(2, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
             device_->SetSamplerState(2, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
             const Vec3 upV = Normalize(XformDir(view_, Vec3{0.0f, 1.0f, 0.0f}));
-            float c[13][4] = {};
+            float c[14][4] = {};
             for (int k = 0; k < 4; ++k) { c[0][k] = proj[k]; c[1][k] = screen[k]; }
             c[2][0] = upV.x; c[2][1] = upV.y; c[2][2] = upV.z; c[2][3] = std::min(1.0f, weather.wet) * frame_.blend;
             // view -> world: row-vector points times invView_; the x and z columns.
@@ -1280,7 +1280,10 @@ void PostFx::Resolve() {
             c[11][2] = wetOld ? 1.0f : 0.5f;   c[11][3] = wetOld ? 0.0f : 2.0f;
             c[12][0] = wetOld ? 0.0f : 1.0f;   c[12][1] = wetOld ? 0.0f : 0.007f;
             c[12][2] = wetOld ? 0.40f : 0.25f; c[12][3] = wetOld ? 0.85f : 0.70f;
-            device_->SetPixelShaderConstantF(0, &c[0][0], 13);
+            // qav28 (FIX-WORLD-15): a floor with a surface drawn a block above it (the pit floor under
+            // the Downtown plaza grates) is covered and takes no mirror; [visuals] debug 256 = before.
+            c[13][0] = (cfg.debug & 256) ? -1.0f : 0.30f;
+            device_->SetPixelShaderConstantF(0, &c[0][0], 14);
             DrawQuad(w, h);
             device_->SetTexture(2, nullptr);
             litOut = wetTex_;

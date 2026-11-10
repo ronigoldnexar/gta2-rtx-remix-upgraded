@@ -396,3 +396,67 @@ time with the new props (the counts above are small next to the PERF-2 budget).
 - **prx1, the blocky stop face under Remix** is the runtime's replacement-texture streaming: with
   `rtx.texturemanager.samplerFeedbackEnable` on (the default) a small prop stays on an 8-16 texel mip; off, the 256 px face is
   crisp at the same pose (runs fw12_prx1_rmx / fw12_prx1_rmx2). Config change left to the Remix seat (it applies to every view).
+
+## 14. Ground tiles, graffiti and the covered-floor mirror (FIX-WORLD-15, 10 Nov 2026)
+
+All the tile changes here are photo-set copies (`gta2dx9_textures_hd/photo/<style>/`, workspace
+`assets/textures_hd/photo/`, not in git: they reach the stage through restage.sh). The photo set is loaded only while a
+street view shows and never on an RTX Remix device, so the classic view and the Remix hashes of the HD set are unchanged
+(no `assets/textures_hd/<style>/` file was written). Originals kept in `backup_fw15/photo/` in the workspace.
+
+- **qav28, wil Downtown plaza grates near-black with pale/brown speckle** (lattice lids 193/196, flat, 17% keyed, over the
+  green pit floor 608 one level down at x 61-64, y 105-126). The HD tile painted a black plate crossed by thin white
+  chain-link diamonds, but its alpha is the classic's hole pattern: the holes landed as irregular blobs inside the drawn
+  diamonds, and the opaque metal was at 28/255 against the classic's 43. `tools/street_ground_tiles.py grate` repaints the
+  colour from the classic 64 px tile (bicubic, its detail above a 2-texel low-pass steepened so the grey diagonal strands
+  and dark gaps are crisp shapes, rims darkened at each keyed hole, a fine grain) and keeps the HD alpha exactly (the
+  cut-out and the shadow copy are unchanged). Opaque mean 28 -> 43, the classic's luminance. The other half of the
+  speckle was the wet pass: see docs/weather.md "Covered floors" (the pale blobs in the holes were mirror rays of the pit
+  floor going up into the grate).
+- **qav25, a bare black twig web painted under the ste/bil map trees.** The classic art paints a soft olive tree shadow on
+  the ground tiles under every map tree (ste 513 straw, 529/779/780 grass, 742/949/958 paving round a planter, bil 717);
+  the HD upscale sharpened it into a black branch skeleton, and the street views draw a leafy tree model over it.
+  `street_ground_tiles.py shadow` lifts the thin dark strokes out (inpainted from the ground around them) and puts back a
+  soft crown-sized dapple of the same strokes (35% of their darkness); the tree model's own shadow-map shadow is
+  unchanged. wil's tree ground (835/841) has no painted web.
+- **pmq50, the "giant round fixture" in first person** is ste graffiti tile 355 on the wall the car's nose touches (eye
+  0.47 block from it): FIX-WORLD-7's `graffiti_crisp_tiles.py` reduced the piece to 9 flat colours (contour bands up
+  close) and its 2 px blur of the 8x alpha staircase left 16 px steps on the silhouette. The tool now rebuilds the cut-out
+  from the 64 px mask (box-reduced, bicubic, ~1.5-texel smoothing, then the one-texel step: the edge follows the curve)
+  and gives back the art's gradients down to a 3 px scale (12 palette colours); ste 353/382/383/284 regenerated with it.
+  Not changed: ste 760 (an opaque stained-glass wall tile whose painted arch edge is itself stepped).
+- Frames (same regress-camera poses, noon and 22:30, plain GL): wil grates out/qa_fw15a (old tiles) vs qa_fw15b (new
+  tiles), out/qa_fw15c (new DLL, `[visuals] debug=256` toggled live = the cover test off/on); ste tree and graffiti
+  out/qa_fw15s0 (old stage) vs qa_fw15s1. Not checked: Remix (the photo set is not loaded there; the grate's Remix look
+  is the HD tile and its mod.usda material, unchanged).
+
+### Road lids against their classic tiles (owner10nov-5, the measurable half)
+
+The owner's "world too grey: generic flat teal-grey roads". Every column whose top block is a flat road (ground type 1)
+counted by its lid tile; the classic 64 px tile against what the street views load for it (roads/ set, else photo/, else
+the HD tile), weighted by cell count (luma Rec.601; "px chroma" = mean per-texel max-min, "mean chroma" = max-min of the
+mean colour; /255; hue in degrees):
+
+| district | road cells | set | mean RGB | luma | px chroma | mean chroma | hue |
+|---|---|---|---|---|---|---|---|
+| wil | 14506 | classic | 77 92 84 | 86.4 | 21.2 | 14.1 | 147 |
+| wil | 14506 | street | 75 89 83 | 84.3 | 22.7 | 13.7 | 154 |
+| ste | 14452 | classic | 75 91 85 | 85.6 | 21.0 | 16.6 | 157 |
+| ste | 14452 | street | 74 91 87 | 85.3 | 22.0 | 16.6 | 166 |
+| bil | 12897 | classic | 81 88 71 | 84.1 | 18.0 | 17.0 | 83 |
+| bil | 12897 | street | 81 86 70 | 82.7 | 17.0 | 15.9 | 78 |
+
+Street minus classic: wil luma -2.1, mean chroma -0.4, hue +7; ste -0.3, 0.0, +9; bil -1.4, -1.1, -5. In a frame (wil
+plaza road, noon, clear, wet off: out/qa_fw15c t_classic vs t_c0_h1200) the classic road reads 69 86 87 (luma 81, chroma
+17.5, hue 182) and the third-person road 74 92 94 (luma 87, chroma 20, hue 186). So the street views do not grey the roads
+or shift them teal: the teal-grey (wil/ste) and olive-grey (bil) asphalt is the classic palette itself, kept within ~2
+luma and ~1 chroma by the HD/photo/roads sets and the tone match (+-12% towards the district median). Classic is the
+reference, so by the measurement there is no defect to fix; making the roads less grey is an art direction away from the
+classic. Proposals for the owner (not shipped; NEEDS OWNER 33):
+
+1. Warm neutral asphalt in all three districts: the roads/ set re-graded towards a dark warm grey (hue ~30-40, chroma ~6,
+   luma ~75), markings kept; the classic view untouched. Reads "real city", loses the GTA2 colour coding of districts.
+2. Keep each district's hue but split road and pavement apart in luma: roads 10-15 darker (wet-black asphalt), pavements
+   as they are, so the street reads as a channel instead of one teal-grey plane.
+3. Per-district grading of the whole street view (a colour LUT in post_fx per district: Downtown cooler/steel, Residential
+   warmer, Industrial dirtier), leaving the tiles alone.
