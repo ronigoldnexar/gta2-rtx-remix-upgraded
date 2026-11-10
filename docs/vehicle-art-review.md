@@ -1104,3 +1104,59 @@ texture under the sun, not two paints).
   their image-to-3D facets, dents and ragged pane outlines (authoring them is the remaining cure).
 - Model files: `070_z_type*` and `041_pickup*` in repo/assets/models (the shells' 34 files backed up in
   `/mnt/gta2/gta2-linux/backup_va21/models`): NEEDS A RESTAGE.
+
+## VEHICLE-ART-22 (10 Nov 2026): 035 Benson, 030 Land Roamer and 029 Dementia authored; 027's cone-tip square was a NaN normal
+
+Probes: QA-VISUAL pass 51/55's own repro (`gamerun/keys_qa_qav51.sh` = `to_level.sh` + `qav51.py`: wil 164.5,147.6, the
+player's car parked and forced to each model, fixed regression-camera poses side / front34 / rear34 / eye / high, 18:30
+clock paused, plain GL, GPU 5). Forced models draw untinted (identity.cpp), so these frames judge shape and finish:
+a kit body shows its neutral 235 white. Before: out/qa_va22a (HEAD ac5813dd DLLs, the shipped shells).
+
+- **qav55 027 "flat white square at the cone tip": 40 NaN vertex normals, not a lamp glow, sprite or body art.**
+  The square stayed with `car_lamp_lens` 1 and 0 (out/qa_va22a), so it is not FIX-LIGHTS-1's lens rule. Triangulated
+  from three regress-camera poses it sits on the centre line 0.22 block ahead of the car's middle, at the swirl's
+  front tip. A same-session toggle sweep (`gamerun/va22_ab.py`, out/qa_va22b): it goes with `shell_wheels=0` or
+  `car_coat=0` and stays with every other switch tried (driver_glass, glass_seat, band_interior, cab_interior,
+  tyre_shadows, car_glass). The shipped `027_ice_cream_van.mesh` has 40 vertices at the soft-serve's collapsed tip
+  whose stored normal is NaN (the finite-difference normal of a zero-radius ring). The coat pass over the wheel-split
+  copy turned them into an unlit 0.06-block grey square. Fixes: `model_store.cpp` sets a non-finite normal to +y at
+  load and logs `vertex normals were not numbers` (only 027 of every shipped mesh has any). `carkit.py` gives such a
+  normal its neighbours' mean, so a rebuilt 027 differs from the shipped one in those 40 normals only (its 22
+  textures are byte-identical, so the Remix prims keep their hashes). Verified out/qa_va22c: 027 side / front34 /
+  high with the OLD mesh and the new DLL show no square.
+- **035 Benson authored (`tools/vehicle_art2/car_035.py`; qav55 "shredded see-through shell, ghost canopy").** It is
+  a 1950s Ponton / Adenauer sedan read from the sprite nose down (2.5 x 5.0 m, axles +19/-15 px, windscreen 25 px and
+  back light 49 px from the nose). It has a long bonnet, a tall upright grille in a chrome frame with low side grilles
+  and a star on a stalk, slab pontoon flanks, lamps on the wing fronts (placed on the sampled surface), and an upright
+  four-door greenhouse with door glass, quarter lights and one-piece screens. Inside are benches, a dash and a wheel.
+  Wraparound bumpers have over-riders, and the tyres are whitewalls. It is built on VEHICLE-ART-7's 050 surface
+  recipe. The body sits between the bumpers so that bumper to bumper is the sprite's 5.0 m.
+- **030 Land Roamer authored (`car_030.py`; qav51 "bonnet peppered with black holes").** A Land Rover Series I idiom
+  in flat panels. It has a flat bonnet with the sprite's white star in a ring, flat-topped wings with square openings,
+  and headlamps and side lamps in the wing fronts. A wire-mesh grille sits between them. The split windscreen is
+  upright in a frame. A rounded canvas tilt in its own olive drab covers the cab and the tub, with side screens and
+  the cabin behind them. The spare wheel is on the tail flap, the bumpers are black steel, and the tyres are off-road.
+  The paint is the neutral 235 tinted to the sprite's olive (30 is not a livery model).
+- **029 Dementia authored (`car_029.py`; qav51 "crumpled hull, faceted spikes on the nose").** An Isetta bubble car,
+  egg-shaped in plan and side view, on the B-Type surface recipe with egg profiles. A wide wraparound windscreen sits
+  in the nose door with a shut line round it. The roof dome is pale, as on the sprite. It has bubble side windows, a
+  small back light, lamps on short pods and an engine-lid line. The rear track is narrow and the bumpers are thin.
+  The occlusion is baked before the lamp pods go on: they left dark smudges on the nose.
+- Driver seats are measured by `tools/vehicle_art/seat_anchor.py` (entries added). Without them the sprite's guess put
+  030's driver at the windscreen, with his head through the bonnet (out/qa_va22b).
+- Offline: `hole_scan.py` max back-face share 035 11.9 %, 030 2.3 %, 029 13.4 %. It is the floor pan and a chevron on
+  the end caps, the same class as the shipped 050 (7.4 %), 070 (20 %) and 041 (20 %). There are no holes in the panels.
+  Textures: 16 / 19 / 14 per body, 3.2 / 1.8 / 3.1 MB (the kit budget).
+- Verified (frames opened): out/qa_va22c, the rebuilt bodies at all five poses. 035 is one closed sedan hull with
+  clean grille, lamps, glass and chrome. 030 has flat clean panels, the grille, the lamps, the canvas, the spare and
+  the driver behind the windscreen. 029 is a smooth egg with clean lamps and no spikes. Before: out/qa_va22a.
+- Not verified: Remix (no prims for the new textures, so they draw from their base textures; 027's prims are
+  unchanged); night; moving traffic; first person (FIX-COCKPIT-CAB-6's cab tables have no entry for the new
+  interiors); 022 Armed Land Roamer (still its image-to-3D shell). Paint parity and the classic vreg result are in
+  the work orders.
+- Still short of a shipping-AAA frame: the kit glass is dark, so no cabin reads through it by day. 030's panels are
+  sharp-edged boxes with no bevel, door detail or rivets. 029's nose and tail end in a small flat cap. 035's roof
+  edges carry the kit's AO lines.
+- Model files: `035_benson*`, `030_land_roamer*`, `029_dementia*` (new sets replacing the shells) and
+  `027_ice_cream_van.mesh` go to repo/assets/models with backups in `/mnt/gta2/gta2-linux/backup_va22/models`:
+  NEEDS A RESTAGE.
