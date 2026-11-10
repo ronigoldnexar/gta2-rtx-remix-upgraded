@@ -398,9 +398,37 @@ void ExplosionFxLoad(const char* iniPath) {
         g_set.enabled ? "on" : "off", g_set.size, g_set.flash, g_set.smokeSeconds, g_set.spriteBright, g_set.carLight ? 1 : 0, g_set.eyeBudget);
 }
 
+namespace {
+// FIX-FX-4: where blasts went off, kept 90 s. A blast is forgotten 11 s on (smoke_seconds + 1), and
+// then the burning wreck's own fire sprite (0.85-0.9 tiles, over fire_max_size) was taken for a new
+// blast every 11 s: a fireball, flash and ring over the wreck again (run fx4_w_r7: 165.2/167.0 at
+// +14, +25 s). Its size (0.85-1.25 tiles, runs fx4_w_r9..r11) is just under a blast's first sight (1.31): a
+// sprite under 1.28 tiles within 1.2 blocks of such a spot more than 3 s on is the fire (it wanders 0.8 block over the
+// wreck, run fx4_w_r10; a chain blast next door comes within 1-3 s: runs fx4_bl_t10, fx4_v_f1, fx4_w_r9).
+struct BlastSpot { float x, z; double at; bool logged; };
+std::vector<BlastSpot> g_spots;
+}  // namespace
+
 void ExplosionFxNote(float x, float groundY, float z, float size) {
     if (!g_set.enabled) return;
     const double now = Now();
+    for (size_t i = 0; i < g_spots.size();) {
+        if (now - g_spots[i].at > 90.0) { g_spots.erase(g_spots.begin() + static_cast<std::ptrdiff_t>(i)); continue; }
+        ++i;
+    }
+    if (size < 1.28f) {   // the fire measured 0.85-1.25 tiles; a blast's first sight 1.31, a big one 2.63 (fx4_w_r11)
+        for (BlastSpot& sp : g_spots) {
+            const float dx = sp.x - x, dz = sp.z - z;
+            if (dx * dx + dz * dz < 1.2f * 1.2f && now - sp.at > 3.0) {
+                if (!sp.logged) {
+                    sp.logged = true;
+                    Log("explosions: the sprite at %.2f,%.2f (%.2f tiles) is the wreck's fire, %.0f s after its blast: not a new blast",
+                        x, z, size, now - sp.at);
+                }
+                return;
+            }
+        }
+    }
     for (Blast& b : g_blasts) {
         const float dx = b.x - x, dz = b.z - z;
         // The sprite comes and goes while it plays: one blast for 1.6 s from its first sight.
@@ -420,6 +448,8 @@ void ExplosionFxNote(float x, float groundY, float z, float size) {
     b.k = g_set.size * (std::max)(0.85f, (std::min)(1.4f, 0.7f + 0.2f * size));
     b.born = b.lastSeen = now;
     g_blasts.push_back(b);
+    if (g_spots.size() >= 64) g_spots.erase(g_spots.begin());
+    g_spots.push_back({x, z, now, false});
     SpawnBlast(g_blasts.back());
     Log("explosions: blast at %.2f,%.2f,%.2f (sprite %.2f tiles, scale %.2f), %d particles",
         x, groundY, z, size, b.k, static_cast<int>(g_parts.size()));

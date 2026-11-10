@@ -189,8 +189,16 @@ health at 100:
 **A blast was noted twice** by this module, 1.7-2.0 s apart at the same spot (`fx4_bl_t6`..`t12`):
 a second fireball over the wreck. The game's sprite at the very spot (within half a block) up to 3 s
 after a blast's first sight is now the same blast (`ExplosionFxNote`). In `fx4_v_f1` the second line is
-1.5 blocks off: a neighbouring car caught in the chain. A late blast line about 12 s on, with a
-0.85-tile sprite, is not attributed yet.
+1.5 blocks off: a neighbouring car caught in the chain.
+
+**The burning wreck re-read as a blast every 11 s.** A blast is forgotten 11 s on (`smoke_seconds` + 1).
+After that, the wreck's own fire sprite (0.85-0.9 tiles, over `fire_max_size`) was taken for a new blast,
+with a fireball, flash and ring over the wreck again (`fx4_w_r7`: 0.85-tile "blasts" at both wrecks 14 and
+25 s on). The fire measured 0.85-1.25 tiles over runs `fx4_w_r9`..`r11`; every blast's first sight 1.31,
+a big one 2.63. Blast spots are now kept 90 s, and a sprite under 1.28 tiles within 1.2 blocks of one, more than 3 s on, is the wreck's fire (it wanders 0.8 block over the
+wreck, `fx4_w_r10`) (logged once per spot:
+`explosions: the sprite at ... is the wreck's fire`). A chain blast next door came within 1-3 s in
+every run, so it still counts.
 
 ### FIX-FX-4: smoke cut by walls, and the ink-blot smoke ball (work orders fire-fx 3d, pm10 FX half)
 
