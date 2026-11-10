@@ -8,11 +8,16 @@ import feel_probe as F
 from a3_lib import Q, T, D, say
 INI = "/tmp/wp/drive_c/Games/GTA2/gta2dx9.ini"
 CAM = os.environ.get("VA2_CAM", "/tmp/va2_cam.txt")
+def SectionAt(s, sec):
+    # VEHICLE-ART-22: the section's header at the START of a line; a comment that names it ("; [devtools] car_coat=0|1
+    # ...", package/gta2dx9.ini since FIX-CAR-SHADING-1) took every forced model and paint, and the gate saw no change
+    m = re.search(rf"(?m)^\[{re.escape(sec)}\][ \t]*\r?$", s)
+    return m.start() if m else -1
 def setkey(k, v):
     # FIX-CAR-IDENTITY-7: "section.key" sets the key in that section's FIRST block (e.g. visuals.shadows); a bare key is [devtools]
     sec, k = k.split(".", 1) if "." in k else ("devtools", k)
     s = open(INI, encoding="latin-1", newline="").read()
-    a = s.find(f"[{sec}]")
+    a = SectionAt(s, sec)
     if a < 0: s += f"\r\n[{sec}]\r\n{k}={v}\r\n"
     else:
         b = s.find("\n[", a + 1); b = len(s) if b < 0 else b
@@ -24,7 +29,7 @@ def setkey(k, v):
 def getkey(k, default=""):
     sec, k = k.split(".", 1) if "." in k else ("devtools", k)
     s = open(INI, encoding="latin-1", newline="").read()
-    a = s.find(f"[{sec}]")
+    a = SectionAt(s, sec)
     if a < 0: return default
     b = s.find("\n[", a + 1); b = len(s) if b < 0 else b
     m = re.search(rf"(?m)^{k}=([^\r\n]*)", s[a:b])
@@ -83,7 +88,7 @@ for m in [x for x in os.environ.get("MODELS", "13,18,40").split(",") if x]:
                 for k, v in kv.items(): setkey(k, v)
                 time.sleep(float(os.environ.get("SETTLE", "2.5")))
                 shot(f"pt_{pose}_{int(m):03d}_{pl}_{ml}")
-        if SHADE and pose == "top" and mp:
+        if SHADE and pose in ("top", "top3") and mp:
             pl, pv = mp[0]
             setkey("force_car_paint", pv)
             for k, v in MODES[0][1].items(): setkey(k, v)

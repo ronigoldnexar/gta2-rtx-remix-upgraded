@@ -55,8 +55,10 @@ def main():
     ap.add_argument("--sprites", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets-src", "cars", "sprites"),
                     help="the style's car sprites (assets-src/cars/sprites: <model>_<name>_default.png): liveries' and wrecks' reference")
     a = ap.parse_args()
-    frames = glob.glob(os.path.join(a.run, "pt_top_*_*_*.png"))
-    rx = re.compile(r"pt_top_(\d+)_([a-z][a-z0-9]*)_([A-Za-z0-9]+)\.png$")
+    # VEHICLE-ART-22: or the probe's POSES=top3 frames (3 blocks up: at the 5-block top pose the street view showed the
+    # classic sprite at the 150.5,160.5 gate spot, out/va22pp1), when a run has no top frames
+    frames = glob.glob(os.path.join(a.run, "pt_top_*_*_*.png")) or glob.glob(os.path.join(a.run, "pt_top3_*_*_*.png"))
+    rx = re.compile(r"pt_top3?_(\d+)_([a-z][a-z0-9]*)_([A-Za-z0-9]+)\.png$")
     have = {}
     for f in frames:
         m = rx.search(f)

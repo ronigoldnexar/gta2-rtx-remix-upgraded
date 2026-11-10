@@ -1152,8 +1152,17 @@ a kit body shows its neutral 235 white. Before: out/qa_va22a (HEAD ac5813dd DLLs
   the driver behind the windscreen. 029 is a smooth egg with clean lamps and no spikes. Before: out/qa_va22a.
 - Not verified: Remix (no prims for the new textures, so they draw from their base textures; 027's prims are
   unchanged); night; moving traffic; first person (FIX-COCKPIT-CAB-6's cab tables have no entry for the new
-  interiors); 022 Armed Land Roamer (still its image-to-3D shell). Paint parity and the classic vreg result are in
-  the work orders.
+  interiors); 022 Armed Land Roamer (still its image-to-3D shell).
+- **The paint-parity gate works again (out/va22pp3), and its result is 0 FAIL.** Two causes made VEHICLE-ART-21's gate
+  (and out/va22pp1) say "no car found". (1) The probe wrote its forced model and paint under the first `[devtools]`
+  text in the ini, and FIX-CAR-SHADING-1's comment `; [devtools] car_coat=0|1 ...` (package/gta2dx9.ini) came
+  first, so nothing was forced. `paint_parity_probe.py` now anchors a section header at the start of a line.
+  (2) At the 5-block `top` pose the gate spot showed the classic sprite. `POSES=top3` (3 blocks up) holds the
+  street view; `tools/paint_parity.py` reads its frames and the probe takes the shadow check there too.
+  Result at 18:30-equivalent noon sun, lids 0.99-1.00 (open sun), paints red / green / navy: hue 0-6 degrees on
+  070, 041, 035, 030 and 029. Lightness is +8..+22 % (WARN), the same band as the control 050 (+14..+15 %).
+  Navy is reported, not failed (the dark-paint floor). 030's canvas keeps its own olive under any paint.
+  Classic vreg: spawn_classic PASS, 0 tiles changed (out/vreg_va22a).
 - Still short of a shipping-AAA frame: the kit glass is dark, so no cabin reads through it by day. 030's panels are
   sharp-edged boxes with no bevel, door detail or rivets. 029's nose and tail end in a small flat cap. 035's roof
   edges carry the kit's AO lines.
