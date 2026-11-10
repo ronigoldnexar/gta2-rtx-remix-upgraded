@@ -894,6 +894,15 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   Measured (`gamerun/keys_cam11_dry.sh`, the filer's repro: pistol, Ctrl every 0.5 s until empty, 30 fps, pose log):
   fix cam11_dry2 no change for 2.5 s after the emptying, then at most 11 % in any second (1.41x in all over ~9 s);
   frames opened across the emptying (base: pulled back within a second; fix: steady, then a slow back-off).
+- **pfeel33 residual, first person -> classic while driving: street with no car after the cockpit
+  (dll/src/world_view.cpp).** The rise out of the seat leaves at ~0.17 block a frame while FIX-CAMERA-7B's pitch ease
+  onto the car's middle starts slowly (0.3 s smoothstep), so for 3-5 frames after the last cockpit frame the roof was
+  under (or a sliver at) the frame's bottom edge (cam11_vfpc1, cam11_vfpc2b). Now during that rise the pitch is never
+  so high that the car's middle falls below 85 % of the frame height: it follows the rise, which is gradual, so no whip.
+  `GTA2DX9_MOVE_RISE_KEEP_CAR=0` turns it off. Log: `view: rise from the seat: pitch A -> B deg to keep the car in the
+  frame`. Measured (`gamerun/keys_cam7b.sh CAM6_SEGS=vfpc`, two presses, 30 fps, every frame 1.8-3.4 s opened):
+  A/B off (cam11_vfpc2b) 5 frames of street with the roof a sliver at the bottom; fix (cam11_vfpc2) the cockpit, the
+  held cab tipping down, then the roof in frame from the first rise frame in both presses.
 
 
 ## The chase view fades a street object at the lens; the death beat under a deck; the first-person exit keeps his facing (FIX-CAMERA-12, 10 Nov 2026)

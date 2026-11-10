@@ -2963,6 +2963,23 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
                 const float wh = h * h * (3.0f - 2.0f * h);
                 yA = from.yaw;
                 pA = from.pitch + (aimPitch - from.pitch) * wh;
+                // FIX-CAMERA-11 (pfeel33-residual-fp-to-classic-one-or-two-street-frames-with-no-car-after-the-cockpit):
+                // the eye leaves the seat at ~0.17 a frame while that ease starts slowly, so for the first 3-4 frames
+                // after the cockpit the car's middle was under the frame's bottom edge: street with no car (cam11_vfpc1
+                // f~57-60 of both presses). The pitch is never so high that the car's middle falls below 85 % of the
+                // frame height (it follows the rise; no whip: the rise is what turns it). GTA2DX9_MOVE_RISE_KEEP_CAR=0
+                // turns it off (A/B).
+                static int keepCarOn = -1;
+                if (keepCarOn < 0) { char b[8] = {}; keepCarOn = GetEnvironmentVariableA("GTA2DX9_MOVE_RISE_KEEP_CAR", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                if (keepCarOn) {
+                    const float halfFov = 0.5f * (from.fov + (target.fov - from.fov) * e);
+                    const float highest = aimPitch + 0.7f * halfFov;
+                    if (pA > highest) {
+                        static int keepLogs = 0;
+                        if (keepLogs < 20) { ++keepLogs; Log("view: rise from the seat: pitch %.1f -> %.1f deg to keep the car in the frame (t=%.2f)", pA * 57.2958f, highest * 57.2958f, transitionT_); }
+                        pA = highest;
+                    }
+                }
             }
             float dy2 = target.yaw - yA;
             while (dy2 > 3.14159265f) dy2 -= 6.2831853f;
