@@ -30,6 +30,7 @@
 #include "explosion_fx.h"
 #include "gibs.h"
 #include "density.h"
+#include "exe_guards.h"
 #include "hud_pass.h"
 #include "intro_movie.h"
 #include "live_geometry.h"
@@ -1327,6 +1328,8 @@ __declspec(dllexport) void __stdcall gbh_InitDLL(void* system) {
     Log("gbh_InitDLL(system=%p)", system);
     LogGraphicsModules();
     LoadConfig();
+    // gta2.exe's own null-pointer crashes, guarded in every mode (FIX-CRASH-2, exe_guards.cpp).
+    gta2dx9::ExeGuardsInstall();
     if (Proxying()) {
         if (BindBackend() && g_p_gbh_InitDLL) {
             Backend<void(__stdcall*)(void*)>(g_p_gbh_InitDLL)(system);
@@ -1481,6 +1484,7 @@ __declspec(dllexport) void __stdcall gbh_BeginScene() {
 }
 
 __declspec(dllexport) void __stdcall gbh_EndScene() {
+    gta2dx9::ExeGuardsUpdate();
     if (Proxying() && g_p_gbh_EndScene) { Backend<void(__stdcall*)()>(g_p_gbh_EndScene)(); return; }
     // Between this frame's particle update and the next, which is when a limb
     // about to land has to be caught.
