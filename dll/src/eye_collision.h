@@ -58,6 +58,13 @@ bool SegmentHitWalls(const gta2::Vec3& a, const gta2::Vec3& b, float* t);
 // sheet's plane): what the chase boom may not pass at all, as against what it eases in at.
 bool SegmentHitSolid(const gta2::Vec3& a, const gta2::Vec3& b, float* t);
 
+// FIX-CAMERA-7 (pfeel3 residual): while set (> 0), SegmentHit and its variants ignore a two-sided sheet or a
+// railing's bar crossed within `distance` of the segment's start. The chase boom's segments start at his
+// centre, and the plaza fence's sheet lies on a cell edge his body overlaps: 2 cm past it, every line from
+// him crossed it at t=0 and the boom fell into his head (run cam7_base punch_0). 0 turns it off.
+void SetNearSoftSkip(float distance);
+float NearSoftSkip();
+
 // The nearest surface within maxR of p (no side rule): its distance, or maxR.
 float Nearest(const gta2::Vec3& p, float maxR);
 

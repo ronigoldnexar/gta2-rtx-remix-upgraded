@@ -2564,6 +2564,29 @@ void WorldView::ApplyPresentation(ViewMode mode) {
 // length, and any point of it inside a building is lifted clear; the heading
 // turns the short way round, pitch, roll and field of view are eased. Changing
 // view again mid-move starts the next move from wherever the camera is.
+// FIX-CAMERA-7 (the V moves' residual turns, FIX-CAMERA-6's tables: the end of the classic -> third descent turned
+// 10-12 degrees a frame for 2 frames as the aim met the chase pose; the arrival in the cab at the roof line cut to
+// the driver's pose, 12 degrees of pitch in one frame): into a street view, the pose shown turns at most
+// kMoveTurn degrees a second (8 a frame at 30 fps) from the one shown last frame, through the move and the
+// frames after it until it has caught up with the view's own. Never in the classic view (the game's camera, byte for
+// byte). GTA2DX9_MOVE_TURN_CAP=0 turns it off (A/B).
+void WorldView::MoveTurnCap(CameraPose* pose, float dt, ViewMode mode) {
+    static int on = -1;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_MOVE_TURN_CAP", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    if (!on || mode == ViewMode::Classic || !lastPoseValid_) return;
+    constexpr float kMoveTurn = 240.0f * 0.0174533f;
+    const float cap = kMoveTurn * (std::min)((std::max)(dt, 1.0f / 120.0f), 1.0f / 20.0f);
+    float dy = pose->yaw - lastPose_.yaw;
+    while (dy > 3.14159265f) dy -= 6.2831853f;
+    while (dy < -3.14159265f) dy += 6.2831853f;
+    const float dp = pose->pitch - lastPose_.pitch;
+    if (std::fabs(dy) <= cap && std::fabs(dp) <= cap) return;
+    static int every = 0;
+    if ((++every % 5) == 1) Log("view: move turn capped: yaw %+.1f pitch %+.1f deg this frame", dy * 57.2958f, dp * 57.2958f);
+    pose->yaw = lastPose_.yaw + (std::max)(-cap, (std::min)(cap, dy));
+    pose->pitch = lastPose_.pitch + (std::max)(-cap, (std::min)(cap, dp));
+}
+
 void WorldView::ApplyTransition(float dt, ViewMode mode) {
     const ViewModeSettings& vm = ViewModes();
     CameraPose target;
@@ -2660,14 +2683,44 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         // FIX-CAMERA-5 (feel23): from the chase camera into first person (see below: the move ends on
         // the cab's roof line).
         const bool intoEye = !transitionFromClassic_ && !transitionToClassic_ && mode == ViewMode::FirstPerson;
+        // FIX-CAMERA-7B (pfeel33-fp-to-classic-while-driving-cockpit-vanishes-...): out of the driver's seat into the
+        // classic view the eye first rises straight up over the seat (riding the car) and only then drifts across to
+        // the classic camera, which leads the car at speed by blocks: the drift from the first frame took the eye out
+        // through the windscreen in 0.3 s, one frame showed the street with no car, then the van sat at the frame's
+        // bottom edge for ten frames (run cam7b_p1 vfpc_0). GTA2DX9_MOVE_FP_RISE=0 restores the straight path (A/B).
+        static int fpRiseOn = -1;
+        if (fpRiseOn < 0) { char b2[8] = {}; fpRiseOn = GetEnvironmentVariableA("GTA2DX9_MOVE_FP_RISE", b2, sizeof b2) && atoi(b2) == 0 ? 0 : 1; }
+        const bool fpRise = fpRiseOn && transitionToClassic_ && transitionFromFirst_ && rideOn;
         const auto pathAt = [&](float ee) {
-            gta2::Vec3 q = a + (b - a) * ee;
+            float eh = ee;
+            if (fpRise) {
+                const float u = (std::min)(1.0f, (std::max)(0.0f, (ee - 0.25f) / 0.75f));
+                eh = u * u * (3.0f - 2.0f * u);
+            }
+            gta2::Vec3 q = a + (b - a) * eh;
             q.y = floorY + ha * std::pow(hb / ha, ee);
             // The arc: a sine bump along the way, scaled by the distance.
             q.y += std::sin(ee * 3.14159265f) * length * vm.transitionArc;
             return q;
         };
         gta2::Vec3 p = pathAt(e);
+        if (fpRise) {
+            // FIX-CAMERA-7B: up out of the seat at once (1.4 blocks over 0.5 s, fastest at the start, then on at 1.5 a
+            // second until the path is higher): risen on the smooth path the eye spent 3-4 frames just over the roof,
+            // the roof a slab across the picture (cam7b_p2); a pop that stopped dead stalled the climb 4 frames (p3).
+            const float sec = transitionT_ * (std::max)(transitionSeconds_, 0.05f);
+            const float u = (std::min)(1.0f, sec / 0.5f);
+            const float pop = 1.0f - (1.0f - u) * (1.0f - u);
+            p.y = (std::max)(p.y, a.y + 1.4f * pop + 1.5f * (std::max)(0.0f, sec - 0.5f));
+            // and back over the car's rear as it rises (2.2 blocks, a little after the rise, so the eye is over the roof
+            // first; given back as the drift to the classic pose comes in): straight over the seat the car was under the
+            // lens, below the picture for 0.45 s (run cam7b_p4 vfpc_0); 1.6 back and 2.2 up still put it under the
+            // picture's bottom edge for 8 frames (cam7b_p5)
+            const float ud = (std::min)(1.0f, (std::max)(0.0f, (e - 0.25f) / 0.75f));
+            const float back = 2.2f * pop * std::sqrt(pop) * (1.0f - ud * ud * (3.0f - 2.0f * ud));
+            p.x -= std::sin(from.yaw) * back;
+            p.z -= std::cos(from.yaw) * back;
+        }
         // Out of any building the path crosses - by a storey at most, so a short
         // move past a wall never becomes a flight over the city.
         // FIX-SMOOTH-SWITCH: the lift is eased, never stepped. It was added whole on the
@@ -2832,10 +2885,11 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             // over the second half of the move, when it is high over the car: the plain blend swung the heading
             // round first and looked along the facades while the car left the picture.
             // (from the driver's eye the car is under the lens: its nose, 0.8 ahead, not the street 2.4 ahead)
-            const float kLookAhead = transitionFromFirst_ ? 0.8f : 2.4f;
+            // (FIX-CAMERA-7B: with the rise straight up, the car's middle: 0.35 ahead of the seat, 0.45 down)
+            const float kLookAhead = fpRise ? 0.35f : transitionFromFirst_ ? 0.8f : 2.4f;
             const gta2::Vec3 f0{std::sin(transitionFrom_.yaw) * std::cos(transitionFrom_.pitch), std::sin(transitionFrom_.pitch),
                                 std::cos(transitionFrom_.yaw) * std::cos(transitionFrom_.pitch)};
-            const gta2::Vec3 look = transitionFrom_.position + f0 * kLookAhead + gta2::Vec3{0.0f, transitionFromFirst_ ? -0.25f : 0.0f, 0.0f} + rideToClassic;
+            const gta2::Vec3 look = transitionFrom_.position + f0 * kLookAhead + gta2::Vec3{0.0f, fpRise ? -0.45f : transitionFromFirst_ ? -0.25f : 0.0f, 0.0f} + rideToClassic;
             const gta2::Vec3 to = look - p;
             const float flat = std::sqrt(to.x * to.x + to.z * to.z);
             float aimYaw = from.yaw, aimPitch = target.pitch;
@@ -2852,6 +2906,16 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             const float tin = (std::min)(1.0f, t / 0.2f), win = tin * tin * (3.0f - 2.0f * tin);
             const float tout = (std::min)(1.0f, (std::max)(0.0f, (t - 0.5f) / 0.5f)), wout = tout * tout * (3.0f - 2.0f * tout);
             float yA = from.yaw + (aimYaw - from.yaw) * win, pA = from.pitch + (aimPitch - from.pitch) * win;
+            if (fpRise) {
+                // FIX-CAMERA-7B: from the seat the heading stays the cab's until the turn to the classic pose (below),
+                // and the pitch turns onto the car's middle over the first 0.3 s of the move (about 9 degrees a frame at
+                // most): tied to the height, it whipped 72 degrees down in two frames (run cam7b_p3 vfpc_0); over
+                // 0.05-0.45 s the van was a sliver of roof at the bottom edge for 0.25 s (cam7b_p6).
+                const float h = (std::min)(1.0f, (std::max)(0.0f, (transitionT_ * (std::max)(transitionSeconds_, 0.05f)) / 0.3f));
+                const float wh = h * h * (3.0f - 2.0f * h);
+                yA = from.yaw;
+                pA = from.pitch + (aimPitch - from.pitch) * wh;
+            }
             float dy2 = target.yaw - yA;
             while (dy2 > 3.14159265f) dy2 -= 6.2831853f;
             while (dy2 < -3.14159265f) dy2 += 6.2831853f;
@@ -2867,6 +2931,8 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             shown = target;
             transitionT_ = 1.0f;
         }
+        if (transitionT_ >= 1.0f) moveCatch_ = 0.6f;   // FIX-CAMERA-7: the move ends this frame (below)
+        MoveTurnCap(&shown, dt, mode);
         camera_.SetPosition(shown.position);
         camera_.SetOrientation(shown.yaw, shown.pitch);
         camera_.SetRoll(shown.roll);
@@ -2874,6 +2940,19 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         // The HUD's world-anchored parts only line up with the classic camera
         // once it is there.
         if (transitionToClassic_) SetHudCameraMap(HudCameraMap{});
+    }
+    else if (moveCatch_ > 0.0f) {
+        // FIX-CAMERA-7: the frames after a move into a street view ended: what the move left of the turn
+        // to the view's own orientation is caught up at the same capped rate (MoveTurnCap).
+        CameraPose caught = shown;
+        MoveTurnCap(&caught, dt, mode);
+        if (caught.yaw != shown.yaw || caught.pitch != shown.pitch) {
+            shown = caught;
+            camera_.SetOrientation(shown.yaw, shown.pitch);
+        } else {
+            moveCatch_ = 0.0f;
+        }
+        moveCatch_ -= dt;
     }
     // FIX-SMOOTH-SWITCH: what the picture presents follows the camera, not the key.
     // s is how far the camera has gone from the classic pose towards a street pose
@@ -2950,7 +3029,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         while (yawStep > 3.14159265f) yawStep -= 6.2831853f;
         while (yawStep < -3.14159265f) yawStep += 6.2831853f;
         lastYaw = shown.yaw;
-        if (logEnv && since < 3.0f && mode != ViewMode::Classic)
+        if (logEnv && since < 3.0f && (mode != ViewMode::Classic || transitionT_ < 1.0f))
             Log("view move: t=%.2f %s pos=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f roll=%.1f off=%.1f ystep=%.1f | view pos=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f",
                 transitionT_, ViewModeName(mode), shown.position.x, shown.position.y, shown.position.z, shown.yaw * 57.2958f,
                 shown.pitch * 57.2958f, shown.roll * 57.2958f, off, yawStep * 57.2958f, target.position.x, target.position.y, target.position.z,

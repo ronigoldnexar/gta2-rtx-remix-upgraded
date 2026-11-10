@@ -3039,11 +3039,27 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // QUALITY-BAR row 2). The march now starts in the open from his own cell.
     const int ownX = static_cast<int>(std::floor(px)), ownZ = static_cast<int>(std::floor(pz));
     const int ownY = static_cast<int>(std::floor(baseY + 0.6f));
+    // FIX-CAMERA-7B (pf2feel-third-reverse-open-street-camera-stays-put-van-backs-under-it): at the wheel a
+    // cell the map calls solid is asked of the drawn mesh too. A ramp's block has a lid, so Blocked() calls
+    // the whole block solid, air over the slope included: the van reversing toward a ramp (wil 198.5,61, the
+    // ramp's face 2.8 blocks behind at the camera's height) had the eye stop dead 1.5 blocks early, the boom
+    // fell from 1.47 to 0.70 in 0.3 s and the van backed under the lens, its roof filling the frame (run
+    // cam7b_rev1). A point in such a block that is in no closed block of the mesh and 0.2 or more from any
+    // drawn surface is air; the boom's line is still stopped by every wall the mesh draws (reachTo below).
+    // GTA2DX9_CAM_CAR_MESH=0 turns it off (A/B).
+    static int carMeshOn = -1;
+    if (carMeshOn < 0) { char b[8] = {}; carMeshOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_MESH", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    const bool carMesh = inVehicle && carMeshOn && eyecol::Ready();
     auto solidAt = [&](float x, float y, float z) {
         if (!inVehicle && static_cast<int>(std::floor(x)) == ownX && static_cast<int>(std::floor(z)) == ownZ &&
             static_cast<int>(std::floor(y)) == ownY)
             return false;
-        return q.blocked(q.context, x, y, z);
+        if (!q.blocked(q.context, x, y, z)) return false;
+        if (carMesh) {
+            const gta2::Vec3 p{x, y, z};
+            if (eyecol::Nearest(p, 0.2f) >= 0.2f && !eyecol::InsideSolid(p)) return false;
+        }
+        return true;
     };
     gta2::Vec3 pivot{px, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f), pz};
     // A car shoved against a building can have its middle inside the wall's
@@ -3088,6 +3104,22 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // mesh says too. In a car the cells alone, as before. GTA2DX9_CAM_MESH=0 turns it off (A/B).
     const bool meshSolve = !inVehicle && eyecol::Ready() && CameraMeshSolveOn();
     constexpr float kMeshClear = 0.15f;
+    // FIX-CAMERA-7 (pfeel3 residual: the fence pocket crane): every boom segment on foot starts at his centre,
+    // and a railing's sheet on a cell edge runs through his body when he leans on it (the plaza fence at
+    // z=108.0, him at 108.02): every way out of him crossed it at t=0, the solve collapsed to nothing, the boom
+    // fell into his head at 9 blocks/s and the view craned over him looking 50-59 degrees down for ~1 s (run
+    // cam7_base punch_0: 22 frames with him out of the box). A sheet or a bar within his body's reach of the
+    // start is one he leans on: the boom keeps its side of it (the bars are see-through). Walls still stop it.
+    // FIX-CAMERA-7B: OFF unless GTA2DX9_CAM_LEAN_SHEET=1 (ported uncommitted from FIX-CAMERA-7, not yet shown to
+    // help: run cam7b_p3 punch_1 still slid the lens through the finials for 3 frames with it on).
+    struct LeanSkip {
+        bool on = false;
+        explicit LeanSkip(bool want) : on(want) { if (on) eyecol::SetNearSoftSkip(0.25f); }
+        ~LeanSkip() { if (on) eyecol::SetNearSoftSkip(0.0f); }
+    };
+    static int leanSheetOn = -1;
+    if (leanSheetOn < 0) { char b[8] = {}; leanSheetOn = GetEnvironmentVariableA("GTA2DX9_CAM_LEAN_SHEET", b, sizeof b) && atoi(b) == 1 ? 1 : 0; }
+    const LeanSkip leanSkip(meshSolve && leanSheetOn && mode == ViewMode::ThirdPerson);
     auto reachTo = [&](const gta2::Vec3& from, const gta2::Vec3& to) {
         constexpr int kSteps = 32;
         float reach = 1.0f;
@@ -3095,6 +3127,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             const float t = static_cast<float>(i) / kSteps;
             const gta2::Vec3 p = from + (to - from) * t;
             if (solidAt(p.x, p.y, p.z)) { reach = (std::max)(0.0f, static_cast<float>(i - 1) / kSteps - 0.03f); break; }
+        }
+        if (carMesh) {
+            // FIX-CAMERA-7B: at the wheel the cells' false walls are air (solidAt): the mesh's walls stop the line
+            // (a railing's sheets and bars do not: the cells never stopped it at a flat panel either).
+            const gta2::Vec3 span = to - from;
+            const float len = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
+            float t = 1.0f;
+            if (len > 1e-3f && eyecol::SegmentHitSolid(from, to, &t)) reach = (std::min)(reach, (std::max)(0.0f, t - kMeshClear / len));
         }
         if (meshSolve) {
             const gta2::Vec3 span = to - from;

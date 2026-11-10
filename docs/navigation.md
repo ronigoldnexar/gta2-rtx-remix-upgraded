@@ -600,6 +600,43 @@ cull of the figures in `dll/src/live_geometry.cpp`. The classic view is untouche
   the end of a third -> first move still pitches 12 degrees in one frame (the roof-line arrival, FIX-CAMERA-5) and
   the end of a classic -> third descent 10-12 degrees a frame for two frames.
 
+## Reversing at the wheel, the cab to the map, the lean sheet (FIX-CAMERA-7B, 10 Nov 2026)
+
+- **Reversing: the cells' false walls are asked of the mesh** (pf2feel-third-reverse-open-street-camera-stays-put-van-
+  backs-under-it). At the wheel the chase boom was solved against the map's cells only, and `WorldView::Blocked` calls a
+  whole block solid when it has a lid: a ramp's block, air over the slope included. Reversing the scene van toward the
+  ramp at wil 198.5,61 (the ramp's face 2.8 blocks behind at the camera's height, `world_raycast ray`), the eye stopped
+  dead 1.5 blocks early, the boom fell from 1.47 to 0.70 in 0.3 s and the van backed under the lens, its roof filling
+  the frame (run cam7b_rev1). Now, in a car, a point in a blocked cell that is in no closed block of the drawn mesh
+  (`eyecol::InsideSolid`) and 0.2 or more from every drawn surface (`eyecol::Nearest`) is air, and the boom's line is
+  stopped by the mesh's walls (`SegmentHitSolid`; a railing's sheets and bars are see-through, as the cells' flat
+  panels always were). Same spot after: the boom stays 1.42-1.47 through the reverse, the van whole in every frame;
+  forward 2.2 s, reverse 4 s, forward again: whole in every frame (runs cam7b_rev2, cam7b_p1 rev2_third).
+  `GTA2DX9_CAM_CAR_MESH=0` restores the cells alone (A/B). Still short: having backed into a one-block gap between
+  two buildings, a forward turn out of it pulls the boom to 0.7-1.0 at 20-28 degrees down for ~2 s (real walls).
+- **First person -> classic while driving: up out of the seat, then across** (pfeel33). The move's path drifted
+  toward the classic camera (which leads the car at speed by blocks) from the first frame and its aim was the nose 0.8
+  ahead: the eye left through the windscreen in 0.3 s, one frame showed the street with no car, then the van sat at
+  the bottom edge for ten frames (cam7b_p1 vfpc_0). Now (`fpRise`, from first person only) the eye pops up out of
+  the seat (1.4 blocks over 0.5 s, ease-out, then on at 1.5 a second until the old path is higher) and backs off over
+  the car's rear a little after it (2.2 blocks, given back as the drift to the classic pose comes in), the drift
+  across waits for 25 % of the move, the heading stays the cab's until the turn to the classic pose, and the pitch
+  turns onto the car's middle (0.35 ahead of the seat, 0.45 down) over the first 0.3 s of the move. Iterations: straight
+  up with the pitch tied to the height whipped 72 degrees down in two frames (cam7b_p3); straight up with a timed
+  pitch left the van under the picture for 0.45 s (cam7b_p4); 1.6 back / 2.2 up, 8 frames (cam7b_p5); the pitch over 0.05-0.45 s, a sliver of roof at the bottom edge for
+  0.25 s (cam7b_p6).
+  `GTA2DX9_MOVE_FP_RISE=0` restores the old path.
+  The `cam: pose` and `view move:` lines are now written during a move into the classic view too (the car box in them
+  is stale there: the chase solver does not run in classic).
+- **Ported from FIX-CAMERA-7 (died 23:20 with the diff uncommitted)**: the lean sheet (`eyecol::SetNearSoftSkip`: on
+  foot a two-sided sheet or a railing's bar crossed within 0.25 of the boom's start is one he leans on, not one in the
+  way; OFF by default, `GTA2DX9_CAM_LEAN_SHEET=1` turns it on: with it on, run cam7b_p3 punch_1 still slid the lens
+  through the fence's finials for 3 frames, so it is not yet shown to help) and the move turn cap (into a street view the shown pose turns at most 240 degrees a
+  second, through the move and up to 0.6 s after it; `view: move turn capped` log line; `GTA2DX9_MOVE_TURN_CAP=0`).
+- Probe: `gamerun/keys_cam7b.sh` + `cam7b_probe.py` (cam6's segments plus `vfpc` (first -> classic driving, x
+  `CAM7B_VFPC`), `rev` (reverse 3 s then forward), `rev2` (forward, reverse 4 s, forward), `exit` (exit at speed)).
+  `keys_pf2.sh PF2_SEGS=rev` is the filer's repro (the scene van at wil 198.5,188.5 game coordinates).
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`

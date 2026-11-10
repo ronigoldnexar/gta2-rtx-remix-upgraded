@@ -351,7 +351,10 @@ float Push(Vec3* p, float radius) {
     return Len(Sub(*p, start));
 }
 
-namespace { bool g_wallsOnly = false, g_solidOnly = false; }
+namespace { bool g_wallsOnly = false, g_solidOnly = false; float g_nearSoftSkip = 0.0f; }
+
+void SetNearSoftSkip(float distance) { g_nearSoftSkip = (std::max)(0.0f, distance); }
+float NearSoftSkip() { return g_nearSoftSkip; }
 
 bool SegmentHit(const Vec3& a, const Vec3& b, float* tOut) {
     if (!g_ready) return false;
@@ -365,7 +368,12 @@ bool SegmentHit(const Vec3& a, const Vec3& b, float* tOut) {
         if ((t.flags & (kTwoSided | kBar)) && g_solidOnly) return;
         if (!(t.flags & kTwoSided) && gta2::Dot(d, n) >= 0.0f) return;   // leaving through the back: culled, and no wall
         float tt;
-        if (SegTri(a, d, g_pos[t.v[0]], g_pos[t.v[1]], g_pos[t.v[2]], &tt) && tt < best) best = tt;
+        if (SegTri(a, d, g_pos[t.v[0]], g_pos[t.v[1]], g_pos[t.v[2]], &tt) && tt < best) {
+            // FIX-CAMERA-7: a sheet or a bar crossed within g_nearSoftSkip of the start is one the start is
+            // leaning on (see SetNearSoftSkip), not one in the way.
+            if (g_nearSoftSkip > 0.0f && (t.flags & (kTwoSided | kBar)) && tt * Len(d) < g_nearSoftSkip) return;
+            best = tt;
+        }
     });
     if (best > 1.0f) return false;
     *tOut = best;
