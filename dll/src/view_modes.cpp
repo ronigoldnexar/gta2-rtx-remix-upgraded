@@ -3737,6 +3737,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     if (carSwingEarly < 0) { char b[8] = {}; carSwingEarly = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_SWING_EARLY", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
     auto CarSwingEarlyOn = [&]() { return carSwingEarly != 0; };
     float carSwingStep = 0.0f;      // FIX-INCAR-1: this frame's turn of the in-car boom (the view's yaw cap below lets it through)
+    bool carDriveOffCut = false;    // FIX-CAMERA-13: this frame the in-car boom cuts from ahead of the car to behind it
     static float carSwing = 0.0f;   // FIX-CAMERA-9: the in-car boom's turn aside (radians; the aim below uses it too)
     {
         static int carSwingOn = -1;
@@ -3795,7 +3796,34 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
                 return true;
             };
-            if (straight < good + (swung ? 0.2f : 0.0f) && !(arcWay && arcClears())) {
+            // FIX-CAMERA-13 (pfl28 corner pocket): backing with the wheel over along a wall, the car's rear corner swept into
+            // a lens the wall held, while the line straight behind still reached the pull (it fell only once the car was in
+            // the pocket): 0.75 s of the canopy over the lower frame before the turn (runs cam13_rev1/3/5 angled f78-100).
+            // When the eye's distance to the car's footprint closes so fast it would reach 0.1 within 0.3 s, the turn is
+            // looked for now. GTA2DX9_CAM_CAR_LENS_GUARD=0 turns it off (A/B).
+            bool carAtLens = false;
+            {
+                static int lensGuard = -1;
+                if (lensGuard < 0) { char b[8] = {}; lensGuard = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_LENS_GUARD", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                static float prevGap = -1.0f;
+                float gap = -1.0f;
+                for (const CameraCar& c : LiveCameraCars())
+                    if (c.object == reinterpret_cast<uintptr_t>(player.vehicleSprite)) { gap = -CarFootprintDepth(c, eyeX_, eyeZ_); break; }
+                if (lensGuard && gap >= 0.0f && prevGap >= 0.0f && backing > 0.5f && dt > 1e-4f) {
+                    const float closing = (prevGap - gap) / dt;
+                    if (closing > 0.0f && gap - 0.3f * closing < 0.1f && gap < 0.8f) {
+                        carAtLens = true;
+                        if (cameraLogOn()) Log("cam: car at the lens: gap %.2f closing %.2f/s, turn looked for (behind reaches %.2f)", gap, closing, straight);
+                    }
+                }
+                prevGap = gap;
+                // held while it still backs (the next frame's gap no longer closes and the turn would ease back onto it)
+                static float lensHold = 0.0f;
+                if (carAtLens) lensHold = 0.8f;
+                else if (lensHold > 0.0f && backing > 0.3f) { lensHold -= dt; carAtLens = true; }
+                else lensHold = 0.0f;
+            }
+            if ((straight < good + (swung ? 0.2f : 0.0f) || carAtLens) && !(arcWay && arcClears())) {
                 const float first = carSwing < 0.0f ? -1.0f : 1.0f;
                 bool found = false;
                 // the whole boom if a turn of up to 120 degrees has it (cam9_p28b: the turn that kept only the
@@ -3836,6 +3864,25 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                         }
                 }
 
+            }
+            // FIX-CAMERA-13 (pfl28 drive-off): turned past 100 degrees the eye is ahead of the car; driving off forward the
+            // turn eased back over 0.8 s and the car drove into the lens pinned on the wall it had backed along (run
+            // cam13_rev4 angled f147-188: the canopy over the whole frame, then the car cut at the bottom edge, 1.4 s).
+            // Driving forward with the line behind reaching half the pull, it cuts to behind the car (the solved pose at once).
+            // GTA2DX9_CAM_CAR_DRIVEOFF_CUT=0 turns it off (A/B).
+            {
+                static int driveOffCut = -1;
+                if (driveOffCut < 0) { char b[8] = {}; driveOffCut = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_DRIVEOFF_CUT", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                const float forward = velX_ * hx + velZ_ * hz;
+                // (not waiting for the turn's hold to let go: held until the line behind kept the pull, the cut came 0.6 s
+                // into the drive-off with the car's nose over the lower half of the frame, run cam13_rev6 f117-135; the boom
+                // behind may be short a while, the filter eases it out)
+                if (driveOffCut && std::fabs(carSwing) > 100.0f * kDegToRad && forward > 0.3f && straight >= 0.5f * good) {
+                    if (cameraLogOn()) Log("cam: car swing %.1f: driving off at %.2f with the eye ahead of the car, cut to behind", carSwing / kDegToRad, forward);
+                    carSwing = 0.0f;
+                    want = 0.0f;
+                    carDriveOffCut = true;
+                }
             }
             const float tau = std::fabs(want) > std::fabs(carSwing) ? 0.12f : 0.8f;
             float d = (want - carSwing) * (1.0f - std::exp(-dt / tau));
@@ -4037,7 +4084,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // it with the rig's own length to tell a pull-in from the eye's ordinary lag).
     const float solveLen = std::sqrt((desired.x - pivot.x) * (desired.x - pivot.x) + (desired.y - pivot.y) * (desired.y - pivot.y) +
                                      (desired.z - pivot.z) * (desired.z - pivot.z));
-    if (swingCut) {   // FIX-CAMERA-10: the cut round the staircase is drawn as a cut (the solved pose at once)
+    if (swingCut || carDriveOffCut) {   // FIX-CAMERA-10: the cut round the staircase is drawn as a cut (the solved pose at once)
         snapEye_ = true;
         boomKnown_ = false;
     }
@@ -4684,6 +4731,87 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     if ((++every % 5) == 1)
                         Log("cam: frame clamp pitch %.1f -> %.1f yaw %+.1f (feet %.1f head %.1f margin %.1f, flat %.2f)", before / kDegToRad,
                             camPitch / kDegToRad, yawFix / kDegToRad, aFeet / kDegToRad, aHead / kDegToRad, mv / kDegToRad, flatD);
+                }
+            }
+        }
+    }
+    // FIX-CAMERA-13 (pfl28 residual): at the wheel the car's body box (8 corners) stays inside the middle 90 % of the
+    // frame's width (and under its top edge), measured from the eye that is shown. The orientation is the full rig's (orientEye); with the boom pulled in
+    // at a corner pocket or along a wall the shown eye is a block off that line and the car sat cut at the frame's
+    // edge for 0.5-1 s (FIX-CAMERA-11: box past an edge in ~50 frames a reverse, runs cam11_rev4/6/7). Like the on-foot
+    // frame clamp: the yaw (and the pitch, up) move only as far as the box needs (an ordinary chase frame is untouched), a
+    // box too wide for the frame is centred; the pitch stays inside the 35 degree cap. Not while the mouse has the
+    // camera, nor with the eye over the car's own footprint. GTA2DX9_CAM_CAR_FRAME=0 turns it off (A/B).
+    {
+        static int carFrameOn = -1;
+        if (carFrameOn < 0) { char b[8] = {}; carFrameOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_FRAME", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        const bool mouseHasIt = look.lastMoved > 0.0 && Now() - look.lastMoved < s.tpReturnDelay;
+        if (carFrameOn && inVehicle && mode == ViewMode::ThirdPerson && deathMix_ < 0.01f && !mouseHasIt && exitCar_ == player.vehicle &&
+            exitCarHalfWidth_ > 0.05f) {
+            const float halfW = exitCarHalfWidth_, halfL = exitCarHalfLength_, tall = exitCarHeight_;
+            const float fovNow = (std::min)((std::min)((std::max)(s.tpFov, 20.0f), 110.0f) + chaseFovExtra, 130.0f) * kDegToRad;
+            const float tv = std::tan(0.5f * fovNow), th = tv * (16.0f / 9.0f);
+            const float mv = std::atan(0.9f * tv), mh = std::atan(0.9f * th);
+            float offMin = 1e9f, offMax = -1e9f;
+            bool usable = true;
+            gta2::Vec3 cs[8];
+            // the drawn body's footprint when the car list has it (a frame old), else the body box round him
+            const CameraCar* drawnCar = nullptr;
+            for (const CameraCar& c : LiveCameraCars())
+                if (c.object == reinterpret_cast<uintptr_t>(player.vehicleSprite)) { drawnCar = &c; break; }
+            for (int i = 0; i < 8; ++i) {
+                if (drawnCar) {
+                    cs[i] = gta2::Vec3{drawnCar->x[i & 3], (i & 4) ? drawnCar->y1 : drawnCar->y0, drawnCar->z[i & 3]};
+                } else {
+                    const float l = (i & 1) ? halfL : -halfL, w = (i & 2) ? halfW : -halfW, h = (i & 4) ? tall : 0.0f;
+                    cs[i] = gta2::Vec3{px + hx * l + std::cos(headingYaw) * w, baseY + h, pz + hz * l - std::sin(headingYaw) * w};
+                }
+                const float dx = cs[i].x - eye.x, dz = cs[i].z - eye.z;
+                // (a corner 0.2 from a pulled-in eye still has a bearing; the extent test below drops the eye over the car)
+                if (std::hypot(dx, dz) < 0.08f) { usable = false; break; }
+                const float off = WrapAngle(std::atan2(dx, dz) - camYaw);
+                offMin = (std::min)(offMin, off);
+                offMax = (std::max)(offMax, off);
+            }
+            if (usable && offMax - offMin < 150.0f * kDegToRad) {
+                float yawFix = 0.0f;
+                if (offMax - offMin > 2.0f * mh) yawFix = 0.5f * (offMin + offMax);
+                else if (offMax > mh) yawFix = offMax - mh;
+                else if (offMin < -mh) yawFix = offMin + mh;
+                const float yawBefore = camYaw, pitchBefore = camPitch;
+                if (yawFix != 0.0f) {
+                    camYaw = WrapAngle(camYaw + yawFix);
+                    finalYaw_ = camYaw;
+                }
+                // up and down: each corner's elevation along the (fixed) view direction
+                float eMin = 1e9f, eMax = -1e9f;
+                bool ahead = true;
+                for (const gta2::Vec3& c : cs) {
+                    const float fwd = (c.x - eye.x) * std::sin(camYaw) + (c.z - eye.z) * std::cos(camYaw);
+                    // (a body within 0.6 of the lens is the boom's to fix: tipped up to its roof the view looked into the
+                    // sky over a car at the lens, run cam13_rev4 f166-178)
+                    if (fwd < 0.6f) { ahead = false; break; }
+                    const float e = std::atan2(c.y - eye.y, fwd);
+                    eMin = (std::min)(eMin, e);
+                    eMax = (std::max)(eMax, e);
+                }
+                if (ahead) {
+                    // only the top edge: the chase framing has the near bumper under the bottom edge by design
+                    // (the logged box's bottom is 1.04-1.39 at rest), and a car below the frame is the boom's
+                    // business (the raise over a pulled-in boom)
+                    camPitch = (std::max)(camPitch, (std::min)(eMax - mv, camPitch + 8.0f * kDegToRad));
+                    (void)eMin;
+                    if (CameraCarPitchCapOn()) {
+                        const float limit = -(std::max)(35.0f * kDegToRad, orbitPitch + chase::kPitch * kDegToRad);
+                        if (camPitch < limit) camPitch = limit;
+                    }
+                    lastPitch_ = camPitch;
+                }
+                if (cameraLogOn() && (yawFix != 0.0f || std::fabs(camPitch - pitchBefore) > 0.2f * kDegToRad)) {
+                    static int every = 0;
+                    if ((++every % 3) == 1)
+                        Log("cam: car frame clamp yaw %+.1f pitch %.1f -> %.1f (box %.1f..%.1f deg, margin %.1f)", WrapAngle(camYaw - yawBefore) / kDegToRad,
+                            pitchBefore / kDegToRad, camPitch / kDegToRad, offMin / kDegToRad, offMax / kDegToRad, mh / kDegToRad);
                 }
             }
         }

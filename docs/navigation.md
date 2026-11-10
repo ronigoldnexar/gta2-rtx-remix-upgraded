@@ -1011,3 +1011,28 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
     recycled-struct case is argued from the filer's log, not filmed. Regression: the filer's keys_pmv10.sh drive on
     this build (cam13_pmv10): ped id 1 throughout, no rejection line, and the cab (dash, wheel, hands) is drawn in
     every first-person frame.
+- **pfl28 residual: the car kept in frame at the wheel, the lens guard, the drive-off cut (partial; view_modes.cpp
+  `ViewCameraSolver::Solve`).** Three parts:
+  - The car frame clamp: at the wheel in third person, the drawn body's footprint (8 corners, `LiveCameraCars`, the
+    same box the `cam: pose ... box=` line logs) stays inside the middle 90 % of the frame's width, measured from the
+    eye that is shown. The yaw moves only as far as the box needs; a box too wide for the frame is centred. The pitch
+    moves only up, so the top edge clears the roof, by at most 8 degrees and only with every corner 0.6 or more ahead
+    of the lens. The chase framing keeps the near bumper under the bottom edge by design. Log: `cam: car frame clamp`.
+    `GTA2DX9_CAM_CAR_FRAME=0` turns it off.
+  - The lens guard: backing with the wheel over along a wall, the car's rear corner swept into a lens the wall held
+    while the line straight behind still reached the pull. When the eye's gap to the car's footprint closes fast
+    enough to reach 0.1 within 0.3 s, the turn aside is looked for at once and held for 0.8 s while it still backs.
+    Log: `cam: car at the lens`. `GTA2DX9_CAM_CAR_LENS_GUARD=0` turns it off.
+  - The drive-off cut: turned past 100 degrees, the eye is ahead of the car. Driving forward (over 0.3 block/s)
+    with the line behind reaching half the pull, it cuts to behind the car instead of easing back over 0.8 s into a
+    car driving at the lens. Log: `... cut to behind`. `GTA2DX9_CAM_CAR_DRIVEOFF_CUT=0` turns it off.
+  - Measured with FIX-CAMERA-11's probe (`keys_cam11_rev.sh`, `C11_REV=straight,angled,angledR,angled2`, wil scene
+    car at 179.5,181.5, 30 fps bursts, LOG_CAMERA=1). The metric is over the pose lines of the four bursts: frames
+    with the box more than 5 % past the left/right/top edge, and frames with over half the frame covered. HEAD: 53,
+    48, 45 (FIX-CAMERA-11's cam11_rev6base/6/7) and 64 (cam13_rev1base); over-half 36, 20, 34, 29. This build:
+    cam13_rev5 19 / 19, cam13_rev6 1 / 15, cam13_rev7 31 / 36. Runs with the angled reverse first are clean on both
+    builds (cam13_rev2, cam13_rev2base: 0 / 0).
+  - Still short (frames opened): the car backing into the corner pocket can still put its canopy over the lower
+    frame for ~0.5 s when the guard trips late (cam13_rev7 angled f81-98). After the drive-off cut the boom can stay
+    pulled in along a wall for ~1 s, with the car's rear cut at the bottom edge (cam13_rev7 angled2 f121-147). In
+    cam13_rev6 the turn to the car's nose in the pocket shows the car whole in every frame.
