@@ -3514,6 +3514,27 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // the roof as the van drove off (the lens over the van at 5.0-5.8 s, f150-f174): the turn holds until the
             // line behind keeps the pull.
             const bool arcWay = !(CarSwingEarlyOn() && (backing > 0.3f || swung));
+            // FIX-CAMERA-11 (pfl28 angled, triage tri18_rev): a car backing along a wall at a building's corner took a
+            // turn whose eye went round through the wall (the turn 106 -> 134 with the lens on the wall's face: 0.3 s of
+            // black frames), then flipped to the far side (-20..-60) through the blocked line behind. A turn is only to a
+            // heading on the side it is turned to when the way round to it is open now (every 10 degrees from where
+            // the turn is keeps 0.35 block of boom), and the turned eye is never put past a wall (below). (A cut to the
+            // far side was tried: the car turns on the impact and the heading cut to was walled a frame later, the eye
+            // over the roof for 1.5 s, run cam11_rev3.) GTA2DX9_CAM_CAR_ARC=0 restores FIX-INCAR-1's search (A/B).
+            static int carArcOn = -1;
+            if (carArcOn < 0) { char b[8] = {}; carArcOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_ARC", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+            const bool arcCheck = carArcOn && CarSwingEarlyOn();
+            const int maxSteps = 6;
+            auto wayOpen = [&](float a) {
+                if (!arcCheck) return true;
+                const float from = carSwing, span = a - from;
+                const int n = (std::max)(1, static_cast<int>(std::ceil(std::fabs(span) / (10.0f * kDegToRad))));
+                for (int i = 1; i <= n; ++i) {
+                    const float t = from + span * static_cast<float>(i) / n;
+                    if (reachTo(pivot, turned(t, len0)) * len0 < (std::min)(0.5f * good, 0.35f)) return false;
+                }
+                return true;
+            };
             if (straight < good + (swung ? 0.2f : 0.0f) && !(arcWay && arcClears())) {
                 const float first = carSwing < 0.0f ? -1.0f : 1.0f;
                 bool found = false;
@@ -3526,34 +3547,35 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 // ~0.3 s (run incar1_rev1 angled f100-f120).
                 if (CarSwingEarlyOn() && swung) {
                     for (const float need : {(std::max)(good, 0.9f * len0), good})
-                        for (int k = 1; k <= 6 && !found; ++k) {
+                        for (int k = 1; k <= maxSteps && !found; ++k) {
                             const float a = first * static_cast<float>(k) * (20.0f * kDegToRad);
-                            if (reachAt(a) >= need) { want = a; found = true; }
+                            if (reachAt(a) >= need && wayOpen(a)) { want = a; found = true; }
                         }
                     if (!found) {
                         float bestSame = -1e9f, bestA = carSwing;
-                        for (int k = 1; k <= 7; ++k) {
+                        for (int k = 1; k <= (std::max)(7, maxSteps); ++k) {
                             const float a = first * static_cast<float>(k) * (20.0f * kDegToRad), r = reachAt(a);
-                            if (r > bestSame) { bestSame = r; bestA = a; }
+                            if (r > bestSame && wayOpen(a)) { bestSame = r; bestA = a; }
                         }
                         if (bestSame >= 0.5f * good) { want = bestA; found = true; }
                     }
                 }
                 for (const float need : {(std::max)(good, 0.9f * len0), good})
                     for (const float sg : {first, -first})
-                        for (int k = 1; k <= 6 && !found; ++k) {
+                        for (int k = 1; k <= maxSteps && !found; ++k) {
                             const float a = sg * static_cast<float>(k) * (20.0f * kDegToRad);
                             if (reachAt(a) >= need) { want = a; found = true; }
                         }
                 if (!found) {
                     // Nowhere keeps the pull: the way that reaches furthest, if clearly better than straight behind.
                     float bestR = straight + 0.3f;
-                    for (int k = 1; k <= 7; ++k)
+                    for (int k = 1; k <= (std::max)(7, maxSteps); ++k)
                         for (const float sg : {first, -first}) {
                             const float a = sg * static_cast<float>(k) * (20.0f * kDegToRad), r = reachAt(a);
                             if (r > bestR) { bestR = r; want = a; }
                         }
                 }
+
             }
             const float tau = std::fabs(want) > std::fabs(carSwing) ? 0.12f : 0.8f;
             float d = (want - carSwing) * (1.0f - std::exp(-dt / tau));
@@ -3567,8 +3589,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 // middle mid-turn, the van filling the frame, run tri15_p28 f1043).
                 const float c = std::cos(d), sn = std::sin(d);
                 const float ox = eyeX_ - pivot.x, oz = eyeZ_ - pivot.z;
-                eyeX_ = pivot.x + ox * c - oz * sn;
-                eyeZ_ = pivot.z + ox * sn + oz * c;
+                const gta2::Vec3 rot{pivot.x + ox * c - oz * sn, eyeY_, pivot.z + ox * sn + oz * c};
+                // FIX-CAMERA-11: never round into a wall (the turned eye was put on the pillar's face, tri18_rev f93-99):
+                // a turned eye the mesh stops on the way from the car stays where it was (the boom filter eases it).
+                float th = 1.0f;
+                if (!(carArcOn && carMesh && eyecol::SegmentHitSolid(pivot, rot, &th))) {
+                    eyeX_ = rot.x;
+                    eyeZ_ = rot.z;
+                }
             }
             if (std::fabs(carSwing) < 1e-3f) carSwing = 0.0f;
             if (carSwing != 0.0f) desired = turned(carSwing, len0);
@@ -4116,6 +4144,37 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     if (cameraLogOn()) {
                         static int every = 0;
                         if ((++every % 15) == 1) Log("cam: side berth moved %.2f", moved);
+                    }
+                }
+            }
+            // FIX-CAMERA-11 (pfl28 angled tri18_rev, pm27 ste x=117): at the wheel the shown eye had no berth from
+            // the faces beside its line: a car backing along a wall (or jammed against one) put the lens 0.0-0.15
+            // from the bricks, the near plane cut the wall open (black frames; a magnified tile filling the frame).
+            // The chase eye keeps kCarSide off every drawn wall (sheets and bars are not walls), never through anything
+            // on the way from the car. GTA2DX9_CAM_CAR_BERTH=0 turns it off (A/B).
+            static int carBerthOn = -1;
+            if (carBerthOn < 0) { char b[8] = {}; carBerthOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_BERTH", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+            if (carMesh && sideOn && carBerthOn && mode == ViewMode::ThirdPerson) {
+                constexpr float kCarSide = 0.25f;
+                const gta2::Vec3 e0{eyeX_, eyeY_, eyeZ_};
+                gta2::Vec3 e = e0;
+                float t = 1.0f;
+                // A lens already past a face on its way from the car (the turned eye on the pillar): back along the
+                // line to kCarSide short of it first.
+                const gta2::Vec3 span = e0 - shownPivot;
+                const float spanLen = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
+                if (spanLen > 1e-3f && eyecol::SegmentHitSolid(shownPivot, e0, &t)) {
+                    const float k = (std::max)(0.0f, t - kCarSide / spanLen);
+                    e = {shownPivot.x + span.x * k, shownPivot.y + span.y * k, shownPivot.z + span.z * k};
+                }
+                eyecol::Push(&e, kCarSide);
+                const float moved = std::sqrt((e.x - e0.x) * (e.x - e0.x) + (e.y - e0.y) * (e.y - e0.y) + (e.z - e0.z) * (e.z - e0.z));
+                t = 1.0f;
+                if (moved > 1e-4f && !eyecol::SegmentHitSolid(shownPivot, e, &t)) {
+                    eyeX_ = e.x; eyeY_ = e.y; eyeZ_ = e.z;
+                    if (cameraLogOn()) {
+                        static int every = 0;
+                        if ((++every % 10) == 1) Log("cam: car berth moved %.2f (near %.2f after)", moved, eyecol::Nearest(e, 1.0f));
                     }
                 }
             }

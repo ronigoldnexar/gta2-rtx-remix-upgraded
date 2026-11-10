@@ -849,3 +849,26 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   degrees, his box between 0.13 and 0.86 of the frame width; fix (cam11_p37b1) 32.4 / 33.2 / 1.8, his box inside
   0.29..0.54 in every frame (frames opened every 4th, 0.8-2.4 s of each burst). The ped's head at the lens of the
   filer's clip was not reproduced in either run (it came from the chord the fast swing cut; the swing no longer cuts it).
+- **pfl28, the angled reverse at a building corner (partial).** DEFECT-TRIAGE pass 198 found 8372ddd's turn aside put
+  the lens inside the corner pillar (0.3 s of black frames): the car backed along a wall, the turned eye was rotated
+  about the car with no check (FIX-INCAR-1's "the eye goes round with the turn"), and at the wheel the shown eye had no
+  berth from the faces beside its line (the on-foot side berth, FIX-CAMERA-5, is on foot only), so it sat 0.0-0.15 from
+  the bricks and the near plane cut the wall open. Now (`ViewCameraSolver::Solve`, the car swing and the boom filter):
+  the turned eye stays where it is when the mesh stops the line from the car to it; turned aside already, a heading on
+  its own side is taken only when the way round to it keeps 0.35 block of boom every 10 degrees; and the in-car shown
+  eye keeps 0.25 off every drawn wall (`eyecol::Push`; a lens already past a face is first backed along its line),
+  never through anything from the car. `GTA2DX9_CAM_CAR_ARC=0` (the turn) and `GTA2DX9_CAM_CAR_BERTH=0` (the berth)
+  restore 8372ddd. Log: `cam: car berth moved M (near N after)`.
+  - Measured (`gamerun/keys_cam11_rev.sh`, `cam11_rev.py`, `C11_REV=straight,angled,angledR,angled2`, wil scene car
+    at 179.5,181.5, 30 fps bursts; the paths after the first reverse wander run to run, so two runs each): black
+    frames (mean luma under 30 below the HUD) base 4 + 3 (cam11_rev3base, cam11_rev6base) vs fix 0 + 0 (cam11_rev4,
+    cam11_rev6); frames with the car box over half the frame 42 + 36 vs 12 + 20; frames with the box more than 5 %
+    past the left/right/top edge 51 + 53 vs 52 + 48 (unchanged). Frames opened at the same corner (base
+    rev6base f72-120: the lens inside the pillar, black; fix rev6: the pillar a grey wall at the left, no black, the
+    car close and cut at the frame's left/bottom edge for ~0.5 s).
+  - Tried and left out: a cut to the far side when the way round is walled (cam11_rev3: the car turns on the impact and
+    the heading cut to is walled a frame later, the eye over the roof for 1.5 s), turning on round to the front while
+    backing (cam11_rev2: the look point ahead of the car put it off the frame), aiming from the shown eye when pulled
+    short (cam11_rev5: the view lost the car to the sky after a turn).
+  - Still short: in a corner pocket the boom stays pulled in and the car can sit cut at a frame edge for about half a
+    second; frames past an edge are as many as before.
