@@ -1190,3 +1190,10 @@ Two playtest defects on the owner demo's first two beats (pfl15, third person).
 | hero never on the car | verified: entered at the nose, drawn round the front end and down the side, beside the door on the ground | fa3_fix4 log (10 `approach round the car` frames) and 46.9-49.0 s |
 | driver beside the car, not carried with it | verified: lands clear on the road, left behind as the car pulls away; drawn spot fixed while the car drove 1+ block | fa3_fix4 48.6-53.0 s, fa3_fix3 log |
 | not done | the driver is still hauled up through the closed canopy glass on the 036 (the door is under the glass); the lying end pose is `fall`'s (arms spread 45 degrees) | - |
+
+Probe (FIX-ACTIONS-3): `linux/docker/keys_fa3.sh` + `fa3_demo.py` (copy into gamerun/): warp to the wil pavement, the
+owner demo's punch_sequence in third person, a kerb-lane jack, drive off (`FA3_DRIVE_WAIT` seconds after the jack).
+`STAGE=<stage> GTA2_DIRECT_KEYS=1 FPS=30 PRIO=1 INI_SED='s/^scene_key=.*/scene_key=F11/; s/^force_car_model=.*/force_car_model=36/'
+gamerun/grun.sh <run> 330 keys_fa3.sh -e GTA2DX9_STATE_EVERY=3 -e GTA2DX9_PEDS_EVERY=3 -e GTA2DX9_LOG_PED_FRAMES=1
+-e GTA2DX9_LOG_BOARD_HULL=1 -e FA3_DRIVE_WAIT=0.2` (about 70 s of game). `tools/boarding_hull_test.cpp` replays two
+paths through a car body against `boarding.cpp` offline (0 frames inside the hull).
