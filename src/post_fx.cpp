@@ -1223,7 +1223,8 @@ void PostFx::Resolve() {
             c[7][0] = frame_.fogStart; c[7][1] = 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart);
             // More of the street under water the wetter it is.
             c[7][2] = 0.78f - 0.22f * std::min(1.0f, weather.wet); c[7][3] = weather.rain;
-            c[8][0] = 0.5f; c[8][1] = 1.0f; c[8][2] = 0.0f; c[8][3] = 1.0e6f;
+            // c[8].z: a ray that ends in the frame without a hit takes the scene there (qav9); [visuals] debug 64 = the old sky fallback.
+            c[8][0] = 0.5f; c[8][1] = 1.0f; c[8][2] = (cfg.debug & 64) ? 0.0f : 1.0f; c[8][3] = 1.0e6f;
             c[9][0] = 1.5f; c[9][1] = 0.15f; c[9][2] = 1.25f; c[9][3] = 0.05f;
             device_->SetPixelShaderConstantF(0, &c[0][0], 10);
             DrawQuad(w, h);

@@ -35,6 +35,22 @@ a fresh `def` for every literal in every unrolled step: the first build had 436 
 from two uniforms (`cK`, `cK2`): 103 defs, highest constant c112, highest temporary r28 (Wine's
 GLSL path allows r31).
 
+### The near-lens seam (qav9, FIX-WORLD-13, 10 Nov 2026)
+
+qav9 filed the wet layer ending in a hard, stepped seam a few metres from the lens in rain, with a
+flat dry-looking slab nearer. It was the reflection march's miss fallback: the ten steps grow with
+the pixel's distance (`0.15 + 0.03 z` blocks, x1.25 a step), so from the ground just in front of the
+lens a ray ends a few blocks out, short of the walls that pixels farther up the road reach; those
+near pixels took the flat horizon/zenith colour, and the line where hits gave out was the seam (step
+shaped by the march's discrete steps). A ray that ends still inside the frame without a hit now
+takes the scene where it ended (the wall or the sky along the same direction), so both sides of that
+line sample the same place; only a ray that left the frame gets the sky colour. `cK.z` carries it
+(1; `[visuals] debug=64` restores the old fallback for an A/B in one session). Frames: out/qa_fw13wet3
+(`*_old` vs `*_new*`, same pose, wil 210.5,100.5 / 70.5,20.5 / 20.5,160.5, rain 100 %, noon):
+third person, the reflection runs on toward the lens instead of stopping at a stepped edge; first
+person, ripples and reflections reach the frame's edge where there was a flat grey slab. Highest
+temporary still r28.
+
 ## Options (`[weather]` in `gta2dx9.ini`, re-read every second)
 
 | Key | Default | Meaning |

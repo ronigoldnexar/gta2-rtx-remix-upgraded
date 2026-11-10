@@ -23,7 +23,7 @@ float4 cZenith     : register(c6);   // sky overhead; w: reflection strength
 float4 cWet        : register(c7);   // fog start, 1/(fog end - start), puddle threshold, rain (ripples)
 // Numbers the march uses, as a uniform: Wine 9's compiler writes a fresh def for every
 // literal in every unrolled step and the shader ran past ps_3_0's 224 constants.
-float4 cK          : register(c8);   // 0.5, 1, 0, 1e6
+float4 cK          : register(c8);   // 0.5, 1, the in-frame miss fallback (1, qav9), 1e6
 float4 cK2         : register(c9);   // 1.5 (hit thickness, in steps), 0.15 (plus blocks), 1.25 (step growth), 0.05 (near)
 
 sampler2D sLit    : register(s4);
@@ -105,8 +105,17 @@ float4 ps_wet(WetIn i) : COLOR0 {
     float edge = saturate(e.x * 10.0) * saturate(e.y * 10.0);
     float3 refl = tex2Dlod(sLit, float4(saturate(hitUv + rip), 0, 0)).rgb;
     float3 sky = lerp(cHorizon.rgb, cZenith.rgb, saturate(dot(r, cUp.xyz)));
-    // A ray that hit nothing went up past the frame: the sky; one that hit is the street.
-    float3 reflCol = lerp(sky, refl, found * edge);
+    // qav9 (FIX-WORLD-13): the march is ten steps whose length grows with the pixel's distance, so
+    // from the ground just in front of the lens it ends a few blocks out, short of the walls that the
+    // pixels farther up the road do reach; those near pixels took the flat sky colour and the line
+    // where hits gave out was a hard, step-shaped seam with a "dry slab" before it. A ray that ends
+    // still inside the frame without a hit now takes the scene where it ended (what lies on along
+    // it, the wall or the sky beyond), so both sides of that line sample the same place. Only a ray
+    // that left the frame gets the sky colour. cK.z = 1 (0 = the old fallback, [visuals] debug 64).
+    float2 eL = min(suv, cK.yy - suv);
+    float endIn = saturate(eL.x * 10.0) * saturate(eL.y * 10.0) * inside * cK.z;
+    float3 farCol = tex2Dlod(sLit, float4(saturate(suv + rip), 0, 0)).rgb;
+    float3 reflCol = lerp(lerp(sky, farCol, endIn), refl, found * edge);
     // Asphalt is no mirror: from the chase camera's height the true Fresnel term is a
     // few percent; a floor keeps the wet sheen readable, puddles reflect most.
     float cosv = saturate(dot(-v, n));
