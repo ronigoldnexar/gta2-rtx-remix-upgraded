@@ -177,7 +177,9 @@ def cmd_pbr(a):
         lab, info = panes(rgba)
         write_dxt1(fixed, repaint(rgba, lab, info))
         h = a.hash or rm.dds_hash(a.src)
-        rm.pbr_tile((fixed, h, tmp, 512, 256))
+        # FIX-REMIX-MATERIALS-6 (ptrmx30): the panes are glass to the path tracer (roughness ~0.05, no
+        # relief, set back in the height map), not a matte picture of glass: the sky and street reflect
+        rm.pbr_tile((fixed, h, tmp, 512, 256, None, False, None, None, lab > 0))
         for f in sorted(os.listdir(tmp)):
             if f.startswith(h + "."):
                 kind = f.split(".")[1]

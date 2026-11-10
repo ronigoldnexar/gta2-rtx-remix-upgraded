@@ -1724,3 +1724,22 @@ layer and merge (`remix_materials.py - /tmp/scratch --dds-tiles ... --gmp-dir ga
 --force`, `--wet-layer`, `remix_layer_merge.py /tmp/scratch <worktree layer> hashes.txt --tiles`), take it with
 `PACKAGE=/tmp/wt-<you>/package gamerun/playtest_remix.sh ...`. Python with numpy, PIL and xxhash:
 `/mnt/gta2/ab_work/venv/bin/python` (the vreg venv lacks xxhash).
+
+**The police station's windows are glass to the path tracer (FIX-REMIX-MATERIALS-6, ptrmx30-remix-wil-day-third-stone-facade-
+window-bays-...).** wil 704/705 (the arched bays at 198.5,178.5) have had their own repainted Remix maps since f6a819c
+(`tools/fix_window_glass.py pbr`: `<hash>.<map>g.rtex.dds`), but those went through the map maker as a plain wall tile:
+`analyse()` runs without `windows=True` (night windows are off: false positives), so the repainted pane was a matte
+picture of glass, roughness 0.55-0.72 with the stone's relief, and path traced as a flat smeared grey slab. Now
+`analyse(glass_mask=...)` takes curated panes: glass roughness (0.05), no structure or grain relief, and in the height
+map the pane is set back behind its frame (the stone keeps its displacement); `pbr_tile` passes a 10th job element
+and `fix_window_glass.py pbr` hands over its own pane mask. After (`out/fm6_sta1` shot_270 vs the filer's ptrmx30_wil
+shot_270, 12:00 third): dark glass reflecting the street and sky, recessed behind the stone, no smear. Not mine: the
+garbled "l n d l" marks on 705's sill and the pilaster blotches are in the HD tile itself (upscaler art, FIX-WORLD-10's
+photo-set re-make; under Remix the layer albedo is that art). Other facade windows keep the plain wall class (a
+curated list, like the iron rails, is the way to add more).
+
+**Layer textures are not in git.** The play page mounts the shared `repo/package` and its ignored `textures/` folder;
+a commit changes `mod.usda` / `mod_wet.usda` / `pbr.json`, but the DDS a commit refers to reach the play page only when
+they are copied into that folder. Since this shift fixers never write the shared checkout: they leave the changed
+DDS in `/mnt/gta2/gta2-linux/layer_deploy/<agent>/textures/` with a `deploy.sh` (unlink-first copy, as the merge tool
+does) for the coordinator to run when the commit reaches the shared tree.

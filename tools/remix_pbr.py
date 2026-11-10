@@ -201,7 +201,7 @@ def mural_like(rgba):
     bins = np.bincount((hue[s] // 30).astype(int) % 12, minlength=12) / s.size
     return bool(s.mean() > 0.12 and (bins > 0.02).sum() >= 3)
 
-def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0, ground=None, micro=None):
+def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0, ground=None, micro=None, glass_mask=None):
     """Maps for one texture (uint8 RGBA, any size). Returns a dict:
     normal (h, w, 3 float, DirectX tangent space), rough / rough_wet / metal / height
     (uint8 h, w; metal and height None when the texture has none), displace (float,
@@ -301,6 +301,9 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
                 em_big = em_big * shade * glass[..., None]
                 emissive = np.zeros((h, w, 4), np.uint8); emissive[..., 3] = 255
                 emissive[..., :3] = np.clip(em_big * 255, 0, 255).astype(np.uint8)
+    if glass_mask is not None:                     # FIX-REMIX-MATERIALS-6: curated panes (tools/fix_window_glass.py)
+        glass = glass | (np.asarray(glass_mask, bool)[:h, :w] if glass_mask.shape[:2] == (h, w)
+                         else resize_f(np.asarray(glass_mask, np.float32), max(h, w))[:h, :w] > 0.5)
     glass &= vis
 
     # --- roughness ---------------------------------------------------------------
@@ -364,6 +367,8 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
         metal &= False; chrome &= False
         rough = gauss(np.clip(0.62 + 0.12 * (busy - 0.4) + 0.6 * grime, 0.52, 0.72), 0.6 * S + 0.2, wrap)
     w_s = np.where(flat, 0.25, 1.0); w_g = np.where(glass, 0.15, 1.0)
+    if glass_mask is not None:                     # a curated pane is a flat sheet: no structure or grain relief
+        w_s = np.where(glass, 0.0, w_s); w_g = np.where(glass, 0.0, w_g)
     if ground == "mural":
         colourful = ((sat > 0.25) & (val > 0.25)).astype(np.float32)
         region = gauss(colourful, 16 * S + 1, wrap) > 0.06
@@ -380,11 +385,15 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
 
     # --- height for displacement ------------------------------------------------------
     rel = 1.0 - float((paint | glass | veg | dark).mean())     # the share of the tile that is a surface with relief
+    if glass_mask is not None:                     # curated panes are recessed in the height map, not a reason to drop it
+        rel = 1.0 - float(((paint | veg | dark) & ~glass).mean())
     signish = float((paint & vis).mean())
     height = None; displace = 0.0
     if kind in ("tile", "prop") and ground is None and panes == 0 and signish < 0.08 and rel > 0.6 and struct_amp > 0.45:
         H = 0.5 + 0.5 * (0.85 * Hs + 0.15 * Hg * 2)
         H = np.clip(gauss(H, 0.5 * S + 0.2, wrap), 0, 1)
+        if glass_mask is not None and glass.any():  # FIX-REMIX-MATERIALS-6: a flat pane set back behind its frame
+            H = np.where(gauss(glass.astype(np.float32), 1.0 * S + 0.3, wrap) > 0.5, min(float(np.percentile(H, 3)), 0.25), H)
         height = (H * 255).astype(np.uint8)
         displace = round(0.006 + 0.012 * struct_amp, 4)
 

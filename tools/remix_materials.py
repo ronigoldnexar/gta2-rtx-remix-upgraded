@@ -341,6 +341,7 @@ def pbr_tile(job):
     import shutil, remix_pbr
     path, h, tex_dir, size, map_size = job[:5]
     ground, lift, albedo, micro = (tuple(job[5:]) + (None, False, None, None))[:4] if len(job) > 5 else (None, False, None, None)
+    glass_mask = job[9] if len(job) > 9 else None       # FIX-REMIX-MATERIALS-6: curated window panes (fix_window_glass.py)
     donor = albedo if isinstance(albedo, tuple) else None
     src = path if donor else (albedo or path)
     rgba = np.asarray(Image.open(src).convert("RGBA"))
@@ -383,7 +384,7 @@ def pbr_tile(job):
     for ext in "nrmhw":                                  # same for every other map (dds() opens "wb")
         p = os.path.join(tex_dir, f"{h}.{ext}.rtex.dds")
         if os.path.lexists(p): os.remove(p)
-    r = remix_pbr.analyse(rgba, True, kind="tile", seed=h, ground=ground, micro=mic)
+    r = remix_pbr.analyse(rgba, True, kind="tile", seed=h, ground=ground, micro=mic, glass_mask=glass_mask)
     write_normal(os.path.join(tex_dir, f"{h}.n.rtex.dds"), r["normal"])
     write_roughness(os.path.join(tex_dir, f"{h}.r.rtex.dds"), small(r["rough"], map_size))
     for key, ext in (("metal", "m"), ("height", "h")):
