@@ -737,6 +737,11 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
         // a hit the accelerations do not load the springs).
         float ax = st.aF / kG, ay = st.aL / kG;
         if (st.sinceHit < 0.25f) { ax = 0.0f; ay = 0.0f; }
+        // FIX-SEAT-ENTRY-2 (feel30): nor while it is held against a wall (hit again and again,
+        // barely moving): GTA2 pushes a car under throttle into the wall and back each few frames,
+        // and that jitter of its velocity read as hard braking and launching, rocking the body
+        // (and the first-person cockpit with it) by degrees every few frames at a standstill.
+        else if (st.sinceHit < 0.8f && speed < 1.0f) { ax = 0.0f; ay = 0.0f; }
         const float demand = std::sqrt(ax * ax + ay * ay);
         float carried = demand;
         if (demand > 0.8f * kMu) carried = 0.8f * kMu + 0.25f * kMu * std::tanh((demand - 0.8f * kMu) / (0.25f * kMu));
@@ -819,12 +824,16 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
             const float dvF = jx * f.x * dt + jz * f.z * dt, dvL = (jx * r.x + jz * r.z) * dt;   // blocks/s, car frame
             const float dv = std::sqrt(dvF * dvF + dvL * dvL);
             const float kP = 0.3f * car.length, kR = 0.35f * car.width;
-            const float sprung = 0.35f;   // the share of the jump the body feels before the springs take it
+            // FIX-SEAT-ENTRY-2 (feel30): the first contact gives the kick; a car held against the wall
+            // (another small hit within 0.8 s of the last) only a tenth of it, so a van pressed into a
+            // wall dips once and settles instead of rolling ~5 degrees every few frames.
+            const float kick = (st.sinceHit < 0.8f && dv < 1.2f) ? 0.1f : 1.0f;
+            const float sprung = 0.35f * kick;   // the share of the jump the body feels before the springs take it
             st.pitch.v += Clamp(-dvF * cgH / (kP * kP) * sprung, -3.0f, 3.0f);
             st.roll.v += Clamp(dvL * cgH / (kR * kR) * sprung, -3.0f, 3.0f);
-            st.heave.v += Clamp(0.05f * dv, 0.0f, 0.25f);
-            st.shoveX.v += Clamp(-dvL * 0.10f, -0.6f, 0.6f);
-            st.shoveZ.v += Clamp(-dvF * 0.10f, -0.6f, 0.6f);
+            st.heave.v += Clamp(0.05f * dv * kick, 0.0f, 0.25f);
+            st.shoveX.v += Clamp(-dvL * 0.10f * kick, -0.6f, 0.6f);
+            st.shoveZ.v += Clamp(-dvF * 0.10f * kick, -0.6f, 0.6f);
             // Where it struck: the body's edge on the side the push came from.
             float jF = dvF, jL = dvL;
             const float jl = std::sqrt(jF * jF + jL * jL);
@@ -848,7 +857,7 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
                 EmitSparks(at, groundY, along, out, 8 + static_cast<int>(22.0f * k));
                 st.sparkT = 0.08f;
             }
-            if (car.driven) g_player.impulse += dv;
+            if (car.driven) g_player.impulse += dv * kick;
             if (st.sinceHit > 0.3f && (car.driven || g_logFeel > 0))
                 Log("vehicle physics: impact%s dv=%.2f blocks/s (along %.2f, across %.2f) at corner %d, damage +%d -> %d, corners %.0f %.0f %.0f %.0f",
                     car.driven ? " (player)" : "", dv, dvF, dvL, corner, dDamage, car.damage, st.zone[0], st.zone[1], st.zone[2], st.zone[3]);
