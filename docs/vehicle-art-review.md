@@ -696,3 +696,12 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   (`build.py --preview`) and in game: before `out/va14_cap0`, after `out/va14_cap2` (parked, EXIT=1, PAINT
   209,164,116, poses rear34/chase/front34 and `tail` = 1 block behind at bumper height). The 010's flat deck and plain
   bonnet themselves were not reshaped.
+- **013/068 liner re-light (the 063's recipe, VEHICLE-ART-11):** `m013_minx.py` and `m068_van.py` give the cabin
+  liner its own light grey-beige `interior_liner` material (0.46, 0.43, 0.38, shares the `interior` atlas) and lean
+  its normals up (`-N + (0, 2.5, 0)`), so the cabin reads through glass instead of a black hole. Only `.mesh` and
+  `_0.tga` change for each (rebuild + import + floor pan; an unmodified rebuild reproduces the shipped files byte for
+  byte). Plain renderer: no visible change (the windows are the glass mask pass over its own cabin shell, and first
+  person draws the renderer's cab: `out/va14_lin_b0` vs `out/va14_lin_a0`, t_cab_013/068; the a0 frames carry a
+  damage flash and b0's 068 an explosion glare, not from the models). It is for Remix, where the asset's glass is
+  what draws: `013_minx_0.tga` and `068_van_0.tga` are re-baked (new hashes; neither had a prim) and still need the
+  glass prim.

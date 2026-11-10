@@ -96,6 +96,9 @@ M = dict(
     amber=Mat("marker_lamp", "rest", (0.95, 0.55, 0.10), rough=0.1, emit=(1.0, 0.55, 0.1), ao=0.3),
     interior=Mat("interior", "rest", (0.24, 0.20, 0.16), rough=0.85, ao=0.9),
     seat=Mat("interior_seat", "rest", (0.55, 0.45, 0.33), rough=0.8, ao=0.9, glbname="interior"),
+    # VEHICLE-ART-14 (as the 063, VEHICLE-ART-11): a light grey-beige headliner/door trim for the liner, so the cabin
+    # reads through glass (under Remix, and wherever the window is not the renderer's mask pass); dark it was a black hole
+    liner=Mat("interior_liner", "rest", (0.46, 0.43, 0.38), rough=0.9, ao=0.5, glbname="interior"),
     glass=Mat("glass", "glass", (0.05, 0.06, 0.07), rough=0.05, shader=glass_shader, ao=0.2),
     mirror=Mat("mirror_glass", "rest", (0.55, 0.60, 0.66), rough=0.03, metal=1.0, env=0.7, ao=0.2, glbname="chrome"),
 )
@@ -163,7 +166,9 @@ def build_minx():
     liner = body_loft("liner", M["interior"], [
         (ZRW + 0.06, (0.80, 1.05, 0.72, 0.64, 3.6, 0.0, 0)), (-0.48, (0.80, ROOF - 0.05, 0.72, 0.60, 3.8, 0.02, 0)),
         (0.18, (0.80, ROOF - 0.04, 0.72, 0.60, 3.8, 0.02, 0)), (ZWS - 0.06, (0.80, 1.02, 0.72, 0.66, 3.6, 0.0, 0))], R=20, S=8, nb=8)
-    P.append(Part("liner", M["interior"], liner.V, liner.F[:, ::-1], -liner.N))
+    # VEHICLE-ART-14: the liner's normals lean up (inward ones face away from the sun: ambient only, black)
+    ln = -liner.N + np.array([0.0, 2.5, 0.0]); ln /= np.linalg.norm(ln, axis=1, keepdims=True)
+    P.append(Part("liner", M["liner"], liner.V, liner.F[:, ::-1], ln))
     P.append(box("dash", M["black"], (-0.74, 0.80, ZWS - 0.18), (0.74, 0.96, ZWS)))
     P.append(box("bench", M["seat"], (-0.70, 0.45, -0.45), (0.70, 0.66, 0.10)))
     P.append(box("bench_back", M["seat"], (-0.70, 0.62, -0.52), (0.70, 1.12, -0.40)))

@@ -92,6 +92,9 @@ M = dict(
     amber=Mat("marker_lamp", "rest", (0.95, 0.55, 0.10), rough=0.1, emit=(1.0, 0.55, 0.1), ao=0.3),
     interior=Mat("interior", "rest", (0.20, 0.17, 0.14), rough=0.85, ao=0.9),
     seat=Mat("interior_seat", "rest", (0.30, 0.26, 0.20), rough=0.8, ao=0.9, glbname="interior"),
+    # VEHICLE-ART-14 (as the 063, VEHICLE-ART-11): a light grey-beige headliner/door trim for the liner, so the cabin
+    # reads through glass (under Remix, and wherever the window is not the renderer's mask pass); dark it was a black hole
+    liner=Mat("interior_liner", "rest", (0.46, 0.43, 0.38), rough=0.9, ao=0.5, glbname="interior"),
     glass=Mat("glass", "glass", (0.05, 0.06, 0.07), rough=0.05, shader=glass_shader, ao=0.2),
     mirror=Mat("mirror_glass", "rest", (0.55, 0.60, 0.66), rough=0.03, metal=1.0, env=0.7, ao=0.2, glbname="chrome"),
 )
@@ -156,7 +159,9 @@ def build_van():
                              ("p", ZF - 0.22, 1.90, 0.08), ("p", ZF - 0.44, ROOF - 0.06, 0.26), ("p", ZR + 0.26, ROOF - 0.06, 0.18),
                              ("p", ZR + 0.06, 1.86, 0.10)], step=0.25)
     for lp in extrude_profile("liner", M["interior"], lprof, BW - 0.06, r=0.06, mid=1, zshift=zshift, grid=0.5):
-        P.append(Part("liner", M["interior"], lp.V, lp.F[:, ::-1], -lp.N))
+        # VEHICLE-ART-14: the liner's normals lean up (inward ones face away from the sun: ambient only, black)
+        ln = -lp.N + np.array([0.0, 2.5, 0.0]); ln /= np.linalg.norm(ln, axis=1, keepdims=True)
+        P.append(Part("liner", M["liner"], lp.V, lp.F[:, ::-1], ln))
     P.append(box("dash", M["black"], (-1.08, 1.05, ZF - 0.45), (1.08, 1.25, ZF - 0.25)))
     for sx in (1, -1):
         P.append(box(f"seat{sx}", M["seat"], (min(0.15 * sx, 0.95 * sx), 0.80, 0.95), (max(0.15 * sx, 0.95 * sx), 1.05, 1.45)))
