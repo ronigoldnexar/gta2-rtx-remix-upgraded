@@ -186,6 +186,10 @@ struct MapTreeStats { int trees = 0, faces = 0; };
 std::vector<uint8_t> FindPlainPanelSides(const Map& map);
 int LastPlainPanelSides();
 MapTreeStats LastMapTreeStats();
+// FIX-WORLD-8 (ptrmx22): gantry signal slabs whose two lamp panels the street views draw at signal
+// scale (world_mesh.cpp SignalSlab); GTA2DX9_SIGNAL_HEADS=0 keeps the block-tall lamps.
+int LastSignalHeads();
+float SignalHeadScale();
 // Walkable see-through gratings given an opaque underside in the street views (defect pm36).
 int LastGrateUndersides();
 

@@ -423,6 +423,11 @@ public:
     // by side (1 left, 2 right, 4 top, 8 bottom): the plain far side of a composed window
     // panel (FindPlainPanelSides).
     void SetStreetHiddenSides(uint8_t sides) { streetHiddenSides_ = sides; }
+    // FIX-WORLD-8 (ptrmx22): the next AddBlock is a gantry signal slab (FindSignalSlabs): with its
+    // two side panels hidden (SetStreetHiddenSides 3) it adds them back at signal scale.
+    void SetSignalHead(bool on) { signalHead_ = on; }
+    bool SignalHead() const { return signalHead_; }
+    bool signalHead_ = false;
     uint8_t StreetHiddenSides() const { return streetHiddenSides_; }
     uint8_t streetHiddenSides_ = 0;
 
@@ -1271,6 +1276,50 @@ void AddCornerRampBlock(MeshBuilder* builder, const Block& block, int slopeType,
 // in the middle. Each face shows the matching part of its tile rather than the
 // whole of it squeezed down; that the game draws the *unshortened* walls with
 // the ordinary full-tile routine is what confirms the reading.
+// FIX-WORLD-8 (ptrmx22-remix-wil-gantry-signal-discs-giant-teal-ribbed-goggles): Downtown's gantries
+// carry signal slabs, a thin east slab (slope 54) whose two flat side panels hold a round teal signal
+// lamp (wil 753 east, 738 west) drawn a whole block tall: in the classic view a perspective sliver at
+// the screen's edge, in the street views two 3 m "goggles" over the avenue. SignalHeadScale: the size
+// the street views draw them at instead (a block's share), the lens then about 0.45 m; the head's top
+// at kSignalHangTop over the slab's base: against the slab's own top bar (its lid and end faces), the
+// only member of the gantry over the signal span (hung lower, under the neighbouring lattice's bottom
+// chord, they floated a metre under a thin bar). GTA2DX9_SIGNAL_HEADS=0: as before.
+constexpr float kSignalHangTop = 0.98f;
+constexpr float kSignalHeadScale = 0.17f;
+bool SignalHeadsEnabled() {
+    static int on = -1;
+    if (on < 0) { const char* e = std::getenv("GTA2DX9_SIGNAL_HEADS"); on = (e && e[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
+int g_signalHeads = 0;
+
+// The signal lamp's art: a round teal lens filling most of a keyed tile (opaque 45..75 %, a third or
+// more of the tile a cool teal: blue and green well over red) - checked on the tile's pixels so a
+// district whose tile 753 is something else is left alone.
+bool SignalLampTile(const Style& style, int tile) {
+    if (tile <= 0 || tile >= style.TileCount()) return false;
+    const Tile& t = style.GetTile(tile);
+    if (!t.hasTransparency || t.pixels.empty()) return false;
+    int opaque = 0, teal = 0;
+    for (const uint32_t px : t.pixels) {
+        if ((px >> 24) == 0) continue;
+        ++opaque;
+        const int r = (px >> 16) & 0xFF, g = (px >> 8) & 0xFF, b = px & 0xFF;
+        if (b > r + 30 && g > r + 20) ++teal;
+    }
+    const int n = static_cast<int>(t.pixels.size());
+    return opaque * 100 >= n * 45 && opaque * 100 <= n * 75 && teal * 100 >= n * 30;
+}
+
+// A gantry signal slab: an east/west slab (slope 53/54) with both side panels flat and one of them the
+// signal lamp (the other its back), wil 753/738.
+bool SignalSlab(const Block& block, const Style& style) {
+    const int type = block.SlopeType();
+    if (type != 53 && type != 54) return false;
+    if (!block.left || !block.right || !block.left.IsFlat() || !block.right.IsFlat()) return false;
+    return block.right.Tile() == 753 ? SignalLampTile(style, 753) : false;
+}
+
 void AddPartialBlock(MeshBuilder* builder, const Block& block, int slopeType,
                      const PartialCuts& cuts, float bx, float zNorth, float base) {
     const float lo = cuts.low;
@@ -1309,15 +1358,27 @@ void AddPartialBlock(MeshBuilder* builder, const Block& block, int slopeType,
     const std::array<Uv, 4> rightUv = FaceUvsPart(block.right, kRightFlags, 0.0f, 1.0f, y0, y1);
     const std::array<Uv, 4> topUv = FaceUvsPart(block.top, kTopFlags, x0, x1, 0.0f, 1.0f);
     const std::array<Uv, 4> bottomUv = FaceUvsPart(block.bottom, kBottomFlags, x0, x1, 0.0f, 1.0f);
+    // FIX-WORLD-8 (ptrmx22): a side the caller marked (SetStreetHiddenSides: 1 left, 2 right) is drawn
+    // for the classic view only, with the back of its panel; the street views draw something else there.
+    const uint8_t hiddenSides = builder->StreetHiddenSides();
+    const bool hideAllBefore = builder->StreetHiddenAll();
+    auto streetHide = [&](uint8_t side, bool on) {
+        if (!(hiddenSides & side) || hideAllBefore) return;
+        builder->SetStreetHiddenAll(on);
+    };
     if (SoloFace(block.left, block.right)) {
+        streetHide(1, true);
         builder->AddFaceUv(block.left,
                            {{{xWest, base, zN}, {xWest, top, zN}, {xWest, top, zS}, {xWest, base, zS}}},
                            {-1.0f, 0.0f, 0.0f}, leftUv);
+        streetHide(1, false);
     }
     if (SoloFace(block.right, block.left)) {
+        streetHide(2, true);
         builder->AddFaceUv(block.right,
                            {{{xEast, top, zN}, {xEast, base, zN}, {xEast, base, zS}, {xEast, top, zS}}},
                            {1.0f, 0.0f, 0.0f}, rightUv);
+        streetHide(2, false);
     }
     if (SoloFace(block.top, block.bottom)) {
         builder->AddFaceUv(block.top,
@@ -1331,14 +1392,40 @@ void AddPartialBlock(MeshBuilder* builder, const Block& block, int slopeType,
     }
     // The backs of the panels, in each tile's own slot order - see AddBlock.
     if (PanelBack(block.right, block.left)) {
+        streetHide(2, true);
         builder->AddFaceUv(block.right,
                            {{{xWest, top, zN}, {xWest, base, zN}, {xWest, base, zS}, {xWest, top, zS}}},
                            {1.0f, 0.0f, 0.0f}, rightUv, DecalPush(block.left), true);
+        streetHide(2, false);
     }
     if (PanelBack(block.left, block.right)) {
+        streetHide(1, true);
         builder->AddFaceUv(block.left,
                            {{{xEast, base, zN}, {xEast, top, zN}, {xEast, top, zS}, {xEast, base, zS}}},
                            {-1.0f, 0.0f, 0.0f}, leftUv, DecalPush(block.right), true);
+        streetHide(1, false);
+    }
+    // FIX-WORLD-8 (ptrmx22): the gantry signal: its two disc panels, hidden above, come back at signal
+    // scale (SignalHeadScale of a block), hung under the girder's bottom chord at the slab's middle, the
+    // same tiles and orientation (so the classic art and the Remix material keyed on the tile stay),
+    // a thin plate: the east tile facing east, the west tile facing west.
+    if (builder->SignalHead() && (hiddenSides & 3) == 3) {
+        const float sz = kSignalHeadScale;
+        const float zc = 0.5f * (zN + zS);
+        const float hTop = base + kSignalHangTop, hBot = hTop - sz;
+        const float xp = 0.5f * (xWest + xEast);
+        builder->SetStreetMode(3);
+        if (block.right)
+            builder->AddPlainQuad(block.right.Tile(),
+                                  {{{xp + 0.004f, hTop, zc + 0.5f * sz}, {xp + 0.004f, hBot, zc + 0.5f * sz},
+                                    {xp + 0.004f, hBot, zc - 0.5f * sz}, {xp + 0.004f, hTop, zc - 0.5f * sz}}},
+                                  {1.0f, 0.0f, 0.0f}, rightUv);
+        if (block.left)
+            builder->AddPlainQuad(block.left.Tile(),
+                                  {{{xp - 0.004f, hBot, zc + 0.5f * sz}, {xp - 0.004f, hTop, zc + 0.5f * sz},
+                                    {xp - 0.004f, hTop, zc - 0.5f * sz}, {xp - 0.004f, hBot, zc - 0.5f * sz}}},
+                                  {-1.0f, 0.0f, 0.0f}, leftUv);
+        builder->SetStreetMode(0);
     }
     if (PanelBack(block.bottom, block.top)) {
         builder->AddFaceUv(block.bottom,
@@ -2570,6 +2657,8 @@ bool MapTreesEnabled() {
 }
 
 MapTreeStats LastMapTreeStats() { return g_mapTreeStats; }
+int LastSignalHeads() { return g_signalHeads; }
+float SignalHeadScale() { return kSignalHeadScale; }
 
 namespace {
 int g_grateUndersides = 0;
@@ -2746,6 +2835,9 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
         }
     }
     int treeFaces = 0;
+    g_signalHeads = 0;
+    int signalFaces = 0;
+    const bool signalHeads = SignalHeadsEnabled();
     const std::vector<uint8_t> plainSides = g_streetFill ? FindPlainPanelSides(map) : std::vector<uint8_t>{};
     const int plainBefore = builder.StreetHiddenCount();
     int plainFaces = 0;
@@ -2768,11 +2860,15 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                 builder.SetStreetHidden(decal || boardCandidate || treePart == 2);
                 builder.SetStreetHiddenAll(treePart == 1);
                 builder.SetStreetHiddenSides(plainSides.empty() || level < 0 || level > 8 ? 0 : plainSides[treeSlot(x, y, level)]);
+                const bool signal = signalHeads && SignalSlab(block, style);
+                if (signal) { builder.SetStreetHiddenSides(3); builder.SetSignalHead(true); ++g_signalHeads; }
                 const int hiddenBefore = builder.StreetHiddenCount();
                 AddBlock(&builder, block, resolved[block.SlopeType() & (kSlopeTypeCount - 1)], cuts, x, y, level);
+                builder.SetSignalHead(false);
                 builder.SetStreetHiddenSides(0);
                 builder.SetStreetHiddenAll(false);
                 if (treePart) treeFaces += builder.StreetHiddenCount() - hiddenBefore;
+                else if (signal) signalFaces += builder.StreetHiddenCount() - hiddenBefore;
                 else if (!plainSides.empty() && level >= 0 && level <= 8 && plainSides[treeSlot(x, y, level)])
                     plainFaces += builder.StreetHiddenCount() - hiddenBefore;
                 if (boardCandidate) {
@@ -2798,7 +2894,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     }
     (void)plainBefore;
     g_plainPanelSides = plainFaces;
-    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - treeFaces - plainFaces};
+    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - treeFaces - plainFaces - signalFaces};
     g_mapTreeStats = MapTreeStats{static_cast<int>(trees.size()), treeFaces};
     g_boards = boards;
     AddImplicitFloors(&builder, map);

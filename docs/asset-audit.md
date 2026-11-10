@@ -232,3 +232,15 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   never under Remix (the photo set is not loaded there; under Remix the shipped HD tile and its prims stay).
   Regenerate: `photoreal_tiles.py frames <photo>/<st> labels_<st>.json usage.json <photo>/<st> --style <st>`
   for bil, wil, ste, then `arch_door_tile.py <photo>/wil/tile_0538.dds <photo>/wil/tile_0538.dds`.
+- **Gantry signal "goggles"** (ptrmx22-remix-wil-gantry-signal-discs-giant-teal-ribbed-goggles, model half): not a
+  model and not a map object: Downtown's gantries carry signal slabs (slope 54, a thin east slab; both side panels
+  flat, wil 753 east and 738 west, ends and lid 740), so the game's own round teal signal lamp is drawn one whole
+  block tall (about 3 m), twice (the panel and its back), side by side over two cells: the "goggles". In the
+  classic view they are a perspective sliver at the edge; from above the lid 740 is the housing. 12 slabs on the
+  map (`world_mesh.cpp` SignalSlab: slope 53/54, both sides flat, the east tile 753 checked on its pixels to be
+  the round teal lamp). The street views now leave the two block-tall panels out (streetIndices, so the classic
+  view is byte-identical: classic mesh hashes wil b9a234d14d489bf7, ste fc908f869418d987, bil 1d2767964eba1223
+  before and after) and draw the same tiles, same orientation, as a thin plate 0.17 block square (lens ~0.45 m)
+  hung against the slab's top bar at its middle, in the alpha-tested street board group. The tile (and so the
+  Remix material keyed on it) is unchanged; the lit lens and its light are FIX-REMIX-NIGHT-5's (remix_lights.cpp).
+  `GTA2DX9_SIGNAL_HEADS=0`: the block-tall lamps (A/B). Log: `gantry signals (street views: ...): 12 slab(s)`.

@@ -1530,6 +1530,7 @@ bool WorldView::EnsureWorldLoaded() {
         const gta2::MapTreeStats mt = gta2::LastMapTreeStats();
         Log("map trees (street views: models): %d tree(s), %d face(s) left out; grating undersides: %d", mt.trees, mt.faces, gta2::LastGrateUndersides());
         Log("plain window backs (street views: the composed side seen through): %d face(s) left out", gta2::LastPlainPanelSides());
+        Log("gantry signals (street views: signal scale %.2f of a block, FIX-WORLD-8 ptrmx22): %d slab(s)", gta2::SignalHeadScale(), gta2::LastSignalHeads());
         const gta2::RailingStats r = gta2::LastRailingStats();
         Log("railings (QB-11): %s, %d tile(s), %d panel(s) from %d flat quads, %d triangles",
             gta2::RailingModels() ? "modelled" : "off (flat panels)", r.tiles, r.panels, r.quadsReplaced, r.triangles);
