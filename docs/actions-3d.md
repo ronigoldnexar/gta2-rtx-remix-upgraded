@@ -1402,3 +1402,20 @@ presses while firing the machine gun): every frame shows his figure or the gun a
   files and the manifest's texture_max only). Remix: the eight tga change content (new hashes).
 - Frames: fig11_fist1 (plaza, first person, still/walk/punch) vs fig10_fpw4 at a 4x crop of the left fist: the square
   blocks are gone; the silhouette still shows the raster's stair-step (no anti-aliasing) and the 10-segment blob facets.
+
+### pfl42: the first-person machine gun's flash on the muzzle, and a kick per shot
+- Flash: ShotFxMuzzle and the view model's flash light were placed `boundsMax.z * k` along the barrel from the GRIP's
+  axis; the S-Uzi's bore runs 0.017 over the grip (weapon_rig GeoFor bore, now `weaponrig::BoreHeight`), so the glow
+  sat ~0.02 block under the barrel and read as coming off the receiver's left flank (pfl42a f42/f60). Both now sit
+  on the bore line (`wu * bore * k`). Log: `view model: muzzle machine_gun at x,y,z (bore 0.017 x k 1.199 over the grip,
+  0.116 ahead)`. A/B: `GTA2DX9_FP_MUZZLE_OLD=1`.
+- Kick: the machine gun fires every ~0.1 s (3 frames); the kick's 0.03 s rise and 0.045 s return never came back below
+  0.65 before the next shot, so through a burst the gun sat still, pushed back (pfl42a: gun and hands pixel-identical
+  across flash frames). Automatics (machine gun, silenced MG) now peak on the shot's own frame and return with tau
+  0.022 s (log `view model kick: t=0.000 kick=1.00`, 0.56 at 0.033 s, 0.20 at 0.066 s) and climb over a burst
+  (+0.30 a shot, capped at 1, settling over 0.25 s: the muzzle tipped up 0.10 rad at full climb). Other weapons as
+  before. A/B: `GTA2DX9_FP_AUTO_KICK_OLD=1`.
+- Frames: fig11_mgk1 (keys_pfl42.sh) vs pfl42a, the first 12 frames of the held burst: the flash at the barrel tip in
+  each shot frame; the gun's dark-pixel column centroid over non-flash frames 752-769 px (pfl42a 762-765 px).
+- Not changed: the third-person torso (pfl16 family, row 5g) and the camera (no view kick: the camera is the camera
+  seat's).

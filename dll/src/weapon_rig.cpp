@@ -954,6 +954,9 @@ bool GunFrame(Mat4* out, float* lengthModel) {
 int GunSource() { return g_gunSource; }
 
 float TestYaw() { return g_testYaw; }
+// FIX-FIGURE-11 (pfl42): for the first-person muzzle.
+float BoreHeight(int weapon) { return GeoFor(weapon).bore; }
+
 bool TestFire(uint32_t frame) {
     ReadTest(frame);
     if (g_testPeriod <= 0.0f) return false;

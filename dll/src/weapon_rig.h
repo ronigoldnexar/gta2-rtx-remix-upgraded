@@ -79,6 +79,8 @@ bool GunFrame(gta2::Mat4* out, float* lengthModel);
 // and a synthetic shot every period. Re-read twice a second.
 float TestYaw();
 bool TestFire(uint32_t frame);
+// FIX-FIGURE-11 (pfl42): the bore line's height over the grip on the weapon model (blocks, model scale 1).
+float BoreHeight(int weapon);
 
 }  // namespace weaponrig
 }  // namespace gta2dx9

@@ -288,6 +288,12 @@ bool ShotHitsOn() {
     if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_SHOT_HITS", v, sizeof v) && v[0] == '0') ? 0 : 1; }
     return on != 0;
 }
+// FIX-FIGURE-11 (pfl42): GTA2DX9_FP_MUZZLE_OLD=1 puts the first-person flash back on the grip's axis.
+bool FpMuzzleOld() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_FP_MUZZLE_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+    return on != 0;
+}
 // FIX-FIGURE-11 (pfl38): GTA2DX9_CAR_BRUSH=0 turns off the stagger of a figure a moving car's body brushes.
 bool CarBrushOn() {
     static int on = -1;
@@ -8069,12 +8075,26 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     else if (vmShotClock < 10.0f) vmShotClock += vmDt;
     const float shotT = vmShotSeen ? vmShotClock : 10.0f;
     float kick = 0.0f;
-    if (shotT < 0.03f) kick = 0.75f + 0.25f * shotT / 0.03f;
+    // FIX-FIGURE-11 (pfl42): an automatic fires every ~0.1 s (3 frames at 30 fps); the 0.03 s rise and
+    // 0.045 s return never came back below 0.65 before the next shot, so the gun sat pushed back and
+    // still through a burst (pfl42a: hands and gun pixel-identical across flash frames). Automatics now
+    // peak on the shot's own frame and return with tau 0.022 s (1 -> 0.56 -> 0.2 over the three frames),
+    // and a burst climbs: each shot lifts the muzzle a step that settles over 0.25 s after the last.
+    // GTA2DX9_FP_AUTO_KICK_OLD=1: the old curve, no climb.
+    static const bool autoKickOld = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_AUTO_KICK_OLD", v, sizeof v) && v[0] == '1'; }();
+    const bool autoGun = !autoKickOld && (vmShown == kWpnMg || vmShown == kWpnSilencedMg);
+    static float vmClimb = 0.0f;
+    static uint32_t vmClimbShot = 0;
+    if (autoGun && vmShotSeen && vmShotSeen != vmClimbShot && shotT < 0.05f) { vmClimbShot = vmShotSeen; vmClimb = (std::min)(1.0f, vmClimb + 0.30f); }
+    vmClimb *= std::exp(-vmDt / 0.25f);
+    if (!autoGun) vmClimb = 0.0f;
+    if (autoGun) { if (shotT < 0.45f) { const float u = shotT / 0.022f; kick = (1.0f + u) * std::exp(-u); } }
+    else if (shotT < 0.03f) kick = 0.75f + 0.25f * shotT / 0.03f;
     else if (shotT < 0.45f) { const float u = (shotT - 0.03f) / 0.045f; kick = (1.0f + u) * std::exp(-u); }
     const float vmFlash = shotT < 0.06f ? 1.0f - shotT / 0.06f * 0.6f : 0.0f;
     {
         static int kickLog = 0;
-        if (kickLog < 90 && shotT < 0.45f) { ++kickLog; Log("view model kick: t=%.3f kick=%.2f flash=%.2f f=%u", shotT, kick, vmFlash, g_carFrame); }
+        if (kickLog < 90 && shotT < 0.45f) { ++kickLog; Log("view model kick: t=%.3f kick=%.2f climb=%.2f flash=%.2f f=%u", shotT, kick, vmClimb, vmFlash, g_carFrame); }
     }
     const bool thrown = wi.action == 13;
     // QB-29: the reload, from the game's words for the player (the figure, whose
@@ -8211,7 +8231,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         // FIX-FIGURE-7: the closed fist (knuckles ahead) tipped less, so its knuckles and folded thumb face the eye.
         static const bool fistMesh = ModelByName("fp_fist_right") != nullptr;
         const float tip = fists ? (fistMesh ? -0.30f : -0.55f) : 0.0f, turnIn = fists ? 0.25f : 0.0f;
-        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f) + 0.22f * rs - 0.9f * drop + tip) - right[c] * (0.05f * rs + turnIn);
+        const float kickUp = autoGun ? 0.16f * kick + 0.10f * vmClimb : 0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f);
+        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (kickUp + 0.22f * rs - 0.9f * drop + tip) - right[c] * (0.05f * rs + turnIn);
     }
     const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
     for (float& v : dir) v /= dl;
@@ -8248,6 +8269,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         rlPrevT = reloadT;
     }
     const float k = (wi.length * (wi.twoHanded ? 1.2f : 1.4f)) / (std::max)(0.01f, WeaponSpan(*model));
+    const float bore = weaponrig::BoreHeight(weapon);   // FIX-FIGURE-11 (pfl42): the muzzle on the bore line
     static int logged = 0;
     if (logged < 12) { ++logged; Log("view model: %s at %.2f,%.2f,%.2f dir %.2f,%.2f,%.2f up %.2f,%.2f,%.2f k %.3f kick %.2f", wi.name, pos[0], pos[1], pos[2], dir[0], dir[1], dir[2], up[0], up[1], up[2], k, kick); }
     gta2::Mat4 place;
@@ -8335,7 +8357,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             flash.Type = D3DLIGHT_POINT;
             const float fi = vmLit ? 2.2f * vmFlash * (std::min)(1.0f, wi.light + 0.4f) : 0.0f;
             flash.Diffuse = {wi.r * fi, wi.g * fi, wi.b * fi, 1.0f};
-            for (int c = 0; c < 3; ++c) (&flash.Position.x)[c] = pos[c] + dir[c] * (model->boundsMax.z * k + 0.02f) + wu[c] * 0.01f;
+            for (int c = 0; c < 3; ++c) (&flash.Position.x)[c] = pos[c] + dir[c] * (model->boundsMax.z * k + 0.02f) + wu[c] * (FpMuzzleOld() ? 0.01f : bore * k);
             flash.Range = 0.6f;
             flash.Attenuation0 = 0.3f;
             flash.Attenuation1 = 6.0f;
@@ -8424,7 +8446,11 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTexture(0, nullptr);
     if (g_fpShotFrame == g_carFrame && !thrown && !fists && drop <= 0.0f) {
         float muzzle[3];
-        for (int c = 0; c < 3; ++c) muzzle[c] = pos[c] + dir[c] * model->boundsMax.z * k;
+        // FIX-FIGURE-11 (pfl42): on the bore line, not the grip's axis (the S-Uzi's bore is 0.017 over the
+        // grip: the flash sat ~0.02 block under the barrel, a glow beside the handguard). GTA2DX9_FP_MUZZLE_OLD=1: as before.
+        for (int c = 0; c < 3; ++c) muzzle[c] = pos[c] + dir[c] * model->boundsMax.z * k + (FpMuzzleOld() ? 0.0f : wu[c] * bore * k);
+        static int muzzleLogs = 0;
+        if (muzzleLogs < 12) { ++muzzleLogs; Log("view model: muzzle %s at %.3f,%.3f,%.3f (bore %.3f x k %.3f over the grip, %.3f ahead)", wi.name, muzzle[0], muzzle[1], muzzle[2], bore, k, model->boundsMax.z * k); }
         ShotFxMuzzle(weapon, muzzle, dir, wr, wu, true);
     }
 }
