@@ -4683,8 +4683,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             const float glassDist = std::sqrt(glassDx * glassDx + glassDz * glassDz);
             // A seated car whose rear screen was not found keeps FIX-SEATED's band, so the driver still
             // shows from the chase camera behind it.
-            const bool glassCar = !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
-                                  CarGlassReady(device, *model) && (!BoardingCarSeated(use.object) || CarGlassHasRear(*model));
+            // VEHICLE-GLASS-3: a game open-top whose generated body has a hard top (030) takes glass too.
+            const bool glassCar = !cpuCut && !clipped && !WreckModelNumber(modelNumber) &&
+                                  CarGlassReady(device, *model) && (!CabOpenTop(modelNumber) || CarGlassClosedRoof(*model)) &&
+                                  (!BoardingCarSeated(use.object) || CarGlassHasRear(*model));
             if (glassCar) CarGlassBeginCut(*model, glassDist);
             bool glassCut = false;
             for (const ModelMesh& gm : model->meshes) glassCut = glassCut || (glassCar && CarGlassCutMask(gm.texture) != nullptr);

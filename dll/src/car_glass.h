@@ -48,6 +48,9 @@ int CarGlassMaskForTexture(const std::string& texture, std::vector<uint8_t>* out
 
 // Whether the model's rear screen was found (a seated car without one keeps FIX-SEATED's band).
 bool CarGlassHasRear(const Model& base);
+// VEHICLE-GLASS-3: the mesh has a hard top (built with the masks): a game open-top whose generated body
+// has a roof and windows (030 Land Roamer) takes glass.
+bool CarGlassClosedRoof(const Model& base);
 
 // Cut mode, set around one car's hull draws: ModelDraw calls in between bind the mask on a free
 // stage (CarGlassCutMask) and queue themselves for the glass pass (CarGlassCutQueue).
@@ -58,7 +61,10 @@ IDirect3DTexture9* CarGlassCutMask(const std::string& texture);
 // buffer over the mesh's own vertices, 32-bit indices, *triangles of them); null otherwise. The
 // mask stage is then not bound (Remix ignores it): the panes are drawn by CarGlassFlush.
 struct ModelMesh;
-IDirect3DIndexBuffer9* CarGlassCutIndexBuffer(IDirect3DDevice9* device, const ModelMesh& mesh, UINT* triangles);
+// VEHICLE-GLASS-3: with the outline split (default) the cut hull has vertices of its own: *vb is set to
+// them (*vertices of them) and the draw must use it in place of the mesh's buffer; *vb null = the mesh's.
+IDirect3DIndexBuffer9* CarGlassCutIndexBuffer(IDirect3DDevice9* device, const ModelMesh& mesh, UINT* triangles,
+                                              IDirect3DVertexBuffer9** vb, UINT* vertices);
 void CarGlassCutQueue(const Model& model, const gta2::Mat4& placement);
 
 // The cabin shell inside `base` (floor, headliner, walls, dash, seat backs), placed like its hull.

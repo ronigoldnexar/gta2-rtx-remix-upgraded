@@ -214,3 +214,74 @@ brighter ones the moving driver). So the generated coordinate does not reach the
 wined3d. Left in the code as `[devtools] car_glass=3` (experimental); `car_glass=1` draws the constant
 look of section 1. Next step for a successor: a per-vertex factor (a diffuse-carrying copy of the pane
 vertices per frame, n.v on the CPU, ~1-6k vertices) or a small vertex shader.
+
+## 6. VEHICLE-GLASS-3 (10 Nov 2026): the 030 miss, a closed-roof test, the Remix cut along the outline
+
+### 6.1 Dark saturated paints: glass off the paint's hue (mask class rule)
+
+030 Land Roamer's windows are a grey-green within the RGB tolerance of its dark olive paint (paint hue 100,
+saturation 0.46; window hue 136-143, saturation 0.30, the same value: 0.025 of RGB apart, the tolerance at that
+brightness is 0.072). Rule (Build and `tools/car_glass_mask.py`, `--nooff` for the old one): on a body whose
+paints are **all dark (value < 0.40) and saturated (>= 0.30)**, a texel more than 25 degrees off every paint's hue,
+or under 0.4 of its saturation, and not in shade (at least 0.6 of the nearest paint's value) is neither near-paint
+nor paint-like. The first form (any saturated paint) took 002's cream highlights for glass and the merged
+component was dropped as paint (2213 -> 1870 texels): restricted to dark paints.
+
+Fleet re-measure (offline twin, all 83 meshes; the DLL's counts in run qa_vg3_pl1 match it to the texel for 000,
+002, 046, 062): 10 bodies change, none lose texels: 030 349 -> 2108 (both front door windows and most of the
+windscreen; 2444 with 6.4), 062 1164 -> 1673 (its +x side window), 046 757 -> 1131, 041 312 -> 413, 022 1145 -> 1238, 007, 031,
+005, 012 (+8), 077 (+1). Bodies with at least 200 glass texels: 53 before and after (the class rule adds panes to
+found bodies; the remaining fleet gaps are bodies with no glass found at all, below).
+
+### 6.2 Game open-tops with a hard-top mesh (030)
+
+The glass pass skipped every model in `CabOpenTop` (22, 30, 31, 39, 44, 45, 53: open in the game's sprites), so
+030 never drew glass in any run before (no `car glass: 030` line in VEHICLE-GLASS-2's runs either: the 5.2 "030
+mostly missed" was the offline sheet). The generated 030 is a hard-top with windows. Build now records a
+**closed roof**: the roof span (slices at 0.86 of the roof height) is over a fifth of the length and the middle
+strip of the width stays at 0.80 of the roof over three quarters of it (030: span 0.62, 0.83; the real open meshes
+fail: 022 0.60/0.34 (gun mount), 031 0.10, 044 0.38/0.39, 045 0.08). `car_bodies.cpp` lets a game open-top take
+glass when `CarGlassClosedRoof`. A cabin that would not fit is now trimmed first: when the "never above the hull"
+cap would put the headliner under the belt, up to a quarter of the cabin's length is cut from each end where the
+roof line is lower than the headliner (030's windscreen dips to 0.67 of the roof in the middle: "no room for a
+cabin, headliner 0.294, belt 0.272" before, cabin z -0.316..0.031, headliner 0.398 after). Every other body keeps
+its cabin as it was (000's numbers identical in runs qa_vg3_pl1 and pl3).
+
+### 6.3 Remix: the hull and the panes split along the window's outline
+
+`car_glass_split.h` (no D3D; `SplitGlass`) replaces the whole-triangle vote of 5.1 under Remix. A triangle is
+classified by the box-blurred pane mask sampled bilinearly on about one point per texel of its UV footprint: all
+under 0.5 hull, all over pane; a straddling triangle is subdivided (4-way, each child re-classified, so only the
+boundary refines) down to 1.5 texels and each leaf is clipped along the field's linear 0.5 iso-line, so the hull
+and the pane get complementary pieces whose shared edge is the contour the plain renderer's alpha test cuts.
+The hull then has vertices of its own: the hook `CarGlassCutIndexBuffer` (model_store.cpp, the glass lines only)
+also hands back a vertex buffer and its count. 000: 3152 vertices / 3584 triangles -> hull 9107 triangles
+(17807 vertices) + pane 5975, 164 triangles on the outline; 011 bus 415 on the outline -> hull 16012 + pane 9119.
+Built once per mesh on first draw (milliseconds), managed buffers like the hulls.
+Offline before/after (native test of the same header on the model files, rendered): the old vote's sawtooth
+of whole pane triangles and the large baked triangles left on 000 become the window's outline.
+Switches: `GTA2DX9_GLASS_SPLIT=0` (the vote for the session), `[devtools] car_glass=4` (glass on with the
+vote, for same-session A/B under Remix).
+In the game (run vg3_rx3, Remix, noon, private layer = HEAD gta2hd + the three glass prims of 5.1, same session,
+same pose, `car_glass=4` then `1`): 000's side windows with the vote show large triangular baked slabs cutting
+across both panes; with the split the panes follow the window outline. What is left there is the mask's own dark
+blobs (6.4).
+
+### 6.4 Dark cabin bake between two windows (mask class rule)
+
+000's bake paints the cabin seen through the side panes dark brown in the paint's hue (value 0.26 under a 0.57
+paint): paint-like by hue, not strict bodywork, and wider than the 6-texel growth, so blobs and drips stayed in
+the panes (hull-coloured slabs under Remix). A side texel darker than 0.45 of the paint's value, not strictly
+bodywork, becomes glass when real windows (components of 120+ texels) lie on the same side at its height both
+ahead of it and behind it within a quarter of the length (grown from the glass, up to 16 texels). A first form
+without the "both sides" test took 003's shaded flank and rear doors (+55 %): dropped.
+
+Fleet after 6.1 + 6.4 against VEHICLE-GLASS-2's masks (offline twin, 83 meshes): 39 bodies change, the only
+losses 1-3 texels (032, 033, 035, 044); 030 349 -> 2444, 046 757 -> 1185, 062 1164 -> 1680, 041 312 -> 413,
+016 1725 -> 2224 (its rear side window), 000 2994 -> 3221, 003 +8 %. The DLL's masks match the twin within 1-6
+texels (run qa_vg3_pl4 dumps: 000, 003, 016, 030), 0 FAULT.
+
+Still short: 012's rear screen (white bake on a dark body, not attempted again); 003/007's dark rear doors
+still partly glass; 030's pale rear-door pane (light on a dark body, the rule GLASS-2 dropped for 012); the
+films of 5.x's list (first-person seat, a traffic driver behind the side glass, the 013/068 rim) not made in
+this round; Fresnel still off.

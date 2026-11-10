@@ -1,6 +1,7 @@
 // See car_glass.h.
 #include "thread_watch.h"
 #include "car_glass.h"
+#include "car_glass_split.h"
 
 #include <algorithm>
 #include <atomic>
@@ -39,6 +40,7 @@ struct Glass {
     std::vector<Quad> cabin;     // model space
     int glassTexels = 0;
     int rearTexels = 0;          // of them on a rear screen (the seated driver seen from behind)
+    bool closedRoof = false;     // VEHICLE-GLASS-3: the mesh has a hard top (CarGlassClosedRoof)
 };
 
 std::mutex g_lock;                                   // g_models, g_stemTex, g_meshTris
@@ -74,6 +76,23 @@ IDirect3DTexture9* g_cabinTex[2] = {nullptr, nullptr};     // trim, headliner
 std::map<const ModelMesh*, GlassPart> g_paneTris;          // under Remix: a mesh's pane triangles (majority on glass)
 struct CutIb { IDirect3DIndexBuffer9* ib = nullptr; UINT tris = 0; bool none = false; };
 std::map<const ModelMesh*, CutIb> g_cutIb;                 // under Remix: a mesh's triangles less its panes
+// VEHICLE-GLASS-3: the hull and the panes split along the window's outline (car_glass_split.h) instead of
+// whole triangles voted pane or hull (a sawtooth on dense meshes, baked triangles left on coarse ones).
+int g_splitOn = 1;                                         // GTA2DX9_GLASS_SPLIT=0: the whole-triangle vote
+std::map<const ModelMesh*, GlassSplit> g_split;
+std::map<const ModelMesh*, GlassPart> g_splitPane;         // the split's pane pieces, for the glass pass
+bool SplitOn();                                            // g_splitOn and not [devtools] car_glass=4
+const GlassSplit& SplitFor(const ModelMesh& mesh, const std::vector<uint8_t>& g) {
+    auto it = g_split.find(&mesh);
+    if (it != g_split.end()) return it->second;
+    GlassSplit& s = g_split[&mesh];
+    SplitGlass(mesh.vertices, mesh.indices, g, kR, &s);
+    static int logged = 0;
+    if (logged++ < 40)
+        Log("car glass: remix split %s: %d triangles on the outline -> hull %zu tris (%zu verts, mesh %zu), pane %zu tris", mesh.texture.c_str(),
+            s.straddling, s.hullI.size() / 3, s.hullV.size(), mesh.vertices.size(), s.paneI.size() / 3);
+    return s;
+}
 
 bool RemixMode() { return g_remixOn && RemixApiAvailable(); }
 
@@ -445,6 +464,21 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
     if (r0 < 0) { glass->state = -1; return; }
     const float z0 = minZ + r0 * L / kNb, z1 = minZ + (r1 + 1) * L / kNb;
     const float rake = 0.45f * H;
+    {   // VEHICLE-GLASS-3: a hard top: the roof span is over a fifth of the length and the middle strip stays at
+        // 0.80 of the roof over three quarters of it. The game's open tops (CabOpenTop) are open in their
+        // sprites, but the generated 030 Land Roamer is a hard-top with windows (span 0.62, 0.83); the real
+        // open meshes fail (022 0.60/0.34 gun mount, 031 0.10, 044 0.38/0.39, 045 0.08).
+        float hc[kNb];
+        for (int b = 0; b < kNb; ++b) hc[b] = -1.0f;
+        for (const gta2::Vec3& p : all) {
+            if (std::fabs(p.x - midX) >= 0.30f * W) continue;
+            const int b = (std::max)(0, (std::min)(kNb - 1, static_cast<int>((p.z - minZ) / L * kNb)));
+            hc[b] = (std::max)(hc[b], (p.y - minY) / H);
+        }
+        int high = 0;
+        for (int b = r0; b <= r1; ++b) high += hc[b] >= 0.80f ? 1 : 0;
+        glass->closedRoof = (r1 - r0 + 1) >= 0.20f * kNb && high >= 0.75f * (r1 - r0 + 1);
+    }
 
     struct SideStat { float zMin = 1e9f, zMax = -1e9f; float yMax[8]; float xIn[8]; int n[8]; };
     SideStat ss;
@@ -567,6 +601,16 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
                 }
             }
         }
+        // VEHICLE-GLASS-3: on a body whose paints are all dark and saturated, a texel off every paint's hue (more
+        // than 25 degrees) or far less saturated (under 0.4 of it), and not in shade (at least 0.6 of the
+        // nearest paint's value), is not the paint however close in RGB: 030's grey-green windows on dark
+        // olive paint (paint hue 100, sat 0.46; window hue 136-143, sat 0.30, 0.025 of RGB apart).
+        float cHue[kMaxClusters], cSat[kMaxClusters], cVal[kMaxClusters];
+        bool allSaturated = nClusters > 0;
+        for (int c = 0; c < nClusters; ++c) {
+            HueSat(clusters[c][0], clusters[c][1], clusters[c][2], &cHue[c], &cSat[c], &cVal[c]);
+            allSaturated = allSaturated && cSat[c] >= 0.30f && cVal[c] < 0.40f;   // dark ones: 002's cream highlights went white
+        }
         // The glasshouse: side faces under the roof, the windscreen ahead of it, the rear screen
         // behind; between the belt and nine tenths of the roof, not the roof or bonnet tops.
         Mask g(kR * kR, 0), band(kR * kR, 0), paintLike(kR * kR, 0), strict(kR * kR, 0);
@@ -599,6 +643,22 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
                 dmin = (std::min)(dmin, d / sc);
                 cooler = cooler && (b - r) > (clusters[c][2] - clusters[c][0]) + 0.08f;
             }
+            bool offHue = false;
+            if (allSaturated) {
+                int nearest = 0;
+                float best = 1e9f;
+                for (int c = 0; c < nClusters; ++c) {
+                    const float dr = r - clusters[c][0], dg = gg - clusters[c][1], db = b - clusters[c][2];
+                    if (dr * dr + dg * dg + db * db < best) { best = dr * dr + dg * dg + db * db; nearest = c; }
+                }
+                offHue = vv >= 0.6f * cVal[nearest];
+                for (int c = 0; c < nClusters && offHue; ++c) {
+                    float dh = std::fabs(hue - cHue[c]);
+                    if (dh > 180.0f) dh = 360.0f - dh;
+                    offHue = dh > 25.0f || sat < 0.4f * cSat[c];
+                }
+                if (offHue) nearPaint = false;
+            }
             // VEHICLE-GLASS-2: a rear screen reflecting the sky is cooler (bluer) than a warm pale paint:
             // glass, not a tailgate (011). (A dark body's light rear screen was tried and dropped: 012's
             // white-baked rear was only half found, a ragged hole where FIX-SEATED's band looked better.)
@@ -609,7 +669,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
             const bool liveryScreen = !sideW && sat > 0.55f && vv > 0.25f;
             if (nearPaint || livery || (rearScreen && !sky && ((ny < 0.15f && !(vv < 0.55f * paintVal)) || !(vv < 0.9f * paintVal || vv < 0.35f))))
                 strict[i] = 1;
-            if (strict[i] || liveryScreen || PaintLike(r, gg, b, clusters, nClusters)) {
+            if (strict[i] || liveryScreen || (!offHue && PaintLike(r, gg, b, clusters, nClusters))) {
                 paintLike[i] = 1;
                 continue;
             }
@@ -627,6 +687,47 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         for (int k = 0; k < 6; ++k) {
             const Mask d = Dilate(g);
             for (int i = 0; i < kR * kR; ++i) if (d[i] && band[i] && !strict[i]) g[i] = 1;
+        }
+        {   // VEHICLE-GLASS-3: the bake paints the cabin seen through a pane in the paint's hue but far darker
+            // (000: value 0.26 under a 0.57 paint), paint-like only by hue, and the growth above stops inside such
+            // a patch (blobs and drips left in the pane, drawn as hull under Remix). A side texel of that kind
+            // becomes glass when real windows (components of 120+ texels) lie on the same side at its height both
+            // ahead of it and behind it, within a quarter of the length: a patch between two windows, never an
+            // open-ended dark panel (003's shaded flank and rear doors). tools/car_glass_mask.py "deep".
+            const Mask big = KeepComponents(g, 120);
+            bool G[2][12][48] = {};
+            auto bins = [&](int i, int* sd, int* hb, int* zb) {
+                *sd = nrm[i * 3] > 0.0f ? 1 : 0;
+                *hb = (std::max)(0, (std::min)(11, static_cast<int>(((pos[i * 3 + 1] - minY) / H - 0.60f) / 0.30f * 12)));
+                *zb = (std::max)(0, (std::min)(47, static_cast<int>((pos[i * 3 + 2] - minZ) / L * 48)));
+            };
+            for (int i = 0; i < kR * kR; ++i) {
+                if (!big[i] || !band[i] || std::fabs(nrm[i * 3]) <= 0.4f) continue;
+                int sd, hb, zb;
+                bins(i, &sd, &hb, &zb);
+                G[sd][hb][zb] = true;
+            }
+            Mask bridge(kR * kR, 0);
+            for (int i = 0; i < kR * kR; ++i) {
+                if (!band[i] || strict[i] || std::fabs(nrm[i * 3]) <= 0.4f || g[i]) continue;
+                const float vv = (std::max)((std::max)(rgb[i * 3], rgb[i * 3 + 1]), rgb[i * 3 + 2]);
+                if (vv >= 0.45f * paintVal) continue;
+                int sd, hb, zb;
+                bins(i, &sd, &hb, &zb);
+                bool ahead = false, behind = false;
+                for (int dh = -1; dh <= 1; ++dh) {
+                    const int h2 = (hb + dh + 12) % 12;   // as the twin's np.roll
+                    for (int k = 1; k <= 12; ++k) {
+                        if (zb + k < 48 && G[sd][h2][zb + k]) ahead = true;
+                        if (zb - k >= 0 && G[sd][h2][zb - k]) behind = true;
+                    }
+                }
+                bridge[i] = ahead && behind ? 1 : 0;
+            }
+            for (int k = 0; k < 16; ++k) {
+                const Mask d = Dilate(g);
+                for (int i = 0; i < kR * kR; ++i) if (d[i] && bridge[i]) g[i] = 1;
+            }
         }
         DropPaintComponents(g, rgb);
         int count = 0;
@@ -672,7 +773,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
     // front) to the parcel shelf, floor at 0.30 of the roof, the headliner at the glass's top.
     const float cx = 0.5f * (minX + maxX);
     // Inside the body's ends (a bus's side windows run to its nose).
-    const float zr = (std::max)(ss.zMin - 0.02f * L, minZ + 0.07f * L), zf = (std::min)(ss.zMax + 0.03f * L, maxZ - 0.07f * L);
+    float zr = (std::max)(ss.zMin - 0.02f * L, minZ + 0.07f * L), zf = (std::min)(ss.zMax + 0.03f * L, maxZ - 0.07f * L);
     float halfW = 0.0f, ceil = 0.0f; int used = 0;
     for (int s = 0; s < 8; ++s) {
         if (ss.n[s] < 4) continue;
@@ -684,7 +785,17 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
     // Never above the hull: under the lowest roof point (middle strip) over the cabin's length, so the
     // shell cannot stand out of a cab whose roof drops behind the doors.
     {
-        const int b0 = (std::max)(0, static_cast<int>((zr - minZ) / L * kNb)), b1 = (std::min)(kNb - 1, static_cast<int>((zf - minZ) / L * kNb));
+        int b0 = (std::max)(0, static_cast<int>((zr - minZ) / L * kNb)), b1 = (std::min)(kNb - 1, static_cast<int>((zf - minZ) / L * kNb));
+        // VEHICLE-GLASS-3: first trim the cabin's ends (up to a quarter of its length each) where the roof line
+        // is under the headliner: the windscreen's or rear screen's slope (030's windscreen dips to 0.67 of
+        // the roof in the middle, which capped the headliner under the belt: "no room for a cabin").
+        // Only when the untrimmed cap leaves no room (every other body keeps its cabin as before).
+        float lowest0 = 1e9f;
+        for (int b = b0; b <= b1; ++b) if (hmC[b] > -1e8f) lowest0 = (std::min)(lowest0, hmC[b]);
+        const bool trim = lowest0 < 1e8f && (std::min)(ceil, lowest0 - 0.04f * H) < minY + 0.66f * H;   // belt 0.58 + 0.08
+        const int trimMax = trim ? (b1 - b0 + 1) / 4 : 0;
+        for (int t = 0; t < trimMax && b1 > b0 && hmC[b1] > -1e8f && hmC[b1] < ceil + 0.04f * H; ++t) { --b1; zf = (std::min)(zf, minZ + (b1 + 1) * L / kNb); }
+        for (int t = 0; t < trimMax && b0 < b1 && hmC[b0] > -1e8f && hmC[b0] < ceil + 0.04f * H; ++t) { ++b0; zr = (std::max)(zr, minZ + b0 * L / kNb); }
         float lowest = 1e9f;
         for (int b = b0; b <= b1; ++b) if (hmC[b] > -1e8f) lowest = (std::min)(lowest, hmC[b]);
         if (lowest < 1e8f) ceil = (std::min)(ceil, lowest - 0.04f * H);
@@ -794,12 +905,17 @@ constexpr int kPaneVotes = 8;   // of 15
 // glass (the mask's stage cuts the exact contour); under Remix the pane triangles (kPaneVotes).
 const GlassPart& GlassTris(const ModelMesh& mesh, const std::vector<uint8_t>& g) {
     const bool remix = RemixMode();
-    std::map<const ModelMesh*, GlassPart>& cache = remix ? g_paneTris : g_meshTris;
+    std::map<const ModelMesh*, GlassPart>& cache = remix ? (SplitOn() ? g_splitPane : g_paneTris) : g_meshTris;
     auto it = cache.find(&mesh);
     if (it != cache.end()) return it->second;
     GlassPart& part = cache[&mesh];
     std::vector<uint32_t> out;
-    if (remix) {
+    if (remix && SplitOn()) {
+        const GlassSplit& sp = SplitFor(mesh, g);
+        part.v = sp.paneV;
+        part.i = sp.paneI;
+        return part;
+    } else if (remix) {
         for (size_t k = 0; k + 2 < mesh.indices.size(); k += 3)
             if (PaneVotes(mesh, g, k) >= kPaneVotes) out.insert(out.end(), {mesh.indices[k], mesh.indices[k + 1], mesh.indices[k + 2]});
     } else {
@@ -921,15 +1037,21 @@ void CarGlassSettings(int enabled, int alphaPercent, int rangeBlocks) {
     g_on = enabled;
     char v[8] = {};
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_REMIX", v, sizeof v) && v[0] == '0') g_remixOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_SPLIT", v, sizeof v) && v[0] == '0') g_splitOn = 0;
     g_alpha = (std::max)(0.05f, (std::min)(1.0f, alphaPercent / 100.0f));
     g_range = static_cast<float>((std::max)(1, rangeBlocks));
     Log("car glass: %s, alpha %.2f, range %.0f blocks", g_on ? "on" : "off", g_alpha, g_range);
 }
 
 void CarGlassSetEnabled(int enabled) {
-    if (enabled != g_on) Log("car glass: %s (devtools)", enabled == 3 ? "on, Fresnel ramp (experimental)" : enabled ? "on" : "off");
+    if (enabled != g_on)
+        Log("car glass: %s (devtools)", enabled == 3 ? "on, Fresnel ramp (experimental)" : enabled == 4 ? "on, Remix whole-triangle cut (A/B)" : enabled ? "on" : "off");
+    if ((enabled == 4) != (g_on == 4)) { std::lock_guard<std::mutex> lk(g_lock); g_entries.clear(); }   // the pane parts differ between the cuts
     g_on = enabled;
 }
+namespace {
+bool SplitOn() { return g_splitOn && g_on != 4; }
+}  // namespace
 
 bool CarGlassOn() {
     return g_on && (!RemixApiAvailable() || g_remixOn) && CurrentViewMode() != ViewMode::Classic;
@@ -1005,6 +1127,12 @@ bool CarGlassHasRear(const Model& base) {
     return it != g_models.end() && it->second->rearTexels >= 40;
 }
 
+bool CarGlassClosedRoof(const Model& base) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    auto it = g_models.find(&base);
+    return it != g_models.end() && it->second->closedRoof;
+}
+
 void CarGlassBeginCut(const Model& base, float distance) {
     (void)base;
     g_cut = distance <= g_range;
@@ -1023,12 +1151,33 @@ IDirect3DTexture9* CarGlassCutMask(const std::string& texture) {
     return t;
 }
 
-IDirect3DIndexBuffer9* CarGlassCutIndexBuffer(IDirect3DDevice9* device, const ModelMesh& mesh, UINT* triangles) {
+IDirect3DIndexBuffer9* CarGlassCutIndexBuffer(IDirect3DDevice9* device, const ModelMesh& mesh, UINT* triangles,
+                                              IDirect3DVertexBuffer9** vb, UINT* vertices) {
     if (!g_cut || !RemixMode()) return nullptr;
+    if (SplitOn()) {
+        const std::vector<uint8_t>* g = nullptr;
+        {
+            std::lock_guard<std::mutex> lk(g_lock);
+            const std::string stem = StemOf(mesh.texture);
+            auto gl = g_stemGlass.find(stem);
+            if (gl == g_stemGlass.end()) return nullptr;   // not ready yet
+            auto mk = gl->second->panes.find(stem);
+            if (mk == gl->second->panes.end()) return nullptr;
+            g = &mk->second;
+        }
+        const GlassSplit& sp = SplitFor(mesh, *g);
+        if (sp.paneI.empty() || sp.hullI.empty()) return nullptr;
+        const StaticBuf* sb = StaticBufFor(device, &sp, sp.hullV.data(), static_cast<UINT>(sp.hullV.size()), sizeof(ModelVertex),
+                                           D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1, sp.hullI.data(), static_cast<UINT>(sp.hullI.size()));
+        if (!sb || !sb->ib) return nullptr;
+        *vb = sb->vb; *vertices = sb->nv; *triangles = sb->ntri;
+        return sb->ib;
+    }
     auto c = g_cutIb.find(&mesh);
     if (c != g_cutIb.end()) {
         if (c->second.none) return nullptr;
         *triangles = c->second.tris;
+        *vb = nullptr;
         return c->second.ib;
     }
     const std::vector<uint8_t>* g = nullptr;
@@ -1062,6 +1211,7 @@ IDirect3DIndexBuffer9* CarGlassCutIndexBuffer(IDirect3DDevice9* device, const Mo
     static int logged = 0;
     if (logged++ < 40) Log("car glass: remix cut %s: %zu pane triangles of %zu", mesh.texture.c_str(), panes, mesh.indices.size() / 3);
     *triangles = e.tris;
+    *vb = nullptr;
     return ib;
 }
 
@@ -1469,6 +1619,7 @@ void CarGlassReleaseDevice() {
     for (auto& t : g_cabinTex) if (t) { t->Release(); t = nullptr; }
     for (auto& c : g_cutIb) if (c.second.ib) c.second.ib->Release();
     g_cutIb.clear();
+    g_split.clear();
     for (auto& b : g_staticBufs) { if (b.second.vb) b.second.vb->Release(); if (b.second.ib) b.second.ib->Release(); }
     g_staticBufs.clear();
     g_queue.clear();

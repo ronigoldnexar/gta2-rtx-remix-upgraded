@@ -212,6 +212,19 @@ def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX,
         if cs[0] < 0.30: continue
         dh = np.abs(hue - ch[0]); dh = np.where(dh > 180, 360 - dh, dh)
         paintLike |= (sat >= 0.25) & (val >= 0.10) & (dh < 22) & (sat > 0.45 * cs[0])
+    if P.get("offhue", 1) and len(clusters):
+        # VEHICLE-GLASS-3: glass within the RGB tolerance of a saturated dark paint but off its hue (or far
+        # less saturated) and not in shade is not the paint: 030's grey-green windows on dark olive paint
+        # (paint hue 100, sat 0.46; window hue 136-143, sat 0.30, the same value: 0.025 of RGB apart).
+        csat = [(hsv(c[None])[0][0], hsv(c[None])[1][0], c.max()) for c in clusters]
+        if all(cs >= 0.30 and cv < 0.40 for _, cs, cv in csat):   # dark saturated paints only (002 cream: its highlights)
+            near = np.argmin(np.stack([((rgb - c) ** 2).sum(1) for c in clusters]), 0)
+            cv_near = np.array([cv for *_, cv in csat])[near]
+            off = val >= P.get("offval", 0.6) * cv_near
+            for ch, cs, cv in csat:
+                dh = np.abs(hue - ch); dh = np.where(dh > 180, 360 - dh, dh)
+                off &= (dh > P.get("offdh", 25)) | (sat < 0.4 * cs)
+            nearPaint &= ~off; paintLike &= ~off
     livery = (sat > 0.55) & (val > 0.25)
     liveryScreen = np.zeros(KR * KR, bool)
     if P.get("screens", 1):
@@ -235,6 +248,26 @@ def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX,
     g &= band & ~paintLike
     for _ in range(6):
         g |= dilate(g) & band & ~strict
+    if P.get("deep", 1):
+        # VEHICLE-GLASS-3: the bake paints the cabin seen through a pane in the paint's hue but far darker
+        # (000: value 0.26 under a 0.57 paint), paint-like only by hue, and the 6-texel growth stops inside
+        # such a patch (blobs and drips left in the pane, drawn as hull under Remix). A side texel of that
+        # kind becomes glass when glass lies on the same side at its height both ahead of it and behind it
+        # (within a quarter of the length), both of at least 120 texels: a patch between two windows, never an
+        # open-ended dark panel (003's shaded flank and rear doors) or a strip between two false specks.
+        dark = band & ~strict & (val < P.get("deepval", 0.45) * paintVal) & (np.abs(nx) > 0.4)
+        hb = np.clip(((h - 0.60) / 0.30 * 12).astype(int), 0, 11); zb = np.clip(((z - minZ) / L * 48).astype(int), 0, 47)
+        sd = (nx > 0).astype(int)
+        G = np.zeros((2, 12, 48), bool)
+        gs = keep_components(g, P.get("deepmin", 120)) & (np.abs(nx) > 0.4) & band   # real windows, not specks
+        G[sd[gs], hb[gs], zb[gs]] = True
+        G = G | np.roll(G, 1, 1) | np.roll(G, -1, 1)   # +-1 height bin (edges wrap harmlessly: 12 bins of 0.025)
+        ahead = np.zeros_like(G); behind = np.zeros_like(G)
+        for k in range(1, 13):
+            ahead[:, :, :-k] |= G[:, :, k:]; behind[:, :, k:] |= G[:, :, :-k]
+        bridge = dark & ahead[sd, hb, zb] & behind[sd, hb, zb]
+        for _ in range(P.get("deepn", 16)):
+            g |= dilate(g) & bridge
     # DropPaintComponents
     def paint_comps(g):
         lab, n = components(g)
@@ -314,9 +347,13 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("models"); ap.add_argument("names", nargs="+")
     ap.add_argument("--sheet"); ap.add_argument("--dump")
+    ap.add_argument("--nodeep", action="store_true", help="without VEHICLE-GLASS-3's deep growth")
+    ap.add_argument("--nooff", action="store_true", help="without VEHICLE-GLASS-3's off-hue rule")
     ap.add_argument("--old", action="store_true", help="the 33c34be heuristic (before VEHICLE-GLASS-2's class fixes)")
     a = ap.parse_args()
-    params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0} if a.old else {}
+    params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0} if a.old else {}
+    if a.nooff: params["offhue"] = 0
+    if a.nodeep: params["deep"] = 0
     for name in a.names:
         r = build(a.models, name, params)
         if not r: print(name, "no glass (no roof/too small)"); continue
