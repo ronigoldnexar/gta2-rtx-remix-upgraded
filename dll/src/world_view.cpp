@@ -3900,6 +3900,20 @@ void WorldView::RenderFrame() {
             renderer_.SetMoveOccluders(worldUploaded_ && g_viewMoving && hero.valid,
                                        gta2::Vec3{hero.x, hero.z, static_cast<float>(gta2::kMapHeight) - hero.y});
         }
+        {
+            // FIX-WORLD-16 qav59: first person clips the sparse lattices (pylon girders) nearer than 0.35
+            // block ahead of the eye (Renderer::SetSeeThroughNearClip). [devtools] lattice_clip=<hundredths
+            // of a block>, 0 = off, re-read once a second, for a same-spot A/B.
+            static int clipCm = 35;
+            static uint32_t polls = 0;
+            if (CarBodiesDevIni()[0] && (polls++ % 30u) == 0) {
+                const int v = GetPrivateProfileIntA("devtools", "lattice_clip", 35, CarBodiesDevIni());
+                if (v != clipCm) Log("devtools: lattice_clip %d (hundredths of a block)", v);
+                clipCm = v;
+            }
+            const bool fp = worldUploaded_ && g_presentStreet && CurrentViewMode() == ViewMode::FirstPerson;
+            renderer_.SetSeeThroughNearClip(fp ? static_cast<float>(clipCm) * 0.01f : 0.0f);
+        }
         renderer_.DrawWorld(camera_);
         // FIX-OCCLUSION: should the eye still be in a block, the block is closed round it
         // (back sides of the faces near the eye, depth-hidden from outside). Street views only,

@@ -143,6 +143,11 @@ public:
         photoMix_ = photoMix < 0.0f ? 0.0f : (photoMix > 1.0f ? 1.0f : photoMix);
         roadMix_ = roadMix < 0.0f ? photoMix_ : (roadMix > 1.0f ? 1.0f : roadMix);
     }
+    // FIX-WORLD-16 qav59: in first person (and only there) a sparse see-through lattice (pylon girders:
+    // keyed side tiles under 30 % opaque) nearer the eye than `ahead` blocks along the view is clipped
+    // away, so an eye that stands inside a pylon's lattice block does not see one of its faces edge-on
+    // as a flat black slab down the frame edge. 0 (the default, every other view): no clip.
+    void SetSeeThroughNearClip(float ahead) { seeThroughClip_ = ahead > 0.0f ? ahead : 0.0f; }
     // The clock the street-level water effect scrolls by (seconds); any
     // monotonic clock, the sky's is used.
     void SetWaterClock(double seconds) { waterClock_ = seconds; }
@@ -324,6 +329,8 @@ private:
         return textures_[tile];
     }
     std::vector<uint8_t> waterTile_;   // per tile: 1 when it is the water surface
+    std::vector<uint8_t> sparseLattice_;   // per tile: 1 for a keyed tile under 30 % opaque (SetSeeThroughNearClip)
+    float seeThroughClip_ = 0.0f;
     // Window tiles of the street views: a glow texture per tile (the room's
     // light behind the glass, black elsewhere), added over the wall when the
     // sun is low. Null for tiles without windows. See MakeWindowGlow.

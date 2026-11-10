@@ -882,6 +882,20 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     for (int i = 0; i < style.TileCount() && i < static_cast<int>(waterTile_.size()); ++i) {
         if (IsWaterTileIndex(i)) waterTile_[i] = 1;
     }
+    // FIX-WORLD-16 qav59: the sparse lattices (see SetSeeThroughNearClip), from the 64 px art's alpha.
+    sparseLattice_.assign(textures_.size(), 0);
+    {
+        int sparse = 0;
+        for (int i = 0; i < style.TileCount() && i < static_cast<int>(sparseLattice_.size()); ++i) {
+            const Tile& t = style.GetTile(i);
+            if (t.pixels.size() != static_cast<size_t>(kTileSize) * kTileSize) continue;
+            int opaque = 0;
+            for (uint32_t px : t.pixels) opaque += (px >> 24) != 0;
+            const int n = kTileSize * kTileSize;
+            if (opaque > n / 50 && opaque < n * 3 / 10) { sparseLattice_[static_cast<size_t>(i)] = 1; ++sparse; }
+        }
+        Trace("tiles: %d sparse see-through lattices (first-person near clip, FIX-WORLD-16)", sparse);
+    }
     for (IDirect3DTexture9* t : windowGlow_) if (t) t->Release();
     windowGlow_.assign(textures_.size(), nullptr);
     for (IDirect3DTexture9* t : windowSky_) if (t) t->Release();
@@ -1675,7 +1689,27 @@ void Renderer::DrawWorld(const Camera& camera) {
     else if (anyPoleFaded_) { for (PoleGroup& g : poleGroups_) g.alpha = 1.0f; anyPoleFaded_ = false; }
     struct FadedRange { const TileBatch* batch; uint32_t start, count; float alpha; };
     std::vector<FadedRange> fadedPoles;
+    // FIX-WORLD-16 qav59: the first-person near clip of the sparse lattices, as a world-space user clip
+    // plane (fixed function) `ahead` blocks in front of the eye along the view, on their batches only.
+    const bool latticeClip = streetView_ && !remixDevice_ && seeThroughClip_ > 0.0f && !sparseLattice_.empty();
+    bool latticeClipOn = false;
+    if (latticeClip) {
+        const Mat4 view = camera.ViewMatrix();
+        const Vec3 eye = camera.Position();
+        // The view's depth axis (UpdatePoleFades: depth = (p - eye) . (m[0][2], m[1][2], m[2][2])).
+        const float fx = view.m[0][2], fy = view.m[1][2], fz = view.m[2][2];
+        const float plane[4] = {fx, fy, fz, -(fx * eye.x + fy * eye.y + fz * eye.z) - seeThroughClip_};
+        device_->SetClipPlane(0, plane);
+    }
     for (const TileBatch& batch : batches_) {
+        if (latticeClip) {
+            const bool want = batch.needsAlphaTest && batch.tile >= 0 && batch.tile < static_cast<int>(sparseLattice_.size()) &&
+                              sparseLattice_[static_cast<size_t>(batch.tile)] && !batch.lidFaces;
+            if (want != latticeClipOn) {
+                device_->SetRenderState(D3DRS_CLIPPLANEENABLE, want ? D3DCLIPPLANE0 : 0);
+                latticeClipOn = want;
+            }
+        }
         // The street views' fill (world_mesh.h, TileBatch::streetOnly): never in the
         // classic view, which keeps exactly the draws it had before the fill existed.
         if (batch.streetOnly && !streetView_) continue;
@@ -1882,6 +1916,7 @@ void Renderer::DrawWorld(const Camera& camera) {
         stats_.drawCalls++;
         stats_.triangles += static_cast<int>(batch.indexCount / 3);
     }
+    if (latticeClipOn) device_->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
     if (doubleSided) device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
     if (!fadedPoles.empty()) {
         // The fading street lights, blended over what is behind them (texture x the factor's alpha),

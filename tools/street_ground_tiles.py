@@ -26,6 +26,7 @@ a stage's hard link.
 
     street_ground_tiles.py grate  <hd root> <photo root> <classic tiles root> [--tiles wil:193,wil:196]
     street_ground_tiles.py shadow <hd root> <photo root> [--tiles ste:513,...] [--keep 0.35]
+    street_ground_tiles.py steel  <hd root> <photo root> [--tiles bil:69,bil:70]   (qav59, FIX-WORLD-16)
 
 hd root: assets/textures_hd; photo root: assets/textures_hd/photo; classic tiles root: a dump of the
 64 px tiles (tools/dump_style_tiles.py <game/data> <style> <root>/<style> --all). Needs numpy, Pillow,
@@ -98,6 +99,9 @@ def grate(hd, classic):
     return out, gain
 
 
+STEEL_TILES = "bil:69,bil:70"   # the pylon lattice (bil 237,139: partial block, sides 69 over 70)
+
+
 def shadow(hd, keep):
     rgb = hd[..., :3]
     L = luma(rgb)
@@ -119,15 +123,35 @@ def shadow(hd, keep):
     return out, float(strokes.mean())
 
 
+def steel(hd):
+    """qav59 (FIX-WORLD-16): the pylons' cross-braced lattice (bil 69/70) is painted at luma ~10 in the
+    classic and HD art, so in the street views the sun had nothing to light: a jet-black cut-out even at
+    dawn beside a lit lamp post. Dark painted steel instead: luma ~45-60, a cool grey, lighter along each
+    strut's edges (rounded section) and keeping the HD art's own variation; bright parts (69's lamp box)
+    are kept as they are. The alpha (the lattice's holes) is the HD tile's, unchanged."""
+    rgb = hd[..., :3]
+    L = luma(rgb)
+    solid = hd[..., 3] > 0.5
+    # Distance from the strut's edge in texels: 0 at the rim, larger inside a wide member.
+    dist = ndimage.distance_transform_edt(solid)
+    rim = np.exp(-dist / max(1.0, hd.shape[0] / 160.0))
+    g = 0.17 + 1.6 * L + 0.07 * rim
+    steel = np.stack([g * 0.96, g * 0.99, g * 1.05], axis=-1)
+    keep = np.clip((L - 0.25) / 0.15, 0.0, 1.0)[..., None]
+    out = hd.copy()
+    out[..., :3] = np.clip(steel * (1.0 - keep) + rgb * keep, 0.0, 1.0)
+    return out
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("mode", choices=("grate", "shadow"))
+    p.add_argument("mode", choices=("grate", "shadow", "steel"))
     p.add_argument("hd"); p.add_argument("photo")
     p.add_argument("classic", nargs="?")
     p.add_argument("--tiles")
     p.add_argument("--keep", type=float, default=0.35)
     a = p.parse_args()
-    tiles = a.tiles or ("wil:193,wil:196" if a.mode == "grate" else SHADOW_TILES)
+    tiles = a.tiles or {"grate": "wil:193,wil:196", "steel": STEEL_TILES}.get(a.mode, SHADOW_TILES)
     for item in tiles.split(","):
         style, t = item.split(":"); t = int(t)
         hd = load(os.path.join(a.hd, style, "tile_%04d.dds" % t))
@@ -135,6 +159,10 @@ def main():
             cl = load(os.path.join(a.classic, style, "tile_%04d.tga" % t))
             out, gain = grate(hd, cl)
             note = "luma x%.2f of the HD tile" % gain
+            fmt = "DXT5"
+        elif a.mode == "steel":
+            out = steel(hd)
+            note = "dark steel"
             fmt = "DXT5"
         else:
             out, frac = shadow(hd, a.keep)
