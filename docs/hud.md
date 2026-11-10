@@ -17,6 +17,7 @@ the game's own weapon icon and the speaker's own portrait.
 |---|---|---|
 | `modern` | 1 | 1: the modern HUD in third/first person; 0: the game's own HUD there too |
 | `minimap` | 1 | the mini-map |
+| `hearts` | 1 | the game's row of hearts (health) top right, as vectors (FIX-HUD-4, owner request) |
 | `scale_pct` | 100 | size, 50..200 (sized for the window's height) |
 | `toggle_key` | (none) | a key that switches modern/classic while playing, e.g. `F7` |
 
@@ -35,6 +36,7 @@ The classic view never shows the modern HUD; switching views fades it in and out
 | Gang respect: three meters, the gang's emblem and a split track (FIX-HUD-4) | top left | gang pool `[0x5EB898]`, 0x144 a gang: name `+2`, the player's respect int8 `+0x11C` (-100..100, a bar is 20) |
 | Objective blips (yellow, pulsing; a chevron on the rim when off the map) and phones (cyan) | on the map | HUD arrow slots `[0x672F40]+0x1F18` (17 of 0x7C: type `+0x20`, target `+0x44/+0x48` 18.14 fixed); types 1-4 are phones |
 | Health bar (flash on a hit, red screen-edge pulse at 30 or less) | under the map | ped `+0x216` (100 full) |
+| Hearts: the game's five, a heart a started 20 of health (FIX-HUD-4) | top right, under the multiplier and lives | ped `+0x216` |
 | Car condition bar (orange from 16000, when the car burns) | beside health | car damage int16 `+0x74` (32000 explodes) |
 | Phone chip ("PHONE RINGING, n blocks" / "ANSWER THE PHONE") | right | nearest phone arrow within 10 blocks, on foot |
 | Brief card: the speaker's portrait, the words, `#`-marked words in yellow | bottom centre | the message key at `0x5E9808` (the game's last text lookup) when the game's subtitle block first shows, bound to that block's glyphs (see below), looked up in the player's `data\e.gxt` (TKEY/TDAT); the portrait is the largest quad of the game's HUD part 10, redrawn |
@@ -366,6 +368,14 @@ Zaibatsu, Loonies, as the game stacks them):
   to the right, red to the left (they hate you), with a bright cap at the fill's end;
 - three pips under the track at 0, 2 and 4 bars, green, yellow and red: the respect the green, yellow and
   red phones ask for (`docs/missions.md`), lit once reached.
+
+**The hearts** (owner request B12: "I'd like to have the heart icons back in the top-right corner, just like
+before, to give it a nostalgic feel"). The game's hearts (part 6) are the player's health, not his lives (the
+green x5 beside the multiplier is the lives): measured with the game's HUD in a street view (`modern=0` live)
+after `test_health` pokes, out/fh4_h1: health 100 shows 5 hearts, 75 four, 35 two, so a heart for each started
+20. The modern HUD draws the same count as vector hearts (the parametric heart curve, GTA2's red, a black
+edge and drop shadow, a light lobe), right-aligned under the multiplier and lives line, lost ones as dim
+outlines; a hit flashes them white and at 30 or less the last one beats. `[hud] hearts=0` leaves them out.
 
 The weapon icon and the speaker's portrait are still the game's own sprites (redrawn, scaled): the
 last two pieces of game art in the modern HUD.

@@ -66,6 +66,7 @@ struct Config {
     bool modern = true;     // [hud] modern
     bool minimap = true;    // [hud] minimap
     bool markers = true;    // [hud] objective_markers: the game's target arrows as 3D-projected markers
+    bool hearts = true;     // [hud] hearts: the game's row of hearts (health, a heart a started 20) top right (FIX-HUD-4, owner B12)
     int toggleKey = 0;      // [hud] toggle_key, 0 none
     float scale = 1.0f;     // [hud] scale_pct / 100
     bool test = false;      // GTA2DX9_HUD_TEST=1: [hud] modern/test_health/test_clock re-read live
@@ -91,6 +92,7 @@ void LoadConfig() {
         g_cfg.modern = GetPrivateProfileIntA("hud", "modern", 1, ini) != 0;
         g_cfg.minimap = GetPrivateProfileIntA("hud", "minimap", 1, ini) != 0;
         g_cfg.markers = GetPrivateProfileIntA("hud", "objective_markers", 1, ini) != 0;
+        g_cfg.hearts = GetPrivateProfileIntA("hud", "hearts", 1, ini) != 0;
         const int pct = GetPrivateProfileIntA("hud", "scale_pct", 100, ini);
         g_cfg.scale = static_cast<float>((std::max)(50, (std::min)(200, pct))) / 100.0f;
         char key[16] = {};
@@ -1521,6 +1523,68 @@ float BeatBarPx(float W, float H) {
     return barFull * (1.0f - (1.0f - b.letterbox) * (1.0f - b.letterbox));
 }
 
+// FIX-HUD-4 (owner request B12, 10 Nov: "I'd like to have the heart icons back in the top-right
+// corner, just like before, to give it a nostalgic feel"): a heart as a vector (the classic parametric curve), GTA2's red with a
+// black edge and a light upper-left lobe, at the output resolution.
+void HeartShape(ImDrawList* dl, ImVec2 c, float r, ImU32 fill, bool filled) {
+    constexpr int kN = 40;
+    ImVec2 p[kN];
+    for (int i = 0; i < kN; ++i) {
+        const float t = i * (6.2831853f / kN);
+        const float s = std::sin(t);
+        const float x = 16.0f * s * s * s;
+        const float y = 13.0f * std::cos(t) - 5.0f * std::cos(2 * t) - 2.0f * std::cos(3 * t) - std::cos(4 * t);
+        p[i] = ImVec2(c.x + x * r / 16.0f, c.y - (y + 2.0f) * r / 16.0f);
+    }
+    // (Top notch, right lobe, tip, left lobe: clockwise on screen, as ImGui's anti-aliased fill wants.)
+    ImVec2 sh[kN];
+    const float o = (std::max)(1.0f, 1.5f * g_u);
+    for (int i = 0; i < kN; ++i) sh[i] = ImVec2(p[i].x + o, p[i].y + o);
+    dl->AddConcavePolyFilled(sh, kN, Fade(kShadow, 0.85f));
+    if (filled) {
+        dl->AddConcavePolyFilled(p, kN, fill);
+        // The light lobe: a small soft highlight on the upper left.
+        dl->AddCircleFilled(ImVec2(c.x - r * 0.42f, c.y - r * 0.38f), r * 0.22f, Fade(IM_COL32(255, 200, 190, 255), 0.55f), 12);
+    } else {
+        dl->AddConcavePolyFilled(p, kN, Fade(IM_COL32(40, 20, 22, 255), 0.6f));
+    }
+    dl->AddPolyline(p, kN, IM_COL32(0, 0, 0, 230), ImDrawFlags_Closed, (std::max)(1.0f, 1.3f * g_u));
+}
+
+// The heart's triangles are made once per size (ImGui's concave fill ear-clips: ten of them a frame
+// cost ~0.25 ms) and copied each frame, moved, scaled about the centre and faded.
+struct HeartMesh { float r = 0; std::vector<ImDrawVert> vtx; std::vector<ImDrawIdx> idx; };
+HeartMesh g_heartMesh[2];   // [0] lost, [1] full
+void Heart(ImDrawList* dl, ImVec2 c, float r, float grow, float A, bool filled) {
+    HeartMesh& m = g_heartMesh[filled ? 1 : 0];
+    if (m.r != r || m.vtx.empty()) {
+        ImDrawList scratch(dl->_Data);
+        scratch._ResetForNewFrame();
+        scratch.Flags = dl->Flags;            // anti-aliased fills and lines, as the frame's lists
+        scratch._FringeScale = dl->_FringeScale;
+        scratch.PushClipRectFullScreen();
+        scratch.PushTextureID(dl->_CmdHeader.TextureId);
+        HeartShape(&scratch, ImVec2(0, 0), r, kRed, filled);
+        m.vtx.assign(scratch.VtxBuffer.Data, scratch.VtxBuffer.Data + scratch.VtxBuffer.Size);
+        m.idx.assign(scratch.IdxBuffer.Data, scratch.IdxBuffer.Data + scratch.IdxBuffer.Size);
+        m.r = r;
+    }
+    const int nv = static_cast<int>(m.vtx.size()), ni = static_cast<int>(m.idx.size());
+    if (!nv || !ni) return;
+    dl->PrimReserve(ni, nv);
+    const ImDrawIdx base = static_cast<ImDrawIdx>(dl->_VtxCurrentIdx);
+    for (int i = 0; i < nv; ++i) {
+        ImDrawVert v = m.vtx[i];
+        v.pos = ImVec2(c.x + v.pos.x * grow, c.y + v.pos.y * grow);
+        v.col = Fade(v.col, A);
+        dl->_VtxWritePtr[i] = v;
+    }
+    for (int i = 0; i < ni; ++i) dl->_IdxWritePtr[i] = static_cast<ImDrawIdx>(base + m.idx[i]);
+    dl->_VtxWritePtr += nv;
+    dl->_IdxWritePtr += ni;
+    dl->_VtxCurrentIdx += nv;
+}
+
 // ---- FIX-HUD-4: the gang respect meters (the game's part 5), top left --------------------
 //
 // Owner playtest 10 Nov, item 7: "the three bars in the top-left corner appear to have too low a
@@ -1690,6 +1754,27 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
             Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(x + 6 * u, y), IM_COL32(20, 20, 24, 255), line, A, false);
         }
         y += g_fonts.heavyPx + 8 * u;
+    }
+
+    // FIX-HUD-4 (owner request B12): the game's hearts, right-aligned under that line. They are the
+    // player's health, as the game counts them (measured in out/fh4_h1 with the game's HUD in a street
+    // view: health 100 -> 5 hearts, 75 -> 4, 35 -> 2: one a started 20), lost ones a dim outline; at 30 or
+    // less the last one beats (a hit flashes the health bar under the map).
+    if (v.health >= 0 && g_cfg.hearts) {
+        const int full = (std::max)(0, (std::min)(5, (v.health + 19) / 20));
+        const float r = 11.0f * u, step = 2.3f * r;
+        const float cy = y + r;
+        const bool low = v.health <= 30;
+        const float beat = low ? 0.5f + 0.5f * std::sin(an.time * 7.0f) : 0.0f;
+        for (int i = 0; i < 5; ++i) {
+            const int slot = 4 - i;   // drawn right to left; slot 0 is the leftmost
+            const ImVec2 c(right - r - i * step, cy);
+            const bool on = slot < full;
+            const bool last = on && slot == full - 1;
+            const float grow = last && low ? 1.0f + 0.12f * beat : 1.0f;
+            Heart(dl, c, r, grow, A, on);
+        }
+        y += r * 2 + 8 * u;
     }
 
     // Wanted: six stars, the earned ones filled and pulsing.
@@ -2337,9 +2422,10 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
                     ++set;
                 }
             } GTA2_EXCEPT {}
-            Log("hud3d: test: respect %s set on %d gangs", respect, set);
+            static int misses = 0;
+            if (set > 0 || ++misses <= 2) Log("hud3d: test: respect %s set on %d gangs", respect, set);
+            if (set > 0) strncpy(lastRespect, respect, sizeof lastRespect - 1);   // before the level: tried again
         }
-        strncpy(lastRespect, respect, sizeof lastRespect - 1);
     }
     if (g_cfg.test && want) {
         if (pokeHealth) {
