@@ -477,3 +477,34 @@ wire wheels); the 038's engine is box-modelled; paint is one flat colour with or
 outside Remix). the 058's bed and tool boxes are plain boxes and its booms plain tubes. Remix prims for the new textures are not
 built (FIX-REMIX-MATERIALS-3). Classic: vreg stage capture out/vreg_va9_1 (stage_va9, all four models): 31/31 PASS,
 spawn_classic 0 changed tiles.
+
+## VEHICLE-ART-10 (10 Nov 2026): 004 G4 Bank Van, 053 Michelli, 057 T-Rex authored
+
+Three more image-to-3D shells replaced by authored bodies in `tools/vehicle_art2` (paint neutral 235, tinted by
+the identity record; `driver_seat` from `tools/vehicle_art/seat_anchor.py`; `wheel_split_check.py` clean: only the
+wheels' own 160 inner-disc triangles):
+
+- **004 G4 Bank Van** (`car_004.py`, ptm1-bil, the van the owner demo jacks): a 1950s armoured cash truck read from
+  the sprite (front down in the export): a short forward-control cab (raked windscreen, short bonnet, vertical-bar
+  grille, bull-bar on a heavy bumper) and a tall armoured box with four stiffener ribs down each side (the sprite's
+  notched flanks, a clear marker lamp on each), gun slits between them, a pale roof plate with the sprite's two
+  domed round vents, a pale cab roof (the sprite's pale panel ahead of the box), rear doors with small armoured
+  windows, hinges, locking bar and lamps. The paint covers the whole body, so the identity tint reaches every
+  panel: the old shell's shaded half was untinted near-black, its roof a mottled 'camo' blotch and its rear a white
+  slab (ptm1). The roof plate, cab roof and vents are a fixed pale grey (`roof_panel`, `vent`), as both remaps of
+  the sprite draw them. The gun slits are `slit`, not `*_glass` (a `_glass` texture is drawn blended and would
+  show through the box). The hue of the jacked van (the identity record: 59,82,115 blue for the remap-36 green van
+  at 588c4f9) is FIX-CAR-IDENTITY-4's half of ptm1.
+- **053 Michelli Roadster** (`car_053.py`): the sprite is a fastback GT, not an open roadster (painted roof, rear
+  window at the tail): a 250 GT Berlinetta idiom on the 082 body code: long bonnet with a low centre scoop (dark
+  mouth) and louvres ahead of the screen, faired headlamps at the wing tips, a wide low egg-crate grille in a chrome
+  oval, gill vents behind the front wheels, the roof running into a fastback back light, a Kamm tail with twin
+  round lamps, split front bumpers, chrome wheels. The first take put 26 front-wing triangles in the front wheels'
+  discs (the belt there sat below the arch): the belt was raised and the arch narrowed.
+- **057 T-Rex** (`car_057.py`): a 1955-57 Thunderbird hardtop: flat sides on a straight belt, bonnet scoop,
+  hooded headlamps over a wide oval egg-crate grille with two bumper guards, wrap-around windscreen with chrome
+  pillars, the sprite's dark hardtop as a fixed dark gloss (`hardtop`, not tinted) with a chromed porthole in each
+  rear quarter and a small upright back light, a short deck between two small fins with round tail lamps, a chrome
+  spear, whitewalls. geo_paint had painted its chrome and lost the dark roof (VEHICLE-ART-9).
+
+Evidence: see the READY lines on the work orders (ptm1, vr-vehicle-art-audit-batch).

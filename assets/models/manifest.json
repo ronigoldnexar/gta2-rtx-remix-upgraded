@@ -918,15 +918,48 @@
   },
   {
    "name": "004_g4_bank_van",
-   "glb": "cars/models3d/004_g4_bank_van.glb",
+   "glb": "cars/vehicle_art2/004_g4_bank_van.glb",
    "scale": 1.0,
    "paint_rgb": [
-    64.2,
-    81.6,
-    122.1
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "slit": "cars/vehicle_art2/004_g4_bank_van/slit.png",
+    "underbody": "cars/vehicle_art2/004_g4_bank_van/underbody.png",
+    "paint_box": "cars/vehicle_art2/004_g4_bank_van/paint_box.png",
+    "paint_rib": "cars/vehicle_art2/004_g4_bank_van/paint_rib.png",
+    "lamp_clear": "cars/vehicle_art2/004_g4_bank_van/lamp_clear.png",
+    "trim_dark": "cars/vehicle_art2/004_g4_bank_van/trim_dark.png",
+    "roof_panel": "cars/vehicle_art2/004_g4_bank_van/roof_panel.png",
+    "vent": "cars/vehicle_art2/004_g4_bank_van/vent.png",
+    "chrome": "cars/vehicle_art2/004_g4_bank_van/chrome.png",
+    "lamp_tail": "cars/vehicle_art2/004_g4_bank_van/lamp_tail.png",
+    "lamp_amber": "cars/vehicle_art2/004_g4_bank_van/lamp_amber.png",
+    "frame": "cars/vehicle_art2/004_g4_bank_van/frame.png",
+    "plate": "cars/vehicle_art2/004_g4_bank_van/plate.png",
+    "seal": "cars/vehicle_art2/004_g4_bank_van/seal.png",
+    "paint_body": "cars/vehicle_art2/004_g4_bank_van/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/004_g4_bank_van/interior_dark.png",
+    "grille": "cars/vehicle_art2/004_g4_bank_van/grille.png",
+    "chrome_disc": "cars/vehicle_art2/004_g4_bank_van/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/004_g4_bank_van/lamp_head.png",
+    "bar": "cars/vehicle_art2/004_g4_bank_van/bar.png",
+    "seat": "cars/vehicle_art2/004_g4_bank_van/seat.png",
+    "tyre_side": "cars/vehicle_art2/004_g4_bank_van/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/004_g4_bank_van/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/004_g4_bank_van/paint_wheel.png",
+    "glass": "cars/vehicle_art2/004_g4_bank_van/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_004.py",
+   "driver_seat": [
+    0.11,
+    0.252,
+    0.132,
+    0.5045
+   ]
   },
   {
    "name": "005_beamer",
@@ -1712,15 +1745,37 @@
   },
   {
    "name": "053_michelli_roadster",
-   "glb": "cars/models3d/053_michelli_roadster.glb",
+   "glb": "cars/vehicle_art2/053_michelli_roadster.glb",
    "scale": 1.0,
    "paint_rgb": [
-    157.2,
-    119.7,
-    104.7
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/053_michelli_roadster/seal.png",
+    "chrome": "cars/vehicle_art2/053_michelli_roadster/chrome.png",
+    "vent": "cars/vehicle_art2/053_michelli_roadster/vent.png",
+    "underbody": "cars/vehicle_art2/053_michelli_roadster/underbody.png",
+    "paint_body": "cars/vehicle_art2/053_michelli_roadster/paint_body.png",
+    "grille": "cars/vehicle_art2/053_michelli_roadster/grille.png",
+    "interior_dark": "cars/vehicle_art2/053_michelli_roadster/interior_dark.png",
+    "chrome_disc": "cars/vehicle_art2/053_michelli_roadster/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/053_michelli_roadster/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/053_michelli_roadster/lamp_tail.png",
+    "seat": "cars/vehicle_art2/053_michelli_roadster/seat.png",
+    "tyre_side": "cars/vehicle_art2/053_michelli_roadster/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/053_michelli_roadster/tyre_tread.png",
+    "glass": "cars/vehicle_art2/053_michelli_roadster/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_053.py",
+   "driver_seat": [
+    0.08,
+    0.084,
+    -0.116,
+    0.2415
+   ]
   },
   {
    "name": "054_tank",
@@ -1803,15 +1858,40 @@
   },
   {
    "name": "057_t_rex",
-   "glb": "cars/models3d/057_t_rex.glb",
+   "glb": "cars/vehicle_art2/057_t_rex.glb",
    "scale": 1.0,
    "paint_rgb": [
-    151.0,
-    113.0,
-    87.3
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "chrome": "cars/vehicle_art2/057_t_rex/chrome.png",
+    "seal": "cars/vehicle_art2/057_t_rex/seal.png",
+    "hardtop": "cars/vehicle_art2/057_t_rex/hardtop.png",
+    "vent": "cars/vehicle_art2/057_t_rex/vent.png",
+    "underbody": "cars/vehicle_art2/057_t_rex/underbody.png",
+    "paint_body": "cars/vehicle_art2/057_t_rex/paint_body.png",
+    "grille": "cars/vehicle_art2/057_t_rex/grille.png",
+    "interior_dark": "cars/vehicle_art2/057_t_rex/interior_dark.png",
+    "chrome_disc": "cars/vehicle_art2/057_t_rex/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/057_t_rex/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/057_t_rex/lamp_tail.png",
+    "seat": "cars/vehicle_art2/057_t_rex/seat.png",
+    "tyre_side": "cars/vehicle_art2/057_t_rex/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/057_t_rex/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/057_t_rex/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/057_t_rex/paint_wheel.png",
+    "glass": "cars/vehicle_art2/057_t_rex/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_057.py",
+   "driver_seat": [
+    0.084,
+    0.104,
+    -0.086,
+    0.2594
+   ]
   },
   {
    "name": "058_tow_truck",

@@ -56,6 +56,9 @@ SEATS = {
     "018_shark": ((0.45, 0.70, 0.04), 5.0),        # VEHICLE-ART-9: front bench x +-0.92, top 0.70, back -0.22..-0.08
     "082_jagular_xk": ((0.40, 0.56, -0.38), 5.0),  # VEHICLE-ART-9: buckets x +-0.40, top 0.56, back -0.62..-0.50
     "058_tow_truck": ((0.50, 1.20, -0.14), 5.0),   # VEHICLE-ART-9: cab bench x +-1.00, top 1.20, back -0.38..-0.26
+    "004_g4_bank_van": ((0.55, 1.26, 0.66), 5.0),  # VEHICLE-ART-10: cab bench x +-1.08, top 1.26, back 0.42..0.54
+    "057_t_rex": ((0.42, 0.52, -0.43), 5.0),  # VEHICLE-ART-10: buckets x +-0.42, top 0.52, back -0.67..-0.55
+    "053_michelli_roadster": ((0.40, 0.42, -0.58), 5.0),  # VEHICLE-ART-10: buckets x +-0.40, top 0.42, back -0.82..-0.70
 }
 
 
