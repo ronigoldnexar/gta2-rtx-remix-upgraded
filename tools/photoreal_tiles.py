@@ -37,6 +37,8 @@ Remix device, whose PBR layer is keyed by the HD set's texture hashes.
     photoreal_tiles.py resharpen <photo dir> <hd dir> <out dir> --tiles a,b   restore the art-scale contrast
     photoreal_tiles.py frames   <photo dir> <labels.json> <usage.json> <out dir> --style bil
                                         lift thin true-black frame bars of wall tiles (pm12)
+    photoreal_tiles.py lotfield <tile dir> <out dir> --tiles a,b --target r,g,b
+                                        flatten the asphalt's low-frequency tone of a tile family (pmq1)
 
 Needs numpy, scipy, Pillow; classify also torch + transformers.
 """
@@ -381,6 +383,48 @@ def cmd_resharpen(a):
         done.append((t, round(sp / sh, 3), round(g, 2)))
     print(json.dumps({"resharpened": len(done), "tiles": done}))
 
+# ----------------------------------------------------------------------------- lotfield
+def cmd_lotfield(a):
+    """pmq1-bil-lot-tile-seam: the tiles of one asphalt surface (the bil lots: interior 737 and 745,
+    kerb edges 754 and 742, bay line 767) were drawn in the 64 px art with different tones (737 eight
+    levels darker) blended by soft gradients, and the HD/photo rendition kept a tone of its own per tile.
+    The street views' tone match (src/renderer.cpp DdsBaseRgb) then tints each tile by ONE factor
+    toward the district's asphalt median, which cannot make two tiles meet along an edge: the lot read as
+    a patchwork of hard-edged squares. Here the asphalt body of each tile (the texels within --tol of
+    the tile's median luminance, i.e. not the kerb, its shadow line or the paint) has its low-frequency
+    colour (gaussian --sigma texels of 512, normalised over the body) replaced by --target, the tone
+    match's own median, so every tile of the family meets its neighbour at the same colour and the
+    runtime tint is ~1 for all of them. The grain, cracks, kerb and paint are kept as they are.
+    Reads <tile dir>/tile_NNNN.dds (photo/ or roads/), writes <out dir>."""
+    from scipy import ndimage as ndi
+    os.makedirs(a.out, exist_ok=True)
+    target = np.array([float(v) for v in a.target.split(",")], np.float32) / 255.0
+    done = []
+    for t in [int(x) for x in a.tiles.split(",") if x]:
+        src = os.path.join(a.src, "tile_%04d.dds" % t)
+        if not os.path.exists(src): continue
+        ph = read_dds_rgba(src)
+        k = ph.shape[0] / 512.0
+        rgb = ph[..., :3]
+        L = lum(ndi.gaussian_filter(rgb, (2 * k, 2 * k, 0), mode="reflect"))
+        opaque = ph[..., 3] > 0.5
+        med = float(np.median(L[opaque]))
+        body = (np.abs(L - med) < a.tol / 255.0) & opaque
+        body = ndi.binary_opening(body, iterations=2)
+        w = body.astype(np.float32)
+        sig = a.sigma * k
+        den = ndi.gaussian_filter(w, sig, mode="reflect")
+        low = np.stack([ndi.gaussian_filter(rgb[..., c] * w, sig, mode="reflect") for c in range(3)], -1) / np.maximum(den, 1e-4)[..., None]
+        gain = target[None, None, :] / np.maximum(low, 1e-3)
+        # full gain on the body, fading out over 3 texels into the kerb / paint (they keep their own tone)
+        wb = np.clip(ndi.gaussian_filter(w, 3 * k, mode="reflect") * 1.5, 0, 1)[..., None]
+        out = ph.copy()
+        out[..., :3] = np.clip(rgb * (1.0 + (gain - 1.0) * wb), 0, 1)
+        write_dds(os.path.join(a.out, "tile_%04d.dds" % t), out)
+        before = (rgb[body].mean(0) * 255).round(1).tolist(); after = (out[..., :3][body].mean(0) * 255).round(1).tolist()
+        done.append((t, round(float(body.mean()), 2), before, after))
+    print(json.dumps({"lotfield": len(done), "tiles": done}))
+
 # ----------------------------------------------------------------------------- fetch
 def cmd_fetch(a):
     import urllib.request
@@ -418,5 +462,8 @@ if __name__ == "__main__":
     s.add_argument("--style", required=True); s.add_argument("--tiles", default="", help="only these tiles (no wall test)")
     s.add_argument("--floor", type=float, default=FRAME_FLOOR); s.add_argument("--min-frac", type=float, default=0.002)
     s.add_argument("--max-frac", type=float, default=0.20); s.add_argument("--min-mean", type=float, default=0.20)
+    s = sub.add_parser("lotfield"); s.add_argument("src"); s.add_argument("out")
+    s.add_argument("--tiles", required=True); s.add_argument("--target", default="77,80,64")
+    s.add_argument("--sigma", type=float, default=40.0); s.add_argument("--tol", type=float, default=20.0)
     a = ap.parse_args()
     globals()["cmd_" + a.cmd](a)

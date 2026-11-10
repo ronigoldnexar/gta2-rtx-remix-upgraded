@@ -266,3 +266,20 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   Regenerate: `photoreal_tiles.py resharpen <photo>/<st> <hd>/<st> <photo>/<st> --tiles <list above>` (405, 480 by
   `build --tiles 405,480 --fixes tools/photo_label_fixes.json` without --esrgan),
   then `frames` again.
+
+## 11. Lot tile family and sign plates (FIX-WORLD-9, 10 Nov 2026)
+
+- **pmq1, bil lot seam** (`photoreal_tiles.py lotfield`). The bil car-park lots (e.g. the roof lot at x 150..158,
+  y 141..148, level 3, beside the spawn) are drawn with five road-lid tiles: interior 737 and 745, kerb edges 754
+  and 742, bay line 767. In the 64 px art 737 is about 8 levels darker than the others and they blend by soft
+  gradients; the photo set (and the `roads/` versions of 767 and 742) kept a tone per tile, and the street views'
+  tone match (`src/renderer.cpp`, one tint per tile toward the district's asphalt median) cannot make two tiles
+  meet along an edge. Seen from the player's height the lot was a patchwork with hard straight edges (column x=158
+  of 754/767 lighter than column 157 of 737). `lotfield` replaces the low-frequency colour of each tile's asphalt
+  body (texels within 20 levels of its median luminance; gaussian 40 texels of 512, normalised over the body)
+  with the tone match's median 77,80,64, keeping grain, cracks, kerb and paint; so the runtime tint is ~1 for all
+  five and every edge meets. Each bay line lies inside its own 767 tile in classic too (corner to corner), so
+  the line ending at a tile edge is the original layout. Regenerate:
+  `photoreal_tiles.py lotfield <hd>/photo/bil <hd>/photo/bil --tiles 737,745,754,767,742` and
+  `lotfield <hd>/roads/bil <hd>/roads/bil --tiles 767,742` (originals in the host's backup_fw9_photo).
+  Street sets only (photo/ and roads/ are never loaded on a Remix device or in classic).
