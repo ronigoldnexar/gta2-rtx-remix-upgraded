@@ -1482,27 +1482,76 @@
   },
   {
    "name": "029_dementia",
-   "glb": "cars/models3d/029_dementia.glb",
+   "glb": "cars/vehicle_art2/029_dementia.glb",
    "scale": 1.0,
    "paint_rgb": [
-    163.1,
-    131.4,
-    112.1
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/029_dementia/seal.png",
+    "chrome": "cars/vehicle_art2/029_dementia/chrome.png",
+    "underbody": "cars/vehicle_art2/029_dementia/underbody.png",
+    "paint_body": "cars/vehicle_art2/029_dementia/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/029_dementia/interior_dark.png",
+    "paint_wheel": "cars/vehicle_art2/029_dementia/paint_wheel.png",
+    "chrome_disc": "cars/vehicle_art2/029_dementia/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/029_dementia/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/029_dementia/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/029_dementia/lamp_tail.png",
+    "seat": "cars/vehicle_art2/029_dementia/seat.png",
+    "tyre_side": "cars/vehicle_art2/029_dementia/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/029_dementia/tyre_tread.png",
+    "glass": "cars/vehicle_art2/029_dementia/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_029.py",
+   "driver_seat": [
+    0.072,
+    0.132,
+    -0.032,
+    0.3071
+   ]
   },
   {
    "name": "030_land_roamer",
-   "glb": "cars/models3d/030_land_roamer.glb",
+   "glb": "cars/vehicle_art2/030_land_roamer.glb",
    "scale": 1.0,
    "paint_rgb": [
-    73.5,
-    85.1,
-    43.4
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "underbody": "cars/vehicle_art2/030_land_roamer/underbody.png",
+    "paint_body": "cars/vehicle_art2/030_land_roamer/paint_body.png",
+    "grille": "cars/vehicle_art2/030_land_roamer/grille.png",
+    "seal": "cars/vehicle_art2/030_land_roamer/seal.png",
+    "chrome": "cars/vehicle_art2/030_land_roamer/chrome.png",
+    "canvas_seam": "cars/vehicle_art2/030_land_roamer/canvas_seam.png",
+    "canvas": "cars/vehicle_art2/030_land_roamer/canvas.png",
+    "interior_dark": "cars/vehicle_art2/030_land_roamer/interior_dark.png",
+    "seat": "cars/vehicle_art2/030_land_roamer/seat.png",
+    "chrome_disc": "cars/vehicle_art2/030_land_roamer/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/030_land_roamer/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/030_land_roamer/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/030_land_roamer/lamp_tail.png",
+    "steel": "cars/vehicle_art2/030_land_roamer/steel.png",
+    "tyre_side": "cars/vehicle_art2/030_land_roamer/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/030_land_roamer/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/030_land_roamer/paint_wheel.png",
+    "star": "cars/vehicle_art2/030_land_roamer/star.png",
+    "glass": "cars/vehicle_art2/030_land_roamer/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_030.py",
+   "driver_seat": [
+    0.098,
+    0.152,
+    -0.116,
+    0.356
+   ]
   },
   {
    "name": "031_jefferson",
@@ -1622,15 +1671,39 @@
   },
   {
    "name": "035_benson",
-   "glb": "cars/models3d/035_benson.glb",
+   "glb": "cars/vehicle_art2/035_benson.glb",
    "scale": 1.0,
    "paint_rgb": [
-    157.9,
-    119.4,
-    94.3
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/035_benson/seal.png",
+    "chrome": "cars/vehicle_art2/035_benson/chrome.png",
+    "underbody": "cars/vehicle_art2/035_benson/underbody.png",
+    "paint_body": "cars/vehicle_art2/035_benson/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/035_benson/interior_dark.png",
+    "grille": "cars/vehicle_art2/035_benson/grille.png",
+    "chrome_disc": "cars/vehicle_art2/035_benson/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/035_benson/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/035_benson/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/035_benson/lamp_tail.png",
+    "seat": "cars/vehicle_art2/035_benson/seat.png",
+    "tyre_side": "cars/vehicle_art2/035_benson/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/035_benson/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/035_benson/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/035_benson/paint_wheel.png",
+    "glass": "cars/vehicle_art2/035_benson/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_035.py",
+   "driver_seat": [
+    0.088,
+    0.14,
+    -0.028,
+    0.335
+   ]
   },
   {
    "name": "036_schmidt",

@@ -239,6 +239,18 @@ bool LoadModel(const std::string& path, Model* model) {
         if (vertices > 2000000 || indices > 6000000 || !r.ok) return false;
         m.vertices.resize(vertices);
         r.Bytes(m.vertices.data(), vertices * sizeof(ModelVertex));
+        {
+            // VEHICLE-ART-22 (qav55 027 "flat white square at the cone tip"): a vertex whose stored normal is not a
+            // number (a generator's surface collapsing to a point: 027's soft-serve tip, 40 vertices) lit the
+            // fixed-function draw black and turned FIX-CAR-SHADING-1's coat pass over the wheel-split copy into an
+            // unlit 0.06-block grey square at the tip. Such a normal is replaced by +y (straight up) at load.
+            int bad = 0;
+            for (ModelVertex& v : m.vertices) {
+                if (std::isfinite(v.nx) && std::isfinite(v.ny) && std::isfinite(v.nz)) continue;
+                v.nx = 0.0f; v.ny = 1.0f; v.nz = 0.0f; ++bad;
+            }
+            if (bad) Log("models: %s: %d vertex normals were not numbers (%s), set to +y", path.c_str(), bad, m.texture.c_str());
+        }
         if (m.skin >= 0) {
             m.weights.resize(vertices);
             for (ModelSkinWeight& w : m.weights) {

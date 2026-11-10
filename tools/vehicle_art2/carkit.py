@@ -56,6 +56,20 @@ class Part:
         if not self.p:
             return None
         p = np.concatenate(self.p); n = np.concatenate(self.n); t = np.concatenate(self.t); f = np.concatenate(self.f)
+        # VEHICLE-ART-22: a surface that collapses to a point (027's soft-serve tip) has no tangent plane there: its
+        # finite-difference normal is 0/0 (NaN), which the coat pass drew as a flat grey square. Such a normal becomes
+        # the mean of the part's finite ones near it (+y if none), so every other body's normals stay byte-identical.
+        bad = ~np.isfinite(n).all(1)
+        if bad.any():
+            good = ~bad
+            for k in np.nonzero(bad)[0]:
+                if good.any():
+                    d = np.linalg.norm(p[good] - p[k], axis=1)
+                    near = np.argsort(d)[:24]
+                    m = n[good][near].mean(0)
+                    n[k] = m if np.linalg.norm(m) > 1e-6 else (0.0, 1.0, 0.0)
+                else:
+                    n[k] = (0.0, 1.0, 0.0)
         ln = np.linalg.norm(n, axis=1, keepdims=True)
         n = n / np.maximum(ln, 1e-9)
         return p, n, t, f
