@@ -167,6 +167,8 @@ int LastUprightBoards();
 // FIX-WORLD-10 (ptrmx28): flat lamp-pole cards stood up as round poles for the street views (AddLampPole),
 // one per card per level; GTA2DX9_LAMP_POLES=0 keeps the cards (LampPoles() false).
 int LastLampPoleSegments();
+// FIX-WORLD-11: the lamps' flat arm/head lids beside those poles hung as solids (AddLampArm), street views only.
+int LastLampArms();
 bool LampPoles();
 
 // The map's own trees (defects pm8 / pm23): GTA2 draws a tree as a 2x2 group of lidless

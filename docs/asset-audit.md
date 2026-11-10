@@ -317,3 +317,16 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   plane shares it). A pole tile is detected from the art (one strip 1..8 texels wide, opaque on >= 90 % of rows,
   away from the tile's edges, every other column <= 4 % opaque). Classic view: the cards as before.
   `GTA2DX9_LAMP_POLES=0` keeps the cards (A/B); log `lamp poles (street views: ...): on, N segment(s)`.
+- **ptrmx28, the arm/head half (FIX-WORLD-11)** (`src/world_mesh.cpp` LampArmFor / AddLampArm). After the poles,
+  the lamp's arm and head were still a flat lid (wil 750: a 4-texel arm from the tile edge to an 8x18 head; ste 96 /
+  bil 576: a bracket from the edge to a bar with a head at each end) at the pole's top height on the cell beside it:
+  edge-on, a tilted black dash in the sky beside the pole top. The street views now leave that lid out and hang a
+  solid from its art: each opaque texel is a column hanging from the lid's height, as deep as the art is wide there
+  (the shorter of the row and column runs through it, capped at 7 texels, rims smoothed so rounded ends do not stand
+  as fins), so the arm is a bar about as deep as it is wide and the head a block; top, bottom and the exposed sides,
+  the tile's own texels, the same opaque street-only group as the pole. A lid is an arm when its art touches exactly
+  one tile edge (<= 24 texels of it, 16 texels..20 % of the tile opaque) and the neighbour across that edge holds a
+  pole card at the same level (wil 172, ste 194, bil 212 lids). Each pole segment also gets a top cap (no open tube
+  seen from above). Not covered: ste's 16 lamps whose pole goes on as a sloped board lid (the arm, ste 98, sits a
+  level above the last pole card): they stay lids. Classic view: lids as before (vreg spawn_classic 0 tiles).
+  `GTA2DX9_LAMP_POLES=0` restores the lids with the cards; log `lamp poles ...: on, N segment(s), M arm/head solid(s)`.

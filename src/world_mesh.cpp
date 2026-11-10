@@ -1529,8 +1529,206 @@ bool AddLampPole(MeshBuilder* builder, const Style& style, const Face& face, con
                               {std::cos(am), 0.0f, std::sin(am)},
                               {{{u0, ua.v}, {u1, ua.v}, {u1, ut.v}, {u0, ut.v}}});
     }
-    builder->SetStreetMode(0);
+    // FIX-WORLD-11: a top cap, so a pole seen from above (third person) is not an open tube where the
+    // arm does not cover it (one per segment; the lower ones are inside the pole above and never seen).
+    {
+        std::array<Vec3, 8> ring;
+        for (int k = 0; k < kSides; ++k) {
+            const float a = 6.2831853f * k / kSides;
+            ring[static_cast<size_t>(k)] = Vec3{px + r * std::cos(a), hi, pz + r * std::sin(a)};
+        }
+        const float uc0 = 0.5f * (uIn0 + uIn1), vc = ua.v + 0.02f * (ut.v - ua.v);
+        const std::array<Uv, 4> capUv = {{{uc0, vc}, {uc0, vc}, {uc0, vc}, {uc0, vc}}};
+        builder->SetStreetMode(1);
+        for (const auto& q : {std::array<int, 4>{0, 1, 2, 3}, std::array<int, 4>{0, 3, 4, 7}, std::array<int, 4>{4, 5, 6, 7}})
+            builder->AddPlainQuad(face.Tile(), {{ring[static_cast<size_t>(q[0])], ring[static_cast<size_t>(q[1])],
+                                                 ring[static_cast<size_t>(q[2])], ring[static_cast<size_t>(q[3])]}},
+                                  {0.0f, 1.0f, 0.0f}, capUv);
+        builder->SetStreetMode(0);
+    }
     ++g_lampPoleSegments;
+    return true;
+}
+
+// FIX-WORLD-11 (ptrmx28, the arm/head half): the lamp's arm and head are a flat lid a level up beside the
+// pole card (wil 750: a 4-texel arm from the tile edge to an 8x18 head; ste 96 / bil 576: a bracket from
+// the edge to a bar with a head at each end; ste 98: an arm with a head). Edge-on from the street that is a
+// tilted dash in the sky, detached from the pole. The street views leave the lid out and hang a solid from
+// its art instead: every opaque texel becomes a column hanging from the lid's height, as deep as the art is
+// wide there (the shorter of its row and column runs through the texel, capped), so the arm is a bar about
+// as deep as it is wide, the head a block, the bracket's legs thin. Same street-only opaque group as the
+// pole, the tile's own texels; the classic view draws the lid exactly as before. GTA2DX9_LAMP_POLES=0 turns
+// the arms back into lids with the poles. Only a lid whose art touches one tile edge, and whose
+// neighbour across that edge holds a pole card at the same level, is one (BuildWorldMesh).
+int g_lampArms = 0;
+
+struct LampArmQuad { std::array<std::array<float, 3>, 4> p; std::array<float, 3> n; std::array<Uv, 4> uv; };   // texel x, texel y, depth (texels, <= 0)
+struct LampArmArt { bool ok = false; int edge = -1; float edgeX = 0.0f, edgeY = 0.0f; std::vector<LampArmQuad> quads; };
+
+// The touched edge (0 top row, 1 bottom row, 2 left column, 3 right column) and the solid, in texel space.
+const LampArmArt& LampArmFor(const Style& style, int tile) {
+    static const Style* s_style = nullptr;
+    static std::vector<LampArmArt> s_cache;
+    static std::vector<uint8_t> s_done;
+    static const LampArmArt kNone;
+    if (s_style != &style) { s_style = &style; s_cache.assign(static_cast<size_t>(style.TileCount()), LampArmArt{}); s_done.assign(static_cast<size_t>(style.TileCount()), 0); }
+    if (tile <= 0 || tile >= style.TileCount()) return kNone;
+    LampArmArt& art = s_cache[static_cast<size_t>(tile)];
+    if (s_done[static_cast<size_t>(tile)]) return art;
+    s_done[static_cast<size_t>(tile)] = 1;
+    const Tile& t = style.GetTile(tile);
+    if (!t.hasTransparency || t.pixels.size() != static_cast<size_t>(kTilePixels)) return art;
+    constexpr int N = kTileSize;
+    auto on = [&](int x, int y) { return x >= 0 && y >= 0 && x < N && y < N && (t.pixels[static_cast<size_t>(y) * N + x] >> 24) != 0; };
+    int count = 0;
+    for (int i = 0; i < kTilePixels; ++i) if (t.pixels[static_cast<size_t>(i)] >> 24) ++count;
+    if (count < 16 || count * 5 > kTilePixels) return art;   // a small figure on a see-through tile
+    bool touch[4] = {false, false, false, false};
+    float ex[4] = {0, 0, 0, 0}, ey[4] = {0, 0, 0, 0}; int en[4] = {0, 0, 0, 0};
+    for (int k = 0; k < N; ++k) {
+        const int pts[4][2] = {{k, 0}, {k, N - 1}, {0, k}, {N - 1, k}};
+        for (int e = 0; e < 4; ++e)
+            if (on(pts[e][0], pts[e][1])) { touch[e] = true; ex[e] += pts[e][0] + 0.5f; ey[e] += pts[e][1] + 0.5f; ++en[e]; }
+    }
+    int edge = -1;
+    for (int e = 0; e < 4; ++e) if (touch[e]) { if (edge >= 0) return art; edge = e; }
+    if (edge < 0 || en[edge] > 24) return art;   // it has to hang off the pole, not span the tile
+    // depth per texel: the shorter run through it, capped
+    constexpr int kCap = 7;
+    std::vector<int> depth(static_cast<size_t>(kTilePixels), 0);
+    for (int y = 0; y < N; ++y)
+        for (int x = 0; x < N; ++x) {
+            if (!on(x, y)) continue;
+            int x0 = x, x1 = x, y0 = y, y1 = y;
+            while (on(x0 - 1, y)) --x0;
+            while (on(x1 + 1, y)) ++x1;
+            while (on(x, y0 - 1)) --y0;
+            while (on(x, y1 + 1)) ++y1;
+            depth[static_cast<size_t>(y) * N + x] = (std::min)({x1 - x0 + 1, y1 - y0 + 1, kCap});
+        }
+    // smooth the rim: a texel no deeper than its deepest 4-neighbour less one, so a head's one-texel
+    // rounded ends do not stand as thin fins (a run of 1 texel across the end of an 8-texel head)
+    for (int y = 0; y < N; ++y)
+        for (int x = 0; x < N; ++x) {
+            int& d = depth[static_cast<size_t>(y) * N + x];
+            if (!d) continue;
+            int m = d;
+            const int nb[4][2] = {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}};
+            for (const auto& q : nb) if (on(q[0], q[1])) m = (std::max)(m, depth[static_cast<size_t>(q[1]) * N + q[0]] - 1);
+            d = (std::min)(m, kCap);
+        }
+    auto dep = [&](int x, int y) { return on(x, y) ? depth[static_cast<size_t>(y) * N + x] : 0; };
+    auto uvAt = [](float tx, float ty) { return Uv{tx / N, ty / N}; };
+    std::vector<LampArmQuad>& qs = art.quads;
+    // top and bottom faces: per row, runs of equal depth
+    for (int y = 0; y < N; ++y)
+        for (int x = 0; x < N;) {
+            const int d = dep(x, y);
+            if (!d) { ++x; continue; }
+            int x1 = x;
+            while (x1 < N && dep(x1, y) == d) ++x1;
+            const float fx0 = static_cast<float>(x), fx1 = static_cast<float>(x1), fy0 = static_cast<float>(y), fy1 = fy0 + 1.0f;
+            const std::array<Uv, 4> uv = {{uvAt(fx0, fy0), uvAt(fx1, fy0), uvAt(fx1, fy1), uvAt(fx0, fy1)}};
+            qs.push_back({{{{fx0, fy0, 0.0f}, {fx1, fy0, 0.0f}, {fx1, fy1, 0.0f}, {fx0, fy1, 0.0f}}}, {{0.0f, 0.0f, 1.0f}}, uv});
+            const float b = -static_cast<float>(d);
+            qs.push_back({{{{fx0, fy0, b}, {fx1, fy0, b}, {fx1, fy1, b}, {fx0, fy1, b}}}, {{0.0f, 0.0f, -1.0f}}, uv});
+            x = x1;
+        }
+    // sides: where a texel hangs deeper than its neighbour, the drop between them faces the neighbour;
+    // runs along the edge with the same drop merge. Coloured by the texel's own band (u along the run).
+    for (int dir = 0; dir < 4; ++dir) {
+        const int dx = dir == 0 ? -1 : dir == 1 ? 1 : 0, dy = dir == 2 ? -1 : dir == 3 ? 1 : 0;
+        for (int a = 0; a < N; ++a)
+            for (int b = 0; b < N;) {
+                const int x = dy ? b : a, y = dy ? a : b;
+                const int d = dep(x, y), dn = dep(x + dx, y + dy);
+                if (d <= dn) { ++b; continue; }
+                int b1 = b;
+                while (b1 < N) {
+                    const int xx = dy ? b1 : a, yy = dy ? a : b1;
+                    if (dep(xx, yy) != d || dep(xx + dx, yy + dy) != dn) break;
+                    ++b1;
+                }
+                const float top = -static_cast<float>(dn), bot = -static_cast<float>(d);
+                const float s0 = static_cast<float>(b), s1 = static_cast<float>(b1);
+                LampArmQuad q;
+                if (dy) {   // a horizontal edge: y fixed at the texel's side
+                    const float ye = static_cast<float>(y + (dy > 0 ? 1 : 0)), yc = y + 0.5f;
+                    q.p = {{{s0, ye, top}, {s1, ye, top}, {s1, ye, bot}, {s0, ye, bot}}};
+                    q.uv = {{uvAt(s0, yc), uvAt(s1, yc), uvAt(s1, yc), uvAt(s0, yc)}};
+                } else {
+                    const float xe = static_cast<float>(x + (dx > 0 ? 1 : 0)), xc = x + 0.5f;
+                    q.p = {{{xe, s0, top}, {xe, s1, top}, {xe, s1, bot}, {xe, s0, bot}}};
+                    q.uv = {{uvAt(xc, s0), uvAt(xc, s1), uvAt(xc, s1), uvAt(xc, s0)}};
+                }
+                q.n = {{static_cast<float>(dx), static_cast<float>(dy), 0.0f}};
+                qs.push_back(q);
+                b = b1;
+            }
+    }
+    art.edge = edge;
+    art.edgeX = ex[edge] / static_cast<float>(en[edge]);
+    art.edgeY = ey[edge] / static_cast<float>(en[edge]);
+    if (edge == 0) art.edgeY = 0.0f; else if (edge == 1) art.edgeY = static_cast<float>(N);
+    else if (edge == 2) art.edgeX = 0.0f; else art.edgeX = static_cast<float>(N);
+    art.ok = true;
+    return art;
+}
+
+// A texel point of a flat lid in the world: uv is the lid's corner coordinates (FaceUvs), corners its four
+// corners in the same order; solved through the affine map the orientation flags make.
+struct LidFrame {
+    Vec3 o, ds, dt; Uv uo, us, ut;
+    bool Init(const std::array<Vec3, 4>& c, const std::array<Uv, 4>& uv) {
+        o = c[0]; ds = Vec3{c[1].x - c[0].x, c[1].y - c[0].y, c[1].z - c[0].z}; dt = Vec3{c[3].x - c[0].x, c[3].y - c[0].y, c[3].z - c[0].z};
+        uo = uv[0]; us = Uv{uv[1].u - uv[0].u, uv[1].v - uv[0].v}; ut = Uv{uv[3].u - uv[0].u, uv[3].v - uv[0].v};
+        return std::fabs(us.u * ut.v - us.v * ut.u) > 1e-6f;
+    }
+    // texel (tx, ty) -> fractions s, t of the lid
+    void St(float tx, float ty, float* s, float* t) const {
+        const float u = tx / kTileSize - uo.u, v = ty / kTileSize - uo.v;
+        const float det = us.u * ut.v - us.v * ut.u;
+        *s = (u * ut.v - v * ut.u) / det;
+        *t = (us.u * v - us.v * u) / det;
+    }
+    Vec3 At(float tx, float ty, float yOff) const {
+        float s, t; St(tx, ty, &s, &t);
+        return Vec3{o.x + ds.x * s + dt.x * t, o.y + ds.y * s + dt.y * t + yOff, o.z + ds.z * s + dt.z * t};
+    }
+};
+
+// The arm and head solid for a lamp-arm lid (see g_lampArms). False if the lid is not one.
+bool AddLampArm(MeshBuilder* builder, const Style& style, int tile, const std::array<Vec3, 4>& corners, const std::array<Uv, 4>& uv) {
+    const LampArmArt& art = LampArmFor(style, tile);
+    LidFrame f;
+    if (!art.ok || !f.Init(corners, uv)) return false;
+    const float texel = 1.0f / kTileSize;
+    builder->SetStreetMode(1);
+    for (const LampArmQuad& q : art.quads) {
+        std::array<Vec3, 4> p;
+        for (size_t i = 0; i < 4; ++i) p[i] = f.At(q.p[i][0], q.p[i][1], q.p[i][2] * texel);
+        // the normal: the texel-space direction through the same map (no scale on y)
+        Vec3 n{0.0f, q.n[2], 0.0f};
+        if (q.n[2] == 0.0f) {
+            const Vec3 a = f.At(32.0f, 32.0f, 0.0f), b = f.At(32.0f + q.n[0], 32.0f + q.n[1], 0.0f);
+            const float dx = b.x - a.x, dz = b.z - a.z, l = std::sqrt(dx * dx + dz * dz);
+            if (l < 1e-6f) continue;
+            n = Vec3{dx / l, 0.0f, dz / l};
+        }
+        builder->AddPlainQuad(tile, p, n, q.uv);
+    }
+    builder->SetStreetMode(0);
+    ++g_lampArms;
+    return true;
+}
+
+// Where the art leaves the lid (the pole's side), in the world: the touched edge's mid point.
+bool LampArmEdge(const Style& style, int tile, const std::array<Vec3, 4>& corners, const std::array<Uv, 4>& uv, float* wx, float* wz) {
+    const LampArmArt& art = LampArmFor(style, tile);
+    LidFrame f;
+    if (!art.ok || !f.Init(corners, uv)) return false;
+    const Vec3 p = f.At(art.edgeX, art.edgeY, 0.0f);
+    *wx = p.x; *wz = p.z;
     return true;
 }
 
@@ -2756,6 +2954,7 @@ int g_boards = 0;
 
 int LastUprightBoards() { return g_boards; }
 int LastLampPoleSegments() { return g_lampPoleSegments; }
+int LastLampArms() { return g_lampArms; }
 bool LampPoles() { return g_lampPoles; }
 
 OverheadDecalStats LastOverheadDecalStats() { return g_overheadStats; }
@@ -2960,6 +3159,8 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     const std::vector<uint8_t> plainSides = g_streetFill ? FindPlainPanelSides(map) : std::vector<uint8_t>{};
     const int plainBefore = builder.StreetHiddenCount();
     int plainFaces = 0;
+    int lampArmFaces = 0;
+    g_lampArms = 0;
     for (int y = 0; y < kMapHeight; ++y) {
         for (int x = 0; x < kMapWidth; ++x) {
             const Column& column = map.ColumnAt(x, y);
@@ -2976,7 +3177,30 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                                             block.lid.IsFlat() && block.lid.Tile() < style.TileCount() &&
                                             style.GetTile(block.lid.Tile()).hasTransparency;
                 const uint8_t treePart = treeCell.empty() || level < 0 || level > 8 ? 0 : treeCell[treeSlot(x, y, level)];
-                builder.SetStreetHidden(decal || boardCandidate || treePart == 2);
+                // FIX-WORLD-11: a lamp's arm/head lid beside a pole card (AddLampArm): out of the street views, a solid in
+                // its place. The pole has to be across the edge the art leaves by, at the same level (its top = the lid).
+                std::array<Vec3, 4> armCorners;
+                std::array<Uv, 4> armUv;
+                bool lampArm = false;
+                if (g_lampPoles && !boardCandidate && treePart == 0 && block.lid && block.lid.IsFlat() && type == 0 &&
+                    block.lid.Tile() < style.TileCount() && LampArmFor(style, block.lid.Tile()).ok) {
+                    const float xW = static_cast<float>(x), zS = static_cast<float>(kMapHeight - y - 1), yL = static_cast<float>(level + 1);
+                    armCorners = {{{xW, yL, zS + 1.0f}, {xW + 1.0f, yL, zS + 1.0f}, {xW + 1.0f, yL, zS}, {xW, yL, zS}}};
+                    armUv = FaceUvs(block.lid, kLidFlags);
+                    float ex = 0.0f, ez = 0.0f;
+                    if (LampArmEdge(style, block.lid.Tile(), armCorners, armUv, &ex, &ez)) {
+                        int nx = x, ny = y;
+                        const float dW = std::fabs(ex - xW), dE = std::fabs(ex - xW - 1.0f), dS = std::fabs(ez - zS), dN = std::fabs(ez - zS - 1.0f);
+                        const float m = (std::min)({dW, dE, dS, dN});
+                        if (m == dW) --nx; else if (m == dE) ++nx; else if (m == dN) --ny; else ++ny;   // map rows run north to south
+                        const Block* nb = m < 0.05f ? BlockAtLevel(map, nx, ny, level) : nullptr;
+                        int c0 = 0, c1 = 0;
+                        if (nb)
+                            for (const Face* fc : {&nb->left, &nb->right, &nb->top, &nb->bottom})
+                                if (*fc && fc->IsFlat() && PoleStrip(style, fc->Tile(), &c0, &c1)) lampArm = true;
+                    }
+                }
+                builder.SetStreetHidden(decal || boardCandidate || treePart == 2 || lampArm);
                 builder.SetStreetHiddenAll(treePart == 1);
                 builder.SetStreetHiddenSides(plainSides.empty() || level < 0 || level > 8 ? 0 : plainSides[treeSlot(x, y, level)]);
                 const bool signal = signalHeads && SignalSlab(block, style);
@@ -2986,7 +3210,9 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                 builder.SetSignalHead(false);
                 builder.SetStreetHiddenSides(0);
                 builder.SetStreetHiddenAll(false);
-                if (treePart) treeFaces += builder.StreetHiddenCount() - hiddenBefore;
+                if (lampArm) AddLampArm(&builder, style, block.lid.Tile(), armCorners, armUv);
+                if (lampArm && !decal) lampArmFaces += builder.StreetHiddenCount() - hiddenBefore;
+                else if (treePart) treeFaces += builder.StreetHiddenCount() - hiddenBefore;
                 else if (signal) signalFaces += builder.StreetHiddenCount() - hiddenBefore;
                 else if (!plainSides.empty() && level >= 0 && level <= 8 && plainSides[treeSlot(x, y, level)])
                     plainFaces += builder.StreetHiddenCount() - hiddenBefore;
@@ -3013,7 +3239,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     }
     (void)plainBefore;
     g_plainPanelSides = plainFaces;
-    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - treeFaces - plainFaces - signalFaces};
+    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - treeFaces - plainFaces - signalFaces - lampArmFaces};
     g_mapTreeStats = MapTreeStats{static_cast<int>(trees.size()), treeFaces};
     g_boards = boards;
     AddImplicitFloors(&builder, map);
