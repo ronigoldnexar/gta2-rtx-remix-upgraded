@@ -751,3 +751,18 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   `_paint_wheel_paint`, `_vinyl`, `_interior_liner`, `_glass`, `_chrome`, `_chrome_disc`, `_grille`, `_lamp_head`,
   `_lamp_tail`, `_lamp_amber`, `_plate`, `_trim_dark`, `_seal`, `_seat`, `_interior_dark`, `_tyre_side`, `_tyre_tread`,
   `_whitewall`, `_underbody`); the old `013_minx_0..` textures are gone (backups `backup_va15/models_013`).
+- **069 U-Jerk Truck authored (`tools/vehicle_art2/car_069.py`; rank 7 Downtown, the most-seen body still an image-to-3D
+  shell).** The shell (a fair Model AA silhouette, but blotched box sides, a crumpled cab roof, an empty window hole
+  for a cab and balloon tyres) becomes a kit Model AA stake truck read from the sprite nose down: a closed cab with a
+  rounded roof (058's cab loft, the sprite's tan roof), a narrow bonnet with side louvres to an upright chrome radiator
+  shell round a honeycomb, black wings sweeping into running boards (039's fender), headlamps on stalks with a tie bar,
+  cowl lamps, a double tube bumper; behind the cab a tall open-top box of dark plank slats between painted stakes and
+  rails, a front board, a lower tailgate and five arched cross bows (the sprite's dark ribbed bed). Painted parts
+  (cab, bonnet, rails, wheels) neutral 235 tinted by the record; wings, running boards, wood and louvres untinted.
+  `forward: +z` kept, driver seat [0.08, 0.244, 0.03, 0.40]; `car_mesh_orient.py check` ok. Before `out/va15_069_b0`,
+  after `out/va15_069_a0` (parked, PAINT 162,133,102, poses side/front34/rear34/eye/far/chase/high/door). Still short
+  of AAA: a plain rounded cab with no door shut lines on the wood, pressed-steel disc wheels where the Model AA had
+  spokes, a flat honeycomb radiator. Remix: every 069 texture is new (`069_u_jerk_truck_paint_body_paint`,
+  `_paint_rail_paint`, `_paint_wheel_paint`, `_wing`, `_wood`, `_louvre`, `_grille`, `_glass`, `_chrome`,
+  `_chrome_disc`, `_frame`, `_running_board_rubber`, `_plate`, `_lamp_head`, `_lamp_tail`, `_lamp_amber`, `_seal`,
+  `_seat`, `_interior_dark`, `_tyre_side`, `_tyre_tread`, `_underbody`); backups `backup_va15/models_069`.
