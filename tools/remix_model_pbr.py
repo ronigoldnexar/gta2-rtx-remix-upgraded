@@ -84,6 +84,8 @@ PAINT_NORMAL_DAMP = 0.3
 CHROME_ROUGHNESS = 0.2
 LAMP_INTENSITY = 6.0        # tail / brake lamps, emissiveFactor lamps
 HEADLAMP_INTENSITY = 3.0    # white head lamps on the baked cars (brighter colour, lower gain)
+HEADLAMP_RIM = 0.30         # FIX-FX-5: a car lamp island's emissive at its rim, over its core (1.0: the old flat discs)
+LENS_MAX_TEXELS = 600       # FIX-FX-5: islands larger than this (lit panels, sign fields) keep a flat emissive
 HEADLAMP_CONTRAST = 0.22    # a head lamp's texels over the mean luminance of the visible texels around it
 HEADLAMP_PALE_BODY = 0.55   # median luminance of the lit texels at a car's ends above which it is a pale car: no baked head lamps
 LIT_INTENSITY = 8.0         # __lit companions: booth sign, traffic-light lenses
@@ -384,6 +386,31 @@ def blobs(mask, visible, amax_frac=0.0025, ratio=4, fill=0.35):
             out[cy, cx] = True
     return out
 
+def lens_profile(mask, rim=HEADLAMP_RIM):
+    """FIX-FX-5 (NIGHT-8's note: head lamps under Remix were flat white emissive discs): per 4-connected island of
+    mask, a weight that is 1 at the island's centre and falls to `rim` at its edge (smooth, by the distance from the
+    centroid over the island's own radius): a lamp reads as a hot core in a dimmer lens, not a flat disc."""
+    h, w = mask.shape
+    prof = np.zeros(mask.shape, np.float32); seen = np.zeros_like(mask)
+    ys, xs = np.nonzero(mask)
+    for y0, x0 in zip(ys.tolist(), xs.tolist()):
+        if seen[y0, x0]: continue
+        stack, comp = [(y0, x0)], []
+        seen[y0, x0] = True
+        while stack:
+            y, x = stack.pop(); comp.append((y, x))
+            for yy, xx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                if 0 <= yy < h and 0 <= xx < w and mask[yy, xx] and not seen[yy, xx]:
+                    seen[yy, xx] = True; stack.append((yy, xx))
+        cy = np.array([c[0] for c in comp], np.float32); cx = np.array([c[1] for c in comp], np.float32)
+        if len(comp) > LENS_MAX_TEXELS:   # a lit panel or sign field, not a lamp: stays flat
+            prof[cy.astype(int), cx.astype(int)] = 1.0; continue
+        d = np.hypot(cy - cy.mean(), cx - cx.mean())
+        r = d / max(float(d.max()) + 0.5, 1.0)
+        t = np.clip(1.0 - r, 0.0, 1.0); t = t * t * (3.0 - 2.0 * t)
+        prof[cy.astype(int), cx.astype(int)] = rim + (1.0 - rim) * t
+    return prof
+
 def car_trim_maps(rgba, ends=None):
     """The baked image-to-3D car atlases: metallic, roughness (0..1 float) and an emissive
     colour (uint8 RGB) + intensity map from the texel colours (REMIX-POLISH / REMIX-3
@@ -572,6 +599,16 @@ def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False):
             normal[paint_mask, :2] *= PAINT_NORMAL_DAMP
             normal[paint_mask] /= np.linalg.norm(normal[paint_mask], axis=-1, keepdims=True)
         source.append("derived")
+    if is_car and not spec.get("lit") and not re.search(r"sign", tga) and gain.any() and HEADLAMP_RIM < 1.0:
+        # FIX-FX-5 (FIX-REMIX-NIGHT-8's note: car lamps under Remix were flat white emissive discs): every lamp island
+        # of a car texture (baked head lamps, red lamps, the glTF-emissive lenses) glows hottest at its centre and
+        # falls to HEADLAMP_RIM at its rim, the core's colour warmed toward white: a bulb behind a lens, not a disc.
+        lit = gain > 0
+        prof = lens_profile(lit)
+        core = np.clip((prof[lit] - HEADLAMP_RIM) / (1.0 - HEADLAMP_RIM), 0.0, 1.0)
+        gain[lit] = gain[lit] * prof[lit]
+        emit[lit] = np.clip(emit[lit].astype(np.float32) * (1.0 - 0.45 * core[:, None]) +
+                            np.array([255, 246, 228], np.float32) * 0.45 * core[:, None], 0, 255).astype(np.uint8)
     if not gain.any(): emit_out, g_out = None, 0.0
     else:
         g_out = float(gain.max())

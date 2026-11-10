@@ -1529,6 +1529,22 @@ nearest tone. That is 96 textures (8 steps x 4 seeds x 3 tones of 128 px), made 
 `fire_*_burn_t0` / `t0b` (pale flakes) vs `t1` / `t1b` (a dark grey plume). Still short of a volume: the plume is cut-out
 flakes, not a soft column.
 
+### Car lamps: a hot core in a dimmer lens (FIX-FX-5, 10 Nov 2026)
+
+FIX-REMIX-NIGHT-8 noted that car lamps under Remix are flat white emissive discs. A lamp's emissive mask was its texels'
+colour times one gain over the whole island: 3 for the baked head lamps, 6 for the red lamps and the glTF-emissive lenses
+(the 068 van's head lamps and indicators). At night the whole disc clips to white. `tools/remix_model_pbr.py` now gives
+every lamp island of a car texture (`lens_profile`) a smooth falloff from 1 at its centroid to `HEADLAMP_RIM` (0.30) at its
+rim, and warms the core's colour toward white. Islands over `LENS_MAX_TEXELS` (600: lit panels, sign fields) and sign
+textures stay flat. The prims are unchanged (same max gain, same file names); only 33 `.e.rtex.dds` files change.
+A control regeneration with the profile off matches the shared layer byte for byte. Bundle: `layer_deploy/FIX-FX-5`
+(deploy.sh + files.txt, VEHICLE-ART-17 format). Same-pose Remix takes at 22:00 on the parked 068 van, old layer
+out/ffx5_ln0 vs new out/ffx5_ln1 (`fire_lamp_before`, `fire_eye_before`): the indicator goes from a flat amber block to a
+hot pale core with orange-red edges. The head lamp goes from a fully clipped white disc with bloom to a lens with a dimmer
+rim at the bezel. Still short: the head lamp's core is not much hotter than its body (the mottled albedo shows through),
+and the authored carkit cars' head-lamp lens (one shared texture, 920CF946BF67669A) has no emissive at all; their night
+look is the remix_lights beam only.
+
 ## Painted walls, murals, road lids, cut-outs and leaves (FIX-REMIX-MATERIALS-3, 10 Nov 2026)
 
 Five path-traced defects filed against what the gta2hd layer draws for a texture (two fixed, one partly, two found
