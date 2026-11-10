@@ -74,6 +74,7 @@ const bool g_cleanPaint = [] { char v[8] = {}; return !(GetEnvironmentVariableA(
 bool g_paintSkyCast = true;   // [devtools] paint_sky_cast: the tint takes out the post's hemisphere cast (FIX-CAR-IDENTITY-6)
 float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain at the lid light it was measured under
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
+int g_carLampLens = 1;    // FIX-LIGHTS-1 [devtools] car_lamp_lens=0: the lamp glows at the old fixed spot (qav46 A/B)
 int g_doorArchClear = 1;  // [devtools] door_arch_clear=0: VEHICLE-ART-20's door span clear of the wheel arches off (A/B)
 int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's exact door outline off (A/B)
 int g_doorInterior = 1;    // [devtools] door_interior=0: no cab interior drawn behind an open door (A/B)
@@ -3488,12 +3489,74 @@ IDirect3DTexture9* GlowTexture(IDirect3DDevice9* device) {
 struct LampVertex { float x, y, z; DWORD color; float u, v; };
 constexpr DWORD kLampFvf = D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1;
 
+// FIX-LIGHTS-1 (qav46: two hard-edged orange wedges on the road under the 018 coupe's rear bumper corners at dusk
+// and night). The glows below sat at a fixed 30 % of the body's height: on a low body that is the bumper's underside,
+// and the glow quad, standing upright across the body's end, reached below the road, which cut it along a straight,
+// stair-stepped line (a flat orange polygon lying on the tarmac, brighter than the lens above it, which stayed dark).
+// Now (1) an authored body's glows sit on its own lenses (the meshes textured *lamp_head / *lamp_tail, measured
+// once per model: each side's mean in the model's frame, taken through the body's fit), and (2) every glow, measured
+// or not, keeps its whole quad above the body's ground line, so no glow of any body can meet the road. The glow
+// itself is round and fades to nothing at its quad's edge. [devtools] car_lamp_lens=0: the old spot (A/B).
+struct LensSpots { bool head = false, tail = false; gta2::Vec3 h[2] = {}, t[2] = {}; };
+std::map<const Model*, LensSpots> g_lensSpots;
+gta2::Vec3 g_lampEye{0.0f, 0.0f, 0.0f};   // CarBodiesDraw's eye, for the lens glows' pull toward it
+const LensSpots& LensSpotsFor(const Model* model) {
+    auto it = g_lensSpots.find(model);
+    if (it != g_lensSpots.end()) return it->second;
+    LensSpots spots;
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(*model, &worlds);
+    std::vector<gta2::Vec3> pts[2][2];   // [head, tail][side -x, +x]
+    for (size_t i = 0; i < model->nodes.size() && i < worlds.size(); ++i) {
+        const int mi = model->nodes[i].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model->meshes.size()) || model->meshes[mi].skin >= 0) continue;
+        const std::string& tex = model->meshes[mi].texture;
+        const int kind = tex.find("lamp_head") != std::string::npos ? 0 : (tex.find("lamp_tail") != std::string::npos ? 1 : -1);
+        if (kind < 0) continue;
+        const gta2::Mat4& m = worlds[i];
+        for (const ModelVertex& v : model->meshes[mi].vertices) {
+            const gta2::Vec3 p{v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0],
+                               v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1],
+                               v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2] + m.m[3][2]};
+            pts[kind][p.x < 0.0f ? 0 : 1].push_back(p);
+        }
+    }
+    // Each side's lens: the vertices within 6 % of the body's length of that side's outermost end (a lamp texture can
+    // also be used inside the body, a dash light or a bar), their mean.
+    const float slab = 0.06f * model->Length();
+    for (int kind = 0; kind < 2; ++kind) {
+        if (pts[kind][0].empty() || pts[kind][1].empty()) continue;
+        gta2::Vec3* out = kind ? spots.t : spots.h;
+        for (int side = 0; side < 2; ++side) {
+            double zs = 0.0;
+            for (const gta2::Vec3& p : pts[kind][side]) zs += p.z;
+            const bool plus = zs >= 0.0;
+            float end = plus ? -1e9f : 1e9f;
+            for (const gta2::Vec3& p : pts[kind][side]) end = plus ? (std::max)(end, p.z) : (std::min)(end, p.z);
+            double sum[3] = {};
+            int cnt = 0;
+            for (const gta2::Vec3& p : pts[kind][side]) {
+                if (std::fabs(p.z - end) > slab) continue;
+                sum[0] += p.x; sum[1] += p.y; sum[2] += p.z; ++cnt;
+            }
+            out[side] = {static_cast<float>(sum[0] / cnt), static_cast<float>(sum[1] / cnt), static_cast<float>(sum[2] / cnt)};
+        }
+        (kind ? spots.tail : spots.head) = true;
+    }
+    Log("car bodies: lamp lenses of %s: head %s (%.3f,%.3f,%.3f / %.3f,%.3f,%.3f), tail %s (%.3f,%.3f,%.3f / %.3f,%.3f,%.3f), height %.3f",
+        model->name.c_str(), spots.head ? "measured" : "none", spots.h[0].x, spots.h[0].y, spots.h[0].z, spots.h[1].x, spots.h[1].y, spots.h[1].z,
+        spots.tail ? "measured" : "none", spots.t[0].x, spots.t[0].y, spots.t[0].z, spots.t[1].x, spots.t[1].y, spots.t[1].z, model->Height());
+    return g_lensSpots.emplace(model, spots).first->second;
+}
+
 // `carToWorld`: the body's frame (x across, y up, z along, nose +z); `length`,
 // `width`, `roof` in blocks. Leaves the states it changes as it found them.
 // `feel` (VEHICLE-FEEL, null when off): its brake and reverse levels replace the
 // measure here, reverse lamps join the tail lamps, and lit head lamps lay a pool on the road.
+// `model`/`fit` (FIX-LIGHTS-1, null for a dome): the 3D body drawn and its fit into the body's frame.
 void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length,
-               float width, float roof, uint32_t frame, bool wreck, const VehicleFeel* feel = nullptr) {
+               float width, float roof, uint32_t frame, bool wreck, const VehicleFeel* feel = nullptr,
+               const Model* model = nullptr, const gta2::Mat4* fit = nullptr) {
     if (g_lampMode == 0 || wreck) return;
     // How fast, and is it slowing: the body's position frame to frame.
     Motion& mo = g_motion[use.object];
@@ -3543,6 +3606,44 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
         }
     }
     if (!n) return;
+    bool onLens[6] = {};
+    if (g_carLampLens) {
+        // FIX-LIGHTS-1 (qav46): see LensSpotsFor. Head lamps are at +nose, tail/brake/reverse at -nose.
+        float ground = 0.0f;
+        if (model && fit) {
+            ground = model->boundsMin.y * fit->m[1][1] + fit->m[3][1];
+            const LensSpots& lens = LensSpotsFor(model);
+            auto body = [&](const gta2::Vec3& p) {
+                return gta2::Vec3{p.x * fit->m[0][0] + p.y * fit->m[1][0] + p.z * fit->m[2][0] + fit->m[3][0],
+                                  p.x * fit->m[0][1] + p.y * fit->m[1][1] + p.z * fit->m[2][1] + fit->m[3][1],
+                                  p.x * fit->m[0][2] + p.y * fit->m[1][2] + p.z * fit->m[2][2] + fit->m[3][2]};
+            };
+            gta2::Vec3 h[2] = {body(lens.h[0]), body(lens.h[1])}, t[2] = {body(lens.t[0]), body(lens.t[1])};
+            bool haveH = lens.head, haveT = lens.tail;
+            // A model that faces -z through its fit: its "head" lenses come out at the back.
+            const bool flip = (haveH && haveT) ? (h[0].z + h[1].z < t[0].z + t[1].z)
+                                               : (haveH ? h[0].z + h[1].z < 0.0f : (haveT && t[0].z + t[1].z > 0.0f));
+            if (flip) { std::swap(h, t); std::swap(haveH, haveT); }
+            const int firstReverse = lit ? 2 : 0, lastReverse = firstReverse + (reverse > 0.05f ? 2 : 0);
+            for (int i = 0; i < n; ++i) {
+                Lamp& l = lamps[i];
+                const bool front = l.z > 0.0f;
+                if (front ? !haveH : !haveT) continue;
+                const gta2::Vec3* s = front ? h : t;
+                const gta2::Vec3& a = (l.x < 0.0f) == (s[0].x < s[1].x) ? s[0] : s[1];   // the lens on this lamp's side
+                // Reverse lamps stay inboard of the tail lamps (at 55 % of the lens's offset).
+                const bool reverseLamp = !front && i >= firstReverse && i < lastReverse;
+                l.x = reverseLamp ? 0.55f * a.x : a.x;
+                l.y = a.y;
+                // On the lens, not on the bounding box's end plane 0.04-0.1 block behind it (seen from the chase
+                // camera above, a glow there showed below and outside the lens); pulled toward the eye below.
+                l.z = a.z + (front ? 0.01f : -0.01f);
+                onLens[i] = true;
+            }
+        }
+        // Every glow's quad clear of the road under the body (a dome's or an unmeasured body's too).
+        for (int i = 0; i < n; ++i) lamps[i].y = (std::max)(lamps[i].y, ground + lamps[i].size + 0.02f);
+    }
     // Camera-facing quads: the car's axes give "across" and "up" of the body; a
     // lamp glow is round, so its own quad is spanned by the car's x and y.
     LampVertex v[24];
@@ -3554,6 +3655,13 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
         const float az[3] = {carToWorld.m[2][0], carToWorld.m[2][1], carToWorld.m[2][2]};
         float c[3];
         for (int j = 0; j < 3; ++j) c[j] = carToWorld.m[3][j] + l.x * ax[j] + l.y * ay[j] + l.z * az[j];
+        if (onLens[i]) {
+            // FIX-LIGHTS-1: drawn 0.08 block toward the eye from the lens: the same place on screen, but in front of
+            // the curved panel round the lens, which would otherwise cut the glow along the panel's own edges.
+            const float e[3] = {g_lampEye.x - c[0], g_lampEye.y - c[1], g_lampEye.z - c[2]};
+            const float el = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+            if (el > 0.3f) for (int j = 0; j < 3; ++j) c[j] += e[j] * (0.08f / el);
+        }
         const float s = l.size;
         const float corners[4][2] = {{-s, -s}, {s, -s}, {s, s}, {-s, s}};
         const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
@@ -3919,6 +4027,7 @@ int WreckLostCorners(const Model& model) {
 bool g_feelIniSet = false;
 
 void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame, const gta2::Vec3& eye) {
+    g_lampEye = eye;
     g_built = 0;
     g_drawn = 0;
     for (double& v : g_carStats) v = 0.0;
@@ -4143,6 +4252,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
         g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
         g_doorArchClear = GetPrivateProfileIntA("devtools", "door_arch_clear", 1, g_devIni);
+        g_carLampLens = GetPrivateProfileIntA("devtools", "car_lamp_lens", 1, g_devIni);
         g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
         g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
@@ -5440,7 +5550,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (carMaterialSet) device->SetMaterial(&material);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
             const double tLamps = CarNowMs();
-            DrawLamps(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, WreckModelNumber(modelNumber), feel.on ? &feel : nullptr);
+            DrawLamps(device, use, posed, b->bodyLength, b->bodyWidth, model->Height() * sy, frame, WreckModelNumber(modelNumber), feel.on ? &feel : nullptr,
+                      model, &fit);
             g_carParts[kPartLamps] += CarNowMs() - tLamps;
             if (!WreckModelNumber(modelNumber)) {
                 GTA2_TRY {
@@ -5666,6 +5777,7 @@ void CarBodiesSetDevIni(const char* ini) {
     g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
     g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
     g_doorArchClear = GetPrivateProfileIntA("devtools", "door_arch_clear", 1, g_devIni);
+    g_carLampLens = GetPrivateProfileIntA("devtools", "car_lamp_lens", 1, g_devIni);
     g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
     g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);

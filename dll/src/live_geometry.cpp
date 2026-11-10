@@ -6635,6 +6635,29 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     Vertex out[4];
     if (!ReadCorners(vertices, corners, texture, game::kSpriteVertexArray, out)) return;
     {
+        // FIX-LIGHTS-1 probe, GTA2DX9_LOG_LAMP_QUADS=1: each car quad after the first of its object in a
+        // row (the game's lamp quad and anything else drawn on a car), with the path it will take.
+        static int probe = -1;
+        if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_LAMP_QUADS", buf, sizeof buf) && buf[0] == '1'; }
+        if (probe) GTA2_TRY {
+            const uint8_t* obj = static_cast<const uint8_t*>(GameObjectBeingDrawn());
+            if (obj && *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase) == game::kSpriteBaseCar) {
+                const unsigned num = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber);
+                const bool same = obj == lastObject_ && lastSprite_ < sprites_.size();
+                const int hid = same ? (sprites_[lastSprite_].hidden ? 1 : 0) : -1;
+                const int sh = same ? sprites_[lastSprite_].shell : -9;
+                static std::set<long long> seen;
+                const long long key = (static_cast<long long>(num) << 24) | ((lamps ? 1 : 0) << 20) | ((same ? 1 : 0) << 16) | ((hid + 1) << 12) |
+                                      (static_cast<long long>((reinterpret_cast<uintptr_t>(g_spriteDrawSite) & 0xFFF)) );
+                if ((lamps || same) && seen.size() < 400 && seen.insert(key).second) {
+                    Log("lamp quad: sprite %u site %p lamps %d same-object %d under.hidden %d under.shell %d own %d at %.2f,%.2f,%.2f view %d",
+                        num, g_spriteDrawSite, lamps ? 1 : 0, same ? 1 : 0, hid, sh, obj == g_hiddenObjects[1] ? 1 : 0, out[0].x, out[0].y, out[0].z,
+                        static_cast<int>(CurrentViewMode()));
+                }
+            }
+        } GTA2_EXCEPT {}
+    }
+    {
         // GTA2DX9_LOG_SPRITE_KINDS=1: each kind of sprite the street views receive (object base,
         // number, quad flags, world size), once per kind. A probe, off by default.
         static int probe = -1;

@@ -447,3 +447,32 @@ measurement, not a tight bound. Not seen under Remix or on the owner's box. GTA2
 pulling off by 4-7 blocks/s in a step, braking at 6-15 blocks/s^2) is still there at every cap; smoothing
 it would mean drawing a car away from where the game has it (a drawn lag along its lane), which is not done
 here.
+
+## FIX-LIGHTS-1 (10 Nov 2026): lamp glows on the lenses, head-lamp pools laid on the ground
+
+Street views, plain renderer; the classic view is untouched (it draws the game's own lamp quads; vreg
+`spawn_classic` 0 of 144 tiles changed).
+
+### qav46: no lamp wedges under a low body's bumper (`[devtools] car_lamp_lens`)
+
+- What it was: two hard-edged orange parallelograms under the 018 coupe's rear bumper corners at dusk and
+  night in the chase view, brighter than the dark tail lenses above them. Not the game's lamp quads: a probe
+  (`GTA2DX9_LOG_LAMP_QUADS=1`, one `lamp quad:` line per kind) shows every one of them dropped under a 3D body in
+  the street views (hidden body, no dome; FIX-FX-2's rule holds for the whole fleet). They were car_bodies'
+  own tail glows (`DrawLamps`), placed at a fixed 30 % of the body's height on the bounding box's end plane:
+  on a low body that is the bumper's underside, and the glow showed on the dark underpan box below the
+  bumper, cut along that box's straight edges.
+- Now: a body with lamp meshes (textures `*lamp_head` / `*lamp_tail`: the authored kit bodies, e.g. 000, 004,
+  012, 013, 018, 036, 050, 053) gets its glows on its own lenses: per side, the lamp vertices within 6 % of the
+  body's length of that side's outermost end, their mean, taken through the body's fit (log line
+  `car bodies: lamp lenses of <model>: ...`). The glow is drawn 0.08 block toward the eye from the lens (same
+  place on screen, in front of the curved panel round it). Every glow, measured or not, keeps its whole quad
+  above the body's ground line. Brake and reverse glows follow the same lenses (reverse at 55 % of the
+  lens's offset).
+- Checked (same pose, old/new toggled in one session, night 22:30 and dusk 19:00, 3x crops): 018 (glow on the
+  lens, nothing under the bumper), 012 cop car (on the upper round lens, was on the bumper), 068 van, 041
+  pickup and 063 truck cab (no lamp meshes: the old spot, now above the ground line; no change seen), 072
+  wreck (no glows). No polygon on the road in any new frame.
+- Limits: a body without lamp meshes keeps the generic spot (the 068 van's glows sit on its doors, inboard
+  of its tall red lenses); seen from behind, a glow's part outside the body's silhouette does not show (a
+  soft vertical end at the body's side on the 018).
