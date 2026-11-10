@@ -1815,15 +1815,44 @@
   },
   {
    "name": "058_tow_truck",
-   "glb": "cars/models3d/058_tow_truck.glb",
+   "glb": "cars/vehicle_art2/058_tow_truck.glb",
    "scale": 1.0,
    "paint_rgb": [
-    120.6,
-    82.2,
-    34.2
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/058_tow_truck/seal.png",
+    "underbody": "cars/vehicle_art2/058_tow_truck/underbody.png",
+    "paint_body": "cars/vehicle_art2/058_tow_truck/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/058_tow_truck/interior_dark.png",
+    "grille": "cars/vehicle_art2/058_tow_truck/grille.png",
+    "chrome": "cars/vehicle_art2/058_tow_truck/chrome.png",
+    "chrome_disc": "cars/vehicle_art2/058_tow_truck/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/058_tow_truck/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/058_tow_truck/lamp_amber.png",
+    "tube": "cars/vehicle_art2/058_tow_truck/tube.png",
+    "frame": "cars/vehicle_art2/058_tow_truck/frame.png",
+    "paint_bed": "cars/vehicle_art2/058_tow_truck/paint_bed.png",
+    "lamp_tail": "cars/vehicle_art2/058_tow_truck/lamp_tail.png",
+    "spring": "cars/vehicle_art2/058_tow_truck/spring.png",
+    "paint_boom": "cars/vehicle_art2/058_tow_truck/paint_boom.png",
+    "cable": "cars/vehicle_art2/058_tow_truck/cable.png",
+    "seat": "cars/vehicle_art2/058_tow_truck/seat.png",
+    "tyre_side": "cars/vehicle_art2/058_tow_truck/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/058_tow_truck/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/058_tow_truck/paint_wheel.png",
+    "glass": "cars/vehicle_art2/058_tow_truck/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_058.py",
+   "driver_seat": [
+    0.1,
+    0.24,
+    -0.028,
+    0.4665
+   ]
   },
   {
    "name": "059_train",

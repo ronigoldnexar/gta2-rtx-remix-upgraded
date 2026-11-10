@@ -55,6 +55,7 @@ SEATS = {
     "038_big_bug": ((0.38, 1.12, 0.16), 5.0),      # VEHICLE-ART-9: the 008 seats lifted 0.50 m
     "018_shark": ((0.45, 0.70, 0.04), 5.0),        # VEHICLE-ART-9: front bench x +-0.92, top 0.70, back -0.22..-0.08
     "082_jagular_xk": ((0.40, 0.56, -0.38), 5.0),  # VEHICLE-ART-9: buckets x +-0.40, top 0.56, back -0.62..-0.50
+    "058_tow_truck": ((0.50, 1.20, -0.14), 5.0),   # VEHICLE-ART-9: cab bench x +-1.00, top 1.20, back -0.38..-0.26
 }
 
 

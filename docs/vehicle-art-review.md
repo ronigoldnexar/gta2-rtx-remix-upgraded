@@ -442,9 +442,9 @@ red/green streak baked across the rear window; the 038 is copper but its body is
 painted; the 058 has a white blotch on the bonnet and one yellow rear hub; the 039's body keeps its dark undercoat
 (its open cockpit needs a zone); 22 bodies of the audit are untouched.
 
-## VEHICLE-ART-9 (10 Nov 2026): 038, 018 and 082 authored
+## VEHICLE-ART-9 (10 Nov 2026): 038, 018, 082 and 058 authored
 
-Three TRELLIS shells replaced by authored bodies in `tools/vehicle_art2` (paint neutral 235, tinted by the identity
+Four TRELLIS shells replaced by authored bodies in `tools/vehicle_art2` (paint neutral 235, tinted by the identity
 record like the other authored cars; `driver_seat` from `tools/vehicle_art/seat_anchor.py`):
 
 - **038 Big Bug** (`car_038.py`): the 008 Beetle body lifted 0.5 m on 1.2 m off-road tyres (lug tread texture, steel
@@ -453,6 +453,9 @@ record like the other authored cars; `driver_seat` from `tools/vehicle_art/seat_
 - **018 Shark** (`car_018.py`): the catalog's Graham-Paige Sharknose: a knife-edge prow whose top leans forward
   (`SHEAR`), a vertical-bar grille on the prow (its own UV patch), headlamps where the wings meet it, a long fastback
   roof into a teardrop tail. No side lamp blob.
+- **058 Tow Truck** (`car_058.py`): a 1950s wrecker: conventional cab with two amber roof beacons, bonnet between
+  pontoon wings, chrome grille and bumper, flat bed with tool boxes, winch, A-frame and the sprite's twin booms to a
+  hook; wide (dual-look) rear tyres. Evidence `out/va9_058a` (before `out/va8_a4` own_*_058_t).
 - **082 Jagular XK** (`car_082.py`): XK120 fixed-head coupe on the shipped orientation (bonnet +z): long bonnet
   between raised wing crowns, oval grille with a chrome surround (flat patch on the nose cap), a small cabin set
   back, dark glass, slim blade bumpers. No torn rear window, no jagged bumper, no spiked hubs.
@@ -471,4 +474,6 @@ eye, far, chase; `_t` straight, `_s25` wheels steered 25 degrees), before: `out/
 Still short of a shipping-AAA frame: the 018's grille bars read stark black and white close up and its cabin is long
 and upright for a Sharknose; the 082's wing crowns are faint from the side and its wheels are plain painted discs (no
 wire wheels); the 038's engine is box-modelled; paint is one flat colour with orange-peel noise (no clear-coat flake
-outside Remix). Remix prims for the new textures are not built (FIX-REMIX-MATERIALS-3).
+outside Remix). the 058's bed and tool boxes are plain boxes and its booms plain tubes. Remix prims for the new textures are not
+built (FIX-REMIX-MATERIALS-3). Classic: vreg stage capture out/vreg_va9_1 (stage_va9, all four models): 31/31 PASS,
+spawn_classic 0 changed tiles.
