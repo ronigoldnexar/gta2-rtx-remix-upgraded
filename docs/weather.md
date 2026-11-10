@@ -51,6 +51,34 @@ third person, the reflection runs on toward the lens instead of stopping at a st
 person, ripples and reflections reach the frame's edge where there was a flat grey slab. Highest
 temporary still r28.
 
+### Ground only, soft, no seam (qav20, FIX-WORLD-14, 10 Nov 2026)
+
+qav20 filed a car stopped at a bil wall right after rain: a hard-edged translucent grey slab over the
+wall and pavement and a mirrored ghost of the car under its bumper. Same-pose A/B (out/qa_fw14ab1,
+wet_roads 1 vs 0) put it all on this pass; `[visuals] debug=128` now restores the old pass live, so
+out/qa_fw14cam3 and qa_fw14cam4 (bil 158.5,144.5, scene car driven into the wall, rain then fog 90)
+show old / new / dry at one pose. Three faults, three changes in `ps_wet`:
+
+- **Every face that looked up was a wet road.** A car's boot and roof took the puddle mirror and
+  showed the wall through the car (old frames: the coupe's boot pale and see-through, the parked
+  car's roof the colour of the wall). Every lid of the map lies at a whole block height, so the
+  world height of the pixel (`c10`, view to world y) gates the mirror and the heavy darkening;
+  anything at a fraction of a block keeps only a wet wall's light darkening. Ramps (tilted lids at
+  fractional heights) lose their mirror too.
+- **The reflection was one sharp tap**: a wall's corner continued into the pavement as a straight
+  hard edge and the stopped car stood mirrored under its bumper with a legible plate. Four taps
+  spread with the reflected ray's length (at least 0.007 of the frame, up to 0.035) soften it, and
+  the mirror is weaker: Fresnel floor 0.40 to 0.25, a puddle's gloss 0.85 to 0.70.
+- **A hit at the march's far end switched on as an edge.** Hits now fade over the second half of
+  the march into the qav9 fallback, so where hits give out there is a gradient.
+
+Frames: in the new column the boots and roofs are solid paint, the ghost under the bumper is a soft
+dark smudge without the plate, the wall's reflection on the pavement has no hard corner line. The
+qav9 spot (wil 210.5,100.5, out/qa_fw14wil9) still shows the hero and the taxi in the wet road,
+softer. Shader: highest temporary r31 (the limit), constants to c147 of 224. Classic view: vreg
+spawn_classic 0 tiles (out/vreg_fw14a). Not checked: night rain, first person, Remix (the pass does
+not run there).
+
 ## Options (`[weather]` in `gta2dx9.ini`, re-read every second)
 
 | Key | Default | Meaning |
