@@ -8300,7 +8300,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // FIX-FIGURE-7 (pf2feel: the hands did not move with the walk or the turn): a walk bob (down at
     // each footfall, across once a stride) scaled by his speed over the ground, and a turn sway (the
     // hands lag the view's yaw and settle back), both in real time and eased in and out.
-    float bobDown = 0.0f, bobSide = 0.0f, swaySide = 0.0f;
+    float bobDown = 0.0f, bobSide = 0.0f, swaySide = 0.0f, strideSwing = 0.0f;
     {
         static float lastX = 0.0f, lastZ = 0.0f, amp = 0.0f, phase = 0.0f, sway = 0.0f, lastYaw = 0.0f;
         static LARGE_INTEGER lastQ = {};
@@ -8338,13 +8338,25 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         const float k2 = 1.0f - 0.6f * rs - drop;   // quieter on a reload and a switch
         if (g_logJoints) Log("fpvm: f=%u amp=%.3f phase=%.2f sway=%.4f k2=%.2f pos=%.3f,%.3f valid=%d", g_carFrame, amp, phase, sway, k2, g_playerPosX, g_playerPosZ, g_playerPosValid ? 1 : 0);
         bobDown = 0.0065f * amp * 0.5f * (1.0f - std::cos(2.0f * phase)) * k2;
+        strideSwing = amp * std::sin(phase) * k2;   // FIX-FIGURE-14 (pfl67): -1..1 once a stride, the bare arms' opposed swing
         bobSide = 0.0045f * amp * std::sin(phase) * k2;
         swaySide = sway * k2;
     }
     const float rsAhead = reloadOld ? 0.02f : 0.015f, rsSide = reloadOld ? 0.015f : 0.025f, rsDown = reloadOld ? 0.07f : -0.005f;
-    const float ahead = (fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - rsAhead * rs - 0.02f * rack - 0.03f * drop;
-    const float side = (fists ? 0.060f - 0.02f * jabR : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
-                down = (fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
+    // FIX-FIGURE-14 (pfl67): bare hands are fp_fist2_right (the pistol hand closed, the same wrist, forearm and
+    // sleeve as the armed view model) held up in a guard: the fists at about two thirds of the frame's height,
+    // tipped knuckles-up, turned in, the forearms running out to the bottom corners (the old fists sat on the
+    // bottom edge with the forearm under the frame: twisted knots with no wrist). Walking, the arms swing
+    // opposed with the stride (forward and a little up on one side as the other goes back); at rest only the
+    // breath. GTA2DX9_FP_FIST_OLD=1: the old fist, guard and bob (A/B).
+    static const bool fist2Model = ModelByName("fp_fist2_right") != nullptr;
+    static const bool fistOld = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_FIST_OLD", v, sizeof v) && v[0] == '1'; }();
+    const bool fist2 = fists && fist2Model && !fistOld;
+    const float swingR = fist2 ? 0.012f * strideSwing : 0.0f;   // the right fist forward by this, the left back
+    if (fist2) { bobSide *= 0.5f; }
+    const float ahead = (fist2 ? 0.14f + 0.05f * jabR + swingR : fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - rsAhead * rs - 0.02f * rack - 0.03f * drop;
+    const float side = (fist2 ? 0.066f - 0.02f * jabR : fists ? 0.060f - 0.02f * jabR : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
+                down = (fist2 ? 0.042f + breath - 0.012f * jabR - 0.25f * (std::max)(0.0f, swingR) : fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
     float pos[3];
     for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * (side + bobSide + swaySide) - up[c] * (down + bobDown);
     // The barrel on the crosshair: aimed at the point 5 blocks along the view
@@ -8376,6 +8388,22 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         const float roll = -(reloadOld ? 0.75f : 0.55f) * rs - 0.10f * kick + (fists && fistRolled ? 0.45f : 0.0f);
         const float ca = std::cos(roll), sa = std::sin(roll);
         for (int c = 0; c < 3; ++c) { const float r0 = wr[c], u0 = wu[c]; wr[c] = r0 * ca + u0 * sa; wu[c] = u0 * ca - r0 * sa; }
+    }
+    if (fist2) {
+        // FIX-FIGURE-14 (pfl67): a boxer's guard, palm down: the knuckles ahead and up (and in toward the
+        // middle), the back of the hand up toward the eye, so the eye sees the back of the hand and the knuckle
+        // row and the forearm runs back and out to the bottom corner (the vertical fist showed its thumb side).
+        // The holster dip tips the knuckles down out of the view.
+        float z[3], x[3];
+        const float za = 0.60f - 0.9f * drop, xr = 0.15f;
+        for (int c = 0; c < 3; ++c) { z[c] = (&f.x)[c] + up[c] * za - right[c] * 0.30f; x[c] = up[c] * std::cos(xr) + right[c] * std::sin(xr); }
+        const float zl = (std::max)(1e-4f, std::sqrt(z[0] * z[0] + z[1] * z[1] + z[2] * z[2]));
+        for (float& v : z) v /= zl;
+        const float xz = x[0] * z[0] + x[1] * z[1] + x[2] * z[2];
+        for (int c = 0; c < 3; ++c) x[c] -= z[c] * xz;
+        const float xl = (std::max)(1e-4f, std::sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]));
+        for (int c = 0; c < 3; ++c) { dir[c] = z[c]; wr[c] = x[c] / xl; }
+        wu[0] = dir[1] * wr[2] - dir[2] * wr[1]; wu[1] = dir[2] * wr[0] - dir[0] * wr[2]; wu[2] = dir[0] * wr[1] - dir[1] * wr[0];
     }
     if (reloadT >= 0.0f) {
         auto crossed = [&](float e) { return e >= 0.0f && rlPrevT < e && reloadT >= e; };
@@ -8435,7 +8463,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     const bool leftBusy = reloadOld && reloadT >= 0.0f && reloadT > ri.dropT && reloadT < ri.insertT + 0.1f;   // fetching the magazine (the old pose hid the hand)
     // FIX-FIGURE-7 (pf2feel): bare hands are the closed fist (fp_fist_right, thumb over the fingers),
     // not the pistol-grip hand with no gun (its trigger finger and thumb read as a pointing hand).
-    const Model* fistModel = fists ? ModelByName("fp_fist_right") : nullptr;
+    const Model* fistModel = fist2 ? ModelByName("fp_fist2_right") : fists ? ModelByName("fp_fist_right") : nullptr;
     const Model* armR = fistModel ? fistModel : ModelByName("fp_arm_right");
     const Model* armL = (leftName && !leftBusy) ? ModelByName(leftName) : nullptr;
     const Model* armDual = (weapon == kWpnDual || fists) ? armR : nullptr;
@@ -8561,7 +8589,9 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     }
     if (weapon == kWpnDual || fists) {
         gta2::Mat4 other = place;
-        for (int c = 0; c < 3; ++c) other.m[3][c] = pos[c] - right[c] * 2.0f * side + (fists ? (&f.x)[c] * 0.05f * jabL + right[c] * 0.02f * jabL + up[c] * 0.012f * jabL : 0.0f);
+        // FIX-FIGURE-14: the left fist's stride swing is the right's opposite (back as the right goes forward).
+        const float swingL = -2.0f * swingR, liftL = 0.25f * ((std::max)(0.0f, -swingR) - (std::max)(0.0f, swingR));
+        for (int c = 0; c < 3; ++c) other.m[3][c] = pos[c] - right[c] * 2.0f * side + (fists ? (&f.x)[c] * (0.05f * jabL + swingL) + right[c] * 0.02f * jabL + up[c] * (0.012f * jabL + liftL) : 0.0f);
         if (!fists) ModelDraw(device, *model, other, nullptr, 0.0f);
         if (armDual) {
             // The left gun's hand: the right's mirror, at the left gun.
@@ -8582,7 +8612,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     {
         static bool armsLogged = false;
-        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? (fistModel ? "fp_fist_right" : "fp_arm_right") : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
+        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? (fistModel ? (fist2 ? "fp_fist2_right" : "fp_fist_right") : "fp_arm_right") : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
     }
     if (haveVp) device->SetViewport(&vp);
     // FIX-REMIX-3: the hands' light off again (it was left on; under Remix an enabled D3D9 light

@@ -393,7 +393,7 @@ def molotov():
 # cups a fore grip from below (its palm under the origin, fingers up the right
 # side, thumb up the left), the forearm back and to the left; "fp_arm_left_cup"
 # wraps the right fist from the left for a two-handed pistol hold.
-def _forearm(skin, sleeve, hand_end, wrist, elbow, r):
+def _forearm(skin, sleeve, hand_end, wrist, elbow, r, seg=10):
     """Hand to wrist, the bare forearm, the elbow and the player's dark short sleeve over the upper arm.
     FIX-FP-ENTRY (pm10): `elbow` gives only the forearm's direction. The forearm is a real one, about
     3.3 fists from wrist to elbow (it ran 12 fists, a thin tube with the sleeve never in frame); it swells
@@ -403,19 +403,19 @@ def _forearm(skin, sleeve, hand_end, wrist, elbow, r):
     d = (e0 - a) / np.linalg.norm(e0 - a)
     fore = 0.040
     b = a + d * fore
-    tube_between(skin, hand_end, wrist, r * 1.05, r, 10)
+    tube_between(skin, hand_end, wrist, r * 1.05, r, seg)
     m = a + d * fore * 0.55                                    # the forearm's muscle
-    tube_between(skin, a, m, r, r * 1.45, 10)
-    tube_between(skin, m, b, r * 1.45, r * 1.25, 10)
-    blob(skin, tuple(b), (r * 1.3, r * 1.3, r * 1.3), segments=10, rings=6)   # the elbow
+    tube_between(skin, a, m, r, r * 1.45, seg)
+    tube_between(skin, m, b, r * 1.45, r * 1.25, seg)
+    blob(skin, tuple(b), (r * 1.3, r * 1.3, r * 1.3), segments=seg, rings=6)   # the elbow
     # the upper arm: bent at the elbow, out to the hand's side and down (the shoulder is under the eye)
     out = np.array([1.0 if wrist[0] >= 0 else -1.0, 0.0, 0.0], np.float32)
     u = d + out * 0.35 + np.array([0, -0.30, 0], np.float32)
     u /= np.linalg.norm(u)
     hem = b + u * 0.006
-    tube_between(skin, b, hem + u * 0.004, r * 1.3, r * 1.45, 10)
-    tube_between(sleeve, hem, hem + u * 0.004, r * 2.05, r * 2.15, 12)   # the hem
-    tube_between(sleeve, hem + u * 0.004, b + u * 0.200, r * 2.0, r * 2.3, 12)
+    tube_between(skin, b, hem + u * 0.004, r * 1.3, r * 1.45, seg)
+    tube_between(sleeve, hem, hem + u * 0.004, r * 2.05, r * 2.15, seg + 2)   # the hem
+    tube_between(sleeve, hem + u * 0.004, b + u * 0.200, r * 2.0, r * 2.3, seg + 2)
 
 
 def fp_arm(side):
@@ -475,8 +475,82 @@ def fp_fist():
                        ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth", hires=True)))]), 0.0
 
 
+def sblob(p, c, radii, e=0.6, disp=None, segments=24, rings=16):
+    """A rounded box (superellipsoid, exponent e: 1 = ellipsoid, toward 0 = box) centred at c with
+    semi-axes `radii`; `disp(point, outward)` returns an offset along the outward direction (grooves,
+    bumps). Normals from the displaced grid, so the shading follows the grooves."""
+    def sp(v):
+        return math.copysign(abs(v) ** e, v)
+    grid = []
+    for r in range(rings + 1):
+        th = math.pi * r / rings
+        row = []
+        for s_ in range(segments + 1):
+            ph = 2 * math.pi * s_ / segments
+            d = (math.sin(th) * math.cos(ph), math.cos(th), math.sin(th) * math.sin(ph))
+            q = np.array([radii[0] * sp(d[0]), radii[1] * sp(d[1]), radii[2] * sp(d[2])], np.float32)
+            out = np.array(d, np.float32)
+            if disp is not None:
+                q = q + out * disp(q, out)
+            row.append(q + np.array(c, np.float32))
+        grid.append(row)
+    base = len(p.v)
+    for r in range(rings + 1):
+        for s_ in range(segments + 1):
+            a_ = grid[max(r - 1, 0)][s_]; b_ = grid[min(r + 1, rings)][s_]
+            l_ = grid[r][(s_ - 1) % segments]; r_ = grid[r][(s_ + 1) % segments]
+            n = np.cross(r_ - l_, b_ - a_)
+            if np.linalg.norm(n) < 1e-12:
+                n = np.array([0, 1 if r == 0 else -1, 0], np.float32)
+            n = n / max(np.linalg.norm(n), 1e-12)
+            if np.dot(n, grid[r][s_] - np.array(c, np.float32)) < 0:
+                n = -n
+            p.v.append(grid[r][s_]); p.n.append(n); p.uv.append((s_ / segments, r / rings))
+    for r in range(rings):
+        for s_ in range(segments):
+            i0 = base + r * (segments + 1) + s_
+            i1 = i0 + segments + 1
+            p.f += [[i0, i0 + 1, i1], [i0 + 1, i1 + 1, i1]]
+
+
+def fp_fist2():
+    """FIX-FIGURE-14 (pfl67): the bare right fist rebuilt on the pistol hand (fp_arm "right"), so the bare
+    hands and the armed view model share one hand and one arm: the same back of the hand, wrist, forearm,
+    elbow and sleeve (`_forearm` with the pistol hand's points). A vertical fist (thumb on top, knuckles
+    ahead +z, back of the hand +x): the four curled fingers are ONE rounded block (the flat of the fist,
+    shallow grooves between the fingers on its front and palm side), the knuckle row a line of bumps on
+    its front-back edge, the thumb folded across the front of the index and middle fingers.
+    fp_fist (a tube per phalanx) read as a twisted rope knot at view-model size."""
+    skin = Part(); sleeve = Part()
+    sblob(skin, (0.0030, -0.0108, -0.0082), (0.0058, 0.0122, 0.0078), e=0.75)             # back of the hand + palm
+    seams = (-0.0060, -0.0120, -0.0176)                                                    # between the fingers
+
+    knuckles = (-0.0030, -0.0090, -0.0148, -0.0200)
+
+    def grooves(q, out):
+        y = q[1] - 0.0115                                                                  # model y
+        front = max(0.0, out[2]) + 0.6 * max(0.0, -out[0])                                # the front and the palm side
+        g = sum(math.exp(-((y - sy) / 0.0008) ** 2) for sy in seams)
+        edge = max(0.0, out[0]) * max(0.0, out[2]) * 2.0                                   # the knuckle row: back-front edge
+        kb = sum(math.exp(-((y - ky) / 0.0021) ** 2) for ky in knuckles)
+        return -0.00075 * g * front + 0.0011 * kb * edge - 0.0006 * g * edge
+    sblob(skin, (0.0004, -0.0115, 0.0002), (0.0070, 0.0122, 0.0055), e=0.55, disp=grooves, segments=32, rings=24)   # the curled fingers
+    # the thumb: the ball of the thumb on the palm side, its joint at the fist's top front corner (no
+    # higher than the index finger), the last phalanx lying flat across the index and middle fingers
+    sblob(skin, (-0.0042, -0.0055, -0.0080), (0.0038, 0.0068, 0.0062), e=0.9, segments=16, rings=10)
+    tj = (-0.0062, -0.0030, 0.0028)
+    tube_between(skin, (-0.0050, -0.0040, -0.0080), tj, 0.0034, 0.0031, 16)
+    blob(skin, tj, (0.0031, 0.0031, 0.0031), segments=14, rings=8)
+    tt = (0.0002, -0.0070, 0.0062)
+    tube_between(skin, tj, tt, 0.0030, 0.0026, 16)
+    blob(skin, tt, (0.0026, 0.0026, 0.0024), segments=14, rings=8)
+    _forearm(skin, sleeve, (0.0030, -0.0150, -0.0130), (0.0045, -0.0210, -0.0240), (0.0300, -0.0700, -0.1600), 0.0058, seg=20)
+    return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin", hires=True))),
+                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth", hires=True)))]), 0.0
+
+
 ARMS = {"fp_arm_right": lambda: fp_arm("right"), "fp_arm_left": lambda: fp_arm("left"),
-        "fp_arm_left_cup": lambda: fp_arm("cup"), "fp_fist_right": fp_fist}
+        "fp_arm_left_cup": lambda: fp_arm("cup"), "fp_fist_right": fp_fist, "fp_fist2_right": fp_fist2}
 
 BUILDERS = {
     "pistol": pistol, "dual_pistol": pistol, "machine_gun": machine_gun, "silenced_mg": silenced_mg,

@@ -1656,3 +1656,32 @@ Still short: while he lies, the contact shadow stays at the game's spot, up to a
 pass, not the knock-down code). The get-up is still the reversed `fall_front`.
 - The captures run 30 fps, but the game rendered about 20-25 fps on the loaded host (repeated frames in the
   recording).
+
+## FIX-FIGURE-14 (10 Nov 2026): first-person fists, the shotgun, the pistol's last round
+
+### pfl67: the first-person bare hands are fists on forearms, held up in a guard, swinging with the stride
+
+- Seen (pfl67b, the 10:39 restage smoke shot_140): the two fists were twisted rope-knot shapes on the
+  bottom edge, no wrist or forearm in the frame (the forearm ran back toward the eye under the frame's
+  edge), and in a walk both bobbed together.
+- Model: `fp_fist2_right` (tools/gen_weapons.py `fp_fist2`) is the pistol hand closed on nothing: the
+  same back of the hand and the same wrist, forearm, elbow and sleeve (`_forearm` with fp_arm "right"'s
+  points, 20 segments instead of 10), so the bare hands and the armed view model share one arm. The four
+  curled fingers are one rounded block (`sblob`, a superellipsoid with grooves between the fingers and
+  the knuckle row raised on its back-front edge; normals from the displaced grid), the thumb folded
+  across the index and middle fingers. The tube-per-phalanx `fp_fist` read as a knot at view-model size.
+  Code object in git (mesh + 2 tga, manifest entry); the left fist is its reflection as before.
+- Pose (live_geometry.cpp DrawViewModel, `fist2`): a boxer's guard, palm down: 0.14 ahead, 0.066 to the
+  side, 0.042 down (the fists at about two thirds of the frame's height, not on its bottom edge), the
+  knuckles ahead and up (+0.6 up, 0.3 in toward the middle), the back of the hand toward the eye, so the
+  forearms run out to the bottom corners. Walking, the arms swing opposed once a stride (the walk bob's
+  phase): one fist 0.012 forward and a little up as the other goes back; at rest only the breath.
+- Offline preview used to choose the shape and pose before any run: the FP placement maths in numpy
+  (render of the view-model meshes with the game's 70 degree lens), not in git.
+- Verified: fig14_f2 (wil 198.5,178.5, 30 fps burst: rest, straight walk, stop, three punches): both
+  fists with wrist and forearm to the frame edge in every frame; the walk frames 33-52 (10 fps) alternate
+  right-low/left-high and back (skin-mask centroids 478-529 px against 471-526 px, out of phase); punches
+  throw one fist forward. Classic unchanged by construction (first person only); vreg below.
+- Short of a shipping frame: the skin is one flat colour (no knuckle or nail detail in the texture); the
+  forearm still shows facets in its shading; the left fist and forearm pass under the minimap.
+- A/B: `GTA2DX9_FP_FIST_OLD=1` (the old fist, guard and bob).
