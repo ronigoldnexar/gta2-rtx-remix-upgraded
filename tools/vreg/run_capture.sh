@@ -15,6 +15,7 @@ for f in vreg_capture.py keys_vreg.sh; do cmp -s "$R/linux/docker/$f" "gamerun/$
 python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)" "out/$NAME"; mkdir -p "out/$NAME"
 cp "${VREG_SHOTS:-$HERE/shots.json}" "out/$NAME/vreg_shots.json"
 SED='s/^log_keys=.*/log_keys=1/; s/^scene_key=.*/scene_key=F11/; s/^nav_map=.*/nav_map=0/'
+# VREG_DOCKER_ENV: extra docker args (e.g. '-e GTA2DX9_X=1') for an A/B capture
 # VREG_INI_SED: more sed over the run's ini (positive controls: a deliberately broken render)
 [ -n "${VREG_INI_SED:-}" ] && SED="$SED; $VREG_INI_SED"
 # the lighting clock held at 12:30 with a clear sky: the same light every run (the saved settings
@@ -26,7 +27,7 @@ gamerun/runq.sh run -p "${PRIO:-5}" -n "$NAME" -- \
   --cpus="${CPUS:-2}" --cpuset-cpus="$CPUSET" --cpu-shares=512 -e FPS=0 -e SHOTS_EVERY=20 -e GTA2_SPEED=1 -e GTA2_DIRECT_KEYS=1 \
   -e SCREEN_W=1280 -e SCREEN_H=720 -e GTA2_INTRO=0 -e INI_SED="$SED" -e SETTINGS_SED="$SSED" -e SCENE_KEY=F11 \
   -e GTA2DX9_SCENE_NO_CAR=1 -e 'GTA2DX9_REGRESS_CAM=Z:\tmp\vreg_cam.txt' -e VREG_CAM=/tmp/vreg_cam.txt \
-  -e VREG_SHOTS=/out/vreg_shots.json -e VREG_SETTLE="${VREG_SETTLE:-2.0}" \
+  -e VREG_SHOTS=/out/vreg_shots.json -e VREG_SETTLE="${VREG_SETTLE:-2.0}" ${VREG_DOCKER_ENV:-} \
   $(ROOT=$ROOT STAGE=$ST gamerun/game_mounts.sh) \
   -v "$ROOT/gamerun:/work" -v "$ROOT/game:/game:ro" -v "$ROOT/upstream-release/files:/release:ro" -v "$ST:/stage:ro" \
   -v "$ROOT/remix-runtime/x86:/remix:ro" -v "$ROOT/out/$NAME:/out" \

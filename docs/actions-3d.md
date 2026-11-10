@@ -1126,6 +1126,18 @@ feel15 (first-person jack), feel11 (first-person exit), pfeel32 (arms under a ca
 
 A figure's contact patch (`LiveGeometry::DrawContactShadows`) has its own texture half: round, its darkest 0.6 of the pass's opacity, falling off as (1 - d^2)^2 with no rim, radius 0.11 block (was the cars' rounded square, solid to 0.55 of the radius, 0.21 block: a near-black disc twice a body wide). Measured at the plaza (fig7_k before, fig7_j after, same spot, pavement luminance across the feet): before 114 -> 19 over +-40 px, after 117 -> 69 over +-20 px. Cars' and props' patches unchanged (left texture half, same texels).
 
+FIX-FIGURE-13 (coord contact-shadow-gone, 10 Nov): pm20 overshot. Its (1 - d^2)^2 profile put the darkness in the
+middle, under the shoes; the ring that shows round them stayed under a fifth of the pass, so at the vreg
+`spawn_portrait_front` pose and at the chase distance the hero and the peds read as floating (bisected on the vreg
+history: the last run without 794c936 has the dark patch, FIX-FIGURE-7's own run with it already shows the bare feet;
+nothing later changed it; a debug build drawing the cars' texture half at 0.3 block put a dark patch under him, so the
+pass, its depth and its position were fine). Now: radius 0.16 block, flat core to 0.4 of the radius at 0.85 of the
+pass (60 % at the default 70), a smoothstep fall to nothing at the edge. Smaller and lighter than the pre-pm20
+near-black disc (the vreg golden is still that disc, so `spawn_portrait_front` stays FAIL until a reseed), the paving
+reads through it. `GTA2DX9_FIG_SHADOW_PM20=1` restores 794c936's patch for A/B. Cost unchanged (~0.06 ms a frame).
+`tools/vreg/run_capture.sh` takes `VREG_DOCKER_ENV` (extra docker args, e.g. `-e GTA2DX9_FIG_SHADOW_PM20=1`) and
+`VREG_SHOTS` (a reduced shot list) for quick A/B captures.
+
 ### Draw-only figure separation (FIX-FIGURE-7, pm24 / pm3)
 
 GTA2 walks its people through each other and over parked cars' footprints; the flat sprites never showed it, the bodies do.

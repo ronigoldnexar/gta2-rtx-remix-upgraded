@@ -8591,6 +8591,10 @@ void SetContactShadows(int percent) { g_contactShadows = (std::max)(0, (std::min
 int g_tyreShadows = 1;   // [renderer] tyre_shadows=0: no per-tyre contact patch (VEHICLE-ART-5)
 void SetTyreShadows(int on) { g_tyreShadows = on ? 1 : 0; }
 namespace {
+bool FigureShadowPm20() {
+    static const bool on = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_FIG_SHADOW_PM20", b, sizeof b) && b[0] == '1'; }();
+    return on;
+}
 IDirect3DTexture9* g_contactTexture = nullptr;
 IDirect3DDevice9* g_contactDevice = nullptr;
 IDirect3DTexture9* ContactTexture(IDirect3DDevice9* device) {
@@ -8613,7 +8617,19 @@ IDirect3DTexture9* ContactTexture(IDirect3DDevice9* device) {
             // pavement reads through it and it fades out with no rim.
             const float u = (x + 0.5f) / kSize * 2.0f - 1.0f, v = (y + 0.5f) / kSize * 2.0f - 1.0f;
             const float d2 = u * u + v * v;
-            const float a = d2 >= 1.0f ? 0.0f : 0.6f * (1.0f - d2) * (1.0f - d2);
+            float a = 0.0f;
+            if (FigureShadowPm20()) {
+                a = d2 >= 1.0f ? 0.0f : 0.6f * (1.0f - d2) * (1.0f - d2);
+            } else {
+                // FIX-FIGURE-13 (coord contact shadow gone): pm20's (1 - d^2)^2 put its darkness in the
+                // middle, which is under his shoes; the ring that shows round them was under a fifth of
+                // the pass (vreg_fig7_b vs vreg_fig7_a: the figures float). A flat core to 0.4 of the
+                // radius at 0.85 of the pass (60 % at the default 70) and a smooth fall to nothing at the
+                // edge: the darkness sits where the eye sees it, the paving still reads through it.
+                const float d = std::sqrt(d2);
+                float t = 1.0f - (std::max)(0.0f, (std::min)(1.0f, (d - 0.4f) / 0.6f));
+                a = 0.85f * t * t * (3.0f - 2.0f * t);
+            }
             row[kSize + x] = (static_cast<uint32_t>(a * 255.0f + 0.5f) << 24);
         }
         for (int x = 0; x < kSize; ++x) {
@@ -8710,7 +8726,9 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
         const gta2::Mat4& m = sprite.objectToWorld;
         if (!nearEye(m.m[3][0], m.m[3][2])) continue;
         // pm20: about a body's width (an adult is ~0.12 block across the shoulders, 0.46 tall); was 0.21.
-        constexpr float r = 0.11f;
+        // FIX-FIGURE-13: 0.16 with the flat-cored patch (the soft edge takes the outer 60 %; still well
+        // under the pre-pm20 near-black disc); GTA2DX9_FIG_SHADOW_PM20=1 restores 794c936's patch (A/B).
+        const float r = FigureShadowPm20() ? 0.11f : 0.16f;
         // FIX-FIGURE-5 feel18: under the figure as drawn (it trails the game's position by up to
         // 0.1 block while he runs, so the patch at the game's point read as a gap under his feet).
         float sx = m.m[3][0], sz = m.m[3][2];
