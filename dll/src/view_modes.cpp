@@ -167,6 +167,13 @@ float g_nearPedDist = 1e9f;
 // turns to the car and his sprite goes, but a vehicle's driver word still
 // names him, which is how he is followed at the wheel.
 uintptr_t g_lastPlayerPed = 0;
+// FIX-CAMERA-13 (pmv10): the id word (+0x200) that ped held when the slots last named him. The game
+// recycles a ped's struct for a new pedestrian after an arrest or a death; the driver word of a car then
+// names the struct again (run pmv10a_bil: BUSTED, and 0.4 s later the struct was a medic driving an
+// ambulance off, followed as "the player at the wheel" for 33 s: first person with no cab, the real hero
+// at the station unseen). The new pedestrian gets a new id.
+uint32_t g_lastPlayerPedId = 0;
+constexpr uintptr_t kPedIdWord = 0x200;
 
 // The vehicle whose driver word is `ped`, or 0.
 uintptr_t VehicleDrivenBy(uintptr_t ped) {
@@ -1242,9 +1249,23 @@ bool LocatePlayer(PlayerState* out) {
     // it, so neither is read then.
     bool atTheWheel = false;
     if (!ped && g_lastPlayerPed && VehicleDrivenBy(g_lastPlayerPed)) {
-        ped = g_lastPlayerPed;
-        atTheWheel = true;
-        out->source = "driver of a car";
+        static int idCheck = -1;
+        if (idCheck < 0) { char b[8] = {}; idCheck = GetEnvironmentVariableA("GTA2DX9_PLAYER_ID_CHECK", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        uint32_t id = 0;
+        if (idCheck && g_lastPlayerPedId && ReadAt(g_lastPlayerPed + kPedIdWord, &id) && id != g_lastPlayerPedId) {
+            static int logged = 0;
+            int32_t occupation = -1;
+            ReadAt(g_lastPlayerPed + 0x240, &occupation);
+            if (logged++ < 20)
+                Log("view: the player's last ped struct now holds ped %u (occupation %d), not him (%u): not followed at the wheel",
+                    id, occupation, g_lastPlayerPedId);
+            g_lastPlayerPed = 0;
+            g_lastPlayerPedId = 0;
+        } else {
+            ped = g_lastPlayerPed;
+            atTheWheel = true;
+            out->source = "driver of a car";
+        }
     }
     if (!ped && --g_scanCooldown <= 0) {
         g_scanCooldown = kScanEveryFrames;
@@ -1276,7 +1297,13 @@ bool LocatePlayer(PlayerState* out) {
         }
     }
     if (!ped) return false;
-    if (!atTheWheel && PedSignature(ped)) g_lastPlayerPed = ped;
+    if (!atTheWheel && PedSignature(ped)) {
+        g_lastPlayerPed = ped;
+        const uint32_t was = g_lastPlayerPedId;
+        if (!ReadAt(ped + kPedIdWord, &g_lastPlayerPedId)) g_lastPlayerPedId = 0;
+        static int idLogs = 0;
+        if (g_lastPlayerPedId != was && idLogs++ < 40) Log("view: player ped id %u (was %u)", g_lastPlayerPedId, was);
+    }
 
     const uint8_t* pedBytes = reinterpret_cast<const uint8_t*>(ped);
     uintptr_t physics = 0;

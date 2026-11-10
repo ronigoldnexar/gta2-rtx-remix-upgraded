@@ -992,3 +992,22 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
   before he gets in, out and in again so the boarding seats him; per model: still, a held left, a held right, a full
   lock, a mouse look down; `DASHCAM=1` adds cockpit -> dashcam -> V cycle -> out/in -> cockpit). Run with
   `GTA2_DIRECT_KEYS=1`, `GTA2DX9_SCENE_NO_CAR=1`, `GTA2DX9_STATE_EVERY=3`.
+
+## The player is not a recycled ped; round a car that hides him; the car kept in frame at the wheel (FIX-CAMERA-13, 10 Nov 2026)
+
+- **pmv10, first person "at the wheel" with no cab for 33 s after a BUSTED (view_modes.cpp `LocatePlayer`).** After
+  the arrest the game frees the hero's ped and soon hands the same struct to a new pedestrian. In run pmv10a_bil the
+  new one (ped 269, occupation 23, a medic) was driving an ambulance away 0.4 s later, and the locator's
+  "driver of a car" fallback (the last player ped named by a car's driver word) took it for the hero at the wheel.
+  The views followed a stranger's ambulance for 33 s. First person drew no cab because the hero's car was not the
+  one being followed, and the scan that finds the real hero at the station never ran, because the fallback
+  already had a ped. Now the fallback also checks the ped's id word (+0x200, the id the `view: peds` lines print)
+  against the one the slots last saw on him (the hero's is 1 in every run measured). A struct holding another id is
+  dropped (`view: the player's last ped struct now holds ped N (occupation O), not him`) and the scan finds him
+  again. `view: player ped id N (was M)` logs each change of the remembered id. `GTA2DX9_PLAYER_ID_CHECK=0` turns
+  the check off (A/B).
+  - Seen once in all run logs on disk (pmv10a_bil). Three tries at a real arrest (cam13_bust1: F10 car,
+    cam13_bust2: force_wanted=3 at the wheel, cam13_bust3: force_wanted=2 on foot; 60-90 s each) got none, so the
+    recycled-struct case is argued from the filer's log, not filmed. Regression: the filer's keys_pmv10.sh drive on
+    this build (cam13_pmv10): ped id 1 throughout, no rejection line, and the cab (dash, wheel, hands) is drawn in
+    every first-person frame.
