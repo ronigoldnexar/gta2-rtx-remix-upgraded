@@ -226,7 +226,7 @@ visual check depends on it. DLSS 4 present metering (`NV_present_metering extens
 
 ## 5. Re-runs under the parity rig (REMIX-PARITY-2, 10 Nov 2026, 21:20-22:35 UTC)
 
-Ten Remix/GL sessions on GPU 6 (L4), one at a time, HEAD ac5813dd DLLs (carrying FIX-FX-6's `remix_puff_mode=4` soft puffs) in a private stage
+Ten Remix/GL sessions on GPU 6 (L4) (the first, `out/rp2_b1`, was void: camera file not wired), one at a time, HEAD ac5813dd DLLs (carrying FIX-FX-6's `remix_puff_mode=4` soft puffs) in a private stage
 `cp -al` of the shared stage (dd489cab), rig `-e RTX_EXTRA=/work/rtx_parity_max.conf.extra`, 0 FAULT in all of them. Probes:
 `gamerun/rp2_tod.py` (B4/B5 fixed cameras, same spot as section 2), `gamerun/keys_rp2_cam17r.sh` (B8 on Remix), the existing
 `keys_fx6_rfire.sh` / `keys_cam17.sh` / `playtest_remix.sh`. Frames I opened are in `defects/evidence/rp2_*.png` (sheets). No DLL, `package/` or rtx conf change:
@@ -239,7 +239,7 @@ the classic top-down view is untouched by construction.
 | B5 night exposure / sky fill | **NO: opposite direction** | `out/rp2_b4` + `out/rp2_b5` (21:30 and 02:00, fixed camera, live `remix_config` pushes, three-state A/B): 2.5 / 1.0 mean luma 32.0 and 31.8, **1.2 / 0.3 gives 21.4 and 21.1 (about a third darker)**, back to 2.5 / 1.0: 31.0 and 31.7 (`rp2_b5_night_exposure_AB_2.5-1.0_vs_1.2-0.3.png`). Split at 21:30 (`rp2_b5_split_cap_vs_fill_21h30.png`): exposure cap alone 1.2 = 21.4; sky fill alone 0.3 = 31.8 (no change); both 21.4. So under ReSTIR GI the cap is the whole effect and it darkens. The operator's "1.2/0.3 BRIGHTER" is not reproduced here; what is left for the 5090 is whether NRC's indirect (which this rig cannot run) makes the cap lift instead |
 | B8 camera jitter, phone box / bus | **YES, plain GL and Remix, no Remix effect** | cam17_probe on the wil booth and kerb pockets: `out/rp2_b8_plain` 2 boom cuts of 105 and 108 degrees in one frame, `out/rp2_b8_remix` 3 cuts (75, 133, 172 degrees), every other frame at most 8 degrees. The cuts are the open residual of `cam18-third-pocket-residual-cut-...` (note filed beside it); the clearance probe's constant `0.600` now means "no map face within 0.6" |
 
-**Group B daylight filings (order task B).** 11 filings judged before 19:59 on the Medium play rig were re-taken at their poses on the rig at 12:00 (wil `out/rp2_bw`
+**Group B daylight filings (order task B).** 10 filings judged before 19:59 on the Medium play rig were re-taken at their poses on the rig at 12:00 (wil `out/rp2_bw`
 5 points, ste `out/rp2_bs`, bil `out/rp2_bb`; sheets `rp2_bw_wil_noon_rig_point0-4.png`, `rp2_bs_ste_noon_rig_point0-2.png`, `rp2_bb_bil_hedge_noon_rig.png`; the runner's own headings, not
 the filers' exact cameras). **None came back at Ultra/Custom**: road lids (ptrmx26), lamp poles (ptrmx28), red car paint (prx4, day), stone facade glass (ptrmx30), gantry heads (ptrmx22, day), atom sign (prx2, noon),
 ste sidewalk (ptrmx17), hedge tops (hedge-top-black-holes), fists skin (ptrmx27) and the bubble column (prem1) all stand fixed or absent, and every frame has the 12:00 sun shadows the Medium
