@@ -1238,6 +1238,18 @@ went to the frame's bottom edge (A-Type 042) or down over the gauges.
   `GTA2DX9_CAM_TREES=0` turns both off (A/B). First person and the cars are untouched (the player's body is already
   kept out of the trunk by prop_collision). Probe: gamerun/keys_qa_cam16.sh + cam16_spots.py (CAM16_SPOTS="x,y;...":
   warp, wait for the game camera's bounds to hold him, classic, third person through 8 headings, three short walks).
+- pfl28 1w4 residual (a car pinned along a wall: the hard cut to the side-on view parked the lens 0.25 from the
+  building's corner, a dark, magnified near-plane slab down the left of the frame for ~3 s; DEFECT-TRIAGE tri37_pk):
+  the car berth (FIX-CAMERA-9's `cam: car berth`) keeps the chase lens 0.4 off every drawn wall, was 0.25.
+  `GTA2DX9_CAM_CAR_BERTH_R` (blocks, 0.25 = before). keys_cam15_pocket.sh, measured by the clearance line and
+  gamerun/cam14_box.py: before (cam16_pk0) nearest surface 0.252, past-edge/over-half/bottom/lens 2/0/42/1, the
+  corner a dark band down the left 10-15 % of the side-on frames; after (cam16_pk1, cam16_pk2) nearest 0.389 / 0.396,
+  0/0/20/0 and 0/0/0/0, the pinned side-on frames with the wall at a normal distance. In a tight pocket the wider
+  berth cost the lens room from the car (cam16_pk3 pin: the eye held 0.9 from its centre, 3 past-edge / 9 over-half
+  frames as the crane began), so the 0.4 berth is taken only where it keeps the lens as far from the car as 0.25 would,
+  or beyond the pocket's reach (half the car's length + 0.75): cam16_pk4 0/0/0/0 with the crane engaged. The pocket
+  each run reaches varies. At the wheel the tree fade's line runs to the car (cam16_pk1: the game drove the car through a park
+  tree's trunk, which cut it in two).
 - qav18 (bil south edge under the truss deck, and the alley at 240.5,4.5: "hero not drawn in any of 8 headings") and
   the hidden hero in qav5's own recipe were the warp artefact of FIX-CAMERA-15's qaexp5: the filers' third-person
   frames were all taken before the game's camera had scrolled to him (bounds reached him 13-45 s after the warp),

@@ -3832,7 +3832,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
     }
     const gta2::Vec3 shownPivot{px + rescueX_ + pivotSideX_, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f) + rescueY_, pz + rescueZ_ + pivotSideZ_};
-    if (mode == ViewMode::ThirdPerson && !inVehicle) g_chaseHero = {px, baseY, pz, (std::min)(0.6f, (std::max)(0.4f, bodyHeight_)), Now()};
+    // FIX-CAMERA-16: at the wheel the line's target is the car (a tree the game drives it through: run cam16_pk1 off).
+    if (mode == ViewMode::ThirdPerson) g_chaseHero = {px, baseY, pz, inVehicle ? 0.5f : (std::min)(0.6f, (std::max)(0.4f, bodyHeight_)), Now()};
     // FIX-CAMERA-3 (feel17-armed-third-camera-inside-hero-screen-filled-with-blurred-cloth): on foot
     // the boom is solved against the drawn mesh as well as the map's cells. The cells do not see the
     // iron staircase by the phone box at wil 159.5,139.5 (nor any diagonal or partial face): the
@@ -4943,19 +4944,38 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             static int carBerthOn = -1;
             if (carBerthOn < 0) { char b[8] = {}; carBerthOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_BERTH", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
             if (carMesh && sideOn && carBerthOn && mode == ViewMode::ThirdPerson) {
-                constexpr float kCarSide = 0.25f;
+                // FIX-CAMERA-16 (pfl28 1w4 residual): 0.25 left the lens 0.25 from a building's corner beside a car
+                // pinned along a wall, a magnified dark slab down the frame's side for ~3 s (tri37_pk, cam16_pk0).
+                // GTA2DX9_CAM_CAR_BERTH_R (blocks; default 0.4, 0.25 = before).
+                static float kCarSide = -1.0f;
+                if (kCarSide < 0.0f) { char b[16] = {}; kCarSide = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_BERTH_R", b, sizeof b) ? static_cast<float>(atof(b)) : 0.4f;
+                                       if (!(kCarSide > 0.05f && kCarSide < 1.0f)) kCarSide = 0.4f; }
                 const gta2::Vec3 e0{eyeX_, eyeY_, eyeZ_};
-                gta2::Vec3 e = e0;
                 float t = 1.0f;
                 // A lens already past a face on its way from the car (the turned eye on the pillar): back along the
-                // line to kCarSide short of it first.
+                // line to the berth short of it first.
                 const gta2::Vec3 span = e0 - shownPivot;
                 const float spanLen = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
-                if (spanLen > 1e-3f && eyecol::SegmentHitSolid(shownPivot, e0, &t)) {
-                    const float k = (std::max)(0.0f, t - kCarSide / spanLen);
-                    e = {shownPivot.x + span.x * k, shownPivot.y + span.y * k, shownPivot.z + span.z * k};
+                auto berthed = [&](float side) {
+                    gta2::Vec3 b = e0;
+                    float th = 1.0f;
+                    if (spanLen > 1e-3f && eyecol::SegmentHitSolid(shownPivot, e0, &th)) {
+                        const float k = (std::max)(0.0f, th - side / spanLen);
+                        b = {shownPivot.x + span.x * k, shownPivot.y + span.y * k, shownPivot.z + span.z * k};
+                    }
+                    eyecol::Push(&b, side);
+                    return b;
+                };
+                gta2::Vec3 e = berthed(kCarSide);
+                // FIX-CAMERA-16 (cam16_pk3 pin): in a tight pocket the wider berth costs the lens room from the car (the
+                // eye held 0.9 from its centre, the car past the frame's bottom edge): the wider berth only where it
+                // keeps the lens as far from the car as 0.25 would, or past the pocket's reach (half its length + 0.45).
+                if (kCarSide > 0.25f) {
+                    const gta2::Vec3 narrow = berthed(0.25f);
+                    const float reachNeed = (exitCar_ == player.vehicle && exitCarHalfLength_ > 0.1f ? exitCarHalfLength_ : 0.45f) + 0.45f;
+                    const float dWide = std::hypot(e.x - shownPivot.x, e.z - shownPivot.z), dNarrow = std::hypot(narrow.x - shownPivot.x, narrow.z - shownPivot.z);
+                    if (dWide < dNarrow - 0.02f && dWide < reachNeed + 0.3f) e = narrow;
                 }
-                eyecol::Push(&e, kCarSide);
                 const float moved = std::sqrt((e.x - e0.x) * (e.x - e0.x) + (e.y - e0.y) * (e.y - e0.y) + (e.z - e0.z) * (e.z - e0.z));
                 t = 1.0f;
                 if (moved > 1e-4f && !eyecol::SegmentHitSolid(shownPivot, e, &t)) {
