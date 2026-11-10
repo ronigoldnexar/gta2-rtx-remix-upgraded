@@ -3242,6 +3242,7 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
 // off the bar is dark. Drawn day and night, whatever car_lamps says.
 // `[devtools] force_sirens=1` lights them on every siren model for checks.
 int g_forceSirens = 0;
+int g_carWorldSunDev = -1;   // FIX-FX-3: [devtools] car_world_sun (-1: GTA2DX9_CAR_WORLD_SUN, default on)
 int g_beaconLogged = 0;
 void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length, float width,
                  float roof, uint32_t frame, int modelNumber) {
@@ -3470,7 +3471,36 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     sun.Type = D3DLIGHT_DIRECTIONAL;
     sun.Diffuse = {0.78f, 0.78f, 0.78f, 1.0f};   // neutral: the paint tint must not pick up a cast
     sun.Specular = {0.55f, 0.55f, 0.55f, 1.0f};
-    const float dx = 0.38f, dy = -0.78f, dz = 0.50f;
+    float dx = 0.38f, dy = -0.78f, dz = 0.50f;
+    // FIX-FX-3 (feel29): from the world's sun when the sky draws one (plain renderer). The fixed
+    // sun above came from another side than the [sky] sun the shadow mask (post_fx.cpp) darkens
+    // by: a face lit by it but turned from the world's sun was never shadowed, and a few degrees
+    // of steering flipped that test, so a van along a wall in the wall's shadow went from dark
+    // to pale in two frames. Same direction as the shadow maps (never flatter than 10 degrees);
+    // the levels (and so the paint's look) are unchanged. GTA2DX9_CAR_WORLD_SUN=0: the old sun.
+    {
+        static int s_worldSun = -1;
+        if (s_worldSun < 0) {
+            char v[8] = {};
+            s_worldSun = (GetEnvironmentVariableA("GTA2DX9_CAR_WORLD_SUN", v, sizeof v) && v[0] == '0') ? 0 : 1;
+            Log("car bodies: sun %s", s_worldSun ? "from the world's sun (GTA2DX9_CAR_WORLD_SUN)" : "fixed (GTA2DX9_CAR_WORLD_SUN=0)");
+        }
+        const gta2::SkySettings& sky = gta2::SkyConfig();
+        // [devtools] car_world_sun=0|1 (re-read with the other devtools keys) for same-session A/B frames.
+        const int worldSun = g_carWorldSunDev >= 0 ? g_carWorldSunDev : s_worldSun;
+        if (worldSun && sky.enabled && !RemixApiAvailable()) {
+            float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
+            if (sky.followClock) TimeOfDayAngles(&elevation, &azimuth);
+            gta2::Vec3 s = gta2::ComputeSkyColours(elevation, azimuth).sunDir;   // toward the sun
+            const float minY = std::sin(10.0f * 3.14159265f / 180.0f);
+            if (s.y < minY) {
+                const float h = (std::max)(1e-6f, std::sqrt(s.x * s.x + s.z * s.z));
+                const float c = std::sqrt(1.0f - minY * minY);
+                s = gta2::Vec3{s.x / h * c, minY, s.z / h * c};
+            }
+            dx = -s.x; dy = -s.y; dz = -s.z;
+        }
+    }
     const float dl = std::sqrt(dx * dx + dy * dy + dz * dz);
     sun.Direction = {dx / dl, dy / dl, dz / dl};
     device->SetLight(0, &sun);
@@ -3548,6 +3578,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (glassKey >= 0) CarGlassSetEnabled(glassKey);
         }
         g_forceSirens = GetPrivateProfileIntA("devtools", "force_sirens", 0, g_devIni);
+        g_carWorldSunDev = GetPrivateProfileIntA("devtools", "car_world_sun", -1, g_devIni);
         // [devtools] vehicle_feel=0|1 (VEHICLE-FEEL): the feel off or on while the game
         // runs, for before/after frames of one scene; absent leaves it as it is.
         const int feelKey = GetPrivateProfileIntA("devtools", "vehicle_feel", -1, g_devIni);

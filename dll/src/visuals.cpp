@@ -144,6 +144,21 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         l.day = 0.65f;
         out->push_back(l);
     }
+    {   // GTA2DX9_BLAST_PROBE=1 (FIX-FX-3): the fire lights round the eye while a blast is young.
+        static const bool probe = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_BLAST_PROBE", b, sizeof b) && b[0] == '1'; }();
+        float eye[3];
+        if (probe && !blazes.empty() && ExplosionFxEye(eye) && ExplosionFxBlastShare(eye[0], eye[2], 12.0f) > 0.25f) {
+            float sum = 0.0f, nearest = 99.0f;
+            for (const gta2::VisualLight& l : *out) {
+                const float dx = l.pos[0] - eye[0], dy = l.pos[1] - eye[1], dz = l.pos[2] - eye[2];
+                const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                nearest = nearest < d ? nearest : d;
+                if (d < l.radius + 4.0f) sum += l.intensity * l.day;
+            }
+            Log("blast probe: fire lights %d (from %d flames), day-weighted sum within reach of the eye %.2f, nearest %.2f blocks",
+                static_cast<int>(out->size()), static_cast<int>(LightsTracked().size()), sum, nearest);
+        }
+    }
     for (const RemixTrackedLight& t : LightsTracked()) {
         const RemixLightDesc& d = t.def;
         if (d.source == kLightSourceFire) continue;

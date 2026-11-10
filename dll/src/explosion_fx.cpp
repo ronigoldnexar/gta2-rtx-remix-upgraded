@@ -378,11 +378,12 @@ void ExplosionFxLoad(const char* iniPath) {
         g_set.smokeSeconds = static_cast<float>((std::max)(0, (std::min)(120, num("smoke_seconds", 10))));
         g_set.spriteBright = (std::max)(0, (std::min)(100, num("sprite_percent", 35))) / 100.0f;
         g_set.carLight = num("car_light", 1) != 0;
+        g_set.eyeBudget = (std::max)(5, (std::min)(1000, num("eye_budget_percent", 50))) / 100.0f;
     }
     char buf[8] = {};
     if (GetEnvironmentVariableA("GTA2DX9_EXPLOSION_FX", buf, sizeof buf) && buf[0] == '0') g_set.enabled = false;
-    Log("explosions: %s, size %.2f, flash %.2f, smoke %.0f s, game sprite %.2f, car light %d",
-        g_set.enabled ? "on" : "off", g_set.size, g_set.flash, g_set.smokeSeconds, g_set.spriteBright, g_set.carLight ? 1 : 0);
+    Log("explosions: %s, size %.2f, flash %.2f, smoke %.0f s, game sprite %.2f, car light %d, eye budget %.2f",
+        g_set.enabled ? "on" : "off", g_set.size, g_set.flash, g_set.smokeSeconds, g_set.spriteBright, g_set.carLight ? 1 : 0, g_set.eyeBudget);
 }
 
 void ExplosionFxNote(float x, float groundY, float z, float size) {
@@ -443,6 +444,19 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
     const float ux = -rz * f.y, uy = rz * f.x - rx * f.z, uz = rx * f.y;
 
     Batch ground, ring, smoke, fire, glow;
+    // GTA2DX9_BLAST_PROBE=1 (FIX-FX-3, fire-fx): per frame while a blast is young, how much additive
+    // light each part throws over the view, as full-frame equivalents: level x min(1, (size / eye
+    // distance)^2) summed per batch. Names which part washes a death-camera frame.
+    static const bool probe = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_BLAST_PROBE", b, sizeof b) && b[0] == '1'; }();
+    float pGlow = 0.0f, pGround = 0.0f, pRing = 0.0f, pFire = 0.0f, pSmoke = 0.0f, pEyeD = -1.0f, pK = 1.0f, pAge = 99.0f;
+    float addSpark = 0.0f;
+    int pFireN = 0;
+    auto cover = [&](const float* c, float size) {
+        if (!g_eyeSet) return 0.0f;
+        const float dx = c[0] - g_eye[0], dy = c[1] - g_eye[1], dz = c[2] - g_eye[2];
+        const float d2 = (std::max)(0.01f, dx * dx + dy * dy + dz * dz);
+        return (std::min)(1.0f, size * size / d2);
+    };
     // Ground light and shock ring.
     for (const Blast& b : g_blasts) {
         const float age = static_cast<float>(now - b.born);
@@ -463,6 +477,7 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
             const float s = 3.6f * b.k;
             const float a[3] = {s, 0.0f, 0.0f}, bb[3] = {0.0f, 0.0f, s};
             ground.Quad(c, a, bb, Colour(light, light * 0.55f, light * 0.22f, 1.0f), 0, 1);
+            pGround += light * cover(c, s);
         }
         if (age < 0.55f) {
             const float u = age / 0.55f;
@@ -471,6 +486,7 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
             const float c[3] = {b.x, b.y + 0.04f, b.z};
             const float a[3] = {radius, 0.0f, 0.0f}, bb[3] = {0.0f, 0.0f, radius};
             ring.Quad(c, a, bb, Colour(level, level * 0.85f, level * 0.65f, 1.0f), 0, 1);
+            pRing += level * cover(c, radius);
         }
         // The flash: a glow over the blast.
         const float flash = g_set.flash * (0.8f * std::exp(-age / 0.10f) + 0.18f * Clamp01(1.0f - age / 1.4f));
@@ -479,6 +495,14 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
             const float s = 2.2f * b.k * (0.7f + 0.3f * Clamp01(age / 0.15f));
             const float a[3] = {rx * s, 0.0f, rz * s}, bb[3] = {ux * s, uy * s, uz * s};
             glow.Quad(c, a, bb, Colour(flash * flashK, flash * flashK * 0.78f, flash * flashK * 0.5f, 1.0f), 0, 1);
+            pGlow += flash * flashK * cover(c, s);
+        }
+        if (probe && age < pAge) {
+            pAge = age; pK = flashK;
+            if (g_eyeSet) {
+                const float dx = b.x - g_eye[0], dy = b.y - g_eye[1], dz = b.z - g_eye[2];
+                pEyeD = std::sqrt(dx * dx + dy * dy + dz * dz);
+            }
         }
     }
 
@@ -521,6 +545,7 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         const float warm = p.glow * Clamp01(1.0f - p.age / 1.2f);
         const float r = p.r + warm * 0.55f, g = p.g + warm * 0.22f, b = p.b + warm * 0.06f;
         billboard(smoke, p, size, Colour(r, g, b, alpha), true);
+        if (probe) { const float c[3] = {p.x, p.y, p.z}; pSmoke += alpha * cover(c, size); }
     }
     for (const Particle& p : g_parts) {
         const float t = p.age / p.life;
@@ -546,6 +571,7 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
             }
             if (level < 0.01f) continue;
             billboard(fire, p, size, Colour(r * level, g * level, b * level, 1.0f), true);
+            { const float c[3] = {p.x, p.y, p.z}; pFire += level * cover(c, size); ++pFireN; }
         } else if (p.kind == kSpark || p.kind == kBit) {
             const float level = p.kind == kBit ? (1.0f - t * t) : (1.0f - t);
             if (level < 0.01f) continue;
@@ -561,9 +587,40 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
                 a[0] = a[0] / al * size; a[1] = a[1] / al * size; a[2] = a[2] / al * size;
             }
             const float c[3] = {p.x, p.y, p.z};
-            glow.Quad(c, a, b, Colour(p.r * level, p.g * level, p.b * level, 1.0f), 0, 1);
+            // FIX-FX-3 (fire-fx): a streak passing the eye (first person at the wheel, the death
+            // camera beside the car) drew as a yellow-white bar across the whole frame.
+            const float streak = std::sqrt(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
+            const float sl = level * nearFade(p, (std::max)(size, streak));
+            if (sl < 0.01f) continue;
+            glow.Quad(c, a, b, Colour(p.r * sl, p.g * sl, p.b * sl, 1.0f), 0, 1);
+            addSpark += sl * cover(c, std::sqrt(size * streak));
         }
     }
+
+    // FIX-FX-3 (fire-fx): a budget for the additive light round the eye. Each part above is held
+    // down near the eye on its own, but where the eye ends up beside a blast (first person at the
+    // wheel, the death camera a block or two off) the fireball's billows, the spark streaks, the
+    // flash and the ground light still summed to a white-yellow sheet over 50-65 % of the frame
+    // (fire-fx 7-run table, 0.52-0.65). Their full-frame equivalents (level x the share of the view
+    // a quad can cover) are summed, and over the budget all of them are scaled down together, so
+    // the blast keeps its shape and colour and the street stays visible round it. A camera 1.3-2.7
+    // blocks off (a close chase camera, the death camera) is dimmed to about half (x0.45-0.5).
+    const float addTotal = pGlow + pGround + pRing + pFire + addSpark;
+    const float kAddBudget = g_set.eyeBudget;
+    const float addScale = addTotal > kAddBudget ? kAddBudget / addTotal : 1.0f;
+    if (addScale < 0.999f) {
+        auto scale = [&](Batch& batch) {
+            for (PV& v : batch.v) {
+                const DWORD c = v.c;
+                auto ch = [&](int sh) { return static_cast<DWORD>(static_cast<float>((c >> sh) & 0xFFu) * addScale + 0.5f) << sh; };
+                v.c = (c & 0xFF000000u) | ch(16) | ch(8) | ch(0);
+            }
+        };
+        scale(ground); scale(ring); scale(fire); scale(glow);
+    }
+    if (probe && pAge < 1.5f)
+        Log("blast probe: age %.2f eye %.2f blocks (flashK %.2f) | glow %.2f ground %.2f ring %.2f fire %.2f (%d) sparks %.2f smoke %.2f | additive %.2f x %.2f",
+            pAge, pEyeD, pK, pGlow, pGround, pRing, pFire, pFireN, addSpark, pSmoke, addTotal, addScale);
 
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;

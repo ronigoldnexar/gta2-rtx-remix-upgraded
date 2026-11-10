@@ -237,3 +237,38 @@ car (`gamerun/va6_own.py`, a copy of va5_own.py that takes `VA6_SETS="label:key=
 027, 019 and 063 at 0, +25 and -25 degrees. At 0 degrees nothing is out of place (the 027's spun shard is gone).
 At +-25 degrees the front tyre and hub turn and the rear ones stay put.
 Limit: on the 027 van a dark arch piece caught in the ring swings out a little with the tyre at full lock.
+## FIX-FX-3 (10 Nov 2026): car bodies lit by the world's sun (feel29 van brightness pop)
+
+The driven van's body jumped about 75 % brighter in two frames beside a wall, with the road unchanged
+(PLAYTEST-FEEL 29). There is no per-vehicle light sample to smooth. The jump is a mismatch between two lights:
+- `car_bodies.cpp` lit every 3D body with a fixed sun of its own (direction 0.38, -0.78, 0.50, about 51
+  degrees up, at a different azimuth from the `[sky]` sun).
+- The shadow mask (`ps_shadowmask`, docs/visuals-plain.md) takes the *world* sun's share away where the map
+  says the sun is hidden. A face turned from the world's sun is "already at ambient" and is not darkened
+  (`saturate(ndl * 5)`).
+
+So a van face lit by the car's own sun, but turned slightly from the world's, kept its full light inside a
+wall's shadow. A few degrees of steering flipped that test, and the body went from shaded to pale while
+the street round it stayed in shadow. Proof, with the shadow pass toggled live in one session (`out/fx3_van_a`):
+- all on: largest 2-frame step 36 %;
+- `shadows=0`: 8 %;
+- the mask itself (`debug=2`, `out/fx3_van_c`): the van's rear face white while the ground beside it was in shadow.
+
+Fix: the body's directional light takes the world's sun direction (`ComputeSkyColours(...).sunDir`, the
+clock's sun with `follow_clock=1`), never flatter than 10 degrees (the shadow maps' own floor). The light
+levels are unchanged (diffuse 0.78, specular 0.55, ambient 0x5A), so paint and sheen keep their tuning.
+Under Remix and with the sky off, the old fixed sun is still used. `GTA2DX9_CAR_WORLD_SUN=0`, or
+`[devtools] car_world_sun=0|1` (re-read every 2 s), gives the old sun for A/B frames.
+
+Same-session A/B on the same route (`out/fx3_van_e`, passes o1/n1 both end at 198.5,168.9 heading north;
+`gamerun/fx3_van.py`). A leak is the van's luma moving by more than 25 % in 2 frames while the ground
+behind it moves by less than 10 % (`tools/fx3_leak.py`):
+
+| pass | sun | van 2-frame step p95 / max | leak events |
+|---|---|---|---|
+| o1 | old fixed | 16.4 % / 49.2 % (52 -> 99 luma in 6 frames, road round it at 20) | 9 |
+| n1 | world | 4.3 % / 12.4 % (a reversal at a wall) | 0 |
+
+A real shadow edge still crosses a moving car in a few frames, as it should; the road ahead and behind
+show the same edge (pass n2: the van leaves a building's shadow into sun over 8 frames).
+Not changed: the light levels do not follow the time of day (they never did).

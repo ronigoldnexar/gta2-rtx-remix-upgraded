@@ -46,7 +46,7 @@ street views only (`g_uprightPeds && g_fxUpright`). The classic top-down view is
 ## Settings
 
 `[explosions]` in `package/gta2dx9.ini`: `enabled`, `size_percent`, `flash_percent`,
-`smoke_seconds`, `sprite_percent`, `car_light`. Setting `GTA2DX9_EXPLOSION_FX=0` in the
+`smoke_seconds`, `sprite_percent`, `car_light`, `eye_budget_percent` (FIX-FX-3, below). Setting `GTA2DX9_EXPLOSION_FX=0` in the
 environment turns the effect off for one run (for A/B frames).
 
 ## Verification (8 Nov 2026, private stage, L4 host)
@@ -96,3 +96,43 @@ What is not verified:
 - The ground light is a decal on the road only. Walls are lit only when `[visuals]` lights are on,
   which needs a provider hook in `visuals.cpp` (VISUALS-PLAIN owns that file).
   `ExplosionFxLight()` already returns the light it would need.
+
+## FIX-FX-3 (10 Nov 2026): the first-person / death-camera blast wash, attributed and budgeted
+
+Work order `fire-fx-first-person-blast-wash-and-no-fire-light` (item: the road visible, over 40 % of
+the frame not flash, at a first-person blast). FIX-FX-2 left it partial: its worst blast frames were
+0.52-0.69 of the frame flash (lum > 200, or hot orange) in 7 of 8 runs, with the cause unattributed.
+
+**Attribution.** `GTA2DX9_BLAST_PROBE=1` logs every frame while a blast is under 1.5 s old:
+- the eye's distance to it;
+- each additive part's full-frame equivalent (its level x min(1, (size / eye distance)^2), summed over
+  the batch): fireball billows, spark streaks, flash glow, ground light, shock ring (and smoke);
+- from `visuals.cpp`, the fire lights within reach of the eye (day-weighted).
+
+In the first runs (`out/fx3_bp_1`, HEAD + the probe):
+- at the wheel, eye 0.6-0.8 blocks from the blast: billows 1.6-1.75 frames, sparks up to 1.8, ring 0.25,
+  glow and ground light about 0.2 each;
+- at the death camera, eye about 2.6 blocks: ground light 0.6, glow 0.27, billows 0.2-0.3;
+- the fire lights: one blaze, day-weighted 0.06-0.27 round the eye.
+
+So the wash is the additive FX themselves, not the light pass. The fireball's billows and the spark
+streaks dominate, and the streaks were not held down near the eye at all: they are long yellow-white
+bars radiating across the whole frame in FIX-FX-2's failing frames (`out/fx2_t_fp`, `fx2_q_fp`,
+`fx2_x_fp` `qa_d_blast_00`).
+
+**Fix** (`explosion_fx.cpp`):
+- Spark streaks fade as the eye comes within their length (`nearFade` on the streak, as the billows have).
+- An additive budget round the eye: the parts' full-frame equivalents are summed every frame. Over
+  `eye_budget_percent` (default 50, i.e. half a frame), the colours of all additive batches (ground
+  light, ring, billows, glow and sparks) are scaled down together, so the blast keeps its shape and hue.
+  The probe line ends with `additive <sum> x <scale>`.
+- Typical scales: 0.12-0.24 with the eye at the wheel, about 0.46 with it 1.3-1.5 blocks off (a chase
+  camera pulled in beside the car, `out/fx3_burn3b`: the fireball, shards and ring still read), and
+  about 0.45-0.5 at 2.7 blocks (a death camera, `out/fx3_bp_1` sums). So a close third-person blast is
+  dimmer than FIX-FX-2's pm10 frames; how far off a blast must be to escape the budget is not
+  measured. The ground light's share is counted as if it faced the eye, which overstates it for a low
+  eye; the budget was tuned with that measure.
+
+Seven first-person runs (`gamerun/fixfx2_burn.py`, `VIEW=first`, the same script as FIX-FX-2's) are tabled
+on the work order. The evaluator is `tools/fx3_blast_eval.py`: the frames shot within 1.6 s of the
+blast's log line, and the worst share of flash among them.

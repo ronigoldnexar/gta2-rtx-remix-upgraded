@@ -31,6 +31,7 @@ struct ExplosionSettings {
     float smokeSeconds = 10.0f; // how long the column keeps rising off the spot
     float spriteBright = 0.35f; // what is kept of the game's own explosion sprite
     bool  carLight = true;      // a point light on the car models while the blast flashes
+    float eyeBudget = 0.5f;     // FIX-FX-3: the additive light a blast may throw over the view (full frames)
 };
 ExplosionSettings& ExplosionFx();
 // The [explosions] section of the renderer's ini. GTA2DX9_EXPLOSION_FX=0 turns it off.
