@@ -1,0 +1,704 @@
+{
+"wil": {
+"46": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"73": {
+"cls": "paving",
+"amp": 0.31
+},
+"74": {
+"cls": "paving",
+"amp": 0.41
+},
+"78": {
+"cls": "paving",
+"amp": 0.7
+},
+"82": {
+"cls": "paving",
+"amp": 0.67
+},
+"111": {
+"cls": "paving",
+"amp": 0.52
+},
+"123": {
+"cls": "asphalt",
+"amp": 0.78
+},
+"182": {
+"cls": "paving",
+"amp": 0.34
+},
+"183": {
+"cls": "paving",
+"amp": 0.41
+},
+"184": {
+"cls": "paving",
+"amp": 0.53
+},
+"185": {
+"cls": "paving",
+"amp": 0.52
+},
+"186": {
+"cls": "paving",
+"amp": 0.6
+},
+"191": {
+"cls": "paving",
+"amp": 0.27
+},
+"216": {
+"cls": "paving",
+"amp": 0.76
+},
+"272": {
+"cls": "asphalt",
+"amp": 0.61
+},
+"274": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"282": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"431": {
+"cls": "paving",
+"amp": 0.49
+},
+"434": {
+"cls": "paving",
+"amp": 0.34
+},
+"441": {
+"cls": "paving",
+"amp": 0.25
+},
+"688": {
+"cls": "asphalt",
+"amp": 0.42
+},
+"690": {
+"cls": "asphalt",
+"amp": 0.57
+},
+"701": {
+"cls": "asphalt",
+"amp": 0.48
+},
+"702": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"715": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"766": {
+"cls": "concrete",
+"amp": 0.34
+},
+"785": {
+"cls": "paving",
+"amp": 0.31
+},
+"861": {
+"cls": "grass",
+"amp": 0.91
+},
+"862": {
+"cls": "grass",
+"amp": 0.66
+}
+},
+"bil": {
+"5": {
+"cls": "paving",
+"amp": 0.25
+},
+"42": {
+"cls": "concrete",
+"amp": 0.46
+},
+"43": {
+"cls": "paving",
+"amp": 1.0
+},
+"181": {
+"cls": "concrete",
+"amp": 0.3
+},
+"182": {
+"cls": "paving",
+"amp": 0.36
+},
+"183": {
+"cls": "paving",
+"amp": 0.61
+},
+"184": {
+"cls": "paving",
+"amp": 0.67
+},
+"185": {
+"cls": "paving",
+"amp": 0.79
+},
+"186": {
+"cls": "paving",
+"amp": 0.82
+},
+"192": {
+"cls": "paving",
+"amp": 0.55
+},
+"193": {
+"cls": "paving",
+"amp": 1.0
+},
+"194": {
+"cls": "paving",
+"amp": 0.97
+},
+"200": {
+"cls": "grass",
+"amp": 0.32
+},
+"201": {
+"cls": "grass",
+"amp": 0.48
+},
+"202": {
+"cls": "paving",
+"amp": 1.0
+},
+"203": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"204": {
+"cls": "concrete",
+"amp": 0.61
+},
+"206": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"207": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"208": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"210": {
+"cls": "paving",
+"amp": 1.0
+},
+"211": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"212": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"216": {
+"cls": "grass",
+"amp": 1.0
+},
+"222": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"232": {
+"cls": "concrete",
+"amp": 0.72
+},
+"233": {
+"cls": "asphalt",
+"amp": 0.89
+},
+"429": {
+"cls": "paving",
+"amp": 1.0
+},
+"561": {
+"cls": "concrete",
+"amp": 1.0
+},
+"587": {
+"cls": "paving",
+"amp": 0.93
+},
+"605": {
+"cls": "grass",
+"amp": 1.0
+},
+"607": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"718": {
+"cls": "paving",
+"amp": 1.0
+},
+"721": {
+"cls": "asphalt",
+"amp": 0.43
+},
+"900": {
+"cls": "paving",
+"amp": 0.78
+}
+},
+"ste": {
+"80": {
+"cls": "concrete",
+"amp": 0.8
+},
+"81": {
+"cls": "paving",
+"amp": 0.81
+},
+"99": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"114": {
+"cls": "paving",
+"amp": 1.0
+},
+"128": {
+"cls": "paving",
+"amp": 1.0
+},
+"130": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"131": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"134": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"135": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"140": {
+"cls": "concrete",
+"amp": 0.98
+},
+"141": {
+"cls": "paving",
+"amp": 1.0
+},
+"142": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"143": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"144": {
+"cls": "concrete",
+"amp": 0.9
+},
+"145": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"146": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"147": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"148": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"149": {
+"cls": "concrete",
+"amp": 0.84
+},
+"150": {
+"cls": "concrete",
+"amp": 0.32
+},
+"151": {
+"cls": "concrete",
+"amp": 0.49
+},
+"155": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"158": {
+"cls": "asphalt",
+"amp": 0.54
+},
+"159": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"299": {
+"cls": "concrete",
+"amp": 0.72
+},
+"300": {
+"cls": "paving",
+"amp": 0.58
+},
+"304": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"305": {
+"cls": "paving",
+"amp": 0.52
+},
+"306": {
+"cls": "paving",
+"amp": 1.0
+},
+"312": {
+"cls": "paving",
+"amp": 0.93
+},
+"319": {
+"cls": "paving",
+"amp": 1.0
+},
+"320": {
+"cls": "paving",
+"amp": 0.29
+},
+"321": {
+"cls": "paving",
+"amp": 0.42
+},
+"323": {
+"cls": "paving",
+"amp": 0.46
+},
+"326": {
+"cls": "paving",
+"amp": 0.83
+},
+"327": {
+"cls": "paving",
+"amp": 0.65
+},
+"329": {
+"cls": "paving",
+"amp": 0.32
+},
+"331": {
+"cls": "paving",
+"amp": 0.54
+},
+"334": {
+"cls": "paving",
+"amp": 0.57
+},
+"340": {
+"cls": "paving",
+"amp": 0.34
+},
+"341": {
+"cls": "paving",
+"amp": 0.57
+},
+"356": {
+"cls": "paving",
+"amp": 0.34
+},
+"367": {
+"cls": "paving",
+"amp": 0.37
+},
+"394": {
+"cls": "paving",
+"amp": 0.35
+},
+"395": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"512": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"514": {
+"cls": "paving",
+"amp": 1.0
+},
+"515": {
+"cls": "paving",
+"amp": 1.0
+},
+"516": {
+"cls": "paving",
+"amp": 1.0
+},
+"517": {
+"cls": "paving",
+"amp": 1.0
+},
+"522": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"532": {
+"cls": "paving",
+"amp": 1.0
+},
+"534": {
+"cls": "paving",
+"amp": 1.0
+},
+"535": {
+"cls": "paving",
+"amp": 0.71
+},
+"536": {
+"cls": "paving",
+"amp": 0.97
+},
+"537": {
+"cls": "paving",
+"amp": 1.0
+},
+"538": {
+"cls": "paving",
+"amp": 1.0
+},
+"539": {
+"cls": "grass",
+"amp": 0.71
+},
+"541": {
+"cls": "paving",
+"amp": 0.53
+},
+"542": {
+"cls": "paving",
+"amp": 1.0
+},
+"568": {
+"cls": "paving",
+"amp": 1.0
+},
+"579": {
+"cls": "paving",
+"amp": 0.28
+},
+"580": {
+"cls": "paving",
+"amp": 0.34
+},
+"604": {
+"cls": "paving",
+"amp": 1.0
+},
+"605": {
+"cls": "grass",
+"amp": 1.0
+},
+"607": {
+"cls": "grass",
+"amp": 0.88
+},
+"646": {
+"cls": "paving",
+"amp": 0.59
+},
+"647": {
+"cls": "paving",
+"amp": 0.55
+},
+"651": {
+"cls": "paving",
+"amp": 0.55
+},
+"656": {
+"cls": "paving",
+"amp": 0.25
+},
+"661": {
+"cls": "paving",
+"amp": 0.64
+},
+"684": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"686": {
+"cls": "paving",
+"amp": 0.64
+},
+"687": {
+"cls": "paving",
+"amp": 0.3
+},
+"688": {
+"cls": "paving",
+"amp": 0.52
+},
+"692": {
+"cls": "asphalt",
+"amp": 0.62
+},
+"693": {
+"cls": "paving",
+"amp": 0.9
+},
+"698": {
+"cls": "concrete",
+"amp": 0.76
+},
+"702": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"776": {
+"cls": "grass",
+"amp": 1.0
+},
+"777": {
+"cls": "paving",
+"amp": 0.95
+},
+"778": {
+"cls": "paving",
+"amp": 1.0
+},
+"781": {
+"cls": "grass",
+"amp": 0.85
+},
+"784": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"786": {
+"cls": "asphalt",
+"amp": 0.69
+},
+"787": {
+"cls": "grass",
+"amp": 0.4
+},
+"788": {
+"cls": "paving",
+"amp": 0.81
+},
+"790": {
+"cls": "grass",
+"amp": 1.0
+},
+"811": {
+"cls": "asphalt",
+"amp": 0.62
+},
+"815": {
+"cls": "asphalt",
+"amp": 0.41
+},
+"827": {
+"cls": "asphalt",
+"amp": 0.49
+},
+"831": {
+"cls": "asphalt",
+"amp": 0.9
+},
+"834": {
+"cls": "paving",
+"amp": 1.0
+},
+"835": {
+"cls": "paving",
+"amp": 0.82
+},
+"836": {
+"cls": "paving",
+"amp": 0.52
+},
+"839": {
+"cls": "paving",
+"amp": 0.91
+},
+"840": {
+"cls": "asphalt",
+"amp": 0.81
+},
+"843": {
+"cls": "asphalt",
+"amp": 0.52
+},
+"845": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"846": {
+"cls": "paving",
+"amp": 0.85
+},
+"847": {
+"cls": "paving",
+"amp": 0.67
+},
+"848": {
+"cls": "paving",
+"amp": 0.31
+},
+"852": {
+"cls": "paving",
+"amp": 0.49
+},
+"854": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"855": {
+"cls": "asphalt",
+"amp": 0.96
+},
+"958": {
+"cls": "paving",
+"amp": 0.39
+},
+"978": {
+"cls": "asphalt",
+"amp": 1.0
+},
+"980": {
+"cls": "asphalt",
+"amp": 0.43
+},
+"981": {
+"cls": "asphalt",
+"amp": 0.25
+},
+"982": {
+"cls": "asphalt",
+"amp": 0.59
+}
+}
+}

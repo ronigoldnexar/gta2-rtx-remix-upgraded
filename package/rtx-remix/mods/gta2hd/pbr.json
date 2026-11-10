@@ -37,7 +37,7 @@
 },
 "00533DE023DE21FF": {
 "cls": {
-"asphalt": 0.88,
+"asphalt": 0.864,
 "brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -45,13 +45,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.012,
+"stone": 0.021,
 "struct": 0.7,
 "veg": 0.002,
-"wood": 0.008
+"wood": 0.007
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.34
+],
 "wet": true
 },
 "0070709894C1EBB7": {
@@ -333,21 +337,25 @@
 },
 "01B8AF00B1430D68": {
 "cls": {
-"asphalt": 0.086,
-"brick": 0.007,
+"asphalt": 0.073,
+"brick": 0.006,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.007,
 "panes": 0,
-"stone": 0.001,
-"struct": 0.43,
-"veg": 0.003,
-"wood": 0.08
+"stone": 0.007,
+"struct": 0.47,
+"veg": 0.004,
+"wood": 0.068
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.64
+],
 "wet": false
 },
 "01E7B0BCC079BC40": {
@@ -506,15 +514,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.036,
+"paint": 0.037,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.272,
-"wood": 0.006
+"struct": 0.29,
+"veg": 0.266,
+"wood": 0.009
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "03006971E1BA42D3": {
@@ -584,17 +596,21 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.36,
-"veg": 0.578,
+"struct": 0.37,
+"veg": 0.574,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.57
+],
 "wet": false
 },
 "0351D25760D54ABF": {
 "cls": {
-"asphalt": 0.981,
+"asphalt": 0.983,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -603,12 +619,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.27,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "0360A3231758A7A5": {
@@ -978,12 +998,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.57,
-"veg": 0.881,
+"struct": 0.58,
+"veg": 0.884,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.65
+],
 "wet": false
 },
 "05043332A8BA4149": {
@@ -1280,20 +1304,24 @@
 "06CEDE8F7D815A5F": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.017,
+"brick": 0.018,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.235,
+"paint": 0.231,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.74,
-"veg": 0.472,
-"wood": 0.185
+"struct": 0.8,
+"veg": 0.474,
+"wood": 0.157
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.97
+],
 "wet": false
 },
 "06CF210171C80DB6": {
@@ -1946,7 +1974,7 @@
 "0A9C79DF7CFD49C7": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.002,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -1954,12 +1982,16 @@
 "paint": 0.001,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.35,
 "veg": 0.001,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "0A9F6D07DC62B12C": {
@@ -2407,20 +2439,24 @@
 "0CAA7383DC24FC14": {
 "cls": {
 "asphalt": 0.839,
-"brick": 0.004,
+"brick": 0.006,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.5,
-"veg": 0.002,
+"stone": 0.002,
+"struct": 0.52,
+"veg": 0.003,
 "wood": 0.007
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.61
+],
 "wet": true
 },
 "0CEC397CE24C8A0F": {
@@ -2670,20 +2706,24 @@
 "0E26F16AD2349E6D": {
 "cls": {
 "asphalt": 0.181,
-"brick": 0.0,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.3,
-"veg": 0.134,
-"wood": 0.002
+"stone": 0.001,
+"struct": 0.37,
+"veg": 0.161,
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+1.0
+],
 "wet": false
 },
 "0E325FDC56F01778": {
@@ -2882,12 +2922,16 @@
 "paint": 0.074,
 "panes": 0,
 "stone": 0.003,
-"struct": 0.53,
+"struct": 0.54,
 "veg": 0.0,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.48
+],
 "wet": true
 },
 "0F3459FBD8B04582": {
@@ -3358,7 +3402,7 @@
 "11B1E5D15FEC3429": {
 "cls": {
 "asphalt": 0.001,
-"brick": 0.017,
+"brick": 0.019,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -3366,12 +3410,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.31,
+"struct": 0.45,
 "veg": 0.0,
-"wood": 0.084
+"wood": 0.078
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "11B29D5C5B970395": {
@@ -3450,21 +3498,21 @@
 },
 "11F180E88B24BEDD": {
 "cls": {
-"asphalt": 0.29,
-"brick": 0.016,
+"asphalt": 0.922,
+"brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.046,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.213,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.344,
-"struct": 1.0,
+"stone": 0.0,
+"struct": 0.53,
 "veg": 0.0,
-"wood": 0.023
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": true
 },
 "1205B9CB2669517D": {
@@ -3637,21 +3685,25 @@
 },
 "12B3489C92D983B5": {
 "cls": {
-"asphalt": 0.906,
-"brick": 0.003,
+"asphalt": 0.904,
+"brick": 0.005,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.001,
-"struct": 0.53,
+"stone": 0.004,
+"struct": 0.54,
 "veg": 0.003,
-"wood": 0.017
+"wood": 0.016
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.41
+],
 "wet": true
 },
 "12B971CE86A13517": {
@@ -3772,15 +3824,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.303,
+"paint": 0.302,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.85,
+"struct": 0.86,
 "veg": 0.0,
-"wood": 0.002
+"wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.25
+],
 "wet": false
 },
 "1394C6038FA51D82": {
@@ -3990,19 +4046,23 @@
 "cls": {
 "asphalt": 0.011,
 "brick": 0.0,
-"ceramic": 0.01,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.067,
-"struct": 0.63,
-"veg": 0.047,
+"stone": 0.076,
+"struct": 0.66,
+"veg": 0.064,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.61
+],
 "wet": false
 },
 "1505B521D971D2C0": {
@@ -4366,15 +4426,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.004,
+"paint": 0.005,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.973,
+"struct": 0.36,
+"veg": 0.974,
 "wood": 0.005
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "177325F682C21894": {
@@ -4584,21 +4648,21 @@
 },
 "184591FA625398DA": {
 "cls": {
-"asphalt": 0.062,
+"asphalt": 0.88,
 "brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.029,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.158,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.567,
-"struct": 1.0,
+"stone": 0.0,
+"struct": 0.39,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": false
 },
 "18597B0484295D9E": {
@@ -4752,21 +4816,21 @@
 },
 "194F636D546E2558": {
 "cls": {
-"asphalt": 0.401,
-"brick": 0.001,
+"asphalt": 0.915,
+"brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.005,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.18,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.112,
-"struct": 1.0,
-"veg": 0.02,
-"wood": 0.003
+"stone": 0.0,
+"struct": 0.76,
+"veg": 0.0,
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": true
 },
 "1977E2F1ECA77DD3": {
@@ -4863,21 +4927,25 @@
 },
 "19E6E23089F97C3A": {
 "cls": {
-"asphalt": 0.035,
+"asphalt": 0.061,
 "brick": 0.0,
-"ceramic": 0.075,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.028,
-"struct": 0.35,
+"stone": 0.103,
+"struct": 0.46,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "19FF0596BFC85B8E": {
@@ -5424,7 +5492,7 @@
 },
 "1CA84ABB9DEE2733": {
 "cls": {
-"asphalt": 0.101,
+"asphalt": 0.099,
 "brick": 0.006,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -5432,13 +5500,17 @@
 "metal": 0.0,
 "paint": 0.173,
 "panes": 0,
-"stone": 0.001,
-"struct": 0.65,
+"stone": 0.003,
+"struct": 0.68,
 "veg": 0.0,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.43
+],
 "wet": false
 },
 "1CC7630AA5520E2E": {
@@ -5480,7 +5552,7 @@
 },
 "1CFFA859EEEF83B1": {
 "cls": {
-"asphalt": 0.906,
+"asphalt": 0.905,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -5488,13 +5560,17 @@
 "metal": 0.0,
 "paint": 0.026,
 "panes": 0,
-"stone": 0.002,
-"struct": 0.7,
+"stone": 0.003,
+"struct": 0.72,
 "veg": 0.0,
-"wood": 0.001
+"wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.57
+],
 "wet": true
 },
 "1D02E709CEA851F5": {
@@ -5894,12 +5970,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.61,
-"veg": 0.059,
+"struct": 0.62,
+"veg": 0.06,
 "wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.49
+],
 "wet": false
 },
 "1F1770552FC41DF0": {
@@ -6213,30 +6293,38 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.39,
-"veg": 0.348,
+"veg": 0.338,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.57
+],
 "wet": false
 },
 "218898274B54FCC5": {
 "cls": {
-"asphalt": 0.341,
+"asphalt": 0.273,
 "brick": 0.043,
-"ceramic": 0.007,
+"ceramic": 0.001,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.004,
 "panes": 0,
-"stone": 0.15,
-"struct": 0.25,
+"stone": 0.187,
+"struct": 0.36,
 "veg": 0.0,
-"wood": 0.001
+"wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "218CB49DDED4D40F": {
@@ -6636,12 +6724,16 @@
 "paint": 0.028,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.46,
-"veg": 0.837,
-"wood": 0.012
+"struct": 0.48,
+"veg": 0.84,
+"wood": 0.009
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+0.91
+],
 "wet": false
 },
 "23D497515C0C8644": {
@@ -6849,21 +6941,21 @@
 },
 "25D035F9425EC455": {
 "cls": {
-"asphalt": 0.333,
-"brick": 0.051,
-"ceramic": 0.123,
-"chrome": 0.067,
+"asphalt": 0.874,
+"brick": 0.0,
+"ceramic": 0.0,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.183,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.199,
-"struct": 1.0,
+"stone": 0.0,
+"struct": 0.54,
 "veg": 0.0,
-"wood": 0.004
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": true
 },
 "25D9878BBD398FD9": {
@@ -6886,22 +6978,22 @@
 },
 "25F07E96F11C756A": {
 "cls": {
-"asphalt": 0.233,
-"brick": 0.019,
+"asphalt": 0.757,
+"brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.044,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.208,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.025,
-"struct": 1.0,
-"veg": 0.074,
-"wood": 0.047
+"stone": 0.0,
+"struct": 0.42,
+"veg": 0.016,
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
-"wet": false
+"ground": "iron",
+"wet": true
 },
 "25F0C06EAFBF21F9": {
 "cls": {
@@ -6980,7 +7072,7 @@
 "264D6F6D3BAE42E7": {
 "cls": {
 "asphalt": 0.002,
-"brick": 0.079,
+"brick": 0.074,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -6988,12 +7080,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.003,
-"wood": 0.108
+"struct": 0.31,
+"veg": 0.002,
+"wood": 0.024
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+1.0
+],
 "wet": false
 },
 "2650C8453A4D026F": {
@@ -7165,8 +7261,8 @@
 },
 "27013423434CE4A2": {
 "cls": {
-"asphalt": 0.481,
-"brick": 0.023,
+"asphalt": 0.482,
+"brick": 0.024,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -7175,11 +7271,15 @@
 "panes": 0,
 "stone": 0.003,
 "struct": 0.64,
-"veg": 0.005,
+"veg": 0.006,
 "wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.35
+],
 "wet": false
 },
 "271795D3BA557B78": {
@@ -7516,7 +7616,7 @@
 },
 "28B4A53D5BBB200F": {
 "cls": {
-"asphalt": 0.032,
+"asphalt": 0.029,
 "brick": 0.037,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -7524,13 +7624,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.005,
-"struct": 0.25,
-"veg": 0.004,
-"wood": 0.017
+"stone": 0.007,
+"struct": 0.36,
+"veg": 0.017,
+"wood": 0.013
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "28C03D2DBAEAE7E4": {
@@ -7594,20 +7698,24 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.0,
-"ceramic": 0.001,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.043,
+"paint": 0.041,
 "panes": 0,
 "stone": 0.001,
-"struct": 0.49,
-"veg": 0.857,
+"struct": 0.51,
+"veg": 0.856,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
 "lift": true,
+"micro": [
+"grass",
+0.66
+],
 "wet": false
 },
 "290D526DBC541D4E": {
@@ -7760,21 +7868,25 @@
 },
 "29EBD9C2DE912FBA": {
 "cls": {
-"asphalt": 0.083,
-"brick": 0.28,
-"ceramic": 0.325,
+"asphalt": 0.027,
+"brick": 0.293,
+"ceramic": 0.033,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.007,
-"struct": 0.52,
+"stone": 0.028,
+"struct": 0.56,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.67
+],
 "wet": false
 },
 "2A01829D687820C0": {
@@ -7896,15 +8008,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.016,
+"paint": 0.053,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.029,
-"wood": 0.0
+"struct": 0.29,
+"veg": 0.043,
+"wood": 0.009
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "2AEB7329C14655A4": {
@@ -7947,21 +8063,21 @@
 },
 "2AFBFA4B39652801": {
 "cls": {
-"asphalt": 0.562,
-"brick": 0.001,
+"asphalt": 0.992,
+"brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.04,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.24,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.045,
-"struct": 1.0,
+"stone": 0.0,
+"struct": 0.49,
 "veg": 0.0,
-"wood": 0.001
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": true
 },
 "2B2838FD10855021": {
@@ -8023,19 +8139,23 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.005,
-"ceramic": 0.231,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.005,
+"paint": 0.012,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.39,
 "veg": 0.0,
-"wood": 0.004
+"wood": 0.006
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "2B507A1ACD18E617": {
@@ -8078,20 +8198,24 @@
 "2BFC3FDE75227465": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.882,
-"ceramic": 0.0,
+"brick": 0.883,
+"ceramic": 0.001,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.56,
+"struct": 0.57,
 "veg": 0.015,
-"wood": 0.405
+"wood": 0.406
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.34
+],
 "wet": true
 },
 "2C351AE6151487F7": {
@@ -8170,21 +8294,25 @@
 },
 "2C74DA72CE683807": {
 "cls": {
-"asphalt": 0.771,
-"brick": 0.001,
+"asphalt": 0.763,
+"brick": 0.003,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.021,
+"paint": 0.022,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.34,
+"stone": 0.008,
+"struct": 0.48,
 "veg": 0.0,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "2C7FE77118ADF760": {
@@ -8487,7 +8615,7 @@
 },
 "2DFEB7B94DF11D4D": {
 "cls": {
-"asphalt": 0.723,
+"asphalt": 0.717,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -8495,13 +8623,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.006,
+"struct": 0.3,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "2E18BE53F6F01985": {
@@ -9569,20 +9701,24 @@
 "33E8AEFC9EE2CEDF": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.002,
-"ceramic": 0.446,
+"brick": 0.003,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.003,
+"paint": 0.006,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.32,
-"veg": 0.079,
-"wood": 0.037
+"struct": 0.51,
+"veg": 0.074,
+"wood": 0.022
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.97
+],
 "wet": false
 },
 "3400611658A5521D": {
@@ -9808,6 +9944,10 @@
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "357E5DD43C189C77": {
@@ -9955,10 +10095,14 @@
 "stone": 0.0,
 "struct": 0.25,
 "veg": 0.0,
-"wood": 0.0
+"wood": 0.01
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": true
 },
 "36825820461A38CA": {
@@ -10121,13 +10265,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.59,
+"stone": 0.002,
+"struct": 0.6,
 "veg": 0.001,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.36
+],
 "wet": true
 },
 "37ED743AB1968AFE": {
@@ -10169,21 +10317,25 @@
 },
 "37FB889CF02E5D42": {
 "cls": {
-"asphalt": 0.236,
-"brick": 0.006,
+"asphalt": 0.234,
+"brick": 0.009,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.43,
+"stone": 0.001,
+"struct": 0.47,
 "veg": 0.0,
-"wood": 0.011
+"wood": 0.007
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.8
+],
 "wet": false
 },
 "380147077F52E5FA": {
@@ -10658,12 +10810,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.3,
+"struct": 0.31,
 "veg": 0.0,
-"wood": 0.128
+"wood": 0.133
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.25
+],
 "wet": true
 },
 "396BDE7B9A0851E7": {
@@ -10705,8 +10861,8 @@
 },
 "399E95F0FB74AA41": {
 "cls": {
-"asphalt": 0.59,
-"brick": 0.001,
+"asphalt": 0.589,
+"brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -10714,12 +10870,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.29,
 "veg": 0.0,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "39B2976D7D86EDF5": {
@@ -11355,7 +11515,7 @@
 },
 "3D445D18755D00EB": {
 "cls": {
-"asphalt": 0.473,
+"asphalt": 0.448,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -11363,13 +11523,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.005,
-"struct": 0.44,
-"veg": 0.005,
+"stone": 0.014,
+"struct": 0.46,
+"veg": 0.006,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.41
+],
 "wet": false
 },
 "3D44E5098B0403A2": {
@@ -11504,22 +11668,22 @@
 },
 "3E7FCC19A2D5AD21": {
 "cls": {
-"asphalt": 0.05,
-"brick": 0.222,
+"asphalt": 0.652,
+"brick": 0.013,
 "ceramic": 0.0,
-"chrome": 0.068,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.114,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.248,
-"struct": 1.0,
+"stone": 0.0,
+"struct": 0.49,
 "veg": 0.0,
-"wood": 0.356
+"wood": 0.015
 },
 "displace_in": 0.0,
-"ground": "cut",
-"wet": false
+"ground": "iron",
+"wet": true
 },
 "3E831463FC43159E": {
 "cls": {
@@ -12108,12 +12272,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.42,
+"struct": 0.43,
 "veg": 0.095,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.91
+],
 "wet": false
 },
 "41110FEF096955AF": {
@@ -12211,21 +12379,25 @@
 },
 "41A9F714E18E678F": {
 "cls": {
-"asphalt": 0.009,
-"brick": 0.01,
-"ceramic": 0.003,
+"asphalt": 0.008,
+"brick": 0.011,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
 "stone": 0.076,
-"struct": 0.53,
-"veg": 0.273,
-"wood": 0.017
+"struct": 0.56,
+"veg": 0.276,
+"wood": 0.016
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.53
+],
 "wet": false
 },
 "41C0152B7F098419": {
@@ -12257,12 +12429,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.65,
-"veg": 0.163,
+"struct": 0.64,
+"veg": 0.162,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.31
+],
 "wet": false
 },
 "42060D60F810DF36": {
@@ -12276,12 +12452,16 @@
 "paint": 0.031,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.56,
-"veg": 0.888,
+"struct": 0.58,
+"veg": 0.889,
 "wood": 0.005
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.61
+],
 "wet": false
 },
 "42222FF788E3000E": {
@@ -12584,7 +12764,7 @@
 },
 "43985967E5B443CA": {
 "cls": {
-"asphalt": 0.064,
+"asphalt": 0.075,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -12592,13 +12772,17 @@
 "metal": 0.0,
 "paint": 0.015,
 "panes": 0,
-"stone": 0.038,
-"struct": 0.47,
-"veg": 0.307,
-"wood": 0.013
+"stone": 0.032,
+"struct": 0.5,
+"veg": 0.326,
+"wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.72
+],
 "wet": false
 },
 "43A4D325E0D21299": {
@@ -12926,12 +13110,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.28,
-"veg": 0.234,
+"struct": 0.34,
+"veg": 0.265,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+0.85
+],
 "wet": false
 },
 "44E24AB4FDAE9A9D": {
@@ -12945,12 +13133,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.125,
-"wood": 0.001
+"struct": 0.34,
+"veg": 0.13,
+"wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.69
+],
 "wet": false
 },
 "44EDD2090BF3D399": {
@@ -13161,7 +13353,7 @@
 "459FAB96D201430D": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.076,
+"brick": 0.078,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -13169,12 +13361,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.4,
 "veg": 0.0,
-"wood": 0.0
+"wood": 0.024
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "45A6F13C607933DC": {
@@ -13290,19 +13486,23 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.002,
-"ceramic": 0.029,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.01,
+"paint": 0.013,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.007,
-"wood": 0.0
+"struct": 0.36,
+"veg": 0.005,
+"wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "462578E5DEB6F457": {
@@ -13418,7 +13618,7 @@
 },
 "4685BE876DE118F4": {
 "cls": {
-"asphalt": 0.029,
+"asphalt": 0.03,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -13427,12 +13627,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.29,
-"veg": 0.006,
+"struct": 0.35,
+"veg": 0.018,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.76
+],
 "wet": false
 },
 "46900B7EEAB7ED7A": {
@@ -13567,7 +13771,7 @@
 },
 "47324B10A9A3B20F": {
 "cls": {
-"asphalt": 0.571,
+"asphalt": 0.351,
 "brick": 0.004,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -13575,13 +13779,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.021,
-"struct": 0.25,
+"stone": 0.215,
+"struct": 0.37,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.98
+],
 "wet": true
 },
 "476DD0464FEEB2EE": {
@@ -13891,12 +14099,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.37,
-"veg": 0.032,
+"struct": 0.39,
+"veg": 0.033,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.85
+],
 "wet": false
 },
 "48D3C30E803F5591": {
@@ -14066,6 +14278,10 @@
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.52
+],
 "wet": false
 },
 "49A3B5F23AB048B2": {
@@ -14497,20 +14713,24 @@
 "4B979D379AB811AD": {
 "cls": {
 "asphalt": 0.011,
-"brick": 0.001,
+"brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.188,
+"paint": 0.186,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.41,
+"struct": 0.48,
 "veg": 0.007,
-"wood": 0.164
+"wood": 0.087
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.9
+],
 "wet": false
 },
 "4BA1D2BEF58BE659": {
@@ -14702,20 +14922,24 @@
 "4C390AD66CA09DAE": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.031,
+"brick": 0.032,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.104,
+"paint": 0.098,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.76,
-"veg": 0.708,
-"wood": 0.087
+"struct": 0.77,
+"veg": 0.71,
+"wood": 0.086
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+0.32
+],
 "wet": false
 },
 "4C4371B59EB56F60": {
@@ -14840,32 +15064,36 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.56,
+"struct": 0.55,
 "veg": 0.035,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.52
+],
 "wet": false
 },
 "4CD76A25DEA0F846": {
 "cls": {
-"asphalt": 0.139,
-"brick": 0.023,
+"asphalt": 0.735,
+"brick": 0.004,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
-"metal": 0.058,
-"paint": 0.001,
+"metal": 0.0,
+"paint": 0.0,
 "panes": 0,
-"stone": 0.049,
-"struct": 1.0,
-"veg": 0.041,
-"wood": 0.096
+"stone": 0.0,
+"struct": 0.58,
+"veg": 0.002,
+"wood": 0.009
 },
 "displace_in": 0.0,
-"ground": "cut",
-"wet": false
+"ground": "iron",
+"wet": true
 },
 "4CE9536D4B33ED73": {
 "cls": {
@@ -15019,7 +15247,7 @@
 "4D767051BF12AB10": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.251,
+"brick": 0.252,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -15028,11 +15256,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.4,
-"veg": 0.017,
-"wood": 0.247
+"veg": 0.016,
+"wood": 0.241
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.34
+],
 "wet": false
 },
 "4D88DA686A30AB69": {
@@ -15767,12 +15999,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.41,
-"veg": 0.823,
+"struct": 0.43,
+"veg": 0.822,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.83
+],
 "wet": false
 },
 "51A53C379BA8FBEE": {
@@ -15913,15 +16149,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.009,
+"paint": 0.031,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.29,
 "veg": 0.017,
-"wood": 0.002
+"wood": 0.012
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "52610C6E91428804": {
@@ -16204,21 +16444,25 @@
 },
 "53AC794E8DD1B9D9": {
 "cls": {
-"asphalt": 0.032,
+"asphalt": 0.035,
 "brick": 0.0,
-"ceramic": 0.002,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.064,
-"struct": 0.68,
-"veg": 0.004,
+"stone": 0.065,
+"struct": 0.72,
+"veg": 0.013,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.62
+],
 "wet": false
 },
 "53D6C459F17CE44A": {
@@ -16317,21 +16561,25 @@
 },
 "54388C36409A2B49": {
 "cls": {
-"asphalt": 0.464,
-"brick": 0.002,
+"asphalt": 0.454,
+"brick": 0.003,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.002,
-"struct": 0.61,
+"stone": 0.003,
+"struct": 0.62,
 "veg": 0.027,
 "wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.31
+],
 "wet": false
 },
 "5465C6F160740650": {
@@ -16818,20 +17066,24 @@
 "56B4318827458367": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.006,
+"brick": 0.007,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.097,
+"paint": 0.067,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.3,
 "veg": 0.0,
-"wood": 0.01
+"wood": 0.016
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "56BF30B5291C409A": {
@@ -16986,8 +17238,8 @@
 },
 "5732944466001416": {
 "cls": {
-"asphalt": 0.923,
-"brick": 0.01,
+"asphalt": 0.924,
+"brick": 0.011,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -16995,12 +17247,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.39,
+"struct": 0.41,
 "veg": 0.0,
-"wood": 0.023
+"wood": 0.022
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.6
+],
 "wet": true
 },
 "57402C0580EE96A8": {
@@ -17062,19 +17318,23 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.002,
-"ceramic": 0.347,
+"ceramic": 0.014,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.003,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.47,
-"veg": 0.242,
-"wood": 0.016
+"struct": 0.54,
+"veg": 0.239,
+"wood": 0.011
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.71
+],
 "wet": false
 },
 "57520C7D92E648A2": {
@@ -17739,11 +17999,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.42,
-"veg": 0.11,
+"veg": 0.114,
 "wood": 0.004
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.76
+],
 "wet": false
 },
 "5B5D30594F750877": {
@@ -17989,22 +18253,22 @@
 },
 "5CE9593E7F8A7626": {
 "cls": {
-"asphalt": 0.189,
-"brick": 0.077,
+"asphalt": 0.73,
+"brick": 0.004,
 "ceramic": 0.0,
-"chrome": 0.036,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.115,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.139,
-"struct": 1.0,
-"veg": 0.009,
-"wood": 0.205
+"stone": 0.0,
+"struct": 0.52,
+"veg": 0.0,
+"wood": 0.001
 },
 "displace_in": 0.0,
-"ground": "cut",
-"wet": false
+"ground": "iron",
+"wet": true
 },
 "5D2BCF7494F59350": {
 "cls": {
@@ -18965,11 +19229,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.56,
-"veg": 0.744,
+"veg": 0.74,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.54
+],
 "wet": false
 },
 "6177125A75CA3384": {
@@ -18992,7 +19260,7 @@
 },
 "61961DFE9F7D54BC": {
 "cls": {
-"asphalt": 0.05,
+"asphalt": 0.052,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -19001,12 +19269,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.27,
-"veg": 0.485,
+"struct": 0.28,
+"veg": 0.495,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+0.4
+],
 "wet": false
 },
 "61A993EBD915A223": {
@@ -19104,21 +19376,25 @@
 },
 "626271AAD51DCC9C": {
 "cls": {
-"asphalt": 0.213,
+"asphalt": 0.214,
 "brick": 0.004,
-"ceramic": 0.004,
+"ceramic": 0.008,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.632,
-"struct": 0.61,
-"veg": 0.08,
+"stone": 0.626,
+"struct": 0.62,
+"veg": 0.082,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.31
+],
 "wet": true
 },
 "626A0A230120C8B7": {
@@ -19234,7 +19510,7 @@
 },
 "62DEDD18496D7FFA": {
 "cls": {
-"asphalt": 0.805,
+"asphalt": 0.803,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -19243,12 +19519,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.3,
 "veg": 0.0,
-"wood": 0.002
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "62E38DE7FE0A987B": {
@@ -19737,21 +20017,25 @@
 },
 "6469AA35880B2CCE": {
 "cls": {
-"asphalt": 0.115,
+"asphalt": 0.125,
 "brick": 0.001,
-"ceramic": 0.003,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.064,
-"struct": 0.6,
-"veg": 0.074,
+"stone": 0.067,
+"struct": 0.62,
+"veg": 0.077,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.49
+],
 "wet": false
 },
 "646CA0D1AD6AE452": {
@@ -19794,20 +20078,24 @@
 "649509CAAC1465F7": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.027,
+"brick": 0.035,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.049,
+"paint": 0.11,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.231,
-"wood": 0.0
+"struct": 0.26,
+"veg": 0.239,
+"wood": 0.018
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "64F4D48C78B069A8": {
@@ -19933,12 +20221,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.51,
-"veg": 0.882,
+"struct": 0.52,
+"veg": 0.884,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.46
+],
 "wet": false
 },
 "657F010CAFC1FD46": {
@@ -20084,12 +20376,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.28,
+"struct": 0.36,
 "veg": 0.0,
-"wood": 0.08
+"wood": 0.09
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.93
+],
 "wet": true
 },
 "66B65C6ACDAF18EB": {
@@ -20284,19 +20580,23 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.011,
-"ceramic": 0.001,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.276,
+"paint": 0.271,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.64,
-"veg": 0.44,
-"wood": 0.212
+"struct": 0.69,
+"veg": 0.442,
+"wood": 0.161
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "67987208F01E52FE": {
@@ -20773,11 +21073,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.43,
-"veg": 0.034,
+"veg": 0.035,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.67
+],
 "wet": false
 },
 "6BEE98D69A942CDD": {
@@ -20802,20 +21106,24 @@
 "6C32B1E398FF079F": {
 "cls": {
 "asphalt": 0.011,
-"brick": 0.961,
+"brick": 0.955,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.005,
-"struct": 0.33,
+"stone": 0.006,
+"struct": 0.35,
 "veg": 0.0,
-"wood": 0.06
+"wood": 0.046
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.43
+],
 "wet": true
 },
 "6C3D9BF91E3C4226": {
@@ -20932,7 +21240,7 @@
 "6C82105CCEDBD54D": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.9,
+"brick": 0.899,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -20942,10 +21250,14 @@
 "stone": 0.0,
 "struct": 0.69,
 "veg": 0.006,
-"wood": 0.209
+"wood": 0.203
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.58
+],
 "wet": true
 },
 "6C9FD7381FD7C81E": {
@@ -21026,22 +21338,22 @@
 },
 "6CED7E1DC3FEAFD5": {
 "cls": {
-"asphalt": 0.415,
-"brick": 0.013,
-"ceramic": 0.103,
-"chrome": 0.025,
+"asphalt": 0.883,
+"brick": 0.0,
+"ceramic": 0.0,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.176,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.197,
-"struct": 1.0,
-"veg": 0.006,
-"wood": 0.006
+"stone": 0.0,
+"struct": 0.51,
+"veg": 0.0,
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
-"wet": false
+"ground": "iron",
+"wet": true
 },
 "6CF20382BAA4B322": {
 "cls": {
@@ -21804,7 +22116,7 @@
 },
 "703DF12F00514B97": {
 "cls": {
-"asphalt": 0.492,
+"asphalt": 0.502,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -21819,6 +22131,10 @@
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "705BD76DDC3E353C": {
@@ -22102,7 +22418,7 @@
 },
 "711EB381C577046F": {
 "cls": {
-"asphalt": 0.053,
+"asphalt": 0.055,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -22110,13 +22426,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.114,
-"struct": 0.59,
-"veg": 0.004,
+"stone": 0.109,
+"struct": 0.61,
+"veg": 0.008,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.41
+],
 "wet": false
 },
 "711F64944ED1745A": {
@@ -22325,19 +22645,23 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.001,
-"ceramic": 0.003,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.009,
+"paint": 0.011,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.015,
-"wood": 0.002
+"struct": 0.36,
+"veg": 0.01,
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "723F24336BE1B543": {
@@ -22638,20 +22962,24 @@
 "741E32F4A9D016A8": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.049,
-"ceramic": 0.378,
+"brick": 0.05,
+"ceramic": 0.202,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
 "stone": 0.007,
-"struct": 0.25,
+"struct": 0.26,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.34
+],
 "wet": false
 },
 "74228EB2F982E219": {
@@ -22728,21 +23056,25 @@
 },
 "74507ABBA8392260": {
 "cls": {
-"asphalt": 0.049,
-"brick": 0.002,
-"ceramic": 0.001,
+"asphalt": 0.065,
+"brick": 0.004,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.002,
 "panes": 0,
 "stone": 0.065,
-"struct": 0.57,
-"veg": 0.055,
-"wood": 0.003
+"struct": 0.64,
+"veg": 0.067,
+"wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.9
+],
 "wet": false
 },
 "746F30A0D4658A69": {
@@ -22842,19 +23174,23 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.003,
-"ceramic": 0.459,
+"ceramic": 0.001,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.085,
+"paint": 0.097,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.46,
 "veg": 0.001,
-"wood": 0.009
+"wood": 0.013
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "7505EE28DAC3030D": {
@@ -23166,12 +23502,16 @@
 "paint": 0.103,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.46,
-"veg": 0.028,
-"wood": 0.088
+"struct": 0.48,
+"veg": 0.029,
+"wood": 0.073
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.52
+],
 "wet": false
 },
 "766EAC3195D0BFB0": {
@@ -23276,12 +23616,16 @@
 "paint": 0.071,
 "panes": 0,
 "stone": 0.003,
-"struct": 0.45,
-"veg": 0.008,
-"wood": 0.188
+"struct": 0.46,
+"veg": 0.009,
+"wood": 0.176
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.3
+],
 "wet": false
 },
 "7715AE213B07FC55": {
@@ -23570,15 +23914,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.09,
+"paint": 0.06,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.29,
 "veg": 0.012,
-"wood": 0.002
+"wood": 0.011
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "78859905FC0A4062": {
@@ -24334,12 +24682,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.51,
-"veg": 0.923,
+"struct": 0.52,
+"veg": 0.924,
 "wood": 0.004
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.55
+],
 "wet": false
 },
 "7D16822AAA5C5AA4": {
@@ -24381,7 +24733,7 @@
 },
 "7D3A8121B22A4A82": {
 "cls": {
-"asphalt": 0.505,
+"asphalt": 0.503,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -24389,13 +24741,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.002,
+"struct": 0.3,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "7D3BC40054FC9684": {
@@ -24788,7 +25144,7 @@
 },
 "7E7F76B88A050CDC": {
 "cls": {
-"asphalt": 0.903,
+"asphalt": 0.894,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -24796,13 +25152,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.009,
+"struct": 0.3,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "7E8312CFDDB5C798": {
@@ -25132,12 +25492,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.41,
-"veg": 0.931,
+"struct": 0.44,
+"veg": 0.926,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.59
+],
 "wet": false
 },
 "804064A0FB428986": {
@@ -25353,11 +25717,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.444,
+"veg": 0.481,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "8133E9D0D46845A7": {
@@ -25439,20 +25807,24 @@
 "81A22A5311EDD5A9": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.003,
+"brick": 0.004,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.042,
+"paint": 0.06,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.29,
 "veg": 0.073,
-"wood": 0.001
+"wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "81A5C5EB5960C8BC": {
@@ -25570,7 +25942,7 @@
 "820CD7DCB3EB4431": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.001,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -25578,12 +25950,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.34,
-"veg": 0.029,
+"struct": 0.36,
+"veg": 0.028,
 "wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.96
+],
 "wet": false
 },
 "820DD29365832322": {
@@ -26107,7 +26483,7 @@
 },
 "83EC3A5153643515": {
 "cls": {
-"asphalt": 0.719,
+"asphalt": 0.65,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -26115,13 +26491,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.27,
-"struct": 0.46,
+"stone": 0.339,
+"struct": 0.47,
 "veg": 0.001,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.3
+],
 "wet": true
 },
 "83FA4BD447D1357D": {
@@ -26485,34 +26865,38 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.114,
+"paint": 0.109,
 "panes": 0,
 "stone": 0.0,
 "struct": 0.93,
-"veg": 0.623,
-"wood": 0.141
+"veg": 0.624,
+"wood": 0.138
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+0.48
+],
 "wet": false
 },
 "8643C5EE78ED9F3E": {
 "cls": {
-"asphalt": 0.516,
-"brick": 0.041,
+"asphalt": 0.994,
+"brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.021,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.289,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.005,
-"struct": 0.88,
+"stone": 0.0,
+"struct": 0.46,
 "veg": 0.0,
-"wood": 0.006
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": true
 },
 "8651AF6525B5DD3C": {
@@ -26591,21 +26975,25 @@
 },
 "86BACFE7FAF367CA": {
 "cls": {
-"asphalt": 0.861,
-"brick": 0.007,
+"asphalt": 0.864,
+"brick": 0.008,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.53,
+"stone": 0.001,
+"struct": 0.55,
 "veg": 0.0,
-"wood": 0.012
+"wood": 0.011
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.67
+],
 "wet": true
 },
 "86C3A67770A73002": {
@@ -26780,7 +27168,7 @@
 },
 "87BF86060FACF41C": {
 "cls": {
-"asphalt": 0.701,
+"asphalt": 0.699,
 "brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -26789,12 +27177,16 @@
 "paint": 0.054,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.56,
+"struct": 0.57,
 "veg": 0.0,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.54
+],
 "wet": true
 },
 "87C87E35E5694F5B": {
@@ -27073,29 +27465,33 @@
 "stone": 0.0,
 "struct": 0.25,
 "veg": 0.0,
-"wood": 0.0
+"wood": 0.057
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": true
 },
 "8912C1C4762AE5E0": {
 "cls": {
-"asphalt": 0.156,
+"asphalt": 0.743,
 "brick": 0.0,
-"ceramic": 0.076,
-"chrome": 0.014,
+"ceramic": 0.0,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.112,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.483,
-"struct": 1.0,
+"stone": 0.0,
+"struct": 0.49,
 "veg": 0.0,
-"wood": 0.001
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": true
 },
 "892D09656C8798B8": {
@@ -27339,20 +27735,24 @@
 "8A60DB1E7DAFD770": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.281,
-"ceramic": 0.004,
+"brick": 0.27,
+"ceramic": 0.005,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.308,
+"paint": 0.309,
 "panes": 0,
 "stone": 0.0,
 "struct": 0.96,
 "veg": 0.003,
-"wood": 0.121
+"wood": 0.119
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.25
+],
 "wet": false
 },
 "8A6F6D8A86AC64B7": {
@@ -27385,11 +27785,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.55,
-"veg": 0.878,
+"veg": 0.879,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.37
+],
 "wet": false
 },
 "8AA4E01E927C57B9": {
@@ -27933,21 +28337,25 @@
 },
 "8D3634B2E4B6BBCE": {
 "cls": {
-"asphalt": 0.789,
+"asphalt": 0.779,
 "brick": 0.014,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.012,
+"paint": 0.014,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.32,
+"stone": 0.01,
+"struct": 0.45,
 "veg": 0.0,
-"wood": 0.001
+"wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "8D480D67CA0B1C63": {
@@ -28223,12 +28631,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.26,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "8E5E7C69E3F4C2C6": {
@@ -28326,7 +28738,7 @@
 },
 "8E9C8242870CDCF0": {
 "cls": {
-"asphalt": 0.518,
+"asphalt": 0.523,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -28335,12 +28747,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.27,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "8EC103769C78FB6E": {
@@ -28444,15 +28860,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.001,
+"paint": 0.006,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.961,
+"struct": 0.29,
+"veg": 0.962,
 "wood": 0.004
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "8F185F02C456CF32": {
@@ -28754,20 +29174,24 @@
 "90CC4DAA6D10DA67": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.05,
+"brick": 0.048,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.0,
+"paint": 0.001,
 "panes": 0,
 "stone": 0.0,
 "struct": 0.6,
-"veg": 0.005,
-"wood": 0.357
+"veg": 0.004,
+"wood": 0.332
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.78
+],
 "wet": false
 },
 "90EC56380FBDFB90": {
@@ -28778,15 +29202,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.002,
+"paint": 0.003,
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.57,
+"veg": 0.565,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+0.71
+],
 "wet": false
 },
 "90F82AAB37718611": {
@@ -28865,21 +29293,21 @@
 },
 "9204337297161A66": {
 "cls": {
-"asphalt": 0.06,
+"asphalt": 0.725,
 "brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.103,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.368,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.257,
-"struct": 1.0,
+"stone": 0.0,
+"struct": 0.36,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": false
 },
 "9206E20FE655BD6F": {
@@ -29078,15 +29506,19 @@
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.101,
+"paint": 0.087,
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.708,
+"veg": 0.711,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+1.0
+],
 "wet": false
 },
 "92F6DF64C3665928": {
@@ -29111,20 +29543,24 @@
 "92F7494198B8245A": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.017,
-"ceramic": 0.306,
+"brick": 0.021,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.001,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.37,
-"veg": 0.135,
-"wood": 0.005
+"struct": 0.54,
+"veg": 0.121,
+"wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "933D6BA5EA07EC9B": {
@@ -29177,12 +29613,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.39,
-"veg": 0.019,
+"struct": 0.4,
+"veg": 0.02,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.82
+],
 "wet": false
 },
 "93632985E71882A4": {
@@ -29719,11 +30159,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.57,
-"veg": 0.049,
+"veg": 0.048,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.52
+],
 "wet": false
 },
 "95B7D65D24552252": {
@@ -30757,21 +31201,25 @@
 },
 "9AF02208553E6DB5": {
 "cls": {
-"asphalt": 0.004,
-"brick": 0.02,
-"ceramic": 0.366,
+"asphalt": 0.003,
+"brick": 0.021,
+"ceramic": 0.209,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.019,
-"struct": 0.28,
-"veg": 0.047,
+"stone": 0.02,
+"struct": 0.3,
+"veg": 0.048,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.28
+],
 "wet": false
 },
 "9B0FB6FFFF227719": {
@@ -31128,21 +31576,25 @@
 },
 "9C8E60C81011C861": {
 "cls": {
-"asphalt": 0.703,
-"brick": 0.005,
+"asphalt": 0.694,
+"brick": 0.006,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.021,
+"paint": 0.022,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.34,
+"stone": 0.008,
+"struct": 0.48,
 "veg": 0.0,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "9C9391BF7A841F05": {
@@ -31259,20 +31711,24 @@
 "9D67310F1E935C71": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.009,
-"ceramic": 1.0,
+"brick": 0.024,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.001,
+"struct": 0.5,
 "veg": 0.0,
-"wood": 0.0
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "9D7574C15FBA543C": {
@@ -32152,19 +32608,23 @@
 "cls": {
 "asphalt": 0.892,
 "brick": 0.001,
-"ceramic": 0.003,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.033,
+"paint": 0.034,
 "panes": 0,
 "stone": 0.003,
-"struct": 0.69,
+"struct": 0.7,
 "veg": 0.0,
 "wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.42
+],
 "wet": true
 },
 "A18F32344601714C": {
@@ -32217,11 +32677,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.42,
-"veg": 0.316,
+"veg": 0.314,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.34
+],
 "wet": false
 },
 "A1D8A03D4BA8ED26": {
@@ -32544,7 +33008,7 @@
 },
 "A3823D5A51B28D23": {
 "cls": {
-"asphalt": 0.011,
+"asphalt": 0.012,
 "brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -32553,12 +33017,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.49,
-"veg": 0.922,
+"struct": 0.5,
+"veg": 0.923,
 "wood": 0.004
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.55
+],
 "wet": false
 },
 "A386698D7D6EB74C": {
@@ -32712,7 +33180,7 @@
 },
 "A49DF3D468949B1F": {
 "cls": {
-"asphalt": 0.001,
+"asphalt": 0.002,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -32721,12 +33189,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.3,
-"veg": 0.829,
+"struct": 0.34,
+"veg": 0.836,
 "wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.64
+],
 "wet": false
 },
 "A4A37E1F4B665549": {
@@ -32752,19 +33224,23 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.002,
-"ceramic": 0.386,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.004,
+"paint": 0.009,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.017,
-"wood": 0.011
+"struct": 0.44,
+"veg": 0.013,
+"wood": 0.024
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "A4C14E340C48BD4A": {
@@ -33046,7 +33522,7 @@
 "A603E46704226E2B": {
 "cls": {
 "asphalt": 0.003,
-"brick": 0.028,
+"brick": 0.03,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -33054,12 +33530,16 @@
 "paint": 0.002,
 "panes": 0,
 "stone": 0.002,
-"struct": 0.31,
-"veg": 0.25,
-"wood": 0.081
+"struct": 0.38,
+"veg": 0.217,
+"wood": 0.052
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+0.88
+],
 "wet": false
 },
 "A60C52D2DA9FF6F9": {
@@ -33248,21 +33728,25 @@
 },
 "A7A4F191E52618C1": {
 "cls": {
-"asphalt": 0.515,
-"brick": 0.005,
+"asphalt": 0.512,
+"brick": 0.004,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.002,
+"struct": 0.33,
 "veg": 0.0,
 "wood": 0.007
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "A7BD860D973E10C1": {
@@ -33519,12 +34003,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.58,
+"struct": 0.57,
 "veg": 0.86,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.34
+],
 "wet": false
 },
 "A8F30A9710148A28": {
@@ -33547,20 +34035,21 @@
 },
 "A9091DDA07E9E69F": {
 "cls": {
-"asphalt": 0.479,
+"asphalt": 1.0,
 "brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.105,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.417,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.077,
-"struct": 0.95,
+"stone": 0.0,
+"struct": 0.38,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
+"ground": "iron",
 "wet": false
 },
 "A91F17C0C46C4981": {
@@ -33620,20 +34109,24 @@
 "A962AEC97CD4704D": {
 "cls": {
 "asphalt": 0.002,
-"brick": 0.063,
+"brick": 0.064,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.332,
+"paint": 0.329,
 "panes": 0,
 "stone": 0.0,
 "struct": 1.0,
-"veg": 0.321,
-"wood": 0.299
+"veg": 0.322,
+"wood": 0.291
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.55
+],
 "wet": false
 },
 "A969BC0BF9A6F9B3": {
@@ -34056,12 +34549,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.48,
+"struct": 0.49,
 "veg": 0.005,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.81
+],
 "wet": false
 },
 "AB66A6EC9323068A": {
@@ -34102,7 +34599,7 @@
 },
 "AB87930F5B2C8AE8": {
 "cls": {
-"asphalt": 0.492,
+"asphalt": 0.493,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -34111,12 +34608,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.28,
+"struct": 0.35,
 "veg": 0.001,
 "wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.84
+],
 "wet": false
 },
 "AB8C07BDA2829A70": {
@@ -34354,31 +34855,39 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.55,
+"struct": 0.56,
 "veg": 0.002,
-"wood": 0.243
+"wood": 0.23
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.52
+],
 "wet": true
 },
 "AC7B25C8D6CDF1AA": {
 "cls": {
-"asphalt": 0.066,
+"asphalt": 0.069,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.024,
+"paint": 0.027,
 "panes": 0,
 "stone": 0.02,
-"struct": 0.35,
-"veg": 0.177,
-"wood": 0.017
+"struct": 0.43,
+"veg": 0.18,
+"wood": 0.009
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.89
+],
 "wet": false
 },
 "AC834D6C0F149E14": {
@@ -34464,32 +34973,36 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.001,
-"wood": 0.049
+"struct": 0.38,
+"veg": 0.003,
+"wood": 0.035
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.95
+],
 "wet": false
 },
 "ACA5A90533FA8A65": {
 "cls": {
-"asphalt": 0.063,
-"brick": 0.025,
-"ceramic": 0.214,
-"chrome": 0.031,
+"asphalt": 0.79,
+"brick": 0.0,
+"ceramic": 0.0,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.081,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.375,
-"struct": 1.0,
-"veg": 0.001,
-"wood": 0.037
+"stone": 0.0,
+"struct": 0.54,
+"veg": 0.0,
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
-"wet": false
+"ground": "iron",
+"wet": true
 },
 "ACB1608571F0460B": {
 "cls": {
@@ -35049,22 +35562,26 @@
 },
 "AFD2CC195A34F15F": {
 "cls": {
-"asphalt": 0.564,
+"asphalt": 0.325,
 "brick": 0.026,
-"ceramic": 0.001,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.029,
-"struct": 0.25,
+"stone": 0.144,
+"struct": 0.37,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
-"wet": true
+"micro": [
+"paving",
+1.0
+],
+"wet": false
 },
 "AFDE22B1893F6DB5": {
 "cls": {
@@ -35298,12 +35815,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.27,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "B186DF74186B57D1": {
@@ -35576,12 +36097,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.26,
 "veg": 0.0,
-"wood": 0.0
+"wood": 0.063
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": true
 },
 "B308163D6E8B1339": {
@@ -35662,21 +36187,25 @@
 },
 "B3C98B6DB1BEBF01": {
 "cls": {
-"asphalt": 0.037,
+"asphalt": 0.046,
 "brick": 0.0,
-"ceramic": 0.045,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.023,
-"struct": 0.51,
-"veg": 0.005,
+"stone": 0.067,
+"struct": 0.6,
+"veg": 0.016,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "B3D7DBBD7A2FCCEF": {
@@ -35700,7 +36229,7 @@
 },
 "B3E0CC79D0E411D5": {
 "cls": {
-"asphalt": 0.599,
+"asphalt": 0.597,
 "brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -35708,13 +36237,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.001,
+"struct": 0.31,
 "veg": 0.0,
 "wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "B40498B5BC2B06A5": {
@@ -35775,8 +36308,8 @@
 },
 "B4D36C1F256A3FC0": {
 "cls": {
-"asphalt": 0.88,
-"brick": 0.012,
+"asphalt": 0.883,
+"brick": 0.014,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -35784,12 +36317,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.34,
+"struct": 0.39,
 "veg": 0.0,
-"wood": 0.014
+"wood": 0.013
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.82
+],
 "wet": true
 },
 "B4E02E735C24543A": {
@@ -36054,7 +36591,7 @@
 },
 "B6E32D78DF1AB597": {
 "cls": {
-"asphalt": 0.788,
+"asphalt": 0.779,
 "brick": 0.003,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -36062,13 +36599,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.001,
+"stone": 0.007,
 "struct": 0.69,
 "veg": 0.001,
 "wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.27
+],
 "wet": true
 },
 "B6E955734A9E3E27": {
@@ -36611,21 +37152,25 @@
 },
 "BAA9BBC44496BEEA": {
 "cls": {
-"asphalt": 0.913,
-"brick": 0.007,
+"asphalt": 0.91,
+"brick": 0.008,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.36,
+"stone": 0.006,
+"struct": 0.4,
 "veg": 0.0,
-"wood": 0.014
+"wood": 0.012
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.79
+],
 "wet": true
 },
 "BAC20A4F18762AED": {
@@ -37424,21 +37969,25 @@
 },
 "BF0245ADEA5ABB62": {
 "cls": {
-"asphalt": 0.004,
-"brick": 0.013,
-"ceramic": 0.365,
+"asphalt": 0.006,
+"brick": 0.017,
+"ceramic": 0.004,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.013,
+"paint": 0.016,
 "panes": 0,
-"stone": 0.015,
-"struct": 0.36,
-"veg": 0.002,
-"wood": 0.046
+"stone": 0.012,
+"struct": 0.48,
+"veg": 0.003,
+"wood": 0.034
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.81
+],
 "wet": false
 },
 "BF0C0FB43FD04958": {
@@ -37528,12 +38077,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.33,
+"struct": 0.34,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.32
+],
 "wet": false
 },
 "BF722E6B031B3F75": {
@@ -37604,11 +38157,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.48,
-"veg": 0.262,
+"veg": 0.254,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.42
+],
 "wet": false
 },
 "BFA790C302A9CDD1": {
@@ -37744,7 +38301,7 @@
 },
 "C01C70B03EE735A0": {
 "cls": {
-"asphalt": 0.621,
+"asphalt": 0.551,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -37752,32 +38309,40 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.005,
-"struct": 0.3,
+"stone": 0.035,
+"struct": 0.37,
 "veg": 0.002,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.7
+],
 "wet": true
 },
 "C026749A7DA9639E": {
 "cls": {
 "asphalt": 0.019,
 "brick": 0.0,
-"ceramic": 0.041,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.086,
-"struct": 0.78,
-"veg": 0.0,
+"stone": 0.126,
+"struct": 0.82,
+"veg": 0.001,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.62
+],
 "wet": false
 },
 "C029DBCD4E1711E0": {
@@ -37962,11 +38527,15 @@
 "panes": 0,
 "stone": 0.001,
 "struct": 0.59,
-"veg": 0.565,
+"veg": 0.563,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.29
+],
 "wet": false
 },
 "C19FBDDBA42643C1": {
@@ -38509,21 +39078,25 @@
 },
 "C44B52D2C9E95011": {
 "cls": {
-"asphalt": 0.682,
-"brick": 0.015,
+"asphalt": 0.672,
+"brick": 0.016,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.013,
+"paint": 0.019,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.4,
+"stone": 0.009,
+"struct": 0.52,
 "veg": 0.0,
 "wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "C45E132CCD983EEF": {
@@ -38902,7 +39475,7 @@
 "C5F7A281AB6A9120": {
 "cls": {
 "asphalt": 0.011,
-"brick": 0.046,
+"brick": 0.044,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -38910,12 +39483,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.061,
-"wood": 0.076
+"struct": 0.35,
+"veg": 0.041,
+"wood": 0.037
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "C60353393DB6BF05": {
@@ -39106,7 +39683,7 @@
 },
 "C746ECA338FD1AAB": {
 "cls": {
-"asphalt": 0.528,
+"asphalt": 0.531,
 "brick": 0.004,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -39114,13 +39691,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.001,
+"struct": 0.28,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "C746F573335F2927": {
@@ -39143,21 +39724,25 @@
 },
 "C75455E79778941F": {
 "cls": {
-"asphalt": 0.057,
-"brick": 0.074,
-"ceramic": 0.17,
+"asphalt": 0.059,
+"brick": 0.082,
+"ceramic": 0.09,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
+"stone": 0.001,
 "struct": 0.82,
 "veg": 0.004,
-"wood": 0.058
+"wood": 0.056
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.39
+],
 "wet": false
 },
 "C78C54F450C5EBA2": {
@@ -39424,7 +40009,7 @@
 },
 "C9113C90BEFF3799": {
 "cls": {
-"asphalt": 0.864,
+"asphalt": 0.578,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -39439,6 +40024,10 @@
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "C91B6DB5753FE937": {
@@ -39832,21 +40421,21 @@
 },
 "CBBDE66B9C6A6F74": {
 "cls": {
-"asphalt": 0.4,
+"asphalt": 0.925,
 "brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.024,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.19,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.153,
-"struct": 1.0,
-"veg": 0.01,
+"stone": 0.0,
+"struct": 0.59,
+"veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
+"ground": "iron",
 "wet": true
 },
 "CBCDC3C51373CFE0": {
@@ -39884,6 +40473,10 @@
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+1.0
+],
 "wet": false
 },
 "CC00E9F46565718D": {
@@ -40046,12 +40639,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.36,
-"veg": 0.125,
+"struct": 0.37,
+"veg": 0.136,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.93
+],
 "wet": false
 },
 "CCA6D618BE02D9E5": {
@@ -40179,11 +40776,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.54,
-"veg": 0.514,
+"veg": 0.512,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.32
+],
 "wet": false
 },
 "CDA3E2855654E4A0": {
@@ -40711,7 +41312,7 @@
 "CF65259C72C271F1": {
 "cls": {
 "asphalt": 0.002,
-"brick": 0.988,
+"brick": 0.987,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -40719,12 +41320,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.26,
+"struct": 0.32,
 "veg": 0.001,
-"wood": 0.023
+"wood": 0.031
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": true
 },
 "CF6B9D7DE13B8DE1": {
@@ -40989,19 +41594,23 @@
 "cls": {
 "asphalt": 0.02,
 "brick": 0.944,
-"ceramic": 0.019,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.5,
+"struct": 0.52,
 "veg": 0.004,
-"wood": 0.079
+"wood": 0.076
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.72
+],
 "wet": true
 },
 "D104E57EDE964096": {
@@ -41358,6 +41967,10 @@
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"grass",
+1.0
+],
 "wet": false
 },
 "D32839E189A96EE4": {
@@ -42325,39 +42938,47 @@
 "D8351C44167E61A4": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.01,
+"brick": 0.04,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.291,
+"paint": 0.237,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.29,
 "veg": 0.419,
-"wood": 0.001
+"wood": 0.007
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "D83E580FB7592AE4": {
 "cls": {
-"asphalt": 0.918,
-"brick": 0.006,
+"asphalt": 0.916,
+"brick": 0.008,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.43,
+"stone": 0.003,
+"struct": 0.44,
 "veg": 0.0,
-"wood": 0.025
+"wood": 0.024
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.52
+],
 "wet": true
 },
 "D8632E731455B0ED": {
@@ -42418,7 +43039,7 @@
 },
 "D8DE49BE418332CB": {
 "cls": {
-"asphalt": 0.002,
+"asphalt": 0.004,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -42428,11 +43049,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.35,
-"veg": 0.88,
-"wood": 0.0
+"veg": 0.881,
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.78
+],
 "wet": false
 },
 "D928628F4B7CB7F5": {
@@ -42475,7 +43100,7 @@
 },
 "D92CAF1B14C745C1": {
 "cls": {
-"asphalt": 0.038,
+"asphalt": 0.039,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -42484,12 +43109,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.322,
+"struct": 0.32,
+"veg": 0.335,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.81
+],
 "wet": false
 },
 "D975CEE263B8CA04": {
@@ -42531,7 +43160,7 @@
 },
 "D9B12CF786E7ACDB": {
 "cls": {
-"asphalt": 0.334,
+"asphalt": 0.337,
 "brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -42540,12 +43169,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.002,
-"struct": 0.55,
+"struct": 0.56,
 "veg": 0.004,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.46
+],
 "wet": false
 },
 "D9D06ADF205D2A7C": {
@@ -43661,12 +44294,16 @@
 "paint": 0.053,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.53,
+"struct": 0.55,
 "veg": 0.0,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+0.59
+],
 "wet": false
 },
 "DF9206BA2995F421": {
@@ -43855,7 +44492,7 @@
 "E0B279B12FBFBC54": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.622,
+"brick": 0.625,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -43869,6 +44506,10 @@
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.49
+],
 "wet": true
 },
 "E0C00E2BB2C6F3B3": {
@@ -44033,11 +44674,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.62,
-"veg": 0.189,
+"veg": 0.188,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.49
+],
 "wet": false
 },
 "E1ACA502A07CD5B5": {
@@ -44435,22 +45080,22 @@
 },
 "E414DD9BF9B03A82": {
 "cls": {
-"asphalt": 0.229,
-"brick": 0.013,
+"asphalt": 0.727,
+"brick": 0.0,
 "ceramic": 0.0,
-"chrome": 0.034,
+"chrome": 0.0,
 "glass": 0.0,
-"metal": 0.174,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.03,
-"struct": 1.0,
-"veg": 0.064,
-"wood": 0.052
+"stone": 0.0,
+"struct": 0.38,
+"veg": 0.016,
+"wood": 0.0
 },
 "displace_in": 0.0,
-"ground": "cut",
-"wet": false
+"ground": "iron",
+"wet": true
 },
 "E429B8F6CE921FFA": {
 "cls": {
@@ -44610,12 +45255,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.021,
+"struct": 0.38,
+"veg": 0.024,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "E502822E2B28F79D": {
@@ -45419,7 +46068,7 @@
 },
 "E93B36BEF6E10A26": {
 "cls": {
-"asphalt": 0.923,
+"asphalt": 0.708,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -45427,13 +46076,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.06,
-"struct": 0.25,
+"stone": 0.27,
+"struct": 0.33,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+1.0
+],
 "wet": true
 },
 "E9521A60228584F9": {
@@ -45804,7 +46457,7 @@
 },
 "EB4C1FA80A208DEA": {
 "cls": {
-"asphalt": 0.484,
+"asphalt": 0.422,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -45813,12 +46466,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.31,
-"veg": 0.013,
+"struct": 0.32,
+"veg": 0.017,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "EB5D75E2F2AAED9E": {
@@ -46098,12 +46755,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.4,
-"veg": 0.964,
+"struct": 0.41,
+"veg": 0.966,
 "wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.25
+],
 "wet": false
 },
 "ECA134BA9871E077": {
@@ -46336,19 +46997,23 @@
 "cls": {
 "asphalt": 0.0,
 "brick": 0.006,
-"ceramic": 0.257,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.004,
+"paint": 0.005,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.45,
 "veg": 0.0,
-"wood": 0.003
+"wood": 0.005
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "EE5C45D1F432E74A": {
@@ -46632,7 +47297,7 @@
 },
 "EFC419881B6324AA": {
 "cls": {
-"asphalt": 0.001,
+"asphalt": 0.002,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -46641,12 +47306,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.009,
+"struct": 0.26,
+"veg": 0.099,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "EFF4FAE712868924": {
@@ -47974,12 +48643,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.34,
+"struct": 0.4,
 "veg": 0.006,
 "wood": 0.005
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"concrete",
+0.9
+],
 "wet": true
 },
 "F7A9BA3BD10B27F3": {
@@ -48240,7 +48913,7 @@
 },
 "F99B39F661825494": {
 "cls": {
-"asphalt": 0.507,
+"asphalt": 0.5,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -48248,13 +48921,17 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.006,
+"struct": 0.3,
 "veg": 0.0,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "F9C652E074992C2E": {
@@ -48292,6 +48969,10 @@
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "FA1B449C798AF613": {
@@ -48520,21 +49201,25 @@
 },
 "FBC6B73F8291724D": {
 "cls": {
-"asphalt": 0.883,
-"brick": 0.007,
+"asphalt": 0.878,
+"brick": 0.008,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.54,
+"stone": 0.004,
+"struct": 0.55,
 "veg": 0.0,
 "wood": 0.016
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+0.53
+],
 "wet": true
 },
 "FBE25380E876F2A0": {
@@ -48613,20 +49298,24 @@
 "FCC18243DF096C1A": {
 "cls": {
 "asphalt": 0.0,
-"brick": 0.021,
-"ceramic": 0.381,
+"brick": 0.024,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.0,
+"paint": 0.001,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.27,
-"veg": 0.057,
-"wood": 0.034
+"struct": 0.48,
+"veg": 0.047,
+"wood": 0.027
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"paving",
+1.0
+],
 "wet": false
 },
 "FCCF4897877B7FAD": {
@@ -48640,12 +49329,16 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.29,
 "veg": 0.0,
-"wood": 0.0
+"wood": 0.014
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": true
 },
 "FD0465EB84EDCAB7": {
@@ -48733,11 +49426,15 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.003,
+"veg": 0.004,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "pave",
+"micro": [
+"asphalt",
+1.0
+],
 "wet": false
 },
 "FD860970D0048A87": {

@@ -124,8 +124,67 @@ WARM = [(1.0, 0.72, 0.42), (1.0, 0.82, 0.55), (1.0, 0.62, 0.32), (0.75, 0.85, 1.
 #         texels of saturated paint, which takes in the white patches of a mosaic); the wall
 #         around a mural keeps its brick relief. No parallax on the tile.
 GROUND_GAIN = {"road": (0.2, 0.5), "pave": (0.45, 0.7), "flat": (0.12, 0.35)}   # (structure, grain) gain
+MICRO_GAIN = 0.28    # FIX-REMIX-MATERIALS-4: slope per texel of the scan height (std 1) at 512 px
 FLAT_WALL = {"wil": set(), "bil": set(), "ste": set(range(160, 179)) - {163}}
 MURAL_WALL = {"wil": {175}, "bil": set(), "ste": {355, 759, 760, 761, 762}}
+
+# FIX-REMIX-MATERIALS-4 (ptrmx17-remix-ste-iron-fence-slats-read-as-chrome-mirror-and-clay-by-side): the
+# railing and fence tiles (cut-outs of bars, rails, finials, gates) are painted iron. analyse() took the
+# bars' long bright stripes (the upscaler's baked cylinder highlight) for oriented metal and chrome
+# (ste 52: metal 0.45 / chrome 0.75 at roughness 0.2-0.38), so path traced the slats mirrored the sky in
+# shade and the baked highlight read as cream clay in sun. Class "iron": dielectric paint (no metallic
+# map), roughness 0.52-0.72 from the paint's grain, the albedo's luminance compressed round a dark mean
+# (iron_albedo) so the baked highlight goes and the real light shapes the bar. Curated from a sheet of
+# the cut-out tiles the detector calls metal (signs, siding and trellises stay as they were).
+IRON_RAIL = {"wil": {217, 623},
+             "bil": {25, 382, 421, 422, 623, 850, 859, 869},
+             "ste": {47, 52, 77, 408, 457, 510, 909, 987}}
+
+def iron_albedo(rgba, mean=0.17, relief=0.05, desat=0.6):
+    """Painted iron from a railing tile: each opaque texel's sRGB luminance becomes
+    mean + relief * its clipped z-score (the bars' baked highlight and shadow shrink to a faint
+    modulation), its chroma kept at `desat` of the tile's own (smoothed) hue, never brighter than
+    the tile was. Alpha untouched."""
+    a = rgba[..., 3] >= 128
+    rgb = rgba[..., :3].astype(np.float32) / 255.0
+    L = 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
+    if not a.any(): return rgba
+    mu, sd = float(L[a].mean()), float(L[a].std()) or 1.0
+    m = min(mean, mu)
+    Lt = np.clip(m + relief * np.clip((L - mu) / sd, -2.0, 2.0), 0.03, 0.6)
+    w = a.astype(np.float32)
+    chroma = np.stack([gauss(rgb[..., c] * w, 3.0) for c in range(3)], -1) / np.maximum(gauss(L * w, 3.0), 1e-3)[..., None]
+    chroma = 1.0 + desat * (np.clip(chroma, 0.5, 1.6) - 1.0)
+    out = rgba.copy()
+    out[..., :3] = np.where(a[..., None], np.clip(chroma * Lt[..., None] * 255.0, 0, 255), rgba[..., :3]).astype(np.uint8)
+    return out
+
+# FIX-REMIX-MATERIALS-4 (ptrmx17-remix-ste-sidewalk-featureless-custard-plane-no-tile-no-normal): ~150
+# ground lids' HD art is smooth (the upscaler wiped the grain: ste 516, the ste pavement, is an olive-to-sand
+# gradient with grain RMS 0.002 against a median 0.02), so analyse() had nothing to make a normal or a
+# roughness variation from and path traced they were one painted plane. For these lids the layer takes
+# the micro-surface of the CC0 scan the photo pass picked for the tile (tools/photoreal_tiles.py MATERIALS,
+# ambientCG, at its real size on a 4 m block): its colour grain into the albedo (luminance only, the
+# tile's own colours stay), its displacement as height into the normal, and both into the roughness.
+# The tile -> material list is tools/remix_micro_tiles.json.
+def micro_surface(cc0, cls, size, amp=1.0):
+    """(albedo gain, height, grime) at `size` for one photo-pass class, or None: gain is a per-texel
+    luminance factor around 1, height the displacement high-pass (std ~1), grime the scan's mid band
+    (darker patches > 0)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import photoreal_tiles as pt, glob
+    from PIL import Image
+    mid, metres, ga, ra = pt.MATERIALS.get(cls, (None, 0, 0, 0))
+    if mid is None or not glob.glob(os.path.join(cc0, mid, "*_Color.jpg")): return None
+    g, hgt = pt.material(cc0, mid, metres, size)
+    reps = max(1, int(round(pt.BLOCK_M / metres))); cell = size // reps
+    col = Image.open(glob.glob(os.path.join(cc0, mid, "*_Color.jpg"))[0]).convert("L").resize((cell, cell), Image.LANCZOS)
+    Lc = np.tile(np.asarray(col).astype(np.float32) / 255.0, (reps, reps))
+    if Lc.shape[0] != size: Lc = resize_f(Lc, size)
+    mb = gauss(Lc, size / 64.0) - gauss(Lc, size / 8.0)          # ~6 cm .. 50 cm patches: stains, wear
+    grime = np.clip(-mb / (mb.std() + 1e-4), -2.5, 2.5) / 2.5
+    gain = np.exp(amp * (0.09 * ga * g - 0.08 * grime))
+    return gain.astype(np.float32), (amp * ra * hgt).astype(np.float32), (amp * grime).astype(np.float32)
 
 def mural_like(rgba):
     """True for a wall tile that is mostly paint of several hues (murals, mosaics, painted
@@ -139,7 +198,7 @@ def mural_like(rgba):
     bins = np.bincount((hue[s] // 30).astype(int) % 12, minlength=12) / s.size
     return bool(s.mean() > 0.12 and (bins > 0.02).sum() >= 3)
 
-def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0, ground=None):
+def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0, ground=None, micro=None):
     """Maps for one texture (uint8 RGBA, any size). Returns a dict:
     normal (h, w, 3 float, DirectX tangent space), rough / rough_wet / metal / height
     (uint8 h, w; metal and height None when the texture has none), displace (float,
@@ -294,6 +353,12 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
         rough = np.where(rp, np.maximum(rough, 0.62), np.maximum(rough, 0.86))
     elif ground == "pave":
         rough = np.where(metal | chrome | glass, rough, np.maximum(rough, 0.74))
+    if micro is not None:                          # FIX-REMIX-MATERIALS-4: scan micro-surface (micro_surface)
+        mh, mg = micro
+        rough = np.clip(rough + 0.07 * mg - 0.025 * np.clip(mh, -2, 2), 0.55, 0.98)   # grime rougher, worn tops smoother
+    if ground == "iron":                           # FIX-REMIX-MATERIALS-4: painted iron, never metal or chrome
+        metal &= False; chrome &= False
+        rough = gauss(np.clip(0.62 + 0.12 * (busy - 0.4) + 0.6 * grime, 0.52, 0.72), 0.6 * S + 0.2, wrap)
     w_s = np.where(flat, 0.25, 1.0); w_g = np.where(glass, 0.15, 1.0)
     if ground == "mural":
         colourful = ((sat > 0.25) & (val > 0.25)).astype(np.float32)
@@ -302,6 +367,8 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
         w_s = w_s * (1 - region * (1 - GROUND_GAIN["flat"][0]))
         w_g = w_g * (1 - region * (1 - GROUND_GAIN["flat"][1]))
     Hn = (k_s * Hs * w_s + k_g * Hg * w_g) * visf
+    if micro is not None:
+        Hn = Hn + MICRO_GAIN / S * micro[0] * visf
     nx, ny = grad(Hn, wrap)
     # slope in "units of texels", keep the tilt sane
     n = np.stack([-nx, ny, np.ones_like(nx)], -1)  # DirectX tangent space (+V down the image)

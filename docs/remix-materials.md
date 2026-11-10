@@ -1578,3 +1578,47 @@ for a thousand tiles, now 2 s). Rebuild (into a scratch layer, then merge):
         --map-size 256 --jobs 5 --gmp-dir game/data --only-classed --classes road,pave,flat,cut,lift --force --exclude <upstream usda>
     $P repo/tools/remix_materials.py - <scratch>/gta2hd --wet-layer
     $P repo/tools/remix_layer_merge.py <scratch>/gta2hd <layer> <hashes of scratch pbr.json> --tiles
+
+## Smooth ground lids, iron railings, leaf atlases (FIX-REMIX-MATERIALS-4, 10 Nov 2026)
+
+Three changes to what the gta2hd layer draws; no renderer change, every Remix hash stays the game's, the plain views
+cannot change (the classic view under Remix draws the same layer, so its lids gain the same grain from above).
+
+**Smooth ground lids get a scan's micro-surface** (ptrmx17-remix-ste-sidewalk-featureless-custard-plane-no-tile-no-normal).
+The ste "sidewalk" at 193.5,60.5 and 160.5,45.5 is tile **ste 516** (1 372 lids in the district): in the game's 64 px art an
+olive-to-sand verge with no joints, and its HD upscale is a smooth gradient (grain RMS 0.002 against a median 0.02 over the
+966 pave lids). `analyse()` had nothing to build relief or roughness variation from, so path traced it was one painted plane.
+The prim existed (no missing hash). 174 pave lids with grain RMS under ~0.010 (wil 29, bil 35, ste 110: paving, asphalt,
+concrete and lawn tiles) are listed in `tools/remix_micro_tiles.json` with the photo pass's material class
+(`photoreal_tiles.py` labels + `photo_label_fixes.json`) and an amplitude (1 at grain RMS 0.004, 0 at 0.012).
+`remix_pbr.micro_surface` takes that class's ambientCG scan (CC0, `photoreal_tiles.py fetch`, at its real size on a 4 m
+block): the colour's luminance high-pass as grain and its 6-50 cm band as grime into the albedo (luminance only, x
+exp(0.09 ga g - 0.08 grime)), the displacement high-pass as height into the normal (`MICRO_GAIN` 0.28: tilt p50/p90 ~9/20 deg
+on 516, was 1/6), and both into the roughness (grime rougher, worn tops smoother; 0.63-0.98 instead of a flat 0.74-0.94).
+No joints are invented: the art has none. Build with `--cc0 <ambientCG dir>` (`--classes micro`).
+
+**Railings are painted iron** (ptrmx17-remix-ste-iron-fence-slats-read-as-chrome-mirror-and-clay-by-side). The ste fence
+(sides **ste 52**, finial tops ste 47) was classed per texel as oriented metal and chrome (the upscaler bakes a bright
+cylinder highlight down each bar): metallic map 0.45/0.75, roughness 0.11-0.38, so in shade the slats mirrored the sky and
+in sun the baked highlight read as cream clay. Class **iron** (`remix_pbr.IRON_RAIL`, 17 tiles curated from a sheet of the
+cut-outs the detector calls metal: wil 217 623; bil 25 382 421 422 623 850 859 869; ste 47 52 77 408 457 510 909 987):
+no metallic map (painted iron is a dielectric), roughness 0.52-0.72 from the paint's grain, albedo luminance compressed round
+sRGB 0.17 (`iron_albedo`: the baked highlight goes, the hue kept at 60 %), coverage-preserving mips. Signs, siding and the
+white lattice trellises keep their old maps.
+
+**Leaf atlases have a prim.** `tree_01_1` / `tree_02_1` / `tree_03_1.tga` had none (runtime default material): now the
+model-material tool's lone prim (roughness map ~0.85, metallic 0, derived leaf normal, the game's alpha test) with
+coverage-preserving albedo mips. It does not cure the dusk crowns: see below.
+
+**Seen path traced** (GPU 3, `playtest_remix.sh`, REMIX_NVCACHE=1, private stage = shared stage + c4fc56a DLLs,
+`-e GTA2DX9_SCENE_NO_CAR=1`; before = the shipped layer of 4ae2112 via `MODS_HD_SRC`, after = it with these prims merged):
+see the FIX-REMIX-MATERIALS-4 journal line for the run names and what each frame shows.
+
+**Still short / not mine:**
+* The **dusk tree crowns** (pt-remix-dusk-tree-crowns) keep their hard dark wedges with the leaf prim (bil 140,246 17:30):
+  the leaf texels are not dark (opaque sRGB mean 0.23-0.28; a luminance lift moved it by 0.02), so the black is the canopy
+  cards shading each other: geometry, `tools/gen_trees.py canopy_shell` (props #8).
+* The **far rooftop railing** of pt-remix-third-distant-fence (bil 140,246 17:30, the filer's heading): reproduced on the
+  4ae2112 layer and on this one, horizontal cream/dark ribbons with torn ends. The coverage-preserving mips (in both) do not
+  clear it; what is torn is a thin alpha-tested structure a few pixels high at grazing angle (sub-pixel alpha test and the
+  denoiser), not the mips.

@@ -324,6 +324,8 @@ def tile_classes(gmp_dir, style, hd_dir=None):
                 out[int(m.group(1))] = ("mural", False)
             elif 0.01 < float((rgba[::4, ::4, 3] < 128).mean()) < 0.99:
                 out[int(m.group(1))] = ("cut", False)     # fences, railings, grilles: coverage mips, no parallax
+    for t in remix_pbr.IRON_RAIL.get(style, ()):            # FIX-REMIX-MATERIALS-4: railings are painted iron
+        out[t] = ("iron", False)
     for t in remix_pbr.VEG_LIFT.get(style, ()):
         out[t] = (out.get(t, (None, False))[0], "solid" if t in remix_pbr.VEG_SOLID.get(style, ()) else True)
     return out
@@ -338,7 +340,7 @@ def pbr_tile(job):
     under Remix the plain tile's hash keys it, the clean paint is what is drawn)."""
     import shutil, remix_pbr
     path, h, tex_dir, size, map_size = job[:5]
-    ground, lift, albedo = (tuple(job[5:]) + (None, False, None))[:3] if len(job) > 5 else (None, False, None)
+    ground, lift, albedo, micro = (tuple(job[5:]) + (None, False, None, None))[:4] if len(job) > 5 else (None, False, None, None)
     src = albedo or path
     rgba = np.asarray(Image.open(src).convert("RGBA"))
     if rgba.shape[0] != size: rgba = resize(rgba, size)
@@ -348,6 +350,9 @@ def pbr_tile(job):
     if lift:
         rgba = remix_pbr.veg_albedo(rgba, solid=lift == "solid")
         (write_albedo_cutout if cut else write_albedo)(a_path, rgba)
+    elif ground == "iron":                               # FIX-REMIX-MATERIALS-4: painted iron, coverage mips
+        rgba = remix_pbr.iron_albedo(rgba)
+        (write_albedo_cutout if cut else write_albedo)(a_path, rgba)
     elif cut:                                            # FIX-REMIX-MATERIALS-3: keep the bars at distance
         write_albedo_cutout(a_path, rgba)
     elif ground == "road" and albedo is None:            # FIX-REMIX-MATERIALS-3: no contour bands
@@ -355,10 +360,20 @@ def pbr_tile(job):
         write_albedo(a_path, rgba)
     else:
         shutil.copyfile(src, a_path)
+    mic = None
+    if micro:                                            # FIX-REMIX-MATERIALS-4: a smooth lid gets a scan's micro-surface
+        ms = remix_pbr.micro_surface(micro[2], micro[0], rgba.shape[0], micro[1])
+        if ms is not None:
+            gain, mh, mg = ms
+            rgba = rgba.copy()
+            rgba[..., :3] = np.clip(rgba[..., :3].astype(np.float32) * gain[..., None], 0, 255).astype(np.uint8)
+            if os.path.lexists(a_path): os.remove(a_path)
+            (write_albedo_cutout if cut else write_albedo)(a_path, rgba)
+            mic = (mh, mg)
     for ext in "nrmhw":                                  # same for every other map (dds() opens "wb")
         p = os.path.join(tex_dir, f"{h}.{ext}.rtex.dds")
         if os.path.lexists(p): os.remove(p)
-    r = remix_pbr.analyse(rgba, True, kind="tile", seed=h, ground=ground)
+    r = remix_pbr.analyse(rgba, True, kind="tile", seed=h, ground=ground, micro=mic)
     write_normal(os.path.join(tex_dir, f"{h}.n.rtex.dds"), r["normal"])
     write_roughness(os.path.join(tex_dir, f"{h}.r.rtex.dds"), small(r["rough"], map_size))
     for key, ext in (("metal", "m"), ("height", "h")):
@@ -378,24 +393,30 @@ def dds_tiles(a, tex_dir, taken):
     256 px band-pass normal and contrast roughness."""
     import json, shutil
     made = skipped = 0; t0 = time.time(); jobs = []
+    micro_list = json.load(open(a.micro_list)) if a.cc0 else {}
     for d in a.dds_tiles:
         style = os.path.basename(os.path.normpath(d))
         classes = tile_classes(a.gmp_dir, style, d) if a.gmp_dir else {}
+        mstyle = micro_list.get(style, {})
         roads = os.path.join(os.path.dirname(os.path.normpath(d)), "roads", style)
         for f in sorted(os.listdir(d)):
             if not f.endswith(".dds"): continue
             path = os.path.join(d, f)
             m = re.match(r"tile_(\d{4})\.dds$", f)
             ground, lift = classes.get(int(m.group(1)), (None, False)) if m else (None, False)
+            mc = mstyle.get(str(int(m.group(1)))) if m and ground in ("pave", "road") else None
+            micro = (mc["cls"], mc["amp"], a.cc0) if mc else None
             if a.only_classed and ground is None and not lift: continue
-            if a.classes and ground not in a.classes and not (lift and "lift" in a.classes): continue
+            if a.classes and ground not in a.classes and not (lift and "lift" in a.classes) \
+                    and not (micro and "micro" in a.classes): continue
+            if a.classes == {"micro"} and not micro: continue
             h = dds_hash(path, a.dds_hash)
             if h is None or h in taken: skipped += 1; continue
             if not a.force and os.path.exists(os.path.join(tex_dir, f"{h}.r.rtex.dds")): skipped += 1; continue
             taken.add(h)
             if a.pbr == "full":
                 alb = os.path.join(roads, f) if ground == "road" and os.path.exists(os.path.join(roads, f)) else None
-                jobs.append((path, h, tex_dir, a.size, a.map_size, ground, lift, alb)); continue
+                jobs.append((path, h, tex_dir, a.size, a.map_size, ground, lift, alb, micro)); continue
             shutil.copyfile(path, os.path.join(tex_dir, f"{h}.a.rtex.dds"))
             rgba = np.asarray(Image.open(path).convert("RGBA"))
             if rgba.shape[0] != a.size: rgba = resize(rgba, a.size)
@@ -414,6 +435,7 @@ def dds_tiles(a, tex_dir, taken):
                     if j[5]: info[h]["ground"] = j[5]
                     if j[6]: info[h]["lift"] = j[6]
                     if j[7]: info[h]["albedo"] = os.path.relpath(j[7], os.path.dirname(os.path.dirname(os.path.dirname(j[7]))))
+                    if j[8]: info[h]["micro"] = [j[8][0], j[8][1]]
                 if i % 200 == 0:   # also saved as it goes: an interrupted build keeps what it made
                     print(f"  {i}/{len(jobs)} tiles, {time.time() - t0:.0f} s", flush=True)
                     json.dump(info, open(info_path, "w"), indent=0, sort_keys=True)
@@ -559,7 +581,9 @@ def main():
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--gmp-dir", default=None, help="REMIX-MATERIALS: game/data with <style>.gmp: lid classes (road paint flat, no parallax on lids), the foliage lift, and the re-authored road paint (<hd>/../roads/<style>) as the road lids' albedo")
     ap.add_argument("--only-classed", action="store_true", help="with --gmp-dir: only the tiles that have a class (road/pave lid or foliage lift); use with --force into a scratch layer, then tools/remix_layer_merge.py --tiles")
-    ap.add_argument("--classes", type=lambda s: set(s.split(",")), default=None, help="with --only-classed: only these classes (road,pave,flat,mural,cut,lift), e.g. flat,cut")
+    ap.add_argument("--classes", type=lambda s: set(s.split(",")), default=None, help="with --only-classed: only these classes (road,pave,flat,mural,cut,iron,lift,micro), e.g. flat,cut")
+    ap.add_argument("--cc0", default=None, help="FIX-REMIX-MATERIALS-4: the ambientCG folder of tools/photoreal_tiles.py (fetch): the smooth lids of --micro-list get the scan's micro-surface")
+    ap.add_argument("--micro-list", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "remix_micro_tiles.json"), help="{style: {tile: {cls, amp}}} smooth ground lids and their photo-pass class")
     ap.add_argument("--wet-layer", action="store_true", help="only write <mod>/mod_wet.usda from the finished mod.usda (the rain variant)")
     a = ap.parse_args()
     if a.wet_layer:
