@@ -561,3 +561,35 @@ synthesized panes: <region> N of M, ...; side columns +a / +b`.
 `car glass path: model N (<mesh>) seated|empty: own glass (authored) | glass + cabin | FIX-SEATED band | open top |
 painted windows`. `gamerun/vg6_census.py` (+ `keys_qa_vg6cen.sh`) stands at kerbs in third person while traffic passes
 (`WARPS`, `CEN_SECONDS`), so a run's log is a census of the paths.
+
+### 11.5 Evidence and what still falls short
+
+Runs (local, not in git). Plain GL, wil 164.5,147.6, noon, own car forced, fixed regression-camera poses (`keys_qa_vg6own.sh` =
+VEHICLE-ART-21's `va5_own.py`): qa_vg6_b0 (`GTA2DX9_GLASS_SYNTH=0`) against qa_vg6_a4 and the rebased builds qa_vg6_a5/a6.
+- 028: FIX-SEATED's dark band box with the driver ghosting through it before; windows, windscreen and rear screen
+  with the cabin and the driver after.
+- 005: the driver shows through the windscreen.
+- 071/002/016/035/037/048: a rear screen.
+- 071/002/001/083: the pale top band of the side windows glazed, with no notch.
+
+Remix, Ultra rig, 13:00 and 22:30 (vg6_rx1): 028's side windows are see-through to the street and it has a rear screen;
+005 and 071 have panes. prx6's spot (vg6_prx6, bil 5:30, first person): one dark pane with the seat outline behind it, no
+chalk blob. Census: qa_vg6_c1/c0 (wil), _bil, c1_ste. Classic: vreg stage spawn_classic PASS, 0 tiles (vg6_a). Fleet twin:
+25 generated bodies gain glass, none lose a texel; the DLL's counts match the twin within 0-5 texels.
+
+Still short:
+- outlines follow the bake where the colour rules found glass (stair-stepped tops on 071);
+- the cabin is boxes;
+- 005's lower door shows black rectangles under Remix at 13:00 (below the glasshouse; origin not identified);
+- 001's dark belt strip is the older mask;
+- moving traffic and first person in these bodies were not filmed;
+- 029/030/035 became kit bodies (VEHICLE-ART-22) during this round, outside the rule.
+
+### 11.6 prp1: firefly clamps on moving glass (not shipped)
+
+`gamerun/vg6_prp1.py` (FIX-REMIX-CARS-1's segment probe plus three sets), run vg6_pq1 (wil 164.5,149.5, 19:30, Ultra rig):
+`rtx.fireflyFilteringLuminanceThreshold=60` (rig 400), `rtx.secondarySpecularFireflyFilteringThreshold=20`, and both.
+In 2x crops of passing cars' side glass, the defaults leave sparse fine dots and the clamps fewer. These were different cars,
+and the isolated-pixel count is noise (lane lines). Nothing ends the sparkle measurably. The runtime knobs are exhausted
+(10.3, 10.5, here). AperturePBR_Translucent has no roughness input. An opaque-glossy pane was not tried. The next test
+needs DLSS-RR (the owner's 5090).
