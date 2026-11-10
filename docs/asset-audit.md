@@ -374,3 +374,8 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   `GTA2DX9_FADE_SIGN=0` restores the old see-through draw for both (A/B).
 - Remix layer: 6 prims (pickup_health x3, sign_oneway x3) merged with `remix_layer_merge.py`; their DDS are in the
   coordinator bundle `layer_deploy/FIX-WORLD-12` (not in git).
+- **pmq11 under Remix** (layer only): ste tile 283's prim (D6667D397FCEE2EA) takes its albedo/normal/roughness from the photo
+  set's redraw (awning_sign_tile.py) instead of the HD upscale's red pseudo-glyphs; the HD DDS is untouched. DDS in the bundle.
+- **prx1, the blocky stop face under Remix** is the runtime's replacement-texture streaming: with
+  `rtx.texturemanager.samplerFeedbackEnable` on (the default) a small prop stays on an 8-16 texel mip; off, the 256 px face is
+  crisp at the same pose (runs fw12_prx1_rmx / fw12_prx1_rmx2). Config change left to the Remix seat (it applies to every view).
