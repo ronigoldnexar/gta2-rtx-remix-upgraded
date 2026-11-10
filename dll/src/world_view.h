@@ -304,6 +304,10 @@ private:
     bool presentedStreet_ = false;
     float transitionLift_ = 0.0f;  // the eased lift of the move's path out of buildings (blocks)
     float moveCatch_ = 0.0f;       // FIX-CAMERA-7: seconds left to catch up the turn a move left (MoveTurnCap)
+    // FIX-CAMERA-8 (pfl11): the street view fell back to the classic camera because the player was lost
+    // (a death or an arrest, the game between two bodies), not because of the V key; found again, the
+    // view cuts to its solved pose instead of the classic -> street descent.
+    bool lostFallback_ = false;
     void MoveTurnCap(CameraPose* pose, float dt, ViewMode mode);
     // FIX-CAMERA-5 (feel23): the move rides its destination. The destination's pose when the move
     // began; the start pose is carried along with it (moved, and between street views turned, by

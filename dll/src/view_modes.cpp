@@ -3191,6 +3191,16 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
             }
         }
+        // FIX-CAMERA-8 (pfl11-third-respawn-after-busted-camera-starts-straight-down-hero-gone-then-swoops-1p5s):
+        // on the frame the rig re-arms (a respawn at the hospital or the station, a warp, a level cut:
+        // snapEye_) the swing it wants is taken at once, so the first frame is the clear boom round what
+        // stands behind him. Eased from 0, the respawn at the wil station door opened on a boom of 0.36
+        // against the sheet behind him, the view 46 degrees down on his head, and craned out over 1.2 s
+        // (run cam8_p11base). GTA2DX9_CAM_REARM_SWING=0 eases it as before (A/B).
+        static int rearmSwingOn = -1;
+        if (rearmSwingOn < 0) { char b[8] = {}; rearmSwingOn = GetEnvironmentVariableA("GTA2DX9_CAM_REARM_SWING", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        const bool rearmSwing = rearmSwingOn && snapEye_ && wantSwing != 0.0f;
+        const float wantSwingRearm = wantSwing;
         const float tau = std::fabs(wantSwing) > std::fabs(swingAngle_) ? 0.25f : 0.6f;
         // FIX-CAMERA-5 (feel24-third-armed-turn-to-target-camera-swings-through-wall-...): the swing
         // is an offset from the rig, and the armed rig turns with him at up to 240 degrees a second
@@ -3241,6 +3251,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             }
         }
         if (!held) swingAngle_ += (wantSwing - swingAngle_) * (1.0f - std::exp(-dt / tau));
+        if (rearmSwing) {
+            swingAngle_ = wantSwingRearm;
+            if (cameraLogOn()) Log("cam: re-armed with the swing it wants: %.1f deg", swingAngle_ / kDegToRad);
+        }
         if (std::fabs(swingAngle_) < 1e-3f) swingAngle_ = 0.0f;
         if (swingAngle_ != 0.0f) desired = turned(swingAngle_);
         if (cameraLogOn() && (swingAngle_ != 0.0f || wantSwing != 0.0f)) {

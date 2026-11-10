@@ -2305,6 +2305,7 @@ void WorldView::UpdateCamera() {
             return;
         }
         if (placed) viewLostFrames_ = 0;
+        if (!wantView) lostFallback_ = false;   // the key went to classic: a later V is a V
         if (placed) {
             g_viewActive = true;
             viewActive_ = true;
@@ -2325,6 +2326,7 @@ void WorldView::UpdateCamera() {
         }
         if (viewActive_) {
             viewActive_ = false;
+            lostFallback_ = wantView;   // FIX-CAMERA-8: lost, not V (see ApplyTransition)
             camera_.SetOrientation(0.0f, classicPitch_);
             camera_.SetFovY(classicFov_);
             camera_.SetRoll(0.0f);
@@ -2589,6 +2591,14 @@ void WorldView::MoveTurnCap(CameraPose* pose, float dt, ViewMode mode) {
     pose->pitch = lastPose_.pitch + (std::max)(-cap, (std::min)(cap, dp));
 }
 
+namespace {
+bool RespawnCutOn() {
+    static int on = -1;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_RESPAWN_CUT", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    return on != 0;
+}
+}  // namespace
+
 void WorldView::ApplyTransition(float dt, ViewMode mode) {
     const ViewModeSettings& vm = ViewModes();
     CameraPose target;
@@ -2598,6 +2608,20 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     target.roll = camera_.Roll();
     target.fov = camera_.FovY();
 
+    // FIX-CAMERA-8 (pfl11-third-respawn-after-busted-camera-starts-straight-down): found again after the
+    // street view fell back to the classic camera (a death or an arrest; the new body at the hospital
+    // or the station), the street view is not entered by the classic -> street descent (which started
+    // straight down at the paving, the hero out of frame, and swooped up over 1.5 s) but cut to: the
+    // first frame is the chase rig's solved pose behind him (the solver re-arms on the jump).
+    // GTA2DX9_RESPAWN_CUT=0 restores the descent (A/B).
+    if (mode != lastViewMode_ && mode != ViewMode::Classic && lostFallback_ && RespawnCutOn()) {
+        Log("view: found again after the classic fallback: cut to %s at its solved pose (no move)", ViewModeName(mode));
+        transitionT_ = 1.0f;
+        moveCatch_ = 0.0f;
+        dissolveActive_ = false;
+        lastViewMode_ = mode;
+    }
+    if (mode != ViewMode::Classic) lostFallback_ = false;
     if (mode != lastViewMode_) {
         if (lastPoseValid_ && vm.transitionSeconds > 0.01f) {
             transitionFrom_ = lastPose_;
@@ -3087,9 +3111,9 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             const float step = prev ? std::sqrt((e.x - lastE.x) * (e.x - lastE.x) + (e.y - lastE.y) * (e.y - lastE.y) + (e.z - lastE.z) * (e.z - lastE.z)) : 0.0f;
             const float pstep = prev ? (cpt - lastPitch) * 57.2958f : 0.0f;
             lastE = e; lastPitch = cpt; lastFrame = frameCount_;
-            Log("cam: pose f=%d %s t=%.2f eye=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f fov=%.1f step=%.3f pstep=%.1f %s=%.2f,%.2f,%.2f box=%.2f..%.2f,%.2f..%.2f%s",
+            Log("cam: pose f=%d %s t=%.2f eye=%.2f,%.2f,%.2f yaw=%.1f pitch=%.1f fov=%.1f step=%.3f pstep=%.1f %s=%.2f,%.2f,%.2f box=%.2f..%.2f,%.2f..%.2f%s roll=%.1f",
                 frameCount_, ViewModeName(mode), transitionT_, e.x, e.y, e.z, cyw * 57.2958f, cpt * 57.2958f, fovY * 57.2958f, step, pstep,
-                inCar ? "car" : "hero", hx, hy, hz, x0, x1, y0, y1, behind ? " behind" : "");
+                inCar ? "car" : "hero", hx, hy, hz, x0, x1, y0, y1, behind ? " behind" : "", camera_.Roll() * 57.2958f);
         }
     }
     lastPose_ = shown;

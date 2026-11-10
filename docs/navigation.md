@@ -637,6 +637,26 @@ cull of the figures in `dll/src/live_geometry.cpp`. The classic view is untouche
   `CAM7B_VFPC`), `rev` (reverse 3 s then forward), `rev2` (forward, reverse 4 s, forward), `exit` (exit at speed)).
   `keys_pf2.sh PF2_SEGS=rev` is the filer's repro (the scene van at wil 198.5,188.5 game coordinates).
 
+## Respawn and re-arm: the first frame is the chase pose (FIX-CAMERA-8, 10 Nov 2026)
+
+- **pfl11** (third person, after BUSTED/WASTED the camera opened looking down at his head and craned out over
+  1.2 s). Pose log of a real BUSTED at the wil station door (run cam8_p11base): the rig re-armed on the 60-block
+  jump with a sheet 0.5 behind him; the swing it wanted (30 degrees round it) was eased from 0, so the first
+  drawn frame had a boom of 0.36 and pitch -46, then craned out. Now, on the frame the rig re-arms (snapEye_:
+  a respawn, a warp, a level cut), the wanted swing is taken at once, so the boom starts clear round what
+  stands behind him. `GTA2DX9_CAM_REARM_SWING=0` eases it as before (A/B). Log: `cam: re-armed with the swing
+  it wants: <deg>`.
+- A street view that lost the player for longer than the hold (150 frames) falls back to the classic camera;
+  found again, it used to enter by the full classic -> street descent (pitch -90 at the start). It now cuts to
+  the solved pose (`view: found again after the classic fallback: cut to ...`). `GTA2DX9_RESPAWN_CUT=0`
+  restores the descent. A V into classic clears the flag (a later V is a V move as before).
+- The `cam: pose` line now ends with `roll=<deg>` (the drawn camera roll).
+- Probes: `gamerun/keys_cam8_bust.sh` (machine gun in the wil crowd, `force_wanted=6` set live, waits for the
+  beat's `respawned` line, then walks on) and `gamerun/keys_cam8_resp.sh` (F11 scene warps in third person
+  between a far spot and the station door / pole corner: the rig re-arms on a 60-block jump without the
+  classic cut). The hero is not drawn after a developer warp, so judge the warp legs from the log; the real
+  respawns from frames.
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`
