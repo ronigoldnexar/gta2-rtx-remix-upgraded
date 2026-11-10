@@ -1743,3 +1743,33 @@ a commit changes `mod.usda` / `mod_wet.usda` / `pbr.json`, but the DDS a commit 
 they are copied into that folder. Since this shift fixers never write the shared checkout: they leave the changed
 DDS in `/mnt/gta2/gta2-linux/layer_deploy/<agent>/textures/` with a `deploy.sh` (unlink-first copy, as the merge tool
 does) for the coordinator to run when the commit reaches the shared tree.
+
+## The floor-pan slab under parked cars (FIX-REMIX-MATERIALS-7, 10 Nov 2026)
+
+**ptrmx31** (bil car park at 155.5,141.5 z 4, third person): a hard-edged flat plate under and beyond the parked black
+fastback, grey-green at 15:30 and brown at 06:30, with the axle and exhaust brass-gold at dawn.
+
+**What it is.** A colour probe (a hard-linked copy of the shipped layer with only the shared `_underpan` prim's albedo
+magenta and `_underbody` green, `PACKAGE=` on `gamerun/playtest_remix.sh`, out/fm7_bil1) turned the whole plate
+magenta: it is VEHICLE-ART-13/14's floor pan. The car there is model 71 (Rumbler, `view: cars ... m71:155.50,141.50`).
+The pan itself is not larger than the body in model space (all 64 pans inside their bodies' x/z extents), but it hangs
+15-20 cm over the road (071: 0.39 of its flat area 15-20 cm up) and runs to within ~5 % of the bumpers; car bodies
+draw with no culling, so from the raised third-person camera the pan's UPPER side shows past a shell's higher valance
+by parallax. The plain renderer lights that back face from below, so there it reads as the car's shadow (plain twin
+out/qa_fm7_plain1 at the same spot: no board); the path tracer lit it from the sky (the grey board) and from the
+near-horizontal dawn sun (the brown board, and the "gold" axle, tank and exhaust boxes of the pan atlas). The 071's
+metallic map is neutral (F0 151,151,153 on 2.8 % of texels): not a chrome tint.
+
+**Fix (Remix-only, dll/src/car_bodies.cpp `PanSplitFor` / `RemixHullDraw`, from `drawHull`).** Under Remix each car
+model with an `_underpan` mesh is split once into the body without the pan and the pan alone (derived models, like the
+turret split); the pan is drawn opaque (Remix never culls alpha-tested draws) with `D3DCULL_CW`, which under
+`rtx.enableCulling` (primary rays only) hides its upper side from the camera while it still shades the road in the
+shadow rays. `[devtools] remix_underpan`: 3 default (cull CW), 2 cull CCW, 1 one draw as before, 0 no pan (live, same
+session). The plain renderer and the classic view never reach the branch (`RemixApiAvailable()`).
+
+Same-session A/B, own car forced to 071 at wil 198.5,188.4, fixed regress-camera poses, 06:30 and 15:30
+(`gamerun/fm7_own.py` + `keys_fm7_own.sh` via `frm2_remix.sh`, `AB_SETS=u1:remix_underpan=1|u0:...|u2:...|u3:...`,
+out/fm7_ab1): u1 and u2 show the hard grey slab past the rear bumper and along the sill; u3 has none, only a soft
+shade on the paving under the car; u0 has no slab and less shade. Geometry note for VEHICLE-ART-15 beside its order:
+pans whose lowest parts reach the tyre contact plane (067, 048, 035, 003, 001, 045, ... 071 at -0.5 cm) and a flat
+pan that runs to the bumpers are still seen from low cameras on both renderers.

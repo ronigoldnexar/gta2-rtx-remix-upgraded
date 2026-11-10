@@ -2742,6 +2742,69 @@ struct TurretAim { float dirX = 0.0f, dirZ = 1.0f; uint32_t frame = 0; };
 std::map<uintptr_t, TurretAim> g_turretAims;   // by the car's sprite object
 int g_turretLogged = 0;
 
+// FIX-REMIX-MATERIALS-7 (ptrmx31): the shared floor pan (<NNN>_underpan.tga, VEHICLE-ART-13/14) under Remix.
+// The pan hangs 15-20 cm over the road and reaches close to the bumpers; car bodies draw with no culling, so
+// from the raised third-person camera its UPPER side showed past a shell's higher valance by parallax. The plain
+// renderer lights that back face from below (it reads as the car's shadow); the path tracer lit it from the
+// sky and the low sun: a flat grey board at noon, a brown one with brass-gold axle and exhaust at dawn. Under
+// Remix the pan is drawn on its own, opaque (Remix never culls alpha-tested draws) with back faces culled
+// (rtx.enableCulling: primary rays only), so the camera sees only its downward side while it still shades
+// the road in the shadow rays. [devtools] remix_underpan: 3 (default) = culled D3DCULL_CW (the side that
+// hides the pan's top: out/fm7_ab1), 2 = culled D3DCULL_CCW (the slab stays), 1 = one draw as before, 0 = no pan
+// (no slab, but the road under the car loses the pan's shade).
+int g_remixUnderpan = 3;
+struct PanSplit { const Model* rest; const Model* pan; };
+std::map<const Model*, PanSplit> g_panSplits;
+
+PanSplit PanSplitFor(const Model& model) {
+    auto it = g_panSplits.find(&model);
+    if (it != g_panSplits.end()) return it->second;
+    PanSplit split{nullptr, nullptr};
+    bool any = false;
+    for (const ModelMesh& m : model.meshes) any = any || m.texture.find("_underpan") != std::string::npos;
+    if (any && !model.skinned) {
+        Model rest, pan;
+        for (Model* m : {&rest, &pan}) {
+            m->nodes = model.nodes; m->forward = model.forward;
+            m->boundsMin = model.boundsMin; m->boundsMax = model.boundsMax;
+            for (int k = 0; k < 3; ++k) m->paintRgb[k] = model.paintRgb[k];
+            m->splitPaint = model.splitPaint;
+            m->hasDriverSeat = model.hasDriverSeat;
+            for (int k = 0; k < 4; ++k) m->driverSeat[k] = model.driverSeat[k];
+            m->meshes.resize(model.meshes.size());
+        }
+        rest.name = model.name + "#nopan"; pan.name = model.name + "#pan";
+        for (size_t i = 0; i < model.meshes.size(); ++i) {
+            const ModelMesh& src = model.meshes[i];
+            ModelMesh& dst = src.texture.find("_underpan") != std::string::npos ? pan.meshes[i] : rest.meshes[i];
+            dst.vertices = src.vertices; dst.indices = src.indices; dst.texture = src.texture; dst.skin = -1;
+        }
+        split.rest = ModelRegisterDerived(std::move(rest));
+        split.pan = ModelRegisterDerived(std::move(pan));
+        Log("car bodies: Remix floor-pan split of %s", model.name.c_str());
+    }
+    g_panSplits[&model] = split;
+    return split;
+}
+
+// The hull under Remix, the pan by g_remixUnderpan (see above). False: not split, draw it whole.
+bool RemixHullDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& place) {
+    if (!RemixApiAvailable() || g_remixUnderpan == 1) return false;
+    const PanSplit split = PanSplitFor(model);
+    if (!split.rest) return false;
+    ModelDraw(device, *split.rest, place, nullptr, 0.0f);
+    if (g_remixUnderpan == 0) return true;
+    DWORD cull = 0, aTest = 0;
+    device->GetRenderState(D3DRS_CULLMODE, &cull);
+    device->GetRenderState(D3DRS_ALPHATESTENABLE, &aTest);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device->SetRenderState(D3DRS_CULLMODE, g_remixUnderpan == 3 ? D3DCULL_CW : D3DCULL_CCW);
+    ModelDraw(device, *split.pan, place, nullptr, 0.0f);
+    device->SetRenderState(D3DRS_CULLMODE, cull);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, aTest);
+    return true;
+}
+
 TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof, float cut, float zMax) {
     const TurretKey key{&model, static_cast<int>(cut * 100.0f), static_cast<int>(std::floor(zMax * 50.0f))};
     auto it = g_turretSplits.find(key);
@@ -3833,6 +3896,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_hoodDash = GetPrivateProfileIntA("devtools", "hood_dash", 1, g_devIni);
         // FIX-REMIX-NIGHT-2: remix_cab_albedo=0 draws the cab the old way under Remix (same-session A/B).
         g_cabRemixAlbedo = GetPrivateProfileIntA("devtools", "remix_cab_albedo", 1, g_devIni) != 0;
+        // FIX-REMIX-MATERIALS-7: the floor pan under Remix (PanSplitFor; 1 = as before).
+        g_remixUnderpan = GetPrivateProfileIntA("devtools", "remix_underpan", 3, g_devIni);
         {
             char fp[64] = {};
             GetPrivateProfileStringA("devtools", "force_car_paint", "", fp, sizeof(fp), g_devIni);
@@ -4701,7 +4766,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             g_carParts[kPartGlass] += CarNowMs() - tGlass;
             auto drawHull = [&](const Model& m, const gta2::Mat4& place) {
                 CarPartTimer partTimer(kPartHull);
-                if (!glassy) { ModelDraw(device, m, place, nullptr, 0.0f); return; }
+                if (!glassy) { if (!RemixHullDraw(device, m, place)) ModelDraw(device, m, place, nullptr, 0.0f); return; }
                 const float roofY = model->Height() * sy;
                 const float zA = (b->measure.cabinRear - 0.5f * b->measure.h) * b->scale, zB = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
                 const float zLo = (std::min)(zA, zB) - 0.02f, zHi = (std::max)(zA, zB) + 0.02f;
