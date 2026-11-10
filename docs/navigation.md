@@ -915,3 +915,13 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   `GTA2DX9_CHASE_FADE=0` restores QB-49's values in every view (A/B); `GTA2DX9_LOG_FADE=1` logs one
   `fade: alpha A obj X,Z (range rule R d D) eye ... mix M` line a frame for the most faded object.
   Classic draws no map-object models, so nothing of it reaches the classic view.
+- **Death beat in a walled spot (pmq77, `view_modes.cpp` beatcam).** The orbit's start was chosen on the
+  shot's mid pose only (74 % clear where the start pose was 18 %), the pull-in floor (0.45 block) left the
+  eye behind the wall, and under the ste passage's deck (116.5,123.5, where pmq77's car blew up) the high
+  WASTED shot rose into the deck slab. Now: the start search scores the whole path (start, mid and end
+  pose, the orbit turned); the eye keeps 0.15 under the first solid cell over him or over itself; and the
+  line from the eye actually shown is tested every frame: under half clear for 0.15 s, the orbit is
+  searched again round him (24 angles x 3 radii x 2 heights) and cut to the clearest place if it is at
+  least 60 % clear, else the beat hands the frame back to the chase camera (eased over ~0.12 s, still
+  looking at him). `GTA2DX9_BEAT_CAM_GUARD=0` = before (A/B). Log: `beat cam: ... from the eye N% clear,
+  handed back K`, `... cut to D deg`, `... the chase camera keeps the frame`.

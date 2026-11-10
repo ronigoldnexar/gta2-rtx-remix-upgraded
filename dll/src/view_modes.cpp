@@ -1604,6 +1604,20 @@ float g_yaw0 = 0.0f;       // where round him the orbit starts (polar angle abou
 float g_clearR = 1e9f;     // the radius the walls leave, eased
 float g_lastLog = -1.0f;
 bool g_cut = false;        // the chase camera was far from him at the start: cut, not blend
+// FIX-CAMERA-12 (pmq77): the shown eye's own line to him. Blocked (under half clear) for a
+// moment, the orbit is searched again from where it stands (cut to the clearest place round
+// him); with no place half clear the beat hands the frame back to the chase camera.
+float g_blockedT = 0.0f;   // seconds the shown eye's line has been under half clear
+float g_lastSearch = -10.0f;
+float g_fall = 0.0f;       // 0..1, how far the beat has handed the frame back
+float g_hExtra = 0.0f;     // height a re-search added (above a wall)
+bool g_fallWant = false;
+int BeatWallGuard() {
+    static int on = -1;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_BEAT_CAM_GUARD", b, sizeof b) && atoi(b) == 0 ? 0 : 1;
+                  Log("beat cam: walled-spot guard %s (FIX-CAMERA-12 pmq77)", on ? "on" : "off (GTA2DX9_BEAT_CAM_GUARD=0)"); }
+    return on;
+}
 
 // How far along the line from `from` to `to` is free of solid blocks (1 all of it).
 float FreeFraction(const ViewQueries& q, const gta2::Vec3& from, const gta2::Vec3& to) {
@@ -1709,16 +1723,30 @@ void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
         float best = -1e9f, bestFree = 0.0f;
         g_yaw0 = prefer;
         const float rTest = 0.5f * (shot.r0 + shot.r1), hTest = 0.5f * (shot.h0 + shot.h1);
+        const bool guard = BeatWallGuard() != 0;
         for (int k = 0; k < 24; ++k) {
             const float off = ((k + 1) / 2) * (15.0f * kDegToRad) * ((k & 1) ? 1.0f : -1.0f);
             const float phi = WrapAngle(prefer + off);
             const gta2::Vec3 e{A.x + std::sin(phi) * rTest, A.y + hTest, A.z + std::cos(phi) * rTest};
-            const float free = FreeFraction(q, T, e);
+            float free = FreeFraction(q, T, e);
+            if (guard) {
+                // pmq77: the mid pose alone was 74 % clear where the shot's start (r0, h0) was 18 %:
+                // the whole path counts, its start and its end where the orbit has turned.
+                const float phiEnd = WrapAngle(phi + shot.orbitDeg * kDegToRad * shot.pushSecs);
+                const gta2::Vec3 e0{A.x + std::sin(phi) * shot.r0, A.y + shot.h0, A.z + std::cos(phi) * shot.r0};
+                const gta2::Vec3 e1{A.x + std::sin(phiEnd) * shot.r1, A.y + shot.h1, A.z + std::cos(phiEnd) * shot.r1};
+                free = (std::min)(free, (std::min)(FreeFraction(q, T, e0), FreeFraction(q, T, e1)));
+            }
             const float score = free - 0.3f * std::fabs(off) / kPi;
             if (score > best) { best = score; bestFree = free; g_yaw0 = phi; }
         }
         g_clearR = 1e9f;
         g_lastLog = -1.0f;
+        g_blockedT = 0.0f;
+        g_lastSearch = -10.0f;
+        g_fall = 0.0f;
+        g_hExtra = 0.0f;
+        g_fallWant = false;
         // The chase camera may already have gone to the new body the game placed at the
         // hospital or the station (66 blocks away in qb17_beats6): no sweep across the
         // city, the beat cuts to its shot.
@@ -1741,6 +1769,7 @@ void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
     g_clearR += (rc - g_clearR) * (rc < g_clearR ? 1.0f - std::exp(-dt / 0.06f) : 1.0f - std::exp(-dt / 0.5f));
     if (g_clearR > 1e8f) g_clearR = rc;
     if (free < 1.0f) h += (1.0f - free) * 0.4f;
+    h += g_hExtra;
     r = (std::min)(r, g_clearR);
     // Blend from the chase camera's polar place.
     const float phiM = WrapAngle(phiN + WrapAngle(phi - phiN) * w);
@@ -1750,17 +1779,82 @@ void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
         float fy = 0.0f;
         if (q.floorAt(q.context, eye.x, eye.z, eye.y + 0.5f, &fy) && eye.y < fy + 0.2f) eye.y += (fy + 0.2f - eye.y) * w;
     }
+    float eyeFree = -1.0f;
+    if (BeatWallGuard() && q.blocked) {
+        // FIX-CAMERA-12 (pmq77, cam12_beat1): under a deck (the ste passage where pmq77 died) the high WASTED
+        // shot rose into the deck's slab and framed its underside. The eye stays 0.15 under the first
+        // solid cell over him or over itself.
+        float ceil = 1e9f;
+        for (float y = A.y + 0.35f; y < eye.y + 0.2f; y += 0.1f) {
+            if (q.blocked(q.context, A.x, y, A.z) || q.blocked(q.context, eye.x, y, eye.z)) { ceil = y; break; }
+        }
+        if (eye.y > ceil - 0.15f) eye.y = (std::max)(A.y + 0.25f, ceil - 0.15f);
+    }
+    if (BeatWallGuard() && w > 0.3f) {
+        // FIX-CAMERA-12 (pmq77): the line from the eye actually shown. Under half clear for
+        // 0.15 s: search the orbit again round him at this radius and height, and at the
+        // shot's start and end radii and higher (the clearest place, 15 degree steps); cut
+        // there if one is at least 60 % clear, else hand the frame back to the chase camera.
+        eyeFree = FreeFraction(q, T, eye);
+        g_blockedT = eyeFree < 0.5f ? g_blockedT + dt : 0.0f;
+        if (g_blockedT > 0.15f && b.t - g_lastSearch > 0.4f && !g_fallWant) {
+            g_lastSearch = b.t;
+            float bestF = -1.0f, bestPhi = phi, bestR = r, bestH = h;
+            const float rs[3] = {r, (std::max)(0.6f, 0.6f * r), shot.r1 * (b.inVehicle ? 2.0f : 1.0f)};
+            const float hs[2] = {h, h + 0.8f};
+            for (int k = 0; k < 24; ++k) {
+                const float off = ((k + 1) / 2) * (15.0f * kDegToRad) * ((k & 1) ? 1.0f : -1.0f);
+                const float ph = WrapAngle(phi + off);
+                for (float rr : rs) for (float hh : hs) {
+                    const gta2::Vec3 e{A.x + std::sin(ph) * rr, A.y + hh, A.z + std::cos(ph) * rr};
+                    const float f = FreeFraction(q, T, e) - 0.05f * std::fabs(off) / kPi;
+                    if (f > bestF) { bestF = f; bestPhi = ph; bestR = rr; bestH = hh; }
+                }
+            }
+            if (bestF >= 0.6f) {
+                // The orbit continues from the new place; the radius the walls leave starts there.
+                g_yaw0 = WrapAngle(bestPhi - shot.orbitDeg * kDegToRad * b.t);
+                g_clearR = bestR;
+                g_hExtra += bestH - h;
+                Log("beat cam: %s t=%.1f line from the eye %.0f%% clear: cut to %.0f deg, r %.2f h %.2f (%.0f%% clear)",
+                    BeatName(b.kind), b.t, eyeFree * 100.0f, bestPhi * (180.0f / kPi), bestR, bestH, bestF * 100.0f);
+                const gta2::Vec3 e{A.x + std::sin(bestPhi) * bestR, A.y + bestH, A.z + std::cos(bestPhi) * bestR};
+                eye = e;
+                eyeFree = bestF;
+                g_blockedT = 0.0f;
+            } else {
+                g_fallWant = true;
+                Log("beat cam: %s t=%.1f line from the eye %.0f%% clear and no place round him over 60%% (best %.0f%%): "
+                    "the chase camera keeps the frame", BeatName(b.kind), b.t, eyeFree * 100.0f, bestF * 100.0f);
+            }
+        }
+    }
+    if (g_fallWant) g_fall += (1.0f - g_fall) * (1.0f - std::exp(-dt / 0.12f));
+    if (g_fall > 0.001f) {
+        // Back toward the camera the solver set this frame (the chase boom, or over where he was).
+        const float k = g_fall;
+        eye = {eye.x + (P.x - eye.x) * k, eye.y + (P.y - eye.y) * k, eye.z + (P.z - eye.z) * k};
+        w *= 1.0f - k;
+    }
     const float fx = T.x - eye.x, fz = T.z - eye.z;
     const float flat = (std::max)(std::hypot(fx, fz), 1e-3f);
     const float lookYaw = std::atan2(fx, fz), lookPitch = std::atan2(T.y - eye.y, flat);
     camera->SetPosition(eye);
-    camera->SetOrientation(WrapAngle(nYaw + WrapAngle(lookYaw - nYaw) * w), nPitch + (lookPitch - nPitch) * w);
+    if (g_fall > 0.001f) {
+        // Still looking at him (the solver's own aim is ahead of where he was), the beat's lens eased out.
+        const float wl = (std::max)(w, g_fall);
+        camera->SetOrientation(WrapAngle(nYaw + WrapAngle(lookYaw - nYaw) * wl), nPitch + (lookPitch - nPitch) * wl);
+    } else {
+        camera->SetOrientation(WrapAngle(nYaw + WrapAngle(lookYaw - nYaw) * w), nPitch + (lookPitch - nPitch) * w);
+    }
     camera->SetRoll(camera->Roll() * (1.0f - w));
     camera->SetFovY(nFov + (shot.fovDeg * kDegToRad - nFov) * w);
     if (b.t - g_lastLog >= 0.5f) {
         g_lastLog = b.t;
-        Log("beat cam: %s t=%.1f share %.2f eye %.2f,%.2f,%.2f r %.2f h %.2f at %.0f deg, line %.0f%% clear",
-            BeatName(b.kind), b.t, w, eye.x, eye.y, eye.z, rM, hM, phiM * (180.0f / kPi), free * 100.0f);
+        Log("beat cam: %s t=%.1f share %.2f eye %.2f,%.2f,%.2f r %.2f h %.2f at %.0f deg, line %.0f%% clear%s",
+            BeatName(b.kind), b.t, w, eye.x, eye.y, eye.z, rM, hM, phiM * (180.0f / kPi), free * 100.0f,
+            eyeFree >= 0.0f ? (eyeFree < 0.5f ? ", from the eye under half" : "") : "");
+        if (eyeFree >= 0.0f) Log("beat cam: %s t=%.1f from the eye %.0f%% clear, handed back %.2f", BeatName(b.kind), b.t, eyeFree * 100.0f, g_fall);
     }
 }
 }  // namespace beatcam
