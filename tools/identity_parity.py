@@ -34,7 +34,10 @@ PROBE = re.compile(r"identity probe: (\w+) view (\d) frame (\d+) t (\d+)\.(\d+) 
                    r"fp ([0-9a-f]+) model (\S+) shown ([\d.]+),([\d.]+),([\d.]+) ([\d.]+),([\d.]+),([\d.]+)")
 PLAYER = re.compile(r"identity: player( CHANGED)? key (-?\d+) remap (-?\d+) body (-?\d+) -> (\S+).* top ([\d.]+),([\d.]+),([\d.]+) "
                     r"bottom ([\d.]+),([\d.]+),([\d.]+) fp ([0-9a-f]+)")
-VEHICLE = re.compile(r"identity: vehicle( CHANGED)? model (-?\d+) sprite (-?\d+) paint (\d+),(\d+),(\d+) -> (.+?) tint .* fp ([0-9a-f]+)")
+# FIX-CAR-IDENTITY-5: the vehicle line carries "obj <hex> [(the player's)]" since FIX-CAR-IDENTITY (the old pattern matched
+# none, so the across-session vehicle check compared 0 records) and " palette P" since FIX-CAR-IDENTITY-5.
+VEHICLE = re.compile(r"identity: vehicle( CHANGED[a-z >0-9-]*?)? (?:obj ([0-9a-f]+) (?:\(the player's\) )?)?model (-?\d+) sprite (-?\d+) "
+                     r"paint (\d+),(\d+),(\d+) -> (.+?) tint .* fp ([0-9a-f]+)(?: palette (-?\d+))?")
 SLEEVE = re.compile(r"identity: first-person sleeves .* -> the player's shirt ([\d.]+),([\d.]+),([\d.]+) \(fp ([0-9a-f]+)\)")
 SHOT = re.compile(r"idp shot (\S+) t=([\d.]+)")
 TSHOT = re.compile(r"^shot (\S+) t=([\d.]+)(?: t0=([\d.]+))?", re.M)
@@ -136,7 +139,32 @@ def paint_delta(a, b):
     return de, abs((ha - hb + 180) % 360 - 180)
 
 
-def subject(img, rect, pad=0.35, car=True):
+def hue_of(rgb):
+    la = lab(rgb)
+    return math.degrees(math.atan2(la[2], la[1])), math.hypot(la[1], la[2])
+
+
+def record_band(px, hint, tol=25.0, least=0.03):
+    """FIX-CAR-IDENTITY-5: a car's paint pixels by the record's hue (the probe line's `shown`, the classic sprite's paint):
+    the pixels within `tol` degrees of it (Lab hue) with at least 80 % of its chroma. The k-means took the pavement in a classic sprite quad and
+    the black ground under a third-person car (out/fci5_idpbil1). Only when the record is chromatic (chroma >= 12) and at
+    least `least` of the subject's pixels are in the band; else None and the caller keeps the k-means. A 3D body of another
+    hue has few pixels in the band and falls back, so the hue difference still shows."""
+    if hint is None:
+        return None
+    hh, hc = hue_of(hint)
+    if hc < 12 or len(px) < 40:
+        return None
+    sub = px[:: max(1, len(px) // 4000)]
+    L = np.array([lab(q) for q in sub])
+    h = np.degrees(np.arctan2(L[:, 2], L[:, 1])); c = np.hypot(L[:, 1], L[:, 2])
+    k = (np.abs((h - hh + 180) % 360 - 180) <= tol) & (c >= max(8.0, 0.8 * hc))   # a faintly tinted pavement is not the paint
+    if k.sum() < max(30, least * len(sub)):
+        return None
+    return np.median(sub[k], axis=0)
+
+
+def subject(img, rect, pad=0.35, car=True, hint=None):
     """The entity's pixels inside `rect`: those unlike the ring of background round it. Returns
     (dominant colour, mask, clipped rect) or None. Dominant: the median of the largest of the
     pixels' luminance thirds (so a shirt wins over a face, a body over its glass)."""
@@ -160,7 +188,9 @@ def subject(img, rect, pad=0.35, car=True):
     px = inner[mask]
     if len(px) < 12:
         return None
-    best = dominant(px, car=car)
+    best = record_band(inner.reshape(-1, 3), hint) if car else None
+    if best is None:
+        best = dominant(px, car=car)
     return best, mask, (x0, y0, x1, y1)
 
 
@@ -194,8 +224,8 @@ def load_run(run):
                            top=tuple(float(v) for v in g[12:15]), bottom=tuple(float(v) for v in g[15:18])))
     players = [dict(changed=bool(m.group(1)), model=m.group(5), remap=int(m.group(3)), top=tuple(float(v) for v in m.group(6, 7, 8)),
                     bottom=tuple(float(v) for v in m.group(9, 10, 11)), fp=m.group(12)) for m in PLAYER.finditer(text)]
-    vehicles = [dict(changed=bool(m.group(1)), model=int(m.group(2)), sprite=int(m.group(3)), paint=tuple(int(v) for v in m.group(4, 5, 6)),
-                     name=m.group(7).strip(), fp=m.group(8)) for m in VEHICLE.finditer(text)]
+    vehicles = [dict(changed=bool(m.group(1)), obj=m.group(2), model=int(m.group(3)), sprite=int(m.group(4)), paint=tuple(int(v) for v in m.group(5, 6, 7)),
+                     name=m.group(8).strip(), fp=m.group(9), palette=int(m.group(10)) if m.group(10) else None) for m in VEHICLE.finditer(text)]
     sleeves = [dict(shirt=tuple(float(v) for v in m.group(1, 2, 3)), fp=m.group(4)) for m in SLEEVE.finditer(text)]
     shots = {}
     sp = os.path.join(run, "idp_shots.txt")
@@ -341,7 +371,7 @@ def main():
             for k, p in cprobes.items():
                 if k[0] == subj:
                     r0 = to_shot(p, R, c[0])
-                    s = subject(c[0], r0, car=subj != "player") if on_screen(r0, c[0]) else None
+                    s = subject(c[0], r0, car=subj != "player", hint=p["top"] if subj == "mycar" else None) if on_screen(r0, c[0]) else None
                     if s is not None:
                         ref = s[0]; row["panels"].append(("classic", c[0], r0, ref))
             if ref is None:
@@ -360,7 +390,7 @@ def main():
                     continue
                 p = cand[0]
                 r1 = to_shot(p, R, im)
-                s = subject(im, r1, car=subj != "player")
+                s = subject(im, r1, car=subj != "player", hint=p["top"] if subj == "mycar" else None)
                 if s is None or ref is None:
                     lines.append(f"     {name} {phase} {label}: rectangle {p['rect']} has no subject pixels"); continue
                 de = delta_e(ref, s[0]); dp, dh = paint_delta(ref, s[0])
@@ -499,13 +529,30 @@ def main():
         pf = {os.path.basename(R["run"].rstrip("/")): sorted({p["fp"] for p in R["players"]}) for R in runs}
         allfp = {fp for v in pf.values() for fp in v}
         (fail if len(allfp) != 1 else ok)(f"player fingerprint per session: {pf}")
-        byinputs = {}
+        # FIX-CAR-IDENTITY-5: with the palette logged, the inputs are (model, sprite, palette): one paint and one
+        # fingerprint per input across the sessions (the paint is measured from the sprite's clean art in that palette);
+        # older logs keep (model, sprite, paint). Devtools-forced paints (palette -1) are left out.
+        byinputs, seen_in = {}, {}
         for R in runs:
+            nm = os.path.basename(R["run"].rstrip("/"))
             for v in R["vehicles"]:
-                byinputs.setdefault((v["model"], v["sprite"], v["paint"]), set()).add(v["fp"])
+                if v["palette"] == -1:
+                    continue
+                k = (v["model"], v["sprite"], v["palette"]) if v["palette"] is not None else (v["model"], v["sprite"], v["paint"])
+                byinputs.setdefault(k, set()).add((v["paint"], v["fp"]))
+                seen_in.setdefault(k, set()).add(nm)
         split = {k: sorted(v) for k, v in byinputs.items() if len(v) > 1}
-        (fail if split else ok)(f"vehicle records: {len(byinputs)} distinct (model, sprite, paint) inputs; "
-                                f"{len(split)} with more than one fingerprint {list(split.items())[:4]}")
+        shared = sum(1 for k in byinputs if len(seen_in[k]) > 1)
+        (fail if split else ok)(f"vehicle records: {len(byinputs)} distinct (model, sprite, palette) inputs, {shared} seen in more than one "
+                                f"session; {len(split)} with more than one paint/fingerprint {list(split.items())[:4]}")
+        # his car (the car the script seats him in: the same parked car at the same spawn): one record across the sessions
+        mine = {}
+        for R in runs:
+            nm = os.path.basename(R["run"].rstrip("/"))
+            mine[nm] = sorted({p["fp"] for p in R["probes"] if p["what"] == "mycar" and p["fp"] != "00000000"})
+        allc = {fp for v in mine.values() for fp in v}
+        if all(mine.values()):
+            (fail if len(allc) != 1 else ok)(f"his car's fingerprint per session: {mine}")
     text = "# Identity parity\n\n" + "\n".join(lines) + f"\n\n{len(fails)} failure(s)\n"
     print(text)
     if a.report:
