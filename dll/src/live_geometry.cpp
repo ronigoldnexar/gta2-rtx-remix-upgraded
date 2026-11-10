@@ -350,6 +350,28 @@ int FireSpotsNear(float x, float z, float radius, const void* carShell) {
     }
     return n;
 }
+// FIX-FIGURE-9 (feel12 molotov): flames on a person, not over his head. A bottle thrown high comes
+// down beside him and its fire sprites passed the flat test a block above him, so the thrower played
+// the burn clip (both arms up) for half a second after a throw. *nearestDy: the closest spot's height
+// over his feet (blocks), for the log. pm22 (ste): a burning car's flames are not on him either (he stood
+// hands-up, the burn clip, beside a burning convertible after the F10 entry).
+bool g_burnTestOld = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_BURN_TEST_OLD", b, sizeof b) && b[0] == '1'; }();   // A/B: the flat test
+int FireSpotsOnFigure(float x, float y, float z, float radius, float* nearestDy) {
+    int n = 0; float best = 1e9f;
+    for (const FireSpotPublic& f : g_fireSpotsLast) {
+        const float dx = f.x - x, dz = f.z - z, dy = f.y - y;
+        if (dx * dx + dz * dz > radius * radius) continue;
+        if (f.onCar) continue;   // pm22: a burning car's flames beside him are the car's, not his
+        bool carFlame = false;   // the same sprite published again unlifted (the effect pass) is the car's too
+        for (const FireSpotPublic& g : g_fireSpotsLast)
+            if (g.onCar && std::fabs(g.x - f.x) < 0.01f && std::fabs(g.z - f.z) < 0.01f) { carFlame = true; break; }
+        if (carFlame) continue;
+        if (std::fabs(dy) < std::fabs(best)) best = dy;
+        if (dy > -0.25f && dy < 0.75f) ++n;
+    }
+    if (nearestDy) *nearestDy = best;
+    return n;
+}
 void SetPlayerPosition(float x, float y, float z, bool valid) {
     g_playerPosX = x; g_playerPosY = y; g_playerPosZ = z; g_playerPosValid = valid;
 }
@@ -6021,7 +6043,7 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
             if (ReadCorners(vertices, corners, texture, game::kSpriteVertexArray, fx)) {
                 float cx = 0, cy = 0, cz = 0;
                 for (int i = 0; i < 4; ++i) { cx += fx[i].x * 0.25f; cy += fx[i].y * 0.25f; cz += fx[i].z * 0.25f; }
-                g_fireSpotsLast.push_back({cx, cy, cz, object});
+                g_fireSpotsLast.push_back({cx, cy, cz, object, true});
             }
         }
         // (under Remix with the figures, his sprite is kept, never drawn, for his
@@ -7625,6 +7647,13 @@ IDirect3DTexture9* ShotGlowTexture(IDirect3DDevice9* device) {
     g_shotGlowTexture = made;
     return made;
 }
+void ShotFxSmoke(float x, float y, float z);
+// FIX-FIGURE-9: GTA2DX9_FLAME_JET=0 puts the game's flame sprites back beside a flamethrower (A/B).
+bool FlameJetOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_FLAME_JET", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
 // What leaves the muzzle on a shot: the flash as a glow with a Remix light in
 // it, sparks ahead, a case out of the right side, the electro gun's arc.
 void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* right, const float* up, bool firstPerson) {
@@ -7665,6 +7694,29 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
         const float vr = 0.45f + 0.3f * ShotRand(), vu = 0.6f + 0.3f * ShotRand(), vb = -0.1f + 0.2f * ShotRand();
         ShotSpawn(ex, ey, ez, right[0] * vr + up[0] * vu + dir[0] * vb, right[1] * vr + up[1] * vu + dir[1] * vb,
                   right[2] * vr + up[2] * vu + dir[2] * vb, 0.7f, 0.009f, 0.009f, 0.85f, 0.7f, 0.3f, 1.0f, 1);
+    }
+    if (weapon == kWpnFlame && FlameJetOn()) {
+        // FIX-FIGURE-9 (feel12 flamethrower): the stream leaves the nozzle along the barrel. The game's
+        // own flame sprites near him (upright teardrops beside his hand) are left out (fxFlameAtShooter);
+        // this jet carries the fire for about two blocks, where the game's fire takes over.
+        // Called every other frame while the trigger is held: puffs that swell, redden and rise a little.
+        const float fp = firstPerson ? 0.6f : 1.0f;
+        // Every other frame: puffs spread along the first 2/30 s of their flight, so the stream is
+        // continuous (not a string of beads); about two blocks of reach, the game's fire beyond.
+        for (int i = 0; i < 9; ++i) {
+            const float sp = (6.0f + 1.6f * ShotRand()) * fp;
+            const float sx = (ShotRand() - 0.5f) * 0.14f, sy = (ShotRand() - 0.5f) * 0.10f;
+            const float vx = (dir[0] + right[0] * sx + up[0] * sy) * sp, vy = (dir[1] + right[1] * sx + up[1] * sy) * sp + 0.25f,
+                        vz = (dir[2] + right[2] * sx + up[2] * sy) * sp;
+            const float lead = 0.01f + ShotRand() * (2.0f / 30.0f);
+            const bool core = i < 3;
+            const float life = 0.30f + 0.07f * ShotRand();
+            ShotSpawn(pos[0] + vx * lead, pos[1] + vy * lead, pos[2] + vz * lead, vx, vy, vz, life,
+                      core ? 0.025f : 0.04f, core ? 0.12f : 0.20f + 0.06f * ShotRand(),
+                      1.0f, core ? 0.85f : 0.42f + 0.18f * ShotRand(), core ? 0.45f : 0.10f, core ? 0.9f : 0.7f, 4);
+        }
+        // A wisp of dark smoke off the tip of the stream.
+        if (ShotRand() < 0.3f) ShotFxSmoke(pos[0] + dir[0] * 1.9f * fp, pos[1] + dir[1] * 1.9f * fp + 0.08f, pos[2] + dir[2] * 1.9f * fp);
     }
     if (weapon == kWpnElectro) {
         // The arc: a jagged line of short-lived sparks a block and a half out.
@@ -9360,7 +9412,19 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // three frames running. He runs flailing (the burn layer over his run);
         // dying in it, he curls up (lying clip "burnt").
         const bool ownFlames = track.weapon == kWpnFlame && track.aimUntil && g_carFrame < track.aimUntil + 30;
-        if (!ownFlames && FireSpotsNear(cx, cz, 0.18f, nullptr) > 0) {
+        // FIX-FIGURE-9 (feel12 molotov): his own bottle leaving the hand is not a fire on him either
+        // (half a second after the throw), and a spot counts only at his own height (FireSpotsOnFigure).
+        const bool ownBottle = (track.weapon == kWpnMolotov || track.weapon == kWpnGrenade) && track.muzzleFrame &&
+                               g_carFrame - track.muzzleFrame < 15 && !g_burnTestOld;
+        float burnDy = 0.0f;
+        const int flatSpots = FireSpotsNear(cx, cz, 0.18f, nullptr);
+        const int burnSpots = g_burnTestOld ? flatSpots : (flatSpots ? FireSpotsOnFigure(cx, cy, cz, 0.18f, &burnDy) : 0);
+        if (g_logPedFrames && flatSpots && ownPed && (burnSpots == 0 || ownBottle || ownFlames)) {
+            static int logged = 0;
+            if (logged < 60) { ++logged; Log("burn test: player %d fire spot(s) within 0.18 flat, nearest %.2f above his feet: %s", flatSpots, burnDy,
+                                             ownFlames ? "his own flamethrower" : ownBottle ? "his own bottle" : "not on him"); }
+        }
+        if (!ownFlames && !ownBottle && burnSpots > 0) {
             if (++track.burnFrames >= 3) track.burnSeen = g_carFrame;
         } else {
             track.burnFrames = 0;
@@ -11656,7 +11720,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     struct FireSpotsKeeper {       // publishes this frame's flame positions when the pass ends
         std::vector<FireSpot>& spots;
         ~FireSpotsKeeper() {
-            for (const FireSpot& f : spots) g_fireSpotsLast.push_back({f.x, f.y, f.z, f.car});
+            for (const FireSpot& f : spots) g_fireSpotsLast.push_back({f.x, f.y, f.z, f.car, f.car != nullptr});
         }
     } fireSpotsKeeper{fireSpots};
     const double fxTime = SkidNowSeconds();
@@ -12475,6 +12539,28 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
         return false;
     };
+    // FIX-FIGURE-9 (feel12 flamethrower): the game's flame sprites within a block and a bit of a figure
+    // firing the flamethrower (any size: they are upright teardrops of half a block stood beside his
+    // hand, not leaving the nozzle) are left out; ShotFxMuzzle's jet is the stream there.
+    auto fxFlameAtShooter = [&](const float* c, float size) {
+        if (!FlameJetOn()) return false;
+        for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
+            for (const FigureSpot& f : *list) {
+                if (f.weapon != kWpnFlame || !f.shotFrame || g_carFrame - f.shotFrame > 24u) continue;   // the game's flames live 13+ frames: a tap's came back mid-flight at 8
+                const float dx = c[0] - f.x, dz = c[2] - f.z;
+                const float d2 = dx * dx + dz * dz;
+                const bool out = d2 < 2.4f * 2.4f;
+                static int logged = 0;
+                if (g_logPedFrames && logged < 160 && d2 < 16.0f) {
+                    ++logged;
+                    Log("flame jet: f=%u game sprite %.2f block(s) from the shooter, %.2f ahead, %.2f across, %.2f up, size %.2f %s", g_carFrame,
+                        std::sqrt(d2), dx * f.fx + dz * f.fz, dx * f.fz - dz * f.fx, c[1] - g_playerPosY, size, out ? "left out" : "drawn");
+                }
+                if (out) return true;
+            }
+        }
+        return false;
+    };
     auto issue = [&](const std::vector<Drawable>& list, bool fx = false) {
         bool tinted = false;
         for (const Drawable& d : list) {
@@ -12538,7 +12624,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     // drawn at the weapon model's muzzle (ShotFxMuzzle), so the game's sprite
                     // (an orange glow by the hip, a flat red square) is left out within a
                     // short reach of him; a bullet further out is the streak below.
-                    if (fxAtShooter(c, fresh)) continue;
+                    if (fxAtShooter(c, fresh) || fxFlameAtShooter(c, size)) continue;
                     if (flying) {
                         // A streak from where it was to where it is, a hand wide, facing the eye.
                         const float gun = 0.30f;
@@ -12573,6 +12659,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 }
                 if (fxAtEye(c, size)) continue;
                 if (size < 0.3f && fxAtShooter(c, false)) continue;   // the game's flash at a shooter (above)
+                if (fxFlameAtShooter(c, size)) continue;
                 gta2::Mat4 up = UprightPedMatrix(sp.local, sp.corners, sp.objectToWorld, fxEye);
                 if (small) {
                     // Centred at gun height rather than stood on the road.

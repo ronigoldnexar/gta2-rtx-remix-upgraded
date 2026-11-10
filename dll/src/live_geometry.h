@@ -107,7 +107,7 @@ const char* WeaponName(int weapon);
 void ShotLightsSubmit();
 // Flame sprites the last frame showed (world x, y, z and the car shell they sit on),
 // so the player log line can say whether his car is burning.
-struct FireSpotPublic { float x, y, z; const void* car; };
+struct FireSpotPublic { float x, y, z; const void* car; bool onCar = false; };   // onCar: a burning car's flame (FIX-FIGURE-9)
 extern std::vector<FireSpotPublic> g_fireSpotsLast;
 int FireSpotsNear(float x, float z, float radius, const void* carShell);
 // Where the player stands this frame (renderer coordinates), for keeping the

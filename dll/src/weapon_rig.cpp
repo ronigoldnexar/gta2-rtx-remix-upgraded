@@ -441,6 +441,17 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
         g.rW = 1.0f;
         return g;
     }
+    if (cls == cThrow && c.throwing && g_pistolStance) {   // test file 4th number 0: the clip alone (A/B)
+        // FIX-FIGURE-9 (feel12 molotov): the throw is the clip's right arm; the left, which the clip
+        // raises out in front for balance, hangs low and a little out and back (it read as both arms
+        // thrown up with the bottle). Soft (0.8), so the clip's swing still moves it.
+        g.lw = shL - U * 0.46f - R * 0.10f - F * 0.04f;
+        g.lx = Nrm(U * -0.95f - R * 0.20f);
+        g.ly = R;
+        g.lW = 0.8f;
+        g.lGrip = 0.0f;
+        return g;
+    }
     if (mode == kOff || cls == cNone || cls == cThrow) return g;
     if (cls == cDual) {
         if (mode != kAim) return g;
@@ -874,6 +885,7 @@ bool Begin(const Model& model, const Inputs& in) {
     mix(static_cast<uint32_t>(static_cast<int>(c.x * 20.0f) + 64)); mix(static_cast<uint32_t>(static_cast<int>(c.side * 4.0f) + 8));
     mix(c.trigger ? 1u : 0u); mix(static_cast<uint32_t>(static_cast<int>(c.reloadT * 30.0f) + 4));
     mix(c.closeUp ? 1u : 0u); mix(c.throwing ? 1u : 0u);
+    mix(static_cast<uint32_t>(g_pistolStance));   // the test file's A/B switch
     const uint64_t key = (1ull << 63) | ((static_cast<uint64_t>(in.object >> 2) & 0x7FFFFFFFFFull) << 24) | (hsh & 0xFFFFFFu);
     ModelSetPoseHook(&Hook, &g_ctx, key | 1u);
     g_curKey = key | 1u;

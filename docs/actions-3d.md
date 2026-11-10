@@ -1223,3 +1223,51 @@ owner demo's punch_sequence in third person, a kerb-lane jack, drive off (`FA3_D
 gamerun/grun.sh <run> 330 keys_fa3.sh -e GTA2DX9_STATE_EVERY=3 -e GTA2DX9_PEDS_EVERY=3 -e GTA2DX9_LOG_PED_FRAMES=1
 -e GTA2DX9_LOG_BOARD_HULL=1 -e FA3_DRIVE_WAIT=0.2` (about 70 s of game). `tools/boarding_hull_test.cpp` replays two
 paths through a car body against `boarding.cpp` offline (0 frames inside the hull).
+
+## FIX-FIGURE-9 (10 Nov 2026): the molotov throw without the burn clip, the flamethrower's jet, flames beside him
+
+**Molotov: "both arms up" after a throw was the burn clip** (feel12-molotov). The "on fire" test (a fire spot
+within 0.18 block of his feet, three frames running, then clip 19 `burn`, arms thrown up) is flat: a bottle thrown
+high passes, then lands, over his head. Log (fig9_h1): `action 19 ... clip burn` 0.4 s after each `action 13`.
+The spots measured 1.24-1.29 blocks above his feet (fig9_h3 `burn test` lines). Now:
+- `FireSpotsOnFigure`: a spot counts only from 0.25 below to 0.75 above his feet.
+- His own bottle or grenade is never a fire on him for 15 frames after the throw.
+- Flames that belong to a burning car never count (`FireSpotPublic::onCar`, set for the lifted car-fire spots and the
+  own-car path; the same sprite published again unlifted is matched by place). pm22 (ste): the hero stood hands-up
+  beside a burning convertible; the same clip, not verified in a pm22 run yet.
+- `GTA2DX9_BURN_TEST_OLD=1`: the flat test, for an A/B. `GTA2DX9_LOG_PED_FRAMES=1` logs `burn test:` when a flat hit
+  is not counted, and why.
+
+**Molotov throw: the left arm.** The throw clip raises the left arm out in front for balance. Through the weapon rig
+(`weapon_rig.cpp`, `cThrow` while `throwing`), that hand is now IK'd low at his side, a little out and back (weight
+0.8, the clip's swing still shows). The rig test file's 4th number 0 leaves the clip alone (A/B in the same session;
+it is now part of the pose cache key, so the switch takes effect at once).
+
+**Flamethrower: a jet from the nozzle** (feel12-flamethrower). The game's stream is upright flame sprites of
+0.5 block. They start 0.42 block ahead of him and travel straight along his facing at about 0.1 block a frame
+(fig9_h4 `flame jet:` lines: across within 0.04). Drawn standing, they read as a teardrop beside his hand. Now, while
+a figure fires the flamethrower (shot within 24 frames: the game's flames live 13+ frames, and with 8 a tap's flames came back mid-flight, fig9_h5 f46-55):
+- The game's flame sprites within 2.4 blocks of him are left out (street views only, the `fxUpright` path).
+- `ShotFxMuzzle` draws the stream: nine glow puffs every other shot frame, spread over their first 2/30 s of flight
+  so the stream is continuous, 6-7.6 blocks/s along the barrel with a slight rise, swelling 0.04 to 0.26 and
+  reddening over 0.30-0.37 s (about two blocks of reach, where the game's fire takes over), and a wisp of smoke at
+  the tip.
+- `GTA2DX9_FLAME_JET=0` turns both off (A/B).
+- The light the game's flames cast stays (a pool on the ground under the stream). In the rig test's turned views it
+  is off to the side, because only the drawn figure turns.
+
+| check | result | evidence |
+|---|---|---|
+| no arms-up after a molotov throw | verified: 0 `action 19` in fig9_h3 (3 throws); fig9_h1 (HEAD) had the burn clip after 2 of 3 throws | fig9_h1 molotov f46-65 vs fig9_h3 molotov_y90_s1 f30-61 |
+| bottle in the hand, one-arm swing, back to the low carry | verified: bottle in the right hand f33-34, arm forward f35-43, low carry with the bottle by the thigh from f44 | fig9_h3 b_h_molotov_y90_s1 |
+| left arm at his side during the throw | verified, same-session A/B: clip alone (s0) left arm out in front f35-43; rig (s1) at his side | fig9_h3 molotov_y90_s0 vs _s1 |
+| flame from the nozzle along the facing | verified from 45 degrees, from the side and from behind: a continuous stream from the nozzle to about two blocks, no upright teardrop beside him | fig9_h4 flame_y45/y0/y90 f104-135 |
+| rocket on the shoulder, both hands | verified (unchanged since 707c344) until his own blast (self-blast is feel12-rocket-self-blast) | fig9_h1 rocket f0-44 |
+| not done | the game's bottle is already in flight when the throw is seen (the clip starts at its forward swing, release about 3 frames later); the stream is round glow puffs, not a textured flame; the fire's ground light is very pale; the first-person rocket hand pop (feel12 report) not looked at | - |
+
+Probe: `linux/docker/fig9_heavy.py` + `keys_fig9_heavy.sh` (copy into gamerun/). Pickups (flamethrower, molotov,
+launcher), the plaza, a step so the hero is drawn after the warp, third person. Per pass: the drawn figure turned by
+the rig test file, 6.5 s at 30 fps with two taps and a held trigger. `FIG9_WEAPONS=flame,molotov,rocket`,
+`FIG9_PASSES="flame=90:1,0:1;molotov=90:1,90:0"` (yaw:stance per pass).
+`STAGE=<stage> GTA2_DIRECT_KEYS=1 FPS=30 PRIO=1 gamerun/grun.sh <run> 240 keys_fig9_heavy.sh -e GTA2DX9_STATE_EVERY=3
+-e GTA2DX9_LOG_PED_FRAMES=1 -e GTA2DX9_SCENE_NO_CAR=1 -e GTA2DX9_RIG_TEST_FILE=/tmp/rigtest -e FIG9_WEAPONS=...`
