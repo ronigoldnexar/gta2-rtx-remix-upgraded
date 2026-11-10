@@ -48,8 +48,10 @@ $(SLOT_OBJ): dll/src/plugin_slot.S
 	@mkdir -p $(dir $@)
 	$(CC) -c -o $@ $<
 
+# -Map: dll/build/gta2dx9.map names every function's address, so a crash offset in the
+# log (gta2dx9.dll+0x...) can be looked up; staged beside the DLL (FIX-STABILITY-1).
 dll/build/gta2dx9.dll: $(SLOT_OBJ) $(DLL_OBJ) dll/gta2dx9.def
-	$(CXX) $(LDFLAGS) -o $@ $(SLOT_OBJ) $(DLL_OBJ) dll/gta2dx9.def $(DLL_LIBS)
+	$(CXX) $(LDFLAGS) -Wl,-Map,dll/build/gta2dx9.map -o $@ $(SLOT_OBJ) $(DLL_OBJ) dll/gta2dx9.def $(DLL_LIBS)
 
 vid/build/gta2dx9_vid.dll: vid/src/vid_proxy.cpp vid/dmavideo.def
 	@mkdir -p vid/build
@@ -59,6 +61,7 @@ stage: dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll
 	@mkdir -p stage
 	cp dll/build/gta2dx9.dll stage/gta2dx9.dll
 	cp dll/build/gta2dx9.dll stage/d3ddll.dll
+	cp dll/build/gta2dx9.map stage/gta2dx9.map
 	cp vid/build/gta2dx9_vid.dll stage/gta2dx9_vid.dll
 	cp vid/build/gta2dx9_vid.dll stage/Dmavideo.dll
 	cp vid/build/gta2dx9_vid.dll stage/DMAGlide.dll

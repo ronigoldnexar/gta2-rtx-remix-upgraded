@@ -17,6 +17,9 @@ if exist "%OUT%" rmdir /s /q "%OUT%"
 mkdir "%OUT%" || exit /b 1
 
 copy /y "%~dp0dll\build\gta2dx9.dll"     "%OUT%\gta2dx9.dll"          >nul || exit /b 1
+rem The link map and .pdb: a crash offset in gta2dx9.log (gta2dx9.dll+0x...) is looked up in them.
+copy /y "%~dp0dll\build\gta2dx9.map"     "%OUT%\gta2dx9.map"          >nul || exit /b 1
+copy /y "%~dp0dll\build\gta2dx9.pdb"     "%OUT%\gta2dx9.pdb"          >nul || exit /b 1
 copy /y "%~dp0vid\build\gta2dx9_vid.dll" "%OUT%\gta2dx9_vid.dll"      >nul || exit /b 1
 rem The same two again under GTA2's own names. Neither needs the file it
 rem replaces: the renderer's takeover mode never loads the original, and the
