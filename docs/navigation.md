@@ -693,7 +693,15 @@ launch hits a wall), `keys_pfl21.sh` (V third -> first -> classic while driving)
 - **Out of the seat to the map** (pfeel33 residual): on the rise the car stays drawn from the seat (cut hull and
   cab) until the eye is 0.25 over the roof (was 0.02): the first rise frame, 0.15 over the roof looking 7 degrees
   down, had the roof under the frame's edge and showed the street with no car (held 0.4 s by a hitch, cam9_v21a
-  f1121). cam9_v21b: the held cab for one frame, then the roof.
+  f1121). cam9_v21b: the held cab for one frame, then the roof. And the rise's clearance anchor (FIX-CAMERA-6's "over
+  the car, 1.2 ahead" of the press eye) stops short of the first surface ahead of the seat: with the van's nose at a
+  wall it lay beyond the wall and the first rise frame's eye went 1.37 block through it (cam9_v21c f1174). Still
+  open: nose-on to a wall (cam9_v21d) the first 3-4 rise frames show the wall before the roof comes into view (the
+  pitch eases over 0.3 s).
+- **Off a raised level** (pm33, the camera half): at the wheel the rig's base is never under the car's own height.
+  Driven off bil's raised road (z 4.0 -> 2.2) the lid under the car was the street's, the base dropped there in
+  0.08 s and the chase eye filmed the car's floor pan from below. `cam: car above its floor` logs it;
+  `GTA2DX9_CAM_CAR_Z=0` is the A/B. cam9_pm33a pm_044 (the filer's frame): the car from behind and above.
 - **The seat's shudder** (pfl25, the camera half): at the wheel in first person the impact shake (the eye's only;
   the cockpit does not take it) is capped at 1.0 with 1.2/1.5/2 degrees of yaw/pitch/roll a unit (was 2.5/2/2 with
   the shake at 1.5); `GTA2DX9_FP_CAR_SHAKE=0` is the A/B. `cam: fp car pitch= body= lean= shake= roll= heave=
