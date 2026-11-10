@@ -108,6 +108,11 @@ CAR_PART_CLASSES = [
     (r"_lamp_(head|tail|amber|clear)\.tga$", 0.0, 0.06),
 ]
 
+def authored_part(tga):
+    """An authored (carkit) car's part texture: <NNN>_<car>_<part>.tga, not an image-to-3D atlas <NNN>_<car>_<N>[_paint].tga."""
+    n = os.path.basename(tga)
+    return bool(re.match(r"^\d{3}_", n)) and not re.search(r"_\d+(_paint)?\.tga$", n)
+
 def car_part_class(tga):
     """(metallic, roughness) for an authored car part texture, or None."""
     if not re.match(r"^\d{3}_", tga) or tga.endswith("_paint.tga"): return None
@@ -481,6 +486,13 @@ def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False):
     if group == "car3d":
         metal, rough, emit, gain, stats = car_trim_maps(rgba, ends)
         source.append("classes")
+        # FIX-REMIX-MATERIALS-8: the red-island lamp detector is for the image-to-3D atlases (<car>_N.tga,
+        # <car>_N_paint.tga). An authored part texture names its material: only a lamp/lens/sign part
+        # may glow (027's orange waffle cone came out 11 % emissive at intensity 6, its paint box had
+        # emission on with a black mask).
+        if authored_part(tga) and not EMIT_NAME.search(os.path.basename(tga)):
+            emit[:] = 0; gain[:] = 0.0
+            stats["lamp"] = stats["headlamp"] = 0.0
     elif mats:
         gm = grain_mod(rgba)
         for i, m in enumerate(mats):

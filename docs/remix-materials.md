@@ -1804,3 +1804,46 @@ until sun-lit road read cream. 0.13 is in `linux/docker/rtx_play.conf.extra` (th
 copy `gamerun/rtx_play.conf.extra`: installed by the deploy bundle). 21:00 at the same point stays a night (cap-bound).
 Left: the warm 09:00 sun still tints the sun-lit asphalt (B 158 vs R 186); the filer's 234,230,212 frame (more shade in
 view) would land near 215; untested on wil/ste and in rain.
+
+## Glowing red cars were a layer without its textures; emission only on lamp parts (FIX-REMIX-MATERIALS-8, 10 Nov 2026)
+
+**prx4** (red and orange trucks, vans and a bike path-traced as flat cream-peach silhouettes casting a red pool on the road,
+day and night) was the filer's harness, not the shipped layer. Its take passed `PACKAGE=<a git worktree>/package`, and the
+layer's DDS are git-ignored, so the runner installed the layer with **0 textures** (`run.log`: `gta2hd material mod
+installed ... (0 textures, 3694 materials)`). Remix then drew every world tile a flat default grey, and every prim with
+`enable_emission = 1` emitted over its whole surface, because its emissive mask had not loaded. Those prims are the
+image-to-3D atlases with baked tail lamps: 063_truck_cab_0, 068_van_0 and 036's body paint. Their real masks light
+0.1-0.3 % of the texels.
+
+Proof on one private HEAD stage. The own car was forced to 063 (paint 121,63,48) and 068 (200,60,50), filmed from fixed
+regress-camera poses at 13:00 and 22:00 with `gamerun/fm7_own.py` via `frm2_remix.sh`:
+- With the shared layer (14352 DDS, `fm8_ab1`), both are shaded paint with chrome and dark wheels. At night they are
+  lit only by the lamp post.
+- With the same layer minus its `textures/` folder (`fm8_notex`), both are flat cream-peach emitters with a red bloom on
+  the floor, in a grey world: the filer's frames.
+
+Take Remix A/Bs with `PACKAGE=` the shared `repo/package` or a hard-linked copy of it, never a bare worktree package. A
+guard in the runner for "0 textures" is the harness owner's to add.
+
+**The paint factor keeps no 2X.** A probe build added `remix_tint_mode` 9 (no stage-1 factor) beside the shipped mode 1
+(not committed). At paint 207,207,207 on the 063 (tint ~1), modes 1 and 9 render the same brightness, so Remix multiplies
+by the sRGB-decoded factor without MODULATE2X's doubling. Mode 1 therefore never pushes a paint's albedo over 1.
+
+**Emission only on parts that are lamps.** `remix_model_pbr.car_trim_maps`' red-island tail-lamp detector is meant for the
+image-to-3D atlases (`<car>_N.tga`, `<car>_N_paint.tga`). It also ran on the carkit cars' named part textures, so
+VEHICLE-ART-16's 027 waffle-cone texture came out 11 % emissive at intensity 6, and the paint box had emission switched on
+over a black mask. That box would glow whole if its mask ever failed to load, exactly as in prx4.
+
+Now an authored part texture (`authored_part()`: `<NNN>_<car>_<part>.tga`, not an atlas) emits only when its name matches
+`EMIT_NAME` (lamp, lens, sign, bulb, ...). The audit of the shipped layer found no non-lamp authored part with emission.
+
+**Prims for VEHICLE-ART-16** (014 Eddy, 027 Ice-Cream Van kit re-add, 046 Stinger, 062 Trance-Am) and the electro gun:
+31 textures, 25 hashes. Built with `remix_model_materials.py --pattern '^(014|027|046|062)_.*|^weapon_electro_gun.*'`
+into a scratch layer, whose `mod_wet.usda` must be a copy of its new `mod.usda` or the merge skips the wet layer, then
+merged with `remix_layer_merge.py` (missing hashes only). `remix_car_prim_check.py --pattern '.*'`: 1352 textures of
+279 models, 0 missing. The 67 new DDS are in `layer_deploy/FIX-REMIX-MATERIALS-8/`.
+
+**Car glass prims missing (prxq, prx6).** The three prims VEHICLE-GLASS-2 handed over for the Remix pane and cabin
+textures (`0x00E7B4E949140568`, `0x52573041E54EEEB7`, `0x92AE80C504938232`, docs/car-glass.md 5.1) never reached the
+layer. Every generated car's panes therefore path-trace with the legacy material of the pale fixed pane texture: flat
+pale cards with no reflection or interior. FIX-REMIX-GLASS lands them (prx6).
