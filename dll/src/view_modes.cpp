@@ -2129,6 +2129,21 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // per-block step on ramps and kerbs, so the floor is eased.
     float floor = py;
     if (!(q.floorAt && q.floorAt(q.context, px, pz, py + 0.75f, &floor))) floor = py;
+    // FIX-CAMERA-9 (pm33-bil-third-pitch-black-upside-down-vehicle-silhouette-hangs-over-wall): at the wheel never under
+    // the car's own height. Driven off a raised level (bil 158.5,144.5: z 4.0 -> 2.2 in 0.6 s, run fci4_pm33a) or up on
+    // another car, the lid under it is the street's, the rig's base dropped there in 0.08 s and the chase eye sat
+    // under the car, its black floor pan and wheels hanging over the top of the frame. GTA2DX9_CAM_CAR_Z=0: as before.
+    {
+        static int carZOn = -1;
+        if (carZOn < 0) { char b[8] = {}; carZOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_Z", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        if (carZOn && inVehicle && py > floor + 0.05f) {
+            if (cameraLogOn() && py > floor + 0.3f) {
+                static int every = 0;
+                if ((++every % 10) == 1) Log("cam: car above its floor: z %.2f, lid %.2f (the rig rides the car)", py, floor);
+            }
+            floor = py;
+        }
+    }
     if (!floorSettled_) {
         floorY_ = floor;
         floorSettled_ = true;
