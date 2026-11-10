@@ -25,6 +25,7 @@ int g_paintRef = 1;          // [devtools] paint_ref: 1 the panels + no clip (FI
 float g_paintGain = 1.25f;   // the panel rule's level (car_bodies.cpp: paint_gain_percent at the lid's light)
 float g_paintCast[3] = {1.0f, 1.0f, 1.0f};   // FIX-CAR-IDENTITY-6: the post's hemisphere cast on a lid (car_bodies.cpp), luminance 1
 bool g_liveryGain = true;     // [devtools] livery_gain: a livery body takes the lid-light gain too (FIX-CAR-IDENTITY-5, pmt5)
+float g_paintSatHold = 40.0f;   // VEHICLE-ART-17: [devtools] paint_sat_hold: a fully saturated lid is held this far under 250
 float g_paintLid = 0.96f;    // the light on a lid (stage 0 multiplies the texel by it before the tint: the clip test)
 uint32_t g_frame = 0;
 
@@ -261,7 +262,16 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
         float most = 0.0f;
         for (int k = 0; k < 3; ++k) most = (std::max)(most, (liveryLit ? gain : gain * lift * live[k] / ownPaint[k]) * corr[k]);
         // The texture stages clip texel x light x tint: the brightest lid texel under the lid's light.
-        if (most * panelTop * g_paintLid > 250.0f) cap = 250.0f / (most * panelTop * g_paintLid);
+        // VEHICLE-ART-17 (pmt5): and a saturated colour is held further under white. The post's tone shoulder takes
+        // the lit lid's brightest channel alone (the lid's real light is ~0.8, over the 0.67 sun-only estimate): the
+        // taxi's orange 229,155,38 drew 243,189,29 on its lids (red compressed, green not: hue 34 -> 45 deg, lemon).
+        // A neutral colour compresses evenly (no hue shift): it keeps the old 250.
+        const float* hueOf = liveryLit ? ownPaint : live;
+        const float hiC = (std::max)(hueOf[0], (std::max)(hueOf[1], hueOf[2]));
+        const float loC = (std::min)(hueOf[0], (std::min)(hueOf[1], hueOf[2]));
+        const float sat = hiC > 1.0f ? (hiC - loC) / hiC : 0.0f;
+        const float ceiling = 250.0f - g_paintSatHold * sat;
+        if (most * panelTop * g_paintLid > ceiling) cap = ceiling / (most * panelTop * g_paintLid);
     }
     for (int k = 0; k < 3; ++k) {
         const float own = ownPaint[k];
@@ -338,6 +348,9 @@ void IdentitySetCrowdVariety(bool on) {
 }
 void IdentitySetPaintFloor(float floor) {
     if (g_paintFloor != floor) { g_paintFloor = floor; g_cars.clear(); }
+}
+void IdentitySetPaintSatHold(float hold) {
+    if (g_paintSatHold != hold) { g_paintSatHold = hold; g_cars.clear(); }
 }
 void IdentitySetLiveryGain(bool on) {
     if (g_liveryGain != on) { g_liveryGain = on; g_cars.clear(); }

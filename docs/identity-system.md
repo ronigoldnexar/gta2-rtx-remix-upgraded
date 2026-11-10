@@ -951,3 +951,35 @@ The gate fix (tools only, no DLL change):
   part of its sky was hidden). White is -16 % as before, and the dark paints are lifted (report only). This spot-to-spot
   spread of about ±20 % is world lighting (sky, AO), not paint. Tuning the paint gain to one spot would be chasing it, so
   the WARNs stay the residual of section 11.5.
+
+## 13. A saturated livery clipped toward lemon: the no-clip cap per channel (VEHICLE-ART-17, pmt5, 10 Nov 2026)
+
+**What the gate showed on HEAD 69c6db9** (`out/va17_gate0`, the plaza spot of section 12): the 051 taxi's body
+233,161,24 and lit lids 241,197,30 against its sprite's 189,115,27 (the filer's 206,130,33): +29 % L*, and the lids
+at hue 48 deg against the sprite's 34 (frame opened: a lemon-yellow taxi beside an amber sprite). Not the old
+"ochre" of the pmt5 report any more (that was the park spot in a tree's shadow and the pre-e1e3971 livery level).
+
+**Why.** The log line `livery tint 1.86,1.76,1.62` with `own paint ... panels 229,155,38 top 171`. The no-clip cap
+(section 10.4 / identity.cpp) tests `tint x top x lid light` against 250, and `top` was the 97th percentile of the
+paint texels' **luminance**. For a neutral paint (every painted car: their paint halves are grey 235) luminance is
+every channel; for a coloured livery it is not: the taxi's red (229) sits far above its luminance (164), so 1.86
+passed the test while red reached the post's tone shoulder on every lid and green kept rising: orange -> lemon.
+
+**Fix.**
+- `model_store.cpp` OwnPaintAll: `top` is the 97th percentile of each texel's **brightest channel** (all texels and the
+  up-facing weighted set as before). Neutral paints: unchanged by construction.
+- `identity.cpp` DeriveVehicle: the cap's ceiling is `250 - paint_sat_hold x saturation` of the colour the lid shows
+  (the livery's own panels, or the record's paint): the lid's real light is ~0.8, over the 0.67 sun-only estimate,
+  and only a saturated colour shifts hue when its top channel compresses alone. `[devtools] paint_sat_hold` (default
+  40; 0 = the old 250, re-derives every car).
+
+**Measured** (same spot and gate, `out/va17_gate1` vs `out/va17_gate0`; frames opened): taxi tint 1.86 -> 1.54
+(log), body 233,161,24 -> 209,136,20, lids 241,197,30 -> 236,167,26, L* +29 % -> +13 %, hue 7 -> 4 deg (frame:
+amber like the sprite; the probe `out/va17_p2` pt_top_051 / pt_chase_051). The yellow paint on 000/004/013/018/063/
+068: L* +4..+10 % -> -5..+1 %, hue 3-4 -> 1-2 deg. Red, green, navy, black, white and the van paints: within 1 % of
+before. 056 taxi +42 % (p1, cap 1.57) -> +25 % (p2). Gate: 0 FAIL, 16 WARN both. Classic: no change (vreg below).
+Under Remix the gain is 1 and the cap never binds: no change there.
+
+**Still short.** The taxi body is +13 % L* over the gate's sprite measure at this sunny spot (the painted fleet reads
++10..+23 % there, section 12): world light, not paint. The 3D taxi still lacks the sprite's chequer roof stripe and
+roof sign art (the 051 kit body's art, not the record).

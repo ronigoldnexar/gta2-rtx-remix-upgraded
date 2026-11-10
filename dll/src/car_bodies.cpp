@@ -4025,6 +4025,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // same-spot A/B frames; re-derives every car record when it changes.
         g_paintRefDev = GetPrivateProfileIntA("devtools", "paint_ref", 1, g_devIni);
         IdentitySetLiveryGain(GetPrivateProfileIntA("devtools", "livery_gain", 1, g_devIni) != 0);
+        IdentitySetPaintSatHold(static_cast<float>(GetPrivateProfileIntA("devtools", "paint_sat_hold", 40, g_devIni)));
         g_paintGainDev = static_cast<float>(GetPrivateProfileIntA("devtools", "paint_gain_percent", 125, g_devIni)) / 100.0f;
         g_paintSkyCast = GetPrivateProfileIntA("devtools", "paint_sky_cast", 1, g_devIni) != 0;   // FIX-CAR-IDENTITY-6 A/B
         g_paintSpecPower = static_cast<float>((std::max)(4, static_cast<int>(GetPrivateProfileIntA("devtools", "paint_spec_power", 50, g_devIni))));

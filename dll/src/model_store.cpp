@@ -3742,6 +3742,8 @@ bool OwnPaintAll(const Model& model, float rgb[3], float mean[3], float panel[3]
         // Per luminance level: the texel count and the colour sums (the brighter half from these).
         std::vector<double> bins(256 * 4, 0.0);
         std::vector<double> upBins(256 * 4, 0.0);   // the same weighted by how much each texel faces up
+        // VEHICLE-ART-17 (pmt5): per brightest-channel level, all texels and up-facing weighted: the clip level.
+        std::vector<double> maxBins(256, 0.0), upMaxBins(256, 0.0);
         size_t n = 0;
         for (const auto& f : byFile) {
             std::vector<uint8_t> tga;
@@ -3765,10 +3767,13 @@ bool OwnPaintAll(const Model& model, float rgb[3], float mean[3], float panel[3]
                     const int l = (std::min)(255, (r * 77 + g * 151 + b * 28) >> 8);
                     double* bin = &bins[static_cast<size_t>(l) * 4];
                     bin[0] += 1.0; bin[1] += r; bin[2] += g; bin[3] += b;
+                    const int mx = (std::max)(r, (std::max)(g, b));
+                    maxBins[static_cast<size_t>(mx)] += 1.0;
                     const double up = upMap[static_cast<size_t>(y) * w + x];
                     if (up > 0.0) {
                         double* ub = &upBins[static_cast<size_t>(l) * 4];
                         ub[0] += up; ub[1] += up * r; ub[2] += up * g; ub[3] += up * b;
+                        upMaxBins[static_cast<size_t>(mx)] += up;
                     }
                     ++n;
                 }
@@ -3793,13 +3798,19 @@ bool OwnPaintAll(const Model& model, float rgb[3], float mean[3], float panel[3]
             // (~230): the tint live/mean pushed the panels past white (133,65,65 / 108 = 1.23 on red: 283,139,139
             // clipped to 255,139,139, salmon pink). The texels at or over half the 90th-percentile level are
             // the panels (lit and shaded), and the 97th percentile is the brightest one a tint must keep under 1.
+            // VEHICLE-ART-17 (pmt5): the 97th percentile is taken on each texel's BRIGHTEST CHANNEL, not its luminance:
+            // the clip test (identity.cpp, texel x lid light x tint) is per channel. A neutral paint has both equal;
+            // a coloured livery does not: the 051 taxi's panels 229,155,38 have luminance 164 and red 229, so its lit
+            // tint 1.86 passed the luminance test (top 171) while red clipped on every lid and the orange slid to lemon
+            // yellow (+29 % L*, hue 34 -> 48 deg on the lids against the sprite).
             int p90 = 255, p97 = 255;
             {
-                double above = 0.0;
+                double above = 0.0, aboveMax = 0.0;
                 bool got90 = false, got97 = false;
                 for (int l = 255; l >= 0; --l) {
                     above += bins[static_cast<size_t>(l) * 4];
-                    if (!got97 && above >= 0.03 * static_cast<double>(n)) { p97 = l; got97 = true; }
+                    aboveMax += maxBins[static_cast<size_t>(l)];
+                    if (!got97 && aboveMax >= 0.03 * static_cast<double>(n)) { p97 = l; got97 = true; }
                     if (!got90 && above >= 0.10 * static_cast<double>(n)) { p90 = l; got90 = true; }
                 }
             }
@@ -3818,9 +3829,9 @@ bool OwnPaintAll(const Model& model, float rgb[3], float mean[3], float panel[3]
                 // not clip first): 040's lids are darker than its other paint textures, whose 97th percentile held
                 // the tint at 1.05 and drew a white sprite mid grey.
                 double all = 0.0, above = 0.0;
-                for (int l = 0; l < 256; ++l) all += upBins[static_cast<size_t>(l) * 4];
+                for (int l = 0; l < 256; ++l) all += upMaxBins[static_cast<size_t>(l)];
                 for (int l = 255; l >= 0; --l) {
-                    above += upBins[static_cast<size_t>(l) * 4];
+                    above += upMaxBins[static_cast<size_t>(l)];
                     if (above >= 0.03 * all) { p97 = l; break; }
                 }
             }
