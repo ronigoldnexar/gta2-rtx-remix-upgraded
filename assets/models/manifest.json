@@ -2100,7 +2100,10 @@
     0.3895,
     -0.0105,
     0.63
-   ]
+   ],
+   "material_textures": {
+    "glass": "cars/models_art/063_truck_cab_glass_t.png"
+   }
   },
   {
    "name": "064_truck_cab_sx",
@@ -8829,7 +8832,7 @@
    "textures": [
     "063_truck_cab_0.tga",
     "063_truck_cab_2_paint.tga",
-    "063_truck_cab_4.tga"
+    "063_truck_cab_glass.tga"
    ],
    "skins": 0,
    "forward": "",

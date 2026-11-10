@@ -210,6 +210,9 @@ M = dict(
     tail=Mat("taillamp_lens", "rest", (0.62, 0.05, 0.04), rough=0.1, emit=(1.0, 0.08, 0.04), ao=0.3),
     amber=Mat("marker_lamp", "rest", (0.95, 0.55, 0.10), rough=0.1, emit=(1.0, 0.55, 0.1), ao=0.3),
     interior=Mat("interior", "rest", (0.20, 0.17, 0.14), rough=0.85, ao=0.9),
+    # VEHICLE-ART-11: a light grey-beige headliner/door trim for the liner, so the cab reads through the
+    # (now translucent) glass from the kerb; the dark interior colour made it a black hole
+    liner=Mat("interior_liner", "rest", (0.46, 0.43, 0.38), rough=0.9, ao=0.5, glbname="interior"),
     seat=Mat("interior_seat", "rest", (0.34, 0.12, 0.10), rough=0.8, ao=0.9, glbname="interior"),
     glass=Mat("glass", "glass", (0.05, 0.06, 0.07), rough=0.05, shader=glass_shader, ao=0.2),
     mirror=Mat("mirror_glass", "rest", (0.55, 0.60, 0.66), rough=0.03, metal=1.0, env=0.7, ao=0.2, glbname="chrome"),
@@ -269,13 +272,19 @@ def build_truck():
     P.append(tube("ws_post", M["chrome"], post, 0.018, R=6))
     # interior seen through the glass: a liner (faces inward), dash, seats, wheel
     # the liner: the cab's own shape 5 cm inside, facing inward
-    liner = body_loft("liner", M["interior"], [
+    liner = body_loft("liner", M["liner"], [
         (cab_z0 + 0.08, (1.03, 2.37, 0.93, 0.85, 4.8, 0.03, 0)),
         (0.45, (1.03, 2.40, 0.98, 0.90, 4.8, 0.05, 0)),
         (0.72, (1.03, 2.36, 0.98, 0.90, 4.8, 0.04, 0)),
         (0.93, (1.03, 1.84, 0.95, 0.82, 4.5, 0.02, 0)),
     ], R=24, S=10, nb=9)
-    liner = Part("liner", M["interior"], liner.V, liner.F[:, ::-1], -liner.N)
+    # VEHICLE-ART-11: the liner's normals lean up (the inward ones face away from the sun, so the plain
+    # renderer lit the whole cabin with ambient only: black behind the glass); this lights it as if
+    # through the windows. The winding stays inward (only its inside is drawn).
+    ln = -liner.N + np.array([0.0, 2.5, 0.0]); ln /= np.linalg.norm(ln, axis=1, keepdims=True)
+    liner = Part("liner", M["liner"], liner.V, liner.F[:, ::-1], ln)
+    # VEHICLE-ART-11 (pmx11): the liner stays closed (holes cut by whole faces left stair-stepped edges
+    # seen through the far pane); light and lit, it reads as the cab's trim behind the translucent glass
     P.append(liner)
     P.append(box("dash", M["black"], (-0.92, 1.45, 0.58), (0.92, 1.78, 0.74)))
     for sx in (1, -1):
@@ -395,7 +404,9 @@ def build_truck():
         arm = [[0.97 * sx, 1.72, 0.80], [1.10 * sx, 1.74, 0.86], [1.12 * sx, 1.82, 0.88]]
         P.append(tube(f"mirror_arm{sx}", M["chrome"], arm, 0.014, R=6))
         P.append(tube(f"mirror_arm_t{sx}", M["chrome"], [[0.96 * sx, 2.22, 0.74], [1.12 * sx, 2.20, 0.86]], 0.012, R=6))
-        P.append(rbox(f"mirror{sx}", M["chrome"], (min(1.09 * sx, 1.165 * sx), 1.78, 0.84), (max(1.09 * sx, 1.165 * sx), 2.22, 0.90), r=0.02, R=8))
+        # VEHICLE-ART-11 (pmx11): a painted black steel housing (a chrome slab baked the street and read
+        # from the front as a blue-black sawtooth sheet); the arms stay chrome, the glass faces the driver
+        P.append(rbox(f"mirror{sx}", M["black"], (min(1.09 * sx, 1.165 * sx), 1.78, 0.84), (max(1.09 * sx, 1.165 * sx), 2.22, 0.90), r=0.02, R=8))
         P.append(box(f"mirror_glass{sx}", M["mirror"], (min(1.10 * sx, 1.155 * sx), 1.80, 0.832), (max(1.10 * sx, 1.155 * sx), 2.20, 0.84)))
         P.append(tube(f"grab{sx}", M["chrome"], [[1.01 * sx, 1.22, -0.06], [1.045 * sx, 1.25, -0.08], [1.045 * sx, 1.95, -0.08], [1.01 * sx, 1.98, -0.06]], 0.014, R=6))
         P.append(box(f"door_handle{sx}", M["chrome"], (min(1.015 * sx, 1.04 * sx), 1.80, 0.06), (max(1.015 * sx, 1.04 * sx), 1.825, 0.17)))

@@ -531,3 +531,31 @@ Probe note: in the va6_own warp probe the hero is drawn sitting outside the left
 DLL (old shells and ART-9's 018 alike), while the manifest seat is published inside the cab: a probe/figure issue.
 
 Evidence: see the READY lines on the work orders (ptm1, vr-vehicle-art-audit-batch).
+
+## VEHICLE-ART-11 (10 Nov 2026)
+
+Probe: `gamerun/keys_va11_own.sh` + `va11_own.py` (va6_own plus `POSES_EXTRA` poses with their own look-at point,
+`PAINT` = force_car_paint, `EXIT=1`: park, step out and film the car as a parked car, so the own-car paths do not
+change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51756 stage models) and `stage_va11b`
+(the same plus the files below).
+
+- **082 seat (pmt6, art half):** the manifest seat [0.08, 0.112, -0.076, 0.2551] lies on the bucket's cushion in the
+  shipped .mesh (seat triangles x +-0.128, y 0.084..0.212, z -0.124..-0.010), and the log publishes it inside the body
+  (`driver's seat of 082_jagular_xk (manifest): u 0.084 z -0.077 cushion 0.116`). The filer's bil repro on the HEAD
+  DLL (out/va11_bil082a, carmodel=82) still draws the hero standing at the rear-left flank in third person
+  (idp_car_2third.png). That is the renderer half (FIX-SEAT-ENTRY-4). No model change.
+- **063 Truck Cab glass, mirror, cab (pmx11):** the carkit bodies (063, 013, 068) bake their windows into a separate
+  `glass` draw group, but the importer named its texture by image index (`063_truck_cab_4.tga`), so it drew opaque:
+  a black pane over a cabin nobody could see, and VEHICLE-GLASS's mask pass also treated the body as a generated
+  hull. Now: `tools/vehicle_art/glass_translucent.py` writes `<name>_glass_t.png` (the baked pane, alpha 0.45, lifted
+  12 % toward the sky tint), and the manifest maps the material to it (`"material_textures": {"glass": ...}`).
+  The import names it `063_truck_cab_glass.tga`: blended, z-write off (model_store CarSurfaceFor), and car_glass logs
+  "has its own glass (authored body), left as it is". `m063_truck_cab.py`: the mirror housing is black painted steel
+  (a baked chrome slab read from the front as a blue-black sawtooth sheet), the arms stay chrome; the cab liner is a
+  light grey-beige headliner with upward-leaning normals (lit with inward normals, it got only ambient: black
+  behind the glass). A liner with window holes was tried and rejected: whole-face cuts left stair-stepped edges
+  through the far pane. Before out/va11_063b2, after out/va11_063a7 (parked, teal 45,110,115; poses door1 = 1 block
+  from the door at first-person eye height, door06, mirror, doorL, cab3q, side, front34, rear34, eye, far, chase).
+  Own-car takes out/va11_063b1 / a2: on the HEAD DLL the own 063 was ghosted (whole upper cab translucent); with the
+  `_glass` texture it draws solid. Far view unchanged. Remix: `063_truck_cab_0.tga` (re-baked) and
+  `063_truck_cab_glass.tga` have no prim; `_2_paint` kept its prim.
