@@ -1518,15 +1518,42 @@
   },
   {
    "name": "086_karma_bus",
-   "glb": "cars/models3d/086_karma_bus.glb",
+   "glb": "cars/vehicle_art2/086_karma_bus.glb",
    "scale": 1.0,
    "paint_rgb": [
-    184.4,
-    131.8,
-    46.2
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/086_karma_bus/seal.png",
+    "underbody": "cars/vehicle_art2/086_karma_bus/underbody.png",
+    "paint_body": "cars/vehicle_art2/086_karma_bus/paint_body.png",
+    "paint_end": "cars/vehicle_art2/086_karma_bus/paint_end.png",
+    "interior_dark": "cars/vehicle_art2/086_karma_bus/interior_dark.png",
+    "chrome": "cars/vehicle_art2/086_karma_bus/chrome.png",
+    "lamp_tail": "cars/vehicle_art2/086_karma_bus/lamp_tail.png",
+    "lamp_amber": "cars/vehicle_art2/086_karma_bus/lamp_amber.png",
+    "bumper": "cars/vehicle_art2/086_karma_bus/bumper.png",
+    "grille": "cars/vehicle_art2/086_karma_bus/grille.png",
+    "chrome_disc": "cars/vehicle_art2/086_karma_bus/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/086_karma_bus/lamp_head.png",
+    "hatch": "cars/vehicle_art2/086_karma_bus/hatch.png",
+    "hatch_light": "cars/vehicle_art2/086_karma_bus/hatch_light.png",
+    "seat": "cars/vehicle_art2/086_karma_bus/seat.png",
+    "tyre_side": "cars/vehicle_art2/086_karma_bus/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/086_karma_bus/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/086_karma_bus/paint_wheel.png",
+    "glass": "cars/vehicle_art2/086_karma_bus/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_086.py",
+   "driver_seat": [
+    0.164,
+    0.21,
+    0.444,
+    0.571
+   ]
   },
   {
    "name": "032_stretch_limousine",
@@ -8635,13 +8662,30 @@
   },
   {
    "name": "086_karma_bus",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 14352,
+   "nodes": 23,
+   "meshes": 19,
+   "vertices": 26097,
    "animations": [],
    "textures": [
-    "086_karma_bus_0.tga",
-    "086_karma_bus_0_paint.tga"
+    "086_karma_bus_bumper.tga",
+    "086_karma_bus_chrome.tga",
+    "086_karma_bus_chrome_disc.tga",
+    "086_karma_bus_glass.tga",
+    "086_karma_bus_grille.tga",
+    "086_karma_bus_hatch.tga",
+    "086_karma_bus_hatch_light.tga",
+    "086_karma_bus_interior_dark.tga",
+    "086_karma_bus_lamp_amber.tga",
+    "086_karma_bus_lamp_head.tga",
+    "086_karma_bus_lamp_tail.tga",
+    "086_karma_bus_paint_body_paint.tga",
+    "086_karma_bus_paint_end_paint.tga",
+    "086_karma_bus_paint_wheel_paint.tga",
+    "086_karma_bus_seal.tga",
+    "086_karma_bus_seat.tga",
+    "086_karma_bus_tyre_side.tga",
+    "086_karma_bus_tyre_tread.tga",
+    "086_karma_bus_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
