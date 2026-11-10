@@ -22,6 +22,7 @@
 #include "model_store.h"
 #include "identity.h"   // IDENTITY-SYSTEM
 #include "view_modes.h"
+#include "world_view.h"   // SeatMoveEye (FIX-SEAT-ENTRY-2)
 #include "remix_api.h"
 #include "synthetic_lights.h"
 #include "texture_store.h"
@@ -3789,7 +3790,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 }
                 // QB-5: the eye over the bonnet (see BonnetTopFor). Only the player's car
                 // is measured (the eye sits in no other), only for whole models.
-                if (use.own && !WreckModelNumber(modelNumber)) {
+                // FIX-SEAT-ENTRY-2 (fp-first-entry black frames): the car he drives, in every view, not
+                // only once it is drawn from the seat. The first-person eye is placed from last frame's
+                // cabin (CarBodiesCabin), and the chase view's cabin had no lift, so the move into the
+                // seat and its first frames put the eye at the unlifted height: in the 068 van 0.47,
+                // under the dashboard's top (0.506), and the dash filled the screen black for 3-4 frames
+                // until the seat's own cabin (0.57) came through.
+                if ((use.own || use.driven) && !WreckModelNumber(modelNumber)) {
                     const float bonnet = BonnetTopFor(*model, fit, cabin.windscreen);
                     // eye = deck + 0.62 (roof - deck); the cut is 0.035 under it: a deck
                     // 0.03 over the bonnet leaves the bonnet whole under the cut.
@@ -3892,6 +3899,55 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 const Cabin& cab = g_cabins[use.object];
                 const float top = BonnetTopFor(*worn, fit, cab.windscreen);
                 if (top > 0.02f) SeatBonnetAhead(*worn, fit, cab.windscreen, top + 0.005f);
+            }
+            // FIX-SEAT-ENTRY-2 (fp-first-entry): while the camera moves down into the driver's seat, the
+            // seat view's parts are made ahead for the seat's eye, once per model: the hood copy or its
+            // dash, and one unseen draw of the cab (colour and depth writes off), which loads the hands'
+            // model and its textures and has the cab's states compiled by the driver. The first frame in
+            // the seat built them on the render thread (213 ms on the 068 van, run seat2_van2: the frame
+            // before held for 0.2 s). Plain renderer only (Remix would capture the unseen draw).
+            gta2::Vec3 seatEye{};
+            if (!cpuCut && use.driven && g_cabInterior && !RemixApiAvailable() && !WreckModelNumber(modelNumber) &&
+                SeatMoveEye(&seatEye)) {
+                static std::set<int> warmed;
+                if (warmed.size() < 128 && warmed.insert(modelNumber).second) {
+                    const double tw = CarNowMs();
+                    const float* r = carToWorld.m[0]; const float* u = carToWorld.m[1]; const float* f = carToWorld.m[2];
+                    const float rl = r[0] * r[0] + r[1] * r[1] + r[2] * r[2], ul = u[0] * u[0] + u[1] * u[1] + u[2] * u[2],
+                                fl = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+                    const float dx = seatEye.x - carToWorld.m[3][0], dy = seatEye.y - carToWorld.m[3][1], dz = seatEye.z - carToWorld.m[3][2];
+                    const float sx2 = rl > 1e-8f ? (dx * r[0] + dy * r[1] + dz * r[2]) / rl : 0.0f;
+                    const float sy2 = ul > 1e-8f ? (dx * u[0] + dy * u[1] + dz * u[2]) / ul : 0.0f;
+                    const float sz2 = fl > 1e-8f ? (dx * f[0] + dy * f[1] + dz * f[2]) / fl : 0.0f;
+                    const Cabin& cab = g_cabins[use.object];
+                    const bool flatSeat = CabClassFor(modelNumber, cab.flat) == CabClass::Bus;
+                    const bool bonnetSeat = !flatSeat && g_fpBonnet && BonnetTopFor(*worn, fit, cab.windscreen) > 0.02f;
+                    const HoodCopy& wh = (bonnetSeat || flatSeat) && g_hoodDash ? HoodDashFor(*worn, fit, sy2 - 0.035f, sz2 + 0.10f, sx2)
+                                                                                 : HoodModelFor(*worn, fit, sy2 - 0.035f, sz2 + 0.10f, sx2);
+                    const double th = CarNowMs();
+                    CabInteriorParams cp;
+                    cp.cls = CabClassFor(modelNumber, cab.flat);
+                    cp.eyeX = sx2; cp.eyeY = sy2; cp.eyeZ = sz2;
+                    cp.zCut = sz2 + 0.10f;
+                    cp.dashTop = wh.dash ? wh.dashTop : sy2 - 0.043f;
+                    cp.dashX0 = wh.dash ? wh.dashX0 : -0.45f * b->bodyWidth;
+                    cp.dashX1 = wh.dash ? wh.dashX1 : 0.45f * b->bodyWidth;
+                    cp.night = g_lampDark;
+                    cp.openTop = CabOpenTop(modelNumber);
+                    cp.taxi = modelNumber == 51 || modelNumber == 56;
+                    cp.warm = true;
+                    DWORD colourWrite = 0, zWrite = 0;
+                    device->GetRenderState(D3DRS_COLORWRITEENABLE, &colourWrite);
+                    device->GetRenderState(D3DRS_ZWRITEENABLE, &zWrite);
+                    device->SetRenderState(D3DRS_COLORWRITEENABLE, 0u);
+                    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+                    DrawCabInterior(device, carToWorld, cp, material);
+                    device->SetRenderState(D3DRS_COLORWRITEENABLE, colourWrite);
+                    device->SetRenderState(D3DRS_ZWRITEENABLE, zWrite);
+                    device->SetMaterial(carMaterialSet ? &carMaterial : &material);
+                    Log("car bodies: seat move: the seat view of %s made ahead (hood %.1f ms, cab %.1f ms)", worn->name.c_str(), th - tw,
+                        CarNowMs() - th);
+                }
             }
             // VEHICLE-FEEL: the sprung body and the turning wheels (see vehicle_fx.h).
             const float roofH = model->Height() * sy;

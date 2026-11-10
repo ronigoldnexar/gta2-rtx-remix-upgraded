@@ -535,7 +535,28 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         const Vec3 axis{0.0f, std::sin(rake), std::cos(rake)};     // its column, away from the driver
         const Vec3 across{1.0f, 0.0f, 0.0f};
         const Vec3 c = rimTop - up * R;
-        const float turn = (std::max)(-2.6f, (std::min)(2.6f, p.steer * 6.0f));
+        // FIX-SEAT-ENTRY (pfeel41 f11-24): the wheel turns with the front wheels as the driver would
+        // turn it, not with every flicker of the game's heading. The steer the bodies measure (the
+        // heading change over the distance a frame) jumps by a tenth of a radian on a straight road;
+        // times six on the rim that swung the hands between the rim's sides, its top and its foot
+        // every few frames. A dead band of 0.035 rad of steer, then eased in over ~0.12 s and no
+        // faster than 4 rad/s of rim.
+        static float shownSteer = 0.0f;
+        static ULONGLONG steerStamp = 0;
+        if (!p.warm) {
+            const ULONGLONG now = GetTickCount64();
+            const float dt = steerStamp ? (std::min)(0.1f, static_cast<float>(now - steerStamp) / 1000.0f) : 0.0f;
+            const float dead = 0.035f;
+            const float want = std::fabs(p.steer) < dead ? 0.0f : p.steer - (p.steer > 0.0f ? dead : -dead);
+            if (!steerStamp || now - steerStamp > 500) shownSteer = want;
+            else {
+                const float k = 1.0f - std::exp(-dt / 0.12f);
+                const float step = (want - shownSteer) * k, cap = (4.0f / 6.0f) * dt;
+                shownSteer += (std::max)(-cap, (std::min)(cap, step));
+            }
+            steerStamp = now;
+        }
+        const float turn = (std::max)(-2.6f, (std::min)(2.6f, (p.warm ? 0.0f : shownSteer) * 6.0f));
         const float cs = std::cos(turn), sn = std::sin(turn);
         const Vec3 u = across * cs + up * sn, v = up * cs - across * sn;
         b.Torus(kWheel, c, u, v, axis, R, st.wheelTube);
@@ -690,6 +711,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // FIX-HUD pm2: where the lining's lower edge lands on screen, for the HUD's top plates: the
     // edge a0-a1 sampled across the middle third of the view (about +-17 degrees from the eye's
     // line), projected through the view and projection the cab is drawn with.
+    const float keptHeaderBottom = g_headerBottom;
     g_headerBottom = -1.0f;
     if (!p.openTop) {
         D3DMATRIX view = {}, proj = {};
@@ -710,7 +732,8 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             }
         }
     }
-    g_headerStamp = GetTickCount64();
+    if (p.warm) g_headerBottom = keptHeaderBottom;   // FIX-SEAT-ENTRY-2: an unseen draw moves no HUD plate
+    else g_headerStamp = GetTickCount64();
 
     // To the world, and draw: one call per surface.
     D3DMATRIX identity = {};

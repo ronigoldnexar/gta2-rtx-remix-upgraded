@@ -46,6 +46,7 @@ struct CabInteriorParams {
     bool openTop = false;                        // no roof lining (FIX-COCKPIT-2)
     bool taxi = false;                           // a fare meter on the dash (FIX-FIGURE)
     bool hands = true;                           // the driver's hands on the wheel (FIX-FP-2)
+    bool warm = false;                           // FIX-SEAT-ENTRY-2: an unseen draw ahead of the seat view (no state kept)
 };
 
 // Releases the surface textures (device reset or loss).

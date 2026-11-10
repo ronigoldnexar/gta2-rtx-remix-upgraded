@@ -1100,3 +1100,36 @@ street frame and the HUD's made-ahead steps follow it within 2 s (above).
   the boarding target could queue it.
 - With a cold NVIDIA shader cache the GL program builds of FIX-PERF-2's notes remain (not measured here;
   every run above used the warm recording cache).
+
+## Into the driver's seat: the first entry's black frames (10 Nov 2026, FIX-SEAT-ENTRY-2)
+
+Work order `fp-first-entry-per-car-two-black-frames-seat-roof-cut-a-frame-late` (MAJOR; pfeel41 folded in).
+On 126258a the first V into the 068 van's driver's seat showed 3-9 frames of a black screen or a tan
+headliner over black (triage `tri6_cam6` f75-77; `seat2_van2` f87-95 on 4d99b77), then a cut to the cockpit.
+Three causes, read from the log lines inside those frames (`GTA2DX9_LOG_CAMERA=1`, `cam: first ... x=`):
+
+1. **The cabin the eye is placed from had no bonnet lift.** The first-person eye comes from last frame's
+   `CarBodiesCabin` (deck + 0.62 of the way to the roof). The deck is lifted over the bonnet (QB-5) only when
+   the car was drawn from the seat (`use.own`), so the move and its first frames used the chase view's cabin:
+   in the van the eye at 0.47, under the dashboard's top (0.506): the dash filled the screen. Now the lift
+   applies to the car he drives in every view (`use.own || use.driven`); the eye is at 0.57 from the first
+   frame of the move.
+2. **The car seen from the seat was chosen a frame late.** The car-body list is collected from the game's
+   sprites before the frame's camera update, with the last frame's hidden objects, while the draw uses this
+   frame's eye: the frame the move arrived drew the van whole round an eye already in the seat. `own` is now
+   refreshed at draw time (live_geometry, just before `CarBodiesDraw`). The other way (V out of the seat), the
+   car stays drawn from the seat while the moving eye is still inside its footprint and under its roof
+   (world_view `ApplyPresentation`, `seatHeld`).
+3. **The first seat frame built the cab on the render thread** (213 ms: cab interior 170, hood 28, run
+   `seat2_van2`). While the camera moves down into the seat (`SeatMoveEye`, the move's destination) the seat
+   view's parts are made ahead once per model: the hood dash (or copy) and one unseen cab draw (colour and
+   depth writes off, `CabInteriorParams::warm`: no HUD band or wheel state kept), which loads the hands' model
+   and has the cab's states compiled. Log `car bodies: seat move: the seat view of <model> made ahead (hood N
+   ms, cab N ms)`. Plain renderer only (Remix would capture the unseen draw).
+
+Result (`seat2_van5`, 30 fps, keys_cam6 `CAM6_SEGS=vpress`, load ~45): the van's first entry goes from the
+chase view over the roof straight to the cockpit (f83 -> f84), lowest luma around the press 83, the
+arrival frame 33 ms; the warm-up costs one 101 ms frame at the move's second frame (the camera is high over
+the car then). The V out rises over the roof with no dark frame. Also: the steering rim (and so the hands)
+follows the steer through a 0.035 rad dead band, eased over 0.12 s (pfeel41's grip swapping on a straight
+road).

@@ -12483,6 +12483,12 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             CarBodiesSetLamps(g_carLamps, sky.sunElevationDeg < 6.0f);
         }
         VehicleFxSetSmooth(g_uprightPeds);
+        // FIX-SEAT-ENTRY-2 (fp-first-entry black frames): the car seen from the seat is the one the
+        // view hides now, with the eye it is drawn for now. The list was collected from the game's
+        // sprites before this frame's camera update, with the last frame's choice: the frame the move
+        // into the driver's seat arrived drew the player's van whole round an eye already in the seat
+        // (the headliner over a black hull, held while the cab was built: 0.3 s in run seat2_van2).
+        for (CarBodyUse& u : carBodies_) u.own = reinterpret_cast<const void*>(u.object) == g_hiddenObjects[1];
         CarBodiesDraw(device, carBodies_, g_carFrame, camera.Position());
     }
     stageTimer.Mark();   // 4: cars

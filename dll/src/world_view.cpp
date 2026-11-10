@@ -122,6 +122,9 @@ bool g_presentStreet = false;
 float g_presentMix = 0.0f;
 float g_presentExtras = 0.0f;
 bool g_viewMoving = false;
+// FIX-SEAT-ENTRY-2: the seat's eye while the camera moves into the driver's seat (SeatMoveEye).
+bool g_seatMove = false;
+gta2::Vec3 g_seatMoveEye{};
 // How far from the eye the street views add the map's own lamps, in tiles, and how many at most.
 constexpr float kFarLampRadius = 36.0f;
 constexpr int kFarLampCap = 120;
@@ -719,6 +722,11 @@ bool StreetPresentation() { return g_presentStreet; }
 float StreetPresentationMix() { return g_presentMix; }
 float StreetExtrasWeight() { return g_presentExtras; }
 bool ViewCameraMoving() { return g_viewMoving; }
+bool SeatMoveEye(gta2::Vec3* seatEye) {
+    if (!g_seatMove) return false;
+    if (seatEye) *seatEye = g_seatMoveEye;
+    return true;
+}
 void ViewCameraAngles(float* yawDegrees, float* pitchDegrees) {
     *yawDegrees = g_viewYaw;
     *pitchDegrees = g_viewPitch;
@@ -2489,6 +2497,27 @@ void WorldView::ApplyPresentation(ViewMode mode) {
         else if (framesOut < 1000) ++framesOut;
         const void* heldCar = hide && player.inVehicle ? player.vehicleSprite
                               : (hide && FirstPersonBoardEyeOn() && framesOut <= 14 ? lastCarSprite : nullptr);
+        // FIX-SEAT-ENTRY-2: a V out of the driver's seat (to classic or the chase view) starts from the
+        // seat's eye; while the moving eye is still inside the car's body the car stays drawn from the
+        // seat (the cut hull and the cab), not whole round the eye (a black frame).
+        static const void* seatHeld = nullptr;
+        if (!heldCar && seatHeld && player.inVehicle && player.vehicleSprite == seatHeld && transitionT_ < 1.0f) {
+            const gta2::Vec3 e = camera_.Position();
+            for (const CameraCar& c : LiveCameraCars()) {
+                if (c.object != reinterpret_cast<uintptr_t>(seatHeld)) continue;
+                bool in = e.y < c.y1 + 0.02f;
+                for (int i = 0; i < 4 && in; ++i) {
+                    const int j = (i + 1) & 3, k = (i + 2) & 3;
+                    const float ex = c.x[j] - c.x[i], ez = c.z[j] - c.z[i];
+                    const float sideE = ex * (e.z - c.z[i]) - ez * (e.x - c.x[i]);
+                    const float sideK = ex * (c.z[k] - c.z[i]) - ez * (c.x[k] - c.x[i]);
+                    if (sideE * sideK < 0.0f) in = false;
+                }
+                if (in) heldCar = seatHeld;
+                break;
+            }
+        }
+        seatHeld = heldCar;
         SetHiddenObjects(hide ? player.pedSprite : nullptr, heldCar);
         // REMIX-3D-QUALITY: under Remix his figure is still drawn from his eyes, with
         // textures Remix keeps out of the eye's rays, so he casts the shadow his
@@ -2575,6 +2604,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
 
     CameraPose shown = target;
     skyBlend_ = mode == ViewMode::Classic ? 0.0f : 1.0f;
+    g_seatMove = false;
     if (transitionT_ < 1.0f) {
         if (dt > 0.25f) dt = 1.0f / 30.0f;
         transitionT_ = (std::min)(1.0f, transitionT_ + dt / (std::max)(transitionSeconds_, 0.05f));
@@ -2698,6 +2728,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
                 if (d > best) { best = d; own = &c; }
             }
             if (own && depth(*own, p.x, p.z) > -0.3f && p.y < own->y1 + 0.3f) arriveNow = true;
+            if (own && !arriveNow) { g_seatMove = true; g_seatMoveEye = b; }
             static int logged = 0;
             if (transitionT_ <= dt / (std::max)(transitionSeconds_, 0.05f) + 1e-4f && logged < 40) {
                 ++logged;

@@ -51,6 +51,11 @@ bool ViewCameraActive();
 // starts the camera, and the content changes over in the fastest part of the move.
 // Equal to "a street view is the current view" whenever no move is in progress.
 bool StreetPresentation();
+// FIX-SEAT-ENTRY-2: while the camera moves from another view into the driver's seat, the seat's
+// eye (the move's destination, world space); false otherwise. The car bodies make the seat view's
+// parts (hood dash, cab interior, hands) ahead with it, unseen, so the first frame in the seat
+// does not build them on the render thread (~200 ms on the 068 van's first entry).
+bool SeatMoveEye(gta2::Vec3* seatEye);
 // 0..1, how far the ground's material has gone over to the street set during a move
 // (0 classic, 1 street); the tile set cross-fades on the same geometry by it.
 float StreetPresentationMix();
