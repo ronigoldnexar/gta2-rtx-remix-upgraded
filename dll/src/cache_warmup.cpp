@@ -1,3 +1,4 @@
+#include "thread_watch.h"
 #include "cache_warmup.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -213,6 +214,7 @@ void ListArtwork(std::vector<std::wstring>* out) {
 }
 
 DWORD WINAPI WarmThread(LPVOID) {
+    NameThisThread("cache warmup");
     // Lowest CPU and disk priority: the game's own loading goes first, always.
     SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
     Sleep(2500);

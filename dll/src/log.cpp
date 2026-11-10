@@ -1,4 +1,5 @@
 #include "log.h"
+#include "thread_watch.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -53,6 +54,7 @@ void WritePending() {
 }
 
 DWORD WINAPI Writer(LPVOID) {
+    NameThisThread("log writer");
     while (!g_stop) {
         WaitForSingleObject(g_wake, kFlushMs);
         WritePending();

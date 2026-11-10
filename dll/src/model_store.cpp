@@ -1,3 +1,4 @@
+#include "thread_watch.h"
 #include "model_store.h"
 #include "car_glass.h"   // VEHICLE-GLASS
 
@@ -133,6 +134,7 @@ bool CarTextureName(const std::string& file);
 void SoftenPaintMask(uint8_t* px, int w, int h);
 
 DWORD WINAPI PrefetchThread(void*) {
+    NameThisThread("model prefetch");
     for (const std::string& file : g_prefetchList) {
         for (;;) {
             EnterCriticalSection(&g_prefetchLock);
@@ -3511,6 +3513,7 @@ CRITICAL_SECTION* OwnPaintLock() {
 }
 std::vector<const Model*> g_ownPaintList;   // fixed before the thread starts (g_models grows later: derived models)
 DWORD WINAPI OwnPaintThread(void*) {
+    NameThisThread("own paint");
     // Every car model's own paint ahead of its first car (10-40 ms a model off the render thread).
     for (const Model* m : g_ownPaintList) {
         float rgb[3];

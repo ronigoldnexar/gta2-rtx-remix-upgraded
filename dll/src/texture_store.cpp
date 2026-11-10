@@ -1,3 +1,4 @@
+#include "thread_watch.h"
 #include "texture_store.h"
 
 #include "live_geometry.h"
@@ -575,6 +576,7 @@ bool ParseCarSprites(const std::string& path, std::vector<CarSpriteArt>* out) {
 }
 
 DWORD WINAPI CarArtThread(void*) {
+    NameThisThread("car art");
     for (;;) {
         std::string parse;
         CarArtJob* job = nullptr;

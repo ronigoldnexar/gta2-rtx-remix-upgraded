@@ -38,6 +38,7 @@
 #include "remix_lights.h"
 #include "settings.h"
 #include "synthetic_lights.h"
+#include "thread_watch.h"
 #include "texture_store.h"
 #include "time_of_day.h"
 #include "voice_over.h"
@@ -696,27 +697,41 @@ DWORD WINAPI StallSampler(LPVOID) {
     // cold shader cache) left the log silent from 49 s on. Past the cap it now writes one short line every
     // 5 s while the thread is idle, and one when it comes back, with no stack walk.
     DWORD stallBeat = 0, longest = 0;
+    // FIX-DEADLOCK-1: the game thread at one address for kDumpAfterMs of a stall gets every thread of
+    // the process dumped once (thread_watch.cpp), at most kMaxDumps times a session.
+    constexpr DWORD kDumpAfterMs = 5000;
+    constexpr int kMaxDumps = 3;
+    uintptr_t stuckPc = 0;
+    DWORD stuckSince = 0, lastCapture = 0;
+    bool dumped = false;
+    int dumps = 0;
+    gta2dx9::NameThisThread("stall sampler");
     while (!g_shuttingDown) {
         Sleep(250);
+        gta2dx9::StallDumpTestPoll();
+        gta2dx9::GuardedFaultsReport();
         const DWORD beat = g_beat;
         const DWORD now = GetTickCount();
         if (stallBeat && beat != stallBeat) {
             if (samples >= 60) Log("stall sampler: game thread back after %lu ms idle", static_cast<unsigned long>(longest));
             stallBeat = 0;
             longest = 0;
+            stuckPc = 0;
+            dumped = false;
         }
         if (!beat || now - beat < 1500) continue;
         stallBeat = beat;
         longest = now - beat;
-        if (samples >= 60) {
-            if (now - lastSample >= 5000) {
-                lastSample = now;
-                Log("stall sampler: game thread idle %lu ms (no stack: past the sample cap)", static_cast<unsigned long>(now - beat));
-            }
-            continue;
+        const bool capped = samples >= 60;
+        if (capped && now - lastSample >= 5000) {
+            lastSample = now;
+            Log("stall sampler: game thread idle %lu ms (no stack: past the sample cap)", static_cast<unsigned long>(now - beat));
         }
-        if (now - lastSample < 1000) continue;
-        lastSample = now;
+        // Past the cap the thread is still looked at once a second (no line), for the dump below.
+        if (capped && (dumped || dumps >= kMaxDumps || now - lastCapture < 1000)) continue;
+        if (!capped && now - lastSample < 1000) continue;
+        if (!capped) lastSample = now;
+        lastCapture = now;
         uintptr_t pc = 0, sp = 0;
         uintptr_t stackWords[512] = {};
         int words = 0;
@@ -744,6 +759,19 @@ DWORD WINAPI StallSampler(LPVOID) {
             }
         }
         ResumeThread(thread);   // before anything that logs: the game thread must not hold us up
+        if (pc && pc == stuckPc) {
+            if (!dumped && dumps < kMaxDumps && now - stuckSince >= kDumpAfterMs) {
+                dumped = true;
+                ++dumps;
+                Log("stall sampler: game thread at the same address for %lu ms (idle %lu ms): dumping every thread",
+                    static_cast<unsigned long>(now - stuckSince), static_cast<unsigned long>(now - beat));
+                gta2dx9::DumpAllThreads(g_gameThread, stackWords, words);
+            }
+        } else {
+            stuckPc = pc;
+            stuckSince = now;
+        }
+        if (capped) continue;
         ++samples;
         if (!pc) continue;
         char where[160];
@@ -1040,6 +1068,7 @@ __declspec(dllexport) void __stdcall gbh_DrawTile(unsigned flags, void* texture,
 
 __declspec(dllexport) void __stdcall gbh_BeginScene() {
     g_beat = GetTickCount();
+    gta2dx9::StallDumpTestFrame();   // [devtools] stall_dump_test (thread_watch.cpp), off by default
     gta2dx9::FrameLogMarkBeginScene();
     if (Proxying() && g_p_gbh_BeginScene) { Backend<void(__stdcall*)()>(g_p_gbh_BeginScene)(); return; }
     g_world.BeginFrame();

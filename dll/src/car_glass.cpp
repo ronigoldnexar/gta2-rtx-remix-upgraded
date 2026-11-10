@@ -1,4 +1,5 @@
 // See car_glass.h.
+#include "thread_watch.h"
 #include "car_glass.h"
 
 #include <algorithm>
@@ -217,6 +218,7 @@ int DropPaintComponents(Mask& g, const std::vector<float>& rgb) {
 
 // The mask and the cabin of one model (worker thread; the model is immutable once loaded).
 void Build(const Model* model, std::shared_ptr<Glass> glass) {
+    NameThisThread("car glass build", true);
     std::lock_guard<std::mutex> one(g_buildLock);
     glass->state = 1;
     // VEHICLE-ART-2's authored bodies model their glass and cabin ("_glass", "_interior" textures).

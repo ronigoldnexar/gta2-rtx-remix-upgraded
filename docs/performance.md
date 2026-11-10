@@ -1133,3 +1133,46 @@ arrival frame 33 ms; the warm-up costs one 101 ms frame at the move's second fra
 the car then). The V out rises over the roof with no dark frame. Also: the steering rim (and so the hands)
 follows the steer through a 0.035 rad dead band, eased over 0.12 s (pfeel41's grip swapping on a straight
 road).
+
+## The Remix freeze at the level start, and the stall dump (10 Nov 2026, FIX-DEADLOCK-1)
+
+Defect `remix-ste-start-game-thread-heap-deadlock-freeze`: in Remix sessions the game thread stops for good
+a few seconds into the level, and the stall sampler repeats one stack until the run ends.
+
+What the stack is (Wine 10.0 builtins of `gta2-remix-gpu2`, symbolised with `i686-w64-mingw32-nm` and
+`objdump -d` on `/opt/wine/lib/wine/i386-windows/ntdll.dll`): the pc `ntdll.dll+0x34288` is not a wait.
+It is the `pause; lock cmpxchg` loop of `RtlWakeAddressAll`, spinning on the per-bucket spin lock of
+Wine's futex queue (`futex_queues[(addr >> 4) & 255]`: a list head and a LONG lock, waiters' entries
+`{next, prev, addr, tid}` on their own stacks). The game thread reached it from `free()` (msvcrt
+`_free` < `RtlFreeHeap`), after `operator delete` in whatever DLL code freed memory at that moment
+(`gta2dx9.dll+0x1AA762` on 126258a is the return after `operator delete` in `LightsReconcile`;
+`+0x30962D` and `+0x303C84` are stale stack words, not return addresses). A spin lock has no owner
+field, and the thread that took it never let it go.
+
+It is older than 126258a: the same pc, from different `free()` call sites (`gta2dx9.dll+0x148302`,
+`+0x14E2F2`, `+0x169F2A`, `+0x182EC2`, `+0x18B0E2`, `+0x18D592`, `+0x1C05CE`), froze nine earlier Remix
+runs for good, the first on 9 Nov 14:25 (`grep -l "at ntdll.dll+0x34288" out/*/gta2dx9.log`). Every one
+has the Remix bridge client (`d3d9.dll+0x1A85B`) on the game thread's stack. The bridge client calls
+`SuspendThread` only through Detours' `DetourUpdateThread`, and every call passes `GetCurrentThread()`
+(`d3d9.dll+0x16E60`), so the bridge suspends no other thread.
+
+The stall dump (`dll/src/thread_watch.cpp`): when the sampler finds the game thread at one address for
+5 s it writes, once per stall and at most three times a session:
+- `stall dump: lock ...`: every critical section on the game thread's stack, with its owner thread
+  (named) and recursion;
+- `stall dump: thread ...`: every thread of the process, with its name (`NameThisThread`: log writer,
+  stall sampler, wear, cache warmup, car art, model prefetch, own paint, car glass build), its start
+  address, its registers and its stack as module+offset. Each thread is suspended only while its
+  registers and stack words are copied into static memory, and is resumed before anything is
+  formatted, logged or allocated;
+- `stall dump: ecx ... reads -1`: when the game thread spins, the bucket it spins on and the waiters
+  queued there (tid, address);
+- `stall sampler: guarded fault N`: one line per fault a `GTA2_TRY` guard swallowed (thread,
+  module+offset), always on. The guard's vectored handler runs before Wine's own `__TRY` handlers and
+  resumes the thread at the guard, so a fault inside system code that holds a lock (a spin lock, a
+  heap lock) leaves that lock held for good.
+
+Proof that it works: `[devtools] stall_dump_test=1` (off by default) makes a test thread hold a critical
+section for 10 s while the game thread waits for it. The plain run (`fdl1_dumptest`) logged
+`lock on the game thread's stack (word 30) at 759EB364: owner thread 636 (stall-dump test)` and all 15
+threads by name.

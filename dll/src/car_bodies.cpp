@@ -1,4 +1,5 @@
 // See car_bodies.h.
+#include "thread_watch.h"
 #include "car_bodies.h"
 
 #include "live_geometry.h"
@@ -2376,6 +2377,7 @@ size_t ModelBytes(const Model& m) {
 }
 
 DWORD WINAPI WearThread(void*) {
+    NameThisThread("wear");
     for (;;) {
         WearJob job;
         bool have = false, ahead = false;

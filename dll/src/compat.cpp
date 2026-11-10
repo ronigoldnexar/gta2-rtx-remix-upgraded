@@ -1,3 +1,4 @@
+#include "thread_watch.h"
 #include "compat.h"
 #include "frame_log.h"
 #include "log.h"
@@ -97,6 +98,9 @@ LONG CALLBACK Handler(EXCEPTION_POINTERS* info) {
     }
     frame->fired = true;
     gta2dx9::FrameLogNote(gta2dx9::kFcGuardedFault);
+    // FIX-DEADLOCK-1: kept for the stall dump (a fault inside a lock's holder leaves the lock held).
+    gta2dx9::NoteGuardedFault(code, reinterpret_cast<uintptr_t>(info->ExceptionRecord->ExceptionAddress),
+                              info->ExceptionRecord->NumberParameters > 1 ? info->ExceptionRecord->ExceptionInformation[1] : 0);
     CONTEXT* c = info->ContextRecord;
     c->Ebx = frame->ebx;
     c->Esi = frame->esi;
