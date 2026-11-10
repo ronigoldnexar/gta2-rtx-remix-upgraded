@@ -3439,6 +3439,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // turn (20-degree steps, out to 120, the side it is on first) that keeps 90 % of the boom, else the minimum pull;
     // eased out over ~0.12 s (at most 200 degrees a second), back over ~0.8 s once the line behind holds the pull with room to spare.
     // GTA2DX9_CAM_CAR_SWING=0 turns it off (A/B).
+    // FIX-INCAR-1: GTA2DX9_CAM_CAR_SWING_EARLY=0 restores FIX-CAMERA-9's turn (A/B).
+    static int carSwingEarly = -1;
+    if (carSwingEarly < 0) { char b[8] = {}; carSwingEarly = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_SWING_EARLY", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    auto CarSwingEarlyOn = [&]() { return carSwingEarly != 0; };
+    float carSwingStep = 0.0f;      // FIX-INCAR-1: this frame's turn of the in-car boom (the view's yaw cap below lets it through)
     static float carSwing = 0.0f;   // FIX-CAMERA-9: the in-car boom's turn aside (radians; the aim below uses it too)
     {
         static int carSwingOn = -1;
@@ -3449,7 +3454,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             deathMix_ < 0.01f && len0 > 0.8f && std::hypot(span0.x, span0.z) > 0.3f) {
             const float good = (std::min)(1.4f + 0.5f * extraLength_ + 0.5f * extraHeight_, 0.75f * len0);   // the arc's minPull
             const float backing = (std::max)(0.0f, -(velX_ * hx + velZ_ * hz));
-            const float ahead = (std::min)(2.0f, 1.2f * backing);
+            // FIX-INCAR-1 (pfl28, triage tri15_p28): at 3 blocks a second the 2-block cap was 0.7 s, not 1.2: the van
+            // backing straight at a wall tripped the turn 0.5 s before it hit and backed under the lens mid-turn.
+            const float ahead = (std::min)(CarSwingEarlyOn() ? 3.6f : 2.0f, 1.2f * backing);
             auto turned = [&](float a, float len) {
                 const float c = std::cos(a), sn = std::sin(a), k = len / len0;
                 return gta2::Vec3{pivot.x + (span0.x * c - span0.z * sn) * k, pivot.y + span0.y * k, pivot.z + (span0.x * sn + span0.z * c) * k};
@@ -3468,12 +3475,37 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             const float straight = reachAt(0.0f);
             const bool swung = std::fabs(carSwing) > 1e-3f;
             float want = 0.0f;
-            if (straight < good + (swung ? 0.2f : 0.0f) && !arcClears()) {
+            // FIX-INCAR-1 (pfl28, tri15_p28): backing toward it, or already turned aside, the arc over it is not a way:
+            // the lift craned over the roof looking 35 degrees down while the van closed on the wall (roof 55-70 % of the
+            // frame for 0.5 s before the turn, run tri15_p28 f66-f80), and turned aside the arc sent the boom back over
+            // the roof as the van drove off (the lens over the van at 5.0-5.8 s, f150-f174): the turn holds until the
+            // line behind keeps the pull.
+            const bool arcWay = !(CarSwingEarlyOn() && (backing > 0.3f || swung));
+            if (straight < good + (swung ? 0.2f : 0.0f) && !(arcWay && arcClears())) {
                 const float first = carSwing < 0.0f ? -1.0f : 1.0f;
                 bool found = false;
                 // the whole boom if a turn of up to 120 degrees has it (cam9_p28b: the turn that kept only the
                 // minimum pull left the lens at the van's rear corner, the van filling half the frame), else the pull
                 // one side out to 120 before the other (cam9_p28c: alternating per step flipped a 36-degree turn to -60)
+                // FIX-INCAR-1 (pfl28): turned aside already, the side it is on keeps the turn while any heading on it
+                // keeps the pull: a reverse with the wheel over flipped the wanted side frame to frame (+80 / -60) and
+                // the boom finally crossed from +78 to -80 through the blocked line behind, the car out of the frame for
+                // ~0.3 s (run incar1_rev1 angled f100-f120).
+                if (CarSwingEarlyOn() && swung) {
+                    for (const float need : {(std::max)(good, 0.9f * len0), good})
+                        for (int k = 1; k <= 6 && !found; ++k) {
+                            const float a = first * static_cast<float>(k) * (20.0f * kDegToRad);
+                            if (reachAt(a) >= need) { want = a; found = true; }
+                        }
+                    if (!found) {
+                        float bestSame = -1e9f, bestA = carSwing;
+                        for (int k = 1; k <= 7; ++k) {
+                            const float a = first * static_cast<float>(k) * (20.0f * kDegToRad), r = reachAt(a);
+                            if (r > bestSame) { bestSame = r; bestA = a; }
+                        }
+                        if (bestSame >= 0.5f * good) { want = bestA; found = true; }
+                    }
+                }
                 for (const float need : {(std::max)(good, 0.9f * len0), good})
                     for (const float sg : {first, -first})
                         for (int k = 1; k <= 6 && !found; ++k) {
@@ -3492,9 +3524,19 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             }
             const float tau = std::fabs(want) > std::fabs(carSwing) ? 0.12f : 0.8f;
             float d = (want - carSwing) * (1.0f - std::exp(-dt / tau));
-            const float cap = 200.0f * kDegToRad * (std::min)(dt, 1.0f / 20.0f);
+            // FIX-INCAR-1: tripped earlier now, the turn can be gentler (140 degrees a second, was 200).
+            const float cap = (CarSwingEarlyOn() ? 140.0f : 200.0f) * kDegToRad * (std::min)(dt, 1.0f / 20.0f);
             d = (std::max)(-cap, (std::min)(cap, d));
             carSwing += d;
+            carSwingStep = std::fabs(d);
+            if (CarSwingEarlyOn() && d != 0.0f) {
+                // FIX-INCAR-1: the eye goes round with the turn (the eased eye cut the chord: 0.65 block from the van's
+                // middle mid-turn, the van filling the frame, run tri15_p28 f1043).
+                const float c = std::cos(d), sn = std::sin(d);
+                const float ox = eyeX_ - pivot.x, oz = eyeZ_ - pivot.z;
+                eyeX_ = pivot.x + ox * c - oz * sn;
+                eyeZ_ = pivot.z + ox * sn + oz * c;
+            }
             if (std::fabs(carSwing) < 1e-3f) carSwing = 0.0f;
             if (carSwing != 0.0f) desired = turned(carSwing, len0);
             if (cameraLogOn() && (carSwing != 0.0f || want != 0.0f))
@@ -4230,7 +4272,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // under a camera still on its way): the cap applies to it too, so no frame
     // turns the picture more than the rate allows at 30 fps.
     {
-        const float cap = (inVehicle ? s.turnRateCar : s.turnRateFoot) * ViewTurnSpeedScale() * kDegToRad * (std::min)(dt, 1.0f / 30.0f);
+        // FIX-INCAR-1 (pfl28): the in-car boom turning aside carries the view round with it; capped at the car rate
+        // alone the view's yaw fell 50 degrees behind the turn and the car slid off the frame's edge (run incar1_rev1
+        // f615-f629, box -0.28..0.48).
+        const float cap = (inVehicle ? s.turnRateCar : s.turnRateFoot) * ViewTurnSpeedScale() * kDegToRad * (std::min)(dt, 1.0f / 30.0f) +
+                          (CarSwingEarlyOn() ? carSwingStep : 0.0f);
         if (finalYawKnown_ && cap > 0.0f) {
             const float d = WrapAngle(camYaw - finalYaw_);
             camYaw = WrapAngle(finalYaw_ + (std::max)(-cap, (std::min)(cap, d)));
