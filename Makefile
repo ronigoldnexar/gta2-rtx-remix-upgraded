@@ -89,7 +89,14 @@ check: stage linux/build/loadcheck.exe linux/build/sehcheck.exe
 	  echo "SKIP: load check and SEH check need Wine ('$(WINE)' not on PATH); both tools linked, ini check ran"; \
 	fi
 
+# FIX-PERF-6: the large-address-aware step for a player's gta2.exe (tools/laa/gta2dx9_laa.cpp). Prepared for
+# the release, not staged and not packed: shipping it is the owner's decision (docs/stability.md).
+laa-tool: linux/build/gta2dx9_laa.exe
+linux/build/gta2dx9_laa.exe: tools/laa/gta2dx9_laa.cpp
+	@mkdir -p linux/build
+	$(CXX) -std=c++17 -O2 -o $@ $< -static
+
 clean:
 	rm -rf dll/build vid/build stage linux/build
 
-.PHONY: all stage check clean
+.PHONY: all stage check clean laa-tool

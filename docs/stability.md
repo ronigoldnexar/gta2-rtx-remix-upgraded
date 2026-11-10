@@ -259,3 +259,43 @@ It must NOT show any of these:
 guard3.ps1 must log no `RESTORED` line, and the CPU of gta2.exe must not sit at one full core while you are
 away. If the backstop line `stall sampler: game window minimised ... restoring it` appears, the minimise came
 by a path the window procedure did not see. Send the lines around it.
+
+## Large-address-aware gta2.exe: the prepared install step (FIX-PERF-6; PROPOSED, the owner decides)
+
+GTA2 9.6's gta2.exe has `Characteristics 0x010F`: no `IMAGE_FILE_LARGE_ADDRESS_AWARE` (0x0020). On 64-bit
+Windows such a process gets 2 GB of address space; with the bit, 4 GB. The operator's 5090 measurement
+(defect `LARGEADDRESSAWARE-one-bit-fixes-the-crash`): without the bit `largest_free=0.6MB` and a bad_alloc,
+with it `largest_free=1767.8MB` and no FAULT on a long drive. Every run on the Linux host has always used a
+marked copy (`linux/laa.sh` in the Wine prefix), so every number in `docs/performance.md` is a 4 GB process.
+
+**The step, ready to ship but not shipped** (the release does not carry it until the owner says so):
+`tools/laa/gta2dx9_laa.cpp`, built by `make laa-tool` into `linux/build/gta2dx9_laa.exe` (MinGW, static;
+`cl /O2 gta2dx9_laa.cpp` builds it with Visual Studio). Dropped beside gta2.exe:
+
+    gta2dx9_laa.exe status     says whether the bit is set (and whether the backup exists)
+    gta2dx9_laa.exe on         copies gta2.exe to gta2.exe.no-laa (once; never overwritten), then sets the bit
+    gta2dx9_laa.exe off        puts gta2.exe.no-laa back (uninstall); without a backup it clears the bit
+
+One byte is written (offset 0x11E in 9.6: 0x0F -> 0x2F); the PE checksum is left alone (Windows does not
+check it for an executable). Checked here under Wine on a copy of the game's exe: `on` gives a file
+byte-identical to `tools/set_laa.py`'s output (which is byte-identical to `laa.sh`'s), `on` twice writes
+nothing, `off` gives back a file byte-identical to the original.
+
+**To ship it** (owner's call): add `copy /y linux\build\gta2dx9_laa.exe "%OUT%\"` (or the MSVC build) to
+`package.bat` and `"gta2dx9_laa.exe"` to `STAGE_FILES` in `tools/pack_release.py`, and the two lines
+"Installing: 3. run `gta2dx9_laa.exe on`" / "Uninstalling: run `gta2dx9_laa.exe off`" to
+`package/gta2dx9_README.txt`. The Linux runner already does the same in the prefix.
+
+**Risks and what was checked:**
+- A game or DLL that keeps flags in a pointer's high bit breaks above 2 GB. The DLL was made LAA-safe on
+  9 Nov (7b36ca7: `PlausiblePointer` accepts the large-address-aware range); gta2.exe itself has run marked
+  in every scripted run on this host since the first Linux port, through 20-minute soaks with VmSize up to
+  3.4 GB (FIX-PERF-4 `fp4_sw_fix1`) and pools landing above 2 GB (the `player-not-found` blocker, fixed).
+- Not tested here: Windows itself, and the RTX Remix launcher (NvRemixLauncher32) on Windows starting a
+  marked exe. The Remix bridge under Wine runs the marked exe in every Remix run here.
+- Steam/GOG copies of GTA2 are not 9.6; the tool refuses anything that is not a 32-bit x86 PE but does
+  not check the version: run `status` first.
+
+**For the 5090 box:** `gta2dx9_laa.exe on` in the game folder (or `python tools\set_laa.py` as in
+docs/performance.md FIX-PERF-5), play 10 minutes, send the `mem: minute` lines: `free=` near 2 GB higher,
+`largest_free` in the hundreds of MB. `gta2dx9_laa.exe off` undoes it.
