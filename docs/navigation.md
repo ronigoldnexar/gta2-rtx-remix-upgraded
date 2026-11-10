@@ -670,6 +670,41 @@ cull of the figures in `dll/src/live_geometry.cpp`. The classic view is untouche
   classic cut). The hero is not drawn after a developer warp, so judge the warp legs from the log; the real
   respawns from frames.
 
+## The car boom turns aside, the cab cut, the rise out of the seat, the seat's shudder (FIX-CAMERA-9, 10 Nov 2026)
+
+Probes (untracked, `gamerun/`): `keys_pfl28.sh` (a van: launch, hard turn, reverse; first person the same, its
+launch hits a wall), `keys_pfl21.sh` (V third -> first -> classic while driving), `keys_cam9_gun2.sh`
+(`cam9_gun2_probe.py`: pfl16's gun segment with one step after the warp), `keys_cam9_ram.sh`. All with
+`GTA2DX9_LOG_CAMERA=1 -e GTA2DX9_STATE_EVERY=3`, 30 fps. Tables: the `cam: pose` car/hero `box=` per burst.
+
+- **The in-car boom turns aside** (pfl28). Reversing toward a wall the boom fell to its minimum (0.72: the lens
+  0.15 off the rear bumper) and rose over the roof looking down 35 degrees; at the wil plaza corner (199,81) a lid
+  at 3.0 over the pavement also stopped the arc. Now, at the wheel, when neither the line behind the car nor the
+  arc over what stands there keeps the car arc's minimum pull, the boom turns about the car to the smallest angle
+  (20-degree steps, one side out to 120 before the other) that keeps 90 % of the boom, else the pull; reversing,
+  the line is tested as far as the car backs in 1.2 s. Out at ~0.12 s (at most 200 degrees/s), back over ~0.8 s
+  once the line behind holds the pull with room. Turned aside, the chase looks at the car's middle (whole at 60
+  degrees), not down the road ahead. `cam: car swing` logs it; `GTA2DX9_CAM_CAR_SWING=0` is the A/B. Run cam9_p28e:
+  no frame with the lens over the roof (base cam9_p28a: the roof over 50-65 % for ~2 s), the van side-on and whole
+  from 3.0 s; for ~0.8 s mid-turn it still fills about half the frame with its end cut at the side.
+- **Into the seat** (pfl21): the move from the chase eye ends (the cut to the cockpit) once the eye is over the
+  car's footprint within 0.6 of its roof (was 0.3): the arc carried it 0.5 over a van's roof at the rear edge, so it
+  crossed the whole roof first (7 game frames of roof slab, cam9_v21a). cam9_v21b: 2 game frames (3 video frames).
+- **Out of the seat to the map** (pfeel33 residual): on the rise the car stays drawn from the seat (cut hull and
+  cab) until the eye is 0.25 over the roof (was 0.02): the first rise frame, 0.15 over the roof looking 7 degrees
+  down, had the roof under the frame's edge and showed the street with no car (held 0.4 s by a hitch, cam9_v21a
+  f1121). cam9_v21b: the held cab for one frame, then the roof.
+- **The seat's shudder** (pfl25, the camera half): at the wheel in first person the impact shake (the eye's only;
+  the cockpit does not take it) is capped at 1.0 with 1.2/1.5/2 degrees of yaw/pitch/roll a unit (was 2.5/2/2 with
+  the shake at 1.5); `GTA2DX9_FP_CAR_SHAKE=0` is the A/B. `cam: fp car pitch= body= lean= shake= roll= heave=
+  seatfix=` logs the eye's parts per frame: across a wall hit the eye pitch is -3.5..-4.9 (the body's dip). The
+  15-degree "dive" in pfl25 is the cockpit redrawn in one frame when the hood dash is rebuilt for a dent step
+  (`car bodies: hood dash of ...` on the hit frame), not the eye: open in car_bodies/cab_interior.
+- **pfl16 (MG fight, hero missing 4.4 s)**: the developer warp, not the aim rig: `cam: pose` holds him inside the
+  frame throughout; he is not drawn until he first moves after a T.warp (player-invisible-until-game-camera-arrives).
+  With one step after the warp: hero in the 5..95 % box on 942 of 943 armed frames over three runs (the one: feet 1 % under the edge at the
+  iron stair, the on-foot boom).
+
 ## Near fade and the first-person eye at walls (QB-49, 8 Nov 2026)
 
 QUALITY-BAR row 49 ("a lamp post / wall fills the frame"). Code: `dll/src/map_objects.cpp/.h`

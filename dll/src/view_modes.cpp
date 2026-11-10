@@ -3306,6 +3306,81 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         swingAngle_ = 0.0f;
         swingRigKnown_ = false;
     }
+    // FIX-CAMERA-9 (pfl28-third-reverse-after-hard-turn-van-backs-under-camera-roof-fills-60pct-for-2p2s): at the
+    // wheel the boom turns aside when neither the line behind the car nor the arc over what stands there keeps the
+    // car arc's minimum pull. A van reversing at the wil plaza corner (199,81) toward a building's wall 1.25 block
+    // behind its centre, under a lid at 3.0 that stops the arc, had the boom fall to its 0.72 minimum (the lens 0.15
+    // off the rear bumper), then rise over the roof looking down 35 degrees: the roof filled 50-65 % of the frame for
+    // 2 s (run cam9_p28a). The open street lies 60-90 degrees to the side. Reversing, the line is tested as far out as
+    // the car will have backed in 1.2 s (cam9_p28e: tested 0.8 s ahead, the turn began with the
+    // van 0.6 s from the wall and it filled half the frame mid-turn), so the turn starts before the boom has to shorten. The smallest
+    // turn (20-degree steps, out to 120, the side it is on first) that keeps 90 % of the boom, else the minimum pull;
+    // eased out over ~0.12 s (at most 200 degrees a second), back over ~0.8 s once the line behind holds the pull with room to spare.
+    // GTA2DX9_CAM_CAR_SWING=0 turns it off (A/B).
+    static float carSwing = 0.0f;   // FIX-CAMERA-9: the in-car boom's turn aside (radians; the aim below uses it too)
+    {
+        static int carSwingOn = -1;
+        if (carSwingOn < 0) { char b[8] = {}; carSwingOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_SWING", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        const gta2::Vec3 span0 = desired - pivot;
+        const float len0 = std::sqrt(span0.x * span0.x + span0.y * span0.y + span0.z * span0.z);
+        if (carSwingOn && inVehicle && mode == ViewMode::ThirdPerson && boomKnown_ && boomInVehicle_ && s.tpCollide && q.blocked &&
+            deathMix_ < 0.01f && len0 > 0.8f && std::hypot(span0.x, span0.z) > 0.3f) {
+            const float good = (std::min)(1.4f + 0.5f * extraLength_ + 0.5f * extraHeight_, 0.75f * len0);   // the arc's minPull
+            const float backing = (std::max)(0.0f, -(velX_ * hx + velZ_ * hz));
+            const float ahead = (std::min)(2.0f, 1.2f * backing);
+            auto turned = [&](float a, float len) {
+                const float c = std::cos(a), sn = std::sin(a), k = len / len0;
+                return gta2::Vec3{pivot.x + (span0.x * c - span0.z * sn) * k, pivot.y + span0.y * k, pivot.z + (span0.x * sn + span0.z * c) * k};
+            };
+            auto reachAt = [&](float a) { return reachTo(pivot, turned(a, len0 + ahead)) * (len0 + ahead) - ahead; };
+            // The arc over it (the lift below: up to 40 degrees at the wheel) clears it: that is the lift's to do.
+            auto arcClears = [&]() {
+                const float flat = std::hypot(span0.x, span0.z), a0 = std::atan2(span0.y, flat);
+                for (int k = 1; k <= 4; ++k) {
+                    const float a = a0 + ((std::max)(a0, 40.0f * kDegToRad) - a0) * k / 4.0f, L = len0 + ahead;
+                    const gta2::Vec3 e{pivot.x + span0.x / flat * std::cos(a) * L, pivot.y + std::sin(a) * L, pivot.z + span0.z / flat * std::cos(a) * L};
+                    if (reachTo(pivot, e) * L - ahead >= good) return true;
+                }
+                return false;
+            };
+            const float straight = reachAt(0.0f);
+            const bool swung = std::fabs(carSwing) > 1e-3f;
+            float want = 0.0f;
+            if (straight < good + (swung ? 0.2f : 0.0f) && !arcClears()) {
+                const float first = carSwing < 0.0f ? -1.0f : 1.0f;
+                bool found = false;
+                // the whole boom if a turn of up to 120 degrees has it (cam9_p28b: the turn that kept only the
+                // minimum pull left the lens at the van's rear corner, the van filling half the frame), else the pull
+                // one side out to 120 before the other (cam9_p28c: alternating per step flipped a 36-degree turn to -60)
+                for (const float need : {(std::max)(good, 0.9f * len0), good})
+                    for (const float sg : {first, -first})
+                        for (int k = 1; k <= 6 && !found; ++k) {
+                            const float a = sg * static_cast<float>(k) * (20.0f * kDegToRad);
+                            if (reachAt(a) >= need) { want = a; found = true; }
+                        }
+                if (!found) {
+                    // Nowhere keeps the pull: the way that reaches furthest, if clearly better than straight behind.
+                    float bestR = straight + 0.3f;
+                    for (int k = 1; k <= 7; ++k)
+                        for (const float sg : {first, -first}) {
+                            const float a = sg * static_cast<float>(k) * (20.0f * kDegToRad), r = reachAt(a);
+                            if (r > bestR) { bestR = r; want = a; }
+                        }
+                }
+            }
+            const float tau = std::fabs(want) > std::fabs(carSwing) ? 0.12f : 0.8f;
+            float d = (want - carSwing) * (1.0f - std::exp(-dt / tau));
+            const float cap = 200.0f * kDegToRad * (std::min)(dt, 1.0f / 20.0f);
+            d = (std::max)(-cap, (std::min)(cap, d));
+            carSwing += d;
+            if (std::fabs(carSwing) < 1e-3f) carSwing = 0.0f;
+            if (carSwing != 0.0f) desired = turned(carSwing, len0);
+            if (cameraLogOn() && (carSwing != 0.0f || want != 0.0f))
+                Log("cam: car swing %.1f want %.1f (behind reaches %.2f of %.2f, backing %.2f)", carSwing / kDegToRad, want / kDegToRad, straight, good, backing);
+        } else {
+            carSwing = 0.0f;
+        }
+    }
     if (s.tpCollide && q.blocked) {
         const gta2::Vec3 span = desired - pivot;
         const float spanLength = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
@@ -3903,6 +3978,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // comes back from ahead of him toward his chest, so the frame holds him and
     // not the wall beyond (on foot; at 0.4 block or less, 80 % of the way).
     gta2::Vec3 aim = lookAt;
+    if (inVehicle && carSwing != 0.0f) {
+        // FIX-CAMERA-9 (pfl28): turned aside, the chase looks at the car, not down the road ahead of it (from the
+        // side the point ahead put the van's nose off the frame's edge, run cam9_p28c); whole at a 60-degree turn.
+        const float m = (std::min)(1.0f, std::fabs(carSwing) / (60.0f * kDegToRad));
+        const gta2::Vec3 mid{px, lookAt.y, pz};
+        aim = lookAt + (mid - lookAt) * m;
+    }
     if (!inVehicle) {
         const float nearDist = std::hypot(orientEye.x - px, orientEye.z - pz);
         const float mix = 0.8f * (std::min)(1.0f, (std::max)(0.0f, (1.1f - nearDist) / 0.7f));
