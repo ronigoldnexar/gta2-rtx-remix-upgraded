@@ -1672,5 +1672,14 @@ underbody and the new molotov weapon left 83 textures (5 hashes) without a prim;
 underbody part class): 1220 textures of 279 models, 0 missing. The ste plaza slab at the filer's spot is lids
 806/814/831: 831 took the CC0 asphalt micro-surface in 03e03d4, 806 has its own grain, 814 was featureless (grain RMS
 0.0026 against 0.02-0.026), so a smooth square sat in the cracked slab; 814 joins `remix_micro_tiles.json` with 831's
-class (asphalt, 0.9).
+class (asphalt, 0.9), and so does 806 (the rounded-corner slab: a smooth, banded interior, robust grain 0.0045).
+
+**Mural residual at arm's length (pt-remix-graffiti-mural-wax-blob-relief).** A fixed regress-camera take facing the
+rose window at ste 113.5,124.7, 09:00 (`gamerun/fm5_cam.py`, `out/fm5_ste1` before, `out/fm5_ste3` after): the
+coloured pieces were already flat, but the cream pieces of tile 760 kept a lumpy skin. The upscaler painted bumps and
+shadows into them, and the normals derived from that paint (12 % / 35 % in the mural region) raised them. Now
+`remix_pbr.mural_albedo` pulls a pale piece's luminance towards the smooth luminance of the pale texels around it
+(40 % of the detail kept, grout and coloured pieces untouched, layer albedo only), and the mural region's relief is
+`MURAL_GAIN` 5 % / 15 %. After: flat cream paint; the stone course below keeps its relief. Left: the stain cluster
+painted into the art still reads as a crust; colour edges are stair-stepped (upscaler art).
 

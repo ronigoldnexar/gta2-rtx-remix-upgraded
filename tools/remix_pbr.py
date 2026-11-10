@@ -127,6 +127,9 @@ GROUND_GAIN = {"road": (0.2, 0.5), "pave": (0.45, 0.7), "flat": (0.12, 0.35)}   
 MICRO_GAIN = 0.28    # FIX-REMIX-MATERIALS-4: slope per texel of the scan height (std 1) at 512 px
 FLAT_WALL = {"wil": set(), "bil": set(), "ste": set(range(160, 179)) - {163}}
 MURAL_WALL = {"wil": {175}, "bil": set(), "ste": {355, 759, 760, 761, 762}}
+# FIX-REMIX-MATERIALS-5: inside a mural's painted region the relief is 5 % / 15 % (was the flat class's 12 % / 35 %):
+# at arm's length (ste 760, out/fm5_ste1) the mosaic's painted stains still read as a crusty raised skin.
+MURAL_GAIN = (0.05, 0.15)
 
 # FIX-REMIX-MATERIALS-4 (ptrmx17-remix-ste-iron-fence-slats-read-as-chrome-mirror-and-clay-by-side): the
 # railing and fence tiles (cut-outs of bars, rails, finials, gates) are painted iron. analyse() took the
@@ -364,8 +367,8 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
         colourful = ((sat > 0.25) & (val > 0.25)).astype(np.float32)
         region = gauss(colourful, 16 * S + 1, wrap) > 0.06
         region = gauss(region.astype(np.float32), 1.5 * S + 0.5, wrap)          # soft edge, 0..1
-        w_s = w_s * (1 - region * (1 - GROUND_GAIN["flat"][0]))
-        w_g = w_g * (1 - region * (1 - GROUND_GAIN["flat"][1]))
+        w_s = w_s * (1 - region * (1 - MURAL_GAIN[0]))
+        w_g = w_g * (1 - region * (1 - MURAL_GAIN[1]))
     Hn = (k_s * Hs * w_s + k_g * Hg * w_g) * visf
     if micro is not None:
         Hn = Hn + MICRO_GAIN / S * micro[0] * visf
@@ -392,6 +395,31 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
     return {"normal": n, "rough": (rough * 255).astype(np.uint8), "rough_wet": (wet * 255).astype(np.uint8),
             "metal": metal_map, "height": height, "displace": displace, "emissive": emissive, "cls": cls,
             "groundish": groundish}
+
+def mural_albedo(rgba, keep=0.4, pale_min=0.68):
+    """FIX-REMIX-MATERIALS-5 (pt-remix-graffiti-mural-wax-blob-relief, residual at arm's length): the upscaler
+    painted bumps, specks and soft shadows into a mosaic's pale pieces (ste 760: the cream patches), which path
+    traced as raised white lumps even with the mural class's flat normals. Inside the painted region (as analyse()
+    finds it), a pale low-chroma texel's luminance is pulled to the smooth luminance of the pale texels around
+    it (sigma 1.5 texels per 64 px), `keep` of its own detail left; its hue is kept, the dark grout and the
+    coloured pieces are not touched. Only the layer's albedo copy changes (the HD tile is the texture key)."""
+    a = rgba[..., :3].astype(np.float32) / 255.0
+    mx, mn = a.max(-1), a.min(-1)
+    sat = (mx - mn) / np.maximum(mx, 1e-3)
+    S = rgba.shape[0] / 64.0
+    colourful = ((sat > 0.25) & (mx > 0.25)).astype(np.float32)
+    region = gauss(colourful, 16 * S + 1) > 0.06
+    pale = region & (sat < 0.3) & (mx > pale_min)
+    if not pale.any(): return rgba
+    lum = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
+    w = pale.astype(np.float32)
+    smooth = gauss(lum * w, 1.5 * S) / np.maximum(gauss(w, 1.5 * S), 1e-3)
+    target = keep * lum + (1 - keep) * smooth
+    ratio = np.where(pale, target / np.maximum(lum, 1e-3), 1.0)
+    out = rgba.copy()
+    out[..., :3] = np.clip(a * ratio[..., None] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    return out
+
 
 def deband(rgba, low=0.018, high=0.05):
     """FIX-REMIX-MATERIALS-3: the upscaler posterised the flat road tiles into contour-map

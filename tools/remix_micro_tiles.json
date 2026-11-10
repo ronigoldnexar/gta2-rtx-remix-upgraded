@@ -612,6 +612,10 @@
 "cls": "grass",
 "amp": 1.0
 },
+"806": {
+"cls": "asphalt",
+"amp": 0.9
+},
 "811": {
 "cls": "asphalt",
 "amp": 0.62

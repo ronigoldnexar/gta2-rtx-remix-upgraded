@@ -355,6 +355,9 @@ def pbr_tile(job):
         (write_albedo_cutout if cut else write_albedo)(a_path, rgba)
     elif cut:                                            # FIX-REMIX-MATERIALS-3: keep the bars at distance
         write_albedo_cutout(a_path, rgba)
+    elif ground == "mural":                              # FIX-REMIX-MATERIALS-5: no painted lumps in a mosaic's pale pieces
+        rgba = remix_pbr.mural_albedo(rgba)
+        write_albedo(a_path, rgba)
     elif ground == "road" and albedo is None:            # FIX-REMIX-MATERIALS-3: no contour bands
         rgba = remix_pbr.deband(rgba)
         write_albedo(a_path, rgba)
