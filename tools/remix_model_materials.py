@@ -23,7 +23,7 @@ the clear coat (cars) or the cloth (avatars), the rest per texel. Whichever draw
 the runtime keeps, the whole model is drawn, once.
 
     remix_model_materials.py assets/models <mod dir> [--src ../assets-src] [--jobs 4]
-        [--paint-roughness 0.18] [--paint-metallic 0.05] [--pattern REGEX] [--preview DIR] [--report JSON]
+        [--paint-roughness 0.12] [--paint-metallic 0.05] [--pattern REGEX] [--preview DIR] [--report JSON]
 
 --src: the source assets the importer read (assets-src, outside the repo): their
 normal / roughness / metallic maps and material factors are used where they exist;
@@ -231,6 +231,72 @@ def end_masks(models_dir, names):
 
 
 
+def _raster_line(acc, a, b, val, w, h):
+    """adds val along the UV segment a-b (v down the image) into acc, one sample per half texel"""
+    x0, y0 = a[0] * w, a[1] * h; x1, y1 = b[0] * w, b[1] * h
+    n = int(max(abs(x1 - x0), abs(y1 - y0)) * 2) + 1
+    t = np.linspace(0.0, 1.0, n + 1)
+    xs = np.clip((x0 + (x1 - x0) * t).astype(int), 0, w - 1); ys = np.clip((y0 + (y1 - y0) * t).astype(int), 0, h - 1)
+    acc[ys, xs] = np.maximum(acc[ys, xs], val)
+
+
+def crease_maps(models_dir, names, pattern=r"_paint\.tga$"):
+    """FIX-REMIX-CARS-1: per carkit paint texture, (groove 0..1, roughness offset) from the mesh's own folds.
+    Vertices are welded by position; an edge between two faces bends by their dihedral angle, concave when the
+    second face's centre lies in front of the first face's plane. Concave folds of CREASE_MIN_DEG..CREASE_FULL_DEG
+    and more become a groove (and SEAM_ROUGH more roughness on its floor), convex ones a smoother rim
+    (CONVEX_ROUGH). Rasterised into UV space, so only for a texture whose layout does not overlap itself on one
+    side of the car (a mirrored left/right pair is fine: the car is symmetric); textures that fail are left out."""
+    out = {}
+    for m in names:
+        try: meshes = read_mesh(os.path.join(models_dir, m))
+        except Exception: continue
+        for tex, v, idx in meshes:
+            if not re.search(pattern, tex) or not len(idx) or not pbr.authored_part(tex[:-10] + ".tga"): continue
+            path = os.path.join(models_dir, tex)
+            if not os.path.exists(path): continue
+            with Image.open(path) as im: w, h = im.size
+            P = v[:, :3].astype(np.float64); UV = v[:, 6:8]
+            Pf = P[idx]; cen = Pf.mean(1)
+            # overlap check on one side of the car
+            side = cen[:, 0] < -1e-4
+            cnt = np.zeros((h, w), np.int16)
+            for uv in UV[idx[side]]:
+                msk = np.zeros((h, w), bool); x = uv[:, 0] * w; y = uv[:, 1] * h
+                xa, xb = int(max(np.floor(x.min()), 0)), int(min(np.ceil(x.max()), w - 1))
+                ya, yb = int(max(np.floor(y.min()), 0)), int(min(np.ceil(y.max()), h - 1))
+                if xb < xa or yb < ya: continue
+                gx, gy = np.meshgrid(np.arange(xa, xb + 1) + 0.5, np.arange(ya, yb + 1) + 0.5)
+                d = (y[1] - y[2]) * (x[0] - x[2]) + (x[2] - x[1]) * (y[0] - y[2])
+                if abs(d) < 1e-12: continue
+                a = ((y[1] - y[2]) * (gx - x[2]) + (x[2] - x[1]) * (gy - y[2])) / d
+                b = ((y[2] - y[0]) * (gx - x[2]) + (x[0] - x[2]) * (gy - y[2])) / d
+                cnt[ya:yb + 1, xa:xb + 1] += (a > 0) & (b > 0) & (1 - a - b > 0)
+            cov = int((cnt > 0).sum())
+            if not cov or (cnt > 1).sum() > 0.02 * cov:
+                print(f"  crease bake skipped for {tex}: UV overlap {(cnt > 1).sum()} of {cov} texels", flush=True); continue
+            wid = np.unique(np.round(P / 1e-4).astype(np.int64), axis=0, return_inverse=True)[1].ravel()
+            nrm = np.cross(Pf[:, 1] - Pf[:, 0], Pf[:, 2] - Pf[:, 0]); nrm /= np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-12
+            edges = {}
+            for fi, (a0, b0, c0) in enumerate(idx):
+                for i, j in ((a0, b0), (b0, c0), (c0, a0)):
+                    edges.setdefault((min(wid[i], wid[j]), max(wid[i], wid[j])), []).append((fi, i, j))
+            groove = np.zeros((h, w), np.float32); rim = np.zeros((h, w), np.float32)
+            for lst in edges.values():
+                if len(lst) != 2: continue
+                (f1, i1, j1), (f2, i2, j2) = lst
+                ang = float(np.degrees(np.arccos(np.clip(nrm[f1] @ nrm[f2], -1, 1))))
+                if ang < pbr.CREASE_MIN_DEG: continue
+                t = min((ang - pbr.CREASE_MIN_DEG) / (pbr.CREASE_FULL_DEG - pbr.CREASE_MIN_DEG), 1.0)
+                acc = groove if nrm[f1] @ (cen[f2] - cen[f1]) > 0 else rim
+                for i, j in ((i1, j1), (i2, j2)): _raster_line(acc, UV[i], UV[j], t, w, h)
+            k = max(min(h, w), 16) / 512.0
+            g = pbr.gauss(groove, pbr.SEAM_WIDTH * max(k, 0.5)); g = np.clip(g / max(float(g.max()), 1e-3) * 2.0, 0, 1) if g.max() > 0 else g
+            r = pbr.gauss(rim, 1.5 * max(k, 0.5)); r = np.clip(r / max(float(r.max()), 1e-3) * 2.0, 0, 1) if r.max() > 0 else r
+            out[tex] = (g.astype(np.float32), (pbr.CONVEX_ROUGH * r).astype(np.float32))
+    return out
+
+
 def fresh(path):
     """unlink before writing: never write through a hard link into another mod folder"""
     if os.path.lexists(path): os.remove(path)
@@ -256,7 +322,7 @@ def write_unit(job):
         targets = [(rest, bgr_r), (paint, bgr_p)]; legacy, kind = 0, "pair"
     elif paint and not rest:
         albedo = rm.to_rgba(bgr_p)
-        mp = pbr.texture_maps(paint, albedo, spec, None, is_car=is_car)
+        mp = pbr.texture_maps(paint, albedo, spec, None, is_car=is_car, crease=G["crease"].get(paint))
         targets = [(paint, bgr_p)]; legacy, kind = 1, "paint"
     else:
         albedo = rm.to_rgba(bgr_r)
@@ -356,6 +422,14 @@ def main():
             units.append((f, f[:-4] + "_paint.tga" if f[:-4] + "_paint.tga" in have else None))
     _G["specs"] = pbr.source_specs(a.models, src, manifest, only={m[:-5] for m in meshes_sel}) if os.path.isdir(src) else {}
     _G["ends"] = end_masks(a.models, [m for m in meshes_sel if re.match(r"^\d{3}_", m)])
+    _G["crease"] = crease_maps(a.models, [m for m in meshes_sel if re.match(r"^\d{3}_", m)])
+    # one prim per texel hash: a texture two cars share (013 Minx and 000 Romero's trim) cannot carry either mesh's folds
+    for t in list(_G["crease"]):
+        h = rm.remix_hash(rm.read_tga(os.path.join(a.models, t)))
+        twins = [f for f in files if f != t and f.endswith("_paint.tga") and os.path.getsize(os.path.join(a.models, f)) ==
+                 os.path.getsize(os.path.join(a.models, t)) and rm.remix_hash(rm.read_tga(os.path.join(a.models, f))) == h]
+        if twins:
+            print(f"  crease bake dropped for {t}: same texels as {twins[0]}", flush=True); del _G["crease"][t]
     print(f"{len(units)} units from {len(meshes)} models, source materials for {len(_G['specs'])} textures "
           f"({time.time() - t0:.0f} s)", flush=True)
     jobs = [(r, p, a.models, tex, a.preview) for r, p in units]

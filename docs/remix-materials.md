@@ -2032,3 +2032,85 @@ Still short:
   at grazing angle. Not treated.
 - **Other dark walls:** every other dark wall tile in the three districts keeps its baked albedo.
 - **The verified layer:** the take's layer still had a metal map on tile 167, which the final build drops.
+
+## Car paint under a clear coat: grooves for the panel gaps, the kit meshes' folds, coat 0.12 (FIX-REMIX-CARS-1, 10 Nov 2026)
+
+The owner's item 4 on 10 Nov (owner10nov-4, "vehicles look childish": smooth, moulded plastic, no panel lines,
+one flat paint) has a plain-renderer half (FIX-CAR-SHADING-1, docs/vehicle-shading.md) and this Remix half. The
+Remix half is a generator step in `tools/remix_model_pbr.py` / `remix_model_materials.py`. It writes normal and
+roughness maps only, so the albedo and every prim key stay as they are.
+
+What the maps were:
+- **Kit bodies** (the carkit cars' lone `*_paint.tga`, group carproc; the owner's coupe is the 018 Shark): these took the
+  full derived normal at strength 3, grain band included. The paint textures are near flat with a faint mottle, so the
+  coat path traced as a hammered, lumpy surface.
+- **Image-to-3D pairs:** their paint texels already took the normal at `PAINT_NORMAL_DAMP` 0.3. That damp also flattened
+  the painted gaps.
+- **Coat roughness:** 0.18, which read as satin at night.
+
+What they are now (`texture_maps`, the `coat` block):
+- **Relief:** every paint texel, kit or pair, takes the derived relief without the grain term (`detail_height(...,
+  grain_weight=0)`), damped as before.
+- **Seams:** `seam_mask()` finds the thin dark lines of the paint texture: door, bonnet, boot and sill shut lines. It uses
+  elongated Hessian valleys at sigma 0.7/1.2/1.8, over the local contrast, with threshold `SEAM_THRESHOLD` 0.2. These are
+  widened to a groove (`SEAM_WIDTH` sigma 1.1 texels per 512 of the texture's long side) and cut in at full depth
+  (`groove_normal`, `SEAM_STRENGTH` 1.6, about 40 degree walls) over the paint and a 3-texel border. The border matters
+  because a gap's dark texels are often the untinted half of a split pair (the 068 van's door lines). The groove floor
+  is `SEAM_ROUGH` 0.15 rougher.
+- **Mesh folds (kit bodies only):** `crease_maps()` welds the mesh by position and takes each edge's dihedral angle.
+  Concave folds of 10-35 degrees and more become a groove with a rougher floor; convex edges get a rim 0.04 smoother.
+  These are rasterised into the paint texture's UV space only when one side of the car does not overlap itself (the
+  left/right mirror is fine, the car is symmetric). Checked per texture:
+  - 38 paint textures of 29 kit cars take the bake (018 and 046 among them).
+  - Skipped: the wheel discs, box/bed textures, the 012 cop car's top and the 057 T-Rex body (22-100 % overlap), and any
+    texture whose texels another car shares (000/013 trim), since one hash means one prim.
+- **Clear coat:** `PAINT_ROUGHNESS` 0.18 -> 0.12.
+
+**Delivery:** the shipped layer differed from what HEAD's tool writes in 29 car prims (older lamp gains, another pass's
+per-texel metallic). So the new maps are grafted, not rebuilt: `tools/remix_layer_graft.py <scratch> <shipped> <hashes>
+<out>` takes the shipped prim and swaps in only `normalmap_texture` and the roughness input. Then
+`remix_layer_merge.py <out> <layer> <out>/hashes.txt`.
+- 194 prims change. The 051 wheel paint's shipped chrome (metallic 1, 0.24) was left out on purpose.
+- 351 DDS: 75 new `.r`, 276 replaced `.n`/`.r`. They are in `layer_deploy/FIX-REMIX-CARS-1` (deploy.sh, files.txt,
+  replaced.txt).
+- `remix_car_prim_check` on the merged layer: 846 textures of 83 models, 0 missing.
+
+Build:
+
+    tools/remix_model_materials.py assets/models <scratch> --src ../assets-src --pattern '^\d{3}_.*(_\d+|_paint)\.tga$'
+
+Then graft against the shipped layer and merge.
+
+**Seen path traced** (GPU 2, private stage at 6122943a, the play rig's config before the Ultra switch 56fff34d,
+`frm2_remix.sh` + `keys_frm2_own.sh`, own car stopped at wil 164.5,147.6, MODELS 18;19;29 without a paint index, so all
+three are white; poses side/rear34/front34 at 12:30 and 21:30). Runs:
+
+| run | layer |
+|---|---|
+| `frc1_b0` | shipped |
+| `frc1_a18` | new maps, coat 0.18 |
+| `frc1_a12b` | new maps, coat 0.12 = this commit |
+
+`frc1_a12` froze in the level (stall dump, no shots) and was re-taken.
+- **018 rear 3/4 at 21:30:** before, a satin body with a faint mottle. With 0.12, a smooth coat with a crisp lamp glint
+  running along the rear shoulder and fender (at 0.18 that glint is broad).
+- **018 side at noon:** the door lines are dark cuts with a lit lip on one side. Before, they were broader dark strokes.
+  The difference at this distance is small: the shipped normal already had a groove there. The kit's flank no longer
+  reads as hammered.
+- **Grain on the body** (mean abs Laplacian of a flat deck patch):
+
+  | patch | before | 0.18 | 0.12 |
+  |---|---|---|---|
+  | 018 deck, 21:30 | 3.5 | 3.6 | 3.7 |
+  | 019 flank, 21:30 | 16.0 | 12.6 | 11.8 |
+
+  So 0.12 brings back no firefly or denoiser grain. The 019 at noon has no sun specks.
+- 029 Dementia: unchanged to the eye.
+
+Still short of the GTA5-class bar:
+- **White cars at noon:** the body saturates, so no seam or coat difference shows in the sun. A painted take (the
+  owner's green) is needed.
+- **One lobe:** AperturePBR has a single specular lobe, so there is no base-plus-coat layering and no flake.
+- **Panel gaps:** they are only as good as the textures paint them. The kit rear decks have none.
+- **The owner's preset:** DLSS-RR on the 5090 and Ultra, which this host cannot run (TAA-U), may denoise the coat
+  differently.

@@ -79,7 +79,10 @@ sys.path.insert(0, HERE)
 # the derived normal at PAINT_NORMAL_DAMP of its strength (panel gaps stay as soft lines, the
 # grain is gone), so the coat can be a real clear coat again: roughness 0.18, metallic 0.05
 # (a dielectric coat over the colour; 0.2 darkened the diffuse into dark tinted metal).
-PAINT_METALLIC, PAINT_ROUGHNESS = 0.05, 0.18
+# FIX-REMIX-CARS-1 (owner10nov-4): with no grain left on any paint texel (below), 0.12 path traces as a clear coat with a
+# sharp lamp glint along the shoulders at night and no sun fireflies at noon; 0.18 read as satin (same-pose A/B
+# frc1_a18 / frc1_a12b on 018, 019, 029 at 12:30 and 21:30; body grain unchanged on 018, lower on 019).
+PAINT_METALLIC, PAINT_ROUGHNESS = 0.05, 0.12
 PAINT_NORMAL_DAMP = 0.3
 CHROME_ROUGHNESS = 0.2
 LAMP_INTENSITY = 6.0        # tail / brake lamps, emissiveFactor lamps
@@ -174,7 +177,7 @@ def luminance(rgb):
     return 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
 
 # ------------------------------------------------------------ derived normals --
-def detail_height(rgba, strength_scale=1.0):
+def detail_height(rgba, strength_scale=1.0, grain_weight=0.15):
     """Height field from the albedo's thin structures (see the module notes): grooves for
     dark lines, beads for bright lines, domes / dimples for small round spots, a weak
     grain; colour steps suppressed. Returns (height, weight) with weight 0 at island edges."""
@@ -201,9 +204,54 @@ def detail_height(rgba, strength_scale=1.0):
         resp = (-1.0 * dark_line + 0.6 * bright_line - 0.5 * dark_blob + 0.7 * bright_blob) / contrast
         height += wt * np.tanh(resp * 0.8)
     grain = np.tanh((lum - gauss(lum, 1.0 * max(k, 0.5))) / contrast)
-    height += 0.15 * grain
+    height += grain_weight * grain
     weight = gauss(erode(vis, 2).astype(np.float32), 1.0)
     return height * strength_scale, weight
+
+# FIX-REMIX-CARS-1 (owner10nov-4, Remix half: "moulded plastic, no panel lines"): the paint of a car body
+# under a clear coat. PAINT_NORMAL_DAMP flattened the painted seams along with the atlas grain, and the
+# carkit bodies' paint (a lone *_paint.tga, group carproc) took the full derived normal: grain 0.15 at
+# strength 3 path traced as a hammered, lumpy coat, while its 1-texel door lines vanished in the first mip.
+# Now: the paint's general relief stays damped (no grain at all), and the thin dark lines of the paint
+# texture (door, bonnet, boot and sill shut lines) are cut back in as grooves of a fixed width, at full
+# depth, with a rougher floor; the carkit bodies' own mesh creases (concave folds, from the dihedral angles
+# of the welded mesh, rasterised into the non-overlapping UV layout) add a groove + rougher floor, convex
+# edges a slightly smoother rim. Normal and roughness maps only: the albedo, so the prim key, is untouched.
+SEAM_WIDTH = 1.1            # gaussian sigma of a groove, texels at 512 px (a 1-2 texel painted line -> ~4 texels of slope)
+SEAM_STRENGTH = 1.6         # groove slope: ~30-40 deg wall tilt at the groove's sides
+SEAM_THRESHOLD = 0.2        # dark-line response over local contrast that counts as a painted seam
+SEAM_ROUGH = 0.15           # roughness added on a groove's floor (dirt and a broken coat in the gap)
+CREASE_MIN_DEG, CREASE_FULL_DEG = 10.0, 35.0
+CONVEX_ROUGH = -0.04
+
+def seam_mask(rgba):
+    """0..1 per texel: a thin dark line of the albedo (a painted panel gap), widened to a groove profile."""
+    h, w = rgba.shape[:2]
+    vis = rgba[..., 3] >= 128
+    if not vis.any(): vis = np.ones((h, w), bool)
+    lum = fill_hidden(luminance(rgba[..., :3]), vis)
+    k = max(min(h, w), 16) / 512.0
+    sc = 6 * max(k, 0.25)
+    contrast = np.sqrt(np.maximum(gauss((lum - gauss(lum, sc)) ** 2, sc), 0)) + 0.04
+    resp = np.zeros((h, w), np.float32)
+    for s in (0.7, 1.2, 1.8):
+        s = max(s * max(k, 0.5), 0.6)
+        hyy = gauss(lum, s, 2, 0) * s * s; hxx = gauss(lum, s, 0, 2) * s * s; hxy = gauss(lum, s, 1, 1) * s * s
+        gy = gauss(lum, s, 1, 0) * s; gx = gauss(lum, s, 0, 1) * s
+        tr = 0.5 * (hxx + hyy); dt = np.sqrt(0.25 * (hxx - hyy) ** 2 + hxy * hxy)
+        l1, l2 = tr + dt, tr - dt
+        line = np.maximum(l1 - 2.0 * np.abs(l2) - 0.6 * np.sqrt(gx * gx + gy * gy), 0)   # elongated valleys only
+        resp = np.maximum(resp, line / contrast)
+    core = np.clip((resp - SEAM_THRESHOLD) / SEAM_THRESHOLD, 0, 1) * erode(vis, 1)
+    wide = gauss(core, SEAM_WIDTH * max(max(h, w) / 512.0, 1.0))   # the groove's width in texels follows the long side
+    return np.clip(wide / max(float(np.percentile(wide[core > 0.5], 50)) if (core > 0.5).sum() > 8 else 1.0, 1e-3), 0, 1)
+
+def groove_normal(base, groove, weight, strength=SEAM_STRENGTH):
+    """base (h,w,3) unit normals with a groove (0..1 depth map) cut in at full strength."""
+    dx = gauss(-groove, 0.6, 0, 1); dy = gauss(-groove, 0.6, 1, 0)
+    n = base / np.maximum(base[..., 2:3], 0.2)
+    n = np.stack([n[..., 0] - dx * strength * weight, n[..., 1] - dy * strength * weight, np.ones_like(dx)], -1)
+    return n / np.linalg.norm(n, axis=-1, keepdims=True)
 
 def height_to_normal(height, weight, strength):
     """DirectX tangent space: n = (-dh/du, -dh/dv, 1), v down the image."""
@@ -485,7 +533,7 @@ def skin_mask(rgba):
     return (r > 80) & (g > 35) & (b > 15) & ((mx - mn) > 12) & (np.abs(r - g) > 12) & (r > g) & (r > b) & (r - b > 25)
 
 # ---------------------------------------------------------------- per texture --
-def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False):
+def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False, crease=None):
     """All maps for one texture (uint8 RGBA, rows top down).
     paint_mask: the paint half's texels of a split pair (cars: clear coat; avatars: cloth).
     Returns dict: normal (h,w,3 float) or None, metal / rough (h,w float 0..1), emit (h,w,3
@@ -594,10 +642,34 @@ def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False):
         if human: strength = 1.5
         if spec.get("lit") or spec.get("glass_model"): strength = 1.0
         normal = derived_normal(rgba, strength)
-        if paint_mask is not None and not human and group == "car3d":
-            # the coat is smooth: keep a trace of the panel lines, not the atlas grain
-            normal[paint_mask, :2] *= PAINT_NORMAL_DAMP
-            normal[paint_mask] /= np.linalg.norm(normal[paint_mask], axis=-1, keepdims=True)
+        coat = None
+        if paint_mask is not None and not human and group == "car3d": coat = paint_mask
+        elif is_car and paint_mask is None and tga.endswith("_paint.tga") and not human: coat = np.ones((h, w), bool)
+        if coat is not None:
+            # the coat is smooth: keep a trace of the relief, not the atlas grain ...
+            hgt, wt = detail_height(rgba, grain_weight=0.0)
+            damped = height_to_normal(hgt, wt, strength)
+            normal[coat] = damped[coat]
+            normal[coat, :2] *= PAINT_NORMAL_DAMP
+            normal[coat] /= np.linalg.norm(normal[coat], axis=-1, keepdims=True)
+            # ... and the panel gaps back in as real grooves (FIX-REMIX-CARS-1)
+            groove = seam_mask(rgba)
+            if crease is not None and crease[0].shape == groove.shape:
+                groove = np.maximum(groove, crease[0])
+            # a painted gap's dark texels are often the untinted half of a split pair: the groove covers the
+            # paint and a 3-texel border around it
+            near = coat.copy()
+            for _ in range(3):
+                g2 = near.copy(); g2[1:] |= near[:-1]; g2[:-1] |= near[1:]; g2[:, 1:] |= near[:, :-1]; g2[:, :-1] |= near[:, 1:]; near = g2
+            near &= vis
+            groove = np.where(near, groove, 0.0).astype(np.float32)
+            gn = groove_normal(normal, groove, wt)
+            normal[near] = gn[near]
+            rough[near] = np.clip(rough[near] + SEAM_ROUGH * groove[near], 0.03, 1.0)
+            if crease is not None and crease[1].shape == groove.shape:
+                rough[coat] = np.clip(rough[coat] + crease[1][coat], 0.03, 1.0)
+            stats["seam_texels"] = int((groove > 0.5).sum())
+            source.append("seams" + ("+crease" if crease is not None else ""))
         source.append("derived")
     if is_car and not spec.get("lit") and not re.search(r"sign", tga) and gain.any() and HEADLAMP_RIM < 1.0:
         # FIX-FX-5 (FIX-REMIX-NIGHT-8's note: car lamps under Remix were flat white emissive discs): every lamp island

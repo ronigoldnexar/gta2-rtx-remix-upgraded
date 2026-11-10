@@ -81,6 +81,8 @@ kit bodies' paint textures are nearly flat, so their normal maps carry no seams.
 and vehicle-art seats (defects/assigned/vr-vehicle-art-audit-batch.FIX-CAR-SHADING-1-note.md) lists
 the generator step. No albedo texture is changed by this work, so no Remix prim hash moves.
 
+FIX-REMIX-CARS-1 (10 Nov) built that layer step: the paint normal loses the albedo grain, the painted gaps are cut in as grooves with a rougher floor, the kit meshes' concave folds are baked into the paint texture's normal/roughness, and the coat is 0.12. Details, frames and what is still short: docs/remix-materials.md, "Car paint under a clear coat".
+
 ## Results (frames opened, private stage of this commit's build, wil street warp, own car stopped)
 
 - Same-pose before/after, noon: `out/csh_fin0` (car_coat=0) vs `out/csh_fin1` (coat), 018 green (the owner's
