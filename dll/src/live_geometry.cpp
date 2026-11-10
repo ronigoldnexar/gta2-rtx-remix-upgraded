@@ -9890,8 +9890,21 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             float sx, sy, sz;
             if (!(e.first & 1u) && BoardingSeatSpot(e.first, &sx, &sy, &sz)) sat.push_back(e.first);
         }
+        // FIX-COCKPIT-CAB-5 (qaexp34, qar11, qar13: the cab's brown stand-in fists for seconds in first person): the game
+        // hands the player's old sprite object to a passer-by a second after he sits; when that passer-by then jacked a
+        // car beside him and sat down, his seat key (object | 1) was the player's own: the rekey overwrote the player's
+        // seated record with the stranger's (not the player's, another car), his body was drawn in the stranger's seat
+        // or not at all and the cab drew its stand-in fists until the stranger's record went (13 s, qaexp34_wil2
+        // 18:51:47-18:52:00). A stranger whose seat key holds the player's seat takes object | 3 instead (also never a
+        // real object). GTA2DX9_SEAT_KEY_OLD=1: the old keying (A/B).
+        static const bool seatKeyOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_SEAT_KEY_OLD", b, sizeof b) && b[0] == '1'; }();
         for (uintptr_t object : sat) {
-            const uintptr_t key = seatKey(object);
+            uintptr_t key = seatKey(object);
+            if (!seatKeyOld && BoardingIsPlayer(key) && !BoardingIsPlayer(object)) {
+                key = object | 3u;
+                if (g_logFigures) Log("seat: %04x took the player's old object: seated as %p, not on his seat", static_cast<unsigned>((object >> 2) & 0xFFFF),
+                                      reinterpret_cast<const void*>(key));
+            }
             BoardingRekey(object, key);
             boardSprites_[key] = boardSprites_[object];
             boardSprites_[key].second.object = key;
@@ -9957,7 +9970,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // him (the game may give him a new sprite object for it, seatp_fix9: 2.5 s of two figures).
                 bool out = BoardingIsPlayer(key) && playerOnFoot;
                 float sx, sy, sz;
-                if (!out && BoardingSeatSpot(key, &sx, &sy, &sz)) {
+                // FIX-COCKPIT-CAB-5: not the player's seat while the game has him in a car: a driver thrown out of the car
+                // beside his, or a passer-by he knocked down at his door, is not him (his own exit: playerOnFoot, above).
+                const bool playerHeld = !seatKeyOld && BoardingIsPlayer(key) && playerDriving;
+                if (!out && !playerHeld && BoardingSeatSpot(key, &sx, &sy, &sz)) {
                     for (size_t i = 0; i < boardRealSprites && !out; ++i) {
                         const Sprite& sp = sprites_[i];
                         if (!sp.pedestrian || sp.hidden || sp.ghost || sp.corners != 4 || (sp.pedState != 4 && sp.pedState != 8)) continue;

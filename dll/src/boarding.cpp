@@ -1099,13 +1099,18 @@ bool BoardingSeat(uintptr_t ped, uintptr_t car, uint32_t now) {
     auto it = g_boards.find(ped);
     if (it != g_boards.end()) {
         const Board& b = it->second;
-        if (b.mode == kSeated) {
+        // FIX-COCKPIT-CAB-5: a stranger's seat under his key (live_geometry keys a stranger who took his old object apart
+        // since; GTA2DX9_SEAT_KEY_OLD=1 restores the collision): his seat starts again as the player's.
+        static const bool seatKeyOld = [] { const char* v = std::getenv("GTA2DX9_SEAT_KEY_OLD"); return v && v[0] == '1'; }();
+        if (!seatKeyOld && b.mode == kSeated && !b.player) {
+            if (g_log) Log("board: ped=%04x a stranger's seat under the player's key, taken back (f=%u)", static_cast<unsigned>((ped >> 2) & 0xFFFF), now);
+        } else if (b.mode == kSeated) {
             // the game has him in another car than the boarding guessed (two parked side by side):
             // his seat follows the car he drives
             if (b.car != car) { it->second.car = car; it->second.side = 1; }
             return true;
         }
-        if (b.mode != kNone && !b.ended) return false;   // a boarding (or an exit) still plays
+        else if (b.mode != kNone && !b.ended) return false;   // a boarding (or an exit) still plays
     }
     Board b;
     b.mode = kSeated; b.car = car; b.player = true; b.t = 1.0f;   // settled at once

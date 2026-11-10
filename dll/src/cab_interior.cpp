@@ -7,6 +7,7 @@
 #include <map>
 #include <vector>
 
+#include "cockpit_mode.h"
 #include "identity.h"
 #include "log.h"
 #include "model_store.h"
@@ -429,6 +430,23 @@ void DrawCabHands(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const 
     }
     const Model* arm = ModelByName("fp_arm_right");
     if (!arm) return;
+    {   // FIX-COCKPIT-CAB-5 (qaexp34, qar11, qar13): the stand-in fists are a fallback for a cab with no body to draw (the
+        // driver body off, no avatar), not for a frame his body missed: with his body on, a gap shows the rim without hands
+        // for those frames, never the brown faceted fists in its place. Every such frame is counted in the log (one line a
+        // second) so probes still see a gap. GTA2DX9_FP_STANDIN=1: the fists fill any gap as before (A/B).
+        static const bool standinAlways = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_STANDIN", b, sizeof b) && b[0] == '1'; }();
+        static const bool fpBodyEnv = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_BODY", b, sizeof b) && b[0] == '0'); }();   // live_geometry's FpDriverBodyOn
+        const bool bodyExpected = DriverBodyEnabled() && fpBodyEnv && IdentityForPlayer().model;
+        static ULONGLONG lastLog = 0; static unsigned frames = 0, total = 0;
+        ++frames; ++total;
+        const ULONGLONG now = GetTickCount64();
+        const bool skip = bodyExpected && !standinAlways;
+        if (now - lastLog >= 1000) {
+            Log("cab: his body not drawn %u frames (%u in all): stand-in fists %s", frames, total, skip ? "held back (body on)" : "drawn");
+            lastLog = now; frames = 0;
+        }
+        if (skip) return;
+    }
     auto toWorldP = [&](const Vec3& q) {
         return Vec3{q.x * carToWorld.m[0][0] + q.y * carToWorld.m[1][0] + q.z * carToWorld.m[2][0] + carToWorld.m[3][0],
                     q.x * carToWorld.m[0][1] + q.y * carToWorld.m[1][1] + q.z * carToWorld.m[2][1] + carToWorld.m[3][1],

@@ -1378,6 +1378,31 @@ flat front still makes a bus, never a tank). Adding a vehicle means one table en
   wine32:i386 wine64`), because gta2-wine2510 is not on the 8x L4 host. That image reproduces HEAD's
   `visuals_gen.h` byte for byte from the unchanged HLSL.
 
+### The seated hero kept through a stranger's jack; no stand-in fists while his body is on (FIX-COCKPIT-CAB-5, 10 Nov 2026)
+
+- **qaexp34 / qar11 / qar13 (brown faceted stand-in fists for seconds in first person).** The cab's stand-in fists
+  (`fp_arm_right`, `DrawCabHands`) draw whenever his seated body has not been drawn for 250 ms. In the filer's run
+  (qaexp34_wil2, 18:51:44-18:52:00) the game had handed the player's old sprite object to a passer-by (FIX-SEATED's
+  known reuse); that passer-by jacked the car parked beside the van (`jack: 210a201c boarding a car with a driver`,
+  the object is the player's: rig gate `o=8807`), and when he sat down live_geometry rekeyed his board to
+  `object | 1`, which was the player's own seat key. The rekey overwrote the player's seated record with the
+  stranger's (`player=false`, another car): the hands vanished for two samples (his body drawn in the other car),
+  then the body gate (`BoardingIsPlayer`) stayed shut and the stand-in fists drew for 13 s until the stranger's
+  record went. Now:
+  - a stranger whose seat key already holds the player's seat is keyed `object | 3` (log `seat: ... took the
+    player's old object`);
+  - `BoardingSeat` takes back a stranger's seat found under the player's key (log `board: ... taken back`);
+  - while the game has the player in a car, a driver thrown out or a passer-by knocked down within 0.7 block of his
+    seat no longer counts as "his sprite is back" (that test stays for NPC drivers);
+  - with the driver body on (`[camera] fp_driver_body=1`, an avatar), the stand-in fists are never drawn: a frame his
+    body misses shows the rim without hands. Every such frame is counted: `cab: his body not drawn N frames (M in
+    all)` once a second.
+  A/B: `GTA2DX9_SEAT_KEY_OLD=1` (the old keying and let-go), `GTA2DX9_FP_STANDIN=1` (fists fill any gap).
+- Probes: the filer's `gamerun/qaexp34_hunt.py` (qa_run, 3 views x 30 s, add `-e GTA2DX9_FP_BODY_LOG=1 -e
+  GTA2DX9_LOG_FIGURES=1`: `cockpit: body gate` every 15 frames, `seat:` lines) and `/mnt/gta2/qa/scenarios/dgh_hands`.
+  The jack beside him is traffic-dependent: most hunt runs do not hit it; read `seat:`/`jack:` lines to know if a run
+  exercised it.
+
 ## The third-person turn budget; no swing cut ping-pong; the boom past a phone box; peds at the lens (FIX-CAMERA-17, 10 Nov 2026)
 
 Owner, playtest 2 (RTX 5090): "standing near a phone booth can cause camera jitter; jitter also occurs when a large
