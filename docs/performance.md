@@ -1299,3 +1299,53 @@ car set (wheel splits 64 MB, dented-copy door splits 64 MB, ahead dents 48 MB), 
 over, but a 60-minute session has not been run. The next step is an eviction of derived car copies
 that have not been drawn for a while (the store never frees a model today: pointers to models and
 meshes key the glass, buffer and wear caches).
+
+### Frames over 50 ms in the street views: where the submission goes (FIX-PERF-4, measurement)
+
+QA-STRESS filed 3-11 % of third/first-person frames over 50 ms, with the stall in the `sky` phase and
+~2.1 M triangles / ~2 900 draws a frame against classic's 0.5 M / 1 200. The per-stage counts (`dr_*`,
+`pr_*` in the frame log) on a steady third-person soak at Industrial (`fp4_third1`, the filer's
+`keys_qa_stress3_third.sh`, GPU 1, FPS=0), mean per third-person frame after the warm-up:
+
+| stage | draws | triangles |
+|---|---|---|
+| world (`DrawWorld`: one batch per tile texture over the whole map, plus the eye caps) | 1 371 | 627 k |
+| **shadow pass** (`PostFx::Resolve` inside `EndWorldShading`: world chunks per cascade + the recorded casters; booked to `ui` because it runs after the sprites stage) | 874 | 918 k |
+| cars | 264 | 275 k |
+| props | 265 | 118 k |
+| peds | 61 | 136 k |
+| map objects, effects, the game's quads, sky | ~40 | ~3 k |
+
+Over the whole soak (32 053 third-person frames after the warm-up, GPU 1, host load 37-56 on 96 CPUs):
+avg 35.8 ms, p99 62.6 ms, 4.0 % over 50 ms, 49 over 100 ms; the classic frames of the same run
+(1 399) avg 33.3, p99 33.3, 0.07 % over 50 ms. The order's target (p99 under 50 ms, under 1 % over
+50 ms) is **not met**; nothing in this pass changes the submission. The frames over 50 ms (5.5 % of
+7 923 third-person frames in the first part of the soak) follow a frame
+whose shadow pass redrew the far cascade (staggered: on alternate frames): the frame before a slow one
+submitted 1 226 k shadow triangles against 920 k on average. In the slow frame the time is in `sky`
+(21.2 ms against 2.3 ms in a fast frame: `BeginFrame`'s Clear is the first call that waits for the
+previous frame's commands), `cars` (15.7 against 3.8 ms) and `peds` (8.7 against 3.0 ms; both lock
+dynamic buffers). `top -H` in the container during the soak: the game thread at 97 % of a core and
+**wined3d's command-stream thread at 95 %**. The GPU is not the limit. The limit is wined3d turning about 2 900
+draws and their state changes a frame into GL on one thread. The triangle count matters much less than
+the call count.
+
+So a cut has to remove D3D calls, not triangles: merged draws of same-texture props and parked cars,
+instanced figures, fewer shadow casters (the far cascade's caster replay), and the world's 1 371 batch
+draws. None of these is in this pass: each changes how a frame is built, and needs fixed-pose A/B
+frames (`GTA2DX9_REGRESS_CAM`) to show it changes nothing visible.
+
+### Steady third person, and what a level restart costs
+
+The same build on the filer's steady third-person soak at Industrial (`fp4_third1`, no V presses,
+39 walk/drive laps, `out/fp4_third1_mem.txt`), VSZ/RSS MB: 2657/1722 (1), 3046/2039 (3), 3117/2110 (5),
+3306/2231 (8), 3333/2262 (10), 3352/2275 (12), 3357/2293 (15), 3387/2316 (18). Minute 8 -> 18:
+VSZ +8.1 MB/min, RSS +8.5 MB/min, our heap +6.3 MB/min (698 -> 761 MB). The switching run grows at the same rate,
+so the remaining growth comes from content seen for the first time, not from view switches. Not flat; not READY.
+
+At minute 18 the player lost the level (`level ended: releasing the world mesh`) and the runner
+started it again. Our heap was the same afterwards (779 -> 784 MB) and Wine's commit + reserve too
+(2 451 -> 2 439 MB), but VSZ went 3 387 -> 3 623 MB: about **240 MB of host-side mappings per level
+load** (the GL driver's for the world's re-created vertex buffers and textures; wined3d released them).
+A session with three or four level restarts reaches the ceiling watchdog on that alone. Not addressed
+here. Keeping the world's GPU resources across a reload of the same district would avoid it.
