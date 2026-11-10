@@ -1098,3 +1098,29 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
     fbea4df cam13_rev8 13/12/109/6, cam13_rev7 31/36/72/15; same build, both switches off, cam14_rev3base 14/0/26/8;
     the pivot alone cam14_rev1 13/12/42/7 (angled2 62 -> 0 bottom frames; its angledR 35/7 = the cut, fixed next);
     both cam14_rev2 0/0/0/0, cam14_rev3 0/0/0/0. Paths wander between runs (not same-spot).
+- **The lens cut and the hold after a cut (second commit).** Backing at 3 blocks a second toward an eye turned to 140
+  degrees, the lens guard tripped with the gap 0.49 closing at 3.1/s; the turn (140 degrees a second, 2 blocks a
+  second at the lens) could not get away, the side it looked for flipped +-80 frame to frame, and the lens slid over
+  the car's flank for 9 frames (cam14_rev4 angled f902-910). When the car will reach the lens within 0.15 s and a turn
+  with the whole pull lies more than 30 degrees away, it cuts there. Log: `cam: car at the lens: cut A -> B`.
+  `GTA2DX9_CAM_CAR_LENS_CUT=0` turns it off. After any cut (this one or the drive-off cut) the turn holds where the cut
+  put it for 1 s unless that heading loses half the pull: the car driving off along the x=186 wall with its middle 0.28
+  off it was cut to behind at half the pull, the turn set off again toward the wall the next frame and the eye sat on
+  the wall's berth 0.45 behind the car for ~1.5 s, the lens on the car (cam14_rev8 angled f867-899: 58 past-edge, 49
+  lens frames). Log: `cam: car swing held`. `GTA2DX9_CAM_CAR_CUT_HOLD=0` turns it off.
+  - Only a turn that sets off again is held (|want| growing or the other side): a hold at -40 kept the eye on a wall's
+    berth while the car drove off with the line behind open (cam14_rev11 angledR f117-205). One cut at a time: no cut
+    within 0.6 s of the last, and the drive-off cut's side targets end at 80 degrees (a cut to 100 passed the > 100 test
+    again and cut every frame, cam14_rev10).
+  - With all four parts: cam14_rev9 0/0/0/0 (both cuts fired: the lens cut 19.5 -> 60 and 47 -> 140, the drive-off cut
+    to -60 with the hold); frames opened (every 5th frame of angled and angledR): the car whole in every tile, each cut
+    a single cut to a side-on view. vreg stage_cam14 31 PASS, spawn_classic 0 of 144 tiles (cam14_vreg2).
+  - Runs on a GPU shared with a Remix take ran at ~11 fps (cam14_rev6/7: 400 pose lines instead of ~3800) and the
+    scripted reverses did not reach the walls: not counted.
+  - Final build cam14_rev12: 14/0/25/10, all in angledR f71-95: the car stopped in a corner (its middle on the x=186
+    wall line) and spun in place after the impact; the line behind closed from 1.06 to 0.36 as its heading turned, the
+    rig followed the heading and the turn went over the car for ~0.5 s. Not fixed: the rig should hold the world
+    heading while a stopped car spins (a change to the chase yaw, not to these parts).
+  - Still short: paths wander per run, so no same-spot A/B; the filer's plaza-corner van case (tri15_p28, keys_pfl28.sh)
+    is not re-reached by this probe; a cut is a cut (an AAA chase rig would blend 0.2 s), and the car in a dark pocket
+    after the side cut reads small.

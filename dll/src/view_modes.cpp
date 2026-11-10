@@ -3862,6 +3862,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // When the eye's distance to the car's footprint closes so fast it would reach 0.1 within 0.3 s, the turn is
             // looked for now. GTA2DX9_CAM_CAR_LENS_GUARD=0 turns it off (A/B).
             bool carAtLens = false;
+            bool lensImminent = false;   // FIX-CAMERA-14: the car reaches the lens within 0.15 s
             {
                 static int lensGuard = -1;
                 if (lensGuard < 0) { char b[8] = {}; lensGuard = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_LENS_GUARD", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
@@ -3873,6 +3874,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     const float closing = (prevGap - gap) / dt;
                     if (closing > 0.0f && gap - 0.3f * closing < 0.1f && gap < 0.8f) {
                         carAtLens = true;
+                        lensImminent = gap - 0.15f * closing < 0.05f;
                         if (cameraLogOn()) Log("cam: car at the lens: gap %.2f closing %.2f/s, turn looked for (behind reaches %.2f)", gap, closing, straight);
                     }
                 }
@@ -3925,6 +3927,25 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
 
             }
+            // FIX-CAMERA-14: one cut at a time (two cuts 0.25 s apart read as a glitch, run cam14_rev10).
+            static float sinceCarCut = 10.0f;
+            sinceCarCut += dt;
+            // FIX-CAMERA-14 (pfl28: the car backing into the lens faster than the turn goes round). Backing at 3 blocks a
+            // second toward an eye turned to 140 degrees, the guard tripped with the gap 0.49 closing at 3.1/s; the turn,
+            // capped at 140 degrees a second (2 blocks a second at the lens), could not get away, the side it looked for
+            // flipped +-80 frame to frame, and the lens slid over the car's flank for 9 frames (run cam14_rev4 angled
+            // f902-910: box 1.6 x 2.3 frames, pitch -33). When the car will reach the lens within 0.15 s and a turn with
+            // the whole pull lies more than 30 degrees from where it is, it cuts there (the solved pose at once), as the
+            // drive-off does. GTA2DX9_CAM_CAR_LENS_CUT=0 turns it off (A/B).
+            {
+                static int lensCut = -1;
+                if (lensCut < 0) { char b[8] = {}; lensCut = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_LENS_CUT", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                if (lensCut && lensImminent && sinceCarCut > 0.6f && std::fabs(want - carSwing) > 30.0f * kDegToRad && reachAt(want) >= good) {
+                    if (cameraLogOn()) Log("cam: car at the lens: cut %.1f -> %.1f (reaches %.2f of %.2f)", carSwing / kDegToRad, want / kDegToRad, reachAt(want), good);
+                    carSwing = want;
+                    carDriveOffCut = true;
+                }
+            }
             // FIX-CAMERA-13 (pfl28 drive-off): turned past 100 degrees the eye is ahead of the car; driving off forward the
             // turn eased back over 0.8 s and the car drove into the lens pinned on the wall it had backed along (run
             // cam13_rev4 angled f147-188: the canopy over the whole frame, then the car cut at the bottom edge, 1.4 s).
@@ -3945,13 +3966,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 // before. GTA2DX9_CAM_CAR_CUT_ROOM=0 restores FIX-CAMERA-13's cut (A/B).
                 static int cutRoom = -1;
                 if (cutRoom < 0) { char b[8] = {}; cutRoom = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_CUT_ROOM", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
-                if (driveOffCut && std::fabs(carSwing) > 100.0f * kDegToRad && forward > 0.3f) {
+                if (driveOffCut && std::fabs(carSwing) > 100.0f * kDegToRad && forward > 0.3f && sinceCarCut > 0.6f) {
                     float to = 0.0f;
                     bool cut = false;
                     if (cutRoom) {
                         const float sideFirst = carSwing < 0.0f ? -1.0f : 1.0f;
                         if (straight >= good) cut = true;
-                        for (int k = 1; k <= 5 && !cut; ++k)
+                        // out to 80: a cut to 100 still passed the > 100 test (float) and cut again every frame (cam14_rev10)
+                        for (int k = 1; k <= 4 && !cut; ++k)
                             for (const float sg : {sideFirst, -sideFirst}) {
                                 const float a = sg * static_cast<float>(k) * (20.0f * kDegToRad);
                                 if (!cut && reachAt(a) >= good) { to = a; cut = true; }
@@ -3965,6 +3987,33 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                         carSwing = to;
                         want = to;
                         carDriveOffCut = true;
+                    }
+                }
+            }
+            // FIX-CAMERA-14 (pfl28: the turn re-started after a cut). The car driving off along the x=186 wall with its
+            // middle 0.28 off it: the cut put the boom behind at half the pull, and the next frame the turn set off again
+            // (9 -> 44 degrees wanting 120), toward the wall; the eye sat on the wall's berth 0.45 behind the car for
+            // ~1.5 s, the lens on the car (run cam14_rev8 angled f867-899: box up to 4 x 12 frames). After a cut the turn
+            // holds where the cut put it for 1 s (the car drives out of the pocket and the boom eases out), unless that
+            // heading loses half the pull. GTA2DX9_CAM_CAR_CUT_HOLD=0 turns it off (A/B).
+            {
+                static int cutHoldOn = -1;
+                if (cutHoldOn < 0) { char b[8] = {}; cutHoldOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_CUT_HOLD", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                static float cutHold = 0.0f;
+                if (carDriveOffCut) { cutHold = cutHoldOn ? 1.0f : 0.0f; sinceCarCut = 0.0f; }
+                else if (cutHold > 0.0f) {
+                    cutHold -= dt;
+                    // only a turn that sets off again is held: easing back toward behind is not (a hold at -40 kept the
+                    // eye on the wall's berth while the car drove off, the line behind open: cam14_rev11 angledR f117-205)
+                    if (std::fabs(want) <= std::fabs(carSwing) && want * carSwing >= 0.0f) {
+                    } else if (reachAt(carSwing) >= 0.5f * good) {
+                        if (want != carSwing && cameraLogOn()) {
+                            static int every = 0;
+                            if ((++every % 10) == 1) Log("cam: car swing held %.1f after the cut (wanted %.1f)", carSwing / kDegToRad, want / kDegToRad);
+                        }
+                        want = carSwing;
+                    } else {
+                        cutHold = 0.0f;
                     }
                 }
             }
