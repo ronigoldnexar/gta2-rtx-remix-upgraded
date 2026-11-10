@@ -1233,8 +1233,12 @@ The spots measured 1.24-1.29 blocks above his feet (fig9_h3 `burn test` lines). 
 - `FireSpotsOnFigure`: a spot counts only from 0.25 below to 0.75 above his feet.
 - His own bottle or grenade is never a fire on him for 15 frames after the throw.
 - Flames that belong to a burning car never count (`FireSpotPublic::onCar`, set for the lifted car-fire spots and the
-  own-car path; the same sprite published again unlifted is matched by place). pm22 (ste): the hero stood hands-up
-  beside a burning convertible; the same clip, not verified in a pm22 run yet.
+  own-car path; the same sprite published again unlifted is matched by place), and no spot over any car's body grown
+  by 0.12 block counts either. pm22 (ste): the hero stood hands-up beside a burning convertible: the same clip. It was
+  reproduced on 3ef784d (fig9_pm22: he had just stepped out of his car, 0.48 block from it, and its tail flame was
+  outside the roof test). The footprint rule is not yet proven in a run that discriminates: the forced-burn probe
+  (keys_fixfx_burn.sh STAND=1, fig9_burn / fig9_burnold) gave no burn clip with the old test either, and a pm22 re-run's
+  car did not burn.
 - `GTA2DX9_BURN_TEST_OLD=1`: the flat test, for an A/B. `GTA2DX9_LOG_PED_FRAMES=1` logs `burn test:` when a flat hit
   is not counted, and why.
 
@@ -1277,6 +1281,10 @@ head and a shirt cut by the frame's edge (fig9_ar3 f36, fig9_fw2 f1104/f1122). F
 - `GTA2DX9_FP_SHOULDER_CLEAR=0` turns both off.
 Evidence: fig9_fw3 (plaza walk, 4 pushes, frames 196-350): no cut heads at the edges; a man walking straight at him
 still comes to 0.40 (about 1.5 m, his torso a quarter of the frame, f208).
+
+Tried and not shipped: a higher first-person guard with a corkscrew cross (fig9_fist_new vs fig9_fist_old). The rigid
+forearm swung diagonally across the frame on each punch, worse than the straight jab. The fists need a bent arm (an
+elbow), not a new path for the rigid one.
 
 **First-person muzzle flash core** (FIGURE-8's short-of-AAA list). In first person the white core is 0.7 of the
 (0.75-scaled) flash instead of 0.45, with three short star streaks out of the muzzle across the line of sight.

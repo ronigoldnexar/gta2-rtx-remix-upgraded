@@ -356,7 +356,7 @@ int FireSpotsNear(float x, float z, float radius, const void* carShell) {
 // over his feet (blocks), for the log. pm22 (ste): a burning car's flames are not on him either (he stood
 // hands-up, the burn clip, beside a burning convertible after the F10 entry).
 bool g_burnTestOld = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_BURN_TEST_OLD", b, sizeof b) && b[0] == '1'; }();   // A/B: the flat test
-int FireSpotsOnFigure(float x, float y, float z, float radius, float* nearestDy) {
+int FireSpotsOnFigure(float x, float y, float z, float radius, float* nearestDy, const CarFootprint* cars, int carCount) {
     int n = 0; float best = 1e9f;
     for (const FireSpotPublic& f : g_fireSpotsLast) {
         const float dx = f.x - x, dz = f.z - z, dy = f.y - y;
@@ -365,6 +365,15 @@ int FireSpotsOnFigure(float x, float y, float z, float radius, float* nearestDy)
         bool carFlame = false;   // the same sprite published again unlifted (the effect pass) is the car's too
         for (const FireSpotPublic& g : g_fireSpotsLast)
             if (g.onCar && std::fabs(g.x - f.x) < 0.01f && std::fabs(g.z - f.z) < 0.01f) { carFlame = true; break; }
+        if (carFlame) continue;
+        // pm22 (fig9_pm22): the tail flame of the car he had just left, 0.48 block from him, was outside the roof
+        // test that tags car flames. A spot over any car's body grown by 0.12 block is the car's.
+        for (int i = 0; i < carCount && !carFlame; ++i) {
+            const CarFootprint& c = cars[i];
+            const float px = f.x - c.cx, pz = f.z - c.cz;
+            const float lx = px * c.rx + pz * c.rz, lz = px * c.fx + pz * c.fz;
+            if (std::fabs(lx) < c.hx + 0.12f && std::fabs(lz) < c.hz + 0.12f) carFlame = true;
+        }
         if (carFlame) continue;
         if (std::fabs(dy) < std::fabs(best)) best = dy;
         if (dy > -0.25f && dy < 0.75f) ++n;
@@ -8903,6 +8912,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     sepPeds.clear();
     static CarFootprint sepCars[96];
     int sepCarCount = 0;
+    static CarFootprint burnCars[96];   // FIX-FIGURE-9: every car's body, for the on-fire test (pm22)
+    const int burnCarCount = g_fireSpotsLast.empty() ? 0 : CarBodiesFootprints(burnCars, 96);
     if (!sepOff && g_groundModels) {
         for (const Sprite& sprite : sprites_) {
             if (!sprite.pedestrian || sprite.corpse || sprite.ghost || sprite.boardUi || sprite.corners != 4 || sprite.hidden || sprite.climbing) continue;
@@ -9440,11 +9451,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                g_carFrame - track.muzzleFrame < 15 && !g_burnTestOld;
         float burnDy = 0.0f;
         const int flatSpots = FireSpotsNear(cx, cz, 0.18f, nullptr);
-        const int burnSpots = g_burnTestOld ? flatSpots : (flatSpots ? FireSpotsOnFigure(cx, cy, cz, 0.18f, &burnDy) : 0);
+        const int burnSpots = g_burnTestOld ? flatSpots : (flatSpots ? FireSpotsOnFigure(cx, cy, cz, 0.18f, &burnDy, burnCars, burnCarCount) : 0);
         if (g_logPedFrames && flatSpots && ownPed && (burnSpots == 0 || ownBottle || ownFlames)) {
             static int logged = 0;
             if (logged < 60) { ++logged; Log("burn test: player %d fire spot(s) within 0.18 flat, nearest %.2f above his feet: %s", flatSpots, burnDy,
-                                             ownFlames ? "his own flamethrower" : ownBottle ? "his own bottle" : "not on him"); }
+                                             ownFlames ? "his own flamethrower" : ownBottle ? "his own bottle" : "not on him (height or a car's)"); }
         }
         if (!ownFlames && !ownBottle && burnSpots > 0) {
             if (++track.burnFrames >= 3) track.burnSeen = g_carFrame;
