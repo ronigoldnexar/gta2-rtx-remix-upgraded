@@ -18,6 +18,12 @@ def settle(timeout=45):
         time.sleep(0.5)
     say("MARK NOT_SETTLED"); return False
 Q.start("cab3_seat")
+if os.environ.get("QAV_HOUR"):   # qav12's paused clock (weather_look), for same-hour light comparisons
+    import weather_look as W
+    W.setk("visuals", "enabled", int(os.environ.get("QAV_VIS", "1")))
+    for k, v in (("enabled", 1), ("time_of_day", 1), ("clock_paused", 1), ("fade_seconds", 0), ("hour_hhmm", int(os.environ["QAV_HOUR"]))):
+        W.setk("weather", k, v)
+    W.weather(rain=0, cloud=0, wet=-1); time.sleep(2.0)
 T.warp(X, Y, 2, why="vehicle")
 settle()
 s = T.get_in_scene_car()
@@ -30,4 +36,6 @@ D.xdo("keydown", "Right"); time.sleep(0.7); shot(f"cs_{TAG}_right"); D.xdo("keyu
 D.xdo("keydown", "Up"); time.sleep(1.2); shot(f"cs_{TAG}_drive"); time.sleep(0.6); shot(f"cs_{TAG}_drive2"); D.xdo("keyup", "Up")
 D.xdo("keydown", "Down"); time.sleep(1.0); D.xdo("keyup", "Down"); time.sleep(0.6)
 Q.set_view("third", settle=2.0); shot(f"cs_{TAG}_third")
+D.xdo("keydown", "Up"); time.sleep(1.2); shot(f"cs_{TAG}_third_drv"); D.xdo("keyup", "Up"); time.sleep(0.3)
+Q.set_view("first", settle=2.0); shot(f"cs_{TAG}_first2")
 A.finish()

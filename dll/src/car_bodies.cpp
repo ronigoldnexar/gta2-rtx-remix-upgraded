@@ -1590,9 +1590,11 @@ IDirect3DTexture9* BonnetTexture(IDirect3DDevice9* device, const BonnetSurface& 
 }
 
 void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const BonnetSurface& s, float zCut, float cowlTop, float maxY,
-                const float tint[3], float dull, const D3DMATERIAL9& body, const D3DMATERIAL9& restore, bool remix = false) {
+                const float tint[3], float dull, const D3DMATERIAL9& body, const D3DMATERIAL9& restore, bool remix = false, float paintLift = 1.0f) {
     struct V { float x, y, z, nx, ny, nz; DWORD c; };
     struct L { float x, y, z, nx, ny, nz; int q; };   // q: the sample whose colour it takes
+    static const bool gainOldEnv = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_BONNET_GAIN_OLD", b, sizeof b) && b[0] == '1'; }();
+    const bool gainOld = gainOldEnv || remix;
     const int C = s.cols;
     std::vector<L> local;
     std::vector<uint16_t> idx;
@@ -1649,13 +1651,33 @@ void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const Bo
         const float nz = l.nx * carToWorld.m[0][2] + l.ny * carToWorld.m[1][2] + l.nz * carToWorld.m[2][2];
         const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
         // the body's colour there: the texel, its paint share multiplied by the car's tint, the wear
+        // FIX-COCKPIT-CAB-3 (qav12: the seat's bonnet 2-2.4x darker than the same body in third at dawn): the tint carries the
+        // paint's lid-light gain (identity.cpp, ~2.7 at a low sun) and the body applies it after the light (model_store: stage 1
+        // MODULATE2X, the tint up to 2); a vertex colour clamped at 1 before the light lost it on any pale paint. Half here,
+        // doubled after the light below (the tint held at 2 as the body's). GTA2DX9_FP_BONNET_GAIN_OLD=1: the clamp (A/B).
         const size_t q = static_cast<size_t>(l.q);
         DWORD col = 0xff000000u;
         for (int k = 0; k < 3; ++k) {
-            const float t = s.rgb[q * 3 + static_cast<size_t>(k)] * (1.0f + s.cov[q] * (tint[k] - 1.0f)) * dull;
+            const float tk = gainOld ? tint[k] : (std::min)(2.0f, tint[k]);
+            const float t = s.rgb[q * 3 + static_cast<size_t>(k)] * (1.0f + s.cov[q] * (paintLift - 1.0f)) * (1.0f + s.cov[q] * (tk - 1.0f)) * dull *
+                            (gainOld ? 1.0f : 0.5f);
             col |= static_cast<DWORD>((std::max)(0.0f, (std::min)(1.0f, t)) * 255.0f + 0.5f) << (16 - 8 * k);
         }
         world[i] = {p.x, p.y, p.z, nl > 1e-6f ? nx / nl : 0.0f, nl > 1e-6f ? ny / nl : 1.0f, nl > 1e-6f ? nz / nl : 0.0f, col};
+    }
+    {   // FIX-COCKPIT-CAB-3 (qav12): the bonnet's light terms, once per surface, against the body's
+        static const BonnetSurface* logged = nullptr;
+        if (logged != &s) {
+            logged = &s;
+            double m[3] = {0, 0, 0}, w = 0;
+            for (size_t q = 0; q < s.cov.size(); ++q) if (s.cov[q] > 0.5f) { for (int k = 0; k < 3; ++k) m[k] += s.rgb[q * 3 + k]; w += 1; }
+            DWORD lighting = 0, l0 = 0; device->GetRenderState(D3DRS_LIGHTING, &lighting); device->GetLightEnable(0, reinterpret_cast<BOOL*>(&l0));
+            D3DCOLORVALUE amb{}; DWORD ambient = 0; device->GetRenderState(D3DRS_AMBIENT, &ambient);
+            (void)amb;
+            Log("car bodies: seat bonnet light: tint %.2f,%.2f,%.2f dull %.2f, paint texels %.0f mean %.2f,%.2f,%.2f, body diffuse %.2f,%.2f,%.2f ambient %.2f,%.2f,%.2f emissive %.2f, lighting %lu light0 %lu ambient %08lx, %s",
+                tint[0], tint[1], tint[2], dull, w, w ? m[0] / w : 0, w ? m[1] / w : 0, w ? m[2] / w : 0, body.Diffuse.r, body.Diffuse.g, body.Diffuse.b,
+                body.Ambient.r, body.Ambient.g, body.Ambient.b, body.Emissive.r, lighting, l0, ambient, gainOld ? "clamped (old)" : "gain after the light");
+        }
     }
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
@@ -1707,8 +1729,12 @@ void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const Bo
     device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_COLOR1);
     device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
     device->SetTexture(0, nullptr);
-    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    DWORD tfactor = 0;
+    device->GetRenderState(D3DRS_TEXTUREFACTOR, &tfactor);
+    device->SetRenderState(D3DRS_TEXTUREFACTOR, 0xFFFFFFFFu);
+    device->SetTextureStageState(0, D3DTSS_COLOROP, gainOld ? D3DTOP_SELECTARG1 : D3DTOP_MODULATE2X);   // the half colour, doubled after the light
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
@@ -1719,6 +1745,7 @@ void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const Bo
     device->SetRenderState(D3DRS_COLORVERTEX, colorVertex);
     device->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, diffSrc);
     device->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, ambSrc);
+    device->SetRenderState(D3DRS_TEXTUREFACTOR, tfactor);
     device->SetMaterial(&restore);
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
@@ -5133,8 +5160,37 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     const float cowl = hood->dash ? hood->dashTop : eyeLocalY - 0.045f;
                     {
                         CarPartTimer partTimer(kPartBonnetDraw);
+                        // FIX-COCKPIT-CAB-3 (qav12): the seat bonnet's paint texels, sampled per ray hit from a box-filtered map,
+                        // came out darker than the model's own paint (046: 0.48 against its measured mean 0.80, cab3_dawn4), so
+                        // the bonnet from the seat read 2-3x darker than the same body in third. Its paint share is lifted to the
+                        // model's measured paint mean (only up, at most 2.5x; once per surface). GTA2DX9_FP_BONNET_LIFT=0: off.
+                        static const bool liftOn = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_BONNET_LIFT", b, sizeof b) && b[0] == '0'); }();
+                        static std::map<const BonnetSurface*, float> lifts;
+                        float lift = 1.0f;
+                        if (liftOn && !RemixApiAvailable()) {
+                            auto li = lifts.find(seatBonnet);
+                            if (li != lifts.end()) lift = li->second;
+                            else {
+                                const BonnetSurface& sb = *seatBonnet;
+                                double sl = 0.0, sc = 0.0;
+                                for (size_t q = 0; q < sb.cov.size(); ++q) {
+                                    sl += sb.cov[q] * (0.30 * sb.rgb[q * 3] + 0.59 * sb.rgb[q * 3 + 1] + 0.11 * sb.rgb[q * 3 + 2]);
+                                    sc += sb.cov[q];
+                                }
+                                float own[3], ownMean[3];
+                                const bool measured = ModelOwnPaint(*worn, own, ownMean);   // false until the model's paint is measured
+                                if (sc > 4.0 && sl > 1e-3 && measured) {
+                                    const float want = (0.30f * ownMean[0] + 0.59f * ownMean[1] + 0.11f * ownMean[2]) / 255.0f;
+                                    lift = (std::max)(1.0f, (std::min)(2.5f, static_cast<float>(want / (sl / sc))));
+                                    Log("car bodies: seat bonnet of %s: paint texels %.2f against the model's paint %.2f: lifted x%.2f",
+                                        worn->name.c_str(), sl / sc, want, lift);
+                                }
+                                if (lifts.size() > 64) lifts.clear();
+                                if (measured) lifts[seatBonnet] = lift;
+                            }
+                        }
                         DrawBonnet(device, posed, *seatBonnet, eyeLocalZ + 0.10f, (std::min)(cowl, eyeLocalY - 0.045f), eyeLocalY - 0.04f,
-                                   keepOwnPaint ? one : tint, dull, carMaterial, material, RemixApiAvailable());
+                                   keepOwnPaint ? one : tint, dull, carMaterial, material, RemixApiAvailable(), lift);
                     }
                     if (IdentityProbeOn()) {
                         // FIX-CAR-IDENTITY-2: the seat's bonnet as the player's car in first person for the parity
