@@ -343,8 +343,12 @@ void EnsureBinding() {
     siren.radius = 4.0f;
     siren.bulbSize = 0.07f;
     siren.heightOffset = 0.55f;
-    siren.coneAngleDeg = 22.0f;
-    siren.pitchDegrees = 12.0f;
+    // FIX-REMIX-NIGHT-4 (pt-remix-police-siren-blue-flood): a 22 deg cone pitched 12 deg down met the
+    // road within ~3 blocks and never reached a facade across the street: with the flood gone the siren lit
+    // nothing at night (bil 47.5,74.5: the facade identical with the siren on and off). 40 deg, 6 deg down:
+    // the sweep lays a soft red/blue patch on the wall across the road and a cast on the road (frn4_b2).
+    siren.coneAngleDeg = 40.0f;
+    siren.pitchDegrees = 6.0f;
     siren.spinHz = 0.88f;
     siren.sirenBeams = 1;
     // 0: a lamp is lit when the game lights it (the sprite's delta bits 15..18, which the

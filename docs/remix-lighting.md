@@ -54,3 +54,49 @@ change's build every Remix key at default vs at its old value gives an identical
   runs' warps to the spawn plaza faced away from the sign or were refused.
 - Police sirens: no flood reproduced at the filer's spot on the night-fill build (`frn2_p3`); the
   beams light little at all, which is its own question.
+
+## FIX-REMIX-NIGHT-4 (10 Nov): sodium lamps, day bounce fill, the night orders re-judged
+
+All takes on the shipping play config (`rtx_play.conf.extra`: game directional light ignored, see
+docs/remix-materials.md on dac1c77), GPU 2, private stage, paused clock, fixed hours, same-session
+`[devtools]` toggles. Runs `frn4_w1..w3` (wil), `frn4_h2..h5`, `frn4_s1` (ste). Probes
+`gamerun/frn4_probe1..8.py` with `gamerun/rn4_keys.sh` (rn_keys.sh with a `to_level` that waits for the
+swapped district's map, not only wil.gmp: in ste/bil the stock one taps Return for 240 s).
+
+| change | where | gate | A/B key |
+|---|---|---|---|
+| Sodium map lights (#FF8000, blue exactly 0) are an amber white (1, 0.74, 0.46) at their own luminance, and their lamp-post pools with them: a wall they reach keeps its blue channel and stone colour | `Describe` | street views | `remix_sodium_white=0` |
+| Day bounce fill: a warm grey (1, 0.93, 0.82) share of the overhead fill light while the sun is up (smoothstep over its first 20 deg), the bounce off sunlit stone that the 3x blue sky alone lacks | `ApplyAmbientFill` | street views, Remix atmosphere | `remix_day_fill_milli=N` (0 off; setting `[lights] DayBounceFill=0.4`) |
+| Siren beams: cone 22 -> 40 deg, pitch 12 -> 6 deg down: the sweep reaches the facade across the street (it met the road within ~3 blocks and lit nothing else) | `synthetic_lights.cpp` siren defaults | sirens (all views) | `[Sirens] ConeAngle= Pitch=` in the effects ini, live with `GTA2DX9_EFFECTS_LIVE=1` |
+| Player-fill probe keys (no default change): strength, height, slide toward the eye, horizontal slide, colour, emitter radius | `PlayerFillSubmit` | Remix light | `remix_fill_pct`, `remix_fill_lift_milli`, `remix_fill_toward_milli`, `remix_fill_flat`, `remix_fill_rgb`, `remix_fill_emitter_milli` |
+
+Evidence (luma/colour of the PNG, 0..255; chroma = (max-min)/max per lit pixel):
+
+| check | old | new |
+|---|---|---|
+| wil 150.5,200.5 21:00, the tan wall (third / first): b/r of the wall | 0.25 / 0.28 | 0.41 / 0.43 |
+| same wall: texels with B = 0 and R > 60 (filer's 4d99b77 frame: all of them) | 0 on HEAD already | 0 |
+| same wall: local contrast (mean abs high-pass) | 1.56 / 1.38 | 1.56 / 1.37 |
+| wil 07:00 first person, shaded road: mean colour, chroma, hue (sunlit road 0.27, hue 41) | (48,62,75) 0.42, 208 | (84,95,95) 0.22, 183 |
+| wil 16:30 p2 third, shaded road right / left | 0.51 / 0.37, hue 208 | 0.22 / 0.15, hue 190 |
+| wil 16:30 first, shaded facade hue (stone is ~35) | 84-114 (grey-green) | 37 |
+| Remix classic at the cobalt spots, day fill 0 vs setting (whole frame mean) | | identical |
+| bil 47.5,74.5 siren (force_sirens=1), 23:00 third: facade pixels with a red or blue cast, best of 10 frames | 0.01 % | 5.3 % red, 3.5 % blue (brick visible through it) |
+| same, frame-mean saturation / off-phase mean luma (bars 0.6 / 0.06) | 0.23 / 0.10 | 0.23 / 0.10 |
+| SAVES courtyard 22:30, fixed camera, sign rule (3a7d510) off / on: lit paving, stair wall chroma | 0.65, 0.53 | 0.37, 0.28 |
+
+The sign light's own colour share (a red cast) was tried at 20 and 35 %: the lit wall moved within the
+noise (the courtyard is lit by the warm-white lamp-post pools, not the sign light), so it was dropped.
+
+Re-judged, no code change needed on HEAD:
+- Hero hair at 19:30 (ste 147.5,120.5): fixed close camera (0.75 tiles out, 0.65 over his head) on four
+  sides, and the filer's own runner (`remix_playtest.py`, hours 12/6.5/19.5): the crown is dark brown
+  at 19:30 in every take; right profile crown luma 19.8 vs face 29.1 (06:30: 31.8 vs 39.6). Player fill
+  off, sky fill off and a horizontal fill all keep it brown. A 0.4-tile fill emitter floods him (rejected).
+- A camera inside a wall (the probe's front pose) puts the toward-the-eye fill against the wall: a hot
+  white blotch. In play the boom is collision-solved, so this needs a camera pressed to a wall to show.
+
+Still short of a shipping frame: shade at low sun is now grey-teal rather than warm (a real street's
+bounce varies with what is sunlit; one overhead fill cannot); the courtyard under the red sign has no red
+cast at all; in first person a flat saturated red/blue disc floats beside a siren car (a beacon emitter seen
+close: separate look defect, not addressed); the night roofs and the cab are as FIX-REMIX-NIGHT-3 left them.

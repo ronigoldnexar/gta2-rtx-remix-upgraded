@@ -34,6 +34,8 @@ float g_farLampWeight = 0.0f;   // this frame's fade of the far lamps (0 when no
 int g_probeMask = 0;              // [devtools] remix_lights_probe (see GameClassDaylight)
 int g_poolCone = -1;             // [devtools] remix_pool_cone: PoolConeDegrees, live (-1 = the setting, 0 = sphere)
 int g_nightFillMilli = -1;       // [devtools] remix_night_fill_milli: NightSkyFill x1000, live (-1 = the setting)
+int g_dayFillMilli = -1;        // [devtools] remix_day_fill_milli: DayBounceFill x1000, live (-1 = the setting, 0 = off)
+int g_sodiumWhite = 1;          // [devtools] remix_sodium_white=0: sodium map lights keep #FF8000 in the street views (A/B)
 int g_trafficOld = 0;            // [devtools] remix_traffic_old=1: the junction signals as before (A/B)
 int g_trafficPct = 35;           // [devtools] remix_traffic_pct: a signal's light at night, % of the old
 int g_trafficDayPct = 10;        // [devtools] remix_traffic_day_pct: by day, % of the night's
@@ -319,6 +321,20 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
         for (int i = 0; i < 3; ++i) rgb[i] = kWarm[i] * luma / lumaWarm;
     }
 
+    // FIX-REMIX-NIGHT-4 (pt-remix-night-wall-flat-pure-orange-wash-blue-channel-zero): the map's sodium
+    // lamps are #FF8000 (blue exactly 0). Under a path tracer that is a monochrome light: a wall it reaches
+    // keeps only its red and green, every texel lands on one orange line (B = 0) and the brick reads as a
+    // flat orange slab beside walls no lamp reaches. A real high-pressure sodium lamp has a broad spectrum
+    // (a warm amber white), so in the street views it is that amber at the light's own luminance, and its
+    // lamp-post pool with it. [devtools] remix_sodium_white=0: the game's colour (same-session A/B).
+    if (g_sodiumWhite && t.def.source == kLightSourceGame && !t.moving && StreetPresentation() &&
+        SodiumLike(t.def.rgb) && !(ov && ov->recolor)) {
+        static const float kAmber[3] = {1.0f, 0.74f, 0.46f};
+        const float lumaAmber = 0.2126f * kAmber[0] + 0.7152f * kAmber[1] + 0.0722f * kAmber[2];
+        const float luma = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
+        for (int i = 0; i < 3; ++i) rgb[i] = kAmber[i] * luma / lumaAmber;
+    }
+
     // FIX-REMIX-NIGHT-2 (pt-remix-traffic-light-green-wash-slab-and-grainy-red-crosswalk-pool): in
     // the street views a junction signal is a small lamp shining down at the road (Apply gives it the
     // cone), not a bare sphere of pure green that washed the facade beside it flat and threw a grainy
@@ -454,7 +470,26 @@ void ApplyAmbientFill() {
         }
     }
     static const float kMoonSky[3] = {0.78f, 0.86f, 1.0f};
-    if (!g_settings.enabled || level + night <= 0.0f) {
+    // FIX-REMIX-NIGHT-4 (pt-remix-morning-dusk-shade-cobalt-blue-roads-and-facades): the day look scales the
+    // sky's indirect light 3x (so shade is not black), and the sky is blue: at 07:00 and 16:30 the shaded roads
+    // and lower storeys went saturated cobalt (sat 0.40-0.53, hue 210) beside cream sunlit faces. What a real
+    // street adds there is bounce off sunlit stone and asphalt: a warm grey fill from above while the sun is up
+    // (DayBounceFill, faded in over the sun's first 20 degrees). Street views only: the classic view's daytime
+    // light list is as before.
+    float day = 0.0f;
+    {
+        const float bounce = g_dayFillMilli >= 0 ? static_cast<float>(g_dayFillMilli) / 1000.0f : g_settings.dayBounceFill;
+        if (bounce > 0.0f && StreetPresentation() && RemixApiHasAtmosphere() && TimeOfDayPushed()) {
+            float elev = -90.0f;
+            TimeOfDayAngles(&elev, nullptr);
+            // Smoothly over the sun's first 20 degrees: a dawn sun at 5 degrees is weak and the full fill
+            // swamped it (06:30 ste courtyard 2.5x brighter, the hero's crown 39 -> 97, frn4_s1).
+            float u = (std::max)(0.0f, (std::min)(1.0f, elev / 20.0f));
+            day = bounce * u * u * (3.0f - 2.0f * u);
+        }
+    }
+    static const float kBounce[3] = {1.0f, 0.93f, 0.82f};
+    if (!g_settings.enabled || level + night + day <= 0.0f) {
         DestroyHandle(g_ambientHandle);
         return;
     }
@@ -462,7 +497,8 @@ void ApplyAmbientFill() {
     remixapi_LightInfo info = {};
     info.sType = REMIXAPI_STRUCT_TYPE_LIGHT_INFO;
     info.hash = kAmbientFillId;
-    info.radiance = remixapi_Float3D{level + night * kMoonSky[0], level + night * kMoonSky[1], level + night * kMoonSky[2]};
+    info.radiance = remixapi_Float3D{level + night * kMoonSky[0] + day * kBounce[0], level + night * kMoonSky[1] + day * kBounce[1],
+                                     level + night * kMoonSky[2] + day * kBounce[2]};
     info.isDynamic = 1;
 
     remixapi_LightInfoDistantEXT distant = {};
@@ -488,7 +524,7 @@ bool SameSettings(const RemixLightSettings& a, const RemixLightSettings& b) {
         && a.minIntensity == b.minIntensity && a.saturation == b.saturation
         && a.wideNeonRadius == b.wideNeonRadius
         && a.ambientFill == b.ambientFill && a.ambientFillScale == b.ambientFillScale
-        && a.nightSkyFill == b.nightSkyFill && a.duskFillDeg == b.duskFillDeg
+        && a.nightSkyFill == b.nightSkyFill && a.duskFillDeg == b.duskFillDeg && a.dayBounceFill == b.dayBounceFill
         && a.coneSoftness == b.coneSoftness && a.buriedLift == b.buriedLift && a.poolConeDeg == b.poolConeDeg
         && memcmp(a.gameClass, b.gameClass, sizeof(a.gameClass)) == 0;
 }
@@ -960,6 +996,10 @@ void LightsReconcile() {
             }
             const int dusk = GetPrivateProfileIntA("devtools", "remix_dusk_fill_deg", -1, ini);
             if (dusk != g_duskFillDeg) { g_duskFillDeg = dusk; Log("devtools: dusk fill from %d deg (-1: the setting %.1f)", dusk, g_settings.duskFillDeg); }
+            const int sodium = GetPrivateProfileIntA("devtools", "remix_sodium_white", 1, ini);
+            if (sodium != g_sodiumWhite) { g_sodiumWhite = sodium; g_reliftPending = true; Log("devtools: sodium lamps as amber white %s", sodium ? "on" : "off"); }
+            const int dayFill = GetPrivateProfileIntA("devtools", "remix_day_fill_milli", -1, ini);
+            if (dayFill != g_dayFillMilli) { g_dayFillMilli = dayFill; Log("devtools: day bounce fill %d/1000 (-1: the setting %.3f)", dayFill, g_settings.dayBounceFill); }
             const int signs = GetPrivateProfileIntA("devtools", "remix_sign_lights", 1, ini);
             if (signs != g_signLights) { g_signLights = signs; g_reliftPending = true; Log("devtools: red/pink map lights as signs %s", signs ? "on" : "off"); }
         }

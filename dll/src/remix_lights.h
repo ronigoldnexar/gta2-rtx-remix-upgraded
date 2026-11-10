@@ -226,6 +226,9 @@ struct RemixLightSettings {
     // the horizon (0 by day) to the night's level at sunset, so props and shaded faces are not black
     // cut-outs at 17:00. 0 = the fill by the lamps' clock only. [lights] DuskFillDegrees.
     float duskFillDeg = 25.0f;
+    // FIX-REMIX-NIGHT-4: a warm grey fill from above while the sun is up, street views only: the bounce off
+    // sunlit surfaces that keeps shade from going cobalt under the 3x sky. 0 = off. [lights] DayBounceFill.
+    float dayBounceFill = 0.4f;
 
     // Softness of the headlight cone edge, 0 is a hard rim.
     float coneSoftness = 0.35f;

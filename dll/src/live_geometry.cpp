@@ -13536,11 +13536,25 @@ void PlayerFillSubmit() {
     // lit the header, pillars and dash evenly from inside at every hour after dusk. In a vehicle it
     // goes over the roof. [devtools] remix_fill_in_cab=1: the old place (same-session A/B).
     static int fillInCab = 0, fillAt = 0;
+    // FIX-REMIX-NIGHT-4 A/B keys (pt-remix-third-hero-hair-...-dusk-1930), [devtools], -1 = default:
+    // remix_fill_pct (strength), remix_fill_lift_milli (height over the feet), remix_fill_toward_milli
+    // (distance toward the eye), remix_fill_flat (1: slide toward the eye horizontally only),
+    // remix_fill_rgb (0 warm 1/.88/.72, 1 neutral, 2 cool sky).
+    static int fPct = -1, fLift = -1, fToward = -1, fFlat = -1, fRgb = -1, fEmit = -1;
     if (--fillAt <= 0) {
         fillAt = 60;
-        if (!g_fireIniPath.empty()) fillInCab = GetPrivateProfileIntA("devtools", "remix_fill_in_cab", 0, g_fireIniPath.c_str());
+        if (!g_fireIniPath.empty()) {
+            const char* ini = g_fireIniPath.c_str();
+            fillInCab = GetPrivateProfileIntA("devtools", "remix_fill_in_cab", 0, ini);
+            fPct = GetPrivateProfileIntA("devtools", "remix_fill_pct", -1, ini);
+            fLift = GetPrivateProfileIntA("devtools", "remix_fill_lift_milli", -1, ini);
+            fToward = GetPrivateProfileIntA("devtools", "remix_fill_toward_milli", -1, ini);
+            fFlat = GetPrivateProfileIntA("devtools", "remix_fill_flat", -1, ini);
+            fRgb = GetPrivateProfileIntA("devtools", "remix_fill_rgb", -1, ini);
+            fEmit = GetPrivateProfileIntA("devtools", "remix_fill_emitter_milli", -1, ini);
+        }
     }
-    const float lift = g_playerInVehicle && !fillInCab ? 1.6f : 0.6f;
+    const float lift = g_playerInVehicle && !fillInCab ? 1.6f : (fLift >= 0 ? fLift / 1000.0f : 0.6f);
     d.pos[0] = g_playerPosX; d.pos[1] = g_playerPosY + lift; d.pos[2] = g_playerPosZ;
     // FIX-REMIX-IDENTITY (pt-remix-hero-hair-turns-to-bald-scalp-at-dusk-and-night): 0.6 above the feet is
     // 0.14 above the hero's scalp (he is 0.46 tall), so the crown took ~18x the ground's light and the dark
@@ -13551,18 +13565,21 @@ void PlayerFillSubmit() {
     // person (the eye within 0.5 of the old spot: the scalp is not in view) and the classic view keep the old
     // spot, as verified for the pocket (classic unchanged).
     // FIX-REMIX-NIGHT-2: not in a vehicle (no figure is drawn there; the fill is over the roof).
-    if (StreetPresentation() && g_fillTowardEye > 0.0f && !(g_playerInVehicle && !fillInCab)) {
-        const float dx = g_viewEye.x - d.pos[0], dy = g_viewEye.y - d.pos[1], dz = g_viewEye.z - d.pos[2];
+    const float toward = fToward >= 0 ? fToward / 1000.0f : g_fillTowardEye;
+    if (StreetPresentation() && toward > 0.0f && !(g_playerInVehicle && !fillInCab)) {
+        const float dx = g_viewEye.x - d.pos[0], dy = fFlat > 0 ? 0.0f : g_viewEye.y - d.pos[1], dz = g_viewEye.z - d.pos[2];
         const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (len > 0.5f && len < 12.0f) {
-            const float k = (std::min)(1.0f, g_fillTowardEye / len);
+            const float k = (std::min)(1.0f, toward / len);
             d.pos[0] += dx * k; d.pos[1] += dy * k; d.pos[2] += dz * k;
         }
     }
-    d.rgb[0] = 1.0f; d.rgb[1] = 0.88f; d.rgb[2] = 0.72f;
-    d.intensity = strength * night;
+    if (fRgb == 1) { d.rgb[0] = 1.0f; d.rgb[1] = 0.97f; d.rgb[2] = 0.92f; }
+    else if (fRgb == 2) { d.rgb[0] = 0.80f; d.rgb[1] = 0.88f; d.rgb[2] = 1.0f; }
+    else { d.rgb[0] = 1.0f; d.rgb[1] = 0.88f; d.rgb[2] = 0.72f; }
+    d.intensity = (fPct >= 0 ? fPct / 100.0f : strength) * night;
     d.radius = 3.0f;
-    d.emitterRadius = 0.05f;
+    d.emitterRadius = fEmit > 0 ? fEmit / 1000.0f : 0.05f;
     d.source = kLightSourcePlayerFill;
     d.explicitId = 0x504C4159464C4C31ull;
     LightsSubmitExtra(d);
