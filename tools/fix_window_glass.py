@@ -20,7 +20,7 @@ tile wraps as before and the stone keeps its look.
     fix_window_glass.py scan  <dds dir> [--tiles a,b]          tiles whose glass looks like glyphs
     fix_window_glass.py fix   <in.dds> <out.dds> [--preview p] repaint one tile (DXT1, mips)
     fix_window_glass.py albedo <in.dds> <out.a.rtex.dds>        the same, as a Remix albedo (BC3)
-    fix_window_glass.py pbr   <hd tile.dds> <mod dir>            the repainted tile's Remix maps, <hash>.<map>g
+    fix_window_glass.py pbr   <hd tile.dds> <mod dir> [--deglyph] the repainted tile's Remix maps, <hash>.<map>g
     fix_window_glass.py usda  <mod dir> <hash> [<hash>...]       point those prims at the <map>g files
 
 The scan is the guard for other tiles: it reports panes whose inside holds many small light
@@ -151,6 +151,64 @@ def cmd_scan(a):
             print(f, "panes", len(info), "glyph panes", len(bad), "blobs", sum(p["blobs"] for p in bad))
 
 
+def deglyph(rgba, panes_mask, size=13, min_len=48, depth=0.025):
+    """FIX-REMIX-MATERIALS-9 (ptrmx30, layer half): the upscaler's pseudo-lettering on the stone ("l d l" on the
+    sill blocks, "| |" on the lower band of wil 705) and the glyph blobs the pane repaint missed at a transom
+    (wil 704). Thin dark strokes = what a grey closing (size x size) lifts by more than `depth`; strokes whose
+    extent reaches `min_len` texels are mortar lines, block edges and cornices and stay; the rest are filled
+    from the closing. A small bright blob on the glass (inside a pane's box, below its arch head, under 120
+    texels) is filled from a grey opening. Returns (rgba, filled mask, blob mask: the blobs on the glass, which
+    the caller adds to the pane mask so they are glass to the path tracer too, not matte stone patches). Stone tone stays the HD tile's (the
+    photo set's stone is darker and greener: pasting it would seam against the neighbouring HD tiles)."""
+    rgb = rgba[..., :3].astype(np.float32) / 255
+    L = rgb @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    closed = np.stack([ndi.grey_closing(rgb[..., c], size=(size, size), mode='wrap') for c in range(3)], -1)
+    Lc = closed @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    res = (Lc - L) > depth                          # thin dark strokes
+    lab, n = ndi.label(res, structure=np.ones((3, 3)))
+    sl = ndi.find_objects(lab)
+    keep = np.zeros(n + 1, bool)
+    for i, s in enumerate(sl, 1):
+        hgt, wid = s[0].stop - s[0].start, s[1].stop - s[1].start
+        if max(hgt, wid) >= min_len: keep[i] = True   # mortar lines, block edges, cornices
+    glyph = res & ~keep[lab]
+    glyph = ndi.binary_dilation(glyph, iterations=2) & ~ndi.binary_dilation(panes_mask, iterations=2)
+    # teal glyph blobs the pane repaint missed (at a transom): a bright small feature on the glass
+    r_, g_, b_ = [rgba[..., c].astype(np.float32) for c in range(3)]
+    teal = (g_ - r_ > 28) & (b_ - r_ > 18) & (L < 0.62)
+    teal = ndi.binary_dilation(teal, iterations=3)
+    opened = np.stack([ndi.grey_opening(rgb[..., c], size=(25, 25), mode='wrap') for c in range(3)], -1)
+    zone = ndi.binary_dilation(panes_mask, iterations=12)
+    Lo = opened @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    bright = zone & ((L - Lo) > 0.04)
+    bl, bn = ndi.label(ndi.binary_dilation(bright, iterations=2))
+    plab, _ = ndi.label(panes_mask)
+    onglass = np.zeros_like(panes_mask, dtype=bool)   # the blobs on the glass only (the pane mask grows by these)
+    for i, s_ in enumerate(ndi.find_objects(bl), 1):
+        comp = bl == i
+        ys, xs = np.nonzero(comp)
+        pl = plab[ndi.binary_dilation(comp, iterations=4)]; pl = pl[pl > 0]
+        if pl.size == 0: continue
+        pys, pxs = np.nonzero(plab == np.bincount(pl).argmax())
+        cy, cx = ys.mean(), xs.mean()
+        inside = pxs.min() <= cx <= pxs.max() and pys.min() <= cy <= pys.max()
+        low = (cy - pys.min()) > 0.3 * (pys.max() - pys.min())       # not the arch head at the pane's top
+        ring = ndi.binary_dilation(comp, iterations=4) & ~comp
+        ringed = panes_mask[ring].mean() > 0.6 if ring.any() else False      # on the glass, not a stone chip by a pane
+        if max(s_[0].stop - s_[0].start, s_[1].stop - s_[1].start) < 120 and inside and low and ringed:
+            teal |= comp & zone                       # a blob on the glass; not a mullion, transom or the stone
+            box = np.zeros_like(teal); box[pys.min():pys.max() + 1, pxs.min():pxs.max() + 1] = True
+            onglass |= ndi.binary_dilation(comp & zone, iterations=5) & box
+    teal = ndi.binary_dilation(teal, iterations=5)
+    closed = np.where(teal[..., None], opened, closed)
+    glyph = glyph | teal
+    out = rgba.copy()
+    blend = ndi.gaussian_filter(glyph.astype(np.float32), 0.7)
+    blend = np.maximum(blend, glyph)
+    out[..., :3] = np.clip((rgb * (1 - blend[..., None]) + closed * blend[..., None]) * 255 + 0.5, 0, 255).astype(np.uint8)
+    return out, glyph, onglass
+
+
 def cmd_fix(a, albedo=False):
     rgba = read(a.src)
     lab, info = panes(rgba)
@@ -175,11 +233,16 @@ def cmd_pbr(a):
         fixed = os.path.join(tmp, "fixed.dds")
         rgba = read(a.src)
         lab, info = panes(rgba)
-        write_dxt1(fixed, repaint(rgba, lab, info))
+        out = repaint(rgba, lab, info)
+        glass = lab > 0
+        if a.deglyph:
+            out, _, blob = deglyph(out, glass)
+            glass = glass | blob
+        write_dxt1(fixed, out)
         h = a.hash or rm.dds_hash(a.src)
         # FIX-REMIX-MATERIALS-6 (ptrmx30): the panes are glass to the path tracer (roughness ~0.05, no
         # relief, set back in the height map), not a matte picture of glass: the sky and street reflect
-        rm.pbr_tile((fixed, h, tmp, 512, 256, None, False, None, None, lab > 0))
+        rm.pbr_tile((fixed, h, tmp, 512, 256, None, False, None, None, glass))
         for f in sorted(os.listdir(tmp)):
             if f.startswith(h + "."):
                 kind = f.split(".")[1]
@@ -218,6 +281,7 @@ def main():
         f = sub.add_parser(name); f.add_argument("src"); f.add_argument("dst"); f.add_argument("--preview")
     u = sub.add_parser("usda"); u.add_argument("mod"); u.add_argument("hashes", nargs="+")
     q = sub.add_parser("pbr"); q.add_argument("src"); q.add_argument("mod"); q.add_argument("--hash")
+    q.add_argument("--deglyph", action="store_true", help="FIX-REMIX-MATERIALS-9: also fill the upscaler's pseudo-lettering on the stone (deglyph)")
     a = ap.parse_args()
     if a.cmd == "scan": cmd_scan(a)
     elif a.cmd == "usda": cmd_usda(a)

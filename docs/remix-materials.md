@@ -1914,3 +1914,35 @@ is `fm9_corr0` (the shared layer); after is `fm9_corr1` (`MODS_HD_SRC` = the sha
 
 Still short: the trees and lamp standing on a shed roof (rule props on a field-typed roof lid, props seat). The art's
 own rib pitch is uneven (5-6 px at 64 px), which an authored roof would not be.
+
+## Police-station facade: the sill pseudo-lettering and the transom blobs (FIX-REMIX-MATERIALS-9, ptrmx30 layer half)
+
+The arcade wall at wil 198.5,178.5 is wil 704 (arch heads) over 705 (lower halves and sills), the building's south face at
+y = 178. FIX-REMIX-MATERIALS-6 made its panes glass (`fix_window_glass.py pbr`, the `.<map>g` maps). Two things in the
+Remix albedo were still the upscaler's: the "l d l" pseudo-lettering on every sill block and the "| |" marks on the lower
+band (705), and one teal glyph blob per bay at the transom that the pane repaint missed (704). The plain views draw the
+photo set, whose sills are clean, but its stone is darker and greener than the HD tile's, so pasting it in would seam
+against the neighbouring HD tiles.
+
+`fix_window_glass.py pbr <tile> <mod> --deglyph` (`deglyph()`), applied after the pane repaint:
+- **Strokes:** thin dark strokes are what a 13-texel grey closing lifts by more than 0.025. Strokes reaching 48 texels in
+  extent are mortar lines, block edges and cornices, and stay. The rest are filled from the closing.
+- **Blobs:** a small bright blob on the glass (centre inside a pane's box, below its arch head, under 120 texels) is filled
+  from a grey opening, and added to the pane mask, so the path tracer sees glass there and not a matte stone patch.
+
+The stone keeps the HD tile's own tone. Rebuild, for the two hashes 27C431EAEC34DB64 (704) and E9521A60228584F9 (705),
+into the layer's `textures/` as new `.<map>g` files (mod.usda already points at them):
+
+    $P tools/fix_window_glass.py pbr repo/assets/textures_hd/wil/tile_0704.dds <layer> --deglyph
+    $P tools/fix_window_glass.py pbr repo/assets/textures_hd/wil/tile_0705.dds <layer> --deglyph
+
+**Seen path traced** with fixed cameras on the south face (`keys_fm8_sign.sh`, `CAMS=wall:203.5 182.5 2.5 203.5 178.0 2.9 55;
+sill:202.2 180.2 2.3 202.6 178.0 2.45 45;...`, 12:00). Before is `fm9_p30a` (the shared layer), after is `fm9_p30c`:
+- **Sills and lower band:** the pseudo-lettering on the sills and the band marks are gone; the stone and mortar are
+  unchanged.
+- **Transom blobs:** gone in `fm9_p30d`. Two earlier builds failed: in `fm9_p30b` (blob not yet in the glass mask) they
+  were grey ghosts; in `fm9_p30c` (a colour test also took teal-tinted stone) the pilaster edges turned to glass and showed
+  bright chips. A blob now joins the glass only when at least 60 % of a 4-texel ring round it is pane.
+
+Still short: the HD tile's stone is the upscaler's soft, blotchy render, and the panes are a painted glass gradient with
+no interior behind them. An authored facade with modelled reveals is the AAA answer.
