@@ -1823,15 +1823,38 @@
   },
   {
    "name": "044_arachnid",
-   "glb": "cars/models3d/044_arachnid.glb",
+   "glb": "cars/vehicle_art2/044_arachnid.glb",
    "scale": 1.0,
    "paint_rgb": [
-    154.7,
-    117.6,
-    92.5
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "interior_dark": "cars/vehicle_art2/044_arachnid/interior_dark.png",
+    "trim_dark": "cars/vehicle_art2/044_arachnid/trim_dark.png",
+    "chrome": "cars/vehicle_art2/044_arachnid/chrome.png",
+    "underbody": "cars/vehicle_art2/044_arachnid/underbody.png",
+    "paint_body": "cars/vehicle_art2/044_arachnid/paint_body.png",
+    "grille": "cars/vehicle_art2/044_arachnid/grille.png",
+    "chrome_disc": "cars/vehicle_art2/044_arachnid/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/044_arachnid/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/044_arachnid/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/044_arachnid/lamp_tail.png",
+    "hood": "cars/vehicle_art2/044_arachnid/hood.png",
+    "seat": "cars/vehicle_art2/044_arachnid/seat.png",
+    "tyre_side": "cars/vehicle_art2/044_arachnid/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/044_arachnid/tyre_tread.png",
+    "glass": "cars/vehicle_art2/044_arachnid/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_044.py",
+   "driver_seat": [
+    0.072,
+    0.104,
+    -0.12,
+    0.231
+   ]
   },
   {
    "name": "045_spritzer",
@@ -8845,13 +8868,26 @@
   },
   {
    "name": "044_arachnid",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 15776,
+   "nodes": 19,
+   "meshes": 15,
+   "vertices": 19479,
    "animations": [],
    "textures": [
-    "044_arachnid_0.tga",
-    "044_arachnid_0_paint.tga"
+    "044_arachnid_chrome.tga",
+    "044_arachnid_chrome_disc.tga",
+    "044_arachnid_glass.tga",
+    "044_arachnid_grille.tga",
+    "044_arachnid_hood.tga",
+    "044_arachnid_interior_dark.tga",
+    "044_arachnid_lamp_amber.tga",
+    "044_arachnid_lamp_head.tga",
+    "044_arachnid_lamp_tail.tga",
+    "044_arachnid_paint_body_paint.tga",
+    "044_arachnid_seat.tga",
+    "044_arachnid_trim_dark.tga",
+    "044_arachnid_tyre_side.tga",
+    "044_arachnid_tyre_tread.tga",
+    "044_arachnid_underbody.tga"
    ],
    "skins": 0,
    "forward": "",

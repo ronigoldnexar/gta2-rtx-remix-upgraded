@@ -63,6 +63,7 @@ SEATS = {
     "053_michelli_roadster": ((0.40, 0.42, -0.58), 5.0),  # VEHICLE-ART-10: buckets x +-0.40, top 0.42, back -0.82..-0.70
     "010_bulwark": ((0.45, 0.72, 0.20), 5.0),  # VEHICLE-ART-12: front bench x +-1.02, top 0.72, back -0.08..0.06
     "034_medicar": ((0.45, 0.72, 0.20), 5.0),  # VEHICLE-ART-18: front bench x +-1.02, top 0.72, back -0.08..0.06
+    "044_arachnid": ((0.36, 0.52, -0.60), 5.0),  # VEHICLE-ART-18: buckets x +-0.36, top 0.52, back -0.86..-0.72 (open cockpit)
 }
 
 
