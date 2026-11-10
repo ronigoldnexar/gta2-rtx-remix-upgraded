@@ -533,6 +533,19 @@ def tex_flat(rgb, size=16, alpha=255):
     return Image.fromarray(a.astype(np.uint8), "RGBA")
 
 
+def tex_underbody(size=64, seed=29):
+    """VEHICLE-ART-13: the shared underside / wheel-well / chassis paint of every kit car: road-grimed dark grey
+    (was a flat 28,27,26 per car: a car seen from below or on its roof read as a black slab, pass 195)"""
+    rng = np.random.default_rng(seed)
+    n = rng.normal(0, 1, (size // 8, size // 8)).astype(np.float32)
+    big = np.asarray(Image.fromarray(((n - n.min()) / (np.ptp(n) + 1e-6) * 255).astype(np.uint8)).resize((size, size), Image.BICUBIC), np.float32) / 255 - 0.5
+    fine = rng.normal(0, 1, (size, size)).astype(np.float32)
+    b = 66.0 + 14.0 * big + 3.0 * fine
+    rgb = np.stack([b * 1.0, b * 0.97, b * 0.93], -1)
+    a = np.full((size, size, 1), 255.0, np.float32)
+    return Image.fromarray(np.clip(np.concatenate([rgb, a], -1), 0, 255).astype(np.uint8), "RGBA")
+
+
 def tex_chrome(size=128):
     """bright metal: a horizon-like band (sky over a dark ground reflection) along v"""
     yy = np.linspace(0, 1, size)[:, None] * np.ones((1, size))

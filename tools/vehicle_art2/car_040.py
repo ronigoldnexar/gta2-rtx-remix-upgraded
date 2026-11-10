@@ -210,7 +210,7 @@ def build():
     car.materials["chrome"] = tex_chrome()
     car.materials["grille"] = tex_grille(128, bars=9)
     car.materials["plate"] = tex_plate("M040")
-    car.materials["underbody"] = tex_flat((28, 27, 26))
+    car.materials["underbody"] = tex_underbody()
     car.materials["running_board_rubber"] = tex_flat((34, 33, 32))
     car.materials["interior_dark"] = tex_flat((44, 40, 36))
     car.materials["seat"] = tex_leather((120, 46, 40))

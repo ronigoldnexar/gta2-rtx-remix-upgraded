@@ -1,0 +1,332 @@
+{
+"000_romero": {
+"shell": true,
+"r": 0.082,
+"zf": 0.33,
+"zr": -0.25
+},
+"001_wellard": {
+"shell": true,
+"r": 0.071,
+"zf": 0.34,
+"zr": -0.25
+},
+"002_aniston_bd4": {
+"shell": true,
+"r": 0.071,
+"zf": 0.3,
+"zr": -0.24
+},
+"004_g4_bank_van": {
+"shell": false,
+"r": 0.099,
+"zf": 0.45,
+"zr": -0.28
+},
+"005_beamer": {
+"shell": true,
+"r": 0.076,
+"zf": 0.31,
+"zr": -0.25
+},
+"006_box_car": {
+"shell": false,
+"r": 0.087,
+"zf": 0.49,
+"zr": -0.3
+},
+"007_box_truck": {
+"shell": true,
+"r": 0.13,
+"zf": 0.57,
+"zr": -0.45
+},
+"008_bug": {
+"shell": false,
+"r": 0.066,
+"zf": 0.23,
+"zr": -0.17
+},
+"010_bulwark": {
+"shell": true,
+"r": 0.084,
+"zf": 0.32,
+"zr": -0.25
+},
+"011_bus": {
+"shell": true,
+"r": 0.13,
+"zf": 0.86,
+"zr": -0.67
+},
+"012_cop_car": {
+"shell": true,
+"r": 0.087,
+"zf": 0.35,
+"zr": -0.24
+},
+"013_minx": {
+"shell": true,
+"r": 0.079,
+"zf": 0.27,
+"zr": -0.23
+},
+"014_eddy": {
+"shell": true,
+"r": 0.067,
+"zf": 0.33,
+"zr": -0.22
+},
+"016_panto": {
+"shell": true,
+"r": 0.097,
+"zf": 0.29,
+"zr": -0.27
+},
+"018_shark": {
+"shell": false,
+"r": 0.075,
+"zf": 0.31,
+"zr": -0.32
+},
+"021_garbage_truck": {
+"shell": true,
+"r": 0.13,
+"zf": 0.45,
+"zr": -0.34
+},
+"023_hot_dog_van": {
+"shell": true,
+"r": 0.13,
+"zf": 0.46,
+"zr": -0.28
+},
+"027_ice_cream_van": {
+"shell": true,
+"r": 0.13,
+"zf": 0.48,
+"zr": -0.28
+},
+"031_jefferson": {
+"shell": true,
+"r": 0.061,
+"zf": 0.28,
+"zr": -0.25
+},
+"032_stretch_limousine": {
+"shell": true,
+"r": 0.095,
+"zf": 0.5,
+"zr": -0.42
+},
+"033_sports_limousine": {
+"shell": true,
+"r": 0.079,
+"zf": 0.58,
+"zr": -0.42
+},
+"034_medicar": {
+"shell": true,
+"r": 0.105,
+"zf": 0.51,
+"zr": -0.36
+},
+"035_benson": {
+"shell": true,
+"r": 0.074,
+"zf": 0.32,
+"zr": -0.24
+},
+"036_schmidt": {
+"shell": false,
+"r": 0.054,
+"zf": 0.28,
+"zr": -0.28
+},
+"037_miara": {
+"shell": true,
+"r": 0.059,
+"zf": 0.27,
+"zr": -0.31
+},
+"038_big_bug": {
+"shell": false,
+"r": 0.123,
+"zf": 0.28,
+"zr": -0.23
+},
+"039_morton": {
+"shell": false,
+"r": 0.074,
+"zf": 0.26,
+"zr": -0.26
+},
+"040_maurice": {
+"shell": false,
+"r": 0.069,
+"zf": 0.24,
+"zr": -0.26
+},
+"041_pickup": {
+"shell": true,
+"r": 0.1,
+"zf": 0.32,
+"zr": -0.26
+},
+"044_arachnid": {
+"shell": true,
+"r": 0.071,
+"zf": 0.29,
+"zr": -0.25
+},
+"045_spritzer": {
+"shell": true,
+"r": 0.067,
+"zf": 0.31,
+"zr": -0.19
+},
+"046_stinger": {
+"shell": true,
+"r": 0.075,
+"zf": 0.31,
+"zr": -0.26
+},
+"048_meteor": {
+"shell": true,
+"r": 0.055,
+"zf": 0.27,
+"zr": -0.24
+},
+"049_hachura": {
+"shell": true,
+"r": 0.074,
+"zf": 0.31,
+"zr": -0.31
+},
+"050_b_type": {
+"shell": false,
+"r": 0.073,
+"zf": 0.31,
+"zr": -0.29
+},
+"051_taxi_xpress": {
+"shell": false,
+"r": 0.073,
+"zf": 0.31,
+"zr": -0.29
+},
+"053_michelli_roadster": {
+"shell": false,
+"r": 0.065,
+"zf": 0.33,
+"zr": -0.26
+},
+"056_taxi": {
+"shell": false,
+"r": 0.071,
+"zf": 0.34,
+"zr": -0.24
+},
+"057_t_rex": {
+"shell": false,
+"r": 0.066,
+"zf": 0.3,
+"zr": -0.27
+},
+"059_train": {
+"shell": false,
+"r": 0.093,
+"zf": 0.31,
+"zr": -0.31
+},
+"060_train_cab": {
+"shell": false,
+"r": 0.093,
+"zf": 0.31,
+"zr": -0.31
+},
+"061_train_fb": {
+"shell": false,
+"r": 0.092,
+"zf": 0.31,
+"zr": -0.31
+},
+"062_trance_am": {
+"shell": true,
+"r": 0.06,
+"zf": 0.32,
+"zr": -0.27
+},
+"063_truck_cab": {
+"shell": true,
+"r": 0.13,
+"zf": 0.32,
+"zr": -0.31
+},
+"064_truck_cab_sx": {
+"shell": true,
+"r": 0.13,
+"zf": 0.32,
+"zr": -0.33
+},
+"065_container": {
+"shell": false,
+"r": 0.1,
+"zf": -0.59,
+"zr": -0.82
+},
+"066_transporter": {
+"shell": false,
+"r": 0.088,
+"zf": -0.59,
+"zr": -0.8
+},
+"067_tv_van": {
+"shell": true,
+"r": 0.13,
+"zf": 0.34,
+"zr": -0.3
+},
+"068_van": {
+"shell": true,
+"r": 0.118,
+"zf": 0.37,
+"zr": -0.37
+},
+"069_u_jerk_truck": {
+"shell": true,
+"r": 0.109,
+"zf": 0.33,
+"zr": -0.26
+},
+"070_z_type": {
+"shell": true,
+"r": 0.072,
+"zf": 0.39,
+"zr": -0.24
+},
+"071_rumbler": {
+"shell": true,
+"r": 0.071,
+"zf": 0.34,
+"zr": -0.24
+},
+"082_jagular_xk": {
+"shell": false,
+"r": 0.07,
+"zf": 0.27,
+"zr": -0.27
+},
+"083_furore_gt": {
+"shell": true,
+"r": 0.076,
+"zf": 0.3,
+"zr": -0.23
+},
+"086_karma_bus": {
+"shell": true,
+"r": 0.125,
+"zf": 0.49,
+"zr": -0.36
+}
+}

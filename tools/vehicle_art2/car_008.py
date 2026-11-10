@@ -213,7 +213,7 @@ def build():
     car.materials["glass"] = tex_glass(256, tint=(58, 74, 88), alpha=120)
     car.materials["seal"] = tex_flat((20, 20, 22))
     car.materials["chrome"] = tex_chrome()
-    car.materials["underbody"] = tex_flat((28, 27, 26))
+    car.materials["underbody"] = tex_underbody()
     car.materials["running_board_rubber"] = tex_flat((34, 33, 32))
     car.materials["interior_dark"] = tex_flat((44, 40, 36))
     car.materials["seat"] = tex_leather((150, 128, 100))

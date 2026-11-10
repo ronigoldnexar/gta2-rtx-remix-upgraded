@@ -50,6 +50,21 @@ def main():
         os.symlink(src, link)
     json.dump({"models": entries}, open(man, "w"), indent=1)
     subprocess.check_call([sys.executable, os.path.join(HERE, "..", "import_assets.py"), man, models])
+    # VEHICLE-ART-13: the kit's parametrisations give inward normals and winding (FIX-CAR-IDENTITY-6: the sun lit
+    # the inside of every panel, 25-45 % darker than the sprite): every imported body is re-oriented patch by patch
+    # (tools/car_mesh_orient.py fix, the sky-visibility rule bake_ao uses), then the shared floor pan is hung
+    # under it (tools/vehicle_art/underpan.py; not for rail stock / trailers)
+    sys.path.insert(0, os.path.join(HERE, ".."))
+    sys.path.insert(0, os.path.join(HERE, "..", "vehicle_art"))
+    import car_mesh_orient
+    import underpan
+    for e in entries:
+        mesh = os.path.join(models, e["name"] + ".mesh")
+        tmp = mesh + ".orient"
+        car_mesh_orient.fix(mesh, tmp)
+        os.replace(tmp, mesh)
+        if e["name"][:3] not in underpan.SKIP:
+            underpan.apply(models, models, e["name"])
     json.dump(entries, open(os.path.join(out, "entries.json"), "w"), indent=1)
 
 

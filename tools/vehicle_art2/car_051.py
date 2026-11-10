@@ -220,7 +220,7 @@ def build():
     car.materials["seal"] = tex_flat((20, 20, 22))
     car.materials["chrome"] = tex_chrome()
     car.materials["grille"] = tex_grille(128, bars=8).transpose(Image.ROTATE_90)   # waterfall: vertical bars
-    car.materials["underbody"] = tex_flat((28, 27, 26))
+    car.materials["underbody"] = tex_underbody()
     car.materials["interior_dark"] = tex_flat((12, 12, 12))
     car.materials["seat"] = tex_leather((92, 62, 50))
     car.materials["lamp_head"] = tex_lamp("head")

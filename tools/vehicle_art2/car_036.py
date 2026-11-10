@@ -194,7 +194,7 @@ def build():
     # VEHICLE-ART-7: the spine lies flat on the deck, at the body map's v ~ 1, where the chrome band texture is its
     # dark ground reflection (a black stripe in the game): a flat strip of bright metal mirroring the sky instead
     car.materials["chrome_spine"] = tex_flat((222, 228, 236), 64)
-    car.materials["underbody"] = tex_flat((30, 28, 27))
+    car.materials["underbody"] = tex_underbody()
     car.materials["interior_dark"] = tex_flat((38, 34, 32))
     car.materials["seat"] = tex_leather((122, 38, 32))
     car.materials["lamp_head"] = tex_lamp("head")

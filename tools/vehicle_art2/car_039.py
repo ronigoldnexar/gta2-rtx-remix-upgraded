@@ -174,7 +174,7 @@ def build():
     car.materials["glass"] = tex_glass(256, tint=(58, 74, 88), alpha=110)
     car.materials["chrome"] = tex_chrome()
     car.materials["grille"] = tex_grille(128, bars=12, rgb=(30, 30, 32))
-    car.materials["underbody"] = tex_flat((28, 27, 26))
+    car.materials["underbody"] = tex_underbody()
     car.materials["frame"] = tex_flat((30, 30, 32))
     car.materials["trim_dark"] = tex_flat((26, 24, 22))
     car.materials["vent"] = tex_flat((18, 18, 18))
