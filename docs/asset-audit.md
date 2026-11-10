@@ -505,3 +505,29 @@ Found with one run of the filer's scenario under `window_glow=0` (out/qa_fw16f: 
 fix with the glow on (out/qa_fw16g: the caps are dark, and the lit window on the facade beside them still glows).
 In the top band at bil spot 3, the tan pixels (r - b > 40, r > 90) drop from 3698 to 556; the 556 left are the
 HUD icons. Suspect, not framed: bil 310 (a riveted steel wall boxed whole as a window).
+
+## 16. Industrial's gantry signal heads and the live glow key (FIX-WORLD-17, 10-11 Nov 2026)
+
+**qav67, the bil gantry "disc".** Industrial's sign gantries carry signal slabs like Downtown's (FIX-WORLD-8
+ptrmx22): an east or west slab (slope 53/54, lid 373) whose two flat side panels are a round signal head, one
+side the head's grey back (bil 374: its housing bar, two small lamps; the "train front" in the filing) and the
+other the lens, 391 green, 393 amber or 918 red with a star. The street views drew both panels a whole block
+tall, so a near-black disc about 1.5 blocks wide hung through the truss. `SignalSlab` (src/world_mesh.cpp) knew
+only wil 753. It now also takes a slab whose two side tiles are both bil heads (`SignalDiscTile`: tile 374, 391,
+393 or 918, and on the pixels a disc under a bar: 55-66 % opaque, the bottom eighth's corners keyed, the disc's
+middle band opaque, so a district whose tile of that number is something else is left alone; wil's and ste's
+are). The heads come back at 0.26 of a block (about 0.5 m), hung under the slab's top bar, the same tiles and
+orientation: the lens faces the traffic it faces in the map. The log's `gantry signals ... N slab(s)` line says
+17 in bil (it said 0). `GTA2DX9_SIGNAL_HEADS=0` is the old drawing (A/B). Classic is untouched: the street views
+draw the head geometry; the classic view keeps the slab's full panels.
+Verified: out/qa_fw17b (after) against out/qa_fw17c (`GTA2DX9_SIGNAL_HEADS=0`, the defect), three fixed cameras at
+the x 73 gantry (bil 73,54 and 73,58), 12:00, 17:30, 23:00: the 1.5-block discs are gone, a grey head with its two
+small lamps hangs from the bar seen from the east, the red star lens from the west. Still short: the lens is not
+self-lit at night (it takes the scene's light like the gantry: a dim red at 23:00), and the slab's cell is open
+below its bar, so the lattice has a one-block gap with the bar and the head in it (as in Downtown since
+FIX-WORLD-8). Not checked: Remix (the head is the same tile on smaller geometry; no Remix lamp is added in bil).
+
+**`[devtools] window_glow`.** -1 (default) leaves `[renderer] window_glow`; 0 or 1 sets the street views' window
+glow live (re-read once a second, dll/src/world_view.cpp), so a night frame with the glow and without it comes
+from one session at one camera: the discriminator FIX-WORLD-16 used for qav39 / qav60 (a facade box on art that
+is not glass) without a second run.

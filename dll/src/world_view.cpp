@@ -3914,6 +3914,22 @@ void WorldView::RenderFrame() {
             const bool fp = worldUploaded_ && g_presentStreet && CurrentViewMode() == ViewMode::FirstPerson;
             renderer_.SetSeeThroughNearClip(fp ? static_cast<float>(clipCm) * 0.01f : 0.0f);
         }
+        {
+            // FIX-WORLD-17: [devtools] window_glow=0/1 overrides [renderer] window_glow live (re-read once a
+            // second; -1, the default, leaves the ini's value): the night-glow mislabel discriminator (a facade
+            // box on non-glass art) as a same-spot A/B in one session.
+            static int glowDev = -1;
+            static uint32_t glowPolls = 0;
+            if (CarBodiesDevIni()[0] && (glowPolls++ % 30u) == 0) {
+                const int v = GetPrivateProfileIntA("devtools", "window_glow", -1, CarBodiesDevIni());
+                if (v != glowDev) {
+                    const bool on = v < 0 ? GetPrivateProfileIntA("renderer", "window_glow", 1, CarBodiesDevIni()) != 0 : v != 0;
+                    gta2::SetWindowGlow(on);
+                    Log("devtools: window_glow %d (glow %s)", v, on ? "on" : "off");
+                    glowDev = v;
+                }
+            }
+        }
         renderer_.DrawWorld(camera_);
         // FIX-OCCLUSION: should the eye still be in a block, the block is closed round it
         // (back sides of the faces near the eye, depth-hidden from outside). Street views only,

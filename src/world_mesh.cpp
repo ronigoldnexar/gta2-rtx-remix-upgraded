@@ -452,9 +452,11 @@ public:
     void SetStreetHiddenSides(uint8_t sides) { streetHiddenSides_ = sides; }
     // FIX-WORLD-8 (ptrmx22): the next AddBlock is a gantry signal slab (FindSignalSlabs): with its
     // two side panels hidden (SetStreetHiddenSides 3) it adds them back at signal scale.
-    void SetSignalHead(bool on) { signalHead_ = on; }
-    bool SignalHead() const { return signalHead_; }
-    bool signalHead_ = false;
+    // FIX-WORLD-17 (qav67): the head's size, a block's share (0 = not a signal slab).
+    void SetSignalHead(float scale) { signalHead_ = scale; }
+    bool SignalHead() const { return signalHead_ > 0.0f; }
+    float SignalHeadSize() const { return signalHead_; }
+    float signalHead_ = 0.0f;
     uint8_t StreetHiddenSides() const { return streetHiddenSides_; }
     uint8_t streetHiddenSides_ = 0;
 
@@ -1367,13 +1369,39 @@ bool SignalLampTile(const Style& style, int tile) {
     return opaque * 100 >= n * 45 && opaque * 100 <= n * 75 && teal * 100 >= n * 30;
 }
 
+// FIX-WORLD-17 (qav67-bil-third-first-gantry-hangs-a-dark-disc-...): Industrial's gantries carry the same
+// slabs with a round signal head on each side panel: 374 the head's grey back (its housing bar, two small
+// lamps: the "train front" the filer saw), 391 green, 393 amber, 918 red (a star over the lens). Drawn a
+// block tall they hung as near-black 1.5-block discs through the truss. The art: a disc of opaque texels
+// under a housing bar - 55..66 % of the tile opaque, the bottom eighth's corners keyed and the disc's
+// middle band opaque - checked on the pixels so a district whose tile of that number is something else is left alone.
+bool SignalDiscTile(const Style& style, int tile) {
+    if (tile != 374 && tile != 391 && tile != 393 && tile != 918) return false;
+    if (tile >= style.TileCount()) return false;
+    const Tile& t = style.GetTile(tile);
+    if (!t.hasTransparency || t.pixels.size() != 64 * 64) return false;
+    int opaque = 0;
+    for (const uint32_t px : t.pixels) opaque += (px >> 24) != 0;
+    if (opaque * 100 < 64 * 64 * 55 || opaque * 100 > 64 * 64 * 66) return false;
+    auto solid = [&](int x, int y) { return (t.pixels[static_cast<size_t>(y * 64 + x)] >> 24) != 0; };
+    int corners = 0, middle = 0;
+    for (int y = 56; y < 64; ++y)
+        for (int x = 0; x < 8; ++x) corners += solid(x, y) + solid(63 - x, y);
+    for (int y = 28; y < 36; ++y)
+        for (int x = 24; x < 40; ++x) middle += solid(x, y);
+    return corners == 0 && middle == 128;
+}
+
 // A gantry signal slab: an east/west slab (slope 53/54) with both side panels flat and one of them the
-// signal lamp (the other its back), wil 753/738.
-bool SignalSlab(const Block& block, const Style& style) {
+// signal lamp (the other its back), wil 753/738, or (FIX-WORLD-17) both of them bil's round heads.
+// The head's size as a block's share, 0 for any other block.
+constexpr float kSignalDiscScale = 0.26f;   // bil: the disc fills most of its tile; about 0.5 m across
+float SignalSlab(const Block& block, const Style& style) {
     const int type = block.SlopeType();
-    if (type != 53 && type != 54) return false;
-    if (!block.left || !block.right || !block.left.IsFlat() || !block.right.IsFlat()) return false;
-    return block.right.Tile() == 753 ? SignalLampTile(style, 753) : false;
+    if (type != 53 && type != 54) return 0.0f;
+    if (!block.left || !block.right || !block.left.IsFlat() || !block.right.IsFlat()) return 0.0f;
+    if (block.right.Tile() == 753) return SignalLampTile(style, 753) ? kSignalHeadScale : 0.0f;
+    return SignalDiscTile(style, block.left.Tile()) && SignalDiscTile(style, block.right.Tile()) ? kSignalDiscScale : 0.0f;
 }
 
 void AddPartialBlock(MeshBuilder* builder, const Block& block, int slopeType,
@@ -1466,7 +1494,7 @@ void AddPartialBlock(MeshBuilder* builder, const Block& block, int slopeType,
     // same tiles and orientation (so the classic art and the Remix material keyed on the tile stay),
     // a thin plate: the east tile facing east, the west tile facing west.
     if (builder->SignalHead() && (hiddenSides & 3) == 3) {
-        const float sz = kSignalHeadScale;
+        const float sz = builder->SignalHeadSize();
         const float zc = 0.5f * (zN + zS);
         const float hTop = base + kSignalHangTop, hBot = hTop - sz;
         const float xp = 0.5f * (xWest + xEast);
@@ -3264,11 +3292,11 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                 builder.SetStreetHidden(decal || boardCandidate || treePart == 2 || lampArm);
                 builder.SetStreetHiddenAll(treePart == 1);
                 builder.SetStreetHiddenSides(plainSides.empty() || level < 0 || level > 8 ? 0 : plainSides[treeSlot(x, y, level)]);
-                const bool signal = signalHeads && SignalSlab(block, style);
-                if (signal) { builder.SetStreetHiddenSides(3); builder.SetSignalHead(true); ++g_signalHeads; }
+                const float signal = signalHeads ? SignalSlab(block, style) : 0.0f;
+                if (signal > 0.0f) { builder.SetStreetHiddenSides(3); builder.SetSignalHead(signal); ++g_signalHeads; }
                 const int hiddenBefore = builder.StreetHiddenCount();
                 AddBlock(&builder, block, resolved[block.SlopeType() & (kSlopeTypeCount - 1)], cuts, x, y, level);
-                builder.SetSignalHead(false);
+                builder.SetSignalHead(0.0f);
                 builder.SetStreetHiddenSides(0);
                 builder.SetStreetHiddenAll(false);
                 if (lampArm) AddLampArm(&builder, style, block.lid.Tile(), armCorners, armUv);
