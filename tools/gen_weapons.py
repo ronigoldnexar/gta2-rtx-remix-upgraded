@@ -67,10 +67,32 @@ def grain(rgb, kind="metal", size=32, seed=7):
     return Image.fromarray(np.concatenate([img, a], 2), "RGBA")
 
 
-def mat(rgb, metallic=0.8, roughness=0.35, emissive=None, name="m", kind=None):
+def fine(rgb, kind, size=256, seed=7):
+    """FIX-FIGURE-11 (ptrmx27): the first-person arms' skin and sleeve at 256 px. The 32 px `grain` noise was
+    magnified to 4-5 px square texels on a fist that fills a fifth of the frame. Skin: soft low-frequency
+    mottling (blurred, no per-texel noise) with faint pores; sleeve: a 4 px weave, softened. Mean colour kept."""
+    from PIL import ImageFilter
+    rng = np.random.default_rng(seed)
+    def soft(radius, amp):
+        n = Image.fromarray(np.uint8(np.clip(128 + 60 * rng.standard_normal((size, size)), 0, 255)), "L")
+        n = np.asarray(n.filter(ImageFilter.GaussianBlur(radius)), np.float32) - 128.0
+        return n / (np.abs(n).max() + 1e-6) * amp
+    if kind == "skin":
+        v = soft(14, 0.07) + soft(3, 0.025) + 0.008 * rng.standard_normal((size, size))
+    else:   # cloth
+        y, x = np.mgrid[0:size, 0:size]
+        w = (((x // 4) + (y // 4)) % 2 - 0.5) * 0.06
+        v = np.asarray(Image.fromarray(np.uint8(128 + w * 255)).filter(ImageFilter.GaussianBlur(0.8)), np.float32) / 255.0 - 0.5
+        v = v + soft(10, 0.05)
+    img = np.clip(np.array(rgb, np.float32)[None, None, :] * (1.0 + v[..., None]), 0, 255).astype(np.uint8)
+    a = np.full((size, size, 1), 255, np.uint8)
+    return Image.fromarray(np.concatenate([img, a], 2), "RGBA")
+
+
+def mat(rgb, metallic=0.8, roughness=0.35, emissive=None, name="m", kind=None, hires=False):
     if kind is None:
         kind = "metal" if metallic >= 0.5 else ("wood" if rgb == WALNUT else "plain")
-    tex = flat(rgb) if kind == "plain" else grain(rgb, kind, seed=sum(rgb))
+    tex = fine(rgb, kind, seed=sum(rgb)) if hires else flat(rgb) if kind == "plain" else grain(rgb, kind, seed=sum(rgb))
     return PBRMaterial(name=name, baseColorTexture=tex, metallicFactor=metallic, roughnessFactor=roughness,
                        emissiveFactor=emissive)
 
@@ -375,8 +397,8 @@ def fp_arm(side):
             blob(skin, (-0.0010, y, 0.0088), (0.0072, 0.0024, 0.0026))
         tube_between(skin, (-0.0095, -0.0060, -0.0060), (-0.0068, 0.0015, 0.0105), 0.0025, 0.0020, 8)  # thumb forward along the frame
         _forearm(skin, sleeve, (-0.0095, -0.0200, -0.0080), (-0.0140, -0.0260, -0.0180), (-0.0600, -0.0750, -0.1500), 0.0055)
-    return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin"))),
-                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth")))]), 0.0
+    return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin", hires=True))),
+                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth", hires=True)))]), 0.0
 
 
 def fp_fist():
@@ -406,8 +428,8 @@ def fp_fist():
     tube_between(skin, tj, (-0.0068, -0.0075, 0.0028), 0.0026, 0.0021, 10)    # over the index and middle fingers
     blob(skin, (-0.0068, -0.0075, 0.0028), (0.0021, 0.0021, 0.0021), segments=8, rings=5)
     _forearm(skin, sleeve, (0.0015, -0.0175, -0.0105), (0.0020, -0.0180, -0.0150), (0.0280, -0.0600, -0.1600), 0.0056)
-    return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin"))),
-                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth")))]), 0.0
+    return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin", hires=True))),
+                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth", hires=True)))]), 0.0
 
 
 ARMS = {"fp_arm_right": lambda: fp_arm("right"), "fp_arm_left": lambda: fp_arm("left"),
@@ -437,7 +459,7 @@ def main():
         scene.export(os.path.join(out, f"{name}.glb"))
         tris = sum(len(g.faces) for g in scene.geometry.values())
         print(f"{name}: {tris} tris")
-        models.append(dict(name=name, glb=f"weapons/{name}.glb", scale=1.0, texture_max=32, forward="+z",
+        models.append(dict(name=name, glb=f"weapons/{name}.glb", scale=1.0, texture_max=256, forward="+z",
                            _licence="procedural (this repository)"))
     with open(os.path.join(out, "manifest_fragment.json"), "w") as f:
         json.dump({"models": models}, f, indent=1)

@@ -2478,7 +2478,7 @@
    "name": "fp_arm_right",
    "glb": "weapons/fp_arm_right.glb",
    "scale": 1.0,
-   "texture_max": 32,
+   "texture_max": 256,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -2486,7 +2486,7 @@
    "name": "fp_arm_left",
    "glb": "weapons/fp_arm_left.glb",
    "scale": 1.0,
-   "texture_max": 32,
+   "texture_max": 256,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -2494,7 +2494,7 @@
    "name": "fp_arm_left_cup",
    "glb": "weapons/fp_arm_left_cup.glb",
    "scale": 1.0,
-   "texture_max": 32,
+   "texture_max": 256,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },
@@ -2502,7 +2502,7 @@
    "name": "fp_fist_right",
    "glb": "weapons/fp_fist_right.glb",
    "scale": 1.0,
-   "texture_max": 32,
+   "texture_max": 256,
    "forward": "+z",
    "_licence": "procedural (this repository)"
   },

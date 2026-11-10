@@ -1392,3 +1392,13 @@ presses while firing the machine gun): every frame shows his figure or the gun a
 - A real hit plays the QB-16 shot reaction: fig11_mg2 (machine gun, third, wil plaza) `fig: shot 00a9 by ac1c
   (weapon 4, 1.8 blocks, left) health 50 -> 25` at 06:06:01.852; b_f11_2_third.mp4 frame 7 of the crop sheet (0.68 s)
   shows her hunched with both hands at her head, the frame of the health drop, then the death fall 0.07 s later.
+
+### ptrmx27: the first-person arms' skin at 256 px
+- `assets/models/fp_fist_right_0/_1.tga` (and the three `fp_arm_*` pairs) were 32x32 noise (`grain`, texture_max 32):
+  on a fist a fifth of the frame wide each texel was a 4-5 px square of mottle. `tools/gen_weapons.py fine()` now bakes
+  the arms' skin at 256 px as soft low-frequency mottling (two Gaussian-blurred noise octaves, faint pores, no per-texel
+  noise) and the sleeve as a softened 4 px weave; manifest texture_max 256 for the four arm models; meshes byte-identical,
+  weapon textures unchanged. Imported with `tools/import_assets.py` on a four-entry manifest into /tmp and copied (texture
+  files and the manifest's texture_max only). Remix: the eight tga change content (new hashes).
+- Frames: fig11_fist1 (plaza, first person, still/walk/punch) vs fig10_fpw4 at a 4x crop of the left fist: the square
+  blocks are gone; the silhouette still shows the raster's stair-step (no anti-aliasing) and the 10-segment blob facets.
