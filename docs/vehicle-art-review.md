@@ -559,3 +559,12 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   Own-car takes out/va11_063b1 / a2: on the HEAD DLL the own 063 was ghosted (whole upper cab translucent); with the
   `_glass` texture it draws solid. Far view unchanged. Remix: `063_truck_cab_0.tga` (re-baked) and
   `063_truck_cab_glass.tga` have no prim; `_2_paint` kept its prim.
+- **Fleet glass, asset side (VEHICLE_PRIORITY 2), tried on 013/068, not shipped:** the same glass-only change on the
+  carkit 013 Minx and 068 Van (before out/va11_g13b0, after out/va11_g13a0) made their windows WORSE in the plain
+  renderer: VEHICLE-GLASS's mask pass already draws them as sky-reflecting glass over its lit cabin shell, and a
+  `_glass` texture turns that pass off, leaving a dark pane over the dark carkit liner. The 063 was different (its
+  side windows stayed opaque black under the mask pass at the parked poses). Next for Remix: re-light the 013/068
+  liners like the 063 (re-bakes `_0`), then a glass prim; for the TRELLIS bodies, cut panes offline from the
+  renderer's own masks (`GTA2DX9_GLASS_DUMP=1`).
+- **Per-model list:** 069 heading already fixed and verified (fixed/pl19, `forward: +z` on the round-11 mesh); 050 is
+  ART-7's authored body; 010 left as ART-8/10 judged it; the 063's black door glass is the pmx11 change above.
