@@ -1057,6 +1057,18 @@ void PostFx::Resolve() {
                 verts.push_back(lv);
             }
         }
+        // FIX-FIGURE-6 (pfeel50): the light path's target and shaders are made and compiled on their
+        // first use (wined3d compiles a program at its first draw: ~0.1-0.3 s). By day nothing used
+        // them until a shot's muzzle light, so the first shot hitched. Warmed once instead, on the
+        // first street-view frame with no light, by one zero-coloured pixel-sized light.
+        if (verts.empty() && !lightWarm_ && !lightSumFailed_) {
+            LightVertex lv = {};
+            lv.p[2] = 1.0f; lv.p[3] = 0.01f; lv.s[3] = -2.0f;
+            const float xs[6] = {-1.0f, -0.999f, -1.0f, -1.0f, -0.999f, -0.999f}, ys[6] = {-0.999f, -0.999f, -1.0f, -1.0f, -0.999f, -1.0f};
+            for (int i = 0; i < 6; ++i) { lv.x = xs[i]; lv.y = ys[i]; lv.z = 0.5f; lv.w = 1.0f; verts.push_back(lv); }
+            RendererTrace("visuals: light path warmed (one empty light)");
+        }
+        if (!verts.empty()) lightWarm_ = true;
         stats_.lights = static_cast<int>(verts.size() / 6);
         // The pools are summed in a buffer of their own and applied once, bounded, so overlapping
         // or strong ones (sirens, head lamps, a fire) tint the surface instead of clipping it

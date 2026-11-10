@@ -196,6 +196,7 @@ private:
     IDirect3DTexture9* lightSumTex_ = nullptr; IDirect3DSurface9* lightSumSurf_ = nullptr;
     IDirect3DPixelShader9* psLightApply_ = nullptr;
     bool lightSumFailed_ = false;
+    bool lightWarm_ = false;   // FIX-FIGURE-6: the light path drawn once (see the warm-up in the lights pass)
     IDirect3DTexture9* puddles_ = nullptr;
     bool wetFailed_ = false;
     Vec3 skyZenith_{0.35f, 0.55f, 0.85f}, skyHorizon_{0.70f, 0.78f, 0.88f};

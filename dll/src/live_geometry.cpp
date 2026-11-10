@@ -7569,6 +7569,7 @@ struct ShotParticle {
     float r, g, b, a;
     uint8_t kind;   // 0 spark, 1 shell, 2 blood, 3 smoke, 4 glow, 5 arc, 6 magazine (QB-29)
     float floorY = -1e9f;   // kind 6: the ground it comes to rest on
+    bool shown = false;     // FIX-FIGURE-6 pfeel50: drawn at least once (a 0.07 s flash outlived by a slow frame was never drawn)
 };
 std::vector<ShotParticle> g_shotParticles;
 // The muzzle lights, held for the frame they were seen on and the next: the
@@ -7628,7 +7629,7 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
     if (weapon <= 0 || weapon >= kWpnCount) return;
     const WeaponInfo& wi = kWeapons[weapon];
     if (wi.flashSize > 0.0f) {
-        const float fs = wi.flashSize * (0.85f + 0.3f * ShotRand()) * (firstPerson ? 0.55f : 1.0f);
+        const float fs = wi.flashSize * (0.85f + 0.3f * ShotRand()) * (firstPerson ? 0.75f : 1.0f);
         ShotSpawn(pos[0] + dir[0] * fs * 0.3f, pos[1] + dir[1] * fs * 0.3f, pos[2] + dir[2] * fs * 0.3f, 0, 0, 0,
                   0.07f, fs, fs * 1.3f, wi.r, wi.g, wi.b, 1.0f, 4);
         // A smaller, whiter core.
@@ -7648,6 +7649,10 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
         d.intensity = wi.light;
         d.radius = 2.5f;
         d.emitterRadius = 0.03f;
+        // FIX-FIGURE-6 pfeel50: a muzzle light, not a game lamp: the game-light class filter and its
+        // daylight gate dropped it, and the plain renderer's light pass (visuals.cpp) gives a muzzle
+        // a day share, so a shot pulses on the walls by day too.
+        d.source = kLightSourceMuzzle;
         g_shotLights.push_back({d, g_carFrame});
     }
     if (wi.shells) {
@@ -7693,10 +7698,30 @@ void ShotFxSmoke(float x, float y, float z) {
 }
 // Ages and draws the particles. After the figures and the game's effects.
 void ShotFxDraw(IDirect3DDevice9* device, float dt) {
+    {
+        // FIX-FIGURE-7 (pfeel50 first-shot stall): both blend paths drawn once, invisibly (colour 0,
+        // alpha 0), on the first street-view frame, so their programs are compiled before a shot.
+        static bool warmed = false;
+        if (!warmed) {
+            warmed = true;
+            const gta2::Vec3 f = g_viewForward;
+            const float x = g_playerPosX + f.x, y = g_playerPosY + 0.3f + f.y, z = g_playerPosZ + f.z;
+            ShotSpawn(x, y, z, 0, 0, 0, 0.001f, 0.01f, 0.01f, 0.0f, 0.0f, 0.0f, 0.0f, 4);
+            ShotSpawn(x, y, z, 0, 0, 0, 0.001f, 0.01f, 0.01f, 0.0f, 0.0f, 0.0f, 0.0f, 3);
+            Log("shot fx: blend paths warmed");
+        }
+    }
     for (size_t i = 0; i < g_shotParticles.size();) {
         ShotParticle& sp = g_shotParticles[i];
         sp.age += dt;
-        if (sp.age >= sp.life) { sp = g_shotParticles.back(); g_shotParticles.pop_back(); continue; }
+        if (sp.age >= sp.life) {
+            // pfeel50: a frame longer than the particle's life (a flash is 0.05-0.07 s; under load a
+            // frame takes 0.1-0.15 s) aged it out before its first draw: no muzzle flash at all.
+            // Each particle is drawn once, at its middle, whatever the frame time.
+            if (sp.shown) { sp = g_shotParticles.back(); g_shotParticles.pop_back(); continue; }
+            sp.age = sp.life * 0.5f;
+        }
+        sp.shown = true;
         if (sp.kind == 0 || sp.kind == 1 || sp.kind == 2 || sp.kind == 6) sp.vy -= (sp.kind == 2 ? 1.2f : 2.8f) * dt;   // gravity
         sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.z += sp.vz * dt;
         if (sp.kind == 6 && sp.y < sp.floorY) { sp.y = sp.floorY; sp.vx = sp.vy = sp.vz = 0.0f; }   // a magazine at rest
@@ -7819,6 +7844,7 @@ void ShotFxImpacts() {
 // with the same kick on a shot (the shot: a fresh flash or bullet just ahead
 // of the eye, since the player's own sprite is not seen in this view). Drawn
 // over everything (no depth test), after the figures.
+uint32_t vmLastBob_ = 0;   // FIX-FIGURE-7: the frame the view model's bob last ran (a gap resets it)
 void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     if (CurrentViewMode() != ViewMode::FirstPerson || !g_playerObject || g_hiddenObjects[0] != g_playerObject || !g_pedWeapons) return;
     const gta2::Vec3 eye = camera.Position();
@@ -7832,7 +7858,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             const float dx = fx.x - eye.x, dy = fx.y - eye.y, dz = fx.z - eye.z;
             if (dx * dx + dz * dz < 1.44f && std::fabs(dy) < 0.8f && dx * f.x + dz * f.z > 0.0f) {
                 fx.claimed = true;
-                if (g_carFrame - g_fpShotFrame >= 3) g_fpShotFrame = g_carFrame;
+                if (g_carFrame - g_fpShotFrame >= 3) { g_fpShotFrame = g_carFrame; static int n = 0; if (n < 40) { ++n; Log("view model: shot seen (flash ahead) f=%u", g_carFrame); } }
             }
         }
     }
@@ -7847,6 +7873,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             // FIX-FP-2 (feel17: no kick between shots): the game's own shot (its ammunition word
             // dropped) kicks the view model too, not only a flash sprite found ahead of the eye.
             if (g_carFrame - g_fpShotFrame >= 3) g_fpShotFrame = g_carFrame;
+            static int n = 0;
+            if (n < 40) { ++n; Log("view model: shot seen (ammo %d -> %d) f=%u", lastAmmo, g_playerAmmo, g_carFrame); }
         }
         if (g_fpShotFrame == g_carFrame) shotFrame = g_carFrame;
         lastAmmo = g_playerWeapon > 0 ? g_playerAmmo : -1;
@@ -7907,9 +7935,34 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     right[0] /= rl; right[2] /= rl;
     // up = cross(forward, right): the eye's up, as the particles use it.
     float up[3] = {f.y * right[2], f.z * right[0] - f.x * right[2], -f.y * right[0]};
-    // The kick: up to full in two frames, back over ~0.15 s (rise, a little roll).
-    const float shotT = g_fpShotFrame ? static_cast<float>(g_carFrame - g_fpShotFrame) / 30.0f : 10.0f;
-    const float kick = shotT < 0.034f ? 0.6f + 0.4f * shotT / 0.034f : (shotT > 0.25f ? 0.0f : std::exp(-(shotT - 0.034f) / 0.05f));
+    // FIX-FIGURE-6 pfeel50: the kick in real time, not in frames. It was counted in frames at an
+    // assumed 30 fps and died in 0.15 s, so at the 7-15 fps of a loaded host it was a one-frame
+    // pose step that held, and at 30 fps it was gone in 4 frames. Now: 3/4 of the kick on the
+    // shot's own frame, full by 0.03 s, then a critically damped return (tau 0.045 s): about
+    // 7 frames at 30 fps, eased into rest. The flash light (vmFlash) lasts the first 0.06 s.
+    // FIX-FIGURE-7: the clock advances by the frame's real time capped at 1/20 s, so one slow frame
+    // (the first shot's 0.2 s, fig7_c) cannot swallow the kick: every shot shows its rise and return.
+    static uint32_t vmShotSeen = 0;
+    static float vmShotClock = 10.0f;
+    static LARGE_INTEGER vmLastQpc = {};
+    LARGE_INTEGER qpcNow, qpcFreq;
+    QueryPerformanceCounter(&qpcNow);
+    QueryPerformanceFrequency(&qpcFreq);
+    const float vmDt = vmLastQpc.QuadPart && qpcFreq.QuadPart > 0
+                           ? (std::min)(0.05f, static_cast<float>(static_cast<double>(qpcNow.QuadPart - vmLastQpc.QuadPart) / static_cast<double>(qpcFreq.QuadPart)))
+                           : 0.0f;
+    vmLastQpc = qpcNow;
+    if (g_fpShotFrame && g_fpShotFrame != vmShotSeen) { vmShotSeen = g_fpShotFrame; vmShotClock = 0.0f; }
+    else if (vmShotClock < 10.0f) vmShotClock += vmDt;
+    const float shotT = vmShotSeen ? vmShotClock : 10.0f;
+    float kick = 0.0f;
+    if (shotT < 0.03f) kick = 0.75f + 0.25f * shotT / 0.03f;
+    else if (shotT < 0.45f) { const float u = (shotT - 0.03f) / 0.045f; kick = (1.0f + u) * std::exp(-u); }
+    const float vmFlash = shotT < 0.06f ? 1.0f - shotT / 0.06f * 0.6f : 0.0f;
+    {
+        static int kickLog = 0;
+        if (kickLog < 90 && shotT < 0.45f) { ++kickLog; Log("view model kick: t=%.3f kick=%.2f flash=%.2f f=%u", shotT, kick, vmFlash, g_carFrame); }
+    }
     const bool thrown = wi.action == 13;
     // QB-29: the reload, from the game's words for the player (the figure, whose
     // shots drive it in the other views, is not drawn here): the same magazine
@@ -7985,11 +8038,49 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         if (punching) jab = std::sin(static_cast<float>(pf - 115) / 7.0f * 3.14159265f);
     }
     const float jabR = jabSide == 0 ? jab : 0.0f, jabL = jabSide == 1 ? jab : 0.0f;
+    // FIX-FIGURE-7 (pf2feel: the hands did not move with the walk or the turn): a walk bob (down at
+    // each footfall, across once a stride) scaled by his speed over the ground, and a turn sway (the
+    // hands lag the view's yaw and settle back), both in real time and eased in and out.
+    float bobDown = 0.0f, bobSide = 0.0f, swaySide = 0.0f;
+    {
+        static float lastX = 0.0f, lastZ = 0.0f, amp = 0.0f, phase = 0.0f, sway = 0.0f, lastYaw = 0.0f;
+        static LARGE_INTEGER lastQ = {};
+        static bool have = false;
+        LARGE_INTEGER q, fq;
+        QueryPerformanceCounter(&q);
+        QueryPerformanceFrequency(&fq);
+        const float yaw = std::atan2(f.x, f.z);
+        if (have && g_playerPosValid && fq.QuadPart > 0) {
+            const float dts = static_cast<float>(static_cast<double>(q.QuadPart - lastQ.QuadPart) / static_cast<double>(fq.QuadPart));
+            if (dts > 1e-4f && dts < 0.25f) {
+                const float moved = std::sqrt((g_playerPosX - lastX) * (g_playerPosX - lastX) + (g_playerPosZ - lastZ) * (g_playerPosZ - lastZ));
+                const float speed = moved < 0.5f ? moved / dts : 0.0f;          // blocks a second (a warp is not a step)
+                const float want = (std::min)(1.0f, speed / 1.2f);              // a walk ~0.8, a run 1
+                amp += (want - amp) * (std::min)(1.0f, dts / 0.15f);
+                phase += dts * 6.2831853f * (1.5f + 0.5f * amp) * (amp > 0.02f ? 1.0f : 0.0f);
+                if (phase > 62.831853f) phase -= 62.831853f;
+                float dy = yaw - lastYaw;
+                if (dy > 3.14159265f) dy -= 6.2831853f;
+                if (dy < -3.14159265f) dy += 6.2831853f;
+                const float target = (std::max)(-0.014f, (std::min)(0.014f, -dy / dts * 0.006f));
+                sway += (target - sway) * (std::min)(1.0f, dts / 0.12f);
+            }
+        } else {
+            amp = 0.0f; sway = 0.0f;
+        }
+        if (g_carFrame - vmLastBob_ > 6) { amp = 0.0f; sway = 0.0f; }
+        vmLastBob_ = g_carFrame;
+        have = g_playerPosValid; lastQ = q; lastX = g_playerPosX; lastZ = g_playerPosZ; lastYaw = yaw;
+        const float k2 = 1.0f - 0.6f * rs - drop;   // quieter on a reload and a switch
+        bobDown = 0.0050f * amp * 0.5f * (1.0f - std::cos(2.0f * phase)) * k2;
+        bobSide = 0.0035f * amp * std::sin(phase) * k2;
+        swaySide = sway * k2;
+    }
     const float ahead = (fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - 0.02f * rs - 0.02f * rack - 0.03f * drop;
     const float side = (fists ? 0.060f - 0.02f * jabR : (wi.twoHanded ? 0.055f : 0.075f)) - 0.015f * rs,
-                down = (fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? 0.02f : 0.0f) - 0.006f * kick) + 0.07f * rs + 0.12f * drop;
+                down = (fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? 0.02f : 0.0f) - 0.010f * kick) + 0.07f * rs + 0.12f * drop;
     float pos[3];
-    for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * side - up[c] * down;
+    for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * (side + bobSide + swaySide) - up[c] * (down + bobDown);
     // The barrel on the crosshair: aimed at the point 5 blocks along the view
     // (the line of the shot), tipped up by the kick and the reload.
     float dir[3];
@@ -7998,7 +8089,9 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         for (int c = 0; c < 3; ++c) aim[c] = (&eye.x)[c] + (&f.x)[c] * 5.0f - pos[c];
         const float al = (std::max)(1e-4f, std::sqrt(aim[0] * aim[0] + aim[1] * aim[1] + aim[2] * aim[2]));
         // The fists in a guard: tipped forward (the knuckles' tops toward the eye) and turned in.
-        const float tip = fists ? -0.55f : 0.0f, turnIn = fists ? 0.25f : 0.0f;
+        // FIX-FIGURE-7: the closed fist (knuckles ahead) tipped less, so its knuckles and folded thumb face the eye.
+        static const bool fistMesh = ModelByName("fp_fist_right") != nullptr;
+        const float tip = fists ? (fistMesh ? -0.30f : -0.55f) : 0.0f, turnIn = fists ? 0.25f : 0.0f;
         for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f) + 0.22f * rs - 0.9f * drop + tip) - right[c] * (0.05f * rs + turnIn);
     }
     const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
@@ -8007,10 +8100,12 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     const float wrl = (std::max)(1e-4f, std::sqrt(wr[0] * wr[0] + wr[2] * wr[2]));
     wr[0] /= wrl; wr[2] /= wrl;
     float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
-    if (rs > 0.0f || kick > 0.0f) {
+    static const bool fistRolled = ModelByName("fp_fist_right") != nullptr;
+    if (rs > 0.0f || kick > 0.0f || (fists && fistRolled)) {
         // Rolled about the barrel: the magazine well toward the eye on a reload,
-        // a few degrees to the right on a shot.
-        const float roll = -0.75f * rs - 0.10f * kick;
+        // a few degrees to the right on a shot; FIX-FIGURE-7: the vertical fist rolled a
+        // quarter of the way to palm-down, the back of the hand toward the eye's right.
+        const float roll = -0.75f * rs - 0.10f * kick + (fists && fistRolled ? 0.45f : 0.0f);
         const float ca = std::cos(roll), sa = std::sin(roll);
         for (int c = 0; c < 3; ++c) { const float r0 = wr[c], u0 = wu[c]; wr[c] = r0 * ca + u0 * sa; wu[c] = u0 * ca - r0 * sa; }
     }
@@ -8067,7 +8162,10 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     }
     if (fists) leftName = nullptr;   // the left fist is the right's mirror (as the second pistol's hand)
     const bool leftBusy = reloadT >= 0.0f && reloadT > ri.dropT && reloadT < ri.insertT + 0.1f;   // fetching the magazine
-    const Model* armR = ModelByName("fp_arm_right");
+    // FIX-FIGURE-7 (pf2feel): bare hands are the closed fist (fp_fist_right, thumb over the fingers),
+    // not the pistol-grip hand with no gun (its trigger finger and thumb read as a pointing hand).
+    const Model* fistModel = fists ? ModelByName("fp_fist_right") : nullptr;
+    const Model* armR = fistModel ? fistModel : ModelByName("fp_arm_right");
     const Model* armL = (leftName && !leftBusy) ? ModelByName(leftName) : nullptr;
     const Model* armDual = (weapon == kWpnDual || fists) ? armR : nullptr;
     // Lit by the sun the car bodies use (dimmer at night), the texture modulated
@@ -8108,7 +8206,23 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         sun.Direction = {ld[0] / ll, ld[1] / ll, ld[2] / ll};
         device->SetLight(0, &sun);
         device->LightEnable(0, TRUE);
-        device->LightEnable(1, FALSE);
+        // FIX-FIGURE-6 pfeel50: the flash lights the gun and the hands for its 0.06 s (a warm point
+        // light at the muzzle), so a shot reads on the view model itself, not only ahead of it.
+        // FIX-FIGURE-7: the light is always on, black between shots: a second light is another
+        // fixed-function program, compiled by wined3d at its first draw (0.2 s on the first shot).
+        const bool vmLit = vmFlash > 0.0f && !thrown && !fists && wi.flashSize > 0.0f && drop <= 0.0f;
+        {
+            D3DLIGHT9 flash = {};
+            flash.Type = D3DLIGHT_POINT;
+            const float fi = vmLit ? 2.2f * vmFlash * (std::min)(1.0f, wi.light + 0.4f) : 0.0f;
+            flash.Diffuse = {wi.r * fi, wi.g * fi, wi.b * fi, 1.0f};
+            for (int c = 0; c < 3; ++c) (&flash.Position.x)[c] = pos[c] + dir[c] * (model->boundsMax.z * k + 0.02f) + wu[c] * 0.01f;
+            flash.Range = 0.6f;
+            flash.Attenuation0 = 0.3f;
+            flash.Attenuation1 = 6.0f;
+            device->SetLight(1, &flash);
+        }
+        device->LightEnable(1, TRUE);
         D3DMATERIAL9 material = {};
         material.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
         material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -8172,12 +8286,13 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     {
         static bool armsLogged = false;
-        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? "fp_arm_right" : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
+        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? (fistModel ? "fp_fist_right" : "fp_arm_right") : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
     }
     if (haveVp) device->SetViewport(&vp);
     // FIX-REMIX-3: the hands' light off again (it was left on; under Remix an enabled D3D9 light
     // can be taken into the scene by any later draw).
     device->LightEnable(0, FALSE);
+    device->LightEnable(1, FALSE);
     device->SetRenderState(D3DRS_LIGHTING, lighting);
     device->SetRenderState(D3DRS_ZENABLE, zEnable);
     device->SetRenderState(D3DRS_ZWRITEENABLE, zWrite);
@@ -13049,7 +13164,10 @@ void ShotLightsSubmit() {
     PlayerFillSubmit();
     for (size_t i = 0; i < g_shotLights.size();) {
         if (g_carFrame - g_shotLights[i].frame > 1) { g_shotLights[i] = g_shotLights.back(); g_shotLights.pop_back(); continue; }
-        LightsSubmitExtra(g_shotLights[i].desc);
+        // pfeel50: a pulse, not a step: the frame after the shot at 40 %.
+        RemixLightDesc d = g_shotLights[i].desc;
+        if (g_carFrame != g_shotLights[i].frame) d.intensity *= 0.4f;
+        LightsSubmitExtra(d);
         ++i;
     }
 }

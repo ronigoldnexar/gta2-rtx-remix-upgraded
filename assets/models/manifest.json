@@ -2235,6 +2235,14 @@
    "_licence": "procedural (this repository)"
   },
   {
+   "name": "fp_fist_right",
+   "glb": "weapons/fp_fist_right.glb",
+   "scale": 1.0,
+   "texture_max": 32,
+   "forward": "+z",
+   "_licence": "procedural (this repository)"
+  },
+  {
    "name": "human_business_female_01",
    "glb": "humans/rocketbox/Business_Female_01/Business_Female_01.glb",
    "scale": 0.5,
@@ -8986,6 +8994,21 @@
    "textures": [
     "fp_arm_left_cup_0.tga",
     "fp_arm_left_cup_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_fist_right",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 2782,
+   "animations": [],
+   "textures": [
+    "fp_fist_right_0.tga",
+    "fp_fist_right_1.tga"
    ],
    "skins": 0,
    "forward": "+z",

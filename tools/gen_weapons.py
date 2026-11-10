@@ -316,8 +316,39 @@ def fp_arm(side):
                        ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth")))]), 0.0
 
 
+def fp_fist():
+    """FIX-FIGURE-7 (pf2feel): the bare right fist of the first-person guard, in the arms' model space.
+    A vertical fist: knuckles ahead (+z), the back of the hand to the right (+x), the palm to the left,
+    the fingers stacked from the index (top) to the little finger (bottom). Each finger is curled: the
+    first phalanx runs across the front (the flat of the fist), the second folds back into the palm, a
+    knuckle at each bend; the thumb folds down over the second phalanges of the index and middle
+    fingers on the palm side. (The fists were the pistol-grip hand with no gun: the trigger finger and
+    the thumb along the frame stuck out ahead and read as a pointing hand.) The left fist is its mirror."""
+    skin = Part(); sleeve = Part()
+    blob(skin, (0.0008, -0.0095, -0.0050), (0.0046, 0.0112, 0.0075))          # the back of the hand and palm
+    rows = ((-0.0010, 0.0030), (-0.0068, 0.0031), (-0.0124, 0.0029), (-0.0174, 0.0025))   # index .. little: y, radius
+    for k, (y, r) in enumerate(rows):
+        reach = 1.0 - 0.10 * k                                                 # the little finger is shorter
+        kn = (0.0042, y, 0.0040 - 0.0006 * k)                                  # the knuckle (back of the hand side)
+        bend = (-0.0040 * reach, y - 0.0004, 0.0058 - 0.0006 * k)             # the first bend, front left
+        tip = (-0.0052 * reach, y - 0.0008, -0.0004)                          # folded back into the palm
+        blob(skin, kn, (r * 1.10, r * 1.05, r * 1.10), segments=10, rings=6)
+        tube_between(skin, kn, bend, r, r * 0.95, 10)                          # first phalanx: the flat of the fist
+        blob(skin, bend, (r * 0.98, r * 0.95, r * 0.98), segments=10, rings=6)
+        tube_between(skin, bend, tip, r * 0.92, r * 0.80, 10)                  # second phalanx into the palm
+    blob(skin, (-0.0030, -0.0040, -0.0075), (0.0036, 0.0055, 0.0055))         # the ball of the thumb
+    tj = (-0.0052, 0.0016, -0.0002)                                            # the thumb's knuckle, at the top
+    tube_between(skin, (-0.0034, -0.0010, -0.0085), tj, 0.0030, 0.0027, 10)
+    blob(skin, tj, (0.0027, 0.0027, 0.0027), segments=10, rings=6)
+    tube_between(skin, tj, (-0.0068, -0.0075, 0.0028), 0.0026, 0.0021, 10)    # over the index and middle fingers
+    blob(skin, (-0.0068, -0.0075, 0.0028), (0.0021, 0.0021, 0.0021), segments=8, rings=5)
+    _forearm(skin, sleeve, (0.0015, -0.0175, -0.0105), (0.0020, -0.0180, -0.0150), (0.0280, -0.0600, -0.1600), 0.0056)
+    return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin"))),
+                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth")))]), 0.0
+
+
 ARMS = {"fp_arm_right": lambda: fp_arm("right"), "fp_arm_left": lambda: fp_arm("left"),
-        "fp_arm_left_cup": lambda: fp_arm("cup")}
+        "fp_arm_left_cup": lambda: fp_arm("cup"), "fp_fist_right": fp_fist}
 
 BUILDERS = {
     "pistol": pistol, "dual_pistol": pistol, "machine_gun": machine_gun, "silenced_mg": silenced_mg,

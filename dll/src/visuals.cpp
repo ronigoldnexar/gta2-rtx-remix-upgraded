@@ -188,6 +188,9 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         // times 0.3 still left two overlapping beams a blown white-yellow pool across the road at
         // night (QB-35, out/qb35_look1 t_w_third_night_clear). A beam is now 0.22 at most.
         if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity = 0.22f * (d.intensity < 4.0f ? d.intensity / 4.0f : 1.0f); }
+        // FIX-FIGURE-6 pfeel50: a muzzle flash pulses on the walls by day too (half its night
+        // strength), a short warm reach round the shooter.
+        if (d.source == kLightSourceMuzzle) { l.day = 0.5f; l.radius = 2.6f; l.intensity = 0.20f + 0.35f * (d.intensity < 1.0f ? d.intensity : 1.0f); }
         out->push_back(l);
         // A pool under each of the map's lamps (QB-35): a GTA2 lamp sits 1.5-3 blocks over the
         // street, and with the soft falloff above only ~3 % of it reached the pavement, so the
