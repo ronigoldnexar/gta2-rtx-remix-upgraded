@@ -47,6 +47,8 @@ void CarGlassRequestMasks(const Model& base);
 int CarGlassMaskForTexture(const std::string& texture, std::vector<uint8_t>* out, int* size);
 
 // Whether the model's rear screen was found (a seated car without one keeps FIX-SEATED's band).
+// VEHICLE-GLASS-6: the mask of this model is queued or still building (its census line waits for it).
+bool CarGlassPending(const Model& base);
 bool CarGlassHasRear(const Model& base);
 // VEHICLE-GLASS-3: the mesh has a hard top (built with the masks): a game open-top whose generated body
 // has a roof and windows (030 Land Roamer) takes glass.

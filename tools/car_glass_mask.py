@@ -119,7 +119,8 @@ def build(models, name, params=None):
     r0, r1 = roof[0], roof[-1]
     z0 = minZ + r0 * L / NB; z1 = minZ + (r1 + 1) * L / NB
     rake = 0.45 * H
-    res = {"name": name, "masks": {}, "H": H, "L": L, "z0": z0, "z1": z1, "minY": minY, "minZ": minZ, "top": top}
+    res = {"name": name, "masks": {}, "H": H, "L": L, "z0": z0, "z1": z1, "minY": minY, "minZ": minZ, "top": top,
+           "midX": midX, "W": W, "rake": rake}
     for st, (v, idx) in tris.items():
         path = os.path.join(models, st + ".tga")
         if not os.path.exists(path): continue
@@ -152,7 +153,108 @@ def build(models, name, params=None):
             nrm[ii] = n; valid[ii] = True
         res["masks"][st] = mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX, W, params or {})
         res["masks"][st]["rgb"] = rgb
+    if (params or {}).get("synth", 1):
+        synthesize(res, params or {})
     return res
+
+
+NON_CABIN = (54, 55, 61, 65, 66)
+
+
+def synthesize(res, P):
+    """VEHICLE-GLASS-6: a pane the colour rules did not find is synthesized from the glasshouse's geometry (the body's
+    own window apertures), so no closed body keeps an opaque baked window. Regions, model-wide over every body texture:
+    each side's windows (side faces under the roof span, 0.63-0.87 of the roof height, pillars of 0.05 of the length
+    kept at each end, a B-pillar of 0.035 of the length on a span over 0.30 of it), the windscreen and the rear screen
+    (facing forward / back, 0.66-0.87 of the roof, inset 0.14 of the screen's width at each side). A region whose
+    found glass covers under SYN_FRAC of its aperture takes the whole aperture (less livery). Sides and the rear only
+    on a car-like glasshouse (roof span at most SYN_SPAN of the length: a box truck's or van's long roof has blank
+    flanks); the windscreen on every closed body."""
+    H, L, z0, z1, minY, minZ, midX, W, rake = (res[k] for k in ("H", "L", "z0", "z1", "minY", "minZ", "midX", "W", "rake"))
+    span = (z1 - z0) / L
+    try: number = int(res["name"][:3])
+    except ValueError: number = -1
+    if number in NON_CABIN or 72 <= number <= 81:   # a tank, trailers, the flatbed, the wrecks: no glasshouse to glaze
+        res["synth"] = {}; res["carlike"] = (round(span, 2), False); return
+    # car-like: a short roof with tumblehome (the side glass leans in: its |x| at 0.78-0.87 of the roof under 0.90 of the
+    # belt's at 0.45-0.55); a box truck's, a van's or a bus's flanks stand upright the whole height (0.96-1.00)
+    xs_hi, xs_lo = [], []
+    for st, m in res["masks"].items():
+        if "underpan" in st: continue
+        pos, nrm, valid = m["pos"], m["nrm"], m["valid"]
+        h = (pos[:, 1] - minY) / H; z = pos[:, 2]
+        s = valid & (np.abs(nrm[:, 0]) > 0.4) & (z > z0) & (z < z1)
+        xs_hi.append(np.abs(pos[s & (h > 0.78) & (h < 0.87), 0] - midX)); xs_lo.append(np.abs(pos[s & (h > 0.45) & (h < 0.55), 0] - midX))
+    hi = np.concatenate(xs_hi) if xs_hi else np.zeros(0); lo = np.concatenate(xs_lo) if xs_lo else np.zeros(0)
+    tumble = float(np.median(hi) / max(np.median(lo), 1e-6)) if len(hi) >= 20 and len(lo) >= 20 else 1.0
+    carlike = span <= P.get("synspan", 0.70) and tumble < P.get("syntumble", 0.90)
+    frac = P.get("synfrac", 0.25)
+    pin = 0.05 * L
+    regs = {}
+    for st, m in res["masks"].items():
+        if "underpan" in st: continue   # VEHICLE-ART-13's floor pan
+        pos, nrm, valid = m["pos"], m["nrm"], m["valid"]
+        h = (pos[:, 1] - minY) / H; z = pos[:, 2]; x = pos[:, 0]; nx, ny, nz = nrm[:, 0], nrm[:, 1], nrm[:, 2]
+        hue, sat, val = hsv(m["rgb"])
+        livery = (sat > 0.55) & (val > 0.60)   # a bright sign or stripe; the bake's dark red seats behind a pane are not
+        base = valid & (ny <= 0.80) & ~livery
+        side = base & (np.abs(nx) > 0.4) & (h >= 0.63) & (h <= 0.87) & (z >= z0 + pin) & (z <= z1 - pin)
+        if z1 - z0 > 0.30 * L:
+            zm = 0.5 * (z0 + z1)
+            side &= np.abs(z - zm) > 0.0175 * L
+        scr = base & (h >= 0.66) & (h <= 0.87) & (np.abs(nx) <= 0.6)
+        scr &= ~side   # as the DLL: a texel is a side's first
+        front = scr & (nz > 0.35) & (z > z1 - 0.05 * L) & (z < z1 + rake)
+        rear = scr & (nz < -0.35) & (z < z0 + 0.05 * L) & (z > z0 - rake)
+        regs[st] = {"side+": side & (nx > 0), "side-": side & (nx < 0), "front": front, "rear": rear, "x": x}
+    out = {}
+    def missed(r):
+        ap = sum(int(g[r].sum()) for g in regs.values())
+        found = sum(int((res["masks"][st]["g"] & g[r]).sum()) for st, g in regs.items())
+        return ap >= 40 and found < frac * ap
+    # a side is synthesized only when BOTH sides missed (a painted-on window); one side found and the other not is an
+    # asymmetric body (023's serving hatch) or the mirror fill's business
+    both_sides = carlike and missed("side+") and missed("side-")
+    for r in ("front", "rear", "side+", "side-"):
+        if r.startswith("side") and not both_sides: continue
+        if r != "front" and not carlike: continue
+        if r in ("front", "rear"):   # the screen's own width at its height, inset at each side (the pillars)
+            xs = np.concatenate([g["x"][g[r]] for g in regs.values()]) if regs else np.zeros(0)
+            if len(xs) < 20: continue
+            lo, hi = np.percentile(xs, 2), np.percentile(xs, 98)
+            inset = 0.14 * (hi - lo)
+            for g in regs.values(): g[r] = g[r] & (g["x"] > lo + inset) & (g["x"] < hi - inset)
+        ap = sum(int(g[r].sum()) for g in regs.values())
+        found = sum(int((res["masks"][st]["g"] & g[r]).sum()) for st, g in regs.items())
+        take = ap >= 40 and found < frac * ap
+        out[r] = (ap, found, take)
+        if take:   # a synthesized side starts at 0.66 of the roof (0.63 cut under 028's chrome sill)
+            for st, g in regs.items():
+                add = g[r] if not r.startswith("side") else g[r] & ((res["masks"][st]["pos"][:, 1] - minY) / H >= 0.66)
+                res["masks"][st]["g"] = res["masks"][st]["g"] | add
+    if carlike and P.get("columns", 1):
+        # Column completion: on a side the colour rules found, a station (1/48 of the length) whose aperture is at least
+        # 0.4 glass takes its whole aperture height (the pale band the bakes leave along a window's top, a ragged sill);
+        # a station under that (a pillar, a door's baked slab) stays as it is.
+        for r in ("side+", "side-"):
+            if out.get(r, (0, 0, False))[2]: continue
+            zb = {st: np.clip(((m["pos"][:, 2] - minZ) / L * 48).astype(int), 0, 47) for st, m in res["masks"].items() if st in regs}
+            ap = np.zeros(48); fd = np.zeros(48); ys = [[] for _ in range(48)]
+            for st, g in regs.items():
+                f = g[r] & res["masks"][st]["g"]
+                np.add.at(ap, zb[st][g[r]], 1); np.add.at(fd, zb[st][f], 1)
+                for b, y in zip(zb[st][f], res["masks"][st]["pos"][f, 1]): ys[b].append(y)
+            # the median as the DLL's nth_element (upper median)
+            mh = np.array([np.sort(v)[len(v) // 2] if v else 1e9 for v in ys])
+            full = (ap >= 4) & (fd >= 0.4 * ap)
+            added = 0
+            for st, g in regs.items():   # above the station's median found glass, never its lower half (071/002 sill notches)
+                y = res["masks"][st]["pos"][:, 1]
+                add = g[r] & full[zb[st]] & ~res["masks"][st]["g"] & (y >= mh[zb[st]])
+                added += int(add.sum()); res["masks"][st]["g"] = res["masks"][st]["g"] | add
+            out[r + " columns"] = added
+    res["synth"] = out
+    res["carlike"] = (round(span, 2), round(tumble, 2), carlike)
 
 
 def on_belt(black, paint, valid, h, z, nx, minZ, L, P):
@@ -549,21 +651,24 @@ if __name__ == "__main__":
     ap.add_argument("--nobelt", action="store_true", help="without VEHICLE-GLASS-4's black-window-on-the-belt rule")
     ap.add_argument("--noholes", action="store_true", help="without VEHICLE-GLASS-5's fill of hull islands inside a pane")
     ap.add_argument("--nomirror", action="store_true", help="without VEHICLE-GLASS-5's mirror fill of each side window")
+    ap.add_argument("--nosynth", action="store_true", help="without VEHICLE-GLASS-6's panes synthesized from the glasshouse")
     ap.add_argument("--nooff", action="store_true", help="without VEHICLE-GLASS-3's off-hue rule")
     ap.add_argument("--old", action="store_true", help="the 33c34be heuristic (before VEHICLE-GLASS-2's class fixes)")
     a = ap.parse_args()
-    params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0, "mirror": 0, "holes": 0} if a.old else {}
+    params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0, "mirror": 0, "holes": 0, "synth": 0} if a.old else {}
     if a.nooff: params["offhue"] = 0
     if a.nodeep: params["deep"] = 0
     if a.nobelt: params["belt"] = 0
     if a.nomirror: params["mirror"] = 0
     if a.noholes: params["holes"] = 0
+    if a.nosynth: params["synth"] = 0
     for name in a.names:
         r = build(a.models, name, params)
         if not r: print(name, "no glass (no roof/too small)"); continue
         if r.get("authored"): print(name, "authored glass, left alone"); continue
         tot = sum(int(m["g"].sum()) for m in r["masks"].values())
-        print(name, "glass texels", tot, {k: int(m["g"].sum()) for k, m in r["masks"].items() if m["g"].sum()})
+        print(name, "glass texels", tot, {k: int(m["g"].sum()) for k, m in r["masks"].items() if m["g"].sum()},
+              "synth", r.get("carlike"), {k: v for k, v in r.get("synth", {}).items()})
         if a.dump:
             os.makedirs(a.dump, exist_ok=True)
             for st, m in r["masks"].items():

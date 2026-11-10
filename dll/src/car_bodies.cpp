@@ -5268,6 +5268,17 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             for (const ModelMesh& gm : model->meshes) ownGlass = ownGlass || gm.texture.find("_glass") != std::string::npos;
             const bool glassy = g_driverGlass && !glassCut && !ownGlass && !use.own && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
                                 !RemixApiAvailable() && BoardingCarSeated(use.object);
+            {   // VEHICLE-GLASS-6: a census of the glass path each body takes (once per model, seated or not, in range),
+                // so a traffic run says which bodies still draw painted windows or FIX-SEATED's band.
+                static std::set<int> said;
+                const bool seated = BoardingCarSeated(use.object);
+                const int key = modelNumber * 2 + (seated ? 1 : 0);
+                if (glassDist < 30.0f && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && said.size() < 400 &&
+                    (glassCut || ownGlass || !CarGlassPending(*model)) && said.insert(key).second)
+                    Log("car glass path: model %d (%s) %s: %s", modelNumber, model->name.c_str(), seated ? "seated" : "empty",
+                        ownGlass ? "own glass (authored)" : glassCut ? "glass + cabin" : glassy ? "FIX-SEATED band" :
+                        CabOpenTop(modelNumber) ? "open top" : "painted windows");
+            }
             g_carParts[kPartGlass] += CarNowMs() - tGlass;
             auto drawHull = [&](const Model& m, const gta2::Mat4& place) {
                 CarPartTimer partTimer(kPartHull);

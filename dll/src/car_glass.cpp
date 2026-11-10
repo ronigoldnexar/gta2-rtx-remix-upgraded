@@ -5,6 +5,9 @@
 #include "car_glass_split.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
 #include <atomic>
 #include <cmath>
 #include <cstring>
@@ -567,6 +570,142 @@ int DropPaintComponents(Mask& g, const std::vector<float>& rgb) {
 }
 
 // The mask and the cabin of one model (worker thread; the model is immutable once loaded).
+// VEHICLE-GLASS-6 (vr-car-glass, VEHICLE_PRIORITY 2): a pane the colour rules did not find is synthesized from the
+// glasshouse's own geometry, so no closed generated body keeps an opaque baked window (029 Dementia's side windows and
+// 005 Beamer's are baked in the paint's own colour; 028 found no glass at all; 002/016/035/037/048/071 no rear screen,
+// i.e. no driver seen from the chase camera). Regions, model-wide over every body texture: each side's windows (side
+// faces in the roof span at 0.63-0.87 of the roof height, 0.05 of the length kept as the A and C pillars, a B pillar of
+// 0.035 of it on a span over 0.30 of the length), the windscreen and the rear screen (facing forward / back at 0.66-0.87,
+// inset 0.14 of the screen's own width each side for the pillars). A region whose found glass covers under a quarter of
+// its aperture takes the whole aperture (less bright livery; a synthesized side from 0.66); a side only when both sides missed. Sides and rear only on a car-like glasshouse: a roof span
+// of at most 0.70 of the length and tumblehome (the side glass's |x| at 0.78-0.87 of the roof under 0.90 of the belt's
+// at 0.45-0.55: a box truck's, van's or bus's flanks stand upright, 0.96-1.00, and their blank cargo sides must stay
+// metal); the windscreen on every closed body. The tank, the trailers and the flatbed (54, 55, 61, 65, 66) and the wrecks
+// are never glazed. GTA2DX9_GLASS_SYNTH=0 turns it off for a session; the twin is tools/car_glass_mask.py synthesize.
+struct StemWork {
+    std::string stem;
+    Mask g;
+    std::vector<float> pos, nrm;
+    std::vector<uint8_t> valid;
+    Mask livery;   // saturated and bright: a sign or a stripe, never glazed
+};
+int g_synthOn = 1;                                         // GTA2DX9_GLASS_SYNTH=0: no synthesized panes (VEHICLE-GLASS-6)
+int g_columnsOn = 1;                                       // GTA2DX9_GLASS_COLUMNS=0: no column completion of the side windows
+
+void SynthesizePanes(const std::string& name, std::vector<StemWork>& work, float minY, float H, float minZ, float L,
+                     float z0, float z1, float rake, float midX) {
+    const int number = name.size() >= 3 && isdigit(static_cast<unsigned char>(name[0])) ? atoi(name.substr(0, 3).c_str()) : -1;
+    if (number == 54 || number == 55 || number == 61 || number == 65 || number == 66 || (number >= 72 && number <= 81)) return;
+    const float span = (z1 - z0) / L;
+    std::vector<float> hi, lo;
+    for (const StemWork& w : work) {
+        if (w.stem.find("underpan") != std::string::npos) continue;
+        for (int i = 0; i < kR * kR; ++i) {
+            if (!w.valid[i] || std::fabs(w.nrm[i * 3]) <= 0.4f) continue;
+            const float z = w.pos[i * 3 + 2], h = (w.pos[i * 3 + 1] - minY) / H;
+            if (z <= z0 || z >= z1) continue;
+            const float ax = std::fabs(w.pos[i * 3] - midX);
+            if (h > 0.78f && h < 0.87f) hi.push_back(ax);
+            else if (h > 0.45f && h < 0.55f) lo.push_back(ax);
+        }
+    }
+    auto median = [](std::vector<float>& v) { std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end()); return v[v.size() / 2]; };
+    const float tumble = hi.size() >= 20 && lo.size() >= 20 ? median(hi) / (std::max)(median(lo), 1e-6f) : 1.0f;
+    const bool carLike = span <= 0.70f && tumble < 0.90f;
+    const float pin = 0.05f * L, zm = 0.5f * (z0 + z1);
+    // Region of a texel: 0 none, 1 side +x, 2 side -x, 3 windscreen, 4 rear screen.
+    std::vector<std::vector<uint8_t>> region(work.size());
+    for (size_t k = 0; k < work.size(); ++k) {
+        const StemWork& w = work[k];
+        region[k].assign(kR * kR, 0);
+        if (w.stem.find("underpan") != std::string::npos) continue;   // VEHICLE-ART-13's floor pan
+        for (int i = 0; i < kR * kR; ++i) {
+            if (!w.valid[i] || w.livery[i]) continue;
+            const float nx = w.nrm[i * 3], ny = w.nrm[i * 3 + 1], nz = w.nrm[i * 3 + 2];
+            if (ny > 0.80f) continue;
+            const float h = (w.pos[i * 3 + 1] - minY) / H, z = w.pos[i * 3 + 2];
+            if (std::fabs(nx) > 0.4f && h >= 0.63f && h <= 0.87f && z >= z0 + pin && z <= z1 - pin &&
+                !(z1 - z0 > 0.30f * L && std::fabs(z - zm) <= 0.0175f * L)) {
+                region[k][i] = nx > 0.0f ? 1 : 2;
+                continue;
+            }
+            if (h < 0.66f || h > 0.87f || std::fabs(nx) > 0.6f) continue;
+            if (nz > 0.35f && z > z1 - 0.05f * L && z < z1 + rake) region[k][i] = 3;
+            else if (nz < -0.35f && z < z0 + 0.05f * L && z > z0 - rake) region[k][i] = 4;
+        }
+    }
+    // The screens' own width (2nd..98th percentile of x over the region), inset at each side for the pillars.
+    for (uint8_t r = 3; r <= 4; ++r) {
+        std::vector<float> xs;
+        for (size_t k = 0; k < work.size(); ++k)
+            for (int i = 0; i < kR * kR; ++i) if (region[k][i] == r) xs.push_back(work[k].pos[i * 3]);
+        if (xs.size() < 20) continue;
+        std::sort(xs.begin(), xs.end());
+        const float x0 = xs[xs.size() * 2 / 100], x1 = xs[(xs.size() * 98) / 100];
+        const float inset = 0.14f * (x1 - x0);
+        for (size_t k = 0; k < work.size(); ++k)
+            for (int i = 0; i < kR * kR; ++i)
+                if (region[k][i] == r && (work[k].pos[i * 3] <= x0 + inset || work[k].pos[i * 3] >= x1 - inset)) region[k][i] = 0;
+    }
+    static const char* kNames[5] = {"", "side+", "side-", "windscreen", "rear screen"};
+    char said[256] = {};
+    int sl = 0;
+    int ap[5] = {}, found[5] = {};
+    for (size_t k = 0; k < work.size(); ++k)
+        for (int i = 0; i < kR * kR; ++i)
+            if (region[k][i]) { ++ap[region[k][i]]; found[region[k][i]] += work[k].g[i] ? 1 : 0; }
+    auto missed = [&](int r) { return ap[r] >= 40 && found[r] * 4 < ap[r]; };
+    // A side only when BOTH sides missed (windows painted on): one side found and the other not is an asymmetric body
+    // (023's serving hatch) or MirrorFill's business.
+    const bool bothSides = carLike && missed(1) && missed(2);
+    for (uint8_t r = 1; r <= 4; ++r) {
+        if (r != 3 && !carLike) continue;
+        if (r <= 2 && !bothSides) continue;
+        if (!missed(r)) continue;
+        // a synthesized side starts at 0.66 of the roof (at 0.63 it cut under 028's chrome sill: dark notches)
+        for (size_t k = 0; k < work.size(); ++k)
+            for (int i = 0; i < kR * kR; ++i)
+                if (region[k][i] == r && (r > 2 || (work[k].pos[i * 3 + 1] - minY) / H >= 0.66f)) work[k].g[i] = 1;
+        if (sl < 200) sl += snprintf(said + sl, sizeof said - sl, "%s%s %d of %d", sl ? ", " : "", kNames[r], ap[r] - found[r], ap[r]);
+    }
+    // Column completion: on a side the colour rules found, a station (1/48 of the length) whose aperture is at least 0.4
+    // glass takes its aperture above the median height of the station's found glass (the pale band the bakes leave along
+    // a window's top; never the lower half: filled down to the aperture's 0.63, or to the lowest found texel, it cut dark
+    // notches under 071's and 002's chrome belts, runs qa_vg6_a2/a3); a station under that (a pillar, a door's baked slab) stays as it is. GTA2DX9_GLASS_COLUMNS=0 / twin "columns".
+    int colAdded[3] = {};
+    if (carLike && g_columnsOn && !bothSides) {
+        for (uint8_t r = 1; r <= 2; ++r) {
+            int cap[48] = {}, cfd[48] = {};
+            std::vector<float> colY[48];   // the station's found glass heights: the fill goes up from their median
+            auto zbin = [&](const StemWork& w, int i) {
+                return (std::max)(0, (std::min)(47, static_cast<int>((w.pos[i * 3 + 2] - minZ) / L * 48)));
+            };
+            for (size_t k = 0; k < work.size(); ++k)
+                for (int i = 0; i < kR * kR; ++i)
+                    if (region[k][i] == r) {
+                        const int b = zbin(work[k], i);
+                        ++cap[b];
+                        if (work[k].g[i]) { ++cfd[b]; colY[b].push_back(work[k].pos[i * 3 + 1]); }
+                    }
+            float cmid[48];
+            for (int b = 0; b < 48; ++b) {
+                cmid[b] = 1e9f;
+                if (colY[b].empty()) continue;
+                std::nth_element(colY[b].begin(), colY[b].begin() + colY[b].size() / 2, colY[b].end());
+                cmid[b] = colY[b][colY[b].size() / 2];
+            }
+            for (size_t k = 0; k < work.size(); ++k)
+                for (int i = 0; i < kR * kR; ++i) {
+                    if (region[k][i] != r || work[k].g[i]) continue;
+                    const int b = zbin(work[k], i);
+                    if (cap[b] >= 4 && cfd[b] * 10 >= cap[b] * 4 && work[k].pos[i * 3 + 1] >= cmid[b]) { work[k].g[i] = 1; ++colAdded[r]; }
+                }
+        }
+    }
+    Log("car glass: %s: glasshouse span %.2f, tumblehome %.2f (%s), synthesized panes: %s; side columns +%d / +%d", name.c_str(), span,
+        tumble, carLike ? "car" : "van/truck: windscreen only", sl ? said : "none", colAdded[1], colAdded[2]);
+}
+
 void Build(const Model* model, std::shared_ptr<Glass> glass) {
     NameThisThread("car glass build", true);
     std::lock_guard<std::mutex> one(g_buildLock);
@@ -669,6 +808,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
     // slices, so the vertices alone leave slices that only hold the floor).
     float hmC[kNb], under[kNb];
     for (int b = 0; b < kNb; ++b) { hmC[b] = -1e9f; under[b] = -1e9f; }
+    std::vector<StemWork> work;
     for (auto& entry : tris) {
         const std::string& stem = entry.first;
         std::vector<float> rgb, paintA;
@@ -925,6 +1065,25 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         DropPaintComponents(g, rgb);
         if (g_mirrorOn) MirrorFill(g, band, liveryM, valid, pos, nrm, minY, H, minZ, L);
         if (g_holesOn) FillHoles(g, valid, strict);
+        // VEHICLE-GLASS-6: the counting, the dump and the panes run after every texture's mask, once the panes the
+        // colour rules missed are synthesized from the glasshouse (SynthesizePanes, model-wide).
+        work.push_back(StemWork{stem, std::move(g), std::move(pos), std::move(nrm), std::move(valid), {}});
+        {
+            Mask& lv = work.back().livery;
+            lv.assign(kR * kR, 0);
+            for (int i = 0; i < kR * kR; ++i) {
+                float hh, sa, va;
+                HueSat(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], &hh, &sa, &va);
+                lv[i] = sa > 0.55f && va > 0.60f ? 1 : 0;
+            }
+        }
+    }
+    if (g_synthOn) SynthesizePanes(model->name, work, minY, H, minZ, L, z0, z1, rake, midX);
+    for (StemWork& w : work) {
+        const std::string& stem = w.stem;
+        Mask& g = w.g;
+        const std::vector<float>& pos = w.pos;
+        const std::vector<float>& nrm = w.nrm;
         int count = 0;
         for (int i = 0; i < kR * kR; ++i) {
             g[i] = g[i] ? 255 : 0;
@@ -1267,6 +1426,8 @@ void CarGlassSettings(int enabled, int alphaPercent, int rangeBlocks) {
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_BELT", v, sizeof v) && v[0] == '0') g_beltOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_MIRROR", v, sizeof v) && v[0] == '0') g_mirrorOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_HOLES", v, sizeof v) && v[0] == '0') g_holesOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_SYNTH", v, sizeof v) && v[0] == '0') g_synthOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_COLUMNS", v, sizeof v) && v[0] == '0') g_columnsOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_REAR_GATE", v, sizeof v) && v[0] == '1') g_rearGate = 1;
     g_alpha = (std::max)(0.05f, (std::min)(1.0f, alphaPercent / 100.0f));
     g_range = static_cast<float>((std::max)(1, rangeBlocks));
@@ -1349,6 +1510,12 @@ int CarGlassMaskForTexture(const std::string& texture, std::vector<uint8_t>* out
         return 1;
     }
     return pending ? 0 : -1;
+}
+
+bool CarGlassPending(const Model& base) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    auto it = g_models.find(&base);
+    return it == g_models.end() || (it->second->state >= 0 && it->second->state < 2);
 }
 
 bool CarGlassHasRear(const Model& base) {

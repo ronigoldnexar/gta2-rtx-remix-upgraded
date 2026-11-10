@@ -512,3 +512,52 @@ Next to try:
 
 Both need a same-car A/B, which only a parked own car gives. VG5 found that parked cars do not sparkle, so a deterministic
 repro of the moving case is still missing.
+
+## 11. VEHICLE-GLASS-6 (10 Nov 2026): panes synthesized from the glasshouse, column completion, a glass-path census
+
+VEHICLE_PRIORITY 2 asks for the rule to hold by construction for every body: glass found -> a translucent tinted pane
+over a dark cabin with the driver visible; glass missing in the bake -> a pane anyway, never the opaque bake and never
+FIX-SEATED's band box (the black slab VEHICLE-ART-21 measured on 071/083, dd489cab).
+
+### 11.1 Which bodies still missed glass after dd489cab (measured, offline twin over all 83 meshes + the DLL logs)
+
+83 game models: 35 map to authored bodies with their own `_glass` (left alone), 42 to generated bodies with at least
+200 glass texels, 6 below: 028 Dementia Limousine (0 texels: band when seated, painted windows otherwise), 045 Spritzer
+(an open top), 054 tank, 055 tanker and 065/066 trailers, 061 flatbed (no glasshouse). Among the 42 "found" bodies whole
+panes were still baked: 005 Beamer found 85 of 653 side texels, 104 of 768, no windscreen; 029 Dementia none of either
+side (its windows are baked in the paint's own beige); 002, 016, 035, 037, 048, 071 no rear screen (no driver from the
+chase camera, 071 is prx6's car); 016/019/029/048 no windscreen.
+
+### 11.2 Synthesized panes (`SynthesizePanes`, twin `synthesize`)
+
+After the colour rules, model-wide over every body texture (the floor pan excluded), four apertures from geometry: each
+side's windows (side faces |nx| > 0.4 in the roof span, 0.63-0.87 of the roof height, 0.05 of the length kept at each end
+as the A/C pillars, a 0.035 B pillar in the middle of a span over 0.30 of the length), the windscreen and the rear screen
+(facing forward / back, 0.66-0.87, inset 0.14 of the screen's own width each side). A region whose found glass covers
+under a quarter of its aperture takes the whole aperture, less bright livery (saturation > 0.55, value > 0.60). Guards:
+- sides and the rear screen only on a car-like glasshouse: roof span at most 0.70 of the length and tumblehome (the side
+  glass's |x| at 0.78-0.87 of the roof under 0.90 of the belt's): box truck 007, bus 011, vans 052/067/068, 003, 017,
+  021 measure 0.96-1.00 (or a long span) and keep their blank flanks; the windscreen on every closed body;
+- a side only when BOTH sides missed (painted-on windows); one side found and the other not is an asymmetric body
+  (023's serving hatch) or the mirror fill's business (10.1);
+- the tank, the trailers and the flatbed (54, 55, 61, 65, 66) and the wrecks are never glazed.
+
+### 11.3 Column completion
+
+On a side the colour rules did find, a station (1/48 of the length) whose aperture is at least 0.4 glass takes its
+aperture above the median height of its found glass; a station under 0.4 (a pillar, a door's baked slab) stays. This
+removes the pale band the bakes leave along the top of a window (prx6's 071, 10.1 "still short"). Two first forms were
+dropped after frames: the whole aperture height (down to 0.63 of the roof) cut a dark notch under 071's chrome belt (run
+qa_vg6_a2), and "up from the station's lowest found glass" still cut notches under 002's (qa_vg6_a3): stray found texels
+sit at the sill. A synthesized side (11.2) starts at 0.66 for the same reason (028's sill spots at 0.63, qa_vg6_a1).
+
+Switches: `GTA2DX9_GLASS_SYNTH=0` (no 11.2 or 11.3, the dd489cab masks), `GTA2DX9_GLASS_COLUMNS=0`; twin `--nosynth`,
+`columns` param. Log: `car glass: <model>: glasshouse span .., tumblehome .. (car | van/truck: windscreen only),
+synthesized panes: <region> N of M, ...; side columns +a / +b`.
+
+### 11.4 The census line
+
+`car bodies` logs once per model and seated state, for a car within 30 blocks once its mask is built:
+`car glass path: model N (<mesh>) seated|empty: own glass (authored) | glass + cabin | FIX-SEATED band | open top |
+painted windows`. `gamerun/vg6_census.py` (+ `keys_qa_vg6cen.sh`) stands at kerbs in third person while traffic passes
+(`WARPS`, `CEN_SECONDS`), so a run's log is a census of the paths.
