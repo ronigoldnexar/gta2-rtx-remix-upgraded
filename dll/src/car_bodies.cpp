@@ -65,6 +65,7 @@ float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's exact door outline off (A/B)
 int g_doorInterior = 1;    // [devtools] door_interior=0: no cab interior drawn behind an open door (A/B)
+int g_seatedSep = 0;      // [devtools] seated_sep=1: a seated driver pushed out of his car like a ped on foot (the old way, pmt6 A/B)
 int g_forceOwnLift = 0;   // [devtools] force_own_lift=N: the driven car drawn N/100 block higher (tri11 probe)
 int g_fpSeatFreeze = 1;   // [devtools] fp_seat_freeze=0: FIX-SEAT-ENTRY-4's once-learned seat point off (tri11 A/B)
 int g_doorTopCut = 1;      // [devtools] door_top_cut=0: FIX-SEAT-ENTRY-4's cut of the shoulder faces across the door's top off (A/B)
@@ -3193,6 +3194,8 @@ void CarBodiesSetInfo(const std::vector<gta2::CarInfo>& infos) {
             static_cast<double>(g_doorBytes) / (1 << 20), g_dentLate, g_doorLate);
 }
 
+bool CarBodiesSeatedSep() { return g_seatedSep != 0; }
+
 bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth) {
     const auto it = g_cabins.find(reinterpret_cast<uintptr_t>(object));
     if (it == g_cabins.end()) return false;
@@ -3792,6 +3795,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
         g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
         g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
+        g_seatedSep = GetPrivateProfileIntA("devtools", "seated_sep", 0, g_devIni);
         {   // VEHICLE-GLASS: the glass on/off within one session, for same-spot before/after frames.
             const int glassKey = GetPrivateProfileIntA("devtools", "car_glass", -1, g_devIni);
             if (glassKey >= 0) CarGlassSetEnabled(glassKey);
@@ -5072,6 +5076,7 @@ void CarBodiesSetDevIni(const char* ini) {
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
     g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
     g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
+    g_seatedSep = GetPrivateProfileIntA("devtools", "seated_sep", 0, g_devIni);
 }
 const char* CarBodiesDevIni() { return g_devIni; }
 void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame) {

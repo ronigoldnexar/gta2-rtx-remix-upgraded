@@ -9859,7 +9859,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         {
             float sx = 0.0f, sz = 0.0f;
             const bool sepAllowed = !sepOff && !playerSprite && !sprite.corpse && !sprite.climbing && sprite.pedState != 3 &&
-                                    sprite.pedState != 4 && sprite.pedState != 8 && !arrested;
+                                    sprite.pedState != 4 && sprite.pedState != 8 && !arrested &&
+                                    // FIX-SEAT-ENTRY-4 (pmt6): a driver seated at the wheel is in the car on purpose; pushed
+                                    // out of a car at rest he stood hip-deep in its flank (the 082 roadster, bil)
+                                    !(seatedNow && !CarBodiesSeatedSep());
             bool inCar = false;
             sepMovable = sepAllowed;
             // This figure's drawn point before the separation (the track, smoothed), and the others' as drawn.

@@ -72,6 +72,9 @@ void CarBodiesReleaseDevice();
 // road and along the car: where the deck (hood/sill line) and the roof are,
 // where the windscreen's base is ahead of the car's centre, and half the
 // width. For the first-person eye at the wheel. False when the car is unknown.
+// FIX-SEAT-ENTRY-4 (pmt6): [devtools] seated_sep=1 lets the figures' draw-only separation push a seated
+// driver out of his car (the old behaviour, for A/B); default 0.
+bool CarBodiesSeatedSep();
 bool CarBodiesCabin(const void* object, float* deck, float* roof, float* windscreen, float* halfWidth);
 // The same car's body as drawn: its length and full height (roof gear included)
 // in blocks and half its width, for the chase camera's framing. False when unknown.

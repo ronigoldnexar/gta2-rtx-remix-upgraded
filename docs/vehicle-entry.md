@@ -421,3 +421,22 @@ the correction decayed to nothing in a second (log: 0.485 -> 0.18).
 - Still short: the natural repro was not reached again on the fixed build (2 of 5 scripted reverses
   hit the obstacle, both before the fix); a body lifted at the moment of seating still teaches a low
   seat; the cockpit hands are the view model's (FIX-FIGURE-9).
+
+## FIX-SEAT-ENTRY-4: a seated driver is not pushed out of his car (pmt6, 10 Nov 2026)
+
+pmt6 (bil, third person after Return into the parked 082): the hero stood hip-deep in the car's
+rear-left flank while classic, the HUD and first person had him seated. The 082 record does carry
+its seat (`driver_seat` 0.08, 0.112, -0.076, 0.2551; logged as published). `GTA2DX9_LOG_FIGURES=1`:
+boarding had him seated (`board: ... seated`, the enter_car fold, sunk 0.22, at the seat = the
+car's centre), but the figure was drawn 0.24 block from that point: FIX-FIGURE-6's draw-only
+separation (a figure inside a car body at rest is moved out by its nearest edge) treated the seated
+driver as a pedestrian inside a parked car. It never applied to the player's own sprite, but while
+driving g_playerObject is null and the seated figure is the board's stand-in keyed by the seat.
+
+- live_geometry: a figure seated at the wheel (`seatedNow`) is left out of the separation.
+  `[devtools] seated_sep=1` (car_bodies, `CarBodiesSeatedSep()`) is the old behaviour for A/B.
+- Probe: `gamerun/keys_fse4_seat.sh` (the filer's F9 / step / Return, V to third with
+  bev_parity.settings, shots with seated_sep 0 / 1 / 0, then first person); SWAP_LEVEL=bil for the
+  082, wil for the 068 van.
+- Still short: the 082 here is a closed coupe whose glass is dark, so the seated driver is hidden
+  rather than seen through the windows; an open-top body's driver was not filmed.
