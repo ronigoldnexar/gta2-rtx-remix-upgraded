@@ -408,3 +408,16 @@ stream reads as a ruler-straight dotted column (bil 150.5,200.5: 8 of 8 third-pe
 (05e2eb1e) left them out under Remix only. The plain renderer's street views now leave them out too. Classic never
 reaches this branch. `[devtools] remix_game_specks=1` draws them in both renderers (live A/B).
 `GTA2DX9_GAME_SPECKS_OLD=1` brings them back in the plain renderer only.
+
+Bead column A/B (the filer's qav52 repro, `gamerun/qa_run.sh <name> 600 qav52`, bil spot 3 = 150.5,200.5, 16:30, plain GL,
+private stage of f739e435): with the change, no bead line in any of the 8 third-person headings (qa_fx7_qav52). With
+`GTA2DX9_GAME_SPECKS_OLD=1` (qa_fx7_qav52old), heading 0 shows the filer's picture again: a ruler-straight line of pale
+beads rising from a small red mark on the paving.
+
+**Rocket backblast under Remix (ffx5 5w3), checked at a nearer camera.** FX-6's routing (64c1eb2b: shot smoke into the
+mode-4 soft puffs) was re-shot with the fixed camera 1.5 tiles to his side instead of 2.2 (rn_remix + keys_ffx5_specks.sh,
+wil 154.5,129.5, 12:00, `CAMD=1.5`). On every launch the backblast is a soft smoke cloud that starts at the tube's rear,
+stretches back over about a second and is gone by frame 22, with no glass or chrome sphere (fx7_bb1). A denser tone
+(the shot smoke in the soft puffs' mid tone) was tried as a live A/B and looked the same, so it was not shipped. Still short:
+under Remix the cloud is near-black soot rather than grey-brown dust (at either tone), has path-tracer grain inside, and
+casts a dark shadow on the wall.
