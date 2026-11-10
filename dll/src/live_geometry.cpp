@@ -7929,9 +7929,15 @@ void ShotFxImpacts() {
 // with the same kick on a shot (the shot: a fresh flash or bullet just ahead
 // of the eye, since the player's own sprite is not seen in this view). Drawn
 // over everything (no depth test), after the figures.
+uint32_t g_ownLensFrame = 0;   // FIX-FIGURE-10 pfl23: the frame his own figure was last left out of the picture (see DrawViewModel)
 uint32_t vmLastBob_ = 0;   // FIX-FIGURE-7: the frame the view model's bob last ran (a gap resets it)
 void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
-    if (CurrentViewMode() != ViewMode::FirstPerson || !g_playerObject || g_hiddenObjects[0] != g_playerObject || !g_pedWeapons) return;
+    // FIX-FIGURE-10 pfl23: on the move into his eyes (first person chosen, the camera still on its way)
+    // his figure leaves the picture (under the frame's bottom edge, behind the eye, or cut at the lens
+    // within 0.15 of it) before it is hidden as his own: on any such frame the view model is drawn,
+    // so no frame has neither his figure nor the hands and the gun.
+    const bool atLens = g_ownLensFrame && g_ownLensFrame == g_carFrame;
+    if (CurrentViewMode() != ViewMode::FirstPerson || !g_playerObject || (g_hiddenObjects[0] != g_playerObject && !atLens) || !g_pedWeapons) return;
     const gta2::Vec3 eye = camera.Position();
     const gta2::Vec3 f = g_viewForward;
     // FIX-FIGURE (fp-viewmodel-box-gun-no-hands): this frame's fresh effects too
@@ -10149,8 +10155,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // people share cached poses and cost no skinning of their own.
             if (!sprite.corpse) g_pedSpots.push_back({gx, cy, gz});
             // (his own figure from his eyes is at the eye, and its shadow falls in view)
-            if (model && !sprite.shadowOnly && BehindView(gx, cy, gz, 0.6f)) continue;
-            if (model && !sprite.shadowOnly && OutsideViewFrustum(gx, cy, gz, 0.75f)) continue;   // beside the picture: not drawn, track kept
+            if (model && !sprite.shadowOnly && BehindView(gx, cy, gz, 0.6f)) { if (heroFigure) g_ownLensFrame = g_carFrame; continue; }
+            if (model && !sprite.shadowOnly && OutsideViewFrustum(gx, cy, gz, 0.75f)) { if (heroFigure) g_ownLensFrame = g_carFrame; continue; }   // beside the picture: not drawn, track kept
+            if (heroFigure && model && CurrentViewMode() == ViewMode::FirstPerson) {
+                // FIX-FIGURE-10 pfl23: his chest and head both off the picture (under its bottom edge on the
+                // move into his eyes): he is out of the frame though inside the frustum's margin.
+                bool seen = false;
+                for (float hy : {0.55f, 0.88f}) {   // the chest, the middle of the head: inside the frame, not at its edge
+                    float sx = 0.0f, sy = 0.0f;
+                    if (LiveWorldToScreen(gx, cy + kPedHeight * hy, gz, &sx, &sy) && sx > 0.0f && sx < 1.0f && sy > 0.0f && sy < 0.97f) seen = true;
+                }
+                if (!seen) g_ownLensFrame = g_carFrame;
+            }
             // FIX-CAMERA-6 (pm43-bil-fp-respawn-at-hospital-eye-inside-ped-face-fills-frame): no figure at the lens.
             // A body whose axis is within kLensClear of the eye (seen from above) at the eye's height is cut by
             // the near plane and fills the frame from inside (after a respawn in first person a figure stood
@@ -10170,6 +10186,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             std::sqrt(lx * lx + lz * lz), ViewModeName(CurrentViewMode()));
                     }
                     lensFrame = g_carFrame;
+                    if (heroFigure) g_ownLensFrame = g_carFrame;   // FIX-FIGURE-10 pfl23: the view model stands in for him
                     continue;
                 }
                 // FIX-FIGURE-9 (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): in first person a stranger at
