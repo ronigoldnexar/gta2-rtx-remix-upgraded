@@ -100,3 +100,41 @@ Still short of a shipping frame: shade at low sun is now grey-teal rather than w
 bounce varies with what is sunlit; one overhead fill cannot); the courtyard under the red sign has no red
 cast at all; in first person a flat saturated red/blue disc floats beside a siren car (a beacon emitter seen
 close: separate look defect, not addressed); the night roofs and the cab are as FIX-REMIX-NIGHT-3 left them.
+
+## FIX-REMIX-NIGHT-5 (10 Nov): smoke puffs without fireflies, a golden low-sun bounce, the signal slab re-taken
+
+Play config (`rtx_play.conf.extra`), GPU 6, private stages, paused clock, same-session `[devtools]` toggles; probes
+`gamerun/frn5_probe1..7.py` with `gamerun/rn4_keys.sh`. Note for every probe: under Remix the devtools keys are read
+every 5-10 s of wall time (slow frames), so label frames from the DLL log's `devtools:` lines, not from the probe's marks.
+
+| change | where | gate | A/B key |
+|---|---|---|---|
+| Smoke and exhaust puffs: the opacity step is cut from a coherent noise (wisps ~1/16 of the puff, ranked so the covered share per step is the old one), stored as a smooth alpha field and sampled bilinear under the alpha test (smooth cut edge at any size), shaded in the albedo (thick = lighter, rim darker), one pattern per puff for its life | `vehicle_fx.cpp` `PuffWispsReady` | Remix device (the puffs are street-view effects) | `remix_puff_mode` 0 old dither / 1 wisps (default) / 2 none / 3 no exhaust |
+| Day bounce fill colour: golden (1, 0.78, 0.55) with the sun under 8 deg, blending to the noon warm grey by 30 deg, same luminance | `remix_lights.cpp` `ApplyAmbientFill` | street views, sun up | `remix_low_bounce_warm=0` |
+| A/B keys only (default = before): wide-neon threshold live, signal-light lift, headlamp/beacon emitter size | `Describe`, `synthetic_lights.cpp` | street views | `remix_wide_neon_tenths`, `remix_traffic_lift_milli`, `remix_bulb_pct` |
+
+Evidence:
+
+| check | before | after |
+|---|---|---|
+| wil 109.5,124.5, `spawn_smoke`, 22:00 and 12:00, far and close fixed cameras (frn5_p1, p3) | a cloud of isolated white texels (the firefly specks); at 0.6 tile hard white squares | coherent grey wisps with shaded volume; no isolated texels; `remix_puff_mode=2` (no puffs) removes the specks entirely, so the specks were the puffs |
+| first person over traffic at 22:00 (frn5_p1) | white squares at a braking taxi's front wheel (the ptrmx20 look) | none from the smoke; one small white glint per headlamp on the asphalt remains with the puffs off (the lamp emitter's reflection) |
+| wil 16:30 shaded road, first person p1 150.5,200.5 / third p2 240.5,100.5 (frn5_p3, alternating 0/1/0/1) | sat 0.22, hue 193 / hue 182 sat 0.07 | sat 0.11, hue 191 / hue 137 sat 0.03 (neutral, not teal) |
+| wil 07:00 p2 shaded road | hue 68 sat 0.06 | hue 43 sat 0.13 (warm) |
+| classic at 07:00, low bounce 0 vs 1 | | identical whole-frame mean |
+
+The junction signal's green facade slab (pt-remix-traffic-light-green-wash-slab): five takes now (frn3_s1, frn4_s1,
+frn4_s3, frn5_p2, frn5_p4). frn5_p4 put fixed cameras over the filer's landing (ste 108.0,117.4) in 8 headings at 22:00
+and 02:00 and alternated the filer's light rules (`remix_traffic_old=1 remix_sign_lights=0 remix_wide_neon_tenths=0
+remix_sodium_white=0`, the d933eaf look) with the shipped ones every 2 s: no facade slab in any heading with either.
+The filer's frame predates f9d219f (wide saturated map lights warm white) and 3a7d510; the green map lights near
+that junction (#008000 r 4 at 115.5,109.5,4.5, #80FF80 r 4 at 98.5,107.5) are now warm white; with the rule off a
+facade takes a faint green cast (frn5_p2), not a slab. A red pool on the crossing (west camera) did not change with
+the signal lift (`remix_traffic_lift_milli` 0/650, frn5_p6): it is probably not a junction signal (unidentified).
+
+Headlamp discs (ptrmx20): the white discs on a stopped bus's lamps (frn5_p5b, fixed cameras in front of it) are the
+model's lamp lenses, the same at emitter size 100 % and 45 %: a material (lens emissive), not a light emitter.
+
+Still short of a shipping frame: the puffs are cut-outs (a cloud of shaded wisps, not translucent smoke: Remix's
+translucent particle path rendered them black, NIGHT); shaded vertical facades at low sun stay blue (the bounce
+fill comes from straight above); the headlamp lens discs blow to flat white; the red crossing pool at ste 108,117.4.

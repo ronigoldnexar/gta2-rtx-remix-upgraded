@@ -130,6 +130,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
 void VehicleFxReleaseDevice();
 // [devtools] spawn_smoke: a tyre-smoke and a steam puff at `at` (call once a frame while wanted).
 void VehicleFxSetPuffLevels(bool on);   // [devtools] remix_puff_levels
+void VehicleFxSetRemixPuffMode(int mode);   // [devtools] remix_puff_mode: 0 old dither, 1 coherent wisps (default), 2 none, 3 wisps without exhaust
 void VehicleFxProbeSmoke(const gta2::Vec3& at, float groundY);
 // For the log: particles alive, skid segments, ms of the last frame (update + draw).
 void VehicleFxStats(int* particles, int* skids, double* ms);

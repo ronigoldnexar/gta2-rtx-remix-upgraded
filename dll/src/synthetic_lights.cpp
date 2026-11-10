@@ -6,6 +6,7 @@
 #include "game_access.h"
 #include "log.h"
 #include "remix_lights.h"
+#include "world_view.h"   // StreetPresentation (FIX-REMIX-NIGHT-5)
 
 #include "../../src/gta2_map.h"
 
@@ -76,6 +77,20 @@ const float kWorldMargin = 8.0f;
 // made up here, so the bulb and the height set where the beam goes and how big it is and
 // not how bright the road is.
 HeadlightTuning g_headTune;
+
+// FIX-REMIX-NIGHT-5 (ptrmx20 headlamp glows blown to flat white discs; NIGHT-4's flat red/blue disc beside a
+// siren car in first person): Remix draws a sphere light's emitter as a disc of its radiance wherever the
+// camera sees it. A headlamp's 0.031-tile bulb (12 cm) floats as a flat white plate over the bonnet, a
+// beacon's 0.07 (27 cm) and its glow's 0.12 as saturated discs wider than the light bar. In the street views
+// the emitters are this share of their size and the lights brighter by its inverse square, so each sends the
+// same power: a small hot point the bloom turns into a lamp, the lens and body round it readable. The
+// classic view keeps the old emitters. [devtools] remix_bulb_pct (read in remix_lights.cpp). OFF by default (100):
+// in frn5_p5b the white discs on a stopped bus's lamps were its model's lamp lenses, the same at 100 and 45 %.
+int g_streetBulbPct = 100;
+float StreetBulbScale() {
+    if (g_streetBulbPct <= 0 || g_streetBulbPct >= 100 || !StreetPresentation()) return 1.0f;
+    return static_cast<float>(g_streetBulbPct) / 100.0f;
+}
 
 float HeadlightBrightness(const SyntheticCategorySettings& c) {
     if (!g_headTune.compensate) return g_headTune.brightScale;
@@ -783,17 +798,18 @@ void EmitBeacon(const SyntheticCategorySettings& c, uintptr_t key, int slot, int
         strobe = s < std::max(0.02f, std::min(0.98f, c.beamStrobeDuty)) ? 1.0f : 0.0f;
     }
 
+    const float bulbK = StreetBulbScale(), bulbGain = 1.0f / (bulbK * bulbK);
     // Rotating spotlights. With N per colour, the colours alternate round the circle.
     for (int j = 0; j < beams && strobe > 0.0f; ++j) {
         if (!Room(kSynthSiren)) break;
         const float a = turn + (k ? c.colourPhase * (kTau / beams) : 0.0f) + j * (kTau / beams);
         RemixLightDesc d;
         for (int m = 0; m < 3; ++m) d.pos[m] = pos[m];
-        d.pos[1] += c.bulbSize + 0.01f;   // the sphere clear of the roof it sits on
+        d.pos[1] += c.bulbSize * bulbK + 0.01f;   // the sphere clear of the roof it sits on
         for (int m = 0; m < 3; ++m) d.rgb[m] = rgb[m];
-        d.intensity = c.intensity * boost * level * daylight * strobe;
+        d.intensity = c.intensity * boost * level * daylight * strobe * bulbGain;
         d.radius = c.radius;
-        d.emitterRadius = c.bulbSize;
+        d.emitterRadius = c.bulbSize * bulbK;
         d.spot = true;
         d.dir[0] = std::cos(a) * horizontal;
         d.dir[1] = -std::sin(pitch);
@@ -810,11 +826,11 @@ void EmitBeacon(const SyntheticCategorySettings& c, uintptr_t key, int slot, int
     if (Room(kSynthSiren)) {
         RemixLightDesc d;
         for (int m = 0; m < 3; ++m) d.pos[m] = pos[m];
-        d.pos[1] += c.glowBulb + 0.01f;
+        d.pos[1] += c.glowBulb * bulbK + 0.01f;
         for (int m = 0; m < 3; ++m) d.rgb[m] = rgb[m];
-        d.intensity = c.glowScale * boost * level * daylight;
+        d.intensity = c.glowScale * boost * level * daylight * bulbGain;
         d.radius = c.glowRadius;
-        d.emitterRadius = c.glowBulb;
+        d.emitterRadius = c.glowBulb * bulbK;
         d.source = kLightSourceSiren;
         d.explicitId = MixPointer(key, 0x51E3 + static_cast<uint64_t>(slot));
         LightsSubmitExtra(d);
@@ -1187,9 +1203,10 @@ void WalkVehicles() {
             d.rgb[0] = lit ? 1.0f : c.rgb[0];
             d.rgb[1] = lit ? 0.0f : c.rgb[1];
             d.rgb[2] = lit ? 1.0f : c.rgb[2];
-            d.intensity = lit ? 4.0f : c.intensity * daylight * HeadlightBrightness(c);
+            const float bulbK = StreetBulbScale();
+            d.intensity = lit ? 4.0f : c.intensity * daylight * HeadlightBrightness(c) / (bulbK * bulbK);
             d.radius = c.radius;
-            d.emitterRadius = c.bulbSize;
+            d.emitterRadius = c.bulbSize * bulbK;
             d.spot = true;
             d.dir[0] = fx * horizontal;
             d.dir[1] = -std::sin(pitch);      // tilted down towards the road
@@ -1663,6 +1680,7 @@ void SyntheticEraseBeam(int model) {
 }
 
 void SyntheticHighlightModel(int model) { g_highlightModel = model; }
+void SyntheticSetStreetBulbPct(int pct) { g_streetBulbPct = pct; }
 int SyntheticHighlightedModel() { return g_highlightModel; }
 
 void SyntheticHighlightType(int particleType) {

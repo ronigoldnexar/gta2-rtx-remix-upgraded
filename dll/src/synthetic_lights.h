@@ -198,6 +198,7 @@ void SyntheticEraseBeam(int model);
 // Paints one model's beams magenta so the model id in the list can be matched to
 // the car on screen. -1 clears.
 void SyntheticHighlightModel(int model);
+void SyntheticSetStreetBulbPct(int pct);   // [devtools] remix_bulb_pct: street-view emitter size of headlamps and beacons, % (100 = as before)
 int  SyntheticHighlightedModel();
 
 // Where one of a car's lamps sits, from the style file's own delta for it. See

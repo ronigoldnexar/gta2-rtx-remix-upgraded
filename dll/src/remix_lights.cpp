@@ -5,6 +5,8 @@
 #include "model_store.h"
 #include "remix_api.h"
 #include "time_of_day.h"
+#include "synthetic_lights.h"
+#include "vehicle_fx.h"
 #include "world_view.h"   // StreetPresentation (FIX-REMIX-3)
 
 #include "../../src/gta2_map.h"
@@ -32,6 +34,9 @@ std::vector<MapLampRecord> g_mapLampRecords;   // every steady lamp of the map f
 int g_farLampsLastFrame = 0;
 float g_farLampWeight = 0.0f;   // this frame's fade of the far lamps (0 when none were submitted)
 int g_probeMask = 0;              // [devtools] remix_lights_probe (see GameClassDaylight)
+int g_trafficLiftMilli = 0;       // [devtools] remix_traffic_lift_milli (FIX-REMIX-NIGHT-5)
+int g_lowBounceWarm = 1;          // [devtools] remix_low_bounce_warm (FIX-REMIX-NIGHT-5)
+int g_wideNeonTenths = -1;       // [devtools] remix_wide_neon_tenths (-1 = the setting wideNeonRadius, 0 = off)
 int g_poolCone = -1;             // [devtools] remix_pool_cone: PoolConeDegrees, live (-1 = the setting, 0 = sphere)
 int g_nightFillMilli = -1;       // [devtools] remix_night_fill_milli: NightSkyFill x1000, live (-1 = the setting)
 int g_dayFillMilli = -1;        // [devtools] remix_day_fill_milli: DayBounceFill x1000, live (-1 = the setting, 0 = off)
@@ -312,8 +317,11 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
     // full red over the Wil courtyard's walls and stairs. The classic view keeps the game's classes.
     const bool signLike = t.gameClass == kGameLightNeon ||
                           (g_signLights && t.gameClass == kGameLightStreet && StreetPresentation() && !SodiumLike(t.def.rgb));
+    // [devtools] remix_wide_neon_tenths (FIX-REMIX-NIGHT-5): the threshold live, 0 = the rule off (the
+    // look before f9d219f, for the traffic-slab repro), -1 = the setting.
+    const float wideNeon = g_wideNeonTenths >= 0 ? (g_wideNeonTenths > 0 ? g_wideNeonTenths / 10.0f : 0.0f) : g_settings.wideNeonRadius;
     if (t.def.source == kLightSourceGame && !t.moving && signLike &&
-        g_settings.wideNeonRadius > 0.0f && t.def.radius >= g_settings.wideNeonRadius &&
+        wideNeon > 0.0f && t.def.radius >= wideNeon &&
         !(ov && ov->recolor)) {
         static const float kWarm[3] = {1.0f, 0.80f, 0.58f};
         const float lumaWarm = 0.2126f * kWarm[0] + 0.7152f * kWarm[1] + 0.0722f * kWarm[2];
@@ -341,6 +349,11 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
     // red disc on the crossing: a third of the power at night, a tenth of that by day (the lens is
     // what reads by day), and its colour pulled a third of the way to white.
     if (TrafficShaped(t)) {
+        // FIX-REMIX-NIGHT-5: the game builds a signal's light at the post's foot, so the cone's apex sat on the
+        // asphalt and every phase threw a hot core onto the crossing (ste 108.0,117.4, frn5_p4: an amber disc
+        // blown white in its middle). In the street views it shines from head height on the post, the pool
+        // spread and even under it. [devtools] remix_traffic_lift_milli (tiles x1000; 0 = at the foot).
+        pos[1] += static_cast<float>(g_trafficLiftMilli) / 1000.0f;
         DaylightGate gate;
         gate.enabled = true;
         const float night = DaylightGateFactor(gate);
@@ -476,7 +489,7 @@ void ApplyAmbientFill() {
     // street adds there is bounce off sunlit stone and asphalt: a warm grey fill from above while the sun is up
     // (DayBounceFill, faded in over the sun's first 20 degrees). Street views only: the classic view's daytime
     // light list is as before.
-    float day = 0.0f;
+    float day = 0.0f, bounceElev = 90.0f;
     {
         const float bounce = g_dayFillMilli >= 0 ? static_cast<float>(g_dayFillMilli) / 1000.0f : g_settings.dayBounceFill;
         if (bounce > 0.0f && StreetPresentation() && RemixApiHasAtmosphere() && TimeOfDayPushed()) {
@@ -486,9 +499,23 @@ void ApplyAmbientFill() {
             // swamped it (06:30 ste courtyard 2.5x brighter, the hero's crown 39 -> 97, frn4_s1).
             float u = (std::max)(0.0f, (std::min)(1.0f, elev / 20.0f));
             day = bounce * u * u * (3.0f - 2.0f * u);
+            bounceElev = elev;
         }
     }
-    static const float kBounce[3] = {1.0f, 0.93f, 0.82f};
+    // FIX-REMIX-NIGHT-5 (NIGHT-4's open item: low-sun shade grey-teal, not warm): a low sun lights the stone
+    // and asphalt it reaches gold, so what bounces into the shade is golden too, and the dusk ramp's cool sky
+    // fill rises under it at the same hour. The bounce goes from a golden (1, 0.78, 0.55) with the sun under
+    // 8 degrees to the noon warm grey above 30, at the same luminance. [devtools] remix_low_bounce_warm=0: the
+    // NIGHT-4 colour at every height.
+    float kBounce[3] = {1.0f, 0.93f, 0.82f};
+    if (g_lowBounceWarm && day > 0.0f) {
+        static const float kGold[3] = {1.0f, 0.78f, 0.55f};
+        const float lumaGold = 0.2126f * kGold[0] + 0.7152f * kGold[1] + 0.0722f * kGold[2];
+        const float lumaNoon = 0.2126f * kBounce[0] + 0.7152f * kBounce[1] + 0.0722f * kBounce[2];
+        float w = (std::max)(0.0f, (std::min)(1.0f, (30.0f - bounceElev) / 22.0f));
+        w = w * w * (3.0f - 2.0f * w);
+        for (int i = 0; i < 3; ++i) kBounce[i] += (kGold[i] * lumaNoon / lumaGold - kBounce[i]) * w;
+    }
     if (!g_settings.enabled || level + night + day <= 0.0f) {
         DestroyHandle(g_ambientHandle);
         return;
@@ -996,6 +1023,24 @@ void LightsReconcile() {
             }
             const int dusk = GetPrivateProfileIntA("devtools", "remix_dusk_fill_deg", -1, ini);
             if (dusk != g_duskFillDeg) { g_duskFillDeg = dusk; Log("devtools: dusk fill from %d deg (-1: the setting %.1f)", dusk, g_settings.duskFillDeg); }
+            const int wn = GetPrivateProfileIntA("devtools", "remix_wide_neon_tenths", -1, ini);
+            if (wn != g_wideNeonTenths) { g_wideNeonTenths = wn; g_reliftPending = true; Log("devtools: wide neon warm-white from %d tenths of a tile (-1 setting, 0 off)", wn); }
+            static int lastBulb = -2;
+            const int bulb = GetPrivateProfileIntA("devtools", "remix_bulb_pct", -1, ini);
+            if (bulb != lastBulb) {
+                lastBulb = bulb; SyntheticSetStreetBulbPct(bulb >= 0 ? bulb : 100);
+                Log("devtools: street-view headlamp/beacon emitters at %d%% (-1: default 100)", bulb);
+            }
+            const int lbw = GetPrivateProfileIntA("devtools", "remix_low_bounce_warm", 1, ini);
+            if (lbw != g_lowBounceWarm) { g_lowBounceWarm = lbw; Log("devtools: low-sun golden bounce %s", lbw ? "on" : "off"); }
+            const int tl = GetPrivateProfileIntA("devtools", "remix_traffic_lift_milli", 0, ini);
+            if (tl != g_trafficLiftMilli) { g_trafficLiftMilli = tl; g_reliftPending = true; Log("devtools: junction signals lifted %d/1000 tile", tl); }
+            static int lastPuff = -1;
+            const int puff = GetPrivateProfileIntA("devtools", "remix_puff_mode", 1, ini);
+            if (puff != lastPuff) {
+                lastPuff = puff; VehicleFxSetRemixPuffMode(puff);
+                Log("devtools: Remix smoke puffs mode %d (0 dither, 1 wisps, 2 none, 3 wisps without exhaust)", puff);
+            }
             const int sodium = GetPrivateProfileIntA("devtools", "remix_sodium_white", 1, ini);
             if (sodium != g_sodiumWhite) { g_sodiumWhite = sodium; g_reliftPending = true; Log("devtools: sodium lamps as amber white %s", sodium ? "on" : "off"); }
             const int dayFill = GetPrivateProfileIntA("devtools", "remix_day_fill_milli", -1, ini);
