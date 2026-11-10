@@ -327,3 +327,23 @@ Findings that are not the body:
 
 Limits: on a shell, an 8 degree roll still sinks the near tyres a little (the tyres are in the mesh). The drawn lean
 of shells is about half the old one at its peak.
+
+## FIX-FX-5 (10 Nov 2026): no white squares on the road under a car's nose under Remix
+
+The "two hard-edged white squares on the pavement under the front bumper" (ptrmx20 at 22:00, prxq at dawn, fm8 at
+noon) were not puffs, skid marks or a light's glint. They were the game's own lamp deltas (headlight and tail-light
+pixels of the 2D car sprite) that `LiveGeometry::AddCarLamps` lays as small quads at the flat sprite's level. Under
+Remix those quads become emissive API meshes (`LampMaterialFor`), so under a 3D car model they lay on the paving
+just ahead of the nose. Each was a 2x2-texel lamp texture blown up to about 0.05 tile.
+
+How it was attributed, in single Remix sessions at the 018 pose (wil 164.5,147.6, `keys_fm7_own.sh` with `AB_SETS`):
+`remix_car_lamps=0`, `tyre_shadows=0`, `remix_lights_off=1`, `remix_puff_mode=2` with `remix_skid_mode=2`, and
+`remix_beam_mode=0` all left the squares unchanged. With all our lights out the scene went dark, but the squares still
+glowed and lit the road round them (out/ffx5_bs1), so they had to be emissive geometry. A plain-GL twin at the same pose
+shows nothing there (out/ffx5_pl1). FIX-FX-2 had already left these quads out under a 3D model in the plain renderer
+(the pm6 lamp dashes). It kept them under Remix because they were "the lamp lights' meshes", but the model has its own
+lenses and the street-view beams are remix_lights' (FIX-REMIX-NIGHT-8).
+
+Now the quads are left out under a hidden 3D car model under Remix too, in the street views only. Classic is untouched.
+`[devtools] remix_flat_lamps=1` brings the old quads back (live, for a same-session A/B). Frames: out/ffx5_fl1
+(`own_h22_*_abold` vs `_abnew`, `own_h13_*`).

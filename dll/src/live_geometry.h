@@ -167,6 +167,8 @@ void LiveGeometryGhostSprites();
 void SetUprightPeds(bool on);
 // Lamps on the 3D car bodies: 0 none, 1 when dark (plus brake lamps), 2 always.
 void SetCarLamps(int mode);
+// FIX-FX-5: [devtools] remix_flat_lamps=1 lays the game's lamp-delta quads flat under a 3D car model under Remix again (the old white squares on the road); 0 (default) leaves them out in the street views.
+void SetRemixFlatLamps(int on);
 // Street views, plain renderer: the soft contact shadow under cars, peds and props, percent opacity (0 off).
 void SetContactShadows(int percent);
 // Each drawn tyre's own dark contact patch under it, over the car's soft one (1 on, 0 off).

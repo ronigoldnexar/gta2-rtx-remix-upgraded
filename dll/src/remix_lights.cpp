@@ -1483,6 +1483,12 @@ void LightsReconcile() {
                 lastPuff = puff; VehicleFxSetRemixPuffMode(puff);
                 Log("devtools: Remix smoke puffs mode %d (0 dither, 1 wisps, 2 none, 3 wisps without exhaust)", puff);
             }
+            static int lastFlatLamps = -1;
+            const int flatLamps = GetPrivateProfileIntA("devtools", "remix_flat_lamps", 0, ini);
+            if (flatLamps != lastFlatLamps) {
+                lastFlatLamps = flatLamps; SetRemixFlatLamps(flatLamps);
+                Log("devtools: Remix flat lamp quads under 3D car models %s", flatLamps ? "on (old: white squares on the road)" : "off");
+            }
             {
                 // FIX-REMIX-NIGHT-7: the night palette live (see g_moonRgb).
                 auto rgbKey = [&](const char* key, float* out, const float* def) {

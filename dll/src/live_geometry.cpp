@@ -662,6 +662,8 @@ void LiveGeometryGhostSprites() { g_ghostSpritesWanted = true; }
 void SetPlayerWeapon(int weapon, int ammo) { g_playerWeapon = weapon; g_playerAmmo = ammo; }
 int PlayerWeapon() { return g_playerWeapon; }
 void SetCarLamps(int mode) { g_carLamps = mode; }
+int g_remixFlatLamps = 0;
+void SetRemixFlatLamps(int on) { g_remixFlatLamps = on; }
 bool UprightPeds() { return g_uprightPeds; }
 // FIX-SMOOTH-SWITCH (world_view.cpp): the presentation follows the camera's move, not the key.
 bool StreetPresentation();
@@ -7531,7 +7533,14 @@ void LiveGeometry::AddCarLamps(const Sprite& body) {
     // car_bodies.cpp's glows on the model. These quads lie at the flat sprite's level, under the
     // model, and showed as orange-red dashes on the road behind the car. Plain renderer only
     // (under Remix the lamp quads are the lamp lights' meshes).
-    if (body.hidden && body.shell < 0 && g_groundModels && g_carModels3d && !RemixApiAvailable()) return;
+    // FIX-FX-5 (ptrmx20, prxq, fm8: "two hard white squares on the road under the front bumper", day and night):
+    // under Remix those quads became emissive API meshes (LampMaterialFor) lying at the flat sprite's level,
+    // on the paving under and ahead of the 3D model's nose; with every one of our Remix lights out they still
+    // glowed and lit the road round them (out/ffx5_bs1). The model has its own lamp lenses and the street-view
+    // beams are remix_lights' (FIX-REMIX-NIGHT-8), so in the street views they are left out under Remix too.
+    // Classic is untouched (its car sprites are not hidden). [devtools] remix_flat_lamps=1: the old way.
+    if (body.hidden && body.shell < 0 && g_groundModels && g_carModels3d &&
+        (!RemixApiAvailable() || (!g_remixFlatLamps && CurrentViewMode() != ViewMode::Classic))) return;
     if (*reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase) != game::kSpriteBaseCar) {
         return;
     }
