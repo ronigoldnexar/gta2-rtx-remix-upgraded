@@ -223,6 +223,14 @@ second run on its output changes nothing. It writes new files (never through the
 The tool's `--preview` sheet shows, per avatar, the original, the old and the new halves under a tint, and the
 masks.
 
+The tool also pads the edges. The gutters between UV islands (texels under no triangle) used to be opaque in
+the rest half, in the avatar's old colour, and empty in the paint half. Where bilinear filtering or a mip level
+reached across a garment's edge, the alpha test let that gutter colour through: 1-px dark specks along the
+seams, such as f004's hood seam. The gutters are now shared out ring by ring (`--pad 4`) between the paint
+texels and the rest's opaque texels; ties go to the rest. A gutter texel the paint reaches takes the mean grey
+of its paint neighbours and is see-through in the rest half. Gutter texels given to the paint half: f004 23 297,
+f001 15 791, m009 20 112.
+
 f004 is dealt to remaps 18, 19, 37-40, 44, 45, 47, 51 and 52. f001 and m009 are in no ped type and not in the
 `pedestrians` list of today's manifest: the game never deals them. They were fixed so that a later manifest can
 use them.
@@ -254,12 +262,17 @@ against after:
 - f004's sage is a satin-bright mint at noon. That comes from the existing tint calibration, not from this split.
 - The sprite's hair colour for remaps 47-51 (lilac grey) is not shown on avatars with painted hair: that needs
   baked grey-hair variants.
-- **Remix:** the three pairs' texel hashes changed. Their new pair prims (6 hashes: albedo = the merged halves,
+- **Remix:** the three pairs' texel hashes changed. Their new pair prims (6 hashes 8BF3CBFAFF278C9E, FC049AB32E6739B0, 525C8B73D1BB1BC9, 5F04FB36314B66F4,
+  8AA21727C60994AB, EB6E86C8E75CE6C2; albedo = the merged halves,
   normal and roughness from the Rocketbox sources) were built with `tools/remix_model_materials.py --pattern
   '^human_(female_adult_04_f004|female_01_f001|male_adult_05_m009)_body(_paint)?\.tga$'` into a scratch layer and
   merged with `tools/remix_layer_merge.py`: 12 prims inserted into `mod.usda` and `mod_wet.usda`, none replaced, and
   `model_prims.txt` 1171 -> 1177. The old-hash prims stay and are inert. The 18 DDS files are a layer bundle
   (`layer_deploy/ASSET-PEDS-3`). Until it is deployed, these avatars draw with the legacy material: colour right,
-  no normal or roughness maps. No path-traced frame has been taken yet.
+  no normal or roughness maps. A path-traced take of the first, unpadded build of these prims (private package
+  with the prims merged; f004 in remap 47 and f001 in remap 40, at the fixed cameras): the jacket is one dark sage
+  leather with its folds as shading, the bun is one blonde, and f001's shirt is one burgundy. The layer's
+  sun makes the colours much darker than the plain renderer's. The padded build's prims were not taken path
+  traced (the halves differ from the unpadded ones only in the gutters).
 - **Not in git:** the textures ship in the `people` release archive, which needs repacking
   (`python3 tools/pack_release.py <out> people`).

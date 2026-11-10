@@ -16,6 +16,9 @@ moves to the paint half with its own luminance, by the same rule import_assets.p
 eased by 0.75 around the zone's mean, mean -> 128), with the zone's mean recovered from the
 texels already in the paint half so those stay byte-identical.
 
+The gutters between UV islands are then shared out between the two halves (--pad rings, edge padding),
+so filtering across a garment's edge never reaches the rest half's opaque gutter (1-px specks on seams).
+
 Files are written to --out (never in place: assets/models shares inodes with repo/stage).
 
 usage: paint_resplit.py <models dir> --out <dir> [--radius 5] [--preview <png>] <model>_<tag> ...
@@ -56,6 +59,48 @@ def zone_map(mesh, paint_tex, W, H):
             d.polygon([(float(uv[j, 0]) * W, float(uv[j, 1]) * H) for j in t], fill=val, outline=val)
     return np.asarray(z)
 
+def covered_map(mesh, texs, W, H):
+    """Texels under any triangle drawn with one of texs (the rest half's and the paint half's meshes)."""
+    z = Image.new('L', (W, H), 0); d = ImageDraw.Draw(z)
+    for me in mesh['meshes']:
+        if me['tex'] not in texs: continue
+        uv = me['v'][:, 6:8]
+        for k in range(0, len(me['idx']) - 2, 3):
+            t = me['idx'][k:k + 3]
+            d.polygon([(float(uv[j, 0]) * W, float(uv[j, 1]) * H) for j in t], fill=255, outline=255)
+    return np.asarray(z) > 0
+
+def _grow(m):
+    return np.asarray(Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(3))) > 0
+
+def pad_edges(rest, paint, covered, rings):
+    """Edge padding. The texels under no triangle (the gutters between UV islands) were opaque in the rest
+    half in the avatar's old colour, and empty in the paint half, so where bilinear filtering or a mip level
+    reaches across a garment island's edge the alpha test let the rest half's gutter colour through: 1-px
+    dark specks along the seams. The gutters are now shared out ring by ring (a Voronoi growth, ties to the
+    rest half) between the paint texels and the rest's opaque texels; a gutter texel the paint reaches is
+    paint (the mean grey of its paint neighbours, opaque) and see-through in the rest half."""
+    P = (paint[..., 3] >= 128) & covered
+    R = (rest[..., 3] >= 128) & covered
+    gutter = ~covered
+    paint[..., 3][gutter] = 0; rest[..., 3][gutter] = 255
+    g = paint[..., 0].astype(np.float32) * P
+    for _ in range(rings):
+        free = gutter & ~P & ~R
+        gp, gr = _grow(P) & free, _grow(R) & free
+        gp &= ~gr
+        if gp.any():
+            num = np.zeros_like(g); den = np.zeros_like(g)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    num += np.roll(np.roll(g, dy, 0), dx, 1); den += np.roll(np.roll(P.astype(np.float32), dy, 0), dx, 1)
+            v = np.clip(num / np.maximum(den, 1.0), 0, 255)
+            g = np.where(gp, v, g)
+            for c in range(3): paint[..., c][gp] = v[gp].round().astype(np.uint8)
+            paint[..., 3][gp] = 255; rest[..., 3][gp] = 0
+        P |= gp; R |= gr
+    return int((P & gutter).sum())
+
 def solid_regions(mask, r):
     """The connected regions of mask that contain a (2r+1)^2 square (morphological reconstruction
     of the opening): solid skin, not folds or speckle."""
@@ -94,7 +139,7 @@ def lum(a):
     a = a.astype(np.float32)
     return 0.299 * a[..., 0] + 0.587 * a[..., 1] + 0.114 * a[..., 2]
 
-def resplit(models, name, out, r, min_lum=100.0, min_g=0.295):
+def resplit(models, name, out, r, min_lum=100.0, min_g=0.295, rings=4):
     model, tag = name.rsplit('_', 1)
     mesh = gmsh.load(os.path.join(models, model + '.mesh'))
     body_n, paint_n = f'{name}_body.tga', f'{name}_body_paint.tga'
@@ -128,6 +173,9 @@ def resplit(models, name, out, r, min_lum=100.0, min_g=0.295):
         report.append(f"zone {'tb'[zv-1]}: mean {mean:.1f}, {int(sel_new.sum())} texels moved")
     print(f"{name}: garment {int((Z>0).sum())}, paint before {int(in_paint.sum())}, left in rest {int(outside.sum())}, "
           f"kept as solid skin/design {int(keep.sum())}, moved {int(move.sum())}; " + '; '.join(report))
+    covered = covered_map(mesh, (body_n, paint_n), W, H)
+    padded = pad_edges(new_rest, new_paint, covered, rings) if rings > 0 else 0
+    print(f"  gutter texels given to the paint half: {padded}")
     os.makedirs(out, exist_ok=True)
     for n, a in ((body_n, new_rest), (paint_n, new_paint)):
         p = os.path.join(out, n)
@@ -153,7 +201,8 @@ if __name__ == '__main__':
     ap.add_argument('models'); ap.add_argument('names', nargs='+')
     ap.add_argument('--out', required=True); ap.add_argument('--radius', type=int, default=5)
     ap.add_argument('--min-lum', type=float, default=100.0); ap.add_argument('--min-g', type=float, default=0.295)
+    ap.add_argument('--pad', type=int, default=4, help='gutter rings shared out between the halves (edge padding)')
     ap.add_argument('--preview'); ap.add_argument('--tint', default='150,175,140')
     a = ap.parse_args()
-    rows = [resplit(a.models, n, a.out, a.radius, a.min_lum, a.min_g) for n in a.names]
+    rows = [resplit(a.models, n, a.out, a.radius, a.min_lum, a.min_g, a.pad) for n in a.names]
     if a.preview: preview(rows, a.preview, tuple(int(x) for x in a.tint.split(',')))
