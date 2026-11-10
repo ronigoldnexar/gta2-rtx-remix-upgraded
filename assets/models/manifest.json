@@ -1571,15 +1571,39 @@
   },
   {
    "name": "042_a_type",
-   "glb": "cars/models3d/042_a_type.glb",
+   "glb": "cars/vehicle_art2/042_a_type.glb",
    "scale": 1.0,
    "paint_rgb": [
-    168.1,
-    129.0,
-    115.5
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/042_a_type/seal.png",
+    "chrome": "cars/vehicle_art2/042_a_type/chrome.png",
+    "grille_back": "cars/vehicle_art2/042_a_type/grille_back.png",
+    "underbody": "cars/vehicle_art2/042_a_type/underbody.png",
+    "paint_body": "cars/vehicle_art2/042_a_type/paint_body.png",
+    "grille": "cars/vehicle_art2/042_a_type/grille.png",
+    "interior_dark": "cars/vehicle_art2/042_a_type/interior_dark.png",
+    "chrome_disc": "cars/vehicle_art2/042_a_type/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/042_a_type/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/042_a_type/lamp_tail.png",
+    "seat": "cars/vehicle_art2/042_a_type/seat.png",
+    "tyre_side": "cars/vehicle_art2/042_a_type/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/042_a_type/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/042_a_type/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/042_a_type/paint_wheel.png",
+    "glass": "cars/vehicle_art2/042_a_type/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_042.py",
+   "driver_seat": [
+    0.076,
+    0.132,
+    0.018,
+    0.2985
+   ]
   },
   {
    "name": "044_arachnid",

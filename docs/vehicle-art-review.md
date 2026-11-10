@@ -507,4 +507,17 @@ wheels' own 160 inner-disc triangles):
   rear quarter and a small upright back light, a short deck between two small fins with round tail lamps, a chrome
   spear, whitewalls. geo_paint had painted its chrome and lost the dark roof (VEHICLE-ART-9).
 
+- **042 A-Type** (`car_042.py`, audit item 6: crumpled wings): the catalog's Cord 810 idiom on the 018 Shark's body
+  code without its forward lean: a blunt coffin nose wrapped in horizontal louvres (`tex_louvres`, toned down after
+  the first in-game take read as a black-and-white zebra patch), headlamps in the pontoon wing faces (the first take
+  buried them: the wing face is at z 2.07, read it off the mesh before placing a lamp), chrome centre strip down the
+  bonnet, four doors, fastback, teardrop tail, whitewalls; the arch liners narrowed to the slimmer nose.
+
+Train film (item 4): the regression camera set ahead of the logged train still framed a street and undersides
+(out/va10_rail1); the `vehicles:` line gave the trains z 3.0 then 1.0 at x,y with no track in view, so its train
+positions cannot be trusted yet. Trailers 055/065/066 are in no traffic district (catalog).
+
+Probe note: in the va6_own warp probe the hero is drawn sitting outside the left flank of every car on the e0b69de
+DLL (old shells and ART-9's 018 alike), while the manifest seat is published inside the cab: a probe/figure issue.
+
 Evidence: see the READY lines on the work orders (ptm1, vr-vehicle-art-audit-batch).
