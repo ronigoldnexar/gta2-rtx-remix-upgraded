@@ -2385,15 +2385,23 @@
   },
   {
    "name": "064_truck_cab_sx",
-   "glb": "cars/models3d/064_truck_cab_sx.glb",
+   "glb": "cars/models_art/064_truck_cab_sx.glb",
    "scale": 1.0,
    "paint_rgb": [
-    104.3,
-    79.9,
-    69.6
+    235.0,
+    235.0,
+    235.0
    ],
-   "texture_max": 512,
-   "paint_split": true
+   "texture_max": 1024,
+   "driver_seat": [
+    0.1342,
+    0.3895,
+    -0.0105,
+    0.63
+   ],
+   "material_textures": {
+    "glass": "cars/models_art/064_truck_cab_sx_glass_t.png"
+   }
   },
   {
    "name": "065_container",
