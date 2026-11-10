@@ -1,0 +1,112 @@
+# REMIX-PARITY-1 (10 Nov 2026): the closest the L4 (Tokyo) gets to the owner's RTX 5090 Remix session.
+# Self-contained (it repeats rtx_play.conf.extra, the play look, then overrides quality); select with
+#   RTX_EXTRA=/work/rtx_parity_max.conf.extra   (rn_remix.sh / playtest_remix.sh / rp1_take.sh: -e RTX_EXTRA=...)
+# Evidence, A/B frames and the cannot-do list: docs/remix-parity.md. Do not change rtx_play.conf.extra for this.
+# What still differs from the 5090 (NGX family, cannot be closed on an L4): NRC (ReSTIR GI stands in), DLSS
+# upscaling / Ray Reconstruction (TAA-U at full resolution stands in), DLSS frame generation; Reflex under Wine.
+#
+# ---- the play rig (rtx_play.conf.extra, verbatim below) ----
+# The "play" look on an NVIDIA GPU under Wine (REMIX-POST, 8 Nov 2026): appended to
+# rtx.conf with RTX_EXTRA=/work/rtx_play.conf.extra. Self-contained (it repeats what
+# rtx_gpu.conf.extra sets). Stable picture for playing: no motion blur, no depth of
+# field, no lens effects, slow symmetric-ish exposure. Time of day comes from the
+# game clock; for a fixed hour append one rtx_tod_*.conf.extra after this file
+# (docs/remix-materials.md, "Post stack and time-of-day presets").
+# Option names are this runtime's own (RtxOptions.md, out/remix_optdoc).
+#
+# Wine: no DLSS/NGX, frame generation or Reflex.
+rtx.dlfg.enable = False
+rtx.isReflexEnabled = False
+rtx.dlssPreset = 0
+rtx.faultNotice.enable = False
+rtx.screenshot.hotkey = F12
+rtx.shader.blockUntilPrewarmed = False
+rtx.gpuStallTimeoutSeconds = 600
+# Quality: the runtime's Auto preset (5) reads the L4 as "Turing" and picks Low
+# (remix-dxvk.log: "setting default graphics settings to Low"). Ultra (0) for play since
+# REMIX-PARITY-1 section 2a (docs/remix-parity.md): the 5090's Auto is Ultra, and Medium (2)
+# casts NO sun shadows at all (bench, lamp post, hydrant, cars, pedestrians all shadowless in
+# two sessions each way) while Ultra does; night frames identical within noise; p50 frame
+# cost unchanged on the L4 at 1280x720. The indirect integrator is unaffected: this file
+# never set it, and on the L4 every preset falls from NRC to importance sampled (section 2b
+# moves to Custom 4 + ReSTIR GI once measured). High = 1 is in the showcase preset.
+rtx.graphicsPreset = 0
+# Anti-aliasing: the old presets had upscalerType 0 = no temporal AA at all. TAA-U at full
+# resolution (DLSS needs NGX, which Wine lacks; 3 = TAA-U and taauPreset 4 = full
+# resolution follow the upstream enums, not yet confirmed in a frame here).
+rtx.upscalerType = 3
+rtx.taauPreset = 4
+rtx.resolutionScale = 1.0
+rtx.sharpening.sharpness = 0.2
+# Tonemapping: the runtime's default (6 = PsychoV17) until the A/B take
+# (remix_post.py POST_PARTS=explore) has been seen. Candidate for the saturated GTA2
+# palette, to switch on after that take:
+#   rtx.tonemap.tonemapOperator = 4      (AgX)
+#   rtx.tonemap.agx.look = 2             (Punchy)
+#   rtx.tonemap.agx.saturation = 1.15
+# Exposure: capped so the night stays night, slow both ways so passing lamps and
+# headlights do not pump the picture.
+rtx.autoExposure.maxExposure = 2.5
+# FIX-REMIX-MATERIALS-7 (prx1): the meter's target (geometric-mean Yf) 0.13, not the runtime's 0.18: a street frame
+# is mostly low-albedo asphalt and shade, which the 0.18 target pushed up until sun-lit road read cream-white
+# (203,207,177 against 113,127,116 shade at bil 150.5,130.5 09:00); at 0.13 186,190,158 / 97,110,99, the white
+# stone clips less, night unchanged (capped by maxExposure / remix_night_max_exposure_tenths).
+rtx.autoExposure.targetAdaptedYf = 0.13
+rtx.autoExposure.darkAdaptTau = 2.5
+rtx.autoExposure.lightAdaptTau = 0.8
+# Bloom: wide and only on the really bright (neon, lamp heads, tail lamps, the sun's
+# glints), fireflies from the small bulbs clamped.
+rtx.bloom.enable = True
+rtx.bloom.steps = 6
+rtx.bloom.luminanceThreshold = 0.9
+rtx.bloom.burnIntensity = 0.55
+rtx.fireflyFilteringLuminanceThreshold = 400
+# Post: this runtime turns motion blur, chromatic aberration and vignette ON by default
+# (rtx.postfx.*); the play look has none of them. This build has no depth of field.
+rtx.postfx.enableMotionBlur = False
+rtx.postfx.enableChromaticAberration = False
+rtx.postfx.enableVignette = False
+# Untagged materials (people, props, the game's own sprites): matte.
+rtx.legacyMaterial.roughnessConstant = 0.75
+rtx.legacyMaterial.metallicConstant = 0.05
+# Lights: the renderer's D3D9 directional light and the fallback light stay out
+# (REMIX-3); the atmosphere's sun and moon light the street.
+rtx.ignoreGameDirectionalLights = True
+rtx.fallbackLightMode = 0
+# Night sky: the stylised ground moonlight (50) lit the street like an overcast day.
+rtx.atmosphere.surfaceMoonBrightness = 3
+# A little airglow: the night sky dark blue, not pitch black.
+rtx.atmosphere.nightSkyBrightness = 0.008
+# FIX-REMIX-NIGHT-9 (prx1): replacement-texture streaming without sampler feedback. With feedback on (the
+# runtime's default) a small prop seen a few blocks away stays on the mip the GPU sampled for it (the stop
+# sign's 256 px face read as a blurred 8-16 texel disc at night); off, every replacement texture streams to
+# its top level within the budget and is never downgraded once there. Same-pose A/B (wil stop sign, fixed
+# cameras, 21:00): crisp octagon and STOP; frame time 43.7 -> 42.8 ms, VRAM peak 6.25 -> 6.75 GB of 23 GB.
+rtx.texturemanager.samplerFeedbackEnable = False
+rtx.texturemanager.neverDowngradeTextures = True
+
+# ---- parity overrides ----
+# Quality: the 5090 runs Ultra (Blackwell Auto). Ultra's preset layer owns the integrator and forces NRC, which
+# falls back to Importance Sampled on the L4; so Custom (4) with the Ultra-level values written out. Custom keeps
+# the sun shadows that Medium (the play rig) never casts (docs/remix-parity.md 2a, 2b).
+rtx.graphicsPreset = 4
+rtx.enableRaytracing = True
+rtx.integrateIndirectMode = 1
+rtx.pathMinBounces = 1
+rtx.pathMaxBounces = 4
+rtx.useRTXDI = True
+rtx.di.initialSampleCount = 4
+rtx.di.spatialSamples = 2
+rtx.di.disocclusionSamples = 4
+rtx.denoiseDirectAndIndirectLightingSeparately = True
+# Vulkan features the L4 has (log: supported/enabled); explicit so a later default change cannot drop them.
+rtx.opacityMicromap.enable = True
+rtx.isShaderExecutionReorderingSupported = True
+rtx.enableShaderExecutionReorderingInPathtracerIntegrateIndirect = True
+rtx.volumetrics.enable = True
+# Reflex: VK_NV_low_latency2 is on the L4, but under Wine the runtime logs
+# "Unable to initialize Reflex: NvLLVk support library cannot be loaded." Left off (as the play rig).
+rtx.isReflexEnabled = False
+# FSR 3 frame generation (master ordinal 2; never set rtx.fsrfg.enable / rtx.dlfg.enable directly): it initialises
+# on the L4 (docs/remix-parity.md 2f) but see the hang note there before turning it on for long sessions.
+rtx.frameGenerationType = 0

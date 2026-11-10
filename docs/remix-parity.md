@@ -97,3 +97,54 @@ session's sun and shadows, so nothing the preset sets was lost). Run `out/rp1_b2
 - Not the same thing as NRC: NRC is an infinite-bounce learned cache; ReSTIR GI is reservoir-resampled path tracing
   at 4 bounces. Lighting and material defects are judgeable under it; NRC-specific artefacts (cache lag after a light
   change, NRC's own noise pattern) are not.
+
+### 2c. Opacity Micromap (already on; measured off against on)
+
+`rtx.opacityMicromap.enable = False` (run `out/rp1_c02`) against the 2b rig (`out/rp1_b2`, on).
+- **Log:** on: `[RTX info] Opacity Micromap: supported` + `[RTX] Opacity Micromap: enabled` (rp1_b2); off: only `supported`
+  (rp1_c02 l. 292), no `enabled` line. The once-per-run `[RTX Opacity Micromap] Out of memory budget` info line stays with
+  it on (1.5 GB budget; not an error).
+- **What changed:** nothing visible: fence spikes, tree canopies and railings cut out identically
+  (`out/rp1_frames/crop_omm_on_top_off_bottom_026_S1_h21.5_third_c1_0.png`); OMM is a ray-tracing speed-up, not a look.
+- **Cost:** p50 55.0 / 48.7 / 44.9 / 47.0 ms off against 63.0 / 50.2 / 47.8 / 50.3 on: no gain measurable on this
+  scene within the session-to-session noise (about +-5 ms). Kept on (it is what the 5090 runs).
+
+### 2d. Shader Execution Reordering (already on; measured off against on)
+
+`rtx.isShaderExecutionReorderingSupported = False` (run `out/rp1_d02`).
+- **Log:** on: `[RTX info] Shader Execution Reordering: supported` / `enabled` (`VK_NV_ray_tracing_invocation_reorder` is in
+  the device's extension list); off: `... not supported` / `... disabled` (rp1_d02 l. 293-294).
+- **What changed:** nothing visible (mean abs frame difference 2-6 of 255, the size of moving traffic); SER is a scheduling
+  speed-up for the indirect pass.
+- **Cost:** 48.4 / 51.2 / 47.4 / 44.9 ms off: within the noise of on. Kept on (parity).
+
+### 2e. Volumetrics (already on; measured off against on)
+
+`rtx.volumetrics.enable = False` (run `out/rp1_e02`).
+- **Log:** the option echo `rtx.volumetrics.enable = False`; the runtime prints no volumetrics init line either way.
+- **What changed:** no visible difference at this street's distances
+  (`out/rp1_frames/crop_vol_on_top_off_bottom_007_S0_h13_third_c0_0.png`): with the default thin froxel medium the haze
+  only matters a few hundred metres out, and GTA2 streets end sooner. Lamp-cone and sun-shaft looks need fog density set
+  (rtx_showcase / rtx_advanced do that), not this switch.
+- **Cost:** 53.0 / 46.6 / 45.1 / 43.1 ms off, present stage p90 11-14 ms against 21-32 ms on: the froxel pass is the
+  one switch here with a measurable GPU share, a few ms. Kept on (parity).
+
+### 2g. Reflex: not SKU-gated on the driver side, blocked by Wine
+
+`rtx.isReflexEnabled = True`, `rtx.reflexMode = 1` (run `out/rp1_g2`).
+- **Log:** `out/rp1_g2/remix-logs/remix-dxvk.log` l. 288 `err: Unable to initialize Reflex: NvLLVk support library cannot be loaded.`
+- The L4's driver does expose the Reflex extension: `vulkaninfo` in the same image on GPU 4 lists `VK_NV_low_latency2`
+  (rev 2) and `VK_NV_present_metering` (rev 1). The runtime nevertheless logs `NV_present_metering extension not supported`
+  and cannot start NvLowLatencyVk.dll, whose only import is KERNEL32 and which resolves `nvapi_QueryInterface` at run
+  time: the Wine image has no `nvapi64.dll` and winevulkan does not hand the NV low-latency extensions through. So Reflex
+  is blocked by the Wine layer here, not by a GeForce check (an open-source NVAPI layer such as dxvk-nvapi in the prefix
+  would be the legitimate route; not tried in this pass). Reflex changes input latency, not the picture: nothing a
+  frame-based check depends on. Cost: 58.7 / 48.8 / 48.3 / 44.8 ms (the failed init costs nothing).
+
+### The parity rig
+
+`gamerun/rtx_parity_max.conf.extra` (copy in `linux/docker/`), self-contained: the play rig verbatim, then
+`graphicsPreset 4` + ReSTIR GI + the Ultra-level path/RTXDI values (2a, 2b), OMM / SER / volumetrics explicitly on
+(2c-2e), Reflex off (2g), `frameGenerationType 0` (2f). Use: `-e RTX_EXTRA=/work/rtx_parity_max.conf.extra` on
+`rn_remix.sh` / `playtest_remix.sh`, or `gamerun/rp1_take.sh <run> rtx_parity_max.conf.extra <secs>`. Every step conf
+of this page is in `linux/docker/rp1_*.conf.extra`.
