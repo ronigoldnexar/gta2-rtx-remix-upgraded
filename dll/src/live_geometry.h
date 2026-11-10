@@ -793,6 +793,7 @@ private:
         // FIX-ACTIONS-3: the puncher's mark (a figure in reach in front of him), for the turn onto it.
         bool punchAim = false;
         float punchAimX = 0.0f, punchAimZ = 0.0f;
+        uintptr_t punchAimObj = 0;   // kept through the combo while he stays in reach (no swap mid-swing)
         // FIX-ACTIONS-3: the thrown driver's drawn spot held off the game's (outside the car's body,
         // where he landed) while he lies; eased back onto the game's spot once he is up.
         float jackRestX = 0.0f, jackRestZ = 0.0f;

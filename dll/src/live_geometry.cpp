@@ -9543,6 +9543,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // 70 degrees) to be square to him by the strike; the swing's arm then runs along hero->target.
             bool punchTurn = false;
             track.punchAim = false;
+            if (track.action != 1) track.punchAimObj = 0;
             if (track.action == 1 && !sprite.corpse && sprite.pedState != 3 && sprite.pedState != 4) {
                 const float gx0 = std::sin(target), gz0 = std::cos(target);
                 const FigureSpot* mark = nullptr;
@@ -9556,7 +9557,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         const float d = std::sqrt(d2);
                         const float along = (vx * gx0 + vz * gz0) / d;
                         if (along < -0.17f) continue;
-                        const float score = d * (2.0f - along);
+                        const float score = d * (2.0f - along) * (f.object == track.punchAimObj ? 0.4f : 1.0f);
                         if (score < bestScore) { bestScore = score; mark = &f; }
                     }
                     if (mark) break;   // this frame's list first
@@ -9564,7 +9565,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (mark) {
                     target = std::atan2(mark->x - track.dx, mark->z - track.dz);
                     punchTurn = true;
-                    track.punchAim = true; track.punchAimX = mark->x; track.punchAimZ = mark->z;
+                    track.punchAim = true; track.punchAimX = mark->x; track.punchAimZ = mark->z; track.punchAimObj = mark->object;
                 }
             }
             float diff = target - track.heading;
