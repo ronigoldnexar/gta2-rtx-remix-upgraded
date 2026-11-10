@@ -7,9 +7,13 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
+#include "compat.h"
+#include "game_access.h"
 #include "log.h"
+#include "view_modes.h"
 
 namespace gta2dx9 {
 namespace {
@@ -321,6 +325,7 @@ void Step(float dt) {
 }
 
 float g_eye[3] = {0, 0, 0};
+int g_devBlastSeen = 0, g_devBurnSeen = 0;   // FIX-FX-4: the last force_blast / force_burn acted on (or read at load)
 bool g_eyeSet = false;
 
 struct PV { float x, y, z; DWORD c; float u, v; };
@@ -379,6 +384,8 @@ void ExplosionFxLoad(const char* iniPath) {
         g_set.spriteBright = (std::max)(0, (std::min)(100, num("sprite_percent", 35))) / 100.0f;
         g_set.carLight = num("car_light", 1) != 0;
         g_set.eyeBudget = (std::max)(5, (std::min)(1000, num("eye_budget_percent", 50))) / 100.0f;
+        g_devBlastSeen = static_cast<int>(GetPrivateProfileIntA("devtools", "force_blast", 0, iniPath));
+        g_devBurnSeen = static_cast<int>(GetPrivateProfileIntA("devtools", "force_burn", 0, iniPath));
     }
     char buf[8] = {};
     if (GetEnvironmentVariableA("GTA2DX9_EXPLOSION_FX", buf, sizeof buf) && buf[0] == '0') g_set.enabled = false;
@@ -409,7 +416,185 @@ void ExplosionFxNote(float x, float groundY, float z, float size) {
         x, groundY, z, size, b.k, static_cast<int>(g_parts.size()));
 }
 
+namespace {
+// FIX-FX-4: a deterministic blast for QA, through the game's own damage routine.
+//
+// [devtools] force_blast=N   (re-read twice a second; any change to a value > 0 acts once)
+//            blows up one car: the game's damage routine FUN_00427180 (__thiscall, car,
+//            amount, hit-offset vector) on a car whose damage is set to 31999 first, so
+//            the one-point hit walks the game's whole sequence: set alight (16000), the
+//            second fire (25000), lamps out (31500), the explosion FUN_00426FA0 (32000).
+//            The game's own blast sprite, sound, wreck model and splash damage follow,
+//            so this module, vehicle_fx's debris and the wreck draw see a real blast.
+// [devtools] force_burn=N    the same with damage 15999: the car is only set alight
+//            (and then burns up by itself one point a frame, as any burning car).
+// [devtools] force_blast_car=near|own   near (default): the car nearest the point
+//            force_blast_dist ahead of him along the camera's view, among the cars within 40
+//            degrees of the view if there are any (so it is in frame in third and first
+//            person); own: the last car he drove in a street view (he must
+//            have left it), else as near.
+// [devtools] force_blast_dist=<tenths of a block>, default 40 (4 blocks). Cars under 2 blocks
+//            from him are never picked.
+// He is never the target's driver, so he survives unless he stands in the splash
+// (about a block). Street views only (this module's frame hook).
+constexpr uintptr_t kCarDamageWord = 0x74;
+constexpr uintptr_t kCarDamageRoutine = 0x00427180;
+// The splash took 32 of his 100 health at 2.16 blocks (run fx4_bl_f9): nothing closer is picked.
+constexpr float kMinBlastDist = 2.5f;
+int g_healthLogIn = -1;   // frames until the 'player health after' line (-1: none due)
+
+struct DevCar { const uint8_t* car = nullptr; float x = 0, y = 0, z = 0, dist = 0; };
+
+const uint8_t* g_lastDriven = nullptr;   // the car he was last seen driving
+const uint8_t* g_pending = nullptr;      // the car to blow up (or set alight) at the next gbh_BeginScene
+bool g_pendingBlast = false;
+
+bool PlayerPosition(const uint8_t* ped, float* x, float* y, float* z, const uint8_t** driving) {
+    *driving = nullptr;
+    for (const uint8_t* v = game::VehicleListHead(); v; v = game::NextInList(v, game::kVehicleNext)) {
+        if (*reinterpret_cast<const uint8_t* const*>(v + game::kVehicleDriver) == ped) { *driving = v; break; }
+    }
+    if (*driving) return game::ReadPlacement(*driving, game::kVehiclePlacementPtr, x, y, z);
+    const uint8_t* phys = *reinterpret_cast<const uint8_t* const*>(ped + game::kPedPhysics);
+    if (game::PlausiblePointer(phys) && game::ReadPlacement(phys, game::kPhysicsSprite, x, y, z)) return true;
+    *x = *reinterpret_cast<const int32_t*>(ped + game::kPedX) * game::kFixedScale;
+    *y = *reinterpret_cast<const int32_t*>(ped + game::kPedY) * game::kFixedScale;
+    *z = *reinterpret_cast<const int32_t*>(ped + game::kPedZ) * game::kFixedScale;
+    return true;
+}
+
+void DevtoolsBlast(const gta2::Vec3& view) {
+    const char* ini = ViewModes().devIniPath;
+    if (!ini || !ini[0]) return;
+    static int clock = 0;
+    int& lastBlast = g_devBlastSeen;
+    int& lastBurn = g_devBurnSeen;
+    const uint8_t* ped = static_cast<const uint8_t*>(LocatedPlayerPed());
+    float px = 0, py = 0, pz = 0;
+    const uint8_t* driving = nullptr;
+    bool placed = false;
+    GTA2_TRY {
+        if (ped && game::PlausiblePointer(ped)) {
+            placed = PlayerPosition(ped, &px, &py, &pz, &driving);
+            if (driving) g_lastDriven = driving;
+        }
+    } GTA2_EXCEPT { placed = false; }
+    if (++clock % 15) return;
+    const int blast = GetPrivateProfileIntA("devtools", "force_blast", 0, ini);
+    const int burn = GetPrivateProfileIntA("devtools", "force_burn", 0, ini);
+    // The values at load are the baseline (ExplosionFxLoad), so a key left in the ini does not fire.
+    const bool doBlast = blast != lastBlast && blast > 0;
+    const bool doBurn = burn != lastBurn && burn > 0;
+    lastBlast = blast;
+    lastBurn = burn;
+    if (!doBlast && !doBurn) return;
+    const char* what = doBlast ? "force_blast" : "force_burn";
+    if (!placed) { Log("devtools: %s: the player is not located, nothing done", what); return; }
+    char mode[16] = {};
+    GetPrivateProfileStringA("devtools", "force_blast_car", "near", mode, sizeof mode, ini);
+    const float want = (std::max)(2.0f, GetPrivateProfileIntA("devtools", "force_blast_dist", 40, ini) / 10.0f);
+    bool own = !strcmp(mode, "own");
+    // The aim point: want blocks ahead along the view, in the game's frame (y south = -z).
+    float ax = view.x, ay = -view.z;
+    const float al = std::hypot(ax, ay);
+    if (al > 1e-3f) { ax /= al; ay /= al; } else { ax = 0; ay = 0; }
+    const float tx = px + ax * want, ty = py + ay * want;
+    if (own) {
+        bool seen = false;
+        GTA2_TRY {
+            for (const uint8_t* v = game::VehicleListHead(); v; v = game::NextInList(v, game::kVehicleNext)) if (v == g_lastDriven) { seen = true; break; }
+        } GTA2_EXCEPT { seen = false; }
+        if (!seen || g_lastDriven == driving) own = false;
+    }
+    DevCar best;
+    float bestScore = 1e9f;
+    // Cars in a cone of 40 degrees round the view come first (in frame); any car when none is.
+    float bestConeScore = 1e9f;
+    DevCar bestCone;
+    int health = -1;
+    bool ok = false;
+    GTA2_TRY {
+        int guard = 0;
+        for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024; v = game::NextInList(v, game::kVehicleNext), ++guard) {
+            if (v == driving) continue;
+            if (own && v != g_lastDriven) continue;
+            const int16_t dmg = *reinterpret_cast<const int16_t*>(v + kCarDamageWord);
+            if (dmg < 0 || dmg > 31999) continue;   // a wreck
+            const int32_t model = *reinterpret_cast<const int32_t*>(v + game::kVehicleModel);
+            if (model >= 72 && model <= 81) continue;
+            float x = 0, y = 0, z = 0;
+            if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &x, &y, &z)) continue;
+            const float d = std::hypot(x - px, y - py);
+            if (std::fabs(z - pz) > 1.5f || d < kMinBlastDist || d > 30.0f) continue;
+            const float score = own ? 0.0f : std::hypot(x - tx, y - ty);
+            if (score < bestScore) { bestScore = score; best.car = v; best.x = x; best.y = y; best.z = z; best.dist = d; }
+            const bool inCone = al > 1e-3f && ((x - px) * ax + (y - py) * ay) > 0.766f * d;
+            if (!own && inCone && score < bestConeScore) { bestConeScore = score; bestCone = {v, x, y, z, d}; }
+        }
+        if (bestCone.car) best = bestCone;
+        health = *reinterpret_cast<const uint16_t*>(ped + 0x216);
+        if (best.car) {
+            // Acted on at the next gbh_BeginScene (ExplosionFxGameTick): called from here, inside
+            // the frame's draw, the game's explode corrupted its draw grid (run fx4_bl_t2: a fault
+            // in the grid insert FUN_004479D0 the next frame, the game gone).
+            g_pending = best.car;
+            g_pendingBlast = doBlast;
+            ok = true;
+        }
+    } GTA2_EXCEPT { ok = false; }
+    if (!best.car) {
+        Log("devtools: %s %d: no car 2.5-30 blocks from the player at %.2f,%.2f,%.2f", what, doBlast ? blast : burn, px, py, pz);
+        return;
+    }
+    Log("devtools: %s %d: car %p model %d at %.2f,%.2f,%.2f, %.2f blocks from the player at %.2f,%.2f,%.2f "
+        "(%s; %s, aim %.2f,%.2f), player health %d (%s)", what, doBlast ? blast : burn, static_cast<const void*>(best.car),
+        *reinterpret_cast<const int32_t*>(best.car + game::kVehicleModel), best.x, best.y, best.z, best.dist, px, py, pz,
+        driving ? "at the wheel" : "on foot", own ? "his last car" : "nearest the aim point", tx, ty, health, ok ? "queued for the next frame's start" : "failed");
+}
+}  // namespace
+
+void ExplosionFxGameTick() {
+    if (g_healthLogIn >= 0 && g_healthLogIn-- == 0) {
+        int health = -1;
+        const uint8_t* ped = static_cast<const uint8_t*>(LocatedPlayerPed());
+        GTA2_TRY { if (ped && game::PlausiblePointer(ped)) health = *reinterpret_cast<const uint16_t*>(ped + 0x216); } GTA2_EXCEPT { health = -1; }
+        Log("devtools: force_blast/force_burn: 2 s on, player health %d", health);
+    }
+    if (!g_pending) return;
+    const uint8_t* car = g_pending;
+    const bool blast = g_pendingBlast;
+    g_pending = nullptr;
+    bool listed = false, ok = false;
+    int16_t before = -1, after = -1;
+    GTA2_TRY {
+        for (const uint8_t* v = game::VehicleListHead(); v; v = game::NextInList(v, game::kVehicleNext)) if (v == car) { listed = true; break; }
+        if (listed) {
+            uint8_t* c = const_cast<uint8_t*>(car);
+            before = *reinterpret_cast<int16_t*>(c + kCarDamageWord);
+            *reinterpret_cast<int16_t*>(c + kCarDamageWord) = static_cast<int16_t>(blast ? 31999 : 15999);
+            // Where the hit lands: a world point, x and y in 16.14 fixed, as the game's callers pass
+            // (a point off the car's placement). Not an offset: {0.5, 0.5} put the fire's sprite at the
+            // map corner and the game's draw grid broke (FAULT in FUN_004479D0, runs fx4_bl_t2/t4).
+            const uint8_t* place = game::Placement(c, game::kVehiclePlacementPtr);
+            if (place) {
+                static int32_t hit[4] = {0, 0, 0, 0};
+                hit[0] = *reinterpret_cast<const int32_t*>(place + game::kPlaceX);
+                hit[1] = *reinterpret_cast<const int32_t*>(place + game::kPlaceY);
+                hit[2] = *reinterpret_cast<const int32_t*>(place + game::kPlaceZ);
+                typedef int16_t(__attribute__((thiscall)) * Damage)(void* car, int amount, void* hit);
+                reinterpret_cast<Damage>(kCarDamageRoutine)(c, 1, hit);
+                after = *reinterpret_cast<int16_t*>(c + kCarDamageWord);
+                ok = true;
+            }
+        }
+    } GTA2_EXCEPT { ok = false; }
+    if (ok) g_healthLogIn = 60;
+    Log("devtools: %s on car %p at the frame's start: %s, damage %d -> %d", blast ? "force_blast" : "force_burn",
+        static_cast<const void*>(car), !listed ? "the car is gone" : (ok ? "the game's damage routine called" : "failed"), before, after);
+}
+
 void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
+    DevtoolsBlast(f);   // FIX-FX-4: [devtools] force_blast / force_burn
     const double now = Now();
     float dt = static_cast<float>(now - g_lastStep);
     g_lastStep = now;

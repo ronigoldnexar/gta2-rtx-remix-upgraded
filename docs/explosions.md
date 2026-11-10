@@ -49,6 +49,14 @@ street views only (`g_uprightPeds && g_fxUpright`). The classic top-down view is
 `smoke_seconds`, `sprite_percent`, `car_light`, `eye_budget_percent` (FIX-FX-3, below). Setting `GTA2DX9_EXPLOSION_FX=0` in the
 environment turns the effect off for one run (for A/B frames).
 
+**A blast on demand for QA (FIX-FX-4):** `[devtools] force_blast=1` (then 2, 3, ...: any change to a
+number above 0 acts once) blows up one car through the game's own damage routine, with the player
+alive; `force_burn=N` only sets it alight. Recipe:
+`GTA2_DIRECT_KEYS=1 FPS=30 INI_SED='s/^scene_key=.*/scene_key=F10/' STAGE=<stage> gamerun/grun.sh <name> 160 keys_fx4_blast.sh -e GTA2DX9_STATE_EVERY=3 -e VIEW=third|first [-e BURN=1] [-e DIST=4]`
+(runner `linux/docker/keys_fx4_blast.sh` + `fx4_blast.py`: F10 car, out, facing along the street, the
+view, the trigger, `qa_d_blast_*` shots, `game.mp4` at 30 fps; ends with a `RESULT blasts a->b lives x->y`
+line). Details in "FIX-FX-4" below.
+
 ## Verification (8 Nov 2026, private stage, L4 host)
 
 Scenario `gamerun/qb19_blast.py` (keys `keys_qb19_blast.sh`), run as
@@ -136,3 +144,48 @@ bars radiating across the whole frame in FIX-FX-2's failing frames (`out/fx2_t_f
 Seven first-person runs (`gamerun/fixfx2_burn.py`, `VIEW=first`, the same script as FIX-FX-2's) are tabled
 on the work order. The evaluator is `tools/fx3_blast_eval.py`: the frames shot within 1.6 s of the
 blast's log line, and the worst share of flash among them.
+
+## FIX-FX-4 (10 Nov 2026): a deterministic blast for QA
+
+Triage could not film a blast: `set_car_damage` writes the damage word of the car he drives, so
+31990 killed him at once (he is its driver), and a lower value burned without blowing up unless a
+knock happened to land. Four attempts failed (work orders `fire-fx-first-person-blast-wash-...`,
+`pm10-third-wasted-...`).
+
+**How it works** (`explosion_fx.cpp`, `DevtoolsBlast` and `ExplosionFxGameTick`):
+- Every 15 street-view frames the `[devtools]` keys `force_blast`, `force_burn`, `force_blast_car` and
+  `force_blast_dist` are re-read (documented in `package/gta2dx9.ini`). The values at load are the
+  baseline, so a key left set does not fire at start.
+- On a change, a car is picked from the game's vehicle list:
+  - never the one he drives, never one under 2.5 or over 30 blocks from him, no wreck, the same level;
+  - `near` (default): the car nearest the point `force_blast_dist` (tenths of a block, default 40)
+    ahead of him along the camera's view, preferring the cars within 40 degrees of the view, so it is
+    in frame in third and first person;
+  - `own`: the last car he drove in a street view.
+- At the next `gbh_BeginScene` (the game's logic for the frame is done, its draw has not started)
+  the car's damage word (+0x74) is set to 31999 (blast) or 15999 (burn), then the game's damage
+  routine `FUN_00427180` (thiscall: car, amount 1, hit point) is called. That one-point hit walks the
+  game's own sequence: alight at 16000 (`FUN_004226C0`), the second fire at 25000, lamps out at
+  31500, the explosion `FUN_00426FA0` at 32000. The game's blast sprite, sound, wreck model and
+  splash damage follow, so this module, `vehicle_fx.cpp`'s debris and the wreck draw all see a
+  real blast.
+- **The hit argument is a world point**, x/y/z in 16.14 fixed: the car's own placement is passed.
+  An offset (0.5, 0.5) there put the fire's sprite at the map corner, and the game faulted in its
+  draw-grid insert `FUN_004479D0` a few frames later (runs `fx4_bl_t2`, `fx4_bl_t4`; the second was
+  already called from `gbh_BeginScene`, so the timing was not the cause).
+- Log: `devtools: force_blast N: car <p> model M at x,y,z, D blocks from the player ... (queued ...)`,
+  then `devtools: force_blast on car <p> at the frame's start: ... damage a -> 32001`.
+
+**Verified** (private stage, wil, GPU-GL, 30 fps). Each run below logged its blast (`vehicle feel:
+... blew up`, `explosions: blast at`), had no `FAULT`, and kept the player's lives at 5 -> 5 and his
+health at 100:
+- `fx4_bl_t7`, third person: the car 5.1 blocks ahead, the fireball in the middle of the frame
+  behind the van he left;
+- `fx4_bl_f8`, first person: a van 3.2 blocks ahead;
+- `fx4_bl_f9`, first person (see the work orders for its frames).
+
+`fx4_bu_t5` (`BURN=1`): damage 0 -> 16000, the car alight, no fault in the 40 s after.
+
+**Seen, not yet fixed:** each blast is noted twice by this module, 1.7-2.0 s apart at the same spot
+(three `explosions: blast` lines per car; the third comes about 12 s on with a 0.85-tile sprite and is
+not attributed yet).

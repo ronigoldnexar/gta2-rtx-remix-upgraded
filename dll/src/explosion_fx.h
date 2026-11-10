@@ -58,6 +58,11 @@ bool ExplosionFxLight(float pos[3], float rgb[3], float* range);
 // the fire lights there are the blast's own and are held down while this module's flash plays).
 float ExplosionFxBlastShare(float x, float z, float radius);
 
+// FIX-FX-4: [devtools] force_blast / force_burn act here, from gbh_BeginScene (the game's
+// logic for the frame is done and its draw has not started), on the car the last street-view
+// frame picked. Nothing when no request is pending.
+void ExplosionFxGameTick();
+
 // Blasts noted and particles alive, for the log.
 int ExplosionFxBlasts();
 int ExplosionFxParticles();

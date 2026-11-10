@@ -26,6 +26,7 @@
 #include "debug_overlay.h"
 #include "frame_limiter.h"
 #include "game_access.h"
+#include "explosion_fx.h"
 #include "gibs.h"
 #include "density.h"
 #include "hud_pass.h"
@@ -1071,6 +1072,7 @@ __declspec(dllexport) void __stdcall gbh_BeginScene() {
     gta2dx9::StallDumpTestFrame();   // [devtools] stall_dump_test (thread_watch.cpp), off by default
     gta2dx9::FrameLogMarkBeginScene();
     if (Proxying() && g_p_gbh_BeginScene) { Backend<void(__stdcall*)()>(g_p_gbh_BeginScene)(); return; }
+    gta2dx9::ExplosionFxGameTick();   // FIX-FX-4: [devtools] force_blast / force_burn, outside the draw
     g_world.BeginFrame();
 }
 
