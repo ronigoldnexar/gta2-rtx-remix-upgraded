@@ -1411,6 +1411,69 @@ FIX-CAR-IDENTITY-3 (9 Nov 2026): these six and `057_t_rex_0`, `067_tv_van_0`, `0
 re-split) now have prims in `gta2hd`: 12 inserted with `remix_layer_merge.py`, additions only. Not yet seen path traced.
 Recipe: `docs/identity-system.md` section 8.5.
 
+## Car paint under path tracing: stale prims, a real clear coat, no false head lamps (FIX-REMIX-MATERIALS-2, 10 Nov 2026)
+
+pt-remix-noon-car-paint-matte-clay-no-specular-no-sky-reflection and pt-remix-third-aniston-bd4-pale-car-black-ragged-patchwork
+had one root cause, and it was not the coat's roughness.
+
+**Cause: the car textures had moved on and their prims had not.** The re-split of 9 Nov 20:38 (FIX-CAR-IDENTITY-2,
+`car_paint_resplit.py`) and the authored cars after it rewrote the `_0` atlas and its `_0_paint` twin of 42 of the 83
+cars (018 Shark, 002 Aniston BD4, 019 GT-A1 among them). Each got a new XXH3 hash, and the layer's prims stayed keyed on
+the old ones. Under Remix such a car is path traced with the runtime's default material, and its two draws (paint half
+and rest, the same mesh, each alpha-tested) are taken as one duplicate draw, so only one half shows (REMIX-POLISH's
+finding above). The result was a uniform matte grey-white "clay" body with ragged black window and arch holes (the Shark),
+or a pale shell with whole panels missing (the BD4, the GT-A1). The plain renderer draws the same BD4 as one clean
+pale silver car (`qa_frm2_plain`, same poses), so it was the layer, not the renderer's paint mask. By 10 Nov 00:20,
+after VEHICLE-ART-7, 174 of the 420 car textures the meshes draw had no prim.
+
+**Fix.** All car prims were rebuilt from the current `assets/models` (266 prims, `remix_model_materials.py --pattern
+'^\d{3}_.*\.tga$'` into a scratch layer, then `remix_layer_merge.py`: 262 replaced, 270 inserted counting both usda files,
+none removed; `model_prims` 799 -> 934). Re-check after any car-art change with the new
+`tools/remix_car_prim_check.py` (exit 1 and the missing hashes; 0 missing now). The other changes, all in `remix_model_pbr.py`:
+
+| | was (211bd69) | now |
+|---|---|---|
+| car paint (texels of the `_paint` half) | roughness 0.28, metallic 0.2 | roughness 0.18, metallic 0.05: a dielectric clear coat over the colour |
+| derived normal on the paint texels | full strength (2.5 on the atlases) | x0.3 (`PAINT_NORMAL_DAMP`): the panel lines stay as soft lines, the atlas grain goes |
+| chrome | 1.0 / 0.24 | 1.0 / 0.20 |
+| baked head lamps | any compact very bright neutral island at the car's ends | the island must also be 0.22 brighter than the visible texels around it (`HEADLAMP_CONTRAST`), and pale cars (median luminance of the lit end texels > 0.55, `HEADLAMP_PALE_BODY`) get none |
+
+The firefly order (pt-remix-car-paint-firefly-sparkle) blamed the glints on a near-mirror coat over the derived normal's
+grain. With the grain damped on paint the coat can be smooth again: no white dash glints were seen on any body in the
+takes below. The head-lamp gate is new because the first build of this pass made the BD4's nose glow as hard white
+islands at 21:30. The detector had taken fragments of its white body between the baked grime lines for lamps. Cars
+that keep baked head lamps: 012, 014, 034, 037, 051, 057, 064, 069, 071, 082, 083. Every car still has the `[Car lamps]`
+lights at night.
+
+**Verified in path-traced frames** (GPU 2, private stage = HEAD DLL, `rtx_play.conf.extra`). The take is
+`gamerun/frm2_remix.sh` with `KEYS=keys_frm2_own.sh` / `frm2_own.py`: the player's own car is stopped at one spot,
+forced to 018/002/019/012 with their identity paints, and filmed from six fixed regression-camera poses at 13:00 and 21:30.
+The same poses were taken with the old layer (`frm2_own_before`), the final layer (`frm2_own_final`) and the plain renderer
+(`qa_frm2_plain`, `keys_qa_frm2own.sh`). On the old layer the Shark is flat pale clay with ragged black windows and the
+BD4 and GT-A1 have ragged holes. On the new layer:
+- **Shark:** a whole car in its identity grey-green. Roof mean (141,147,134), where the old layer gave a washed-out
+  (169,171,157). A soft sun highlight follows the roof and bonnet curvature, the sky reflects on the roof, and the bumpers
+  and hubs are chrome.
+- **BD4:** whole and pale, with a chrome grille and wheels. At 21:30 it is a smooth, glossy pale body with soft
+  reflections of the lamps and no white or black islands.
+- **GT-A1:** whole, glossy red, with a sun highlight on the bonnet bubble.
+- **Shark top view at 13:00, highlight to body (luma p99/p50):** roof 1.09 -> 1.37, bonnet 1.17 -> 1.70 (p99 = 255 on the
+  bonnet).
+
+The classic view does not read the layer: vreg on the same stage gives 31/31 PASS, `spawn_classic` 0 tiles. Under Remix,
+the 13:00 classic frames at wil 120.5,152.5 with the old and the new layer are the same picture. They differ only by a
+1-pixel camera offset and the traffic.
+
+**Still short of a shipping frame.** These are faults of the art, not of the material:
+- The image-to-3D atlases bake grime and reflection blotches into the colour. The BD4's front and the GT-A1's flanks show
+  dark mottling that a clear coat cannot hide.
+- Glass is the atlas's dark texels made smooth (0.05). It reflects the sky but shows no interior, and the 018 windows
+  are opaque.
+- The paint hue under Remix follows the identity tint (the stage-1 texture factor). No `identity_parity` delta-E was measured.
+- 018's mesh no longer names its old `_1_paint` / `_3_paint` parts, and those files are stale leftovers of another
+  size (VEHICLE-ART).
+- The layer's DDS changed: the release archive `remix_mod_gta2hd.zip` needs repacking (RELEASE-PACK).
+
 ## The cars' smoke under Remix: dithered cut-outs (FIX-REMIX-NIGHT, 9 Nov 2026)
 
 pt-remix-night-smoke-puff-opaque-clay-lump: the "clay lump" was vehicle_fx's tyre smoke / exhaust / steam puff (its 5-lobed edge), not

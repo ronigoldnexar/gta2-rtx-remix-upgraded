@@ -23,7 +23,7 @@ the clear coat (cars) or the cloth (avatars), the rest per texel. Whichever draw
 the runtime keeps, the whole model is drawn, once.
 
     remix_model_materials.py assets/models <mod dir> [--src ../assets-src] [--jobs 4]
-        [--paint-roughness 0.28] [--paint-metallic 0.2] [--pattern REGEX] [--preview DIR] [--report JSON]
+        [--paint-roughness 0.18] [--paint-metallic 0.05] [--pattern REGEX] [--preview DIR] [--report JSON]
 
 --src: the source assets the importer read (assets-src, outside the repo): their
 normal / roughness / metallic maps and material factors are used where they exist;
@@ -216,8 +216,8 @@ def main():
     ap.add_argument("models")
     ap.add_argument("mod")
     ap.add_argument("--src", default=None, help="assets-src (default: <models>/../../../assets-src)")
-    ap.add_argument("--paint-roughness", "--roughness", type=float, default=0.28)
-    ap.add_argument("--paint-metallic", "--metallic", type=float, default=0.2)
+    ap.add_argument("--paint-roughness", "--roughness", type=float, default=pbr.PAINT_ROUGHNESS)
+    ap.add_argument("--paint-metallic", "--metallic", type=float, default=pbr.PAINT_METALLIC)
     ap.add_argument("--pattern", default=r".*\.tga$")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--preview", default=None)

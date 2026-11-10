@@ -74,10 +74,18 @@ sys.path.insert(0, HERE)
 # image-to-3D atlases (strength 5) path traced every car by day as a crawl of 1-3 px white sun
 # glints the denoiser could not settle; 0.28 keeps a coat's sky reflection and a sun highlight
 # that follows the body, chrome 0.24 (was 0.16), the atlases' derived normal at strength 2.5.
-PAINT_METALLIC, PAINT_ROUGHNESS = 0.2, 0.28
-CHROME_ROUGHNESS = 0.24
+# FIX-REMIX-MATERIALS-2 (pt-remix-noon-car-paint-matte-clay): the glints came from the derived
+# normal's grain under a near-mirror coat, not from the coat itself. The paint texels now take
+# the derived normal at PAINT_NORMAL_DAMP of its strength (panel gaps stay as soft lines, the
+# grain is gone), so the coat can be a real clear coat again: roughness 0.18, metallic 0.05
+# (a dielectric coat over the colour; 0.2 darkened the diffuse into dark tinted metal).
+PAINT_METALLIC, PAINT_ROUGHNESS = 0.05, 0.18
+PAINT_NORMAL_DAMP = 0.3
+CHROME_ROUGHNESS = 0.2
 LAMP_INTENSITY = 6.0        # tail / brake lamps, emissiveFactor lamps
 HEADLAMP_INTENSITY = 3.0    # white head lamps on the baked cars (brighter colour, lower gain)
+HEADLAMP_CONTRAST = 0.22    # a head lamp's texels over the mean luminance of the visible texels around it
+HEADLAMP_PALE_BODY = 0.55   # median luminance of the lit texels at a car's ends above which it is a pale car: no baked head lamps
 LIT_INTENSITY = 8.0         # __lit companions: booth sign, traffic-light lenses
 LIT_SMALL_INTENSITY = 3.0   # __lit pickup / token rings, the ringing handset
 BULB_INTENSITY = 12.0       # a street lamp's bulb
@@ -379,7 +387,18 @@ def car_trim_maps(rgba, ends=None):
     head = np.zeros_like(lamp)
     if at_end is not None:
         bright = (lum > 0.80) & (sat < 0.35) & (sd < 0.16) & at_end & vis
-        head = blobs(bright, nvis, amax_frac=0.0015, ratio=3, fill=0.45)
+        # FIX-REMIX-MATERIALS-2: a lamp stands out of its surroundings; on a white or pale car the
+        # nose's body texels are as bright as the test above, and their fragments between the grime
+        # lines glowed as white islands at night (002 Aniston BD4). Keep only islands clearly
+        # brighter than the visible texels around them (sigma 8 texels at 512 px).
+        wv = gauss(vis.astype(np.float32), 8.0)
+        around = gauss(np.where(vis, lum, 0.0).astype(np.float32), 8.0) / np.maximum(wv, 1e-3)
+        bright &= (lum - around) > HEADLAMP_CONTRAST
+        # and a pale car's lamps cannot be told from its body by colour at all: none baked
+        # (the night head lamps are the [Car lamps] lights either way)
+        body = at_end & vis & (lum > 0.25)
+        pale = bool(body.sum() > 50 and float(np.median(lum[body])) > HEADLAMP_PALE_BODY)
+        if not pale: head = blobs(bright, nvis, amax_frac=0.0015, ratio=3, fill=0.45)
     for m, (mt, ro) in ((brushed, (0.7, 0.32)), (chrome, (1.0, CHROME_ROUGHNESS)), (glass, (0.0, 0.05)),
                         (rubber, (0.0, 0.60)), (lamp, (0.0, 0.12)), (head, (0.0, 0.08))):
         metal[m] = mt; rough[m] = ro
@@ -507,6 +526,10 @@ def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False):
         if human: strength = 1.5
         if spec.get("lit") or spec.get("glass_model"): strength = 1.0
         normal = derived_normal(rgba, strength)
+        if paint_mask is not None and not human and group == "car3d":
+            # the coat is smooth: keep a trace of the panel lines, not the atlas grain
+            normal[paint_mask, :2] *= PAINT_NORMAL_DAMP
+            normal[paint_mask] /= np.linalg.norm(normal[paint_mask], axis=-1, keepdims=True)
         source.append("derived")
     if not gain.any(): emit_out, g_out = None, 0.0
     else:
