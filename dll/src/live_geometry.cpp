@@ -25,6 +25,7 @@
 #include <windows.h>
 #include <mmsystem.h>   // QB-29: the reload clicks (waveOut)
 #include "../../src/renderer.h"
+#include "../../src/post_fx.h"   // FIX-FIGURE-16: VisualLightAtEye, the view-model stencil bit
 #include "cache_warmup.h"
 #include "car_bodies.h"
 #include "compat.h"
@@ -9078,6 +9079,18 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    // FIX-FIGURE-16 (qav19): mark the hands' and the gun's pixels (stencil bit 0x40): post_fx's night-light pass skips them.
+    const bool vmStencil = gta2::ViewModelLightMaskOn();
+    if (vmStencil) {
+        device->SetRenderState(D3DRS_STENCILENABLE, TRUE);
+        device->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_ALWAYS);
+        device->SetRenderState(D3DRS_STENCILREF, gta2::kViewModelStencil);
+        device->SetRenderState(D3DRS_STENCILMASK, 0xFFFFFFFFu);
+        device->SetRenderState(D3DRS_STENCILWRITEMASK, gta2::kViewModelStencil);
+        device->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_REPLACE);
+        device->SetRenderState(D3DRS_STENCILFAIL, D3DSTENCILOP_KEEP);
+        device->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
+    }
     {
         const bool night = gta2::SkyConfig().sunElevationDeg < 6.0f;
         // ptm14: the hour's light, as the figures take it (the test above reads the configured sun only).
@@ -9120,7 +9133,24 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         {
             const float a[3] = {night ? 0x40 / 255.0f : 0x68 / 255.0f, night ? 0x40 / 255.0f : 0x68 / 255.0f, night ? 0x48 / 255.0f : 0x68 / 255.0f};
             auto byte = [](float v) { return static_cast<DWORD>((std::min)(255.0f, (std::max)(0.0f, v * 255.0f + 0.5f))); };
-            device->SetRenderState(D3DRS_AMBIENT, (byte(a[0] * tod[0]) << 16) | (byte(a[1] * tod[1]) << 8) | byte(a[2] * tod[2]));
+            // FIX-FIGURE-16 (qav19): the night lights round the eye, which the frame's light pass no longer adds onto the
+            // hands (stencil bit below): their brightness, 25 % of their hue over a warm white of the same luminance
+            // (skin under a teal sign stays skin, a little cooler; the wide-neon rule of visuals.cpp).
+            float add[3] = {0.0f, 0.0f, 0.0f};
+            if (gta2::ViewModelLightMaskOn()) {
+                float L[3];
+                gta2::VisualLightAtEye(L);
+                static const float kWarm[3] = {1.0f, 0.86f, 0.66f};
+                const float lum = 0.2126f * L[0] + 0.7152f * L[1] + 0.0722f * L[2];
+                const float wl = 0.2126f * kWarm[0] + 0.7152f * kWarm[1] + 0.0722f * kWarm[2];
+                for (int c = 0; c < 3; ++c) add[c] = 0.25f * L[c] + 0.75f * kWarm[c] * lum / wl;
+                static int logged = 0;
+                if (lum > 0.02f && logged < 20 && (g_carFrame % 60u) == 0u) {
+                    ++logged;
+                    Log("view model: night light at the eye %.2f,%.2f,%.2f -> hands %.2f,%.2f,%.2f (not the frame's light pass)", L[0], L[1], L[2], add[0], add[1], add[2]);
+                }
+            }
+            device->SetRenderState(D3DRS_AMBIENT, (byte(a[0] * tod[0] + add[0]) << 16) | (byte(a[1] * tod[1] + add[1]) << 8) | byte(a[2] * tod[2] + add[2]));
         }
         device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
         device->SetRenderState(D3DRS_NORMALIZENORMALS, TRUE);
@@ -9213,6 +9243,11 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? (fistModel ? (fist2 ? "fp_fist2_right" : "fp_fist_right") : "fp_arm_right") : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
     }
     if (haveVp) device->SetViewport(&vp);
+    if (vmStencil) {
+        device->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+        device->SetRenderState(D3DRS_STENCILWRITEMASK, 0xFFFFFFFFu);
+        device->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_KEEP);
+    }
     // FIX-REMIX-3: the hands' light off again (it was left on; under Remix an enabled D3D9 light
     // can be taken into the scene by any later draw).
     device->LightEnable(0, FALSE);

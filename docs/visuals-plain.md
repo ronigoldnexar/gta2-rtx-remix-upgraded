@@ -126,6 +126,20 @@ originals in the host's `backup_fw13_photo/ste`. At the filer's spot (out/qa_fw1
 out/qa_fw13flr_ste after) the shaded green wall goes from a near-black 32 to a textured dark green
 41 at noon.
 
+## The first-person hands and the night lights (qav19, FIX-FIGURE-16, 10 Nov 2026)
+
+The light pass adds albedo x the summed lights to every pixel, and the first-person hands are pixels too: at the
+wil dock (100.5,230.5, z 0) at 22:30 a teal light on the wall beside the eye added brown skin x teal, and the
+arms read olive-green (`[visuals] lights=0` gave the brown back; shadows, AO, hemisphere, bloom and the tone
+map did not change them). Now the view model (hands, fists, the gun) marks its pixels with stencil bit 0x40
+(`kViewModelStencil`, post_fx.h) and `ps_light_apply` is stencil-tested off them; the hands take the same
+lights themselves through their fixed-function ambient: `VisualLightAtEye` (post_fx.cpp) sums the night lights
+at the eye with ps_light's falloff and a half-wrapped facing, bounded as the apply pass bounds them, and the view
+model keeps 25 % of that light's hue over a warm white of its luminance (the wide-neon rule of visuals.cpp), so a
+teal sign brightens skin without turning it green. Log: `view model: night light at the eye R,G,B -> hands R,G,B`.
+`GTA2DX9_VM_LIGHT_OLD=1`: the hands under the light pass as before. Verified out/qa_fig16h0 (HEAD, olive) vs
+out/qa_fig16h1 (skin) with `gamerun/keys_qa_fig16h.sh` (fig16_hands.py: FH_SPOTS, FH_TOG live ini A/B).
+
 ## Costs
 
 (Filled in from the measurement runs below.)

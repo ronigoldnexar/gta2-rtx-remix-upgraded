@@ -112,6 +112,13 @@ struct LightVertex { float x, y, z, w; float p[4]; float c[4]; float s[4]; };
 
 VisualsSettings& VisualsConfig() { return g_visuals; }
 void SetVisualLightProvider(VisualLightProvider fn) { g_lightProvider = fn; }
+static float g_lightAtEye[3] = {0.0f, 0.0f, 0.0f};
+void VisualLightAtEye(float rgb[3]) { for (int c = 0; c < 3; ++c) rgb[c] = g_lightAtEye[c]; }
+// GTA2DX9_VM_LIGHT_OLD=1: the hands take the frame's light pass as before (qav19 A/B).
+bool ViewModelLightMaskOn() {
+    static const bool on = [] { char b[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_VM_LIGHT_OLD", b, sizeof b) && b[0] == '1'); }();
+    return on;
+}
 void SetVisualsPoll(VisualsPollFn fn) { g_poll = fn; }
 void VisualsPoll() { if (g_poll) g_poll(); }
 
@@ -1062,6 +1069,7 @@ void PostFx::Resolve() {
     // Night lights, added in one draw of a quad each.
     // (A fire's light also shows by day, at its own share: the provider runs every frame, and a
     // frame with nothing to add draws nothing.)
+    g_lightAtEye[0] = g_lightAtEye[1] = g_lightAtEye[2] = 0.0f;
     if (cfg.lights && g_lightProvider) {
         lights_.clear();
         g_lightProvider(&lights_);
@@ -1076,6 +1084,23 @@ void PostFx::Resolve() {
             if (v.z < -r || v.z - r > frame_.fogEnd) continue;
             if (std::fabs(v.x) > v.z * tanX + r * 1.5f || std::fabs(v.y) > v.z * tanY + r * 1.5f) continue;
             picks.push_back({v.x * v.x + v.y * v.y + v.z * v.z, static_cast<int>(i)});
+        }
+        {   // FIX-FIGURE-16 (qav19): the same sum at the eye (ps_light's falloff, half-wrapped facing), bounded as ps_light_apply does.
+            float L[3] = {0.0f, 0.0f, 0.0f};
+            for (const VisualLight& l : lights_) {
+                const float wgt = std::max(night, l.day);
+                if (wgt <= 0.02f || l.spot || l.radius <= 0.0f) continue;
+                const float dx = l.pos[0] - eye_.x, dy = l.pos[1] - eye_.y, dz = l.pos[2] - eye_.z;
+                const float x = std::sqrt(dx * dx + dy * dy + dz * dz) / l.radius;
+                if (x >= 1.0f) continue;
+                float att = 1.0f - x * x; att = att * att / (1.0f + 4.0f * x * x);
+                const float k = l.intensity * cfg.lightIntensity * wgt * frame_.blend * att * 0.6f;
+                for (int c = 0; c < 3; ++c) L[c] += l.rgb[c] * k;
+            }
+            const float m = std::max(L[0], std::max(L[1], L[2]));
+            const float cap = 1.0f, knee = 0.5f;
+            const float mb = m <= knee ? m : knee + (cap - knee) * (1.0f - std::exp(-(m - knee) / (cap - knee)));
+            for (int c = 0; c < 3; ++c) g_lightAtEye[c] = m > 1e-4f ? L[c] / m * mb : 0.0f;
         }
         const size_t cap = q == 0 ? 16 : (q == 1 ? 32 : 64);
         if (picks.size() > cap) {
@@ -1174,7 +1199,28 @@ void PostFx::Resolve() {
                 // knee below which a pool is as it was (one map lamp's pool is about 0.45).
                 const float ac[4] = {1.0f, 0.35f, 0.5f, 0.0f};
                 device_->SetPixelShaderConstantF(3, ac, 1);
+                // FIX-FIGURE-16 (qav19): not on the first-person hands (stencil bit 0x40, live_geometry's view
+                // model): a teal wall light added brown skin x teal = olive-green arms at the wil dock at night.
+                // They take this light themselves, its hue mostly gone (VisualLightAtEye).
+                const bool vmMask = ViewModelLightMaskOn() && depthSurf_;
+                if (vmMask) {
+                    device_->SetDepthStencilSurface(depthSurf_);
+                    for (DWORD s = 1; s < 4; ++s) device_->SetTexture(s, nullptr);   // the depth texture is the depth target now
+                    device_->SetRenderState(D3DRS_ZENABLE, FALSE);
+                    device_->SetRenderState(D3DRS_STENCILENABLE, TRUE);
+                    device_->SetRenderState(D3DRS_STENCILMASK, kViewModelStencil);
+                    device_->SetRenderState(D3DRS_STENCILWRITEMASK, 0u);
+                    device_->SetRenderState(D3DRS_STENCILREF, kViewModelStencil);
+                    device_->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);
+                    device_->SetRenderState(D3DRS_STENCILFAIL, D3DSTENCILOP_KEEP);
+                    device_->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
+                    device_->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_KEEP);
+                }
                 DrawQuad(w, h);
+                if (vmMask) {
+                    device_->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+                    device_->SetDepthStencilSurface(nullptr);
+                }
                 device_->SetTexture(5, nullptr);
             }
             device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);

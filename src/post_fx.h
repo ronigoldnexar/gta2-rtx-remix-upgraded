@@ -70,6 +70,13 @@ struct VisualLight {
 using VisualLightProvider = void (*)(std::vector<VisualLight>* out);
 using VisualsPollFn = void (*)();
 void SetVisualLightProvider(VisualLightProvider fn);
+// FIX-FIGURE-16 (qav19): the summed night lights at the eye last street-view frame, bounded the way
+// ps_light_apply bounds them (0 with the lights off or under Remix), for the first-person hands, which
+// take them through their own light instead of the frame's light pass (stencil bit 0x40, see below).
+void VisualLightAtEye(float rgb[3]);
+// The view model's pixels carry stencil bit kViewModelStencil; the light pass leaves them alone.
+constexpr unsigned kViewModelStencil = 0x40u;
+bool ViewModelLightMaskOn();
 void SetVisualsPoll(VisualsPollFn fn);
 void VisualsPoll();
 
