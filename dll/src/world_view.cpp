@@ -1,3 +1,4 @@
+#include "mem_stats.h"
 #include "world_view.h"
 #include "prop_collision.h"
 #include "regress_cam.h"
@@ -1237,6 +1238,7 @@ bool WorldView::EnsureWorldLoaded() {
         loadedMapObject_ = mapObject;
         return false;
     }
+    MemStatsLog("level load: before the style", 1);   // FIX-PERF-4: what each load step keeps
     if (!style.Load(stylePath, &error)) {
         Log("style load failed (%s): %s", stylePath.c_str(), error.c_str());
         loadedMapObject_ = mapObject;
@@ -1549,10 +1551,13 @@ bool WorldView::EnsureWorldLoaded() {
             sane ? "accepted" : "REJECTED, using defaults");
     }
 
+    MemStatsLog("level load: style and map read", 0);
     gta2::WorldMesh mesh;
     gta2::BuildWorldMesh(map_, style, slopes.data(), cuts, &mesh);
+    MemStatsLog("level load: world mesh built", 0);
     // The street views' camera collides with this same mesh (BLOCKER fp-camera-sees-through-wall).
     eyecol::Build(mesh, style);
+    MemStatsLog("level load: camera collision built", 0);
     {
         // Tile numbers are per style, so the high-resolution folder and the dump
         // are kept per style: wil, bil, ste.
@@ -1570,6 +1575,7 @@ bool WorldView::EnsureWorldLoaded() {
         return false;
     }
 
+    MemStatsLog("level load: world uploaded", 1);
     if (game::ViewRotation() != 0xFF) {
         Log("WARNING: view rotation is %u, not the 0xFF the tile orientation assumes",
             game::ViewRotation());
@@ -1602,6 +1608,7 @@ bool WorldView::EnsureWorldLoaded() {
     TimeOfDayRepush("level loaded");
     ghostAt_ = -1;   // FIX-PERF-VSWITCH: this level's street frame, drawn unseen (GhostStreetFrame)
     ghostWait_ = 0;
+    MemStatsLog("level load: end (the mesh and style locals are freed after this line)", 0);
     return true;
 }
 
@@ -2702,6 +2709,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     }
     if (mode != ViewMode::Classic) lostFallback_ = false;
     if (mode != lastViewMode_) {
+        MemStatsViewChange(static_cast<int>(lastViewMode_), static_cast<int>(mode));   // FIX-PERF-4
         if (lastPoseValid_ && vm.transitionSeconds > 0.01f) {
             transitionFrom_ = lastPose_;
             transitionT_ = 0.0f;
@@ -3503,6 +3511,7 @@ void WorldView::RenderFrame() {
     QueryPerformanceCounter(&entryStamp);
     if (!EnsureDevice()) return;
     if (FrameLogEnabled()) FrameLogAttachDevice(renderer_.Device());
+    MemStatsTick();   // FIX-PERF-4: the per-minute `mem:` line; an allocation failure holds classic
 
     if (window_ != gameWindow_) {
         // The game pumps its own window, not ours, and an unpumped window is a

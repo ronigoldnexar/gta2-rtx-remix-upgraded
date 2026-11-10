@@ -1,4 +1,5 @@
 // See vehicle_fx.h.
+#include "mem_stats.h"
 #include "vehicle_fx.h"
 
 #include <algorithm>
@@ -1735,6 +1736,13 @@ void VehicleFxStats(int* particles, int* skids, double* ms) {
     if (particles) *particles = static_cast<int>(g_particles.size());
     if (skids) *skids = static_cast<int>(g_skids.size());
     if (ms) *ms = g_lastMs;
+}
+
+// FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void VehicleFxMemGauges() {
+    MemGauge("vf.cars", static_cast<double>(g_cars.size()));
+    MemGauge("vf.skids", static_cast<double>(g_skids.size()));
+    MemGauge("vf.particles", static_cast<double>(g_particles.size() + g_parts.size()));
 }
 
 }  // namespace gta2dx9

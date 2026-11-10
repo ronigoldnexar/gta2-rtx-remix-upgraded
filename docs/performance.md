@@ -1195,3 +1195,69 @@ static-local guard (`__cxa_guard_release` -> `__gthr_win32_cond_broadcast` -> `W
 thread of its own (it imports neither `CreateThread` nor `_beginthreadex`).
 Classic unchanged: `tools/vreg/vreg.sh stage` on the same stage (`vreg_fdl1_a`): `spawn_classic` PASS with 0
 changed tiles. The one FAIL (`yakuza1_street`) is the window panes reflecting the sky (3131445), not this change.
+
+## Memory growth and the bad_alloc crash (10 Nov 2026, FIX-PERF-4)
+
+QA-STRESS filed two symptoms of one problem: gta2.exe's resident memory climbing ~10 MB/min in the street
+views while the managed pool line stayed flat, and a silent `std::bad_alloc` exit after 21.5 min of rapid
+V switching at Industrial. gta2.exe is a 32-bit large-address-aware process: what runs out is the
+**4 GB address space** (Linux VSZ), not RAM. RSS is only a proxy.
+
+### The counters (`dll/src/mem_stats.cpp`)
+
+- The DLL's own `operator new`/`delete` are replaced: every C++ allocation of the DLL is counted (live
+  bytes, live blocks, peak, allocations so far; a 16-byte size header per block).
+- `mem: minute ...` once a minute: the heap counters, a `VirtualQuery` survey of the address space
+  (`va commit private/mapped/image`, `reserved`, `free`, `largest_free`: what Wine itself manages) and the
+  process's `VmPeak/VmSize/VmRSS/RssAnon/RssFile` in MB from `/proc/<pid>/status` (Wine opens files in the
+  wineserver, so `Z:\proc\self` is the server; the game's own entry is found by its `comm`). Under Wine the
+  survey's `free` counts the host's own mappings (GL driver, PulseAudio, Mesa) as free: **VmSize is the
+  number that hits 4096**.
+- `mem: caches ...` after each minute line: every module's caches as `name=entries[/MB]` (`ms.*`
+  model_store: models with their CPU mesh bytes, rigid buffers with their D3D sizes, the pose cache, model
+  textures with their sizes; `cb.*` car_bodies: dents/doors/wheels with bytes, per-car maps; `ts.*`
+  texture_store; `lg.*` live_geometry; `rd.*` ragdoll; `vf.*` vehicle_fx; `cg.*` car_glass; `mo.*`
+  map_objects).
+- `mem: view A->B #n` at each view change (heap counters; the full line every 32nd change) and
+  `mem: startup ...` / `mem: level load: ...` around the model load and each level-load step.
+- `GTA2DX9_MEM_LOG=0` turns the periodic and per-view lines off.
+- **An allocation that fails** no longer ends the process silently: a 24 MB reserve taken at the top of
+  the address space on the first frame is released, a `FAULT: allocation of N bytes failed` line and the
+  counters are logged, and the view is dropped to classic and held there
+  (`FAULT: memory emergency: the street views are off for the rest of the session`). An exception that
+  still escapes logs `FAULT: std::terminate: uncaught exception (...)` with the counters before the
+  process ends.
+
+### Where the address space goes (Industrial, rapid V switching, before any fix)
+
+Run `fp4_sw_base` (the filer's `keys_qa_stress2_switch.sh` at bil, private stage = HEAD cfff2b6 + the
+counters, plain GL, 30 fps). VSZ/RSS in MB per minute (`out/fp4_sw_base_mem.txt`):
+3134/2199 (1), 3506/2513 (2), 3627/2614 (4), 3824/2741 (6), 3882/2792 (10), 3939/2847 (13),
+3956/2860 (16), 3964/2875 (18). At minute 17 a dynamic vertex buffer `Lock` in `vehicle_fx`
+returned success with a null pointer (wined3d could not map it) and `memcpy` faulted
+(`FAULT: code C0000005 ... msvcrt.dll`, the stack in `VehicleFxDraw` -> `Flush`); the game hung
+after it. The same death as the filer's bad_alloc, 4 minutes earlier.
+
+The address space at minute 7 (`/proc/<pid>/maps`, 3831 MB in all):
+
+| What | MB |
+|---|---|
+| Wine's views (`rwxp` anonymous: everything Windows-side allocated, incl. our heap and wined3d's copies) | 2171 |
+| host heap (`rw-p` anonymous: the NVIDIA driver's and glibc's own allocations) | 538 |
+| `/dev/nvidiactl` mappings | 296 |
+| PulseAudio shared memory pools (4 x 64 MB) | 256 |
+| Mesa `libLLVM` / `libgallium` / lavapipe (loaded into the game process, never used for drawing) | ~200 |
+| libraries, NVIDIA compiler, the rest | ~370 |
+
+Of the 2.17 GB Windows side, **our C++ heap was 1.22 GB**, and 473 MB of it were held before the first
+model was read (`mem: startup: before the models ... heap live=473.0MB blocks=1255`): the upstream
+voice-over feature read all 1 235 WAV files of `gta2dx9_voice` into memory at start and kept them for the
+session. The models read at start-up add 313 MB (280 models, 99.5 MB of meshes plus their tables), the
+level load (style, map, world mesh, camera collision) ~110 MB, and the first minutes of play the rest
+as cars and people are seen for the first time.
+
+What kept growing after the warm-up (minute 6 -> 16, `mem: caches`): the model store's derived car
+copies. A car model's dent steps (4 whole copies, queued ahead up to 160 MB), its door splits (body +
+door, per side) and its wheel split (hull + up to 4 wheels + 4 rims) are each a whole copy of the mesh,
+and a dented copy gets door and wheel splits of its own: `ms.models` 739 -> 820 (+53 MB of meshes),
+`ms.buffers` +28 MB, doors 29 -> 41, wheels 42 -> 49. The managed texture pool barely moved (+4.6 MB).

@@ -1,4 +1,5 @@
 // See car_bodies.h.
+#include "mem_stats.h"
 #include "thread_watch.h"
 #include "car_bodies.h"
 
@@ -5440,5 +5441,22 @@ void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t fr
 }
 
 void SetCarPaintFloor(float fraction) { g_paintLumFloor = fraction < 0.0f ? 0.0f : (fraction > 0.5f ? 0.5f : fraction) * 255.0f; }
+
+// FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void CarBodiesMemGauges() {
+    MemGauge("cb.dents", static_cast<double>(g_dents.size()), static_cast<double>(g_dentBytes));
+    MemGauge("cb.doors", static_cast<double>(g_doorSplits.size()), static_cast<double>(g_doorBytes));
+    MemGauge("cb.wheels", static_cast<double>(g_wheelSplits.size()), static_cast<double>(g_wheelBytes));
+    MemGauge("cb.wear", 0, static_cast<double>(g_wearBytes));
+    MemGauge("cb.cache", static_cast<double>(g_cache.size()));
+    MemGauge("cb.hoods", static_cast<double>(g_hoods.size() + g_hoodDashes.size()));
+    MemGauge("cb.bonnets", static_cast<double>(g_bonnetSurfs.size() + g_bonnets.size()));
+    MemGauge("cb.cabshapes", static_cast<double>(g_cabShapes.size()));
+    MemGauge("cb.rgbmaps", static_cast<double>(g_rgbMaps.size()));
+    MemGauge("cb.turrets", static_cast<double>(g_turretSplits.size() + g_panSplits.size()));
+    MemGauge("cb.percar", static_cast<double>(g_lastBuilt.size() + g_steer.size() + g_cabins.size() + g_doors.size() + g_push.size() +
+                                              g_turretAims.size()));
+    MemGauge("cb.asked", static_cast<double>(g_dentAsked.size() + g_doorAsked.size() + g_wheelAsked.size() + g_bonnetAsked.size()));
+}
 
 }  // namespace gta2dx9

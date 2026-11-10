@@ -1,3 +1,4 @@
+#include "mem_stats.h"
 #include "thread_watch.h"
 #include "model_store.h"
 #include "car_glass.h"   // VEHICLE-GLASS
@@ -3883,6 +3884,45 @@ void ModelsReleaseDevice() {
         if (b.second.ib) b.second.ib->Release();
     }
     g_buffers.clear();
+}
+
+// FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+namespace {
+double TextureBytes(IDirect3DTexture9* t) {
+    D3DSURFACE_DESC d;
+    if (!t || FAILED(t->GetLevelDesc(0, &d))) return 0.0;
+    const double px = static_cast<double>(d.Width) * d.Height;
+    const double bpp = d.Format == D3DFMT_DXT1 ? 0.5 : (d.Format == D3DFMT_DXT3 || d.Format == D3DFMT_DXT5) ? 1.0 : 4.0;
+    return px * bpp * (t->GetLevelCount() > 1 ? 4.0 / 3.0 : 1.0);
+}
+}  // namespace
+void ModelStoreMemGauges() {
+    double meshBytes = 0;
+    for (const Model& m : g_models)
+        for (const ModelMesh& mesh : m.meshes)
+            meshBytes += static_cast<double>(mesh.vertices.capacity()) * sizeof(ModelVertex) + mesh.indices.capacity() * 4.0 +
+                         mesh.weights.capacity() * sizeof(ModelSkinWeight);
+    MemGauge("ms.models", static_cast<double>(g_models.size()), meshBytes);
+    double bufBytes = 0;
+    for (auto& b : g_buffers) {
+        D3DVERTEXBUFFER_DESC vd;
+        D3DINDEXBUFFER_DESC id;
+        if (b.second.vb && SUCCEEDED(b.second.vb->GetDesc(&vd))) bufBytes += vd.Size;
+        if (b.second.ib && SUCCEEDED(b.second.ib->GetDesc(&id))) bufBytes += id.Size;
+    }
+    MemGauge("ms.buffers", static_cast<double>(g_buffers.size()), bufBytes);
+    double poseBytes = 0;
+    for (const PosedCache& p : g_poses)
+        for (const auto& v : p.meshes) poseBytes += static_cast<double>(v.capacity()) * sizeof(ModelVertex);
+    MemGauge("ms.poses", static_cast<double>(g_poses.size()), poseBytes);
+    double texBytes = 0;
+    for (auto& t : g_textures) texBytes += TextureBytes(t.second);
+    MemGauge("ms.textures", static_cast<double>(g_textures.size()), texBytes);
+    MemGauge("ms.skinbufs", static_cast<double>(g_skinBuffers.size() + g_skinFree.size()));
+    MemGauge("ms.playercopies", static_cast<double>(g_playerCopies.size()));
+    MemGauge("ms.limbchains", static_cast<double>(g_limbChains.size()));
+    MemGauge("ms.dynmeshes", static_cast<double>(g_dynamicMeshes.size()));
+    MemGauge("ms.known", static_cast<double>(g_known.size()));
 }
 
 }  // namespace gta2dx9

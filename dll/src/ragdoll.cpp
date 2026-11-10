@@ -3,6 +3,7 @@
 // Units are the renderer's: blocks (a standing adult is 0.46 of one, so a block
 // is about 3.9 m), y up, seconds. Matrices are row-vector (p' = p * M), rows 0-2
 // the axes, row 3 the origin, like the rest of the renderer.
+#include "mem_stats.h"
 #include "ragdoll.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -1154,6 +1155,13 @@ void RagdollEndFrame(uint32_t frame) {
         it = frame - it->second.seen > 300 ? g_bodies.erase(it) : std::next(it);
     for (auto it = g_cars.begin(); it != g_cars.end();)
         it = frame - it->second.frame > 90 ? g_cars.erase(it) : std::next(it);
+}
+
+// FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void RagdollMemGauges() {
+    MemGauge("rd.bodies", static_cast<double>(g_bodies.size()));
+    MemGauge("rd.cars", static_cast<double>(g_cars.size()));
+    MemGauge("rd.rigs", static_cast<double>(g_rigs.size()));
 }
 
 }  // namespace gta2dx9

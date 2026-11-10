@@ -1,3 +1,4 @@
+#include "mem_stats.h"
 #include "map_objects.h"
 
 #include <windows.h>
@@ -801,4 +802,10 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, savedArg2);
 }
+// FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void MapObjectsMemGauges() {
+    MemGauge("mo.fade", static_cast<double>(g_fadeEase.size()));
+    MemGauge("mo.pickups", static_cast<double>(g_pickups.size()));
+}
+
 }  // namespace gta2dx9

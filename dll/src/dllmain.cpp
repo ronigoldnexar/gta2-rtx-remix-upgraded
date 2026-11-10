@@ -11,6 +11,7 @@
 // below come from those epilogues, and getting one wrong unbalances the stack.
 
 #define WIN32_LEAN_AND_MEAN
+#include "mem_stats.h"
 #include <windows.h>
 
 #include <intrin.h>
@@ -1203,7 +1204,9 @@ __declspec(dllexport) void __stdcall gbh_InitDLL(void* system) {
         gta2dx9::SettingsLoadAll();
         // The imported 3D models for the ground views. See model_store.h.
         PathBesideGame("gta2dx9_models", path, sizeof(path));
+        gta2dx9::MemStatsLog("startup: before the models", 1);   // FIX-PERF-4
         gta2dx9::ModelsLoad(path);
+        gta2dx9::MemStatsLog("startup: models read", 1);
     }
 }
 
@@ -1799,6 +1802,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         g_self = module;
         DisableThreadLibraryCalls(module);
         gta2dx9::OpenLog();
+        gta2dx9::MemStatsInit();   // FIX-PERF-4: an uncaught exception leaves a FAULT line
         Log("gta2dx9.dll attached to pid %lu, loaded at %p", GetCurrentProcessId(), static_cast<void*>(module));
         InstallLastWords();   // FIX-STABILITY-1: terminate / abort / unhandled exceptions log first
         CheckOriginalBlitStores(module);

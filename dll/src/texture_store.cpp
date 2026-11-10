@@ -1,3 +1,4 @@
+#include "mem_stats.h"
 #include "thread_watch.h"
 #include "texture_store.h"
 
@@ -1510,6 +1511,15 @@ bool ResolveTileImage(int tileNumber, uint32_t* out) {
     // solid face the draw has no alpha test and the slits are already solid.
     // See ColourKeyed in world_mesh.cpp.
     return true;
+}
+
+// FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void TextureStoreMemGauges() {
+    MemGauge("ts.device", static_cast<double>(g_deviceTextures.size()));
+    MemGauge("ts.frames", static_cast<double>(g_frames.size()));
+    MemGauge("ts.notes", static_cast<double>(g_notes.size()));
+    MemGauge("ts.decals", static_cast<double>(g_decalVerdicts.size() + g_decalKeys.size()));
+    MemGauge("ts.carkeys", static_cast<double>(g_carBaseKey.size() + g_artWaits.size() + g_artPrecached.size()));
 }
 
 }  // namespace gta2dx9

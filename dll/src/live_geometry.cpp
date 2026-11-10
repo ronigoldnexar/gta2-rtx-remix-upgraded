@@ -1,3 +1,4 @@
+#include "mem_stats.h"
 #include "live_geometry.h"
 #include "prop_collision.h"
 #include "car_glass.h"   // VEHICLE-GLASS
@@ -15268,4 +15269,15 @@ bool SilencedMuzzleNear(const float* pos) {
     }
     return false;
 }
+// FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void LiveGeometryMemGauges() {
+    MemGauge("lg.fxseen", static_cast<double>(g_fxSeen.size()));
+    MemGauge("lg.pedwithcar", static_cast<double>(g_pedWithCar.size()));
+    MemGauge("lg.pedweapon", static_cast<double>(g_pedWeaponByObject.size()));
+    MemGauge("lg.smoothtex", static_cast<double>(g_smoothTextures.size() + g_smoothEffects.size()));
+    MemGauge("lg.skidtex", static_cast<double>(g_skidTextures.size()));
+    MemGauge("lg.lamptex", static_cast<double>(g_lampTextures.size()));
+    MemGauge("lg.puffs", static_cast<double>(g_fireSmoke.size() + g_flames.size() + g_embers.size() + g_gamePuffs.size()));
+}
+
 }  // namespace gta2dx9

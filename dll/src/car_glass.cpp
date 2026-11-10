@@ -1,4 +1,5 @@
 // See car_glass.h.
+#include "mem_stats.h"
 #include "thread_watch.h"
 #include "car_glass.h"
 #include "car_glass_split.h"
@@ -1742,6 +1743,14 @@ void CarGlassReleaseDevice() {
     for (auto& b : g_staticBufs) { if (b.second.vb) b.second.vb->Release(); if (b.second.ib) b.second.ib->Release(); }
     g_staticBufs.clear();
     g_queue.clear();
+}
+
+// FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void CarGlassMemGauges() {
+    MemGauge("cg.models", static_cast<double>(g_models.size() + g_entries.size()));
+    MemGauge("cg.meshes", static_cast<double>(g_meshTris.size() + g_split.size() + g_splitPane.size() + g_paneTris.size() + g_cutIb.size()));
+    MemGauge("cg.static", static_cast<double>(g_staticBufs.size()));
+    MemGauge("cg.stemtex", static_cast<double>(g_stemTex.size() + g_texByName.size()));
 }
 
 }  // namespace gta2dx9
