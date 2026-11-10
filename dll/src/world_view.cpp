@@ -1283,6 +1283,7 @@ bool WorldView::EnsureWorldLoaded() {
                 lamps[sprite].valid = true;
                 lamps[sprite].along = (y - art.height * 0.5f) / 64.0f;
                 lamps[sprite].side = (x - art.width * 0.5f) / 64.0f;
+                lamps[sprite].nose = art.height * 0.5f / 64.0f;
                 style.SpriteDeltaColour(gta2::SpriteBase::Car, sprite, delta, lamps[sprite].rgb);
                 ++found;
             }

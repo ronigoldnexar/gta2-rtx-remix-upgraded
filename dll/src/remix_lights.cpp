@@ -1,6 +1,7 @@
 #include "remix_lights.h"
 
 #include "ground.h"
+#include "live_geometry.h"   // SetCarLamps (FIX-REMIX-NIGHT-8 probe)
 #include "log.h"
 #include "model_store.h"
 #include "remix_api.h"
@@ -25,6 +26,8 @@
 #include <unordered_set>
 
 namespace gta2dx9 {
+extern float g_lastEye[3];   // defined below (the eye the far lamps are chosen from)
+extern bool g_haveEye;
 namespace {
 
 RemixLightSettings g_settings;
@@ -539,6 +542,18 @@ void Apply(RemixTrackedLight& t) {
         sphere.shaping_value.focusExponent = 0.0f;
     }
     info.pNext = &sphere;
+    // GTA2DX9_LOG_HEADLIGHTS=1 (FIX-REMIX-NIGHT-8 diagnostic): every 128th headlight apply, what Remix is given.
+    static int logHead = -1;
+    if (logHead < 0) { const char* e = getenv("GTA2DX9_LOG_HEADLIGHTS"); logHead = e && *e == '1' ? 1 : 0; }
+    if (logHead && t.def.source == kLightSourceHeadlight) {
+        const float ex = pos[0] - g_lastEye[0], ez = pos[2] - g_lastEye[2];
+        if (g_haveEye && (!t.handle || (g_frame & 63) == 0) && ex * ex + ez * ez < 36.0f)
+            Log("remix headlight: pos %.2f,%.2f,%.2f (remix %.2f,%.2f,%.2f) radiance %.1f,%.1f,%.1f emitter %.3f cone %d dir %.2f,%.2f,%.2f angle %.1f moving %d",
+                pos[0], pos[1], pos[2], sphere.position.x, sphere.position.y, sphere.position.z,
+                info.radiance.x, info.radiance.y, info.radiance.z, sphere.radius, sphere.shaping_hasvalue,
+                sphere.shaping_value.direction.x, sphere.shaping_value.direction.y, sphere.shaping_value.direction.z,
+                sphere.shaping_value.coneAngleDegrees, t.moving ? 1 : 0);
+    }
 
     const bool existed = t.handle != nullptr;
     remixapi_LightHandle handle = static_cast<remixapi_LightHandle>(t.handle);
@@ -1443,6 +1458,20 @@ void LightsReconcile() {
             if (bulb != lastBulb) {
                 lastBulb = bulb; SyntheticSetStreetBulbPct(bulb >= 0 ? bulb : 100);
                 Log("devtools: street-view headlamp/beacon emitters at %d%% (-1: default 100)", bulb);
+            }
+            static int lastBeam = -2, lastCarLamps = -2;
+            const int beam = GetPrivateProfileIntA("devtools", "remix_beam_mode", -1, ini);
+            if (beam != lastBeam) {
+                lastBeam = beam; SyntheticSetStreetBeamMode(beam >= 0 ? beam : 1);
+                Log("devtools: street-view headlamp beams mode %d (-1: default 1; 0 = the game's lamp bits, emitter inside the body)", beam);
+            }
+            // FIX-REMIX-NIGHT-8 probe: [renderer] car_lamps live (-1: leave it as the ini started it).
+            const int carLamps = GetPrivateProfileIntA("devtools", "remix_car_lamps", -1, ini);
+            if (carLamps != lastCarLamps) {
+                if (carLamps >= 0) SetCarLamps(carLamps);
+                else if (lastCarLamps >= 0) SetCarLamps(GetPrivateProfileIntA("renderer", "car_lamps", 1, ini));
+                lastCarLamps = carLamps;
+                Log("devtools: car body lamps %d (-1: the [renderer] setting)", carLamps);
             }
             const int lbw = GetPrivateProfileIntA("devtools", "remix_low_bounce_warm", 1, ini);
             if (lbw != g_lowBounceWarm) { g_lowBounceWarm = lbw; Log("devtools: low-sun golden bounce %s", lbw ? "on" : "off"); }

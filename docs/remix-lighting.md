@@ -267,3 +267,29 @@ like the street. What still reads as "orange" is the arms' own albedo: tools/gen
 (linear about 0.45, 0.22, 0.12), brighter and more saturated than the asphalt (about 0.1) a hand-height surface shares
 the light with. That is the figure/asset seat's (FIX-FIGURE-11 made those textures), noted beside the order.
 
+### Order 1: headlamp beams that reach the road (prxr1, beam half)
+
+Measured first (out frn8_h1, h4, h5: the scene van 068 seated and stopped at wil 198.5,188.5, 22:00 paused, fixed
+REGRESS_CAM cameras at eye height 3 tiles out, high over the road, and low beside the bumper):
+
+- The white lamp discs are the **model's lens material** (the `head` emission of tools/remix_model_pbr.py: the lens
+  texels' own white x `HEADLAMP_INTENSITY` 3): they stay with every light of ours out (`remix_lights_off=1`) and with
+  the body's additive lamp glows out (`remix_car_lamps=0`). Not the emitter.
+- The missing pool had two causes. (1) No beam at all: the game leaves a stopped car's lamp bits at 0 even with a driver
+  in it (`headlights: nearest car ... occupied 1 mask 00000000`), and the beam waited for those bits; moving the emitter
+  (`[Headlights] Lead` -0.188 .. +0.20 live, h1) changed nothing because nothing was submitted. (2) Where a beam was
+  submitted, its emitter sat 0.188 tile behind the sprite's lamp pixel and 0.24 up: inside a 3D bonnet, which swallowed
+  the cone and let a few slits of light out under the bumper.
+
+Street views now (`[devtools] remix_beam_mode`, default 1, 0 = before): a car with a driver casts its beams at night
+whatever the game's bits say (a front corner's dent still breaks its lamp), and the emitter sits 0.03 tile ahead of the
+body's nose at 30 % of its height (CarBodiesExtent), or, for a body that records no extent, 0.03 ahead of the sprite's
+front edge at 0.15. The classic view keeps the game's bits and the old place.
+
+frn8_h5, same session, old -> new (mean sRGB luma): road ahead of the bumper at the low camera 76 -> 144 (a warm pool
+158,143,114), at eye height 3 tiles out 73 -> 121; the paving beside it 71 -> 75 (unchanged). Probe keys:
+`remix_car_lamps` (car_lamps live), `GTA2DX9_LOG_HEADLIGHTS=1` (nearest car's driver/mask/body, each headlight near the
+eye as given to Remix).
+
+Still short: the lens is a flat white disc (material: emissive 3 over the whole lens island, no core/rim; for the
+materials seat, beside the order); the beam is one cone per lamp with no high/low beam shape.

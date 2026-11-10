@@ -199,6 +199,7 @@ void SyntheticEraseBeam(int model);
 // the car on screen. -1 clears.
 void SyntheticHighlightModel(int model);
 void SyntheticSetStreetBulbPct(int pct);   // [devtools] remix_bulb_pct: street-view emitter size of headlamps and beacons, % (100 = as before)
+void SyntheticSetStreetBeamMode(int mode);   // [devtools] remix_beam_mode: 0 = headlamp beams as before, 1 = driver + body nose (FIX-REMIX-NIGHT-8)
 int  SyntheticHighlightedModel();
 
 // Where one of a car's lamps sits, from the style file's own delta for it. See
@@ -207,6 +208,7 @@ struct CarLamp {
     bool valid = false;
     float along = 0.0f;  // tiles along the car's heading from its centre; negative is behind
     float side = 0.0f;   // tiles to its right; the other lamp is the mirror image
+    float nose = 0.0f;   // tiles from the centre to the sprite's front edge (half its length; FIX-REMIX-NIGHT-8)
     float rgb[3] = {1.0f, 1.0f, 1.0f};   // the delta's own colour, 0..1
 };
 

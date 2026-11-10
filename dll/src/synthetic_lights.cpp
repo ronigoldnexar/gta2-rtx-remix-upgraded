@@ -4,6 +4,7 @@
 #include "compat.h"
 
 #include "game_access.h"
+#include "car_bodies.h"   // CarBodiesExtent (FIX-REMIX-NIGHT-8: the beam at the 3D body's nose)
 #include "log.h"
 #include "remix_lights.h"
 #include "world_view.h"   // StreetPresentation (FIX-REMIX-NIGHT-5)
@@ -87,6 +88,17 @@ HeadlightTuning g_headTune;
 // classic view keeps the old emitters. [devtools] remix_bulb_pct (read in remix_lights.cpp). OFF by default (100):
 // in frn5_p5b the white discs on a stopped bus's lamps were its model's lamp lenses, the same at 100 and 45 %.
 int g_streetBulbPct = 100;
+// FIX-REMIX-NIGHT-8 (prxr1: night headlamps light no road). Two things kept every 3D car's beam off the asphalt in the
+// street views. (1) The beam waits for the game's own lamp bits, and the game leaves them at 0 on a car that is
+// stopped with a driver in it (the player's seated car: mask 00000000 in frn8_h4), while the body's lamps glow there
+// all night (car_bodies' car_lamps 1). (2) The emitter was placed for the old domes: 0.188 tile BEHIND the sprite's
+// lamp pixel and 0.24 up, which on a 3D body is inside the bonnet, so the body itself swallowed the cone and only a few
+// slits of light reached the road under the bumper (the "white dashes"). In the street views now: a car with a driver
+// casts its beams at night whatever the game's bits say (a lamp broken by a dented front corner stays dark), and each
+// emitter sits 0.03 tile ahead of the body's nose (CarBodiesExtent) at 30 % of its height, where its lamps are drawn.
+// The classic view keeps the game's bits and the old place. [devtools] remix_beam_mode: 0 = as before, 1 (default).
+int g_streetBeamMode = 1;
+const float kStreetLampHeight = 0.15f;   // a headlamp's height on a body whose extent is not known (~0.6 m)
 float StreetBulbScale() {
     if (g_streetBulbPct <= 0 || g_streetBulbPct >= 100 || !StreetPresentation()) return 1.0f;
     return static_cast<float>(g_streetBulbPct) / 100.0f;
@@ -1129,6 +1141,19 @@ void WalkVehicles() {
         const bool rolling = g_settings.drivenAllowsMovement && track.lastMovedTick != 0
                           && now - track.lastMovedTick <= g_settings.drivenWindowMs;
         const bool driven = occupied || rolling;
+        // GTA2DX9_LOG_HEADLIGHTS=1 (FIX-REMIX-NIGHT-8 diagnostic): the car nearest the camera, every 64th walk.
+        static int logHead = -1;
+        if (logHead < 0) { const char* e = getenv("GTA2DX9_LOG_HEADLIGHTS"); logHead = e && *e == '1' ? 1 : 0; }
+        if (logHead && &visit == &visits.front()) {
+            static unsigned n = 0;
+            float L = 0.0f, H = 0.0f, HW = 0.0f;
+            const bool ext = CarBodiesExtent(game::Placement(entry, game::kVehiclePlacementPtr), &L, &H, &HW);
+            if ((n++ & 63) == 0)
+                Log("headlights: nearest car model %d at %.2f,%.2f,%.2f d %.2f occupied %d rolling %d mask %08X daylight %.2f body %d %.2f x %.2f x %.2f",
+                    model, gx, gy, gz, std::sqrt(visit.distance2), occupied ? 1 : 0, rolling ? 1 : 0,
+                    *reinterpret_cast<const uint32_t*>(entry + game::kVehicleDeltaMask), DaylightGateFactor(c.gate),
+                    ext ? 1 : 0, L, H, HW);
+        }
         if (!driven) NoteModel(model, false);
         if (!driven) {
             continue;
@@ -1160,9 +1185,20 @@ void WalkVehicles() {
         const bool litLamp[2] = {
             (mask & (game::kHeadlightDeltaA | game::kHeadlightAltDeltaA)) != 0,
             (mask & (game::kHeadlightDeltaB | game::kHeadlightAltDeltaB)) != 0};
-        if (!litLamp[0] && !litLamp[1]) {
+        const bool street = g_streetBeamMode > 0 && StreetPresentation();
+        bool litLamp2[2] = {litLamp[0], litLamp[1]};
+        if (street && occupied && !litLamp[0] && !litLamp[1]) {
+            litLamp2[0] = (mask & (1u << 2)) == 0;   // the front corners' dent deltas (see kHeadlightDeltaA)
+            litLamp2[1] = (mask & (1u << 3)) == 0;
+        }
+        if (!litLamp2[0] && !litLamp2[1]) {
             continue;
         }
+        // The 3D body's nose and lamp height, when it has been drawn.
+        float bodyLength = 0.0f, bodyHeight = 0.0f, bodyHalfWidth = 0.0f;
+        const bool body = street && CarBodiesExtent(game::Placement(entry, game::kVehiclePlacementPtr), &bodyLength,
+                                                    &bodyHeight, &bodyHalfWidth)
+                          && bodyLength > 0.2f && bodyHeight > 0.1f && bodyHalfWidth > 0.05f;
 
         // Forward and right in the game's frame, then converted the same way the
         // positions are: our +Z is north, which is the game's -y.
@@ -1189,16 +1225,21 @@ void WalkVehicles() {
         // at the car's centre and the other a full tile away, and the separation
         // setting did nothing at all because nothing read it.
         for (int lamp = 0; lamp < 2; ++lamp) {
-            if (!litLamp[lamp]) continue;
+            if (!litLamp2[lamp]) continue;
             if (!Room(kSynthHeadlight)) break;
             // Lamp 0 is the delta as drawn, lamp 1 its mirror image.
             const float sign = lamp == 0 ? 1.0f : -1.0f;
-            const float px = gx + fx * (forward + g_headTune.lead) + rx * side * sign;
-            const float py = gy + fy * (forward + g_headTune.lead) + ry * side * sign;
+            // Without a drawn body's extent (only some body paths record its length), the sprite's front edge: the 3D body is
+            // fitted to the sprite's length, so 0.03 ahead of it is clear of the bumper.
+            const bool spriteNose = !body && street && art && art->nose > 0.1f;
+            const float ahead = body ? 0.5f * bodyLength + 0.03f : spriteNose ? art->nose + 0.03f : forward + g_headTune.lead;
+            const float across = body ? 0.68f * bodyHalfWidth : side;
+            const float px = gx + fx * ahead + rx * across * sign;
+            const float py = gy + fy * ahead + ry * across * sign;
 
             RemixLightDesc d;
             ToWorld(px, py, gz, d.pos);
-            d.pos[1] += c.heightOffset;
+            d.pos[1] += body ? (std::max)(0.08f, 0.30f * bodyHeight) : spriteNose ? kStreetLampHeight : c.heightOffset;
             const bool lit = model == g_highlightModel;
             d.rgb[0] = lit ? 1.0f : c.rgb[0];
             d.rgb[1] = lit ? 0.0f : c.rgb[1];
@@ -1681,6 +1722,7 @@ void SyntheticEraseBeam(int model) {
 
 void SyntheticHighlightModel(int model) { g_highlightModel = model; }
 void SyntheticSetStreetBulbPct(int pct) { g_streetBulbPct = pct; }
+void SyntheticSetStreetBeamMode(int mode) { g_streetBeamMode = mode; }
 int SyntheticHighlightedModel() { return g_highlightModel; }
 
 void SyntheticHighlightType(int particleType) {
