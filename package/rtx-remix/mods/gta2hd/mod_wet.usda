@@ -3507,7 +3507,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/0DBB71C44D9C08B9.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/0DBB71C44D9C08B9.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/0DBB71C44D9C08B9.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -3731,7 +3731,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/0E48F76D945FB7DE.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/0E48F76D945FB7DE.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/0E48F76D945FB7DE.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -4323,7 +4323,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/10CCA91221AC6C61.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/10CCA91221AC6C61.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/10CCA91221AC6C61.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -4419,7 +4419,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/111C7433B26D86D8.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/111C7433B26D86D8.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/111C7433B26D86D8.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -6849,7 +6849,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/1B2291B50CAA6913.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/1B2291B50CAA6913.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/1B2291B50CAA6913.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -6952,7 +6952,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/1B9B146BA69E26F0.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/1B9B146BA69E26F0.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/1B9B146BA69E26F0.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -7486,7 +7486,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/1D1B1742CD039285.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/1D1B1742CD039285.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/1D1B1742CD039285.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -9756,7 +9756,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/271CAD843B0AB48C.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/271CAD843B0AB48C.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/271CAD843B0AB48C.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -11532,7 +11532,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/2E21070F329564B7.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/2E21070F329564B7.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/2E21070F329564B7.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -12767,7 +12767,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/337E8BEBC0F9F940.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/337E8BEBC0F9F940.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/337E8BEBC0F9F940.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -13019,15 +13019,12 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/348602EBDD736D93.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/348602EBDD736D93.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/348602EBDD736D93.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
                 custom float inputs:reflection_roughness_constant = 0.8
                 custom bool inputs:use_legacy_alpha_state = 1
-                custom asset inputs:metallic_texture = @./textures/348602EBDD736D93.m.rtex.dds@ (
-                    colorSpace = "raw"
-                )
                 token outputs:out
             }
         }
@@ -15816,7 +15813,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/3FB0903212D0A42C.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/3FB0903212D0A42C.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/3FB0903212D0A42C.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -15839,7 +15836,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/3FBCC34919FBC401.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/3FBCC34919FBC401.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/3FBCC34919FBC401.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -16788,7 +16785,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/432647A09A8D565C.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/432647A09A8D565C.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/432647A09A8D565C.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -17553,7 +17550,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/456F806F614F86E5.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/456F806F614F86E5.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/456F806F614F86E5.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -18454,7 +18451,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/47CC4CCC63AFB097.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/47CC4CCC63AFB097.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/47CC4CCC63AFB097.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -19890,7 +19887,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/4CA6E021254D7E42.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/4CA6E021254D7E42.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/4CA6E021254D7E42.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -20127,7 +20124,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/4D5DCFCE61CB55D4.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/4D5DCFCE61CB55D4.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/4D5DCFCE61CB55D4.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -20352,7 +20349,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/4EC4B749FB166908.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/4EC4B749FB166908.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/4EC4B749FB166908.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -21540,7 +21537,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/52DAE7534421B454.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/52DAE7534421B454.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/52DAE7534421B454.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -21712,7 +21709,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/534E28D6D0BCA614.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/534E28D6D0BCA614.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/534E28D6D0BCA614.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -23834,7 +23831,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/5B8F614217759AC2.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/5B8F614217759AC2.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/5B8F614217759AC2.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -25407,7 +25404,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/60CF62CAA42F0511.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/60CF62CAA42F0511.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/60CF62CAA42F0511.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -26322,7 +26319,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/6417F64CF4988B3D.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/6417F64CF4988B3D.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/6417F64CF4988B3D.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -26936,7 +26933,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/66B65C6ACDAF18EB.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/66B65C6ACDAF18EB.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/66B65C6ACDAF18EB.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -28262,7 +28259,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/6D26B543371727AA.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/6D26B543371727AA.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/6D26B543371727AA.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -30134,7 +30131,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/734D935DB1A555FA.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/734D935DB1A555FA.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/734D935DB1A555FA.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -30809,7 +30806,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/7589E07CEC4D8EAE.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/7589E07CEC4D8EAE.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/7589E07CEC4D8EAE.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -32056,7 +32053,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/7ABB644A80A020B5.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/7ABB644A80A020B5.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/7ABB644A80A020B5.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -32542,7 +32539,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/7C6B9540ACA23AA1.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/7C6B9540ACA23AA1.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/7C6B9540ACA23AA1.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -34716,7 +34713,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/82F0971182240124.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/82F0971182240124.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/82F0971182240124.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -35057,7 +35054,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/83FA4BD447D1357D.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/83FA4BD447D1357D.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/83FA4BD447D1357D.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -35405,7 +35402,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/851ABC0F46C559B2.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/851ABC0F46C559B2.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/851ABC0F46C559B2.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -36055,7 +36052,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/8851A5BDC2245052.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/8851A5BDC2245052.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/8851A5BDC2245052.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -37439,7 +37436,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/8D05CD84753D21C9.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/8D05CD84753D21C9.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/8D05CD84753D21C9.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -40260,7 +40257,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/97A46E0E47286700.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/97A46E0E47286700.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/97A46E0E47286700.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -40309,7 +40306,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/97B20ADDA95271B6.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/97B20ADDA95271B6.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/97B20ADDA95271B6.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -43819,7 +43816,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/A4A37E1F4B665549.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/A4A37E1F4B665549.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/A4A37E1F4B665549.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -45129,7 +45126,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/A992626C9324CBB3.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/A992626C9324CBB3.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/A992626C9324CBB3.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -47443,7 +47440,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/B24DC8F3EBDF0BB1.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/B24DC8F3EBDF0BB1.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/B24DC8F3EBDF0BB1.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -47714,7 +47711,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/B317D3E4CED2274D.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/B317D3E4CED2274D.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/B317D3E4CED2274D.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -48678,7 +48675,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/B863EB51B7C3B0F0.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/B863EB51B7C3B0F0.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/B863EB51B7C3B0F0.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -50154,7 +50151,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/BEFE591F73A75621.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/BEFE591F73A75621.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/BEFE591F73A75621.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -50457,7 +50454,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/BFDB409C1AD512AB.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/BFDB409C1AD512AB.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/BFDB409C1AD512AB.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -50883,7 +50880,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/C1B304D148E35F65.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/C1B304D148E35F65.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/C1B304D148E35F65.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -51814,7 +51811,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/C51F290A50173902.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/C51F290A50173902.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/C51F290A50173902.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -52326,7 +52323,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/C7158662AAAAB468.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/C7158662AAAAB468.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/C7158662AAAAB468.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -53590,7 +53587,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/CC77272224B6E374.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/CC77272224B6E374.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/CC77272224B6E374.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -53710,7 +53707,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/CD08A174633B0AA2.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/CD08A174633B0AA2.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/CD08A174633B0AA2.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -53936,7 +53933,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/CDE89077E682088F.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/CDE89077E682088F.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/CDE89077E682088F.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -55698,7 +55695,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/D47CA270B82B0A38.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/D47CA270B82B0A38.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/D47CA270B82B0A38.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -55925,7 +55922,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/D4FDA60F1101F9CF.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/D4FDA60F1101F9CF.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/D4FDA60F1101F9CF.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -56247,7 +56244,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/D64C267CE25CD1CA.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/D64C267CE25CD1CA.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/D64C267CE25CD1CA.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -56270,7 +56267,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/D658512930C47668.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/D658512930C47668.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/D658512930C47668.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -56612,7 +56609,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/D7E31A25ACE4BE26.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/D7E31A25ACE4BE26.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/D7E31A25ACE4BE26.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -57017,7 +57014,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/DA033B7A0B38551E.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/DA033B7A0B38551E.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/DA033B7A0B38551E.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -58113,7 +58110,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/DE920672C2B3285F.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/DE920672C2B3285F.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/DE920672C2B3285F.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -58266,7 +58263,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/DF1E2456F552B24E.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/DF1E2456F552B24E.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/DF1E2456F552B24E.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -58730,7 +58727,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/E0DFB3AB2162A802.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/E0DFB3AB2162A802.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/E0DFB3AB2162A802.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -60439,7 +60436,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/E828948C5C87A804.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/E828948C5C87A804.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/E828948C5C87A804.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -61858,7 +61855,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/EDCA611FE0A55A2A.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/EDCA611FE0A55A2A.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/EDCA611FE0A55A2A.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -61881,7 +61878,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/EDE5AF281132A013.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/EDE5AF281132A013.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/EDE5AF281132A013.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -63310,7 +63307,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/F393EFC6ED64F33C.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/F393EFC6ED64F33C.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/F393EFC6ED64F33C.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0
@@ -63695,7 +63692,7 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/F5496FB3F782674A.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/F5496FB3F782674A.r.rtex.dds@ (
+                custom asset inputs:reflectionroughness_texture = @./textures/F5496FB3F782674A.w.rtex.dds@ (
                     colorSpace = "raw"
                 )
                 custom float inputs:metallic_constant = 0

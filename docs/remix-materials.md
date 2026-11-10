@@ -1696,3 +1696,31 @@ shadows into them, and the normals derived from that paint (12 % / 35 % in the m
 `MURAL_GAIN` 5 % / 15 %. After: flat cream paint; the stone course below keeps its relief. Left: the stain cluster
 painted into the art still reads as a crust; colour edges are stair-stepped (upscaler art).
 
+
+**One asphalt per road: undashed lids borrow the dashed lids' re-authored asphalt (FIX-REMIX-MATERIALS-6,
+ptrmx26-remix-wil-day-third-road-lids-alternate-...-checkerboard).** The re-authored road paint
+(`assets/textures_hd/roads/<style>`, the road lids' Remix albedo) exists only for the lids with markings: wil 20 of 38
+road lids, bil 14 of 59, ste 22 of 43. A wil street is a 3 x 3 repeat of 275/277 (no dashes: the upscaler's smooth
+blue-grey plane, grain 0.002) and 276/278 (dashes: cracked, mottled green asphalt, grain 0.026), so under Remix it
+path-traced as alternating rows of two materials. Now `remix_materials.road_donors` gives each road lid without
+re-authored art a donor (the re-authored lid of its style whose plain tile is closest in asphalt colour at 64 px,
+paint and kerbs masked; used under a 0.07 difference: 18 wil, 45 bil, 18 ste lids), and
+`remix_pbr.road_detail_albedo` builds the layer albedo: the lid keeps its own paint, kerbs and low frequencies,
+shifted to the donor's mean asphalt colour, and takes the donor's detail (cracks, mottling: the ratio to its masked
+blur, sigma 40 texels at 512 px; the donor's dashes are filled from its own detail a quarter tile away, so no halo).
+`pbr.json` records `"albedo": "donor:roads/<style>/tile_NNNN.dds"`. A scan micro-surface (the pave fix) was tried
+first and rejected: at the amplitude that matched the grain it read as dark cobbles beside the smooth dashed lid
+(out/fm6_wil1). Every road lid now also takes the rain (`groundish` for ground "road": wet roughness on 140 road
+prims, was 17 of these 81). bil 751's kerb stones lost a false metallic map. Layer only: the HD tiles (the keys)
+are untouched; the plain renderer draws no layer. Under Remix the classic view's road lids take the same albedo.
+Verified at the filer's pose (wil 164.5,149.5, 12:00 third and first, private HEAD stage, GPU 6): `out/fm6_wil3`
+shot_270 against the filer's ptrmx26_wil shot_270: one cracked asphalt across the lids, a faint tone step left at
+one lid edge. A first micro-surface attempt is `out/fm6_wil1` (rejected).
+
+**Building into the worktree.** The shared checkout holds the layer's textures (ignored, 2.4 GB); a worktree has
+none. Copy them once (`cp -r repo/package/rtx-remix/mods/gta2hd/textures /tmp/wt-<you>/package/rtx-remix/mods/gta2hd/`,
+a real copy: the tools write textures in place and a hard link would write through), build classes into a scratch
+layer and merge (`remix_materials.py - /tmp/scratch --dds-tiles ... --gmp-dir game/data --only-classed --classes road
+--force`, `--wet-layer`, `remix_layer_merge.py /tmp/scratch <worktree layer> hashes.txt --tiles`), take it with
+`PACKAGE=/tmp/wt-<you>/package gamerun/playtest_remix.sh ...`. Python with numpy, PIL and xxhash:
+`/mnt/gta2/ab_work/venv/bin/python` (the vreg venv lacks xxhash).

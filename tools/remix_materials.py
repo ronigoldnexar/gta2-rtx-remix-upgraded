@@ -341,9 +341,14 @@ def pbr_tile(job):
     import shutil, remix_pbr
     path, h, tex_dir, size, map_size = job[:5]
     ground, lift, albedo, micro = (tuple(job[5:]) + (None, False, None, None))[:4] if len(job) > 5 else (None, False, None, None)
-    src = albedo or path
+    donor = albedo if isinstance(albedo, tuple) else None
+    src = path if donor else (albedo or path)
     rgba = np.asarray(Image.open(src).convert("RGBA"))
     if rgba.shape[0] != size: rgba = resize(rgba, size)
+    if donor:                                            # FIX-REMIX-MATERIALS-6: a sibling's re-authored asphalt
+        dn, dp = (np.asarray(Image.open(q).convert("RGBA")) for q in donor[1:3])
+        dn, dp = (x if x.shape[0] == size else resize(x, size) for x in (dn, dp))
+        rgba = remix_pbr.road_detail_albedo(rgba, dn, dp)
     a_path = os.path.join(tex_dir, f"{h}.a.rtex.dds")
     if os.path.lexists(a_path): os.remove(a_path)       # never write through a hard link into another layer
     cut = lift != "solid" and float((rgba[..., 3] < 128).mean()) > 0.01
@@ -360,6 +365,8 @@ def pbr_tile(job):
         write_albedo(a_path, rgba)
     elif ground == "road" and albedo is None:            # FIX-REMIX-MATERIALS-3: no contour bands
         rgba = remix_pbr.deband(rgba)
+        write_albedo(a_path, rgba)
+    elif donor:
         write_albedo(a_path, rgba)
     else:
         shutil.copyfile(src, a_path)
@@ -389,6 +396,35 @@ def pbr_tile(job):
     elif os.path.exists(p): os.remove(p)
     return h, r["displace"] if r["height"] is not None else 0.0, r["groundish"], r["cls"]
 
+def road_donors(d, roads, classes, max_diff=0.07):
+    """FIX-REMIX-MATERIALS-6: {tile: (donor roads DDS, donor plain DDS)} for the road lids of one style
+    that have no re-authored road paint (<hd>/../roads/<style>): the donor is the re-authored lid whose
+    plain tile is closest in asphalt colour (64 px, paint and kerbs masked out by
+    remix_pbr.road_paint_mask), used only when that difference is under `max_diff` (a different road
+    surface keeps its own art). remix_pbr.road_detail_albedo builds the albedo from it."""
+    import remix_pbr
+    if not os.path.isdir(roads): return {}
+    def small(path):
+        return np.asarray(Image.open(path).convert("RGB").resize((64, 64), Image.BOX)).astype(np.float32) / 255.0
+    lids = [t for t, (g, _) in classes.items() if g == "road" and os.path.exists(os.path.join(d, f"tile_{t:04d}.dds"))]
+    have = [t for t in lids if os.path.exists(os.path.join(roads, f"tile_{t:04d}.dds"))]
+    if not have: return {}
+    P = {t: small(os.path.join(d, f"tile_{t:04d}.dds")) for t in lids}
+    M = {t: remix_pbr.road_paint_mask(P[t]) > 0.5 for t in lids}
+    out = {}
+    for t in lids:
+        if t in have: continue
+        best = None
+        for o in have:
+            free = ~(M[t] | M[o])
+            if free.mean() < 0.3: continue
+            diff = float(np.abs(P[t] - P[o])[free].mean())
+            if best is None or diff < best[0]: best = (diff, o)
+        if best and best[0] < max_diff:
+            o = best[1]
+            out[t] = (os.path.join(roads, f"tile_{o:04d}.dds"), os.path.join(d, f"tile_{o:04d}.dds"))
+    return out
+
 def dds_tiles(a, tex_dir, taken):
     """--dds-tiles: one material per HD DDS tile, keyed by the hash of what the game uploads.
     The DDS itself becomes the albedo (no re-encode); the other maps come from its pixels:
@@ -402,6 +438,7 @@ def dds_tiles(a, tex_dir, taken):
         classes = tile_classes(a.gmp_dir, style, d) if a.gmp_dir else {}
         mstyle = micro_list.get(style, {})
         roads = os.path.join(os.path.dirname(os.path.normpath(d)), "roads", style)
+        donors = road_donors(d, roads, classes) if classes else {}
         for f in sorted(os.listdir(d)):
             if not f.endswith(".dds"): continue
             path = os.path.join(d, f)
@@ -419,6 +456,8 @@ def dds_tiles(a, tex_dir, taken):
             taken.add(h)
             if a.pbr == "full":
                 alb = os.path.join(roads, f) if ground == "road" and os.path.exists(os.path.join(roads, f)) else None
+                if ground == "road" and alb is None and m and int(m.group(1)) in donors:
+                    alb = ("donor",) + donors[int(m.group(1))]
                 jobs.append((path, h, tex_dir, a.size, a.map_size, ground, lift, alb, micro)); continue
             shutil.copyfile(path, os.path.join(tex_dir, f"{h}.a.rtex.dds"))
             rgba = np.asarray(Image.open(path).convert("RGBA"))
@@ -437,7 +476,10 @@ def dds_tiles(a, tex_dir, taken):
                     j = next(j for j in jobs if j[1] == h)
                     if j[5]: info[h]["ground"] = j[5]
                     if j[6]: info[h]["lift"] = j[6]
-                    if j[7]: info[h]["albedo"] = os.path.relpath(j[7], os.path.dirname(os.path.dirname(os.path.dirname(j[7]))))
+                    if j[7]:
+                        ap_ = j[7][1] if isinstance(j[7], tuple) else j[7]
+                        rel = os.path.relpath(ap_, os.path.dirname(os.path.dirname(os.path.dirname(ap_))))
+                        info[h]["albedo"] = ("donor:" + rel) if isinstance(j[7], tuple) else rel
                     if j[8]: info[h]["micro"] = [j[8][0], j[8][1]]
                 if i % 200 == 0:   # also saved as it goes: an interrupted build keeps what it made
                     print(f"  {i}/{len(jobs)} tiles, {time.time() - t0:.0f} s", flush=True)

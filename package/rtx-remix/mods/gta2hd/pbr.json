@@ -2592,23 +2592,24 @@
 "wet": true
 },
 "0DBB71C44D9C08B9": {
+"albedo": "donor:roads/bil/tile_0759.dds",
 "cls": {
-"asphalt": 0.036,
-"brick": 0.007,
+"asphalt": 0.043,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.041,
-"struct": 0.65,
-"veg": 0.061,
-"wood": 0.02
+"stone": 0.038,
+"struct": 0.68,
+"veg": 0.372,
+"wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "0DCAB1C691F2F7EF": {
 "cls": {
@@ -2763,23 +2764,24 @@
 "wet": false
 },
 "0E48F76D945FB7DE": {
+"albedo": "donor:roads/bil/tile_0759.dds",
 "cls": {
-"asphalt": 0.169,
-"brick": 0.02,
+"asphalt": 0.08,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.046,
+"paint": 0.044,
 "panes": 0,
-"stone": 0.095,
-"struct": 0.85,
-"veg": 0.0,
-"wood": 0.008
+"stone": 0.09,
+"struct": 0.8,
+"veg": 0.337,
+"wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "0E520B386028B5DC": {
 "cls": {
@@ -3215,23 +3217,24 @@
 "wet": false
 },
 "10CCA91221AC6C61": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.345,
-"brick": 0.031,
+"asphalt": 0.121,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.043,
+"stone": 0.04,
 "struct": 0.68,
-"veg": 0.009,
-"wood": 0.025
+"veg": 0.271,
+"wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "10DFF8C794B6156D": {
 "cls": {
@@ -3289,23 +3292,24 @@
 "wet": false
 },
 "111C7433B26D86D8": {
+"albedo": "donor:roads/bil/tile_0743.dds",
 "cls": {
-"asphalt": 0.255,
-"brick": 0.004,
+"asphalt": 0.039,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.05,
-"struct": 0.6,
-"veg": 0.02,
-"wood": 0.019
+"stone": 0.047,
+"struct": 0.64,
+"veg": 0.439,
+"wood": 0.007
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "115697382A534F6B": {
 "cls": {
@@ -5134,8 +5138,9 @@
 "wet": false
 },
 "1B2291B50CAA6913": {
+"albedo": "donor:roads/ste/tile_0825.dds",
 "cls": {
-"asphalt": 0.171,
+"asphalt": 0.028,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -5144,13 +5149,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.011,
-"struct": 0.25,
-"veg": 0.0,
+"struct": 0.33,
+"veg": 0.215,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "1B72A6E1B135B408": {
 "cls": {
@@ -5207,23 +5212,24 @@
 "wet": false
 },
 "1B9B146BA69E26F0": {
+"albedo": "donor:roads/bil/tile_0765.dds",
 "cls": {
-"asphalt": 0.188,
+"asphalt": 0.448,
 "brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.098,
+"paint": 0.097,
 "panes": 0,
 "stone": 0.001,
-"struct": 0.62,
-"veg": 0.025,
+"struct": 0.64,
+"veg": 0.027,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "1BA3C9285F7D34D6": {
 "cls": {
@@ -5630,8 +5636,9 @@
 "wet": false
 },
 "1D1B1742CD039285": {
+"albedo": "donor:roads/wil/tile_0266.dds",
 "cls": {
-"asphalt": 0.378,
+"asphalt": 0.05,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -5641,12 +5648,12 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.001,
+"veg": 0.323,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "1D64CE60AEC9FB2F": {
 "cls": {
@@ -7320,9 +7327,10 @@
 "wet": false
 },
 "271CAD843B0AB48C": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.181,
-"brick": 0.005,
+"asphalt": 0.114,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -7330,13 +7338,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.01,
-"struct": 0.43,
-"veg": 0.003,
-"wood": 0.01
+"struct": 0.44,
+"veg": 0.362,
+"wood": 0.005
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "271D85F511CC5AEE": {
 "cls": {
@@ -7719,19 +7727,20 @@
 "wet": false
 },
 "290D526DBC541D4E": {
+"albedo": "donor:roads/bil/tile_0744.dds",
 "cls": {
-"asphalt": 0.141,
-"brick": 0.123,
+"asphalt": 0.075,
+"brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.292,
-"struct": 1.0,
-"veg": 0.007,
-"wood": 0.074
+"stone": 0.275,
+"struct": 0.94,
+"veg": 0.377,
+"wood": 0.018
 },
 "displace_in": 0.0,
 "ground": "road",
@@ -8674,23 +8683,24 @@
 "wet": false
 },
 "2E21070F329564B7": {
+"albedo": "donor:roads/ste/tile_0825.dds",
 "cls": {
-"asphalt": 0.034,
+"asphalt": 0.023,
 "brick": 0.001,
-"ceramic": 0.002,
+"ceramic": 0.001,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
 "stone": 0.001,
-"struct": 0.26,
-"veg": 0.001,
+"struct": 0.35,
+"veg": 0.21,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "2E307E85613682D4": {
 "cls": {
@@ -9607,8 +9617,9 @@
 "wet": false
 },
 "337E8BEBC0F9F940": {
+"albedo": "donor:roads/ste/tile_0819.dds",
 "cls": {
-"asphalt": 0.028,
+"asphalt": 0.014,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -9616,14 +9627,14 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.011,
-"struct": 0.64,
-"veg": 0.011,
+"stone": 0.007,
+"struct": 0.66,
+"veg": 0.109,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "33A61E797F8F25F5": {
 "cls": {
@@ -9797,23 +9808,24 @@
 "wet": true
 },
 "348602EBDD736D93": {
+"albedo": "donor:roads/bil/tile_0756.dds",
 "cls": {
 "asphalt": 0.14,
 "brick": 0.0,
 "ceramic": 0.002,
 "chrome": 0.0,
 "glass": 0.0,
-"metal": 0.051,
+"metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.105,
-"struct": 0.78,
-"veg": 0.04,
+"stone": 0.119,
+"struct": 0.79,
+"veg": 0.256,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "348A23281363258B": {
 "cls": {
@@ -11123,8 +11135,9 @@
 "wet": false
 },
 "3BA212B8F85B5318": {
+"albedo": "donor:roads/wil/tile_0691.dds",
 "cls": {
-"asphalt": 0.964,
+"asphalt": 0.967,
 "brick": 0.0,
 "ceramic": 0.004,
 "chrome": 0.0,
@@ -11133,7 +11146,7 @@
 "paint": 0.004,
 "panes": 0,
 "stone": 0.017,
-"struct": 0.35,
+"struct": 0.41,
 "veg": 0.0,
 "wood": 0.0
 },
@@ -11926,8 +11939,9 @@
 "wet": false
 },
 "3FB0903212D0A42C": {
+"albedo": "donor:roads/bil/tile_0756.dds",
 "cls": {
-"asphalt": 0.107,
+"asphalt": 0.146,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -11936,18 +11950,19 @@
 "paint": 0.08,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.44,
-"veg": 0.161,
-"wood": 0.001
+"struct": 0.47,
+"veg": 0.28,
+"wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "3FBCC34919FBC401": {
+"albedo": "donor:roads/ste/tile_0672.dds",
 "cls": {
-"asphalt": 0.015,
-"brick": 0.001,
+"asphalt": 0.006,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -11955,13 +11970,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.36,
-"veg": 0.062,
-"wood": 0.024
+"struct": 0.43,
+"veg": 0.269,
+"wood": 0.025
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "3FBCD1792922661B": {
 "cls": {
@@ -12689,8 +12704,9 @@
 "wet": true
 },
 "432647A09A8D565C": {
+"albedo": "donor:roads/ste/tile_0695.dds",
 "cls": {
-"asphalt": 0.01,
+"asphalt": 0.001,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -12698,14 +12714,14 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.003,
+"stone": 0.0,
 "struct": 0.36,
-"veg": 0.001,
+"veg": 0.035,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "433AC86E52C0241D": {
 "cls": {
@@ -13277,9 +13293,10 @@
 "wet": false
 },
 "456F806F614F86E5": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.005,
-"brick": 0.345,
+"asphalt": 0.11,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -13287,13 +13304,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.005,
-"struct": 0.33,
-"veg": 0.0,
-"wood": 0.034
+"struct": 0.37,
+"veg": 0.316,
+"wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "45850F530B69FE7D": {
 "cls": {
@@ -13525,8 +13542,9 @@
 "wet": false
 },
 "46403C7F6D6B3E9E": {
+"albedo": "donor:roads/bil/tile_0759.dds",
 "cls": {
-"asphalt": 0.742,
+"asphalt": 0.035,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -13536,7 +13554,7 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.0,
+"veg": 0.411,
 "wood": 0.0
 },
 "displace_in": 0.0,
@@ -13959,9 +13977,10 @@
 "wet": false
 },
 "47CC4CCC63AFB097": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.257,
-"brick": 0.002,
+"asphalt": 0.127,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -13970,12 +13989,12 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.39,
-"veg": 0.002,
-"wood": 0.001
+"veg": 0.358,
+"wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "4829EBE34BC4059D": {
 "cls": {
@@ -15035,23 +15054,24 @@
 "wet": false
 },
 "4CA6E021254D7E42": {
+"albedo": "donor:roads/bil/tile_0759.dds",
 "cls": {
-"asphalt": 0.194,
-"brick": 0.005,
+"asphalt": 0.089,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.048,
-"struct": 0.62,
-"veg": 0.013,
-"wood": 0.014
+"stone": 0.047,
+"struct": 0.63,
+"veg": 0.38,
+"wood": 0.005
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "4CAB2B7DF564EA3D": {
 "cls": {
@@ -15226,8 +15246,9 @@
 "wet": false
 },
 "4D5DCFCE61CB55D4": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.071,
+"asphalt": 0.119,
 "brick": 0.0,
 "ceramic": 0.004,
 "chrome": 0.0,
@@ -15235,14 +15256,14 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.022,
-"struct": 0.34,
-"veg": 0.041,
+"stone": 0.021,
+"struct": 0.4,
+"veg": 0.361,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "4D767051BF12AB10": {
 "cls": {
@@ -15397,9 +15418,10 @@
 "wet": false
 },
 "4EC4B749FB166908": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.001,
-"brick": 0.271,
+"asphalt": 0.141,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -15407,13 +15429,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.0,
-"wood": 0.008
+"struct": 0.27,
+"veg": 0.316,
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "4ED12BB84F0EC9BC": {
 "cls": {
@@ -16276,8 +16298,9 @@
 "wet": false
 },
 "52DAE7534421B454": {
+"albedo": "donor:roads/ste/tile_0819.dds",
 "cls": {
-"asphalt": 0.01,
+"asphalt": 0.017,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -16286,13 +16309,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.6,
-"veg": 0.011,
+"struct": 0.64,
+"veg": 0.083,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "52DB4BD2DD813CDB": {
 "cls": {
@@ -16406,23 +16429,24 @@
 "wet": false
 },
 "534E28D6D0BCA614": {
+"albedo": "donor:roads/bil/tile_0743.dds",
 "cls": {
-"asphalt": 0.113,
-"brick": 0.006,
+"asphalt": 0.048,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.054,
-"struct": 0.85,
-"veg": 0.048,
-"wood": 0.024
+"stone": 0.049,
+"struct": 0.89,
+"veg": 0.403,
+"wood": 0.011
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "537C4AD1CE891F06": {
 "cls": {
@@ -18029,23 +18053,24 @@
 "wet": false
 },
 "5B8F614217759AC2": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.129,
-"brick": 0.009,
+"asphalt": 0.119,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.039,
+"paint": 0.037,
 "panes": 0,
-"stone": 0.042,
-"struct": 0.76,
-"veg": 0.007,
-"wood": 0.021
+"stone": 0.036,
+"struct": 0.74,
+"veg": 0.28,
+"wood": 0.009
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "5BA22CA5F08B94A9": {
 "cls": {
@@ -19199,8 +19224,9 @@
 "wet": true
 },
 "60CF62CAA42F0511": {
+"albedo": "donor:roads/ste/tile_0819.dds",
 "cls": {
-"asphalt": 0.035,
+"asphalt": 0.014,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -19209,13 +19235,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.001,
-"struct": 0.36,
-"veg": 0.021,
+"struct": 0.44,
+"veg": 0.107,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "614A72BC9B69347C": {
 "cls": {
@@ -19627,8 +19653,9 @@
 "wet": false
 },
 "63442742BBD72457": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.58,
+"asphalt": 0.144,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -19638,7 +19665,7 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.0,
+"veg": 0.392,
 "wood": 0.0
 },
 "displace_in": 0.0,
@@ -19904,23 +19931,24 @@
 "wet": true
 },
 "6417F64CF4988B3D": {
+"albedo": "donor:roads/wil/tile_0276.dds",
 "cls": {
-"asphalt": 0.023,
+"asphalt": 0.018,
 "brick": 0.001,
-"ceramic": 0.041,
+"ceramic": 0.036,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.064,
 "panes": 0,
-"stone": 0.027,
-"struct": 0.77,
-"veg": 0.001,
+"stone": 0.032,
+"struct": 0.79,
+"veg": 0.1,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "6437F8F2E0CADA44": {
 "cls": {
@@ -20389,23 +20417,24 @@
 "wet": true
 },
 "66B65C6ACDAF18EB": {
+"albedo": "donor:roads/bil/tile_0749.dds",
 "cls": {
-"asphalt": 0.049,
-"brick": 0.194,
+"asphalt": 0.087,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.235,
-"struct": 0.94,
-"veg": 0.006,
-"wood": 0.1
+"stone": 0.233,
+"struct": 0.91,
+"veg": 0.301,
+"wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "66BA1BB1CBDBCD57": {
 "cls": {
@@ -21412,23 +21441,24 @@
 "wet": false
 },
 "6D26B543371727AA": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.152,
+"asphalt": 0.115,
 "brick": 0.0,
-"ceramic": 0.004,
+"ceramic": 0.001,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.062,
-"struct": 0.47,
-"veg": 0.024,
+"stone": 0.063,
+"struct": 0.52,
+"veg": 0.348,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "6D53744227FF742C": {
 "cls": {
@@ -22812,23 +22842,24 @@
 "wet": true
 },
 "734D935DB1A555FA": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.105,
-"brick": 0.016,
+"asphalt": 0.115,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.041,
+"paint": 0.039,
 "panes": 0,
-"stone": 0.042,
-"struct": 0.74,
-"veg": 0.005,
-"wood": 0.032
+"stone": 0.037,
+"struct": 0.72,
+"veg": 0.271,
+"wood": 0.011
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "734F250BA82899CE": {
 "cls": {
@@ -23323,8 +23354,9 @@
 "wet": true
 },
 "7589E07CEC4D8EAE": {
+"albedo": "donor:roads/wil/tile_0266.dds",
 "cls": {
-"asphalt": 0.0,
+"asphalt": 0.039,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -23334,12 +23366,12 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.007,
+"veg": 0.33,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "7597338628DE008B": {
 "cls": {
@@ -23888,8 +23920,9 @@
 "wet": false
 },
 "784050256A53C446": {
+"albedo": "donor:roads/bil/tile_0759.dds",
 "cls": {
-"asphalt": 0.719,
+"asphalt": 0.038,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -23899,7 +23932,7 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.0,
+"veg": 0.417,
 "wood": 0.0
 },
 "displace_in": 0.0,
@@ -24244,8 +24277,9 @@
 "wet": true
 },
 "7ABB644A80A020B5": {
+"albedo": "donor:roads/wil/tile_0276.dds",
 "cls": {
-"asphalt": 0.039,
+"asphalt": 0.014,
 "brick": 0.001,
 "ceramic": 0.032,
 "chrome": 0.0,
@@ -24254,13 +24288,13 @@
 "paint": 0.048,
 "panes": 0,
 "stone": 0.035,
-"struct": 0.69,
-"veg": 0.001,
-"wood": 0.002
+"struct": 0.72,
+"veg": 0.105,
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "7AC033F9AB347376": {
 "cls": {
@@ -24598,8 +24632,9 @@
 "wet": true
 },
 "7C6B9540ACA23AA1": {
+"albedo": "donor:roads/ste/tile_0829.dds",
 "cls": {
-"asphalt": 0.234,
+"asphalt": 0.171,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -24607,9 +24642,9 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
-"veg": 0.002,
+"stone": 0.001,
+"struct": 0.44,
+"veg": 0.082,
 "wood": 0.0
 },
 "displace_in": 0.0,
@@ -24618,7 +24653,7 @@
 "asphalt",
 0.9
 ],
-"wet": false
+"wet": true
 },
 "7C8035B15C7D0043": {
 "cls": {
@@ -24942,19 +24977,20 @@
 "wet": false
 },
 "7DF23A0D89BACCAF": {
+"albedo": "donor:roads/bil/tile_0741.dds",
 "cls": {
-"asphalt": 0.013,
-"brick": 0.343,
-"ceramic": 0.002,
+"asphalt": 0.029,
+"brick": 0.002,
+"ceramic": 0.004,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.062,
+"paint": 0.061,
 "panes": 0,
-"stone": 0.269,
-"struct": 1.0,
-"veg": 0.0,
-"wood": 0.124
+"stone": 0.259,
+"struct": 0.98,
+"veg": 0.339,
+"wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "road",
@@ -26263,8 +26299,9 @@
 "wet": false
 },
 "82F0971182240124": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.29,
+"asphalt": 0.134,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -26273,13 +26310,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.008,
-"struct": 0.31,
-"veg": 0.004,
+"struct": 0.39,
+"veg": 0.371,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "830A054FF72AE7A4": {
 "cls": {
@@ -26509,23 +26546,24 @@
 "wet": true
 },
 "83FA4BD447D1357D": {
+"albedo": "donor:roads/ste/tile_0674.dds",
 "cls": {
-"asphalt": 0.093,
+"asphalt": 0.073,
 "brick": 0.006,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.037,
+"paint": 0.038,
 "panes": 0,
-"stone": 0.012,
-"struct": 0.56,
-"veg": 0.012,
-"wood": 0.001
+"stone": 0.011,
+"struct": 0.59,
+"veg": 0.063,
+"wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "83FDF7019FCE61B6": {
 "cls": {
@@ -26770,8 +26808,9 @@
 "wet": false
 },
 "851ABC0F46C559B2": {
+"albedo": "donor:roads/ste/tile_0813.dds",
 "cls": {
-"asphalt": 0.043,
+"asphalt": 0.054,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -26779,9 +26818,9 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.006,
-"struct": 0.64,
-"veg": 0.036,
+"stone": 0.005,
+"struct": 0.65,
+"veg": 0.143,
 "wood": 0.006
 },
 "displace_in": 0.0,
@@ -26790,7 +26829,7 @@
 "asphalt",
 0.9
 ],
-"wet": false
+"wet": true
 },
 "8562DA9D074520CB": {
 "cls": {
@@ -27292,8 +27331,9 @@
 "wet": false
 },
 "8851A5BDC2245052": {
+"albedo": "donor:roads/ste/tile_0825.dds",
 "cls": {
-"asphalt": 0.0,
+"asphalt": 0.016,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -27303,12 +27343,12 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.0,
+"veg": 0.21,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "886D751B243DD756": {
 "cls": {
@@ -28325,8 +28365,9 @@
 "wet": false
 },
 "8D05CD84753D21C9": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.344,
+"asphalt": 0.128,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -28335,13 +28376,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.004,
-"struct": 0.25,
-"veg": 0.004,
+"struct": 0.31,
+"veg": 0.372,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "8D3634B2E4B6BBCE": {
 "cls": {
@@ -30330,19 +30371,20 @@
 "wet": false
 },
 "96880E057A99B6BA": {
+"albedo": "donor:roads/wil/tile_0677.dds",
 "cls": {
-"asphalt": 0.799,
-"brick": 0.004,
-"ceramic": 0.009,
+"asphalt": 0.805,
+"brick": 0.003,
+"ceramic": 0.01,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.084,
+"paint": 0.085,
 "panes": 0,
 "stone": 0.006,
-"struct": 0.85,
+"struct": 0.87,
 "veg": 0.0,
-"wood": 0.008
+"wood": 0.007
 },
 "displace_in": 0.0,
 "ground": "road",
@@ -30517,23 +30559,24 @@
 "wet": false
 },
 "97A46E0E47286700": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.128,
-"brick": 0.01,
+"asphalt": 0.114,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.092,
-"struct": 0.67,
-"veg": 0.003,
-"wood": 0.016
+"stone": 0.09,
+"struct": 0.68,
+"veg": 0.275,
+"wood": 0.008
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "97B0CB99BEBBA2E1": {
 "cls": {
@@ -30555,8 +30598,9 @@
 "wet": false
 },
 "97B20ADDA95271B6": {
+"albedo": "donor:roads/ste/tile_0672.dds",
 "cls": {
-"asphalt": 0.037,
+"asphalt": 0.027,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -30564,14 +30608,14 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.005,
-"struct": 0.74,
-"veg": 0.176,
-"wood": 0.038
+"stone": 0.004,
+"struct": 0.79,
+"veg": 0.286,
+"wood": 0.036
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "97B3E0D88CCFCBB7": {
 "cls": {
@@ -31507,8 +31551,9 @@
 "wet": false
 },
 "9C5AC376BF7C38C0": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.913,
+"asphalt": 0.114,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -31518,7 +31563,7 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.0,
+"veg": 0.372,
 "wood": 0.0
 },
 "displace_in": 0.0,
@@ -32017,8 +32062,9 @@
 "wet": true
 },
 "9EFC2D664F30363C": {
+"albedo": "donor:roads/wil/tile_0677.dds",
 "cls": {
-"asphalt": 0.918,
+"asphalt": 0.911,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -32165,8 +32211,9 @@
 "wet": false
 },
 "9FC8D1C1D8990D29": {
+"albedo": "donor:roads/wil/tile_0691.dds",
 "cls": {
-"asphalt": 0.979,
+"asphalt": 0.98,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -32175,7 +32222,7 @@
 "paint": 0.007,
 "panes": 0,
 "stone": 0.002,
-"struct": 0.42,
+"struct": 0.48,
 "veg": 0.0,
 "wood": 0.0
 },
@@ -33210,8 +33257,9 @@
 "wet": false
 },
 "A4A37E1F4B665549": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.145,
+"asphalt": 0.082,
 "brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -33220,13 +33268,13 @@
 "paint": 0.127,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.63,
-"veg": 0.138,
-"wood": 0.003
+"struct": 0.69,
+"veg": 0.431,
+"wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "A4AA2BC9EC86C021": {
 "cls": {
@@ -34192,23 +34240,24 @@
 "wet": false
 },
 "A992626C9324CBB3": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.202,
-"brick": 0.01,
+"asphalt": 0.158,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.045,
+"paint": 0.044,
 "panes": 0,
-"stone": 0.05,
-"struct": 0.96,
-"veg": 0.001,
-"wood": 0.004
+"stone": 0.046,
+"struct": 0.93,
+"veg": 0.252,
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "A9D1CB86665D975F": {
 "cls": {
@@ -34762,8 +34811,9 @@
 "wet": false
 },
 "AC1077B3F16FFC00": {
+"albedo": "donor:roads/wil/tile_0691.dds",
 "cls": {
-"asphalt": 1.0,
+"asphalt": 0.994,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -35125,8 +35175,9 @@
 "wet": false
 },
 "AD4F41830AE15E8B": {
+"albedo": "donor:roads/wil/tile_0676.dds",
 "cls": {
-"asphalt": 0.99,
+"asphalt": 0.962,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -35135,7 +35186,7 @@
 "paint": 0.004,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.3,
+"struct": 0.37,
 "veg": 0.0,
 "wood": 0.0
 },
@@ -35385,19 +35436,20 @@
 "wet": false
 },
 "AEA8E26759E508EE": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.524,
-"brick": 0.002,
+"asphalt": 0.133,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.069,
-"struct": 0.6,
-"veg": 0.002,
-"wood": 0.004
+"stone": 0.068,
+"struct": 0.57,
+"veg": 0.338,
+"wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
@@ -35928,8 +35980,9 @@
 "wet": false
 },
 "B24DC8F3EBDF0BB1": {
+"albedo": "donor:roads/ste/tile_0825.dds",
 "cls": {
-"asphalt": 0.005,
+"asphalt": 0.042,
 "brick": 0.004,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -35938,13 +35991,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.068,
+"struct": 0.31,
+"veg": 0.218,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "B253EE8B83E7AAF8": {
 "cls": {
@@ -36137,23 +36190,24 @@
 "wet": false
 },
 "B317D3E4CED2274D": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.236,
+"asphalt": 0.138,
 "brick": 0.004,
-"ceramic": 0.002,
+"ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.058,
 "panes": 0,
-"stone": 0.001,
-"struct": 0.42,
-"veg": 0.013,
+"stone": 0.0,
+"struct": 0.51,
+"veg": 0.412,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "B355B56643484E70": {
 "cls": {
@@ -36901,8 +36955,9 @@
 "wet": false
 },
 "B863EB51B7C3B0F0": {
+"albedo": "donor:roads/ste/tile_0825.dds",
 "cls": {
-"asphalt": 0.138,
+"asphalt": 0.028,
 "brick": 0.001,
 "ceramic": 0.001,
 "chrome": 0.0,
@@ -36910,14 +36965,14 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.021,
-"struct": 0.25,
-"veg": 0.002,
+"stone": 0.02,
+"struct": 0.32,
+"veg": 0.208,
 "wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "B8AD70D0C967611F": {
 "cls": {
@@ -37140,6 +37195,7 @@
 "wet": false
 },
 "BA78733F9E9A216F": {
+"albedo": "donor:roads/wil/tile_0691.dds",
 "cls": {
 "asphalt": 1.0,
 "brick": 0.0,
@@ -37957,9 +38013,10 @@
 "wet": true
 },
 "BEFE591F73A75621": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.051,
-"brick": 0.082,
+"asphalt": 0.122,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -37968,12 +38025,12 @@
 "panes": 0,
 "stone": 0.005,
 "struct": 0.43,
-"veg": 0.0,
-"wood": 0.014
+"veg": 0.361,
+"wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "BF0245ADEA5ABB62": {
 "cls": {
@@ -38215,23 +38272,24 @@
 "wet": false
 },
 "BFDB409C1AD512AB": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.382,
-"brick": 0.006,
+"asphalt": 0.14,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.033,
 "panes": 0,
-"stone": 0.052,
-"struct": 0.83,
-"veg": 0.001,
-"wood": 0.009
+"stone": 0.044,
+"struct": 0.78,
+"veg": 0.26,
+"wood": 0.005
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "BFDE7FBC224644FE": {
 "cls": {
@@ -38354,9 +38412,10 @@
 "wet": false
 },
 "C029DBCD4E1711E0": {
+"albedo": "donor:roads/bil/tile_0744.dds",
 "cls": {
-"asphalt": 0.001,
-"brick": 0.746,
+"asphalt": 0.023,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -38365,7 +38424,7 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.0,
+"veg": 0.719,
 "wood": 0.0
 },
 "displace_in": 0.0,
@@ -38566,8 +38625,9 @@
 "wet": false
 },
 "C1B304D148E35F65": {
+"albedo": "donor:roads/wil/tile_0266.dds",
 "cls": {
-"asphalt": 0.014,
+"asphalt": 0.039,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -38576,13 +38636,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.005,
-"struct": 0.25,
-"veg": 0.004,
+"struct": 0.33,
+"veg": 0.323,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "C1CA94CCAF34966F": {
 "cls": {
@@ -39256,23 +39316,24 @@
 "wet": false
 },
 "C51F290A50173902": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.128,
-"brick": 0.007,
+"asphalt": 0.114,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.049,
+"stone": 0.047,
 "struct": 0.61,
-"veg": 0.004,
-"wood": 0.012
+"veg": 0.29,
+"wood": 0.007
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "C524940DF9CB9EFB": {
 "cls": {
@@ -39653,23 +39714,24 @@
 "wet": false
 },
 "C7158662AAAAB468": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.404,
-"brick": 0.001,
+"asphalt": 0.151,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.056,
-"struct": 0.76,
-"veg": 0.05,
-"wood": 0.011
+"stone": 0.048,
+"struct": 0.78,
+"veg": 0.311,
+"wood": 0.009
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "C731A90F8EDFD9C9": {
 "cls": {
@@ -40618,23 +40680,24 @@
 "wet": false
 },
 "CC77272224B6E374": {
+"albedo": "donor:roads/bil/tile_0743.dds",
 "cls": {
-"asphalt": 0.1,
-"brick": 0.005,
+"asphalt": 0.042,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.049,
-"struct": 0.82,
-"veg": 0.044,
-"wood": 0.016
+"stone": 0.044,
+"struct": 0.85,
+"veg": 0.404,
+"wood": 0.01
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "CC8FA6ADABC11A95": {
 "cls": {
@@ -40716,8 +40779,9 @@
 "wet": false
 },
 "CD08A174633B0AA2": {
+"albedo": "donor:roads/ste/tile_0825.dds",
 "cls": {
-"asphalt": 0.0,
+"asphalt": 0.016,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -40726,13 +40790,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
-"veg": 0.013,
+"struct": 0.3,
+"veg": 0.224,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "CD3C6BB785A895A0": {
 "cls": {
@@ -40887,23 +40951,24 @@
 "wet": false
 },
 "CDE89077E682088F": {
+"albedo": "donor:roads/wil/tile_0266.dds",
 "cls": {
-"asphalt": 0.018,
+"asphalt": 0.047,
 "brick": 0.0,
-"ceramic": 0.011,
+"ceramic": 0.016,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.149,
-"struct": 0.8,
-"veg": 0.03,
+"stone": 0.143,
+"struct": 0.84,
+"veg": 0.263,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "CDF48BD6A780B770": {
 "cls": {
@@ -40925,19 +40990,20 @@
 "wet": false
 },
 "CE2AAB91DFDE3EC4": {
+"albedo": "donor:roads/wil/tile_0695.dds",
 "cls": {
-"asphalt": 0.896,
+"asphalt": 0.895,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.055,
+"paint": 0.056,
 "panes": 0,
 "stone": 0.003,
-"struct": 0.71,
+"struct": 0.75,
 "veg": 0.0,
-"wood": 0.001
+"wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
@@ -42221,23 +42287,24 @@
 "wet": true
 },
 "D47CA270B82B0A38": {
+"albedo": "donor:roads/bil/tile_0756.dds",
 "cls": {
-"asphalt": 0.129,
-"brick": 0.003,
+"asphalt": 0.169,
+"brick": 0.002,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.071,
+"paint": 0.069,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.62,
-"veg": 0.257,
-"wood": 0.003
+"struct": 0.67,
+"veg": 0.35,
+"wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "D481BC0351EBB8AE": {
 "cls": {
@@ -42388,9 +42455,10 @@
 "wet": true
 },
 "D4FDA60F1101F9CF": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.517,
-"brick": 0.001,
+"asphalt": 0.119,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
@@ -42398,13 +42466,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.29,
-"veg": 0.001,
-"wood": 0.001
+"struct": 0.31,
+"veg": 0.368,
+"wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "D5150616EC8AF1F2": {
 "cls": {
@@ -42626,27 +42694,29 @@
 "wet": false
 },
 "D64C267CE25CD1CA": {
+"albedo": "donor:roads/wil/tile_0266.dds",
 "cls": {
-"asphalt": 0.007,
+"asphalt": 0.035,
 "brick": 0.0,
-"ceramic": 0.0,
+"ceramic": 0.001,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.011,
-"struct": 0.32,
-"veg": 0.025,
+"stone": 0.01,
+"struct": 0.4,
+"veg": 0.321,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "D658512930C47668": {
+"albedo": "donor:roads/bil/tile_0749.dds",
 "cls": {
-"asphalt": 0.127,
+"asphalt": 0.077,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -42654,14 +42724,14 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.069,
-"struct": 0.59,
-"veg": 0.027,
+"stone": 0.064,
+"struct": 0.63,
+"veg": 0.426,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "D65FA3160954BD4A": {
 "cls": {
@@ -42905,8 +42975,9 @@
 "wet": true
 },
 "D7E31A25ACE4BE26": {
+"albedo": "donor:roads/wil/tile_0257.dds",
 "cls": {
-"asphalt": 0.006,
+"asphalt": 0.071,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -42915,13 +42986,13 @@
 "paint": 0.0,
 "panes": 0,
 "stone": 0.005,
-"struct": 0.25,
-"veg": 0.02,
+"struct": 0.33,
+"veg": 0.181,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "D80A08E5E6020DEF": {
 "albedo": "roads/bil/tile_0736.dds",
@@ -43245,8 +43316,9 @@
 "wet": false
 },
 "DA033B7A0B38551E": {
+"albedo": "donor:roads/wil/tile_0257.dds",
 "cls": {
-"asphalt": 0.012,
+"asphalt": 0.085,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -43256,12 +43328,12 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.002,
+"veg": 0.194,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "DA0989F23E2A4724": {
 "cls": {
@@ -44083,23 +44155,24 @@
 "wet": false
 },
 "DE920672C2B3285F": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.294,
-"brick": 0.045,
+"asphalt": 0.153,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.003,
 "panes": 0,
-"stone": 0.064,
+"stone": 0.058,
 "struct": 1.0,
-"veg": 0.025,
-"wood": 0.02
+"veg": 0.228,
+"wood": 0.009
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "DEABA3C6F94CE36B": {
 "cls": {
@@ -44195,8 +44268,9 @@
 "wet": false
 },
 "DF1E2456F552B24E": {
+"albedo": "donor:roads/ste/tile_0825.dds",
 "cls": {
-"asphalt": 0.114,
+"asphalt": 0.027,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -44205,13 +44279,13 @@
 "paint": 0.079,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.38,
-"veg": 0.0,
-"wood": 0.002
+"struct": 0.45,
+"veg": 0.225,
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "DF6A048B731B7C37": {
 "cls": {
@@ -44559,23 +44633,24 @@
 "wet": false
 },
 "E0DFB3AB2162A802": {
+"albedo": "donor:roads/ste/tile_0703.dds",
 "cls": {
-"asphalt": 0.15,
+"asphalt": 0.04,
 "brick": 0.002,
-"ceramic": 0.02,
+"ceramic": 0.022,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.003,
+"paint": 0.002,
 "panes": 0,
-"stone": 0.002,
-"struct": 0.56,
-"veg": 0.078,
-"wood": 0.023
+"stone": 0.001,
+"struct": 0.52,
+"veg": 0.177,
+"wood": 0.019
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "E0E1673007E8C2AD": {
 "cls": {
@@ -45853,23 +45928,24 @@
 "wet": false
 },
 "E828948C5C87A804": {
+"albedo": "donor:roads/bil/tile_0765.dds",
 "cls": {
-"asphalt": 0.18,
+"asphalt": 0.481,
 "brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.035,
+"paint": 0.034,
 "panes": 0,
 "stone": 0.001,
-"struct": 0.4,
-"veg": 0.1,
-"wood": 0.002
+"struct": 0.41,
+"veg": 0.03,
+"wood": 0.001
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "E8350AF6F49DF41B": {
 "cls": {
@@ -46582,8 +46658,9 @@
 "wet": false
 },
 "EBDF601DF091B99C": {
+"albedo": "donor:roads/wil/tile_0691.dds",
 "cls": {
-"asphalt": 1.0,
+"asphalt": 0.999,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -46927,27 +47004,29 @@
 "wet": false
 },
 "EDCA611FE0A55A2A": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.09,
-"brick": 0.011,
+"asphalt": 0.11,
+"brick": 0.001,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.045,
-"struct": 0.6,
-"veg": 0.003,
-"wood": 0.034
+"stone": 0.039,
+"struct": 0.63,
+"veg": 0.282,
+"wood": 0.006
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "EDE5AF281132A013": {
+"albedo": "donor:roads/ste/tile_0829.dds",
 "cls": {
-"asphalt": 0.112,
+"asphalt": 0.163,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -46957,12 +47036,12 @@
 "panes": 0,
 "stone": 0.0,
 "struct": 0.25,
-"veg": 0.0,
+"veg": 0.091,
 "wood": 0.0
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "EDFB579163D2D5B9": {
 "cls": {
@@ -48010,8 +48089,9 @@
 "wet": false
 },
 "F393EFC6ED64F33C": {
+"albedo": "donor:roads/bil/tile_0755.dds",
 "cls": {
-"asphalt": 0.181,
+"asphalt": 0.106,
 "brick": 0.004,
 "ceramic": 0.001,
 "chrome": 0.0,
@@ -48019,14 +48099,14 @@
 "metal": 0.0,
 "paint": 0.033,
 "panes": 0,
-"stone": 0.064,
-"struct": 0.69,
-"veg": 0.014,
+"stone": 0.063,
+"struct": 0.72,
+"veg": 0.355,
 "wood": 0.002
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "F3AE2835A861B2DB": {
 "cls": {
@@ -48286,23 +48366,24 @@
 "wet": true
 },
 "F5496FB3F782674A": {
+"albedo": "donor:roads/bil/tile_0767.dds",
 "cls": {
-"asphalt": 0.172,
-"brick": 0.045,
+"asphalt": 0.15,
+"brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.147,
-"struct": 0.84,
-"veg": 0.007,
-"wood": 0.015
+"stone": 0.141,
+"struct": 0.83,
+"veg": 0.227,
+"wood": 0.003
 },
 "displace_in": 0.0,
 "ground": "road",
-"wet": false
+"wet": true
 },
 "F5895CB93EC09390": {
 "cls": {

@@ -13025,9 +13025,6 @@ over "RootNode"
                 custom float inputs:metallic_constant = 0
                 custom float inputs:reflection_roughness_constant = 0.8
                 custom bool inputs:use_legacy_alpha_state = 1
-                custom asset inputs:metallic_texture = @./textures/348602EBDD736D93.m.rtex.dds@ (
-                    colorSpace = "raw"
-                )
                 token outputs:out
             }
         }

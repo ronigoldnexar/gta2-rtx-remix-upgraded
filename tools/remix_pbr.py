@@ -317,6 +317,7 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
 
     # wet: everything glossier; puddles in the low areas of ground-like tiles, water in joints
     groundish = float((asphalt | stone | redb).mean()) > 0.55 and panes == 0 and float(paint.mean()) < 0.15
+    groundish = groundish or ground == "road"            # FIX-REMIX-MATERIALS-6: every road lid takes the rain (the class said so already)
     wet = rough * 0.5 + 0.02
     if groundish:
         rng = np.random.default_rng(int(hashlib.md5(seed.encode()).hexdigest()[:8], 16))
@@ -438,6 +439,61 @@ def deband(rgba, low=0.018, high=0.05):
     rng = np.random.default_rng(12345)
     g = gauss(rng.standard_normal((h, w)).astype(np.float32), 0.7 * S + 0.2)
     y = y + (0.012 / (g.std() + 1e-6)) * g[..., None] * np.clip(y, 0.05, 1)
+    out = rgba.copy()
+    out[..., :3] = np.clip(np.rint(y * 255), 0, 255).astype(np.uint8)
+    return out
+
+def road_paint_mask(a):
+    """FIX-REMIX-MATERIALS-6: the painted / built parts of a road lid (lane dashes, kerb tops, yellow
+    lines, kerb shadows), as a 0..1 float mask, from sRGB floats: bright (luminance > 0.55), saturated,
+    under half the tile's median luminance, or over 0.14 from the tile's median colour (a grey kerb)."""
+    mx, mn = a.max(-1), a.min(-1)
+    L = a.mean(-1)
+    med = np.median(a.reshape(-1, 3), 0)
+    far = np.abs(a - med).max(-1) > 0.14
+    return ((L > 0.55) | ((mx - mn) > 0.25) | (L < 0.5 * np.median(L)) | far).astype(np.float32)
+
+
+def road_detail_albedo(rgba, donor, donor_plain, detail_sigma=40.0):
+    """FIX-REMIX-MATERIALS-6 (ptrmx26-remix-wil-day-third-road-lids-alternate-...-checkerboard): the
+    re-authored road paint (assets/textures_hd/roads/<style>) exists only for the dashed lids, so a
+    road alternated rows of mottled, cracked asphalt (276/278 on wil) and the upscaler's smooth plane
+    (275/277). A road lid without re-authored art takes its asphalt from a sibling that has it (the
+    donor: same style, closest plain tile): the donor's paint (dashes it has and this lid has not) is
+    filled from the donor's own asphalt a quarter-tile away, the lid's asphalt keeps its own low
+    frequencies shifted to the donor's mean asphalt colour and takes the donor's detail (cracks,
+    mottling: the ratio to its blur, sigma `detail_sigma` texels at 512 px); the lid's own paint and
+    kerbs are kept. Layer albedo only (the HD tile stays the texture key). rgba / donor uint8 RGBA
+    at the same size; donor_plain the donor's plain HD tile (where its paint is)."""
+    h, w = rgba.shape[:2]
+    S = h / 512.0
+    a = rgba[..., :3].astype(np.float32) / 255.0
+    d = donor[..., :3].astype(np.float32) / 255.0
+    dp = road_paint_mask(donor_plain[..., :3].astype(np.float32) / 255.0)
+    dp = np.maximum(dp, road_paint_mask(d))
+    dp = (gauss(dp, 5 * S + 1) > 0.02).astype(np.float32)
+    sig = detail_sigma * S
+    wd = 1.0 - dp                                        # the donor's asphalt only, so a dash leaves no halo
+    dlo = np.stack([gauss(d[..., c] * wd, sig) for c in range(3)], -1) / np.maximum(gauss(wd, sig), 1e-3)[..., None]
+    detail = d / np.maximum(dlo, 1e-3)
+    hole = dp > 0.5                                      # the dashes: detail from the donor's asphalt elsewhere
+    for sh in ((h // 4, 0), (-h // 4, 0), (h // 2, 0), (0, w // 4), (0, -w // 4), (h // 2, w // 2),
+               (h // 4, w // 4), (-h // 4, -w // 4), (3 * h // 8, w // 3)):
+        if not hole.any(): break
+        src = np.roll(detail, sh, (0, 1)); ok = ~np.roll(dp > 0.5, sh, (0, 1))
+        put = hole & ok; detail[put] = src[put]; hole &= ~put
+    if hole.any(): detail[hole] = 1.0
+    detail = np.clip(detail, 0.5, 1.6)
+    dmean = d[dp < 0.5].mean(0) if (dp < 0.5).any() else d.reshape(-1, 3).mean(0)
+    own = road_paint_mask(a)
+    own = np.clip(gauss(own, 1.5 * S + 0.5) * 1.6, 0, 1)
+    asph = own < 0.5
+    if asph.sum() < 16: return rgba
+    wa = 1.0 - own                                       # the lid's own low frequencies from its asphalt only
+    olo = np.stack([gauss(a[..., c] * wa, sig) for c in range(3)], -1) / np.maximum(gauss(wa, sig), 1e-3)[..., None]
+    shift = dmean / np.maximum(a[asph].mean(0), 1e-3)
+    y = np.clip(olo * shift * detail, 0, 1)
+    y = own[..., None] * a + (1 - own[..., None]) * y
     out = rgba.copy()
     out[..., :3] = np.clip(np.rint(y * 255), 0, 255).astype(np.uint8)
     return out
