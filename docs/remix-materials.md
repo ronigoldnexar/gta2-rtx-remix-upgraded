@@ -1773,3 +1773,34 @@ out/fm7_ab1): u1 and u2 show the hard grey slab past the rear bumper and along t
 shade on the paving under the car; u0 has no slab and less shade. Geometry note for VEHICLE-ART-15 beside its order:
 pans whose lowest parts reach the tyre contact plane (067, 048, 035, 003, 001, 045, ... 071 at -0.5 cm) and a flat
 pan that runs to the bumpers are still seen from low cameras on both renderers.
+
+**Prims for VEHICLE-ART-15's authored cars (FIX-REMIX-MATERIALS-7).** 012 Cop Car, 013 Minx (kit re-author), 027 Ice-Cream
+Van, 069 U-Jerk Truck (43 hashes) and 000 Romero (3): `remix_model_materials.py --pattern '^(012|013|027|069)_.*'` into a
+scratch layer, `remix_layer_merge.py` with only the missing hashes (additions only); `remix_car_prim_check.py --pattern
+'.*'` 0 missing. Path traced from three poses at 06:30 and 15:30 (out/fm7_v2): whole bodies, the police livery, whitewalls,
+neutral chrome. 027 went back to its image-to-3D shell after (VEHICLE-ART-15 26726ea); its kit prims are inert until it returns.
+The 124 DDS are in `layer_deploy/FIX-REMIX-MATERIALS-7/`.
+
+**Split-pair tint under Remix takes the rest half too.** Both prims of a car's split pair carry one merged opaque albedo
+(the duplicate-draw rule above), and the paint tint is the draw's stage-1 factor, so Remix multiplies the WHOLE merged
+surface: the 071 Rumbler's white stripes (rest half) go as dark as its green paint (no stripes under Remix, stripes in the
+plain view). A paint-path fix (note beside the pmzz order); not changed here.
+
+## Sun-lit road exposure (FIX-REMIX-MATERIALS-7, prx1)
+
+The road's layer albedo is already dark asphalt (linear 0.065-0.08, MATERIALS-6). Same-pose takes at bil 150.5,130.5,
+09:00 and 13:00, third and first person (`playtest_remix.sh ... -e GTA2DX9_SCENE_NO_CAR=1`), road boxes measured in the
+same frames (sun-lit patch / shade):
+
+| run | change | 09:00 sun | 09:00 shade |
+|---|---|---|---|
+| fm7_prx_a | shipped (PsychoV, day cap 6.0, Yf target 0.18) | 203,207,177 | 113,127,116 |
+| fm7_prx_b | AgX Punchy 1.15 | 203,209,184 | 149,167,158 (milky, flat: rejected) |
+| fm7_prx_c | `remix_day_max_exposure_tenths=40` | 200,204,173 | 111,125,114 (the cap does not bind here) |
+| fm7_prx_d | `rtx.autoExposure.targetAdaptedYf = 0.13` | 186,190,158 | 97,110,99 |
+
+The runtime meters the geometric-mean Yf to 0.18; a street frame is mostly asphalt and shade, so the exposure climbed
+until sun-lit road read cream. 0.13 is in `linux/docker/rtx_play.conf.extra` (the host's play page reads the workspace
+copy `gamerun/rtx_play.conf.extra`: installed by the deploy bundle). 21:00 at the same point stays a night (cap-bound).
+Left: the warm 09:00 sun still tints the sun-lit asphalt (B 158 vs R 186); the filer's 234,230,212 frame (more shade in
+view) would land near 215; untested on wil/ste and in rain.

@@ -34,6 +34,11 @@ rtx.sharpening.sharpness = 0.2
 # Exposure: capped so the night stays night, slow both ways so passing lamps and
 # headlights do not pump the picture.
 rtx.autoExposure.maxExposure = 2.5
+# FIX-REMIX-MATERIALS-7 (prx1): the meter's target (geometric-mean Yf) 0.13, not the runtime's 0.18: a street frame
+# is mostly low-albedo asphalt and shade, which the 0.18 target pushed up until sun-lit road read cream-white
+# (203,207,177 against 113,127,116 shade at bil 150.5,130.5 09:00); at 0.13 186,190,158 / 97,110,99, the white
+# stone clips less, night unchanged (capped by maxExposure / remix_night_max_exposure_tenths).
+rtx.autoExposure.targetAdaptedYf = 0.13
 rtx.autoExposure.darkAdaptTau = 2.5
 rtx.autoExposure.lightAdaptTau = 0.8
 # Bloom: wide and only on the really bright (neon, lamp heads, tail lamps, the sun's
