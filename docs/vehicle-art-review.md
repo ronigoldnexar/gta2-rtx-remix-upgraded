@@ -931,3 +931,40 @@ read errors in every run. Paint gate `out/va18_gate3_parity.md` 0 FAIL. No DLL c
   over-rider detail; the 044 cockpit reads as a near-black well at chase distance (dark leather on dark trim, as the
   sprite); none filmed at the filers' own spots, at night, driving, or under Remix. The kit bodies' light mottle in the
   street views is not in their textures (they are smooth); it comes from the renderer's light, not from the paint.
+
+## VEHICLE-ART-19 (10 Nov 2026): Remix baseline of ART-18's cars, 054 Tank camo, 064 Truck Cab SX authored, plates
+
+Probes: `gamerun/va11_own.py` parked (EXIT=1) at wil 198.5,188.2 with fixed regression-camera poses (car poses for 054,
+truck-scaled `POSES_EXTRA` t* poses for 064), private stage `stage_va19` (16c259ac stage + ART-18's model files).
+0 FAULT and 0 model read errors in every run. No DLL change: the classic view is unchanged by construction.
+
+- **Remix baseline (out/va19_rx1, `frm2_remix.sh` + `keys_frm2_own.sh`, 13:00 and 22:00, 034/044/086/036/012).** Path
+  traced. What falls short (the full list is on the audit order): one uniform semi-matte coat on every paint panel (no
+  clear-coat reflection of sky or street on the big flats; only chrome reflects), flat single-loft flanks on 034/086 with
+  the 086's rub rails smearing over the rear arch, opaque black side glass on 034/086/012, a baked dark AO smudge behind
+  the 044's front arch and a hard dark crease at the 036's rear arch. Hour 22 in this harness is dusk, not night.
+- **054 Tank (qaexp13; `tools/vehicle_art/sprite_camo.py`).** The image-to-3D hull drew a pale grey-olive in sun and
+  near-black olive in shade: 96 % of the hull is in the untinted base half, whose texels were the generator's grey
+  undercoat (median luma 12). Now the sprite's own picture is projected straight down onto the body (each covered texel's
+  (x, z) picks the nose-down sprite pixel), times a little of the texel's own fine detail; down-facing faces darkened.
+  Written into the base half (the camo is the sprite's art, not the record's paint) and into the paint half's RGB where
+  its alpha is 0; the paint texels are left alone. Deterministic (rerun byte-identical). Before/after at the same six
+  poses (out/va19_tank0 / out/va19_tank1): saturated green camouflage with light-green patches on deck and turret and
+  dark tracks, where it was a grey hull. Short of AAA: the top-down projection streaks vertically down the turret's steep
+  sides, and the TRELLIS hull's lumpy geometry (crumpled side skirts) is unchanged.
+- **064 Truck Cab SX (qav17; `tools/vehicle_art/m064_truck_cab_sx.py`).** The truck in qav17's ste frames is the 064
+  (the filer's log: dented copy, door split and seat of 064_truck_cab_sx alongside the van). Its image-to-3D shell drew the
+  sprite's pale band across the cab back as a flat tan bar, the corner stacks as silver slabs ("torn chrome") and the two
+  roof lights as crumpled shards. Now authored in the carkit from the 063 generator (cab, doors, glass, tanks, chassis,
+  wheels, lamps and paint rules shared), with what the 064 sprite draws differently: a broad rounded hood filling the
+  width between the wings with a small low chrome grille and headlamps set into its corners; two oblong chrome-rimmed
+  roof lights lying fore-aft with amber lenses; a raised painted roof lip across the cab back with a chrome rain strip
+  and two pressed ribs down the back wall; upright chrome stacks with perforated shields at the cab's rear corners.
+  Manifest: `cars/models_art/064_truck_cab_sx.glb`, paint 235 (identity tint), 1024 px, the 063's seat, translucent
+  glass (`glass_translucent.py`). In game (out/va19_t64a, forced 64 + paint 120,89,66, six truck poses incl. the filer's
+  rear-left angle): one whole truck, the back is paint with the lip and ribs, no bar, no slabs, no shards. Textures
+  12.6 MB when drawn (the 063's set) against the shell's 2.3 MB. Short of AAA: the cab is the 063's single-curvature
+  shell; hood and lip are smooth lofts without stamped seams; the roof lights are boxes, not cast housings.
+- **Plates (qaexp11): no change.** At the same close rear pose, parked (out/va19_plate2) and as the player's own car
+  (out/va19_plate3), the shipped plate files read left to right ("RM 000", "MX 613"); the same files mirrored read
+  backwards. The shipped `*_plate.tga` are right for the current meshes (u runs along -x on the -z face).
