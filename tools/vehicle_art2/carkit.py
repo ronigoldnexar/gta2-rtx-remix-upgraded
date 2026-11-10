@@ -220,7 +220,18 @@ class Car:
         def capfn(r, v):
             r = np.asarray(r, float); v = np.asarray(v, float)
             px, py, pz = fn(np.full_like(v, u_end), v)
+            if mirror:
+                # VEHICLE-ART-14: a mirrored half ring must start and end on the centre line; a section whose end
+                # point sits off it (car_010: sepow(cos(pi/2), 0.08) = 0.05) left a wedge open between the two
+                # fans, a black crack up the tail panel
+                px = np.where((v <= v0 + 1e-9) | (v >= v1 - 1e-9), 0.0, px)
             return C[0] + r * (px - C[0]), C[1] + r * (py - C[1]), C[2] + r * (pz - C[2])
+        if regions:
+            # VEHICLE-ART-14: a region given by the ring parameter (v < 0.14: the bottom of the section) took every
+            # fan triangle down to the centre, a dark chevron up the tail/nose panel (050, 051, 056); it now takes only
+            # the fan's outer band (r > 0.8), a strip along the panel's bottom edge
+            regions = [(nm, (lambda r, v, f=f: np.maximum(f(r, v), 0.8 - np.asarray(r, float)))) for nm, f in regions]
+            nr = max(nr, 5)
         self.surface(capfn, 0.0, 1.0, v0, v1, nr, nv, default=mat, mirror=mirror, regions=regions,
                      uvfn=uvfn or (lambda r, v: (0.5 + 0 * r, 0.5 + 0 * v)))
 

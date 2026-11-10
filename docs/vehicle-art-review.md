@@ -684,3 +684,15 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
     tubes/boxes (no springs, brake lines or heat shields); the grime is one planar noise with no wet/dust variation.
 - Remix: `<NNN>_underpan.tga` changed (one image for all 64 copies, new hash: the atlas gained the grime region);
   no other texture changed.
+- **End-panel cracks and chevrons on the kit bodies (`tools/vehicle_art2/carkit.py` `Car.cap`, the 010 deck
+  residual ART-12 listed):** the 010 Bulwark's tail panel had a black crack from the bumper up to the deck emblem. The
+  body section's bottom-centre point sits 0.05 m off the centre line (`sepow(cos(pi/2), 0.08)` = (6e-17)^0.08), so
+  the two mirrored cap fans left a wedge open between them. `cap` now pins a mirrored ring's two end points to x = 0.
+  The same pass found the `underbody` region of the 050/051/056 tail caps (and the nose caps of 053/057/058/082),
+  chosen by the ring parameter (v < 0.14), taking every fan triangle down to the centre: a dark chevron up the panel
+  above the bumper. A cap region now takes only the fan's outer band (r > 0.8, at least 5 rings): a strip along the
+  panel's bottom edge. A full kit rebuild against an unmodified one changes 11 .mesh files only (010 039 050 051 053
+  056 057 058 059 060 082; no texture), each re-oriented and floor-panned as before. Offline previews
+  (`build.py --preview`) and in game: before `out/va14_cap0`, after `out/va14_cap2` (parked, EXIT=1, PAINT
+  209,164,116, poses rear34/chase/front34 and `tail` = 1 block behind at bumper height). The 010's flat deck and plain
+  bonnet themselves were not reshaped.
