@@ -1021,7 +1021,7 @@ section above (`-e GTA2DX9_STATE_EVERY=3` for the km runs from km7; LABRAT: `SWA
   before the copy). JOB COMPLETE frames opened: `out/mb2_ccc3/m_ccc_end.png` (banner, chase view),
   `out/mb2_ccc4/m_ccc_end.png` (the $20,000 brief).
 
-### BANK ROBBERY (wil_ye2): 2 of 3 consecutive on the final code (km15, km16; km17 lost)
+### BANK ROBBERY (wil_ye2): 2 of 3 consecutive (km15, km16; km17 lost); 3 of 5 on the final code
 
 | session | result | where it was won or lost |
 |---|---|---|
@@ -1042,6 +1042,8 @@ section above (`-e GTA2DX9_STATE_EVERY=3` for the km runs from km7; LABRAT: `SWA
 | **mb2_km15** | **complete** | |
 | **mb2_km16** | **complete** | |
 | mb2_km17 | failed | three wrong-car boardings (36, 63, 63), then arrested |
+| mb2_km18 (HEAD stage, wall line) | failed | climbed in the chase view; boarded the GRAHAM with officers at the door, arrested 1 s later |
+| mb2_km19 (HEAD stage, wall line) | **complete** | climbed in the chase view (the gap threaded by steps) |
 
 - **The guard fight** (mg_sp4, mg_sp5, mg_km20 died in it): 13 of 13 fights won since, both guards down
   in 1-3 s each time the walk was reached. `kill_marked`: retreat and shoot (`backpedal`: Down with the
@@ -1049,13 +1051,15 @@ section above (`-e GTA2DX9_STATE_EVERY=3` for the km runs from km7; LABRAT: `SWA
   7 wall s (`KM_STALL_MIN`; it fired 5 s in under load, the peds line's hp lagging) and, with a target
   within 4, a step back firing instead of the cruise to a fire spot with his back turned, whose sideways
   unstick put him on top of the second guard. The stall path itself was not triggered in these sessions.
-- **The climb** fails in the chase view in most sessions (6 of 16 up there: km1, km8, km12, km14-16;
-  GETAWAY had 16 of 19 on the same DLL): the walker stops 0.38 from the girder (193.20,177.50), the renderer-side collider of the
-  open defect `mg-wil-bank-stair-girder-collider-blocks-entry`. `step_to` (aimed short steps through
-  `GAP_PTS`) does not get past it either. The job retries the climb in the classic view (no 3D collider
-  there; marked `climb: ... again in the classic view (renderer-side defect)`), from where he stands; the
-  fight is back in the chase view. Up by that retry in 6 of 9 (km3, km4, km5, km7, km10, km13). FIX-COLLISION-2 had not landed on
-  camera-modes by 02:30 (last `prop_collision.cpp` change 560b3b4): the 19-of-19 recheck is still owed.
+- **The climb** failed in the chase view in most sessions on the old line (6 of 16 up: km1, km8, km12,
+  km14-16; GETAWAY had 16 of 19 on the same DLL): the walker stops 0.3-0.4 from the girder plate
+  (193.20,177.50). FIX-COLLISION-2 (b444001, `docs/prop-collision.md`) found that this is GTA2's own object
+  collision with the plate, in the classic view as in 3D, and that the way on is the strip by the
+  building face (y 177.10-177.20). km2-km17 retried the old line in the classic view when the chase view
+  failed (up in 6 of 9: km3, km4, km5, km7, km10, km13); from km18 `CLIMB_KM` runs along y 177.18
+  (`BR_CLIMB_WALL=1`) with `step_to` (aimed short steps) through `GAP_PTS` after a miss: **2 of 2 up in
+  the chase view on HEAD's DLL (stage built from 154dea3, includes b444001: mb2_km18, mb2_km19)**. The
+  19-of-19 series asked for was not run; the classic retry stays as the fallback.
 - **What still loses it:** boarding the wrong car at the GRAHAM (km3, km4, km7, km13, km17: a car stopped
   against its door side or behind it; `door_enter` and moving the wrong car off before getting out reduce
   but do not end it), police at the door on the bay approach (km12), the drive to the bank (km11).
@@ -1080,12 +1084,14 @@ gang members keep spawning; the count stops because he dies, not because they ru
 | mb2_lp6 | **28** (brief 2356) | a car shot alight by the pads blew up as he walked back |
 | mb2_lp7 | 6 | the gun pad not reached, shot waiting 5.7 from the pads |
 | mb2_lp8 | 20 (1886 game s) | a burning car near the pads (three step-aways, then the blast) |
+| mb2_lp9 | - | the walk onto the phone answered GRAN'PA's (2392) -> `step_answer` (aimed steps south down column 206) |
+| mb2_lp10 | 7 | the station pad not reached (8 rounds), the pistol, shot at the pads at health 50 |
 
 Runner changes (`labrats_plan.py`, `gunfight.py`): targets `gang` only (`LP_GANG_ONLY`); gun rounds only
 (`LP_CAR=0`); a station at the Village generators (machine gun 221.5,34.5; health 223.5,34.5 sets health
 to 100: seen 30 -> 100 in mb2_lp3's HUD line) when health < 60 or rounds < 35, hostiles near him or the
 pads fought first with no shots at cars, no walk while a burning car is within 7 of him or the pads;
-the rounds' anchors keep away from the first hitman (214.5,7.5) once 30 are left; gunfight
+`step_answer` for the phone (lp10: silent 3 times, then the session's answer got the title); the rounds' anchors keep away from the first hitman (214.5,7.5) once 30 are left; gunfight
 `GF_BACK_R=2.2` retreat-and-shoot. Health stays 100 through most rounds now; the deaths are burning
 cars and men at the pads. Next: a blast radius check on the walk paths, not only at the station; the
 flamethrower generator (207.5,24.5, level 3); the hitmen's cars from a distance with the rocket

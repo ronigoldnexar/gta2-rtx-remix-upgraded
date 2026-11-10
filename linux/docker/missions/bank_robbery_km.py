@@ -95,6 +95,15 @@ def walk_pts(points, secs_each=6.0, tol=STAIR_TOL):
 
 
 GAP_PTS = [(193.5, 178.05), (192.8, 177.7), (192.0, 177.7), (191.3, 177.78)]   # the stair foot past the girder
+if os.environ.get("BR_CLIMB_WALL", "1") == "1":
+    # FIX-COLLISION-2 (b444001, docs/prop-collision.md): the pin is GTA2's own object collision with
+    # the girder plate (193.20,177.50, its length along y 177.22-177.78), in classic as in 3D; the way on
+    # is the strip by the building face, y 177.10-177.20 (10 of 10 on y 177.18, third and first person).
+    # The line north of the plate (y 177.85-178.15) is the side the game closes (MISSIONS-BATCH2: 6 of 16
+    # chase-view climbs up on it)
+    CLIMB_KM = [(198.3, 178.5), (196.4, 178.3), (194.7, 177.2), (193.6, 177.18), (192.8, 177.18), (192.0, 177.3),
+                (191.3, 177.6), (190.6, 177.65), (190.4, 176.4), (190.3, 175.4)]
+    GAP_PTS = [(194.7, 177.2), (193.6, 177.18), (192.8, 177.18), (192.0, 177.3)]
 
 
 def step_to(x, y, tol=0.25, tries=24):
@@ -139,7 +148,7 @@ def climb_to_walk(tries=3, resume=False):
         # resume at the first point beyond the nearest one (the points run east to west, then north)
         i = min(range(len(CLIMB_KM)), key=lambda j: math.hypot(CLIMB_KM[j][0] - s["x"], CLIMB_KM[j][1] - s["y"]))
         i = min(i + 1, len(CLIMB_KM) - 1) if (k or resume) else 0
-        if resume and k == 0 and math.hypot(s["x"] - 193.3, s["y"] - 177.9) < 1.5:
+        if resume and k == 0 and math.hypot(s["x"] - 193.6, s["y"] - 177.5) < 1.8:
             # MISSIONS-BATCH2 (mb2_km9): the classic retry walked back to the first point 5 blocks east
             # and lost the line; from the girder's side it steps straight through the gap
             if thread_gap(): break
@@ -148,7 +157,7 @@ def climb_to_walk(tries=3, resume=False):
             break
         s = D.wait_state(); M.mark(f"climb: missed a leg at {s['x']:.1f},{s['y']:.1f} (try {k + 1})")
         if K.level_of_z(s["z"]) == BR.WALK_LEVEL: return True
-        if os.environ.get("BR_STEP_GAP", "1") == "1" and math.hypot(s["x"] - 193.3, s["y"] - 177.9) < 1.5:
+        if os.environ.get("BR_STEP_GAP", "1") == "1" and math.hypot(s["x"] - 193.6, s["y"] - 177.5) < 1.8:
             if thread_gap(): break
             s = D.wait_state()
             if K.level_of_z(s["z"]) == BR.WALK_LEVEL: return True
@@ -545,7 +554,7 @@ def run(world, entry):
         # collider (defect mg-wil-bank-stair-girder-collider-blocks-entry, FIX-COLLISION-2), which is solid
         # only in the 3D views: the same climb once more in the classic view, the fight back in the chase view
         saved = M.WALK_VIEW[0]
-        M.mark("climb: not up in the chase view (the stair girder's collider); again in the classic view (renderer-side defect)")
+        M.mark("climb: not up in the chase view (the stair girder's collider); again in the classic view (the steering there held the gap line better)")
         try:
             M.WALK_VIEW[0] = "classic"; M.ensure_view("classic")
             up = climb_to_walk(resume=True)

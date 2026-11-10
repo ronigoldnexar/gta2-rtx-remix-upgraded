@@ -103,6 +103,28 @@ def ev_count(what):
     ev(f"{what} [counter {c}{'' if c is None or c < 0 else f', {47 - c} of 47 counted'}]")
 
 
+def step_answer(entry, off0):
+    """MISSIONS-BATCH2: mb2_lp5 and mb2_lp9 lost the session at the phone: walk3's cruise unstick
+    beside the phone (stuck 0.9 from 206.1,226.0, sideways moves) ended on the GRAN'PA phone one
+    block south (2392) or on nothing (2793). Here: the waypoints north of it as before, then aimed
+    short steps straight south down column 206 onto the phone, watching the messages; back north
+    and on again when silent. Falls back to the session's answer"""
+    for (x, y) in PHONE_WAY:
+        M.walk3(world, x, y, None, tol=0.5, budget=30)
+    px, py = entry["x"], entry["y"]
+    for k in range(3):
+        P.nudge_to(px, py - 2.0, tol=0.2, tries=12)
+        P.nudge_to(px, py - 0.05, tol=0.15, tries=14)
+        t0 = time.time()
+        while time.time() - t0 < 6.0 / D.SPEED:
+            seen = messages_since(off0)
+            if set(seen) & TITLE: M.mark(f"step_answer: title {seen[:4]}"); return True, next(k2 for k2 in seen if k2 in TITLE)
+            if "2392" in seen or "2793" in seen or "2791" in seen: M.mark(f"step_answer: not this job ({seen[:4]})"); return False, None
+            time.sleep(0.3)
+        M.mark(f"step_answer: phone silent after try {k + 1}; off north and on again")
+    return P.answer(entry)
+
+
 def check():
     if not STARTED[0]: return M.mission_state() or {}
     o, ms = G.job_state()
@@ -369,7 +391,7 @@ def play():
     set_respect()
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
     off0 = M.log_size()
-    ok, key = P.answer(entry)
+    ok, key = step_answer(entry, off0) if os.environ.get("LP_STEP_ANSWER", "1") == "1" else P.answer(entry)
     M.set_avoid_phones(world, keep=None)
     ms = M.mission_state() or {}
     # mb1_ra12: the GRAN'PA phone one block south answered (its brief 2392, never 2351/2353) and a
