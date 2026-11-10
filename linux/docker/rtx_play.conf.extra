@@ -64,3 +64,11 @@ rtx.fallbackLightMode = 0
 rtx.atmosphere.surfaceMoonBrightness = 3
 # A little airglow: the night sky dark blue, not pitch black.
 rtx.atmosphere.nightSkyBrightness = 0.008
+
+# FIX-REMIX-NIGHT-9 (prx1): replacement-texture streaming without sampler feedback. With feedback on (the
+# runtime's default) a small prop seen a few blocks away stays on the mip the GPU sampled for it (the stop
+# sign's 256 px face read as a blurred 8-16 texel disc at night); off, every replacement texture streams to
+# its top level within the budget and is never downgraded once there. Same-pose A/B (wil stop sign, fixed
+# cameras, 21:00): crisp octagon and STOP; frame time 43.7 -> 42.8 ms, VRAM peak 6.25 -> 6.75 GB of 23 GB.
+rtx.texturemanager.samplerFeedbackEnable = False
+rtx.texturemanager.neverDowngradeTextures = True

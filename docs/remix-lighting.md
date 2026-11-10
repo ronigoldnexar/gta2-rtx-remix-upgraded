@@ -315,3 +315,19 @@ Headlamp quads and beams are unchanged (they are the car's own light).
   wide-neon rule does (visuals.cpp). `GTA2DX9_WIDE_NEON_OLD=1` = before. ste spot 0 (out frn8_n0 before / frn8_n1 after),
   pavement/road box mean: 22:30 42,91,23 -> 63,87,56, dusk 44,71,23 -> 67,90,55, day fog 45,52,51 -> 45,53,52.
   Still short: the light still reaches across the street (a bounded pool at the shop front would need the reach cut too).
+
+## FIX-REMIX-NIGHT-9 (10 Nov): texture streaming without sampler feedback (prx1)
+
+`package/rtx.conf` and `linux/docker/rtx_play.conf.extra` (and the live `gamerun/rtx_play.conf.extra`) now set
+`rtx.texturemanager.samplerFeedbackEnable = False` and `rtx.texturemanager.neverDowngradeTextures = True`.
+With sampler feedback on, the runtime streams each replacement texture only to the mips the GPU sampled, so a
+small prop a few blocks off (the stop sign's 256 px face) stayed on an 8-16 texel level: a blurred red disc,
+STOP a smear (FIX-WORLD-12 found it at bil 60.5,150.5; its A/B out of `fw12_prx1_rmx` / `rmx2`).
+
+Second A/B pair (fixed cameras, `gamerun/frn9_cams.py` via `rn_remix.sh`, wil stop sign 167.9,127.5 at 21:00,
+cameras 1 and 3 blocks off, GPU 3, same stage, only the config differs): shipped = soft octagon, smeared rim and
+letters at both distances; new = crisp octagon, white rim, sharp STOP. Cost over the same probe window: 43.7 vs
+42.8 ms per frame (noise), VRAM peak 6.25 -> 6.75 GB (median 5.1 -> 6.0 GB) of the L4's 23 GB. The classic view
+under Remix takes the same runtime option: its frame at the same moment differs by mean 5/255 in a static region
+(3.6 % of pixels over 16), less than two frames of one take differ (path tracing is not byte-repeatable); no
+texture in it changes visibly.
