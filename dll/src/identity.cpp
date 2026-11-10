@@ -197,11 +197,56 @@ bool Livery(int m) {
     }
 }
 
+}  // namespace
+
+// FIX-COCKPIT-CAB-3: the cab table (was cab_interior.cpp's CabClassFor / CabOpenTop lists, moved here so one record
+// per vehicle carries it). CARI order.
+CabRecord IdentityCabFor(int m) {
+    CabRecord c;
+    switch (m) {
+        // The sports cars and roadsters: Aniston BD4, Shark, GT-A1, Miara, Arachnid, Stinger, Meteor (both), Hachura,
+        // Michelli Roadster, Trance-Am, Z-Type, Rumbler, Jagular XK, Furore GT, the special agent car.
+        case 2: case 18: case 19: case 37: case 44: case 46: case 47: case 48: case 49: case 53: case 62: case 70:
+        case 71: case 82: case 83: case 84:
+            c.cab = VehicleCab::Sports; break;
+        // Flat-fronted: box car, bus, the trains, the Karma bus.
+        case 6: case 11: case 59: case 60: case 61: case 86:
+            c.cab = VehicleCab::Bus; break;
+        case 54:   // the tank
+            c.cab = VehicleCab::Tank; break;
+        case 7: case 17: case 21: case 55: case 58: case 63: case 64: case 65: case 66: case 69:
+            c.cab = VehicleCab::Truck; break;
+        case 3: case 4: case 22: case 23: case 24: case 25: case 26: case 27: case 30: case 34: case 35:
+        case 38: case 41: case 52: case 67: case 68: case 85:
+            c.cab = VehicleCab::Van; break;
+        default:
+            c.cab = VehicleCab::Sedan; break;
+    }
+    // Open tops (tools/score_car_model.py OPEN_TOP_MODELS): jeeps and roadsters; 44 Arachnid is a Giulietta Spider.
+    c.openTop = m == 22 || m == 30 || m == 31 || m == 39 || m == 44 || m == 45 || m == 53;
+    return c;
+}
+
+const char* VehicleCabName(VehicleCab c) {
+    switch (c) {
+        case VehicleCab::Sedan: return "sedan";
+        case VehicleCab::Sports: return "sports";
+        case VehicleCab::Van: return "van";
+        case VehicleCab::Truck: return "truck";
+        case VehicleCab::Bus: return "bus";
+        case VehicleCab::Tank: return "tank";
+    }
+    return "?";
+}
+
+namespace {
+
 IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     IdentityRecord r;
     r.kind = IdKind::Vehicle;
     r.ref = ref;
     r.model = ModelForVehicle(ref.carModel, ref.carSprite);
+    r.cab = IdentityCabFor(ref.carModel);
     r.livery = Livery(ref.carModel) || ref.forcedModel;
     const float* live = ref.paint;
     // The floor is tested on the brighter-half paint it was tuned on (the same value as `live` unless the
@@ -295,6 +340,7 @@ IdentityRecord DeriveWreck(const SpriteRef& ref, int whole) {
     r.ref = ref;
     r.wreck = true;
     r.wreckOf = whole;
+    r.cab = IdentityCabFor(whole);
     const Model* base = whole >= 0 ? ModelForVehicle(whole, -1) : nullptr;
     r.model = base ? CarWreckCopyOf(*base) : nullptr;
     if (!r.model) { r.wreckOf = -1; r.model = ModelForVehicle(ref.carModel, ref.carSprite); }   // the old wreck mesh

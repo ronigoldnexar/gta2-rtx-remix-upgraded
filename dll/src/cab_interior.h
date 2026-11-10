@@ -25,10 +25,10 @@
 
 namespace gta2dx9 {
 
-enum class CabClass { Car, Van, Truck, Bus, Sports };
+enum class CabClass { Car, Van, Truck, Bus, Sports, Tank };
 
-// The class of a CARI model number (0..71); a flat-fronted body (bus, train,
-// cab-over) is a bus whatever its number.
+// The class of a CARI model number, from its identity record's cab (IdentityCabFor, identity.cpp owns the
+// table: FIX-COCKPIT-CAB-3); a flat-fronted body (bus, train, cab-over) is a bus whatever its number, the tank a tank.
 CabClass CabClassFor(int modelNumber, bool flatFront);
 const char* CabClassName(CabClass c);
 // An open-top body (roadster, jeep): the cab has no roof lining, only the windscreen frame.

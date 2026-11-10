@@ -23,6 +23,18 @@ struct Model;
 
 enum class IdKind : uint8_t { Player = 0, Ped = 1, Vehicle = 2 };
 
+// FIX-COCKPIT-CAB-3 (qaf1 tank, qaexp6 bus): the first-person cab a vehicle's driver sits in, one entry per CARI
+// model in this module's table (IdentityCabFor), consumed by cab_interior.cpp. A tank is not a sedan: its driver
+// looks out under an armour brow over a hatch coaming and steers with two levers.
+enum class VehicleCab : uint8_t { Sedan = 0, Sports = 1, Van = 2, Truck = 3, Bus = 4, Tank = 5 };
+struct CabRecord {
+    VehicleCab cab = VehicleCab::Sedan;
+    bool openTop = false;   // no roof over the driver (roadster, jeep): the windscreen frame's rail only
+};
+// The cab of CARI model `modelNumber` (the whole car's: a wreck has no seat view).
+CabRecord IdentityCabFor(int modelNumber);
+const char* VehicleCabName(VehicleCab c);
+
 // What the classic view draws for the entity: the reference.
 struct SpriteRef {
     int remap = -1;        // ped: remap of the sprite's palette (-1 none); player: 25 unless a devtools override
@@ -51,6 +63,7 @@ struct IdentityRecord {
     bool clothes = false;       // the tint is a civilian's everyday-colour clothes (crowd variety)
     float height = 1.0f, width = 1.0f;   // build (crowd variety x type build; 1 for the player)
     // Vehicles: the paint over the model's own.
+    CabRecord cab;              // FIX-COCKPIT-CAB-3: the first-person cab (IdentityCabFor of the whole model)
     bool livery = false;        // the model keeps its own paint (cop car, taxi, ...): no tint stage
     float paintTint[3] = {1, 1, 1};
     float darkness = 0.0f;      // 0..1: a dark body's sheen (car_bodies.cpp material)

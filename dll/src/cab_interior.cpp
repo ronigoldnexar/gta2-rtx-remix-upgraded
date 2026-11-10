@@ -81,6 +81,13 @@ float Texel(int kind, int x, int y) {
             if (r < 0.14f) return 0.20f;   // the hub cap
             return r > 0.94f ? 0.75f : 1.0f;
         }
+        case 6: {   // FIX-COCKPIT-CAB-3: painted armour plate: a mottled, worn coat, a weld seam at the tile's edge, a rivet row
+            float g = 0.80f + 0.14f * Smooth(x, y, 8, 61) + 0.06f * Noise01(x, y, 62);
+            if (x < 2 || y < 2) g *= 0.62f;
+            const int rx = x % 16 - 8, ry = y - 9;
+            if (rx * rx + ry * ry <= 5) g = rx + ry < 0 ? 1.0f : 0.52f;   // its head lit from above, its foot in shade
+            return g;
+        }
         default: return 1.0f;
     }
 }
@@ -281,6 +288,18 @@ Style StyleFor(CabClass c, const float paint[3]) {
             s.binnacleHalf = 0.029f; s.gauges = 3;
             s.headerAngle = 28.5f; s.mirrorW = 0.034f; s.mirrorH = 0.009f; s.sideMirrorH = 0.018f;
             break;
+        case CabClass::Tank:
+            // FIX-COCKPIT-CAB-3 (qaf1): the hull's own paint on the coaming, the brow and the cheeks (set below),
+            // dark gun-metal fittings, black rubber on the lever grips, two small gauges on a side panel.
+            set(s.dash, 0.30f, 0.32f, 0.24f);
+            set(s.dashDark, 0.12f, 0.13f, 0.10f);
+            set(s.trim, 0.20f, 0.20f, 0.19f);
+            set(s.header, 0.30f, 0.32f, 0.24f);
+            set(s.wheel, 0.10f, 0.10f, 0.10f);
+            s.wheelR = 0.024f; s.wheelRake = 0.0f; s.wheelTube = 0.0018f;
+            s.binnacleHalf = 0.016f; s.gauges = 2;
+            s.headerAngle = 15.0f; s.mirrorW = 0.0f; s.mirrorH = 0.0f; s.sideMirrorH = 0.0f;
+            break;
     }
     // FIX-FP-2 (pm30-bil-fp-sedan-cockpit-lower-third-flat-black-void): the car, van and truck
     // dash top is painted metal in the body's own colour (the colour the classic view shows,
@@ -295,6 +314,23 @@ Style StyleFor(CabClass c, const float paint[3]) {
             const float painted = lum > 1e-3f ? (std::min)(1.0f, paint[k] * k0) : want;
             s.dash[k] = 0.70f * painted + 0.30f * s.dash[k];
         }
+    }
+    // FIX-COCKPIT-CAB-3: the armour and a bus's header and pillars in the body's own paint (qaexp6: the Karma bus's
+    // header was a flat pale white under a yellow body), held between a dark and a light floor like the dash.
+    auto painted = [&](float lo, float hi, float* out) {
+        const float lum = 0.30f * paint[0] + 0.59f * paint[1] + 0.11f * paint[2];
+        const float want = (std::max)(lo, (std::min)(hi, lum));
+        const float k0 = lum > 1e-3f ? want / lum : 0.0f;
+        for (int k = 0; k < 3; ++k) out[k] = lum > 1e-3f ? (std::min)(1.0f, paint[k] * k0) : want;
+    };
+    if (c == CabClass::Tank) {
+        float pt[3];
+        painted(0.22f, 0.36f, pt);
+        for (int k = 0; k < 3; ++k) { s.dash[k] = 0.85f * pt[k] + 0.15f * s.dash[k]; s.header[k] = 0.92f * s.dash[k]; }
+    } else if (c == CabClass::Bus) {
+        float pt[3];
+        painted(0.36f, 0.62f, pt);
+        for (int k = 0; k < 3; ++k) s.header[k] = 0.85f * pt[k] + 0.15f * s.header[k];
     }
     for (int k = 0; k < 3; ++k) {
         s.dashDark[k] = (std::max)(s.dashDark[k], 0.16f + 0.25f * (s.dash[k] - 0.16f));
@@ -320,33 +356,21 @@ void CabInteriorReleaseDevice() {
 }
 
 CabClass CabClassFor(int m, bool flatFront) {
+    // FIX-COCKPIT-CAB-3: the identity record's cab (identity.cpp owns the per-model table).
+    const CabRecord r = IdentityCabFor(m);
+    if (r.cab == VehicleCab::Tank) return CabClass::Tank;
     if (flatFront) return CabClass::Bus;
-    switch (m) {
-        // The sports cars and roadsters (CARI order): Aniston BD4, Shark, GT-A1, Miara,
-        // Arachnid, Stinger, Meteor (both), Hachura, Michelli Roadster, Trance-Am, Z-Type,
-        // Rumbler, Jagular XK, Furore GT, the special agent car.
-        case 2: case 18: case 19: case 37: case 44: case 46: case 47: case 48: case 49: case 53: case 62: case 70:
-        case 71: case 82: case 83: case 84:
-            return CabClass::Sports;
-        case 11: case 86: case 6: case 59: case 60: case 61:
-            return CabClass::Bus;
-        case 7: case 17: case 21: case 54: case 55: case 58: case 63: case 64: case 65: case 66: case 69:
-            return CabClass::Truck;
-        case 3: case 4: case 22: case 23: case 24: case 25: case 26: case 27: case 30: case 34: case 35:
-        case 38: case 41: case 52: case 67: case 68: case 85:
-            return CabClass::Van;
-        default:
-            return CabClass::Car;
+    switch (r.cab) {
+        case VehicleCab::Sports: return CabClass::Sports;
+        case VehicleCab::Bus: return CabClass::Bus;
+        case VehicleCab::Truck: return CabClass::Truck;
+        case VehicleCab::Van: return CabClass::Van;
+        default: return CabClass::Car;
     }
 }
 
-// Open-top bodies: no roof lining. The manifest keeps no body type; this is the list the car
-// scorer uses (tools/score_car_model.py OPEN_TOP_MODELS): jeeps and roadsters.
-// FIX-FP (pm16-ste-fp-convertible-...): 44 Arachnid is a Giulietta Spider, open (docs/vehicle-art-review.md
-// card_044); with a lining it was the dark slab across the top of the view.
-bool CabOpenTop(int m) {
-    return m == 22 || m == 30 || m == 31 || m == 39 || m == 44 || m == 45 || m == 53;
-}
+// Open-top bodies: no roof lining (the identity record's cab, IdentityCabFor).
+bool CabOpenTop(int m) { return IdentityCabFor(m).openTop; }
 
 const char* CabClassName(CabClass c) {
     switch (c) {
@@ -355,6 +379,7 @@ const char* CabClassName(CabClass c) {
         case CabClass::Van: return "van";
         case CabClass::Truck: return "truck";
         case CabClass::Bus: return "bus";
+        case CabClass::Tank: return "tank";
     }
     return "?";
 }
@@ -539,6 +564,11 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     b.eye = {p.eyeX, p.eyeY, p.eyeZ};
     const float ex = p.eyeX, ey = p.eyeY, ez = p.eyeZ;
     const float side = ex >= 0.0f ? 1.0f : -1.0f;   // the driver's side of the car
+    // FIX-COCKPIT-CAB-3 (qaf1-wil-fp-tank-cockpit-is-a-sedan-dash): a tank's driver looks out through a wide slit
+    // between the hatch coaming (the dash line, in the hull's paint) and a heavy riveted brow with the hatch's rim on
+    // it, between thick armour cheeks; he steers with two levers (a turn pulls one back), no wheel, no mirror, two
+    // small gauges on a side panel.
+    const bool tank = p.cls == CabClass::Tank;
     // The dashboard's line: the hood copy's, under the cut a hand below the eye. Where
     // the copy keeps nothing high just ahead of the cut (a van's bonnet that falls away,
     // the eye lifted over a Schmidt's tall lamps), the dash stays at most 0.047 under
@@ -546,7 +576,9 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // qa_qb31c, the van) and with the dash at the copy's line the road showed where the
     // dash should be (qa_qb31b, the Schmidt). Every class then frames the same way.
     const float top = (std::min)(ey - 0.043f, (std::max)(p.dashTop, ey - 0.047f));
-    const float dc = (std::max)(0.06f, p.zCut - ez);   // the windscreen's foot, ahead of the eye
+    // the windscreen's foot, ahead of the eye (a tank's coaming further out: its levers stand behind it, clear of the
+    // 0.05 near plane with his fists on them)
+    const float dc = (std::max)(tank ? 0.12f : 0.06f, p.zCut - ez);
     const float x0 = p.dashX0 - 0.01f, x1 = p.dashX1 + 0.01f;
     auto P = [&](float x, float d, float h) { return Vec3{x, top + h, ez + d}; };   // d ahead of the eye, h over the dash line
     Vec3 pedalAt[2] = {Vec3{ex, top - 0.15f, ez + 0.05f}, Vec3{ex, top - 0.15f, ez + 0.05f}};   // FIX-COCKPIT-BODY (set below)
@@ -569,7 +601,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // The knee panel's upper edge: a darker roll across, so the two faces read as a padded edge.
     b.Quad(kDashDark, P(x0, dRear - 0.0083f, -0.076f), P(x1, dRear - 0.0083f, -0.076f), P(x1, dRear - 0.0080f, -0.088f), P(x0, dRear - 0.0080f, -0.088f));
     // The defroster vents along the windscreen: dark slots on the slope.
-    {
+    if (!tank) {
         const float va = dc - 0.003f, vb = dc - 0.009f;
         auto onSlope = [&](float d) { return 0.0008f + hCrest * (dc + 0.004f - d) / (dc + 0.004f - dCrest); };
         const int slots = p.cls == CabClass::Car ? 2 : 3;
@@ -585,7 +617,8 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         // The cluster tilted up toward the eye at the binnacle's back, a visor over its far
         // half: from the seat the eye looks down on the dash at a steep angle (the dash
         // stands a hand ahead and under the eye), so gauges under an overhanging cowl hid.
-        const float bw = st.binnacleHalf, xa = ex - bw, xb = ex + bw;
+        const float bx = tank ? ex - 0.072f : ex;   // a tank's gauges on a panel to the screen's right of the levers
+        const float bw = st.binnacleHalf, xa = bx - bw, xb = bx + bw;
         const float dBack = dRear + 0.004f, dPlateTop = dBack + 0.010f, dFront = dPlateTop + 0.012f, dNose = dFront + 0.008f;
         const float hPlate0 = 0.002f, hPlate1 = 0.009f, hTop = 0.0115f;
         b.Quad(kDashDark, P(xa, dPlateTop, hTop), P(xb, dPlateTop, hTop), P(xb, dFront, hTop), P(xa, dFront, hTop));   // visor top
@@ -624,7 +657,63 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // 3. The steering wheel, its rim's top just over the dash's rear edge; turned
     // with the front wheels (a few turns lock to lock). FIX-COCKPIT-BODY (owner item 3): not in the dashcam
     // view (nor its column, nor the hands on it).
-    if (!p.dashcam) {
+    if (!p.dashcam && tank) {
+        // FIX-COCKPIT-CAB-3: the two steering levers, from pivots on the floor up to rubber grips just behind the
+        // coaming, a hand's width either side of the eye. A left turn (+ steer) pulls the left lever (the car's +x, the
+        // screen's left: grip 0) back and lets the right one forward a little; eased like the wheel. His body's hands
+        // take the grips (CabLastDriverPose: each grip a stretch of "rim" running up the lever, the way a fist holds a
+        // wheel at three o'clock); no stand-in fists (g_wheel stays unset).
+        static float leverSteer = 0.0f;
+        static ULONGLONG leverStamp = 0;
+        if (!p.warm) {
+            const ULONGLONG now = GetTickCount64();
+            const float dt = leverStamp ? (std::min)(0.1f, static_cast<float>(now - leverStamp) / 1000.0f) : 0.0f;
+            const float want = std::fabs(p.steer) < 0.035f ? 0.0f : p.steer - (p.steer > 0.0f ? 0.035f : -0.035f);
+            if (!leverStamp || now - leverStamp > 500) leverSteer = want;
+            else leverSteer += (want - leverSteer) * (1.0f - std::exp(-dt / 0.12f));
+            leverStamp = now;
+        }
+        const float pull = (std::max)(-1.0f, (std::min)(1.0f, (p.warm ? 0.0f : leverSteer) * 6.0f / 1.2f));
+        const float hFloor = (ey - 0.20f) - top, hGrip = 0.010f, gSpread = 0.024f;   // where the wheel's grips sit
+        Vec3 grip[2], dir[2];
+        for (int h = 0; h < 2; ++h) {
+            const float sg = h == 0 ? 1.0f : -1.0f;
+            const float back = 0.008f * (std::max)(0.0f, sg * pull) - 0.003f * (std::max)(0.0f, -sg * pull);
+            const float gx = ex + sg * gSpread;
+            const Vec3 pivot = P(gx + sg * 0.004f, dRear - 0.002f, hFloor + 0.010f);
+            grip[h] = P(gx, dRear - 0.012f - back, hGrip);
+            dir[h] = gta2::Normalize(grip[h] - pivot);
+            const Vec3 knob = grip[h] + dir[h] * 0.0075f;
+            b.Bar(kTrim, pivot, knob, 0.0015f);                                       // the lever
+            b.Bar(kWheel, grip[h] - dir[h] * 0.0075f, knob, 0.0023f);                // its rubber grip
+            b.Bar(kWheel, knob, knob + dir[h] * 0.0025f, 0.0029f);                   // the knob
+            b.Bar(kDashDark, pivot - dir[h] * 0.004f, pivot + dir[h] * 0.012f, 0.0045f);   // the boot at its foot
+        }
+        if (!p.warm) {
+            auto W = [&](const Vec3& q) {
+                return Vec3{q.x * carToWorld.m[0][0] + q.y * carToWorld.m[1][0] + q.z * carToWorld.m[2][0] + carToWorld.m[3][0],
+                            q.x * carToWorld.m[0][1] + q.y * carToWorld.m[1][1] + q.z * carToWorld.m[2][1] + carToWorld.m[3][1],
+                            q.x * carToWorld.m[0][2] + q.y * carToWorld.m[1][2] + q.z * carToWorld.m[2][2] + carToWorld.m[3][2]};
+            };
+            auto WV = [&](const Vec3& q) { const Vec3 o = W(Vec3{0.0f, 0.0f, 0.0f}); return gta2::Normalize(W(q) - o); };
+            g_driver.eye = W(b.eye);
+            g_driver.right = WV(Vec3{1.0f, 0.0f, 0.0f});
+            g_driver.up = WV(Vec3{0.0f, 1.0f, 0.0f});
+            g_driver.fwd = WV(Vec3{0.0f, 0.0f, 1.0f});
+            const Vec3 mid = (grip[0] + grip[1]) * 0.5f;
+            for (int h = 0; h < 2; ++h) { g_driver.grip[h] = W(grip[h]); g_driver.rimTangent[h] = WV(dir[h]); }
+            g_driver.wheelCentre = W(mid);
+            g_driver.wheelAxis = WV(gta2::Normalize(gta2::Cross(Vec3{1.0f, 0.0f, 0.0f}, (dir[0] + dir[1]) * 0.5f)));
+            g_driver.wheelR = st.wheelR;
+            g_driver.turn = 0.0f;
+            g_driver.grip0Right = gta2::Dot(g_driver.grip[0] - g_driver.grip[1], g_driver.right) > 0.0f;
+            g_driver.dashBelow = ey - top;
+            g_driverStamp = GetTickCount64();
+            static float loggedPull = 9.0f;
+            if (std::fabs(pull - loggedPull) > 0.25f) { loggedPull = pull; Log("cab: tank levers, pull %+.2f (steer %+.3f)", pull, p.steer); }
+        }
+    }
+    if (!p.dashcam && !tank) {
         const float R = st.wheelR, rake = st.wheelRake;
         const float dTop = dRear - 0.008f;
         // FIX-FIGURE: the rim's top higher than QB-31's 0.011 (the hub and spokes sat
@@ -842,7 +931,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     }
     // FIX-FIGURE: the centre stack (radio slot, vents) and the glovebox lid on the dash's
     // rear face, and a taxi's fare meter on the dash top.
-    {
+    if (!tank) {
         const float cx0 = -0.022f, cx1 = 0.022f;
         const float hA = -0.012f, hB = -0.060f, dA = dRear - 0.0055f, dB = dRear - 0.0075f;
         b.Quad(kPanel, P(cx0, dA, hA), P(cx1, dA, hA), P(cx1, dB, hB), P(cx0, dB, hB));
@@ -894,6 +983,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             case CabClass::Van: rake = 0.86f; break;
             case CabClass::Truck: rake = 0.93f; break;
             case CabClass::Bus: rake = 0.96f; break;
+            case CabClass::Tank: rake = 1.0f; break;
         }
         if (p.openTop) rake = (std::max)(rake, 0.70f);
     }
@@ -904,7 +994,29 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // posts at both edges and the lining across the top). GTA2DX9_DASHCAM_FRAME=1: the 5c0ee78 dashcam (the frame drawn).
     static const bool dashFrame = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_DASHCAM_FRAME", b, sizeof b) && b[0] == '1'; }();
     const bool cleanDash = p.dashcam && !dashFrame;
-    if (!cleanDash) {
+    if (!cleanDash && tank) {
+        // FIX-COCKPIT-CAB-3: the armour brow over the slit, deep and riveted, its lower edge the hatch's rim: an arc
+        // rising toward the sides, a round steel lip along it.
+        const float hx0 = x0 - 0.40f, hx1 = x1 + 0.40f;
+        constexpr int kSeg = 12;
+        const float roofUp = 0.08f, roofFwd = 0.10f;
+        auto edgeY = [&](float x) { const float dx = x - ex; return ey + hHeader + 0.55f * dx * dx; };
+        const Vec3 browUp = gta2::Normalize(Vec3{0.0f, roofUp, roofFwd});
+        for (int i = 0; i < kSeg; ++i) {
+            const float xa = hx0 + (hx1 - hx0) * i / kSeg, xb = hx0 + (hx1 - hx0) * (i + 1) / kSeg;
+            const Vec3 a0{xa, edgeY(xa), ez + dH}, a1{xb, edgeY(xb), ez + dH};
+            b.Quad(kHeader, a0, a1, a1 + Vec3{0.0f, roofUp, roofFwd}, a0 + Vec3{0.0f, roofUp, roofFwd});
+            b.Bar(kTrim, a0 + Vec3{0.0f, -0.0012f, -0.0010f}, a1 + Vec3{0.0f, -0.0012f, -0.0010f}, 0.0024f);   // the rim's lip
+            // a rivet row on the brow's face, a little way in from the lip
+            for (int r = 0; r < 2; ++r) {
+                const float rx = xa + (xb - xa) * (0.25f + 0.5f * r);
+                const Vec3 rc = Vec3{rx, edgeY(rx), ez + dH} + browUp * 0.0075f;
+                Vec3 nrm = gta2::Normalize(gta2::Cross(Vec3{1.0f, 0.0f, 0.0f}, browUp));
+                if (gta2::Dot(nrm, b.eye - rc) < 0.0f) nrm = nrm * -1.0f;
+                b.Disc(kTrim, rc + nrm * 0.0003f, Vec3{1.0f, 0.0f, 0.0f}, browUp, 0.0011f, 8);
+            }
+        }
+    } else if (!cleanDash) {
         const float hx0 = x0 - 0.40f, hx1 = x1 + 0.40f;
         const Vec3 a0{hx0, ey + hHeader, ez + dH}, a1{hx1, ey + hHeader, ez + dH};
         const float roofUp = p.openTop ? 0.0090f : 0.08f, roofFwd = p.openTop ? 0.0112f : 0.10f;   // the lining's, or the rail's, depth
@@ -989,7 +1101,9 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         // gusset into the door's top rail, which runs back past the eye on both sides: the pillar stands on the
         // door, not on the bonnet) to the header at the class's rake, leaning in a little at the top.
         auto pillar = [&](float out, float footX, float wFoot) {
-            const float zF = ez + dc, zT = ez + dH, yF = top + 0.0015f, yT = ey + hHeader + 0.0015f;
+            const float zF = ez + dc, zT = ez + dH, yF = top + 0.0015f;
+            // (a tank's cheek runs up into the brow's arched edge: FIX-COCKPIT-CAB-3)
+            const float yT = ey + hHeader + 0.0015f + (tank ? 0.55f * (footX - ex) * (footX - ex) + 0.004f : 0.0f);
             const float wTop = wFoot * (0.55f + 0.45f * nearK), lean = 0.10f * (dc - dH);
             const Vec3 fI{footX, yF, zF}, fO{footX + out * wFoot, yF, zF - 0.003f};
             const Vec3 tI{footX - out * lean, yT, zT}, tO{footX - out * lean + out * wTop, yT, zT - 0.002f};
@@ -1005,12 +1119,13 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         };
         const float reach = (std::min)(std::fabs((side > 0 ? x1 : x0) - ex), 0.105f);
         const float px = ex + side * reach;
-        pillar(side, px, 0.013f);
-        wingMirror(side, px + side * 0.0065f, ez + dc + 0.006f);
+        // FIX-COCKPIT-CAB-3: a tank's slit is framed by thick armour cheeks, no door mirrors
+        pillar(side, px, tank ? 0.030f : 0.013f);
+        if (!tank) wingMirror(side, px + side * 0.0065f, ez + dc + 0.006f);
         const float reach2 = (std::min)(std::fabs((side > 0 ? x0 : x1) - ex), 0.95f * dc);
         const float qx = ex - side * reach2;
-        pillar(-side, qx, 0.015f);
-        wingMirror(-side, qx - side * 0.0075f, ez + dc + 0.006f);
+        pillar(-side, qx, tank ? 0.034f : 0.015f);
+        if (!tank) wingMirror(-side, qx - side * 0.0075f, ez + dc + 0.006f);
         // the passenger's door: its top rail (the sill at the window line) and card, from the pillar's foot back past the eye
         const float qd = qx - side * 0.006f;
         auto Q = [&](float d, float h, float in) { return Vec3{qd + side * in, top + h, ez + d}; };
@@ -1031,9 +1146,9 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         b.Quad(kTrim, D(dF, hSill, 0.0f), D(dB, hSill, 0.0f), D(dB, hSill, 0.014f), D(dF, hSill, 0.014f));            // the sill
         b.Quad(kLower, D(dF, hSill, 0.014f), D(dB, hSill, 0.014f), D(dB, -0.30f, 0.010f), D(dF, -0.30f, 0.010f));     // the card
         const float aT = -0.055f, aB = -0.070f, aF = 0.045f, aBk = -0.06f;
-        b.Quad(kDashDark, D(aF, aT, 0.014f), D(aBk, aT, 0.014f), D(aBk, aT, 0.030f), D(aF, aT, 0.030f));             // armrest top
-        b.Quad(kDashDark, D(aF, aT, 0.030f), D(aBk, aT, 0.030f), D(aBk, aB, 0.028f), D(aF, aB, 0.028f));             // its face
-        b.Quad(kTrim, D(0.030f, -0.030f, 0.0145f), D(0.012f, -0.030f, 0.0145f), D(0.012f, -0.037f, 0.0145f), D(0.030f, -0.037f, 0.0145f));   // the handle
+        if (!tank) b.Quad(kDashDark, D(aF, aT, 0.014f), D(aBk, aT, 0.014f), D(aBk, aT, 0.030f), D(aF, aT, 0.030f));             // armrest top
+        if (!tank) b.Quad(kDashDark, D(aF, aT, 0.030f), D(aBk, aT, 0.030f), D(aBk, aB, 0.028f), D(aF, aB, 0.028f));             // its face
+        if (!tank) b.Quad(kTrim, D(0.030f, -0.030f, 0.0145f), D(0.012f, -0.030f, 0.0145f), D(0.012f, -0.037f, 0.0145f), D(0.030f, -0.037f, 0.0145f));   // the handle
     }
     // FIX-COCKPIT-BODY: the floor, the pedals and the driver's seat cushion. Looking down from the seat at his
     // own lap showed the road through the cab (nothing was built under the dash line but the dash's face and the
@@ -1154,7 +1269,10 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         static const int kKind[kMatCount] = {0, 1, 2, 3, 4, 5, 2, 15, 15, 1, 15, 15, 0};
         // A painted metal dash top (car, van, truck) is smooth: the plastic grain, not the vinyl.
         const bool paintedDash = m == kDash && (p.cls == CabClass::Car || p.cls == CabClass::Van || p.cls == CabClass::Truck);
-        const int kind = paintedDash ? 1 : kKind[m];
+        int kind = paintedDash ? 1 : kKind[m];
+        // FIX-COCKPIT-CAB-3: a tank's painted surfaces are armour plate; a bus's header painted metal
+        if (p.cls == CabClass::Tank && (m == kDash || m == kHeader || m == kLower || m == kPanel)) kind = 6;
+        if (p.cls == CabClass::Bus && m == kHeader) kind = 1;
         device->SetTexture(0, g_remixAlbedo ? SurfaceTextureTinted(device, kind, c) : SurfaceTexture(device, kind));
         device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(t.size() / 3), t.data(), sizeof(V));
     }

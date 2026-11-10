@@ -1254,3 +1254,28 @@ cbody probe, dg2_cb1 t_cb_013_still). They are not drawn in a seat view's first 
 (no avatar, driver body off) they come back after that. `GTA2DX9_FP_STANDIN_HOLD=0`: no hold. Runs: qa_dg2_qaf3
 (tile 2 now the cab without hands while he is still boarding, tiles 3-7 his arms on the rim), dg2_cb2 (013 and 021
 cab arrival at 12 fps: his body's hands from the first cab frame).
+
+### One cab per vehicle class from the identity record: the tank's slit and levers, the bus in its paint (FIX-COCKPIT-CAB-3, 10 Nov 2026)
+
+qaf1 (the wil dock tank's first-person seat was the sedan's: a thin wheel, three round gauges, a car's A-pillars)
+and qaexp6 (the Karma bus's seat: the sedan dash under a flat pale-white header and white pillars, the bus yellow in
+the other views). The cab class now comes from the vehicle's identity record: `IdentityCabFor(model)` in
+identity.cpp owns the per-model table (sedan, sports, van, truck, bus, tank, and the open-top flag; it was two
+lists in cab_interior.cpp), `IdentityRecord::cab` carries it, and `CabClassFor` / `CabOpenTop` read it (a measured
+flat front still makes a bus, never a tank). Adding a vehicle means one table entry.
+
+- **Tank (054).** The driver looks out through a wide slit: the hatch coaming at the dash line, 0.12 ahead of the
+  eye; a deep armour brow over it, its lower edge 15 degrees over the eye and arched toward the sides like a hatch
+  rim, with a round steel lip and a rivet row; thick armour cheeks either side (the pillars at 0.030/0.034). Coaming,
+  brow and cheeks are the hull's own paint on an armour-plate surface (texture kind 6: worn coat, weld seams,
+  rivets). No wheel, no binnacle, no mirrors, no vents, no glovebox: two steering levers from boots on the floor to
+  rubber grips a hand's width either side of the eye, and two small gauges on a panel to the right. A left turn
+  (+ steer, eased like the rim) pulls the left lever back up to 0.008 and lets the right one forward 0.003. His body's
+  hands take the grips through `CabLastDriverPose` (each grip a stretch of "rim" running up the lever: the fist
+  holds it as it holds a wheel at three o'clock); no stand-in fists (`g_wheel` unset). Log: `cab: tank levers, pull`.
+- **Bus (011, 086, the trains).** The header and the pillars' faces in the body's own paint (luminance held
+  0.36..0.62), painted metal instead of the headliner weave.
+- Warp probes and the cab: `gamerun/cab3_dgh_probe.py` is dghands_probe with the game camera settled after the
+  warp (tri-fp-fire-truck-017: the "no cab at steer 4 and 8" frames were taken before the game camera reached him,
+  so the game submitted no sprite for his truck; settled, every steer step draws the cab). `gamerun/cab3_seat.py`
+  (`keys_cab3_seat.sh`, PROBE_X/PROBE_Y/TAG): warp, settle, board, first person still/left/right/drive, third.
