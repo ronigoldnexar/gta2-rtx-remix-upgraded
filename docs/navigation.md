@@ -1039,6 +1039,39 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
   lock, a mouse look down; `DASHCAM=1` adds cockpit -> dashcam -> V cycle -> out/in -> cockpit). Run with
   `GTA2_DIRECT_KEYS=1`, `GTA2DX9_SCENE_NO_CAR=1`, `GTA2DX9_STATE_EVERY=3`.
 
+### The hands hold the rim hand over hand; each arm keeps its own grip (FIX-DRIVER-GEOM, 10 Nov 2026)
+
+pmab1 and pfl71 were regressions of 5c0ee78 (its grips and arm assignment); cd5bb11 (FIX-COCKPIT-BODY-2) gave the
+fists a real grip round the tube and a hand's size, and let the lower hand slide at -0.2 rad, but the upper one still
+followed the rim to 2.3 rad. Measured on HEAD with `gamerun/keys_dghands.sh` (warp, F9 into the parked car, first
+person, `[devtools] force_steer_deg` 0, +-4, +-8, +-12, +-17 held 3 s each, then two drives into a wall with a turn
+held), run dgh_head: from 8 degrees of steer (about 50 degrees of rim) one fist rode onto the rim's top (on the van
+068's and the fire truck 017's flat wheel, the stretch nearest the eye: a palm as wide as the gauges) and the other
+went to the frame's bottom edge (A-Type 042) or down over the gauges.
+
+- **Hand over hand** (cab_interior, the grips): each hand holds the rim at its own place and turns with it while it
+  stays in its arc, 0.30..1.05 rad over the rim's horizontal on its own side; leaving it, it lets go and takes the rim
+  again at home (ten to two, `fp_grip_deg`) over 0.22 s, a little off the rim on the way. One hand moves at a time,
+  each at most every 0.35 s; one waiting is held at its arc's end; near the middle a hand away from home goes back.
+  The arc was found on three classes (dgh_4: -0.30..1.35 left the 042's low hand out of the frame and the van's high
+  fist a flat palm; dgh_5: 0.05..1.05 left a drooping palm over a flat wheel's gauges). `GTA2DX9_FP_REGRIP=0`: cd5bb11's
+  grips. `GTA2DX9_FP_GRIP_LOG=1`: the grips every 10th draw; every regrip is logged (`cab: regrip hand ...`).
+- **Each arm keeps its grip** (live_geometry): which arm takes which grip was chosen from where the grips were that
+  frame, so a turn that carried one past the other (a steer spike off a wall) swapped them: the left arm dropped to the
+  low grip on the gauges as a stub and the right reached across, its wrist twisted see-through (pfl71). Now from each
+  grip's home side (`CabDriverPose::grip0Right`).
+- `[devtools] force_steer_deg` turns the cab's wheel too (d7be9a8), for fixed-lock frames of a stopped car.
+- Verified on the final build (private stage, fbea4df..d7be9a8 with cd5bb11): dgh_7 (30 fps): both hands on the rim at
+  every lock on 042, 068 and 017 and through the wall impacts of b_dgh_crash_42/68/17.mp4; dgh_ste (SWAP_LEVEL=ste,
+  NOWARP=1: the pmab1 convertible 044) every lock and its crash clip; the filer's pfl71 probe (dg_pfl71b, keys_pfl71.sh,
+  18 impacts): no swap, no stub, no see-through hand. The regrip's lift is outward only: toward the eye it met the 0.05
+  near plane on the van's flat wheel and was cut open, see-through (dg_pfl71), the look pfl71 filed.
+- Still short of the bar: a hand mid-regrip (0.22 s) or held at its arc's end on a flat wheel can read as a large flat
+  palm for a few frames (van s-8 in dgh_7, truck s8; about 4 of 27 frames at 3 fps in dg_pfl71b while the car is pinned
+  against the wall and the steer is noisy); hands shuffle often on a long turn; the fists are the avatar's
+  curled hand, not an authored grip; at s4/s8 on the 017 the cockpit was not drawn in the probe (seen on HEAD too, not
+  a hands issue, not chased).
+
 ## The player is not a recycled ped; round a car that hides him; the car kept in frame at the wheel (FIX-CAMERA-13, 10 Nov 2026)
 
 - **pmv10, first person "at the wheel" with no cab for 33 s after a BUSTED (view_modes.cpp `LocatePlayer`).** After

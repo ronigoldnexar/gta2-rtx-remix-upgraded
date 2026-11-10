@@ -11769,7 +11769,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         }
                         // which shoulder is on the screen's right: that hand takes the right-hand grip
                         const bool lIsRight = gta2::Dot(sh[0] - sh[1], fpPose.right) > 0.0f;
-                        const bool g0Right = gta2::Dot(fpPose.grip[0] - fpPose.grip[1], fpPose.right) > 0.0f;
+                        // FIX-DRIVER-GEOM (pfl71): each arm keeps its own grip. Chosen by where the grips were this frame, a
+                        // turn that carried one grip past the other (a steer spike off a wall) swapped them: the left arm
+                        // dropped to the low grip behind the gauges and the right reached across, twisted.
+                        const bool g0Right = fpPose.grip0Right;
                         float res[2] = {0.0f, 0.0f};
                         for (int limb = 0; limb < 2; ++limb) {
                             const bool onRight = (limb == 0) == lIsRight;

@@ -62,6 +62,7 @@ struct CabDriverPose {
     float wheelR = 0.0f, turn = 0.0f;
     float dashBelow = 0.0f;   // the dash line under the eye (blocks)
     gta2::Vec3 pedal[2];      // the brake and the accelerator on the floor (the accelerator on the screen's right... of the two, by `right`)
+    bool grip0Right = true;   // FIX-DRIVER-GEOM: grip 0's own side of the rim (its home) is the screen's right: which arm takes it
 };
 bool CabLastDriverPose(CabDriverPose* out);
 // live_geometry, after drawing his body at the wheel this frame: the cab's own hands (fp_arm_right) give way

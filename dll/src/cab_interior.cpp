@@ -687,17 +687,78 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             g_driver.right = WV(Vec3{1.0f, 0.0f, 0.0f});   // the car's +x (the screen's LEFT from the seat: FIX-COCKPIT-BODY-2, run cb2_t1)
             g_driver.up = WV(Vec3{0.0f, 1.0f, 0.0f});
             g_driver.fwd = WV(Vec3{0.0f, 0.0f, 1.0f});
+            // FIX-DRIVER-GEOM (pmab1, pfl71): hand over hand. Turned with the rim through its travel (5c0ee78; cd5bb11
+            // let the lower hand slide at -0.2 rad but took the upper one to 2.3), past ~45 degrees one hand rode onto
+            // the rim's top (on a van's or a truck's flat wheel, the stretch nearest the eye: a fist as wide as the
+            // gauges, dgh_head) and the other went to the frame's bottom edge or behind the binnacle. Each hand holds
+            // the rim at its own place (gripOff, the rim's frame) and turns with it while it stays in its arc, 0.30..1.05
+            // rad over the rim's horizontal on its own side (lower, a steep sports wheel's hand left the frame's bottom and
+            // a flat wheel's lay as a flat palm drooping over the gauges; higher, a van's fist read as a palm as wide as
+            // the gauges: dgh_4, dgh_5); leaving the arc it lets go and
+            // takes the rim again at home (ten to two, g_gripPhi), lifted a little off it on the way (0.22 s). One hand
+            // moves at a time, each at most every 0.35 s (a noisy steer swung them back and forth); one waiting for the
+            // other is held at its arc's end (the rim slides through it); with the wheel near the middle a hand away from
+            // home goes back to it. GTA2DX9_FP_REGRIP=0: cd5bb11's clamped grips. GTA2DX9_FP_GRIP_LOG=1: the grips.
+            static const bool regripOn = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_REGRIP", b, sizeof b) && b[0] == '0'); }();
+            const float kHome = g_gripPhi;
+            constexpr float kLow = 0.30f, kHigh = 1.05f, kMove = 0.22f, kRest = 0.35f;
+            struct GripMove { bool on = false; float from = 0.0f, t = 0.0f, since = 10.0f; };
+            static float gripOff[2] = {0.52f, kPi - 0.52f};
+            static GripMove move[2];
+            static ULONGLONG gripStamp = 0;
+            static int regrips = 0;
+            const ULONGLONG gnow = GetTickCount64();
+            const float gdt = gripStamp ? (std::min)(0.1f, static_cast<float>(gnow - gripStamp) / 1000.0f) : 0.0f;
+            if (!gripStamp || gnow - gripStamp > 500) {   // a new seat (or after a gap): both hands at home
+                gripOff[0] = kHome - turn; gripOff[1] = kPi - kHome - turn; move[0] = move[1] = GripMove{};
+            }
+            gripStamp = gnow;
             for (int h = 0; h < 2; ++h) {
-                // a quarter to three (the rim's nearest stretch on a raked wheel: his arms reach it with the
-                // elbows bent), turned with the rim (the hands go round with it, no sliding)
-                // FIX-COCKPIT-BODY-2 (pfl54): ten to two by default (g_gripPhi, [devtools] fp_grip_deg via CabSetGripAngle)
-                // and past ~100 degrees of travel a hand lets the rim slide through it rather than follow it down
-                // behind the binnacle (the rim's lower half is inside the dash: a hand there floated over the gauges, cb2_g2)
-                const float phi = h == 0 ? (std::max)(-0.2f, (std::min)(2.3f, g_gripPhi + turn))
-                                         : (std::max)(kPi - 2.3f, (std::min)(kPi + 0.2f, kPi - g_gripPhi + turn));
+                const float home = h == 0 ? kHome : kPi - kHome;
+                auto side = [&](float a) { return h == 0 ? a : kPi - a; };   // an angle on this hand's side, as seen from hand 0's
+                float phi = gripOff[h] + turn, lift = 0.0f;
+                move[h].since += gdt;
+                if (!regripOn) {
+                    phi = h == 0 ? (std::max)(-0.2f, (std::min)(2.3f, kHome + turn)) : (std::max)(kPi - 2.3f, (std::min)(kPi + 0.2f, kPi - kHome + turn));
+                } else if (move[h].on) {
+                    move[h].t += gdt / kMove;
+                    const float k = (std::min)(1.0f, move[h].t), s = k * k * (3.0f - 2.0f * k);
+                    phi = move[h].from + (home - move[h].from) * s;
+                    lift = std::sin(kPi * k);
+                    if (k >= 1.0f) { move[h].on = false; move[h].since = 0.0f; gripOff[h] = home - turn; phi = home; lift = 0.0f; }
+                } else {
+                    const float a = side(phi);
+                    const bool out = a < kLow || a > kHigh;
+                    const bool away = std::fabs(turn) < 0.20f && std::fabs(a - kHome) > 0.30f;
+                    const bool free = !move[1 - h].on && move[h].since > kRest;
+                    if ((out || away) && free) {   // let go, take the rim again at home
+                        move[h].on = true; move[h].t = 0.0f;
+                        move[h].from = side((std::max)(kLow, (std::min)(kHigh, a)));
+                        phi = move[h].from;
+                        ++regrips;
+                        static int regripLogs = 0;
+                        if (regripLogs < 60) { ++regripLogs; Log("cab: regrip hand %d at %.2f rad (turn %.2f, %s), %d so far", h, a, turn, out ? "out of its arc" : "back home", regrips); }
+                    } else if (out) {   // waiting for the other hand: held at its arc's end
+                        const float held = side((std::max)(kLow, (std::min)(kHigh, a)));
+                        gripOff[h] = held - turn; phi = held;
+                    }
+                }
+                {
+                    static const bool gripLog = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_GRIP_LOG", b, sizeof b) && b[0] == '1'; }();
+                    static unsigned gripN = 0;
+                    if (gripLog && h == 1 && (++gripN % 10) == 0)
+                        Log("cab: grips turn %.2f hand0 %.2f%s hand1 %.2f%s (own side)", turn, gripOff[0] + turn, move[0].on ? " moving" : "",
+                            kPi - (gripOff[1] + turn), move[1].on ? " moving" : "");
+                }
                 const Vec3 radial = across * std::cos(phi) + up * std::sin(phi);
-                g_driver.grip[h] = W(c + radial * R);
+                // mid-move the hand rides a little off the rim, outward only (toward the eye it met the 0.05 near plane on a
+                // van's flat wheel and was cut open, see-through: dg_pfl71)
+                g_driver.grip[h] = W(c + radial * (R * (1.0f + 0.12f * lift)));
                 g_driver.rimTangent[h] = WV(up * std::cos(phi) - across * std::sin(phi));
+            }
+            {   // FIX-DRIVER-GEOM (pfl71): which side grip 0 belongs to, from its home on the rim, not where it is now
+                const Vec3 h0 = W(c + (across * std::cos(kHome) + up * std::sin(kHome)) * R), h1 = W(c + (across * std::cos(kPi - kHome) + up * std::sin(kPi - kHome)) * R);
+                g_driver.grip0Right = gta2::Dot(h0 - h1, g_driver.right) > 0.0f;
             }
             g_driver.wheelCentre = W(c);
             g_driver.wheelAxis = WV(axis);
