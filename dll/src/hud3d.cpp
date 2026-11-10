@@ -39,6 +39,7 @@
 #include <vector>
 
 #include <imgui.h>
+#include <imgui_internal.h>   // ShadeVertsLinearColorGradientKeepAlpha (the beat title's fill)
 #include <backends/imgui_impl_dx9.h>
 
 #include "../../src/gta2_map.h"
@@ -767,6 +768,8 @@ struct AimHud {
     float rx = 0, ry = 0;                     // the reticle, pixels, eased
     float bracketHalf = 0;                    // the target's projected half height, pixels
     float spread = 0;                         // 1 just after a shot, decaying
+    float retFade = 0;                        // the reticle's own fade (third person: aiming only, never on him)
+    bool retOnHero = false;                   // this frame's reticle fell inside his projected figure
     uint32_t lastShots = 0;
     uintptr_t targetAtShot = 0;
     // The people highlighted at the shots of the last 0.7 s: a machine gun's hit may come
@@ -937,10 +940,51 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
         float ax, ay, bx, by;
         if (h.target && LiveWorldToScreen(h.tx, h.ty, h.tz, &ax, &ay) && LiveWorldToScreen(h.tx, h.ty + 0.5f, h.tz, &bx, &by))
             h.bracketHalf = (std::min)(0.25f * H, (std::max)(10.0f, 0.5f * std::fabs(ay - by) * H));
+        // FIX-HUD-3 (pmx9-bil-third-aim-reticle-drawn-on-hero-back): from the chase camera a wall
+        // just ahead of him puts the line's end behind his own back. The figure's box (feet to
+        // head, his shoulders' width) is projected; a reticle inside it is not drawn.
+        h.retOnHero = false;
+        if (h.reticleKnown && CurrentViewMode() == ViewMode::ThirdPerson) {
+            float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+            int seen = 0;
+            for (int i = 0; i < 8; ++i) {
+                float qx, qy;
+                // 0.07 block either side: his shoulders measured ~55 px wide on a 190 px figure (0.46 block
+                // tall) in fh3_aim1; 0.15 hid a reticle on a man a body's width beside him.
+                if (!LiveWorldToScreen(a.x + ((i & 1) ? 0.07f : -0.07f), a.y + ((i & 2) ? 0.50f : 0.0f), a.z + ((i & 4) ? 0.07f : -0.07f), &qx, &qy)) continue;
+                ++seen;
+                x0 = (std::min)(x0, qx * W); x1 = (std::max)(x1, qx * W);
+                y0 = (std::min)(y0, qy * H); y1 = (std::max)(y1, qy * H);
+            }
+            const float pad = 4.0f * g_u;
+            h.retOnHero = seen == 8 && h.rx > x0 - pad && h.rx < x1 + pad && h.ry > y0 - pad && h.ry < y1 + pad;
+        }
         ++h.framesArmed;
         h.framesShown += h.reticleKnown ? 1 : 0;
     } else {
         h.reticleKnown = false;
+    }
+
+    // The reticle in third person only while he aims: the figure raises the gun for about a second
+    // after each shot (live_geometry aimUntil, 30 frames) and carries it at low ready otherwise, so an
+    // idle reticle marked a line nothing was aimed along. First person keeps it (the view model aims).
+    {
+        const bool thirdPerson = CurrentViewMode() == ViewMode::ThirdPerson;
+        const bool aiming = !thirdPerson || h.clock - h.shotTime < 1.2;
+        const bool want = h.show && h.reticleKnown && aiming && !h.retOnHero;
+        // In quickly with a shot; out over a quarter second; off at once when it lands on him.
+        if (h.retOnHero) h.retFade = 0.0f;
+        else h.retFade += ((want ? 1.0f : 0.0f) - h.retFade) * (1.0f - std::exp(-dt / (want ? 0.04f : 0.12f)));
+        static int hiddenIdle = 0, hiddenHero = 0, shownFrames = 0;
+        if (h.show && thirdPerson) {
+            if (h.retOnHero) ++hiddenHero; else if (!aiming) ++hiddenIdle; else if (h.reticleKnown) ++shownFrames;
+        }
+        static double lastRetLog = 0.0;
+        if (h.clock - lastRetLog >= 5.0 && hiddenIdle + hiddenHero + shownFrames > 0) {
+            lastRetLog = h.clock;
+            Log("aim: reticle frames (third person, armed) shown=%d hidden_idle=%d hidden_on_hero=%d", shownFrames, hiddenIdle, hiddenHero);
+            hiddenIdle = hiddenHero = shownFrames = 0;
+        }
     }
 
     // GTA2DX9_LOG_AIM=1 (scripted probes): three times a second, the nearest person standing
@@ -989,15 +1033,17 @@ void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
         Line2(dl, ImVec2(c.x - r, c.y + r), ImVec2(c.x + r, c.y - r), col, 2.5f * u);
     }
     if (A < 0.02f || !h.reticleKnown) return;
+    const float R = A * h.retFade;   // FIX-HUD-3: the reticle aims only (UpdateAimHud)
+    if (R < 0.02f) return;
     const ImVec2 c(h.rx, h.ry);
-    const ImU32 col = Fade(h.target ? kRed : kWhite, A);
+    const ImU32 col = Fade(h.target ? kRed : kWhite, R);
     // Four ticks round a dot, opened by a shot.
     const float gap = (6.0f + 10.0f * h.spread) * u, len = 10.0f * u, w = 3.0f * u;
     Line2(dl, ImVec2(c.x - gap - len, c.y), ImVec2(c.x - gap, c.y), col, w);
     Line2(dl, ImVec2(c.x + gap, c.y), ImVec2(c.x + gap + len, c.y), col, w);
     Line2(dl, ImVec2(c.x, c.y - gap - len), ImVec2(c.x, c.y - gap), col, w);
     Line2(dl, ImVec2(c.x, c.y + gap), ImVec2(c.x, c.y + gap + len), col, w);
-    dl->AddCircleFilled(c, 3.4f * u, Fade(kShadow, A * 0.8f));
+    dl->AddCircleFilled(c, 3.4f * u, Fade(kShadow, R * 0.8f));
     dl->AddCircleFilled(c, 2.2f * u, col);
     // The target bracketed.
     if (h.target && h.bracketHalf > 0.0f) {
@@ -1005,7 +1051,7 @@ void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
         if (LiveWorldToScreen(h.tx, h.ty + 0.25f, h.tz, &sx, &sy)) {
             const ImVec2 m(sx * W, sy * H);
             const float bh = h.bracketHalf * 1.15f, bw = h.bracketHalf * 0.75f, k = (std::max)(5.0f * u, bw * 0.4f);
-            const ImU32 bc = Fade(kRed, A * 0.9f);
+            const ImU32 bc = Fade(kRed, R * 0.9f);
             for (int sxn = -1; sxn <= 1; sxn += 2)
                 for (int syn = -1; syn <= 1; syn += 2) {
                     const ImVec2 corner(m.x + sxn * bw, m.y + syn * bh);
@@ -1219,12 +1265,24 @@ void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, flo
     }
 }
 
+// The letterbox bars' height this frame, pixels (0 without a beat): DrawBeat draws them.
+float BeatBarPx(float W, float H) {
+    const BeatState& b = Beat();
+    if (!g_street || b.kind == BeatKind::None) return 0.0f;
+    const float barFull = (std::max)(0.0f, (H - W / 2.39f) * 0.5f);
+    return barFull * (1.0f - (1.0f - b.letterbox) * (1.0f - b.letterbox));
+}
+
 void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, float H, float dt) {
+    // FIX-HUD-3 (pmq10, pm10): what the panels draw from here on is moved inside the letterbox
+    // picture below while the bars slide in (the money and stars half under the top bar, the
+    // mini-map under the bottom one, as they faded). The aim layer above follows the world.
     Anim& an = g_anim;
     const float A = an.fade;
     const float u = g_u;
     const float margin = 28.0f * u;
     DrawAimLayer(dl, A, W, H);   // QB-6
+    const int panelVtx0 = dl->VtxBuffer.Size, panelCmd0 = dl->CmdBuffer.Size;
 
     // Money, ticking up (or down) to the game's value; the gain pops above it.
     if (v.money >= 0) {
@@ -1568,6 +1626,21 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
                      p.w->highlight ? kYellow : kWhite, p.w->text.c_str(), BA);
         }
     }
+    // The panels inside the letterbox: the top half's down by the bar, the bottom half's up.
+    const float bar = BeatBarPx(W, H);
+    if (bar > 0.5f) {
+        for (int i = panelVtx0; i < dl->VtxBuffer.Size; ++i) {
+            ImDrawVert& vx = dl->VtxBuffer[i];
+            vx.pos.y += vx.pos.y < H * 0.5f ? bar : -bar;
+        }
+        // Clip rects narrower than the screen (the mini-map's) go with what they clip.
+        for (int i = (std::max)(0, panelCmd0 - 1); i < dl->CmdBuffer.Size; ++i) {
+            ImVec4& c = dl->CmdBuffer[i].ClipRect;
+            if (c.w - c.y >= H - 1.0f) continue;
+            const float dy = 0.5f * (c.y + c.w) < H * 0.5f ? bar : -bar;
+            c.y += dy; c.w += dy;
+        }
+    }
     // QB-50: under the panels (the background list is drawn first).
     DrawWorldLayer(ImGui::GetBackgroundDrawList(), v, A, W, H, dt);
 }
@@ -1583,19 +1656,19 @@ float Smoothstep01(float x) {
 void DrawBeat(ImDrawList* dl, float W, float H) {
     const BeatState& b = Beat();
     const float u = g_u;
-    ImU32 wash = IM_COL32(0, 0, 0, 0), edge = IM_COL32(0, 0, 0, 0), titleCol = kWhite, rule = kWhite;
+    ImU32 wash = IM_COL32(0, 0, 0, 0), edge = IM_COL32(0, 0, 0, 0), rule = kWhite;
     switch (b.kind) {
         case BeatKind::Wasted:     // drained, a dark red cast, heavy edges
             wash = IM_COL32(70, 58, 58, 110); edge = IM_COL32(40, 0, 0, 200);
-            titleCol = IM_COL32(222, 38, 32, 255); rule = IM_COL32(222, 38, 32, 255);
+            rule = IM_COL32(222, 38, 32, 255);
             break;
         case BeatKind::Busted:     // cold blue cast, the edges lit red/blue in turn
             wash = IM_COL32(20, 34, 80, 90); edge = IM_COL32(0, 10, 40, 190);
-            titleCol = IM_COL32(110, 160, 255, 255); rule = IM_COL32(110, 160, 255, 255);
+            rule = IM_COL32(110, 160, 255, 255);
             break;
         case BeatKind::Complete:   // warm, light
             wash = IM_COL32(90, 70, 20, 40); edge = IM_COL32(30, 20, 0, 120);
-            titleCol = kYellow; rule = kYellow;
+            rule = kYellow;
             break;
         default: return;
     }
@@ -1626,27 +1699,44 @@ void DrawBeat(ImDrawList* dl, float W, float H) {
         dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, bar), IM_COL32(0, 0, 0, 255));
         dl->AddRectFilled(ImVec2(0, H - bar), ImVec2(W, H), IM_COL32(0, 0, 0, 255));
     }
-    // The title: centred in the lower third, clear of the figure the camera frames in the
-    // middle, scaling in from 112% and settling.
+    // The fade to black that hides the respawn cut, under the title (which stays readable on it).
+    if (b.black > 0.0f) dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Fade(IM_COL32(0, 0, 0, 255), b.black));
+    // FIX-HUD-3 (pmq10-third-busted-caption): the title in the classic view's own colour and weight,
+    // the game's big-message face: opaque, a vertical yellow-to-orange fill (255,241,66 at the top,
+    // 255,122,40 at the foot, measured on the classic BUSTED! of pt8_bil19 shot_625) inside an indigo
+    // outline with a drop shadow. Before, it faded in over 0.4 s in the beat's cast colour (BUSTED a
+    // light blue) under a black shadow at the same alpha: the playtest frame caught it at 15 % as a
+    // dark navy stamp on the grass at his feet, which read as something in the world. It is set
+    // where classic sets it, in the upper third (inside the letterbox picture), over the figures,
+    // at full strength within 0.12 s of the message, and drawn over the fade to black.
     if (b.title > 0.01f && g_fonts.title && !b.titleText.empty()) {
         const float pop = 1.0f + 0.12f * std::exp(-b.t / 0.18f);
         const float px = g_fonts.titlePx * pop;
         const char* s = b.titleText.c_str();
         const ImVec2 sz = Measure(g_fonts.title, px, s);
-        const float barH = (std::max)(0.0f, (H - W / 2.39f) * 0.5f);
-        const ImVec2 at((W - sz.x) * 0.5f, H - barH - 0.06f * H - sz.y - 9.0f * u);
-        const float o = (std::max)(2.0f, std::round(3.0f * u));
-        const ImU32 sh = Fade(IM_COL32(0, 0, 0, 230), b.title);
-        dl->AddText(g_fonts.title, px, ImVec2(at.x + o, at.y + o), sh, s);
-        dl->AddText(g_fonts.title, px, ImVec2(at.x - o * 0.5f, at.y + o), sh, s);
-        dl->AddText(g_fonts.title, px, at, Fade(titleCol, b.title), s);
-        // A thin rule under it, drawn out from the middle.
+        const ImVec2 at(std::round((W - sz.x) * 0.5f), std::round((std::max)(barFull + 0.035f * H, 0.215f * H - 0.5f * (px - g_fonts.titlePx))));
+        const float a = b.title;
+        const float o = (std::max)(2.0f, std::round(3.0f * u));       // the outline's width
+        const float d = (std::max)(3.0f, std::round(5.0f * u));       // the drop shadow's offset
+        const ImU32 shadow = Fade(IM_COL32(16, 10, 40, 235), a);
+        const ImU32 outline = Fade(IM_COL32(72, 56, 138, 255), a);
+        dl->AddText(g_fonts.title, px, ImVec2(at.x + d, at.y + d), shadow, s);
+        dl->AddText(g_fonts.title, px, ImVec2(at.x + d - o, at.y + d), shadow, s);
+        for (int i = 0; i < 8; ++i) {
+            const float ang = static_cast<float>(i) * 0.7853982f;
+            dl->AddText(g_fonts.title, px, ImVec2(at.x + o * std::cos(ang), at.y + o * std::sin(ang)), outline, s);
+        }
+        const int v0 = dl->VtxBuffer.Size;
+        dl->AddText(g_fonts.title, px, at, Fade(IM_COL32(255, 255, 255, 255), a), s);
+        // The glyphs' ink spans about 0.2..0.92 of the line height in this face.
+        ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, v0, dl->VtxBuffer.Size, ImVec2(at.x, at.y + 0.2f * sz.y),
+                                                      ImVec2(at.x, at.y + 0.92f * sz.y), IM_COL32(255, 241, 66, 255), IM_COL32(255, 122, 40, 255));
+        // A thin rule under it, drawn out from the middle, in the beat's cast.
         const float half = sz.x * 0.5f * Smoothstep01((b.t - 0.3f) / 0.5f);
         const float ry = at.y + sz.y + 6.0f * u;
-        if (half > 1.0f)
-            dl->AddRectFilled(ImVec2(W * 0.5f - half, ry), ImVec2(W * 0.5f + half, ry + (std::max)(2.0f, 3.0f * u)), Fade(rule, b.title * 0.9f));
+        if (half > 1.0f && b.black < 0.5f)
+            dl->AddRectFilled(ImVec2(W * 0.5f - half, ry), ImVec2(W * 0.5f + half, ry + (std::max)(2.0f, 3.0f * u)), Fade(rule, a * 0.9f * (1.0f - b.black)));
     }
-    if (b.black > 0.0f) dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Fade(IM_COL32(0, 0, 0, 255), b.black));
 }
 
 // FIX-PERF-VSWITCH: what the modern HUD builds on its first street frame (the game's texts, the

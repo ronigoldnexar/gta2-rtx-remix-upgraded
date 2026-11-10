@@ -296,7 +296,9 @@ void BeatsUpdate(const PlayerState& player, bool street, float px, float py, flo
         b.camera = Smooth(0.0f, 0.7f, t);
         b.letterbox = Smooth(0.0f, 0.45f, t);
         b.tint = Smooth(0.0f, 0.8f, t);
-        b.title = Smooth(0.15f, 0.4f, t) * (1.0f - toBlack);
+        // FIX-HUD-3 (pmq10): the title is up at once (0.12 s, under its scale-in) and stays through
+        // the fade to black (hud3d draws it over the black); it leaves with the cut below.
+        b.title = Smooth(0.0f, 0.12f, t);
         b.black = toBlack;
         b.hudHide = b.letterbox;
     } else {
@@ -307,7 +309,7 @@ void BeatsUpdate(const PlayerState& player, bool street, float px, float py, flo
         b.black = from * (1.0f - Smooth(0.15f, 0.85f, since));
         b.letterbox = 1.0f - Smooth(0.2f, 0.9f, since);
         b.tint = b.letterbox * 0.6f;
-        b.title = 0.0f;
+        b.title = (std::min)(Smooth(0.0f, 0.12f, t), 1.0f - Smooth(0.0f, 0.3f, since));
         b.hudHide = b.letterbox;
         if (since >= 0.9f) {
             Log("beat: %s end after %.1f s", BeatName(b.kind), t);

@@ -88,6 +88,15 @@ respect bars), 6 and 11 are swallowed whether or not the modern HUD is active. H
 then (`player not found`), so the modern HUD went inactive and the game's weapon, ammo and respect bars came back, half under
 the letterbox bars. The beat's own title, wash and bars are drawn by `DrawBeat`; part 15 (the game's message) was already swallowed.
 
+FIX-HUD-3 (10 Nov 2026; pmq10-third-busted-caption, pm10-third-wasted): the beat's title is drawn in the classic view's
+colour and weight: opaque, a vertical yellow-to-orange fill (255,241,66 at the top of the ink, 255,122,40 at its foot,
+measured on the game's own BUSTED!) in an indigo outline (72,56,138) with a dark drop shadow, in the upper third where
+classic sets it (below the top bar), at full strength 0.12 s after the message (it had faded in over 0.4 s in the beat's
+cast colour, so the playtest caught BUSTED! at 15 % as a dark navy stamp on the grass at his feet), over the fade to black,
+and out with the cut. The rule under it keeps the beat's cast. While the bars slide in or out, every panel the modern
+HUD draws (money, stars, lives, weapon, mini-map, subtitle) is moved inside the letterbox picture by the bars' height
+(top half down, bottom half up, clip rects with them), so nothing is cut by a bar as it fades (`BeatBarPx`, `Draw`).
+
 The hook: one line at the top of `Overlay::PushTriangleFan` (`dll/src/overlay.cpp`, marked
 `MODERN HUD`), which is where every 2D draw of the game is classified as HUD and by part.
 `src/renderer.cpp` is not touched (the sprite classification is in the overlay, not there).
@@ -118,6 +127,13 @@ now show that line and what is on it.
   ticks round a dot, white; it sits on the first person standing on the line of fire, or where
   the line meets a wall (binary search with the camera's own block query, `ViewLineBlocked`),
   or 8 blocks out. A shot opens the ticks for a quarter of a second.
+  In third person (FIX-HUD-3, 10 Nov 2026; pmx9-bil-third-aim-reticle-drawn-on-hero-back) it is
+  drawn only while he aims: from a shot to 1.2 s after it (the figure raises the gun for about a
+  second after each shot and carries it at low ready otherwise), in within 0.04 s, out over 0.12 s.
+  It is never drawn over him: his figure's box is
+  projected each frame (feet to 0.50 block, 0.07 block either side) and a reticle inside it (plus 4 px) is not drawn (a wall just ahead of
+  him put the line's end on his back from the chase camera). Log every 5 s: `aim: reticle frames
+  (third person, armed) shown= hidden_idle= hidden_on_hero=`. First person is unchanged.
 - **Target**: the nearest person on the line, inside a corridor of 0.32 block + 0.03 per block
   of range (the game's bullets were measured landing up to 0.45 block off the line at 4 blocks),
   within the weapon's reach (10 blocks for pistols and machine guns, 6 shotgun and thrown, 3
