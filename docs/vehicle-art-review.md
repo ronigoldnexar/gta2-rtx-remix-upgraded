@@ -800,3 +800,51 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   `_interior_liner`, `_glass`, `_chrome`, `_chrome_disc`, `_grille`, `_lamp_head`, `_lamp_tail`, `_lamp_amber`, `_plate`,
   `_trim_dark`, `_seal`, `_seat`, `_interior_dark`, `_tyre_side`, `_tyre_tread`, `_underbody`); backups
   `backup_va15/models_000`.
+
+## VEHICLE-ART-16 (10 Nov 2026)
+
+The 2 GB rule (BLOCKER 'player-not-found-when-game-pool-lands-above-2gb', fixed by FIX-POOL-LAA 7b36ca7) set a texture
+budget for kit bodies: one 512 paint picture, flats at 16 px, detail pictures 64-128, no texture above 512 except a
+livery's lettering panel. Every take below ran on a private stage built from HEAD (with 7b36ca7) and was checked for
+'view: player' and 'player not found' in the log: the player was found in every run, the level entered in 11-15 s,
+0 FAULT. No DLL change: the classic view is unchanged by construction (it draws no car models). Poses: gamerun
+va11_own.py, parked (EXIT=1) at wil 198.5,188.2, side/front34/rear34/eye/far/chase/high/door; the x4 sprite (nose down)
+beside every sheet. A forced model draws untinted unless PAINT= is set (the 027 livery is tinted by a forced PAINT too:
+a probe artifact; traffic draws it in its own colours).
+
+- **027 Ice-Cream Van re-added to the budget (`car_027.py`, ART-15's body).** 32 -> 22 textures, 4.6 -> 2.7 MB:
+  one 512 paint picture (the box; the cab 256), both ICE CREAM boards in one 256 x 512 picture (new `uv_rect` option
+  on `carkit.Car.box`: each face maps its picture into a rectangle of the texture), the orange belt band painted into
+  the box picture, the shop wall/plate in the box paint, frame/skirt/seal in `interior_dark`, the wafer in the waffle
+  picture, detail pictures 64-128. The soft-serve is a piped spiral (the ridge winds 4.5 turns to the tip) instead
+  of stacked rings; the awnings reach 0.40 m (was 0.55). Before `out/va16_027_b0` (the shell: pink van, melted cone),
+  after `out/va16_027_a0`; five fresh sessions with it loaded (`va16_027_a0`, `va16_s2`..`s5`: 14.3/14.3/11.7/12.7/
+  12.7 s to the level). Still short of AAA: the swirl reads as a smooth horn from the side at chase distance, the
+  hatch interior is the box paint (no fittings), the rear doors are drawn lines.
+- **067 TV Van -> 068's mesh (manifest `cars.by_model` "67": "068_van").** The two sprites are pixel-identical; 067's
+  image-to-3D shell had a black hole for a rear window, a crumpled grille and smeared paint, while 068 is the
+  carkit-v1 step van. 067 is a painted car (identity.cpp `Livery` excludes it since FIX-CAR-IDENTITY-3), so the
+  record's tint carries over: `out/va16_s4` (PAINT 150,92,58: 067 and 068 identical, tinted). Before `out/va16_s2`.
+  068 (item 2) needed nothing: it is already the authored step van (c152690), not the loaf.
+- **014 Eddy authored (`car_014.py`; audit item 8 roof colour; 084 Special Agent Car draws the same mesh).** A 1958
+  Edsel-style two-door sedan read from the sprite: flat bonnet, wrap-around screen, long flat roof a shade lighter
+  than the body (luminance only), upright back light, deck between modest fins, the horse-collar grille in a chrome
+  oval between low side grilles, quad lamps, gull-wing tail lamps, heavy bumpers with guards. 17 textures, 1.8 MB.
+  Before `out/va16_s3` (blotched silver shell with torn wings, sprite-coloured roof), after `out/va16_s5` (untinted)
+  and `out/va16_s7` (PAINT 184,120,72). Still short of AAA: the kit's dark side glass hides the cabin by day, slab
+  doors without the Edsel's side cove, a plainer and boxier body than the shell's flamboyant line.
+- **046 Stinger authored (`car_046.py`, from 053's fastback loft).** A 1963 Sting Ray coupe: pointed prow with a centre
+  bulge, wing creases, short raked screen, a roof spine running down the fastback and splitting the rear window (the
+  sprite's two small panes), boat tail with four round lamps, gill vents, split bumperettes, a dark low grille. 13
+  textures, 1.8 MB. Before `out/va16_s3`, after `out/va16_s7`. Still short of AAA: no hidden-lamp pods (the faired
+  lamps are buried in the prow), the side view is a generic GT rather than the C2's sharp belt crease.
+- **062 Trance-Am authored (`car_062.py`, from car_046).** A late-60s Trans Am: chrome beak between twin dark grille
+  openings with round lamps, long bonnet with a shaker scoop and the bird painted dark into the paint picture
+  (luminance only: a box decal's alpha draws opaque, a black square), wide wrap-round back light, duck-tail spoiler,
+  fender vents, dark slotted wheels. 13 textures, 1.8 MB. Before `out/va16_s3`, after `out/va16_s8` (PAINT
+  190,128,74). Still short of AAA: the scoop is a plain dark box, the bird is a soft silhouette, no rear quarter
+  louvres.
+- Checked, not changed: the kit bodies 036/008/056/018/050 at HEAD (`out/va16_s6`): 036's lamps are sealed beams in
+  chrome bezels (pods proud of the nose, not blobs); 008's wings are bulbous; nothing that reads wrong at chase distance.
+- `car_mesh_orient.py check`: ok for 027/014/046/062. Remix: every texture of the four bodies is new (list in the
+  NOTE-1031 beside the prmx11 order); 067 adds none.

@@ -1201,15 +1201,39 @@
   },
   {
    "name": "014_eddy",
-   "glb": "cars/models3d/014_eddy.glb",
+   "glb": "cars/vehicle_art2/014_eddy.glb",
    "scale": 1.0,
    "paint_rgb": [
-    100.3,
-    113.2,
-    22.6
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "interior_dark": "cars/vehicle_art2/014_eddy/interior_dark.png",
+    "chrome": "cars/vehicle_art2/014_eddy/chrome.png",
+    "underbody": "cars/vehicle_art2/014_eddy/underbody.png",
+    "paint_body": "cars/vehicle_art2/014_eddy/paint_body.png",
+    "interior_liner": "cars/vehicle_art2/014_eddy/interior_liner.png",
+    "paint_wheel": "cars/vehicle_art2/014_eddy/paint_wheel.png",
+    "lamp_tail": "cars/vehicle_art2/014_eddy/lamp_tail.png",
+    "lamp_head": "cars/vehicle_art2/014_eddy/lamp_head.png",
+    "plate": "cars/vehicle_art2/014_eddy/plate.png",
+    "chrome_disc": "cars/vehicle_art2/014_eddy/chrome_disc.png",
+    "grille": "cars/vehicle_art2/014_eddy/grille.png",
+    "lamp_amber": "cars/vehicle_art2/014_eddy/lamp_amber.png",
+    "seat": "cars/vehicle_art2/014_eddy/seat.png",
+    "tyre_side": "cars/vehicle_art2/014_eddy/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/014_eddy/tyre_tread.png",
+    "glass": "cars/vehicle_art2/014_eddy/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_014.py",
+   "driver_seat": [
+    0.09,
+    0.132,
+    0.04,
+    0.3
+   ]
   },
   {
    "name": "084_special_agent_car",
@@ -1406,15 +1430,44 @@
   },
   {
    "name": "027_ice_cream_van",
-   "glb": "cars/models3d/027_ice_cream_van.glb",
+   "glb": "cars/vehicle_art2/027_ice_cream_van.glb",
    "scale": 1.0,
    "paint_rgb": [
-    119.0,
-    100.6,
-    80.1
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "interior_dark": "cars/vehicle_art2/027_ice_cream_van/interior_dark.png",
+    "underbody": "cars/vehicle_art2/027_ice_cream_van/underbody.png",
+    "paint_cab": "cars/vehicle_art2/027_ice_cream_van/paint_cab.png",
+    "grille": "cars/vehicle_art2/027_ice_cream_van/grille.png",
+    "chrome": "cars/vehicle_art2/027_ice_cream_van/chrome.png",
+    "chrome_disc": "cars/vehicle_art2/027_ice_cream_van/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/027_ice_cream_van/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/027_ice_cream_van/lamp_amber.png",
+    "seat": "cars/vehicle_art2/027_ice_cream_van/seat.png",
+    "paint_box": "cars/vehicle_art2/027_ice_cream_van/paint_box.png",
+    "awning": "cars/vehicle_art2/027_ice_cream_van/awning.png",
+    "sign": "cars/vehicle_art2/027_ice_cream_van/sign.png",
+    "lamp_tail": "cars/vehicle_art2/027_ice_cream_van/lamp_tail.png",
+    "waffle": "cars/vehicle_art2/027_ice_cream_van/waffle.png",
+    "icecream": "cars/vehicle_art2/027_ice_cream_van/icecream.png",
+    "tyre_side": "cars/vehicle_art2/027_ice_cream_van/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/027_ice_cream_van/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/027_ice_cream_van/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/027_ice_cream_van/paint_wheel.png",
+    "glass": "cars/vehicle_art2/027_ice_cream_van/glass.png",
+    "glass_hatch": "cars/vehicle_art2/027_ice_cream_van/glass_hatch.png"
+   },
+   "generator": "tools/vehicle_art2/car_027.py",
+   "driver_seat": [
+    0.1,
+    0.256,
+    0.043,
+    0.422
+   ]
   },
   {
    "name": "028_dementia_limousine",
@@ -1766,15 +1819,35 @@
   },
   {
    "name": "046_stinger",
-   "glb": "cars/models3d/046_stinger.glb",
+   "glb": "cars/vehicle_art2/046_stinger.glb",
    "scale": 1.0,
    "paint_rgb": [
-    158.7,
-    115.1,
-    93.2
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "interior_dark": "cars/vehicle_art2/046_stinger/interior_dark.png",
+    "underbody": "cars/vehicle_art2/046_stinger/underbody.png",
+    "paint_body": "cars/vehicle_art2/046_stinger/paint_body.png",
+    "grille": "cars/vehicle_art2/046_stinger/grille.png",
+    "chrome": "cars/vehicle_art2/046_stinger/chrome.png",
+    "chrome_disc": "cars/vehicle_art2/046_stinger/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/046_stinger/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/046_stinger/lamp_tail.png",
+    "seat": "cars/vehicle_art2/046_stinger/seat.png",
+    "tyre_side": "cars/vehicle_art2/046_stinger/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/046_stinger/tyre_tread.png",
+    "glass": "cars/vehicle_art2/046_stinger/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_046.py",
+   "driver_seat": [
+    0.08,
+    0.084,
+    -0.066,
+    0.226
+   ]
   },
   {
    "name": "047_meteor",
@@ -2182,15 +2255,35 @@
   },
   {
    "name": "062_trance_am",
-   "glb": "cars/models3d/062_trance_am.glb",
+   "glb": "cars/vehicle_art2/062_trance_am.glb",
    "scale": 1.0,
    "paint_rgb": [
-    159.2,
-    123.1,
-    104.4
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "interior_dark": "cars/vehicle_art2/062_trance_am/interior_dark.png",
+    "chrome": "cars/vehicle_art2/062_trance_am/chrome.png",
+    "underbody": "cars/vehicle_art2/062_trance_am/underbody.png",
+    "paint_body": "cars/vehicle_art2/062_trance_am/paint_body.png",
+    "grille": "cars/vehicle_art2/062_trance_am/grille.png",
+    "chrome_disc": "cars/vehicle_art2/062_trance_am/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/062_trance_am/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/062_trance_am/lamp_tail.png",
+    "seat": "cars/vehicle_art2/062_trance_am/seat.png",
+    "tyre_side": "cars/vehicle_art2/062_trance_am/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/062_trance_am/tyre_tread.png",
+    "glass": "cars/vehicle_art2/062_trance_am/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_062.py",
+   "driver_seat": [
+    0.08,
+    0.096,
+    -0.045,
+    0.236
+   ]
   },
   {
    "name": "063_truck_cab",
@@ -3899,7 +3992,7 @@
    "64": "064_truck_cab_sx",
    "65": "065_container",
    "66": "066_transporter",
-   "67": "067_tv_van",
+   "67": "068_van",
    "68": "068_van",
    "69": "069_u_jerk_truck",
    "70": "070_z_type",
@@ -8114,13 +8207,27 @@
   },
   {
    "name": "014_eddy",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 8536,
+   "nodes": 20,
+   "meshes": 16,
+   "vertices": 20071,
    "animations": [],
    "textures": [
-    "014_eddy_0.tga",
-    "014_eddy_0_paint.tga"
+    "014_eddy_chrome.tga",
+    "014_eddy_chrome_disc.tga",
+    "014_eddy_glass.tga",
+    "014_eddy_grille.tga",
+    "014_eddy_interior_dark.tga",
+    "014_eddy_interior_liner.tga",
+    "014_eddy_lamp_amber.tga",
+    "014_eddy_lamp_head.tga",
+    "014_eddy_lamp_tail.tga",
+    "014_eddy_paint_body_paint.tga",
+    "014_eddy_paint_wheel_paint.tga",
+    "014_eddy_plate.tga",
+    "014_eddy_seat.tga",
+    "014_eddy_tyre_side.tga",
+    "014_eddy_tyre_tread.tga",
+    "014_eddy_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8374,13 +8481,32 @@
   },
   {
    "name": "027_ice_cream_van",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 8708,
+   "nodes": 25,
+   "meshes": 21,
+   "vertices": 26854,
    "animations": [],
    "textures": [
-    "027_ice_cream_van_0.tga",
-    "027_ice_cream_van_0_paint.tga"
+    "027_ice_cream_van_awning.tga",
+    "027_ice_cream_van_chrome.tga",
+    "027_ice_cream_van_chrome_disc.tga",
+    "027_ice_cream_van_glass.tga",
+    "027_ice_cream_van_glass_hatch.tga",
+    "027_ice_cream_van_grille.tga",
+    "027_ice_cream_van_icecream.tga",
+    "027_ice_cream_van_interior_dark.tga",
+    "027_ice_cream_van_lamp_amber.tga",
+    "027_ice_cream_van_lamp_head.tga",
+    "027_ice_cream_van_lamp_tail.tga",
+    "027_ice_cream_van_paint_box_paint.tga",
+    "027_ice_cream_van_paint_cab_paint.tga",
+    "027_ice_cream_van_paint_wheel_paint.tga",
+    "027_ice_cream_van_seat.tga",
+    "027_ice_cream_van_sign.tga",
+    "027_ice_cream_van_tyre_side.tga",
+    "027_ice_cream_van_tyre_tread.tga",
+    "027_ice_cream_van_underbody.tga",
+    "027_ice_cream_van_waffle.tga",
+    "027_ice_cream_van_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8693,13 +8819,23 @@
   },
   {
    "name": "046_stinger",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 14192,
+   "nodes": 16,
+   "meshes": 12,
+   "vertices": 20190,
    "animations": [],
    "textures": [
-    "046_stinger_0.tga",
-    "046_stinger_0_paint.tga"
+    "046_stinger_chrome.tga",
+    "046_stinger_chrome_disc.tga",
+    "046_stinger_glass.tga",
+    "046_stinger_grille.tga",
+    "046_stinger_interior_dark.tga",
+    "046_stinger_lamp_head.tga",
+    "046_stinger_lamp_tail.tga",
+    "046_stinger_paint_body_paint.tga",
+    "046_stinger_seat.tga",
+    "046_stinger_tyre_side.tga",
+    "046_stinger_tyre_tread.tga",
+    "046_stinger_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -9035,13 +9171,23 @@
   },
   {
    "name": "062_trance_am",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 14582,
+   "nodes": 16,
+   "meshes": 12,
+   "vertices": 19511,
    "animations": [],
    "textures": [
-    "062_trance_am_0.tga",
-    "062_trance_am_0_paint.tga"
+    "062_trance_am_chrome.tga",
+    "062_trance_am_chrome_disc.tga",
+    "062_trance_am_glass.tga",
+    "062_trance_am_grille.tga",
+    "062_trance_am_interior_dark.tga",
+    "062_trance_am_lamp_head.tga",
+    "062_trance_am_lamp_tail.tga",
+    "062_trance_am_paint_body_paint.tga",
+    "062_trance_am_seat.tga",
+    "062_trance_am_tyre_side.tga",
+    "062_trance_am_tyre_tread.tga",
+    "062_trance_am_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
