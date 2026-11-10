@@ -791,6 +791,8 @@ private:
         // by which car (one reaction per car per second).
         uint32_t brushFrame = 0;
         uintptr_t brushCar = 0;
+        uint32_t sepShove = 0;   // FIX-KNOCKDOWN-4: the frame the brushing car last shoved her figure out of its body
+        bool brushShy = false;   // FIX-KNOCKDOWN-4 (pfl38): that reaction was a near miss's shy (a brush may follow)
         float brushPrevX = 0.0f, brushPrevZ = 0.0f;   // his game point last frame (a figure moving with the car is in it)
         uint32_t brushPrevFrame = 0;
         float staggerX = 0.0f, staggerZ = 0.0f;

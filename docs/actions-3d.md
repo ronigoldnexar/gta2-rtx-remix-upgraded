@@ -1838,3 +1838,38 @@ filmed the 0.7 s version).
   head, the game gives 1 frame); the bottle's arc is the game's (high); the empty FP hand is a fist, not an open
   release; grenades use their own code-object numbers (not mapped, not tested).
 - A/B: `GTA2DX9_THROW_SYNC=0`.
+
+## FIX-KNOCKDOWN-4 (10 Nov 2026): a car's near miss and brush, seen from the cab (pfl38 ped half)
+
+pfl38 (first person: the car clips a running woman, she rides on upright beside the dash, no reaction). What the
+game did at the filer's contact: nothing (FIX-FIGURE-11: 0.60 block from the car's centre, health and state unchanged),
+so every reaction here is draw-only; the game's positions, damage and knock-downs are untouched.
+
+- *Near miss* (`live_geometry.cpp`, the brush test). The filer's woman was a few tenths of a block clear of the
+  paint, outside FIX-FIGURE-11's brush (0.10 block). Now a car doing 2+ blocks/s that passes within 0.30 block of a
+  person on her feet (beside the flank, or ahead of a car coming at her, not behind one driving away; relative
+  speed 1.5+) makes her shy away from it: the same side jolt, a push of 0.06 + 0.02 x speed (at most 0.16) away
+  from the body with little along the travel. A real brush right after it still staggers her (the brush may
+  follow a shy within the same second). Log: `fig: near miss, shied <ped> by car ...`. A/B: `GTA2DX9_CAR_SHY=0`.
+  Seen in kd4_b2 and kd4_l2: a shy fired 0.15-0.25 s before the game's own run-over of the same person (she sees it
+  coming, then the knock-down takes over).
+- *Shove.* kd4_b1 (before this, first person, the own van at 1 block/s, a woman 0.06 off its nose): the jolt played
+  (she turned to the car, a hand up), then the advancing bonnet met her game point and she sank through the dash
+  for six frames and vanished under the pillar. For 1.2 s after a brush the car that brushed her keeps her figure
+  out of its body as it moves on, through the parked-car slide of FIX-FIGURE-7 (off the flank; only a person square
+  in front of the nose, within 0.35 of the half width of the centre line, is pushed ahead of it), at once (8
+  blocks/s, not the 1.5 sidestep), capped at 0.6 block like the parked slide. Log: `figure sep: ... inside the
+  brushing car ...`. A/B: `GTA2DX9_CAR_SHOVE=0`.
+- Probe: `gamerun/keys_kd4_lane.sh` (F11 lane jack of a traffic car, KD4_VIEWS, KD4_SECS, KD4_OFF: the pass beside
+  the locked person, KD4_PLAZA) or `keys_kd4_brush.sh` (the F9 van); `-e GTA2DX9_LOG_FIGURES=1` names the own-car
+  contacts (a `fig: f=` line puts the person within 1.5 block of the player).
+
+| run | own-car contact | frames |
+|---|---|---|
+| kd4_b1 (before the shove) | first person, van 1.0 b/s, nose | jolt, then sinks through the dash 6 frames |
+| kd4_b4 | third person, van 1.2 b/s, two flank brushes | arms up, staggered back off the corner, no body inside the van |
+| kd4_l2 | first person, taxi 1.3 b/s, nose, shove 0.14-0.38 | arms up at the contact, runs off clear of the bonnet (a burning car beside it) |
+
+Still short: no stumble or fall for a glancing hit (the game keeps her running, and a drawn fall would leave the
+body behind the game's person); a contact at the bumper of a high-dash van is below the first-person view; the
+filer's exact sideswipe along the plaza wall was not re-hit (traffic is not repeatable).
