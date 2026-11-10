@@ -141,10 +141,27 @@ def release():
 
 # ------------------------------------------------------------------ moving under fire
 
+GROUND_WORLD = [None]    # MISSIONS-BATCH3: the job's world, for step_away's ground check (set by gunfight())
+
+
 def step_away(s, fx, fy, d=2.5, secs=3.0):
-    """a short run directly away from (fx, fy): turn, then Up (the cruise steers)"""
+    """a short run directly away from (fx, fy): turn, then Up (the cruise steers). MISSIONS-BATCH3 (GF_GROUND):
+    the first heading of 0, +-45, +-90, +-135 degrees off 'away' whose line is open ground on his level;
+    none: no move (mb3l_lp10 looped 4584 times on a step-away goal with no ground)"""
     dx, dy = s["x"] - fx, s["y"] - fy; n = math.hypot(dx, dy) or 1.0
-    M.cruise_to(s["x"] + dx / n * d, s["y"] + dy / n * d, tol=0.5, secs=secs)
+    ux, uy = dx / n, dy / n
+    if not (GROUND and GROUND_WORLD[0] is not None):
+        M.cruise_to(s["x"] + ux * d, s["y"] + uy * d, tol=0.5, secs=secs); return True
+    for deg in (0, 45, -45, 90, -90, 135, -135):
+        a = math.radians(deg); vx, vy = ux * math.cos(a) - uy * math.sin(a), ux * math.sin(a) + uy * math.cos(a)
+        gx, gy = s["x"] + vx * d, s["y"] + vy * d
+        try:
+            ok = M.line_clear(GROUND_WORLD[0], (s["x"], s["y"]), (gx, gy), M.ped_level(s), kinds=(1, 2, 3), half_width=0.3)
+        except Exception:
+            ok = True
+        if ok:
+            M.cruise_to(gx, gy, tol=0.5, secs=secs); return True
+    return False
 
 
 def side_step(s, tx, ty, k, d=1.5):
@@ -204,6 +221,21 @@ def route_step(world, s, tx, ty, tl=None, secs=2.0):
         k = 3.0 / math.hypot(gx - s["x"], gy - s["y"])
         gx, gy = s["x"] + (gx - s["x"]) * k, s["y"] + (gy - s["y"]) * k
     return M.cruise_to(gx, gy, tol=0.5, secs=secs)[0]
+
+
+GROUND = os.environ.get("GF_GROUND", "0") == "1"    # MISSIONS-BATCH3: no straight walk at a target over a hole (map check)
+
+
+def ground_toward(world, s, tx, ty, d=1.5):
+    """is the ground open for d blocks (or to the target when nearer) straight toward (tx, ty) on his level?"""
+    if not GROUND: return True
+    n = math.hypot(tx - s["x"], ty - s["y"]) or 1.0
+    k = min(1.0, d / n)
+    try:
+        return M.line_clear(world, (s["x"], s["y"]), (s["x"] + (tx - s["x"]) * k, s["y"] + (ty - s["y"]) * k), M.ped_level(s),
+                            kinds=(1, 2, 3), half_width=0.3)
+    except Exception:
+        return True
 
 
 AIM_GATE = float(os.environ.get("GF_AIM_GATE", "0"))   # MISSIONS-BATCH3: the trigger only while the facing is this
@@ -357,6 +389,8 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
     and the job ends (gf_wm3): 'shoot' takes him as the target first, 'avoid' steps away, 'ignore'.
     Returns 'done', 'no gun' or 'timeout'; STATS has the numbers."""
     check = check or default_check
+    GROUND_WORLD[0] = world
+    carmen_skip = {}      # MISSIONS-BATCH3: car id -> time until which a failed step-away from it is not retried
     t0 = time.time(); seen = {}; killed = set(); hp_last = None; last_progress = time.time()
     none_since = None; spot_i = -1; steps = 0; fired = 0.0; t_said = 0.0; shots = set()
     hp_min = 100; hits = 0; backoffs = 0; blasts = 0; car_shots = 0; health_last = None
@@ -425,10 +459,14 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
             if CARMEN_R > 0:
                 cm = [p for p in hs if p["car"] is not None and dist(p, s) < CARMEN_R]
                 cc = car_of(cm[0]) if cm else None
-                if cc is not None and abs(cc["v"]) < 0.3:
+                if cc is not None and abs(cc["v"]) < 0.3 and carmen_skip.get(cc["id"], 0) < time.time():
                     release(); blasts += 1
                     say(f"gunfight: car m{cc['model']} with {cm[0]['id']} inside {dist(cm[0], s):.1f} off: stepping away")
-                    step_away(s, cc["x"], cc["y"], d=CARMEN_R + 2.0, secs=2.5)
+                    before = dist(cm[0], s)
+                    moved = step_away(s, cc["x"], cc["y"], d=CARMEN_R + 2.0, secs=2.5)
+                    s2 = D.wait_state()
+                    if not moved or (s2 and math.hypot(cc["x"] - s2["x"], cc["y"] - s2["y"]) < before + 0.5):
+                        carmen_skip[cc["id"]] = time.time() + 12.0 / D.SPEED     # no way off it: fight on, retry later
                     continue
 
             if not hs:
@@ -483,7 +521,15 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                 pool = [cop]; cops_shot += 1
                 if cops_shot % 8 == 1: M.mark(f"gunfight: officer {cop['id']} {dist(cop, s):.1f} off with wanted {ms.get('wanted')}: shooting him first")
             if not pool:
-                # all of them still in cars and cars not targets: wait at the anchor
+                # all of them still in cars and cars not targets: wait at the anchor. MISSIONS-BATCH3 (GF_CARMEN_R > 0):
+                # mb3l_lp8 waited two whole rounds by men sitting in parked VTYPEs who never got out, under a job
+                # timer: men in cars count as none in sight (the clear timeout ends the round, the anchor leash holds)
+                if CARMEN_R > 0:
+                    none_since = none_since or time.time()
+                    if clear is not None and time.time() - none_since > clear:
+                        M.mark(f"gunfight: only men in cars for {clear:.0f} s ({len(killed)} down)"); return "done"
+                    if anchor and math.hypot(anchor[0] - s["x"], anchor[1] - s["y"]) > leash:
+                        route_step(world, s, anchor[0], anchor[1]); continue
                 time.sleep(0.3); continue
             tgt = min(pool, key=lambda p: (level_of_z(p["z"]) != mylev, dist(p, s)))
             d = dist(tgt, s); tlev = level_of_z(tgt["z"])
@@ -543,6 +589,9 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                     if time.time() - t_said > 3.5: say(f"gunfight: {tgt['id']} driving ({c['v']:.1f}) {d:.1f} off: facing it")
                     M._aim_walk(c["x"], c["y"], fire=False, walk=False, secs=0.4)
                     continue
+                if (d < 16 or tgt["car"] is not None) and not ground_toward(world, s, tx, ty):
+                    route_step(world, s, tx, ty)        # MISSIONS-BATCH3: a hole or a wall straight ahead
+                    continue
                 if d < 16 or tgt["car"] is not None:
                     # in sight: half-second slices, the targets read again after each one (gf_wm4: a
                     # 20-block walk3 leg went on blind for 4 s and ended 0.3 blocks from a hitman who
@@ -596,8 +645,9 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                 if not wield(None, avoid=HEAVY) and d < HEAVY_MIN:
                     step_away(s, tx, ty, d=HEAVY_MIN - d + 1.0, secs=2.5)
                 continue
-            if AIM_GATE > 0: aim_fire(tx, ty, walk=d > (close if tgt["car"] is None else close_car), secs=0.5)
-            else: M._aim_walk(tx, ty, fire=True, walk=d > (close if tgt["car"] is None else close_car), secs=0.5)
+            walk = d > (close if tgt["car"] is None else close_car) and ground_toward(world, s, tx, ty)
+            if AIM_GATE > 0: aim_fire(tx, ty, walk=walk, secs=0.5)
+            else: M._aim_walk(tx, ty, fire=True, walk=walk, secs=0.5)
             fired += time.time() - t1
             if "firing" not in shots and fired > 1.5: M.shot(f"{shot_prefix}_firing"); shots.add("firing")
             prog = tuple(sorted((p["id"], p["hp"]) for p in hs)) + tuple(sorted((c["id"], c["hp"]) for c in M.cars()
@@ -610,7 +660,7 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                     say(f"gunfight: no damage for {stall:.0f} s: to fire spot {fx},{fy}")
                     M.cruise_to(fx, fy, tol=0.4, secs=4)
                 elif steps % 3 == 0:
-                    say("gunfight: no damage: closer"); M._aim_walk(tx, ty, fire=True, walk=True, secs=1.0)
+                    say("gunfight: no damage: closer"); M._aim_walk(tx, ty, fire=True, walk=ground_toward(world, s, tx, ty), secs=1.0)
                 else:
                     say("gunfight: no damage: side step"); side_step(s, tx, ty, steps)
         return "timeout"

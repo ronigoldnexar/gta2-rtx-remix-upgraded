@@ -38,8 +38,9 @@ os.environ.setdefault("GF_BACK_R", "4.0")     # MISSIONS-BATCH2 (2.2): the gunfi
                                             # MISSIONS-BATCH3: 4.0 (mb2_lp1/lp4/lp7/lp8 were shot at 1-4 blocks)
 os.environ.setdefault("GF_NEAR_CLEAR", "1.8")  # MISSIONS-BATCH3: mb2_lp1 never fired at a man 0.5-1.1 off ('no clear shot')
 os.environ.setdefault("GF_BACKOFF_FIRE", "1")  # MISSIONS-BATCH3: hurt -> retreat firing, never the back turned (mb2_lp1)
-os.environ.setdefault("GF_AIM_GATE", "0.15")   # MISSIONS-BATCH3: the trigger only on aim (~70 rounds a counted kill before)
+os.environ.setdefault("GF_AIM_GATE", "0.09")   # MISSIONS-BATCH3: the trigger only on aim (~70 rounds a counted kill before; 0.15 in lp6-lp9)
 os.environ.setdefault("GF_CARMEN_R", "2.5")
+os.environ.setdefault("GF_GROUND", "1")        # MISSIONS-BATCH3: the Village's holes (mb3l_lp1, lp9 fell through one)
 if os.environ.get("LP_ROCKET", "1") == "1":
     os.environ.setdefault("GF_HEAVY", "rocket_launcher")   # MISSIONS-BATCH3: picked up at 230.5,203.5 after the phone    # MISSIONS-BATCH3: off parked VTYPEs with men inside (mb2_lp6/lp7)
 import drive_lib as D
@@ -145,11 +146,104 @@ def step_answer(entry, off0):
     return P.answer(entry)
 
 
+# MISSIONS-BATCH3: The Village's level 2 is full of holes (the map's level-2 cells with no ground: columns
+# 204-205 rows 5-19, 215-220 rows 16-19, ...). The router keeps off them, but mission_lib.cruise_to walks
+# straight at its goal and unsticks by walking backwards 0.6 s blind: mb3l_lp1 (205.3,19.9) and mb3l_lp9
+# (205.2,17.7: 'cruise: stuck ... unsticking 1', z 3 -> 0) fell through the column-204 gap at health 100.
+# In this process cruise_to is wrapped: on the Village level a goal with no ground is refused, a straight
+# line over a hole goes by the router (walk3), and the unstick steps back only onto open ground.
+_CRUISE0 = M.cruise_to
+_IN_GUARD = [False]
+
+
+def _ground_line(s, tx, ty, hw=0.3):
+    try:
+        return M.line_clear(world, (s["x"], s["y"]), (tx, ty), M.ped_level(s), kinds=(1, 2, 3), half_width=hw)
+    except Exception:
+        return True
+
+
+def guarded_cruise(tx, ty, tol=0.6, secs=30, stop=True):
+    s = D.wait_state()
+    if _IN_GUARD[0] or not s or s["driving"] or M.ped_level(s) != 2 or not in_zone(s["x"], s["y"]):
+        return _CRUISE0(tx, ty, tol=tol, secs=secs, stop=stop)
+    L = M.ped_level(s)
+    if not (M.node_kind(world, int(tx), int(ty), L) or M.node_kind(world, int(tx), int(ty), L + 1)):
+        say(f"cruise guard: no ground at {tx:.1f},{ty:.1f} on level {L}: not going"); return s, False
+    if not _ground_line(s, tx, ty):
+        _IN_GUARD[0] = True
+        try:
+            say(f"cruise guard: the line to {tx:.1f},{ty:.1f} crosses a hole or a wall: by the router")
+            M.walk3(world, tx, ty, L, tol=max(tol, 0.5), budget=min(secs, 20))
+        finally:
+            _IN_GUARD[0] = False
+        s = D.wait_state()
+        return s, bool(s and math.hypot(tx - s["x"], ty - s["y"]) < max(tol, 0.5))
+    # the straight walk, with an unstick that looks behind before stepping back
+    M.ensure_view("classic")
+    t0 = time.time(); best = 1e9; last_gain = time.time(); n = 0
+    D.xdo("keydown", "Up")
+    try:
+        while time.time() - t0 < secs:
+            s = D.wait_state()
+            if not s: break
+            if s["driving"]: return s, False
+            d = math.hypot(tx - s["x"], ty - s["y"])
+            if d < tol: return s, True
+            if d < best - 0.12: best = d; last_gain = time.time()
+            if time.time() - last_gain > 3.0 / D.SPEED:
+                n += 1; say(f"cruise: stuck {d:.1f} from {tx:.1f},{ty:.1f}; guarded unstick {n}")
+                D.xdo("keyup", "Up")
+                fx, fy = s.get("fx", 0.0), s.get("fy", 0.0)
+                back_ok = G.safe_back(world, s, s["x"] + fx, s["y"] + fy, d=1.2) if (fx or fy) else False
+                if back_ok: hold("Down", 0.6)
+                hold("Right" if n % 2 else "Left", 0.4)
+                s2 = D.wait_state()
+                if s2 and (s2.get("fx") or s2.get("fy")) and _ground_line(s2, s2["x"] + 1.0 * s2["fx"], s2["y"] + 1.0 * s2["fy"]):
+                    hold("Up", 0.5)
+                D.xdo("keydown", "Up"); last_gain = time.time(); best = 1e9
+                if n >= 4: return s, False
+                continue
+            a = D.angle_to(s, tx, ty)
+            if abs(a) > 0.12:
+                key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
+                D.xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.35)); D.xdo("keyup", key)
+            time.sleep(0.15)
+    finally:
+        if stop: D.xdo("keyup", "Up")
+    return D.wait_state(), False
+
+
+if os.environ.get("LP_GROUND_GUARD", "1") == "1":
+    M.cruise_to = guarded_cruise
+
+
+G.ARREST_KEYS.add("6165")     # MISSIONS-BATCH3: mb3l_lp10 ended with 6165, health 10 -> 50 at 217,148, lives unchanged
+_CK = dict(t=0.0, seen=False, xy=None)
+
+
 def check():
     if not STARTED[0]: return M.mission_state() or {}
     o, ms = G.job_state()
     if o not in ("running", "unknown"): raise Over(o)
+    # MISSIONS-BATCH3: mb3l_lp10's job ended with lives unchanged (6165) and the runner fought on for 5 minutes:
+    # the job's counter gone from the HUD once it has been up, or a jump of 40+ blocks between two checks
+    now = time.time()
+    if now - _CK["t"] > 4.0:
+        _CK["t"] = now
+        c = hud_counter()
+        if c is not None and c >= 0: _CK["seen"] = True
+        elif _CK["seen"] and c == -1:
+            time.sleep(1.5); c2 = hud_counter()
+            if c2 == -1: raise Over(f"job ended (the counter is gone from the HUD, msg {(ms or {}).get('msg')})")
+    s = D.wait_state()
+    if s and _CK["xy"] and not s["driving"] and math.hypot(s["x"] - _CK["xy"][0], s["y"] - _CK["xy"][1]) > 40 and not WARPING[0]:
+        raise Over(f"moved {math.hypot(s['x'] - _CK['xy'][0], s['y'] - _CK['xy'][1]):.0f} blocks at once (hospital or police station)")
+    if s: _CK["xy"] = (s["x"], s["y"])
     return ms or {}
+
+
+WARPING = [False]
 
 
 def respect(gang, value=None):
@@ -256,9 +350,22 @@ ROCKET_GEN = (230.5, 203.5)   # GENERATOR gen24 COLLECT_02 (the rocket launcher:
                               # rocket launcher...), 35 blocks from the phone on its own level; gen25 (231.5) COLLECT_31 beside it
 
 
+LOADOUT = [(202.5, 226.5, "machine gun"), (219.5, 221.5, "machine gun"), (220.5, 221.5, "armour")]
+
+
 def rocket():
     """MISSIONS-BATCH3: the rocket launcher before The Village. The machine gun alone gave ~1.5 counted kills a
     game minute at ~70 rounds a kill (mb3l_lp4-lp6), every round cut short by the 100-round generator"""
+    if os.environ.get("LP_LOADOUT", "1") == "1":
+        # MISSIONS-BATCH3: the machine-gun generators by the phone (gen18 202.5,226.5 on the row-226 corridor,
+        # gen21 219.5,221.5) and the armour beside gen21 (gen22): The Village's generator gives 100 a minute
+        for (gx, gy, what) in LOADOUT:
+            check()
+            M.walk3(world, gx, gy, None, tol=0.35, budget=40 / D.SPEED)
+            for k in range(3):
+                M.cruise_to(gx + 0.2 * math.cos(k * 2.1), gy + 0.2 * math.sin(k * 2.1), tol=0.12, secs=2); time.sleep(0.3)
+            ms = M.mission_state() or {}
+            ev(f"loadout {what} at {gx},{gy}: hand {ms.get('weapon')} ammo {ms.get('ammo')}")
     if os.environ.get("LP_ROCKET", "1") != "1": return
     ev(f"to the rocket launcher generator at {ROCKET_GEN}")
     M.walk3(world, ROCKET_GEN[0], ROCKET_GEN[1], None, tol=0.35, budget=90 / D.SPEED)
@@ -281,7 +388,7 @@ HEAL = (223.5, 34.5)        # GENERATOR gen32 COLLECT_30: health back to 100 (mb
 LOW_HEALTH = int(os.environ.get("LP_LOW_HEALTH", "70"))   # MISSIONS-BATCH3: 60 -> 70 (most deaths drained from 60 in 2-3 s)
 ARMOUR = (222.5, 34.5)      # GENERATOR gen31 COLLECT_31 between the gun and the health pads (the game's armour power-up, by
                             # the collectible order after COLLECT_30 health; not read back: the HUD line has no armour field)
-LOW_AMMO = int(os.environ.get("LP_LOW_AMMO", "35"))     # mb2_lp4: back with 16 rounds, no answer to the men at the pads
+LOW_AMMO = int(os.environ.get("LP_LOW_AMMO", "20"))     # MISSIONS-BATCH3: 35 -> 20 (fewer station trips under the 65535-frame timer)     # mb2_lp4: back with 16 rounds, no answer to the men at the pads
 
 
 STATION_FAILED = [False]     # the last station visit did not fix the need: the rounds' done() checks health only
@@ -426,7 +533,9 @@ def to_village():
         s = D.wait_state()
         if s["driving"]: M.leave_car()
         P.set_view("classic")
+        WARPING[0] = True
         warp_keep_car(233.6, 30.5, 2, "LP_WARP_VILLAGE_FIRST: The Village road; the trip there is not this job's skill")
+        WARPING[0] = False; _CK["xy"] = None
         P.set_view("third"); RESULT["events"].append("village warp (first)")
     for k in range(6):
         check(); s = D.wait_state()
@@ -440,7 +549,9 @@ def to_village():
             if k >= 2 and os.environ.get("LP_WARP_VILLAGE", "0") == "1":
                 if s and s["driving"]: M.leave_car()
                 P.set_view("classic")
+                WARPING[0] = True
                 s = M.scene_warp(233.6, 30.5, 2, f"LP_WARP_VILLAGE: two drives to The Village failed; the road at its south end")
+                WARPING[0] = False; _CK["xy"] = None
                 P.set_view("third"); RESULT["events"].append("village warp")
                 continue
             if not (s and s["driving"]): time.sleep(2.0); continue
@@ -569,7 +680,7 @@ def play():
             # machine gun (his car stands while the player is on foot): the anchors beside it are dropped
             pool = ANCHORS_LATE if (c is not None and 0 <= c <= 30) else ANCHORS
             a = pool[k % len(pool)]
-            r = fight(select=hostile, spare=spare, secs=60, done=(round_done if os.environ.get("LP_STATION", "1") == "1" else None), clear=20.0, engage=9.0, close=5.0, far=24.0,
+            r = fight(select=hostile, spare=spare, secs=60, done=(round_done if os.environ.get("LP_STATION", "1") == "1" else None), clear=12.0, engage=9.0, close=5.0, far=24.0,
                       anchor=a, leash=7.0, low=70, blast=float(LP_BLAST), close_car=6.0, police="shoot", shot_prefix=f"gf_lp{k}",
                       car_targets=os.environ.get("LP_CAR_TARGETS", "0") == "1")   # mb2_lp6: the VTYPEs shot alight blew up beside him
             st = dict(G.STATS)
