@@ -775,6 +775,15 @@ private:
         float hitDirX = 0.0f, hitDirZ = 0.0f;
         float hitPush = 0.07f;   // the stagger's reach (QB-16: by the gun)
         float staggerX = 0.0f, staggerZ = 0.0f;
+        // FIX-FIGURE-6 (pm24 gang interpenetrating, pm3 ped inside a parked car): a draw-only offset
+        // that keeps the figure out of its neighbours' bodies and out of car bodies, eased; the
+        // car it is being kept out of and the side chosen on the way in (no flip at the middle).
+        float sepX = 0.0f, sepZ = 0.0f;
+        uintptr_t sepCar = 0;
+        int sepAxis = 0;      // 0: across the car (out of a flank), 1: along it (out of an end)
+        float sepSign = 1.0f;
+        float sepDrawnX = 0.0f, sepDrawnZ = 0.0f;   // FIX-FIGURE-7: where it was drawn last (the others separate from this)
+        uint32_t sepSeenFrame = 0;
         // Getting into / out of a car: the car's middle (the heading faces it on
         // the way in and away from it on the way out) and when the state began.
         bool carKnown = false;

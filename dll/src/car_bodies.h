@@ -93,6 +93,11 @@ const char* CarBodiesDevIni();
 void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame);
 // VEHICLE-GLASS: the world height where this frame's drawn body of `object` meets the road.
 bool CarBodiesGround(const void* object, float* y);
+// FIX-FIGURE-6 (pm3-third-ped-stands-inside-parked-ambulance): this frame's drawn car footprints (world
+// xz, the body's separation push included): centre, road height, across (r) and nose (f) axes, half
+// sizes. For the figures' draw-only slide out of a body. Returns how many were written.
+struct CarFootprint { uintptr_t object; float cx, cy, cz, rx, rz, fx, fz, hx, hz; };
+int CarBodiesFootprints(CarFootprint* out, int max);
 // VEHICLE-ART-5: where the drawn car's tyres touch the road (world x, z), their radii and the car's
 // nose axis (world xz, unit), for the tyres' own contact shadows; 0 when its wheels are not cut.
 bool CarBodiesTyreShadowsOn();   // [devtools] tyre_shadows (default on): the two above, for A/B

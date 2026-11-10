@@ -8809,6 +8809,51 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             ++it;
         }
     }
+    // FIX-FIGURE-6 (pm24 gang bodies inside each other, pm3 ped inside a parked car): the people on
+    // their feet this frame (the game's positions) and the car bodies drawn, for the figures'
+    // draw-only separation below. GTA2DX9_NO_FIGURE_SEP=1 turns it off (A/B).
+    static const bool sepOff = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_NO_FIGURE_SEP", b, sizeof b) && b[0] == '1'; }();
+    struct SepPed { uintptr_t object; float x, y, z; bool player; };
+    static std::vector<SepPed> sepPeds;
+    sepPeds.clear();
+    static CarFootprint sepCars[96];
+    int sepCarCount = 0;
+    if (!sepOff && g_groundModels) {
+        for (const Sprite& sprite : sprites_) {
+            if (!sprite.pedestrian || sprite.corpse || sprite.ghost || sprite.boardUi || sprite.corners != 4 || sprite.hidden || sprite.climbing) continue;
+            if (sprite.pedState == 3 || sprite.pedState == 4) continue;
+            // FIX-FIGURE-7: where each figure is DRAWN (its smoothed track, last frame's), not the game's
+            // point: the track trails the game by up to 0.1 block, so two figures kept apart by their game
+            // points still met as drawn (fig7_p: 5 of 8 close pairs left).
+            float px = sprite.objectToWorld.m[3][0], pz = sprite.objectToWorld.m[3][2];
+            const auto tr = pedTracks_.find(sprite.object);
+            if (tr != pedTracks_.end() && g_carFrame - tr->second.sepSeenFrame <= 2) { px = tr->second.sepDrawnX; pz = tr->second.sepDrawnZ; }
+            sepPeds.push_back({sprite.object, px, sprite.objectToWorld.m[3][1], pz,
+                               sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject});
+        }
+        sepCarCount = CarBodiesFootprints(sepCars, 96);
+        // Only a car at rest keeps people out of its body: a moving one that meets a person is a
+        // collision the game plays out (he dodges, is knocked down or run over), and sliding his
+        // figure ahead of the bumper (fig6_pm24a: 0.9 block in 0.6 s) is worse than the overlap.
+        static std::unordered_map<uintptr_t, std::pair<float, float>> lastCar;
+        static uint32_t lastCarFrame = 0;
+        const bool carHistory = g_carFrame - lastCarFrame == 1;
+        std::unordered_map<uintptr_t, std::pair<float, float>> nowCar;
+        nowCar.reserve(static_cast<size_t>(sepCarCount));
+        int kept = 0;
+        for (int i = 0; i < sepCarCount; ++i) {
+            const CarFootprint& c = sepCars[i];
+            nowCar[c.object] = {c.cx, c.cz};
+            const auto was = lastCar.find(c.object);
+            if (!carHistory || was == lastCar.end()) continue;
+            const float mx = c.cx - was->second.first, mz = c.cz - was->second.second;
+            if (mx * mx + mz * mz > 0.015f * 0.015f) continue;   // more than ~0.45 block a second
+            sepCars[kept++] = c;
+        }
+        sepCarCount = kept;
+        lastCar.swap(nowCar);
+        lastCarFrame = g_carFrame;
+    }
     for (const Sprite& sprite : sprites_) {
         ModelSetPlayerTextures(false);   // on only for his own figure, below
         // On his feet, or - with the models, which have clips for it - on the
@@ -9600,9 +9645,142 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             track.headYaw += step;
         }
         const float hx = std::sin(legHeading), hz = std::cos(legHeading);
+        // FIX-FIGURE-6: the draw-only separation. GTA2 walks its peds through each other (a gang in
+        // single file stacked 0.03 block apart) and over parked cars' footprints; the flat sprites
+        // never showed it, the bodies do. A figure closer than a body's width to another is moved
+        // apart along the line between them (half each; all of it when the other is the player,
+        // who is never moved: the camera rides him), and one inside a car body is moved to the
+        // edge it entered by (kept while it is inside, so it walks round the car instead of
+        // flipping sides at the middle). Eased over ~0.25 s; capped; the game's positions untouched.
+        LARGE_INTEGER sepT0;
+        QueryPerformanceCounter(&sepT0);
+        bool sepMovable = false;
+        {
+            float sx = 0.0f, sz = 0.0f;
+            const bool sepAllowed = !sepOff && !playerSprite && !sprite.corpse && !sprite.climbing && sprite.pedState != 3 &&
+                                    sprite.pedState != 4 && sprite.pedState != 8 && !arrested;
+            bool inCar = false;
+            sepMovable = sepAllowed;
+            // This figure's drawn point before the separation (the track, smoothed), and the others' as drawn.
+            const float selfX = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX,
+                        selfZ = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ;
+            if (sepAllowed) {
+                constexpr float kBody = 0.14f;   // centre to centre: shoulders and swinging arms do not cross (an adult is ~0.12 block wide)
+                for (const SepPed& o : sepPeds) {
+                    if (o.object == sprite.object || std::fabs(o.y - cy) > 0.4f) continue;
+                    float dx = selfX - o.x, dz = selfZ - o.z;
+                    float d2 = dx * dx + dz * dz;
+                    if (d2 >= kBody * kBody) continue;
+                    float d = std::sqrt(d2);
+                    if (d < 1e-4f) {
+                        // On top of each other: a fixed direction per pair, opposite for the two.
+                        const uint32_t h = static_cast<uint32_t>((sprite.object ^ o.object) >> 4) * 2654435761u;
+                        const float a = static_cast<float>(h & 1023) / 1024.0f * 6.2831853f;
+                        dx = std::cos(a) * (sprite.object < o.object ? 1.0f : -1.0f); dz = std::sin(a) * (sprite.object < o.object ? 1.0f : -1.0f);
+                        d = 1.0f;
+                    }
+                    const float share = o.player ? 1.0f : 0.5f;
+                    sx += dx / d * (kBody - (d < 1.0f ? d : 0.0f)) * share;
+                    sz += dz / d * (kBody - (d < 1.0f ? d : 0.0f)) * share;
+                }
+                const float sl = std::sqrt(sx * sx + sz * sz);
+                if (sl > 0.2f) { sx *= 0.2f / sl; sz *= 0.2f / sl; }
+                constexpr float kMargin = 0.07f;   // half a body, so the shoulder stops at the paint
+                for (int i = 0; i < sepCarCount; ++i) {
+                    const CarFootprint& c = sepCars[i];
+                    if (cy < c.cy - 0.3f || cy > c.cy + 0.6f) continue;
+                    const float px = selfX - c.cx, pz = selfZ - c.cz;
+                    const float lx = px * c.rx + pz * c.rz, lz = px * c.fx + pz * c.fz;
+                    const float ex = c.hx + kMargin, ez = c.hz + kMargin;
+                    if (std::fabs(lx) >= ex || std::fabs(lz) >= ez) continue;
+                    const bool entering = track.sepCar != c.object;
+                    if (entering) {
+                        // Entering: out by the nearest edge, remembered.
+                        track.sepCar = c.object;
+                        const float penX = ex - std::fabs(lx), penZ = ez - std::fabs(lz);
+                        track.sepAxis = penX <= penZ ? 0 : 1;
+                        track.sepSign = (track.sepAxis == 0 ? lx : lz) >= 0.0f ? 1.0f : -1.0f;
+                    }
+                    const float along = track.sepAxis == 0 ? lx : lz, edge = track.sepAxis == 0 ? ex : ez;
+                    const float need = edge - along * track.sepSign;   // to the chosen edge
+                    const float ax = track.sepAxis == 0 ? c.rx : c.fx, az = track.sepAxis == 0 ? c.rz : c.fz;
+                    sx += ax * track.sepSign * need; sz += az * track.sepSign * need;
+                    if (g_logPedFrames && (entering || g_carFrame % 15 == 0))
+                        Log("figure sep: f=%u %08x inside parked car %08x (%s %+.0f), out by %.3f", g_carFrame, static_cast<unsigned>(sprite.object),
+                            static_cast<unsigned>(c.object), track.sepAxis == 0 ? "flank" : "end", track.sepSign, need);
+                    inCar = true;
+                    break;
+                }
+                if (!inCar) track.sepCar = 0;
+                const float tl = std::sqrt(sx * sx + sz * sz);
+                const float cap = inCar ? 0.6f : 0.2f;
+                if (tl > cap) { sx *= cap / tl; sz *= cap / tl; }
+                if (g_logPedFrames && !inCar && tl > 0.02f && (g_carFrame % 15 == 0 || std::fabs(track.sepX) + std::fabs(track.sepZ) < 0.005f))
+                    Log("figure sep: f=%u %08x from a neighbour by %.3f", g_carFrame, static_cast<unsigned>(sprite.object), tl);
+            }
+            if (freshTrack) { track.sepX = sx; track.sepZ = sz; }
+            else {
+                // FIX-FIGURE-7: out quickly, back slowly. Moving apart is a sidestep at up to 1.5 blocks a
+                // second (an eased 0.25 s lag left two people passing inside each other for the whole pass:
+                // fig7_o, 7 of 10 close pairs still drawn); settling back eases over 0.25 s.
+                const float wantX = sx - track.sepX, wantZ = sz - track.sepZ;
+                const bool outward = sx * sx + sz * sz > track.sepX * track.sepX + track.sepZ * track.sepZ;
+                if (outward) {
+                    const float wl = std::sqrt(wantX * wantX + wantZ * wantZ), step = 1.5f * dt;
+                    const float k2 = wl > step ? step / wl : 1.0f;
+                    track.sepX += wantX * k2; track.sepZ += wantZ * k2;
+                } else {
+                    const float ke = (std::min)(1.0f, dt / 0.25f);
+                    track.sepX += wantX * ke; track.sepZ += wantZ * ke;
+                }
+            }
+        }
+        {
+            // What the separation costs a frame (the figure pass's budget is 0.1 ms for it), every 300 frames.
+            LARGE_INTEGER sepT1, sepF;
+            QueryPerformanceCounter(&sepT1);
+            QueryPerformanceFrequency(&sepF);
+            static double sepMs = 0.0;
+            static uint32_t sepFrame = 0, sepFrames = 0;
+            sepMs += static_cast<double>(sepT1.QuadPart - sepT0.QuadPart) * 1000.0 / static_cast<double>(sepF.QuadPart);
+            // FIX-FIGURE-7: how many pairs of figures stood closer than 0.10 block (inside each other's
+            // shoulders), by the game's positions and as drawn, summed over the same 300 frames.
+            struct SepSeen { float rx, rz, gx, gz, y; bool movable; uintptr_t object; int state; bool player; };
+            static std::vector<SepSeen> sepSeen;
+            static uint32_t sepRawPairs = 0, sepDrawnPairs = 0, sepFixedPairs = 0;
+            if (sepFrame != g_carFrame) {
+                for (size_t i = 0; i < sepSeen.size(); ++i)
+                    for (size_t j = i + 1; j < sepSeen.size(); ++j) {
+                        if (std::fabs(sepSeen[i].y - sepSeen[j].y) > 0.4f) continue;
+                        const float rdx = sepSeen[i].rx - sepSeen[j].rx, rdz = sepSeen[i].rz - sepSeen[j].rz;
+                        const float gdx = sepSeen[i].gx - sepSeen[j].gx, gdz = sepSeen[i].gz - sepSeen[j].gz;
+                        if (rdx * rdx + rdz * rdz < 0.01f) ++sepRawPairs;
+                        if (gdx * gdx + gdz * gdz < 0.01f) {
+                            ++sepDrawnPairs; if (!sepSeen[i].movable && !sepSeen[j].movable) ++sepFixedPairs;
+                            static int pairLog = 0;
+                            if (pairLog < 60) { ++pairLog; Log("figure sep pair: f=%u %08x(st %d%s%s) %08x(st %d%s%s) game %.3f drawn %.3f", g_carFrame,
+                                static_cast<unsigned>(sepSeen[i].object), sepSeen[i].state, sepSeen[i].movable ? " mov" : "", sepSeen[i].player ? " player" : "",
+                                static_cast<unsigned>(sepSeen[j].object), sepSeen[j].state, sepSeen[j].movable ? " mov" : "", sepSeen[j].player ? " player" : "",
+                                std::sqrt(rdx * rdx + rdz * rdz), std::sqrt(gdx * gdx + gdz * gdz)); }
+                        }
+                    }
+                sepSeen.clear();
+                sepFrame = g_carFrame;
+                if (++sepFrames >= 300) {
+                    Log("figure sep: %.4f ms a frame over %u frames (%zu people, %d car bodies); pairs closer than 0.10: %u by the game, %u drawn (%u of them two figures it may not move)",
+                        sepMs / sepFrames, sepFrames, sepPeds.size(), sepCarCount, sepRawPairs, sepDrawnPairs, sepFixedPairs);
+                    sepMs = 0.0; sepFrames = 0; sepRawPairs = 0; sepDrawnPairs = 0; sepFixedPairs = 0;
+                }
+            }
+            {
+                const float rx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX, rz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ;
+                track.sepDrawnX = rx + track.sepX; track.sepDrawnZ = rz + track.sepZ; track.sepSeenFrame = g_carFrame;
+                if (!sprite.corpse && sprite.pedState != 3 && sprite.pedState != 4) sepSeen.push_back({rx, rz, rx + track.sepX, rz + track.sepZ, cy, sepMovable, sprite.object, sprite.pedState, playerSprite});
+            }
+        }
         // Where the figure stands: the drawn position, at the sprite's height.
-        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX,
-                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ;
+        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX + track.sepX,
+                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ + track.sepZ;
         fx = hx;
         fz = hz;
         // ACTIONS-3D-4: the ground the drawn figure covered since last frame, signed

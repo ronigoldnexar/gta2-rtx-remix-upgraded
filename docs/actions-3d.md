@@ -1125,3 +1125,24 @@ feel15 (first-person jack), feel11 (first-person exit), pfeel32 (arms under a ca
 ### Figure contact shadow (FIX-FIGURE-7, pm20)
 
 A figure's contact patch (`LiveGeometry::DrawContactShadows`) has its own texture half: round, its darkest 0.6 of the pass's opacity, falling off as (1 - d^2)^2 with no rim, radius 0.11 block (was the cars' rounded square, solid to 0.55 of the radius, 0.21 block: a near-black disc twice a body wide). Measured at the plaza (fig7_k before, fig7_j after, same spot, pavement luminance across the feet): before 114 -> 19 over +-40 px, after 117 -> 69 over +-20 px. Cars' and props' patches unchanged (left texture half, same texels).
+
+### Draw-only figure separation (FIX-FIGURE-7, pm24 / pm3)
+
+GTA2 walks its people through each other and over parked cars' footprints; the flat sprites never showed it, the bodies do.
+In `DrawPedFigures`, each figure on its feet (not the player, not entering/leaving a car, not knocked down, arrested,
+climbing or dead) is offset for the draw only (`PedTrack::sepX/sepZ`; the game's positions untouched):
+- from every other person within 0.14 block (centre to centre), along the line between them, half each (all of it when
+  the other is the player, who never moves: the camera rides him), measured between the positions as DRAWN (the smoothed
+  track, which trails the game by up to 0.1 block), capped at 0.2 block;
+- out of a car body at rest (moving under ~0.45 block/s; `CarBodiesFootprints`, the drawn footprint with the body's own
+  push), by the edge it entered through (kept while inside, so it walks round the car instead of flipping at the middle),
+  capped at 0.6 block. A moving car is left to the game (dodge, knock-down, run-over): sliding a figure ahead of a bumper
+  looked worse than the overlap (FIX-FIGURE-6's fig6_pm24a).
+- Moving apart is a sidestep at up to 1.5 block/s; settling back eases over 0.25 s.
+- `GTA2DX9_NO_FIGURE_SEP=1` turns it off (A/B). Every 300 frames: `figure sep: <ms> a frame ... pairs closer than 0.10: N by
+  the game, M drawn`; `figure sep pair:` lines (first 60) name any pair still drawn that close; with
+  `GTA2DX9_LOG_PED_FRAMES=1`, `figure sep: ... inside parked car ...` lines.
+- Measured (keys_pm24.sh at wil, 170 s): cost 0.008-0.02 ms a frame, no growth; pairs closer than 0.10 block: fig7_r 11 by the
+  game, 2 drawn (one crossing, two frames); the eased version before it left 5 of 8 (fig7_p) and 27 of 53 (fig7_q, game
+  positions).
+

@@ -3118,6 +3118,22 @@ bool CarBodiesGround(const void* object, float* y) {
     return false;
 }
 
+int CarBodiesFootprints(CarFootprint* out, int max) {
+    int n = 0;
+    for (const CarFoot& f : g_feetCur) {
+        if (n >= max) break;
+        const float lx = 0.5f * (f.x0 + f.x1), lz = 0.5f * (f.z0 + f.z1);
+        CarFootprint& o = out[n++];
+        o.object = f.object;
+        o.cx = f.cx + f.rx * lx + f.fx * lz; o.cz = f.cz + f.rz * lx + f.fz * lz; o.cy = f.ground;
+        const auto p = g_push.find(f.object);
+        if (p != g_push.end() && g_feetFrame - p->second.frame < 3) { o.cx += p->second.x; o.cz += p->second.z; }
+        o.rx = f.rx; o.rz = f.rz; o.fx = f.fx; o.fz = f.fz;
+        o.hx = 0.5f * (f.x1 - f.x0); o.hz = 0.5f * (f.z1 - f.z0);
+    }
+    return n;
+}
+
 bool CarBodiesTyreShadowsOn() { return g_tyreContactDev != 0; }
 
 int CarBodiesWheelContacts(const void* object, float* x, float* z, float* r, float* ax, float* az, int max) {
