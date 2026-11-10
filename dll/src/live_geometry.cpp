@@ -303,6 +303,8 @@ float Smoothstep(float edge0, float edge1, float x) {
 // a block, at which point the game has plainly taken the object off the floor.
 constexpr float kTiltFadeNear = 0.25f;
 constexpr float kTiltFadeFar = 1.0f;
+// FIX-SPRITES-1 (B2): a car or pedestrian further than this over the floor it rests on is airborne.
+constexpr float kAirborneGap = 0.3f;
 
 // The tilt cap as the sine of the angle, which is what the normal is clamped
 // against: the horizontal part of a unit normal is exactly sin of the slope.
@@ -5996,7 +5998,104 @@ void IdentityProbeRefreshSubjects() {
     IdentityProbeSetSubjects(pedSprite, carSprite, nullptr);
 }
 
+// FIX-SPRITES-1: GTA2DX9_LOG_SPRITE_DROPS=1 names the sprite draws AddSprite drops because their
+// vertices are not the game's sprite array (the 'wrongarray' count of the 'sprite trouble' line):
+// per class (call site in the object draw, object kind, vertices on the stack or not, whether the
+// same object also handed its body over through the real array this frame, quad flags) the count
+// over 256 frames and one example (the offset of the copy from the array's own corners, its vertex
+// colour, its texture). A probe that only reads; off by default.
+namespace {
+const void* g_spriteDrawSite = nullptr;
+int g_spriteDropProbe = -1;
+bool SpriteDropProbeOn() {
+    if (g_spriteDropProbe < 0) { char buf[8] = {}; g_spriteDropProbe = GetEnvironmentVariableA("GTA2DX9_LOG_SPRITE_DROPS", buf, sizeof buf) && buf[0] == '1'; }
+    return g_spriteDropProbe == 1;
+}
+struct SpriteDropSeen { const void* object; const void* site; int base; unsigned number; bool stack; unsigned flags; float dx, dy, dz, w, h, aw, ah; uint32_t colour; int tw, th; };
+std::vector<SpriteDropSeen> g_spriteDropsFrame;
+std::vector<const void*> g_spriteRealFrame;
+struct SpriteDropClass { long long n = 0; long long matched = 0; SpriteDropSeen example{}; };
+std::map<std::string, SpriteDropClass> g_spriteDropClasses;
+long long g_spriteRealCount = 0;
+int g_spriteDropFrames = 0;
+const char* SpriteKindName(int base) {
+    switch (base) {
+        case game::kSpriteBaseCar: return "car";
+        case game::kSpriteBasePed: return "ped";
+        case game::kSpriteBaseCodeObj: case game::kSpriteBaseCodeObjToo: return "codeobj";
+        case -1: return "noobject";
+        case -2: return "unreadable";
+        default: return "object";
+    }
+}
+void SpriteDropRecord(unsigned flags, const void* texture, const float* v) {
+    SpriteDropSeen d{};
+    d.site = g_spriteDrawSite;
+    d.flags = flags & 0xFFFFFF;
+    d.object = GameObjectBeingDrawn();
+    d.base = -1;
+    GTA2_TRY {
+        if (d.object) {
+            d.base = *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(d.object) + game::kSpriteObjectBase);
+            d.number = *reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(d.object) + game::kSpriteObjectNumber);
+        }
+    } GTA2_EXCEPT { d.base = -2; }
+    int local = 0;
+    const intptr_t gap = reinterpret_cast<intptr_t>(v) - reinterpret_cast<intptr_t>(&local);
+    d.stack = gap > -0x100000 && gap < 0x100000;
+    GTA2_TRY {
+        const float* a = reinterpret_cast<const float*>(game::kSpriteVertexArray);
+        d.dx = v[0] - a[0]; d.dy = v[1] - a[1]; d.dz = v[2] - a[2];
+        d.w = std::fabs(v[8] - v[0]) + std::fabs(v[16] - v[8]);
+        d.h = std::fabs(v[17] - v[9]) + std::fabs(v[9] - v[1]);
+        d.aw = std::fabs(a[8] - a[0]) + std::fabs(a[16] - a[8]);
+        d.ah = std::fabs(a[17] - a[9]) + std::fabs(a[9] - a[1]);
+        d.colour = *reinterpret_cast<const uint32_t*>(&v[4]);
+    } GTA2_EXCEPT {}
+    const TextureRecord* rec = static_cast<const TextureRecord*>(texture);
+    d.tw = rec ? rec->width : 0; d.th = rec ? rec->height : 0;
+    if (g_spriteDropsFrame.size() < 20000) g_spriteDropsFrame.push_back(d);
+}
+// Called once a frame (BeginFrame): the frame's drops matched against the frame's real-array draws.
+void SpriteDropFrameEnd() {
+    if (!SpriteDropProbeOn()) return;
+    std::sort(g_spriteRealFrame.begin(), g_spriteRealFrame.end());
+    for (const SpriteDropSeen& d : g_spriteDropsFrame) {
+        const bool matched = d.object && std::binary_search(g_spriteRealFrame.begin(), g_spriteRealFrame.end(), d.object);
+        char key[160];
+        snprintf(key, sizeof key, "site %p kind %s%s flags %06X vertices %s", d.site, SpriteKindName(d.base),
+                 d.base >= 0 && d.base != game::kSpriteBaseCar && d.base != game::kSpriteBasePed ? "" : "", d.flags,
+                 d.stack ? "stack" : "elsewhere");
+        SpriteDropClass& c = g_spriteDropClasses[key];
+        if (c.n == 0) c.example = d;
+        ++c.n;
+        if (matched) ++c.matched;
+    }
+    g_spriteRealCount += static_cast<long long>(g_spriteRealFrame.size());
+    g_spriteDropsFrame.clear();
+    g_spriteRealFrame.clear();
+    if (++g_spriteDropFrames < 256) return;
+    long long total = 0;
+    for (const auto& kv : g_spriteDropClasses) total += kv.second.n;
+    Log("sprite drops: %lld wrongarray draws in %d frames (%lld real-array draws), %zu classes", total, g_spriteDropFrames,
+        g_spriteRealCount, g_spriteDropClasses.size());
+    for (const auto& kv : g_spriteDropClasses) {
+        const SpriteDropSeen& e = kv.second.example;
+        Log("sprite drops:   %s: %lld (%lld with the same object's body through the real array) | e.g. base %d number %u "
+            "offset %.1f,%.1f,%.4f size %.0fx%.0f (array %.0fx%.0f) colour %08X texture %dx%d",
+            kv.first.c_str(), kv.second.n, kv.second.matched, e.base, e.number, e.dx, e.dy, e.dz, e.w, e.h, e.aw, e.ah,
+            e.colour, e.tw, e.th);
+    }
+    g_spriteDropClasses.clear();
+    g_spriteRealCount = 0;
+    g_spriteDropFrames = 0;
+}
+}  // namespace
+
+void SpriteDrawSite(const void* site) { g_spriteDrawSite = site; }
+
 void LiveGeometry::BeginFrame() {
+    SpriteDropFrameEnd();   // FIX-SPRITES-1 probe, see SpriteDropRecord
     // IDENTITY-SYSTEM: the records' frame, and the parity probe's subjects (the player's sprite
     // object and his car's), in every view (the classic one included: the probe only reads).
     {
@@ -6330,9 +6429,12 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     // the sprite into a second, wrong polygon - the extra "sprouting" panels on
     // trees. Only the real array can be trusted here.
     if (reinterpret_cast<uintptr_t>(vertices) != game::kSpriteVertexArray) {
-        ++drops_.notTheSpriteArray;
+        if (reinterpret_cast<uintptr_t>(g_spriteDrawSite) == game::kObjectDrawShadowReturn) ++drops_.gameShadow;
+        else ++drops_.notTheSpriteArray;
+        if (SpriteDropProbeOn()) SpriteDropRecord(flags, texture, vertices);
         return;
     }
+    if (SpriteDropProbeOn()) g_spriteRealFrame.push_back(GameObjectBeingDrawn());
 
     // FIX-FX-2 (pm10): GTA2DX9_LOG_FX=1 also lists the game's draw flags and vertex colour of
     // every distinct non-car, non-ped sprite (base, number, flags), once each.
@@ -6585,7 +6687,6 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
             // put where the body fell, at the body's height), it goes down on the surface. Left
             // at the game's height it hung above the asphalt and picked up shadow from the gap.
             const float gap = (resting || decal) ? 0.0f : cy - plane.y;
-            if (gap > conform_.maxGap) conform_.maxGap = gap;
             if (plane.residual > conform_.maxResidual) conform_.maxResidual = plane.residual;
 
             // Never downward: above its floor, the game's own height wins -
@@ -6693,7 +6794,46 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
             clearance = kConformClearance + extra;
             if (needed > kConformClearance) ++conform_.straddled;
             if (fade < 1.0f) {
-                ++conform_.airborne;
+                // FIX-SPRITES-1 (B2): what it is above. The fitted plane runs a slope across a step,
+                // so a sprite on the upper floor of a kerb or a roof edge reads as above it; the
+                // highest real floor sample under the footprint is what it rests on.
+                float top = -1e9f;
+                for (int i = 0; i < guardSamples; ++i) top = (std::max)(top, guardFloor[i]);
+                const float gapTop = guardSamples > 0 ? cy - top : gap;
+                int base = -1; unsigned num = 0;
+                const void* object = GameObjectBeingDrawn();
+                GTA2_TRY {
+                    if (object) { base = *reinterpret_cast<const int32_t*>(static_cast<const uint8_t*>(object) + game::kSpriteObjectBase);
+                                  num = *reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(object) + game::kSpriteObjectNumber); }
+                } GTA2_EXCEPT { base = -2; }
+                const bool body = base == game::kSpriteBaseCar || base == game::kSpriteBasePed;
+                const char* what = "airborne";
+                if (gapTop <= kAirborneGap) { ++conform_.onStep; what = "on a step"; }
+                else if (body) { ++conform_.airborne; conform_.maxGap = (std::max)(conform_.maxGap, gapTop); }
+                else { ++conform_.raised; conform_.raisedMaxGap = (std::max)(conform_.raisedMaxGap, gapTop); what = "raised"; }
+                // The offenders: every car or pedestrian counted airborne, once per object per ~4000
+                // sprites, 300 lines at most; GTA2DX9_LOG_CONFORM_AIRBORNE=1 lists the steps and the
+                // raised objects too.
+                {
+                    static int probe = -1;
+                    if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_CONFORM_AIRBORNE", buf, sizeof buf) && buf[0] == '1'; }
+                    static std::map<const void*, uint32_t> lastAt;
+                    static uint32_t calls = 0;
+                    static int lines = 0;
+                    ++calls;
+                    if ((probe || (body && gapTop > kAirborneGap)) && lines < 300) {
+                        uint32_t& at = lastAt[object];
+                        if (at == 0 || calls - at > 4000) {
+                            at = calls; ++lines;
+                            char floors[96] = {}; int o = 0;
+                            for (int i = 0; i < guardSamples && o < 80; ++i) o += snprintf(floors + o, sizeof floors - o, "%s%.2f", i ? "," : "", guardFloor[i]);
+                            const TextureRecord* rec = static_cast<const TextureRecord*>(texture);
+                            Log("conform %s: object %p base %d number %u texture %dx%d at %.2f,%.2f,%.2f fitted %.2f gap %.2f, %.2f over the highest floor, residual %.2f samples [%s] view %d",
+                                what, object, base, num, rec ? rec->width : 0, rec ? rec->height : 0, cx, cy, cz, plane.y, gap, gapTop,
+                                plane.residual, floors, static_cast<int>(CurrentViewMode()));
+                        }
+                    }
+                }
             } else {
                 ++conform_.grounded;
             }
@@ -13773,6 +13913,35 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         w.enlarged = enlargedNow ? 1 : 0;
     };
     for (const Sprite& sprite : sprites_) {
+        // FIX-SPRITES-1: this sprite's fate, settled when the iteration ends (any continue): see
+        // Drops::received. Counts only; nothing here changes what is drawn.
+        struct FateGuard {
+            Drops& d;
+            const Sprite& s;
+            size_t (*sizes)(const void*);
+            const void* ctx;
+            size_t before;
+            ~FateGuard() {
+                ++d.received;
+                if (sizes(ctx) > before) ++d.fateQueued;
+                else if (s.ghost) ++d.fateGhost;
+                else if (s.shadowOnly || s.planOnly) ++d.fateOwn;
+                else if (s.hidden) ++d.fateModel;
+                else if (s.lamp) ++d.fateLamp;
+                else if (s.pedestrian) ++d.unplacedPed;
+                else if (s.shell >= 0 || s.objectModel) ++d.unplacedCar;
+                else ++d.unplacedOther;
+            }
+        };
+        struct Lists { const std::vector<Drawable>* l[6]; };
+        const Lists lists{{&plain, &effects, &boarders, &gameAdd, &gameBlend, nullptr}};
+        const auto sizes = [](const void* c) -> size_t {
+            const Lists* L = static_cast<const Lists*>(c);
+            size_t n = g_gamePuffs.size();
+            for (int i = 0; i < 5; ++i) n += L->l[i]->size();
+            return n;
+        };
+        FateGuard fate{drops_, sprite, sizes, &lists, sizes(&lists)};
         watchPed(sprite);
         if (sprite.ghost) continue;
         if (sprite.shadowOnly) continue;   // his own, from his eyes: the figure only, unseen
@@ -14753,10 +14922,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             }
             const bool onFeet = d.sprite->pedestrian && !d.sprite->climbing && !d.sprite->boardUi &&
                                 !d.sprite->corpse && d.sprite->corners == 4;
-            if (g_pedFigures && onFeet) continue;   // drawn as a figure instead, see DrawPedFigures
+            if (g_pedFigures && onFeet) { ++drops_.fateFigure; continue; }   // drawn as a figure instead, see DrawPedFigures
             // With the models, the lying and the climbing frames are figures too.
             if (g_pedFigures && g_groundModels && !d.sprite->boardUi && d.sprite->corners == 4 &&
-                (d.sprite->corpse || (d.sprite->pedestrian && d.sprite->climbing))) continue;
+                (d.sprite->corpse || (d.sprite->pedestrian && d.sprite->climbing))) { ++drops_.fateFigure; continue; }
             if (g_uprightPeds && onFeet) {
                 // A chase or first-person camera: stood up facing it. See UprightPedMatrix.
                 const gta2::Mat4 upright =

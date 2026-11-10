@@ -536,6 +536,10 @@ constexpr int kRoofNumberExtraDeltas[] = {12, 13, 14, 19, 20};   // the digits t
 // the lamps alone as a second quad, from the gbh_DrawQuad call at 0x004BE50B.
 // This is where that call returns to.
 constexpr uintptr_t kObjectDrawLampsReturn = 0x004BE511;
+// FIX-SPRITES-1: FUN_004BE060's drop shadow: the object's quad copied to the stack, moved +5,+5
+// screen pixels, vertex colour A0000000 (flags 0x2180), drawn from the call returning here before
+// the body. Measured: every non-array sprite draw on this host comes from this site (out/spr1_a).
+constexpr uintptr_t kObjectDrawShadowReturn = 0x004BE441;
 // A car's sprite object leads back to the car: FUN_0040FEB0 returns +0x08 when
 // the object's base (+0x30) is 2.
 constexpr uintptr_t kSpriteObjectOwner = 0x08;

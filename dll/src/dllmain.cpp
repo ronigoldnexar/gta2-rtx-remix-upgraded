@@ -1651,6 +1651,7 @@ __declspec(dllexport) void __stdcall gbh_DrawQuad(unsigned flags, void* texture,
         const bool lamps =
             reinterpret_cast<uintptr_t>(_ReturnAddress()) == game::kObjectDrawLampsReturn;
         if (lamps && gta2dx9::SyntheticCarLampsReplaceQuads()) return;
+        gta2dx9::SpriteDrawSite(_ReturnAddress());
         g_world.Live().AddSprite(flags, texture, vertices, 4, lamps);
         return;
     }
@@ -1679,6 +1680,7 @@ __declspec(dllexport) void __stdcall gbh_DrawQuadClipped(unsigned flags, void* t
         const bool lamps =
             reinterpret_cast<uintptr_t>(_ReturnAddress()) == game::kObjectDrawLampsReturn;
         if (lamps && gta2dx9::SyntheticCarLampsReplaceQuads()) return;
+        gta2dx9::SpriteDrawSite(_ReturnAddress());
         g_world.Live().AddSprite(flags, texture, vertices, 4, lamps);
         return;
     }

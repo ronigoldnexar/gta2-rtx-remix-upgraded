@@ -3959,28 +3959,48 @@ void WorldView::RenderFrame() {
         // of a ramp step says it does not, and the tilt fade is quietly switching
         // itself off on every slope in the city.
         const LiveGeometry::Conform& c = live_.ConformCounts();
+        // FIX-SPRITES-1 (B2): airborne/maxgap are cars and pedestrians over the floor they rest on;
+        // onstep = on the upper floor of a step; raised = objects the game holds up (lamp heads).
         Log("frame %d: %d sprite quads | conform grounded=%d airborne=%d noground=%d capped=%d "
-            "straddled=%d maxgap=%.3f maxresidual=%.3f",
+            "straddled=%d maxgap=%.3f maxresidual=%.3f | onstep=%d raised=%d (max %.2f)",
             frameCount_, live_.SpriteQuads(), c.grounded, c.airborne, c.noGround, c.capped,
-            c.straddled, c.maxGap, c.maxResidual);
+            c.straddled, c.maxGap, c.maxResidual, c.onStep, c.raised, c.raisedMaxGap);
     }
     // Anything here is a sprite the player should have seen and did not, or a
     // texture built from artwork that was not ready.
     if ((frameCount_ & 0x3F) == 0) {
         const LiveGeometry::Drops& drops = live_.DropCounts();
-        // accepted != drawn is the flicker itself: a sprite the game asked for,
-        // that we took, that never reached the device.
-        if (!drops.Quiet() || !g_trouble.Quiet() || drops.accepted != drops.drawn) {
+        // A sprite the game asked for, that we took, that never reached the device is the
+        // flicker itself: the 'unplaced' fates (FIX-SPRITES-1; accepted != drawn said nothing,
+        // since a model, a figure or a batch stands in for most of them). Quiet windows print
+        // nothing and still start a new window.
+        if (!drops.Quiet() || !g_trouble.Quiet() || drops.unplacedPed || drops.unplacedCar || drops.unplacedOther) {
+            // FIX-SPRITES-1: 'drawn' counts the sprite pass's device draws (a batch of puffs or a
+            // figure's quad is one), not sprites; where every accepted sprite went is the fates part
+            // (received = model + own + ghost + lamp + queued + unplaced; figures are of the queued).
+            // 'shadows' are the game's drop shadows, dropped on purpose (they were all of the old
+            // wrongarray); 'wrongarray' is now any other non-array draw, a real loss.
             Log("sprite trouble @%d: accepted=%d drawn=%d | dropped expand=%d wrongarray=%d "
                 "nonfinite=%d outside=%d degenerate=%d notexture=%d | textures built=%d "
-                "nopalette=%d blackpalette=%d pixelsmoved=%d whilelocked=%d lockfail=%d",
+                "nopalette=%d blackpalette=%d pixelsmoved=%d whilelocked=%d lockfail=%d | shadows=%d | "
+                "fates received=%d model=%d own=%d ghost=%d lamp=%d queued=%d (figure=%d) unplaced ped=%d car=%d other=%d",
                 frameCount_, drops.accepted, drops.drawn, drops.expandFlag, drops.notTheSpriteArray,
                 drops.notFinite, drops.outOfWorld, drops.degenerate, drops.noTexture,
                 g_trouble.built, g_trouble.paletteMissing, g_trouble.paletteAllBlack,
-                g_trouble.pixelsMovedSilently, g_trouble.builtWhileLocked, g_trouble.lockFailed);
-            live_.ClearDropCounts();
-            g_trouble = TextureTrouble{};
+                g_trouble.pixelsMovedSilently, g_trouble.builtWhileLocked, g_trouble.lockFailed,
+                drops.gameShadow, drops.received, drops.fateModel, drops.fateOwn, drops.fateGhost,
+                drops.fateLamp, drops.fateQueued, drops.fateFigure, drops.unplacedPed, drops.unplacedCar,
+                drops.unplacedOther);
+        } else if ((frameCount_ & 0xFF) == 0) {
+            // FIX-SPRITES-1: the same window's accounting when nothing went wrong, once per 256
+            // frames: every accepted sprite's fate, the game's drop shadows left out on purpose.
+            Log("sprite fates @%d (64 frames): accepted=%d shadows=%d | received=%d model=%d own=%d ghost=%d "
+                "lamp=%d queued=%d (figure=%d) unplaced=0 | device draws=%d",
+                frameCount_, drops.accepted, drops.gameShadow, drops.received, drops.fateModel, drops.fateOwn,
+                drops.fateGhost, drops.fateLamp, drops.fateQueued, drops.fateFigure, drops.drawn);
         }
+        live_.ClearDropCounts();
+        g_trouble = TextureTrouble{};
     }
     // The game's own view rectangle against the frame we draw. With the view
     // patch in, the two widths agree; if cars ever pop in the margins again

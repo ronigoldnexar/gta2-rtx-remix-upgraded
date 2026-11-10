@@ -1011,11 +1011,21 @@ public:
         int accepted = 0;  // quads we took from the game
         int drawn = 0;     // quads that actually reached the device
         int expandFlag = 0;
-        int notTheSpriteArray = 0;
+        // FIX-SPRITES-1: the game's drop shadows (kObjectDrawShadowReturn), dropped on purpose:
+        // the street views give figures and models shadows of their own, and the classic view
+        // never drew them. Not trouble, so not in Quiet(). (They were all of 'wrongarray'.)
+        int gameShadow = 0;
+        int notTheSpriteArray = 0;   // any other draw not from the game's sprite array: a real loss
         int notFinite = 0;
         int outOfWorld = 0;
         int degenerate = 0;
         int noTexture = 0;
+        // FIX-SPRITES-1: where each sprite LiveGeometry::Draw received went (sum = sprites
+        // received, which is 'accepted' in the same window): a 3D model stands in, his own (unseen
+        // from his eyes), ghost/debug, lamp, queued to be drawn (a quad, an effect, a soft puff; of those,
+        // drawn as a figure), and none of those: 'unplaced' by sprite kind (car = has a dome or model), the candidates for a hole.
+        int received = 0, fateModel = 0, fateOwn = 0, fateGhost = 0, fateLamp = 0, fateQueued = 0,
+            fateFigure = 0, unplacedPed = 0, unplacedCar = 0, unplacedOther = 0;
         bool Quiet() const {
             return !expandFlag && !notTheSpriteArray && !notFinite && !outOfWorld && !degenerate &&
                    !noTexture;
@@ -1036,7 +1046,14 @@ public:
         int noGround = 0;    // nothing under the footprint; fixed lift used
         int capped = 0;      // ground steeper than kMaxTiltDegrees
         int straddled = 0;   // footprint over a step, given extra clearance
-        float maxGap = 0.0f;       // furthest any sprite sat above its own floor
+        // FIX-SPRITES-1 (B2): 'airborne' is now a car or pedestrian more than kAirborneGap above the
+        // highest real floor under its footprint (what it rests on), not above the plane fitted
+        // across a step; above the fitted plane but on the upper floor of a step is 'onstep'; an
+        // object the game itself holds up (a lamp-post head, a lamp quad, a particle) is 'raised'.
+        int onStep = 0;
+        int raised = 0;
+        float raisedMaxGap = 0.0f;
+        float maxGap = 0.0f;       // furthest any car or pedestrian sat above its own floor
         float maxResidual = 0.0f;  // worst a footprint failed to be one plane
     };
     const Conform& ConformCounts() const { return conform_; }
@@ -1051,6 +1068,10 @@ private:
 // the same reason EffectBatchesDrawn is one: nothing outside WorldView holds the
 // LiveGeometry instance.
 const LiveGeometry::Conform& SpriteConformCounts();
+
+// FIX-SPRITES-1: the object draw's call site of the sprite about to reach AddSprite (the
+// GTA2DX9_LOG_SPRITE_DROPS probe names dropped draws by it).
+void SpriteDrawSite(const void* site);
 
 // Milliseconds the last LiveGeometry::Draw spent in each of five stages: setup, the sprite
 // loop, remembered skid strips, issuing sprites and smoke, and the cars' domes. For the log.

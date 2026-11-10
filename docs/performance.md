@@ -1531,3 +1531,67 @@ Still open:
 **For the 5090 box:** the log's `models: warm-up: street furniture and objects ready` should come
 seconds after the level starts. Send the `models: warm-up progress:` lines and the
 `not delivered by the reader` lines if it does not.
+
+## The sprite handoff: 'wrongarray' named, every accepted sprite accounted, conform airborne honest (10 Nov 2026, FIX-SPRITES-1)
+
+The operator's plan ranked B1 first: on the 5090 the log said `sprite trouble @37568: accepted=7908 drawn=339 |
+dropped wrongarray=6048` every window, and the owner saw "people whose bodies appear partially empty". This host
+gives the same ratio (HEAD a5df3568 third person in wil: `accepted=7660 drawn=140 wrongarray=6727`; classic:
+`accepted=1841 wrongarray=1841`). Both numbers are sums over 64 frames, not one frame.
+
+**What wrongarray was.** A probe (`GTA2DX9_LOG_SPRITE_DROPS=1`, `live_geometry.cpp` SpriteDropRecord) names each
+dropped draw by its call site in FUN_004BE060, object kind, where its vertices live and whether the same object's
+body came through the game's sprite array that frame. Over every 256-frame window of a walk in traffic and three V
+moves (out/spr1_a, out/spr1_b) there were exactly three classes, all from **one call site, 0x004BE441, flags
+0x2180, a stack copy moved exactly +5,+5 screen pixels, the same size, vertex colour A0000000**: the game's drop
+shadow, for cars, pedestrians and code objects alike. **Every one** came with its own object's body through the real
+array in the same frame (e.g. 10 467 shadows against 17 460 real draws in 256 frames; 0 unmatched). So nothing the
+owner should see was lost there: the shadow is left out on purpose (the "sprouting panels" fix; the street views give
+figures and models shadows of their own, and the classic picture never had them), and the counter was misnamed.
+
+**The counter now.** `Drops::gameShadow` counts draws from `game::kObjectDrawShadowReturn` and is not trouble;
+`wrongarray` is any other non-array draw (a real loss; 0 on every run since). `accepted != drawn` said nothing either:
+`drawn` counts the sprite pass's device draws (a figure, a model or a puff batch stands in for most sprites). Each
+sprite `LiveGeometry::Draw` receives now gets one fate, settled when its loop iteration ends (a guard object, so no
+exit path was touched): **model** (a 3D model or dome stands in), **own** (his own, unseen from his eyes), **ghost**,
+**lamp**, **queued** (a quad, an effect, a soft puff, the boarding UI; of those, **figure** = drawn as a skinned
+figure) or **unplaced** by kind (ped / car / other), which is the hole if there is one. The `sprite trouble` line
+prints only when something is wrong (wrongarray, nonfinite, outside, degenerate, notexture, unplaced, texture
+trouble); otherwise, once per 256 frames, `sprite fates @N (64 frames): accepted=.. shadows=.. | received=..
+model=.. own=.. ghost=.. lamp=.. queued=.. (figure=..) unplaced=0 | device draws=..`. (`received` exceeds
+`accepted` in a window where the warm-up's ghost street frame issues the classic sprites a second time.)
+
+| run (HEAD + this) | before: per 64 frames | after |
+| --- | --- | --- |
+| third person, Downtown traffic walk + 3 V moves (out/spr1_d) | `accepted=4159 drawn=205 wrongarray=3262` (same counts, old names) | no `sprite trouble` line in the whole run; `sprite fates @512: accepted=4159 shadows=3262 \| received=4159 model=1905 queued=2254 (figure=2049) unplaced=0` |
+| Downtown traffic, F10 scene (out/spr1_c) | `wrongarray` ~3000-4000 a window | no `sprite trouble` line |
+
+Frames opened (plain GL, this host): pedestrians at 1-3 blocks whole in third person (spr1_c qa_12_drive: a file of
+four on the pavement; spr1_d qa_40_third straight after the third V move: the hero and two walkers), cars whole and
+on four wheels. **The owner's partially empty bodies are therefore not the handoff**: he played under Remix on the
+5090, where figures are path-traced through the figure layer prims (memory remix-figure-layer-prims); a body with
+holes there is a figure/Remix defect, untested here. The other handoff-side loss the log can name is the game's own
+cull: `ped flicker: object .. dropped out of the draw list 3 times in 240 frames` (the game stopped handing that ped
+over; see warp-game-camera-sprite-cull), unchanged.
+
+**B2, conform airborne.** `conform grounded=100 airborne=28 maxgap=2.370` counted every sprite above the plane
+*fitted* across its footprint. Logged offenders (`GTA2DX9_LOG_CONFORM_AIRBORNE=1`, spr1_b): all were code objects,
+none a car or a pedestrian: base 4 numbers 548-551 (a lamp-post head 22x20 and three 18x4 lamp quads, at y 4.00,
+2.00 over the street: the game holds them up there) and base 8 number 321 (a 5x5 particle 0.3 up). Half of them
+straddled a roof edge (samples [4,4,2,2,2]): on the upper floor, but above the slope fitted between the two. The
+counter now measures the gap to the **highest real floor sample** under the footprint: within 0.3 block of it is
+**onstep**; a car or pedestrian further up is **airborne** (and `maxgap` is over those only); any other object is
+**raised** (`raised=N (max g)`). Every car or pedestrian counted airborne is logged by default (`conform airborne:
+object .. base .. at x,y,z fitted .. gap .., .. over the highest floor, samples [..]`, once per object per ~4000
+sprites, 300 lines); the probe env lists the steps and raised objects too. Placement is unchanged: no conform
+solution was clamped, because no car or pedestrian was found above its floor (a clamp would only pull the lamp heads
+and real jumps down). spr1_c / spr1_d: `airborne=0 maxgap=0.000` in every window, `raised` 1-6 (max 2.00, lamp
+quads), `onstep` 0-6. The 5090's 28 / 2.37 is very likely the same lamp-post heads and quads (no owner log here to
+check; the new line will say so on his box).
+
+Counters and logs only: no picture changes. vreg on the rebased build (out/spr1v2): spawn_classic PASS, 0 tiles;
+the street shots WARN/FAIL by the same 15-36 tiles as every other capture on this HEAD (FIX-HUD-4's round mini-map
+and hearts against the older goldens). Post-rebase walk + 3 V moves (out/spr1_e): no `sprite trouble` line, every
+`sprite fates` window unplaced=0 (e.g. `accepted=5480 shadows=4400 | received=5480 model=3239 queued=2241
+(figure=2113)`), `airborne=0 maxgap=0.000`, `raised` 4-7 (max 2.00). Still open: Remix figure holes on the owner's
+box; a car genuinely airborne (a jump, a blast) would now be logged by name, not clamped.
