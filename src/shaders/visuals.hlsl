@@ -154,7 +154,7 @@ float4 ps_shadowmask(QuadOut i) : COLOR0 {
 float4 cFog        : register(c2);   // fog start, 1/(end-start), AO strength, effect blend
 float4 cSkyTint    : register(c3);   // hemisphere colour from above; w: hemisphere amount
 float4 cGroundTint : register(c4);   // ...from below
-float4 cUpView     : register(c5);   // world up in view space
+float4 cUpView     : register(c5);   // world up in view space; w: the first-person cockpit's reach (view depth, 0 none)
 
 float4 ps_composite(QuadOut i) : COLOR0 {
     float4 scene = tex2D(sScene, i.uv);
@@ -165,6 +165,9 @@ float4 ps_composite(QuadOut i) : COLOR0 {
     float up = dot(n, cUpView.xyz) * 0.5 + 0.5;
     float3 tint = lerp(float3(1, 1, 1), lerp(cGroundTint.rgb, cSkyTint.rgb, up), cSkyTint.w);
     float ao = lerp(1.0, tex2D(sAo, i.uv).r, cFog.z);
+    // FIX-COCKPIT-CAB-4: the cockpit (nearer than its reach) takes no AO and no hemisphere: depth-rebuilt normals are noise there.
+    float cab = saturate((cUpView.w - p.z) * 1000.0);
+    ao = lerp(ao, 1.0, cab); tint = lerp(tint, float3(1, 1, 1), cab);
     float shade = tex2D(sShadow, i.uv).r;
     float3 m = shade * ao * tint;
     // Fogged distance keeps the fog's colour: the modulation fades out with it.

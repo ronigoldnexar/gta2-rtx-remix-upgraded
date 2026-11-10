@@ -22,6 +22,7 @@
 
 #include "../../src/gta2_style.h"
 #include "../../src/world_mesh.h"
+#include "../../src/post_fx.h"   // SetPostCockpitReach (FIX-COCKPIT-CAB-4)
 #include "debug_overlay.h"
 #include "hud3d.h"
 #include "regress_cam.h"
@@ -3322,6 +3323,14 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             auto smooth = [](float x) { x = (std::max)(0.0f, (std::min)(1.0f, x)); return x * x * (3.0f - 2.0f * x); };
             const float in = smooth((down - 28.0f) / 14.0f), out = smooth((down - 42.0f) / 30.0f);
             nearZ = 0.05f + (floorMin - 0.05f) * in + (floorDeep - floorMin) * out;
+        }
+        // FIX-COCKPIT-CAB-4 (qav12 rest, dg2 forearm band): the post's AO and hemisphere skip the cockpit (cab, bonnet, his
+        // arms: nearer than 0.6 block) in first person at the wheel; their depth-rebuilt normals are noise at that range
+        // (the bonnet mottled ~25 % darker than the same paint in third at dawn, the dash's crease laid over the forearm).
+        // GTA2DX9_FP_POST_REACH=<milli> (0 = off, the old composite).
+        {
+            static const float reach = [] { char v[12] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_POST_REACH", v, sizeof v) ? atoi(v) / 1000.0f : 0.6f; }();
+            gta2::SetPostCockpitReach(mode == ViewMode::FirstPerson && g_viewPlayer.valid && g_viewPlayer.inVehicle ? reach : 0.0f);
         }
         if (nearZ != camera_.NearZ()) {
             static int logs = 0;

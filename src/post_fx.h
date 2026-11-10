@@ -79,6 +79,10 @@ constexpr unsigned kViewModelStencil = 0x40u;
 bool ViewModelLightMaskOn();
 void SetVisualsPoll(VisualsPollFn fn);
 void VisualsPoll();
+// FIX-COCKPIT-CAB-4 (qav12, dg2 band): in first person at the wheel the DLL gives the cockpit's reach (view depth, blocks;
+// 0 = none) each frame; nearer pixels (cab, bonnet, his arms) take no AO and no hemisphere tint: both come from normals
+// rebuilt from the depth buffer, which at the cockpit's range and grazing angles are noise.
+void SetPostCockpitReach(float viewDepth);
 
 // What a frame of the post needs to know about the street view's light.
 struct PostFrame {

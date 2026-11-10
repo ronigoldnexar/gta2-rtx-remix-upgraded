@@ -1,0 +1,6 @@
+# FIX-COCKPIT-CAB-4: tools/build_shaders.sh on a host without gta2-wine2510:
+#   sudo docker build -t gta2-shc-wine10 -f linux/docker/Dockerfile.shc-wine10 linux/docker
+#   SHC_IMAGE=gta2-shc-wine10 tools/build_shaders.sh   (reproduces HEAD visuals_gen.h byte for byte, 10 Nov 2026)
+# Minimal Wine 10 (Ubuntu 25.10) for tools/build_shaders.sh (SHC_IMAGE): shc.exe is i686, so wine32 too.
+FROM ubuntu:25.10
+RUN dpkg --add-architecture i386 && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wine wine32:i386 wine64 && rm -rf /var/lib/apt/lists/*

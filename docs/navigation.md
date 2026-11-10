@@ -1363,3 +1363,17 @@ flat front still makes a bus, never a tank). Adding a vehicle means one table en
   once; `NEAR_KEY`, `NEAR_FLOORS`, `DEPTHS`). Residual: around 30° the end of a forearm can still meet the
   0.05 plane inside the frame; straight down, a thin sliver of neck shows between the collar's edges. Remix
   ignores the near plane, so its look-down does not change.
+* **The post pass skips the cockpit's AO and hemisphere (qav12, dg2 forearm band).** At dawn the
+  first-person bonnet read 0.75 of the same paint in third (bil 06:45, 046: 62 vs 83 luma), mottled. The
+  bonnet's own light was not the cause: bending its normals up or lighting it on the CPU moved the mean by
+  under 2 %. The cause was ps_composite's AO and hemisphere tint, whose normals are rebuilt from the depth
+  buffer and are noise at the cockpit's range and grazing angles. The same terms laid the dash edge's
+  crease over the forearm. world_view hands the post the cockpit's reach (0.6 block, `cUpView.w`) in first
+  person at the wheel, and nearer pixels take no AO and no hemisphere. The shadow mask stays, so a wall's
+  shadow still falls on the bonnet. Result: dawn 62 -> 68 against 83 in third (0.82), noon 79 -> 87.5
+  against 87; the forearm is one colour over the dash edge in the held turns. `GTA2DX9_FP_POST_REACH=<milli>`
+  (0 = the old composite). Probe: `gamerun/keys_cab4_bonnet.sh` (stopped car, third then first per hour,
+  `CAB4_TOGGLES` live ini sweeps). `src/shaders/visuals_gen.h` was rebuilt by `tools/build_shaders.sh` with
+  `SHC_IMAGE` set to a plain Ubuntu 25.10 Wine 10 image (`linux/docker/Dockerfile.shc-wine10`: `apt-get install wine
+  wine32:i386 wine64`), because gta2-wine2510 is not on the 8x L4 host. That image reproduces HEAD's
+  `visuals_gen.h` byte for byte from the unchanged HLSL.

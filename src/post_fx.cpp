@@ -119,6 +119,8 @@ bool ViewModelLightMaskOn() {
     static const bool on = [] { char b[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_VM_LIGHT_OLD", b, sizeof b) && b[0] == '1'); }();
     return on;
 }
+static float g_cockpitReach = 0.0f;   // FIX-COCKPIT-CAB-4
+void SetPostCockpitReach(float viewDepth) { g_cockpitReach = viewDepth; }
 void SetVisualsPoll(VisualsPollFn fn) { g_poll = fn; }
 void VisualsPoll() { if (g_poll) g_poll(); }
 
@@ -1037,7 +1039,7 @@ void PostFx::Resolve() {
         c[0][2] = ssao ? cfg.aoStrength : 0.0f; c[0][3] = frame_.blend;
         c[1][0] = frame_.skyTint.x; c[1][1] = frame_.skyTint.y; c[1][2] = frame_.skyTint.z; c[1][3] = cfg.hemisphere ? 0.30f : 0.0f;
         c[2][0] = frame_.groundTint.x; c[2][1] = frame_.groundTint.y; c[2][2] = frame_.groundTint.z;
-        c[3][0] = upV.x; c[3][1] = upV.y; c[3][2] = upV.z;
+        c[3][0] = upV.x; c[3][1] = upV.y; c[3][2] = upV.z; c[3][3] = g_cockpitReach;   // FIX-COCKPIT-CAB-4: the cockpit's reach
         device_->SetPixelShaderConstantF(2, &c[0][0], 4);
         DrawQuad(w, h);
     }
