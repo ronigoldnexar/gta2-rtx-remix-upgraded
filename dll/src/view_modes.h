@@ -301,6 +301,9 @@ bool WritePlayerGroundPosition(const void* ped, float x, float y);
 int ReadPedState(const void* ped);
 // The ped LocatePlayer last found for him (kept while he is at the wheel); null in the menus.
 const void* LocatedPlayerPed();
+// FIX-FIGURE-17 (owner10nov B4): the ped the game itself names as the player ([[0x5EB4FC]+0x38]+0x2C4: the
+// player object's ped, the one the keys drive), when it is a linked pedestrian; null otherwise.
+const void* GamePlayerPed();
 
 // The sprite pass's contribution to the fallback above: the pedestrian on foot
 // it drew nearest the game's camera centre this frame.

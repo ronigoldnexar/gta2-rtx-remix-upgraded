@@ -9768,6 +9768,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (game::PlausiblePointer(me)) playerPedId = *reinterpret_cast<const int32_t*>(me + 0x200);
         } GTA2_EXCEPT { playerPedId = -1; }
     }
+    // FIX-FIGURE-17 (owner10nov B4): which figures wore his record this frame, reported to identity.cpp
+    // when the frame's figures are done (an exit or a V press asks for it; a move to another ped id logs SWAP).
+    struct HeroTally {
+        int count = 0, pedId = -1, playerPedId = -1;
+        const void* object = nullptr;
+        const char* by = nullptr;
+        ~HeroTally() { if (g_groundModels) IdentityNoteHeroFigure(count, object, pedId, by, playerPedId, !g_playerInVehicle && CurrentViewMode() == ViewMode::ThirdPerson); }
+    } heroTally;
+    heroTally.playerPedId = playerPedId;
     // QB-27: the cars drawn this frame, for the ragdolls (the car that hit him, its pace).
     if (g_groundModels && RagdollEnabled()) {
         for (const CarBodyUse& use : carBodies_) {
@@ -11671,6 +11680,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // match (and the boarding ghost) or by the game's ped id, so a frame where the
             // object match misses cannot hand him a crowd avatar.
             const bool heroFigure = ownPed || (sprite.pedId >= 0 && sprite.pedId == playerPedId);
+            if (heroFigure && heroTally.count++ == 0) {
+                heroTally.object = reinterpret_cast<const void*>(sprite.object);
+                heroTally.pedId = sprite.pedId;
+                heroTally.by = !ownPed ? "ped id" : reinterpret_cast<const void*>(sprite.object) == g_playerObject ? "sprite object" : "boarding ghost";
+            }
             const IdentityRecord& ident = heroFigure ? IdentityForPlayer()
                 : IdentityForPed(sprite.object, sprite.pedId,
                                  sprite.texture ? static_cast<const TextureRecord*>(sprite.texture)->palette : -1, sprite.pedFrame);

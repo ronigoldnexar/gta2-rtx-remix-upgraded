@@ -1754,6 +1754,13 @@ bool PedPagesCommitted(uintptr_t ped) {
     return ped + 0x280 <= reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
 }
 
+const void* GamePlayerPed() {
+    const uintptr_t player = EntryPlayerObject();
+    uintptr_t ped = 0;
+    if (!player || !ReadAt(player + kEntryPlayerPed, &ped) || !PedStillLinked(ped)) return nullptr;
+    return reinterpret_cast<const void*>(ped);
+}
+
 const void* LocatedPlayerPed() {
     const uintptr_t ped = g_lastPlayerPed;
     return PedPagesCommitted(ped) ? reinterpret_cast<const void*>(ped) : nullptr;
@@ -1834,6 +1841,35 @@ bool LocatePlayer(PlayerState* out) {
         }
     }
 
+    // FIX-FIGURE-17 (owner10nov B4: "out of a police cruiser, V, and the hero became a random NPC"): the slots above
+    // are a pointer found once in the camera struct (or the player-object block) and read there since. An arrest or
+    // a death plays on a NEW ped struct (game id 0, his sprite and outfit) while his own goes to the station or the
+    // hospital: the camera's slot names that body through the beat. When the beat is over the slot loses it, the
+    // scan finds the same body again, now an ordinary pedestrian with a crowd id walking away, and the views followed
+    // that stranger until the next warp (run fig17_bu2: BUSTED 19:30:40.9, located ped id 89 at 127..131,111 for
+    // 15 s, his own ped at the station dealt a crowd avatar). The game's own player object names his ped
+    // ([[0x5EB4FC]+0x38]+0x2C4, the one the keys drive): when it is a pedestrian and differs from the slot's, it wins,
+    // except while a beat plays or the slot's ped is the beat's body (game id 0): the beat follows the game's camera.
+    // Never at the wheel (the car is followed). GTA2DX9_PLAYER_GAME_PED=0 keeps the slots alone (A/B).
+    if (!atTheWheel && !BeatActive()) {
+        static int gameFirst = -1;
+        if (gameFirst < 0) { char b[8] = {}; gameFirst = GetEnvironmentVariableA("GTA2DX9_PLAYER_GAME_PED", b, sizeof b) && b[0] == '0' ? 0 : 1; }
+        const uintptr_t gamePed = gameFirst ? reinterpret_cast<uintptr_t>(GamePlayerPed()) : 0;
+        uint32_t id = 1;
+        if (gamePed && gamePed != ped && PedSignature(gamePed) && !(ped && ReadAt(ped + kPedIdWord, &id) && id == 0)) {
+            static int logs = 0;
+            static uintptr_t lastPair[2] = {0, 0};
+            uint32_t gid = 0;
+            ReadAt(gamePed + kPedIdWord, &gid);
+            const bool newPair = lastPair[0] != ped || lastPair[1] != gamePed;
+            lastPair[0] = ped; lastPair[1] = gamePed;
+            if (newPair && logs++ < 60)
+                Log("view: the %s named ped %08X (id %u), the game's player object names %08X (id %u): his is followed",
+                    ped ? out->source : "slots", static_cast<unsigned>(ped), ped ? id : 0u, static_cast<unsigned>(gamePed), gid);
+            ped = gamePed;
+            out->source = "the game's player object";
+        }
+    }
     if (!ped && !(g_rideTrain && RideTrainOn())) {   // FIX-CAMERA-16: riding a train, no passer-by at the camera is him
         float camX = 0.0f, camY = 0.0f;
         game::CameraPosition(&camX, &camY);

@@ -983,3 +983,61 @@ Under Remix the gain is 1 and the cap never binds: no change there.
 **Still short.** The taxi body is +13 % L* over the gate's sprite measure at this sunny spot (the painted fleet reads
 +10..+23 % there, section 12): world light, not paint. The 3D taxi still lacks the sprite's chequer roof stripe and
 roof sign art (the 051 kit body's art, not the record).
+
+## 14. The protagonist's outfit is his alone: the arrest/death body and his own ped (FIX-FIGURE-17, owner10nov B4, 10 Nov 2026)
+
+**Filing.** The owner (5090, Remix): got out of a police cruiser, pressed V, and the hero became a random NPC. Not
+reproduced by hand.
+
+**What the log now says.** Every car exit and entry, every view change, and every change of the ped the locator follows
+prints the PLAYER's key: `identity: player key <exit|enter|view third|change>: ped <struct> id <game id> (was ...) sprite
+<object> found by '<source>' <on foot|in a vehicle>, the game's player ped <[[0x5EB4FC]+0x38]+0x2C4> [(DIFFERS)] -> <model>
+remap 25 fp <fingerprint>`. After an exit or a V the next street frame reports the figure that wore his record:
+`identity: player figure[ SWAP]: <n> drawn as him, sprite <object> ped id <id> by <sprite object|boarding ghost|ped id>
+(located ped id <id>, was id <id>) -> <model>` (SWAP: his record moved to another game id; also printed when the count
+of figures wearing it leaves one in third person on foot). world_view.cpp (key), live_geometry.cpp DrawPedFigures (tally),
+identity.cpp (both lines).
+
+**Mechanism (runs `fig17_b4c`, `fig17_b4d`; FIX-AIM-2's `fixaim2_g1`).** With the police on him, getting out of a police
+car often ends in BUSTED (the officers pull him out). The game then plays the arrest on a NEW ped struct (game id 0, his
+sprite and remap 25, state 8/22) at the car while his own struct (id 1) is moved to the station; the game camera follows
+the new body for ~2.5 s (`fig17_b4d` 19:14:36.7 exit from `carmodel=12`, 19:14:37.25 `wanted: busted`, 19:14:37.28
+`player key change: ped 23ca4910 id 0 ... found by 'camera'`, back to id 1 at the station 2.5 s later). Two figures then
+wear the protagonist's outfit and only one of them can be "the player" by object or id: the identity dealt the other a
+crowd avatar from remap 25's type, in his dark colours, with another face and build (`fixaim2_g1`: `beat: BUSTED`, then
+`identity: ped key 0 remap 25 -> human_male_adult_06` and 5 s later `identity: ped key 1 remap 25 -> human_male_13`: key 1
+is his OWN game id, drawn as a pedestrian while the located ped was the arrest body). That is the "random NPC". The same
+holds for the body a death plays on. No pedestrian of the city wears remap 25: across ~300 runs' logs every crowd record
+of remap 25 has key 0 or 1.
+
+**The second half (run `fig17_bu2`, the old code).** When the beat ends the camera's slot loses the body, the locator's
+scan finds the same struct again, now an ordinary pedestrian with a crowd id (89) walking off, and the 3D views followed
+that stranger, drawn in the hero's record, until the next warp (15 s: the script's warp started "from 131.0,111.5", the
+stranger's spot), while his own ped at the station was dealt `human_male_13` (19:30:45.2). Frames: `fig17_bu2`
+qa_b0_01 (the BUSTED beat), qa_b0_08 (the camera behind the stranger walking away).
+
+**Fix (identity.cpp IdentityForPed).** A figure drawn in remap 25 (the protagonist's outfit, `kProtagonistRemap`) gets the
+player's record, logged once per figure: `identity: ped key <id> remap 25 body <b> -> the player's record (<model>)`. 
+`GTA2DX9_HERO_REMAP_OLD=1` deals them as pedestrians again (A/B). A developer `ped_remap_override` keeps the old path.
+
+**Fix (view_modes.cpp LocatePlayer).** The game's own player object names his ped (`[[0x5EB4FC]+0x38]+0x2C4`, the one the
+keys drive; `GamePlayerPed()`). When it is a pedestrian and differs from the slot's ped it is followed, logged once per pair
+(`view: the camera named ped X (id N), the game's player object names Y (id M): his is followed`), except at the wheel,
+while a beat plays, or when the slot's ped is the beat's body (game id 0): through BUSTED/WASTED the views keep following
+the body the game's camera follows. `GTA2DX9_PLAYER_GAME_PED=0` keeps the slots alone (A/B).
+
+**Measured (run `fig17_bu3`, fixed; frames opened).** BUSTED 19:37:25.8: `identity: ped key 0 remap 25 body 1 -> the
+player's record (human_male_adult_11)`; qa_b1_02 shows the beat on his own avatar (dark shirt, the hero's face) with the
+officer beside him. The body took crowd id 337 at 19:37:30.6; at 19:37:32.08 the locator followed the game's player ped
+(id 1, at the station 134.36,102.05); qa_b1_after: the camera behind him, in his own outfit. No crowd record of remap 25
+in the run. The police-car runner (`gamerun/keys_fig17_b4.sh`, fig17_b4.py: police cars from GTA2DX9_LOG_VEHICLES, the
+wanted level held through the live ini until one stops, board, drive, exit in third/classic/first, V; frames in the car,
+at the exit, one block on, after the V) and the arrest probe (`gamerun/keys_fig17_bust.sh`, fig17_bust.py: BU_N busts at
+the kerb in BU_VIEW, frames every 0.5 s through the beat) are the repros.
+
+**Still short.** At the hand-back the knock-down system reads his station-release state (8/0x19) as "struck by a car" and
+plays 0.3 s of fall before handing him back (qa_b1_12: he lies on the road): knock-down owner. Remix untested (identity is
+the same record; no Remix-specific path changed).
+
+**Not the cause.** `ms.playercopies=0` is the Remix player-texture tag cache (model_store PlayerCopyFor), empty whenever the
+own-figure texture tagging is off; it says nothing about which avatar is drawn.

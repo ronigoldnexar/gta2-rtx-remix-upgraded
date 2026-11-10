@@ -15,6 +15,7 @@
 #include "log.h"
 #include "model_store.h"
 #include "remix_api.h"
+#include "view_modes.h"
 
 namespace gta2dx9 {
 namespace {
@@ -150,6 +151,8 @@ IdentityRecord DerivePed(uint32_t seed, int remap, int body) {
     return r;
 }
 
+constexpr int kProtagonistRemap = 25;   // the player's own outfit (DerivePlayer)
+
 IdentityRecord DerivePlayer() {
     IdentityRecord r;
     r.kind = IdKind::Player;
@@ -157,7 +160,7 @@ IdentityRecord DerivePlayer() {
     // A developer remap override ([devtools] ped_remap_override) dresses him as that type too
     // (the showcase's subject); otherwise he is the protagonist: remap 25, the manifest's avatar.
     const int over = PedRemapEffective(-1, 0);
-    r.ref.remap = over >= 0 ? over : 25;
+    r.ref.remap = over >= 0 ? over : kProtagonistRemap;
     r.model = over >= 0 ? ModelForPedestrian(0u, over) : ModelForPedestrian();
     if (!r.model) return r;
     bool hair = false;
@@ -427,12 +430,75 @@ const IdentityRecord& IdentityForPlayer() {
     return g_player;
 }
 
+// FIX-FIGURE-17 (owner10nov B4): the player's key and his figure's, logged (identity.h).
+namespace {
+const void* g_keyPed = nullptr;
+int g_keyPedId = -2;
+const char* g_keySource = nullptr;
+bool g_keyInVehicle = false;
+int g_figureReport = 0;          // street frames still to report his figure on
+int g_figurePedId = -2;          // the ped id his record was last drawn on
+int g_figureCount = 1;
+uint32_t g_keyLines = 0, g_figureLines = 0;
+}  // namespace
+
+void IdentityNotePlayerKey(const char* why, const void* ped, int pedId, const void* sprite, const char* source, bool inVehicle) {
+    const bool changed = ped != g_keyPed || pedId != g_keyPedId || inVehicle != g_keyInVehicle ||
+                         (source && g_keySource && std::strcmp(source, g_keySource) != 0) || (!source) != (!g_keySource);
+    if (!why && !changed) return;
+    const char* w = why ? why : "change";
+    if (why) g_figureReport = 3;   // his figure on the next street frames
+    // (a cap so a flickering locator cannot flood the log; exits and V presses always print)
+    if (!why && g_keyLines >= 400) { g_keyPed = ped; g_keyPedId = pedId; g_keySource = source; g_keyInVehicle = inVehicle; return; }
+    ++g_keyLines;
+    const IdentityRecord& r = IdentityForPlayer();
+    const void* gamePed = GamePlayerPed();
+    Log("identity: player key %s: ped %p id %d (was %p id %d) sprite %p found by '%s'%s, the game's player ped %p%s -> %s remap %d fp %08x", w, ped, pedId,
+        g_keyPed, g_keyPedId, sprite, source ? source : "", inVehicle ? " in a vehicle" : " on foot", gamePed,
+        gamePed && gamePed != ped ? " (DIFFERS)" : "",
+        r.model ? r.model->name.c_str() : "(none)", r.ref.remap, r.fingerprint);
+    g_keyPed = ped; g_keyPedId = pedId; g_keySource = source; g_keyInVehicle = inVehicle;
+}
+
+void IdentityNoteHeroFigure(int heroFigures, const void* object, int pedId, const char* by, int playerPedId, bool onFoot) {
+    const bool swap = heroFigures > 0 && pedId >= 0 && g_figurePedId >= 0 && pedId != g_figurePedId;
+    const bool countOff = onFoot && heroFigures != 1 && g_figureCount == 1;
+    const bool report = g_figureReport > 0;
+    if (report) --g_figureReport;
+    if ((report && g_figureReport == 0) || swap || (countOff && g_figureLines < 200) || (onFoot && heroFigures == 1 && g_figureCount != 1 && g_figureLines < 200)) {
+        ++g_figureLines;
+        const IdentityRecord& r = IdentityForPlayer();
+        Log("identity: player figure%s: %d drawn as him, sprite %p ped id %d by %s (located ped id %d, was id %d)%s -> %s remap %d fp %08x",
+            swap ? " SWAP" : "", heroFigures, object, pedId, by ? by : "-", playerPedId, g_figurePedId, onFoot ? " third, on foot" : "",
+            r.model ? r.model->name.c_str() : "(none)", r.ref.remap, r.fingerprint);
+    }
+    if (heroFigures > 0 && pedId >= 0) g_figurePedId = pedId;
+    g_figureCount = onFoot ? heroFigures : 1;
+}
+
 const IdentityRecord& IdentityForPed(uintptr_t cacheKey, int pedId, int palette, unsigned spriteFrame) {
     PedEntry& e = g_peds[cacheKey];
     const unsigned body = spriteFrame / 158u;
     if (e.seen == 0 || e.pedId != pedId || e.palette != palette || e.body != body) {
         const bool changed = e.seen != 0 && e.pedId == pedId;
         int remap = PedRemapForPalette(palette);
+        // FIX-FIGURE-17 (owner10nov B4: "out of a police cruiser, V, and the hero became a random NPC"): remap 25 is
+        // the protagonist's own outfit; no pedestrian of the city wears it (no crowd record of remap 25 in ~300 runs'
+        // logs except keys 0 and 1). The game draws two other bodies in it: the body an arrest or a death plays on (a
+        // new ped struct, game id 0, while his own is moved to the station or the hospital; the camera follows it),
+        // and his own ped on a frame where the located ped is that body (run fixaim2_g1: BUSTED, then key 1, his own
+        // id, dealt human_male_13). Each was dealt a crowd avatar in his dark colours: the "random NPC". A figure in
+        // remap 25 is him: the player's record. GTA2DX9_HERO_REMAP_OLD=1 deals them as pedestrians again (A/B).
+        static const bool heroRemapOld = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_HERO_REMAP_OLD", b, sizeof b) && b[0] == '1'; }();
+        if (!heroRemapOld && remap == kProtagonistRemap && PedRemapEffective(-1, 0) < 0) {
+            e.rec = IdentityForPlayer();
+            e.pedId = pedId; e.palette = palette; e.body = body;
+            static int logs = 0;
+            if (logs++ < 60) Log("identity: ped key %d remap %d body %u -> the player's record (%s): the protagonist's outfit is his alone",
+                                 pedId, remap, body, e.rec.model ? e.rec.model->name.c_str() : "(none)");
+            e.seen = g_frame | 1u;
+            return e.rec;
+        }
         // The seed: the game's ped id. Without it, the sprite's type alone (no address, ever).
         const uint32_t seed = pedId >= 0 ? static_cast<uint32_t>(pedId) : Mix(static_cast<uint32_t>(remap + 1) * 977u + body);
         remap = PedRemapEffective(remap, seed);

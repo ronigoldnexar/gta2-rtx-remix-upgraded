@@ -95,6 +95,19 @@ int IdentityVehicleModelNumber(int gameModel, int sprite);
 int IdentityWreckClassOf(int wholeModel);
 int IdentityWreckStandIn(int wreckModel);
 
+// FIX-FIGURE-17 (owner10nov B4: "out of a police car, V, and the hero became a random NPC"): the
+// PLAYER's key, logged as "identity: player key <why>: ..." on every car exit and entry, every view
+// change and whenever the ped the locator names (or its game id, or how it was found) changes. `ped`
+// is the located ped, `pedId` its game id (+0x200), `sprite` the sprite object the 3D views treat as
+// his, `source` how the locator found him (view_modes.cpp). A request to report the hero figure on
+// the next street frame (IdentityNoteHeroFigure) is raised by every exit and view change.
+void IdentityNotePlayerKey(const char* why, const void* ped, int pedId, const void* sprite, const char* source, bool inVehicle);
+// The street frame's tally (DrawPedFigures): how many figures wore the player's record, the first
+// one's sprite object and game ped id and why it was his (object/ghost/id), and the hero model.
+// Logged when asked for (exit, V) and whenever his figure moves to another ped id ("SWAP"),
+// or the count leaves one while he is on foot.
+void IdentityNoteHeroFigure(int heroFigures, const void* object, int pedId, const char* by, int playerPedId, bool onFoot);
+
 // The hero's avatar (the manifest's "pedestrian"), which no crowd record may get.
 const Model* IdentityHeroModel();
 

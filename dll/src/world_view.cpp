@@ -10,6 +10,7 @@
 #include "car_bodies.h"
 #include "map_objects.h"
 #include "model_store.h"
+#include "identity.h"
 
 #include <algorithm>
 #include <array>
@@ -1994,6 +1995,30 @@ void WorldView::UpdateCamera() {
         const bool wantView = mode != ViewMode::Classic && worldUploaded_;
         PlayerState player;
         if (worldUploaded_) LocatePlayer(&player);
+        {
+            // FIX-FIGURE-17 (owner10nov B4): the player's key (identity.h) on every exit, entry and view change,
+            // and whenever the located ped, its id or how it was found changes.
+            static bool wasIn = false, wasValid = false;
+            static ViewMode wasMode = ViewMode::Classic;
+            if (worldUploaded_ && player.valid) {
+                int id = -1;
+                if (const uint8_t* me = static_cast<const uint8_t*>(player.ped)) {
+                    GTA2_TRY { if (game::PlausiblePointer(me)) id = *reinterpret_cast<const int32_t*>(me + 0x200); } GTA2_EXCEPT { id = -1; }
+                }
+                const char* why = nullptr;
+                char modeWhy[32];
+                if (wasValid && wasIn && !player.inVehicle) why = "exit";
+                else if (wasValid && !wasIn && player.inVehicle) why = "enter";
+                else if (mode != wasMode) {
+                    snprintf(modeWhy, sizeof modeWhy, "view %s", mode == ViewMode::Classic ? "classic" : mode == ViewMode::ThirdPerson ? "third" : "first");
+                    why = modeWhy;
+                }
+                IdentityNotePlayerKey(why, player.ped, id, player.pedSprite, player.source, player.inVehicle);
+                wasIn = player.inVehicle;
+                wasMode = mode;
+            }
+            wasValid = worldUploaded_ && player.valid;
+        }
         // FIX-CAMERA-6 (pfeel4): where he is (renderer frame), every frame and in every view, for the move into
         // the classic view to ride him (the classic camera leads the car at speed).
         locatedValid_ = worldUploaded_ && player.valid;
