@@ -73,6 +73,7 @@ const bool g_cleanPaint = [] { char v[8] = {}; return !(GetEnvironmentVariableA(
 bool g_paintSkyCast = true;   // [devtools] paint_sky_cast: the tint takes out the post's hemisphere cast (FIX-CAR-IDENTITY-6)
 float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain at the lid light it was measured under
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
+int g_doorArchClear = 1;  // [devtools] door_arch_clear=0: VEHICLE-ART-20's door span clear of the wheel arches off (A/B)
 int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's exact door outline off (A/B)
 int g_doorInterior = 1;    // [devtools] door_interior=0: no cab interior drawn behind an open door (A/B)
 int g_seatedSep = 0;      // [devtools] seated_sep=1: a seated driver pushed out of his car like a ped on foot (the old way, pmt6 A/B)
@@ -1912,6 +1913,38 @@ struct DoorKey {
 };
 struct DoorSplit { const Model* body; const Model* door; };
 std::map<DoorKey, DoorSplit> g_doorSplits;
+
+// VEHICLE-ART-20 (owner10nov-3): where the body's tyres are along it, from the mesh itself: the vertices that touch
+// the road (under 6 % of the roof) out at the sides, split into the front and the rear group. The CARI axles are
+// the sprite's and miss an image-to-3D shell's wheels by 5-6 cm (001 Wellard: axles +-0.315, tyres at +-0.25 of
+// its length), so a door span kept clear of them still cut through the arch. Cached per model and fit.
+struct MeshWheelZ { bool ok = false; float f0 = 0.0f, f1 = 0.0f, r0 = 0.0f, r1 = 0.0f; };
+MeshWheelZ MeshWheelZFor(const Model& model, const gta2::Mat4& fit, float roof, float halfW) {
+    static std::map<std::tuple<const Model*, int, int, int>, MeshWheelZ> cache;
+    const auto key = std::make_tuple(&model, static_cast<int>(std::lround(fit.m[2][2] * 2000.0f)), static_cast<int>(std::lround(fit.m[3][2] * 2000.0f)),
+                                     static_cast<int>(std::lround(fit.m[1][1] * 2000.0f)));
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+    MeshWheelZ r;
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    float f0 = 1e9f, f1 = -1e9f, r0 = 1e9f, r1 = -1e9f;
+    int nf = 0, nr = 0;
+    for (size_t n = 0; n < model.nodes.size() && n < worlds.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        for (const ModelVertex& v : model.meshes[static_cast<size_t>(mi)].vertices) {
+            const gta2::Vec3 q = PointBy(toCar, v.x, v.y, v.z);
+            if (q.y > 0.06f * roof || std::fabs(q.x) < 0.45f * halfW) continue;
+            if (q.z >= 0.0f) { f0 = (std::min)(f0, q.z); f1 = (std::max)(f1, q.z); ++nf; }
+            else { r0 = (std::min)(r0, q.z); r1 = (std::max)(r1, q.z); ++nr; }
+        }
+    }
+    if (nf >= 6 && nr >= 6 && f0 > r1) { r.ok = true; r.f0 = f0; r.f1 = f1; r.r0 = r0; r.r1 = r1; }
+    cache[key] = r;
+    return r;
+}
 
 DoorKey DoorKeyFor(const Model& model, int side, float zFront, float zRear) {
     return DoorKey{&model, side, static_cast<int>(std::floor(zFront * 20.0f)), static_cast<int>(std::floor(zRear * 20.0f)), g_doorExactCut ? (g_doorTopCut ? 2 : 1) : 0};
@@ -4107,6 +4140,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_paintSpecPower = static_cast<float>((std::max)(4, static_cast<int>(GetPrivateProfileIntA("devtools", "paint_spec_power", 50, g_devIni))));
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
         g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
+        g_doorArchClear = GetPrivateProfileIntA("devtools", "door_arch_clear", 1, g_devIni);
         g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
         g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
@@ -4881,6 +4915,50 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             }
             // The door: swings open while someone boards or leaves, shuts after.
             const double tDoor = CarNowMs();
+            // The door's span along the car (front edge zf, rear zr). VEHICLE-ART-20 (owner10nov-3, qav29): from the
+            // sprite's cabin front alone the box reached into the front wheel arch on most bodies (040 Maurice: the
+            // front edge 0.27 against an arch ending at 0.21), so the wing's rear and the arch lip swung out with the
+            // door as torn slivers and left a hole over the wheel (001 Wellard: half the rear tyre on the swung door).
+            // The span now ends clear of both arches (the tyres measured on the mesh, MeshWheelZFor), keeping its length
+            // where it fits; where less than 0.6 of it fits it keeps its place. qav29: the length was 0.27 of the body whatever its size, so the 032 Stretch
+            // Limousine (1.8 blocks) swung two 0.48-block flat panels out of its flanks; a door is now at most 0.30 block
+            // (1.1 m, a long car's front door). [devtools] door_arch_clear=0: the old span (A/B).
+            auto doorSpan = [&](float* zfOut, float* zrOut) {
+                float zf = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
+                zf = (std::min)(zf, 0.42f * b->bodyLength);
+                float zr = zf - 0.27f * b->bodyLength;
+                if (g_doorArchClear) {
+                    const float zf0 = zf, zr0 = zr;
+                    const float len = (std::min)(0.27f * b->bodyLength, 0.30f);
+                    zr = zf - len;
+                    // The arches: behind the front tyre and ahead of the rear one, from the mesh (MeshWheelZFor); a body
+                    // with no tyres found takes the CARI axles and the feel's wheel radius.
+                    const MeshWheelZ mw = MeshWheelZFor(*model, fit, model->Height() * sy, 0.5f * b->bodyWidth);
+                    float archF, archR;
+                    if (mw.ok) {
+                        // The road-contact group is only the bottom of the tyre (about half its length): its middle is
+                        // the axle; the arch lip is 1.3 tyre radii from it (a radius: the larger of the feel's and 0.22
+                        // of the body's height; 040 Maurice: contact 0.21..0.29, tyre 0.18..0.32, lip from 0.17).
+                        const float rad = (std::max)(fxCar.wheelRadius, 0.22f * model->Height() * sy);
+                        archF = 0.5f * (mw.f0 + mw.f1) - 1.3f * rad - 0.01f;
+                        archR = 0.5f * (mw.r0 + mw.r1) + 1.3f * rad + 0.01f;
+                    } else {
+                        archF = axleF - 1.12f * fxCar.wheelRadius - 0.01f;
+                        archR = axleR + 1.12f * fxCar.wheelRadius + 0.01f;
+                    }
+                    bool clamped = false;
+                    if (archF > archR + 0.1f * b->bodyLength) {
+                        const float fz = (std::min)(zf, archF);
+                        const float rz = (std::max)(fz - len, archR);
+                        if (fz - rz >= 0.6f * len) { zf = fz; zr = rz; clamped = true; }
+                    }
+                    static std::set<const Model*> spanLogged;
+                    if (spanLogged.size() < 120 && spanLogged.insert(model).second)
+                        Log("car bodies: door span of %s: z %.3f..%.3f (was %.3f..%.3f), arches clear at %.3f / %.3f (%s)%s", model->name.c_str(), zr, zf, zr0, zf0,
+                            archF, archR, mw.ok ? "tyres from the mesh" : "CARI axles", clamped ? "" : ", no room between the arches: length cap only");
+                }
+                *zfOut = zf; *zrOut = zr;
+            };
             DoorState& ds = g_doors[use.object];
             const float dt = (std::min)(5u, (std::max)(1u, frame - ds.frame)) / 30.0f;
             ds.frame = frame;
@@ -4915,9 +4993,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             float zFront = 0.0f;
             if (!cpuCut && !WreckModelNumber(modelNumber) && (target > 0.0f || ds.open > 0.02f)) {
                 const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
-                zFront = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
-                zFront = (std::min)(zFront, 0.42f * b->bodyLength);
-                const float zRear = zFront - 0.27f * b->bodyLength;
+                float zRear = 0.0f;
+                doorSpan(&zFront, &zRear);
                 // Past kDoorSplitBytes of splits a dented car opens the door of its undented
                 // copy (the store never frees a model, so the splits are capped).
                 const Model* doorSource = g_doorBytes > kDoorSplitBytes ? model : worn;
@@ -4944,9 +5021,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // (live_geometry). Not while he gets out of it: the exit plays on the car as it was, as before.
             if ((!cpuCut || !BoardingCarLeaving(use.object)) && !WreckModelNumber(modelNumber)) {
                 const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
-                float zf = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
-                zf = (std::min)(zf, 0.42f * b->bodyLength);
-                BoardingPublishCar(use.object, posed, halfW, zf, zf - 0.27f * b->bodyLength, roofY, ds.side,
+                float zf = 0.0f, zr = 0.0f;
+                doorSpan(&zf, &zr);
+                BoardingPublishCar(use.object, posed, halfW, zf, zr, roofY, ds.side,
                                    haveSplit ? ds.open : 0.0f, frame);
                 BoardingPublishSteer(use.object, feel.on ? feel.steer : 0.0f);   // FIX-SEATED: the driver's hands on the wheel
                 BoardingPublishOpenTop(use.object, CabOpenTop(modelNumber));   // FIX-JACK-SEAT (pm19)
@@ -4977,7 +5054,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         if (side == ds.side && haveSplit) continue;
                         auto& done = g_doorWarm[use.object];
                         if (done & (side > 0 ? 2 : 1)) continue;
-                        if (DoorReady(*doorSource, fit, side, zf, zf - 0.27f * b->bodyLength, roofY, halfW, &warm)) done |= side > 0 ? 2 : 1;
+                        if (DoorReady(*doorSource, fit, side, zf, zr, roofY, halfW, &warm)) done |= side > 0 ? 2 : 1;
                     }
                 }
             }
@@ -5582,6 +5659,7 @@ void CarBodiesSetDevIni(const char* ini) {
     g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
     g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
     g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
+    g_doorArchClear = GetPrivateProfileIntA("devtools", "door_arch_clear", 1, g_devIni);
     g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
     g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
