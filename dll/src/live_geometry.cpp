@@ -9779,7 +9779,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     // their feet this frame (the game's positions) and the car bodies drawn, for the figures'
     // draw-only separation below. GTA2DX9_NO_FIGURE_SEP=1 turns it off (A/B).
     static const bool sepOff = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_NO_FIGURE_SEP", b, sizeof b) && b[0] == '1'; }();
-    struct SepPed { uintptr_t object; float x, y, z; bool player; };
+    struct SepPed { uintptr_t object; float x, y, z; bool player; float fx = 0.0f, fz = 0.0f, speed = 0.0f; };
     static std::vector<SepPed> sepPeds;
     sepPeds.clear();
     static CarFootprint sepCars[96];
@@ -9798,6 +9798,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (tr != pedTracks_.end() && g_carFrame - tr->second.sepSeenFrame <= 2) { px = tr->second.sepDrawnX; pz = tr->second.sepDrawnZ; }
             sepPeds.push_back({sprite.object, px, sprite.objectToWorld.m[3][1], pz,
                                sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject});
+            if (tr != pedTracks_.end()) {   // FIX-KNOCKDOWN-4 (pm24): his facing and pace, for the single-file spacing
+                sepPeds.back().fx = std::sin(tr->second.heading); sepPeds.back().fz = std::cos(tr->second.heading);
+                sepPeds.back().speed = tr->second.drawnSpeed;
+            }
         }
         sepCarCount = CarBodiesFootprints(sepCars, 96);
         // Only a car at rest keeps people out of its body: a moving one that meets a person is a
@@ -11126,10 +11130,31 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         selfZ = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ;
             if (sepAllowed) {
                 constexpr float kBody = 0.14f;   // centre to centre: shoulders and swinging arms do not cross (an adult is ~0.12 block wide)
+                // FIX-KNOCKDOWN-4 (pm24): a file. Two people walking the same way one behind the other need a stride
+                // of room (kFile), not a shoulder's width, and the half-each push cancels in the middle of a file
+                // (each member pushed back by the one ahead and forward by the one behind: FIGURE-12's finding). In a
+                // file only the follower yields, all of it, to the leader as drawn (last frame, his own yield in it),
+                // so a file opens from its head back, one member a frame. GTA2DX9_FILE_SEP=0: as before.
+                static int fileOn = -1;
+                if (fileOn < 0) { char v[8] = {}; fileOn = (GetEnvironmentVariableA("GTA2DX9_FILE_SEP", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+                constexpr float kFile = 0.22f;
+                const float selfFx = std::sin(track.heading), selfFz = std::cos(track.heading);
+                const bool selfWalks = fileOn && track.drawnSpeed > 0.4f;
+                float fileBack = 0.0f;
                 for (const SepPed& o : sepPeds) {
                     if (o.object == sprite.object || std::fabs(o.y - cy) > 0.4f) continue;
                     float dx = selfX - o.x, dz = selfZ - o.z;
                     float d2 = dx * dx + dz * dz;
+                    if (selfWalks && !o.player && o.speed > 0.4f && selfFx * o.fx + selfFz * o.fz > 0.8f && d2 < kFile * kFile) {
+                        const float along = -(dx * selfFx + dz * selfFz);   // how far ahead of him the other is
+                        const float d = std::sqrt(d2);
+                        if (along > 0.6f * d) {   // the other leads: he drops back to a stride behind
+                            const float back = kFile - along;
+                            if (back > fileBack) fileBack = back;
+                            continue;
+                        }
+                        if (-along > 0.6f * d) continue;   // he leads: the follower yields
+                    }
                     if (d2 >= kBody * kBody) continue;
                     float d = std::sqrt(d2);
                     if (d < 1e-4f) {
@@ -11143,8 +11168,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     sx += dx / d * (kBody - (d < 1.0f ? d : 0.0f)) * share;
                     sz += dz / d * (kBody - (d < 1.0f ? d : 0.0f)) * share;
                 }
-                const float sl = std::sqrt(sx * sx + sz * sz);
+                // the file's yield: the leader he is furthest inside of counts (not their sum), at most 0.3
+                fileBack = (std::min)(fileBack, 0.3f);
+                const float fileX = -selfFx * fileBack, fileZ = -selfFz * fileBack;
+                float sl = std::sqrt(sx * sx + sz * sz);
                 if (sl > 0.2f) { sx *= 0.2f / sl; sz *= 0.2f / sl; }
+                sx += fileX; sz += fileZ;
+                sl = std::sqrt(sx * sx + sz * sz);
+                if (sl > 0.3f) { sx *= 0.3f / sl; sz *= 0.3f / sl; }
                 constexpr float kMargin = 0.07f;   // half a body, so the shoulder stops at the paint
                 // FIX-KNOCKDOWN-4 (pfl38): the car that just brushed her keeps her out of its body while it moves on.
                 // kd4_b1 (first person, the own car at 1 block/s, a woman 0.06 off its nose): the jolt played, then the
@@ -11208,7 +11239,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
                 const float tl = std::sqrt(sx * sx + sz * sz);
-                const float cap = inCar ? 0.6f : eyePush ? 0.42f : 0.2f;
+                const float cap = inCar ? 0.6f : eyePush ? 0.42f : fileBack > 0.0f ? 0.3f : 0.2f;
                 if (tl > cap) { sx *= cap / tl; sz *= cap / tl; }
                 if (g_logPedFrames && !inCar && tl > 0.02f && (g_carFrame % 15 == 0 || std::fabs(track.sepX) + std::fabs(track.sepZ) < 0.005f))
                     Log("figure sep: f=%u %08x from a neighbour by %.3f", g_carFrame, static_cast<unsigned>(sprite.object), tl);
@@ -11241,9 +11272,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             sepMs += static_cast<double>(sepT1.QuadPart - sepT0.QuadPart) * 1000.0 / static_cast<double>(sepF.QuadPart);
             // FIX-FIGURE-7: how many pairs of figures stood closer than 0.10 block (inside each other's
             // shoulders), by the game's positions and as drawn, summed over the same 300 frames.
-            struct SepSeen { float rx, rz, gx, gz, y; bool movable; uintptr_t object; int state; bool player; };
+            struct SepSeen { float rx, rz, gx, gz, y; bool movable; uintptr_t object; int state; bool player; float fx = 0.0f, fz = 0.0f, speed = 0.0f; };
             static std::vector<SepSeen> sepSeen;
             static uint32_t sepRawPairs = 0, sepDrawnPairs = 0, sepFixedPairs = 0;
+            static uint32_t fileRawPairs = 0, fileDrawnPairs = 0;   // FIX-KNOCKDOWN-4 (pm24): walking the same way, one within 0.16 behind the other
             if (sepFrame != g_carFrame) {
                 for (size_t i = 0; i < sepSeen.size(); ++i)
                     for (size_t j = i + 1; j < sepSeen.size(); ++j) {
@@ -11252,6 +11284,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         const float rdx = sepSeen[i].rx - sepSeen[j].rx, rdz = sepSeen[i].rz - sepSeen[j].rz;
                         const float gdx = sepSeen[i].gx - sepSeen[j].gx, gdz = sepSeen[i].gz - sepSeen[j].gz;
                         if (rdx * rdx + rdz * rdz < 0.01f) ++sepRawPairs;
+                        if (sepSeen[i].speed > 0.4f && sepSeen[j].speed > 0.4f && sepSeen[i].fx * sepSeen[j].fx + sepSeen[i].fz * sepSeen[j].fz > 0.8f) {
+                            const float ra = std::fabs(rdx * sepSeen[i].fx + rdz * sepSeen[i].fz), ga = std::fabs(gdx * sepSeen[i].fx + gdz * sepSeen[i].fz);
+                            if (rdx * rdx + rdz * rdz < 0.16f * 0.16f && ra * ra > 0.36f * (rdx * rdx + rdz * rdz)) ++fileRawPairs;
+                            if (gdx * gdx + gdz * gdz < 0.16f * 0.16f && ga * ga > 0.36f * (gdx * gdx + gdz * gdz)) ++fileDrawnPairs;
+                        }
                         if (gdx * gdx + gdz * gdz < 0.01f) {
                             ++sepDrawnPairs; if (!sepSeen[i].movable && !sepSeen[j].movable) ++sepFixedPairs;
                             static int pairLog = 0;
@@ -11264,15 +11301,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 sepSeen.clear();
                 sepFrame = g_carFrame;
                 if (++sepFrames >= 300) {
-                    Log("figure sep: %.4f ms a frame over %u frames (%zu people, %d car bodies); pairs closer than 0.10: %u by the game, %u drawn (%u of them two figures it may not move)",
-                        sepMs / sepFrames, sepFrames, sepPeds.size(), sepCarCount, sepRawPairs, sepDrawnPairs, sepFixedPairs);
-                    sepMs = 0.0; sepFrames = 0; sepRawPairs = 0; sepDrawnPairs = 0; sepFixedPairs = 0;
+                    Log("figure sep: %.4f ms a frame over %u frames (%zu people, %d car bodies); pairs closer than 0.10: %u by the game, %u drawn (%u of them two figures it may not move); in file closer than 0.16: %u by the game, %u drawn",
+                        sepMs / sepFrames, sepFrames, sepPeds.size(), sepCarCount, sepRawPairs, sepDrawnPairs, sepFixedPairs, fileRawPairs, fileDrawnPairs);
+                    sepMs = 0.0; sepFrames = 0; sepRawPairs = 0; sepDrawnPairs = 0; sepFixedPairs = 0; fileRawPairs = 0; fileDrawnPairs = 0;
                 }
             }
             {
                 const float rx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX, rz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ;
                 track.sepDrawnX = rx + track.sepX; track.sepDrawnZ = rz + track.sepZ; track.sepSeenFrame = g_carFrame;
-                if (!sprite.corpse && sprite.pedState != 3 && sprite.pedState != 4) sepSeen.push_back({rx, rz, rx + track.sepX, rz + track.sepZ, cy, sepMovable, sprite.object, sprite.pedState, playerSprite});
+                if (!sprite.corpse && sprite.pedState != 3 && sprite.pedState != 4) { sepSeen.push_back({rx, rz, rx + track.sepX, rz + track.sepZ, cy, sepMovable, sprite.object, sprite.pedState, playerSprite}); sepSeen.back().fx = std::sin(track.heading); sepSeen.back().fz = std::cos(track.heading); sepSeen.back().speed = track.drawnSpeed; }
             }
         }
         // Where the figure stands: the drawn position, at the sprite's height.

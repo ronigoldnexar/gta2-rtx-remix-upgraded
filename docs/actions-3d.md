@@ -1898,3 +1898,15 @@ filer's exact sideswipe along the plaza wall was not re-hit (traffic is not repe
   out by 0.33`. The pm3 ambulance walk (keys_pm4.sh) no longer reaches the ambulance from the HEAD ste start; a
   warp probe (gamerun/keys_kd4_amb.sh: the player walked into the parked ambulance's nose and flank, third and first
   person) stopped him beside its rear quarter, outside the body (kd4_amb2).
+
+## FIX-KNOCKDOWN-4 (continued): pm24, a gang in single file
+FIGURE-7's separation pushes each close pair apart half each, which cancels in the middle of a file (the member
+behind pushes him forward, the one ahead pushes him back: FIGURE-12's finding), and its 0.14 block centre to centre
+is a shoulder's width, not a stride. Now (`DrawPedFigures`, the separation): two people walking the same way
+(facings within ~37 degrees, both above 0.4 block/s), one ahead of the other along the walk and within 0.22, are a
+file: only the follower yields, dropping back to 0.22 behind the leader as drawn (last frame's, the leader's own
+yield in it), so a file opens from its head back, a member a frame; the deepest leader counts, at most 0.3 (the
+brush stagger's reach). The leader keeps his place. A/B `GTA2DX9_FILE_SEP=0`.
+Measure: the 300-frame `figure sep:` line adds `in file closer than 0.16: N by the game, M drawn`. kd4_gang1 (wil
+Loonie street, 64-66 people): 3/2/3 by the game, 1/0/1 drawn; kd4_pm24a (keys_pm24.sh): no file pair formed. Not
+caught on camera yet (a warp hides figures until the game's camera arrives: the gang bursts framed a wall).
