@@ -53,6 +53,7 @@
 #include "cockpit_mode.h"
 #include "car_bodies.h"
 #include "model_store.h"
+#include "car_coat.h"
 #include "compat.h"
 #include <csignal>
 #include <exception>
@@ -382,6 +383,7 @@ void LoadConfig() {
         GetPrivateProfileIntA("renderer", "car_paint_floor_percent", 30, ini) / 100.0f);
     gta2dx9::ModelSetCarSmoothing(GetPrivateProfileIntA("renderer", "car_smooth_normals", 1, ini),
                                   GetPrivateProfileIntA("renderer", "car_crease_deg", 60, ini));   // VEHICLE-GLASS
+    gta2dx9::CarCoatConfigure(ini);   // FIX-CAR-SHADING-1
     gta2dx9::ModelSetSoftPaintMasks(
         GetPrivateProfileIntA("renderer", "car_paint_soft_mask", 1, ini) != 0);
     gta2dx9::ModelSetTexturesGpuOnly(   // FIX-PERF-5

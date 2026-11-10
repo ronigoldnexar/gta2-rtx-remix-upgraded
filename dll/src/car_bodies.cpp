@@ -35,6 +35,7 @@
 #include "../../src/sky.h"
 #include "../../src/post_fx.h"   // VisualsConfig (feel29 car_shadow_blend)
 #include "../../src/weather_fx.h"   // WeatherAdjustSky (FIX-CAR-IDENTITY-6 paint sky cast)
+#include "car_coat.h"   // FIX-CAR-SHADING-1
 
 namespace gta2dx9 {
 bool FigureTimeOfDayLight(float out[3]);   // live_geometry.cpp (ptm14): the figures' hour light, 1 by day
@@ -132,9 +133,9 @@ double CarNowMs() {
 // FIX-PERF-3: the model-drawn cars' time by part (ms, this call), for the hitch detail's "car parts" line:
 // which first-use derivation (glass, cab, hood, bonnet, wheels, doors, buffers) a slow cars stage paid for.
 enum CarPart { kPartIdentity, kPartCabin, kPartWear, kPartHood, kPartWheels, kPartFeel, kPartDoor, kPartGlass,
-               kPartHull, kPartSeatBonnet, kPartBonnetDraw, kPartCab, kPartGlassInside, kPartLamps, kPartCount };
+               kPartHull, kPartSeatBonnet, kPartBonnetDraw, kPartCab, kPartGlassInside, kPartLamps, kPartCoat, kPartCount };
 const char* const kCarPartNames[kPartCount] = {"identity", "cabin", "wear", "hood", "wheels", "feel", "door", "glass",
-                                               "hull draws", "seat bonnet", "bonnet draw", "cab interior", "glass inside", "lamps"};
+                                               "hull draws", "seat bonnet", "bonnet draw", "cab interior", "glass inside", "lamps", "coat (in hull)"};
 double g_carParts[kPartCount] = {};
 struct CarPartTimer {
     int part; double t0;
@@ -4012,6 +4013,30 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             blastLit = true;
         }
     }
+    // FIX-CAR-SHADING-1: the coat pass's light for this frame (car_coat.cpp): the body pass's sun, and the sky the
+    // post's hemisphere term and the dome use, as the clear coat reflects it above the horizon; the street below.
+    const bool coatOn = CarCoatActive(device);
+    if (coatOn) {
+        CarCoatFrame cf;
+        cf.sunDir[0] = -sun.Direction.x; cf.sunDir[1] = -sun.Direction.y; cf.sunDir[2] = -sun.Direction.z;
+        cf.sunCol[0] = sun.Diffuse.r; cf.sunCol[1] = sun.Diffuse.g; cf.sunCol[2] = sun.Diffuse.b;
+        const float tod = (carTod[0] + carTod[1] + carTod[2]) / 3.0f;
+        cf.sunStrength = (std::max)(0.0f, (std::min)(1.0f, (tod - 0.35f) / 0.5f));   // no sun glint at night
+        const gta2::SkySettings& skyCfg = gta2::SkyConfig();
+        if (skyCfg.enabled) {
+            float elevation = skyCfg.sunElevationDeg, azimuth = skyCfg.sunAzimuthDeg;
+            if (skyCfg.followClock) TimeOfDayAngles(&elevation, &azimuth);
+            gta2::SkyColours sc = gta2::ComputeSkyColours(elevation, azimuth);
+            gta2::SkySettings ss = skyCfg;
+            gta2::WeatherAdjustSky(&sc, &ss);
+            cf.zenith[0] = sc.zenith.x; cf.zenith[1] = sc.zenith.y; cf.zenith[2] = sc.zenith.z;
+            cf.horizon[0] = sc.horizon.x; cf.horizon[1] = sc.horizon.y; cf.horizon[2] = sc.horizon.z;
+        }
+        for (int k = 0; k < 3; ++k) { cf.zenith[k] *= carTod[k]; cf.horizon[k] *= carTod[k]; }
+        const float hl = 0.2126f * cf.horizon[0] + 0.7152f * cf.horizon[1] + 0.0722f * cf.horizon[2];
+        for (int k = 0; k < 3; ++k) cf.ground[k] = 0.20f * hl + 0.05f * cf.horizon[k];
+        CarCoatSetFrame(cf);
+    }
     D3DMATERIAL9 material = {};
     material.Diffuse = {1.0f, 1.0f, 1.0f, 1.0f};
     material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -4056,6 +4081,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_hoodDropDark = GetPrivateProfileIntA("devtools", "hood_drop_dark", 1, g_devIni) != 0;
         g_fpBonnet = GetPrivateProfileIntA("devtools", "fp_bonnet", 1, g_devIni);
         g_hoodDash = GetPrivateProfileIntA("devtools", "hood_dash", 1, g_devIni);
+        // FIX-CAR-SHADING-1: car_coat=0|1 for same-session A/B (-1: the [renderer] setting).
+        CarCoatSetLive(GetPrivateProfileIntA("devtools", "car_coat", -1, g_devIni));
         // FIX-REMIX-NIGHT-2: remix_cab_albedo=0 draws the cab the old way under Remix (same-session A/B).
         g_cabRemixAlbedo = GetPrivateProfileIntA("devtools", "remix_cab_albedo", 1, g_devIni) != 0;
         // FIX-REMIX-MATERIALS-7: the floor pan under Remix (PanSplitFor; 1 = as before).
@@ -4443,6 +4470,16 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 carMaterial.Specular = {0.10f, 0.09f, 0.08f, 1.0f};
                 carMaterial.Power = 6.0f;
             }
+            // FIX-CAR-SHADING-1: the coat on this car: whole on a clean body, duller with the dents and the fire, none on
+            // a wreck. The coat's per-pixel highlight replaces the fixed-function per-vertex lobe (blotchy on the
+            // generated meshes; the moulded-plastic look the owner saw), [renderer] car_coat_ffp_spec_percent of it kept.
+            float coatWeight = 0.0f;
+            if (coatOn && !ident.wreck) {
+                coatWeight = (1.0f - 0.15f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.15f : fireStage >= 3 ? 0.45f : 1.0f);
+                const float keep = CarCoatFfpSpecKeep();
+                carMaterial.Specular = {carMaterial.Specular.r * keep, carMaterial.Specular.g * keep, carMaterial.Specular.b * keep, 1.0f};
+            }
+            CarCoatSetWeight(coatWeight);
             const bool carMaterialSet = memcmp(&carMaterial, &material, sizeof(material)) != 0;
             if (carMaterialSet) device->SetMaterial(&carMaterial);
             const Model* drawn = worn;
@@ -5089,6 +5126,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 // The hull on its springs, the wheels on the road: each about its own axle,
                 // the front pair steered.
                 drawHull(*wheels.hull, Mul(fit, posed));
+                CarCoatSetWeight(0.0f);   // FIX-CAR-SHADING-1: tyres and hubs take no clear coat
                 for (int w = 0; w < wheels.n; ++w) {
                     const gta2::Vec3& c = wheels.centre[w];
                     gta2::Mat4 spin = gta2::Identity();
@@ -5160,6 +5198,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     ModelDraw(device, *wheels.wheel[w], Mul(Mul(Mul(fit, m), hang), sepMove), nullptr, 0.0f);
                 }
             } else {
+                CarCoatSetWeight(0.0f);   // FIX-CAR-SHADING-1: not from the seat yet (the hood copy and the cab)
                 // QB-31: from the seat of a flat-fronted body (bus, cab-over, train) the hood copy
                 // is only the front panel under the windscreen, seen through the cut as a dark
                 // slab past the dashboard; the cab's dashboard is all there is ahead of the glass.
@@ -5282,12 +5321,14 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     }
                 }
             }
+            CarCoatSetWeight(0.0f);
             if (glassCut) { CarPartTimer partTimer(kPartGlassInside); CarGlassDrawInterior(device, *model, Mul(fit, posed), g_lampDark); }
             CarGlassEndCut();
             g_carStats[2] += CarNowMs() - tm;
             g_carStats[6] += 1;
             device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
             ModelSetPaintTint(nullptr);
+            CarCoatSetWeight(0.0f);
             if (carMaterialSet) device->SetMaterial(&material);
             device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
             const double tLamps = CarNowMs();
@@ -5380,6 +5421,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         ++g_drawn;
     }
     device->SetRenderState(D3DRS_STENCILENABLE, FALSE);   // feel29: the driven car's stencil mark ends with the cars
+    CarCoatSetWeight(0.0f);   // FIX-CAR-SHADING-1: nothing after the cars takes the coat
+    {
+        double coatMs = 0.0;   // FIX-CAR-SHADING-1: the coat pass's share of the hull draws (CPU side)
+        CarCoatStats(nullptr, &coatMs);
+        g_carParts[kPartCoat] += coatMs;
+    }
     // The texture budget, now and then: the game is a 32-bit process.
     if (frame % 900 == 0) {
         int count = 0;

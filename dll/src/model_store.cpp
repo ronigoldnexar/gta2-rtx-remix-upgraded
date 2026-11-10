@@ -2,6 +2,7 @@
 #include "thread_watch.h"
 #include "model_store.h"
 #include "car_glass.h"   // VEHICLE-GLASS
+#include "car_coat.h"    // FIX-CAR-SHADING-1
 
 #include <algorithm>
 #include <cctype>
@@ -3090,6 +3091,8 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         }
     }
     CarGlassCutQueue(model, placement);   // VEHICLE-GLASS: a car hull in cut mode draws its glass later
+    // FIX-CAR-SHADING-1: car_bodies' weight on this car (0 for everything that is not a car body).
+    const bool coat = CarCoatWeight() > 0.0f && !g_modelGhost;
     for (size_t i = 0; i < model.nodes.size(); ++i) {
         const int mi = model.nodes[i].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
@@ -3296,7 +3299,9 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         IDirect3DVertexBuffer9* glassVb = nullptr;   // VEHICLE-GLASS-3: the hull split along the outline has its own vertices
         UINT glassVerts = 0;
         IDirect3DIndexBuffer9* glassIb = (b && vb && !skinned) ? CarGlassCutIndexBuffer(device, mesh, &glassKeep, &glassVb, &glassVerts) : nullptr;
+        IDirect3DTexture9* coatMask = nullptr;   // FIX-CAR-SHADING-1: the coat pass cuts the same glass
         if (IDirect3DTexture9* glassMask = glassIb ? nullptr : CarGlassCutMask(mesh.texture)) {
+            coatMask = glassMask;
             DWORD op1 = D3DTOP_DISABLE;
             device->GetTextureStageState(1, D3DTSS_COLOROP, &op1);
             glassStage = softPaint ? 3 : op1 != D3DTOP_DISABLE ? 2 : 1;
@@ -3362,10 +3367,36 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, glassVb ? glassVerts : static_cast<UINT>(mesh.vertices.size()), 0,
                                          glassIb ? glassKeep : static_cast<UINT>(mesh.indices.size() / 3));
             streams = true;
+            if (coat && carSurf == kCarSurfDefault) {
+                CarCoatDraw cd;
+                cd.vb = glassVb ? glassVb : vb;
+                cd.verts = glassVb ? glassVerts : static_cast<UINT>(mesh.vertices.size());
+                cd.prims = glassIb ? glassKeep : static_cast<UINT>(mesh.indices.size() / 3);
+                cd.glassMask = coatMask;
+                cd.body = bound;
+                cd.softPaint = softPaint;
+                cd.paint = mesh.texture.find("_paint") != std::string::npos;
+                cd.tint = g_paintTintOn && (cd.paint || softPaint) ? g_paintTint : nullptr;
+                CarCoatOverlay(device, world, cd);
+            }
         } else {
             device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(mesh.vertices.size()),
                                            static_cast<UINT>(mesh.indices.size() / 3), mesh.indices.data(),
                                            D3DFMT_INDEX32, verts, sizeof(ModelVertex));
+            if (coat && carSurf == kCarSurfDefault) {
+                CarCoatDraw cd;
+                cd.upVerts = verts;
+                cd.upIndices = mesh.indices.data();
+                cd.stride = sizeof(ModelVertex);
+                cd.verts = static_cast<UINT>(mesh.vertices.size());
+                cd.prims = static_cast<UINT>(mesh.indices.size() / 3);
+                cd.glassMask = coatMask;
+                cd.body = bound;
+                cd.softPaint = softPaint;
+                cd.paint = mesh.texture.find("_paint") != std::string::npos;
+                cd.tint = g_paintTintOn && (cd.paint || softPaint) ? g_paintTint : nullptr;
+                CarCoatOverlay(device, world, cd);
+            }
         }
         if (glassStage) {
             device->SetTextureStageState(glassStage, D3DTSS_COLOROP, D3DTOP_DISABLE);
