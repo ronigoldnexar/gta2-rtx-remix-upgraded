@@ -11387,6 +11387,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                                    track.action == 4 && !track.actionReverse && !track.waterFrame, *model, world,
                                                    kdPinned ? track.kdAnchorX : gx - track.kdOX, cy, kdPinned ? track.kdAnchorZ : gz - track.kdOZ,
                                                    track.heading, dt, g_carFrame, locoA, locoTA, locoB, locoTB, locoW);
+                {   // FIX-KNOCKDOWN-2 (pfl65): the drawn placement beside the solver's trace (GTA2DX9_LOG_KD=1)
+                    static const bool kdTrace = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_LOG_KD", b, sizeof b) && b[0] == '1'; }();
+                    if (kdTrace && track.kd)
+                        Log("kddraw: f=%u o=%04x act=%d rev=%d pin=%d rag=%d world %.2f,%.3f,%.2f g %.2f,%.2f kdO %.2f,%.2f st %.2f,%.2f sep %.2f,%.2f corpse %d",
+                            g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), track.action, track.actionReverse ? 1 : 0,
+                            kdPinned ? 1 : 0, ragdoll ? 1 : 0, world.m[3][0], world.m[3][1], world.m[3][2], gx, gz, track.kdOX, track.kdOZ,
+                            track.staggerX, track.staggerZ, track.sepX, track.sepZ, sprite.corpse ? 1 : 0);
+                }
                 // FIX-KNOCKDOWN: the player's own: the game is not told of his keys until he is up, and the
                 // first-person eye rides his head (down with the fall, up with the get-up).
                 if (heroFigure && track.kd) {

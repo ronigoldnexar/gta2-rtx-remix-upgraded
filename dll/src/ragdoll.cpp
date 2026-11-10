@@ -196,6 +196,15 @@ struct Body {
     float facing = 1.0f;   // the torso frame's forward times this is the way he faces
     float release = 0.0f;  // getting up: seconds left of the blend from the ragdoll back to the clips
     bool rescale = false;  // FIX-KNOCKDOWN: velocities just set per 1/30 s (the roll): rescale on the next step
+    // FIX-KNOCKDOWN-2 (pfl65): the ground he lies on, latched at the seed. The game's height for him moves a few
+    // hundredths of a block with its state (lying 2.016, stood up 2.042 in kd2_a): taken as the floor every frame,
+    // that step pushed every joint up in one 1/120 s sub-step, a 3 blocks/s kick, and the lying body flew 1.5 blocks.
+    float groundY = 0.0f;
+    float kickAge = 0.0f;   // age at the last deliberate push (the throw at 0, a roll): upward speed free for 0.6 s after
+    int dbgWalls = 0, dbgCar = 0;   // FIX-KNOCKDOWN-2 trace: joints the walls sent back, car contacts, this frame
+    float dbgDrift = 0.0f, dbgMove = 0.0f;
+    int dbgShove = 0;         // other cars' shoves this frame
+    float leash = 0.9f;       // how far from the game's spot he may lie: longer while a car shoves him, eased back
 };
 constexpr float kReleaseSecs = 0.3f;
 std::map<uintptr_t, Body> g_bodies;
@@ -211,6 +220,12 @@ struct BlastNote { float x, y, z, size; uint32_t frame; };
 std::vector<BlastNote> g_blasts;
 
 const Body* g_hookBody = nullptr;
+// FIX-KNOCKDOWN-2: the ground latch, the lift cap and the other cars' shove; GTA2DX9_KD_GROUND_LATCH=0 = as before (A/B).
+bool Kd2Fix() {
+    static int on = -1;
+    if (on < 0) { const char* e = getenv("GTA2DX9_KD_GROUND_LATCH"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
 
 void PoseHook(const Model& model, std::vector<Mat4>* worlds, void* context) {
     const Body* body = static_cast<const Body*>(context);
@@ -350,6 +365,7 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
     }
     b.anchorX = b.startX = gx;
     b.anchorZ = b.startZ = gz;
+    b.groundY = gy;
     b.walls = !(g_devQueries.blocked && g_devQueries.blocked(g_devQueries.context, gx, gy + 0.25f, gz));
 
     // The throw.
@@ -478,6 +494,17 @@ void Step(Body& b, float dt, float gy, uint32_t frame) {
     }
     Vec3 frameStart[kParticles];
     for (int k = 0; k < kParticles; ++k) frameStart[k] = b.q[k].p;
+    // FIX-KNOCKDOWN-2 (pfl65): every other car near him this frame. Before, a second car drove through the lying
+    // body; now it shoves him out of its way along the ground (never up onto it, no speed of its own).
+    const CarNote* others[8];
+    int otherCount = 0;
+    for (const auto& c : g_cars) {
+        if (otherCount >= 8 || !Kd2Fix()) break;
+        if (frame - c.second.frame > 2 || &c.second == car) continue;
+        const float dx = c.second.x - b.q[kPelvis].p.x, dz = c.second.z - b.q[kPelvis].p.z;
+        const float reach = c.second.halfLen + 0.6f;
+        if (dx * dx + dz * dz < reach * reach) others[otherCount++] = &c.second;
+    }
     for (int s = 0; s < steps; ++s) {
         for (Particle& p : b.q) {
             const Vec3 v = (p.p - p.prev) * 0.998f;
@@ -555,6 +582,7 @@ void Step(Body& b, float dt, float gy, uint32_t frame) {
                     }
                     p.p = p.p + d;
                     p.prev = p.prev + d;
+                    ++b.dbgCar;
                     // Carried along with the car (friction on its body): toward its pace,
                     // once a step.
                     if (it != 0) continue;
@@ -574,6 +602,35 @@ void Step(Body& b, float dt, float gy, uint32_t frame) {
                 if (p.p.y < floorY) p.p.y = floorY;
             }
         }
+        // FIX-KNOCKDOWN-2 (pfl65): the other cars shove the lying body out of their box in one piece, square to
+        // their travel toward the side his pelvis is on (or out the nearest side of a still car), at most the car's
+        // own pace plus 0.5 block/s: positions and previous positions alike, so no joint gains speed from it (a
+        // per-joint push fought the links: kd2_b/kd2_d joints at 18 blocks/s).
+        for (int o = 0; o < otherCount; ++o) {
+            const CarNote& c = *others[o];
+            const float u = static_cast<float>(s + 1) / static_cast<float>(steps);
+            const float cxNow = c.x - c.vx * dt * (1.0f - u), czNow = c.z - c.vz * dt * (1.0f - u);
+            const float pdx = b.q[kPelvis].p.x - cxNow, pdz = b.q[kPelvis].p.z - czNow;
+            const float plz = -pdx * c.fz + pdz * c.fx;
+            const float side = plz >= 0.0f ? 1.0f : -1.0f;
+            const float sx = -c.fz * side, sz = c.fx * side;   // out of the nearest long side
+            float need = 0.0f;
+            for (int k = 0; k < kParticles; ++k) {
+                const Particle& p = b.q[k];
+                const float r = kRadius[k];
+                if (p.p.y > gy + 0.34f + r) continue;
+                const float dx = p.p.x - cxNow, dz = p.p.z - czNow;
+                const float lx = dx * c.fx + dz * c.fz, lz = -dx * c.fz + dz * c.fx;
+                if (std::fabs(lx) >= c.halfLen + r || std::fabs(lz) >= c.halfWid + r) continue;
+                need = (std::max)(need, c.halfWid + r - lz * side);
+            }
+            if (need <= 0.0f) continue;
+            const float most = (std::sqrt(c.vx * c.vx + c.vz * c.vz) + 0.5f) * h;
+            const float m = (std::min)(need, most);
+            for (Particle& p : b.q) { p.p.x += sx * m; p.p.z += sz * m; p.prev.x += sx * m; p.prev.z += sz * m; }
+            b.startX += sx * m; b.startZ += sz * m;
+            ++b.dbgCar; ++b.dbgShove;
+        }
         // Contact: a little bounce, and friction along the ground.
         for (int k = 0; k < kParticles; ++k) {
             Particle& p = b.q[k];
@@ -585,12 +642,20 @@ void Step(Body& b, float dt, float gy, uint32_t frame) {
                 p.prev.z = p.p.z - (p.p.z - p.prev.z) * 0.92f;
             }
         }
+        // FIX-KNOCKDOWN-2 (pfl65): away from the throw and a roll, nothing lifts him: a joint rises no faster than
+        // 0.8 block/s (a limb folding over), so no solver pop can throw a lying body into the air.
+        if (Kd2Fix() && b.age - b.kickAge > 0.6f) {
+            const float cap = 0.8f * h;
+            for (Particle& p : b.q)
+                if (p.p.y - p.prev.y > cap) p.prev.y = p.p.y - cap;
+        }
     }
     // The map's walls: a joint that went into a building goes back to where it was.
     if (b.walls && g_devQueries.blocked) {
         for (int k = 0; k < kParticles; ++k) {
             Particle& p = b.q[k];
             if (g_devQueries.blocked(g_devQueries.context, p.p.x, gy + 0.25f, p.p.z)) {
+                ++b.dbgWalls;
                 p.p.x = frameStart[k].x; p.p.z = frameStart[k].z;
                 p.prev.x = p.p.x; p.prev.z = p.p.z;
             }
@@ -796,6 +861,7 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
     const Rig& rig = RigFor(model);
     // The game moved him (the knock-down slide, a body pushed): the ragdoll goes with it.
     const float mx = gx - b.anchorX, mz = gz - b.anchorZ;
+    b.dbgWalls = b.dbgCar = b.dbgShove = 0; b.dbgDrift = 0.0f; b.dbgMove = std::sqrt(mx * mx + mz * mz);
     if (mx != 0.0f || mz != 0.0f) {
         if (mx * mx + mz * mz < 1.0f) {
             for (Particle& p : b.q) { p.p.x += mx; p.p.z += mz; p.prev.x += mx; p.prev.z += mz; }
@@ -804,20 +870,62 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
         b.anchorX = gx; b.anchorZ = gz;
         b.settled = b.settled && mx * mx + mz * mz < 1e-6f;
     }
+    // FIX-KNOCKDOWN-2 (pfl65): the floor is the ground he went down on; the game's height for him jitters with its
+    // state. A real change of level (the game carried him onto a kerb or a step, 0.15+) moves the body with it.
+    const bool s_groundLatch = Kd2Fix();
+    if (s_groundLatch) {
+        const float dy = gy - b.groundY;
+        if (std::fabs(dy) > 0.15f && std::fabs(dy) < 1.0f) {
+            for (Particle& p : b.q) { p.p.y += dy; p.prev.y += dy; }
+            b.groundY = gy;
+            b.settled = false;
+        }
+        gy = b.groundY;
+    }
+    // A moving car reaching a still body wakes it (to be shoved out of the way, above).
+    if (b.settled && s_groundLatch) {
+        for (const auto& c : g_cars) {
+            if (frame - c.second.frame > 2 || c.second.vx * c.second.vx + c.second.vz * c.second.vz < 0.09f) continue;
+            const float dx = b.q[kPelvis].p.x - c.second.x, dz = b.q[kPelvis].p.z - c.second.z;
+            const float lx = dx * c.second.fx + dz * c.second.fz, lz = -dx * c.second.fz + dz * c.second.fx;
+            if (std::fabs(lx) < c.second.halfLen + 0.3f && std::fabs(lz) < c.second.halfWid + 0.3f) {
+                b.settled = false; b.still = 0.0f;
+                break;
+            }
+        }
+    }
     bool stepped = false;
     if (!b.settled && dt > 0.0f && b.seen != frame) { Step(b, (std::min)(dt, 0.1f), gy, frame); stepped = true; }
     // FIX-KNOCKDOWN (kd_t2 #2): never far from the game's spot for him. A truck dragged the player 2.7 blocks one
     // way while the throw carried the body the other: it lay 1.9 blocks off, out of the camera's picture, and
     // the get-up had to walk all of that back. Past kMaxDrift the whole body is carried along (dragged).
     {
-        constexpr float kMaxDrift = 0.9f;
+        // FIX-KNOCKDOWN-2: while another car shoves him the leash gives (to 1.6), so it does not pull him back under
+        // the car; then it shortens at 0.4 block/s (a slow drag, not a jump).
         const float dx = b.q[kPelvis].p.x - gx, dz = b.q[kPelvis].p.z - gz, d = std::sqrt(dx * dx + dz * dz);
+        if (b.dbgShove > 0) b.leash = (std::min)(1.6f, (std::max)(b.leash, d));
+        else if (b.leash > 0.9f) b.leash = (std::max)(0.9f, (std::max)(b.leash - 0.4f * (std::min)(dt, 0.1f), (std::min)(d, b.leash)));
+        const float kMaxDrift = b.leash;
         if (d > kMaxDrift) {
             const float k = (d - kMaxDrift) / d, sx = -dx * k, sz = -dz * k;
+            b.dbgDrift = d - kMaxDrift;
             for (Particle& p : b.q) { p.p.x += sx; p.p.z += sz; p.prev.x += sx; p.prev.z += sz; }
             b.startX += sx; b.startZ += sz;
             stepped = true;
         }
+    }
+    // FIX-KNOCKDOWN-2 (pfl65): per-frame trace of the solver body (GTA2DX9_LOG_KD=1).
+    static const bool kdTrace = [] { const char* e = getenv("GTA2DX9_LOG_KD"); return e && *e == '1'; }();
+    if (kdTrace && stepped) {
+        float vmax = 0.0f, vup = -1e9f, top = -1e9f;
+        const float hd = 1.0f / 120.0f;
+        for (int k = 0; k < kParticles; ++k) {
+            const Vec3 v = (b.q[k].p - b.q[k].prev) * (1.0f / hd);
+            vmax = (std::max)(vmax, Len(v)); vup = (std::max)(vup, v.y); top = (std::max)(top, b.q[k].p.y - gy);
+        }
+        Log("kdtrace: f=%u #%u age %.2f pel %.2f,%.3f,%.2f gy %.3f top %.3f vmax %.2f vup %.2f anchor %.2f,%.2f moved %.3f drift %.3f walls %d car %d settled %d",
+            frame, b.id, b.age, b.q[kPelvis].p.x, b.q[kPelvis].p.y - gy, b.q[kPelvis].p.z, gy, top, vmax, vup, gx, gz, b.dbgMove,
+            b.dbgDrift, b.dbgWalls, b.dbgCar, b.settled ? 1 : 0);
     }
     bool turned = false;   // the placement changed (it carries the pose to model space)
     for (int r = 0; r < 4 && !turned; ++r)
@@ -881,6 +989,7 @@ bool RagdollRollOver(uintptr_t ped) {
     b.settled = false;
     b.still = 0.0f;
     b.age = (std::max)(b.age, 0.61f);
+    b.kickAge = b.age;
     b.rescale = true;
     Log("ragdoll: #%u rolls over onto his front (lean %.2f)", b.id, lean);
     return true;

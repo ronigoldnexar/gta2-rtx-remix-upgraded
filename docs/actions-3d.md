@@ -1599,5 +1599,39 @@ Classic: `keys_kd_classic.sh` (pm18 V-cycle A/B, F11 warp) on this build (kd_c1)
   pace.
 - In third person the existing camera that pulls back over him (game state 8 for more than 0.8 s, kd_t4 #2) frames
   him small while he lies.
+
+## FIX-KNOCKDOWN-2 (10 Nov 2026): no launch off the ground (pfl65)
+
+pfl65 (on 174f6a7): the knocked-down hero lay still on the road and about 1.5 s later flew a block or more into the air
+and cartwheeled, while the log reported a pelvis peak of 0.24. **Diagnosis**: a per-frame trace of the solver
+(`GTA2DX9_LOG_KD=1`: `kdtrace:` solver pelvis height, the fastest joint, the upward speed, cars, walls, drift; `kddraw:`
+the drawn placement) caught it in `kd2_a` on a lying ped. With no car, wall or drift event, the ground height passed
+in moved from 2.016 to 2.042. That is the game's height for the ped, which changes by a few hundredths with its state
+(lying vs stood up). The solver's floor clamp lifted every joint 0.026 within one 1/120 s sub-step and left the previous
+positions where they were. Verlet reads that as an upward speed of 3 blocks/s, a 1.5-block flight. For the player it
+fires just after the game stands him up, which is where pfl65 saw it. The 0.24 peak in the log was the earlier settle,
+from before the launch.
+
+Now (`ragdoll.cpp`):
+- The floor is the ground he went down on, latched at the seed. Only a real change of level (0.15 to 1 block: a
+  kerb, a step the game carries him onto) moves the whole body, with no speed.
+- More than 0.6 s after the throw or a roll, no joint rises faster than 0.8 block/s. No pop can throw a lying body.
+- Every other car near him shoves the lying body out of its box in one piece. The shove is square to the car's
+  travel, toward the side his pelvis is on, at most the car's pace plus 0.5 block/s, and never up onto the car. All
+  joints and their previous positions move alike, so no joint gains speed. The first try pushed each joint on its own;
+  that fought the links and whipped limbs at 18 blocks/s (kd2_b, kd2_d). While a car shoves him, the 0.9-block leash
+  to the game's spot gives to 1.6 and then shortens at 0.4 block/s, so it never drags him back under the car. Before, a
+  second car drove through the body. A settled body is woken when a moving car reaches it.
+- A/B: `GTA2DX9_KD_GROUND_LATCH=0` turns off all three.
+
+Verified: `kd2_e`, third person, the kd lane, four impacts. Impact #1 is the filer's own throw (-0.79,-1.56 up 0.37 from
+the truck), and a police car passes beside the lying body. The rigid shove fired on 66 trace frames. Outside the throw
+and the rolls the pelvis never rises above 0.23. Joint speeds above 4 blocks/s occur only in an NPC's impact phase, in
+the hitting-car code, which is unchanged. Frames opened at 6 fps from impact to walk, plus a 9 fps crop of the police
+car's pass: he lies flat on the road while it passes, then gets up and walks. Classic: `keys_kd_classic.sh` on the shared
+stage (kd2_c0) against this build (kd2_c2) gives 0 differing static pixels before any 3D view and after the first V
+cycle. After the second cycle 228 differ; all of them are a game pedestrian sprite standing still in one run's window
+(crop opened); the tiles are identical.
+Not fixed: the solver roll still swings a leg up to his own height for a few frames (kd2_b #1 second roll).
 - The captures run 30 fps, but the game rendered about 20-25 fps on the loaded host (repeated frames in the
   recording).
