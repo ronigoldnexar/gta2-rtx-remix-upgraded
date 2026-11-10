@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -13,6 +15,8 @@
 #include "log.h"
 #include "model_store.h"
 #include "../../src/sky.h"
+#define XXH_INLINE_ALL
+#include "../deps/xxhash/xxhash.h"
 
 namespace gta2dx9 {
 namespace {
@@ -346,8 +350,8 @@ bool g_puffLevelsOn = true;   // [devtools] remix_puff_levels=0: the old way, fo
 // share is unchanged), stored as a smooth field and sampled bilinear under the alpha test, so the cut-out's
 // edge is a smooth curve at any magnification; and each puff keeps its pattern for its life (the seed per
 // frame made every texel flicker). Mode 0 the old dither, 2 no puffs under Remix, 3 mode 1 without the
-// exhaust. [devtools] remix_puff_mode, read in remix_lights.cpp.
-int g_remixPuffMode = 1;
+// exhaust, 4 (FIX-FX-6, the default) the soft blended puffs below. [devtools] remix_puff_mode, read in remix_lights.cpp.
+int g_remixPuffMode = 4;   // FIX-FX-6: 4 (soft blended puffs) by default; was 1
 // FIX-FX-5 (fire-fx 3d, out/ffx5_fi1: a burning van's smoke at night under Remix was a cloud of pale blue-white flakes):
 // a puff's grey (0.2 for a burning engine's smoke, 0.7-0.9 for tyre smoke, steam and exhaust) was only in the
 // vertex colour, which Remix drops, so every wisp took the texture's light shade. The wisps now come in grey tones
@@ -357,6 +361,20 @@ constexpr int kPuffTones = 3;
 constexpr float kPuffToneGrey[kPuffTones] = {1.0f, 0.55f, 0.26f};
 int g_remixPuffTones = 1;
 IDirect3DTexture9* g_puffWispTex[kPuffLevels * kPuffSeeds * kPuffTones] = {};
+// FIX-FX-6 (owner10nov-1 "feathers / milk", pt-remix-noon-smoke-puff): every cut-out above has a binary edge, which is
+// the bad look however smooth its outline. Remix puff mode 4 (the default since FIX-FX-6) draws the puffs as what they
+// are: alpha-BLENDED billboards (SRCALPHA/INVSRCALPHA, no alpha test) whose opacity is a Gaussian core reaching 0 at the
+// quad's edge, thinned by a coherent noise more at the rim than in the middle (billows), times the step's opacity (x0.35:
+// stacked puffs of a plume read dense under the path tracer), the grey tone baked into the texels (Remix drops vertex
+// colour). On this runtime (fx6_r1..r5, L4) the blended puff is lit and soft with the street through its thin parts; the
+// same textures listed in rtx.particleTextures rendered BLACK, and drawn added (ONE/ONE) black too, so neither is used.
+// The textures have fixed content (one fixed XXH3 hash each, logged "vehicle fx: soft puff ... 0x...") for a particle
+// classification test on another GPU.
+constexpr int kPuffSoftSize = 128;
+// Per tone (light, mid, dark): a light puff x0.35 (tyre smoke and steam stack into a white ball above that); a burning
+// engine's dark smoke x1.0 (the plain renderer's opacity: at x0.35 a burning van showed no plume at all, fx6_r5/r6).
+constexpr float kPuffSoftGain[kPuffTones] = {0.35f, 0.8f, 1.0f};
+IDirect3DTexture9* g_puffSoftTex[kPuffLevels * kPuffTones] = {};
 float PuffTexel(float u, float v) {
     const float dx = u - 0.5f, dy = v - 0.5f;
     const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
@@ -1380,11 +1398,80 @@ bool PuffWispsReady(IDirect3DDevice9* device) {
     return true;
 }
 
+// Mode 4's textures (see g_puffSoftTex), one a frame like the others.
+bool PuffSoftReady(IDirect3DDevice9* device) {
+    static bool failed = false;
+    constexpr int kCount = kPuffLevels * kPuffTones;
+    if (g_puffSoftTex[kCount - 1]) return true;
+    if (failed) return false;
+    constexpr int N = kPuffSoftSize;
+    // Two density profiles: [0] light puffs: a Gaussian core reaching 0 at the quad's edge (no outline at any opacity);
+    // [1] mid and dark smoke (a burning engine's plume pales into the mid tone as it rises): the puff's wider lumpy disc (PuffTexel), the body a burning engine's plume needs to show at all
+    // (fx6_r1 't' vs fx6_r7 's'). Both thinned by a coherent noise more at the rim than in the middle (billows).
+    static std::vector<float> densities[2];
+    if (densities[0].empty()) {
+        for (auto& d : densities) d.assign(N * N, 0.0f);
+        for (int y = 0; y < N; ++y)
+            for (int x = 0; x < N; ++x) {
+                const float u = (x + 0.5f) / N, v = (y + 0.5f) / N;
+                const float n = 0.55f * ValueNoise(u * 6.0f, v * 6.0f, 6, 71) + 0.30f * ValueNoise(u * 12.0f, v * 12.0f, 12, 73) +
+                                0.15f * ValueNoise(u * 24.0f, v * 24.0f, 24, 79);
+                const float dx = u - 0.5f, dy = v - 0.5f, r2 = (dx * dx + dy * dy) * 4.0f;
+                const float edge = Clamp(1.0f - std::sqrt(r2), 0.0f, 1.0f);
+                const float disc = std::exp(-3.2f * r2) * edge * edge * (3.0f - 2.0f * edge);
+                densities[0][y * N + x] = disc * Clamp(0.45f + 1.2f * (n - 0.5f) + 0.55f * disc, 0.0f, 1.0f);
+                const float wide = PuffTexel(u, v);
+                densities[1][y * N + x] = wide * Clamp(0.35f + 1.1f * (n - 0.5f) + 0.65f * wide, 0.0f, 1.0f);
+            }
+    }
+    for (int i = 0; i < kCount; ++i) {
+        if (g_puffSoftTex[i]) continue;
+        const int k = i % kPuffLevels, tone = i / kPuffLevels;
+        IDirect3DTexture9* tex = nullptr;
+        if (FAILED(device->CreateTexture(N, N, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr))) { failed = true; return false; }
+        std::vector<uint32_t> bytes(N * N);
+        const float level = (k + 1) * kPuffLevelStep;
+        for (int y = 0; y < N; ++y)
+            for (int x = 0; x < N; ++x) {
+                const float d = densities[tone >= 1 ? 1 : 0][y * N + x];
+                const float shade = (0.80f + 0.20f * d) * kPuffToneGrey[tone];
+                bytes[y * N + x] = Argb(d * level * kPuffSoftGain[tone], shade, shade, shade);
+            }
+        D3DLOCKED_RECT lr;
+        if (SUCCEEDED(tex->LockRect(0, &lr, nullptr, 0))) {
+            for (int y = 0; y < N; ++y) std::memcpy(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch, &bytes[y * N], N * 4);
+            tex->UnlockRect(0);
+        }
+        Log("vehicle fx: soft puff texture step %d tone %d 0x%016llX (Remix hash, %dx%d A8R8G8B8)", k, tone,
+            static_cast<unsigned long long>(XXH3_64bits(bytes.data(), bytes.size() * 4)), N, N);
+        g_puffSoftTex[i] = tex;
+        if (i < kCount - 1) return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 void VehicleFxSetPuffLevels(bool on) { g_puffLevelsOn = on; }
 void VehicleFxSetRemixPuffMode(int mode) { g_remixPuffMode = mode; }
 void VehicleFxSetRemixPuffTones(int on) { g_remixPuffTones = on; }
+
+// FIX-FX-6 (ffx5 5w3, the rocket's backblast as chrome spheres under Remix): the soft puff modes take other effects'
+// smoke too. True when this frame's Remix puffs are the soft ones (remix_puff_mode 4-6).
+bool VehicleFxRemixSoftPuffs() { return g_remixPuffMode == 4; }
+void VehicleFxEmitPuff(const gta2::Vec3& at, const gta2::Vec3& v, float life, float size0, float size1, float grey, float alpha) {
+    Particle p{};
+    p.kind = kSmoke;
+    p.x = at.x; p.y = at.y; p.z = at.z;
+    p.vx = v.x; p.vy = v.y; p.vz = v.z;
+    p.life = (std::max)(0.2f, life);
+    p.size0 = size0; p.size1 = size1;
+    p.rot = Rand(0.0f, 2.0f * kPi); p.rotV = Rand(-0.8f, 0.8f);
+    p.r = p.g = p.b = grey;
+    p.a = (std::min)(alpha, 0.34f);
+    p.groundY = at.y - 1.0f;
+    Emit(p);
+}
 
 // [devtools] spawn_smoke (FIX-REMIX-NIGHT): a tyre-smoke puff and a steam puff at `at`, every frame it is called.
 void VehicleFxProbeSmoke(const gta2::Vec3& at, float groundY) {
@@ -1610,10 +1697,15 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         g_puffQuads.push_back({c, a, b, Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], alpha),
                                Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], 1.0f), level, seed, tone});
     }
-    const bool wisps = remix && g_remixPuffMode != 0;
-    if (remix && g_remixPuffMode == 2) {
+    // Mode 4 (the default): the soft blended puffs (see g_puffSoftTex). GTA2DX9_REMIX_PUFF_SOFT=0 draws mode 4 as mode 1.
+    static int softEnv = -1;
+    if (softEnv < 0) { char b[4] = {}; softEnv = !(GetEnvironmentVariableA("GTA2DX9_REMIX_PUFF_SOFT", b, sizeof b) && b[0] == '0'); }
+    const int puffMode = (g_remixPuffMode == 4 && !softEnv) ? 1 : g_remixPuffMode;
+    const bool soft = remix && puffMode == 4;
+    const bool wisps = remix && puffMode != 0 && !soft;
+    if (remix && puffMode == 2) {
         // [devtools] remix_puff_mode=2: no puffs under Remix (the A/B for the firefly specks).
-    } else if (remix && g_puffLevelsOn && (wisps ? PuffWispsReady(device) : PuffLevelsReady(device))) {
+    } else if (remix && g_puffLevelsOn && (soft ? PuffSoftReady(device) : wisps ? PuffWispsReady(device) : PuffLevelsReady(device))) {
         // One batch per opacity step, the opacity in the texture (see g_puffLevelTex).
         // With normals: a camera-facing quad with none gets its normal from its winding, level with the
         // ground, and in the path tracer it took almost no sun or lamp light (black puffs at noon). A puff
@@ -1622,18 +1714,19 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         static std::vector<LitVertex> lit;
         static std::vector<uint16_t> idx;
         device->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX1);
-        device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-        device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+        // Soft (mode 4): blended SRCALPHA/INVSRCALPHA (set above), no alpha test; the cut-outs: alpha-tested.
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, soft ? TRUE : FALSE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, soft ? FALSE : TRUE);
         device->SetRenderState(D3DRS_ALPHAREF, 128u);
         device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
-        const D3DTEXTUREFILTERTYPE filter = wisps ? D3DTEXF_LINEAR : D3DTEXF_POINT;
+        const D3DTEXTUREFILTERTYPE filter = (wisps || soft) ? D3DTEXF_LINEAR : D3DTEXF_POINT;
         device->SetSamplerState(0, D3DSAMP_MAGFILTER, filter);
         device->SetSamplerState(0, D3DSAMP_MINFILTER, filter);
-        const int textures = wisps ? kPuffLevels * kPuffSeeds * kPuffTones : kPuffLevels * kPuffSeeds;
+        const int textures = soft ? kPuffLevels * kPuffTones : wisps ? kPuffLevels * kPuffSeeds * kPuffTones : kPuffLevels * kPuffSeeds;
         for (int k = 0; k < textures; ++k) {
             lit.clear(); idx.clear();
             for (const PuffQuad& q : g_puffQuads) {
-                const int key = q.level + kPuffLevels * (q.seed + (wisps ? kPuffSeeds * q.tone : 0));
+                const int key = soft ? q.level + kPuffLevels * q.tone : q.level + kPuffLevels * (q.seed + (wisps ? kPuffSeeds * q.tone : 0));
                 if (key != k || lit.size() + 4 > 65532) continue;
                 gta2::Vec3 n = gta2::Normalize(gta2::Normalize(eye - q.c) * 0.35f + worldUp);
                 const uint16_t base = static_cast<uint16_t>(lit.size());
@@ -1647,7 +1740,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
                 idx.insert(idx.end(), t, t + 6);
             }
             if (idx.empty()) continue;
-            device->SetTexture(0, wisps ? g_puffWispTex[k] : g_puffLevelTex[k]);
+            device->SetTexture(0, soft ? g_puffSoftTex[k] : wisps ? g_puffWispTex[k] : g_puffLevelTex[k]);
             device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(lit.size()), static_cast<UINT>(idx.size() / 3),
                                            idx.data(), D3DFMT_INDEX16, lit.data(), sizeof(LitVertex));
         }
@@ -1739,6 +1832,9 @@ void VehicleFxReleaseDevice() {
         if (t) { t->Release(); t = nullptr; }
     }
     for (IDirect3DTexture9*& t : g_puffWispTex) {
+        if (t) { t->Release(); t = nullptr; }
+    }
+    for (IDirect3DTexture9*& t : g_puffSoftTex) {
         if (t) { t->Release(); t = nullptr; }
     }
     if (g_vb) { g_vb->Release(); g_vb = nullptr; }

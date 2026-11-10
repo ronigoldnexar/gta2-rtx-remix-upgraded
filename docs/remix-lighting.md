@@ -331,3 +331,42 @@ letters at both distances; new = crisp octagon, white rim, sharp STOP. Cost over
 under Remix takes the same runtime option: its frame at the same moment differs by mean 5/255 in a static region
 (3.6 % of pixels over 16), less than two frames of one take differ (path tracing is not byte-repeatable); no
 texture in it changes visibly.
+
+## FIX-FX-6 (10 Nov): soft blended smoke instead of cut-out wisps (owner10nov-1 "feathers / milk")
+
+The owner saw the cars' smoke under Remix as opaque white torn-paper cut-outs ("feathers" moving, "milk" stopped):
+`remix_puff_mode=1`, FIX-REMIX-NIGHT-5's coherent wisps, which are an alpha-tested cut-out with a binary edge. The
+operator's stopgap shipped mode 2 (no puffs at all under Remix, ae01afd6).
+
+| Change | Where | Switch |
+|---|---|---|
+| Remix puff mode 4 (the code's default and the shipped ini value): every vehicle_fx puff (tyre smoke, steam, exhaust, a hurt or burning engine's smoke) is an alpha-BLENDED camera-facing billboard (SRCALPHA/INVSRCALPHA, no alpha test, no z write); its texture holds the density, thinned by a coherent noise more at the rim than in the middle (billows), times the opacity step, the grey tone baked into the texels as FIX-FX-5's wisps (Remix drops vertex colour). Light puffs: a Gaussian core reaching 0 at the quad's edge, x0.35; mid and dark smoke: the puff's wider lumpy disc, x0.8 / x1.0 (thinner, a burning van showed no plume at all: fx6_r5..r8); 8 steps x 3 tones of 128 px, fixed content | `vehicle_fx.cpp` `PuffSoftReady`, `g_puffSoftTex`, `kPuffSoftGain` | `[devtools] remix_puff_mode` 4 / 1 wisps / 2 none / 0 dither / 3; `GTA2DX9_REMIX_PUFF_SOFT=0` turns 4 into 1 |
+| Under Remix with mode 4, the shot smoke particles (kind 3: the rocket's backblast cone, gun and flame smoke) go to the same puffs instead of `ShotGlowTexture` (its falloff in the colour at near-full texture alpha, the vertex alpha dropped: a shaded chrome/glass ball, ffx5 5w3) | `live_geometry.cpp` `ShotSpawn` -> `VehicleFxEmitPuff` | `GTA2DX9_SHOT_SMOKE_REMIX_OLD=1` |
+
+What this runtime does with a translucent puff (one Remix session each on the L4, a forced burn of the parked 068
+van at wil 198.5,188.5 plus `spawn_smoke=1` beside the hero, 13:00 and 22:00, fixed cameras, the mode switched live,
+runs fx6_r1..r5):
+
+| Draw | Frame |
+|---|---|
+| mode 1 wisps | white (noon) / blue-grey (night) flakes with hard edges: the owner's picture, reproduced at the hero pose |
+| blended, textures listed in `rtx.particleTextures` (the runtime's particle path) | soft but BLACK blobs at noon and night (fx6_r2 `a`): the particle path is not lit here. Not used; the textures' hashes are logged (`vehicle fx: soft puff texture ... 0x...`) for the same test on a stronger GPU |
+| blended, untagged (mode 4) | lit, soft billows: white-grey tyre smoke and steam at noon with the road marks through the thin haze between the dense cores, a soft moonlit haze at night, a dark cloud over the burning van; no cut-out edge, no flakes, no bead column (fx6_r4 `a`, fx6_r5 `a`) |
+| blended at x0.22 / x0.14 opacity | the stacked cores darker, hardly thinner (fx6_r3): the runtime's opacity response is steep, so x0.35 for light puffs |
+| final (fx6_r9, after the rebase): mode 4 vs mode 1 in one session | hero pose 13:00 and 22:00: soft grey puffs with the road through the thin haze (mode 1: white flakes); third pose over the burning van: a soft dark plume off the roof at both hours (mode 1: grey flakes); eye-height pose 2.4 blocks off the van: NO plume in mode 4 (mode 1 shows a flake column): still open |
+| added (ONE/ONE) with the light baked in, x1 / x2.5 | black / dark grey balls (fx6_r5 `b`, `c`): additive smoke is not lit either |
+
+Frame time on the L4 (Medium, path traced): 70-95 ms a frame in every mode, no difference beyond the run's noise. The
+5090 proof (the owner's GPU) is the operator's. The classic view does not draw these puffs (street views only).
+
+Plain renderer: unchanged (it always drew the puffs blended with a soft disc; a burning van's plume is a soft low-contrast
+veil, no hard edge, fx6_p4).
+
+Found on the way (fire-fx 3d2, no flame tongues on a burning car): the van shows no flames in the plain renderer either.
+The game's flame sprites (base 8, 402-407, at the van's front) never reach the fire-spot code in `live_geometry.cpp`
+(no effect sprite near any car in the log after the burn), so no tongues and no fire plume are spawned; the warm pool
+under the car is the synthetic fire light. Still open.
+
+Still short of a shipping frame: the burning van's plume does not show from the eye-height pose under Remix (fx6_r6..r9,
+cause not found: not the particle pool, not the texture build); dense plumes stack into a dark ball with a visible lumpy outline (the steep opacity
+response); no self-shadowing or volume; Remix's own volumetrics fed with an emitter would be the AAA answer.

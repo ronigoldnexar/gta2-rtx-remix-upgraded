@@ -8243,6 +8243,18 @@ float ShotRand() {
 void ShotSpawn(float x, float y, float z, float vx, float vy, float vz, float life, float s0, float s1,
                float r, float g, float b, float a, uint8_t kind) {
     if (!g_uprightPeds) return;   // the street-level views only: the top-down view keeps the game's own art
+    // FIX-FX-6 (5w3): under Remix a kind-3 smoke puff (the rocket's backblast, gun and flame smoke) drawn from
+    // ShotGlowTexture (its falloff in the colour, near-full texture alpha; Remix drops the vertex alpha) path-traced as a
+    // shaded chrome/glass ball. With the soft Remix puffs on it goes to vehicle_fx's smoke instead.
+    // GTA2DX9_SHOT_SMOKE_REMIX_OLD=1: the old draw.
+    if (kind == 3 && RemixApiAvailable() && VehicleFxRemixSoftPuffs()) {
+        static int old = -1;
+        if (old < 0) { char v[8] = {}; old = (GetEnvironmentVariableA("GTA2DX9_SHOT_SMOKE_REMIX_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+        if (!old) {
+            VehicleFxEmitPuff(gta2::Vec3{x, y, z}, gta2::Vec3{vx, vy, vz}, life, (std::min)(s0, 0.6f), (std::min)(s1, 0.6f), (r + g + b) / 3.0f, a);
+            return;
+        }
+    }
     if (g_shotParticles.size() >= 1200) g_shotParticles.erase(g_shotParticles.begin());
     static int logged = 0;
     if (logged < 40) { ++logged; Log("shot fx: kind %d size %.3f..%.3f life %.2f at %.2f,%.2f,%.2f v %.2f,%.2f,%.2f", kind, s0, s1, life, x, y, z, vx, vy, vz); }

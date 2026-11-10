@@ -1478,10 +1478,10 @@ void LightsReconcile() {
             const int tl = GetPrivateProfileIntA("devtools", "remix_traffic_lift_milli", 650, ini);
             if (tl != g_trafficLiftMilli) { g_trafficLiftMilli = tl; g_reliftPending = true; Log("devtools: junction signals lifted %d/1000 tile", tl); }
             static int lastPuff = -1;
-            const int puff = GetPrivateProfileIntA("devtools", "remix_puff_mode", 1, ini);
+            const int puff = GetPrivateProfileIntA("devtools", "remix_puff_mode", 4, ini);   // FIX-FX-6: 4 soft by default
             if (puff != lastPuff) {
                 lastPuff = puff; VehicleFxSetRemixPuffMode(puff);
-                Log("devtools: Remix smoke puffs mode %d (0 dither, 1 wisps, 2 none, 3 wisps without exhaust)", puff);
+                Log("devtools: Remix smoke puffs mode %d (0 dither, 1 wisps, 2 none, 3 wisps without exhaust, 4 soft blended)", puff);
             }
             static int lastTones = -1;
             const int tones = GetPrivateProfileIntA("devtools", "remix_puff_tones", 1, ini);
