@@ -15,9 +15,14 @@ rtx.screenshot.hotkey = F12
 rtx.shader.blockUntilPrewarmed = False
 rtx.gpuStallTimeoutSeconds = 600
 # Quality: the runtime's Auto preset (5) reads the L4 as "Turing" and picks Low
-# (remix-dxvk.log: "setting default graphics settings to Low"). Medium for play
-# (frame cost not yet measured; High = 1 is in the showcase preset).
-rtx.graphicsPreset = 2
+# (remix-dxvk.log: "setting default graphics settings to Low"). Ultra (0) for play since
+# REMIX-PARITY-1 section 2a (docs/remix-parity.md): the 5090's Auto is Ultra, and Medium (2)
+# casts NO sun shadows at all (bench, lamp post, hydrant, cars, pedestrians all shadowless in
+# two sessions each way) while Ultra does; night frames identical within noise; p50 frame
+# cost unchanged on the L4 at 1280x720. The indirect integrator is unaffected: this file
+# never set it, and on the L4 every preset falls from NRC to importance sampled (section 2b
+# moves to Custom 4 + ReSTIR GI once measured). High = 1 is in the showcase preset.
+rtx.graphicsPreset = 0
 # Anti-aliasing: the old presets had upscalerType 0 = no temporal AA at all. TAA-U at full
 # resolution (DLSS needs NGX, which Wine lacks; 3 = TAA-U and taauPreset 4 = full
 # resolution follow the upstream enums, not yet confirmed in a frame here).
