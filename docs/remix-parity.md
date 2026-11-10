@@ -223,3 +223,32 @@ visual check depends on it. DLSS 4 present metering (`NV_present_metering extens
   internal per-option table (the runtime does not print it: the rig writes the option-table defaults and matches Ultra's
   frames, not a dump); dxvk-nvapi for Reflex; first person, driving, other districts and smoke under the rig.
 - No DLL, `package/` or classic-path change: the classic top-down view is untouched by construction (no build was made).
+
+## 5. Re-runs under the parity rig (REMIX-PARITY-2, 10 Nov 2026, 21:20-22:35 UTC)
+
+Ten Remix/GL sessions on GPU 6 (L4), one at a time, HEAD ac5813dd DLLs (carrying FIX-FX-6's `remix_puff_mode=4` soft puffs) in a private stage
+`cp -al` of the shared stage (dd489cab), rig `-e RTX_EXTRA=/work/rtx_parity_max.conf.extra`, 0 FAULT in all of them. Probes:
+`gamerun/rp2_tod.py` (B4/B5 fixed cameras, same spot as section 2), `gamerun/keys_rp2_cam17r.sh` (B8 on Remix), the existing
+`keys_fx6_rfire.sh` / `keys_cam17.sh` / `playtest_remix.sh`. Frames I opened are in `defects/evidence/rp2_*.png` (sheets). No DLL, `package/` or rtx conf change:
+the classic top-down view is untouched by construction.
+
+| item | reproducible on Tokyo | what the frames show |
+|---|---|---|
+| B1 smoke | **YES for the new look; the owner's old look not seen** | `out/rp2_b1b` (burning 068 van, 13:00 and 22:00, `rp2_b1_smoke_modes_sheet.png`): mode 4 draws a soft dark plume off the van with the street visible through it; no white lump, flake or milk. Mode 2 showed no puff at the sampled instant either, so this A/B cannot show the old defect. Under ReSTIR GI the lit result is judgeable; NRC + DLSS-RR denoising of a thin volume stays 5090-only |
+| B4 follow_clock=auto + sun | **YES (auto verified); the defect itself NOT reproduced** | `out/rp2_b4`, auto (INI_SED), hours 2 / 6.5 / 16 / 21.5 (`rp2_b4_follow_clock_auto_sky_vs_street_hours_2_6.5_16_21.5.png`): star sky + dark lamp-lit street at 02:00 and 21:30, blue dawn sky with low light at 06:30, white sun + hard shadows at 16:00; the log shows `sun follows the clock` and a sun push per hour. Control `out/rp2_b4c` with the stage's own `follow_clock=0` (`rp2_b4_control_...png`): ALSO consistent at 02:00 and 16:00, so "night sky over a daylit street" does not show on the L4 at these hours with either setting (the dome sun is not drawn under Remix). **New finding, filed:** the shared stage's ini still holds `follow_clock=0` (package: auto), `open/remix-parity-stage-ini-keeps-follow-clock-0-...md` |
+| B5 night exposure / sky fill | **NO: opposite direction** | `out/rp2_b4` + `out/rp2_b5` (21:30 and 02:00, fixed camera, live `remix_config` pushes, three-state A/B): 2.5 / 1.0 mean luma 32.0 and 31.8, **1.2 / 0.3 gives 21.4 and 21.1 (about a third darker)**, back to 2.5 / 1.0: 31.0 and 31.7 (`rp2_b5_night_exposure_AB_2.5-1.0_vs_1.2-0.3.png`). Split at 21:30 (`rp2_b5_split_cap_vs_fill_21h30.png`): exposure cap alone 1.2 = 21.4; sky fill alone 0.3 = 31.8 (no change); both 21.4. So under ReSTIR GI the cap is the whole effect and it darkens. The operator's "1.2/0.3 BRIGHTER" is not reproduced here; what is left for the 5090 is whether NRC's indirect (which this rig cannot run) makes the cap lift instead |
+| B8 camera jitter, phone box / bus | **YES, plain GL and Remix, no Remix effect** | cam17_probe on the wil booth and kerb pockets: `out/rp2_b8_plain` 2 boom cuts of 105 and 108 degrees in one frame, `out/rp2_b8_remix` 3 cuts (75, 133, 172 degrees), every other frame at most 8 degrees. The cuts are the open residual of `cam18-third-pocket-residual-cut-...` (note filed beside it); the clearance probe's constant `0.600` now means "no map face within 0.6" |
+
+**Group B daylight filings (order task B).** 11 filings judged before 19:59 on the Medium play rig were re-taken at their poses on the rig at 12:00 (wil `out/rp2_bw`
+5 points, ste `out/rp2_bs`, bil `out/rp2_bb`; sheets `rp2_bw_wil_noon_rig_point0-4.png`, `rp2_bs_ste_noon_rig_point0-2.png`, `rp2_bb_bil_hedge_noon_rig.png`; the runner's own headings, not
+the filers' exact cameras). **None came back at Ultra/Custom**: road lids (ptrmx26), lamp poles (ptrmx28), red car paint (prx4, day), stone facade glass (ptrmx30), gantry heads (ptrmx22, day), atom sign (prx2, noon),
+ste sidewalk (ptrmx17), hedge tops (hedge-top-black-holes), fists skin (ptrmx27) and the bubble column (prem1) all stand fixed or absent, and every frame has the 12:00 sun shadows the Medium
+frames lacked, so no fixed/ resolution rested on a shadowless frame in a way that matters. A `<slug>.REMIX-PARITY-2-NOTE.md` sits beside each. **Not testable by this runner:** the BD4 first-person cabin
+(`pt-remix-fp-cabin-flat-white-slabs`) and the aniston pale car (`pt-remix-third-aniston-...`) need a seated scene car; night halves of ptrmx22 and prx2 were not taken.
+
+**What became reproducible on Tokyo:** B1's lit result, B4's auto path (with the ini caveat), B5's direction (it is dimmer), B8's cut (already true). **What stays 5090-only:** B2, B3, B7 (Wine), B6's NGX family,
+NRC-specific B5 behaviour, the B1 look under DLSS-RR. **Proposed for the coordinator (not done here):** drop `follow_clock=0` from the shared stage ini at the next restage (or make `merge_stage_ini.py` take the package
+value when the stage's equals no shipped value); correct section 4's B4 line from "partly" to "auto reproducible, defect not reproduced with follow_clock=0 on the L4".
+
+**Verified vs untested.** Verified: every row above has frames I opened and log lines read. Untested: B4 at other hours or with NRC; B5 at other places than the one lamp-lit street; B1 against an A/B where the old mode draws at all
+(a puffing car caught mid-emission); B8 on the 5090; night frames of the Group B filings; first-person cab and car paint filings that need a car.
