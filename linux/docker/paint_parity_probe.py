@@ -21,13 +21,20 @@ def shot(name):
                     "-frames:v", "1", f"/out/{name}.png"]); F.mark(f"shot {name}")
 PAINTS = [("red", "133,65,65,189,109,108"), ("navy", "35,45,95,55,65,130"), ("black", "28,28,30,42,42,45"),
           ("yellow", "200,180,50,230,215,90"), ("green", "60,120,60,90,160,90"), ("white", "215,215,215,240,240,240"),
-          ("teal", "60,93,102,90,130,140")]
+          ("teal", "60,93,102,90,130,140"),
+          # FIX-CAR-IDENTITY-5: the G4 bank van's sprite paints by the remap rule (assets-src/cars/sprites 004 default / remap36)
+          ("van36", "70,99,85,100,130,115"), ("vanblue", "59,82,115,90,110,140")]
 MODES = [("old", {"paint_ref": 0, "paint_gain_percent": 100, "paint_spec_power": 26}),
          ("new", {"paint_ref": 1, "paint_gain_percent": 125, "paint_spec_power": 50})]
 if os.environ.get("MODES"):
     MODES = [(x.split(":")[0], dict(kv.split("=") for kv in x.split(":")[1].split(";"))) for x in os.environ["MODES"].split("|") if x]
+ALL_PAINTS = dict(PAINTS)
 if os.environ.get("PAINTS"):
     PAINTS = [p for p in PAINTS if p[0] in os.environ["PAINTS"].split(",")]
+# FIX-CAR-IDENTITY-5: liveries and wrecks keep their own colours (a forced paint changes nothing on them): ONE_PAINT_MODELS
+# get only the first paint; EXTRA_PAINTS="4:van36,vanblue;..." adds a model's own sprite paints.
+ONE = {int(x) for x in os.environ.get("ONE_PAINT_MODELS", "").split(",") if x.strip()}
+EXTRA = {int(k): v.split(",") for k, v in (x.split(":") for x in os.environ.get("EXTRA_PAINTS", "").split(";") if ":" in x)}
 POSES = {"top": (-0.08, 0.0, 5.0), "top3": (-0.6, 0.3, 3.0), "chase": (-1.7, 0.0, 0.75), "low": (-1.1, 0.25, 0.02), "under": (-0.7, 0.0, -0.05)}
 T.warp(float(os.environ.get("WX", "164.5")), float(os.environ.get("WY", "147.6")), 2, why="street"); F.into_car(); F.mark(f"driving {F.driving()}")
 Q.set_view("third", settle=1.0); time.sleep(4.0)
@@ -44,7 +51,8 @@ for m in [x for x in os.environ.get("MODELS", "13,18,40").split(",") if x]:
         f, r, u = POSES[pose]
         cam(f"cam {x + fx * f + rx * r:.3f} {y + fy * f + ry * r:.3f} {z + u:.3f} {x:.3f} {y:.3f} {z + (0.18 if pose in ("low", "under") else 0.10):.3f} 50")
         time.sleep(0.8)
-        for pl, pv in PAINTS:
+        mp = PAINTS[:1] if int(m) in ONE else PAINTS + [(e, ALL_PAINTS[e]) for e in EXTRA.get(int(m), []) if e in ALL_PAINTS and e not in dict(PAINTS)]
+        for pl, pv in mp:
             setkey("force_car_paint", pv)
             time.sleep(4.0)   # devtools re-read (60 frames) + the record's paint hold (45 frames)
             for ml, kv in MODES:
