@@ -23,8 +23,21 @@ import m063_truck_cab as B
 
 M = B.M
 # the paint gate (out/va19_gate1_paint.md): with the 063's coat the 064's broad sunlit hood and roof lip read the red record
-# +25 % L* against the sprite (the 063: +20 %); a 7 % darker neutral coat puts it with the 063
-M["paint"].rgb = M["paint"].rgb * 0.93
+# +25 % L* against the sprite from the classic camera (the 063: +20 %). A darker coat changes nothing (the renderer
+# measures each body's own paint and normalises the tint: va19_gate2); the excess is the big up-facing lit area, so
+# the hood's and the lip's up-facing texels carry a slightly deeper coat than the flanks (as the sprite's roof does).
+_base_paint_shader = M["paint"].shader
+
+
+def _paint_shader_sx(pos, nrm, part, col):
+    out = _base_paint_shader(pos, nrm, part, col)
+    if part.name in ("hood", "roof_lip"):
+        up = np.clip((nrm[:, 1] - 0.45) / 0.45, 0, 1)
+        out = out * (1.0 - 0.14 * up)[:, None]
+    return out
+
+
+M["paint"].shader = _paint_shader_sx
 L, W = B.L, B.W
 DROP = ("hood", "hood_strip", "grille_frame", "grille_mesh", "emblem", "ornament", "roof_lamp", "roof_bezel", "roof_lens",
         "roof_lamp_base", "stack", "shield", "stack_bracket", "hl_bucket", "hl_lens", "hl_bezel", "hl_stalk", "turn", "apron")
