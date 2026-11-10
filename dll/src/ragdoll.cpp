@@ -515,15 +515,37 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
     }
     // Sideways a little either way, so no two land the same.
     const float sideX = -vz * 0.25f * jitter, sideZ = vx * 0.25f * jitter;
+    // FIX-KNOCKDOWN-3 (kd3_ro4 #2): the slow knock pitches him where there is room. Hit toward a building, the
+    // walls stopped the pitch every frame (15 of 17 joints sent back) and she sank into an upright crouch, then
+    // stood up without ever lying down. Along the car's travel if the ground a body length that way is clear, else
+    // along the wall (the side the jitter picks first; never back onto the car: kd3 harness, a wall 0.4 ahead
+    // at 1.6 b/s threw him up onto the bonnet, pelvis 0.74).
+    float pitchX = 0.0f, pitchZ = 0.0f;
+    if (spin > 0.0f) {
+        const float vl = (std::max)(0.05f, std::sqrt(vx * vx + vz * vz));
+        const float ux = vx / vl, uz = vz / vl, js = jitter >= 0.0f ? 1.0f : -1.0f;
+        const float cand[3][2] = {{ux, uz}, {-uz * js, ux * js}, {uz * js, -ux * js}};
+        const Vec3 pel = b.q[kPelvis].p;
+        int pick = 0;
+        bool found = false;
+        for (int c = 0; c < 3 && b.walls && g_devQueries.blocked; ++c) {
+            bool clear = true;
+            for (float d = 0.15f; d <= 0.46f && clear; d += 0.155f)
+                clear = !g_devQueries.blocked(g_devQueries.context, pel.x + cand[c][0] * d, gy + 0.25f, pel.z + cand[c][1] * d);
+            if (clear) { pick = c; found = true; break; }
+        }
+        if (!found && b.walls && g_devQueries.blocked) pick = 1;
+        pitchX = cand[pick][0]; pitchZ = cand[pick][1];
+        if (pick != 0) Log("ragdoll: start %p: no room ahead, pitched %s", reinterpret_cast<const void*>(ped), found ? "along the wall" : "along the wall (no room anywhere)");
+    }
     for (int k = 0; k < kParticles; ++k) {
         const float h = (std::min)(1.0f, (std::max)(0.0f, (b.q[k].p.y - gy) / 0.46f));
         const float f = 1.0f + (upper - 1.0f) * h;
         float pvx = (vx + sideX) * f, pvz = (vz + sideZ) * f;
         if (spin > 0.0f) {
             // The pitch: the head along the car's travel, the feet held back (about 0.3 of his height).
-            const float vl = (std::max)(0.05f, std::sqrt(vx * vx + vz * vz));
             const float add = spin * 0.46f * (h - 0.3f);
-            pvx += vx / vl * add; pvz += vz / vl * add;
+            pvx += pitchX * add; pvz += pitchZ * add;
         }
         const float pvy = lift * (0.6f + 0.6f * h) * (kind == 1 ? 1.0f : 1.0f);
         const float h30 = 1.0f / 30.0f;   // velocity is position minus previous over the step: seeded per 1/30 s
@@ -541,34 +563,35 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
 }
 
 // FIX-KNOCKDOWN-3: the cross-axis hold (see Kd3NoFlip). Positions only, as the links: the speed into the limit goes.
+// It only ever lowers joints (the feet for the legs, the pelvis end for the torso): a correction that raised the
+// other end climbed the body up a wall a little every iteration when the lowered joint was blocked (harness: a man
+// pinned between the bonnet and a wall rose to 0.77 block).
 void NoFlip(Particle* q) {
     constexpr float kLegRise = 0.34f;    // sin 20 deg: hips -> feet
     constexpr float kKneeRise = 0.77f;   // sin 50 deg: hips -> knees
     constexpr float kHeadDrop = 0.50f;   // sin 30 deg: pelvis -> neck, downward
-    auto rise = [&](int root, int end, float most, float endShare) {
+    auto rise = [&](int root, int end, float most) {
         const Vec3 d = q[end].p - q[root].p;
         const float len = Len(d);
         if (len < 1e-4f) return;
         const float over = d.y - most * len;
-        if (over <= 0.0f) return;
-        q[end].p.y -= over * endShare;
-        q[root].p.y += over * (1.0f - endShare);
+        if (over > 0.0f) q[end].p.y -= over;
     };
-    rise(kLHip, kLFoot, kLegRise, 0.8f);
-    rise(kRHip, kRFoot, kLegRise, 0.8f);
-    rise(kLHip, kLKnee, kKneeRise, 0.8f);
-    rise(kRHip, kRKnee, kKneeRise, 0.8f);
-    // The torso: the upper part up, the lower part down, by where each joint sits along pelvis -> neck.
+    rise(kLHip, kLFoot, kLegRise);
+    rise(kRHip, kRFoot, kLegRise);
+    rise(kLHip, kLKnee, kKneeRise);
+    rise(kRHip, kRKnee, kKneeRise);
+    // The torso: the pelvis end down, by how near each joint sits to the pelvis along pelvis -> neck.
     const Vec3 axis = q[kNeck].p - q[kPelvis].p;
     const float len = Len(axis);
     if (len < 1e-4f) return;
     const float under = -kHeadDrop * len - axis.y;
     if (under <= 0.0f) return;
     const Vec3 dir = axis * (1.0f / len);
-    static const int kUpper[] = {kPelvis, kChest, kNeck, kHead, kHeadTop, kLShoulder, kRShoulder, kLHip, kRHip};
+    static const int kUpper[] = {kPelvis, kChest, kNeck, kLShoulder, kRShoulder, kLHip, kRHip};
     for (int k : kUpper) {
-        const float t = (std::min)(1.2f, (std::max)(0.0f, gta2::Dot(q[k].p - q[kPelvis].p, dir) / len));
-        q[k].p.y += under * (t - 0.35f);
+        const float t = (std::min)(1.0f, (std::max)(0.0f, gta2::Dot(q[k].p - q[kPelvis].p, dir) / len));
+        q[k].p.y -= under * (1.0f - t);
     }
 }
 

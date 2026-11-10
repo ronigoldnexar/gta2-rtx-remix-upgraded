@@ -1672,11 +1672,16 @@ Now (`ragdoll.cpp`):
 - *No cross-axis somersault.* Inside the solver's iterations the body may roll about its long axis as it likes, but
   the hips-to-feet line rises at most 20 degrees above level, hips-to-knees 50 degrees (knees up on his back), and
   the neck drops at most 30 degrees below the pelvis (draped over a bonnet). Positions only, like the links: the
-  speed into the limit is removed, nothing is added (pelvis and head peaks unchanged in the harness).
+  speed into the limit is removed, nothing is added (pelvis and head peaks unchanged in the harness). The correction
+  only ever lowers joints (the feet, the pelvis end of the torso): the first version also raised the other end, and a
+  man pinned between a bonnet and a wall climbed to 0.77 block in the harness.
 - *Slow knock.* Below 3 blocks/s the car no longer folds him over its bonnet and does not lift him. He is knocked
   over along the car's travel with a pitch of 4.5 rad/s about his feet (head along the travel, feet held back), so
   he lands on his front (hit from behind) or his back (hit facing the car) in about 0.35 s. From 3 blocks/s the old
-  throw (folded over the bonnet, lifted) blends back in.
+  throw (folded over the bonnet, lifted) blends back in. The pitch goes where there is room: along the car's travel
+  if the ground a body length that way is clear of walls, else along the wall (never back onto the car). kd3_ro4 #2:
+  hit toward a building, the walls stopped the pitch (15 of 17 joints sent back every frame) and she sank into an
+  upright crouch and stood up without lying down.
 - `kdtrace:` (`GTA2DX9_LOG_KD=1`) also logs `head`, the higher `foot`, the torso's up `tup` (1 upright, -1 on his
   head) and `legup` (legs within 35 degrees of vertical), for every body on camera or not.
 - A/B: `GTA2DX9_KD_NO_FLIP=0` (both changes off).
@@ -1687,6 +1692,21 @@ Now (`ragdoll.cpp`):
 | kd3_lane0 (lane, GTA2DX9_KD_NO_FLIP=0) | 2 | 0 | 0.53-0.57 s |
 | kd3_lane1 (no-flip, before the slow knock) | 5 | 0 | 0.47-0.57 s; #2 upright glide 0.47 s (frames) |
 | kd3_lane2 (this change) | 6 | 0 | 0.37-0.40 s |
+
+The get-up of a person the game runs on (pf3, FIX-KNOCKDOWN-3; `live_geometry.cpp`, the knock-down hand-back):
+- *Pinned while it plays.* The figure's draw offset onto the body was held fixed relative to the game's spot through
+  the get-up, so a fleeing NPC's rising figure slid along at the game's running pace (the skate). The get-up is now
+  pinned where the body lies: kd3_ro5 (security guard hit by the own van) the drawn spot stays at 184.01,87.75 for
+  every frame of the clip while the game's spot moves 0.5 block (the `kddraw:` trace); frames: up off her back in
+  place, then walks off.
+- *Walk-off at most a run.* After the get-up the offset is walked off as before (0.35 s ease) but no faster than
+  2.5 blocks/s, so the legs step the catch-up instead of the figure gliding.
+- *Lands and lies first.* An NPC the game walks off more than 0.3 block got up at once, even mid-fall (the "snaps
+  upright" of pf3). Now not before the body is still or 1.0 s from the impact (landing ~0.35 s plus a beat).
+- A/B: `GTA2DX9_KD_PIN_GETUP=0` (all three off).
+Still short: the get-up is still the procedural `fall`/`fall_front` played backwards (arms flung out on the way up
+from the back, kd3_ro5 frames): a mocap get-up is NEEDS OWNER 27. The 1.0 s beat is untested in a run (the runs
+filmed the 0.7 s version).
 
 ## FIX-FIGURE-14 (10 Nov 2026): first-person fists, the shotgun, the pistol's last round
 
