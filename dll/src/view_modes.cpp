@@ -2177,9 +2177,20 @@ float Wobble(double t, float f) {
 struct Obstacle {
     float x, z, y0, y1, r;
     bool post;
+    bool tree = false;   // FIX-CAMERA-16: a tree's trunk, up to the top of its crown: never hopped over
 };
 
-void GatherObstacles(float x, float z, float range, bool posts, std::vector<Obstacle>* out) {
+// FIX-CAMERA-16: the trees DrawProps placed (SetChaseTrees), and the hero the third-person boom framed last
+// (ChaseTreeAlpha's line). GTA2DX9_CAM_TREES=0: neither the boom nor the fade knows them (A/B).
+std::vector<ChaseTree> g_chaseTrees;
+struct ChaseHero { float x = 0.0f, y = 0.0f, z = 0.0f, height = 0.5f; double at = -1.0; } g_chaseHero;
+bool ChaseTreesOn() {
+    static int on = -1;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_CAM_TREES", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    return on != 0;
+}
+
+void GatherObstacles(float x, float z, float range, bool posts, std::vector<Obstacle>* out, bool trees = false) {
     out->clear();
     for (const PropFootprint& p : MapObjectObstacles()) {
         if (std::fabs(p.x - x) > range || std::fabs(p.z - z) > range) continue;
@@ -2187,6 +2198,13 @@ void GatherObstacles(float x, float z, float range, bool posts, std::vector<Obst
         // corner is up to 1.42 times that from its middle.
         out->push_back({p.x, p.z, p.y - 0.05f, p.y + p.height + 0.05f, p.radius * 1.42f, false});
     }
+    if (trees && ChaseTreesOn())
+        for (const ChaseTree& t : g_chaseTrees) {
+            if (std::fabs(t.x - x) > range || std::fabs(t.z - z) > range) continue;
+            Obstacle o{t.x, t.z, t.y - 0.05f, t.y + t.height + 0.05f, t.trunkR, false};
+            o.tree = true;
+            out->push_back(o);
+        }
     if (!posts) return;
     // DrawProps stands the post at the cell's kerb or wall, not under the light
     // (MapLampPosts; the lamps themselves until it has run).
@@ -3606,6 +3624,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
     }
     const gta2::Vec3 shownPivot{px + rescueX_ + pivotSideX_, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f) + rescueY_, pz + rescueZ_ + pivotSideZ_};
+    if (mode == ViewMode::ThirdPerson && !inVehicle) g_chaseHero = {px, baseY, pz, (std::min)(0.6f, (std::max)(0.4f, bodyHeight_)), Now()};
     // FIX-CAMERA-3 (feel17-armed-third-camera-inside-hero-screen-filled-with-blurred-cloth): on foot
     // the boom is solved against the drawn mesh as well as the map's cells. The cells do not see the
     // iron staircase by the phone box at wil 159.5,139.5 (nor any diagonal or partial face): the
@@ -4278,7 +4297,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // same spot; a tall one (a traffic light's pole), or one with no room above, it
     // stands in front of, toward him; when he stands at it, round its side.
     static std::vector<Obstacle> obstacles;
-    GatherObstacles(px, pz, distance + 3.0f, false, &obstacles);
+    GatherObstacles(px, pz, distance + 3.0f, false, &obstacles, !inVehicle);
     // Only what stands on the ground about his level: a traffic light's head over the
     // road is passed under or beside, never hopped over.
     obstacles.erase(std::remove_if(obstacles.begin(), obstacles.end(),
@@ -4291,7 +4310,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             if (!o) break;
             const float top = o->y1 + 0.3f;   // well over the roof, not skimming it
             const gta2::Vec3 over{e.x, top, e.z};
-            if (top - e.y < 0.9f && !(q.blocked && solidAt(over.x, over.y, over.z)) &&
+            if (!o->tree && top - e.y < 0.9f && !(q.blocked && solidAt(over.x, over.y, over.z)) &&
                 (!q.blocked || reachTo(pivot, over) >= 1.0f)) {
                 e = over;
                 continue;
@@ -4623,7 +4642,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             }
             if (enter > 0.0f) {
                 const float want = (std::max)(0.3f, enter - 0.05f);
-                const float slow = boomAtStart > 0.0f ? (std::max)(want, boomAtStart - kBoomIn * dt) : want;
+                // FIX-CAMERA-16: past a tree's trunk over about 0.3 s (4 blocks/s), not kBoomIn's 0.1 s: while the lens
+                // is still behind the trunk the tree fades (ChaseTreeAlpha, "across the line to him").
+                const float rateIn = hit && hit->tree ? 4.0f : kBoomIn;
+                const float slow = boomAtStart > 0.0f ? (std::max)(want, boomAtStart - rateIn * dt) : want;
                 const gta2::Vec3 at{shownPivot.x + armDirX_ * slow, shownPivot.y + armDirY_ * slow, shownPivot.z + armDirZ_ * slow};
                 boom_ = (std::min)(boom_, ObstacleAt(obstacles, at, kPropLens, false) ? want : slow);
                 if (cameraLogOn()) Log("cam: prop on the boom at %.2f: len=%.2f (object at %.2f,%.2f r %.2f, %.2f..%.2f)", enter, boom_, hit->x, hit->z,
@@ -5316,5 +5338,60 @@ bool FirstPersonSeatEyeRaw(gta2::Vec3* eye) {
 }
 void SetFirstPersonSeatCorrection(const gta2::Vec3& delta) { g_fpSeat.delta = delta; g_fpSeat.deltaAt = Now(); }
 bool FirstPersonBoardEyeOn() { return FpSeatGlideOn(); }
+
+// FIX-CAMERA-16: see view_modes.h.
+void SetChaseTrees(std::vector<ChaseTree>&& trees) { g_chaseTrees = std::move(trees); }
+
+float ChaseTreeAlpha(const gta2::Vec3& eye, float x, float y, float z, float height, float crownR, float trunkR) {
+    if (!ChaseTreesOn() || CurrentViewMode() != ViewMode::ThirdPerson || g_chaseHero.at < 0.0 || Now() - g_chaseHero.at > 0.25) return 1.0f;
+    const float top = y + height;
+    // The crown: from about 45 % of the height (tree_01..03: leaves from 0.45-0.53, the branch rods from 0.3 up to
+    // 0.66) to the top, out to its radius; the lens in it or under it among the rods, or a crown or trunk across the
+    // line to the hero, fades the tree.
+    const float crown0 = y + 0.45f * height, rods0 = y + 0.3f * height;
+    const float ex = eye.x - x, ez = eye.z - z, e2 = ex * ex + ez * ez;
+    const char* why = nullptr;
+    if (eye.y > crown0 - 0.25f && eye.y < top + 0.3f && e2 < (crownR + 0.3f) * (crownR + 0.3f)) why = "lens in the crown";
+    else if (eye.y >= rods0 - 0.2f && eye.y <= crown0 && e2 < (0.8f * crownR + 0.2f) * (0.8f * crownR + 0.2f)) why = "lens among the branches";
+    else if (eye.y >= y - 0.2f && eye.y <= crown0 && e2 < (trunkR + 0.45f) * (trunkR + 0.45f)) why = "trunk at the lens";
+    else {
+        // Three points on him (feet, chest, head): a line from the lens to each, sampled.
+        int blocked = 0;
+        const float hy[3] = {0.08f, 0.55f, 0.95f};
+        for (float f : hy) {
+            const gta2::Vec3 to{g_chaseHero.x, g_chaseHero.y + f * g_chaseHero.height, g_chaseHero.z};
+            for (int i = 1; i < 24; ++i) {
+                const float t = static_cast<float>(i) / 24.0f;
+                const gta2::Vec3 p = eye + (to - eye) * t;
+                const float dx = p.x - x, dz = p.z - z, d2 = dx * dx + dz * dz;
+                const bool trunk = p.y >= y && p.y <= crown0 && d2 < (trunkR + 0.04f) * (trunkR + 0.04f);
+                const bool crown = p.y > crown0 + 0.1f && p.y < top - 0.1f && d2 < 0.6f * crownR * 0.6f * crownR;
+                if (trunk || crown) { ++blocked; break; }
+            }
+        }
+        if (blocked) why = "across the line to him";
+    }
+    // Held 0.4 s after the last reason (no flicker as the lens or he moves along the crown's edge).
+    static std::map<int64_t, double> s_held;
+    const int64_t key = (static_cast<int64_t>(std::lround(x * 8.0f)) << 32) ^ static_cast<int64_t>(static_cast<uint32_t>(std::lround(z * 8.0f)));
+    const double now = Now();
+    if (!why) {
+        const auto it = s_held.find(key);
+        if (it == s_held.end() || now - it->second > 0.4) return 1.0f;
+        return 0.0f;
+    }
+    s_held[key] = now;
+    if (s_held.size() > 256)
+        for (auto it = s_held.begin(); it != s_held.end();) it = now - it->second > 2.0 ? s_held.erase(it) : std::next(it);
+    if (cameraLogOn()) {
+        static double last = -1.0;
+        if (Now() - last > 0.5) {
+            last = Now();
+            Log("cam: tree faded (%s) at %.2f,%.2f h %.2f crown %.2f trunk %.2f, eye %.2f,%.2f,%.2f", why, x,
+                static_cast<float>(gta2::kMapHeight) - z, height, crownR, trunkR, eye.x, eye.y, static_cast<float>(gta2::kMapHeight) - eye.z);
+        }
+    }
+    return 0.0f;
+}
 
 }  // namespace gta2dx9

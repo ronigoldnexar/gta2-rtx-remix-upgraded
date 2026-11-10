@@ -24,6 +24,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <vector>
 
 #include "../../src/camera.h"
 
@@ -528,6 +529,16 @@ bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1)
 bool ViewLineWalled(float x0, float y0, float z0, float x1, float y1, float z1);
 // Whether one point is inside a block with a solid side face (ViewQueries.walled).
 bool ViewPointWalled(float x, float y, float z);
+
+// FIX-CAMERA-16 (qav5-wil-third-park-tree-trunk-and-bare-branch-fill-the-lens): the street props' trees for the
+// third-person camera. DrawProps hands over the trees it placed this frame (renderer frame: foot point, height,
+// crown radius, trunk radius); the chase boom keeps clear of each trunk like a street object (stops short of it on
+// its line, never hops over it), and ChaseTreeAlpha tells DrawProps to fade a tree whose crown or branches hold the
+// lens, or which still stands across the line from the lens to the hero (0 = faded, 1 = drawn).
+// GTA2DX9_CAM_TREES=0 turns both off (A/B).
+struct ChaseTree { float x, y, z, height, crownR, trunkR; };
+void SetChaseTrees(std::vector<ChaseTree>&& trees);
+float ChaseTreeAlpha(const gta2::Vec3& eye, float x, float y, float z, float height, float crownR, float trunkR);
 
 // Pushes the motion blur choice to RTX Remix when it changes. Cheap to call
 // every frame: it only crosses the bridge when the answer is different.

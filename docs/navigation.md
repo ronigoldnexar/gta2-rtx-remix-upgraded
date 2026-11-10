@@ -1219,6 +1219,32 @@ went to the frame's bottom edge (A-Type 042) or down over the gauges.
   45 degrees, small at the far edge of the roof; a moving car that stops beside him is craned over only once
   measured still (~1 s); a truck crossing slowly at under 0.6 b/s still counts as standing.
 
+## Trees and the chase boom; warp probes hide the hero (FIX-CAMERA-16, 10 Nov 2026)
+
+- qav5 (wil park, third person on foot: a tree's trunk and a bare branch filled the lens, the hero hidden). The
+  street props' trees (DrawProps: the map's tree blocks and the park trees, models tree_01..03) were unknown to the
+  camera: not in eye_collision's mesh, not in the street objects the boom keeps clear of. Now DrawProps hands the
+  trees within 12 blocks of the player to view_modes (`SetChaseTrees`: foot point, height, crown radius = half the
+  model's width, trunk radius 0.12 x scale) and on foot:
+  - the trunk is a street object (`GatherObstacles`, flag `tree`) up to the crown's top: the shown boom stops short of
+    a trunk on its line (`cam: prop on the boom ...`), pulled in at 4 blocks/s at a tree (about 0.3 s for the usual
+    1.2 block; the street objects keep 9), never hopped over (the hop over a low object would put the lens in the
+    crown), and the eye keeps the berth off it;
+  - `ChaseTreeAlpha` fades a tree (the props' overlap-fade state: gone or whole over ~6 frames, held 0.4 s after the
+    last reason) whose crown holds the lens (from 45 % of its height up, out to its radius + 0.3), whose branch rods
+    are round the lens (30-45 % of its height, within 0.8 of the crown radius), whose trunk stands within 0.45 of the
+    lens, or whose trunk or crown still crosses one of the lines from the lens to his feet, chest and head. Log
+    (GTA2DX9_LOG_CAMERA=1): `cam: tree faded (<why>) at x,y h crown trunk, eye ...`.
+  `GTA2DX9_CAM_TREES=0` turns both off (A/B). First person and the cars are untouched (the player's body is already
+  kept out of the trunk by prop_collision). Probe: gamerun/keys_qa_cam16.sh + cam16_spots.py (CAM16_SPOTS="x,y;...":
+  warp, wait for the game camera's bounds to hold him, classic, third person through 8 headings, three short walks).
+- qav18 (bil south edge under the truss deck, and the alley at 240.5,4.5: "hero not drawn in any of 8 headings") and
+  the hidden hero in qav5's own recipe were the warp artefact of FIX-CAMERA-15's qaexp5: the filers' third-person
+  frames were all taken before the game's camera had scrolled to him (bounds reached him 13-45 s after the warp),
+  and the game submits no sprite outside its window. Settled (cam16_spots.py), the hero is drawn in every heading
+  at both bil spots, except the very first frame after a warp before he has moved (the post-warp "no sprite until he
+  moves" state; the pose line then has him centred in the box with a clear line).
+
 ### No see-through fists at full lock or on a wheel near the eye (FIX-DRIVER-GEOM-2, 10 Nov 2026)
 
 The owner demo's dependency run (pfl71 recipe on the a0dcb09 stage: the 068 van driven into a wall twice, then a held

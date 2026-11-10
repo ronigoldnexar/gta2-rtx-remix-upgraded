@@ -5497,6 +5497,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         }
         if (g_playerPosValid) PropCollisionLogNear(g_playerPosX, g_playerPosZ, g_playerPosY);
     }
+    { std::vector<ChaseTree> ct; for (const Placed& p : placed) if (p.model && (p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) && g_playerPosValid && std::fabs(p.x - g_playerPosX) < 12.0f && std::fabs(p.z - g_playerPosZ) < 12.0f) ct.push_back({p.x, p.y, p.z, p.model->Height() * p.scale, 0.5f * p.scale * (std::max)(p.model->Width(), p.model->Length()), 0.12f * p.scale}); SetChaseTrees(std::move(ct)); }   // FIX-CAMERA-16
     // Nothing behind the camera (a prop is at most about a block across).
     placed.erase(std::remove_if(placed.begin(), placed.end(),
                                 [](const Placed& p) { return BehindView(p.x, p.y, p.z, 1.5f); }),
@@ -5608,6 +5609,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     auto smooth01 = [](float t) { t = (std::min)(1.0f, (std::max)(0.0f, t)); return t * t * (3.0f - 2.0f * t); };
     auto overlapAlpha = [&](const Placed& p) -> float {
         if (!s_overlapFade) return 1.0f;
+        if (p.model == trees[0] || p.model == trees[1] || p.model == trees[2]) return ChaseTreeAlpha(eye, p.x, p.y, p.z, p.model->Height() * p.scale, 0.5f * p.scale * (std::max)(p.model->Width(), p.model->Length()), 0.12f * p.scale);   // FIX-CAMERA-16
         if (!(p.model == lamp || p.model == bin || p.model == bench || p.model == hydrant || p.model == mailbox ||
               p.model == meter || p.model == signStop || p.model == signOneWay)) return 1.0f;
         const float r = p.model == lamp ? 0.08f
