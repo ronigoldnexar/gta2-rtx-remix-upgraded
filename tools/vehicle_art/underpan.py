@@ -42,7 +42,11 @@ SKIP = {"063", "006", "054", "055", "059", "060", "061", "065", "066"} | {f"{n:0
 R_PAN = (0.0, 0.0, 0.5, 1.0)       # the floor pan, planar (x across, z along: v = nose at the top)
 R_DARK = (0.5, 0.0, 1.0, 0.5)      # cast iron / oily steel: sump, gearbox, diff, rails, axle
 R_RUST = (0.5, 0.5, 0.75, 1.0)     # exhaust: heat-browned steel
-R_TANK = (0.75, 0.5, 1.0, 1.0)     # fuel tank: painted steel, a little lighter
+R_TANK = (0.75, 0.5, 1.0, 0.75)    # fuel tank: painted steel, a little lighter
+R_GRIME = (0.75, 0.75, 1.0, 1.0)   # VEHICLE-ART-14: road grime over the shell's own downward faces (the cover)
+
+
+PAN_BASE = 64.0   # VEHICLE-ART-14: was 92 (ART-13): darker grime-grey, the stamping still reads
 
 
 def texture(size=256, seed=13):
@@ -61,13 +65,13 @@ def texture(size=256, seed=13):
     # pan: galvanised-dark grey (a real underside under road grime), lit from below it must still read grey
     y0, y1, x0, x1 = region(R_PAN)
     h, w = y1 - y0, x1 - x0
-    base = np.full((h, w), 92.0, np.float32) + noise(h, w, 16, 8) + noise(h, w, 3, 4)
+    base = np.full((h, w), PAN_BASE, np.float32) + noise(h, w, 16, 7) + noise(h, w, 3, 4)
     xs = (np.arange(w) + 0.5) / w             # 0..1 across (0.5 = the centre line)
     vs = (np.arange(h) + 0.5) / h             # 0 nose .. 1 tail
     X, V = np.meshgrid(xs, vs)
     # transmission tunnel: a darker band down the middle with soft stamped shoulders
     d = np.abs(X - 0.5)
-    base -= 22 * np.clip((0.085 - d) / 0.03, 0, 1)
+    base -= 16 * np.clip((0.085 - d) / 0.03, 0, 1)
     base += 10 * np.exp(-((d - 0.095) / 0.010) ** 2)          # the bright shoulder edge
     # stamped ribs across the floor halves (stiffening swages), every ~1/9 of the length, outside the tunnel
     rib = np.exp(-(((V * 9.0) % 1.0 - 0.5) / 0.05) ** 2) * (d > 0.12) * (d < 0.44)
@@ -78,26 +82,34 @@ def texture(size=256, seed=13):
         base -= 18 * np.clip((0.018 - np.abs(V - vc)) / 0.006, 0, 1)
     base += 8 * np.exp(-((d - 0.47) / 0.012) ** 2)
     # road grime: darker towards the wheels (front and rear) and the edges
-    base -= 12 * (np.exp(-((V - 0.10) / 0.12) ** 2) + np.exp(-((V - 0.90) / 0.12) ** 2)) * (d > 0.25)
+    base -= 10 * (np.exp(-((V - 0.10) / 0.12) ** 2) + np.exp(-((V - 0.90) / 0.12) ** 2)) * (d > 0.25)
+    base -= 8 * np.clip((d - 0.40) / 0.08, 0, 1)                # grime builds up towards the sills
     pan = np.stack([base * 0.98, base * 0.97, base * 0.95], -1)
     img[y0:y1, x0:x1] = pan
 
     y0, y1, x0, x1 = region(R_DARK)
     h, w = y1 - y0, x1 - x0
-    b = np.full((h, w), 64.0, np.float32) + noise(h, w, 8, 9) + noise(h, w, 2, 5)
+    b = np.full((h, w), 46.0, np.float32) + noise(h, w, 8, 7) + noise(h, w, 2, 4)
     img[y0:y1, x0:x1] = np.stack([b, b * 0.98, b * 0.95], -1)
 
     y0, y1, x0, x1 = region(R_RUST)
     h, w = y1 - y0, x1 - x0
-    b = np.full((h, w), 84.0, np.float32) + noise(h, w, 6, 10) + noise(h, w, 2, 6)
+    b = np.full((h, w), 64.0, np.float32) + noise(h, w, 6, 9) + noise(h, w, 2, 5)
     img[y0:y1, x0:x1] = np.stack([b * 1.12, b * 0.92, b * 0.78], -1)
 
     y0, y1, x0, x1 = region(R_TANK)
     h, w = y1 - y0, x1 - x0
-    b = np.full((h, w), 100.0, np.float32) + noise(h, w, 10, 6)
+    b = np.full((h, w), 70.0, np.float32) + noise(h, w, 10, 5)
     yy = np.arange(h)[:, None] / h
-    b -= 30 * ((np.abs(yy - 0.3) < 0.03) | (np.abs(yy - 0.7) < 0.03))   # the two straps
+    b -= 22 * ((np.abs(yy - 0.3) < 0.05) | (np.abs(yy - 0.7) < 0.05))   # the two straps
     img[y0:y1, x0:x1] = np.stack([b, b, b * 0.98], -1)
+
+    # VEHICLE-ART-14: the cover's grime: a slightly warm, mottled dark grey (road dirt over underseal), no structure
+    # (it is mapped planar over every downward face of the shell: arches, sills, bumpers, the overhangs)
+    y0, y1, x0, x1 = region(R_GRIME)
+    h, w = y1 - y0, x1 - x0
+    b = np.full((h, w), 50.0, np.float32) + noise(h, w, 12, 7) + noise(h, w, 3, 5)
+    img[y0:y1, x0:x1] = np.stack([b * 1.04, b * 1.0, b * 0.93], -1)
     a = np.full((S, S, 1), 255, np.float32)
     return Image.fromarray(np.concatenate([np.clip(img, 0, 255), a], -1).astype(np.uint8), "RGBA")
 
@@ -204,7 +216,7 @@ def measure(m, name=""):
     if marks:
         for _, c in marks:
             r = max(0.03, c[1])
-            wheels.append(dict(z=c[2], r=r, rr=1.06 * r, y=c[1], xin=max(0.25 * halfw, abs(c[0]) - 1.2 * r)))
+            wheels.append(dict(x=c[0], z=c[2], r=r, rr=1.06 * r, y=c[1], xin=max(0.25 * halfw, abs(c[0]) - 1.2 * r)))
         axles = sorted({round(w["z"], 4) for w in wheels}, reverse=True)
     else:
         # the renderer's shell guess: road contact near each end; radius up to 0.13 (taken at its maximum)
@@ -250,8 +262,20 @@ def measure(m, name=""):
     near = (np.abs(P[:, 0]) < 0.8 * halfw) & (P[:, 1] < floor + 0.04)
     z0 = float(np.percentile(P[near, 2], 1)) if near.sum() > 20 else zr - 0.12
     z1 = float(np.percentile(P[near, 2], 99)) if near.sum() > 20 else zf + 0.12
+    # VEHICLE-ART-14: the body's half width at floor level along z (the pan follows it out to the sills): per bin,
+    # the widest point within 6 cm over the floor; empty bins take their neighbours'
+    nb = 48
+    zb = np.linspace(zmin, zmax, nb + 1)
+    lowp = P[P[:, 1] < floor + 0.06]
+    ob = np.zeros(nb)
+    for i in range(nb):
+        q = lowp[(lowp[:, 2] >= zb[i]) & (lowp[:, 2] < zb[i + 1])]
+        ob[i] = np.percentile(np.abs(q[:, 0]), 98) if len(q) >= 4 else np.nan
+    ok = ~np.isnan(ob)
+    ob = np.interp(np.arange(nb), np.flatnonzero(ok), ob[ok]) if ok.any() else np.full(nb, 0.8 * halfw)
     return dict(halfw=float(halfw), floor=floor, zf=zf, zr=zr, z0=max(z0, zmin + 0.02), z1=min(z1, zmax - 0.02),
-                wheels=wheels, marker=bool(marks), lo=lo, hi=hi)
+                wheels=wheels, marker=bool(marks), lo=lo, hi=hi,
+                outline=(0.5 * (zb[1:] + zb[:-1]), ob))
 
 
 def build(meas):
@@ -259,7 +283,11 @@ def build(meas):
     hw, zf, zr = meas["halfw"], meas["zf"], meas["zr"]
     min_r = min(w["r"] for w in meas["wheels"])
     # the pan sits 3 mm under the floor, never lower than 0.03 (~15 cm)
-    y = max(meas["floor"] - 0.003, 0.030)
+    # (VEHICLE-ART-14: 6 mm, was 3: the cover's copies of the body's own floor faces sit 1.2 mm under them, and a
+    # gap of under 2 mm z-fought with the pan as dark combs; 4.8 mm is more than the 3 mm body-to-pan gap that never did)
+    # The kit bodies (marker wheels) keep 3 mm: their authored chassis boxes sit just under the floor, and parts
+    # lowered with a 6 mm pan met them as combs (out/va14_up_a4 004 rear axle); their cover skips floor-level faces.
+    y = max(meas["floor"] - (0.003 if meas["marker"] else 0.006), 0.030)
     z0, z1 = meas["z0"], meas["z1"]
     # scale: a part's size in model units per metre (the body's width is ~2.1 m on every car)
     k = (2 * hw) / 2.1
@@ -273,20 +301,26 @@ def build(meas):
             out = max(out, float(np.clip((span + 0.03 - dz) / 0.03, 0, 1)))
         return out
     wide, narrow = 0.80 * hw, 0.20 * hw
-    # the pan: a (x, z) grid, half width narrowing at the wheel wells; edges curl up 2 cm (a pressed lip)
+    # the pan: a (x, z) grid, half width narrowing at the wheel wells.
+    # VEHICLE-ART-14: between and beyond the wells it reaches the sills (0.96 x the body's own half width at floor
+    # level, never past 0.97 x the half width), not a fixed 0.80: the shell's underside no longer shows beside it
+    oz, ob = meas["outline"]
     nz = 64; nx = 12
     zs = np.linspace(z0, z1, nz + 1)
-    halfs = np.array([wide + (narrow - wide) * well(z) for z in zs])
+    wides = np.clip(0.96 * np.interp(zs, oz, ob), wide, 0.95 * hw)
+    halfs = np.array([wd + (narrow - wd) * well(z) for wd, z in zip(wides, zs)])
     P, N, UV = [], [], []
     for i, z in enumerate(zs):
         for j in range(nx + 1):
             s = j / nx * 2 - 1
             x = s * halfs[i]
-            lip = 0.02 * k * max(0.0, (abs(s) - 0.85) / 0.15) ** 2
-            endlip = 0.02 * k * max(0.0, 1 - min(z - z0, z1 - z) / (0.03)) if min(z - z0, z1 - z) < 0.03 else 0.0
+            # (VEHICLE-ART-14: flat, no curled lip: out at the sills a lip rising 2 cm crossed the body's own floor
+            # panels 3 mm above the pan at a grazing angle and read as sawteeth, out/va14_up_a6 004)
+            lip = 0.0
+            endlip = 0.0
             P.append([x, y + lip + endlip, z]); N.append([0, -1, 0])
             # planar UV: across = the pan's own half width so the tunnel stays at the centre, along = the body
-            UV.append([R_PAN[0] + (R_PAN[2] - R_PAN[0]) * (0.5 + x / (2 * wide)), R_PAN[1] + (R_PAN[3] - R_PAN[1]) * (z1 - z) / (z1 - z0)])
+            UV.append([R_PAN[0] + (R_PAN[2] - R_PAN[0]) * np.clip(0.5 + x / (2 * wides[i]), 0, 1), R_PAN[1] + (R_PAN[3] - R_PAN[1]) * (z1 - z) / (z1 - z0)])
     F = []
     for i in range(nz):
         for j in range(nx):
@@ -298,8 +332,9 @@ def build(meas):
         # hung h metres under the pan, squeezed on a low car so nothing reaches the road
         return y - min(h * k, 0.6 * (y - 0.008) * h / 0.16)
 
-    # frame rails, only between the wells (where the pan is wide)
-    for sx in (-1, 1):
+    # frame rails, only between the wells (where the pan is wide); not on the kit bodies: their authored rails
+    # sit at the same height (004: 0.8 mm apart) and z-fought as sawteeth (out/va14_up_a7)
+    for sx in (() if meas["marker"] else (-1, 1)):
         x = sx * 0.50 * hw
         za, zb = zr + max(w["rr"] for w in meas["wheels"]) + 0.05, zf - max(w["rr"] for w in meas["wheels"]) - 0.05
         if zb - za > 0.06:
@@ -318,6 +353,19 @@ def build(meas):
     # rear axle tube (inside the wells' inboard limit) and the differential
     tube(acc, (-xc, ya, zr), (xc, ya, zr), 0.045 * k, R_DARK, seg=10)
     blob(acc, (0, ya, zr + 0.03 * k), 0.16 * k, 0.12 * k, 0.15 * k, R_DARK)
+    # VEHICLE-ART-14: suspension: a lower arm each side at every axle, from beside the tunnel out into the well
+    # (one face spans the whole length, so its inboard end keeps every face off the wheel split), and a coil/damper
+    # stub over it; the rear also gets a trailing link forward to the floor
+    # (shells only: the kit bodies carry authored chassis boxes at the axles, and arms through them z-fought as combs)
+    for w in ([] if meas["marker"] else meas["wheels"]):
+        sx = 1 if w.get("x", 1) >= 0 else -1
+        for side in ((-1, 1) if not meas["marker"] else (sx,)):
+            xa, xb = side * 0.16 * hw, side * min(0.80 * hw, w["xin"] + 0.6 * w["r"])
+            ya = under(0.10)
+            tube(acc, (xa, ya, w["z"] - 0.10 * k), (xb, ya, w["z"]), 0.032 * k, R_DARK, seg=8, caps=False)
+            tube(acc, (xa, ya, w["z"] + 0.10 * k), (xb, ya, w["z"]), 0.032 * k, R_DARK, seg=8, caps=False)
+            if w["z"] < 0:
+                tube(acc, (xa * 0.9, under(0.05), w["z"] + 0.55 * k), (xb * 0.95, ya, w["z"]), 0.028 * k, R_DARK, seg=8, caps=False)
     # exhaust: from the engine down the right of the tunnel, a silencer ahead of the rear axle, a tail past it
     xe = min(0.32 * k, 0.55 * hw)
     ye = under(0.06)
@@ -344,7 +392,82 @@ def build(meas):
         # no overhang: the tank goes ahead of the axle, left of the tunnel
         za = zr + max(w["rr"] for w in meas["wheels"]) + 0.03
         box(acc, (-0.55 * hw, under(0.11), za), (-0.14 * hw, y + 0.001, za + 0.40 * k), R_TANK)
-    return acc.arrays(), y
+    return acc.arrays(), y, (zs, halfs)
+
+
+# texture names of the body's own parts the cover leaves alone (tyres and wheels, glass, the cabin, the kit's own
+# grey underbody and wells)
+COVER_SKIP = ("_glass", "underbody", "underpan", "tyre", "tire", "wheel", "whitewall", "hub", "rim", "seat", "interior",
+              "dash", "cabin", "lamp", "lens")
+
+
+def cover(m, meas, y_pan, pan_rows, offset=0.0012, down=0.72, well_r=2.0):
+    """VEHICLE-ART-14: every downward-facing face of the body's lower half, copied a hair outside itself and mapped
+    to the grime region, so the image-to-3D shells' projected texels (black voids, sprite smears) no longer show
+    round the pan: the wheel arches, the sills, the bumpers' undersides and the overhangs past the pan. Faces the pan
+    already hides, and faces near a wheel disc (tyres; the renderer's wheel split must take none of the cover), are
+    left out."""
+    zs, halfs = pan_rows
+    hw = meas["halfw"]
+    top = meas["lo"][1] + 0.5 * (meas["hi"][1] - meas["lo"][1])
+    zmin, zmax = meas["lo"][2], meas["hi"][2]
+    Ps, Ns, UVs = [], [], []
+    for (n, me, P, N, UV, F) in mesh_io.world(m):
+        t = me["tex"].lower()
+        if n["name"].startswith("wheel") or any(k in t for k in COVER_SKIP):
+            continue
+        if meas["marker"] and "paint_" not in t:
+            # a kit body's chassis parts (bars, frame, leaf channels, chrome) are authored: only its painted
+            # panels' undersides get grime (half-covered bar strips read as sawteeth, out/va14_up_a5 004)
+            continue
+        A, B, C = P[F[:, 0]], P[F[:, 1]], P[F[:, 2]]
+        g = np.cross(B - A, C - A)
+        L = np.linalg.norm(g, axis=1)
+        okL = L > 1e-10
+        g[okL] /= L[okL, None]
+        tri = P[F]                                            # (k, 3, 3)
+        sel = okL & (g[:, 1] < -down) & (tri[..., 1].max(1) < top)
+        if not meas["marker"]:
+            # a shell's wheel well is a noisy cavity: half its faces lean sideways and kept their black texels
+            # between the covered ones (shards). Inside the body's flank (not the arch lip) round each wheel,
+            # every face that leans down at all is covered
+            tx, ty, tz = np.abs(tri[..., 0]).mean(1), tri[..., 1].mean(1), tri[..., 2].mean(1)
+            for w in meas["wheels"]:
+                dd = (ty - w["y"]) ** 2 + (tz - w["z"]) ** 2
+                # (0.72 x, -0.35: wider or flatter took flank paint by the arches on narrow shells, out/va14_up_a7 002)
+                well = (dd < (well_r * w["r"]) ** 2) & (tx < 0.72 * hw) & (tx > 0.30 * hw)
+                sel |= okL & well & (g[:, 1] < -0.35)
+        # hidden behind the pan already (inside its footprint and close over it)
+        zc = tri[..., 2]
+        ph = np.interp(zc, zs, halfs)
+        inside = ((np.abs(tri[..., 0]) < ph - 0.004) & (zc > zs[0]) & (zc < zs[-1]) & (tri[..., 1] < y_pan + 0.05)).all(1)
+        sel &= ~inside
+        if meas["marker"]:
+            sel &= tri[..., 1].min(1) > y_pan + 0.012
+        for w in meas["wheels"]:
+            dy = tri[..., 1] - w["y"]; dz = tri[..., 2] - w["z"]
+            # the tyre: the face's centre inside the disc (a hair over it) and outboard; the arch round it is covered
+            cy, cz, cx = dy.mean(1), dz.mean(1), np.abs(tri[..., 0]).mean(1)
+            near = ((cy * cy + cz * cz) < (1.03 * w["rr"]) ** 2) & (cx > 0.75 * w["xin"])
+            if meas["marker"]:
+                # the kit bodies have authored grey wells (_underbody): their painted arch lips face down too, and a
+                # grime copy of them reads as dark teeth round the arch from a low eye
+                # (and the well drums: strips of them passed the facing test in turn and read as combs)
+                near |= np.abs(cz) < 1.8 * w["rr"]
+            sel &= ~near
+        if not sel.any():
+            continue
+        q = tri[sel] + g[sel][:, None, :] * offset
+        Ps.append(q.reshape(-1, 3))
+        Ns.append(np.repeat(g[sel], 3, axis=0))
+        u = np.clip(q[..., 0] / (2 * hw) + 0.5, 0, 1).reshape(-1)
+        v = np.clip((zmax - q[..., 2]) / max(zmax - zmin, 1e-6), 0, 1).reshape(-1)
+        UVs.append(_uv(R_GRIME, u, v))
+    if not Ps:
+        return None
+    P = np.concatenate(Ps); N = np.concatenate(Ns); UV = np.concatenate(UVs)
+    F = np.arange(len(P)).reshape(-1, 3)
+    return P, N, UV, F
 
 
 def wheel_hits(V, idx, meas):
@@ -371,10 +494,17 @@ def apply(src_dir, dst_dir, name, check=False):
             if n["mesh"] > old: n["mesh"] -= 1
         del m["meshes"][old]
     meas = measure(m, name)
-    (V, idx), y = build(meas)
+    (V, idx), y, rows = build(meas)
+    cv = cover(m, meas, y, rows)
+    ncov = 0
+    if cv is not None:
+        P, N, UV, F = cv
+        ncov = len(F)
+        V = np.concatenate([V, np.concatenate([P, N, UV], 1).astype(np.float32)])
+        idx = np.concatenate([idx, (F.ravel() + (len(V) - len(P))).astype(np.uint32)])
     hits = wheel_hits(V, idx, meas)
     info = f"{name}: floor {meas['floor']:.3f} pan y {y:.3f} z {meas['z0']:.2f}..{meas['z1']:.2f} axles {meas['zf']:.2f}/{meas['zr']:.2f} " \
-           f"({'markers' if meas['marker'] else 'shell'}) half width {meas['halfw']:.3f}: {len(idx) // 3} triangles, wheel-split hits {hits}"
+           f"({'markers' if meas['marker'] else 'shell'}) half width {meas['halfw']:.3f}: {len(idx) // 3} triangles ({ncov} cover), wheel-split hits {hits}"
     print(info)
     if hits:
         raise SystemExit(f"{name}: the pan would be taken by the wheel split")
