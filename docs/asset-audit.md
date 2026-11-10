@@ -354,3 +354,23 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   fw12_sign_a before, fw12_sign_d after): ONE WAY legible at about 30 px wide, the rim whole, STOP legible at a
   slant. Classic view: no change (vreg spawn_classic 0 tiles). The new one-way texture has a new Remix hash: its
   layer prim is made with the pickup_health prims (section below / FIX-WORLD-12 bundle).
+
+### The health pickup (FIX-WORLD-12 prz1)
+
+- **prz1, the health heart a flat squashed red ellipse on the floor.** The heart is code objects 4:167-174 (a red disc
+  with a raised heart, turning in eight frames). The manifest had it as `token_dollar` (named by colour), and it was
+  never drawn as a model at all: every power-up sprite 4:151-254 is flagged `plain` (never effect artwork) and
+  `live_geometry.cpp` left plain sprites out of the model substitution, so the game's 30 px sprite lay flat on the
+  paving in the street views (and the coin tokens of section 9 have never been drawn either). Now a plain sprite takes
+  a model when it maps to an authored `pickup_*` model; the coin tokens stay as they were (still flat sprites: open).
+- `pickup_health` (`tools/gen_code_objects.py build_health_pickup`): an upright medallion 0.30 block across (the
+  sprite's red, a darker rolled rim, a soft baked highlight: spinning pickups are drawn unlit) a hand above the ground,
+  turning like the weapon pickups; `pickup_health__lit`: a puffy bevelled heart standing proud on both faces (shading
+  baked as a ramp from its dark edge to a highlight on the crown) and the red ground ring, unlit at every hour so the
+  heart reads at night; under Remix the two `__lit` textures carry emissive prims (intensity 3, like the weapon
+  rings). The aim marker labels it HEALTH. 160 + 1344 triangles.
+- A spinning pickup faded at the lens (QB-49 / FIX-CAMERA-12 near fade) is drawn depth first, then its colour where it
+  is the nearest surface: before, its back face and the disc's sides showed through its front as dark teeth.
+  `GTA2DX9_FADE_SIGN=0` restores the old see-through draw for both (A/B).
+- Remix layer: 6 prims (pickup_health x3, sign_oneway x3) merged with `remix_layer_merge.py`; their DDS are in the
+  coordinator bundle `layer_deploy/FIX-WORLD-12` (not in git).

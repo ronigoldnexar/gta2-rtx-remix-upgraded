@@ -161,7 +161,9 @@ std::map<const Model*, std::string> g_pickupLabels;
 constexpr float kFadeNear = 0.10f, kFadeFar = 0.50f, kFadeMinAlpha = 0.18f;
 // litSign: an unspinning model's "__lit" companion (the booth's PHONE sign, a lamp's lens): drawn
 // unlit as in the opaque path, nearly opaque, and only its nearest face (FIX-WORLD-7 pm50).
-struct Faded { const Model* model; gta2::Mat4 out; const ModelAnimation* spin; float t, alpha; bool litSign = false; };
+// depthFirst (FIX-WORLD-12 prz1): a spinning pickup faded at the lens is drawn depth first, then its colour where it
+// is the nearest surface: one see-through solid, not its back face and the disc's sides showing through its front.
+struct Faded { const Model* model; gta2::Mat4 out; const ModelAnimation* spin; float t, alpha; bool litSign = false; bool depthFirst = false; };
 std::vector<Faded> g_fadedNow;
 int g_fadedLast = 0;
 int g_nearFade = -1;   // GTA2DX9_NEAR_FADE=0 turns the fade off (QA before/after)
@@ -609,7 +611,9 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
         }
         if (alpha < 0.999f) {
             // Drawn after everything else of this pass, see-through (QB-49).
-            g_fadedNow.push_back({&model, out, spin, spinT, alpha});
+            static int solidPickup = -1;
+            if (solidPickup < 0) { const char* e = getenv("GTA2DX9_FADE_SIGN"); solidPickup = (e && e[0] == '0') ? 0 : 1; }
+            g_fadedNow.push_back({&model, out, spin, spinT, alpha, false, solidPickup && spinning});
             auto litF = g_litOf.find(&model);
             if (litF != g_litOf.end()) {
                 // FIX-WORLD-7 (pm50): the booth's roof sign is a box with PHONE on both long faces.
@@ -624,7 +628,7 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
                 // FIX-CAMERA-12: in the chase view the sign fades with the box (nearest face only, so the
                 // lettering never shows mirrored); first person keeps it at 0.9.
                 const float signAlpha = sign ? (std::max)(alpha, 0.9f) + (alpha - (std::max)(alpha, 0.9f)) * g_chaseMix : alpha;
-                g_fadedNow.push_back({litF->second, out, nullptr, 0.0f, signAlpha, sign});
+                g_fadedNow.push_back({litF->second, out, nullptr, 0.0f, signAlpha, sign, solidPickup && spinning});
             }
             auto glassF = g_glassOf.find(&model);
             if (glassF != g_glassOf.end()) g_fadedNow.push_back({glassF->second, out, nullptr, 0.0f, alpha * 0.6f});
@@ -761,7 +765,20 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
                 device->SetRenderState(D3DRS_ZFUNC, zf);
                 continue;
             }
+            DWORD zfPrev = D3DCMP_LESSEQUAL;
+            if (d.depthFirst) {
+                DWORD cw = 0xF;
+                device->GetRenderState(D3DRS_COLORWRITEENABLE, &cw);
+                device->GetRenderState(D3DRS_ZFUNC, &zfPrev);
+                device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+                ModelDraw(device, *d.model, d.out, d.spin, d.t);
+                device->SetRenderState(D3DRS_COLORWRITEENABLE, cw);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+                device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+            }
             ModelDraw(device, *d.model, d.out, d.spin, d.t);
+            if (d.depthFirst) device->SetRenderState(D3DRS_ZFUNC, zfPrev);
         }
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
         device->SetRenderState(D3DRS_ALPHATESTENABLE, test);

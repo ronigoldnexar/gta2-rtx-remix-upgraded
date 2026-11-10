@@ -6791,9 +6791,12 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     // The own car only ever as its body: if it did not become one, nothing.
     if (ownCar && !placed.hidden) return;
     // The game's objects - cones, bins, phone boxes - as models in the street-level views.
-    if (!decal && !lying && corners == 4 && !placed.pedestrian && !placed.hidden && !placed.plain &&
+    // FIX-WORLD-12 prz1: a power-up sprite (plain: 4:151-254) keeps its flat sprite unless it maps to
+    // an authored pickup_* model (the health heart, 4:167-174): the coin tokens were never drawn as models.
+    if (!decal && !lying && corners == 4 && !placed.pedestrian && !placed.hidden &&
         !placed.lamp && !placed.corpse) {
         const Model* model = MapObjectModel(GameObjectBeingDrawn(), placed.local, corners, placed.objectToWorld);
+        if (model && placed.plain && model->name.compare(0, 7, "pickup_") != 0) model = nullptr;
         if (model && g_groundModels) {
             placed.objectModel = model;
             placed.hidden = true;   // the flat sprite goes; the model stands in for it

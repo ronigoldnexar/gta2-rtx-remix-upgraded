@@ -36,8 +36,9 @@ WEAPONS = {  # first frame of each 8-frame rotation, in the game's weapon order
 }
 MISC_PICKUPS = {118: "pickup_item_118", 126: "pickup_item_126", 134: "pickup_item_134"}   # 8-frame items, extruded from the sprite
 BRIEFCASE = (10, "token_briefcase", 5)   # the briefcase disc, frames 10-14
+HEALTH = (167, "pickup_health")   # 4:167-174: the red disc with a heart (was mislabelled token_dollar until FIX-WORLD-12)
 TOKENS = {  # first frame (30x30) of each 8-frame turn
-    151: "token_blue", 159: "token_orange", 167: "token_dollar", 175: "token_purple", 183: "token_green_x",
+    151: "token_blue", 159: "token_orange", 175: "token_purple", 183: "token_green_x",
     191: "token_red_x", 199: "token_cyan", 207: "token_hand", 215: "token_yellow", 223: "token_navy",
     231: "token_bronze", 239: "token_gold", 286: "token_skull",
 }
@@ -563,6 +564,84 @@ def build_heli(im):
 
 
 # ----------------------------------------------------------------------------
+def heart_outline(n=72):
+    """The classic heart curve, unit width (x -0.5..0.5), lobes up (+y), point down; centred on its box."""
+    t = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    x = 16 * np.sin(t) ** 3
+    y = 13 * np.cos(t) - 5 * np.cos(2 * t) - 2 * np.cos(3 * t) - np.cos(4 * t)
+    x, y = x / 34.0, y / 34.0
+    y = y - 0.5 * (y.max() + y.min())
+    return np.stack([x, y], 1)
+
+
+def build_health_pickup(im):
+    """FIX-WORLD-12 prz1: the health pickup (code objects 4:167-174, the classic red disc with a raised
+    heart) as an upright red medallion with a puffy heart standing proud on both faces, turning like
+    the weapon pickups, over a red ground ring. Before it was a coin lying flat a hand above the
+    ground (as token_dollar): from the street a squashed red ellipse with the heart lost.
+    Spinning pickups are drawn unlit, so the shading is baked: the disc's face a radial gradient from
+    the sprite's red to its dark rim, the heart a ramp from its dark edge to a highlight on its crown.
+    The heart goes in the __lit companion (unlit at every hour; Remix gives __lit textures an emissive
+    prim), so it reads at night. Returns (main, lit)."""
+    a = np.array(im.convert("RGBA")).reshape(-1, 4)
+    a = a[a[:, 3] > 128][:, :3].astype(np.float32)
+    lum = a.mean(1)
+    face_rgb = tuple(int(v) for v in np.median(a[lum >= np.percentile(lum, 50)], 0))   # the disc's lit red
+    rim_rgb = tuple(int(v) for v in np.median(a[lum <= np.percentile(lum, 15)], 0))    # its dark rim
+    R, T, YC = 0.15, 0.036, 0.25          # disc radius, thickness, centre height (blocks)
+    # the disc: an upright cylinder about z, planar UVs on x/y (the rim falls on the texture's edge)
+    disc = trimesh.creation.cylinder(radius=R, height=T, sections=40)
+    disc.apply_translation((0, YC, 0))
+    uv = np.stack([(disc.vertices[:, 0] / R) * 0.5 + 0.5, ((disc.vertices[:, 1] - YC) / R) * 0.5 + 0.5], 1)
+    N = 256
+    yy, xx = np.mgrid[0:N, 0:N]
+    r = np.sqrt((xx - N / 2 + 0.5) ** 2 + (yy - N / 2 + 0.5) ** 2) / (N / 2)
+    face = np.array(face_rgb, np.float32)
+    rim = np.array(rim_rgb, np.float32)
+    k = np.clip((r - 0.80) / 0.20, 0, 1)[..., None]                       # the rolled rim, outer fifth
+    shade = (1.08 - 0.22 * r)[..., None]                                 # a soft dome of light
+    img = face * shade * (1 - k) + rim * (1 - 0.3 * k) * k
+    img += 255 * 0.10 * np.exp(-((xx - N * 0.38) ** 2 + (yy - N * 0.34) ** 2) / (2 * (N * 0.12) ** 2))[..., None]
+    disc_tex = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
+    disc.visual = TextureVisuals(uv=uv, material=mat(disc_tex, 0.15, 0.35, name="disc"))
+    # the heart: bevelled layers of the outline, each layer a u position on a 1-D ramp
+    out = heart_outline()
+    W = 0.205                                              # heart width (blocks)
+    layers = [(1.00, 0.000), (0.96, 0.007), (0.88, 0.013), (0.74, 0.018), (0.52, 0.021), (0.0, 0.022)]
+    heart_rgb = np.array([min(255, face_rgb[0] + 30), min(255, face_rgb[1] + 25), min(255, face_rgb[2] + 20)], np.float32)
+    ramp = np.zeros((4, 64, 3), np.float32)
+    for i in range(64):
+        f = i / 63
+        ramp[:, i] = heart_rgb * (0.62 + 0.50 * f) + 255 * 0.22 * max(0.0, f - 0.7) / 0.3
+    ramp_tex = Image.fromarray(np.clip(ramp, 0, 255).astype(np.uint8), "RGB")
+    hy = YC - 0.004
+    meshes = []
+    for side in (1, -1):
+        v, uvs, faces = [], [], []
+        n = len(out)
+        for li, (sc, dz) in enumerate(layers):
+            u = li / (len(layers) - 1)
+            for (x, y) in out if sc > 0 else [(0.0, 0.0)]:
+                v.append((x * W * sc, hy + y * W * (sc if sc > 0 else 0), side * (T / 2 + dz)))
+                uvs.append((0.02 + 0.96 * u, 0.5))
+        for li in range(len(layers) - 2):
+            b0, b1 = li * n, (li + 1) * n
+            for j in range(n):
+                j2 = (j + 1) % n
+                q = [b0 + j, b0 + j2, b1 + j2, b1 + j]
+                faces += [[q[0], q[1], q[2]], [q[0], q[2], q[3]]] if side < 0 else [[q[0], q[2], q[1]], [q[0], q[3], q[2]]]
+        top, cap = (len(layers) - 2) * n, (len(layers) - 1) * n
+        for j in range(n):
+            j2 = (j + 1) % n
+            faces.append([top + j, top + j2, cap] if side < 0 else [top + j, cap, top + j2])
+        m = trimesh.Trimesh(vertices=np.array(v, np.float32), faces=np.array(faces), process=False)
+        m.visual = TextureVisuals(uv=np.array(uvs, np.float32), material=mat(ramp_tex, 0.1, 0.25, name="heart"))
+        meshes.append((f"heart{'f' if side > 0 else 'b'}", m))
+    main = scene_with([("disc", disc)])
+    lit = scene_with(meshes + [("glow", glow_ring((235, 70, 60), 0.20, 0.235))])
+    return main, lit
+
+
 def build_item(im):
     """A small mission item (8-frame turn): the sprite as a thick pixel solid."""
     big = x4(im)
@@ -586,6 +665,9 @@ def main():
         f, im = fullest(src, first, n)
         m, lit = build_token(im)
         jobs.append((name, list(range(first, first + n)), m, {"__lit": lit}, im, "spin"))
+    f, im = fullest(src, HEALTH[0])
+    m, lit = build_health_pickup(im)
+    jobs.append((HEALTH[1], list(range(HEALTH[0], HEALTH[0] + 8)), m, {"__lit": lit}, im, "spin"))
     for first, name in MISC_PICKUPS.items():
         f, im = fullest(src, first)
         m, lit = build_item(im)
