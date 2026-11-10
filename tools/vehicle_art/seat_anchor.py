@@ -52,6 +52,9 @@ SEATS = {
     "040_maurice": ((0.38, 0.64, 0.04), 5.0),      # FIX-CAR-TEX: seats x +-0.38, top 0.64, back -0.20..-0.08
     "050_b_type": ((0.45, 0.70, -0.04), 5.0),       # VEHICLE-ART-7: front bench x +-1.00, top 0.70, back -0.30..-0.16
     "051_taxi_xpress": ((0.45, 0.70, -0.04), 5.0),  # VEHICLE-ART-8: the 050 body (same benches)
+    "038_big_bug": ((0.38, 1.12, 0.16), 5.0),      # VEHICLE-ART-9: the 008 seats lifted 0.50 m
+    "018_shark": ((0.45, 0.70, 0.04), 5.0),        # VEHICLE-ART-9: front bench x +-0.92, top 0.70, back -0.22..-0.08
+    "082_jagular_xk": ((0.40, 0.56, -0.38), 5.0),  # VEHICLE-ART-9: buckets x +-0.40, top 0.56, back -0.62..-0.50
 }
 
 

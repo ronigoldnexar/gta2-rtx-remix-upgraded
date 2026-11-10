@@ -441,3 +441,34 @@ Still short of a shipping-AAA frame: the 082 is the right colour but its TRELLIS
 red/green streak baked across the rear window; the 038 is copper but its body is faceted and its headlamp faces got
 painted; the 058 has a white blotch on the bonnet and one yellow rear hub; the 039's body keeps its dark undercoat
 (its open cockpit needs a zone); 22 bodies of the audit are untouched.
+
+## VEHICLE-ART-9 (10 Nov 2026): 038, 018 and 082 authored
+
+Three TRELLIS shells replaced by authored bodies in `tools/vehicle_art2` (paint neutral 235, tinted by the identity
+record like the other authored cars; `driver_seat` from `tools/vehicle_art/seat_anchor.py`):
+
+- **038 Big Bug** (`car_038.py`): the 008 Beetle body lifted 0.5 m on 1.2 m off-road tyres (lug tread texture, steel
+  wheels), Baja wheel cut-outs, flared wings, a bare engine behind the cut tail (crankcase, finned barrels, chrome air
+  cleaner, two upswept exhausts) in a tube cage, push-bar, roof spot lamps, ladder frame, coil-over shocks.
+- **018 Shark** (`car_018.py`): the catalog's Graham-Paige Sharknose: a knife-edge prow whose top leans forward
+  (`SHEAR`), a vertical-bar grille on the prow (its own UV patch), headlamps where the wings meet it, a long fastback
+  roof into a teardrop tail. No side lamp blob.
+- **082 Jagular XK** (`car_082.py`): XK120 fixed-head coupe on the shipped orientation (bonnet +z): long bonnet
+  between raised wing crowns, oval grille with a chrome surround (flat patch on the nose cap), a small cabin set
+  back, dark glass, slim blade bumpers. No torn rear window, no jagged bumper, no spiked hubs.
+
+**Wheel split trap.** The renderer (`car_bodies.cpp` BuildWheelSplit) gives every triangle wholly inside a wheel's
+disc (radius = the wheel marker's height, outboard of |x| - 1.2 r) to the wheel, which spins and steers. Rear wheel
+skirts (first 018/082 attempt) and a lifted body over big tyres (first 038) were cut into the wheels: a skirt and body
+chunk hung off the turning rear wheel in game. Keep every body part outside that disc: open arches with a radius
+above the tyre's, suspension inboard of |x| - 1.2 r. `tools/vehicle_art2/wheel_split_check.py <models> NNN` lists the
+non-wheel triangles the split would take (the 160 `underbody` triangles are the wheel's own inner disc; 038's 40
+`frame` triangles are its coaxial axle stubs).
+
+Evidence: `out/va9_b5` (own car forced to 38/18/82 at the street warp, regression-camera poses front34, side, rear34,
+eye, far, chase; `_t` straight, `_s25` wheels steered 25 degrees), before: `out/va8_a4` (038), `out/tri6_va6b` (018),
+`out/va8_a3` (082).
+Still short of a shipping-AAA frame: the 018's grille bars read stark black and white close up and its cabin is long
+and upright for a Sharknose; the 082's wing crowns are faint from the side and its wheels are plain painted discs (no
+wire wheels); the 038's engine is box-modelled; paint is one flat colour with orange-peel noise (no clear-coat flake
+outside Remix). Remix prims for the new textures are not built (FIX-REMIX-MATERIALS-3).

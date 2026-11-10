@@ -1114,15 +1114,39 @@
   },
   {
    "name": "018_shark",
-   "glb": "cars/models3d/018_shark.glb",
+   "glb": "cars/vehicle_art2/018_shark.glb",
    "scale": 1.0,
    "paint_rgb": [
-    138.7,
-    106.4,
-    92.0
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/018_shark/seal.png",
+    "chrome": "cars/vehicle_art2/018_shark/chrome.png",
+    "grille_back": "cars/vehicle_art2/018_shark/grille_back.png",
+    "underbody": "cars/vehicle_art2/018_shark/underbody.png",
+    "paint_body": "cars/vehicle_art2/018_shark/paint_body.png",
+    "grille": "cars/vehicle_art2/018_shark/grille.png",
+    "interior_dark": "cars/vehicle_art2/018_shark/interior_dark.png",
+    "chrome_disc": "cars/vehicle_art2/018_shark/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/018_shark/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/018_shark/lamp_tail.png",
+    "seat": "cars/vehicle_art2/018_shark/seat.png",
+    "tyre_side": "cars/vehicle_art2/018_shark/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/018_shark/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/018_shark/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/018_shark/paint_wheel.png",
+    "glass": "cars/vehicle_art2/018_shark/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_018.py",
+   "driver_seat": [
+    0.09,
+    0.14,
+    0.008,
+    0.312
+   ]
   },
   {
    "name": "019_gt_a1",
@@ -1410,15 +1434,44 @@
   },
   {
    "name": "038_big_bug",
-   "glb": "cars/models3d/038_big_bug.glb",
+   "glb": "cars/vehicle_art2/038_big_bug.glb",
    "scale": 1.0,
    "paint_rgb": [
-    147.0,
-    110.1,
-    97.7
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/038_big_bug/seal.png",
+    "chrome": "cars/vehicle_art2/038_big_bug/chrome.png",
+    "underbody": "cars/vehicle_art2/038_big_bug/underbody.png",
+    "paint_body": "cars/vehicle_art2/038_big_bug/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/038_big_bug/interior_dark.png",
+    "paint_wing_f": "cars/vehicle_art2/038_big_bug/paint_wing_f.png",
+    "paint_wing_r": "cars/vehicle_art2/038_big_bug/paint_wing_r.png",
+    "frame": "cars/vehicle_art2/038_big_bug/frame.png",
+    "shock": "cars/vehicle_art2/038_big_bug/shock.png",
+    "spring": "cars/vehicle_art2/038_big_bug/spring.png",
+    "engine": "cars/vehicle_art2/038_big_bug/engine.png",
+    "engine_fin": "cars/vehicle_art2/038_big_bug/engine_fin.png",
+    "chrome_disc": "cars/vehicle_art2/038_big_bug/chrome_disc.png",
+    "tube": "cars/vehicle_art2/038_big_bug/tube.png",
+    "lamp_head": "cars/vehicle_art2/038_big_bug/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/038_big_bug/lamp_tail.png",
+    "seat": "cars/vehicle_art2/038_big_bug/seat.png",
+    "tyre_side": "cars/vehicle_art2/038_big_bug/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/038_big_bug/tyre_tread.png",
+    "wheel_steel": "cars/vehicle_art2/038_big_bug/wheel_steel.png",
+    "glass": "cars/vehicle_art2/038_big_bug/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_038.py",
+   "driver_seat": [
+    0.076,
+    0.224,
+    0.032,
+    0.4095
+   ]
   },
   {
    "name": "039_morton",
@@ -2188,15 +2241,37 @@
   },
   {
    "name": "082_jagular_xk",
-   "glb": "cars/models3d/082_jagular_xk.glb",
+   "glb": "cars/vehicle_art2/082_jagular_xk.glb",
    "scale": 1.0,
    "paint_rgb": [
-    139.5,
-    101.7,
-    80.2
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/082_jagular_xk/seal.png",
+    "chrome": "cars/vehicle_art2/082_jagular_xk/chrome.png",
+    "underbody": "cars/vehicle_art2/082_jagular_xk/underbody.png",
+    "paint_body": "cars/vehicle_art2/082_jagular_xk/paint_body.png",
+    "grille": "cars/vehicle_art2/082_jagular_xk/grille.png",
+    "interior_dark": "cars/vehicle_art2/082_jagular_xk/interior_dark.png",
+    "chrome_disc": "cars/vehicle_art2/082_jagular_xk/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/082_jagular_xk/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/082_jagular_xk/lamp_tail.png",
+    "seat": "cars/vehicle_art2/082_jagular_xk/seat.png",
+    "tyre_side": "cars/vehicle_art2/082_jagular_xk/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/082_jagular_xk/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/082_jagular_xk/paint_wheel.png",
+    "glass": "cars/vehicle_art2/082_jagular_xk/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_082.py",
+   "driver_seat": [
+    0.08,
+    0.112,
+    -0.076,
+    0.2551
+   ]
   },
   {
    "name": "083_furore_gt",
