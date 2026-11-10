@@ -326,6 +326,8 @@ def tile_classes(gmp_dir, style, hd_dir=None):
                 out[int(m.group(1))] = ("cut", False)     # fences, railings, grilles: coverage mips, no parallax
     for t in remix_pbr.IRON_RAIL.get(style, ()):            # FIX-REMIX-MATERIALS-4: railings are painted iron
         out[t] = ("iron", False)
+    for t in remix_pbr.DELIT_WALL.get(style, ()):           # FIX-REMIX-MATERIALS-9: baked-dark wall art, de-lit
+        if t not in out or out[t][0] is None: out[t] = (None, "delit")
     for t in remix_pbr.CORRUGATED.get(style, ()):           # FIX-REMIX-MATERIALS-9: box-profile steel roofs, not lawns
         out[t] = ("corr", False)
     for t in remix_pbr.VEG_LIFT.get(style, ()):
@@ -356,7 +358,10 @@ def pbr_tile(job):
     a_path = os.path.join(tex_dir, f"{h}.a.rtex.dds")
     if os.path.lexists(a_path): os.remove(a_path)       # never write through a hard link into another layer
     cut = lift != "solid" and float((rgba[..., 3] < 128).mean()) > 0.01
-    if lift:
+    if lift == "delit" or (ground == "flat" and not cut):   # FIX-REMIX-MATERIALS-9: wall art de-lit to a floor
+        rgba = remix_pbr.delit_albedo(rgba, remix_pbr.DELIT_FLOOR["delit" if lift == "delit" else "flat"])
+        write_albedo(a_path, rgba)
+    elif lift:
         rgba = remix_pbr.veg_albedo(rgba, solid=lift == "solid")
         (write_albedo_cutout if cut else write_albedo)(a_path, rgba)
     elif ground == "corr":                               # FIX-REMIX-MATERIALS-9: paint without hairlines, ribs in the normal
@@ -390,6 +395,7 @@ def pbr_tile(job):
     for ext in "nrmhw":                                  # same for every other map (dds() opens "wb")
         p = os.path.join(tex_dir, f"{h}.{ext}.rtex.dds")
         if os.path.lexists(p): os.remove(p)
+    if lift == "delit": ground = "delit"                 # FIX-REMIX-MATERIALS-9: half the relief, no parallax
     r = remix_pbr.analyse(rgba, True, kind="tile", seed=h, ground=ground, micro=mic, glass_mask=glass_mask,
                           corr=corr_rib if ground == "corr" else None)
     write_normal(os.path.join(tex_dir, f"{h}.n.rtex.dds"), r["normal"])
@@ -455,7 +461,8 @@ def dds_tiles(a, tex_dir, taken):
             mc = mstyle.get(str(int(m.group(1)))) if m and ground in ("pave", "road") else None
             micro = (mc["cls"], mc["amp"], a.cc0) if mc else None
             if a.only_classed and ground is None and not lift: continue
-            if a.classes and ground not in a.classes and not (lift and "lift" in a.classes) \
+            if a.classes and ground not in a.classes and not (lift and lift != "delit" and "lift" in a.classes) \
+                    and not (lift == "delit" and "delit" in a.classes) \
                     and not (micro and "micro" in a.classes): continue
             if a.classes == {"micro"} and not micro: continue
             h = dds_hash(path, a.dds_hash)
@@ -634,7 +641,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--gmp-dir", default=None, help="REMIX-MATERIALS: game/data with <style>.gmp: lid classes (road paint flat, no parallax on lids), the foliage lift, and the re-authored road paint (<hd>/../roads/<style>) as the road lids' albedo")
     ap.add_argument("--only-classed", action="store_true", help="with --gmp-dir: only the tiles that have a class (road/pave lid or foliage lift); use with --force into a scratch layer, then tools/remix_layer_merge.py --tiles")
-    ap.add_argument("--classes", type=lambda s: set(s.split(",")), default=None, help="with --only-classed: only these classes (road,pave,flat,mural,cut,iron,lift,micro,corr), e.g. flat,cut")
+    ap.add_argument("--classes", type=lambda s: set(s.split(",")), default=None, help="with --only-classed: only these classes (road,pave,flat,mural,cut,iron,lift,micro,corr,delit), e.g. flat,cut")
     ap.add_argument("--cc0", default=None, help="FIX-REMIX-MATERIALS-4: the ambientCG folder of tools/photoreal_tiles.py (fetch): the smooth lids of --micro-list get the scan's micro-surface")
     ap.add_argument("--micro-list", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "remix_micro_tiles.json"), help="{style: {tile: {cls, amp}}} smooth ground lids and their photo-pass class")
     ap.add_argument("--wet-layer", action="store_true", help="only write <mod>/mod_wet.usda from the finished mod.usda (the rain variant)")

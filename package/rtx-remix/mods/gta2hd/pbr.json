@@ -1601,18 +1601,18 @@
 },
 "0890DCCAD7850B52": {
 "cls": {
-"asphalt": 0.559,
-"brick": 0.116,
+"asphalt": 0.043,
+"brick": 0.117,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.01,
+"stone": 0.541,
 "struct": 1.0,
 "veg": 0.005,
-"wood": 0.054
+"wood": 0.038
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -3012,18 +3012,18 @@
 },
 "0FC3B55FCD1B0167": {
 "cls": {
-"asphalt": 0.056,
-"brick": 0.412,
-"ceramic": 0.0,
+"asphalt": 0.092,
+"brick": 0.359,
+"ceramic": 0.029,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.002,
+"paint": 0.003,
 "panes": 0,
-"stone": 0.0,
+"stone": 0.021,
 "struct": 1.0,
-"veg": 0.013,
-"wood": 0.204
+"veg": 0.012,
+"wood": 0.059
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -3050,18 +3050,18 @@
 },
 "0FF084E0AFB09EC8": {
 "cls": {
-"asphalt": 0.032,
-"brick": 0.033,
-"ceramic": 0.044,
+"asphalt": 0.034,
+"brick": 0.036,
+"ceramic": 0.304,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.001,
+"paint": 0.0,
 "panes": 0,
-"stone": 0.008,
+"stone": 0.009,
 "struct": 1.0,
-"veg": 0.037,
-"wood": 0.09
+"veg": 0.038,
+"wood": 0.091
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -4577,18 +4577,18 @@
 },
 "180BBBD36703C959": {
 "cls": {
-"asphalt": 0.037,
-"brick": 0.656,
-"ceramic": 0.0,
+"asphalt": 0.064,
+"brick": 0.664,
+"ceramic": 0.305,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.98,
-"veg": 0.018,
-"wood": 0.268
+"stone": 0.004,
+"struct": 1.0,
+"veg": 0.017,
+"wood": 0.099
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -4912,18 +4912,18 @@
 },
 "19E03C60245FDE45": {
 "cls": {
-"asphalt": 0.127,
-"brick": 0.405,
-"ceramic": 0.0,
+"asphalt": 0.086,
+"brick": 0.387,
+"ceramic": 0.002,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.016,
+"stone": 0.035,
 "struct": 1.0,
-"veg": 0.016,
-"wood": 0.281
+"veg": 0.015,
+"wood": 0.172
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -5403,18 +5403,18 @@
 },
 "1C3332CC363019B2": {
 "cls": {
-"asphalt": 0.005,
-"brick": 0.906,
-"ceramic": 0.0,
+"asphalt": 0.006,
+"brick": 0.862,
+"ceramic": 0.008,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.25,
+"struct": 0.3,
 "veg": 0.0,
-"wood": 0.194
+"wood": 0.166
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -12093,18 +12093,18 @@
 },
 "401DB3165B01343E": {
 "cls": {
-"asphalt": 0.02,
-"brick": 0.563,
-"ceramic": 0.0,
+"asphalt": 0.024,
+"brick": 0.586,
+"ceramic": 0.005,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.52,
+"stone": 0.01,
+"struct": 0.77,
 "veg": 0.002,
-"wood": 0.315
+"wood": 0.212
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -21348,9 +21348,9 @@
 },
 "6CDBB13036CE43F4": {
 "cls": {
-"asphalt": 0.016,
-"brick": 0.06,
-"ceramic": 0.001,
+"asphalt": 0.02,
+"brick": 0.066,
+"ceramic": 0.293,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
@@ -21358,8 +21358,8 @@
 "panes": 0,
 "stone": 0.001,
 "struct": 1.0,
-"veg": 0.076,
-"wood": 0.111
+"veg": 0.093,
+"wood": 0.105
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -21904,7 +21904,7 @@
 },
 "6ED445BBB5308B70": {
 "cls": {
-"asphalt": 0.978,
+"asphalt": 0.096,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -21912,7 +21912,7 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
+"stone": 0.882,
 "struct": 0.25,
 "veg": 0.0,
 "wood": 0.0
@@ -25546,18 +25546,18 @@
 },
 "804064A0FB428986": {
 "cls": {
-"asphalt": 0.002,
-"brick": 0.927,
+"asphalt": 0.001,
+"brick": 0.926,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
-"struct": 0.25,
+"stone": 0.001,
+"struct": 0.27,
 "veg": 0.0,
-"wood": 0.277
+"wood": 0.273
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -27140,18 +27140,18 @@
 },
 "8768F49182435126": {
 "cls": {
-"asphalt": 0.035,
-"brick": 0.352,
-"ceramic": 0.002,
+"asphalt": 0.117,
+"brick": 0.356,
+"ceramic": 0.072,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.0,
+"stone": 0.009,
 "struct": 1.0,
-"veg": 0.022,
-"wood": 0.251
+"veg": 0.02,
+"wood": 0.079
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -34540,18 +34540,18 @@
 },
 "AB13B0AB8CAD5397": {
 "cls": {
-"asphalt": 0.008,
-"brick": 0.732,
-"ceramic": 0.0,
+"asphalt": 0.066,
+"brick": 0.728,
+"ceramic": 0.042,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
 "stone": 0.0,
-"struct": 0.43,
-"veg": 0.002,
-"wood": 0.186
+"struct": 0.61,
+"veg": 0.001,
+"wood": 0.122
 },
 "displace_in": 0.0,
 "ground": "flat",
@@ -35195,22 +35195,22 @@
 },
 "AD50ECB5AEF38AAA": {
 "cls": {
-"asphalt": 0.08,
-"brick": 0.364,
-"ceramic": 0.0,
+"asphalt": 0.167,
+"brick": 0.355,
+"ceramic": 0.107,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.001,
 "panes": 0,
-"stone": 0.001,
-"struct": 0.99,
-"veg": 0.013,
-"wood": 0.219
+"stone": 0.034,
+"struct": 1.0,
+"veg": 0.011,
+"wood": 0.041
 },
 "displace_in": 0.0,
 "ground": "flat",
-"wet": false
+"wet": true
 },
 "AD517EFC1A633C21": {
 "cls": {
@@ -37275,7 +37275,7 @@
 },
 "BAF27DDEB1475454": {
 "cls": {
-"asphalt": 0.608,
+"asphalt": 0.346,
 "brick": 0.0,
 "ceramic": 0.0,
 "chrome": 0.0,
@@ -37283,12 +37283,13 @@
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.031,
-"struct": 0.78,
-"veg": 0.001,
+"stone": 0.292,
+"struct": 1.0,
+"veg": 0.0,
 "wood": 0.0
 },
-"displace_in": 0.0154,
+"displace_in": 0.0,
+"lift": "delit",
 "wet": true
 },
 "BB0770724234B9E6": {
@@ -38776,22 +38777,22 @@
 },
 "C28FDE361B2DBB18": {
 "cls": {
-"asphalt": 0.042,
-"brick": 0.452,
-"ceramic": 0.0,
+"asphalt": 0.132,
+"brick": 0.446,
+"ceramic": 0.201,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
-"paint": 0.008,
+"paint": 0.004,
 "panes": 0,
-"stone": 0.0,
+"stone": 0.022,
 "struct": 1.0,
-"veg": 0.01,
-"wood": 0.271
+"veg": 0.009,
+"wood": 0.052
 },
 "displace_in": 0.0,
 "ground": "flat",
-"wet": false
+"wet": true
 },
 "C2A009C87F5C8877": {
 "cls": {
@@ -40059,18 +40060,18 @@
 },
 "C8F0074CFB92BB4F": {
 "cls": {
-"asphalt": 0.618,
-"brick": 0.129,
+"asphalt": 0.047,
+"brick": 0.148,
 "ceramic": 0.0,
 "chrome": 0.0,
 "glass": 0.0,
 "metal": 0.0,
 "paint": 0.0,
 "panes": 0,
-"stone": 0.032,
+"stone": 0.613,
 "struct": 1.0,
 "veg": 0.006,
-"wood": 0.069
+"wood": 0.065
 },
 "displace_in": 0.0,
 "ground": "flat",

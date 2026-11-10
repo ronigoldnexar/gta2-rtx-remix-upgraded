@@ -1946,3 +1946,49 @@ sill:202.2 180.2 2.3 202.6 178.0 2.45 45;...`, 12:00). Before is `fm9_p30a` (the
 
 Still short: the HD tile's stone is the upscaler's soft, blotchy render, and the panes are a painted glass gradient with
 no interior behind them. An authored facade with modelled reveals is the AAA answer.
+
+## Near-black shaded walls: de-lit wall albedo (FIX-REMIX-MATERIALS-9, prx10)
+
+prx10 filed ste walls in sun-shade at luma 11-19 beside a shaded road at 70. I identified the cause with a colour probe at
+the filer's point (130.5,60.5, 16:30): `gamerun/fm9_probe`, the shared layer with all 229 ste tiles of the area given one
+flat sRGB 0.5 albedo. In that frame the shaded wall read 86 and the shaded road 72, so vertical faces do get the sky and the
+bounce. The light state is fine; the walls' albedo is the cause.
+
+The game's wall art is drawn for an unlit screen, with its shading baked in:
+- the ste plank and rendered facades (`FLAT_WALL` 160-178) average linear albedo 0.05-0.07, where painted timber and
+  render are 0.2-0.4;
+- ste 556, the slate rubble wall under the elevated railway, averages 0.068 (dark slate is 0.10-0.12), and its relief and
+  parallax height were made from the albedo's baked dark crevices (normal tilt p50 24°).
+
+`remix_pbr.delit_albedo` scales a tile's linear albedo up to a floor, keeping the texture's own contrast and hue, at most
+3x, with highlights soft-clipped at 0.6. Classes:
+
+| class | tiles | floor | relief | metal |
+|---|---|---|---|---|
+| flat | the 18 `FLAT_WALL` tiles | 0.15 | as before (0.12 / 0.35) | none (the de-lit 167 tripped the detector on its window frames) |
+| delit | `DELIT_WALL`: ste 556 | 0.13 | `GROUND_GAIN["delit"]` 0.35 / 0.5, no parallax height | none |
+
+The list is curated, like `VEG_LIFT`: of 967 opaque wall tiles, 267 sit under linear 0.08, and dark glass, black iron, sign
+plates and soot are meant to be dark. Build: `remix_materials.py ... --dds-tiles repo/assets/textures_hd/ste --only-classed
+--classes flat,delit`, then `remix_layer_merge.py --tiles`.
+
+**Seen path traced** with fixed cameras west of the filer's point (`keys_fm8_sign.sh`, warp 128.5,62.5;
+`CAMS=plank:127.5 60.5 2.6 131.0 59.5 2.7 60;slate:127.0 66.0 2.4 131.0 65.0 2.4 60;wide:123.5 62.5 2.8 131.0 62.0 2.6 65`,
+9:00 and 16:30). Before is `fm9_p10c`, after is `fm9_p10d`. Median luma (`fm9/p10_measure.py`):
+
+| frame | wall before | wall after | road (shade or sun) |
+|---|---|---|---|
+| 16:30 slate wall in shade | 21.5 | 66.8 | 66 (shade) |
+| 9:00 slate wall | 37.6 | 87.3 | 240 (sun) |
+| 9:00 plank arcade in shade | 58.5 | 91.1 | 64-67 |
+| 16:30 wide, slate at the right | 10.0 | 28.1 | 66-67 |
+
+Before, the slate read as a black cut-out. After, it is grey-blue rubble with its stones readable in shade, and the planks
+are a lighter tan. The wide frame's slate region also takes in the dark lattice and the deck's shadow.
+
+Still short:
+- **The black slab:** a near-black slab with dithered edges hangs close to the slate camera, the "black parallelogram" of the
+  report. It is not one of these wall tiles; most likely it is the dark iron lattice (ste 563, a cut-out at sRGB 0.09) seen
+  at grazing angle. Not treated.
+- **Other dark walls:** every other dark wall tile in the three districts keeps its baked albedo.
+- **The verified layer:** the take's layer still had a metal map on tile 167, which the final build drops.

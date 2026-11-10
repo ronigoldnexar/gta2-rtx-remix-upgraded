@@ -123,7 +123,7 @@ WARM = [(1.0, 0.72, 0.42), (1.0, 0.82, 0.55), (1.0, 0.62, 0.32), (0.75, 0.85, 1.
 #   mural: the same gains, but only inside the painted region of the tile (texels within a few
 #         texels of saturated paint, which takes in the white patches of a mosaic); the wall
 #         around a mural keeps its brick relief. No parallax on the tile.
-GROUND_GAIN = {"road": (0.2, 0.5), "pave": (0.45, 0.7), "flat": (0.12, 0.35)}   # (structure, grain) gain
+GROUND_GAIN = {"road": (0.2, 0.5), "pave": (0.45, 0.7), "flat": (0.12, 0.35), "delit": (0.35, 0.5)}   # (structure, grain) gain
 MICRO_GAIN = 0.28    # FIX-REMIX-MATERIALS-4: slope per texel of the scan height (std 1) at 512 px
 FLAT_WALL = {"wil": set(), "bil": set(), "ste": set(range(160, 179)) - {163}}
 MURAL_WALL = {"wil": {175}, "bil": set(), "ste": {355, 759, 760, 761, 762}}
@@ -247,6 +247,37 @@ def corrugated(rgba):
     out = rgba.copy()
     out[..., :3] = np.clip(np.rint(out_rgb * 255), 0, 255).astype(np.uint8)
     return out, rib.astype(np.float32)
+
+# FIX-REMIX-MATERIALS-9 (prx10-remix-ste-day-first-third-shaded-wall-faces-render-near-black...): the game's wall art is
+# drawn for an unlit screen, with its shading baked in, so its albedo is darker than the surface it shows: the ste plank and
+# rendered facades (FLAT_WALL, 160-178) average linear 0.05-0.07 (painted timber and render are 0.2-0.4) and the ste rubble
+# wall 556 0.068 (dark slate 0.10-0.12). Path traced in sun-shade those faces fell to luma 11-19 beside a shaded road at 70.
+# A colour probe at the filer's pose (every tile there one flat grey) showed the shaded walls get the sky and the bounce
+# (wall 86, road 72): the light is there, the albedo is not. delit_albedo scales the linear albedo up to a floor (the
+# texture's own contrast and hue kept, the brightest texels soft-clipped). Curated, like VEG_LIFT: dark glass, black iron,
+# night-sign plates and soot are meant to be dark. A DELIT_WALL tile also gets half the structure relief and no parallax
+# height (GROUND_GAIN "delit"): ste 556's relief came from the albedo's baked dark crevices (normal tilt p50 24 deg plus a
+# parallax map), which in sun-shade turned every crevice into a hole as dark as the paint.
+DELIT_FLOOR = {"flat": 0.15, "delit": 0.13}
+DELIT_WALL = {"wil": set(), "bil": set(), "ste": {556}}
+
+def delit_albedo(rgba, floor, kmax=3.0):
+    """The tile's linear albedo scaled so its visible mean reaches `floor` (never down, at most kmax), highlights
+    soft-clipped at 0.75 linear. Alpha untouched."""
+    a = rgba[..., 3] >= 128
+    if not a.any(): return rgba
+    srgb = rgba[..., :3].astype(np.float32) / 255.0
+    lin = np.where(srgb <= 0.04045, srgb / 12.92, ((srgb + 0.055) / 1.055) ** 2.4)
+    L = lin @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    m = float(L[a].mean())
+    if m >= floor or m <= 1e-4: return rgba
+    k = min(kmax, floor / m)
+    x = lin * k
+    x = np.where(x > 0.6, 0.6 + 0.15 * np.tanh((x - 0.6) / 0.15), x)
+    out_s = np.where(x <= 0.0031308, x * 12.92, 1.055 * np.power(np.maximum(x, 0), 1 / 2.4) - 0.055)
+    out = rgba.copy()
+    out[..., :3] = np.clip(np.rint(out_s * 255), 0, 255).astype(np.uint8)
+    return out
 
 def mural_like(rgba):
     """True for a wall tile that is mostly paint of several hues (murals, mosaics, painted
@@ -422,6 +453,9 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
     if micro is not None:                          # FIX-REMIX-MATERIALS-4: scan micro-surface (micro_surface)
         mh, mg = micro
         rough = np.clip(rough + 0.07 * mg - 0.025 * np.clip(mh, -2, 2), 0.55, 0.98)   # grime rougher, worn tops smoother
+    if ground in ("delit", "flat"):                # FIX-REMIX-MATERIALS-9: de-lit stone and painted walls, never metal
+        # (the de-lit albedo of ste 167 tripped the metal detector on its painted window frames)
+        metal &= False; chrome &= False; metal_map = None
     if ground == "corr":                           # FIX-REMIX-MATERIALS-9: painted steel roof, never metal or chrome
         metal &= False; chrome &= False; metal_map = None
         rough = gauss(np.clip(0.50 + 0.10 * (busy - 0.4) + 0.8 * grime, 0.40, 0.72), 0.6 * S + 0.2, wrap)
