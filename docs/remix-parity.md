@@ -43,3 +43,36 @@ Lines the L4 prints that bear on the gap:
 Frame cost of the baseline (`gamerun/rp1_cost.py out/rp1_base`, 8 s windows on fixed cameras, 1280x720, the game's
 30 fps cap): day 13:00 58.2 / 48.6 ms p50 per camera (17-21 fps), night 21:30 41.9 / 45.9 ms (22-24 fps). Frames:
 `out/rp1_frames/rp1_base/` (`007_S0_h13_third_c0_0.png` day, `022_S1_h21.5_third_c0_0.png` night, same camera).
+
+## 2. Turning on what legitimately works (same-pose A/B, fixed cameras)
+
+Every session: `gamerun/rp1_take.sh <run> <conf> 420` (Downtown, warp to 169.6,127.5, two fixed street cameras at
+13:00 and 21:30 plus a classic frame, `[timeofday]` paused through `SETTINGS_SED`, the hour set with `set_hour_tenths`),
+one session at a time on GPU 4. Each conf is the play rig plus the step's lines (`gamerun/rp1_<step>.conf.extra`).
+Frames are cut at the marks from `game_full.mp4` (`gamerun/frn9_dump.sh`) and kept in `out/rp1_frames/<run>/`;
+cost = `gamerun/rp1_cost.py` (frame interval p50 over an 8 s still window per camera, 30 fps cap).
+
+### 2a. The graphics preset: Ultra (the 5090's) against Medium (the play rig): SUN SHADOWS
+
+`rtx.graphicsPreset = 0` (run `out/rp1_a`, replicate `out/rp1_b`) against `= 2` (`out/rp1_base`, replicate
+`out/rp1_base2`). Sheet `out/rp1_frames/sheet_2a_medium_top_ultra_bottom_13h.png` (top: the two Medium sessions,
+bottom: the two Ultra sessions, the same fixed camera at 13:00).
+
+- **What changed:** at Ultra the 13:00 sun casts hard shadows (bench, parking meter, hydrant, lamp post, the truck
+  on the road, every pedestrian); at Medium there are **no sun shadows at all** in either session (only a faint
+  contact smudge near one pedestrian). Two sessions each way, so it is the preset, not the intermittent sunless-day
+  bug. At 21:30 the frames are the same within the noise (mean abs diff 2.3 / 1.8 of 255 on the two night cameras;
+  `out/rp1_frames/crop_base_vs_a_022_S1_h21.5_third_c0_0.png`).
+- **Log proof the preset applied:** Medium logs `[RTX Neural Radiance Cache] Selected Medium preset mode.`
+  (rp1_base l. 281); Ultra keeps `Selected Ultra preset mode.` only (rp1_a).
+- **Consequence for Group B / the defect files:** every Tokyo Remix frame on the play rig (Medium) and on Auto
+  (Low on the L4) was rendered without sun shadows, while the owner's 5090 (Blackwell, Auto = Ultra) has them. The
+  "daytime no sun / no shadows" family filed from Tokyo is at least partly the preset. Proposal for the coordinator
+  (not changed here; `rtx_play.conf.extra` is not this seat's): run any Remix check that judges daylight at Ultra.
+- **Cost:** p50 per camera Medium 58.2 / 48.6 (day), 41.9 / 45.9 ms (night) in rp1_base, 68.6 / 59.1 / 45.7 / 43.8
+  in rp1_base2 (GPU shared, noisy); Ultra 55.0 / 48.3 / 46.1 / 44.6 (rp1_a). No measurable cost on the L4 at 1280x720.
+- **Trap found:** at Ultra (and any preset other than Custom 4) the preset layer owns `rtx.integrateIndirectMode`:
+  rp1_b set `rtx.integrateIndirectMode = 1` with `graphicsPreset = 0` and the log still shows `Integrate Indirect Mode:
+  Neural Radiance Cache - activated` then `Importance Sampled - activated` (l. 369-370), never ReSTIR GI. On the 5090
+  Ultra means NRC; on the L4 Ultra means NRC -> Importance Sampled. ReSTIR GI needs `graphicsPreset = 4` (Custom) with
+  the Ultra-level values written out (2b).
