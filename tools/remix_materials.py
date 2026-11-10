@@ -203,6 +203,38 @@ def write_albedo(path, rgba):
     data = [bc3(np.clip(np.rint(m), 0, 255).astype(np.uint8)) for m in mips(rgba.astype(np.float32))]
     dds(path, (data, rgba.shape[:2]), b"DXT5", 16)
 
+def cutout_mips(rgba, ref=128.0):
+    """FIX-REMIX-MATERIALS-3: the mip chain of a cut-out texture (fences, railings, leaf cards)
+    that keeps its alpha-tested coverage. A plain box mip averages a 2-texel bar with the hole
+    beside it to alpha < 128, so at distance the alpha test drops the bars (the shredded
+    railing tops, pt-remix-third-distant-fence-and-railing-tops-shredded-horizontal-streaks)
+    and the colour of each kept texel is darkened by the black holes. Here colour is averaged
+    over the opaque texels only and each level's alpha is scaled so that the share of texels
+    passing the test equals the top level's (Castano's coverage-preserving mips)."""
+    a = rgba.astype(np.float32)
+    cov0 = float((a[..., 3] >= ref).mean())
+    out = [a]
+    cur = a
+    while cur.shape[0] > 1 or cur.shape[1] > 1:
+        w = (cur[..., 3:4] / 255.0)
+        col = halve(cur[..., :3] * w) / np.maximum(halve(w), 1e-4)
+        al = halve(cur[..., 3:4])
+        nxt = np.concatenate([col, al], -1)
+        if 0.0 < cov0 < 1.0 and nxt.shape[0] >= 4:
+            lo, hi = 0.25, 8.0
+            for _ in range(16):                       # scale so coverage matches the top level
+                s = (lo + hi) / 2
+                if float((np.minimum(al * s, 255) >= ref).mean()) < cov0: lo = s
+                else: hi = s
+            nxt[..., 3:4] = np.minimum(al * hi, 255)
+        out.append(nxt); cur = nxt
+    return out
+
+def write_albedo_cutout(path, rgba):
+    """write_albedo with cutout_mips (alpha-tested textures)."""
+    data = [bc3(np.clip(np.rint(m), 0, 255).astype(np.uint8)) for m in cutout_mips(rgba)]
+    dds(path, (data, rgba.shape[:2]), b"DXT5", 16)
+
 def write_normal(path, n):
     data = []
     for level in mips(n):
@@ -252,11 +284,14 @@ def dds_hash(path, scheme="mip0"):
     if levels is None: return None
     return "%016X" % xxhash.xxh3_64_intdigest(levels[0] if scheme == "mip0" else b"".join(levels))
 
-def tile_classes(gmp_dir, style):
+def tile_classes(gmp_dir, style, hd_dir=None):
     """REMIX-MATERIALS: {tile: (ground, lift)} for one district from its .gmp. ground is "road"
     for a tile used mostly as the lid of road blocks, "pave" mostly as the lid of pavement or
     field blocks (paving, plazas, lawns, roofs), None otherwise (walls); lift is True for the
-    curated dark foliage tiles (remix_pbr.VEG_LIFT). See remix_pbr.GROUND_GAIN."""
+    curated dark foliage tiles (remix_pbr.VEG_LIFT). "flat" for the painted walls (remix_pbr.FLAT_WALL),
+    "mural" for murals (remix_pbr.MURAL_WALL and mural_like on the HD tile in hd_dir), when not a lid; "cut"
+    for the other cut-out wall tiles (fences, railings: coverage-preserving albedo mips, no
+    parallax). See remix_pbr.GROUND_GAIN."""
     import remix_pbr
     from collections import Counter
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "linux", "docker"))
@@ -276,6 +311,19 @@ def tile_classes(gmp_dir, style):
             if lid[t] <= side[t]: continue
             g = gt[t].most_common(1)[0][0]
             out[t] = ("road" if g == 1 else "pave" if g in (2, 3) else None, False)
+    for t in remix_pbr.FLAT_WALL.get(style, ()):            # FIX-REMIX-MATERIALS-3: painted walls
+        if t not in out: out[t] = ("flat", False)
+    for t in remix_pbr.MURAL_WALL.get(style, ()):           # and murals
+        if t not in out: out[t] = ("mural", False)
+    if hd_dir and os.path.isdir(hd_dir):
+        for f in os.listdir(hd_dir):
+            m = re.match(r"tile_(\d{4})\.dds$", f)
+            if not m or int(m.group(1)) in out: continue
+            rgba = np.asarray(Image.open(os.path.join(hd_dir, f)).convert("RGBA"))
+            if remix_pbr.mural_like(rgba):
+                out[int(m.group(1))] = ("mural", False)
+            elif 0.01 < float((rgba[::4, ::4, 3] < 128).mean()) < 0.99:
+                out[int(m.group(1))] = ("cut", False)     # fences, railings, grilles: coverage mips, no parallax
     for t in remix_pbr.VEG_LIFT.get(style, ()):
         out[t] = (out.get(t, (None, False))[0], "solid" if t in remix_pbr.VEG_SOLID.get(style, ()) else True)
     return out
@@ -296,8 +344,14 @@ def pbr_tile(job):
     if rgba.shape[0] != size: rgba = resize(rgba, size)
     a_path = os.path.join(tex_dir, f"{h}.a.rtex.dds")
     if os.path.lexists(a_path): os.remove(a_path)       # never write through a hard link into another layer
+    cut = lift != "solid" and float((rgba[..., 3] < 128).mean()) > 0.01
     if lift:
         rgba = remix_pbr.veg_albedo(rgba, solid=lift == "solid")
+        (write_albedo_cutout if cut else write_albedo)(a_path, rgba)
+    elif cut:                                            # FIX-REMIX-MATERIALS-3: keep the bars at distance
+        write_albedo_cutout(a_path, rgba)
+    elif ground == "road" and albedo is None:            # FIX-REMIX-MATERIALS-3: no contour bands
+        rgba = remix_pbr.deband(rgba)
         write_albedo(a_path, rgba)
     else:
         shutil.copyfile(src, a_path)
@@ -326,7 +380,7 @@ def dds_tiles(a, tex_dir, taken):
     made = skipped = 0; t0 = time.time(); jobs = []
     for d in a.dds_tiles:
         style = os.path.basename(os.path.normpath(d))
-        classes = tile_classes(a.gmp_dir, style) if a.gmp_dir else {}
+        classes = tile_classes(a.gmp_dir, style, d) if a.gmp_dir else {}
         roads = os.path.join(os.path.dirname(os.path.normpath(d)), "roads", style)
         for f in sorted(os.listdir(d)):
             if not f.endswith(".dds"): continue
@@ -334,6 +388,7 @@ def dds_tiles(a, tex_dir, taken):
             m = re.match(r"tile_(\d{4})\.dds$", f)
             ground, lift = classes.get(int(m.group(1)), (None, False)) if m else (None, False)
             if a.only_classed and ground is None and not lift: continue
+            if a.classes and ground not in a.classes and not (lift and "lift" in a.classes): continue
             h = dds_hash(path, a.dds_hash)
             if h is None or h in taken: skipped += 1; continue
             if not a.force and os.path.exists(os.path.join(tex_dir, f"{h}.r.rtex.dds")): skipped += 1; continue
@@ -504,6 +559,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--gmp-dir", default=None, help="REMIX-MATERIALS: game/data with <style>.gmp: lid classes (road paint flat, no parallax on lids), the foliage lift, and the re-authored road paint (<hd>/../roads/<style>) as the road lids' albedo")
     ap.add_argument("--only-classed", action="store_true", help="with --gmp-dir: only the tiles that have a class (road/pave lid or foliage lift); use with --force into a scratch layer, then tools/remix_layer_merge.py --tiles")
+    ap.add_argument("--classes", type=lambda s: set(s.split(",")), default=None, help="with --only-classed: only these classes (road,pave,flat,mural,cut,lift), e.g. flat,cut")
     ap.add_argument("--wet-layer", action="store_true", help="only write <mod>/mod_wet.usda from the finished mod.usda (the rain variant)")
     a = ap.parse_args()
     if a.wet_layer:

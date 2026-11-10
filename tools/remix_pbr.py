@@ -111,7 +111,33 @@ WARM = [(1.0, 0.72, 0.42), (1.0, 0.82, 0.55), (1.0, 0.62, 0.32), (0.75, 0.85, 1.
 #   pave: lids of pavement / field blocks (paving, plazas, roofs). Structure relief at 45 %,
 #         grain at 70 %, no parallax height: a lid is seen at grazing angles where the
 #         runtime's parallax tears and swims.
-GROUND_GAIN = {"road": (0.2, 0.5), "pave": (0.45, 0.7)}   # (structure, grain) gain
+#   flat (FIX-REMIX-MATERIALS-3, 10 Nov 2026): painted walls and murals, where the luminance is
+#         paint, not depth: the tan/grey plank and rendered facades of ste (the painted shadow of
+#         an arch, faint wavy plank lines from the upscaler) and the mosaic/graffiti murals.
+#         The local-contrast normalisation of the structure band turned their faint lines into
+#         full grooves and plateaus: path traced as melted driftwood strata with black cracks
+#         (pt-remix-building-arched-facade-carved-wood-strata-relief) and as white wax lumps
+#         (pt-remix-graffiti-mural-wax-blob-relief). Structure at 12 %, grain at 35 %, no
+#         parallax height: shallow grooves on a flat painted surface. Tiles: FLAT_WALL below
+#         plus every wall tile mural_like() finds (several saturated hues: murals, signs).
+#   mural: the same gains, but only inside the painted region of the tile (texels within a few
+#         texels of saturated paint, which takes in the white patches of a mosaic); the wall
+#         around a mural keeps its brick relief. No parallax on the tile.
+GROUND_GAIN = {"road": (0.2, 0.5), "pave": (0.45, 0.7), "flat": (0.12, 0.35)}   # (structure, grain) gain
+FLAT_WALL = {"wil": set(), "bil": set(), "ste": set(range(160, 179)) - {163}}
+MURAL_WALL = {"wil": {175}, "bil": set(), "ste": {355, 759, 760, 761, 762}}
+
+def mural_like(rgba):
+    """True for a wall tile that is mostly paint of several hues (murals, mosaics, painted
+    signs): at least 12 % saturated, bright texels spread over three or more 30-degree hue bins."""
+    a = np.asarray(rgba)
+    step = max(1, a.shape[0] // 64)
+    a = a[::step, ::step]
+    if (a[..., 3] < 128).mean() > 0.05: return False
+    hue, sat, val = hsv(a[..., :3].astype(np.float32) / 255.0)
+    s = (sat > 0.4) & (val > 0.3)
+    bins = np.bincount((hue[s] // 30).astype(int) % 12, minlength=12) / s.size
+    return bool(s.mean() > 0.12 and (bins > 0.02).sum() >= 3)
 
 def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain=1.0, ground=None):
     """Maps for one texture (uint8 RGBA, any size). Returns a dict:
@@ -260,7 +286,22 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
         rp = gauss(rp.astype(np.float32), 2.5 * S + 0.5, wrap) > 0.05
         flat = flat | rp
         rough = np.where(rp, np.clip(rough - 0.08, 0.3, 0.98), rough)   # paint a little smoother than asphalt
-    Hn = (k_s * Hs * np.where(flat, 0.25, 1.0) + k_g * Hg * np.where(glass, 0.15, 1.0)) * visf
+    if ground == "road":
+        # FIX-REMIX-MATERIALS-3: a road lid is asphalt and paint, never a glossy stone: the pale
+        # teal ste roads fell in no class (tinted, not neutral) and kept 0.69-0.75, which at the
+        # grazing morning sun gave the paint and the hatching a sky sheen and a speckle of glints
+        # (pt-remix-plaza-paving-posterised-patches-sky-streak-reflection, ...-firefly-speck-clouds).
+        rough = np.where(rp, np.maximum(rough, 0.62), np.maximum(rough, 0.86))
+    elif ground == "pave":
+        rough = np.where(metal | chrome | glass, rough, np.maximum(rough, 0.74))
+    w_s = np.where(flat, 0.25, 1.0); w_g = np.where(glass, 0.15, 1.0)
+    if ground == "mural":
+        colourful = ((sat > 0.25) & (val > 0.25)).astype(np.float32)
+        region = gauss(colourful, 16 * S + 1, wrap) > 0.06
+        region = gauss(region.astype(np.float32), 1.5 * S + 0.5, wrap)          # soft edge, 0..1
+        w_s = w_s * (1 - region * (1 - GROUND_GAIN["flat"][0]))
+        w_g = w_g * (1 - region * (1 - GROUND_GAIN["flat"][1]))
+    Hn = (k_s * Hs * w_s + k_g * Hg * w_g) * visf
     nx, ny = grad(Hn, wrap)
     # slope in "units of texels", keep the tilt sane
     n = np.stack([-nx, ny, np.ones_like(nx)], -1)  # DirectX tangent space (+V down the image)
@@ -284,6 +325,27 @@ def analyse(rgba, wrap=True, kind="tile", seed="", windows=False, structure_gain
     return {"normal": n, "rough": (rough * 255).astype(np.uint8), "rough_wet": (wet * 255).astype(np.uint8),
             "metal": metal_map, "height": height, "displace": displace, "emissive": emissive, "cls": cls,
             "groundish": groundish}
+
+def deband(rgba, low=0.018, high=0.05):
+    """FIX-REMIX-MATERIALS-3: the upscaler posterised the flat road tiles into contour-map
+    patches (stepped low-contrast bands, ghost lettering). The mid band of the colour (between
+    ~1.5 and ~24 texels at 512 px) is soft-thresholded: steps under `low` go, steps over `high`
+    (a kerb, a lane line, a crack) stay whole; then a faint seeded grain. Alpha untouched."""
+    h, w = rgba.shape[:2]
+    S = max(h, w) / 512.0
+    x = rgba[..., :3].astype(np.float32) / 255.0
+    lo_ = np.stack([gauss(x[..., c], 24 * S + 2) for c in range(3)], -1)
+    fine = np.stack([gauss(x[..., c], 1.5 * S + 0.3) for c in range(3)], -1)
+    mid = fine - lo_
+    mag = np.abs(mid).max(-1, keepdims=True)
+    keep = np.clip((mag - low) / (high - low), 0, 1)
+    y = lo_ + mid * keep + (x - fine)
+    rng = np.random.default_rng(12345)
+    g = gauss(rng.standard_normal((h, w)).astype(np.float32), 0.7 * S + 0.2)
+    y = y + (0.012 / (g.std() + 1e-6)) * g[..., None] * np.clip(y, 0.05, 1)
+    out = rgba.copy()
+    out[..., :3] = np.clip(np.rint(y * 255), 0, 255).astype(np.uint8)
+    return out
 
 # ------------------------------------------------------------ leaf albedo --
 def veg_dark(rgba):

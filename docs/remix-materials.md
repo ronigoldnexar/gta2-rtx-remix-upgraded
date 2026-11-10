@@ -1503,3 +1503,78 @@ smoke with the kerb and fence through it, at 22:30 dim, lamp-tinted smoke, no si
 Still short of shipping: in a still frame the puff is visibly grainy (sand rather than vapour), denser than real tyre smoke where many puffs
 stack, and it has no self-shadowing or soft volume; the AAA answer is Remix's own volumetric/particle system fed with an emitter, not
 billboards. The burning-car smoke (live_geometry.cpp) and the blast smoke (explosion_fx.cpp) take the same blended path and were not changed.
+
+## Painted walls, murals, road lids, cut-outs and leaves (FIX-REMIX-MATERIALS-3, 10 Nov 2026)
+
+Five path-traced defects filed against what the gta2hd layer draws for a texture (two fixed, one partly, two found
+to be something else); no renderer change, every
+Remix hash stays the game's, the plain views cannot change.
+
+**New tile classes** (`remix_materials.tile_classes`, `remix_pbr.analyse(ground=)`), next to road/pave:
+
+| class | tiles | normal relief (structure / grain) | parallax | albedo | roughness |
+|---|---|---|---|---|---|
+| flat: painted walls | 18: `remix_pbr.FLAT_WALL` (ste 160-178: the tan/grey plank and rendered facades, arches, shutters) | 0.12 / 0.35 | none | the DDS | as before |
+| mural | 29: `remix_pbr.MURAL_WALL` (ste 355 graffiti, 759-762 rose-window mosaics, wil 175) plus every wall tile `mural_like()` finds (12 % saturated texels over three hue bins: murals, painted signs; the 21 signs with an emission prim keep that prim) | 0.12 / 0.35 inside the painted region (texels within ~16 px of saturated paint, soft edge), 1 / 1 on the wall around it | none | the DDS | as before |
+| cut: other cut-out wall tiles (fences, railings, grilles) | 371 | as before | none | re-encoded with **coverage-preserving mips** (`cutout_mips`) | as before |
+| road (changed) | 140 | 0.2 / 0.5 | none | **debanded** (`remix_pbr.deband`) where no re-authored road paint exists | asphalt >= 0.86, paint >= 0.62 |
+| pave (changed) | 965 | 0.45 / 0.7 | none | the DDS | >= 0.74 except metal/chrome/glass |
+
+* **Facade strata, mural wax** (pt-remix-building-arched-facade-carved-wood-strata-relief, pt-remix-graffiti-mural-wax-blob-relief).
+  The structure band of the height is normalised by its local contrast (`Hs = tanh(1.4 d / loc)`), which is right for
+  brick (every joint a groove of the same depth) and wrong for a painted wall: the upscaler's faint wavy plank lines and
+  the painted shadow under an arch became full grooves and plateaus (tile 160: normal tilt p90 18 deg, p99 34 deg; the
+  arch 161 had a parallax height 0.012 as well), and on the mosaics every white patch a raised blob (759/760 p90 44 deg,
+  parallax 0.018). As flat: p90 6-10 deg, no height. On the mosaic tiles only the painted region is flattened, so the stone
+  courses and the pilaster round the window keep their relief.
+* **Road lids** (pt-remix-plaza-paving-posterised-patches-sky-streak-reflection). The "plaza slab" at ste 113.5,124.7 is
+  the road (806/814/821/831, road class), pale teal under the morning sun. Its albedo is the upscaler's posterised
+  contour bands (no re-authored road paint exists for these tiles); `deband` soft-thresholds the mid band (1.5-24 texels):
+  steps under 0.018 go, over 0.05 (kerb, lane line, crack) stay, then a faint grain. The road texels were tinted, so in no
+  roughness class (0.69-0.75): now asphalt-rough.
+* **Cut-outs** (pt-remix-third-distant-fence-and-railing-tops-shredded-horizontal-streaks): the DDS mips are box-filtered,
+  so a 2-texel bar next to a hole averages under the alpha test's 128 and drops out at distance (tile ste 987: 22 % of
+  texels pass at 512 px, 12.5 % at 8 px, 0 at 4 px), and its colour is darkened by the holes. `cutout_mips` averages
+  colour over the opaque texels only and scales each level's alpha so the passing share stays the top level's.
+* **Leaves: tried, not kept** (pt-remix-dusk-tree-crowns-large-black-wedge-slabs-grey-spike). The trees' leaf atlases
+  `tree_0N_1.tga` have **no prim** in the layer (re-imported after it was built; 23 prop textures in all: the leaves,
+  bus shelter, phone booths, mailbox, stop sign; `remix_car_prim_check.py`-style scan), so the cards are the runtime's
+  default material. A leaf prim with a thin-walled subsurface transmittance (leaf-green transmittance and scattering
+  albedo, anisotropy 0.35) and coverage mips, filmed at bil 140,246 17:30 (`fm3_bil_before2` vs `fm3_bil_after`):
+  the crowns came out darker and brown-rimmed (the low sun through the cards), with the same black wedges. The wedges
+  are geometry: the two inner crossed cards of `gen_trees.canopy_shell` in the shade of the outer shell, and an outer
+  card seen edge-on is the thin grey "spike". Not shipped; the fix is the canopy mesh (fewer, smaller inner cards, or
+  normals bent up-and-out from the crown centre), owner of `tools/gen_trees.py`. The 23 prop prims were not shipped
+  either (not seen in frame).
+* **Hedge "two hues"** in the same report: two different map tiles, not a lid/side split. The hedge block is bil 854
+  (lid and sides, the opaque lifted leaf of REMIX-MATERIALS); the tall dark blocks next to it are 695 (lid) / 696 (sides),
+  an ivy wall with its own grey-green texture. Left as authored.
+
+**Seen path traced** (GPU 3, `playtest_remix.sh`, REMIX_NVCACHE=1, layer from `MODS_HD_SRC`; before = the shipped
+layer of b96a530 on a 126258a stage, after = this layer on the 490b588 stage, `-e GTA2DX9_SCENE_NO_CAR=1`):
+* ste 75.5,150.5 at 12:30 and 23:00, third and first person (`fm3_ste_before` vs `fm3_ste_after5`): the arched plank
+  facade reads as flat painted planks with shallow arch reveals; the wavy strata and black crack lines are gone, at night
+  too. Faint plank lines of the albedo remain (they are painted).
+* ste 113.5,124.7 at 09:00: the rose-window mosaic is flat glazed paint, no raised white lumps; the stone courses and the
+  pilaster round it keep their relief. The road slab beside it has lost the contour-map patches and the ghost lettering;
+  the hatched strip is matte. Still visible: tone steps from one road tile to the next (the upscaled tiles' own low band).
+* Classic under Remix: the classic camera and geometry are the game's (no renderer change); the layer applies in every
+  view, so from above the same road tiles are smoother. The classic frames of the two takes are not the same picture
+  (the camera scrolls after the warp; the DLLs differ), so no pixel comparison was made.
+* Two takes on the 126258a DLLs froze at the ste spawn (game thread blocked on the CRT heap lock inside gta2dx9.dll;
+  filed as `remix-ste-start-game-thread-heap-deadlock-freeze`); a parked car near the spawn sends the scene warp to its
+  door unless `GTA2DX9_SCENE_NO_CAR=1`.
+* The "firefly clouds over the road" (pt-remix-first-white-firefly-speck-clouds-hang-over-road-day-and-night) are not a
+  material: they trail moving cars in the air, the exhaust puffs drawn as dithered cut-outs (`vehicle_fx.cpp`), handed to
+  the smoke path's owner. The firefly filter threshold was not changed.
+* The car textures re-authored after b96a530 (018, 038, 039, 042, 051, 058, 082) had no prims again; rebuilt and merged
+  (`remix_car_prim_check.py`: 506 textures, 0 without a prim at commit time).
+
+`remix_layer_merge.py` replaces all prims in one pass (it was one regex pass over the whole layer per hash: minutes
+for a thousand tiles, now 2 s). Rebuild (into a scratch layer, then merge):
+
+    P=/mnt/gta2/ab_work/venv/bin/python
+    $P repo/tools/remix_materials.py - <scratch>/gta2hd --dds-tiles repo/assets/textures_hd/{wil,bil,ste} --size 512 \
+        --map-size 256 --jobs 5 --gmp-dir game/data --only-classed --classes road,pave,flat,cut,lift --force --exclude <upstream usda>
+    $P repo/tools/remix_materials.py - <scratch>/gta2hd --wet-layer
+    $P repo/tools/remix_layer_merge.py <scratch>/gta2hd <layer> <hashes of scratch pbr.json> --tiles

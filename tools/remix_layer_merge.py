@@ -57,11 +57,15 @@ def main():
         have = {m.group(1) for m in PRIM.finditer(text)}
         for h in hashes:
             if h not in sblocks: sys.exit(f"{h} has no prim in {sp}")
-            if h in have:
-                text = PRIM.sub(lambda m: sblocks[h] if m.group(1) == h else m.group(0), text); stats["replaced"] += 1
-            else:
-                end = text.rindex("    }\n}\n")         # close of `over "Looks"`
-                text = text[:end] + sblocks[h] + text[end:]; stats["inserted"] += 1
+        want = set(hashes)
+        # one pass over the layer (a sub per hash was quadratic: minutes for a thousand tiles)
+        text = PRIM.sub(lambda m: sblocks[m.group(1)] if m.group(1) in want else m.group(0), text)
+        stats["replaced"] += len(want & have)
+        new = [h for h in dict.fromkeys(hashes) if h not in have]
+        if new:
+            end = text.rindex("    }\n}\n")             # close of `over "Looks"`
+            text = text[:end] + "".join(sblocks[h] for h in new) + text[end:]
+        stats["inserted"] += len(new)
         if not dry: atomic_write(dp, text)
     for h in hashes:
         for s in (TILE_SUF if tiles else SUF):
