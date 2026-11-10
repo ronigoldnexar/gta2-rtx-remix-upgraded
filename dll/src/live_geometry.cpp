@@ -12434,6 +12434,11 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 base = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase);
                 num = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber);
             } GTA2_EXCEPT { base = -1; }
+            // FIX-FX-4 (pmw10): code object 4/15, the game's red chip at a shooter's feet (2x3 texels, mean
+            // cf0000), lay flat on the paving at his feet through every automatic burst (runs fx4_mg_1,
+            // fx4_mg_hide4: gone with it left out; 8/432-435 are the brass flecks, 8/503-505 the bullets).
+            // In the street views the shot's debris is ShotFxMuzzle's brass case from the ejection port.
+            if (base == 4 && num == 15) continue;
             if (base == 8 && (num == 325 || num == 326)) {
                 const float (*m)[4] = sprite.objectToWorld.m;
                 float c[3] = {0, 0, 0}, w0[3], w1[3], w3[3];

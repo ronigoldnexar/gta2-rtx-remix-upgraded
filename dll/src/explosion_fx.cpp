@@ -28,6 +28,7 @@ struct Particle {
     float r, g, b, a;      // colour at birth; a: opacity (blended) or brightness (additive)
     float groundY;
     float glow;            // smoke only: how much fire light it carries at birth
+    float glowSecs;        // smoke only: how long that light takes to fade
     Kind kind;
     uint8_t cell;          // which of the four billows in the atlas
     bool leftSmoke;        // fire only: has dropped its smoke billow
@@ -215,10 +216,14 @@ void SpawnSmoke(float x, float y, float z, float groundY, float k, float size, f
     p.life = column ? Rand(4.0f, 6.5f) : Rand(3.0f, 4.5f);
     p.roll = Rand(-0.35f, 0.35f);      // the shading is lit from above: little roll
     p.spin = Rand(-0.15f, 0.15f);
-    const float grey = Rand(0.16f, 0.26f);
-    p.r = grey; p.g = grey * 0.96f; p.b = grey * 0.92f;
-    p.a = column ? 0.55f : 0.62f;
+    // FIX-FX-4 (pm10 third, fx4_v_t1): the fireball's own smoke (not the column) clumped into one
+    // near-black disc over the white-hot core once its fire light was gone: lighter, browner and a
+    // little thinner, and lit by the fire for 2 s. The column off the wreck stays dark.
+    const float grey = column ? Rand(0.16f, 0.26f) : Rand(0.27f, 0.37f);
+    p.r = grey * (column ? 1.0f : 1.06f); p.g = grey * 0.96f; p.b = grey * (column ? 0.92f : 0.84f);
+    p.a = column ? 0.55f : 0.50f;
     p.glow = glow;
+    p.glowSecs = column ? 1.2f : 2.0f;
     Push(p);
 }
 
@@ -399,7 +404,11 @@ void ExplosionFxNote(float x, float groundY, float z, float size) {
     for (Blast& b : g_blasts) {
         const float dx = b.x - x, dz = b.z - z;
         // The sprite comes and goes while it plays: one blast for 1.6 s from its first sight.
-        if ((now - b.lastSeen < 0.5 || now - b.born < 1.6) && dx * dx + dz * dz < 1.5f * 1.5f) {
+        // FIX-FX-4: and the game's sprite at the very spot (within half a block) up to 3 s on is still
+        // this blast: every forced blast was noted twice, 1.7-2.0 s apart at the same point (runs
+        // fx4_bl_t6..t12), a second fireball over the wreck.
+        const float d2 = dx * dx + dz * dz;
+        if (((now - b.lastSeen < 0.5 || now - b.born < 1.6) && d2 < 1.5f * 1.5f) || (now - b.born < 3.0 && d2 < 0.5f * 0.5f)) {
             b.lastSeen = now;
             return;
         }
@@ -709,13 +718,28 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         return t * t * (3.0f - 2.0f * t);
     };
     auto billboard = [&](Batch& batch, const Particle& p, float size, DWORD colour, bool keepUp) {
+        float c[3] = {p.x, p.y, p.z};
+        // Kept out of the road: a billow cut by the ground shows a hard line.
+        if (keepUp) c[1] = (std::max)(c[1], p.groundY + size * 0.55f);
+        // FIX-FX-4 (pm10 third, fx4_bl_t10): a flat billow beside a building cut into its facade and
+        // roof, and the part in front showed as a dark block with straight edges. Drawn pulled toward
+        // the eye by most of its radius, scaled so it covers the same part of the view, the quad
+        // clears any wall within that radius behind it. Not inside the near fade's reach (0.5 sizes).
+        if (g_eyeSet) {
+            const float dx = g_eye[0] - c[0], dy = g_eye[1] - c[1], dz = g_eye[2] - c[2];
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            const float pull = (std::min)(0.6f * size, d - 0.6f * size);
+            if (pull > 0.0f && d > 1e-3f) {
+                const float k = pull / d;
+                c[0] += dx * k; c[1] += dy * k; c[2] += dz * k;
+                size *= (d - pull) / d;
+                if (keepUp) c[1] = (std::max)(c[1], p.groundY + size * 0.55f);
+            }
+        }
         const float roll = p.roll + p.spin * p.age;
         const float cr = std::cos(roll) * size, sr = std::sin(roll) * size;
         const float a[3] = {rx * cr + ux * sr, uy * sr, rz * cr + uz * sr};
         const float b[3] = {-rx * sr + ux * cr, uy * cr, -rz * sr + uz * cr};
-        float c[3] = {p.x, p.y, p.z};
-        // Kept out of the road: a billow cut by the ground shows a hard line.
-        if (keepUp) c[1] = (std::max)(c[1], p.groundY + size * 0.55f);
         batch.Quad(c, a, b, colour, p.cell, 2);
     };
     for (const Particle* pp : soft) {
@@ -727,7 +751,7 @@ void ExplosionFxDraw(IDirect3DDevice9* device, const gta2::Vec3& f, DWORD fvf) {
         float alpha = p.a * in * std::pow(1.0f - t, 1.4f) * nearFade(p, size);
         if (alpha < 0.01f) continue;
         // Fire light on the underside of fresh smoke, fading as it rises and cools.
-        const float warm = p.glow * Clamp01(1.0f - p.age / 1.2f);
+        const float warm = p.glow * Clamp01(1.0f - p.age / (p.glowSecs > 0.0f ? p.glowSecs : 1.2f));
         const float r = p.r + warm * 0.55f, g = p.g + warm * 0.22f, b = p.b + warm * 0.06f;
         billboard(smoke, p, size, Colour(r, g, b, alpha), true);
         if (probe) { const float c[3] = {p.x, p.y, p.z}; pSmoke += alpha * cover(c, size); }

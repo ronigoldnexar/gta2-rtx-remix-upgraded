@@ -186,6 +186,45 @@ health at 100:
 
 `fx4_bu_t5` (`BURN=1`): damage 0 -> 16000, the car alight, no fault in the 40 s after.
 
-**Seen, not yet fixed:** each blast is noted twice by this module, 1.7-2.0 s apart at the same spot
-(three `explosions: blast` lines per car; the third comes about 12 s on with a 0.85-tile sprite and is
-not attributed yet).
+**A blast was noted twice** by this module, 1.7-2.0 s apart at the same spot (`fx4_bl_t6`..`t12`):
+a second fireball over the wreck. The game's sprite at the very spot (within half a block) up to 3 s
+after a blast's first sight is now the same blast (`ExplosionFxNote`). In `fx4_v_f1` the second line is
+1.5 blocks off: a neighbouring car caught in the chain. A late blast line about 12 s on, with a
+0.85-tile sprite, is not attributed yet.
+
+### FIX-FX-4: smoke cut by walls, and the ink-blot smoke ball (work orders fire-fx 3d, pm10 FX half)
+
+Frames opened from the trigger's takes (`fx4_bl_t10`, `fx4_v_t1`, `fx4_v_t2`) showed two faults:
+- **Billows cut by buildings.** A smoke billow beside a building cut into its facade and roof. Its
+  front part showed as a dark block with straight vertical and horizontal edges (`fx4_bl_t10`,
+  `qa_d_blast_059`).
+  - Fix: every billow (smoke and fire) is drawn pulled toward the eye by 0.6 of its size, scaled to
+    cover the same part of the view, so it clears any wall within that reach behind it.
+  - Not done inside 0.6 sizes of the eye, where the near fade already acts.
+- **Ink-blot smoke.** The fireball's own smoke (grey 0.16-0.26, opacity 0.62) clumped into one
+  near-black disc over the white-hot core once its fire light had faded (1.2 s): the "black ink
+  blob" of pm10 (`fx4_v_t1` `qa_d_blast_037`, `fx4_v_t2`).
+  - Fix: that smoke is now grey 0.27-0.37, a little brown, opacity 0.50, and fire-lit for 2 s.
+  - The column rising off the wreck stays dark: burning cars give black smoke.
+
+### FIX-FX-4: red chips at a shooter's feet (work order pmw10, every automatic burst)
+
+Flat, pure-red (241,0,0) parallelograms lay on the paving at the hero's feet during a burst, in third and
+first person, with the silenced machine gun, the machine gun and the pistol. Attribution (runs `fx4_mg_1`,
+`fx4_mg_dbg2`, `fx4_mg_hide3`, `fx4_mg_hide4`, probe `linux/docker/keys_fx4_mg.sh`):
+- `GTA2DX9_LOG_SPRITE_KINDS=1` listed, during the burst, a 2x3-texel `base 4 number 15` sprite drawn flat
+  at ground level at his position.
+- Its mean colour is `cf0000`, pure red.
+- Left out by a private switch, the red was gone from every frame.
+- Leaving out code objects 8/432-435 instead (4x4 texels, brass-coloured flecks) changed nothing.
+- The bullets 8/503-505 reach the effect list and are drawn as the streaks at gun height.
+- Gibs are off by default and `synthetic_lights.cpp` draws no geometry, so neither suspect named in the
+  report was involved.
+
+**Fix** (`live_geometry.cpp`, beside FIX-FX-2's game-blend block): code object 4/15 is left out in the
+street views. The shot's debris there is `ShotFxMuzzle`'s brass case from the ejection port. The classic
+view draws it as before.
+
+**Verified** (`fx4_mg_fix5` against `fx4_mg_1`, same probe, the plaza, bursts from the side, facing the
+camera and in first person): frames with saturated red in the ground half of the picture went from 25 of
+66 to 0 of 66. The brass cases and muzzle flashes are unchanged.
