@@ -786,6 +786,12 @@ private:
         int hitSide = 0;   // QB-16: 2-5 shot from his front, back, left, right
         float hitDirX = 0.0f, hitDirZ = 0.0f;
         float hitPush = 0.07f;   // the stagger's reach (QB-16: by the gun)
+        // FIX-FIGURE-11 (pfl38): brushed by a moving car's drawn body the game did not knock down: when and
+        // by which car (one reaction per car per second).
+        uint32_t brushFrame = 0;
+        uintptr_t brushCar = 0;
+        float brushPrevX = 0.0f, brushPrevZ = 0.0f;   // his game point last frame (a figure moving with the car is in it)
+        uint32_t brushPrevFrame = 0;
         float staggerX = 0.0f, staggerZ = 0.0f;
         // FIX-FIGURE-6 (pm24 gang interpenetrating, pm3 ped inside a parked car): a draw-only offset
         // that keeps the figure out of its neighbours' bodies and out of car bodies, eased; the

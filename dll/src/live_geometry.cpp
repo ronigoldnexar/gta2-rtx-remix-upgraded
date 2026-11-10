@@ -288,6 +288,15 @@ bool ShotHitsOn() {
     if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_SHOT_HITS", v, sizeof v) && v[0] == '0') ? 0 : 1; }
     return on != 0;
 }
+// FIX-FIGURE-11 (pfl38): GTA2DX9_CAR_BRUSH=0 turns off the stagger of a figure a moving car's body brushes.
+bool CarBrushOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_CAR_BRUSH", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
+// This frame's cars on the move (drawn footprint and its velocity, blocks a second), for the brush.
+struct BrushCar { CarFootprint f; float vx, vz, speed; };
+std::vector<BrushCar> g_brushCars;
 constexpr uintptr_t kPedHealthWord = 0x216;   // int16, as world_view.cpp's peds line reads it
 std::vector<FigureSpot> g_figuresNow, g_figuresLast;
 constexpr float kSprintStrideOverRun = 1.405f;   // tools/gen_ped_clips.py: the sprint's stride over the run's
@@ -8964,6 +8973,29 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         lastCar.swap(nowCar);
         lastCarFrame = g_carFrame;
     }
+    {   // FIX-FIGURE-11 (pfl38): this frame's cars on the move, for the brush stagger.
+        g_brushCars.clear();
+        static CarFootprint all[96];
+        static std::unordered_map<uintptr_t, std::pair<float, float>> prev;
+        static uint32_t prevFrame = 0;
+        const uint32_t gap = g_carFrame - prevFrame;
+        std::unordered_map<uintptr_t, std::pair<float, float>> now;
+        const int n = (CarBrushOn() && g_groundModels) ? CarBodiesFootprints(all, 96) : 0;
+        now.reserve(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            const CarFootprint& c = all[i];
+            now[c.object] = {c.cx, c.cz};
+            const auto was = prev.find(c.object);
+            if (gap < 1 || gap > 3 || was == prev.end()) continue;
+            const float k = 30.0f / static_cast<float>(gap);
+            const float vx = (c.cx - was->second.first) * k, vz = (c.cz - was->second.second) * k;
+            const float sp = std::sqrt(vx * vx + vz * vz);
+            if (sp < 0.8f || sp > 30.0f) continue;   // parked or creeping (the parked-car slide keeps those), or a teleport
+            g_brushCars.push_back({c, vx, vz, sp});
+        }
+        prev.swap(now);
+        prevFrame = g_carFrame;
+    }
     for (const Sprite& sprite : sprites_) {
         ModelSetPlayerTextures(false);   // on only for his own figure, below
         // On his feet, or - with the models, which have clips for it - on the
@@ -9192,6 +9224,66 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // hit layer and a stagger of his drawn figure along the blow: 7 cm back over
         // 0.15 s, then home over 0.6 s; the legs step it like any other motion.
         bool hitNow = false;
+        // FIX-FIGURE-11 (pfl38-fp-car-clips-a-ped): a moving car's drawn body brushing him. GTA2 lets a car
+        // pass within ~0.35 block of a fleeing ped's point with no damage, no knock-down and no state change
+        // (pfl38a 04:54:14.9: ped 290 0.60 from the car's centre beside its flank, health 50, state 1 sub 3
+        // throughout), so drawn he ran on upright through the wing beside the dash. No damage is invented:
+        // the game's knock-down and run-over keep their own paths (he is a corpse then); a brush only
+        // staggers his drawn figure away from the body (the side-shot jolt, pushed by the car's pace).
+        float pedVx = 0.0f, pedVz = 0.0f;
+        bool pedVel = false;
+        {
+            const uint32_t gap = g_carFrame - track.brushPrevFrame;
+            if (track.brushPrevFrame && gap >= 1 && gap <= 3) {
+                pedVx = (cx - track.brushPrevX) * 30.0f / static_cast<float>(gap);
+                pedVz = (cz - track.brushPrevZ) * 30.0f / static_cast<float>(gap);
+                pedVel = true;
+            }
+            track.brushPrevX = cx; track.brushPrevZ = cz; track.brushPrevFrame = g_carFrame;
+        }
+        if (CarBrushOn() && pedVel && !sprite.corpse && sprite.pedState != 3 && sprite.pedState != 4 && sprite.pedState != 8 &&
+            sprite.pedState != 9 && sprite.pedState != 10 && reinterpret_cast<const void*>(sprite.object) != g_playerObject &&
+            !(track.hitFrame && g_carFrame - track.hitFrame < 12)) {
+            for (const BrushCar& bc : g_brushCars) {
+                const CarFootprint& c = bc.f;
+                if (cy < c.cy - 0.3f || cy > c.cy + 0.6f) continue;
+                const float px = cx - c.cx, pz = cz - c.cz;
+                const float lx = px * c.rx + pz * c.rz, lz = px * c.fx + pz * c.fz;
+                constexpr float kBodyR = 0.10f;   // a body's half width (the shoulder meets the paint)
+                if (std::fabs(lx) >= c.hx + kBodyR || std::fabs(lz) >= c.hz + kBodyR) continue;
+                if (track.brushCar == c.object && g_carFrame - track.brushFrame < 30) break;
+                // Carried with the car (the player's own reused ped sprite in his seat, fig11_br1 06:09:02; a
+                // boarding or a seated figure): not a brush. A brushed figure moves against the body.
+                const float rvx = pedVx - bc.vx, rvz = pedVz - bc.vz;
+                if (rvx * rvx + rvz * rvz < 0.5f * 0.5f) continue;
+                // The way he is thrown: off the flank he is on, along with the car's travel; in front of
+                // the nose, along the travel and off to the side he stands on.
+                const float vx = bc.vx / bc.speed, vz = bc.vz / bc.speed;
+                const float sideS = lx >= 0.0f ? 1.0f : -1.0f;
+                const bool flank = std::fabs(lz) < c.hz;
+                float ux = flank ? c.rx * sideS + vx * 0.6f : vx + c.rx * sideS * 0.5f;
+                float uz = flank ? c.rz * sideS + vz * 0.6f : vz + c.rz * sideS * 0.5f;
+                const float ul = std::sqrt(ux * ux + uz * uz);
+                if (ul < 1e-4f) break;
+                ux /= ul; uz /= ul;
+                const float fwd = ux * std::sin(track.heading) + uz * std::cos(track.heading);
+                const float right = ux * std::cos(track.heading) - uz * std::sin(track.heading);
+                const int side = fwd < -0.5f ? 2 : fwd > 0.5f ? 3 : right > 0.0f ? 4 : 5;
+                hitNow = true;
+                track.hitFrame = g_carFrame; track.hitSide = side;
+                track.hitDirX = ux; track.hitDirZ = uz;
+                track.hitPush = (std::min)(0.30f, 0.12f + 0.05f * bc.speed);
+                track.brushFrame = g_carFrame; track.brushCar = c.object;
+                if (g_logFigures || g_logPedFrames) {
+                    static const char* const kSides[6] = {"", "", "front", "back", "left", "right"};
+                    Log("fig: brushed %04x by car %08x at %.1f blocks/s (%s %.2f off its %s, game health %d state %d sub 0x%x): %s jolt, pushed %.2f",
+                        static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), static_cast<unsigned>(c.object), bc.speed,
+                        flank ? "flank" : "end", flank ? std::fabs(lx) - c.hx : std::fabs(lz) - c.hz, flank ? (sideS > 0 ? "right" : "left") : (lz > 0 ? "nose" : "tail"),
+                        sprite.pedHealth, sprite.pedState, sprite.pedSub, kSides[side], track.hitPush);
+                }
+                break;
+            }
+        }
         {
             // The game's word that a blow landed: his health dropped while a figure
             // within 0.7 block is mid-swing (this frame's or last frame's list). The

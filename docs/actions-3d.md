@@ -1363,3 +1363,32 @@ presses while firing the machine gun): every frame shows his figure or the gun a
   forearm), so the right hand closes round its body with the forearm running out to the lower right.
 - Probe: gamerun/keys_fig10_molotov.sh (rig-test yaw 90 side, 180 front, one throw, first person); runs
   fig10_mol1..3. The throw itself is unchanged (FIGURE-9's), including the arm held out ~1.5 s after the release.
+
+## FIX-FIGURE-11 (10 Nov 2026): a car's brush, the shot flinch, the first-person arm textures
+
+### pfl38 (ped half): a moving car's body brushing a pedestrian staggers her
+- What the game does on a brush: nothing. pfl38a 04:54:14.9, ped 290 came 0.60 block from the driver's car centre beside
+  its flank: health 50, state 1 sub 3 (fleeing) before and after, no knock-down, no damage. Drawn she ran on upright through
+  the wing beside the dash. The run-over and knock-down paths stay the game's (he is a corpse then: `ragdoll: on`,
+  the lying clips); no damage is invented.
+- Now (live_geometry.cpp, before the hit block): this frame's car footprints (CarBodiesFootprints, the drawn body
+  with its separation push) with their velocity from the last frame; a car moving 0.8-30 blocks/s whose footprint plus
+  0.10 block (a body's half width) holds an upright pedestrian's game point (not boarding, in a car, down or the
+  player) starts the shot-hit layer from the side she is struck on (hit_shot_front/back/l/r) and the stagger pushed
+  off the flank she is on, along with the car's travel (in front of the nose: along the travel and off to her side),
+  0.12 + 0.05 x speed, at most 0.30 block; one per car per second.
+- A figure moving with the car (relative speed under 0.5 block/s) is skipped: the player's own reused ped sprite in his
+  seat was "brushed" by his own car in fig11_br1 (06:09:02, health 100 state 7) before that rule.
+- Log: `fig: brushed <ped> by car <obj> at S blocks/s (flank|end D off its right|left|nose|tail, game health H state S
+  sub X): <side> jolt, pushed P` (GTA2DX9_LOG_PED_FRAMES=1). A/B: `GTA2DX9_CAR_BRUSH=0`.
+- Seen in fig11_br5 (third, traffic): two brushes of fleeing peds 0.06 / 0.09 block off another car's flank at 4.8 / 6.1
+  blocks/s, the game's health unchanged. Not yet filmed: both were off camera; the player's own FP brush did not recur in
+  5 drives (fig11_br1/br3/br5: the F9 car spawns at a different place each segment).
+
+### pfl37 (flinch half): what the filer's shot did
+- The filer's five pistol shots (pfl37b) dealt no damage: no health drop on any ped in the log (a hit logs
+  `fig: shot` or `fig: health ... nobody`); the shots went into the church wall while the ped walked past behind him,
+  so the ped correctly played no reaction (the red brackets are the game's lock-on, not blood).
+- A real hit plays the QB-16 shot reaction: fig11_mg2 (machine gun, third, wil plaza) `fig: shot 00a9 by ac1c
+  (weapon 4, 1.8 blocks, left) health 50 -> 25` at 06:06:01.852; b_f11_2_third.mp4 frame 7 of the crop sheet (0.68 s)
+  shows her hunched with both hands at her head, the frame of the health drop, then the death fall 0.07 s later.
