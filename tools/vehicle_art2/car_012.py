@@ -175,12 +175,20 @@ def build():
     car.revolve([(0.072, 0.02), (0.0, 0.026)], (-1.06, 1.19, 1.06), (0, 0, 1), 16, default="lamp_head", uv_mode="disc")
 
     # front: round lamps in the wing tips, a bar grille with a centre bullet, parking lamps under the lamps
-    car.box("grille", (-0.78, 0.50, zn - 0.12), (0.78, 0.76, zn + 0.005))
+    # VEHICLE-ART-18: the grille was a flat box face with painted bars and a 20 cm chrome blob in the middle. Now a
+    # dark recess (the seal black) behind real bars: five thin chrome bars, chrome side posts, the centre bar
+    # and a slim pointed spinner (the 1951 Ford's), so the mouth has depth and the bars catch the sky
+    car.box("seal", (-0.78, 0.50, zn - 0.12), (0.78, 0.76, zn + 0.005))
+    for yb in np.linspace(0.535, 0.725, 5):
+        car.sweep(lambda u, yb=yb: np.stack([(u - 0.5) * 1.50, yb + 0 * u, zn + 0.024 - 0.015 * ((u - 0.5) * 2) ** 2], 1), 0.009, 16, 6, "chrome",
+                  squash=(1.0, 0.7))
+    for side in (1, -1):
+        car.sweep(lambda u, side=side: np.stack([side * 0.775 + 0 * u, 0.49 + 0.28 * u, zn + 0.0 + 0 * u], 1), 0.020, 6, 8, "chrome")
     for yb in (0.49, 0.77):
         car.sweep(lambda u, yb=yb: np.stack([(u - 0.5) * 1.62, yb + 0 * u, zn + 0.01 - 0.05 * ((u - 0.5) * 2) ** 2], 1), 0.022, 16, 8, "chrome")
     car.sweep(lambda u: np.stack([(u - 0.5) * 1.50, 0.63 + 0 * u, zn + 0.03 - 0.05 * ((u - 0.5) * 2) ** 2], 1), 0.030, 16, 8, "chrome",
               squash=(1.0, 0.55))
-    car.revolve([(0.10, 0.0), (0.10, 0.03), (0.06, 0.09), (0.0, 0.11)], (0, 0.63, zn + 0.02), (0, 0, 1), 18, default="chrome", uv_mode="disc")
+    car.revolve([(0.062, -0.01), (0.064, 0.02), (0.045, 0.07), (0.016, 0.115), (0.0, 0.122)], (0, 0.63, zn + 0.02), (0, 0, 1), 20, default="chrome", uv_mode="disc")
     for side in (1, -1):
         c = np.array([side * 0.93, 0.71, zn + 0.005])     # proud of the nose panel (zn), outside the grille
         ax = (side * 0.06, 0.02, 1)
@@ -246,7 +254,6 @@ def build():
     car.materials["glass"] = tex_glass(256, tint=(30, 38, 46), alpha=195)
     car.materials["seal"] = tex_flat((20, 20, 22))
     car.materials["chrome"] = tex_chrome()
-    car.materials["grille"] = tex_grille(128, bars=7, rgb=(30, 30, 32))
     car.materials["underbody"] = tex_underbody()
     car.materials["interior_dark"] = tex_flat((10, 10, 10))
     car.materials["trim_dark"] = tex_flat((24, 24, 27))

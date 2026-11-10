@@ -1140,7 +1140,6 @@
     "chrome_disc": "cars/vehicle_art2/012_cop_car/chrome_disc.png",
     "beacon_blue": "cars/vehicle_art2/012_cop_car/beacon_blue.png",
     "lamp_head": "cars/vehicle_art2/012_cop_car/lamp_head.png",
-    "grille": "cars/vehicle_art2/012_cop_car/grille.png",
     "lamp_amber": "cars/vehicle_art2/012_cop_car/lamp_amber.png",
     "lamp_tail": "cars/vehicle_art2/012_cop_car/lamp_tail.png",
     "plate": "cars/vehicle_art2/012_cop_car/plate.png",
@@ -8147,9 +8146,9 @@
   },
   {
    "name": "012_cop_car",
-   "nodes": 27,
-   "meshes": 23,
-   "vertices": 22620,
+   "nodes": 26,
+   "meshes": 22,
+   "vertices": 23381,
    "animations": [],
    "textures": [
     "012_cop_car_beacon_blue.tga",
@@ -8157,7 +8156,6 @@
     "012_cop_car_chrome.tga",
     "012_cop_car_chrome_disc.tga",
     "012_cop_car_glass.tga",
-    "012_cop_car_grille.tga",
     "012_cop_car_interior_dark.tga",
     "012_cop_car_lamp_amber.tga",
     "012_cop_car_lamp_head.tga",
