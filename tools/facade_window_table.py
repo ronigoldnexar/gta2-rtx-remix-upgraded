@@ -14,6 +14,10 @@ import json, math, sys
 # dark-blue runs, so over a door it lays blocky sky/glow patches on the leaves (FIX-WORLD-8 pm6: the
 # Altamount arched double door read as a smeared ghost). Their photo tile paints its own glass.
 NOT_GLASS = {("wil", 538)}   # pm6-arched-doors-smeared-ghost-texture (tools/arch_door_tile.py)
+# qav19 (FIX-WORLD-14): the wil shop front 231 (striped shutter, oval light, a dark storefront below) took a
+# flat warm glow over its whole storefront box at dusk and night: an ochre slab with black rectangles where
+# the 64 px art is not dark enough to count as pane. It stays the steel-grey front it is by day, darker.
+NOT_GLASS |= {("wil", 231)}
 
 src, out = sys.argv[1], sys.argv[2]
 boxes = json.load(open(src))

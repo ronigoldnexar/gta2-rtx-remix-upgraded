@@ -228,6 +228,12 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   dark reveal, navy painted frame, fanlight with radial glazing bars over a transom, two leaves with glazed
   upper panels (a sky gradient painted in), raised lower panels, brass pulls, the art's threshold step; the
   wall around the arch is the photo tile itself. Paint grain from ambientCG Wood067 (CC0).
+- **Shop front glowing ochre at dusk** (qav19, FIX-WORLD-14): wil tile 231 (a shop front: striped steel
+  shutter with an oval light over a dark storefront) had two facade boxes over the whole front, so from the
+  twilight on MakeWindowGlow filled the storefront with one flat warm level (an ochre slab) with black
+  rectangles where the 64 px art is not dark enough to count as pane. NOT_GLASS now holds wil 231 too: the
+  front stays steel grey and darkens with the night. Same-pose frames: out/qa_fw14h3 t_c0_h1825/h2230 (before,
+  ochre) vs out/qa_fw14h2 t_c1_h1825/h2030/h2230 (after); vreg spawn_classic 0 tiles (out/vreg_fw14b).
 - Both ship in the textures archive (`assets/textures_hd/photo/<style>/`, never in git); street views only,
   never under Remix (the photo set is not loaded there; under Remix the shipped HD tile and its prims stay).
   Regenerate: `photoreal_tiles.py frames <photo>/<st> labels_<st>.json usage.json <photo>/<st> --style <st>`
