@@ -3,7 +3,7 @@
 branches and a canopy of alpha-cutout leaf cards (a shell of fourteen cards on
 an ellipsoid plus two crossed inner ones: canopy_shell), textured with generated bark and a generated
 leaf-cluster sheet. Three variants: a tall slim tree, a round one and a wide
-one. Output: GLBs with PBR materials, origin at the base of the trunk, +y up,
+one. (The canopy is canopy_lobes since FIX-WORLD-9: closed lumpy lobes, no cards.) Output: GLBs with PBR materials, origin at the base of the trunk, +y up,
 units in blocks (the importer scales them by the manifest / the placement rule).
 
     gen_trees.py <out dir>
@@ -160,6 +160,62 @@ def canopy_shell(rng, cy, canopy_w, canopy_h, n=14):
         parts.append(card((0, cy + rng.uniform(-0.05, 0.05) * canopy_h, 0), canopy_w * 0.7, canopy_h * 0.7, yaw))
     return parts
 
+def canopy_lobes(rng, cy, canopy_w, canopy_h, lobes=8, subdiv=2):
+    """FIX-WORLD-9 (pt-remix-dusk-tree-crowns-large-black-wedge-slabs-grey-spike): the crown as a
+    closed volume. canopy_shell's flat cards still read wrong under path tracing at a low sun: the
+    two inner crossed cards cast hard straight-edged shadows on the shell (black wedge slabs) and a
+    shell card seen edge-on is a grey line (the spike). Here the crown is a cluster of closed, lumpy
+    low-poly ellipsoids (a core and `lobes` around it, icosphere subdivision `subdiv`), with smooth
+    outward normals, so it shades as a rounded volume from any side (lit top, deeper green under it,
+    the self-shadow a soft curve) and has no plane that can turn edge-on. Each triangle takes its own
+    patch of the leaf sheet's dense middle at a constant texel density (a leaf ~5 cm of a block), so
+    the alpha test leaves small gaps through which the inner lobes show: depth, not holes. No inner
+    cards. Same leaf sheet, so the texture (and its Remix prim) is unchanged."""
+    import trimesh as _tm
+    rx, ry = canopy_w / 2, canopy_h / 2
+    sphere = _tm.creation.icosphere(subdivisions=subdiv)
+    unit_v, unit_f = np.asarray(sphere.vertices, float), np.asarray(sphere.faces)
+    golden = math.pi * (3 - math.sqrt(5))
+    centres, radii = [(np.array([0.0, cy, 0.0]), np.array([rx * 0.78, ry * 0.86, rx * 0.78]))], None
+    for i in range(lobes):
+        y = 0.85 - 1.55 * (i + 0.5) / lobes                # lobes from the crown's top to its underside
+        r = math.sqrt(max(0.0, 1 - y * y))
+        t = i * golden * 2.0 + rng.uniform(-0.35, 0.35)
+        d = np.array([math.cos(t) * r, y, math.sin(t) * r])
+        k = rng.uniform(0.45, 0.52)
+        c = np.array([d[0] * rx * k, cy + d[1] * ry * k, d[2] * rx * k])
+        sc = rng.uniform(0.50, 0.58)
+        centres.append((c, np.array([rx * sc, ry * sc * rng.uniform(0.95, 1.1), rx * sc])))
+    texel = 1.0 / (canopy_w * 0.62)                          # UV per block: the old cards' leaf size
+    parts = []
+    for c, ax in centres:
+        # lumpy: a smooth random radial bump per lobe (three low-order waves)
+        waves = [(rng.normal(size=3), rng.uniform(0, 2 * math.pi), rng.uniform(1.5, 3.0)) for _ in range(3)]
+        bump = np.ones(len(unit_v))
+        for wdir, ph, fr in waves:
+            wdir = wdir / np.linalg.norm(wdir)
+            bump += 0.06 * np.sin(fr * unit_v @ wdir + ph)
+        pos = c + unit_v * bump[:, None] * ax
+        nrm = unit_v / ax * 1.0                                # the ellipsoid's normal direction
+        nrm /= np.linalg.norm(nrm, axis=1, keepdims=True)
+        vs, uvs, fs, ns = [], [], [], []
+        for fi, (a, b, d_) in enumerate(unit_f):
+            tri = pos[[a, b, d_]]
+            # the triangle in its own plane, scaled to the texel density, dropped at a random spot of the core
+            e1 = tri[1] - tri[0]; e2 = tri[2] - tri[0]
+            u_ax = e1 / np.linalg.norm(e1); n_ = np.cross(e1, e2); n_ /= np.linalg.norm(n_)
+            v_ax = np.cross(n_, u_ax)
+            local = np.array([[0.0, 0.0], [e1 @ u_ax, e1 @ v_ax], [e2 @ u_ax, e2 @ v_ax]]) * texel
+            ang = rng.uniform(0, 2 * math.pi); R = np.array([[math.cos(ang), -math.sin(ang)], [math.sin(ang), math.cos(ang)]])
+            local = local @ R.T; local -= local.mean(0)
+            rr, th = 0.22 * math.sqrt(rng.uniform()), rng.uniform(0, 2 * math.pi)
+            uv = local + np.array([0.5 + rr * math.cos(th), 0.5 + rr * math.sin(th)])
+            base = len(vs) * 0 + fi * 3
+            vs.extend(tri); uvs.extend(uv); ns.extend(nrm[[a, b, d_]])
+            fs.append([base, base + 1, base + 2])
+        parts.append((np.array(vs), np.array(fs), np.array(uvs), np.array(ns)))
+    return parts
+
 def build(variant, out_dir):
     name, height, canopy_w, canopy_h, trunk_r, tint, seed = variant
     rng = np.random.default_rng(seed)
@@ -172,13 +228,15 @@ def build(variant, out_dir):
         tip = (math.cos(ang) * canopy_w * 0.3, y0 + height * 0.2, math.sin(ang) * canopy_w * 0.3)
         bark_parts.append(cylinder((0, y0, 0), tip, trunk_r * 0.45, trunk_r * 0.15, 6))
     cy = trunk_top + canopy_h * 0.42
-    leaf_parts += canopy_shell(rng, cy, canopy_w, canopy_h)
+    leaf_parts += canopy_lobes(rng, cy, canopy_w, canopy_h)
     scene = trimesh.Scene()
     def merge(parts, image, name_):
-        vs, fs, uvs = [], [], []; off = 0
-        for v, f, uv in parts:
+        vs, fs, uvs, ns = [], [], [], []; off = 0; with_n = all(len(p) == 4 for p in parts)
+        for p in parts:
+            v, f, uv = p[:3]
             vs.append(v); fs.append(f + off); uvs.append(uv); off += len(v)
-        m = trimesh.Trimesh(np.vstack(vs), np.vstack(fs), process=False)
+            if with_n: ns.append(p[3])
+        m = trimesh.Trimesh(np.vstack(vs), np.vstack(fs), vertex_normals=np.vstack(ns) if with_n else None, process=False)
         mat = trimesh.visual.material.PBRMaterial(name=name_, baseColorTexture=image, metallicFactor=0.0,
                                                   roughnessFactor=0.9, doubleSided=True, alphaMode='MASK' if name_ == 'leaves' else 'OPAQUE')
         m.visual = trimesh.visual.TextureVisuals(uv=np.vstack(uvs), material=mat)
