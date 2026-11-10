@@ -735,3 +735,19 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
     `_plate`, `_trim_dark`, `_glass`, `_chrome`, `_chrome_disc`, `_grille`, `_lamp_head`, `_lamp_tail`, `_lamp_amber`,
     `_seal`, `_seat`, `_interior_dark`, `_tyre_side`, `_tyre_tread`, `_underbody`; the old `012_cop_car_0*..12` are
     gone (backups `/mnt/gta2/gta2-linux/backup_va15/models_012`).
+- **013 Minx re-authored to the kit standard (`tools/vehicle_art2/car_013.py`, audit item: ART-14 did not start it).**
+  The carkit-v1 body (`tools/vehicle_art/m013_minx.py`: a tall bubble glasshouse over a short body, shader-painted
+  shut lines, big fins) becomes a vehicle_art2 body read from the sprite nose down: a long bonnet with a raised centre
+  panel (two low ribs: the sprite's two lines), a wrap-around screen, a big glasshouse under a black vinyl roof (the
+  sprite's dark roof area), one long door, a large rear quarter light, a wide back light, a short boot between two
+  small fins ending in round tail lamps, a full-width bar grille between single round lamps, slim wraparound bumpers,
+  a chrome belt line and side spear, whitewalls (the shipped car's), front buckets and a rear bench. Neutral 235 paint
+  tinted by the identity record. The cabin liner keeps 1b59d00's light grey-beige (`interior_liner`, 117,110,97) with
+  its normals leaning up (`-N + (0, 2.5, 0)`). Driver seat [0.09, 0.132, 0.02, 0.312]. `car_mesh_orient.py check`: ok.
+  Before `out/va15_013_b0`, after `out/va15_013_a0` (parked, EXIT=1, PAINT 150,92,58, poses side/front34/rear34/eye/
+  far/chase/high/door), first person `out/va15_fp_a1` (t_cab_013_*). Still short of AAA: the side glass is the kit's
+  dark tint (no visible cabin by day, as every kit body), slab door skins with no swage line, the whitewall band is
+  the kit's full outer sidewall (wide). Remix: every 013 texture is new (`013_minx_paint_body_paint`, `_paint_trim_paint`,
+  `_paint_wheel_paint`, `_vinyl`, `_interior_liner`, `_glass`, `_chrome`, `_chrome_disc`, `_grille`, `_lamp_head`,
+  `_lamp_tail`, `_lamp_amber`, `_plate`, `_trim_dark`, `_seal`, `_seat`, `_interior_dark`, `_tyre_side`, `_tyre_tread`,
+  `_whitewall`, `_underbody`); the old `013_minx_0..` textures are gone (backups `backup_va15/models_013`).
