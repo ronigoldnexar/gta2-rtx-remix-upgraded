@@ -131,6 +131,7 @@ void VehicleFxReleaseDevice();
 // [devtools] spawn_smoke: a tyre-smoke and a steam puff at `at` (call once a frame while wanted).
 void VehicleFxSetPuffLevels(bool on);   // [devtools] remix_puff_levels
 void VehicleFxSetRemixPuffMode(int mode);   // [devtools] remix_puff_mode: 0 old dither, 1 coherent wisps (default), 2 none, 3 wisps without exhaust
+void VehicleFxSetRemixPuffTones(int on);   // [devtools] remix_puff_tones: 1 (default) the puff's grey baked into the Remix wisps (dark smoke dark), 0 all light (FIX-FX-5)
 void VehicleFxProbeSmoke(const gta2::Vec3& at, float groundY);
 // For the log: particles alive, skid segments, ms of the last frame (update + draw).
 void VehicleFxStats(int* particles, int* skids, double* ms);

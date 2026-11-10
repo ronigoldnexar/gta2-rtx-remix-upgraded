@@ -348,7 +348,15 @@ bool g_puffLevelsOn = true;   // [devtools] remix_puff_levels=0: the old way, fo
 // frame made every texel flicker). Mode 0 the old dither, 2 no puffs under Remix, 3 mode 1 without the
 // exhaust. [devtools] remix_puff_mode, read in remix_lights.cpp.
 int g_remixPuffMode = 1;
-IDirect3DTexture9* g_puffWispTex[kPuffLevels * kPuffSeeds] = {};
+// FIX-FX-5 (fire-fx 3d, out/ffx5_fi1: a burning van's smoke at night under Remix was a cloud of pale blue-white flakes):
+// a puff's grey (0.2 for a burning engine's smoke, 0.7-0.9 for tyre smoke, steam and exhaust) was only in the
+// vertex colour, which Remix drops, so every wisp took the texture's light shade. The wisps now come in grey tones
+// baked into the texels: tone 0 the old light shade (tyre smoke, steam, exhaust unchanged), 1 mid grey, 2 dark smoke.
+// [devtools] remix_puff_tones=0: every puff light, as before.
+constexpr int kPuffTones = 3;
+constexpr float kPuffToneGrey[kPuffTones] = {1.0f, 0.55f, 0.26f};
+int g_remixPuffTones = 1;
+IDirect3DTexture9* g_puffWispTex[kPuffLevels * kPuffSeeds * kPuffTones] = {};
 float PuffTexel(float u, float v) {
     const float dx = u - 0.5f, dy = v - 0.5f;
     const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
@@ -1275,7 +1283,7 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
 }
 
 namespace {
-struct PuffQuad { gta2::Vec3 c, a, b; DWORD colour; DWORD opaque; int level; int seed; };   // opaque: alpha 1, the opacity in the level texture
+struct PuffQuad { gta2::Vec3 c, a, b; DWORD colour; DWORD opaque; int level; int seed; int tone; };   // opaque: alpha 1, the opacity in the level texture
 std::vector<PuffQuad> g_puffQuads;
 
 // The dithered steps of the puff (see g_puffLevelTex), managed, one a frame like EnsureTextures.
@@ -1325,14 +1333,14 @@ float ValueNoise(float x, float y, int period, int seed) {
 
 bool PuffWispsReady(IDirect3DDevice9* device) {
     static bool failed = false;
-    constexpr int kCount = kPuffLevels * kPuffSeeds;
+    constexpr int kCount = kPuffLevels * kPuffSeeds * kPuffTones;
     if (g_puffWispTex[kCount - 1]) return true;
     if (failed) return false;
     constexpr int N = kPuffDitherSize;
     static std::vector<float> rank[kPuffSeeds];
     for (int i = 0; i < kCount; ++i) {
         if (g_puffWispTex[i]) continue;
-        const int k = i % kPuffLevels, seed = i / kPuffLevels;
+        const int k = i % kPuffLevels, seed = (i / kPuffLevels) % kPuffSeeds, tone = i / (kPuffLevels * kPuffSeeds);
         if (rank[seed].empty()) {
             std::vector<float> f(N * N);
             for (int y = 0; y < N; ++y)
@@ -1359,7 +1367,8 @@ bool PuffWispsReady(IDirect3DDevice9* device) {
                     // Shading in the albedo (Remix lights each covered texel as a flat card): a wisp is lighter
                     // where it is thick (far inside its edge) and towards the puff's middle, darker at its rim.
                     const float depth = Clamp((cover - rank[seed][y * N + x]) * 10.0f, 0.0f, 1.0f);
-                    const float shade = (0.62f + 0.38f * depth) * (0.82f + 0.18f * PuffTexel((x + 0.5f) / N, (y + 0.5f) / N));
+                    const float shade = (0.62f + 0.38f * depth) * (0.82f + 0.18f * PuffTexel((x + 0.5f) / N, (y + 0.5f) / N)) *
+                                        kPuffToneGrey[tone];
                     row[x] = Argb(0.5f + 6.0f * (cover - rank[seed][y * N + x]), shade, shade, shade);
                 }
             }
@@ -1375,6 +1384,7 @@ bool PuffWispsReady(IDirect3DDevice9* device) {
 
 void VehicleFxSetPuffLevels(bool on) { g_puffLevelsOn = on; }
 void VehicleFxSetRemixPuffMode(int mode) { g_remixPuffMode = mode; }
+void VehicleFxSetRemixPuffTones(int on) { g_remixPuffTones = on; }
 
 // [devtools] spawn_smoke (FIX-REMIX-NIGHT): a tyre-smoke puff and a steam puff at `at`, every frame it is called.
 void VehicleFxProbeSmoke(const gta2::Vec3& at, float groundY) {
@@ -1596,8 +1606,9 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         std::memcpy(&own, &p.size1, sizeof own);
         const int seed = g_remixPuffMode == 0 ? static_cast<int>((frame + g_puffQuads.size()) % kPuffSeeds)
                                               : static_cast<int>((own ^ (own >> 7) ^ (own >> 15)) % kPuffSeeds);
+        const int tone = g_remixPuffTones ? (grey >= 0.62f ? 0 : grey >= 0.38f ? 1 : 2) : 0;
         g_puffQuads.push_back({c, a, b, Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], alpha),
-                               Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], 1.0f), level, seed});
+                               Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], 1.0f), level, seed, tone});
     }
     const bool wisps = remix && g_remixPuffMode != 0;
     if (remix && g_remixPuffMode == 2) {
@@ -1618,10 +1629,12 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         const D3DTEXTUREFILTERTYPE filter = wisps ? D3DTEXF_LINEAR : D3DTEXF_POINT;
         device->SetSamplerState(0, D3DSAMP_MAGFILTER, filter);
         device->SetSamplerState(0, D3DSAMP_MINFILTER, filter);
-        for (int k = 0; k < kPuffLevels * kPuffSeeds; ++k) {
+        const int textures = wisps ? kPuffLevels * kPuffSeeds * kPuffTones : kPuffLevels * kPuffSeeds;
+        for (int k = 0; k < textures; ++k) {
             lit.clear(); idx.clear();
             for (const PuffQuad& q : g_puffQuads) {
-                if (q.level + kPuffLevels * q.seed != k || lit.size() + 4 > 65532) continue;
+                const int key = q.level + kPuffLevels * (q.seed + (wisps ? kPuffSeeds * q.tone : 0));
+                if (key != k || lit.size() + 4 > 65532) continue;
                 gta2::Vec3 n = gta2::Normalize(gta2::Normalize(eye - q.c) * 0.35f + worldUp);
                 const uint16_t base = static_cast<uint16_t>(lit.size());
                 const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};

@@ -1483,6 +1483,12 @@ void LightsReconcile() {
                 lastPuff = puff; VehicleFxSetRemixPuffMode(puff);
                 Log("devtools: Remix smoke puffs mode %d (0 dither, 1 wisps, 2 none, 3 wisps without exhaust)", puff);
             }
+            static int lastTones = -1;
+            const int tones = GetPrivateProfileIntA("devtools", "remix_puff_tones", 1, ini);
+            if (tones != lastTones) {
+                lastTones = tones; VehicleFxSetRemixPuffTones(tones);
+                Log("devtools: Remix smoke puff grey tones %s", tones ? "on (dark smoke dark)" : "off (old: every puff light)");
+            }
             static int lastFlatLamps = -1;
             const int flatLamps = GetPrivateProfileIntA("devtools", "remix_flat_lamps", 0, ini);
             if (flatLamps != lastFlatLamps) {

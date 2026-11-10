@@ -1517,6 +1517,18 @@ Still short of shipping: in a still frame the puff is visibly grainy (sand rathe
 stack, and it has no self-shadowing or soft volume; the AAA answer is Remix's own volumetric/particle system fed with an emitter, not
 billboards. The burning-car smoke (live_geometry.cpp) and the blast smoke (explosion_fx.cpp) take the same blended path and were not changed.
 
+### The puff's grey under Remix (FIX-FX-5, 10 Nov 2026)
+
+A burning car's smoke at night under Remix was a cloud of pale blue-white flakes (out/ffx5_fi1, a forced burn of a
+parked 068 van at wil 198.5,188.5 at 22:00). vehicle_fx emits a burning engine's smoke at grey 0.2 and tyre smoke, steam
+and exhaust at 0.7-0.9, but on the wisp path that grey was only in the vertex colour, and this runtime drops vertex colour
+(`rtx.ignoreAllVertexColorBakedLighting`). The wisp textures now come in three grey tones baked into the texels:
+light (x1.0, the old shade, so tyre smoke, steam and exhaust are unchanged), mid (x0.55) and dark (x0.26). A puff takes the
+nearest tone. That is 96 textures (8 steps x 4 seeds x 3 tones of 128 px), made one a frame at first use.
+`[devtools] remix_puff_tones=0` makes every puff light again (live). Same session A/B, run twice: out/ffx5_fi2
+`fire_*_burn_t0` / `t0b` (pale flakes) vs `t1` / `t1b` (a dark grey plume). Still short of a volume: the plume is cut-out
+flakes, not a soft column.
+
 ## Painted walls, murals, road lids, cut-outs and leaves (FIX-REMIX-MATERIALS-3, 10 Nov 2026)
 
 Five path-traced defects filed against what the gta2hd layer draws for a texture (two fixed, one partly, two found
