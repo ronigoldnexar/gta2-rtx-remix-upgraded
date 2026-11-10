@@ -893,3 +893,41 @@ a probe artifact; traffic draws it in its own colours).
   lenses, as the old _0 did the head/tail lamps), `_2_paint` C536668663B86CA4; 0 missing; DDS in the bundle.
   Backups `backup_va17/models_063`. Still short of AAA: a smooth single-curvature cab with a plain back wall, the
   lenses read pale grey (not lit) in daylight, chassis and fifth wheel flat black boxes, rubber-less mudflaps.
+
+## VEHICLE-ART-18 (10 Nov 2026): 036 lamp pods, 012 grille, 034 / 044 / 086 authored
+
+Probe for all of them: `gamerun/va11_own.py` parked (EXIT=1) at wil 198.5,188.2, the car forced to each model, fixed
+regression-camera poses (car poses side/front34/rear34/eye/high/far/lamp; bus-scaled `POSES_EXTRA` b*/x* poses for the
+7-8 m bodies). Before `out/va18_b0` (036 056 012 on the a8b6b946 stage), after `out/va18_a036`, `out/va18_a1` (034,
+012), `out/va18_a2` (044, 086), FP `out/va18_fp1` (keys_fixfp2_cab, force_own_car_model 44 / 86). 0 FAULT and 0 model
+read errors in every run. Paint gate `out/va18_gate3_parity.md` 0 FAIL. No DLL change: classic unchanged by construction.
+
+- **The paint gate was blind (fixed, 1569a1d).** Since cd5bb11e a comment in `package/gta2dx9.ini` (line 513) carried
+  the literal text `[devtools]` ahead of the real section (line 686). `paint_parity_probe.py` (and ~40 runners that add
+  a key with `replace("[devtools]", ...)`) wrote force_car_model / force_car_paint into that comment, so the gate filmed
+  the real car in every frame and reported 'no car found' (out/va18_gate1, va18_gate2). The comment now says
+  "devtools keys"; never put a section name in square brackets in an ini comment.
+- **036 Schmidt (rank 4).** The headlamps were pancake discs sitting on the blunt nose. Each now sits in the mouth of a
+  faired nacelle on the wing crown (swept paint pod from 1.22 m back, chrome bezel, the sealed beam inside), added after
+  the AO bake; the atlas still re-bakes because the old discs no longer shade the deck (one Remix prim).
+- **012 Cop Car.** The grille was a flat painted-bar face with a 20 cm chrome dome: now a black recess behind five thin
+  chrome bars and two side posts, with a slim pointed spinner. The grille texture is gone.
+- **034 Medicar (qaexp7).** Authored (`car_034.py`): 1959 Cadillac / Miller-Meteor ambulance, cream over maroon, lamp
+  rack with four red domes behind the screen, the roof star of life, crosses on the compartment panels, rear doors.
+  A livery painted **by position** (`tex_livery`: each texel's point on the body decides cream / maroon / pinstripe /
+  star), and the end caps take a strip by height (`tex_end`): a cap is a fan to its centre, so it cannot use the body
+  atlas (the first take's tail was one salmon blend of both colours).
+- **044 Arachnid (pmw1 slabs, qav10 FP hood).** Authored (`car_044.py`): a Duetto-style spider. The open cockpit is
+  part of the body surface (inside the sprite's oval the deck sinks into a tub), the seats are solid boxes, so there is
+  no free-standing plane to draw as a black slab; the FP view shows no void.
+- **086 Karma Bus (qav7 body half).** Authored (`car_086.py`): 1950s school bus, rub rails, raised roof hatches with
+  smoked lights (the sprite's dark hatches), emergency door with two panes; no holes. The lower side's v mapping is
+  spread (`sepow(s, 0.85)`) so painted rails are several texels tall.
+- Texture budget: 034/044/086 together 55 textures and 7.0 MB against the shells' 51 and 18.3 MB.
+- Remix: 22 new prims (`remix_car_prim_check` 0 missing per model), DDS in `layer_deploy/VEHICLE-ART-18`; not path
+  traced.
+- Still short of a shipping-AAA frame: 036's pods are plain swept tubes; the 012 grille bars are uniform rods; the
+  034/086 bodies are single-loft boxes without stamped door skins, gutters or rivets, chrome bumpers without
+  over-rider detail; the 044 cockpit reads as a near-black well at chase distance (dark leather on dark trim, as the
+  sprite); none filmed at the filers' own spots, at night, driving, or under Remix. The kit bodies' light mottle in the
+  street views is not in their textures (they are smooth); it comes from the renderer's light, not from the paint.
