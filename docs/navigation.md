@@ -708,6 +708,11 @@ launch hits a wall), `keys_pfl21.sh` (V third -> first -> classic while driving)
   seatfix=` logs the eye's parts per frame: across a wall hit the eye pitch is -3.5..-4.9 (the body's dip). The
   15-degree "dive" in pfl25 is the cockpit redrawn in one frame when the hood dash is rebuilt for a dent step
   (`car bodies: hood dash of ...` on the hit frame), not the eye: open in car_bodies/cab_interior.
+- **The WASTED/BUSTED shot** (pm9/pm10, the camera halves): the beat camera's line (FreeFraction) also stops at the
+  drawn mesh and at car bodies (the car the body lies in skipped); it used the map cells only, so from the wil spawn
+  yard the first-person BUSTED shot was framed through the iron stair's rail sheet, the hero hidden (fh3_beat1), and a
+  WASTED shot could stand inside a truck. cam9_bt1 (keys_fh3_beat.sh): the orbit starts 60 degrees round, the hero in
+  the open with his hands up. `GTA2DX9_BEAT_CAM_MESH=0` is the A/B. The truck case is untested.
 - **pfl16 (MG fight, hero missing 4.4 s)**: the developer warp, not the aim rig: `cam: pose` holds him inside the
   frame throughout; he is not drawn until he first moves after a T.warp (player-invisible-until-game-camera-arrives).
   With one step after the warp: hero in the 5..95 % box on 942 of 943 armed frames over three runs (the one: feet 1 % under the edge at the
