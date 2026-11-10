@@ -94,7 +94,41 @@ def walk_pts(points, secs_each=6.0, tol=STAIR_TOL):
     return True
 
 
-def climb_to_walk(tries=3):
+GAP_PTS = [(193.5, 178.05), (192.8, 177.7), (192.0, 177.7), (191.3, 177.78)]   # the stair foot past the girder
+
+
+def step_to(x, y, tol=0.25, tries=24):
+    """MISSIONS-BATCH2: small aimed steps onto a point (turn in place, then a short Up pulse), no
+    sideways unstick. mb2_km2-km6: cruise_to stalled 0.4-0.8 from the gap point 192.8,177.7 (its
+    unstick shoves him off the line) in the chase view and in the classic view alike, 5 of 5 climbs"""
+    for _ in range(tries):
+        s = D.wait_state()
+        if not s or s["driving"]: return s, False
+        d = math.hypot(x - s["x"], y - s["y"])
+        if d < tol: return s, True
+        a = D.angle_to(s, x, y)
+        if abs(a) > 0.3:
+            key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
+            hold(key, min(abs(a) / max(D.rate, 2.0), 0.3)); time.sleep(0.3)
+            hold("Up", 0.08); time.sleep(0.35)
+            continue
+        hold("Up", max(0.08, min(0.35, (d - 0.05) / 1.9))); time.sleep(0.4)
+    s = D.wait_state()
+    return s, bool(s and math.hypot(x - s["x"], y - s["y"]) < tol)
+
+
+def thread_gap():
+    """the gap points by step_to, then the rest of the flight by walk_pts"""
+    for (x, y) in GAP_PTS:
+        s, ok = step_to(x, y)
+        if not ok:
+            M.mark(f"climb: step_to missed {x},{y} (at {s['x']:.2f},{s['y']:.2f})" if s else "climb: step_to, no state")
+            return False
+    M.mark("climb: the gap threaded by steps")
+    return walk_pts(CLIMB_KM[CLIMB_KM.index(GAP_PTS[-1]) + 1:], secs_each=9.0)
+
+
+def climb_to_walk(tries=3, resume=False):
     """the climb to the level-2 walk by the job, before the skill: CLIMB_KM legs of up to 9 s each
     (the skill's path_walk gives 6 s and one retry, then its router climb heads for the girder: mg_km7,
     mg_km8, mg_fb3 pinned at 193.4,177.6 until the warp fallback, refused); a missed leg resumes from
@@ -104,11 +138,20 @@ def climb_to_walk(tries=3):
         if K.level_of_z(s["z"]) == BR.WALK_LEVEL: return True
         # resume at the first point beyond the nearest one (the points run east to west, then north)
         i = min(range(len(CLIMB_KM)), key=lambda j: math.hypot(CLIMB_KM[j][0] - s["x"], CLIMB_KM[j][1] - s["y"]))
-        i = min(i + 1, len(CLIMB_KM) - 1) if k else 0
+        i = min(i + 1, len(CLIMB_KM) - 1) if (k or resume) else 0
+        if resume and k == 0 and math.hypot(s["x"] - 193.3, s["y"] - 177.9) < 1.5:
+            # MISSIONS-BATCH2 (mb2_km9): the classic retry walked back to the first point 5 blocks east
+            # and lost the line; from the girder's side it steps straight through the gap
+            if thread_gap(): break
+            continue
         if walk_pts(CLIMB_KM[i:], secs_each=9.0):
             break
         s = D.wait_state(); M.mark(f"climb: missed a leg at {s['x']:.1f},{s['y']:.1f} (try {k + 1})")
         if K.level_of_z(s["z"]) == BR.WALK_LEVEL: return True
+        if os.environ.get("BR_STEP_GAP", "1") == "1" and math.hypot(s["x"] - 193.3, s["y"] - 177.9) < 1.5:
+            if thread_gap(): break
+            s = D.wait_state()
+            if K.level_of_z(s["z"]) == BR.WALK_LEVEL: return True
         M.cruise_to(s["x"] + 0.8, s["y"] + 0.3, tol=0.4, secs=2.0)     # a step back east, off whatever held him
     s = D.wait_state()
     return K.level_of_z(s["z"]) == BR.WALK_LEVEL
@@ -127,13 +170,38 @@ def to_car(world, check=True):
             c = min(cs, key=lambda c: math.hypot(c["x"] - at[0], c["y"] - at[1]))
             at = (c["x"], c["y"])
     M.mark(f"back to the GRAHAM at {at[0]:.1f},{at[1]:.1f}")
-    s = M.enter_car3(world, at[0], at[1], budget=60)
+    s = None
+    if os.environ.get("BR_DOOR_ENTER", "1") == "1":
+        s = door_enter(world, at)
+    if not (s and s["driving"]):
+        s = M.enter_car3(world, at[0], at[1], budget=60)
     if check: s = board_graham(world, s)
     if s and s["driving"] and in_graham() is not False:
         BR.FP["until"] = -1; M.ensure_view("third"); remember_car()
     return s
 
 GRAHAM = 18          # the job's car model (carmodel in the mission line)
+
+
+def door_enter(world, at):
+    """MISSIONS-BATCH2: into the GRAHAM from its driver's door. mb2_km3 (a police car: busted), mb2_km7
+    (models 53, 36: 1125), and km4/km5 (models 68/36/69, recovered) got into a car queued beside or
+    behind the parked GRAHAM: enter_car3 presses Return 1.5 blocks off the car's centre, and the game
+    takes the nearest door. Here: the point 1.0 off the left flank (the driver's side) by walk3 and
+    aimed steps, then Return"""
+    cs = [c for c in M.cars() if c["model"] == GRAHAM and math.hypot(c["x"] - at[0], c["y"] - at[1]) < 3.0]
+    if not cs: return None
+    c = min(cs, key=lambda c: math.hypot(c["x"] - at[0], c["y"] - at[1]))
+    hx, hy = c.get("hx", 1.0), c.get("hy", 0.0)
+    dx, dy = c["x"] + hy * 1.0 + hx * 0.2, c["y"] - hx * 1.0 + hy * 0.2
+    M.mark(f"door_enter: the GRAHAM at {c['x']:.1f},{c['y']:.1f} heading {hx:.2f},{hy:.2f}; its door {dx:.1f},{dy:.1f}")
+    M.walk3(world, dx, dy, None, tol=0.8, budget=40)
+    s, ok = step_to(dx, dy, tol=0.35, tries=12)
+    D.tap("Return", 0.3)
+    for k in range(20):
+        time.sleep(0.25); s = D.wait_state()
+        if s and s["driving"]: break
+    return s
 
 def in_graham(wait=2.0):
     """True when the car he sits in is the GRAHAM; None while the mission line has no model yet"""
@@ -462,6 +530,17 @@ def run(world, entry):
     s = M.leave_car(); M.select_gun(); BR.FP["until"] = -1
     M.ensure_view("classic")      # the chase view with GTA2_DIRECT_KEYS=1
     up = climb_to_walk()
+    if not up and os.environ.get("BR_CLIMB_CLASSIC", "1") == "1":
+        # MISSIONS-BATCH2: mb2_km2 (and mg_sp8) pinned at the stair foot by the girder's renderer-side
+        # collider (defect mg-wil-bank-stair-girder-collider-blocks-entry, FIX-COLLISION-2), which is solid
+        # only in the 3D views: the same climb once more in the classic view, the fight back in the chase view
+        saved = M.WALK_VIEW[0]
+        M.mark("climb: not up in the chase view (the stair girder's collider); again in the classic view (renderer-side defect)")
+        try:
+            M.WALK_VIEW[0] = "classic"; M.ensure_view("classic")
+            up = climb_to_walk(resume=True)
+        finally:
+            M.WALK_VIEW[0] = saved; M.ensure_view("classic")
     s = D.wait_state(); M.mark(f"climb by the job: {'on the walk' if up else 'not up'} at {s['x']:.1f},{s['y']:.1f} z {s['z']:.2f}")
     r = K.kill_marked(world, select=is_guard, spare=is_spare, approach=CLIMB_KM, level=BR.WALK_LEVEL,
                       fire_spots=BR.FIRE_SPOTS, secs=150, check=job_check, engage=7.0, close=3.2,
@@ -528,7 +607,13 @@ def run(world, entry):
                 s = D.wait_state()
                 if not s["driving"] or (wy < 200 and s["y"] > 185) or (wy > 200 and s["y"] > 210): continue
                 M.mark(f"getaway leg to {wx},{wy}")
-                s = BR.drive(world, wx, wy, 2.5, 120)
+                if os.environ.get("BR_LEGS_CHASE", "1") == "1" and SP.wanted() > 0:
+                    # MISSIONS-BATCH2: mb2_km4 (launch skipped after three wrong-car boardings) jammed in
+                    # drive3 among standing cars at the bank (8 stalls, 'pinned: giving up', out, 1125): the
+                    # wanted legs by shake_police.chase_drive (chase_path: overtakes, reverses out of a stall)
+                    s = SP.chase_drive(world, wx, wy, 2.5, 120, check=BR.check)
+                else:
+                    s = BR.drive(world, wx, wy, 2.5, 120)
                 BR.check(); remember_car()
             if not s["driving"]: continue
         if not (at_bay and k == 0):

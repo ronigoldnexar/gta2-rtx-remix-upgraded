@@ -32,6 +32,9 @@ sys.path.insert(0, "/work")
 sys.argv = sys.argv[:1]
 os.environ["DISTRICT"] = "ste"
 os.environ["MISSIONS"] = " "
+os.environ.setdefault("LP_CAR", "0")         # MISSIONS-BATCH2: mb2_lp2 lost two lives in the run-over cars (shot alight
+                                            # at once); the gun rounds kept health 100 for 12 counted kills
+os.environ.setdefault("GF_BACK_R", "2.2")     # MISSIONS-BATCH2: the gunfight shoots walking backwards at a man this near
 import drive_lib as D
 import mission_lib as M
 import mission_play_districts as P          # starts the session: level, views, world
@@ -54,6 +57,7 @@ UP_LEGS = [(244.5, 76.6), (250.6, 66.0), (245.0, 58.6), (228.0, 58.6), (224.6, 5
 PATROL = [(224.6, 12.5), (233.6, 30.5), (235.5, 22.6), (245.5, 22.6), (245.5, 32.5), (230.5, 35.6),
           (215.5, 35.6), (205.5, 35.6), (215.5, 48.6), (205.5, 10.6), (215.5, 10.6)]   # level-2 roads in m18
 ANCHORS = [(229.5, 18.5), (210.5, 15.5), (243.5, 14.5), (226.5, 6.5)]
+ANCHORS_LATE = [(243.5, 14.5), (229.5, 18.5), (233.6, 30.5)]   # 18+ blocks from the first hitman's car (214.5,7.5)
 RESPECT = int(os.environ.get("LP_RESPECT", "60"))
 RESULT = dict(stage="start", events=[], rounds=[])
 STARTED = [False]
@@ -77,6 +81,26 @@ def messages_since(off):
     for k in re.findall(r"view: mission [^\n]*?msg=(\S+)", data):
         if not out or out[-1] != k: out.append(k)
     return out
+
+
+HUD_RX = re.compile(rb"hud3d: money=\S+ .*? health=(-?\d+) .*? counter=(-?\d+)")
+def hud_counter():
+    """MISSIONS-BATCH2: the job's on-screen counter (m_3_count10 = 47 - the game's bonus count) as the
+    renderer's HUD line has it every 2 s (`hud3d: ... counter=N`; -1 when none is up). The skill's
+    'down' lines over-count (mb1_ra8: ~45 'down', the game at 27): this is the real count"""
+    try:
+        with open(D.LOG, "rb") as f:
+            f.seek(0, 2); n = f.tell(); f.seek(max(0, n - 400000)); data = f.read()
+    except OSError:
+        return None
+    m = None
+    for m in HUD_RX.finditer(data): pass
+    return int(m.group(2)) if m else None
+
+
+def ev_count(what):
+    c = hud_counter()
+    ev(f"{what} [counter {c}{'' if c is None or c < 0 else f', {47 - c} of 47 counted'}]")
 
 
 def check():
@@ -120,6 +144,11 @@ def hostile(p):
     job sent (gang zaibatsu, in a VTYPE or marked) wherever he is"""
     if p["gang"] != "zaibatsu": return False
     if p["id"] in HOSTILE: return True
+    # mb2_lp1: the HUD counter (hud3d counter=) rose with the 'gang/zaibatsu' downs only; the
+    # 'civ/zaibatsu' peds (half of the skill's downs in mb1_ra*, 68 of 133) never count. The job's
+    # hitmen are CRIMINALs put in zaibgang: 'crim', or marked, or in a car
+    if os.environ.get("LP_GANG_ONLY", "1") == "1" and p["type"] not in ("gang", "crim") and p["mark"] is None and p["car"] is None:
+        return False
     if in_zone(p["x"], p["y"]) or p["mark"] is not None:
         HOSTILE.add(p["id"]); return True
     return False
@@ -170,6 +199,73 @@ def empty_car_near(radius=18.0):
         s = M.enter_car3(world, c["x"], c["y"], budget=40)
         if s and s["driving"]: return s
     return D.wait_state()
+
+
+HEAL = (223.5, 34.5)        # GENERATOR gen32 COLLECT_30: health back to 100 (mb2_lp3: 30 -> 100 and 90 -> 100 on it)
+LOW_HEALTH = int(os.environ.get("LP_LOW_HEALTH", "60"))
+LOW_AMMO = int(os.environ.get("LP_LOW_AMMO", "35"))     # mb2_lp4: back with 16 rounds, no answer to the men at the pads
+
+
+def need_station(ms=None):
+    """MISSIONS-BATCH2: mb2_lp3 died with 18 counted fighting on with the dual pistol (the machine gun
+    empty) at health 30-10; mb2_lp1 at 90 -> 0 in one round. The round ends and he goes to the
+    station (the machine gun and the health generators side by side at 221.5-223.5,34.5)"""
+    ms = ms or M.mission_state() or {}
+    return ms.get("health", 100) < LOW_HEALTH or ms.get("weapon") != "machine_gun" or ms.get("ammo", 0) < LOW_AMMO
+
+
+def station(secs=40):
+    """to the generators: health (223.5,34.5) when hurt, the machine gun (221.5,34.5) when short;
+    waits by them for a respawn (1800 frames) while the need lasts, the gun in hand at the end"""
+    t0 = time.time(); ms = check()
+    ev(f"station: health {ms.get('health')}, {ms.get('weapon')} ammo {ms.get('ammo')}")
+    def clear_pads():
+        # mb2_lp4: three Zaibatsu stood on the pads (221.7-224.1,34.7) when he walked in with 16 rounds
+        # and no trigger: 100 -> 0 in 3 s. Any hostile within 8 of the pads is fought first
+        s = D.wait_state()
+        near = [p for p in M.peds() if M.ped_alive(p) and hostile(p) and p["car"] is None
+                and math.hypot(p["x"] - 222.5, p["y"] - 35.0) < 8.0]
+        if near and (M.gun_ready() or M.select_gun(4)):
+            ev(f"station: {len(near)} hostile by the pads; fighting first")
+            fight(select=hostile, spare=spare, secs=20, clear=3.0, engage=9.0, close=5.0, far=12.0,
+                  anchor=(222.5, 37.5), leash=3.0, low=50, blast=5.0, close_car=6.0, police="shoot", shot_prefix="gf_lp_pads",
+                  car_targets=False)       # mb2_lp6: shooting a VTYPE by the pads set it alight
+
+    def no_fire(limit=35):
+        # mb2_lp6: the walk back to the pads passed a car he had set alight (step-aways twice) and the
+        # blast killed him at health 100: no walk while a burning car is within 7 of him or of the pads
+        t1 = time.time()
+        while time.time() - t1 < limit / D.SPEED:
+            s = D.wait_state(); check()
+            bc = [c for c in M.cars() if c["fire"] > 0 and (math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < 7.0
+                                                           or math.hypot(c["x"] - 222.5, c["y"] - 35.0) < 7.0)]
+            if not bc: return
+            c = bc[0]
+            if math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < 7.0:
+                G.step_away(s, c["x"], c["y"], d=7.5 - math.hypot(c["x"] - s["x"], c["y"] - s["y"]), secs=3.0)
+            else:
+                time.sleep(1.0)
+    no_fire()
+    clear_pads()
+    M.walk3(world, 222.5, 37.0, None, tol=1.2, budget=40 / D.SPEED)
+    while time.time() - t0 < secs / D.SPEED:
+        ms = check()
+        clear_pads(); no_fire()
+        if ms.get("health", 100) < 100:
+            M.cruise_to(HEAL[0], HEAL[1], tol=0.2, secs=3); time.sleep(0.3)
+        ms = check()
+        if ms.get("weapon") != "machine_gun" or ms.get("ammo", 0) < 60:
+            M.cruise_to(VILLAGE_GUN[0], VILLAGE_GUN[1], tol=0.2, secs=3); time.sleep(0.3)
+        ms = check()
+        if ms.get("health", 100) >= LOW_HEALTH + 20 and ms.get("ammo", 0) >= 60:
+            break
+        M.cruise_to(222.5, 36.0, tol=0.3, secs=2); time.sleep(1.0)     # off the pads: they give only when stepped on
+    for k in range(6):
+        ms = M.mission_state() or {}
+        if ms.get("weapon") == "machine_gun": break
+        tap("x", 0.15); time.sleep(0.5)
+    ms = check()
+    ev(f"station: done, health {ms.get('health')}, {ms.get('weapon')} ammo {ms.get('ammo')}")
 
 
 def fight(**kw):
@@ -309,7 +405,7 @@ def play():
             r, n = M.run_over(world, [8], {"2999"}, {"2998"}, (224.6, 20.0), secs=150, patrol=PATROL)
             RESULT["rounds"].append(dict(kind="car", result=r, kills=n))
             ms = M.mission_state() or {}
-            ev(f"round {k} (car): {r} run over {n} (health {ms.get('health')}, carhp {ms.get('carhp')}, msg {ms.get('msg')})")
+            ev_count(f"round {k} (car): {r} run over {n} (health {ms.get('health')}, carhp {ms.get('carhp')}, msg {ms.get('msg')})")
             if r in ("burning", "on foot"):
                 s = D.wait_state()
                 if s["driving"]: M.leave_car()
@@ -335,14 +431,21 @@ def play():
                 M.cruise_to(gx, VILLAGE_GUN[1], tol=0.2, secs=3); check()
             ms = M.mission_state() or {}
             ev(f"round {k}: refill at the Village generator: {M.gun_ready()} ammo {ms.get('ammo')}")
+        if os.environ.get("LP_STATION", "1") == "1" and not s["driving"] and need_station(ms):
+            station(); ms = check()
         if (ms.get("ammo", 0) > 0 or M.select_gun(4)) and not s["driving"]:
-            a = ANCHORS[k % len(ANCHORS)]
-            r = fight(select=hostile, spare=spare, secs=60, clear=20.0, engage=9.0, close=5.0, far=24.0,
-                      anchor=a, leash=7.0, low=70, blast=5.0, close_car=6.0, police="shoot", shot_prefix=f"gf_lp{k}")
+            c = hud_counter()
+            # MISSIONS-BATCH2: from 30 left a hitman sits in a VTYPE at 214.5,7.5 with a crack-shot silenced
+            # machine gun (his car stands while the player is on foot): the anchors beside it are dropped
+            pool = ANCHORS_LATE if (c is not None and 0 <= c <= 30) else ANCHORS
+            a = pool[k % len(pool)]
+            r = fight(select=hostile, spare=spare, secs=60, done=(need_station if os.environ.get("LP_STATION", "1") == "1" else None), clear=20.0, engage=9.0, close=5.0, far=24.0,
+                      anchor=a, leash=7.0, low=70, blast=5.0, close_car=6.0, police="shoot", shot_prefix=f"gf_lp{k}",
+                      car_targets=os.environ.get("LP_CAR_TARGETS", "0") == "1")   # mb2_lp6: the VTYPEs shot alight blew up beside him
             st = dict(G.STATS)
             RESULT["rounds"].append(dict(kind="gun", anchor=a, result=r, stats=st))
             ms = M.mission_state() or {}
-            ev(f"round {k} (gun) at {a}: {r} down {st.get('down')} (health {ms.get('health')}, ammo {ms.get('ammo')}, msg {ms.get('msg')})")
+            ev_count(f"round {k} (gun) at {a}: {r} down {st.get('down')} (health {ms.get('health')}, ammo {ms.get('ammo')}, msg {ms.get('msg')})")
         else:
             # mb1_ra1: 100 rounds gave 3 kills and the refill generator (229.5,68.5) was never
             # reached; the bonus counts BY_ANY_WEAPON, so a car: the Zaibatsu (remap 8) run over
@@ -355,7 +458,7 @@ def play():
             r, n = M.run_over(world, [8], {"2999"}, {"2998"}, (224.6, 20.0), secs=150, patrol=PATROL)
             RESULT["rounds"].append(dict(kind="car", result=r, kills=n))
             ms = M.mission_state() or {}
-            ev(f"round {k} (car): {r} run over {n} (health {ms.get('health')}, carhp {ms.get('carhp')}, msg {ms.get('msg')})")
+            ev_count(f"round {k} (car): {r} run over {n} (health {ms.get('health')}, carhp {ms.get('carhp')}, msg {ms.get('msg')})")
             if r == "burning":
                 s = D.wait_state()
                 if s["driving"]: M.leave_car()

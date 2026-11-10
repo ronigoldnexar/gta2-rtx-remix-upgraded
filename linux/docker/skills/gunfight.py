@@ -229,6 +229,9 @@ def car_of(p):
 
 OFFICERS = ("cop",)
 
+BACK_R = float(os.environ.get("GF_BACK_R", "0"))     # a hostile on foot this near: shoot walking backwards (0: off)
+
+
 def gunfight(world, select=None, spare=None, done=None, count=None, check=None, secs=240,
              engage=7.0, close=2.5, close_car=4.0, far=26.0, stall=7.0, blast=3.2, low=45, clear=None,
              anchor=None, leash=6.0, fire_spots=None, car_targets=True, police="shoot", cop_r=4.5, hunt=8.0,
@@ -372,6 +375,14 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                     f"me {s['x']:.1f},{s['y']:.1f} L{mylev} health {h}, d {d:.1f}, {ms.get('weapon')} ammo {ms.get('ammo')}, "
                     f"{len(hs)} in sight, {len(killed)} down, fired {fired:.0f}s"); t_said = time.time()
 
+            # MISSIONS-BATCH2 (GF_BACK_R > 0, off by default): retreat and shoot. mb2_lp1 died at the start
+            # of a round with a Zaibatsu at 0.6 blocks (health 90 -> 40 -> 20 -> dead in 6 game s; the
+            # back-off walked away with his back turned): a man on foot this near is shot walking backwards
+            if BACK_R > 0 and tgt["car"] is None and d < BACK_R and abs(tgt["z"] - s["z"]) < 0.7 and M.gun_ready(ms):
+                from skills import kill_marked as K
+                if time.time() - t_said > 2: say(f"gunfight: {tgt['id']} at {d:.1f}: retreat and shoot"); t_said = time.time()
+                t1 = time.time(); K.backpedal(tgt["x"], tgt["y"], secs=0.5); fired += time.time() - t1
+                continue
             # hurt and the man is close: back off along the line, then turn and fire again
             if h < low and d < engage and backoffs < 6 and h < (STATS.get("backoff_h", 101)):
                 release(); backoffs += 1; STATS["backoff_h"] = h

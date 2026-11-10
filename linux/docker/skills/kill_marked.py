@@ -133,6 +133,32 @@ def release():
     xdo("keyup", "Control_L"); xdo("keyup", "Up")
 
 
+def backpedal(tx, ty, secs=0.5, fire=True):
+    """MISSIONS-BATCH2: retreat and shoot. Walk backwards (Down keeps the facing) with the trigger
+    held and the aim corrected at the target. mg_sp4, mg_sp5, mg_km20: the second bank guard walked
+    onto him (d 0.3), where his rounds miss and the guard's do not; a step back keeps the range"""
+    if fire: xdo("keydown", "Control_L")
+    xdo("keydown", "Down")
+    t1 = time.time()
+    try:
+        while time.time() - t1 < secs:
+            s = D.wait_state()
+            if not s or s["driving"]: break
+            a = D.angle_to(s, tx, ty)
+            if abs(a) > 0.1:
+                key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
+                xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.3)); xdo("keyup", key)
+            time.sleep(0.08)
+    finally:
+        xdo("keyup", "Down")
+
+
+BACK_R = float(os.environ.get("KM_BACK_R", "1.7"))        # a target this near: retreat and shoot
+STALL_MIN = float(os.environ.get("KM_STALL_MIN", "7.0"))  # wall seconds: no 'no damage' move sooner
+HOLD_R = float(os.environ.get("KM_HOLD_R", "4.0"))        # a target this near when the rounds do no damage:
+                                                         # no walk to a fire spot (turns his back), aim again
+
+
 def side_step(s, tx, ty, k):
     """a step across the line of fire, alternating sides"""
     dx, dy = tx - s["x"], ty - s["y"]; n = math.hypot(dx, dy) or 1.0
@@ -246,11 +272,23 @@ def kill_marked(world, select=None, spare=None, count=None, approach=None, level
                 side_step(s, tgt["x"], tgt["y"], steps); steps += 1
                 continue
             t1 = time.time()
-            M._aim_walk(tgt["x"], tgt["y"], fire=True, walk=d > close, secs=0.5)
+            if d < BACK_R and abs(tgt["z"] - s["z"]) < 0.7:
+                if time.time() - t_said > 2: say(f"kill_marked: {tgt['id']} at {d:.1f}: retreat and shoot")
+                backpedal(tgt["x"], tgt["y"], secs=0.5)
+            else:
+                M._aim_walk(tgt["x"], tgt["y"], fire=True, walk=d > close, secs=0.5)
             fired += time.time() - t1
             hp = tuple(sorted((p["id"], p["hp"]) for p in ts))
             if hp != hp_last: hp_last = hp; last_progress = time.time()
-            if time.time() - last_progress > stall / D.SPEED:
+            # mg_sp4/sp5/km20: 'no damage' fired 5 wall s into the fight (stall / SPEED = 4 s at speed 2 under
+            # load, the peds line's hp lagging) and the cruise to the fire spot behind him (with its sideways
+            # unstick) ended on top of the second guard. Not before STALL_MIN wall s, and with a target within
+            # HOLD_R the reaction is a step back with the trigger held, never a walk with his back turned
+            if time.time() - last_progress > max(stall / D.SPEED, STALL_MIN) and d < HOLD_R:
+                last_progress = time.time(); steps += 1
+                say(f"kill_marked: no damage, {tgt['id']} at {d:.1f}: back a step, firing")
+                backpedal(tgt["x"], tgt["y"], secs=0.6)
+            elif time.time() - last_progress > max(stall / D.SPEED, STALL_MIN):
                 # the rounds hit something else: another spot, a side step, or closer
                 xdo("keyup", "Control_L"); last_progress = time.time(); steps += 1
                 if fire_spots and spot_i + 1 < len(fire_spots):
