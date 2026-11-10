@@ -242,3 +242,28 @@ nearest 40 within 18 tiles); street views and Remix only. `[devtools] remix_sign
 Not changed (a material item, note beside the order for FIX-REMIX-MATERIALS-7): the noon cream clipping and blur of the
 disc, and an emissive mask for the atom lines. Still short of a shipping frame: the sign is lit from outside like a
 floodlit board, not glowing; the plates on other districts are not covered.
+
+## FIX-REMIX-NIGHT-8 (10 Nov): the first-person fists and the night fills
+
+### Order 2: the first-person player fill (prem1)
+
+The night player fill (`PlayerFillSubmit`, live_geometry.cpp) slides 0.9 tiles toward the eye in the street views, but in
+first person the eye *is* the old spot, so the sphere stayed 0.2 tiles over the view model's fists (0.3-0.4 away). Now it
+goes where the third-person boom would put it: 0.85 tiles behind the eye and 0.3 up (`[devtools] remix_fill_fp_back_milli`,
+default 900, 0 = the old spot). Third person and classic are unchanged.
+
+Same session, wil 164.5,149.5, 21:00 paused, first person (out frn8_f2; fist box / road box mean sRGB):
+
+| state | fists | road |
+|---|---|---|
+| shipped before (`remix_fill_fp_back_milli=0`) | 97,66,54 | 27,40,52 |
+| this change | 74,53,49 | 26,39,51 |
+| player fill out (`remix_fill_pct=0`) | 70,50,45 | 26,39,51 |
+| player fill and night fill out (`remix_lights_probe=256`) | 55,33,20 | 15,16,13 |
+| all our lights out (`remix_lights_off=1`) | 4,4,4 | 2,4,5 |
+
+With the change the player fill adds about 4 of the fists' 74: they are lit by the street lamps (55) and the moon fill,
+like the street. What still reads as "orange" is the arms' own albedo: tools/gen_weapons.py `SKIN = (178, 128, 98)`
+(linear about 0.45, 0.22, 0.12), brighter and more saturated than the asphalt (about 0.1) a hand-height surface shares
+the light with. That is the figure/asset seat's (FIX-FIGURE-11 made those textures), noted beside the order.
+

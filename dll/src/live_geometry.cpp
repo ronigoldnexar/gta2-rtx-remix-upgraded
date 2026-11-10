@@ -14972,7 +14972,7 @@ void PlayerFillSubmit() {
     // remix_fill_pct (strength), remix_fill_lift_milli (height over the feet), remix_fill_toward_milli
     // (distance toward the eye), remix_fill_flat (1: slide toward the eye horizontally only),
     // remix_fill_rgb (0 warm 1/.88/.72, 1 neutral, 2 cool sky).
-    static int fPct = -1, fLift = -1, fToward = -1, fFlat = -1, fRgb = -1, fEmit = -1;
+    static int fPct = -1, fLift = -1, fToward = -1, fFlat = -1, fRgb = -1, fEmit = -1, fFpBack = -1;
     if (--fillAt <= 0) {
         fillAt = 60;
         if (!g_fireIniPath.empty()) {
@@ -14984,8 +14984,10 @@ void PlayerFillSubmit() {
             fFlat = GetPrivateProfileIntA("devtools", "remix_fill_flat", -1, ini);
             fRgb = GetPrivateProfileIntA("devtools", "remix_fill_rgb", -1, ini);
             fEmit = GetPrivateProfileIntA("devtools", "remix_fill_emitter_milli", -1, ini);
+            fFpBack = GetPrivateProfileIntA("devtools", "remix_fill_fp_back_milli", -1, ini);
         }
     }
+    const float fpBack = fFpBack >= 0 ? fFpBack / 1000.0f : 0.9f;
     const float lift = g_playerInVehicle && !fillInCab ? 1.6f : (fLift >= 0 ? fLift / 1000.0f : 0.6f);
     d.pos[0] = g_playerPosX; d.pos[1] = g_playerPosY + lift; d.pos[2] = g_playerPosZ;
     // FIX-REMIX-IDENTITY (pt-remix-hero-hair-turns-to-bald-scalp-at-dusk-and-night): 0.6 above the feet is
@@ -15004,6 +15006,20 @@ void PlayerFillSubmit() {
         if (len > 0.5f && len < 12.0f) {
             const float k = (std::min)(1.0f, toward / len);
             d.pos[0] += dx * k; d.pos[1] += dy * k; d.pos[2] += dz * k;
+        } else if (len <= 0.5f && fpBack > 0.0f) {
+            // FIX-REMIX-NIGHT-8 (prem1-remix-night-fp-bare-hands-glow-warm-orange-in-black-street): in first person
+            // the eye is at the old spot, so the sphere hung 0.2 over the view model's fists (0.3-0.4 away): the
+            // hands took ~10x the light the third-person hero gets from the same fill and sat noon-bright and
+            // orange in a black 21:00 street. Here it goes where the third-person boom would put it: behind the
+            // eye and a little up (0.94 back, 0.34 up per tile), so the fists are lit by it about as the hero is
+            // (~1.2 tiles) and the pocket round him still gets the fill. [devtools] remix_fill_fp_back_milli
+            // (0 = the old spot over the fists, A/B; default 900).
+            const float fh = std::sqrt(g_viewForward.x * g_viewForward.x + g_viewForward.z * g_viewForward.z);
+            if (fh > 0.05f) {
+                d.pos[0] -= g_viewForward.x / fh * 0.94f * fpBack;
+                d.pos[1] += 0.34f * fpBack;
+                d.pos[2] -= g_viewForward.z / fh * 0.94f * fpBack;
+            }
         }
     }
     if (fRgb == 1) { d.rgb[0] = 1.0f; d.rgb[1] = 0.97f; d.rgb[2] = 0.92f; }
