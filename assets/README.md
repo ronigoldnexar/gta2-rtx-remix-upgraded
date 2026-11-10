@@ -257,3 +257,5 @@ Fonts licence, permissive; the system's fonts-dejavu-core), rendered into the ti
 `photoreal_tiles.py frames` (FIX-WORLD-8 pm12) then lifts the thin true-black window-frame bars of the
 photo wall tiles to a dark painted-wood tone, and `tools/arch_door_tile.py` (pm6) redraws the Downtown arched
 double door (wil 538) at 1024 px with its paint grain from ambientCG Wood067 (CC0); docs/asset-audit.md s10.
+`tools/awning_sign_tile.py` (pm3) writes the Residential awning sign (ste 283) with real lettering in DejaVu Sans
+Condensed Bold (same licence as above), rendered into the tile.

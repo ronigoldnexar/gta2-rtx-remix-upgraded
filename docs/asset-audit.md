@@ -244,3 +244,9 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   hung against the slab's top bar at its middle, in the alpha-tested street board group. The tile (and so the
   Remix material keyed on it) is unchanged; the lit lens and its light are FIX-REMIX-NIGHT-5's (remix_lights.cpp).
   `GTA2DX9_SIGNAL_HEADS=0`: the block-tall lamps (A/B). Log: `gantry signals (street views: ...): 12 slab(s)`.
+- **Awning lettering** (pm3-building-awning-sign-garbled-glyphs): Residential tile 283 (42 faces, none flipped) is the
+  awning strip over the garage doors; in the game's 64 px art its "lettering" is two blocks of faint grey dashes
+  (pseudo-text), which the HD upscale turned into red wavy pseudo-glyphs (no photo tile existed, so the HD tile
+  showed). `tools/awning_sign_tile.py` writes a new photo tile at 1024 px: the panel in its own tone with the old
+  marks gone, crisp grey arrows where the art has them, and "GARAGE ENTRANCE" / "KEEP CLEAR" in the art's two text
+  blocks (DejaVu Sans Condensed Bold, rendered into the tile). Street views only; Remix keeps the HD tile.
