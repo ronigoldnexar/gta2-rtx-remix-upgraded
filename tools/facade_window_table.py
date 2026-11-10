@@ -22,6 +22,10 @@ NOT_GLASS |= {("wil", 231)}
 # green panels between pilasters, no glass at all; the facade pass boxed the panels as windows, so at night they
 # filled with flat beige blocks stepped at the 64 px grid. The floor above (416/418) keeps its real windows.
 NOT_GLASS |= {("wil", 428)}
+# qav39 (FIX-WORLD-16): bil 658, the top course of the bil towers (dark metal cornice frieze over pale brick), has no
+# glass; its one "window" box is the frieze, so at night the glow filled the frieze's dark texels: day-bright tan
+# caps with ragged 64 px-stepped edges over near-black walls.
+NOT_GLASS |= {("bil", 658)}
 
 src, out = sys.argv[1], sys.argv[2]
 boxes = json.load(open(src))

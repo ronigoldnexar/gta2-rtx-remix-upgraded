@@ -497,3 +497,11 @@ clip are plain-GL only; Remix draws the HD lattice.
 At night the glow filled them as flat beige blocks stepped on the 64 px grid. The fix is `NOT_GLASS` in
 `tools/facade_window_table.py`, with the table regenerated (1017 boxes on 475 tiles). Verified: out/qa_fw16c,
 the filer's repro, against out/qa_qav60a.
+
+**qav39, bil 658.** The top course of the bil towers (a dark metal cornice frieze over pale brick) has no glass,
+but its one "window" box is the frieze. At night the glow filled the frieze's dark texels, giving day-bright tan
+caps with ragged 64 px steps over near-black walls. The fix is `NOT_GLASS` (table: 1016 boxes on 474 tiles).
+Found with one run of the filer's scenario under `window_glow=0` (out/qa_fw16f: the caps go dark), then the
+fix with the glow on (out/qa_fw16g: the caps are dark, and the lit window on the facade beside them still glows).
+In the top band at bil spot 3, the tan pixels (r - b > 40, r > 90) drop from 3698 to 556; the 556 left are the
+HUD icons. Suspect, not framed: bil 310 (a riveted steel wall boxed whole as a window).
