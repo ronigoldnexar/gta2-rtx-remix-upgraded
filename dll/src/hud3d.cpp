@@ -1634,6 +1634,17 @@ void Smiley(ImDrawList* dl, ImVec2 c, float r, ImU32 face, float A) {
     dl->PathStroke(Fade(IM_COL32(30, 24, 10, 255), A), 0, (std::max)(1.0f, r * 0.17f));
 }
 
+// qaf23: the game's collect message (part 9, one sprite word at the top centre: "Health", a weapon's
+// name) over a street view was the 1990s red pixel word. Told apart by what just changed: the health
+// rose (read live at the part's first frame, and against the last frames) -> ours, a modern chip;
+// a weapon or its ammunition gained -> swallowed (the world layer's green name pop carries it); any
+// other part-9 word (armour: no field known) stays the game's.
+enum class CollectKind { None, Health, Weapon };
+struct Collect { uint32_t frame = 0; CollectKind kind = CollectKind::None; int gain = 0; float alpha = 0.0f; int shown = 0, kept = 0, swallowed = 0; };
+Collect g_collect;
+int g_seenHealth = -1, g_seenWeapon = -1, g_seenAmmo = -1;
+uint32_t g_healthRiseFrame = 0, g_weaponGainFrame = 0;
+
 int g_respectDrawn = 0;
 void DrawRespect(ImDrawList* dl, const Values& v, float A) {
     const float u = g_u;
@@ -2047,6 +2058,28 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
         an.hurt = (std::max)(0.0f, an.hurt - dt / 0.6f);
     }
 
+    // qaf23: the health collect message as a chip at the game's top-centre slot.
+    {
+        const bool on = g_collect.kind == CollectKind::Health && g_collect.frame + 2 >= g_frame;
+        g_collect.alpha += ((on ? 1.0f : 0.0f) - g_collect.alpha) * (1.0f - std::exp(-dt * (on ? 20.0f : 8.0f)));
+        if (g_collect.alpha > 0.01f) {
+            const float ca = A * g_collect.alpha;
+            const char* word = "HEALTH";
+            char gain[16] = {};
+            if (g_collect.gain > 0) snprintf(gain, sizeof gain, "+%d", g_collect.gain);
+            const ImVec2 ws = Measure(g_fonts.heavy, g_fonts.heavyPx, word);
+            const ImVec2 gs = gain[0] ? Measure(g_fonts.heavy, g_fonts.heavyPx, gain) : ImVec2(0, 0);
+            const float h = ws.y + 8 * u, iconW = 30 * u;
+            const float w = iconW + ws.x + (gain[0] ? gs.x + 10 * u : 0) + 26 * u;
+            const float top = H * (30.0f / 480.0f) + (1.0f - g_collect.alpha) * -6 * u;
+            const ImVec2 a(W * 0.5f - w * 0.5f, top), b(W * 0.5f + w * 0.5f, top + h);
+            Panel(dl, a, b, ca, kRed);
+            Heart(dl, ImVec2(a.x + 12 * u + iconW * 0.5f, (a.y + b.y) * 0.5f), 11.0f * u, 0.82f, ca, true);   // the row's mesh, scaled
+            Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(a.x + 14 * u + iconW, a.y + 4 * u), kWhite, word, ca);
+            if (gain[0]) Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(b.x - 12 * u - gs.x, a.y + 4 * u), kGreen, gain, ca);
+        }
+    }
+
     // The phone: the nearest phone marker within ten blocks, a ringing chip on the right.
     {
         const Arrow* best = nullptr;
@@ -2321,8 +2354,59 @@ bool Hud3dGameText(const char* key, std::u16string* out) {
     return true;
 }
 
+// GTA2DX9_HUD_LOG_PARTS=1 (FIX-HUD-4, qaf23): in a street view, each appearance of a centred text part
+// (7, 8, 9, 12, 14) is logged once with its box, its quads and the game's last text key.
+struct PartTrace { uint32_t frame = 0, first = 0; float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f; int quads = 0; bool logged = false; };
+PartTrace g_partTrace[19];
+
+
+int g_logParts = -1;
+
 bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, int count) {
     if (!hud || part < 0 || part > 18) return false;
+    if (g_logParts < 0) { char b[4] = {}; g_logParts = GetEnvironmentVariableA("GTA2DX9_HUD_LOG_PARTS", b, sizeof b) && b[0] == '1'; }
+    if (g_logParts && g_street && (part == 7 || part == 8 || part == 9 || part == 12 || part == 14) && corners) {
+        PartTrace& t = g_partTrace[part];
+        if (t.frame + 3 < g_frame) { t = PartTrace{}; t.first = g_frame; }
+        if (t.frame != g_frame) t.quads = 0;
+        t.frame = g_frame;
+        ++t.quads;
+        const Corner* k = static_cast<const Corner*>(corners);
+        for (int i = 0; i < count; ++i) {
+            t.minX = (std::min)(t.minX, k[i].x); t.maxX = (std::max)(t.maxX, k[i].x);
+            t.minY = (std::min)(t.minY, k[i].y); t.maxY = (std::max)(t.maxY, k[i].y);
+        }
+        if (!t.logged && g_frame >= t.first + 2) {
+            t.logged = true;
+            Log("hud3d: part %d in a street view: box %.0f,%.0f-%.0f,%.0f, %d quads a frame, last text key '%s'",
+                part, t.minX, t.minY, t.maxX, t.maxY, t.quads, ReadMessageKey().c_str());
+        }
+    }
+    if (part == 9 && g_active && g_street) {
+        if (g_collect.frame + 3 < g_frame) {   // a new appearance: what is it?
+            int health = -1, weapon = -1, ammo = 0;
+            GTA2_TRY {
+                const uint8_t* ped = static_cast<const uint8_t*>(ViewPlayer().ped);
+                if (ped) {
+                    health = *reinterpret_cast<const int16_t*>(ped + 0x216);
+                    const int raw = game::PedWeaponRaw(ped, &ammo);
+                    weapon = raw >= 0 ? game::PedWeaponOf(ped, nullptr) : 0;
+                }
+            } GTA2_EXCEPT {}
+            const bool healthUp = (g_seenHealth >= 0 && health > g_seenHealth) || g_healthRiseFrame + 30 >= g_frame;
+            const bool weaponUp = (weapon > 0 && g_seenWeapon >= 0 && (weapon != g_seenWeapon || ammo > g_seenAmmo)) || g_weaponGainFrame + 30 >= g_frame;
+            g_collect.kind = healthUp ? CollectKind::Health : weaponUp ? CollectKind::Weapon : CollectKind::None;
+            g_collect.gain = healthUp && g_seenHealth >= 0 && health > g_seenHealth ? health - g_seenHealth : 0;
+            if (g_collect.kind == CollectKind::Health) ++g_collect.shown;
+            else if (g_collect.kind == CollectKind::Weapon) ++g_collect.swallowed;
+            else ++g_collect.kept;
+            Log("hud3d: collect message (part 9) in a street view: %s (health %d -> %d, weapon %d ammo %d)",
+                g_collect.kind == CollectKind::Health ? "health, drawn as a chip" : g_collect.kind == CollectKind::Weapon ? "a weapon, carried by the name pop" : "unknown, the game's",
+                g_seenHealth, health, weapon, ammo);
+        }
+        g_collect.frame = g_frame;
+        if (g_collect.kind != CollectKind::None) { g_partSeen[part] = g_frame; return true; }
+    }
     g_partSeen[part] = g_frame;
     const Corner* k = static_cast<const Corner*>(corners);
     if (k && texture) {
@@ -2436,6 +2520,11 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     if (!street) Prewarm(device, width, height, map, worldLoaded);
     Values v = (street || g_active) && (g_cfg.modern || g_cfg.markers) ? ReadValues() : Values{};
     g_street = street;
+    if (v.valid) {   // qaf23: what just changed, for telling the collect message apart
+        if (g_seenHealth >= 0 && v.health > g_seenHealth) g_healthRiseFrame = g_frame;
+        if (v.weapon > 0 && g_seenWeapon >= 0 && (v.weapon != g_seenWeapon || v.ammo > g_seenAmmo)) g_weaponGainFrame = g_frame;
+        g_seenHealth = v.health; g_seenWeapon = v.weapon; g_seenAmmo = v.ammo;
+    }
     // The pause and stats screen (part 16) is the game's alone: the modern HUD steps aside.
     const bool paused = g_partSeen[16] + 2 >= g_frame;
     const bool want = street && g_cfg.modern && v.valid && !paused && !g_switchHold;

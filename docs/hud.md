@@ -412,3 +412,18 @@ Verified (FIX-HUD-4, 10 Nov 2026, frames opened; L4 host, plain GL unless said):
   the target, never at the left edge behind the disc.
 - Classic: vreg `spawn_classic` PASS, 0 tiles (vreg_fh4a).
 - Cost: 0.528 ms a frame (fh4_n9) against 0.308 (fh4_b2), same probe, back to back.
+
+### The collect message (qaf23, FIX-HUD-4)
+
+Taking a health heart in a street view showed the game's collect message, the red bevelled pixel word
+"Health" at the top centre (HUD part 9: one sprite quad of 65x25 game pixels at 287,32, measured with
+`GTA2DX9_HUD_LOG_PARTS=1`, which logs each appearance of parts 7, 8, 9, 12 and 14 in a street view with its
+box, quads and the last text key). With the modern HUD up the part's first frame is told apart by what just
+changed, read live in the swallow hook (so that first frame is already ours) and against the last 30 frames:
+the health rose -> swallowed, and a chip drawn in the game's slot (glass, a red accent, a vector heart,
+HEALTH and the gain, "+60", in green), in within a frame or two, out over a quarter second after the game's
+word goes; a weapon or its ammunition gained -> swallowed, the world layer's green name pop carries it; any
+other part-9 word (armour: no armour field is known) stays the game's. Log: `hud3d: collect message (part 9)
+in a street view: health, drawn as a chip (health 40 -> 100 ...)`. Verified out/qa_fh4_q23b (third) and
+qa_fh4_q23c (first person), qaf23_a.py on the ste health pad: "HEALTH +60" where the pixel word was, gone a
+second later. Untested: armour and weapon collect words in a street view.
