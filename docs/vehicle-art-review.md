@@ -848,3 +848,31 @@ a probe artifact; traffic draws it in its own colours).
   chrome bezels (pods proud of the nose, not blobs); 008's wings are bulbous; nothing that reads wrong at chase distance.
 - `car_mesh_orient.py check`: ok for 027/014/046/062. Remix: every texture of the four bodies is new (list in the
   NOTE-1031 beside the prmx11 order); 067 adds none.
+
+## VEHICLE-ART-17 (10 Nov 2026)
+
+- **pmt5 taxi colour (identity rule, 910879d; docs/identity-system.md section 13).** The no-clip cap tested luminance, so a
+  saturated livery's red clipped alone: the 051 taxi drew lemon (+29 % L*, hue 7 deg off on the body, 14 on the lids) at
+  the gate's sunny spot. Per-channel top + a saturation-held ceiling: body 209,136,20 against the filer's sprite
+  206,130,33, +13 % L*, hue 4 deg; gate 0 FAIL; classic vreg spawn_classic 0 tiles.
+- **Remapped liveries keep their stripes (pmzz; `tools/vehicle_art/livery_stripes.py`).** Twelve 071 Rumbler remaps
+  all draw two pale stripes over bonnet, roof and boot; the game recolours the body only. The generated 3D body had
+  stripes on one atlas panel only, and under Remix the split pair is one merged surface the tint multiplies whole
+  (FIX-REMIX-MATERIALS-7's note). The stripes are now their own geometry: the body's up-facing paint triangles
+  clipped to the sprite's stripe shapes (pixel columns/rows of the nose-down sprite mapped onto the mesh's x/z
+  extents), lifted 0.0012 block along their normals, drawn with `<NNN>_<name>_stripe.tga` (32 px flat pale picture,
+  not a `_paint` texture: never tinted; under Remix a lone prim of its own, so it stays pale there too). A scan of
+  every remapped sprite for texels pale in ALL remaps found four such liveries: 071 (two stripes), 083 Furore GT
+  (centre stripe: deck, roof, bonnet piece), 049 Hachura (thin centre stripe) and 019 GT-A1, whose 3D art already
+  carries its stripe and roof roundel (frame `out/va17_p2` pt_top3_019: left alone). Before: the bil kerb Rumbler as
+  a plain dark coupe (pmzz evidence); after `out/va17_p3` (own car forced to 71/83/49 in red and green, poses
+  top/top3/chase) and `out/va17_p2` (yellow): pale twin stripes over bonnet, roof and boot of the 071 in every paint;
+  the 083's roof and deck stripe; the 049's boot and roof stripe. Paint parity of the bodies unchanged (stripes are
+  the same in both paints, outside the change mask). Backups `/mnt/gta2/gta2-linux/backup_va17/models_stripes`;
+  the cars archive (release-v1.6) carries the three `_stripe.tga`. Remix: 3 lone prims (322C0051BDFF516C 071,
+  6299E81F2E6F8D02 083, B188186F5C4E5473 049), `remix_car_prim_check --pattern '.*'` 0 missing; DDS in
+  `layer_deploy/VEHICLE-ART-17/` (not path traced yet).
+  - Still short of AAA: the stripes are flat matte decals with no clear coat over them; triangle-clipped from a
+    TRELLIS mesh, they end where the paint split ends, so the 049's stripe stops at its bonnet (that bonnet is in the
+    untinted half: it draws white whatever the paint, a generated-body split fault) and the 071's stops short of the
+    nose; the sprite's stripe width is used as is (no taper over the roof).
