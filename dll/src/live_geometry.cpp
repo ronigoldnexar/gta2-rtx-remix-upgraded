@@ -9841,6 +9841,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         prev.swap(now);
         prevFrame = g_carFrame;
     }
+    // FIX-KNOCKDOWN-4 (pmw2): the game sometimes hands one person's sprite in twice in a frame (kd4_pmw2a: the
+    // shotgun redneck ed80 beside the convertible, two `fig:` lines per frame at the same game point; the filer's
+    // pmw2 frame: two identical red-haired men in the car's deck, `figure sep pair` of 3e24b600 with itself). Each
+    // person is one figure: the second copy is not drawn (it also stepped his track twice a frame).
+    // GTA2DX9_PED_DEDUPE=0: as before.
+    static int dedupeOn = -1;
+    if (dedupeOn < 0) { char v[8] = {}; dedupeOn = (GetEnvironmentVariableA("GTA2DX9_PED_DEDUPE", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    std::set<uintptr_t> figureObjects;
     for (const Sprite& sprite : sprites_) {
         ModelSetPlayerTextures(false);   // on only for his own figure, below
         // On his feet, or - with the models, which have clips for it - on the
@@ -9848,6 +9856,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         const bool withModel = g_groundModels;
         if (!(sprite.pedestrian || (sprite.corpse && withModel)) || sprite.ghost || sprite.boardUi ||
             sprite.corners != 4 || sprite.hidden || (sprite.climbing && !withModel)) {
+            continue;
+        }
+        if (dedupeOn && sprite.object && !figureObjects.insert(sprite.object).second) {
+            static int dupLog = 0;
+            if ((g_logFigures || g_logPedFrames) && dupLog < 40) {
+                ++dupLog;
+                Log("fig: f=%u %08x handed in twice this frame: drawn once", g_carFrame, static_cast<unsigned>(sprite.object));
+            }
             continue;
         }
         const gta2::Mat4& m = sprite.objectToWorld;

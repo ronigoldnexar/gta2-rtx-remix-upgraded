@@ -1886,3 +1886,15 @@ filer's exact sideswipe along the plaza wall was not re-hit (traffic is not repe
 - Short of a shipping frame: no camera shake; the smoke is the shot particles' grey puffs (no dust kicked off the
   ground behind); FP unchanged (no backblast seen from the eye).
 - A/B: `GTA2DX9_ROCKET_FX_OLD=1`.
+
+## FIX-KNOCKDOWN-4 (continued): pmw2 / pm3, two identical gang men in a parked convertible's deck; a person inside a parked ambulance
+- pmw2's filer log: the "two" red-haired men were one person handed in twice in the same frame (`figure sep pair`
+  of 3e24b600 with itself, 0.016-0.05 apart), both copies drawn and both stepping his one track. The same ped slot
+  (...b600, the shotgun redneck beside the car at the ste start) came in twice again in kd4_pmw2a (two `fig:` lines
+  a frame at one game point, f=125-136, 211-215). Now each person is drawn once a frame (`fig: f=N <obj> handed in
+  twice this frame: drawn once`; A/B `GTA2DX9_PED_DEDUPE=0`). kd4_pmw2b: 40 duplicates dropped, no duplicated
+  `fig:` line left; frames r1_c/r1_d show one redneck beside the convertible's flank and nobody in the deck.
+- The at-rest slide (FIGURE-7) does cover the open-top 044: kd4_pmw2a, the same redneck `inside parked car ...
+  out by 0.33`. The pm3 ambulance walk (keys_pm4.sh) no longer reaches the ambulance from the HEAD ste start; a
+  warp probe (gamerun/keys_kd4_amb.sh: the player walked into the parked ambulance's nose and flank, third and first
+  person) stopped him beside its rear quarter, outside the body (kd4_amb2).
