@@ -1640,9 +1640,13 @@ own) clips at 255 under Remix. `models: Remix car paint <texture>: texture facto
 **Glass.** A carkit body's translucent glass (`<car>_glass.tga`, alpha ~0.45, drawn blended; VEHICLE-ART-11's 063) and a
 prop's `__glass` panes (bus shelter, phone booth, alpha ~0.15) now get an `AperturePBR_Translucent` prim (thin-walled,
 IOR 1.5, transmittance = texel colour over the alpha, 0.35-0.92) from `remix_model_materials.py` instead of an opaque
-diffuse prim: a low-alpha blended quad path traces dark (memory note on blend colour x alpha).
+diffuse prim: a low-alpha blended quad path traces dark (memory note on blend colour x alpha). Every car `_glass` texture
+is drawn blended (alpha 0.41-0.81), so all 19 (8 distinct hashes) take the class; their old opaque prims were replaced.
+Seen in `out/fm5_truck1`: a taxi's windows dark tinted glass with sky reflections, the 063 cab's lit interior visible
+through its windscreen.
 
 **Prim coverage** (`remix_car_prim_check.py --pattern '.*'` over every manifest model): 1140 textures of 279 models,
 33 without a prim before (063's re-authored `_0` atlas and its new glass; 31 prop, pickup and weapon textures re-imported
 at 00:11: bus shelter, phone booth and its ring/lit/glass companions, mailbox, stop sign, pistol pickups, machine gun),
-0 after. Cars alone: 584 textures of 83 models, 2 missing before, 0 after.
+0 after. Cars alone: 584 textures of 83 models, 2 missing before, 0 after. After VEHICLE-ART-12 (010 Bulwark authored,
+063 tanks re-detailed, 018 re-textured) 1155 textures, 9 missing, rebuilt and merged: 0.
