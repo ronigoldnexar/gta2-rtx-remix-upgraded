@@ -141,7 +141,7 @@ def build_token(im):
     disc 0.30 block across a hand above the ground, a rolled rim a shade lighter than the token, over a
     ground ring. Before it was a coin lying flat (never even drawn: power-up sprites are 'plain' and
     took no model until live_geometry let token_ through). Spinning pickups are drawn unlit, so the
-    face keeps the sprite's own baked shading; the ring goes in the __lit companion. Returns (main, lit)."""
+    face keeps the sprite's own baked shading; face and ring go in the __lit companion. Returns (main, lit)."""
     colour = body_colour(im)
     a = np.array(im.convert("RGBA")).reshape(-1, 4)
     a = a[a[:, 3] > 128][:, :3].astype(np.float32)
@@ -158,7 +158,9 @@ def build_token(im):
     rim.visual = TextureVisuals(uv=np.full((len(rim.vertices), 2), 0.5),
                                 material=mat(flat(tuple(min(255, c + 40) for c in colour)), 0.6, 0.3, name="rim"))
     ring = tuple(min(255, c + 30) for c in colour)
-    return scene_with([("coin", disc), ("rim", rim)]), scene_with([("glow", glow_ring(ring, 0.20, 0.235))])
+    # The face goes in __lit with the ring (unlit at every hour, as the heart): in the main model it went
+    # dim at night (out/qa_fw14tok1 t_c0_h2230).
+    return scene_with([("rim", rim)]), scene_with([("coin", disc), ("glow", glow_ring(ring, 0.20, 0.235))])
 
 
 BOOTH_BLUE = (36, 84, 160)       # the sprite's booth blue, a shade deeper as painted steel (the sprite's 46,104,196 lit flat read as plastic)

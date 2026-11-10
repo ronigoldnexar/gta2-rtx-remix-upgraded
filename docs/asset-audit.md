@@ -384,7 +384,8 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   are unchanged. Frames: out/qa_fw14tok0 (before, flat) vs out/qa_fw14tok1 (wil token at 114.3,111.3, regress
   cameras at 1.7 and 1 block, noon and 22:30: the medallion with its icon, ring and the POWER-UP label, turning);
   vreg spawn_classic 0 tiles (out/vreg_fw14c). Not done: Remix prims for the new token textures (under Remix they
-  draw with their plain textures, no material), the face is dim at night (the icon is not in __lit as the heart is).
+  draw with their plain textures, no material). The face sits in __lit with the ring (unlit at every hour, as the
+  heart), so the icon reads at 22:30 (out/qa_fw14tok3); the rim stays in the main model and darkens with the night.
 - A spinning pickup faded at the lens (QB-49 / FIX-CAMERA-12 near fade) is drawn depth first, then its colour where it
   is the nearest surface: before, its back face and the disc's sides showed through its front as dark teeth.
   `GTA2DX9_FADE_SIGN=0` restores the old see-through draw for both (A/B).
