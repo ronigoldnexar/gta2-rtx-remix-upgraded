@@ -1043,6 +1043,50 @@ void RefillCharredPending(IDirect3DDevice9* device) {
     }
 }
 
+// FIX-WORLD-12 qav2: the sign plates (sign_stop, sign_oneway, the bus shelter's BUS plate) carry
+// 256 px faces drawn a few dozen pixels across from the pavement; with the single level every model
+// texture has, the linear sampler skipped 6-8 texels per pixel and the plate read as blocks with a
+// smeared word. These plate textures get a full mip chain (box filter, alpha-weighted colour) and
+// ModelDrawBlend samples them with a linear mip filter. Plain renderer only (Remix filters its own
+// way and keys on the texture as it is). GTA2DX9_PROP_MIPS=0: one level as before (A/B).
+bool PlateMipsWanted(const std::string& file) {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_PROP_MIPS", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    if (!on || RemixApiAvailable()) return false;
+    static const char* const kPrefixes[] = {"sign_", "bus_shelter", "pickup_health"};
+    for (const char* p : kPrefixes) if (file.compare(0, strlen(p), p) == 0) return true;
+    return false;
+}
+
+void FillMipChain(IDirect3DTexture9* texture, int w, int h) {
+    const DWORD levels = texture->GetLevelCount();
+    for (DWORD l = 1; l < levels; ++l) {
+        const int pw = (std::max)(1, w >> (l - 1)), ph = (std::max)(1, h >> (l - 1));
+        const int cw = (std::max)(1, w >> l), chh = (std::max)(1, h >> l);
+        D3DLOCKED_RECT src, dst;
+        if (FAILED(texture->LockRect(l - 1, &src, nullptr, D3DLOCK_READONLY))) return;
+        if (FAILED(texture->LockRect(l, &dst, nullptr, 0))) { texture->UnlockRect(l - 1); return; }
+        for (int y = 0; y < chh; ++y) {
+            uint8_t* out = static_cast<uint8_t*>(dst.pBits) + y * dst.Pitch;
+            for (int x = 0; x < cw; ++x) {
+                float c[3] = {0, 0, 0}, a = 0, csum[3] = {0, 0, 0};
+                int n = 0;
+                for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx) {
+                    const int sx = (std::min)(pw - 1, x * 2 + dx), sy = (std::min)(ph - 1, y * 2 + dy);
+                    const uint8_t* t = static_cast<const uint8_t*>(src.pBits) + sy * src.Pitch + sx * 4;
+                    const float ta = t[3] / 255.0f;
+                    for (int k = 0; k < 3; ++k) { c[k] += t[k] * ta; csum[k] += t[k]; }
+                    a += ta; ++n;
+                }
+                for (int k = 0; k < 3; ++k) out[x * 4 + k] = static_cast<uint8_t>((a > 1e-4f ? c[k] / a : csum[k] / n) + 0.5f);
+                out[x * 4 + 3] = static_cast<uint8_t>(a / n * 255.0f + 0.5f);
+            }
+        }
+        texture->UnlockRect(l);
+        texture->UnlockRect(l - 1);
+    }
+}
+
 IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::string& file) {
     if (file.compare(0, 6, "wreck|") == 0 || file.compare(0, 7, "wreckp|") == 0) {
         IDirect3DTexture9* charred = CharredTexture(device, file);
@@ -1064,8 +1108,9 @@ IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::strin
             if (!softened) SoftenPaintMask(&tga[18], w, h);
             g_softPaintTex.insert(file);
         }
+        const bool mips = PlateMipsWanted(file);
         if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 &&
-            SUCCEEDED(device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) {
+            SUCCEEDED(device->CreateTexture(w, h, mips ? 0 : 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) {
             g_textureBytes += static_cast<size_t>(w) * h * 4;
             FrameLogNote(kFcModelTexture);
             D3DLOCKED_RECT lr;
@@ -1075,6 +1120,7 @@ IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::strin
                     memcpy(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch, &tga[18 + static_cast<size_t>(src) * w * 4], w * 4);
                 }
                 texture->UnlockRect(0);
+                if (mips) FillMipChain(texture, w, h);
             }
         }
     }
@@ -2927,6 +2973,8 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
     if (model.skinned) g_modelStats[4] += 1.0;
     IDirect3DTexture9* bound = nullptr;
     bool first = true;
+    bool mipOn = false, mipSaved = false;
+    DWORD mipPrev = D3DTEXF_NONE, mipPrevMin = D3DTEXF_LINEAR, mipPrevAniso = 1, mipPrevBias = 0;
     bool streams = false;
     bool softStages = false;
     int carSurf = kCarSurfDefault;
@@ -2999,6 +3047,31 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         IDirect3DTexture9* texture = merged ? merged : TextureFor(device, mesh.texture);
         if (first || texture != bound) {
             device->SetTexture(0, texture);
+            // FIX-WORLD-12: a plate texture with its mip chain (PlateMipsWanted) samples the chain.
+            const bool mipped = texture && texture->GetLevelCount() > 1;
+            if (mipped != mipOn) {
+                if (!mipSaved) {
+                    device->GetSamplerState(0, D3DSAMP_MIPFILTER, &mipPrev);
+                    device->GetSamplerState(0, D3DSAMP_MINFILTER, &mipPrevMin);
+                    device->GetSamplerState(0, D3DSAMP_MAXANISOTROPY, &mipPrevAniso);
+                    device->GetSamplerState(0, D3DSAMP_MIPMAPLODBIAS, &mipPrevBias);
+                    mipSaved = true;
+                }
+                // Anisotropic where the device has it: a plate seen at a slant (a stop sign down the
+                // pavement) otherwise takes the mip of its short axis and the word blurs.
+                static int aniso = -1;
+                if (aniso < 0) {
+                    D3DCAPS9 caps = {};
+                    aniso = (SUCCEEDED(device->GetDeviceCaps(&caps)) && (caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC))
+                                ? static_cast<int>((std::min)(8ul, static_cast<unsigned long>(caps.MaxAnisotropy))) : 0;
+                }
+                const float bias = -0.4f;
+                device->SetSamplerState(0, D3DSAMP_MIPFILTER, mipped ? D3DTEXF_LINEAR : mipPrev);
+                device->SetSamplerState(0, D3DSAMP_MINFILTER, mipped && aniso > 1 ? D3DTEXF_ANISOTROPIC : mipPrevMin);
+                device->SetSamplerState(0, D3DSAMP_MAXANISOTROPY, mipped && aniso > 1 ? static_cast<DWORD>(aniso) : mipPrevAniso);
+                device->SetSamplerState(0, D3DSAMP_MIPMAPLODBIAS, mipped ? *reinterpret_cast<const DWORD*>(&bias) : mipPrevBias);
+                mipOn = mipped;
+            }
             bound = texture;
             first = false;
         }
@@ -3215,6 +3288,12 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         device->SetRenderState(D3DRS_DESTBLEND, carSurfState[2]);
         device->SetRenderState(D3DRS_ZWRITEENABLE, carSurfState[3]);
         device->SetRenderState(D3DRS_ALPHATESTENABLE, carSurfState[4]);
+    }
+    if (mipOn) {
+        device->SetSamplerState(0, D3DSAMP_MIPFILTER, mipPrev);
+        device->SetSamplerState(0, D3DSAMP_MINFILTER, mipPrevMin);
+        device->SetSamplerState(0, D3DSAMP_MAXANISOTROPY, mipPrevAniso);
+        device->SetSamplerState(0, D3DSAMP_MIPMAPLODBIAS, mipPrevBias);
     }
     if (softStages) ResetSoftStages(device);
     if (g_paintTintOn || g_nodeTintOn || (g_zoneOn && model.pedZones)) device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);

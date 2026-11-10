@@ -330,3 +330,27 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   seen from above). Not covered: ste's 16 lamps whose pole goes on as a sloped board lid (the arm, ste 98, sits a
   level above the last pole card): they stay lids. Classic view: lids as before (vreg spawn_classic 0 tiles).
   `GTA2DX9_LAMP_POLES=0` restores the lids with the cards; log `lamp poles ...: on, N segment(s), M arm/head solid(s)`.
+
+## 13. Sign plates at street distance (FIX-WORLD-12, 10 Nov 2026)
+
+- **qav2, sign plates as 8 px blocks with garbled words** (`src/model_store.cpp` PlateMipsWanted / FillMipChain,
+  `tools/gen_env2.py` oneway_face). What draws the plate: the rule props `sign_oneway` and `sign_stop`
+  (DrawProps, `tools/gen_env2.py`), not a map tile; they have no classic counterpart. Their faces were already
+  256 px art, but every model texture was created with one level and sampled without a mip filter, so a plate
+  30-40 px across on screen skipped 6-8 texels per pixel: the one-way plate's rim lines dropped out, its word
+  became a smear of blocks, STOP at a slant read "STCP". Plate textures (`sign_*`, `bus_shelter*`,
+  `pickup_health*`) now get a full mip chain (box filter, alpha-weighted colour) and are sampled with a linear
+  mip filter, anisotropic (up to 8x where the device has it) and a -0.4 LOD bias, set and restored inside
+  ModelDrawBlend. Plain renderer only: on a Remix device the texture is uploaded single-level as before (Remix
+  keys model textures on that upload). `GTA2DX9_PROP_MIPS=0`: one level, the old look (A/B).
+- The one-way face is re-authored as the real R6-1 plate: black field, thin white rim, a white arrow filling the
+  plate and ONE WAY in black inside its shaft (the old 256 x 96 art had the word drawn across the arrow's tail),
+  drawn at 3:1 four times over and filtered to 512 x 256; the back's arrow is mirrored so both faces point the
+  same way in the world, words reading left to right from both sides. The plate has an edge band (a 1.5 cm sheet
+  edge-on, not a card). The stop plate (256 px octagon) and the BUS plate keep their art.
+- Placement: `sign_oneway` is placed by hash facing the road (no traffic direction in the map), so the arrow's
+  direction is arbitrary, as it was.
+- Verified at wil 69.5,127.88 (one-way) and 68.5,132.12 (stop), fixed regression cameras at 1.5-6 blocks (runs
+  fw12_sign_a before, fw12_sign_d after): ONE WAY legible at about 30 px wide, the rim whole, STOP legible at a
+  slant. Classic view: no change (vreg spawn_classic 0 tiles). The new one-way texture has a new Remix hash: its
+  layer prim is made with the pickup_health prims (section below / FIX-WORLD-12 bundle).

@@ -158,16 +158,26 @@ def stop_back(size=256):
     return im
 
 
-def oneway_face(size=(256, 96)):
-    im = Image.new("RGBA", size, (24, 24, 28, 255))
+def oneway_face(size=(512, 256), point_left=False):
+    """The ONE WAY plate (FIX-WORLD-12 qav2), laid out like the real R6-1 plate: a black field with a
+    thin white rim, a white arrow filling the plate and the words ONE WAY in black inside its shaft.
+    Drawn at 3:1 (the plate's 90 x 30 cm) four times over and filtered down to a power-of-two
+    texture (512 x 256: the renderer builds a mip chain for sign plates, so the word stays a word
+    from across the street; the old 256 x 96 art had the word drawn over the arrow's tail)."""
+    W, H = 1536, 512
+    im = Image.new("RGBA", (W, H), (22, 22, 24, 255))
     d = ImageDraw.Draw(im)
-    w, h = size
-    d.rectangle((3, 3, w - 4, h - 4), outline=(235, 235, 235, 255), width=3)
-    # arrow
-    d.polygon([(w * 0.12, h * 0.5), (w * 0.62, h * 0.12), (w * 0.62, h * 0.36), (w * 0.92, h * 0.36), (w * 0.92, h * 0.64), (w * 0.62, h * 0.64), (w * 0.62, h * 0.88)], fill=(240, 240, 240, 255))
-    f = font(h // 3)
-    d.text((w * 0.16, h * 0.62), "ONE WAY", font=f, fill=(240, 240, 240, 255))
-    return im
+    d.rounded_rectangle((18, 18, W - 19, H - 19), radius=40, outline=(238, 238, 236, 255), width=16)   # the rim
+    shaft_y0, shaft_y1, head_x = 150, 362, 1130
+    X = (lambda x: W - 1 - x) if point_left else (lambda x: x)   # point_left: the arrow mirrored, the words not
+    d.rectangle((min(X(100), X(head_x)), shaft_y0, max(X(100), X(head_x)), shaft_y1), fill=(240, 240, 238, 255))
+    d.polygon([(X(head_x - 2), 62), (X(1440), 256), (X(head_x - 2), 450)], fill=(240, 240, 238, 255))
+    f = font(176)
+    text = "ONE WAY"
+    l, t, r, b = d.textbbox((0, 0), text, font=f)
+    cx, cy = (X(100) + X(head_x)) / 2, (shaft_y0 + shaft_y1) / 2
+    d.text((cx - (r + l) / 2, cy - (b + t) / 2), text, font=f, fill=(18, 18, 20, 255))
+    return im.resize(size, Image.LANCZOS)
 
 
 def bus_face(size=(192, 96)):
@@ -324,16 +334,24 @@ def build_sign_oneway():
     """A one-way plate, 90 x 30 cm, its centre 2.2 m up on a 6 cm post.
     Two parts: the front shows its picture mirrored, the back (seen from the other side)
     as drawn, so the front gets the picture mirrored: "ONE WAY" reads left to right from
-    both sides (see plate())."""
+    both sides (see plate()); the back's arrow is mirrored so it points the same way in the world."""
     p_post, p_plate, p_back = G.Part(), G.Part(), G.Part()
     w, h, yc = 0.9 * MPB, 0.3 * MPB, 2.2 * MPB
     post(p_post, POST_R, 0.0, yc + h / 2 + 0.01)
     plate(p_plate, w, h, yc, plate_z(0.004), thick=0.004, back=p_back)
     G.box_part(p_post, -0.010, 0.010, yc - 0.010, yc + 0.010, plate_z(0.004) + 0.004, 0.0)   # its clamp
+    # The plate's edge (FIX-WORLD-12 qav2): a metal band between face and back on all four sides,
+    # so edge-on and from an angle the plate is a 1.5 cm sheet, not a card with nothing behind it.
+    z0, z1 = plate_z(0.004), plate_z(0.004) + 0.004
+    x0, x1, y0, y1 = -w / 2, w / 2, yc - h / 2, yc + h / 2
+    for (xa, ya), (xb, yb) in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
+        p_post.quad((xa, ya, z0), (xb, yb, z0), (xb, yb, z1), (xa, ya, z1))
     face = oneway_face()
     return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
                          ("plate", p_plate.mesh(mat(face.transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "plate"))),
-                         ("plate_back", p_back.mesh(mat(face, 0.1, 0.5, "plate_back")))])
+                         # the back's arrow points the same way in the world (to the viewer's left
+                         # from behind), its words read left to right, like a real two-sided plate
+                         ("plate_back", p_back.mesh(mat(oneway_face(point_left=True), 0.1, 0.5, "plate_back")))])
 
 
 # The bus shelter (FIX-PROPS-3): 3.4 m long, 1.4 m deep, 2.5 m to the roof's edge, open to
