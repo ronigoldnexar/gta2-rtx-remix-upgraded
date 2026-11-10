@@ -3,6 +3,7 @@
 // then does real work after. Exit code 0 when both faults were caught.
 #include <cstdio>
 #include <cstdarg>
+#include <cstdint>
 #include "compat.h"
 #include "frame_log.h"
 #include "log.h"
@@ -16,6 +17,9 @@ void Log(const char* format, ...) {
     fputc('\n', stderr);
 }
 void FrameLogNote(FrameCounter, int) {}
+// FIX-DEADLOCK-1 e6d2f29: the handler notes the swallowed fault for the stall dump (thread_watch.cpp,
+// not linked here).
+void NoteGuardedFault(uint32_t, uintptr_t, uintptr_t) {}
 }
 
 static volatile int* g_null = nullptr;
