@@ -9062,6 +9062,18 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // not the pistol-grip hand with no gun (its trigger finger and thumb read as a pointing hand).
     const Model* fistModel = fist2 ? ModelByName("fp_fist2_right") : fists ? ModelByName("fp_fist_right") : nullptr;
     const Model* armR = fistModel ? fistModel : ModelByName("fp_arm_right");
+    // FIX-FIGURE-16 (FIGURE-15's short-of-AAA list): after the release the throwing hand is open (fp_hand_open_right, the
+    // fingers out ahead), not the grip hand closed on nothing, through the empty follow-through until the new bottle rises.
+    // GTA2DX9_FP_OPEN_HAND=0: the grip hand as before.
+    if (thrown && thHide && !fistModel) {
+        static const bool openOn = [] { char v[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_OPEN_HAND", v, sizeof v) && v[0] == '0'); }();
+        const Model* open = openOn ? ModelByName("fp_hand_open_right") : nullptr;
+        if (open) {
+            armR = open;
+            static int openLogged = 0;
+            if (openLogged < 6) { ++openLogged; Log("view model: open hand after the release (t=%.2f)", shotT); }
+        }
+    }
     const Model* armL = (leftName && !leftBusy) ? ModelByName(leftName) : nullptr;
     const Model* armDual = (weapon == kWpnDual || fists) ? armR : nullptr;
     // Lit by the sun the car bodies use (dimmer at night), the texture modulated

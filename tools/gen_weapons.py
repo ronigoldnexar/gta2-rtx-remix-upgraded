@@ -573,8 +573,39 @@ def fp_fist2():
                        ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth", hires=True)))]), 0.0
 
 
+def fp_hand_open():
+    """FIX-FIGURE-16 (FIGURE-15's short-of-AAA list): the right hand open after a throw's release, in the pistol hand's
+    frame (fp_arm "right": back of the hand +x, ahead +z, up +y): the same back of the hand, wrist, forearm and sleeve
+    as fp_fist2, the four fingers out ahead from the knuckles, a little spread and relaxed (curled a few degrees toward
+    the palm, the little finger shortest), the thumb out to the palm side and forward. The empty follow-through was the
+    grip hand closed on nothing (a fist)."""
+    skin = Part(); sleeve = Part()
+    sblob(skin, (0.0030, -0.0108, -0.0082), (0.0058, 0.0122, 0.0078), e=0.75)             # back of the hand + palm (fp_fist2)
+    rows = ((-0.0016, 0.0027, 1.00, 0.0022), (-0.0072, 0.0028, 1.06, 0.0004), (-0.0128, 0.0026, 1.00, -0.0016), (-0.0180, 0.0022, 0.82, -0.0034))
+    for y, r, reach, spread in rows:                                                       # index .. little, fanned
+        kn = (0.0026, y, 0.0000)
+        mid = (0.0030, y + spread, 0.0000 + 0.0105 * reach)                                 # relaxed: a little back-bent
+        tip = (0.0036, y + spread * 1.9, 0.0000 + 0.0185 * reach)
+        blob(skin, kn, (r * 1.15, r * 1.05, r * 1.15), segments=12, rings=6)
+        tube_between(skin, kn, mid, r, r * 0.92, 12)
+        blob(skin, mid, (r * 0.92, r * 0.92, r * 0.92), segments=10, rings=6)
+        tube_between(skin, mid, tip, r * 0.90, r * 0.72, 12)
+        blob(skin, tip, (r * 0.72, r * 0.72, r * 0.72), segments=10, rings=6)
+    sblob(skin, (-0.0042, -0.0055, -0.0080), (0.0038, 0.0068, 0.0062), e=0.9, segments=16, rings=10)   # the ball of the thumb
+    tj = (-0.0070, 0.0004, -0.0010)
+    tube_between(skin, (-0.0050, -0.0040, -0.0080), tj, 0.0033, 0.0030, 14)
+    blob(skin, tj, (0.0030, 0.0030, 0.0030), segments=12, rings=8)
+    tt = (-0.0082, 0.0030, 0.0075)
+    tube_between(skin, tj, tt, 0.0029, 0.0023, 14)
+    blob(skin, tt, (0.0023, 0.0023, 0.0023), segments=12, rings=8)
+    _forearm(skin, sleeve, (0.0030, -0.0150, -0.0130), (0.0045, -0.0210, -0.0240), (0.0300, -0.0700, -0.1600), 0.0058, seg=20)
+    return scene_with([("skin", skin.mesh(mat(SKIN, 0.0, 0.6, name="skin", kind="skin", hires=True))),
+                       ("sleeve", sleeve.mesh(mat(SLEEVE, 0.0, 0.9, name="sleeve", kind="cloth", hires=True)))]), 0.0
+
+
 ARMS = {"fp_arm_right": lambda: fp_arm("right"), "fp_arm_left": lambda: fp_arm("left"),
-        "fp_arm_left_cup": lambda: fp_arm("cup"), "fp_fist_right": fp_fist, "fp_fist2_right": fp_fist2}
+        "fp_arm_left_cup": lambda: fp_arm("cup"), "fp_fist_right": fp_fist, "fp_fist2_right": fp_fist2,
+        "fp_hand_open_right": fp_hand_open}
 
 BUILDERS = {
     "pistol": pistol, "dual_pistol": pistol, "machine_gun": machine_gun, "silenced_mg": silenced_mg,

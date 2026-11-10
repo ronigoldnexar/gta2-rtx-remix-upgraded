@@ -1930,6 +1930,12 @@ arm forward for balance on the wind-up. A/B `GTA2DX9_THROW_OVERARM=0` (the clip'
 the hand with the bottle up behind the head for the wind-up; at a 10 fps game the release and follow-through fall
 between frames (not yet seen on film).
 
+First-person open hand after the release: `fp_hand_open_right` (tools/gen_weapons.py `fp_hand_open`: fp_fist2's back of
+the hand, wrist and sleeve, four fingers fanned out ahead and a little back-bent, the thumb out to the palm side; a
+code object in git) replaces the grip hand closed on nothing for the throw's empty follow-through (`thHide`, 0.08-0.55 s
+after the throw) until the new bottle rises. Log `view model: open hand after the release`. A/B `GTA2DX9_FP_OPEN_HAND=0`.
+fig16_mofp2 fr/hands3.png: bottle in the hand / the open hand thrust out ahead / gone down out of the view.
+
 ## FIX-ENTRY-1 (10 Nov 2026): what the game needs for an entry, the Return trace, `enter_key`
 
 Filing `ped-state-7-blocks-vehicle-entry` (S1, the 5090 operator): Return beside a parked car (0.59) with a
