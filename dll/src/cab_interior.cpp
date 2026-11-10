@@ -645,7 +645,15 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
         // rim turned up to 150 degrees with nothing on it to follow (a three-spoke hub past 90 degrees reads as
         // turning back) while the hands slid on it, held to 40 degrees. Now at most 100 degrees, a pale band at
         // twelve o'clock, and the hands (his body's, or the fists) go round with the rim.
-        const float turn = (std::max)(-1.75f, (std::min)(1.75f, (p.warm ? 0.0f : shownSteer) * 6.0f));
+        // FIX-COCKPIT-BODY-2 (owner item 2 re-verified on HEAD 5c0ee78, run cb2_v1): the band went RIGHT on a held Left
+        // and left on a held Right on all three cars (068 at 30 fps: the band clockwise from the first frame of the
+        // Left hold). The cab's +x is the screen's LEFT from the seat (the grips: grip 0 at +x is the left hand), so
+        // a + steer (a left turn) must turn the rim's top toward +x. GTA2DX9_FP_WHEEL_OLD_SIGN=1: the 5c0ee78 sign.
+        static const float wheelSign = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_WHEEL_OLD_SIGN", b, sizeof b) && b[0] == '1' ? 1.0f : -1.0f; }();
+        // GTA2DX9_FP_WHEEL_TURN_MILLI=N (probe): the rim held at N/1000 rad whatever the steer (+ takes the top toward -x).
+        static const int forcedTurn = [] { char b[16] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_WHEEL_TURN_MILLI", b, sizeof b) ? atoi(b) : 0; }();
+        const float turn = forcedTurn ? forcedTurn / 1000.0f
+                                      : (std::max)(-1.75f, (std::min)(1.75f, (p.warm ? 0.0f : shownSteer) * 6.0f * wheelSign));
         const float cs = std::cos(turn), sn = std::sin(turn);
         const Vec3 u = across * cs + up * sn, v = up * cs - across * sn;
         b.Torus(kWheel, c, u, v, axis, R, st.wheelTube);
@@ -674,7 +682,7 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             };
             auto WV = [&](const Vec3& q) { const Vec3 o = W(Vec3{0.0f, 0.0f, 0.0f}); return gta2::Normalize(W(q) - o); };
             g_driver.eye = W(b.eye);
-            g_driver.right = WV(Vec3{1.0f, 0.0f, 0.0f});   // the car's +x: the screen's right from the seat
+            g_driver.right = WV(Vec3{1.0f, 0.0f, 0.0f});   // the car's +x (the screen's LEFT from the seat: FIX-COCKPIT-BODY-2, run cb2_t1)
             g_driver.up = WV(Vec3{0.0f, 1.0f, 0.0f});
             g_driver.fwd = WV(Vec3{0.0f, 0.0f, 1.0f});
             for (int h = 0; h < 2; ++h) {

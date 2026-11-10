@@ -955,6 +955,14 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
   slid on it, held to 40 degrees. Now the rim turns at most 100 degrees, carries the twelve o'clock band, and the hands
   (his body's, or the old fists when the body is off) go round with it. `GTA2DX9_FP_ARM_LOG=1` logs the turn per frame
   for the fists, `GTA2DX9_FP_BODY_LOG=1` for the body (compare with the `view: player` heading, `GTA2DX9_STATE_EVERY=3`).
+- **The wheel's sign, re-verified (FIX-COCKPIT-BODY-2, 10 Nov).** On HEAD 5c0ee78 the rim still turned the wrong
+  way: run `cb2_v1` (keys_cbody.sh, sedan 013, van 068, truck 021), the 30 fps capture of the van shows the twelve
+  o'clock band going clockwise from the first frame of the held Left and anticlockwise on the held Right, on all
+  three cars. The cab's +x is the screen's LEFT from the seat (with the rim held at +1 rad by
+  `GTA2DX9_FP_WHEEL_TURN_MILLI=1000`, run `cb2_t1`, the +x grip rose to the top just left of the hub), so the note
+  above had the frame's side wrong. The rim now turns by `-6 x steer` (steer + is a left turn: the log's `turn` is
+  negative through every held Left and positive through every held Right, run `cb2_v2`), the top going left on a
+  left turn. `GTA2DX9_FP_WHEEL_OLD_SIGN=1` is the 5c0ee78 sign.
 - **The driver's body (live_geometry.cpp, model_store.cpp, weapon_rig.cpp).** In first person at the wheel his
   seated figure (the boarding's seated ghost, FIX-SEATED 4393335: his identity record's avatar and clothes, the
   same figure the chase view shows at the wheel) was skipped (and flagged plan-only). It is drawn now: lined up
