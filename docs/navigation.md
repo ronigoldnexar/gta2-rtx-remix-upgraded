@@ -1036,3 +1036,26 @@ Owner items 2 and 3 (`defects/open/owner-fp-cockpit-no-driver-body-and-wheel-cou
     frame for ~0.5 s when the guard trips late (cam13_rev7 angled f81-98). After the drive-off cut the boom can stay
     pulled in along a wall for ~1 s, with the car's rear cut at the bottom edge (cam13_rev7 angled2 f121-147). In
     cam13_rev6 the turn to the car's nose in the pocket shows the car whole in every frame.
+
+## The car against a wall beside it; the drive-off cut lands where there is room (FIX-CAMERA-14, 10 Nov 2026)
+
+- **pfl28 residual: the boom's pivot moved off a wall beside the car (view_modes.cpp `ViewCameraSolver::Solve`).**
+  Backing with the car's flank scraping a wall (wil x=182.0: the car's middle 0.23 from the bricks, run cam13_rev8
+  angled2), every line out of the car's middle runs inside the lens berth (0.25) of the wall: the solve wanted a boom of
+  0.22-0.35, the shown eye sat on its 0.57 minimum and the car's rear hung past the bottom edge for ~2 s (pose-line box
+  bottom 1.4-1.98 of the frame height, f88-144). The pivot the boom is solved and shown from now moves level off every
+  drawn surface out to 0.5 block (at most 0.4 block, never through anything, never into a solid cell), out over 0.1 s
+  and back over 0.5 s, so the boom runs clear of the wall and keeps its length. Log: `cam: car pivot off the wall`.
+  `GTA2DX9_CAM_CAR_PIVOT_SIDE=0` turns it off (A/B).
+- **The drive-off cut lands where there is room.** With the car's rear against the wall it had backed into (wil
+  x=187), the line behind reached 0.45 of a 0.86 pull, FIX-CAMERA-13's half-pull test passed and the cut landed 0.2
+  behind the car's middle: four frames with the lens inside the car (cam14_rev1 angledR f1152-1157, box 5.7 x 19.5
+  frames). The cut now goes to the smallest turn with the whole pull: behind first, then side-on out to 100 degrees
+  (its own side first); only when none has it, behind at half the pull as before. Log: `... cut to N (behind reaches
+  ...)`. `GTA2DX9_CAM_CAR_CUT_ROOM=0` restores FIX-CAMERA-13's cut.
+  - Metric (`gamerun/cam14_box.py`: CAMERA-13's cam13_box.py plus frames with the box bottom past 1.3 of the frame
+    height, the rear cut at the bottom edge, and "lens" frames with the box wider than 1.5 frames or deeper than 2.5)
+    on `keys_cam11_rev.sh` `C11_REV=straight,angled,angledR,angled2`: past-edge / over-half / bottom / lens. HEAD
+    fbea4df cam13_rev8 13/12/109/6, cam13_rev7 31/36/72/15; same build, both switches off, cam14_rev3base 14/0/26/8;
+    the pivot alone cam14_rev1 13/12/42/7 (angled2 62 -> 0 bottom frames; its angledR 35/7 = the cut, fixed next);
+    both cam14_rev2 0/0/0/0, cam14_rev3 0/0/0/0. Paths wander between runs (not same-spot).

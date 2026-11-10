@@ -3487,7 +3487,54 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             rescueZ_ += (lift.z - rescueZ_) * k;
         }
     }
-    const gta2::Vec3 shownPivot{px + rescueX_, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f) + rescueY_, pz + rescueZ_};
+    // FIX-CAMERA-14 (pfl28 residual: the car scraping a wall along its side). Backing along a wall with the car's flank
+    // 0.0-0.1 off it (wil x=182.0, run cam13_rev8 angled2: the car's middle 0.23 from the bricks), every line out of the
+    // car's middle runs within the lens berth of the wall: the solve wanted a boom of 0.22-0.35, the shown eye sat on
+    // its 0.57 minimum, 0.25 off the wall, and the car's rear hung past the bottom edge for ~2 s (box bottom 1.4-1.98 of
+    // the frame, f88-144); at the x=186 wall the drive-off cut then snapped to a solved eye 0.3 from the car's middle
+    // (rev8 angled f872-877: the lens inside the car). The boom's pivot moves off a wall beside the car (level: out to
+    // kPivotSide from every drawn surface, at most kPivotShiftMax, never through anything), eased, so the boom runs
+    // clear of the wall it is beside and keeps its length. GTA2DX9_CAM_CAR_PIVOT_SIDE=0 turns it off (A/B).
+    {
+        static int pivotSideOn = -1;
+        if (pivotSideOn < 0) { char b[8] = {}; pivotSideOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_PIVOT_SIDE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        constexpr float kPivotSide = 0.5f, kPivotShiftMax = 0.4f;
+        float wantX = 0.0f, wantZ = 0.0f;
+        if (pivotSideOn && carMesh && mode == ViewMode::ThirdPerson && s.tpCollide) {
+            gta2::Vec3 e = pivot;
+            if (eyecol::Push(&e, kPivotSide) > 1e-4f) {
+                float dx = e.x - pivot.x, dz = e.z - pivot.z;
+                const float d = std::hypot(dx, dz);
+                if (d > kPivotShiftMax) { dx *= kPivotShiftMax / d; dz *= kPivotShiftMax / d; }
+                const gta2::Vec3 to{pivot.x + dx, pivot.y, pivot.z + dz};
+                float t = 1.0f;
+                if (d > 1e-3f && !eyecol::SegmentHitSolid(pivot, to, &t) && !eyecol::InsideSolid(to) && !solidAt(to.x, to.y, to.z)) {
+                    wantX = dx;
+                    wantZ = dz;
+                }
+            }
+        }
+        // out fast (the wall is there now), back slowly (a car leaving a wall)
+        const bool growing = wantX * wantX + wantZ * wantZ > pivotSideX_ * pivotSideX_ + pivotSideZ_ * pivotSideZ_;
+        const float k = 1.0f - std::exp(-dt / (growing ? 0.1f : 0.5f));
+        pivotSideX_ += (wantX - pivotSideX_) * k;
+        pivotSideZ_ += (wantZ - pivotSideZ_) * k;
+        if (!carMesh || mode != ViewMode::ThirdPerson) pivotSideX_ = pivotSideZ_ = 0.0f;
+        if (pivotSideX_ != 0.0f || pivotSideZ_ != 0.0f) {
+            const gta2::Vec3 to{pivot.x + pivotSideX_, pivot.y, pivot.z + pivotSideZ_};
+            float t = 1.0f;
+            if (!eyecol::SegmentHitSolid(pivot, to, &t) && !solidAt(to.x, to.y, to.z)) {
+                pivot = to;
+                if (cameraLogOn()) {
+                    static int every = 0;
+                    if ((++every % 10) == 1) Log("cam: car pivot off the wall %.2f (want %.2f)", std::hypot(pivotSideX_, pivotSideZ_), std::hypot(wantX, wantZ));
+                }
+            } else {
+                pivotSideX_ = pivotSideZ_ = 0.0f;
+            }
+        }
+    }
+    const gta2::Vec3 shownPivot{px + rescueX_ + pivotSideX_, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f) + rescueY_, pz + rescueZ_ + pivotSideZ_};
     // FIX-CAMERA-3 (feel17-armed-third-camera-inside-hero-screen-filled-with-blurred-cloth): on foot
     // the boom is solved against the drawn mesh as well as the map's cells. The cells do not see the
     // iron staircase by the phone box at wil 159.5,139.5 (nor any diagonal or partial face): the
@@ -3890,11 +3937,35 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 // (not waiting for the turn's hold to let go: held until the line behind kept the pull, the cut came 0.6 s
                 // into the drive-off with the car's nose over the lower half of the frame, run cam13_rev6 f117-135; the boom
                 // behind may be short a while, the filter eases it out)
-                if (driveOffCut && std::fabs(carSwing) > 100.0f * kDegToRad && forward > 0.3f && straight >= 0.5f * good) {
-                    if (cameraLogOn()) Log("cam: car swing %.1f: driving off at %.2f with the eye ahead of the car, cut to behind", carSwing / kDegToRad, forward);
-                    carSwing = 0.0f;
-                    want = 0.0f;
-                    carDriveOffCut = true;
+                // FIX-CAMERA-14 (pfl28: the cut into the car): with the car's rear against the wall it had backed into
+                // (wil x=187), the line behind reached 0.45 of a 0.86 pull, the half-pull test passed, and the cut landed
+                // 0.2 behind the car's middle: four frames with the lens inside the car (run cam14_rev1 angledR f1152-1157,
+                // box 5.7 x 19.5 frames). The cut goes to the smallest turn that has the whole pull, behind first, then
+                // side-on out to 100 degrees (the side it is on first); only when none has it, behind at half the pull as
+                // before. GTA2DX9_CAM_CAR_CUT_ROOM=0 restores FIX-CAMERA-13's cut (A/B).
+                static int cutRoom = -1;
+                if (cutRoom < 0) { char b[8] = {}; cutRoom = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_CUT_ROOM", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+                if (driveOffCut && std::fabs(carSwing) > 100.0f * kDegToRad && forward > 0.3f) {
+                    float to = 0.0f;
+                    bool cut = false;
+                    if (cutRoom) {
+                        const float sideFirst = carSwing < 0.0f ? -1.0f : 1.0f;
+                        if (straight >= good) cut = true;
+                        for (int k = 1; k <= 5 && !cut; ++k)
+                            for (const float sg : {sideFirst, -sideFirst}) {
+                                const float a = sg * static_cast<float>(k) * (20.0f * kDegToRad);
+                                if (!cut && reachAt(a) >= good) { to = a; cut = true; }
+                            }
+                    }
+                    if (!cut && straight >= 0.5f * good) { to = 0.0f; cut = true; }
+                    if (cut) {
+                        if (cameraLogOn())
+                            Log("cam: car swing %.1f: driving off at %.2f with the eye ahead of the car, cut to %.0f (behind reaches %.2f of %.2f)",
+                                carSwing / kDegToRad, forward, to / kDegToRad, straight, good);
+                        carSwing = to;
+                        want = to;
+                        carDriveOffCut = true;
+                    }
                 }
             }
             const float tau = std::fabs(want) > std::fabs(carSwing) ? 0.12f : 0.8f;
