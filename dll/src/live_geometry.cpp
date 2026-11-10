@@ -7493,7 +7493,7 @@ const WeaponInfo kWeapons[kWpnCount] = {
     {"silenced_mg", "weapon_silenced_mg", 8, true, 0.17f, 0.045f, 0.9f, 0.8f, 0.6f, 0.15f, true, 0.010f},
     {"machine_gun", "weapon_machine_gun", 8, true, 0.110f, 0.13f, 1.0f, 0.8f, 0.45f, 0.8f, true, 0.014f},   // FIX-FIGURE-8: the S-Uzi, stock folded (its span, model scale 1)
     {"rocket_launcher", "weapon_rocket_launcher", 11, true, 0.26f, 0.28f, 1.0f, 0.7f, 0.4f, 1.0f, false, 0.040f},
-    {"electro_gun", "weapon_electro_gun", 8, true, 0.16f, 0.12f, 0.6f, 0.85f, 1.0f, 0.7f, false, 0.0f},
+    {"electro_gun", "weapon_electro_gun", 8, true, 0.170f, 0.12f, 0.6f, 0.85f, 1.0f, 0.7f, false, 0.0f},   // FIX-FIGURE-13: the electro rifle, its span (model scale 1)
     {"molotov", "weapon_molotov", 13, false, 0.05f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, 0.0f},
     {"grenade", "weapon_grenade", 13, false, 0.03f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, 0.0f},
     {"shotgun", "weapon_shotgun", 8, true, 0.20f, 0.20f, 1.0f, 0.8f, 0.45f, 1.0f, true, 0.035f},
@@ -8352,7 +8352,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         case kWpnShotgun: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.080f; break;
         case kWpnRocket: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.060f; break;
         case kWpnFlame: leftName = "fp_arm_left"; fore[1] = 0.000f; fore[2] = 0.060f; break;
-        case kWpnElectro: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.030f; break;
+        case kWpnElectro: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.052f; break;   // FIX-FIGURE-13: the fore grip
         default: break;
     }
     if (fists) leftName = nullptr;   // the left fist is the right's mirror (as the second pistol's hand)

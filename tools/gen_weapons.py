@@ -292,17 +292,60 @@ def flamethrower():
                        ("hose", rubber.mesh(mat(RUBBER, 0.2, 0.8, name="hose")))]), 0.18
 
 
+TEAL = (38, 74, 78)
+COPPER = (176, 104, 52)
+CERAMIC = (222, 216, 200)
+
+
 def electro_gun():
-    steel = Part(); glass = Part(); brass = Part()
-    box(steel, (0, 0.012, 0.020), (0.018, 0.020, 0.050))         # the box
-    box(steel, (0, -0.010, 0.000), (0.010, 0.026, 0.012))        # grip
-    for x in (-0.010, 0.010):                                     # two prongs
-        tube(brass, (x, 0.014, 0.065), 0.003, 0.040)
-        tube(glass, (x, 0.014, 0.088), 0.005, 0.006)              # the tips glow
-    tube(glass, (0, 0.028, 0.020), 0.008, 0.030)                 # the coil on top
-    return scene_with([("steel", steel.mesh(mat(STEEL, 0.8, 0.4, name="steel"))),
-                       ("prongs", brass.mesh(mat(BRASS, 0.9, 0.3, name="prongs"))),
-                       ("coil", glass.mesh(mat(GLASS, 0.1, 0.2, emissive=(0.3, 0.6, 0.9), name="coil")))]), 0.11
+    """FIX-FIGURE-13 pfl50: an electro rifle that reads as one at the chase distance and from the eye (it was a
+    0.10-block box with two prongs and a coil, drawn 1.6x up to the weapon table's 0.16 while the rig's points
+    stayed at model scale: the grip went into the shoulder pocket, the gun at his face, the hands off it).
+    A 1950s tesla gun: a battery pack behind the grip that sets into the shoulder like a stock, a teal enamel
+    receiver with a glowing glass capacitor along its top in brass caps, copper coil rings round the barrel,
+    two ceramic insulators and a brass emitter fork whose tips glow. Places the rig and the view model use
+    (dll/src/weapon_rig.cpp GeoFor wElectro, live_geometry.cpp fore[] for kWpnElectro): bore y 0.017; the butt
+    z -0.060, y 0.012; a vertical fore grip at z 0.052 (its top y 0.0, like the pistol grip's at the origin).
+    Span 0.170 blocks: live_geometry.cpp kWeapons electro_gun length 0.170 (drawn at model scale 1)."""
+    body = Part(); dark = Part(); glass = Part(); brass = Part(); copper = Part(); ceramic = Part(); glow = Part()
+    # the battery (the stock): a round cell from the grip back to the shoulder in two copper bands, a dark
+    # rubber butt pad (a box pack read as a flat dark slab filling the first-person view's lower right)
+    tube(body, (0, 0.0135, -0.0360), 0.0085, 0.0420, segments=16)
+    tube(dark, (0, 0.0135, -0.0585), 0.0095, 0.0030, segments=16)
+    for z in (-0.048, -0.024):
+        tube(copper, (0, 0.0135, z), 0.0091, 0.0028, segments=16)
+    box(body, (0, 0.0100, -0.0120), (0.0090, 0.0120, 0.0100))                    # the cell's neck into the receiver
+    # the receiver
+    bevel_box(body, (0, 0.0165, 0.0200), (0.0160, 0.0200, 0.0700), 0.0030)
+    # the capacitor along the top: a glass tube that glows, in brass caps on two posts
+    tube(glass, (0, 0.0325, 0.0200), 0.0042, 0.0420, segments=14)
+    for z in (-0.0020, 0.0420):
+        tube(brass, (0, 0.0325, z), 0.0052, 0.0040, segments=14)
+        box(brass, (0, 0.0285, z), (0.0030, 0.0040, 0.0030))
+    # the barrel: a core through copper coil rings and two ceramic insulators to the fork
+    tube(dark, (0, 0.0170, 0.0740), 0.0040, 0.0400, segments=12)
+    for k in range(5):
+        tube(copper, (0, 0.0170, 0.0590 + k * 0.0055), 0.0072, 0.0030, segments=16)
+    for z in (0.0880, 0.0950):
+        tube(ceramic, (0, 0.0170, z), 0.0062, 0.0035, segments=14)
+    tube(brass, (0, 0.0170, 0.1010), 0.0050, 0.0030, segments=12)                # fork root
+    for x in (-0.0055, 0.0055):
+        tube_between(brass, (x * 0.5, 0.0170, 0.1010), (x, 0.0170, 0.1110), 0.0018, 0.0015, 8)
+        blob(glow, (x, 0.0170, 0.1130), (0.0028, 0.0028, 0.0028), segments=10, rings=6)
+    # grips: the pistol grip at the origin (up into the receiver), a vertical fore grip under the coils' back
+    bevel_box(dark, (0, -0.0090, 0.0000), (0.0115, 0.0340, 0.0160), 0.0030, axis=1)
+    bevel_box(dark, (0, -0.0110, 0.0520), (0.0100, 0.0260, 0.0110), 0.0025, axis=1)
+    box(body, (0, -0.0040, 0.0140), (0.0040, 0.0020, 0.0170))                    # trigger guard (bottom)
+    box(body, (0, 0.0005, 0.0225), (0.0040, 0.0080, 0.0020))                     # (front)
+    box(brass, (0, 0.0010, 0.0105), (0.0020, 0.0060, 0.0020))                    # trigger
+    box(brass, (0.0082, 0.0170, 0.0080), (0.0010, 0.0060, 0.0120))               # a brass dial plate on the right
+    return scene_with([("enamel", body.mesh(mat(TEAL, 0.6, 0.35, name="enamel"))),
+                       ("dark", dark.mesh(mat(RUBBER, 0.3, 0.7, name="dark"))),
+                       ("glass", glass.mesh(mat(GLASS, 0.1, 0.15, emissive=(0.35, 0.75, 1.0), name="glass"))),
+                       ("brass", brass.mesh(mat(BRASS, 0.9, 0.3, name="brass"))),
+                       ("copper", copper.mesh(mat(COPPER, 0.9, 0.35, name="copper"))),
+                       ("ceramic", ceramic.mesh(mat(CERAMIC, 0.0, 0.5, name="ceramic", kind="plain"))),
+                       ("glow", glow.mesh(mat((200, 240, 255), 0.0, 0.2, emissive=(0.6, 0.9, 1.0), name="glow", kind="plain")))]), 0.170
 
 
 def grenade():

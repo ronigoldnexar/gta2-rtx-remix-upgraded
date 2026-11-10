@@ -1138,6 +1138,27 @@ reads through it. `GTA2DX9_FIG_SHADOW_PM20=1` restores 794c936's patch for A/B. 
 `tools/vreg/run_capture.sh` takes `VREG_DOCKER_ENV` (extra docker args, e.g. `-e GTA2DX9_FIG_SHADOW_PM20=1`) and
 `VREG_SHOTS` (a reduced shot list) for quick A/B captures.
 
+### pfl50: the electro gun is an electro rifle in both hands (FIX-FIGURE-13)
+
+- Cause (frames at HEAD, out of the probe below): the old `gen_weapons.py electro_gun` was a 0.10-block box with two prongs
+  and a coil, drawn 1.6x up to the weapon table's 0.16 block, while the rig's points on it (`GeoFor wElectro`: the butt at
+  z -0.005, i.e. the grip) stayed at model scale: the long-gun hold put the grip into the shoulder pocket, so the gun sat at
+  his face (aim) or hung across his chest with the prongs at his hip (carry), the hands off it (`weapon rig: ... right hand
+  off its grip 0.384 m` on the first frames). First person drew the box gun at HEAD (the filer's "no view model" did not
+  reproduce on 8437686+; the game's purple bolt was drawn on the target).
+- Model: `tools/gen_weapons.py electro_gun`, a 1950s tesla rifle: a round battery cell in copper bands behind the grip as the
+  stock (butt pad z -0.060), a teal enamel receiver with a glowing glass capacitor in brass caps along its top, five copper
+  coil rings round the barrel, two ceramic insulators, a brass emitter fork with glowing tips at z 0.113, a pistol grip at
+  the origin and a vertical fore grip at z 0.052; 1202 triangles, span 0.170 (table length 0.170: model scale 1). Imported
+  with `tools/import_assets.py` on a one-entry manifest (gen3d venv) into /tmp and copied (weapon_electro_gun.mesh and
+  _0.._6.tga; the manifest's report entry patched by hand). Remix: the weapon_electro_gun textures changed content (_3.._6 new).
+- Rig: `GeoFor wElectro` = bore 0.017, butt (-0.060, 0.012), a vertical fore grip (fore 1) at z 0.052; first person
+  `fore[]` z 0.052. Third person: low ready with the butt in the right shoulder, the muzzle forward and down, the left
+  hand on the fore grip; aimed, at the shoulder with the cheek on it, the game's bolt from it.
+- Probe: gamerun/keys_fig13_el.sh + fig13_el.py (the ste kill-frenzy skull at 147.5,43.5, then stand at F13_AT, regress
+  camera poses front / front2 / side / back from his facing, F13_SIDE picks the open side, three fire taps per pose, then
+  first person). Runs fig13_el1/el2 (HEAD), fig13_el3/el4 (this); fig13_mg1 the machine gun at the same offsets (wil plaza).
+
 ### Draw-only figure separation (FIX-FIGURE-7, pm24 / pm3)
 
 GTA2 walks its people through each other and over parked cars' footprints; the flat sprites never showed it, the bodies do.

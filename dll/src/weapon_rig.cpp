@@ -402,7 +402,10 @@ Geo GeoFor(int weapon) {
         // FIX-FIGURE-8 (pm24): the S-Uzi (tools/gen_weapons.py machine_gun): the left hand under the handguard,
         // the magazine up the grip, the charging knob on the top cover, the folding stock's butt plate.
         case wMg:                 return {0.017f, -0.078f, 0.004f, 2, 0.058f, -0.002f, 0.000f, -0.056f, 0.050f, 0.028f};
-        case wElectro:            return {0.014f, -0.005f, 0.012f, 2, 0.032f, 0.002f, 0.0f, 0.0f, 9.0f, 0.0f};
+        // FIX-FIGURE-13 (pfl50): the electro rifle (tools/gen_weapons.py electro_gun): the battery pack's butt pad in
+        // the shoulder, the left hand on the vertical fore grip under the coils (was the old box gun's: the butt at the
+        // grip, so the grip went into the shoulder pocket and the gun sat at his face).
+        case wElectro:            return {0.017f, -0.060f, 0.012f, 1, 0.052f, 0.000f, 0.0f, 0.0f, 9.0f, 0.0f};
         case wShotgun:            return {0.012f, -0.075f, -0.004f, 2, 0.080f, -0.002f, 0.012f, 0.018f, 9.0f, 0.0f};
         case wRocket:             return {0.030f, -0.030f, 0.010f, 1, 0.060f, 0.004f, -0.067f, 0.030f, 9.0f, 0.0f};
         case wFlame:              return {0.012f, 0.0f, 0.0f, 1, 0.060f, 0.000f, 0.0f, 0.0f, 9.0f, 0.0f};

@@ -7772,14 +7772,18 @@
   },
   {
    "name": "weapon_electro_gun",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 468,
+   "nodes": 7,
+   "meshes": 7,
+   "vertices": 2332,
    "animations": [],
    "textures": [
     "weapon_electro_gun_0.tga",
     "weapon_electro_gun_1.tga",
-    "weapon_electro_gun_2.tga"
+    "weapon_electro_gun_2.tga",
+    "weapon_electro_gun_3.tga",
+    "weapon_electro_gun_4.tga",
+    "weapon_electro_gun_5.tga",
+    "weapon_electro_gun_6.tga"
    ],
    "skins": 0,
    "forward": "+z",
