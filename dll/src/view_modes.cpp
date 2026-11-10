@@ -1221,7 +1221,22 @@ void NotePedNearCamera(const void* ped, float distanceTiles) {
 // The player's ped as LocatePlayer last found it (on foot, or the one still at the wheel
 // of the car he drove off in); null in the menus. For the devtools that write his ped
 // (live_geometry.cpp force_wanted) in any view, the classic one included.
-const void* LocatedPlayerPed() { return reinterpret_cast<const void*>(g_lastPlayerPed); }
+// FIX-STABILITY-2 (owner-5090-minimize-fatal, the V-move stall at move 0.524 on the 5090): the ped this
+// file keeps can outlive its memory (0x4849D5B0 through a V move: 168 guarded faults in ActionProbes and a
+// minute-long stall). Asked of the page table itself, not of KnownReadable's cache, which keeps a region
+// it once found readable.
+bool PedPagesCommitted(uintptr_t ped) {
+    if (!ped) return false;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!VirtualQuery(reinterpret_cast<const void*>(ped), &mbi, sizeof(mbi))) return false;
+    if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) return false;
+    return ped + 0x280 <= reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+}
+
+const void* LocatedPlayerPed() {
+    const uintptr_t ped = g_lastPlayerPed;
+    return PedPagesCommitted(ped) ? reinterpret_cast<const void*>(ped) : nullptr;
+}
 
 bool LocatePlayer(PlayerState* out) {
     *out = PlayerState{};
@@ -1241,6 +1256,14 @@ bool LocatePlayer(PlayerState* out) {
         return false;
     }
 
+    if (g_lastPlayerPed && !PedPagesCommitted(g_lastPlayerPed)) {
+        static int logged = 0;
+        if (logged++ < 20)
+            Log("view: the player's last ped %08X is no longer mapped memory: dropped", static_cast<unsigned>(g_lastPlayerPed));
+        g_lastPlayerPed = 0;
+        g_lastPlayerPedId = 0;
+        g_readableCount = 0;   // the readable-region cache may hold the region it was in
+    }
     uintptr_t ped = RememberedPed();
     if (ped) {
         out->source = g_slot == Slot::Camera ? "camera" : "player object";

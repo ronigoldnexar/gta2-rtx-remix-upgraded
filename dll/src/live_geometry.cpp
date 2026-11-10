@@ -3026,12 +3026,15 @@ bool MeasurePaintGain(const HdCar& hd, const std::vector<uint8_t>& game, int w, 
     if (!haveBase || hd.width % w != 0) return false;
     const int S = hd.width / w;
     const std::vector<uint8_t>& skip = footprint ? *footprint : DeltaFootprint(sprite, w, h);
+    // FIX-STABILITY-2 (5090 census, the AV at +0x140380 = this read in the 8437686 build): the cache is
+    // keyed by sprite alone, so a footprint made at another size is not read past its end.
+    const bool skipFits = skip.size() >= static_cast<size_t>(w) * h;
     for (int pass = 0; pass < 2; ++pass) {
         double sumGame[3] = {0, 0, 0}, sumBase[3] = {0, 0, 0}, sumHd[3] = {0, 0, 0};
         int paint = 0;
         for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
             if (game[i * 4 + 3] < 128 || hd.basePx[i * 4 + 3] < 128) continue;
-            if (pass == 0 && skip[i]) continue;
+            if (pass == 0 && skipFits && skip[i]) continue;
             const uint8_t* b = &hd.basePx[i * 4];
             const float mx = static_cast<float>((std::max)(b[0], (std::max)(b[1], b[2])));
             const float mn = static_cast<float>((std::min)(b[0], (std::min)(b[1], b[2])));
@@ -3215,7 +3218,10 @@ struct CarJob {
     int sprite = 0, w = 0, h = 0;
     HdCar* hd = nullptr;                          // loaded before the job starts, read-only to it
     std::vector<uint8_t> game;                    // the sprite's own pixels, BGRA
-    const std::vector<uint8_t>* skip = nullptr;   // the door and dent footprint
+    // The door and dent footprint, the job's own copy (FIX-STABILITY-2: it was a pointer into
+    // g_deltaFootprint, which SetCarDeltaArt clears on the game thread while this job reads it on its
+    // own: the owner's C0000005 at gta2dx9.dll+0x140380, 80 s into a night round with no input).
+    std::vector<uint8_t> skip;
     std::wstring cacheDir;
     int phase = 0;                                // 0 measuring, 1 recolouring
     float luma = 255.0f;                          // the sprite's mean brightness: low means burnt out
@@ -3234,7 +3240,7 @@ std::list<std::unique_ptr<CarJob>> g_carJobs;
 DWORD WINAPI CarJobThread(LPVOID param) {
     CarJob* j = static_cast<CarJob*>(param);
     if (j->phase == 0) {
-        j->measured = MeasurePaintGain(*j->hd, j->game, j->w, j->h, j->sprite, j->gain, j->tint, j->skip);
+        j->measured = MeasurePaintGain(*j->hd, j->game, j->w, j->h, j->sprite, j->gain, j->tint, &j->skip);
     } else {
         std::vector<uint8_t> pixels;
         if (RecolourHd(*j->hd, j->game, j->w, j->h, j->gain, &pixels)) {
@@ -3320,7 +3326,7 @@ remixapi_MaterialHandle CarMaterialFor(IDirect3DTexture9* art, int sprite) {
             job->h = h;
             job->hd = &found;
             job->game = std::move(pixels);
-            job->skip = &DeltaFootprint(sprite, w, h);
+            job->skip = DeltaFootprint(sprite, w, h);
             job->cacheDir = CacheDirectory();
             job->phase = 0;
             job->luma = artLuma;

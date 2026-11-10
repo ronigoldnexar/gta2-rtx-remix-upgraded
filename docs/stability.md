@@ -143,6 +143,89 @@ Run `fixstab1_focus` (plain GL, third person, own_window=2, 02:00 at 10 tenths, 
 Not verifiable here: the owner box itself (real minimise, MSCTF, the Remix bridge on Windows). See "For the
 5090 box" in the work orders.
 
+## The no-input AV at +0x140380: a car-paint worker reading freed memory (FIX-STABILITY-2)
+
+The owner's night round died 80 s after launch, at clock 23:00, with no input, on a plain C0000005 at
+gta2dx9.dll+0x140380. Disassembled in the owner's DLL (8437686, the same bytes as the maps in
+/mnt/gta2/gta2-linux/symbols), that address is `CarJobThread()+0x5d0`, the car-paint worker thread, with
+`MeasurePaintGain` inlined: `cmpb $0,(%edx,%edi,1)`, i.e. `skip[i]`, the door/dent footprint of the sprite.
+
+The job held that footprint as a pointer into `g_deltaFootprint`. `SetCarDeltaArt` clears that map on the
+game thread every time the world is uploaded (a level load: the attract demo's level, then the player's). A
+paint job still measuring a car from the level before then reads freed memory.
+
+Car-paint jobs only start under an RTX Remix runtime (`CarMaterialFor` needs the Remix API). That is why
+only the 5090 saw it, with no input and no view switch.
+
+The fix (live_geometry.cpp, the smallest hunk):
+
+- the job owns a copy of the footprint, a few KB per sprite;
+- `MeasurePaintGain` ignores a footprint whose size is not the sprite's, since the cache is keyed by sprite
+  alone.
+
+Verified here: plain run fs2_night_idle (22:50, clock 1 game minute/s, no input, 135 s) and Remix take
+fs2_rmx_night (GPU 3, 22:50 with the clock running, car-paint jobs running, three street entries): 0 FAULT and
+0 guarded faults in both. The race needs a level load during a paint job, so neither run is a deterministic
+repro; the fix removes the shared pointer outright.
+
+## The camera locator's stale ped (FIX-STABILITY-2)
+
+`LocatedPlayerPed()` (view_modes.cpp) handed live_geometry, explosion_fx and ActionProbes the last ped the
+locator had seen, even after its memory was gone. That was 0x4849D5B0 through a V move on the 5090: 168
+guarded faults at +0x11D348, and the move stalled at 0.524. Now:
+
+- `LocatedPlayerPed()` asks the page table (VirtualQuery, not `KnownReadable`'s cache) before handing the
+  pointer out;
+- `LocatePlayer` drops a remembered ped whose pages are gone, logs
+  `view: the player's last ped ... is no longer mapped memory: dropped`, and empties the readable-region cache.
+
+## gta2dx9_settings.ini no longer wins in silence (FIX-STABILITY-2, settings-ini-silently-overrides-gta2dx9-ini)
+
+The F4 menu's Save file is read after gta2dx9.ini, and where the two overlap it wins. On the 5090 it held
+StartHour=2, MinutesPerSecond=1.0, FpsCap, AlphaMode, Sprite* and the light gates, so values set in
+gta2dx9.ini never ran. Now (settings.cpp):
+
+- **Loud at load.** One line per value the file changes:
+  `settings override: [lights] ConeSoftness ini=0.35000 settings=0.42000 (... wins; [renderer] ignore_saved_settings=1 skips it)`,
+  then `settings: loaded ...: N value(s) differ from gta2dx9.ini`. The release's own settings file, as every
+  scripted run here gets it, overrides 5 values: ConeSoftness, EngineVolumePercent, SpriteHeight, SpriteLift
+  and HideStageArrow (run fs2_night_idle).
+- **Save writes only what the menu changed.** A value equal to what gta2dx9.ini and the defaults give is left
+  out, so it keeps following gta2dx9.ini on the next start. The log says how many values were written and
+  how many were left to the ini.
+- **An opt-out for tests.** `[renderer] ignore_saved_settings=1` does not read the file at all.
+
+Save, the override lines and the rule all read one value list (`CurrentValues`), so they cannot disagree.
+
+Note for QA here: every scripted run gets upstream-release/files/gta2dx9_settings.ini, which says
+StartHour=2 and MinutesPerSecond=1. `[timeofday] start_hhmm` in a stage ini is overridden unless the run
+sets `SETTINGS_SED` (grun.sh) as well. The override lines now show it in each run's log.
+
+## d3d9.dll+0x941fe 0xc0000409: the RTX Remix runtime's fast-fail on entering the street view (for an upstream report)
+
+This is not our code: it is the Remix runtime (Remix Plus 1.5.1 on the 5090) failing fast, through
+`__fastfail` or a stack-cookie check, on the first street frame. What we submit at that moment, measured
+under the Remix runtime here with the frame log (`GTA2DX9_FRAME_LOG=<path>`; take fs2_rmx_night, wil, 22:50,
+the clock running, third person):
+
+| frame | what | draws | primitives | created in that frame |
+|---|---|---|---|---|
+| 1635 | last classic-presentation frame of the move (V pressed) | 938 (world 878, sprites 33, ui 27) | 441 922 | - |
+| 1636 | **first street frame** | 1334 (world 1260, props 12, peds 13, sprites 19, ui 30) | 526 931 | 18 textures (16 of them model textures), 20 vertex buffers, 16 index buffers, 27 texture uploads, 3 skinned figures |
+| 1637-1640 | the next four | ~1320 | ~527 000 | 10 textures, 10-17 VBs and 10 IBs a frame |
+| 1700 | settled street | 1635 (props 266, peds 47) | 740 617 | 2 textures |
+
+The device is the same one classic used: no Reset, no new swap chain, the same present window and size
+(own_window=2). What changes on that frame is a burst of resource creation (model textures and buffers,
+skinned figure buffers) and about 400 more draws. A report upstream should carry:
+
+- the Remix log of the crashing session (remix-logs);
+- the frame log rows around the `view: presentation street` frame of our log;
+- the RTX runtime version.
+
+On the owner box: run with `GTA2DX9_FRAME_LOG=C:\gta2\frames.tsv` and send the rows around the frame number
+of the last `view: presentation street` line, with the Remix log.
+
 ## For the 5090 box (FIX-STABILITY-2; the owner box itself is untested from here)
 
 Build: camera-modes at or after the FIX-STABILITY-2 "keep GTA2's window from staying minimised" commit.
