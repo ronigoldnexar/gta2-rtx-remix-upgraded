@@ -134,6 +134,7 @@ Capture g_weaponBuild, g_portraitBuild;
 bool g_active = false;                // the modern HUD is on screen (decides the swallowing)
 bool g_street = false;                // a street view's camera was up at the last Hud3dRender
 bool g_briefResolved = false;         // this frame's brief has text of ours
+bool g_testGameBrief = false;         // GTA2DX9_HUD_TEST + [hud] test_game_brief=1: every brief stays the game's
 // The brief on screen (pm15-third-two-subtitle-renderers-overlap-pixel-font-over-minimap). The
 // key buffer at 0x5E9808 is the game's last text lookup, not the subtitle it shows: a second into
 // Industrial's opening brief (3230) it reads "svscore" (the save point's text, looked up while
@@ -1593,28 +1594,34 @@ void Heart(ImDrawList* dl, ImVec2 c, float r, float grow, float A, bool filled) 
 // 1440p), which the modern HUD left to the game. Now part 5 is swallowed with the modern HUD up
 // and each gang's meter is drawn here from the gang pool: the gang's emblem as a vector/type
 // glyph, a pill track split at its middle (respect 0) into five bars a side (a bar is 20), the
-// fill from the middle out in the gang's colour (red to the left: they hate you), and three
+// fill from the middle out in the gang's colour (darker, with a red cap, to the left: they hate
+// you), and three
 // pips under it at 0, 2 and 4 bars, the respect the green, yellow and red phones ask for, lit
 // once reached.
 
-struct GangStyle { const char* glyph; ImU32 emblem, bar; bool smiley; };
+enum class Emblem { Glyph, Smiley, Flower, Star, Flag, Shield };
+struct GangStyle { const char* glyph; ImU32 emblem, bar; Emblem shape; };
 GangStyle StyleOf(const Gang& g) {
     std::string n;
     for (const char* c = g.name; *c; ++c) n.push_back(static_cast<char>(tolower(static_cast<unsigned char>(*c))));
     auto has = [&](const char* k) { return n.find(k) != std::string::npos; };
-    if (has("zaib")) return {"Z", IM_COL32(255, 214, 40, 255), IM_COL32(76, 150, 160, 255), false};
-    if (has("yak")) return {"\xC2\xA5", IM_COL32(196, 210, 236, 255), IM_COL32(112, 84, 240, 255), false};
-    if (has("loon")) return {"", IM_COL32(255, 222, 50, 255), IM_COL32(70, 214, 70, 255), true};
-    if (has("redn")) return {"R", IM_COL32(222, 140, 64, 255), IM_COL32(204, 112, 48, 255), false};
-    if (has("srs") || has("sci")) return {"S", IM_COL32(220, 232, 244, 255), IM_COL32(150, 176, 210, 255), false};
-    if (has("krish") || has("hare")) return {"K", IM_COL32(255, 168, 48, 255), IM_COL32(240, 140, 40, 255), false};
-    if (has("russ") || has("mafia")) return {"RM", IM_COL32(236, 70, 60, 255), IM_COL32(200, 48, 48, 255), false};
+    // The pool's names: "yakuzagang", "zaibatsugang", "looniegang" (Downtown); "krisgang", "zaibgang",
+    // "russgang" (Industrial), so four-letter stems.
+    if (has("zaib")) return {"Z", IM_COL32(255, 214, 40, 255), IM_COL32(76, 150, 160, 255), Emblem::Glyph};
+    if (has("yaku")) return {"\xC2\xA5", IM_COL32(196, 210, 236, 255), IM_COL32(112, 84, 240, 255), Emblem::Glyph};
+    if (has("loon")) return {"", IM_COL32(255, 222, 50, 255), IM_COL32(70, 214, 70, 255), Emblem::Smiley};
+    // Residential: "redngang", "sciegang", "zaibgang" (the game's emblems: a red flag crossed in blue
+    // over a blue bar, a gold striped shield over a yellow one).
+    if (has("redn")) return {"", IM_COL32(210, 40, 36, 255), IM_COL32(52, 132, 226, 255), Emblem::Flag};
+    if (has("srs") || has("scie")) return {"", IM_COL32(232, 184, 52, 255), IM_COL32(214, 204, 40, 255), Emblem::Shield};
+    if (has("kris") || has("hare")) return {"", IM_COL32(255, 150, 40, 255), IM_COL32(236, 136, 36, 255), Emblem::Flower};
+    if (has("russ") || has("mafi")) return {"", IM_COL32(226, 44, 40, 255), IM_COL32(200, 44, 44, 255), Emblem::Star};
     // Unknown or unprintable: by the game's colour byte, a neutral emblem.
     static const ImU32 kByColour[8] = {IM_COL32(204, 112, 48, 255), IM_COL32(112, 84, 240, 255), IM_COL32(70, 214, 70, 255),
                                        IM_COL32(76, 150, 160, 255), IM_COL32(200, 48, 48, 255), IM_COL32(240, 140, 40, 255),
                                        IM_COL32(150, 176, 210, 255), IM_COL32(200, 200, 200, 255)};
     const ImU32 c = kByColour[g.colour & 7];
-    return {"?", Mix(c, kWhite, 0.4f), c, false};
+    return {"?", Mix(c, kWhite, 0.4f), c, Emblem::Glyph};
 }
 
 void Smiley(ImDrawList* dl, ImVec2 c, float r, ImU32 face, float A) {
@@ -1640,8 +1647,46 @@ void DrawRespect(ImDrawList* dl, const Values& v, float A) {
         const float cy = y + rowH * 0.5f;
         // The emblem.
         const ImVec2 ec(margin + emblemW * 0.5f, cy);
-        if (st.smiley) {
+        if (st.shape == Emblem::Smiley) {
             Smiley(dl, ec, 11.0f * u, st.emblem, A);
+        } else if (st.shape == Emblem::Star) {   // the Russians' red star
+            Star(dl, ec, 12.5f * u + 1.5f * u, Fade(kShadow, A * 0.8f), Fade(kShadow, A * 0.8f), true);
+            Star(dl, ec, 12.5f * u, Fade(st.emblem, A), Fade(IM_COL32(90, 10, 10, 255), A), true);
+        } else if (st.shape == Emblem::Flag) {    // the Rednecks' flag: red, crossed in blue
+            const float w = 13.0f * u, h = 9.5f * u;
+            const ImVec2 fa(ec.x - w, ec.y - h), fb(ec.x + w, ec.y + h);
+            dl->AddRectFilled(ImVec2(fa.x + 1.5f * u, fa.y + 1.5f * u), ImVec2(fb.x + 1.5f * u, fb.y + 1.5f * u), Fade(kShadow, A * 0.8f), 1.5f * u);
+            dl->AddRectFilled(fa, fb, Fade(st.emblem, A), 1.5f * u);
+            dl->PushClipRect(fa, fb, true);
+            const ImU32 blue = Fade(IM_COL32(40, 70, 190, 255), A), white = Fade(kWhite, A);
+            dl->AddLine(fa, fb, white, 5.2f * u); dl->AddLine(ImVec2(fa.x, fb.y), ImVec2(fb.x, fa.y), white, 5.2f * u);
+            dl->AddLine(fa, fb, blue, 3.4f * u); dl->AddLine(ImVec2(fa.x, fb.y), ImVec2(fb.x, fa.y), blue, 3.4f * u);
+            dl->PopClipRect();
+            dl->AddRect(fa, fb, Fade(IM_COL32(0, 0, 0, 220), A), 1.5f * u, 0, 1.2f * u);
+        } else if (st.shape == Emblem::Shield) {  // the Scientists' shield: gold, three bands
+            const float w = 10.0f * u, h = 12.0f * u;
+            ImVec2 p[6] = {ImVec2(ec.x - w, ec.y - h), ImVec2(ec.x + w, ec.y - h), ImVec2(ec.x + w, ec.y + h * 0.25f),
+                           ImVec2(ec.x, ec.y + h), ImVec2(ec.x - w, ec.y + h * 0.25f), ImVec2(ec.x - w, ec.y - h)};
+            ImVec2 q[5];
+            for (int i = 0; i < 5; ++i) q[i] = ImVec2(p[i].x + 1.5f * u, p[i].y + 1.5f * u);
+            dl->AddConvexPolyFilled(q, 5, Fade(kShadow, A * 0.8f));
+            dl->AddConvexPolyFilled(p, 5, Fade(st.emblem, A));
+            for (int i = 0; i < 3; ++i) {
+                const float y = ec.y - h * 0.55f + i * h * 0.42f;
+                const float half = w * (i < 2 ? 0.7f : 0.45f);
+                dl->AddLine(ImVec2(ec.x - half, y), ImVec2(ec.x + half, y), Fade(IM_COL32(110, 70, 10, 255), A), 1.8f * u);
+            }
+            dl->AddPolyline(p, 5, Fade(IM_COL32(0, 0, 0, 220), A), ImDrawFlags_Closed, 1.2f * u);
+        } else if (st.shape == Emblem::Flower) {  // the Krishnas' flower: eight petals round a dark heart
+            const float r = 11.0f * u;
+            for (int pass = 0; pass < 2; ++pass)
+                for (int i = 0; i < 8; ++i) {
+                    const float a = i * 0.7853982f;
+                    const ImVec2 pc(ec.x + std::cos(a) * r * 0.58f, ec.y + std::sin(a) * r * 0.58f);
+                    if (pass == 0) dl->AddCircleFilled(pc, r * 0.40f + 1.5f * u, Fade(kShadow, A * 0.8f), 14);
+                    else dl->AddCircleFilled(pc, r * 0.40f, Fade(i & 1 ? Mix(st.emblem, kWhite, 0.25f) : st.emblem, A), 14);
+                }
+            dl->AddCircleFilled(ec, r * 0.34f, Fade(IM_COL32(120, 40, 70, 255), A), 14);
         } else {
             const ImVec2 sz = Measure(g_fonts.heavy, g_fonts.heavyPx, st.glyph);
             Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(ec.x - sz.x * 0.5f, cy - sz.y * 0.5f), st.emblem, st.glyph, A);
@@ -1657,14 +1702,16 @@ void DrawRespect(ImDrawList* dl, const Values& v, float A) {
         if (std::fabs(frac) > 0.004f) {
             const float half = (x1 - x0) * 0.5f - inset;
             const float fx = xm + frac * half;
-            const ImU32 col = frac > 0 ? st.bar : kRed;
+            // Below zero the gang's colour darkened, with a red cap: (a red fill would read as the
+            // Russians' own colour).
+            const ImU32 col = frac > 0 ? st.bar : Mix(st.bar, IM_COL32(0, 0, 0, 255), 0.45f);
             const ImVec2 fa(frac > 0 ? xm : fx, a.y + inset), fb(frac > 0 ? fx : xm, b.y - inset);
             const ImDrawFlags round = frac > 0 ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersLeft;
             dl->AddRectFilled(fa, fb, Fade(col, A), (barH - 2 * inset) * 0.5f, round);
             dl->AddRectFilled(fa, ImVec2(fb.x, (fa.y + fb.y) * 0.5f), Fade(Mix(col, kWhite, 0.35f), A * 0.55f), (barH - 2 * inset) * 0.5f,
                               frac > 0 ? ImDrawFlags_RoundCornersTopRight : ImDrawFlags_RoundCornersTopLeft);
             // The edge of the fill: a bright cap, as the game's marker.
-            dl->AddLine(ImVec2(fx, a.y + inset), ImVec2(fx, b.y - inset), Fade(Mix(col, kWhite, 0.6f), A), 2.0f * u);
+            dl->AddLine(ImVec2(fx, a.y + inset), ImVec2(fx, b.y - inset), Fade(frac > 0 ? Mix(col, kWhite, 0.6f) : kRed, A), 2.0f * u);
         }
         // Five bars a side: thin separators, and the middle mark.
         for (int i = 1; i < 10; ++i) {
@@ -2346,7 +2393,7 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
             if (g_briefKey.empty() && g_partSeen[10] == g_frame && g_briefSigFrame + 1 < g_frame) {
                 const std::string key = ReadMessageKey();
                 LoadGxt();
-                if (!key.empty() && g_gxt.count(key)) g_briefKey = key;
+                if (!key.empty() && g_gxt.count(key) && !g_testGameBrief) g_briefKey = key;
             }
             return !g_briefKey.empty();
         default:
@@ -2405,6 +2452,9 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         if (health != lastHealth) { pokeHealth = health >= 0; lastHealth = health; }
         const int clock = GetPrivateProfileIntA("hud", "test_clock", 0, ini);
         if (clock != lastClock) { pokeClock = clock > lastClock; lastClock = clock; }
+        // FIX-HUD-4: test_game_brief=1 leaves every brief to the game (its own subtitle box: the
+        // mini-map's lift over it can be checked on any brief).
+        g_testGameBrief = GetPrivateProfileIntA("hud", "test_game_brief", 0, ini) != 0;
         // FIX-HUD-4: test_respect=a,b,c sets the player's respect with the first three gangs in use.
         static char lastRespect[64] = {};
         char respect[64] = {};
@@ -2467,6 +2517,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     } else if (g_partSeen[10] + 2 < g_frame) {
         g_briefKey.clear();
     }
+    if (g_testGameBrief) g_briefKey.clear();
     g_briefResolved = want && !g_briefKey.empty();
     // What this frame's game HUD pass was swallowed by (pm7-classic-to-third-switch-shows-both-huds-overlaid).
     const bool wasActive = g_active;

@@ -360,12 +360,18 @@ HUD up, part 5 is now swallowed (only once ours were drawn: if the gang pool can
 stay) and `DrawRespect` draws each gang the game lists, in the pool's order (Downtown: Yakuza,
 Zaibatsu, Loonies, as the game stacks them):
 
-- the emblem: the Yakuza's yen sign and the Zaibatsu's Z in the money's heavy italic with its black edge,
-  the Loonies' winking smiley as vector circles and strokes (Rednecks R, SRS S, Krishna K, Russians RM;
-  an unknown name a ? in a colour by the gang's colour byte `+0x138`);
+- the emblem, redrawn after the game's own: the Yakuza's yen sign and the Zaibatsu's Z in the money's heavy
+  italic with its black edge; as vector shapes the Loonies' winking smiley, the Krishnas' eight-petal flower,
+  the Russians' red star, the Rednecks' red flag crossed in blue and the Scientists' gold striped shield (an
+  unknown name: a ? coloured by the gang's colour byte `+0x138`). The pool's names, by district:
+  `yakuzagang zaibatsugang looniegang` (Downtown), `krisgang zaibgang russgang` (+ `islagang`, not shown:
+  Industrial), `redngang sciegang zaibgang` (+ `almagang poligang`: Residential); the first three in use
+  are the three the game draws, in its order;
 - a pill track split at its middle (respect 0) into five bars a side (a bar is 20 respect, as the
-  game's), filled from the middle out in the gang's colour (Yakuza violet, Zaibatsu teal, Loonies green)
-  to the right, red to the left (they hate you), with a bright cap at the fill's end;
+  game's), filled from the middle out in the gang's colour (the game's bar colours: Yakuza violet, Zaibatsu teal, Loonies green, Krishna orange, Russians red,
+  Rednecks blue, Scientists yellow)
+  to the right; below zero the gang's colour darkened with a red cap (they hate you; a red fill would
+  read as the Russians' own colour);
 - three pips under the track at 0, 2 and 4 bars, green, yellow and red: the respect the green, yellow and
   red phones ask for (`docs/missions.md`), lit once reached.
 
@@ -381,7 +387,28 @@ The weapon icon and the speaker's portrait are still the game's own sprites (red
 last two pieces of game art in the modern HUD.
 
 Developer aids: `GTA2DX9_HUD_TEST=1` re-reads `[hud] test_respect=a,b,c` (the player's respect with the
-first three gangs in use, set once per change); `GTA2DX9_HUD_GANG_DUMP=1` logs each gang record's bytes
+first three gangs in use, set once per change, retried until the level's gangs exist) and
+`test_game_brief=1` (every brief left to the game: its own subtitle box, to check the mini-map's lift);
+`GTA2DX9_HUD_GANG_DUMP=1` logs each gang record's bytes
 once. Probe: `gamerun/keys_fh4_hud.sh` (wil spawn: classic, third still/turned/walked, first still/turned,
 classic; respect poked to 60,-40,100 then 20,0,-100) with
 `INI_SED='s/^\[hud\]/[hud]\ntest_respect=0,0,0/' -e GTA2DX9_HUD_TEST=1`; `SCREEN_W=2560 SCREEN_H=1440` for 1440p.
+
+Verified (FIX-HUD-4, 10 Nov 2026, frames opened; L4 host, plain GL unless said):
+- 720p, wil spawn, same pose before (fh4_b1, the 620971b8 DLL) and after (fh4_n6, fh4_n9): third and first
+  person, the disc round with straight anti-aliased edges and a clean rim, the one-cell park paths kept, the
+  meters at poked respect 60/-40/100 and 20/0/-100.
+- 2560x1440 (fh4_q1, `SCREEN_W=2560 SCREEN_H=1440`, fonts baked for 1440 lines): disc and meters sharp at
+  1:1 (the disc 400 px across, 15.3 px a block on foot).
+- Remix (fh4_rx1, rn_remix + `gamerun/rn_fh4_hud.py`, wil noon): the disc, meters, money and type crisp,
+  drawn over the path-traced frame as UI, as in the owner's frames.
+- Industrial (fh4_bil1, fh4_ret1) and Residential (fh4_ste1/2): the meters against the game's own in the
+  classic frame of the same run: same gangs, order and emblems.
+- Hearts (fh4_h1/h2): the game's count and ours at health 100/75/35 = 5/4/2.
+- The lift (fh4_pt2, keys_pt_pass.sh with `test_game_brief=1`): the disc rises over the game's "Get lost,
+  ya bum!" box with the portrait and both lines clear, as the old square did (triage's tri_hud2), and comes
+  back down once it is gone. Without the switch (fh4_pt1) that brief is the modern card, clear of the disc.
+- pm37 (fh4_ret1, keys_fig4_ret.sh, bil, first person with the machine gun): the reticle on the alley and on
+  the target, never at the left edge behind the disc.
+- Classic: vreg `spawn_classic` PASS, 0 tiles (vreg_fh4a).
+- Cost: 0.528 ms a frame (fh4_n9) against 0.308 (fh4_b2), same probe, back to back.
