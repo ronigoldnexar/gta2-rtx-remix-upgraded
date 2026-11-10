@@ -470,13 +470,18 @@ are read from each style. Font characters: sprite `FontFirst(f) + c - 33` (FONB 
 - Each glyph gets a soft drop shadow (its silhouette, black at 43 %, half a factor down-right) so the
   gold reads over a bright sky; the glyphs keep their own dark edge.
 - Layout: the money right-aligned at the top (thousands parted by a 3-game-pixel gap: the strip has no
-  comma), the gain pop "+n" in font 1 gold with a drawn plus left of it; the red x-multiplier and the
+  comma), the gain pop "+$n" in font 1 gold (its own set, at the ammunition's factor, the same thin
+  thousands gap) with a drawn plus left of it; the red x-multiplier and the
   green x-lives on one line under it (the game's two lines left of the money); the five hearts as the
   game's sprite, lost ones as a dim dark silhouette, the last one blinking (not growing: a size pulse
   would resample it) at 30 or less; the ammunition in font 1 grey (red under 5), the weapon's name in
   font 1 gold under it, the game's icon left of them.
-- Untested: a money value with thousands (the 3-pixel group gap), the gain pop, low ammunition in red, INF,
-  the low-health blink, 1080p (3x, Scale3x) and other `scale_pct` values; Industrial/Residential under Remix.
+- Money, pop and low health (fh5_s3, `gamerun/keys_fh5_states.sh` with `INI_SED='s/^\[hud\]/[hud]\ntest_money=-1\ntest_health=-1/'
+  -e GTA2DX9_HUD_TEST=1`; `[hud] test_money=N` shows N as the money, the game's own untouched): `$1 107`,
+  `$9 876 543` with the thin thousands gap; the gain pop "+$250 233" in font 1 gold at the ammunition's size
+  with a drawn plus, clear of the money; at health 25 two hearts, three dark silhouettes, the last blinking.
+- Untested: low ammunition in red, INF, 1080p (3x, Scale3x) and other `scale_pct` values; Industrial and
+  Residential under Remix.
 - Still Barlow (the game has no glyphs for these in this style): the clock and counter chip, the phone
   chip, the brief card's words, the beat titles, the pickup labels, the "N" on the map. The game's clock
   digits (user 163-172, silver, 17x25) could carry the clock next.

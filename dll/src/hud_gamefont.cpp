@@ -104,6 +104,7 @@ void HudGameFontCapture(const gta2::Style& style) {
     const int ammo = Font(style, 1, 6, set(GameGlyphSet::Ammo));
     const int label = Font(style, 1, -1, set(GameGlyphSet::Label));
     Font(style, 1, 5, set(GameGlyphSet::AmmoLow));
+    Font(style, 1, -1, set(GameGlyphSet::Pop));
     wanted += 2; found += ammo >= 36 ? 1 : 0; found += label >= 36 ? 1 : 0;
     // The sizes the classic path draws (a check that the numbers still point at the same art).
     const GameGlyph& dollar = set(GameGlyphSet::Money)['$'];

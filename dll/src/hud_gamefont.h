@@ -20,7 +20,8 @@ enum class GameGlyphSet {
     Lives,    // the lives: green 'x' (user 17) and the green digit strip (user 115)
     Ammo,     // font 1 in font remap 6 (grey), as the game draws the ammunition under the weapon
     AmmoLow,  // font 1 in font remap 5 (red): the ammunition when it runs low
-    Label,    // font 1 in its own palette (gold): letters for the weapon's name and the money pop
+    Label,    // font 1 in its own palette (gold): letters for the weapon's name
+    Pop,      // the same glyphs at the ammunition's size: the money's gain pop
     Heart,    // 'H' the full heart (user 113, 15x14), 'h' the small one (user 114)
     Count
 };

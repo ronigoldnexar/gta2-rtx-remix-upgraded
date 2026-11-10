@@ -75,6 +75,7 @@ struct Config {
     bool test = false;      // GTA2DX9_HUD_TEST=1: [hud] modern/test_health/test_clock re-read live
 };
 Config g_cfg;
+int g_testMoney = -1;   // GTA2DX9_HUD_TEST=1: [hud] test_money=N shows N as the money (the game's untouched)
 
 int ParseKey(const char* name) {
     if (!name || !name[0]) return 0;
@@ -319,6 +320,7 @@ Values ReadValues() {
     v.inVehicle = p.inVehicle;
     v.x = p.x; v.y = p.y; v.dirX = p.dirX; v.dirY = p.dirY;
     v.money = GameSaveMoney();
+    if (g_testMoney >= 0) v.money = g_testMoney;   // FIX-HUD-5 probe: [hud] test_money (shown only)
     GTA2_TRY {
         const uintptr_t player = *reinterpret_cast<const uintptr_t*>(kPlayerObject);
         const uintptr_t keeper = player > 0x10000 ? *reinterpret_cast<const uintptr_t*>(player + 0x38) : 0;
@@ -501,12 +503,12 @@ std::vector<uint32_t> Reauthor(const GameGlyph& g, int k, bool smooth, int* w, i
 }
 
 constexpr int kGlyphSets = static_cast<int>(GameGlyphSet::Count);
-constexpr int kGlyphSetsN = 7;
+constexpr int kGlyphSetsN = 8;
 static_assert(kGlyphSets == kGlyphSetsN, "one factor a set");
 struct BakedGlyph { int w = 0, h = 0; ImVec2 uv0, uv1; };
 struct GameGlyphs {
     bool on = false;
-    int k[kGlyphSetsN] = {1, 1, 1, 1, 1, 1, 1};   // each set's integer factor
+    int k[kGlyphSetsN] = {1, 1, 1, 1, 1, 1, 1, 1};   // each set's integer factor
     int gen = -1;
     BakedGlyph g[kGlyphSets][128];
 };
@@ -519,7 +521,7 @@ std::vector<PendingGlyph> QueueGameGlyphs(ImFontAtlas* atlas) {
     g_glyphs.gen = HudGameFontGeneration();
     if (!g_cfg.gameFont || g_glyphs.gen <= 0) return out;
     for (int set = 0; set < kGlyphSets; ++set) {
-        // 2 at 720p, 4 at 1440p; the weapon's name and the money pop (font 1 letters) at half that
+        // 2 at 720p, 4 at 1440p; the weapon's name (font 1 letters) at half that
         const float f = set == static_cast<int>(GameGlyphSet::Label) ? 1.0f : 2.0f;
         g_glyphs.k[set] = (std::max)(1, static_cast<int>(std::lround(f * g_u)));
     }
@@ -575,6 +577,8 @@ const BakedGlyph* Glyph(GameGlyphSet set, char c) {
 // ' ' a word gap.
 float GlyphAdvance(GameGlyphSet set, char c, float gap) {
     const float k = static_cast<float>(g_glyphs.k[static_cast<int>(set)]);
+    const bool money = set == GameGlyphSet::Money || set == GameGlyphSet::Pop;
+    if (c == ',' && money) return 3.0f * k;   // the thousands: a thin gap, never font 1's comma
     if (const BakedGlyph* b = Glyph(set, c)) return b->w + gap * k;
     if (c == ',') return 3.0f * k;
     if (c == ' ') return 5.0f * k;
@@ -605,8 +609,10 @@ void GlyphText(ImDrawList* dl, GameGlyphSet set, ImVec2 at, const char* s, float
     const ImU32 col = (tint & ~IM_COL32_A_MASK) | (static_cast<ImU32>(alpha) << IM_COL32_A_SHIFT);
     const ImU32 sh = IM_COL32(0, 0, 0, alpha * 110 / 255);
     const float so = (std::max)(1.0f, std::floor(k * 0.5f + 0.5f));
+    const bool money = set == GameGlyphSet::Money || set == GameGlyphSet::Pop;
     for (const char* p = s; *p; ++p) {
-        if (const BakedGlyph* b = Glyph(set, *p)) {
+        const BakedGlyph* b = money && *p == ',' ? nullptr : Glyph(set, *p);
+        if (b) {
             const float y = y0 + (h - b->h);   // bottom-aligned (the strips' cells are one height)
             if (shadow) dl->AddImage(tex, ImVec2(x + so, y + so), ImVec2(x + so + b->w, y + so + b->h), b->uv0, b->uv1, sh);
             dl->AddImage(tex, ImVec2(x, y), ImVec2(x + b->w, y + b->h), b->uv0, b->uv1, col);
@@ -2323,18 +2329,18 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
             // the gain pops left of it in the game's font 1 (gold), its '+' drawn in that gold
             char g[32];
             snprintf(g, sizeof g, "%s", Thousands(an.gainAmount).c_str());
-            const ImVec2 gs = GlyphMeasure(GameGlyphSet::Label, g, 0.0f);
+            const ImVec2 gs = GlyphMeasure(GameGlyphSet::Pop, g, -1.0f);
             const float t = an.gain / 2.0f;
             const float ga = A * (std::min)(1.0f, t * 2.0f);
-            const float k = static_cast<float>(g_glyphs.k[static_cast<int>(GameGlyphSet::Label)]);
-            const float gx = std::floor(right - sz.x - gs.x - 10 * u), gy = std::floor(y + (sz.y - gs.y) * 0.5f - (1 - t) * 16 * u);
-            GlyphText(dl, GameGlyphSet::Label, ImVec2(gx, gy), g, ga, 0.0f);
-            const float pc = std::floor(gx - 5 * k), pm = std::floor(gy + gs.y * 0.5f);
+            const float k = static_cast<float>(g_glyphs.k[static_cast<int>(GameGlyphSet::Pop)]);
+            const float gx = std::floor(right - sz.x - gs.x - 20 * u), gy = std::floor(y + (sz.y - gs.y) * 0.5f - (1 - t) * 16 * u);
+            GlyphText(dl, GameGlyphSet::Pop, ImVec2(gx, gy), g, ga, -1.0f);
+            const float pc = std::floor(gx - 7 * k), pm = std::floor(gy + gs.y * 0.5f);
             const ImU32 gold = Fade(IM_COL32(233, 194, 64, 255), ga), edge = Fade(IM_COL32(40, 30, 8, 255), ga);
-            dl->AddRectFilled(ImVec2(pc - 3.5f * k, pm - 1.5f * k), ImVec2(pc + 3.5f * k, pm + 1.5f * k), edge);
-            dl->AddRectFilled(ImVec2(pc - 1.5f * k, pm - 3.5f * k), ImVec2(pc + 1.5f * k, pm + 3.5f * k), edge);
-            dl->AddRectFilled(ImVec2(pc - 2.5f * k, pm - 0.5f * k), ImVec2(pc + 2.5f * k, pm + 0.5f * k), gold);
-            dl->AddRectFilled(ImVec2(pc - 0.5f * k, pm - 2.5f * k), ImVec2(pc + 0.5f * k, pm + 2.5f * k), gold);
+            dl->AddRectFilled(ImVec2(pc - 5.0f * k, pm - 1.5f * k), ImVec2(pc + 5.0f * k, pm + 1.5f * k), edge);
+            dl->AddRectFilled(ImVec2(pc - 1.5f * k, pm - 5.0f * k), ImVec2(pc + 1.5f * k, pm + 5.0f * k), edge);
+            dl->AddRectFilled(ImVec2(pc - 4.0f * k, pm - 0.5f * k), ImVec2(pc + 4.0f * k, pm + 0.5f * k), gold);
+            dl->AddRectFilled(ImVec2(pc - 0.5f * k, pm - 4.0f * k), ImVec2(pc + 0.5f * k, pm + 4.0f * k), gold);
             an.gain -= dt;
         }
         y += sz.y + 4 * u;
@@ -3175,6 +3181,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         // FIX-HUD-4: test_game_brief=1 leaves every brief to the game (its own subtitle box: the
         // mini-map's lift over it can be checked on any brief).
         g_testGameBrief = GetPrivateProfileIntA("hud", "test_game_brief", 0, ini) != 0;
+        g_testMoney = GetPrivateProfileIntA("hud", "test_money", -1, ini);   // FIX-HUD-5: the money's digits, gap and pop
         // FIX-HUD-4: test_respect=a,b,c sets the player's respect with the first three gangs in use.
         static char lastRespect[64] = {};
         char respect[64] = {};
