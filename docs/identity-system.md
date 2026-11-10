@@ -737,3 +737,79 @@ texture), and the record kept a car's paint by the object it is drawn for unless
 - Classic: `tools/vreg/vreg.sh stage` (`out/vreg_fci5_b`): `spawn_classic` PASS, 0 changed tiles. The one FAIL
   (`yakuza1_street`, 27 tiles) and 4 WARNs are window panes and figures (FIX-WORLD-7's sky in the panes and the
   figure/first-person shots, newer than the goldens), no car in those frames.
+
+### 10.4 pmt5: a livery takes the lid light too
+
+A livery (taxi, cop, ambulance, bus ...) took tint 1 and no gain, while a painted body gets `paint_gain_percent` x 0.96 /
+the lid's light (~1.79 at the default world sun, section 9.2): every livery drew ~0.56 of a painted body's level. The 051
+taxi's authored paint texture is 193,130,32 (its panels 200,135,33) against the sprite's 206,130,33: the albedo is right,
+the light was not given back. `DeriveVehicle` now gives a livery the same gain, uniform (its colours and markings are
+kept), under the same no-clip cap; the draw sends a livery whose tint is not 1 through the tint stage like a painted body.
+Not under Remix (gain 1: the tint is albedo for the path tracer), not for a devtools-forced model without a forced paint,
+not for wrecks. `[devtools] livery_gain=0` turns it off for same-spot A/B (re-derives every car).
+
+Measured (`out/fci5_pmt5b`, own car forced to each model at the street warp, `livery_gain` 0/1 at the same pose; the body is
+the sprite's hue band; evidence `defects/evidence/fci5/pmt5_*`): 051 lit quarter 76,52,9 -> 138,93,16, L* against its
+style sprite -72 % -> -45 % (hue 5 deg); 056 -64 % -> -34 %; 034 -34 % -> -18 %; the cop's white roof reaches white without
+clipping a panel. Still short: a tinted yellow 013 at the same pose reaches its sprite (lit 200,189,40 vs 200,180,50), the
+051 not: the remaining gap is how the authored body is lit at that pose (a shadow band over its front, the lids), on the
+order for VEHICLE-ART-10.
+
+### 10.5 ptm1: the bank van's record
+
+With the paint from the clean art in the drawn palette, the bank van's record is 70,99,85 when the classic view draws it in
+remap 36 (dark green) and 59,82,115 in its own palette (blue): `assets-src/cars/sprites/004_g4_bank_van_{default,remap36}.png`
+by the same rule, offline. On ART-10's new 004 (`out/fci5_ptm1a`) the renderer draws the cab, flanks and rear in that
+green (hue 11 deg, saturation 0.27 vs 0.29; lit cab roof 39,62,57: paint delta 9.5) and blue for the other palette (hue
+2 deg). The body reads ~23 % darker than the paint, like the other new authored kits (below).
+
+### 10.6 The gate: two fresh sessions, one vehicle per body class (acceptance 2 and 3)
+
+`tools/identity_parity_run.sh` now queues three sessions:
+
+1. `keys_identity_parity.sh` **twice**, two fresh sessions at the same spawn. `tools/identity_parity.py` checks, across
+   them: the player's fingerprint, **his car's** fingerprint (the parked car the warp key seats him in), and for every
+   vehicle input (model, sprite, palette) one paint and one fingerprint. The across-session vehicle check had compared 0
+   records since FIX-CAR-IDENTITY added `obj <hex>` to the log line (the pattern no longer matched); fixed.
+2. `keys_paint_parity.sh` with one model per **body class**: 0 generated, 13 / 63 / 68 authored, 18 authored carkit, 4
+   remapped (painted, also in its own sprite's two paints: `EXTRA_PAINTS=4:van36,vanblue`), 51 livery and 74 wreck (their
+   own colours: one frame each, `ONE_PAINT_MODELS`). `tools/paint_parity.py` reports a class column; painted bodies against
+   the paint they were given (hue FAIL over 15 deg, lightness WARN over 10 %, FAIL over 25 % for chromatic mid paints);
+   **liveries** against their style sprite's dominant saturated hue (`--sprites`, `assets-src/cars/sprites`; hue FAIL,
+   lightness WARN: their colours are their art); **wrecks** against the wreck sprite's dominant colour (paint delta, FAIL
+   over 25). The paint mask is now what changes against the first paint in every other paint's frame (the largest change
+   took in passers-by: the van's body read 96,103,93 for a 70,99,85 paint).
+
+The car's colour in `identity_parity.py`: the k-means took the pavement inside a classic sprite quad (73,77,63) and the black
+ground under a third-person car (11,12,10) for the bil Maurice (`out/fci5_idpbil1`, sheet opened: green in all three views).
+For the player's car it now takes the pixels within 25 deg of the record's hue (`shown`, the classic sprite's paint) with at
+least 80 % of its chroma when there are enough of them, else the k-means as before (a 3D body of another hue falls back, so
+a hue fault still shows). Same frames: classic 33,59,36 vs third 32,54,36 (CIE76 4.0), first 31,54,36 (3.9).
+
+First gate run on this build (`out/fci5_gate1_parity.md`, wil spawn, private stage of HEAD da4b79d + these commits):
+
+| Check | Result |
+|---|---|
+| Two fresh sessions | player `ee58ea54` and his car (`068_van`) `e275a4ff` in both; 64 vehicle inputs (model, sprite, palette), 18 seen in both, 0 with more than one paint or fingerprint; 0 record/view failures |
+| Player / his car, classic vs third | 18,12,4 vs 85,80,72 (paint delta 15.3) / 106,101,83 vs 75,74,60 (6.4) |
+| generated (000) | hue <= 7 deg, L* -7..+5 % on the chromatic paints (yellow -21 % WARN) |
+| authored (013, 063, 068) | hue <= 7 deg, L* -18..+14 % (WARNs only) |
+| authored carkit (018) | hue <= 7 deg, **L* -35..-41 % FAIL** |
+| remapped (004, ART-10's new van) | hue 2 deg (its blue sprite paint) and **17 deg (its remap-36 green) FAIL**, **L* -27..-34 % FAIL** |
+| livery (051) | hue 6 deg, L* -45 % (WARN: its own colours) |
+| wreck (074) | 15,14,12 vs the wreck sprite's 27,22,20 (L* 4 vs 8, WARN) |
+
+The bil F10 car (section 10.3) passes the same checks in two fresh sessions (`out/fci5_idpbil1`, `fci5_idpbil2`).
+
+### 10.7 Still short
+
+- **The new authored kits read dark**: 018 (carkit) -35..-41 %, 004 -27..-34 %, 051 -45 % at the classic-camera pose, where
+  the older authored bodies (013, 063, 068) and the generated 000 land within -21..+14 %. The record and the tint are the
+  same rule for all of them; the kits' paint textures measure near white (018: 235 / panels 197) and their stored normals
+  agree with their winding (98-100 % of the paint area). The 018 white body draws flat mid grey with no sun gradient
+  (`out/fci5_base_paint` pt_top_018_white_new against 013): how these kits are lit, for VEHICLE-ART-10 with the renderer.
+- **The van's remap-36 green** lands 11-17 deg toward teal at -24..-28 % L*: a low-chroma green under the sky's blue
+  ambient; its blue paint lands at 2 deg.
+- The re-used-object case of pmt4 cannot be forced in a run; it is closed by construction (palette in the record, clean art)
+  and visible in the log (`CHANGED palette`, `driven car art`).
+- First person on foot has no body to probe; Remix not run for these changes (the livery gain is off under Remix by design).
