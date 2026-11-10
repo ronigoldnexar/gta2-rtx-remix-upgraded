@@ -58,6 +58,9 @@ int ModeForAction(int action);
 // by End). False when nothing is rigged (no hook set).
 bool Begin(const Model& model, const Inputs& in);
 void End();
+// FIX-ACTIONS-3 (pfl15): bare fists while a punch clip is on (no gun rigged): both hands
+// closed, blended by `weight` (the clip's). Sets the pose hook (cleared by End); false: none set.
+bool BeginFists(const Model& model, uintptr_t object, float weight);
 
 // The figure's push back along the line of fire by the recoil, in blocks, and
 // that line in the model's own space (to put through the figure's world matrix).

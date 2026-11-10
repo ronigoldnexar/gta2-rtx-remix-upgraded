@@ -9088,7 +9088,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // blow's direction is from that figure; its hand (cross or jab) picks
             // which way his head turns.
             const int32_t hp = sprite.pedHealth;
-            if (hp >= 0 && track.lastHealth >= 0 && hp < track.lastHealth && !sprite.corpse) {
+            // FIX-ACTIONS-3 (pfl15): a punch that knocks him down sets the knock-down (state 8, the corpse
+            // flag) in the same frame as the health drop, so "not while down" skipped every such blow: no
+            // reaction, and the lying clip by his seed (often the face-down dive). A drop on the frame he
+            // goes down from his feet counts as the blow.
+            const bool justDown = sprite.corpse && track.lastState != 8 && track.lastState != 9 && track.lastState >= 0;
+            if (hp >= 0 && track.lastHealth >= 0 && hp < track.lastHealth && (!sprite.corpse || justDown)) {
                 const FigureSpot* by = nullptr;
                 float best = 0.7f * 0.7f;
                 for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
@@ -9154,6 +9159,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     hitNow = true;
                     track.hitFrame = g_carFrame; track.hitSide = by->alt ? 1 : 0;
                     track.hitDirX = vx / d; track.hitDirZ = vz / d; track.hitPush = 0.07f;
+                    track.punchByX = by->x; track.punchByZ = by->z;
+                    if (sprite.corpse || sprite.pedState == 8) {
+                        // FIX-ACTIONS-3: knocked down by it: the reaction first, then the fall away from him.
+                        track.punchDownFrame = g_carFrame; track.punchByX = by->x; track.punchByZ = by->z;
+                        track.hitPush = 0.10f;
+                        if (g_logFigures || g_logPedFrames)
+                            Log("fig: knock-down %04x by %04x's blow: the reaction, then the fall away from him",
+                                static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), static_cast<unsigned>((by->object >> 2) & 0xFFFF));
+                    }
                     if (g_logFigures || g_logPedFrames)
                         Log("fig: hit %04x by %04x (%s) health %d -> %d state %d sub 0x%x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
                             static_cast<unsigned>((by->object >> 2) & 0xFFFF), by->alt ? "jab" : "cross", track.lastHealth, hp, sprite.pedState, sprite.pedSub);
@@ -9168,6 +9182,25 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (ht < 0.15f) st = Smoothstep(0.0f, 0.15f, ht);
                 else if (ht < 0.75f) st = 1.0f - Smoothstep(0.15f, 0.75f, ht);
             }
+            // FIX-ACTIONS-3: knocked down by the blow: the stagger is not walked back while he lies (the
+            // back half slid the lying body 7 cm, a prone slide); it eases out as he gets up.
+            // A blow whose knock-down the game sets a frame or two after the health drop (fix2: 28 ms
+            // later) is the same knock-down: the reaction already runs from the blow's frame.
+            if (!track.punchDownFrame && track.hitFrame && track.hitSide <= 1 && g_carFrame - track.hitFrame <= 6 &&
+                (sprite.corpse || sprite.pedState == 8) && track.lastState != 8 && track.lastState != 9 && !track.jacked) {
+                track.punchDownFrame = track.hitFrame;
+                track.hitPush = 0.10f;
+                if (g_logFigures || g_logPedFrames)
+                    Log("fig: knock-down %04x %u frames after the blow: the reaction, then the fall away from him",
+                        static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), g_carFrame - track.hitFrame);
+            }
+            if (track.punchDownFrame && (sprite.corpse || sprite.pedState == 8)) {
+                if (track.hitFrame && g_carFrame - track.hitFrame >= 5) track.downHold = 1.0f;
+            } else {
+                track.punchDownFrame = 0;
+                track.downHold = (std::max)(0.0f, track.downHold - dt / 0.6f);
+            }
+            if (track.downHold > st) st = track.downHold;
             track.staggerX = track.hitDirX * track.hitPush * st;
             track.staggerZ = track.hitDirZ * track.hitPush * st;
         }
@@ -9371,6 +9404,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (g_carFrame - track.jackFrame < 600 && sprite.pedState == 8 && (sprite.pedSub == 0x11 || sprite.corpse)) wantAction = 4;
             else if (!sprite.corpse) track.jacked = false;
         }
+        // FIX-ACTIONS-3 (pfl15): knocked down by a punch: the blow's reaction (hit_head: the head snaps
+        // away from the fist, the chest recoils, a step back) for 0.27 s from the contact frame, turning
+        // toward the puncher, then the fall onto his back (away from the fist), never the face-down dive.
+        const bool punchReact = track.punchDownFrame && g_carFrame - track.punchDownFrame < 8 && !track.jacked;
+        if (punchReact && wantAction == 4) wantAction = 22;
         // Down: which way he falls follows what put him there (the game's damage
         // cause word, the fire): burnt, blown off his feet by an explosion, run
         // over or struck by a car (cause 1/3, or the car knock-down sub-states
@@ -9385,6 +9423,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if ((track.burnSeen && g_carFrame - track.burnSeen < 90) || cause == 11) track.lieClip = 4;
             else if (cause == game::kDamageExplosion) track.lieClip = 3;
             else if (carHit) track.lieClip = 2;
+            else if (track.punchDownFrame && g_carFrame - track.punchDownFrame < 30) track.lieClip = 0;   // FIX-ACTIONS-3
             else track.lieClip = ((static_cast<uint32_t>(sprite.object >> 4) * 2654435761u) >> 20) % 3 == 0 ? 1 : 0;
             if (g_logPedFrames) {
                 Log("ped anim: down %p cause %d state %d sub 0x%x -> lying clip %d", reinterpret_cast<const void*>(sprite.object),
@@ -9401,6 +9440,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // QB-16: a bullet over the aim too (it takes the gun off the line for a moment),
         // and the reaction held to its end over the walk, the carry or the aim, which
         // would otherwise take the layer back the next frame.
+        if (punchReact && hitNow && track.action != 4) wantAction = 22;   // FIX-ACTIONS-3: the blow first, then down
         if (hitNow && !sprite.corpse && (wantAction == 0 || IsCarryAction(wantAction) || wantAction == 22 ||
                                          (track.hitSide >= 2 && IsAimAction(wantAction)))) wantAction = 22;
         if (!hitNow && track.action == 22 && !track.actionReverse && track.actionTime < 0.6f && !sprite.corpse &&
@@ -9486,9 +9526,46 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const float ax = track.carX - track.dx, az = track.carZ - track.dz;
                 if (ax * ax + az * az > 0.0025f) target = sprite.pedState == 3 ? std::atan2(ax, az) : std::atan2(-ax, -az);
             }
+            if (track.punchDownFrame && g_carFrame - track.punchDownFrame < 12) {
+                // FIX-ACTIONS-3: spun toward the puncher by the blow (then falls onto his back, away from him).
+                const float ax = track.punchByX - track.dx, az = track.punchByZ - track.dz;
+                if (ax * ax + az * az > 1e-4f) target = std::atan2(ax, az);
+            }
             if (arrested && g_arrestWalk.car && bustSecs > kBustHandsSecs) {
                 // Led away: facing the police car.
                 target = std::atan2(g_arrestWalk.carX - (track.dx + g_arrestWalk.ox), g_arrestWalk.carZ - (track.dz + g_arrestWalk.oz));
+            }
+            // FIX-ACTIONS-3 (pfl15): a punch is thrown at someone. GTA2 lands the blow on whoever stands
+            // in reach of its own facing at the swing's first frame (memory: damage 0-0.07 s after it),
+            // and the player's facing in the game is whatever his keys left it (pfl15: 50-70 degrees off
+            // the woman he hit). So while the fists fly the figure turns onto the nearest figure in reach
+            // (1 block) within 100 degrees of the game's facing, quickly enough (24 rad/s, ~2 frames for
+            // 70 degrees) to be square to him by the strike; the swing's arm then runs along hero->target.
+            bool punchTurn = false;
+            track.punchAim = false;
+            if (track.action == 1 && !sprite.corpse && sprite.pedState != 3 && sprite.pedState != 4) {
+                const float gx0 = std::sin(target), gz0 = std::cos(target);
+                const FigureSpot* mark = nullptr;
+                float bestScore = 1e9f;
+                for (const std::vector<FigureSpot>* list : {&g_figuresNow, &g_figuresLast}) {
+                    for (const FigureSpot& f : *list) {
+                        if (f.object == sprite.object) continue;
+                        const float vx = f.x - track.dx, vz = f.z - track.dz;
+                        const float d2 = vx * vx + vz * vz;
+                        if (d2 > 1.0f || d2 < 0.0025f) continue;
+                        const float d = std::sqrt(d2);
+                        const float along = (vx * gx0 + vz * gz0) / d;
+                        if (along < -0.17f) continue;
+                        const float score = d * (2.0f - along);
+                        if (score < bestScore) { bestScore = score; mark = &f; }
+                    }
+                    if (mark) break;   // this frame's list first
+                }
+                if (mark) {
+                    target = std::atan2(mark->x - track.dx, mark->z - track.dz);
+                    punchTurn = true;
+                    track.punchAim = true; track.punchAimX = mark->x; track.punchAimZ = mark->z;
+                }
             }
             float diff = target - track.heading;
             while (diff > kPi) diff -= 2.0f * kPi;
@@ -9497,7 +9574,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // The player's own figure in the chase view turns under the camera's
             // rule (a lower cap, a longer ease), so it never snaps in the frame.
             const bool own = sprite.object && reinterpret_cast<const void*>(sprite.object) == g_playerObject;
-            const bool smoothed = own && ViewPlayerDrawnTurn(&cap, &ease);
+            const bool smoothed = !punchTurn && own && ViewPlayerDrawnTurn(&cap, &ease);
+            if (punchTurn) { cap = 24.0f; ease = 0.025f; }
+            // The blow's victim knocked down: turned toward the puncher through the reaction, so the fall
+            // onto his back goes away from the fist (FIX-ACTIONS-3, see the knock-down below).
+            if (track.punchDownFrame && g_carFrame - track.punchDownFrame < 12) { cap = 14.0f; ease = 0.04f; }
             const float rate = cap * dt;   // radians this frame
             float step = diff * (std::min)(1.0f, dt / ease);
             if (step > rate) step = rate;
@@ -9572,7 +9653,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (BoardingJackVictim(cx, cz, track.jackCarX, track.jackCarZ, age, g_carFrame, &vx, &vz, &victimSink)) {
                 track.dx = vx; track.dz = vz; track.vx = track.vz = 0.0f;
                 track.staggerX = track.staggerZ = 0.0f;
+                // FIX-ACTIONS-3 (pfl15): where he landed, off the game's spot (outside the car's body): kept
+                // when the car drives off (no car there any more), so he stays where he fell.
+                if (age >= 0.9f) { track.jackRest = true; track.jackRestX = vx - cx; track.jackRestZ = vz - cz; track.jackRestW = 1.0f; }
+            } else if (track.jackRest) {
+                track.dx = cx + track.jackRestX; track.dz = cz + track.jackRestZ; track.vx = track.vz = 0.0f;
+                track.staggerX = track.staggerZ = 0.0f;
             }
+        } else if (track.jackRest) {
+            // Up again: back onto the game's spot over half a second (the get-up covers it).
+            track.jackRestW -= dt / 0.5f;
+            if (track.jackRestW <= 0.0f || sprite.pedState == 3 || sprite.pedState == 10) { track.jackRest = false; track.jackRestW = 0.0f; }
+            else { track.dx = cx + track.jackRestX * track.jackRestW; track.dz = cz + track.jackRestZ * track.jackRestW; track.vx = track.vz = 0.0f; }
         }
         const float boardSink = boarding ? boardOut.sink : victimSink;
         const bool seatedNow = boarding && boardOut.seated;   // FIX-SEATED: at the wheel
@@ -10299,9 +10391,17 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                     }
                                     if (victim) break;
                                 }
+                                // FIX-ACTIONS-3: and how far his facing is off the line to his mark (the turn's check).
+                                float offDeg = -1.0f;
+                                if (track.punchAim) {
+                                    float a = std::atan2(track.punchAimX - gx, track.punchAimZ - gz) - track.heading;
+                                    while (a > kPi) a -= 2.0f * kPi;
+                                    while (a < -kPi) a += 2.0f * kPi;
+                                    offDeg = std::fabs(a) * 57.2958f;
+                                }
                                 if (g_logFigures || g_logPedFrames)
-                                    Log("fig: punch %04x %s lands on %04x", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
-                                        track.punchAlt ? "jab" : "cross", victim ? static_cast<unsigned>((victim->object >> 2) & 0xFFFF) : 0u);
+                                    Log("fig: punch %04x %s lands on %04x (facing %.0f deg off his mark)", static_cast<unsigned>((sprite.object >> 2) & 0xFFFF),
+                                        track.punchAlt ? "jab" : "cross", victim ? static_cast<unsigned>((victim->object >> 2) & 0xFFFF) : 0u, offDeg);
                             }
                             track.lastPunchT = track.actionTime;
                             track.lastPunchFrame = g_carFrame;
@@ -10662,6 +10762,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     Log("rig gate: f=%u o=%04x wpn=%d act=%d actW=%.2f rag=%d board=%d lod=%d corpse=%d on=%d model %s",
                         g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), track.weapon, track.action, actW,
                         ragdoll ? 1 : 0, boardIk ? 1 : 0, lod, sprite.corpse ? 1 : 0, rigOn ? 1 : 0, model->name.c_str());
+                // FIX-ACTIONS-3 (pfl15): bare-handed punches with closed fists (the clips leave the fingers open).
+                if (!rigOn && !ragdoll && !boardIk && !sprite.corpse && lod <= 1 && track.action == 1)
+                    weaponrig::BeginFists(*model, sprite.object, actW);
                 ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                 if (heroFigure && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: his figure on screen
                     IdentityProbeModel(device, "player", reinterpret_cast<const void*>(sprite.object), ident, *model, world.m, static_cast<int>(CurrentViewMode()));

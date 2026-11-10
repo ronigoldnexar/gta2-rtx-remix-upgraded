@@ -129,6 +129,8 @@ bool BoardingSeatSpot(uintptr_t ped, float* x, float* y, float* z);
 // him beside the car at once, inside the open door's swing): from his seat over the sill, back round the
 // door's rear edge and out behind it (0-0.55 s), then onto the game's spot (gameX/Z) by 0.9 s. The car is
 // the drawn one nearest carX/Z. False once he is the game's again (or no car is drawn there).
+// FIX-ACTIONS-3 (pfl15): from 0.9 s on (for as long as that car is drawn there) the spot is the game's
+// pushed out of the hull on the door side (he lands beside the car, not in it).
 bool BoardingJackVictim(float gameX, float gameZ, float carX, float carZ, float age, uint32_t now, float* x, float* z, float* sink);
 // Once a frame, after the figures: forgets boardings that ended or were abandoned.
 void BoardingEndFrame(uint32_t now);

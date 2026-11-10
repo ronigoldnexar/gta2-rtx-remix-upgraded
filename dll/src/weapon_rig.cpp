@@ -754,6 +754,23 @@ void ReadTest(uint32_t frame) {
     g_testYaw = yaw; g_testPeriod = period; g_testOff = off;
 }
 
+// FIX-ACTIONS-3 (pfl15): bare fists. The punch clips (tools/gen_ped_clips.py) key only the arms and
+// the torso, so the fingers kept the bind pose: two flat open palms by the face, read as "stop" / hands
+// up. While a fist clip is on, both hands are closed: the fingers rolled into the palm, the thumb
+// folded across them. Blended by the clip's weight (fw), so the hands open as the guard fades.
+struct FistCtx { const Model* model = nullptr; const Skel* skel = nullptr; float w = 0.0f; };
+FistCtx g_fist;
+void FistHook(const Model& model, std::vector<Mat4>* worlds, void* context) {
+    FistCtx& c = *static_cast<FistCtx*>(context);
+    if (&model != c.model || !c.skel) return;   // another model drawn under the hook
+    const Skel& s = *c.skel;
+    if (!s.ok || worlds->size() != model.nodes.size() || s.sub.size() != model.nodes.size()) return;
+    static const float fist[3] = {88.0f, 100.0f, 62.0f}, thumb[3] = {22.0f, 38.0f, 30.0f};
+    for (int h = 0; h < 2; ++h) {
+        for (int f = 1; f <= 4; ++f) Curl(*worlds, s, h, f, fist, c.w);
+        Thumb(*worlds, s, h, thumb, c.w);
+    }
+}
 }  // namespace
 
 bool Enabled() {
@@ -864,6 +881,20 @@ bool Begin(const Model& model, const Inputs& in) {
 void End() {
     if (g_hookOn) ModelSetPoseHook(nullptr, nullptr, 0);
     g_hookOn = false;
+}
+
+bool BeginFists(const Model& model, uintptr_t object, float weight) {
+    if (!Enabled() || !model.skinned || g_testOff || weight < 0.05f) return false;
+    const Skel& s = SkelFor(model);
+    if (!s.ok || s.fing[0][1][0] < 0) return false;
+    g_fist.model = &model; g_fist.skel = &s;
+    g_fist.w = std::floor((std::min)(1.0f, weight) * 8.0f + 0.5f) / 8.0f;
+    // The pose cache key: this figure (bits 24-61, bit 62 apart from the gun rig's) and the weight.
+    const uint64_t key = (1ull << 62) | ((static_cast<uint64_t>(object >> 2) & 0x3FFFFFFFFFull) << 24) |
+                         static_cast<uint64_t>(g_fist.w * 8.0f + 1.0f);
+    ModelSetPoseHook(&FistHook, &g_fist, key);
+    g_hookOn = true;   // End() clears it like the gun rig's
+    return true;
 }
 
 float Shove(uintptr_t object, float dir[3]) {

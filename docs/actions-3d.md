@@ -1146,3 +1146,47 @@ climbing or dead) is offset for the draw only (`PedTrack::sepX/sepZ`; the game's
   game, 2 drawn (one crossing, two frames); the eased version before it left 5 of 8 (fig7_p) and 27 of 53 (fig7_q, game
   positions).
 
+## FIX-ACTIONS-3 (10 Nov 2026): the owner demo's punch and jack (pfl15)
+
+Two playtest defects on the owner demo's first two beats (pfl15, third person).
+
+**The punch** (pfl15-third-punch-open-palms-aimed-70deg-off-victim-who-then-dives-prone):
+- *Fists.* The punch clips (`tools/gen_ped_clips.py`) key only the arms and torso, so the fingers kept
+  the bind pose: two flat open palms by the face, read as "stop". While a punch clip is on and no gun
+  is rigged, `weaponrig::BeginFists` sets a pose hook that rolls fingers 1-4 into the palm (88/100/62
+  degrees per joint) and folds the thumb across them, blended by the clip's weight. Lod 0-1 only.
+- *Aim.* GTA2 lands the blow at the swing's first frame on whoever is in reach of its own facing, and the
+  scripted (or player's) facing can be 50-70 degrees off the ped hit. While the fists fly, the drawn
+  figure turns onto the nearest figure within 1 block and 100 degrees of the game's facing, at 24 rad/s
+  (about 2 frames for 70 degrees), bypassing the chase view's soft-turn rule for those frames. The
+  `fig: punch` strike line now logs how far his facing is off that mark.
+- *The victim.* A punch knock-down sets the corpse flag in the same frame as the health drop (or 1-2
+  frames later), and the hit detection skipped corpses: no reaction, and the lying clip came from the
+  ped's seed (often `fall_front`, the face-down dive). Now a health drop on the frame he goes down
+  counts as the blow, and a knock-down within 6 frames of a punch is that punch's. He plays `hit_head`
+  for 8 frames (0.27 s) from the blow, turning toward the puncher, then `fall` (onto his back, away from
+  the fist). The stagger is held while he lies instead of walking back (a 7 cm prone slide), and eases
+  out as he gets up. Log: `fig: knock-down <ped> by <puncher>'s blow` / `... N frames after the blow`.
+
+**The jack** (pfl15-third-jack-hero-vaults-over-canopy-glass-victim-thrown-t-pose-and-glued-to-car):
+- *Approach.* GTA2 walks the boarding ped straight to the door it picked, through the car when he
+  comes at its nose or from the far side (pfl15: across the 036 Schmidt's deck and canopy). In the
+  boarding plan's approach (`boarding.cpp`, state 3 before the climb), while the game's spot is inside
+  the hull grown by 0.06 block, he is drawn on that outline, moving at up to 2.4 blocks a second toward
+  the outline point nearest the game's spot. He walks round the nose or the tail and leaves the outline
+  where the game has him. Offline check: replaying the pfl15 and fa3_fix3 paths through a 1-block body
+  gives 0 frames inside the hull. `GTA2DX9_LOG_BOARD_HULL=1` logs `board: ... approach round the car`
+  for the player.
+- *The thrown driver.* The game leaves him on the car's centre line (0.2 block from its middle in
+  pfl15), so the lying figure lay with his legs in the wing and turned with the camera as if glued
+  on. `BoardingJackVictim` now lands him 0.16 block outside the hull on the door side (he faces the car,
+  so the fall's body runs away from it), and holds that offset after the car leaves (no car there). The
+  offset eases back onto the game's spot over 0.5 s once he is up.
+
+| check | result | evidence |
+|---|---|---|
+| fists closed through the burst, arm toward the victim | verified: the guard is two balled fists at the chin, the cross goes out at the woman after a ~150 degree turn in 5 frames | fa3_fix1 36.00-36.87 s (base: fa3_base1 38.9-40.9 s, open palms) |
+| victim reacts at contact, falls onto the back | verified: hands up at the contact frame, spun toward him, on her back by +0.5 s; lying clip 0 in the log for both knock-down timings | fa3_fix1, fa3_fix3, fa3_fix4 logs (`fig: knock-down`) |
+| hero never on the car | verified: entered at the nose, drawn round the front end and down the side, beside the door on the ground | fa3_fix4 log (10 `approach round the car` frames) and 46.9-49.0 s |
+| driver beside the car, not carried with it | verified: lands clear on the road, left behind as the car pulls away; drawn spot fixed while the car drove 1+ block | fa3_fix4 48.6-53.0 s, fa3_fix3 log |
+| not done | the driver is still hauled up through the closed canopy glass on the 036 (the door is under the glass); the lying end pose is `fall`'s (arms spread 45 degrees) | - |

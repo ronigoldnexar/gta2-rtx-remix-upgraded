@@ -78,6 +78,10 @@ struct Board {
     bool haveOut = false;
     float tox = 0.0f, toz = 0.0f;   // the tether's pull, eased (0.12 s) so a hand taking hold never yanks the body
     bool player = false;       // the player's own figure (kept through the ghost frames)
+    // FIX-ACTIONS-3 (pfl15): the walk to the door round the car's end when the game walks him through
+    // the body: which side he came from (+-1, u), which end he goes round, his last u outside the body.
+    bool detour = false;
+    float perim = 0.0f;        // where on the hull's outline he is drawn (see HullPerimeter)
     bool jacking = false;      // QB-14: a driver is hauled out (jack_pull keeps its own timing)
     float shutW = 0.0f;        // kShut: the hand on the door's edge, eased
     int shutHand = -1;         // kShut: which hand (chosen once)
@@ -366,6 +370,30 @@ bool BoardingWarmDoors(uintptr_t carObject) {
     return BoardingEnabled();
 }
 
+// FIX-ACTIONS-3 (pfl15): the outline of a car's hull grown by a margin (half sizes A across, B along),
+// as a loop: 0..2B up the +u side (z -B..B), 2B..2B+2A across the front (u A..-A), then down the -u
+// side, then across the rear. The nearest outline point of a spot inside, and back to (u, z).
+float HullPerimeterNearest(float A, float B, float u, float z) {
+    const float dp = A - u, dm = u + A, fp = B - z, fm = z + B;
+    const float m = (std::min)((std::min)(dp, dm), (std::min)(fp, fm));
+    if (m == dp) return (std::max)(-B, (std::min)(B, z)) + B;
+    if (m == fp) return 2.0f * B + (A - (std::max)(-A, (std::min)(A, u)));
+    if (m == dm) return 2.0f * B + 2.0f * A + (B - (std::max)(-B, (std::min)(B, z)));
+    return 4.0f * B + 2.0f * A + ((std::max)(-A, (std::min)(A, u)) + A);
+}
+void HullPerimeterPoint(float A, float B, float p, float* u, float* z) {
+    const float L = 4.0f * (A + B);
+    p = std::fmod(p, L); if (p < 0.0f) p += L;
+    if (p < 2.0f * B) { *u = A; *z = p - B; return; }
+    p -= 2.0f * B;
+    if (p < 2.0f * A) { *u = A - p; *z = B; return; }
+    p -= 2.0f * A;
+    if (p < 2.0f * B) { *u = -A; *z = B - p; return; }
+    p -= 2.0f * B;
+    *u = -A + p; *z = -B;
+}
+bool g_hullLog = [] { const char* v = std::getenv("GTA2DX9_LOG_BOARD_HULL"); return v && v[0] == '1'; }();
+
 bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
     if (!BoardingEnabled()) return false;
     Board& b = g_boards[in.ped];
@@ -640,6 +668,49 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
         b.doorOwn = c.speed < 0.3f;
         b.doorTarget = (reach > 0.85f || open > 0.05f) ? kDoorOpen : 0.0f;
         b.doorRate = 2.5f;
+        // FIX-ACTIONS-3 (pfl15): GTA2 walks the boarding ped in a straight line to the door it chose,
+        // through the car's body when that door is on the far side or he comes at the nose (he crossed the
+        // 036 Schmidt's deck and canopy: a knee on the bonnet, a foot on the glass). The drawn figure goes
+        // round instead: while the game's spot is inside the hull grown by 0.06 (half width, half length),
+        // he is drawn on that outline, moving along it toward the outline point nearest the game's spot at
+        // up to 2.4 blocks a second (a run), so he walks round the nose or the tail to the far side and
+        // leaves the outline where the game has him (the climb then starts from there).
+        {
+            const float halfL = 0.5f * (c.zFront - c.zRear) / 0.27f;
+            const float A = hw + 0.06f, B = halfL + 0.06f, L = 4.0f * (A + B);
+            float lx, ly, lz;
+            ToLocal(c, in.gameX, in.groundY, in.gameZ, &lx, &ly, &lz);
+            if (std::fabs(lx) < A && std::fabs(lz) < B && c.speed < 0.6f) {
+                const float want = HullPerimeterNearest(A, B, lx, lz);
+                if (!b.detour) {
+                    // where he is drawn now, onto the outline
+                    float du, dyy, dz;
+                    ToLocal(c, b.havePrev ? b.px : in.drawnX, in.groundY, b.havePrev ? b.pz : in.drawnZ, &du, &dyy, &dz);
+                    b.perim = HullPerimeterNearest(A, B, (std::max)(-A, (std::min)(A, du)), (std::max)(-B, (std::min)(B, dz)));
+                    b.detour = true;
+                }
+                float d = want - b.perim;
+                while (d > 0.5f * L) d -= L;
+                while (d < -0.5f * L) d += L;
+                const float step = 2.4f * dt;
+                b.perim += (std::max)(-step, (std::min)(step, d));
+                float u, zz;
+                HullPerimeterPoint(A, B, b.perim, &u, &zz);
+                const gta2::Vec3 p = ToWorld(c, u, 0.0f, zz);
+                const float mx = p.x - b.px, mz = p.z - b.pz;
+                out->x = p.x; out->z = p.z; out->sink = 0.0f;
+                out->heading = (b.havePrev && mx * mx + mz * mz > 1e-6f) ? std::atan2(mx, mz) : in.heading;
+                out->action = 0; out->clipT = 0.0f;
+                out->vx = b.havePrev ? mx / dt : 0.0f; out->vz = b.havePrev ? mz / dt : 0.0f;
+                b.out = *out;
+                b.px = p.x; b.pz = p.z; b.havePrev = true;
+                if (g_log || (g_hullLog && in.own))
+                    Log("board: f=%u ped=%04x approach round the car: game u=%.3f z=%.3f (hull %.3f x %.3f) -> u=%.3f z=%.3f",
+                        in.now, static_cast<unsigned>((in.ped >> 2) & 0xFFFF), lx, lz, A, B, u, zz);
+                return true;
+            }
+            b.detour = false;
+        }
         out->x = in.drawnX; out->z = in.drawnZ; out->sink = 0.0f; out->heading = in.heading;
         b.out = *out;
         b.px = in.drawnX; b.pz = in.drawnZ; b.havePrev = true;
@@ -1082,7 +1153,7 @@ bool BoardingSeatSpot(uintptr_t ped, float* x, float* y, float* z) {
 }
 
 bool BoardingJackVictim(float gameX, float gameZ, float carX, float carZ, float age, uint32_t now, float* x, float* z, float* sink) {
-    if (!BoardingEnabled() || age < 0.0f || age >= 0.9f) return false;
+    if (!BoardingEnabled() || age < 0.0f) return false;
     const Car* c = nullptr;
     float bd = 0.7f * 0.7f;
     for (const auto& e : g_cars) {
@@ -1115,9 +1186,18 @@ bool BoardingJackVictim(float gameX, float gameZ, float carX, float carZ, float 
         u = Lerp(u1, u2, k); zz = Lerp(z1, z2, Smooth(0.25f, 0.45f, age)); sk = Lerp(0.04f, 0.0f, k);
     }
     const gta2::Vec3 p = CarPoint(*c, s, u, 0.0f, zz);
+    // FIX-ACTIONS-3 (pfl15): where he lands. The game leaves the thrown driver on the car's centre line
+    // (0.2 block from its middle in pfl15), so the lying figure lay in the body with his legs in the
+    // wing. He lands outside the hull on the door side, 0.16 out (his hips; the fall's body runs away
+    // from the car, he faces it), at the game's spot along the car; the caller holds that spot once the
+    // car leaves (he must not move with it).
+    const float halfL = 0.5f * (c->zFront - c->zRear) / 0.27f;
+    float gu = lx * static_cast<float>(s), gz = lz;
+    if (std::fabs(gz) < halfL + 0.05f && gu < hw + 0.16f) gu = hw + 0.16f;
+    const gta2::Vec3 rest = CarPoint(*c, s, gu, 0.0f, gz);
     const float g = Smooth(0.55f, 0.9f, age);
-    *x = Lerp(p.x, gameX, g); *z = Lerp(p.z, gameZ, g); *sink = sk * (1.0f - g);
-    if (g_log) Log("board: jacked driver age=%.2f side=%d u=%.3f z=%.3f edge=%.3f,%.3f open=%.2f pos=%.3f,%.3f game=%.3f,%.3f",
+    *x = Lerp(p.x, rest.x, g); *z = Lerp(p.z, rest.z, g); *sink = sk * (1.0f - g);
+    if (g_log && age < 1.0f) Log("board: jacked driver age=%.2f side=%d u=%.3f z=%.3f edge=%.3f,%.3f open=%.2f pos=%.3f,%.3f game=%.3f,%.3f",
                    age, s, u, zz, edgeU, ez, c->doorOpen, *x, *z, gameX, gameZ);
     return true;
 }

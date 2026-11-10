@@ -784,6 +784,20 @@ private:
         float sepSign = 1.0f;
         float sepDrawnX = 0.0f, sepDrawnZ = 0.0f;   // FIX-FIGURE-7: where it was drawn last (the others separate from this)
         uint32_t sepSeenFrame = 0;
+        // FIX-ACTIONS-3 (pfl15): a punch that knocked him down (the game sets the knock-down in the
+        // frame the health drops): the blow's reaction first (punchDownFrame), then the fall onto his
+        // back away from the puncher, the stagger held while he lies (downHold, eased out as he rises).
+        uint32_t punchDownFrame = 0;
+        float punchByX = 0.0f, punchByZ = 0.0f;
+        float downHold = 0.0f;
+        // FIX-ACTIONS-3: the puncher's mark (a figure in reach in front of him), for the turn onto it.
+        bool punchAim = false;
+        float punchAimX = 0.0f, punchAimZ = 0.0f;
+        // FIX-ACTIONS-3: the thrown driver's drawn spot held off the game's (outside the car's body,
+        // where he landed) while he lies; eased back onto the game's spot once he is up.
+        float jackRestX = 0.0f, jackRestZ = 0.0f;
+        bool jackRest = false;
+        float jackRestW = 0.0f;
         // Getting into / out of a car: the car's middle (the heading faces it on
         // the way in and away from it on the way out) and when the state began.
         bool carKnown = false;
