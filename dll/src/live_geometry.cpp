@@ -8153,7 +8153,12 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
                 const float speed = moved < 0.5f ? moved / dts : 0.0f;          // blocks a second (a warp is not a step)
                 const float want = (std::min)(1.0f, speed / 1.2f);              // a walk ~0.8, a run 1
                 amp += (want - amp) * (std::min)(1.0f, dts / 0.15f);
-                phase += dts * 6.2831853f * (1.5f + 0.5f * amp) * (amp > 0.02f ? 1.0f : 0.0f);
+                // FIX-FIGURE-10 pfl20: the bob's phase is driven by the ground covered (one cycle, two
+                // footfalls, per 0.76 block: the third-person figure's run cycle at his pace), not by
+                // the clock, so it stays in step with his feet at any frame rate (on a slow frame a
+                // clock-driven 3.8 Hz bob was sampled into a random drift); a little clock time keeps
+                // it turning over while he creeps.
+                if (amp > 0.02f) phase += (moved < 0.5f ? moved : 0.0f) / 0.76f * 6.2831853f + dts * 0.8f * amp;
                 if (phase > 62.831853f) phase -= 62.831853f;
                 float dy = yaw - lastYaw;
                 if (dy > 3.14159265f) dy -= 6.2831853f;
@@ -8168,8 +8173,9 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         vmLastBob_ = g_carFrame;
         have = g_playerPosValid; lastQ = q; lastX = g_playerPosX; lastZ = g_playerPosZ; lastYaw = yaw;
         const float k2 = 1.0f - 0.6f * rs - drop;   // quieter on a reload and a switch
-        bobDown = 0.0050f * amp * 0.5f * (1.0f - std::cos(2.0f * phase)) * k2;
-        bobSide = 0.0035f * amp * std::sin(phase) * k2;
+        if (g_logJoints) Log("fpvm: f=%u amp=%.3f phase=%.2f sway=%.4f k2=%.2f pos=%.3f,%.3f valid=%d", g_carFrame, amp, phase, sway, k2, g_playerPosX, g_playerPosZ, g_playerPosValid ? 1 : 0);
+        bobDown = 0.0065f * amp * 0.5f * (1.0f - std::cos(2.0f * phase)) * k2;
+        bobSide = 0.0045f * amp * std::sin(phase) * k2;
         swaySide = sway * k2;
     }
     const float ahead = (fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - 0.02f * rs - 0.02f * rack - 0.03f * drop;
