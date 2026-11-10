@@ -549,7 +549,9 @@ void Flush(IDirect3DDevice9* device, IDirect3DTexture9* tex) {
             const bool discard = g_vbUsed + quads > kVbQuads;
             const UINT first = discard ? 0 : g_vbUsed;
             void* p = nullptr;
-            if (SUCCEEDED(g_vb->Lock(first * 4 * sizeof(FxVertex), quads * 4 * sizeof(FxVertex), &p, discard ? D3DLOCK_DISCARD : D3DLOCK_NOOVERWRITE))) {
+            // FIX-PERF-4: wined3d answers a map it cannot back (address space full) with S_OK and null.
+            if (SUCCEEDED(g_vb->Lock(first * 4 * sizeof(FxVertex), quads * 4 * sizeof(FxVertex), &p, discard ? D3DLOCK_DISCARD : D3DLOCK_NOOVERWRITE)) &&
+                (p || (g_vb->Unlock(), false))) {
                 memcpy(p, g_verts.data(), quads * 4 * sizeof(FxVertex));
                 g_vb->Unlock();
                 g_vbUsed = first + quads;

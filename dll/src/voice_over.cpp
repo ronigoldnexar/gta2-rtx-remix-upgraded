@@ -27,11 +27,19 @@ const uint8_t kExpected[9] = {0x8B, 0x41, 0x04,        // mov eax, [ecx+4]
                               0x8B, 0x54, 0x24, 0x04}; // mov edx, [esp+4]
 ASM_USED uintptr_t s_resume ASM_NAME("_s_resume") = kTextLookup + 9;
 
+// FIX-PERF-4: a clip is its key and file; the WAV is read when it is played. Keeping all 1 235
+// files whole (473 MB) for the whole session was a quarter of the 32-bit process's address space
+// gone before the first level (the bad_alloc / null-lock crashes after 17-21 min of play).
 struct Clip {
     char key[9];
-    std::vector<uint8_t> wav;  // a whole WAV file, kept whole for PlaySound
+    std::string file;
     DWORD lastSeen;
 };
+// The clips being played: PlaySound(SND_MEMORY | SND_ASYNC) reads the buffer while it plays and a
+// new PlaySound stops the old sound, so the last two are kept alive.
+std::vector<uint8_t> g_playing[2];
+int g_playingNext = 0;
+int g_volumePercent = 100;
 
 std::vector<Clip> g_clips;
 bool g_enabled = true;
@@ -84,6 +92,7 @@ bool ApplyVolume(std::vector<uint8_t>& wav, int percent) {
 }
 
 void LoadClips(int volumePercent) {
+    g_volumePercent = volumePercent;
     const std::string dir = GameDirectory() + "gta2dx9_voice\\";
     WIN32_FIND_DATAA found;
     HANDLE find = FindFirstFileA((dir + "*.wav").c_str(), &found);
@@ -95,27 +104,15 @@ void LoadClips(int volumePercent) {
         std::string name = found.cFileName;
         name.resize(name.size() - 4);  // ".wav"
         if (name.empty() || name.size() > 8) continue;
-        FILE* f = fopen((dir + found.cFileName).c_str(), "rb");
-        if (!f) continue;
         Clip clip = {};
         memcpy(clip.key, name.c_str(), name.size());
-        fseek(f, 0, SEEK_END);
-        const long size = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        if (size > 44 && size < 64 * 1024 * 1024) {
-            clip.wav.resize(static_cast<size_t>(size));
-            if (fread(clip.wav.data(), 1, clip.wav.size(), f) != clip.wav.size()) clip.wav.clear();
-        }
-        fclose(f);
-        if (clip.wav.empty() || !ApplyVolume(clip.wav, volumePercent)) {
-            Log("voice: %s is not a 16-bit PCM WAV, skipped", found.cFileName);
-            continue;
-        }
+        clip.file = dir + found.cFileName;
+        if (found.nFileSizeLow <= 44 || found.nFileSizeHigh || found.nFileSizeLow >= 64u * 1024 * 1024) continue;
         clip.lastSeen = 0;
         g_clips.push_back(std::move(clip));
     } while (FindNextFileA(find, &found));
     FindClose(find);
-    Log("voice: %u recordings loaded", static_cast<unsigned>(g_clips.size()));
+    Log("voice: %u recordings found (each read from disk when it is played)", static_cast<unsigned>(g_clips.size()));
 }
 
 // Called from the thunk below with the key the game is looking up.
@@ -135,7 +132,26 @@ ASM_USED void __cdecl VoiceKeySeen(const char* key) {
         const bool fresh = (now - c.lastSeen) > kQuietGapMs;
         c.lastSeen = now;
         if (fresh) {
-            PlaySoundA(reinterpret_cast<LPCSTR>(c.wav.data()), nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+            std::vector<uint8_t>& wav = g_playing[g_playingNext];
+            wav.clear();
+            if (FILE* f = fopen(c.file.c_str(), "rb")) {
+                fseek(f, 0, SEEK_END);
+                const long size = ftell(f);
+                fseek(f, 0, SEEK_SET);
+                if (size > 44 && size < 64 * 1024 * 1024) {
+                    wav.resize(static_cast<size_t>(size));
+                    if (fread(wav.data(), 1, wav.size(), f) != wav.size()) wav.clear();
+                }
+                fclose(f);
+            }
+            if (wav.empty() || !ApplyVolume(wav, g_volumePercent)) {
+                Log("voice: %s is not a 16-bit PCM WAV, skipped", c.file.c_str());
+                wav.clear();
+                wav.shrink_to_fit();
+                return;
+            }
+            g_playingNext ^= 1;
+            PlaySoundA(reinterpret_cast<LPCSTR>(wav.data()), nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
             Log("voice: playing %s", c.key);
         }
         return;

@@ -115,6 +115,7 @@ bool ReadSmallFile(const char* path, char* buf, size_t cap) {
 }
 
 char g_procStatusPath[64] = {};
+long g_vmSizeMb = 0;   // the last VmSize read (0: none)
 int g_procLookups = 0;
 
 const char* ProcStatusPath() {
@@ -154,6 +155,7 @@ void ProcStatus(char* out, size_t cap) {
         const char* p = strstr(buf, k);
         if (!p) continue;
         long kb = strtol(p + strlen(k), nullptr, 10);
+        if (k[2] == 'S') g_vmSizeMb = kb / 1024;   // VmSize
         const int w = snprintf(out + n, cap - n, " %.*s=%ld", static_cast<int>(strlen(k) - 1), k, kb / 1024);
         if (w > 0 && static_cast<size_t>(w) < cap - n) n += w;
     }
@@ -164,6 +166,16 @@ unsigned long long g_startTick = 0;
 int g_viewChanges = 0;
 int g_memLog = -1;
 bool g_emergencyHandled = false;
+
+long CeilingMb() {
+    static long ceiling = -1;
+    if (ceiling < 0) {
+        char v[16] = {};
+        ceiling = GetEnvironmentVariableA("GTA2DX9_MEM_CEILING_MB", v, sizeof(v)) ? atol(v) : 3900;
+        if (ceiling <= 0) ceiling = 1 << 30;   // 0: off
+    }
+    return ceiling;
+}
 
 bool MemLogOn() {
     if (g_memLog < 0) {
@@ -280,6 +292,22 @@ void MemStatsTick() {
     if (!g_lastMinuteTick || now - g_lastMinuteTick >= 60000) {
         g_lastMinuteTick = now;
         MemStatsLog("minute", 2);
+    }
+    // The ceiling watchdog, every 5 s: wined3d answers a map it cannot back with a null pointer
+    // (fp4_sw_base: a vertex buffer Lock at VmSize 3964 MB, then a fault), long before an exception
+    // could be caught, so the street views are left while there is still room.
+    static unsigned long long lastCheck = 0;
+    if (!g_emergency.load() && now - lastCheck >= 5000) {
+        lastCheck = now;
+        char proc[160];
+        ProcStatus(proc, sizeof(proc));
+        const VaSurvey va = g_vmSizeMb ? VaSurvey{} : SurveyAddressSpace();   // no /proc (Windows): Wine's/Windows' own count
+        const bool high = g_vmSizeMb ? g_vmSizeMb >= CeilingMb() : va.freeMb < 96.0;
+        if (high) {
+            Log("FAULT: memory ceiling: VmSize %ld MB (limit %ld), free %.0f MB: the street views stop here (GTA2DX9_MEM_CEILING_MB)",
+                g_vmSizeMb, CeilingMb(), va.freeMb);
+            g_emergency.store(1);
+        }
     }
 }
 

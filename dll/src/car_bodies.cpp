@@ -2412,7 +2412,10 @@ int g_wearCollected = 0, g_dentLate = 0, g_doorLate = 0;
 double g_wearWorkMs = 0.0;
 // Ahead-of-need dent copies stop being queued past this much memory (the
 // urgent ones are always built). 68 car models x 4 steps would be ~125 MB.
-constexpr size_t kDentAheadBytes = 160u << 20;
+// FIX-PERF-4: 160 -> 48 MB. The ahead copies were ~100 MB of a 32-bit process's address space
+// by minute 6 of a session, most never shown; a model past the budget gets its step built when
+// a car of it is first dented (the previous step shows for the frames the worker takes).
+constexpr size_t kDentAheadBytes = 48u << 20;
 // Door splits are per (model, dent step, side, sprite); past this much memory the
 // dented ones are no longer made (see the door in CarBodiesDraw).
 constexpr size_t kDoorSplitBytes = 64u << 20;
