@@ -172,6 +172,8 @@ void ModelsOwnPaintAhead();
 // under Remix): car "_paint" textures get a coverage alpha and are drawn in one pass,
 // texel * lerp(1, tint, coverage). Set before the first car texture is read.
 void ModelSetSoftPaintMasks(bool on);
+// FIX-PERF-5: model textures read from files in D3DPOOL_DEFAULT (no CPU copy in the 32-bit process).
+void ModelSetTexturesGpuOnly(bool on);
 // Whether car paint is drawn soft (known once the first car texture has been read).
 bool ModelSoftPaintActive();
 // A model texture's mean luminance and alpha (0..255) around (u, v), from a 64x64

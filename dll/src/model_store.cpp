@@ -916,6 +916,8 @@ float CharNoise(float x, float y, uint32_t seed) {
     const float b = h(i, j + 1) + (h(i + 1, j + 1) - h(i, j + 1)) * sx;
     return a + (b - a) * sy;
 }
+bool LockTexels(IDirect3DTexture9* t, D3DLOCKED_RECT* lr);   // FIX-PERF-5 (below)
+void UnlockTexels(IDirect3DTexture9* t);
 IDirect3DTexture9* BaseTextureFor(IDirect3DDevice9* device, const std::string& file);
 // g_charredPending: the charred copies made before the body's glass mask was (refilled when it is).
 // Fills `out` (created with the rest texture's size) from the source texels; false on a lock failure.
@@ -938,8 +940,8 @@ bool FillCharred(IDirect3DDevice9* device, IDirect3DTexture9* out, const std::st
     if (found != 1) mask.clear();
     const uint32_t seed = static_cast<uint32_t>(std::hash<std::string>{}(src) & 0xFFFFu);
     D3DLOCKED_RECT lr, lp, lo;
-    const bool okR = SUCCEEDED(rest->LockRect(0, &lr, nullptr, D3DLOCK_READONLY));
-    const bool okP = paint && SUCCEEDED(paint->LockRect(0, &lp, nullptr, D3DLOCK_READONLY));
+    const bool okR = LockTexels(rest, &lr);
+    const bool okP = paint && LockTexels(paint, &lp);
     const bool okO = SUCCEEDED(out->LockRect(0, &lo, nullptr, 0));
     int glass = 0;
     if (okR && okO) {
@@ -1009,8 +1011,8 @@ bool FillCharred(IDirect3DDevice9* device, IDirect3DTexture9* out, const std::st
         }
     }
     if (okO) out->UnlockRect(0);
-    if (okP) paint->UnlockRect(0);
-    if (okR) rest->UnlockRect(0);
+    if (okP) UnlockTexels(paint);
+    if (okR) UnlockTexels(rest);
     if (glassTexels) *glassTexels = glass;
     static int logged = 0;
     if (okR && okO && logged++ < 60)
@@ -1088,6 +1090,47 @@ void FillMipChain(IDirect3DTexture9* texture, int w, int h) {
     }
 }
 
+// FIX-PERF-5: a model texture read from its file lives on the GPU only. In D3DPOOL_MANAGED both wined3d
+// and the RTX Remix bridge client keep a CPU copy of every texture inside the 32-bit process (measured:
+// the address space's private commit grows by the textures' size, ~500 MB, while the DLL's heap stays
+// flat). Such a texture is now made in D3DPOOL_DEFAULT from a SYSTEMMEM staging copy (UpdateTexture),
+// and the staging copy is released. The texels are the same (the same Remix hash); the device is never
+// Reset (docs/stability.md), so nothing has to be re-uploaded. Reading such a texture back
+// (LockTexels) reads its file again. A softened car paint mask stays MANAGED (its texels are not the file's).
+// [renderer] model_textures_gpu_only=0 (or GTA2DX9_TEX_GPU_ONLY=0): every model texture MANAGED as before.
+bool g_texGpuOnly = true;
+std::map<IDirect3DTexture9*, std::string> g_texFile;              // GPU-only textures: their file
+std::map<IDirect3DTexture9*, std::vector<uint8_t>> g_texReads;    // texels of a GPU-only texture being read
+size_t g_texGpuOnlyBytes = 0;
+int g_texGpuOnlyFailures = 0;
+
+// Level 0 of a model texture for reading, as LockRect(0, lr, nullptr, D3DLOCK_READONLY) would give it.
+bool LockTexels(IDirect3DTexture9* t, D3DLOCKED_RECT* lr) {
+    if (!t) return false;
+    auto f = g_texFile.find(t);
+    if (f == g_texFile.end()) return SUCCEEDED(t->LockRect(0, lr, nullptr, D3DLOCK_READONLY));
+    std::vector<uint8_t> tga;
+    D3DSURFACE_DESC d;
+    if (FAILED(t->GetLevelDesc(0, &d)) || !ReadAll(g_folder + "\\" + f->second, &tga) || tga.size() <= 18 || tga[2] != 2 || tga[16] != 32) return false;
+    const int w = tga[12] | (tga[13] << 8), h = tga[14] | (tga[15] << 8);
+    if (w != static_cast<int>(d.Width) || h != static_cast<int>(d.Height) || tga.size() < 18u + static_cast<size_t>(w) * h * 4) return false;
+    const bool topDown = (tga[17] & 0x20) != 0;
+    std::vector<uint8_t>& px = g_texReads[t];
+    px.resize(static_cast<size_t>(w) * h * 4);
+    for (int y = 0; y < h; ++y) {
+        const int src = topDown ? y : (h - 1 - y);
+        memcpy(&px[static_cast<size_t>(y) * w * 4], &tga[18 + static_cast<size_t>(src) * w * 4], static_cast<size_t>(w) * 4);
+    }
+    lr->pBits = px.data();
+    lr->Pitch = w * 4;
+    return true;
+}
+void UnlockTexels(IDirect3DTexture9* t) {
+    auto it = g_texReads.find(t);
+    if (it != g_texReads.end()) { g_texReads.erase(it); return; }
+    if (t) t->UnlockRect(0);
+}
+
 IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::string& file) {
     if (file.compare(0, 6, "wreck|") == 0 || file.compare(0, 7, "wreckp|") == 0) {
         IDirect3DTexture9* charred = CharredTexture(device, file);
@@ -1110,18 +1153,44 @@ IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::strin
             g_softPaintTex.insert(file);
         }
         const bool mips = PlateMipsWanted(file);
-        if (w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4 &&
-            SUCCEEDED(device->CreateTexture(w, h, mips ? 0 : 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) {
+        const bool sized = w > 0 && h > 0 && tga.size() >= 18u + static_cast<size_t>(w) * h * 4;
+        const bool gpuOnly = sized && g_texGpuOnly && !g_softPaintTex.count(file);
+        IDirect3DTexture9* staging = nullptr;   // FIX-PERF-5: the SYSTEMMEM copy a GPU-only texture is filled from
+        if (gpuOnly && SUCCEEDED(device->CreateTexture(w, h, mips ? 0 : 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &staging, nullptr)) &&
+            FAILED(device->CreateTexture(w, h, mips ? 0 : 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &texture, nullptr))) {
+            texture = nullptr;
+        }
+        if (gpuOnly && (!staging || !texture)) {
+            if (staging) { staging->Release(); staging = nullptr; }
+            if (texture) { texture->Release(); texture = nullptr; }
+            if (g_texGpuOnlyFailures++ < 3) Log("models: texture %s: no GPU-only texture, a managed one", file.c_str());
+        }
+        IDirect3DTexture9* fill = staging;
+        if (sized && !staging && SUCCEEDED(device->CreateTexture(w, h, mips ? 0 : 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr)))
+            fill = texture;
+        if (fill) {
             g_textureBytes += static_cast<size_t>(w) * h * 4;
             FrameLogNote(kFcModelTexture);
             D3DLOCKED_RECT lr;
-            if (SUCCEEDED(texture->LockRect(0, &lr, nullptr, 0))) {
+            bool filled = false;
+            if (SUCCEEDED(fill->LockRect(0, &lr, nullptr, 0))) {
                 for (int y = 0; y < h; ++y) {
                     const int src = topDown ? y : (h - 1 - y);
                     memcpy(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch, &tga[18 + static_cast<size_t>(src) * w * 4], w * 4);
                 }
-                texture->UnlockRect(0);
-                if (mips) FillMipChain(texture, w, h);
+                fill->UnlockRect(0);
+                if (mips) FillMipChain(fill, w, h);
+                filled = true;
+            }
+            if (staging) {
+                if (filled && SUCCEEDED(device->UpdateTexture(staging, texture))) {
+                    g_texFile[texture] = file;
+                    g_texGpuOnlyBytes += static_cast<size_t>(w) * h * 4;
+                } else {
+                    texture->Release();
+                    texture = nullptr;
+                }
+                staging->Release();
             }
         }
     }
@@ -1170,10 +1239,10 @@ IDirect3DTexture9* PlayerCopyFor(IDirect3DDevice9* device, const std::string& fi
         std::vector<uint8_t> pixels(row * desc.Height);
         D3DLOCKED_RECT src, dst;
         bool done = false;
-        if (SUCCEEDED(base->LockRect(0, &src, nullptr, D3DLOCK_READONLY))) {
+        if (LockTexels(base, &src)) {
             for (UINT y = 0; y < desc.Height; ++y)
                 memcpy(&pixels[y * row], static_cast<const uint8_t*>(src.pBits) + y * src.Pitch, row);
-            base->UnlockRect(0);
+            UnlockTexels(base);
             pixels[0] ^= 1u;   // blue's lowest bit of the first texel
             if (SUCCEEDED(copy->LockRect(0, &dst, nullptr, 0))) {
                 for (UINT y = 0; y < desc.Height; ++y)
@@ -1767,7 +1836,7 @@ bool ModelNodeTextureMean(IDirect3DDevice9* device, const Model& model, const ch
                 D3DSURFACE_DESC desc;
                 D3DLOCKED_RECT locked;
                 if (SUCCEEDED(tex->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
-                    SUCCEEDED(tex->LockRect(0, &locked, nullptr, D3DLOCK_READONLY))) {
+                    LockTexels(tex, &locked)) {
                     double sum[3] = {0, 0, 0}; double n = 0;
                     for (UINT y = 0; y < desc.Height; ++y) {
                         const uint32_t* row = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(locked.pBits) + y * locked.Pitch);
@@ -1776,7 +1845,7 @@ bool ModelNodeTextureMean(IDirect3DDevice9* device, const Model& model, const ch
                             sum[0] += (row[x] >> 16) & 255; sum[1] += (row[x] >> 8) & 255; sum[2] += row[x] & 255; n += 1;
                         }
                     }
-                    tex->UnlockRect(0);
+                    UnlockTexels(tex);
                     if (n > 0) m = {static_cast<float>(sum[0] / n), static_cast<float>(sum[1] / n), static_cast<float>(sum[2] / n), 1.0f};
                 }
             }
@@ -1813,7 +1882,7 @@ IDirect3DTexture9* BakedTint(IDirect3DDevice9* device, const std::string& file, 
     if (src && SUCCEEDED(src->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
         SUCCEEDED(device->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &out, nullptr))) {
         D3DLOCKED_RECT a, b;
-        if (SUCCEEDED(src->LockRect(0, &a, nullptr, D3DLOCK_READONLY))) {
+        if (LockTexels(src, &a)) {
             if (SUCCEEDED(out->LockRect(0, &b, nullptr, 0))) {
                 const float k[3] = {key.t[0] / 64.0f, key.t[1] / 64.0f, key.t[2] / 64.0f};
                 for (UINT y = 0; y < desc.Height; ++y) {
@@ -1829,7 +1898,7 @@ IDirect3DTexture9* BakedTint(IDirect3DDevice9* device, const std::string& file, 
                 }
                 out->UnlockRect(0);
             } else { out->Release(); out = nullptr; }
-            src->UnlockRect(0);
+            UnlockTexels(src);
         } else { out->Release(); out = nullptr; }
     }
     s_baked[key] = out;
@@ -1980,8 +2049,8 @@ IDirect3DTexture9* FigurePairMergedBake(IDirect3DDevice9* device, const Model& m
             }
         }
         D3DLOCKED_RECT lr, lp, lo;
-        const bool okR = SUCCEEDED(rest->LockRect(0, &lr, nullptr, D3DLOCK_READONLY));
-        const bool okP = SUCCEEDED(paint->LockRect(0, &lp, nullptr, D3DLOCK_READONLY));
+        const bool okR = LockTexels(rest, &lr);
+        const bool okP = LockTexels(paint, &lp);
         const bool okO = SUCCEEDED(out->LockRect(0, &lo, nullptr, 0));
         if (okR && okP && okO) {
             for (int y = 0; y < h; ++y) {
@@ -2000,8 +2069,8 @@ IDirect3DTexture9* FigurePairMergedBake(IDirect3DDevice9* device, const Model& m
             }
         }
         if (okO) out->UnlockRect(0);
-        if (okP) paint->UnlockRect(0);
-        if (okR) rest->UnlockRect(0);
+        if (okP) UnlockTexels(paint);
+        if (okR) UnlockTexels(rest);
         if (!(okR && okP && okO)) { out->Release(); out = nullptr; }
     }
     s_merged[key] = out;
@@ -2075,11 +2144,11 @@ bool LayerPrimFor(IDirect3DDevice9* device, const std::string& file) {
     D3DSURFACE_DESC desc;
     D3DLOCKED_RECT lr;
     if (t && SUCCEEDED(t->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
-        SUCCEEDED(t->LockRect(0, &lr, nullptr, D3DLOCK_READONLY))) {
+        LockTexels(t, &lr)) {
         const size_t row = static_cast<size_t>(desc.Width) * 4;
         std::vector<uint8_t> pixels(row * desc.Height);
         for (UINT y = 0; y < desc.Height; ++y) memcpy(&pixels[y * row], static_cast<const uint8_t*>(lr.pBits) + y * lr.Pitch, row);
-        t->UnlockRect(0);
+        UnlockTexels(t);
         h = XXH3_64bits(pixels.data(), pixels.size());
         yes = g_layerPrims.count(h) != 0;
     }
@@ -2141,14 +2210,14 @@ const FigureZoneSplit* FigureZoneSplitFor(IDirect3DDevice9* device, const Model&
         IDirect3DTexture9* t = BaseTextureFor(device, file);
         D3DSURFACE_DESC d;
         D3DLOCKED_RECT lr;
-        if (t && SUCCEEDED(t->GetLevelDesc(0, &d)) && d.Format == D3DFMT_A8R8G8B8 && SUCCEEDED(t->LockRect(0, &lr, nullptr, D3DLOCK_READONLY))) {
+        if (t && SUCCEEDED(t->GetLevelDesc(0, &d)) && d.Format == D3DFMT_A8R8G8B8 && LockTexels(t, &lr)) {
             *w = static_cast<int>(d.Width); *h = static_cast<int>(d.Height);
             a.resize(static_cast<size_t>(*w) * *h);
             for (int y = 0; y < *h; ++y) {
                 const uint32_t* r = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(lr.pBits) + y * lr.Pitch);
                 for (int x = 0; x < *w; ++x) a[static_cast<size_t>(y) * *w + x] = (r[x] >> 24) >= 128;
             }
-            t->UnlockRect(0);
+            UnlockTexels(t);
         }
         return a;
     };
@@ -2873,6 +2942,11 @@ void ResetSoftStages(IDirect3DDevice9* device) {
 }  // namespace
 
 void ModelSetSoftPaintMasks(bool on) { g_softPaintSetting = on; }
+void ModelSetTexturesGpuOnly(bool on) {
+    char buf[8] = {};
+    if (GetEnvironmentVariableA("GTA2DX9_TEX_GPU_ONLY", buf, sizeof buf)) on = buf[0] != '0';
+    g_texGpuOnly = on;
+}
 
 // FIX-CAR-RENDER: a 64x64 luminance map (box mean, 0..255) and paint-mask map of a
 // model texture, read from its file on the CPU (no device), cached for the process.
@@ -3918,6 +3992,7 @@ void ModelStoreMemGauges() {
     double texBytes = 0;
     for (auto& t : g_textures) texBytes += TextureBytes(t.second);
     MemGauge("ms.textures", static_cast<double>(g_textures.size()), texBytes);
+    MemGauge("ms.texgpuonly", static_cast<double>(g_texFile.size()), static_cast<double>(g_texGpuOnlyBytes));   // FIX-PERF-5: of which no CPU copy
     MemGauge("ms.skinbufs", static_cast<double>(g_skinBuffers.size() + g_skinFree.size()));
     MemGauge("ms.playercopies", static_cast<double>(g_playerCopies.size()));
     MemGauge("ms.limbchains", static_cast<double>(g_limbChains.size()));

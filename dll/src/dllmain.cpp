@@ -381,6 +381,8 @@ void LoadConfig() {
                                   GetPrivateProfileIntA("renderer", "car_crease_deg", 60, ini));   // VEHICLE-GLASS
     gta2dx9::ModelSetSoftPaintMasks(
         GetPrivateProfileIntA("renderer", "car_paint_soft_mask", 1, ini) != 0);
+    gta2dx9::ModelSetTexturesGpuOnly(   // FIX-PERF-5
+        GetPrivateProfileIntA("renderer", "model_textures_gpu_only", 1, ini) != 0);
     gta2dx9::SetCarGlassGloss(
         GetPrivateProfileIntA("renderer", "car_glass_gloss_percent", 100, ini) / 100.0f);
     gta2dx9::RemixLoadConfigSection(ini);

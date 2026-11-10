@@ -1349,3 +1349,100 @@ started it again. Our heap was the same afterwards (779 -> 784 MB) and Wine's co
 load** (the GL driver's for the world's re-created vertex buffers and textures; wined3d released them).
 A session with three or four level restarts reaches the ceiling watchdog on that alone. Not addressed
 here. Keeping the world's GPU resources across a reload of the same district would avoid it.
+
+## The 32-bit address space on the owner's box, and the paced warm-up (10 Nov 2026, FIX-PERF-5)
+
+The operator's measurement on the RTX 5090 (HEAD 16c259ac, 11 minutes of play): the process at 1 988 of
+~2 048 MB, `largest_free=8.8MB`, 5 738 regions; `ms.textures=1237/507.2MB`, `ms.models=525/228.8MB`,
+`ms.buffers=2277/129.6MB`, `cb.wear=0/68.1MB`, `cb.dents=52/45.6MB`. Two findings change how to read
+that list, and one change takes ~400-600 MB of it out of the process. (The warm-up order, board 0c, follows.)
+
+### What `ms.textures` counts: every model texture lived twice in the process
+
+`ms.textures` is the size of the model store's textures, not of a CPU copy. But they were made in
+`D3DPOOL_MANAGED`, and in the managed pool both wined3d and the RTX Remix bridge client keep a CPU copy of
+every texture **inside the 32-bit process**. Measured with the `mem:` lines, which put our own C++ heap
+apart from the address-space survey: in a plain run (`cab3_bus2`, minute 0 -> 1) `ms.textures` went
+0 -> 502 MB while the private commit grew 538 -> 1 301 MB and our heap stayed flat (426 -> 425 MB);
+under Remix (`fs2_rmx_night`, minute 1 -> 2) `ms.textures` 0 -> 501 MB, private 680 -> 1 313 MB, our
+heap 452 -> 442 MB. The private commit was the textures' copy (plus the managed buffers', see below).
+
+**The fix** (`model_store.cpp`, `BaseTextureForImpl`): a model texture read from its file is made in
+`D3DPOOL_DEFAULT`, filled from a `D3DPOOL_SYSTEMMEM` staging texture (`UpdateTexture`, the plate mips
+built on the staging copy), and the staging copy is released at once. Same texels, so the same Remix
+hash; the device is never Reset (`docs/stability.md`: no Reset and no teardown), so nothing needs a
+re-upload after alt-tab or minimise. The seven places that read a model texture's texels back (the
+charred wreck copies, the player's own-figure copies, tints, merged figure pairs, the texture means, the
+Remix layer-prim hash, the alpha masks) go through `LockTexels`, which reads the file again for a
+GPU-only texture. A car paint half whose mask the renderer softened stays managed (its texels are not
+the file's; plain renderer only). `[renderer] model_textures_gpu_only=0` (or `GTA2DX9_TEX_GPU_ONLY=0`)
+brings back the managed pool. A new gauge `ms.texgpuonly=N/MB` says how many have no CPU copy.
+
+Results, same keys, Industrial, plain GL (`qa_perf5_t3a`, the filer's steady third-person soak, against
+`fp4_third1` of FIX-PERF-4: same scenario, HEAD of that time), private commit / VmSize in MB:
+
+| minute | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| before (fp4_third1): private | 1 398 | 1 483 | 1 518 | 1 564 | 1 580 | 1 603 |
+| after (perf5_t3a): private | 965 | 1 089 | 1 122 | 1 151 | 1 192 | 1 228 |
+| before: VmSize | 2 792 | 2 996 | 3 061 | 3 096 | 3 117 | 3 269 |
+| after: VmSize | 2 389 | 2 628 | 2 657 | 2 686 | 2 731 | 2 904 |
+| before: regions | 1 407 | 1 451 | 1 490 | 1 525 | 1 539 | 1 552 |
+| after: regions | 892 | 929 | 963 | 993 | 1 021 | 1 056 |
+
+`ms.texgpuonly=1185/396.8MB` of `ms.textures=1398/516.8MB` (the rest: softened paint halves and derived
+copies). Under Wine the survey's `largest_free` counts host mappings as free, so it says nothing here; on
+Windows it is the number that matters, and every MB the process no longer commits is address space the
+heap can grow into.
+
+Under RTX Remix, a strict A/B of one build (Remix bridge under Wine, GPU 2, VEHICLE-GLASS-5's own-car
+poses of 071 at 13:00 and 21:00: `perf5_rxa2` GPU-only, `perf5_rxb` with `GTA2DX9_TEX_GPU_ONLY=0`):
+
+| minute | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| managed (rxb): private / regions | 1 217 / 1 216 | 1 306 / 1 232 | 1 386 / 1 271 | 1 442 / 1 285 |
+| GPU-only (rxa2): private / regions | 680 / 739 | 746 / 743 | 888 / 805 | 955 / 818 |
+
+537-560 MB less private commit (our heap within 0-33 MB of each other), 400-480 fewer regions: the bridge
+client kept a copy of every managed model texture. The frames of the two takes show the same car: 071's
+gta2hd PBR coat (the black lacquer, the white stripes, the chrome bumper and the plate) is on in both at
+every pose; the pixel differences between them are the camera's small offset and the background traffic
+(the two runs' car is placed by the game). A texture the layer keys by hash would come up as matte clay
+if its hash had changed (`docs/remix` notes, memory `remix-stale-car-prims`).
+
+### `cb.wear` is a sum, not a pool
+
+`cb.wear=0/68.1MB` was printed with a hard-coded entry count of 0: it is the running total of
+`cb.dents` + `cb.doors` + `cb.wheels` (the derived car copies), not a fourth cache holding memory with
+nothing in it. And all of those derived copies are registered with the model store, so their bytes are
+**also inside `ms.models`**. On the 5090's line `ms.models=228.8MB` already contains the 68 MB; adding the
+two double-counts. The gauge now prints the copies' count (`cb.wear=<dents+doors+wheels>/<MB>`). Freeing
+derived copies not drawn for a while is the eviction step of the growth order (14p), not done here.
+
+### Where the allocations come from (`GTA2DX9_ALLOC_SITES=1`)
+
+The operator's 15.4 million allocations in ten minutes are ~25 000 a second. With
+`GTA2DX9_ALLOC_SITES=1` every 256th allocation's stack is scanned (bounded by the thread's stack base)
+for return addresses in the DLL, and each `mem: minute` line is followed by the commonest twenty sites
+of the last minute as DLL offsets (symbolise with `i686-w64-mingw32-nm -C` on the same build's DLL, or its
+gta2dx9.map for exported functions).
+
+### `/LARGEADDRESSAWARE`: the owner's gta2.exe is a 2 GB process
+
+The original gta2.exe 9.6 has `Characteristics 0x010F`: no `IMAGE_FILE_LARGE_ADDRESS_AWARE` bit. Every
+run on this host marks the copy inside the Wine prefix with `linux/laa.sh` (`docs/hd-textures.md`), so
+the process here has 4 GB and reached VmSize 3.4 GB (fp4_sw_fix1) without a fault, with the plain
+renderer and with the Remix bridge (`run_game_remix_gpu.sh` applies it too). On Windows nobody set it:
+that is the ~2 048 MB ceiling of the 5090's measurement. `tools/set_laa.py <gta2.exe> [<out>]` writes a
+marked **copy** (default `gta2_laa.exe` beside it; the original is never written; no game binary is ever
+committed). Its output is byte-identical to `laa.sh`'s (checked on a copy here: one byte at offset 0x11E,
+0x0F -> 0x2F), i.e. the very file every run on this host plays. The DLL was made LAA-safe on 9 Nov
+(7b36ca7: pointer checks no longer reject addresses above 2 GB). Not tested here: Windows itself and the
+Remix bridge launcher (NvRemixLauncher32) on Windows with the marked exe. NEEDS OWNER: whether to ship
+this as the recommended setup.
+
+**For the 5090 box:** back up gta2.exe, `python tools\set_laa.py C:\gta2\gta2.exe`, rename
+`gta2_laa.exe` to `gta2.exe`; play 10 minutes as before and send the `mem: minute` lines: `va ... free=`
+should start near 2 GB higher and `largest_free` be hundreds of MB, not 8.8. With this build and without
+LAA, the same lines should show `private=` ~500 MB lower than before and `ms.texgpuonly=` close to
+`ms.textures=`.

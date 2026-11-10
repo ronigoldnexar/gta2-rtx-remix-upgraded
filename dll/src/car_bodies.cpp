@@ -5506,7 +5506,9 @@ void CarBodiesMemGauges() {
     MemGauge("cb.dents", static_cast<double>(g_dents.size()), static_cast<double>(g_dentBytes));
     MemGauge("cb.doors", static_cast<double>(g_doorSplits.size()), static_cast<double>(g_doorBytes));
     MemGauge("cb.wheels", static_cast<double>(g_wheelSplits.size()), static_cast<double>(g_wheelBytes));
-    MemGauge("cb.wear", 0, static_cast<double>(g_wearBytes));
+    // FIX-PERF-5: cb.wear is the SUM of the three above (dents + doors + wheels), not a pool of its own; all of
+    // them are derived models registered with the model store, so their bytes are also inside ms.models.
+    MemGauge("cb.wear", static_cast<double>(g_dents.size() + g_doorSplits.size() + g_wheelSplits.size()), static_cast<double>(g_wearBytes));
     MemGauge("cb.cache", static_cast<double>(g_cache.size()));
     MemGauge("cb.hoods", static_cast<double>(g_hoods.size() + g_hoodDashes.size()));
     MemGauge("cb.bonnets", static_cast<double>(g_bonnetSurfs.size() + g_bonnets.size()));

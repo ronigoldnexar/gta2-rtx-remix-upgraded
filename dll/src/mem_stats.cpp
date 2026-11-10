@@ -8,7 +8,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -41,6 +43,78 @@ void NotePeak(long long live) {
 
 bool OnAllocFailure(size_t bytes, int attempt);
 
+// FIX-PERF-5: where the allocations come from. With GTA2DX9_ALLOC_SITES=1 every 256th allocation's stack is
+// scanned for return addresses inside this DLL (no frame pointers under -O2, so the first three words that
+// point into our code); each minute line is followed by the twenty commonest sites as offsets from the
+// DLL's base (symbolise with the build's gta2dx9.map).
+int g_siteSampling = -1;   // -1 not read yet
+uintptr_t g_dllBase = 0, g_dllEnd = 0;
+struct AllocSite { uint32_t w[6]; long long n, bytes; };
+constexpr int kSites = 2048;
+AllocSite g_sites[kSites];
+volatile LONG g_siteLock = 0;
+long long g_siteSamples = 0;
+
+void SampleAllocSite(size_t bytes) {
+    if (!g_dllEnd) {
+        HMODULE self = nullptr;
+        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                reinterpret_cast<LPCSTR>(&SampleAllocSite), &self) || !self) { g_siteSampling = 0; return; }
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(self);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(reinterpret_cast<const char*>(self) + dos->e_lfanew);
+        g_dllBase = reinterpret_cast<uintptr_t>(self);
+        g_dllEnd = g_dllBase + nt->OptionalHeader.SizeOfImage;
+    }
+    uint32_t found[6] = {0, 0, 0, 0, 0, 0};
+    int k = 0;
+    volatile uintptr_t marker = 0;
+    const uintptr_t* sp = const_cast<const uintptr_t*>(&marker);
+    // Never past this thread's stack base (a worker's stack ends a few hundred bytes above its entry).
+    const uintptr_t top = reinterpret_cast<uintptr_t>(reinterpret_cast<NT_TIB*>(NtCurrentTeb())->StackBase);
+    const int words = top > reinterpret_cast<uintptr_t>(sp) ? static_cast<int>((std::min<uintptr_t>)((top - reinterpret_cast<uintptr_t>(sp)) / sizeof(uintptr_t), 256)) : 0;
+    for (int i = 1; i < words && k < 6; ++i) {
+        const uintptr_t w = sp[i];
+        if (w > g_dllBase + 0x1000 && w < g_dllEnd) found[k++] = static_cast<uint32_t>(w - g_dllBase);
+    }
+    if (InterlockedCompareExchange(&g_siteLock, 1, 0) != 0) return;
+    ++g_siteSamples;
+    uint32_t h = 0;
+    for (uint32_t f : found) h = h * 2654435761u ^ f;
+    for (int probe = 0; probe < 32; ++probe) {
+        AllocSite& s = g_sites[(h + probe) & (kSites - 1)];
+        if (s.n == 0) memcpy(s.w, found, sizeof found);
+        if (memcmp(s.w, found, sizeof found) == 0) { ++s.n; s.bytes += static_cast<long long>(bytes); break; }
+    }
+    InterlockedExchange(&g_siteLock, 0);
+}
+
+void LogAllocSites() {
+    if (g_siteSampling <= 0 || !g_siteSamples) return;
+    if (InterlockedCompareExchange(&g_siteLock, 1, 0) != 0) return;
+    static AllocSite top[20];
+    int n = 0;
+    for (const AllocSite& s : g_sites) {
+        if (!s.n) continue;
+        int at;
+        if (n < 20) at = n++;
+        else if (s.n > top[19].n) at = 19;
+        else continue;
+        top[at] = s;
+        while (at > 0 && top[at - 1].n < top[at].n) { const AllocSite t = top[at - 1]; top[at - 1] = top[at]; top[at] = t; --at; }
+    }
+    const long long samples = g_siteSamples;
+    // Each line covers the minute since the last (the load's own allocations do not drown the play's).
+    memset(g_sites, 0, sizeof g_sites);
+    g_siteSamples = 0;
+    InterlockedExchange(&g_siteLock, 0);
+    char line[2560];
+    int len = snprintf(line, sizeof(line), "mem: alloc sites (1 in 256, %lld samples in the last minute; the first six stack words inside the DLL as offsets, share, mean bytes):", samples);
+    for (int i = 0; i < n && len > 0 && len < static_cast<int>(sizeof(line)) - 120; ++i)
+        len += snprintf(line + len, sizeof(line) - len, " %x/%x/%x/%x/%x/%x %.1f%% %lldB;", top[i].w[0], top[i].w[1], top[i].w[2], top[i].w[3], top[i].w[4], top[i].w[5],
+                        100.0 * static_cast<double>(top[i].n) / static_cast<double>(samples), top[i].bytes / top[i].n);
+    Log("%s", line);
+}
+
 void* CountedAlloc(size_t bytes) {
     for (int attempt = 0;; ++attempt) {
         void* p = malloc(bytes + kHeader);
@@ -48,8 +122,15 @@ void* CountedAlloc(size_t bytes) {
             *static_cast<size_t*>(p) = bytes;
             const long long live = g_liveBytes.fetch_add(static_cast<long long>(bytes), std::memory_order_relaxed) + static_cast<long long>(bytes);
             g_liveBlocks.fetch_add(1, std::memory_order_relaxed);
-            g_totalAllocs.fetch_add(1, std::memory_order_relaxed);
+            const long long count = g_totalAllocs.fetch_add(1, std::memory_order_relaxed);
             NotePeak(live);
+            if ((count & 255) == 0 && g_siteSampling != 0) {
+                if (g_siteSampling < 0) {
+                    char buf[8] = {};
+                    g_siteSampling = GetEnvironmentVariableA("GTA2DX9_ALLOC_SITES", buf, sizeof buf) && buf[0] == '1' ? 1 : 0;
+                }
+                if (g_siteSampling > 0) SampleAllocSite(bytes);
+            }
             return static_cast<char*>(p) + kHeader;
         }
         if (!OnAllocFailure(bytes, attempt)) return nullptr;
@@ -260,6 +341,7 @@ void MemStatsLog(const char* why, int full) {
     CarGlassMemGauges();
     MapObjectsMemGauges();
     Log("mem: caches%s", g_gauges);
+    LogAllocSites();
 }
 
 void MemStatsTick() {
