@@ -68,7 +68,8 @@ bottom: the two Ultra sessions, the same fixed camera at 13:00).
 - **Consequence for Group B / the defect files:** every Tokyo Remix frame on the play rig (Medium) and on Auto
   (Low on the L4) was rendered without sun shadows, while the owner's 5090 (Blackwell, Auto = Ultra) has them. The
   "daytime no sun / no shadows" family filed from Tokyo is at least partly the preset. Proposal for the coordinator
-  (not changed here; `rtx_play.conf.extra` is not this seat's): run any Remix check that judges daylight at Ultra.
+  (not changed by this seat): run any Remix check that judges daylight at Ultra. **Adopted:** the coordinator moved
+  `rtx_play.conf.extra` to `graphicsPreset = 0` in 56fff34d.
 - **Cost:** p50 per camera Medium 58.2 / 48.6 (day), 41.9 / 45.9 ms (night) in rp1_base, 68.6 / 59.1 / 45.7 / 43.8
   in rp1_base2 (GPU shared, noisy); Ultra 55.0 / 48.3 / 46.1 / 44.6 (rp1_a). No measurable cost on the L4 at 1280x720.
 - **Trap found:** at Ultra (and any preset other than Custom 4) the preset layer owns `rtx.integrateIndirectMode`:
@@ -148,3 +149,77 @@ session's sun and shadows, so nothing the preset sets was lost). Run `out/rp1_b2
 (2c-2e), Reflex off (2g), `frameGenerationType 0` (2f). Use: `-e RTX_EXTRA=/work/rtx_parity_max.conf.extra` on
 `rn_remix.sh` / `playtest_remix.sh`, or `gamerun/rp1_take.sh <run> rtx_parity_max.conf.extra <secs>`. Every step conf
 of this page is in `linux/docker/rp1_*.conf.extra`.
+
+### 2f. FSR 3 frame generation: initialises on the L4; one hang in two sessions
+
+`rtx.frameGenerationType = 2` on the 2b rig (runs `out/rp1_f2`, replicate `out/rp1_f3`).
+- **Log** (`out/rp1_f2/remix-logs/remix-dxvk.log`): the master sets its slave (l. 115 `rtx.fsrfg.enable = True`, echoed by
+  the runtime; `rtx.dlfg.enable` stays False), then l. 305-335 `FSR FG: Creating FSR FG Presenter`, `Swapchain proxy created
+  successfully`, `Using queues for FFX SDK: game=0, present=2, imageAcquire=1, async=2, asyncEnabled=1`, `Frame gen context
+  created successfully`, `FSR FG Presenter: Recreated successfully for 1280x720`. **FSR FG is fully created on an L4.**
+- **What changed in the picture:** nothing wrong on the still cameras: sun shadows, people and cars as in 2b
+  (`out/rp1_frames/ab_2f_b2_vs_fsrfg_007_S0_h13_third_c0_0.png`); no ghosting seen on these (slow-moving) frames.
+- **Presented frame rate: not measured.** The runner records with x11grab at 15 fps, below both the real and the
+  generated rate, and the renderer's frame log (`GTA2DX9_FRAME_LOG`) times the game's frames, not the presenter's.
+  Game-side cost is unchanged (rp1_f3: 56.9 / 52.3 / 47.5 / 47.2 ms p50), and the present stage's p90 drops from
+  21-34 ms (2b) to 12-20 ms (the presenter thread takes the queue). Whether Tokyo shows ~2x presented frames needs a
+  presenter-side counter or a faster capture: untested.
+- **Stability: one hang in two sessions.** In rp1_f2 the game thread stopped inside the Remix bridge client
+  (`d3d9.dll`, waiting on the server) at the switch to 21:30 and did not return before the session ended (`gta2dx9.log`:
+  `stall sampler: game thread idle 65719 ms`; `remix_shaders.txt`: `63 stall samples, longest game-thread stall 65.7 s`);
+  the server's log just stops. rp1_f3, the same conf, ran clean (0 stall samples). The nine sessions without FG on this
+  page had 0 stall samples. Not enough to blame FG; enough to leave it **off** in the parity rig and to say: turn it on
+  only for a check about frame pacing, and treat a hang in such a run as possibly FG's.
+
+### The parity rig as a whole (run `out/rp1_rig`)
+
+`gamerun/rp1_take.sh rp1_rig rtx_parity_max.conf.extra 420`, 20:34 UTC: log l. 295-340 `Opacity Micromap: supported`,
+`Shader Execution Reordering: supported` / `enabled`, `[RTX] Opacity Micromap: enabled`, `[RTX] Integrate Indirect Mode:
+ReSTIR GI - activated`; no NRC errors; 0 stall samples. Frame `out/rp1_frames/rp1_rig/007_S0_h13_third_c0_0.png`: the
+13:00 sun shadows of bench, meter, hydrant, lamp post and pedestrians. Cost 81.4 / 66.6 (day) and 50.1 / 45.2 ms (night)
+p50: the day figure is the highest of eleven sessions whose effective options equal rp1_b2's (63.0 / 50.2), the same
+spread rp1_base2 showed on the unchanged play rig (68.6 against 58.2): session-to-session noise on a shared host is
+about +-15 ms by day, so take ~15-22 fps at 1280x720 as the L4's range under this rig.
+
+## 3. The traps (order section 3), as met here
+
+- `rtx.frameGenerationType` is the master: setting it to 2 made the runtime echo `rtx.fsrfg.enable = True` itself. Never set the slaves.
+- **New trap:** any `rtx.graphicsPreset` other than 4 (Custom) owns `rtx.integrateIndirectMode`; Ultra forces NRC, which on
+  the L4 falls back to Importance Sampled. ReSTIR GI is only reachable with Custom (2a, rp1_b).
+- `rtx.showUI` was not set by these rigs and no overlay ate keys (the keys script's marks and warps all landed); the
+  compositor of `run_game_remix_gpu.sh` keeps the GUI input window transparent (docs/remix-gpu-l4.md).
+- Clock: `rn_remix.sh` sets `[timeofday]` `Paused=1` / `StartHour` in `gta2dx9_settings.ini` through `SETTINGS_SED`, and the
+  probe moves the hour with `[devtools] set_hour_tenths`; no `[weather] hour_hhmm` was relied on.
+- Front end: `remix_keys_lib.sh` `to_level` (two Returns, no arrows); no vehicle entry was needed (`GTA2DX9_SCENE_NO_CAR=1`).
+
+## 4. Replacement for VERIFICATION_TRIAGE.md Group B
+
+What Tokyo can now do with `rtx_parity_max.conf.extra` (or the play rig at Ultra since 56fff34d for daylight checks):
+Ultra-preset sun and shadows, ReSTIR GI multi-bounce indirect light, Opacity Micromap, SER, volumetrics, FSR 3 frame
+generation (created; presented rate unmeasured). What it cannot: anything NGX.
+
+| item | verdict | evidence |
+|---|---|---|
+| B1 Remix smoke rendering (puffs as blended particle billboards, lit result) | **partly** | the lit result is now judged under real multi-bounce GI (ReSTIR GI, 2b) and Ultra shadows (2a) instead of importance-sampled noise at Medium; no smoke frame was taken in this pass. The classification itself (billboard flags) is deterministic and reproducible anywhere. What stays 5090-only: the look under NRC + DLSS-RR denoising, which change how a thin blended volume reads |
+| B2 LARGEADDRESSAWARE / 32-bit address space | **still 5090-only**, because Wine's allocator and address layout are not Windows'; not a Remix feature, the rig changes nothing | - |
+| B3 address-space fragmentation drift | **still 5090-only**, same reason as B2 | - |
+| B4 follow_clock=auto and the Remix sun ("night sky, daylit street") | **partly** | the Remix atmosphere's sun is honoured on the L4 and casts shadows at Ultra/Custom (`out/rp1_frames/sheet_2a_medium_top_ultra_bottom_13h.png`, `rp1_rig/007_*`); Tokyo's shadowless days were the Medium preset (2a), so sun-vs-sky checks are reproducible here at the right preset. `follow_clock=auto` itself was not exercised in this pass |
+| B5 night exposure / sky fill (1.2/0.3 vs 2.5/1.0 gave a brighter result) | **partly** | auto exposure and the sky fill are post and atmosphere, not NGX, and run here; but the indirect fill they meter is NRC's (infinite bounce) on the 5090 and ReSTIR GI's (4 bounces) on the rig, so absolute night brightness differs. Re-run the two settings as a same-pose A/B on Tokyo under the rig first (the direction of the effect is reproducible); the final numbers on the 5090 |
+| B6 NRC, DLSS, frame generation | **split**: NRC, DLSS upscaling, Ray Reconstruction, DLSS frame generation (`frameGenerationType = 1`) **still 5090-only, because** the driver refuses NGX on datacenter parts (`0xbad00001`, section 1) and NRC's SDK does not initialise (`Could not initialize SDK API`). **FSR 3 frame generation (`= 2`) is reproducible on Tokyo**: created on the L4 (2f), with the hang caveat | rp1_f2 / rp1_f3 logs |
+| B7 the minimise/focus freeze | **still 5090-only**, because Wine never minimises a window (FIX-STABILITY-1 had to simulate it); not Remix | - |
+| B8 camera jitter near a phone box / when a bus passes | **not a Remix gap**: the clearance probe is the renderer's own camera code and runs on Tokyo (plain renderer or Remix, the rig changes nothing). Tokyo can attempt it; the owner's report is from the 5090, so the sign-off stays there | - |
+
+New items for the list (found here): Reflex is blocked by Wine, not by the SKU (2g); it changes latency only, so no
+visual check depends on it. DLSS 4 present metering (`NV_present_metering extension not supported`) is NGX-family.
+
+## Verified vs untested
+
+- **Verified** (frames opened and log lines read, GPU 4, 12 sessions `out/rp1_*`): the section 1 table; Ultra casts sun
+  shadows that Medium does not (2 sessions each way); Ultra blocks ReSTIR GI, Custom enables it; OMM / SER / volumetrics
+  are on by default and their off switches show in the log with no visible change; FSR FG is created; Reflex fails with
+  the quoted error while the driver exposes the extension; the committed rig starts ReSTIR GI with OMM and SER enabled
+  and keeps the sun shadows.
+- **Untested:** the presented frame rate under FSR FG; whether FG caused the rp1_f2 hang (1 of 2); the Ultra preset's
+  internal per-option table (the runtime does not print it: the rig writes the option-table defaults and matches Ultra's
+  frames, not a dump); dxvk-nvapi for Reflex; first person, driving, other districts and smoke under the rig.
+- No DLL, `package/` or classic-path change: the classic top-down view is untouched by construction (no build was made).
