@@ -23,6 +23,7 @@ bool g_crowdVariety = true;
 float g_paintFloor = 77.0f;
 int g_paintRef = 1;          // [devtools] paint_ref: 1 the panels + no clip (FIX-CAR-IDENTITY-4), 0 the c8ba78f mean rule
 float g_paintGain = 1.25f;   // the panel rule's level (car_bodies.cpp: paint_gain_percent at the lid's light)
+float g_paintCast[3] = {1.0f, 1.0f, 1.0f};   // FIX-CAR-IDENTITY-6: the post's hemisphere cast on a lid (car_bodies.cpp), luminance 1
 bool g_liveryGain = true;     // [devtools] livery_gain: a livery body takes the lid-light gain too (FIX-CAR-IDENTITY-5, pmt5)
 float g_paintLid = 0.96f;    // the light on a lid (stage 0 multiplies the texel by it before the tint: the clip test)
 uint32_t g_frame = 0;
@@ -247,16 +248,24 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     // The dark floor is a least level, not a second multiply on top of the gain (a navy sprite drew +57 % L* when
     // both applied: fci4_paint2): the floor's lift counts the gain already given.
     if (gain > 1.0f && lift > 1.0f) lift = (std::max)(1.0f, lift / gain);
+    // FIX-CAR-IDENTITY-6 (ptm1 van36 16 deg toward teal): the plain renderer's post multiplies an up-facing face by the
+    // sky's hue (the [visuals] hemisphere term, ~x0.975,1.015,1.12 on a lid by day), which the sprite never gets: a
+    // low-chroma paint turned by up to 16 degrees (the van's green to teal), every paint ~7 toward blue, white blue-grey.
+    // The tint carries the inverse of that cast (luminance 1: the level stays the gain's), for painted bodies and lit
+    // liveries alike, inside the no-clip cap. 1,1,1 under Remix and with the term off (car_bodies.cpp).
+    float corr[3] = {1.0f, 1.0f, 1.0f};
+    if ((!r.livery || liveryLit) && g_paintRef == 1)
+        for (int k = 0; k < 3; ++k) corr[k] = 1.0f / (std::max)(0.5f, g_paintCast[k]);
     float cap = 1.0f;
     if ((!r.livery || liveryLit) && g_paintRef == 1) {
         float most = 0.0f;
-        for (int k = 0; k < 3; ++k) most = (std::max)(most, liveryLit ? gain : gain * lift * live[k] / ownPaint[k]);
+        for (int k = 0; k < 3; ++k) most = (std::max)(most, (liveryLit ? gain : gain * lift * live[k] / ownPaint[k]) * corr[k]);
         // The texture stages clip texel x light x tint: the brightest lid texel under the lid's light.
         if (most * panelTop * g_paintLid > 250.0f) cap = 250.0f / (most * panelTop * g_paintLid);
     }
     for (int k = 0; k < 3; ++k) {
         const float own = ownPaint[k];
-        r.paintTint[k] = liveryLit ? cap * gain : r.livery ? 1.0f : cap * gain * lift * live[k] / own;
+        r.paintTint[k] = (liveryLit ? cap * gain : r.livery ? 1.0f : cap * gain * lift * live[k] / own) * corr[k];
         // shown: the colour the lit body reads as (the gain only gives back what the 3D light takes).
         r.shownTop[k] = r.shownBottom[k] = r.livery ? own : (std::min)(255.0f, cap * lift * live[k]);
     }
@@ -332,6 +341,12 @@ void IdentitySetPaintFloor(float floor) {
 }
 void IdentitySetLiveryGain(bool on) {
     if (g_liveryGain != on) { g_liveryGain = on; g_cars.clear(); }
+}
+void IdentitySetPaintCast(const float cast[3]) {
+    if (g_paintCast[0] != cast[0] || g_paintCast[1] != cast[1] || g_paintCast[2] != cast[2]) {
+        for (int k = 0; k < 3; ++k) g_paintCast[k] = cast[k];
+        g_cars.clear();
+    }
 }
 void IdentitySetPaintRef(int mode, float gain, float lid) {
     if (g_paintRef != mode || g_paintGain != gain || g_paintLid != lid) { g_paintRef = mode; g_paintGain = gain; g_paintLid = lid; g_cars.clear(); }

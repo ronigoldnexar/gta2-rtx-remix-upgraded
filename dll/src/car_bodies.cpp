@@ -32,6 +32,7 @@
 #include "explosion_fx.h"
 #include "../../src/sky.h"
 #include "../../src/post_fx.h"   // VisualsConfig (feel29 car_shadow_blend)
+#include "../../src/weather_fx.h"   // WeatherAdjustSky (FIX-CAR-IDENTITY-6 paint sky cast)
 
 namespace gta2dx9 {
 namespace {
@@ -64,6 +65,7 @@ int g_paintRefDev = 1;        // [devtools] paint_ref (FIX-CAR-IDENTITY-4 A/B)
 // FIX-CAR-IDENTITY-5: the sprite's paint from its clean style art in the drawn palette (1, default) or from the drawn
 // record's pixels as before (GTA2DX9_CLEAN_PAINT=0, for A/B runs).
 const bool g_cleanPaint = [] { char v[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_CLEAN_PAINT", v, sizeof v) && v[0] == '0'); }();
+bool g_paintSkyCast = true;   // [devtools] paint_sky_cast: the tint takes out the post's hemisphere cast (FIX-CAR-IDENTITY-6)
 float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain at the lid light it was measured under
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's exact door outline off (A/B)
@@ -3730,6 +3732,35 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         float lid = (std::max)(0.45f, 0.353f + 0.78f * (std::max)(0.0f, -sun.Direction.y));
         lid = std::round(lid * 50.0f) / 50.0f;   // a slowly moving clock sun does not re-derive every frame
         IdentitySetPaintRef(g_paintRefDev, remix ? 1.0f : g_paintGainDev * 0.96f / lid, remix ? 1.0f : (std::min)(1.0f, lid));
+        // FIX-CAR-IDENTITY-6: the cast the post's hemisphere term lays over a lid (src/post_fx.cpp SetSky + ps_composite:
+        // lerp(1, skyTint, 0.30) at a face looking straight up, skyTint from the same weather-adjusted zenith and
+        // horizon the sky dome is drawn with), luminance 1, for the paint tint to take out (identity.cpp). The van's
+        // remap-36 green drew 16 degrees toward teal with it, at the sprite's hue without it (hemisphere=0, fci6_hemi1).
+        // Rounded so a slowly moving clock does not re-derive every car each frame. [devtools] paint_sky_cast=0: off.
+        float cast[3] = {1.0f, 1.0f, 1.0f};
+        const gta2::VisualsSettings& vs = gta2::VisualsConfig();
+        const gta2::SkySettings& skyCfg = gta2::SkyConfig();
+        if (!remix && g_paintSkyCast && vs.enabled && vs.hemisphere && skyCfg.enabled) {
+            float elevation = skyCfg.sunElevationDeg, azimuth = skyCfg.sunAzimuthDeg;
+            if (skyCfg.followClock) TimeOfDayAngles(&elevation, &azimuth);
+            gta2::SkyColours sc = gta2::ComputeSkyColours(elevation, azimuth);
+            gta2::SkySettings ss = skyCfg;
+            gta2::WeatherAdjustSky(&sc, &ss);
+            const gta2::Vec3 skyMix = sc.zenith * 0.6f + sc.horizon * 0.4f;
+            const float l = (std::max)(0.02f, 0.2126f * skyMix.x + 0.7152f * skyMix.y + 0.0722f * skyMix.z);
+            const float tintSky[3] = {(0.55f + 0.45f * skyMix.x / l) * 1.04f, (0.55f + 0.45f * skyMix.y / l) * 1.04f,
+                                      (0.55f + 0.45f * skyMix.z / l) * 1.04f};
+            for (int k = 0; k < 3; ++k) cast[k] = 1.0f + 0.30f * (tintSky[k] - 1.0f);
+            const float cl = 0.2126f * cast[0] + 0.7152f * cast[1] + 0.0722f * cast[2];
+            for (int k = 0; k < 3; ++k) cast[k] = std::round(cast[k] / (std::max)(0.05f, cl) * 100.0f) / 100.0f;
+        }
+        static float lastCast[3] = {-1.0f, -1.0f, -1.0f};
+        if (cast[0] != lastCast[0] || cast[1] != lastCast[1] || cast[2] != lastCast[2]) {
+            static int castLogs = 0;
+            if (castLogs++ < 40) Log("car bodies: paint sky cast %.2f,%.2f,%.2f (the post's hemisphere term on a lid; the tint takes it out)", cast[0], cast[1], cast[2]);
+            for (int k = 0; k < 3; ++k) lastCast[k] = cast[k];
+        }
+        IdentitySetPaintCast(cast);
     }
     // QB-19: a blast nearby lights the bodies orange while it flashes (plain renderer only;
     // under Remix the fireball's emissive particles do it).
@@ -3808,6 +3839,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_paintRefDev = GetPrivateProfileIntA("devtools", "paint_ref", 1, g_devIni);
         IdentitySetLiveryGain(GetPrivateProfileIntA("devtools", "livery_gain", 1, g_devIni) != 0);
         g_paintGainDev = static_cast<float>(GetPrivateProfileIntA("devtools", "paint_gain_percent", 125, g_devIni)) / 100.0f;
+        g_paintSkyCast = GetPrivateProfileIntA("devtools", "paint_sky_cast", 1, g_devIni) != 0;   // FIX-CAR-IDENTITY-6 A/B
         g_paintSpecPower = static_cast<float>((std::max)(4, static_cast<int>(GetPrivateProfileIntA("devtools", "paint_spec_power", 50, g_devIni))));
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
         g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);

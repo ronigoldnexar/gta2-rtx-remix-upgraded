@@ -813,3 +813,89 @@ The bil F10 car (section 10.3) passes the same checks in two fresh sessions (`ou
 - The re-used-object case of pmt4 cannot be forced in a run; it is closed by construction (palette in the record, clean art)
   and visible in the log (`CHANGED palette`, `driven car art`).
 - First person on foot has no body to probe; Remix not run for these changes (the livery gain is off under Remix by design).
+
+
+## 11. Inside-out kits and the sky's cast on the lids (FIX-CAR-IDENTITY-6, 10 Nov 2026)
+
+Work orders pmx11 (2g2: the 018 coupe 26-37 % darker than its sprite paint), ptm1 (2w2: the bank van's green), and the
+gate's first run (section 10.6): 8 FAIL, all on the authored carkit 018, the remapped 004 and the livery 051.
+
+### 11.1 Where the light went (measured, `out/fci6_diag1`, `out/fci6_dbg1`)
+
+The record and the tint were right: 018 and 013 white both got tint 1.56, 018 red 1.19,0.58,0.58 against 013's
+1.12,0.55,0.55; the kits' paint textures are opaque and bright (018 median 231). Same-spot toggles on the paint probe:
+
+| 018 white lids | base | shadows=0 | car_world_sun=0 (51-degree sun, gain 1.25) | ao 0 |
+|---|---|---|---|---|
+| 018 (vehicle_art2 kit) | 131 | 132 | 90 | 133 |
+| 013 (models_art kit) | 212 | 234 | 219 | 216 |
+
+013 holds its level when the sun moves (the gain follows the lid's light); 018 falls with the tint alone and the shadow
+mask does not touch it: its lids get **no sun at all**. 131 = 0.353 ambient x 1.56 x 235 exactly. A debug build logged
+the D3D state per paint draw (lighting on, light 0 on with the world's sun, material 1/1, the same stages as 013, a
+mirrored world matrix as for every car) and the vertex normals in memory equal the file's.
+
+The cause is the meshes: **the vehicle_art2 kits are inside out**. Their faces are wound and normalled inward
+consistently, so "normals agree with winding" passes; the top 5 % of 018's faces have normal.y -0.98 (013: +0.22..+0.48
+outward), and the glbs in `assets-src/cars/vehicle_art2` are the same (negative signed volume). The renderer draws car
+bodies without culling, so the shape is right, but the fixed-function sun lights the inside of every panel. carkit.py's
+`surface()` keeps the sign of the u x v derivative; its `box()` parts write outward normals (061/065/066 are fine).
+
+### 11.2 The check and the fix tool
+
+`tools/car_mesh_orient.py`:
+
+- `check <models dir> [names]` (numpy): per authored body (surface-named textures, the renderer's own test), the
+  top faces' normal and, per painted mesh, the share of its area facing away from the body's centre (a roof plate can
+  face out over a painted box that faces in: 004). Exit = number INSIDE-OUT. On HEAD 858415f's `assets/models`: 19
+  (004 008 010 018 036 038 039 040 042 050 051 053 055 056 057 058 059 060 082); ok 061 063 065 066; the image-to-3D
+  shells are skipped (wound either way by nature, normals welded at load).
+- `fix in.mesh out.mesh` (gen3d venv, open3d): each connected patch faces the side that sees more sky (cosine rays
+  against the car, glass not an occluder: bake_ao's own rule). 013 as a control: 0 % of its area turned; 018 67 %
+  (its paint 100 %), 004 42 %, 051 62 %.
+- `tools/identity_parity_run.sh` runs the check on the stage and counts every INSIDE-OUT body as a failure (static, so
+  it covers the whole fleet, not only the sampled classes).
+
+The model files are VEHICLE-ART-12's (note beside its vr-prewar order): the generator should emit outward faces, or
+run `fix` over each kit after import.
+
+### 11.3 The sky's cast (ptm1: the van's remap-36 green 16 degrees toward teal)
+
+With the meshes re-oriented the van's levels were right (+2..+5 %) and its green still turned toward teal. A
+same-spot A/B with `[visuals] hemisphere=0` (`out/fci6_hemi1`) put it at the sprite's exact hue (151 deg; green 120,
+white neutral): the post's hemisphere term (`src/post_fx.cpp` SetSky, `ps_composite`: an up-facing pixel times
+lerp(1, skyTint, 0.30), skyTint the sky's own hue) lays ~x0.975,1.015,1.12 over a lid by day, which the classic sprite
+never gets. It turns every paint ~7 degrees toward blue and a low-chroma one (the van's 70,99,85) by 16.
+
+`car_bodies.cpp` computes that lid cast each frame from the same weather-adjusted zenith and horizon the dome is drawn
+with (luminance 1, rounded to 0.01) and hands it to the record (`IdentitySetPaintCast`); `DeriveVehicle` divides the tint
+by it (painted bodies and lit liveries, inside the no-clip cap; level unchanged). Off under Remix, with `[visuals]`
+off or `hemisphere=0`, and with `[devtools] paint_sky_cast=0` (A/B, re-read live). Log:
+`car bodies: paint sky cast r,g,b`. The sides still get the street's warm bounce from below (the term's ground half).
+
+### 11.4 Measured (frames opened; gate paint session, top pose = the classic camera)
+
+| Class (model) | gate1 (fci5) | meshes re-oriented (`fci6_or1_paint`) | + sky cast (`fci6_cast1_paint`) |
+|---|---|---|---|
+| generated (000) | -21..+5 %, hue <= 7 | (unchanged mesh) | -23..+3 %, hue <= 2 |
+| authored (013 / 063 / 068) | -18..+14 %, hue <= 7 | 013 -15..-3 % | -17..+16 %, hue <= 3 |
+| authored carkit (018) | **-35..-41 % FAIL** | -7..+5 % | -7..+1 %, hue <= 4; white -15 % (report), neutral |
+| remapped (004) | **-27..-34 % FAIL**, van36 hue **17 FAIL** | +2..+5 %, van36 hue 16 FAIL | -1..+6 %, van36 hue **2**, vanblue 0 |
+| livery (051) | -45 % WARN | +6 % | +8 %, hue 7 |
+| wreck (074) | -48 % WARN | - | -47 % WARN (art: the charred copy) |
+| total | 8 FAIL, 8 WARN | 1 FAIL | **0 FAIL**, 5 WARN |
+
+The two right-hand columns run on private stages with the re-oriented 018/004/051 meshes, which are not in the model
+store yet: on a HEAD stage the paint half still FAILs on those three until VEHICLE-ART-12 re-imports the kits, and the
+orientation check counts 19 failures. The sky-cast change alone (HEAD meshes) moves hue only.
+
+### 11.5 Still short
+
+- The 19 inside-out kits (art, VEHICLE-ART-12) are the gate's remaining failures on a HEAD stage.
+- Lightness spread per model (the bodies' baked light): 000 yellow -23 %, 013 yellow -17 %, 068 red/green +15..+16 %
+  (WARN); white reads -9..-29 % on the body mean because a lid cannot pass white; black/navy held up by the dark floor.
+- The wreck 074 reads half its sprite's lightness (the charred copy's albedo, VEHICLE-ART-3's).
+- The paint probe's warp spot drifts: `out/fci6_post1` parked the car 1.5 blocks along (y 189.62 against 188.1), in a
+  building's shadow, and every body read -25..-34 % (hue still right). Read the frame before a lightness FAIL;
+  `out/fci6_post2` at 188.17 matched `fci6_cast1_paint`.
+- First person on foot has no body to probe; Remix: section 11.6 when run.

@@ -94,6 +94,9 @@ bool IdentityBakeTints();
 void IdentitySetCrowdVariety(bool on);     // [crowd] variety
 void IdentitySetPaintFloor(float floor);   // [renderer] car_paint_floor_percent, as 0..255 luminance
 void IdentitySetPaintRef(int mode, float gain, float lid);
+// FIX-CAR-IDENTITY-6: the colour cast the plain renderer's post lays over a lid (the [visuals] hemisphere term: the sky's
+// hue from above), luminance 1; the paint tint is divided by it so the lit lid keeps the sprite's hue. 1,1,1 under Remix.
+void IdentitySetPaintCast(const float cast[3]);
 void IdentitySetLiveryGain(bool on);   // [devtools] livery_gain (FIX-CAR-IDENTITY-5 A/B): liveries take the lid-light gain   // [devtools] paint_ref / paint_gain_percent (FIX-CAR-IDENTITY-4 A/B)
 
 // Once a frame (records not seen for a while are let go; the probe's per-frame state).
