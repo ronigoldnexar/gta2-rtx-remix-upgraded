@@ -62,7 +62,25 @@ def answer_again(entry):
         time.sleep(1.0)
     G.arm_job()                              # a fresh message window: LABRAT'S 2999 is behind us
     P.APPROACH[(entry["x"], entry["y"])] = LP.PHONE_WAY
+    # MISSIONS-BATCH3: LABRAT'S PLAN ends in The Village, ~200 blocks from the phone: the same marked
+    # LP_WARP_PHONE warp as at the session start (the trip is the shared driver's, not this job's), then
+    # labrats_plan's aimed-step answer (mb2_lp9: the walk onto the phone answered the GRAN'PA phone one
+    # block south) with this job's title keys
+    s = D.wait_state()
+    if s and s["driving"]: M.leave_car()
+    LP.warp_near_phone()
     M.set_avoid_phones(world, keep=(entry["x"], entry["y"]))
+    if os.environ.get("LP_STEP_ANSWER", "1") == "1":
+        lp_title = LP.TITLE; LP.TITLE = TITLE
+        try:
+            ok, key = LP.step_answer(entry, M.log_size())
+        finally:
+            LP.TITLE = lp_title
+        ms = M.mission_state() or {}
+        M.mark(f"redneck_attack: step answer: {ok} {key} msg {ms.get('msg')}")
+        o = M.objective()
+        if ok and (key in TITLE or ms.get("msg") in TITLE or (o and math.hypot(o[0] - GENS[1][0], o[1] - GENS[1][1]) < 3)):
+            M.set_avoid_phones(world, keep=None); return True
     for k in range(2):
         ok, key = P.answer(entry)
         ms = M.mission_state() or {}

@@ -206,6 +206,107 @@ def route_step(world, s, tx, ty, tl=None, secs=2.0):
     return M.cruise_to(gx, gy, tol=0.5, secs=secs)[0]
 
 
+AIM_GATE = float(os.environ.get("GF_AIM_GATE", "0"))   # MISSIONS-BATCH3: the trigger only while the facing is this
+                                                     # close (radians) to the target (0: held throughout, as before)
+
+
+def aim_fire(tx, ty, walk=True, secs=0.5):
+    """mission_lib._aim_walk with the trigger gated on the aim: held only while the facing is within
+    AIM_GATE of the target. mb3l_lp1-lp4: ~70 machine-gun rounds per counted kill with the trigger held
+    through every turn, and the Village generator gives 100 a minute"""
+    if walk: xdo("keydown", "Up")
+    firing = None; t1 = time.time()          # None: the trigger's state from the last slice is not known
+    try:
+        while time.time() - t1 < secs:
+            s = D.wait_state()
+            if not s or s["driving"]: break
+            a = D.angle_to(s, tx, ty)
+            want = abs(a) <= AIM_GATE
+            if want != firing:
+                xdo("keydown" if want else "keyup", "Control_L"); firing = want
+            if abs(a) > 0.06:
+                key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
+                xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.3)); xdo("keyup", key)
+            time.sleep(0.06)
+    finally:
+        if walk: xdo("keyup", "Up")
+
+
+HEAVY = os.environ.get("GF_HEAVY", "")              # MISSIONS-BATCH3: a heavy weapon by its log name (rocket_launcher) used on
+HEAVY_MIN = float(os.environ.get("GF_HEAVY_MIN", "5.0"))   # men on foot from HEAVY_MIN to HEAVY_MAX blocks with an open line and nothing
+HEAVY_MAX = float(os.environ.get("GF_HEAVY_MAX", "9.5"))   # nearer in it; the ordinary gun for anything closer ('' : off)
+HEAVY_LEFT = [None]                                  # its rounds when last in the hand (0: none left / not carried)
+
+
+def weapon_now():
+    return (M.mission_state() or {}).get("weapon")
+
+
+def wield(want, avoid=None, presses=7):
+    """cycle the weapons (X) until `want` is in the hand (or, want None, anything with rounds but `avoid`)"""
+    for k in range(presses):
+        ms = M.mission_state() or {}
+        w = ms.get("weapon")
+        if want and w == want and ms.get("ammo", 0) > 0: return True
+        if not want and w != avoid and M.gun_ready(ms): return True
+        tap("x", 0.15); time.sleep(0.45)
+    ms = M.mission_state() or {}
+    return (ms.get("weapon") == want and ms.get("ammo", 0) > 0) if want else (ms.get("weapon") != avoid and M.gun_ready(ms))
+
+
+def heavy_line_clear(s, tgt, d):
+    """no car and no other ped within a block of the line nearer than the target (a rocket bursts on the
+    first thing it meets) and none nearer than HEAVY_MIN at all within 1.5 of the line"""
+    for c in M.cars():
+        cd = math.hypot(c["x"] - s["x"], c["y"] - s["y"])
+        if cd < d + 0.5 and in_line(s, tgt["x"], tgt["y"], c["x"], c["y"], width=1.2): return False
+    for p in M.peds():
+        if p["id"] == tgt["id"] or not M.ped_alive(p): continue
+        pd = math.hypot(p["x"] - s["x"], p["y"] - s["y"])
+        if pd < d - 0.3 and pd < HEAVY_MIN and in_line(s, tgt["x"], tgt["y"], p["x"], p["y"], width=1.5): return False
+    return True
+
+
+def heavy_shot(s, tgt):
+    """one rocket at tgt: the heavy weapon in the hand, the aim inside 0.08 rad, a short trigger press"""
+    if not wield(HEAVY):
+        HEAVY_LEFT[0] = 0; M.mark(f"gunfight: no {HEAVY} to hand: the gun from here on"); return False
+    t1 = time.time()
+    while time.time() - t1 < 1.2:
+        s2 = D.wait_state()
+        if not s2: break
+        a = D.angle_to(s2, tgt["x"], tgt["y"])
+        if abs(a) <= 0.08: break
+        key = "Left" if (a > 0) == (D.left_sign > 0) else "Right"
+        xdo("keydown", key); time.sleep(min(abs(a) / max(D.rate, 2.0), 0.3)); xdo("keyup", key); time.sleep(0.05)
+    xdo("keydown", "Control_L"); time.sleep(0.2); xdo("keyup", "Control_L")
+    ms = M.mission_state() or {}
+    HEAVY_LEFT[0] = ms.get("ammo", 0) if ms.get("weapon") == HEAVY else 0
+    return True
+
+
+def safe_back(world, s, tx, ty, d=1.8):
+    """MISSIONS-BATCH3: is the ground behind him (away from (tx, ty), d blocks) open at his level, so a
+    retreat walking backwards does not step off a ledge? mb3l_lp1 backpedalled off the Village's raised
+    edge (z 3.85 -> 3 -> 2 -> 0, health 100 -> 0) firing at a man on a level-3 roof"""
+    dx, dy = s["x"] - tx, s["y"] - ty; n = math.hypot(dx, dy) or 1.0
+    bx, by = s["x"] + dx / n * d, s["y"] + dy / n * d
+    try:
+        return M.line_clear(world, (s["x"], s["y"]), (bx, by), M.ped_level(s), kinds=(1, 2, 3), half_width=0.3)
+    except Exception:
+        return False
+
+
+def retreat_fire(world, s, tx, ty, secs):
+    """backpedal firing at (tx, ty) when the ground behind is open, else stand and fire"""
+    from skills import kill_marked as K
+    if safe_back(world, s, tx, ty):
+        K.backpedal(tx, ty, secs=secs)
+    else:
+        say(f"gunfight: no open ground behind at {s['x']:.1f},{s['y']:.1f}: standing and firing")
+        M._aim_walk(tx, ty, fire=True, walk=False, secs=min(secs, 0.6))
+
+
 def burning_car_near(s, blast):
     """the nearest burning car (not the target's) within `blast` blocks, or None"""
     best = None
@@ -230,6 +331,14 @@ def car_of(p):
 OFFICERS = ("cop",)
 
 BACK_R = float(os.environ.get("GF_BACK_R", "0"))     # a hostile on foot this near: shoot walking backwards (0: off)
+# MISSIONS-BATCH3 (all off by default; labrats_plan.py sets them). The LABRAT'S PLAN deaths (mb2_lp1-lp10,
+# read frame by frame from the logs): Zaibatsu at 0.5-4 blocks, health 100 -> 0 in 1.5-6 game s, and in
+# three of them no round fired at the end (ammo unchanged): lp1 'no clear shot' at 1.1 and 0.5 blocks (the
+# map check fails beside a pad or a kerb face), then the low-health back-off walked away with his back turned
+NEAR_CLEAR = float(os.environ.get("GF_NEAR_CLEAR", "0"))   # a target nearer than this is shot without the map line check
+BACKOFF_FIRE = os.environ.get("GF_BACKOFF_FIRE", "0") == "1"   # hurt: retreat firing (backpedal), never turn the back
+CARMEN_R = float(os.environ.get("GF_CARMEN_R", "0"))       # a standing car with a hostile inside this near: step away
+                                                            # (mb2_lp6/lp7 died beside parked m70s whose men got out at 1-2 blocks)
 
 
 def gunfight(world, select=None, spare=None, done=None, count=None, check=None, secs=240,
@@ -283,7 +392,8 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                 continue
             # health: count the hits, remember the low point
             h = ms.get("health", 100)
-            if health_last is not None and h < health_last: hits += 1
+            hurt = health_last is not None and h < health_last
+            if hurt: hits += 1
             health_last = h; hp_min = min(hp_min, h)
 
             allp = M.peds()
@@ -311,6 +421,15 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                 say(f"gunfight: burning car {bc['id']} {math.hypot(bc['x'] - s['x'], bc['y'] - s['y']):.1f} off: stepping away")
                 step_away(s, bc["x"], bc["y"], d=blast + 1.0, secs=3.0)
                 continue
+
+            if CARMEN_R > 0:
+                cm = [p for p in hs if p["car"] is not None and dist(p, s) < CARMEN_R]
+                cc = car_of(cm[0]) if cm else None
+                if cc is not None and abs(cc["v"]) < 0.3:
+                    release(); blasts += 1
+                    say(f"gunfight: car m{cc['model']} with {cm[0]['id']} inside {dist(cm[0], s):.1f} off: stepping away")
+                    step_away(s, cc["x"], cc["y"], d=CARMEN_R + 2.0, secs=2.5)
+                    continue
 
             if not hs:
                 xdo("keyup", "Control_L")
@@ -375,19 +494,40 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                     f"me {s['x']:.1f},{s['y']:.1f} L{mylev} health {h}, d {d:.1f}, {ms.get('weapon')} ammo {ms.get('ammo')}, "
                     f"{len(hs)} in sight, {len(killed)} down, fired {fired:.0f}s"); t_said = time.time()
 
+            # MISSIONS-BATCH3: hurt this tick (any health lost) with the man on foot inside engage: retreat
+            # firing at him for a moment instead of standing or turning (mb2_lp8: 100 -> 70 -> 20 -> 0 in 1.6
+            # game s at 4 blocks while he stood and fired)
+            if HEAVY and ms.get("weapon") == HEAVY and d < HEAVY_MIN:
+                release(); wield(None, avoid=HEAVY); ms = M.mission_state() or ms     # never a rocket at a man this near
+                if ms.get("weapon") == HEAVY:
+                    # no other gun with rounds: away from him (turned), never the rocket at this range
+                    say(f"gunfight: only the {HEAVY} and {tgt['id']} {d:.1f} off: away from him")
+                    step_away(s, tx, ty, d=HEAVY_MIN - d + 1.0, secs=2.5)
+                    continue
+            if BACKOFF_FIRE and hurt and tgt["car"] is None and d < engage and abs(tgt["z"] - s["z"]) < 0.7 and M.gun_ready(ms):
+                backoffs += 1
+                say(f"gunfight: hit (health {h}) with {tgt['id']} at {d:.1f}: retreat firing")
+                t1 = time.time(); retreat_fire(world, s, tgt["x"], tgt["y"], 1.0); fired += time.time() - t1
+                continue
             # MISSIONS-BATCH2 (GF_BACK_R > 0, off by default): retreat and shoot. mb2_lp1 died at the start
             # of a round with a Zaibatsu at 0.6 blocks (health 90 -> 40 -> 20 -> dead in 6 game s; the
             # back-off walked away with his back turned): a man on foot this near is shot walking backwards
             if BACK_R > 0 and tgt["car"] is None and d < BACK_R and abs(tgt["z"] - s["z"]) < 0.7 and M.gun_ready(ms):
                 from skills import kill_marked as K
                 if time.time() - t_said > 2: say(f"gunfight: {tgt['id']} at {d:.1f}: retreat and shoot"); t_said = time.time()
-                t1 = time.time(); K.backpedal(tgt["x"], tgt["y"], secs=0.5); fired += time.time() - t1
+                t1 = time.time()
+                if NEAR_CLEAR > 0: retreat_fire(world, s, tgt["x"], tgt["y"], 0.5)     # MISSIONS-BATCH3: edge check
+                else: K.backpedal(tgt["x"], tgt["y"], secs=0.5)
+                fired += time.time() - t1
                 continue
             # hurt and the man is close: back off along the line, then turn and fire again
             if h < low and d < engage and backoffs < 6 and h < (STATS.get("backoff_h", 101)):
                 release(); backoffs += 1; STATS["backoff_h"] = h
-                M.mark(f"gunfight: health {h}: backing off from {tgt['id']} ({d:.1f} off)")
-                step_away(s, tx, ty, d=3.0, secs=2.5)
+                M.mark(f"gunfight: health {h}: backing off from {tgt['id']} ({d:.1f} off){' firing' if BACKOFF_FIRE and tgt['car'] is None else ''}")
+                if BACKOFF_FIRE and tgt["car"] is None and M.gun_ready(ms):
+                    retreat_fire(world, s, tx, ty, 1.5)
+                else:
+                    step_away(s, tx, ty, d=3.0, secs=2.5)
                 continue
 
             if tlev != mylev and abs(tgt["z"] - s["z"]) > 0.7:
@@ -430,7 +570,7 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
                     if c["fire"] > 0 and d < blast + 0.5:
                         release(); step_away(s, tx, ty, d=blast + 1.0, secs=3.0); continue
                 car_shots += 1
-            if not clear_shot(world, s, tx, ty):
+            if not (d < NEAR_CLEAR and tgt["car"] is None) and not clear_shot(world, s, tx, ty):
                 # a wall or a building between: to a spot with a clear line, else round by the router
                 xdo("keyup", "Control_L"); walls += 1
                 spot = firing_spot(world, s, tx, ty, engage)
@@ -444,7 +584,20 @@ def gunfight(world, select=None, spare=None, done=None, count=None, check=None, 
             if tgt["car"] is not None and d < close_car - 2.0:
                 # too close to a car with a gunman in it: back off to close_car, then fire
                 release(); step_away(s, tx, ty, d=close_car - d, secs=2.0); continue
-            M._aim_walk(tx, ty, fire=True, walk=d > (close if tgt["car"] is None else close_car), secs=0.5)
+            if HEAVY and HEAVY_LEFT[0] != 0 and tgt["car"] is None and HEAVY_MIN <= d <= HEAVY_MAX \
+                    and abs(tgt["z"] - s["z"]) < 0.7 and heavy_line_clear(s, tgt, d):
+                release()
+                if heavy_shot(s, tgt):
+                    M.mark(f"gunfight: {HEAVY} at {tgt['id']} ({d:.1f} off), {HEAVY_LEFT[0]} left")
+                    fired += time.time() - t1; last_progress = time.time()
+                    continue
+            elif HEAVY and ms.get("weapon") == HEAVY:
+                release()
+                if not wield(None, avoid=HEAVY) and d < HEAVY_MIN:
+                    step_away(s, tx, ty, d=HEAVY_MIN - d + 1.0, secs=2.5)
+                continue
+            if AIM_GATE > 0: aim_fire(tx, ty, walk=d > (close if tgt["car"] is None else close_car), secs=0.5)
+            else: M._aim_walk(tx, ty, fire=True, walk=d > (close if tgt["car"] is None else close_car), secs=0.5)
             fired += time.time() - t1
             if "firing" not in shots and fired > 1.5: M.shot(f"{shot_prefix}_firing"); shots.add("firing")
             prog = tuple(sorted((p["id"], p["hp"]) for p in hs)) + tuple(sorted((c["id"], c["hp"]) for c in M.cars()

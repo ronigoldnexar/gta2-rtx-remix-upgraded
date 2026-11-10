@@ -34,7 +34,14 @@ os.environ["DISTRICT"] = "ste"
 os.environ["MISSIONS"] = " "
 os.environ.setdefault("LP_CAR", "0")         # MISSIONS-BATCH2: mb2_lp2 lost two lives in the run-over cars (shot alight
                                             # at once); the gun rounds kept health 100 for 12 counted kills
-os.environ.setdefault("GF_BACK_R", "2.2")     # MISSIONS-BATCH2: the gunfight shoots walking backwards at a man this near
+os.environ.setdefault("GF_BACK_R", "4.0")     # MISSIONS-BATCH2 (2.2): the gunfight shoots walking backwards at a man this near;
+                                            # MISSIONS-BATCH3: 4.0 (mb2_lp1/lp4/lp7/lp8 were shot at 1-4 blocks)
+os.environ.setdefault("GF_NEAR_CLEAR", "1.8")  # MISSIONS-BATCH3: mb2_lp1 never fired at a man 0.5-1.1 off ('no clear shot')
+os.environ.setdefault("GF_BACKOFF_FIRE", "1")  # MISSIONS-BATCH3: hurt -> retreat firing, never the back turned (mb2_lp1)
+os.environ.setdefault("GF_AIM_GATE", "0.15")   # MISSIONS-BATCH3: the trigger only on aim (~70 rounds a counted kill before)
+os.environ.setdefault("GF_CARMEN_R", "2.5")
+if os.environ.get("LP_ROCKET", "1") == "1":
+    os.environ.setdefault("GF_HEAVY", "rocket_launcher")   # MISSIONS-BATCH3: picked up at 230.5,203.5 after the phone    # MISSIONS-BATCH3: off parked VTYPEs with men inside (mb2_lp6/lp7)
 import drive_lib as D
 import mission_lib as M
 import mission_play_districts as P          # starts the session: level, views, world
@@ -45,6 +52,7 @@ world = P.world
 NAME = "ste_sm1"
 PHONE = (206.5, 227.5)
 PHONE_N = (205.5, 223.5)                    # north of the phone: the GRAN'PA phone is south of it
+PHONE_STEPS = [(205.5, 223.5), (204.5, 224.2), (204.5, 226.4), (205.3, 227.35)]   # MISSIONS-BATCH3: down column 204, east along row 227
 PHONE_WAY = [(205.5, 219.5), PHONE_N]          # straight south down the field column 203-206 (mb1_ra5 wandered onto the roofs from the east)
 WARP = (205.5, 216.0)                       # the road rows 215-217 north of the phone's field (mb1_ra5: the pavement east of it is walled off by column 208 and row 220)
 TITLE = {"2959", "2351"}
@@ -113,15 +121,27 @@ def step_answer(entry, off0):
         M.walk3(world, x, y, None, tol=0.5, budget=30)
     px, py = entry["x"], entry["y"]
     for k in range(3):
-        P.nudge_to(px, py - 2.0, tol=0.2, tries=12)
-        P.nudge_to(px, py - 0.05, tol=0.15, tries=14)
+        # MISSIONS-BATCH3: the map (gmp walls at level 1) has a wall on the south side of 205,224 and of
+        # 205,225: from the field north of the phone the only way down is the corridor of column 204 (rows
+        # 224-226, walls east and west), then east along row 227 into the phone's cell 206,227 (its north and
+        # east sides walled). mb3l_lp1/lp3/lp7 pressed against that wall at y 224.4 (lp7's unstick then put him
+        # on the GRAN'PA phone, 206,228, open to the south of the phone's cell); lp2 crept down x 204.8 by luck
+        for (wx, wy) in PHONE_STEPS:
+            P.nudge_to(wx, wy, tol=0.25, tries=10) if math.hypot(wx - px, wy - py) < 2.0 else M.cruise_to(wx, wy, tol=0.3, secs=6)
+        P.nudge_to(px - 0.1, py - 0.1, tol=0.15, tries=14)
         t0 = time.time()
         while time.time() - t0 < 6.0 / D.SPEED:
             seen = messages_since(off0)
             if set(seen) & TITLE: M.mark(f"step_answer: title {seen[:4]}"); return True, next(k2 for k2 in seen if k2 in TITLE)
-            if "2392" in seen or "2793" in seen or "2791" in seen: M.mark(f"step_answer: not this job ({seen[:4]})"); return False, None
+            if "2392" in seen or "2793" in seen or "2791" in seen:
+                o = M.objective()
+                if "2392" not in seen and o and math.hypot(o[0] - 224.5, o[1] - 20.5) < 3:
+                    M.mark(f"step_answer: {seen[:4]} with the arrow on The Village: started"); return True, "2351"
+                M.mark(f"step_answer: not this job ({seen[:4]})"); return False, None
             time.sleep(0.3)
-        M.mark(f"step_answer: phone silent after try {k + 1}; off north and on again")
+        M.mark(f"step_answer: phone silent after try {k + 1}; off west and on again")
+        for (wx, wy) in reversed(PHONE_STEPS[1:]):
+            P.nudge_to(wx, wy, tol=0.3, tries=8)
     return P.answer(entry)
 
 
@@ -165,6 +185,10 @@ def hostile(p):
     """a Zaibatsu man in The Village (the bonus counts Zaibatsu kills in m18 only), or a hitman the
     job sent (gang zaibatsu, in a VTYPE or marked) wherever he is"""
     if p["gang"] != "zaibatsu": return False
+    # MISSIONS-BATCH3: mb3l_lp1 chased a man onto a level-3 roof by the flamethrower pad and fell off the
+    # Village's edge: only men on the Village level (z 3) and the job's marked hitmen
+    if os.environ.get("LP_SAME_LEVEL", "1") == "1" and p["mark"] is None and abs(p["z"] - 3.0) > 0.6:
+        return False
     if p["id"] in HOSTILE: return True
     # mb2_lp1: the HUD counter (hud3d counter=) rose with the 'gang/zaibatsu' downs only; the
     # 'civ/zaibatsu' peds (half of the skill's downs in mb1_ra*, 68 of 133) never count. The job's
@@ -223,16 +247,61 @@ def empty_car_near(radius=18.0):
     return D.wait_state()
 
 
+# MISSIONS-BATCH3: 8.0 -> 5.0. mb3l_lp5 lost two whole rounds (120 s) stepping away from one slowly burning
+# car (step_away reached 6-7.6, never 9), and the two deaths MISSIONS-BATCH2 put on blasts (mb2_lp6, lp8) were
+# gunfire at 1-4 blocks with the burning cars 6-10 off and unexploded (read from their logs)
+LP_BLAST = float(os.environ.get("LP_BLAST", "5.0"))
+FIRE_R = float(os.environ.get("LP_FIRE_R", "5.5"))      # the station's wait: a burning car this near him or the pads
+ROCKET_GEN = (230.5, 203.5)   # GENERATOR gen24 COLLECT_02 (the rocket launcher: pickup model order pistol, machine gun,
+                              # rocket launcher...), 35 blocks from the phone on its own level; gen25 (231.5) COLLECT_31 beside it
+
+
+def rocket():
+    """MISSIONS-BATCH3: the rocket launcher before The Village. The machine gun alone gave ~1.5 counted kills a
+    game minute at ~70 rounds a kill (mb3l_lp4-lp6), every round cut short by the 100-round generator"""
+    if os.environ.get("LP_ROCKET", "1") != "1": return
+    ev(f"to the rocket launcher generator at {ROCKET_GEN}")
+    M.walk3(world, ROCKET_GEN[0], ROCKET_GEN[1], None, tol=0.35, budget=90 / D.SPEED)
+    check()
+    got = False
+    for k in range(8):
+        ms = M.mission_state() or {}
+        if ms.get("weapon") == "rocket_launcher": got = True; break
+        M.cruise_to(ROCKET_GEN[0] + 0.25 * math.cos(k * 2.1), ROCKET_GEN[1] + 0.25 * math.sin(k * 2.1), tol=0.12, secs=3)
+        time.sleep(0.4)
+    if not got: got = G.wield("rocket_launcher")
+    ms = M.mission_state() or {}
+    G.HEAVY_LEFT[0] = ms.get("ammo", 0) if ms.get("weapon") == "rocket_launcher" else 0
+    M.cruise_to(ROCKET_GEN[0] + 1.0, ROCKET_GEN[1], tol=0.2, secs=3)      # gen25 COLLECT_31 beside it
+    ev(f"rocket launcher: {got}, {G.HEAVY_LEFT[0]} rockets (hand {ms.get('weapon')})")
+    M.select_gun(4)
+
+
 HEAL = (223.5, 34.5)        # GENERATOR gen32 COLLECT_30: health back to 100 (mb2_lp3: 30 -> 100 and 90 -> 100 on it)
-LOW_HEALTH = int(os.environ.get("LP_LOW_HEALTH", "60"))
+LOW_HEALTH = int(os.environ.get("LP_LOW_HEALTH", "70"))   # MISSIONS-BATCH3: 60 -> 70 (most deaths drained from 60 in 2-3 s)
+ARMOUR = (222.5, 34.5)      # GENERATOR gen31 COLLECT_31 between the gun and the health pads (the game's armour power-up, by
+                            # the collectible order after COLLECT_30 health; not read back: the HUD line has no armour field)
 LOW_AMMO = int(os.environ.get("LP_LOW_AMMO", "35"))     # mb2_lp4: back with 16 rounds, no answer to the men at the pads
 
 
 STATION_FAILED = [False]     # the last station visit did not fix the need: the rounds' done() checks health only
 
 
+def threat(r=6.0):
+    """MISSIONS-BATCH3: the nearest live hostile on foot within r of him, or None. mb3l_lp4: the round ended
+    on 31 rounds with a man 3.8 off, and the station's burning-car wait stood still while two men at 1.6
+    shot him 100 -> 0 in 3 s: nothing that is not a fight while one is this near"""
+    s = D.wait_state()
+    if not s: return None
+    near = [p for p in M.peds() if M.ped_alive(p) and hostile(p) and p["car"] is None
+            and math.hypot(p["x"] - s["x"], p["y"] - s["y"]) < r]
+    return min(near, key=lambda p: math.hypot(p["x"] - s["x"], p["y"] - s["y"])) if near else None
+
+
 def round_done():
     ms = M.mission_state() or {}
+    if ms.get("ammo", 0) > 5 and ms.get("health", 100) >= 30 and threat(6.0) is not None:
+        return False
     if STATION_FAILED[0]: return ms.get("health", 100) < LOW_HEALTH
     return need_station(ms)
 
@@ -242,6 +311,9 @@ def need_station(ms=None):
     empty) at health 30-10; mb2_lp1 at 90 -> 0 in one round. The round ends and he goes to the
     station (the machine gun and the health generators side by side at 221.5-223.5,34.5)"""
     ms = ms or M.mission_state() or {}
+    if ms.get("weapon") == "rocket_launcher" and ms.get("ammo", 0) > 0:
+        # MISSIONS-BATCH3 (mb3l_lp8): the rockets in the hand are not a reason for the station (every round ended at once)
+        return ms.get("health", 100) < LOW_HEALTH
     return ms.get("health", 100) < LOW_HEALTH or ms.get("weapon") != "machine_gun" or ms.get("ammo", 0) < LOW_AMMO
 
 
@@ -255,12 +327,20 @@ def station(secs=40):
         # and no trigger: 100 -> 0 in 3 s. Any hostile within 8 of the pads is fought first
         s = D.wait_state()
         # mb2_lp7: shot 100 -> 20 standing 5.7 from the pads, the hostile counted only near the pads
+        # MISSIONS-BATCH3: mb3l_lp2 started this fight 25 blocks from the pads with 27 rounds, emptied the gun
+        # and died unarmed: the pads' men only when he is within 12 of them, men by him only within 9 (5 when
+        # short of rounds), and the fight ends with the magazine nearly empty so the walk to the gun pad goes on
+        ms0 = M.mission_state() or {}
+        ammo = ms0.get("ammo", 0)
+        by_pads = s and math.hypot(s["x"] - 222.5, s["y"] - 35.0) < 12.0
         near = [p for p in M.peds() if M.ped_alive(p) and hostile(p) and p["car"] is None
-                and (math.hypot(p["x"] - 222.5, p["y"] - 35.0) < 8.0 or (s and math.hypot(p["x"] - s["x"], p["y"] - s["y"]) < 9.0))]
-        if near and (M.gun_ready() or M.select_gun(4)):
+                and ((by_pads and math.hypot(p["x"] - 222.5, p["y"] - 35.0) < 8.0)
+                     or (s and math.hypot(p["x"] - s["x"], p["y"] - s["y"]) < (9.0 if ammo >= 40 else 5.0)))]
+        if near and ammo >= 10 and (M.gun_ready() or M.select_gun(4)):
             ev(f"station: {len(near)} hostile by the pads; fighting first")
             fight(select=hostile, spare=spare, secs=20, clear=3.0, engage=9.0, close=5.0, far=12.0,
-                  anchor=(222.5, 37.5), leash=3.0, low=50, blast=float(os.environ.get("LP_BLAST", "8.0")), close_car=6.0, police="shoot", shot_prefix="gf_lp_pads",
+                  done=lambda: (M.mission_state() or {}).get("ammo", 0) < 6,
+                  anchor=(222.5, 37.5), leash=3.0, low=50, blast=float(LP_BLAST), close_car=6.0, police="shoot", shot_prefix="gf_lp_pads",
                   car_targets=False)       # mb2_lp6: shooting a VTYPE by the pads set it alight
 
     def no_fire(limit=35):
@@ -269,12 +349,15 @@ def station(secs=40):
         t1 = time.time()
         while time.time() - t1 < limit / D.SPEED:
             s = D.wait_state(); check()
-            bc = [c for c in M.cars() if c["fire"] > 0 and (math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < 7.0
-                                                           or math.hypot(c["x"] - 222.5, c["y"] - 35.0) < 7.0)]
+            if threat(6.0) is not None:
+                if (M.mission_state() or {}).get("ammo", 0) < 10: return     # empty: on to the gun pad
+                clear_pads(); continue
+            bc = [c for c in M.cars() if c["fire"] > 0 and (math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < FIRE_R
+                                                           or math.hypot(c["x"] - 222.5, c["y"] - 35.0) < FIRE_R)]
             if not bc: return
             c = bc[0]
-            if math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < 7.0:
-                G.step_away(s, c["x"], c["y"], d=7.5 - math.hypot(c["x"] - s["x"], c["y"] - s["y"]), secs=3.0)
+            if math.hypot(c["x"] - s["x"], c["y"] - s["y"]) < FIRE_R:
+                G.step_away(s, c["x"], c["y"], d=FIRE_R + 0.5 - math.hypot(c["x"] - s["x"], c["y"] - s["y"]), secs=3.0)
             else:
                 time.sleep(1.0)
     no_fire()
@@ -283,6 +366,8 @@ def station(secs=40):
     while time.time() - t0 < secs / D.SPEED:
         ms = check()
         clear_pads(); no_fire()
+        if os.environ.get("LP_ARMOUR", "1") == "1":
+            M.cruise_to(ARMOUR[0], ARMOUR[1], tol=0.2, secs=3); time.sleep(0.2)
         if ms.get("health", 100) < 100:
             M.cruise_to(HEAL[0], HEAL[1], tol=0.2, secs=3); time.sleep(0.3)
         ms = check()
@@ -399,8 +484,15 @@ def play():
     time.sleep(2.0)
     seen = messages_since(off0)
     ev(f"messages since the answer: {seen[:8]}")
+    o = M.objective()
+    village_arrow = bool(o and math.hypot(o[0] - 224.5, o[1] - 20.5) < 3)
+    if not (set(seen) & TITLE) and village_arrow and "2392" not in seen:
+        # MISSIONS-BATCH3: mb3l_lp3 got ['6146', '2793'] and the job's arrow to The Village (224.5,20.5): the
+        # 2351 brief fell between two samples of the mission line (mb3l_lp1 had 6146, 2351, 2793)
+        ev(f"title not sampled ({seen[:6]}) but the job's arrow points at The Village: started")
+        seen.append("2351"); key = key or "2351"
     if not (set(seen) & TITLE):
-        return f"wrong job or none (messages {seen[:6]})"
+        return f"wrong job or none (messages {seen[:6]}, arrow {o[:2] if o else None})"
     M.shot("m_lp_phone")
     started = P.TITLES.get(key)
     ev(f"phone: {ok} {key} msg {ms.get('msg')}")
@@ -409,9 +501,13 @@ def play():
     if not ok and ms.get("msg") not in TITLE and not (M.objective() and abs(M.objective()[0] - 224.5) < 2):
         return "phone not answered"
     STARTED[0] = True; M.arm_lives(); G.arm_job()
+    # MISSIONS-BATCH3: the skill's own refill (gunfight 'no gun in hand' -> M.fetch_gun) took the district list
+    # and drove mb3l_lp2 200 blocks south out of The Village after a death it did not see: the Village gun only
+    M.GUN_PICKUPS["ste"] = [VILLAGE_GUN]
     RESULT["stage"] = "phone"
     ax, ay = M.step_off_phone(world, entry)
     M.cruise_to(ax, ay, tol=0.5, secs=8)
+    rocket(); check()
     # 1. a gun on the way north
     if os.environ.get("LP_GUN_FIRST", "0") == "1": gun(budget=200); check()
     # 2. The Village
@@ -474,7 +570,7 @@ def play():
             pool = ANCHORS_LATE if (c is not None and 0 <= c <= 30) else ANCHORS
             a = pool[k % len(pool)]
             r = fight(select=hostile, spare=spare, secs=60, done=(round_done if os.environ.get("LP_STATION", "1") == "1" else None), clear=20.0, engage=9.0, close=5.0, far=24.0,
-                      anchor=a, leash=7.0, low=70, blast=float(os.environ.get("LP_BLAST", "8.0")), close_car=6.0, police="shoot", shot_prefix=f"gf_lp{k}",
+                      anchor=a, leash=7.0, low=70, blast=float(LP_BLAST), close_car=6.0, police="shoot", shot_prefix=f"gf_lp{k}",
                       car_targets=os.environ.get("LP_CAR_TARGETS", "0") == "1")   # mb2_lp6: the VTYPEs shot alight blew up beside him
             st = dict(G.STATS)
             RESULT["rounds"].append(dict(kind="gun", anchor=a, result=r, stats=st))
