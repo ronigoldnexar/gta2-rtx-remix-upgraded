@@ -439,3 +439,48 @@ count. Run vg5_rx2: the same after the rebase onto 1569a1d. Classic: vreg stage 
 Still short of the bar on 071: a pale band along the top of each window (above where either side's mask reaches) and
 the baked B-pillar-like slab in the middle of the right window stay hull; the outline is ragged. 071's rear screen is
 still not found. The filer's own spot (bil, parked 071, 5:30) is section 10.2.
+
+### 10.2 The prx6 filer's own spot
+
+Run vg5_bil1 (`gamerun/playtest_remix.sh`, bil 150.5,130.5, 21:00 and 5:30, Ultra preset, 4560f683): the parked black 071
+at 5:30 in first person is a dark pane with a faint reflection; the cream/white blob, the tan wedge and the grey-brown
+plane of the filing are gone. The cabin behind it is too dark to read at that hour.
+
+### 10.3 prp1: the sparkle on moving glass is Remix's transmission PSR
+
+Probe `gamerun/keys_vg5_prp1.sh` + `gamerun/vg5_prp1.py`: standing at the wil kerb (164.5,149.5) in third person while
+traffic passes, segments of 20-25 s each with a live `[devtools] remix_config=` (re-read every 5-10 s under Remix) or
+`car_glass`, cycled; frames cut from game_full.mp4 at 5 fps, the car-bearing frames picked by difference from the
+segment's median (`/tmp`-side script; the method is in the run's keys.log marks).
+
+- vg5_pq1 (19:30): the same purple sedan passed the same spot with PSR on and with `rtx.enablePSTR=False|
+  rtx.enablePSRR=False`: 101 speckle pixels in its two door-pane interiors against 0. A moving bubble-top (authored
+  glass) under PSR on: dense speckle on the dome.
+- vg5_pq2 (6:30): reflection PSR off alone kills the reflection (a moving coupe's panes flat dark); transmission PSR off
+  alone keeps the street reflection (PSRR) on a moving van, no speckle.
+- vg5_dr2: the own car driven in the chase view (moving WITH the camera) shows almost no speckle: the noise belongs to
+  glass moving across the screen, i.e. the denoiser's history of the surface PSTR puts behind the pane is rejected.
+- vg5_np1 (static own cars, PSTR off, against vg5_rx2/vg4_rx3, rglass poses): 051's panes unchanged by day and night
+  (flat dark tint, a faint low reflection); 071's pane loses the cabin and the street seen through it. So turning PSTR
+  off trades the moving-glass sparkle for opaque-looking panes on the generated bodies: not shipped.
+- All 15 translucent prims of the shipped gta2hd layer are model glass (hashes in model_prims.txt): a PSTR-related
+  runtime option reaches only car glass.
+
+### 10.4 Hull islands inside a pane (mask class rule, `FillHoles` / twin `fill_holes`)
+
+VEHICLE-GLASS-4 measured the torn pane outlines as mask drips and enclosed hull islands (030 211 texels, 035 111, 034 78,
+084 108). After the mirror fill, a 4-connected component of non-glass texels that touches no texel outside the body
+raster (a UV island's border) and no image edge, of at most 300 texels, becomes glass unless at least half of it is
+strictly bodywork. The guard matters: without it the 006 box car's paint pillars, enclosed by its glass in UV, became glass
+(+2142 texels). `GTA2DX9_GLASS_HOLES=0` / twin `--noholes`.
+
+Fleet (offline twin against 10.1): 19 bodies change, none lose a texel: 035 3734 -> 3843 (+109), 080 +13, 021 +12,
+079 +6, 033 +6, the rest 1-4. 030's islands stay: they are within the paint tolerance of its dark green (strict), the
+case the guard keeps out. 034, 044 and 086 were re-authored by VEHICLE-ART-17/18 at 15:07 with their own glass and are
+outside the mask now (qav7's bus rear glass is theirs). The closing GLASS-4 proposed for the drips was not added: the
+mirror fill's 2-texel closing already runs where it adds glass, and a fleet-wide closing grows into window frames.
+
+Evidence: runs vg5_ho0 (`GTA2DX9_GLASS_HOLES=0`) and vg5_ho1 (on), Remix Ultra, 13:00, own 035 Benson and 033 at the rglass
+poses: 035's side window had two white hull islands inside the pane (holes off); with the fill it is one continuous
+pane with the facade reflection. DLL counts 3735 -> 3844 (twin 3843, the dumps one texel apart); 033 2117 -> 2123 (dump
+identical to the twin). Classic: vreg stage spawn_classic PASS, 0 tiles (spawn_first's 24 = the fists of other commits).

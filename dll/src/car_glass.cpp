@@ -84,6 +84,7 @@ std::map<const ModelMesh*, CutIb> g_cutIb;                 // under Remix: a mes
 // VEHICLE-GLASS-3: the hull and the panes split along the window's outline (car_glass_split.h) instead of
 // whole triangles voted pane or hull (a sawtooth on dense meshes, baked triangles left on coarse ones).
 int g_rearGate = 0;                                        // GTA2DX9_GLASS_REAR_GATE=1: under Remix too, a seated car needs a rear screen (old)
+int g_holesOn = 1;                                         // GTA2DX9_GLASS_HOLES=0: no fill of hull islands inside a pane (VEHICLE-GLASS-5)
 int g_mirrorOn = 1;                                        // GTA2DX9_GLASS_MIRROR=0: no mirror fill of the side windows (VEHICLE-GLASS-5)
 int g_beltOn = 1;                                          // GTA2DX9_GLASS_BELT=0: no near-black windows on the belt (VEHICLE-GLASS-4)
 int g_splitOn = 1;                                         // GTA2DX9_GLASS_SPLIT=0: the whole-triangle vote
@@ -262,6 +263,35 @@ Mask KeepComponents(const Mask& m, int minSize) {
             for (int a : pts) out[a] = 1;
     }
     return out;
+}
+
+// VEHICLE-GLASS-5: hull islands enclosed by glass (GLASS-4's measure: 030 211 texels, 035 111, 084 108) are bake blobs
+// inside a pane, drawn as torn hull patches. A 4-connected component of non-glass texels touching no texel outside the
+// body raster (the UV island's border) and no image edge, of at most 300 texels and less than half strictly bodywork
+// (the paint pillars between the 006 box car's windows are enclosed by its glass in UV), becomes glass. The twin is
+// tools/car_glass_mask.py fill_holes.
+void FillHoles(Mask& g, const std::vector<uint8_t>& valid, const Mask& strict) {
+    std::vector<int> label(kR * kR, 0), stack, pts;
+    int n = 0;
+    for (int i = 0; i < kR * kR; ++i) {
+        if (g[i] || label[i]) continue;
+        ++n;
+        stack.assign(1, i); label[i] = n; pts.clear();
+        bool bad = false;
+        int nStrict = 0;
+        while (!stack.empty()) {
+            const int a = stack.back(); stack.pop_back();
+            pts.push_back(a);
+            const int x = a % kR, y = a / kR;
+            if (!valid[a] || x == 0 || y == 0 || x == kR - 1 || y == kR - 1) bad = true;
+            if (strict[a]) ++nStrict;
+            const int nb[4] = {x > 0 ? a - 1 : -1, x + 1 < kR ? a + 1 : -1, y > 0 ? a - kR : -1, y + 1 < kR ? a + kR : -1};
+            for (int b : nb)
+                if (b >= 0 && !g[b] && !label[b]) { label[b] = n; stack.push_back(b); }
+        }
+        if (!bad && pts.size() <= 300 && 2 * nStrict < static_cast<int>(pts.size()))
+            for (int a : pts) g[a] = 1;
+    }
 }
 
 // VEHICLE-GLASS-5: the bodies are symmetric, the bakes are not: 071 Rumbler's left window is found to the A pillar, its
@@ -894,6 +924,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         }
         DropPaintComponents(g, rgb);
         if (g_mirrorOn) MirrorFill(g, band, liveryM, valid, pos, nrm, minY, H, minZ, L);
+        if (g_holesOn) FillHoles(g, valid, strict);
         int count = 0;
         for (int i = 0; i < kR * kR; ++i) {
             g[i] = g[i] ? 255 : 0;
@@ -1232,6 +1263,7 @@ void CarGlassSettings(int enabled, int alphaPercent, int rangeBlocks) {
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_SPLIT", v, sizeof v) && v[0] == '0') g_splitOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_BELT", v, sizeof v) && v[0] == '0') g_beltOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_MIRROR", v, sizeof v) && v[0] == '0') g_mirrorOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_HOLES", v, sizeof v) && v[0] == '0') g_holesOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_REAR_GATE", v, sizeof v) && v[0] == '1') g_rearGate = 1;
     g_alpha = (std::max)(0.05f, (std::min)(1.0f, alphaPercent / 100.0f));
     g_range = static_cast<float>((std::max)(1, rangeBlocks));

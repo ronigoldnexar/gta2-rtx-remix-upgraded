@@ -317,6 +317,25 @@ def mirror_fill(g, band, livery, valid, h, z, nx, minZ, L, P):
     return out
 
 
+def fill_holes(g, valid, strict, P):
+    """VEHICLE-GLASS-5 (DLL FillHoles): hull islands enclosed by glass (GLASS-4's measure: 030 211 texels, 035 111, 034 78,
+    084 108) are bake blobs inside a pane: drawn as torn hull patches. A 4-connected component of non-glass texels that
+    touches no texel outside the body raster (invalid: the UV island's border) and no image edge, of at most HOLE_MAX
+    texels, becomes glass, unless at least half of it is strictly bodywork (the paint pillars between the 006 box car's
+    windows are enclosed by its glass in UV)."""
+    ng = ~g
+    lab, n = components(ng)
+    if not n: return g
+    cnt = np.bincount(lab, minlength=n + 1)
+    bad = np.zeros(n + 1, bool)
+    np.logical_or.at(bad, lab, ~valid & ng)
+    edge = np.zeros((KR, KR), bool); edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True
+    np.logical_or.at(bad, lab[edge.reshape(-1)], True)
+    sc = np.bincount(lab, weights=(strict & ng).astype(float), minlength=n + 1)
+    fill = ~bad & (cnt <= P.get("hole_max", 300)) & (2 * sc < cnt); fill[0] = False
+    return g | fill[lab]
+
+
 def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX, W, P):
     h = (pos[:, 1] - minY) / H
     side = np.zeros(0, int)
@@ -478,6 +497,8 @@ def mask_for(rgb, paintA, pos, nrm, valid, minY, H, L, minZ, z0, z1, rake, midX,
         g = hull_fill(g, band, livery, valid, h, z, nx, minZ, L, P)
     if P.get("mirror", 1):
         g = mirror_fill(g, band, livery, valid, h, z, nx, minZ, L, P)
+    if P.get("holes", 1):
+        g = fill_holes(g, valid, strict, P)
     return {"g": g, "band": band, "strict": strict, "plike": paintLike, "valid": valid, "pos": pos, "nrm": nrm, "clusters": clusters,
             "rear": int((g & (nz < -0.35) & (z < z0 + 0.05 * L)).sum())}
 
@@ -526,15 +547,17 @@ if __name__ == "__main__":
     ap.add_argument("--sheet"); ap.add_argument("--dump")
     ap.add_argument("--nodeep", action="store_true", help="without VEHICLE-GLASS-3's deep growth")
     ap.add_argument("--nobelt", action="store_true", help="without VEHICLE-GLASS-4's black-window-on-the-belt rule")
+    ap.add_argument("--noholes", action="store_true", help="without VEHICLE-GLASS-5's fill of hull islands inside a pane")
     ap.add_argument("--nomirror", action="store_true", help="without VEHICLE-GLASS-5's mirror fill of each side window")
     ap.add_argument("--nooff", action="store_true", help="without VEHICLE-GLASS-3's off-hue rule")
     ap.add_argument("--old", action="store_true", help="the 33c34be heuristic (before VEHICLE-GLASS-2's class fixes)")
     a = ap.parse_args()
-    params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0, "mirror": 0} if a.old else {}
+    params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0, "mirror": 0, "holes": 0} if a.old else {}
     if a.nooff: params["offhue"] = 0
     if a.nodeep: params["deep"] = 0
     if a.nobelt: params["belt"] = 0
     if a.nomirror: params["mirror"] = 0
+    if a.noholes: params["holes"] = 0
     for name in a.names:
         r = build(a.models, name, params)
         if not r: print(name, "no glass (no roof/too small)"); continue
