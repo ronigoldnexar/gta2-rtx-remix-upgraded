@@ -1377,6 +1377,9 @@ presses while firing the machine gun): every frame shows his figure or the gun a
   player) starts the shot-hit layer from the side she is struck on (hit_shot_front/back/l/r) and the stagger pushed
   off the flank she is on, along with the car's travel (in front of the nose: along the travel and off to her side),
   0.12 + 0.05 x speed, at most 0.30 block; one per car per second.
+- A figure inside the body itself (a seated or boarding figure: the sprite the game reuses for the driver, health 100
+  state 7 sub 0xe, 0.11 inside the flank, was "brushed" three times in fig11_br6) is skipped (fixed in the commit after
+  c6f9b20; fig11_br7: three in-car segments, no false brush, 0 FAULT).
 - A figure moving with the car (relative speed under 0.5 block/s) is skipped: the player's own reused ped sprite in his
   seat was "brushed" by his own car in fig11_br1 (06:09:02, health 100 state 7) before that rule.
 - Log: `fig: brushed <ped> by car <obj> at S blocks/s (flank|end D off its right|left|nose|tail, game health H state S

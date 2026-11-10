@@ -9277,6 +9277,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const float lx = px * c.rx + pz * c.rz, lz = px * c.fx + pz * c.fz;
                 constexpr float kBodyR = 0.10f;   // a body's half width (the shoulder meets the paint)
                 if (std::fabs(lx) >= c.hx + kBodyR || std::fabs(lz) >= c.hz + kBodyR) continue;
+                // Inside the body itself: a seated or boarding figure (fig11_br6 06:51:05: the sprite the game reuses for
+                // the driver, health 100 state 7 sub 0xe, 0.11 inside the flank, staggered three times), not a brush.
+                if (std::fabs(lx) < c.hx && std::fabs(lz) < c.hz) continue;
                 if (track.brushCar == c.object && g_carFrame - track.brushFrame < 30) break;
                 // Carried with the car (the player's own reused ped sprite in his seat, fig11_br1 06:09:02; a
                 // boarding or a seated figure): not a brush. A brushed figure moves against the body.
