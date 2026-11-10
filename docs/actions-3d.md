@@ -1422,3 +1422,22 @@ presses while firing the machine gun): every frame shows his figure or the gun a
   each shot frame; the gun's dark-pixel column centroid over non-flash frames 752-769 px (pfl42a 762-765 px).
 - Not changed: the third-person torso (pfl16 family, row 5g) and the camera (no view kick: the camera is the camera
   seat's).
+
+## FIX-FIGURE-12 (10 Nov 2026): the first-person reload keeps both hands, the suppressed flash
+
+### pfl46 first person: the "bare vertical barrel" after a burst is the 30-round reload
+- What the filer saw 1.2 s after letting go of the fire key is the QB-29 first-person reload (the renderer's magazine
+  count: the silenced MG's 30th round fell in the held burst; log `reload: first person silenced_mg starts (magazine
+  30)` 0.2 s after the release, `pose eased out ... (reload cut short)` when fire resumed). Its pose dropped the grip
+  0.07 (at the two-handed 0.20 ahead the grip sits on the frame's bottom edge, so the right hand left the picture),
+  tipped the muzzle up 0.22 and HID the support hand from the magazine's drop to its insert: a lone barrel, upright.
+- Now (`DrawViewModel`): the gun comes in and up (grip 0.005 higher, 0.025 toward the middle, 0.015 nearer, muzzle up
+  0.16 and turned in 0.14, rolled 0.55 to show the magazine well); the support hand stays drawn: fore grip -> under
+  the well (drop..grab), riding the fresh magazine up from 0.05 below the gun (grab..insert; the magazine's travel is
+  0.05 too, was 0.13 from below the frame), back to the fore grip over 0.15 s; its offset eases (tau 0.05 s), so a reload
+  cut short by the trigger brings the hand back over a few frames. The pose eases in and out at 1/0.25 s (was 0.3 s).
+  A/B: `GTA2DX9_FP_RELOAD_OLD=1`.
+- Frames: fig12_p46h (HEAD d4188a4, keys_pfl46.sh) frames 232-264 of b_p46_first.mp4: barrel alone, no hands
+  (reproduced). fig12_p46a (fix, keys_fig12_p46.sh, the filer's first-person sequence): frames 224-266 every 3rd at a
+  crop: both hands on the gun throughout, the support hand dipping under the well and coming back, the grip in frame.
+

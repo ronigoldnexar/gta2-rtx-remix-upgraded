@@ -8130,6 +8130,14 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     }
     // Down and in, the muzzle up and the gun rolled to show its side, back up at
     // the end; a jolt back on the slide or the charging handle.
+    // FIX-FIGURE-12 (pfl46): the old pose dropped the grip 0.07 (below the frame's bottom edge at the
+    // two-handed 0.20 ahead), tipped the muzzle up 0.22 and hid the support hand from the magazine's
+    // drop to its insert: for the 1.2 s of an automatic's reload only a vertical barrel showed, no
+    // hands. Now the gun comes in and up toward the middle of the view (grip 0.005 higher, 0.025 in,
+    // muzzle up 0.16 and turned in 0.14, rolled 0.55), and the support hand stays drawn: it slides
+    // from the fore grip to the magazine well, rides the fresh magazine up from just under the gun
+    // (0.05 travel, in frame) and returns. GTA2DX9_FP_RELOAD_OLD=1: the old pose.
+    static const bool reloadOld = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_RELOAD_OLD", v, sizeof v) && v[0] == '1'; }();
     float rs = 0.0f, rack = 0.0f;
     if (reloadT >= 0.0f) {
         const float u = reloadT / ri.len;
@@ -8147,7 +8155,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         const DWORD nowT = GetTickCount();
         const float dtv = rsTick ? (std::min)(0.1f, static_cast<float>(nowT - rsTick) / 1000.0f) : 0.0f;
         rsTick = nowT;
-        const float stepV = dtv / 0.3f;
+        const float stepV = dtv / (reloadOld ? 0.3f : 0.25f);
         if (reloadT < 0.0f && rsVis > 0.0f && rs == 0.0f) {
             static uint32_t abortLog = 0;
             if (abortLog < 20 && rsVis > 0.2f) { ++abortLog; Log("reload: first person pose eased out from %.2f (reload cut short)", rsVis); }
@@ -8215,9 +8223,10 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         bobSide = 0.0045f * amp * std::sin(phase) * k2;
         swaySide = sway * k2;
     }
-    const float ahead = (fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - 0.02f * rs - 0.02f * rack - 0.03f * drop;
-    const float side = (fists ? 0.060f - 0.02f * jabR : (wi.twoHanded ? 0.055f : 0.075f)) - 0.015f * rs,
-                down = (fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + 0.07f * rs + 0.12f * drop;
+    const float rsAhead = reloadOld ? 0.02f : 0.015f, rsSide = reloadOld ? 0.015f : 0.025f, rsDown = reloadOld ? 0.07f : -0.005f;
+    const float ahead = (fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - rsAhead * rs - 0.02f * rack - 0.03f * drop;
+    const float side = (fists ? 0.060f - 0.02f * jabR : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
+                down = (fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
     float pos[3];
     for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * (side + bobSide + swaySide) - up[c] * (down + bobDown);
     // The barrel on the crosshair: aimed at the point 5 blocks along the view
@@ -8232,7 +8241,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         static const bool fistMesh = ModelByName("fp_fist_right") != nullptr;
         const float tip = fists ? (fistMesh ? -0.30f : -0.55f) : 0.0f, turnIn = fists ? 0.25f : 0.0f;
         const float kickUp = autoGun ? 0.16f * kick + 0.10f * vmClimb : 0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f);
-        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (kickUp + 0.22f * rs - 0.9f * drop + tip) - right[c] * (0.05f * rs + turnIn);
+        const float rsUp = reloadOld ? 0.22f : 0.16f, rsIn = reloadOld ? 0.05f : 0.14f;
+        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (kickUp + rsUp * rs - 0.9f * drop + tip) - right[c] * (rsIn * rs + turnIn);
     }
     const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
     for (float& v : dir) v /= dl;
@@ -8245,7 +8255,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         // Rolled about the barrel: the magazine well toward the eye on a reload,
         // a few degrees to the right on a shot; FIX-FIGURE-7: the vertical fist rolled a
         // quarter of the way to palm-down, the back of the hand toward the eye's right.
-        const float roll = -0.75f * rs - 0.10f * kick + (fists && fistRolled ? 0.45f : 0.0f);
+        const float roll = -(reloadOld ? 0.75f : 0.55f) * rs - 0.10f * kick + (fists && fistRolled ? 0.45f : 0.0f);
         const float ca = std::cos(roll), sa = std::sin(roll);
         for (int c = 0; c < 3; ++c) { const float r0 = wr[c], u0 = wu[c]; wr[c] = r0 * ca + u0 * sa; wu[c] = u0 * ca - r0 * sa; }
     }
@@ -8261,7 +8271,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             // The fresh magazine rising from below into the well.
             const float u2 = (reloadT - ri.grabT) / (std::max)(0.05f, ri.insertT - ri.grabT);
             float m[3];
-            for (int c = 0; c < 3; ++c) m[c] = pos[c] - up[c] * (0.02f + 0.13f * (1.0f - u2)) - right[c] * 0.04f * (1.0f - u2) + (&f.x)[c] * 0.02f;
+            const float travel = reloadOld ? 0.13f : 0.05f, across = reloadOld ? 0.04f : 0.015f;
+            for (int c = 0; c < 3; ++c) m[c] = pos[c] - up[c] * (0.02f + travel * (1.0f - u2)) - right[c] * across * (1.0f - u2) + (&f.x)[c] * 0.02f;
             ShotSpawnMag(m[0], m[1], m[2], 0.0f, 0.0f, 0.0f, 0.045f, -1e9f, weapon == kWpnRocket);
         }
         if (crossed(ri.insertT)) { ReloadClick(1); Log("reload: first person magazine in at t=%.2f", reloadT); }
@@ -8302,7 +8313,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         default: break;
     }
     if (fists) leftName = nullptr;   // the left fist is the right's mirror (as the second pistol's hand)
-    const bool leftBusy = reloadT >= 0.0f && reloadT > ri.dropT && reloadT < ri.insertT + 0.1f;   // fetching the magazine
+    const bool leftBusy = reloadOld && reloadT >= 0.0f && reloadT > ri.dropT && reloadT < ri.insertT + 0.1f;   // fetching the magazine (the old pose hid the hand)
     // FIX-FIGURE-7 (pf2feel): bare hands are the closed fist (fp_fist_right, thumb over the fingers),
     // not the pistol-grip hand with no gun (its trigger finger and thumb read as a pointing hand).
     const Model* fistModel = fists ? ModelByName("fp_fist_right") : nullptr;
@@ -8403,7 +8414,32 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     if (armR) ModelDraw(device, *armR, handAt(0.0f, 0.0f, 0.0f, false), nullptr, 0.0f);
     if (armR && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: the sleeves on screen
         IdentityProbeModel(device, "sleeve", nullptr, IdentityForPlayer(), *armR, handAt(0.0f, 0.0f, 0.0f, false).m, 2);
-    if (armL) ModelDraw(device, *armL, handAt(fore[0], fore[1], fore[2], false), nullptr, 0.0f);
+    if (armL) {
+        // FIX-FIGURE-12 (pfl46): on a reload the support hand fetches the magazine instead of vanishing:
+        // fore grip -> under the magazine well (dropT..grabT), up with the fresh magazine (grabT..insertT),
+        // back to the fore grip (0.15 s). Its offset from the fore grip eases (tau 0.05 s), so a reload
+        // cut short by the trigger brings the hand back over a few frames, not in one.
+        gta2::Mat4 lm = handAt(fore[0], fore[1], fore[2], false);
+        static float lhOff[3] = {0.0f, 0.0f, 0.0f};
+        float want[3] = {0.0f, 0.0f, 0.0f};
+        if (!reloadOld && reloadT >= 0.0f && ri.insertT > 0.0f) {
+            const float t0 = ri.dropT >= 0.0f ? ri.dropT : (std::max)(0.0f, ri.grabT - 0.25f);
+            float lift = -1.0f;   // 0: under the well (0.05 down), 1: the magazine seated
+            float w = 0.0f;       // 0: on the fore grip, 1: on the magazine
+            auto ease = [](float u) { u = (std::max)(0.0f, (std::min)(1.0f, u)); return u * u * (3.0f - 2.0f * u); };
+            if (reloadT >= t0 && reloadT < ri.grabT) { w = ease((reloadT - t0) / (std::max)(0.05f, ri.grabT - t0)); lift = 0.0f; }
+            else if (reloadT >= ri.grabT && reloadT < ri.insertT) { w = 1.0f; lift = (reloadT - ri.grabT) / (std::max)(0.05f, ri.insertT - ri.grabT); }
+            else if (reloadT >= ri.insertT && reloadT < ri.insertT + 0.15f) { w = 1.0f - ease((reloadT - ri.insertT) / 0.15f); lift = 1.0f; }
+            if (w > 0.0f) {
+                float tgt[3];
+                for (int c = 0; c < 3; ++c) tgt[c] = pos[c] - up[c] * (0.035f + 0.05f * (1.0f - lift)) - right[c] * 0.015f * (1.0f - lift) + (&f.x)[c] * 0.02f;
+                for (int c = 0; c < 3; ++c) want[c] = (tgt[c] - lm.m[3][c]) * w;
+            }
+        }
+        const float a = vmDt > 0.0f ? 1.0f - std::exp(-vmDt / 0.05f) : 1.0f;
+        for (int c = 0; c < 3; ++c) { lhOff[c] += (want[c] - lhOff[c]) * a; lm.m[3][c] += lhOff[c]; }
+        ModelDraw(device, *armL, lm, nullptr, 0.0f);
+    }
     if (weapon == kWpnDual || fists) {
         gta2::Mat4 other = place;
         for (int c = 0; c < 3; ++c) other.m[3][c] = pos[c] - right[c] * 2.0f * side + (fists ? (&f.x)[c] * 0.05f * jabL + right[c] * 0.02f * jabL + up[c] * 0.012f * jabL : 0.0f);
