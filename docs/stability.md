@@ -299,3 +299,42 @@ nothing, `off` gives back a file byte-identical to the original.
 **For the 5090 box:** `gta2dx9_laa.exe on` in the game folder (or `python tools\set_laa.py` as in
 docs/performance.md FIX-PERF-5), play 10 minutes, send the `mem: minute` lines: `free=` near 2 GB higher,
 `largest_free` in the hundreds of MB. `gta2dx9_laa.exe off` undoes it.
+
+## The flamethrower fired while boarding: gta2.exe's flame emitter loses its shooter (FIX-CRASH-2)
+
+Work order `qaf57-third-first-flamethrower-fired-while-re-boarding-own-car-crashes-gta2-exe-c0000005-at-0x35C2A`.
+With the flamethrower, press Return beside a car and hold fire while the entry animation runs (ped state 3
+sub 6): `FAULT: code C0000005 at 00435C2A (gta2.exe+0x35C2A), reading 00000098`, ecx 0, and the Wine crash
+dialog. **The game crashes in classic too** (same sequence, no V press, same address): it is gta2.exe's own bug,
+not a renderer one. No stack word lies inside gta2dx9.dll; none of our hooks is on the path.
+
+**What faults.** A flamethrower's flame is an emitter object that the particle update's switch
+(FUN_00490760) hands to FUN_00490130 every frame. For an emitter fired by a pedestrian it takes the owner
+object at `[emitter+0x28]+8`, the ped at `[object+0x7C]`, checks them, then at 0x4902D6 calls FUN_00435C20
+(`*out = [[ped+0x168]+0x98], [..+0x9C]`: where the ped's object stands). While the ped climbs into the car,
+`ped+0x168` is already null, and FUN_00435C20 reads 0x98. The molotov has no emitter, so it never gets there.
+
+**The fix** (`dll/src/exe_guards.cpp`, installed at `gbh_InitDLL` in every mode, before the proxy/takeover
+split): 18 bytes at 0x4902D6 are checked against this build (`mov ecx,[ebp+0x7C]; lea edx,[esp+0x50]; push
+edx; call 0x435C20; jmp 0x490403`). The first 13 become a jump to a thunk that does the same when the ped and
+his object are there, and otherwise takes FUN_00490130's own exit at 0x49074E (al=1, the emitter ends): the exit
+its earlier checks already take for a missing owner object or ped. Log lines: `patch: flame emitter owner guard
+... at 004902D6 applied` (or `bytes differ, not applied` on another exe build) once, and `guard: flame emitter
+whose ped has no object (boarding) ended instead of crashing (N so far)` on the frame it fires. Nothing else in
+the game changes: a flame whose shooter is there runs the same instructions as before. On the frame it fires the
+flame stops, and he finishes boarding.
+
+**Verified** (wil kerb, plain GL, filer's runner `gamerun/qaf57_a.py` and its weapon-parametrised copy
+`gamerun/xc2_a.py` with `XC2_WPN`): the unmodified e169092e stage crashes in third and in classic. On the fix,
+three seated flamethrower runs in third/first give 0 FAULT lines, the guard fires on the boarding frame (5-20
+emitters ended there) and he is seated in the car after the boarding burst (frames opened: the cab view
+with the wheel, flamethrower HUD, the game running). Classic on the fix: same, 0 faults, guard fired, seated,
+no crash dialog. The pistol through the same sequence: 0 faults, seated (the guard does not fire: a pistol has no
+emitter). The rebased build (on f4b1dea1) re-run twice: 0 faults, the guard fired, seated. `tools/vreg/vreg.sh stage`:
+`spawn_classic` PASS, 0 tiles changed (the 3D shots differ from the b89b95a goldens only in the HUD tiles, the
+newer game-font HUD and round minimap). A 300 s plain `long` run: 0 FAULT, 0 `guard:`, 0 `guarded fault` lines.
+
+**Untested:** the machine gun and rocket launcher variants (both runs died or were busted before the boarding
+step: inconclusive, 0 faults); the Windows build (the thunk has an MSVC `__asm` twin that was never compiled
+here); whether anything in gta2.exe besides this emitter reads `ped+0x168` unchecked during boarding (none
+seen in 8 runs). Seating through the scripted F10 scene car fails about 1 run in 3 (`MARK never seated`).
