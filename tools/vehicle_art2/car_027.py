@@ -34,6 +34,7 @@ ZBF = 1.00                         # box front wall
 BOX_HW = 1.66
 BOX_BOT, BOX_TOP = 0.82, 2.55
 SV = 2.6
+AWN = 0.40                         # awning reach (VEHICLE-ART-16: 0.55 stood far proud of the footprint)
 
 
 def build():
@@ -102,7 +103,7 @@ def build():
     seal = lambda u, v: glass(u, v) - 0.014
     under = lambda u, v: np.maximum(np.asarray(v) - 0.26, body(u, v)[1] - (BOT + 0.10))
     car.surface(body, ZC, zn, 0.0, 1.0, 60, 30, mirror=True,
-                regions=[("glass", glass), ("seal", seal), ("underbody", under)],
+                regions=[("glass", glass), ("interior_dark", seal), ("underbody", under)],
                 default="paint_cab", uvfn=lambda u, v: ((u - ZC) / (zn - ZC), v),
                 ukeys=[ZF - R_ARCH, ZF + R_ARCH, 1.76, 1.60, 1.70, 1.05], vkeys=[0.56, 0.77, 0.81, 0.975])
     car.cap(body, zn, 0.0, 1.0, 24, "paint_cab", regions=[("underbody", lambda r, v: np.asarray(v) - 0.14)])
@@ -157,7 +158,7 @@ def build():
     hatch_frame = lambda u, v: hatch(u, v) - 0.04
     band = lambda u, v: np.abs(np.asarray(v) - vy(1.20)) - 0.035
     car.surface(box_body, zt, ZBF, 0.0, 1.0, 50, 40, mirror=True,
-                regions=[("glass_hatch", hatch), ("chrome", hatch_frame), ("paint_band", band)],
+                regions=[("glass_hatch", hatch), ("chrome", hatch_frame)],
                 default="paint_box", uvfn=lambda u, v: ((u - zt) / (ZBF - zt), v),
                 ukeys=[HZ0, HZ1, HZ0 - 0.04, HZ1 + 0.04], vkeys=[vy(HY0), vy(HY1), vy(HY0 - 0.04), vy(HY1 + 0.04), 0.16, 0.24, 0.76, 0.84,
                                                                 vy(1.20) - 0.035, vy(1.20) + 0.035])
@@ -166,37 +167,37 @@ def build():
     # behind the hatch glass: a lit cream interior wall and a counter
     for s_ in (1, -1):
         x0, x1 = sorted((s_ * (BOX_HW - 0.45), s_ * (BOX_HW - 0.42)))
-        car.box("interior_shop", (x0, HY0 - 0.05, HZ0), (x1, HY1, HZ1))
+        car.box("paint_box", (x0, HY0 - 0.05, HZ0), (x1, HY1, HZ1))
         x0, x1 = sorted((s_ * (BOX_HW - 0.40), s_ * (BOX_HW + 0.12)))
         car.box("chrome", (x0, HY0 - 0.06, HZ0 + 0.05), (x1, HY0 - 0.01, HZ1 - 0.05))
         # awning: a striped canopy sloping out over the hatch, held by two struts
         def awn(u, v, s_=s_):
             z = HZ0 - 0.10 + (HZ1 - HZ0 + 0.20) * np.asarray(u, float)
             t = np.asarray(v, float)
-            x = s_ * (BOX_HW + 0.02 + 0.55 * t)
+            x = s_ * (BOX_HW + 0.02 + AWN * t)
             y = HY1 + 0.20 - 0.28 * t - 0.04 * np.sin(math.pi * t)
             return x, y, z
         car.surface(awn, 0.0, 1.0, 0.0, 1.0, 24, 6, default="awning", flip=s_ < 0,
                     uvfn=lambda u, v: (np.asarray(u) * 1.0, np.asarray(v)))
-        car.sweep(lambda u, s_=s_: np.stack([s_ * (BOX_HW + 0.02 + 0.55 * u), HY1 + 0.20 - 0.28 * u - 0.30 + 0.30 * u, HZ0 - 0.08 + 0 * u], 1),
+        car.sweep(lambda u, s_=s_: np.stack([s_ * (BOX_HW + 0.02 + AWN * u), HY1 + 0.20 - 0.28 * u - 0.30 + 0.30 * u, HZ0 - 0.08 + 0 * u], 1),
                   0.014, 4, 6, "chrome")
-        car.sweep(lambda u, s_=s_: np.stack([s_ * (BOX_HW + 0.02 + 0.55 * u), HY1 + 0.20 - 0.28 * u - 0.30 + 0.30 * u, HZ1 + 0.08 + 0 * u], 1),
+        car.sweep(lambda u, s_=s_: np.stack([s_ * (BOX_HW + 0.02 + AWN * u), HY1 + 0.20 - 0.28 * u - 0.30 + 0.30 * u, HZ1 + 0.08 + 0 * u], 1),
                   0.014, 4, 6, "chrome")
         # ICE CREAM board above the awning (a box face: reads unmirrored from outside on both sides)
         x0, x1 = sorted((s_ * BOX_HW, s_ * (BOX_HW + 0.025)))
-        car.box("sign_r" if s_ > 0 else "sign_l", (x0, 2.16, -1.55), (x1, 2.48, 0.25))
+        car.box("sign", (x0, 2.16, -1.55), (x1, 2.48, 0.25), uv_rect=(0.0, 0.0, 0.5, 1.0) if s_ > 0 else (0.5, 0.0, 1.0, 1.0))
         # a dark skirt over the rear wheels
-        car.box("trim_dark", (min(s_ * (BOX_HW - 0.05), s_ * (BOX_HW + 0.03)), BOX_BOT - 0.10, ZR - 0.60),
+        car.box("interior_dark", (min(s_ * (BOX_HW - 0.05), s_ * (BOX_HW + 0.03)), BOX_BOT - 0.10, ZR - 0.60),
                 (max(s_ * (BOX_HW - 0.05), s_ * (BOX_HW + 0.03)), BOX_BOT + 0.02, ZR + 0.60))
     # rear: double doors (dark shut lines in the texture), lamps, bumper, plate
     for s_ in (1, -1):
         car.revolve([(0.06, -0.02), (0.06, 0.02), (0.0, 0.03)], (s_ * 1.40, 1.05, zt - 0.01), (0, 0, -1), 12, default="lamp_tail", uv_mode="disc")
         car.box("chrome", (s_ * 0.14 - 0.012, 1.45, zt - 0.03), (s_ * 0.14 + 0.012, 1.60, zt))
     car.sweep(lambda u: np.stack([(u - 0.5) * 2.9, 0.66 + 0 * u, zt - 0.06 + 0 * u], 1), 0.07, 20, 8, "chrome", squash=(0.5, 1.0))
-    car.box("plate", (-0.20, 0.80, zt - 0.02), (0.20, 0.94, zt))
+    car.box("paint_box", (-0.20, 0.80, zt - 0.02), (0.20, 0.94, zt))
     # chassis under the box
     for s_ in (1, -1):
-        car.box("frame", (s_ * 0.55 - 0.07, 0.58, zt + 0.10), (s_ * 0.55 + 0.07, 0.80, 2.9))
+        car.box("interior_dark", (s_ * 0.55 - 0.07, 0.58, zt + 0.10), (s_ * 0.55 + 0.07, 0.80, 2.9))
     car.box("underbody", (-1.6, 0.74, zt + 0.10), (1.6, BOX_BOT + 0.01, ZBF))
 
     # ---- the cone: a waffle cone lying tip-back on the roof, a soft-serve swirl spilling forward over the cab
@@ -208,19 +209,20 @@ def build():
     car.revolve(prof, tip, tuple(ax), 32, default="waffle", uv_mode="tyre")
     # swirl: stacked rings shrinking forward to a curled tip, on a level axis from the mouth
     sw0 = mouth + np.array([0.0, -0.05, 0.0])
-    sprof = []
-    n = 160
-    for k in range(n + 1):
-        t = k / n
+    # VEHICLE-ART-16: a piped spiral (the ridge winds 4.5 turns round the axis to the curled tip), not stacked rings
+    def swirl(u, v):
+        t = np.asarray(u, float); th = np.asarray(v, float)
         d = 0.04 + 2.10 * t
         env = 1.02 * (1 - t) ** 0.85 + 0.02
-        ripple = 0.10 * (1 - t) * (0.5 + 0.5 * np.cos(t * 4.5 * 2 * math.pi))
-        sprof.append((max(env + ripple, 0.0), d))
-    sprof.append((0.0, 2.18))
-    car.revolve(sprof, tuple(sw0), (0, 0.0, 1), 36, default="icecream", uv_mode="tyre")
+        ridge = 0.5 + 0.5 * np.cos(t * 4.5 * 2 * math.pi - th)
+        r = env + 0.13 * (1 - t) ** 0.8 * ridge ** 2
+        tipc = np.clip((t - 0.93) / 0.07, 0, 1)
+        r = r * np.sqrt(1 - tipc ** 2) + 0.0
+        return (sw0[0] + r * np.cos(th), sw0[1] + r * np.sin(th) + 0.10 * tipc, sw0[2] + d + 0 * th)
+    car.surface(swirl, 0.0, 1.0, 0.0, 2 * math.pi, 110, 40, default="icecream", uvfn=lambda u, v: (np.asarray(v) / (2 * math.pi), np.asarray(u)))
     # a wafer stuck in the swirl
-    car.sweep(lambda u: np.stack([0.30 + 0 * u, BOX_TOP + 1.75 + 0.35 * u, -0.30 + 0.05 * u], 1), 0.05, 4, 6, "wafer", squash=(0.3, 1.0))
-    for m in ("waffle", "icecream", "wafer"):
+    car.sweep(lambda u: np.stack([0.30 + 0 * u, BOX_TOP + 1.75 + 0.35 * u, -0.30 + 0.05 * u], 1), 0.05, 4, 6, "waffle", squash=(0.3, 1.0))
+    for m in ("waffle", "icecream"):
         part = car.parts[m]
         for k in range(len(part.p)):
             P = part.p[k].copy(); N = part.n[k].copy()
@@ -236,38 +238,38 @@ def build():
         add_wheel(car, nm, (xw, R_REAR, zc), R_REAR, W_REAR, 1 if xw > 0 else -1, st)
 
     Uc = lambda z: (z - ZC) / (zn - ZC)
-    car.materials["paint_cab"] = tex_paint(TAN, 512, lines_u=[(Uc(1.74), 0.30, 0.56), (Uc(1.02), 0.30, 0.56), (Uc(1.82), 0.56, 0.98)],
+    car.materials["paint_cab"] = tex_paint(TAN, 256, lines_u=[(Uc(1.74), 0.30, 0.56), (Uc(1.02), 0.30, 0.56), (Uc(1.82), 0.56, 0.98)],
                                            ao_v=[(0.18, 0.36, 0.30)], seed=27)
     Ub = lambda z: (z - zt) / (ZBF - zt)
     car.materials["paint_box"] = tex_paint(CREAM, 512, lines_u=[(Ub(zt + 0.02), 0.25, 0.75)], lines_v=[(0.16, 0.0, 1.0), (0.84, 0.0, 1.0)],
                                            seed=28)
-    car.materials["paint_band"] = tex_flat(ORANGE, 16)
+    # the orange belt band painted into the box picture (was its own material)
+    pb = np.asarray(car.materials["paint_box"]).copy()
+    r0, r1 = int((vy(1.20) - 0.035) * 512), int(math.ceil((vy(1.20) + 0.035) * 512))
+    pb[r0:r1] = (pb[r0:r1].astype(float) / np.array(CREAM, float) * np.array(ORANGE, float)).clip(0, 255).astype(np.uint8)
+    car.materials["paint_box"] = Image.fromarray(pb)
     car.materials["paint_wheel"] = tex_flat((200, 70, 50), 16)
-    car.materials["awning"] = tex_stripes()
+    car.materials["awning"] = tex_stripes(64)
     # a box's x face maps image columns to height and rows to length (row 0 at the tail): the +x board reads
     # front to tail (rows falling), up = columns rising; the -x board is that turned half round
-    sr = ImageOps.mirror(tex_sign().transpose(Image.ROTATE_90))
-    car.materials["sign_r"] = sr
-    car.materials["sign_l"] = sr.transpose(Image.ROTATE_180)
-    car.materials["waffle"] = tex_waffle()
-    car.materials["icecream"] = tex_icecream()
-    car.materials["wafer"] = tex_flat((196, 150, 92))
-    car.materials["interior_shop"] = tex_flat((210, 200, 176))
-    car.materials["glass_hatch"] = tex_glass(256, tint=(60, 70, 76), alpha=110)
-    car.materials["glass"] = tex_glass(256, tint=(34, 42, 50), alpha=190)
-    car.materials["seal"] = tex_flat((20, 20, 22))
+    # both boards in one 256 x 512 picture: +x in the left half, -x (turned half round) in the right
+    sr = ImageOps.mirror(tex_sign((512, 128)).transpose(Image.ROTATE_90))
+    sign = Image.new("RGB", (256, 512))
+    sign.paste(sr, (0, 0)); sign.paste(sr.transpose(Image.ROTATE_180), (128, 0))
+    car.materials["sign"] = sign
+    car.materials["waffle"] = tex_waffle(128)
+    car.materials["icecream"] = tex_icecream(64)
+    car.materials["glass_hatch"] = tex_glass(64, tint=(60, 70, 76), alpha=110)
+    car.materials["glass"] = tex_glass(128, tint=(34, 42, 50), alpha=190)
     car.materials["chrome"] = tex_chrome()
     car.materials["grille"] = tex_grille(128, bars=7)
     car.materials["underbody"] = tex_underbody()
-    car.materials["frame"] = tex_flat((30, 30, 32))
-    car.materials["trim_dark"] = tex_flat((40, 34, 30))
-    car.materials["plate"] = tex_flat((210, 200, 170))
     car.materials["interior_dark"] = tex_flat((14, 14, 14))
-    car.materials["seat"] = tex_leather((120, 60, 50))
-    car.materials["lamp_head"] = tex_lamp("head")
+    car.materials["seat"] = tex_leather((120, 60, 50), 64)
+    car.materials["lamp_head"] = tex_lamp("head", 64)
     car.materials["lamp_tail"] = tex_lamp("tail")
     car.materials["lamp_amber"] = tex_lamp("amber")
-    car.materials["tyre_tread"] = tex_tread(grooves=5)
+    car.materials["tyre_tread"] = tex_tread(128, grooves=5)
     car.materials["tyre_side"] = tex_tyre_side()
     car.materials["whitewall"] = tex_flat((226, 224, 218))
     bake_ao(car, body, ZC, zn, 0.0, 1.0, "paint_cab")
@@ -283,12 +285,12 @@ def tex_stripes(size=128, n=8):
     return Image.fromarray(rgb.clip(0, 255).astype(np.uint8))
 
 
-def tex_sign(size=(512, 96)):
+def tex_sign(size=(512, 128)):
     im = Image.new("RGB", size, CREAM)
     d = ImageDraw.Draw(im)
     d.rectangle([3, 3, size[0] - 4, size[1] - 4], outline=ORANGE, width=6)
     p = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    f = ImageFont.truetype(p, 64) if os.path.exists(p) else ImageFont.load_default()
+    f = ImageFont.truetype(p, int(size[1] * 0.66)) if os.path.exists(p) else ImageFont.load_default()
     t = "ICE CREAM"
     w = d.textlength(t, font=f); b = d.textbbox((0, 0), t, font=f)
     d.text(((size[0] - w) / 2, (size[1] - (b[3] - b[1])) / 2 - b[1]), t, fill=(160, 52, 40), font=f)

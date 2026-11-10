@@ -235,7 +235,9 @@ class Car:
         self.surface(capfn, 0.0, 1.0, v0, v1, nr, nv, default=mat, mirror=mirror, regions=regions,
                      uvfn=uvfn or (lambda r, v: (0.5 + 0 * r, 0.5 + 0 * v)))
 
-    def box(self, mat, lo, hi, uv_scale=1.0):
+    def box(self, mat, lo, hi, uv_scale=1.0, uv_rect=None):
+        """uv_rect (s0, t0, s1, t1): every face maps its picture into that rectangle of the texture (VEHICLE-ART-16:
+        two boards share one picture)"""
         lo = np.array(lo, float); hi = np.array(hi, float)
         P, N, T, F = [], [], [], []
         faces = [((0, 1, 2), 0, 1), ((0, 1, 2), 0, -1)]
@@ -250,7 +252,10 @@ class Car:
                     q[o[0]] = (lo, hi)[c[0]][o[0]]; q[o[1]] = (lo, hi)[c[1]][o[1]]
                     P.append(q); nn = [0, 0, 0]; nn[axis] = sgn; N.append(nn)
                     # faces looking down an axis read their picture unmirrored from outside
-                    T.append((1 - c[0], c[1]) if (sgn < 0) != (axis == 1) else c)
+                    tc = (1 - c[0], c[1]) if (sgn < 0) != (axis == 1) else c
+                    if uv_rect is not None:
+                        tc = (uv_rect[0] + (uv_rect[2] - uv_rect[0]) * tc[0], uv_rect[1] + (uv_rect[3] - uv_rect[1]) * tc[1])
+                    T.append(tc)
                 if sgn > 0:
                     F += [(base, base + 1, base + 2), (base, base + 2, base + 3)]
                 else:
