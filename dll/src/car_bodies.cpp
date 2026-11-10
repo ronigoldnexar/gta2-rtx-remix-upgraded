@@ -5240,6 +5240,21 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         for (int k = 0; k < 3; ++k)
                             cp.paint[k] = (ident.shownTop[0] + ident.shownTop[1] + ident.shownTop[2] > 1.0f ? ident.shownTop[k] / 255.0f : paint[k] / dull) * dull;
                         cp.steer = feel.on ? feel.steer : 0.0f;
+                        {   // FIX-COCKPIT-CAB-4 (CAB-3 order 6, DRIVER-GEOM-2 order 4): the rim and the tank's levers turn from the
+                            // game's own steering keys: held, they ease to a lock in that direction (+ = left), released they
+                            // hand back to the measured steer (yaw over distance), which pinned against a wall flipped sign
+                            // several times a second and showed no pull for a tank pivoting in place. GTA2DX9_FP_KEY_STEER=0: off.
+                            static const bool keyOn = [] { char v[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_KEY_STEER", v, sizeof v) && v[0] == '0'); }();
+                            static float keySteer = 0.0f;
+                            constexpr float kLock = 0.45f;
+                            const int keys = keyOn ? GameSteerKeys() : 0;
+                            const float want = keys < 0 ? kLock : (keys > 0 ? -kLock : 0.0f);
+                            keySteer += (want - keySteer) * 0.25f;
+                            const float w = (std::min)(1.0f, std::fabs(keySteer) / kLock);
+                            if (keyOn) cp.steer = cp.steer * (1.0f - w) + keySteer;
+                            static int lastKeys = 0;
+                            if (keys != lastKeys) { lastKeys = keys; Log("cab: steer keys %s (measured steer %+.3f)", keys < 0 ? "Left" : keys > 0 ? "Right" : "none", feel.steer); }
+                        }
                         // FIX-DRIVER-GEOM: [devtools] force_steer_deg turns the cab's wheel too (a stopped car's hands at a fixed lock)
                         if (g_forceSteerDeg) cp.steer = static_cast<float>(g_forceSteerDeg) * kPi / 180.0f;
                         cp.speed = feel.speed;

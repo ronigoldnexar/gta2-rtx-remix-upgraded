@@ -1334,6 +1334,17 @@ void EntryService() {
 }
 }  // namespace
 
+// FIX-COCKPIT-CAB-4: the steering keys the game is told are held (view_modes.h).
+int GameSteerKeys() {   // FIX-COCKPIT-CAB-4
+    if (InputHeld()) return 0;
+    bool l = g_navActive ? g_inj[2] : g_phys[2], r = g_navActive ? g_inj[3] : g_phys[3];
+    if (!g_diHooked) {   // no hook (direct arrows, not knocked down yet): the game reads the physical arrows
+        l = (GetAsyncKeyState(VK_LEFT) & 0x8000) != 0;
+        r = (GetAsyncKeyState(VK_RIGHT) & 0x8000) != 0;
+    }
+    return l == r ? 0 : (l ? -1 : 1);
+}
+
 void ViewHoldPlayerInput() {
     if (CurrentViewMode() == ViewMode::Classic) return;
     InstallNavHook(false);

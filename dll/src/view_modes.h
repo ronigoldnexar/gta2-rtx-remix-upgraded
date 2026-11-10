@@ -326,6 +326,9 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded);
 // playing): the game is not told of the movement, fire, enter or jump keys while this is renewed (every
 // frame; it lapses 300 ms after the last call). Keys still held when it lapses are pressed again for it.
 void ViewHoldPlayerInput();
+// FIX-COCKPIT-CAB-4: the steering keys the game is told are held this frame (after the camera-relative controller and the
+// knock-down hold): -1 Left, +1 Right, 0 neither or both. For the first-person rim and the tank levers.
+int GameSteerKeys();
 
 // What the camera solver needs to know about the world, without a dependency on
 // the map classes. All in renderer coordinates: x east, y up, z north.
