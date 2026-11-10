@@ -220,6 +220,10 @@ struct ViewModeSettings {
     // small heave, settled in ~0.3 s) scaled by the car's speed and the ped's mass against the car's; nothing
     // under 0.5 block/s. [camera] ped_hit_bump (percent, 0 = off).
     float pedHitBump = 1.0f;
+    // FIX-FIGURE-18 (owner10nov B9 residual): in first person on foot, a man his fist knocks down is followed
+    // down: the look dips to his chest through the fall (eased in with the blow, held ~0.9 s, eased back over
+    // ~0.5 s), at most 40 degrees down. [camera] fp_punch_follow (percent of the dip, 0 = off).
+    float fpPunchFollow = 1.0f;
     // RTX Remix's own motion blur, pushed through its API while a chase or
     // first-person view is up: 0 leaves Remix's setting alone, 1 turns it on
     // there and back off in the classic view, 2 keeps it on everywhere.
@@ -331,6 +335,13 @@ void NotePedNearCamera(const void* ped, float distanceTiles);
 // FIX-KNOCKDOWN-5 (pfl77): a pedestrian went down struck by a car at x,z (renderer frame); the camera
 // checks whether it was his car (the next update) and gives the bump.
 void ViewNotePedStruck(float x, float z);
+// FIX-FIGURE-18: the chest of the man the player's punch knocked down (renderer frame), reported by the figure
+// code every frame it draws him for 1.6 s after the blow; `fresh` on the knock-down's first report.
+void ViewNoteFpPunchVictim(float x, float y, float z, bool fresh);
+// FIX-FIGURE-18: true while the first-person look follows a punched man down (the figure code keeps him drawn).
+bool ViewFpPunchFollowActive();
+// FIX-FIGURE-18: [camera] fp_punch_follow above 0 and GTA2DX9_FP_PUNCH_FOLLOW not 0.
+bool ViewFpPunchFollowOn();
 
 // The car nearest a point in the game's frame (x east, y south), for the log
 // and for scripted play: false when there is none within `within` tiles.

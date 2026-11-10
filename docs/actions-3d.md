@@ -2162,3 +2162,48 @@ every heading.
 
 **Not checked yet**: the boarding door grab (grab_door_l/_r) and the jack side, the punch combo sides, Remix figure layer
 prims (the geometry's hash is unchanged, only the world matrix differs), crowd peds with long guns.
+
+## FIX-FIGURE-18 (10 Nov 2026): the punched man falls in the first-person picture (owner10nov B9 residual)
+
+**What was wrong** (FIX-AIM-2's fixaim2_fp1A/B, re-measured here). GTA2 lands a punch only on a body pressed against him,
+and most punches knock the man down (state 8 in the frame his health drops). The first-person eye sits ahead of his
+centre, so the struck man stands at or behind the eye: he fell at the hero's feet, under the picture, and within 0.15 of the
+eye the lens rule (`figure at the lens not drawn`) did not draw him at all. The swing landed on nothing.
+
+**Fix**, two halves, first person on foot only (classic and third person unchanged):
+- *The look follows him down* (view_modes.cpp, after the knock-down eye, before the shake). The figure code reports the
+  chest of the man the player's fist knocked down (`Bip01 Spine2` as drawn) every frame for 2.3 s; the look dips toward
+  it: the chest is put 14 degrees under the picture's middle, at most 40 degrees down, eased in over ~0.12 s with the blow,
+  held through the 0.27 s reaction and the fall (to ~1.0 s) and a beat of him lying, eased back from 1.5 s over ~0.5 s to
+  the player's own look; a turn toward him of at most 12 degrees. Only ever down; never while down himself, at the wheel or
+  boarding. It is a look, not a shake (CAMERA-9's shake limits are untouched) and it ends by itself (the FP look rule).
+- *The blow knocks him back* (live_geometry.cpp, the figure placement, draw-only). In the blow's first 10 frames his drawn
+  body is moved (at most 0.5 block, at most 1.8 block/s, within the reaction) to 0.36 ahead of the eye and at most 0.08
+  aside of the view's line; the move is halved (then dropped) while the line to the new place, at hip height, crosses a
+  solid side (`ViewLineWalled`). Held while he lies; eased out at 0.3 block/s once he is up. A man more than 0.15 behind the
+  eye (the game also lands a blow on a body pressed against his back) is neither knocked forward nor followed. While the
+  follow runs he is exempt from FIGURE-9's shoulder clear.
+
+`[camera] fp_punch_follow` (percent, default 100; 0 = off, both halves), `GTA2DX9_FP_PUNCH_FOLLOW=0` (A/B). Log
+(`GTA2DX9_LOG_FIGURES=1`): `fig: fp punch victim`, `fig: fp victim .. chest`, `fig: fp knock-back`, `view: fp punch follow`.
+
+**Measured** (probe `gamerun/fig18_fpgate.py`, keys `keys_fig18_fp.sh`: FIX-AIM-2's punch gate at the wil pavement with a
+20 fps x11grab burst per swing, frames timed by file time against the `fig: hit` / `fig: knock-down` log line;
+GTA2_DIRECT_KEYS=1, STATE_EVERY=3, PEDS_EVERY=3, LOG_FIGURES; private stage = repo/stage e169092e + this build, GPU 5):
+
+| run | build | knock-downs in a burst | victim in the picture at +1.0 s | at +1.5 s |
+|---|---|---|---|---|
+| fig18_fp6 | this, `GTA2DX9_FP_PUNCH_FOLLOW=0` (before) | 7 | 0 | 0 |
+| fig18_fp5 | this (after, before the wall check) | 6 | 6 (lying, lower half) | 6 |
+| fig18_fp7 | + the wall check | 6 | 5 (the miss: the game had her 0.21 behind the eye, FIGURE-9's eye push drew her in front; not followed) | 5 |
+| fig18_fp8 | final (the behind test on the drawn place) | 6 | 6 | 6 |
+
+Third-person reference of the same gate: fig18_fp1 (`GATE_VIEWS=third,first`): the chase view shows the fall small at
+the hero's feet. Development runs: fig18_fp1 (look only: the dip ran, but the victim stood at the eye, culled by the lens
+rule for the whole fall), fig18_fp3 (knock-back along the blow: a man beside him was not brought in; one 0.4 behind the eye
+was dragged through it), fig18_fp4 (recentre from 0.9 s left as he landed: moved to 1.5 s).
+
+**Not done / untested**: Remix (the look and the drawn offset are renderer-side, nothing Remix-specific); a man knocked
+down by the player's kick-free combos while running; a blow that kills (state 9: the corpse is followed the same way, not
+filmed); the lying body against kerb furniture (fig18_fp4: an arm through a fire hydrant, the game's own fall); several
+victims at once (the last knock-down is followed).

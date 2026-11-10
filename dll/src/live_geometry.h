@@ -837,6 +837,8 @@ private:
         // back away from the puncher, the stagger held while he lies (downHold, eased out as he rises).
         uint32_t punchDownFrame = 0;
         float punchByX = 0.0f, punchByZ = 0.0f;
+        bool hitByPlayer = false;   // FIX-FIGURE-18: the last blow was the player's fist
+        float fpKbX = 0.0f, fpKbZ = 0.0f;   // FIX-FIGURE-18: the drawn knock-back ahead of the first-person eye
         float downHold = 0.0f;
         // FIX-ACTIONS-3: the puncher's mark (a figure in reach in front of him), for the turn onto it.
         bool punchAim = false;

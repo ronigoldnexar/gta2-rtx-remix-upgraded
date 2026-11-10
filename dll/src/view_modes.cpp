@@ -1777,6 +1777,28 @@ void ViewNotePedStruck(float x, float z) {
     g_pedStruck[g_pedStruckN++] = PedStruck{x, z, GetTickCount64()};
 }
 
+// FIX-FIGURE-18 (owner10nov B9 residual): the man the player's fist knocked down, his chest as last drawn.
+namespace {
+struct FpPunchVictim { float x = 0, y = 0, z = 0; ULONGLONG start = 0, seen = 0; };
+FpPunchVictim g_fpVictim;
+float g_fpDip = 0.0f;          // 0..1, how far the look has gone toward him
+float g_fpDipPitch = 0.0f;     // the pitch it dips to (radians, eased)
+float g_fpDipYaw = 0.0f;       // the small turn toward him (radians, eased)
+bool g_fpDipActive = false;
+}  // namespace
+void ViewNoteFpPunchVictim(float x, float y, float z, bool fresh) {
+    const ULONGLONG now = GetTickCount64();
+    if (fresh) g_fpVictim.start = now;   // one follow a knock-down (a report after it ended starts none)
+    if (!g_fpVictim.start) return;
+    g_fpVictim.x = x; g_fpVictim.y = y; g_fpVictim.z = z; g_fpVictim.seen = now;
+}
+bool ViewFpPunchFollowActive() { return g_fpDipActive; }
+bool ViewFpPunchFollowOn() {
+    static int env = -1;
+    if (env < 0) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_FP_PUNCH_FOLLOW", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    return env && g_settings.fpPunchFollow > 0.0f;
+}
+
 void NotePedNearCamera(const void* ped, float distanceTiles) {
     if (!ped) return;
     if (distanceTiles < g_nearPedNowDist) {
@@ -3748,6 +3770,50 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 lastLog = GetTickCount64();
                 Log("view: fp knockdown eye w=%.2f low=%.2f head y=%.2f (ground %.2f) %s", w, low, kde.y, kde.groundY, kde.faceUp ? "on his back" : "on his front");
             }
+        }
+        // FIX-FIGURE-18 (owner10nov B9 residual): a man his fist knocks down falls at his feet, under the first-person
+        // picture (FIX-AIM-2's fixaim2_fp1A/B: in frame at the strike, gone 0.25 s later). The look follows him down:
+        // it dips toward his chest (as the figure code draws it) with the blow, eased in over ~0.12 s, held while he
+        // falls and lies, and eased back to the player's own look from 1.5 s over ~0.5 s (fig18_fp3: the fall ends
+        // ~1.0 s after the blow; a recentre from 0.9 s left the picture while he landed). The chest is put 14 degrees
+        // under the picture's middle (the fall reads in the lower half, the street stays in the top), at most 40
+        // degrees down; a turn toward him of at most 12 degrees. Never while down himself, at the wheel or boarding.
+        // [camera] fp_punch_follow (percent), GTA2DX9_FP_PUNCH_FOLLOW=0: off (A/B).
+        {
+            static int follow = -1;
+            if (follow < 0) { char b[8] = {}; follow = GetEnvironmentVariableA("GTA2DX9_FP_PUNCH_FOLLOW", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+            const ULONGLONG now = GetTickCount64();
+            const float since = g_fpVictim.start ? static_cast<float>(now - g_fpVictim.start) / 1000.0f : 99.0f;
+            const bool live = follow && s.fpPunchFollow > 0.0f && !inVehicle && !riding && deathMix_ < 0.01f && kde.weight < 0.05f &&
+                              g_fpVictim.start && since < 2.2f && now - g_fpVictim.seen < 200;
+            float want = 0.0f;
+            if (live) {
+                const float dx = g_fpVictim.x - eye.x, dy = g_fpVictim.y - eye.y, dz = g_fpVictim.z - eye.z;
+                const float horiz = (std::max)(0.05f, std::sqrt(dx * dx + dz * dz));
+                const float toChest = std::atan2(dy, horiz);
+                const float target = (std::max)(-40.0f * kDegToRad, (std::min)(toChest + 14.0f * kDegToRad, 0.0f));
+                if (g_fpDip < 0.01f) { g_fpDipPitch = target; g_fpDipYaw = 0.0f; }
+                g_fpDipPitch += (target - g_fpDipPitch) * (1.0f - std::exp(-dt / 0.06f));
+                const float turn = (std::max)(-12.0f * kDegToRad, (std::min)(WrapAngle(std::atan2(dx, dz) - yaw), 12.0f * kDegToRad));
+                g_fpDipYaw += (turn - g_fpDipYaw) * (1.0f - std::exp(-dt / 0.10f));
+                want = since < 1.5f ? 1.0f : 0.0f;   // the reaction (0.27 s) and the fall (to ~1.0 s), then a beat of him lying
+            }
+            g_fpDip += (want - g_fpDip) * (1.0f - std::exp(-dt / (want > g_fpDip ? 0.06f : 0.16f)));
+            if (g_fpDip < 0.005f && !live) g_fpDip = 0.0f;
+            g_fpDipActive = g_fpDip > 0.0f || live;
+            if (g_fpDip > 0.0f) {
+                const float w = g_fpDip * (std::min)(s.fpPunchFollow, 1.0f);
+                if (g_fpDipPitch < pitch) pitch += (g_fpDipPitch - pitch) * w;   // only ever down
+                yaw = WrapAngle(yaw + g_fpDipYaw * w);
+                static ULONGLONG lastLog = 0;
+                if (now - lastLog > 90) {
+                    lastLog = now;
+                    Log("view: fp punch follow t=%.2f w=%.2f pitch %.1f deg (to his chest %.1f, %.2f away) yaw %+.1f", since, w, pitch / kDegToRad,
+                        std::atan2(g_fpVictim.y - eye.y, std::hypot(g_fpVictim.x - eye.x, g_fpVictim.z - eye.z)) / kDegToRad,
+                        std::hypot(g_fpVictim.x - eye.x, g_fpVictim.z - eye.z), g_fpDipYaw * w / kDegToRad);
+                }
+            }
+            if (!live && since >= 2.2f) g_fpVictim.start = 0;
         }
         // The kick of an impact, and the stretch of speed.
         if (shake_ > 0.001f) {

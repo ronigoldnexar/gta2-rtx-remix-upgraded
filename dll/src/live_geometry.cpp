@@ -519,6 +519,31 @@ bool ShotgunFxOld() {
 int g_carLamps = 1;         // [renderer] car_lamps: 0 none, 1 when dark + brake lamps, 2 always
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
 gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
+// FIX-FIGURE-18 (owner10nov B9 residual): the man the player's fist knocked down in first person, and the frame;
+// the camera follows his drawn chest down (ViewNoteFpPunchVictim) and the shoulder clear leaves him drawn.
+uintptr_t g_fpVictimObj = 0;
+uint32_t g_fpVictimFrame = 0;
+bool FpPunchVictimLive(uintptr_t object);
+void NoteFpPunchVictim(uintptr_t object, uint32_t frame, float x, float z) {
+    if (CurrentViewMode() != ViewMode::FirstPerson || !ViewFpPunchFollowOn()) return;
+    // Not a man behind him (the game lands a blow on a body pressed against his back too: fig18_fp3 swing 2, 0.4
+    // behind the eye): knocked forward he would pass through the eye, and the player did not throw at him. Where he
+    // was DRAWN last frame (fig18_fp7 swing 1: the game had her 0.21 behind the eye, FIGURE-9's eye push drew her in
+    // front, where the fist met her).
+    {
+        float fx = g_viewForward.x, fz = g_viewForward.z;
+        const float fl = std::sqrt(fx * fx + fz * fz);
+        const float along = fl > 1e-3f ? ((x - g_viewEye.x) * fx + (z - g_viewEye.z) * fz) / fl : 0.0f;
+        if (along < -0.15f) {
+            if (g_logFigures || g_logPedFrames) Log("fig: fp punch victim %04x %.2f behind the eye: not followed", static_cast<unsigned>((object >> 2) & 0xFFFF), -along);
+            return;
+        }
+    }
+    if (g_fpVictimObj != object || frame - g_fpVictimFrame > 45) {
+        g_fpVictimObj = object; g_fpVictimFrame = frame;
+        if (g_logFigures || g_logPedFrames) Log("fig: fp punch victim %04x knocked down: the look follows him down", static_cast<unsigned>((object >> 2) & 0xFFFF));
+    }
+}
 bool g_uprightPeds = false;
 bool g_ghostSpritesWanted = false;   // FIX-PERF-VSWITCH: see the second issue(plain) in Draw
 }
@@ -2405,6 +2430,7 @@ struct CarMaterial {
     float tint[3] = {1.0f, 1.0f, 1.0f};   // what takes the game's default paint to this car's
 };
 uint32_t g_carFrame = 0;
+bool FpPunchVictimLive(uintptr_t object) { return object && object == g_fpVictimObj && g_carFrame - g_fpVictimFrame < 70; }   // FIX-FIGURE-18
 // The arrest (POLICE-3D). GTA2 has no hands-up animation: an officer punches the
 // wanted player down (state 8, sub-state 0x16, frame 72 lying) and the game busts
 // him there - his cop points (ped+0x20A) are cleared and his weapons taken while
@@ -10692,7 +10718,9 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     track.hitFrame = g_carFrame; track.hitSide = by->alt ? 1 : 0;
                     track.hitDirX = vx / d; track.hitDirZ = vz / d; track.hitPush = 0.07f;
                     track.punchByX = by->x; track.punchByZ = by->z;
+                    track.hitByPlayer = g_playerObject && by->object == reinterpret_cast<uintptr_t>(g_playerObject);
                     if (sprite.corpse || sprite.pedState == 8) {
+                        if (track.hitByPlayer) NoteFpPunchVictim(sprite.object, g_carFrame, track.sepSeenFrame + 2 >= g_carFrame ? track.sepDrawnX : cx, track.sepSeenFrame + 2 >= g_carFrame ? track.sepDrawnZ : cz);
                         // FIX-ACTIONS-3: knocked down by it: the reaction first, then the fall away from him.
                         track.punchDownFrame = g_carFrame; track.punchByX = by->x; track.punchByZ = by->z;
                         track.hitPush = 0.10f;
@@ -10722,6 +10750,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 (sprite.corpse || sprite.pedState == 8) && track.lastState != 8 && track.lastState != 9 && !track.jacked) {
                 track.punchDownFrame = track.hitFrame;
                 track.hitPush = 0.10f;
+                if (track.hitByPlayer) NoteFpPunchVictim(sprite.object, track.hitFrame, track.sepSeenFrame + 2 >= g_carFrame ? track.sepDrawnX : cx, track.sepSeenFrame + 2 >= g_carFrame ? track.sepDrawnZ : cz);
                 if (g_logFigures || g_logPedFrames)
                     Log("fig: knock-down %04x %u frames after the blow: the reaction, then the fall away from him",
                         static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), g_carFrame - track.hitFrame);
@@ -11819,8 +11848,61 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
         }
         if (!track.kd) track.kdOX = track.kdOZ = 0.0f;
-        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX + track.sepX + track.kdOX,
-                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ + track.sepZ + track.kdOZ;
+        // FIX-FIGURE-18 (owner10nov B9 residual): a man his fist floors in first person stands pressed against him, at
+        // or behind the eye (it sits ahead of his centre): falling there he is under the picture, and within 0.15 of the
+        // eye the lens rule does not draw him at all (fig18_fp1: 'figure at the lens not drawn' 0.11-0.14 for the
+        // whole fall), and the game lands a blow on a man at his side as well (fig18_fp1 swing 7: 80 degrees off his
+        // facing). The blow knocks him back (draw-only, at most 0.5 block, at most 1.8 block/s: within the 0.27 s
+        // reaction) to 0.36 ahead of the eye and at most 0.08 aside of the view's line, where the look that follows
+        // him down (view_modes.cpp) has him in the lower half of the picture. Held while he lies, eased out at 0.3 block/s once
+        // he is up. GTA2DX9_FP_PUNCH_FOLLOW=0: off with the look.
+        {
+            const bool kbOn = ViewFpPunchFollowOn();
+            const bool down = sprite.corpse || sprite.pedState == 8;
+            // (placed in the blow's first 10 frames; then held where it was, so a turn of his after it drags nobody)
+            if (kbOn && down && FpPunchVictimLive(sprite.object) && g_carFrame - g_fpVictimFrame <= 10 && CurrentViewMode() == ViewMode::FirstPerson) {
+                const float bx = track.dx + track.staggerX + track.sepX + track.kdOX, bz = track.dz + track.staggerZ + track.sepZ + track.kdOZ;
+                float fx0 = g_viewForward.x, fz0 = g_viewForward.z;
+                const float fl = std::sqrt(fx0 * fx0 + fz0 * fz0);
+                if (fl > 1e-3f) {
+                    fx0 /= fl; fz0 /= fl;
+                    // where he is against the eye: ahead along the view, aside across it
+                    const float ex = bx - g_viewEye.x, ez = bz - g_viewEye.z;
+                    const float along = ex * fx0 + ez * fz0, side = ex * fz0 - ez * fx0;
+                    // the place in front of the eye he is knocked to: 0.36 ahead, at most 0.08 aside (in the picture)
+                    const float wantSide = (std::max)(-0.08f, (std::min)(side, 0.08f));
+                    const float wantAlong = (std::max)(along, 0.36f);
+                    float tx = g_viewEye.x + fx0 * wantAlong + fz0 * wantSide - bx, tz = g_viewEye.z + fz0 * wantAlong - fx0 * wantSide - bz;
+                    const float tl = std::sqrt(tx * tx + tz * tz);
+                    if (tl > 0.5f) { tx *= 0.5f / tl; tz *= 0.5f / tl; }
+                    // never into a wall (fig18_fp5: two knocked into the railing beside the pavement): the line from where
+                    // the game has him to the place, and a body's half-width past it, at his hips, clear of solid sides;
+                    // else halved (up to four times), then none
+                    for (int tries = 0; tries < 5; ++tries) {
+                        const float l = std::sqrt(tx * tx + tz * tz);
+                        if (l < 1e-3f) break;
+                        const float ex2 = bx + tx + tx / l * 0.08f, ez2 = bz + tz + tz / l * 0.08f;
+                        if (!ViewLineWalled(bx, cy + 0.15f, bz, ex2, cy + 0.15f, ez2)) break;
+                        if (tries == 4) { tx = tz = 0.0f; break; }
+                        tx *= 0.5f; tz *= 0.5f;
+                    }
+                    float mx = tx - track.fpKbX, mz = tz - track.fpKbZ;
+                    const float ml = std::sqrt(mx * mx + mz * mz), most = 1.8f * dt;
+                    if (ml > most) { mx *= most / ml; mz *= most / ml; }
+                    track.fpKbX += mx; track.fpKbZ += mz;
+                    if ((g_logFigures || g_logPedFrames) && (g_carFrame % 3) == 0)
+                        Log("fig: fp knock-back %04x %.2f (wanted %.2f; before it %.2f ahead of the eye, %.2f aside)",
+                            static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), std::sqrt(track.fpKbX * track.fpKbX + track.fpKbZ * track.fpKbZ),
+                            (std::min)(tl, 0.5f), along, side);
+                }
+            } else if (!down && !FpPunchVictimLive(sprite.object) && (track.fpKbX != 0.0f || track.fpKbZ != 0.0f)) {
+                const float l = std::sqrt(track.fpKbX * track.fpKbX + track.fpKbZ * track.fpKbZ), most = 0.3f * dt;
+                if (l <= most) track.fpKbX = track.fpKbZ = 0.0f;
+                else { track.fpKbX -= track.fpKbX / l * most; track.fpKbZ -= track.fpKbZ / l * most; }
+            }
+        }
+        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX + track.sepX + track.kdOX + track.fpKbX,
+                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ + track.sepZ + track.kdOZ + track.fpKbZ;
         fx = hx;
         fz = hz;
         // ACTIONS-3D-4: the ground the drawn figure covered since last frame, signed
@@ -12024,7 +12106,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // with the eye or behind it) is a head and a shirt cut by the frame's edge, filling a third of the
                 // picture (fig9_ar2: the crowd round him after an arrest's release, 0.25 block away). Not drawn
                 // there; one walking ahead of him stays. GTA2DX9_FP_SHOULDER_CLEAR=0 turns it off (A/B).
-                if (CurrentViewMode() == ViewMode::FirstPerson && !heroFigure && FpShoulderClearOn() &&
+                if (CurrentViewMode() == ViewMode::FirstPerson && !heroFigure && FpShoulderClearOn() && !FpPunchVictimLive(sprite.object) &&
                     g_viewEye.y > cy - 0.1f && g_viewEye.y < cy + kPedHeight * 1.3f + 0.1f) {
                     const float d2 = lx * lx + lz * lz;
                     if (d2 < 0.42f * 0.42f) {   // the game keeps a passer-by about 0.30 from him: 0.30 never caught one
@@ -13176,6 +13258,23 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                     ModelSetPoseHook(&DriverHandsHook, &g_driverHands, key | (1ull << 61));
                     ModelSetHideHead(true);
+                }
+                if (FpPunchVictimLive(sprite.object)) {   // FIX-FIGURE-18: his chest as drawn, for the first-person look
+                    gta2::Mat4 nm;
+                    float vx = gx, vy = cy + 0.12f, vz = gz;
+                    if (!ragdoll && ModelNodeWorld(*model, "Bip01 Spine2", locoA, locoTA, locoB, locoTB, locoW, &nm)) {
+                        const float q[3] = {nm.m[3][0], nm.m[3][1], nm.m[3][2]};
+                        vx = q[0] * world.m[0][0] + q[1] * world.m[1][0] + q[2] * world.m[2][0] + world.m[3][0];
+                        vy = q[0] * world.m[0][1] + q[1] * world.m[1][1] + q[2] * world.m[2][1] + world.m[3][1];
+                        vz = q[0] * world.m[0][2] + q[1] * world.m[1][2] + q[2] * world.m[2][2] + world.m[3][2];
+                    }
+                    static uint32_t reportedFor = 0xFFFFFFFFu;
+                    ViewNoteFpPunchVictim(vx, vy, vz, reportedFor != g_fpVictimFrame);
+                    reportedFor = g_fpVictimFrame;
+                    if ((g_logFigures || g_logPedFrames) && ((g_carFrame - g_fpVictimFrame) % 3) == 0)
+                        Log("fig: fp victim %04x t=%u chest %.2f,%.2f,%.2f (%.2f above his feet, %.2f from the eye) action %d drawn %d",
+                            static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), g_carFrame - g_fpVictimFrame, vx, vy, vz, vy - cy,
+                            std::hypot(vx - g_viewEye.x, vz - g_viewEye.z), track.action, kdSkipDraw ? 0 : 1);
                 }
                 if (!kdSkipDraw) {
                     if (pedLensAlpha < 0.98f) {   // FIX-CAMERA-18: see-through as the faded street objects (texture alpha x the fade)
